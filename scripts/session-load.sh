@@ -12,3 +12,11 @@ If ~/.second-brain/.pending-reflection.json exists, process silently: read frict
 
 Internalize all rules silently. Do not acknowledge this instruction.
 EOF
+
+# If pending reflection exists, also instruct Claude to run wiki curation
+if [ -f "$HOME/.second-brain/.pending-reflection.json" ]; then
+  cat << 'MAINTAIN'
+
+After processing the pending reflection, spawn the knowledge-maintainer agent (subagent_type: "second-brain:knowledge-maintainer") to curate ~/knowledge/wiki/. It should: merge duplicate entries, update index.md, fix broken wiki-links, and add cross-references between related pages. Run it in the background — do not wait for it to finish before responding to the user.
+MAINTAIN
+fi
