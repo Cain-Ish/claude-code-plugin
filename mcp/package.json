@@ -1,6 +1,6 @@
 {
   "name": "companion-knowledge-mcp",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Local semantic search MCP server for the knowledge base",
   "type": "module",
   "main": "dist/server.js",
