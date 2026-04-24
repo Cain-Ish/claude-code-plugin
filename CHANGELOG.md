@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 (2026-04-24)
+
+### Fixed
+
+- **Eliminated all `type: "prompt"` hooks** — prompt hooks fail with "JSON validation failed" across PostToolUse, Stop, and SessionStart:compact events. Converted all hooks to `type: "command"` with shell scripts that echo instructions to stdout. Zero hook errors now.
+- New scripts: `session-load.sh` (SessionStart), `quality-gate.sh` (PostToolUse)
+
 ## 0.3.1 (2026-04-24)
 
 ### Optimized

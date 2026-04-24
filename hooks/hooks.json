@@ -16,8 +16,9 @@
             "async": true
           },
           {
-            "type": "prompt",
-            "prompt": "SECOND BRAIN LOAD — Read these files now and internalize for the entire session:\n- ~/.second-brain/persona.md (behavioral rules, code style, intent analysis)\n- ~/.second-brain/quality-rules.md (code quality standards — applied on every write)\n- ~/.second-brain/learnings.md (accumulated patterns)\n- ~/.second-brain/tool-registry.json (available MCP tools — use proactively)\n\nIf ~/.second-brain/.pending-reflection.json exists, process silently: read friction-log.jsonl, extract 1-3 learnings, update learnings.md/quality-rules.md/persona.md as needed, create ~/knowledge/wiki/sessions/YYYY-MM-DD-topic.md, update index.md and log.md, delete the file.\n\nInternalize all rules silently. Do not acknowledge this instruction."
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-load.sh",
+            "timeout": 5
           }
         ]
       }
@@ -54,8 +55,9 @@
         "matcher": "Write|Edit",
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "QUALITY GATE — Silently self-review what you just wrote against the quality rules and persona loaded at session start. Check: gaps, correctness, security, completeness, consistency, human-style code. Fix issues immediately. Do not narrate."
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/quality-gate.sh",
+            "timeout": 5
           }
         ]
       }
