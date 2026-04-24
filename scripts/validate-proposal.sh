@@ -1,0 +1,113 @@
+#!/bin/bash
+# Validate an improve proposal against the friction log.
+# Ensures cited evidence actually exists and criteria are met.
+# Exit 0 = proposal is valid, exit 1 = rejected.
+
+BRAIN_DIR="$HOME/.second-brain"
+PROPOSAL="$BRAIN_DIR/.improve-proposal.json"
+FRICTION_LOG="$BRAIN_DIR/friction-log.jsonl"
+ERRORS=0
+
+if [ ! -f "$PROPOSAL" ]; then
+  echo "FAIL: no proposal file at $PROPOSAL"
+  exit 1
+fi
+
+if ! jq empty "$PROPOSAL" 2>/dev/null; then
+  echo "FAIL: proposal is not valid JSON"
+  exit 1
+fi
+
+# Check required top-level fields
+for field in title description evidence changes; do
+  if ! jq -e ".$field" "$PROPOSAL" >/dev/null 2>&1; then
+    echo "FAIL: proposal missing required field '$field'"
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+
+if [ $ERRORS -gt 0 ]; then
+  echo "TOTAL: $ERRORS structural error(s)"
+  exit 1
+fi
+
+# Validate evidence array is non-empty
+EVIDENCE_COUNT=$(jq '.evidence | length' "$PROPOSAL" 2>/dev/null)
+if [ "$EVIDENCE_COUNT" -lt 1 ]; then
+  echo "FAIL: proposal has no evidence entries — every improvement must cite friction signals"
+  exit 1
+fi
+
+# Validate each evidence entry has required fields and exists in friction log
+VERIFIED=0
+for i in $(seq 0 $((EVIDENCE_COUNT - 1))); do
+  TYPE=$(jq -r ".evidence[$i].type // \"\"" "$PROPOSAL")
+  TIMESTAMP=$(jq -r ".evidence[$i].timestamp // \"\"" "$PROPOSAL")
+  SESSION=$(jq -r ".evidence[$i].session_id // \"\"" "$PROPOSAL")
+
+  if [ -z "$TYPE" ] || [ -z "$TIMESTAMP" ]; then
+    echo "FAIL: evidence[$i] missing type or timestamp"
+    ERRORS=$((ERRORS + 1))
+    continue
+  fi
+
+  # Verify this evidence exists in friction log
+  if [ -f "$FRICTION_LOG" ]; then
+    if grep -q "$TIMESTAMP" "$FRICTION_LOG" 2>/dev/null; then
+      VERIFIED=$((VERIFIED + 1))
+    else
+      echo "WARN: evidence[$i] timestamp '$TIMESTAMP' not found in friction log — may be from learnings.md"
+    fi
+  fi
+done
+
+# Check recurrence: need 2+ evidence entries
+if [ "$EVIDENCE_COUNT" -lt 2 ]; then
+  echo "FAIL: only $EVIDENCE_COUNT evidence entry — need 2+ to prove recurrence"
+  ERRORS=$((ERRORS + 1))
+fi
+
+# Check changes array is non-empty
+CHANGES_COUNT=$(jq '.changes | length' "$PROPOSAL" 2>/dev/null)
+if [ "$CHANGES_COUNT" -lt 1 ]; then
+  echo "FAIL: proposal has no changes listed"
+  ERRORS=$((ERRORS + 1))
+fi
+
+# Validate each change targets a file inside the plugin
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+for i in $(seq 0 $((CHANGES_COUNT - 1))); do
+  FILE=$(jq -r ".changes[$i].file // \"\"" "$PROPOSAL")
+  ACTION=$(jq -r ".changes[$i].action // \"\"" "$PROPOSAL")
+
+  if [ -z "$FILE" ] || [ -z "$ACTION" ]; then
+    echo "FAIL: changes[$i] missing file or action"
+    ERRORS=$((ERRORS + 1))
+    continue
+  fi
+
+  # Block changes outside plugin root
+  case "$FILE" in
+    "$PLUGIN_ROOT"*) ;;
+    *)
+      echo "FAIL: changes[$i] targets '$FILE' which is outside plugin root"
+      ERRORS=$((ERRORS + 1))
+      ;;
+  esac
+
+  # Block changes to plugin.json version
+  if echo "$FILE" | grep -q "plugin.json"; then
+    if [ "$ACTION" = "version" ] || jq -e ".changes[$i].description | test(\"version\")" "$PROPOSAL" >/dev/null 2>&1; then
+      echo "FAIL: changes[$i] attempts to modify plugin version — not allowed"
+      ERRORS=$((ERRORS + 1))
+    fi
+  fi
+done
+
+if [ $ERRORS -eq 0 ]; then
+  echo "OK: proposal valid — $EVIDENCE_COUNT evidence entries ($VERIFIED verified in friction log), $CHANGES_COUNT changes"
+  exit 0
+else
+  echo "TOTAL: $ERRORS error(s) — proposal rejected"
+  exit 1
+fi

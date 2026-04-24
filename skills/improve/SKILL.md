@@ -119,70 +119,116 @@ jq -r '.auto_improve // false' ~/.second-brain/config.json
 
 If `false`, skip this step entirely. If `true`, proceed.
 
-If any proposals improve the plugin itself (skills, hooks, scripts, signal patterns, agents),
-apply them directly to the plugin source at `${CLAUDE_PLUGIN_ROOT}`.
+#### 7a. Build a proposal
 
-**Improvement filter — every change MUST pass ALL of these:**
-- **FRICTION-DRIVEN**: tied to a real friction signal (user correction, retry, tool failure) — not a stylistic preference
-- **RECURRING**: the problem appeared in 2+ sessions or 2+ times in one session — single occurrences are noise
-- **MEASURABLE**: you can state what gets better (fewer friction signals, fewer retries, faster completion)
-- **SCOPED**: changes one specific behavior — no "while I'm here" cleanup or speculative improvements
-- **SAFE**: cannot break existing working behavior — if unsure, skip it
+Before touching any plugin code, write a structured proposal to `~/.second-brain/.improve-proposal.json`.
+This is the evidence gate — no proposal, no code changes.
 
-**REJECT changes that are:**
-- Cosmetic rewording of skill instructions with no behavioral impact
-- Adding error handling for scenarios that haven't actually failed
-- Restructuring that doesn't fix a concrete problem
-- "Best practice" changes not backed by observed friction
+```json
+{
+  "title": "short description of the improvement",
+  "description": "what changes and why — one paragraph max",
+  "evidence": [
+    {
+      "type": "friction|learning|pattern",
+      "timestamp": "exact timestamp from friction-log.jsonl or date from learnings.md",
+      "session_id": "session where this was observed",
+      "signal": "the actual user correction, error, or pattern observed"
+    }
+  ],
+  "changes": [
+    {
+      "file": "${CLAUDE_PLUGIN_ROOT}/path/to/file",
+      "action": "modify|add|delete",
+      "description": "what specifically changes in this file"
+    }
+  ],
+  "measurable_impact": "what gets better — be specific (e.g. 'eliminates the retry pattern seen in 3 sessions')",
+  "risk_assessment": "what could break — or 'none' with reasoning"
+}
+```
 
-**What can be improved (only if filter passes):**
-- Skill instructions (SKILL.md files) — better prompts, missing steps, new tool integrations
-- Signal patterns — new positive/negative/drift signals discovered during analysis
-- Hook scripts — better friction detection patterns, improved extraction logic
-- Agent definitions — refined instructions based on observed behavior
-- Validation rules — new checks discovered from failures
+**Evidence rules:**
+- MUST cite 2+ entries from friction-log.jsonl or learnings.md with real timestamps
+- Each entry must quote the actual signal (user prompt, error message, or learning text)
+- "Could theoretically happen" is not evidence — only cite things that DID happen
+- If you cannot find 2+ real citations, STOP — the improvement is not justified
 
-**Workflow:**
+**Reject the proposal yourself if ANY of these apply:**
+- The change is cosmetic rewording with no behavioral impact
+- You're adding error handling for scenarios that haven't actually failed
+- You're restructuring code that isn't causing friction
+- The improvement is a "best practice" not backed by observed problems
+- You can't point to a specific user correction or tool failure that triggered it
 
-1. Apply the improvement filter to each candidate. Drop anything that doesn't pass ALL criteria
-2. Make the changes to files under `${CLAUDE_PLUGIN_ROOT}`
-3. Run validation:
+#### 7b. Validate the proposal
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/validate-proposal.sh
+```
+
+This script checks:
+- Proposal JSON is well-formed with all required fields
+- Evidence entries have timestamps and at least 2 exist (proving recurrence)
+- Cited timestamps exist in the friction log
+- All target files are inside `${CLAUDE_PLUGIN_ROOT}` (can't modify other plugins)
+- No version field modifications attempted
+
+If validation fails, either fix the proposal or abandon — don't force it through.
+
+#### 7c. Apply changes and create PR
+
+Only after proposal validation passes:
+
+1. Make the changes to files under `${CLAUDE_PLUGIN_ROOT}`
+2. Validate the plugin itself:
    ```bash
    bash ${CLAUDE_PLUGIN_ROOT}/scripts/validate-plugin.sh
    ```
-4. If validation fails, fix the issues and re-validate
-5. Create a branch and PR:
+3. If plugin validation fails, fix issues and re-validate
+4. Create a branch and PR:
    ```bash
    cd ${CLAUDE_PLUGIN_ROOT}
    git checkout -b improve/YYYY-MM-DD-short-description
    git add -A
    git commit -m "improve: short description of what changed"
    git push -u origin HEAD
+   ```
+5. Create the PR with evidence in the body — read the proposal file and include
+   the evidence entries directly so the reviewer can verify:
+   ```bash
    gh pr create --title "improve: short description" --body "$(cat <<'EOF'
    ## Summary
-   - [what changed and why]
-   
-   ## Filter criteria met
-   - [which friction signals drove this change]
-   - [recurrence evidence]
-   - [what measurably improves]
-   
+   [title and description from proposal]
+
+   ## Evidence (from friction log / learnings)
+   [paste each evidence entry: timestamp, session, signal quote]
+
+   ## Changes
+   [list each file changed and what was modified]
+
+   ## Impact
+   [measurable_impact from proposal]
+
+   ## Risk
+   [risk_assessment from proposal]
+
    ## Validation
+   - `validate-proposal.sh` passed
    - `validate-plugin.sh` passed
-   
-   ## Source
-   Generated by `/second-brain:improve` session analysis.
    EOF
    )"
    ```
-6. Write today's date to `~/.second-brain/.last-plugin-improve`
-7. Report the PR URL to the user
+6. Clean up: `rm ~/.second-brain/.improve-proposal.json`
+7. Write today's date to `~/.second-brain/.last-plugin-improve`
+8. Report the PR URL to the user
 
 **Rules:**
 - Never modify `plugin.json` version — that's a release concern
 - Never modify `hooks.json` structure without validation passing
 - Always create a PR — never push directly to main
 - Keep changes focused — one PR per improvement area
+- If proposal validation fails, do NOT create a PR — report why and stop
 
 ### 8. Re-index
 

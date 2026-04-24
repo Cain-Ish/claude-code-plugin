@@ -31,34 +31,24 @@ PLUGIN SELF-IMPROVEMENT TRIGGERED — After processing the reflection and respon
 
 1. Read ~/.second-brain/learnings.md, ~/.second-brain/quality-rules.md, ~/.second-brain/friction-log.jsonl
 2. Read all skill files under $PLUGIN_ROOT/skills/*/SKILL.md and $PLUGIN_ROOT/skills/improve/signal-patterns.md
-3. Apply the IMPROVEMENT FILTER below to each candidate change. Only proceed if at least one passes.
-4. If improvements pass the filter:
-   a. Make the changes to files under $PLUGIN_ROOT
-   b. Validate: bash $PLUGIN_ROOT/scripts/validate-plugin.sh
-   c. If validation passes, create a PR:
-      - cd $PLUGIN_ROOT
-      - git checkout -b improve/\$(date +%Y-%m-%d)-auto
-      - git add -A
-      - git commit -m "improve: <short description>"
-      - git push -u origin HEAD
-      - gh pr create with summary, validation status, which filter criteria were met, and source learnings
-   d. Write today's date to ~/.second-brain/.last-plugin-improve
-5. If nothing passes the filter, just write today's date to ~/.second-brain/.last-plugin-improve and skip
+3. Identify if any friction signals or learnings point to improvements in the plugin source code
+4. If a candidate improvement is found, write a structured proposal to ~/.second-brain/.improve-proposal.json:
+   {"title": "...", "description": "...", "evidence": [{"type": "friction|learning", "timestamp": "exact timestamp from friction-log or date from learnings.md", "session_id": "...", "signal": "actual quoted text"}], "changes": [{"file": "$PLUGIN_ROOT/path", "action": "modify|add", "description": "..."}], "measurable_impact": "...", "risk_assessment": "..."}
+   Evidence rules: MUST cite 2+ real entries with actual timestamps. "Could happen" is not evidence.
+   If you cannot find 2+ real citations, STOP — write today's date to ~/.second-brain/.last-plugin-improve and skip.
+5. Validate the proposal: bash $PLUGIN_ROOT/scripts/validate-proposal.sh
+   This checks: evidence exists, 2+ entries prove recurrence, targets are inside plugin root, no version changes.
+   If validation fails, do NOT proceed — write today's date and skip.
+6. Only after proposal passes: make the changes, then validate the plugin: bash $PLUGIN_ROOT/scripts/validate-plugin.sh
+7. If plugin validation passes, create PR:
+   - cd $PLUGIN_ROOT && git checkout -b improve/\$(date +%Y-%m-%d)-auto
+   - git add -A && git commit -m "improve: <short description>"
+   - git push -u origin HEAD
+   - gh pr create with: evidence entries (quoted from proposal), changes list, measurable impact, risk assessment, both validation results
+8. Clean up: rm ~/.second-brain/.improve-proposal.json
+9. Write today's date to ~/.second-brain/.last-plugin-improve
 
-IMPROVEMENT FILTER — every proposed change MUST pass ALL of these:
-- FRICTION-DRIVEN: tied to a real friction signal (user correction, retry, tool failure) — not a stylistic preference
-- RECURRING: the problem appeared in 2+ sessions or 2+ times in one session — single occurrences are noise
-- MEASURABLE: you can state what gets better (fewer friction signals, fewer retries, faster task completion)
-- SCOPED: changes one specific behavior — no "while I'm here" cleanup or speculative improvements
-- SAFE: cannot break existing working behavior — if unsure, skip it
-
-REJECT changes that are:
-- Cosmetic rewording of skill instructions with no behavioral impact
-- Adding error handling for scenarios that haven't actually failed
-- Restructuring that doesn't fix a concrete problem
-- "Best practice" changes not backed by observed friction
-
-Rules: never modify plugin.json version. Never push to main. Keep changes focused. One PR per improvement area.
+Rules: never modify plugin.json version. Never push to main. One PR per improvement. If either validation fails, abandon and skip.
 IMPROVE
   fi
 fi
