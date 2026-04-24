@@ -1,9 +1,9 @@
 {
-  "name": "companion",
-  "description": "Self-evolving AI companion. Automatically learns from sessions, discovers tools, maintains a local knowledge base, and self-critiques code quality — getting smarter with every interaction.",
-  "version": "0.2.2",
+  "name": "second-brain",
+  "description": "Self-evolving AI second brain. Automatically learns from sessions, discovers tools, maintains a local knowledge base, and self-critiques code quality — getting smarter with every interaction.",
+  "version": "0.3.0",
   "author": {
-    "name": "companion"
+    "name": "second-brain"
   },
   "license": "MIT",
   "keywords": [

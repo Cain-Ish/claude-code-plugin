@@ -1,6 +1,6 @@
 {
   "plugins": {
-    "companion@local": {
+    "second-brain@local": {
       "source": "local",
       "path": "."
     }

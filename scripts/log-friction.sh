@@ -3,10 +3,10 @@
 # Triggered by UserPromptSubmit hook when matcher detects correction patterns.
 # Reads hook input from stdin (JSON with session_id, user prompt, etc.)
 
-COMPANION_DIR="$HOME/.claude-companion"
-FRICTION_LOG="$COMPANION_DIR/friction-log.jsonl"
+BRAIN_DIR="$HOME/.second-brain"
+FRICTION_LOG="$BRAIN_DIR/friction-log.jsonl"
 
-mkdir -p "$COMPANION_DIR"
+mkdir -p "$BRAIN_DIR"
 
 # Read hook input from stdin
 INPUT=$(cat)

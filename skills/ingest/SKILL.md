@@ -13,7 +13,7 @@ Process a new source and integrate it into the wiki.
 
 ## Tool Integration
 
-Read ~/.claude-companion/tool-registry.json to discover available tools.
+Read ~/.second-brain/tool-registry.json to discover available tools.
 Use any relevant tools to enhance the ingestion:
 - Documentation tools: verify technical claims against current docs
 - Search tools: find related context for richer wiki pages

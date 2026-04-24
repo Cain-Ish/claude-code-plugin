@@ -3,11 +3,11 @@
 # Parses Claude Code configuration to build a tool registry.
 # Runs async at SessionStart — doesn't block the session.
 
-COMPANION_DIR="$HOME/.claude-companion"
-REGISTRY="$COMPANION_DIR/tool-registry.json"
-TEMP_FILE="$COMPANION_DIR/.tool-registry-tmp.json"
+BRAIN_DIR="$HOME/.second-brain"
+REGISTRY="$BRAIN_DIR/tool-registry.json"
+TEMP_FILE="$BRAIN_DIR/.tool-registry-tmp.json"
 
-mkdir -p "$COMPANION_DIR"
+mkdir -p "$BRAIN_DIR"
 
 # Build the registry
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

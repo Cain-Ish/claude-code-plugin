@@ -13,7 +13,7 @@ Comprehensive review going beyond the automatic quality gate.
 
 ## Tool Integration
 
-Read ~/.claude-companion/tool-registry.json to discover available tools.
+Read ~/.second-brain/tool-registry.json to discover available tools.
 Use documentation tools to verify API usage against current best practices.
 
 ## What to Review
@@ -85,5 +85,5 @@ If no argument, review all uncommitted changes (`git diff` + `git diff --staged`
 ## Learning Integration
 
 After the review, check if any findings should become new quality rules:
-- If an issue type would be caught by the quality gate, propose adding it to `~/.claude-companion/quality-rules.md`
+- If an issue type would be caught by the quality gate, propose adding it to `~/.second-brain/quality-rules.md`
 - This makes the automatic quality gate smarter for future code

@@ -1,14 +1,14 @@
 {
-  "name": "claude-companion",
+  "name": "second-brain",
   "owner": {
-    "name": "companion"
+    "name": "second-brain"
   },
   "plugins": [
     {
-      "name": "companion",
+      "name": "second-brain",
       "source": "./",
-      "description": "Self-evolving AI companion. Auto-learns from sessions, discovers tools, maintains a local second brain, and self-critiques code quality.",
-      "version": "0.2.2"
+      "description": "Self-evolving AI second brain. Auto-learns from sessions, discovers tools, maintains a local knowledge base, and self-critiques code quality.",
+      "version": "0.3.0"
     }
   ]
 }

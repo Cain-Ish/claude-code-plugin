@@ -46,19 +46,19 @@ tail -30 ${user_config.knowledge_dir}/log.md
 Show counts from the learning state:
 ```bash
 # Learnings count
-grep -c "^## " ~/.claude-companion/learnings.md 2>/dev/null || echo "0"
+grep -c "^## " ~/.second-brain/learnings.md 2>/dev/null || echo "0"
 
 # Quality rules count  
-grep -c "^- " ~/.claude-companion/quality-rules.md 2>/dev/null || echo "0"
+grep -c "^- " ~/.second-brain/quality-rules.md 2>/dev/null || echo "0"
 
 # Friction signals today
-grep -c "$(date +%Y-%m-%d)" ~/.claude-companion/friction-log.jsonl 2>/dev/null || echo "0"
+grep -c "$(date +%Y-%m-%d)" ~/.second-brain/friction-log.jsonl 2>/dev/null || echo "0"
 
 # Persona rules count
-grep -c "^- " ~/.claude-companion/persona.md 2>/dev/null || echo "0"
+grep -c "^- " ~/.second-brain/persona.md 2>/dev/null || echo "0"
 
 # Discovered tools
-cat ~/.claude-companion/tool-registry.json 2>/dev/null
+cat ~/.second-brain/tool-registry.json 2>/dev/null
 ```
 
 ### 4. Present Dashboard

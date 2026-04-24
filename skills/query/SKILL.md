@@ -13,7 +13,7 @@ Search for information across the wiki and synthesize an answer.
 
 ## Tool Integration
 
-Read ~/.claude-companion/tool-registry.json to discover available tools.
+Read ~/.second-brain/tool-registry.json to discover available tools.
 Prefer semantic search (knowledge_search MCP tool) when available — it finds
 conceptually related pages even when exact keywords don't match.
 

@@ -5,7 +5,12 @@
 KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 
-COMPANION_DIR="$HOME/.claude-companion"
+BRAIN_DIR="$HOME/.second-brain"
+
+# Migration from pre-0.3.0 directory name
+if [ -d "$HOME/.claude-companion" ] && [ ! -d "$BRAIN_DIR" ]; then
+  mv "$HOME/.claude-companion" "$BRAIN_DIR"
+fi
 
 # Knowledge base structure (Karpathy wiki pattern)
 mkdir -p "$KNOWLEDGE_DIR/raw/assets"
@@ -76,11 +81,11 @@ EOF
 fi
 
 # Learning state directory
-mkdir -p "$COMPANION_DIR"
+mkdir -p "$BRAIN_DIR"
 
 # Initialize learnings.md if missing
-if [ ! -f "$COMPANION_DIR/learnings.md" ]; then
-  cat > "$COMPANION_DIR/learnings.md" << 'EOF'
+if [ ! -f "$BRAIN_DIR/learnings.md" ]; then
+  cat > "$BRAIN_DIR/learnings.md" << 'EOF'
 # Learned Patterns
 
 Strategic principles distilled from coding sessions. Read at session start.
@@ -89,8 +94,8 @@ EOF
 fi
 
 # Initialize quality-rules.md if missing
-if [ ! -f "$COMPANION_DIR/quality-rules.md" ]; then
-  cat > "$COMPANION_DIR/quality-rules.md" << 'EOF'
+if [ ! -f "$BRAIN_DIR/quality-rules.md" ]; then
+  cat > "$BRAIN_DIR/quality-rules.md" << 'EOF'
 # Code Quality Rules (Auto-Evolved)
 
 These rules are checked after every code write/edit. New rules are added
@@ -122,8 +127,8 @@ EOF
 fi
 
 # Initialize persona.md if missing
-if [ ! -f "$COMPANION_DIR/persona.md" ]; then
-  cat > "$COMPANION_DIR/persona.md" << 'PERSONAEOF'
+if [ ! -f "$BRAIN_DIR/persona.md" ]; then
+  cat > "$BRAIN_DIR/persona.md" << 'PERSONAEOF'
 # Human Developer Persona (Auto-Evolved)
 
 Behavioral rules for acting as a senior human developer. Updated automatically
@@ -194,8 +199,8 @@ PERSONAEOF
 fi
 
 # Initialize empty friction log if missing
-if [ ! -f "$COMPANION_DIR/friction-log.jsonl" ]; then
-  touch "$COMPANION_DIR/friction-log.jsonl"
+if [ ! -f "$BRAIN_DIR/friction-log.jsonl" ]; then
+  touch "$BRAIN_DIR/friction-log.jsonl"
 fi
 
 # Add a .gitignore inside knowledge dir to prevent accidental git tracking of embeddings
@@ -208,15 +213,11 @@ EOF
 fi
 
 # Prevent cloud sync services from syncing knowledge and learning data.
-# .nosync prevents iCloud, .donotbackup is a broader hint.
 touch "$KNOWLEDGE_DIR/.nosync" 2>/dev/null
-touch "$COMPANION_DIR/.nosync" 2>/dev/null
+touch "$BRAIN_DIR/.nosync" 2>/dev/null
 
-# If the knowledge dir is inside an Obsidian vault, disable Obsidian Sync
-# for the .embeddings directory (binary data, not useful in Obsidian)
+# If the knowledge dir is inside an Obsidian vault, disable sync for .embeddings
 if [ -d "$KNOWLEDGE_DIR/.obsidian" ]; then
-  mkdir -p "$KNOWLEDGE_DIR/.obsidian"
-  # Write .nosync inside .embeddings to prevent sync of vector data
   touch "$KNOWLEDGE_DIR/.embeddings/.nosync" 2>/dev/null
 fi
 

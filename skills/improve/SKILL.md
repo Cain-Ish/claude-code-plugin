@@ -14,7 +14,7 @@ This skill is for manual deep-dives. Automatic learning happens at session end v
 
 ## Tool Integration
 
-Read ~/.claude-companion/tool-registry.json to discover available tools.
+Read ~/.second-brain/tool-registry.json to discover available tools.
 Use any relevant tools to enhance your analysis:
 - Documentation tools: verify if tool usage followed current best practices
 - Search tools: check if issues are documented with known solutions
@@ -27,7 +27,7 @@ Use any relevant tools to enhance your analysis:
 
 Read the session metadata:
 ```bash
-cat ~/.claude-companion/.last-session-meta.json
+cat ~/.second-brain/.last-session-meta.json
 ```
 
 Read the signal patterns reference:
@@ -37,15 +37,15 @@ Read ${CLAUDE_PLUGIN_ROOT}/skills/improve/signal-patterns.md
 
 Read current learnings and quality rules:
 ```bash
-cat ~/.claude-companion/learnings.md
-cat ~/.claude-companion/quality-rules.md
+cat ~/.second-brain/learnings.md
+cat ~/.second-brain/quality-rules.md
 ```
 
 ### 2. Read Friction Log
 
 Check what friction was detected during the session:
 ```bash
-cat ~/.claude-companion/friction-log.jsonl | jq '.' | tail -50
+cat ~/.second-brain/friction-log.jsonl | jq '.' | tail -50
 ```
 
 ### 3. Analyze Signals

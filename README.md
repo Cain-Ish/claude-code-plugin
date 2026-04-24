@@ -1,17 +1,17 @@
-# Self-Evolving AI Companion for Claude Code
+# Second Brain — Self-Evolving AI Plugin for Claude Code
 
 A Claude Code plugin that automatically gets smarter with every session. It learns from your patterns, discovers your tools, builds a personal knowledge base, self-critiques its own code quality, and thinks like a senior human developer.
 
 ## Five Capabilities
 
 ### 1. Auto Self-Improvement
-The plugin automatically analyzes each session at end, extracts learnings from successes and failures, and stores them for future reference. No manual trigger needed.
+The plugin automatically analyzes each session, extracts learnings from successes and failures, and stores them for future reference. No manual trigger needed — reflection happens automatically between sessions.
 
 ### 2. Dynamic Tool Discovery
-At session start, the plugin discovers all installed MCP tools and plugins. Skills automatically adapt to use whatever tools are available — Context7, episodic memory, web search, or any custom MCP servers.
+At session start, the plugin discovers all installed MCP tools and plugins. The main session and all skills automatically adapt to use whatever tools are available — Context7, episodic memory, web search, or any custom MCP servers.
 
 ### 3. Local Second Brain
-A Karpathy-inspired LLM-maintained wiki with semantic search. Ingest articles, papers, and notes — the plugin creates structured wiki pages with cross-references. All knowledge stays on your machine.
+A Karpathy-inspired LLM-maintained wiki with semantic search. Ingest articles, papers, and notes — the plugin creates structured wiki pages with cross-references. Session insights are automatically added to the wiki. All knowledge stays on your machine.
 
 ### 4. Code Quality Self-Critique
 After every code write/edit, a quality gate automatically reviews the code against evolving standards. When the plugin detects you correcting its output, it learns the pattern and catches it automatically next time.
@@ -22,25 +22,26 @@ Claude thinks and acts like a senior human developer. It analyzes what you *actu
 ## Installation
 
 ```bash
-claude plugin add /path/to/companion
+claude plugin add second-brain
 ```
 
 First run:
 ```
-/companion:setup
+/second-brain:setup
 ```
 
 ## Skills
 
 | Skill | Purpose |
 |-------|---------|
-| `/companion:setup` | Initialize knowledge base and learning directories |
-| `/companion:ingest [path\|url]` | Process a source into the knowledge wiki |
-| `/companion:query [question]` | Search the knowledge base |
-| `/companion:status` | Dashboard of knowledge base health |
-| `/companion:lint` | Health-check the wiki |
-| `/companion:improve` | Deep manual session analysis |
-| `/companion:review [file]` | Deep code review beyond the quality gate |
+| `/second-brain:setup` | Initialize knowledge base and learning directories |
+| `/second-brain:ingest [path\|url]` | Process a source into the knowledge wiki |
+| `/second-brain:query [question]` | Search the knowledge base |
+| `/second-brain:browse [category]` | Browse and visualize knowledge base content |
+| `/second-brain:status` | Dashboard of knowledge base health |
+| `/second-brain:lint` | Health-check the wiki |
+| `/second-brain:improve` | Deep manual session analysis |
+| `/second-brain:review [file]` | Deep code review beyond the quality gate |
 
 ## MCP Server
 
@@ -57,7 +58,7 @@ cd mcp && npm install && npm run build
 
 - Plugin code (shareable via marketplace): zero user data
 - Knowledge base (`~/knowledge/`): completely local, never synced
-- Learning state (`~/.claude-companion/`): completely local, never synced
+- Learning state (`~/.second-brain/`): completely local, never synced
 - Embeddings: generated locally via ONNX Runtime in Node.js
 - No telemetry, no cloud services, no API calls for core functionality
 - `.nosync` marker files are created automatically to prevent iCloud sync
@@ -76,11 +77,11 @@ The knowledge base at `~/knowledge/` is fully compatible with Obsidian (uses sta
 ```
 Session N → Quality gate catches issues → User corrects what it misses
     ↓
-Stop hook extracts learnings → Updates quality-rules.md + learnings.md + persona.md
+Stop hook captures session data → Creates pending reflection
     ↓
-Session N+1 → Quality gate is smarter → Knowledge base has more context
+Session N+1 → Processes reflection → Updates learnings + quality rules + wiki
     ↓
-Plugin gets better with every session
+Quality gate is smarter → Knowledge base has more context → Plugin keeps improving
 ```
 
 ## License

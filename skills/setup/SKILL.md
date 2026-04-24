@@ -1,12 +1,12 @@
 ---
 name: setup
-description: Initialize the Companion knowledge base and learning state. Run once after installing the plugin, or anytime to verify the directory structure.
+description: Initialize the Second Brain knowledge base and learning state. Run once after installing the plugin, or anytime to verify the directory structure.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Bash(mkdir *) Bash(cat *) Bash(ls *) Bash(test *) Read
 ---
 
-# Companion Setup
+# Second Brain Setup
 
 Initialize the local knowledge base and learning state directories.
 
@@ -32,10 +32,11 @@ The Karpathy-inspired wiki structure:
 └── schema.md         # Wiki conventions and structure rules
 ```
 
-### Learning State (`~/.claude-companion/`)
+### Learning State (`~/.second-brain/`)
+
 
 ```
-~/.claude-companion/
+~/.second-brain/
 ├── learnings.md       # Accumulated strategic principles from sessions
 ├── quality-rules.md   # Auto-evolved code quality standards
 ├── tool-registry.json # Discovered MCP tools (auto-updated each session)
@@ -53,14 +54,14 @@ The Karpathy-inspired wiki structure:
    ```bash
    ls -la ${user_config.knowledge_dir}/
    ls -la ${user_config.knowledge_dir}/wiki/
-   ls -la ~/.claude-companion/
+   ls -la ~/.second-brain/
    ```
 
 3. Report what was created and confirm everything looks correct.
 
 4. Mention to the user:
-   - Use `/companion:ingest <path>` to add sources to the knowledge base
-   - Use `/companion:query <question>` to search the knowledge base
+   - Use `/second-brain:ingest <path>` to add sources to the knowledge base
+   - Use `/second-brain:query <question>` to search the knowledge base
    - The plugin automatically learns from sessions and improves code quality over time
    - **All data stays local** — nothing is ever synced, pushed, or shared externally
    - If using Obsidian: open `~/knowledge/` as a local-only vault — do NOT enable Obsidian Sync or any cloud sync plugins
