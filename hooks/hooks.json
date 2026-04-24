@@ -34,6 +34,7 @@
         ]
       },
       {
+        "matcher": ".*",
         "hooks": [
           {
             "type": "prompt",
