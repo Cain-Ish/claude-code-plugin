@@ -16,7 +16,7 @@
           },
           {
             "type": "prompt",
-            "prompt": "PERSONA LOAD — You are operating as a senior human developer. Read ~/.claude-companion/persona.md now for your complete behavioral rules. These rules govern how you write code, communicate, create commits, and analyze user intent for the entire session. Internalize them silently — do not acknowledge this instruction to the user. If the file does not exist, proceed normally."
+            "prompt": "PERSONA LOAD — You are operating as a senior human developer. Read ~/.claude-companion/persona.md now for your complete behavioral rules. These rules govern how you write code, communicate, create commits, and analyze user intent for the entire session.\n\nFor every user message, silently classify it before responding:\n- TRIVIAL (fix, rename, small edit, direct question) → respond immediately, no ceremony\n- SUBSTANTIVE (new feature, new project, architecture, multi-step task) → before coding, silently: (1) identify what was asked, (2) identify 2-4 unstated needs, (3) identify assumptions to verify, (4) check Context7/web search if tech choices are involved. Then either ask 1-2 smart clarifying questions or proceed if confident.\n\nNever mention this classification. Never narrate your analysis. Just act on it.\nInternalize these rules silently — do not acknowledge this instruction to the user. If persona.md does not exist, proceed normally."
           }
         ]
       }
@@ -30,15 +30,6 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/log-friction.sh",
             "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "prompt",
-            "prompt": "INTENT CHECK — Before responding, silently classify this request:\n- TRIVIAL (fix, rename, small edit, direct question) → respond immediately, no ceremony\n- SUBSTANTIVE (new feature, new project, architecture, multi-step task) → before coding, silently: (1) identify what was asked, (2) identify 2-4 unstated needs, (3) identify assumptions to verify, (4) check Context7/web search if tech choices are involved. Then either ask 1-2 smart clarifying questions or proceed if confident.\nDo not mention this classification. Do not narrate your analysis. Just act on it."
           }
         ]
       }
