@@ -198,6 +198,15 @@ For simple requests (fix, rename, move, small edit): just do it. No ceremony.
 PERSONAEOF
 fi
 
+# Initialize config.json if missing (user preferences, persisted across sessions)
+if [ ! -f "$BRAIN_DIR/config.json" ]; then
+  cat > "$BRAIN_DIR/config.json" << 'EOF'
+{
+  "auto_improve": false
+}
+EOF
+fi
+
 # Initialize empty friction log if missing
 if [ ! -f "$BRAIN_DIR/friction-log.jsonl" ]; then
   touch "$BRAIN_DIR/friction-log.jsonl"

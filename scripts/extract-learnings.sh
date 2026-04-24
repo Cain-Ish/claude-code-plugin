@@ -53,13 +53,34 @@ cat > "$BRAIN_DIR/.last-session-meta.json" << JSONEOF
 }
 JSONEOF
 
+# Check if auto-improve is enabled in config
+AUTO_IMPROVE=$(jq -r '.auto_improve // false' "$BRAIN_DIR/config.json" 2>/dev/null)
+SUGGEST_PLUGIN_IMPROVE="false"
+
+if [ "$AUTO_IMPROVE" = "true" ]; then
+  LAST_IMPROVE_DATE=""
+  if [ -f "$BRAIN_DIR/.last-plugin-improve" ]; then
+    LAST_IMPROVE_DATE=$(cat "$BRAIN_DIR/.last-plugin-improve" 2>/dev/null)
+  fi
+
+  LEARNINGS_SINCE=0
+  if [ -n "$LAST_IMPROVE_DATE" ] && [ -f "$BRAIN_DIR/learnings.md" ]; then
+    LEARNINGS_SINCE=$(grep -c "## \[" "$BRAIN_DIR/learnings.md" 2>/dev/null || echo "0")
+  fi
+
+  if [ "$FRICTION_COUNT" -ge 2 ] || [ "$LEARNINGS_SINCE" -ge 3 ] || [ -z "$LAST_IMPROVE_DATE" ]; then
+    SUGGEST_PLUGIN_IMPROVE="true"
+  fi
+fi
+
 # Create pending reflection for next SessionStart to process
 cat > "$BRAIN_DIR/.pending-reflection.json" << JSONEOF
 {
   "session_id": "$SESSION_ID",
   "date": "$TIMESTAMP",
   "user_turns": $USER_TURNS,
-  "friction_count": $FRICTION_COUNT
+  "friction_count": $FRICTION_COUNT,
+  "suggest_plugin_improve": $SUGGEST_PLUGIN_IMPROVE
 }
 JSONEOF
 
