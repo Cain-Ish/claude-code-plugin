@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 (2026-04-24)
+
+### Added
+
+- **PreCompact hook**: extracts session insights before context compaction — creates a pending reflection so learnings survive the compression
+- **PostCompact hook**: reloads brain context (persona, quality rules, learnings, tools) into the fresh post-compaction window
+- New scripts: `pre-compact.sh`, `post-compact.sh`
+- Lossless memory pipeline: PreCompact saves → compaction runs → PostCompact + SessionStart reload → pending reflection processed → zero knowledge loss
+
 ## 0.3.2 (2026-04-24)
 
 ### Fixed

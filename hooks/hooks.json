@@ -50,6 +50,32 @@
       }
     ],
 
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+
+    "PostCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/post-compact.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
