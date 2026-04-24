@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0 (2026-04-24)
+
+### Added
+
+- **Human Developer Persona**: new capability — Claude thinks and acts like a senior human developer
+  - SessionStart prompt hook loads persona rules from `~/.claude-companion/persona.md`
+  - UserPromptSubmit prompt hook silently classifies requests as trivial vs substantive, triggers deep intent analysis on substantive requests
+  - Intent analysis: identifies unstated needs, verifies assumptions, checks tech choices via Context7/web search before coding
+  - Human-style code: no AI-telltale patterns (verbose comments, cookie-cutter structure, filler phrases)
+  - Human-style commits: imperative mood, no AI attribution markers
+  - Persona evolves via Stop hook — learns communication preferences and catches drift
+- Persona check added to PostToolUse quality gate (check #7)
+- Persona drift signals added to signal-patterns.md
+- Persona analysis added to `/companion:improve` skill
+- Persona rules count added to `/companion:status` dashboard
+- Cloud sync prevention: `.nosync` markers, Obsidian guidance, `.gitignore` inside knowledge dir
+
 ## 0.1.0 (2026-04-24)
 
 Initial release.

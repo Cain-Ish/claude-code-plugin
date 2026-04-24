@@ -61,6 +61,11 @@ Categorize everything observed in the session:
 - Note approaches the user accepted without correction
 - Identify patterns worth reinforcing
 
+**Persona drift** — AI tells detected:
+- List any filler phrases, over-commenting, or narration patterns
+- Note cookie-cutter code or unnecessary abstractions
+- Flag any AI attribution in commits or messages
+
 **Neutral signals** — emerging patterns:
 - New domains or tools encountered
 - Conventions discovered
@@ -100,6 +105,7 @@ For learnings the user approves:
 
 - **learnings.md**: Append under `## [YYYY-MM-DD] Title` with Why section
 - **quality-rules.md**: Add new bullet under appropriate category
+- **persona.md**: Add anti-pattern or learned preference under the appropriate section
 - **wiki/sessions/**: Create a session insight page in the knowledge base
 
 Update index.md and log.md for any wiki changes.

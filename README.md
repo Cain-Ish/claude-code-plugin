@@ -1,8 +1,8 @@
 # Self-Evolving AI Companion for Claude Code
 
-A Claude Code plugin that automatically gets smarter with every session. It learns from your patterns, discovers your tools, builds a personal knowledge base, and self-critiques its own code quality.
+A Claude Code plugin that automatically gets smarter with every session. It learns from your patterns, discovers your tools, builds a personal knowledge base, self-critiques its own code quality, and thinks like a senior human developer.
 
-## Four Capabilities
+## Five Capabilities
 
 ### 1. Auto Self-Improvement
 The plugin automatically analyzes each session at end, extracts learnings from successes and failures, and stores them for future reference. No manual trigger needed.
@@ -15,6 +15,9 @@ A Karpathy-inspired LLM-maintained wiki with semantic search. Ingest articles, p
 
 ### 4. Code Quality Self-Critique
 After every code write/edit, a quality gate automatically reviews the code against evolving standards. When the plugin detects you correcting its output, it learns the pattern and catches it automatically next time.
+
+### 5. Human Developer Persona
+Claude thinks and acts like a senior human developer. It analyzes what you *actually* need (not just what you typed), proactively fills in unstated requirements, writes human-style code and commit messages with zero AI markers, and verifies tech choices against current best practices. The persona evolves as it learns your preferences.
 
 ## Installation
 
@@ -73,7 +76,7 @@ The knowledge base at `~/knowledge/` is fully compatible with Obsidian (uses sta
 ```
 Session N → Quality gate catches issues → User corrects what it misses
     ↓
-Stop hook extracts learnings → Updates quality-rules.md + learnings.md
+Stop hook extracts learnings → Updates quality-rules.md + learnings.md + persona.md
     ↓
 Session N+1 → Quality gate is smarter → Knowledge base has more context
     ↓

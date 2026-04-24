@@ -54,6 +54,9 @@ grep -c "^- " ~/.claude-companion/quality-rules.md 2>/dev/null || echo "0"
 # Friction signals today
 grep -c "$(date +%Y-%m-%d)" ~/.claude-companion/friction-log.jsonl 2>/dev/null || echo "0"
 
+# Persona rules count
+grep -c "^- " ~/.claude-companion/persona.md 2>/dev/null || echo "0"
+
 # Discovered tools
 cat ~/.claude-companion/tool-registry.json 2>/dev/null
 ```
@@ -80,6 +83,7 @@ Format as a clean dashboard:
 ## Learning State
 - Learned patterns: X
 - Quality rules:    X
+- Persona rules:    X
 - Friction signals today: X
 - Available tools:  X MCP servers
 

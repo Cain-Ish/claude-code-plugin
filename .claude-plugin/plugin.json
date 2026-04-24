@@ -1,7 +1,7 @@
 {
   "name": "companion",
   "description": "Self-evolving AI companion. Automatically learns from sessions, discovers tools, maintains a local knowledge base, and self-critiques code quality — getting smarter with every interaction.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "companion"
   },
@@ -11,7 +11,9 @@
     "second-brain",
     "knowledge-base",
     "code-quality",
-    "auto-learning"
+    "auto-learning",
+    "human-persona",
+    "intent-analysis"
   ],
   "userConfig": {
     "knowledge_dir": {
