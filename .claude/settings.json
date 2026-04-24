@@ -1,0 +1,8 @@
+{
+  "plugins": {
+    "companion@local": {
+      "source": "local",
+      "path": "."
+    }
+  }
+}
