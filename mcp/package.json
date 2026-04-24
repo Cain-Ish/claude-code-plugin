@@ -1,6 +1,6 @@
 {
   "name": "second-brain-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local semantic search MCP server for the knowledge base",
   "type": "module",
   "main": "dist/server.js",

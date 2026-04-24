@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 (2026-04-24)
+
+### Optimized
+
+- **~95K tokens saved per active session**: PostToolUse quality gate compressed from ~300 to ~59 tokens, eliminated redundant file re-reads on every Write/Edit
+- SessionStart now loads quality-rules.md and learnings.md once upfront — PostToolUse references from memory instead of re-reading
+- SessionStart prompt compressed from ~450 to ~180 tokens by removing duplicated intent analysis (already in persona.md)
+
 ## 0.3.0 (2026-04-24)
 
 ### Breaking Changes
