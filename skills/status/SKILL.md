@@ -1,0 +1,88 @@
+---
+name: status
+description: Show knowledge base statistics, health overview, and recent activity. Displays page counts, category breakdown, recent ingests/queries, and quick health indicators.
+user-invocable: true
+disable-model-invocation: false
+allowed-tools: Read Bash(find *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(tail *) Bash(grep *) mcp__knowledge-base__knowledge_stats
+---
+
+# Knowledge Base Status
+
+Show a dashboard of the knowledge base state.
+
+## Steps
+
+### 1. Gather Stats
+
+If the `knowledge_stats` MCP tool is available, use it first:
+```
+knowledge_stats()
+```
+
+Also gather filesystem stats directly:
+
+```bash
+# Page counts per category
+for dir in sources entities concepts synthesis sessions; do
+  echo "$dir: $(find ${user_config.knowledge_dir}/wiki/$dir -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+done
+
+# Total size
+du -sh ${user_config.knowledge_dir}/
+
+# Raw source count
+find ${user_config.knowledge_dir}/raw -type f 2>/dev/null | wc -l
+```
+
+### 2. Recent Activity
+
+Show the last 10 entries from log.md:
+```bash
+tail -30 ${user_config.knowledge_dir}/log.md
+```
+
+### 3. Learning State
+
+Show counts from the learning state:
+```bash
+# Learnings count
+grep -c "^## " ~/.claude-companion/learnings.md 2>/dev/null || echo "0"
+
+# Quality rules count  
+grep -c "^- " ~/.claude-companion/quality-rules.md 2>/dev/null || echo "0"
+
+# Friction signals today
+grep -c "$(date +%Y-%m-%d)" ~/.claude-companion/friction-log.jsonl 2>/dev/null || echo "0"
+
+# Discovered tools
+cat ~/.claude-companion/tool-registry.json 2>/dev/null
+```
+
+### 4. Present Dashboard
+
+Format as a clean dashboard:
+
+```
+# Knowledge Base Status
+
+## Wiki Pages
+- Sources:    X
+- Entities:   X  
+- Concepts:   X
+- Synthesis:  X
+- Sessions:   X
+- Total:      X
+
+## Embeddings
+- Indexed:    X / X pages (X% coverage)
+- Last indexed: YYYY-MM-DD
+
+## Learning State
+- Learned patterns: X
+- Quality rules:    X
+- Friction signals today: X
+- Available tools:  X MCP servers
+
+## Recent Activity
+[last 5 log entries]
+```

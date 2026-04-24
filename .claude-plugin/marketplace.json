@@ -1,0 +1,14 @@
+{
+  "name": "companion-marketplace",
+  "owner": {
+    "name": "companion"
+  },
+  "plugins": [
+    {
+      "name": "companion",
+      "source": ".",
+      "description": "Self-evolving AI companion. Auto-learns from sessions, discovers tools, maintains a local second brain, and self-critiques code quality.",
+      "version": "0.1.0"
+    }
+  ]
+}

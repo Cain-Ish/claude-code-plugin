@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "knowledge-base": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.js"],
+      "env": {
+        "KNOWLEDGE_DIR": "${user_config.knowledge_dir}"
+      }
+    }
+  }
+}

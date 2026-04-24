@@ -1,0 +1,24 @@
+{
+  "name": "companion",
+  "description": "Self-evolving AI companion. Automatically learns from sessions, discovers tools, maintains a local knowledge base, and self-critiques code quality — getting smarter with every interaction.",
+  "version": "0.1.0",
+  "author": {
+    "name": "companion"
+  },
+  "license": "MIT",
+  "keywords": [
+    "self-improvement",
+    "second-brain",
+    "knowledge-base",
+    "code-quality",
+    "auto-learning"
+  ],
+  "userConfig": {
+    "knowledge_dir": {
+      "type": "directory",
+      "title": "Knowledge directory",
+      "description": "Where to store your local knowledge base (wiki pages, embeddings, raw sources). Default: ~/knowledge",
+      "default": "~/knowledge"
+    }
+  }
+}

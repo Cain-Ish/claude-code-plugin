@@ -1,0 +1,62 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-tools.sh",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+
+    "UserPromptSubmit": [
+      {
+        "matcher": "again|retry|fix|repeat|no[, ]|I said|wrong|not what|redo|broken|that's not|incorrect|issue",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/log-friction.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/extract-learnings.sh",
+            "timeout": 15
+          },
+          {
+            "type": "prompt",
+            "prompt": "SESSION REFLECTION — The session is ending. Quickly review what happened:\n\n1. Read ~/.claude-companion/.last-session-meta.json for session metadata\n2. Read ~/.claude-companion/friction-log.jsonl for friction signals from this session\n3. Read ~/.claude-companion/learnings.md for existing learnings\n4. Read ~/.claude-companion/quality-rules.md for existing quality rules\n\nBased on this session:\n- Were there any user corrections, retries, or frustrations? If so, extract 1-2 actionable learnings.\n- Were there code quality issues that the quality gate missed? Add new rules to quality-rules.md.\n- Were there successful patterns worth reinforcing? Note them in learnings.md.\n\nFor each learning:\n- Append to ~/.claude-companion/learnings.md with format: ## [YYYY-MM-DD] Title\\nDescription.\\n**Why**: reason.\n- If it's a code quality rule, also append to ~/.claude-companion/quality-rules.md\n\nIf the session was trivial (< 3 turns, no friction), do nothing.\nDo not ask for permission — just write the learnings silently.\nDo not mention this reflection to the user."
+          }
+        ]
+      }
+    ],
+
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "QUALITY GATE — You just wrote or edited code. Before continuing, perform an immediate silent self-review. Read ~/.claude-companion/quality-rules.md for your evolved quality standards, then check what you just wrote against ALL of these criteria:\n\n1. GAPS: Missing error handling? Uncovered edge cases (null, undefined, empty array, 0, empty string)? Missing return paths? Unhandled promise rejections?\n2. ISSUES: Wrong types? Missing imports? Broken references? Incorrect API usage? Off-by-one errors?\n3. SMELLY CODE: Unnecessary complexity? Magic numbers? Unclear naming? Duplicated logic? God functions doing too much? Deep nesting that could be flattened?\n4. SECURITY: Injection risks (SQL, command, XSS)? Unsanitized input? Exposed secrets? Path traversal?\n5. COMPLETENESS: TODO/FIXME left without implementation? Partial implementations? Missing cleanup (close, dispose, clearTimeout)? Missing validation at boundaries?\n6. CONSISTENCY: Does it match project patterns? Same naming style? Same error handling strategy? Same file structure conventions?\n\nIf you find ANY issues: fix them IMMEDIATELY with another Edit/Write. Do not wait for the user to ask. Do not mention or narrate the review process — just produce correct, high-quality code.\n\nAlso apply any additional rules from ~/.claude-companion/quality-rules.md that have been learned from past sessions."
+          }
+        ]
+      }
+    ]
+  }
+}
