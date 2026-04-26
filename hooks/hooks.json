@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh \"${user_config.knowledge_dir}\"",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh",
             "timeout": 5
           },
           {
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/extract-learnings.sh \"${user_config.knowledge_dir}\"",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/extract-learnings.sh",
             "timeout": 15
           }
         ]

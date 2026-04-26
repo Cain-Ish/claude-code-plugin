@@ -45,15 +45,16 @@ The Karpathy-inspired wiki structure:
 
 ## Steps
 
-1. Run the ensure-dirs script to create all directories and seed files:
+1. Run the ensure-dirs script to create all directories and seed files. The script's internal fallback chain (`$1` → `$CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` → `~/knowledge`) honors the user's configured location via the auto-injected env var, so we don't need to substitute `${user_config.knowledge_dir}` in the skill body (that placeholder doesn't expand in skill bash blocks):
    ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh "${user_config.knowledge_dir}"
+   bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh
    ```
 
 2. Verify the structure was created:
    ```bash
-   ls -la ${user_config.knowledge_dir}/
-   ls -la ${user_config.knowledge_dir}/wiki/
+   KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+   ls -la "$KD/"
+   ls -la "$KD/wiki/"
    ls -la ~/.second-brain/
    ```
 

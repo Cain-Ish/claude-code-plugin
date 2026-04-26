@@ -9,11 +9,20 @@ import path from "path";
 import { glob } from "glob";
 
 function resolveKnowledgeDir(): string {
-  const raw = process.env.KNOWLEDGE_DIR;
-  // Skip unsubstituted placeholders like literal "${user_config.knowledge_dir}"
-  if (raw && raw.trim() && !raw.includes("${")) {
-    const expanded = raw.startsWith("~") ? path.join(os.homedir(), raw.slice(1)) : raw;
-    return expanded;
+  // Resolution order (cross-platform: macOS, Linux, Windows via Node):
+  //   1. KNOWLEDGE_DIR — explicit override (legacy / .mcp.json env)
+  //   2. CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR — auto-injected by Claude Code per the
+  //      plugin's userConfig schema (the documented and reliable substitution path)
+  //   3. ~/knowledge — default
+  // At every tier we reject unsubstituted "${user_config.…}" literals.
+  const candidates = [
+    process.env.KNOWLEDGE_DIR,
+    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR,
+  ];
+  for (const raw of candidates) {
+    if (raw && raw.trim() && !raw.includes("${")) {
+      return raw.startsWith("~") ? path.join(os.homedir(), raw.slice(1)) : raw;
+    }
   }
   return path.join(os.homedir(), "knowledge");
 }

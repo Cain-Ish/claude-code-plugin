@@ -30,14 +30,17 @@ This returns ranked pages by semantic similarity.
 
 ### Step 2: Keyword Search (fallback or supplement)
 
-Search the wiki directory with grep for key terms from the question:
+Search the wiki directory with grep for key terms from the question. Resolve the knowledge dir from the auto-injected env var (skill-body `${user_config.X}` doesn't expand in bash):
+
 ```bash
-grep -rli "keyword" ${user_config.knowledge_dir}/wiki/
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+grep -rli "keyword" "$KD/wiki/"
 ```
 
 Also check the index:
 ```bash
-grep -i "keyword" ${user_config.knowledge_dir}/index.md
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+grep -i "keyword" "$KD/index.md"
 ```
 
 ### Step 3: Read Relevant Pages

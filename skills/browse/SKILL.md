@@ -18,13 +18,16 @@ Show a visual overview of all knowledge base content.
 Show page counts per category:
 
 ```bash
+# Skill-body ${user_config.X} placeholders DO NOT expand in bash — use the auto-injected env var.
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+
 echo ""
 for dir in sources entities concepts synthesis sessions learnings; do
-  count=$(find ${user_config.knowledge_dir}/wiki/$dir -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
+  count=$(find "$KD/wiki/$dir" -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
   echo "  $dir/  ($count pages)"
 done
 echo ""
-echo "Raw sources: $(find ${user_config.knowledge_dir}/raw -type f 2>/dev/null | wc -l | tr -d ' ')"
+echo "Raw sources: $(find "$KD/raw" -type f 2>/dev/null | wc -l | tr -d ' ')"
 ```
 
 ### 2. List Pages by Category
@@ -34,7 +37,8 @@ If `$ARGUMENTS` specifies a category (sources, entities, concepts, synthesis, se
 For each wiki page found, read the first two lines to get the title and summary:
 
 ```bash
-for f in $(find ${user_config.knowledge_dir}/wiki/ -name '*.md' -type f 2>/dev/null | sort); do
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+for f in $(find "$KD/wiki/" -name '*.md' -type f 2>/dev/null | sort); do
   category=$(echo "$f" | sed "s|.*/wiki/||" | cut -d'/' -f1)
   title=$(head -1 "$f" | sed 's/^# //')
   summary=$(sed -n '3p' "$f" | head -c 120)
@@ -50,7 +54,8 @@ done
 Show the last 5 log entries:
 
 ```bash
-tail -15 ${user_config.knowledge_dir}/log.md
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+tail -15 "$KD/log.md"
 ```
 
 ### 4. Present as Dashboard

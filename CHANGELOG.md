@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.8 (2026-04-27)
+
+Critical hotfix for cross-platform substitution failures observed on real installs.
+
+### Fixed
+
+- **`${user_config.knowledge_dir}` substitution removed from hooks.json command fields** — on Linux (and likely macOS), Claude Code refuses to substitute the placeholder when the user hasn't manually configured the value via `/plugin manage`, even though `plugin.json` declares a `default`. The hook command then fails with `Plugin option "knowledge_dir" isn't set`. Hooks now invoke `ensure-dirs.sh` and `extract-learnings.sh` with no arg; the scripts already chain `$1` → `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` (auto-injected by Claude Code per the userConfig schema, which IS reliable cross-platform) → `$HOME/knowledge`.
+- **`${user_config.knowledge_dir}` substitution removed from `mcp/.mcp.json`** — same root cause. The `env` block is gone; the MCP server's `resolveKnowledgeDir()` now reads `KNOWLEDGE_DIR` first, then `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR`, then defaults to `$HOME/knowledge`.
+- **All skill body bash blocks rewritten** to resolve the knowledge dir from `${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}` instead of `${user_config.knowledge_dir}`. Skill content placeholder substitution does not apply inside bash code blocks — bash receives the literal string and chokes on the dot in `${user_config.knowledge_dir}`. Affected: `setup`, `status`, `browse`, `lint`, `query`. Markdown-prose mentions of `${user_config.knowledge_dir}` (in `ingest`, `query`, `setup` documentation text) stay since Claude reads them as documentation, not bash.
+
+### Notes
+
+- **0.3.7 is broken on Linux installs that didn't manually configure `knowledge_dir`.** Update to 0.3.8 immediately. Existing seed files (persona.md, schema.md, learnings.md, etc.) are not touched on upgrade.
+- The `userConfig.knowledge_dir` declaration in `plugin.json` is still present for users who want to set a custom location via `/plugin manage`. The auto-injected `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` env var carries the value to all subprocesses (hooks, MCP server, skill bash blocks).
+
 ## 0.3.7 (2026-04-27)
 
 ### Fixed

@@ -22,23 +22,28 @@ knowledge_stats()
 Also gather filesystem stats directly:
 
 ```bash
+# Resolve knowledge dir from the env var Claude Code injects per userConfig.
+# Skill-body ${user_config.X} placeholders DO NOT expand in bash — use the env var instead.
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+
 # Page counts per category
 for dir in sources entities concepts synthesis sessions learnings; do
-  echo "$dir: $(find ${user_config.knowledge_dir}/wiki/$dir -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+  echo "$dir: $(find "$KD/wiki/$dir" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
 done
 
 # Total size
-du -sh ${user_config.knowledge_dir}/
+du -sh "$KD/"
 
 # Raw source count
-find ${user_config.knowledge_dir}/raw -type f 2>/dev/null | wc -l
+find "$KD/raw" -type f 2>/dev/null | wc -l
 ```
 
 ### 2. Recent Activity
 
 Show the last 10 entries from log.md:
 ```bash
-tail -30 ${user_config.knowledge_dir}/log.md
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+tail -30 "$KD/log.md"
 ```
 
 ### 3. Learning State

@@ -10,6 +10,12 @@ allowed-tools: Read Write Edit Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) 
 
 Health-check the wiki for structural and content issues.
 
+> **Bash blocks below use `$KD` for the resolved knowledge dir.** Set it once at the start of each block (skill-body `${user_config.X}` placeholders DO NOT expand in bash):
+>
+> ```bash
+> KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+> ```
+
 ## Checks
 
 ### 1. Orphan Pages
@@ -18,10 +24,10 @@ Find pages in `wiki/` that are NOT listed in index.md:
 
 ```bash
 # All wiki pages
-find ${user_config.knowledge_dir}/wiki -name '*.md' -type f
+find $KD/wiki -name '*.md' -type f
 
 # Compare against index.md entries
-cat ${user_config.knowledge_dir}/index.md
+cat $KD/index.md
 ```
 
 Report any pages missing from the index.
@@ -31,7 +37,7 @@ Report any pages missing from the index.
 Check that every link in index.md points to an existing file:
 
 ```bash
-grep -oP '\(wiki/[^)]+\)' ${user_config.knowledge_dir}/index.md
+grep -oP '\(wiki/[^)]+\)' $KD/index.md
 ```
 
 Verify each referenced file exists.
@@ -41,7 +47,7 @@ Verify each referenced file exists.
 Search for `[[wiki-links]]` across all wiki pages and verify the target exists:
 
 ```bash
-grep -roh '\[\[[^]]*\]\]' ${user_config.knowledge_dir}/wiki/
+grep -roh '\[\[[^]]*\]\]' $KD/wiki/
 ```
 
 For each link, check if a matching .md file exists in any wiki category.
@@ -51,7 +57,7 @@ For each link, check if a matching .md file exists in any wiki category.
 Find pages not modified in over 90 days:
 
 ```bash
-find ${user_config.knowledge_dir}/wiki -name '*.md' -mtime +90
+find $KD/wiki -name '*.md' -mtime +90
 ```
 
 ### 5. Empty or Stub Pages
@@ -59,7 +65,7 @@ find ${user_config.knowledge_dir}/wiki -name '*.md' -mtime +90
 Find pages with less than 100 characters of content:
 
 ```bash
-find ${user_config.knowledge_dir}/wiki -name '*.md' -exec sh -c 'wc -c < "$1"' _ {} \; 
+find $KD/wiki -name '*.md' -exec sh -c 'wc -c < "$1"' _ {} \; 
 ```
 
 ### 6. Missing Entity Pages
@@ -67,7 +73,7 @@ find ${user_config.knowledge_dir}/wiki -name '*.md' -exec sh -c 'wc -c < "$1"' _
 Check if entities mentioned in sources or learnings have their own entity pages:
 
 ```bash
-grep -roh '\[\[[^]]*\]\]' ${user_config.knowledge_dir}/wiki/sources/ ${user_config.knowledge_dir}/wiki/learnings/
+grep -roh '\[\[[^]]*\]\]' $KD/wiki/sources/ $KD/wiki/learnings/
 ```
 
 Cross-reference against files in `wiki/entities/`.
