@@ -60,7 +60,9 @@ Provide an answer that:
 
 If the synthesized answer represents a novel connection or insight
 that isn't captured in any existing page, offer to create a new
-synthesis page at `${user_config.knowledge_dir}/wiki/synthesis/`.
+synthesis page under `<knowledge-dir>/wiki/synthesis/` — where
+`<knowledge-dir>` resolves to `$CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR`
+or `~/knowledge` by default. Substitute the actual path when writing.
 
 Update index.md and log.md if a new page is created.
 

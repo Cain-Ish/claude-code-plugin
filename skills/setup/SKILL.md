@@ -12,7 +12,7 @@ Initialize the local knowledge base and learning state directories.
 
 ## What This Creates
 
-### Knowledge Base (`${user_config.knowledge_dir}` — default `~/knowledge/`)
+### Knowledge Base (default `~/knowledge/`, or whatever you set via `/plugin manage`)
 
 The Karpathy-inspired wiki structure:
 

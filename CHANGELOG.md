@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.9 (2026-04-27)
+
+Follow-up to 0.3.8: cleans up the remaining `${user_config.knowledge_dir}` references in skill markdown prose. These weren't in bash blocks (so they didn't trigger the "bad substitution" error), but they were in instructions like *"create at `${user_config.knowledge_dir}/wiki/sources/`"* — when Claude reads that, it might use the literal placeholder as a path and fail at Write time, or substitute it inconsistently.
+
+### Fixed
+
+- **Skill prose `${user_config.X}` → `<knowledge-dir>` placeholder + resolution note.** Affected skills: `ingest`, `query`, `browse`, `setup`. Each now either uses `<knowledge-dir>` with an explicit "resolve from `$CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` or `~/knowledge`" guidance, or rewrites the prose to plain English. Claude no longer has to guess what the placeholder means.
+- **`browse` skill "Open in Finder" suggestion** rewritten to be cross-platform: shows the right command for macOS (`open`), Linux (`xdg-open`), and Windows Git Bash (`start ""`).
+
 ## 0.3.8 (2026-04-27)
 
 Critical hotfix for cross-platform substitution failures observed on real installs.

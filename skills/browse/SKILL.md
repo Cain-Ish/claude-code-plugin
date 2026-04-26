@@ -95,5 +95,5 @@ If the knowledge base is empty, suggest:
 
 If pages exist, offer:
 - Read any specific page by name
-- Open in Finder: `open ${user_config.knowledge_dir}`
+- Open in Finder/Explorer: resolve the knowledge dir first, then open it. Example: `KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; open "$KD"` (macOS), `xdg-open "$KD"` (Linux), `start "" "$KD"` (Windows Git Bash).
 - Open as Obsidian vault (local only, no sync)

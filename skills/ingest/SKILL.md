@@ -19,6 +19,13 @@ Use any relevant tools to enhance the ingestion:
 - Search tools: find related context for richer wiki pages
 - Memory tools: check if related topics were discussed in past sessions
 
+## Path resolution
+
+Throughout this skill, `<knowledge-dir>` means the resolved knowledge base path:
+the value of `$CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` if set, otherwise `~/knowledge`.
+When you create or read files, substitute the actual path — do NOT use the literal
+string `<knowledge-dir>` or `<knowledge-dir>`, which won't resolve.
+
 ## Steps
 
 ### 1. Read the Source
@@ -38,7 +45,7 @@ Before creating wiki pages, briefly discuss with the user:
 
 Based on the source content, create appropriate pages:
 
-**Source summary** — always create one at `${user_config.knowledge_dir}/wiki/sources/`:
+**Source summary** — always create one at `<knowledge-dir>/wiki/sources/`:
 
 ```markdown
 # [Source Title]
@@ -67,7 +74,7 @@ One-line summary of what this source covers.
 - [[relevant-entity-or-concept]]
 ```
 
-**Entity pages** — create in `${user_config.knowledge_dir}/wiki/entities/` for notable people, organizations, products, or tools mentioned:
+**Entity pages** — create in `<knowledge-dir>/wiki/entities/` for notable people, organizations, products, or tools mentioned:
 
 ```markdown
 # [Entity Name]
@@ -87,7 +94,7 @@ One-line description of who/what this is.
 - [[other-related-entities-or-concepts]]
 ```
 
-**Concept pages** — create in `${user_config.knowledge_dir}/wiki/concepts/` for ideas, patterns, frameworks, or techniques:
+**Concept pages** — create in `<knowledge-dir>/wiki/concepts/` for ideas, patterns, frameworks, or techniques:
 
 ```markdown
 # [Concept Name]
