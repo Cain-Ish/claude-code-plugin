@@ -4,7 +4,12 @@
 # The actual reflection (LLM analysis) happens at next SessionStart.
 
 BRAIN_DIR="$HOME/.second-brain"
+# Resolve knowledge dir: $1 → CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR → ~/knowledge
+# Each step rejects an unsubstituted "${user_config.…}" literal.
 KNOWLEDGE_DIR="$1"
+case "$KNOWLEDGE_DIR" in
+  ""|*'${user_config.'*) KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-}" ;;
+esac
 case "$KNOWLEDGE_DIR" in
   ""|*'${user_config.'*) KNOWLEDGE_DIR="$HOME/knowledge" ;;
 esac
@@ -85,7 +90,10 @@ if [ "$AUTO_IMPROVE" = "true" ]; then
     LEARNINGS_SINCE=${LEARNINGS_SINCE:-0}
   fi
 
-  if [ "$FRICTION_COUNT" -ge 2 ] || [ "$LEARNINGS_SINCE" -ge 3 ] || [ -z "$LAST_IMPROVE_DATE" ]; then
+  # Suggest a plugin improvement only when there's a real signal: enough
+  # friction in this session, or enough new learnings since the last
+  # improve. First-time users with no signal don't auto-trigger anymore.
+  if [ "$FRICTION_COUNT" -ge 2 ] || [ "$LEARNINGS_SINCE" -ge 3 ]; then
     SUGGEST_PLUGIN_IMPROVE="true"
   fi
 fi

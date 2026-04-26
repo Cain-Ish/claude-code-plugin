@@ -19,7 +19,7 @@ Show page counts per category:
 
 ```bash
 echo ""
-for dir in sources entities concepts synthesis sessions; do
+for dir in sources entities concepts synthesis sessions learnings; do
   count=$(find ${user_config.knowledge_dir}/wiki/$dir -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
   echo "  $dir/  ($count pages)"
 done
@@ -29,7 +29,7 @@ echo "Raw sources: $(find ${user_config.knowledge_dir}/raw -type f 2>/dev/null |
 
 ### 2. List Pages by Category
 
-If `$ARGUMENTS` specifies a category (sources, entities, concepts, synthesis, sessions), only show that category. Otherwise show all.
+If `$ARGUMENTS` specifies a category (sources, entities, concepts, synthesis, sessions, learnings), only show that category. Otherwise show all.
 
 For each wiki page found, read the first two lines to get the title and summary:
 
@@ -73,6 +73,9 @@ Format the output cleanly:
 - page-name: Title — summary
 
 ## Sessions (X pages)
+- page-name: Title — summary
+
+## Learnings (X pages)
 - page-name: Title — summary
 
 ---

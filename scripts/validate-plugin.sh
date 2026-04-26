@@ -15,18 +15,27 @@ if [ -f "$HOOKS" ]; then
   else
     # Iterate via while-read with --arg to safely handle event names that
     # contain whitespace or shell metacharacters (a malicious self-PR could
-    # insert one). UserPromptSubmit and a few others don't support matchers
-    # per the Claude Code spec, so don't require it for those.
-    NO_MATCHER_EVENTS="UserPromptSubmit Notification SessionEnd"
+    # insert one). Several lifecycle events ignore matchers per the Claude
+    # Code spec — for those, a matcher is not required, and declaring one
+    # is misleading (silently ignored at runtime), so we WARN instead.
+    NO_MATCHER_EVENTS="UserPromptSubmit Notification SessionEnd Stop PostToolBatch TeammateIdle TaskCreated TaskCompleted WorktreeCreate WorktreeRemove CwdChanged"
     SESSION_START_MATCHERS="startup|resume|clear|compact"
 
     while IFS= read -r event; do
+      event="${event%$'\r'}"  # jq on Windows (Git Bash) emits CRLF — strip the CR
       [ -z "$event" ] && continue
       count=$(jq -r --arg e "$event" '.hooks[$e] | length' "$HOOKS" 2>/dev/null)
-      [ -z "$count" ] || [ "$count" = "null" ] && continue
+      if [ -z "$count" ] || [ "$count" = "null" ]; then
+        continue
+      fi
       for i in $(seq 0 $((count - 1))); do
         case " $NO_MATCHER_EVENTS " in
-          *" $event "*) : ;;  # matcher optional
+          *" $event "*)
+            # Matcher optional — but warn if present, since it's a no-op
+            if jq -e --arg e "$event" --argjson i "$i" '.hooks[$e][$i].matcher' "$HOOKS" >/dev/null 2>&1; then
+              echo "WARN: hooks.json $event[$i] declares a 'matcher' but $event ignores matchers — remove it"
+            fi
+            ;;
           *)
             if ! jq -e --arg e "$event" --argjson i "$i" '.hooks[$e][$i].matcher' "$HOOKS" >/dev/null 2>&1; then
               echo "FAIL: hooks.json $event[$i] missing 'matcher'"
@@ -102,6 +111,28 @@ while IFS= read -r agent_file; do
     fi
   fi
 done < <(find "$PLUGIN_ROOT/agents" -name "*.md" -type f 2>/dev/null)
+
+# Verify runtime-referenced files exist. These are not skills or agents but are
+# loaded by other scripts/skills at runtime; if they go missing, parts of the
+# plugin break silently.
+for ref in \
+  "scripts/improve-protocol.md" \
+  "skills/improve/signal-patterns.md" \
+  "mcp/.mcp.json" \
+  "mcp/package.json"; do
+  if [ ! -f "$PLUGIN_ROOT/$ref" ]; then
+    echo "FAIL: required file missing: $ref"
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+
+# JSON-validate the MCP manifests so a corrupt one is caught here, not at runtime
+for json_ref in "mcp/.mcp.json" "mcp/package.json"; do
+  if [ -f "$PLUGIN_ROOT/$json_ref" ] && ! jq empty "$PLUGIN_ROOT/$json_ref" 2>/dev/null; then
+    echo "FAIL: $json_ref is not valid JSON"
+    ERRORS=$((ERRORS + 1))
+  fi
+done
 
 if [ $ERRORS -eq 0 ]; then
   echo "OK: all plugin files valid"

@@ -1,10 +1,17 @@
 #!/bin/bash
 # Silently ensure knowledge directory and learning state directories exist.
 # Runs at SessionStart — must be fast and silent.
-# $1: knowledge dir, passed by hooks.json as ${user_config.knowledge_dir}.
-# Falls back to ~/knowledge if empty or substitution unsupported by host.
+#
+# Resolution order for the knowledge dir:
+#   1. $1 — passed by hooks.json as ${user_config.knowledge_dir}
+#   2. $CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR — env-var injection per Claude Code docs
+#   3. $HOME/knowledge — default
+# An unsubstituted literal placeholder ("${user_config.…}") falls through.
 
 KNOWLEDGE_DIR="$1"
+case "$KNOWLEDGE_DIR" in
+  ""|*'${user_config.'*) KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-}" ;;
+esac
 case "$KNOWLEDGE_DIR" in
   ""|*'${user_config.'*) KNOWLEDGE_DIR="$HOME/knowledge" ;;
 esac
@@ -24,6 +31,7 @@ mkdir -p "$KNOWLEDGE_DIR/wiki/entities"
 mkdir -p "$KNOWLEDGE_DIR/wiki/concepts"
 mkdir -p "$KNOWLEDGE_DIR/wiki/synthesis"
 mkdir -p "$KNOWLEDGE_DIR/wiki/sessions"
+mkdir -p "$KNOWLEDGE_DIR/wiki/learnings"   # Mirror of ~/.second-brain/learnings.md as wiki nodes
 mkdir -p "$KNOWLEDGE_DIR/.embeddings"
 
 # Initialize index.md if missing
@@ -47,6 +55,9 @@ Content catalog organized by category. Updated automatically on each ingest.
 
 ## Sessions
 <!-- Insights extracted from coding sessions -->
+
+## Learnings
+<!-- Wiki mirror of ~/.second-brain/learnings.md so each learning shows up as a graph node -->
 EOF
 fi
 
@@ -69,6 +80,7 @@ if [ ! -f "$KNOWLEDGE_DIR/schema.md" ]; then
 - **Concept**: Idea, framework, pattern, or theory. Lives in `wiki/concepts/`.
 - **Synthesis**: Cross-cutting analysis connecting multiple sources/entities. Lives in `wiki/synthesis/`.
 - **Session**: Insight extracted from a coding session. Lives in `wiki/sessions/`.
+- **Learning**: One distilled lesson from a coding session, mirrored from `~/.second-brain/learnings.md` so it shows up as a graph node connected to the entities/concepts it touches. Lives in `wiki/learnings/`. File naming: `YYYY-MM-DD-short-title.md`.
 
 ## Conventions
 
@@ -77,6 +89,17 @@ if [ ! -f "$KNOWLEDGE_DIR/schema.md" ]; then
 - Include `## Related` section at bottom with wiki-links to connected pages
 - Date format: YYYY-MM-DD
 - File naming: lowercase-kebab-case.md
+
+## Updating Pages — Always Current
+
+The page body is the **current** state of the world, not a transcript of every
+prior version. When new information supersedes old:
+
+- Rewrite the affected sections (add new facts, remove or replace stale ones)
+- Append a one-line entry to `## History` at the bottom of the page:
+  `- [YYYY-MM-DD] Updated <section>: <what changed>; source: [[wiki-link]]`
+- Only keep both perspectives in the body when two sources genuinely conflict
+  and neither is clearly more current — and flag the conflict in `## Open Questions`
 
 ## Log Format
 
@@ -195,6 +218,19 @@ When receiving a substantive request (new feature, new project, architectural ch
 6. Only then start coding
 
 For simple requests (fix, rename, move, small edit): just do it. No ceremony.
+
+## Architectural Review Checklist
+
+When reviewing or designing a system that touches *data over time*, *external integrations*, or *install/onboarding*, walk through these dimensions explicitly. Surface gaps to the user proactively — don't wait to be asked.
+
+- **Update semantics.** When new info arrives that contradicts old info, does the system overwrite, merge, or append? Is the result a current snapshot or a layered history? Is stale data ever cleaned up?
+- **Cross-surface integration.** If the system has a user-visible surface (graph view, dashboard, IDE panel), does *all* the relevant data show up there, or only some categories? Are internal state files siloed away from the user-facing graph?
+- **Onboarding UX.** What happens between "user installs" and "user runs first useful command"? Are there hidden manual build steps, missing init scripts, or features that silently fail until a setup ritual runs?
+- **Cross-platform paths and shells.** How do `~`, `$HOME`, and config locations resolve on Linux, macOS, Git Bash on Windows, and native Windows shells? Are scripts using GNU-only flags? Does `mktemp`/`find`/`sed` behave the same across them?
+- **Proactive vs lazy context loading.** Does the system load relevant context automatically when the conversation shifts, or only on explicit user request? If lazy, is the user expected to know what to query?
+- **Failure modes that are silent.** What breaks silently — a missing file that no one notices, a hook that gets ignored, a permission that gets dropped without warning? Where would a confused user not realize something's wrong?
+
+Apply this checklist before declaring a review "complete". If any dimension wasn't considered for the system under review, name it explicitly and either address it or call out the gap.
 
 ## Learned Preferences
 

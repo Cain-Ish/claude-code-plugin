@@ -23,7 +23,7 @@ Also gather filesystem stats directly:
 
 ```bash
 # Page counts per category
-for dir in sources entities concepts synthesis sessions; do
+for dir in sources entities concepts synthesis sessions learnings; do
   echo "$dir: $(find ${user_config.knowledge_dir}/wiki/$dir -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
 done
 
@@ -74,6 +74,7 @@ Format as a clean dashboard:
 - Concepts:   X
 - Synthesis:  X
 - Sessions:   X
+- Learnings:  X
 - Total:      X
 
 ## Embeddings

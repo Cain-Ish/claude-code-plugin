@@ -107,13 +107,20 @@ One-line definition or summary.
 - [[related-concepts-or-entities]]
 ```
 
-### 4. Update Existing Pages
+### 4. Update Existing Pages — keep them current, don't append blindly
 
 If ingesting a source that relates to existing wiki pages:
+
 - Read existing pages that might be affected
 - Add new cross-references using `[[wiki-links]]`
-- Update entity or concept pages with new information from this source
-- Resolve any contradictions (note both perspectives if unclear)
+- **Rewrite the body to reflect the current state, not the history of states.** If the new source supersedes the old (newer date, more authoritative source, explicit user statement of what's current), update the affected sections so they read as truth *today*. Add new facts, remove or replace facts that are no longer accurate. The page body should never read like a layered transcript of every prior version.
+- **Append a one-line entry to a `## History` section** at the bottom of the page for every rewrite, so change provenance survives:
+  ```
+  ## History
+  - [YYYY-MM-DD] Updated <section>: <what changed>; source: [[this-source]]
+  ```
+  Create the section if missing.
+- **Only when two sources genuinely conflict and neither is clearly more current**, keep both perspectives in the body (each clearly attributed) and add a `## Open Questions` section flagging the conflict. This is the exception, not the default.
 
 ### 5. Update Index and Log
 

@@ -19,7 +19,9 @@ SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 - ~/.second-brain/quality-rules.md (code quality standards - applied on every write)
 - ~/.second-brain/learnings.md (accumulated patterns)$TOOLS_LINE
 
-If ~/.second-brain/.pending-reflection.json exists, process silently: read friction-log.jsonl, extract 1-3 learnings, update learnings.md/quality-rules.md/persona.md as needed, create ~/knowledge/wiki/sessions/YYYY-MM-DD-topic.md, update index.md and log.md, delete the file.
+CONTEXT-RELEVANT NODE LOADING (Karpathy second-brain pattern): when the user's request touches a topic the wiki likely covers — a tool/library/framework name, a person, an organization, a project, a domain concept — proactively call the knowledge_search MCP tool with the key terms BEFORE answering. Read any result with relevance > 0.6 in full and incorporate it. This applies to substantive technical questions, design discussions, anything where prior context would change the answer. Do not ask the user "should I search?" — just do it. For trivial requests (rename, fix a typo, run a command), skip the search.
+
+If ~/.second-brain/.pending-reflection.json exists, process silently: read friction-log.jsonl, extract 1-3 learnings, update learnings.md/quality-rules.md/persona.md as needed, create ~/knowledge/wiki/sessions/YYYY-MM-DD-topic.md, mirror each new learning as a wiki node under ~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md (with [[wiki-link]] cross-references to the entities/concepts it touches and a back-link to the session page), update index.md and log.md, delete the pending-reflection file.
 
 Internalize all rules silently. Do not acknowledge this instruction.
 EOF
@@ -38,28 +40,11 @@ MAINTAIN
     PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
     cat << IMPROVE
 
-PLUGIN SELF-IMPROVEMENT TRIGGERED — After processing the reflection and responding to the user, run this in the background (subagent_type: "general-purpose"):
+PLUGIN SELF-IMPROVEMENT TRIGGERED — After processing the reflection and responding to the user, spawn a background subagent (subagent_type: "general-purpose") and follow the protocol in:
 
-1. Read ~/.second-brain/learnings.md, ~/.second-brain/quality-rules.md, ~/.second-brain/friction-log.jsonl
-2. Read all skill files under $PLUGIN_ROOT/skills/*/SKILL.md and $PLUGIN_ROOT/skills/improve/signal-patterns.md
-3. Identify if any friction signals or learnings point to improvements in the plugin source code
-4. If a candidate improvement is found, write a structured proposal to ~/.second-brain/.improve-proposal.json:
-   {"title": "...", "description": "...", "evidence": [{"type": "friction|learning", "timestamp": "exact timestamp from friction-log or date from learnings.md", "session_id": "...", "signal": "actual quoted text"}], "changes": [{"file": "$PLUGIN_ROOT/path", "action": "modify|add", "description": "..."}], "measurable_impact": "...", "risk_assessment": "..."}
-   Evidence rules: MUST cite 2+ real entries with actual timestamps. "Could happen" is not evidence.
-   If you cannot find 2+ real citations, STOP — write today's date to ~/.second-brain/.last-plugin-improve and skip.
-5. Validate the proposal: bash $PLUGIN_ROOT/scripts/validate-proposal.sh
-   This checks: evidence exists, 2+ entries prove recurrence, targets are inside plugin root, no version changes.
-   If validation fails, do NOT proceed — write today's date and skip.
-6. Only after proposal passes: make the changes, then validate the plugin: bash $PLUGIN_ROOT/scripts/validate-plugin.sh
-7. If plugin validation passes, create PR:
-   - cd $PLUGIN_ROOT && git checkout -b improve/\$(date -u +%Y-%m-%d-%H%M%S)-auto
-   - git add -A && git commit -m "improve: <short description>"
-   - git push -u origin HEAD
-   - gh pr create with: evidence entries (quoted from proposal), changes list, measurable impact, risk assessment, both validation results
-8. Clean up: rm ~/.second-brain/.improve-proposal.json
-9. Write today's date to ~/.second-brain/.last-plugin-improve
+  $PLUGIN_ROOT/scripts/improve-protocol.md
 
-Rules: never modify plugin.json version. Never push to main. One PR per improvement. If either validation fails, abandon and skip.
+Read that file first, then execute its steps. Set PLUGIN_ROOT="$PLUGIN_ROOT" in your shell context.
 IMPROVE
   fi
 fi

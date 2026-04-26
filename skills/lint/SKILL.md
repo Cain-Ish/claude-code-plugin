@@ -64,20 +64,34 @@ find ${user_config.knowledge_dir}/wiki -name '*.md' -exec sh -c 'wc -c < "$1"' _
 
 ### 6. Missing Entity Pages
 
-Check if entities mentioned in source summaries have their own entity pages:
+Check if entities mentioned in sources or learnings have their own entity pages:
 
 ```bash
-grep -roh '\[\[[^]]*\]\]' ${user_config.knowledge_dir}/wiki/sources/
+grep -roh '\[\[[^]]*\]\]' ${user_config.knowledge_dir}/wiki/sources/ ${user_config.knowledge_dir}/wiki/learnings/
 ```
 
 Cross-reference against files in `wiki/entities/`.
 
-### 7. Contradictions (requires reading)
+### 7. Contradictions and stale facts (requires reading)
 
 Read related pages and check for conflicting claims. Focus on:
 - Different dates or versions cited for the same thing
 - Conflicting recommendations or assessments
 - Outdated information superseded by newer sources
+
+### 7a. Append-only drift
+
+Pages should reflect *current* state, not be layered transcripts. Surface pages that look like they've been appended to without being rewritten:
+
+- Multiple "however," / "but newer source says" / "as of <old date>, but actually" stretches in one body
+- Several distinct dated paragraphs in the body itself (dates belong in `## History`, not the body)
+- Pages with two clearly contradictory bullet lists in the same section
+
+For each offender, offer to rewrite the body to current state and move the change provenance to a `## History` section per the schema.
+
+### 7b. Missing History on heavily-revised pages
+
+Find pages that have been touched by 3+ ingest entries in `log.md` but have no `## History` section. Offer to backfill a History stub from the log entries.
 
 ## Reporting
 

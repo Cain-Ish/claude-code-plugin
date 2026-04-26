@@ -1,7 +1,12 @@
 #!/bin/bash
-# Discover available MCP tools and other plugins at session start.
-# Parses Claude Code configuration to build a tool registry.
-# Runs async at SessionStart — doesn't block the session.
+# Enumerate the names of installed MCP servers at session start.
+# Parses Claude Code settings.json files and per-plugin .mcp.json caches and
+# writes a server-name index to ~/.second-brain/tool-registry.json. Skills
+# read that index and prefer matching servers when present.
+#
+# Note: this is a server-name index, not a tool-level capability map — it
+# does not enumerate the individual tools each server exposes.
+# Runs synchronously at SessionStart so session-load.sh can rely on the file.
 
 BRAIN_DIR="$HOME/.second-brain"
 REGISTRY="$BRAIN_DIR/tool-registry.json"

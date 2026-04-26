@@ -1,9 +1,9 @@
 ---
 name: setup
-description: Initialize the Second Brain knowledge base and learning state. Run once after installing the plugin, or anytime to verify the directory structure.
+description: Initialize the Second Brain knowledge base, learning state, and MCP server build. Run once after installing the plugin, or anytime to verify the directory structure.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Bash(mkdir *) Bash(cat *) Bash(ls *) Bash(test *) Bash(bash *) Read
+allowed-tools: Bash(mkdir *) Bash(cat *) Bash(ls *) Bash(test *) Bash(bash *) Bash(npm install:*) Bash(npm run:*) Read
 ---
 
 # Second Brain Setup
@@ -47,7 +47,7 @@ The Karpathy-inspired wiki structure:
 
 1. Run the ensure-dirs script to create all directories and seed files:
    ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh
+   bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh "${user_config.knowledge_dir}"
    ```
 
 2. Verify the structure was created:
@@ -57,9 +57,18 @@ The Karpathy-inspired wiki structure:
    ls -la ~/.second-brain/
    ```
 
-3. Report what was created and confirm everything looks correct.
+3. The MCP server ships pre-built (`mcp/dist/server.js` is tracked in git), so most installs do nothing here. Only rebuild if the file is missing — typically only happens if you cloned with sparse-checkout or deleted `dist/`:
+   ```bash
+   if [ ! -f "${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.js" ]; then
+     (cd "${CLAUDE_PLUGIN_ROOT}/mcp" && npm install --no-fund --no-audit && npm run build) || \
+       echo "MCP build failed — knowledge_search/index/stats will not work until you run: cd ${CLAUDE_PLUGIN_ROOT}/mcp && npm install && npm run build"
+   fi
+   ```
+   Report whether the build ran, was skipped (already shipped), or failed.
 
-4. Mention to the user:
+4. Report what was created and confirm everything looks correct.
+
+5. Mention to the user:
    - Use `/second-brain:ingest <path>` to add sources to the knowledge base
    - Use `/second-brain:query <question>` to search the knowledge base
    - The plugin automatically learns from sessions and improves code quality over time

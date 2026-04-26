@@ -16,6 +16,14 @@ Comprehensive review going beyond the automatic quality gate.
 Read ~/.second-brain/tool-registry.json to discover available tools.
 Use documentation tools to verify API usage against current best practices.
 
+For deeper structural review (architecture, performance, subtle bugs), spawn the dedicated subagent:
+
+```
+subagent_type: "second-brain:quality-reviewer"
+```
+
+It runs with `maxTurns: 20` and returns findings classified CRITICAL / WARNING / INFO.
+
 ## What to Review
 
 If `$ARGUMENTS` specifies a file, review that file.
@@ -58,6 +66,19 @@ If no argument, review all uncommitted changes (`git diff` + `git diff --staged`
 - Clear naming and structure?
 - Would a new team member understand this?
 - Any implicit assumptions that should be documented?
+
+### 7. Architectural review checklist (mandatory for systems touching data-over-time, integrations, or onboarding)
+
+Walk through each dimension explicitly. Surface gaps proactively — these are the questions a careful reviewer should raise without being prompted:
+
+- **Update semantics** — when new info contradicts old, does the system overwrite/merge/append? Is the body the current state or a layered history? Is stale data ever cleaned up?
+- **Cross-surface integration** — if there's a user-visible surface (graph view, dashboard, Obsidian vault, IDE panel), does the relevant data actually show up there, or is internal state siloed?
+- **Onboarding UX** — what happens between "user installs" and "user runs first useful command"? Hidden manual build steps? Missing init scripts? Features that silently fail without a setup ritual?
+- **Cross-platform shells and paths** — how do `~`, `$HOME`, config locations resolve on Linux, macOS, Git Bash on Windows, and native Windows shells? GNU-only flags? `mktemp`/`find`/`sed` behavior differences?
+- **Proactive vs lazy context loading** — does the system load relevant context automatically when the conversation shifts, or only on explicit request? If lazy, is the user expected to know what to query?
+- **Silent failure modes** — what breaks silently? Missing file no one notices, hook that gets ignored, permission silently dropped, env var that doesn't exist on this version?
+
+If any dimension doesn't apply, name it and skip explicitly. Don't omit it without comment.
 
 ## Output Format
 

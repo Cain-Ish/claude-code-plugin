@@ -1,10 +1,63 @@
 # Changelog
 
+## 0.3.7 (2026-04-27)
+
+### Fixed
+
+- **Defense-in-depth knowledge_dir resolution** — `ensure-dirs.sh` and `extract-learnings.sh` now chain `$1` → `$CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` → `~/knowledge`. Both substitution paths are documented; this honors whichever the host provides.
+- **`validate-proposal.sh` now portable on macOS** — replaced GNU-only `sed \L` with a `tr`-based lowercase so BSD sed users get correct Windows-path normalization.
+- **MCP server flushes vectordb on shutdown** — `SIGINT`/`SIGTERM`/`beforeExit` handlers call `vectordb.flush()` so a crash mid-reindex no longer loses pending pages.
+- **Setup skill now passes `${user_config.knowledge_dir}`** to `ensure-dirs.sh` — manual `/second-brain:setup` honors the user's configured location instead of defaulting.
+- **`validate-plugin.sh` no-matcher list expanded** to match the Claude Code spec (Stop, PostToolBatch, TeammateIdle, TaskCreated, TaskCompleted, WorktreeCreate, WorktreeRemove, CwdChanged); declaring a matcher on those now WARNs since it's a no-op at runtime.
+- **`validate-plugin.sh` operator-precedence footgun** — replaced `[ A ] || [ B ] && continue` with explicit `if … then continue; fi`.
+- **Test suite preconditions** — `tests/test-validate-proposal.sh` now exits 2 with a clear message if `jq` / `mktemp` / `bash` are missing.
+- **Knowledge-dir fallback rejects literal placeholder at every stage** — even if the env-var step somehow holds an unsubstituted `${user_config.…}`, the script falls through to `~/knowledge` instead of using the literal as a path.
+- **Auto-improve no longer auto-fires on a brand-new user's first session** — `extract-learnings.sh` now requires a real signal (≥2 friction or ≥3 learnings since last improve); the implicit "no last improve date" trigger is gone.
+- **MCP shutdown handlers attached before transport opens**, and `SIGHUP` is now also handled so terminal-close doesn't lose pending vectordb writes.
+- **`post-compact.sh` no longer tells Claude to read a missing `tool-registry.json`** on fresh installs — line is conditional on the file's existence, mirroring `session-load.sh`.
+- **`pre-compact.sh` no longer claims a reflection was saved when it wasn't** — emits a different prompt when USER_TURNS < 3 and no reflection was written.
+- **`discover-tools.sh` header comment** corrected — was "Runs async at SessionStart" (no longer true) and "Discover MCP tools" (it only discovers server names).
+- **`quality-reviewer` subagent surfaced** — `review` skill now points at it for deep structural review; was previously discoverable only by Claude Code's agent registry.
+
+### Changed
+
+- **Auto-improve protocol externalized** — the ~600-token instruction block in `session-load.sh` is now a 3-line pointer to `scripts/improve-protocol.md`. Lower per-session token cost; protocol edits no longer touch the hook script.
+- **`improve` skill body de-duplicated** — section 7 now references the same `scripts/improve-protocol.md` file instead of inlining the protocol again. The manual deep-dive flow (sections 1–6) and the auto-improve PR flow now share one source of truth, including the timestamped branch-name convention.
+- **Setup skill builds the MCP server when the dist artifact is missing** — fresh installs no longer have a silently-broken `knowledge_search` until the user manually `npm install && npm run build`. The skill detects missing `mcp/dist/server.js` and runs the build itself.
+- **README "How It Evolves" diagram refreshed** to reflect the auto-improve / proposal-gate flow added in 0.3.4–0.3.7.
+- **README "Testing" section added** — `tests/test-validate-proposal.sh` and `scripts/validate-plugin.sh` are now discoverable for contributors.
+- **`improve-protocol.md` "write today's date" instruction consolidated** into a single "On exit (always)" subsection so every termination path (success, abandon, validation failure) marks the attempt.
+- **README MCP-server section refreshed** to point at `/second-brain:setup` for builds; manual build is now the fallback path, not the primary one.
+- **Setup skill `Bash` permissions narrowed** — `Bash(npm *)` replaced with `Bash(npm install:*) Bash(npm run:*)` so the skill can't `npm publish` or `npm uninstall` etc.
+- **Setup skill no longer hides npm errors** — dropped `--silent`, added an explicit fallback message pointing at the manual command if the build fails.
+- **`validate-plugin.sh` checks for runtime-referenced files** — `scripts/improve-protocol.md`, `skills/improve/signal-patterns.md`, `mcp/.mcp.json`, `mcp/package.json` must exist or the validator FAILs. Catches accidental deletions before they break auto-improve at runtime.
+- **`validate-plugin.sh` JSON-validates the MCP manifests** — `mcp/.mcp.json` and `mcp/package.json` must parse, not just exist.
+- **Setup skill `Bash(node *)` permission removed** — the skill body never invoked `node` directly; npm handles it. Tighter blast radius.
+
+### Added (cont.)
+
+- **`tests/test-validate-plugin.sh`** — fixture-based smoke test for the plugin validator itself. Nine cases cover: clean skeleton, invalid hooks.json, undocumented SessionStart matcher (WARN), UserPromptSubmit-with-matcher (WARN), PreCompact-missing-matcher (FAIL), missing runtime-referenced file, corrupt mcp/package.json, shell-syntax error, and missing skill frontmatter.
+- **`mcp/dist/` is now tracked in git** — marketplace installs work with zero build step. `knowledge_search`/`index`/`stats` are functional immediately after `/plugin install`. The setup skill's build step is now a recovery path for users who cloned with sparse-checkout or modified source.
+- **README "Where files live" section** explains how `~/.second-brain/` and `~/knowledge/` resolve on Linux/macOS, Git Bash on Windows, and native Windows shells (`%USERPROFILE%\.second-brain\`).
+- **Wiki nodes are now updated to current state, not appended-to** — the `ingest` skill and `knowledge-maintainer` agent both rewrite the body when new information supersedes old, and append a one-line `## History` entry per change. Two genuinely-conflicting sources of equal authority are the only case where both perspectives are kept (and the conflict is flagged in `## Open Questions`). The `lint` skill detects append-only drift (multiple "however,…" / "as of <old date>, but actually…" stretches) and offers to consolidate. `schema.md` documents the convention.
+- **Learnings now appear as Obsidian graph nodes** — every entry written to `~/.second-brain/learnings.md` is also mirrored to `~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md` with `[[wiki-link]]` cross-references to the entities/concepts it touches and a back-link to the originating session page. `ensure-dirs.sh` creates `wiki/learnings/`, `index.md` gets a Learnings section, and the `knowledge-maintainer` agent reconciles the canonical store with the wiki mirror each maintenance pass.
+- **Context-relevant node loading (Karpathy second-brain pattern)** — `session-load.sh` and `post-compact.sh` now instruct Claude to proactively call `knowledge_search` when the user's request touches a topic the wiki likely covers (named tool/library/framework, person, org, project, domain concept) and read any result with relevance > 0.6 before answering. Closes the previously implicit gap where wiki nodes only loaded on explicit `/second-brain:query` invocation.
+- **Architectural review checklist** baked into the persona template, the `review` skill, AND the `quality-reviewer` agent — six concrete dimensions (update semantics, cross-surface integration, onboarding UX, cross-platform shells/paths, proactive vs lazy context loading, silent failure modes). All three places now apply the same checklist so the routing chain "review skill → quality-reviewer agent" stays consistent. Existing users get the behavior immediately via the `review` skill body and the agent file; new installs additionally get it in `~/.second-brain/persona.md`. To pull the checklist into an existing `~/.second-brain/persona.md`, copy the new "Architectural Review Checklist" section from the template in `scripts/ensure-dirs.sh`.
+- **`status` and `browse` skills now show the `wiki/learnings/` subtree** — both iterated only the original five categories and silently dropped the new learnings count. Dashboards now report all six.
+- **`improve` skill manual-path proposals can target `wiki/learnings/`** — destination list now matches the auto path's behavior so manual-mode reflections also produce graph-visible learning nodes.
+- **`lint` skill check 6 ("Missing Entity Pages") also scans `wiki/learnings/`** — entities cross-linked from learnings now get the same missing-page detection as those cross-linked from sources.
+
+### Fixed (cont.)
+
+- **Windows CRLF bug in `validate-plugin.sh` hooks block** — jq output on Git Bash has CRLF line endings; `while IFS= read -r event` kept the trailing `\r`, so every event lookup became `SessionStart\r` (no match) and the hooks-block validation silently skipped on Windows. The validator was passing not because hooks were valid but because no checks were running. Now strips `\r` from `event`. Surfaced and verified by `tests/test-validate-plugin.sh`.
+- **`Stop` hook drops its `matcher: "*"`** in `hooks.json` — Stop ignores matchers per spec, so the field was misleading. Validator now WARNs if a no-matcher event declares one.
+- **CHANGELOG 0.3.4 / 0.3.5 entries cite their commit SHAs** so readers can verify the descriptions against actual diffs.
+
 ## 0.3.6 (2026-04-27)
 
 ### Fixed
 
-- **`userConfig.knowledge_dir` was dead** — shell hooks read a non-existent env var (`CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR`). Now passed as `$1` from `hooks.json` via `${user_config.knowledge_dir}` substitution with a graceful fallback.
+- **`userConfig.knowledge_dir` substitution unified** — hooks now explicitly pass `${user_config.knowledge_dir}` as `$1` to scripts, matching the documented substitution path. (The prior env-var path `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` is also documented and likely worked; 0.3.7 chains both for defense-in-depth.)
 - **`UserPromptSubmit` matcher silently ignored** — the regex matcher in `hooks.json` was a no-op per Claude Code spec, meaning *every* user prompt was logged to `friction-log.jsonl`. Gate moved inside `log-friction.sh`; only friction-shaped prompts are now logged.
 - **SessionStart race** — `discover-tools.sh` was `async: true` while `session-load.sh` referenced its output. Removed `async`; `session-load.sh` also now omits the tool-registry line when the file isn't there yet.
 - **SessionStart matcher `"*"`** replaced with documented `startup|resume|clear|compact`.
@@ -35,11 +88,15 @@
 
 ## 0.3.5 (2026-04-26)
 
+Commit: `3592a6f` (entry reconstructed from commit message; pre-dates the disciplined CHANGELOG entries).
+
 ### Added
 
 - **Evidence-based proposal gate** for plugin self-improvement — `scripts/validate-proposal.sh` requires 2+ cited friction entries before any plugin change is accepted.
 
 ## 0.3.4 (2026-04-26)
+
+Commit: `3e8c1c5` (entry reconstructed from commit message; pre-dates the disciplined CHANGELOG entries).
 
 ### Added
 

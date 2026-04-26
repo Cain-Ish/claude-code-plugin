@@ -6,6 +6,11 @@
 
 set -u
 
+# Preconditions
+for cmd in jq mktemp bash; do
+  command -v "$cmd" >/dev/null 2>&1 || { echo "test prerequisite missing: $cmd"; exit 2; }
+done
+
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$PLUGIN_ROOT/scripts/validate-proposal.sh"
 TMPDIR_BASE="${TMPDIR:-/tmp}"

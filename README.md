@@ -38,7 +38,7 @@ First run:
 
 | Skill | Purpose |
 |-------|---------|
-| `/second-brain:setup` | Initialize knowledge base and learning directories |
+| `/second-brain:setup` | Initialize knowledge base, learning directories, and build the MCP server |
 | `/second-brain:ingest [path\|url]` | Process a source into the knowledge wiki |
 | `/second-brain:query [question]` | Search the knowledge base |
 | `/second-brain:browse [category]` | Browse and visualize knowledge base content |
@@ -51,10 +51,24 @@ First run:
 
 The plugin includes a local MCP server for semantic search over the knowledge base. It uses `@xenova/transformers` (all-MiniLM-L6-v2) to generate embeddings locally — no API calls, no data leaving your machine.
 
-Build:
+The compiled artifact `mcp/dist/server.js` is shipped in the repo, so a marketplace install works out of the box. To rebuild after pulling source changes:
+
 ```bash
 cd mcp && npm install && npm run build
 ```
+
+`/second-brain:setup` runs this automatically if `dist/server.js` is missing.
+
+## Where files live
+
+The plugin uses two top-level directories under your home:
+
+| Path (POSIX shorthand) | Linux / macOS | Windows (Git Bash / WSL) | Windows (cmd / PowerShell) |
+|---|---|---|---|
+| `~/.second-brain/` | `/home/<user>/.second-brain/` | `/c/Users/<user>/.second-brain/` (mapped) or `C:\Users\<user>\.second-brain\` | `%USERPROFILE%\.second-brain\` |
+| `~/knowledge/` | `/home/<user>/knowledge/` | `/c/Users/<user>/knowledge/` or `C:\Users\<user>\knowledge\` | `%USERPROFILE%\knowledge\` |
+
+If you set a custom `knowledge_dir` in the plugin config, only the wiki tree moves — `~/.second-brain/` (learning state) always stays under your home.
 
 ## Privacy
 
@@ -85,13 +99,39 @@ The knowledge base at `~/knowledge/` is fully compatible with Obsidian (uses sta
 ## How It Evolves
 
 ```
-Session N → Quality gate catches issues → User corrects what it misses
-    ↓
-Stop hook captures session data → Creates pending reflection
-    ↓
-Session N+1 → Processes reflection → Updates learnings + quality rules + wiki
-    ↓
-Quality gate is smarter → Knowledge base has more context → Plugin keeps improving
+Session N
+  ├─ SessionStart loads persona + quality-rules + learnings (always)
+  ├─ Each substantive prompt: knowledge_search runs proactively → relevant wiki nodes pulled in
+  ├─ Quality gate (PostToolUse) reviews each Write/Edit
+  ├─ Friction logger captures correction-shaped prompts
+  └─ Stop hook → writes .pending-reflection.json (friction count + learnings since last improve)
+
+Session N+1 (SessionStart)
+  ├─ Reads pending reflection → extracts 1-3 learnings
+  ├─ Updates learnings.md / quality-rules.md / persona.md
+  ├─ Mirrors each new learning to wiki/learnings/<date>-<title>.md (with [[wiki-links]])
+  ├─ Creates wiki/sessions/<date>-<topic>.md
+  ├─ Spawns knowledge-maintainer agent — keeps nodes current (rewrites on contradiction, appends ## History)
+  └─ If `auto_improve: true` AND friction ≥ 2 OR learnings since last improve ≥ 3:
+       follows scripts/improve-protocol.md → proposal → validate → PR (never to main)
+
+Result: quality gate is smarter, wiki has more context, persona drifts toward your style,
+        and the AI loads exactly the nodes that match what you're working on each turn.
+```
+
+## Testing
+
+Both tests run in isolation under `mktemp` sandboxes (no real user data is touched). Both require `jq`, `mktemp`, and `bash`.
+
+```bash
+bash tests/test-validate-proposal.sh   # 6 cases: proposal validator
+bash tests/test-validate-plugin.sh     # 9 cases: plugin-structure validator
+```
+
+To run the plugin-structure validator against this repo directly:
+
+```bash
+bash scripts/validate-plugin.sh
 ```
 
 ## License

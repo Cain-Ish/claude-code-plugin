@@ -86,10 +86,22 @@ fi
 
 # Validate each change targets a file inside the plugin.
 # Normalize paths so backslashes/forward-slashes both work on Windows + Unix.
+# Uses `tr` for the lowercase step so this works on BSD sed (macOS) too —
+# `\L` in sed is GNU-only.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 norm_path() {
-  # Lowercase the drive letter (Windows), convert backslashes to forward slashes, strip trailing slash
-  printf '%s' "$1" | sed -e 's|\\|/|g' -e 's|^\([A-Za-z]\):|\L\1:|' -e 's|/*$||'
+  local p="$1"
+  p="${p//\\//}"        # backslashes → forward slashes
+  p="${p%/}"            # strip trailing slash
+  case "$p" in
+    [A-Za-z]:*)
+      local drive rest
+      drive=$(printf '%s' "${p:0:1}" | tr '[:upper:]' '[:lower:]')
+      rest="${p:1}"
+      printf '%s%s' "$drive" "$rest"
+      ;;
+    *) printf '%s' "$p" ;;
+  esac
 }
 PLUGIN_ROOT_NORM=$(norm_path "$PLUGIN_ROOT")
 

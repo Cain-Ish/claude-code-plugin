@@ -30,6 +30,7 @@ if [ -f "$BRAIN_DIR/friction-log.jsonl" ]; then
   FRICTION_COUNT=${FRICTION_COUNT:-0}
 fi
 
+REFLECTION_SAVED=false
 if [ "$USER_TURNS" -ge 3 ]; then
   cat > "$BRAIN_DIR/.pending-reflection.json" << JSONEOF
 {
@@ -40,8 +41,15 @@ if [ "$USER_TURNS" -ge 3 ]; then
   "trigger": "pre-compact"
 }
 JSONEOF
+  REFLECTION_SAVED=true
 fi
 
-cat << 'EOF'
+if [ "$REFLECTION_SAVED" = "true" ]; then
+  cat << 'EOF'
 CONTEXT COMPACTION IMMINENT - Before this context is compressed, note any key session insights (learnings, decisions, patterns) that should survive compaction. A pending reflection has been saved for post-compaction processing.
 EOF
+else
+  cat << 'EOF'
+CONTEXT COMPACTION IMMINENT - Before this context is compressed, note any key session insights (learnings, decisions, patterns) that should survive compaction.
+EOF
+fi

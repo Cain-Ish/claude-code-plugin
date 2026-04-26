@@ -252,7 +252,26 @@ server.registerTool(
 
 // --- Start ---
 
+function flushOnExit(signal: string): void {
+  try {
+    if (db) db.flush();
+  } catch (err) {
+    console.error(`Flush failed during ${signal}:`, err);
+  }
+}
+
 async function main() {
+  // Attach shutdown handlers before opening the transport so any pending
+  // vectordb writes survive a SIGINT/SIGTERM/SIGHUP that arrives during
+  // startup or mid-reindex. SIGHUP catches terminal-close on POSIX hosts.
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(sig, () => {
+      flushOnExit(sig);
+      process.exit(0);
+    });
+  }
+  process.on("beforeExit", () => flushOnExit("beforeExit"));
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Knowledge MCP server running on stdio");
@@ -260,5 +279,6 @@ async function main() {
 
 main().catch((error) => {
   console.error("Fatal error:", error);
+  flushOnExit("fatal");
   process.exit(1);
 });

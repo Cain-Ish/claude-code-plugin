@@ -8,8 +8,10 @@ knowledge/
 # Plugin data directory (managed by Claude Code)
 .claude-plugin-data/
 
-# MCP server build artifacts
-mcp/dist/
+# MCP server build artifacts.
+# mcp/dist/ IS tracked so marketplace installs work without npm — without
+# this, knowledge_search/index/stats fail until the user runs setup. The
+# setup skill rebuilds dist/ from src/ if needed (e.g., after dependency bumps).
 mcp/node_modules/
 
 # OS files
