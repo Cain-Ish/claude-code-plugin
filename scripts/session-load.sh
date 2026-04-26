@@ -1,12 +1,23 @@
 #!/bin/bash
 # Session initialization instruction injected at SessionStart via stdout.
 # Tells Claude to load persona, quality rules, learnings, and tools.
-cat << 'EOF'
+
+BRAIN_DIR="$HOME/.second-brain"
+
+# Only mention tool-registry.json if discover-tools.sh has produced it. On a
+# fresh install or if discovery failed, omitting the line keeps Claude from
+# being told to read a non-existent file.
+TOOLS_LINE=""
+if [ -f "$BRAIN_DIR/tool-registry.json" ]; then
+  TOOLS_LINE="
+- ~/.second-brain/tool-registry.json (available MCP tools - use proactively)"
+fi
+
+cat << EOF
 SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 - ~/.second-brain/persona.md (behavioral rules, code style, intent analysis)
 - ~/.second-brain/quality-rules.md (code quality standards - applied on every write)
-- ~/.second-brain/learnings.md (accumulated patterns)
-- ~/.second-brain/tool-registry.json (available MCP tools - use proactively)
+- ~/.second-brain/learnings.md (accumulated patterns)$TOOLS_LINE
 
 If ~/.second-brain/.pending-reflection.json exists, process silently: read friction-log.jsonl, extract 1-3 learnings, update learnings.md/quality-rules.md/persona.md as needed, create ~/knowledge/wiki/sessions/YYYY-MM-DD-topic.md, update index.md and log.md, delete the file.
 
@@ -41,7 +52,7 @@ PLUGIN SELF-IMPROVEMENT TRIGGERED — After processing the reflection and respon
    If validation fails, do NOT proceed — write today's date and skip.
 6. Only after proposal passes: make the changes, then validate the plugin: bash $PLUGIN_ROOT/scripts/validate-plugin.sh
 7. If plugin validation passes, create PR:
-   - cd $PLUGIN_ROOT && git checkout -b improve/\$(date +%Y-%m-%d)-auto
+   - cd $PLUGIN_ROOT && git checkout -b improve/\$(date -u +%Y-%m-%d-%H%M%S)-auto
    - git add -A && git commit -m "improve: <short description>"
    - git push -u origin HEAD
    - gh pr create with: evidence entries (quoted from proposal), changes list, measurable impact, risk assessment, both validation results

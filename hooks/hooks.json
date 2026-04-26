@@ -2,18 +2,17 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "*",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh \"${user_config.knowledge_dir}\"",
             "timeout": 5
           },
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-tools.sh",
-            "timeout": 10,
-            "async": true
+            "timeout": 10
           },
           {
             "type": "command",
@@ -26,7 +25,6 @@
 
     "UserPromptSubmit": [
       {
-        "matcher": "again|retry|fix|repeat|no[, ]|I said|wrong|not what|redo|broken|that's not|incorrect|issue",
         "hooks": [
           {
             "type": "command",
@@ -43,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/extract-learnings.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/extract-learnings.sh \"${user_config.knowledge_dir}\"",
             "timeout": 15
           }
         ]

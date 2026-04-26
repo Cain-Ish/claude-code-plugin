@@ -38,8 +38,15 @@ if [ "$EVIDENCE_COUNT" -lt 1 ]; then
   exit 1
 fi
 
-# Validate each evidence entry has required fields and exists in friction log
+# Validate each evidence entry has required fields and exists in friction log.
+# Also collect distinct sessions/timestamps so we can require independent evidence
+# (not the same incident cited twice).
 VERIFIED=0
+DISTINCT_SESSIONS=$(jq -r '[.evidence[] | .session_id] | map(select(. != null and . != "")) | unique | length' "$PROPOSAL" 2>/dev/null)
+DISTINCT_TIMESTAMPS=$(jq -r '[.evidence[] | .timestamp] | map(select(. != null and . != "")) | unique | length' "$PROPOSAL" 2>/dev/null)
+DISTINCT_SESSIONS=${DISTINCT_SESSIONS:-0}
+DISTINCT_TIMESTAMPS=${DISTINCT_TIMESTAMPS:-0}
+
 for i in $(seq 0 $((EVIDENCE_COUNT - 1))); do
   TYPE=$(jq -r ".evidence[$i].type // \"\"" "$PROPOSAL")
   TIMESTAMP=$(jq -r ".evidence[$i].timestamp // \"\"" "$PROPOSAL")
@@ -51,9 +58,9 @@ for i in $(seq 0 $((EVIDENCE_COUNT - 1))); do
     continue
   fi
 
-  # Verify this evidence exists in friction log
+  # Verify this evidence exists in friction log via structured field match
   if [ -f "$FRICTION_LOG" ]; then
-    if grep -q "$TIMESTAMP" "$FRICTION_LOG" 2>/dev/null; then
+    if jq -se --arg t "$TIMESTAMP" 'any(.[]; .timestamp == $t)' "$FRICTION_LOG" >/dev/null 2>&1; then
       VERIFIED=$((VERIFIED + 1))
     else
       echo "WARN: evidence[$i] timestamp '$TIMESTAMP' not found in friction log — may be from learnings.md"
@@ -61,9 +68,12 @@ for i in $(seq 0 $((EVIDENCE_COUNT - 1))); do
   fi
 done
 
-# Check recurrence: need 2+ evidence entries
+# Check recurrence: need 2+ evidence entries from distinct sessions OR distinct timestamps
 if [ "$EVIDENCE_COUNT" -lt 2 ]; then
   echo "FAIL: only $EVIDENCE_COUNT evidence entry — need 2+ to prove recurrence"
+  ERRORS=$((ERRORS + 1))
+elif [ "$DISTINCT_SESSIONS" -lt 2 ] && [ "$DISTINCT_TIMESTAMPS" -lt 2 ]; then
+  echo "FAIL: evidence entries are not independent — need 2+ distinct sessions or distinct timestamps (got $DISTINCT_SESSIONS sessions, $DISTINCT_TIMESTAMPS timestamps)"
   ERRORS=$((ERRORS + 1))
 fi
 
@@ -74,8 +84,15 @@ if [ "$CHANGES_COUNT" -lt 1 ]; then
   ERRORS=$((ERRORS + 1))
 fi
 
-# Validate each change targets a file inside the plugin
+# Validate each change targets a file inside the plugin.
+# Normalize paths so backslashes/forward-slashes both work on Windows + Unix.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+norm_path() {
+  # Lowercase the drive letter (Windows), convert backslashes to forward slashes, strip trailing slash
+  printf '%s' "$1" | sed -e 's|\\|/|g' -e 's|^\([A-Za-z]\):|\L\1:|' -e 's|/*$||'
+}
+PLUGIN_ROOT_NORM=$(norm_path "$PLUGIN_ROOT")
+
 for i in $(seq 0 $((CHANGES_COUNT - 1))); do
   FILE=$(jq -r ".changes[$i].file // \"\"" "$PROPOSAL")
   ACTION=$(jq -r ".changes[$i].action // \"\"" "$PROPOSAL")
@@ -86,9 +103,10 @@ for i in $(seq 0 $((CHANGES_COUNT - 1))); do
     continue
   fi
 
-  # Block changes outside plugin root
-  case "$FILE" in
-    "$PLUGIN_ROOT"*) ;;
+  # Block changes outside plugin root (normalized comparison)
+  FILE_NORM=$(norm_path "$FILE")
+  case "$FILE_NORM" in
+    "$PLUGIN_ROOT_NORM"/*|"$PLUGIN_ROOT_NORM") ;;
     *)
       echo "FAIL: changes[$i] targets '$FILE' which is outside plugin root"
       ERRORS=$((ERRORS + 1))

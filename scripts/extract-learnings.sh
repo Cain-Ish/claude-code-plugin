@@ -4,7 +4,10 @@
 # The actual reflection (LLM analysis) happens at next SessionStart.
 
 BRAIN_DIR="$HOME/.second-brain"
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+KNOWLEDGE_DIR="$1"
+case "$KNOWLEDGE_DIR" in
+  ""|*'${user_config.'*) KNOWLEDGE_DIR="$HOME/knowledge" ;;
+esac
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 
 mkdir -p "$BRAIN_DIR"
@@ -31,16 +34,18 @@ if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   exit 0
 fi
 
-# Count turns to skip trivial sessions (< 3 user messages)
-USER_TURNS=$(grep -c '"role":"user"' "$TRANSCRIPT_PATH" 2>/dev/null || echo "0")
+# Count turns via jq — avoids false positives from assistant messages quoting "role":"user"
+USER_TURNS=$(jq -r 'select(.role=="user") | .role' "$TRANSCRIPT_PATH" 2>/dev/null | wc -l | tr -d ' ')
+USER_TURNS=${USER_TURNS:-0}
 if [ "$USER_TURNS" -lt 3 ]; then
   exit 0
 fi
 
-# Check friction log for this session
+# Friction count for this session — match the structured field, not substring
 FRICTION_COUNT=0
 if [ -f "$BRAIN_DIR/friction-log.jsonl" ]; then
-  FRICTION_COUNT=$(grep -c "$SESSION_ID" "$BRAIN_DIR/friction-log.jsonl" 2>/dev/null || echo "0")
+  FRICTION_COUNT=$(jq -s --arg s "$SESSION_ID" '[.[] | select(.session_id == $s)] | length' "$BRAIN_DIR/friction-log.jsonl" 2>/dev/null)
+  FRICTION_COUNT=${FRICTION_COUNT:-0}
 fi
 
 # Write session metadata
@@ -64,8 +69,20 @@ if [ "$AUTO_IMPROVE" = "true" ]; then
   fi
 
   LEARNINGS_SINCE=0
-  if [ -n "$LAST_IMPROVE_DATE" ] && [ -f "$BRAIN_DIR/learnings.md" ]; then
-    LEARNINGS_SINCE=$(grep -c "## \[" "$BRAIN_DIR/learnings.md" 2>/dev/null || echo "0")
+  if [ -f "$BRAIN_DIR/learnings.md" ]; then
+    if [ -n "$LAST_IMPROVE_DATE" ]; then
+      # Count headers strictly newer than LAST_IMPROVE_DATE (lexicographic works for YYYY-MM-DD)
+      LEARNINGS_SINCE=$(awk -v cutoff="$LAST_IMPROVE_DATE" '
+        match($0, /^## \[([0-9]{4}-[0-9]{2}-[0-9]{2})\]/, m) {
+          if (m[1] > cutoff) c++
+        }
+        END { print c+0 }
+      ' "$BRAIN_DIR/learnings.md" 2>/dev/null)
+    else
+      # Never improved before — count all
+      LEARNINGS_SINCE=$(grep -c "^## \[" "$BRAIN_DIR/learnings.md" 2>/dev/null)
+    fi
+    LEARNINGS_SINCE=${LEARNINGS_SINCE:-0}
   fi
 
   if [ "$FRICTION_COUNT" -ge 2 ] || [ "$LEARNINGS_SINCE" -ge 3 ] || [ -z "$LAST_IMPROVE_DATE" ]; then

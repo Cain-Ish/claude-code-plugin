@@ -4,10 +4,21 @@ import { z } from "zod";
 import { embed } from "./embeddings.js";
 import { VectorDB, type WikiPage } from "./vectordb.js";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { glob } from "glob";
 
-const KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || path.join(process.env.HOME || "~", "knowledge");
+function resolveKnowledgeDir(): string {
+  const raw = process.env.KNOWLEDGE_DIR;
+  // Skip unsubstituted placeholders like literal "${user_config.knowledge_dir}"
+  if (raw && raw.trim() && !raw.includes("${")) {
+    const expanded = raw.startsWith("~") ? path.join(os.homedir(), raw.slice(1)) : raw;
+    return expanded;
+  }
+  return path.join(os.homedir(), "knowledge");
+}
+
+const KNOWLEDGE_DIR = resolveKnowledgeDir();
 
 const server = new McpServer(
   { name: "knowledge-base", version: "0.1.0" },
@@ -170,6 +181,8 @@ server.registerTool(
         }
       }
 
+      // Persist the batch of upserts in one atomic write.
+      vectordb.flush();
       const removed = vectordb.removeStale(existingPaths);
 
       return {

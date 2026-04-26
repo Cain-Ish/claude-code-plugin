@@ -1,8 +1,13 @@
 #!/bin/bash
 # Silently ensure knowledge directory and learning state directories exist.
 # Runs at SessionStart — must be fast and silent.
+# $1: knowledge dir, passed by hooks.json as ${user_config.knowledge_dir}.
+# Falls back to ~/knowledge if empty or substitution unsupported by host.
 
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+KNOWLEDGE_DIR="$1"
+case "$KNOWLEDGE_DIR" in
+  ""|*'${user_config.'*) KNOWLEDGE_DIR="$HOME/knowledge" ;;
+esac
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 
 BRAIN_DIR="$HOME/.second-brain"

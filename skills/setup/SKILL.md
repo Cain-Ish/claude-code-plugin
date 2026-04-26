@@ -3,7 +3,7 @@ name: setup
 description: Initialize the Second Brain knowledge base and learning state. Run once after installing the plugin, or anytime to verify the directory structure.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Bash(mkdir *) Bash(cat *) Bash(ls *) Bash(test *) Read
+allowed-tools: Bash(mkdir *) Bash(cat *) Bash(ls *) Bash(test *) Bash(bash *) Read
 ---
 
 # Second Brain Setup

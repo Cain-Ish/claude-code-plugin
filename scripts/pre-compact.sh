@@ -20,12 +20,14 @@ fi
 
 USER_TURNS=0
 if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
-  USER_TURNS=$(grep -c '"role":"user"' "$TRANSCRIPT_PATH" 2>/dev/null || echo "0")
+  USER_TURNS=$(jq -r 'select(.role=="user") | .role' "$TRANSCRIPT_PATH" 2>/dev/null | wc -l | tr -d ' ')
+  USER_TURNS=${USER_TURNS:-0}
 fi
 
 FRICTION_COUNT=0
 if [ -f "$BRAIN_DIR/friction-log.jsonl" ]; then
-  FRICTION_COUNT=$(grep -c "$SESSION_ID" "$BRAIN_DIR/friction-log.jsonl" 2>/dev/null || echo "0")
+  FRICTION_COUNT=$(jq -s --arg s "$SESSION_ID" '[.[] | select(.session_id == $s)] | length' "$BRAIN_DIR/friction-log.jsonl" 2>/dev/null)
+  FRICTION_COUNT=${FRICTION_COUNT:-0}
 fi
 
 if [ "$USER_TURNS" -ge 3 ]; then

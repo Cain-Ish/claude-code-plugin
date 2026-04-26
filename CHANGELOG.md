@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.3.6 (2026-04-27)
+
+### Fixed
+
+- **`userConfig.knowledge_dir` was dead** — shell hooks read a non-existent env var (`CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR`). Now passed as `$1` from `hooks.json` via `${user_config.knowledge_dir}` substitution with a graceful fallback.
+- **`UserPromptSubmit` matcher silently ignored** — the regex matcher in `hooks.json` was a no-op per Claude Code spec, meaning *every* user prompt was logged to `friction-log.jsonl`. Gate moved inside `log-friction.sh`; only friction-shaped prompts are now logged.
+- **SessionStart race** — `discover-tools.sh` was `async: true` while `session-load.sh` referenced its output. Removed `async`; `session-load.sh` also now omits the tool-registry line when the file isn't there yet.
+- **SessionStart matcher `"*"`** replaced with documented `startup|resume|clear|compact`.
+- **`extract-learnings.sh` LEARNINGS_SINCE** ignored its date filter — fixed to count only headers newer than `.last-plugin-improve`.
+- **USER_TURNS** now counted via `jq` (no false positives from assistant messages quoting `"role":"user"`).
+- **Friction count** now matched on the structured `session_id` field via `jq`, not substring grep.
+- **Auto-improve branch name** includes `HHMMSS` so same-day runs don't collide.
+- **`validate-proposal.sh` Windows path normalization** — backslashes and drive-letter casing handled.
+- **Distinct-evidence gate** — proposals now require 2+ entries from distinct sessions or timestamps (not the same incident cited twice).
+- **`validate-plugin.sh` shell-injection hardened** — event names from hooks.json now read via `while IFS= read`, never word-split.
+- **MCP server `KNOWLEDGE_DIR`** — uses `os.homedir()`, expands leading `~`, ignores unsubstituted placeholders.
+
+### Changed
+
+- **Friction log rotation** — capped at 5000 lines, keeping the most recent half.
+- **`log-friction.sh` JSON build** uses `jq -nc` so embedded quotes/newlines/control chars stay valid JSON.
+- **Vector store batched flush** — `force` reindex now writes once at the end instead of N times.
+- Removed dead `embedBatch` helper.
+- `validate-plugin.sh` now warns when `SessionStart` matcher is outside the documented set.
+- `improve` skill `allowed-tools` narrowed: replaced wildcard `Bash(git *)` with the specific git subcommands the flow needs.
+- `setup` skill `allowed-tools` adds `Bash(bash *)` so the documented `bash …/ensure-dirs.sh` actually runs.
+- `knowledge-maintainer` agent `maxTurns: 30 → 15`.
+- `.gitignore` cleaned up (removed nonsense `~/knowledge/` line).
+
+### Added
+
+- `tests/test-validate-proposal.sh` — fixture-based smoke test for the proposal validator.
+
+## 0.3.5 (2026-04-26)
+
+### Added
+
+- **Evidence-based proposal gate** for plugin self-improvement — `scripts/validate-proposal.sh` requires 2+ cited friction entries before any plugin change is accepted.
+
+## 0.3.4 (2026-04-26)
+
+### Added
+
+- **Auto-improve toggle** — `~/.second-brain/config.json` now seeds `{"auto_improve": false}`. When enabled, the plugin writes a structured proposal, validates it, applies changes, and opens a PR — no direct pushes to main.
+- **Wiki curation on pending reflection** — `session-load.sh` instructs the `knowledge-maintainer` agent to merge duplicates, fix broken wiki-links, and update cross-references.
+
 ## 0.3.3 (2026-04-24)
 
 ### Added

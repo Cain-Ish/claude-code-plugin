@@ -8,7 +8,7 @@ A Claude Code plugin that automatically gets smarter with every session. It lear
 The plugin automatically analyzes each session, extracts learnings from successes and failures, and stores them for future reference. No manual trigger needed — reflection happens automatically between sessions.
 
 ### 2. Dynamic Tool Discovery
-At session start, the plugin discovers all installed MCP tools and plugins. The main session and all skills automatically adapt to use whatever tools are available — Context7, episodic memory, web search, or any custom MCP servers.
+At session start, the plugin enumerates the names of installed MCP servers (from your Claude Code settings and plugin caches) and writes them to `~/.second-brain/tool-registry.json`. Skills check this registry and prefer matching servers when present — Context7 for docs, custom memory servers, etc. It is a server-name index, not a tool-level capability map.
 
 ### 3. Local Second Brain
 A Karpathy-inspired LLM-maintained wiki with semantic search. Ingest articles, papers, and notes — the plugin creates structured wiki pages with cross-references. Session insights are automatically added to the wiki. All knowledge stays on your machine.
@@ -21,11 +21,15 @@ Claude thinks and acts like a senior human developer. It analyzes what you *actu
 
 ## Installation
 
-```bash
-claude plugin add second-brain
+In Claude Code, add the marketplace then install the plugin:
+
+```
+/plugin marketplace add Cain-Ish/claude-code-plugin
+/plugin install second-brain@second-brain
 ```
 
 First run:
+
 ```
 /second-brain:setup
 ```
@@ -54,14 +58,20 @@ cd mcp && npm install && npm run build
 
 ## Privacy
 
-**Hard rule: all knowledge stays local. Nothing is synced, pushed, or shared externally.**
+**Hard rule: all knowledge stays local. Nothing is synced, pushed, or shared externally by the core plugin.**
 
 - Plugin code (shareable via marketplace): zero user data
 - Knowledge base (`~/knowledge/`): completely local, never synced
 - Learning state (`~/.second-brain/`): completely local, never synced
 - Embeddings: generated locally via ONNX Runtime in Node.js
-- No telemetry, no cloud services, no API calls for core functionality
-- `.nosync` marker files are created automatically to prevent iCloud sync
+- No telemetry, no cloud services, no API calls for the core knowledge base
+- `.nosync` marker files are created on macOS to prevent iCloud sync (no-op on Windows/Linux — sync providers there have their own ignore mechanisms)
+
+### What does talk to the network
+
+- **Friction logging.** Prompts that look like corrections (e.g. "fix", "no, …", "wrong", "again") are appended to `~/.second-brain/friction-log.jsonl` with timestamp and prompt text. The file stays on your machine — but be aware it's a record of what you said when you were unhappy with the assistant. Wipe with `: > ~/.second-brain/friction-log.jsonl`. Other prompts are not logged.
+- **Auto-improve (opt-in via `~/.second-brain/config.json` → `"auto_improve": true`).** When enabled, the plugin will branch, commit, push, and call `gh pr create` against your fork on GitHub. This *does* leave your machine. Default is off.
+- **First MCP server start** downloads the embedding model (`Xenova/all-MiniLM-L6-v2`) from HuggingFace into the transformers cache. Subsequent runs are offline.
 
 ### Obsidian Users
 

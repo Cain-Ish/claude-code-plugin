@@ -3,7 +3,7 @@ name: improve
 description: Deep analysis of the current or most recent session. Categorizes signals (positive, negative, neutral), identifies learning opportunities, and proposes improvements to skills, quality rules, and knowledge base entries. Use for manual deep-dive — automatic learning happens via hooks.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Write Edit Bash(cat *) Bash(grep *) Bash(find *) Bash(ls *) Bash(wc *) Bash(jq *) Bash(bash *) Bash(chmod *) Bash(git *) WebSearch WebFetch mcp__knowledge-base__knowledge_search mcp__knowledge-base__knowledge_index mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
+allowed-tools: Read Write Edit Bash(cat *) Bash(grep *) Bash(find *) Bash(ls *) Bash(wc *) Bash(jq *) Bash(bash *) Bash(git checkout:*) Bash(git add:*) Bash(git commit:*) Bash(git push:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(gh pr create:*) WebSearch WebFetch mcp__knowledge-base__knowledge_search mcp__knowledge-base__knowledge_index mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
 ---
 
 # Deep Session Analysis

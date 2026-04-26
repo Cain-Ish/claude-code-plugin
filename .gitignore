@@ -1,10 +1,9 @@
 # User knowledge — NEVER committed
 knowledge/
-~/knowledge/
 
-# Plugin learning state — local only
+# Plugin learning state — local only (legacy + current names)
 .claude-companion/
-~/.claude-companion/
+.second-brain/
 
 # Plugin data directory (managed by Claude Code)
 .claude-plugin-data/

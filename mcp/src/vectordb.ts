@@ -48,6 +48,7 @@ function cosineSimilarity(a: Float32Array, b: number[]): number {
 export class VectorDB {
   private storePath: string;
   private store: VectorStore;
+  private dirty = false;
 
   constructor(knowledgeDir: string) {
     const dbDir = path.join(knowledgeDir, ".embeddings");
@@ -68,10 +69,16 @@ export class VectorDB {
     return { version: 1, entries: [] };
   }
 
-  private save(): void {
+  private writeStore(): void {
     const tmpPath = this.storePath + ".tmp";
     fs.writeFileSync(tmpPath, JSON.stringify(this.store), "utf-8");
     fs.renameSync(tmpPath, this.storePath);
+    this.dirty = false;
+  }
+
+  /** Persist any pending writes. Call after a batch of upsertPage(). */
+  flush(): void {
+    if (this.dirty) this.writeStore();
   }
 
   isIndexed(filePath: string, lastModified: number): boolean {
@@ -97,7 +104,8 @@ export class VectorDB {
       this.store.entries.push(entry);
     }
 
-    this.save();
+    // Defer the write — caller must invoke flush() to persist a batch.
+    this.dirty = true;
   }
 
   search(queryEmbedding: Float32Array, limit: number = 5, category?: string): SearchResult[] {
@@ -142,7 +150,7 @@ export class VectorDB {
     const before = this.store.entries.length;
     this.store.entries = this.store.entries.filter((e) => existingPaths.has(e.path));
     const removed = before - this.store.entries.length;
-    if (removed > 0) this.save();
+    if (removed > 0) this.writeStore();
     return removed;
   }
 }

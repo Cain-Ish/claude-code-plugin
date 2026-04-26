@@ -13,25 +13,48 @@ if [ -f "$HOOKS" ]; then
     echo "FAIL: hooks.json is not valid JSON"
     ERRORS=$((ERRORS + 1))
   else
-    for event in $(jq -r '.hooks | keys[]' "$HOOKS" 2>/dev/null); do
-      count=$(jq -r ".hooks.\"$event\" | length" "$HOOKS" 2>/dev/null)
+    # Iterate via while-read with --arg to safely handle event names that
+    # contain whitespace or shell metacharacters (a malicious self-PR could
+    # insert one). UserPromptSubmit and a few others don't support matchers
+    # per the Claude Code spec, so don't require it for those.
+    NO_MATCHER_EVENTS="UserPromptSubmit Notification SessionEnd"
+    SESSION_START_MATCHERS="startup|resume|clear|compact"
+
+    while IFS= read -r event; do
+      [ -z "$event" ] && continue
+      count=$(jq -r --arg e "$event" '.hooks[$e] | length' "$HOOKS" 2>/dev/null)
+      [ -z "$count" ] || [ "$count" = "null" ] && continue
       for i in $(seq 0 $((count - 1))); do
-        if ! jq -e ".hooks.\"$event\"[$i].matcher" "$HOOKS" >/dev/null 2>&1; then
-          echo "FAIL: hooks.json $event[$i] missing 'matcher'"
-          ERRORS=$((ERRORS + 1))
-        fi
-        if ! jq -e ".hooks.\"$event\"[$i].hooks | length > 0" "$HOOKS" >/dev/null 2>&1; then
+        case " $NO_MATCHER_EVENTS " in
+          *" $event "*) : ;;  # matcher optional
+          *)
+            if ! jq -e --arg e "$event" --argjson i "$i" '.hooks[$e][$i].matcher' "$HOOKS" >/dev/null 2>&1; then
+              echo "FAIL: hooks.json $event[$i] missing 'matcher'"
+              ERRORS=$((ERRORS + 1))
+            elif [ "$event" = "SessionStart" ]; then
+              matcher=$(jq -r --arg e "$event" --argjson i "$i" '.hooks[$e][$i].matcher // ""' "$HOOKS" 2>/dev/null)
+              if [ -n "$matcher" ] && ! echo "$matcher" | grep -Eq "^($SESSION_START_MATCHERS)(\|($SESSION_START_MATCHERS))*$"; then
+                echo "WARN: hooks.json SessionStart[$i] matcher '$matcher' is not in the documented set ($SESSION_START_MATCHERS)"
+              fi
+            fi
+            ;;
+        esac
+
+        if ! jq -e --arg e "$event" --argjson i "$i" '.hooks[$e][$i].hooks | length > 0' "$HOOKS" >/dev/null 2>&1; then
           echo "FAIL: hooks.json $event[$i] has empty 'hooks' array"
           ERRORS=$((ERRORS + 1))
+          continue
         fi
-        for j in $(seq 0 $(($(jq -r ".hooks.\"$event\"[$i].hooks | length" "$HOOKS" 2>/dev/null) - 1))); do
-          if ! jq -e ".hooks.\"$event\"[$i].hooks[$j].command" "$HOOKS" >/dev/null 2>&1; then
+
+        hcount=$(jq -r --arg e "$event" --argjson i "$i" '.hooks[$e][$i].hooks | length' "$HOOKS" 2>/dev/null)
+        for j in $(seq 0 $((hcount - 1))); do
+          if ! jq -e --arg e "$event" --argjson i "$i" --argjson j "$j" '.hooks[$e][$i].hooks[$j].command' "$HOOKS" >/dev/null 2>&1; then
             echo "FAIL: hooks.json $event[$i].hooks[$j] missing 'command'"
             ERRORS=$((ERRORS + 1))
           fi
         done
       done
-    done
+    done < <(jq -r '.hooks | keys[]' "$HOOKS" 2>/dev/null)
   fi
 fi
 

@@ -15,22 +15,23 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Collect server names from various config files
 SERVER_NAMES="[]"
 
-for config in "$HOME/.claude/settings.json" "$HOME/.claude/settings.local.json" .claude/settings.json .claude/settings.local.json; do
-  if [ -f "$config" ]; then
-    names=$(jq -r '[.mcpServers // {} | keys[]] // []' "$config" 2>/dev/null)
-    if [ "$names" != "null" ] && [ "$names" != "[]" ]; then
-      SERVER_NAMES=$(echo "$SERVER_NAMES $names" | jq -s '.[0] + .[1] | unique' 2>/dev/null || echo "$SERVER_NAMES")
-    fi
+merge_names() {
+  local file="$1"
+  local names
+  names=$(jq -c '[.mcpServers // {} | keys[]] // []' "$file" 2>/dev/null)
+  if [ -z "$names" ] || [ "$names" = "null" ] || [ "$names" = "[]" ]; then
+    return
   fi
+  SERVER_NAMES=$(jq -nc --argjson a "$SERVER_NAMES" --argjson b "$names" '$a + $b | unique' 2>/dev/null || echo "$SERVER_NAMES")
+}
+
+for config in "$HOME/.claude/settings.json" "$HOME/.claude/settings.local.json" .claude/settings.json .claude/settings.local.json; do
+  [ -f "$config" ] && merge_names "$config"
 done
 
-# Also check plugin MCP files
 if [ -d "$HOME/.claude/plugins/cache" ]; then
   while IFS= read -r mcp_file; do
-    names=$(jq -r '[.mcpServers // {} | keys[]] // []' "$mcp_file" 2>/dev/null)
-    if [ "$names" != "null" ] && [ "$names" != "[]" ]; then
-      SERVER_NAMES=$(echo "$SERVER_NAMES $names" | jq -s '.[0] + .[1] | unique' 2>/dev/null || echo "$SERVER_NAMES")
-    fi
+    merge_names "$mcp_file"
   done < <(find "$HOME/.claude/plugins/cache" -name ".mcp.json" -type f 2>/dev/null)
 fi
 

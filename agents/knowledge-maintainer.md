@@ -2,7 +2,7 @@
 name: knowledge-maintainer
 description: Subagent for bulk wiki maintenance. Use for re-indexing, cross-reference updates, batch linting fixes, and wiki restructuring. Restricted from web tools to stay focused on local wiki work.
 model: sonnet
-maxTurns: 30
+maxTurns: 15
 ---
 
 # Knowledge Maintainer
