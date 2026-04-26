@@ -39,8 +39,10 @@ if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   exit 0
 fi
 
-# Count turns via jq — avoids false positives from assistant messages quoting "role":"user"
-USER_TURNS=$(jq -r 'select(.role=="user") | .role' "$TRANSCRIPT_PATH" 2>/dev/null | wc -l | tr -d ' ')
+# Count actual user prompts. Claude Code transcripts use top-level .type with the role
+# nested under .message.role; tool-result messages also have .type=="user" but their
+# .message.content is an array (vs a string for real prompts). Filter to strings.
+USER_TURNS=$(jq -r 'select(.type=="user" and (.message.content | type == "string")) | .type' "$TRANSCRIPT_PATH" 2>/dev/null | wc -l | tr -d ' ')
 USER_TURNS=${USER_TURNS:-0}
 if [ "$USER_TURNS" -lt 3 ]; then
   exit 0

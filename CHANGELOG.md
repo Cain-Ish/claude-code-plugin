@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.10 (2026-04-27)
+
+Two bugs that together produced the worst failure mode: a healthy-looking install where every persistent pipeline silently does nothing.
+
+### Fixed
+
+- **Silent jq-missing failure surfaced as a loud preflight error.** Every hook script (`log-friction.sh`, `extract-learnings.sh`, `pre-compact.sh`, `discover-tools.sh`) parses hook stdin with `jq`. When `jq` isn't on PATH (common on Windows), each script's first jq call returned an empty string and the script exited gracefully — friction-log stayed empty, no `.pending-reflection.json` was ever written, no learnings extracted. `session-load.sh` now does a `command -v jq` preflight at the top of its SessionStart output and emits a clear `SECOND BRAIN PREFLIGHT FAILURE` banner with per-OS install commands when jq is missing. The remaining load instructions still emit so in-session behavior is unaffected, but the user knows immediately why the persistent pipeline isn't working.
+- **`extract-learnings.sh` and `pre-compact.sh` user-turn counter always returned 0.** Both used `select(.role=="user")` against the transcript JSONL, but Claude Code's transcript schema puts the role at `.message.role` and the record kind at top-level `.type`. With 0 user turns, `extract-learnings.sh` would short-circuit at `[ "$USER_TURNS" -lt 3 ]` and never write `.pending-reflection.json` — meaning the SessionStart "process pending reflection" branch never fired and no wiki sessions/learnings pages were ever created, regardless of how much real work happened. Both scripts now use `select(.type=="user" and (.message.content | type == "string"))` which counts actual user prompts (string content) and excludes tool-result messages (array content).
+
+### Notes
+
+- 0.3.9 and earlier appear healthy: `~/.second-brain/` is populated with persona/quality-rules/learnings, `~/knowledge/wiki/` has the right subdirectories, and SessionStart instructions inject correctly. But on systems without `jq`, *or* on any system at all because of the user-turn filter bug, the reflection→learning→wiki pipeline silently produces nothing. Update to 0.3.10 to surface the dependency error and fix the filter.
+- Existing seed files are not touched on upgrade. Past sessions are not retroactively reflected on (the transcripts are still on disk; running `extract-learnings.sh` manually with the right input would extract them, but the plugin doesn't do that automatically).
+
 ## 0.3.9 (2026-04-27)
 
 Follow-up to 0.3.8: cleans up the remaining `${user_config.knowledge_dir}` references in skill markdown prose. These weren't in bash blocks (so they didn't trigger the "bad substitution" error), but they were in instructions like *"create at `${user_config.knowledge_dir}/wiki/sources/`"* — when Claude reads that, it might use the literal placeholder as a path and fail at Write time, or substitute it inconsistently.

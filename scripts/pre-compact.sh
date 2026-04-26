@@ -20,7 +20,10 @@ fi
 
 USER_TURNS=0
 if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
-  USER_TURNS=$(jq -r 'select(.role=="user") | .role' "$TRANSCRIPT_PATH" 2>/dev/null | wc -l | tr -d ' ')
+  # Claude Code transcripts use top-level .type with role nested under .message.role.
+  # Tool-result messages also have .type=="user" but .message.content is an array
+  # (vs a string for real prompts) — filter to strings to count actual prompts.
+  USER_TURNS=$(jq -r 'select(.type=="user" and (.message.content | type == "string")) | .type' "$TRANSCRIPT_PATH" 2>/dev/null | wc -l | tr -d ' ')
   USER_TURNS=${USER_TURNS:-0}
 fi
 

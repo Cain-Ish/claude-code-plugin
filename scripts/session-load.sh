@@ -4,6 +4,34 @@
 
 BRAIN_DIR="$HOME/.second-brain"
 
+# Preflight: jq is a hard runtime dependency. Every other hook (log-friction,
+# extract-learnings, pre-compact, discover-tools) parses JSON via jq; without
+# it they exit silently and the user sees an empty knowledge base with no
+# explanation. Surface this loudly at session start so the failure is
+# diagnosable instead of invisible.
+if ! command -v jq >/dev/null 2>&1; then
+  cat << 'PREFLIGHT'
+SECOND BRAIN PREFLIGHT FAILURE — `jq` is not on PATH.
+
+The second-brain plugin requires `jq` to parse hook input. Without it, these
+silently do nothing:
+- friction logging (UserPromptSubmit)
+- session reflection extraction (Stop)
+- pre-compact reflection (PreCompact)
+- MCP tool discovery (SessionStart)
+
+Install `jq`, then restart Claude Code so the new PATH is picked up:
+- macOS:    brew install jq
+- Linux:    apt install jq    # or: dnf install jq
+- Windows:  winget install jqlang.jq
+
+Until `jq` is installed, no automatic learning will happen. The instructions
+below still apply for in-session behavior, but the persistent pipeline is
+disabled.
+
+PREFLIGHT
+fi
+
 # Only mention tool-registry.json if discover-tools.sh has produced it. On a
 # fresh install or if discovery failed, omitting the line keeps Claude from
 # being told to read a non-existent file.
