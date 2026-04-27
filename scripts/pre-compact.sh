@@ -47,12 +47,14 @@ if [ "$USER_TURNS" -ge 3 ]; then
   REFLECTION_SAVED=true
 fi
 
-if [ "$REFLECTION_SAVED" = "true" ]; then
-  cat << 'EOF'
-CONTEXT COMPACTION IMMINENT - Before this context is compressed, note any key session insights (learnings, decisions, patterns) that should survive compaction. A pending reflection has been saved for post-compaction processing.
+cat << 'EOF'
+CONTEXT COMPACTION IMMINENT — You are about to lose detailed context. Before compaction, save substantive knowledge to disk NOW (you still have full context — after compaction you won't).
+
+Write to ~/knowledge/wiki/ any knowledge from this session that would be lost in a summary:
+- Architecture decisions and rationale → wiki/sessions/YYYY-MM-DD-topic.md
+- New or updated entities (projects, tools, components) → wiki/entities/name.md
+- Design patterns, migration plans, technical debt → appropriate wiki category
+- Update ~/knowledge/index.md if you create new pages
+
+Keep writes focused — only knowledge that isn't already in the wiki or derivable from code. Skip if the session was trivial (simple fixes, Q&A). This is your last chance before context degrades.
 EOF
-else
-  cat << 'EOF'
-CONTEXT COMPACTION IMMINENT - Before this context is compressed, note any key session insights (learnings, decisions, patterns) that should survive compaction.
-EOF
-fi
