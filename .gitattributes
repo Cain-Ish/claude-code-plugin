@@ -1,0 +1,19 @@
+# Force LF line endings for all text files. Without this, Windows clones
+# with default core.autocrlf=true commit CRLF, which breaks bash shebangs
+# and heredoc terminators when run on Linux/macOS.
+* text=auto eol=lf
+
+# Be explicit for the file types that matter.
+*.sh        text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.js        text eol=lf
+*.ts        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# Binaries: leave alone.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.pdf       binary

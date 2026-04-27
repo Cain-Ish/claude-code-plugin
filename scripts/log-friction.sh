@@ -22,27 +22,42 @@ if [ -z "$PROMPT" ]; then
   exit 0
 fi
 
-FRICTION_TYPE=""
+SIGNAL_TYPE=""
+DIRECTION=""
+
+# Negative signals (friction) — checked first so a mixed prompt like
+# "no wait actually that's perfect" classifies as friction (the user is
+# course-correcting, not praising).
 if echo "$PROMPT" | grep -Eqi 'again|retry|redo|repeat'; then
-  FRICTION_TYPE="retry"
+  SIGNAL_TYPE="retry"; DIRECTION="negative"
 elif echo "$PROMPT" | grep -Eqi 'no[, ]|wrong|not what|i said|that.s not|incorrect'; then
-  FRICTION_TYPE="rejection"
+  SIGNAL_TYPE="rejection"; DIRECTION="negative"
 elif echo "$PROMPT" | grep -Eqi 'fix|bug|broken|error|issue'; then
-  FRICTION_TYPE="fix_request"
+  SIGNAL_TYPE="fix_request"; DIRECTION="negative"
+
+# Positive signals — only matched when no negative pattern fired. High-precision
+# only: short standalone praise/acceptance, not generic "ok let me check".
+elif echo "$PROMPT" | grep -Eqi '^[[:space:]]*(perfect|exactly|thanks|thank you|nice|great work|works|works perfectly|love it|brilliant)[[:space:]!.,]*$'; then
+  SIGNAL_TYPE="praise"; DIRECTION="positive"
+elif echo "$PROMPT" | grep -Eqi '^[[:space:]]*(ok|okay|yes|yep|good|sounds good|sgtm|lgtm)[[:space:]!.,]*$'; then
+  SIGNAL_TYPE="acceptance"; DIRECTION="positive"
 fi
 
-# No friction match → don't log (privacy: avoids storing every user prompt)
-if [ -z "$FRICTION_TYPE" ]; then
+# No signal match → don't log (privacy: avoids storing every user prompt)
+if [ -z "$SIGNAL_TYPE" ]; then
   exit 0
 fi
 
-# Build the log line via jq so embedded quotes/newlines/control chars stay valid JSON
+# Build the log line via jq so embedded quotes/newlines/control chars stay valid JSON.
+# `type` is preserved for backward compat; `direction` is the new field that
+# extract-learnings.sh and improve.SKILL.md use to count friction vs. positive.
 jq -nc \
   --arg t "$TIMESTAMP" \
   --arg s "$SESSION_ID" \
-  --arg ty "$FRICTION_TYPE" \
+  --arg ty "$SIGNAL_TYPE" \
+  --arg d "$DIRECTION" \
   --arg p "$PROMPT" \
-  '{timestamp:$t, session_id:$s, type:$ty, prompt:$p}' >> "$FRICTION_LOG"
+  '{timestamp:$t, session_id:$s, type:$ty, direction:$d, prompt:$p}' >> "$FRICTION_LOG"
 
 # Rotate if log grew too large — keep the most recent half
 if [ -f "$FRICTION_LOG" ]; then

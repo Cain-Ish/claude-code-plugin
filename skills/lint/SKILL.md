@@ -2,7 +2,7 @@
 name: lint
 description: Health-check the knowledge base. Finds orphan pages, dead links, broken wiki-links, stale pages, contradictions, and missing cross-references. Run periodically to maintain wiki quality.
 user-invocable: true
-disable-model-invocation: true
+disable-model-invocation: false
 allowed-tools: Read Write Edit Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(wc *) Bash(date *) mcp__knowledge-base__knowledge_index
 ---
 
@@ -94,6 +94,21 @@ Pages should reflect *current* state, not be layered transcripts. Surface pages 
 - Pages with two clearly contradictory bullet lists in the same section
 
 For each offender, offer to rewrite the body to current state and move the change provenance to a `## History` section per the schema.
+
+### 7c. Past-TTL freshness (new in 0.5.0)
+
+Pages tagged with `Freshness tier:` inherit a TTL: `7d`, `30d`, `90d` are days since `Ingested:`; `live` is 1 day; `permanent` never expires.
+
+For each page with `Freshness tier:` set, compute `(today - Ingested) > TTL`. If true, surface the page with a `[STALE — past <tier> TTL]` flag and offer to:
+- Re-fetch the original source and rewrite the page (preferred for `live`/`7d` tiers)
+- Demote `Freshness tier:` to a longer window if the topic actually stabilized
+- Mark the page `Freshness tier: permanent` if it turned out to be evergreen
+
+Pages without a freshness tier are skipped — they're legacy (pre-0.5.0) and not subject to this check.
+
+### 7d. Low coverage (new in 0.5.0)
+
+Pages tagged `Coverage: low` for >30 days without follow-up sources are stubs that never grew. Surface them with a `[STUB — low coverage, N days old]` flag and offer to either delete or schedule another ingest pass.
 
 ### 7b. Missing History on heavily-revised pages
 

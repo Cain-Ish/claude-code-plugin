@@ -68,6 +68,16 @@ One-line summary of what this source covers.
 - **Author**: [if known]
 - **Date**: [original date if known]
 - **Ingested**: [today's date YYYY-MM-DD]
+- **Coverage**: [high | medium | low]  <!-- how complete is this page? high = comprehensive, low = stub/excerpt -->
+- **Freshness tier**: [live | 7d | 30d | 90d | permanent]  <!-- how often does this need re-checking? -->
+
+<!-- Choosing freshness_tier:
+  live      = breaking / changes hourly (rarely used; API status pages)
+  7d        = fast-moving (API docs, framework releases, market data)
+  30d       = active topic (library best practices, evolving standards)
+  90d       = stable reference (default for most ingests)
+  permanent = mathematical truths, foundational papers, history -->
+
 
 ## Related
 

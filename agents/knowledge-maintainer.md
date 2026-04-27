@@ -1,8 +1,22 @@
 ---
 name: knowledge-maintainer
-description: Subagent for bulk wiki maintenance. Use for re-indexing, cross-reference updates, batch linting fixes, and wiki restructuring. Restricted from web tools to stay focused on local wiki work.
+description: |
+  Subagent for bulk wiki maintenance: re-indexing, cross-reference updates, batch lint fixes, wiki restructuring. Restricted from web tools to stay focused on local wiki work.
+
+  <example>
+  Context: User just ran /second-brain:improve which created several new wiki/learnings/ entries.
+  user: "those new learnings need to be linked into the entity pages"
+  assistant: "I'll dispatch the knowledge-maintainer agent to scan the new learnings, identify entities they touch, and add cross-references."
+  </example>
+
+  <example>
+  Context: User notices index.md is stale.
+  user: "the index doesn't reflect what's actually in the wiki anymore"
+  assistant: "Let me use the knowledge-maintainer agent to walk the wiki tree and rebuild the index categories from scratch."
+  </example>
 model: sonnet
-maxTurns: 15
+color: blue
+tools: Read, Write, Edit, Glob, Grep, Bash
 ---
 
 # Knowledge Maintainer

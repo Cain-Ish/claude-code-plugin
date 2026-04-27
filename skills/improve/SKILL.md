@@ -3,7 +3,7 @@ name: improve
 description: Deep analysis of the current or most recent session. Categorizes signals (positive, negative, neutral), identifies learning opportunities, and proposes improvements to skills, quality rules, and knowledge base entries. Use for manual deep-dive — automatic learning happens via hooks.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Write Edit Bash(cat *) Bash(grep *) Bash(find *) Bash(ls *) Bash(wc *) Bash(jq *) Bash(bash *) Bash(git checkout:*) Bash(git add:*) Bash(git commit:*) Bash(git push:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(gh pr create:*) WebSearch WebFetch mcp__knowledge-base__knowledge_search mcp__knowledge-base__knowledge_index mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
+allowed-tools: Read Write Edit Agent Bash(cat *) Bash(grep *) Bash(find *) Bash(ls *) Bash(wc *) Bash(jq *) Bash(bash *) Bash(git checkout:*) Bash(git add:*) Bash(git commit:*) Bash(git push:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(gh pr create:*) WebSearch WebFetch mcp__knowledge-base__knowledge_search mcp__knowledge-base__knowledge_index mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
 ---
 
 # Deep Session Analysis
@@ -99,15 +99,69 @@ Cons:
 - [cost or trade-off]
 ```
 
+### 5.5. Adversarial critic gate (REQUIRED before any write)
+
+Same-context judge-and-author causes Iterative Self-Refinement Reward Hacking (ICRH) — your scores rise while quality falls. Every proposed learning **must** pass an asymmetric critic before being written.
+
+For each proposal that passed the balance test in step 4, dispatch a fresh-context subagent:
+
+```
+Use the Agent tool with subagent_type: "second-brain:quality-reviewer"
+(or "general-purpose" if the proposal is non-code).
+
+Prompt the critic with ONLY these inputs (no transcript, no friction log):
+- The proposed learning text
+- The destination file (learnings.md / quality-rules.md / persona.md)
+- One representative example of the friction it claims to address (anonymized)
+- The current contents of the destination file
+
+Ask the critic to score independently:
+1. Is this learning specific enough to be actionable? (yes/no)
+2. Does it actually generalize beyond the single observed incident? (yes/no)
+3. Does it conflict with anything already in the destination file? (yes/no)
+4. Would removing it cause real friction to recur? (yes/no)
+5. **Confidence score** (0.3 = borderline / hold inline only, 0.5–0.69 = surface as suggestion, 0.7+ = auto-apply, 0.9+ = strong evidence). Be conservative — most first-time learnings should land 0.4–0.6. Only repeat-evidence learnings deserve 0.8+.
+6. Final verdict: ACCEPT / REJECT / REVISE
+```
+
+The confidence score gets written into the meta line in step 6. Decay later evicts entries whose confidence stayed low AND went unused.
+
+Only write proposals where the critic returns ACCEPT. If REVISE, apply the critic's suggested revision before writing. If REJECT, drop the proposal silently — do not retry within the same session.
+
+Log every critic verdict (accept/revise/reject + reason) to `~/.second-brain/critic-log.jsonl` so reviewers can audit acceptance rates over time. Use jq to build each line so embedded quotes stay valid JSON:
+
+```bash
+jq -nc \
+  --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg s "$SESSION_ID" \
+  --arg pt "$PROPOSAL_TITLE" \
+  --arg d "$DESTINATION" \
+  --arg v "$VERDICT" \
+  --arg r "$REASON" \
+  '{timestamp:$t, session_id:$s, proposal_title:$pt, destination:$d, verdict:$v, reason:$r}' \
+  >> ~/.second-brain/critic-log.jsonl
+```
+
 ### 6. Apply Accepted Proposals
 
-For learnings the user approves:
+For learnings the user approves AND the critic accepted:
 
-- **learnings.md**: Append under `## [YYYY-MM-DD] Title` with Why section
+- **learnings.md**: Append under `## [YYYY-MM-DD] Title`, then a meta line `<!-- meta: confidence=0.X hits=0 last_used=YYYY-MM-DD -->` (use the critic's confidence score; hits starts at 0; last_used = today), then a blank line, then the Why section. Format must be exact — `scripts/decay-learnings.sh` parses these fields to decide eviction.
 - **quality-rules.md**: Add new bullet under appropriate category
 - **persona.md**: Add anti-pattern or learned preference under the appropriate section
 - **wiki/sessions/**: Create a session insight page in the knowledge base
 - **wiki/learnings/**: For each new entry written to `learnings.md`, also create a wiki mirror at `wiki/learnings/YYYY-MM-DD-short-title.md` with `[[wiki-link]]` cross-references to the entities/concepts it touches and a back-link to the originating session page. This keeps learnings visible as graph nodes in Obsidian.
+- **regressions/** (when feasible): For each accepted learning that can be validated with a one-line probe + regex, write a regression file to `~/.second-brain/regressions/<YYYY-MM-DD-slug>.md` with frontmatter:
+  ```yaml
+  ---
+  learning_slug: 2026-04-27-no-filler-phrases
+  probe: "Hello, how are you today?"
+  expected_pattern: "^(?!.*Certainly!|.*Great question)"
+  forbidden_pattern: "Certainly!|Great question"
+  ---
+  Probe context (optional): anything that grounds the test in a realistic scenario.
+  ```
+  Skip this when the learning isn't probe-amenable (e.g., subjective architectural rules — those need human review, not regex). Without these files, `/second-brain:regress` has nothing to replay; with them, it can verify the lesson still holds session-over-session.
 
 Update index.md and log.md for any wiki changes.
 

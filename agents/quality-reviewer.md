@@ -1,8 +1,21 @@
 ---
 name: quality-reviewer
-description: Subagent for deep code quality review. Goes beyond the automatic quality gate to find architectural issues, performance problems, and subtle bugs. Use when you want a thorough second opinion on code.
+description: |
+  Subagent for deep code quality review and adversarial-critic duties. Goes beyond the automatic quality gate to find architectural issues, performance problems, subtle bugs, and serves as the fresh-context critic in the /second-brain:improve learning pipeline (prevents same-context judge-and-author bias).
+
+  <example>
+  Context: User just finished a non-trivial refactor and wants more than a syntax review.
+  user: "give this a proper second opinion before I merge"
+  assistant: "I'll dispatch the quality-reviewer agent for a deep architectural pass — logic errors, leaky abstractions, edge cases, the works."
+  </example>
+
+  <example>
+  Context: The /second-brain:improve skill has extracted a candidate learning and needs a fresh-context critic to score it.
+  user: [running /second-brain:improve, candidate proposal generated]
+  assistant: "Dispatching quality-reviewer with only the proposal text and destination file (no transcript) to score independently."
+  </example>
 model: sonnet
-maxTurns: 20
+color: yellow
 ---
 
 # Quality Reviewer

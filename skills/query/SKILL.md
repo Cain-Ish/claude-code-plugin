@@ -3,7 +3,7 @@ name: query
 description: Search the knowledge base and synthesize an answer. Uses semantic search (when MCP server is available) and keyword search to find relevant wiki pages, then synthesizes a cited response. Good answers can be filed back as new wiki pages.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Write Edit mcp__knowledge-base__knowledge_search
+allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Write Edit WebSearch WebFetch mcp__knowledge-base__knowledge_search
 argument-hint: "[your question]"
 ---
 
@@ -47,6 +47,20 @@ grep -i "keyword" "$KD/index.md"
 
 Read the top-matching pages fully. Don't just rely on excerpts —
 the full context often contains the answer.
+
+### Step 3.5: Research-on-miss (new in 0.5.0)
+
+If steps 1–3 returned nothing useful (semantic search empty AND keyword search empty AND index has no relevant entry), do not just return "not found." Instead:
+
+1. State briefly: "The knowledge base doesn't cover this. I can research it now and ingest the result so future queries hit cache."
+2. Wait for user confirmation (`yes` / `skip`). Don't research silently — research costs tokens and time, and the user may want to answer from their own knowledge.
+3. On confirmation:
+   - Use `WebSearch` for breadth, then `WebFetch` on the 1–2 most authoritative sources
+   - Synthesize a focused answer grounded in those sources (cite each)
+   - Offer to ingest the synthesis as a new `wiki/sources/<slug>.md` page using the standard ingest template (with `Coverage:` and `Freshness tier:` set appropriately — short tiers for fast-moving topics, longer for stable references)
+4. On skip: return "no wiki coverage; you may want `/second-brain:ingest <url>` for sources you want indexed."
+
+This closes the "miss → silent void → next time same miss" loop.
 
 ### Step 4: Synthesize Answer
 

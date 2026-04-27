@@ -1,0 +1,68 @@
+---
+name: upgrade
+description: Detect installed plugin version vs the version in plugin.json, run idempotent migrations between them, and update the installed-version marker. Safe to run anytime — no-op when already at current version. Use after pulling a new plugin release or when CHANGELOG mentions schema changes.
+user-invocable: true
+disable-model-invocation: false
+allowed-tools: Read Write Edit Bash(cat *) Bash(jq *) Bash(test *) Bash(date *) Bash(grep *) Bash(awk *) Bash(cp *) Bash(mv *) Bash(mkdir *)
+---
+
+# Plugin Upgrade
+
+Idempotent migration runner. Reads the canonical version from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`, compares to `~/.second-brain/.installed-version`, and applies only the migrations between them.
+
+## Steps
+
+### 1. Read both versions
+
+```bash
+CURRENT=$(jq -r '.version' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
+INSTALLED=$(cat ~/.second-brain/.installed-version 2>/dev/null || echo "0.0.0")
+echo "Installed: $INSTALLED -> Current: $CURRENT"
+```
+
+### 2. Decide what to do
+
+- If `$INSTALLED == $CURRENT` -> exit "already up to date"
+- If `$INSTALLED < $CURRENT` -> walk migrations between them
+- If `$INSTALLED > $CURRENT` -> exit with warning ("installed version is newer than plugin.json — did you downgrade?"). Offer to overwrite the marker.
+
+### 3. Migration registry
+
+Each migration is identified by its target version. Run only migrations whose target is `> $INSTALLED AND <= $CURRENT`.
+
+| To version | Migration | Idempotent check |
+|---|---|---|
+| **0.4.0** | Critic-log file is created on first write — nothing to migrate. Drift-log file ditto. | No precondition. |
+| **0.5.0** | learnings.md entries gain `<!-- meta: confidence=X hits=Y last_used=Z -->` lines on next /improve write. Old entries without meta line are kept (decay-learnings.sh treats absent meta as keep-forever). No bulk rewrite required. | `grep -c "^<!-- meta: " ~/.second-brain/learnings.md` — if 0, just record the version. |
+| **0.5.0** | Wiki source pages gain `Coverage:` and `Freshness tier:` fields on next /ingest. Old pages without them skip lint freshness checks. | No bulk migration. |
+| **0.5.0** | `~/.second-brain/regressions/` directory created (empty) so `/second-brain:regress` finds it. | `mkdir -p ~/.second-brain/regressions` |
+
+### 4. Apply migrations
+
+For each applicable migration:
+1. State what it will do
+2. Run the idempotent check
+3. If safe, apply it (with backup if it touches user data)
+4. Report success/failure
+
+### 5. Update marker
+
+```bash
+echo "$CURRENT" > ~/.second-brain/.installed-version
+echo "Upgraded $INSTALLED -> $CURRENT"
+```
+
+### 6. Re-run validation
+
+After migrations, re-run the plugin validator if available:
+```bash
+test -x "${CLAUDE_PLUGIN_ROOT}/scripts/validate-plugin.sh" \
+  && bash "${CLAUDE_PLUGIN_ROOT}/scripts/validate-plugin.sh"
+```
+
+## Notes
+
+- Migrations are intentionally minimal: most schema changes in this plugin are *additive* (new optional fields), so old data continues to work.
+- Never delete or rewrite user data without explicit confirmation. The migration table is "what changed and how" — execution stays cautious.
+- If a migration would be destructive, gate it behind `auto_improve: true` in `~/.second-brain/config.json` or explicit user confirmation.
+- Future major versions (1.0.0+) may require interactive migrations. This skill is the place to add them.

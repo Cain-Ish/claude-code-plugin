@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.5.0 (2026-04-27)
+
+Tier 2 + Tier 3 from the self-evolution audit. Same audit pass, no new research — just executing the punch list. Five new skills, four new scripts, schema additions to learnings.md and wiki source pages, and a hot-tier context budget on SessionStart.
+
+### Added (Tier 2 — close the learning loop)
+
+- **Confidence-scored learnings + decay.** Every entry written to `~/.second-brain/learnings.md` now carries a meta line: `<!-- meta: confidence=0.X hits=N last_used=YYYY-MM-DD -->`. The `/improve` critic gate now asks for and uses this score (0.3 borderline, 0.5–0.69 suggestion, 0.7+ auto-apply, 0.9+ strong). New `scripts/decay-learnings.sh` runs at SessionStart and evicts entries that meet ALL three thresholds: age > 60d AND hits < 2 AND confidence < 0.5. Backs up before any deletion; logs to `~/.second-brain/decay-log.jsonl`. Replaces the binary keep/reject model that affaan-m and naimkatiman both moved away from.
+- **Positive signal capture.** `log-friction.sh` now classifies prompts as `direction: positive | negative` instead of friction-only. Two new positive types: `praise` ("perfect", "thanks", "exactly") and `acceptance` ("ok", "yes", "lgtm"). Negative-pattern check still runs first so mixed prompts ("no wait that's perfect") classify as friction. `extract-learnings.sh` filters on `direction != "positive"` for the friction count, computes a separate `positive_signals` count, and emits a `first_try_success` boolean (true when `friction_count == 0` AND `user_turns >= 3`) into both session metadata and pending-reflection.
+- **`/second-brain:regress` skill.** Replays one-line probes from `~/.second-brain/regressions/<learning-slug>.md` against fresh-context subagents, scores against `expected_pattern` / `forbidden_pattern` regexes, logs results to `.results.jsonl`, and reports 30-day pass-rate trend per probe. Catches "the model started doing X again" silently. Anthropic's eval-driven dev recommendation, finally implementable.
+- **Wiki coverage + freshness tags.** Source pages get two new fields under `## Source`: `Coverage: high|medium|low` and `Freshness tier: live|7d|30d|90d|permanent`. `/second-brain:lint` gains step 7c (past-TTL freshness — flag pages where `today - Ingested > tier days`) and step 7d (low coverage stale stubs). Pages without these fields (legacy) are skipped.
+- **Research-on-miss in `/query`.** When semantic + keyword search return nothing, the skill no longer just says "not found." It offers to web-research and ingest the result as a new wiki source. Gated on user confirmation (research costs tokens). Adds `WebSearch` and `WebFetch` to the skill's allowed-tools.
+
+### Added (Tier 3 — strategic evolution)
+
+- **Importance-triggered reflection.** `extract-learnings.sh` now writes a `priority: high | normal` flag and a `drift_count` field into `.pending-reflection.json`. Priority is `high` when `friction_count >= 5` OR `drift_count >= 3`. `session-load.sh` surfaces a `HIGH-PRIORITY REFLECTION QUEUED` banner at the top of its SessionStart output when this fires, telling Claude to process the reflection BEFORE responding to the user's first message. Mirrors the importance-sum trigger from Generative Agents (Park 2023).
+- **Hot/warm/cold context budget.** New `scripts/budget-context.sh` scores each learning by `confidence × (1 - days_since_last_used / 180)` and emits only the top entries that fit `SECOND_BRAIN_HOT_BUDGET` chars (default 16000 ≈ 4k tokens). `session-load.sh` regenerates `~/.second-brain/.learnings-hot.md` at every SessionStart and points Claude there instead of the full file. Demoted entries stay in `learnings.md` and are retrievable via `/second-brain:query`. Stops the unbounded-injection trap.
+- **`/second-brain:upgrade` skill.** Idempotent migration runner. Reads `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` vs `~/.second-brain/.installed-version`, applies only the migrations between them. Migration table is inline; current entries cover 0.4.0 (additive) and 0.5.0 (additive — meta lines, coverage/freshness fields, regressions/ dir).
+- **`/second-brain:graph` skill + `scripts/compile-graph.sh`.** Compiles a typed link graph from inline `graph:` blocks (`{relation: depends_on, target: <slug>, evidence: "..."}`) and untyped `[[wiki-links]]` (relation `links_to`) into `~/knowledge/.graph/edges.jsonl` and `nodes.jsonl`. Skill supports `rebuild`, `neighbors <slug>`, `path <from> <to>`, `by-relation <relation>`. praneybehl's pattern.
+- **`/second-brain:import-host` skill.** Bootstrap import from existing AI-context files: `~/CLAUDE.md`, `~/AGENTS.md`, `~/.cursorrules`, `~/.claude/CLAUDE.md`, `~/.claude/instructions.md`, plus repo-local equivalents under the current `git rev-parse --show-toplevel`. Three import paths per file: wiki source (default safe), persona merge (critic-gated), quality-rules merge (critic-gated). Logs to `~/.second-brain/import-log.jsonl`. Closes the "plugin installed but I already wrote my rules elsewhere" gap. strvmarv's host-importer pattern.
+
+### Changed
+
+- **`session-load.sh` SessionStart output** now references `~/.second-brain/.learnings-hot.md` instead of `~/.second-brain/learnings.md` directly, with an inline note that the full file is retrievable via `/second-brain:query`. Falls back to the full file when budget-context.sh isn't available.
+- **`improve/SKILL.md` step 5.5 (critic gate)** now asks the critic for a confidence score (0.3–0.9), not just ACCEPT/REVISE/REJECT. Score is written into the meta line in step 6.
+
+### Notes
+
+- All new files (`drift-log.jsonl`, `critic-log.jsonl`, `decay-log.jsonl`, `import-log.jsonl`, `regressions/`, `.graph/`, `.installed-version`, `.learnings-hot.md`) are created on first write — no migration needed. Run `/second-brain:upgrade` to record the version marker and verify everything is in place.
+- Schema changes to `learnings.md` and wiki source pages are **purely additive**. Old entries continue to work; new fields are populated as you write new entries.
+- `decay-learnings.sh`, `budget-context.sh`, and `compile-graph.sh` use POSIX-only awk constructs (`match()` + `RSTART/RLENGTH` + `substr()`) so they work on macOS BSD awk, Linux mawk/gawk, and Git Bash for Windows.
+- Tier 0 (ICRH critic gate) and Tier 1 (schema fixes, drift detector) shipped in 0.4.0. This release closes the audit punch list end-to-end.
+
+### Post-review fixes (still 0.5.0, pre-release)
+
+A full code review surfaced gaps that were silently breaking the new features. All fixed before release:
+
+- **CRITICAL — Stop hook order:** swapped `drift-detect.sh` and `extract-learnings.sh` in `hooks/hooks.json`. extract-learnings now reads `drift-log.jsonl` AFTER drift-detect writes to it; the importance-trigger `priority: high` flag actually fires on current-session data.
+- **CRITICAL — gawk-only awk patterns:** `match($0, /re/, m)` (3-arg) is gawk-only and silently fails on macOS BSD awk and mawk. Rewrote all four occurrences (`extract-learnings.sh:97`, `decay-learnings.sh`, `budget-context.sh`, `compile-graph.sh`) to use POSIX `match() + RSTART/RLENGTH + substr()`. Without this, decay never fired on macOS, budget scoring used defaults, typed graph edges were never extracted.
+- **CRITICAL — `Agent` missing from `allowed-tools`:** `improve`, `drift-check`, `regress`, `import-host` all dispatch subagents (the critic gate, probe runner, etc.) but their frontmatter didn't allow it. The Tier 0 critic gate from 0.4.0 was blocked at runtime. Added `Agent` to all four.
+- **CRITICAL — `/regress` was decorative:** `improve/SKILL.md` step 6 never instructed creating probe files. Now it does — emits `~/.second-brain/regressions/<slug>.md` with `expected_pattern` / `forbidden_pattern` frontmatter when the learning is probe-amenable.
+- **CRITICAL — JSON injection in extract-learnings.sh:** both `.last-session-meta.json` and `.pending-reflection.json` were built with heredoc + raw `$SESSION_ID`/`$TIMESTAMP` interpolation. Replaced with `jq -n --arg/--argjson` so tampered hook input can't malform the JSON files that session-load.sh subsequently parses.
+- **CRITICAL — CRLF line endings:** added `.gitattributes` with `*.sh text eol=lf`. Without this, Windows clones with default `core.autocrlf=true` commit CRLF and break bash shebangs on Linux/macOS.
+- **WARNING — decay backup retention:** `decay-learnings.sh` now caps `learnings.md.bak.*` retention at 5 (configurable via `SECOND_BRAIN_DECAY_BACKUPS_KEEP`). Previously unbounded, disk-fill path on busy installs.
+- **WARNING — decay no-jq fallback removed:** the `printf` fallback was a JSON-injection hole; jq is already a hard dependency surfaced by `session-load.sh` preflight.
+- **WARNING — decay CUTOFF empty-guard:** `set -u` plus double `date` failure could produce `CUTOFF=""`, making `last_used < ""` always-true, mass-deleting all entries with metadata. Now exits 1 on empty cutoff.
+- **WARNING — decay malformed-meta defensive default:** non-numeric `confidence=` values default to 1 (keep-safe) instead of being coerced to 0 (drop-aggressive).
+- **WARNING — `\x01` placeholder in budget-context.sh:** mawk treats `\x01` as the literal 4-char string. Replaced with `\034` (POSIX octal escape) and updated `tr` decoder to match.
+- **WARNING — budget byte/char mismatch:** `wc -c` returns bytes, `${#STRING}` counts characters in shell. With Unicode the budget calc drifted. Set `LC_ALL=C` so both agree on bytes.
+- **WARNING — compile-graph.sh slug/tgt unescaped:** the no-jq fallback printf injected raw values into JSONL. Now jq is required (matches the rest of the plugin) and all fields route through `jq -nc --arg`.
+- **WARNING — drift-detect ReDoS:** user-supplied regex from `persona.signals.json` is now wrapped in `timeout 1 grep` so a malicious nested-quantifier pattern can't hang the Stop hook.
+- **WARNING — `/upgrade` had no auto-invocation:** `session-load.sh` now compares `~/.second-brain/.installed-version` to `plugin.json` and emits a one-line nudge when they diverge.
+- **WARNING — drift signals never surfaced:** `session-load.sh` now emits a one-line banner when `drift-log.jsonl` has 5+ hits in the last 7 days, pointing at `/second-brain:drift-check`.
+- **WARNING — `.last-maintainer-run` was a dead pipeline:** `session-load.sh` now reads it and suggests `/second-brain:graph rebuild` when the maintainer ran more recently than the graph was compiled.
+- **INFO — magic numbers as env vars:** `SECOND_BRAIN_FRICTION_TRIGGER` (default 5) and `SECOND_BRAIN_DRIFT_TRIGGER` (default 3) for the importance-trigger thresholds.
+- **INFO — `session-load.sh` weird `-x OR -f` test:** simplified to `-f` only (bash scripts don't need execute bit).
+
+## 0.4.0 (2026-04-27)
+
+Self-evolution audit response. Three independent research passes (leaked Anthropic internals, top public Claude Code plugins, self-evolution literature) converged on one critical correctness bug and a clear gap list. This release fixes the bug and lands the highest-payoff additions.
+
+### Added
+
+- **Adversarial critic gate in the learning loop (Tier 0 correctness fix).** The `improve` skill and the `session-load.sh` inline-reflection instruction both ran the same Claude as author, balance-test scorer, *and* judge — Iterative Self-Refinement Reward Hacking ([Pan 2024, arxiv 2407.04549](https://arxiv.org/html/2407.04549v1)). New step 5.5 in `skills/improve/SKILL.md` requires every candidate learning to pass a fresh-context critic (`second-brain:quality-reviewer` or `general-purpose`) before any write to `learnings.md` / `quality-rules.md` / `persona.md`. Critic gets only the proposal text + destination + one anonymized friction example — no transcript. Verdicts (ACCEPT/REVISE/REJECT) are logged to `~/.second-brain/critic-log.jsonl` for acceptance-rate auditing.
+- **Persona drift detector.** New `scripts/drift-detect.sh` runs on every Stop and greps the last 20 assistant turns for high-precision phrases that `persona.md` explicitly forbids (filler "Certainly!"/"Great question", AI attribution "Co-Authored-By:", narration "Let me explain"). Hits land in `~/.second-brain/drift-log.jsonl` as `{timestamp, session_id, signal_id, claim, excerpt}`. Built-in 8-signal default list; users can override via `~/.second-brain/persona.signals.json`. One entry per signal per run to avoid log spam; rotates at 5000 lines.
+- **`/second-brain:drift-check` skill.** Diagnostic skill that reads the drift log, aggregates by signal_id over a configurable window (`--days N` / `--since YYYY-MM-DD`), distinguishes "single bad turn" from "real drift across sessions", and proposes persona.md strengthenings. All persona.md writes go through the same critic gate as `improve` — no silent mutation.
+- **`SubagentStop` hook for `knowledge-maintainer`.** Writes `~/knowledge/.last-maintainer-run` (ISO8601 UTC timestamp) so subsequent sessions can detect bulk-modified wiki state and decide whether to reindex. New script: `scripts/post-maintainer.sh`.
+
+### Changed
+
+- **Agent frontmatter aligned with Anthropic reference plugins.** `knowledge-maintainer` and `quality-reviewer` now use YAML block-scalar `description:` with embedded `<example>` blocks (improves auto-delegation reliability per `anthropics/claude-code/plugins/pr-review-toolkit`). Added `color:` field on both. `knowledge-maintainer` gets an explicit `tools: Read, Write, Edit, Glob, Grep, Bash` allowlist that actually enforces the "no web tools" claim its description has been making since 0.1. Removed `maxTurns` (Anthropic's reference agents don't set it; was artificially truncating bulk wiki work).
+- **`lint` skill is now auto-invocable** (`disable-model-invocation: false`). Was blocking Claude from auto-running it when the user asked about wiki health. User-invocability via `/second-brain:lint` is unchanged.
+
+### Notes
+
+- `~/.second-brain/critic-log.jsonl` and `~/.second-brain/drift-log.jsonl` are created on first write — no migration needed.
+- The drift detector's signal list is intentionally short and high-precision. False positives erode trust faster than missed signals; the override file is the right place to add domain-specific patterns.
+- `persona.signals.json` schema: `{"forbidden_phrases":[{"id":"...","claim":"...","pattern":"<extended-regex>"}, ...]}`.
+- Tier 2/3 items from the audit (confidence-scored learnings, decay/forgetting, hot/warm/cold context budget, eval framework, graph layer, freshness tags) are tracked but not in this release — file follow-ups before shipping.
+
 ## 0.3.10 (2026-04-27)
 
 Two bugs that together produced the worst failure mode: a healthy-looking install where every persistent pipeline silently does nothing.
