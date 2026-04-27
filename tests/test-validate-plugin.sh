@@ -30,7 +30,7 @@ setup_skeleton() {
   rm -rf "$root"
   mkdir -p "$root/.claude-plugin" "$root/hooks" "$root/scripts" \
            "$root/skills/setup" "$root/skills/improve" "$root/agents" \
-           "$root/mcp"
+           "$root/mcp" "$root/docs"
 
   cat > "$root/.claude-plugin/plugin.json" <<'JSON'
 {"name":"x","description":"y","version":"0.0.0"}
@@ -76,6 +76,9 @@ MD
 MD
   cat > "$root/skills/improve/signal-patterns.md" <<'MD'
 # Signal patterns
+MD
+  cat > "$root/docs/reflection-protocol.md" <<'MD'
+# Reflection protocol
 MD
 
   cat > "$root/mcp/.mcp.json" <<'JSON'

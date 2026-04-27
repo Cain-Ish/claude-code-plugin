@@ -102,18 +102,19 @@ async function indexFile(vectordb: VectorDB, filePath: string): Promise<boolean>
 server.registerTool(
   "knowledge_search",
   {
-    description: "Semantic search across the knowledge base wiki. Returns the most relevant pages ranked by similarity to the query. Use this to find information from past sessions, ingested sources, concepts, and entities.",
+    description: "Hybrid semantic + keyword search across the knowledge base wiki. Returns pages ranked by combined vector similarity and BM25 keyword relevance. Use this to find information from past sessions, ingested sources, concepts, and entities.",
     inputSchema: z.object({
       query: z.string().describe("Natural language search query"),
       limit: z.number().optional().default(5).describe("Max results to return (default 5)"),
       category: z.string().optional().describe("Filter by category: sources, entities, concepts, synthesis, sessions"),
+      full: z.boolean().optional().default(false).describe("Return full page content instead of excerpts (use for deep reads)"),
     }),
   },
-  async ({ query, limit, category }) => {
+  async ({ query, limit, category, full }) => {
     try {
       const vectordb = getDB();
       const queryEmbedding = await embed(query);
-      const results = vectordb.search(queryEmbedding, limit, category);
+      const results = vectordb.search(queryEmbedding, limit, category, 0.25, query);
 
       if (results.length === 0) {
         return {
@@ -123,8 +124,12 @@ server.registerTool(
 
       const formatted = results.map((r, i) => {
         const relPath = path.relative(KNOWLEDGE_DIR, r.path);
-        return `### ${i + 1}. ${r.title}\n**Path**: ${relPath}\n**Category**: ${r.category}\n**Relevance**: ${r.score.toFixed(3)}\n\n${r.excerpt}${r.excerpt.length >= 500 ? "..." : ""}`;
-      }).join("\n\n---\n\n");
+        if (full) {
+          return `### ${i + 1}. ${r.title}\n**Path**: ${relPath}\n**Category**: ${r.category}\n**Relevance**: ${r.score.toFixed(3)}\n\n${r.excerpt}`;
+        }
+        const preview = r.excerpt.slice(0, 200);
+        return `${i + 1}. **${r.title}** (${r.category}, ${r.score.toFixed(2)}) — ${relPath}\n   ${preview}${preview.length >= 200 ? "..." : ""}`;
+      }).join(full ? "\n\n---\n\n" : "\n");
 
       return {
         content: [{ type: "text", text: formatted }],

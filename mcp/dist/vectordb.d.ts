@@ -19,11 +19,10 @@ export declare class VectorDB {
     constructor(knowledgeDir: string);
     private load;
     private writeStore;
-    /** Persist any pending writes. Call after a batch of upsertPage(). */
     flush(): void;
     isIndexed(filePath: string, lastModified: number): boolean;
     upsertPage(page: WikiPage, embedding: Float32Array): void;
-    search(queryEmbedding: Float32Array, limit?: number, category?: string): SearchResult[];
+    search(queryEmbedding: Float32Array, limit?: number, category?: string, minScore?: number, queryText?: string): SearchResult[];
     getStats(): {
         totalPages: number;
         categories: Record<string, number>;

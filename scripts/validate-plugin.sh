@@ -118,6 +118,7 @@ done < <(find "$PLUGIN_ROOT/agents" -name "*.md" -type f 2>/dev/null)
 for ref in \
   "scripts/improve-protocol.md" \
   "skills/improve/signal-patterns.md" \
+  "docs/reflection-protocol.md" \
   "mcp/.mcp.json" \
   "mcp/package.json"; do
   if [ ! -f "$PLUGIN_ROOT/$ref" ]; then

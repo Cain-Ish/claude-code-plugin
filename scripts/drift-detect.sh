@@ -11,32 +11,22 @@
 # scans only the LAST 20 assistant messages (not the full transcript) and
 # bails out fast if jq isn't installed or there's no transcript path.
 
-BRAIN_DIR="$HOME/.second-brain"
+source "$(dirname "$0")/lib.sh"
+
 DRIFT_LOG="$BRAIN_DIR/drift-log.jsonl"
 SIGNALS_FILE="$BRAIN_DIR/persona.signals.json"
-MAX_LINES=5000          # rotate threshold (matches friction-log.sh)
-SCAN_LAST_N=20          # only inspect the last N assistant turns per run
+MAX_LINES=5000
+SCAN_LAST_N=20
 
 mkdir -p "$BRAIN_DIR"
-
-# Hard requirement: jq. Match the silent-exit pattern used by other hooks so a
-# missing jq doesn't crash the SessionStart chain — the preflight in
-# session-load.sh already loudly tells the user about it.
 command -v jq >/dev/null 2>&1 || exit 0
 
-INPUT=$(cat)
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
-SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null)
+sb_parse_input
+SB_TRANSCRIPT_PATH="${SB_TRANSCRIPT_PATH}"
+sb_resolve_transcript || exit 0
 
-# Resolve transcript by session_id fallback (matches extract-learnings.sh:28-35).
-if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
-  if [ -n "$SESSION_ID" ] && [ "$SESSION_ID" != "unknown" ]; then
-    POSSIBLE="$HOME/.claude/sessions/$SESSION_ID.jsonl"
-    [ -f "$POSSIBLE" ] && TRANSCRIPT_PATH="$POSSIBLE"
-  fi
-fi
-[ -f "$TRANSCRIPT_PATH" ] || exit 0
-
+TRANSCRIPT_PATH="$SB_TRANSCRIPT_PATH"
+SESSION_ID="$SB_SESSION_ID"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Built-in high-precision drift signals. Each entry is "id|claim|extended-regex".

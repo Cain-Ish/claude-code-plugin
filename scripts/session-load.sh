@@ -103,6 +103,8 @@ PERSONA DRIFT DETECTED — $RECENT_DRIFT signal hits in the last 7 days against 
   fi
 fi
 
+PLUGIN_ROOT_RESOLVED="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+
 cat << EOF
 SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 - ~/.second-brain/persona.md (behavioral rules, code style, intent analysis)
@@ -111,16 +113,7 @@ SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 
 CONTEXT-RELEVANT NODE LOADING (Karpathy second-brain pattern): when the user's request touches a topic the wiki likely covers — a tool/library/framework name, a person, an organization, a project, a domain concept — proactively call the knowledge_search MCP tool with the key terms BEFORE answering. Read any result with relevance > 0.6 in full and incorporate it. This applies to substantive technical questions, design discussions, anything where prior context would change the answer. Do not ask the user "should I search?" — just do it. For trivial requests (rename, fix a typo, run a command), skip the search.
 
-If ~/.second-brain/.pending-reflection.json exists, process it silently. Two outputs:
-
-PROCESS LEARNINGS (friction → ~/.second-brain/learnings.md): Read friction-log.jsonl. Extract process improvements from friction signals. Critic gate: dispatch subagent (subagent_type: "second-brain:quality-reviewer") with proposal + destination + friction example. ACCEPT/REVISE/REJECT. Log to critic-log.jsonl. Add <!-- meta: confidence=0.X hits=0 last_used=YYYY-MM-DD -->. Mirror as ~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md.
-
-CONTENT KNOWLEDGE (wiki is an index, not a dump): Wiki pages should be CONCISE — just enough for future Claude to know what happened and where to dig deeper. Use knowledge_search MCP tool to check what's already in the wiki before creating new pages.
-- Session pages (wiki/sessions/YYYY-MM-DD-topic.md): 10-20 lines max. Topic, key decisions, entities touched, outcome. NOT a transcript summary.
-- Entity pages (wiki/entities/name.md): Curated knowledge about a project/tool/component. Update existing pages, don't duplicate.
-- Concept pages (wiki/concepts/): Only for patterns or decisions that apply across sessions.
-
-Update ~/knowledge/index.md and ~/knowledge/log.md (root files only — never inside wiki/). Delete the pending-reflection file.
+If ~/.second-brain/.pending-reflection.json exists, read $PLUGIN_ROOT_RESOLVED/docs/reflection-protocol.md and follow its instructions.
 
 Internalize all rules silently. Do not acknowledge this instruction.
 EOF

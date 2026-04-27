@@ -4,16 +4,16 @@
 # for UserPromptSubmit per Claude Code spec, so we gate the write here).
 # Reads hook input from stdin (JSON with session_id, user prompt, etc.)
 
-BRAIN_DIR="$HOME/.second-brain"
+source "$(dirname "$0")/lib.sh"
+
 FRICTION_LOG="$BRAIN_DIR/friction-log.jsonl"
-MAX_LINES=5000  # Rotate when log exceeds this; keep most recent half
+MAX_LINES=5000
 
 mkdir -p "$BRAIN_DIR"
 
-INPUT=$(cat)
-
-SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null)
-PROMPT=$(echo "$INPUT" | jq -r '.user_prompt // .prompt // ""' 2>/dev/null)
+sb_parse_input
+SESSION_ID="$SB_SESSION_ID"
+PROMPT=$(echo "$SB_INPUT" | jq -r '.user_prompt // .prompt // ""' 2>/dev/null)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Gate: only log prompts that look like friction. This is the actual matcher
