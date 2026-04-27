@@ -115,11 +115,10 @@ If ~/.second-brain/.pending-reflection.json exists, process it silently. Two out
 
 PROCESS LEARNINGS (friction → ~/.second-brain/learnings.md): Read friction-log.jsonl. Extract process improvements from friction signals. Critic gate: dispatch subagent (subagent_type: "second-brain:quality-reviewer") with proposal + destination + friction example. ACCEPT/REVISE/REJECT. Log to critic-log.jsonl. Add <!-- meta: confidence=0.X hits=0 last_used=YYYY-MM-DD -->. Mirror as ~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md.
 
-CONTENT KNOWLEDGE (tiered — wiki is an index, not a dump): The wiki works with episodic-memory as a tiered retrieval system. Wiki pages should be CONCISE — just enough for future Claude to know what happened and where to dig deeper. Full transcripts are always available via episodic-memory search/read.
+CONTENT KNOWLEDGE (wiki is an index, not a dump): Wiki pages should be CONCISE — just enough for future Claude to know what happened and where to dig deeper. Use knowledge_search MCP tool to check what's already in the wiki before creating new pages.
 - Session pages (wiki/sessions/YYYY-MM-DD-topic.md): 10-20 lines max. Topic, key decisions, entities touched, outcome. NOT a transcript summary.
 - Entity pages (wiki/entities/name.md): Curated knowledge about a project/tool/component. Update existing pages, don't duplicate.
 - Concept pages (wiki/concepts/): Only for patterns or decisions that apply across sessions.
-If Claude needs full context from a past session, use episodic-memory search+read with pagination — don't try to store everything in wiki.
 
 Update ~/knowledge/index.md and ~/knowledge/log.md (root files only — never inside wiki/). Delete the pending-reflection file.
 
@@ -155,7 +154,7 @@ SESSION REVIEW — transcript at: $PENDING_TRANSCRIPT (trigger: $PENDING_TRIGGER
 Read the last 150 lines of this transcript (Read tool with offset). Create concise wiki entries:
 - One session page (10-20 lines): topic, decisions, entities, outcome
 - Update relevant entity/concept pages with new knowledge
-- Don't dump the transcript — write what future Claude needs to decide whether to dig deeper via episodic-memory
+- Don't dump the transcript — write what future Claude needs to know or to decide whether to dig deeper
 CONTENT
   fi
 
