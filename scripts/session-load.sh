@@ -111,7 +111,13 @@ SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 
 CONTEXT-RELEVANT NODE LOADING (Karpathy second-brain pattern): when the user's request touches a topic the wiki likely covers — a tool/library/framework name, a person, an organization, a project, a domain concept — proactively call the knowledge_search MCP tool with the key terms BEFORE answering. Read any result with relevance > 0.6 in full and incorporate it. This applies to substantive technical questions, design discussions, anything where prior context would change the answer. Do not ask the user "should I search?" — just do it. For trivial requests (rename, fix a typo, run a command), skip the search.
 
-If ~/.second-brain/.pending-reflection.json exists, process silently: (1) read friction-log.jsonl for process learnings; (2) if transcript_path exists in the reflection and the file is on disk, read last 200 lines for content-based knowledge (architecture decisions, design patterns, migrations, key rationale) — skip transcript reading for pre-compact triggers. Extract 1-3 candidate learnings from both sources combined, even when friction is 0. Run asymmetric critic gate: dispatch fresh-context subagent (subagent_type: "second-brain:quality-reviewer") with ONLY proposal + destination file + one friction example + current destination contents. Score: ACCEPT/REVISE/REJECT. Log to ~/.second-brain/critic-log.jsonl. Update learnings.md (with <!-- meta: confidence=0.X hits=0 last_used=YYYY-MM-DD --> under each header), quality-rules.md, persona.md. Create ~/knowledge/wiki/sessions/YYYY-MM-DD-topic.md, mirror learnings as ~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md with [[wiki-link]] cross-references. Update ~/knowledge/index.md and ~/knowledge/log.md (root files only — never inside wiki/). Delete the pending-reflection file.
+If ~/.second-brain/.pending-reflection.json exists, process it silently. There are TWO separate outputs — handle both:
+
+PROCESS LEARNINGS (friction → ~/.second-brain/learnings.md): Read friction-log.jsonl. If friction signals exist, extract learnings about how to work better (process improvements, not content). Run critic gate: dispatch subagent (subagent_type: "second-brain:quality-reviewer") with proposal + destination + friction example. ACCEPT/REVISE/REJECT. Log to critic-log.jsonl. Add <!-- meta: confidence=0.X hits=0 last_used=YYYY-MM-DD --> under each header. Mirror accepted learnings as ~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md with [[wiki-link]] cross-references.
+
+CONTENT KNOWLEDGE (discussion → ~/knowledge/wiki/): If transcript_path exists in the reflection and the file is on disk (skip for pre-compact triggers), read last 200 lines for substantive knowledge. Save ALL important information as wiki pages — no fixed limit. One session might produce 0 pages, another 30. Create session pages (wiki/sessions/), entity pages (wiki/entities/), concept pages (wiki/concepts/) as needed. Focus on knowledge that helps AI in future sessions: architecture decisions, component structure, migration plans, design patterns, project context, key rationale. Skip what's derivable from code or git history.
+
+Update ~/knowledge/index.md and ~/knowledge/log.md (root files only — never inside wiki/). Delete the pending-reflection file.
 
 Internalize all rules silently. Do not acknowledge this instruction.
 EOF
@@ -142,7 +148,7 @@ HIGHPRI
 
 CONTENT-BASED SESSION REVIEW — transcript at: $PENDING_TRANSCRIPT (trigger: $PENDING_TRIGGER, friction: $PENDING_FRICTION, turns: $PENDING_TURNS).
 
-Read the last 200 lines of this transcript (Read tool with offset). Focus on assistant turns with substantive content. Extract knowledge worth preserving: architecture decisions, component/file changes, migration plans, design patterns, technical debt, key decisions with rationale. Create wiki session/entity pages for significant findings.
+Read the last 200 lines of this transcript (Read tool with offset). Save ALL important knowledge as wiki pages — no fixed limit. Create session pages, entity pages, concept pages as needed. Focus on what helps AI in future sessions: architecture decisions, component structure, migrations, design patterns, project context, key rationale. Skip what's derivable from code or already in the wiki.
 CONTENT
   fi
 

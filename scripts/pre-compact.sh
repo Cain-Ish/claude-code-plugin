@@ -48,13 +48,13 @@ if [ "$USER_TURNS" -ge 3 ]; then
 fi
 
 cat << 'EOF'
-CONTEXT COMPACTION IMMINENT — You are about to lose detailed context. Before compaction, save substantive knowledge to disk NOW (you still have full context — after compaction you won't).
+CONTEXT COMPACTION IMMINENT — Save important knowledge to ~/knowledge/wiki/ NOW while you have full context. After compaction you won't have the detail.
 
-Write to ~/knowledge/wiki/ any knowledge from this session that would be lost in a summary:
-- Architecture decisions and rationale → wiki/sessions/YYYY-MM-DD-topic.md
-- New or updated entities (projects, tools, components) → wiki/entities/name.md
-- Design patterns, migration plans, technical debt → appropriate wiki category
-- Update ~/knowledge/index.md if you create new pages
+Write ALL substantive knowledge as wiki pages — no fixed limit. Create as many pages as the content warrants:
+- Session summaries → wiki/sessions/YYYY-MM-DD-topic.md
+- Projects, tools, components → wiki/entities/name.md
+- Design patterns, concepts → wiki/concepts/name.md
+- Update ~/knowledge/index.md and ~/knowledge/log.md for new pages
 
-Keep writes focused — only knowledge that isn't already in the wiki or derivable from code. Skip if the session was trivial (simple fixes, Q&A). This is your last chance before context degrades.
+Focus on knowledge that helps AI in future sessions: architecture decisions, component structure, migration plans, design rationale, project context. Skip what's already in the wiki or derivable from code/git. Skip if the session was trivial.
 EOF
