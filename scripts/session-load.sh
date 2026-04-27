@@ -111,11 +111,15 @@ SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 
 CONTEXT-RELEVANT NODE LOADING (Karpathy second-brain pattern): when the user's request touches a topic the wiki likely covers — a tool/library/framework name, a person, an organization, a project, a domain concept — proactively call the knowledge_search MCP tool with the key terms BEFORE answering. Read any result with relevance > 0.6 in full and incorporate it. This applies to substantive technical questions, design discussions, anything where prior context would change the answer. Do not ask the user "should I search?" — just do it. For trivial requests (rename, fix a typo, run a command), skip the search.
 
-If ~/.second-brain/.pending-reflection.json exists, process it silently. There are TWO separate outputs — handle both:
+If ~/.second-brain/.pending-reflection.json exists, process it silently. Two outputs:
 
-PROCESS LEARNINGS (friction → ~/.second-brain/learnings.md): Read friction-log.jsonl. If friction signals exist, extract learnings about how to work better (process improvements, not content). Run critic gate: dispatch subagent (subagent_type: "second-brain:quality-reviewer") with proposal + destination + friction example. ACCEPT/REVISE/REJECT. Log to critic-log.jsonl. Add <!-- meta: confidence=0.X hits=0 last_used=YYYY-MM-DD --> under each header. Mirror accepted learnings as ~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md with [[wiki-link]] cross-references.
+PROCESS LEARNINGS (friction → ~/.second-brain/learnings.md): Read friction-log.jsonl. Extract process improvements from friction signals. Critic gate: dispatch subagent (subagent_type: "second-brain:quality-reviewer") with proposal + destination + friction example. ACCEPT/REVISE/REJECT. Log to critic-log.jsonl. Add <!-- meta: confidence=0.X hits=0 last_used=YYYY-MM-DD -->. Mirror as ~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md.
 
-CONTENT KNOWLEDGE (discussion → ~/knowledge/wiki/): If transcript_path exists in the reflection and the file is on disk (skip for pre-compact triggers), read last 200 lines for substantive knowledge. Save ALL important information as wiki pages — no fixed limit. One session might produce 0 pages, another 30. Create session pages (wiki/sessions/), entity pages (wiki/entities/), concept pages (wiki/concepts/) as needed. Focus on knowledge that helps AI in future sessions: architecture decisions, component structure, migration plans, design patterns, project context, key rationale. Skip what's derivable from code or git history.
+CONTENT KNOWLEDGE (tiered — wiki is an index, not a dump): The wiki works with episodic-memory as a tiered retrieval system. Wiki pages should be CONCISE — just enough for future Claude to know what happened and where to dig deeper. Full transcripts are always available via episodic-memory search/read.
+- Session pages (wiki/sessions/YYYY-MM-DD-topic.md): 10-20 lines max. Topic, key decisions, entities touched, outcome. NOT a transcript summary.
+- Entity pages (wiki/entities/name.md): Curated knowledge about a project/tool/component. Update existing pages, don't duplicate.
+- Concept pages (wiki/concepts/): Only for patterns or decisions that apply across sessions.
+If Claude needs full context from a past session, use episodic-memory search+read with pagination — don't try to store everything in wiki.
 
 Update ~/knowledge/index.md and ~/knowledge/log.md (root files only — never inside wiki/). Delete the pending-reflection file.
 
@@ -146,9 +150,12 @@ HIGHPRI
   if [ "$PENDING_TRIGGER" != "pre-compact" ] && [ -n "$PENDING_TRANSCRIPT" ] && [ -f "$PENDING_TRANSCRIPT" ]; then
     cat << CONTENT
 
-CONTENT-BASED SESSION REVIEW — transcript at: $PENDING_TRANSCRIPT (trigger: $PENDING_TRIGGER, friction: $PENDING_FRICTION, turns: $PENDING_TURNS).
+SESSION REVIEW — transcript at: $PENDING_TRANSCRIPT (trigger: $PENDING_TRIGGER, turns: $PENDING_TURNS).
 
-Read the last 200 lines of this transcript (Read tool with offset). Save ALL important knowledge as wiki pages — no fixed limit. Create session pages, entity pages, concept pages as needed. Focus on what helps AI in future sessions: architecture decisions, component structure, migrations, design patterns, project context, key rationale. Skip what's derivable from code or already in the wiki.
+Read the last 150 lines of this transcript (Read tool with offset). Create concise wiki entries:
+- One session page (10-20 lines): topic, decisions, entities, outcome
+- Update relevant entity/concept pages with new knowledge
+- Don't dump the transcript — write what future Claude needs to decide whether to dig deeper via episodic-memory
 CONTENT
   fi
 
