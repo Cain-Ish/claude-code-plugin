@@ -110,6 +110,7 @@ fi
 
 # Learning state directory
 mkdir -p "$BRAIN_DIR"
+mkdir -p "$BRAIN_DIR/.reflection-context"
 
 # Initialize learnings.md if missing
 if [ ! -f "$BRAIN_DIR/learnings.md" ]; then

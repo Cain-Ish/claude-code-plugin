@@ -3,9 +3,9 @@
 # Each test simulates a hook invocation and verifies the output/side effects.
 #
 # Covers:
-#   1. /clear creates .pending-reflection.json with trigger=clear
-#   2. Stop creates .pending-reflection.json with trigger=stop
-#   3. pre-compact creates reflection with trigger=pre-compact
+#   1. /clear appends to .pending-reflections.jsonl with trigger=clear
+#   2. Stop appends to .pending-reflections.jsonl with trigger=stop
+#   3. pre-compact appends to .pending-reflections.jsonl with trigger=pre-compact
 #   4. pre-compact output doesn't reference episodic-memory
 #   5. session-load output doesn't reference episodic-memory
 #   6. session-load output doesn't duplicate brain file loading
@@ -71,7 +71,7 @@ assert_fail() {
 echo "test-hooks-regression.sh"
 echo "========================"
 
-# --- Test 1: /clear creates pending reflection with trigger=clear ---
+# --- Test 1: /clear appends to JSONL queue with trigger=clear ---
 echo ""
 echo "1. /clear creates pending reflection"
 BRAIN=$(setup_brain)
@@ -84,14 +84,15 @@ echo "$INPUT" | HOME="$SANDBOX" BRAIN_DIR="$BRAIN" bash -c "
   ln -sfn '$BRAIN' '$SANDBOX/.second-brain' 2>/dev/null || cp -r '$BRAIN/.' '$SANDBOX/.second-brain/'
   echo '$INPUT' | bash '$REPO_ROOT/scripts/pre-clear.sh'
 "
-if [ -f "$SANDBOX/.second-brain/.pending-reflection.json" ]; then
-  TRIGGER=$(jq -r '.trigger' "$SANDBOX/.second-brain/.pending-reflection.json" 2>/dev/null)
+JSONL="$SANDBOX/.second-brain/.pending-reflections.jsonl"
+if [ -f "$JSONL" ]; then
+  TRIGGER=$(tail -1 "$JSONL" | jq -r '.trigger' 2>/dev/null)
   if [ "$TRIGGER" = "clear" ]; then
     assert_pass "trigger=clear in pending reflection"
   else
     assert_fail "trigger should be 'clear', got '$TRIGGER'"
   fi
-  TP=$(jq -r '.transcript_path' "$SANDBOX/.second-brain/.pending-reflection.json" 2>/dev/null)
+  TP=$(tail -1 "$JSONL" | jq -r '.transcript_path' 2>/dev/null)
   if [ "$TP" = "$TRANSCRIPT" ]; then
     assert_pass "transcript_path preserved"
   else
@@ -101,7 +102,7 @@ else
   assert_fail "pending reflection not created by pre-clear.sh"
 fi
 
-# --- Test 2: Stop creates pending reflection with trigger=stop ---
+# --- Test 2: Stop appends to JSONL queue with trigger=stop ---
 echo ""
 echo "2. Stop creates pending reflection"
 BRAIN=$(setup_brain)
@@ -114,8 +115,9 @@ INPUT=$(jq -nc --arg s "test-session-2" --arg tp "$TRANSCRIPT" '{session_id:$s, 
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
   echo "$INPUT" | bash "$REPO_ROOT/scripts/extract-learnings.sh"
 )
-if [ -f "$SANDBOX/.second-brain/.pending-reflection.json" ]; then
-  TRIGGER=$(jq -r '.trigger' "$SANDBOX/.second-brain/.pending-reflection.json" 2>/dev/null)
+JSONL="$SANDBOX/.second-brain/.pending-reflections.jsonl"
+if [ -f "$JSONL" ]; then
+  TRIGGER=$(tail -1 "$JSONL" | jq -r '.trigger' 2>/dev/null)
   if [ "$TRIGGER" = "stop" ]; then
     assert_pass "trigger=stop in pending reflection"
   else
@@ -138,8 +140,9 @@ INPUT=$(jq -nc --arg s "test-session-3" --arg tp "$TRANSCRIPT" '{session_id:$s, 
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
   echo "$INPUT" | bash "$REPO_ROOT/scripts/pre-compact.sh" > "$SANDBOX/pre-compact-out.txt" 2>&1
 )
-if [ -f "$SANDBOX/.second-brain/.pending-reflection.json" ]; then
-  TRIGGER=$(jq -r '.trigger' "$SANDBOX/.second-brain/.pending-reflection.json" 2>/dev/null)
+JSONL="$SANDBOX/.second-brain/.pending-reflections.jsonl"
+if [ -f "$JSONL" ]; then
+  TRIGGER=$(tail -1 "$JSONL" | jq -r '.trigger' 2>/dev/null)
   if [ "$TRIGGER" = "pre-compact" ]; then
     assert_pass "trigger=pre-compact in pending reflection"
   else
@@ -203,9 +206,9 @@ make_transcript 10 "$TRANSCRIPT"
   export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
   mkdir -p "$SANDBOX/.second-brain"
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
-  # Simulate a pre-compact pending reflection
-  jq -n --arg tp "$TRANSCRIPT" '{trigger:"pre-compact",transcript_path:$tp,priority:"normal",friction_count:0,user_turns:10}' \
-    > "$SANDBOX/.second-brain/.pending-reflection.json"
+  # Simulate a pre-compact pending reflection in JSONL
+  jq -nc --arg tp "$TRANSCRIPT" '{trigger:"pre-compact",transcript_path:$tp,context_snapshot:"",priority:"normal",friction_count:0,user_turns:10}' \
+    > "$SANDBOX/.second-brain/.pending-reflections.jsonl"
   echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-compact.txt" 2>&1
 )
 if grep -q "SESSION REVIEW" "$SANDBOX/session-load-compact.txt" 2>/dev/null; then
@@ -291,9 +294,9 @@ else
   assert_pass "inline reflection protocol removed from session-load"
 fi
 
-# --- Test 12: stop/clear trigger DOES cause transcript review ---
+# --- Test 12: stop/clear trigger emits JSONL processing instructions ---
 echo ""
-echo "12. stop/clear trigger causes transcript review"
+echo "12. stop/clear trigger emits processing instructions"
 BRAIN=$(setup_brain)
 TRANSCRIPT="$SANDBOX/transcript12.jsonl"
 make_transcript 10 "$TRANSCRIPT"
@@ -302,14 +305,14 @@ make_transcript 10 "$TRANSCRIPT"
   export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
   mkdir -p "$SANDBOX/.second-brain"
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
-  jq -n --arg tp "$TRANSCRIPT" '{trigger:"stop",transcript_path:$tp,priority:"normal",friction_count:0,user_turns:10}' \
-    > "$SANDBOX/.second-brain/.pending-reflection.json"
+  jq -nc --arg tp "$TRANSCRIPT" '{trigger:"stop",transcript_path:$tp,context_snapshot:"",priority:"normal",friction_count:0,user_turns:10}' \
+    > "$SANDBOX/.second-brain/.pending-reflections.jsonl"
   echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-stop.txt" 2>&1
 )
-if grep -q "SESSION REVIEW" "$SANDBOX/session-load-stop.txt" 2>/dev/null; then
-  assert_pass "SESSION REVIEW emitted for stop trigger"
+if grep -q "PENDING REFLECTIONS" "$SANDBOX/session-load-stop.txt" 2>/dev/null; then
+  assert_pass "PENDING REFLECTIONS processing instructions emitted for stop trigger"
 else
-  assert_fail "SESSION REVIEW missing for stop trigger"
+  assert_fail "PENDING REFLECTIONS instructions missing for stop trigger"
 fi
 
 # --- Test 13: reflection JSON fields are valid ---
@@ -325,23 +328,22 @@ INPUT=$(jq -nc --arg s "field-test" --arg tp "$TRANSCRIPT" '{session_id:$s, tran
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
   echo "$INPUT" | bash "$REPO_ROOT/scripts/extract-learnings.sh"
 )
-REFLECTION="$SANDBOX/.second-brain/.pending-reflection.json"
-if [ -f "$REFLECTION" ]; then
+JSONL="$SANDBOX/.second-brain/.pending-reflections.jsonl"
+if [ -f "$JSONL" ]; then
   MISSING=""
-  for field in session_id date user_turns friction_count positive_signals first_try_success drift_count priority suggest_plugin_improve trigger transcript_path; do
-    # Use 'has' instead of '//' — jq's alternative operator treats false/null/0 as falsy
-    HAS=$(jq "has(\"$field\")" "$REFLECTION" 2>/dev/null)
+  for field in session_id date appended_at user_turns friction_count positive_signals first_try_success drift_count priority suggest_plugin_improve trigger transcript_path context_snapshot; do
+    HAS=$(tail -1 "$JSONL" | jq "has(\"$field\")" 2>/dev/null)
     if [ "$HAS" != "true" ]; then
       MISSING="$MISSING $field"
     fi
   done
   if [ -z "$MISSING" ]; then
-    assert_pass "all required fields present in reflection JSON"
+    assert_pass "all required fields present in reflection JSONL entry"
   else
     assert_fail "missing fields:$MISSING"
   fi
 else
-  assert_fail "reflection file not created"
+  assert_fail "reflection JSONL not created"
 fi
 
 # --- Test 14: high-priority reflection surfaces banner ---
@@ -353,8 +355,8 @@ BRAIN=$(setup_brain)
   export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
   mkdir -p "$SANDBOX/.second-brain"
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
-  jq -n '{trigger:"stop",priority:"high",friction_count:7,drift_count:4,user_turns:15,transcript_path:""}' \
-    > "$SANDBOX/.second-brain/.pending-reflection.json"
+  jq -nc '{trigger:"stop",priority:"high",friction_count:7,drift_count:4,user_turns:15,transcript_path:"",context_snapshot:""}' \
+    > "$SANDBOX/.second-brain/.pending-reflections.jsonl"
   echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-high.txt" 2>&1
 )
 if grep -q "HIGH-PRIORITY" "$SANDBOX/session-load-high.txt" 2>/dev/null; then
@@ -383,10 +385,10 @@ INPUT=$(jq -nc --arg s "friction-test" --arg tp "$TRANSCRIPT" '{session_id:$s, t
   export HOME="$SANDBOX"
   echo "$INPUT" | bash "$REPO_ROOT/scripts/extract-learnings.sh"
 )
-REFLECTION="$SANDBOX/.second-brain/.pending-reflection.json"
-if [ -f "$REFLECTION" ]; then
-  FC=$(jq '.friction_count' "$REFLECTION" 2>/dev/null)
-  PS=$(jq '.positive_signals' "$REFLECTION" 2>/dev/null)
+JSONL="$SANDBOX/.second-brain/.pending-reflections.jsonl"
+if [ -f "$JSONL" ]; then
+  FC=$(tail -1 "$JSONL" | jq '.friction_count' 2>/dev/null)
+  PS=$(tail -1 "$JSONL" | jq '.positive_signals' 2>/dev/null)
   if [ "$FC" = "2" ]; then
     assert_pass "friction_count=2 (only negative signals from this session)"
   else
@@ -397,14 +399,14 @@ if [ -f "$REFLECTION" ]; then
   else
     assert_fail "positive_signals should be 1, got $PS"
   fi
-  FTS=$(jq '.first_try_success' "$REFLECTION" 2>/dev/null)
+  FTS=$(tail -1 "$JSONL" | jq '.first_try_success' 2>/dev/null)
   if [ "$FTS" = "false" ]; then
     assert_pass "first_try_success=false when friction exists"
   else
     assert_fail "first_try_success should be false when friction > 0, got $FTS"
   fi
 else
-  assert_fail "reflection file not created"
+  assert_fail "reflection JSONL not created"
 fi
 
 # --- Test 16: zero-friction session sets first_try_success=true ---
@@ -422,17 +424,17 @@ INPUT=$(jq -nc --arg s "clean-session" --arg tp "$TRANSCRIPT" '{session_id:$s, t
   export HOME="$SANDBOX"
   echo "$INPUT" | bash "$REPO_ROOT/scripts/extract-learnings.sh"
 )
-REFLECTION="$SANDBOX/.second-brain/.pending-reflection.json"
-if [ -f "$REFLECTION" ]; then
-  FTS=$(jq '.first_try_success' "$REFLECTION" 2>/dev/null)
-  FC=$(jq '.friction_count' "$REFLECTION" 2>/dev/null)
+JSONL="$SANDBOX/.second-brain/.pending-reflections.jsonl"
+if [ -f "$JSONL" ]; then
+  FTS=$(tail -1 "$JSONL" | jq '.first_try_success' 2>/dev/null)
+  FC=$(tail -1 "$JSONL" | jq '.friction_count' 2>/dev/null)
   if [ "$FTS" = "true" ] && [ "$FC" = "0" ]; then
     assert_pass "zero friction → first_try_success=true"
   else
     assert_fail "expected first_try_success=true, friction=0; got fts=$FTS fc=$FC"
   fi
 else
-  assert_fail "reflection file not created for zero-friction session"
+  assert_fail "reflection JSONL not created for zero-friction session"
 fi
 
 # --- Test 17: corrupt transcript doesn't crash scripts ---
@@ -461,7 +463,7 @@ echo "18. missing transcript path exits gracefully"
 BRAIN=$(setup_brain)
 mkdir -p "$SANDBOX/.second-brain"
 cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
-rm -f "$SANDBOX/.second-brain/.pending-reflection.json"
+rm -f "$SANDBOX/.second-brain/.pending-reflections.jsonl"
 INPUT=$(jq -nc '{session_id:"no-path",transcript_path:"/nonexistent/file.jsonl"}')
 (
   export HOME="$SANDBOX"
@@ -473,8 +475,8 @@ if [ "$EXIT_CODE" -eq 0 ]; then
 else
   assert_fail "pre-clear.sh crashed when transcript missing (exit=$EXIT_CODE)"
 fi
-# Should NOT have created a reflection
-if [ ! -f "$SANDBOX/.second-brain/.pending-reflection.json" ]; then
+# Should NOT have created a reflection (no transcript = skipped)
+if [ ! -f "$SANDBOX/.second-brain/.pending-reflections.jsonl" ]; then
   assert_pass "no reflection created when no transcript available"
 else
   assert_fail "reflection created despite missing transcript"
@@ -497,17 +499,17 @@ INPUT=$(jq -nc --arg s "drift-session" --arg tp "$TRANSCRIPT" '{session_id:$s, t
   export HOME="$SANDBOX"
   echo "$INPUT" | bash "$REPO_ROOT/scripts/extract-learnings.sh"
 )
-REFLECTION="$SANDBOX/.second-brain/.pending-reflection.json"
-if [ -f "$REFLECTION" ]; then
-  PRIORITY=$(jq -r '.priority' "$REFLECTION" 2>/dev/null)
-  DC=$(jq '.drift_count' "$REFLECTION" 2>/dev/null)
+JSONL="$SANDBOX/.second-brain/.pending-reflections.jsonl"
+if [ -f "$JSONL" ]; then
+  PRIORITY=$(tail -1 "$JSONL" | jq -r '.priority' 2>/dev/null)
+  DC=$(tail -1 "$JSONL" | jq '.drift_count' 2>/dev/null)
   if [ "$PRIORITY" = "high" ] && [ "$DC" = "4" ]; then
     assert_pass "drift_count=4 → priority=high"
   else
     assert_fail "expected priority=high drift=4, got priority=$PRIORITY drift=$DC"
   fi
 else
-  assert_fail "reflection not created for drift test"
+  assert_fail "reflection JSONL not created for drift test"
 fi
 
 # --- Test 20: session-load output stays under token budget ---
@@ -519,7 +521,7 @@ BRAIN=$(setup_brain)
   export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
   mkdir -p "$SANDBOX/.second-brain"
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
-  rm -f "$SANDBOX/.second-brain/.pending-reflection.json"
+  rm -f "$SANDBOX/.second-brain/.pending-reflections.jsonl"
   echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-budget.txt" 2>&1
 )
 CHARS=$(wc -c < "$SANDBOX/session-load-budget.txt" | tr -d ' ')
@@ -538,9 +540,9 @@ BRAIN=$(setup_brain)
   export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
   mkdir -p "$SANDBOX/.second-brain"
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
-  # Create a pending reflection that would normally trigger full output
-  jq -n '{trigger:"stop",priority:"normal",friction_count:0,user_turns:10,transcript_path:""}' \
-    > "$SANDBOX/.second-brain/.pending-reflection.json"
+  # Create a JSONL reflection queue
+  jq -nc '{trigger:"stop",priority:"normal",friction_count:0,user_turns:10,transcript_path:"",context_snapshot:""}' \
+    > "$SANDBOX/.second-brain/.pending-reflections.jsonl"
   # Simulate post-compact writing the marker < 60 seconds ago
   date -u +"%Y-%m-%dT%H:%M:%SZ" > "$SANDBOX/.second-brain/.last-compact-ts"
   echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-compact-reinit.txt" 2>&1
@@ -556,20 +558,32 @@ if echo "$COMPACT_OUT" | grep -q "Read these files"; then
 else
   assert_pass "compact re-init skips full file-load instructions"
 fi
-if echo "$COMPACT_OUT" | grep -q "pending-reflection\|knowledge-maintainer"; then
-  assert_fail "compact re-init should NOT reference pending-reflection or knowledge-maintainer"
+# Compact re-init now DOES process queued reflections (this is the fix)
+if echo "$COMPACT_OUT" | grep -q "PENDING REFLECTIONS QUEUED"; then
+  assert_pass "compact re-init processes queued reflections"
 else
-  assert_pass "compact re-init skips reflection/maintainer processing"
+  assert_fail "compact re-init should process queued reflections"
 fi
 
-# --- Test 22: compact re-init output under 200 chars ---
+# --- Test 22: compact re-init without reflections is minimal ---
 echo ""
-echo "22. Compact re-init output under 200 chars"
-COMPACT_CHARS=$(echo -n "$COMPACT_OUT" | wc -c | tr -d ' ')
+echo "22. Compact re-init without reflections is minimal"
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  rm -f "$SANDBOX/.second-brain/.pending-reflections.jsonl"
+  date -u +"%Y-%m-%dT%H:%M:%SZ" > "$SANDBOX/.second-brain/.last-compact-ts"
+  echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-compact-empty.txt" 2>&1
+)
+COMPACT_EMPTY=$(cat "$SANDBOX/session-load-compact-empty.txt")
+COMPACT_CHARS=$(echo -n "$COMPACT_EMPTY" | wc -c | tr -d ' ')
 if [ "$COMPACT_CHARS" -lt 200 ]; then
-  assert_pass "compact re-init output = ${COMPACT_CHARS} chars (under 200)"
+  assert_pass "compact re-init (no reflections) = ${COMPACT_CHARS} chars (under 200)"
 else
-  assert_fail "compact re-init output = ${COMPACT_CHARS} chars (over 200, compaction loop risk)"
+  assert_fail "compact re-init (no reflections) = ${COMPACT_CHARS} chars (over 200)"
 fi
 
 # --- Test 23: error logging writes to error-log.jsonl ---
@@ -606,7 +620,7 @@ BRAIN=$(setup_brain)
   export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
   mkdir -p "$SANDBOX/.second-brain"
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
-  rm -f "$SANDBOX/.second-brain/.pending-reflection.json"
+  rm -f "$SANDBOX/.second-brain/.pending-reflections.jsonl"
   # Write a recent error to error-log.jsonl
   TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   jq -nc --arg t "$TS" '{timestamp:$t, script:"drift-detect.sh", message:"jq parse error", exit_code:1}' \
@@ -686,18 +700,18 @@ make_transcript 5 "$TRANSCRIPT"
   SB_BLOCKERS='["waiting on API spec"]'
   sb_write_reflection "stop"
 )
-REFLECTION="$SANDBOX/.second-brain/.pending-reflection.json"
-if [ -f "$REFLECTION" ]; then
-  GOALS=$(jq -r '.goals[0]' "$REFLECTION" 2>/dev/null)
-  IP=$(jq -r '.in_progress[0]' "$REFLECTION" 2>/dev/null)
-  BL=$(jq -r '.blockers[0]' "$REFLECTION" 2>/dev/null)
+JSONL="$SANDBOX/.second-brain/.pending-reflections.jsonl"
+if [ -f "$JSONL" ]; then
+  GOALS=$(tail -1 "$JSONL" | jq -r '.goals[0]' 2>/dev/null)
+  IP=$(tail -1 "$JSONL" | jq -r '.in_progress[0]' 2>/dev/null)
+  BL=$(tail -1 "$JSONL" | jq -r '.blockers[0]' 2>/dev/null)
   if [ "$GOALS" = "finish auth module" ] && [ "$IP" = "refactor DB layer" ] && [ "$BL" = "waiting on API spec" ]; then
     assert_pass "handoff fields (goals, in_progress, blockers) correctly serialized"
   else
     assert_fail "handoff field mismatch: goals=$GOALS ip=$IP blockers=$BL"
   fi
 else
-  assert_fail "reflection not created for handoff test"
+  assert_fail "reflection JSONL not created for handoff test"
 fi
 
 # --- Test 27: handoff display in session-load ---
@@ -710,8 +724,8 @@ BRAIN=$(setup_brain)
   export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
   mkdir -p "$SANDBOX/.second-brain"
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
-  jq -n '{trigger:"stop",priority:"normal",friction_count:0,user_turns:5,transcript_path:"",goals:["ship v2"],in_progress:["testing"],blockers:["CI broken"]}' \
-    > "$SANDBOX/.second-brain/.pending-reflection.json"
+  jq -nc '{trigger:"stop",priority:"normal",friction_count:0,user_turns:5,transcript_path:"",context_snapshot:"",goals:["ship v2"],in_progress:["testing"],blockers:["CI broken"]}' \
+    > "$SANDBOX/.second-brain/.pending-reflections.jsonl"
   echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-handoff.txt" 2>&1
 )
 if grep -q "SESSION HANDOFF" "$SANDBOX/session-load-handoff.txt" 2>/dev/null; then
@@ -726,8 +740,8 @@ BRAIN=$(setup_brain)
   export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
   mkdir -p "$SANDBOX/.second-brain"
   cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
-  jq -n '{trigger:"stop",priority:"normal",friction_count:0,user_turns:5,transcript_path:""}' \
-    > "$SANDBOX/.second-brain/.pending-reflection.json"
+  jq -nc '{trigger:"stop",priority:"normal",friction_count:0,user_turns:5,transcript_path:"",context_snapshot:""}' \
+    > "$SANDBOX/.second-brain/.pending-reflections.jsonl"
   echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-no-handoff.txt" 2>&1
 )
 if grep -q "SESSION HANDOFF" "$SANDBOX/session-load-no-handoff.txt" 2>/dev/null; then

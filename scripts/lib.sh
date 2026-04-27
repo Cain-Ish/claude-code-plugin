@@ -103,13 +103,44 @@ sb_check_auto_improve() {
   fi
 }
 
-# Write pending reflection JSON. Args: $1=trigger
+# Migrate old singular reflection file to new JSONL queue (one-time, idempotent).
+sb_migrate_reflection() {
+  local old_file="$BRAIN_DIR/.pending-reflection.json"
+  local new_file="$BRAIN_DIR/.pending-reflections.jsonl"
+  if [ -f "$old_file" ]; then
+    jq -c '.' "$old_file" >> "$new_file" 2>/dev/null
+    rm -f "$old_file"
+  fi
+}
+
+# Snapshot last ~100 lines of transcript so content survives compaction.
+# Sets SB_CONTEXT_SNAPSHOT to the snapshot path (empty if unavailable).
+sb_snapshot_transcript() {
+  SB_CONTEXT_SNAPSHOT=""
+  if [ -z "$SB_TRANSCRIPT_PATH" ] || [ ! -f "$SB_TRANSCRIPT_PATH" ]; then
+    return
+  fi
+  local snap_dir="$BRAIN_DIR/.reflection-context"
+  mkdir -p "$snap_dir"
+  local epoch
+  epoch=$(date +%s)
+  local snap_file="$snap_dir/${SB_SESSION_ID}-${epoch}.txt"
+  tail -100 "$SB_TRANSCRIPT_PATH" > "$snap_file" 2>/dev/null
+  SB_CONTEXT_SNAPSHOT="$snap_file"
+}
+
+# Append a reflection entry to the JSONL queue. Args: $1=trigger
 # Optional handoff fields: set SB_GOALS, SB_COMPLETED, SB_IN_PROGRESS, SB_BLOCKERS as JSON arrays before calling.
 sb_write_reflection() {
   local trigger="${1:-unknown}"
-  jq -n \
+  sb_migrate_reflection
+  sb_snapshot_transcript
+  local appended_at
+  appended_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  jq -nc \
     --arg s "$SB_SESSION_ID" \
     --arg d "$SB_TIMESTAMP" \
+    --arg at "$appended_at" \
     --argjson ut "$SB_USER_TURNS" \
     --argjson fc "$SB_FRICTION_COUNT" \
     --argjson ps "$SB_POSITIVE_COUNT" \
@@ -119,12 +150,13 @@ sb_write_reflection() {
     --argjson spi "$SB_SUGGEST_IMPROVE" \
     --arg tr "$trigger" \
     --arg tp "$SB_TRANSCRIPT_PATH" \
+    --arg cs "$SB_CONTEXT_SNAPSHOT" \
     --argjson goals "${SB_GOALS:-[]}" \
     --argjson completed "${SB_COMPLETED:-[]}" \
     --argjson in_progress "${SB_IN_PROGRESS:-[]}" \
     --argjson blockers "${SB_BLOCKERS:-[]}" \
-    '{session_id:$s, date:$d, user_turns:$ut, friction_count:$fc, positive_signals:$ps, first_try_success:$fts, drift_count:$dc, priority:$pr, suggest_plugin_improve:$spi, trigger:$tr, transcript_path:$tp, goals:$goals, completed:$completed, in_progress:$in_progress, blockers:$blockers}' \
-    > "$BRAIN_DIR/.pending-reflection.json"
+    '{session_id:$s, date:$d, appended_at:$at, user_turns:$ut, friction_count:$fc, positive_signals:$ps, first_try_success:$fts, drift_count:$dc, priority:$pr, suggest_plugin_improve:$spi, trigger:$tr, transcript_path:$tp, context_snapshot:$cs, goals:$goals, completed:$completed, in_progress:$in_progress, blockers:$blockers}' \
+    >> "$BRAIN_DIR/.pending-reflections.jsonl"
 }
 
 # Write session metadata JSON.

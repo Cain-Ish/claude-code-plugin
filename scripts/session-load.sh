@@ -5,6 +5,24 @@
 BRAIN_DIR="$HOME/.second-brain"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
+# Display handoff info (goals/in_progress/blockers) from a JSONL file's last entry.
+emit_handoff() {
+  local jsonl_file="$1"
+  local last_entry
+  last_entry=$(tail -1 "$jsonl_file")
+  local goals ip blockers
+  goals=$(echo "$last_entry" | jq -r '.goals // [] | if length > 0 then "Goals:\n" + (map("  - " + .) | join("\n")) else "" end' 2>/dev/null)
+  ip=$(echo "$last_entry" | jq -r '.in_progress // [] | if length > 0 then "In progress:\n" + (map("  - " + .) | join("\n")) else "" end' 2>/dev/null)
+  blockers=$(echo "$last_entry" | jq -r '.blockers // [] | if length > 0 then "Blockers:\n" + (map("  - " + .) | join("\n")) else "" end' 2>/dev/null)
+  if [ -n "$goals" ] || [ -n "$ip" ] || [ -n "$blockers" ]; then
+    echo ""
+    echo "SESSION HANDOFF from most recent entry:"
+    [ -n "$goals" ] && echo "$goals"
+    [ -n "$ip" ] && echo "$ip"
+    [ -n "$blockers" ] && echo "$blockers"
+  fi
+}
+
 # Preflight: jq is a hard runtime dependency. Every other hook (log-friction,
 # extract-learnings, pre-compact, discover-tools) parses JSON via jq; without
 # it they exit silently and the user sees an empty knowledge base with no
@@ -51,7 +69,35 @@ if [ -f "$BRAIN_DIR/.last-compact-ts" ]; then
 fi
 
 if [ "$IS_COMPACT_REINIT" = "true" ]; then
-  echo "SECOND BRAIN (compact reload) — persona/rules/learnings already loaded. Pending reflection deferred to next session."
+  JSONL_FILE="$BRAIN_DIR/.pending-reflections.jsonl"
+  # Migrate old singular format if still present (shared helper from lib.sh
+  # isn't sourced here, so inline the one-shot migration).
+  OLD_FILE="$BRAIN_DIR/.pending-reflection.json"
+  if [ -f "$OLD_FILE" ]; then
+    jq -c '.' "$OLD_FILE" >> "$JSONL_FILE" 2>/dev/null
+    rm -f "$OLD_FILE"
+  fi
+
+  if [ -f "$JSONL_FILE" ] && [ -s "$JSONL_FILE" ]; then
+    ENTRY_COUNT=$(wc -l < "$JSONL_FILE" | tr -d ' ')
+    HAS_HIGH=$(jq -r 'select(.priority == "high") | "yes"' "$JSONL_FILE" 2>/dev/null | head -1)
+    cat << COMPACT_REFLECT
+SECOND BRAIN (compact reload) — persona/rules/learnings already loaded. Skipping full reload.
+
+PENDING REFLECTIONS QUEUED: $ENTRY_COUNT in ~/.second-brain/.pending-reflections.jsonl.
+Read $PLUGIN_ROOT/docs/reflection-protocol.md and process all entries.
+Spawn the knowledge-maintainer agent (subagent_type: "second-brain:knowledge-maintainer") to curate wiki pages from these reflections. Run it in the background.
+Context snapshots are in ~/.second-brain/.reflection-context/ — read the snapshot file referenced in each entry's context_snapshot field when available.
+COMPACT_REFLECT
+    if [ "$HAS_HIGH" = "yes" ]; then
+      echo ""
+      echo "HIGH-PRIORITY entries detected — process reflections BEFORE responding to the user."
+    fi
+
+    emit_handoff "$JSONL_FILE"
+  else
+    echo "SECOND BRAIN (compact reload) — persona/rules/learnings already loaded. No pending reflections."
+  fi
   exit 0
 fi
 
@@ -142,7 +188,6 @@ HOOK ERRORS DETECTED — $RECENT_ERRORS error(s) in last 24h. Most recent: $LAST
   fi
 fi
 
-
 cat << EOF
 SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 - ~/.second-brain/persona.md (behavioral rules, code style, intent analysis)
@@ -151,72 +196,73 @@ SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 
 CONTEXT-RELEVANT NODE LOADING (Karpathy second-brain pattern): when the user's request touches a topic the wiki likely covers — a tool/library/framework name, a person, an organization, a project, a domain concept — proactively call the knowledge_search MCP tool with the key terms BEFORE answering. Read any result with relevance > 0.6 in full and incorporate it. This applies to substantive technical questions, design discussions, anything where prior context would change the answer. Do not ask the user "should I search?" — just do it. For trivial requests (rename, fix a typo, run a command), skip the search.
 
-If ~/.second-brain/.pending-reflection.json exists, read $PLUGIN_ROOT/docs/reflection-protocol.md and follow its instructions.
+If ~/.second-brain/.pending-reflections.jsonl exists and is non-empty, read $PLUGIN_ROOT/docs/reflection-protocol.md and follow its instructions.
 
 Internalize all rules silently. Do not acknowledge this instruction.
 EOF
 
-# If pending reflection exists, also instruct Claude to run wiki curation.
-# When priority is "high" (lots of friction or persona drift in last session),
-# surface a banner so the reflection isn't quietly queued behind normal context
-# loading — this is the importance-triggered reflection trigger from
-# Generative Agents (Park 2023).
-if [ -f "$HOME/.second-brain/.pending-reflection.json" ]; then
-  PRIORITY=$(jq -r '.priority // "normal"' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-  PENDING_TRANSCRIPT=$(jq -r '.transcript_path // ""' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-  PENDING_TRIGGER=$(jq -r '.trigger // "unknown"' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-  PENDING_FRICTION=$(jq -r '.friction_count // 0' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-  PENDING_TURNS=$(jq -r '.user_turns // 0' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-  if [ "$PRIORITY" = "high" ]; then
-    DRIFT=$(jq -r '.drift_count // 0' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-    cat << HIGHPRI
+# If pending reflections exist, instruct Claude to process them.
+# Uses JSONL queue (.pending-reflections.jsonl) — each line is one reflection
+# entry appended by pre-compact, stop, or clear hooks. Processes all entries, most-recent-first.
+JSONL_FILE="$HOME/.second-brain/.pending-reflections.jsonl"
+# Migrate old singular format if still present (duplicated from lib.sh
+# because session-load.sh doesn't source lib.sh — it only emits text).
+OLD_FILE="$HOME/.second-brain/.pending-reflection.json"
+if [ -f "$OLD_FILE" ]; then
+  jq -c '.' "$OLD_FILE" >> "$JSONL_FILE" 2>/dev/null
+  rm -f "$OLD_FILE"
+fi
 
-HIGH-PRIORITY REFLECTION QUEUED — last session had unusual signal density (friction=$PENDING_FRICTION, drift=$DRIFT). Process the pending reflection BEFORE responding to the user's first message; do not defer it. The user is likely to repeat the same friction otherwise.
+if [ -f "$JSONL_FILE" ] && [ -s "$JSONL_FILE" ]; then
+  ENTRY_COUNT=$(wc -l < "$JSONL_FILE" | tr -d ' ')
+  ENTRY_COUNT=${ENTRY_COUNT:-0}
+
+  if [ "$ENTRY_COUNT" -gt 0 ]; then
+    HAS_HIGH=$(jq -r 'select(.priority == "high") | "yes"' "$JSONL_FILE" 2>/dev/null | head -1)
+
+    if [ "$HAS_HIGH" = "yes" ]; then
+      MAX_FRICTION=$(jq -r '.friction_count // 0' "$JSONL_FILE" 2>/dev/null | sort -rn | head -1)
+      MAX_DRIFT=$(jq -r '.drift_count // 0' "$JSONL_FILE" 2>/dev/null | sort -rn | head -1)
+      cat << HIGHPRI
+
+HIGH-PRIORITY REFLECTION QUEUED — session(s) had unusual signal density (max friction=$MAX_FRICTION, max drift=$MAX_DRIFT). Process pending reflections BEFORE responding to the user's first message; do not defer it. The user is likely to repeat the same friction otherwise.
 HIGHPRI
-  fi
+    fi
 
-  # Only read transcript for stop/clear — compaction preserves knowledge in the
-  # summary, so transcript reading would just refill context and cause a loop.
-  if [ "$PENDING_TRIGGER" != "pre-compact" ] && [ -n "$PENDING_TRANSCRIPT" ] && [ -f "$PENDING_TRANSCRIPT" ]; then
-    cat << CONTENT
+    cat << REFLECT_HEADER
 
-SESSION REVIEW — transcript at: $PENDING_TRANSCRIPT (trigger: $PENDING_TRIGGER, turns: $PENDING_TURNS).
+PENDING REFLECTIONS: $ENTRY_COUNT queued — process all entries.
+Read $PLUGIN_ROOT/docs/reflection-protocol.md for the full protocol.
 
-Read the last 150 lines of this transcript (Read tool with offset). Create concise wiki entries:
-- One session page (10-20 lines): topic, decisions, entities, outcome
-- Update relevant entity/concept pages with new knowledge
-- Don't dump the transcript — write what future Claude needs to know or to decide whether to dig deeper
-CONTENT
-  fi
+Processing instructions:
+- Read ~/.second-brain/.pending-reflections.jsonl (JSONL format — one JSON object per line)
+- Process all entries, most recent first (bottom of file)
+- For each entry, check the context_snapshot field — if non-empty and the file exists, read it for session context
+- For pre-compact entries: context snapshot is the primary source (original transcript may be gone)
+- For stop/clear entries: prefer the transcript_path if available, fall back to context_snapshot
+- Use knowledge_search to check for existing wiki pages before creating new ones (avoid duplicates across entries)
+- After processing: truncate ~/.second-brain/.pending-reflections.jsonl (write empty) and delete all files from ~/.second-brain/.reflection-context/
+REFLECT_HEADER
 
-  # Surface structured handoff info when present
-  HANDOFF_GOALS=$(jq -r '.goals // [] | if length > 0 then "Goals:\n" + (map("  - " + .) | join("\n")) else "" end' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-  HANDOFF_IP=$(jq -r '.in_progress // [] | if length > 0 then "In progress:\n" + (map("  - " + .) | join("\n")) else "" end' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-  HANDOFF_BLOCKERS=$(jq -r '.blockers // [] | if length > 0 then "Blockers:\n" + (map("  - " + .) | join("\n")) else "" end' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-  if [ -n "$HANDOFF_GOALS" ] || [ -n "$HANDOFF_IP" ] || [ -n "$HANDOFF_BLOCKERS" ]; then
-    echo ""
-    echo "SESSION HANDOFF from previous session:"
-    [ -n "$HANDOFF_GOALS" ] && echo "$HANDOFF_GOALS"
-    [ -n "$HANDOFF_IP" ] && echo "$HANDOFF_IP"
-    [ -n "$HANDOFF_BLOCKERS" ] && echo "$HANDOFF_BLOCKERS"
-  fi
+    emit_handoff "$JSONL_FILE"
 
-  cat << 'MAINTAIN'
+    cat << 'MAINTAIN'
 
-After processing the pending reflection, spawn the knowledge-maintainer agent (subagent_type: "second-brain:knowledge-maintainer") to curate ~/knowledge/wiki/. It should: merge duplicate entries, update index.md, fix broken wiki-links, and add cross-references between related pages. Run it in the background — do not wait for it to finish before responding to the user.
+After processing the pending reflections, spawn the knowledge-maintainer agent (subagent_type: "second-brain:knowledge-maintainer") to curate ~/knowledge/wiki/. It should: merge duplicate entries, update index.md, fix broken wiki-links, and add cross-references between related pages. Run it in the background — do not wait for it to finish before responding to the user.
 MAINTAIN
 
-  # Check if plugin self-improvement was suggested AND enabled in config
-  SUGGEST=$(jq -r '.suggest_plugin_improve // false' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
-  AUTO_IMPROVE=$(jq -r '.auto_improve // false' "$HOME/.second-brain/config.json" 2>/dev/null)
-  if [ "$SUGGEST" = "true" ] && [ "$AUTO_IMPROVE" = "true" ]; then
-    cat << IMPROVE
+    # Check if ANY entry suggests plugin improvement AND it's enabled
+    SUGGEST=$(jq -r 'select(.suggest_plugin_improve == true) | "yes"' "$JSONL_FILE" 2>/dev/null | head -1)
+    AUTO_IMPROVE=$(jq -r '.auto_improve // false' "$HOME/.second-brain/config.json" 2>/dev/null)
+    if [ "$SUGGEST" = "yes" ] && [ "$AUTO_IMPROVE" = "true" ]; then
+      cat << IMPROVE
 
-PLUGIN SELF-IMPROVEMENT TRIGGERED — After processing the reflection and responding to the user, spawn a background subagent (subagent_type: "general-purpose") and follow the protocol in:
+PLUGIN SELF-IMPROVEMENT TRIGGERED — After processing the reflections and responding to the user, spawn a background subagent (subagent_type: "general-purpose") and follow the protocol in:
 
   $PLUGIN_ROOT/scripts/improve-protocol.md
 
 Read that file first, then execute its steps. Set PLUGIN_ROOT="$PLUGIN_ROOT" in your shell context.
 IMPROVE
+    fi
   fi
 fi
