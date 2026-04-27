@@ -15,7 +15,7 @@ sb_parse_input() {
 # Resolve transcript path from session ID fallback. Updates SB_TRANSCRIPT_PATH.
 # Returns 1 if no usable transcript found.
 sb_resolve_transcript() {
-  if [ -z "$SB_TRANSCRIPT_PATH" ] || [ "$SB_TRANSCRIPT_PATH" = "" ]; then
+  if [ -z "$SB_TRANSCRIPT_PATH" ]; then
     if [ -n "$SB_SESSION_ID" ] && [ "$SB_SESSION_ID" != "unknown" ]; then
       local possible="$HOME/.claude/sessions/$SB_SESSION_ID.jsonl"
       [ -f "$possible" ] && SB_TRANSCRIPT_PATH="$possible"
@@ -28,7 +28,7 @@ sb_resolve_transcript() {
 sb_count_user_turns() {
   SB_USER_TURNS=0
   if [ -n "$SB_TRANSCRIPT_PATH" ] && [ -f "$SB_TRANSCRIPT_PATH" ]; then
-    SB_USER_TURNS=$(jq -r 'select(.type=="user" and (.message.content | type == "string")) | .type' "$SB_TRANSCRIPT_PATH" 2>/dev/null | wc -l | tr -d ' ')
+    SB_USER_TURNS=$(jq -r 'select(.type=="user") | "x"' "$SB_TRANSCRIPT_PATH" 2>/dev/null | wc -l | tr -d ' ')
     SB_USER_TURNS=${SB_USER_TURNS:-0}
   fi
 }
@@ -38,8 +38,12 @@ sb_count_friction() {
   SB_FRICTION_COUNT=0
   SB_POSITIVE_COUNT=0
   if [ -f "$BRAIN_DIR/friction-log.jsonl" ]; then
-    SB_FRICTION_COUNT=$(jq -s --arg s "$SB_SESSION_ID" '[.[] | select(.session_id == $s and (.direction // "negative") == "negative")] | length' "$BRAIN_DIR/friction-log.jsonl" 2>/dev/null)
-    SB_POSITIVE_COUNT=$(jq -s --arg s "$SB_SESSION_ID" '[.[] | select(.session_id == $s and .direction == "positive")] | length' "$BRAIN_DIR/friction-log.jsonl" 2>/dev/null)
+    local session_lines
+    session_lines=$(grep -F "$SB_SESSION_ID" "$BRAIN_DIR/friction-log.jsonl" 2>/dev/null)
+    if [ -n "$session_lines" ]; then
+      SB_FRICTION_COUNT=$(echo "$session_lines" | jq -r --arg s "$SB_SESSION_ID" 'select(.session_id == $s and (.direction // "negative") == "negative") | "x"' 2>/dev/null | wc -l | tr -d ' ')
+      SB_POSITIVE_COUNT=$(echo "$session_lines" | jq -r --arg s "$SB_SESSION_ID" 'select(.session_id == $s and .direction == "positive") | "x"' 2>/dev/null | wc -l | tr -d ' ')
+    fi
     SB_FRICTION_COUNT=${SB_FRICTION_COUNT:-0}
     SB_POSITIVE_COUNT=${SB_POSITIVE_COUNT:-0}
   fi
@@ -53,7 +57,7 @@ sb_count_friction() {
 sb_count_drift() {
   SB_DRIFT_COUNT=0
   if [ -f "$BRAIN_DIR/drift-log.jsonl" ]; then
-    SB_DRIFT_COUNT=$(jq -s --arg s "$SB_SESSION_ID" '[.[] | select(.session_id == $s)] | length' "$BRAIN_DIR/drift-log.jsonl" 2>/dev/null)
+    SB_DRIFT_COUNT=$(grep -cF "$SB_SESSION_ID" "$BRAIN_DIR/drift-log.jsonl" 2>/dev/null || echo 0)
     SB_DRIFT_COUNT=${SB_DRIFT_COUNT:-0}
   fi
 }
@@ -100,6 +104,7 @@ sb_check_auto_improve() {
 }
 
 # Write pending reflection JSON. Args: $1=trigger
+# Optional handoff fields: set SB_GOALS, SB_COMPLETED, SB_IN_PROGRESS, SB_BLOCKERS as JSON arrays before calling.
 sb_write_reflection() {
   local trigger="${1:-unknown}"
   jq -n \
@@ -114,7 +119,11 @@ sb_write_reflection() {
     --argjson spi "$SB_SUGGEST_IMPROVE" \
     --arg tr "$trigger" \
     --arg tp "$SB_TRANSCRIPT_PATH" \
-    '{session_id:$s, date:$d, user_turns:$ut, friction_count:$fc, positive_signals:$ps, first_try_success:$fts, drift_count:$dc, priority:$pr, suggest_plugin_improve:$spi, trigger:$tr, transcript_path:$tp}' \
+    --argjson goals "${SB_GOALS:-[]}" \
+    --argjson completed "${SB_COMPLETED:-[]}" \
+    --argjson in_progress "${SB_IN_PROGRESS:-[]}" \
+    --argjson blockers "${SB_BLOCKERS:-[]}" \
+    '{session_id:$s, date:$d, user_turns:$ut, friction_count:$fc, positive_signals:$ps, first_try_success:$fts, drift_count:$dc, priority:$pr, suggest_plugin_improve:$spi, trigger:$tr, transcript_path:$tp, goals:$goals, completed:$completed, in_progress:$in_progress, blockers:$blockers}' \
     > "$BRAIN_DIR/.pending-reflection.json"
 }
 
@@ -129,6 +138,22 @@ sb_write_session_meta() {
     --argjson fts "$SB_FIRST_TRY" \
     '{session_id:$s, date:$d, user_turns:$ut, friction_signals:$fs, positive_signals:$ps, first_try_success:$fts}' \
     > "$BRAIN_DIR/.last-session-meta.json"
+}
+
+# Log an error to error-log.jsonl for session-load.sh to surface.
+sb_log_error() {
+  local script_name="${1:-unknown}"
+  local error_msg="${2:-}"
+  local exit_code="${3:-1}"
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  jq -nc \
+    --arg t "$ts" \
+    --arg s "$script_name" \
+    --arg m "$error_msg" \
+    --argjson c "$exit_code" \
+    '{timestamp:$t, script:$s, message:$m, exit_code:$c}' \
+    >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
 }
 
 # Full collection pipeline: parse → resolve → count turns → count friction → count drift → calc priority → check improve.

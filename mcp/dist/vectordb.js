@@ -1,6 +1,10 @@
 import fs from "fs";
 import path from "path";
+import initSqlJs from "sql.js";
 function cosineSimilarity(a, b) {
+    if (a.length !== b.length) {
+        throw new Error(`Embedding dimension mismatch: ${a.length} vs ${b.length}`);
+    }
     let dot = 0;
     let normA = 0;
     let normB = 0;
@@ -12,7 +16,6 @@ function cosineSimilarity(a, b) {
     const denom = Math.sqrt(normA) * Math.sqrt(normB);
     return denom === 0 ? 0 : dot / denom;
 }
-// BM25 parameters (standard defaults)
 const BM25_K1 = 1.2;
 const BM25_B = 0.75;
 function tokenize(text) {
@@ -41,75 +44,177 @@ function computeBM25(queryTokens, docTokens, avgDocLen, docFreqs, totalDocs) {
     }
     return score;
 }
+function embeddingToBlob(embedding) {
+    return new Uint8Array(embedding.buffer.slice(embedding.byteOffset, embedding.byteOffset + embedding.byteLength));
+}
+function blobToEmbedding(blob) {
+    if (blob.length % 4 !== 0) {
+        throw new Error(`Invalid embedding blob size: ${blob.length} (must be multiple of 4)`);
+    }
+    const copy = new ArrayBuffer(blob.length);
+    new Uint8Array(copy).set(blob);
+    return new Float32Array(copy);
+}
 export class VectorDB {
-    storePath;
-    store;
-    dirty = false;
+    db = null;
+    dbPath;
+    dbDir;
+    initPromise;
     constructor(knowledgeDir) {
-        const dbDir = path.join(knowledgeDir, ".embeddings");
-        fs.mkdirSync(dbDir, { recursive: true });
-        this.storePath = path.join(dbDir, "vectors.json");
-        this.store = this.load();
+        this.dbDir = path.join(knowledgeDir, ".embeddings");
+        fs.mkdirSync(this.dbDir, { recursive: true });
+        this.dbPath = path.join(this.dbDir, "vectors.db");
+        this.initPromise = this.init();
     }
-    load() {
-        if (fs.existsSync(this.storePath)) {
-            try {
-                const data = fs.readFileSync(this.storePath, "utf-8");
-                return JSON.parse(data);
-            }
-            catch {
-                return { version: 1, entries: [] };
-            }
-        }
-        return { version: 1, entries: [] };
-    }
-    writeStore() {
-        const tmpPath = this.storePath + ".tmp";
-        fs.writeFileSync(tmpPath, JSON.stringify(this.store), "utf-8");
-        fs.renameSync(tmpPath, this.storePath);
-        this.dirty = false;
-    }
-    flush() {
-        if (this.dirty)
-            this.writeStore();
-    }
-    isIndexed(filePath, lastModified) {
-        const entry = this.store.entries.find((e) => e.path === filePath);
-        return entry !== undefined && entry.lastModified >= lastModified;
-    }
-    upsertPage(page, embedding) {
-        const idx = this.store.entries.findIndex((e) => e.path === page.path);
-        const entry = {
-            path: page.path,
-            title: page.title,
-            content: page.content,
-            category: page.category,
-            lastModified: page.lastModified,
-            indexedAt: Date.now(),
-            embedding: Array.from(embedding),
-        };
-        if (idx >= 0) {
-            this.store.entries[idx] = entry;
+    async init() {
+        const SQL = await initSqlJs();
+        const isNew = !fs.existsSync(this.dbPath);
+        if (!isNew) {
+            const buf = fs.readFileSync(this.dbPath);
+            this.db = new SQL.Database(buf);
         }
         else {
-            this.store.entries.push(entry);
+            this.db = new SQL.Database();
         }
-        this.dirty = true;
+        this.db.run(`
+      CREATE TABLE IF NOT EXISTS pages (
+        path TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL,
+        lastModified REAL NOT NULL,
+        indexedAt REAL NOT NULL,
+        embedding BLOB NOT NULL,
+        accessCount INTEGER DEFAULT 0,
+        lastAccessed REAL
+      )
+    `);
+        this.db.run("CREATE INDEX IF NOT EXISTS idx_category ON pages(category)");
+        const didMigrate = this.migrate();
+        if (isNew || didMigrate)
+            this.persist();
     }
-    search(queryEmbedding, limit = 5, category, minScore = 0.25, queryText) {
-        let candidates = this.store.entries;
+    migrate() {
+        const jsonPath = path.join(this.dbDir, "vectors.json");
+        if (!fs.existsSync(jsonPath))
+            return false;
+        let data;
+        try {
+            data = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
+        }
+        catch {
+            return false;
+        }
+        if (!data.entries || data.entries.length === 0)
+            return false;
+        let migrated = 0;
+        let skipped = 0;
+        const stmt = this.db.prepare("INSERT OR IGNORE INTO pages (path, title, content, category, lastModified, indexedAt, embedding, accessCount, lastAccessed) VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)");
+        try {
+            for (const e of data.entries) {
+                try {
+                    const emb = new Float32Array(e.embedding);
+                    stmt.run([e.path, e.title, e.content, e.category, e.lastModified, e.indexedAt, embeddingToBlob(emb)]);
+                    migrated++;
+                }
+                catch (err) {
+                    skipped++;
+                    console.error(`Skipped migration entry ${e.path}: ${err instanceof Error ? err.message : String(err)}`);
+                }
+            }
+        }
+        finally {
+            stmt.free();
+        }
+        const suffix = skipped > 0 ? ".partial-migrated" : ".migrated";
+        fs.renameSync(jsonPath, jsonPath + suffix);
+        console.error(`Migrated ${migrated}/${data.entries.length} entries from vectors.json to SQLite${skipped > 0 ? ` (${skipped} skipped)` : ""}`);
+        return migrated > 0;
+    }
+    persist() {
+        if (!this.db)
+            return;
+        const data = this.db.export();
+        const tmpPath = this.dbPath + ".tmp";
+        fs.writeFileSync(tmpPath, Buffer.from(data));
+        fs.renameSync(tmpPath, this.dbPath);
+    }
+    getDb() {
+        if (!this.db)
+            throw new Error("VectorDB not initialized");
+        return this.db;
+    }
+    async ready() {
+        await this.initPromise;
+    }
+    isIndexed(filePath, lastModified) {
+        const db = this.getDb();
+        const stmt = db.prepare("SELECT lastModified FROM pages WHERE path = ?");
+        try {
+            stmt.bind([filePath]);
+            if (stmt.step()) {
+                const row = stmt.getAsObject();
+                return row.lastModified >= lastModified;
+            }
+            return false;
+        }
+        finally {
+            stmt.free();
+        }
+    }
+    upsertPage(page, embedding) {
+        const db = this.getDb();
+        const existing = db.prepare("SELECT accessCount, lastAccessed FROM pages WHERE path = ?");
+        let accessCount = 0;
+        let lastAccessed = null;
+        try {
+            existing.bind([page.path]);
+            if (existing.step()) {
+                const row = existing.getAsObject();
+                accessCount = row.accessCount || 0;
+                lastAccessed = row.lastAccessed || null;
+            }
+        }
+        finally {
+            existing.free();
+        }
+        db.run("INSERT OR REPLACE INTO pages (path, title, content, category, lastModified, indexedAt, embedding, accessCount, lastAccessed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [page.path, page.title, page.content, page.category, page.lastModified, Date.now(), embeddingToBlob(embedding), accessCount, lastAccessed]);
+    }
+    search(queryEmbedding, limit = 5, category, minCosineSimilarity = 0.25, queryText) {
+        const db = this.getDb();
+        let sql = "SELECT path, title, content, category, embedding, accessCount FROM pages";
+        const params = [];
         if (category) {
-            candidates = candidates.filter((e) => e.category === category);
+            sql += " WHERE category = ?";
+            params.push(category);
+        }
+        const candidates = [];
+        const stmt = db.prepare(sql);
+        try {
+            if (params.length > 0)
+                stmt.bind(params);
+            while (stmt.step()) {
+                const row = stmt.getAsObject();
+                candidates.push({
+                    path: row.path,
+                    title: row.title,
+                    content: row.content,
+                    category: row.category,
+                    embedding: blobToEmbedding(row.embedding),
+                    accessCount: row.accessCount || 0,
+                });
+            }
+        }
+        finally {
+            stmt.free();
         }
         if (candidates.length === 0)
             return [];
-        // Vector similarity scores
         const vectorScored = candidates.map((entry, i) => ({
             idx: i,
             entry,
             vectorScore: cosineSimilarity(queryEmbedding, entry.embedding),
         }));
-        // BM25 keyword scores (when query text provided)
         let bm25Scored = [];
         if (queryText) {
             const queryTokens = tokenize(queryText);
@@ -117,7 +222,6 @@ export class VectorDB {
                 const docTokensCache = candidates.map((e) => tokenize(`${e.title} ${e.content}`));
                 const avgDocLen = docTokensCache.reduce((sum, d) => sum + d.length, 0) /
                     candidates.length;
-                // Compute document frequencies for IDF
                 const docFreqs = new Map();
                 for (const tokens of docTokensCache) {
                     const unique = new Set(tokens);
@@ -131,7 +235,6 @@ export class VectorDB {
                 }));
             }
         }
-        // Reciprocal rank fusion: combine vector and BM25 rankings
         const RRF_K = 60;
         const vectorRanked = [...vectorScored].sort((a, b) => b.vectorScore - a.vectorScore);
         const vectorRankMap = new Map();
@@ -141,6 +244,8 @@ export class VectorDB {
             const bm25Ranked = [...bm25Scored].sort((a, b) => b.bm25Score - a.bm25Score);
             bm25Ranked.forEach((v, rank) => bm25RankMap.set(v.idx, rank + 1));
         }
+        // Access-count boost: find max for normalization
+        const maxAccessCount = Math.max(1, candidates.reduce((m, c) => Math.max(m, c.accessCount), 0));
         const fused = vectorScored.map((v) => {
             const vectorRank = vectorRankMap.get(v.idx) || candidates.length;
             const rrfVector = 1 / (RRF_K + vectorRank);
@@ -149,45 +254,122 @@ export class VectorDB {
                 const bm25Rank = bm25RankMap.get(v.idx) || candidates.length;
                 rrfBM25 = 1 / (RRF_K + bm25Rank);
             }
-            // Weight: 60% vector, 40% BM25 when both available
-            const score = bm25RankMap.size > 0
+            const rrfScore = bm25RankMap.size > 0
                 ? 0.6 * rrfVector + 0.4 * rrfBM25
                 : rrfVector;
+            const accessBoost = Math.log1p(v.entry.accessCount) / Math.log1p(maxAccessCount);
+            const score = 0.95 * rrfScore + 0.05 * accessBoost;
             return { entry: v.entry, score, vectorScore: v.vectorScore };
         });
         fused.sort((a, b) => b.score - a.score);
-        return fused
-            .filter((s) => s.vectorScore >= minScore)
+        const filtered = queryText
+            ? fused
+            : fused.filter((s) => s.vectorScore >= minCosineSimilarity);
+        return filtered
             .slice(0, limit)
             .map((s) => ({
             path: s.entry.path,
             title: s.entry.title,
             excerpt: s.entry.content.slice(0, 500),
             category: s.entry.category,
-            score: s.vectorScore,
+            score: s.score,
         }));
     }
+    recordAccess(paths) {
+        const db = this.getDb();
+        const now = Date.now();
+        const stmt = db.prepare("UPDATE pages SET accessCount = accessCount + 1, lastAccessed = ? WHERE path = ?");
+        try {
+            for (const p of paths) {
+                stmt.run([now, p]);
+            }
+        }
+        finally {
+            stmt.free();
+        }
+    }
+    updateAccessCount(filePath, delta) {
+        const db = this.getDb();
+        db.run("UPDATE pages SET accessCount = MAX(0, accessCount + ?) WHERE path = ?", [delta, filePath]);
+        const changes = db.getRowsModified();
+        if (changes > 0)
+            this.persist();
+        return changes > 0;
+    }
+    flush() {
+        this.persist();
+    }
     getStats() {
+        const db = this.getDb();
         const categories = {};
+        const catStmt = db.prepare("SELECT category, COUNT(*) as cnt FROM pages GROUP BY category");
+        try {
+            while (catStmt.step()) {
+                const row = catStmt.getAsObject();
+                categories[row.category] = row.cnt;
+            }
+        }
+        finally {
+            catStmt.free();
+        }
+        let totalPages = 0;
+        const totalStmt = db.prepare("SELECT COUNT(*) as total FROM pages");
+        try {
+            totalStmt.step();
+            totalPages = totalStmt.getAsObject().total || 0;
+        }
+        finally {
+            totalStmt.free();
+        }
         let maxIndexed = 0;
-        for (const entry of this.store.entries) {
-            categories[entry.category] = (categories[entry.category] || 0) + 1;
-            if (entry.indexedAt > maxIndexed)
-                maxIndexed = entry.indexedAt;
+        const lastStmt = db.prepare("SELECT MAX(indexedAt) as lastIndexed FROM pages");
+        try {
+            lastStmt.step();
+            maxIndexed = lastStmt.getAsObject().lastIndexed || 0;
+        }
+        finally {
+            lastStmt.free();
         }
         return {
-            totalPages: this.store.entries.length,
+            totalPages,
             categories,
             lastIndexed: maxIndexed > 0 ? new Date(maxIndexed).toISOString() : null,
         };
     }
     removeStale(existingPaths) {
-        const before = this.store.entries.length;
-        this.store.entries = this.store.entries.filter((e) => existingPaths.has(e.path));
-        const removed = before - this.store.entries.length;
-        if (removed > 0)
-            this.writeStore();
-        return removed;
+        const db = this.getDb();
+        const toDelete = [];
+        const allStmt = db.prepare("SELECT path FROM pages");
+        try {
+            while (allStmt.step()) {
+                const row = allStmt.getAsObject();
+                if (!existingPaths.has(row.path)) {
+                    toDelete.push(row.path);
+                }
+            }
+        }
+        finally {
+            allStmt.free();
+        }
+        if (toDelete.length === 0)
+            return 0;
+        const delStmt = db.prepare("DELETE FROM pages WHERE path = ?");
+        try {
+            for (const p of toDelete) {
+                delStmt.run([p]);
+            }
+        }
+        finally {
+            delStmt.free();
+        }
+        return toDelete.length;
+    }
+    close() {
+        if (this.db) {
+            this.persist();
+            this.db.close();
+            this.db = null;
+        }
     }
 }
 //# sourceMappingURL=vectordb.js.map

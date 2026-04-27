@@ -14,6 +14,13 @@
 #   9. lib.sh transcript resolution fallback works
 #  10. lib.sh skips sessions with < 3 user turns
 #  11. session-load references reflection-protocol.md instead of inline protocol
+#  21. compact re-init abbreviates session-load
+#  22. compact re-init output under 200 chars
+#  23. error logging writes to error-log.jsonl
+#  24. error surfacing in session-load
+#  25. smart-context respects opt-in
+#  26. structured handoff fields in reflection JSON
+#  27. handoff display in session-load
 #
 # Usage: bash tests/test-hooks-regression.sh
 
@@ -35,7 +42,7 @@ FAIL=0
 make_transcript() {
   local n="${1:-5}" path="$2"
   for i in $(seq 1 "$n"); do
-    echo '{"type":"user","message":{"role":"user","content":"test message '$i'"}}'
+    echo '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"test message '$i'"}]}}'
     echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reply '$i'"}]}}'
   done > "$path"
 }
@@ -520,6 +527,213 @@ if [ "$CHARS" -lt 3000 ]; then
   assert_pass "session-load output = ${CHARS} chars (under 3000)"
 else
   assert_fail "session-load output = ${CHARS} chars (over budget, was ~2800 before)"
+fi
+
+# --- Test 21: compact re-init abbreviates session-load ---
+echo ""
+echo "21. Compact re-init abbreviates session-load"
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  # Create a pending reflection that would normally trigger full output
+  jq -n '{trigger:"stop",priority:"normal",friction_count:0,user_turns:10,transcript_path:""}' \
+    > "$SANDBOX/.second-brain/.pending-reflection.json"
+  # Simulate post-compact writing the marker < 60 seconds ago
+  date -u +"%Y-%m-%dT%H:%M:%SZ" > "$SANDBOX/.second-brain/.last-compact-ts"
+  echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-compact-reinit.txt" 2>&1
+)
+COMPACT_OUT=$(cat "$SANDBOX/session-load-compact-reinit.txt")
+if echo "$COMPACT_OUT" | grep -q "compact reload"; then
+  assert_pass "compact re-init emits 'compact reload' marker"
+else
+  assert_fail "compact re-init should emit 'compact reload'" "got: $COMPACT_OUT"
+fi
+if echo "$COMPACT_OUT" | grep -q "Read these files"; then
+  assert_fail "compact re-init should NOT contain 'Read these files'"
+else
+  assert_pass "compact re-init skips full file-load instructions"
+fi
+if echo "$COMPACT_OUT" | grep -q "pending-reflection\|knowledge-maintainer"; then
+  assert_fail "compact re-init should NOT reference pending-reflection or knowledge-maintainer"
+else
+  assert_pass "compact re-init skips reflection/maintainer processing"
+fi
+
+# --- Test 22: compact re-init output under 200 chars ---
+echo ""
+echo "22. Compact re-init output under 200 chars"
+COMPACT_CHARS=$(echo -n "$COMPACT_OUT" | wc -c | tr -d ' ')
+if [ "$COMPACT_CHARS" -lt 200 ]; then
+  assert_pass "compact re-init output = ${COMPACT_CHARS} chars (under 200)"
+else
+  assert_fail "compact re-init output = ${COMPACT_CHARS} chars (over 200, compaction loop risk)"
+fi
+
+# --- Test 23: error logging writes to error-log.jsonl ---
+echo ""
+echo "23. Error logging writes to error-log.jsonl"
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  source "$REPO_ROOT/scripts/lib.sh"
+  BRAIN_DIR="$SANDBOX/.second-brain"
+  sb_log_error "test-script.sh" "something went wrong" 42
+)
+if [ -f "$SANDBOX/.second-brain/error-log.jsonl" ]; then
+  SCRIPT_NAME=$(jq -r '.script' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null)
+  ERR_MSG=$(jq -r '.message' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null)
+  EXIT_C=$(jq '.exit_code' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null)
+  if [ "$SCRIPT_NAME" = "test-script.sh" ] && [ "$ERR_MSG" = "something went wrong" ] && [ "$EXIT_C" = "42" ]; then
+    assert_pass "error-log.jsonl contains correct script, message, exit_code"
+  else
+    assert_fail "error-log.jsonl field mismatch: script=$SCRIPT_NAME msg=$ERR_MSG exit=$EXIT_C"
+  fi
+else
+  assert_fail "error-log.jsonl not created by sb_log_error"
+fi
+
+# --- Test 24: error surfacing in session-load ---
+echo ""
+echo "24. Error surfacing in session-load"
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  rm -f "$SANDBOX/.second-brain/.pending-reflection.json"
+  # Write a recent error to error-log.jsonl
+  TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  jq -nc --arg t "$TS" '{timestamp:$t, script:"drift-detect.sh", message:"jq parse error", exit_code:1}' \
+    > "$SANDBOX/.second-brain/error-log.jsonl"
+  echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-errors.txt" 2>&1
+)
+if grep -q "HOOK ERRORS DETECTED" "$SANDBOX/session-load-errors.txt" 2>/dev/null; then
+  assert_pass "error surfacing shows HOOK ERRORS DETECTED"
+else
+  assert_fail "session-load should surface recent hook errors"
+fi
+
+# --- Test 25: smart-context respects opt-in ---
+echo ""
+echo "25. Smart-context respects opt-in"
+BRAIN=$(setup_brain)
+KNOWLEDGE_DIR="$SANDBOX/knowledge"
+mkdir -p "$KNOWLEDGE_DIR"
+cat > "$KNOWLEDGE_DIR/index.md" << 'IDX'
+- [Authentication](wiki/authentication.md) — JWT auth patterns
+- [Database](wiki/database.md) — SQLite migration guide
+IDX
+# Disabled (default) → no output
+(
+  export HOME="$SANDBOX"
+  export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOWLEDGE_DIR"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  echo '{"user_prompt":"tell me about authentication patterns"}' | bash "$REPO_ROOT/scripts/smart-context.sh" > "$SANDBOX/smart-ctx-off.txt" 2>&1
+)
+OFF_OUT=$(cat "$SANDBOX/smart-ctx-off.txt")
+if [ -z "$OFF_OUT" ]; then
+  assert_pass "smart-context silent when disabled"
+else
+  assert_fail "smart-context should be silent when disabled, got: $OFF_OUT"
+fi
+# Enabled → produces output
+(
+  export HOME="$SANDBOX"
+  export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOWLEDGE_DIR"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  echo '{"smart_context": true}' > "$SANDBOX/.second-brain/config.json"
+  echo '{"user_prompt":"tell me about authentication patterns"}' | bash "$REPO_ROOT/scripts/smart-context.sh" > "$SANDBOX/smart-ctx-on.txt" 2>&1
+)
+ON_OUT=$(cat "$SANDBOX/smart-ctx-on.txt")
+if echo "$ON_OUT" | grep -q "Relevant wiki:"; then
+  assert_pass "smart-context outputs 'Relevant wiki:' when enabled and matching"
+else
+  assert_fail "smart-context should output relevant wiki links, got: $ON_OUT"
+fi
+
+# --- Test 26: structured handoff fields in reflection JSON ---
+echo ""
+echo "26. Structured handoff fields in reflection JSON"
+BRAIN=$(setup_brain)
+TRANSCRIPT="$SANDBOX/transcript26.jsonl"
+make_transcript 5 "$TRANSCRIPT"
+(
+  export HOME="$SANDBOX"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  source "$REPO_ROOT/scripts/lib.sh"
+  BRAIN_DIR="$SANDBOX/.second-brain"
+  SB_SESSION_ID="handoff-test"
+  SB_TRANSCRIPT_PATH="$TRANSCRIPT"
+  SB_TIMESTAMP=$(date +"%Y-%m-%d")
+  SB_USER_TURNS=5
+  SB_FRICTION_COUNT=0
+  SB_POSITIVE_COUNT=0
+  SB_FIRST_TRY="true"
+  SB_DRIFT_COUNT=0
+  SB_PRIORITY="normal"
+  SB_SUGGEST_IMPROVE="false"
+  SB_GOALS='["finish auth module"]'
+  SB_IN_PROGRESS='["refactor DB layer"]'
+  SB_BLOCKERS='["waiting on API spec"]'
+  sb_write_reflection "stop"
+)
+REFLECTION="$SANDBOX/.second-brain/.pending-reflection.json"
+if [ -f "$REFLECTION" ]; then
+  GOALS=$(jq -r '.goals[0]' "$REFLECTION" 2>/dev/null)
+  IP=$(jq -r '.in_progress[0]' "$REFLECTION" 2>/dev/null)
+  BL=$(jq -r '.blockers[0]' "$REFLECTION" 2>/dev/null)
+  if [ "$GOALS" = "finish auth module" ] && [ "$IP" = "refactor DB layer" ] && [ "$BL" = "waiting on API spec" ]; then
+    assert_pass "handoff fields (goals, in_progress, blockers) correctly serialized"
+  else
+    assert_fail "handoff field mismatch: goals=$GOALS ip=$IP blockers=$BL"
+  fi
+else
+  assert_fail "reflection not created for handoff test"
+fi
+
+# --- Test 27: handoff display in session-load ---
+echo ""
+echo "27. Handoff display in session-load"
+BRAIN=$(setup_brain)
+# With handoff fields → SESSION HANDOFF displayed
+(
+  export HOME="$SANDBOX"
+  export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  jq -n '{trigger:"stop",priority:"normal",friction_count:0,user_turns:5,transcript_path:"",goals:["ship v2"],in_progress:["testing"],blockers:["CI broken"]}' \
+    > "$SANDBOX/.second-brain/.pending-reflection.json"
+  echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-handoff.txt" 2>&1
+)
+if grep -q "SESSION HANDOFF" "$SANDBOX/session-load-handoff.txt" 2>/dev/null; then
+  assert_pass "SESSION HANDOFF displayed when handoff fields present"
+else
+  assert_fail "SESSION HANDOFF should appear when goals/in_progress/blockers are set"
+fi
+# Without handoff fields → no SESSION HANDOFF
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  jq -n '{trigger:"stop",priority:"normal",friction_count:0,user_turns:5,transcript_path:""}' \
+    > "$SANDBOX/.second-brain/.pending-reflection.json"
+  echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/session-load-no-handoff.txt" 2>&1
+)
+if grep -q "SESSION HANDOFF" "$SANDBOX/session-load-no-handoff.txt" 2>/dev/null; then
+  assert_fail "SESSION HANDOFF should NOT appear when handoff fields are absent"
+else
+  assert_pass "SESSION HANDOFF correctly omitted when no handoff fields"
 fi
 
 echo ""

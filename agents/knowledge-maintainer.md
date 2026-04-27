@@ -33,6 +33,7 @@ Your job is to maintain the structural quality of the wiki at `~/knowledge/`.
 - Update `~/knowledge/index.md` (the root index — NOT wiki/index.md) to reflect current wiki state
 - Remove stale or duplicate entries
 - Create stub pages for frequently referenced but missing entities
+- Add typed `graph:` blocks to pages where relationships are clear (e.g., learnings that implement a concept, sessions that cite an entity). Use `depends_on`, `cites`, `extends`, `contradicts`, `supersedes`, `related_to`. Default to `[[wiki-links]]` when the relationship type is uncertain
 - Reconcile `wiki/learnings/` entries with `~/.second-brain/learnings.md` — every learning header in the canonical store should have a corresponding wiki node
 
 ## Constraints

@@ -40,11 +40,17 @@
 
     "UserPromptSubmit": [
       {
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/log-friction.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/smart-context.sh",
+            "timeout": 3
           }
         ]
       }
@@ -52,6 +58,7 @@
 
     "Stop": [
       {
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
@@ -69,7 +76,7 @@
 
     "PreCompact": [
       {
-        "matcher": "*",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
@@ -82,7 +89,7 @@
 
     "PostCompact": [
       {
-        "matcher": "*",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",

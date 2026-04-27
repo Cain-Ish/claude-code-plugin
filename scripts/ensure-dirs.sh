@@ -232,6 +232,14 @@ When reviewing or designing a system that touches *data over time*, *external in
 
 Apply this checklist before declaring a review "complete". If any dimension wasn't considered for the system under review, name it explicitly and either address it or call out the gap.
 
+## Retrieval Budget
+
+- Use compact mode (full=false) by default for knowledge_search
+- Retrieve at most 5 wiki pages per query
+- Progressive disclosure: search compact first, read full for top 1-2 only when deeper context is needed
+- SessionStart context budget: <=3000 tokens — if session-load output exceeds this, trim optional nudges
+- Per-query retrieval: <=2000 tokens — don't inject full wiki content unless the user asks for details
+
 ## Learned Preferences
 
 <!-- Auto-populated by session reflection. Format: -->

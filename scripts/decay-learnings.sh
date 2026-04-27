@@ -46,6 +46,7 @@ NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # before use; malformed values default to 1 (keep-safe).
 TMP=$(mktemp)
 DROPPED_LIST=$(mktemp)
+trap 'rm -f "$TMP" "$DROPPED_LIST"' EXIT
 
 awk -v cutoff="$CUTOFF" \
     -v min_hits="$MIN_HITS" \
@@ -105,7 +106,7 @@ END { flush_block() }
 ' "$LEARNINGS" > "$TMP"
 
 # Count dropped entries.
-DROPPED_COUNT=$(wc -l < "$DROPPED_LIST" 2>/dev/null | tr -d " ")
+DROPPED_COUNT=$(wc -l < "$DROPPED_LIST" 2>/dev/null | tr -d ' \t')
 DROPPED_COUNT=${DROPPED_COUNT:-0}
 
 if [ "$DROPPED_COUNT" -gt 0 ]; then
@@ -132,7 +133,5 @@ if [ "$DROPPED_COUNT" -gt 0 ]; then
 else
   rm -f "$TMP"
 fi
-
-rm -f "$DROPPED_LIST"
 
 exit 0

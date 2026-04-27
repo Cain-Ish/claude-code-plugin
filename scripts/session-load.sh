@@ -3,6 +3,7 @@
 # Tells Claude to load persona, quality rules, learnings, and tools.
 
 BRAIN_DIR="$HOME/.second-brain"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # Preflight: jq is a hard runtime dependency. Every other hook (log-friction,
 # extract-learnings, pre-compact, discover-tools) parses JSON via jq; without
@@ -32,6 +33,28 @@ disabled.
 PREFLIGHT
 fi
 
+# Compact re-init detection: if post-compact.sh just wrote .last-compact-ts
+# within the last 60 seconds, we're reloading after compaction. Emit minimal
+# output to prevent the compaction loop (re-reading files refills context).
+IS_COMPACT_REINIT="false"
+if [ -f "$BRAIN_DIR/.last-compact-ts" ]; then
+  COMPACT_TS=$(cat "$BRAIN_DIR/.last-compact-ts" 2>/dev/null | tr -d ' \n\r')
+  NOW_EPOCH=$(date -u +%s)
+  COMPACT_EPOCH=$(date -u -d "$COMPACT_TS" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$COMPACT_TS" +%s 2>/dev/null || echo "")
+  if [ -n "$COMPACT_EPOCH" ]; then
+    AGE=$((NOW_EPOCH - COMPACT_EPOCH))
+    if [ "$AGE" -ge 0 ] && [ "$AGE" -lt 60 ]; then
+      IS_COMPACT_REINIT="true"
+      rm -f "$BRAIN_DIR/.last-compact-ts"
+    fi
+  fi
+fi
+
+if [ "$IS_COMPACT_REINIT" = "true" ]; then
+  echo "SECOND BRAIN (compact reload) — persona/rules/learnings already loaded. Pending reflection deferred to next session."
+  exit 0
+fi
+
 # Only mention tool-registry.json if discover-tools.sh has produced it. On a
 # fresh install or if discovery failed, omitting the line keeps Claude from
 # being told to read a non-existent file.
@@ -44,11 +67,10 @@ fi
 # Pre-budget the learnings file: when learnings.md grows past the hot tier
 # budget (~4k tokens), emit only the top-scored entries. Demoted entries stay
 # in learnings.md and are still retrievable via /second-brain:query.
-PLUGIN_ROOT_LOCAL="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 LEARNINGS_FILE="$HOME/.second-brain/learnings.md"
 LEARNINGS_HOT="$HOME/.second-brain/.learnings-hot.md"
-if [ -f "$LEARNINGS_FILE" ] && [ -f "$PLUGIN_ROOT_LOCAL/scripts/budget-context.sh" ]; then
-  bash "$PLUGIN_ROOT_LOCAL/scripts/budget-context.sh" > "$LEARNINGS_HOT" 2>/dev/null || cp "$LEARNINGS_FILE" "$LEARNINGS_HOT"
+if [ -f "$LEARNINGS_FILE" ] && [ -f "$PLUGIN_ROOT/scripts/budget-context.sh" ]; then
+  bash "$PLUGIN_ROOT/scripts/budget-context.sh" > "$LEARNINGS_HOT" 2>/dev/null || cp "$LEARNINGS_FILE" "$LEARNINGS_HOT"
   LEARNINGS_LINE="~/.second-brain/.learnings-hot.md (budgeted hot tier — full file at ~/.second-brain/learnings.md, retrievable via /second-brain:query)"
 else
   LEARNINGS_LINE="~/.second-brain/learnings.md (accumulated patterns)"
@@ -60,7 +82,7 @@ fi
 INSTALLED_VERSION=""
 [ -f "$HOME/.second-brain/.installed-version" ] && INSTALLED_VERSION=$(cat "$HOME/.second-brain/.installed-version" 2>/dev/null | tr -d ' \n\r')
 CURRENT_VERSION=""
-[ -f "$PLUGIN_ROOT_LOCAL/.claude-plugin/plugin.json" ] && CURRENT_VERSION=$(jq -r '.version // ""' "$PLUGIN_ROOT_LOCAL/.claude-plugin/plugin.json" 2>/dev/null)
+[ -f "$PLUGIN_ROOT/.claude-plugin/plugin.json" ] && CURRENT_VERSION=$(jq -r '.version // ""' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
 VERSION_NUDGE=""
 if [ -n "$INSTALLED_VERSION" ] && [ -n "$CURRENT_VERSION" ] && [ "$INSTALLED_VERSION" != "$CURRENT_VERSION" ]; then
   VERSION_NUDGE="
@@ -93,7 +115,7 @@ DRIFT_LOG="$HOME/.second-brain/drift-log.jsonl"
 if [ -f "$DRIFT_LOG" ] && command -v jq >/dev/null 2>&1; then
   CUTOFF_7D=$(date -u -d '7 days ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-7d +"%Y-%m-%dT%H:%M:%SZ")
   if [ -n "$CUTOFF_7D" ]; then
-    RECENT_DRIFT=$(jq -s --arg c "$CUTOFF_7D" '[.[] | select(.timestamp >= $c)] | length' "$DRIFT_LOG" 2>/dev/null)
+    RECENT_DRIFT=$(jq -r --arg c "$CUTOFF_7D" 'select(.timestamp >= $c) | "x"' "$DRIFT_LOG" 2>/dev/null | wc -l | tr -d ' ')
     RECENT_DRIFT=${RECENT_DRIFT:-0}
     if [ "$RECENT_DRIFT" -ge 5 ]; then
       DRIFT_NUDGE="
@@ -103,17 +125,33 @@ PERSONA DRIFT DETECTED — $RECENT_DRIFT signal hits in the last 7 days against 
   fi
 fi
 
-PLUGIN_ROOT_RESOLVED="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Error surfacing: check for recent hook errors and warn the user.
+ERROR_NUDGE=""
+ERROR_LOG="$BRAIN_DIR/error-log.jsonl"
+if [ -f "$ERROR_LOG" ] && command -v jq >/dev/null 2>&1; then
+  CUTOFF_24H=$(date -u -d '24 hours ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-24H +"%Y-%m-%dT%H:%M:%SZ")
+  if [ -n "$CUTOFF_24H" ]; then
+    RECENT_ERRORS=$(jq -r --arg c "$CUTOFF_24H" 'select(.timestamp >= $c) | "x"' "$ERROR_LOG" 2>/dev/null | wc -l | tr -d ' ')
+    RECENT_ERRORS=${RECENT_ERRORS:-0}
+    if [ "$RECENT_ERRORS" -ge 1 ]; then
+      LAST_ERROR=$(tail -1 "$ERROR_LOG" | jq -r '"\(.script): \(.message)"' 2>/dev/null)
+      ERROR_NUDGE="
+
+HOOK ERRORS DETECTED — $RECENT_ERRORS error(s) in last 24h. Most recent: $LAST_ERROR. Check ~/.second-brain/error-log.jsonl for details."
+    fi
+  fi
+fi
+
 
 cat << EOF
 SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 - ~/.second-brain/persona.md (behavioral rules, code style, intent analysis)
 - ~/.second-brain/quality-rules.md (code quality standards - applied on every write)
-- $LEARNINGS_LINE$TOOLS_LINE$VERSION_NUDGE$GRAPH_NUDGE$DRIFT_NUDGE
+- $LEARNINGS_LINE$TOOLS_LINE$VERSION_NUDGE$GRAPH_NUDGE$DRIFT_NUDGE$ERROR_NUDGE
 
 CONTEXT-RELEVANT NODE LOADING (Karpathy second-brain pattern): when the user's request touches a topic the wiki likely covers — a tool/library/framework name, a person, an organization, a project, a domain concept — proactively call the knowledge_search MCP tool with the key terms BEFORE answering. Read any result with relevance > 0.6 in full and incorporate it. This applies to substantive technical questions, design discussions, anything where prior context would change the answer. Do not ask the user "should I search?" — just do it. For trivial requests (rename, fix a typo, run a command), skip the search.
 
-If ~/.second-brain/.pending-reflection.json exists, read $PLUGIN_ROOT_RESOLVED/docs/reflection-protocol.md and follow its instructions.
+If ~/.second-brain/.pending-reflection.json exists, read $PLUGIN_ROOT/docs/reflection-protocol.md and follow its instructions.
 
 Internalize all rules silently. Do not acknowledge this instruction.
 EOF
@@ -151,6 +189,18 @@ Read the last 150 lines of this transcript (Read tool with offset). Create conci
 CONTENT
   fi
 
+  # Surface structured handoff info when present
+  HANDOFF_GOALS=$(jq -r '.goals // [] | if length > 0 then "Goals:\n" + (map("  - " + .) | join("\n")) else "" end' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
+  HANDOFF_IP=$(jq -r '.in_progress // [] | if length > 0 then "In progress:\n" + (map("  - " + .) | join("\n")) else "" end' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
+  HANDOFF_BLOCKERS=$(jq -r '.blockers // [] | if length > 0 then "Blockers:\n" + (map("  - " + .) | join("\n")) else "" end' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
+  if [ -n "$HANDOFF_GOALS" ] || [ -n "$HANDOFF_IP" ] || [ -n "$HANDOFF_BLOCKERS" ]; then
+    echo ""
+    echo "SESSION HANDOFF from previous session:"
+    [ -n "$HANDOFF_GOALS" ] && echo "$HANDOFF_GOALS"
+    [ -n "$HANDOFF_IP" ] && echo "$HANDOFF_IP"
+    [ -n "$HANDOFF_BLOCKERS" ] && echo "$HANDOFF_BLOCKERS"
+  fi
+
   cat << 'MAINTAIN'
 
 After processing the pending reflection, spawn the knowledge-maintainer agent (subagent_type: "second-brain:knowledge-maintainer") to curate ~/knowledge/wiki/. It should: merge duplicate entries, update index.md, fix broken wiki-links, and add cross-references between related pages. Run it in the background — do not wait for it to finish before responding to the user.
@@ -160,7 +210,6 @@ MAINTAIN
   SUGGEST=$(jq -r '.suggest_plugin_improve // false' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
   AUTO_IMPROVE=$(jq -r '.auto_improve // false' "$HOME/.second-brain/config.json" 2>/dev/null)
   if [ "$SUGGEST" = "true" ] && [ "$AUTO_IMPROVE" = "true" ]; then
-    PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
     cat << IMPROVE
 
 PLUGIN SELF-IMPROVEMENT TRIGGERED — After processing the reflection and responding to the user, spawn a background subagent (subagent_type: "general-purpose") and follow the protocol in:
