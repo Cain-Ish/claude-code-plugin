@@ -35,15 +35,15 @@ fi
 
 REFLECTION_SAVED=false
 if [ "$USER_TURNS" -ge 3 ]; then
-  cat > "$BRAIN_DIR/.pending-reflection.json" << JSONEOF
-{
-  "session_id": "$SESSION_ID",
-  "date": "$TIMESTAMP",
-  "user_turns": $USER_TURNS,
-  "friction_count": $FRICTION_COUNT,
-  "trigger": "pre-compact"
-}
-JSONEOF
+  jq -n \
+    --arg s "$SESSION_ID" \
+    --arg d "$TIMESTAMP" \
+    --argjson ut "$USER_TURNS" \
+    --argjson fc "$FRICTION_COUNT" \
+    --arg tr "pre-compact" \
+    --arg tp "$TRANSCRIPT_PATH" \
+    '{session_id:$s, date:$d, user_turns:$ut, friction_count:$fc, trigger:$tr, transcript_path:$tp}' \
+    > "$BRAIN_DIR/.pending-reflection.json"
   REFLECTION_SAVED=true
 fi
 

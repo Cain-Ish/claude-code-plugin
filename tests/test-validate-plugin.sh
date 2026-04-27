@@ -194,7 +194,21 @@ echo "if then fi" > "$PLUGIN_FOR_VALIDATOR/scripts/dummy.sh"
 run_case "shell-script syntax error fails" 1
 assert_output_contains "has syntax errors"
 
-# Case 9: SKILL.md missing frontmatter → FAIL
+# Case 9: SessionStart with two matcher groups (clear + full) → passes
+setup_skeleton
+cat > "$PLUGIN_FOR_VALIDATOR/hooks/hooks.json" <<'JSON'
+{
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "clear", "hooks": [{"type":"command","command":"echo pre-clear"}]},
+      {"matcher": "startup|resume|clear|compact", "hooks": [{"type":"command","command":"echo hi"}]}
+    ]
+  }
+}
+JSON
+run_case "SessionStart with two matcher groups passes" 0
+
+# Case 10: SKILL.md missing frontmatter → FAIL
 setup_skeleton
 echo "no frontmatter" > "$PLUGIN_FOR_VALIDATOR/skills/setup/SKILL.md"
 run_case "skill missing frontmatter fails" 1

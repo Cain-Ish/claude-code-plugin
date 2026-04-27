@@ -2,6 +2,16 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/pre-clear.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "startup|resume|clear|compact",
         "hooks": [
           {

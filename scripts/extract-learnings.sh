@@ -151,7 +151,9 @@ jq -n \
   --argjson dc "$DRIFT_COUNT" \
   --arg pr "$PRIORITY" \
   --argjson spi "$SUGGEST_PLUGIN_IMPROVE" \
-  '{session_id:$s, date:$d, user_turns:$ut, friction_count:$fc, positive_signals:$ps, first_try_success:$fts, drift_count:$dc, priority:$pr, suggest_plugin_improve:$spi}' \
+  --arg tr "stop" \
+  --arg tp "$TRANSCRIPT_PATH" \
+  '{session_id:$s, date:$d, user_turns:$ut, friction_count:$fc, positive_signals:$ps, first_try_success:$fts, drift_count:$dc, priority:$pr, suggest_plugin_improve:$spi, trigger:$tr, transcript_path:$tp}' \
   > "$BRAIN_DIR/.pending-reflection.json"
 
 exit 0

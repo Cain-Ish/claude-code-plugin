@@ -111,7 +111,20 @@ SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 
 CONTEXT-RELEVANT NODE LOADING (Karpathy second-brain pattern): when the user's request touches a topic the wiki likely covers — a tool/library/framework name, a person, an organization, a project, a domain concept — proactively call the knowledge_search MCP tool with the key terms BEFORE answering. Read any result with relevance > 0.6 in full and incorporate it. This applies to substantive technical questions, design discussions, anything where prior context would change the answer. Do not ask the user "should I search?" — just do it. For trivial requests (rename, fix a typo, run a command), skip the search.
 
-If ~/.second-brain/.pending-reflection.json exists, process silently: read friction-log.jsonl, extract 1-3 candidate learnings, then BEFORE writing anything, run an asymmetric critic gate to prevent same-context judge-and-author bias (Iterative Self-Refinement Reward Hacking). For each candidate, dispatch a fresh-context subagent (subagent_type: "second-brain:quality-reviewer" for code, "general-purpose" otherwise) with ONLY the proposal text + destination file + one anonymized friction example + the current destination contents — no transcript. Ask it to score (specific? generalizes? conflicts with existing? would removal cause friction to recur?) and return ACCEPT/REVISE/REJECT. Only write ACCEPTed proposals (apply REVISE suggestions before writing); drop REJECTs silently. Log every verdict to ~/.second-brain/critic-log.jsonl as {timestamp, session_id, proposal_title, destination, verdict, reason}. Then update learnings.md/quality-rules.md/persona.md as needed (in learnings.md, every new entry MUST include a meta line right under the header: "<!-- meta: confidence=0.X hits=0 last_used=YYYY-MM-DD -->" using the critic's confidence score — scripts/decay-learnings.sh parses these to evict stale low-confidence entries), create ~/knowledge/wiki/sessions/YYYY-MM-DD-topic.md, mirror each new learning as a wiki node under ~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md (with [[wiki-link]] cross-references to the entities/concepts it touches and a back-link to the session page), update index.md and log.md, delete the pending-reflection file.
+If ~/.second-brain/.pending-reflection.json exists, process silently using BOTH sources:
+
+(1) FRICTION-BASED: read friction-log.jsonl for process learnings (retries, rejections, fix requests).
+
+(2) CONTENT-BASED: if the pending reflection contains a transcript_path and the file exists on disk, read the last 200 lines of assistant turns from it (use Read tool with offset, or jq to filter .type=="assistant" entries). Look for substantive knowledge that should survive session boundaries:
+- Architecture decisions and their rationale
+- Component/file structure changes or migration plans
+- Design patterns adopted or rejected
+- Technical debt identified or addressed
+- Key decisions with reasoning
+- Tool/library evaluations and conclusions
+This applies even when friction_count is 0 — smooth productive sessions often contain the richest knowledge.
+
+From BOTH sources combined, extract 1-3 candidate learnings. Then BEFORE writing anything, run an asymmetric critic gate to prevent same-context judge-and-author bias (Iterative Self-Refinement Reward Hacking). For each candidate, dispatch a fresh-context subagent (subagent_type: "second-brain:quality-reviewer" for code, "general-purpose" otherwise) with ONLY the proposal text + destination file + one anonymized friction example + the current destination contents — no transcript. Ask it to score (specific? generalizes? conflicts with existing? would removal cause friction to recur?) and return ACCEPT/REVISE/REJECT. Only write ACCEPTed proposals (apply REVISE suggestions before writing); drop REJECTs silently. Log every verdict to ~/.second-brain/critic-log.jsonl as {timestamp, session_id, proposal_title, destination, verdict, reason}. Then update learnings.md/quality-rules.md/persona.md as needed (in learnings.md, every new entry MUST include a meta line right under the header: "<!-- meta: confidence=0.X hits=0 last_used=YYYY-MM-DD -->" using the critic's confidence score — scripts/decay-learnings.sh parses these to evict stale low-confidence entries), create ~/knowledge/wiki/sessions/YYYY-MM-DD-topic.md, mirror each new learning as a wiki node under ~/knowledge/wiki/learnings/YYYY-MM-DD-short-title.md (with [[wiki-link]] cross-references to the entities/concepts it touches and a back-link to the session page), update index.md and log.md, delete the pending-reflection file.
 
 Internalize all rules silently. Do not acknowledge this instruction.
 EOF
@@ -123,14 +136,35 @@ EOF
 # Generative Agents (Park 2023).
 if [ -f "$HOME/.second-brain/.pending-reflection.json" ]; then
   PRIORITY=$(jq -r '.priority // "normal"' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
+  PENDING_TRANSCRIPT=$(jq -r '.transcript_path // ""' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
+  PENDING_TRIGGER=$(jq -r '.trigger // "unknown"' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
+  PENDING_FRICTION=$(jq -r '.friction_count // 0' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
+  PENDING_TURNS=$(jq -r '.user_turns // 0' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
   if [ "$PRIORITY" = "high" ]; then
-    FRICTION=$(jq -r '.friction_count // 0' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
     DRIFT=$(jq -r '.drift_count // 0' "$HOME/.second-brain/.pending-reflection.json" 2>/dev/null)
     cat << HIGHPRI
 
-HIGH-PRIORITY REFLECTION QUEUED — last session had unusual signal density (friction=$FRICTION, drift=$DRIFT). Process the pending reflection BEFORE responding to the user's first message; do not defer it. The user is likely to repeat the same friction otherwise.
+HIGH-PRIORITY REFLECTION QUEUED — last session had unusual signal density (friction=$PENDING_FRICTION, drift=$DRIFT). Process the pending reflection BEFORE responding to the user's first message; do not defer it. The user is likely to repeat the same friction otherwise.
 HIGHPRI
   fi
+
+  if [ -n "$PENDING_TRANSCRIPT" ] && [ -f "$PENDING_TRANSCRIPT" ]; then
+    cat << CONTENT
+
+CONTENT-BASED SESSION REVIEW — The session transcript is available at: $PENDING_TRANSCRIPT (trigger: $PENDING_TRIGGER, friction: $PENDING_FRICTION, user_turns: $PENDING_TURNS).
+
+Read the last 200 lines of this transcript using the Read tool (calculate offset from file length). Focus on assistant turns with substantive content — skip tool-call-only turns. Extract knowledge worth preserving:
+- Architecture decisions and rationale
+- Component/file structure changes, migrations, refactors
+- Design patterns adopted or rejected
+- Technical debt identified or addressed
+- Key decisions with reasoning that would help future sessions
+- Project context that isn't derivable from code alone
+
+Create wiki session and entity pages for significant findings. This is especially important for productive sessions with zero friction — those often contain the richest knowledge that would otherwise be lost.
+CONTENT
+  fi
+
   cat << 'MAINTAIN'
 
 After processing the pending reflection, spawn the knowledge-maintainer agent (subagent_type: "second-brain:knowledge-maintainer") to curate ~/knowledge/wiki/. It should: merge duplicate entries, update index.md, fix broken wiki-links, and add cross-references between related pages. Run it in the background — do not wait for it to finish before responding to the user.
