@@ -103,30 +103,40 @@ Cons:
 
 Same-context judge-and-author causes Iterative Self-Refinement Reward Hacking (ICRH) — your scores rise while quality falls. Every proposed learning **must** pass an asymmetric critic before being written.
 
-For each proposal that passed the balance test in step 4, dispatch a fresh-context subagent:
+**Step A — generate candidate framings (you, the author).** For each proposal that passed the balance test in step 4, draft **2–3 candidate framings** of the same learning, varying along these axes:
+
+- **Scope:** narrow ("never use `${user_config.X}` in `hooks.json`") vs broad ("never depend on plugin-option substitution in subprocess command fields")
+- **Phrasing:** rule-shaped ("must not...") vs heuristic-shaped ("prefer... because...")
+- **Trigger specificity:** when this rule fires (always / only on hook authoring / only on cross-platform code)
+
+The candidates must be genuinely different — not paraphrases. If you can only produce paraphrases, abandon the proposal entirely; do not attempt to write any candidate. Paraphrase-only output is a signal that there's only one real framing of the friction, and the critic gate is wasted on it.
+
+**Step B — critic vote (fresh-context subagent).** Dispatch one subagent per proposal with all candidates bundled together:
 
 ```
 Use the Agent tool with subagent_type: "second-brain:quality-reviewer"
 (or "general-purpose" if the proposal is non-code).
 
 Prompt the critic with ONLY these inputs (no transcript, no friction log):
-- The proposed learning text
+- The 2–3 candidate framings (labelled A / B / C)
 - The destination file (learnings.md / quality-rules.md / persona.md)
-- One representative example of the friction it claims to address (anonymized)
+- One representative example of the friction they claim to address (anonymized)
 - The current contents of the destination file
 
-Ask the critic to score independently:
-1. Is this learning specific enough to be actionable? (yes/no)
-2. Does it actually generalize beyond the single observed incident? (yes/no)
-3. Does it conflict with anything already in the destination file? (yes/no)
-4. Would removing it cause real friction to recur? (yes/no)
-5. **Confidence score** (0.3 = borderline / hold inline only, 0.5–0.69 = surface as suggestion, 0.7+ = auto-apply, 0.9+ = strong evidence). Be conservative — most first-time learnings should land 0.4–0.6. Only repeat-evidence learnings deserve 0.8+.
-6. Final verdict: ACCEPT / REJECT / REVISE
+Ask the critic to:
+1. For each candidate, answer independently:
+   a. Specific enough to be actionable? (yes/no)
+   b. Generalizes beyond the single incident? (yes/no)
+   c. Conflicts with anything already in the destination? (yes/no)
+   d. Would removing it cause real friction to recur? (yes/no)
+2. **Vote:** pick the strongest candidate (A / B / C), or NONE if all fail. **Tiebreak rule:** if two candidates have identical yes/no profiles, pick the one with the narrowest scope. Narrow rules are easier to evict via decay if they stop helping; broad rules accumulate and are hard to remove later.
+3. **Confidence score for the winner** (0.3 = borderline / hold inline only, 0.5–0.69 = surface as suggestion, 0.7+ = auto-apply, 0.9+ = strong evidence). Be conservative — most first-time learnings should land 0.4–0.6. Only repeat-evidence learnings deserve 0.8+.
+4. **Final verdict on the winner:** ACCEPT / REJECT / REVISE. If REVISE, return the rewritten text.
 ```
 
 The confidence score gets written into the meta line in step 6. Decay later evicts entries whose confidence stayed low AND went unused.
 
-Only write proposals where the critic returns ACCEPT. If REVISE, apply the critic's suggested revision before writing. If REJECT, drop the proposal silently — do not retry within the same session.
+Only write the winning candidate when the critic returns ACCEPT. If REVISE, apply the critic's rewrite before writing. If REJECT or NONE, drop the entire proposal silently — do not retry within the same session, and do not fall back to a non-winning candidate.
 
 Log every critic verdict (accept/revise/reject + reason) to `~/.second-brain/critic-log.jsonl` so reviewers can audit acceptance rates over time. Use jq to build each line so embedded quotes stay valid JSON:
 

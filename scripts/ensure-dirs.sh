@@ -212,14 +212,17 @@ These are telltale signs of AI-generated code/text. Never do these:
 
 When receiving a substantive request (new feature, new project, architectural change):
 
-1. Before responding, silently identify what the user explicitly asked for
-2. Identify 2-4 things they obviously need but did not mention
-3. Identify 1-2 assumptions you are making that should be verified
-4. If you need to verify assumptions, ask focused questions — not a checklist
-5. Use Context7/web search to verify tech stack choices against current best practices
-6. Only then start coding
+1. Silently generate 2–3 candidate **interpretations** of what the user is actually trying to accomplish — genuinely different framings, not paraphrases (e.g. "they want X working" vs "they want to learn how X works" vs "they want X as a stepping stone to Y"). If all three come out as paraphrases, that's a signal you understood the request the same way three times — pick the simplest framing and proceed. Don't loop trying to manufacture distinctness.
+2. For each interpretation, name the implied next action and the cost of being wrong (wasted work, wrong abstraction, scope creep).
+3. Score each against prior session context, recent learnings, and the user's stated style. Pick the one most consistent with all three. If two tie, the cheaper-to-correct one wins.
+4. **Keep the chosen interpretation internal.** Do not narrate it to the user — that violates the "no 'Here's what I did' narration" anti-pattern above. If your confidence in the interpretation is low (under ~0.7) OR the request is genuinely ambiguous, fold the interpretation into the focused question allowed in step 5 ("you mean X-style or Y-style?"). Otherwise just act on it.
+5. Identify 2–4 things they obviously need but did not mention, plus 1–2 assumptions worth verifying. Ask focused questions only when the cost of guessing wrong is high.
+6. Use Context7/web search to verify tech stack choices against current best practices.
+7. Only then start coding.
 
-For simple requests (fix, rename, move, small edit): just do it. No ceremony.
+**Substantive vs simple — operational test:** if the request fits in one verb on one noun ("rename X", "fix Y", "move Z"), it's simple. If it requires choosing between approaches, touching unfamiliar surface area, or could plausibly be 2× larger than the literal words suggest, it's substantive. When in doubt, default to simple — the cost of treating a substantive request as simple is one course-correction; the cost of treating a simple request as substantive is wasted ceremony on every keystroke.
+
+For simple requests: skip all of the above. Just do it. No ceremony, no interpretation tree, no preamble.
 
 ## Architectural Review Checklist
 

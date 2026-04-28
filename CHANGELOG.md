@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.5 (2026-04-28)
+
+Tree of Thoughts (ToT) reasoning patterns embedded into the three skills where deliberation actually matters: persona Intent Analysis, doubt drilling, improve critic gate. Pure protocol upgrade — no new files, no schema breaks.
+
+### Changed
+
+- **Persona Intent Analysis (`scripts/ensure-dirs.sh` seeded template + your local `~/.second-brain/persona.md`)** now generates 2–3 candidate interpretations of substantive requests, scores them against session context / learnings / style, picks the most consistent. Interpretation is **kept internal** — surfaces only via the existing focused-question channel when confidence is low — so the new step does not violate the persona's own "no narration" anti-pattern. Added an operational substantive-vs-simple test (verb-on-noun heuristic, default-to-simple) to keep ToT ceremony off small edits.
+- **`skills/doubt/SKILL.md` step 3.4 (drilling protocol)** branches into 2–3 attack vectors at each level, evaluates each as `sure / maybe / impossible`, drills the highest-scoring branch first, backtracks to the next branch on VALIDATED rather than forcing depth, and adds a 3-level lookahead to pivot away from theoretical chains. Anti-self-deception rule: labelling a vector `impossible` requires a file:line citation that defends against it. Every branch (drilled or abandoned) is logged to a per-run scratchpad.
+- **`skills/doubt/SKILL.md` step 4 (critic validation)** now receives the full branch log, not just findings. The quality-reviewer can flag SYSTEMATIC OVER-PRUNING when more than one abandoned branch has weak `impossible` justification — closes the ICRH gap at branch-selection time.
+- **`skills/doubt/SKILL.md` step 6 (history schema)** appends four new fields to `~/.second-brain/doubt-history.jsonl`: `branches_generated`, `branches_drilled`, `branches_abandoned`, `over_pruned`. Backward-compat: old log entries lacking these fields are valid; readers default missing branch fields to 0.
+- **`skills/improve/SKILL.md` step 5.5 (adversarial critic gate)** now requires the author to draft 2–3 candidate framings of each proposed learning (varying scope / phrasing / trigger specificity). Critic votes A / B / C / NONE, then ACCEPT / REVISE / REJECT on the winner only. Tiebreak rule: identical yes/no profiles → narrowest scope wins (decay-friendly). Strengthens the existing ICRH defense by separating framing-quality judgment from accept/reject judgment.
+
+### Notes
+
+- All changes are protocol upgrades to existing skills; no new files, no new dependencies, no breaking schema changes.
+- The four new `branches_*` / `over_pruned` fields in `doubt-history.jsonl` are additive — `decay-learnings.sh` and `session-load.sh` are unaffected since neither reads doubt history.
+- `critic-log.jsonl` schema unchanged — multi-framing flows through the same `proposal_title / destination / verdict / reason` fields. After a few reflection cycles, vote distribution in this log will tell you whether multi-framing is paying for itself or should be scaled back.
+- ToT was applied selectively: `persona`, `doubt`, `improve` only. Skipped `query`, `regress`, `lint`, `drift-check`, `ingest`, `graph`, `import-host`, `upgrade`, `setup`, `status`, `browse` — those are mechanical / yes-no / ETL operations where multi-branch reasoning is overkill.
+
 ## 0.5.0 (2026-04-27)
 
 Tier 2 + Tier 3 from the self-evolution audit. Same audit pass, no new research — just executing the punch list. Five new skills, four new scripts, schema additions to learnings.md and wiki source pages, and a hot-tier context budget on SessionStart.

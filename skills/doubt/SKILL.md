@@ -124,12 +124,19 @@ For each (layer, perspective):
    - Is the state consistent with what the code claims to produce?
    - The gap between "the code would write X" and "X actually exists on disk" is where the best bugs hide.
 3. **Start from doubt**: "I believe [layer] does NOT work correctly because..." — force yourself to find reasons to doubt.
-4. **Drill conversationally** — each answer must spawn the next doubt. Don't ask independent questions. Chain them:
-   - Start broad: "This layer doesn't work." → Answer with evidence it does.
-   - Counter: "OK, so if it works, then surely the OUTPUT is wrong/incomplete/stale." → Answer with evidence.
-   - Dig deeper: "Fine, the output is correct, but on line N this assumes X — what if X isn't true?" → Answer.
-   - Keep going until you either find something real or run out of credible doubt.
-   The pattern is adversarial dialogue, not a checklist. Each answer closes one doubt but should open a more specific one. Stop when the doubt becomes unreasonable — not after a fixed number of questions. A trivial layer might need 2 exchanges; a complex one might need 10+.
+4. **Drill conversationally with branching** — each answer must spawn the next doubt. Don't ask independent questions. Chain them, but at each level expand and prune:
+   - **Branch:** generate 2–3 alternative attack vectors against the current claim, not just one. Each vector is a different angle (e.g. "the input is malformed" vs "the output is stale" vs "the dependency is missing").
+   - **Evaluate each vector** as `sure` (likely to expose a real bug), `maybe` (worth a quick check), or `impossible` (the code clearly defends against it — drop it).
+   - **Anti-self-deception rule:** to label a vector `impossible`, you must cite the specific file:line that defends against it. No `impossible` labels without a code-grounded reason. This blocks the failure mode where you optimistically prune the hardest doubts and let the post-hoc critic only see what survived.
+   - **Log every branch** — drilled or abandoned — to a per-run scratchpad (`branches: [{vector, score, drilled|abandoned, reasoning, citation}]`). The step-4 critic receives the full log, not just findings, so it can flag systematic over-pruning.
+   - **Drill the highest-scoring branch first.** If it produces VALIDATED, **backtrack** to the next-best branch instead of inventing a new doubt deeper down that chain — backtracking is cheaper than forced depth.
+   - **Lookahead before drilling deep:** before going past 3 levels on one branch, ask "if this doubt held, would it produce a real, exploitable bug, or a theoretical one?" If theoretical, pivot to a different perspective on the same layer.
+   - Example progression:
+     - L0: "This layer doesn't work." → evidence it does.
+     - L1: branch into [output stale, race condition, fresh-install gap] → evaluate `sure / maybe / impossible` (the `impossible` one needs a file:line cite) → drill `output stale`.
+     - L2: "Output stale because the timestamp uses local TZ?" → VALIDATED → backtrack to `race condition`.
+     - L2': "Two hooks write the same file without a lock?" → ISSUE found.
+   The pattern is adversarial dialogue with deliberate exploration, not a fixed-depth chain or checklist. A trivial layer might need 2 exchanges across 1 branch; a complex one might need 10+ across 3–4 branches with backtracks. Stop when every remaining branch evaluates to `impossible` (with a citation) — not after a fixed count.
 5. **Follow cross-layer chains**: If a finding in one layer touches another layer's input/output, trace the chain. The best findings come from following a failure across layer boundaries (e.g., "knowledge_search never returns results → vectors.db doesn't exist → ensure-dirs.sh doesn't create it → setup was never run").
 6. **Answer each question honestly** by reading the actual code AND checking runtime state. Cite file:line. No speculation.
 7. **Classify each answer**:
@@ -153,10 +160,12 @@ For any finding classified as ISSUE or FRAGILE, spawn a single `quality-reviewer
 
 ```
 Agent(subagent_type: "second-brain:quality-reviewer")
-Prompt: "Validate these doubt findings independently. For each, read the cited file and line, and classify as CONFIRMED (real issue), DISPUTED (doubt session is wrong), or NEEDS-TESTING (can't tell from code). Be specific about why."
+Prompt: "Validate these doubt findings independently. For each, read the cited file and line, and classify as CONFIRMED (real issue), DISPUTED (doubt session is wrong), or NEEDS-TESTING (can't tell from code). Be specific about why.
+
+Also review the branch log (drilled + abandoned). For each branch labeled `impossible`, verify the citation actually defends against the angle described. Flag any branch where the `impossible` reasoning is hand-wavy or the citation is unrelated — this is where same-context pruning bias hides. Report SYSTEMATIC OVER-PRUNING if more than one abandoned branch has weak justification."
 ```
 
-Include the finding details, file paths, and line numbers. One subagent call total — bundle all findings together.
+Include the finding details, file paths, line numbers, AND the branch log from step 3.4. One subagent call total — bundle all findings together. The branch log is what makes the post-hoc critic able to catch ICRH at branch-selection time.
 
 ### 5. Report
 
@@ -196,11 +205,15 @@ jq -nc \
   --argjson fragile 1 \
   --argjson confirmed 2 \
   --argjson disputed 0 \
-  '{timestamp:$t, layers:$layers, perspectives:$perspectives, findings:$findings, issues:$issues, fragile:$fragile, confirmed:$confirmed, disputed:$disputed}' \
+  --argjson branches_generated 7 \
+  --argjson branches_drilled 4 \
+  --argjson branches_abandoned 3 \
+  --argjson over_pruned 0 \
+  '{timestamp:$t, layers:$layers, perspectives:$perspectives, findings:$findings, issues:$issues, fragile:$fragile, confirmed:$confirmed, disputed:$disputed, branches_generated:$branches_generated, branches_drilled:$branches_drilled, branches_abandoned:$branches_abandoned, over_pruned:$over_pruned}' \
   >> ~/.second-brain/doubt-history.jsonl
 ```
 
-The `confirmed` and `disputed` counts from the critic gate track calibration over time — a skill that's always disputed is asking bad questions; one that's always confirmed is well-calibrated.
+The `confirmed` and `disputed` counts from the critic gate track calibration over time — a skill that's always disputed is asking bad questions; one that's always confirmed is well-calibrated. The `branches_*` counts track the new branching pattern: a healthy run drills more than it abandons (drilled / generated > 0.5); an `over_pruned` count from the critic ≥ 1 means same-context bias is creeping back in. Old log entries lacking these fields are valid — readers must default missing branch fields to 0.
 
 ### 7. Self-assessment: compare against previous runs
 
