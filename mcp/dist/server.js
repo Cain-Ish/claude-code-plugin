@@ -7,6 +7,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { glob } from "glob";
+import { execFileSync } from "child_process";
 function resolveKnowledgeDir() {
     const candidates = [
         process.env.KNOWLEDGE_DIR,
@@ -446,29 +447,23 @@ function updateLearningFeedback(resolvedPath, helpful, context, entry) {
 }
 function atomicWrite(filePath, data) {
     const lockPath = path.join(path.dirname(filePath), ".learnings.lock");
-    let lockFd = null;
-    try {
-        lockFd = fs.openSync(lockPath, "w");
-    }
-    catch { /* lock best-effort — proceed without if dir is read-only */ }
     const tmpPath = filePath + ".tmp";
+    fs.writeFileSync(tmpPath, data, "utf-8");
     try {
-        fs.writeFileSync(tmpPath, data, "utf-8");
-        fs.renameSync(tmpPath, filePath);
+        // flock coordinates with decay-learnings.sh which uses the same lockfile
+        execFileSync("flock", ["-w", "5", lockPath, "mv", tmpPath, filePath], { timeout: 10000 });
     }
-    catch (err) {
+    catch {
+        // Fallback if flock unavailable (e.g. Windows): direct rename
         try {
-            fs.unlinkSync(tmpPath);
+            fs.renameSync(tmpPath, filePath);
         }
-        catch { /* best-effort */ }
-        throw err;
-    }
-    finally {
-        if (lockFd !== null) {
+        catch (err) {
             try {
-                fs.closeSync(lockFd);
+                fs.unlinkSync(tmpPath);
             }
             catch { /* best-effort */ }
+            throw err;
         }
     }
 }

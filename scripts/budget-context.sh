@@ -15,9 +15,9 @@
 # Stdout: trimmed learnings.md content
 # Stderr: brief budget report
 
-# Force C locale so ${#X} and wc -c agree (bytes, not multibyte chars).
-LC_ALL=C
-export LC_ALL
+# Character-based budget: ${#X} counts characters (closer to token count
+# than raw bytes for multibyte UTF-8). The wc -c fast path uses bytes,
+# which over-counts for multibyte — a safe approximation.
 set -u
 
 LEARNINGS="$HOME/.second-brain/learnings.md"
@@ -129,7 +129,21 @@ while IFS=$'\t' read -r SCORE POS BODY; do
   fi
 done <<< "$(printf '%s\n' "$SCORED" | awk '$1 != "__HEAD__"' | sort -t$'\t' -k1,1nr -k2,2n)"
 
-printf 'budget-context: kept %d/%d entries within %s bytes (%d demoted to /second-brain:query).\n' \
+# Fallback: if nothing fit, include the highest-scored entry truncated.
+if [ "$KEPT" -eq 0 ] && [ "$TOTAL" -gt 0 ]; then
+  FIRST_BODY=$(printf '%s\n' "$SCORED" | awk -F'\t' '$1 != "__HEAD__"' | sort -t$'\t' -k1,1nr -k2,2n | head -1 | cut -f3)
+  if [ -n "$FIRST_BODY" ]; then
+    RESTORED=$(printf '%s' "$FIRST_BODY" | tr '\034' '\n')
+    REMAINING=$((HOT_BUDGET_CHARS - USED))
+    if [ "$REMAINING" -gt 0 ]; then
+      printf '%.'"$REMAINING"'s' "$RESTORED"
+      KEPT=1
+    fi
+  fi
+  printf 'budget-context: WARNING — all entries exceeded budget, first entry truncated to fit.\n' >&2
+fi
+
+printf 'budget-context: kept %d/%d entries within %s chars (%d demoted to /second-brain:query).\n' \
   "$KEPT" "$TOTAL" "$HOT_BUDGET_CHARS" "$DROPPED" >&2
 
 exit 0

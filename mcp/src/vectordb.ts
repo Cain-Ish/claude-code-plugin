@@ -231,7 +231,10 @@ export class VectorDB {
   ): SearchResult[] {
     const db = this.getDb();
 
-    let sql = "SELECT path, title, content, category, embedding, accessCount FROM pages";
+    const needsBM25 = !!queryText;
+    let sql = needsBM25
+      ? "SELECT path, title, content, category, embedding, accessCount FROM pages"
+      : "SELECT path, title, category, embedding, accessCount FROM pages";
     const params: (string | number)[] = [];
     if (category) {
       sql += " WHERE category = ?";
@@ -241,10 +244,10 @@ export class VectorDB {
     interface Candidate {
       path: string;
       title: string;
-      content: string;
       category: string;
       embedding: Float32Array;
       accessCount: number;
+      tokens?: string[];
     }
     const candidates: Candidate[] = [];
 
@@ -253,14 +256,18 @@ export class VectorDB {
       if (params.length > 0) stmt.bind(params);
       while (stmt.step()) {
         const row = stmt.getAsObject();
-        candidates.push({
+        const title = row.title as string;
+        const candidate: Candidate = {
           path: row.path as string,
-          title: row.title as string,
-          content: row.content as string,
+          title,
           category: row.category as string,
           embedding: blobToEmbedding(row.embedding as Uint8Array),
           accessCount: (row.accessCount as number) || 0,
-        });
+        };
+        if (needsBM25) {
+          candidate.tokens = tokenize(`${title} ${row.content as string}`);
+        }
+        candidates.push(candidate);
       }
     } finally {
       stmt.free();
@@ -278,22 +285,20 @@ export class VectorDB {
     if (queryText) {
       const queryTokens = tokenize(queryText);
       if (queryTokens.length > 0) {
-        const docTokensCache = candidates.map((e) =>
-          tokenize(`${e.title} ${e.content}`)
-        );
+        const allTokens = candidates.map((e) => e.tokens!);
         const avgDocLen =
-          docTokensCache.reduce((sum, d) => sum + d.length, 0) /
+          allTokens.reduce((sum, d) => sum + d.length, 0) /
           candidates.length;
 
         const docFreqs = new Map<string, number>();
-        for (const tokens of docTokensCache) {
+        for (const tokens of allTokens) {
           const unique = new Set(tokens);
           for (const t of unique) {
             docFreqs.set(t, (docFreqs.get(t) || 0) + 1);
           }
         }
 
-        bm25Scored = docTokensCache.map((tokens, i) => ({
+        bm25Scored = allTokens.map((tokens, i) => ({
           idx: i,
           bm25Score: computeBM25(
             queryTokens,
@@ -321,7 +326,6 @@ export class VectorDB {
       bm25Ranked.forEach((v, rank) => bm25RankMap.set(v.idx, rank + 1));
     }
 
-    // Access-count boost: find max for normalization
     const maxAccessCount = Math.max(1, candidates.reduce((m, c) => Math.max(m, c.accessCount), 0));
 
     const fused = vectorScored.map((v) => {
@@ -351,15 +355,32 @@ export class VectorDB {
       ? fused
       : fused.filter((s) => s.vectorScore >= minCosineSimilarity);
 
-    return filtered
-      .slice(0, limit)
-      .map((s) => ({
-        path: s.entry.path,
-        title: s.entry.title,
-        excerpt: s.entry.content.slice(0, 500),
-        category: s.entry.category,
-        score: s.score,
-      }));
+    const topResults = filtered.slice(0, limit);
+
+    const contentMap = new Map<string, string>();
+    if (topResults.length > 0) {
+      const placeholders = topResults.map(() => "?").join(",");
+      const contentStmt = db.prepare(
+        `SELECT path, SUBSTR(content, 1, 500) AS excerpt FROM pages WHERE path IN (${placeholders})`
+      );
+      try {
+        contentStmt.bind(topResults.map(s => s.entry.path));
+        while (contentStmt.step()) {
+          const row = contentStmt.getAsObject();
+          contentMap.set(row.path as string, row.excerpt as string);
+        }
+      } finally {
+        contentStmt.free();
+      }
+    }
+
+    return topResults.map((s) => ({
+      path: s.entry.path,
+      title: s.entry.title,
+      excerpt: contentMap.get(s.entry.path) || "",
+      category: s.entry.category,
+      score: s.score,
+    }));
   }
 
   recordAccess(paths: string[]): void {
@@ -375,6 +396,7 @@ export class VectorDB {
     } finally {
       stmt.free();
     }
+    this.persist();
   }
 
   updateAccessCount(filePath: string, delta: number): boolean {

@@ -27,17 +27,19 @@ DIRECTION=""
 
 # Negative signals (friction) — checked first so a mixed prompt like
 # "no wait actually that's perfect" classifies as friction (the user is
-# course-correcting, not praising).
-if echo "$PROMPT" | grep -Eqi 'again|retry|redo|repeat'; then
+# course-correcting, not praising). Word boundaries (\b) prevent substring
+# false positives like "fix" in "prefix" or "issue" in "tissue".
+if echo "$PROMPT" | grep -Eqi '\b(again|retry|redo|repeat)\b'; then
   SIGNAL_TYPE="retry"; DIRECTION="negative"
-elif echo "$PROMPT" | grep -Eqi 'no[, ]|wrong|not what|i said|that.s not|incorrect'; then
+elif echo "$PROMPT" | grep -Eqi '\b(no[, ]|wrong|not what|i said|that.s not|incorrect)\b'; then
   SIGNAL_TYPE="rejection"; DIRECTION="negative"
-elif echo "$PROMPT" | grep -Eqi 'fix|bug|broken|error|issue'; then
+elif echo "$PROMPT" | grep -Eqi '\b(fix|bug|broken|error|issue)\b'; then
   SIGNAL_TYPE="fix_request"; DIRECTION="negative"
 
-# Positive signals — only matched when no negative pattern fired. High-precision
-# only: short standalone praise/acceptance, not generic "ok let me check".
-elif echo "$PROMPT" | grep -Eqi '^[[:space:]]*(perfect|exactly|thanks|thank you|nice|great work|works|works perfectly|love it|brilliant)[[:space:]!.,]*$'; then
+# Positive signals — only matched when no negative pattern fired.
+# Start-anchored to avoid false positives from mid-sentence praise,
+# but allows trailing text (e.g. "thanks, now let's move on").
+elif echo "$PROMPT" | grep -Eqi '^[[:space:]]*(perfect|exactly|thanks|thank you|nice|great work|works perfectly|love it|brilliant)\b'; then
   SIGNAL_TYPE="praise"; DIRECTION="positive"
 elif echo "$PROMPT" | grep -Eqi '^[[:space:]]*(ok|okay|yes|yep|good|sounds good|sgtm|lgtm)[[:space:]!.,]*$'; then
   SIGNAL_TYPE="acceptance"; DIRECTION="positive"
@@ -46,6 +48,20 @@ fi
 # No signal match → don't log (privacy: avoids storing every user prompt)
 if [ -z "$SIGNAL_TYPE" ]; then
   exit 0
+fi
+
+# Rate-limit: skip if same signal_type already logged for this session within 60s.
+if [ -f "$FRICTION_LOG" ] && [ -n "$SESSION_ID" ] && [ "$SESSION_ID" != "unknown" ]; then
+  LAST_SAME=$(tail -20 "$FRICTION_LOG" | jq -r --arg s "$SESSION_ID" --arg ty "$SIGNAL_TYPE" \
+    'select(.session_id == $s and .type == $ty) | .timestamp' 2>/dev/null | tail -1)
+  if [ -n "$LAST_SAME" ]; then
+    LAST_EPOCH=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$LAST_SAME" +%s 2>/dev/null \
+              || date -u -d "$LAST_SAME" +%s 2>/dev/null || echo 0)
+    NOW_EPOCH=$(date -u +%s)
+    if [ "$((NOW_EPOCH - LAST_EPOCH))" -lt 60 ]; then
+      exit 0
+    fi
+  fi
 fi
 
 # Truncate prompt to 200 chars — enough context for learning analysis without

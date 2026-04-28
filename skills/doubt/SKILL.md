@@ -4,7 +4,7 @@ description: Adversarial validation of the second-brain plugin. Questions archit
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read Agent Bash(git diff *) Bash(git log *) Bash(git show *) Bash(find *) Bash(grep *) Bash(ls *) Bash(wc *) Bash(cat *) Bash(head *) Bash(tail *) Bash(jq *) Bash(date *) Bash(test *) Bash(sort *) Bash(uniq *)
-argument-hint: "[--layer <name> | --changed | --full]"
+argument-hint: "[--layer <name> | --changed | --full | <path-or-topic>]"
 ---
 
 # Adversarial Doubt Session
@@ -77,7 +77,31 @@ Parse arguments:
 - `--layer <name>`: Force a specific layer. Pick the least-used perspective for it.
 - `--changed`: Only doubt layers whose files changed recently (`git log --since="30 days ago" --name-only`).
 - `--full`: Shallow scan of ALL 12 layers, `correctness` perspective only, 1 question each. Produces a coverage map.
+- `<path-or-topic>` (free text): Target arbitrary code outside the predefined layers. See **Ad-hoc focus** below.
 - No args: Use the selection algorithm below.
+
+#### Ad-hoc focus (free text arguments)
+
+When the argument doesn't match any flag, treat it as an **ad-hoc focus target**:
+
+1. **Resolve the target**:
+   - If it's a file/directory path (e.g., `src/ui/`, `components/ActionDots.tsx`): list the files there (`find <path> -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.sh' -o -name '*.md'`).
+   - If it's a topic/keyword (e.g., `actiondots`, `authentication`, `caching`): search the codebase (`grep -rl <keyword> . --include='*.ts' --include='*.tsx' --include='*.sh'`).
+   - Combine: `doubt src/ui/ actiondots` finds files in `src/ui/` related to "actiondots".
+
+2. **Generate an ad-hoc layer**: Create a temporary layer definition from discovered files:
+   ```
+   Ad-hoc layer: "<target>"
+   Key files: [discovered files, up to 10 most relevant]
+   ```
+
+3. **Select perspectives**: Pick 2-3 perspectives from the taxonomy that best fit the discovered code (e.g., if it's UI code, `correctness` + `failure` + `adversarial`; if it's a data pipeline, `race` + `evolution` + `integration`).
+
+4. **Run the standard doubt protocol** (step 3) against the ad-hoc layer. All other steps (runtime state checking, conversational drilling, cross-layer chains, critic validation) apply unchanged.
+
+5. **History**: Log ad-hoc runs to `doubt-history.jsonl` with `layers: ["adhoc:<target>"]` so they appear in rotation tracking.
+
+Ad-hoc mode works in any repository — the predefined layers are only for the second-brain plugin itself.
 
 ### 2. Select (layer, perspective) pairs
 
