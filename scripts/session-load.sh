@@ -69,6 +69,14 @@ if [ -f "$BRAIN_DIR/.last-compact-ts" ]; then
 fi
 
 if [ "$IS_COMPACT_REINIT" = "true" ]; then
+  # Context pressure check: if 3+ compacts have happened without a fresh
+  # session, suppress all output to break the compact→reload→compact loop.
+  COMPACT_COUNT=$(cat "$BRAIN_DIR/.compact-count" 2>/dev/null || echo 0)
+  if [ "$COMPACT_COUNT" -ge 3 ]; then
+    echo "SECOND BRAIN — context pressure detected ($COMPACT_COUNT compacts). Plugin output suppressed. Use /clear for a fresh start."
+    exit 0
+  fi
+
   JSONL_FILE="$BRAIN_DIR/.pending-reflections.jsonl"
   # Migrate old singular format if still present (shared helper from lib.sh
   # isn't sourced here, so inline the one-shot migration).
@@ -80,6 +88,13 @@ if [ "$IS_COMPACT_REINIT" = "true" ]; then
 
   if [ -f "$JSONL_FILE" ] && [ -s "$JSONL_FILE" ]; then
     ENTRY_COUNT=$(wc -l < "$JSONL_FILE" | tr -d ' ')
+    MAX_REFLECTIONS=5
+    if [ "$ENTRY_COUNT" -gt "$MAX_REFLECTIONS" ]; then
+      OVERFLOW=$((ENTRY_COUNT - MAX_REFLECTIONS))
+      head -n "$OVERFLOW" "$JSONL_FILE" >> "$HOME/.second-brain/.archived-reflections.jsonl"
+      tail -n "$MAX_REFLECTIONS" "$JSONL_FILE" > "$JSONL_FILE.tmp" && mv "$JSONL_FILE.tmp" "$JSONL_FILE"
+      ENTRY_COUNT=$MAX_REFLECTIONS
+    fi
     HAS_HIGH=$(jq -r 'select(.priority == "high") | "yes"' "$JSONL_FILE" 2>/dev/null | head -1)
     cat << COMPACT_REFLECT
 SECOND BRAIN (compact reload) — persona/rules/learnings already loaded. Skipping full reload.
@@ -100,6 +115,9 @@ COMPACT_REFLECT
   fi
   exit 0
 fi
+
+# Fresh session start — reset compact counter.
+echo "0" > "$BRAIN_DIR/.compact-count" 2>/dev/null
 
 # Only mention tool-registry.json if discover-tools.sh has produced it. On a
 # fresh install or if discovery failed, omitting the line keeps Claude from
@@ -130,7 +148,12 @@ INSTALLED_VERSION=""
 CURRENT_VERSION=""
 [ -f "$PLUGIN_ROOT/.claude-plugin/plugin.json" ] && CURRENT_VERSION=$(jq -r '.version // ""' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
 VERSION_NUDGE=""
-if [ -n "$INSTALLED_VERSION" ] && [ -n "$CURRENT_VERSION" ] && [ "$INSTALLED_VERSION" != "$CURRENT_VERSION" ]; then
+FRESH_INSTALL_NUDGE=""
+if [ -z "$INSTALLED_VERSION" ]; then
+  FRESH_INSTALL_NUDGE="
+
+FRESH INSTALL DETECTED — run /second-brain:setup to initialize your knowledge base, persona, and quality rules. One-time setup that creates wiki structure and seed files."
+elif [ -n "$CURRENT_VERSION" ] && [ "$INSTALLED_VERSION" != "$CURRENT_VERSION" ]; then
   VERSION_NUDGE="
 
 PLUGIN VERSION CHANGED — installed: $INSTALLED_VERSION → current: $CURRENT_VERSION. Run /second-brain:upgrade to apply additive migrations (regressions/ dir, schema fields). Safe to defer; no breakage from skipping."
@@ -192,7 +215,7 @@ cat << EOF
 SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 - ~/.second-brain/persona.md (behavioral rules, code style, intent analysis)
 - ~/.second-brain/quality-rules.md (code quality standards - applied on every write)
-- $LEARNINGS_LINE$TOOLS_LINE$VERSION_NUDGE$GRAPH_NUDGE$DRIFT_NUDGE$ERROR_NUDGE
+- $LEARNINGS_LINE$TOOLS_LINE$FRESH_INSTALL_NUDGE$VERSION_NUDGE$GRAPH_NUDGE$DRIFT_NUDGE$ERROR_NUDGE
 
 CONTEXT-RELEVANT NODE LOADING (Karpathy second-brain pattern): when the user's request touches a topic the wiki likely covers — a tool/library/framework name, a person, an organization, a project, a domain concept — proactively call the knowledge_search MCP tool with the key terms BEFORE answering. Read any result with relevance > 0.6 in full and incorporate it. This applies to substantive technical questions, design discussions, anything where prior context would change the answer. Do not ask the user "should I search?" — just do it. For trivial requests (rename, fix a typo, run a command), skip the search.
 
@@ -216,6 +239,14 @@ fi
 if [ -f "$JSONL_FILE" ] && [ -s "$JSONL_FILE" ]; then
   ENTRY_COUNT=$(wc -l < "$JSONL_FILE" | tr -d ' ')
   ENTRY_COUNT=${ENTRY_COUNT:-0}
+
+  MAX_REFLECTIONS=5
+  if [ "$ENTRY_COUNT" -gt "$MAX_REFLECTIONS" ]; then
+    OVERFLOW=$((ENTRY_COUNT - MAX_REFLECTIONS))
+    head -n "$OVERFLOW" "$JSONL_FILE" >> "$HOME/.second-brain/.archived-reflections.jsonl"
+    tail -n "$MAX_REFLECTIONS" "$JSONL_FILE" > "$JSONL_FILE.tmp" && mv "$JSONL_FILE.tmp" "$JSONL_FILE"
+    ENTRY_COUNT=$MAX_REFLECTIONS
+  fi
 
   if [ "$ENTRY_COUNT" -gt 0 ]; then
     HAS_HIGH=$(jq -r 'select(.priority == "high") | "yes"' "$JSONL_FILE" 2>/dev/null | head -1)

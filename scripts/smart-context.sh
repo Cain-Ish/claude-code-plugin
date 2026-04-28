@@ -5,6 +5,10 @@
 
 BRAIN_DIR="$HOME/.second-brain"
 
+# Suppress under context pressure
+COMPACT_COUNT=$(cat "$BRAIN_DIR/.compact-count" 2>/dev/null || echo 0)
+[ "$COMPACT_COUNT" -ge 3 ] && exit 0
+
 ENABLED=$(jq -r '.smart_context // false' "$BRAIN_DIR/config.json" 2>/dev/null)
 [ "$ENABLED" = "true" ] || exit 0
 

@@ -80,6 +80,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/drift-detect.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh",
             "timeout": 15
           }

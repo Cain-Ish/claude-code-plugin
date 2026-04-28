@@ -48,15 +48,16 @@ if [ -z "$SIGNAL_TYPE" ]; then
   exit 0
 fi
 
-# Build the log line via jq so embedded quotes/newlines/control chars stay valid JSON.
-# `type` is preserved for backward compat; `direction` is the new field that
-# extract-learnings.sh and improve.SKILL.md use to count friction vs. positive.
+# Truncate prompt to 200 chars — enough context for learning analysis without
+# storing sensitive content from long correction messages.
+PROMPT_TRUNC=$(printf '%.200s' "$PROMPT")
+
 jq -nc \
   --arg t "$TIMESTAMP" \
   --arg s "$SESSION_ID" \
   --arg ty "$SIGNAL_TYPE" \
   --arg d "$DIRECTION" \
-  --arg p "$PROMPT" \
+  --arg p "$PROMPT_TRUNC" \
   '{timestamp:$t, session_id:$s, type:$ty, direction:$d, prompt:$p}' >> "$FRICTION_LOG"
 
 # Rotate if log grew too large — keep the most recent half

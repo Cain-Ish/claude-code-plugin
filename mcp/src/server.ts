@@ -367,9 +367,10 @@ server.registerTool(
       path: z.string().describe("File path of the wiki page or learning entry"),
       helpful: z.boolean().describe("Whether the retrieved knowledge was helpful"),
       context: z.string().optional().describe("Brief note on how it was used"),
+      entry: z.string().optional().describe("For learnings.md: unique substring from the entry header (e.g. '2026-04-27] Tests must exercise' or 'Validate plugin config'). Must match exactly one ## [...] header."),
     }),
   },
-  async ({ path: filePath, helpful, context }) => {
+  async ({ path: filePath, helpful, context, entry }) => {
     try {
       const rawResolved = path.resolve(
         filePath.startsWith("~") ? path.join(os.homedir(), filePath.slice(1)) : filePath
@@ -392,7 +393,7 @@ server.registerTool(
       }
 
       if (resolved.endsWith("learnings.md")) {
-        return updateLearningFeedback(resolved, helpful, context);
+        return updateLearningFeedback(resolved, helpful, context, entry);
       }
 
       const vectordb = await getDB();
@@ -422,6 +423,7 @@ function updateLearningFeedback(
   resolvedPath: string,
   helpful: boolean,
   context?: string,
+  entry?: string,
 ): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
   if (!fs.existsSync(resolvedPath)) {
     return {
@@ -433,9 +435,57 @@ function updateLearningFeedback(
   let content = fs.readFileSync(resolvedPath, "utf-8");
   const today = new Date().toISOString().slice(0, 10);
 
-  const metaRegex = /<!-- meta: confidence=([0-9]+(?:\.[0-9]+)?) hits=(\d+) last_used=(\d{4}-\d{2}-\d{2}) -->/;
-  const match = content.match(metaRegex);
+  const metaRegex = /<!-- meta: confidence=([0-9]+(?:\.[0-9]+)?) hits=(\d+) last_used=(\d{4}-\d{2}-\d{2}) -->/g;
 
+  if (entry) {
+    const headerRegex = /^## \[.+$/gm;
+    const matches: Array<{ index: number; line: string }> = [];
+    let headerMatch: RegExpExecArray | null;
+    while ((headerMatch = headerRegex.exec(content)) !== null) {
+      if (headerMatch[0].includes(entry)) {
+        matches.push({ index: headerMatch.index, line: headerMatch[0] });
+      }
+    }
+
+    if (matches.length === 0) {
+      return {
+        content: [{ type: "text", text: `No learning entry matching '${entry}' in ${resolvedPath}` }],
+        isError: true,
+      };
+    }
+    if (matches.length > 1) {
+      const titles = matches.map(m => m.line).join("\n");
+      return {
+        content: [{ type: "text", text: `Ambiguous: '${entry}' matches ${matches.length} entries. Provide a more specific substring:\n${titles}` }],
+        isError: true,
+      };
+    }
+
+    metaRegex.lastIndex = matches[0].index;
+    const match = metaRegex.exec(content);
+    if (!match) {
+      return {
+        content: [{ type: "text", text: `No meta line found for entry '${entry}'.` }],
+        isError: true,
+      };
+    }
+
+    let confidence = parseFloat(match[1]);
+    let hits = parseInt(match[2], 10);
+    if (helpful) { confidence = Math.min(1.0, confidence + 0.05); hits += 1; }
+    else { confidence = Math.max(0.0, confidence - 0.05); }
+
+    const newMeta = `<!-- meta: confidence=${confidence.toFixed(2)} hits=${hits} last_used=${today} -->`;
+    content = content.slice(0, match.index) + newMeta + content.slice(match.index + match[0].length);
+
+    atomicWrite(resolvedPath, content);
+    return {
+      content: [{ type: "text", text: `Learning [${matches[0].line.slice(3)}] updated: confidence=${confidence.toFixed(2)}, hits=${hits}${context ? ` — ${context}` : ""}` }],
+    };
+  }
+
+  // Fallback: no entry specified — update first meta line (legacy behavior)
+  const match = metaRegex.exec(content);
   if (!match) {
     return {
       content: [{ type: "text", text: "No meta line found in learnings file to update." }],
@@ -445,29 +495,37 @@ function updateLearningFeedback(
 
   let confidence = parseFloat(match[1]);
   let hits = parseInt(match[2], 10);
-
-  if (helpful) {
-    confidence = Math.min(1.0, confidence + 0.05);
-    hits += 1;
-  } else {
-    confidence = Math.max(0.0, confidence - 0.05);
-  }
+  if (helpful) { confidence = Math.min(1.0, confidence + 0.05); hits += 1; }
+  else { confidence = Math.max(0.0, confidence - 0.05); }
 
   const newMeta = `<!-- meta: confidence=${confidence.toFixed(2)} hits=${hits} last_used=${today} -->`;
-  content = content.replace(metaRegex, newMeta);
+  content = content.slice(0, match.index) + newMeta + content.slice(match.index + match[0].length);
 
-  const tmpPath = resolvedPath + ".tmp";
-  try {
-    fs.writeFileSync(tmpPath, content, "utf-8");
-    fs.renameSync(tmpPath, resolvedPath);
-  } catch (err) {
-    try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
-    throw err;
-  }
-
+  atomicWrite(resolvedPath, content);
   return {
     content: [{ type: "text", text: `Learning updated: confidence=${confidence.toFixed(2)}, hits=${hits}${context ? ` — ${context}` : ""}` }],
   };
+}
+
+function atomicWrite(filePath: string, data: string): void {
+  const lockPath = path.join(path.dirname(filePath), ".learnings.lock");
+  let lockFd: number | null = null;
+  try {
+    lockFd = fs.openSync(lockPath, "w");
+  } catch { /* lock best-effort — proceed without if dir is read-only */ }
+
+  const tmpPath = filePath + ".tmp";
+  try {
+    fs.writeFileSync(tmpPath, data, "utf-8");
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
+    throw err;
+  } finally {
+    if (lockFd !== null) {
+      try { fs.closeSync(lockFd); } catch { /* best-effort */ }
+    }
+  }
 }
 
 // --- Start ---

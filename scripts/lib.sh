@@ -188,6 +188,15 @@ sb_log_error() {
     >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
 }
 
+# Check if context pressure is high (3+ compacts without a fresh session start).
+# Returns 0 (true) if hooks should suppress stdout to avoid compaction loops.
+sb_context_pressure() {
+  local count_file="$BRAIN_DIR/.compact-count"
+  local count
+  count=$(cat "$count_file" 2>/dev/null || echo 0)
+  [ "$count" -ge 3 ]
+}
+
 # Full collection pipeline: parse → resolve → count turns → count friction → count drift → calc priority → check improve.
 # Returns 1 if transcript unresolvable or too few turns (< $1, default 3).
 sb_collect_session_data() {

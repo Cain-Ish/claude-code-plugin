@@ -750,6 +750,118 @@ else
   assert_pass "SESSION HANDOFF correctly omitted when no handoff fields"
 fi
 
+# --- Test 28: Context pressure suppresses compact-reload output ---
+echo ""
+echo "28. Context pressure suppresses compact-reload output"
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  # Simulate 3+ compacts
+  echo "3" > "$SANDBOX/.second-brain/.compact-count"
+  # Write recent compact timestamp
+  date -u +"%Y-%m-%dT%H:%M:%SZ" > "$SANDBOX/.second-brain/.last-compact-ts"
+  # Add a pending reflection to prove it gets suppressed
+  jq -nc '{trigger:"pre-compact",priority:"high",friction_count:5,user_turns:10,transcript_path:"",context_snapshot:""}' \
+    > "$SANDBOX/.second-brain/.pending-reflections.jsonl"
+  echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > "$SANDBOX/pressure-output.txt" 2>&1
+)
+PRESSURE_OUTPUT=$(cat "$SANDBOX/pressure-output.txt")
+if echo "$PRESSURE_OUTPUT" | grep -q "context pressure"; then
+  assert_pass "context pressure detected and output suppressed"
+else
+  assert_fail "should emit context pressure message" "got: $PRESSURE_OUTPUT"
+fi
+if echo "$PRESSURE_OUTPUT" | grep -q "PENDING REFLECTIONS"; then
+  assert_fail "should NOT emit reflection instructions under pressure"
+else
+  assert_pass "reflection instructions suppressed under pressure"
+fi
+PRESSURE_LEN=${#PRESSURE_OUTPUT}
+if [ "$PRESSURE_LEN" -lt 200 ]; then
+  assert_pass "pressure output = $PRESSURE_LEN chars (under 200)"
+else
+  assert_fail "pressure output too long: $PRESSURE_LEN chars (want < 200)"
+fi
+
+# --- Test 29: Compact counter resets on fresh session start ---
+echo ""
+echo "29. Compact counter resets on fresh session start"
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  echo "5" > "$SANDBOX/.second-brain/.compact-count"
+  # No .last-compact-ts = fresh start (not a compact reload)
+  rm -f "$SANDBOX/.second-brain/.last-compact-ts"
+  echo '{}' | bash "$REPO_ROOT/scripts/session-load.sh" > /dev/null 2>&1
+)
+RESET_COUNT=$(cat "$SANDBOX/.second-brain/.compact-count" 2>/dev/null)
+if [ "$RESET_COUNT" = "0" ]; then
+  assert_pass "compact counter reset to 0 on fresh start"
+else
+  assert_fail "compact counter should be 0, got: $RESET_COUNT"
+fi
+
+# --- Test 30: Post-compact increments counter ---
+echo ""
+echo "30. Post-compact increments counter"
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  echo "1" > "$SANDBOX/.second-brain/.compact-count"
+  bash "$REPO_ROOT/scripts/post-compact.sh" > /dev/null 2>&1
+)
+INC_COUNT=$(cat "$SANDBOX/.second-brain/.compact-count" 2>/dev/null)
+if [ "$INC_COUNT" = "2" ]; then
+  assert_pass "compact counter incremented from 1 to 2"
+else
+  assert_fail "compact counter should be 2, got: $INC_COUNT"
+fi
+
+# --- Test 31: Quality gate suppressed under pressure ---
+echo ""
+echo "31. Quality gate suppressed under pressure"
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  echo "3" > "$SANDBOX/.second-brain/.compact-count"
+  bash "$REPO_ROOT/scripts/quality-gate.sh" > "$SANDBOX/qg-pressure.txt" 2>&1
+)
+if [ ! -s "$SANDBOX/qg-pressure.txt" ]; then
+  assert_pass "quality gate silent under pressure"
+else
+  assert_fail "quality gate should be silent under pressure" "got: $(cat "$SANDBOX/qg-pressure.txt")"
+fi
+
+# --- Test 32: Smart-context suppressed under pressure ---
+echo ""
+echo "32. Smart-context suppressed under pressure"
+BRAIN=$(setup_brain)
+(
+  export HOME="$SANDBOX"
+  mkdir -p "$SANDBOX/.second-brain"
+  cp -r "$BRAIN/." "$SANDBOX/.second-brain/"
+  echo '{"smart_context": true}' > "$SANDBOX/.second-brain/config.json"
+  echo "3" > "$SANDBOX/.second-brain/.compact-count"
+  mkdir -p "$SANDBOX/knowledge"
+  echo "- [test](wiki/test.md) — test page" > "$SANDBOX/knowledge/index.md"
+  echo '{"user_prompt":"test page context matching"}' | bash "$REPO_ROOT/scripts/smart-context.sh" > "$SANDBOX/sc-pressure.txt" 2>&1
+)
+if [ ! -s "$SANDBOX/sc-pressure.txt" ]; then
+  assert_pass "smart-context silent under pressure"
+else
+  assert_fail "smart-context should be silent under pressure" "got: $(cat "$SANDBOX/sc-pressure.txt")"
+fi
+
 echo ""
 echo "========================"
 echo "PASS: $PASS, FAIL: $FAIL"

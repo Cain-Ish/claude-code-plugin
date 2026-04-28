@@ -111,6 +111,7 @@ fi
 # Learning state directory
 mkdir -p "$BRAIN_DIR"
 mkdir -p "$BRAIN_DIR/.reflection-context"
+mkdir -p "$BRAIN_DIR/regressions"
 
 # Initialize learnings.md if missing
 if [ ! -f "$BRAIN_DIR/learnings.md" ]; then
@@ -269,6 +270,16 @@ if [ ! -f "$KNOWLEDGE_DIR/.gitignore" ]; then
 .nosync
 .DS_Store
 EOF
+fi
+
+# Write version marker on first install so session-load.sh can detect
+# fresh install vs upgrade. Only write when absent — upgrades are handled
+# by /second-brain:upgrade which updates this file after migrations.
+if [ ! -f "$BRAIN_DIR/.installed-version" ]; then
+  PLUGIN_JSON="${CLAUDE_PLUGIN_ROOT:-.}/.claude-plugin/plugin.json"
+  if [ -f "$PLUGIN_JSON" ] && command -v jq >/dev/null 2>&1; then
+    jq -r '.version // ""' "$PLUGIN_JSON" > "$BRAIN_DIR/.installed-version"
+  fi
 fi
 
 # Prevent cloud sync services from syncing knowledge and learning data.

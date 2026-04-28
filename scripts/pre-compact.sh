@@ -17,4 +17,7 @@ if [ "$SB_USER_TURNS" -ge 3 ]; then
   sb_write_reflection "pre-compact"
 fi
 
-echo "CONTEXT COMPACTION IMMINENT — save key knowledge to ~/knowledge/wiki/ if this session had important decisions. Keep entries to 10-20 lines. Skip if trivial."
+# Suppress echo under context pressure — reflection is saved to disk regardless
+if ! sb_context_pressure; then
+  echo "CONTEXT COMPACTION IMMINENT — save key knowledge to ~/knowledge/wiki/ if this session had important decisions. Keep entries to 10-20 lines. Skip if trivial."
+fi
