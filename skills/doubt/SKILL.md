@@ -79,13 +79,13 @@ Parse arguments:
 - `--full`: Shallow scan of ALL 12 layers, `correctness` perspective only, 1 question each. Produces a coverage map.
 - No args: Use the selection algorithm below.
 
-### 2. Select 2-3 (layer, perspective) pairs
+### 2. Select (layer, perspective) pairs
 
 Score each combination:
 
 1. **Git change bonus (+3)**: Run `git log --since="30 days ago" --name-only --pretty=format:` in the plugin root. Map changed files to layers. Recently changed layers get +3.
 2. **History rotation (+days since last doubt)**: For each (layer, perspective), count days since it last appeared in doubt-history.jsonl. Never-doubted pairs get +30.
-3. **Pick top 2-3 scoring pairs.** Break ties by picking different perspectives for variety.
+3. **Pick the top scoring pairs.** Break ties by picking different perspectives for variety. Don't fix a number — pick as many as the session can handle. A small simple layer (quality-gate is one file, 5 lines) might take 2 minutes; a complex one (MCP server, learning pipeline) could take 20. Judge by complexity, not by a quota.
 
 Report which pairs were selected and why before proceeding.
 
@@ -105,7 +105,7 @@ For each (layer, perspective):
    - Counter: "OK, so if it works, then surely the OUTPUT is wrong/incomplete/stale." → Answer with evidence.
    - Dig deeper: "Fine, the output is correct, but on line N this assumes X — what if X isn't true?" → Answer.
    - Keep going until you either find something real or run out of credible doubt.
-   The pattern is adversarial dialogue, not a checklist. Each answer closes one doubt but should open a more specific one. Stop when the doubt becomes unreasonable.
+   The pattern is adversarial dialogue, not a checklist. Each answer closes one doubt but should open a more specific one. Stop when the doubt becomes unreasonable — not after a fixed number of questions. A trivial layer might need 2 exchanges; a complex one might need 10+.
 5. **Follow cross-layer chains**: If a finding in one layer touches another layer's input/output, trace the chain. The best findings come from following a failure across layer boundaries (e.g., "knowledge_search never returns results → vectors.db doesn't exist → ensure-dirs.sh doesn't create it → setup was never run").
 6. **Answer each question honestly** by reading the actual code AND checking runtime state. Cite file:line. No speculation.
 7. **Classify each answer**:
@@ -203,7 +203,7 @@ After the report, offer but do NOT auto-execute:
 
 ## Context Budget
 
-- **2-3 layers per normal run**, not all 12. Each layer reads ~3-5 files of 50-200 lines.
+- **Layer count is flexible** — small layers can be covered quickly, complex ones take more context. Don't force a quota; judge by remaining context budget.
 - **`--full` mode**: 1 question per layer, reads only the primary file. Broad coverage map.
 - **One quality-reviewer subagent call** total, bundling all ISSUE/FRAGILE findings.
 - If the skill is running during a session with high compact pressure (check `~/.second-brain/.compact-count`), warn the user and suggest running via `/clear` first.
