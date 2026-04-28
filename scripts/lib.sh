@@ -123,7 +123,7 @@ sb_snapshot_transcript() {
   local snap_dir="$BRAIN_DIR/.reflection-context"
   mkdir -p "$snap_dir"
   local epoch
-  epoch=$(date +%s)
+  epoch=$(date +%s)-$$
   local snap_file="$snap_dir/${SB_SESSION_ID}-${epoch}.txt"
   tail -100 "$SB_TRANSCRIPT_PATH" > "$snap_file" 2>/dev/null
   SB_CONTEXT_SNAPSHOT="$snap_file"
@@ -156,7 +156,8 @@ sb_write_reflection() {
     --argjson in_progress "${SB_IN_PROGRESS:-[]}" \
     --argjson blockers "${SB_BLOCKERS:-[]}" \
     '{session_id:$s, date:$d, appended_at:$at, user_turns:$ut, friction_count:$fc, positive_signals:$ps, first_try_success:$fts, drift_count:$dc, priority:$pr, suggest_plugin_improve:$spi, trigger:$tr, transcript_path:$tp, context_snapshot:$cs, goals:$goals, completed:$completed, in_progress:$in_progress, blockers:$blockers}' \
-    >> "$BRAIN_DIR/.pending-reflections.jsonl"
+    >> "$BRAIN_DIR/.pending-reflections.jsonl" || \
+    sb_log_error "sb_write_reflection" "jq failed writing reflection (trigger=$trigger)" $?
 }
 
 # Write session metadata JSON.

@@ -94,17 +94,32 @@ Report which pairs were selected and why before proceeding.
 For each (layer, perspective):
 
 1. **Read all key files** listed in the taxonomy for that layer.
-2. **Start from doubt**: "I believe [layer] does NOT work correctly because..." — force yourself to find reasons to doubt.
-3. **Ask 3-5 questions**, drilling from general to granular:
+2. **Check runtime state** — don't just read source code. Verify actual artifacts:
+   - Do the output files exist? (`ls ~/.second-brain/`, `ls ~/knowledge/.embeddings/`)
+   - What's in the data files? (`tail -5 ~/.second-brain/friction-log.jsonl`, `wc -l ~/.second-brain/drift-log.jsonl`)
+   - Is the state consistent with what the code claims to produce?
+   - The gap between "the code would write X" and "X actually exists on disk" is where the best bugs hide.
+3. **Start from doubt**: "I believe [layer] does NOT work correctly because..." — force yourself to find reasons to doubt.
+4. **Ask 3-5 questions**, drilling from general to granular:
    - General: "Does [layer] actually fire/run/produce output in a real session?"
    - Specific: "What happens when [edge case from the perspective]?"
    - Granular: "On line N of file X, this code assumes Y — is that always true?"
-4. **Answer each question honestly** by reading the actual code. Cite file:line. No speculation.
-5. **Classify each answer**:
-   - **VALIDATED**: Works correctly, code proves it
+5. **Follow cross-layer chains**: If a finding in one layer touches another layer's input/output, trace the chain. The best findings come from following a failure across layer boundaries (e.g., "knowledge_search never returns results → vectors.db doesn't exist → ensure-dirs.sh doesn't create it → setup was never run").
+6. **Answer each question honestly** by reading the actual code AND checking runtime state. Cite file:line. No speculation.
+7. **Classify each answer**:
+   - **VALIDATED**: Works correctly, code and runtime state prove it
    - **ISSUE**: Real bug or incorrect behavior
    - **FRAGILE**: Works now but would break under reasonable conditions
    - **UNKNOWN**: Can't verify from code alone (needs runtime testing)
+
+### 3b. Re-doubt previous fixes (if history exists)
+
+If `doubt-history.jsonl` shows previous runs that found ISSUE or FRAGILE findings, pick 1-2 of the most recent and verify they were actually fixed:
+- Was the fix committed? (`git log --oneline --all -- <file>`)
+- Does the fix address the root cause or just the symptom?
+- Can you construct a scenario where the fix breaks?
+
+This prevents the pattern where a fix is claimed but never lands, or where a fix introduces a new problem.
 
 ### 4. Critic validation
 
@@ -153,16 +168,36 @@ jq -nc \
   --argjson findings 2 \
   --argjson issues 1 \
   --argjson fragile 1 \
-  '{timestamp:$t, layers:$layers, perspectives:$perspectives, findings:$findings, issues:$issues, fragile:$fragile}' \
+  --argjson confirmed 2 \
+  --argjson disputed 0 \
+  '{timestamp:$t, layers:$layers, perspectives:$perspectives, findings:$findings, issues:$issues, fragile:$fragile, confirmed:$confirmed, disputed:$disputed}' \
   >> ~/.second-brain/doubt-history.jsonl
 ```
 
-### 7. Integration offers
+The `confirmed` and `disputed` counts from the critic gate track calibration over time — a skill that's always disputed is asking bad questions; one that's always confirmed is well-calibrated.
+
+### 7. Self-assessment: compare against previous runs
+
+If `~/.second-brain/doubt-history.jsonl` has previous entries, review this run's quality against past performance:
+
+1. **Read the history** and compare this run's `issues` + `fragile` counts against previous runs. Is the hit rate improving, declining, or flat?
+2. **Evaluate question quality**: Were this run's questions specific enough? Did they cite real line numbers and test real code paths? Or were they generic ("does this work?") without code grounding?
+3. **Check for diminishing returns**: If recent runs keep finding 0 issues on the same layers, those layers may be well-hardened — the skill should prioritize untested layers more aggressively.
+4. **Consider skill improvements**: Based on this run's experience, does the skill itself need changes? Examples:
+   - New layers that should be added to the taxonomy (found code not covered by any layer)
+   - Perspectives that consistently find nothing (consider replacing or refining them)
+   - Question patterns that work well (capture as guidance for future runs)
+   - The critic agreed with everything / disputed everything (is the doubt calibration off?)
+
+Output a brief `## Self-Assessment` section at the end of the report with 2-3 sentences on what worked, what didn't, and whether the skill definition should be updated. If concrete improvements are identified, offer to apply them.
+
+### 8. Integration offers
 
 After the report, offer but do NOT auto-execute:
 - "Promote finding #N to a learning via `/second-brain:improve`?"
 - "Create a regression probe in `~/.second-brain/regressions/` for finding #N?"
 - "Fix finding #N directly?"
+- "Update the doubt skill with improvements from the self-assessment?"
 
 ## Context Budget
 

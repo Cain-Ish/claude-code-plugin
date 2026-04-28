@@ -90,9 +90,21 @@ if [ "$IS_COMPACT_REINIT" = "true" ]; then
     ENTRY_COUNT=$(wc -l < "$JSONL_FILE" | tr -d ' ')
     MAX_REFLECTIONS=5
     if [ "$ENTRY_COUNT" -gt "$MAX_REFLECTIONS" ]; then
-      OVERFLOW=$((ENTRY_COUNT - MAX_REFLECTIONS))
-      head -n "$OVERFLOW" "$JSONL_FILE" >> "$HOME/.second-brain/.archived-reflections.jsonl"
-      tail -n "$MAX_REFLECTIONS" "$JSONL_FILE" > "$JSONL_FILE.tmp" && mv "$JSONL_FILE.tmp" "$JSONL_FILE"
+      # Sort high-priority entries first so they survive the cap
+      jq -c 'if .priority == "high" then {sort_key: 0} + . else {sort_key: 1} + . end' "$JSONL_FILE" \
+        | sort -t: -k2,2n \
+        | jq -c 'del(.sort_key)' > "$JSONL_FILE.sorted" 2>/dev/null
+      if [ -s "$JSONL_FILE.sorted" ]; then
+        OVERFLOW=$((ENTRY_COUNT - MAX_REFLECTIONS))
+        tail -n "$OVERFLOW" "$JSONL_FILE.sorted" >> "$HOME/.second-brain/.archived-reflections.jsonl"
+        head -n "$MAX_REFLECTIONS" "$JSONL_FILE.sorted" > "$JSONL_FILE.tmp" && mv "$JSONL_FILE.tmp" "$JSONL_FILE"
+      else
+        # Fallback if jq sorting fails: simple tail
+        OVERFLOW=$((ENTRY_COUNT - MAX_REFLECTIONS))
+        head -n "$OVERFLOW" "$JSONL_FILE" >> "$HOME/.second-brain/.archived-reflections.jsonl"
+        tail -n "$MAX_REFLECTIONS" "$JSONL_FILE" > "$JSONL_FILE.tmp" && mv "$JSONL_FILE.tmp" "$JSONL_FILE"
+      fi
+      rm -f "$JSONL_FILE.sorted"
       ENTRY_COUNT=$MAX_REFLECTIONS
     fi
     HAS_HIGH=$(jq -r 'select(.priority == "high") | "yes"' "$JSONL_FILE" 2>/dev/null | head -1)
@@ -242,9 +254,19 @@ if [ -f "$JSONL_FILE" ] && [ -s "$JSONL_FILE" ]; then
 
   MAX_REFLECTIONS=5
   if [ "$ENTRY_COUNT" -gt "$MAX_REFLECTIONS" ]; then
-    OVERFLOW=$((ENTRY_COUNT - MAX_REFLECTIONS))
-    head -n "$OVERFLOW" "$JSONL_FILE" >> "$HOME/.second-brain/.archived-reflections.jsonl"
-    tail -n "$MAX_REFLECTIONS" "$JSONL_FILE" > "$JSONL_FILE.tmp" && mv "$JSONL_FILE.tmp" "$JSONL_FILE"
+    jq -c 'if .priority == "high" then {sort_key: 0} + . else {sort_key: 1} + . end' "$JSONL_FILE" \
+      | sort -t: -k2,2n \
+      | jq -c 'del(.sort_key)' > "$JSONL_FILE.sorted" 2>/dev/null
+    if [ -s "$JSONL_FILE.sorted" ]; then
+      OVERFLOW=$((ENTRY_COUNT - MAX_REFLECTIONS))
+      tail -n "$OVERFLOW" "$JSONL_FILE.sorted" >> "$HOME/.second-brain/.archived-reflections.jsonl"
+      head -n "$MAX_REFLECTIONS" "$JSONL_FILE.sorted" > "$JSONL_FILE.tmp" && mv "$JSONL_FILE.tmp" "$JSONL_FILE"
+    else
+      OVERFLOW=$((ENTRY_COUNT - MAX_REFLECTIONS))
+      head -n "$OVERFLOW" "$JSONL_FILE" >> "$HOME/.second-brain/.archived-reflections.jsonl"
+      tail -n "$MAX_REFLECTIONS" "$JSONL_FILE" > "$JSONL_FILE.tmp" && mv "$JSONL_FILE.tmp" "$JSONL_FILE"
+    fi
+    rm -f "$JSONL_FILE.sorted"
     ENTRY_COUNT=$MAX_REFLECTIONS
   fi
 
