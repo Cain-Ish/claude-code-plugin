@@ -100,10 +100,12 @@ For each (layer, perspective):
    - Is the state consistent with what the code claims to produce?
    - The gap between "the code would write X" and "X actually exists on disk" is where the best bugs hide.
 3. **Start from doubt**: "I believe [layer] does NOT work correctly because..." — force yourself to find reasons to doubt.
-4. **Ask 3-5 questions**, drilling from general to granular:
-   - General: "Does [layer] actually fire/run/produce output in a real session?"
-   - Specific: "What happens when [edge case from the perspective]?"
-   - Granular: "On line N of file X, this code assumes Y — is that always true?"
+4. **Drill conversationally** — each answer must spawn the next doubt. Don't ask independent questions. Chain them:
+   - Start broad: "This layer doesn't work." → Answer with evidence it does.
+   - Counter: "OK, so if it works, then surely the OUTPUT is wrong/incomplete/stale." → Answer with evidence.
+   - Dig deeper: "Fine, the output is correct, but on line N this assumes X — what if X isn't true?" → Answer.
+   - Keep going until you either find something real or run out of credible doubt.
+   The pattern is adversarial dialogue, not a checklist. Each answer closes one doubt but should open a more specific one. Stop when the doubt becomes unreasonable.
 5. **Follow cross-layer chains**: If a finding in one layer touches another layer's input/output, trace the chain. The best findings come from following a failure across layer boundaries (e.g., "knowledge_search never returns results → vectors.db doesn't exist → ensure-dirs.sh doesn't create it → setup was never run").
 6. **Answer each question honestly** by reading the actual code AND checking runtime state. Cite file:line. No speculation.
 7. **Classify each answer**:
