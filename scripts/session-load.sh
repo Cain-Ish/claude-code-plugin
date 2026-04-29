@@ -26,27 +26,34 @@ emit_handoff() {
 # Preflight: jq is a hard runtime dependency. Every other hook (log-friction,
 # extract-learnings, pre-compact, discover-tools) parses JSON via jq; without
 # it they exit silently and the user sees an empty knowledge base with no
-# explanation. Surface this loudly at session start so the failure is
-# diagnosable instead of invisible.
+# explanation. Surface this loudly at session start with a platform-specific
+# install command so the user can fix it in one paste.
 if ! command -v jq >/dev/null 2>&1; then
-  cat << 'PREFLIGHT'
-SECOND BRAIN PREFLIGHT FAILURE — `jq` is not on PATH.
+  case "$(uname -s 2>/dev/null)" in
+    Darwin)               JQ_CMD="brew install jq" ;;
+    Linux)                JQ_CMD="sudo apt install jq    # or: sudo dnf install jq / sudo pacman -S jq" ;;
+    MINGW*|MSYS*|CYGWIN*) JQ_CMD="winget install jqlang.jq    # or: choco install jq / scoop install jq" ;;
+    *)                    JQ_CMD="install jq via your package manager" ;;
+  esac
+  cat << PREFLIGHT
+SECOND BRAIN PREFLIGHT FAILURE — 'jq' is not on PATH.
 
-The second-brain plugin requires `jq` to parse hook input. Without it, these
-silently do nothing:
-- friction logging (UserPromptSubmit)
-- session reflection extraction (Stop)
-- pre-compact reflection (PreCompact)
-- MCP tool discovery (SessionStart)
+The plugin requires 'jq' to parse hook input. Without it, friction logging,
+session reflection, pre-compact handoff, and MCP tool discovery silently
+no-op — the persistent learning pipeline is disabled. Each missed run is
+logged to ~/.second-brain/error-log.jsonl and surfaced here on next start.
 
-Install `jq`, then restart Claude Code so the new PATH is picked up:
-- macOS:    brew install jq
-- Linux:    apt install jq    # or: dnf install jq
-- Windows:  winget install jqlang.jq
+Install jq for your platform, then restart Claude Code:
 
-Until `jq` is installed, no automatic learning will happen. The instructions
-below still apply for in-session behavior, but the persistent pipeline is
-disabled.
+    $JQ_CMD
+
+Other platforms for reference:
+  macOS:    brew install jq
+  Linux:    sudo apt install jq    (or dnf install jq / pacman -S jq)
+  Windows:  winget install jqlang.jq    (or choco install jq / scoop install jq)
+
+In-session guidance below still applies; only the persistent learning
+pipeline is blocked until jq is installed.
 
 PREFLIGHT
 fi

@@ -57,7 +57,7 @@ sb_count_friction() {
 sb_count_drift() {
   SB_DRIFT_COUNT=0
   if [ -f "$BRAIN_DIR/drift-log.jsonl" ]; then
-    SB_DRIFT_COUNT=$(grep -cF "$SB_SESSION_ID" "$BRAIN_DIR/drift-log.jsonl" 2>/dev/null || echo 0)
+    SB_DRIFT_COUNT=$(grep -cF "$SB_SESSION_ID" "$BRAIN_DIR/drift-log.jsonl" 2>/dev/null) || true
     SB_DRIFT_COUNT=${SB_DRIFT_COUNT:-0}
   fi
 }
@@ -129,14 +129,32 @@ sb_snapshot_transcript() {
   SB_CONTEXT_SNAPSHOT="$snap_file"
 }
 
+# Echo $1 if it parses as a JSON array; otherwise echo "[]". Used to harden
+# --argjson against non-JSON or non-array handoff values. Requires jq.
+sb_safe_json_array() {
+  local val="${1:-[]}"
+  if echo "$val" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    echo "$val"
+  else
+    echo "[]"
+  fi
+}
+
 # Append a reflection entry to the JSONL queue. Args: $1=trigger
 # Optional handoff fields: set SB_GOALS, SB_COMPLETED, SB_IN_PROGRESS, SB_BLOCKERS as JSON arrays before calling.
+# Handoff vars are validated via sb_safe_json_array — a malformed value (non-JSON
+# string, non-array JSON, etc.) falls back to "[]" instead of crashing the jq
+# call and losing the entire reflection.
 sb_write_reflection() {
   local trigger="${1:-unknown}"
   sb_migrate_reflection
   sb_snapshot_transcript
-  local appended_at
+  local appended_at goals completed in_progress blockers
   appended_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  goals=$(sb_safe_json_array "${SB_GOALS:-[]}")
+  completed=$(sb_safe_json_array "${SB_COMPLETED:-[]}")
+  in_progress=$(sb_safe_json_array "${SB_IN_PROGRESS:-[]}")
+  blockers=$(sb_safe_json_array "${SB_BLOCKERS:-[]}")
   jq -nc \
     --arg s "$SB_SESSION_ID" \
     --arg d "$SB_TIMESTAMP" \
@@ -151,10 +169,10 @@ sb_write_reflection() {
     --arg tr "$trigger" \
     --arg tp "$SB_TRANSCRIPT_PATH" \
     --arg cs "$SB_CONTEXT_SNAPSHOT" \
-    --argjson goals "${SB_GOALS:-[]}" \
-    --argjson completed "${SB_COMPLETED:-[]}" \
-    --argjson in_progress "${SB_IN_PROGRESS:-[]}" \
-    --argjson blockers "${SB_BLOCKERS:-[]}" \
+    --argjson goals "$goals" \
+    --argjson completed "$completed" \
+    --argjson in_progress "$in_progress" \
+    --argjson blockers "$blockers" \
     '{session_id:$s, date:$d, appended_at:$at, user_turns:$ut, friction_count:$fc, positive_signals:$ps, first_try_success:$fts, drift_count:$dc, priority:$pr, suggest_plugin_improve:$spi, trigger:$tr, transcript_path:$tp, context_snapshot:$cs, goals:$goals, completed:$completed, in_progress:$in_progress, blockers:$blockers}' \
     >> "$BRAIN_DIR/.pending-reflections.jsonl" || \
     sb_log_error "sb_write_reflection" "jq failed writing reflection (trigger=$trigger)" $?
@@ -174,19 +192,54 @@ sb_write_session_meta() {
 }
 
 # Log an error to error-log.jsonl for session-load.sh to surface.
+# Precondition: caller must ensure $BRAIN_DIR exists (e.g. mkdir -p before
+# calling). The 2>/dev/null on the redirect would otherwise swallow the
+# "no such file" error and the log entry would be lost silently.
+# Falls back to printf-built JSON when jq is missing — otherwise the very
+# error we want to log (jq absent) would itself fail silently. The printf
+# path strips C0 control chars (U+0000-U+001F) before escaping so a multi-
+# line error_msg can't fragment the JSONL record into two malformed lines.
 sb_log_error() {
   local script_name="${1:-unknown}"
   local error_msg="${2:-}"
   local exit_code="${3:-1}"
   local ts
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  jq -nc \
-    --arg t "$ts" \
-    --arg s "$script_name" \
-    --arg m "$error_msg" \
-    --argjson c "$exit_code" \
-    '{timestamp:$t, script:$s, message:$m, exit_code:$c}' \
-    >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
+  if command -v jq >/dev/null 2>&1; then
+    jq -nc \
+      --arg t "$ts" \
+      --arg s "$script_name" \
+      --arg m "$error_msg" \
+      --argjson c "$exit_code" \
+      '{timestamp:$t, script:$s, message:$m, exit_code:$c}' \
+      >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
+  else
+    local esc_script esc_msg
+    esc_script=$(printf '%s' "$script_name" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    esc_msg=$(printf '%s' "$error_msg" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    printf '{"timestamp":"%s","script":"%s","message":"%s","exit_code":%s}\n' \
+      "$ts" "$esc_script" "$esc_msg" "$exit_code" \
+      >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
+  fi
+}
+
+# Verify jq is available. If missing, log to error-log.jsonl and return 1.
+# Caller pattern: `sb_require_jq || exit 0` — the hook then exits cleanly
+# rather than running jq commands that would silently no-op. The error is
+# surfaced to the user at next SessionStart via the error-nudge banner.
+# Cached per-process via SB_JQ_OK to avoid repeated PATH lookups.
+sb_require_jq() {
+  if [ -n "${SB_JQ_OK:-}" ]; then
+    [ "$SB_JQ_OK" = "1" ] && return 0 || return 1
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    SB_JQ_OK=1
+    return 0
+  fi
+  SB_JQ_OK=0
+  local caller="${SB_SCRIPT_NAME:-${0##*/}}"
+  sb_log_error "$caller" "jq not on PATH — hook no-op'd. Install: brew install jq / apt install jq / winget install jqlang.jq" 127
+  return 1
 }
 
 # Check if context pressure is high (3+ compacts without a fresh session start).
@@ -203,6 +256,7 @@ sb_context_pressure() {
 sb_collect_session_data() {
   local min_turns="${1:-3}"
   mkdir -p "$BRAIN_DIR"
+  sb_require_jq || return 1
   sb_parse_input
   sb_resolve_transcript || return 1
   sb_count_user_turns

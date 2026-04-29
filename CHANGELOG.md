@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.6 (2026-04-29)
+
+Hardens the jq dependency surface so missing-jq stops being a silent failure mode. Diagnoses the `grep -c || echo 0` regression that was producing `"0\n0"` and breaking every `jq --argjson` call. Adds a printf-based fallback in `sb_log_error` so missing-jq itself can still be logged.
+
+### Fixed
+
+- **`sb_count_drift` silent corruption (`scripts/lib.sh`)** — `grep -cF ... || echo 0` produced multiline `"0\n0"` when the session ID had no matches, breaking `jq --argjson dc "$SB_DRIFT_COUNT"` with `parse error: Invalid numeric literal`. This silently failed every reflection write since drift detection landed in 0.6.4. Replaced with `grep -cF ... || true` so grep's stdout `"0"` is the only output. Verified: every session that didn't have drift signals was emitting nothing to `.pending-reflections.jsonl` — explains why the learnings tier hadn't grown in two days.
+
+### Changed
+
+- **New `sb_require_jq()` helper (`scripts/lib.sh`)** — checks once per process (cached via `SB_JQ_OK`), logs to `error-log.jsonl` when jq is missing, returns nonzero so the caller can early-exit cleanly. Wired into `sb_collect_session_data`, `log-friction.sh`, `pre-compact.sh`, `drift-detect.sh`. The previous silent-exit pattern (`command -v jq >/dev/null 2>&1 || exit 0`) is replaced — missing-jq is now visible at the next SessionStart via the existing error-nudge banner instead of being invisible.
+- **`sb_log_error` printf fallback (`scripts/lib.sh`)** — when jq is missing, the function used to fail silently because it built JSON via jq itself. Added a printf path that sed-escapes `"` and `\` and emits the same `{timestamp, script, message, exit_code}` shape. Means missing-jq can still be logged and surfaced to the user. Verified round-trip: printf-emitted lines parse cleanly with `jq -c '.'`.
+- **Platform-aware preflight (`scripts/session-load.sh`)** — the SessionStart preflight now runs `uname -s` and surfaces the right install command first (`brew install jq` / `sudo apt install jq` / `winget install jqlang.jq`), with the other platforms listed as reference. One paste, no scrolling. The other-platforms list keeps users on a borrowed/SSH'd machine from being stranded.
+- **Control-char strip in printf JSON fallback (`scripts/lib.sh`)** — the printf path now runs `tr -d '\000-\037'` before sed-escaping `"` and `\`. Without this, a multi-line `error_msg` (e.g. captured command output) would embed raw newlines inside the JSON string, fragmenting the JSONL record into two malformed lines. Surfaced by `/second-brain:doubt` after the printf path landed.
+- **`sb_safe_json_array` helper guards `sb_write_reflection` (`scripts/lib.sh`)** — handoff vars (`SB_GOALS`, `SB_COMPLETED`, `SB_IN_PROGRESS`, `SB_BLOCKERS`) are now validated as JSON arrays before being passed to `--argjson`. A caller setting `SB_GOALS="some text"` (non-JSON) used to crash the jq call and lose the entire reflection; now falls back to `[]`. No current caller sets these — defensive guardrail for future code.
+- **Precondition comment on `sb_log_error` (`scripts/lib.sh`)** — documents that callers must `mkdir -p "$BRAIN_DIR"` before invoking, since the function's `2>/dev/null` would otherwise swallow the "no such file" error and lose the log entry. All current callers honor this; the comment locks the contract for future hooks.
+
+### Notes
+
+- `error-log.jsonl` schema unchanged — the printf fallback emits the same field shape and order. Existing readers (`session-load.sh` error-nudge banner, `/second-brain:status`) work without modification.
+- Bundling jq binaries was considered and rejected: 5 platform binaries × 5 MB each = 25 MB of git bloat, plus a maintenance burden for jq CVEs and signing. The actual user pain ("silent fails") is fixed by failing loud, which costs ~50 lines instead.
+- This release does not change behavior when jq IS installed — every code path here is conditional on missing-jq or runs only on the first session start.
+
 ## 0.6.5 (2026-04-28)
 
 Tree of Thoughts (ToT) reasoning patterns embedded into the three skills where deliberation actually matters: persona Intent Analysis, doubt drilling, improve critic gate. Pure protocol upgrade — no new files, no schema breaks.

@@ -5,11 +5,13 @@
 # Reads hook input from stdin (JSON with session_id, user prompt, etc.)
 
 source "$(dirname "$0")/lib.sh"
+SB_SCRIPT_NAME="log-friction.sh"
 
 FRICTION_LOG="$BRAIN_DIR/friction-log.jsonl"
 MAX_LINES=5000
 
 mkdir -p "$BRAIN_DIR"
+sb_require_jq || exit 0
 
 sb_parse_input
 SESSION_ID="$SB_SESSION_ID"

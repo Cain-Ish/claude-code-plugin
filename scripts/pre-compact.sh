@@ -3,8 +3,10 @@
 # Creates a pending reflection so PostCompact/SessionStart can process it.
 
 source "$(dirname "$0")/lib.sh"
+SB_SCRIPT_NAME="pre-compact.sh"
 
 mkdir -p "$BRAIN_DIR"
+sb_require_jq || exit 0
 sb_parse_input
 sb_resolve_transcript
 sb_count_user_turns

@@ -12,6 +12,7 @@
 # bails out fast if jq isn't installed or there's no transcript path.
 
 source "$(dirname "$0")/lib.sh"
+SB_SCRIPT_NAME="drift-detect.sh"
 
 DRIFT_LOG="$BRAIN_DIR/drift-log.jsonl"
 SIGNALS_FILE="$BRAIN_DIR/persona.signals.json"
@@ -19,7 +20,7 @@ MAX_LINES=5000
 SCAN_LAST_N=20
 
 mkdir -p "$BRAIN_DIR"
-command -v jq >/dev/null 2>&1 || exit 0
+sb_require_jq || exit 0
 
 sb_parse_input
 SB_TRANSCRIPT_PATH="${SB_TRANSCRIPT_PATH}"
