@@ -141,7 +141,7 @@ server.registerTool(
         z.array(z.string()).min(2).max(5),
       ]).describe("Natural language search query, or array of 2-5 concept strings for AND intersection"),
       limit: z.number().optional().default(5).describe("Max results to return (default 5)"),
-      category: z.string().optional().describe("Filter by category: sources, entities, concepts, synthesis, sessions"),
+      category: z.string().optional().describe("Filter by category: sources, entities, concepts, synthesis, sessions, learnings, patterns, issues, decisions"),
       full: z.boolean().optional().default(false).describe("Return full page content instead of excerpts (use for deep reads)"),
     }),
   },

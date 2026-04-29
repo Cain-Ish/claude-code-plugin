@@ -85,13 +85,6 @@ if [ "$IS_COMPACT_REINIT" = "true" ]; then
   fi
 
   JSONL_FILE="$BRAIN_DIR/.pending-reflections.jsonl"
-  # Migrate old singular format if still present (shared helper from lib.sh
-  # isn't sourced here, so inline the one-shot migration).
-  OLD_FILE="$BRAIN_DIR/.pending-reflection.json"
-  if [ -f "$OLD_FILE" ]; then
-    jq -c '.' "$OLD_FILE" >> "$JSONL_FILE" 2>/dev/null
-    rm -f "$OLD_FILE"
-  fi
 
   if [ -f "$JSONL_FILE" ] && [ -s "$JSONL_FILE" ]; then
     ENTRY_COUNT=$(wc -l < "$JSONL_FILE" | tr -d ' ')
@@ -178,23 +171,6 @@ elif [ -n "$CURRENT_VERSION" ] && [ "$INSTALLED_VERSION" != "$CURRENT_VERSION" ]
 PLUGIN VERSION CHANGED — installed: $INSTALLED_VERSION → current: $CURRENT_VERSION. Run /second-brain:upgrade to apply additive migrations (regressions/ dir, schema fields). Safe to defer; no breakage from skipping."
 fi
 
-# Wiki freshness check: if knowledge-maintainer ran more recently than the
-# graph was last compiled, suggest a rebuild. Skip silently if either marker
-# is missing (graph layer is opt-in).
-GRAPH_NUDGE=""
-LAST_MAINT="$HOME/knowledge/.last-maintainer-run"
-GRAPH_META="$HOME/knowledge/.graph/build-meta.json"
-if [ -f "$LAST_MAINT" ] && [ -f "$GRAPH_META" ]; then
-  MAINT_TS=$(cat "$LAST_MAINT" 2>/dev/null | tr -d ' \n\r')
-  GRAPH_TS=$(jq -r '.built_at // ""' "$GRAPH_META" 2>/dev/null)
-  # Lexicographic compare on ISO8601 UTC strings is correct.
-  if [ -n "$MAINT_TS" ] && [ -n "$GRAPH_TS" ] && [ "$MAINT_TS" \> "$GRAPH_TS" ]; then
-    GRAPH_NUDGE="
-
-WIKI BULK-MODIFIED since last graph compile (maintainer: $MAINT_TS, graph: $GRAPH_TS). Run /second-brain:graph rebuild when convenient."
-  fi
-fi
-
 # Drift surfacing: if drift-detect.sh has logged hits in the last 7 days, hint
 # at /drift-check. The script-side hook fires every Stop but the user only
 # learns about it through this banner (otherwise the log is invisible).
@@ -234,7 +210,7 @@ cat << EOF
 SECOND BRAIN LOAD - Read these files now and internalize for the entire session:
 - ~/.second-brain/persona.md (behavioral rules, code style, intent analysis)
 - ~/.second-brain/quality-rules.md (code quality standards - applied on every write)
-- $LEARNINGS_LINE$TOOLS_LINE$FRESH_INSTALL_NUDGE$VERSION_NUDGE$GRAPH_NUDGE$DRIFT_NUDGE$ERROR_NUDGE
+- $LEARNINGS_LINE$TOOLS_LINE$FRESH_INSTALL_NUDGE$VERSION_NUDGE$DRIFT_NUDGE$ERROR_NUDGE
 
 CONTEXT-RELEVANT NODE LOADING (Karpathy second-brain pattern): when the user's request touches a topic the wiki likely covers — a tool/library/framework name, a person, an organization, a project, a domain concept — proactively call the knowledge_search MCP tool with the key terms BEFORE answering. Read any result with relevance > 0.6 in full and incorporate it. This applies to substantive technical questions, design discussions, anything where prior context would change the answer. Do not ask the user "should I search?" — just do it. For trivial requests (rename, fix a typo, run a command), skip the search.
 
@@ -247,13 +223,6 @@ EOF
 # Uses JSONL queue (.pending-reflections.jsonl) — each line is one reflection
 # entry appended by pre-compact, stop, or clear hooks. Processes all entries, most-recent-first.
 JSONL_FILE="$HOME/.second-brain/.pending-reflections.jsonl"
-# Migrate old singular format if still present (duplicated from lib.sh
-# because session-load.sh doesn't source lib.sh — it only emits text).
-OLD_FILE="$HOME/.second-brain/.pending-reflection.json"
-if [ -f "$OLD_FILE" ]; then
-  jq -c '.' "$OLD_FILE" >> "$JSONL_FILE" 2>/dev/null
-  rm -f "$OLD_FILE"
-fi
 
 if [ -f "$JSONL_FILE" ] && [ -s "$JSONL_FILE" ]; then
   ENTRY_COUNT=$(wc -l < "$JSONL_FILE" | tr -d ' ')

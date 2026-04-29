@@ -25,15 +25,12 @@ Wiki pages should be CONCISE — just enough for future Claude to know what happ
 
 - Session pages (wiki/sessions/YYYY-MM-DD-topic.md): 10-20 lines max. Topic, key decisions, entities touched, outcome. NOT a transcript summary.
 - Entity pages (wiki/entities/name.md): Curated knowledge about a project/tool/component. Update existing pages, don't duplicate.
-- Concept pages (wiki/concepts/): Only for patterns or decisions that apply across sessions.
+- Concept pages (wiki/concepts/): Only for ideas or frameworks that apply across sessions.
+- Pattern pages (wiki/patterns/name.md): Reusable codebase patterns. E.g., "useFetch wrapper", "DynamicInput JSON Schema forms". Include: what it does, where it's used, gotchas.
+- Issue pages (wiki/issues/YYYY-MM-DD-title.md): Known bugs and workarounds. Include: symptom, root cause, fix/workaround, affected files.
+- Decision pages (wiki/decisions/YYYY-MM-DD-title.md): Why we chose X over Y. Include: context, decision, alternatives considered, consequences.
 
-When creating or updating wiki pages, add typed `graph:` blocks for clear relationships:
-```yaml
-graph:
-  - {relation: depends_on, target: target-slug, evidence: "brief reason"}
-  - {relation: cites, target: other-slug}
-```
-Supported relations: `depends_on`, `derived_from`, `cites`, `extends`, `contradicts`, `supersedes`, `related_to`. Use `[[wiki-links]]` for informal references; use `graph:` blocks when the relationship type matters.
+Use `[[wiki-links]]` for cross-references between pages.
 
 Update ~/knowledge/index.md and ~/knowledge/log.md (root files only — never inside wiki/).
 

@@ -33,7 +33,26 @@ $MATCH" || MATCHES="$MATCH"
   fi
 done
 
-UNIQUE=$(echo "$MATCHES" | sort -u | head -3 | tr '\n' ', ' | sed 's/,$//')
+# File-aware: extract file paths/names from prompt, grep patterns/issues/decisions dirs
+FILE_NAMES=$(echo "$PROMPT" | grep -oE '[a-zA-Z0-9_-]+\.(ts|tsx|js|jsx|py|sh|md)' | sort -u | head -3)
+if [ -n "$FILE_NAMES" ]; then
+  WIKI_DIR="$KNOWLEDGE_DIR/wiki"
+  for fname in $FILE_NAMES; do
+    base="${fname%.*}"
+    for subdir in patterns issues decisions; do
+      [ -d "$WIKI_DIR/$subdir" ] || continue
+      FM=$(grep -rl "$base\|$fname" "$WIKI_DIR/$subdir/" 2>/dev/null | head -1)
+      if [ -n "$FM" ]; then
+        REL="${FM#"$KNOWLEDGE_DIR"/}"
+        TITLE=$(grep -m1 '^# ' "$FM" 2>/dev/null | sed 's/^# //')
+        [ -n "$MATCHES" ] && MATCHES="$MATCHES
+[$TITLE]($REL)" || MATCHES="[$TITLE]($REL)"
+      fi
+    done
+  done
+fi
+
+UNIQUE=$(echo "$MATCHES" | sort -u | head -5 | tr '\n' ', ' | sed 's/,$//')
 [ -z "$UNIQUE" ] && exit 0
 
 echo "Relevant wiki: $UNIQUE"
