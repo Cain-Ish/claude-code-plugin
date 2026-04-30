@@ -3,7 +3,7 @@ name: status
 description: Show knowledge base statistics, health overview, and recent activity. Displays page counts, category breakdown, recent ingests/queries, and quick health indicators.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(find *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(tail *) Bash(grep *) mcp__knowledge-base__knowledge_stats
+allowed-tools: Read Bash(find *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(tail *) Bash(grep *) Bash(date *) Bash(jq *) mcp__knowledge-base__knowledge_stats
 ---
 
 # Knowledge Base Status
