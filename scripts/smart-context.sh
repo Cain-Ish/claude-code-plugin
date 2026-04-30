@@ -41,7 +41,7 @@ if [ -n "$FILE_NAMES" ]; then
     base="${fname%.*}"
     for subdir in patterns issues decisions; do
       [ -d "$WIKI_DIR/$subdir" ] || continue
-      FM=$(grep -rl "$base\|$fname" "$WIKI_DIR/$subdir/" 2>/dev/null | head -1)
+      FM=$(grep -rFl -e "$base" -e "$fname" "$WIKI_DIR/$subdir/" 2>/dev/null | head -1)
       if [ -n "$FM" ]; then
         REL="${FM#"$KNOWLEDGE_DIR"/}"
         TITLE=$(grep -m1 '^# ' "$FM" 2>/dev/null | sed 's/^# //')
