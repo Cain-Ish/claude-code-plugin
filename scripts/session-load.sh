@@ -58,6 +58,23 @@ pipeline is blocked until jq is installed.
 PREFLIGHT
 fi
 
+# One-shot idempotent migration: if the legacy single-JSON pending-reflection
+# file exists and the JSONL queue is absent/empty, append it as a JSONL entry
+# and remove the legacy file. Called before BOTH the compact-reinit path and
+# the normal session-start path so no pending reflection is ever silently lost.
+migrate_legacy_pending_reflection() {
+  local legacy_file="$HOME/.second-brain/.pending-reflection.json"
+  local jsonl_file="$1"
+
+  if [ -f "$legacy_file" ] && [ -s "$legacy_file" ] && { [ ! -f "$jsonl_file" ] || [ ! -s "$jsonl_file" ]; }; then
+    if jq -c . "$legacy_file" >> "$jsonl_file" 2>/dev/null; then
+      rm -f "$legacy_file"
+    else
+      rm -f "$jsonl_file"
+    fi
+  fi
+}
+
 # Compact re-init detection: if post-compact.sh just wrote .last-compact-ts
 # within the last 60 seconds, we're reloading after compaction. Emit minimal
 # output to prevent the compaction loop (re-reading files refills context).
@@ -85,6 +102,7 @@ if [ "$IS_COMPACT_REINIT" = "true" ]; then
   fi
 
   JSONL_FILE="$BRAIN_DIR/.pending-reflections.jsonl"
+  migrate_legacy_pending_reflection "$JSONL_FILE"
 
   if [ -f "$JSONL_FILE" ] && [ -s "$JSONL_FILE" ]; then
     ENTRY_COUNT=$(wc -l < "$JSONL_FILE" | tr -d ' ')
@@ -222,19 +240,6 @@ EOF
 # If pending reflections exist, instruct Claude to process them.
 # Uses JSONL queue (.pending-reflections.jsonl) — each line is one reflection
 # entry appended by pre-compact, stop, or clear hooks. Processes all entries, most-recent-first.
-migrate_legacy_pending_reflection() {
-  local legacy_file="$HOME/.second-brain/.pending-reflection.json"
-  local jsonl_file="$1"
-
-  if [ -f "$legacy_file" ] && [ -s "$legacy_file" ] && { [ ! -f "$jsonl_file" ] || [ ! -s "$jsonl_file" ]; }; then
-    if jq -c . "$legacy_file" >> "$jsonl_file" 2>/dev/null; then
-      rm -f "$legacy_file"
-    else
-      rm -f "$jsonl_file"
-    fi
-  fi
-}
-
 JSONL_FILE="$HOME/.second-brain/.pending-reflections.jsonl"
 migrate_legacy_pending_reflection "$JSONL_FILE"
 
