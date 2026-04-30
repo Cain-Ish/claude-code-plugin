@@ -3,7 +3,7 @@ name: status
 description: Show knowledge base statistics, health overview, and recent activity. Displays page counts, category breakdown, recent ingests/queries, and quick health indicators.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(find *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(tail *) Bash(grep *) mcp__knowledge-base__knowledge_stats
+allowed-tools: Read Bash(find *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(tail *) Bash(grep *) Bash(date *) Bash(jq *) mcp__knowledge-base__knowledge_stats
 ---
 
 # Knowledge Base Status
@@ -27,7 +27,7 @@ Also gather filesystem stats directly:
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 
 # Page counts per category
-for dir in sources entities concepts synthesis sessions learnings; do
+for dir in sources entities concepts synthesis sessions learnings patterns issues decisions; do
   echo "$dir: $(find "$KD/wiki/$dir" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
 done
 
@@ -66,6 +66,22 @@ grep -c "^- " ~/.second-brain/persona.md 2>/dev/null || echo "0"
 cat ~/.second-brain/tool-registry.json 2>/dev/null
 ```
 
+### 3b. Error Log
+
+```bash
+if [ -f ~/.second-brain/error-log.jsonl ]; then
+  CUTOFF=$(date -u -d '7 days ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-7d +"%Y-%m-%dT%H:%M:%SZ")
+  RECENT=$(jq -r --arg c "$CUTOFF" 'select(.timestamp >= $c)' ~/.second-brain/error-log.jsonl 2>/dev/null | jq -s 'length')
+  echo "Hook errors (7d): ${RECENT:-0}"
+  if [ "${RECENT:-0}" -gt 0 ]; then
+    echo "Recent errors:"
+    tail -5 ~/.second-brain/error-log.jsonl | jq -r '"\(.timestamp) \(.script): \(.message)"'
+  fi
+else
+  echo "Hook errors (7d): 0"
+fi
+```
+
 ### 4. Present Dashboard
 
 Format as a clean dashboard:
@@ -92,6 +108,10 @@ Format as a clean dashboard:
 - Persona rules:    X
 - Friction signals today: X
 - Available tools:  X MCP servers
+
+## Health
+- Hook errors (7d):  X
+- [last 3 errors if any]
 
 ## Recent Activity
 [last 5 log entries]

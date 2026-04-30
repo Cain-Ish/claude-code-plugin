@@ -124,6 +124,91 @@ One-line definition or summary.
 - [[related-concepts-or-entities]]
 ```
 
+### 3b. Extract Patterns, Issues, and Decisions
+
+If the source mentions reusable code patterns, known bugs/workarounds, or architectural decisions, create appropriate pages:
+
+**Pattern pages** — create in `<knowledge-dir>/wiki/patterns/`:
+
+```markdown
+# [Pattern Name]
+
+One-line summary of the pattern.
+
+## Usage
+
+[Where and how this pattern is used in the codebase]
+
+## Example
+
+[Code snippet or file reference]
+
+## Gotchas
+
+[Common pitfalls or edge cases]
+
+## Related
+
+- [[relevant-entities]]
+```
+
+**Issue pages** — create in `<knowledge-dir>/wiki/issues/`:
+
+```markdown
+# [Issue Title]
+
+One-line summary of the issue.
+
+## Symptom
+
+[What the user sees or experiences]
+
+## Root Cause
+
+[Why this happens]
+
+## Workaround / Fix
+
+[How to resolve or work around it]
+
+## Affected Files
+
+- `path/to/file.ts`
+
+## Related
+
+- [[relevant-entities]]
+```
+
+**Decision pages** — create in `<knowledge-dir>/wiki/decisions/`:
+
+```markdown
+# [Decision Title]
+
+One-line summary of the decision.
+
+## Context
+
+[What prompted this decision]
+
+## Decision
+
+[What was decided]
+
+## Alternatives Considered
+
+- Alternative 1: [why not chosen]
+- Alternative 2: [why not chosen]
+
+## Consequences
+
+[What follows from this decision]
+
+## Related
+
+- [[relevant-entities]]
+```
+
 ### 4. Update Existing Pages — keep them current, don't append blindly
 
 If ingesting a source that relates to existing wiki pages:

@@ -18,6 +18,12 @@ KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 sb_collect_session_data 3 || exit 0
 
 sb_write_session_meta
+
+# Gate: only queue reflection if session had friction, positive signals, or high priority
+if [ "$SB_FRICTION_COUNT" -eq 0 ] && [ "$SB_POSITIVE_COUNT" -eq 0 ] && [ "$SB_PRIORITY" != "high" ]; then
+  exit 0
+fi
+
 sb_write_reflection "stop"
 
 exit 0

@@ -36,6 +36,7 @@ Each migration is identified by its target version. Run only migrations whose ta
 | **0.5.0** | learnings.md entries gain `<!-- meta: confidence=X hits=Y last_used=Z -->` lines on next /improve write. Old entries without meta line are kept (decay-learnings.sh treats absent meta as keep-forever). No bulk rewrite required. | `grep -c "^<!-- meta: " ~/.second-brain/learnings.md` — if 0, just record the version. |
 | **0.5.0** | Wiki source pages gain `Coverage:` and `Freshness tier:` fields on next /ingest. Old pages without them skip lint freshness checks. | No bulk migration. |
 | **0.5.0** | `~/.second-brain/regressions/` directory created (empty) so `/second-brain:regress` finds it. | `mkdir -p ~/.second-brain/regressions` |
+| **0.7.0** | New wiki directories: `patterns/`, `issues/`, `decisions/`. Graph layer deprecated (compile-graph.sh is now a no-op). Reflection gating on friction/positive signals — trivial sessions no longer queue reflections. | `KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; mkdir -p "$KNOWLEDGE_DIR"/wiki/{patterns,issues,decisions}` |
 
 ### 4. Apply migrations
 

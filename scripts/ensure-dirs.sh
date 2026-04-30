@@ -32,6 +32,9 @@ mkdir -p "$KNOWLEDGE_DIR/wiki/concepts"
 mkdir -p "$KNOWLEDGE_DIR/wiki/synthesis"
 mkdir -p "$KNOWLEDGE_DIR/wiki/sessions"
 mkdir -p "$KNOWLEDGE_DIR/wiki/learnings"   # Mirror of ~/.second-brain/learnings.md as wiki nodes
+mkdir -p "$KNOWLEDGE_DIR/wiki/patterns"    # Codebase patterns and conventions
+mkdir -p "$KNOWLEDGE_DIR/wiki/issues"      # Known issues and workarounds
+mkdir -p "$KNOWLEDGE_DIR/wiki/decisions"   # Architectural decision records
 mkdir -p "$KNOWLEDGE_DIR/.embeddings"
 
 # Initialize index.md if missing
@@ -57,7 +60,16 @@ Content catalog organized by category. Updated automatically on each ingest.
 <!-- Insights extracted from coding sessions -->
 
 ## Learnings
-<!-- Wiki mirror of ~/.second-brain/learnings.md so each learning shows up as a graph node -->
+<!-- Wiki mirror of ~/.second-brain/learnings.md so each learning shows up as a searchable node -->
+
+## Patterns
+<!-- Codebase patterns, conventions, and reusable approaches -->
+
+## Issues
+<!-- Known issues, bugs, and workarounds -->
+
+## Decisions
+<!-- Architectural decision records (ADRs) -->
 EOF
 fi
 
@@ -80,7 +92,10 @@ if [ ! -f "$KNOWLEDGE_DIR/schema.md" ]; then
 - **Concept**: Idea, framework, pattern, or theory. Lives in `wiki/concepts/`.
 - **Synthesis**: Cross-cutting analysis connecting multiple sources/entities. Lives in `wiki/synthesis/`.
 - **Session**: Insight extracted from a coding session. Lives in `wiki/sessions/`.
-- **Learning**: One distilled lesson from a coding session, mirrored from `~/.second-brain/learnings.md` so it shows up as a graph node connected to the entities/concepts it touches. Lives in `wiki/learnings/`. File naming: `YYYY-MM-DD-short-title.md`.
+- **Learning**: One distilled lesson from a coding session, mirrored from `~/.second-brain/learnings.md` so it shows up as a searchable node connected to the entities/concepts it touches. Lives in `wiki/learnings/`. File naming: `YYYY-MM-DD-short-title.md`.
+- **Pattern**: Reusable codebase pattern or convention. Lives in `wiki/patterns/`. File naming: `pattern-name.md`.
+- **Issue**: Known bug, limitation, or workaround. Lives in `wiki/issues/`. File naming: `YYYY-MM-DD-short-title.md`.
+- **Decision**: Architectural decision record — what was decided, why, and alternatives considered. Lives in `wiki/decisions/`. File naming: `YYYY-MM-DD-short-title.md`.
 
 ## Conventions
 

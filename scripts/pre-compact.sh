@@ -15,7 +15,7 @@ sb_count_drift
 sb_calc_priority
 sb_check_auto_improve
 
-if [ "$SB_USER_TURNS" -ge 3 ]; then
+if [ "$SB_USER_TURNS" -ge 3 ] && { [ "$SB_FRICTION_COUNT" -gt 0 ] || [ "$SB_POSITIVE_COUNT" -gt 0 ] || [ "$SB_PRIORITY" = "high" ]; }; then
   sb_write_reflection "pre-compact"
 fi
 
