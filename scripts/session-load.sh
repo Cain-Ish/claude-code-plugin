@@ -222,7 +222,21 @@ EOF
 # If pending reflections exist, instruct Claude to process them.
 # Uses JSONL queue (.pending-reflections.jsonl) — each line is one reflection
 # entry appended by pre-compact, stop, or clear hooks. Processes all entries, most-recent-first.
+migrate_legacy_pending_reflection() {
+  local legacy_file="$HOME/.second-brain/.pending-reflection.json"
+  local jsonl_file="$1"
+
+  if [ -f "$legacy_file" ] && [ -s "$legacy_file" ] && { [ ! -f "$jsonl_file" ] || [ ! -s "$jsonl_file" ]; }; then
+    if jq -c . "$legacy_file" >> "$jsonl_file" 2>/dev/null; then
+      rm -f "$legacy_file"
+    else
+      rm -f "$jsonl_file"
+    fi
+  fi
+}
+
 JSONL_FILE="$HOME/.second-brain/.pending-reflections.jsonl"
+migrate_legacy_pending_reflection "$JSONL_FILE"
 
 if [ -f "$JSONL_FILE" ] && [ -s "$JSONL_FILE" ]; then
   ENTRY_COUNT=$(wc -l < "$JSONL_FILE" | tr -d ' ')
