@@ -1,153 +1,133 @@
 ---
 name: lint
-description: Health-check the knowledge base. Finds orphan pages, dead links, broken wiki-links, stale pages, contradictions, and missing cross-references. Run periodically to maintain wiki quality.
+description: Health-check the second-brain wiki and PROJECT.md cross-references. Finds orphan wiki pages, dead [[wiki-links]], and broken Cross-references slugs. Read-only by default — offers fixes interactively.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Write Edit Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(wc *) Bash(date *)
+allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(test *) Bash(basename *) Bash(sort *) Bash(comm *) Bash(awk *)
 ---
 
-# Knowledge Base Lint
+<!-- user instruction verbatim: "1" -->
 
-Health-check the wiki for structural and content issues.
+# Lint
 
-> **Bash blocks below use `$KD` for the resolved knowledge dir.** Set it once at the start of each block (skill-body `${user_config.X}` placeholders DO NOT expand in bash):
+Health-check the v1.0 second-brain. Three structural checks; no content rules.
+
+> **Bash blocks below use `$KD` for the resolved knowledge dir** and `$BD` for `.second-brain`. Set them once at the start of each block (skill-body `${user_config.X}` placeholders DO NOT expand in bash):
 >
 > ```bash
 > KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+> BD="$HOME/.second-brain"
 > ```
 
 ## Checks
 
-### 1. Orphan Pages
+### 1. Orphan wiki pages
 
-Find pages in `wiki/` that are NOT listed in index.md:
-
-```bash
-# All wiki pages
-find $KD/wiki -name '*.md' -type f
-
-# Compare against index.md entries
-cat $KD/index.md
-```
-
-Report any pages missing from the index.
-
-### 2. Dead Links in Index
-
-Check that every link in index.md points to an existing file:
+A wiki page is an *orphan* if no other wiki page or PROJECT.md links to it. Build the inbound-link set, then compare against the file set.
 
 ```bash
-grep -oP '\(wiki/[^)]+\)' $KD/index.md
+# All wiki page slugs (filename without .md)
+ALL=$(find "$KD/wiki" -name '*.md' -type f | while read f; do basename "$f" .md; done | sort -u)
+
+# All inbound links: [[slug]] occurrences across wiki + every PROJECT.md
+LINKED=$(grep -rohE '\[\[[^]]+\]\]' "$KD/wiki" "$BD/projects" 2>/dev/null \
+  | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
+
+# Plus slugs listed in any "## Cross-references" section
+CROSS=$(awk '
+  /^## Cross-references/ { in=1; next }
+  /^## / && in { in=0 }
+  in && /^- / { sub(/^- */, ""); print }
+' "$BD"/projects/*/PROJECT.md 2>/dev/null | sort -u)
+
+# Orphans = ALL minus (LINKED ∪ CROSS)
+comm -23 <(echo "$ALL") <(printf '%s\n%s\n' "$LINKED" "$CROSS" | sort -u)
 ```
 
-Verify each referenced file exists.
+Report each orphan with its full path. Suggest the user either delete it (if obsolete) or add a `[[<slug>]]` reference somewhere it belongs.
 
-### 3. Broken Wiki-Links
+### 2. Dead `[[wiki-links]]`
 
-Search for `[[wiki-links]]` across all wiki pages and verify the target exists:
+Every `[[slug]]` should resolve to a real wiki page (filename `<slug>.md` under any wiki category). Anything that doesn't resolve is dead.
 
 ```bash
-grep -roh '\[\[[^]]*\]\]' $KD/wiki/
+# All link targets actually used
+USED=$(grep -rohE '\[\[[^]]+\]\]' "$KD/wiki" "$BD/projects" 2>/dev/null \
+  | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
+
+# Existing slugs
+EXISTS=$(find "$KD/wiki" -name '*.md' -type f | while read f; do basename "$f" .md; done | sort -u)
+
+# Dead = USED minus EXISTS
+comm -23 <(echo "$USED") <(echo "$EXISTS")
 ```
 
-For each link, check if a matching .md file exists in any wiki category.
-
-### 4. Stale Pages
-
-Find pages not modified in over 90 days:
+For each dead link, also report which file(s) it appears in:
 
 ```bash
-find $KD/wiki -name '*.md' -mtime +90
+DEAD_SLUG="counting-pipeline-redundant-fallback"   # example
+grep -rln "\[\[${DEAD_SLUG}\]\]" "$KD/wiki" "$BD/projects" 2>/dev/null
 ```
 
-### 5. Empty or Stub Pages
+Suggest: rename the link to a real slug, create the missing page, or remove the dead reference.
 
-Find pages with less than 100 characters of content:
+### 3. Broken `Cross-references:` slugs in PROJECT.md
+
+Each `~/.second-brain/projects/<slug>/PROJECT.md` has a `## Cross-references` section listing ≤3 wiki page slugs. Verify each slug resolves to a real wiki page.
 
 ```bash
-find $KD/wiki -name '*.md' -exec sh -c 'wc -c < "$1"' _ {} \; 
+for f in "$BD"/projects/*/PROJECT.md; do
+  [ -f "$f" ] || continue
+  PROJ=$(basename "$(dirname "$f")")
+  awk '
+    /^## Cross-references/ { in=1; next }
+    /^## / && in { in=0 }
+    in && /^- / { sub(/^- */, ""); print }
+  ' "$f" | while read SLUG; do
+    [ -z "$SLUG" ] && continue
+    if ! find "$KD/wiki" -name "${SLUG}.md" -type f -print -quit | grep -q .; then
+      echo "BROKEN: $PROJ -> $SLUG (no wiki/<category>/${SLUG}.md)"
+    fi
+  done
+done
 ```
 
-### 6. Missing Entity Pages
-
-Check if entities mentioned in sources or learnings have their own entity pages:
-
-```bash
-grep -roh '\[\[[^]]*\]\]' $KD/wiki/sources/ $KD/wiki/learnings/
-```
-
-Cross-reference against files in `wiki/entities/`.
-
-### 7. Contradictions and stale facts (requires reading)
-
-Read related pages and check for conflicting claims. Focus on:
-- Different dates or versions cited for the same thing
-- Conflicting recommendations or assessments
-- Outdated information superseded by newer sources
-
-### 7a. Append-only drift
-
-Pages should reflect *current* state, not be layered transcripts. Surface pages that look like they've been appended to without being rewritten:
-
-- Multiple "however," / "but newer source says" / "as of <old date>, but actually" stretches in one body
-- Several distinct dated paragraphs in the body itself (dates belong in `## History`, not the body)
-- Pages with two clearly contradictory bullet lists in the same section
-
-For each offender, offer to rewrite the body to current state and move the change provenance to a `## History` section per the schema.
-
-### 7c. Past-TTL freshness (new in 0.5.0)
-
-Pages tagged with `Freshness tier:` inherit a TTL: `7d`, `30d`, `90d` are days since `Ingested:`; `live` is 1 day; `permanent` never expires.
-
-For each page with `Freshness tier:` set, compute `(today - Ingested) > TTL`. If true, surface the page with a `[STALE — past <tier> TTL]` flag and offer to:
-- Re-fetch the original source and rewrite the page (preferred for `live`/`7d` tiers)
-- Demote `Freshness tier:` to a longer window if the topic actually stabilized
-- Mark the page `Freshness tier: permanent` if it turned out to be evergreen
-
-Pages without a freshness tier are skipped — they're legacy (pre-0.5.0) and not subject to this check.
-
-### 7d. Low coverage (new in 0.5.0)
-
-Pages tagged `Coverage: low` for >30 days without follow-up sources are stubs that never grew. Surface them with a `[STUB — low coverage, N days old]` flag and offer to either delete or schedule another ingest pass.
-
-### 7b. Missing History on heavily-revised pages
-
-Find pages that have been touched by 3+ ingest entries in `log.md` but have no `## History` section. Offer to backfill a History stub from the log entries.
+Suggest: drop the broken slug from `Cross-references`, or create the missing wiki page.
 
 ## Reporting
 
-Present findings in a structured format:
+Present findings in three sections; keep counts visible. Example:
 
 ```
-# Knowledge Base Health Report
+# Wiki health report
 
-## Critical
-- [list of broken links, dead references]
+## Orphan pages (3)
+- /home/u/knowledge/wiki/concepts/loose-page.md
+- ...
 
-## Warnings  
-- [list of orphans, stubs, stale pages]
+## Dead [[wiki-links]] (2)
+- [[old-name]] referenced in wiki/learnings/2026-04-12-foo.md
+- [[typo-slug]] referenced in projects/my-repo/PROJECT.md
 
-## Suggestions
-- [missing entity pages, potential cross-references]
+## Broken Cross-references (1)
+- my-repo -> obsolete-concept (no wiki page)
 
 ## Summary
-- Total pages: X
-- Issues found: X
-- Health score: X/10
+- Wiki pages scanned: 47
+- Issues found: 6
 ```
 
 ## Fixing
 
-Offer to fix issues:
-- Add orphan pages to index.md
-- Remove dead links from index.md
-- Create stub entity pages for missing entities
-- Add missing cross-references
-- Mark stale pages with a `[NEEDS UPDATE]` banner
+Offer fixes one issue at a time:
 
-No re-indexing step is required — `knowledge_search` reads the wiki tree directly in v1.0.
+- Orphans → delete the file, or pick a target page to add a `[[<slug>]]` reference into.
+- Dead links → fix the target slug, or remove the link.
+- Broken Cross-references → drop the slug from the offending PROJECT.md, or create the missing wiki page.
 
-Log the lint run:
-```markdown
-## [YYYY-MM-DD] lint | N issues found, M fixed
-```
+No re-indexing step is required — `knowledge_search` reads the wiki tree directly on every call.
+
+## Notes
+
+- No content rules: this skill no longer checks freshness tiers, coverage labels, append-only drift, contradictions, or stub size. Those were 0.7.0 ingest-pipeline concerns and are out of scope in v1.0.
+- No write actions are taken without an explicit Y from the user.
