@@ -20,7 +20,10 @@ if [ -f "$INDEX_FILE" ]; then
   jq --arg s "$slug" -r 'select(.slug == $s)' "$INDEX_FILE" 2>/dev/null | head -1
 fi
 
-TOTAL_LINES=$(( $(wc -l < "$USER_FILE" 2>/dev/null || echo 0) + $(wc -l < "$project_file" 2>/dev/null || echo 0) + 1 ))
+# Approximate hot-tier size: USER.md + PROJECT.md. The single index.txt line
+# emitted above is intentionally not counted (it's ~1 line and conditional on
+# a slug match — keeping the math simple).
+TOTAL_LINES=$(( $(wc -l < "$USER_FILE" 2>/dev/null || echo 0) + $(wc -l < "$project_file" 2>/dev/null || echo 0) ))
 if [ "$TOTAL_LINES" -gt "$LINE_CAP" ]; then
   sb_log_error "session-load.sh" "hot-tier exceeded line cap: $TOTAL_LINES > $LINE_CAP" 0
 fi

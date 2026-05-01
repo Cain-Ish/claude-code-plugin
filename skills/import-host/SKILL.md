@@ -66,7 +66,7 @@ For files (or slices) categorized as user-level:
 1. Distill the content into ≤15 short bullet lines of cross-project preferences. Drop verbose prose, repo-specific facts, and anything stale.
 2. Show the proposed USER.md content as a single block.
 3. Prompt: `Append these <N> preferences to USER.md? (Y / N / edit)`
-4. On `Y`: for each preference, call `pin_to_user(text: "<preference>")`. The MCP tool enforces a 30-line cap on USER.md and adds a dated `- [YYYY-MM-DD] …` entry; on overflow it returns `{ok: false}` and the skill must surface the rejection.
+4. On `Y`: for each preference, call `pin_to_user(text: "<preference>")`. The MCP tool enforces a 15-line cap on USER.md and adds a dated `- [YYYY-MM-DD] …` entry; on overflow it returns `{ok: false}` and the skill must surface the rejection.
 5. On `edit`: let the user revise the block, then re-prompt.
 6. On `N`: skip.
 
@@ -117,4 +117,4 @@ Suggest follow-ups: `/second-brain:lint` (catch any orphan or dead references in
 - This is a **bootstrap** skill — it is most useful right after `/second-brain:setup`. Re-running it later is safe but will mostly hit the duplicate-skip path.
 - The skill never deletes or modifies your host files (`~/CLAUDE.md`, `.cursorrules`, etc.). They stay where they are.
 - All writes go through the v1.0 MCP tools (`pin_to_user`, `pin_to_project`) or direct `Edit`s on `PROJECT.md`. There is no critic-gate, no persona/quality-rules file, no `archive_to_wiki` invocation here — those are explicit user actions handled by `/second-brain:improve`.
-- Hot-tier cap reminder: USER.md ≤ 30 lines (enforced by `pin_to_user`); USER.md + PROJECT.md combined ~3200 bytes target. If a proposed import would push over, distill harder before re-trying.
+- Hot-tier cap reminder: USER.md ≤ 15 lines (enforced by `pin_to_user`); USER.md + PROJECT.md combined ~3200 bytes target. If a proposed import would push over, distill harder before re-trying.
