@@ -10,8 +10,8 @@ At SessionStart, the plugin reads `~/.second-brain/USER.md` and the project-scop
 ### 2. Explicit pin tools (MCP)
 Three MCP tools — `pin_to_user`, `pin_to_project`, `archive_to_wiki` — let Claude (or you) write a fact into the right tier. Pins are append-with-dedupe; the user confirms each pin before it lands. The `/second-brain:improve` skill proposes up to 3 candidate pins from the current session's evidence and waits for your approval.
 
-### 3. Local wiki + ripgrep search
-A Karpathy-inspired wiki under `~/knowledge/wiki/` holds longer-form notes, sources, and archived sessions, cross-referenced via `[[wiki-links]]`. The `knowledge_search` MCP tool searches it with ripgrep — no embeddings, no vectordb, no API calls. All knowledge stays on your machine.
+### 3. Local wiki + token-overlap search
+A Karpathy-inspired wiki under `~/knowledge/wiki/` holds longer-form notes, sources, and archived sessions, cross-referenced via `[[wiki-links]]`. The `knowledge_search` MCP tool uses a fast Node filesystem walk + token-overlap scoring (no embeddings, no API calls, no external dependencies). All knowledge stays on your machine.
 
 ### 4. Stop-hook predicate
 A 4-condition boolean diff at Stop time decides whether the session is worth offering a pin proposal for. No background extraction, no friction logging — the predicate fires only when the session crossed concrete thresholds (e.g. files touched, baseline divergence).
@@ -41,7 +41,7 @@ First run:
 | `/second-brain:setup` | Initialize hot-tier files (`USER.md`, `projects/<slug>/PROJECT.md`), wiki dirs, and build the MCP server |
 | `/second-brain:upgrade` | Detect installed plugin version and run idempotent migrations |
 | `/second-brain:status` | Dashboard of hot-tier and wiki state (line counts, last-pin timestamps, project slug) |
-| `/second-brain:query [question]` | Search the wiki via the `knowledge_search` MCP tool (ripgrep backend) |
+| `/second-brain:query [question]` | Search the wiki via the `knowledge_search` MCP tool (Node fs walk + token-overlap scoring) |
 | `/second-brain:lint` | Health-check the wiki: orphan pages and dead `[[wiki-links]]` |
 | `/second-brain:improve` | Propose up to 3 pins (USER.md / PROJECT.md / wiki) from session evidence; user confirms each |
 | `/second-brain:doubt` | Adversarial drilling skill — challenge a claim or proposed change before acting |
@@ -51,7 +51,7 @@ First run:
 
 The plugin includes a local MCP server with four tools:
 
-- `knowledge_search` — ripgrep search over `~/knowledge/wiki/` (no embeddings, no vectordb, no API calls)
+- `knowledge_search` — Node filesystem walk + token-overlap scoring over `~/knowledge/wiki/` (no embeddings, no vectordb, no API calls, no external binaries)
 - `pin_to_user` — append-with-dedupe write to `~/.second-brain/USER.md`
 - `pin_to_project` — append-with-dedupe write to `~/.second-brain/projects/<slug>/PROJECT.md`
 - `archive_to_wiki` — write a longer-form note as a wiki page
@@ -62,7 +62,7 @@ The compiled artifact `mcp/dist/server.js` is shipped in the repo, so a marketpl
 cd mcp && npm install && npm run build
 ```
 
-`/second-brain:setup` runs this automatically if `dist/server.js` is missing. `ripgrep` must be on PATH for `knowledge_search` to function.
+`/second-brain:setup` runs this automatically if `dist/server.js` is missing. `knowledge_search` runs entirely in-process (Node `fs` walk over `~/knowledge/wiki/` with token-overlap scoring) — no external binary required.
 
 ## Where files live
 
@@ -92,7 +92,7 @@ Path resolution uses the cross-platform-safe `$HOME` (Git Bash maps it to `/c/Us
 - Plugin code (shareable via marketplace): zero user data
 - Knowledge base (`~/knowledge/`): completely local, never synced
 - Hot-tier state (`~/.second-brain/`): completely local, never synced
-- Search: ripgrep over local wiki files — no embeddings, no vectordb, no model download
+- Search: Node filesystem walk + token-overlap scoring over local wiki files — no embeddings, no vectordb, no model download
 - No telemetry, no cloud services, no API calls
 - `.nosync` marker files are created on macOS to prevent iCloud sync (no-op on Windows/Linux — sync providers there have their own ignore mechanisms)
 
@@ -126,7 +126,7 @@ Session N+1 (SessionStart)
 
 Result: memory is what *you* pinned. No autonomous writes, no background extraction,
         no PR opened against your repo. The wiki is searched on demand via
-        /second-brain:query (ripgrep).
+        /second-brain:query (token-overlap search).
 ```
 
 ## Testing

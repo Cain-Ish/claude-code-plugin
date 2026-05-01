@@ -18,7 +18,7 @@ Major redesign — reflection→critic→learnings pipeline removed; replaced wi
 - Migration script: `migrate-to-1.0.0.sh`
 
 ### Changed
-- `knowledge_search` rebuilt with ripgrep backend (no embeddings, no sqlite-vec).
+- `knowledge_search` rebuilt with a Node filesystem walk + token-overlap scoring backend (no embeddings, no sqlite-vec, no external binary). The 1.0 plan documents originally proposed ripgrep; the shipped implementation uses `fs.readdir` + a `tokenize`/Set-intersection scorer because it's cross-platform and dependency-free.
 - `session-load.sh` rewritten as hot-tier reader with SessionStart baseline capture.
 - 7 skills retained but simplified: `setup`, `status`, `query`, `lint`, `improve` (rebuilt), `import-host`, `upgrade` (added 1.0.0 row).
 
