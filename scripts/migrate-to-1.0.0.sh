@@ -21,6 +21,8 @@ for f in .pending-reflections.jsonl .learnings-hot.md .compact-count \
 done
 [ -d "$BRAIN/.reflection-context" ] && mv "$BRAIN/.reflection-context" "$BACKUP/"
 
+[ -e "$BRAIN/learnings.md" ] && cp "$BRAIN/learnings.md" "$BACKUP/"
+
 cat > "$BRAIN/learnings.md" <<'EOF'
 # Learned Patterns
 
