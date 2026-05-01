@@ -8,6 +8,7 @@ import os from "os";
 import path from "path";
 import { glob } from "glob";
 import { execFileSync } from "child_process";
+import { pinToUser } from "./tools/pin-to-user.js";
 function resolveKnowledgeDir() {
     const candidates = [
         process.env.KNOWLEDGE_DIR,
@@ -119,7 +120,7 @@ server.registerTool("knowledge_search", {
             z.array(z.string()).min(2).max(5),
         ]).describe("Natural language search query, or array of 2-5 concept strings for AND intersection"),
         limit: z.number().optional().default(5).describe("Max results to return (default 5)"),
-        category: z.string().optional().describe("Filter by category: sources, entities, concepts, synthesis, sessions"),
+        category: z.string().optional().describe("Filter by category: sources, entities, concepts, synthesis, sessions, learnings, patterns, issues, decisions"),
         full: z.boolean().optional().default(false).describe("Return full page content instead of excerpts (use for deep reads)"),
     }),
 }, async ({ query, limit, category, full }) => {
@@ -214,6 +215,13 @@ async function multiConceptSearch(vectordb, concepts, limit, category) {
     console.error(`Multi-concept search: no intersection for [${concepts.join(", ")}], falling back to first concept`);
     return { results: resultSets[0].slice(0, limit), partial: true };
 }
+server.registerTool("pin_to_user", {
+    description: "Pin a preference to USER.md. Use only when the user explicitly says 'pin to my second-brain' or runs /second-brain:pin. Plain 'remember this' should write to Claude Code's built-in auto-memory, not here.",
+    inputSchema: { text: z.string() },
+}, async ({ text }) => {
+    const result = await pinToUser({ text });
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+});
 server.registerTool("knowledge_index", {
     description: "Index or re-index wiki pages in the knowledge base. Generates embeddings for new or modified pages. Run this after adding or updating wiki pages via the ingest skill.",
     inputSchema: z.object({

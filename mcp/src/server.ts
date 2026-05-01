@@ -8,6 +8,7 @@ import os from "os";
 import path from "path";
 import { glob } from "glob";
 import { execFileSync } from "child_process";
+import { pinToUser } from "./tools/pin-to-user.js";
 
 function resolveKnowledgeDir(): string {
   const candidates = [
@@ -254,6 +255,18 @@ async function multiConceptSearch(
   console.error(`Multi-concept search: no intersection for [${concepts.join(", ")}], falling back to first concept`);
   return { results: resultSets[0].slice(0, limit), partial: true };
 }
+
+server.registerTool(
+  "pin_to_user",
+  {
+    description: "Pin a preference to USER.md. Use only when the user explicitly says 'pin to my second-brain' or runs /second-brain:pin. Plain 'remember this' should write to Claude Code's built-in auto-memory, not here.",
+    inputSchema: { text: z.string() },
+  },
+  async ({ text }) => {
+    const result = await pinToUser({ text });
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+  }
+);
 
 server.registerTool(
   "knowledge_index",
