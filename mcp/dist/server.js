@@ -10,6 +10,7 @@ import { glob } from "glob";
 import { execFileSync } from "child_process";
 import { pinToUser } from "./tools/pin-to-user.js";
 import { pinToProject } from "./tools/pin-to-project.js";
+import { archiveToWiki } from "./tools/archive-to-wiki.js";
 function resolveKnowledgeDir() {
     const candidates = [
         process.env.KNOWLEDGE_DIR,
@@ -232,6 +233,18 @@ server.registerTool("pin_to_project", {
     },
 }, async ({ text, slug, section }) => {
     const result = await pinToProject({ text, slug, section });
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+});
+server.registerTool("archive_to_wiki", {
+    description: "Archive a [resolved] entry from PROJECT.md to ~/knowledge/wiki/<category>/<slug>/. Leaves a back-reference line in PROJECT.md.",
+    inputSchema: {
+        slug: z.string(),
+        sourceSection: z.enum(["blockers", "decisions"]),
+        entryText: z.string(),
+        targetCategory: z.enum(["issues", "decisions"]),
+    },
+}, async (input) => {
+    const result = await archiveToWiki(input);
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
 });
 server.registerTool("knowledge_index", {
