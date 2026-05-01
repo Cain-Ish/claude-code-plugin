@@ -46,4 +46,16 @@ describe('pin_to_project', () => {
     const res = await pinToProject({ text: 'x', slug: 'test-slug', section: 'goal' as any, brainDir: dir });
     expect(res.ok).toBe(false);
   });
+
+  it('dedupes within a section: same text twice yields one entry', async () => {
+    const r1 = await pinToProject({ text: 'API rate limit', slug: 'test-slug', section: 'blockers', brainDir: dir });
+    expect(r1.ok).toBe(true);
+    expect(r1.reason).toBeUndefined();
+    const r2 = await pinToProject({ text: 'API rate limit', slug: 'test-slug', section: 'blockers', brainDir: dir });
+    expect(r2.ok).toBe(true);
+    expect(r2.reason).toBe('already present');
+    const content = readFileSync(join(dir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8');
+    const occurrences = content.split('\n').filter(l => l === '- [active] API rate limit');
+    expect(occurrences.length).toBe(1);
+  });
 });

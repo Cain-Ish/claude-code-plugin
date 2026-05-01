@@ -1,17 +1,27 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
-const MAX_LINES = 30;
+const MAX_LINES = 15;
 export async function pinToUser(args) {
     const dir = args.brainDir ?? join(process.env.HOME ?? '', '.second-brain');
     const file = join(dir, 'USER.md');
     const date = new Date().toISOString().slice(0, 10);
-    const newLine = `- [${date}] ${args.text.trim()}`;
+    const trimmed = args.text.trim();
+    const newLine = `- [${date}] ${trimmed}`;
     let content = '';
     try {
         content = await fs.readFile(file, 'utf-8');
     }
     catch {
         content = '# USER preferences\n\n## Pinned\n';
+    }
+    // Dedupe: if any existing pin line carries the same trimmed payload, no-op success.
+    // Match form: "- [YYYY-MM-DD] <text>"; compare the <text> portion exactly (after trim).
+    const existing = content.split('\n').find(l => {
+        const m = l.match(/^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/);
+        return m !== null && m[1].trim() === trimmed;
+    });
+    if (existing !== undefined) {
+        return { ok: true, line_added: existing, reason: 'already present' };
     }
     const projected = content + (content.endsWith('\n') ? '' : '\n') + newLine + '\n';
     if (projected.split('\n').filter(Boolean).length > MAX_LINES) {

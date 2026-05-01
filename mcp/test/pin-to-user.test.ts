@@ -29,4 +29,19 @@ describe('pin_to_user', () => {
     const res = await pinToUser({ text: 'one too many', brainDir: dir });
     expect(res.ok).toBe(false);
   });
+
+  it('dedupes: writing the same text twice keeps only one line', async () => {
+    writeFileSync(join(dir, 'USER.md'), '# USER\n## Preferences\n', 'utf-8');
+    const r1 = await pinToUser({ text: 'prefer terse responses', brainDir: dir });
+    expect(r1.ok).toBe(true);
+    expect(r1.reason).toBeUndefined();
+    const r2 = await pinToUser({ text: 'prefer terse responses', brainDir: dir });
+    expect(r2.ok).toBe(true);
+    expect(r2.reason).toBe('already present');
+    const content = readFileSync(join(dir, 'USER.md'), 'utf-8');
+    const occurrences = content.split('\n').filter(l => l.includes('prefer terse responses'));
+    expect(occurrences.length).toBe(1);
+    // The line returned on the duplicate call must match the surviving file line.
+    expect(r2.line_added).toBe(occurrences[0]);
+  });
 });

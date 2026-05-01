@@ -25,6 +25,17 @@ export async function pinToProject(args: PinToProjectArgs): Promise<PinToProject
   let endIdx = lines.length;
   for (let i = idx + 1; i < lines.length; i++) { if (lines[i].startsWith('## ')) { endIdx = i; break; } }
   while (endIdx > idx + 1 && lines[endIdx - 1].trim() === '') endIdx--;
+
+  // Dedupe within section bounds [idx+1, endIdx). Match lines that begin with the
+  // section's entry prefix and whose trimmed payload equals the trimmed input text.
+  const trimmed = args.text.trim();
+  const prefix = ENTRY_PREFIX[args.section];
+  for (let i = idx + 1; i < endIdx; i++) {
+    if (lines[i].startsWith(prefix) && lines[i].slice(prefix.length).trim() === trimmed) {
+      return { ok: true, line_added: lines[i], project_slug: args.slug, reason: 'already present' };
+    }
+  }
+
   lines.splice(endIdx, 0, newEntry);
   await fs.writeFile(file, lines.join('\n'), 'utf-8');
   return { ok: true, line_added: newEntry, project_slug: args.slug };
