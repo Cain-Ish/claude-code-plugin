@@ -1,90 +1,68 @@
 ---
 name: query
-description: Search the knowledge base and synthesize an answer. Uses semantic search (when MCP server is available) and keyword search to find relevant wiki pages, then synthesizes a cited response. Good answers can be filed back as new wiki pages.
+description: Search the second-brain wiki for pages relevant to a question. Thin wrapper around the knowledge_search MCP tool — returns candidate pages and lets Claude synthesize a cited answer from them.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Write Edit WebSearch WebFetch mcp__knowledge-base__knowledge_search
-argument-hint: "[your question]"
+allowed-tools: Read Bash(test *) Bash(cat *) mcp__knowledge-base__knowledge_search
+argument-hint: "[your question] [--scope concepts|issues|entities|learnings|decisions]"
 ---
 
-# Query the Knowledge Base
+<!-- user instruction verbatim: "1" -->
 
-Search for information across the wiki and synthesize an answer.
+# Query
 
-## Tool Integration
+Find wiki pages relevant to a question. This skill is a thin wrapper around the `knowledge_search` MCP tool: it issues the search, then leaves synthesis to Claude using the returned candidates.
 
-Read ~/.second-brain/tool-registry.json to discover available tools.
-Prefer semantic search (knowledge_search MCP tool) when available — it finds
-conceptually related pages even when exact keywords don't match.
+## Steps
 
-## Search Strategy
+### 1. Parse the argument
 
-### Step 1: Semantic Search (preferred)
+`$ARGUMENTS` is the user's question. If it contains a `--scope <category>` token, peel that off and use it as the `scope` argument; otherwise leave `scope` unset to search all categories.
 
-If the `knowledge_search` MCP tool is available:
+Valid scopes: `concepts`, `issues`, `entities`, `learnings`, `decisions`.
+
+### 2. Call `knowledge_search`
+
 ```
-knowledge_search(query: "$ARGUMENTS", limit: 5)
-```
-
-This returns ranked pages by semantic similarity.
-
-### Step 2: Keyword Search (fallback or supplement)
-
-Search the wiki directory with grep for key terms from the question. Resolve the knowledge dir from the auto-injected env var (skill-body `${user_config.X}` doesn't expand in bash):
-
-```bash
-KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-grep -rli "keyword" "$KD/wiki/"
+knowledge_search(query: "<question>", scope: "<optional category>")
 ```
 
-Also check the index:
-```bash
-KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-grep -i "keyword" "$KD/index.md"
+The tool returns a JSON object of the shape:
+
+```json
+{
+  "candidates": [
+    { "path": "/home/.../wiki/learnings/2026-04-29-counting-pipeline.md", "score": 3, "first_lines": "# Counting pipeline fallback gotcha\n..." }
+  ]
+}
 ```
 
-### Step 3: Read Relevant Pages
+`candidates` is ranked by token-overlap score (highest first), capped at 5 results, and may be empty.
 
-Read the top-matching pages fully. Don't just rely on excerpts —
-the full context often contains the answer.
+### 3. Read the top candidates
 
-### Step 3.5: Research-on-miss (new in 0.5.0)
+For each candidate (in score order, up to ~3), read the full file with the `Read` tool. The `first_lines` snippet is just a hint — the full page often contains the answer the snippet doesn't show.
 
-If steps 1–3 returned nothing useful (semantic search empty AND keyword search empty AND index has no relevant entry), do not just return "not found." Instead:
+### 4. Synthesize an answer
 
-1. State briefly: "The knowledge base doesn't cover this. I can research it now and ingest the result so future queries hit cache."
-2. Wait for user confirmation (`yes` / `skip`). Don't research silently — research costs tokens and time, and the user may want to answer from their own knowledge.
-3. On confirmation:
-   - Use `WebSearch` for breadth, then `WebFetch` on the 1–2 most authoritative sources
-   - Synthesize a focused answer grounded in those sources (cite each)
-   - Offer to ingest the synthesis as a new `wiki/sources/<slug>.md` page using the standard ingest template (with `Coverage:` and `Freshness tier:` set appropriately — short tiers for fast-moving topics, longer for stable references)
-4. On skip: return "no wiki coverage; you may want `/second-brain:ingest <url>` for sources you want indexed."
+Write a focused response that:
 
-This closes the "miss → silent void → next time same miss" loop.
+- Cites each wiki page used: e.g. `According to [[counting-pipeline-redundant-fallback]]…`
+- Synthesizes across multiple candidates when more than one is relevant
+- Acknowledges gaps explicitly: "The wiki doesn't cover X — here's what I can offer from general knowledge."
+- Is honest about confidence: low-score matches (score 1) are often noise.
 
-### Step 4: Synthesize Answer
+### 5. On empty candidates
 
-Provide an answer that:
-- Cites specific wiki pages: "According to [[source-title]]..."
-- Synthesizes across multiple sources when relevant
-- Acknowledges gaps: "The knowledge base doesn't cover X"
-- Is honest about confidence level
+If `candidates` is empty:
 
-### Step 5: Optionally File as New Page
+1. Tell the user the wiki has no coverage for this question.
+2. Offer two follow-ups: (a) answer from general knowledge with that caveat, or (b) suggest they pin the answer with `/second-brain:improve` after the conversation so the next query hits a wiki page.
 
-If the synthesized answer represents a novel connection or insight
-that isn't captured in any existing page, offer to create a new
-synthesis page under `<knowledge-dir>/wiki/synthesis/` — where
-`<knowledge-dir>` resolves to `$CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR`
-or `~/knowledge` by default. Substitute the actual path when writing.
+Do not silently fabricate citations — if the wiki has nothing, say so.
 
-Update index.md and log.md if a new page is created.
+## Notes
 
-### Step 6: Log the Query
-
-Append to log.md:
-```markdown
-## [YYYY-MM-DD] query | Brief question summary
-Result: [answered/partial/not-found]
-Pages consulted: [list]
-```
+- This skill never writes to the wiki. Wiki growth happens via `/second-brain:improve` (proposes pins) and the `archive_to_wiki` MCP tool (graduates resolved entries from PROJECT.md).
+- Token-overlap search is literal: a question phrased differently from the indexed page may miss. If you suspect a miss, retry with synonyms or fewer keywords before declaring "no coverage."
+- No re-indexing step is needed — `knowledge_search` reads the wiki tree on every call.
