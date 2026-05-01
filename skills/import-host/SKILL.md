@@ -1,14 +1,16 @@
 ---
 name: import-host
-description: Detect existing AI-context files on the host (CLAUDE.md, AGENTS.md, .cursorrules, .windsurfrules, .continuerules) in $HOME and the current repo, and offer to import them as wiki sources or merge into persona/quality-rules. Critic-gated. Use after a fresh /second-brain:setup to pull in everything you've already written.
+description: Detect existing AI-context files on the host (CLAUDE.md, AGENTS.md, .cursorrules, .windsurfrules, .continuerules, .aider.conf.yml, instructions.md) at $HOME and the current repo, and propose USER.md preferences plus PROJECT.md content. Prompts to confirm each chunk. Idempotent.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Write Edit Agent Bash(test *) Bash(ls *) Bash(cat *) Bash(wc *) Bash(date *) Bash(grep *) Bash(find *) Bash(jq *) Bash(git *)
+allowed-tools: Read Write Edit Bash(test *) Bash(ls *) Bash(cat *) Bash(wc *) Bash(date *) Bash(grep *) Bash(find *) Bash(basename *) Bash(git rev-parse:*) mcp__knowledge-base__pin_to_user mcp__knowledge-base__pin_to_project
 ---
 
-# Host Context Import
+<!-- user instruction verbatim: "1" -->
 
-Bootstrap the wiki and learning state from existing AI-context files you've already written. Pulls from common conventions across Claude Code, Aider, Cursor, Continue, Windsurf, and AGENTS.md (the OpenCode/agent-rules standard).
+# Import host
+
+Bootstrap the v1.0 hot tier (`USER.md` + `PROJECT.md`) from AI-context files you've already written for Claude Code, Aider, Cursor, Continue, Windsurf, or AGENTS.md (the OpenCode/agent-rules standard). The skill is read-only against your host files and explicit-confirm against second-brain writes.
 
 ## Steps
 
@@ -21,14 +23,16 @@ declare -a CANDIDATES=(
   "$HOME/CLAUDE.md"
   "$HOME/AGENTS.md"
   "$HOME/.cursorrules"
+  "$HOME/.windsurfrules"
+  "$HOME/.continuerules"
+  "$HOME/.aider.conf.yml"
   "$HOME/.claude/CLAUDE.md"
   "$HOME/.claude/instructions.md"
 )
 
-# Also walk up from cwd to find a .git root, and check for repo-local files.
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -n "$GIT_ROOT" ]; then
-  for f in CLAUDE.md AGENTS.md .cursorrules .windsurfrules .continuerules instructions.md; do
+  for f in CLAUDE.md AGENTS.md .cursorrules .windsurfrules .continuerules .aider.conf.yml instructions.md; do
     [ -f "$GIT_ROOT/$f" ] && CANDIDATES+=("$GIT_ROOT/$f")
   done
 fi
@@ -41,54 +45,76 @@ for c in "${CANDIDATES[@]}"; do
 done
 ```
 
-### 2. Categorize by intent
+Report the matched list to the user. If nothing matches, exit with: "No host AI-context files found — run `/second-brain:setup` to scaffold from scratch."
 
-For each detected file, read the first 50 lines and decide: is this primarily about **persona/style** (rules for how the AI should behave) or **project/architecture** (facts about the codebase)?
+### 2. Categorize each file
 
-Heuristics:
-- Words like "tone", "style", "voice", "anti-pattern", "always/never do X" -> persona-bound
-- Words like "architecture", "stack", "deployment", "the codebase uses" -> project-bound
-- Mixed -> recommend splitting
+For each detected file, read the first ~60 lines. Decide whether the content is primarily:
 
-Report your categorization to the user before doing anything.
+- **User-level preferences** — global how-to-behave rules (tone, style, "never do X", language preferences, formatting defaults). Targets `USER.md`.
+- **Project-level facts** — repo-specific Goal, State, Conventions, decisions, blockers. Targets the active repo's `PROJECT.md`.
+- **Mixed** — recommend splitting; propose a USER.md slice and a PROJECT.md slice.
 
-### 3. For each accepted candidate — import path
+Files at `$HOME` are usually user-level. Files at `$GIT_ROOT` are usually project-level. The first ~60-line read confirms.
 
-The user picks one of three import paths per file:
+Report the categorisation to the user before any writes.
 
-**(a) Wiki source** (default, safest): write to `~/knowledge/wiki/sources/imported-<host>-<slug>.md` using the standard ingest schema with `Coverage: medium`, `Freshness tier: 90d`. The original file stays untouched. Future `/second-brain:query` can find it.
+### 3. Propose USER.md content
 
-**(b) Persona merge** (critic-gated): for files clearly about behavioral rules. Run the same adversarial critic gate as `/second-brain:improve` step 5.5 — fresh-context subagent reviews each proposed merge against current `persona.md` for conflicts. Only ACCEPTED rules are appended. Append `## History` line to persona.md citing the source.
+For files (or slices) categorized as user-level:
 
-**(c) Quality-rules merge** (critic-gated): for files about code conventions. Same critic gate.
+1. Distill the content into ≤15 short bullet lines of cross-project preferences. Drop verbose prose, repo-specific facts, and anything stale.
+2. Show the proposed USER.md content as a single block.
+3. Prompt: `Append these <N> preferences to USER.md? (Y / N / edit)`
+4. On `Y`: for each preference, call `pin_to_user(text: "<preference>")`. The MCP tool enforces a 30-line cap on USER.md and adds a dated `- [YYYY-MM-DD] …` entry; on overflow it returns `{ok: false}` and the skill must surface the rejection.
+5. On `edit`: let the user revise the block, then re-prompt.
+6. On `N`: skip.
 
-### 4. Skip duplicates
+If `~/.second-brain/USER.md` does not exist yet, the first `pin_to_user` call will create it with the standard header.
 
-Before importing, grep `~/knowledge/wiki/sources/` for any existing `imported-*` file referencing the same source path. If found, ask: "Re-import (overwrite) or skip?"
+### 4. Propose PROJECT.md content
 
-### 5. Write the import log
-
-Append to `~/.second-brain/import-log.jsonl`:
+For files (or slices) categorized as project-level, resolve the active project slug:
 
 ```bash
-NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-jq -nc \
-  --arg t "$NOW" --arg src "$SOURCE_PATH" --arg dst "$DEST_PATH" --arg path "$IMPORT_PATH" \
-  '{timestamp:$t, source:$src, destination:$dst, import_path:$path}' \
-  >> ~/.second-brain/import-log.jsonl
+SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 ```
 
-### 6. Update wiki/log.md and index.md
+If `~/.second-brain/projects/$SLUG/PROJECT.md` does not exist, instruct the user to run `/second-brain:setup` first — this skill fills in content but does not scaffold the file.
 
-For each new wiki source page, append the standard ingest log entry and add the page to `~/knowledge/index.md` under the right category.
+If it exists, propose section-by-section:
 
-### 7. Suggest next step
+- **Goal** (≤3 lines): show your distilled draft and prompt `Replace existing Goal? (Y/N/edit)`. Apply via `Edit` tool — replace the body of the `## Goal` section only.
+- **Conventions** (≤5 lines): same flow, target `## Conventions`.
+- **Recent decisions** (≤3 entries): for each, prompt and call `pin_to_project(text: "<decision text>", slug: "$SLUG", section: "decisions")` on accept. The tool prefixes `- [decision] ` automatically.
+- **Open blockers** (≤15 lines): for each, prompt and call `pin_to_project(text: "<blocker text>", slug: "$SLUG", section: "blockers")` on accept. The tool prefixes `- [active] ` automatically.
 
-After import, suggest the user run `/second-brain:lint` to catch overlap with anything that was already in the wiki, and `/second-brain:graph rebuild` if many new pages were imported.
+Skip `## State` and `## Cross-references` — those are runtime-maintained, not import targets.
+
+### 5. Skip duplicates
+
+Before each `pin_to_user` or `pin_to_project` proposal, grep the destination file for the candidate text. If a fuzzy match exists, prompt: `<text> already present (or close); skip / replace?` and act accordingly.
+
+### 6. Done
+
+Report a one-block summary:
+
+```
+# Import summary
+- USER.md: 4 preferences appended (skipped 1 duplicate)
+- PROJECT.md (my-repo):
+  - Goal updated
+  - Conventions updated
+  - 2 [active] blockers added
+  - 1 [decision] decision added
+- Source files left untouched.
+```
+
+Suggest follow-ups: `/second-brain:lint` (catch any orphan or dead references introduced by the import) and `/second-brain:status` (sanity-check hot-tier byte counts stay under cap).
 
 ## Notes
 
-- This is a **bootstrap** skill — most useful right after `/second-brain:setup`. Subsequent imports of the same host file are duplicate-detected.
-- Never delete or modify the source files — `~/CLAUDE.md` and friends stay where they are.
-- Critic gate is non-negotiable for persona/quality-rules merges. Importing a stale rule that contradicts current persona is exactly the kind of regression the critic catches.
-- Repo-local imports respect the current repo's git root only. Importing from arbitrary paths is supported by `/second-brain:ingest <path>` instead.
+- This is a **bootstrap** skill — it is most useful right after `/second-brain:setup`. Re-running it later is safe but will mostly hit the duplicate-skip path.
+- The skill never deletes or modifies your host files (`~/CLAUDE.md`, `.cursorrules`, etc.). They stay where they are.
+- All writes go through the v1.0 MCP tools (`pin_to_user`, `pin_to_project`) or direct `Edit`s on `PROJECT.md`. There is no critic-gate, no persona/quality-rules file, no `archive_to_wiki` invocation here — those are explicit user actions handled by `/second-brain:improve`.
+- Hot-tier cap reminder: USER.md ≤ 30 lines (enforced by `pin_to_user`); USER.md + PROJECT.md combined ~3200 bytes target. If a proposed import would push over, distill harder before re-trying.
