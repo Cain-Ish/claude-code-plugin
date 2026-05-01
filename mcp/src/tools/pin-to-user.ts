@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 
-const MAX_LINES = 30;
+const MAX_LINES = 15;
 
 export interface PinToUserArgs { text: string; brainDir?: string; }
 export interface PinToUserResult { ok: boolean; line_added: string; reason?: string; }

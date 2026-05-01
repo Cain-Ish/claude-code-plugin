@@ -23,8 +23,8 @@ describe('pin_to_user', () => {
     expect(readFileSync(join(dir, 'USER.md'), 'utf-8')).toMatch(/^# USER/m);
   });
 
-  it('rejects writes that would push USER.md over 30 lines', async () => {
-    const lines = Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n');
+  it('rejects writes that would push USER.md over 15 lines', async () => {
+    const lines = Array.from({ length: 15 }, (_, i) => `line ${i}`).join('\n');
     writeFileSync(join(dir, 'USER.md'), `# USER\n${lines}`, 'utf-8');
     const res = await pinToUser({ text: 'one too many', brainDir: dir });
     expect(res.ok).toBe(false);
