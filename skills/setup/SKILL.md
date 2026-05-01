@@ -1,78 +1,109 @@
 ---
 name: setup
-description: Initialize the Second Brain knowledge base, learning state, and MCP server build. Run once after installing the plugin, or anytime to verify the directory structure.
+description: Scaffold the v1.0 hot tier — USER.md, projects/<slug>/PROJECT.md, index.txt — for the active repo. Idempotent.
 user-invocable: true
-disable-model-invocation: true
-allowed-tools: Bash(mkdir *) Bash(cat *) Bash(ls *) Bash(test *) Bash(bash *) Bash(npm install:*) Bash(npm run:*) Read
+disable-model-invocation: false
+allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date *) Bash(test *) Bash(jq *) Bash(mkdir *)
 ---
 
-# Second Brain Setup
+# Setup
 
-Initialize the local knowledge base and learning state directories.
+Scaffold the second-brain v1.0 hot tier for the active repo. The hot tier is the small, always-loaded surface: `USER.md` (your global preferences) plus a per-repo `PROJECT.md` (goal, state, conventions) plus an `index.txt` registry. Combined target ≤ ~3200 bytes (~800 tokens).
 
-## What This Creates
-
-### Knowledge Base (default `~/knowledge/`, or whatever you set via `/plugin manage`)
-
-The Karpathy-inspired wiki structure:
-
-```
-~/knowledge/
-├── raw/              # Immutable source documents (articles, papers, notes)
-│   └── assets/       # Images, PDFs, attachments
-├── wiki/             # LLM-maintained pages (you manage this automatically)
-│   ├── sources/      # Summaries of ingested raw sources
-│   ├── entities/     # People, organizations, products, tools
-│   ├── concepts/     # Ideas, frameworks, patterns, theories
-│   ├── synthesis/    # Cross-cutting analyses connecting multiple topics
-│   └── sessions/     # Insights extracted from coding sessions
-├── .embeddings/      # Vector store for semantic search (MCP server)
-├── index.md          # Content catalog — updated on each ingest
-├── log.md            # Chronological record of all operations
-└── schema.md         # Wiki conventions and structure rules
-```
-
-### Learning State (`~/.second-brain/`)
-
-
-```
-~/.second-brain/
-├── learnings.md       # Accumulated strategic principles from sessions
-├── quality-rules.md   # Auto-evolved code quality standards
-├── tool-registry.json # Discovered MCP tools (auto-updated each session)
-└── friction-log.jsonl # Detected user correction/retry signals
-```
+This skill is idempotent — re-running it will not clobber existing files. It only fills in what's missing.
 
 ## Steps
 
-1. Run the ensure-dirs script to create all directories and seed files. The script's internal fallback chain (`$1` → `$CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` → `~/knowledge`) honors the user's configured location via the auto-injected env var, so we don't need to substitute `${user_config.knowledge_dir}` in the skill body (that placeholder doesn't expand in skill bash blocks):
-   ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh
-   ```
+### 1. Resolve active project
 
-2. Verify the structure was created:
-   ```bash
-   KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-   ls -la "$KD/"
-   ls -la "$KD/wiki/"
-   ls -la ~/.second-brain/
-   ```
+Determine the repo slug from the current working directory's git root (falls back to `pwd` if not a git repo):
 
-3. The MCP server ships pre-built (`mcp/dist/server.js` is tracked in git), so most installs do nothing here. Only rebuild if the file is missing — typically only happens if you cloned with sparse-checkout or deleted `dist/`:
-   ```bash
-   if [ ! -f "${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.js" ]; then
-     (cd "${CLAUDE_PLUGIN_ROOT}/mcp" && npm install --no-fund --no-audit && npm run build) || \
-       echo "MCP build failed — knowledge_search/index/stats will not work until you run: cd ${CLAUDE_PLUGIN_ROOT}/mcp && npm install && npm run build"
-   fi
-   ```
-   Report whether the build ran, was skipped (already shipped), or failed.
+```bash
+SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+NAME="$SLUG"
+echo "Active project: $SLUG"
+```
 
-4. Report what was created and confirm everything looks correct.
+Also ensure the base directories exist:
 
-5. Mention to the user:
-   - Use `/second-brain:ingest <path>` to add sources to the knowledge base
-   - Use `/second-brain:query <question>` to search the knowledge base
-   - The plugin automatically learns from sessions and improves code quality over time
-   - **All data stays local** — nothing is ever synced, pushed, or shared externally
-   - If using Obsidian: open `~/knowledge/` as a local-only vault — do NOT enable Obsidian Sync or any cloud sync plugins
-   - Do NOT place the knowledge directory inside iCloud Drive, Dropbox, Google Drive, or OneDrive
+```bash
+mkdir -p ~/.second-brain/projects/"$SLUG"
+test -f ~/.second-brain/index.txt || : > ~/.second-brain/index.txt
+```
+
+### 2. Scaffold USER.md
+
+Check whether `~/.second-brain/USER.md` exists.
+
+- If it exists: leave it alone, report its current byte count.
+- If it does not exist:
+  - If `~/.second-brain/persona.md` exists (legacy 0.7.0 file), offer to condense it interactively into ≤15 lines of preferences and write the result to `USER.md`.
+  - Otherwise prompt the user for ≤15 lines of cross-project preferences (tone, languages, defaults, "always do X / never do Y"). Write them to `USER.md` using the `Write` tool.
+
+`USER.md` is global — it applies to every repo.
+
+### 3. Scaffold PROJECT.md
+
+Check whether `~/.second-brain/projects/$SLUG/PROJECT.md` exists.
+
+- If it exists: leave it alone, report its current byte count.
+- If it does not exist: prompt the user for the `Goal` (≤3 lines) and `Conventions` (≤5 lines) and write the file using this 6-section template (filling in `<name>`, `Goal`, and `Conventions` from the prompt; leave the other sections empty for now — they will be filled in over time by the reflection and archive flows):
+
+```markdown
+# PROJECT: <name>
+
+## Goal
+<≤3 lines>
+
+## State
+<≤8 lines>
+
+## Conventions
+<≤5 lines>
+
+## Recent decisions
+<≤3 entries, each ≤2 lines, tagged [active|resolved|stale]>
+
+## Open blockers
+<≤15 lines, tagged [active|resolved|stale]>
+
+## Cross-references
+<≤3 wiki page slugs>
+
+<!-- last_updated: ISO8601 -->
+<!-- last_queried_wiki: YYYY-MM-DD -->
+```
+
+Set `<!-- last_updated: ... -->` to the current ISO8601 timestamp; leave `last_queried_wiki` blank for now.
+
+### 4. Update index.txt
+
+Append a JSON line registering this project (one record per line; `index.txt` is JSONL). Skip the append if a line with this `slug` already exists.
+
+```bash
+if ! grep -q "\"slug\":\"$SLUG\"" ~/.second-brain/index.txt 2>/dev/null; then
+  jq -nc --arg s "$SLUG" --arg n "$NAME" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}' \
+    >> ~/.second-brain/index.txt
+fi
+```
+
+### 5. Confirm
+
+Print byte counts of `USER.md` and `PROJECT.md` and the combined total. Verify combined < ~3200 bytes (≈ 800-token hot-tier cap):
+
+```bash
+U=$(test -f ~/.second-brain/USER.md && wc -c < ~/.second-brain/USER.md || echo 0)
+P=$(wc -c < ~/.second-brain/projects/"$SLUG"/PROJECT.md)
+echo "USER.md: $U bytes"
+echo "PROJECT.md ($SLUG): $P bytes"
+echo "Combined: $((U + P)) bytes (cap ≈ 3200)"
+```
+
+If the combined size exceeds ~3200 bytes, advise the user to trim — the hot tier is meant to stay small and always-loaded.
+
+## Notes
+
+- All data stays local under `~/.second-brain/`. Nothing is synced or pushed.
+- Do not place `~/.second-brain/` inside iCloud Drive, Dropbox, Google Drive, or OneDrive — those clients can corrupt JSONL during concurrent writes.
+- This skill replaces the 0.7.0 setup flow. Legacy files (`learnings.md`, `quality-rules.md`, `friction-log.jsonl`, `persona.md`) are not created here; the `upgrade` skill handles migration.

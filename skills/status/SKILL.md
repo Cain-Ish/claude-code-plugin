@@ -1,118 +1,112 @@
 ---
 name: status
-description: Show knowledge base statistics, health overview, and recent activity. Displays page counts, category breakdown, recent ingests/queries, and quick health indicators.
+description: Show second-brain hot-tier and wiki health at a glance. Reports USER.md size, active PROJECT.md size, index.txt project count, and wiki page counts per category.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(find *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(tail *) Bash(grep *) Bash(date *) Bash(jq *) mcp__knowledge-base__knowledge_stats
+allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) mcp__knowledge-base__knowledge_stats
 ---
 
-# Knowledge Base Status
+<!-- user instruction verbatim: "1" -->
 
-Show a dashboard of the knowledge base state.
+# Status
+
+Show a compact dashboard of the v1.0 second-brain state: the hot tier (USER.md + active PROJECT.md + index.txt) plus the cold tier (wiki page counts per category).
 
 ## Steps
 
-### 1. Gather Stats
+### 1. Resolve the active project
 
-If the `knowledge_stats` MCP tool is available, use it first:
+```bash
+SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+echo "Active project: $SLUG"
+```
+
+### 2. Hot-tier sizes
+
+Report byte counts for each hot-tier file. The combined target is ≤ ~3200 bytes (≈ 800 tokens).
+
+```bash
+USER_FILE=~/.second-brain/USER.md
+PROJECT_FILE=~/.second-brain/projects/"$SLUG"/PROJECT.md
+INDEX_FILE=~/.second-brain/index.txt
+
+U=0; P=0
+[ -f "$USER_FILE" ]    && U=$(wc -c < "$USER_FILE" | tr -d ' ')
+[ -f "$PROJECT_FILE" ] && P=$(wc -c < "$PROJECT_FILE" | tr -d ' ')
+
+echo "USER.md:    ${U} bytes"
+echo "PROJECT.md ($SLUG): ${P} bytes"
+echo "Combined:   $((U + P)) bytes (cap ≈ 3200)"
+```
+
+If the combined size exceeds ~3200 bytes, flag it — the hot tier is meant to stay small and always-loaded.
+
+### 3. Index.txt project count
+
+`index.txt` is JSONL; one record per registered project (see `setup` skill for the schema).
+
+```bash
+COUNT=0
+[ -f "$INDEX_FILE" ] && COUNT=$(grep -c '"slug"' "$INDEX_FILE" 2>/dev/null || true)
+echo "Registered projects: ${COUNT}"
+```
+
+If the active `$SLUG` is not in `index.txt`, surface that — the user probably should run `/second-brain:setup`.
+
+### 4. Wiki page counts per category
+
+Prefer the `knowledge_stats` MCP tool when available — it reads the wiki tree directly and returns a formatted breakdown:
+
 ```
 knowledge_stats()
 ```
 
-Also gather filesystem stats directly:
+If the MCP tool is unavailable, fall back to a direct filesystem scan. Resolve the knowledge dir from the env var Claude Code injects per userConfig (skill-body `${user_config.X}` placeholders DO NOT expand in bash):
 
 ```bash
-# Resolve knowledge dir from the env var Claude Code injects per userConfig.
-# Skill-body ${user_config.X} placeholders DO NOT expand in bash — use the env var instead.
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-
-# Page counts per category
-for dir in sources entities concepts synthesis sessions learnings patterns issues decisions; do
-  echo "$dir: $(find "$KD/wiki/$dir" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+for dir in concepts issues entities learnings decisions; do
+  N=$(find "$KD/wiki/$dir" -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
+  echo "  ${dir}: ${N}"
 done
-
-# Total size
-du -sh "$KD/"
-
-# Raw source count
-find "$KD/raw" -type f 2>/dev/null | wc -l
 ```
 
-### 2. Recent Activity
+### 5. Pending PROJECT.md update flag
 
-Show the last 10 entries from log.md:
-```bash
-KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-tail -30 "$KD/log.md"
-```
-
-### 3. Learning State
-
-Show counts from the learning state:
-```bash
-# Learnings count
-grep -c "^## " ~/.second-brain/learnings.md 2>/dev/null || echo "0"
-
-# Quality rules count  
-grep -c "^- " ~/.second-brain/quality-rules.md 2>/dev/null || echo "0"
-
-# Friction signals today
-grep -c "$(date +%Y-%m-%d)" ~/.second-brain/friction-log.jsonl 2>/dev/null || echo "0"
-
-# Persona rules count
-grep -c "^- " ~/.second-brain/persona.md 2>/dev/null || echo "0"
-
-# Discovered tools
-cat ~/.second-brain/tool-registry.json 2>/dev/null
-```
-
-### 3b. Error Log
+If the Stop-hook predicate fired in a recent session, a flag file is left for the next session to act on. Surface it so the user knows there is queued reflection work.
 
 ```bash
-if [ -f ~/.second-brain/error-log.jsonl ]; then
-  CUTOFF=$(date -u -d '7 days ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-7d +"%Y-%m-%dT%H:%M:%SZ")
-  RECENT=$(jq -r --arg c "$CUTOFF" 'select(.timestamp >= $c)' ~/.second-brain/error-log.jsonl 2>/dev/null | jq -s 'length')
-  echo "Hook errors (7d): ${RECENT:-0}"
-  if [ "${RECENT:-0}" -gt 0 ]; then
-    echo "Recent errors:"
-    tail -5 ~/.second-brain/error-log.jsonl | jq -r '"\(.timestamp) \(.script): \(.message)"'
-  fi
-else
-  echo "Hook errors (7d): 0"
+FLAG=~/.second-brain/.project-update-pending-"$SLUG"
+if [ -f "$FLAG" ]; then
+  echo "Pending PROJECT.md update flagged for $SLUG (run /second-brain:improve to apply)."
 fi
 ```
 
-### 4. Present Dashboard
+### 6. Present the dashboard
 
-Format as a clean dashboard:
+Format as a clean block. Example:
 
 ```
-# Knowledge Base Status
+# Second-brain status
 
-## Wiki Pages
-- Sources:    X
-- Entities:   X  
-- Concepts:   X
-- Synthesis:  X
-- Sessions:   X
-- Learnings:  X
-- Total:      X
+## Active project
+- slug: claude-code-plugin
 
-## Embeddings
-- Indexed:    X / X pages (X% coverage)
-- Last indexed: YYYY-MM-DD
+## Hot tier
+- USER.md:    420 bytes
+- PROJECT.md: 1180 bytes
+- Combined:   1600 bytes (cap ~3200)
+- Registered projects: 3
 
-## Learning State
-- Learned patterns: X
-- Quality rules:    X
-- Persona rules:    X
-- Friction signals today: X
-- Available tools:  X MCP servers
+## Cold tier (wiki pages)
+- concepts:  12
+- issues:    4
+- entities:  7
+- learnings: 9
+- decisions: 5
 
-## Health
-- Hook errors (7d):  X
-- [last 3 errors if any]
-
-## Recent Activity
-[last 5 log entries]
+## Pending
+- (none)
 ```
+
+Keep the output terse. No reflection-pipeline metrics — `learnings.md`, `friction-log.jsonl`, `quality-rules.md`, `persona.md`, `tool-registry.json`, and `error-log.jsonl` either no longer exist or are no longer surfaced here. If the user wants deep reflection on the current session, point them at `/second-brain:improve`.

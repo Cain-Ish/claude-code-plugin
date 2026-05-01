@@ -18,14 +18,11 @@ Each layer maps to specific files. Pick layers to doubt based on the selection a
 | ID | Layer | Key Files |
 |----|-------|-----------|
 | `hooks` | Hook system | `hooks/hooks.json`, `scripts/ensure-dirs.sh`, `scripts/session-load.sh` |
-| `friction` | Friction detection | `scripts/log-friction.sh`, `scripts/smart-context.sh` |
-| `drift` | Drift detection | `scripts/drift-detect.sh`, `skills/drift-check/SKILL.md` |
-| `learning` | Learning pipeline | `skills/improve/SKILL.md`, `docs/reflection-protocol.md`, `scripts/extract-learnings.sh` |
+| `stop-predicate` | Stop-hook predicate | `scripts/stop-hook-predicate.sh`, `scripts/run-stop-predicate.sh` |
+| `learning` | Learning pipeline | `skills/improve/SKILL.md` |
 | `mcp` | MCP server | `mcp/src/server.ts` |
-| `feedback` | Knowledge feedback | `mcp/src/server.ts` (updateLearningFeedback tool) |
 | `quality` | Quality gate | `scripts/quality-gate.sh`, `agents/quality-reviewer.md` |
-| `budget` | Context budget | `scripts/budget-context.sh`, `scripts/session-load.sh` |
-| `compact` | Compaction handling | `scripts/pre-compact.sh`, `scripts/post-compact.sh`, `scripts/lib.sh` |
+| `compact` | Compaction handling | `scripts/pre-compact.sh`, `scripts/lib.sh` |
 | `platform` | Cross-platform | All scripts (date, mktemp, find, sed, flock) |
 | `bootstrap` | Setup/upgrade flow | `skills/setup/SKILL.md`, `skills/upgrade/SKILL.md`, `scripts/ensure-dirs.sh` |
 | `wiki` | Wiki maintenance | `agents/knowledge-maintainer.md`, `skills/lint/SKILL.md` |
@@ -70,13 +67,13 @@ If no CLAUDE.md files exist, proceed without — the layer taxonomy provides eno
 
 Read `~/.second-brain/doubt-history.jsonl` (create if missing). Each line records a past run:
 ```json
-{"timestamp":"ISO8601","layers":["hooks","friction"],"perspectives":["failure","race"],"findings":2,"issues":1,"fragile":1}
+{"timestamp":"ISO8601","layers":["hooks","stop-predicate"],"perspectives":["failure","race"],"findings":2,"issues":1,"fragile":1}
 ```
 
 Parse arguments:
 - `--layer <name>`: Force a specific layer. Pick the least-used perspective for it.
 - `--changed`: Only doubt layers whose files changed recently (`git log --since="30 days ago" --name-only`).
-- `--full`: Shallow scan of ALL 12 layers, `correctness` perspective only, 1 question each. Produces a coverage map.
+- `--full`: Shallow scan of ALL 9 layers, `correctness` perspective only, 1 question each. Produces a coverage map.
 - `<path-or-topic>` (free text): Target arbitrary code outside the predefined layers. See **Ad-hoc focus** below.
 - No args: Use the selection algorithm below.
 
@@ -119,8 +116,8 @@ For each (layer, perspective):
 
 1. **Read all key files** listed in the taxonomy for that layer.
 2. **Check runtime state** — don't just read source code. Verify actual artifacts:
-   - Do the output files exist? (`ls ~/.second-brain/`, `ls ~/knowledge/.embeddings/`)
-   - What's in the data files? (`tail -5 ~/.second-brain/friction-log.jsonl`, `wc -l ~/.second-brain/drift-log.jsonl`)
+   - Do the output files exist? (`ls ~/.second-brain/`, `ls ~/.second-brain/projects/`, `ls ~/.second-brain/wiki/`)
+   - What's in the data files? (`tail -5 ~/.second-brain/learnings.md`, `wc -l ~/.second-brain/.session-baseline-*.md`)
    - Is the state consistent with what the code claims to produce?
    - The gap between "the code would write X" and "X actually exists on disk" is where the best bugs hide.
 3. **Start from doubt**: "I believe [layer] does NOT work correctly because..." — force yourself to find reasons to doubt.
@@ -198,7 +195,7 @@ Append to `~/.second-brain/doubt-history.jsonl`:
 ```bash
 jq -nc \
   --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --argjson layers '["hooks","friction"]' \
+  --argjson layers '["hooks","stop-predicate"]' \
   --argjson perspectives '["failure","race"]' \
   --argjson findings 2 \
   --argjson issues 1 \
@@ -243,4 +240,4 @@ After the report, offer but do NOT auto-execute:
 - **Layer count is flexible** — small layers can be covered quickly, complex ones take more context. Don't force a quota; judge by remaining context budget.
 - **`--full` mode**: 1 question per layer, reads only the primary file. Broad coverage map.
 - **One quality-reviewer subagent call** total, bundling all ISSUE/FRAGILE findings.
-- If the skill is running during a session with high compact pressure (check `~/.second-brain/.compact-count`), warn the user and suggest running via `/clear` first.
+- If the skill is running during a session with high compact pressure, warn the user and suggest running via `/clear` first.

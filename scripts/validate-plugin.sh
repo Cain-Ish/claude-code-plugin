@@ -116,9 +116,6 @@ done < <(find "$PLUGIN_ROOT/agents" -name "*.md" -type f 2>/dev/null)
 # loaded by other scripts/skills at runtime; if they go missing, parts of the
 # plugin break silently.
 for ref in \
-  "scripts/improve-protocol.md" \
-  "skills/improve/signal-patterns.md" \
-  "docs/reflection-protocol.md" \
   "mcp/.mcp.json" \
   "mcp/package.json"; do
   if [ ! -f "$PLUGIN_ROOT/$ref" ]; then

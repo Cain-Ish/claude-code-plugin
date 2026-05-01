@@ -1,23 +1,23 @@
-# Second Brain — Self-Evolving AI Plugin for Claude Code
+# Second Brain — Hot-Tier Memory + Local Wiki for Claude Code
 
-A Claude Code plugin that automatically gets smarter with every session. It learns from your patterns, discovers your tools, builds a personal knowledge base, self-critiques its own code quality, and thinks like a senior human developer.
+A Claude Code plugin that gives Claude a two-layer memory: a small hot tier (`USER.md` + `projects/<slug>/PROJECT.md`) auto-loaded at every SessionStart, and a larger local wiki retrievable on demand. **Memory is explicit: you pin what's worth remembering. There is no autonomous extraction, no critic loop, no auto-PR.**
 
-## Five Capabilities
+## What it does
 
-### 1. Auto Self-Improvement
-The plugin automatically analyzes each session, extracts learnings from successes and failures, and stores them for future reference. No manual trigger needed — reflection happens automatically between sessions.
+### 1. Hot-tier auto-load
+At SessionStart, the plugin reads `~/.second-brain/USER.md` and the project-scoped `projects/<slug>/PROJECT.md` (slug derived from `git remote` or repo path) and emits them into context. These two files are intentionally short — durable preferences and project facts only. The full wiki stays on disk and is retrievable via `/second-brain:query`.
 
-### 2. Dynamic Tool Discovery
-At session start, the plugin enumerates the names of installed MCP servers (from your Claude Code settings and plugin caches) and writes them to `~/.second-brain/tool-registry.json`. Skills check this registry and prefer matching servers when present — Context7 for docs, custom memory servers, etc. It is a server-name index, not a tool-level capability map.
+### 2. Explicit pin tools (MCP)
+Three MCP tools — `pin_to_user`, `pin_to_project`, `archive_to_wiki` — let Claude (or you) write a fact into the right tier. Pins are append-with-dedupe; the user confirms each pin before it lands. The `/second-brain:improve` skill proposes up to 3 candidate pins from the current session's evidence and waits for your approval.
 
-### 3. Local Second Brain
-A Karpathy-inspired LLM-maintained wiki with semantic search. Ingest articles, papers, and notes — the plugin creates structured wiki pages with cross-references. Session insights are automatically added to the wiki. All knowledge stays on your machine.
+### 3. Local wiki + token-overlap search
+A Karpathy-inspired wiki under `~/knowledge/wiki/` holds longer-form notes, sources, and archived sessions, cross-referenced via `[[wiki-links]]`. The `knowledge_search` MCP tool uses a fast Node filesystem walk + token-overlap scoring (no embeddings, no API calls, no external dependencies). All knowledge stays on your machine.
 
-### 4. Code Quality Self-Critique
-After every code write/edit, a quality gate automatically reviews the code against evolving standards. When the plugin detects you correcting its output, it learns the pattern and catches it automatically next time.
+### 4. Stop-hook predicate
+A 4-condition boolean diff at Stop time decides whether the session is worth offering a pin proposal for. No background extraction, no friction logging — the predicate fires only when the session crossed concrete thresholds (e.g. files touched, baseline divergence).
 
-### 5. Human Developer Persona
-Claude thinks and acts like a senior human developer. It analyzes what you *actually* need (not just what you typed), proactively fills in unstated requirements, writes human-style code and commit messages with zero AI markers, and verifies tech choices against current best practices. The persona evolves as it learns your preferences.
+### 5. Host AI-context import
+`/second-brain:import-host` finds existing AI-context files on your machine (`~/CLAUDE.md`, `~/AGENTS.md`, `.cursorrules`, repo-local equivalents) and routes their contents into the right tier — durable preferences to USER.md, project facts to PROJECT.md, longer narrative to wiki.
 
 ## Installation
 
@@ -38,18 +38,23 @@ First run:
 
 | Skill | Purpose |
 |-------|---------|
-| `/second-brain:setup` | Initialize knowledge base, learning directories, and build the MCP server |
-| `/second-brain:ingest [path\|url]` | Process a source into the knowledge wiki |
-| `/second-brain:query [question]` | Search the knowledge base |
-| `/second-brain:browse [category]` | Browse and visualize knowledge base content |
-| `/second-brain:status` | Dashboard of knowledge base health |
-| `/second-brain:lint` | Health-check the wiki |
-| `/second-brain:improve` | Deep manual session analysis |
-| `/second-brain:review [file]` | Deep code review beyond the quality gate |
+| `/second-brain:setup` | Initialize hot-tier files (`USER.md`, `projects/<slug>/PROJECT.md`), wiki dirs, and build the MCP server |
+| `/second-brain:upgrade` | Detect installed plugin version and run idempotent migrations |
+| `/second-brain:status` | Dashboard of hot-tier and wiki state (line counts, last-pin timestamps, project slug) |
+| `/second-brain:query [question]` | Search the wiki via the `knowledge_search` MCP tool (Node fs walk + token-overlap scoring) |
+| `/second-brain:lint` | Health-check the wiki: orphan pages and dead `[[wiki-links]]` |
+| `/second-brain:improve` | Propose up to 3 pins (USER.md / PROJECT.md / wiki) from session evidence; user confirms each |
+| `/second-brain:doubt` | Adversarial drilling skill — challenge a claim or proposed change before acting |
+| `/second-brain:import-host` | Import existing host AI-context files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, etc.) into USER.md / PROJECT.md / wiki |
 
 ## MCP Server
 
-The plugin includes a local MCP server for semantic search over the knowledge base. It uses `@xenova/transformers` (all-MiniLM-L6-v2) to generate embeddings locally — no API calls, no data leaving your machine.
+The plugin includes a local MCP server with four tools:
+
+- `knowledge_search` — Node filesystem walk + token-overlap scoring over `~/knowledge/wiki/` (no embeddings, no vectordb, no API calls, no external binaries)
+- `pin_to_user` — append-with-dedupe write to `~/.second-brain/USER.md`
+- `pin_to_project` — append-with-dedupe write to `~/.second-brain/projects/<slug>/PROJECT.md`
+- `archive_to_wiki` — write a longer-form note as a wiki page
 
 The compiled artifact `mcp/dist/server.js` is shipped in the repo, so a marketplace install works out of the box. To rebuild after pulling source changes:
 
@@ -57,7 +62,7 @@ The compiled artifact `mcp/dist/server.js` is shipped in the repo, so a marketpl
 cd mcp && npm install && npm run build
 ```
 
-`/second-brain:setup` runs this automatically if `dist/server.js` is missing.
+`/second-brain:setup` runs this automatically if `dist/server.js` is missing. `knowledge_search` runs entirely in-process (Node `fs` walk over `~/knowledge/wiki/` with token-overlap scoring) — no external binary required.
 
 ## Where files live
 
@@ -86,16 +91,14 @@ Path resolution uses the cross-platform-safe `$HOME` (Git Bash maps it to `/c/Us
 
 - Plugin code (shareable via marketplace): zero user data
 - Knowledge base (`~/knowledge/`): completely local, never synced
-- Learning state (`~/.second-brain/`): completely local, never synced
-- Embeddings: generated locally via ONNX Runtime in Node.js
-- No telemetry, no cloud services, no API calls for the core knowledge base
+- Hot-tier state (`~/.second-brain/`): completely local, never synced
+- Search: Node filesystem walk + token-overlap scoring over local wiki files — no embeddings, no vectordb, no model download
+- No telemetry, no cloud services, no API calls
 - `.nosync` marker files are created on macOS to prevent iCloud sync (no-op on Windows/Linux — sync providers there have their own ignore mechanisms)
 
 ### What does talk to the network
 
-- **Friction logging.** Prompts that look like corrections (e.g. "fix", "no, …", "wrong", "again") are appended to `~/.second-brain/friction-log.jsonl` with timestamp and prompt text. The file stays on your machine — but be aware it's a record of what you said when you were unhappy with the assistant. Wipe with `: > ~/.second-brain/friction-log.jsonl`. Other prompts are not logged.
-- **Auto-improve (opt-in via `~/.second-brain/config.json` → `"auto_improve": true`).** When enabled, the plugin will branch, commit, push, and call `gh pr create` against your fork on GitHub. This *does* leave your machine. Default is off.
-- **First MCP server start** downloads the embedding model (`Xenova/all-MiniLM-L6-v2`) from HuggingFace into the transformers cache. Subsequent runs are offline.
+Nothing in the v1.0 default install. The plugin makes no network calls — no friction logging, no auto-improve PRs, no embedding model download. If you bring your own MCP servers (Context7, web-fetch, etc.) those have their own network behavior; the second-brain plugin does not.
 
 ### Obsidian Users
 
@@ -104,38 +107,36 @@ The knowledge base at `~/knowledge/` is fully compatible with Obsidian (uses sta
 - **Do NOT enable Obsidian Sync** for the knowledge vault — your second brain should never leave your machine
 - **Do NOT place the knowledge directory inside iCloud Drive, Dropbox, Google Drive, or OneDrive**
 - If you use Obsidian, open `~/knowledge/` as a local-only vault with no sync plugins enabled
-- The `.embeddings/` directory contains binary vector data — exclude it from any backup/sync tool
 
-## How It Evolves
+## How memory flows
 
 ```
 Session N
-  ├─ SessionStart loads persona + quality-rules + learnings (always)
-  ├─ Each substantive prompt: knowledge_search runs proactively → relevant wiki nodes pulled in
-  ├─ Quality gate (PostToolUse) reviews each Write/Edit
-  ├─ Friction logger captures correction-shaped prompts
-  └─ Stop hook → writes .pending-reflection.json (friction count + learnings since last improve)
+  ├─ SessionStart reads USER.md + projects/<slug>/PROJECT.md → emits as context
+  ├─ Baseline captured (current hot-tier line counts + last-modified timestamps)
+  ├─ Claude works; if something's worth remembering, it (or you) calls a pin MCP tool:
+  │     pin_to_user      → durable preference, applies across all projects
+  │     pin_to_project   → project-scoped fact, slug-routed
+  │     archive_to_wiki  → longer-form note that doesn't belong in the hot tier
+  └─ Stop hook → predicate evaluates 4 conditions vs. baseline; if any fired,
+                 emits a one-line nudge: "consider /second-brain:improve to propose pins"
 
 Session N+1 (SessionStart)
-  ├─ Reads pending reflection → extracts 1-3 learnings
-  ├─ Updates learnings.md / quality-rules.md / persona.md
-  ├─ Mirrors each new learning to wiki/learnings/<date>-<title>.md (with [[wiki-links]])
-  ├─ Creates wiki/sessions/<date>-<topic>.md
-  ├─ Spawns knowledge-maintainer agent — keeps nodes current (rewrites on contradiction, appends ## History)
-  └─ If `auto_improve: true` AND friction ≥ 2 OR learnings since last improve ≥ 3:
-       follows scripts/improve-protocol.md → proposal → validate → PR (never to main)
+  └─ Same hot-tier load; pins from Session N are now part of the auto-loaded context
 
-Result: quality gate is smarter, wiki has more context, persona drifts toward your style,
-        and the AI loads exactly the nodes that match what you're working on each turn.
+Result: memory is what *you* pinned. No autonomous writes, no background extraction,
+        no PR opened against your repo. The wiki is searched on demand via
+        /second-brain:query (token-overlap search).
 ```
 
 ## Testing
 
-Both tests run in isolation under `mktemp` sandboxes (no real user data is touched). Both require `jq`, `mktemp`, and `bash`.
+Tests run in isolation under `mktemp` sandboxes (no real user data is touched). Require `jq`, `mktemp`, and `bash`.
 
 ```bash
-bash tests/test-validate-proposal.sh   # 6 cases: proposal validator
-bash tests/test-validate-plugin.sh     # 9 cases: plugin-structure validator
+bash tests/test-validate-plugin.sh       # plugin-structure validator
+bash tests/test-stop-hook-predicate.sh   # 4-condition stop-hook predicate
+bash tests/test-hooks-regression.sh      # hooks.json regression suite
 ```
 
 To run the plugin-structure validator against this repo directly:

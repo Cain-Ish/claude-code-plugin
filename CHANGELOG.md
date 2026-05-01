@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.0.0] - 2026-05-01
+
+Major redesign — reflection→critic→learnings pipeline removed; replaced with hot-tier (USER.md + PROJECT.md) auto-load and explicit pin/archive MCP tools. See `docs/specs/2026-05-01-second-brain-v1-redesign.md` and `docs/plans/2026-05-01-second-brain-v1.0-implementation.md`.
+
+### Removed
+- 11 scripts: `extract-learnings.sh`, `log-friction.sh`, `smart-context.sh`, `drift-detect.sh`, `post-compact.sh`, `post-maintainer.sh`, `pre-clear.sh`, `budget-context.sh`, `decay-learnings.sh`, `compile-graph.sh`, `validate-proposal.sh`
+- 6 skills: `browse`, `drift-check`, `graph`, `ingest`, `regress`, `review`
+- 2 MCP tools: `knowledge_index`, `knowledge_feedback`
+- 3 hook events: `UserPromptSubmit`, `PostCompact`, `SubagentStop`
+
+### Added
+- 1 new script: `stop-hook-predicate.sh` (4-condition boolean diff)
+- 1 new wrapper: `run-stop-predicate.sh`
+- 3 new MCP tools: `pin_to_user`, `pin_to_project`, `archive_to_wiki`
+- New hot-tier files: `USER.md`, `projects/<slug>/PROJECT.md`, `index.txt`
+- Migration script: `migrate-to-1.0.0.sh`
+
+### Changed
+- `knowledge_search` rebuilt with a Node filesystem walk + token-overlap scoring backend (no embeddings, no sqlite-vec, no external binary). The 1.0 plan documents originally proposed ripgrep; the shipped implementation uses `fs.readdir` + a `tokenize`/Set-intersection scorer because it's cross-platform and dependency-free.
+- `session-load.sh` rewritten as hot-tier reader with SessionStart baseline capture.
+- 7 skills retained but simplified: `setup`, `status`, `query`, `lint`, `improve` (rebuilt), `import-host`, `upgrade` (added 1.0.0 row).
+
 ## 0.6.6 (2026-04-29)
 
 Hardens the jq dependency surface so missing-jq stops being a silent failure mode. Diagnoses the `grep -c || echo 0` regression that was producing `"0\n0"` and breaking every `jq --argjson` call. Adds a printf-based fallback in `sb_log_error` so missing-jq itself can still be logged.
