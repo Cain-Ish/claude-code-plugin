@@ -11,6 +11,7 @@ import { execFileSync } from "child_process";
 import { pinToUser } from "./tools/pin-to-user.js";
 import { pinToProject } from "./tools/pin-to-project.js";
 import { archiveToWiki } from "./tools/archive-to-wiki.js";
+import { knowledgeSearch, type Scope } from "./tools/knowledge-search.js";
 
 function resolveKnowledgeDir(): string {
   const candidates = [
@@ -137,60 +138,20 @@ async function maybeAutoIndex(vectordb: VectorDB): Promise<void> {
 server.registerTool(
   "knowledge_search",
   {
-    description: "Hybrid semantic + keyword search across the knowledge base wiki. Returns pages ranked by combined vector similarity and BM25 keyword relevance. Accepts a single query string or an array of 2-5 concept strings for AND intersection.",
-    inputSchema: z.object({
-      query: z.union([
-        z.string(),
-        z.array(z.string()).min(2).max(5),
-      ]).describe("Natural language search query, or array of 2-5 concept strings for AND intersection"),
-      limit: z.number().optional().default(5).describe("Max results to return (default 5)"),
-      category: z.string().optional().describe("Filter by category: sources, entities, concepts, synthesis, sessions, learnings, patterns, issues, decisions"),
-      full: z.boolean().optional().default(false).describe("Return full page content instead of excerpts (use for deep reads)"),
-    }),
+    description: "Token-overlap search across the knowledge base wiki. Reads first lines of each markdown page under wiki/<scope>/ and ranks by overlap with query tokens. Returns top candidates with path, score, and a short snippet.",
+    inputSchema: {
+      query: z.string().describe("Search query — tokenized on lowercase alphanumerics and matched against page heads."),
+      scope: z.enum(["concepts", "issues", "entities", "learnings", "decisions"]).optional().describe("Restrict to a single wiki subdirectory."),
+    },
   },
-  async ({ query, limit, category, full }) => {
+  async ({ query, scope }) => {
     try {
-      const vectordb = await getDB();
-      await maybeAutoIndex(vectordb);
-
-      let results;
-      let partialFallback = false;
-      if (typeof query === "string") {
-        const queryEmbedding = await embed(query);
-        results = vectordb.search(queryEmbedding, limit, category, 0.25, query);
-      } else {
-        const multi = await multiConceptSearch(vectordb, query, limit, category);
-        results = multi.results;
-        partialFallback = multi.partial;
-      }
-
-      if (results.length > 0) {
-        vectordb.recordAccess(results.map(r => r.path));
-      }
-
-      if (results.length === 0) {
-        return {
-          content: [{ type: "text" as const, text: "No matching pages found in the knowledge base." }],
-        };
-      }
-
-      const formatted = results.map((r, i) => {
-        const relPath = path.relative(KNOWLEDGE_DIR, r.path);
-        if (full) {
-          let body = r.excerpt;
-          try { body = fs.readFileSync(r.path, "utf-8"); } catch { /* fall back to excerpt */ }
-          return `### ${i + 1}. ${r.title}\n**Path**: ${relPath}\n**Category**: ${r.category}\n**Relevance**: ${r.score.toFixed(3)}\n\n${body}`;
-        }
-        const preview = r.excerpt.slice(0, 200);
-        return `${i + 1}. **${r.title}** (${r.category}, ${r.score.toFixed(2)}) — ${relPath}\n   ${preview}${preview.length >= 200 ? "..." : ""}`;
-      }).join(full ? "\n\n---\n\n" : "\n");
-
-      const prefix = partialFallback
-        ? "(No exact intersection found across all concepts; showing results for first concept only)\n\n"
-        : "";
-      return {
-        content: [{ type: "text" as const, text: prefix + formatted }],
-      };
+      const result = await knowledgeSearch({
+        query,
+        scope: scope as Scope | undefined,
+        knowledgeDir: KNOWLEDGE_DIR,
+      });
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     } catch (error) {
       return {
         content: [{ type: "text" as const, text: `Search error: ${error instanceof Error ? error.message : String(error)}` }],
@@ -199,64 +160,6 @@ server.registerTool(
     }
   }
 );
-
-async function multiConceptSearch(
-  vectordb: VectorDB,
-  concepts: string[],
-  limit: number,
-  category?: string,
-): Promise<{ results: import("./vectordb.js").SearchResult[]; partial: boolean }> {
-  const widerLimit = limit * 3;
-  const lowerMinScore = 0.2;
-
-  const resultSets = await Promise.all(
-    concepts.map(async (concept) => {
-      const embedding = await embed(concept);
-      return vectordb.search(embedding, widerLimit, category, lowerMinScore, concept);
-    })
-  );
-
-  const scoreMaps = resultSets.map(
-    (results) => new Map(results.map((r) => [r.path, r]))
-  );
-
-  const firstSet = scoreMaps[0];
-  const intersected: Array<{ path: string; avgScore: number; result: import("./vectordb.js").SearchResult }> = [];
-
-  for (const [p, result] of firstSet) {
-    const scores = [result.score];
-    let inAll = true;
-    for (let i = 1; i < scoreMaps.length; i++) {
-      const match = scoreMaps[i].get(p);
-      if (!match) {
-        inAll = false;
-        break;
-      }
-      scores.push(match.score);
-    }
-    if (inAll) {
-      intersected.push({
-        path: p,
-        avgScore: scores.reduce((a, b) => a + b, 0) / scores.length,
-        result,
-      });
-    }
-  }
-
-  if (intersected.length > 0) {
-    intersected.sort((a, b) => b.avgScore - a.avgScore);
-    return {
-      results: intersected.slice(0, limit).map((i) => ({
-        ...i.result,
-        score: i.avgScore,
-      })),
-      partial: false,
-    };
-  }
-
-  console.error(`Multi-concept search: no intersection for [${concepts.join(", ")}], falling back to first concept`);
-  return { results: resultSets[0].slice(0, limit), partial: true };
-}
 
 server.registerTool(
   "pin_to_user",
