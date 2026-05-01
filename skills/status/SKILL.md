@@ -47,7 +47,7 @@ If the combined size exceeds ~3200 bytes, flag it — the hot tier is meant to s
 
 ```bash
 COUNT=0
-[ -f "$INDEX_FILE" ] && COUNT=$(grep -c '"slug"' "$INDEX_FILE" 2>/dev/null || echo 0)
+[ -f "$INDEX_FILE" ] && COUNT=$(grep -c '"slug"' "$INDEX_FILE" 2>/dev/null || true)
 echo "Registered projects: ${COUNT}"
 ```
 

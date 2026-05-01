@@ -4,7 +4,7 @@
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/stop-hook-predicate.sh"
 TMP=$(mktemp -d)
-trap "rm -rf $TMP" EXIT
+trap 'rm -rf "$TMP"' EXIT
 
 make_pair() {
   local baseline_content="$1" current_content="$2"

@@ -82,7 +82,7 @@ Append a JSON line registering this project (one record per line; `index.txt` is
 
 ```bash
 if ! grep -q "\"slug\":\"$SLUG\"" ~/.second-brain/index.txt 2>/dev/null; then
-  jq -n --arg s "$SLUG" --arg n "$NAME" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  jq -nc --arg s "$SLUG" --arg n "$NAME" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}' \
     >> ~/.second-brain/index.txt
 fi
