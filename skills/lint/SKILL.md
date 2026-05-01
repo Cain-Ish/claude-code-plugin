@@ -3,7 +3,7 @@ name: lint
 description: Health-check the knowledge base. Finds orphan pages, dead links, broken wiki-links, stale pages, contradictions, and missing cross-references. Run periodically to maintain wiki quality.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Write Edit Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(wc *) Bash(date *) mcp__knowledge-base__knowledge_index
+allowed-tools: Read Write Edit Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(wc *) Bash(date *)
 ---
 
 # Knowledge Base Lint
@@ -145,10 +145,7 @@ Offer to fix issues:
 - Add missing cross-references
 - Mark stale pages with a `[NEEDS UPDATE]` banner
 
-After fixes, re-index embeddings:
-```
-knowledge_index(force: false)
-```
+No re-indexing step is required — `knowledge_search` reads the wiki tree directly in v1.0.
 
 Log the lint run:
 ```markdown

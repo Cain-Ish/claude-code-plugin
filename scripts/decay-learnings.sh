@@ -110,7 +110,7 @@ DROPPED_COUNT=$(wc -l < "$DROPPED_LIST" 2>/dev/null | tr -d ' \t')
 DROPPED_COUNT=${DROPPED_COUNT:-0}
 
 if [ "$DROPPED_COUNT" -gt 0 ]; then
-  # Lockfile to coordinate with MCP updateLearningFeedback
+  # Lockfile to coordinate with any concurrent writers of learnings.md
   LOCKFILE="$BRAIN_DIR/.learnings.lock"
   exec 9>"$LOCKFILE"
   flock -w 5 9 2>/dev/null || true

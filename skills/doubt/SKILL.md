@@ -22,7 +22,6 @@ Each layer maps to specific files. Pick layers to doubt based on the selection a
 | `drift` | Drift detection | `scripts/drift-detect.sh`, `skills/drift-check/SKILL.md` |
 | `learning` | Learning pipeline | `skills/improve/SKILL.md`, `docs/reflection-protocol.md`, `scripts/extract-learnings.sh` |
 | `mcp` | MCP server | `mcp/src/server.ts` |
-| `feedback` | Knowledge feedback | `mcp/src/server.ts` (updateLearningFeedback tool) |
 | `quality` | Quality gate | `scripts/quality-gate.sh`, `agents/quality-reviewer.md` |
 | `budget` | Context budget | `scripts/budget-context.sh`, `scripts/session-load.sh` |
 | `compact` | Compaction handling | `scripts/pre-compact.sh`, `scripts/post-compact.sh`, `scripts/lib.sh` |

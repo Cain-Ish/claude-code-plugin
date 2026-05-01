@@ -3,7 +3,7 @@ name: ingest
 description: Process a new source document into the knowledge base. Reads the source, discusses key takeaways, creates wiki pages (source summary, entity pages, concept pages), adds cross-references, and updates the index. Use when adding articles, notes, papers, or session insights.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Write Edit Bash(ls *) Bash(find *) Bash(cat *) Bash(wc *) Bash(grep *) Bash(date *) WebSearch WebFetch mcp__knowledge-base__knowledge_index
+allowed-tools: Read Write Edit Bash(ls *) Bash(find *) Bash(cat *) Bash(wc *) Bash(grep *) Bash(date *) WebSearch WebFetch
 argument-hint: "[file-path or URL]"
 ---
 
@@ -239,14 +239,9 @@ Pages created: [list of new pages]
 Pages updated: [list of updated pages]
 ```
 
-### 6. Re-index Embeddings
+### 6. Index Note
 
-After creating/updating wiki pages, call the `knowledge_index` MCP tool to update embeddings for semantic search:
-```
-knowledge_index(force: false)
-```
-
-If the MCP tool is not available, skip this step — the index will be updated next time the MCP server runs.
+The v1.0 knowledge base uses token-overlap search and reads the wiki tree directly — there is no separate index to refresh after edits. New or updated pages are searchable immediately via `knowledge_search`.
 
 ## File Naming Convention
 
