@@ -97,4 +97,14 @@ OUT=$("$SCRIPT" 2>&1) || fail "first run should pass (got: $OUT)"
 [ -f "$HOME/.second-brain/.last-verify" ] || fail ".last-verify should be written on first run"
 pass "first run with existing error-log: ok and writes timestamp"
 
+# --- Subtest 9: malformed JSONL in error-log → exit non-zero, distinct message
+reset_home "malformed-errorlog"
+seed_clean
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "$NOW" > "$HOME/.second-brain/.last-verify"
+printf 'this is not json\n{"timestamp":"%s","script":"x","message":"y","exit_code":1}\n' "$NOW" > "$HOME/.second-brain/error-log.jsonl"
+OUT=$("$SCRIPT" 2>&1) && fail "malformed error-log should fail"
+echo "$OUT" | grep -q "malformed JSON" || fail "expected 'malformed JSON' message (got: $OUT)"
+pass "error-log malformed: fails distinctly"
+
 echo "ALL PASS"

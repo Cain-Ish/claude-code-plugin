@@ -8,6 +8,9 @@
 # check is skipped and a fresh timestamp is written on success. Subsequent
 # runs flag only entries newer than the recorded timestamp.
 set -u
+# Note: this script writes only to stdout. It deliberately does NOT call
+# sb_log_error — appending to error-log.jsonl would create a feedback loop
+# with check #5 below (which reads that file).
 source "$(dirname "$0")/lib.sh"
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -55,9 +58,17 @@ if [ -f "$ERR_LOG" ] && [ -f "$LAST_VERIFY" ]; then
     if ! sb_require_jq; then
       FAILS+=("verify: FAIL: error-log — jq required for freshness check")
     else
-      NEW_COUNT=$(jq -r --arg t "$LAST_TS" 'select(.timestamp > $t) | .timestamp' "$ERR_LOG" 2>/dev/null | wc -l | tr -d ' ')
-      if [ "$NEW_COUNT" -gt 0 ]; then
-        FAILS+=("verify: FAIL: error-log — $NEW_COUNT new entries since $LAST_TS")
+      # Pre-validate the JSONL is parseable. jq's default mode reads
+      # whitespace-separated JSON values; -e flips exit on null/false.
+      # On any malformed line jq exits non-zero and we surface that as a
+      # distinct check failure — never swallow corrupt error-log silently.
+      if ! jq -e '.' "$ERR_LOG" >/dev/null; then
+        FAILS+=("verify: FAIL: error-log — malformed JSON in $ERR_LOG")
+      else
+        NEW_COUNT=$(jq -r --arg t "$LAST_TS" 'select(.timestamp > $t) | .timestamp' "$ERR_LOG" | wc -l | tr -d ' ')
+        if [ "$NEW_COUNT" -gt 0 ]; then
+          FAILS+=("verify: FAIL: error-log — $NEW_COUNT new entries since $LAST_TS")
+        fi
       fi
     fi
   fi
