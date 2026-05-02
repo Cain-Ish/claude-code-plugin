@@ -58,6 +58,7 @@ SH
 ---
 name: setup
 description: Setup
+allowed-tools: Read Bash(echo *)
 ---
 body
 MD
@@ -66,6 +67,7 @@ MD
 ---
 name: improve
 description: Improve
+allowed-tools: Read Bash(echo *)
 ---
 body
 MD
