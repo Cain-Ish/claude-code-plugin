@@ -2,6 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
+        "_comment": "matcher includes 'compact' so session-load.sh re-emits hot tier after compaction; PreCompact reload is therefore unnecessary — see tests/test-session-load-compact.sh",
         "matcher": "startup|resume|clear|compact",
         "hooks": [
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh", "timeout": 5 },
