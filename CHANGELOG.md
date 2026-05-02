@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.1.0] - 2026-05-02
+
+Hardening release derived from `ruvnet/ruflo` research. Adds a runtime smoke check (`scripts/verify.sh`) surfaced via `/second-brain:status`, locks in SessionStart-on-compact behavior with a regression test, and makes `allowed-tools:` mandatory in skill frontmatter. See `docs/specs/2026-05-02-ruflo-derived-hardening-design.md` and `docs/plans/2026-05-02-ruflo-derived-hardening-implementation.md`.
+
+### Added
+
+- `scripts/verify.sh` — runtime smoke check with 5 assertions: USER.md exists+non-empty, active project's PROJECT.md exists, combined hot-tier line count ≤ 66, `mcp/dist/server.js` present, `error-log.jsonl` has no entries newer than `.last-verify`. Fails loud on malformed JSONL. Accumulates failures and exits non-zero with one `verify: FAIL: <check> — <detail>` line per fault, or `verify: ok` on the clean path. Surfaced as Step 6 of `/second-brain:status`; remediation is delegated to `/second-brain:setup` and `/second-brain:improve` rather than auto-applied.
+- `~/.second-brain/.last-verify` — ISO-8601 UTC timestamp written on every successful `verify.sh` run. Created lazily on first run; absent on first install.
+- `tests/test-session-load-compact.sh` — regression test locking in SessionStart-on-compact hot-tier re-emit. Documents that PreCompact reload (a pattern observed in `ruvnet/ruflo`) is unnecessary because SessionStart's `compact` matcher already covers it.
+- `tests/test-validate-plugin-allowed-tools.sh` — regression test for the new validator rule (mirrors the repo to a tmpdir, drops `allowed-tools:` from one skill, asserts the validator fails with the expected message).
+- `tests/test-verify.sh` — 9-subtest suite covering verify.sh failure modes (clean state, missing/empty USER.md, oversized hot tier, missing MCP dist, fresh error-log entries, old-only entries, first-run, malformed JSONL).
+
+### Changed
+
+- `scripts/validate-plugin.sh` — `allowed-tools:` joins `name` and `description` as a required field in SKILL.md frontmatter (line 92). All 8 shipped skills already declare it.
+- `tests/test-validate-plugin.sh` — the synthetic SKILL.md skeletons used by the validator's smoke test now include `allowed-tools: Read Bash(echo *)` so the suite still validates after the new rule lands.
+- `hooks/hooks.json` — added `_comment` key on the SessionStart entry documenting why the `compact` matcher makes a PreCompact reload unnecessary.
+- `skills/status/SKILL.md` — gained Step 6 ("Runtime smoke check") that invokes `verify.sh`. Existing dashboard step renumbered to Step 7. Bottom note updated to reflect verify.sh's role with `error-log.jsonl`. `allowed-tools` line gained `Bash(bash *)` so the skill can invoke the script.
+
+### Notes
+
+- No state migration required. `.last-verify` is created lazily; the `allowed-tools:` requirement is universal in shipped skills so existing installs do not need remediation. The migration table in `skills/upgrade/SKILL.md` carries a no-op row for 1.1.0 to bump the installed-version marker.
+- 2 pre-existing FAILs in `tests/test-validate-plugin.sh` (about `improve-protocol.md` being declared a required runtime file but not enforced by the validator) predate this release and are not addressed here. Tracked as a separate cleanup.
+
 ## [1.0.0] - 2026-05-01
 
 Major redesign — reflection→critic→learnings pipeline removed; replaced with hot-tier (USER.md + PROJECT.md) auto-load and explicit pin/archive MCP tools. See `docs/specs/2026-05-01-second-brain-v1-redesign.md` and `docs/plans/2026-05-01-second-brain-v1.0-implementation.md`.

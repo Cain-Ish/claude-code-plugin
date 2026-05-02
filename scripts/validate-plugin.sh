@@ -89,7 +89,7 @@ while IFS= read -r skill_file; do
   if head -1 "$skill_file" | grep -q "^---"; then
     frontmatter=$(sed -n '/^---$/,/^---$/p' "$skill_file" | sed '1d;$d')
 
-    for field in name description; do
+    for field in name description allowed-tools; do
       if ! echo "$frontmatter" | grep -q "^$field:"; then
         echo "FAIL: $(basename "$(dirname "$skill_file")")/SKILL.md missing '$field' in frontmatter"
         ERRORS=$((ERRORS + 1))

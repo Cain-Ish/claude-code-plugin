@@ -3,7 +3,7 @@ name: status
 description: Show second-brain hot-tier and wiki health at a glance. Reports USER.md size, active PROJECT.md size, index.txt project count, and wiki page counts per category.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) mcp__knowledge-base__knowledge_stats
+allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) mcp__knowledge-base__knowledge_stats
 ---
 
 <!-- user instruction verbatim: "1" -->
@@ -82,7 +82,17 @@ if [ -f "$FLAG" ]; then
 fi
 ```
 
-### 6. Present the dashboard
+### 6. Runtime smoke check
+
+Run `verify.sh` to surface live-state issues that the static validator can't see (missing files, oversized hot tier, stale errors). Print its output verbatim — verify owns its own format.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/verify.sh"
+```
+
+The script exits 0 with `verify: ok` when everything is healthy, or exits non-zero with one `verify: FAIL:` line per failed check. Do not auto-remediate — point the user at the relevant skill (`/second-brain:setup` for missing files, `/second-brain:improve` for oversized hot tier) and let them act.
+
+### 7. Present the dashboard
 
 Format as a clean block. Example:
 
@@ -109,4 +119,4 @@ Format as a clean block. Example:
 - (none)
 ```
 
-Keep the output terse. No reflection-pipeline metrics — `learnings.md`, `friction-log.jsonl`, `quality-rules.md`, `persona.md`, `tool-registry.json`, and `error-log.jsonl` either no longer exist or are no longer surfaced here. If the user wants deep reflection on the current session, point them at `/second-brain:improve`.
+Keep the output terse. No reflection-pipeline metrics — `learnings.md`, `friction-log.jsonl`, `quality-rules.md`, `persona.md`, and `tool-registry.json` no longer exist. `error-log.jsonl` is not dumped here, but `verify.sh` (Step 6) flags new entries since the last successful verify. If the user wants deep reflection on the current session, point them at `/second-brain:improve`.
