@@ -40,7 +40,7 @@ First run:
 |-------|---------|
 | `/second-brain:setup` | Initialize hot-tier files (`USER.md`, `projects/<slug>/PROJECT.md`), wiki dirs, and build the MCP server |
 | `/second-brain:upgrade` | Detect installed plugin version and run idempotent migrations |
-| `/second-brain:status` | Dashboard of hot-tier and wiki state (line counts, last-pin timestamps, project slug) |
+| `/second-brain:status` | Dashboard of hot-tier and wiki state (line counts, last-pin timestamps, project slug) plus a runtime smoke check via `verify.sh` |
 | `/second-brain:query [question]` | Search the wiki via the `knowledge_search` MCP tool (Node fs walk + token-overlap scoring) |
 | `/second-brain:lint` | Health-check the wiki: orphan pages and dead `[[wiki-links]]` |
 | `/second-brain:improve` | Propose up to 3 pins (USER.md / PROJECT.md / wiki) from session evidence; user confirms each |
@@ -134,9 +134,12 @@ Result: memory is what *you* pinned. No autonomous writes, no background extract
 Tests run in isolation under `mktemp` sandboxes (no real user data is touched). Require `jq`, `mktemp`, and `bash`.
 
 ```bash
-bash tests/test-validate-plugin.sh       # plugin-structure validator
-bash tests/test-stop-hook-predicate.sh   # 4-condition stop-hook predicate
-bash tests/test-hooks-regression.sh      # hooks.json regression suite
+bash tests/test-validate-plugin.sh                # plugin-structure validator
+bash tests/test-validate-plugin-allowed-tools.sh  # allowed-tools frontmatter rule
+bash tests/test-stop-hook-predicate.sh            # 4-condition stop-hook predicate
+bash tests/test-hooks-regression.sh               # hooks.json regression suite
+bash tests/test-session-load-compact.sh           # SessionStart-on-compact re-emit
+bash tests/test-verify.sh                         # runtime smoke check (verify.sh)
 ```
 
 To run the plugin-structure validator against this repo directly:
