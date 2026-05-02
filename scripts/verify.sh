@@ -8,9 +8,12 @@
 # check is skipped and a fresh timestamp is written on success. Subsequent
 # runs flag only entries newer than the recorded timestamp.
 set -u
-# Note: this script writes only to stdout. It deliberately does NOT call
-# sb_log_error — appending to error-log.jsonl would create a feedback loop
-# with check #5 below (which reads that file).
+# Note: verify.sh's main path does not call sb_log_error directly — appending
+# to error-log.jsonl would create a feedback loop with check #5 below (which
+# reads that file). The only indirect path is via sb_require_jq when jq is
+# missing, which is a real error worth logging and benign here: with jq
+# missing the freshness check can't run anyway, so the entry surfaces on the
+# next run as a real failure rather than self-flagging noise.
 source "$(dirname "$0")/lib.sh"
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
