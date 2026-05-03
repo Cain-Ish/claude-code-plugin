@@ -11,6 +11,11 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      { "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/intent-gate.sh", "timeout": 5 }
+      ]}
+    ],
     "Stop": [
       { "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-stop-predicate.sh", "timeout": 30 }

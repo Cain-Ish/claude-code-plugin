@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.2.0] - 2026-05-03
+
+Persona-as-first-thought injection. Restores the brainstorm-before-answering protocol the v1.0 redesign dropped, but this time wired into the live hot tier and re-injected mid-session via a `UserPromptSubmit` hook. Lays the groundwork for v1.3's Stop-hook transcript reader (auto-write to PROJECT.md / wiki).
+
+### Added
+
+- `scripts/intent-gate.sh` — `UserPromptSubmit` hook that classifies prompts as substantive vs trivial (≥7 words, leading action verb, or any non-ack pattern → substantive) and emits a JSON `additionalContext` envelope with the Intent Analysis cue: extract keywords → run `second-brain:query` → generate self-followups → answer from retrieved context → surface only genuinely ambiguous high-cost questions to the user. Fail-soft (always exits 0) so a hook crash never blocks user input.
+- `tests/test-intent-gate.sh` — 10-case suite covering substantive prompts, exact-match acks (yes/lgtm/ship it/...), sentence-shaped acks (`thanks, ...`), short prompts with action-verb prefix, empty prompts, malformed JSON input.
+- `scripts/migrate-to-1.2.0.sh` — idempotent migration that appends a `## Intent` section to `~/.second-brain/USER.md` (5-step protocol) with backup to `~/.second-brain/.1.2.0-backup/<UTC-ISO>/USER.md`. No-op if the section is already present.
+
+### Changed
+
+- `hooks/hooks.json` — new `UserPromptSubmit` entry wires `intent-gate.sh` (timeout 5s).
+- `scripts/verify.sh` — Check 1 now also asserts that `USER.md` contains a `^## Intent$` heading. New failure line: `verify: FAIL: USER.md — missing '## Intent' section (run migrate-to-1.2.0.sh or /second-brain:upgrade)`.
+- `tests/test-verify.sh` — `seed_clean()` fixture now includes `## Intent`; new Subtest 10 covers a USER.md that lacks the section.
+- `skills/setup/SKILL.md` — Step 2 (USER.md scaffold) now ensures the `## Intent` section is present, idempotent on re-runs.
+- `skills/upgrade/SKILL.md` — new migration table row for `1.2.0` pointing at `migrate-to-1.2.0.sh`.
+
+### Notes
+
+- Background: the v1.0 redesign deleted the reflection→critic→learnings pipeline in favor of explicit pin/archive MCP tools, but those tools require Claude to choose to call them. In practice nothing did, so PROJECT.md and the wiki sat empty across sessions. Step 2 of the staged plan (a `Stop`-hook subagent that reads the conversation transcript and auto-writes deltas to PROJECT.md / wiki) lands in v1.3. This release fixes the read side: persona behavior actually fires before substantive responses, and the hot tier instructs Claude to query the wiki first.
+
 ## [1.1.0] - 2026-05-02
 
 Hardening release derived from `ruvnet/ruflo` research. Adds a runtime smoke check (`scripts/verify.sh`) surfaced via `/second-brain:status`, locks in SessionStart-on-compact behavior with a regression test, and makes `allowed-tools:` mandatory in skill frontmatter. See `docs/specs/2026-05-02-ruflo-derived-hardening-design.md` and `docs/plans/2026-05-02-ruflo-derived-hardening-implementation.md`.

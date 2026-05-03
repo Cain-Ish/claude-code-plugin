@@ -28,6 +28,8 @@ if [ ! -f "$USER_FILE" ]; then
   FAILS+=("verify: FAIL: USER.md — file missing at $USER_FILE")
 elif [ ! -s "$USER_FILE" ]; then
   FAILS+=("verify: FAIL: USER.md — file empty at $USER_FILE")
+elif ! grep -q '^## Intent$' "$USER_FILE"; then
+  FAILS+=("verify: FAIL: USER.md — missing '## Intent' section (run migrate-to-1.2.0.sh or /second-brain:upgrade)")
 fi
 
 # Check 2: active project's PROJECT.md exists
