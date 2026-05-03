@@ -2,25 +2,40 @@
 
 ## [1.2.0] - 2026-05-03
 
-Persona-as-first-thought injection. Restores the brainstorm-before-answering protocol the v1.0 redesign dropped, but this time wired into the live hot tier and re-injected mid-session via a `UserPromptSubmit` hook. Lays the groundwork for v1.3's Stop-hook transcript reader (auto-write to PROJECT.md / wiki).
+Closes the auto-knowledge loop end-to-end. Adds (a) persona-as-first-thought injection so substantive prompts trigger keyword extraction → wiki query → self-followups before any answer, and (b) a Stop-hook orchestrator that spawns a `claude` subprocess to extract decisions/blockers/cross-refs/files-touched from the session transcript and idempotently merges them into PROJECT.md + wiki stubs. The `## Intent` directive in USER.md and the Stop-hook auto-archival together turn second-brain from a read-only hot tier into a self-populating knowledge base that requires no manual pin/archive calls.
 
 ### Added
 
-- `scripts/intent-gate.sh` — `UserPromptSubmit` hook that classifies prompts as substantive vs trivial (≥7 words, leading action verb, or any non-ack pattern → substantive) and emits a JSON `additionalContext` envelope with the Intent Analysis cue: extract keywords → run `second-brain:query` → generate self-followups → answer from retrieved context → surface only genuinely ambiguous high-cost questions to the user. Fail-soft (always exits 0) so a hook crash never blocks user input.
-- `tests/test-intent-gate.sh` — 10-case suite covering substantive prompts, exact-match acks (yes/lgtm/ship it/...), sentence-shaped acks (`thanks, ...`), short prompts with action-verb prefix, empty prompts, malformed JSON input.
-- `scripts/migrate-to-1.2.0.sh` — idempotent migration that appends a `## Intent` section to `~/.second-brain/USER.md` (5-step protocol) with backup to `~/.second-brain/.1.2.0-backup/<UTC-ISO>/USER.md`. No-op if the section is already present.
+- **Read side — Intent injection:**
+  - `scripts/intent-gate.sh` — `UserPromptSubmit` hook that classifies prompts as substantive vs trivial (≥7 words, leading action verb, or any non-ack pattern → substantive) and emits a JSON `additionalContext` envelope with the Intent Analysis cue: extract keywords → run `second-brain:query` → generate self-followups → answer from retrieved context → surface only genuinely ambiguous high-cost questions to the user. Fail-soft (always exits 0) so a hook crash never blocks user input.
+  - `tests/test-intent-gate.sh` — 10-case suite covering substantive prompts, exact-match acks (yes/lgtm/ship it/...), sentence-shaped acks (`thanks, ...`), short prompts with action-verb prefix, empty prompts, malformed JSON input.
+- **Write side — Stop-hook auto-archival:**
+  - `scripts/stop-extract.sh` — Stop-hook orchestrator. Reads the Stop payload, gates on the substantive-session predicate (≥1 tool_use in the transcript), spawns `claude -p --model "$SB_EXTRACTOR_MODEL"` (default `claude-haiku-4-5-20251001`) with a 25s timeout to produce a structured JSON delta `{recent_decisions, open_blockers, cross_refs, files_touched}`, falls back to a deterministic file-path-only extraction when `claude` is unavailable, and pipes the result through `merge-project-update.sh`. Always exits 0.
+  - `scripts/extract-prompt.txt` — sibling-file template the Stop hook feeds to `claude -p`. Pinned schema, dedup-aware rules, and explicit "output only the JSON object" guidance.
+  - `scripts/merge-project-update.sh` — idempotent merge of a JSON delta into PROJECT.md sections (`## Recent decisions` cap 3, `## Open blockers` cap 15, `## Cross-references` cap 3) with case-insensitive substring dedupe. Atomic write (tempfile + mv). Bumps `<!-- last_updated -->` only on actual change. Scaffolds `~/.second-brain/wiki/<slug>.md` for any cross-ref not yet on disk, marked `<!-- auto-extracted: <ISO> -->` so `/second-brain:lint` can prune low-value pages later. Eviction policy: when a section is at cap, the oldest (top-most) bullet is dropped to make room for the newest.
+  - `tests/test-merge-project-update.sh` — 7-case suite covering decision dedupe + cap, blocker cap, cross-ref stub creation (and leaving existing wiki pages untouched), `last_updated` bump, empty-delta no-op, invalid-JSON rejection, case-insensitive dedupe.
+  - `tests/test-stop-extract.sh` — 6-case suite. Stubs `claude` on PATH with synthetic JSON, tests happy-path, Q&A-only skip, claude-unavailable fallback, claude-returns-garbage fail-soft, missing-transcript fail-soft, malformed-stdin fail-soft.
+- **Migration:**
+  - `scripts/migrate-to-1.2.0.sh` — idempotent. Appends `## Intent` to `~/.second-brain/USER.md` (5-step protocol) with backup to `~/.second-brain/.1.2.0-backup/<UTC-ISO>/USER.md`. Creates `~/.second-brain/wiki/`. No-op if already migrated.
 
 ### Changed
 
-- `hooks/hooks.json` — new `UserPromptSubmit` entry wires `intent-gate.sh` (timeout 5s).
-- `scripts/verify.sh` — Check 1 now also asserts that `USER.md` contains a `^## Intent$` heading. New failure line: `verify: FAIL: USER.md — missing '## Intent' section (run migrate-to-1.2.0.sh or /second-brain:upgrade)`.
-- `tests/test-verify.sh` — `seed_clean()` fixture now includes `## Intent`; new Subtest 10 covers a USER.md that lacks the section.
-- `skills/setup/SKILL.md` — Step 2 (USER.md scaffold) now ensures the `## Intent` section is present, idempotent on re-runs.
+- `hooks/hooks.json`:
+  - new `UserPromptSubmit` entry wires `intent-gate.sh` (timeout 5s).
+  - `Stop` entry now points at `stop-extract.sh` (timeout 30s), replacing the v1.0 `run-stop-predicate.sh` that wrote a flag nobody read. The standalone predicate at `scripts/stop-hook-predicate.sh` is still used by its own test; only the orchestrator that wraps it has changed.
+- `scripts/verify.sh` — Check 1 also asserts `USER.md` contains `^## Intent$`; new Check 4b asserts `~/.second-brain/wiki/` exists. New failure lines:
+  - `verify: FAIL: USER.md — missing '## Intent' section (run migrate-to-1.2.0.sh or /second-brain:upgrade)`
+  - `verify: FAIL: wiki — directory missing at <path> (run /second-brain:upgrade)`
+- `tests/test-verify.sh` — `seed_clean()` fixture now includes `## Intent` and creates the wiki dir; new Subtest 10 covers missing `## Intent`, new Subtest 11 covers missing wiki dir.
+- `skills/setup/SKILL.md` — Step 2 (USER.md scaffold) ensures the `## Intent` section is present, idempotent on re-runs.
 - `skills/upgrade/SKILL.md` — new migration table row for `1.2.0` pointing at `migrate-to-1.2.0.sh`.
 
 ### Notes
 
-- Background: the v1.0 redesign deleted the reflection→critic→learnings pipeline in favor of explicit pin/archive MCP tools, but those tools require Claude to choose to call them. In practice nothing did, so PROJECT.md and the wiki sat empty across sessions. Step 2 of the staged plan (a `Stop`-hook subagent that reads the conversation transcript and auto-writes deltas to PROJECT.md / wiki) lands in v1.3. This release fixes the read side: persona behavior actually fires before substantive responses, and the hot tier instructs Claude to query the wiki first.
+- **Why this was dormant before:** v1.0 deleted the reflection→critic→learnings pipeline in favor of explicit pin/archive MCP tools that required Claude to choose to call them. In practice nothing did, so PROJECT.md and the wiki sat empty across sessions. v1.2 fixes both halves: read (`## Intent` instructs Claude to query the wiki on every substantive prompt) and write (the Stop hook auto-extracts and merges with no user action).
+- **Cost:** roughly $0.001–0.01 per substantive session with Haiku 4.5 as the extractor. Pure Q&A sessions skip the LLM call entirely. Override the model with `SB_EXTRACTOR_MODEL` or the timeout with `SB_EXTRACT_TIMEOUT` env vars.
+- **Cross-platform:** tests run on Git Bash (Windows), macOS, and Linux. The merge script strips `\r` from jq output so Windows CRLF leakage doesn't silently break dedupe; the Stop orchestrator gracefully degrades when `timeout` or `claude` aren't on PATH.
+- **Eviction note:** PROJECT.md sections have hard caps. When a new bullet is added to a full section, the oldest is dropped — this is intentional pressure on a small hot tier and not a bug.
 
 ## [1.1.0] - 2026-05-02
 

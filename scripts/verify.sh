@@ -54,6 +54,12 @@ if [ ! -f "$MCP_DIST" ]; then
   FAILS+=("verify: FAIL: mcp — dist/server.js missing at $MCP_DIST (run /second-brain:setup)")
 fi
 
+# Check 4b: wiki dir exists (for stop-extract.sh auto-archival).
+WIKI_DIR="$BRAIN_DIR/wiki"
+if [ ! -d "$WIKI_DIR" ]; then
+  FAILS+=("verify: FAIL: wiki — directory missing at $WIKI_DIR (run /second-brain:upgrade)")
+fi
+
 # Check 5: error-log freshness vs .last-verify
 ERR_LOG="$BRAIN_DIR/error-log.jsonl"
 LAST_VERIFY="$BRAIN_DIR/.last-verify"

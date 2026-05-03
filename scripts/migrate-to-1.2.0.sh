@@ -11,13 +11,16 @@ USER_FILE="$BRAIN/USER.md"
 INSTALLED=$(cat "$BRAIN/.installed-version" 2>/dev/null || echo "0.0.0")
 if [ "$INSTALLED" = "1.2.0" ]; then echo "already 1.2.0; no-op"; exit 0; fi
 
+# Idempotently create the wiki dir for stop-extract.sh's auto-archival.
+mkdir -p "$BRAIN/wiki"
+
 if [ ! -f "$USER_FILE" ]; then
   echo "USER.md missing at $USER_FILE — run the setup skill first; nothing to migrate"
   exit 0
 fi
 
 if grep -q '^## Intent$' "$USER_FILE"; then
-  echo "USER.md already contains ## Intent section; no-op"
+  echo "USER.md already contains ## Intent section; wiki dir ensured; no-op"
   exit 0
 fi
 
