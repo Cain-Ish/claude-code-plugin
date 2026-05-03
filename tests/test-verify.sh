@@ -23,8 +23,9 @@ reset_home() {
 }
 
 seed_clean() {
-  printf 'durable preferences\n' > "$HOME/.second-brain/USER.md"
+  printf 'durable preferences\n\n## Intent\nrun query first.\n' > "$HOME/.second-brain/USER.md"
   printf 'project facts\n' > "$HOME/.second-brain/projects/test-slug/PROJECT.md"
+  mkdir -p "$HOME/.second-brain/wiki"
 }
 
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
@@ -106,5 +107,21 @@ printf 'this is not json\n{"timestamp":"%s","script":"x","message":"y","exit_cod
 OUT=$("$SCRIPT" 2>&1) && fail "malformed error-log should fail"
 echo "$OUT" | grep -q "malformed JSON" || fail "expected 'malformed JSON' message (got: $OUT)"
 pass "error-log malformed: fails distinctly"
+
+# --- Subtest 10: USER.md present but missing ## Intent section → exit non-zero
+reset_home "no-intent"
+seed_clean
+printf 'durable preferences without intent section\n' > "$HOME/.second-brain/USER.md"
+OUT=$("$SCRIPT" 2>&1) && fail "USER.md without ## Intent should fail"
+echo "$OUT" | grep -q "## Intent" || fail "expected '## Intent' message (got: $OUT)"
+pass "USER.md missing ## Intent: fails"
+
+# --- Subtest 11: wiki dir missing → exit non-zero
+reset_home "no-wiki"
+seed_clean
+rm -rf "$HOME/.second-brain/wiki"
+OUT=$("$SCRIPT" 2>&1) && fail "missing wiki dir should fail"
+echo "$OUT" | grep -q "wiki" || fail "expected 'wiki' in output (got: $OUT)"
+pass "wiki dir missing: fails"
 
 echo "ALL PASS"

@@ -28,6 +28,8 @@ if [ ! -f "$USER_FILE" ]; then
   FAILS+=("verify: FAIL: USER.md — file missing at $USER_FILE")
 elif [ ! -s "$USER_FILE" ]; then
   FAILS+=("verify: FAIL: USER.md — file empty at $USER_FILE")
+elif ! grep -q '^## Intent$' "$USER_FILE"; then
+  FAILS+=("verify: FAIL: USER.md — missing '## Intent' section (run migrate-to-1.2.0.sh or /second-brain:upgrade)")
 fi
 
 # Check 2: active project's PROJECT.md exists
@@ -50,6 +52,12 @@ fi
 MCP_DIST="$PLUGIN_ROOT/mcp/dist/server.js"
 if [ ! -f "$MCP_DIST" ]; then
   FAILS+=("verify: FAIL: mcp — dist/server.js missing at $MCP_DIST (run /second-brain:setup)")
+fi
+
+# Check 4b: wiki dir exists (for stop-extract.sh auto-archival).
+WIKI_DIR="$BRAIN_DIR/wiki"
+if [ ! -d "$WIKI_DIR" ]; then
+  FAILS+=("verify: FAIL: wiki — directory missing at $WIKI_DIR (run /second-brain:upgrade)")
 fi
 
 # Check 5: error-log freshness vs .last-verify

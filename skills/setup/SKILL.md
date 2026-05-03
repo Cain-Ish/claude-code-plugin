@@ -35,10 +35,21 @@ test -f ~/.second-brain/index.txt || : > ~/.second-brain/index.txt
 
 Check whether `~/.second-brain/USER.md` exists.
 
-- If it exists: leave it alone, report its current byte count.
+- If it exists: leave it alone, report its current byte count. Then verify it contains a `## Intent` section — if missing, append the default Intent block below (idempotent; same block the v1.2.0 migration appends).
 - If it does not exist:
   - If `~/.second-brain/persona.md` exists (legacy 0.7.0 file), offer to condense it interactively into ≤15 lines of preferences and write the result to `USER.md`.
   - Otherwise prompt the user for ≤15 lines of cross-project preferences (tone, languages, defaults, "always do X / never do Y"). Write them to `USER.md` using the `Write` tool.
+- After scaffolding (or detecting an existing file), ensure the following `## Intent` section is present at the bottom. This is the persona-as-first-thought protocol that the SessionStart hot tier and the `UserPromptSubmit` intent-gate hook rely on:
+
+```markdown
+## Intent
+For substantive requests (anything beyond a one-verb-on-one-noun edit), before answering:
+1. Extract 3–5 keywords from the request (domain, action, surface).
+2. Run the `second-brain:query` skill on those keywords. Read top 1–2 hits in full. Look for prior decisions, design plans, conventions, blockers, and restrictions the user has not restated.
+3. Generate the followups a senior colleague would ask — adapted to this specific request — e.g., "is there an existing implementation? what tech stack and version? does anything similar already exist? what scope/auth/pagination is implied?".
+4. Answer the followups yourself from retrieved context where possible. Surface only the ones that remain genuinely ambiguous AND costly to guess wrong, as one focused clarifying question.
+5. If the wiki had nothing relevant, say so explicitly so the user knows you checked. Then proceed with your best interpretation.
+```
 
 `USER.md` is global — it applies to every repo.
 

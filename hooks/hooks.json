@@ -11,9 +11,14 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      { "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/intent-gate.sh", "timeout": 5 }
+      ]}
+    ],
     "Stop": [
       { "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-stop-predicate.sh", "timeout": 30 }
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-extract.sh", "timeout": 30 }
       ]}
     ],
     "PreCompact": [
