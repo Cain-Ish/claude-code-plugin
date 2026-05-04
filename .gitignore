@@ -8,6 +8,9 @@ knowledge/
 # Plugin data directory (managed by Claude Code)
 .claude-plugin-data/
 
+# Local-only Claude Code session settings (per-user permission grants etc.)
+.claude/settings.local.json
+
 # MCP server build artifacts.
 # mcp/dist/ IS tracked so marketplace installs work without npm — without
 # this, knowledge_search/index/stats fail until the user runs setup. The
