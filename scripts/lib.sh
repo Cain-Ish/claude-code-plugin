@@ -64,7 +64,7 @@ sb_reindex_wiki() {
   local knowledge_dir="${1:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
   local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
-  local reindex_js="$plugin_root/mcp/dist/tools/knowledge-reindex.js"
+  local reindex_js="$plugin_root/mcp/dist/tools/knowledge-reindex.bundle.js"
   if command -v node >/dev/null 2>&1 && [ -f "$reindex_js" ]; then
     node -e "
       import { knowledgeReindex } from '$reindex_js';

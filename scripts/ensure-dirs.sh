@@ -10,8 +10,8 @@ test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
 
 WIKI_INDEX="$KNOWLEDGE_DIR/wiki/index.md"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)}"
-REINDEX_JS="$PLUGIN_ROOT/mcp/dist/tools/knowledge-reindex.js"
-VALIDATE_JS="$PLUGIN_ROOT/mcp/dist/tools/knowledge-validate.js"
+REINDEX_JS="$PLUGIN_ROOT/mcp/dist/tools/knowledge-reindex.bundle.js"
+VALIDATE_JS="$PLUGIN_ROOT/mcp/dist/tools/knowledge-validate.bundle.js"
 
 if command -v node >/dev/null 2>&1; then
   # Reindex generates index.md AND runs validation with autofix

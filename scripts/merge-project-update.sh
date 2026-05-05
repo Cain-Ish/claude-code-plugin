@@ -264,9 +264,9 @@ fi
 
 if [ "$WIKI_WRITES" -eq 1 ]; then
   PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
-  if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/knowledge-reindex.js" ]; then
+  if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/knowledge-reindex.bundle.js" ]; then
     node -e "
-      import { knowledgeReindex } from '$PLUGIN_DIST/knowledge-reindex.js';
+      import { knowledgeReindex } from '$PLUGIN_DIST/knowledge-reindex.bundle.js';
       knowledgeReindex('$KNOWLEDGE_DIR').catch(() => {});
     " 2>/dev/null || true
   fi
