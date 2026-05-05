@@ -1,9 +1,9 @@
 #!/bin/bash
-# Idempotent merge of a JSON delta into PROJECT.md + wiki stubs. Used by
-# the v1.2.0 Stop-hook auto-archival flow (scripts/stop-extract.sh).
+# Idempotent merge of a JSON delta into PROJECT.md + wiki pages. Used by
+# the v1.2.0+ Stop-hook auto-archival flow (scripts/stop-extract.sh).
 #
 # Usage:
-#   bash merge-project-update.sh --project-md <path> --wiki-dir <dir> [--json-file <path>]
+#   bash merge-project-update.sh --project-md <path> --wiki-dir <dir> [--knowledge-dir <dir>] [--json-file <path>]
 #   # or pipe JSON on stdin
 #
 # JSON schema (all keys optional, default to []):
@@ -11,7 +11,8 @@
 #     "recent_decisions": ["<text>", ...],   # cap 3 bullets in PROJECT.md
 #     "open_blockers":    ["<text>", ...],   # cap 15
 #     "cross_refs":       ["<slug>", ...],   # cap 3 bullets, scaffolds wiki/<slug>.md if missing
-#     "files_touched":    ["<path>", ...]    # informational; reserved for v1.3+ usage
+#     "files_touched":    ["<path>", ...],   # informational
+#     "wiki_updates":     [{"category","slug","action","title","description","content"}, ...]
 #   }
 #
 # Behavior:
@@ -29,17 +30,22 @@ set -u
 PROJECT_MD=""
 WIKI_DIR=""
 JSON_FILE=""
+KNOWLEDGE_DIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --project-md) PROJECT_MD="$2"; shift 2 ;;
-    --wiki-dir)   WIKI_DIR="$2";   shift 2 ;;
-    --json-file)  JSON_FILE="$2";  shift 2 ;;
+    --project-md)    PROJECT_MD="$2";    shift 2 ;;
+    --wiki-dir)      WIKI_DIR="$2";      shift 2 ;;
+    --knowledge-dir) KNOWLEDGE_DIR="$2"; shift 2 ;;
+    --json-file)     JSON_FILE="$2";     shift 2 ;;
     *) echo "merge-project-update: unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
 [ -n "$PROJECT_MD" ] || { echo "merge-project-update: --project-md is required" >&2; exit 2; }
 [ -n "$WIKI_DIR" ]   || { echo "merge-project-update: --wiki-dir is required" >&2; exit 2; }
+[ -z "$KNOWLEDGE_DIR" ] && KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
 [ -f "$PROJECT_MD" ] || { echo "merge-project-update: project file not found: $PROJECT_MD" >&2; exit 2; }
 mkdir -p "$WIKI_DIR"
 
@@ -175,6 +181,75 @@ if [ -n "$REFS" ]; then
   done <<< "$REFS"
 fi
 
+WIKI_WRITES=0
+WIKI_UPDATES_COUNT=$(echo "$RAW" | jq '.wiki_updates // [] | length' 2>/dev/null || echo 0)
+if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
+  mkdir -p "$KNOWLEDGE_WIKI"
+  echo "$RAW" | jq -c '.wiki_updates // [] | .[]' 2>/dev/null | while IFS= read -r update; do
+    category=$(echo "$update" | jq -r '.category // "concepts"')
+    slug=$(echo "$update" | jq -r '.slug // empty')
+    action=$(echo "$update" | jq -r '.action // "create"')
+    title=$(echo "$update" | jq -r '.title // ""')
+    description=$(echo "$update" | jq -r '.description // ""')
+    content=$(echo "$update" | jq -r '.content // ""')
+
+    [ -z "$slug" ] && continue
+    [ -z "$content" ] && continue
+
+    # Gate: reject MR/session-style slugs
+    if echo "$slug" | grep -qE '^mr[0-9]+-|^mr-[0-9]+|-mr[0-9]+$|-session$'; then
+      continue
+    fi
+    # Gate: reject session-narrative content
+    if echo "$content" | grep -qiE '(files (changed|touched)|review approach|in this session|friction signals:)'; then
+      continue
+    fi
+
+    target_dir="$KNOWLEDGE_WIKI/$category"
+    mkdir -p "$target_dir"
+    target_file="$target_dir/$slug.md"
+    ts_now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Check for existing page with same slug in any category (avoid duplicates)
+    existing=$(find "$KNOWLEDGE_WIKI" -name "$slug.md" -type f ! -name 'index.md' 2>/dev/null | head -1)
+    if [ -n "$existing" ] && [ "$existing" != "$target_file" ]; then
+      target_file="$existing"
+      action="update"
+    fi
+
+    if [ "$action" = "update" ] && [ -f "$target_file" ]; then
+      # Content-aware dedup: skip if the first 60 chars of new content already appear in the page
+      content_check=$(echo "$content" | head -c 60)
+      if grep -qF "$content_check" "$target_file" 2>/dev/null; then
+        continue
+      fi
+      # Append under History section with timestamp
+      if grep -q '^## History' "$target_file" 2>/dev/null; then
+        sed -i.bak "/^## History/a\\
+- [$(date +%Y-%m-%d)] $content" "$target_file" && rm -f "$target_file.bak"
+      else
+        printf '\n## Updates\n\n%s\n' "$content" >> "$target_file"
+      fi
+      if grep -q '^updated:' "$target_file" 2>/dev/null; then
+        sed -i.bak "s/^updated:.*/updated: ${ts_now}/" "$target_file" && rm -f "$target_file.bak"
+      fi
+    else
+      {
+        printf '%s\n' "---"
+        printf 'title: "%s"\n' "${title:-$slug}"
+        printf 'type: %s\n' "$category"
+        [ -n "$description" ] && printf 'description: "%s"\n' "$description"
+        printf 'created: %s\n' "$ts_now"
+        printf 'updated: %s\n' "$ts_now"
+        printf '%s\n\n' "---"
+        printf '# %s\n\n' "${title:-$slug}"
+        printf '%s\n' "$content"
+      } > "$target_file"
+    fi
+  done
+  WIKI_WRITES=1
+fi
+
 if [ "$CHANGED" -eq 1 ]; then
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   new_tmp=$(mktemp)
@@ -185,6 +260,16 @@ if [ "$CHANGED" -eq 1 ]; then
   mv "$new_tmp" "$TMP_OUT"
   mv "$TMP_OUT" "$PROJECT_MD"
   trap - EXIT
+fi
+
+if [ "$WIKI_WRITES" -eq 1 ]; then
+  PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
+  if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/knowledge-reindex.js" ]; then
+    node -e "
+      import { knowledgeReindex } from '$PLUGIN_DIST/knowledge-reindex.js';
+      knowledgeReindex('$KNOWLEDGE_DIR').catch(() => {});
+    " 2>/dev/null || true
+  fi
 fi
 
 exit 0

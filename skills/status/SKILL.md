@@ -1,6 +1,6 @@
 ---
 name: status
-description: Show second-brain hot-tier and wiki health at a glance. Reports USER.md size, active PROJECT.md size, index.txt project count, and wiki page counts per category.
+description: Show second-brain hot-tier and wiki health at a glance. Reports USER.md size, active PROJECT.md size, projects.jsonl project count, wiki page counts per category, and index.md status.
 user-invocable: true
 disable-model-invocation: false
 allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) mcp__knowledge-base__knowledge_stats
@@ -10,7 +10,7 @@ allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *
 
 # Status
 
-Show a compact dashboard of the v1.0 second-brain state: the hot tier (USER.md + active PROJECT.md + index.txt) plus the cold tier (wiki page counts per category).
+Show a compact dashboard of the v1.0 second-brain state: the hot tier (USER.md + active PROJECT.md + projects.jsonl) plus the cold tier (wiki page counts per category).
 
 ## Steps
 
@@ -28,7 +28,7 @@ Report byte counts for each hot-tier file. The combined target is ≤ ~3200 byte
 ```bash
 USER_FILE=~/.second-brain/USER.md
 PROJECT_FILE=~/.second-brain/projects/"$SLUG"/PROJECT.md
-INDEX_FILE=~/.second-brain/index.txt
+INDEX_FILE=~/.second-brain/projects.jsonl
 
 U=0; P=0
 [ -f "$USER_FILE" ]    && U=$(wc -c < "$USER_FILE" | tr -d ' ')
@@ -43,7 +43,7 @@ If the combined size exceeds ~3200 bytes, flag it — the hot tier is meant to s
 
 ### 3. Index.txt project count
 
-`index.txt` is JSONL; one record per registered project (see `setup` skill for the schema).
+`projects.jsonl` is JSONL; one record per registered project (see `setup` skill for the schema).
 
 ```bash
 COUNT=0
@@ -51,7 +51,7 @@ COUNT=0
 echo "Registered projects: ${COUNT}"
 ```
 
-If the active `$SLUG` is not in `index.txt`, surface that — the user probably should run `/second-brain:setup`.
+If the active `$SLUG` is not in `projects.jsonl`, surface that — the user probably should run `/second-brain:setup`.
 
 ### 4. Wiki page counts per category
 
@@ -65,11 +65,29 @@ If the MCP tool is unavailable, fall back to a direct filesystem scan. Resolve t
 
 ```bash
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-for dir in concepts issues entities learnings decisions; do
-  N=$(find "$KD/wiki/$dir" -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
-  echo "  ${dir}: ${N}"
+for dir in "$KD"/wiki/*/; do
+  [ -d "$dir" ] || continue
+  name=$(basename "$dir")
+  N=$(find "$dir" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | wc -l | tr -d ' ')
+  echo "  ${name}: ${N}"
 done
+# Also check for index.md
+if [ -f "$KD/wiki/index.md" ]; then
+  echo "  index.md: present"
+else
+  echo "  index.md: MISSING (run knowledge_reindex)"
+fi
 ```
+
+### 4b. Wiki health check
+
+Run `knowledge_validate` MCP tool if available to detect issues:
+
+```
+knowledge_validate()
+```
+
+If unavailable, skip — validation also runs automatically during `knowledge_reindex` and on session start via `ensure-dirs.sh`.
 
 ### 5. Pending PROJECT.md update flag
 

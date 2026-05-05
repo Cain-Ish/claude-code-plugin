@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Scaffold the v1.0 hot tier — USER.md, projects/<slug>/PROJECT.md, index.txt — for the active repo. Idempotent.
+description: Scaffold the v1.0 hot tier — USER.md, projects/<slug>/PROJECT.md, projects.jsonl — for the active repo. Idempotent.
 user-invocable: true
 disable-model-invocation: false
 allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date *) Bash(test *) Bash(jq *) Bash(mkdir *)
@@ -8,7 +8,7 @@ allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date 
 
 # Setup
 
-Scaffold the second-brain v1.0 hot tier for the active repo. The hot tier is the small, always-loaded surface: `USER.md` (your global preferences) plus a per-repo `PROJECT.md` (goal, state, conventions) plus an `index.txt` registry. Combined target ≤ ~3200 bytes (~800 tokens).
+Scaffold the second-brain v1.0 hot tier for the active repo. The hot tier is the small, always-loaded surface: `USER.md` (your global preferences) plus a per-repo `PROJECT.md` (goal, state, conventions) plus an `projects.jsonl` registry. Combined target ≤ ~3200 bytes (~800 tokens).
 
 This skill is idempotent — re-running it will not clobber existing files. It only fills in what's missing.
 
@@ -28,7 +28,7 @@ Also ensure the base directories exist:
 
 ```bash
 mkdir -p ~/.second-brain/projects/"$SLUG"
-test -f ~/.second-brain/index.txt || : > ~/.second-brain/index.txt
+test -f ~/.second-brain/projects.jsonl || : > ~/.second-brain/projects.jsonl
 ```
 
 ### 2. Scaffold USER.md
@@ -87,15 +87,15 @@ Check whether `~/.second-brain/projects/$SLUG/PROJECT.md` exists.
 
 Set `<!-- last_updated: ... -->` to the current ISO8601 timestamp; leave `last_queried_wiki` blank for now.
 
-### 4. Update index.txt
+### 4. Update projects.jsonl
 
-Append a JSON line registering this project (one record per line; `index.txt` is JSONL). Skip the append if a line with this `slug` already exists.
+Append a JSON line registering this project (one record per line; `projects.jsonl` is JSONL). Skip the append if a line with this `slug` already exists.
 
 ```bash
-if ! grep -q "\"slug\":\"$SLUG\"" ~/.second-brain/index.txt 2>/dev/null; then
+if ! grep -q "\"slug\":\"$SLUG\"" ~/.second-brain/projects.jsonl 2>/dev/null; then
   jq -nc --arg s "$SLUG" --arg n "$NAME" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}' \
-    >> ~/.second-brain/index.txt
+    >> ~/.second-brain/projects.jsonl
 fi
 ```
 

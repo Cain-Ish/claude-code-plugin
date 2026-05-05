@@ -60,6 +60,19 @@ sb_log_error() {
 # rather than running jq commands that would silently no-op. The error is
 # surfaced to the user at next SessionStart via the error-nudge banner.
 # Cached per-process via SB_JQ_OK to avoid repeated PATH lookups.
+sb_reindex_wiki() {
+  local knowledge_dir="${1:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
+  knowledge_dir="${knowledge_dir/#\~/$HOME}"
+  local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
+  local reindex_js="$plugin_root/mcp/dist/tools/knowledge-reindex.js"
+  if command -v node >/dev/null 2>&1 && [ -f "$reindex_js" ]; then
+    node -e "
+      import { knowledgeReindex } from '$reindex_js';
+      knowledgeReindex('$knowledge_dir').catch(() => {});
+    " 2>/dev/null || true
+  fi
+}
+
 sb_require_jq() {
   if [ -n "${SB_JQ_OK:-}" ]; then
     [ "$SB_JQ_OK" = "1" ] && return 0 || return 1

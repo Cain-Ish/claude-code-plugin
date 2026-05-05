@@ -54,10 +54,21 @@ if [ ! -f "$MCP_DIST" ]; then
   FAILS+=("verify: FAIL: mcp — dist/server.js missing at $MCP_DIST (run /second-brain:setup)")
 fi
 
-# Check 4b: wiki dir exists (for stop-extract.sh auto-archival).
-WIKI_DIR="$BRAIN_DIR/wiki"
+# Check 4b: knowledge wiki dir exists.
+KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+WIKI_DIR="$KNOWLEDGE_DIR/wiki"
 if [ ! -d "$WIKI_DIR" ]; then
-  FAILS+=("verify: FAIL: wiki — directory missing at $WIKI_DIR (run /second-brain:upgrade)")
+  FAILS+=("verify: FAIL: wiki — directory missing at $WIKI_DIR (run /second-brain:setup)")
+fi
+
+# Check 4c: wiki index.md exists.
+WIKI_INDEX="$WIKI_DIR/index.md"
+if [ -d "$WIKI_DIR" ] && [ ! -f "$WIKI_INDEX" ]; then
+  WIKI_COUNT=$(find "$WIKI_DIR" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$WIKI_COUNT" -gt 0 ]; then
+    FAILS+=("verify: FAIL: index.md — missing but $WIKI_COUNT wiki pages exist (run knowledge_reindex MCP tool)")
+  fi
 fi
 
 # Check 5: error-log freshness vs .last-verify

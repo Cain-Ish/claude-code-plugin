@@ -61,7 +61,28 @@ if [ -z "$SLUG" ]; then log_gate "slug-empty cwd=$CWD pwd=$PWD"; exit 0; fi
 
 PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
 WIKI_DIR="$BRAIN_DIR/wiki"
-if [ ! -f "$PROJECT_MD" ]; then log_gate "project-md-missing slug=$SLUG path=$PROJECT_MD"; exit 0; fi
+if [ ! -f "$PROJECT_MD" ]; then
+  mkdir -p "$(dirname "$PROJECT_MD")"
+  cat > "$PROJECT_MD" <<TMPL
+# PROJECT: $SLUG
+
+## Goal
+(auto-scaffolded — describe this project's goal)
+
+## State
+
+## Conventions
+
+## Recent decisions
+
+## Open blockers
+
+## Cross-references
+
+<!-- last_updated: $(date -u +%Y-%m-%dT%H:%M:%SZ) -->
+<!-- last_queried_wiki: -->
+TMPL
+fi
 if ! mkdir -p "$WIKI_DIR" 2>/dev/null; then log_gate "wiki-dir-mkdir-failed path=$WIKI_DIR"; exit 0; fi
 
 # Substantive-session gate: count tool_use entries in the transcript.
@@ -147,10 +168,13 @@ if [ -z "$DELTA_JSON" ]; then
   fi
 fi
 
+KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+
 MERGE_ERR=$(mktemp)
 if ! echo "$DELTA_JSON" \
   | bash "$(dirname "$0")/merge-project-update.sh" \
-      --project-md "$PROJECT_MD" --wiki-dir "$WIKI_DIR" >/dev/null 2>"$MERGE_ERR"; then
+      --project-md "$PROJECT_MD" --wiki-dir "$WIKI_DIR" --knowledge-dir "$KNOWLEDGE_DIR" >/dev/null 2>"$MERGE_ERR"; then
   ERR_TAIL=$(tr '\n' ' ' < "$MERGE_ERR" | head -c 400)
   log_gate "merge-failed err=$ERR_TAIL"
 fi

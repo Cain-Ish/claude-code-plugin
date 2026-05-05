@@ -1,7 +1,6 @@
-export type Scope = 'concepts' | 'issues' | 'entities' | 'learnings' | 'decisions';
 export interface KnowledgeSearchArgs {
     query: string;
-    scope?: Scope;
+    scope?: string;
     knowledgeDir?: string;
 }
 export interface KnowledgeSearchResult {
@@ -11,5 +10,15 @@ export interface KnowledgeSearchResult {
         first_lines: string;
     }[];
 }
+export interface ParsedDoc {
+    title: string;
+    description: string;
+    type: string;
+    tags: string[];
+    related: string[];
+    body: string;
+    path: string;
+}
 export declare function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult>;
+export declare function parseDoc(content: string, filePath: string): ParsedDoc;
 //# sourceMappingURL=knowledge-search.d.ts.map

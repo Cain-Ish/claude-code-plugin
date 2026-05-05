@@ -11,7 +11,17 @@ Schema (all keys required, arrays may be empty):
   "recent_decisions": ["..."],
   "open_blockers":    ["..."],
   "cross_refs":       ["..."],
-  "files_touched":    ["..."]
+  "files_touched":    ["..."],
+  "wiki_updates":     [
+    {
+      "category": "entities|concepts|learnings",
+      "slug": "kebab-case-name",
+      "action": "create|update",
+      "title": "Human Title",
+      "description": "One-line description for index",
+      "content": "New content or content to append"
+    }
+  ]
 }
 
 Rules:
@@ -19,6 +29,17 @@ Rules:
 - Open blockers: unresolved questions, deferred items, things explicitly called out as needing follow-up. Prefix each with one of [active], [resolved], [stale]. Skip ones already in "## Open blockers". Max 5 entries.
 - Cross-refs: wiki page slugs (kebab-case, lowercase) that name *concepts* mentioned at least twice and worth keeping a separate page for — not file paths, not generic words. Skip slugs already linked in "## Cross-references". Max 3 entries.
 - Files touched: absolute or repo-relative paths of files modified by Edit/Write/MultiEdit tool calls. Plain strings, no markdown.
+- Wiki updates: extract technology patterns, architecture decisions, entity relationships, and reusable concepts into wiki page proposals. Rules:
+  - "entities" = specific technologies, libraries, services, repos, or components the project uses
+  - "concepts" = design patterns, architectural approaches, or reusable ideas
+  - "learnings" = non-obvious insights, gotchas, or hard-won knowledge from this session
+  - Prefer "update" over "create" when a related page likely exists (check cross_refs and PROJECT.md for clues)
+  - Only "create" when a genuinely new entity/concept was introduced (new library, new pattern, new service)
+  - NEVER use MR numbers, ticket IDs, or session dates as slugs (e.g. "mr84-sma-review" is wrong, "react-sma" is right). Knowledge lives in the entity it describes, not in the event that produced it.
+  - Content should be factual, specific, and AI-readable — not session narrative. No "we reviewed", "in this session", "MR !84 introduced" — just state the facts.
+  - Each entry's content should stand alone (no "as discussed above" references)
+  - Max 3 wiki_updates per session
+  - If the session was pure Q&A with no real work, return an empty array
 - If the session was pure Q&A with no real work, return all-empty arrays.
 
 Output ONLY the JSON object. No leading/trailing whitespace, no code fence, no explanation.

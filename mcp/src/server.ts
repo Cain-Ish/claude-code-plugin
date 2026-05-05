@@ -8,7 +8,9 @@ import { glob } from "glob";
 import { pinToUser } from "./tools/pin-to-user.js";
 import { pinToProject } from "./tools/pin-to-project.js";
 import { archiveToWiki } from "./tools/archive-to-wiki.js";
-import { knowledgeSearch, type Scope } from "./tools/knowledge-search.js";
+import { knowledgeSearch } from "./tools/knowledge-search.js";
+import { knowledgeReindex } from "./tools/knowledge-reindex.js";
+import { knowledgeValidate } from "./tools/knowledge-validate.js";
 
 function resolveKnowledgeDir(): string {
   const candidates = [
@@ -26,10 +28,10 @@ function resolveKnowledgeDir(): string {
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
 
 const server = new McpServer(
-  { name: "knowledge-base", version: "1.0.0" },
+  { name: "knowledge-base", version: "1.3.0" },
   {
     capabilities: { logging: {} },
-    instructions: "Token-overlap search over the local knowledge base. Use knowledge_search to find relevant wiki pages, knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki.",
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki.",
   }
 );
 
@@ -44,19 +46,15 @@ function categorizeFile(filePath: string): string {
 server.registerTool(
   "knowledge_search",
   {
-    description: "Token-overlap search across the knowledge base wiki. Reads first lines of each markdown page under wiki/<scope>/ and ranks by overlap with query tokens. Returns top candidates with path, score, and a short snippet.",
+    description: "BM25-scored search across the knowledge base wiki. Reads full content of each markdown page, parses YAML frontmatter for field-weighted scoring (title 3x, description 2x, tags 2x, body 1x). Returns top 8 candidates with path, score, and snippet.",
     inputSchema: {
-      query: z.string().describe("Search query — tokenized on lowercase alphanumerics and matched against page heads."),
-      scope: z.enum(["concepts", "issues", "entities", "learnings", "decisions"]).optional().describe("Restrict to a single wiki subdirectory."),
+      query: z.string().describe("Search query — tokenized on lowercase alphanumerics, date tokens filtered out, matched via BM25 scoring."),
+      scope: z.string().optional().describe("Restrict to a single wiki subdirectory (e.g. 'entities', 'learnings'). Omit to search all."),
     },
   },
   async ({ query, scope }) => {
     try {
-      const result = await knowledgeSearch({
-        query,
-        scope: scope as Scope | undefined,
-        knowledgeDir: KNOWLEDGE_DIR,
-      });
+      const result = await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     } catch (error) {
       return {
@@ -178,6 +176,69 @@ server.registerTool(
     } catch (error) {
       return {
         content: [{ type: "text" as const, text: `Stats error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "knowledge_reindex",
+  {
+    description: "Regenerate wiki/index.md — a master catalog of all wiki pages with titles, descriptions, and category counts. Call after wiki writes or when index.md is stale.",
+    inputSchema: z.object({}),
+  },
+  async () => {
+    try {
+      const result = await knowledgeReindex(KNOWLEDGE_DIR);
+      const lines = [`Reindexed ${result.pagesIndexed} pages across ${result.categories.length} categories.`];
+      if (result.validation) {
+        if (result.validation.fixed > 0) lines.push(`Auto-fixed ${result.validation.fixed} issues.`);
+        const remaining = result.validation.issues.filter(i => !i.autofix || i.type !== 'empty_page');
+        if (remaining.length > 0) {
+          lines.push(`\nValidation issues (${remaining.length}):`);
+          for (const issue of remaining.slice(0, 10)) {
+            lines.push(`  [${issue.severity}] ${issue.message}`);
+          }
+        }
+      }
+      return {
+        content: [{ type: "text" as const, text: lines.join('\n') }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text" as const, text: `Reindex error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "knowledge_validate",
+  {
+    description: "Validate knowledge base health: detect orphan files, broken wiki-links, missing frontmatter, duplicate slugs, empty pages, and root-level orphans. Auto-fixes safe issues (removes empty pages, empty root orphans). Returns all issues with severity and suggested fixes.",
+    inputSchema: z.object({
+      autofix: z.boolean().optional().describe("Auto-fix safe issues (empty pages, empty orphans). Default true."),
+    }),
+  },
+  async ({ autofix }) => {
+    try {
+      const result = await knowledgeValidate(KNOWLEDGE_DIR, { autofix: autofix ?? true });
+      const lines = [`Scanned ${result.pagesScanned} pages.`];
+      if (result.fixed > 0) lines.push(`Auto-fixed ${result.fixed} issues.`);
+      if (result.issues.length > 0) {
+        lines.push(`\n${result.issues.length} issues found:`);
+        for (const issue of result.issues) {
+          lines.push(`  [${issue.severity}] ${issue.type}: ${issue.message}`);
+        }
+      } else {
+        lines.push('No issues found.');
+      }
+      return { content: [{ type: "text" as const, text: lines.join('\n') }] };
+    } catch (error) {
+      return {
+        content: [{ type: "text" as const, text: `Validate error: ${error instanceof Error ? error.message : String(error)}` }],
         isError: true,
       };
     }
