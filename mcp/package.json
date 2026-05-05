@@ -6,7 +6,7 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc && npm run bundle",
-    "bundle": "esbuild src/server.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/server.bundle.js --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" && esbuild src/tools/knowledge-reindex.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/tools/knowledge-reindex.bundle.js && esbuild src/tools/knowledge-validate.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/tools/knowledge-validate.bundle.js",
+    "bundle": "esbuild src/server.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/server.bundle.js --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" && esbuild src/tools/knowledge-reindex.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/tools/knowledge-reindex.bundle.js && esbuild src/tools/knowledge-validate.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/tools/knowledge-validate.bundle.js && esbuild src/tools/knowledge-search-cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/tools/knowledge-search-cli.bundle.js",
     "start": "node dist/server.bundle.js",
     "dev": "tsc --watch",
     "test": "vitest run"

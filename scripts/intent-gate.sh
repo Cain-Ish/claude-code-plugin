@@ -1,25 +1,11 @@
 #!/bin/bash
-# UserPromptSubmit hook. Re-injects the Intent Analysis protocol from USER.md
-# as additionalContext for substantive user prompts so it stays sticky once
-# scrollback buries the SessionStart hot tier.
+# UserPromptSubmit hook. Extracts keywords from substantive prompts, runs
+# BM25 search against the wiki, and injects top results as additionalContext
+# so Claude gets relevant knowledge without a separate MCP tool call.
 #
 # Contract: stdin is the UserPromptSubmit JSON payload; stdout is either
-# empty (trivial prompt, ignored) or a JSON envelope with
-# hookSpecificOutput.additionalContext. Always exits 0 — this hook must
-# never block a user prompt; failures fall back to silent no-op.
-#
-# Substantive vs trivial classification:
-#   - trivial: empty, ack words ("yes", "ok", "no", "go", "done", "lgtm",
-#     "ship it", "thanks, ..."), or any prompt of <7 words that is not
-#     introduced by an action verb.
-#   - substantive: >=7 words, OR starts with a known action verb
-#     (implement|build|add|fix|refactor|design|create|write|plan|debug|
-#      investigate|update|migrate|integrate|review|...).
-#
-# The fail-soft contract is intentional: a Stop/PostToolUse hook that
-# crashes is recoverable. A UserPromptSubmit hook that crashes blocks every
-# user message in the session — far worse UX than missing an Intent
-# reminder.
+# empty (trivial prompt) or a JSON envelope with additionalContext.
+# Always exits 0 — must never block a user prompt.
 set -u
 
 RAW=$(cat 2>/dev/null || true)
@@ -42,8 +28,7 @@ thanks|thx|ty|"thank you")
     exit 0 ;;
 esac
 
-# Sentence-shaped ack ("thanks, that worked", "perfect, ship it", ...) —
-# strip prefix, treat as ack only if the whole sentence is short feedback.
+# Sentence-shaped ack ("thanks, that worked", "perfect, ship it", ...)
 case "$P_TRIM" in
   thanks*|thx*|"thank you"*|"thats "*|"that's "*|"that "*|perfect*|"works."*|"works,"*)
     if [ "$W_COUNT" -le 8 ]; then exit 0; fi ;;
@@ -63,27 +48,34 @@ if [ "$ACTION" -eq 0 ] && [ "$W_COUNT" -lt 7 ]; then
   exit 0
 fi
 
-read -r -d '' CONTEXT <<'EOF' || true
-[Intent Analysis — run before answering]
+# --- Build search query from prompt keywords ---
+STOP_WORDS="the a an is are was were will be been have has had do does did can could should would may might must shall to of in for on at by with from as into about between through after before during without under over up down out off then than so if or and but not no all each every both few more most other some any many much own same that this those these what which who whom whose when where how why it its i me my we our us you your he him his she her they them their also just only very really already still even well too"
 
-Per USER.md ## Intent: this looks like a substantive request. Before coding:
+KEYWORDS=$(printf '%s' "$P_TRIM" | tr -cs '[:alpha:]' '\n' | grep -vwF "$(echo "$STOP_WORDS" | tr ' ' '\n')" | head -8 | tr '\n' ' ')
+KEYWORDS="${KEYWORDS% }"
 
-1. Extract the 3-5 keywords from the request (domain, action, surface).
-2. Run the `second-brain:query` skill on those keywords. Read top 1-2 hits
-   in full. Look for prior decisions, design plans, conventions, blockers,
-   and restrictions the user has not restated.
-3. Generate the followups a senior colleague would ask: "is there an
-   existing implementation? what tech stack and version? does anything
-   similar already exist? what scope/auth/pagination is implied? what
-   does 'all' actually mean here?" — adapt to this specific request.
-4. Answer the followups yourself from retrieved context where possible.
-   Surface only the ones that remain genuinely ambiguous AND costly to
-   guess wrong, as one focused clarifying question.
-5. If the wiki had nothing relevant, say so explicitly so the user knows
-   you checked. Then proceed with your best interpretation.
+if [ -z "$KEYWORDS" ]; then exit 0; fi
 
-Skip steps 1-4 only if this is a trivial one-verb-on-one-noun edit.
-EOF
+# --- Search wiki via bundled BM25 engine ---
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+
+WIKI_HITS=""
+if [ -f "$SEARCH_CLI" ]; then
+  WIKI_HITS=$(KNOWLEDGE_DIR="$KD" node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
+fi
+
+# --- Compose context ---
+if [ -n "$WIKI_HITS" ]; then
+  CONTEXT="[Knowledge context — auto-retrieved from wiki, do not re-query these pages]
+
+$WIKI_HITS
+---
+If the above knowledge is relevant, use it directly. Only call knowledge_search if you need additional pages not shown here."
+else
+  CONTEXT="[No wiki matches for this prompt — knowledge base has no coverage. Proceed with general knowledge. If you discover something worth capturing, the stop-hook will extract it automatically.]"
+fi
 
 jq -nc --arg ctx "$CONTEXT" '{
   hookSpecificOutput: {

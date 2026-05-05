@@ -13,7 +13,7 @@
     ],
     "UserPromptSubmit": [
       { "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/intent-gate.sh", "timeout": 5 }
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/intent-gate.sh", "timeout": 8 }
       ]}
     ],
     "Stop": [
