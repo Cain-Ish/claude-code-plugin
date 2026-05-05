@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for scripts/session-load.sh — verifies hot-tier re-emit on
 # SessionStart "compact" source-event. Locks in existing behavior so the
-# redundant-PreCompact-reload pattern from ruvnet/ruflo stays rejected.
+# redundant-PreCompact-reload pattern stays rejected.
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/session-load.sh"
 TMP=$(mktemp -d)

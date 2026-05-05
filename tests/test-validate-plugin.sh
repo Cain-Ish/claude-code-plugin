@@ -83,7 +83,7 @@ MD
 # Reflection protocol
 MD
 
-  cat > "$root/mcp/.mcp.json" <<'JSON'
+  cat > "$root/.mcp.json" <<'JSON'
 {"mcpServers":{}}
 JSON
   cat > "$root/mcp/package.json" <<'JSON'
@@ -183,9 +183,9 @@ assert_output_contains "FAIL: hooks.json PreCompact"
 
 # Case 6: missing runtime-referenced file → FAIL
 setup_skeleton
-rm "$PLUGIN_FOR_VALIDATOR/scripts/improve-protocol.md"
-run_case "missing improve-protocol.md fails" 1
-assert_output_contains "FAIL: required file missing: scripts/improve-protocol.md"
+rm "$PLUGIN_FOR_VALIDATOR/.mcp.json"
+run_case "missing .mcp.json fails" 1
+assert_output_contains "FAIL: required file missing: .mcp.json"
 
 # Case 7: corrupt mcp/package.json → FAIL
 setup_skeleton

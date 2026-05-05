@@ -116,7 +116,7 @@ done < <(find "$PLUGIN_ROOT/agents" -name "*.md" -type f 2>/dev/null)
 # loaded by other scripts/skills at runtime; if they go missing, parts of the
 # plugin break silently.
 for ref in \
-  "mcp/.mcp.json" \
+  ".mcp.json" \
   "mcp/package.json"; do
   if [ ! -f "$PLUGIN_ROOT/$ref" ]; then
     echo "FAIL: required file missing: $ref"
@@ -125,7 +125,7 @@ for ref in \
 done
 
 # JSON-validate the MCP manifests so a corrupt one is caught here, not at runtime
-for json_ref in "mcp/.mcp.json" "mcp/package.json"; do
+for json_ref in ".mcp.json" "mcp/package.json"; do
   if [ -f "$PLUGIN_ROOT/$json_ref" ] && ! jq empty "$PLUGIN_ROOT/$json_ref" 2>/dev/null; then
     echo "FAIL: $json_ref is not valid JSON"
     ERRORS=$((ERRORS + 1))
