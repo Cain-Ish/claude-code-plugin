@@ -6785,12 +6785,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs8, exportName) {
+    function addFormats(ajv, list, fs9, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs8[f]);
+        ajv.addFormat(f, fs9[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -21011,7 +21011,7 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs7 from "fs";
+import fs8 from "fs";
 import os from "os";
 import path2 from "path";
 
@@ -25409,8 +25409,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs8 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs8);
+  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs9 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs9);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -25968,8 +25968,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs8) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs8 });
+  newRoot(fs9) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs9 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -25997,8 +25997,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs8) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs8 });
+  newRoot(fs9) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs9 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -27203,8 +27203,84 @@ async function archiveToWiki(args) {
 }
 
 // src/tools/knowledge-search.ts
+import { promises as fs5 } from "fs";
+import { join as join5 } from "path";
+
+// src/tools/embeddings.ts
 import { promises as fs4 } from "fs";
 import { join as join4 } from "path";
+var EMBEDDING_DIM = 384;
+var CACHE_FILE = ".embeddings-cache.json";
+var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
+var pipelineInstance = null;
+var loadFailed = false;
+async function getPipeline() {
+  if (loadFailed) return null;
+  if (pipelineInstance) return pipelineInstance;
+  try {
+    const { pipeline } = await import("@huggingface/transformers");
+    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, {
+      dtype: "fp32"
+    });
+    return pipelineInstance;
+  } catch {
+    loadFailed = true;
+    return null;
+  }
+}
+function simpleHash(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h << 5) - h + s.charCodeAt(i) | 0;
+  }
+  return h.toString(36);
+}
+async function loadCache(wikiRoot) {
+  try {
+    const data = await fs4.readFile(join4(wikiRoot, CACHE_FILE), "utf-8");
+    const parsed = JSON.parse(data);
+    if (parsed.model === MODEL_ID) return parsed;
+  } catch {
+  }
+  return { model: MODEL_ID, entries: {} };
+}
+async function saveCache(wikiRoot, cache) {
+  try {
+    await fs4.writeFile(join4(wikiRoot, CACHE_FILE), JSON.stringify(cache));
+  } catch {
+  }
+}
+async function embedTexts(texts, wikiRoot, paths) {
+  const pipe2 = await getPipeline();
+  if (!pipe2) return null;
+  const cache = await loadCache(wikiRoot);
+  const results = [];
+  let cacheUpdated = false;
+  for (let i = 0; i < texts.length; i++) {
+    const hash = simpleHash(texts[i]);
+    const key = paths[i] || `query-${i}`;
+    if (cache.entries[key]?.hash === hash) {
+      results.push(cache.entries[key].vector);
+      continue;
+    }
+    const output = await pipe2(texts[i], { pooling: "mean", normalize: true });
+    const vec = Array.from(output.data).slice(0, EMBEDDING_DIM);
+    results.push(vec);
+    if (paths[i]) {
+      cache.entries[key] = { hash, vector: vec };
+      cacheUpdated = true;
+    }
+  }
+  if (cacheUpdated) await saveCache(wikiRoot, cache);
+  return results;
+}
+function cosineSimilarity(a, b) {
+  let dot = 0;
+  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+  return dot;
+}
+
+// src/tools/knowledge-search.ts
 var TOP_K = 8;
 var SNIPPET_CHARS = 300;
 var BM25_K1 = 1.2;
@@ -27212,15 +27288,15 @@ var BM25_B = 0.75;
 var AVG_DOC_LENGTH = 200;
 var DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
 async function knowledgeSearch(args) {
-  const knowledgeDir = args.knowledgeDir ?? join4(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join4(knowledgeDir, "wiki");
+  const knowledgeDir = args.knowledgeDir ?? join5(process.env.HOME ?? "", "knowledge");
+  const wikiRoot = join5(knowledgeDir, "wiki");
   let scopeDirs;
   if (args.scope) {
-    scopeDirs = [join4(wikiRoot, args.scope)];
+    scopeDirs = [join5(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs4.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join4(wikiRoot, d.name));
+      const entries = await fs5.readdir(wikiRoot, { withFileTypes: true });
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join5(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -27237,7 +27313,7 @@ async function knowledgeSearch(args) {
     }
     for (const filePath of paths) {
       try {
-        const content = await fs4.readFile(filePath, "utf-8");
+        const content = await fs5.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         allDocs.push({ doc, rawContent: content });
       } catch {
@@ -27250,10 +27326,47 @@ async function knowledgeSearch(args) {
   const scored = allDocs.map(({ doc, rawContent }) => ({
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL),
+    related: doc.related,
     first_lines: rawContent.slice(0, SNIPPET_CHARS)
   }));
+  const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
+  const GRAPH_BOOST = 0.3;
+  for (const entry of scored) {
+    if (entry.score <= 0) continue;
+    for (const rel of entry.related) {
+      const target = slugScoreMap.get(rel);
+      if (target && target !== entry) {
+        target.score += entry.score * GRAPH_BOOST;
+      }
+    }
+  }
+  const RRF_K = 60;
+  try {
+    const docTexts = allDocs.map(({ doc }) => `${doc.title} ${doc.description} ${doc.body}`.slice(0, 512));
+    const docPaths = allDocs.map(({ doc }) => doc.path);
+    const allTexts = [args.query, ...docTexts];
+    const allPaths = ["", ...docPaths];
+    const embeddings = await embedTexts(allTexts, wikiRoot, allPaths);
+    if (embeddings) {
+      const queryVec = embeddings[0];
+      const cosineScores = embeddings.slice(1).map((v) => cosineSimilarity(queryVec, v));
+      const bm25Ranked = scored.map((s, i) => ({ i, score: s.score })).sort((a, b) => b.score - a.score);
+      const cosineRanked = cosineScores.map((s, i) => ({ i, score: s })).sort((a, b) => b.score - a.score);
+      const rrfScores = new Array(scored.length).fill(0);
+      for (let rank = 0; rank < bm25Ranked.length; rank++) {
+        rrfScores[bm25Ranked[rank].i] += 1 / (RRF_K + rank + 1);
+      }
+      for (let rank = 0; rank < cosineRanked.length; rank++) {
+        rrfScores[cosineRanked[rank].i] += 1 / (RRF_K + rank + 1);
+      }
+      for (let i = 0; i < scored.length; i++) {
+        scored[i].score = Math.round(rrfScores[i] * 1e4) / 1e4;
+      }
+    }
+  } catch {
+  }
   scored.sort((a, b) => b.score - a.score);
-  return { candidates: scored.filter((c) => c.score > 0).slice(0, TOP_K) };
+  return { candidates: scored.filter((c) => c.score > 0).slice(0, TOP_K).map(({ related, ...rest }) => rest) };
 }
 function scoreBM25(queryTokens, doc, avgDL) {
   const fields = [
@@ -27349,9 +27462,12 @@ function tokenize(s) {
 function isDateToken(t) {
   return DATE_TOKEN_RE.test(t);
 }
+function slugFromPath(p) {
+  return p.replace(/.*\//, "").replace(/\.md$/, "");
+}
 async function collectMarkdown(dir, acc = []) {
-  for (const e of await fs4.readdir(dir, { withFileTypes: true })) {
-    const p = join4(dir, e.name);
+  for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
+    const p = join5(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
   }
@@ -27359,21 +27475,21 @@ async function collectMarkdown(dir, acc = []) {
 }
 
 // src/tools/knowledge-reindex.ts
-import { promises as fs6 } from "fs";
-import { join as join6 } from "path";
+import { promises as fs7 } from "fs";
+import { join as join7 } from "path";
 
 // src/tools/knowledge-validate.ts
-import { promises as fs5 } from "fs";
-import { join as join5, basename, relative } from "path";
+import { promises as fs6 } from "fs";
+import { join as join6, basename, relative } from "path";
 async function knowledgeValidate(knowledgeDir, opts = {}) {
-  const wikiDir = join5(knowledgeDir, "wiki");
+  const wikiDir = join6(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
   const allPages = await collectAllPages(wikiDir);
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
   for (const filePath of allPages) {
-    const content = await fs5.readFile(filePath, "utf-8");
+    const content = await fs6.readFile(filePath, "utf-8");
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
@@ -27443,10 +27559,10 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     }
   }
   try {
-    const rootFiles = await fs5.readdir(knowledgeDir, { withFileTypes: true });
+    const rootFiles = await fs6.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        const rootPath = join5(knowledgeDir, entry.name);
+        const rootPath = join6(knowledgeDir, entry.name);
         issues.push({
           type: "root_orphan",
           severity: "error",
@@ -27462,16 +27578,16 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     for (const issue2 of issues) {
       if (issue2.autofix === "remove" && issue2.type === "empty_page") {
         try {
-          await fs5.unlink(issue2.path);
+          await fs6.unlink(issue2.path);
           fixed++;
         } catch {
         }
       }
       if (issue2.autofix === "move_or_remove" && issue2.type === "root_orphan") {
         try {
-          const stat = await fs5.stat(issue2.path);
+          const stat = await fs6.stat(issue2.path);
           if (stat.size === 0) {
-            await fs5.unlink(issue2.path);
+            await fs6.unlink(issue2.path);
             fixed++;
           }
         } catch {
@@ -27514,9 +27630,9 @@ function isSessionNarrative(content, slug) {
 }
 async function collectAllPages(dir, acc = []) {
   try {
-    const entries = await fs5.readdir(dir, { withFileTypes: true });
+    const entries = await fs6.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
-      const p = join5(dir, e.name);
+      const p = join6(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -27527,11 +27643,11 @@ async function collectAllPages(dir, acc = []) {
 
 // src/tools/knowledge-reindex.ts
 async function knowledgeReindex(knowledgeDir) {
-  const wikiRoot = join6(knowledgeDir, "wiki");
-  const indexPath = join6(wikiRoot, "index.md");
+  const wikiRoot = join7(knowledgeDir, "wiki");
+  const indexPath = join7(wikiRoot, "index.md");
   let dirs;
   try {
-    const entries = await fs6.readdir(wikiRoot, { withFileTypes: true });
+    const entries = await fs7.readdir(wikiRoot, { withFileTypes: true });
     dirs = entries.filter((d) => d.isDirectory()).map((d) => d.name).sort();
   } catch {
     return { pagesIndexed: 0, categories: [], indexPath };
@@ -27539,14 +27655,14 @@ async function knowledgeReindex(knowledgeDir) {
   const sections = ["# Knowledge Base Index", ""];
   let totalPages = 0;
   for (const dir of dirs) {
-    const dirPath = join6(wikiRoot, dir);
+    const dirPath = join7(wikiRoot, dir);
     const files = await collectMd(dirPath);
     if (files.length === 0) continue;
     const entries = [];
     for (const filePath of files.sort()) {
       const slug = filePath.split("/").pop().replace(/\.md$/, "");
       try {
-        const content = await fs6.readFile(filePath, "utf-8");
+        const content = await fs7.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         const desc = doc.description || firstSentence(doc.body);
         entries.push({ slug, title: doc.title || slug, description: desc });
@@ -27568,7 +27684,7 @@ async function knowledgeReindex(knowledgeDir) {
     sections.push("");
   }
   sections.push(`<!-- generated: ${(/* @__PURE__ */ new Date()).toISOString()} -->`);
-  await fs6.writeFile(indexPath, sections.join("\n"), "utf-8");
+  await fs7.writeFile(indexPath, sections.join("\n"), "utf-8");
   const validation = await knowledgeValidate(knowledgeDir, { autofix: true });
   return {
     pagesIndexed: totalPages,
@@ -27584,8 +27700,8 @@ function firstSentence(body) {
 }
 async function collectMd(dir, acc = []) {
   try {
-    for (const e of await fs6.readdir(dir, { withFileTypes: true })) {
-      const p = join6(dir, e.name);
+    for (const e of await fs7.readdir(dir, { withFileTypes: true })) {
+      const p = join7(dir, e.name);
       if (e.isDirectory()) await collectMd(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -27692,7 +27808,7 @@ server.registerTool(
   async () => {
     try {
       const wikiDir = path2.join(KNOWLEDGE_DIR, "wiki");
-      if (!fs7.existsSync(wikiDir)) {
+      if (!fs8.existsSync(wikiDir)) {
         return {
           content: [{
             type: "text",
@@ -27712,7 +27828,7 @@ server.registerTool(
         const cat = categorizeFile(file);
         let size = 0;
         try {
-          size = fs7.statSync(file).size;
+          size = fs8.statSync(file).size;
         } catch {
           continue;
         }

@@ -73,19 +73,48 @@ TMP_OUT=$(mktemp)
 trap 'rm -f "$TMP_OUT"' EXIT
 cp "$PROJECT_MD" "$TMP_OUT"
 
+# Archive a dropped decision bullet to the wiki decisions log.
+archive_dropped_decision() {
+  local text="$1"
+  text=$(echo "$text" | sed 's/^- //')
+  [ -z "$text" ] && return 0
+  local archive_file="$KNOWLEDGE_WIKI/decisions/project-decisions-log.md"
+  mkdir -p "$(dirname "$archive_file")"
+  if [ ! -f "$archive_file" ]; then
+    local ts_now
+    ts_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    cat > "$archive_file" <<STUB
+---
+title: "Archived Project Decisions"
+type: decisions
+description: "Auto-archived decisions rotated out of PROJECT.md hot tier"
+created: $ts_now
+updated: $ts_now
+---
+
+# Archived Project Decisions
+
+STUB
+  fi
+  printf '%s\n' "- $text" >> "$archive_file"
+  WIKI_WRITES=1
+}
+
 # Insert a bullet under "## <section>", dedupe case-insensitively, cap N.
-# Drops the oldest (top-most) bullet when cap is reached.
+# Drops the oldest (top-most) bullet when cap is reached. For decisions,
+# dropped bullets are archived to wiki instead of discarded.
 insert_bullet() {
   local section="$1" bullet_text="$2" cap="$3"
   [ -z "$bullet_text" ] && return 0
 
   local lower_new
-  lower_new=$(printf '%s' "$bullet_text" | tr '[:upper:]' '[:lower:]')
+  # Strip date prefix and common markers for dedup comparison
+  lower_new=$(printf '%s' "$bullet_text" | sed 's/^\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] //' | sed 's/^\[active\] //;s/^\[resolved\] //;s/^\[stale\] //;s/^\[decision\] //;s/^\[pinned\] //' | tr '[:upper:]' '[:lower:]')
   local existing_lower
   existing_lower=$(awk -v s="$section" '
     $0 == s { flag=1; next }
     /^## / { flag=0 }
-    flag && /^- / { print tolower($0) }
+    flag && /^- / { gsub(/^- (\[[0-9]{4}-[0-9]{2}-[0-9]{2}\] )?(\[(active|resolved|stale|decision|pinned)\] )?/, "- "); print tolower($0) }
   ' "$TMP_OUT")
   if echo "$existing_lower" | grep -qF -- "$lower_new"; then
     return 0
@@ -101,10 +130,17 @@ insert_bullet() {
 
   local new_tmp
   new_tmp=$(mktemp)
-  # Section-end detection: another `## ` heading, OR the first line that is
-  # neither a bullet (`- `) nor blank — this catches the trailing
-  # `<!-- last_updated -->` and `<!-- last_queried_wiki -->` comments.
   if [ "$count" -ge "$cap" ]; then
+    # Capture the oldest bullet before dropping it
+    if [ "$section" = "## Recent decisions" ]; then
+      local oldest
+      oldest=$(awk -v s="$section" '
+        $0 == s { flag=1; next }
+        /^## / { flag=0 }
+        flag && /^- / { print; exit }
+      ' "$TMP_OUT")
+      [ -n "$oldest" ] && archive_dropped_decision "$oldest"
+    fi
     awk -v s="$section" -v new="- $bullet_text" '
       BEGIN { flag=0; dropped=0; appended=0 }
       $0 == s { print; flag=1; next }
@@ -142,10 +178,18 @@ insert_bullet() {
   CHANGED=1
 }
 
+TODAY=$(date +%Y-%m-%d)
 if [ -n "$DECISIONS" ]; then
   while IFS= read -r line; do
     [ -z "$line" ] && continue
-    insert_bullet "## Recent decisions" "$line" 3
+    # Skip "files this session" fallback lines — they're not decisions
+    echo "$line" | grep -q '^files this session:' && continue
+    # Prefix with date if not already dated
+    if echo "$line" | grep -qE '^\[20[0-9]{2}-[0-9]{2}-[0-9]{2}\]'; then
+      insert_bullet "## Recent decisions" "$line" 5
+    else
+      insert_bullet "## Recent decisions" "[$TODAY] $line" 5
+    fi
   done <<< "$DECISIONS"
 fi
 

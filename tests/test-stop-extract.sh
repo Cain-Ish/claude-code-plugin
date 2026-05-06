@@ -119,14 +119,21 @@ NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
 pass "Q&A-only transcript: predicate skips extraction"
 restore_path
 
-# --- Test 3: claude unavailable → fallback to deterministic file-touched extraction.
+# --- Test 3: claude unavailable → fallback is silent (no "files this session" noise).
 init_sandbox "no-claude"
 seed_transcript_with_edit
-stop_payload | "$SCRIPT" >/dev/null 2>&1
+# Remove claude from PATH so command -v claude fails
+SAVED_PATH="$PATH"
+export PATH=$(echo "$PATH" | tr ':' '\n' | while read -r d; do
+  [ -x "$d/claude" ] || printf '%s:' "$d"
+done | sed 's/:$//')
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
-grep -qF "src/foo.ts" "$PROJ" \
-  || fail "no-claude: deterministic extraction did not record file path"
-pass "claude unavailable: deterministic file-path fallback fires"
+ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+export PATH="$SAVED_PATH"
+NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+[ "$ORIG_HASH" = "$NEW_HASH" ] || fail "no-claude: PROJECT.md should be unchanged (no file-list noise)"
+pass "claude unavailable: fallback is silent, no noise in decisions"
 
 # --- Test 4: claude returns garbage → fail-soft, PROJECT.md untouched, exit 0.
 init_sandbox "garbage"

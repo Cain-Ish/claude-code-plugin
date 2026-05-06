@@ -15,8 +15,8 @@
 #
 # Honors env overrides:
 #   SB_EXTRACTOR_MODEL — model passed via `claude -p --model <id>`
-#                        (default: claude-haiku-4-5-20251001)
-#   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 25)
+#                        (default: claude-sonnet-4-6)
+#   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 45)
 set -u
 
 # Defensive lib.sh source. If lib.sh is missing the script would crash on
@@ -36,8 +36,8 @@ SB_GATE=""
 log_gate() { SB_GATE="$1"; }
 trap '[ -n "$SB_GATE" ] && sb_log_error "stop-extract.sh" "gate=$SB_GATE" 0' EXIT
 
-EXTRACTOR_MODEL="${SB_EXTRACTOR_MODEL:-claude-haiku-4-5-20251001}"
-EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-25}"
+EXTRACTOR_MODEL="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
+EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-45}"
 
 RAW=$(cat 2>/dev/null || true)
 if [ -z "$RAW" ]; then log_gate "empty-stdin"; exit 0; fi
@@ -116,8 +116,31 @@ trap 'rm -f "$EXTRACT_INPUT" "$EXTRACT_OUT" 2>/dev/null' EXIT
   echo
   echo "---SEPARATOR---"
   echo
-  echo "=== TRANSCRIPT (truncated to last 500 lines) ==="
-  tail -n 500 "$TRANSCRIPT"
+  echo "=== TRANSCRIPT (preprocessed) ==="
+  tail -n 500 "$TRANSCRIPT" | jq -cr '
+    if .type == "user" then
+      [.message.content[]? | select(.type == "text") | .text]
+      | select(length > 0)
+      | "USER: " + join("\n")
+    elif .type == "assistant" then
+      [.message.content[]? | (
+        if .type == "text" then "  " + .text
+        elif .type == "tool_use" then
+          "  [" + .name + "] " + (
+            if .name == "Edit" or .name == "Write" or .name == "Read" then
+              (.input.file_path // "")
+            elif .name == "Bash" then
+              (.input.command // "" | .[0:120])
+            else
+              (.input | keys | join(",") | .[0:60])
+            end
+          )
+        elif .type == "thinking" then
+          "  (thinking: " + (.thinking // "" | .[0:100]) + "...)"
+        else empty end
+      )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
+    else empty end
+  ' 2>/dev/null
 } > "$EXTRACT_INPUT"
 
 DELTA_JSON=""
@@ -132,6 +155,9 @@ if command -v claude >/dev/null 2>&1; then
   fi
   if [ -s "$EXTRACT_OUT" ] && jq -e 'type == "object"' "$EXTRACT_OUT" >/dev/null 2>&1; then
     DELTA_JSON=$(cat "$EXTRACT_OUT")
+  else
+    LLM_ERR=$(head -c 200 "$EXTRACT_OUT" 2>/dev/null | tr '\n' ' ')
+    sb_log_error "stop-extract.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=${LLM_ERR:-empty}" 0
   fi
 fi
 

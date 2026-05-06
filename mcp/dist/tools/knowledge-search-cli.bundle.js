@@ -1,6 +1,82 @@
 // src/tools/knowledge-search.ts
+import { promises as fs2 } from "fs";
+import { join as join2 } from "path";
+
+// src/tools/embeddings.ts
 import { promises as fs } from "fs";
 import { join } from "path";
+var EMBEDDING_DIM = 384;
+var CACHE_FILE = ".embeddings-cache.json";
+var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
+var pipelineInstance = null;
+var loadFailed = false;
+async function getPipeline() {
+  if (loadFailed) return null;
+  if (pipelineInstance) return pipelineInstance;
+  try {
+    const { pipeline } = await import("@huggingface/transformers");
+    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, {
+      dtype: "fp32"
+    });
+    return pipelineInstance;
+  } catch {
+    loadFailed = true;
+    return null;
+  }
+}
+function simpleHash(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h << 5) - h + s.charCodeAt(i) | 0;
+  }
+  return h.toString(36);
+}
+async function loadCache(wikiRoot) {
+  try {
+    const data = await fs.readFile(join(wikiRoot, CACHE_FILE), "utf-8");
+    const parsed = JSON.parse(data);
+    if (parsed.model === MODEL_ID) return parsed;
+  } catch {
+  }
+  return { model: MODEL_ID, entries: {} };
+}
+async function saveCache(wikiRoot, cache) {
+  try {
+    await fs.writeFile(join(wikiRoot, CACHE_FILE), JSON.stringify(cache));
+  } catch {
+  }
+}
+async function embedTexts(texts, wikiRoot, paths) {
+  const pipe = await getPipeline();
+  if (!pipe) return null;
+  const cache = await loadCache(wikiRoot);
+  const results = [];
+  let cacheUpdated = false;
+  for (let i = 0; i < texts.length; i++) {
+    const hash = simpleHash(texts[i]);
+    const key = paths[i] || `query-${i}`;
+    if (cache.entries[key]?.hash === hash) {
+      results.push(cache.entries[key].vector);
+      continue;
+    }
+    const output = await pipe(texts[i], { pooling: "mean", normalize: true });
+    const vec = Array.from(output.data).slice(0, EMBEDDING_DIM);
+    results.push(vec);
+    if (paths[i]) {
+      cache.entries[key] = { hash, vector: vec };
+      cacheUpdated = true;
+    }
+  }
+  if (cacheUpdated) await saveCache(wikiRoot, cache);
+  return results;
+}
+function cosineSimilarity(a, b) {
+  let dot = 0;
+  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+  return dot;
+}
+
+// src/tools/knowledge-search.ts
 var TOP_K = 8;
 var SNIPPET_CHARS = 300;
 var BM25_K1 = 1.2;
@@ -8,15 +84,15 @@ var BM25_B = 0.75;
 var AVG_DOC_LENGTH = 200;
 var DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
 async function knowledgeSearch(args) {
-  const knowledgeDir2 = args.knowledgeDir ?? join(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join(knowledgeDir2, "wiki");
+  const knowledgeDir2 = args.knowledgeDir ?? join2(process.env.HOME ?? "", "knowledge");
+  const wikiRoot = join2(knowledgeDir2, "wiki");
   let scopeDirs;
   if (args.scope) {
-    scopeDirs = [join(wikiRoot, args.scope)];
+    scopeDirs = [join2(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join(wikiRoot, d.name));
+      const entries = await fs2.readdir(wikiRoot, { withFileTypes: true });
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join2(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -33,7 +109,7 @@ async function knowledgeSearch(args) {
     }
     for (const filePath of paths) {
       try {
-        const content = await fs.readFile(filePath, "utf-8");
+        const content = await fs2.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         allDocs.push({ doc, rawContent: content });
       } catch {
@@ -46,10 +122,47 @@ async function knowledgeSearch(args) {
   const scored = allDocs.map(({ doc, rawContent }) => ({
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL),
+    related: doc.related,
     first_lines: rawContent.slice(0, SNIPPET_CHARS)
   }));
+  const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
+  const GRAPH_BOOST = 0.3;
+  for (const entry of scored) {
+    if (entry.score <= 0) continue;
+    for (const rel of entry.related) {
+      const target = slugScoreMap.get(rel);
+      if (target && target !== entry) {
+        target.score += entry.score * GRAPH_BOOST;
+      }
+    }
+  }
+  const RRF_K = 60;
+  try {
+    const docTexts = allDocs.map(({ doc }) => `${doc.title} ${doc.description} ${doc.body}`.slice(0, 512));
+    const docPaths = allDocs.map(({ doc }) => doc.path);
+    const allTexts = [args.query, ...docTexts];
+    const allPaths = ["", ...docPaths];
+    const embeddings = await embedTexts(allTexts, wikiRoot, allPaths);
+    if (embeddings) {
+      const queryVec = embeddings[0];
+      const cosineScores = embeddings.slice(1).map((v) => cosineSimilarity(queryVec, v));
+      const bm25Ranked = scored.map((s, i) => ({ i, score: s.score })).sort((a, b) => b.score - a.score);
+      const cosineRanked = cosineScores.map((s, i) => ({ i, score: s })).sort((a, b) => b.score - a.score);
+      const rrfScores = new Array(scored.length).fill(0);
+      for (let rank = 0; rank < bm25Ranked.length; rank++) {
+        rrfScores[bm25Ranked[rank].i] += 1 / (RRF_K + rank + 1);
+      }
+      for (let rank = 0; rank < cosineRanked.length; rank++) {
+        rrfScores[cosineRanked[rank].i] += 1 / (RRF_K + rank + 1);
+      }
+      for (let i = 0; i < scored.length; i++) {
+        scored[i].score = Math.round(rrfScores[i] * 1e4) / 1e4;
+      }
+    }
+  } catch {
+  }
   scored.sort((a, b) => b.score - a.score);
-  return { candidates: scored.filter((c) => c.score > 0).slice(0, TOP_K) };
+  return { candidates: scored.filter((c) => c.score > 0).slice(0, TOP_K).map(({ related, ...rest }) => rest) };
 }
 function scoreBM25(queryTokens, doc, avgDL) {
   const fields = [
@@ -145,9 +258,12 @@ function tokenize(s) {
 function isDateToken(t) {
   return DATE_TOKEN_RE.test(t);
 }
+function slugFromPath(p) {
+  return p.replace(/.*\//, "").replace(/\.md$/, "");
+}
 async function collectMarkdown(dir, acc = []) {
-  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
+  for (const e of await fs2.readdir(dir, { withFileTypes: true })) {
+    const p = join2(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
   }

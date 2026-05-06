@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { embedTexts, cosineSimilarity } from './embeddings.js';
 
 export interface KnowledgeSearchArgs { query: string; scope?: string; knowledgeDir?: string; }
 export interface KnowledgeSearchResult { candidates: { path: string; score: number; first_lines: string }[]; }
@@ -61,11 +62,56 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   const scored = allDocs.map(({ doc, rawContent }) => ({
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL),
+    related: doc.related,
     first_lines: rawContent.slice(0, SNIPPET_CHARS),
   }));
 
+  // Graph boost: pages referenced by high-scoring pages get a relevance bump
+  const slugScoreMap = new Map(scored.map(s => [slugFromPath(s.path), s]));
+  const GRAPH_BOOST = 0.3;
+  for (const entry of scored) {
+    if (entry.score <= 0) continue;
+    for (const rel of entry.related) {
+      const target = slugScoreMap.get(rel);
+      if (target && target !== entry) {
+        target.score += entry.score * GRAPH_BOOST;
+      }
+    }
+  }
+
+  // Hybrid search: if ONNX embeddings are available, fuse BM25 + cosine via RRF
+  const RRF_K = 60;
+  try {
+    const docTexts = allDocs.map(({ doc }) => `${doc.title} ${doc.description} ${doc.body}`.slice(0, 512));
+    const docPaths = allDocs.map(({ doc }) => doc.path);
+    const allTexts = [args.query, ...docTexts];
+    const allPaths = ['', ...docPaths];
+    const embeddings = await embedTexts(allTexts, wikiRoot, allPaths);
+
+    if (embeddings) {
+      const queryVec = embeddings[0];
+      const cosineScores = embeddings.slice(1).map(v => cosineSimilarity(queryVec, v));
+
+      // Build RRF ranks
+      const bm25Ranked = scored.map((s, i) => ({ i, score: s.score })).sort((a, b) => b.score - a.score);
+      const cosineRanked = cosineScores.map((s, i) => ({ i, score: s })).sort((a, b) => b.score - a.score);
+
+      const rrfScores = new Array(scored.length).fill(0);
+      for (let rank = 0; rank < bm25Ranked.length; rank++) {
+        rrfScores[bm25Ranked[rank].i] += 1 / (RRF_K + rank + 1);
+      }
+      for (let rank = 0; rank < cosineRanked.length; rank++) {
+        rrfScores[cosineRanked[rank].i] += 1 / (RRF_K + rank + 1);
+      }
+
+      for (let i = 0; i < scored.length; i++) {
+        scored[i].score = Math.round(rrfScores[i] * 10000) / 10000;
+      }
+    }
+  } catch { /* ONNX unavailable — continue with BM25 + graph scores */ }
+
   scored.sort((a, b) => b.score - a.score);
-  return { candidates: scored.filter(c => c.score > 0).slice(0, TOP_K) };
+  return { candidates: scored.filter(c => c.score > 0).slice(0, TOP_K).map(({ related, ...rest }) => rest) };
 }
 
 function scoreBM25(queryTokens: string[], doc: ParsedDoc, avgDL: number): number {
@@ -160,6 +206,10 @@ function tokenize(s: string): string[] {
 
 function isDateToken(t: string): boolean {
   return DATE_TOKEN_RE.test(t);
+}
+
+function slugFromPath(p: string): string {
+  return p.replace(/.*\//, '').replace(/\.md$/, '');
 }
 
 async function collectMarkdown(dir: string, acc: string[] = []): Promise<string[]> {

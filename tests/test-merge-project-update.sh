@@ -40,7 +40,7 @@ unchanged.
 EOF
 }
 
-# --- Test 1: append new decisions, dedupe against existing, cap 3.
+# --- Test 1: append new decisions, dedupe against existing, cap 5, date-prefixed.
 PROJ="$TMP/p1.md"; WIKI="$TMP/wiki1"; mkdir -p "$WIKI"
 seed_project "$PROJ"
 jq -nc '{
@@ -53,10 +53,12 @@ jq -nc '{
 COUNT=$(grep -c "picked X over Y" "$PROJ" || true)
 [ "$COUNT" -eq 1 ] || fail "decision-merge: expected 1 'picked X over Y' line, got $COUNT"
 DEC_COUNT=$(awk '/^## Recent decisions$/{flag=1; next} /^## /{flag=0} flag && /^- /' "$PROJ" | wc -l | tr -d ' ')
-[ "$DEC_COUNT" -le 3 ] || fail "decision-merge: cap exceeded ($DEC_COUNT > 3)"
+[ "$DEC_COUNT" -le 5 ] || fail "decision-merge: cap exceeded ($DEC_COUNT > 5)"
 [ "$DEC_COUNT" -eq 3 ] || fail "decision-merge: expected exactly 3 bullets (1 existing + 2 new), got $DEC_COUNT"
 grep -q "use Haiku" "$PROJ" || fail "decision-merge: new decision 'use Haiku' missing"
-pass "decisions: dedupe + cap 3 + append new"
+# New decisions should be date-prefixed
+grep -qE '\[20[0-9]{2}-[0-9]{2}-[0-9]{2}\] use Haiku' "$PROJ" || fail "decision-merge: new decision not date-prefixed"
+pass "decisions: dedupe + cap 5 + date-prefixed + append new"
 
 # --- Test 2: blockers append, cap 15.
 PROJ="$TMP/p2.md"; WIKI="$TMP/wiki2"; mkdir -p "$WIKI"
