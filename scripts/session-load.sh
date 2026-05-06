@@ -8,7 +8,7 @@ INDEX_FILE="$BRAIN_DIR/projects.jsonl"
 PROJECTS_DIR="$BRAIN_DIR/projects"
 LINE_CAP=66   # ~800 tokens / 12 tokens-per-line
 
-slug=$(basename "$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || echo "$PWD")")
+slug=$(basename "$PWD")
 project_file="$PROJECTS_DIR/$slug/PROJECT.md"
 
 if [ ! -f "$project_file" ]; then

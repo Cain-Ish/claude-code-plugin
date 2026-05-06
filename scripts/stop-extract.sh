@@ -53,9 +53,9 @@ if [ -z "$TRANSCRIPT" ]; then log_gate "transcript-path-empty cwd=$CWD"; exit 0;
 if [ ! -f "$TRANSCRIPT" ]; then log_gate "transcript-file-missing path=$TRANSCRIPT"; exit 0; fi
 
 if [ -n "$CWD" ] && [ -d "$CWD" ]; then
-  SLUG=$(basename "$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || echo "$CWD")")
+  SLUG=$(basename "$CWD")
 else
-  SLUG=$(basename "$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || echo "$PWD")")
+  SLUG=$(basename "$PWD")
 fi
 if [ -z "$SLUG" ]; then log_gate "slug-empty cwd=$CWD pwd=$PWD"; exit 0; fi
 
@@ -119,9 +119,13 @@ trap 'rm -f "$EXTRACT_INPUT" "$EXTRACT_OUT" 2>/dev/null' EXIT
   echo "=== TRANSCRIPT (preprocessed) ==="
   tail -n 500 "$TRANSCRIPT" | jq -cr '
     if .type == "user" then
-      [.message.content[]? | select(.type == "text") | .text]
-      | select(length > 0)
-      | "USER: " + join("\n")
+      if (.message.content | type) == "string" then
+        "USER: " + .message.content
+      else
+        [.message.content[]? | select(.type == "text") | .text]
+        | select(length > 0)
+        | "USER: " + join("\n")
+      end
     elif .type == "assistant" then
       [.message.content[]? | (
         if .type == "text" then "  " + .text
