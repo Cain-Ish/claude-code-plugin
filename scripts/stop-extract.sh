@@ -210,6 +210,18 @@ if ! echo "$DELTA_JSON" \
 fi
 rm -f "$MERGE_ERR"
 
+# --- Persona signal extraction ---
+PERSONA_SIGNALS=$(echo "$DELTA_JSON" | jq -c '.persona_signals // []')
+if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
+  PERSONA_ERR=$(mktemp)
+  if ! echo "$PERSONA_SIGNALS" \
+    | bash "$(dirname "$0")/merge-persona-signals.sh" 2>"$PERSONA_ERR"; then
+    ERR_TAIL=$(tr '\n' ' ' < "$PERSONA_ERR" | head -c 200)
+    log_gate "persona-merge-failed err=$ERR_TAIL"
+  fi
+  rm -f "$PERSONA_ERR"
+fi
+
 rm -f "$BRAIN_DIR/.session-baseline-$SLUG.md"
 
 exit 0

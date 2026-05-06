@@ -89,6 +89,24 @@ knowledge_validate()
 
 If unavailable, skip — validation also runs automatically during `knowledge_reindex` and on session start via `ensure-dirs.sh`.
 
+### 4c. Persona signal stats
+
+Report accumulated persona signals and any ready for graduation:
+
+```bash
+PSFILE=~/.second-brain/persona-signals.jsonl
+if [ -f "$PSFILE" ] && [ -s "$PSFILE" ]; then
+  TOTAL=$(wc -l < "$PSFILE" | tr -d ' ')
+  READY=$(jq -c 'select(.count >= 3 and .graduated == false)' "$PSFILE" 2>/dev/null | wc -l | tr -d ' ')
+  GRADUATED=$(jq -c 'select(.graduated == true)' "$PSFILE" 2>/dev/null | wc -l | tr -d ' ')
+  echo "Persona signals: ${TOTAL} tracked, ${READY} ready to graduate, ${GRADUATED} graduated"
+else
+  echo "Persona signals: none yet"
+fi
+```
+
+If signals are ready to graduate (count ≥ 3, not yet graduated), nudge the user to run `/second-brain:improve`.
+
 ### 5. Pending PROJECT.md update flag
 
 If the Stop-hook predicate fired in a recent session, a flag file is left for the next session to act on. Surface it so the user knows there is queued reflection work.
@@ -132,6 +150,9 @@ Format as a clean block. Example:
 - entities:  7
 - learnings: 9
 - decisions: 5
+
+## Persona
+- Signals: 5 tracked, 1 ready to graduate, 2 graduated
 
 ## Pending
 - (none)

@@ -95,6 +95,11 @@ for f in "$TRANSCRIPTS_DIR"/*.jsonl; do
     cat "$OUTPUT_FILE" | bash "$PLUGIN_DIR/scripts/merge-project-update.sh" \
       --project-md "$PROJECT_MD" --wiki-dir "$WIKI_DIR" --knowledge-dir "$KNOWLEDGE_DIR" 2>/dev/null
 
+    PERSONA_SIGNALS=$(jq -c '.persona_signals // []' "$OUTPUT_FILE" 2>/dev/null)
+    if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
+      echo "$PERSONA_SIGNALS" | bash "$PLUGIN_DIR/scripts/merge-persona-signals.sh" 2>/dev/null || true
+    fi
+
     SUCCESS=$((SUCCESS + 1))
   else
     echo "  FAIL: invalid JSON output"

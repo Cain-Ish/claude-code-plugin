@@ -21,6 +21,14 @@ Schema (all keys required, arrays may be empty):
       "description": "One-line description for index",
       "content": "New content or content to append"
     }
+  ],
+  "persona_signals":  [
+    {
+      "category": "code_style|communication|workflow|tooling|decision_making",
+      "signal": "one-line behavioral pattern observed",
+      "evidence": "brief quote or action from the session that shows this",
+      "confidence": "high|medium"
+    }
   ]
 }
 
@@ -40,6 +48,13 @@ Rules:
   - Each entry's content should stand alone (no "as discussed above" references)
   - Max 3 wiki_updates per session
   - If the session was pure Q&A with no real work, return an empty array
+- Persona signals: implicit or explicit behavioral patterns observed in the user's actions during this session. Focus on HOW the user works, not WHAT they built.
+  - "high" confidence: user explicitly stated a preference or corrected your approach ("don't do X", "always Y")
+  - "medium" confidence: user's behavior consistently implies a pattern (e.g., always uses early returns, never writes comments, prefers terse responses)
+  - Extract the RULE, not the instance ("prefers early returns" not "used early return in auth.ts")
+  - Skip signals already obvious from the codebase or documented in the PROJECT.md you received
+  - Categories: code_style (formatting, naming, patterns), communication (tone, verbosity), workflow (task approach, review style), tooling (tool preferences), decision_making (trade-off style, risk tolerance)
+  - Max 2 per session — only genuinely non-obvious patterns
 - If the session was pure Q&A with no real work, return all-empty arrays.
 
 Output ONLY the JSON object. No leading/trailing whitespace, no code fence, no explanation.
