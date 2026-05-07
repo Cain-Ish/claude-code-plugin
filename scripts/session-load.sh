@@ -41,6 +41,32 @@ fi
 cp "$project_file" "$BRAIN_DIR/.session-baseline-$slug.md"
 
 [ -f "$USER_FILE" ] && cat "$USER_FILE"
+
+# --- Persona signal injection: surface observed behavioral patterns ---
+PERSONA_FILE="$BRAIN_DIR/persona-signals.jsonl"
+if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 2>&1; then
+  THIRTY_DAYS_AGO=$(date -u -v-30d +%Y-%m-%d 2>/dev/null \
+    || date -u -d "30 days ago" +%Y-%m-%d 2>/dev/null \
+    || echo "1970-01-01")
+
+  SIGNALS=$(jq -rs --arg cutoff "$THIRTY_DAYS_AGO" '
+    [.[] | select(
+      .last_seen >= $cutoff and
+      .graduated == false and
+      .count >= 2
+    )]
+    | sort_by(-.count)
+    | .[0:5]
+    | .[] | "- [\(.category)] \(.signal) (seen \(.count)x)"
+  ' "$PERSONA_FILE" 2>/dev/null)
+
+  if [ -n "$SIGNALS" ]; then
+    echo
+    echo "## Observed patterns (from session history, not yet graduated to USER.md)"
+    echo "$SIGNALS"
+  fi
+fi
+
 if [ -f "$project_file" ]; then echo; cat "$project_file"; fi
 if [ -f "$INDEX_FILE" ]; then
   echo
@@ -60,6 +86,36 @@ if [ -f "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
   jq --arg s "$slug" --arg t "$TS" '
     if .slug == $s then .last_session_iso = $t else . end
   ' "$INDEX_FILE" > "$TMP_IDX" 2>/dev/null && mv "$TMP_IDX" "$INDEX_FILE" || rm -f "$TMP_IDX"
+fi
+
+# --- Wiki enrichment: surface relevant knowledge for this project ---
+# Closes the learning loop: knowledge extracted by stop/pre-compact hooks
+# flows back into new sessions via BM25 keyword search.
+KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
+
+if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 2>&1; then
+  STOP_RE='(the|a|an|is|are|was|were|will|be|have|has|had|do|does|did|can|could|should|would|to|of|in|for|on|at|by|with|from|and|but|or|not|no|this|that|auto|scaffolded|describe|active|resolved|stale|decision|pinned|project|goal|state|open|recent|cross|references|conventions)'
+
+  PROJ_KW=$(awk '
+    /^## (Goal|State|Conventions)$/,/^## / { if (!/^##/ && !/^\(auto-scaffolded/ && NF>0) print }
+    /^## Recent decisions$/,/^## / { if (/^- /) print }
+    /^## Open blockers$/,/^## / { if (/^- /) print }
+    /^## Cross-references$/,/^## / { if (/\[\[/) { gsub(/[\[\]]/, ""); print } }
+  ' "$project_file" 2>/dev/null | \
+    tr -cs '[:alpha:]' '\n' | \
+    grep -vxiE "$STOP_RE" | \
+    sort -u | head -10 | tr '\n' ' ')
+
+  if [ -n "${PROJ_KW// /}" ]; then
+    WIKI_HITS=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$SEARCH_CLI" "$PROJ_KW" 2>/dev/null || true)
+    if [ -n "$WIKI_HITS" ]; then
+      echo
+      echo "$WIKI_HITS"
+    fi
+  fi
 fi
 
 exit 0

@@ -21,6 +21,10 @@ const BM25_K1 = 1.2;
 const BM25_B = 0.75;
 const AVG_DOC_LENGTH = 200;
 const DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
+const MIN_SCORE_RATIO = 0.15;
+const STUB_PENALTY = 0.5;
+const MIN_SUBSTANTIVE_LENGTH = 100;
+const AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {
   const knowledgeDir = args.knowledgeDir ?? join(process.env.HOME ?? '', 'knowledge');
@@ -110,8 +114,22 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     }
   } catch { /* ONNX unavailable — continue with BM25 + graph scores */ }
 
+  // Stub penalty: auto-extracted skeletons and very short pages rank below real content
+  for (let i = 0; i < scored.length; i++) {
+    const { doc, rawContent } = allDocs[i];
+    if (AUTO_EXTRACTED_RE.test(rawContent) || doc.body.trim().length < MIN_SUBSTANTIVE_LENGTH) {
+      scored[i].score *= STUB_PENALTY;
+    }
+  }
+
   scored.sort((a, b) => b.score - a.score);
-  return { candidates: scored.filter(c => c.score > 0).slice(0, TOP_K).map(({ related, ...rest }) => rest) };
+  const topScore = scored[0]?.score ?? 0;
+  return {
+    candidates: scored
+      .filter(c => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO))
+      .slice(0, TOP_K)
+      .map(({ related, ...rest }) => rest),
+  };
 }
 
 function scoreBM25(queryTokens: string[], doc: ParsedDoc, avgDL: number): number {

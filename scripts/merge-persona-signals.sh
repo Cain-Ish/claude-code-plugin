@@ -65,5 +65,28 @@ MERGED=$(echo "$MERGED" | jq -c \
   --arg cutoff "$CUTOFF" \
   '[.[] | select(.graduated == true or .last_seen >= $cutoff)]')
 
+# --- Auto-graduate high-confidence signals with 3+ observations ---
+GRAD_CANDIDATES=$(echo "$MERGED" | jq -c '[.[] | select(.count >= 3 and .confidence == "high" and .graduated == false)]')
+GRAD_COUNT=$(echo "$GRAD_CANDIDATES" | jq 'length')
+
+if [ "$GRAD_COUNT" -gt 0 ]; then
+  GRADUATED_INDICES=""
+  for i in $(seq 0 $((GRAD_COUNT - 1))); do
+    SIG_TEXT=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal")
+    if sb_pin_to_user "$SIG_TEXT"; then
+      GRADUATED_INDICES="$GRADUATED_INDICES $i"
+    fi
+  done
+
+  if [ -n "$GRADUATED_INDICES" ]; then
+    for i in $GRADUATED_INDICES; do
+      SIG_NORM=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal | ascii_downcase | .[0:40]")
+      MERGED=$(echo "$MERGED" | jq -c --arg norm "$SIG_NORM" '
+        [.[] | if (.signal | ascii_downcase | .[0:40]) == $norm then .graduated = true else . end]
+      ')
+    done
+  fi
+fi
+
 # Write back as JSONL (one JSON object per line)
 echo "$MERGED" | jq -c '.[]' > "$SIGNALS_FILE"

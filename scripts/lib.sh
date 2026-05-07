@@ -73,6 +73,69 @@ sb_reindex_wiki() {
   fi
 }
 
+# Pin a preference line to USER.md. Adds a dated entry with case-insensitive
+# dedupe and a 2200-byte cap (aligned with hot-tier budget: USER.md + PROJECT.md
+# target ~3200 bytes total). Returns 0 on success, 1 on skip.
+sb_pin_to_user() {
+  local text="${1:?sb_pin_to_user: text required}"
+  local user_file="$BRAIN_DIR/USER.md"
+  local max_bytes=2200
+  local today
+  today=$(date -u +%Y-%m-%d)
+  local new_line="- [$today] $text"
+
+  local content=""
+  if [ -f "$user_file" ]; then
+    content=$(cat "$user_file")
+  else
+    mkdir -p "$BRAIN_DIR"
+    content="# USER preferences
+
+## Pinned"
+  fi
+
+  if echo "$content" | grep -qiF "$text"; then
+    return 1
+  fi
+
+  local projected
+  projected=$(printf '%s\n%s\n' "$content" "$new_line")
+  local byte_count
+  byte_count=$(printf '%s' "$projected" | wc -c | tr -d ' ')
+  if [ "$byte_count" -gt "$max_bytes" ]; then
+    return 1
+  fi
+
+  printf '%s\n' "$projected" > "$user_file"
+  return 0
+}
+
+# --- Extraction marker helpers ---
+# Track which transcript lines have been extracted so pre-compact and stop
+# hooks process disjoint windows — nothing lost, nothing duplicated.
+
+sb_get_extraction_marker() {
+  local slug="$1"
+  local marker_file="$BRAIN_DIR/.last-extracted-line-$slug"
+  if [ -f "$marker_file" ]; then
+    local val
+    val=$(cat "$marker_file" 2>/dev/null | tr -d '[:space:]')
+    if [[ "$val" =~ ^[0-9]+$ ]]; then echo "$val"; else echo "0"; fi
+  else
+    echo "0"
+  fi
+}
+
+sb_set_extraction_marker() {
+  local slug="$1" line="$2"
+  echo "$line" > "$BRAIN_DIR/.last-extracted-line-$slug"
+}
+
+sb_clear_extraction_marker() {
+  local slug="$1"
+  rm -f "$BRAIN_DIR/.last-extracted-line-$slug"
+}
+
 sb_require_jq() {
   if [ -n "${SB_JQ_OK:-}" ]; then
     [ "$SB_JQ_OK" = "1" ] && return 0 || return 1

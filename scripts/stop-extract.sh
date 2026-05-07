@@ -85,21 +85,36 @@ TMPL
 fi
 if ! mkdir -p "$WIKI_DIR" 2>/dev/null; then log_gate "wiki-dir-mkdir-failed path=$WIKI_DIR"; exit 0; fi
 
-# Substantive-session gate: count tool_use entries in the transcript.
-TOOL_COUNT=$(jq -r '
+# --- Determine unprocessed window (disjoint with pre-compact extractions) ---
+LAST_LINE=$(sb_get_extraction_marker "$SLUG")
+TOTAL_LINES=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d ' ')
+NEW_LINES=$((TOTAL_LINES - LAST_LINE))
+
+if [ "$NEW_LINES" -lt 1 ]; then
+  log_gate "no-new-lines marker=$LAST_LINE total=$TOTAL_LINES"
+  sb_clear_extraction_marker "$SLUG"
+  exit 0
+fi
+
+START_LINE=$((LAST_LINE + 1))
+# Cap at 500 lines for the final window
+if [ "$NEW_LINES" -gt 500 ]; then
+  START_LINE=$((TOTAL_LINES - 500 + 1))
+fi
+
+# Substantive-session gate: count tool_use entries in the window.
+TOOL_COUNT=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use")
   | .name
-' "$TRANSCRIPT" 2>/dev/null | wc -l | tr -d ' ')
+' 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
-  # Q&A-only is a normal no-op, NOT an error — but log a one-line schema
-  # probe so we can spot the case where the jq query never matches because
-  # the transcript schema differs from what we expect.
-  TS_LINES=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d ' ')
-  TS_FIRST_TYPE=$(head -1 "$TRANSCRIPT" 2>/dev/null | jq -r '.type // "no-type"' 2>/dev/null | tr -d '\n')
-  log_gate "tool-count-zero lines=$TS_LINES first-type=$TS_FIRST_TYPE"
+  TS_LINES=$NEW_LINES
+  TS_FIRST_TYPE=$(sed -n "${START_LINE}p" "$TRANSCRIPT" 2>/dev/null | jq -r '.type // "no-type"' 2>/dev/null | tr -d '\n')
+  log_gate "tool-count-zero lines=$TS_LINES first-type=$TS_FIRST_TYPE marker=$LAST_LINE"
+  sb_clear_extraction_marker "$SLUG"
   exit 0
 fi
 
@@ -117,7 +132,7 @@ trap 'rm -f "$EXTRACT_INPUT" "$EXTRACT_OUT" 2>/dev/null' EXIT
   echo "---SEPARATOR---"
   echo
   echo "=== TRANSCRIPT (preprocessed) ==="
-  tail -n 500 "$TRANSCRIPT" | jq -cr '
+  sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -cr '
     if .type == "user" then
       if (.message.content | type) == "string" then
         "USER: " + .message.content
@@ -167,7 +182,7 @@ fi
 
 # Deterministic fallback when LLM is unavailable or its output was bad.
 if [ -z "$DELTA_JSON" ]; then
-  FILES_JSON=$(jq -rcs '
+  FILES_JSON=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -rcs '
     [
       .[]
       | select(.type == "assistant")
@@ -178,7 +193,7 @@ if [ -z "$DELTA_JSON" ]; then
     ]
     | unique
     | map(select(. != null and . != ""))
-  ' "$TRANSCRIPT" 2>/dev/null || echo '[]')
+  ' 2>/dev/null || echo '[]')
   FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
   DELTA_JSON=$(jq -cn --argjson f "$FILES_JSON" '{
     recent_decisions: [],
@@ -223,5 +238,6 @@ if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
 fi
 
 rm -f "$BRAIN_DIR/.session-baseline-$SLUG.md"
+sb_clear_extraction_marker "$SLUG"
 
 exit 0

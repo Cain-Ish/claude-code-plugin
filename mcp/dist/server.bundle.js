@@ -27287,6 +27287,10 @@ var BM25_K1 = 1.2;
 var BM25_B = 0.75;
 var AVG_DOC_LENGTH = 200;
 var DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
+var MIN_SCORE_RATIO = 0.15;
+var STUB_PENALTY = 0.5;
+var MIN_SUBSTANTIVE_LENGTH = 100;
+var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
   const knowledgeDir = args.knowledgeDir ?? join5(process.env.HOME ?? "", "knowledge");
   const wikiRoot = join5(knowledgeDir, "wiki");
@@ -27365,8 +27369,17 @@ async function knowledgeSearch(args) {
     }
   } catch {
   }
+  for (let i = 0; i < scored.length; i++) {
+    const { doc, rawContent } = allDocs[i];
+    if (AUTO_EXTRACTED_RE.test(rawContent) || doc.body.trim().length < MIN_SUBSTANTIVE_LENGTH) {
+      scored[i].score *= STUB_PENALTY;
+    }
+  }
   scored.sort((a, b) => b.score - a.score);
-  return { candidates: scored.filter((c) => c.score > 0).slice(0, TOP_K).map(({ related, ...rest }) => rest) };
+  const topScore = scored[0]?.score ?? 0;
+  return {
+    candidates: scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest)
+  };
 }
 function scoreBM25(queryTokens, doc, avgDL) {
   const fields = [
