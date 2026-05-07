@@ -55,20 +55,16 @@ sb_log_error() {
   fi
 }
 
-# Verify jq is available. If missing, log to error-log.jsonl and return 1.
-# Caller pattern: `sb_require_jq || exit 0` — the hook then exits cleanly
-# rather than running jq commands that would silently no-op. The error is
-# surfaced to the user at next SessionStart via the error-nudge banner.
-# Cached per-process via SB_JQ_OK to avoid repeated PATH lookups.
+# Regenerate wiki/index.md catalog after wiki writes.
 sb_reindex_wiki() {
   local knowledge_dir="${1:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
   local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
   local reindex_js="$plugin_root/mcp/dist/tools/knowledge-reindex.bundle.js"
   if command -v node >/dev/null 2>&1 && [ -f "$reindex_js" ]; then
-    node -e "
-      import { knowledgeReindex } from '$reindex_js';
-      knowledgeReindex('$knowledge_dir').catch(() => {});
+    SB_BUNDLE="$reindex_js" SB_KDIR="$knowledge_dir" node -e "
+      import { knowledgeReindex } from process.env.SB_BUNDLE;
+      knowledgeReindex(process.env.SB_KDIR).catch(() => {});
     " 2>/dev/null || true
   fi
 }
@@ -136,6 +132,54 @@ sb_clear_extraction_marker() {
   rm -f "$BRAIN_DIR/.last-extracted-line-$slug"
 }
 
+# Sanitize a slug for safe filesystem use. Strips path separators, dots,
+# and non-alphanumeric chars. Returns 1 if result is empty.
+sb_sanitize_slug() {
+  local raw="${1:-}"
+  local clean
+  clean=$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g; s/^-//; s/-$//' | head -c 60)
+  [ -z "$clean" ] && return 1
+  printf '%s' "$clean"
+}
+
+# Preprocess JSONL transcript lines on stdin into a compact text summary.
+# Shared by stop-extract.sh, pre-compact.sh, and batch-extract.sh.
+sb_preprocess_transcript() {
+  jq -cr '
+    if .type == "user" then
+      if (.message.content | type) == "string" then
+        "USER: " + .message.content
+      else
+        [.message.content[]? | select(.type == "text") | .text]
+        | select(length > 0)
+        | "USER: " + join("\n")
+      end
+    elif .type == "assistant" then
+      [.message.content[]? | (
+        if .type == "text" then "  " + .text
+        elif .type == "tool_use" then
+          "  [" + .name + "] " + (
+            if .name == "Edit" or .name == "Write" or .name == "Read" then
+              (.input.file_path // "")
+            elif .name == "Bash" then
+              (.input.command // "" | .[0:120])
+            else
+              (.input | keys | join(",") | .[0:60])
+            end
+          )
+        elif .type == "thinking" then
+          "  (thinking: " + (.thinking // "" | .[0:100]) + "...)"
+        else empty end
+      )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
+    else empty end
+  ' 2>/dev/null
+}
+
+# Verify jq is available. If missing, log to error-log.jsonl and return 1.
+# Caller pattern: `sb_require_jq || exit 0` — the hook then exits cleanly
+# rather than running jq commands that would silently no-op. The error is
+# surfaced to the user at next SessionStart via the error-nudge banner.
+# Cached per-process via SB_JQ_OK to avoid repeated PATH lookups.
 sb_require_jq() {
   if [ -n "${SB_JQ_OK:-}" ]; then
     [ "$SB_JQ_OK" = "1" ] && return 0 || return 1

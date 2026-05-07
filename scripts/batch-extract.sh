@@ -18,34 +18,7 @@ MODEL="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
 
 preprocess() {
   local transcript="$1"
-  tail -n 500 "$transcript" | jq -cr '
-    if .type == "user" then
-      if (.message.content | type) == "string" then
-        "USER: " + .message.content
-      else
-        [.message.content[]? | select(.type == "text") | .text]
-        | select(length > 0)
-        | "USER: " + join("\n")
-      end
-    elif .type == "assistant" then
-      [.message.content[]? | (
-        if .type == "text" then "  " + .text
-        elif .type == "tool_use" then
-          "  [" + .name + "] " + (
-            if .name == "Edit" or .name == "Write" or .name == "Read" then
-              (.input.file_path // "")
-            elif .name == "Bash" then
-              (.input.command // "" | .[0:120])
-            else
-              (.input | keys | join(",") | .[0:60])
-            end
-          )
-        elif .type == "thinking" then
-          "  (thinking: " + (.thinking // "" | .[0:100]) + "...)"
-        else empty end
-      )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
-    else empty end
-  ' 2>/dev/null
+  tail -n 500 "$transcript" | sb_preprocess_transcript
 }
 
 TOTAL=0

@@ -14,17 +14,15 @@ REINDEX_JS="$PLUGIN_ROOT/mcp/dist/tools/knowledge-reindex.bundle.js"
 VALIDATE_JS="$PLUGIN_ROOT/mcp/dist/tools/knowledge-validate.bundle.js"
 
 if command -v node >/dev/null 2>&1; then
-  # Reindex generates index.md AND runs validation with autofix
   if [ ! -f "$WIKI_INDEX" ] && [ -f "$REINDEX_JS" ]; then
-    node -e "
-      import { knowledgeReindex } from '$REINDEX_JS';
-      knowledgeReindex('$KNOWLEDGE_DIR').catch(() => {});
+    SB_BUNDLE="$REINDEX_JS" SB_KDIR="$KNOWLEDGE_DIR" node -e "
+      import { knowledgeReindex } from process.env.SB_BUNDLE;
+      knowledgeReindex(process.env.SB_KDIR).catch(() => {});
     " 2>/dev/null || true
   elif [ -f "$VALIDATE_JS" ]; then
-    # Even if index exists, run validation to autofix issues
-    node -e "
-      import { knowledgeValidate } from '$VALIDATE_JS';
-      knowledgeValidate('$KNOWLEDGE_DIR', { autofix: true }).catch(() => {});
+    SB_BUNDLE="$VALIDATE_JS" SB_KDIR="$KNOWLEDGE_DIR" node -e "
+      import { knowledgeValidate } from process.env.SB_BUNDLE;
+      knowledgeValidate(process.env.SB_KDIR, { autofix: true }).catch(() => {});
     " 2>/dev/null || true
   fi
 fi

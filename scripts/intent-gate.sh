@@ -60,22 +60,27 @@ if [ -z "$KEYWORDS" ]; then exit 0; fi
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+WIKI_CAP=1500   # ~375 tokens per injection — prevents accumulation in long sessions
 
 WIKI_HITS=""
 if [ -f "$SEARCH_CLI" ]; then
   WIKI_HITS=$(KNOWLEDGE_DIR="$KD" node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
 fi
 
+if [ ${#WIKI_HITS} -gt "$WIKI_CAP" ]; then
+  WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c "$WIKI_CAP")
+fi
+
 # --- Compose context ---
-if [ -n "$WIKI_HITS" ]; then
-  CONTEXT="[Knowledge context — auto-retrieved from wiki, do not re-query these pages]
+if [ -z "$WIKI_HITS" ]; then
+  exit 0
+fi
+
+CONTEXT="[Knowledge context — auto-retrieved from wiki, do not re-query these pages]
 
 $WIKI_HITS
 ---
 If the above knowledge is relevant, use it directly. Only call knowledge_search if you need additional pages not shown here."
-else
-  CONTEXT="[No wiki matches for this prompt — knowledge base has no coverage. Proceed with general knowledge. If you discover something worth capturing, the stop-hook will extract it automatically.]"
-fi
 
 jq -nc --arg ctx "$CONTEXT" '{
   hookSpecificOutput: {

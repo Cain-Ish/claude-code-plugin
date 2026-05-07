@@ -15,7 +15,7 @@ for (const c of top) {
     const desc = lines.find(l => /^description:/.test(l))?.replace(/^description:\s*['"]?/, '').replace(/['"]?\s*$/, '') || '';
     const bodyStart = c.first_lines.indexOf('---', 4);
     const body = bodyStart > 0 ? c.first_lines.slice(bodyStart + 4).trim() : c.first_lines;
-    const preview = body.slice(0, 400).replace(/\n{2,}/g, '\n');
+    const preview = body.slice(0, 250).replace(/\n{2,}/g, '\n');
     console.log(`### [[${slug}]]${desc ? ' — ' + desc : ''}`);
     console.log(preview);
     console.log('');

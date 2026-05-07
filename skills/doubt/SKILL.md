@@ -18,7 +18,7 @@ Each layer maps to specific files. Pick layers to doubt based on the selection a
 | ID | Layer | Key Files |
 |----|-------|-----------|
 | `hooks` | Hook system | `hooks/hooks.json`, `scripts/ensure-dirs.sh`, `scripts/session-load.sh` |
-| `stop-predicate` | Stop-hook predicate | `scripts/stop-hook-predicate.sh`, `scripts/run-stop-predicate.sh` |
+| `stop-extract` | Stop-hook extraction | `scripts/stop-extract.sh`, `scripts/lib.sh` |
 | `learning` | Learning pipeline | `skills/improve/SKILL.md` |
 | `mcp` | MCP server | `mcp/src/server.ts` |
 | `quality` | Quality gate | `scripts/quality-gate.sh`, `agents/quality-reviewer.md` |

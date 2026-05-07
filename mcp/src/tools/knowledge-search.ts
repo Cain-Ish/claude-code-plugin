@@ -16,7 +16,7 @@ export interface ParsedDoc {
 }
 
 const TOP_K = 8;
-const SNIPPET_CHARS = 300;
+const SNIPPET_CHARS = 200;
 const BM25_K1 = 1.2;
 const BM25_B = 0.75;
 const AVG_DOC_LENGTH = 200;
@@ -63,9 +63,12 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(doc.body).length, 0) / allDocs.length || AVG_DOC_LENGTH;
 
+  const N = allDocs.length;
+  const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
+
   const scored = allDocs.map(({ doc, rawContent }) => ({
     path: doc.path,
-    score: scoreBM25(queryTokens, doc, avgDL),
+    score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
     first_lines: rawContent.slice(0, SNIPPET_CHARS),
   }));
@@ -93,10 +96,10 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     const embeddings = await embedTexts(allTexts, wikiRoot, allPaths);
 
     if (embeddings) {
+      const bm25Only = scored.map(s => s.score);
       const queryVec = embeddings[0];
       const cosineScores = embeddings.slice(1).map(v => cosineSimilarity(queryVec, v));
 
-      // Build RRF ranks
       const bm25Ranked = scored.map((s, i) => ({ i, score: s.score })).sort((a, b) => b.score - a.score);
       const cosineRanked = cosineScores.map((s, i) => ({ i, score: s })).sort((a, b) => b.score - a.score);
 
@@ -109,7 +112,9 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       }
 
       for (let i = 0; i < scored.length; i++) {
-        scored[i].score = Math.round(rrfScores[i] * 10000) / 10000;
+        scored[i].score = bm25Only[i] > 0
+          ? Math.round(rrfScores[i] * 10000) / 10000
+          : 0;
       }
     }
   } catch { /* ONNX unavailable — continue with BM25 + graph scores */ }
@@ -132,7 +137,24 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   };
 }
 
-function scoreBM25(queryTokens: string[], doc: ParsedDoc, avgDL: number): number {
+function computeDF(queryTokens: string[], docs: ParsedDoc[]): Map<string, number> {
+  const dfMap = new Map<string, number>();
+  for (const qt of queryTokens) {
+    if (isDateToken(qt)) continue;
+    let df = 0;
+    for (const doc of docs) {
+      const allTokens = [
+        ...tokenize(doc.title), ...tokenize(doc.description),
+        ...tokenize(doc.tags.join(' ')), ...tokenize(doc.body),
+      ];
+      if (allTokens.includes(qt)) df++;
+    }
+    dfMap.set(qt, df);
+  }
+  return dfMap;
+}
+
+function scoreBM25(queryTokens: string[], doc: ParsedDoc, avgDL: number, N: number, dfMap: Map<string, number>): number {
   const fields = [
     { tokens: tokenize(doc.title), weight: 3.0 },
     { tokens: tokenize(doc.description), weight: 2.0 },
@@ -143,12 +165,14 @@ function scoreBM25(queryTokens: string[], doc: ParsedDoc, avgDL: number): number
   let score = 0;
   for (const qt of queryTokens) {
     if (isDateToken(qt)) continue;
+    const df = dfMap.get(qt) ?? 0;
+    const idf = Math.log((N - df + 0.5) / (df + 0.5) + 1);
     for (const field of fields) {
       const tf = field.tokens.filter(t => t === qt).length;
       if (tf === 0) continue;
       const dl = field.tokens.length || 1;
       const tfNorm = (tf * (BM25_K1 + 1)) / (tf + BM25_K1 * (1 - BM25_B + BM25_B * dl / avgDL));
-      score += tfNorm * field.weight;
+      score += idf * tfNorm * field.weight;
     }
   }
   return Math.round(score * 100) / 100;

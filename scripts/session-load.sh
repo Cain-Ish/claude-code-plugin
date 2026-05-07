@@ -1,12 +1,14 @@
 #!/bin/bash
-# v1.0 hot-tier loader. Outputs USER.md + active PROJECT.md + active index line.
-# Captures SessionStart baseline for Stop-hook predicate.
+# Hot-tier loader with byte-budget enforcement.
+# Outputs USER.md + active PROJECT.md + persona signals + wiki enrichment,
+# capped at BYTE_BUDGET to avoid overflowing Claude's context window.
+# Priority: USER.md > PROJECT.md > persona signals > wiki enrichment.
 source "$(dirname "$0")/lib.sh"
 
 USER_FILE="$BRAIN_DIR/USER.md"
 INDEX_FILE="$BRAIN_DIR/projects.jsonl"
 PROJECTS_DIR="$BRAIN_DIR/projects"
-LINE_CAP=66   # ~800 tokens / 12 tokens-per-line
+BYTE_BUDGET=8000   # ~2000 tokens. Claude Code hard-caps hook output at 10K chars.
 
 slug=$(basename "$PWD")
 project_file="$PROJECTS_DIR/$slug/PROJECT.md"
@@ -40,9 +42,35 @@ fi
 
 cp "$project_file" "$BRAIN_DIR/.session-baseline-$slug.md"
 
-[ -f "$USER_FILE" ] && cat "$USER_FILE"
+# --- Collect components with byte tracking ---
+OUTPUT_FILE=$(mktemp)
+USED=0
 
-# --- Persona signal injection: surface observed behavioral patterns ---
+sb_append() {
+  local text="$1" label="$2" max="${3:-0}"
+  local size=${#text}
+  [ "$size" -eq 0 ] && return 0
+  if [ "$max" -gt 0 ] && [ "$size" -gt "$max" ]; then
+    text=$(printf '%s' "$text" | head -c "$max")
+    size=$max
+  fi
+  local projected=$((USED + size))
+  if [ "$projected" -gt "$BYTE_BUDGET" ]; then
+    sb_log_error "session-load.sh" "gate=byte-budget $label skipped (${size}B would exceed ${BYTE_BUDGET}B cap, used=${USED}B)" 0
+    return 1
+  fi
+  printf '%s' "$text" >> "$OUTPUT_FILE"
+  USED=$projected
+  return 0
+}
+
+# 1. USER.md — always included
+if [ -f "$USER_FILE" ]; then
+  USER_CONTENT=$(cat "$USER_FILE")
+  sb_append "$USER_CONTENT" "USER.md" 0
+fi
+
+# 2. Persona signals — capped at 600 bytes
 PERSONA_FILE="$BRAIN_DIR/persona-signals.jsonl"
 if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 2>&1; then
   THIRTY_DAYS_AGO=$(date -u -v-30d +%Y-%m-%d 2>/dev/null \
@@ -61,36 +89,24 @@ if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 
   ' "$PERSONA_FILE" 2>/dev/null)
 
   if [ -n "$SIGNALS" ]; then
-    echo
-    echo "## Observed patterns (from session history, not yet graduated to USER.md)"
-    echo "$SIGNALS"
+    PERSONA_BLOCK=$(printf '\n## Observed patterns (from session history, not yet graduated to USER.md)\n%s\n' "$SIGNALS")
+    sb_append "$PERSONA_BLOCK" "persona-signals" 600
   fi
 fi
 
-if [ -f "$project_file" ]; then echo; cat "$project_file"; fi
+# 3. PROJECT.md — always included
+if [ -f "$project_file" ]; then
+  PROJ_CONTENT=$(printf '\n%s' "$(cat "$project_file")")
+  sb_append "$PROJ_CONTENT" "PROJECT.md" 0
+fi
+
+# 4. Index line — tiny, always fits
 if [ -f "$INDEX_FILE" ]; then
-  echo
-  jq --arg s "$slug" -r 'select(.slug == $s)' "$INDEX_FILE" 2>/dev/null | head -1
+  IDX_LINE=$(printf '\n%s' "$(jq --arg s "$slug" -r 'select(.slug == $s)' "$INDEX_FILE" 2>/dev/null | head -1)")
+  sb_append "$IDX_LINE" "index-line" 200
 fi
 
-# Approximate hot-tier size: USER.md + PROJECT.md.
-TOTAL_LINES=$(( $(wc -l < "$USER_FILE" 2>/dev/null || echo 0) + $(wc -l < "$project_file" 2>/dev/null || echo 0) ))
-if [ "$TOTAL_LINES" -gt "$LINE_CAP" ]; then
-  sb_log_error "session-load.sh" "hot-tier exceeded line cap: $TOTAL_LINES > $LINE_CAP" 0
-fi
-
-# Update last_session_iso for this project
-if [ -f "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
-  TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  TMP_IDX=$(mktemp)
-  jq --arg s "$slug" --arg t "$TS" '
-    if .slug == $s then .last_session_iso = $t else . end
-  ' "$INDEX_FILE" > "$TMP_IDX" 2>/dev/null && mv "$TMP_IDX" "$INDEX_FILE" || rm -f "$TMP_IDX"
-fi
-
-# --- Wiki enrichment: surface relevant knowledge for this project ---
-# Closes the learning loop: knowledge extracted by stop/pre-compact hooks
-# flows back into new sessions via BM25 keyword search.
+# 5. Wiki enrichment — fills remaining budget, capped at 1500 bytes
 KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -112,10 +128,26 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
   if [ -n "${PROJ_KW// /}" ]; then
     WIKI_HITS=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$SEARCH_CLI" "$PROJ_KW" 2>/dev/null || true)
     if [ -n "$WIKI_HITS" ]; then
-      echo
-      echo "$WIKI_HITS"
+      sb_append "$(printf '\n%s' "$WIKI_HITS")" "wiki-enrichment" 1500
     fi
   fi
+fi
+
+# --- Emit collected output ---
+cat "$OUTPUT_FILE"
+rm -f "$OUTPUT_FILE"
+
+# --- Bookkeeping (no output) ---
+if [ "$USED" -gt "$BYTE_BUDGET" ]; then
+  sb_log_error "session-load.sh" "hot-tier exceeded byte budget: $USED > $BYTE_BUDGET" 0
+fi
+
+if [ -f "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
+  TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  TMP_IDX=$(mktemp)
+  jq --arg s "$slug" --arg t "$TS" '
+    if .slug == $s then .last_session_iso = $t else . end
+  ' "$INDEX_FILE" > "$TMP_IDX" 2>/dev/null && mv "$TMP_IDX" "$INDEX_FILE" || rm -f "$TMP_IDX"
 fi
 
 exit 0

@@ -78,7 +78,7 @@ function cosineSimilarity(a, b) {
 
 // src/tools/knowledge-search.ts
 var TOP_K = 8;
-var SNIPPET_CHARS = 300;
+var SNIPPET_CHARS = 200;
 var BM25_K1 = 1.2;
 var BM25_B = 0.75;
 var AVG_DOC_LENGTH = 200;
@@ -123,9 +123,11 @@ async function knowledgeSearch(args) {
   }
   if (allDocs.length === 0) return { candidates: [] };
   const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(doc.body).length, 0) / allDocs.length || AVG_DOC_LENGTH;
+  const N = allDocs.length;
+  const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
   const scored = allDocs.map(({ doc, rawContent }) => ({
     path: doc.path,
-    score: scoreBM25(queryTokens, doc, avgDL),
+    score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
     first_lines: rawContent.slice(0, SNIPPET_CHARS)
   }));
@@ -148,6 +150,7 @@ async function knowledgeSearch(args) {
     const allPaths = ["", ...docPaths];
     const embeddings = await embedTexts(allTexts, wikiRoot, allPaths);
     if (embeddings) {
+      const bm25Only = scored.map((s) => s.score);
       const queryVec = embeddings[0];
       const cosineScores = embeddings.slice(1).map((v) => cosineSimilarity(queryVec, v));
       const bm25Ranked = scored.map((s, i) => ({ i, score: s.score })).sort((a, b) => b.score - a.score);
@@ -160,7 +163,7 @@ async function knowledgeSearch(args) {
         rrfScores[cosineRanked[rank].i] += 1 / (RRF_K + rank + 1);
       }
       for (let i = 0; i < scored.length; i++) {
-        scored[i].score = Math.round(rrfScores[i] * 1e4) / 1e4;
+        scored[i].score = bm25Only[i] > 0 ? Math.round(rrfScores[i] * 1e4) / 1e4 : 0;
       }
     }
   } catch {
@@ -177,7 +180,25 @@ async function knowledgeSearch(args) {
     candidates: scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest)
   };
 }
-function scoreBM25(queryTokens, doc, avgDL) {
+function computeDF(queryTokens, docs) {
+  const dfMap = /* @__PURE__ */ new Map();
+  for (const qt of queryTokens) {
+    if (isDateToken(qt)) continue;
+    let df = 0;
+    for (const doc of docs) {
+      const allTokens = [
+        ...tokenize(doc.title),
+        ...tokenize(doc.description),
+        ...tokenize(doc.tags.join(" ")),
+        ...tokenize(doc.body)
+      ];
+      if (allTokens.includes(qt)) df++;
+    }
+    dfMap.set(qt, df);
+  }
+  return dfMap;
+}
+function scoreBM25(queryTokens, doc, avgDL, N, dfMap) {
   const fields = [
     { tokens: tokenize(doc.title), weight: 3 },
     { tokens: tokenize(doc.description), weight: 2 },
@@ -187,12 +208,14 @@ function scoreBM25(queryTokens, doc, avgDL) {
   let score = 0;
   for (const qt of queryTokens) {
     if (isDateToken(qt)) continue;
+    const df = dfMap.get(qt) ?? 0;
+    const idf = Math.log((N - df + 0.5) / (df + 0.5) + 1);
     for (const field of fields) {
       const tf = field.tokens.filter((t) => t === qt).length;
       if (tf === 0) continue;
       const dl = field.tokens.length || 1;
       const tfNorm = tf * (BM25_K1 + 1) / (tf + BM25_K1 * (1 - BM25_B + BM25_B * dl / avgDL));
-      score += tfNorm * field.weight;
+      score += idf * tfNorm * field.weight;
     }
   }
   return Math.round(score * 100) / 100;
@@ -300,7 +323,7 @@ for (const c of top) {
   const desc = lines.find((l) => /^description:/.test(l))?.replace(/^description:\s*['"]?/, "").replace(/['"]?\s*$/, "") || "";
   const bodyStart = c.first_lines.indexOf("---", 4);
   const body = bodyStart > 0 ? c.first_lines.slice(bodyStart + 4).trim() : c.first_lines;
-  const preview = body.slice(0, 400).replace(/\n{2,}/g, "\n");
+  const preview = body.slice(0, 250).replace(/\n{2,}/g, "\n");
   console.log(`### [[${slug}]]${desc ? " \u2014 " + desc : ""}`);
   console.log(preview);
   console.log("");

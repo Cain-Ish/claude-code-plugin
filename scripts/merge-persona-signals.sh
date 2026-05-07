@@ -2,7 +2,7 @@
 # Merge persona signals from LLM extraction into the accumulation file.
 # Input: JSON array of persona_signals on stdin
 # Storage: ~/.second-brain/persona-signals.jsonl
-set -euo pipefail
+set -u
 source "$(dirname "$0")/lib.sh"
 
 SIGNALS_FILE="$BRAIN_DIR/persona-signals.jsonl"
@@ -87,6 +87,13 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
     done
   fi
 fi
+
+# Cap at 100 entries (keep highest-count signals) and trim evidence arrays
+MERGED=$(echo "$MERGED" | jq -c '
+  [.[] | .evidence = (.evidence | if length > 5 then .[-5:] else . end)]
+  | sort_by(-.count)
+  | .[0:100]
+')
 
 # Write back as JSONL (one JSON object per line)
 echo "$MERGED" | jq -c '.[]' > "$SIGNALS_FILE"

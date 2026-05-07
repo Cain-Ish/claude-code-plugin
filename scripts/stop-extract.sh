@@ -16,7 +16,7 @@
 # Honors env overrides:
 #   SB_EXTRACTOR_MODEL — model passed via `claude -p --model <id>`
 #                        (default: claude-sonnet-4-6)
-#   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 45)
+#   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 40)
 set -u
 
 # Defensive lib.sh source. If lib.sh is missing the script would crash on
@@ -37,7 +37,7 @@ log_gate() { SB_GATE="$1"; }
 trap '[ -n "$SB_GATE" ] && sb_log_error "stop-extract.sh" "gate=$SB_GATE" 0' EXIT
 
 EXTRACTOR_MODEL="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
-EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-45}"
+EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-40}"
 
 RAW=$(cat 2>/dev/null || true)
 if [ -z "$RAW" ]; then log_gate "empty-stdin"; exit 0; fi
@@ -132,34 +132,7 @@ trap 'rm -f "$EXTRACT_INPUT" "$EXTRACT_OUT" 2>/dev/null' EXIT
   echo "---SEPARATOR---"
   echo
   echo "=== TRANSCRIPT (preprocessed) ==="
-  sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -cr '
-    if .type == "user" then
-      if (.message.content | type) == "string" then
-        "USER: " + .message.content
-      else
-        [.message.content[]? | select(.type == "text") | .text]
-        | select(length > 0)
-        | "USER: " + join("\n")
-      end
-    elif .type == "assistant" then
-      [.message.content[]? | (
-        if .type == "text" then "  " + .text
-        elif .type == "tool_use" then
-          "  [" + .name + "] " + (
-            if .name == "Edit" or .name == "Write" or .name == "Read" then
-              (.input.file_path // "")
-            elif .name == "Bash" then
-              (.input.command // "" | .[0:120])
-            else
-              (.input | keys | join(",") | .[0:60])
-            end
-          )
-        elif .type == "thinking" then
-          "  (thinking: " + (.thinking // "" | .[0:100]) + "...)"
-        else empty end
-      )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
-    else empty end
-  ' 2>/dev/null
+  sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
 } > "$EXTRACT_INPUT"
 
 DELTA_JSON=""

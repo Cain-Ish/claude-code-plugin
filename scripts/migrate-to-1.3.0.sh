@@ -227,9 +227,9 @@ echo "  [6/8] Missing PROJECT.md files scaffolded."
 # --- Step 7: Generate initial index.md ---
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)}"
 if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_ROOT/mcp/dist/tools/knowledge-reindex.bundle.js" ]; then
-  node -e "
-    import { knowledgeReindex } from '$PLUGIN_ROOT/mcp/dist/tools/knowledge-reindex.bundle.js';
-    knowledgeReindex('$KNOWLEDGE_DIR').then(r => console.log('  [7/8] Index generated: ' + r.pagesIndexed + ' pages.'))
+  SB_BUNDLE="$PLUGIN_ROOT/mcp/dist/tools/knowledge-reindex.bundle.js" SB_KDIR="$KNOWLEDGE_DIR" node -e "
+    import { knowledgeReindex } from process.env.SB_BUNDLE;
+    knowledgeReindex(process.env.SB_KDIR).then(r => console.log('  [7/8] Index generated: ' + r.pagesIndexed + ' pages.'))
       .catch(e => console.log('  [7/8] Index generation failed: ' + e.message));
   " 2>/dev/null || echo "  [7/8] Index generation skipped (node import failed)."
 else

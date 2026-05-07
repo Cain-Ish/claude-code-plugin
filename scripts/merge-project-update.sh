@@ -26,6 +26,7 @@
 #   - Atomic write: stage to a tempfile, mv into place.
 #   - Invalid JSON on stdin → exit non-zero with PROJECT.md untouched.
 set -u
+source "$(dirname "$0")/lib.sh"
 
 PROJECT_MD=""
 WIKI_DIR=""
@@ -212,7 +213,8 @@ if [ -n "$REFS" ]; then
     if ! echo "$existing" | grep -qF -- "[[$lower_ref]]"; then
       insert_bullet "## Cross-references" "[[$ref]]" 3
     fi
-    stub="$WIKI_DIR/$ref.md"
+    safe_ref=$(sb_sanitize_slug "$ref") || continue
+    stub="$WIKI_DIR/$safe_ref.md"
     if [ ! -f "$stub" ]; then
       ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       {
@@ -229,15 +231,16 @@ WIKI_WRITES=0
 WIKI_UPDATES_COUNT=$(echo "$RAW" | jq '.wiki_updates // [] | length' 2>/dev/null || echo 0)
 if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
   mkdir -p "$KNOWLEDGE_WIKI"
-  echo "$RAW" | jq -c '.wiki_updates // [] | .[]' 2>/dev/null | while IFS= read -r update; do
-    category=$(echo "$update" | jq -r '.category // "concepts"')
-    slug=$(echo "$update" | jq -r '.slug // empty')
+  while IFS= read -r update; do
+    raw_category=$(echo "$update" | jq -r '.category // "concepts"')
+    raw_slug=$(echo "$update" | jq -r '.slug // empty')
     action=$(echo "$update" | jq -r '.action // "create"')
     title=$(echo "$update" | jq -r '.title // ""')
     description=$(echo "$update" | jq -r '.description // ""')
     content=$(echo "$update" | jq -r '.content // ""')
 
-    [ -z "$slug" ] && continue
+    category=$(sb_sanitize_slug "$raw_category") || continue
+    slug=$(sb_sanitize_slug "$raw_slug") || continue
     [ -z "$content" ] && continue
 
     # Gate: reject MR/session-style slugs
@@ -267,15 +270,19 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
       if grep -qF "$content_check" "$target_file" 2>/dev/null; then
         continue
       fi
-      # Append under History section with timestamp
+      # Append under History/Updates section with timestamp
       if grep -q '^## History' "$target_file" 2>/dev/null; then
-        sed -i.bak "/^## History/a\\
-- [$(date +%Y-%m-%d)] $content" "$target_file" && rm -f "$target_file.bak"
+        CONTENT="$content" awk -v ts="$(date +%Y-%m-%d)" '
+          /^## History/ { print; printed=1; next }
+          printed && !inserted { print "- [" ts "] " ENVIRON["CONTENT"]; inserted=1 }
+          { print }
+        ' "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
       else
         printf '\n## Updates\n\n%s\n' "$content" >> "$target_file"
       fi
       if grep -q '^updated:' "$target_file" 2>/dev/null; then
-        sed -i.bak "s/^updated:.*/updated: ${ts_now}/" "$target_file" && rm -f "$target_file.bak"
+        awk -v ts="$ts_now" '{ if (/^updated:/) print "updated: " ts; else print }' \
+          "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
       fi
     else
       {
@@ -290,8 +297,8 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
         printf '%s\n' "$content"
       } > "$target_file"
     fi
-  done
-  WIKI_WRITES=1
+    WIKI_WRITES=1
+  done < <(echo "$RAW" | jq -c '.wiki_updates // [] | .[]' 2>/dev/null)
 fi
 
 if [ "$CHANGED" -eq 1 ]; then
@@ -309,9 +316,9 @@ fi
 if [ "$WIKI_WRITES" -eq 1 ]; then
   PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
   if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/knowledge-reindex.bundle.js" ]; then
-    node -e "
-      import { knowledgeReindex } from '$PLUGIN_DIST/knowledge-reindex.bundle.js';
-      knowledgeReindex('$KNOWLEDGE_DIR').catch(() => {});
+    SB_BUNDLE="$PLUGIN_DIST/knowledge-reindex.bundle.js" SB_KDIR="$KNOWLEDGE_DIR" node -e "
+      import { knowledgeReindex } from process.env.SB_BUNDLE;
+      knowledgeReindex(process.env.SB_KDIR).catch(() => {});
     " 2>/dev/null || true
   fi
 fi

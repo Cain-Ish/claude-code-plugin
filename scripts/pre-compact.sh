@@ -101,34 +101,7 @@ fi
   echo "---SEPARATOR---"
   echo
   echo "=== TRANSCRIPT (preprocessed) ==="
-  sed -n "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -cr '
-    if .type == "user" then
-      if (.message.content | type) == "string" then
-        "USER: " + .message.content
-      else
-        [.message.content[]? | select(.type == "text") | .text]
-        | select(length > 0)
-        | "USER: " + join("\n")
-      end
-    elif .type == "assistant" then
-      [.message.content[]? | (
-        if .type == "text" then "  " + .text
-        elif .type == "tool_use" then
-          "  [" + .name + "] " + (
-            if .name == "Edit" or .name == "Write" or .name == "Read" then
-              (.input.file_path // "")
-            elif .name == "Bash" then
-              (.input.command // "" | .[0:120])
-            else
-              (.input | keys | join(",") | .[0:60])
-            end
-          )
-        elif .type == "thinking" then
-          "  (thinking: " + (.thinking // "" | .[0:100]) + "...)"
-        else empty end
-      )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
-    else empty end
-  ' 2>/dev/null
+  sed -n "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
 } > "$EXTRACT_INPUT"
 
 # --- Run LLM extraction ---
@@ -205,13 +178,5 @@ fi
 
 # --- Update extraction marker ---
 sb_set_extraction_marker "$SLUG" "$TOTAL_LINES"
-
-# --- Predicate check (legacy flag for post-compact nudge) ---
-baseline="$BRAIN_DIR/.session-baseline-$SLUG.md"
-if [ -f "$baseline" ] && [ -f "$PROJECT_MD" ]; then
-  if bash "$(dirname "$0")/stop-hook-predicate.sh" "$baseline" "$PROJECT_MD" 2>/dev/null; then
-    echo "predicate-fired-precompact" > "$BRAIN_DIR/.project-update-pending-$SLUG"
-  fi
-fi
 
 exit 0
