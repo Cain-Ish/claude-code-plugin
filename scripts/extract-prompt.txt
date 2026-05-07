@@ -40,7 +40,10 @@ Rules:
 - Wiki updates: extract technology patterns, architecture decisions, entity relationships, and reusable concepts into wiki page proposals. Rules:
   - "entities" = specific technologies, libraries, services, repos, or components the project uses
   - "concepts" = design patterns, architectural approaches, or reusable ideas
-  - "learnings" = non-obvious insights, gotchas, or hard-won knowledge from this session
+  - "learnings" = non-obvious insights, gotchas, or hard-won knowledge from this session. Must pass THREE filters:
+    1. NOT a platitude: skip universal principles any developer already knows ("write good tests", "read before editing", "think about real need"). If it could appear in a generic engineering handbook, it's not a learning.
+    2. REUSABLE: skip one-time tool-specific gotchas that only apply to one tool/version/config combination and are unlikely to recur (e.g., "Asana MCP doesn't expose start_on field", "React.lazy defeated by monolithic re-export"). Keep it only if a future session in a different project could benefit.
+    3. NOT self-referential: skip learnings about the second-brain plugin's own internals (its scripts, its extraction pipeline, its wiki structure). Those are changelog entries, not knowledge.
   - Prefer "update" over "create" when a related page likely exists (check cross_refs and PROJECT.md for clues)
   - Only "create" when a genuinely new entity/concept was introduced (new library, new pattern, new service)
   - NEVER use MR numbers, ticket IDs, or session dates as slugs (e.g. "mr84-sma-review" is wrong, "react-sma" is right). Knowledge lives in the entity it describes, not in the event that produced it.
