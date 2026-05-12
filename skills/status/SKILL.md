@@ -107,6 +107,29 @@ fi
 
 If signals are ready to graduate (count ≥ 3, not yet graduated), nudge the user to run `/second-brain:improve`.
 
+### 4d. Dream status
+
+Report active or recent dream state:
+
+```bash
+DREAMS_DIR=~/.second-brain/dreams
+if [ -d "$DREAMS_DIR" ]; then
+  for sf in "$DREAMS_DIR"/drm_*/status.json; do
+    [ -f "$sf" ] || continue
+    DID=$(jq -r '.id' "$sf" 2>/dev/null)
+    DSTATUS=$(jq -r '.status' "$sf" 2>/dev/null)
+    DARCHIVED=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null)
+    [ "$DARCHIVED" != "" ] && [ "$DARCHIVED" != "null" ] && continue
+    DA=$(jq -r '.outputs.pages_added // 0' "$sf" 2>/dev/null)
+    DM=$(jq -r '.outputs.pages_modified // 0' "$sf" 2>/dev/null)
+    DR=$(jq -r '.outputs.pages_removed // 0' "$sf" 2>/dev/null)
+    echo "Dream $DID: $DSTATUS (+$DA ~$DM -$DR)"
+  done
+fi
+```
+
+If a dream is `completed`, nudge the user to run `/second-brain:dream` to review and accept/discard. If `running`, show elapsed time. If no active dreams, report "No active dreams."
+
 ### 5. Pending PROJECT.md update flag
 
 If the Stop-hook predicate fired in a recent session, a flag file is left for the next session to act on. Surface it so the user knows there is queued reflection work.

@@ -106,6 +106,31 @@ sb_pin_to_user() {
   return 0
 }
 
+# Read the active session slug pinned by session-load.sh. Falls back to
+# basename of $1 if the pin file is missing (first-run or stale state).
+sb_resolve_slug() {
+  local cwd="${1:-$PWD}"
+  local pinned="$BRAIN_DIR/.active-session-slug"
+
+  if [ -f "$pinned" ]; then
+    local slug
+    slug=$(tr -d '[:space:]' < "$pinned")
+    if [ -n "$slug" ] && [ -f "$BRAIN_DIR/projects/$slug/PROJECT.md" ]; then
+      echo "$slug"
+      return 0
+    fi
+  fi
+
+  echo "$(basename "$cwd")"
+  return 0
+}
+
+# Strip markdown code fences from LLM output. Models sometimes wrap JSON in
+# ```json ... ``` despite being told not to. Reads stdin, writes stdout.
+sb_strip_code_fences() {
+  sed '1s/^```[a-zA-Z]*[[:space:]]*//' | sed '$ s/[[:space:]]*```[[:space:]]*$//'
+}
+
 # --- Extraction marker helpers ---
 # Track which transcript lines have been extracted so pre-compact and stop
 # hooks process disjoint windows — nothing lost, nothing duplicated.
@@ -173,6 +198,107 @@ sb_preprocess_transcript() {
       )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
     else empty end
   ' 2>/dev/null
+}
+
+# --- Transcript archive helpers ---
+# Archive a preprocessed transcript window for dream mining.
+# Appends to an existing archive file for the same session (pre-compact
+# runs first, stop appends later), so the full session is captured.
+# Args: $1=transcript_path $2=slug $3=session_id $4=start_line $5=end_line $6=tool_count
+sb_archive_transcript() {
+  local transcript="$1" slug="$2" session_id="$3"
+  local start_line="$4" end_line="$5" tool_count="$6"
+  local archive_dir="$BRAIN_DIR/transcripts"
+  mkdir -p "$archive_dir" 2>/dev/null || return 1
+  local date_str
+  date_str=$(date +%Y-%m-%d)
+  local archive_file="$archive_dir/${session_id}_${slug}_${date_str}.txt"
+
+  if [ ! -f "$archive_file" ]; then
+    {
+      echo "--- session-meta ---"
+      echo "session_id: $session_id"
+      echo "project_slug: $slug"
+      echo "date: $date_str"
+      echo "tool_count: $tool_count"
+      echo "line_count: $((end_line - start_line + 1))"
+      echo "---"
+      echo ""
+    } > "$archive_file"
+  fi
+
+  sed -n "${start_line},${end_line}p" "$transcript" \
+    | sb_preprocess_transcript >> "$archive_file" 2>/dev/null
+  sb_prune_transcripts
+}
+
+# Enforce transcript archive caps: 100 files max, 5MB total.
+# Deletes oldest files first (sorted by filename which embeds date).
+sb_prune_transcripts() {
+  local archive_dir="$BRAIN_DIR/transcripts"
+  [ -d "$archive_dir" ] || return 0
+
+  local files
+  files=$(find "$archive_dir" -name '*.txt' -type f 2>/dev/null | sort)
+  local count
+  count=$(echo "$files" | grep -c . 2>/dev/null || echo 0)
+
+  while [ "$count" -gt 100 ]; do
+    local oldest
+    oldest=$(echo "$files" | head -1)
+    [ -n "$oldest" ] && rm -f "$oldest"
+    files=$(echo "$files" | tail -n +2)
+    count=$((count - 1))
+  done
+
+  local total_bytes=0
+  for f in $files; do
+    local sz
+    sz=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+    total_bytes=$((total_bytes + sz))
+  done
+
+  while [ "$total_bytes" -gt 5242880 ] && [ -n "$files" ]; do
+    local oldest
+    oldest=$(echo "$files" | head -1)
+    [ -z "$oldest" ] && break
+    local sz
+    sz=$(wc -c < "$oldest" 2>/dev/null | tr -d ' ')
+    rm -f "$oldest"
+    total_bytes=$((total_bytes - sz))
+    files=$(echo "$files" | tail -n +2)
+  done
+}
+
+# --- Dream lifecycle helpers ---
+
+sb_generate_dream_id() {
+  echo "drm_$(date -u +%Y%m%dT%H%M%SZ)"
+}
+
+sb_dream_dir() {
+  echo "$BRAIN_DIR/dreams/${1:?dream_id required}"
+}
+
+sb_dream_status() {
+  local dream_id="$1"
+  local status_file="$BRAIN_DIR/dreams/$dream_id/status.json"
+  [ -f "$status_file" ] && cat "$status_file" || echo '{}'
+}
+
+sb_dream_set_status() {
+  local dream_id="$1" field="$2" value="$3"
+  local status_file="$BRAIN_DIR/dreams/$dream_id/status.json"
+  [ -f "$status_file" ] || return 1
+  local tmp
+  tmp=$(mktemp)
+  if [ "$value" = "null" ]; then
+    jq --arg f "$field" '.[$f] = null' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
+  elif echo "$value" | jq -e 'type == "number"' >/dev/null 2>&1; then
+    jq --arg f "$field" --argjson v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
+  else
+    jq --arg f "$field" --arg v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
+  fi
 }
 
 # Verify jq is available. If missing, log to error-log.jsonl and return 1.

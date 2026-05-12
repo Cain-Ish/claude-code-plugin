@@ -11,6 +11,7 @@ import { archiveToWiki } from "./tools/archive-to-wiki.js";
 import { knowledgeSearch } from "./tools/knowledge-search.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
+import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
 function resolveKnowledgeDir() {
     const candidates = [
         process.env.KNOWLEDGE_DIR,
@@ -24,9 +25,9 @@ function resolveKnowledgeDir() {
     return path.join(os.homedir(), "knowledge");
 }
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
-const server = new McpServer({ name: "knowledge-base", version: "1.3.0" }, {
+const server = new McpServer({ name: "knowledge-base", version: "2.0.0" }, {
     capabilities: { logging: {} },
-    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki.",
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream.",
 });
 function categorizeFile(filePath) {
     const rel = path.relative(path.join(KNOWLEDGE_DIR, "wiki"), filePath);
@@ -204,6 +205,67 @@ server.registerTool("knowledge_validate", {
             isError: true,
         };
     }
+});
+// --- Dream tools ---
+server.registerTool("dream_create", {
+    description: "Start a new dream — async background consolidation of the knowledge base. Snapshots the wiki, selects session transcripts, and prepares for consolidation. Only one dream may be pending/running at a time.",
+    inputSchema: {
+        instructions: z.string().optional().describe("Guidance for the consolidation (max 4096 chars). E.g., 'Focus on React patterns; ignore one-off debugging notes.'"),
+        transcript_filter: z.object({
+            project_slug: z.string().optional().describe("Only include transcripts from this project"),
+            since: z.string().optional().describe("Only include transcripts since this ISO date (YYYY-MM-DD)"),
+            max_count: z.number().optional().describe("Max transcripts to include (default 50, max 100)"),
+        }).optional(),
+        model: z.string().optional().describe("Model for consolidation. Default: claude-sonnet-4-6"),
+    },
+}, async (args) => {
+    const result = await dreamCreate(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+});
+server.registerTool("dream_status", {
+    description: "Get the current status of a dream by ID. Returns lifecycle state, inputs, outputs, and a diff preview if completed.",
+    inputSchema: {
+        dream_id: z.string().describe("The dream ID (e.g., drm_20260511T143022Z)"),
+    },
+}, async (args) => {
+    const result = await dreamStatus(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+});
+server.registerTool("dream_list", {
+    description: "List all dreams, newest first. Excludes archived dreams by default.",
+    inputSchema: {
+        include_archived: z.boolean().optional().describe("Include archived dreams. Default false."),
+    },
+}, async (args) => {
+    const result = await dreamList(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+});
+server.registerTool("dream_accept", {
+    description: "Accept a completed dream — applies staged wiki changes to the live knowledge base. The dream is archived after acceptance.",
+    inputSchema: {
+        dream_id: z.string().describe("The dream ID to accept"),
+    },
+}, async (args) => {
+    const result = await dreamAccept(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+});
+server.registerTool("dream_discard", {
+    description: "Discard a dream's output without applying changes. Works on completed, failed, or canceled dreams.",
+    inputSchema: {
+        dream_id: z.string().describe("The dream ID to discard"),
+    },
+}, async (args) => {
+    const result = await dreamDiscard(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+});
+server.registerTool("dream_cancel", {
+    description: "Cancel a pending or running dream. Sets status to 'canceled' — does not terminate a running agent process (the agent checks status.json and stops on its own).",
+    inputSchema: {
+        dream_id: z.string().describe("The dream ID to cancel"),
+    },
+}, async (args) => {
+    const result = await dreamCancel(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
 });
 // --- Start ---
 async function main() {

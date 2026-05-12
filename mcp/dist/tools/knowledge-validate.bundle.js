@@ -1,8 +1,10 @@
 // src/tools/knowledge-validate.ts
 import { promises as fs } from "fs";
-import { join, basename, relative } from "path";
+import { join as join2, basename, relative } from "path";
 
 // src/tools/knowledge-search.ts
+import { join } from "path";
+var ACCESS_COUNTS_FILE = join(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 function parseDoc(content, filePath) {
   const doc = {
     title: "",
@@ -11,7 +13,9 @@ function parseDoc(content, filePath) {
     tags: [],
     related: [],
     body: content,
-    path: filePath
+    path: filePath,
+    updated: "",
+    created: ""
   };
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
@@ -22,6 +26,8 @@ function parseDoc(content, filePath) {
     doc.type = extractYamlValue(fm, "type");
     doc.tags = extractYamlList(fm, "tags");
     doc.related = extractYamlList(fm, "related");
+    doc.updated = extractYamlValue(fm, "updated");
+    doc.created = extractYamlValue(fm, "created");
   }
   if (!doc.title) {
     const headingMatch = doc.body.match(/^#\s+(.+)/m);
@@ -74,7 +80,7 @@ function extractYamlList(yaml, key) {
 
 // src/tools/knowledge-validate.ts
 async function knowledgeValidate(knowledgeDir, opts = {}) {
-  const wikiDir = join(knowledgeDir, "wiki");
+  const wikiDir = join2(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
   const allPages = await collectAllPages(wikiDir);
@@ -154,7 +160,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const rootFiles = await fs.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        const rootPath = join(knowledgeDir, entry.name);
+        const rootPath = join2(knowledgeDir, entry.name);
         issues.push({
           type: "root_orphan",
           severity: "error",
@@ -224,7 +230,7 @@ async function collectAllPages(dir, acc = []) {
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
-      const p = join(dir, e.name);
+      const p = join2(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }

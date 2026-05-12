@@ -6785,12 +6785,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs9, exportName) {
+    function addFormats(ajv, list, fs10, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs9[f]);
+        ajv.addFormat(f, fs10[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -21011,7 +21011,7 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs8 from "fs";
+import fs9 from "fs";
 import os from "os";
 import path2 from "path";
 
@@ -25409,8 +25409,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs9 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs9);
+  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs10 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs10);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -25968,8 +25968,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs9) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs9 });
+  newRoot(fs10) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs10 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -25997,8 +25997,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs9) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs9 });
+  newRoot(fs10) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs10 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -27155,9 +27155,9 @@ var SOURCE_SECTION_HEADER = {
   decisions: "## Recent decisions"
 };
 async function archiveToWiki(args) {
-  const brainDir = args.brainDir ?? join3(process.env.HOME ?? "", ".second-brain");
+  const brainDir2 = args.brainDir ?? join3(process.env.HOME ?? "", ".second-brain");
   const knowledgeDir = args.knowledgeDir ?? join3(process.env.HOME ?? "", "knowledge");
-  const projectFile = join3(brainDir, "projects", args.slug, "PROJECT.md");
+  const projectFile = join3(brainDir2, "projects", args.slug, "PROJECT.md");
   const wikiDir = join3(knowledgeDir, "wiki", args.targetCategory, args.slug);
   await fs3.mkdir(wikiDir, { recursive: true });
   const content = await fs3.readFile(projectFile, "utf-8");
@@ -27281,6 +27281,26 @@ function cosineSimilarity(a, b) {
 }
 
 // src/tools/knowledge-search.ts
+var ACCESS_COUNTS_FILE = join5(process.env.HOME ?? "", ".second-brain", "access-counts.json");
+var ACCESS_BOOST_FACTOR = 0.1;
+var ACCESS_BOOST_CAP = 10;
+var ACCESS_PRUNE_DAYS = 90;
+async function loadAccessCounts() {
+  try {
+    return JSON.parse(await fs5.readFile(ACCESS_COUNTS_FILE, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+async function saveAccessCounts(counts) {
+  const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 864e5).toISOString();
+  const pruned = {};
+  for (const [k, v] of Object.entries(counts)) {
+    if (v.last_accessed >= cutoff) pruned[k] = v;
+  }
+  await fs5.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {
+  });
+}
 var TOP_K = 8;
 var SNIPPET_CHARS = 200;
 var BM25_K1 = 1.2;
@@ -27378,11 +27398,40 @@ async function knowledgeSearch(args) {
       scored[i].score *= STUB_PENALTY;
     }
   }
+  const accessCounts = await loadAccessCounts();
+  for (let i = 0; i < scored.length; i++) {
+    if (scored[i].score <= 0) continue;
+    const slug = slugFromPath(scored[i].path);
+    const ac = accessCounts[slug];
+    if (ac) {
+      scored[i].score *= 1 + ACCESS_BOOST_FACTOR * Math.min(ac.count, ACCESS_BOOST_CAP);
+    }
+  }
+  const RECENCY_BOOST_MAX = 0.3;
+  const RECENCY_WINDOW_DAYS = 90;
+  const now = Date.now();
+  for (let i = 0; i < scored.length; i++) {
+    if (scored[i].score <= 0) continue;
+    const dateStr = allDocs[i].doc.updated || allDocs[i].doc.created;
+    if (!dateStr) continue;
+    const updated = new Date(dateStr).getTime();
+    if (isNaN(updated)) continue;
+    const daysSince = (now - updated) / 864e5;
+    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
+  }
   scored.sort((a, b) => b.score - a.score);
   const topScore = scored[0]?.score ?? 0;
-  return {
-    candidates: scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest)
-  };
+  const candidates = scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest);
+  const ts = (/* @__PURE__ */ new Date()).toISOString();
+  for (const c of candidates) {
+    const slug = slugFromPath(c.path);
+    if (!accessCounts[slug]) accessCounts[slug] = { count: 0, last_accessed: "" };
+    accessCounts[slug].count++;
+    accessCounts[slug].last_accessed = ts;
+  }
+  saveAccessCounts(accessCounts).catch(() => {
+  });
+  return { candidates };
 }
 function computeDF(queryTokens, docs) {
   const dfMap = /* @__PURE__ */ new Map();
@@ -27432,7 +27481,9 @@ function parseDoc(content, filePath) {
     tags: [],
     related: [],
     body: content,
-    path: filePath
+    path: filePath,
+    updated: "",
+    created: ""
   };
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
@@ -27443,6 +27494,8 @@ function parseDoc(content, filePath) {
     doc.type = extractYamlValue(fm, "type");
     doc.tags = extractYamlList(fm, "tags");
     doc.related = extractYamlList(fm, "related");
+    doc.updated = extractYamlValue(fm, "updated");
+    doc.created = extractYamlValue(fm, "created");
   }
   if (!doc.title) {
     const headingMatch = doc.body.match(/^#\s+(.+)/m);
@@ -27746,6 +27799,193 @@ async function collectMd(dir, acc = []) {
   return acc;
 }
 
+// src/tools/dream.ts
+import { promises as fs8 } from "fs";
+import { join as join8 } from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
+var exec = promisify(execFile);
+function brainDir() {
+  return join8(process.env.HOME ?? "", ".second-brain");
+}
+function dreamsDir() {
+  return join8(brainDir(), "dreams");
+}
+function scriptsDir() {
+  return join8(
+    process.env.CLAUDE_PLUGIN_ROOT ?? join8(__dirname, "..", ".."),
+    "scripts"
+  );
+}
+async function readStatus(dreamId) {
+  const statusPath = join8(dreamsDir(), dreamId, "status.json");
+  try {
+    const raw = await fs8.readFile(statusPath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+async function writeStatus(dreamId, status) {
+  const statusPath = join8(dreamsDir(), dreamId, "status.json");
+  await fs8.writeFile(statusPath, JSON.stringify(status, null, 2), "utf-8");
+}
+async function listDreamIds() {
+  const dir = dreamsDir();
+  try {
+    const entries = await fs8.readdir(dir, { withFileTypes: true });
+    return entries.filter((e) => e.isDirectory() && e.name.startsWith("drm_")).map((e) => e.name).sort().reverse();
+  } catch {
+    return [];
+  }
+}
+async function dreamCreate(args) {
+  const scriptArgs = [];
+  if (args.instructions) {
+    if (args.instructions.length > 4096) {
+      return {
+        ok: false,
+        dream: null,
+        reason: "instructions exceed 4096 char limit"
+      };
+    }
+    scriptArgs.push("--instructions", args.instructions);
+  }
+  if (args.transcript_filter?.project_slug) {
+    scriptArgs.push("--slug", args.transcript_filter.project_slug);
+  }
+  if (args.transcript_filter?.since) {
+    scriptArgs.push("--since", args.transcript_filter.since);
+  }
+  const maxCount = Math.min(args.transcript_filter?.max_count ?? 50, 100);
+  scriptArgs.push("--max-count", String(maxCount));
+  if (args.model) {
+    scriptArgs.push("--model", args.model);
+  }
+  try {
+    const { stdout, stderr } = await exec(
+      "bash",
+      [join8(scriptsDir(), "dream-snapshot.sh"), ...scriptArgs],
+      { timeout: 3e4, env: { ...process.env } }
+    );
+    const dreamId = stdout.trim();
+    if (!dreamId.startsWith("drm_")) {
+      return {
+        ok: false,
+        dream: null,
+        reason: stderr.trim() || "dream-snapshot.sh failed"
+      };
+    }
+    const status = await readStatus(dreamId);
+    return { ok: true, dream: status };
+  } catch (err) {
+    return {
+      ok: false,
+      dream: null,
+      reason: err.stderr?.trim() || err.message || String(err)
+    };
+  }
+}
+async function dreamStatus(args) {
+  const status = await readStatus(args.dream_id);
+  if (!status) {
+    return { ok: false, dream: null, reason: `dream ${args.dream_id} not found` };
+  }
+  let diffPreview;
+  if (status.status === "completed") {
+    const diffPath = join8(dreamsDir(), args.dream_id, "diff.md");
+    try {
+      const content = await fs8.readFile(diffPath, "utf-8");
+      const lines = content.split("\n");
+      diffPreview = lines.slice(0, 50).join("\n");
+      if (lines.length > 50) diffPreview += "\n... (truncated)";
+    } catch {
+    }
+  }
+  return { ok: true, dream: status, diff_preview: diffPreview };
+}
+async function dreamList(args) {
+  const ids = await listDreamIds();
+  const dreams = [];
+  for (const id of ids) {
+    const status = await readStatus(id);
+    if (!status) continue;
+    if (!args.include_archived && status.archived_at) continue;
+    dreams.push({
+      id: status.id,
+      status: status.status,
+      created_at: status.created_at,
+      ended_at: status.ended_at,
+      archived_at: status.archived_at,
+      transcript_count: status.inputs.transcript_count,
+      pages_added: status.outputs.pages_added,
+      pages_modified: status.outputs.pages_modified,
+      pages_removed: status.outputs.pages_removed
+    });
+  }
+  return { ok: true, dreams };
+}
+async function dreamAccept(args) {
+  try {
+    const { stdout, stderr } = await exec(
+      "bash",
+      [join8(scriptsDir(), "dream-accept.sh"), args.dream_id],
+      { timeout: 3e4, env: { ...process.env } }
+    );
+    const output = stdout.trim();
+    if (output) return { ok: true, summary: output };
+    return { ok: false, reason: stderr.trim() || "dream-accept.sh failed" };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err.stderr?.trim() || err.message || String(err)
+    };
+  }
+}
+async function dreamDiscard(args) {
+  const status = await readStatus(args.dream_id);
+  if (!status) {
+    return { ok: false, reason: `dream ${args.dream_id} not found` };
+  }
+  if (!["completed", "failed", "canceled"].includes(status.status)) {
+    return {
+      ok: false,
+      reason: `dream is ${status.status}, must be completed/failed/canceled`
+    };
+  }
+  if (status.archived_at) {
+    return { ok: false, reason: `dream ${args.dream_id} already archived` };
+  }
+  const dreamDir = join8(dreamsDir(), args.dream_id);
+  try {
+    await fs8.rm(join8(dreamDir, "staging"), { recursive: true, force: true });
+    await fs8.rm(join8(dreamDir, "transcripts"), {
+      recursive: true,
+      force: true
+    });
+  } catch {
+  }
+  status.archived_at = (/* @__PURE__ */ new Date()).toISOString();
+  await writeStatus(args.dream_id, status);
+  return { ok: true };
+}
+async function dreamCancel(args) {
+  const status = await readStatus(args.dream_id);
+  if (!status) {
+    return { ok: false, reason: `dream ${args.dream_id} not found` };
+  }
+  if (!["pending", "running"].includes(status.status)) {
+    return {
+      ok: false,
+      reason: `dream is ${status.status}, can only cancel pending/running`
+    };
+  }
+  status.status = "canceled";
+  status.ended_at = (/* @__PURE__ */ new Date()).toISOString();
+  await writeStatus(args.dream_id, status);
+  return { ok: true };
+}
+
 // src/server.ts
 function resolveKnowledgeDir() {
   const candidates = [
@@ -27761,10 +28001,10 @@ function resolveKnowledgeDir() {
 }
 var KNOWLEDGE_DIR = resolveKnowledgeDir();
 var server = new McpServer(
-  { name: "knowledge-base", version: "1.3.0" },
+  { name: "knowledge-base", version: "2.0.0" },
   {
     capabilities: { logging: {} },
-    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki."
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream."
   }
 );
 function categorizeFile(filePath) {
@@ -27844,7 +28084,7 @@ server.registerTool(
   async () => {
     try {
       const wikiDir = path2.join(KNOWLEDGE_DIR, "wiki");
-      if (!fs8.existsSync(wikiDir)) {
+      if (!fs9.existsSync(wikiDir)) {
         return {
           content: [{
             type: "text",
@@ -27864,7 +28104,7 @@ server.registerTool(
         const cat = categorizeFile(file);
         let size = 0;
         try {
-          size = fs8.statSync(file).size;
+          size = fs9.statSync(file).size;
         } catch {
           continue;
         }
@@ -27958,6 +28198,90 @@ ${result.issues.length} issues found:`);
         isError: true
       };
     }
+  }
+);
+server.registerTool(
+  "dream_create",
+  {
+    description: "Start a new dream \u2014 async background consolidation of the knowledge base. Snapshots the wiki, selects session transcripts, and prepares for consolidation. Only one dream may be pending/running at a time.",
+    inputSchema: {
+      instructions: external_exports.string().optional().describe("Guidance for the consolidation (max 4096 chars). E.g., 'Focus on React patterns; ignore one-off debugging notes.'"),
+      transcript_filter: external_exports.object({
+        project_slug: external_exports.string().optional().describe("Only include transcripts from this project"),
+        since: external_exports.string().optional().describe("Only include transcripts since this ISO date (YYYY-MM-DD)"),
+        max_count: external_exports.number().optional().describe("Max transcripts to include (default 50, max 100)")
+      }).optional(),
+      model: external_exports.string().optional().describe("Model for consolidation. Default: claude-sonnet-4-6")
+    }
+  },
+  async (args) => {
+    const result = await dreamCreate(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+server.registerTool(
+  "dream_status",
+  {
+    description: "Get the current status of a dream by ID. Returns lifecycle state, inputs, outputs, and a diff preview if completed.",
+    inputSchema: {
+      dream_id: external_exports.string().describe("The dream ID (e.g., drm_20260511T143022Z)")
+    }
+  },
+  async (args) => {
+    const result = await dreamStatus(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+server.registerTool(
+  "dream_list",
+  {
+    description: "List all dreams, newest first. Excludes archived dreams by default.",
+    inputSchema: {
+      include_archived: external_exports.boolean().optional().describe("Include archived dreams. Default false.")
+    }
+  },
+  async (args) => {
+    const result = await dreamList(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+server.registerTool(
+  "dream_accept",
+  {
+    description: "Accept a completed dream \u2014 applies staged wiki changes to the live knowledge base. The dream is archived after acceptance.",
+    inputSchema: {
+      dream_id: external_exports.string().describe("The dream ID to accept")
+    }
+  },
+  async (args) => {
+    const result = await dreamAccept(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+server.registerTool(
+  "dream_discard",
+  {
+    description: "Discard a dream's output without applying changes. Works on completed, failed, or canceled dreams.",
+    inputSchema: {
+      dream_id: external_exports.string().describe("The dream ID to discard")
+    }
+  },
+  async (args) => {
+    const result = await dreamDiscard(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+server.registerTool(
+  "dream_cancel",
+  {
+    description: "Cancel a pending or running dream. Sets status to 'canceled' \u2014 does not terminate a running agent process (the agent checks status.json and stops on its own).",
+    inputSchema: {
+      dream_id: external_exports.string().describe("The dream ID to cancel")
+    }
+  },
+  async (args) => {
+    const result = await dreamCancel(args);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 );
 async function main() {

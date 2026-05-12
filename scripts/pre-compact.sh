@@ -41,9 +41,9 @@ if [ -z "$TRANSCRIPT" ]; then SB_GATE="transcript-path-empty"; exit 0; fi
 if [ ! -f "$TRANSCRIPT" ]; then SB_GATE="transcript-file-missing path=$TRANSCRIPT"; exit 0; fi
 
 if [ -n "$CWD" ] && [ -d "$CWD" ]; then
-  SLUG=$(basename "$CWD")
+  SLUG=$(sb_resolve_slug "$CWD")
 else
-  SLUG=$(basename "$PWD")
+  SLUG=$(sb_resolve_slug "$PWD")
 fi
 if [ -z "$SLUG" ]; then SB_GATE="slug-empty"; exit 0; fi
 
@@ -115,6 +115,10 @@ if command -v claude >/dev/null 2>&1; then
     claude -p "$PROMPT" --model "$EXTRACTOR_MODEL" \
       < "$EXTRACT_INPUT" > "$EXTRACT_OUT" 2>/dev/null || true
   fi
+  if [ -s "$EXTRACT_OUT" ]; then
+    sb_strip_code_fences < "$EXTRACT_OUT" > "${EXTRACT_OUT}.clean"
+    mv "${EXTRACT_OUT}.clean" "$EXTRACT_OUT"
+  fi
   if [ -s "$EXTRACT_OUT" ] && jq -e 'type == "object"' "$EXTRACT_OUT" >/dev/null 2>&1; then
     DELTA_JSON=$(cat "$EXTRACT_OUT")
   else
@@ -175,6 +179,10 @@ if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
   fi
   rm -f "$PERSONA_ERR"; PERSONA_ERR=""
 fi
+
+# --- Archive preprocessed transcript for dream mining ---
+SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null)
+sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$WINDOW_START" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
 
 # --- Update extraction marker ---
 sb_set_extraction_marker "$SLUG" "$TOTAL_LINES"

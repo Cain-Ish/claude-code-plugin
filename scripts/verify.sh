@@ -71,6 +71,32 @@ if [ -d "$WIKI_DIR" ] && [ ! -f "$WIKI_INDEX" ]; then
   fi
 fi
 
+# Check 5b: stale or unreviewed dreams
+DREAMS_DIR="$BRAIN_DIR/dreams"
+if [ -d "$DREAMS_DIR" ]; then
+  for sf in "$DREAMS_DIR"/drm_*/status.json; do
+    [ -f "$sf" ] || continue
+    DSTATUS=$(jq -r '.status' "$sf" 2>/dev/null)
+    DID=$(jq -r '.id' "$sf" 2>/dev/null)
+    if [ "$DSTATUS" = "running" ]; then
+      STARTED=$(jq -r '.started_at // ""' "$sf" 2>/dev/null)
+      if [ -n "$STARTED" ] && [ "$STARTED" != "null" ]; then
+        STARTED_DATE=$(echo "$STARTED" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' || echo "")
+        TODAY=$(date -u +%Y-%m-%d)
+        if [ -n "$STARTED_DATE" ] && [ "$STARTED_DATE" \< "$TODAY" ]; then
+          FAILS+=("verify: FAIL: dream — $DID still running (started $STARTED), may be stale")
+        fi
+      fi
+    elif [ "$DSTATUS" = "completed" ]; then
+      ENDED=$(jq -r '.ended_at // ""' "$sf" 2>/dev/null)
+      ARCHIVED=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null)
+      if [ "$ARCHIVED" = "null" ] || [ -z "$ARCHIVED" ]; then
+        FAILS+=("verify: FAIL: dream — $DID completed but not reviewed (ended $ENDED)")
+      fi
+    fi
+  done
+fi
+
 # Check 5: error-log freshness vs .last-verify
 ERR_LOG="$BRAIN_DIR/error-log.jsonl"
 LAST_VERIFY="$BRAIN_DIR/.last-verify"

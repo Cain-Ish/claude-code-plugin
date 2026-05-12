@@ -60,7 +60,7 @@ if [ -z "$KEYWORDS" ]; then exit 0; fi
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-WIKI_CAP=1500   # ~375 tokens per injection — prevents accumulation in long sessions
+WIKI_CAP=800    # ~200 tokens per injection — compact titles only, details on demand
 
 WIKI_HITS=""
 if [ -f "$SEARCH_CLI" ]; then

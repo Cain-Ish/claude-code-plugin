@@ -77,6 +77,26 @@ function cosineSimilarity(a, b) {
 }
 
 // src/tools/knowledge-search.ts
+var ACCESS_COUNTS_FILE = join2(process.env.HOME ?? "", ".second-brain", "access-counts.json");
+var ACCESS_BOOST_FACTOR = 0.1;
+var ACCESS_BOOST_CAP = 10;
+var ACCESS_PRUNE_DAYS = 90;
+async function loadAccessCounts() {
+  try {
+    return JSON.parse(await fs2.readFile(ACCESS_COUNTS_FILE, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+async function saveAccessCounts(counts) {
+  const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 864e5).toISOString();
+  const pruned = {};
+  for (const [k, v] of Object.entries(counts)) {
+    if (v.last_accessed >= cutoff) pruned[k] = v;
+  }
+  await fs2.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {
+  });
+}
 var TOP_K = 8;
 var SNIPPET_CHARS = 200;
 var BM25_K1 = 1.2;
@@ -174,11 +194,40 @@ async function knowledgeSearch(args) {
       scored[i].score *= STUB_PENALTY;
     }
   }
+  const accessCounts = await loadAccessCounts();
+  for (let i = 0; i < scored.length; i++) {
+    if (scored[i].score <= 0) continue;
+    const slug = slugFromPath(scored[i].path);
+    const ac = accessCounts[slug];
+    if (ac) {
+      scored[i].score *= 1 + ACCESS_BOOST_FACTOR * Math.min(ac.count, ACCESS_BOOST_CAP);
+    }
+  }
+  const RECENCY_BOOST_MAX = 0.3;
+  const RECENCY_WINDOW_DAYS = 90;
+  const now = Date.now();
+  for (let i = 0; i < scored.length; i++) {
+    if (scored[i].score <= 0) continue;
+    const dateStr = allDocs[i].doc.updated || allDocs[i].doc.created;
+    if (!dateStr) continue;
+    const updated = new Date(dateStr).getTime();
+    if (isNaN(updated)) continue;
+    const daysSince = (now - updated) / 864e5;
+    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
+  }
   scored.sort((a, b) => b.score - a.score);
   const topScore = scored[0]?.score ?? 0;
-  return {
-    candidates: scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest)
-  };
+  const candidates = scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest);
+  const ts = (/* @__PURE__ */ new Date()).toISOString();
+  for (const c of candidates) {
+    const slug = slugFromPath(c.path);
+    if (!accessCounts[slug]) accessCounts[slug] = { count: 0, last_accessed: "" };
+    accessCounts[slug].count++;
+    accessCounts[slug].last_accessed = ts;
+  }
+  saveAccessCounts(accessCounts).catch(() => {
+  });
+  return { candidates };
 }
 function computeDF(queryTokens, docs) {
   const dfMap = /* @__PURE__ */ new Map();
@@ -228,7 +277,9 @@ function parseDoc(content, filePath) {
     tags: [],
     related: [],
     body: content,
-    path: filePath
+    path: filePath,
+    updated: "",
+    created: ""
   };
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
@@ -239,6 +290,8 @@ function parseDoc(content, filePath) {
     doc.type = extractYamlValue(fm, "type");
     doc.tags = extractYamlList(fm, "tags");
     doc.related = extractYamlList(fm, "related");
+    doc.updated = extractYamlValue(fm, "updated");
+    doc.created = extractYamlValue(fm, "created");
   }
   if (!doc.title) {
     const headingMatch = doc.body.match(/^#\s+(.+)/m);
@@ -321,10 +374,5 @@ for (const c of top) {
   const slug = c.path.replace(/.*\//, "").replace(/\.md$/, "");
   const lines = c.first_lines.split("\n");
   const desc = lines.find((l) => /^description:/.test(l))?.replace(/^description:\s*['"]?/, "").replace(/['"]?\s*$/, "") || "";
-  const bodyStart = c.first_lines.indexOf("---", 4);
-  const body = bodyStart > 0 ? c.first_lines.slice(bodyStart + 4).trim() : c.first_lines;
-  const preview = body.slice(0, 250).replace(/\n{2,}/g, "\n");
   console.log(`### [[${slug}]]${desc ? " \u2014 " + desc : ""}`);
-  console.log(preview);
-  console.log("");
 }

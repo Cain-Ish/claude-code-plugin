@@ -11,6 +11,7 @@ PROJECTS_DIR="$BRAIN_DIR/projects"
 BYTE_BUDGET=8000   # ~2000 tokens. Claude Code hard-caps hook output at 10K chars.
 
 slug=$(basename "$PWD")
+echo "$slug" > "$BRAIN_DIR/.active-session-slug"
 project_file="$PROJECTS_DIR/$slug/PROJECT.md"
 
 if [ ! -f "$project_file" ]; then
@@ -131,6 +132,22 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
       sb_append "$(printf '\n%s' "$WIKI_HITS")" "wiki-enrichment" 1500
     fi
   fi
+fi
+
+# 6. Dream completion nudge
+DREAMS_DIR="$BRAIN_DIR/dreams"
+if [ -d "$DREAMS_DIR" ] && command -v jq >/dev/null 2>&1; then
+  for sf in "$DREAMS_DIR"/drm_*/status.json; do
+    [ -f "$sf" ] || continue
+    DSTATUS=$(jq -r '.status' "$sf" 2>/dev/null)
+    if [ "$DSTATUS" = "completed" ]; then
+      DID=$(jq -r '.id' "$sf" 2>/dev/null)
+      DA=$(jq -r '.outputs.pages_added // 0' "$sf" 2>/dev/null)
+      DM=$(jq -r '.outputs.pages_modified // 0' "$sf" 2>/dev/null)
+      sb_append "$(printf '\n[Dream %s completed: +%s added, ~%s modified — run /second-brain:dream to review and accept/discard]' "$DID" "$DA" "$DM")" "dream-nudge" 250
+      break
+    fi
+  done
 fi
 
 # --- Emit collected output ---

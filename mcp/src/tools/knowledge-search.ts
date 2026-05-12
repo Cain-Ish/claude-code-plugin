@@ -13,6 +13,28 @@ export interface ParsedDoc {
   related: string[];
   body: string;
   path: string;
+  updated: string;
+  created: string;
+}
+
+interface AccessCounts { [slug: string]: { count: number; last_accessed: string } }
+const ACCESS_COUNTS_FILE = join(process.env.HOME ?? '', '.second-brain', 'access-counts.json');
+const ACCESS_BOOST_FACTOR = 0.1;
+const ACCESS_BOOST_CAP = 10;
+const ACCESS_PRUNE_DAYS = 90;
+
+async function loadAccessCounts(): Promise<AccessCounts> {
+  try { return JSON.parse(await fs.readFile(ACCESS_COUNTS_FILE, 'utf-8')); }
+  catch { return {}; }
+}
+
+async function saveAccessCounts(counts: AccessCounts): Promise<void> {
+  const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 86400000).toISOString();
+  const pruned: AccessCounts = {};
+  for (const [k, v] of Object.entries(counts)) {
+    if (v.last_accessed >= cutoff) pruned[k] = v;
+  }
+  await fs.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {});
 }
 
 const TOP_K = 8;
@@ -127,14 +149,49 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     }
   }
 
+  // Access frequency boost: pages retrieved often get a minor relevance bump
+  const accessCounts = await loadAccessCounts();
+  for (let i = 0; i < scored.length; i++) {
+    if (scored[i].score <= 0) continue;
+    const slug = slugFromPath(scored[i].path);
+    const ac = accessCounts[slug];
+    if (ac) {
+      scored[i].score *= 1 + ACCESS_BOOST_FACTOR * Math.min(ac.count, ACCESS_BOOST_CAP);
+    }
+  }
+
+  // Recency boost: recently-updated pages get a linear-decay bonus
+  const RECENCY_BOOST_MAX = 0.3;
+  const RECENCY_WINDOW_DAYS = 90;
+  const now = Date.now();
+  for (let i = 0; i < scored.length; i++) {
+    if (scored[i].score <= 0) continue;
+    const dateStr = allDocs[i].doc.updated || allDocs[i].doc.created;
+    if (!dateStr) continue;
+    const updated = new Date(dateStr).getTime();
+    if (isNaN(updated)) continue;
+    const daysSince = (now - updated) / (86400000);
+    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
+  }
+
   scored.sort((a, b) => b.score - a.score);
   const topScore = scored[0]?.score ?? 0;
-  return {
-    candidates: scored
-      .filter(c => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO))
-      .slice(0, TOP_K)
-      .map(({ related, ...rest }) => rest),
-  };
+  const candidates = scored
+    .filter(c => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO))
+    .slice(0, TOP_K)
+    .map(({ related, ...rest }) => rest);
+
+  // Record access for returned results (fire-and-forget)
+  const ts = new Date().toISOString();
+  for (const c of candidates) {
+    const slug = slugFromPath(c.path);
+    if (!accessCounts[slug]) accessCounts[slug] = { count: 0, last_accessed: '' };
+    accessCounts[slug].count++;
+    accessCounts[slug].last_accessed = ts;
+  }
+  saveAccessCounts(accessCounts).catch(() => {});
+
+  return { candidates };
 }
 
 function computeDF(queryTokens: string[], docs: ParsedDoc[]): Map<string, number> {
@@ -181,6 +238,7 @@ function scoreBM25(queryTokens: string[], doc: ParsedDoc, avgDL: number, N: numb
 export function parseDoc(content: string, filePath: string): ParsedDoc {
   const doc: ParsedDoc = {
     title: '', description: '', type: '', tags: [], related: [], body: content, path: filePath,
+    updated: '', created: '',
   };
 
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
@@ -192,6 +250,8 @@ export function parseDoc(content: string, filePath: string): ParsedDoc {
     doc.type = extractYamlValue(fm, 'type');
     doc.tags = extractYamlList(fm, 'tags');
     doc.related = extractYamlList(fm, 'related');
+    doc.updated = extractYamlValue(fm, 'updated');
+    doc.created = extractYamlValue(fm, 'created');
   }
 
   if (!doc.title) {

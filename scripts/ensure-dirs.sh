@@ -5,6 +5,8 @@ KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 
 mkdir -p "$BRAIN_DIR/projects"
 mkdir -p "$BRAIN_DIR/regressions"
+mkdir -p "$BRAIN_DIR/transcripts"
+mkdir -p "$BRAIN_DIR/dreams"
 mkdir -p "$KNOWLEDGE_DIR/wiki"/{concepts,entities,learnings}
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
 

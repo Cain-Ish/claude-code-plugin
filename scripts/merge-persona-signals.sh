@@ -29,12 +29,19 @@ MERGED=$(jq -nc \
   --arg session "$SESSION_ID" \
   '
   # For each new signal, either merge into existing or append
+  # Word-overlap dedup: two signals match if they share >60% content words (3+ chars)
+  def content_words: ascii_downcase | [scan("[a-z]{3,}")] | unique;
+  def word_overlap($a; $b):
+    if ([$a, $b] | map(length) | max) == 0 then 0
+    else ([$a[] | select(. as $w | $b | index($w))] | length) * 100 / ([$a, $b] | map(length) | max)
+    end;
+
   reduce ($new_sigs[]) as $sig ($existing;
-    ($sig.signal | ascii_downcase | .[0:40]) as $norm |
-    # Find matching index
-    (to_entries | map(select(
-      (.value.signal | ascii_downcase | .[0:40]) == $norm
-    )) | .[0].key) as $idx |
+    ($sig.signal | content_words) as $new_words |
+    (to_entries | map(
+      (.value.signal | content_words) as $old_words |
+      {key: .key, pct: word_overlap($new_words; $old_words)}
+    ) | map(select(.pct >= 60)) | sort_by(-.pct) | .[0].key) as $idx |
     if $idx != null then
       # Update existing: increment count, append evidence, update last_seen
       .[$idx].count += 1 |
@@ -80,9 +87,13 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
 
   if [ -n "$GRADUATED_INDICES" ]; then
     for i in $GRADUATED_INDICES; do
-      SIG_NORM=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal | ascii_downcase | .[0:40]")
-      MERGED=$(echo "$MERGED" | jq -c --arg norm "$SIG_NORM" '
-        [.[] | if (.signal | ascii_downcase | .[0:40]) == $norm then .graduated = true else . end]
+      SIG_TEXT_LOWER=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal")
+      MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT_LOWER" '
+        def content_words: ascii_downcase | [scan("[a-z]{3,}")] | unique;
+        ($sig | content_words) as $target |
+        [.[] | if ((.signal | content_words) as $w |
+          ([$target[] | select(. as $t | $w | index($t))] | length) * 100 / ([($target | length), ($w | length)] | max)) >= 60
+        then .graduated = true else . end]
       ')
     done
   fi

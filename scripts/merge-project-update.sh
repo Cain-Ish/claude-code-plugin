@@ -179,6 +179,58 @@ insert_bullet() {
   CHANGED=1
 }
 
+# Detect if a new decision contradicts an existing one. Marks old as [superseded].
+# Requires: negation words in new + >50% word overlap with existing.
+detect_supersede() {
+  [ "${SB_SKIP_SUPERSEDE:-0}" = "1" ] && return 1
+  local new_text="$1"
+  local new_lower
+  new_lower=$(printf '%s' "$new_text" | tr '[:upper:]' '[:lower:]')
+
+  # Must contain negation or explicit override language
+  if ! echo "$new_lower" | grep -qE "(don't|dont|do not|not |never |removed |dropped |disabled |stopped |supersedes |replaces |instead of |no longer )"; then
+    return 1
+  fi
+
+  local new_words new_count
+  new_words=$(printf '%s' "$new_lower" | sed 's/\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] //' | tr -cs '[:alpha:]' '\n' | grep -vxE '(the|a|an|is|are|was|were|to|of|in|for|on|at|by|with|not|no|dont|never|don|do|instead|supersedes|replaces)' | sort -u)
+  new_count=$(echo "$new_words" | grep -c . 2>/dev/null || echo 0)
+  [ "$new_count" -lt 3 ] && return 1
+
+  local existing
+  existing=$(awk '
+    /^## Recent decisions$/ { flag=1; next }
+    /^## / { flag=0 }
+    flag && /^- / && !/\[superseded\]/ && !/\[stale\]/ { print }
+  ' "$TMP_OUT")
+
+  [ -z "$existing" ] && return 1
+
+  while IFS= read -r old_line; do
+    [ -z "$old_line" ] && continue
+    local old_lower old_words old_count overlap pct
+    old_lower=$(printf '%s' "$old_line" | tr '[:upper:]' '[:lower:]')
+    old_words=$(printf '%s' "$old_lower" | sed 's/^- //' | sed 's/\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] //' | tr -cs '[:alpha:]' '\n' | grep -vxE '(the|a|an|is|are|was|were|to|of|in|for|on|at|by|with|not|no|dont|never|don|do)' | sort -u)
+    old_count=$(echo "$old_words" | grep -c . 2>/dev/null || echo 0)
+    [ "$old_count" -eq 0 ] && continue
+    overlap=$(comm -12 <(echo "$new_words") <(echo "$old_words") | grep -c . 2>/dev/null || echo 0)
+    pct=$((overlap * 100 / old_count))
+    if [ "$pct" -ge 50 ]; then
+      local new_tmp
+      new_tmp=$(mktemp)
+      OLD_LINE="$old_line" awk '
+        BEGIN { target = ENVIRON["OLD_LINE"]; done = 0 }
+        !done && $0 == target { sub(/^- /, "- [superseded] "); done = 1 }
+        { print }
+      ' "$TMP_OUT" > "$new_tmp"
+      mv "$new_tmp" "$TMP_OUT"
+      CHANGED=1
+      return 0
+    fi
+  done <<< "$existing"
+  return 1
+}
+
 TODAY=$(date +%Y-%m-%d)
 if [ -n "$DECISIONS" ]; then
   while IFS= read -r line; do
@@ -186,11 +238,12 @@ if [ -n "$DECISIONS" ]; then
     # Skip "files this session" fallback lines — they're not decisions
     echo "$line" | grep -q '^files this session:' && continue
     # Prefix with date if not already dated
-    if echo "$line" | grep -qE '^\[20[0-9]{2}-[0-9]{2}-[0-9]{2}\]'; then
-      insert_bullet "## Recent decisions" "$line" 5
-    else
-      insert_bullet "## Recent decisions" "[$TODAY] $line" 5
+    dated_line="$line"
+    if ! echo "$line" | grep -qE '^\[20[0-9]{2}-[0-9]{2}-[0-9]{2}\]'; then
+      dated_line="[$TODAY] $line"
     fi
+    detect_supersede "$dated_line" || true
+    insert_bullet "## Recent decisions" "$dated_line" 5
   done <<< "$DECISIONS"
 fi
 
@@ -226,6 +279,36 @@ if [ -n "$REFS" ]; then
     fi
   done <<< "$REFS"
 fi
+
+# --- Auto-staleness: mark decisions/blockers older than 30 days as [stale] ---
+STALE_CUTOFF=$(date -v-30d +%Y-%m-%d 2>/dev/null \
+  || date -d "30 days ago" +%Y-%m-%d 2>/dev/null \
+  || echo "1970-01-01")
+
+mark_stale() {
+  local section="$1"
+  local new_tmp
+  new_tmp=$(mktemp)
+  awk -v s="$section" -v cutoff="$STALE_CUTOFF" '
+    $0 == s { flag=1; print; next }
+    /^## / { flag=0; print; next }
+    flag && /^- \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/ && !/\[stale\]/ && !/\[superseded\]/ {
+      d = $0; sub(/^- \[/, "", d); sub(/\].*/, "", d)
+      if (d < cutoff) { sub(/^- /, "- [stale] "); changed=1 }
+    }
+    { print }
+    END { exit (changed ? 0 : 1) }
+  ' "$TMP_OUT" > "$new_tmp"
+  if [ $? -eq 0 ]; then
+    mv "$new_tmp" "$TMP_OUT"
+    CHANGED=1
+  else
+    rm -f "$new_tmp"
+  fi
+}
+
+mark_stale "## Recent decisions"
+mark_stale "## Open blockers"
 
 WIKI_WRITES=0
 WIKI_UPDATES_COUNT=$(echo "$RAW" | jq '.wiki_updates // [] | length' 2>/dev/null || echo 0)
