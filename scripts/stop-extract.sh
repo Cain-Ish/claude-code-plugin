@@ -60,7 +60,8 @@ fi
 if [ -z "$SLUG" ]; then log_gate "slug-empty cwd=$CWD pwd=$PWD"; exit 0; fi
 
 PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
-WIKI_DIR="$BRAIN_DIR/wiki"
+KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 if [ ! -f "$PROJECT_MD" ]; then
   mkdir -p "$(dirname "$PROJECT_MD")"
   cat > "$PROJECT_MD" <<TMPL
@@ -83,7 +84,7 @@ if [ ! -f "$PROJECT_MD" ]; then
 <!-- last_queried_wiki: -->
 TMPL
 fi
-if ! mkdir -p "$WIKI_DIR" 2>/dev/null; then log_gate "wiki-dir-mkdir-failed path=$WIKI_DIR"; exit 0; fi
+mkdir -p "$KNOWLEDGE_DIR/wiki" 2>/dev/null || true
 
 # --- Determine unprocessed window (disjoint with pre-compact extractions) ---
 LAST_LINE=$(sb_get_extraction_marker "$SLUG")
@@ -190,13 +191,10 @@ if [ -z "$DELTA_JSON" ]; then
   fi
 fi
 
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
-
 MERGE_ERR=$(mktemp)
 if ! echo "$DELTA_JSON" \
   | bash "$(dirname "$0")/merge-project-update.sh" \
-      --project-md "$PROJECT_MD" --wiki-dir "$WIKI_DIR" --knowledge-dir "$KNOWLEDGE_DIR" >/dev/null 2>"$MERGE_ERR"; then
+      --project-md "$PROJECT_MD" --knowledge-dir "$KNOWLEDGE_DIR" >/dev/null 2>"$MERGE_ERR"; then
   ERR_TAIL=$(tr '\n' ' ' < "$MERGE_ERR" | head -c 400)
   log_gate "merge-failed err=$ERR_TAIL"
 fi

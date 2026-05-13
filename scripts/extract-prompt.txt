@@ -33,6 +33,7 @@ Schema (all keys required, arrays may be empty):
 }
 
 Rules:
+- Project affinity: only extract decisions and blockers that are ABOUT the project described in the PROJECT.md "## Goal" section. If the session discussed external tools, plugins, or systems incidentally (e.g. building a plugin while in a different repo's directory), those entries belong to the external project — do NOT record them here. When in doubt, ask: "would someone working on THIS project need to know this?" If no, skip it.
 - Decisions: choices made between alternatives during the session. Format each as a single short sentence ("picked X over Y for reason Z"). Skip decisions already present in PROJECT.md's "## Recent decisions" — same fact, different wording still counts as duplicate. Max 3 entries.
 - Open blockers: unresolved questions, deferred items, things explicitly called out as needing follow-up. Prefix each with one of [active], [resolved], [stale]. Skip ones already in "## Open blockers". Max 5 entries.
 - Cross-refs: wiki page slugs (kebab-case, lowercase) that name *concepts* mentioned at least twice and worth keeping a separate page for — not file paths, not generic words. Skip slugs already linked in "## Cross-references". Max 3 entries.

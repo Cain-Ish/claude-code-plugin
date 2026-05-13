@@ -9,7 +9,6 @@ SLUG="${2:?Usage: batch-extract.sh <transcripts-dir> <slug>}"
 PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 EXTRACT_PROMPT=$(cat "$PLUGIN_DIR/scripts/extract-prompt.txt")
 PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
-WIKI_DIR="$BRAIN_DIR/wiki"
 KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 MODEL="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
@@ -66,7 +65,7 @@ for f in "$TRANSCRIPTS_DIR"/*.jsonl; do
     echo "  OK: ${DECISIONS} decisions, ${WIKI_UPD} wiki_updates"
 
     cat "$OUTPUT_FILE" | bash "$PLUGIN_DIR/scripts/merge-project-update.sh" \
-      --project-md "$PROJECT_MD" --wiki-dir "$WIKI_DIR" --knowledge-dir "$KNOWLEDGE_DIR" 2>/dev/null
+      --project-md "$PROJECT_MD" --knowledge-dir "$KNOWLEDGE_DIR" 2>/dev/null
 
     PERSONA_SIGNALS=$(jq -c '.persona_signals // []' "$OUTPUT_FILE" 2>/dev/null)
     if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then

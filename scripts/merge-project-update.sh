@@ -3,14 +3,14 @@
 # the v1.2.0+ Stop-hook auto-archival flow (scripts/stop-extract.sh).
 #
 # Usage:
-#   bash merge-project-update.sh --project-md <path> --wiki-dir <dir> [--knowledge-dir <dir>] [--json-file <path>]
+#   bash merge-project-update.sh --project-md <path> --knowledge-dir <dir> [--json-file <path>]
 #   # or pipe JSON on stdin
 #
 # JSON schema (all keys optional, default to []):
 #   {
 #     "recent_decisions": ["<text>", ...],   # cap 3 bullets in PROJECT.md
 #     "open_blockers":    ["<text>", ...],   # cap 15
-#     "cross_refs":       ["<slug>", ...],   # cap 3 bullets, scaffolds wiki/<slug>.md if missing
+#     "cross_refs":       ["<slug>", ...],   # cap 3, scaffolds ~/knowledge/wiki/entities/<slug>.md if missing
 #     "files_touched":    ["<path>", ...],   # informational
 #     "wiki_updates":     [{"category","slug","action","title","description","content"}, ...]
 #   }
@@ -21,21 +21,18 @@
 #     against existing bullets in the same section.
 #   - Cross-refs de-duped case-insensitively against existing [[refs]].
 #   - When ANY section actually changed, last_updated footer is bumped.
-#   - Missing wiki stubs get a 4-line stub with `<!-- auto-extracted -->`
-#     marker so /second-brain:lint can prune low-value pages later.
+#   - Missing cross-ref pages get a proper frontmatter stub in wiki/entities/.
 #   - Atomic write: stage to a tempfile, mv into place.
 #   - Invalid JSON on stdin → exit non-zero with PROJECT.md untouched.
 set -u
 source "$(dirname "$0")/lib.sh"
 
 PROJECT_MD=""
-WIKI_DIR=""
 JSON_FILE=""
 KNOWLEDGE_DIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --project-md)    PROJECT_MD="$2";    shift 2 ;;
-    --wiki-dir)      WIKI_DIR="$2";      shift 2 ;;
     --knowledge-dir) KNOWLEDGE_DIR="$2"; shift 2 ;;
     --json-file)     JSON_FILE="$2";     shift 2 ;;
     *) echo "merge-project-update: unknown arg: $1" >&2; exit 2 ;;
@@ -43,12 +40,10 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$PROJECT_MD" ] || { echo "merge-project-update: --project-md is required" >&2; exit 2; }
-[ -n "$WIKI_DIR" ]   || { echo "merge-project-update: --wiki-dir is required" >&2; exit 2; }
 [ -z "$KNOWLEDGE_DIR" ] && KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
 [ -f "$PROJECT_MD" ] || { echo "merge-project-update: project file not found: $PROJECT_MD" >&2; exit 2; }
-mkdir -p "$WIKI_DIR"
 
 if [ -n "$JSON_FILE" ]; then
   RAW=$(cat "$JSON_FILE")
@@ -60,6 +55,8 @@ if ! echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; then
   echo "merge-project-update: input is not a JSON object" >&2
   exit 1
 fi
+
+WIKI_WRITES=0
 
 # Strip CR from every line — Windows / Git-Bash jq pipelines can leak \r
 # into values, which silently breaks all our string comparisons below.
@@ -267,14 +264,24 @@ if [ -n "$REFS" ]; then
       insert_bullet "## Cross-references" "[[$ref]]" 3
     fi
     safe_ref=$(sb_sanitize_slug "$ref") || continue
-    stub="$WIKI_DIR/$safe_ref.md"
-    if [ ! -f "$stub" ]; then
+    # Skip if page already exists anywhere in the wiki
+    if ! find "$KNOWLEDGE_WIKI" -name "$safe_ref.md" -type f ! -name 'index.md' 2>/dev/null | grep -q .; then
+      mkdir -p "$KNOWLEDGE_WIKI/entities"
       ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       {
+        printf '%s\n' "---"
+        printf 'title: "%s"\n' "$ref"
+        printf 'type: entities\n'
+        printf 'description: "Auto-created stub — needs expansion."\n'
+        printf 'created: %s\n' "$ts"
+        printf 'updated: %s\n' "$ts"
+        printf 'related: []\n'
+        printf 'tags: []\n'
+        printf '%s\n\n' "---"
         printf '# %s\n\n' "$ref"
-        printf '<!-- auto-extracted: %s -->\n\n' "$ts"
-        printf '## Notes\n\nTODO: expand.\n'
-      } > "$stub"
+        printf 'TODO: expand.\n'
+      } > "$KNOWLEDGE_WIKI/entities/$safe_ref.md"
+      WIKI_WRITES=1
       CHANGED=1
     fi
   done <<< "$REFS"
@@ -310,7 +317,6 @@ mark_stale() {
 mark_stale "## Recent decisions"
 mark_stale "## Open blockers"
 
-WIKI_WRITES=0
 WIKI_UPDATES_COUNT=$(echo "$RAW" | jq '.wiki_updates // [] | length' 2>/dev/null || echo 0)
 if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
   mkdir -p "$KNOWLEDGE_WIKI"
