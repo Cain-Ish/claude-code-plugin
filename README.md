@@ -46,6 +46,66 @@ First run:
 | `/second-brain:improve` | Propose up to 3 pins (USER.md / PROJECT.md / wiki) from session evidence; user confirms each |
 | `/second-brain:doubt` | Adversarial drilling skill — challenge a claim or proposed change before acting |
 | `/second-brain:import-host` | Import existing host AI-context files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, etc.) into USER.md / PROJECT.md / wiki |
+| `/second-brain:recall [query]` | Search past session transcripts via `episodic_search` (hybrid vector + text) |
+| `/second-brain:dream` | Background consolidation of the wiki (dedupe, link, prune); staging area, review before accept |
+| `/second-brain:review` | Read-only cross-project overview: open blockers, stale projects, pending dreams, ungraduated persona signals |
+| `/second-brain:brainstorming` | Vendored from obra/superpowers — pause-and-design before implementation |
+| `/second-brain:writing-plans` | Vendored — write detailed implementation plan from a spec |
+| `/second-brain:test-driven-development` | Vendored — red-green-refactor discipline |
+| `/second-brain:verification-before-completion` | Vendored — evidence before completion claims |
+| `/second-brain:systematic-debugging` | Vendored — 4-phase root-cause-first debugging |
+
+The five `Vendored` skills are adapted from [obra/superpowers](https://github.com/obra/superpowers) (MIT). See `NOTICE.md`.
+
+## Persona core (v2.3.0)
+
+The persona is the *self* of second-brain — identity, memory, tools, judgment. Always present, rarely loud. The architecture follows three patterns from public research: pull-based escalation ([Anthropic Advisor Strategy](https://www.anthropic.com/engineering/multi-agent-research-system)), compile-on-ingest ([Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)), and silence-by-default ([CHI 2025 "Need Help?"](https://dl.acm.org/doi/full/10.1145/3706598.3714002)).
+
+**Five layers:**
+
+| | What | Cost | Always on |
+|---|---|---|---|
+| 1 Silent infrastructure | persona-card + plugin catalog + wiki hits injected per prompt as factual statements (no LLM) | $0 | yes |
+| 2 Pull-based deep brief | `/?` prefix or `/second-brain:think` → Opus advisor brief (intent, enrichment, clarifying Qs, specialists, risks) | ~$0.11/call | opt-in |
+| 3 Tool guard | rules-based PreToolUse mutation (strips `2>/dev/null`, asks on `git push --force` to main, `rm -rf`, direct writes to hot-tier files) | $0 | yes |
+| 4 Quality Gate | filters low-quality extraction candidates before promotion to wiki (rules-based default; Haiku LLM opt-in) | ~$0.001/session-end | yes |
+| 5 MCP surface | `persona_stats`, `persona_dismiss` for self-inspection and dismissal-aware backoff | $0 | on demand |
+
+**Env vars:**
+- `SB_PERSONA_GATE=off` — disable all persona hooks
+- `SB_PERSONA_MODEL` — change Layer 2 model (default `claude-opus-4-7`)
+- `SB_PERSONA_DAILY_BUDGET` — kill switch when daily spend exceeds (USD, default 20)
+- `SB_QUALITY_GATE=off` — disable Layer 4
+- `SB_QUALITY_GATE_LLM=on` — enable Haiku validation in Layer 4 (default rules-only)
+- `SB_QUALITY_GATE_STRICTNESS=aggressive` — Layer 4 rejects more (~30% vs default ~10%)
+
+**User-editable files:**
+- `~/.second-brain/persona-card.md` — your identity card. Read by Layer 1; the plugin never auto-rewrites it.
+- `~/.second-brain/persona-rules.json` — Layer 3 tool guard rules. Override the defaults shipped at `scripts/persona-rules.default.json`.
+
+**Cost ceiling** with all hooks on, 50 substantive prompts + 5 session-ends + 10 explicit `/?` invocations per day: ~$1.10/day, ~$33/month. `SB_PERSONA_DAILY_BUDGET` enforces a hard cap.
+
+## Standalone CLI
+
+`bin/sb` is a shell shim that lets you use the wiki and episodic index from any terminal — no Claude session required.
+
+```bash
+# One-time build (only if installing from source)
+cd mcp && npm install && npm run build
+
+# Put on PATH
+ln -s "$(pwd)/bin/sb" ~/.local/bin/sb     # macOS/Linux
+# Windows: add the repo's bin/ directory to PATH
+
+sb help
+sb status                                    # hot-tier + wiki sizes
+sb query "BM25 hybrid scoring"               # search the wiki
+sb recall "how did we fix the migration?"    # search past conversations
+sb pin user "prefer terse responses"         # append to USER.md
+sb pin project myrepo blockers "stuck on X"  # append to project blockers
+```
+
+Resolution order for the dirs: `BRAIN_DIR` env → `~/.second-brain`; `KNOWLEDGE_DIR` → `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` → `~/knowledge`.
 
 ## MCP Server
 

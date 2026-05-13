@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# sb — standalone CLI for the second-brain plugin
+# Lets you query the wiki, recall past conversations, pin preferences,
+# and inspect status from any shell. No Claude session required.
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+BUNDLE="$PLUGIN_ROOT/mcp/dist/cli/sb-entry.bundle.js"
+
+if [ ! -f "$BUNDLE" ]; then
+  echo "sb: bundle not found at $BUNDLE" >&2
+  echo "sb: run 'npm --prefix $PLUGIN_ROOT/mcp run build' first" >&2
+  exit 1
+fi
+
+exec node "$BUNDLE" "$@"

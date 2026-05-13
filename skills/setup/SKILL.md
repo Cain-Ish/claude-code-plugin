@@ -39,7 +39,7 @@ Check whether `~/.second-brain/USER.md` exists.
 - If it does not exist:
   - If `~/.second-brain/persona.md` exists (legacy 0.7.0 file), offer to condense it interactively into ≤15 lines of preferences and write the result to `USER.md`.
   - Otherwise prompt the user for ≤15 lines of cross-project preferences (tone, languages, defaults, "always do X / never do Y"). Write them to `USER.md` using the `Write` tool.
-- After scaffolding (or detecting an existing file), ensure the following `## Intent` section is present at the bottom. This is the persona-as-first-thought protocol that the SessionStart hot tier and the `UserPromptSubmit` intent-gate hook rely on:
+- After scaffolding (or detecting an existing file), ensure the following `## Intent` section is present at the bottom. This is the persona-as-first-thought protocol that the SessionStart hot tier and the `UserPromptSubmit` persona-context hook rely on:
 
 ```markdown
 ## Intent
@@ -99,7 +99,47 @@ if ! grep -q "\"slug\":\"$SLUG\"" ~/.second-brain/projects.jsonl 2>/dev/null; th
 fi
 ```
 
-### 5. Confirm
+### 5. Seed persona-card.md
+
+The persona-card is the always-loaded identity surface — short, dense, idempotent. Read once per UserPromptSubmit by `persona-context.sh`. Cap ≤ 14 non-blank lines / ~800 bytes.
+
+```bash
+PCARD=~/.second-brain/persona-card.md
+if [ ! -f "$PCARD" ]; then
+  # Pull first bullet from USER.md as best-guess role line (falls back to a default).
+  ROLE=$(grep -E '^- ' ~/.second-brain/USER.md 2>/dev/null | head -1 | sed -E 's/^- *(\[[0-9-]+\][[:space:]]*)?//')
+  # Pull the first Goal line from any active PROJECT.md as project context.
+  GOAL=$(awk '/^## Goal/{flag=1;next}/^## /{flag=0}flag && NF' ~/.second-brain/projects/*/PROJECT.md 2>/dev/null | head -1)
+  cat > "$PCARD" <<EOF
+# Persona
+
+## Identity
+- ${ROLE:-senior engineer}
+- ${GOAL:-current project work}
+
+## Communication style
+- direct, terse, no filler
+- evidence before completion claims (run the command, then claim)
+
+## Working preferences
+- brainstorm 2-3 options before architecture decisions
+- fail loud over silent fallback (no \`2>/dev/null\` patterns)
+- skill bodies under ~500 lines; extract templates to siblings
+
+## How to engage me
+- Surface critical context; don't restate what I know
+- Ask one focused question only when ambiguity is costly to guess wrong
+- Default silent; volunteer only when expected value exceeds flow cost
+EOF
+  echo "Seeded persona-card.md ($(wc -c < "$PCARD") bytes)"
+else
+  echo "persona-card.md already present ($(wc -c < "$PCARD") bytes) — leaving alone"
+fi
+```
+
+The persona-card is user-owned content. The persona reads it; nothing in the plugin should ever rewrite it automatically. The user edits it directly when their role, style, or preferences change.
+
+### 6. Confirm
 
 Print byte counts of `USER.md` and `PROJECT.md` and the combined total. Verify combined < ~3200 bytes (≈ 800-token hot-tier cap):
 

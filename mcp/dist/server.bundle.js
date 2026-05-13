@@ -6785,12 +6785,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs11, exportName) {
+    function addFormats(ajv, list, fs14, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs11[f]);
+        ajv.addFormat(f, fs14[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -21011,7 +21011,7 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs10 from "fs";
+import fs13 from "fs";
 import os from "os";
 import path2 from "path";
 
@@ -25409,8 +25409,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs11 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs11);
+  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs14 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs14);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -25968,8 +25968,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs11) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs11 });
+  newRoot(fs14) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs14 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -25997,8 +25997,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs11) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs11 });
+  newRoot(fs14) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs14 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -28147,6 +28147,231 @@ async function episodicRead(filePath, startLine, endLine) {
   };
 }
 
+// src/tools/persona-think.ts
+import { spawn } from "child_process";
+import { promises as fs10 } from "fs";
+import { join as join10 } from "path";
+var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
+var COST_PER_CALL = Number(process.env.SB_PERSONA_COST_PER_CALL ?? "0.11");
+var SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
+Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
+  intent_read: one sentence \u2014 what the user probably wants
+  prompt_enrichment: a short paragraph adding the context the user might not realize is relevant
+  clarifying_questions: array of 0-2 questions worth asking before answering (omit if the prompt is unambiguous)
+  relevant_specialists: array of plugin/agent names that fit (or empty)
+  risk_flags: array of risks/gotchas (or empty)
+
+Be terse. Default silent on questions/specialists/risks \u2014 only populate when the value is concrete.
+Output ONLY the JSON object, no prose around it.`;
+function defaultRunner(system, user, model) {
+  return new Promise((resolve, reject) => {
+    const p = spawn("claude", ["-p", "--model", model, "--system-prompt", system], {
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let out = "";
+    let err = "";
+    p.stdout.on("data", (d) => {
+      out += d.toString();
+    });
+    p.stderr.on("data", (d) => {
+      err += d.toString();
+    });
+    p.on("error", reject);
+    p.on("close", (code) => {
+      if (code === 0) resolve(out);
+      else reject(new Error(err || `claude -p exited ${code}`));
+    });
+    p.stdin.write(user);
+    p.stdin.end();
+  });
+}
+var EMPTY = {
+  intent_read: "",
+  prompt_enrichment: "",
+  clarifying_questions: [],
+  relevant_specialists: [],
+  risk_flags: []
+};
+function parseBrief(raw) {
+  const match2 = raw.match(/\{[\s\S]*\}/);
+  if (!match2) return null;
+  try {
+    const parsed = JSON.parse(match2[0]);
+    return {
+      intent_read: typeof parsed.intent_read === "string" ? parsed.intent_read : "",
+      prompt_enrichment: typeof parsed.prompt_enrichment === "string" ? parsed.prompt_enrichment : "",
+      clarifying_questions: Array.isArray(parsed.clarifying_questions) ? parsed.clarifying_questions.slice(0, 2).map(String) : [],
+      relevant_specialists: Array.isArray(parsed.relevant_specialists) ? parsed.relevant_specialists.map(String) : [],
+      risk_flags: Array.isArray(parsed.risk_flags) ? parsed.risk_flags.map(String) : []
+    };
+  } catch {
+    return null;
+  }
+}
+async function personaThink(args, deps = {}) {
+  if (deps.budgetExceeded) {
+    return { ...EMPTY, budget_skipped: true };
+  }
+  const runner = deps.runner ?? defaultRunner;
+  const model = deps.model ?? DEFAULT_MODEL;
+  const hints = (args.context_hints ?? []).join("\n");
+  const user = hints ? `Context hints:
+${hints}
+
+User prompt:
+${args.prompt}` : args.prompt;
+  try {
+    const raw = await runner(SYSTEM_PROMPT, user, model);
+    const brief = parseBrief(raw);
+    if (!brief) return { ...EMPTY, error: "no JSON in response" };
+    if (deps.brainDir) {
+      await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {
+      });
+    }
+    return brief;
+  } catch (e) {
+    return { ...EMPTY, error: e?.message ?? String(e) };
+  }
+}
+async function readBudget(brainDir2) {
+  const file = join10(brainDir2, "persona-budget.json");
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  try {
+    const txt = await fs10.readFile(file, "utf-8");
+    const j2 = JSON.parse(txt);
+    if (j2.date === today) return { date: today, today_usd: Number(j2.today_usd) || 0 };
+  } catch {
+  }
+  return { date: today, today_usd: 0 };
+}
+async function recordSpend(brainDir2, usd) {
+  const current = await readBudget(brainDir2);
+  const next = { date: current.date, today_usd: current.today_usd + usd };
+  await fs10.mkdir(brainDir2, { recursive: true }).catch(() => {
+  });
+  await fs10.writeFile(join10(brainDir2, "persona-budget.json"), JSON.stringify(next));
+  return next;
+}
+
+// src/tools/persona-stats.ts
+import { promises as fs11 } from "fs";
+import { join as join11 } from "path";
+var DEFAULT_BUDGET = Number(process.env.SB_PERSONA_DAILY_BUDGET ?? "20");
+async function personaStats(args = {}) {
+  const dir = args.brainDir ?? join11(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  let identity = "";
+  let cardBytes = 0;
+  try {
+    const card = await fs11.readFile(join11(dir, "persona-card.md"), "utf-8");
+    cardBytes = Buffer.byteLength(card, "utf-8");
+    identity = card.split("\n").filter((l) => l.startsWith("- ")).slice(0, 3).map((l) => l.slice(2).trim()).join("; ");
+  } catch {
+  }
+  let ungraduated = 0;
+  let graduated = 0;
+  try {
+    const psl = await fs11.readFile(join11(dir, "persona-signals.jsonl"), "utf-8");
+    for (const line of psl.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const j2 = JSON.parse(line);
+        if (j2.graduated === true) graduated++;
+        else if ((j2.count ?? 0) >= 2) ungraduated++;
+      } catch {
+      }
+    }
+  } catch {
+  }
+  let plugins = 0, agents = 0, skills = 0;
+  try {
+    const cat = JSON.parse(await fs11.readFile(join11(dir, ".installed-catalog.json"), "utf-8"));
+    plugins = Array.isArray(cat.plugins) ? cat.plugins.length : 0;
+    agents = Array.isArray(cat.agents) ? cat.agents.length : 0;
+    skills = Array.isArray(cat.skills) ? cat.skills.length : 0;
+  } catch {
+  }
+  let dismissals = 0;
+  try {
+    const dl = await fs11.readFile(join11(dir, ".persona-dismissals.jsonl"), "utf-8");
+    const cutoff = Date.now() - 7 * 864e5;
+    for (const line of dl.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const j2 = JSON.parse(line);
+        const t = new Date(j2.at).getTime();
+        if (!Number.isNaN(t) && t > cutoff) dismissals++;
+      } catch {
+      }
+    }
+  } catch {
+  }
+  let spend = 0;
+  try {
+    const b = JSON.parse(await fs11.readFile(join11(dir, "persona-budget.json"), "utf-8"));
+    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    if (b.date === today) spend = Number(b.today_usd) || 0;
+  } catch {
+  }
+  return {
+    identity_summary: identity,
+    persona_card_bytes: cardBytes,
+    ungraduated_signals: ungraduated,
+    graduated_signals: graduated,
+    installed_plugins: plugins,
+    installed_agents: agents,
+    installed_skills: skills,
+    dismissals_7d: dismissals,
+    today_spend_usd: spend,
+    daily_budget_usd: DEFAULT_BUDGET
+  };
+}
+
+// src/tools/persona-dismiss.ts
+import { promises as fs12 } from "fs";
+import { join as join12 } from "path";
+var RETAIN_DAYS = 30;
+async function personaDismiss(args = {}) {
+  const dir = args.brainDir ?? join12(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  await fs12.mkdir(dir, { recursive: true }).catch(() => {
+  });
+  const file = join12(dir, ".persona-dismissals.jsonl");
+  const now = /* @__PURE__ */ new Date();
+  const entry = {
+    at: now.toISOString(),
+    prompt_snippet: (args.prompt_snippet ?? "").slice(0, 200),
+    reason: args.reason ?? ""
+  };
+  const cutoff = now.getTime() - RETAIN_DAYS * 864e5;
+  let kept = "";
+  try {
+    const existing = await fs12.readFile(file, "utf-8");
+    for (const line of existing.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const j2 = JSON.parse(line);
+        const t = new Date(j2.at).getTime();
+        if (!Number.isNaN(t) && t > cutoff) kept += line + "\n";
+      } catch {
+      }
+    }
+  } catch {
+  }
+  kept += JSON.stringify(entry) + "\n";
+  await fs12.writeFile(file, kept);
+  const week = now.getTime() - 7 * 864e5;
+  let count = 0;
+  for (const line of kept.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const j2 = JSON.parse(line);
+      const t = new Date(j2.at).getTime();
+      if (!Number.isNaN(t) && t > week) count++;
+    } catch {
+    }
+  }
+  return { ok: true, count_7d: count };
+}
+
 // src/server.ts
 function resolveKnowledgeDir() {
   const candidates = [
@@ -28245,7 +28470,7 @@ server.registerTool(
   async () => {
     try {
       const wikiDir = path2.join(KNOWLEDGE_DIR, "wiki");
-      if (!fs10.existsSync(wikiDir)) {
+      if (!fs13.existsSync(wikiDir)) {
         return {
           content: [{
             type: "text",
@@ -28265,7 +28490,7 @@ server.registerTool(
         const cat = categorizeFile(file);
         let size = 0;
         try {
-          size = fs10.statSync(file).size;
+          size = fs13.statSync(file).size;
         } catch {
           continue;
         }
@@ -28510,6 +28735,67 @@ ${result.content}` }] };
     } catch (error2) {
       return {
         content: [{ type: "text", text: `Read error: ${error2 instanceof Error ? error2.message : String(error2)}` }],
+        isError: true
+      };
+    }
+  }
+);
+server.registerTool(
+  "persona_think",
+  {
+    description: "Persona advisor brief. Spawn `claude -p` with Opus 4.7 (configurable via SB_PERSONA_MODEL) to produce a structured second opinion before answering a non-trivial prompt. Returns intent read, prompt enrichment, clarifying questions, relevant specialists, and risk flags. Use sparingly \u2014 Opus is expensive. Best for ambiguous prompts, design decisions, or multi-domain work where the persona's prior context matters.",
+    inputSchema: {
+      prompt: external_exports.string().describe("The user prompt or topic to brief on."),
+      context_hints: external_exports.array(external_exports.string()).optional().describe("Optional extra context strings to feed into the brief (e.g. relevant wiki snippets, project state).")
+    }
+  },
+  async (args) => {
+    try {
+      const brainDir2 = path2.join(os.homedir(), ".second-brain");
+      const result = await personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir: brainDir2 });
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error2) {
+      return {
+        content: [{ type: "text", text: `Persona think error: ${error2 instanceof Error ? error2.message : String(error2)}` }],
+        isError: true
+      };
+    }
+  }
+);
+server.registerTool(
+  "persona_stats",
+  {
+    description: "Inspect the persona's current state \u2014 identity summary from persona-card.md, signal counts, installed catalog sizes, recent dismissals, today's persona spend vs daily budget. Read-only.",
+    inputSchema: {}
+  },
+  async () => {
+    try {
+      const result = await personaStats({});
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error2) {
+      return {
+        content: [{ type: "text", text: `persona_stats error: ${error2 instanceof Error ? error2.message : String(error2)}` }],
+        isError: true
+      };
+    }
+  }
+);
+server.registerTool(
+  "persona_dismiss",
+  {
+    description: "Record a dismissal: the persona's last suggestion was unhelpful. Feeds dismissal-aware backoff. Use when the user says the persona was wrong or noisy. Logged to ~/.second-brain/.persona-dismissals.jsonl.",
+    inputSchema: {
+      prompt_snippet: external_exports.string().optional().describe("First ~200 chars of the prompt being dismissed."),
+      reason: external_exports.string().optional().describe("Why the suggestion was unhelpful.")
+    }
+  },
+  async (args) => {
+    try {
+      const result = await personaDismiss(args);
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error2) {
+      return {
+        content: [{ type: "text", text: `persona_dismiss error: ${error2 instanceof Error ? error2.message : String(error2)}` }],
         isError: true
       };
     }

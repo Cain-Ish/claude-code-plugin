@@ -31,7 +31,8 @@ describe('knowledge_search v1', () => {
 
   it('respects scope filter', async () => {
     const res = await knowledgeSearch({ query: 'shell', scope: 'concepts', knowledgeDir });
-    expect(res.candidates.every(c => c.path.includes('/concepts/'))).toBe(true);
+    const norm = (p: string) => p.replace(/\\/g, '/');
+    expect(res.candidates.every(c => norm(c.path).includes('/concepts/'))).toBe(true);
   });
 
   it('returns empty candidates on no match', async () => {

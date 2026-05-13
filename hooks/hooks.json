@@ -7,13 +7,14 @@
         "hooks": [
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh", "timeout": 5 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-tools.sh", "timeout": 10 },
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-installed.sh", "timeout": 10 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-load.sh", "timeout": 15 }
         ]
       }
     ],
     "UserPromptSubmit": [
       { "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/intent-gate.sh", "timeout": 8 }
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/persona-context.sh", "timeout": 10 }
       ]}
     ],
     "Stop": [
@@ -24,6 +25,11 @@
     "PreCompact": [
       { "matcher": ".*", "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh", "timeout": 45 }
+      ]}
+    ],
+    "PreToolUse": [
+      { "matcher": "Bash|Write|Edit", "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh", "timeout": 5 }
       ]}
     ],
     "PostToolUse": [

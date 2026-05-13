@@ -3,7 +3,7 @@ name: status
 description: Show second-brain hot-tier and wiki health at a glance. Reports USER.md size, active PROJECT.md size, projects.jsonl project count, wiki page counts per category, and index.md status.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) mcp__knowledge-base__knowledge_stats
+allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) Bash(printf *) Bash(tr *) mcp__knowledge-base__knowledge_stats mcp__knowledge-base__persona_stats
 ---
 
 <!-- user instruction verbatim: "1" -->
@@ -140,6 +140,54 @@ if [ -f "$FLAG" ]; then
   echo "Pending PROJECT.md update flagged for $SLUG (run /second-brain:improve to apply)."
 fi
 ```
+
+### 5b. Persona state
+
+Surface the persona core's live state — identity card size, dismissals 7d, today's persona spend vs daily budget cap. Read-only; nothing here mutates.
+
+```bash
+PCARD=~/.second-brain/persona-card.md
+if [ -f "$PCARD" ]; then
+  echo "Persona card: $(wc -l < "$PCARD" | tr -d ' ') lines, $(wc -c < "$PCARD" | tr -d ' ') bytes"
+else
+  echo "Persona card: MISSING (run /second-brain:setup to seed)"
+fi
+
+DISMISSAL_FILE=~/.second-brain/.persona-dismissals.jsonl
+DISMISSALS_7D=0
+if [ -f "$DISMISSAL_FILE" ]; then
+  CUTOFF=$(date -u -d '7 days ago' +%s 2>/dev/null || date -u -v -7d +%s 2>/dev/null)
+  if [ -n "$CUTOFF" ]; then
+    DISMISSALS_7D=$(jq -c --argjson cutoff "$CUTOFF" '
+      select((.at | fromdateiso8601) > $cutoff)' "$DISMISSAL_FILE" 2>/dev/null | wc -l | tr -d ' ')
+  fi
+fi
+echo "Persona dismissals (7d): $DISMISSALS_7D"
+
+BUDGET_FILE=~/.second-brain/persona-budget.json
+TODAY=$(date -u +%Y-%m-%d)
+SPEND=0
+if [ -f "$BUDGET_FILE" ]; then
+  B_DATE=$(jq -r '.date // ""' "$BUDGET_FILE" 2>/dev/null)
+  if [ "$B_DATE" = "$TODAY" ]; then
+    SPEND=$(jq -r '.today_usd // 0' "$BUDGET_FILE" 2>/dev/null)
+  fi
+fi
+CAP="${SB_PERSONA_DAILY_BUDGET:-20}"
+printf "Persona spend today: \$%.4f / \$%s\n" "$SPEND" "$CAP"
+
+CATALOG=~/.second-brain/.installed-catalog.json
+if [ -f "$CATALOG" ]; then
+  P=$(jq -r '.plugins | length' "$CATALOG" 2>/dev/null)
+  A=$(jq -r '.agents | length' "$CATALOG" 2>/dev/null)
+  S=$(jq -r '.skills | length' "$CATALOG" 2>/dev/null)
+  echo "Installed catalog: ${P} plugins, ${A} agents, ${S} skills"
+else
+  echo "Installed catalog: not yet built (runs at SessionStart)"
+fi
+```
+
+If `Persona dismissals (7d)` is above 3, the persona core auto-mutes its opinionated framing — that's the backoff working. If spend is approaching cap, deeper analyses (`/?` and `/second-brain:think`) start returning `budget_skipped`.
 
 ### 6. Runtime smoke check
 

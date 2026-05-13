@@ -1,0 +1,33 @@
+{
+  "rules": [
+    {
+      "name": "strip-silent-fallback",
+      "tool": "Bash",
+      "match_command": "2>/dev/null",
+      "action": "rewrite",
+      "replace": "",
+      "reason": "Plugin convention: fail loud, not silent. Stripping 2>/dev/null so errors surface."
+    },
+    {
+      "name": "warn-force-push-main",
+      "tool": "Bash",
+      "match_command": "git push.*(--force|-f)\\b.*\\b(main|master)\\b",
+      "action": "ask",
+      "reason": "Force-push to main/master is destructive. Confirm intent."
+    },
+    {
+      "name": "warn-direct-write-hot-tier",
+      "tool": "Write",
+      "match_path": "(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
+      "action": "ask",
+      "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools."
+    },
+    {
+      "name": "warn-rm-rf",
+      "tool": "Bash",
+      "match_command": "\\brm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\\b",
+      "action": "ask",
+      "reason": "rm -rf is destructive and irreversible. Confirm target before proceeding."
+    }
+  ]
+}

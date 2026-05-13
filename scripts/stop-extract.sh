@@ -191,6 +191,13 @@ if [ -z "$DELTA_JSON" ]; then
   fi
 fi
 
+# Layer 4 Quality Gate — filter low-quality extractions before merging into PROJECT.md.
+# On gate failure, pass through unchanged (fail open — never block a session-end extraction).
+GATED_DELTA=$(printf '%s' "$DELTA_JSON" | bash "$(dirname "$0")/extraction-quality-gate.sh" 2>/dev/null)
+if [ -n "$GATED_DELTA" ] && printf '%s' "$GATED_DELTA" | jq empty 2>/dev/null; then
+  DELTA_JSON="$GATED_DELTA"
+fi
+
 MERGE_ERR=$(mktemp)
 if ! echo "$DELTA_JSON" \
   | bash "$(dirname "$0")/merge-project-update.sh" \
