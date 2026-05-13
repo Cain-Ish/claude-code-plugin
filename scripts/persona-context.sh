@@ -88,8 +88,27 @@ CAP_CATALOG=200
 CAP_WIKI=600
 CAP_EPISODIC=300
 
-# --- Persona card abstract ---
+# --- Persona card abstract (auto-seed if missing) ---
 PCARD_FILE="$BRAIN_DIR/persona-card.md"
+if [ ! -f "$PCARD_FILE" ]; then
+  ROLE=$(grep -E '^- ' "$BRAIN_DIR/USER.md" 2>/dev/null | head -1 | sed -E 's/^- *(\[[0-9-]+\][[:space:]]*)?//')
+  cat > "$PCARD_FILE" <<SEED
+# Persona
+
+## Identity
+- ${ROLE:-senior engineer}
+
+## Communication style
+- direct, terse, no filler
+
+## Working preferences
+- brainstorm 2-3 options before architecture decisions
+
+## How to engage me
+- Surface critical context; don't restate what I know
+- Default silent; volunteer only when expected value exceeds flow cost
+SEED
+fi
 PERSONA_ABS=""
 if [ -f "$PCARD_FILE" ]; then
   # Strip headers + blank lines, drop the section labels, keep bullet payloads, join with semicolons.
