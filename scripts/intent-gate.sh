@@ -71,14 +71,31 @@ if [ ${#WIKI_HITS} -gt "$WIKI_CAP" ]; then
   WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c "$WIKI_CAP")
 fi
 
+# --- Episodic memory search ---
+EPISODIC_CLI="$PLUGIN_ROOT/mcp/dist/tools/episodic-index-cli.bundle.js"
+EPISODIC_HINT=""
+if [ -f "$PLUGIN_ROOT/mcp/dist/tools/episodic-search-cli.bundle.js" ]; then
+  EPISODIC_HINT=$(BRAIN_DIR="$HOME/.second-brain" node "$PLUGIN_ROOT/mcp/dist/tools/episodic-search-cli.bundle.js" "$KEYWORDS" 2>/dev/null || true)
+fi
+
 # --- Compose context ---
-if [ -z "$WIKI_HITS" ]; then
+if [ -z "$WIKI_HITS" ] && [ -z "$EPISODIC_HINT" ]; then
   exit 0
 fi
 
-CONTEXT="[Knowledge context — auto-retrieved from wiki, do not re-query these pages]
+CONTEXT=""
+if [ -n "$WIKI_HITS" ]; then
+  CONTEXT="[Knowledge context — auto-retrieved from wiki, do not re-query these pages]
 
-$WIKI_HITS
+$WIKI_HITS"
+fi
+
+if [ -n "$EPISODIC_HINT" ]; then
+  CONTEXT="$CONTEXT
+$EPISODIC_HINT"
+fi
+
+CONTEXT="$CONTEXT
 ---
 If the above knowledge is relevant, use it directly. Only call knowledge_search if you need additional pages not shown here."
 

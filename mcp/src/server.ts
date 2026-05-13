@@ -12,6 +12,7 @@ import { knowledgeSearch } from "./tools/knowledge-search.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
 import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
+import { episodicSearch, episodicRead, buildEpisodicIndex } from "./tools/episodic-search.js";
 
 function resolveKnowledgeDir(): string {
   const candidates = [
@@ -29,10 +30,10 @@ function resolveKnowledgeDir(): string {
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
 
 const server = new McpServer(
-  { name: "knowledge-base", version: "2.0.0" },
+  { name: "knowledge-base", version: "2.2.0" },
   {
     capabilities: { logging: {} },
-    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream.",
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section.",
   }
 );
 
@@ -335,6 +336,80 @@ server.registerTool(
   async (args) => {
     const result = await dreamCancel(args);
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+  }
+);
+
+// --- Episodic memory tools ---
+
+const BRAIN_DIR = path.join(os.homedir(), '.second-brain');
+
+server.registerTool(
+  "episodic_search",
+  {
+    description: "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading.",
+    inputSchema: {
+      query: z.union([
+        z.string().describe("Search query for semantic + text matching"),
+        z.array(z.string()).min(2).max(5).describe("2-5 concepts — returns only exchanges matching ALL"),
+      ]),
+      mode: z.enum(["vector", "text", "both"]).optional().describe("Search mode. Default: 'both'"),
+      limit: z.number().min(1).max(30).optional().describe("Max results. Default: 10"),
+      project: z.string().optional().describe("Filter by project slug (exact match)"),
+      after: z.string().optional().describe("Only include results after this date (YYYY-MM-DD)"),
+      before: z.string().optional().describe("Only include results before this date (YYYY-MM-DD)"),
+    },
+  },
+  async (args) => {
+    try {
+      const result = await episodicSearch(args, BRAIN_DIR);
+      if (result.results.length === 0) {
+        return { content: [{ type: "text" as const, text: "No matching conversations found." }] };
+      }
+      const lines = result.results.map((r, i) => {
+        const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : '';
+        return [
+          `### ${i + 1}. ${r.project} — ${r.date}${sim}`,
+          `**User**: ${r.userSnippet}`,
+          `**Assistant**: ${r.assistantSnippet}`,
+          `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`,
+        ].join('\n');
+      });
+      return { content: [{ type: "text" as const, text: lines.join('\n\n') }] };
+    } catch (error) {
+      return {
+        content: [{ type: "text" as const, text: `Episodic search error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "episodic_read",
+  {
+    description: "Read full conversation context from a specific transcript file. Use after episodic_search to get complete exchange details.",
+    inputSchema: {
+      path: z.string().describe("Absolute path to the transcript file"),
+      startLine: z.number().optional().describe("Start line (1-indexed). Omit to read from beginning."),
+      endLine: z.number().optional().describe("End line (1-indexed). Omit to read to end."),
+    },
+  },
+  async (args) => {
+    try {
+      const result = await episodicRead(args.path, args.startLine, args.endLine);
+      const header = [
+        `**Session**: ${result.sessionId}`,
+        `**Project**: ${result.project}`,
+        `**Date**: ${result.date}`,
+        '---',
+      ].join('\n');
+      return { content: [{ type: "text" as const, text: `${header}\n${result.content}` }] };
+    } catch (error) {
+      return {
+        content: [{ type: "text" as const, text: `Read error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
   }
 );
 

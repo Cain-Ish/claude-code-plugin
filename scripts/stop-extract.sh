@@ -218,6 +218,12 @@ fi
 SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null)
 sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
 
+# --- Incremental episodic index update ---
+PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
+if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/episodic-index-cli.bundle.js" ]; then
+  BRAIN_DIR="$BRAIN_DIR" node "$PLUGIN_DIST/episodic-index-cli.bundle.js" 2>/dev/null &
+fi
+
 rm -f "$BRAIN_DIR/.session-baseline-$SLUG.md"
 sb_clear_extraction_marker "$SLUG"
 

@@ -6785,12 +6785,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs10, exportName) {
+    function addFormats(ajv, list, fs11, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs10[f]);
+        ajv.addFormat(f, fs11[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -21011,7 +21011,7 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs9 from "fs";
+import fs10 from "fs";
 import os from "os";
 import path2 from "path";
 
@@ -25409,8 +25409,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs10 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs10);
+  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs11 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs11);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -25968,8 +25968,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs10) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs10 });
+  newRoot(fs11) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs11 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -25997,8 +25997,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs10) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs10 });
+  newRoot(fs11) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs11 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -27986,6 +27986,167 @@ async function dreamCancel(args) {
   return { ok: true };
 }
 
+// src/tools/episodic-search.ts
+import { promises as fs9 } from "fs";
+import { join as join9, basename as basename3 } from "path";
+var INDEX_FILE = "episodic-index.json";
+var DEFAULT_LIMIT = 10;
+var MAX_LIMIT = 30;
+function parseSessionMeta(lines) {
+  const meta = { sessionId: "", project: "", date: "" };
+  let i = 0;
+  if (lines[0]?.startsWith("--- session-meta ---")) {
+    i = 1;
+    while (i < lines.length && !lines[i].startsWith("---")) {
+      const m = lines[i].match(/^(\w+):\s*(.+)/);
+      if (m) {
+        if (m[1] === "session_id") meta.sessionId = m[2].trim();
+        else if (m[1] === "project_slug") meta.project = m[2].trim();
+        else if (m[1] === "date") meta.date = m[2].trim();
+      }
+      i++;
+    }
+    i++;
+    if (i < lines.length && lines[i] === "") i++;
+  }
+  return { meta, bodyStart: i };
+}
+async function loadIndex(brainDir2) {
+  const indexPath = join9(brainDir2, INDEX_FILE);
+  try {
+    const data = await fs9.readFile(indexPath, "utf-8");
+    return JSON.parse(data);
+  } catch {
+    return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };
+  }
+}
+async function episodicSearch(args, brainDir2) {
+  const index = await loadIndex(brainDir2);
+  if (index.exchanges.length === 0) return { results: [] };
+  const limit = Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+  const query = args.query;
+  if (Array.isArray(query)) {
+    return multiConceptSearch(query, index, limit, args);
+  }
+  const mode = args.mode ?? "both";
+  let vectorResults = [];
+  let textResults = [];
+  if (mode === "vector" || mode === "both") {
+    vectorResults = await vectorSearch(query, index, limit * 2, args, brainDir2);
+  }
+  if (mode === "text" || mode === "both") {
+    textResults = textSearch(query, index, limit * 2, args);
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const merged = [];
+  for (const r of vectorResults) {
+    if (!seen.has(r.id)) {
+      seen.add(r.id);
+      merged.push(r);
+    }
+  }
+  for (const r of textResults) {
+    if (!seen.has(r.id)) {
+      seen.add(r.id);
+      merged.push(r);
+    }
+  }
+  merged.sort((a, b) => b.similarity - a.similarity);
+  return {
+    results: merged.slice(0, limit).map((r) => ({
+      sessionId: r.sessionId,
+      project: r.project,
+      date: r.date,
+      userSnippet: r.userSnippet,
+      assistantSnippet: r.assistantSnippet,
+      similarity: Math.round(r.similarity * 1e3) / 1e3,
+      archivePath: r.archivePath,
+      lineStart: r.lineStart,
+      lineEnd: r.lineEnd
+    }))
+  };
+}
+async function vectorSearch(query, index, limit, filters, brainDir2) {
+  const filtered = applyFilters(index.exchanges, filters);
+  const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
+  if (withEmbeddings.length === 0) return [];
+  const queryEmbedding = await embedTexts(
+    [query],
+    join9(brainDir2, "transcripts"),
+    [""]
+  );
+  if (!queryEmbedding) return [];
+  const qVec = queryEmbedding[0];
+  return withEmbeddings.map((e) => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) })).sort((a, b) => b.similarity - a.similarity).slice(0, limit);
+}
+function textSearch(query, index, limit, filters) {
+  const filtered = applyFilters(index.exchanges, filters);
+  const lower = query.toLowerCase();
+  return filtered.filter(
+    (e) => e.userSnippet.toLowerCase().includes(lower) || e.assistantSnippet.toLowerCase().includes(lower)
+  ).map((e) => ({ ...e, similarity: 0.5 })).slice(0, limit);
+}
+async function multiConceptSearch(concepts, index, limit, filters) {
+  const brainDir2 = index.exchanges[0]?.archivePath ? join9(index.exchanges[0].archivePath, "..", "..") : join9(process.env.HOME ?? "", ".second-brain");
+  const filtered = applyFilters(index.exchanges, filters);
+  const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
+  if (withEmbeddings.length === 0) return { results: [] };
+  const conceptEmbeddings = await embedTexts(
+    concepts,
+    join9(brainDir2, "transcripts"),
+    concepts.map((_, i) => `concept-${i}`)
+  );
+  if (!conceptEmbeddings) return { results: [] };
+  const scored = withEmbeddings.map((e) => {
+    const similarities = conceptEmbeddings.map((cv) => cosineSimilarity(cv, e.embedding));
+    const minSim = Math.min(...similarities);
+    const avgSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
+    return { ...e, similarity: avgSim, minSimilarity: minSim };
+  });
+  const threshold = 0.2;
+  return {
+    results: scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity).slice(0, limit).map((r) => ({
+      sessionId: r.sessionId,
+      project: r.project,
+      date: r.date,
+      userSnippet: r.userSnippet,
+      assistantSnippet: r.assistantSnippet,
+      similarity: Math.round(r.similarity * 1e3) / 1e3,
+      archivePath: r.archivePath,
+      lineStart: r.lineStart,
+      lineEnd: r.lineEnd
+    }))
+  };
+}
+function applyFilters(exchanges, filters) {
+  let result = exchanges;
+  if (filters.project) {
+    const p = filters.project.toLowerCase();
+    result = result.filter((e) => e.project.toLowerCase() === p);
+  }
+  if (filters.after) {
+    result = result.filter((e) => e.date >= filters.after);
+  }
+  if (filters.before) {
+    result = result.filter((e) => e.date <= filters.before);
+  }
+  return result;
+}
+async function episodicRead(filePath, startLine, endLine) {
+  const content = await fs9.readFile(filePath, "utf-8");
+  const lines = content.split("\n");
+  const { meta } = parseSessionMeta(lines);
+  const start = (startLine ?? 1) - 1;
+  const end = endLine ?? lines.length;
+  const selected = lines.slice(start, end).join("\n");
+  return {
+    content: selected,
+    sessionId: meta.sessionId,
+    project: meta.project,
+    date: meta.date
+  };
+}
+
 // src/server.ts
 function resolveKnowledgeDir() {
   const candidates = [
@@ -28001,10 +28162,10 @@ function resolveKnowledgeDir() {
 }
 var KNOWLEDGE_DIR = resolveKnowledgeDir();
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.0.0" },
+  { name: "knowledge-base", version: "2.2.0" },
   {
     capabilities: { logging: {} },
-    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream."
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section."
   }
 );
 function categorizeFile(filePath) {
@@ -28084,7 +28245,7 @@ server.registerTool(
   async () => {
     try {
       const wikiDir = path2.join(KNOWLEDGE_DIR, "wiki");
-      if (!fs9.existsSync(wikiDir)) {
+      if (!fs10.existsSync(wikiDir)) {
         return {
           content: [{
             type: "text",
@@ -28104,7 +28265,7 @@ server.registerTool(
         const cat = categorizeFile(file);
         let size = 0;
         try {
-          size = fs9.statSync(file).size;
+          size = fs10.statSync(file).size;
         } catch {
           continue;
         }
@@ -28282,6 +28443,76 @@ server.registerTool(
   async (args) => {
     const result = await dreamCancel(args);
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+);
+var BRAIN_DIR = path2.join(os.homedir(), ".second-brain");
+server.registerTool(
+  "episodic_search",
+  {
+    description: "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading.",
+    inputSchema: {
+      query: external_exports.union([
+        external_exports.string().describe("Search query for semantic + text matching"),
+        external_exports.array(external_exports.string()).min(2).max(5).describe("2-5 concepts \u2014 returns only exchanges matching ALL")
+      ]),
+      mode: external_exports.enum(["vector", "text", "both"]).optional().describe("Search mode. Default: 'both'"),
+      limit: external_exports.number().min(1).max(30).optional().describe("Max results. Default: 10"),
+      project: external_exports.string().optional().describe("Filter by project slug (exact match)"),
+      after: external_exports.string().optional().describe("Only include results after this date (YYYY-MM-DD)"),
+      before: external_exports.string().optional().describe("Only include results before this date (YYYY-MM-DD)")
+    }
+  },
+  async (args) => {
+    try {
+      const result = await episodicSearch(args, BRAIN_DIR);
+      if (result.results.length === 0) {
+        return { content: [{ type: "text", text: "No matching conversations found." }] };
+      }
+      const lines = result.results.map((r, i) => {
+        const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : "";
+        return [
+          `### ${i + 1}. ${r.project} \u2014 ${r.date}${sim}`,
+          `**User**: ${r.userSnippet}`,
+          `**Assistant**: ${r.assistantSnippet}`,
+          `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`
+        ].join("\n");
+      });
+      return { content: [{ type: "text", text: lines.join("\n\n") }] };
+    } catch (error2) {
+      return {
+        content: [{ type: "text", text: `Episodic search error: ${error2 instanceof Error ? error2.message : String(error2)}` }],
+        isError: true
+      };
+    }
+  }
+);
+server.registerTool(
+  "episodic_read",
+  {
+    description: "Read full conversation context from a specific transcript file. Use after episodic_search to get complete exchange details.",
+    inputSchema: {
+      path: external_exports.string().describe("Absolute path to the transcript file"),
+      startLine: external_exports.number().optional().describe("Start line (1-indexed). Omit to read from beginning."),
+      endLine: external_exports.number().optional().describe("End line (1-indexed). Omit to read to end.")
+    }
+  },
+  async (args) => {
+    try {
+      const result = await episodicRead(args.path, args.startLine, args.endLine);
+      const header = [
+        `**Session**: ${result.sessionId}`,
+        `**Project**: ${result.project}`,
+        `**Date**: ${result.date}`,
+        "---"
+      ].join("\n");
+      return { content: [{ type: "text", text: `${header}
+${result.content}` }] };
+    } catch (error2) {
+      return {
+        content: [{ type: "text", text: `Read error: ${error2 instanceof Error ? error2.message : String(error2)}` }],
+        isError: true
+      };
+    }
   }
 );
 async function main() {
