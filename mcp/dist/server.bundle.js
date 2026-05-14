@@ -28153,6 +28153,7 @@ import { promises as fs10 } from "fs";
 import { join as join10 } from "path";
 var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
 var COST_PER_CALL = Number(process.env.SB_PERSONA_COST_PER_CALL ?? "0.11");
+var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "30000");
 var SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
 Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
   intent_read: one sentence \u2014 what the user probably wants
@@ -28165,19 +28166,33 @@ Be terse. Default silent on questions/specialists/risks \u2014 only populate whe
 Output ONLY the JSON object, no prose around it.`;
 function defaultRunner(system, user, model) {
   return new Promise((resolve, reject) => {
-    const p = spawn("claude", ["-p", "--model", model, "--system-prompt", system], {
+    const p = spawn("claude", ["-p", "--bare", "--model", model, "--system-prompt", system], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     let out = "";
     let err = "";
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      p.kill("SIGTERM");
+      setTimeout(() => {
+        if (!p.killed) p.kill("SIGKILL");
+      }, 2e3);
+      reject(new Error(`timeout after ${THINK_TIMEOUT_MS}ms`));
+    }, THINK_TIMEOUT_MS);
     p.stdout.on("data", (d) => {
       out += d.toString();
     });
     p.stderr.on("data", (d) => {
       err += d.toString();
     });
-    p.on("error", reject);
+    p.on("error", (e) => {
+      clearTimeout(timer);
+      if (!killed) reject(e);
+    });
     p.on("close", (code) => {
+      clearTimeout(timer);
+      if (killed) return;
       if (code === 0) resolve(out);
       else reject(new Error(err || `claude -p exited ${code}`));
     });

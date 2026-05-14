@@ -19,6 +19,7 @@
     ],
     "Stop": [
       { "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-verify-gate.sh", "timeout": 10 },
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-extract.sh", "timeout": 45 }
       ]}
     ],

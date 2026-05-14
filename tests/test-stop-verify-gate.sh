@@ -1,0 +1,151 @@
+#!/bin/bash
+# Tests for stop-verify-gate.sh
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
+GATE="$SCRIPT_DIR/stop-verify-gate.sh"
+SANDBOX=$(mktemp -d)
+trap 'rm -rf "$SANDBOX"' EXIT
+
+export BRAIN_DIR="$SANDBOX/brain"
+mkdir -p "$BRAIN_DIR"
+
+PASS=0
+FAIL=0
+
+assert_approve() {
+  local label="$1" output="$2"
+  if [ -z "$output" ]; then
+    PASS=$((PASS + 1))
+    echo "  PASS: $label (approve / no output)"
+  else
+    local decision
+    decision=$(printf '%s' "$output" | jq -r '.decision // empty' 2>/dev/null)
+    if [ "$decision" = "block" ]; then
+      FAIL=$((FAIL + 1))
+      echo "  FAIL: $label — expected approve, got block"
+    else
+      PASS=$((PASS + 1))
+      echo "  PASS: $label (approve)"
+    fi
+  fi
+}
+
+assert_block() {
+  local label="$1" output="$2"
+  local decision
+  decision=$(printf '%s' "$output" | jq -r '.decision // empty' 2>/dev/null)
+  if [ "$decision" = "block" ]; then
+    PASS=$((PASS + 1))
+    echo "  PASS: $label (block)"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  FAIL: $label — expected block, got: $output"
+  fi
+}
+
+# --- Helpers to build transcript fixtures ---
+mk_transcript() {
+  local file="$SANDBOX/transcript-$RANDOM.jsonl"
+  echo "$file"
+}
+
+add_qa_turn() {
+  local file="$1"
+  echo '{"type":"user","message":{"role":"user","content":"what is X?"}}' >> "$file"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"X is..."}]}}' >> "$file"
+}
+
+add_edit_turn() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.ts","old_string":"a","new_string":"b"}}]}}' >> "$file"
+}
+
+add_write_turn() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"src/new.ts","content":"hello"}}]}}' >> "$file"
+}
+
+add_test_run() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"npm run test"}}]}}' >> "$file"
+}
+
+add_lint_run() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"npx eslint src/"}}]}}' >> "$file"
+}
+
+add_review_skill() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Skill","input":{"skill":"review"}}]}}' >> "$file"
+}
+
+mk_input() {
+  local transcript="$1"
+  jq -nc --arg tp "$transcript" --arg sid "test-$$-$RANDOM" '{transcript_path:$tp, session_id:$sid, cwd:"/tmp"}'
+}
+
+echo "=== stop-verify-gate.sh tests ==="
+
+# Test 1: Empty stdin → approve
+OUT=$(echo "" | bash "$GATE" 2>/dev/null || true)
+assert_approve "empty stdin" "$OUT"
+
+# Test 2: Missing transcript → approve
+OUT=$(echo '{"transcript_path":"/nonexistent","session_id":"s1"}' | bash "$GATE" 2>/dev/null || true)
+assert_approve "missing transcript" "$OUT"
+
+# Test 3: Q&A session (no code modification) → approve
+T=$(mk_transcript)
+add_qa_turn "$T"
+add_qa_turn "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_approve "Q&A only session" "$OUT"
+
+# Test 4: Code modified + no verification → block
+T=$(mk_transcript)
+add_qa_turn "$T"
+add_edit_turn "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_block "code modified, no verification" "$OUT"
+
+# Test 5: Code modified + test ran → approve
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_test_run "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_approve "code modified + tests ran" "$OUT"
+
+# Test 6: Code modified + lint ran → approve
+T=$(mk_transcript)
+add_write_turn "$T"
+add_lint_run "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_approve "code modified + lint ran" "$OUT"
+
+# Test 7: Code modified + review skill → approve
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_review_skill "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_approve "code modified + review skill" "$OUT"
+
+# Test 8: Safety valve — block count >= 2 → approve
+T=$(mk_transcript)
+add_edit_turn "$T"
+INPUT=$(mk_input "$T")
+SID=$(printf '%s' "$INPUT" | jq -r '.session_id')
+echo "2" > "$BRAIN_DIR/.verify-gate-blocks-$SID"
+OUT=$(printf '%s' "$INPUT" | bash "$GATE" 2>/dev/null || true)
+assert_approve "safety valve (2 blocks already)" "$OUT"
+
+# Test 9: Kill switch → approve
+T=$(mk_transcript)
+add_edit_turn "$T"
+OUT=$(mk_input "$T" | SB_VERIFY_GATE=off bash "$GATE" 2>/dev/null || true)
+assert_approve "kill switch off" "$OUT"
+
+echo ""
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ] || exit 1

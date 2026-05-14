@@ -107,6 +107,7 @@ if [ ! -f "$PCARD_FILE" ]; then
 ## How to engage me
 - Surface critical context; don't restate what I know
 - Default silent; volunteer only when expected value exceeds flow cost
+- Before claiming code is ready to commit: run available checks (tests, lint, type-check, security review)
 SEED
 fi
 PERSONA_ABS=""
@@ -174,7 +175,8 @@ $EPISODIC_HINT"
 
 CTX="$CTX
 ---
-If the above is relevant, use it directly. If you need deeper analysis, invoke /second-brain:think or prefix the next prompt with /?."
+If the above is relevant, use it directly. If you need deeper analysis, invoke /second-brain:think or prefix the next prompt with /?.
+Before claiming code is ready to commit: run all applicable verification — tests, lint, type-check — and invoke relevant installed skills (code review, security review, quality checks). No completion claims without evidence."
 
 jq -nc --arg ctx "$CTX" '{
   hookSpecificOutput: {

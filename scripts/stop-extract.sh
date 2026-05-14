@@ -37,7 +37,7 @@ log_gate() { SB_GATE="$1"; }
 trap '[ -n "$SB_GATE" ] && sb_log_error "stop-extract.sh" "gate=$SB_GATE" 0' EXIT
 
 EXTRACTOR_MODEL="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
-EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-40}"
+EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-25}"
 
 RAW=$(cat 2>/dev/null || true)
 if [ -z "$RAW" ]; then log_gate "empty-stdin"; exit 0; fi
@@ -139,11 +139,14 @@ trap 'rm -f "$EXTRACT_INPUT" "$EXTRACT_OUT" 2>/dev/null' EXIT
 DELTA_JSON=""
 
 if command -v claude >/dev/null 2>&1; then
+  # --bare skips hooks/LSP/plugin-sync in the subprocess, saving ~10s that
+  # discover-installed.sh was eating from our budget.
+  CLAUDE_ARGS=(-p --bare --model "$EXTRACTOR_MODEL" --system-prompt "$PROMPT")
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$EXTRACT_TIMEOUT" claude -p "$PROMPT" --model "$EXTRACTOR_MODEL" \
+    timeout "$EXTRACT_TIMEOUT" claude "${CLAUDE_ARGS[@]}" \
       < "$EXTRACT_INPUT" > "$EXTRACT_OUT" 2>/dev/null || true
   else
-    claude -p "$PROMPT" --model "$EXTRACTOR_MODEL" \
+    claude "${CLAUDE_ARGS[@]}" \
       < "$EXTRACT_INPUT" > "$EXTRACT_OUT" 2>/dev/null || true
   fi
   if [ -s "$EXTRACT_OUT" ]; then

@@ -27,6 +27,7 @@ export interface PersonaThinkDeps {
 
 const DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? 'claude-opus-4-7';
 const COST_PER_CALL = Number(process.env.SB_PERSONA_COST_PER_CALL ?? '0.11');
+const THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? '30000');
 
 const SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
 Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
@@ -41,15 +42,24 @@ Output ONLY the JSON object, no prose around it.`;
 
 function defaultRunner(system: string, user: string, model: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const p = spawn('claude', ['-p', '--model', model, '--system-prompt', system], {
+    const p = spawn('claude', ['-p', '--bare', '--model', model, '--system-prompt', system], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let out = '';
     let err = '';
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      p.kill('SIGTERM');
+      setTimeout(() => { if (!p.killed) p.kill('SIGKILL'); }, 2000);
+      reject(new Error(`timeout after ${THINK_TIMEOUT_MS}ms`));
+    }, THINK_TIMEOUT_MS);
     p.stdout.on('data', (d) => { out += d.toString(); });
     p.stderr.on('data', (d) => { err += d.toString(); });
-    p.on('error', reject);
+    p.on('error', (e) => { clearTimeout(timer); if (!killed) reject(e); });
     p.on('close', (code) => {
+      clearTimeout(timer);
+      if (killed) return;
       if (code === 0) resolve(out);
       else reject(new Error(err || `claude -p exited ${code}`));
     });

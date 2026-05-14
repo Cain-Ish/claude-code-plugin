@@ -108,11 +108,12 @@ fi
 DELTA_JSON=""
 
 if command -v claude >/dev/null 2>&1; then
+  CLAUDE_ARGS=(-p --bare --model "$EXTRACTOR_MODEL" --system-prompt "$PROMPT")
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$EXTRACT_TIMEOUT" claude -p "$PROMPT" --model "$EXTRACTOR_MODEL" \
+    timeout "$EXTRACT_TIMEOUT" claude "${CLAUDE_ARGS[@]}" \
       < "$EXTRACT_INPUT" > "$EXTRACT_OUT" 2>/dev/null || true
   else
-    claude -p "$PROMPT" --model "$EXTRACTOR_MODEL" \
+    claude "${CLAUDE_ARGS[@]}" \
       < "$EXTRACT_INPUT" > "$EXTRACT_OUT" 2>/dev/null || true
   fi
   if [ -s "$EXTRACT_OUT" ]; then

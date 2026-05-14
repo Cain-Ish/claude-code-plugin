@@ -63,7 +63,7 @@ Strictness: $STRICTNESS
 
 Candidate ($kind): $entry"
   local result
-  result=$(printf '%s' "$prompt" | timeout 5 claude -p --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
+  result=$(printf '%s' "$prompt" | timeout 5 claude -p --bare --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
   case "$result" in
     *ACCEPT*) return 0 ;;
     *) return 1 ;;

@@ -57,7 +57,7 @@ for f in "$TRANSCRIPTS_DIR"/*.jsonl; do
     continue
   fi
 
-  claude -p "$EXTRACT_PROMPT" --model "$MODEL" < "$INPUT_FILE" > "$OUTPUT_FILE" 2>/dev/null
+  claude -p --bare --model "$MODEL" --system-prompt "$EXTRACT_PROMPT" < "$INPUT_FILE" > "$OUTPUT_FILE" 2>/dev/null
 
   if jq -e 'type == "object"' "$OUTPUT_FILE" >/dev/null 2>&1; then
     DECISIONS=$(jq -r '.recent_decisions | length' "$OUTPUT_FILE" 2>/dev/null)

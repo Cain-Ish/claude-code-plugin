@@ -11,6 +11,15 @@ OUT_FILE="$BRAIN_DIR/.installed-catalog.json"
 
 mkdir -p "$BRAIN_DIR"
 
+# Fast-path: reuse cached catalog if plugins dir hasn't changed.
+if [ -f "$OUT_FILE" ] && [ -d "$PLUGINS_ROOT" ]; then
+  if [ "$(stat -f %m "$OUT_FILE" 2>/dev/null || stat -c %Y "$OUT_FILE" 2>/dev/null)" \
+       -ge "$(stat -f %m "$PLUGINS_ROOT" 2>/dev/null || stat -c %Y "$PLUGINS_ROOT" 2>/dev/null)" ]; then
+    cat "$OUT_FILE"
+    exit 0
+  fi
+fi
+
 TMP_PLUGINS=$(mktemp)
 TMP_AGENTS=$(mktemp)
 TMP_SKILLS=$(mktemp)

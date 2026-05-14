@@ -13,6 +13,9 @@ import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
 import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
 import { episodicSearch, episodicRead } from "./tools/episodic-search.js";
+import { personaThink } from "./tools/persona-think.js";
+import { personaStats } from "./tools/persona-stats.js";
+import { personaDismiss } from "./tools/persona-dismiss.js";
 function resolveKnowledgeDir() {
     const candidates = [
         process.env.KNOWLEDGE_DIR,
@@ -328,6 +331,58 @@ server.registerTool("episodic_read", {
     catch (error) {
         return {
             content: [{ type: "text", text: `Read error: ${error instanceof Error ? error.message : String(error)}` }],
+            isError: true,
+        };
+    }
+});
+server.registerTool("persona_think", {
+    description: "Persona advisor brief. Spawn `claude -p` with Opus 4.7 (configurable via SB_PERSONA_MODEL) to produce a structured second opinion before answering a non-trivial prompt. Returns intent read, prompt enrichment, clarifying questions, relevant specialists, and risk flags. Use sparingly — Opus is expensive. Best for ambiguous prompts, design decisions, or multi-domain work where the persona's prior context matters.",
+    inputSchema: {
+        prompt: z.string().describe("The user prompt or topic to brief on."),
+        context_hints: z.array(z.string()).optional().describe("Optional extra context strings to feed into the brief (e.g. relevant wiki snippets, project state)."),
+    },
+}, async (args) => {
+    try {
+        const brainDir = path.join(os.homedir(), '.second-brain');
+        const result = await personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+    catch (error) {
+        return {
+            content: [{ type: "text", text: `Persona think error: ${error instanceof Error ? error.message : String(error)}` }],
+            isError: true,
+        };
+    }
+});
+server.registerTool("persona_stats", {
+    description: "Inspect the persona's current state — identity summary from persona-card.md, signal counts, installed catalog sizes, recent dismissals, today's persona spend vs daily budget. Read-only.",
+    inputSchema: {},
+}, async () => {
+    try {
+        const result = await personaStats({});
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+    catch (error) {
+        return {
+            content: [{ type: "text", text: `persona_stats error: ${error instanceof Error ? error.message : String(error)}` }],
+            isError: true,
+        };
+    }
+});
+server.registerTool("persona_dismiss", {
+    description: "Record a dismissal: the persona's last suggestion was unhelpful. Feeds dismissal-aware backoff. Use when the user says the persona was wrong or noisy. Logged to ~/.second-brain/.persona-dismissals.jsonl.",
+    inputSchema: {
+        prompt_snippet: z.string().optional().describe("First ~200 chars of the prompt being dismissed."),
+        reason: z.string().optional().describe("Why the suggestion was unhelpful."),
+    },
+}, async (args) => {
+    try {
+        const result = await personaDismiss(args);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+    catch (error) {
+        return {
+            content: [{ type: "text", text: `persona_dismiss error: ${error instanceof Error ? error.message : String(error)}` }],
             isError: true,
         };
     }
