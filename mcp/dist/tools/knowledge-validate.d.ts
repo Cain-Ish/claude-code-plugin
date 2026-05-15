@@ -13,4 +13,5 @@ export interface ValidationResult {
 export declare function knowledgeValidate(knowledgeDir: string, opts?: {
     autofix?: boolean;
 }): Promise<ValidationResult>;
+export declare function addFrontmatter(filePath: string, wikiDir: string): Promise<void>;
 //# sourceMappingURL=knowledge-validate.d.ts.map

@@ -8,6 +8,21 @@ allowed-tools: Read mcp__knowledge-base__knowledge_search mcp__knowledge-base__e
 
 # Using Second-Brain
 
+## Hard rule (non-negotiable)
+
+If the user's message names a host, service, project, decision, blocker, or wiki page slug — by literal name — you **MUST** call `mcp__knowledge-base__knowledge_search` on that name **before answering**. The auto-retrieved wiki block in `additionalContext` is best-effort and ranks against the whole message; it can miss when the relevant page exists but didn't score high enough. The hard rule kicks in when the user is *specific*. One query, top 1-2 hits, then answer. No exceptions.
+
+Examples that trigger the rule:
+- "check the supplychain cron" → query `supplychain cron`
+- "is the pikeeper user still there?" → query `pikeeper`
+- "what was our decision on architecture-v1?" → query `architecture-v1`
+
+Examples that don't trigger:
+- "what's a good way to do X in general?" — no specific name
+- "fix this bash script" — referent is the visible artifact, not a wiki entity
+
+---
+
 You have a persona core. Before any non-trivial response:
 
 1. **The persona has already injected its identity card, top wiki hits, and the installed plugin catalog** via the UserPromptSubmit hook (`persona-context.sh`). Read those system reminders. **Don't ignore them. Don't restate them.**

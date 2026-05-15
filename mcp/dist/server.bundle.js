@@ -27682,9 +27682,70 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         } catch {
         }
       }
+      if (issue2.autofix === "add_frontmatter" && issue2.type === "missing_frontmatter") {
+        try {
+          await addFrontmatter(issue2.path, wikiDir);
+          fixed++;
+        } catch {
+        }
+      }
     }
   }
   return { issues, fixed, pagesScanned: allPages.length };
+}
+var KNOWN_CATEGORIES = /* @__PURE__ */ new Set([
+  "concepts",
+  "decisions",
+  "entities",
+  "issues",
+  "learnings",
+  "security",
+  "state",
+  "sources"
+]);
+async function addFrontmatter(filePath, wikiDir) {
+  const original = await fs6.readFile(filePath, "utf-8");
+  if (/^---\n/.test(original)) return;
+  const slug = basename(filePath, ".md");
+  const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
+  const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
+  const relPath = relative(wikiDir, filePath);
+  const firstSeg = relPath.split("/")[0];
+  const type = KNOWN_CATEGORIES.has(firstSeg) ? firstSeg : "state";
+  let created = "";
+  const dateLine = original.match(/\*\*Date(?:\s*\w+)?\*\*:\s*(\d{4}-\d{2}-\d{2})/i);
+  if (dateLine) {
+    created = dateLine[1];
+  } else {
+    const slugDate = slug.match(/^(\d{4}-\d{2}-\d{2})/) || slug.match(/(\d{4}-\d{2}-\d{2})$/);
+    if (slugDate) {
+      created = slugDate[1];
+    } else {
+      try {
+        const stat = await fs6.stat(filePath);
+        created = stat.mtime.toISOString().slice(0, 10);
+      } catch {
+        created = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      }
+    }
+  }
+  const updated = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const linkMatches = original.match(/\[\[([^\]]+)\]\]/g) || [];
+  const related = [...new Set(
+    linkMatches.map((l) => l.slice(2, -2).trim()).filter((r) => /^[a-z0-9][a-z0-9-]*$/i.test(r))
+  )];
+  const fm = `---
+title: "${title}"
+description: ""
+type: ${type}
+created: ${created}
+updated: ${updated}
+tags: []
+related: [${related.join(", ")}]
+---
+
+`;
+  await fs6.writeFile(filePath, fm + original, "utf-8");
 }
 function isSessionNarrative(content, slug) {
   const sessionSignals = [

@@ -47,12 +47,13 @@ Run first, always. The hot tier is injected into every prompt, so noise here is 
 
 Fix structural issues before touching content.
 
-1. Call `knowledge_validate` MCP tool or scan the wiki tree directly
-2. Fix every issue found:
+1. **Step 0 — autofix sweep (required, runs before the manual cap)**:
+   Call `knowledge_validate` with `autofix: true` first. This applies all safe automated fixes (frontmatter injection, empty-page removal, empty root-orphan cleanup) in one pass. Report `Auto-fixed N issues.` Frontmatter autofix is **uncapped** — if 45 pages are missing frontmatter, all 45 get fixed in this step. Do this even if the wiki looks fine, because the autofix is idempotent.
+2. After the autofix sweep, re-run `knowledge_validate` (autofix: true) and address every remaining issue manually:
    - **Broken wiki-links**: `[[slug]]` with no matching page → create a stub or remove the link
-   - **Missing frontmatter**: Add YAML frontmatter (title, type, description, created, updated, related, tags)
+   - **Missing frontmatter**: If any remain after Step 0, write the YAML block by hand (title from H1, type from folder, description filled in Phase 4)
    - **Date-prefixed filenames**: Rename `YYYY-MM-DD-slug.md` → `slug.md`, move date into `created` field
-   - **Empty pages**: Delete them
+   - **Empty pages**: Delete them (autofix covers truly empty pages; whitespace-only may need manual review)
    - **Root orphans**: Files at `~/knowledge/*.md` → move into `wiki/<category>/` or delete
    - **Incorrect slugs**: Must be lowercase-kebab-case
    - **Stale stubs outside the wiki**: if `~/.second-brain/wiki/` exists (legacy extraction artifacts), promote any files that have no matching page in `~/knowledge/wiki/` to `wiki/entities/` with proper frontmatter, delete duplicates, then remove the directory
@@ -148,7 +149,7 @@ The knowledge search uses BM25 with field weights: **title 3×, description 2×,
 - **Keep nodes current**: when newer info contradicts older content, rewrite to reflect current state — don't append both versions
 - **Preserve change history**: add one-line `## History` entries when rewriting content
 - Keep wiki-link format: `[[lowercase-kebab-case]]`
-- Max **50 changes** per run. If more work remains, report what's left for the next run.
+- Max **50 manual changes** per run. The Phase 1 `knowledge_validate` autofix pass is **not counted** against this cap — autofix is idempotent and safe to apply in full. If 50 manual changes remain after autofix, report what's left for the next run.
 - When merging, always read both pages in full before combining
 
 ## Autonomous Dispatch

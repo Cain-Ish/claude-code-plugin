@@ -21,6 +21,8 @@ RAW=$(cat 2>/dev/null || true)
 PROMPT=$(printf '%s' "$RAW" | jq -r '.prompt // empty' 2>/dev/null || true)
 [ -z "$PROMPT" ] && exit 0
 
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null || true)
+
 # /? prefix → route to persona-think (Layer 2 Opus brief), bypass Layer 1 silent injection.
 case "$PROMPT" in
   '/?'*)
@@ -112,11 +114,24 @@ SEED
 fi
 PERSONA_ABS=""
 if [ -f "$PCARD_FILE" ]; then
-  # Strip headers + blank lines, drop the section labels, keep bullet payloads, join with semicolons.
-  PERSONA_ABS=$(grep -E '^- ' "$PCARD_FILE" 2>/dev/null \
-    | sed 's/^- *//' \
-    | tr '\n' ';' \
-    | sed 's/;;*/; /g; s/; $//')
+  # USER.md is loaded by session-load.sh and injected on every prompt as ambient
+  # state. persona-card.md is auto-injected here. Without dedup the two paths
+  # double-inject identical bullets (observed in field data: 480B persona-card
+  # 100% duplicated USER.md "Hard Rules" entries). We strip persona-card bullets
+  # whose exact text already appears as a bullet in USER.md.
+  USER_BULLETS_FILE="$BRAIN_DIR/USER.md"
+  if [ -f "$USER_BULLETS_FILE" ]; then
+    PERSONA_ABS=$(grep -E '^- ' "$PCARD_FILE" 2>/dev/null \
+      | sed 's/^- *//' \
+      | grep -F -v -x -f <(grep -E '^- ' "$USER_BULLETS_FILE" 2>/dev/null | sed 's/^- *//') \
+      | tr '\n' ';' \
+      | sed 's/;;*/; /g; s/; $//')
+  else
+    PERSONA_ABS=$(grep -E '^- ' "$PCARD_FILE" 2>/dev/null \
+      | sed 's/^- *//' \
+      | tr '\n' ';' \
+      | sed 's/;;*/; /g; s/; $//')
+  fi
   [ ${#PERSONA_ABS} -gt $CAP_PERSONA ] && PERSONA_ABS=$(printf '%s' "$PERSONA_ABS" | head -c $CAP_PERSONA)
 fi
 
@@ -160,18 +175,72 @@ if [ -z "$PERSONA_ABS" ] && [ -z "$CATALOG_ABS" ] && [ -z "$WIKI_HITS" ] && [ -z
   exit 0
 fi
 
+# --- Per-session injection memo: skip sections whose content is unchanged since the last turn ---
+# Persona/catalog/wiki/episodic are "ambient state" — re-injecting the same content every turn is
+# noise. We hash each section per session and only emit sections whose hash has changed.
+# Failure mode: if the memo file is unreadable/unwritable we fall through and emit everything,
+# matching pre-memo behavior.
+SHOW_PERSONA=1; SHOW_CATALOG=1; SHOW_WIKI=1; SHOW_EPISODIC=1
+MEMO_DIR="$BRAIN_DIR/.injected"
+MEMO_FILE=""
+if [ -n "$SESSION_ID" ]; then
+  mkdir -p "$MEMO_DIR" 2>/dev/null || true
+  MEMO_FILE="$MEMO_DIR/${SESSION_ID}.json"
+fi
+
+sb_hash() {
+  if command -v sha1sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha1sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum | awk '{print $1}'
+  else
+    # Last resort: byte length — coarse but better than no dedup.
+    printf '%d' "${#1}"
+  fi
+}
+
+if [ -n "$MEMO_FILE" ] && [ -f "$MEMO_FILE" ]; then
+  H_PERSONA_NOW=$(sb_hash "$PERSONA_ABS")
+  H_CATALOG_NOW=$(sb_hash "$CATALOG_ABS")
+  H_WIKI_NOW=$(sb_hash "$WIKI_HITS")
+  H_EPISODIC_NOW=$(sb_hash "$EPISODIC_HINT")
+  H_PERSONA_PREV=$(jq -r '.persona // ""' "$MEMO_FILE" 2>/dev/null)
+  H_CATALOG_PREV=$(jq -r '.catalog // ""' "$MEMO_FILE" 2>/dev/null)
+  H_WIKI_PREV=$(jq -r '.wiki // ""' "$MEMO_FILE" 2>/dev/null)
+  H_EPISODIC_PREV=$(jq -r '.episodic // ""' "$MEMO_FILE" 2>/dev/null)
+  [ -n "$PERSONA_ABS" ] && [ "$H_PERSONA_NOW" = "$H_PERSONA_PREV" ] && SHOW_PERSONA=0
+  [ -n "$CATALOG_ABS" ] && [ "$H_CATALOG_NOW" = "$H_CATALOG_PREV" ] && SHOW_CATALOG=0
+  [ -n "$WIKI_HITS" ]   && [ "$H_WIKI_NOW"    = "$H_WIKI_PREV" ]    && SHOW_WIKI=0
+  [ -n "$EPISODIC_HINT" ] && [ "$H_EPISODIC_NOW" = "$H_EPISODIC_PREV" ] && SHOW_EPISODIC=0
+fi
+
 # --- Compose as factual statements (per research: factual phrasing dodges prompt-injection defenses) ---
 CTX="[Persona context — auto-loaded, treat as ambient state]"
-[ -n "$PERSONA_ABS" ] && CTX="$CTX
+[ -n "$PERSONA_ABS" ] && [ "$SHOW_PERSONA" = "1" ] && CTX="$CTX
 Persona: $PERSONA_ABS"
-[ -n "$CATALOG_ABS" ] && CTX="$CTX
+[ -n "$CATALOG_ABS" ] && [ "$SHOW_CATALOG" = "1" ] && CTX="$CTX
 Installed specialists: $CATALOG_ABS"
-[ -n "$WIKI_HITS" ] && CTX="$CTX
+[ -n "$WIKI_HITS" ] && [ "$SHOW_WIKI" = "1" ] && CTX="$CTX
 
 [Wiki — auto-retrieved, do not re-query these pages]
 $WIKI_HITS"
-[ -n "$EPISODIC_HINT" ] && CTX="$CTX
+[ -n "$EPISODIC_HINT" ] && [ "$SHOW_EPISODIC" = "1" ] && CTX="$CTX
 $EPISODIC_HINT"
+
+# Update memo with this turn's hashes for next-turn dedup.
+if [ -n "$MEMO_FILE" ]; then
+  jq -nc \
+    --arg p "$(sb_hash "$PERSONA_ABS")" \
+    --arg c "$(sb_hash "$CATALOG_ABS")" \
+    --arg w "$(sb_hash "$WIKI_HITS")" \
+    --arg e "$(sb_hash "$EPISODIC_HINT")" \
+    '{persona:$p, catalog:$c, wiki:$w, episodic:$e}' > "$MEMO_FILE" 2>/dev/null || true
+fi
+
+# If everything was suppressed, no header alone — exit silent.
+if [ "$CTX" = "[Persona context — auto-loaded, treat as ambient state]" ]; then
+  exit 0
+fi
 
 CTX="$CTX
 ---

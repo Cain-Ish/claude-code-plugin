@@ -28,12 +28,24 @@ MERGED=$(jq -nc \
   --arg today "$TODAY" \
   --arg session "$SESSION_ID" \
   '
-  # For each new signal, either merge into existing or append
-  # Word-overlap dedup: two signals match if they share >60% content words (3+ chars)
+  # For each new signal, either merge into existing or append.
+  # Word-overlap dedup uses set-min as the denominator (intersection over the
+  # smaller set size, gated by a 3-word floor on both sides). Set-max was too
+  # strict: long detailed signals (~20+ unique content words) rarely re-occurred
+  # at 60 percent overlap, so identical underlying behaviors stayed as separate
+  # count=1 entries forever. Set-min asks whether most of the smaller side
+  # words are shared with the larger side — better at catching paraphrases of
+  # the same pattern, while the min-word-count guard prevents trivial 1-2 word
+  # matches from collapsing distinct signals.
+  # NOTE: this block is inside a bash single-quoted jq program. Apostrophes in
+  # comments will close the quote — keep this prose apostrophe-free.
   def content_words: ascii_downcase | [scan("[a-z]{3,}")] | unique;
   def word_overlap($a; $b):
-    if ([$a, $b] | map(length) | max) == 0 then 0
-    else ([$a[] | select(. as $w | $b | index($w))] | length) * 100 / ([$a, $b] | map(length) | max)
+    ($a | length) as $la | ($b | length) as $lb |
+    if ($la < 3) or ($lb < 3) then 0
+    else
+      ([$la, $lb] | min) as $denom |
+      ([$a[] | select(. as $w | $b | index($w))] | length) * 100 / $denom
     end;
 
   reduce ($new_sigs[]) as $sig ($existing;
@@ -41,7 +53,7 @@ MERGED=$(jq -nc \
     (to_entries | map(
       (.value.signal | content_words) as $old_words |
       {key: .key, pct: word_overlap($new_words; $old_words)}
-    ) | map(select(.pct >= 60)) | sort_by(-.pct) | .[0].key) as $idx |
+    ) | map(select(.pct >= 50)) | sort_by(-.pct) | .[0].key) as $idx |
     if $idx != null then
       # Update existing: increment count, append evidence, update last_seen
       .[$idx].count += 1 |
@@ -72,8 +84,12 @@ MERGED=$(echo "$MERGED" | jq -c \
   --arg cutoff "$CUTOFF" \
   '[.[] | select(.graduated == true or .last_seen >= $cutoff)]')
 
-# --- Auto-graduate high-confidence signals with 3+ observations ---
-GRAD_CANDIDATES=$(echo "$MERGED" | jq -c '[.[] | select(.count >= 3 and .confidence == "high" and .graduated == false)]')
+# --- Auto-graduate high-confidence signals with 2+ observations ---
+# Threshold was count>=3, but field data showed cross-session paraphrase
+# divergence + the old strict dedup kept nearly everything at count=1. After
+# loosening the dedup above, count>=2 is the natural floor: a behavior seen
+# in two distinct sessions with high LLM confidence is genuine signal.
+GRAD_CANDIDATES=$(echo "$MERGED" | jq -c '[.[] | select(.count >= 2 and .confidence == "high" and .graduated == false)]')
 GRAD_COUNT=$(echo "$GRAD_CANDIDATES" | jq 'length')
 
 if [ "$GRAD_COUNT" -gt 0 ]; then
@@ -89,11 +105,19 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
     for i in $GRADUATED_INDICES; do
       SIG_TEXT_LOWER=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal")
       MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT_LOWER" '
+        # Mirror the merge-step dedup: set-min denominator, 50% threshold,
+        # 3-word floor on both sides. Without this mirror, a graduated signal
+        # could leave its near-duplicates ungraduated and they would re-fire.
         def content_words: ascii_downcase | [scan("[a-z]{3,}")] | unique;
         ($sig | content_words) as $target |
-        [.[] | if ((.signal | content_words) as $w |
-          ([$target[] | select(. as $t | $w | index($t))] | length) * 100 / ([($target | length), ($w | length)] | max)) >= 60
-        then .graduated = true else . end]
+        [.[] | (.signal | content_words) as $w |
+          if (($target | length) < 3) or (($w | length) < 3) then .
+          else
+            ([($target | length), ($w | length)] | min) as $denom |
+            if (([$target[] | select(. as $t | $w | index($t))] | length) * 100 / $denom) >= 50
+            then .graduated = true else . end
+          end
+        ]
       ')
     done
   fi

@@ -25,7 +25,10 @@ reset_home() {
 seed_clean() {
   printf 'durable preferences\n\n## Intent\nrun query first.\n' > "$HOME/.second-brain/USER.md"
   printf 'project facts\n' > "$HOME/.second-brain/projects/test-slug/PROJECT.md"
-  mkdir -p "$HOME/.second-brain/wiki"
+  # verify.sh resolves the wiki under $HOME/knowledge (or
+  # CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR), not $HOME/.second-brain. The earlier
+  # mkdir under .second-brain was a leftover from the pre-1.0 layout.
+  mkdir -p "$HOME/knowledge/wiki"
 }
 
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
@@ -119,7 +122,7 @@ pass "USER.md missing ## Intent: fails"
 # --- Subtest 11: wiki dir missing → exit non-zero
 reset_home "no-wiki"
 seed_clean
-rm -rf "$HOME/.second-brain/wiki"
+rm -rf "$HOME/knowledge/wiki"
 OUT=$("$SCRIPT" 2>&1) && fail "missing wiki dir should fail"
 echo "$OUT" | grep -q "wiki" || fail "expected 'wiki' in output (got: $OUT)"
 pass "wiki dir missing: fails"

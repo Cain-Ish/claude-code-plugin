@@ -114,9 +114,75 @@ export async function knowledgeValidate(knowledgeDir, opts = {}) {
                 }
                 catch { /* already gone */ }
             }
+            if (issue.autofix === 'add_frontmatter' && issue.type === 'missing_frontmatter') {
+                try {
+                    await addFrontmatter(issue.path, wikiDir);
+                    fixed++;
+                }
+                catch { /* skip pages we can't write */ }
+            }
         }
     }
     return { issues, fixed, pagesScanned: allPages.length };
+}
+const KNOWN_CATEGORIES = new Set([
+    'concepts', 'decisions', 'entities', 'issues',
+    'learnings', 'security', 'state', 'sources',
+]);
+export async function addFrontmatter(filePath, wikiDir) {
+    const original = await fs.readFile(filePath, 'utf-8');
+    // Defensive: if frontmatter snuck in between scan and write, leave it alone.
+    if (/^---\n/.test(original))
+        return;
+    const slug = basename(filePath, '.md');
+    // Title: first '# Heading' line, else slug-as-title.
+    const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
+    const title = headingMatch
+        ? headingMatch[1].trim().replace(/"/g, "'")
+        : slug.replace(/-/g, ' ');
+    // Type: folder segment directly under wiki/.
+    const relPath = relative(wikiDir, filePath);
+    const firstSeg = relPath.split('/')[0];
+    const type = KNOWN_CATEGORIES.has(firstSeg) ? firstSeg : 'state';
+    // Created: a `**Date**: YYYY-MM-DD` line in the body wins; else date-prefixed slug;
+    // else file mtime. We never invent dates from "today" — that would lie about provenance.
+    let created = '';
+    const dateLine = original.match(/\*\*Date(?:\s*\w+)?\*\*:\s*(\d{4}-\d{2}-\d{2})/i);
+    if (dateLine) {
+        created = dateLine[1];
+    }
+    else {
+        const slugDate = slug.match(/^(\d{4}-\d{2}-\d{2})/) || slug.match(/(\d{4}-\d{2}-\d{2})$/);
+        if (slugDate) {
+            created = slugDate[1];
+        }
+        else {
+            try {
+                const stat = await fs.stat(filePath);
+                created = stat.mtime.toISOString().slice(0, 10);
+            }
+            catch {
+                created = new Date().toISOString().slice(0, 10);
+            }
+        }
+    }
+    const updated = new Date().toISOString().slice(0, 10);
+    // Related: any [[wiki-link]] tokens already in the body (deduped).
+    const linkMatches = original.match(/\[\[([^\]]+)\]\]/g) || [];
+    const related = [...new Set(linkMatches
+            .map(l => l.slice(2, -2).trim())
+            // Filter out matches that are clearly not wiki slugs (spaces, regex metachars, etc.)
+            .filter(r => /^[a-z0-9][a-z0-9-]*$/i.test(r)))];
+    const fm = `---\n` +
+        `title: "${title}"\n` +
+        `description: ""\n` +
+        `type: ${type}\n` +
+        `created: ${created}\n` +
+        `updated: ${updated}\n` +
+        `tags: []\n` +
+        `related: [${related.join(', ')}]\n` +
+        `---\n\n`;
+    await fs.writeFile(filePath, fm + original, 'utf-8');
 }
 function isSessionNarrative(content, slug) {
     const sessionSignals = [
