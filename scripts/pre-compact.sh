@@ -107,52 +107,47 @@ fi
 # --- Run LLM extraction ---
 DELTA_JSON=""
 
-if command -v claude >/dev/null 2>&1; then
-  CLAUDE_ARGS=(-p --bare --model "$EXTRACTOR_MODEL" --system-prompt "$PROMPT")
-  if command -v timeout >/dev/null 2>&1; then
-    timeout "$EXTRACT_TIMEOUT" claude "${CLAUDE_ARGS[@]}" \
-      < "$EXTRACT_INPUT" > "$EXTRACT_OUT" 2>/dev/null || true
-  else
-    claude "${CLAUDE_ARGS[@]}" \
-      < "$EXTRACT_INPUT" > "$EXTRACT_OUT" 2>/dev/null || true
-  fi
-  if [ -s "$EXTRACT_OUT" ]; then
-    sb_strip_code_fences < "$EXTRACT_OUT" > "${EXTRACT_OUT}.clean"
-    mv "${EXTRACT_OUT}.clean" "$EXTRACT_OUT"
-  fi
-  if [ -s "$EXTRACT_OUT" ] && jq -e 'type == "object"' "$EXTRACT_OUT" >/dev/null 2>&1; then
-    DELTA_JSON=$(cat "$EXTRACT_OUT")
-  else
-    LLM_ERR=$(head -c 200 "$EXTRACT_OUT" 2>/dev/null | tr '\n' ' ')
-    sb_log_error "pre-compact.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=${LLM_ERR:-empty}" 0
-  fi
+# sb_call_extractor (lib.sh) tries claude CLI then ANTHROPIC_API_KEY fallback
+# and writes .extractor-health.json so session-load.sh can surface failures.
+if sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
+  DELTA_JSON=$(cat "$EXTRACT_OUT")
+else
+  HEALTH_REASON=$(sb_get_extractor_health | jq -r '.reason // "unknown"' 2>/dev/null)
+  sb_log_error "pre-compact.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=$HEALTH_REASON" 0
 fi
 
-# Deterministic fallback when LLM is unavailable or output was bad
+# Deterministic fallback: single [degraded] breadcrumb, deduped per day.
 if [ -z "$DELTA_JSON" ]; then
-  FILES_JSON=$(sed -n "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -rcs '
-    [
-      .[]
-      | select(.type == "assistant")
-      | .message.content[]?
-      | select(.type == "tool_use")
-      | select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
-      | .input.file_path
-    ]
-    | unique
-    | map(select(. != null and . != ""))
-  ' 2>/dev/null || echo '[]')
-  FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
-  DELTA_JSON=$(jq -cn --argjson f "$FILES_JSON" '{
-    recent_decisions: [],
-    open_blockers:    [],
-    cross_refs:       [],
-    files_touched:    $f
-  }')
-  if echo "$FILES_JSON" | jq -e 'length > 0' >/dev/null 2>&1; then
-    FILES_LIST=$(echo "$FILES_JSON" | jq -r '.[0:5] | join(", ")')
-    NOTE="files this session: $FILES_LIST"
-    DELTA_JSON=$(echo "$DELTA_JSON" | jq -c --arg n "$NOTE" '.recent_decisions = [$n]')
+  TODAY=$(date -u +%Y-%m-%d)
+  if grep -qF "[$TODAY] [degraded]" "$PROJECT_MD" 2>/dev/null; then
+    DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+  else
+    FILES_JSON=$(sed -n "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -rcs '
+      [
+        .[]
+        | select(.type == "assistant")
+        | .message.content[]?
+        | select(.type == "tool_use")
+        | select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
+        | .input.file_path
+      ]
+      | unique
+      | map(select(. != null and . != ""))
+      | .[0:5]
+    ' 2>/dev/null || echo '[]')
+    FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
+    FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null)
+    if [ -n "$FILES_LIST" ]; then
+      NOTE="[degraded] LLM extraction unavailable; session touched: $FILES_LIST"
+    else
+      NOTE="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
+    fi
+    DELTA_JSON=$(jq -cn --argjson f "$FILES_JSON" --arg n "$NOTE" '{
+      recent_decisions: [$n],
+      open_blockers:    [],
+      cross_refs:       [],
+      files_touched:    $f
+    }')
   fi
 fi
 

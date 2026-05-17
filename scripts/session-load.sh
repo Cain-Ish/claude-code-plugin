@@ -65,6 +65,49 @@ sb_append() {
   return 0
 }
 
+# Bump per-project session counter (used by cadence banner below).
+sb_increment_session_count "$slug"
+
+# 0a. Cadence + maintenance banners — surface SB system events that would
+# otherwise require the user to remember to run /second-brain:dream or
+# /second-brain:improve. Threshold-gated to avoid banner fatigue.
+SESSION_COUNT=$(sb_get_session_count "$slug")
+DREAM_THRESHOLD="${SB_DREAM_CADENCE:-15}"
+if [ "$SESSION_COUNT" -ge "$DREAM_THRESHOLD" ]; then
+  sb_append "$(printf '## ⓘ second-brain — dream consolidation suggested\n%s sessions since last dream (threshold: %s).\nRun: `/second-brain:dream --background` — mines transcripts for missed learnings, stages changes for review.\n\n' \
+    "$SESSION_COUNT" "$DREAM_THRESHOLD")" "dream-cadence-banner" 300
+fi
+if sb_get_maintainer_needed "$slug"; then
+  sb_append "$(printf '## ⓘ second-brain — knowledge-maintainer recommended\nWiki writes happened recently. Run the maintainer agent to rebuild cross-links, dedupe, and reindex.\nRun: `Use the second-brain:knowledge-maintainer agent to consolidate the latest wiki writes.`\n\n')" "maintainer-banner" 250
+  sb_clear_maintainer_needed "$slug"
+fi
+PIN_COUNT=$(sb_count_pin_candidates "$slug")
+if [ "$PIN_COUNT" -gt 0 ]; then
+  sb_append "$(printf '## ⓘ second-brain — %s pin candidate(s) pending\nExtracted persona signals waiting in `~/.second-brain/projects/%s/.pin-candidates.jsonl`.\nRun: `Review pin candidates in second-brain and decide which to pin to USER.md.`\n\n' \
+    "$PIN_COUNT" "$slug")" "pin-candidates-banner" 250
+fi
+
+# 0. Extractor health banner — surfaces silent LLM-extraction failures.
+# Without this banner, broken `claude` CLI auth caused 113 consecutive stop-
+# hook subprocess failures with zero user-visible signal — wiki/learnings
+# stayed empty for days. Banner is HIGH priority so it lands first.
+if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
+  H_STATUS=$(jq -r '.status // "unknown"' "$SB_HEALTH_FILE" 2>/dev/null)
+  if [ "$H_STATUS" = "fail" ]; then
+    H_BACKEND=$(jq -r '.backend // "unknown"' "$SB_HEALTH_FILE" 2>/dev/null)
+    H_REASON=$(jq  -r '.reason  // ""'        "$SB_HEALTH_FILE" 2>/dev/null)
+    H_AT=$(jq      -r '.checked_at // ""'     "$SB_HEALTH_FILE" 2>/dev/null)
+    H_FAILS=$(sb_count_recent_extraction_failures)
+    # Hint differs by failure mode. If user has neither API key nor OAuth,
+    # full fix instructions; if they have OAuth but the `--bare` flag is
+    # blocking auth, that's now auto-handled by lib.sh:sb_call_extractor.
+    H_HINT="fix: run \`claude /login\` (OAuth) or \`export ANTHROPIC_API_KEY=sk-ant-...\` (API key); lib.sh picks the right backend automatically."
+    HEALTH_BANNER=$(printf '## ⚠ second-brain extractor: FAILED\nbackend=%s checked=%s recent_failures=%s\nreason: %s\nimpact: Stop/PreCompact hooks not writing wiki learnings — session insights are lost on exit.\n%s\n\n' \
+      "$H_BACKEND" "$H_AT" "$H_FAILS" "$H_REASON" "$H_HINT")
+    sb_append "$HEALTH_BANNER" "extractor-health-banner" 600
+  fi
+fi
+
 # 1. USER.md — always included
 if [ -f "$USER_FILE" ]; then
   USER_CONTENT=$(cat "$USER_FILE")
@@ -165,6 +208,24 @@ if [ -f "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
   jq --arg s "$slug" --arg t "$TS" '
     if .slug == $s then .last_session_iso = $t else . end
   ' "$INDEX_FILE" > "$TMP_IDX" 2>/dev/null && mv "$TMP_IDX" "$INDEX_FILE" || rm -f "$TMP_IDX"
+fi
+
+# --- Stale wiki/index.md auto-reindex (background, no output) ---
+# Decoupled from extraction success: when LLM extraction is broken for days,
+# manual /pin or /archive writes still happen but reindex never fires. This
+# closes that gap by triggering reindex if the index is >24h old.
+WIKI_INDEX="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}/wiki/index.md"
+WIKI_INDEX="${WIKI_INDEX/#\~/$HOME}"
+if [ -f "$WIKI_INDEX" ]; then
+  INDEX_MTIME=$(stat -c %Y "$WIKI_INDEX" 2>/dev/null || stat -f %m "$WIKI_INDEX" 2>/dev/null || echo 0)
+  NOW_S=$(date +%s)
+  INDEX_AGE_S=$((NOW_S - INDEX_MTIME))
+  if [ "$INDEX_AGE_S" -gt 86400 ]; then
+    (
+      sb_reindex_wiki "${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}" >/dev/null 2>&1 || true
+    ) &
+    disown 2>/dev/null || true
+  fi
 fi
 
 exit 0

@@ -403,13 +403,23 @@ if [ "$CHANGED" -eq 1 ]; then
 fi
 
 if [ "$WIKI_WRITES" -eq 1 ]; then
-  PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
-  if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/knowledge-reindex.bundle.js" ]; then
-    SB_BUNDLE="$PLUGIN_DIST/knowledge-reindex.bundle.js" SB_KDIR="$KNOWLEDGE_DIR" node -e "
-      import { knowledgeReindex } from process.env.SB_BUNDLE;
-      knowledgeReindex(process.env.SB_KDIR).catch(() => {});
-    " 2>/dev/null || true
-  fi
+  # Centralized reindex helper (lib.sh) — handles ESM dynamic-import correctly
+  # and derives plugin root when CLAUDE_PLUGIN_ROOT is unset.
+  sb_reindex_wiki "$KNOWLEDGE_DIR"
+  # Signal that knowledge-maintainer should run next session. session-load.sh
+  # reads this flag, emits a banner, and clears it.
+  PROJECT_SLUG=$(basename "$(dirname "$PROJECT_MD")")
+  [ -n "$PROJECT_SLUG" ] && sb_set_maintainer_needed "$PROJECT_SLUG"
+fi
+
+# Reset session counter after a dream cycle. We detect "dream just accepted"
+# by the presence of a freshly-archived dream dir touched within last 5 min.
+# Cheap heuristic, no MCP roundtrip needed.
+RECENT_DREAM=$(find "$BRAIN_DIR/dreams/" -maxdepth 2 -name 'status.json' -mmin -5 2>/dev/null \
+  | xargs -I{} jq -r 'select(.status == "completed" or .status == "archived") | .id' {} 2>/dev/null | head -1)
+if [ -n "$RECENT_DREAM" ]; then
+  PROJECT_SLUG=$(basename "$(dirname "$PROJECT_MD")")
+  [ -n "$PROJECT_SLUG" ] && sb_reset_session_count "$PROJECT_SLUG"
 fi
 
 exit 0

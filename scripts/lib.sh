@@ -56,16 +56,26 @@ sb_log_error() {
 }
 
 # Regenerate wiki/index.md catalog after wiki writes.
+# Plugin root is taken from $CLAUDE_PLUGIN_ROOT when the hook harness sets it,
+# falling back to the lib.sh location (../) for manual invocation and tests.
 sb_reindex_wiki() {
   local knowledge_dir="${1:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
   local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
+  if [ -z "$plugin_root" ] || [ ! -d "$plugin_root" ]; then
+    # ${BASH_SOURCE[0]} is this lib.sh; its parent is scripts/, grandparent is plugin root.
+    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd) || plugin_root=""
+  fi
   local reindex_js="$plugin_root/mcp/dist/tools/knowledge-reindex.bundle.js"
   if command -v node >/dev/null 2>&1 && [ -f "$reindex_js" ]; then
-    SB_BUNDLE="$reindex_js" SB_KDIR="$knowledge_dir" node -e "
-      import { knowledgeReindex } from process.env.SB_BUNDLE;
-      knowledgeReindex(process.env.SB_KDIR).catch(() => {});
-    " 2>/dev/null || true
+    # Dynamic ESM import requires --input-type=module + await import().
+    # The previous `import { x } from process.env.SB_BUNDLE` form silently
+    # parse-errored (no string literal) and never reindexed.
+    SB_BUNDLE="$reindex_js" SB_KDIR="$knowledge_dir" \
+      node --input-type=module -e "
+        const m = await import(process.env.SB_BUNDLE);
+        await m.knowledgeReindex(process.env.SB_KDIR);
+      " 2>/dev/null || true
   fi
 }
 
@@ -270,6 +280,52 @@ sb_prune_transcripts() {
   done
 }
 
+# --- Session-cadence + maintenance flags ---------------------------------
+# Track substantive sessions per project so SessionStart can prompt for
+# /second-brain:dream after a threshold without manual reminders. The flag
+# files are per-project under $BRAIN_DIR/projects/<slug>/ so a noisy project
+# doesn't trigger banners on quiet ones.
+
+sb_increment_session_count() {
+  local slug="$1"
+  local f="$BRAIN_DIR/projects/$slug/.session-count"
+  mkdir -p "$(dirname "$f")" 2>/dev/null
+  local n=0
+  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
+  printf '%d' "$((n + 1))" > "$f"
+}
+
+sb_get_session_count() {
+  local f="$BRAIN_DIR/projects/$1/.session-count"
+  local n=0
+  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
+  printf '%d' "$n"
+}
+
+sb_reset_session_count() { echo 0 > "$BRAIN_DIR/projects/$1/.session-count" 2>/dev/null; }
+
+# Maintainer-needed marker — set by merge-project-update.sh after a wiki
+# write; consumed (and cleared) by session-load.sh banner.
+sb_set_maintainer_needed() { mkdir -p "$BRAIN_DIR/projects/$1" 2>/dev/null && touch "$BRAIN_DIR/projects/$1/.maintainer-needed"; }
+sb_get_maintainer_needed() { [ -f "$BRAIN_DIR/projects/$1/.maintainer-needed" ]; }
+sb_clear_maintainer_needed() { rm -f "$BRAIN_DIR/projects/$1/.maintainer-needed"; }
+
+# Pin candidate queue — populated from extracted persona_signals;
+# session-load.sh banners the count so user can /pin with one prompt.
+sb_append_pin_candidate() {
+  local slug="$1" text="$2"
+  local f="$BRAIN_DIR/projects/$slug/.pin-candidates.jsonl"
+  mkdir -p "$(dirname "$f")" 2>/dev/null
+  jq -nc --arg t "$(date -u +%FT%TZ)" --arg p "$text" '{at:$t, text:$p}' >> "$f" 2>/dev/null
+}
+
+sb_count_pin_candidates() {
+  local f="$BRAIN_DIR/projects/$1/.pin-candidates.jsonl"
+  [ -f "$f" ] && wc -l < "$f" 2>/dev/null | tr -d ' ' || echo 0
+}
+
 # --- Dream lifecycle helpers ---
 
 sb_generate_dream_id() {
@@ -299,6 +355,143 @@ sb_dream_set_status() {
   else
     jq --arg f "$field" --arg v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
   fi
+}
+
+# --- Extractor backend & health tracking ---------------------------------
+# Unified entry point for both stop-extract.sh and pre-compact.sh. Tries the
+# `claude` CLI first; if its auth is broken, falls back to a direct Messages
+# API call via curl using $ANTHROPIC_API_KEY. Writes a health marker to
+# $BRAIN_DIR/.extractor-health.json so session-load.sh can surface the state
+# to the user on the next SessionStart, instead of failing silently.
+
+SB_HEALTH_FILE="$BRAIN_DIR/.extractor-health.json"
+
+# Write health snapshot. $1=backend ("claude-cli"|"anthropic-api"|"none"),
+# $2=ok|fail, $3=reason (short string).
+sb_write_extractor_health() {
+  local backend="$1" status="$2" reason="${3:-}"
+  local ts
+  ts=$(date -u +%FT%TZ)
+  mkdir -p "$BRAIN_DIR" 2>/dev/null
+  if command -v jq >/dev/null 2>&1; then
+    jq -nc --arg t "$ts" --arg b "$backend" --arg s "$status" --arg r "$reason" \
+      '{checked_at:$t, backend:$b, status:$s, reason:$r}' \
+      > "$SB_HEALTH_FILE" 2>/dev/null
+  fi
+}
+
+# Call configured extractor. Reads stdin from $1 file, writes JSON to $2.
+# $3 = model id, $4 = system prompt, $5 = timeout seconds.
+# Returns 0 if output exists and is a JSON object, 1 otherwise.
+# Always writes a health marker before returning.
+sb_call_extractor() {
+  local input_file="$1" out_file="$2" model="$3" prompt="$4" timeout_s="${5:-30}"
+  local err_file
+  err_file=$(mktemp)
+
+  # --- Backend 1: claude CLI -----------------------------------------------
+  # `--bare` is a perf optimization (skips hooks/LSP, saves ~10s) but per
+  # `claude --help`: bare-mode auth is STRICTLY ANTHROPIC_API_KEY — OAuth
+  # tokens from `claude /login` are never read. So we only use --bare when
+  # an API key is present; otherwise we use the slower full path that
+  # honors OAuth. Override with SB_USE_BARE=1 to force.
+  if command -v claude >/dev/null 2>&1; then
+    local -a CLI_ARGS=(-p --model "$model" --system-prompt "$prompt")
+    if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ "${SB_USE_BARE:-0}" = "1" ]; then
+      CLI_ARGS=(-p --bare --model "$model" --system-prompt "$prompt")
+    fi
+    if command -v timeout >/dev/null 2>&1; then
+      timeout "$timeout_s" claude "${CLI_ARGS[@]}" \
+        < "$input_file" > "$out_file" 2>"$err_file" || true
+    else
+      claude "${CLI_ARGS[@]}" \
+        < "$input_file" > "$out_file" 2>"$err_file" || true
+    fi
+
+    # Cheap auth-failure signature check on combined stdout+stderr tail.
+    local combined
+    combined=$(head -c 400 "$out_file" 2>/dev/null; head -c 400 "$err_file" 2>/dev/null)
+    if echo "$combined" | grep -qiE '(not logged in|please run /login|unauthorized|invalid api key)'; then
+      sb_write_extractor_health "claude-cli" "fail" \
+        "auth: $(printf '%s' "$combined" | tr '\n' ' ' | head -c 120)"
+    elif [ -s "$out_file" ]; then
+      sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
+        && mv "${out_file}.clean" "$out_file"
+      if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+        sb_write_extractor_health "claude-cli" "ok" ""
+        rm -f "$err_file"
+        return 0
+      fi
+      sb_write_extractor_health "claude-cli" "fail" \
+        "non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
+    else
+      sb_write_extractor_health "claude-cli" "fail" \
+        "empty output: $(head -c 100 "$err_file" | tr '\n' ' ')"
+    fi
+    : > "$out_file"   # reset before fallback attempt
+  fi
+
+  # --- Backend 2: ANTHROPIC_API_KEY via curl -------------------------------
+  if [ -n "${ANTHROPIC_API_KEY:-}" ] && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    local payload
+    payload=$(jq -n \
+      --arg m "$model" \
+      --arg s "$prompt" \
+      --rawfile u "$input_file" \
+      '{model:$m, max_tokens:4096, system:$s, messages:[{role:"user", content:$u}]}' 2>/dev/null)
+
+    if [ -n "$payload" ]; then
+      local resp
+      resp=$(timeout "$timeout_s" curl -sS https://api.anthropic.com/v1/messages \
+        -H "x-api-key: $ANTHROPIC_API_KEY" \
+        -H "anthropic-version: 2023-06-01" \
+        -H "content-type: application/json" \
+        --data-binary @<(printf '%s' "$payload") 2>"$err_file" || true)
+
+      local text
+      text=$(printf '%s' "$resp" | jq -r '.content[0].text // empty' 2>/dev/null)
+
+      if [ -n "$text" ]; then
+        printf '%s' "$text" | sb_strip_code_fences > "$out_file"
+        if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+          sb_write_extractor_health "anthropic-api" "ok" ""
+          rm -f "$err_file"
+          return 0
+        fi
+        sb_write_extractor_health "anthropic-api" "fail" \
+          "non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
+      else
+        local api_err
+        api_err=$(printf '%s' "$resp" | jq -r '.error.message // empty' 2>/dev/null)
+        sb_write_extractor_health "anthropic-api" "fail" \
+          "api: ${api_err:-no response}"
+      fi
+    fi
+  elif [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+    # Only overwrite to "none" if no claude CLI attempt fired (otherwise the
+    # CLI failure reason is more actionable).
+    [ -x "$(command -v claude 2>/dev/null)" ] || \
+      sb_write_extractor_health "none" "fail" "no claude CLI and ANTHROPIC_API_KEY not set"
+  fi
+
+  rm -f "$err_file"
+  return 1
+}
+
+# Read current extractor health. Echoes JSON, or '{}' if no marker.
+sb_get_extractor_health() {
+  [ -f "$SB_HEALTH_FILE" ] && cat "$SB_HEALTH_FILE" || echo '{}'
+}
+
+# Count consecutive recent extraction failures from error-log.jsonl.
+# Echoes an integer. Used by session-load.sh to decide banner severity.
+sb_count_recent_extraction_failures() {
+  local log="$BRAIN_DIR/error-log.jsonl"
+  [ -f "$log" ] || { echo 0; return; }
+  # last 20 entries from extractor scripts, count llm-extraction-failed
+  tail -20 "$log" 2>/dev/null \
+    | jq -r 'select(.script == "stop-extract.sh" or .script == "pre-compact.sh") | .message' 2>/dev/null \
+    | grep -c 'llm-extraction-failed' 2>/dev/null || echo 0
 }
 
 # Verify jq is available. If missing, log to error-log.jsonl and return 1.

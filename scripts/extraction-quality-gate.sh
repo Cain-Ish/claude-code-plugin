@@ -63,7 +63,12 @@ Strictness: $STRICTNESS
 
 Candidate ($kind): $entry"
   local result
-  result=$(printf '%s' "$prompt" | timeout 5 claude -p --bare --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
+  # `--bare` requires ANTHROPIC_API_KEY (OAuth tokens ignored). Use only when set.
+  if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ "${SB_USE_BARE:-0}" = "1" ]; then
+    result=$(printf '%s' "$prompt" | timeout 5 claude -p --bare --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
+  else
+    result=$(printf '%s' "$prompt" | timeout 5 claude -p --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
+  fi
   case "$result" in
     *ACCEPT*) return 0 ;;
     *) return 1 ;;
