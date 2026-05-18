@@ -86,11 +86,26 @@ DISP_FILE="$PROJ_DIR/.maintainer-dispatched"
 ACK_FILE="$PROJ_DIR/.maintainer-needed-last"
 DISABLED_FILE="$PROJ_DIR/.maintainer-auto-disabled"
 
-# [reconcile] If previous dispatch succeeded (both markers present), reset state.
+# [reconcile] If previous dispatch finished, reset state on success or bump fail-count on failure.
+N_MAX_FAILS=${SB_MAINTAINER_MAX_FAILS:-3}
 if [ -f "$DISP_FILE" ] && [ -f "$ACK_FILE" ]; then
+  # Success.
   sb_reset_wiki_writes "$slug"
   sb_reset_maintainer_fails "$slug"
   rm -f "$DISP_FILE" "$ACK_FILE"
+elif [ -f "$DISP_FILE" ] && [ ! -f "$ACK_FILE" ]; then
+  # Failure: parent Claude didn't write the ack file.
+  COUNT_AFTER=$(( N - 1 < 0 ? 0 : N - 1 ))
+  sb_set_wiki_writes "$slug" "$COUNT_AFTER"
+  sb_inc_maintainer_fails "$slug"
+  rm -f "$DISP_FILE"
+  sb_log_error "session-load.sh" "maintainer-auto-dispatch-failed slug=$slug" 0
+  sb_append "$(printf '## ⚠ maintainer auto-dispatch failed last session — see error-log\n\n')" \
+    "maintainer-fail-banner" 200
+  if [ "$(sb_get_maintainer_fails "$slug")" -ge "$N_MAX_FAILS" ]; then
+    touch "$DISABLED_FILE"
+    sb_log_error "session-load.sh" "maintainer-auto-disabled slug=$slug fails=$N_MAX_FAILS" 0
+  fi
 fi
 
 # [dispatch] Decide whether to emit the BLOCKING REQUIREMENT banner.

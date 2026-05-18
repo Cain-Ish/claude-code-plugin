@@ -114,4 +114,40 @@ OUT=$(run_session_load)
 echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "success-path: should not emit a new banner after reset"
 pass "success path: counter+fail-count reset, both markers cleared, no fresh banner"
 
+# --- Test 7: failure path → counter→N-1, fail-count++, error logged ----
+init_sandbox "failure-path"
+source "$LIB"
+sb_set_wiki_writes "test-slug" 3
+PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
+touch "$PROJ_DIR/.maintainer-dispatched"   # dispatched but no ACK = failure
+unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD
+OUT=$(run_session_load)
+[ "$(sb_get_wiki_writes "test-slug")" = "2" ] || \
+  fail "failure-path: counter should be N-1=2, got $(sb_get_wiki_writes "test-slug")"
+[ "$(sb_get_maintainer_fails "test-slug")" = "1" ] || \
+  fail "failure-path: fail-count should be 1, got $(sb_get_maintainer_fails "test-slug")"
+[ ! -f "$PROJ_DIR/.maintainer-dispatched" ] || fail "failure-path: dispatched marker should be removed"
+grep -q "maintainer-auto-dispatch-failed" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || \
+  fail "failure-path: error-log entry missing"
+pass "failure path: counter→N-1, fail-count incremented, error logged"
+
+# --- Test 8: 3 consecutive failures → auto-disabled --------------------
+init_sandbox "auto-disable"
+source "$LIB"
+PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
+unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD
+# Simulate 3 failed dispatches in a row
+for i in 1 2 3; do
+  sb_set_wiki_writes "test-slug" 3
+  touch "$PROJ_DIR/.maintainer-dispatched"
+  run_session_load >/dev/null
+done
+[ -f "$PROJ_DIR/.maintainer-auto-disabled" ] || \
+  fail "auto-disable: marker should be created after 3 failures"
+# Now even with high counter, dispatch is suppressed
+sb_set_wiki_writes "test-slug" 99
+OUT=$(run_session_load)
+echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "auto-disable: banner should be suppressed when marker present"
+pass "3 consecutive failures auto-disable; subsequent runs suppressed"
+
 echo "ALL PASS"
