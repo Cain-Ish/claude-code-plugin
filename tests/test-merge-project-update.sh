@@ -137,17 +137,18 @@ DUP=$(grep -ci 'existing-ref' "$PROJ" || true)
 pass "cross-refs: case-insensitive dedupe"
 
 # --- Test: counter increments when a wiki page is written ---------------
-# sb_inc_wiki_writes writes to $HOME/.second-brain/projects/<slug>/.wiki-writes
-T8_SLUG="test-slug-ctr-$$"
-PROJ8="$TMP/p8.md"; WIKI8="$TMP/wiki8"; mkdir -p "$WIKI8"
-seed_project "$PROJ8"
-# Patch slug into PROJECT.md header so basename of dirname gives our slug
-T8_PROJ_DIR="$TMP/projects/$T8_SLUG"
+# sb_inc_wiki_writes writes to $BRAIN_DIR/projects/<slug>/.wiki-writes
+# Redirect HOME and BRAIN_DIR to a per-test sandbox so no real ~/.second-brain
+# directories are created (matches init_sandbox pattern in test-maintainer-auto-dispatch.sh).
+T8_SLUG="test-slug-ctr"
+export HOME="$TMP/sandbox-t8"
+export BRAIN_DIR="$HOME/.second-brain"
+WIKI8="$TMP/wiki8"; mkdir -p "$WIKI8"
+T8_PROJ_DIR="$TMP/sandbox-t8-proj/$T8_SLUG"
 mkdir -p "$T8_PROJ_DIR"
 T8_PM="$T8_PROJ_DIR/PROJECT.md"
-cp "$PROJ8" "$T8_PM"
-T8_COUNTER="$HOME/.second-brain/projects/$T8_SLUG/.wiki-writes"
-rm -f "$T8_COUNTER"
+seed_project "$T8_PM"
+T8_COUNTER="$BRAIN_DIR/projects/$T8_SLUG/.wiki-writes"
 # cross_refs with a new page name → triggers wiki write → WIKI_WRITES=1
 jq -nc '{
   recent_decisions: [],
@@ -156,22 +157,20 @@ jq -nc '{
   files_touched: []
 }' | "$SCRIPT" --project-md "$T8_PM" --knowledge-dir "$WIKI8" >/dev/null 2>&1
 T8_COUNT=$(cat "$T8_COUNTER" 2>/dev/null || echo 0)
-# Cleanup before asserting (don't leave state behind)
-rm -f "$T8_COUNTER"
-rmdir "$HOME/.second-brain/projects/$T8_SLUG" 2>/dev/null || true
 [ "$T8_COUNT" = "1" ] || fail "counter-wiki-write: expected counter=1, got $T8_COUNT"
 pass "merge increments .wiki-writes on wiki page write"
+unset HOME BRAIN_DIR
 
 # --- Test: counter unchanged when no wiki write happens -----------------
-T9_SLUG="test-slug-noctr-$$"
-PROJ9="$TMP/p9.md"; WIKI9="$TMP/wiki9"; mkdir -p "$WIKI9"
-seed_project "$PROJ9"
-T9_PROJ_DIR="$TMP/projects/$T9_SLUG"
+T9_SLUG="test-slug-noctr"
+export HOME="$TMP/sandbox-t9"
+export BRAIN_DIR="$HOME/.second-brain"
+WIKI9="$TMP/wiki9"; mkdir -p "$WIKI9"
+T9_PROJ_DIR="$TMP/sandbox-t9-proj/$T9_SLUG"
 mkdir -p "$T9_PROJ_DIR"
 T9_PM="$T9_PROJ_DIR/PROJECT.md"
-cp "$PROJ9" "$T9_PM"
-T9_COUNTER="$HOME/.second-brain/projects/$T9_SLUG/.wiki-writes"
-rm -f "$T9_COUNTER"
+seed_project "$T9_PM"
+T9_COUNTER="$BRAIN_DIR/projects/$T9_SLUG/.wiki-writes"
 # Empty delta — no cross_refs, no wiki page touched, no WIKI_WRITES trigger
 jq -nc '{
   recent_decisions: [],
@@ -181,10 +180,8 @@ jq -nc '{
 }' | "$SCRIPT" --project-md "$T9_PM" --knowledge-dir "$WIKI9" >/dev/null 2>&1
 T9_EXISTS=0
 [ -f "$T9_COUNTER" ] && T9_EXISTS=1
-# Cleanup
-rm -f "$T9_COUNTER"
-rmdir "$HOME/.second-brain/projects/$T9_SLUG" 2>/dev/null || true
 [ "$T9_EXISTS" -eq 0 ] || fail "counter-no-write: counter file should not exist on no-write run"
 pass "merge leaves .wiki-writes alone on no-wiki-write run"
+unset HOME BRAIN_DIR
 
 echo "ALL PASS"
