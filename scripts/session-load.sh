@@ -77,9 +77,25 @@ if [ "$SESSION_COUNT" -ge "$DREAM_THRESHOLD" ]; then
   sb_append "$(printf '## ⓘ second-brain — dream consolidation suggested\n%s sessions since last dream (threshold: %s).\nRun: `/second-brain:dream --background` — mines transcripts for missed learnings, stages changes for review.\n\n' \
     "$SESSION_COUNT" "$DREAM_THRESHOLD")" "dream-cadence-banner" 300
 fi
-if sb_get_maintainer_needed "$slug"; then
-  sb_append "$(printf '## ⓘ second-brain — knowledge-maintainer recommended\nWiki writes happened recently. Run the maintainer agent to rebuild cross-links, dedupe, and reindex.\nRun: `Use the second-brain:knowledge-maintainer agent to consolidate the latest wiki writes.`\n\n')" "maintainer-banner" 250
-  sb_clear_maintainer_needed "$slug"
+# --- v2.8.0 maintainer auto-dispatch: threshold + banner -----------------
+# Reconcile-previous + auto-disable logic follow in subsequent blocks.
+KD_RESOLVED="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+N=${SB_MAINTAINER_THRESHOLD:-3}
+AUTO=${SB_MAINTAINER_AUTO:-on}
+PROJ_DIR="$BRAIN_DIR/projects/$slug"
+DISP_FILE="$PROJ_DIR/.maintainer-dispatched"
+ACK_FILE="$PROJ_DIR/.maintainer-needed-last"
+DISABLED_FILE="$PROJ_DIR/.maintainer-auto-disabled"
+
+if [ "$AUTO" != "off" ] && [ ! -f "$DISABLED_FILE" ]; then
+  COUNT=$(sb_get_wiki_writes "$slug")
+  if [ "$COUNT" -ge "$N" ]; then
+    BANNER=$(printf '## ⚙ BLOCKING REQUIREMENT — knowledge-maintainer auto-dispatch\n\nProject `%s` has accumulated %s wiki writes since the last\nconsolidation cycle. Before responding to the user'"'"'s prompt, you MUST:\n\n1. Dispatch the `second-brain:knowledge-maintainer` subagent via the\n   Agent tool. Brief it with: "Auto-dispatched after %s wiki writes.\n   Run full 6-phase consolidation. Knowledge dir: %s.\n   Brain dir: ~/.second-brain. Project slug: %s."\n\n2. When the subagent returns, write this acknowledgment file to mark\n   the run complete (counter reset depends on it):\n\n       echo ok > ~/.second-brain/projects/%s/.maintainer-needed-last\n\n3. Print ONE LINE to the user in this exact format, derived from the\n   subagent'"'"'s report:\n\n       ✓ second-brain maintainer: R relations, D descriptions, B broken-links, O orphans\n\n   Where R/D/B/O are integers parsed from the subagent'"'"'s phase 3/4/1 totals.\n   If the subagent reports zero changes in all phases, print:\n       ✓ second-brain maintainer: nothing to consolidate\n\n4. THEN respond to the user'"'"'s actual prompt. Do not surface the full\n   subagent report unless the user asks.\n\nOverride: set `SB_MAINTAINER_AUTO=off` in shell rc to disable this entirely.\n\n' \
+      "$slug" "$COUNT" "$COUNT" "$KD_RESOLVED" "$slug" "$slug")
+    sb_append "$BANNER" "maintainer-auto-banner" 1400
+    touch "$DISP_FILE"
+    sb_log_error "session-load.sh" "maintainer-auto-dispatched slug=$slug count=$COUNT" 0
+  fi
 fi
 PIN_COUNT=$(sb_count_pin_candidates "$slug")
 if [ "$PIN_COUNT" -gt 0 ]; then
