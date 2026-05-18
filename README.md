@@ -78,6 +78,9 @@ The persona is the *self* of second-brain — identity, memory, tools, judgment.
 - `SB_QUALITY_GATE=off` — disable Layer 4
 - `SB_QUALITY_GATE_LLM=on` — enable Haiku validation in Layer 4 (default rules-only)
 - `SB_QUALITY_GATE_STRICTNESS=aggressive` — Layer 4 rejects more (~30% vs default ~10%)
+- `SB_MAINTAINER_AUTO` — `off` disables auto-dispatch of `knowledge-maintainer` from SessionStart entirely. State files still update but are not read. (default `on`)
+- `SB_MAINTAINER_THRESHOLD` — wiki-write count at which the next SessionStart auto-dispatches the maintainer. Higher = less frequent consolidation. (default `3`)
+- `SB_MAINTAINER_MAX_FAILS` — consecutive failure count that creates the per-project `.maintainer-auto-disabled` marker. Delete the marker manually to re-arm. (default `3`)
 
 **User-editable files:**
 - `~/.second-brain/persona-card.md` — your identity card. Read by Layer 1; the plugin never auto-rewrites it.
