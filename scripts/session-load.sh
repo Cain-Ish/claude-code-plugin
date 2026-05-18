@@ -77,8 +77,7 @@ if [ "$SESSION_COUNT" -ge "$DREAM_THRESHOLD" ]; then
   sb_append "$(printf '## ⓘ second-brain — dream consolidation suggested\n%s sessions since last dream (threshold: %s).\nRun: `/second-brain:dream --background` — mines transcripts for missed learnings, stages changes for review.\n\n' \
     "$SESSION_COUNT" "$DREAM_THRESHOLD")" "dream-cadence-banner" 300
 fi
-# --- v2.8.0 maintainer auto-dispatch: threshold + banner -----------------
-# Reconcile-previous + auto-disable logic follow in subsequent blocks.
+# --- v2.8.0 maintainer auto-dispatch: reconcile previous + threshold -----
 KD_RESOLVED="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 N=${SB_MAINTAINER_THRESHOLD:-3}
 AUTO=${SB_MAINTAINER_AUTO:-on}
@@ -87,6 +86,14 @@ DISP_FILE="$PROJ_DIR/.maintainer-dispatched"
 ACK_FILE="$PROJ_DIR/.maintainer-needed-last"
 DISABLED_FILE="$PROJ_DIR/.maintainer-auto-disabled"
 
+# 1. Reconcile previous dispatch (success path only; failure in Task 5).
+if [ -f "$DISP_FILE" ] && [ -f "$ACK_FILE" ]; then
+  sb_reset_wiki_writes "$slug"
+  sb_reset_maintainer_fails "$slug"
+  rm -f "$DISP_FILE" "$ACK_FILE"
+fi
+
+# 2. Decide this session's dispatch.
 if [ "$AUTO" != "off" ] && [ ! -f "$DISABLED_FILE" ]; then
   COUNT=$(sb_get_wiki_writes "$slug")
   if [ "$COUNT" -ge "$N" ]; then

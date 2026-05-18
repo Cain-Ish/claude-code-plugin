@@ -96,4 +96,20 @@ unset SB_MAINTAINER_THRESHOLD
 echo "$OUT" | grep -q "BLOCKING REQUIREMENT" || fail "threshold-override: banner missing at count=2 threshold=2"
 pass "SB_MAINTAINER_THRESHOLD=2 triggers at counter=2"
 
+# --- Test 6: success path → counter reset, markers cleared --------------
+init_sandbox "success-path"
+source "$LIB"
+sb_set_wiki_writes "test-slug" 3
+PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
+touch "$PROJ_DIR/.maintainer-dispatched"
+echo ok > "$PROJ_DIR/.maintainer-needed-last"
+unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD
+OUT=$(run_session_load)
+[ "$(sb_get_wiki_writes "test-slug")" = "0" ] || fail "success-path: counter not reset"
+[ ! -f "$PROJ_DIR/.maintainer-dispatched" ] || fail "success-path: dispatched marker should be removed"
+[ ! -f "$PROJ_DIR/.maintainer-needed-last" ] || fail "success-path: ack marker should be removed"
+# After reset, counter is 0 < threshold, so no new banner this same session
+echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "success-path: should not emit a new banner after reset"
+pass "success path: counter reset, both markers cleared, no fresh banner"
+
 echo "ALL PASS"
