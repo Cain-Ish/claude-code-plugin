@@ -29,9 +29,18 @@ A wiki page is an *orphan* if no other wiki page or PROJECT.md links to it. Buil
 # All wiki page slugs (filename without .md)
 ALL=$(find "$KD/wiki" -name '*.md' -type f | while read f; do basename "$f" .md; done | sort -u)
 
-# All inbound links: [[slug]] occurrences across wiki + every PROJECT.md
-LINKED=$(grep -rohE '\[\[[^]]+\]\]' "$KD/wiki" "$BD/projects" 2>/dev/null \
-  | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
+# All inbound links: [[slug]] occurrences across wiki + every PROJECT.md.
+# Strip fenced code blocks and inline backtick spans first so bash [[ test ]]
+# syntax and code-block placeholder examples don't surface as false dead-links.
+# Slug regex is lowercase-kebab to further exclude bash test expressions.
+LINKED=$(find "$KD/wiki" "$BD/projects" -name '*.md' -type f 2>/dev/null | while read -r f; do
+  awk '
+    /^[[:space:]]*```/ { in_fence = !in_fence; next }
+    in_fence { next }
+    { gsub(/`[^`]*`/, ""); print }
+  ' "$f"
+done | grep -oE '\[\[[a-z0-9][a-z0-9-]*\]\]' \
+     | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
 
 # Plus slugs listed in any "## Cross-references" section
 CROSS=$(awk '
@@ -51,9 +60,16 @@ Report each orphan with its full path. Suggest the user either delete it (if obs
 Every `[[slug]]` should resolve to a real wiki page (filename `<slug>.md` under any wiki category). Anything that doesn't resolve is dead.
 
 ```bash
-# All link targets actually used
-USED=$(grep -rohE '\[\[[^]]+\]\]' "$KD/wiki" "$BD/projects" 2>/dev/null \
-  | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
+# All link targets actually used. Same code-span strip + slug-shape filter
+# as Check 1 — keeps bash [[ test ]] and code-block examples out of the set.
+USED=$(find "$KD/wiki" "$BD/projects" -name '*.md' -type f 2>/dev/null | while read -r f; do
+  awk '
+    /^[[:space:]]*```/ { in_fence = !in_fence; next }
+    in_fence { next }
+    { gsub(/`[^`]*`/, ""); print }
+  ' "$f"
+done | grep -oE '\[\[[a-z0-9][a-z0-9-]*\]\]' \
+     | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
 
 # Existing slugs
 EXISTS=$(find "$KD/wiki" -name '*.md' -type f | while read f; do basename "$f" .md; done | sort -u)
