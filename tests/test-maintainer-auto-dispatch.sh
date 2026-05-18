@@ -105,7 +105,7 @@ sb_inc_maintainer_fails "test-slug"
 PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
 touch "$PROJ_DIR/.maintainer-dispatched"
 echo ok > "$PROJ_DIR/.maintainer-needed-last"
-unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD
+unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD SB_MAINTAINER_MAX_FAILS
 OUT=$(run_session_load)
 [ "$(sb_get_wiki_writes "test-slug")" = "0" ] || fail "success-path: counter not reset"
 [ "$(sb_get_maintainer_fails "test-slug")" = "0" ] || fail "success-path: fail-count not reset"
@@ -120,7 +120,7 @@ source "$LIB"
 sb_set_wiki_writes "test-slug" 3
 PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
 touch "$PROJ_DIR/.maintainer-dispatched"   # dispatched but no ACK = failure
-unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD
+unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD SB_MAINTAINER_MAX_FAILS
 OUT=$(run_session_load)
 [ "$(sb_get_wiki_writes "test-slug")" = "2" ] || \
   fail "failure-path: counter should be N-1=2, got $(sb_get_wiki_writes "test-slug")"
@@ -129,15 +129,17 @@ OUT=$(run_session_load)
 [ ! -f "$PROJ_DIR/.maintainer-dispatched" ] || fail "failure-path: dispatched marker should be removed"
 grep -q "maintainer-auto-dispatch-failed" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || \
   fail "failure-path: error-log entry missing"
+echo "$OUT" | grep -q "maintainer auto-dispatch failed" || \
+  fail "failure-path: user-visible fail banner missing from output"
 pass "failure path: counter→N-1, fail-count incremented, error logged"
 
 # --- Test 8: 3 consecutive failures → auto-disabled --------------------
 init_sandbox "auto-disable"
 source "$LIB"
 PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
-unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD
+unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD SB_MAINTAINER_MAX_FAILS
 # Simulate 3 failed dispatches in a row
-for i in 1 2 3; do
+for _i in 1 2 3; do
   sb_set_wiki_writes "test-slug" 3
   touch "$PROJ_DIR/.maintainer-dispatched"
   run_session_load >/dev/null

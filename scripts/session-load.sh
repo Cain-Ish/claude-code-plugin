@@ -105,6 +105,7 @@ elif [ -f "$DISP_FILE" ] && [ ! -f "$ACK_FILE" ]; then
   if [ "$(sb_get_maintainer_fails "$slug")" -ge "$N_MAX_FAILS" ]; then
     touch "$DISABLED_FILE"
     sb_log_error "session-load.sh" "maintainer-auto-disabled slug=$slug fails=$N_MAX_FAILS" 0
+    sb_reset_maintainer_fails "$slug"
   fi
 fi
 
