@@ -86,14 +86,14 @@ DISP_FILE="$PROJ_DIR/.maintainer-dispatched"
 ACK_FILE="$PROJ_DIR/.maintainer-needed-last"
 DISABLED_FILE="$PROJ_DIR/.maintainer-auto-disabled"
 
-# 1. Reconcile previous dispatch (success path only; failure in Task 5).
+# [reconcile] If previous dispatch succeeded (both markers present), reset state.
 if [ -f "$DISP_FILE" ] && [ -f "$ACK_FILE" ]; then
   sb_reset_wiki_writes "$slug"
   sb_reset_maintainer_fails "$slug"
   rm -f "$DISP_FILE" "$ACK_FILE"
 fi
 
-# 2. Decide this session's dispatch.
+# [dispatch] Decide whether to emit the BLOCKING REQUIREMENT banner.
 if [ "$AUTO" != "off" ] && [ ! -f "$DISABLED_FILE" ]; then
   COUNT=$(sb_get_wiki_writes "$slug")
   if [ "$COUNT" -ge "$N" ]; then
