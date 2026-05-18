@@ -306,11 +306,49 @@ sb_get_session_count() {
 
 sb_reset_session_count() { echo 0 > "$BRAIN_DIR/projects/$1/.session-count" 2>/dev/null; }
 
-# Maintainer-needed marker — set by merge-project-update.sh after a wiki
-# write; consumed (and cleared) by session-load.sh banner.
-sb_set_maintainer_needed() { mkdir -p "$BRAIN_DIR/projects/$1" 2>/dev/null && touch "$BRAIN_DIR/projects/$1/.maintainer-needed"; }
-sb_get_maintainer_needed() { [ -f "$BRAIN_DIR/projects/$1/.maintainer-needed" ]; }
-sb_clear_maintainer_needed() { rm -f "$BRAIN_DIR/projects/$1/.maintainer-needed"; }
+# --- v2.8.0 maintainer auto-dispatch state helpers ----------------------
+# Per-project wiki-write counter. session-load.sh consumes this at the
+# threshold and dispatches the maintainer subagent.
+
+sb_inc_wiki_writes() {  # $1 = project slug
+  local f="$BRAIN_DIR/projects/$1/.wiki-writes"
+  mkdir -p "$(dirname "$f")" 2>/dev/null
+  local n=0
+  [ -f "$f" ] && n=$(cat "$f" 2>/dev/null || echo 0)
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%d' "$((n+1))" > "$f.tmp" && mv "$f.tmp" "$f"
+}
+
+sb_get_wiki_writes() {  # $1 = slug
+  local v
+  v=$(cat "$BRAIN_DIR/projects/$1/.wiki-writes" 2>/dev/null || echo 0)
+  case "$v" in ''|*[!0-9]*) echo 0 ;; *) echo "$v" ;; esac
+}
+
+sb_set_wiki_writes() {  # $1 = slug, $2 = int
+  local f="$BRAIN_DIR/projects/$1/.wiki-writes"
+  mkdir -p "$(dirname "$f")" 2>/dev/null
+  printf '%d' "$2" > "$f.tmp" && mv "$f.tmp" "$f"
+}
+
+sb_reset_wiki_writes() { sb_set_wiki_writes "$1" 0; }
+
+sb_inc_maintainer_fails() {  # $1 = slug
+  local f="$BRAIN_DIR/projects/$1/.maintainer-fail-count"
+  mkdir -p "$(dirname "$f")" 2>/dev/null
+  local n=0
+  [ -f "$f" ] && n=$(cat "$f" 2>/dev/null || echo 0)
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%d' "$((n+1))" > "$f.tmp" && mv "$f.tmp" "$f"
+}
+
+sb_get_maintainer_fails() {  # $1 = slug
+  local v
+  v=$(cat "$BRAIN_DIR/projects/$1/.maintainer-fail-count" 2>/dev/null || echo 0)
+  case "$v" in ''|*[!0-9]*) echo 0 ;; *) echo "$v" ;; esac
+}
+
+sb_reset_maintainer_fails() { rm -f "$BRAIN_DIR/projects/$1/.maintainer-fail-count"; }
 
 # Pin candidate queue — populated from extracted persona_signals;
 # session-load.sh banners the count so user can /pin with one prompt.
