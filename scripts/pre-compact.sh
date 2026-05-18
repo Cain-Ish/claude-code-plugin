@@ -122,6 +122,8 @@ if [ -z "$DELTA_JSON" ]; then
   if grep -qF "[$TODAY] [degraded]" "$PROJECT_MD" 2>/dev/null; then
     DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
   else
+    # Scratch-path filter: /tmp, /var/tmp, /proc, /dev, /run are session-ephemeral
+    # and have no value as future-session context — they only bloat the hot tier.
     FILES_JSON=$(sed -n "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -rcs '
       [
         .[]
@@ -133,6 +135,7 @@ if [ -z "$DELTA_JSON" ]; then
       ]
       | unique
       | map(select(. != null and . != ""))
+      | map(select(test("^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/") | not))
       | .[0:5]
     ' 2>/dev/null || echo '[]')
     FILES_JSON=$(sb_safe_json_array "$FILES_JSON")

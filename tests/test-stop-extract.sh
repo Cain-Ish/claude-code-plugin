@@ -56,6 +56,18 @@ seed_transcript_with_edit() {
 EOF
 }
 
+seed_transcript_with_mixed_paths() {
+  # Mix of project paths and /tmp scratch — degraded fallback should strip /tmp.
+  cat > "$SANDBOX/transcript/session.jsonl" <<'EOF'
+{"type":"user","message":{"role":"user","content":"hi"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.ts","old_string":"a","new_string":"b"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"/tmp/scratch.py","content":"x"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/var/tmp/staging.toml","old_string":"a","new_string":"b"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/run/user/1000/sock.py","old_string":"a","new_string":"b"}}]}}
+{"type":"user","message":{"role":"user","content":"thanks"}}
+EOF
+}
+
 seed_transcript_qna_only() {
   cat > "$SANDBOX/transcript/session.jsonl" <<'EOF'
 {"type":"user","message":{"role":"user","content":"hi"}}
@@ -164,5 +176,26 @@ echo "not json" | "$SCRIPT" >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 0 ] || fail "bad-stdin: expected exit 0, got $rc"
 pass "malformed Stop payload: fail-soft, exit 0"
+
+# --- Test 7: degraded fallback strips scratch paths (/tmp, /var/tmp, /run).
+# Forces extractor failure by stubbing claude to emit empty stdout, so the
+# [degraded] breadcrumb writes. Project-relative paths should survive; scratch
+# paths should be filtered out so they don't bloat the hot tier.
+init_sandbox "scratch-filter"
+seed_transcript_with_mixed_paths
+cat > "$SANDBOX/path-stub/claude" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$SANDBOX/path-stub/claude"
+export PATH="$SANDBOX/path-stub:$PATH"
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+grep -q "src/foo.ts" "$PROJ" || fail "scratch-filter: project path should be retained in breadcrumb"
+grep -q "/tmp/" "$PROJ" && fail "scratch-filter: /tmp path leaked into PROJECT.md breadcrumb"
+grep -q "/var/tmp/" "$PROJ" && fail "scratch-filter: /var/tmp path leaked into PROJECT.md breadcrumb"
+grep -q "/run/" "$PROJ" && fail "scratch-filter: /run path leaked into PROJECT.md breadcrumb"
+pass "degraded fallback strips /tmp, /var/tmp, /run; keeps project paths"
+restore_path
 
 echo "ALL PASS"
