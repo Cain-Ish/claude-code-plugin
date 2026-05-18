@@ -313,19 +313,21 @@ sb_reset_session_count() { echo 0 > "$BRAIN_DIR/projects/$1/.session-count" 2>/d
 sb_inc_wiki_writes() {  # $1 = project slug
   local f="$BRAIN_DIR/projects/$1/.wiki-writes"
   mkdir -p "$(dirname "$f")" 2>/dev/null
-  local n=0
-  [ -f "$f" ] && n=$(cat "$f" 2>/dev/null || echo 0)
-  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  local n
+  n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
   printf '%d' "$((n+1))" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 
 sb_get_wiki_writes() {  # $1 = slug
-  local v
-  v=$(cat "$BRAIN_DIR/projects/$1/.wiki-writes" 2>/dev/null || echo 0)
-  case "$v" in ''|*[!0-9]*) echo 0 ;; *) echo "$v" ;; esac
+  local n
+  n=$(tr -d '[:space:]' < "$BRAIN_DIR/projects/$1/.wiki-writes" 2>/dev/null)
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
+  echo "$n"
 }
 
 sb_set_wiki_writes() {  # $1 = slug, $2 = int
+  [[ "$2" =~ ^[0-9]+$ ]] || return 1
   local f="$BRAIN_DIR/projects/$1/.wiki-writes"
   mkdir -p "$(dirname "$f")" 2>/dev/null
   printf '%d' "$2" > "$f.tmp" && mv "$f.tmp" "$f"
@@ -336,16 +338,17 @@ sb_reset_wiki_writes() { sb_set_wiki_writes "$1" 0; }
 sb_inc_maintainer_fails() {  # $1 = slug
   local f="$BRAIN_DIR/projects/$1/.maintainer-fail-count"
   mkdir -p "$(dirname "$f")" 2>/dev/null
-  local n=0
-  [ -f "$f" ] && n=$(cat "$f" 2>/dev/null || echo 0)
-  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  local n
+  n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
   printf '%d' "$((n+1))" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 
 sb_get_maintainer_fails() {  # $1 = slug
-  local v
-  v=$(cat "$BRAIN_DIR/projects/$1/.maintainer-fail-count" 2>/dev/null || echo 0)
-  case "$v" in ''|*[!0-9]*) echo 0 ;; *) echo "$v" ;; esac
+  local n
+  n=$(tr -d '[:space:]' < "$BRAIN_DIR/projects/$1/.maintainer-fail-count" 2>/dev/null)
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
+  echo "$n"
 }
 
 sb_reset_maintainer_fails() { rm -f "$BRAIN_DIR/projects/$1/.maintainer-fail-count"; }

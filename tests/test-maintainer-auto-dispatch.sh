@@ -5,6 +5,7 @@
 set -u
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 LIB="$REPO_ROOT/scripts/lib.sh"
+# shellcheck disable=SC2034  # SCRIPT is used by tests added in later tasks
 SCRIPT="$REPO_ROOT/scripts/session-load.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
