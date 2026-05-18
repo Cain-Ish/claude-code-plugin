@@ -152,4 +152,22 @@ OUT=$(run_session_load)
 echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "auto-disable: banner should be suppressed when marker present"
 pass "3 consecutive failures auto-disable; subsequent runs suppressed"
 
+# --- Test 9: migration converts .maintainer-needed → .wiki-writes -------
+init_sandbox "migration"
+PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
+PROJ_DIR2="$SANDBOX/.second-brain/projects/other-slug"
+mkdir -p "$PROJ_DIR2"
+touch "$PROJ_DIR/.maintainer-needed"
+touch "$PROJ_DIR2/.maintainer-needed"
+unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD
+bash "$REPO_ROOT/scripts/migrate-to-2.8.0.sh" >/dev/null 2>&1
+[ -f "$PROJ_DIR/.maintainer-needed" ] && fail "migration: old flag should be removed (test-slug)"
+[ -f "$PROJ_DIR2/.maintainer-needed" ] && fail "migration: old flag should be removed (other-slug)"
+[ "$(cat "$PROJ_DIR/.wiki-writes")" = "3" ] || \
+  fail "migration: counter should be set to threshold (3), got $(cat "$PROJ_DIR/.wiki-writes" 2>/dev/null)"
+# Idempotent re-run is a no-op
+bash "$REPO_ROOT/scripts/migrate-to-2.8.0.sh" >/dev/null 2>&1
+[ "$(cat "$PROJ_DIR/.wiki-writes")" = "3" ] || fail "migration: re-run should be idempotent"
+pass "migration: old .maintainer-needed → .wiki-writes=N, idempotent"
+
 echo "ALL PASS"
