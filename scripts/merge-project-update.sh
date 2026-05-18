@@ -406,10 +406,10 @@ if [ "$WIKI_WRITES" -eq 1 ]; then
   # Centralized reindex helper (lib.sh) — handles ESM dynamic-import correctly
   # and derives plugin root when CLAUDE_PLUGIN_ROOT is unset.
   sb_reindex_wiki "$KNOWLEDGE_DIR"
-  # Signal that knowledge-maintainer should run next session. session-load.sh
-  # reads this flag, emits a banner, and clears it.
+  # Increment the wiki-writes counter. session-load.sh consumes this at the
+  # SB_MAINTAINER_THRESHOLD and auto-dispatches the maintainer subagent.
   PROJECT_SLUG=$(basename "$(dirname "$PROJECT_MD")")
-  [ -n "$PROJECT_SLUG" ] && sb_set_maintainer_needed "$PROJECT_SLUG"
+  [ -n "$PROJECT_SLUG" ] && sb_inc_wiki_writes "$PROJECT_SLUG"
 fi
 
 # Reset session counter after a dream cycle. We detect "dream just accepted"
