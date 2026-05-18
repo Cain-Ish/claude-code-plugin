@@ -165,9 +165,22 @@ bash "$REPO_ROOT/scripts/migrate-to-2.8.0.sh" >/dev/null 2>&1
 [ -f "$PROJ_DIR2/.maintainer-needed" ] && fail "migration: old flag should be removed (other-slug)"
 [ "$(cat "$PROJ_DIR/.wiki-writes")" = "3" ] || \
   fail "migration: counter should be set to threshold (3), got $(cat "$PROJ_DIR/.wiki-writes" 2>/dev/null)"
+[ "$(cat "$PROJ_DIR2/.wiki-writes")" = "3" ] || \
+  fail "migration: counter should be set for other-slug too, got $(cat "$PROJ_DIR2/.wiki-writes" 2>/dev/null)"
 # Idempotent re-run is a no-op
 bash "$REPO_ROOT/scripts/migrate-to-2.8.0.sh" >/dev/null 2>&1
 [ "$(cat "$PROJ_DIR/.wiki-writes")" = "3" ] || fail "migration: re-run should be idempotent"
 pass "migration: old .maintainer-needed → .wiki-writes=N, idempotent"
+
+# --- Test 10: migration refuses non-numeric threshold ------------------
+init_sandbox "migration-bad-threshold"
+PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
+touch "$PROJ_DIR/.maintainer-needed"
+SB_MAINTAINER_THRESHOLD=abc bash "$REPO_ROOT/scripts/migrate-to-2.8.0.sh" 2>/dev/null
+RC=$?
+[ "$RC" -ne 0 ] || fail "bad-threshold: script should exit non-zero on invalid N"
+[ -f "$PROJ_DIR/.maintainer-needed" ] || fail "bad-threshold: legacy flag should remain when migration refuses"
+[ ! -f "$PROJ_DIR/.wiki-writes" ] || fail "bad-threshold: counter should NOT exist when migration refuses"
+pass "migration refuses non-numeric SB_MAINTAINER_THRESHOLD; legacy flag preserved"
 
 echo "ALL PASS"
