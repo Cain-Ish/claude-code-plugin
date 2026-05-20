@@ -1,4 +1,16 @@
 {
+  "resource_scope": {
+    "_comment": "v2.9.0 HarnessAudit Layer 1 resource-scope guard. Asks before file-touching tools (Edit/Write/MultiEdit/Read) target a path outside the allowlist. Per the paper: agents most often violate boundaries by applying reasonable tools to unauthorized RESOURCES, not by calling obviously wrong tools. Kill switch: SB_RESOURCE_SCOPE=off. Extra paths via SB_RESOURCE_SCOPE_EXTRA (colon-separated, like PATH).",
+    "enabled": true,
+    "tools": ["Edit", "Write", "MultiEdit", "Read"],
+    "allowlist": [
+      "$CWD",
+      "$HOME/.second-brain",
+      "$HOME/knowledge",
+      "/tmp",
+      "/var/tmp"
+    ]
+  },
   "rules": [
     {
       "name": "strip-silent-fallback",
@@ -28,6 +40,41 @@
       "match_command": "\\brm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\\b",
       "action": "ask",
       "reason": "rm -rf is destructive and irreversible. Confirm target before proceeding."
+    },
+    {
+      "name": "warn-self-edit-plugin-scripts",
+      "tool": "Write",
+      "match_path": "/(claude-code-plugin|second-brain)/(scripts|hooks)/[^/]+\\.(sh|json)$",
+      "action": "ask",
+      "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
+    },
+    {
+      "name": "warn-self-edit-plugin-scripts-edit",
+      "tool": "Edit",
+      "match_path": "/(claude-code-plugin|second-brain)/(scripts|hooks)/[^/]+\\.(sh|json)$",
+      "action": "ask",
+      "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
+    },
+    {
+      "name": "warn-self-edit-plugin-scripts-multiedit",
+      "tool": "MultiEdit",
+      "match_path": "/(claude-code-plugin|second-brain)/(scripts|hooks)/[^/]+\\.(sh|json)$",
+      "action": "ask",
+      "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
+    },
+    {
+      "name": "warn-self-edit-persona-rules",
+      "tool": "Write",
+      "match_path": "persona-rules(\\.default)?\\.json$",
+      "action": "ask",
+      "reason": "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path."
+    },
+    {
+      "name": "warn-self-edit-persona-rules-edit",
+      "tool": "Edit",
+      "match_path": "persona-rules(\\.default)?\\.json$",
+      "action": "ask",
+      "reason": "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path."
     }
   ]
 }

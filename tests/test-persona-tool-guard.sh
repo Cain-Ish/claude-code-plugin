@@ -42,5 +42,69 @@ echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null
   || fail "rm -rf should ask (got: $out)"
 pass "rm -rf asks"
 
+# --- v2.9.0 Phase 2: hook self-protection ---
+# Test 7: Edit to plugin script → ask (defends safety layer from
+# injection-driven self-disable).
+out=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/x/claude-code-plugin/scripts/lib.sh"}}' | bash "$SCRIPT")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "Edit to plugin script should ask (got: $out)"
+pass "self-protection: plugin script edit asks"
+
+out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/persona-rules.json","content":"{}"}}' | bash "$SCRIPT")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "Write to persona-rules.json should ask (got: $out)"
+pass "self-protection: persona-rules edit asks"
+
+# --- v2.9.0 Phase 3: resource-scope guard ---
+# Set up an isolated brain dir so audit-log lands somewhere we can check.
+SCOPE_BRAIN=$(mktemp -d)
+trap 'rm -rf "$SCOPE_BRAIN"' EXIT
+
+# Test 8: out-of-scope Edit (path not in CWD/~/.second-brain/~/knowledge/tmp)
+out=$(BRAIN_DIR="$SCOPE_BRAIN" \
+  echo '{"tool_name":"Edit","tool_input":{"file_path":"/etc/hosts"},"cwd":"/home/u/proj"}' \
+  | BRAIN_DIR="$SCOPE_BRAIN" bash "$SCRIPT")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "out-of-scope Edit (/etc/hosts) should ask (got: $out)"
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | test("resource scope|outside the project")' >/dev/null \
+  || fail "out-of-scope ask reason should mention resource scope (got: $out)"
+pass "resource-scope: out-of-scope Edit asks"
+
+# Test 9: in-scope path (under CWD) → falls through to rule iteration → silent
+out=$(BRAIN_DIR="$SCOPE_BRAIN" \
+  echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/u/proj/src/foo.ts"},"cwd":"/home/u/proj"}' \
+  | BRAIN_DIR="$SCOPE_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "in-scope CWD path should be silent (got: $out)"
+pass "resource-scope: in-scope CWD path silent"
+
+# Test 10: in-scope ~/knowledge/ → silent
+out=$(BRAIN_DIR="$SCOPE_BRAIN" \
+  echo "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$HOME/knowledge/wiki/x.md\"},\"cwd\":\"/home/u/proj\"}" \
+  | BRAIN_DIR="$SCOPE_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "in-scope ~/knowledge path should be silent (got: $out)"
+pass "resource-scope: ~/knowledge in scope"
+
+# Test 11: SB_RESOURCE_SCOPE=off kill switch
+out=$(SB_RESOURCE_SCOPE=off BRAIN_DIR="$SCOPE_BRAIN" \
+  echo '{"tool_name":"Edit","tool_input":{"file_path":"/etc/hosts"},"cwd":"/home/u/proj"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$SCOPE_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "SB_RESOURCE_SCOPE=off should suppress scope guard (got: $out)"
+pass "resource-scope: SB_RESOURCE_SCOPE=off honored"
+
+# Test 12: SB_RESOURCE_SCOPE_EXTRA extends allowlist
+out=$(SB_RESOURCE_SCOPE_EXTRA="/etc" BRAIN_DIR="$SCOPE_BRAIN" \
+  echo '{"tool_name":"Edit","tool_input":{"file_path":"/etc/hosts"},"cwd":"/home/u/proj"}' \
+  | SB_RESOURCE_SCOPE_EXTRA="/etc" BRAIN_DIR="$SCOPE_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "SB_RESOURCE_SCOPE_EXTRA should extend scope (got: $out)"
+pass "resource-scope: SB_RESOURCE_SCOPE_EXTRA extends allowlist"
+
+# Test 13: audit log gets entries from guard verdicts
+[ -f "$SCOPE_BRAIN/audit-log.jsonl" ] || fail "audit-log.jsonl should be written after a verdict"
+grep -q '"hook":"persona-tool-guard.sh"' "$SCOPE_BRAIN/audit-log.jsonl" \
+  || fail "audit-log should contain persona-tool-guard.sh entries"
+grep -q '"rule":"resource-scope-out-of-scope"' "$SCOPE_BRAIN/audit-log.jsonl" \
+  || fail "audit-log should contain resource-scope rule entries"
+pass "resource-scope: audit-log captures verdicts"
+
 echo
 echo "ALL PASS"

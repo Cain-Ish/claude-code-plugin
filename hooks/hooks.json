@@ -39,6 +39,10 @@
     "PostToolUse": [
       { "matcher": "Write|Edit", "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/quality-gate.sh", "timeout": 5 }
+      ]},
+      { "_comment": "v2.9.0 HarnessAudit Layer 3 — scans Read/WebFetch/Bash/Grep/Glob output for indirect-prompt-injection patterns. Flags via additionalContext; never blocks. Kill switch SB_INJECTION_SCAN=off.",
+        "matcher": "Read|WebFetch|Bash|Grep|Glob", "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/tool-return-scanner.sh", "timeout": 5 }
       ]}
     ]
   }

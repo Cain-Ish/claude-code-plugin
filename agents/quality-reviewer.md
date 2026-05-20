@@ -16,7 +16,18 @@ description: |
   </example>
 model: sonnet
 color: yellow
+tools: Read, Grep, Glob, Bash, TodoWrite
 ---
+
+<!--
+  v2.9.0 HarnessAudit role-scoping: a reviewer that can Edit the code it's
+  reviewing has crossed the role boundary — the whole point of dispatching
+  this agent is to get an independent critique, not another author. Tools
+  list above EXCLUDES Write/Edit/MultiEdit/NotebookEdit and the Agent
+  dispatch tool (no recursive sub-agents — the fresh-context guarantee
+  collapses if this agent spawns more critics).
+-->
+
 
 # Quality Reviewer
 

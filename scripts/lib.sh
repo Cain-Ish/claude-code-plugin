@@ -2,7 +2,7 @@
 # Shared functions for second-brain hook scripts.
 # Source this at the top of any hook script: source "$(dirname "$0")/lib.sh"
 
-BRAIN_DIR="$HOME/.second-brain"
+BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 
 # Parse hook input from stdin. Sets: SB_INPUT, SB_SESSION_ID, SB_TRANSCRIPT_PATH, SB_TIMESTAMP
 sb_parse_input() {
@@ -52,6 +52,80 @@ sb_log_error() {
     printf '{"timestamp":"%s","script":"%s","message":"%s","exit_code":%s}\n' \
       "$ts" "$esc_script" "$esc_msg" "$exit_code" \
       >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
+  fi
+}
+
+# --- Audit log (v2.9.0, HarnessAudit Layer 1) ----------------------------
+# Trajectory log separate from error-log.jsonl. Captures every guard verdict
+# (allow / ask / deny / flag) emitted by persona-tool-guard, tool-return
+# scanner, wiki-write guard, etc. The intent is the HarnessAudit principle:
+# evidence collected from a channel the agent can't manipulate, used later
+# by /second-brain:audit to surface what the safety layer actually did.
+#
+# Schema (JSONL, one line per event):
+#   { ts, hook, verdict, rule, target, reason, session_id, extra }
+#
+# Bounded by sb_rotate_audit_log: 5000 lines / 5 MB cap, oldest 50% dropped.
+# Append is fail-soft (2>/dev/null on every write) so a guard hook never
+# blocks a tool call because the audit file is unwritable.
+SB_AUDIT_FILE="$BRAIN_DIR/audit-log.jsonl"
+SB_AUDIT_MAX_LINES=5000
+SB_AUDIT_MAX_BYTES=5242880   # 5 MiB
+
+sb_log_audit() {
+  local hook="${1:-unknown}"
+  local verdict="${2:-allow}"        # allow | ask | deny | flag
+  local rule="${3:-}"
+  local target="${4:-}"
+  local reason="${5:-}"
+  local session_id="${6:-${SB_SESSION_ID:-}}"
+  local extra_json="${7:-{\}}"        # raw JSON object; '{}' when omitted
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  mkdir -p "$BRAIN_DIR" 2>/dev/null || return 0
+
+  if command -v jq >/dev/null 2>&1; then
+    if ! echo "$extra_json" | jq -e 'type == "object"' >/dev/null 2>&1; then
+      extra_json='{}'
+    fi
+    jq -nc \
+      --arg t "$ts" --arg h "$hook" --arg v "$verdict" \
+      --arg r "$rule" --arg target "$target" --arg reason "$reason" \
+      --arg sid "$session_id" --argjson x "$extra_json" \
+      '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:$x}' \
+      >> "$SB_AUDIT_FILE" 2>/dev/null
+  else
+    # jq absent — fall back to printf-built JSON, stripping C0 control chars
+    # so multi-line reasons cannot fragment a JSONL record into two.
+    local esc_h esc_r esc_t esc_reason esc_sid
+    esc_h=$(printf '%s' "$hook"      | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    esc_r=$(printf '%s' "$rule"      | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    esc_t=$(printf '%s' "$target"    | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    esc_reason=$(printf '%s' "$reason" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    esc_sid=$(printf '%s' "$session_id" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{}}\n' \
+      "$ts" "$esc_h" "$verdict" "$esc_r" "$esc_t" "$esc_reason" "$esc_sid" \
+      >> "$SB_AUDIT_FILE" 2>/dev/null
+  fi
+}
+
+# Rotate audit-log when it exceeds line or byte caps. Drops the oldest 50%
+# of lines (not the newest) so recent decisions remain queryable. Idempotent:
+# safe to call from any hook; no-op when caps not exceeded.
+sb_rotate_audit_log() {
+  [ -f "$SB_AUDIT_FILE" ] || return 0
+  local lines bytes
+  lines=$(wc -l < "$SB_AUDIT_FILE" 2>/dev/null | tr -d ' ')
+  bytes=$(wc -c < "$SB_AUDIT_FILE" 2>/dev/null | tr -d ' ')
+  [[ "$lines" =~ ^[0-9]+$ ]] || lines=0
+  [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+  if [ "$lines" -gt "$SB_AUDIT_MAX_LINES" ] || [ "$bytes" -gt "$SB_AUDIT_MAX_BYTES" ]; then
+    local keep=$(( lines / 2 ))
+    [ "$keep" -lt 1 ] && keep=1
+    local tmp="$SB_AUDIT_FILE.tmp.$$"
+    tail -n "$keep" "$SB_AUDIT_FILE" > "$tmp" 2>/dev/null \
+      && mv "$tmp" "$SB_AUDIT_FILE" \
+      || rm -f "$tmp" 2>/dev/null
   fi
 }
 
