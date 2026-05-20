@@ -27522,6 +27522,16 @@ function extractYamlValue(yaml, key) {
   return m ? m[1].trim() : "";
 }
 function extractYamlList(yaml, key) {
+  const lineMatch = yaml.match(new RegExp(`^${key}:[ \\t]+(\\S.*?)\\s*$`, "m"));
+  if (lineMatch) {
+    const value = lineMatch[1];
+    const wikiLinks = value.match(/\[\[([^\]\[]+)\]\]/g);
+    if (wikiLinks && wikiLinks.length > 0) {
+      return [...new Set(
+        wikiLinks.map((l) => l.slice(2, -2).trim()).filter(Boolean)
+      )];
+    }
+  }
   const inline = yaml.match(new RegExp(`^${key}:\\s*\\[(.+?)\\]`, "m"));
   if (inline) {
     return inline[1].split(",").map((s) => s.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);

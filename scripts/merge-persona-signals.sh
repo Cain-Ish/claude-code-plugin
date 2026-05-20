@@ -130,5 +130,16 @@ MERGED=$(echo "$MERGED" | jq -c '
   | .[0:100]
 ')
 
-# Write back as JSONL (one JSON object per line)
-echo "$MERGED" | jq -c '.[]' > "$SIGNALS_FILE"
+# Write back as JSONL (one JSON object per line). Guard against jq-internal
+# failures emptying $MERGED — without this, a malformed evidence string in
+# NEW_SIGNALS that breaks the reduce above would silently truncate
+# SIGNALS_FILE to zero bytes and wipe every accumulated persona signal.
+# Atomic via tempfile so a partial write never replaces a valid file.
+if [ -n "$MERGED" ] && echo "$MERGED" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  TMP_SIG="$SIGNALS_FILE.tmp.$$"
+  if echo "$MERGED" | jq -c '.[]' > "$TMP_SIG" 2>/dev/null; then
+    mv "$TMP_SIG" "$SIGNALS_FILE"
+  else
+    rm -f "$TMP_SIG" 2>/dev/null
+  fi
+fi

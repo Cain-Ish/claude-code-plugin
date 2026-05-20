@@ -2,8 +2,8 @@
   "hooks": {
     "SessionStart": [
       {
-        "_comment": "matcher includes 'compact' so session-load.sh re-emits hot tier after compaction; PreCompact reload is therefore unnecessary — see tests/test-session-load-compact.sh",
-        "matcher": "startup|resume|clear|compact",
+        "_comment": "matcher EXCLUDES 'compact' — upstream anthropics/claude-code#15174: SessionStart hook output is silently dropped after compaction (v2.0.72+), so running session-load.sh on the compact event was pure waste. Removing it stops the post-compact context-bloat loop reported by users on long sessions.",
+        "matcher": "startup|resume|clear",
         "hooks": [
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh", "timeout": 5 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-tools.sh", "timeout": 10 },

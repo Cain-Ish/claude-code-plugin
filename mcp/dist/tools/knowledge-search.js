@@ -261,6 +261,20 @@ function extractYamlValue(yaml, key) {
     return m ? m[1].trim() : '';
 }
 function extractYamlList(yaml, key) {
+    // The wiki uses a non-standard `related: [[slug]], [[other]]` convention for
+    // wiki-links in frontmatter. The naive `^key:\s*\[(.+?)\]` regex misparses
+    // these as YAML inline lists, capturing `[slug` (with leading bracket) and
+    // breaking every link-validity check. Detect the wikilink convention first
+    // and extract `[[slug]]` tokens directly; only fall through to the standard
+    // YAML inline / block parsers if no wikilinks are present on the line.
+    const lineMatch = yaml.match(new RegExp(`^${key}:[ \\t]+(\\S.*?)\\s*$`, 'm'));
+    if (lineMatch) {
+        const value = lineMatch[1];
+        const wikiLinks = value.match(/\[\[([^\]\[]+)\]\]/g);
+        if (wikiLinks && wikiLinks.length > 0) {
+            return [...new Set(wikiLinks.map(l => l.slice(2, -2).trim()).filter(Boolean))];
+        }
+    }
     const inline = yaml.match(new RegExp(`^${key}:\\s*\\[(.+?)\\]`, 'm'));
     if (inline) {
         return inline[1].split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);

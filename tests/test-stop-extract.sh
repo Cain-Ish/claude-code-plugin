@@ -17,11 +17,15 @@ init_sandbox() {
   SANDBOX="$TMP/$name"
   rm -rf "$SANDBOX"
   mkdir -p "$SANDBOX/.second-brain/projects/test-slug" \
-           "$SANDBOX/.second-brain/wiki" \
+           "$SANDBOX/knowledge/wiki" \
            "$SANDBOX/repo/test-slug" \
            "$SANDBOX/path-stub" \
            "$SANDBOX/transcript"
   export HOME="$SANDBOX"
+  # Wiki lives under $HOME/knowledge/wiki since v1.0 (matches stop-extract.sh
+  # default of CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge). The old
+  # .second-brain/wiki path is legacy and only the projects/ subdir of
+  # .second-brain is still used as the hot-tier home.
   cd "$SANDBOX/repo/test-slug" || fail "cd failed in $name"
   cat > "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" <<'EOF'
 # PROJECT: test-slug
@@ -115,7 +119,8 @@ stop_payload | "$SCRIPT" >/dev/null 2>&1
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
 grep -q "use Haiku for extraction" "$PROJ" || fail "happy: decision not merged into PROJECT.md"
 grep -q "\[\[new-page\]\]" "$PROJ" || fail "happy: cross-ref not merged"
-[ -f "$SANDBOX/.second-brain/wiki/new-page.md" ] || fail "happy: wiki stub not created"
+# Cross-ref stubs land under wiki/entities/ — merge-project-update.sh:269.
+[ -f "$SANDBOX/knowledge/wiki/entities/new-page.md" ] || fail "happy: wiki stub not created at expected path"
 pass "happy path: claude returns JSON → merge fires"
 restore_path
 
@@ -131,21 +136,28 @@ NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
 pass "Q&A-only transcript: predicate skips extraction"
 restore_path
 
-# --- Test 3: claude unavailable → fallback is silent (no "files this session" noise).
-init_sandbox "no-claude"
+# --- Test 3: claude unavailable + repeated session → [degraded] breadcrumb
+# is recorded exactly ONCE per day, not per session. Locks in the
+# dedup-per-day invariant in stop-extract.sh:157 ("Already recorded today —
+# emit empty delta"). Without dedup, multi-session outages would push real
+# decisions out of the 5-bullet cap.
+init_sandbox "no-claude-dedup"
 seed_transcript_with_edit
-# Remove claude from PATH so command -v claude fails
 SAVED_PATH="$PATH"
 export PATH=$(echo "$PATH" | tr ':' '\n' | while read -r d; do
   [ -x "$d/claude" ] || printf '%s:' "$d"
 done | sed 's/:$//')
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
-ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+# Two consecutive runs in the same day with broken LLM.
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+# Re-seed transcript (stop-extract clears the line-marker, so we need a
+# fresh window with tool_use) before the second run.
+seed_transcript_with_edit
 stop_payload | "$SCRIPT" >/dev/null 2>&1
 export PATH="$SAVED_PATH"
-NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
-[ "$ORIG_HASH" = "$NEW_HASH" ] || fail "no-claude: PROJECT.md should be unchanged (no file-list noise)"
-pass "claude unavailable: fallback is silent, no noise in decisions"
+DEGRADED_COUNT=$(grep -c '\[degraded\] LLM extraction unavailable' "$PROJ" 2>/dev/null || echo 0)
+[ "$DEGRADED_COUNT" -eq 1 ] || fail "no-claude-dedup: expected exactly 1 [degraded] line, got $DEGRADED_COUNT"
+pass "claude unavailable: [degraded] breadcrumb dedup'd to once per day"
 
 # --- Test 4: claude returns garbage → fail-soft, PROJECT.md untouched, exit 0.
 init_sandbox "garbage"

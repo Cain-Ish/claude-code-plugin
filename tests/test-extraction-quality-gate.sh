@@ -48,5 +48,27 @@ echo "$out" | jq -e '(.recent_decisions | length) == 0' >/dev/null \
   || fail "aggressive: vague pronouns should be rejected (got: $out)"
 pass "aggressive rejects pronoun-only entries"
 
+# Test 7: cross_refs are SLUGS, not sentences — the sentence word-count rule
+# must NOT be applied. Regression test for the bug that caused Test 1 of
+# test-stop-extract.sh to fail (`[[new-page]]` never reached PROJECT.md
+# because "new-page" is 1 word, below the < 3 threshold for sentence noise).
+# Single-char slugs ("a") still reject — wiki minimum is 2 chars.
+out=$(echo '{"cross_refs":["new-page","router-daemon","a","valid-slug-here"]}' | bash "$SCRIPT")
+echo "$out" | jq -e '(.cross_refs | length) == 3' >/dev/null \
+  || fail "cross_refs: should keep 3 of 4 (drop single-char 'a'), got: $out"
+echo "$out" | jq -e '.cross_refs | any(. == "new-page")' >/dev/null \
+  || fail "cross_refs: single-word slug 'new-page' dropped, got: $out"
+echo "$out" | jq -e '.cross_refs | any(. == "a") | not' >/dev/null \
+  || fail "cross_refs: single-char 'a' should be rejected (too short), got: $out"
+pass "cross_refs: short slugs pass through (sentence rules NOT applied)"
+
+# Test 8: cross_refs reject malformed slugs (spaces, uppercase, leading/
+# trailing dashes). Use exact-equality compare — jq `contains` does
+# substring matching on strings inside arrays which gives false positives.
+out=$(echo '{"cross_refs":["with space","UPPERCASE","-leading","trailing-","--bad","ok"]}' | bash "$SCRIPT")
+echo "$out" | jq -e '.cross_refs == ["ok"]' >/dev/null \
+  || fail "cross_refs: malformed slugs should be rejected, only 'ok' kept (got: $out)"
+pass "cross_refs: malformed slugs rejected"
+
 echo
 echo "ALL PASS"

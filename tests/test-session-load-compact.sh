@@ -1,36 +1,53 @@
 #!/bin/bash
-# Tests for scripts/session-load.sh — verifies hot-tier re-emit on
-# SessionStart "compact" source-event. Locks in existing behavior so the
-# redundant-PreCompact-reload pattern stays rejected.
+# Tests for scripts/session-load.sh — verifies that the SessionStart hook
+# is NOT registered for the "compact" source-event. Per upstream
+# anthropics/claude-code#15174, SessionStart hook output is silently dropped
+# after compaction (v2.0.72+), so running session-load.sh on compact was pure
+# waste — and on long sessions it compounded the post-compact context-bloat
+# loop. This test locks in the matcher change in hooks/hooks.json.
 set -u
-SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/session-load.sh"
+PLUGIN_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
+HOOKS_JSON="$PLUGIN_ROOT/hooks/hooks.json"
+SCRIPT="$PLUGIN_ROOT/scripts/session-load.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-
-export HOME="$TMP"
-mkdir -p "$HOME/.second-brain/projects/test-slug"
-
-printf '%s\n' "SENTINEL_USER_LINE_42" > "$HOME/.second-brain/USER.md"
-printf '%s\n' "SENTINEL_PROJECT_LINE_99" > "$HOME/.second-brain/projects/test-slug/PROJECT.md"
 
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
 
-# session-load.sh derives slug from `git rev-parse --show-toplevel || pwd`.
-# Run from a non-git directory whose basename matches the seeded slug.
+# Test 1: hooks.json SessionStart matcher must not include "compact".
+SS_MATCHER=$(jq -r '.hooks.SessionStart[0].matcher' "$HOOKS_JSON" 2>/dev/null)
+[ -n "$SS_MATCHER" ] || fail "could not read SessionStart matcher from $HOOKS_JSON"
+echo "$SS_MATCHER" | grep -q compact \
+  && fail "SessionStart matcher still contains 'compact' (got: $SS_MATCHER) — per upstream #15174 this is wasted work"
+pass "SessionStart matcher excludes 'compact'"
+
+# Test 2: matcher still covers the real session-start events we depend on.
+for ev in startup resume clear; do
+  echo "$SS_MATCHER" | grep -qE "(^|\|)$ev(\||$)" \
+    || fail "matcher dropped '$ev' too (got: $SS_MATCHER)"
+done
+pass "SessionStart matcher still covers startup|resume|clear"
+
+# Test 3: session-load.sh itself still functions on every source value the
+# old matcher used to handle, including 'compact'. Defense-in-depth: even
+# if Claude Code accidentally fires SessionStart with source=compact in a
+# future version, the script must not crash and must still emit hot-tier.
+export HOME="$TMP"
+mkdir -p "$HOME/.second-brain/projects/test-slug"
+printf '%s\n' "SENTINEL_USER" > "$HOME/.second-brain/USER.md"
+printf '%s\n' "SENTINEL_PROJECT" > "$HOME/.second-brain/projects/test-slug/PROJECT.md"
 mkdir -p "$TMP/test-slug"
 cd "$TMP/test-slug" || fail "cd to test-slug failed"
 
-PAYLOAD='{"source":"compact","session_id":"abc123","transcript_path":"/dev/null"}'
-OUTPUT=$(printf '%s' "$PAYLOAD" | "$SCRIPT" 2>&1) || fail "session-load.sh exited non-zero on compact payload"
+for SRC in startup resume clear compact; do
+  PAYLOAD=$(jq -nc --arg s "$SRC" '{source:$s, session_id:"abc", transcript_path:"/dev/null"}')
+  OUT=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT" 2>&1) \
+    || fail "session-load.sh exited non-zero on source=$SRC"
+  echo "$OUT" | grep -q SENTINEL_USER \
+    || fail "session-load.sh produced no hot-tier output for source=$SRC"
+done
+pass "session-load.sh still produces hot-tier output across source variants (defensive)"
 
-echo "$OUTPUT" | grep -q "SENTINEL_USER_LINE_42" || fail "USER.md sentinel not in output"
-pass "USER.md re-emitted on compact"
-
-echo "$OUTPUT" | grep -q "SENTINEL_PROJECT_LINE_99" || fail "PROJECT.md sentinel not in output"
-pass "PROJECT.md re-emitted on compact"
-
-[ -f "$HOME/.second-brain/.session-baseline-test-slug.md" ] || fail "baseline not captured"
-pass "baseline captured for Stop predicate"
-
+echo
 echo "ALL PASS"

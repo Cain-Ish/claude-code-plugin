@@ -71,11 +71,18 @@ sb_reindex_wiki() {
     # Dynamic ESM import requires --input-type=module + await import().
     # The previous `import { x } from process.env.SB_BUNDLE` form silently
     # parse-errored (no string literal) and never reindexed.
-    SB_BUNDLE="$reindex_js" SB_KDIR="$knowledge_dir" \
+    # Error path: route stderr to the error-log so a corrupted bundle or
+    # missing-export failure surfaces in the next session-load banner
+    # instead of silently leaving the wiki index stale.
+    local _reindex_err
+    _reindex_err=$(SB_BUNDLE="$reindex_js" SB_KDIR="$knowledge_dir" \
       node --input-type=module -e "
         const m = await import(process.env.SB_BUNDLE);
         await m.knowledgeReindex(process.env.SB_KDIR);
-      " 2>/dev/null || true
+      " 2>&1 >/dev/null) || true
+    if [ -n "$_reindex_err" ]; then
+      sb_log_error "sb_reindex_wiki" "reindex-failed: $(printf '%s' "$_reindex_err" | tr '\n' ' ' | head -c 200)" 0
+    fi
   fi
 }
 
@@ -313,15 +320,18 @@ sb_reset_session_count() { echo 0 > "$BRAIN_DIR/projects/$1/.session-count" 2>/d
 sb_inc_wiki_writes() {  # $1 = project slug
   local f="$BRAIN_DIR/projects/$1/.wiki-writes"
   mkdir -p "$(dirname "$f")" 2>/dev/null
-  local n
-  n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
+  local n=0
+  # Preflight existence check — bash emits "No such file" to stderr before tr
+  # runs if the file is missing; 2>/dev/null on tr does not suppress it.
+  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
   [[ "$n" =~ ^[0-9]+$ ]] || n=0
   printf '%d' "$((n+1))" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 
 sb_get_wiki_writes() {  # $1 = slug
-  local n
-  n=$(tr -d '[:space:]' < "$BRAIN_DIR/projects/$1/.wiki-writes" 2>/dev/null)
+  local f="$BRAIN_DIR/projects/$1/.wiki-writes"
+  local n=0
+  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
   [[ "$n" =~ ^[0-9]+$ ]] || n=0
   echo "$n"
 }
@@ -338,15 +348,16 @@ sb_reset_wiki_writes() { sb_set_wiki_writes "$1" 0; }
 sb_inc_maintainer_fails() {  # $1 = slug
   local f="$BRAIN_DIR/projects/$1/.maintainer-fail-count"
   mkdir -p "$(dirname "$f")" 2>/dev/null
-  local n
-  n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
+  local n=0
+  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
   [[ "$n" =~ ^[0-9]+$ ]] || n=0
   printf '%d' "$((n+1))" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 
 sb_get_maintainer_fails() {  # $1 = slug
-  local n
-  n=$(tr -d '[:space:]' < "$BRAIN_DIR/projects/$1/.maintainer-fail-count" 2>/dev/null)
+  local f="$BRAIN_DIR/projects/$1/.maintainer-fail-count"
+  local n=0
+  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
   [[ "$n" =~ ^[0-9]+$ ]] || n=0
   echo "$n"
 }
@@ -408,16 +419,21 @@ sb_dream_set_status() {
 SB_HEALTH_FILE="$BRAIN_DIR/.extractor-health.json"
 
 # Write health snapshot. $1=backend ("claude-cli"|"anthropic-api"|"none"),
-# $2=ok|fail, $3=reason (short string).
+# $2=ok|fail, $3=reason (short string). Writes atomically via tempfile-rename
+# so concurrent readers from session-load.sh never see a half-truncated file
+# when stop and pre-compact hooks fire in quick succession.
 sb_write_extractor_health() {
   local backend="$1" status="$2" reason="${3:-}"
   local ts
   ts=$(date -u +%FT%TZ)
   mkdir -p "$BRAIN_DIR" 2>/dev/null
   if command -v jq >/dev/null 2>&1; then
+    local tmp="$SB_HEALTH_FILE.tmp.$$"
     jq -nc --arg t "$ts" --arg b "$backend" --arg s "$status" --arg r "$reason" \
       '{checked_at:$t, backend:$b, status:$s, reason:$r}' \
-      > "$SB_HEALTH_FILE" 2>/dev/null
+      > "$tmp" 2>/dev/null \
+      && mv "$tmp" "$SB_HEALTH_FILE" \
+      || rm -f "$tmp" 2>/dev/null
   fi
 }
 
@@ -425,10 +441,49 @@ sb_write_extractor_health() {
 # $3 = model id, $4 = system prompt, $5 = timeout seconds.
 # Returns 0 if output exists and is a JSON object, 1 otherwise.
 # Always writes a health marker before returning.
+# Strip ANSI/VT control sequences from $1, write cleaned bytes to stdout.
+# Required because `script -qfc` (Backend 1b) blends pty escape codes into
+# stdout — without stripping, jq sees garbage and the extraction is wasted.
+# Handles both OSC terminators: BEL (\x07) and ST (\x1b\\). Older sed
+# versions on this regex strip in order, so the OSC-BEL pattern runs first
+# then OSC-ST, then CSI, then single-char ESC sequences, then CR.
+sb_strip_ansi() {
+  sed -E '
+    s/\x1b\][^\x07\x1b]*\x07//g;
+    s/\x1b\][^\x1b]*\x1b\\//g;
+    s/\x1b\[[0-9;?]*[A-Za-z]//g;
+    s/\x1b[78=>]//g;
+    s/\r//g
+  ' "$1"
+}
+
+# Log a one-line diagnostic capturing the state at empty-output time, so the
+# next real hook firing tells us whether the pty wrap helped or whether the
+# problem is an OAuth/recursion conflict that only ANTHROPIC_API_KEY can fix.
+# Keys logged: ec (claude exit code), out (stdout bytes), err (stderr first
+# 80B), tty (which of stdin/stdout/stderr were ttys), cc (CLAUDECODE set?),
+# ak (ANTHROPIC_API_KEY set?), pty (was the pty wrap attempted?).
+sb_log_extractor_diag() {
+  local script_name="$1" stage="$2" claude_ec="$3" out_bytes="$4" err_file="$5" pty_attempted="$6"
+  local err_head
+  err_head=$(head -c 80 "$err_file" 2>/dev/null | tr -d '\000-\037' | tr -s ' ' | head -c 80)
+  local tty_state=""
+  [ -t 0 ] && tty_state="${tty_state}i"
+  [ -t 1 ] && tty_state="${tty_state}o"
+  [ -t 2 ] && tty_state="${tty_state}e"
+  [ -z "$tty_state" ] && tty_state="-"
+  local cc="0" ak="0"
+  [ -n "${CLAUDECODE:-}" ] && cc="1"
+  [ -n "${ANTHROPIC_API_KEY:-}" ] && ak="1"
+  sb_log_error "$script_name" \
+    "extractor-diag stage=$stage ec=$claude_ec out=$out_bytes err=\"$err_head\" tty=$tty_state cc=$cc ak=$ak pty=$pty_attempted" 0
+}
+
 sb_call_extractor() {
   local input_file="$1" out_file="$2" model="$3" prompt="$4" timeout_s="${5:-30}"
-  local err_file
+  local err_file caller_script
   err_file=$(mktemp)
+  caller_script="${SB_SCRIPT_NAME:-${0##*/}}"
 
   # --- Backend 1: claude CLI -----------------------------------------------
   # `--bare` is a perf optimization (skips hooks/LSP, saves ~10s) but per
@@ -441,12 +496,15 @@ sb_call_extractor() {
     if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ "${SB_USE_BARE:-0}" = "1" ]; then
       CLI_ARGS=(-p --bare --model "$model" --system-prompt "$prompt")
     fi
+    local claude_ec=0
     if command -v timeout >/dev/null 2>&1; then
       timeout "$timeout_s" claude "${CLI_ARGS[@]}" \
-        < "$input_file" > "$out_file" 2>"$err_file" || true
+        < "$input_file" > "$out_file" 2>"$err_file"
+      claude_ec=$?
     else
       claude "${CLI_ARGS[@]}" \
-        < "$input_file" > "$out_file" 2>"$err_file" || true
+        < "$input_file" > "$out_file" 2>"$err_file"
+      claude_ec=$?
     fi
 
     # Cheap auth-failure signature check on combined stdout+stderr tail.
@@ -466,8 +524,73 @@ sb_call_extractor() {
       sb_write_extractor_health "claude-cli" "fail" \
         "non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
     else
-      sb_write_extractor_health "claude-cli" "fail" \
-        "empty output: $(head -c 100 "$err_file" | tr '\n' ' ')"
+      # --- Backend 1b: empty-output retry under pty wrap -----------------
+      # claude -p inside a Claude Code hook subprocess sometimes returns 0
+      # bytes (upstream anthropics/claude-code#38651, #38774, #9026, #7263).
+      # In our local repro the same call from an interactive Bash succeeds
+      # — the failure is specific to the hook-firing moment when the
+      # parent process is mid-compact / mid-stop. A pty-allocated retry via
+      # script(1) helps in some non-TTY contexts (see [[router-daemon]] and
+      # [[pty-openpty-privatedevices-quirk]] for prior art). If the pty
+      # retry also returns empty, the diagnostic line we log here gives the
+      # ground truth for the *next* failure cycle.
+      local pty_tried="no"
+      sb_log_extractor_diag "$caller_script" "direct" "$claude_ec" \
+        "$(wc -c < "$out_file" | tr -d ' ')" "$err_file" "$pty_tried"
+      if [ "${SB_PTY_RETRY:-on}" != "off" ] && command -v script >/dev/null 2>&1; then
+        pty_tried="yes"
+        : > "$out_file"; : > "$err_file"
+        local -a CLI_ARGS_QUOTED=()
+        for arg in "${CLI_ARGS[@]}"; do
+          CLI_ARGS_QUOTED+=("$(printf '%q' "$arg")")
+        done
+        local inner="claude ${CLI_ARGS_QUOTED[*]} < $(printf '%q' "$input_file") > $(printf '%q' "$out_file") 2> $(printf '%q' "$err_file")"
+        if command -v timeout >/dev/null 2>&1; then
+          inner="timeout $timeout_s $inner"
+        fi
+        # script -qfc syntax is util-linux specific; we already require Linux
+        # for the rest of the plugin so no portability shim here.
+        # Wrap the inner command in `bash -c` explicitly: script(1) invokes
+        # its -c arg via $SHELL, and `printf %q` produces bash-specific
+        # $'...' C-string escapes that other shells (dash) do not parse,
+        # which would silently corrupt the 5KB system prompt.
+        local pty_raw
+        pty_raw=$(mktemp)
+        script -qfc "bash -c $(printf '%q' "$inner")" /dev/null > "$pty_raw" 2>/dev/null </dev/null || true
+        rm -f "$pty_raw"
+        if [ -s "$out_file" ]; then
+          # Strip ANSI/VT sequences from claude's stdout (the pty echoes them
+          # back when allocated).
+          sb_strip_ansi "$out_file" > "${out_file}.clean" 2>/dev/null \
+            && mv "${out_file}.clean" "$out_file"
+          sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
+            && mv "${out_file}.clean" "$out_file"
+          if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+            sb_write_extractor_health "claude-cli" "ok" "pty-retry"
+            rm -f "$err_file"
+            return 0
+          fi
+          sb_write_extractor_health "claude-cli" "fail" \
+            "pty-retry-non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
+        else
+          # Both direct and pty-wrapped came back empty. The most likely
+          # remaining cause is recursive-claude / OAuth-state conflict (parent
+          # Claude Code holds the OAuth token mid-API-call). Recommend the
+          # ANTHROPIC_API_KEY backstop, which uses a distinct credential path.
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            sb_write_extractor_health "claude-cli" "fail" \
+              "empty after pty-retry (recursive-claude conflict suspected) — set ANTHROPIC_API_KEY for direct-API backstop"
+          else
+            sb_write_extractor_health "claude-cli" "fail" \
+              "empty after pty-retry — falling back to anthropic-api"
+          fi
+          sb_log_extractor_diag "$caller_script" "pty" "$claude_ec" \
+            "$(wc -c < "$out_file" | tr -d ' ')" "$err_file" "$pty_tried"
+        fi
+      else
+        sb_write_extractor_health "claude-cli" "fail" \
+          "empty output: $(head -c 100 "$err_file" | tr '\n' ' ')"
+      fi
     fi
     : > "$out_file"   # reset before fallback attempt
   fi

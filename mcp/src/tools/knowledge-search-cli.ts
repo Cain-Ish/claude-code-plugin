@@ -4,9 +4,16 @@ const query = process.argv[2] || '';
 if (!query) { process.exit(0); }
 
 const knowledgeDir = process.env.KNOWLEDGE_DIR || undefined;
+// BM25 score floor — caller (persona-context.sh, session-load.sh) sets a
+// minimum to suppress weak/irrelevant matches that surfaced as "noise".
+// Default 0 = no filter (preserves prior behavior for callers that don't set it).
+const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
+
 const result = await knowledgeSearch({ query, knowledgeDir });
 
-const top = result.candidates.slice(0, 2);
+const top = result.candidates
+  .filter(c => c.score >= minScore)
+  .slice(0, 2);
 if (top.length === 0) { process.exit(0); }
 
 for (const c of top) {

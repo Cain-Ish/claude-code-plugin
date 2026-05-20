@@ -32,10 +32,31 @@ INPUT=$(cat 2>/dev/null || true)
 if [ -z "$INPUT" ]; then exit 0; fi
 
 # Rule predicates — return 0 if entry should be REJECTED (i.e. it's noise).
+# $1 = entry text, $2 = category key (recent_decisions | open_blockers |
+# cross_refs). Categories carry different shape: decisions/blockers are full
+# sentences; cross_refs are wiki slugs (e.g. "router-daemon", "new-page") and
+# must NOT be subjected to sentence-shaped checks (word-count, platitude
+# regex) — those would silently drop every legitimate short slug, which is
+# the bug that caused `[[new-page]]` to never reach PROJECT.md and broke
+# tests/test-stop-extract.sh test 1.
 is_noise() {
   local entry="$1"
-  # Empty / whitespace-only
+  local key="${2:-}"
+  # Empty / whitespace-only — always noise regardless of category.
   [ -z "$(printf '%s' "$entry" | tr -d '[:space:]')" ] && return 0
+
+  if [ "$key" = "cross_refs" ]; then
+    # Slug shape: lowercase letters, digits, hyphens. 2–80 chars. No spaces.
+    # Reject obvious malformations (whitespace inside, leading/trailing dash,
+    # double dashes) so the wiki stays clean — but ACCEPT short slugs.
+    printf '%s' "$entry" | grep -qE '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$' || return 0
+    local len; len=${#entry}
+    [ "$len" -lt 2 ] && return 0
+    [ "$len" -gt 80 ] && return 0
+    return 1
+  fi
+
+  # --- Sentence-shaped categories (decisions, blockers) ---
   # Plugin-internal placeholder text the stop-extract fallback inserts
   printf '%s' "$entry" | grep -qiE '^files this session:' && return 0
   # Generic platitudes (case-insensitive)
@@ -90,7 +111,7 @@ filter_array() {
     local entry
     entry=$(printf '%s' "$arr_json" | jq -r ".[$idx]")
     idx=$((idx + 1))
-    if is_noise "$entry"; then
+    if is_noise "$entry" "$key"; then
       jq -nc --arg k "$key" --arg e "$entry" --arg r "rules:noise" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{key:$k, entry:$e, reason:$r, at:$t}' >> "$LOG_FILE"
       continue

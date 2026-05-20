@@ -318,6 +318,16 @@ function extractYamlValue(yaml, key) {
   return m ? m[1].trim() : "";
 }
 function extractYamlList(yaml, key) {
+  const lineMatch = yaml.match(new RegExp(`^${key}:[ \\t]+(\\S.*?)\\s*$`, "m"));
+  if (lineMatch) {
+    const value = lineMatch[1];
+    const wikiLinks = value.match(/\[\[([^\]\[]+)\]\]/g);
+    if (wikiLinks && wikiLinks.length > 0) {
+      return [...new Set(
+        wikiLinks.map((l) => l.slice(2, -2).trim()).filter(Boolean)
+      )];
+    }
+  }
   const inline = yaml.match(new RegExp(`^${key}:\\s*\\[(.+?)\\]`, "m"));
   if (inline) {
     return inline[1].split(",").map((s) => s.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
@@ -365,8 +375,9 @@ if (!query) {
   process.exit(0);
 }
 var knowledgeDir = process.env.KNOWLEDGE_DIR || void 0;
+var minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || "0");
 var result = await knowledgeSearch({ query, knowledgeDir });
-var top = result.candidates.slice(0, 2);
+var top = result.candidates.filter((c) => c.score >= minScore).slice(0, 2);
 if (top.length === 0) {
   process.exit(0);
 }

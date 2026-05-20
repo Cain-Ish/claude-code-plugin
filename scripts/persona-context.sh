@@ -45,6 +45,21 @@ Use this brief to inform the response. Ask the clarifying questions if they're c
           }
         }' 2>/dev/null || true
       fi
+    else
+      # Bundle missing — emit a one-line hint so the user knows /? is dead
+      # rather than silently dropping their request. Common cause: `dist/`
+      # not rebuilt after a plugin pull (`cd mcp && npm run build`).
+      CTX="[Persona /? requested but persona-think-cli.bundle.js is missing — run \`cd $PLUGIN_ROOT_NOW/mcp && npm run build\`. Proceeding without the Opus brief.]"
+      jq -nc --arg ctx "$CTX" '{
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext: $ctx
+        }
+      }' 2>/dev/null || true
+      sb_log_error_path="${BRAIN_DIR:-$HOME/.second-brain}/error-log.jsonl"
+      mkdir -p "$(dirname "$sb_log_error_path")" 2>/dev/null
+      printf '{"timestamp":"%s","script":"persona-context.sh","message":"think-cli-bundle-missing path=%s","exit_code":0}\n' \
+        "$(date -u +%FT%TZ)" "$THINK_CLI" >> "$sb_log_error_path" 2>/dev/null
     fi
     exit 0
     ;;
@@ -76,7 +91,7 @@ case "$P_TRIM" in
     ACTION=1 ;;
 esac
 
-if [ "$ACTION" -eq 0 ] && [ "$W_COUNT" -lt 7 ]; then
+if [ "$ACTION" -eq 0 ] && [ "$W_COUNT" -lt 4 ]; then
   exit 0
 fi
 
@@ -151,14 +166,31 @@ fi
 # --- Keyword extraction (preserved from intent-gate.sh) ---
 STOP_WORDS="the a an is are was were will be been have has had do does did can could should would may might must shall to of in for on at by with from as into about between through after before during without under over up down out off then than so if or and but not no all each every both few more most other some any many much own same that this those these what which who whom whose when where how why it its i me my we our us you your he him his she her they them their also just only very really already still even well too"
 
-KEYWORDS=$(printf '%s' "$P_TRIM" | tr -cs '[:alpha:]' '\n' | grep -vwF "$(echo "$STOP_WORDS" | tr ' ' '\n')" | head -8 | tr '\n' ' ')
+# Tokenize on alphanumerics + hyphen so technical identifiers survive:
+# claude-4-5, v2.8.0 ("v2", "8", "0" — close to intact), node-modules, BM25.
+# `[:alpha:]`-only splitting (the previous behavior) shredded these into
+# generic fragments ("claude", "v", "node") that missed their wiki pages.
+KEYWORDS=$(printf '%s' "$P_TRIM" \
+  | tr -cs '[:alnum:]-' '\n' \
+  | sed 's/^-\+//; s/-\+$//' \
+  | grep -v '^$' \
+  | grep -vwF "$(echo "$STOP_WORDS" | tr ' ' '\n')" \
+  | head -8 | tr '\n' ' ')
 KEYWORDS="${KEYWORDS% }"
 
 # --- Wiki hits via existing bundle ---
 WIKI_HITS=""
 SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
+# Score floor for per-prompt wiki injection. knowledge-search uses RRF fusion
+# of BM25 + ONNX cosine, producing scores in ~0.001–0.07 range. Observed:
+# strong queries land 0.05+, borderline ~0.04, nonsense queries already
+# return empty (knowledgeSearch's MIN_SCORE_RATIO=0.15 trims internally).
+# Default 0.045 keeps strong + moderate hits, drops the long tail that
+# field reports flagged as "noise". Tune via SB_PERSONA_WIKI_MIN_SCORE.
+WIKI_MIN_SCORE="${SB_PERSONA_WIKI_MIN_SCORE:-0.045}"
 if [ -n "$KEYWORDS" ] && [ -f "$SEARCH_CLI" ]; then
-  WIKI_HITS=$(KNOWLEDGE_DIR="$KD" node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
+  WIKI_HITS=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" \
+    node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
   [ ${#WIKI_HITS} -gt $CAP_WIKI ] && WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c $CAP_WIKI)
 fi
 

@@ -11,10 +11,15 @@ OUT_FILE="$BRAIN_DIR/.installed-catalog.json"
 
 mkdir -p "$BRAIN_DIR"
 
-# Fast-path: reuse cached catalog if plugins dir hasn't changed.
+# Fast-path: reuse cached catalog if nothing under plugins dir has changed.
+# We compare against ANY file in the tree, not just $PLUGINS_ROOT itself —
+# directory mtime only bumps when entries at the immediate level change, so
+# a plugin update inside a subdirectory leaves a root-only check stale
+# indefinitely. `find -newer ... -quit` short-circuits on first hit, so the
+# overhead is negligible when nothing has changed.
 if [ -f "$OUT_FILE" ] && [ -d "$PLUGINS_ROOT" ]; then
-  if [ "$(stat -f %m "$OUT_FILE" 2>/dev/null || stat -c %Y "$OUT_FILE" 2>/dev/null)" \
-       -ge "$(stat -f %m "$PLUGINS_ROOT" 2>/dev/null || stat -c %Y "$PLUGINS_ROOT" 2>/dev/null)" ]; then
+  NEWER=$(find "$PLUGINS_ROOT" -newer "$OUT_FILE" -print -quit 2>/dev/null)
+  if [ -z "$NEWER" ]; then
     cat "$OUT_FILE"
     exit 0
   fi
