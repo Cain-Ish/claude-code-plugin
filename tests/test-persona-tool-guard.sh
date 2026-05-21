@@ -58,7 +58,8 @@ pass "self-protection: persona-rules edit asks"
 # --- v2.9.0 Phase 3: resource-scope guard ---
 # Set up an isolated brain dir so audit-log lands somewhere we can check.
 SCOPE_BRAIN=$(mktemp -d)
-trap 'rm -rf "$SCOPE_BRAIN"' EXIT
+TS_BRAIN=$(mktemp -d)
+trap 'rm -rf "$SCOPE_BRAIN" "$TS_BRAIN"' EXIT
 
 # Test 8: out-of-scope Edit (path not in CWD/~/.second-brain/~/knowledge/tmp)
 out=$(BRAIN_DIR="$SCOPE_BRAIN" \
@@ -105,6 +106,99 @@ grep -q '"hook":"persona-tool-guard.sh"' "$SCOPE_BRAIN/audit-log.jsonl" \
 grep -q '"rule":"resource-scope-out-of-scope"' "$SCOPE_BRAIN/audit-log.jsonl" \
   || fail "audit-log should contain resource-scope rule entries"
 pass "resource-scope: audit-log captures verdicts"
+
+# --- v2.10.0 tool-scope guard (HarnessAudit sar_tool) ---
+# Tool-scope is opt-in: users must declare an allowlist in persona-rules.json.
+# The default plugin rules ship with tool_scope.enabled=false (zero surprise).
+# These tests use a custom rules file written into an isolated brain dir.
+
+cat > "$TS_BRAIN/persona-rules.json" <<'EOF'
+{
+  "tool_scope": {
+    "enabled": true,
+    "allowlist": ["Read", "Bash", "Edit", "Write", "Glob", "Grep"]
+  },
+  "rules": []
+}
+EOF
+
+# Test 14: out-of-scope tool (WebFetch not in allowlist) → ask
+out=$(BRAIN_DIR="$TS_BRAIN" \
+  echo '{"tool_name":"WebFetch","tool_input":{"url":"https://x"},"session_id":"ts1"}' \
+  | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "out-of-scope WebFetch should ask (got: $out)"
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | test("tool scope|not in the declared|allowlist")' >/dev/null \
+  || fail "out-of-scope tool ask reason should mention tool scope (got: $out)"
+pass "tool-scope: out-of-scope WebFetch asks"
+
+# Test 15: in-scope tool (Read on /tmp, which is in resource scope by default) → silent
+out=$(BRAIN_DIR="$TS_BRAIN" \
+  echo '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"},"session_id":"ts1"}' \
+  | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "in-scope Read should be silent (got: $out)"
+pass "tool-scope: in-scope tool silent"
+
+# Test 16: SB_TOOL_SCOPE=off kill switch
+out=$(SB_TOOL_SCOPE=off BRAIN_DIR="$TS_BRAIN" \
+  echo '{"tool_name":"WebFetch","tool_input":{"url":"https://x"},"session_id":"ts1"}' \
+  | SB_TOOL_SCOPE=off BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "SB_TOOL_SCOPE=off should suppress tool-scope guard (got: $out)"
+pass "tool-scope: SB_TOOL_SCOPE=off honored"
+
+# Test 17: SB_TOOL_SCOPE_EXTRA extends the allowlist (colon-separated like PATH)
+out=$(SB_TOOL_SCOPE_EXTRA="WebFetch:Task" BRAIN_DIR="$TS_BRAIN" \
+  echo '{"tool_name":"WebFetch","tool_input":{"url":"https://x"},"session_id":"ts1"}' \
+  | SB_TOOL_SCOPE_EXTRA="WebFetch:Task" BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "SB_TOOL_SCOPE_EXTRA should extend tool allowlist (got: $out)"
+pass "tool-scope: SB_TOOL_SCOPE_EXTRA extends allowlist"
+
+# Test 18: audit log captures tool-scope verdict
+[ -f "$TS_BRAIN/audit-log.jsonl" ] || fail "audit-log.jsonl should be written after tool-scope verdict"
+grep -q '"rule":"tool-scope-out-of-scope"' "$TS_BRAIN/audit-log.jsonl" \
+  || fail "audit-log should contain tool-scope-out-of-scope entries"
+pass "tool-scope: audit-log captures verdicts"
+
+# Test 19: tool_scope disabled → no gating even for unknown tool
+cat > "$TS_BRAIN/persona-rules.json" <<'EOF'
+{
+  "tool_scope": { "enabled": false, "allowlist": ["Read"] },
+  "rules": []
+}
+EOF
+out=$(BRAIN_DIR="$TS_BRAIN" \
+  echo '{"tool_name":"WebFetch","tool_input":{"url":"https://x"},"session_id":"ts2"}' \
+  | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "tool_scope.enabled=false should not gate (got: $out)"
+pass "tool-scope: disabled means no gating"
+
+# Test 20 (MAJOR M3 regression): a rewrite rule whose match_command contains
+# a pipe character must NOT silently zero-out the command. With the old
+# `sed -E "s|$match_cmd|$replace|g"` the pipe terminates the s command and
+# sed errors → NEW_CMD becomes "". The rewrite then passes empty string
+# back to Claude as updatedInput.command, silently corrupting the call.
+cat > "$TS_BRAIN/persona-rules.json" <<'EOF'
+{
+  "rules": [
+    {
+      "name": "alt-pipe-rewrite",
+      "tool": "Bash",
+      "match_command": "(foo|bar)",
+      "action": "rewrite",
+      "replace": "baz",
+      "reason": "test"
+    }
+  ]
+}
+EOF
+out=$(BRAIN_DIR="$TS_BRAIN" \
+  echo '{"tool_name":"Bash","tool_input":{"command":"echo foo"},"session_id":"m3"}' \
+  | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT")
+new_cmd=$(echo "$out" | jq -r '.hookSpecificOutput.updatedInput.command // empty' 2>/dev/null)
+[ -n "$new_cmd" ] || fail "rewrite with pipe-in-pattern produced empty command (M3 regression): $out"
+echo "$new_cmd" | grep -q 'baz' \
+  || fail "rewrite with pipe-in-pattern did not substitute (got: $new_cmd)"
+pass "rewrite: match_command with | is handled correctly (M3 regression)"
 
 echo
 echo "ALL PASS"

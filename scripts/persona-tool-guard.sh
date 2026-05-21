@@ -46,6 +46,40 @@ CWD=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null)
 CMD=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null)
 PATH_INPUT=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 
+# --- v2.10.0 tool-scope guard (HarnessAudit sar_tool) --------------------
+# Ask before a tool is invoked when it's outside the declared allowlist.
+# Per HarnessAudit, out-of-scope tool use is one of three L1 boundary-
+# violation channels (alongside resource-scope and info-flow). Disabled
+# by default — opt-in via tool_scope.enabled=true in persona-rules.json
+# or per-session via SB_TOOL_SCOPE_EXTRA (colon-separated, like PATH).
+# Run BEFORE resource-scope: if the tool itself is off-limits, the path
+# check is moot. Kill switch: SB_TOOL_SCOPE=off.
+if [ "${SB_TOOL_SCOPE:-on}" != "off" ]; then
+  TS_ENABLED=$(jq -r '.tool_scope.enabled // false' "$RULES_FILE" 2>/dev/null)
+  if [ "$TS_ENABLED" = "true" ]; then
+    in_tool_scope=0
+    while IFS= read -r allowed_tool; do
+      [ -z "$allowed_tool" ] && continue
+      if [ "$allowed_tool" = "$TOOL" ]; then in_tool_scope=1; break; fi
+    done < <(
+      jq -r '.tool_scope.allowlist[]?' "$RULES_FILE" 2>/dev/null
+      printf '%s\n' "${SB_TOOL_SCOPE_EXTRA:-}" | tr ':' '\n'
+    )
+    if [ "$in_tool_scope" = "0" ]; then
+      TS_REASON="Tool '$TOOL' is not in the declared tool_scope allowlist. HarnessAudit treats out-of-scope tool use as one of three L1 boundary-violation channels. Confirm intent or extend via SB_TOOL_SCOPE_EXTRA (colon-separated)."
+      sb_log_audit "persona-tool-guard.sh" "ask" "tool-scope-out-of-scope" "$TOOL" "$TS_REASON" "$SESSION_ID"
+      jq -nc --arg r "$TS_REASON" '{
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "ask",
+          permissionDecisionReason: $r
+        }
+      }' 2>/dev/null || true
+      exit 0
+    fi
+  fi
+fi
+
 # --- v2.9.0 resource-scope guard (HarnessAudit Layer 1) ------------------
 # Ask before file-touching tools target a path outside the configured
 # allowlist. Per the paper: 50%+ of agents apply reasonable tools to
@@ -130,7 +164,19 @@ while [ "$i" -lt "$MATCH_COUNT" ]; do
   case "$action" in
     rewrite)
       replace=$(printf '%s' "$rule" | jq -r '.replace // ""')
-      NEW_CMD=$(printf '%s' "$CMD" | sed -E "s|$match_cmd|$replace|g")
+      # v2.10.0: use SOH (\x01) as the sed delimiter instead of `|`. The
+      # old `s|$match_cmd|$replace|g` form errored ("unknown option to s")
+      # whenever match_cmd contained a `|` — which is common for grouped
+      # regex alternations — and silently zeroed-out NEW_CMD. SOH cannot
+      # appear in a shell command, so it's a safe delimiter. If either
+      # operand somehow contains SOH (the user is doing something exotic)
+      # we skip rewrite and pass the command through unchanged rather
+      # than risk corruption.
+      SOH=$'\x01'
+      case "$match_cmd$replace" in
+        *"$SOH"*) NEW_CMD="$CMD" ;;
+        *) NEW_CMD=$(printf '%s' "$CMD" | sed -E "s${SOH}${match_cmd}${SOH}${replace}${SOH}g") ;;
+      esac
       sb_log_audit "persona-tool-guard.sh" "rewrite" "$rule_name" "$target" "$reason" "$SESSION_ID"
       jq -nc --arg c "$NEW_CMD" --arg r "$reason" '{
         hookSpecificOutput: {

@@ -20,7 +20,9 @@
     "Stop": [
       { "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-verify-gate.sh", "timeout": 10 },
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-extract.sh", "timeout": 45 }
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-extract.sh", "timeout": 45 },
+        { "_comment": "v2.10.0 SAR summary — aggregates this session's audit-log verdicts into a one-line Safety Adherence Rate banner via systemMessage. Read-only; runs last so it can't be preempted by the gate or extractor. Kill switch SB_SAR_SUMMARY=off.",
+          "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/sar-summary.sh", "timeout": 5 }
       ]}
     ],
     "PreCompact": [
@@ -29,11 +31,16 @@
       ]}
     ],
     "PreToolUse": [
-      { "matcher": "Bash|Write|Edit", "hooks": [
+      { "_comment": "v2.10.0 matcher broadened to cover Read (closes resource-scope gap where Read was declared in tool list but matcher didn't include it) and WebFetch/WebSearch/Task/MultiEdit (network + subagent + multi-file surface where tool_scope and sar_tool apply). MCP tools and read-only Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low.",
+        "matcher": "Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task", "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh", "timeout": 5 }
       ]},
       { "matcher": "Write|Edit|MultiEdit", "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/wiki-write-guard.sh", "timeout": 5 }
+      ]},
+      { "_comment": "v2.10.0 outbound info-flow guard (HarnessAudit sar_flow channel). Asks when an egress tool call (Bash with network tool, or WebFetch/WebSearch) carries credential-shaped content. Defense-in-depth against the agent helpfully pasting session secrets into a curl request. Kill switch SB_FLOW_GUARD=off.",
+        "matcher": "Bash|WebFetch|WebSearch", "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/flow-guard.sh", "timeout": 5 }
       ]}
     ],
     "PostToolUse": [
