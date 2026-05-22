@@ -211,6 +211,24 @@ if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
+# 0a-bis. Auth-mode line — one quiet line so the user always knows which
+# credential path the extractor will use this session. Critical for the dual-
+# auth UX (Claude subscription vs Anthropic API key): without this banner,
+# new machines silently default to OAuth-only and the user only discovers the
+# in-session limitation when they notice extractor failures days later.
+# Suppress: SB_AUTH_LINE=off
+if [ "${SB_AUTH_LINE:-on}" = "on" ]; then
+  if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    AUTH_PREFIX="${ANTHROPIC_API_KEY:0:10}"
+    sb_append "$(printf '## ⓘ second-brain auth\nmode: api-key (key: %s…, len=%s) — direct anthropic-api, works in all contexts.\n\n' \
+      "$AUTH_PREFIX" "${#ANTHROPIC_API_KEY}")" "auth-mode-line" 220
+  elif command -v claude >/dev/null 2>&1; then
+    sb_append "$(printf '## ⓘ second-brain auth\nmode: subscription (OAuth) — in-session Stop/PreCompact extraction will queue (recursive-claude lock).\nfix to enable in-session extraction: `export ANTHROPIC_API_KEY=sk-ant-...` or run `sb auth doctor`.\n\n')" "auth-mode-line" 350
+  else
+    sb_append "$(printf '## ⚠ second-brain auth\nmode: none — neither ANTHROPIC_API_KEY nor `claude` CLI is available. Run `sb auth doctor`.\n\n')" "auth-mode-line" 220
+  fi
+fi
+
 # 0b. Episodic embeddings banner — surfaces missing native deps that prevent
 # vector search over transcripts. Production bug 2026-05-22: 976/981 exchanges
 # had embedding:[] because @huggingface/transformers was --external in the

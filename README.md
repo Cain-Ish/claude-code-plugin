@@ -1,6 +1,8 @@
 # Second Brain — Hot-Tier Memory + Local Wiki for Claude Code
 
-A Claude Code plugin that gives Claude a two-layer memory: a small hot tier (`USER.md` + `projects/<slug>/PROJECT.md`) auto-loaded at every SessionStart, and a larger local wiki retrievable on demand. **Memory is explicit: you pin what's worth remembering. There is no autonomous extraction, no critic loop, no auto-PR.**
+A Claude Code plugin that gives Claude a two-layer memory: a small hot tier (`USER.md` + `projects/<slug>/PROJECT.md`) auto-loaded at every SessionStart, and a larger local wiki retrievable on demand. The plugin extracts decisions, blockers, and cross-references from each session via Stop/PreCompact LLM hooks and merges them into the hot tier and wiki. You can still pin manually; the auto-extraction layer surfaces candidates so you don't have to remember to.
+
+**Auth requirement:** the extractor calls the Anthropic API. You can use either an `ANTHROPIC_API_KEY` (token plan, works everywhere) or a Claude subscription via `claude /login` (OAuth, with a known in-session limitation — see [Auth modes](#auth-modes)). All knowledge stays on your machine; nothing is uploaded except the extraction prompts themselves.
 
 ## What it does
 
@@ -33,6 +35,41 @@ First run:
 ```
 /second-brain:setup
 ```
+
+Then pick an auth mode (see [Auth modes](#auth-modes) below) and check it:
+
+```
+sb auth status
+```
+
+## Auth modes
+
+The plugin runs LLM extraction (Stop/PreCompact hooks, persona advisor) against
+the Anthropic API. Two paths are supported and the plugin auto-detects which
+one you're on:
+
+| Mode | How you enable it | Works in-session? | Works in cron/CI? |
+|---|---|---|---|
+| **API key** (token plan) | `export ANTHROPIC_API_KEY=sk-ant-...` | yes | yes |
+| **Subscription** (OAuth) | `claude /login` (interactive browser flow) | **queued — see note** | yes |
+| **none** | neither set | nothing extracts; banner warns at session start | — |
+
+**Why subscription mode queues in-session:** A Stop/PreCompact hook fires *from
+inside* a Claude Code session, so spawning `claude -p` from the hook re-enters
+the same OAuth-locked process and reliably hangs to the timeout. The plugin
+detects this and short-circuits to `status=queued` instead of burning the
+timeout. To enable in-session extraction on a Claude subscription, either
+also export an `ANTHROPIC_API_KEY` (preferred — the API key path doesn't go
+through OAuth at all) or run extraction out-of-band via cron/systemd-timer.
+
+Inspect or repair your auth setup any time with:
+
+```bash
+sb auth status      # which mode is active right now
+sb auth doctor      # walk-through of both setup paths
+```
+
+The SessionStart banner always shows the active mode in one line — see [v2.11.0 changes](#whats-new-in-v2110) for screenshots.
 
 ## Skills
 
@@ -112,20 +149,37 @@ Resolution order for the dirs: `BRAIN_DIR` env → `~/.second-brain`; `KNOWLEDGE
 
 ## MCP Server
 
-The plugin includes a local MCP server with four tools:
+The plugin includes a local MCP server. Tools (current as of v2.11.0):
 
-- `knowledge_search` — Node filesystem walk + token-overlap scoring over `~/knowledge/wiki/` (no embeddings, no vectordb, no API calls, no external binaries)
-- `pin_to_user` — append-with-dedupe write to `~/.second-brain/USER.md`
-- `pin_to_project` — append-with-dedupe write to `~/.second-brain/projects/<slug>/PROJECT.md`
-- `archive_to_wiki` — write a longer-form note as a wiki page
+| Tool | Purpose |
+|---|---|
+| `knowledge_search` | BM25-scored full-content search over `~/knowledge/wiki/`. Field-weighted (title 3x, description 2x, tags 2x, body 1x). Optional ONNX vector ranking (`Xenova/all-MiniLM-L6-v2`) fused via RRF when `@huggingface/transformers` is installed — automatic via the upgrade skill. |
+| `knowledge_reindex` | Regenerate `wiki/index.md` catalog; runs validation with autofix |
+| `knowledge_validate` | Health-check the wiki (broken links, orphans, duplicate slugs, empty pages) |
+| `knowledge_stats` | Wiki size + per-category counts |
+| `episodic_search` | Hybrid vector + text search over archived transcripts (`~/.second-brain/transcripts/`) |
+| `episodic_read` | Read a specific transcript range by line numbers |
+| `pin_to_user` | Append-with-dedupe write to `USER.md` |
+| `pin_to_project` | Append-with-dedupe write to a project's `PROJECT.md` |
+| `archive_to_wiki` | Write a longer-form note as a wiki page |
+| `dream_*` | 6 tools for background knowledge consolidation (`create`, `status`, `list`, `accept`, `discard`, `cancel`) |
+| `persona_stats`, `persona_dismiss`, `persona_think` | Layer 5 persona surface |
 
-The compiled artifact `mcp/dist/server.js` is shipped in the repo, so a marketplace install works out of the box. To rebuild after pulling source changes:
+The compiled artifact `mcp/dist/server.bundle.js` and tool-specific bundles in `mcp/dist/tools/` are shipped in the repo, so a marketplace install works out of the box.
+
+**One required post-install step for vector search**: `@huggingface/transformers` is bundled as `--external` (its native dependencies can't be statically packed), so it lives in `mcp/node_modules/` rather than the dist bundle. The `/second-brain:upgrade` skill detects and installs it automatically. To install manually:
+
+```bash
+bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"   # ~70 MB native deps, one-time
+```
+
+If transformers isn't installed, `knowledge_search` degrades cleanly to BM25-only and `episodic_search` to text-only — a SessionStart banner flags the degradation and points at the installer.
+
+To rebuild from source:
 
 ```bash
 cd mcp && npm install && npm run build
 ```
-
-`/second-brain:setup` runs this automatically if `dist/server.js` is missing. `knowledge_search` runs entirely in-process (Node `fs` walk over `~/knowledge/wiki/` with token-overlap scoring) — no external binary required.
 
 ## Where files live
 
@@ -161,7 +215,15 @@ Path resolution uses the cross-platform-safe `$HOME` (Git Bash maps it to `/c/Us
 
 ### What does talk to the network
 
-Nothing in the v1.0 default install. The plugin makes no network calls — no friction logging, no auto-improve PRs, no embedding model download. If you bring your own MCP servers (Context7, web-fetch, etc.) those have their own network behavior; the second-brain plugin does not.
+The v2.x plugin makes Anthropic API calls in three places, and nothing else:
+
+1. **Stop / PreCompact extractor** — sends the preprocessed session transcript (decisions, blockers, cross-references, files touched — roughly 15–20 KB after the jq preprocessor strips tool-result payloads and attachments) to whichever Anthropic endpoint your auth mode uses. Default model `claude-sonnet-4-6`, configurable via `SB_EXTRACTOR_MODEL`.
+2. **Persona Layer 2 advisor brief** — opt-in only, via `/?` prefix or `/second-brain:think`. Calls `claude-opus-4-7` by default; hard daily cap via `SB_PERSONA_DAILY_BUDGET` (default $20).
+3. **Persona Layer 4 quality gate (optional)** — when `SB_QUALITY_GATE_LLM=on`, calls Haiku to validate extraction candidates before merge. Default is rules-only (no network).
+
+**Kill switches:** `SB_PERSONA_GATE=off` disables Layer 2+3+4 entirely. The extractor can be silenced by removing `Stop`/`PreCompact` hooks from `hooks/hooks.json`. Knowledge base, wiki, and `sb` CLI search are 100% local — `knowledge_search` and `episodic_search` never touch the network. Embeddings, when enabled, run on-device via ONNX (`Xenova/all-MiniLM-L6-v2`); the model itself is downloaded once on first use by the bundled `@huggingface/transformers` runtime.
+
+If you bring your own MCP servers (Context7, web-fetch, etc.) those have their own network behavior; the second-brain plugin does not.
 
 ### Obsidian Users
 
@@ -194,22 +256,42 @@ Result: memory is what *you* pinned. No autonomous writes, no background extract
 
 ## Testing
 
-Tests run in isolation under `mktemp` sandboxes (no real user data is touched). Require `jq`, `mktemp`, and `bash`.
+Tests run in isolation under `mktemp` sandboxes (no real user data is touched). Require `jq`, `mktemp`, `bash`, and Node 22+ for the Vitest suite.
+
+**Run the whole suite** — shell + vitest — with one command:
+
+```bash
+make test                       # or: bash tests/run-all.sh
+```
+
+As of v2.11.0 this runs 24 shell tests + 59 vitest assertions. Output is a per-test verdict and a summary; exit code is non-zero on any failure.
+
+**Install the pre-push gate** so broken commits cannot be pushed:
+
+```bash
+make hook-install               # sets core.hooksPath = .githooks
+```
+
+After install, every `git push` re-runs `tests/run-all.sh`. Bypass for one push (emergency only) via `SB_SKIP_PREPUSH=1 git push`. See `RELEASING.md` for the full release checklist.
+
+To run individual tests:
 
 ```bash
 bash tests/test-validate-plugin.sh                # plugin-structure validator
-bash tests/test-validate-plugin-allowed-tools.sh  # allowed-tools frontmatter rule
-bash tests/test-stop-hook-predicate.sh            # 4-condition stop-hook predicate
-bash tests/test-hooks-regression.sh               # hooks.json regression suite
-bash tests/test-session-load-compact.sh           # SessionStart-on-compact re-emit
-bash tests/test-verify.sh                         # runtime smoke check (verify.sh)
+bash tests/test-lib-extractor-backend.sh          # extractor auth-mode selection
+bash tests/test-upgrade-vector-deps.sh            # upgrade-skill vector-deps gate
+bash tests/test-session-load-auth-banner.sh       # SessionStart auth-mode banner
+# (full list: ls tests/test-*.sh)
 ```
 
-To run the plugin-structure validator against this repo directly:
+## What's new in v2.11.0
 
-```bash
-bash scripts/validate-plugin.sh
-```
+The first release with a verification gate. Concretely:
+
+- **Dual-auth UX.** `sb auth status` reports which mode is active; `sb auth doctor` walks through both setup paths. A one-line banner at SessionStart always shows the active mode.
+- **Recursive-claude guard.** Stop/PreCompact hooks no longer burn the 40s timeout when running inside Claude Code under OAuth-only auth — they short-circuit to `status=queued` so the SessionStart banner can surface the configuration accurately.
+- **Upgrade-time vector-deps gate.** `/second-brain:upgrade` runs an idempotent smoke-import of `@huggingface/transformers` and invokes `bin/install-vector-deps.sh` when missing. Closes the "esbuild --external silently strips native deps" gap that left fresh installs with degraded search.
+- **`tests/run-all.sh`** aggregate runner + **`.githooks/pre-push`** gate. The contract: a version tag is valid only when the gate exits 0 on the commit being tagged. See `RELEASING.md`.
 
 ## License
 

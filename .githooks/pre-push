@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# pre-push: run the full second-brain test suite before allowing a push.
+# Wired in via `git config core.hooksPath .githooks` (or `make hook-install`).
+#
+# Bypass (debugging only — and please don't make a habit of it):
+#   SB_SKIP_PREPUSH=1 git push
+#   git push --no-verify
+#
+# The bypass envs exist so you can recover from a genuinely broken test that
+# blocks an urgent fix. Always follow up with a real fix afterward; otherwise
+# the next push regresses again.
+set -u
+
+if [ "${SB_SKIP_PREPUSH:-0}" = "1" ]; then
+  echo "pre-push: SB_SKIP_PREPUSH=1 — skipping test gate (please fix tests soon)"
+  exit 0
+fi
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUNNER="$ROOT/tests/run-all.sh"
+[ -x "$RUNNER" ] || { echo "pre-push: $RUNNER not executable; aborting"; exit 1; }
+
+echo "pre-push: running $RUNNER"
+echo "pre-push: this is the verification gate that decides whether v$(jq -r .version "$ROOT/.claude-plugin/plugin.json" 2>/dev/null || echo "?") can ship."
+echo
+"$RUNNER" || {
+  rc=$?
+  echo
+  echo "pre-push: BLOCKED — at least one test failed. Fix it or run with SB_SKIP_PREPUSH=1 if you understand why."
+  echo "pre-push: bypassing the gate without a fix is how 'production' versions ship broken."
+  exit $rc
+}
+
+echo "pre-push: all tests green; push allowed."
+exit 0

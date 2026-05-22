@@ -102,10 +102,15 @@ echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("test-role-mar
 pass "persona-card injected"
 rm -rf "$BRAIN_DIR_TEST"
 
-# Test 8: per-session injection memo deduplicates ambient state across turns.
-# Same session_id, same context inputs → second invocation should suppress the
-# persona/catalog/wiki/episodic sections (they were already injected). The header
-# alone has nothing to add, so the script exits silent.
+# Test 8: per-session injection memo dedup policy.
+#
+# v2.10 contract (see persona-context.sh:256-260):
+#   - Persona + catalog: ALWAYS re-injected each turn. The model has no
+#     persistent memory between turns; dedup-suppressing persona after turn 1
+#     was the previous behavior and silently made the persona disappear,
+#     which was the bug the v2.10 change fixed.
+#   - Wiki + episodic: hash-deduped on unchanged input — those are noisier
+#     and re-injecting the same 12 slugs every turn is genuine signal noise.
 BRAIN_DIR_DEDUP=$(mktemp -d)
 cat > "$BRAIN_DIR_DEDUP/persona-card.md" <<EOF
 # Persona
@@ -123,14 +128,61 @@ echo "$out_a" | jq -e '.hookSpecificOutput.additionalContext | test("dedup-test-
   || fail "memo file should be written after first turn"
 
 out_b=$(BRAIN_DIR="$BRAIN_DIR_DEDUP" payload_sid "another substantive prompt that won't change static context" "dedup-session" | BRAIN_DIR="$BRAIN_DIR_DEDUP" bash "$SCRIPT")
-# Second turn: persona unchanged, wiki/catalog/episodic empty in this test env →
-# all sections suppressed → header-only → exit silent.
-if [ -n "$out_b" ]; then
-  echo "$out_b" | jq -e '.hookSpecificOutput.additionalContext | test("dedup-test-role") | not' >/dev/null \
-    || fail "second turn must not re-inject unchanged persona (got: $out_b)"
-fi
-pass "per-session memo dedups unchanged sections"
+# Per v2.10 contract: persona IS re-injected on the second turn (always-on
+# policy). Wiki + episodic *would* be deduped if non-empty, but the test
+# brain-dir has no wiki/episodic content so there's nothing to dedup here.
+echo "$out_b" | jq -e '.hookSpecificOutput.additionalContext | test("dedup-test-role")' >/dev/null \
+  || fail "second turn must still re-inject persona (v2.10 contract, got: $out_b)"
+pass "per-session memo: persona always re-injected, wiki/episodic dedup'd on no-change"
 rm -rf "$BRAIN_DIR_DEDUP"
+
+# Test 8b: wiki section dedups when wiki hits are unchanged across turns.
+# Uses a real wiki dir so knowledge-search-cli has content to retrieve. The
+# memo should record the wiki hash on turn 1; turn 2 with the same prompt
+# (→ same wiki retrieval) → wiki section suppressed in output.
+BRAIN_DIR_WDEDUP=$(mktemp -d)
+KNOW_DIR_WDEDUP=$(mktemp -d)
+mkdir -p "$KNOW_DIR_WDEDUP/wiki/entities"
+cat > "$KNOW_DIR_WDEDUP/wiki/entities/widget-page.md" <<EOF
+---
+title: "Widget page"
+type: entities
+description: "documentation about the widget thing"
+tags: [widget]
+created: 2026-01-01
+updated: 2026-01-01
+---
+
+Widget is a thing for widget processing.
+EOF
+cat > "$BRAIN_DIR_WDEDUP/persona-card.md" <<EOF
+# Persona
+
+## Identity
+- wiki-dedup-test
+EOF
+# Turn 1 — wiki section should appear
+out_w1=$(KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" \
+  payload_sid "tell me about the widget thing in detail" "wiki-dedup-session" \
+  | KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" bash "$SCRIPT")
+# Turn 2 — same prompt → same wiki hits → wiki section suppressed
+out_w2=$(KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" \
+  payload_sid "tell me about the widget thing in detail" "wiki-dedup-session" \
+  | KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" bash "$SCRIPT")
+# Persona stays
+echo "$out_w2" | jq -e '.hookSpecificOutput.additionalContext | test("wiki-dedup-test")' >/dev/null \
+  || fail "turn 2: persona must remain (got: $out_w2)"
+# If turn 1 returned wiki, turn 2 should not repeat it. Test is best-effort:
+# wiki retrieval depends on the knowledge_search bundle being present; if not,
+# both turns return no wiki and the assertion is vacuously true.
+if echo "$out_w1" | jq -e '.hookSpecificOutput.additionalContext | test("widget-page")' >/dev/null 2>&1; then
+  echo "$out_w2" | jq -e '.hookSpecificOutput.additionalContext | test("widget-page") | not' >/dev/null \
+    || fail "turn 2: wiki section should be deduped when hits unchanged (got: $out_w2)"
+  pass "wiki dedup: unchanged wiki hits suppressed on next turn"
+else
+  pass "wiki dedup: skipped (knowledge_search returned no hits in this env)"
+fi
+rm -rf "$BRAIN_DIR_WDEDUP" "$KNOW_DIR_WDEDUP"
 
 # Test 9a: persona-card bullets duplicating USER.md get stripped from the
 # injected context. The duplicated bullet is already injected via USER.md by

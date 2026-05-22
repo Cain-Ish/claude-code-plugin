@@ -2,8 +2,8 @@
 import { join as join7 } from "path";
 
 // src/cli/sb.ts
-import { promises as fs6 } from "fs";
-import { join as join6 } from "path";
+import { promises as fs6, constants as fsConstants } from "fs";
+import { join as join6, delimiter as pathDelimiter } from "path";
 
 // src/tools/knowledge-search.ts
 import { promises as fs2 } from "fs";
@@ -630,12 +630,25 @@ Commands:
   pin project <slug> <blockers|decisions> <text>
                                                Append an entry to a project's PROJECT.md
   status                                       Show hot-tier and wiki sizes
+  auth [status|doctor]                         Show or fix the extractor auth mode
   help                                         Show this message
 
 Environment:
   BRAIN_DIR        Override second-brain dir (default: ~/.second-brain)
   KNOWLEDGE_DIR    Override knowledge dir    (default: ~/knowledge)
 `;
+async function hasClaudeOnPath() {
+  const path = process.env.PATH ?? "";
+  for (const dir of path.split(pathDelimiter)) {
+    if (!dir) continue;
+    try {
+      await fs6.access(join6(dir, "claude"), fsConstants.X_OK);
+      return true;
+    } catch {
+    }
+  }
+  return false;
+}
 async function runSb(args, deps) {
   const out = [];
   const err = [];
@@ -757,6 +770,49 @@ async function runSb(args, deps) {
     } catch {
     }
     return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
+  }
+  if (cmd === "auth") {
+    const sub = args[1] ?? "status";
+    if (sub === "status") {
+      const key = process.env.ANTHROPIC_API_KEY;
+      if (key && key.length > 0) {
+        push("mode: api-key");
+        push(`key:  ${key.slice(0, 10)}\u2026 (len=${key.length})`);
+        push("backend: anthropic-api (direct curl)");
+        push("note: works in all contexts (Stop hooks, cron, CI)");
+        return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
+      }
+      if (await hasClaudeOnPath()) {
+        push("mode: subscription");
+        push("backend: claude CLI (OAuth via `claude /login`)");
+        push("note: real-time extraction inside a Claude Code session is NOT possible in this mode");
+        push("      due to the recursive-claude OAuth lock. Set ANTHROPIC_API_KEY for in-session extraction,");
+        push("      or rely on out-of-band extraction (see `sb auth doctor`).");
+        return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
+      }
+      push("mode: none");
+      push("backend: none \u2014 neither ANTHROPIC_API_KEY nor `claude` CLI is available");
+      push("run: sb auth doctor");
+      return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
+    }
+    if (sub === "doctor") {
+      push("Auth doctor \u2014 two supported modes:");
+      push("");
+      push("1. Anthropic API key (token plan)");
+      push("   export ANTHROPIC_API_KEY=sk-ant-...");
+      push("   Works in all contexts (Stop hooks, cron, CI).");
+      push("   Recommended for in-session extraction.");
+      push("");
+      push("2. Claude subscription (OAuth)");
+      push("   claude /login   # interactive browser flow");
+      push("   Works outside Claude Code (cron, CI). Inside a Claude Code session,");
+      push("   Stop/PreCompact extractors will queue (recursive-claude OAuth lock).");
+      push("");
+      push("After either, verify with: sb auth status");
+      return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
+    }
+    errpush(`auth: unknown subcommand '${sub}'  \u2014 usage: sb auth {status|doctor}`);
+    return { stdout: "", stderr: err.join("\n"), exitCode: 2 };
   }
   errpush(`unknown command: ${cmd}`);
   errpush("run: sb help");

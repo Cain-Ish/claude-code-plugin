@@ -559,13 +559,34 @@ sb_call_extractor() {
   err_file=$(mktemp)
   caller_script="${SB_SCRIPT_NAME:-${0##*/}}"
 
+  # --- Backend pre-selection (recursive-claude guard) ----------------------
+  # Stop / PreCompact hooks run inside a Claude Code session (CLAUDECODE=1),
+  # and spawning `claude -p` from there re-enters the same OAuth-locked
+  # process — it reliably hangs to the timeout. Two safe paths from here:
+  #   (a) ANTHROPIC_API_KEY set → skip Backend 1 entirely, jump to curl.
+  #       Avoids the wasted 40s timeout the CLI burns before we fall back.
+  #   (b) only OAuth available → record health=queued and exit non-fatal so
+  #       the SessionStart banner can surface the configuration accurately.
+  #       Real-time extraction in this mode is structurally impossible.
+  # Escape hatch: SB_FORCE_CLI=1 forces the legacy path (debugging only).
+  local SB_SKIP_CLI=0
+  if [ "${CLAUDECODE:-}" = "1" ] && [ "${SB_FORCE_CLI:-0}" != "1" ]; then
+    if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+      sb_write_extractor_health "none" "queued" \
+        "in-session OAuth only — recursive-claude would hang; set ANTHROPIC_API_KEY or run \`sb auth doctor\`"
+      rm -f "$err_file" 2>/dev/null
+      return 0
+    fi
+    SB_SKIP_CLI=1
+  fi
+
   # --- Backend 1: claude CLI -----------------------------------------------
   # `--bare` is a perf optimization (skips hooks/LSP, saves ~10s) but per
   # `claude --help`: bare-mode auth is STRICTLY ANTHROPIC_API_KEY — OAuth
   # tokens from `claude /login` are never read. So we only use --bare when
   # an API key is present; otherwise we use the slower full path that
   # honors OAuth. Override with SB_USE_BARE=1 to force.
-  if command -v claude >/dev/null 2>&1; then
+  if [ "$SB_SKIP_CLI" != "1" ] && command -v claude >/dev/null 2>&1; then
     local -a CLI_ARGS=(-p --model "$model" --system-prompt "$prompt")
     if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ "${SB_USE_BARE:-0}" = "1" ]; then
       CLI_ARGS=(-p --bare --model "$model" --system-prompt "$prompt")

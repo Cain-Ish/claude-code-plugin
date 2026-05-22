@@ -4,6 +4,13 @@
 # PROJECT.md + wiki via merge-project-update.sh.
 #
 # We stub the `claude` binary on PATH so tests run without a live LLM.
+#
+# Test isolation: when this runs INSIDE a Claude Code session (test author's
+# local box), CLAUDECODE=1 is inherited and lib.sh:sb_call_extractor would
+# short-circuit to status=queued, defeating the stubbed-claude flow. We unset
+# it so the test exercises the production "out of session" / "stubbed CLI"
+# path. (Pre-push hook + CI also typically have CLAUDECODE unset.)
+unset CLAUDECODE
 set -u
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$REPO_ROOT/scripts/stop-extract.sh"
