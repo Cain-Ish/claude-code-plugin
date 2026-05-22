@@ -10,6 +10,35 @@ mkdir -p "$BRAIN_DIR/dreams"
 mkdir -p "$KNOWLEDGE_DIR/wiki"/{concepts,entities,learnings}
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
 
+# GC stale per-session injection memos. persona-context.sh writes one file per
+# session-id under .injected/ and never deletes them — observed 189 files
+# accumulated (one per Claude Code session in the last 30 days). 7-day TTL is
+# generous: any session older than a week has no useful dedup signal anyway.
+if [ -d "$BRAIN_DIR/.injected" ]; then
+  find "$BRAIN_DIR/.injected" -maxdepth 1 -name '*.json' -type f -mtime +7 -delete 2>/dev/null || true
+fi
+
+# GC stale ghost projects. session-load.sh used to accept any $PWD basename as
+# a project slug, so mktemp dirs like tmp.xK3p9q became permanent project
+# directories with empty PROJECT.md. The session-load.sh slug guard prevents
+# new ones; this prunes the existing 33+ ghosts. Only deletes dirs matching
+# tmp.* whose PROJECT.md is empty or unmodified beyond scaffold (<200 bytes).
+if [ -d "$BRAIN_DIR/projects" ]; then
+  for d in "$BRAIN_DIR/projects"/tmp.*; do
+    [ -d "$d" ] || continue
+    pf="$d/PROJECT.md"
+    if [ ! -f "$pf" ]; then
+      rm -rf "$d" 2>/dev/null
+      continue
+    fi
+    sz=$(wc -c < "$pf" 2>/dev/null | tr -d ' ')
+    [[ "$sz" =~ ^[0-9]+$ ]] || sz=0
+    if [ "$sz" -lt 250 ]; then
+      rm -rf "$d" 2>/dev/null
+    fi
+  done
+fi
+
 WIKI_INDEX="$KNOWLEDGE_DIR/wiki/index.md"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)}"
 REINDEX_JS="$PLUGIN_ROOT/mcp/dist/tools/knowledge-reindex.bundle.js"

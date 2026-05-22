@@ -11,6 +11,16 @@ PROJECTS_DIR="$BRAIN_DIR/projects"
 BYTE_BUDGET=8000   # ~2000 tokens. Claude Code hard-caps hook output at 10K chars.
 
 slug=$(basename "$PWD")
+# Reject mktemp/temp-style slugs. A session started from /tmp/tmp.xK3p9q or
+# any short random-looking dir creates a ghost project that's never used and
+# never cleaned up — observed 33 such directories accumulated before this
+# guard was added. We replace the slug with "scratch" so the project is shared
+# rather than per-tempdir. The user can still rename it later if they want.
+case "$slug" in
+  tmp.*|tmp|.tmp.*|tmpfs|"")
+    slug="scratch"
+    ;;
+esac
 echo "$slug" > "$BRAIN_DIR/.active-session-slug"
 project_file="$PROJECTS_DIR/$slug/PROJECT.md"
 
@@ -126,6 +136,40 @@ if [ "$PIN_COUNT" -gt 0 ]; then
     "$PIN_COUNT" "$slug")" "pin-candidates-banner" 250
 fi
 
+# USER.md Never/Always rules vs persona-rules.default.json enforcement gap.
+# USER.md text is advisory (injected as ambient context); only rules in
+# persona-rules.default.json are HARD-ENFORCED at PreToolUse. If the user
+# edits USER.md without updating the rules JSON, those edits never become
+# blocking guards. Banner fires when USER.md is newer than the rules file,
+# nudging the user to keep them in sync manually.
+# Kill switch: SB_RULES_GAP_BANNER=off.
+if [ "${SB_RULES_GAP_BANNER:-on}" != "off" ] && [ -f "$USER_FILE" ]; then
+  RULES_FILE_RUNTIME="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)}/scripts/persona-rules.default.json"
+  if [ -f "$RULES_FILE_RUNTIME" ]; then
+    UM_MT=$(stat -c %Y "$USER_FILE" 2>/dev/null || stat -f %m "$USER_FILE" 2>/dev/null || echo 0)
+    PR_MT=$(stat -c %Y "$RULES_FILE_RUNTIME" 2>/dev/null || stat -f %m "$RULES_FILE_RUNTIME" 2>/dev/null || echo 0)
+    if [ "$UM_MT" -gt "$PR_MT" ]; then
+      # awk range `/start/,/end/` matches the header line on both ends — so
+      # `/^## Never/,/^## /` collapses to just the Never header itself and
+      # never reaches the bullets. Use an explicit in-section flag instead.
+      NEVER_COUNT=$(awk '
+        /^## Never/ { in_s=1; next }
+        /^## / && in_s { in_s=0 }
+        in_s && /^- / { c++ }
+        END { print c+0 }
+      ' "$USER_FILE" 2>/dev/null)
+      ALWAYS_COUNT=$(awk '
+        /^## Always/ { in_s=1; next }
+        /^## / && in_s { in_s=0 }
+        in_s && /^- / { c++ }
+        END { print c+0 }
+      ' "$USER_FILE" 2>/dev/null)
+      sb_append "$(printf '## ⓘ second-brain — USER.md rules are advisory, not enforced\nUSER.md has %s Never + %s Always bullet(s) but was modified after persona-rules.default.json. Tool-time blocking only happens for rules wired into `scripts/persona-rules.default.json` (the rules array). USER.md text reaches the model as context but does not block tool calls.\nTo make a Never rule hard-enforced, add it to the rules JSON. Suppress this banner: `SB_RULES_GAP_BANNER=off`.\n\n' \
+        "$NEVER_COUNT" "$ALWAYS_COUNT")" "rules-gap-banner" 500
+    fi
+  fi
+fi
+
 # 0. Extractor health banner — surfaces silent LLM-extraction failures.
 # Without this banner, broken `claude` CLI auth caused 113 consecutive stop-
 # hook subprocess failures with zero user-visible signal — wiki/learnings
@@ -137,13 +181,33 @@ if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
     H_REASON=$(jq  -r '.reason  // ""'        "$SB_HEALTH_FILE" 2>/dev/null)
     H_AT=$(jq      -r '.checked_at // ""'     "$SB_HEALTH_FILE" 2>/dev/null)
     H_FAILS=$(sb_count_recent_extraction_failures)
-    # Hint differs by failure mode. If user has neither API key nor OAuth,
-    # full fix instructions; if they have OAuth but the `--bare` flag is
-    # blocking auth, that's now auto-handled by lib.sh:sb_call_extractor.
-    H_HINT="fix: run \`claude /login\` (OAuth) or \`export ANTHROPIC_API_KEY=sk-ant-...\` (API key); lib.sh picks the right backend automatically."
+    # Mode-aware hint. Previous single-template was telling users to "run
+    # claude /login" on every failure — but the actual cause varies:
+    #   - "auth:..." prefix (or "unauthorized"/"not logged in") → real auth fail
+    #   - "non-json:..." → the LLM editorialized instead of returning JSON
+    #   - "empty after pty-retry..." / ec=124 timeouts → claude CLI hanging,
+    #     usually recursive-claude conflict; fix is ANTHROPIC_API_KEY backstop
+    #   - "api:..." → ANTHROPIC_API_KEY call failed (rate limit / billing)
+    case "$H_REASON" in
+      auth:*|*unauthorized*|*"not logged in"*|*"please run /login"*|*"invalid api key"*)
+        H_HINT="fix: run \`claude /login\` (OAuth) or \`export ANTHROPIC_API_KEY=sk-ant-...\` (API key)."
+        ;;
+      non-json:*|pty-retry-non-json:*)
+        H_HINT="cause: extractor LLM returned prose instead of JSON. fix: re-run with a fresh session; persistent failures usually mean the system prompt was truncated — check scripts/extract-prompt.txt."
+        ;;
+      empty*|*timeout*|*ec=124*)
+        H_HINT="cause: \`claude\` CLI hung past the timeout (recursive-claude / OAuth conflict). fix: \`export ANTHROPIC_API_KEY=sk-ant-...\` so lib.sh uses the direct-API backstop instead of the recursive CLI path."
+        ;;
+      api:*)
+        H_HINT="cause: ANTHROPIC_API_KEY call failed (rate limit / billing / model name). fix: check \`echo \$ANTHROPIC_API_KEY | head -c 10\` and Anthropic console quotas."
+        ;;
+      *)
+        H_HINT="fix: run \`claude /login\` (OAuth) or \`export ANTHROPIC_API_KEY=sk-ant-...\`; tail \`~/.second-brain/error-log.jsonl\` for the underlying diag line."
+        ;;
+    esac
     HEALTH_BANNER=$(printf '## ⚠ second-brain extractor: FAILED\nbackend=%s checked=%s recent_failures=%s\nreason: %s\nimpact: Stop/PreCompact hooks not writing wiki learnings — session insights are lost on exit.\n%s\n\n' \
       "$H_BACKEND" "$H_AT" "$H_FAILS" "$H_REASON" "$H_HINT")
-    sb_append "$HEALTH_BANNER" "extractor-health-banner" 600
+    sb_append "$HEALTH_BANNER" "extractor-health-banner" 800
   fi
 fi
 

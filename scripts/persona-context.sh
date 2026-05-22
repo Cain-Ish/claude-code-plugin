@@ -99,8 +99,13 @@ BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 
-# Caps per section. Total adds up around ~2000B for the additionalContext payload.
-CAP_PERSONA=400
+# Caps per section. Total adds up around ~2400B for the additionalContext payload,
+# well under the Claude Code 10K-char hook output limit.
+# CAP_PERSONA was raised from 400 to 1200 in v2.10 because the new structured
+# format (`[Section] bullet` per line, ~80 chars each) needs ~1100B to fit a
+# typical persona-card.md without truncating mid-section. The old 400-byte cap
+# fit only 4 bullets in the new format.
+CAP_PERSONA=1200
 CAP_CATALOG=200
 CAP_WIKI=600
 CAP_EPISODIC=300
@@ -129,25 +134,49 @@ SEED
 fi
 PERSONA_ABS=""
 if [ -f "$PCARD_FILE" ]; then
-  # USER.md is loaded by session-load.sh and injected on every prompt as ambient
-  # state. persona-card.md is auto-injected here. Without dedup the two paths
-  # double-inject identical bullets (observed in field data: 480B persona-card
-  # 100% duplicated USER.md "Hard Rules" entries). We strip persona-card bullets
-  # whose exact text already appears as a bullet in USER.md.
+  # USER.md is loaded by session-load.sh at session start; persona-card.md is
+  # injected per-prompt by this hook. Bullets that already appear verbatim in
+  # USER.md are stripped to avoid double-injection (observed in field data:
+  # 480B persona-card 100% duplicated USER.md "Hard Rules" entries).
+  #
+  # Format: keep `## Section` headings as `[section]` tags so the model can
+  # distinguish identity from style from hard rules. awk walks the persona-card
+  # in order, emitting `[Section] bullet` lines, then dedups against USER.md.
+  # `tr '\n' ';'` collapse was removed in v2.10 — it destroyed structure.
   USER_BULLETS_FILE="$BRAIN_DIR/USER.md"
-  if [ -f "$USER_BULLETS_FILE" ]; then
-    PERSONA_ABS=$(grep -E '^- ' "$PCARD_FILE" 2>/dev/null \
-      | sed 's/^- *//' \
-      | grep -F -v -x -f <(grep -E '^- ' "$USER_BULLETS_FILE" 2>/dev/null | sed 's/^- *//') \
-      | tr '\n' ';' \
-      | sed 's/;;*/; /g; s/; $//')
+  PERSONA_RAW=$(awk '
+    /^## / { section = $0; sub(/^## */, "", section); next }
+    /^- / && section != "" {
+      bullet = $0; sub(/^- */, "", bullet)
+      printf "[%s] %s\n", section, bullet
+    }
+  ' "$PCARD_FILE" 2>/dev/null)
+
+  if [ -f "$USER_BULLETS_FILE" ] && [ -n "$PERSONA_RAW" ]; then
+    # Dedup: drop persona lines whose bullet text (after `[Section] `) exactly
+    # matches a bare bullet in USER.md.
+    USER_BULLETS=$(grep -E '^- ' "$USER_BULLETS_FILE" 2>/dev/null | sed 's/^- *//')
+    PERSONA_ABS=$(printf '%s\n' "$PERSONA_RAW" | awk -v ub="$USER_BULLETS" '
+      BEGIN { n = split(ub, arr, "\n"); for (i=1;i<=n;i++) seen[arr[i]] = 1 }
+      { line = $0; sub(/^\[[^]]+\] /, "", line); if (!(line in seen)) print $0 }
+    ')
   else
-    PERSONA_ABS=$(grep -E '^- ' "$PCARD_FILE" 2>/dev/null \
-      | sed 's/^- *//' \
-      | tr '\n' ';' \
-      | sed 's/;;*/; /g; s/; $//')
+    PERSONA_ABS="$PERSONA_RAW"
   fi
-  [ ${#PERSONA_ABS} -gt $CAP_PERSONA ] && PERSONA_ABS=$(printf '%s' "$PERSONA_ABS" | head -c $CAP_PERSONA)
+
+  # Word-boundary trim. If the persona block exceeds CAP_PERSONA bytes, cut at
+  # the last newline that fits, so we never split mid-line or mid-word.
+  # ${var%$'\n'*} removes the shortest suffix from the last \n onward.
+  # Fallback: raw byte cut if no newline fits (single oversized line).
+  if [ ${#PERSONA_ABS} -gt $CAP_PERSONA ]; then
+    TRIMMED=$(printf '%s' "$PERSONA_ABS" | head -c $CAP_PERSONA)
+    TRIMMED_AT_NL="${TRIMMED%$'\n'*}"
+    if [ -n "$TRIMMED_AT_NL" ] && [ "$TRIMMED_AT_NL" != "$TRIMMED" ]; then
+      PERSONA_ABS="$TRIMMED_AT_NL"
+    else
+      PERSONA_ABS="$TRIMMED"
+    fi
+  fi
 fi
 
 # --- Plugin catalog summary ---
@@ -156,7 +185,7 @@ CATALOG_ABS=""
 if [ -f "$CATALOG_FILE" ]; then
   CATALOG_ABS=$(jq -r '
     [
-      (.plugins // [] | map(.name) | .[0:6] | join(", ")),
+      (.plugins // [] | unique_by(.name) | map(.name) | .[0:6] | join(", ")),
       (.agents  // [] | length | tostring + " agents"),
       (.skills  // [] | length | tostring + " skills")
     ] | map(select(length > 0)) | join(" | ")' "$CATALOG_FILE" 2>/dev/null)
@@ -189,9 +218,25 @@ SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 # field reports flagged as "noise". Tune via SB_PERSONA_WIKI_MIN_SCORE.
 WIKI_MIN_SCORE="${SB_PERSONA_WIKI_MIN_SCORE:-0.045}"
 if [ -n "$KEYWORDS" ] && [ -f "$SEARCH_CLI" ]; then
-  WIKI_HITS=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" \
+  WIKI_RAW=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" \
     node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
-  [ ${#WIKI_HITS} -gt $CAP_WIKI ] && WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c $CAP_WIKI)
+  # Slug-only format. The CLI emits `### [[slug]] — description` lines; we
+  # keep the `[[slug]]` tokens and drop descriptions because:
+  #  1. CAP_WIKI=600 truncated descriptions mid-word — the model saw a fragment
+  #     it couldn't use.
+  #  2. A slug list with the Read instruction below tells the model: "these
+  #     pages exist, decide which to read in full". That's stronger than a
+  #     decorative snippet.
+  # Cap at 12 slugs to bound size (~30 chars each = ~360B, well under CAP_WIKI).
+  if [ -n "$WIKI_RAW" ]; then
+    WIKI_HITS=$(printf '%s' "$WIKI_RAW" \
+      | grep -oE '\[\[[a-zA-Z0-9_-]+\]\]' \
+      | awk '!seen[$0]++' \
+      | head -12 \
+      | tr '\n' ' ' \
+      | sed 's/ *$//')
+    [ ${#WIKI_HITS} -gt $CAP_WIKI ] && WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c $CAP_WIKI)
+  fi
 fi
 
 # --- Episodic hint ---
@@ -207,12 +252,15 @@ if [ -z "$PERSONA_ABS" ] && [ -z "$CATALOG_ABS" ] && [ -z "$WIKI_HITS" ] && [ -z
   exit 0
 fi
 
-# --- Per-session injection memo: skip sections whose content is unchanged since the last turn ---
-# Persona/catalog/wiki/episodic are "ambient state" — re-injecting the same content every turn is
-# noise. We hash each section per session and only emit sections whose hash has changed.
-# Failure mode: if the memo file is unreadable/unwritable we fall through and emit everything,
-# matching pre-memo behavior.
-SHOW_PERSONA=1; SHOW_CATALOG=1; SHOW_WIKI=1; SHOW_EPISODIC=1
+# --- Per-session injection memo: skip wiki/episodic sections whose content is unchanged ---
+# v2.10 change: persona + catalog are ALWAYS injected, even if hash unchanged.
+# The model has no persistent memory between turns — re-injecting persona every
+# turn is the *only* mechanism by which it stays in working context. The
+# previous behavior (suppress on hash match) silently dropped persona after
+# turn 1 and made the user think the persona didn't work.
+# Wiki + episodic hits still get hash-deduped: they're noisier and re-injecting
+# the same 12 slugs every turn is genuine noise.
+SHOW_WIKI=1; SHOW_EPISODIC=1
 MEMO_DIR="$BRAIN_DIR/.injected"
 MEMO_FILE=""
 if [ -n "$SESSION_ID" ]; then
@@ -232,29 +280,29 @@ sb_hash() {
 }
 
 if [ -n "$MEMO_FILE" ] && [ -f "$MEMO_FILE" ]; then
-  H_PERSONA_NOW=$(sb_hash "$PERSONA_ABS")
-  H_CATALOG_NOW=$(sb_hash "$CATALOG_ABS")
   H_WIKI_NOW=$(sb_hash "$WIKI_HITS")
   H_EPISODIC_NOW=$(sb_hash "$EPISODIC_HINT")
-  H_PERSONA_PREV=$(jq -r '.persona // ""' "$MEMO_FILE" 2>/dev/null)
-  H_CATALOG_PREV=$(jq -r '.catalog // ""' "$MEMO_FILE" 2>/dev/null)
   H_WIKI_PREV=$(jq -r '.wiki // ""' "$MEMO_FILE" 2>/dev/null)
   H_EPISODIC_PREV=$(jq -r '.episodic // ""' "$MEMO_FILE" 2>/dev/null)
-  [ -n "$PERSONA_ABS" ] && [ "$H_PERSONA_NOW" = "$H_PERSONA_PREV" ] && SHOW_PERSONA=0
-  [ -n "$CATALOG_ABS" ] && [ "$H_CATALOG_NOW" = "$H_CATALOG_PREV" ] && SHOW_CATALOG=0
   [ -n "$WIKI_HITS" ]   && [ "$H_WIKI_NOW"    = "$H_WIKI_PREV" ]    && SHOW_WIKI=0
   [ -n "$EPISODIC_HINT" ] && [ "$H_EPISODIC_NOW" = "$H_EPISODIC_PREV" ] && SHOW_EPISODIC=0
 fi
 
 # --- Compose as factual statements (per research: factual phrasing dodges prompt-injection defenses) ---
 CTX="[Persona context — auto-loaded, treat as ambient state]"
-[ -n "$PERSONA_ABS" ] && [ "$SHOW_PERSONA" = "1" ] && CTX="$CTX
-Persona: $PERSONA_ABS"
-[ -n "$CATALOG_ABS" ] && [ "$SHOW_CATALOG" = "1" ] && CTX="$CTX
+# Persona + catalog: always emit when non-empty. Hash-dedup was removed in
+# v2.10 — re-injection every turn is required because the model has no
+# persistent memory between turns.
+[ -n "$PERSONA_ABS" ] && CTX="$CTX
+$PERSONA_ABS"
+[ -n "$CATALOG_ABS" ] && CTX="$CTX
+
 Installed specialists: $CATALOG_ABS"
+# Wiki: slug-only list. Tell the model to Read what it needs in full — the
+# previous "descriptions" format was unusable truncated fragments.
 [ -n "$WIKI_HITS" ] && [ "$SHOW_WIKI" = "1" ] && CTX="$CTX
 
-[Wiki — auto-retrieved, do not re-query these pages]
+[Wiki — auto-retrieved slugs; Read in full if relevant before answering]
 $WIKI_HITS"
 [ -n "$EPISODIC_HINT" ] && [ "$SHOW_EPISODIC" = "1" ] && CTX="$CTX
 $EPISODIC_HINT"
