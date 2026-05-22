@@ -7,6 +7,11 @@ line, past tense, optionally linking to a wiki page or PR. Entries marked
 versions starting at v2.11.0 require the verified mark — that's the whole point
 of the release gate.
 
+## v2.11.1 — bin/sb exec bit (2026-05-22) [verified]
+
+### Fixed
+- `bin/sb` and `bin/sb.cmd` were stored in git as 0644, so the documented `ln -s bin/sb ~/.local/bin/sb` install path produced a non-executable symlink — and every plugin cache refresh stripped the exec bit. Now stored as 0755 via `git update-index --chmod=+x`. Found by running `sb auth status` against a freshly-installed v2.11.0 cache after `/second-brain:upgrade` — exactly the kind of silent-install-degradation the new verification gate exists to surface.
+
 ## v2.11.0 — dual-auth + verification gate (2026-05-22) [verified]
 
 ### Added
