@@ -32,14 +32,18 @@ ALL=$(find "$KD/wiki" -name '*.md' -type f | while read f; do basename "$f" .md;
 # All inbound links: [[slug]] occurrences across wiki + every PROJECT.md.
 # Strip fenced code blocks and inline backtick spans first so bash [[ test ]]
 # syntax and code-block placeholder examples don't surface as false dead-links.
-# Slug regex is lowercase-kebab to further exclude bash test expressions.
+# Slug regex accepts uppercase letters (phase markers: `self-evolve-v1-P2-plan`)
+# and periods (version-style slugs: `vps-phase-3.2-2026-05-14`). Bash test
+# expressions are already excluded by the code-fence / inline-code strip
+# above, plus the fact that the slug regex requires the FIRST char to be
+# alnum (real bash tests start with space + `-`).
 LINKED=$(find "$KD/wiki" "$BD/projects" -name '*.md' -type f 2>/dev/null | while read -r f; do
   awk '
     /^[[:space:]]*```/ { in_fence = !in_fence; next }
     in_fence { next }
     { gsub(/`[^`]*`/, ""); print }
   ' "$f"
-done | grep -oE '\[\[[a-z0-9][a-z0-9-]*\]\]' \
+done | grep -oE '\[\[[a-zA-Z0-9][a-zA-Z0-9.-]*\]\]' \
      | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
 
 # Plus slugs listed in any "## Cross-references" section
@@ -49,8 +53,14 @@ CROSS=$(awk '
   in && /^- / { sub(/^- */, ""); print }
 ' "$BD"/projects/*/PROJECT.md 2>/dev/null | sort -u)
 
-# Orphans = ALL minus (LINKED ∪ CROSS)
-comm -23 <(echo "$ALL") <(printf '%s\n%s\n' "$LINKED" "$CROSS" | sort -u)
+# Orphans = ALL minus (LINKED ∪ CROSS), excluding known auto-generated slugs
+# that aren't expected to be manually cross-referenced:
+#   - index                — wiki/index.md catalog page (auto-generated)
+#   - evolve-01[A-Z0-9]{24} — ULID-suffixed self-evolve decision logs emitted
+#                            by the cainish-evolve pipeline; referenced by
+#                            cycle index pages, not by hand.
+comm -23 <(echo "$ALL") <(printf '%s\n%s\n' "$LINKED" "$CROSS" | sort -u) \
+  | grep -vE '^(index|evolve-01[0-9A-Z]{24})$'
 ```
 
 Report each orphan with its full path. Suggest the user either delete it (if obsolete) or add a `[[<slug>]]` reference somewhere it belongs.
@@ -68,7 +78,7 @@ USED=$(find "$KD/wiki" "$BD/projects" -name '*.md' -type f 2>/dev/null | while r
     in_fence { next }
     { gsub(/`[^`]*`/, ""); print }
   ' "$f"
-done | grep -oE '\[\[[a-z0-9][a-z0-9-]*\]\]' \
+done | grep -oE '\[\[[a-zA-Z0-9][a-zA-Z0-9.-]*\]\]' \
      | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
 
 # Existing slugs
