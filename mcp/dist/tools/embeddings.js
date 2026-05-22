@@ -3,22 +3,56 @@ import { join } from 'path';
 const EMBEDDING_DIM = 384;
 const CACHE_FILE = '.embeddings-cache.json';
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+const DISABLE_ENV = 'SECOND_BRAIN_DISABLE_EMBEDDINGS';
 let pipelineInstance = null;
-let loadFailed = false;
+let lastLoadError = null;
+function brainDirFromEnv() {
+    return process.env.BRAIN_DIR || join(process.env.HOME ?? '', '.second-brain');
+}
+async function logLoadError(message, brainDir) {
+    // Track which brain dirs have already received this error message to keep the log small,
+    // but ensure each unique destination still gets one entry (matters for tests + multi-tenant).
+    if (!lastLoadError || lastLoadError.msg !== message) {
+        lastLoadError = { msg: message, loggedTo: new Set() };
+    }
+    if (lastLoadError.loggedTo.has(brainDir))
+        return;
+    lastLoadError.loggedTo.add(brainDir);
+    const entry = {
+        timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+        script: 'embeddings',
+        message,
+        exit_code: 0,
+    };
+    try {
+        await fs.mkdir(brainDir, { recursive: true });
+        await fs.appendFile(join(brainDir, 'error-log.jsonl'), JSON.stringify(entry) + '\n');
+    }
+    catch { /* logging is best-effort */ }
+    try {
+        process.stderr.write(`[embeddings] ${message}\n`);
+    }
+    catch { /* ignore */ }
+}
 async function getPipeline() {
-    if (loadFailed)
+    const brainDir = brainDirFromEnv();
+    if (process.env[DISABLE_ENV] === '1') {
+        await logLoadError(`embeddings disabled via ${DISABLE_ENV}=1 — episodic vector search and hybrid knowledge ranking unavailable`, brainDir);
         return null;
+    }
     if (pipelineInstance)
         return pipelineInstance;
     try {
         const { pipeline } = await import('@huggingface/transformers');
-        pipelineInstance = await pipeline('feature-extraction', MODEL_ID, {
-            dtype: 'fp32',
-        });
+        pipelineInstance = await pipeline('feature-extraction', MODEL_ID, { dtype: 'fp32' });
         return pipelineInstance;
     }
-    catch {
-        loadFailed = true;
+    catch (e) {
+        const msg = (e instanceof Error ? e.message : String(e));
+        const hint = msg.includes('Cannot find package')
+            ? ' — run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh'
+            : '';
+        await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir);
         return null;
     }
 }
@@ -78,6 +112,6 @@ export function cosineSimilarity(a, b) {
     return dot; // vectors are already normalized
 }
 export function isAvailable() {
-    return !loadFailed;
+    return process.env[DISABLE_ENV] !== '1' && pipelineInstance !== null;
 }
 //# sourceMappingURL=embeddings.js.map

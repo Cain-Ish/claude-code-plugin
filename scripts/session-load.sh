@@ -211,6 +211,23 @@ if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
+# 0b. Episodic embeddings banner — surfaces missing native deps that prevent
+# vector search over transcripts. Production bug 2026-05-22: 976/981 exchanges
+# had embedding:[] because @huggingface/transformers was --external in the
+# bundle but never installed under the plugin cache. Banner fires only when
+# pending count is non-trivial AND a transcript has been indexed (otherwise
+# we'd spam new installs).
+SB_EPI_INDEX="${BRAIN_DIR:-$HOME/.second-brain}/episodic-index.json"
+if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
+  EPI_PENDING=$(jq -r '[.exchanges[]? | select((.embedding|length)==0)] | length' "$SB_EPI_INDEX" 2>/dev/null || echo 0)
+  EPI_TOTAL=$(jq -r   '.exchanges | length'                                       "$SB_EPI_INDEX" 2>/dev/null || echo 0)
+  if [ "${EPI_PENDING:-0}" -gt 10 ] && [ "${EPI_TOTAL:-0}" -gt 0 ]; then
+    EPI_BANNER=$(printf '## ⓘ second-brain — episodic vector search degraded\n%s of %s exchanges have no embedding (text search works; vector / mode=both will miss them).\ncause: `@huggingface/transformers` runtime dep missing from the plugin cache.\nfix: `bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh` (one-time, downloads ~70MB native deps), then `rm %s` to let the next indexer run repair entries.\nSuppress: `SB_EMBED_PENDING_BANNER=off`.\n\n' \
+      "$EPI_PENDING" "$EPI_TOTAL" "$SB_EPI_INDEX")
+    [ "${SB_EMBED_PENDING_BANNER:-on}" = "on" ] && sb_append "$EPI_BANNER" "episodic-embed-pending-banner" 700
+  fi
+fi
+
 # 1. USER.md — always included
 if [ -f "$USER_FILE" ]; then
   USER_CONTENT=$(cat "$USER_FILE")

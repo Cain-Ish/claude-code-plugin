@@ -8,19 +8,50 @@ import { join } from "path";
 var EMBEDDING_DIM = 384;
 var CACHE_FILE = ".embeddings-cache.json";
 var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
+var DISABLE_ENV = "SECOND_BRAIN_DISABLE_EMBEDDINGS";
 var pipelineInstance = null;
-var loadFailed = false;
+var lastLoadError = null;
+function brainDirFromEnv() {
+  return process.env.BRAIN_DIR || join(process.env.HOME ?? "", ".second-brain");
+}
+async function logLoadError(message, brainDir2) {
+  if (!lastLoadError || lastLoadError.msg !== message) {
+    lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
+  }
+  if (lastLoadError.loggedTo.has(brainDir2)) return;
+  lastLoadError.loggedTo.add(brainDir2);
+  const entry = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    script: "embeddings",
+    message,
+    exit_code: 0
+  };
+  try {
+    await fs.mkdir(brainDir2, { recursive: true });
+    await fs.appendFile(join(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+  } catch {
+  }
+  try {
+    process.stderr.write(`[embeddings] ${message}
+`);
+  } catch {
+  }
+}
 async function getPipeline() {
-  if (loadFailed) return null;
+  const brainDir2 = brainDirFromEnv();
+  if (process.env[DISABLE_ENV] === "1") {
+    await logLoadError(`embeddings disabled via ${DISABLE_ENV}=1 \u2014 episodic vector search and hybrid knowledge ranking unavailable`, brainDir2);
+    return null;
+  }
   if (pipelineInstance) return pipelineInstance;
   try {
     const { pipeline } = await import("@huggingface/transformers");
-    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, {
-      dtype: "fp32"
-    });
+    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, { dtype: "fp32" });
     return pipelineInstance;
-  } catch {
-    loadFailed = true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
+    await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
     return null;
   }
 }
@@ -175,51 +206,63 @@ async function buildEpisodicIndex(brainDir2) {
     const entries = await fs2.readdir(archiveDir);
     files = entries.filter((f) => f.endsWith(".txt")).map((f) => join2(archiveDir, f));
   } catch {
-    return { indexed: 0, total: 0 };
+    return { indexed: 0, total: 0, repaired: 0, pending: 0 };
   }
   const index = await loadIndex(brainDir2);
   const newExchanges = [];
-  const currentFiles = {};
+  const fileHashes = {};
   for (const filePath of files) {
     const content = await fs2.readFile(filePath, "utf-8");
     const hash = simpleHash2(content);
     const fname = basename(filePath);
-    currentFiles[fname] = hash;
+    fileHashes[fname] = hash;
     if (index.indexed_files[fname] === hash) continue;
     index.exchanges = index.exchanges.filter((e) => basename(e.archivePath) !== fname);
     const lines = content.split("\n");
     const { meta, bodyStart } = parseSessionMeta(lines);
-    const exchanges = parseExchanges(lines, bodyStart, meta, filePath);
-    newExchanges.push(...exchanges);
+    newExchanges.push(...parseExchanges(lines, bodyStart, meta, filePath));
   }
   const validFiles = new Set(files.map((f) => basename(f)));
   index.exchanges = index.exchanges.filter((e) => validFiles.has(basename(e.archivePath)));
-  if (newExchanges.length > 0) {
-    const texts = newExchanges.map(
-      (e) => `${e.userMessage}
-${e.assistantMessage}`.slice(0, EMBEDDING_TEXT_CAP)
-    );
-    const paths = newExchanges.map((e) => `episodic:${e.id}`);
+  for (const e of newExchanges) {
+    index.exchanges.push({
+      id: e.id,
+      sessionId: e.sessionId,
+      project: e.project,
+      date: e.date,
+      userSnippet: e.userMessage.slice(0, SNIPPET_LEN),
+      assistantSnippet: e.assistantMessage.slice(0, SNIPPET_LEN),
+      archivePath: e.archivePath,
+      lineStart: e.lineStart,
+      lineEnd: e.lineEnd,
+      embedding: []
+    });
+  }
+  const needsEmbed = index.exchanges.filter((e) => !e.embedding || e.embedding.length === 0);
+  let repaired = 0;
+  if (needsEmbed.length > 0) {
+    const texts = needsEmbed.map((r) => `${r.userSnippet}
+${r.assistantSnippet}`.slice(0, EMBEDDING_TEXT_CAP));
+    const paths = needsEmbed.map((r) => `episodic:${r.id}`);
     const embeddings = await embedTexts(texts, join2(brainDir2, "transcripts"), paths);
-    for (let i = 0; i < newExchanges.length; i++) {
-      const e = newExchanges[i];
-      index.exchanges.push({
-        id: e.id,
-        sessionId: e.sessionId,
-        project: e.project,
-        date: e.date,
-        userSnippet: e.userMessage.slice(0, SNIPPET_LEN),
-        assistantSnippet: e.assistantMessage.slice(0, SNIPPET_LEN),
-        archivePath: e.archivePath,
-        lineStart: e.lineStart,
-        lineEnd: e.lineEnd,
-        embedding: embeddings?.[i] ?? []
-      });
+    if (embeddings) {
+      for (let i = 0; i < needsEmbed.length; i++) {
+        if (embeddings[i] && embeddings[i].length > 0) {
+          needsEmbed[i].embedding = embeddings[i];
+          repaired++;
+        }
+      }
     }
   }
-  index.indexed_files = currentFiles;
+  for (const [fname, hash] of Object.entries(fileHashes)) {
+    index.indexed_files[fname] = hash;
+  }
+  for (const fname of Object.keys(index.indexed_files)) {
+    if (!validFiles.has(fname)) delete index.indexed_files[fname];
+  }
   await saveIndex(brainDir2, index);
-  return { indexed: newExchanges.length, total: index.exchanges.length };
+  const pending = index.exchanges.filter((e) => !e.embedding || e.embedding.length === 0).length;
+  return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending };
 }
 
 // src/tools/episodic-index-cli.ts

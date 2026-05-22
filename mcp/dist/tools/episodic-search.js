@@ -119,51 +119,71 @@ export async function buildEpisodicIndex(brainDir) {
         files = entries.filter(f => f.endsWith('.txt')).map(f => join(archiveDir, f));
     }
     catch {
-        return { indexed: 0, total: 0 };
+        return { indexed: 0, total: 0, repaired: 0, pending: 0 };
     }
     const index = await loadIndex(brainDir);
     const newExchanges = [];
-    const currentFiles = {};
+    const fileHashes = {};
     for (const filePath of files) {
         const content = await fs.readFile(filePath, 'utf-8');
         const hash = simpleHash(content);
         const fname = basename(filePath);
-        currentFiles[fname] = hash;
+        fileHashes[fname] = hash;
         if (index.indexed_files[fname] === hash)
             continue;
-        // Remove old exchanges from this file
         index.exchanges = index.exchanges.filter(e => basename(e.archivePath) !== fname);
         const lines = content.split('\n');
         const { meta, bodyStart } = parseSessionMeta(lines);
-        const exchanges = parseExchanges(lines, bodyStart, meta, filePath);
-        newExchanges.push(...exchanges);
+        newExchanges.push(...parseExchanges(lines, bodyStart, meta, filePath));
     }
-    // Remove exchanges from deleted files
+    // Drop exchanges from deleted transcripts.
     const validFiles = new Set(files.map(f => basename(f)));
     index.exchanges = index.exchanges.filter(e => validFiles.has(basename(e.archivePath)));
-    if (newExchanges.length > 0) {
-        const texts = newExchanges.map(e => `${e.userMessage}\n${e.assistantMessage}`.slice(0, EMBEDDING_TEXT_CAP));
-        const paths = newExchanges.map(e => `episodic:${e.id}`);
+    // Persist new exchanges immediately (text-searchable). Embeddings may be empty
+    // and will be filled in by the repair pass below or on a future run.
+    for (const e of newExchanges) {
+        index.exchanges.push({
+            id: e.id,
+            sessionId: e.sessionId,
+            project: e.project,
+            date: e.date,
+            userSnippet: e.userMessage.slice(0, SNIPPET_LEN),
+            assistantSnippet: e.assistantMessage.slice(0, SNIPPET_LEN),
+            archivePath: e.archivePath,
+            lineStart: e.lineStart,
+            lineEnd: e.lineEnd,
+            embedding: [],
+        });
+    }
+    // Repair pass: every exchange with an empty embedding gets re-embedded on every run.
+    // This is the core fix — the production bug was that empty rows persisted forever.
+    const needsEmbed = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0);
+    let repaired = 0;
+    if (needsEmbed.length > 0) {
+        const texts = needsEmbed.map(r => `${r.userSnippet}\n${r.assistantSnippet}`.slice(0, EMBEDDING_TEXT_CAP));
+        const paths = needsEmbed.map(r => `episodic:${r.id}`);
         const embeddings = await embedTexts(texts, join(brainDir, 'transcripts'), paths);
-        for (let i = 0; i < newExchanges.length; i++) {
-            const e = newExchanges[i];
-            index.exchanges.push({
-                id: e.id,
-                sessionId: e.sessionId,
-                project: e.project,
-                date: e.date,
-                userSnippet: e.userMessage.slice(0, SNIPPET_LEN),
-                assistantSnippet: e.assistantMessage.slice(0, SNIPPET_LEN),
-                archivePath: e.archivePath,
-                lineStart: e.lineStart,
-                lineEnd: e.lineEnd,
-                embedding: embeddings?.[i] ?? [],
-            });
+        if (embeddings) {
+            for (let i = 0; i < needsEmbed.length; i++) {
+                if (embeddings[i] && embeddings[i].length > 0) {
+                    needsEmbed[i].embedding = embeddings[i];
+                    repaired++;
+                }
+            }
         }
     }
-    index.indexed_files = currentFiles;
+    // Always mark files as structurally indexed. They are text-searchable; vector
+    // search will work for rows whose embeddings got filled in.
+    for (const [fname, hash] of Object.entries(fileHashes)) {
+        index.indexed_files[fname] = hash;
+    }
+    for (const fname of Object.keys(index.indexed_files)) {
+        if (!validFiles.has(fname))
+            delete index.indexed_files[fname];
+    }
     await saveIndex(brainDir, index);
-    return { indexed: newExchanges.length, total: index.exchanges.length };
+    const pending = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0).length;
+    return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending };
 }
 export async function episodicSearch(args, brainDir) {
     const index = await loadIndex(brainDir);
@@ -230,12 +250,29 @@ async function vectorSearch(query, index, limit, filters, brainDir) {
 }
 function textSearch(query, index, limit, filters) {
     const filtered = applyFilters(index.exchanges, filters);
-    const lower = query.toLowerCase();
-    return filtered
-        .filter(e => e.userSnippet.toLowerCase().includes(lower) ||
-        e.assistantSnippet.toLowerCase().includes(lower))
-        .map(e => ({ ...e, similarity: 0.5 })) // fixed score for text matches
-        .slice(0, limit);
+    // Tokenize on non-alphanumeric. Filter trivial tokens. AND-match: every token must
+    // appear in either snippet. Score by how many tokens hit, so longer-overlap wins.
+    const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length >= 2);
+    if (tokens.length === 0)
+        return [];
+    const scored = [];
+    for (const e of filtered) {
+        const hay = (e.userSnippet + ' ' + e.assistantSnippet).toLowerCase();
+        let hits = 0;
+        for (const t of tokens) {
+            if (hay.includes(t))
+                hits++;
+            else {
+                hits = -1;
+                break;
+            }
+        }
+        if (hits === tokens.length) {
+            // Normalize score to (0, 0.5] so vector matches (which can score up to 1.0) still rank above text.
+            scored.push({ ...e, similarity: 0.25 + (hits / tokens.length) * 0.25 });
+        }
+    }
+    return scored.slice(0, limit);
 }
 async function multiConceptSearch(concepts, index, limit, filters) {
     const brainDir = index.exchanges[0]?.archivePath

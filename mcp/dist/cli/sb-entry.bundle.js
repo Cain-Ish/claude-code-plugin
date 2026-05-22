@@ -15,19 +15,50 @@ import { join } from "path";
 var EMBEDDING_DIM = 384;
 var CACHE_FILE = ".embeddings-cache.json";
 var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
+var DISABLE_ENV = "SECOND_BRAIN_DISABLE_EMBEDDINGS";
 var pipelineInstance = null;
-var loadFailed = false;
+var lastLoadError = null;
+function brainDirFromEnv() {
+  return process.env.BRAIN_DIR || join(process.env.HOME ?? "", ".second-brain");
+}
+async function logLoadError(message, brainDir2) {
+  if (!lastLoadError || lastLoadError.msg !== message) {
+    lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
+  }
+  if (lastLoadError.loggedTo.has(brainDir2)) return;
+  lastLoadError.loggedTo.add(brainDir2);
+  const entry = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    script: "embeddings",
+    message,
+    exit_code: 0
+  };
+  try {
+    await fs.mkdir(brainDir2, { recursive: true });
+    await fs.appendFile(join(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+  } catch {
+  }
+  try {
+    process.stderr.write(`[embeddings] ${message}
+`);
+  } catch {
+  }
+}
 async function getPipeline() {
-  if (loadFailed) return null;
+  const brainDir2 = brainDirFromEnv();
+  if (process.env[DISABLE_ENV] === "1") {
+    await logLoadError(`embeddings disabled via ${DISABLE_ENV}=1 \u2014 episodic vector search and hybrid knowledge ranking unavailable`, brainDir2);
+    return null;
+  }
   if (pipelineInstance) return pipelineInstance;
   try {
     const { pipeline } = await import("@huggingface/transformers");
-    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, {
-      dtype: "fp32"
-    });
+    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, { dtype: "fp32" });
     return pipelineInstance;
-  } catch {
-    loadFailed = true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
+    await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
     return null;
   }
 }
@@ -452,10 +483,24 @@ async function vectorSearch(query, index, limit, filters, brainDir2) {
 }
 function textSearch(query, index, limit, filters) {
   const filtered = applyFilters(index.exchanges, filters);
-  const lower = query.toLowerCase();
-  return filtered.filter(
-    (e) => e.userSnippet.toLowerCase().includes(lower) || e.assistantSnippet.toLowerCase().includes(lower)
-  ).map((e) => ({ ...e, similarity: 0.5 })).slice(0, limit);
+  const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
+  if (tokens.length === 0) return [];
+  const scored = [];
+  for (const e of filtered) {
+    const hay = (e.userSnippet + " " + e.assistantSnippet).toLowerCase();
+    let hits = 0;
+    for (const t of tokens) {
+      if (hay.includes(t)) hits++;
+      else {
+        hits = -1;
+        break;
+      }
+    }
+    if (hits === tokens.length) {
+      scored.push({ ...e, similarity: 0.25 + hits / tokens.length * 0.25 });
+    }
+  }
+  return scored.slice(0, limit);
 }
 async function multiConceptSearch(concepts, index, limit, filters) {
   const brainDir2 = index.exchanges[0]?.archivePath ? join3(index.exchanges[0].archivePath, "..", "..") : join3(process.env.HOME ?? "", ".second-brain");

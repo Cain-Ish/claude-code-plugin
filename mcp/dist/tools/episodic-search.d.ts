@@ -28,6 +28,8 @@ export interface EpisodicReadResult {
 export declare function buildEpisodicIndex(brainDir: string): Promise<{
     indexed: number;
     total: number;
+    repaired: number;
+    pending: number;
 }>;
 export declare function episodicSearch(args: EpisodicSearchArgs, brainDir: string): Promise<EpisodicSearchResult>;
 export declare function episodicRead(filePath: string, startLine?: number, endLine?: number): Promise<EpisodicReadResult>;

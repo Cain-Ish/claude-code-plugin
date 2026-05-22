@@ -8,19 +8,50 @@ import { join } from "path";
 var EMBEDDING_DIM = 384;
 var CACHE_FILE = ".embeddings-cache.json";
 var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
+var DISABLE_ENV = "SECOND_BRAIN_DISABLE_EMBEDDINGS";
 var pipelineInstance = null;
-var loadFailed = false;
+var lastLoadError = null;
+function brainDirFromEnv() {
+  return process.env.BRAIN_DIR || join(process.env.HOME ?? "", ".second-brain");
+}
+async function logLoadError(message, brainDir) {
+  if (!lastLoadError || lastLoadError.msg !== message) {
+    lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
+  }
+  if (lastLoadError.loggedTo.has(brainDir)) return;
+  lastLoadError.loggedTo.add(brainDir);
+  const entry = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    script: "embeddings",
+    message,
+    exit_code: 0
+  };
+  try {
+    await fs.mkdir(brainDir, { recursive: true });
+    await fs.appendFile(join(brainDir, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+  } catch {
+  }
+  try {
+    process.stderr.write(`[embeddings] ${message}
+`);
+  } catch {
+  }
+}
 async function getPipeline() {
-  if (loadFailed) return null;
+  const brainDir = brainDirFromEnv();
+  if (process.env[DISABLE_ENV] === "1") {
+    await logLoadError(`embeddings disabled via ${DISABLE_ENV}=1 \u2014 episodic vector search and hybrid knowledge ranking unavailable`, brainDir);
+    return null;
+  }
   if (pipelineInstance) return pipelineInstance;
   try {
     const { pipeline } = await import("@huggingface/transformers");
-    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, {
-      dtype: "fp32"
-    });
+    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, { dtype: "fp32" });
     return pipelineInstance;
-  } catch {
-    loadFailed = true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
+    await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir);
     return null;
   }
 }
