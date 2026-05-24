@@ -8,6 +8,7 @@
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh", "timeout": 5 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-tools.sh", "timeout": 10 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-installed.sh", "timeout": 10 },
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-doc-sources.sh", "timeout": 10 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-load.sh", "timeout": 15 }
         ]
       }
