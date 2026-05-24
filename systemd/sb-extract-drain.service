@@ -1,0 +1,10 @@
+[Unit]
+Description=second-brain out-of-band extraction drainer
+After=default.target
+
+[Service]
+Type=oneshot
+# Do NOT add PrivateDevices=/ProtectSystem= sandboxing — it breaks claude's
+# pty allocation (see wiki: pty-openpty-privatedevices-quirk).
+ExecStart=@EXEC@
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
