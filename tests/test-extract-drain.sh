@@ -80,6 +80,12 @@ eq "poison: 1 terminal error" "$ERRORS" "1"
 SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # must NOT touch it again
 eq "poison: not reprocessed after terminal" "$(grep -c '"outcome":"retry"' "$STATE" || echo 0)" "2"
 
+# Test 4b: a run where everything fails → health status must be "fail" (not clobbered to ok)
+reset; mk_tx "f1_poison_2026-05-24.txt" poison
+SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true
+HSTATUS=$(jq -r '.status // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)
+eq "all-fail run reports health=fail" "$HSTATUS" "fail"
+
 # Test 5: lock held → no-op
 reset; mk_tx "s1_proj_2026-05-24.txt" proj
 exec 8>"$BRAIN_DIR/.extract-drain.lock"; flock -n 8

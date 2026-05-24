@@ -779,8 +779,10 @@ sb_extraction_done() {
   local base="$1" state="$2"
   [ -f "$state" ] || return 1
   local hit
-  hit=$(jq -r --arg b "$base" \
-    'select(.basename == $b and (.outcome == "ok" or .outcome == "error")) | .basename' \
+  # -R + fromjson? : parse per line, skipping any corrupt line (e.g. a partial
+  # append from a crash) instead of aborting the whole scan.
+  hit=$(jq -rR --arg b "$base" \
+    'fromjson? | select(.basename == $b and (.outcome == "ok" or .outcome == "error")) | .basename' \
     "$state" 2>/dev/null | head -1)
   [ -n "$hit" ]
 }
@@ -789,7 +791,7 @@ sb_extraction_done() {
 sb_extraction_fails() {
   local base="$1" state="$2"
   [ -f "$state" ] || { echo 0; return; }
-  jq -r --arg b "$base" 'select(.basename == $b and .outcome == "retry") | .basename' \
+  jq -rR --arg b "$base" 'fromjson? | select(.basename == $b and .outcome == "retry") | .basename' \
     "$state" 2>/dev/null | wc -l | tr -d ' '
 }
 

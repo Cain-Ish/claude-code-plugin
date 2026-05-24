@@ -41,7 +41,9 @@ do_extract() {  # $1 = txt, $2 = slug ; honors the test stub
 now() { date -u +%FT%TZ; }
 
 processed=0
-# oldest-first
+failed=0
+# oldest-first by mtime (least-recently-modified). Sufficient for a drainer —
+# everything pending is processed within a few batches regardless of order.
 while IFS= read -r tf; do
   [ -n "$tf" ] || continue
   [ "$processed" -ge "$BATCH" ] && break
@@ -53,6 +55,7 @@ while IFS= read -r tf; do
     printf '{"basename":%s,"ts":"%s","outcome":"ok"}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" >> "$STATE"
     processed=$((processed+1))
   else
+    failed=$((failed+1))
     fails=$(sb_extraction_fails "$base" "$STATE"); fails=$((fails+1))
     if [ "$fails" -ge "$MAX_FAILS" ]; then
       printf '{"basename":%s,"ts":"%s","outcome":"error","fails":%s}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" "$fails" >> "$STATE"
@@ -62,5 +65,12 @@ while IFS= read -r tf; do
   fi
 done < <(ls -1tr "$TX_DIR"/*.txt 2>/dev/null)
 
-sb_write_extractor_health "cli-oauth" "ok" "drained $processed this run"
+# Don't clobber a real failure marker: only report ok if anything succeeded.
+# A run where every extraction failed must surface status=fail so the
+# SessionStart banner alerts the user (otherwise a broken drainer looks healthy).
+if [ "$processed" -eq 0 ] && [ "$failed" -gt 0 ]; then
+  sb_write_extractor_health "cli-oauth" "fail" "drained 0, $failed failed this run"
+else
+  sb_write_extractor_health "cli-oauth" "ok" "drained $processed this run ($failed failed)"
+fi
 exit 0

@@ -38,6 +38,16 @@ printf '{"basename":"b.txt","ts":"t","outcome":"retry"}\n' >> "$STATE"
 eq "fails: two retries for b" "$(sb_extraction_fails b.txt "$STATE")" "2"
 eq "fails: none for a"        "$(sb_extraction_fails a.txt "$STATE")" "0"
 
+# --- resilience: a corrupt JSONL line must not break detection ---
+CSTATE="$BRAIN_DIR/.corrupt-state.jsonl"
+{
+  printf '{"basename":"x.txt","ts":"t","outcome":"retry"}\n'
+  printf 'GARBAGE NOT JSON\n'
+  printf '{"basename":"x.txt","ts":"t","outcome":"error"}\n'
+} > "$CSTATE"
+sb_extraction_done "x.txt" "$CSTATE" && ok "done: survives a corrupt line" || no "done: survives a corrupt line"
+eq "fails: survives a corrupt line" "$(sb_extraction_fails x.txt "$CSTATE")" "1"
+
 # --- slug from header ---
 TX="$BRAIN_DIR/transcripts/sess1_my-proj_2026-05-24.txt"
 mkdir -p "$BRAIN_DIR/transcripts"
