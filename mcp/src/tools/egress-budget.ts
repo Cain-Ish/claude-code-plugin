@@ -43,7 +43,10 @@ export function capText(
   if (total <= maxTokens) {
     return { text, truncated: false, omittedTokens: 0 };
   }
-  const marker = pointer ? `\n… truncated — full text via ${pointer}` : `\n… truncated`;
+  const fullMarker = pointer ? `\n… truncated — full text via ${pointer}` : `\n… truncated`;
+  // If the budget can't fit the full marker, fall back to a 1-token ellipsis
+  // so the result still honors the ceiling (down to 1 token).
+  const marker = estimateTokens(fullMarker) <= maxTokens ? fullMarker : '…';
   const keepChars = Math.max(0, (maxTokens - estimateTokens(marker))) * CHARS_PER_TOKEN;
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
   let out = '';
@@ -51,6 +54,8 @@ export function capText(
     if (out.length + segment.length > keepChars) break;
     out += segment;
   }
+  // omittedTokens = original body tokens minus the body retained in `out`
+  // (it does not count the appended marker).
   return { text: out + marker, truncated: true, omittedTokens: total - estimateTokens(out) };
 }
 
@@ -77,14 +82,27 @@ export function capList<T>(
   let used = 0;
   for (const item of items) {
     const piece = render(item);
-    const cost = estimateTokens(piece) + estimateTokens(separator);
+    const sep = kept.length > 0 ? estimateTokens(separator) : 0; // no separator before the first item
+    const cost = estimateTokens(piece) + sep;
     if (kept.length > 0 && used + cost > maxTokens) break;
     kept.push(item);
     parts.push(piece);
     used += cost;
   }
-  const omitted = items.length - kept.length;
-  let text = parts.join(separator);
-  if (omitted > 0) text += `${separator}… ${omitted} more — ${moreHint}`;
-  return { kept, text, omitted };
+  let omitted = items.length - kept.length;
+  if (omitted > 0) {
+    // Reserve room for the drill-down affordance so the TOTAL stays within
+    // budget (the hard-ceiling contract). Drop kept items if needed, but
+    // always keep at least the top item.
+    let affordance = `${separator}… ${omitted} more — ${moreHint}`;
+    while (kept.length > 1 && used + estimateTokens(affordance) > maxTokens) {
+      const removed = parts.pop() as string;
+      kept.pop();
+      used -= estimateTokens(removed) + estimateTokens(separator);
+      omitted = items.length - kept.length;
+      affordance = `${separator}… ${omitted} more — ${moreHint}`;
+    }
+    return { kept, text: parts.join(separator) + affordance, omitted };
+  }
+  return { kept, text: parts.join(separator), omitted };
 }

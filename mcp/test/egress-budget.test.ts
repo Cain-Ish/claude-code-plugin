@@ -63,7 +63,16 @@ describe('capText', () => {
     const r = capText(text, 8);
     const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
     const kept = r.text.split('\n')[0];
+    expect(kept.length).toBeGreaterThan(0);
     expect([...seg.segment(kept)].every(s => s.segment === '👨‍👩‍👧‍👦' || s.segment === '')).toBe(true);
+  });
+
+  it('honors the ceiling even when the budget is smaller than the marker', () => {
+    const r1 = capText('x'.repeat(1000), 1);
+    expect(r1.truncated).toBe(true);
+    expect(estimateTokens(r1.text)).toBeLessThanOrEqual(1);
+    const r2 = capText('x'.repeat(1000), 2);
+    expect(estimateTokens(r2.text)).toBeLessThanOrEqual(2);
   });
 });
 
@@ -91,5 +100,12 @@ describe('capList', () => {
     const r = capList([huge, 'b'], render, 10, 'more');
     expect(r.kept.length).toBe(1);
     expect(r.kept[0]).toBe(huge);
+  });
+
+  it('keeps the total (including the drill-down line) within budget', () => {
+    const item = 'z'.repeat(36); // ~9 tokens each
+    const r = capList([item, item, item], (s) => s, 20, 'knowledge_fetch');
+    expect(r.omitted).toBeGreaterThan(0);
+    expect(estimateTokens(r.text)).toBeLessThanOrEqual(20);
   });
 });
