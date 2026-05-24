@@ -5,6 +5,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
 import { readConfig, scanLocations, buildRegistry, loadRegistry } from '../src/tools/doc-sources.js';
+import { addLocation, removeLocation, listLocations } from '../src/tools/doc-sources.js';
 
 describe('extractGist', () => {
   it('prefers the H1 heading', () => {
@@ -154,5 +155,48 @@ describe('buildRegistry / lifecycle', () => {
   });
   it('loadRegistry returns null for an unsafe slug', async () => {
     expect(await loadRegistry(brain, '../escape')).toBeNull();
+  });
+});
+
+describe('track config mutations', () => {
+  let brain: string;
+  beforeEach(() => {
+    brain = mkdtempSync(join(tmpdir(), 'ds-cfg-'));
+    mkdirSync(join(brain, 'projects', 'proj'), { recursive: true });
+  });
+  afterEach(() => rmSync(brain, { recursive: true, force: true }));
+
+  it('adds a location (dedup) and lists it', async () => {
+    const r1 = await addLocation(brain, 'proj', 'docs/');
+    expect(r1.added).toBe(true);
+    expect(await listLocations(brain, 'proj')).toEqual(['docs/']);
+    const r2 = await addLocation(brain, 'proj', 'docs/');
+    expect(r2.added).toBe(false);
+    expect(await listLocations(brain, 'proj')).toEqual(['docs/']);
+  });
+
+  it('removes a location', async () => {
+    await addLocation(brain, 'proj', 'docs/');
+    await addLocation(brain, 'proj', '.ai-docs/');
+    const r = await removeLocation(brain, 'proj', 'docs/');
+    expect(r.removed).toBe(true);
+    expect(await listLocations(brain, 'proj')).toEqual(['.ai-docs/']);
+    const r2 = await removeLocation(brain, 'proj', 'nope/');
+    expect(r2.removed).toBe(false);
+  });
+
+  it('rejects an unsafe location (absolute or ..)', async () => {
+    await expect(addLocation(brain, 'proj', '/etc')).rejects.toThrow(/invalid location/);
+    await expect(addLocation(brain, 'proj', '../outside')).rejects.toThrow(/invalid location/);
+  });
+
+  it('rejects an unsafe slug', async () => {
+    await expect(addLocation(brain, '../escape', 'docs/')).rejects.toThrow(/unsafe slug/);
+    expect(await listLocations(brain, '../escape').catch(() => 'threw')).toBe('threw');
+  });
+
+  it('normalizes ./ prefix and trims', async () => {
+    await addLocation(brain, 'proj', '  ./docs/  ');
+    expect(await listLocations(brain, 'proj')).toEqual(['docs/']);
   });
 });

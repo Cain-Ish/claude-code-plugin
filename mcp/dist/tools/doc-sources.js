@@ -116,4 +116,43 @@ export async function buildRegistry(projectRoot, brainDir, slug) {
     await fs.rename(tmp, out); // atomic
     return reg;
 }
+function normalizeLocation(location) {
+    return location.trim().replace(/^\.\//, '');
+}
+async function writeConfig(brainDir, slug, locations) {
+    assertSafeSlug(slug);
+    const dir = join(brainDir, 'projects', slug);
+    const out = join(dir, 'doc-sources.config.json');
+    await fs.mkdir(dir, { recursive: true });
+    const tmp = `${out}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify({ locations }, null, 2));
+    await fs.rename(tmp, out); // atomic
+}
+export async function listLocations(brainDir, slug) {
+    assertSafeSlug(slug);
+    return (await readConfig(brainDir, slug)).locations;
+}
+export async function addLocation(brainDir, slug, location) {
+    assertSafeSlug(slug);
+    const loc = normalizeLocation(location);
+    if (!loc || loc.startsWith('/') || loc.split('/').includes('..')) {
+        throw new Error(`invalid location: ${JSON.stringify(location)} (must be a relative path or glob within the project)`);
+    }
+    const cfg = await readConfig(brainDir, slug);
+    if (cfg.locations.includes(loc))
+        return { locations: cfg.locations, added: false };
+    const locations = [...cfg.locations, loc];
+    await writeConfig(brainDir, slug, locations);
+    return { locations, added: true };
+}
+export async function removeLocation(brainDir, slug, location) {
+    assertSafeSlug(slug);
+    const loc = normalizeLocation(location);
+    const cfg = await readConfig(brainDir, slug);
+    const locations = cfg.locations.filter((l) => l !== loc);
+    const removed = locations.length !== cfg.locations.length;
+    if (removed)
+        await writeConfig(brainDir, slug, locations);
+    return { locations, removed };
+}
 //# sourceMappingURL=doc-sources.js.map
