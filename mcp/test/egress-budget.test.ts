@@ -4,6 +4,7 @@ import {
   egressBudgetTokens,
   DEFAULT_EGRESS_BUDGET_TOKENS,
   capText,
+  capList,
 } from '../src/tools/egress-budget.js';
 
 describe('estimateTokens', () => {
@@ -63,5 +64,32 @@ describe('capText', () => {
     const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
     const kept = r.text.split('\n')[0];
     expect([...seg.segment(kept)].every(s => s.segment === '👨‍👩‍👧‍👦' || s.segment === '')).toBe(true);
+  });
+});
+
+describe('capList', () => {
+  const render = (s: string) => s;
+
+  it('keeps all items when within budget', () => {
+    const r = capList(['a', 'b', 'c'], render, 1000, 'drill down');
+    expect(r.kept).toEqual(['a', 'b', 'c']);
+    expect(r.omitted).toBe(0);
+    expect(r.text).not.toContain('more');
+  });
+
+  it('drops items past the budget and appends a drill-down affordance', () => {
+    const big = 'z'.repeat(400); // ~100 tokens each
+    const r = capList([big, big, big, big], render, 150, 'knowledge_fetch');
+    expect(r.kept.length).toBeLessThan(4);
+    expect(r.omitted).toBeGreaterThan(0);
+    expect(r.text).toContain(`${r.omitted} more`);
+    expect(r.text).toContain('knowledge_fetch');
+  });
+
+  it('always keeps at least the top item even if it exceeds budget', () => {
+    const huge = 'q'.repeat(10000);
+    const r = capList([huge, 'b'], render, 10, 'more');
+    expect(r.kept.length).toBe(1);
+    expect(r.kept[0]).toBe(huge);
   });
 });

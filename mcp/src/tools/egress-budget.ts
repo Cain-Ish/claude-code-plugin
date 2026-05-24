@@ -53,3 +53,38 @@ export function capText(
   }
   return { text: out + marker, truncated: true, omittedTokens: total - estimateTokens(out) };
 }
+
+export interface CapListResult<T> {
+  kept: T[];
+  text: string;
+  omitted: number;
+}
+
+/**
+ * Render a ranked list under a token budget. Keeps items in order until the
+ * next would exceed the budget, then appends a drill-down affordance
+ * ("N more — <hint>"). Always keeps at least the top item. Never expands.
+ */
+export function capList<T>(
+  items: T[],
+  render: (item: T) => string,
+  maxTokens: number,
+  moreHint: string,
+  separator = '\n\n',
+): CapListResult<T> {
+  const kept: T[] = [];
+  const parts: string[] = [];
+  let used = 0;
+  for (const item of items) {
+    const piece = render(item);
+    const cost = estimateTokens(piece) + estimateTokens(separator);
+    if (kept.length > 0 && used + cost > maxTokens) break;
+    kept.push(item);
+    parts.push(piece);
+    used += cost;
+  }
+  const omitted = items.length - kept.length;
+  let text = parts.join(separator);
+  if (omitted > 0) text += `${separator}… ${omitted} more — ${moreHint}`;
+  return { kept, text, omitted };
+}
