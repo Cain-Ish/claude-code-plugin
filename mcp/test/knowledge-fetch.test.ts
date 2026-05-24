@@ -61,4 +61,21 @@ describe('knowledge_fetch', () => {
     expect(r.path).toBeNull();
     expect(r.text.toLowerCase()).toContain('not found');
   });
+
+  it('resolves duplicate slugs deterministically (lexicographically-first path)', async () => {
+    mkdirSync(join(knowledgeDir, 'wiki', 'decisions'), { recursive: true });
+    writeFileSync(join(knowledgeDir, 'wiki', 'concepts', 'dup.md'), `---\ndescription: "concepts dup"\n---\n# dup\n`, 'utf-8');
+    writeFileSync(join(knowledgeDir, 'wiki', 'decisions', 'dup.md'), `---\ndescription: "decisions dup"\n---\n# dup\n`, 'utf-8');
+    const a = await knowledgeFetch({ slug: 'dup', tier: 'gist', knowledgeDir });
+    const b = await knowledgeFetch({ slug: 'dup', tier: 'gist', knowledgeDir });
+    expect(a.path).toBe(b.path);                  // stable across calls
+    expect(a.path).toMatch(/concepts[/\\]dup\.md$/); // 'concepts' sorts before 'decisions'
+  });
+
+  it('treats glob metacharacters in the slug literally (no wildcard match)', async () => {
+    // 'widget' exists; a slug 'wi*get' must NOT match it once the slug is escaped.
+    const r = await knowledgeFetch({ slug: 'wi*get', tier: 'gist', knowledgeDir });
+    expect(r.path).toBeNull();
+    expect(r.text.toLowerCase()).toContain('not found');
+  });
 });

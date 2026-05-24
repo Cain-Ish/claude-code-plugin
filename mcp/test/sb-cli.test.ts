@@ -49,6 +49,15 @@ describe('sb CLI', () => {
     expect(r.stdout).toMatch(/foo/);
   });
 
+  it('query surfaces the frontmatter description in output', async () => {
+    // The fixture page has description: "About foo widget" — assert that exact
+    // curated description appears (not just a token that also happens to be in
+    // the slug or body). This would fail if description rendering were removed.
+    const r = await runSb(['query', 'foo widget'], { brainDir, knowledgeDir });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('About foo widget');
+  });
+
   it('query with no text errors', async () => {
     const r = await runSb(['query'], { brainDir, knowledgeDir });
     expect(r.exitCode).toBe(2);

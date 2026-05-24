@@ -27684,7 +27684,7 @@ async function knowledgeFetch(args) {
   const tier = args.tier ?? "gist";
   const knowledgeDir = args.knowledgeDir ?? join6(process.env.HOME ?? "", "knowledge");
   const wikiRoot = join6(knowledgeDir, "wiki");
-  const matches = await glob(`**/${args.slug}.md`, { cwd: wikiRoot, absolute: true }).catch(() => []);
+  const matches = (await glob(`**/${escape2(args.slug)}.md`, { cwd: wikiRoot, absolute: true }).catch(() => [])).sort();
   const filePath = matches[0] ?? null;
   if (!filePath) {
     return {
@@ -27700,7 +27700,7 @@ async function knowledgeFetch(args) {
   const raw = await fs6.readFile(filePath, "utf-8");
   const doc = parseDoc(raw, filePath);
   const fullPointer = `Read ${filePath} for the full page`;
-  const gist = doc.description || (doc.title ? doc.title : args.slug);
+  const gist = doc.description || doc.title || args.slug;
   let text;
   let truncated = false;
   if (tier === "gist") {

@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { glob } from 'glob';
+import { glob, escape } from 'glob';
 import { parseDoc } from './knowledge-search.js';
 import { capText, egressBudgetTokens, estimateTokens } from './egress-budget.js';
 /** Collect the page's `##`/`###` headings, in order. */
@@ -25,7 +25,7 @@ export async function knowledgeFetch(args) {
     const tier = args.tier ?? 'gist';
     const knowledgeDir = args.knowledgeDir ?? join(process.env.HOME ?? '', 'knowledge');
     const wikiRoot = join(knowledgeDir, 'wiki');
-    const matches = await glob(`**/${args.slug}.md`, { cwd: wikiRoot, absolute: true }).catch(() => []);
+    const matches = (await glob(`**/${escape(args.slug)}.md`, { cwd: wikiRoot, absolute: true }).catch(() => [])).sort();
     const filePath = matches[0] ?? null;
     if (!filePath) {
         return {
@@ -41,7 +41,7 @@ export async function knowledgeFetch(args) {
     const raw = await fs.readFile(filePath, 'utf-8');
     const doc = parseDoc(raw, filePath);
     const fullPointer = `Read ${filePath} for the full page`;
-    const gist = doc.description || (doc.title ? doc.title : args.slug);
+    const gist = doc.description || doc.title || args.slug;
     let text;
     let truncated = false;
     if (tier === 'gist') {
