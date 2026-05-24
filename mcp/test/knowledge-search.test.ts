@@ -39,4 +39,13 @@ describe('knowledge_search v1', () => {
     const res = await knowledgeSearch({ query: 'unrelatedstring1234', knowledgeDir });
     expect(res.candidates).toEqual([]);
   });
+
+  it('labels each candidate with an estimated token count', async () => {
+    const res = await knowledgeSearch({ query: 'counting pipeline grep', knowledgeDir });
+    expect(res.candidates.length).toBeGreaterThan(0);
+    for (const c of res.candidates) {
+      expect(typeof c.tokens).toBe('number');
+      expect(c.tokens).toBeGreaterThan(0);
+    }
+  });
 });
