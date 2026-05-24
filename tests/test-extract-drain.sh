@@ -1,5 +1,6 @@
 #!/bin/bash
 # Tests for extract-drain.sh
+# shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"

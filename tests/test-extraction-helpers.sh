@@ -1,5 +1,8 @@
 #!/bin/bash
 # Tests for the lib.sh extraction helpers
+# shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
+# shellcheck disable=SC2129  # consecutive >> appends to the state fixture are intentional
+# shellcheck disable=SC2317  # sb_call_extractor is overridden as a stub; reached indirectly via sb_extract_transcript
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
@@ -61,6 +64,13 @@ sb_call_extractor() {  # stub: write a canned delta, succeed
 sb_extract_transcript "$TX" "my-proj" && ok "extract returns 0" || no "extract returns 0"
 grep -q "drained test decision" "$BRAIN_DIR/projects/my-proj/PROJECT.md" \
   && ok "extract merged the delta into PROJECT.md" || no "extract merged the delta into PROJECT.md"
+
+# --- security: a malicious project_slug must NOT escape BRAIN_DIR (path traversal) ---
+EVIL_TARGET="/tmp/sb-pwned-$$/PROJECT.md"
+rm -rf "/tmp/sb-pwned-$$" 2>/dev/null || true
+sb_extract_transcript "$TX" "../../../../tmp/sb-pwned-$$" >/dev/null 2>&1 || true
+[ ! -e "$EVIL_TARGET" ] && ok "traversal slug does not escape BRAIN_DIR" || no "traversal slug ESCAPED to $EVIL_TARGET"
+rm -rf "/tmp/sb-pwned-$$" 2>/dev/null || true
 
 # --- extract returns non-zero when the LLM yields nothing ---
 sb_call_extractor() { : > "$2"; return 1; }

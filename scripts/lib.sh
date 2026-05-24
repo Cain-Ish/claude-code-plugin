@@ -806,6 +806,12 @@ sb_slug_from_archived_transcript() {
 sb_extract_transcript() {
   local txt="$1" slug="$2"
   [ -f "$txt" ] || return 1
+  # Sanitize the slug before it becomes a filesystem path: the drainer reads it
+  # from the transcript's meta header, which is attacker-influenceable (synced /
+  # restored / foreign-written transcripts dir). Without this, a header like
+  # `project_slug: ../../../tmp/x` would escape BRAIN_DIR. Same control the merge
+  # path already applies to JSON-sourced slugs.
+  slug=$(sb_sanitize_slug "$slug") || slug="unknown"
   local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
   local model="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
   local timeout_s="${SB_EXTRACT_TIMEOUT:-25}"

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Tests for install-extract-timer.sh (print mode — never touches real systemd)
+# shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
