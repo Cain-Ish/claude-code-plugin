@@ -4,7 +4,7 @@ import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 
 export interface KnowledgeSearchArgs { query: string; scope?: string; knowledgeDir?: string; }
-export interface KnowledgeSearchResult { candidates: { path: string; score: number; first_lines: string; tokens: number }[]; }
+export interface KnowledgeSearchResult { candidates: { path: string; score: number; description: string; tokens: number }[]; }
 
 export interface ParsedDoc {
   title: string;
@@ -93,7 +93,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
-    first_lines: rawContent.slice(0, SNIPPET_CHARS),
+    description: doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim(),
     tokens: estimateTokens(rawContent),
   }));
 

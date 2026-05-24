@@ -48,4 +48,17 @@ describe('knowledge_search v1', () => {
       expect(c.tokens).toBeGreaterThan(0);
     }
   });
+
+  it('returns the curated description as the gist, not a raw frontmatter chop', async () => {
+    writeFileSync(
+      join(knowledgeDir, 'wiki', 'concepts', 'gist-page.md'),
+      `---\ntitle: "Gist page"\ndescription: "One-line curated gist about widgets"\n---\n\n# Gist page\n\nBody about widgets and gizmos.\n`,
+      'utf-8'
+    );
+    const res = await knowledgeSearch({ query: 'widgets gizmos gist', knowledgeDir });
+    const hit = res.candidates.find(c => c.path.endsWith('gist-page.md'));
+    expect(hit).toBeDefined();
+    expect(hit!.description).toBe('One-line curated gist about widgets');
+    expect(hit as any).not.toHaveProperty('first_lines');
+  });
 });

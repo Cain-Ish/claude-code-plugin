@@ -70,8 +70,7 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
     for (const c of r.candidates.slice(0, 5)) {
       const slug = c.path.replace(/.*[\\/]/, '').replace(/\.md$/, '');
       const score = (c.score * 100).toFixed(0);
-      const firstLine = c.first_lines.split('\n').find((l: string) => /^description:/.test(l))?.replace(/^description:\s*['"]?/, '').replace(/['"]?\s*$/, '') ?? '';
-      push(`${score.padStart(3)}%  [[${slug}]]${firstLine ? '  — ' + firstLine : ''}`);
+      push(`${score.padStart(3)}%  [[${slug}]]${c.description ? '  — ' + c.description : ''}`);
       push(`       ${c.path}`);
     }
     return { stdout: out.join('\n'), stderr: err.join('\n'), exitCode: 0 };
