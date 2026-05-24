@@ -34,7 +34,9 @@ CODE_MODIFIED=$(jq -r '
   | .message.content[]?
   | select(.type == "tool_use")
   | select(.name == "Write" or .name == "Edit" or .name == "MultiEdit")
-  | .name
+  | .input.file_path // ""
+  | select(. != "")
+  | select((endswith(".md") or endswith(".markdown") or endswith(".txt") or test("(^|/)docs/")) | not)
 ' "$TRANSCRIPT" 2>/dev/null | head -1)
 
 if [ -z "$CODE_MODIFIED" ]; then

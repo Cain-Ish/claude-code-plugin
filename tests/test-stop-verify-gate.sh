@@ -66,6 +66,11 @@ add_write_turn() {
   echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"src/new.ts","content":"hello"}}]}}' >> "$file"
 }
 
+add_md_write_turn() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"docs/specs/foo.md","content":"# hi"}}]}}' >> "$file"
+}
+
 add_test_run() {
   local file="$1"
   echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"npm run test"}}]}}' >> "$file"
@@ -145,6 +150,20 @@ T=$(mk_transcript)
 add_edit_turn "$T"
 OUT=$(mk_input "$T" | SB_VERIFY_GATE=off bash "$GATE" 2>/dev/null || true)
 assert_approve "kill switch off" "$OUT"
+
+# Test 10: Doc-only edit (.md) + no verification → approve (file-type filter)
+T=$(mk_transcript)
+add_qa_turn "$T"
+add_md_write_turn "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_approve "doc-only .md write, no verification" "$OUT"
+
+# Test 11: Mixed .md + code (.ts) + no verification → block (code present)
+T=$(mk_transcript)
+add_md_write_turn "$T"
+add_edit_turn "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_block "mixed md + code, no verification" "$OUT"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
