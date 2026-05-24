@@ -96,13 +96,33 @@ Runner finishes → existing completion banner (`session-load.sh:328`) → user 
 - **Marker missing** → all transcripts counted new; fires once; marker then exists.
 - **`dream-snapshot.sh` fails** (e.g. no transcripts dir) → hook logs to error-log, no banner, marker untouched.
 
-## 9. Out of scope (future, same template)
+## 9. Accompanying fix — verify-gate ignores file type
+
+Folded into this work (surfaced while writing this very spec). `stop-verify-gate.sh:32-38` sets `CODE_MODIFIED` on **any** `Write`/`Edit`/`MultiEdit` tool call — it extracts `.name` but never inspects `.input.file_path`. Result: editing a markdown doc (this spec) trips a gate whose remedy ("run tests, lint, type-check") is meaningless for prose, blocking completion up to the 2/session safety-valve cap.
+
+**Fix:** in the `CODE_MODIFIED` jq (line 32), also extract `.input.file_path` and only count the modification as code when the path has a code-ish extension. Exclude `.md`, `.markdown`, `.txt`, and `docs/` paths.
+
+```jq
+select(.type == "assistant")
+| .message.content[]?
+| select(.type == "tool_use")
+| select(.name == "Write" or .name == "Edit" or .name == "MultiEdit")
+| .input.file_path // ""
+| select(. != "")
+| select((endswith(".md") or endswith(".markdown") or endswith(".txt") or contains("/docs/")) | not)
+```
+
+Keep it allow-by-default for unknown extensions (fail-open philosophy already in the script header) — i.e. *exclude* known-doc patterns rather than *include* a code allowlist, so a new code extension is never silently ungated.
+
+**Test:** transcript with only a `.md` Write → gate approves (exit 0). Transcript with a `.sh` Write and no verification → gate blocks. Mixed (`.sh` + `.md`) → blocks (code present).
+
+## 10. Out of scope (future, same template)
 
 - Auto-triggering improve / reindex / lint on their own signals.
 - Auto-accept of low-risk diffs (would cross the control line; explicitly deferred).
 - Per-project dream cadence.
 
-## 10. Testing
+## 11. Testing
 
 - Unit-ish: seed `~/.second-brain/transcripts/` with K files newer than a fixture marker; run the trigger logic; assert stage happens iff K ≥ threshold.
 - Guard test: pre-create a `status.json` with `status: running`; assert no second stage.
