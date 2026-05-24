@@ -24,50 +24,56 @@ This is the **template** for auto-triggering the other consolidation elements (i
 - **One dream at a time.** `dream_create` enforces a single pending/running dream. The hook must guard against staging a second.
 - **Control principle.** `[[2026-05-20-monitoring-without-control-audit]]` — the system observes and suggests but does not auto-mutate the knowledge base. The *trigger* is automated; the *accept* stays human.
 
-## 3. Trigger signal — the new-transcript marker
+## 3. Trigger signal — newest-dream-dir as reference
 
-- **Marker file:** `~/.second-brain/dreams/.last-dream-at` — an ISO-8601 UTC timestamp.
-- **Written:** at dream *create* time (by `dream-snapshot.sh`, so both manual and auto-staged dreams advance it).
-- **New-transcript count:** number of files in `~/.second-brain/transcripts/*.txt` with **mtime newer than the marker**. Using mtime avoids parsing filenames and is robust to naming changes.
-- **Missing marker (first run ever):** treat all transcripts as new — fire once, then the marker exists.
-- **Global, not per-project:** transcript selection is global unless `--slug` is passed, so the marker is global.
+No dedicated marker file. The reference point is **the most recently modified dream directory** under `~/.second-brain/dreams/drm_*/`. This is source-agnostic: it advances whether a dream was created by the CLI (`dream-snapshot.sh`), the MCP `dream_create` tool, or autostage itself — so we never re-mine transcripts a manual dream already covered. It also needs **zero change to `dream-snapshot.sh`** (which already creates the dir at stage time and echoes the id on stdout, line 133).
 
-Rationale for mtime over the filename date: filenames already carry a date, but mtime is the unambiguous "when did this land" and matches how `dream-snapshot.sh` already globs `*.txt`.
+- **New-transcript count:** `find "$BRAIN_DIR/transcripts" -maxdepth 1 -name '*.txt' -newer "$NEWEST_DREAM_DIR" | wc -l`. Uses mtime; no date parsing.
+- **`$NEWEST_DREAM_DIR`:** `ls -1dt "$DREAMS_DIR"/drm_*/ | head -1` — newest by mtime, regardless of status. A dream dir's top-level mtime is set at create (the runner writes only into `staging/`, not the top dir), so it reliably reflects creation time.
+- **No dream exists yet (first run ever):** treat all transcripts as new — fire once; the new dream dir then becomes the reference.
+- **Global, not per-project:** transcript selection is global unless `--slug` is passed, so the reference is global.
 
-## 4. Hook logic (rewrite of `session-load.sh:84-89`)
+Rationale: reusing the dream dir as the watermark removes a piece of state to maintain, and closes the gap where an MCP- or CLI-created dream wouldn't have advanced a hook-owned marker file.
 
-Runs only under the existing `startup|resume|clear` matcher (compact already excluded in `hooks.json`).
+## 4. Hook — new script `scripts/dream-autostage.sh`
+
+A dedicated SessionStart hook script, matching the existing pattern of one script per concern (`ensure-dirs.sh`, `discover-*.sh`). Registered in `hooks.json` under the existing `startup|resume|clear` matcher, *after* `session-load.sh` (compact already excluded). Its stdout becomes SessionStart `additionalContext`.
 
 ```
-AUTOSTAGE = ${SB_DREAM_AUTOSTAGE:-on}
-THRESHOLD = ${SB_DREAM_NEW_THRESHOLD:-10}
+AUTOSTAGE  = ${SB_DREAM_AUTOSTAGE:-on}
+THRESHOLD  = ${SB_DREAM_NEW_THRESHOLD:-10}
+DREAMS_DIR = $BRAIN_DIR/dreams
+TX_DIR     = $BRAIN_DIR/transcripts
 
-if AUTOSTAGE == off:
-    # legacy fallback: keep today's "suggested" nag banner (session-count based)
-    emit suggested-nag if session_count >= SB_DREAM_CADENCE
-    return
+[ "$AUTOSTAGE" = off ] && exit 0          # legacy nag handled in session-load.sh
+[ -d "$TX_DIR" ] || exit 0
 
-NEW = count(transcripts with mtime > marker)
+NEWEST_DREAM = $(ls -1dt "$DREAMS_DIR"/drm_*/ 2>/dev/null | head -1)
 
-# one-at-a-time guard
-if any ~/.second-brain/dreams/*/status.json has status in {pending, running}:
-    emit one-line note "dream <id> already in flight — review with /second-brain:dream"
-    return
+# one-at-a-time guard: don't stack on an in-flight dream
+if [ -n "$NEWEST_DREAM" ]; then
+    s = jq -r .status "$NEWEST_DREAM/status.json"
+    [ "$s" = pending ] || [ "$s" = running ] && exit 0   # silent; in-flight banner is session-load's job
+    NEW = find "$TX_DIR" -maxdepth 1 -name '*.txt' -newer "$NEWEST_DREAM" | wc -l
+else
+    NEW = find "$TX_DIR" -maxdepth 1 -name '*.txt' | wc -l   # no dream yet → all new
+fi
 
-if NEW >= THRESHOLD:
-    DID = $(bash dream-snapshot.sh --max-count 100)   # stages pending dream, advances marker
-    emit instruction banner (additionalContext):
-        "Dream <DID> auto-staged with <NEW> new transcripts.
-         Spawn the second-brain:dream-runner agent in the background
-         (run_in_background: true, dream_id=<DID>) before responding to the user."
-else:
-    # below threshold: silent. No banner, no count. (Avoids reintroducing nag fatigue.)
-    no banner
+[ "$NEW" -ge "$THRESHOLD" ] || exit 0      # below threshold → silent
+
+DID = $(bash "$(dirname "$0")/dream-snapshot.sh" --max-count 100)
+if [ $? -ne 0 ] || [ -z "$DID" ]; then
+    sb_log_error "dream-autostage.sh" "stage failed" 0
+    exit 0                                  # fail open, no banner
+fi
+
+# instruction banner → Claude spawns the runner on its next turn
+printf '## ⓘ second-brain — dream auto-staged\n%s new transcripts since last dream. Dream %s staged (pending).\n**Spawn the `second-brain:dream-runner` agent now (run_in_background: true, dream_id=%s) before responding to the user.** Acceptance of its diff stays manual.\n\n' "$NEW" "$DID" "$DID"
 ```
 
 Notes:
-- `dream-snapshot.sh` must **print the new dream id** to stdout (or the hook reads the newest `drm_*` dir) so the injected instruction can name it. If the script doesn't already, add an id echo.
-- The marker advance happens *inside* `dream-snapshot.sh` at create time, so a crash between stage and spawn still won't re-stage the same transcripts next session.
+- `dream-snapshot.sh` already echoes the id (line 133) and already guards one-at-a-time internally (lines 46-54), so the hook's guard is belt-and-suspenders — the script also exits non-zero if a dream is in flight, which the `[ -z "$DID" ]` check absorbs.
+- No marker file and no `dream-snapshot.sh` change: the newly-created dream dir *is* the next run's reference point.
 
 ## 5. Claude's seam (the one manual-in-code step)
 
@@ -90,11 +96,11 @@ Runner finishes → existing completion banner (`session-load.sh:328`) → user 
 
 ## 8. Edge cases
 
-- **0 new transcripts** → no stage, no banner.
-- **Dream already pending/running** → skip stage, one-line note.
-- **Discarded dream** → marker already advanced at create, so those transcripts won't re-trigger; user can still run `/second-brain:dream` manually to re-stage.
-- **Marker missing** → all transcripts counted new; fires once; marker then exists.
-- **`dream-snapshot.sh` fails** (e.g. no transcripts dir) → hook logs to error-log, no banner, marker untouched.
+- **0 / below-threshold new transcripts** → no stage, no banner (silent).
+- **Dream already pending/running** → hook exits silently; the "in flight" nudge is session-load's existing completed/review banner, not this script's job.
+- **Discarded dream** → its dir normally persists (prune only removes archived dirs when >5), so it stays the reference and those transcripts won't re-trigger. If the dir is fully removed, the prior dream dir becomes the reference; the 10-transcript threshold makes immediate re-stage unlikely. User can always `/second-brain:dream` manually.
+- **No dream dir at all (first ever)** → all transcripts counted new; fires once; the new dir becomes the reference.
+- **`dream-snapshot.sh` fails / no transcripts dir** → hook logs to error-log, exits 0, no banner.
 
 ## 9. Accompanying fix — verify-gate ignores file type
 
@@ -124,9 +130,18 @@ Keep it allow-by-default for unknown extensions (fail-open philosophy already in
 
 ## 11. Testing
 
-- Unit-ish: seed `~/.second-brain/transcripts/` with K files newer than a fixture marker; run the trigger logic; assert stage happens iff K ≥ threshold.
-- Guard test: pre-create a `status.json` with `status: running`; assert no second stage.
-- Off switch: `SB_DREAM_AUTOSTAGE=off`; assert legacy nag path.
-- Smoke: run a real session, confirm `~/.second-brain/error-log.jsonl` is clean and the auto-staged banner appears.
+New `tests/test-dream-autostage.sh` (auto-discovered by `run-all.sh`), sandboxed `BRAIN_DIR` per the existing test convention:
+- **Below threshold:** seed a reference dream dir + K<threshold newer transcripts → no banner (empty stdout).
+- **At/above threshold:** seed K≥threshold newer transcripts, a real wiki dir → banner emitted naming a `drm_*` id; a pending dream dir now exists.
+- **In-flight guard:** newest dream `status: running` → no stage, empty stdout.
+- **No dream yet:** no `drm_*` dirs, K≥threshold transcripts → fires.
+- **Kill switch:** `SB_DREAM_AUTOSTAGE=off` → empty stdout (exit 0).
+
+Extend `tests/test-stop-verify-gate.sh`:
+- **Doc-only Write** (`.md` file_path) + no verification → **approve** (the bug fix).
+- **Code Write** (`.sh`/`.ts`) + no verification → still **block**.
+- **Mixed** (`.sh` + `.md`) + no verification → **block** (code present).
+
+Smoke: run a real session with autostage on, confirm `~/.second-brain/error-log.jsonl` stays clean and the banner appears once.
 
 <!-- version target: 0.12.0 -->
