@@ -107,6 +107,13 @@ function cosineSimilarity(a, b) {
   return dot;
 }
 
+// src/tools/egress-budget.ts
+var CHARS_PER_TOKEN = 4;
+function estimateTokens(text) {
+  if (!text) return 0;
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+
 // src/tools/knowledge-search.ts
 var ACCESS_COUNTS_FILE = join2(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
@@ -180,7 +187,8 @@ async function knowledgeSearch(args) {
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
-    first_lines: rawContent.slice(0, SNIPPET_CHARS)
+    description: doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
+    tokens: estimateTokens(rawContent)
   }));
   const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
   const GRAPH_BOOST = 0.3;
@@ -414,7 +422,5 @@ if (top.length === 0) {
 }
 for (const c of top) {
   const slug = c.path.replace(/.*\//, "").replace(/\.md$/, "");
-  const lines = c.first_lines.split("\n");
-  const desc = lines.find((l) => /^description:/.test(l))?.replace(/^description:\s*['"]?/, "").replace(/['"]?\s*$/, "") || "";
-  console.log(`### [[${slug}]]${desc ? " \u2014 " + desc : ""}`);
+  console.log(`### [[${slug}]]${c.description ? " \u2014 " + c.description : ""}`);
 }

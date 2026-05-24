@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
+import { estimateTokens } from './egress-budget.js';
 const ACCESS_COUNTS_FILE = join(process.env.HOME ?? '', '.second-brain', 'access-counts.json');
 const ACCESS_BOOST_FACTOR = 0.1;
 const ACCESS_BOOST_CAP = 10;
@@ -80,7 +81,8 @@ export async function knowledgeSearch(args) {
         path: doc.path,
         score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
         related: doc.related,
-        first_lines: rawContent.slice(0, SNIPPET_CHARS),
+        description: doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim(),
+        tokens: estimateTokens(rawContent),
     }));
     // Graph boost: pages referenced by high-scoring pages get a relevance bump
     const slugScoreMap = new Map(scored.map(s => [slugFromPath(s.path), s]));

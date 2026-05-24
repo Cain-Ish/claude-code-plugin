@@ -7,7 +7,8 @@ export interface KnowledgeSearchResult {
     candidates: {
         path: string;
         score: number;
-        first_lines: string;
+        description: string;
+        tokens: number;
     }[];
 }
 export interface ParsedDoc {

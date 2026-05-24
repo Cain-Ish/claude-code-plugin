@@ -9,6 +9,7 @@ import { pinToUser } from "./tools/pin-to-user.js";
 import { pinToProject } from "./tools/pin-to-project.js";
 import { archiveToWiki } from "./tools/archive-to-wiki.js";
 import { knowledgeSearch } from "./tools/knowledge-search.js";
+import { knowledgeFetch } from "./tools/knowledge-fetch.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
 import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
@@ -64,6 +65,28 @@ server.registerTool(
     } catch (error) {
       return {
         content: [{ type: "text" as const, text: `Search error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "knowledge_fetch",
+  {
+    description: "Fetch a wiki page at a chosen detail tier (progressive disclosure). tier: 'gist' (one-line), 'skeleton' (gist + headings), 'summary' (the page's ## Summary section, or skeleton if none yet), 'full' (body, capped to the egress budget). Always returns a source pointer so you can escalate to the full page only when needed. Prefer this over reading the raw file for large pages.",
+    inputSchema: {
+      slug: z.string().describe("The page slug (filename without .md), e.g. from a knowledge_search result path."),
+      tier: z.enum(["gist", "skeleton", "summary", "full"]).optional().describe("Detail level. Default 'gist'."),
+    },
+  },
+  async ({ slug, tier }) => {
+    try {
+      const result = await knowledgeFetch({ slug, tier, knowledgeDir: KNOWLEDGE_DIR });
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    } catch (error) {
+      return {
+        content: [{ type: "text" as const, text: `Fetch error: ${error instanceof Error ? error.message : String(error)}` }],
         isError: true,
       };
     }

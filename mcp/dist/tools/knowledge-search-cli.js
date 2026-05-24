@@ -17,8 +17,6 @@ if (top.length === 0) {
 }
 for (const c of top) {
     const slug = c.path.replace(/.*\//, '').replace(/\.md$/, '');
-    const lines = c.first_lines.split('\n');
-    const desc = lines.find(l => /^description:/.test(l))?.replace(/^description:\s*['"]?/, '').replace(/['"]?\s*$/, '') || '';
-    console.log(`### [[${slug}]]${desc ? ' — ' + desc : ''}`);
+    console.log(`### [[${slug}]]${c.description ? ' — ' + c.description : ''}`);
 }
 //# sourceMappingURL=knowledge-search-cli.js.map
