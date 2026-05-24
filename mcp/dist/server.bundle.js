@@ -27341,6 +27341,33 @@ function capText(text, maxTokens, pointer) {
   }
   return { text: out + marker, truncated: true, omittedTokens: total - estimateTokens(out) };
 }
+function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
+  const kept = [];
+  const parts = [];
+  let used = 0;
+  for (const item of items) {
+    const piece = render(item);
+    const sep2 = kept.length > 0 ? estimateTokens(separator) : 0;
+    const cost = estimateTokens(piece) + sep2;
+    if (kept.length > 0 && used + cost > maxTokens) break;
+    kept.push(item);
+    parts.push(piece);
+    used += cost;
+  }
+  let omitted = items.length - kept.length;
+  if (omitted > 0) {
+    let affordance = `${separator}\u2026 ${omitted} more \u2014 ${moreHint}`;
+    while (kept.length > 1 && used + estimateTokens(affordance) > maxTokens) {
+      const removed = parts.pop();
+      kept.pop();
+      used -= estimateTokens(removed) + estimateTokens(separator);
+      omitted = items.length - kept.length;
+      affordance = `${separator}\u2026 ${omitted} more \u2014 ${moreHint}`;
+    }
+    return { kept, text: parts.join(separator) + affordance, omitted };
+  }
+  return { kept, text: parts.join(separator), omitted };
+}
 
 // src/tools/knowledge-search.ts
 var ACCESS_COUNTS_FILE = join5(process.env.HOME ?? "", ".second-brain", "access-counts.json");
@@ -28948,16 +28975,17 @@ server.registerTool(
       if (result.results.length === 0) {
         return { content: [{ type: "text", text: "No matching conversations found." }] };
       }
-      const lines = result.results.map((r, i) => {
+      const render = (r) => {
         const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : "";
         return [
-          `### ${i + 1}. ${r.project} \u2014 ${r.date}${sim}`,
+          `### ${r.project} \u2014 ${r.date}${sim}`,
           `**User**: ${r.userSnippet}`,
           `**Assistant**: ${r.assistantSnippet}`,
           `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`
         ].join("\n");
-      });
-      return { content: [{ type: "text", text: lines.join("\n\n") }] };
+      };
+      const capped = capList(result.results, render, egressBudgetTokens(), "narrow the query or use episodic_read on a specific result");
+      return { content: [{ type: "text", text: capped.text }] };
     } catch (error2) {
       return {
         content: [{ type: "text", text: `Episodic search error: ${error2 instanceof Error ? error2.message : String(error2)}` }],

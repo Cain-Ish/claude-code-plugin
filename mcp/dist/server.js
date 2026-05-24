@@ -17,6 +17,7 @@ import { episodicSearch, episodicRead } from "./tools/episodic-search.js";
 import { personaThink } from "./tools/persona-think.js";
 import { personaStats } from "./tools/persona-stats.js";
 import { personaDismiss } from "./tools/persona-dismiss.js";
+import { capList, egressBudgetTokens } from "./tools/egress-budget.js";
 function resolveKnowledgeDir() {
     const candidates = [
         process.env.KNOWLEDGE_DIR,
@@ -311,16 +312,17 @@ server.registerTool("episodic_search", {
         if (result.results.length === 0) {
             return { content: [{ type: "text", text: "No matching conversations found." }] };
         }
-        const lines = result.results.map((r, i) => {
+        const render = (r) => {
             const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : '';
             return [
-                `### ${i + 1}. ${r.project} — ${r.date}${sim}`,
+                `### ${r.project} — ${r.date}${sim}`,
                 `**User**: ${r.userSnippet}`,
                 `**Assistant**: ${r.assistantSnippet}`,
                 `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`,
             ].join('\n');
-        });
-        return { content: [{ type: "text", text: lines.join('\n\n') }] };
+        };
+        const capped = capList(result.results, render, egressBudgetTokens(), 'narrow the query or use episodic_read on a specific result');
+        return { content: [{ type: "text", text: capped.text }] };
     }
     catch (error) {
         return {
