@@ -9,7 +9,9 @@
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-tools.sh", "timeout": 10 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-installed.sh", "timeout": 10 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-doc-sources.sh", "timeout": 10 },
-          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-load.sh", "timeout": 15 }
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-load.sh", "timeout": 15 },
+          { "_comment": "v0.12.0 dream auto-stage — runs after session-load.sh. When >= SB_DREAM_NEW_THRESHOLD (default 10) new transcripts have landed since the most-recent dream, stages a pending dream and emits a banner instructing Claude to spawn the dream-runner agent. Acceptance stays manual. Kill switch SB_DREAM_AUTOSTAGE=off (then session-load.sh shows the legacy session-count nag instead). Timeout 20s covers dream-snapshot.sh's wiki copy.",
+            "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/dream-autostage.sh", "timeout": 20 }
         ]
       }
     ],

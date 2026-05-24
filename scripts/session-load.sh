@@ -83,7 +83,10 @@ sb_increment_session_count "$slug"
 # /second-brain:improve. Threshold-gated to avoid banner fatigue.
 SESSION_COUNT=$(sb_get_session_count "$slug")
 DREAM_THRESHOLD="${SB_DREAM_CADENCE:-15}"
-if [ "$SESSION_COUNT" -ge "$DREAM_THRESHOLD" ]; then
+# Legacy session-count nag: only when auto-stage is disabled. When autostage is
+# on (default), dream-autostage.sh owns the nudge — suppress here to avoid a
+# double banner. See docs/specs/2026-05-24-dream-auto-stage-design.md §7.
+if [ "${SB_DREAM_AUTOSTAGE:-on}" = "off" ] && [ "$SESSION_COUNT" -ge "$DREAM_THRESHOLD" ]; then
   sb_append "$(printf '## ⓘ second-brain — dream consolidation suggested\n%s sessions since last dream (threshold: %s).\nRun: `/second-brain:dream --background` — mines transcripts for missed learnings, stages changes for review.\n\n' \
     "$SESSION_COUNT" "$DREAM_THRESHOLD")" "dream-cadence-banner" 300
 fi
