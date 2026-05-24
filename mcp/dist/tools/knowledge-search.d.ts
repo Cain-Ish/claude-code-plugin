@@ -2,6 +2,8 @@ export interface KnowledgeSearchArgs {
     query: string;
     scope?: string;
     knowledgeDir?: string;
+    brainDir?: string;
+    projectSlug?: string;
 }
 export interface KnowledgeSearchResult {
     candidates: {
@@ -9,6 +11,7 @@ export interface KnowledgeSearchResult {
         score: number;
         description: string;
         tokens: number;
+        source: string;
     }[];
 }
 export interface ParsedDoc {

@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
+import { loadRegistry } from './doc-sources.js';
 const ACCESS_COUNTS_FILE = join(process.env.HOME ?? '', '.second-brain', 'access-counts.json');
 const ACCESS_BOOST_FACTOR = 0.1;
 const ACCESS_BOOST_CAP = 10;
@@ -65,11 +66,22 @@ export async function knowledgeSearch(args) {
             try {
                 const content = await fs.readFile(filePath, 'utf-8');
                 const doc = parseDoc(content, filePath);
-                allDocs.push({ doc, rawContent: content });
+                allDocs.push({ doc, rawContent: content, source: 'wiki', tokens: estimateTokens(content) });
             }
             catch {
                 continue;
             }
+        }
+    }
+    if (args.brainDir && args.projectSlug) {
+        const reg = await loadRegistry(args.brainDir, args.projectSlug);
+        for (const e of reg?.entries ?? []) {
+            const doc = {
+                title: '', description: e.gist, type: 'local-doc', tags: [],
+                related: [], body: e.headings.join('\n'), path: e.path,
+                updated: e.mtime, created: e.mtime,
+            };
+            allDocs.push({ doc, rawContent: `${e.gist}\n${e.headings.join('\n')}`, source: 'local-doc', tokens: Math.ceil(e.size / 4) });
         }
     }
     if (allDocs.length === 0)
@@ -77,12 +89,15 @@ export async function knowledgeSearch(args) {
     const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(doc.body).length, 0) / allDocs.length || AVG_DOC_LENGTH;
     const N = allDocs.length;
     const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
-    const scored = allDocs.map(({ doc, rawContent }) => ({
+    const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
         path: doc.path,
         score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
         related: doc.related,
-        description: doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim(),
-        tokens: estimateTokens(rawContent),
+        description: source === 'local-doc'
+            ? doc.description
+            : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim()),
+        tokens,
+        source,
     }));
     // Graph boost: pages referenced by high-scoring pages get a relevance bump
     const slugScoreMap = new Map(scored.map(s => [slugFromPath(s.path), s]));
@@ -128,6 +143,8 @@ export async function knowledgeSearch(args) {
     catch { /* ONNX unavailable — continue with BM25 + graph scores */ }
     // Stub penalty: auto-extracted skeletons and very short pages rank below real content
     for (let i = 0; i < scored.length; i++) {
+        if (allDocs[i].source === 'local-doc')
+            continue;
         const { doc, rawContent } = allDocs[i];
         if (AUTO_EXTRACTED_RE.test(rawContent) || doc.body.trim().length < MIN_SUBSTANTIVE_LENGTH) {
             scored[i].score *= STUB_PENALTY;
@@ -169,6 +186,8 @@ export async function knowledgeSearch(args) {
     // Record access for returned results (fire-and-forget)
     const ts = new Date().toISOString();
     for (const c of candidates) {
+        if (c.source === 'local-doc')
+            continue;
         const slug = slugFromPath(c.path);
         if (!accessCounts[slug])
             accessCounts[slug] = { count: 0, last_accessed: '' };

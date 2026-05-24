@@ -2980,7 +2980,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve.call(this, root, ref);
+      let _sch = resolve2.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref];
         const { schemaId } = this.opts;
@@ -3007,7 +3007,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve(root, ref) {
+    function resolve2(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3582,55 +3582,55 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve(baseURI, relativeURI, options) {
+    function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative3, options, skipNormalization) {
+    function resolveComponent(base, relative4, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative3 = parse3(serialize(relative3, options), options);
+        relative4 = parse3(serialize(relative4, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative3.scheme) {
-        target.scheme = relative3.scheme;
-        target.userinfo = relative3.userinfo;
-        target.host = relative3.host;
-        target.port = relative3.port;
-        target.path = removeDotSegments(relative3.path || "");
-        target.query = relative3.query;
+      if (!options.tolerant && relative4.scheme) {
+        target.scheme = relative4.scheme;
+        target.userinfo = relative4.userinfo;
+        target.host = relative4.host;
+        target.port = relative4.port;
+        target.path = removeDotSegments(relative4.path || "");
+        target.query = relative4.query;
       } else {
-        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
-          target.userinfo = relative3.userinfo;
-          target.host = relative3.host;
-          target.port = relative3.port;
-          target.path = removeDotSegments(relative3.path || "");
-          target.query = relative3.query;
+        if (relative4.userinfo !== void 0 || relative4.host !== void 0 || relative4.port !== void 0) {
+          target.userinfo = relative4.userinfo;
+          target.host = relative4.host;
+          target.port = relative4.port;
+          target.path = removeDotSegments(relative4.path || "");
+          target.query = relative4.query;
         } else {
-          if (!relative3.path) {
+          if (!relative4.path) {
             target.path = base.path;
-            if (relative3.query !== void 0) {
-              target.query = relative3.query;
+            if (relative4.query !== void 0) {
+              target.query = relative4.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative3.path[0] === "/") {
-              target.path = removeDotSegments(relative3.path);
+            if (relative4.path[0] === "/") {
+              target.path = removeDotSegments(relative4.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative3.path;
+                target.path = "/" + relative4.path;
               } else if (!base.path) {
-                target.path = relative3.path;
+                target.path = relative4.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative4.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative3.query;
+            target.query = relative4.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3638,7 +3638,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative3.fragment;
+      target.fragment = relative4.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -3809,7 +3809,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve,
+      resolve: resolve2,
       resolveComponent,
       equal,
       serialize,
@@ -6785,12 +6785,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs15, exportName) {
+    function addFormats(ajv, list, fs16, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs15[f]);
+        ajv.addFormat(f, fs16[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -18889,7 +18889,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -18906,7 +18906,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -18984,7 +18984,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve(parseResult.data);
+            resolve2(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19245,12 +19245,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve, interval);
+      const timeoutId = setTimeout(resolve2, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20350,7 +20350,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -20999,19 +20999,19 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve();
+        resolve2();
       } else {
-        this._stdout.once("drain", resolve);
+        this._stdout.once("drain", resolve2);
       }
     });
   }
 };
 
 // src/server.ts
-import fs14 from "fs";
+import fs15 from "fs";
 import os from "os";
 import path2 from "path";
 
@@ -24135,10 +24135,10 @@ var Minipass = class extends EventEmitter {
    * Return a void Promise that resolves once the stream ends.
    */
   async promise() {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       this.on(DESTROYED, () => reject(new Error("stream destroyed")));
       this.on("error", (er) => reject(er));
-      this.on("end", () => resolve());
+      this.on("end", () => resolve2());
     });
   }
   /**
@@ -24162,7 +24162,7 @@ var Minipass = class extends EventEmitter {
         return Promise.resolve({ done: false, value: res });
       if (this[EOF])
         return stop();
-      let resolve;
+      let resolve2;
       let reject;
       const onerr = (er) => {
         this.off("data", ondata);
@@ -24176,19 +24176,19 @@ var Minipass = class extends EventEmitter {
         this.off("end", onend);
         this.off(DESTROYED, ondestroy);
         this.pause();
-        resolve({ value, done: !!this[EOF] });
+        resolve2({ value, done: !!this[EOF] });
       };
       const onend = () => {
         this.off("error", onerr);
         this.off("data", ondata);
         this.off(DESTROYED, ondestroy);
         stop();
-        resolve({ done: true, value: void 0 });
+        resolve2({ done: true, value: void 0 });
       };
       const ondestroy = () => onerr(new Error("stream destroyed"));
       return new Promise((res2, rej) => {
         reject = rej;
-        resolve = res2;
+        resolve2 = res2;
         this.once(DESTROYED, ondestroy);
         this.once("error", onerr);
         this.once("end", onend);
@@ -25164,9 +25164,9 @@ var PathBase = class {
     if (this.#asyncReaddirInFlight) {
       await this.#asyncReaddirInFlight;
     } else {
-      let resolve = () => {
+      let resolve2 = () => {
       };
-      this.#asyncReaddirInFlight = new Promise((res) => resolve = res);
+      this.#asyncReaddirInFlight = new Promise((res) => resolve2 = res);
       try {
         for (const e of await this.#fs.promises.readdir(fullpath, {
           withFileTypes: true
@@ -25179,7 +25179,7 @@ var PathBase = class {
         children.provisional = 0;
       }
       this.#asyncReaddirInFlight = void 0;
-      resolve();
+      resolve2();
     }
     return children.slice(0, children.provisional);
   }
@@ -25409,8 +25409,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs15 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs15);
+  constructor(cwd = process.cwd(), pathImpl, sep3, { nocase, childrenCacheSize = 16 * 1024, fs: fs16 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs16);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -25420,7 +25420,7 @@ var PathScurryBase = class {
     this.#resolveCache = new ResolveCache();
     this.#resolvePosixCache = new ResolveCache();
     this.#children = new ChildrenCache(childrenCacheSize);
-    const split = cwdPath.substring(this.rootPath.length).split(sep2);
+    const split = cwdPath.substring(this.rootPath.length).split(sep3);
     if (split.length === 1 && !split[0]) {
       split.pop();
     }
@@ -25968,8 +25968,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs15) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs15 });
+  newRoot(fs16) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs16 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -25997,8 +25997,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs15) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs15 });
+  newRoot(fs16) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs16 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -26241,10 +26241,10 @@ var Ignore = class {
   ignored(p) {
     const fullpath = p.fullpath();
     const fullpaths = `${fullpath}/`;
-    const relative3 = p.relative() || ".";
-    const relatives = `${relative3}/`;
+    const relative4 = p.relative() || ".";
+    const relatives = `${relative4}/`;
     for (const m of this.relative) {
-      if (m.match(relative3) || m.match(relatives))
+      if (m.match(relative4) || m.match(relatives))
         return true;
     }
     for (const m of this.absolute) {
@@ -26255,9 +26255,9 @@ var Ignore = class {
   }
   childrenIgnored(p) {
     const fullpath = p.fullpath() + "/";
-    const relative3 = (p.relative() || ".") + "/";
+    const relative4 = (p.relative() || ".") + "/";
     for (const m of this.relativeChildren) {
-      if (m.match(relative3))
+      if (m.match(relative4))
         return true;
     }
     for (const m of this.absoluteChildren) {
@@ -27203,8 +27203,8 @@ async function archiveToWiki(args) {
 }
 
 // src/tools/knowledge-search.ts
-import { promises as fs5 } from "fs";
-import { join as join5 } from "path";
+import { promises as fs6 } from "fs";
+import { join as join6 } from "path";
 
 // src/tools/embeddings.ts
 import { promises as fs4 } from "fs";
@@ -27347,8 +27347,8 @@ function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
   let used = 0;
   for (const item of items) {
     const piece = render(item);
-    const sep2 = kept.length > 0 ? estimateTokens(separator) : 0;
-    const cost = estimateTokens(piece) + sep2;
+    const sep3 = kept.length > 0 ? estimateTokens(separator) : 0;
+    const cost = estimateTokens(piece) + sep3;
     if (kept.length > 0 && used + cost > maxTokens) break;
     kept.push(item);
     parts.push(piece);
@@ -27369,14 +27369,34 @@ function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
   return { kept, text: parts.join(separator), omitted };
 }
 
+// src/tools/doc-sources.ts
+import { promises as fs5 } from "fs";
+import { join as join5, relative, resolve, sep as sep2 } from "path";
+function assertSafeSlug(slug) {
+  if (!slug || /[\\/]|\.\./.test(slug)) {
+    throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
+  }
+}
+function registryPath(brainDir2, slug) {
+  return join5(brainDir2, "projects", slug, "doc-sources.json");
+}
+async function loadRegistry(brainDir2, slug) {
+  try {
+    assertSafeSlug(slug);
+    return JSON.parse(await fs5.readFile(registryPath(brainDir2, slug), "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
 // src/tools/knowledge-search.ts
-var ACCESS_COUNTS_FILE = join5(process.env.HOME ?? "", ".second-brain", "access-counts.json");
+var ACCESS_COUNTS_FILE = join6(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
 var ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts() {
   try {
-    return JSON.parse(await fs5.readFile(ACCESS_COUNTS_FILE, "utf-8"));
+    return JSON.parse(await fs6.readFile(ACCESS_COUNTS_FILE, "utf-8"));
   } catch {
     return {};
   }
@@ -27387,7 +27407,7 @@ async function saveAccessCounts(counts) {
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await fs5.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {
+  await fs6.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {
   });
 }
 var TOP_K = 8;
@@ -27401,15 +27421,15 @@ var STUB_PENALTY = 0.5;
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
-  const knowledgeDir = args.knowledgeDir ?? join5(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join5(knowledgeDir, "wiki");
+  const knowledgeDir = args.knowledgeDir ?? join6(process.env.HOME ?? "", "knowledge");
+  const wikiRoot = join6(knowledgeDir, "wiki");
   let scopeDirs;
   if (args.scope) {
-    scopeDirs = [join5(wikiRoot, args.scope)];
+    scopeDirs = [join6(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs5.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join5(wikiRoot, d.name));
+      const entries = await fs6.readdir(wikiRoot, { withFileTypes: true });
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join6(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -27426,24 +27446,43 @@ async function knowledgeSearch(args) {
     }
     for (const filePath of paths) {
       try {
-        const content = await fs5.readFile(filePath, "utf-8");
+        const content = await fs6.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
-        allDocs.push({ doc, rawContent: content });
+        allDocs.push({ doc, rawContent: content, source: "wiki", tokens: estimateTokens(content) });
       } catch {
         continue;
       }
+    }
+  }
+  if (args.brainDir && args.projectSlug) {
+    const reg = await loadRegistry(args.brainDir, args.projectSlug);
+    for (const e of reg?.entries ?? []) {
+      const doc = {
+        title: "",
+        description: e.gist,
+        type: "local-doc",
+        tags: [],
+        related: [],
+        body: e.headings.join("\n"),
+        path: e.path,
+        updated: e.mtime,
+        created: e.mtime
+      };
+      allDocs.push({ doc, rawContent: `${e.gist}
+${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) });
     }
   }
   if (allDocs.length === 0) return { candidates: [] };
   const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(doc.body).length, 0) / allDocs.length || AVG_DOC_LENGTH;
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
-  const scored = allDocs.map(({ doc, rawContent }) => ({
+  const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
-    description: doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
-    tokens: estimateTokens(rawContent)
+    description: source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
+    tokens,
+    source
   }));
   const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
   const GRAPH_BOOST = 0.3;
@@ -27483,6 +27522,7 @@ async function knowledgeSearch(args) {
   } catch {
   }
   for (let i = 0; i < scored.length; i++) {
+    if (allDocs[i].source === "local-doc") continue;
     const { doc, rawContent } = allDocs[i];
     if (AUTO_EXTRACTED_RE.test(rawContent) || doc.body.trim().length < MIN_SUBSTANTIVE_LENGTH) {
       scored[i].score *= STUB_PENALTY;
@@ -27514,6 +27554,7 @@ async function knowledgeSearch(args) {
   const candidates = scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest);
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
+    if (c.source === "local-doc") continue;
     const slug = slugFromPath(c.path);
     if (!accessCounts[slug]) accessCounts[slug] = { count: 0, last_accessed: "" };
     accessCounts[slug].count++;
@@ -27655,8 +27696,8 @@ function slugFromPath(p) {
   return p.replace(/.*\//, "").replace(/\.md$/, "");
 }
 async function collectMarkdown(dir, acc = []) {
-  for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
-    const p = join5(dir, e.name);
+  for (const e of await fs6.readdir(dir, { withFileTypes: true })) {
+    const p = join6(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
   }
@@ -27664,8 +27705,8 @@ async function collectMarkdown(dir, acc = []) {
 }
 
 // src/tools/knowledge-fetch.ts
-import { promises as fs6 } from "fs";
-import { join as join6 } from "path";
+import { promises as fs7 } from "fs";
+import { join as join7 } from "path";
 function headings(body) {
   return body.split("\n").filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
 }
@@ -27682,8 +27723,8 @@ function summarySection(body) {
 }
 async function knowledgeFetch(args) {
   const tier = args.tier ?? "gist";
-  const knowledgeDir = args.knowledgeDir ?? join6(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join6(knowledgeDir, "wiki");
+  const knowledgeDir = args.knowledgeDir ?? join7(process.env.HOME ?? "", "knowledge");
+  const wikiRoot = join7(knowledgeDir, "wiki");
   const matches = (await glob(`**/${escape2(args.slug)}.md`, { cwd: wikiRoot, absolute: true }).catch(() => [])).sort();
   const filePath = matches[0] ?? null;
   if (!filePath) {
@@ -27697,7 +27738,7 @@ async function knowledgeFetch(args) {
       pointer: "knowledge_search"
     };
   }
-  const raw = await fs6.readFile(filePath, "utf-8");
+  const raw = await fs7.readFile(filePath, "utf-8");
   const doc = parseDoc(raw, filePath);
   const fullPointer = `Read ${filePath} for the full page`;
   const gist = doc.description || doc.title || args.slug;
@@ -27735,21 +27776,21 @@ async function knowledgeFetch(args) {
 }
 
 // src/tools/knowledge-reindex.ts
-import { promises as fs8 } from "fs";
-import { join as join8 } from "path";
+import { promises as fs9 } from "fs";
+import { join as join9 } from "path";
 
 // src/tools/knowledge-validate.ts
-import { promises as fs7 } from "fs";
-import { join as join7, basename, relative } from "path";
+import { promises as fs8 } from "fs";
+import { join as join8, basename, relative as relative2 } from "path";
 async function knowledgeValidate(knowledgeDir, opts = {}) {
-  const wikiDir = join7(knowledgeDir, "wiki");
+  const wikiDir = join8(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
   const allPages = await collectAllPages(wikiDir);
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
   for (const filePath of allPages) {
-    const content = await fs7.readFile(filePath, "utf-8");
+    const content = await fs8.readFile(filePath, "utf-8");
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
@@ -27813,16 +27854,16 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         type: "duplicate_slug",
         severity: "error",
         path: paths.join(", "),
-        message: `Duplicate slug "${slug}" in: ${paths.map((p) => relative(wikiDir, p)).join(", ")}`,
+        message: `Duplicate slug "${slug}" in: ${paths.map((p) => relative2(wikiDir, p)).join(", ")}`,
         autofix: "merge"
       });
     }
   }
   try {
-    const rootFiles = await fs7.readdir(knowledgeDir, { withFileTypes: true });
+    const rootFiles = await fs8.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        const rootPath = join7(knowledgeDir, entry.name);
+        const rootPath = join8(knowledgeDir, entry.name);
         issues.push({
           type: "root_orphan",
           severity: "error",
@@ -27838,16 +27879,16 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     for (const issue2 of issues) {
       if (issue2.autofix === "remove" && issue2.type === "empty_page") {
         try {
-          await fs7.unlink(issue2.path);
+          await fs8.unlink(issue2.path);
           fixed++;
         } catch {
         }
       }
       if (issue2.autofix === "move_or_remove" && issue2.type === "root_orphan") {
         try {
-          const stat = await fs7.stat(issue2.path);
+          const stat = await fs8.stat(issue2.path);
           if (stat.size === 0) {
-            await fs7.unlink(issue2.path);
+            await fs8.unlink(issue2.path);
             fixed++;
           }
         } catch {
@@ -27875,12 +27916,12 @@ var KNOWN_CATEGORIES = /* @__PURE__ */ new Set([
   "sources"
 ]);
 async function addFrontmatter(filePath, wikiDir) {
-  const original = await fs7.readFile(filePath, "utf-8");
+  const original = await fs8.readFile(filePath, "utf-8");
   if (/^---\n/.test(original)) return;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
-  const relPath = relative(wikiDir, filePath);
+  const relPath = relative2(wikiDir, filePath);
   const firstSeg = relPath.split("/")[0];
   const type = KNOWN_CATEGORIES.has(firstSeg) ? firstSeg : "state";
   let created = "";
@@ -27893,7 +27934,7 @@ async function addFrontmatter(filePath, wikiDir) {
       created = slugDate[1];
     } else {
       try {
-        const stat = await fs7.stat(filePath);
+        const stat = await fs8.stat(filePath);
         created = stat.mtime.toISOString().slice(0, 10);
       } catch {
         created = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -27916,7 +27957,7 @@ related: [${related.join(", ")}]
 ---
 
 `;
-  await fs7.writeFile(filePath, fm + original, "utf-8");
+  await fs8.writeFile(filePath, fm + original, "utf-8");
 }
 function isSessionNarrative(content, slug) {
   const sessionSignals = [
@@ -27951,9 +27992,9 @@ function isSessionNarrative(content, slug) {
 }
 async function collectAllPages(dir, acc = []) {
   try {
-    const entries = await fs7.readdir(dir, { withFileTypes: true });
+    const entries = await fs8.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
-      const p = join7(dir, e.name);
+      const p = join8(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -27964,11 +28005,11 @@ async function collectAllPages(dir, acc = []) {
 
 // src/tools/knowledge-reindex.ts
 async function knowledgeReindex(knowledgeDir) {
-  const wikiRoot = join8(knowledgeDir, "wiki");
-  const indexPath = join8(wikiRoot, "index.md");
+  const wikiRoot = join9(knowledgeDir, "wiki");
+  const indexPath = join9(wikiRoot, "index.md");
   let dirs;
   try {
-    const entries = await fs8.readdir(wikiRoot, { withFileTypes: true });
+    const entries = await fs9.readdir(wikiRoot, { withFileTypes: true });
     dirs = entries.filter((d) => d.isDirectory()).map((d) => d.name).sort();
   } catch {
     return { pagesIndexed: 0, categories: [], indexPath };
@@ -27976,14 +28017,14 @@ async function knowledgeReindex(knowledgeDir) {
   const sections = ["# Knowledge Base Index", ""];
   let totalPages = 0;
   for (const dir of dirs) {
-    const dirPath = join8(wikiRoot, dir);
+    const dirPath = join9(wikiRoot, dir);
     const files = await collectMd(dirPath);
     if (files.length === 0) continue;
     const entries = [];
     for (const filePath of files.sort()) {
       const slug = filePath.split("/").pop().replace(/\.md$/, "");
       try {
-        const content = await fs8.readFile(filePath, "utf-8");
+        const content = await fs9.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         const desc = doc.description || firstSentence(doc.body);
         entries.push({ slug, title: doc.title || slug, description: desc });
@@ -28005,7 +28046,7 @@ async function knowledgeReindex(knowledgeDir) {
     sections.push("");
   }
   sections.push(`<!-- generated: ${(/* @__PURE__ */ new Date()).toISOString()} -->`);
-  await fs8.writeFile(indexPath, sections.join("\n"), "utf-8");
+  await fs9.writeFile(indexPath, sections.join("\n"), "utf-8");
   const validation = await knowledgeValidate(knowledgeDir, { autofix: true });
   return {
     pagesIndexed: totalPages,
@@ -28021,8 +28062,8 @@ function firstSentence(body) {
 }
 async function collectMd(dir, acc = []) {
   try {
-    for (const e of await fs8.readdir(dir, { withFileTypes: true })) {
-      const p = join8(dir, e.name);
+    for (const e of await fs9.readdir(dir, { withFileTypes: true })) {
+      const p = join9(dir, e.name);
       if (e.isDirectory()) await collectMd(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -28032,40 +28073,40 @@ async function collectMd(dir, acc = []) {
 }
 
 // src/tools/dream.ts
-import { promises as fs9 } from "fs";
-import { join as join9 } from "path";
+import { promises as fs10 } from "fs";
+import { join as join10 } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 var exec = promisify(execFile);
 function brainDir() {
-  return join9(process.env.HOME ?? "", ".second-brain");
+  return join10(process.env.HOME ?? "", ".second-brain");
 }
 function dreamsDir() {
-  return join9(brainDir(), "dreams");
+  return join10(brainDir(), "dreams");
 }
 function scriptsDir() {
-  return join9(
-    process.env.CLAUDE_PLUGIN_ROOT ?? join9(__dirname, "..", ".."),
+  return join10(
+    process.env.CLAUDE_PLUGIN_ROOT ?? join10(__dirname, "..", ".."),
     "scripts"
   );
 }
 async function readStatus(dreamId) {
-  const statusPath = join9(dreamsDir(), dreamId, "status.json");
+  const statusPath = join10(dreamsDir(), dreamId, "status.json");
   try {
-    const raw = await fs9.readFile(statusPath, "utf-8");
+    const raw = await fs10.readFile(statusPath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 async function writeStatus(dreamId, status) {
-  const statusPath = join9(dreamsDir(), dreamId, "status.json");
-  await fs9.writeFile(statusPath, JSON.stringify(status, null, 2), "utf-8");
+  const statusPath = join10(dreamsDir(), dreamId, "status.json");
+  await fs10.writeFile(statusPath, JSON.stringify(status, null, 2), "utf-8");
 }
 async function listDreamIds() {
   const dir = dreamsDir();
   try {
-    const entries = await fs9.readdir(dir, { withFileTypes: true });
+    const entries = await fs10.readdir(dir, { withFileTypes: true });
     return entries.filter((e) => e.isDirectory() && e.name.startsWith("drm_")).map((e) => e.name).sort().reverse();
   } catch {
     return [];
@@ -28097,7 +28138,7 @@ async function dreamCreate(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join9(scriptsDir(), "dream-snapshot.sh"), ...scriptArgs],
+      [join10(scriptsDir(), "dream-snapshot.sh"), ...scriptArgs],
       { timeout: 3e4, env: { ...process.env } }
     );
     const dreamId = stdout.trim();
@@ -28125,9 +28166,9 @@ async function dreamStatus(args) {
   }
   let diffPreview;
   if (status.status === "completed") {
-    const diffPath = join9(dreamsDir(), args.dream_id, "diff.md");
+    const diffPath = join10(dreamsDir(), args.dream_id, "diff.md");
     try {
-      const content = await fs9.readFile(diffPath, "utf-8");
+      const content = await fs10.readFile(diffPath, "utf-8");
       const lines = content.split("\n");
       diffPreview = lines.slice(0, 50).join("\n");
       if (lines.length > 50) diffPreview += "\n... (truncated)";
@@ -28161,7 +28202,7 @@ async function dreamAccept(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join9(scriptsDir(), "dream-accept.sh"), args.dream_id],
+      [join10(scriptsDir(), "dream-accept.sh"), args.dream_id],
       { timeout: 3e4, env: { ...process.env } }
     );
     const output = stdout.trim();
@@ -28188,10 +28229,10 @@ async function dreamDiscard(args) {
   if (status.archived_at) {
     return { ok: false, reason: `dream ${args.dream_id} already archived` };
   }
-  const dreamDir = join9(dreamsDir(), args.dream_id);
+  const dreamDir = join10(dreamsDir(), args.dream_id);
   try {
-    await fs9.rm(join9(dreamDir, "staging"), { recursive: true, force: true });
-    await fs9.rm(join9(dreamDir, "transcripts"), {
+    await fs10.rm(join10(dreamDir, "staging"), { recursive: true, force: true });
+    await fs10.rm(join10(dreamDir, "transcripts"), {
       recursive: true,
       force: true
     });
@@ -28219,8 +28260,8 @@ async function dreamCancel(args) {
 }
 
 // src/tools/episodic-search.ts
-import { promises as fs10 } from "fs";
-import { join as join10, basename as basename3 } from "path";
+import { promises as fs11 } from "fs";
+import { join as join11, basename as basename3 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -28244,9 +28285,9 @@ function parseSessionMeta(lines) {
   return { meta, bodyStart: i };
 }
 async function loadIndex(brainDir2) {
-  const indexPath = join10(brainDir2, INDEX_FILE);
+  const indexPath = join11(brainDir2, INDEX_FILE);
   try {
-    const data = await fs10.readFile(indexPath, "utf-8");
+    const data = await fs11.readFile(indexPath, "utf-8");
     return JSON.parse(data);
   } catch {
     return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };
@@ -28304,7 +28345,7 @@ async function vectorSearch(query, index, limit, filters, brainDir2) {
   if (withEmbeddings.length === 0) return [];
   const queryEmbedding = await embedTexts(
     [query],
-    join10(brainDir2, "transcripts"),
+    join11(brainDir2, "transcripts"),
     [""]
   );
   if (!queryEmbedding) return [];
@@ -28333,13 +28374,13 @@ function textSearch(query, index, limit, filters) {
   return scored.slice(0, limit);
 }
 async function multiConceptSearch(concepts, index, limit, filters) {
-  const brainDir2 = index.exchanges[0]?.archivePath ? join10(index.exchanges[0].archivePath, "..", "..") : join10(process.env.HOME ?? "", ".second-brain");
+  const brainDir2 = index.exchanges[0]?.archivePath ? join11(index.exchanges[0].archivePath, "..", "..") : join11(process.env.HOME ?? "", ".second-brain");
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
   if (withEmbeddings.length === 0) return { results: [] };
   const conceptEmbeddings = await embedTexts(
     concepts,
-    join10(brainDir2, "transcripts"),
+    join11(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
   if (!conceptEmbeddings) return { results: [] };
@@ -28379,7 +28420,7 @@ function applyFilters(exchanges, filters) {
   return result;
 }
 async function episodicRead(filePath, startLine, endLine) {
-  const content = await fs10.readFile(filePath, "utf-8");
+  const content = await fs11.readFile(filePath, "utf-8");
   const lines = content.split("\n");
   const { meta } = parseSessionMeta(lines);
   const start = (startLine ?? 1) - 1;
@@ -28395,8 +28436,8 @@ async function episodicRead(filePath, startLine, endLine) {
 
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
-import { promises as fs11 } from "fs";
-import { join as join11 } from "path";
+import { promises as fs12 } from "fs";
+import { join as join12 } from "path";
 var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
 var COST_PER_CALL = Number(process.env.SB_PERSONA_COST_PER_CALL ?? "0.11");
 var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "30000");
@@ -28411,7 +28452,7 @@ Given the user's prompt plus optional context hints, return ONLY a JSON object w
 Be terse. Default silent on questions/specialists/risks \u2014 only populate when the value is concrete.
 Output ONLY the JSON object, no prose around it.`;
 function defaultRunner(system, user, model) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     const p = spawn("claude", ["-p", "--bare", "--model", model, "--system-prompt", system], {
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -28439,7 +28480,7 @@ function defaultRunner(system, user, model) {
     p.on("close", (code) => {
       clearTimeout(timer);
       if (killed) return;
-      if (code === 0) resolve(out);
+      if (code === 0) resolve2(out);
       else reject(new Error(err || `claude -p exited ${code}`));
     });
     p.stdin.write(user);
@@ -28495,10 +28536,10 @@ ${args.prompt}` : args.prompt;
   }
 }
 async function readBudget(brainDir2) {
-  const file = join11(brainDir2, "persona-budget.json");
+  const file = join12(brainDir2, "persona-budget.json");
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   try {
-    const txt = await fs11.readFile(file, "utf-8");
+    const txt = await fs12.readFile(file, "utf-8");
     const j2 = JSON.parse(txt);
     if (j2.date === today) return { date: today, today_usd: Number(j2.today_usd) || 0 };
   } catch {
@@ -28508,22 +28549,22 @@ async function readBudget(brainDir2) {
 async function recordSpend(brainDir2, usd) {
   const current = await readBudget(brainDir2);
   const next = { date: current.date, today_usd: current.today_usd + usd };
-  await fs11.mkdir(brainDir2, { recursive: true }).catch(() => {
+  await fs12.mkdir(brainDir2, { recursive: true }).catch(() => {
   });
-  await fs11.writeFile(join11(brainDir2, "persona-budget.json"), JSON.stringify(next));
+  await fs12.writeFile(join12(brainDir2, "persona-budget.json"), JSON.stringify(next));
   return next;
 }
 
 // src/tools/persona-stats.ts
-import { promises as fs12 } from "fs";
-import { join as join12 } from "path";
+import { promises as fs13 } from "fs";
+import { join as join13 } from "path";
 var DEFAULT_BUDGET = Number(process.env.SB_PERSONA_DAILY_BUDGET ?? "20");
 async function personaStats(args = {}) {
-  const dir = args.brainDir ?? join12(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  const dir = args.brainDir ?? join13(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
   let identity = "";
   let cardBytes = 0;
   try {
-    const card = await fs12.readFile(join12(dir, "persona-card.md"), "utf-8");
+    const card = await fs13.readFile(join13(dir, "persona-card.md"), "utf-8");
     cardBytes = Buffer.byteLength(card, "utf-8");
     identity = card.split("\n").filter((l) => l.startsWith("- ")).slice(0, 3).map((l) => l.slice(2).trim()).join("; ");
   } catch {
@@ -28531,7 +28572,7 @@ async function personaStats(args = {}) {
   let ungraduated = 0;
   let graduated = 0;
   try {
-    const psl = await fs12.readFile(join12(dir, "persona-signals.jsonl"), "utf-8");
+    const psl = await fs13.readFile(join13(dir, "persona-signals.jsonl"), "utf-8");
     for (const line of psl.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -28545,7 +28586,7 @@ async function personaStats(args = {}) {
   }
   let plugins = 0, agents = 0, skills = 0;
   try {
-    const cat = JSON.parse(await fs12.readFile(join12(dir, ".installed-catalog.json"), "utf-8"));
+    const cat = JSON.parse(await fs13.readFile(join13(dir, ".installed-catalog.json"), "utf-8"));
     plugins = Array.isArray(cat.plugins) ? cat.plugins.length : 0;
     agents = Array.isArray(cat.agents) ? cat.agents.length : 0;
     skills = Array.isArray(cat.skills) ? cat.skills.length : 0;
@@ -28553,7 +28594,7 @@ async function personaStats(args = {}) {
   }
   let dismissals = 0;
   try {
-    const dl = await fs12.readFile(join12(dir, ".persona-dismissals.jsonl"), "utf-8");
+    const dl = await fs13.readFile(join13(dir, ".persona-dismissals.jsonl"), "utf-8");
     const cutoff = Date.now() - 7 * 864e5;
     for (const line of dl.split("\n")) {
       if (!line.trim()) continue;
@@ -28568,7 +28609,7 @@ async function personaStats(args = {}) {
   }
   let spend = 0;
   try {
-    const b = JSON.parse(await fs12.readFile(join12(dir, "persona-budget.json"), "utf-8"));
+    const b = JSON.parse(await fs13.readFile(join13(dir, "persona-budget.json"), "utf-8"));
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     if (b.date === today) spend = Number(b.today_usd) || 0;
   } catch {
@@ -28588,14 +28629,14 @@ async function personaStats(args = {}) {
 }
 
 // src/tools/persona-dismiss.ts
-import { promises as fs13 } from "fs";
-import { join as join13 } from "path";
+import { promises as fs14 } from "fs";
+import { join as join14 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
-  const dir = args.brainDir ?? join13(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
-  await fs13.mkdir(dir, { recursive: true }).catch(() => {
+  const dir = args.brainDir ?? join14(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  await fs14.mkdir(dir, { recursive: true }).catch(() => {
   });
-  const file = join13(dir, ".persona-dismissals.jsonl");
+  const file = join14(dir, ".persona-dismissals.jsonl");
   const now = /* @__PURE__ */ new Date();
   const entry = {
     at: now.toISOString(),
@@ -28605,7 +28646,7 @@ async function personaDismiss(args = {}) {
   const cutoff = now.getTime() - RETAIN_DAYS * 864e5;
   let kept = "";
   try {
-    const existing = await fs13.readFile(file, "utf-8");
+    const existing = await fs14.readFile(file, "utf-8");
     for (const line of existing.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -28618,7 +28659,7 @@ async function personaDismiss(args = {}) {
   } catch {
   }
   kept += JSON.stringify(entry) + "\n";
-  await fs13.writeFile(file, kept);
+  await fs14.writeFile(file, kept);
   const week = now.getTime() - 7 * 864e5;
   let count = 0;
   for (const line of kept.split("\n")) {
@@ -28647,6 +28688,16 @@ function resolveKnowledgeDir() {
   return path2.join(os.homedir(), "knowledge");
 }
 var KNOWLEDGE_DIR = resolveKnowledgeDir();
+var BRAIN_DIR = path2.join(os.homedir(), ".second-brain");
+function resolveActiveSlug() {
+  try {
+    const pin = fs15.readFileSync(path2.join(BRAIN_DIR, ".active-session-slug"), "utf-8").trim();
+    if (pin && fs15.existsSync(path2.join(BRAIN_DIR, "projects", pin, "PROJECT.md"))) return pin;
+  } catch {
+  }
+  const base = path2.basename(process.cwd());
+  return base && base !== "/" && base !== "." ? base : void 0;
+}
 var server = new McpServer(
   { name: "knowledge-base", version: "2.2.0" },
   {
@@ -28670,7 +28721,7 @@ server.registerTool(
   },
   async ({ query, scope }) => {
     try {
-      const result = await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR });
+      const result = await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug() });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     } catch (error2) {
       return {
@@ -28752,7 +28803,7 @@ server.registerTool(
   async () => {
     try {
       const wikiDir = path2.join(KNOWLEDGE_DIR, "wiki");
-      if (!fs14.existsSync(wikiDir)) {
+      if (!fs15.existsSync(wikiDir)) {
         return {
           content: [{
             type: "text",
@@ -28772,7 +28823,7 @@ server.registerTool(
         const cat = categorizeFile(file);
         let size = 0;
         try {
-          size = fs14.statSync(file).size;
+          size = fs15.statSync(file).size;
         } catch {
           continue;
         }
@@ -28952,7 +29003,6 @@ server.registerTool(
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 );
-var BRAIN_DIR = path2.join(os.homedir(), ".second-brain");
 server.registerTool(
   "episodic_search",
   {
@@ -29034,8 +29084,7 @@ server.registerTool(
   },
   async (args) => {
     try {
-      const brainDir2 = path2.join(os.homedir(), ".second-brain");
-      const result = await personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir: brainDir2 });
+      const result = await personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir: BRAIN_DIR });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     } catch (error2) {
       return {

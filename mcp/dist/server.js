@@ -31,6 +31,18 @@ function resolveKnowledgeDir() {
     return path.join(os.homedir(), "knowledge");
 }
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
+const BRAIN_DIR = path.join(os.homedir(), '.second-brain');
+function resolveActiveSlug() {
+    // Mirror scripts/lib.sh sb_resolve_slug: prefer the pin (when its PROJECT.md exists), else basename(cwd).
+    try {
+        const pin = fs.readFileSync(path.join(BRAIN_DIR, '.active-session-slug'), 'utf-8').trim();
+        if (pin && fs.existsSync(path.join(BRAIN_DIR, 'projects', pin, 'PROJECT.md')))
+            return pin;
+    }
+    catch { /* no pin */ }
+    const base = path.basename(process.cwd());
+    return base && base !== '/' && base !== '.' ? base : undefined;
+}
 const server = new McpServer({ name: "knowledge-base", version: "2.2.0" }, {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section.",
@@ -49,7 +61,7 @@ server.registerTool("knowledge_search", {
     },
 }, async ({ query, scope }) => {
     try {
-        const result = await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR });
+        const result = await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug() });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
     catch (error) {
@@ -292,7 +304,6 @@ server.registerTool("dream_cancel", {
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
 });
 // --- Episodic memory tools ---
-const BRAIN_DIR = path.join(os.homedir(), '.second-brain');
 server.registerTool("episodic_search", {
     description: "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading.",
     inputSchema: {
@@ -364,8 +375,7 @@ server.registerTool("persona_think", {
     },
 }, async (args) => {
     try {
-        const brainDir = path.join(os.homedir(), '.second-brain');
-        const result = await personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir });
+        const result = await personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir: BRAIN_DIR });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
     catch (error) {

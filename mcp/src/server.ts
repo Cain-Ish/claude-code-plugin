@@ -33,6 +33,17 @@ function resolveKnowledgeDir(): string {
 }
 
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
+const BRAIN_DIR = path.join(os.homedir(), '.second-brain');
+
+function resolveActiveSlug(): string | undefined {
+  // Mirror scripts/lib.sh sb_resolve_slug: prefer the pin (when its PROJECT.md exists), else basename(cwd).
+  try {
+    const pin = fs.readFileSync(path.join(BRAIN_DIR, '.active-session-slug'), 'utf-8').trim();
+    if (pin && fs.existsSync(path.join(BRAIN_DIR, 'projects', pin, 'PROJECT.md'))) return pin;
+  } catch { /* no pin */ }
+  const base = path.basename(process.cwd());
+  return base && base !== '/' && base !== '.' ? base : undefined;
+}
 
 const server = new McpServer(
   { name: "knowledge-base", version: "2.2.0" },
@@ -61,7 +72,7 @@ server.registerTool(
   },
   async ({ query, scope }) => {
     try {
-      const result = await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR });
+      const result = await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug() });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     } catch (error) {
       return {
@@ -368,8 +379,6 @@ server.registerTool(
 
 // --- Episodic memory tools ---
 
-const BRAIN_DIR = path.join(os.homedir(), '.second-brain');
-
 server.registerTool(
   "episodic_search",
   {
@@ -452,8 +461,7 @@ server.registerTool(
   },
   async (args) => {
     try {
-      const brainDir = path.join(os.homedir(), '.second-brain');
-      const result = await personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir });
+      const result = await personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir: BRAIN_DIR });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     } catch (error) {
       return {
