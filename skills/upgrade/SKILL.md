@@ -30,6 +30,8 @@ echo "Installed: $INSTALLED -> Current: $CURRENT"
 
 Each migration is identified by its target version. Run only migrations whose target is `> $INSTALLED AND <= $CURRENT`.
 
+> **Re-baselined to 0.11.1 (2026-05-24).** The version was dropped from a misleading `2.x` to `0.11.1` (true maturity is pre-1.0). Every row with target **≥ 1.0.0 is historical** — it must NOT run again. They are excluded today (all are `> 0.11.1`), and fresh `0.11.1` installs scaffold via `/second-brain:setup` + `ensure-dirs.sh` (the `≤ 0.7.0` rows are harmless mkdir/no-ops). **Before the version ever re-crosses 1.0.0, prune or rewrite the `≥ 1.0.0` rows** or first-time-1.0.0 migrations (e.g. the reflection-runtime wipe) will mis-fire.
+
 | To version | Migration | Idempotent check |
 |---|---|---|
 | **0.4.0** | Critic-log file is created on first write — nothing to migrate. Drift-log file ditto. | No precondition. |

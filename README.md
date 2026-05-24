@@ -69,7 +69,7 @@ sb auth status      # which mode is active right now
 sb auth doctor      # walk-through of both setup paths
 ```
 
-The SessionStart banner always shows the active mode in one line — see [v2.11.0 changes](#whats-new-in-v2110) for screenshots.
+The SessionStart banner always shows the active mode in one line.
 
 ## Skills
 
@@ -94,7 +94,7 @@ The SessionStart banner always shows the active mode in one line — see [v2.11.
 
 The five `Vendored` skills are adapted from [obra/superpowers](https://github.com/obra/superpowers) (MIT). See `NOTICE.md`.
 
-## Persona core (v2.3.0)
+## Persona core
 
 The persona is the *self* of second-brain — identity, memory, tools, judgment. Always present, rarely loud. The architecture follows three patterns from public research: pull-based escalation ([Anthropic Advisor Strategy](https://www.anthropic.com/engineering/multi-agent-research-system)), compile-on-ingest ([Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)), and silence-by-default ([CHI 2025 "Need Help?"](https://dl.acm.org/doi/full/10.1145/3706598.3714002)).
 
@@ -149,7 +149,7 @@ Resolution order for the dirs: `BRAIN_DIR` env → `~/.second-brain`; `KNOWLEDGE
 
 ## MCP Server
 
-The plugin includes a local MCP server. Tools (current as of v2.11.0):
+The plugin includes a local MCP server. Tools:
 
 | Tool | Purpose |
 |---|---|
@@ -264,7 +264,7 @@ Tests run in isolation under `mktemp` sandboxes (no real user data is touched). 
 make test                       # or: bash tests/run-all.sh
 ```
 
-As of v2.11.0 this runs 24 shell tests + 59 vitest assertions. Output is a per-test verdict and a summary; exit code is non-zero on any failure.
+Currently this runs 24 shell tests + 59 vitest assertions. Output is a per-test verdict and a summary; exit code is non-zero on any failure.
 
 **Install the pre-push gate** so broken commits cannot be pushed:
 
@@ -283,15 +283,6 @@ bash tests/test-upgrade-vector-deps.sh            # upgrade-skill vector-deps ga
 bash tests/test-session-load-auth-banner.sh       # SessionStart auth-mode banner
 # (full list: ls tests/test-*.sh)
 ```
-
-## What's new in v2.11.0
-
-The first release with a verification gate. Concretely:
-
-- **Dual-auth UX.** `sb auth status` reports which mode is active; `sb auth doctor` walks through both setup paths. A one-line banner at SessionStart always shows the active mode.
-- **Recursive-claude guard.** Stop/PreCompact hooks no longer burn the 40s timeout when running inside Claude Code under OAuth-only auth — they short-circuit to `status=queued` so the SessionStart banner can surface the configuration accurately.
-- **Upgrade-time vector-deps gate.** `/second-brain:upgrade` runs an idempotent smoke-import of `@huggingface/transformers` and invokes `bin/install-vector-deps.sh` when missing. Closes the "esbuild --external silently strips native deps" gap that left fresh installs with degraded search.
-- **`tests/run-all.sh`** aggregate runner + **`.githooks/pre-push`** gate. The contract: a version tag is valid only when the gate exits 0 on the commit being tagged. See `RELEASING.md`.
 
 ## License
 

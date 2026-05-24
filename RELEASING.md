@@ -44,10 +44,6 @@ Before tagging `vX.Y.Z`:
 - [ ] **`README.md` matches what ships.** New CLI verbs, new config knobs,
       changed defaults — all documented. README is the user's first contact
       with the plugin; it can't lag the code.
-- [ ] **`CHANGELOG.md`** updated with a section for `vX.Y.Z`. Each item one
-      line, in past tense, with the wiki/PR link if any. List both fixes and
-      additions — and if anything is *known broken*, list it explicitly here.
-      Honest changelog > inflated changelog.
 - [ ] **`make release-check`** exits 0. This runs both the vector-deps
       smoke and the full test suite in one go.
 
@@ -82,5 +78,5 @@ Until the plugin has a paying-user surface, treat versions as:
 
 A patch release that requires user action (e.g. running a script, exporting
 an env var) should be a minor. "Same patch number, different behavior" hides
-breakage from the user; "minor bump + CHANGELOG row + upgrade-skill row"
+breakage from the user; "minor bump + upgrade-skill row"
 makes the change visible at install time.
