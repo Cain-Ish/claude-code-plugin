@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
-import { join, relative } from 'path';
+import { join, relative, resolve, sep } from 'path';
 import { spawnSync } from 'child_process';
 import { glob } from 'glob';
 
@@ -10,7 +10,7 @@ export function hashContent(content: string): string {
 
 /** Gist = first H1 / frontmatter title / first non-empty line. Deterministic, no LLM. */
 export function extractGist(content: string): string {
-  const fm = content.match(/^---\n([\s\S]*?)\n---/);
+  const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   const body = fm ? content.slice(fm[0].length) : content;
   const h1 = body.match(/^#\s+(.+)$/m);
   if (h1) return h1[1].trim();
@@ -59,10 +59,15 @@ function filterIgnored(projectRoot: string, absPaths: string[]): string[] {
 export async function scanLocations(projectRoot: string, locations: string[]): Promise<DocEntry[]> {
   const seen = new Set<string>();
   const absPaths: string[] = [];
+  const rootResolved = resolve(projectRoot);
+  const within = (p: string): boolean => {
+    const r = resolve(p);
+    return r === rootResolved || r.startsWith(rootResolved + sep);
+  };
   for (const loc of locations) {
     const pattern = /[*?[\]{}]/.test(loc) ? loc : `${loc.replace(/\/+$/, '')}/**/*.md`;
     const matches = await glob(pattern, { cwd: projectRoot, absolute: true, nodir: true }).catch(() => [] as string[]);
-    for (const m of matches) if (!seen.has(m)) { seen.add(m); absPaths.push(m); }
+    for (const m of matches) if (within(m) && !seen.has(m)) { seen.add(m); absPaths.push(m); }
   }
   const kept = filterIgnored(projectRoot, absPaths);
   const entries: DocEntry[] = [];
@@ -78,7 +83,7 @@ export async function scanLocations(projectRoot: string, locations: string[]): P
       });
     } catch { /* unreadable — skip */ }
   }
-  entries.sort((a, b) => a.path.localeCompare(b.path)); // deterministic order
+  entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)); // byte-stable, locale-independent
   return entries;
 }
 

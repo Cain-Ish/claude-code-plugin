@@ -16,6 +16,12 @@ describe('extractGist', () => {
   it('falls back to first non-empty line when neither', () => {
     expect(extractGist('\n\nFirst real line\nsecond')).toBe('First real line');
   });
+  it('reads frontmatter title from a CRLF file with no H1', () => {
+    expect(extractGist('---\r\ntitle: CR Doc\r\n---\r\n\r\nbody')).toBe('CR Doc');
+  });
+  it('uses first body line when frontmatter has no title and no H1', () => {
+    expect(extractGist('---\nfoo: bar\n---\nFirst body line\nsecond')).toBe('First body line');
+  });
 });
 
 describe('extractHeadings', () => {
@@ -67,6 +73,37 @@ describe('scanLocations', () => {
     expect(entries.some((e) => e.rel === 'docs/secret.md')).toBe(false);
     expect(entries.some((e) => e.rel === 'docs/deploy.md')).toBe(true);
   });
+
+  it('does not scan an absolute-path location outside root', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'ds-abs-'));
+    writeFileSync(join(outside, 'leak.md'), '# Leak\n');
+    try {
+      const entries = await scanLocations(root, [outside]);
+      expect(entries.some((e) => e.path.includes('leak'))).toBe(false);
+    } finally { rmSync(outside, { recursive: true, force: true }); }
+  });
+
+  it('does not scan a ../ location outside root', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'ds-up-'));
+    writeFileSync(join(outside, 'leak.md'), '# Leak\n');
+    try {
+      const rel = '../' + (outside.split('/').pop() as string);
+      const entries = await scanLocations(root, [rel]);
+      expect(entries.some((e) => e.path.includes('leak'))).toBe(false);
+    } finally { rmSync(outside, { recursive: true, force: true }); }
+  });
+
+  it('honors an explicit glob location', async () => {
+    const entries = await scanLocations(root, ['docs/*.md']);
+    expect(entries.map((e) => e.rel).sort()).toEqual(['docs/deploy.md', 'docs/secret.md']);
+  });
+
+  it('skips node_modules even without a git repo', async () => {
+    mkdirSync(join(root, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', 'pkg', 'readme.md'), '# Dep\n');
+    const entries = await scanLocations(root, ['.']);
+    expect(entries.some((e) => e.rel.includes('node_modules'))).toBe(false);
+  });
 });
 
 describe('buildRegistry / lifecycle', () => {
@@ -105,5 +142,9 @@ describe('buildRegistry / lifecycle', () => {
     unlinkSync(join(root, 'docs', 'a.md'));
     const r2 = await buildRegistry(root, brain, 'proj');
     expect(r2.entries).toEqual([]);
+  });
+
+  it('loadRegistry returns null when no registry exists', async () => {
+    expect(await loadRegistry(brain, 'missing-slug')).toBeNull();
   });
 });
