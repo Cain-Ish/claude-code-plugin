@@ -18,6 +18,7 @@ Decision (user, 2026-05-24): **backfill the existing backlog gradually + keep up
 ## 2. Constraints / findings
 
 - **Must run outside a session.** The drainer refuses to run when `CLAUDECODE=1`.
+- **The OAuth lock is GLOBAL, not process-tree-scoped** (found during smoke testing, 2026-05-24). A `claude -p` call hangs whenever *any* interactive `claude` session is alive for the uid — even a fully-detached `systemd-run --user` service hung (`ec=124`) and spawned a recursive claude per attempt. So the drainer adds a **defer guard** (`sb_drain_should_defer`): if a `claude` process (this uid) without `-p` is running, it exits cleanly — no extraction attempt, no `retry` recorded (which would otherwise poison the give-up counter on a perfectly good transcript), no recursive spawn. The timer is therefore safe to fire anytime: it defers during active sessions and drains in idle windows. Live-verified to defer in ~50 ms.
 - **No per-transcript extraction state exists today.** This feature introduces it.
 - **pty / PrivateDevices gotcha** ([[pty-openpty-privatedevices-quirk]]): the systemd unit must NOT enable `PrivateDevices=` or aggressive sandboxing — it breaks `claude`'s pty allocation. Unit stays minimal.
 - **Headless Pi:** a systemd *user* timer only runs while the user has a session unless `loginctl enable-linger <user>` is set. Install must enable linger.
