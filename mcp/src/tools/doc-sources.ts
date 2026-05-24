@@ -81,3 +81,29 @@ export async function scanLocations(projectRoot: string, locations: string[]): P
   entries.sort((a, b) => a.path.localeCompare(b.path)); // deterministic order
   return entries;
 }
+
+export interface DocRegistry { generated_at: string; project: string; entries: DocEntry[]; }
+
+function registryPath(brainDir: string, slug: string): string {
+  return join(brainDir, 'projects', slug, 'doc-sources.json');
+}
+
+export async function loadRegistry(brainDir: string, slug: string): Promise<DocRegistry | null> {
+  try { return JSON.parse(await fs.readFile(registryPath(brainDir, slug), 'utf-8')); }
+  catch { return null; }
+}
+
+/** Scan the live FS (config-declared locations) and write the registry. The fresh
+ *  scan IS the reconciled state: content-hash ids are stable across moves, removed
+ *  files are simply absent, edits get a new hash. */
+export async function buildRegistry(projectRoot: string, brainDir: string, slug: string): Promise<DocRegistry> {
+  const { locations } = await readConfig(brainDir, slug);
+  const entries = await scanLocations(projectRoot, locations);
+  const reg: DocRegistry = { generated_at: new Date().toISOString(), project: slug, entries };
+  await fs.mkdir(join(brainDir, 'projects', slug), { recursive: true });
+  const out = registryPath(brainDir, slug);
+  const tmp = `${out}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(reg, null, 2));
+  await fs.rename(tmp, out); // atomic
+  return reg;
+}

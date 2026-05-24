@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { extractGist, extractHeadings, hashContent } from '../src/tools/doc-sources.js';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
-import { readConfig, scanLocations } from '../src/tools/doc-sources.js';
+import { readConfig, scanLocations, buildRegistry, loadRegistry } from '../src/tools/doc-sources.js';
 
 describe('extractGist', () => {
   it('prefers the H1 heading', () => {
@@ -66,5 +66,44 @@ describe('scanLocations', () => {
     const entries = await scanLocations(root, ['docs/']);
     expect(entries.some((e) => e.rel === 'docs/secret.md')).toBe(false);
     expect(entries.some((e) => e.rel === 'docs/deploy.md')).toBe(true);
+  });
+});
+
+describe('buildRegistry / lifecycle', () => {
+  let root: string; let brain: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'ds-pr-'));
+    brain = mkdtempSync(join(tmpdir(), 'ds-bn-'));
+    mkdirSync(join(brain, 'projects', 'proj'), { recursive: true });
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    writeFileSync(join(brain, 'projects', 'proj', 'doc-sources.config.json'), JSON.stringify({ locations: ['docs/'] }));
+    writeFileSync(join(root, 'docs', 'a.md'), '# Alpha\n\nbody\n');
+  });
+  afterEach(() => { rmSync(root, { recursive: true, force: true }); rmSync(brain, { recursive: true, force: true }); });
+
+  it('builds and loads a registry of the live files', async () => {
+    const reg = await buildRegistry(root, brain, 'proj');
+    expect(reg.project).toBe('proj');
+    expect(reg.entries.map((e) => e.rel)).toEqual(['docs/a.md']);
+    const loaded = await loadRegistry(brain, 'proj');
+    expect(loaded!.entries).toEqual(reg.entries);
+  });
+
+  it('moved file keeps its id/hash with the new path', async () => {
+    const r1 = await buildRegistry(root, brain, 'proj');
+    const before = r1.entries[0];
+    renameSync(join(root, 'docs', 'a.md'), join(root, 'docs', 'b.md'));
+    const r2 = await buildRegistry(root, brain, 'proj');
+    expect(r2.entries).toHaveLength(1);
+    expect(r2.entries[0].rel).toBe('docs/b.md');
+    expect(r2.entries[0].id).toBe(before.id);
+    expect(r2.entries[0].hash).toBe(before.hash);
+  });
+
+  it('removed file drops out of the registry', async () => {
+    await buildRegistry(root, brain, 'proj');
+    unlinkSync(join(root, 'docs', 'a.md'));
+    const r2 = await buildRegistry(root, brain, 'proj');
+    expect(r2.entries).toEqual([]);
   });
 });
