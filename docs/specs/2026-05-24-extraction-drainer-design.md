@@ -58,7 +58,7 @@ for tf in $(ls -1tr "$TX_DIR"/*.txt 2>/dev/null); do
   base=$(basename "$tf")
   # skip if terminal (ok or error) in done-set
   sb_extraction_done "$base" "$STATE" && continue
-  slug=$(sb_slug_from_transcript_name "$base")   # parse <uuid>_<slug>_<date>.txt
+  slug=$(sb_slug_from_archived_transcript "$tf")   # read project_slug: from meta header
   if sb_extract_transcript "$tf" "$slug"; then    # shared core: extractor → merge
     printf '{"basename":%s,"ts":"%s","outcome":"ok"}\n' "$(jq -Rn --arg b "$base" '$b')" "$(date -u +%FT%TZ)" >> "$STATE"
     processed=$((processed+1))
@@ -82,12 +82,27 @@ exit 0
 
 ## 5. Shared extraction core (DRY)
 
-Factor a helper into `lib.sh`:
+The archived `.txt` (written by `sb_archive_transcript`) has a meta header then the preprocessed body:
+```
+--- session-meta ---
+session_id: <id>
+project_slug: <slug>
+date: <date>
+tool_count: <n>
+line_count: <n>
+---
 
-- `sb_extract_transcript <transcript_file> <slug>` — reads the formatted transcript text, calls `sb_call_extractor` with the extraction system prompt + model (`SB_EXTRACTOR_MODEL`), pipes the JSON delta to `merge-project-update.sh`. Returns 0 on a successful merge, non-zero otherwise. Used by the drainer; `stop-extract.sh` is refactored to call it for the (rare) API-key in-session path so the two never diverge.
+<preprocessed transcript body>
+```
+
+New helpers in `lib.sh`:
+
+- `sb_slug_from_archived_transcript <txt_file>` — read `project_slug:` from the meta header (robust vs. filename parsing, which breaks if a slug ever contains `_`).
+- `sb_extract_transcript <txt_file> <slug>` — build the extractor input (`=== PROJECT.md === … === TRANSCRIPT (preprocessed) ===` + the body after the meta header), call `sb_call_extractor` with `extract-prompt.txt` + `SB_EXTRACTOR_MODEL`, run the result through `extraction-quality-gate.sh`, pipe the gated delta to `merge-project-update.sh --project-md … --knowledge-dir …`, and route `persona_signals` through `merge-persona-signals.sh` (mirroring `stop-extract.sh:200-227`). Auto-scaffolds `PROJECT.md` if missing (same template as `stop-extract.sh:65-86`). Returns 0 on a successful merge.
 - `sb_extraction_done <base> <state_file>` — true if a terminal (`ok`/`error`) line exists.
 - `sb_extraction_fails <base> <state_file>` — count of prior `retry` lines for the basename (0 if none).
-- `sb_slug_from_transcript_name <base>` — parse the `<uuid>_<slug>_<date>.txt` convention.
+
+**Decision (deviation from earlier draft):** `stop-extract.sh` is **left untouched** — the user flagged risk to the working Stop path, and `stop-extract.sh` operates on raw JSONL with line-windowing/markers (a different input shape) so it can't cleanly share the whole helper anyway. The shared boundary is the "build input → extractor → gate → merge → persona" tail, encapsulated in `sb_extract_transcript` and used only by the drainer for now. `stop-extract.sh` adopting it later is out of scope.
 
 ## 6. Scheduling — systemd user timer
 
@@ -122,13 +137,16 @@ WantedBy=timers.target
 - Cadence default **30 min** (`OnUnitActiveSec`). `Persistent=true` catches up a missed run after downtime.
 - `ExecStart` path is resolved at install time (the plugin cache path is version-stamped, so the installer renders the actual absolute path — see §7).
 
-## 7. Install — `sb extract` subcommand (reviewable)
+## 7. Install — reviewable bash script
 
-Extend the `sb` CLI:
-- `sb extract` — run one drain pass now (manual / smoke test).
-- `sb extract install-timer [--apply]` — without `--apply`: print the rendered `.service` + `.timer` content and the exact commands (`systemctl --user enable --now sb-extract-drain.timer`, `loginctl enable-linger $USER`). With `--apply`: write the units to `~/.config/systemd/user/`, reload, enable+start the timer, and print the linger command for the user to run (linger may need the user's own invocation). 
-- `sb extract status` — show timer state + last health marker + pending-transcript count.
-- `sb extract uninstall-timer` — disable + remove units (clean reversal).
+`bin/sb` is a thin wrapper that `exec node`s a bundled TypeScript CLI, so adding an `sb extract` subcommand would mean editing TS source + rebuilding the vitest-tested bundle — unnecessary, since the drainer must be bash anyway (it calls `sb_call_extractor`/`merge`). Instead:
+
+- **`scripts/extract-drain.sh`** — the drainer (called directly by the systemd `ExecStart`, and runnable by hand for a smoke test).
+- **`scripts/install-extract-timer.sh [--apply] [--uninstall]`** — reviewable installer:
+  - no flag: **print** the rendered `.service` + `.timer` (with the absolute `ExecStart` path resolved) and the exact commands, touching nothing.
+  - `--apply`: write the units to `~/.config/systemd/user/`, `systemctl --user daemon-reload`, `systemctl --user enable --now sb-extract-drain.timer`. It then **prints** the `loginctl enable-linger "$USER"` command for the user to run themselves (linger is a host-state change surfaced explicitly, not run silently — per the user's preference).
+  - `--uninstall`: `systemctl --user disable --now` + remove the unit files (clean reversal).
+- A TS `sb extract status` subcommand is **out of scope** (would touch the bundle); `systemctl --user status sb-extract-drain.timer` + `cat ~/.second-brain/.extractor-health.json` cover it.
 
 ## 8. Error handling
 
@@ -145,11 +163,11 @@ New `tests/test-extract-drain.sh` (sandboxed `BRAIN_DIR`, stubbed extractor via 
 - Appends `outcome:"ok"` to done-set; a done transcript is skipped next run.
 - Failing extractor → `retry` then terminal `error` after MAX_FAILS; never reprocessed after terminal.
 - Lock held → second invocation is a no-op.
-- `sb_slug_from_transcript_name` parses the naming convention correctly.
+- `sb_slug_from_archived_transcript` reads `project_slug:` from the meta header.
 
-`sb extract install-timer` (no `--apply`) prints valid unit text and touches nothing (assert `~/.config/systemd/user/` unchanged). If `systemd-analyze` is available, `systemd-analyze verify` the rendered units.
+`scripts/install-extract-timer.sh` (no `--apply`) prints valid unit text and touches nothing (assert `~/.config/systemd/user/` unchanged). If `systemd-analyze` is available, `systemd-analyze verify` the rendered units.
 
-Smoke (manual, in the plan): `sb extract` by hand outside a session → confirm it authenticates via OAuth and writes a wiki delta; confirm `~/.second-brain/error-log.jsonl` clean.
+Smoke (manual, in the plan): `bash scripts/extract-drain.sh` by hand outside a session → confirm it authenticates via OAuth and writes a wiki delta; confirm `~/.second-brain/error-log.jsonl` clean.
 
 ## 10. Out of scope
 
