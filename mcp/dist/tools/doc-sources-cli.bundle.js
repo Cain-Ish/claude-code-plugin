@@ -6089,6 +6089,11 @@ function extractHeadings(content) {
   return content.split("\n").map((l) => l.trim()).filter((l) => /^#{2,3}\s+\S/.test(l));
 }
 var JUNK_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".venv", "venv", ".next", "dist", "build"]);
+function assertSafeSlug(slug) {
+  if (!slug || /[\\/]|\.\./.test(slug)) {
+    throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
+  }
+}
 async function readConfig(brainDir, slug) {
   try {
     const j2 = JSON.parse(await fs.readFile(join(brainDir, "projects", slug, "doc-sources.config.json"), "utf-8"));
@@ -6151,6 +6156,7 @@ function registryPath(brainDir, slug) {
   return join(brainDir, "projects", slug, "doc-sources.json");
 }
 async function buildRegistry(projectRoot, brainDir, slug) {
+  assertSafeSlug(slug);
   const { locations } = await readConfig(brainDir, slug);
   const entries = await scanLocations(projectRoot, locations);
   const reg = { generated_at: (/* @__PURE__ */ new Date()).toISOString(), project: slug, entries };

@@ -26,6 +26,11 @@ export function extractHeadings(content) {
     return content.split('\n').map((l) => l.trim()).filter((l) => /^#{2,3}\s+\S/.test(l));
 }
 const JUNK_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '.next', 'dist', 'build']);
+function assertSafeSlug(slug) {
+    if (!slug || /[\\/]|\.\./.test(slug)) {
+        throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
+    }
+}
 export async function readConfig(brainDir, slug) {
     try {
         const j = JSON.parse(await fs.readFile(join(brainDir, 'projects', slug, 'doc-sources.config.json'), 'utf-8'));
@@ -89,6 +94,7 @@ function registryPath(brainDir, slug) {
 }
 export async function loadRegistry(brainDir, slug) {
     try {
+        assertSafeSlug(slug);
         return JSON.parse(await fs.readFile(registryPath(brainDir, slug), 'utf-8'));
     }
     catch {
@@ -99,6 +105,7 @@ export async function loadRegistry(brainDir, slug) {
  *  scan IS the reconciled state: content-hash ids are stable across moves, removed
  *  files are simply absent, edits get a new hash. */
 export async function buildRegistry(projectRoot, brainDir, slug) {
+    assertSafeSlug(slug);
     const { locations } = await readConfig(brainDir, slug);
     const entries = await scanLocations(projectRoot, locations);
     const reg = { generated_at: new Date().toISOString(), project: slug, entries };

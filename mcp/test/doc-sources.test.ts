@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { extractGist, extractHeadings, hashContent } from '../src/tools/doc-sources.js';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
@@ -146,5 +146,13 @@ describe('buildRegistry / lifecycle', () => {
 
   it('loadRegistry returns null when no registry exists', async () => {
     expect(await loadRegistry(brain, 'missing-slug')).toBeNull();
+  });
+
+  it('buildRegistry rejects an unsafe slug (path traversal) and writes nothing outside', async () => {
+    await expect(buildRegistry(root, brain, '../escape')).rejects.toThrow(/unsafe slug/);
+    expect(existsSync(join(brain, '..', 'escape', 'doc-sources.json'))).toBe(false);
+  });
+  it('loadRegistry returns null for an unsafe slug', async () => {
+    expect(await loadRegistry(brain, '../escape')).toBeNull();
   });
 });

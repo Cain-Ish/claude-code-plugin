@@ -35,6 +35,12 @@ export interface DocEntry {
 
 const JUNK_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '.next', 'dist', 'build']);
 
+function assertSafeSlug(slug: string): void {
+  if (!slug || /[\\/]|\.\./.test(slug)) {
+    throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
+  }
+}
+
 export async function readConfig(brainDir: string, slug: string): Promise<DocSourceConfig> {
   try {
     const j = JSON.parse(await fs.readFile(join(brainDir, 'projects', slug, 'doc-sources.config.json'), 'utf-8'));
@@ -94,7 +100,7 @@ function registryPath(brainDir: string, slug: string): string {
 }
 
 export async function loadRegistry(brainDir: string, slug: string): Promise<DocRegistry | null> {
-  try { return JSON.parse(await fs.readFile(registryPath(brainDir, slug), 'utf-8')); }
+  try { assertSafeSlug(slug); return JSON.parse(await fs.readFile(registryPath(brainDir, slug), 'utf-8')); }
   catch { return null; }
 }
 
@@ -102,6 +108,7 @@ export async function loadRegistry(brainDir: string, slug: string): Promise<DocR
  *  scan IS the reconciled state: content-hash ids are stable across moves, removed
  *  files are simply absent, edits get a new hash. */
 export async function buildRegistry(projectRoot: string, brainDir: string, slug: string): Promise<DocRegistry> {
+  assertSafeSlug(slug);
   const { locations } = await readConfig(brainDir, slug);
   const entries = await scanLocations(projectRoot, locations);
   const reg: DocRegistry = { generated_at: new Date().toISOString(), project: slug, entries };
