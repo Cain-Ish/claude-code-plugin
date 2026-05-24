@@ -61,4 +61,42 @@ describe('knowledge_search v1', () => {
     expect(hit!.description).toBe('One-line curated gist about widgets');
     expect(hit as any).not.toHaveProperty('first_lines');
   });
+
+  it('surfaces an active-project local doc as a local-doc candidate', async () => {
+    const brainDir = mkdtempSync(join(tmpdir(), 'ks-brain-'));
+    mkdirSync(join(brainDir, 'projects', 'proj'), { recursive: true });
+    writeFileSync(join(brainDir, 'projects', 'proj', 'doc-sources.json'), JSON.stringify({
+      generated_at: 'x', project: 'proj',
+      entries: [{ id: 'abc123', path: '/abs/docs/deploy-runbook.md', rel: 'docs/deploy-runbook.md',
+        gist: 'Deploy runbook for the cluster', headings: ['## Steps', '## Rollback'],
+        hash: 'h', mtime: '2026-05-24T00:00:00Z', size: 1200 }],
+    }));
+    const res = await knowledgeSearch({ query: 'deploy runbook cluster', knowledgeDir, brainDir, projectSlug: 'proj' });
+    const hit = res.candidates.find(c => c.path === '/abs/docs/deploy-runbook.md');
+    expect(hit).toBeDefined();
+    expect(hit!.source).toBe('local-doc');
+    expect(hit!.description).toBe('Deploy runbook for the cluster');
+    expect(hit!.tokens).toBe(Math.ceil(1200 / 4));
+    rmSync(brainDir, { recursive: true, force: true });
+  });
+
+  it('does not leak another project\'s docs and wiki results carry source:wiki', async () => {
+    const brainDir = mkdtempSync(join(tmpdir(), 'ks-brain2-'));
+    mkdirSync(join(brainDir, 'projects', 'other'), { recursive: true });
+    writeFileSync(join(brainDir, 'projects', 'other', 'doc-sources.json'), JSON.stringify({
+      generated_at: 'x', project: 'other',
+      entries: [{ id: 'x', path: '/abs/secret.md', rel: 'secret.md', gist: 'counting pipeline grep secret',
+        headings: [], hash: 'h', mtime: '2026-05-24T00:00:00Z', size: 100 }],
+    }));
+    const res = await knowledgeSearch({ query: 'counting pipeline grep', knowledgeDir, brainDir, projectSlug: 'proj' });
+    expect(res.candidates.some(c => c.path === '/abs/secret.md')).toBe(false);
+    expect(res.candidates.every(c => c.source === 'wiki')).toBe(true);
+    rmSync(brainDir, { recursive: true, force: true });
+  });
+
+  it('is unchanged (wiki-only) when no brainDir/projectSlug given', async () => {
+    const res = await knowledgeSearch({ query: 'counting pipeline grep', knowledgeDir });
+    expect(res.candidates.length).toBeGreaterThan(0);
+    expect(res.candidates.every(c => c.source === 'wiki')).toBe(true);
+  });
 });
