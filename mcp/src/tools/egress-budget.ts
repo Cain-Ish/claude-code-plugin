@@ -22,3 +22,34 @@ export function egressBudgetTokens(): number {
   const n = raw ? parseInt(raw, 10) : NaN;
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_EGRESS_BUDGET_TOKENS;
 }
+
+export interface CapTextResult {
+  text: string;
+  truncated: boolean;
+  omittedTokens: number;
+}
+
+/**
+ * Truncate text to a token budget on a grapheme boundary (never splits an
+ * emoji/CJK cluster), appending a drill-down marker. Never expands: text that
+ * already fits is returned unchanged with truncated=false.
+ */
+export function capText(
+  text: string,
+  maxTokens: number,
+  pointer?: string,
+): CapTextResult {
+  const total = estimateTokens(text);
+  if (total <= maxTokens) {
+    return { text, truncated: false, omittedTokens: 0 };
+  }
+  const marker = pointer ? `\n… truncated — full text via ${pointer}` : `\n… truncated`;
+  const keepChars = Math.max(0, (maxTokens - estimateTokens(marker))) * CHARS_PER_TOKEN;
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  let out = '';
+  for (const { segment } of segmenter.segment(text)) {
+    if (out.length + segment.length > keepChars) break;
+    out += segment;
+  }
+  return { text: out + marker, truncated: true, omittedTokens: total - estimateTokens(out) };
+}
