@@ -771,3 +771,100 @@ sb_require_jq() {
   sb_log_error "$caller" "jq not on PATH — hook no-op'd. Install: brew install jq / apt install jq / winget install jqlang.jq" 127
   return 1
 }
+
+# --- Out-of-band extraction helpers (v0.13.0) ----------------------------
+# A transcript is "done" once a terminal (ok|error) line exists in the
+# append-only done-set ~/.second-brain/.extraction-state.jsonl.
+sb_extraction_done() {
+  local base="$1" state="$2"
+  [ -f "$state" ] || return 1
+  local hit
+  hit=$(jq -r --arg b "$base" \
+    'select(.basename == $b and (.outcome == "ok" or .outcome == "error")) | .basename' \
+    "$state" 2>/dev/null | head -1)
+  [ -n "$hit" ]
+}
+
+# Count prior non-terminal retry attempts for a basename.
+sb_extraction_fails() {
+  local base="$1" state="$2"
+  [ -f "$state" ] || { echo 0; return; }
+  jq -r --arg b "$base" 'select(.basename == $b and .outcome == "retry") | .basename' \
+    "$state" 2>/dev/null | wc -l | tr -d ' '
+}
+
+# Read project_slug: from the archived transcript's meta header.
+sb_slug_from_archived_transcript() {
+  local txt="$1"
+  [ -f "$txt" ] || return 1
+  awk -F': ' '/^project_slug:/ {print $2; exit}' "$txt" 2>/dev/null | tr -d '\r'
+}
+
+# Build the extractor input from a preprocessed archived transcript + PROJECT.md,
+# call the extractor, quality-gate the delta, merge it, route persona signals.
+# Returns 0 only on a successful merge. Used by the out-of-band drainer.
+sb_extract_transcript() {
+  local txt="$1" slug="$2"
+  [ -f "$txt" ] || return 1
+  local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
+  local model="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
+  local timeout_s="${SB_EXTRACT_TIMEOUT:-25}"
+  local prompt_file="$sdir/extract-prompt.txt"
+  [ -f "$prompt_file" ] || return 1
+  local prompt; prompt=$(cat "$prompt_file")
+
+  local kdir="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; kdir="${kdir/#\~/$HOME}"
+  local project_md="$BRAIN_DIR/projects/$slug/PROJECT.md"
+  if [ ! -f "$project_md" ]; then
+    mkdir -p "$(dirname "$project_md")"
+    cat > "$project_md" <<TMPL
+# PROJECT: $slug
+
+## Goal
+(auto-scaffolded — describe this project's goal)
+
+## State
+
+## Conventions
+
+## Recent decisions
+
+## Open blockers
+
+## Cross-references
+
+<!-- last_updated: $(date -u +%Y-%m-%dT%H:%M:%SZ) -->
+<!-- last_queried_wiki: -->
+TMPL
+  fi
+  mkdir -p "$kdir/wiki" 2>/dev/null || true
+
+  local in_f out_f; in_f=$(mktemp); out_f=$(mktemp)
+  {
+    echo "=== PROJECT.md ==="
+    cat "$project_md"
+    echo; echo "---SEPARATOR---"; echo
+    echo "=== TRANSCRIPT (preprocessed) ==="
+    sed '1,/^---$/d' "$txt"   # drop the meta header, keep the body
+  } > "$in_f"
+
+  local delta=""
+  if sb_call_extractor "$in_f" "$out_f" "$model" "$prompt" "$timeout_s"; then
+    delta=$(cat "$out_f")
+  fi
+  rm -f "$in_f" "$out_f"
+  [ -n "$delta" ] || return 1
+
+  local gated; gated=$(printf '%s' "$delta" | bash "$sdir/extraction-quality-gate.sh" 2>/dev/null)
+  if [ -n "$gated" ] && printf '%s' "$gated" | jq empty 2>/dev/null; then delta="$gated"; fi
+
+  printf '%s' "$delta" \
+    | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" \
+      >/dev/null 2>&1 || return 1
+
+  local sigs; sigs=$(printf '%s' "$delta" | jq -c '.persona_signals // []' 2>/dev/null)
+  if [ -n "$sigs" ] && printf '%s' "$sigs" | jq -e 'length > 0' >/dev/null 2>&1; then
+    printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
+  fi
+  return 0
+}
