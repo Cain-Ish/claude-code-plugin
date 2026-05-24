@@ -15,6 +15,10 @@ STATE="$BRAIN_DIR/.extraction-state.jsonl"
 # inside a Claude Code session, CLAUDECODE=1 leaks in and the drainer (correctly)
 # refuses — so unset it here for determinism. Test 1 re-sets it explicitly.
 unset CLAUDECODE 2>/dev/null || true
+# The suite also runs while an interactive `claude` is alive (the session running
+# it), which the new defer-guard would (correctly) skip on. Force the guard to
+# "inactive" for the processing tests; the defer test overrides to "active".
+export SB_INTERACTIVE_OVERRIDE=inactive
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); echo "  PASS: $1"; }
@@ -57,6 +61,12 @@ echo "=== extract-drain.sh tests ==="
 reset; mk_tx "s1_proj_2026-05-24.txt" proj
 CLAUDECODE=1 bash "$DRAIN" >/dev/null 2>&1 || true
 eq "in-session refusal leaves state empty" "$(done_count)" "0"
+
+# Test 1b: an interactive claude session active → defer cleanly (no work, no state)
+reset; mk_tx "s1_proj_2026-05-24.txt" proj
+SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
+eq "interactive session → no extraction" "$(done_count)" "0"
+[ ! -f "$STATE" ] && ok "interactive defer writes no state at all" || no "interactive defer wrote state"
 
 # Test 2: processes up to BATCH oldest-first
 reset

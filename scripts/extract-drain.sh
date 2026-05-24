@@ -11,9 +11,39 @@
 set -u
 source "$(dirname "$0")/lib.sh"
 
+# Defer if an interactive claude session is active for this uid. The recursive-
+# claude OAuth lock is GLOBAL (held by any live interactive session), so a
+# `claude -p` extraction would hang on the timeout — and worse, spawn a full
+# recursive claude per attempt and bump the poison-pill counter on a transcript
+# that is actually fine. So we skip cleanly (no attempt, no retry, no spawn) and
+# let the next timer fire retry during an idle window. Detection: a `claude`
+# process (this uid) whose args lack `-p` (the -p ones are our own extractor /
+# other print-mode calls). SB_INTERACTIVE_OVERRIDE forces the verdict for tests.
+sb_drain_should_defer() {
+  case "${SB_INTERACTIVE_OVERRIDE:-}" in
+    active)   return 0 ;;
+    inactive) return 1 ;;
+  esac
+  local p args
+  for p in $(pgrep -u "$(id -u)" -x claude 2>/dev/null); do
+    args=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)
+    case " $args " in
+      *" -p "*) : ;;   # print-mode (our extractor or similar) — ignore
+      *) return 0 ;;   # interactive session present → defer
+    esac
+  done
+  return 1
+}
+
 # The whole point is to run outside a session — refuse the recursive-lock context.
 if [ "${CLAUDECODE:-}" = "1" ]; then
   echo "extract-drain: refusing to run inside a Claude Code session" >&2
+  exit 0
+fi
+
+# Defer (don't fail) while an interactive session holds the global OAuth lock.
+if sb_drain_should_defer; then
+  echo "extract-drain: interactive claude session active — deferring (OAuth lock held)" >&2
   exit 0
 fi
 
