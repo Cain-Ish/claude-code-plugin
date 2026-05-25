@@ -31,6 +31,42 @@ for agent in code-review-unit-reviewer code-review-scorer; do
     || bad "agents/$agent.md missing 'description:'"
 done
 
+# --- Skill --------------------------------------------------------------
+skill="$ROOT/skills/code-review-deep/SKILL.md"
+if [ ! -f "$skill" ]; then
+  bad "skill file missing: skills/code-review-deep/SKILL.md"
+else
+  sfm="$(frontmatter "$skill")"
+  for field in name description allowed-tools; do
+    echo "$sfm" | grep -q "^$field:" && ok "SKILL.md has $field" \
+      || bad "SKILL.md missing '$field' in frontmatter"
+  done
+  echo "$sfm" | grep -q "^name: *code-review-deep$" && ok "SKILL.md name: code-review-deep" \
+    || bad "SKILL.md name is not 'code-review-deep'"
+
+  # allowed-tools must grant the orchestrator what the design needs.
+  at="$(echo "$sfm" | grep '^allowed-tools:')"
+  for need in "Agent" "Bash(gh pr" "Bash(git diff" "knowledge_search" "episodic_search"; do
+    case "$at" in
+      *"$need"*) ok "allowed-tools grants $need" ;;
+      *) bad "allowed-tools missing $need" ;;
+    esac
+  done
+
+  # Reference integrity: every DISPATCHED subagent must resolve to an agent file.
+  # Scope to subagent_type sites only — a bare "second-brain:<skill>" elsewhere
+  # (e.g. the attribution footer) is a skill self-reference, not an agent.
+  while IFS= read -r ref; do
+    [ -z "$ref" ] && continue
+    if [ -f "$ROOT/agents/$ref.md" ]; then
+      ok "subagent_type second-brain:$ref resolves to agents/$ref.md"
+    else
+      bad "subagent_type second-brain:$ref has no agents/$ref.md"
+    fi
+  done < <(grep -oE 'subagent_type: *"second-brain:[a-z-]+"' "$skill" \
+             | grep -oE 'second-brain:[a-z-]+' | sed 's/^second-brain://' | sort -u)
+fi
+
 echo "------------------------"
 echo "PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]
