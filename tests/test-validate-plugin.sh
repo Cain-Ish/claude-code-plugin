@@ -219,6 +219,26 @@ echo "no frontmatter" > "$PLUGIN_FOR_VALIDATOR/skills/setup/SKILL.md"
 run_case "skill missing frontmatter fails" 1
 assert_output_contains "missing YAML frontmatter"
 
+# Case 11: a body-level '---' thematic break must NOT leak into the parsed
+# frontmatter. Here the real frontmatter (name, description) is missing
+# allowed-tools; only a body section between two body '---' dividers contains
+# it. A sed start/end range re-captures that body line and FALSE-PASSes the
+# required-field check; the parser must stop at the first closing delimiter.
+setup_skeleton
+cat > "$PLUGIN_FOR_VALIDATOR/skills/setup/SKILL.md" <<'MD'
+---
+name: setup
+description: Setup
+---
+intro body
+---
+allowed-tools: Read Bash(echo *)
+---
+more body
+MD
+run_case "body '---' divider does not leak into frontmatter" 1
+assert_output_contains "setup/SKILL.md missing 'allowed-tools'"
+
 echo "-----------------------"
 echo "PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]

@@ -3,7 +3,7 @@ name: code-review-deep
 description: In-depth multi-pass code review of a GitHub change (local checkout). Decomposes the diff into logical review units, deep-reviews each with a parallel Haiku agent (cross-file bug hunting), scores findings with an FP-aware scorer, consults the second-brain for conventions and prior reviews, and records false positives. Local output by default; --comment posts to the PR.
 disable-model-invocation: false
 argument-hint: "[<PR#>] [--comment] [--base <branch>]"
-allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Agent mcp__knowledge-base__knowledge_search mcp__knowledge-base__episodic_search
+allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__knowledge-base__knowledge_search mcp__knowledge-base__episodic_search
 ---
 
 # Deep Code Review
@@ -66,7 +66,11 @@ each agent's structured findings.
    `Agent(subagent_type: "second-brain:code-review-scorer")`, passing the finding,
    its file paths, the project conventions, and the false-positive store contents
    from Pass 0.
-3. **Filter** findings scoring **< 70**. Keep the rest, sorted by severity then score.
+3. **Partition** the scored findings into three buckets (keep all three until Pass 4):
+   - **report** (score **≥ 70**): the review output, sorted by severity then score.
+   - **killed-hard** (score **≤ 15**): NOT shown in the review, but retained to feed
+     Pass 4's false-positive auto-record. Do not discard these before Pass 4.
+   - **uncertain** (score **16–69**): dropped entirely — neither reported nor recorded.
 
 ## Pass 4 — Output + false-positive write-back
 
@@ -95,8 +99,10 @@ each agent's structured findings.
      range `L<start>-L<end>`, ≥1 line of context each side.
 
 2. **False-positive write-back** (trigger = high-confidence kills + user dismissals).
-   - **Auto-record** ONLY findings the scorer killed hard (score ≤ 15).
-     Findings scored 16–69 are uncertain — do NOT record them.
+   - **Auto-record** the **killed-hard** bucket retained from Pass 3 (score ≤ 15).
+     The uncertain 16–69 findings were already dropped in Pass 3 and are never
+     recorded. (The killed-hard findings are recorded here even though they were
+     not shown in the review output above.)
    - After a terminal review, offer: "Mark any shown finding as a false positive
      to remember it?" Record each one the user dismisses.
    - For each recorded pattern, append an entry to

@@ -48,7 +48,7 @@ else
 
   # allowed-tools must grant the orchestrator what the design needs.
   at="$(echo "$sfm" | grep '^allowed-tools:')"
-  for need in "Agent" "Bash(gh pr" "Bash(git diff" "knowledge_search" "episodic_search"; do
+  for need in "Agent" "Bash(gh pr" "Bash(gh repo" "Bash(git diff" "Bash(git remote" "knowledge_search" "episodic_search"; do
     case "$at" in
       *"$need"*) ok "allowed-tools grants $need" ;;
       *) bad "allowed-tools missing $need" ;;
@@ -58,6 +58,10 @@ else
   # Reference integrity: every DISPATCHED subagent must resolve to an agent file.
   # Scope to subagent_type sites only — a bare "second-brain:<skill>" elsewhere
   # (e.g. the attribution footer) is a skill self-reference, not an agent.
+  # Charset allows digits/uppercase so a misnamed dispatch can't slip the regex
+  # and silently escape the resolve check.
+  dispatched="$(grep -oE 'subagent_type: *"second-brain:[A-Za-z0-9-]+"' "$skill" \
+                  | grep -oE 'second-brain:[A-Za-z0-9-]+' | sed 's/^second-brain://' | sort -u)"
   while IFS= read -r ref; do
     [ -z "$ref" ] && continue
     if [ -f "$ROOT/agents/$ref.md" ]; then
@@ -65,8 +69,17 @@ else
     else
       bad "subagent_type second-brain:$ref has no agents/$ref.md"
     fi
-  done < <(grep -oE 'subagent_type: *"second-brain:[a-z-]+"' "$skill" \
-             | grep -oE 'second-brain:[a-z-]+' | sed 's/^second-brain://' | sort -u)
+  done <<< "$dispatched"
+
+  # Positive wiring assertion: the skill MUST dispatch both workers. Without
+  # this, a skill regressed to dispatch nothing passes the resolve loop above
+  # vacuously (the loop body never runs), defeating the whole point of a
+  # "wiring" test.
+  for want in code-review-unit-reviewer code-review-scorer; do
+    printf '%s\n' "$dispatched" | grep -qx "$want" \
+      && ok "skill dispatches $want" \
+      || bad "skill does not dispatch expected agent: $want"
+  done
 fi
 
 echo "------------------------"

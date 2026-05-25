@@ -87,7 +87,10 @@ done < <(find "$PLUGIN_ROOT/scripts" -name "*.sh" -type f 2>/dev/null)
 # Validate all SKILL.md frontmatter
 while IFS= read -r skill_file; do
   if head -1 "$skill_file" | grep -q "^---"; then
-    frontmatter=$(sed -n '/^---$/,/^---$/p' "$skill_file" | sed '1d;$d')
+    # Lines after the first '---' and before the next '---'. awk stops at the
+    # first closing delimiter; a sed start/end range would restart on a
+    # body-level '---' thematic break and leak body lines into the frontmatter.
+    frontmatter=$(awk '/^---$/{n++; next} n==1' "$skill_file")
 
     for field in name description allowed-tools; do
       if ! echo "$frontmatter" | grep -q "^$field:"; then
@@ -104,7 +107,7 @@ done < <(find "$PLUGIN_ROOT/skills" -name "SKILL.md" -type f 2>/dev/null)
 # Validate agent definitions
 while IFS= read -r agent_file; do
   if head -1 "$agent_file" | grep -q "^---"; then
-    frontmatter=$(sed -n '/^---$/,/^---$/p' "$agent_file" | sed '1d;$d')
+    frontmatter=$(awk '/^---$/{n++; next} n==1' "$agent_file")
     if ! echo "$frontmatter" | grep -q "^name:"; then
       echo "FAIL: $(basename "$agent_file") missing 'name' in frontmatter"
       ERRORS=$((ERRORS + 1))
