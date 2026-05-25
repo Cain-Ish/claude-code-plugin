@@ -86,6 +86,7 @@ The SessionStart banner always shows the active mode in one line.
 | `/second-brain:recall [query]` | Search past session transcripts via `episodic_search` (hybrid vector + text) |
 | `/second-brain:dream` | Background consolidation of the wiki (dedupe, link, prune); staging area, review before accept |
 | `/second-brain:review` | Read-only cross-project overview: open blockers, stale projects, pending dreams, ungraduated persona signals |
+| `/second-brain:code-review-deep [<PR#>]` | Multi-pass deep code review: review-unit decomposition + parallel Haiku per-unit reviewers, FP-aware scoring, wiki/episodic context, false-positive memory. `--comment` posts to the PR |
 | `/second-brain:brainstorming` | Vendored from obra/superpowers — pause-and-design before implementation |
 | `/second-brain:writing-plans` | Vendored — write detailed implementation plan from a spec |
 | `/second-brain:test-driven-development` | Vendored — red-green-refactor discipline |

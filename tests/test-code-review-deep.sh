@@ -12,8 +12,10 @@ FAIL=0
 ok()   { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "  FAIL  $1"; }
 
-# Extract the YAML frontmatter block (between the first two '---' lines).
-frontmatter() { sed -n '/^---$/,/^---$/p' "$1" | sed '1d;$d'; }
+# Extract the YAML frontmatter block: lines after the first '---' and before the
+# next '---'. Stops at the first closing delimiter so a body-level '---' thematic
+# break can't leak into the result (a sed start/end range would re-capture it).
+frontmatter() { awk '/^---$/{n++; next} n==1' "$1"; }
 
 echo "test-code-review-deep.sh"
 echo "------------------------"
