@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Composite importance per wiki page (offline signals only; NO embeddings).
+# Lower score = more forgettable. Output TSV (sorted ascending):
+#   score<TAB>slug<TAB>path<TAB>reasons<TAB>protflag
+# protflag is empty when the page is eligible for forgetting; otherwise a
+# comma-list of PROTECT:category|age|linked. Signals: access-count (sparse-ok),
+# recency (mtime), connectivity (inbound [[links]]), category weight + stub floor.
+set -u
+KD="${KNOWLEDGE_DIR:-$HOME/knowledge}"; WIKI="$KD/wiki"
+BD="${BRAIN_DIR:-$HOME/.second-brain}"; AC="$BD/access-counts.json"
+MINAGE="${SB_FORGET_MIN_AGE_DAYS:-30}"
+WA="${SB_FORGET_W_ACCESS:-0.30}"; WR="${SB_FORGET_W_RECENCY:-0.25}"
+WC="${SB_FORGET_W_CONNECTIVITY:-0.25}"; WG="${SB_FORGET_W_CATEGORY:-0.20}"
+command -v jq >/dev/null 2>&1 || { echo "forget-score: jq missing" >&2; exit 2; }
+[ -d "$WIKI" ] || { echo "forget-score: no wiki at $WIKI" >&2; exit 2; }
+now=$(date +%s)
+links=$(grep -rhoE '\[\[[^]]+\]\]' "$WIKI" 2>/dev/null | sed -E 's/\[\[|\]\]//g' | sort | uniq -c)
+inbound(){ printf '%s\n' "$links" | awk -v s="$1" '$2==s{print $1; f=1} END{if(!f)print 0}' | head -1; }
+acount(){ [ -f "$AC" ] && jq -r --arg s "$1" '.[$s] // 0' "$AC" 2>/dev/null || echo 0; }
+
+find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while read -r f; do
+  slug=$(basename "$f" .md); cat=$(basename "$(dirname "$f")")
+  age=$(( (now - $(stat -c %Y "$f")) / 86400 )); body=$(wc -c < "$f")
+  inb=$(inbound "$slug"); acc=$(acount "$slug")
+  s_acc=$(awk "BEGIN{a=$acc; v=(a<=0)?0:(log(a+1)/log(20)); print (v>1)?1:v}")
+  s_rec=$(awk "BEGIN{d=$age; print (d>=180)?0:(1-d/180)}")
+  s_con=$(awk "BEGIN{c=$inb; print (c>=3)?1:c/3}")
+  case "$cat" in
+    learnings|decisions|concepts) s_cat=1.0; prot="PROTECT:category";;
+    entities|sources|patterns|issues) s_cat=0.5; prot="";;
+    *) s_cat=0.2; prot="";;
+  esac
+  case "$slug" in evolve-01*|*session*) s_cat=0.1;; esac
+  [ "$body" -lt 200 ] && s_cat=$(awk "BEGIN{print ($s_cat<0.2)?$s_cat:0.2}")
+  score=$(awk "BEGIN{printf \"%.3f\", $WA*$s_acc+$WR*$s_rec+$WC*$s_con+$WG*$s_cat}")
+  pf="$prot"
+  [ "$age" -lt "$MINAGE" ] && pf="${pf:+$pf,}PROTECT:age"
+  [ "$inb" -gt 0 ] && pf="${pf:+$pf,}PROTECT:linked"
+  printf '%s\t%s\t%s\tacc=%s inb=%s age=%sd cat=%s body=%sb\t%s\n' \
+    "$score" "$slug" "$f" "$acc" "$inb" "$age" "$cat" "$body" "$pf"
+done | sort -n
