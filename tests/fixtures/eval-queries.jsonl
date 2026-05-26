@@ -1,0 +1,10 @@
+{"q":"how does the recency boost work in search","expect":["bm25-recency-boost"]}
+{"q":"why does claude bare reject my subscription login","expect":["oauth-bare-flag"]}
+{"q":"transformers missing after updating the plugin","expect":["vector-deps-cache"]}
+{"q":"what are the hot and cold memory tiers","expect":["hot-cold-tier"]}
+{"q":"do we combine bm25 and embeddings","expect":["hybrid-search"]}
+{"q":"how do dreams apply changes safely","expect":["dream-staging"]}
+{"q":"how does forgetting remove a page from search","expect":["forget-archive-move"]}
+{"q":"what is the home raspberry pi host","expect":["pi5-host"]}
+{"q":"which host is public facing","expect":["ovh-vps"]}
+{"q":"how is past conversation made searchable","expect":["episodic-embeddings"]}
