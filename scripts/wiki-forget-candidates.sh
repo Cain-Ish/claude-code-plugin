@@ -5,7 +5,7 @@
 # run (fail-safe: the dream FORGET phase then skips archiving entirely).
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KD="${KNOWLEDGE_DIR:-$HOME/knowledge}"
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"; KD="${KD/#\~/$HOME}"
 FLOOR="${SB_FORGET_FLOOR:-0.15}"; CAP="${SB_FORGET_MAX_PER_DREAM:-5}"
 PROBE_MIN="${SB_FORGET_PROBE_MIN_SCORE:-0.1}"
 SCORER="$ROOT/scripts/wiki-forget-score.sh"
@@ -31,17 +31,31 @@ export KNOWLEDGE_MIN_SCORE="$PROBE_MIN"   # zero-overlap pages (score 0) won't c
 emit=""
 for row in "${cand[@]}"; do
   slug="${row%%$'\t'*}"; path="${row#*$'\t'}"
-  qy=$(awk -F': ' '/^title:/{t=$2} /^keywords:/{k=$2} END{print t" "k}' "$path")
-  bpath=$(find "$base/wiki" -type f -name "$slug.md" | head -1)
-  [ -n "$bpath" ] || continue
-  mv "$bpath" "$hold/$slug.md"                       # remove candidate from the copy
+  # Resolve the exact file in the copy from the row's REAL path (a slug-only find
+  # would pick the wrong file when the same slug exists in two categories).
+  rel="${path#$KD/}"; bpath="$base/$rel"
+  [ -f "$bpath" ] || continue
+  # Prefer the distinctive `keywords:` for the topic query; fall back to title.
+  # (Title text like "Foobar note A" carries generic words — "note", "A" — that
+  # spuriously match unrelated pages and make a unique page look covered.)
+  qy=$(awk -F': ' '/^title:/{t=$2} /^keywords:/{k=$2} END{print (k!="")?k:t}' "$path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if [ -z "$qy" ]; then
+    # No title/keywords -> topic not answerable by definition -> archivable.
+    mv "$bpath" "$hold/$slug.md"; emit="$emit$slug\t$path\n"; continue
+  fi
+  mv "$bpath" "$hold/$slug.md"                        # remove candidate from the copy
   qf=$(mktemp); printf '{"q":%s,"expect":["__none__"]}\n' "$(jq -Rn --arg q "$qy" '$q')" > "$qf"
   without=$(bash "$RECALL" --corpus "$base" --queries "$qf" --k 2 2>/dev/null); rc=$?
-  rm -f "$qf"; mv "$hold/$slug.md" "$bpath"          # restore
+  rm -f "$qf"
   [ "$rc" -eq 2 ] && { echo "candidates: recall guard unavailable -> abort (fail-safe)" >&2; exit 2; }
   toks=$(printf '%s' "$without" | grep -oE 'tokens=[0-9]+' | head -1 | sed 's/tokens=//')
-  # tokens>0 after removal ⇒ a sibling still answers the topic ⇒ safe to archive.
-  # tokens==0 ⇒ this page was the unique answer ⇒ PROTECT (skip).
-  [ "${toks:-0}" -gt 0 ] && emit="$emit$slug\t$path\n"
+  if [ "${toks:-0}" -gt 0 ]; then
+    # A sibling still answers the topic -> safe to archive. LEAVE it removed so a
+    # later near-duplicate is probed against a corpus that already lacks this one
+    # (prevents archiving BOTH copies of a topic — the cascade bug).
+    emit="$emit$slug\t$path\n"
+  else
+    mv "$hold/$slug.md" "$bpath"                      # unique answer -> PROTECT -> restore
+  fi
 done
 printf '%b' "$emit"

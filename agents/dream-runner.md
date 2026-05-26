@@ -50,9 +50,9 @@ Cross-reference findings with existing staging wiki pages. Track:
 - New facts about existing entities → update
 - Cross-session relationships → relate
 
-### 2. Consolidate staging wiki (5 phases)
+### 2. Consolidate staging wiki (6 phases)
 
-Work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
+Phases 1–5 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 
 **Phase 1: AUDIT**
 - Fix broken `[[wiki-links]]`, missing frontmatter, empty pages
@@ -76,6 +76,30 @@ Work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 
 **Phase 5: REINDEX**
 - Regenerate `staging/wiki/index.md` by reading all pages and building the catalog
+
+**Phase 6: FORGET** (skip if `SB_WIKI_FORGET=off`)
+- Bound cold-tier growth. Score the **LIVE** wiki read-only (the script copies to a
+  temp to probe — never mutates live; real page ages matter, staging mtimes are fresh)
+  and write a manifest of low-value, old, unlinked, recall-safe pages. Archiving happens
+  only on accept — this phase writes nothing to the wiki.
+```bash
+MAN=~/.second-brain/dreams/{dream_id}/forget-manifest.tsv
+if [ "${SB_WIKI_FORGET:-on}" != "off" ]; then
+  CAND=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-forget-candidates.sh"); rc=$?
+  if [ "$rc" -eq 2 ]; then
+    echo "FORGET: recall guard unavailable — skipping (fail-safe)."
+  else
+    : > "$MAN"
+    while IFS=$'\t' read -r slug path; do
+      [ -n "$slug" ] || continue
+      printf '%s\t%s\n' "$slug" "$(basename "$(dirname "$path")")" >> "$MAN"
+    done <<< "$CAND"
+  fi
+fi
+```
+- If the manifest is non-empty, add a `## Proposed archives (N)` section to the diff so
+  the user reviews them. The accept-time archive + re-score guard live in the dream
+  skill's Review phase (`skills/dream/SKILL.md`) — the runner only produces the manifest.
 
 ### 3. Generate diff and finalize
 

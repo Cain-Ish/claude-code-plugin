@@ -91,23 +91,35 @@ Work exclusively on the staging wiki at `~/.second-brain/dreams/{dream_id}/stagi
 
 **2e. REINDEX** — Call `knowledge_reindex` MCP tool (pointed at staging dir is not possible via MCP, so manually update staging/wiki/index.md if needed)
 
-**2f. FORGET** — bound cold-tier wiki growth (skip entirely if `SB_WIKI_FORGET=off`):
-- Run the candidate selector against the **LIVE** wiki (read-only — it copies to a
-  temp to probe and never mutates live; real page ages matter, and staging mtimes are
-  all fresh from the dream snapshot, so scoring staging would protect everything):
-  ```bash
-  bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-forget-candidates.sh" > /tmp/forget-cand.$$; rc=$?
-  ```
-  It scores pages on offline signals (access/recency/connectivity/category — no
-  embeddings), selects `score < SB_FORGET_FLOOR` (default 0.15), unprotected, capped at
-  `SB_FORGET_MAX_PER_DREAM` (default 5), then drops any page the live recall-probe
-  shows is the UNIQUE answer to its topic.
-- **Fail-safe:** if `rc` is 2 (recall guard unavailable — search CLI / vector path
-  missing), SKIP forgetting this dream and note it. Never archive without the guard.
-- For each emitted `slug<TAB>path`, append `slug<TAB><category>` (category = parent
-  dir name) to `~/.second-brain/dreams/{dream_id}/forget-manifest.tsv`, and add a
-  `## Proposed archives (N)` section to `diff.md` listing the slugs. Do NOT modify
-  staging pages — forgetting archives LIVE pages on accept (Review phase), not via the diff.
+**2f. FORGET** — bound cold-tier wiki growth (skip entirely if `SB_WIKI_FORGET=off`).
+Scores the **LIVE** wiki read-only (it copies to a temp to probe; never mutates live —
+and real page ages matter, since staging mtimes are all fresh from the dream snapshot),
+selecting low-value, old, unlinked, recall-safe pages, and writes a manifest. Archiving
+happens only on accept (Review phase) — Phase 2f writes nothing to the wiki.
+
+```bash
+MAN=~/.second-brain/dreams/{dream_id}/forget-manifest.tsv
+if [ "${SB_WIKI_FORGET:-on}" != "off" ]; then
+  CAND=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-forget-candidates.sh"); rc=$?
+  if [ "$rc" -eq 2 ]; then
+    echo "FORGET: recall guard unavailable — skipping forgetting this dream (fail-safe)."
+  else
+    : > "$MAN"
+    while IFS=$'\t' read -r slug path; do
+      [ -n "$slug" ] || continue
+      printf '%s\t%s\n' "$slug" "$(basename "$(dirname "$path")")" >> "$MAN"
+    done <<< "$CAND"
+    n=$(grep -c . "$MAN" 2>/dev/null || echo 0)
+    echo "FORGET: staged $n page(s) for archive."
+  fi
+fi
+```
+
+The selector scores offline signals (access/recency/connectivity/category — no
+embeddings), takes `score < SB_FORGET_FLOOR` (default 0.15), unprotected, capped at
+`SB_FORGET_MAX_PER_DREAM` (default 5), and drops any page its live recall-probe shows is
+the UNIQUE answer to its topic. If `$n > 0`, add a `## Proposed archives (N)` section to
+`diff.md` listing the staged slugs so they're reviewed alongside the consolidation.
 
 ### Step 3: Finalize
 
@@ -137,13 +149,21 @@ Proceed to Review phase.
    - Call `dream_accept` to apply the consolidation to the live wiki.
    - **Forgetting** — if `~/.second-brain/dreams/{dream_id}/forget-manifest.tsv` exists,
      archive each listed LIVE page (reversible move, never delete — the user's accept
-     IS the confirmation):
+     IS the confirmation). The manifest was built BEFORE consolidation, so re-validate
+     each slug against the POST-accept wiki and skip any page the dream just enriched
+     (now linked / higher-scoring — the enrichment race):
      ```bash
      MAN=~/.second-brain/dreams/{dream_id}/forget-manifest.tsv
      ARC=~/.second-brain/wiki-archive; LOG=~/.second-brain/wiki-archive-log.jsonl
-     KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+     KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; KD="${KD/#\~/$HOME}"
+     mkdir -p "$ARC"
+     # still-forgettable in the post-consolidation live wiki (re-score guard)
+     STILL=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-forget-score.sh" \
+       | awk -F'\t' -v fl="${SB_FORGET_FLOOR:-0.15}" '($1+0)<fl && $5==""{print $2}')
      while IFS=$'\t' read -r slug cat; do
        [ -n "$slug" ] || continue
+       printf '%s\n' "$STILL" | grep -qxF "$slug" \
+         || { echo "FORGET: keeping '$slug' — no longer low-value after consolidation"; continue; }
        src="$KD/wiki/$cat/$slug.md"; [ -f "$src" ] || continue
        mkdir -p "$ARC/$cat"; mv "$src" "$ARC/$cat/$slug.md"
        printf '{"event":"archived","slug":"%s","category":"%s","date":"%s"}\n' \

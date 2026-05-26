@@ -20,4 +20,8 @@ out=$(SB_FORGET_FLOOR=0.99 bash "$SC"); rc=$?
 echo "--- candidates output ---"; echo "$out"; echo "--- (rc=$rc) ---"
 if echo "$out" | grep -q "zorblax"; then bad "zorblax (unique answer) must be PROTECTED"; else ok "unique-answer page protected by recall probe"; fi
 if echo "$out" | grep -qE "foobar-(a|b)"; then ok "redundant duplicate is archivable"; else bad "redundant page should be archivable"; fi
+# C2 regression: the cascade fix must archive only ONE of the near-duplicate pair,
+# never both (else the jointly-covered topic is lost).
+nf=$(printf '%s\n' "$out" | grep -cE 'foobar-(a|b)')
+[ "$nf" -eq 1 ] && ok "cascade-safe: exactly one of the near-duplicate pair archived" || bad "expected exactly 1 foobar archived, got $nf (cascade bug)"
 echo "PASS:$P FAIL:$F"; [ "$F" -eq 0 ]

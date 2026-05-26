@@ -16,15 +16,29 @@ if [ "${1:-}" = "--list" ]; then
   exit 0
 fi
 
-slug="${1:-}"
-[ -n "$slug" ] || { echo "usage: wiki-restore.sh <slug> | --list" >&2; exit 2; }
-src=$(find "$ARC" -type f -name "$slug.md" 2>/dev/null | head -1)
-[ -n "$src" ] || { echo "restore: '$slug' not found under $ARC" >&2; exit 1; }
-cat=$(basename "$(dirname "$src")"); dest="$WIKI/$cat/$slug.md"
-mkdir -p "$WIKI/$cat"; mv "$src" "$dest"
+arg="${1:-}"
+[ -n "$arg" ] || { echo "usage: wiki-restore.sh <slug> | <category/slug> | --list" >&2; exit 2; }
+name="${arg##*/}"
+if printf '%s' "$arg" | grep -q '/'; then
+  src="$ARC/$arg.md"
+  [ -f "$src" ] || { echo "restore: '$arg' not found under $ARC" >&2; exit 1; }
+else
+  matches=$(find "$ARC" -type f -name "$name.md" 2>/dev/null)
+  n=$(printf '%s\n' "$matches" | grep -c .)
+  [ "$n" -eq 0 ] && { echo "restore: '$name' not found under $ARC" >&2; exit 1; }
+  if [ "$n" -gt 1 ]; then
+    echo "restore: '$name' exists in multiple categories — re-run with <category/slug>:" >&2
+    printf '%s\n' "$matches" | sed -E "s#^$ARC/##;s#\.md\$##" >&2
+    exit 2
+  fi
+  src="$matches"
+fi
+cat=$(basename "$(dirname "$src")"); dest="$WIKI/$cat/$name.md"
+mkdir -p "$WIKI/$cat" "$BD"                     # $BD so the log append can't fail on a fresh install
+mv "$src" "$dest"
 if command -v jq >/dev/null 2>&1; then
   printf '{"event":"restored","slug":%s,"category":%s,"date":%s}\n' \
-    "$(jq -Rn --arg v "$slug" '$v')" "$(jq -Rn --arg v "$cat" '$v')" \
+    "$(jq -Rn --arg v "$name" '$v')" "$(jq -Rn --arg v "$cat" '$v')" \
     "$(jq -Rn --arg v "$(date -u +%FT%TZ)" '$v')" >> "$LOG"
 fi
-echo "restored $slug -> $dest (run a reindex / next session to re-add to search)"
+echo "restored $name -> $dest (run a reindex / next session to re-add to search)"

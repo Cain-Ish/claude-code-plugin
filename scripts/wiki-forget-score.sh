@@ -6,7 +6,7 @@
 # comma-list of PROTECT:category|age|linked. Signals: access-count (sparse-ok),
 # recency (mtime), connectivity (inbound [[links]]), category weight + stub floor.
 set -u
-KD="${KNOWLEDGE_DIR:-$HOME/knowledge}"; WIKI="$KD/wiki"
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"; KD="${KD/#\~/$HOME}"; WIKI="$KD/wiki"
 BD="${BRAIN_DIR:-$HOME/.second-brain}"; AC="$BD/access-counts.json"
 MINAGE="${SB_FORGET_MIN_AGE_DAYS:-30}"
 WA="${SB_FORGET_W_ACCESS:-0.30}"; WR="${SB_FORGET_W_RECENCY:-0.25}"
@@ -16,7 +16,9 @@ command -v jq >/dev/null 2>&1 || { echo "forget-score: jq missing" >&2; exit 2; 
 now=$(date +%s)
 links=$(grep -rhoE '\[\[[^]]+\]\]' "$WIKI" 2>/dev/null | sed -E 's/\[\[|\]\]//g' | sort | uniq -c)
 inbound(){ printf '%s\n' "$links" | awk -v s="$1" '$2==s{print $1; f=1} END{if(!f)print 0}' | head -1; }
-acount(){ [ -f "$AC" ] && jq -r --arg s "$1" '.[$s] // 0' "$AC" 2>/dev/null || echo 0; }
+# access-counts.json stores {slug: {count, last_accessed}} (older builds used a flat
+# number); read .count first, fall back to a bare number, else 0.
+acount(){ [ -f "$AC" ] && jq -r --arg s "$1" '(.[$s].count // .[$s] // 0)' "$AC" 2>/dev/null || echo 0; }
 
 find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while read -r f; do
   slug=$(basename "$f" .md); cat=$(basename "$(dirname "$f")")
@@ -30,7 +32,10 @@ find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while r
     entities|sources|patterns|issues) s_cat=0.5; prot="";;
     *) s_cat=0.2; prot="";;
   esac
-  case "$slug" in evolve-01*|*session*) s_cat=0.1;; esac
+  # auto-generated noise (ULID evolve logs, session-narrative) is forgettable even
+  # inside an otherwise-protected category — clear the category protection (age +
+  # inbound-link protections and the recall probe still guard it).
+  case "$slug" in evolve-01*|*session*) s_cat=0.1; prot="";; esac
   [ "$body" -lt 200 ] && s_cat=$(awk "BEGIN{print ($s_cat<0.2)?$s_cat:0.2}")
   score=$(awk "BEGIN{printf \"%.3f\", $WA*$s_acc+$WR*$s_rec+$WC*$s_con+$WG*$s_cat}")
   pf="$prot"
