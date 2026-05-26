@@ -65,6 +65,25 @@ starts_with_frontmatter() {
   printf '%s' "$1" | head -c 4 | grep -q '^---' 2>/dev/null
 }
 
+# Tombstone / auto-restore: a Write that re-creates a FORGOTTEN page revives the
+# original (move it back into the wiki) and is denied with a redirect to Edit.
+# Only a fresh create (target absent) of a net-archived slug; restore is
+# non-destructive. Fail-open: no log / not archived -> falls through to frontmatter.
+if [ "$TOOL" = "Write" ] && [ ! -f "$FILE_PATH" ]; then
+  SLUG=$(basename "$FILE_PATH" .md)
+  GUARD_BD="${BRAIN_DIR:-$HOME/.second-brain}"
+  ARCH=$(BRAIN_DIR="$GUARD_BD" "$(dirname "$0")/wiki-archived-slugs.sh" --path "$SLUG" 2>/dev/null) || ARCH=""
+  if [ -n "$ARCH" ]; then
+    ACAT=$(basename "$(dirname "$ARCH")")
+    WIKIROOT="${FILE_PATH%/wiki/*}/wiki"
+    mkdir -p "$WIKIROOT/$ACAT"
+    mv "$ARCH" "$WIKIROOT/$ACAT/$SLUG.md" 2>/dev/null
+    printf '{"event":"restored","slug":"%s","category":"%s","date":"%s"}\n' \
+      "$SLUG" "$ACAT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GUARD_BD/wiki-archive-log.jsonl" 2>/dev/null || true
+    deny "Auto-restored '$SLUG' from the cold-tier archive (it had been forgotten) to wiki/$ACAT/$SLUG.md. Re-open and Edit it — do not recreate it."
+  fi
+fi
+
 case "$TOOL" in
   Write)
     CONTENT=$(printf '%s' "$RAW" | jq -r '.tool_input.content // empty' 2>/dev/null)

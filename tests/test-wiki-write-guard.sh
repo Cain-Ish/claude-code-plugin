@@ -4,6 +4,9 @@ set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/wiki-write-guard.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+# Hermetic brain dir so the tombstone check reads an empty archive-log (fail-open)
+# for the frontmatter cases below; the tombstone cases populate it explicitly.
+export BRAIN_DIR="$TMP/brain"; mkdir -p "$TMP/brain"
 
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
@@ -89,6 +92,33 @@ pass "kill switch honored"
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"echo hi"}}' | bash "$SCRIPT")
 [ -z "$out" ] || fail "Bash tool should be silent (got: $out)"
 pass "Bash tool silent"
+
+# --- Tombstone / auto-restore (cold-tier forgetting coordination) ---
+
+# Archived page 'gone' lives in the archive (NOT the live wiki) + log says archived.
+mkdir -p "$TMP/brain/wiki-archive/concepts"
+printf -- '---\ntitle: "Gone"\ntype: concepts\n---\n# Gone\noriginal.\n' > "$TMP/brain/wiki-archive/concepts/gone.md"
+printf '%s\n' '{"event":"archived","slug":"gone","category":"concepts","date":"2026-05-26T01:00:00Z"}' > "$TMP/brain/wiki-archive-log.jsonl"
+GONE="$TMP/knowledge/wiki/concepts/gone.md"; mkdir -p "$(dirname "$GONE")"
+
+# Test 10: Write re-creating an archived slug → restore original + deny (redirect to Edit).
+PAYLOAD=$(jq -nc --arg p "$GONE" --arg c $'---\ntitle: x\n---\nnew' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "Write to archived slug should deny (got: $out)"
+echo "$out" | grep -qi "restore" || fail "deny reason should mention restore (got: $out)"
+[ -f "$GONE" ] || fail "archived original should be restored to the wiki path"
+grep -q '"event":"restored"' "$TMP/brain/wiki-archive-log.jsonl" || fail "restored event not logged"
+pass "archived-slug Write restores original + denies"
+
+# Test 11: Write a non-archived NEW page with frontmatter → allowed (tombstone doesn't fire).
+FRESH="$TMP/knowledge/wiki/concepts/fresh-topic.md"
+PAYLOAD=$(jq -nc --arg p "$FRESH" --arg c $'---\ntitle: fresh\ntype: concepts\n---\nbody' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -z "$out" ] || fail "non-archived new page should be allowed (got: $out)"
+pass "non-archived new page allowed (tombstone inert)"
 
 echo
 echo "ALL PASS"
