@@ -51,13 +51,13 @@ ELAPSED=$(( $(date +%s) - START ))
 [ "$ELAPSED" -lt 5 ] || { echo "FAIL: re-run too slow (${ELAPSED}s) — should short-circuit"; exit 1; }
 echo "PASS: idempotent re-run (${ELAPSED}s)"
 
-# Test 3: SKILL.md migration table covers 2.9.0–2.10.3 and vector-deps health
-grep -q "2.9.0.*2.10.3" "$SCRIPT_DIR/skills/upgrade/SKILL.md" \
-  || { echo "FAIL: SKILL.md missing 2.9.0–2.10.3 catch-up row"; exit 1; }
+# Test 3: SKILL.md migration table still carries the (non-version-gated)
+# vector-deps health row. The historical 2.9.0–2.10.3 catch-up row was pruned in
+# 0.15.1 along with all other 1.x/2.x rows, so it is intentionally NOT asserted.
 grep -q "vector-deps health" "$SCRIPT_DIR/skills/upgrade/SKILL.md" \
   || { echo "FAIL: SKILL.md missing vector-deps health migration"; exit 1; }
 grep -q "install-vector-deps.sh" "$SCRIPT_DIR/skills/upgrade/SKILL.md" \
   || { echo "FAIL: SKILL.md does not reference install-vector-deps.sh"; exit 1; }
-echo "PASS: upgrade SKILL.md has catch-up + vector-deps rows"
+echo "PASS: upgrade SKILL.md has vector-deps health row"
 
 echo "ALL PASS"
