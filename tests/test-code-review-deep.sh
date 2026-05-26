@@ -66,6 +66,26 @@ else
     ORCH="$skill"
   fi
 
+  # Fork orchestration is unavailable today (anthropics/claude-code#17283): the
+  # skill runs inline. This guard stays correct either way — if #17283 lands and
+  # someone forks, it enforces the orchestrator agent exists with effort: high.
+  if echo "$sfm" | grep -q "^context: *fork"; then
+    if [ -f "$ROOT/agents/deep-code-reviewer.md" ]; then
+      ok "context:fork present and deep-code-reviewer agent exists"
+      dfm="$(frontmatter "$ROOT/agents/deep-code-reviewer.md")"
+      echo "$dfm" | grep -qi "^effort: *high" \
+        && ok "deep-code-reviewer effort: high" \
+        || bad "deep-code-reviewer must set 'effort: high'"
+      echo "$dfm" | grep -qi "^model: *sonnet" \
+        && ok "deep-code-reviewer model: sonnet" \
+        || bad "deep-code-reviewer must set 'model: sonnet'"
+    else
+      bad "skill declares context:fork but agents/deep-code-reviewer.md is missing"
+    fi
+  else
+    ok "inline orchestration (no context:fork) — deep-code-reviewer not required"
+  fi
+
   # v2: docs-vs-code routing. Pass 1 tags docs units; Pass 2 routes docs to Haiku
   # and leaves code units on the inherited (best) model.
   grep -q "docs_only" "$ORCH" && ok "orchestrator tags docs_only units" \
