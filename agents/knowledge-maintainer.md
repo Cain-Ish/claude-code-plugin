@@ -143,6 +143,27 @@ The knowledge search uses BM25 with field weights: **title 3×, description 2×,
    - Pages enriched (count + what changed)
    - Issues remaining (if any)
 
+## Cold-tier archive awareness (forgetting, since 0.17.0)
+
+The dream's FORGET phase moves low-value pages OUT of `~/knowledge/wiki/` to
+`~/.second-brain/wiki-archive/<category>/<slug>.md`, logging each to
+`~/.second-brain/wiki-archive-log.jsonl`. Archived pages are **intentionally
+forgotten, not missing** — coordinate with that, don't fight it:
+
+- **Never treat an archived slug as a broken/missing page.** If a `[[link]]` resolves
+  to a net-archived slug (`bash ${CLAUDE_PLUGIN_ROOT}/scripts/wiki-archived-slugs.sh --has <slug>`),
+  it was deliberately removed — do NOT "fix" the dead link by recreating the page.
+- **Before creating any page, check the archive.** If
+  `wiki-archived-slugs.sh --has <slug>` succeeds, run
+  `bash ${CLAUDE_PLUGIN_ROOT}/scripts/wiki-restore.sh <slug>` to revive the original and
+  **Edit** it — never create a duplicate. (Extraction and the wiki-write-guard
+  auto-restore as well; this keeps you consistent with them.)
+- **You may SURFACE forget candidates, but you NEVER archive.** Optionally run
+  `bash ${CLAUDE_PLUGIN_ROOT}/scripts/wiki-forget-score.sh` (read-only) and list the
+  lowest-scoring pages in your report as "forget candidates for the next dream."
+  Archiving is the dream's **sole, gated** job (`dream_accept`) — you only consolidate,
+  enrich, and surface.
+
 ## Constraints
 
 - Never delete user-created content without clear justification (empty or exact duplicate only)
