@@ -44,19 +44,32 @@ slices; config/infra serving one purpose). Skip 100%-deleted files and
 trivial-only changes (whitespace, import reorder, version bump). Split any unit
 > 15 files or ~3000 lines. Cap at 15 units (merge smallest if over). Tag each
 unit priority: critical (auth/security/data/access) | high (core logic,
-user-facing) | medium (utilities/internal) | low (config/docs). Emit JSON:
+user-facing) | medium (utilities/internal) | low (config). Set `docs_only: true`
+when every file in the unit is documentation (`*.md`, `*.mdx`, `*.txt`, `*.rst`,
+`docs/**`, or a comment-only diff); config files (`*.json`, `*.yaml`, `*.toml`,
+dotfiles) are code-side, NOT docs. There is no early-exit — docs units are
+reviewed, just on Haiku. Emit JSON:
 
-    [{"name":"...","files":["..."],"priority":"critical","skip":false}, ...]
+    [{"name":"...","files":["..."],"priority":"critical","skip":false,"docs_only":false}, ...]
 
 Filter `skip:true`; sort critical-first; record the skipped count.
 
-## Pass 2 — Per-unit deep review (parallel Haiku agents)
+## Pass 2 — Per-unit review (parallel agents, model by code-vs-docs)
 
 Dispatch one `Agent(subagent_type: "second-brain:code-review-unit-reviewer")` per
-non-skipped unit, all in parallel (up to 15). Pass each: unit name + file list,
+non-skipped unit, choosing the model by unit kind:
+
+- **code units** (`docs_only: false`): dispatch with NO model override — the agent
+  inherits the session model, i.e. the best model available (the v2 directive).
+- **doc units** (`docs_only: true`): dispatch with `model: "haiku"` — docs don't
+  need deep reasoning.
+
+Dispatch in **waves of at most 5 concurrent agents** (not all 15 at once): run
+critical/high code units first, then medium/low code units, then doc units. The
+wave cap bounds peak agent count and RAM. Pass each agent: unit name + file list,
 `origin/<base>` as the base ref, the change summary, the combined project
-conventions (CLAUDE.md + wiki pages), and the episodic prior-review note. Collect
-each agent's structured findings.
+conventions (CLAUDE.md + wiki pages), and the episodic prior-review note. Each
+agent returns structured findings only (no file bodies). Collect them.
 
 ## Pass 3 — Dedup + scoring + filter
 

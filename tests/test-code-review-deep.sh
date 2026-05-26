@@ -57,6 +57,27 @@ if [ ! -f "$skill" ]; then
   bad "skill file missing: skills/code-review-deep/SKILL.md"
 else
   sfm="$(frontmatter "$skill")"
+
+  # Orchestration body lives in the skill (inline) or in the forked orchestrator
+  # agent (if context: fork is ever supported). Body-level assertions run on ORCH.
+  if echo "$sfm" | grep -q "^context: *fork"; then
+    ORCH="$ROOT/agents/deep-code-reviewer.md"
+  else
+    ORCH="$skill"
+  fi
+
+  # v2: docs-vs-code routing. Pass 1 tags docs units; Pass 2 routes docs to Haiku
+  # and leaves code units on the inherited (best) model.
+  grep -q "docs_only" "$ORCH" && ok "orchestrator tags docs_only units" \
+    || bad "orchestrator missing docs_only routing"
+  grep -qiE 'model: *"?haiku' "$ORCH" \
+    && ok "orchestrator downgrades docs units to Haiku" \
+    || bad "orchestrator missing Haiku override for docs units"
+
+  # Wave cap (leak mitigation): bounded parallelism, not all-at-once.
+  grep -qi "at most 5" "$ORCH" && ok "orchestrator caps parallel dispatch at 5" \
+    || bad "orchestrator missing wave cap (at most 5 concurrent)"
+
   for field in name description allowed-tools; do
     echo "$sfm" | grep -q "^$field:" && ok "SKILL.md has $field" \
       || bad "SKILL.md missing '$field' in frontmatter"
