@@ -266,23 +266,33 @@ if [ -n "$REFS" ]; then
     safe_ref=$(sb_sanitize_slug "$ref") || continue
     # Skip if page already exists anywhere in the wiki
     if ! find "$KNOWLEDGE_WIKI" -name "$safe_ref.md" -type f ! -name 'index.md' 2>/dev/null | grep -q .; then
-      mkdir -p "$KNOWLEDGE_WIKI/entities"
-      ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-      {
-        printf '%s\n' "---"
-        printf 'title: "%s"\n' "$ref"
-        printf 'type: entities\n'
-        printf 'description: "Auto-created stub — needs expansion."\n'
-        printf 'created: %s\n' "$ts"
-        printf 'updated: %s\n' "$ts"
-        printf 'related: []\n'
-        printf 'tags: []\n'
-        printf '%s\n\n' "---"
-        printf '# %s\n\n' "$ref"
-        printf 'TODO: expand.\n'
-      } > "$KNOWLEDGE_WIKI/entities/$safe_ref.md"
-      WIKI_WRITES=1
-      CHANGED=1
+      # Auto-restore: if this slug was forgotten, revive the original instead of stubbing.
+      arch=$(BRAIN_DIR="$BRAIN_DIR" "$(dirname "$0")/wiki-archived-slugs.sh" --path "$safe_ref" 2>/dev/null) || arch=""
+      if [ -n "$arch" ]; then
+        acat=$(basename "$(dirname "$arch")"); mkdir -p "$KNOWLEDGE_WIKI/$acat"
+        mv "$arch" "$KNOWLEDGE_WIKI/$acat/$safe_ref.md"
+        printf '{"event":"restored","slug":"%s","category":"%s","date":"%s"}\n' \
+          "$safe_ref" "$acat" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$BRAIN_DIR/wiki-archive-log.jsonl"
+        WIKI_WRITES=1; CHANGED=1
+      else
+        mkdir -p "$KNOWLEDGE_WIKI/entities"
+        ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        {
+          printf '%s\n' "---"
+          printf 'title: "%s"\n' "$ref"
+          printf 'type: entities\n'
+          printf 'description: "Auto-created stub — needs expansion."\n'
+          printf 'created: %s\n' "$ts"
+          printf 'updated: %s\n' "$ts"
+          printf 'related: []\n'
+          printf 'tags: []\n'
+          printf '%s\n\n' "---"
+          printf '# %s\n\n' "$ref"
+          printf 'TODO: expand.\n'
+        } > "$KNOWLEDGE_WIKI/entities/$safe_ref.md"
+        WIKI_WRITES=1
+        CHANGED=1
+      fi
     fi
   done <<< "$REFS"
 fi
@@ -348,6 +358,18 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
 
     # Check for existing page with same slug in any category (avoid duplicates)
     existing=$(find "$KNOWLEDGE_WIKI" -name "$slug.md" -type f ! -name 'index.md' 2>/dev/null | head -1)
+    if [ -z "$existing" ]; then
+      # Auto-restore: re-creating a forgotten slug revives the original (then the
+      # new content lands as an update below) rather than spawning a duplicate.
+      arch=$(BRAIN_DIR="$BRAIN_DIR" "$(dirname "$0")/wiki-archived-slugs.sh" --path "$slug" 2>/dev/null) || arch=""
+      if [ -n "$arch" ]; then
+        acat=$(basename "$(dirname "$arch")"); mkdir -p "$KNOWLEDGE_WIKI/$acat"
+        mv "$arch" "$KNOWLEDGE_WIKI/$acat/$slug.md"
+        printf '{"event":"restored","slug":"%s","category":"%s","date":"%s"}\n' \
+          "$slug" "$acat" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$BRAIN_DIR/wiki-archive-log.jsonl"
+        existing="$KNOWLEDGE_WIKI/$acat/$slug.md"; target_file="$existing"; action="update"
+      fi
+    fi
     if [ -n "$existing" ] && [ "$existing" != "$target_file" ]; then
       target_file="$existing"
       action="update"
