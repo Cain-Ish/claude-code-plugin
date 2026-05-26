@@ -12,7 +12,6 @@ description: |
   Context: code-review-deep has decomposed a PR into review units and is fanning out.
   assistant: "Dispatching code-review-unit-reviewer per unit to hunt cross-file bugs in parallel."
   </example>
-model: haiku
 color: cyan
 tools: Read, Bash(git diff *)
 ---
@@ -97,3 +96,6 @@ If you find no issues, say "No issues found."
 - Migrated/copied code is in scope: the change ships it, so its bugs count.
 - Do NOT report what a linter, typechecker, or compiler would catch.
 - Focus on what breaks at runtime or is user-visible.
+- Return only the structured findings below — never paste file contents or large
+  excerpts back to the orchestrator; cite `file:line` instead. This keeps the
+  orchestrator's context bounded across many parallel units.

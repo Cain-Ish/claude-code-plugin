@@ -1,6 +1,6 @@
 ---
 name: code-review-deep
-description: In-depth multi-pass code review of a GitHub change (local checkout). Decomposes the diff into logical review units, deep-reviews each with a parallel Haiku agent (cross-file bug hunting), scores findings with an FP-aware scorer, consults the second-brain for conventions and prior reviews, and records false positives. Local output by default; --comment posts to the PR.
+description: In-depth multi-pass code review of a GitHub change (local checkout). Decomposes the diff into logical review units, reviews each on the best available model (docs on Haiku), runs an advisory architectural pass on the highest-risk units, scores findings with an FP-aware scorer, consults the second-brain for conventions and prior reviews, and records false positives. Local output by default; --comment posts to the PR.
 disable-model-invocation: false
 argument-hint: "[<PR#>] [--comment] [--base <branch>]"
 allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__knowledge-base__knowledge_search mcp__knowledge-base__episodic_search
@@ -22,7 +22,10 @@ list first, then follow these passes precisely.
 
 ## Pass 0 — Eligibility + context load
 
-Use an agent (Haiku model) for the mechanical parts where noted.
+Dispatch a Haiku agent for each mechanical sub-step below — eligibility (step 2),
+CLAUDE.md discovery (step 3), and the change summary (step 4) — so the expensive
+orchestrator model is not spent on, and its context not bloated by, mechanical
+work. The decomposition (Pass 1) and the Pass 4 re-check are likewise Haiku agents.
 
 1. **Resolve scope & base.**
    - Determine `owner/repo` from `git remote get-url origin` (or `gh repo view --json nameWithOwner`).
@@ -44,19 +47,47 @@ slices; config/infra serving one purpose). Skip 100%-deleted files and
 trivial-only changes (whitespace, import reorder, version bump). Split any unit
 > 15 files or ~3000 lines. Cap at 15 units (merge smallest if over). Tag each
 unit priority: critical (auth/security/data/access) | high (core logic,
-user-facing) | medium (utilities/internal) | low (config/docs). Emit JSON:
+user-facing) | medium (utilities/internal) | low (config). Set `docs_only: true`
+when every file in the unit is documentation (`*.md`, `*.mdx`, `*.txt`, `*.rst`,
+`docs/**`, or a comment-only diff); config files (`*.json`, `*.yaml`, `*.toml`,
+dotfiles) are code-side, NOT docs. There is no early-exit — docs units are
+reviewed, just on Haiku. Emit JSON:
 
-    [{"name":"...","files":["..."],"priority":"critical","skip":false}, ...]
+    [{"name":"...","files":["..."],"priority":"critical","skip":false,"docs_only":false}, ...]
 
 Filter `skip:true`; sort critical-first; record the skipped count.
 
-## Pass 2 — Per-unit deep review (parallel Haiku agents)
+## Pass 2 — Per-unit review (parallel agents, model by code-vs-docs)
 
 Dispatch one `Agent(subagent_type: "second-brain:code-review-unit-reviewer")` per
-non-skipped unit, all in parallel (up to 15). Pass each: unit name + file list,
+non-skipped unit, choosing the model by unit kind:
+
+- **code units** (`docs_only: false`): dispatch with NO model override — the agent
+  inherits the session model, i.e. the best model available (the v2 directive).
+- **doc units** (`docs_only: true`): dispatch with `model: "haiku"` — docs don't
+  need deep reasoning.
+
+Dispatch in **waves of at most 5 concurrent agents** (not all 15 at once): run
+critical/high code units first, then medium/low code units, then doc units. The
+wave cap bounds peak agent count and RAM. Pass each agent: unit name + file list,
 `origin/<base>` as the base ref, the change summary, the combined project
-conventions (CLAUDE.md + wiki pages), and the episodic prior-review note. Collect
-each agent's structured findings.
+conventions (CLAUDE.md + wiki pages), and the episodic prior-review note. Each
+agent returns structured findings only (no file bodies). Collect them.
+
+## Pass 2b — Architectural pass (advisory, parallel)
+
+If at least one `critical` or `high` unit exists, dispatch exactly ONE
+`Agent(subagent_type: "second-brain:quality-reviewer")` over the deduped union of
+all critical+high unit files — run it concurrently with Pass 2 (it shares the wave
+budget; it depends only on Pass 1's unit list, not Pass 2's findings). Pass it the
+base ref, the change summary, and the file set, instructing it to focus its
+architectural checklist on the changed surface. If there are no critical/high
+units, skip this pass.
+
+Its `CRITICAL`/`WARNING`/`INFO` output is collected verbatim for a separate
+"Architectural notes (advisory)" section in Pass 4. These notes are advisory only:
+they are never scored or recorded as false positives, and are kept distinct from
+the numbered bug findings.
 
 ## Pass 3 — Dedup + scoring + filter
 
@@ -90,9 +121,14 @@ each agent's structured findings.
 
          ...
 
-         🤖 Generated with [Claude Code](https://claude.ai/code) using second-brain:code-review-deep
+         Generated with [Claude Code](https://claude.ai/code) using second-brain:code-review-deep
 
-     Or, if none: `Analyzed X review units (Y files, Z skipped). No issues found.`
+     Or, if none: `Analyzed X review units (Y files, Z skipped as trivial). No issues found.`
+   - **Architectural notes (advisory).** If Pass 2b ran, append after the numbered
+     findings a section titled `Architectural notes (advisory — not blocking)`
+     containing the quality-reviewer output. For `--comment`, post it under that
+     same labelled subhead, visually separated from the numbered bug list so a
+     reader never mistakes an architectural opinion for a confirmed bug.
    - **Link format** (literal full SHA, renders in Markdown):
      `https://github.com/<owner>/<repo>/blob/<FULL-SHA>/<path>#L<start>-L<end>`
      — full SHA written literally (NOT `$(git rev-parse …)`), `#` after the path,
@@ -142,3 +178,7 @@ functional changes; real issues on lines this change did not modify.
 - Do not build, typecheck, or run the app — CI handles that.
 - Use `gh` for PR metadata/posting; use local `git diff` + Read for code.
 - Small changes (< 20 files) may yield only 1–3 units. That's fine.
+- If repeated runs leave "ghost" agents / RAM growth, see the diagnostic protocol in
+  `docs/specs/2026-05-26-code-review-deep-v2-design.md` (Leak mitigation): check for
+  recursive `claude --bare` extractors (API-key mode), orphaned MCP servers, or
+  parent-context bloat, then apply the matching gated fix.

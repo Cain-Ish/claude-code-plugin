@@ -21,17 +21,35 @@ echo "test-code-review-deep.sh"
 echo "------------------------"
 
 # --- Agents -------------------------------------------------------------
+# Both agents must exist, be named, and carry a description.
 for agent in code-review-unit-reviewer code-review-scorer; do
   f="$ROOT/agents/$agent.md"
   if [ ! -f "$f" ]; then bad "agent file missing: agents/$agent.md"; continue; fi
   fm="$(frontmatter "$f")"
   echo "$fm" | grep -q "^name: *$agent$" && ok "agents/$agent.md name: $agent" \
     || bad "agents/$agent.md missing or wrong 'name:' (want '$agent')"
-  echo "$fm" | grep -qi "^model: *haiku$" && ok "agents/$agent.md model: haiku" \
-    || bad "agents/$agent.md not 'model: haiku'"
   echo "$fm" | grep -q "^description:" && ok "agents/$agent.md has description" \
     || bad "agents/$agent.md missing 'description:'"
 done
+
+# Scorer stays Haiku (mechanical verify-against-rubric).
+scorer_fm="$(frontmatter "$ROOT/agents/code-review-scorer.md")"
+echo "$scorer_fm" | grep -qi "^model: *haiku$" && ok "code-review-scorer is Haiku" \
+  || bad "code-review-scorer must be 'model: haiku'"
+
+# Unit-reviewer must NOT pin a model — it inherits the session/best model so
+# code units get the strongest model (v2 directive).
+ur_fm="$(frontmatter "$ROOT/agents/code-review-unit-reviewer.md")"
+if echo "$ur_fm" | grep -qi "^model:"; then
+  bad "code-review-unit-reviewer must NOT pin 'model:' (it inherits the best model)"
+else
+  ok "code-review-unit-reviewer inherits model (no model: pin)"
+fi
+
+# Lean returns: bounds the orchestrator's retained context (leak mitigation).
+grep -qi "never paste file contents" "$ROOT/agents/code-review-unit-reviewer.md" \
+  && ok "unit-reviewer has lean-return instruction" \
+  || bad "unit-reviewer missing lean-return (findings-only) instruction"
 
 # --- Skill --------------------------------------------------------------
 skill="$ROOT/skills/code-review-deep/SKILL.md"
@@ -39,6 +57,47 @@ if [ ! -f "$skill" ]; then
   bad "skill file missing: skills/code-review-deep/SKILL.md"
 else
   sfm="$(frontmatter "$skill")"
+
+  # Orchestration body lives in the skill (inline) or in the forked orchestrator
+  # agent (if context: fork is ever supported). Body-level assertions run on ORCH.
+  if echo "$sfm" | grep -q "^context: *fork"; then
+    ORCH="$ROOT/agents/deep-code-reviewer.md"
+  else
+    ORCH="$skill"
+  fi
+
+  # Fork orchestration is unavailable today (anthropics/claude-code#17283): the
+  # skill runs inline. This guard stays correct either way — if #17283 lands and
+  # someone forks, it enforces the orchestrator agent exists with effort: high.
+  if echo "$sfm" | grep -q "^context: *fork"; then
+    if [ -f "$ROOT/agents/deep-code-reviewer.md" ]; then
+      ok "context:fork present and deep-code-reviewer agent exists"
+      dfm="$(frontmatter "$ROOT/agents/deep-code-reviewer.md")"
+      echo "$dfm" | grep -qi "^effort: *high" \
+        && ok "deep-code-reviewer effort: high" \
+        || bad "deep-code-reviewer must set 'effort: high'"
+      echo "$dfm" | grep -qi "^model: *sonnet" \
+        && ok "deep-code-reviewer model: sonnet" \
+        || bad "deep-code-reviewer must set 'model: sonnet'"
+    else
+      bad "skill declares context:fork but agents/deep-code-reviewer.md is missing"
+    fi
+  else
+    ok "inline orchestration (no context:fork) — deep-code-reviewer not required"
+  fi
+
+  # v2: docs-vs-code routing. Pass 1 tags docs units; Pass 2 routes docs to Haiku
+  # and leaves code units on the inherited (best) model.
+  grep -q "docs_only" "$ORCH" && ok "orchestrator tags docs_only units" \
+    || bad "orchestrator missing docs_only routing"
+  grep -qiE 'model: *"?haiku' "$ORCH" \
+    && ok "orchestrator downgrades docs units to Haiku" \
+    || bad "orchestrator missing Haiku override for docs units"
+
+  # Wave cap (leak mitigation): bounded parallelism, not all-at-once.
+  grep -qi "at most 5" "$ORCH" && ok "orchestrator caps parallel dispatch at 5" \
+    || bad "orchestrator missing wave cap (at most 5 concurrent)"
+
   for field in name description allowed-tools; do
     echo "$sfm" | grep -q "^$field:" && ok "SKILL.md has $field" \
       || bad "SKILL.md missing '$field' in frontmatter"
@@ -60,7 +119,7 @@ else
   # (e.g. the attribution footer) is a skill self-reference, not an agent.
   # Charset allows digits/uppercase so a misnamed dispatch can't slip the regex
   # and silently escape the resolve check.
-  dispatched="$(grep -oE 'subagent_type: *"second-brain:[A-Za-z0-9-]+"' "$skill" \
+  dispatched="$(grep -oE 'subagent_type: *"second-brain:[A-Za-z0-9-]+"' "$ORCH" \
                   | grep -oE 'second-brain:[A-Za-z0-9-]+' | sed 's/^second-brain://' | sort -u)"
   while IFS= read -r ref; do
     [ -z "$ref" ] && continue
@@ -75,11 +134,41 @@ else
   # this, a skill regressed to dispatch nothing passes the resolve loop above
   # vacuously (the loop body never runs), defeating the whole point of a
   # "wiring" test.
-  for want in code-review-unit-reviewer code-review-scorer; do
+  for want in code-review-unit-reviewer code-review-scorer quality-reviewer; do
     printf '%s\n' "$dispatched" | grep -qx "$want" \
-      && ok "skill dispatches $want" \
-      || bad "skill does not dispatch expected agent: $want"
+      && ok "orchestrator dispatches $want" \
+      || bad "orchestrator does not dispatch expected agent: $want"
   done
+
+  # Architectural notes must be advisory only — never scored or FP-recorded.
+  grep -qi "never scored or recorded as false positives" "$ORCH" \
+    && ok "arch notes excluded from scoring + FP write-back" \
+    || bad "orchestrator missing 'arch notes are advisory' exclusion"
+
+  # No emojis in the orchestrator (the deep reference bans them; v1 had a robot).
+  if grep -q "🤖" "$ORCH"; then
+    bad "orchestrator contains an emoji (robot) — deep review posts no emojis"
+  else
+    ok "orchestrator has no emoji"
+  fi
+
+  # Description must reflect best-model review, not the stale 'parallel Haiku agent'.
+  if echo "$sfm" | grep -qi "parallel Haiku agent"; then
+    bad "skill description still says 'parallel Haiku agent' (stale)"
+  else
+    ok "skill description not stale"
+  fi
+  echo "$sfm" | grep -qi "best available model" && ok "skill description mentions best model" \
+    || bad "skill description should mention best-model code review"
+
+  # Pass 0/1 must explicitly delegate mechanical work to Haiku agents.
+  grep -qi "haiku agent" "$ORCH" && ok "orchestrator delegates mechanical work to Haiku agents" \
+    || bad "orchestrator missing explicit Haiku-agent delegation"
+
+  # Skipped-count wording consistent in both output branches.
+  grep -q "skipped as trivial). No issues found" "$ORCH" \
+    && ok "no-issues line uses 'skipped as trivial'" \
+    || bad "no-issues output line missing 'skipped as trivial'"
 fi
 
 echo "------------------------"
