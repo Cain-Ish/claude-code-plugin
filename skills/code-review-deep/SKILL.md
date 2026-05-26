@@ -71,6 +71,21 @@ wave cap bounds peak agent count and RAM. Pass each agent: unit name + file list
 conventions (CLAUDE.md + wiki pages), and the episodic prior-review note. Each
 agent returns structured findings only (no file bodies). Collect them.
 
+## Pass 2b — Architectural pass (advisory, parallel)
+
+If at least one `critical` or `high` unit exists, dispatch exactly ONE
+`Agent(subagent_type: "second-brain:quality-reviewer")` over the deduped union of
+all critical+high unit files — run it concurrently with Pass 2 (it shares the wave
+budget; it depends only on Pass 1's unit list, not Pass 2's findings). Pass it the
+base ref, the change summary, and the file set, instructing it to focus its
+architectural checklist on the changed surface. If there are no critical/high
+units, skip this pass.
+
+Its `CRITICAL`/`WARNING`/`INFO` output is collected verbatim for a separate
+"Architectural notes (advisory)" section in Pass 4. These notes are advisory only:
+they are never scored or recorded as false positives, and are kept distinct from
+the numbered bug findings.
+
 ## Pass 3 — Dedup + scoring + filter
 
 1. **Dedup**: if a shared file produced the same finding in two units, keep the
@@ -105,7 +120,12 @@ agent returns structured findings only (no file bodies). Collect them.
 
          🤖 Generated with [Claude Code](https://claude.ai/code) using second-brain:code-review-deep
 
-     Or, if none: `Analyzed X review units (Y files, Z skipped). No issues found.`
+     Or, if none: `Analyzed X review units (Y files, Z skipped as trivial). No issues found.`
+   - **Architectural notes (advisory).** If Pass 2b ran, append after the numbered
+     findings a section titled `Architectural notes (advisory — not blocking)`
+     containing the quality-reviewer output. For `--comment`, post it under that
+     same labelled subhead, visually separated from the numbered bug list so a
+     reader never mistakes an architectural opinion for a confirmed bug.
    - **Link format** (literal full SHA, renders in Markdown):
      `https://github.com/<owner>/<repo>/blob/<FULL-SHA>/<path>#L<start>-L<end>`
      — full SHA written literally (NOT `$(git rev-parse …)`), `#` after the path,

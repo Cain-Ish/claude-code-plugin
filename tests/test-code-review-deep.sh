@@ -99,7 +99,7 @@ else
   # (e.g. the attribution footer) is a skill self-reference, not an agent.
   # Charset allows digits/uppercase so a misnamed dispatch can't slip the regex
   # and silently escape the resolve check.
-  dispatched="$(grep -oE 'subagent_type: *"second-brain:[A-Za-z0-9-]+"' "$skill" \
+  dispatched="$(grep -oE 'subagent_type: *"second-brain:[A-Za-z0-9-]+"' "$ORCH" \
                   | grep -oE 'second-brain:[A-Za-z0-9-]+' | sed 's/^second-brain://' | sort -u)"
   while IFS= read -r ref; do
     [ -z "$ref" ] && continue
@@ -114,11 +114,16 @@ else
   # this, a skill regressed to dispatch nothing passes the resolve loop above
   # vacuously (the loop body never runs), defeating the whole point of a
   # "wiring" test.
-  for want in code-review-unit-reviewer code-review-scorer; do
+  for want in code-review-unit-reviewer code-review-scorer quality-reviewer; do
     printf '%s\n' "$dispatched" | grep -qx "$want" \
-      && ok "skill dispatches $want" \
-      || bad "skill does not dispatch expected agent: $want"
+      && ok "orchestrator dispatches $want" \
+      || bad "orchestrator does not dispatch expected agent: $want"
   done
+
+  # Architectural notes must be advisory only — never scored or FP-recorded.
+  grep -qi "never scored or recorded as false positives" "$ORCH" \
+    && ok "arch notes excluded from scoring + FP write-back" \
+    || bad "orchestrator missing 'arch notes are advisory' exclusion"
 fi
 
 echo "------------------------"
