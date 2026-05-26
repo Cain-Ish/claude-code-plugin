@@ -35,10 +35,15 @@ for row in "${cand[@]}"; do
   # would pick the wrong file when the same slug exists in two categories).
   rel="${path#$KD/}"; bpath="$base/$rel"
   [ -f "$bpath" ] || continue
-  # Prefer the distinctive `keywords:` for the topic query; fall back to title.
-  # (Title text like "Foobar note A" carries generic words — "note", "A" — that
-  # spuriously match unrelated pages and make a unique page look covered.)
-  qy=$(awk -F': ' '/^title:/{t=$2} /^keywords:/{k=$2} END{print (k!="")?k:t}' "$path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  # Topic query from the MAINTAINED, distinctive field: tags: (strip [ ] and commas),
+  # then description:, then title:. Real wiki pages use tags:, never keywords:; title
+  # text ("Foobar note A") carries generic words that spuriously match unrelated pages.
+  qy=$(awk -F': ' '
+        /^tags:/        {t=$2; gsub(/[][,]/," ",t)}
+        /^description:/ {d=$2}
+        /^title:/       {ti=$2}
+        END{ q=(t ~ /[^ ]/)?t:((d!="")?d:ti); print q }' "$path" \
+      | sed 's/"//g; s/^[[:space:]]*//; s/[[:space:]]*$//')
   if [ -z "$qy" ]; then
     # No title/keywords -> topic not answerable by definition -> archivable.
     mv "$bpath" "$hold/$slug.md"; emit="$emit$slug\t$path\n"; continue

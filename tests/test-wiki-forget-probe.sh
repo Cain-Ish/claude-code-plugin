@@ -9,10 +9,10 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export KNOWLEDGE_DIR="$T" BRAIN_DIR="$T/brain"
 mkdir -p "$T/wiki/entities" "$T/brain"; echo '{}' > "$T/brain/access-counts.json"
 # unique-answer old orphan stub -> score-candidate but recall-PROTECTED
-printf -- '---\ntitle: Zorblax protocol\ndescription: the unique zorblax handshake\nkeywords: zorblax handshake\n---\nThe zorblax protocol handshake is unique and documented only here in this note.\n' > "$T/wiki/entities/zorblax.md"
+printf -- '---\ntitle: Zorblax protocol\ndescription: the unique zorblax handshake\ntags: [zorblax, handshake]\n---\nThe zorblax protocol handshake is unique and documented only here in this note.\n' > "$T/wiki/entities/zorblax.md"
 # redundant pair: each is covered by the other -> archivable
-printf -- '---\ntitle: Foobar note A\ndescription: foobar caching duplicate\nkeywords: foobar caching\n---\nFoobar caching duplicate note A content about foobar caching behavior.\n' > "$T/wiki/entities/foobar-a.md"
-printf -- '---\ntitle: Foobar note B\ndescription: foobar caching duplicate\nkeywords: foobar caching\n---\nFoobar caching duplicate note B content about foobar caching behavior.\n' > "$T/wiki/entities/foobar-b.md"
+printf -- '---\ntitle: Foobar note A\ndescription: foobar caching duplicate\ntags: [foobar, caching]\n---\nFoobar caching duplicate note A content about foobar caching behavior.\n' > "$T/wiki/entities/foobar-a.md"
+printf -- '---\ntitle: Foobar note B\ndescription: foobar caching duplicate\ntags: [foobar, caching]\n---\nFoobar caching duplicate note B content about foobar caching behavior.\n' > "$T/wiki/entities/foobar-b.md"
 touch -d '120 days ago' "$T/wiki/entities/zorblax.md" "$T/wiki/entities/foobar-a.md" "$T/wiki/entities/foobar-b.md"
 
 P=0;F=0; ok(){ P=$((P+1)); echo "  PASS $1"; }; bad(){ F=$((F+1)); echo "  FAIL $1"; }
