@@ -16,11 +16,20 @@
 
 ## Verification Outcomes (filled in by Task 0 — gates Tasks 1 & 5)
 
-- `MODEL_OVERRIDE` (per-call `model` on Agent/Task dispatch overrides frontmatter & inherits when omitted): **TBD by Task 0**
-- `FORK` (skill `context: fork` + `agent:` entrypoint supported): **TBD by Task 0**
+- `MODEL_OVERRIDE` = **yes** — per-call `model` on Task/Agent dispatch overrides the
+  sub-agent's frontmatter `model:`; omitting it inherits the parent/session model; an
+  agent with no `model:` line inherits the parent. (Source: code.claude.com/docs/en/model-config.md.)
+  **Caveat:** the `CLAUDE_CODE_SUBAGENT_MODEL` env var, if set, overrides both the
+  per-call value and frontmatter — our routing assumes it is unset.
+- `FORK` = **no** — skill `context: fork` + `agent:` delegation is an unimplemented
+  feature request (anthropics/claude-code#17283); the keys are silently ignored and the
+  skill runs in the caller's context. Context isolation is not available to plugin skills.
 
-> If `MODEL_OVERRIDE = no`: use the two-agent-file fallback noted in Task 1, Step 3b.
-> If `FORK = no`: skip Task 5 entirely; the inline skill from Tasks 1–4 is the shipped form.
+> Decisions: `MODEL_OVERRIDE = yes` → Task 1 uses the dispatch-time override (skip the
+> 3b two-file fallback). `FORK = no` → **skip Task 5 entirely**; the inline skill from
+> Tasks 1–4 is the shipped form. Because fork is unavailable, leak candidate (c)
+> (parent-context bloat) cannot be isolated — the wave cap (T2) + lean returns (T1) +
+> the gated (a)/(b) root fixes are the only mitigations until #17283 lands.
 
 ---
 
