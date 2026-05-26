@@ -124,6 +124,31 @@ else
   grep -qi "never scored or recorded as false positives" "$ORCH" \
     && ok "arch notes excluded from scoring + FP write-back" \
     || bad "orchestrator missing 'arch notes are advisory' exclusion"
+
+  # No emojis in the orchestrator (the deep reference bans them; v1 had a robot).
+  if grep -q "🤖" "$ORCH"; then
+    bad "orchestrator contains an emoji (robot) — deep review posts no emojis"
+  else
+    ok "orchestrator has no emoji"
+  fi
+
+  # Description must reflect best-model review, not the stale 'parallel Haiku agent'.
+  if echo "$sfm" | grep -qi "parallel Haiku agent"; then
+    bad "skill description still says 'parallel Haiku agent' (stale)"
+  else
+    ok "skill description not stale"
+  fi
+  echo "$sfm" | grep -qi "best available model" && ok "skill description mentions best model" \
+    || bad "skill description should mention best-model code review"
+
+  # Pass 0/1 must explicitly delegate mechanical work to Haiku agents.
+  grep -qi "haiku agent" "$ORCH" && ok "orchestrator delegates mechanical work to Haiku agents" \
+    || bad "orchestrator missing explicit Haiku-agent delegation"
+
+  # Skipped-count wording consistent in both output branches.
+  grep -q "skipped as trivial). No issues found" "$ORCH" \
+    && ok "no-issues line uses 'skipped as trivial'" \
+    || bad "no-issues output line missing 'skipped as trivial'"
 fi
 
 echo "------------------------"

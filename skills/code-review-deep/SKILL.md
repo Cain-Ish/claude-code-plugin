@@ -1,6 +1,6 @@
 ---
 name: code-review-deep
-description: In-depth multi-pass code review of a GitHub change (local checkout). Decomposes the diff into logical review units, deep-reviews each with a parallel Haiku agent (cross-file bug hunting), scores findings with an FP-aware scorer, consults the second-brain for conventions and prior reviews, and records false positives. Local output by default; --comment posts to the PR.
+description: In-depth multi-pass code review of a GitHub change (local checkout). Decomposes the diff into logical review units, reviews each on the best available model (docs on Haiku), runs an advisory architectural pass on the highest-risk units, scores findings with an FP-aware scorer, consults the second-brain for conventions and prior reviews, and records false positives. Local output by default; --comment posts to the PR.
 disable-model-invocation: false
 argument-hint: "[<PR#>] [--comment] [--base <branch>]"
 allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__knowledge-base__knowledge_search mcp__knowledge-base__episodic_search
@@ -22,7 +22,10 @@ list first, then follow these passes precisely.
 
 ## Pass 0 — Eligibility + context load
 
-Use an agent (Haiku model) for the mechanical parts where noted.
+Dispatch a Haiku agent for each mechanical sub-step below — eligibility (step 2),
+CLAUDE.md discovery (step 3), and the change summary (step 4) — so the expensive
+orchestrator model is not spent on, and its context not bloated by, mechanical
+work. The decomposition (Pass 1) and the Pass 4 re-check are likewise Haiku agents.
 
 1. **Resolve scope & base.**
    - Determine `owner/repo` from `git remote get-url origin` (or `gh repo view --json nameWithOwner`).
@@ -118,7 +121,7 @@ the numbered bug findings.
 
          ...
 
-         🤖 Generated with [Claude Code](https://claude.ai/code) using second-brain:code-review-deep
+         Generated with [Claude Code](https://claude.ai/code) using second-brain:code-review-deep
 
      Or, if none: `Analyzed X review units (Y files, Z skipped as trivial). No issues found.`
    - **Architectural notes (advisory).** If Pass 2b ran, append after the numbered
@@ -175,3 +178,7 @@ functional changes; real issues on lines this change did not modify.
 - Do not build, typecheck, or run the app — CI handles that.
 - Use `gh` for PR metadata/posting; use local `git diff` + Read for code.
 - Small changes (< 20 files) may yield only 1–3 units. That's fine.
+- If repeated runs leave "ghost" agents / RAM growth, see the diagnostic protocol in
+  `docs/specs/2026-05-26-code-review-deep-v2-design.md` (Leak mitigation): check for
+  recursive `claude --bare` extractors (API-key mode), orphaned MCP servers, or
+  parent-context bloat, then apply the matching gated fix.
