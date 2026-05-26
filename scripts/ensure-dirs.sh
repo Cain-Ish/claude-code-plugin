@@ -7,6 +7,7 @@ mkdir -p "$BRAIN_DIR/projects"
 mkdir -p "$BRAIN_DIR/regressions"
 mkdir -p "$BRAIN_DIR/transcripts"
 mkdir -p "$BRAIN_DIR/dreams"
+mkdir -p "$BRAIN_DIR/wiki-archive"
 mkdir -p "$KNOWLEDGE_DIR/wiki"/{concepts,entities,learnings}
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
 
