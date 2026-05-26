@@ -10,10 +10,13 @@ BD="${BRAIN_DIR:-$HOME/.second-brain}"; LOG="$BD/wiki-archive-log.jsonl"; ARC="$
 command -v jq >/dev/null 2>&1 || exit 0
 net() {
   [ -f "$LOG" ] || return 0
-  jq -rs 'reduce .[] as $e ({}; .[$e.slug] = $e)
-          | to_entries | map(.value)
-          | map(select(.event=="archived"))
-          | .[] | [.slug, (.category // "")] | @tsv' "$LOG" 2>/dev/null || true
+  # Per-line tolerant parse (inputs|fromjson? // empty): a single corrupt line — e.g.
+  # a partial write mid-crash — degrades only that line, never the whole set. Last
+  # event per slug (append order) wins.
+  jq -rRn 'reduce (inputs | fromjson? // empty) as $e ({}; .[$e.slug] = $e)
+           | to_entries | map(.value)
+           | map(select(.event=="archived"))
+           | .[] | [.slug, (.category // "")] | @tsv' "$LOG" 2>/dev/null || true
 }
 case "${1:-}" in
   --has)
@@ -21,9 +24,9 @@ case "${1:-}" in
     net | cut -f1 | grep -qxF "$s" ;;
   --path)
     s="${2:-}"; [ -n "$s" ] || exit 1
-    cat=$(net | awk -F'\t' -v s="$s" '$1==s{print $2; exit}')
-    [ -n "$cat" ] || exit 1
-    p="$ARC/$cat/$s.md"; [ -f "$p" ] || exit 1
+    acat=$(net | awk -F'\t' -v s="$s" '$1==s{print $2; exit}')
+    [ -n "$acat" ] || exit 1
+    p="$ARC/$acat/$s.md"; [ -f "$p" ] || exit 1
     printf '%s\n' "$p" ;;
   *)
     net ;;
