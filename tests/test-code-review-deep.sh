@@ -21,17 +21,35 @@ echo "test-code-review-deep.sh"
 echo "------------------------"
 
 # --- Agents -------------------------------------------------------------
+# Both agents must exist, be named, and carry a description.
 for agent in code-review-unit-reviewer code-review-scorer; do
   f="$ROOT/agents/$agent.md"
   if [ ! -f "$f" ]; then bad "agent file missing: agents/$agent.md"; continue; fi
   fm="$(frontmatter "$f")"
   echo "$fm" | grep -q "^name: *$agent$" && ok "agents/$agent.md name: $agent" \
     || bad "agents/$agent.md missing or wrong 'name:' (want '$agent')"
-  echo "$fm" | grep -qi "^model: *haiku$" && ok "agents/$agent.md model: haiku" \
-    || bad "agents/$agent.md not 'model: haiku'"
   echo "$fm" | grep -q "^description:" && ok "agents/$agent.md has description" \
     || bad "agents/$agent.md missing 'description:'"
 done
+
+# Scorer stays Haiku (mechanical verify-against-rubric).
+scorer_fm="$(frontmatter "$ROOT/agents/code-review-scorer.md")"
+echo "$scorer_fm" | grep -qi "^model: *haiku$" && ok "code-review-scorer is Haiku" \
+  || bad "code-review-scorer must be 'model: haiku'"
+
+# Unit-reviewer must NOT pin a model — it inherits the session/best model so
+# code units get the strongest model (v2 directive).
+ur_fm="$(frontmatter "$ROOT/agents/code-review-unit-reviewer.md")"
+if echo "$ur_fm" | grep -qi "^model:"; then
+  bad "code-review-unit-reviewer must NOT pin 'model:' (it inherits the best model)"
+else
+  ok "code-review-unit-reviewer inherits model (no model: pin)"
+fi
+
+# Lean returns: bounds the orchestrator's retained context (leak mitigation).
+grep -qi "never paste file contents" "$ROOT/agents/code-review-unit-reviewer.md" \
+  && ok "unit-reviewer has lean-return instruction" \
+  || bad "unit-reviewer missing lean-return (findings-only) instruction"
 
 # --- Skill --------------------------------------------------------------
 skill="$ROOT/skills/code-review-deep/SKILL.md"
