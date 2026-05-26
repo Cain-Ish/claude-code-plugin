@@ -40,7 +40,11 @@ echo "$scorer_fm" | grep -qi "^model: *haiku$" && ok "code-review-scorer is Haik
 # Unit-reviewer must NOT pin a model — it inherits the session/best model so
 # code units get the strongest model (v2 directive).
 ur_fm="$(frontmatter "$ROOT/agents/code-review-unit-reviewer.md")"
-if echo "$ur_fm" | grep -qi "^model:"; then
+# Check only TOP-LEVEL frontmatter keys (column-0 `key:` lines), not the indented
+# `description: |` block body — otherwise a description/example line beginning
+# "model:" would false-FAIL this guard.
+ur_keys="$(printf '%s\n' "$ur_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
+if printf '%s\n' "$ur_keys" | grep -qi '^model:'; then
   bad "code-review-unit-reviewer must NOT pin 'model:' (it inherits the best model)"
 else
   ok "code-review-unit-reviewer inherits model (no model: pin)"
@@ -93,6 +97,12 @@ else
   grep -qiE 'model: *"?haiku' "$ORCH" \
     && ok "orchestrator downgrades docs units to Haiku" \
     || bad "orchestrator missing Haiku override for docs units"
+
+  # docs_only must NOT classify the plugin's own prompt/product trees as docs
+  # (a SKILL.md / agent .md is code-as-prompt — must get the best model, not Haiku).
+  grep -qE 'skills/\*\*|agents/\*\*|tests/\*\*' "$ORCH" \
+    && ok "docs_only excludes prompt/product trees (skills/agents/tests)" \
+    || bad "docs_only rule must exclude skills/**, agents/**, tests/** from docs"
 
   # Wave cap (leak mitigation): bounded parallelism, not all-at-once.
   grep -qi "at most 5" "$ORCH" && ok "orchestrator caps parallel dispatch at 5" \
@@ -161,9 +171,9 @@ else
   echo "$sfm" | grep -qi "best available model" && ok "skill description mentions best model" \
     || bad "skill description should mention best-model code review"
 
-  # Pass 0/1 must explicitly delegate mechanical work to Haiku agents.
-  grep -qi "haiku agent" "$ORCH" && ok "orchestrator delegates mechanical work to Haiku agents" \
-    || bad "orchestrator missing explicit Haiku-agent delegation"
+  # Pass 0/1 must explicitly delegate mechanical work to the Haiku model.
+  grep -qi "haiku model" "$ORCH" && ok "orchestrator delegates mechanical work to the Haiku model" \
+    || bad "orchestrator missing explicit Haiku-model delegation"
 
   # Skipped-count wording consistent in both output branches.
   grep -q "skipped as trivial). No issues found" "$ORCH" \

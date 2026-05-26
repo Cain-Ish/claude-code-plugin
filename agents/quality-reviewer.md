@@ -16,7 +16,7 @@ description: |
   </example>
 model: sonnet
 color: yellow
-tools: Read, Grep, Glob, Bash, TodoWrite
+tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(git blame *)
 ---
 
 <!--
@@ -26,6 +26,11 @@ tools: Read, Grep, Glob, Bash, TodoWrite
   list above EXCLUDES Write/Edit/MultiEdit/NotebookEdit and the Agent
   dispatch tool (no recursive sub-agents — the fresh-context guarantee
   collapses if this agent spawns more critics).
+
+  v0.15.1: Bash is scoped to read-only git (diff/log/blame) and TodoWrite was
+  dropped. This agent is dispatched by code-review-deep over a changed-file set
+  that can be influenced by PR/diff content; an unrestricted shell there is a
+  trust-boundary risk. Read/Grep/Glob + read-only git cover the critique need.
 -->
 
 

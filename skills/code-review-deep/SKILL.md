@@ -1,6 +1,6 @@
 ---
 name: code-review-deep
-description: In-depth multi-pass code review of a GitHub change (local checkout). Decomposes the diff into logical review units, reviews each on the best available model (docs on Haiku), runs an advisory architectural pass on the highest-risk units, scores findings with an FP-aware scorer, consults the second-brain for conventions and prior reviews, and records false positives. Local output by default; --comment posts to the PR.
+description: In-depth multi-pass code review of a GitHub change (local checkout). Decomposes the diff into logical review units, reviews each on the best available model (docs on the Haiku model), runs an advisory architectural pass on the highest-risk units, scores findings with an FP-aware scorer, consults the second-brain for conventions and prior reviews, and records false positives. Local output by default; --comment posts to the PR.
 disable-model-invocation: false
 argument-hint: "[<PR#>] [--comment] [--base <branch>]"
 allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__knowledge-base__knowledge_search mcp__knowledge-base__episodic_search
@@ -22,10 +22,11 @@ list first, then follow these passes precisely.
 
 ## Pass 0 — Eligibility + context load
 
-Dispatch a Haiku agent for each mechanical sub-step below — eligibility (step 2),
-CLAUDE.md discovery (step 3), and the change summary (step 4) — so the expensive
-orchestrator model is not spent on, and its context not bloated by, mechanical
-work. The decomposition (Pass 1) and the Pass 4 re-check are likewise Haiku agents.
+Dispatch an agent **on the Haiku model** (pass `model: "haiku"`) for each mechanical
+sub-step below — eligibility (step 2), CLAUDE.md discovery (step 3), and the change
+summary (step 4) — so the expensive orchestrator model is not spent on, and its
+context not bloated by, mechanical work. The decomposition (Pass 1) and the Pass 4
+re-check likewise run on the Haiku model.
 
 1. **Resolve scope & base.**
    - Determine `owner/repo` from `git remote get-url origin` (or `gh repo view --json nameWithOwner`).
@@ -39,7 +40,7 @@ work. The decomposition (Pass 1) and the Pass 4 re-check are likewise Haiku agen
    - `episodic_search` for prior reviews touching these files/this repo → distill a short "previously flagged / previously dismissed here" note.
    - Read `~/.second-brain/review-false-positives.md` if it exists (else treat as empty). Hold its contents for Pass 3.
 
-## Pass 1 — Review-unit decomposition (Haiku agent)
+## Pass 1 — Review-unit decomposition (Haiku model)
 
 `git diff --stat origin/<base>...HEAD`. Group changed files into logical review
 units (implementation + its tests; module/package cohesion; cross-layer feature
@@ -48,10 +49,13 @@ trivial-only changes (whitespace, import reorder, version bump). Split any unit
 > 15 files or ~3000 lines. Cap at 15 units (merge smallest if over). Tag each
 unit priority: critical (auth/security/data/access) | high (core logic,
 user-facing) | medium (utilities/internal) | low (config). Set `docs_only: true`
-when every file in the unit is documentation (`*.md`, `*.mdx`, `*.txt`, `*.rst`,
-`docs/**`, or a comment-only diff); config files (`*.json`, `*.yaml`, `*.toml`,
-dotfiles) are code-side, NOT docs. There is no early-exit — docs units are
-reviewed, just on Haiku. Emit JSON:
+ONLY when every file is *prose* documentation — matches `*.md`/`*.mdx`/`*.txt`/`*.rst`
+or lives under `docs/**` — AND none lives under `skills/**`, `agents/**`, `tests/**`,
+or any other executable/prompt tree. Those files ARE the product (a `SKILL.md` or
+agent `.md` is code-as-prompt) and must be reviewed on the best model, not the Haiku model.
+Config files (`*.json`, `*.yaml`, `*.toml`, dotfiles) are code-side, NOT docs. Any
+unit tagged `critical` or `high` is `docs_only: false` regardless of extension.
+There is no early-exit — true docs units are still reviewed, just on the Haiku model. Emit JSON:
 
     [{"name":"...","files":["..."],"priority":"critical","skip":false,"docs_only":false}, ...]
 
@@ -68,8 +72,10 @@ non-skipped unit, choosing the model by unit kind:
   need deep reasoning.
 
 Dispatch in **waves of at most 5 concurrent agents** (not all 15 at once): run
-critical/high code units first, then medium/low code units, then doc units. The
-wave cap bounds peak agent count and RAM. Pass each agent: unit name + file list,
+critical/high code units first, then medium/low code units, then doc units. Pack
+each wave to the cap from the priority-sorted list — backfill spare slots from the
+next tier; don't leave slots idle. The wave cap bounds peak agent count and RAM.
+Pass each agent: unit name + file list,
 `origin/<base>` as the base ref, the change summary, the combined project
 conventions (CLAUDE.md + wiki pages), and the episodic prior-review note. Each
 agent returns structured findings only (no file bodies). Collect them.
@@ -78,11 +84,13 @@ agent returns structured findings only (no file bodies). Collect them.
 
 If at least one `critical` or `high` unit exists, dispatch exactly ONE
 `Agent(subagent_type: "second-brain:quality-reviewer")` over the deduped union of
-all critical+high unit files — run it concurrently with Pass 2 (it shares the wave
-budget; it depends only on Pass 1's unit list, not Pass 2's findings). Pass it the
-base ref, the change summary, and the file set, instructing it to focus its
-architectural checklist on the changed surface. If there are no critical/high
-units, skip this pass.
+all critical+high unit files. It **occupies one slot in wave 1** — so wave 1 holds
+at most 4 unit-reviewers + this architectural reviewer (≤5 concurrent total),
+keeping the cap intact. It depends only on Pass 1's unit list, not Pass 2's
+findings. Pass it `origin/<base>` (the SAME base-ref form Pass 2 uses), the change
+summary, and the file set, and instruct it to scope findings to lines changed since
+that ref — ignore pre-existing issues on untouched lines. If there are no
+critical/high units, skip this pass.
 
 Its `CRITICAL`/`WARNING`/`INFO` output is collected verbatim for a separate
 "Architectural notes (advisory)" section in Pass 4. These notes are advisory only:
@@ -178,7 +186,14 @@ functional changes; real issues on lines this change did not modify.
 - Do not build, typecheck, or run the app — CI handles that.
 - Use `gh` for PR metadata/posting; use local `git diff` + Read for code.
 - Small changes (< 20 files) may yield only 1–3 units. That's fine.
-- If repeated runs leave "ghost" agents / RAM growth, see the diagnostic protocol in
-  `docs/specs/2026-05-26-code-review-deep-v2-design.md` (Leak mitigation): check for
-  recursive `claude --bare` extractors (API-key mode), orphaned MCP servers, or
-  parent-context bloat, then apply the matching gated fix.
+- If repeated runs leave "ghost" agents / RAM growth, triage on the affected box:
+  (a) `ps -eo pid,etimes,args | grep -E 'claude --bare|claude -p'` — recursive
+  extractors (fires only in API-key mode; OAuth queues them) → fix at the Stop-hook
+  extractor; (b) `ps -eo pid,ppid,args | grep server.bundle` — orphaned MCP servers
+  whose parent `claude` exited → reap them; (c) the session `claude` RSS climbing
+  run-over-run is parent-context bloat, inherent to inline fan-out — the wave cap +
+  lean sub-agent returns above are the mitigation (bounded, not a true leak).
+- **Model vs. agent names:** whenever a pass names a model (Haiku / Sonnet / Opus) it
+  means the dispatch `model` parameter (e.g. `model: "haiku"`) — NEVER an agent name.
+  Subagents are always named via `subagent_type: "second-brain:<agent>"`. Don't go
+  looking for an agent called "Haiku".
