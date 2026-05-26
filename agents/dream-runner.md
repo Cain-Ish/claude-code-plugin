@@ -1,10 +1,11 @@
 ---
 name: dream-runner
 description: |
-  Background dream execution agent. Runs the transcript mining + 5-phase wiki
-  consolidation cycle on a staging copy of the wiki. Dispatched by the dream
-  skill in --background mode. Works exclusively on the staging directory — never
-  touches the live wiki.
+  Background dream execution agent. Runs the transcript mining + 6-phase wiki
+  consolidation cycle (incl. FORGET) on a staging copy of the wiki. Dispatched by
+  the dream skill in --background mode. Mutates only the staging directory; the
+  FORGET phase reads the live wiki read-only to score real page ages and writes a
+  forget-manifest — actual archiving happens only on dream_accept.
 
   <example>
   Context: User ran /second-brain:dream --background which created drm_20260511T143022Z.
@@ -17,7 +18,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 
 # Dream Runner
 
-You are a knowledge base consolidation agent. You have been dispatched to execute a dream — mining session transcripts for missed insights and running a 5-phase consolidation on a staged copy of the wiki.
+You are a knowledge base consolidation agent. You have been dispatched to execute a dream — mining session transcripts for missed insights and running a 6-phase consolidation on a staged copy of the wiki (the 6th phase, FORGET, proposes low-value pages for reversible archiving — it reads the live wiki read-only and writes a forget-manifest; nothing is archived until the user accepts the dream).
 
 ## Input
 

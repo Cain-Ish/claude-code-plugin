@@ -91,6 +91,24 @@ Work exclusively on the staging wiki at `~/.second-brain/dreams/{dream_id}/stagi
 
 **2e. REINDEX** — Call `knowledge_reindex` MCP tool (pointed at staging dir is not possible via MCP, so manually update staging/wiki/index.md if needed)
 
+**2f. FORGET** — bound cold-tier wiki growth (skip entirely if `SB_WIKI_FORGET=off`):
+- Run the candidate selector against the **LIVE** wiki (read-only — it copies to a
+  temp to probe and never mutates live; real page ages matter, and staging mtimes are
+  all fresh from the dream snapshot, so scoring staging would protect everything):
+  ```bash
+  bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-forget-candidates.sh" > /tmp/forget-cand.$$; rc=$?
+  ```
+  It scores pages on offline signals (access/recency/connectivity/category — no
+  embeddings), selects `score < SB_FORGET_FLOOR` (default 0.15), unprotected, capped at
+  `SB_FORGET_MAX_PER_DREAM` (default 5), then drops any page the live recall-probe
+  shows is the UNIQUE answer to its topic.
+- **Fail-safe:** if `rc` is 2 (recall guard unavailable — search CLI / vector path
+  missing), SKIP forgetting this dream and note it. Never archive without the guard.
+- For each emitted `slug<TAB>path`, append `slug<TAB><category>` (category = parent
+  dir name) to `~/.second-brain/dreams/{dream_id}/forget-manifest.tsv`, and add a
+  `## Proposed archives (N)` section to `diff.md` listing the slugs. Do NOT modify
+  staging pages — forgetting archives LIVE pages on accept (Review phase), not via the diff.
+
 ### Step 3: Finalize
 
 Generate the diff:
@@ -115,10 +133,31 @@ Proceed to Review phase.
    - Pages modified (count + what changed)
    - Pages removed (count)
    - Key insights surfaced
-3. Call `dream_accept` to apply changes to live wiki
-4. Report completion
+3. Apply:
+   - Call `dream_accept` to apply the consolidation to the live wiki.
+   - **Forgetting** — if `~/.second-brain/dreams/{dream_id}/forget-manifest.tsv` exists,
+     archive each listed LIVE page (reversible move, never delete — the user's accept
+     IS the confirmation):
+     ```bash
+     MAN=~/.second-brain/dreams/{dream_id}/forget-manifest.tsv
+     ARC=~/.second-brain/wiki-archive; LOG=~/.second-brain/wiki-archive-log.jsonl
+     KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+     while IFS=$'\t' read -r slug cat; do
+       [ -n "$slug" ] || continue
+       src="$KD/wiki/$cat/$slug.md"; [ -f "$src" ] || continue
+       mkdir -p "$ARC/$cat"; mv "$src" "$ARC/$cat/$slug.md"
+       printf '{"event":"archived","slug":"%s","category":"%s","date":"%s"}\n' \
+         "$slug" "$cat" "$(date -u +%FT%TZ)" >> "$LOG"
+     done < "$MAN"
+     rm -f "$MAN"
+     ```
+     Then call `knowledge_reindex` so archived pages leave the search index.
+4. Report completion — consolidation changes + N pages archived (restore any with
+   `bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-restore.sh" <slug>`).
 
-If the diff shows 0 total changes, call `dream_discard` instead and report that the wiki was already well-consolidated.
+If the diff shows 0 total changes AND no archive manifest, call `dream_discard` instead
+and report that the wiki was already well-consolidated. On any discard, also
+`rm -f ~/.second-brain/dreams/{dream_id}/forget-manifest.tsv` (archive nothing).
 
 ## Constraints
 
