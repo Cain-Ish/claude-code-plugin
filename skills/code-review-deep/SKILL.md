@@ -105,11 +105,14 @@ the numbered bug findings.
    `Agent(subagent_type: "second-brain:code-review-scorer")`, passing the finding,
    its file paths, the project conventions, and the false-positive store contents
    from Pass 0.
-3. **Partition** the scored findings into three buckets (keep all three until Pass 4):
-   - **report** (score **≥ 70**): the review output, sorted by severity then score.
-   - **killed-hard** (score **≤ 15**): NOT shown in the review, but retained to feed
-     Pass 4's false-positive auto-record. Do not discard these before Pass 4.
-   - **uncertain** (score **16–69**): dropped entirely — neither reported nor recorded.
+3. **Partition** the scored findings into three buckets (keep all until Pass 4):
+   - **confirmed** (score **≥ 70**): the numbered review output, sorted by severity then score.
+   - **low-confidence** (score **16–69**): NOT confirmed, but surfaced in Pass 4 as a
+     separate, clearly-labeled "Lower-confidence findings" section so a real but
+     hard-to-verify bug is never silently dropped. Retain until Pass 4.
+   - **killed-hard** (score **≤ 15**): dropped — neither shown nor recorded. The scorer
+     now inherits the session model (matches the reviewer it gates), so a ≤15 kill is
+     trustworthy enough to drop without recording.
 
 ## Pass 4 — Output + false-positive write-back
 
@@ -132,6 +135,15 @@ the numbered bug findings.
          Generated with [Claude Code](https://claude.ai/code) using second-brain:code-review-deep
 
      Or, if none: `Analyzed X review units (Y files, Z skipped as trivial). No issues found.`
+   - **Lower-confidence findings (unverified).** If the low-confidence bucket
+     (score 16–69) is non-empty, append — after the numbered confirmed findings and
+     before the architectural notes — a section titled `Lower-confidence findings
+     (unverified — may be false positives)`. Lead with one line noting these were
+     found but not confirmed at high confidence and may include false positives, then
+     list each as `- **<brief>** (category: severity)` followed by its `<link>`. Keep
+     it visually distinct from the numbered confirmed list and from the architectural
+     notes so the three are never conflated. For `--comment`, post it under that same
+     subhead. If the bucket is empty, omit the section.
    - **Architectural notes (advisory).** If Pass 2b ran, append after the numbered
      findings a section titled `Architectural notes (advisory — not blocking)`
      containing the quality-reviewer output. For `--comment`, post it under that

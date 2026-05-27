@@ -167,6 +167,12 @@ else
     && ok "arch notes excluded from scoring + FP write-back" \
     || bad "orchestrator missing 'arch notes are advisory' exclusion"
 
+  # v2.1: the 16–69 band is surfaced, not dropped — the orchestrator must render a
+  # distinct lower-confidence section.
+  grep -qi "Lower-confidence findings" "$ORCH" \
+    && ok "orchestrator surfaces the lower-confidence (16–69) band" \
+    || bad "orchestrator missing the 'Lower-confidence findings' section"
+
   # No emojis in the orchestrator (the deep reference bans them; v1 had a robot).
   if grep -q "🤖" "$ORCH"; then
     bad "orchestrator contains an emoji (robot) — deep review posts no emojis"
