@@ -173,6 +173,12 @@ else
     && ok "orchestrator surfaces the lower-confidence (16–69) band" \
     || bad "orchestrator missing the 'Lower-confidence findings' section"
 
+  # v2.1: the FP auto-record ratchet is removed — the store grows ONLY from user
+  # dismissals. The write-back heading carries that contract sentinel.
+  grep -qi "user dismissals only" "$ORCH" \
+    && ok "FP write-back is user-dismissals-only (no auto-record ratchet)" \
+    || bad "orchestrator must record FPs from user dismissals only (v2.1)"
+
   # No emojis in the orchestrator (the deep reference bans them; v1 had a robot).
   if grep -q "🤖" "$ORCH"; then
     bad "orchestrator contains an emoji (robot) — deep review posts no emojis"

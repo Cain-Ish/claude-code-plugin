@@ -154,14 +154,16 @@ the numbered bug findings.
      — full SHA written literally (NOT `$(git rev-parse …)`), `#` after the path,
      range `L<start>-L<end>`, ≥1 line of context each side.
 
-2. **False-positive write-back** (trigger = high-confidence kills + user dismissals).
-   - **Auto-record** the **killed-hard** bucket retained from Pass 3 (score ≤ 15).
-     The uncertain 16–69 findings were already dropped in Pass 3 and are never
-     recorded. (The killed-hard findings are recorded here even though they were
-     not shown in the review output above.)
-   - After a terminal review, offer: "Mark any shown finding as a false positive
-     to remember it?" Record each one the user dismisses.
-   - For each recorded pattern, append an entry to
+2. **False-positive write-back** (user dismissals only — no auto-record).
+   - **Do NOT auto-record** killed-hard or low-confidence findings. v2.1 removes the
+     auto-record ratchet: a wrong auto-suppression hides a real bug indefinitely,
+     whereas a missing entry just means the finding is re-judged next run (cheap, now
+     that the scorer matches the reviewer). The store grows ONLY from explicit user
+     action.
+   - After a terminal review, offer: "Mark any shown finding (confirmed or
+     lower-confidence) as a false positive to remember it?" Record only the findings
+     the user dismisses.
+   - For each user-dismissed pattern, append an entry to
      `~/.second-brain/review-false-positives.md` (read current contents with Read,
      append, Write back; if the file is absent create it with the header below).
      Recording is best-effort — a write failure must NOT fail the review.
@@ -177,7 +179,7 @@ the numbered bug findings.
          - repo: <owner/repo>
          - where: <path or glob> (<category>)
          - why not a bug: <one-line reason>
-         - source: <auto-killed score=<n> | user-dismissed>
+         - source: user-dismissed
          - date: <YYYY-MM-DD>
 
 ## Degradation
