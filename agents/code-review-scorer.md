@@ -10,7 +10,6 @@ description: |
   Context: code-review-deep collected findings from per-unit reviewers and needs to filter noise.
   assistant: "Scoring each finding with code-review-scorer, suppressing any that match a recorded false positive."
   </example>
-model: haiku
 color: green
 tools: Read, Bash(git diff *)
 ---

@@ -32,10 +32,15 @@ for agent in code-review-unit-reviewer code-review-scorer; do
     || bad "agents/$agent.md missing 'description:'"
 done
 
-# Scorer stays Haiku (mechanical verify-against-rubric).
+# Scorer must NOT pin a model — v2.1 un-pins it so it inherits the session/best
+# model, matching the reviewer it gates (removes the capability inversion).
 scorer_fm="$(frontmatter "$ROOT/agents/code-review-scorer.md")"
-echo "$scorer_fm" | grep -qi "^model: *haiku$" && ok "code-review-scorer is Haiku" \
-  || bad "code-review-scorer must be 'model: haiku'"
+scorer_keys="$(printf '%s\n' "$scorer_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
+if printf '%s\n' "$scorer_keys" | grep -qi '^model:'; then
+  bad "code-review-scorer must NOT pin 'model:' (v2.1: inherits to match the reviewer)"
+else
+  ok "code-review-scorer inherits model (no model: pin)"
+fi
 
 # Unit-reviewer must NOT pin a model — it inherits the session/best model so
 # code units get the strongest model (v2 directive).
