@@ -45,18 +45,20 @@ sha256() { sha256sum 2>/dev/null || shasum -a 256; }
 # deps-key: a stable hash of the dependencies block, so the shared tree is rebuilt
 # only when the actual dependency set changes — not on every version bump.
 WANT_KEY="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(JSON.stringify(p.dependencies||{}))' "$PKG" | sha256 | awk '{print $1}')"
+[ -n "$WANT_KEY" ] || { echo "install-vector-deps: could not compute deps-key (no sha256sum/shasum on PATH?)." >&2; exit 1; }
 HAVE_KEY="$(cat "$KEY_FILE" 2>/dev/null || echo none)"
 
-# deps_ok <node_modules-dir>: exit 0 iff EVERY dependency in package.json has a dir
-# there. Stops a partial / wrong-deps tree (e.g. a harvested tree predating an added
-# dependency) from being trusted and stamped with the current key.
+# deps_ok <node_modules-dir>: exit 0 iff EVERY dependency in package.json is actually
+# installed there (its package.json present, not just a bare dir). Stops a partial /
+# wrong-deps tree (e.g. a harvested tree predating an added dependency, or a half-
+# written dir) from being trusted and stamped with the current key.
 deps_ok() {
   node -e '
     const fs=require("fs"), path=require("path");
     const pkg=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
     const nm=process.argv[2];
     for (const d of Object.keys(pkg.dependencies||{}))
-      if (!fs.existsSync(path.join(nm,d))) process.exit(1);
+      if (!fs.existsSync(path.join(nm,d,"package.json"))) process.exit(1);
     process.exit(0);
   ' "$PKG" "$1"
 }
@@ -91,6 +93,9 @@ mkdir -p "$SHARED"
 # NOT touched until staging validates, so a failed/offline npm install can never
 # destroy a working install or leave a dangling symlink. A unique staging dir makes
 # concurrent runs collision-free (last successful swap wins).
+# Sweep staging dirs orphaned by a hard-killed run (SIGKILL/power-loss skips the trap)
+# so they can't accumulate ~500MB each on a small disk (e.g. a Pi SD card).
+rm -rf "${SHARED%/}"/.staging.* 2>/dev/null || true
 STAGE="$(mktemp -d "${SHARED%/}/.staging.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 STAGE_NM="$STAGE/node_modules"
@@ -118,10 +123,12 @@ if [ ! -f "$STAGE_NM/@huggingface/transformers/package.json" ] || ! deps_ok "$ST
   ( cd "$STAGE" && npm install --omit=dev --no-audit --no-fund )
 fi
 
-# 4. Validate staging BEFORE swapping. If incomplete, abort WITHOUT touching the live
-#    tree or symlink — they remain whatever they were (never half-destroyed).
-if [ ! -f "$STAGE_NM/@huggingface/transformers/package.json" ] || ! deps_ok "$STAGE_NM"; then
-  echo "install-vector-deps: staged build incomplete — leaving any existing install untouched." >&2
+# 4. Validate staging BEFORE swapping: complete deps AND a working import. If it fails,
+#    abort WITHOUT touching the live tree or symlink — they remain whatever they were
+#    (never half-destroyed). Importing here (not just checking files) stops an
+#    ABI-broken tree from being swapped in and key-stamped, which would otherwise loop.
+if [ ! -f "$STAGE_NM/@huggingface/transformers/package.json" ] || ! deps_ok "$STAGE_NM" || ! import_ok "$STAGE"; then
+  echo "install-vector-deps: staged build incomplete or not importable — leaving any existing install untouched." >&2
   echo "                     Inspect: cd $STAGE && npm ls @huggingface/transformers" >&2
   exit 3
 fi
@@ -132,12 +139,14 @@ rm -rf "$SHARED/node_modules.old"
 [ -e "$SHARED_NM" ] && mv "$SHARED_NM" "$SHARED/node_modules.old"
 mv "$STAGE_NM" "$SHARED_NM"
 rm -rf "$SHARED/node_modules.old"
-echo "$WANT_KEY" > "$KEY_FILE"
 
 link_version
 
-# 6. Final smoke-check through the symlink.
+# 6. Final smoke-check through the symlink. Stamp the deps-key ONLY after the linked
+#    tree genuinely imports — never key-stamp a tree that resolves files but can't load
+#    (that would let a broken tree be trusted on the next run).
 if import_ok "$MCP_DIR"; then
+  echo "$WANT_KEY" > "$KEY_FILE"
   echo "install-vector-deps: OK — shared deps installed and linked."
   echo "  Run an extractor cycle to populate embeddings:"
   echo "    rm $HOME/.second-brain/episodic-index.json   # one-time reset, indexer rebuilds"

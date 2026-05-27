@@ -24,14 +24,19 @@ cat > "$TMP/bin/npm" <<'EOF'
 #!/usr/bin/env bash
 echo x >> "$NPM_CALLS"
 [ "${NPM_FAIL:-0}" = "1" ] && { echo "npm: simulated failure" >&2; exit 1; }
-node -e '
+# NPM_BREAK=1 installs all dep DIRS (so deps_ok passes) but a transformers entry
+# that THROWS on import — simulates an ABI-broken tree that must not be trusted.
+BREAK="${NPM_BREAK:-0}" node -e '
   const fs=require("fs");
+  const broken=process.env.BREAK==="1";
   const p=JSON.parse(fs.readFileSync("package.json","utf8"));
   for (const d of Object.keys(p.dependencies||{})) {
     fs.mkdirSync("node_modules/"+d,{recursive:true});
     fs.writeFileSync("node_modules/"+d+"/package.json",
       JSON.stringify({name:d,version:"0.0.0",main:"index.js",type:"module"}));
-    fs.writeFileSync("node_modules/"+d+"/index.js","export default {};");
+    const body = (broken && d==="@huggingface/transformers")
+      ? "throw new Error(\"broken abi\");" : "export default {};";
+    fs.writeFileSync("node_modules/"+d+"/index.js", body);
   }
 '
 EOF
@@ -122,5 +127,31 @@ grep -q "vector-deps health" "$SCRIPT_DIR/skills/upgrade/SKILL.md" \
   && grep -q "install-vector-deps.sh" "$SCRIPT_DIR/skills/upgrade/SKILL.md" \
   || { echo "FAIL T8: upgrade SKILL.md lost the vector-deps health wiring"; exit 1; }
 echo "PASS T8: sha256 fallback + upgrade wiring present"
+
+# T9: a staged tree with all dep DIRS but a non-importable transformers (ABI break)
+#     must NOT be swapped in or key-stamped — the prior working tree + key stay intact
+#     (prevents the "key poisoning" re-download loop).
+rm -rf "$TMP/shared" "$MCP_NM"; mkdir -p "$TMP/shared"; : > "$NPM_CALLS"
+pkg <<'EOF'
+{ "name":"fake-mcp","version":"1.0.0","type":"module","dependencies":{"@huggingface/transformers":"*"} }
+EOF
+run || { echo "FAIL T9 setup: clean baseline install failed"; exit 1; }
+KEY_BEFORE="$(cat "$TMP/shared/.deps-key")"
+pkg <<'EOF'
+{ "name":"fake-mcp","version":"1.0.0","type":"module","dependencies":{"@huggingface/transformers":"*","glob":"*"} }
+EOF
+NPM_BREAK=1 run && { echo "FAIL T9: installer accepted a non-importable staged tree"; exit 1; }
+( cd "$TMP/plugin/mcp" && node --input-type=module -e 'await import("@huggingface/transformers")' ) 2>/dev/null \
+  || { echo "FAIL T9: prior working tree no longer imports after a broken rebuild"; exit 1; }
+[ "$(cat "$TMP/shared/.deps-key")" = "$KEY_BEFORE" ] \
+  || { echo "FAIL T9: deps-key stamped despite a non-importable tree (poisoning)"; exit 1; }
+[ ! -e "$SHARED_NM/glob" ] || { echo "FAIL T9: broken staged tree was swapped in (glob present)"; exit 1; }
+echo "PASS T9: non-importable staged tree rejected; prior tree + key intact"
+
+# T10: stale staging dirs from a hard-killed run are swept, not accumulated.
+mkdir -p "$TMP/shared/.staging.deadbeef/node_modules"
+run || { echo "FAIL T10: non-zero"; exit 1; }
+ls -d "$TMP/shared"/.staging.* >/dev/null 2>&1 && { echo "FAIL T10: stale staging dir not swept"; exit 1; }
+echo "PASS T10: stale staging dirs swept"
 
 echo "ALL PASS"
