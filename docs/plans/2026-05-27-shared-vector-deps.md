@@ -16,13 +16,13 @@
 
 ## Verification Outcomes (filled in by Task 0 — gates Task 1's symlink path)
 
-- `SYMLINK_RESOLVES` = **TBD** — does Node resolve `import("@huggingface/transformers")`
-  when `mcp/node_modules` is a symlink to an out-of-tree shared dir?
-- `HARNESS_TOLERATES_SYMLINK` = **TBD** — does the Claude Code harness leave a
-  symlinked `node_modules` inside a cache `<version>/mcp/` intact across load/reload
-  (it never ships or manages `node_modules`, so expected yes)?
-- If either is `no` → use the fallback in Task 1 Step 7 (`NODE_PATH`/`.npmrc` shim
-  instead of a symlink); otherwise the symlink path ships.
+- `SYMLINK_RESOLVES` = **yes** — Node resolved `import("@huggingface/transformers")`
+  through a symlinked `mcp/node_modules` pointing at an out-of-tree shared dir (Task 0
+  Step 1 printed `resolves`).
+- `HARNESS_TOLERATES_SYMLINK` = **yes** — the harness ships `dist/` only and never
+  creates/manages `node_modules` (gitignored); the live real `node_modules` persisted
+  across the earlier `/reload-plugins`, so a symlink in the same spot is left alone.
+- Both `yes` → the symlink path ships; the Task 1 Step 7 shim fallback is NOT needed.
 
 ---
 
