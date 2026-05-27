@@ -59,8 +59,12 @@ CROSS=$(awk '
 #   - evolve-01[A-Z0-9]{24} — ULID-suffixed self-evolve decision logs emitted
 #                            by the cainish-evolve pipeline; referenced by
 #                            cycle index pages, not by hand.
+#   - evolve-cycle-YYYY-MM-DD — per-run self-evolve cycle summary pages emitted
+#                            by the same pipeline; these ARE the cycle index
+#                            pages (they reference the evolve-01* logs), so like
+#                            wiki/index.md they have no inbound links by design.
 comm -23 <(echo "$ALL") <(printf '%s\n%s\n' "$LINKED" "$CROSS" | sort -u) \
-  | grep -vE '^(index|evolve-01[0-9A-Z]{24})$'
+  | grep -vE '^(index|evolve-01[0-9A-Z]{24}|evolve-cycle-[0-9]{4}-[0-9]{2}-[0-9]{2})$'
 ```
 
 Report each orphan with its full path. Suggest the user either delete it (if obsolete) or add a `[[<slug>]]` reference somewhere it belongs.
