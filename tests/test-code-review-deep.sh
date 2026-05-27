@@ -181,7 +181,7 @@ else
   # this, a skill regressed to dispatch nothing passes the resolve loop above
   # vacuously (the loop body never runs), defeating the whole point of a
   # "wiring" test.
-  for want in code-review-unit-reviewer code-review-scorer quality-reviewer; do
+  for want in code-review-unit-reviewer code-review-scorer quality-reviewer code-review-history-reviewer; do
     printf '%s\n' "$dispatched" | grep -qx "$want" \
       && ok "orchestrator dispatches $want" \
       || bad "orchestrator does not dispatch expected agent: $want"
@@ -191,6 +191,10 @@ else
   grep -qi "never scored or recorded as false positives" "$ORCH" \
     && ok "arch notes excluded from scoring + FP write-back" \
     || bad "orchestrator missing 'arch notes are advisory' exclusion"
+
+  # v2.2: the history/regression pass must exist and be scored (not advisory).
+  grep -qi "Pass 2c" "$ORCH" && ok "orchestrator has Pass 2c (history/regression)" \
+    || bad "orchestrator missing Pass 2c history/regression pass"
 
   # v2.1: the 16–69 band is surfaced, not dropped — the orchestrator must render a
   # distinct lower-confidence section.

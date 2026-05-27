@@ -84,9 +84,11 @@ agent returns structured findings only (no file bodies). Collect them.
 
 If at least one `critical` or `high` unit exists, dispatch exactly ONE
 `Agent(subagent_type: "second-brain:quality-reviewer")` over the deduped union of
-all critical+high unit files. It **occupies one slot in wave 1** — so wave 1 holds
-at most 4 unit-reviewers + this architectural reviewer (≤5 concurrent total),
-keeping the cap intact. It depends only on Pass 1's unit list, not Pass 2's
+all critical+high unit files. It **occupies one slot in wave 1** (as does the Pass
+2c history reviewer when it runs) — so wave 1 holds at most 3 unit-reviewers + the
+architectural reviewer + the history reviewer (≤5 concurrent total), keeping the cap
+intact. When either advisory/history pass is skipped, its slot returns to
+unit-reviewers. It depends only on Pass 1's unit list, not Pass 2's
 findings. Pass it `origin/<base>` (the SAME base-ref form Pass 2 uses), the change
 summary, and the file set, and instruct it to scope findings to lines changed since
 that ref — ignore pre-existing issues on untouched lines. If there are no
@@ -96,6 +98,19 @@ Its `CRITICAL`/`WARNING`/`INFO` output is collected verbatim for a separate
 "Architectural notes (advisory)" section in Pass 4. These notes are advisory only:
 they are never scored or recorded as false positives, and are kept distinct from
 the numbered bug findings.
+
+## Pass 2c — History / regression pass (scored, parallel)
+
+If at least one non-skipped **code** unit exists (`docs_only: false`), dispatch
+exactly ONE `Agent(subagent_type: "second-brain:code-review-history-reviewer")` over
+the deduped union of all non-skipped code-unit files. It **occupies one slot in wave
+1** alongside the architectural reviewer (see the Pass 2b wave-1 note). It depends
+only on Pass 1's unit list, not Pass 2's findings, so it runs concurrently. Pass it
+`origin/<base>` (the SAME base-ref form Pass 2 uses), the change summary, the combined
+project conventions (CLAUDE.md + wiki), and the episodic prior-review note. Unlike the
+architectural pass, its findings ARE bugs (category `regression`): they flow into
+Pass 3 dedup + scoring exactly like the per-unit findings. If every unit is docs-only,
+skip this pass.
 
 ## Pass 3 — Dedup + scoring + filter
 
