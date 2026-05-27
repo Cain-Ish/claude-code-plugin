@@ -88,7 +88,9 @@ all critical+high unit files. It **occupies one slot in wave 1** (as does the Pa
 2c history reviewer when it runs) — so wave 1 holds at most 3 unit-reviewers + the
 architectural reviewer + the history reviewer (≤5 concurrent total), keeping the cap
 intact. When either advisory/history pass is skipped, its slot returns to
-unit-reviewers. It depends only on Pass 1's unit list, not Pass 2's
+unit-reviewers (2b runs → ≤4 unit-reviewers + arch; 2c runs → ≤4 + history; both →
+≤3 + both; neither → ≤5 unit-reviewers) — the ≤5 cap holds in every combination. It
+depends only on Pass 1's unit list, not Pass 2's
 findings. Pass it `origin/<base>` (the SAME base-ref form Pass 2 uses), the change
 summary, and the file set, and instruct it to scope findings to lines changed since
 that ref — ignore pre-existing issues on untouched lines. If there are no
@@ -115,7 +117,10 @@ skip this pass.
 ## Pass 3 — Dedup + scoring + filter
 
 1. **Dedup**: if a shared file produced the same finding in two units, keep the
-   better-explained one.
+   better-explained one. On a cross-pass collision between a `regression` finding
+   (Pass 2c, which cites a prior commit short-SHA) and a non-regression finding on
+   the same line, prefer the `regression` one — its commit citation is what makes it
+   actionable and would otherwise be lost.
 2. **Score**: for each unique finding dispatch
    `Agent(subagent_type: "second-brain:code-review-scorer")`, passing the finding,
    its file paths, the project conventions, and the false-positive store contents

@@ -208,6 +208,15 @@ else
     && ok "FP write-back is user-dismissals-only (no auto-record ratchet)" \
     || bad "orchestrator must record FPs from user dismissals only (v2.1)"
 
+  # v2.2.1: dedup must prefer the regression finding (with its commit SHA) on a
+  # cross-pass collision, and the wave-cap prose must cover the asymmetric cases.
+  grep -qi "prefer the .regression." "$ORCH" \
+    && ok "dedup prefers regression finding on collision" \
+    || bad "dedup must prefer the regression-category finding on cross-pass collision"
+  grep -qi "in every combination" "$ORCH" \
+    && ok "wave-cap prose covers asymmetric pass combinations" \
+    || bad "wave-cap note missing the asymmetric-combination clarification"
+
   # No emojis in the orchestrator (the deep reference bans them; v1 had a robot).
   if grep -q "🤖" "$ORCH"; then
     bad "orchestrator contains an emoji (robot) — deep review posts no emojis"
