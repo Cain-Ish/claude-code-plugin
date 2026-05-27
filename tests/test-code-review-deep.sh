@@ -60,6 +60,13 @@ grep -qi "never paste file contents" "$ROOT/agents/code-review-unit-reviewer.md"
   && ok "unit-reviewer has lean-return instruction" \
   || bad "unit-reviewer missing lean-return (findings-only) instruction"
 
+# v2.1: unit-reviewer reasons harder (effort: high). Task 0 confirmed dispatched
+# agents honor effort:. ur_fm is the frontmatter extracted above.
+ur_effort_keys="$(printf '%s\n' "$ur_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
+printf '%s\n' "$ur_effort_keys" | grep -qi '^effort:' \
+  && ok "unit-reviewer sets effort (deeper reasoning)" \
+  || bad "unit-reviewer missing 'effort: high'"
+
 # --- Skill --------------------------------------------------------------
 skill="$ROOT/skills/code-review-deep/SKILL.md"
 if [ ! -f "$skill" ]; then

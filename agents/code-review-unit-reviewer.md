@@ -13,6 +13,7 @@ description: |
   assistant: "Dispatching code-review-unit-reviewer per unit to hunt cross-file bugs in parallel."
   </example>
 color: cyan
+effort: high
 tools: Read, Bash(git diff *)
 ---
 
