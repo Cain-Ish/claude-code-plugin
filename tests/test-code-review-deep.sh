@@ -22,7 +22,7 @@ echo "------------------------"
 
 # --- Agents -------------------------------------------------------------
 # Both agents must exist, be named, and carry a description.
-for agent in code-review-unit-reviewer code-review-scorer; do
+for agent in code-review-unit-reviewer code-review-scorer code-review-history-reviewer; do
   f="$ROOT/agents/$agent.md"
   if [ ! -f "$f" ]; then bad "agent file missing: agents/$agent.md"; continue; fi
   fm="$(frontmatter "$f")"
@@ -66,6 +66,25 @@ ur_effort_keys="$(printf '%s\n' "$ur_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
 printf '%s\n' "$ur_effort_keys" | grep -qi '^effort:' \
   && ok "unit-reviewer sets effort (deeper reasoning)" \
   || bad "unit-reviewer missing 'effort: high'"
+
+# v2.2: history-reviewer is a dedicated regression lens. It must inherit the model
+# (no pin), reason at effort: high, and have read-only git history tools.
+hr="$ROOT/agents/code-review-history-reviewer.md"
+if [ ! -f "$hr" ]; then
+  bad "history-reviewer file missing: agents/code-review-history-reviewer.md"
+else
+  hr_fm="$(frontmatter "$hr")"
+  hr_keys="$(printf '%s\n' "$hr_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
+  printf '%s\n' "$hr_keys" | grep -qi '^model:' \
+    && bad "code-review-history-reviewer must NOT pin 'model:' (it inherits the best model)" \
+    || ok "code-review-history-reviewer inherits model (no model: pin)"
+  printf '%s\n' "$hr_keys" | grep -qi '^effort:' \
+    && ok "history-reviewer sets effort (deeper reasoning)" \
+    || bad "history-reviewer missing 'effort: high'"
+  hr_tools="$(printf '%s\n' "$hr_fm" | grep '^tools:')"
+  case "$hr_tools" in *"git log"*) ok "history-reviewer tools grant git log" ;; *) bad "history-reviewer tools must grant Bash(git log *)" ;; esac
+  case "$hr_tools" in *"git blame"*) ok "history-reviewer tools grant git blame" ;; *) bad "history-reviewer tools must grant Bash(git blame *)" ;; esac
+fi
 
 # --- Skill --------------------------------------------------------------
 skill="$ROOT/skills/code-review-deep/SKILL.md"
