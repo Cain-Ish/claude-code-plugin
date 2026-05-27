@@ -45,7 +45,7 @@ run() { env -i HOME="$HOME" PATH="$PATH" "$@" bash "$TMP/runner.sh"; }
 BD="$TMP/a"; mkdir -p "$BD"; mkidx "$BD/episodic-index.json" 5 0
 CRA="$TMP/cacheA"; mkdir -p "$CRA/mcp"   # NO node_modules/@huggingface/transformers
 out=$(run BRAIN_DIR="$BD" CLAUDE_PLUGIN_ROOT="$CRA")
-echo "$out" | grep -q "not installed in this plugin cache" \
+echo "$out" | grep -q "not linked in this plugin cache" \
   || { echo "FAIL A: deps-absent banner did not fire (the regression being fixed):"; echo "$out"; exit 1; }
 echo "PASS A: deps-absent fires immediately despite a full-embedding index"
 

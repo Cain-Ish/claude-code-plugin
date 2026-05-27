@@ -253,11 +253,11 @@ if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
   if [ "${SB_EMBED_PENDING_BANNER:-on}" = "on" ] \
      && { [ "$EPI_XFMR_MISSING" -eq 1 ] || { [ "${EPI_PENDING:-0}" -gt 10 ] && [ "${EPI_TOTAL:-0}" -gt 0 ]; }; }; then
     if [ "$EPI_XFMR_MISSING" -eq 1 ]; then
-      EPI_REASON='`@huggingface/transformers` is not installed in this plugin cache (a cache refresh ships dist/ but not node_modules/) — every NEW embedding will silently fail.'
+      EPI_REASON='`@huggingface/transformers` is not linked in this plugin cache — a version bump creates a fresh dir whose `mcp/node_modules` symlink to the shared deps is not yet created — so every NEW embedding will silently fail.'
     else
       EPI_REASON="$EPI_PENDING of $EPI_TOTAL indexed exchanges have no embedding (text search works; vector / mode=both will miss them)."
     fi
-    EPI_BANNER=$(printf '## ⓘ second-brain — episodic vector search degraded\n%s\nfix: `bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh` (one-time per cache version, ~70MB native deps). To re-embed existing exchanges, back up & remove `%s`, then run the episodic indexer.\nSuppress: `SB_EMBED_PENDING_BANNER=off`.\n\n' \
+    EPI_BANNER=$(printf '## ⓘ second-brain — episodic vector search degraded\n%s\nfix: `bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh` (re-links the shared deps; downloads ~70MB only on the first ever install). To re-embed existing exchanges, back up & remove `%s`, then run the episodic indexer.\nSuppress: `SB_EMBED_PENDING_BANNER=off`.\n\n' \
       "$EPI_REASON" "$SB_EPI_INDEX")
     sb_append "$EPI_BANNER" "episodic-embed-pending-banner" 800
   fi
