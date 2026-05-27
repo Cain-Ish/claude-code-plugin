@@ -42,6 +42,12 @@ else
   ok "code-review-scorer inherits model (no model: pin)"
 fi
 
+# v2.2: the scorer must be able to verify regression findings, which requires
+# reading git history (the v2.1 lesson applied to tools, not just model).
+scorer_tools="$(printf '%s\n' "$scorer_fm" | grep '^tools:')"
+case "$scorer_tools" in *"git log"*) ok "scorer tools grant git log" ;; *) bad "code-review-scorer tools must grant Bash(git log *)" ;; esac
+case "$scorer_tools" in *"git blame"*) ok "scorer tools grant git blame" ;; *) bad "code-review-scorer tools must grant Bash(git blame *)" ;; esac
+
 # Unit-reviewer must NOT pin a model — it inherits the session/best model so
 # code units get the strongest model (v2 directive).
 ur_fm="$(frontmatter "$ROOT/agents/code-review-unit-reviewer.md")"

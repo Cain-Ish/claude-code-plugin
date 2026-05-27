@@ -11,7 +11,7 @@ description: |
   assistant: "Scoring each finding with code-review-scorer, suppressing any that match a recorded false positive."
   </example>
 color: green
-tools: Read, Bash(git diff *)
+tools: Read, Bash(git diff *), Bash(git log *), Bash(git blame *)
 ---
 
 # Code-Review Confidence Scorer
@@ -45,6 +45,13 @@ verify the finding by reading the relevant file(s).
 - **Matches a known false-positive pattern** in the store (same repo + path/category
   + the recorded reason fits this finding): force the score to **≤10** and name the
   matched pattern in your justification.
+
+## Verifying history findings
+
+For `regression`/history findings, use `git log`/`git blame` to confirm the cited
+prior commit exists and that this change actually reverts or contradicts it. If you
+cannot ground the claim in real history, do NOT inflate the score — treat it as
+unverified (≤50).
 
 ## Output
 
