@@ -245,7 +245,7 @@ fi
 
 # deps-key: a stable hash of the dependencies block, so the shared tree is rebuilt
 # only when the actual dependency set changes — not on every version bump.
-WANT_KEY="$(node -e 'const p=require(process.argv[1]); process.stdout.write(JSON.stringify(p.dependencies||{}))' "$PKG" | sha256sum | awk '{print $1}')"
+WANT_KEY="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(JSON.stringify(p.dependencies||{}))' "$PKG" | sha256sum | awk '{print $1}')"
 HAVE_KEY="$(cat "$KEY_FILE" 2>/dev/null || echo none)"
 
 smoke() { ( cd "$MCP_DIR" && node --input-type=module -e 'await import("@huggingface/transformers"); console.log("ok")' ) 2>/dev/null | grep -q '^ok$'; }
