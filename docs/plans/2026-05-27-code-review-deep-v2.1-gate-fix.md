@@ -16,9 +16,10 @@
 
 ## Verification Outcomes (filled in by Task 0 — gates Task 2)
 
-- `EFFORT_ON_DISPATCH` = **TBD** — whether a dispatched sub-agent honors an `effort:`
-  frontmatter key. `yes` → Task 2 lands `effort: high` on the unit-reviewer; `no` →
-  **skip Task 2 entirely** and the other three changes ship alone.
+- `EFFORT_ON_DISPATCH` = **yes** — `effort:` is a supported agent frontmatter key and
+  "Overrides the session effort level" for dispatched subagents; valid values include
+  `high` (Source: code.claude.com/docs/en/sub-agents.md, "Supported frontmatter
+  fields", lines 261–283). → **Task 2 lands** `effort: high` on the unit-reviewer.
 
 ---
 
