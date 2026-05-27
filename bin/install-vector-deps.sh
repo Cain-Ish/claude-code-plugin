@@ -11,6 +11,11 @@
 # (~/.second-brain), survives cache wipes, and is symlinked into each version so
 # there is only ever ONE copy on disk.
 #
+# Safety: every rebuild is staged in a PRIVATE temp dir and validated (all deps
+# present + import works) BEFORE the live shared tree or the symlink is touched, so a
+# failed/offline npm install can never destroy a working install or leave a dangling
+# symlink. A unique staging dir also makes concurrent runs collision-free.
+#
 # Usage:  bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh
 # Override shared location with SB_VECTOR_DEPS_DIR (used by tests).
 # Safe to re-run: no-op when shared deps + symlink + import all check out.
@@ -34,12 +39,30 @@ if [ ! -f "$PKG" ]; then
   exit 1
 fi
 
+# sha256: GNU coreutils ships `sha256sum`; macOS/BSD ship `shasum`. Support both.
+sha256() { sha256sum 2>/dev/null || shasum -a 256; }
+
 # deps-key: a stable hash of the dependencies block, so the shared tree is rebuilt
 # only when the actual dependency set changes — not on every version bump.
-WANT_KEY="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(JSON.stringify(p.dependencies||{}))' "$PKG" | sha256sum | awk '{print $1}')"
+WANT_KEY="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(JSON.stringify(p.dependencies||{}))' "$PKG" | sha256 | awk '{print $1}')"
 HAVE_KEY="$(cat "$KEY_FILE" 2>/dev/null || echo none)"
 
-smoke() { ( cd "$MCP_DIR" && node --input-type=module -e 'await import("@huggingface/transformers"); console.log("ok")' ) 2>/dev/null | grep -q '^ok$'; }
+# deps_ok <node_modules-dir>: exit 0 iff EVERY dependency in package.json has a dir
+# there. Stops a partial / wrong-deps tree (e.g. a harvested tree predating an added
+# dependency) from being trusted and stamped with the current key.
+deps_ok() {
+  node -e '
+    const fs=require("fs"), path=require("path");
+    const pkg=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const nm=process.argv[2];
+    for (const d of Object.keys(pkg.dependencies||{}))
+      if (!fs.existsSync(path.join(nm,d))) process.exit(1);
+    process.exit(0);
+  ' "$PKG" "$1"
+}
+
+# import_ok <dir-with-node_modules>: exit 0 iff transformers imports from there.
+import_ok() { ( cd "$1" && node --input-type=module -e 'await import("@huggingface/transformers"); console.log("ok")' ) 2>/dev/null | grep -q '^ok$'; }
 
 link_version() {
   local nm="$MCP_DIR/node_modules"
@@ -52,61 +75,69 @@ link_version() {
   ln -s "$SHARED_NM" "$nm"
 }
 
-# 1. Shared tree present and current → just (re)link and verify.
-if [ -f "$SHARED_MARKER" ] && [ "$HAVE_KEY" = "$WANT_KEY" ]; then
+# 1. Shared tree present, key-current, complete, importable → just (re)link and done.
+if [ -f "$SHARED_MARKER" ] && [ "$HAVE_KEY" = "$WANT_KEY" ] && deps_ok "$SHARED_NM"; then
   link_version
-  if smoke; then
+  if import_ok "$MCP_DIR"; then
     echo "install-vector-deps: OK — shared deps reused, mcp/node_modules linked."
     exit 0
   fi
-  echo "install-vector-deps: shared deps present but import failed — rebuilding." >&2
-  rm -rf "$SHARED_NM"          # force a fresh rebuild below
+  echo "install-vector-deps: shared deps present but import failed — rebuilding (existing tree kept until the new one is ready)." >&2
 fi
 
 mkdir -p "$SHARED"
 
-# Stale shared tree (the dependency set changed since it was built) → clear it so
-# the npm-install branch rebuilds fresh instead of reusing outdated deps.
-if [ -f "$SHARED_MARKER" ] && [ "$HAVE_KEY" != "$WANT_KEY" ]; then
-  echo "install-vector-deps: dependency set changed — rebuilding shared deps."
-  rm -rf "$SHARED_NM"
+# Build the NEW tree in a private staging dir. The live $SHARED_NM and the symlink are
+# NOT touched until staging validates, so a failed/offline npm install can never
+# destroy a working install or leave a dangling symlink. A unique staging dir makes
+# concurrent runs collision-free (last successful swap wins).
+STAGE="$(mktemp -d "${SHARED%/}/.staging.XXXXXX")"
+trap 'rm -rf "$STAGE"' EXIT
+STAGE_NM="$STAGE/node_modules"
+
+# 2. Harvest an existing real per-version install instead of downloading — ONLY if it
+#    actually satisfies the current dependency set.
+if [ ! -L "$MCP_DIR/node_modules" ] \
+   && [ -d "$MCP_DIR/node_modules/@huggingface/transformers" ] \
+   && deps_ok "$MCP_DIR/node_modules"; then
+  echo "install-vector-deps: harvesting existing mcp/node_modules -> staging (no download)."
+  mv "$MCP_DIR/node_modules" "$STAGE_NM"
 fi
 
-# 2. Harvest an existing real per-version install instead of downloading (one-time
-#    transition from the old per-version layout).
-if [ ! -f "$SHARED_MARKER" ] \
-   && [ ! -L "$MCP_DIR/node_modules" ] \
-   && [ -d "$MCP_DIR/node_modules/@huggingface/transformers" ]; then
-  echo "install-vector-deps: harvesting existing mcp/node_modules -> $SHARED_NM (no download)."
-  rm -rf "$SHARED_NM"
-  mv "$MCP_DIR/node_modules" "$SHARED_NM"
-fi
-
-# 3. Still no shared tree → npm install into the shared dir.
-if [ ! -f "$SHARED_MARKER" ]; then
+# 3. No usable staged tree → npm install into staging.
+if [ ! -f "$STAGE_NM/@huggingface/transformers/package.json" ] || ! deps_ok "$STAGE_NM"; then
   command -v npm >/dev/null 2>&1 || {
     echo "install-vector-deps: npm not found on PATH. Install Node.js + npm first." >&2
     echo "  Debian/Ubuntu/Pi:  sudo apt install -y nodejs npm" >&2
     exit 2
   }
-  echo "install-vector-deps: installing runtime deps in $SHARED ..."
+  echo "install-vector-deps: installing runtime deps (staged) ..."
   echo "install-vector-deps: this needs network access and downloads ~70MB of native"
   echo "                     deps (onnxruntime-node, sharp). One-time; shared across versions."
-  cp "$PKG" "$SHARED/package.json"
-  ( cd "$SHARED" && npm install --omit=dev --no-audit --no-fund )
+  cp "$PKG" "$STAGE/package.json"
+  ( cd "$STAGE" && npm install --omit=dev --no-audit --no-fund )
 fi
 
-if [ ! -f "$SHARED_MARKER" ]; then
-  echo "install-vector-deps: shared install completed but @huggingface/transformers still missing." >&2
-  echo "                     Inspect: cd $SHARED && npm ls @huggingface/transformers" >&2
+# 4. Validate staging BEFORE swapping. If incomplete, abort WITHOUT touching the live
+#    tree or symlink — they remain whatever they were (never half-destroyed).
+if [ ! -f "$STAGE_NM/@huggingface/transformers/package.json" ] || ! deps_ok "$STAGE_NM"; then
+  echo "install-vector-deps: staged build incomplete — leaving any existing install untouched." >&2
+  echo "                     Inspect: cd $STAGE && npm ls @huggingface/transformers" >&2
   exit 3
 fi
 
+# 5. Swap staging into place, keeping the old tree as a backup until the new one lands.
+cp "$PKG" "$SHARED/package.json"
+rm -rf "$SHARED/node_modules.old"
+[ -e "$SHARED_NM" ] && mv "$SHARED_NM" "$SHARED/node_modules.old"
+mv "$STAGE_NM" "$SHARED_NM"
+rm -rf "$SHARED/node_modules.old"
 echo "$WANT_KEY" > "$KEY_FILE"
+
 link_version
 
-# 4. Smoke-check resolution through the symlink.
-if smoke; then
+# 6. Final smoke-check through the symlink.
+if import_ok "$MCP_DIR"; then
   echo "install-vector-deps: OK — shared deps installed and linked."
   echo "  Run an extractor cycle to populate embeddings:"
   echo "    rm $HOME/.second-brain/episodic-index.json   # one-time reset, indexer rebuilds"
