@@ -115,5 +115,17 @@ assert_allow "relative path inside project" "$OUT"
 OUT=$(run_guard "Write" "$HOME/.password-store/work/github.gpg")
 assert_deny "write under ~/.password-store" "$OUT" "passwordstore"
 
+# --- Test 16: write to credential-dir NODE itself (no trailing /) → deny -
+# Regression test for the v0.21.0 review finding: the prefix check matches
+# "$HOME/.ssh/*" but a Write whose path resolves to "$HOME/.ssh" exactly
+# (no trailing slash) was passing unchallenged. Fixed by adding an equality
+# fallback alongside the prefix glob.
+OUT=$(run_guard "Write" "$HOME/.ssh")
+assert_deny "write to credential-dir node itself (no trailing /)" "$OUT" "ssh"
+OUT=$(run_guard "Write" "$HOME/.aws")
+assert_deny "write to ~/.aws node itself" "$OUT" "aws"
+OUT=$(run_guard "Write" "/etc")
+assert_deny "write to /etc node itself" "$OUT" "etc"
+
 echo
 echo "ALL PASS"

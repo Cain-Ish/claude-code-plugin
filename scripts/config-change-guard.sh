@@ -37,12 +37,22 @@ if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
 fi
 
 SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null || true)
-SOURCE=$(printf '%s'    "$RAW" | jq -r '.source      // empty' 2>/dev/null || true)
-FILE_PATH=$(printf '%s' "$RAW" | jq -r '.file_path   // empty' 2>/dev/null || true)
+# Field-name fallback: Anthropic's ConfigChange JSON shape is documented at
+# the matcher-category level but not the field-name level (as of 2026-05-28
+# the only authoritative reference is the hook-output behavior). Try a few
+# plausible names so an audit row still classifies correctly if the payload
+# differs from the "source"/"file_path" guess used initially.
+SOURCE=$(printf '%s' "$RAW" | jq -r '
+  .source // .matcher // .category // .config_source // empty
+' 2>/dev/null || true)
+FILE_PATH=$(printf '%s' "$RAW" | jq -r '
+  .file_path // .path // .config_file // .target // empty
+' 2>/dev/null || true)
 
-# extra payload: keep the raw event JSON for forensics, capped so a runaway
-# diff doesn't bloat the audit-log line. jq -c keeps it on one line.
-EXTRA=$(printf '%s' "$RAW" | jq -c '{source, file_path, hook_event_name}' 2>/dev/null || echo '{}')
+# extra payload: preserve the WHOLE raw event for forensics so a later
+# Anthropic doc update can be cross-referenced against historical audit
+# rows. Capped via the audit-log's own line-length defenses upstream.
+EXTRA=$(printf '%s' "$RAW" | jq -c '.' 2>/dev/null || echo '{}')
 
 REASON="ConfigChange observed: source=${SOURCE:-?} file=${FILE_PATH:-?}"
 sb_log_audit "config-change-guard.sh" "flag" "config-change:${SOURCE:-unknown}" "${FILE_PATH:-}" "$REASON" "$SESSION_ID" "$EXTRA"

@@ -82,8 +82,12 @@ MATCHED_LABEL=""
 for entry in "${CRED_PREFIXES[@]}"; do
   label="${entry%%:*}"
   prefix="${entry#*:}"
+  # Match the directory node itself (no trailing /) as well as anything
+  # under it. Without the equality case, a Write whose path resolves to the
+  # exact dir (e.g. ~/.ssh) would slip past the dir-tree prefix check.
   case "$RESOLVED" in
-    "$prefix"*) MATCHED_LABEL="$label"; break ;;
+    "$prefix"*)         MATCHED_LABEL="$label"; break ;;
+    "${prefix%/}")      MATCHED_LABEL="$label"; break ;;
   esac
 done
 if [ -z "$MATCHED_LABEL" ] && [ "$RESOLVED" = "$NETRC_FILE" ]; then

@@ -16,7 +16,7 @@ description: |
   </example>
 model: sonnet
 color: blue
-tools: Read, Write, Edit, Glob, Grep, Bash(jq *), Bash(find *), Bash(grep *), Bash(diff *), Bash(cat *), Bash(head *), Bash(tail *), Bash(wc *), Bash(sort *), Bash(uniq *), Bash(sed *), Bash(awk *), Bash(date *), Bash(test *), Bash(ls *), Bash(basename *), Bash(dirname *), Bash(mkdir *), Bash(rm *), Bash(cp *), Bash(mv *), Bash(git log *), Bash(git diff *), Bash(git blame *), Bash(git rev-parse *), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+tools: Read, Write, Edit, Glob, Grep, Bash(jq *), Bash(find *), Bash(grep *), Bash(diff *), Bash(cat *), Bash(head *), Bash(tail *), Bash(wc *), Bash(sort *), Bash(uniq *), Bash(sed *), Bash(awk *), Bash(date *), Bash(test *), Bash(ls *), Bash(basename *), Bash(dirname *), Bash(mkdir *), Bash(rm *), Bash(cp *), Bash(mv *), Bash(mktemp *), Bash(stat *), Bash(touch *), Bash(git log *), Bash(git diff *), Bash(git blame *), Bash(git rev-parse *), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # Knowledge Maintainer
