@@ -46,11 +46,15 @@ LINKED=$(find "$KD/wiki" "$BD/projects" -name '*.md' -type f 2>/dev/null | while
 done | grep -oE '\[\[[a-zA-Z0-9][a-zA-Z0-9.-]*\]\]' \
      | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
 
-# Plus slugs listed in any "## Cross-references" section
+# Plus slugs listed in any "## Cross-references" section.
+# `inside`, not `in`: `in` is a reserved word in gawk strict mode (used by
+# `for (x in arr)` and `(elem in arr)`) and using it as a variable name
+# produces "syntax error at or near in". Verified RED: the previous form
+# silently skipped Check 1 on systems with strict-mode awk.
 CROSS=$(awk '
-  /^## Cross-references/ { in=1; next }
-  /^## / && in { in=0 }
-  in && /^- / { sub(/^- */, ""); print }
+  /^## Cross-references/ { inside=1; next }
+  /^## / && inside { inside=0 }
+  inside && /^- / { sub(/^- */, ""); print }
 ' "$BD"/projects/*/PROJECT.md 2>/dev/null | sort -u)
 
 # Orphans = ALL minus (LINKED ∪ CROSS), excluding known auto-generated slugs
@@ -110,9 +114,9 @@ for f in "$BD"/projects/*/PROJECT.md; do
   [ -f "$f" ] || continue
   PROJ=$(basename "$(dirname "$f")")
   awk '
-    /^## Cross-references/ { in=1; next }
-    /^## / && in { in=0 }
-    in && /^- / { sub(/^- */, ""); print }
+    /^## Cross-references/ { inside=1; next }
+    /^## / && inside { inside=0 }
+    inside && /^- / { sub(/^- */, ""); print }
   ' "$f" | while read SLUG; do
     [ -z "$SLUG" ] && continue
     if ! find "$KD/wiki" -name "${SLUG}.md" -type f -print -quit | grep -q .; then
