@@ -40,7 +40,11 @@ async function logLoadError(message, brainDir) {
 async function getPipeline() {
   const brainDir = brainDirFromEnv();
   if (process.env[DISABLE_ENV] === "1") {
-    await logLoadError(`embeddings disabled via ${DISABLE_ENV}=1 \u2014 episodic vector search and hybrid knowledge ranking unavailable`, brainDir);
+    try {
+      process.stderr.write(`[embeddings] disabled via ${DISABLE_ENV}=1
+`);
+    } catch {
+    }
     return null;
   }
   if (pipelineInstance) return pipelineInstance;

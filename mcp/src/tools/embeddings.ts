@@ -43,7 +43,12 @@ async function logLoadError(message: string, brainDir: string): Promise<void> {
 async function getPipeline(): Promise<any> {
   const brainDir = brainDirFromEnv();
   if (process.env[DISABLE_ENV] === '1') {
-    await logLoadError(`embeddings disabled via ${DISABLE_ENV}=1 — episodic vector search and hybrid knowledge ranking unavailable`, brainDir);
+    // User explicitly disabled embeddings — informational, not an error.
+    // Previously this called logLoadError which appended to error-log.jsonl
+    // every process startup (in-memory dedup couldn't cross processes), so
+    // vitest runs alone dropped ~500 noise rows. stderr is the right channel
+    // for an opt-in disable acknowledgement.
+    try { process.stderr.write(`[embeddings] disabled via ${DISABLE_ENV}=1\n`); } catch { /* ignore */ }
     return null;
   }
   if (pipelineInstance) return pipelineInstance;

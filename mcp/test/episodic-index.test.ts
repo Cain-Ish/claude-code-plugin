@@ -64,16 +64,23 @@ describe('buildEpisodicIndex — degraded when embeddings disabled', () => {
     expect(index.indexed_files['sess1_proj_2026-05-22.txt']).toBeDefined();
   });
 
-  it('writes a structured error to BRAIN_DIR/error-log.jsonl when embeddings are disabled', async () => {
+  it('does NOT write to BRAIN_DIR/error-log.jsonl when embeddings are explicitly disabled (opt-in is not an error)', async () => {
+    // Contract update (post v0.21.1): SECOND_BRAIN_DISABLE_EMBEDDINGS=1 is a
+    // user-controlled opt-in, not a degradation. Logging it to error-log
+    // every process startup (in-memory dedup couldn't span processes) was
+    // flooding the audit channel — vitest runs alone dropped ~500 noise
+    // rows. stderr is the correct channel for an acknowledged disable.
+    // Real load failures (transformers missing, etc.) still log — see the
+    // separate "happy path" describe block, which exercises that path.
     writeTranscript(brainDir, 'sess1_proj_2026-05-22.txt', 'sess1', 'proj', '2026-05-22', FIXTURE_BODY);
     await buildEpisodicIndex(brainDir);
 
+    // Strong assertion (pre-push reviewer W1 fix): the disable path must
+    // not create the error-log at all. A guard-conditional check would
+    // pass vacuously if a regression caused the file to be absent for a
+    // different reason. The disable acknowledgement goes to stderr only.
     const logPath = join(brainDir, 'error-log.jsonl');
-    expect(existsSync(logPath)).toBe(true);
-    const lastLine = readFileSync(logPath, 'utf-8').trim().split('\n').pop()!;
-    const evt = JSON.parse(lastLine);
-    expect(evt.script).toBe('embeddings');
-    expect(evt.message).toMatch(/disabled|unavailable|transformers/i);
+    expect(existsSync(logPath)).toBe(false);
   });
 });
 

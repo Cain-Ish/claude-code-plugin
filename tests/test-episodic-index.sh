@@ -52,7 +52,17 @@ T=$(count_total); P=$(count_pending); F=$(count_indexed_files)
 [ "$T" -gt 0 ] || { echo "FAIL: expected >0 exchanges, got $T" >&2; exit 1; }
 [ "$P" -eq "$T" ] || { echo "FAIL: expected all $T pending under disabled, got $P pending" >&2; exit 1; }
 [ "$F" -eq 1 ] || { echo "FAIL: expected indexed_files to track the file (text-searchable), got $F" >&2; exit 1; }
-grep -q "embeddings disabled" "$TMP/error-log.jsonl" || { echo "FAIL: error-log.jsonl missing degraded entry" >&2; exit 1; }
+# Contract update (post-v0.21.1 embeddings-noise fix): SECOND_BRAIN_DISABLE_EMBEDDINGS=1
+# is an opt-in, not an error. The disable acknowledgement goes to stderr only;
+# error-log.jsonl must NOT receive an entry (previously this flooded the audit
+# channel — every Node process startup re-logged because the in-memory dedup
+# couldn't span processes).
+grep -qE "embeddings.*disabled|disabled.*SECOND_BRAIN" "$TMP/run1.err" \
+  || { echo "FAIL: expected disable acknowledgement on stderr (run1.err)" >&2; cat "$TMP/run1.err" >&2; exit 1; }
+if [ -f "$TMP/error-log.jsonl" ] && grep -q "embeddings disabled" "$TMP/error-log.jsonl"; then
+  echo "FAIL: disable acknowledgement was written to error-log.jsonl (should be stderr only)" >&2
+  exit 1
+fi
 echo "  OK: total=$T pending=$P indexed_files=$F"
 
 echo "TEST 2: recovery run (embeddings enabled) repairs all pending rows"
