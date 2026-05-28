@@ -45,9 +45,17 @@ if [ ! -f "$project_file" ]; then
 <!-- last_updated: $(date -u +%Y-%m-%dT%H:%M:%SZ) -->
 <!-- last_queried_wiki: -->
 TMPL
-  if [ -f "$INDEX_FILE" ] && ! grep -q "\"slug\":\"$slug\"" "$INDEX_FILE" 2>/dev/null; then
-    jq -nc --arg s "$slug" --arg n "$slug" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}' >> "$INDEX_FILE"
+  # Use jq to membership-check, not grep — projects.jsonl may be pretty-
+  # printed (objects split across lines, `"slug": "x"` with whitespace),
+  # which slips past the literal "\"slug\":\"$slug\"" pattern and causes
+  # a duplicate registration on the next session that creates PROJECT.md.
+  # jq --slurp parses pretty-printed and JSONL identically.
+  if [ -f "$INDEX_FILE" ]; then
+    if ! jq -se --arg s "$slug" 'map(select(.slug == $s)) | length > 0' \
+        "$INDEX_FILE" >/dev/null 2>&1; then
+      jq -nc --arg s "$slug" --arg n "$slug" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}' >> "$INDEX_FILE"
+    fi
   fi
 fi
 
