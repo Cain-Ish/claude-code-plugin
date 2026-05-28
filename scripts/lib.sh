@@ -586,18 +586,46 @@ sb_call_extractor() {
   # tokens from `claude /login` are never read. So we only use --bare when
   # an API key is present; otherwise we use the slower full path that
   # honors OAuth. Override with SB_USE_BARE=1 to force.
+  #
+  # SB_USE_BWRAP=1 (opt-in, v0.21.0 P2b): wrap the claude invocation in
+  # bubblewrap so the extractor sees a read-only root with only
+  # ~/.second-brain writable. Closes G-SANDBOX-1. Requires bwrap binary;
+  # falls back to direct invocation if absent. Network stays enabled
+  # (extractor needs the API).
   if [ "$SB_SKIP_CLI" != "1" ] && command -v claude >/dev/null 2>&1; then
     local -a CLI_ARGS=(-p --model "$model" --system-prompt "$prompt")
     if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ "${SB_USE_BARE:-0}" = "1" ]; then
       CLI_ARGS=(-p --bare --model "$model" --system-prompt "$prompt")
     fi
+    local -a WRAP_PREFIX=()
+    if [ "${SB_USE_BWRAP:-0}" = "1" ] && command -v bwrap >/dev/null 2>&1; then
+      WRAP_PREFIX=(
+        bwrap
+        --ro-bind / /
+        --bind "$HOME/.second-brain" "$HOME/.second-brain"
+        --tmpfs /tmp
+        --proc /proc
+        --dev /dev
+        --unshare-pid
+        --new-session
+        --die-with-parent
+        --setenv HOME "$HOME"
+        --setenv PATH "${PATH:-/usr/local/bin:/usr/bin:/bin}"
+        --setenv ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}"
+        --
+      )
+    elif [ "${SB_USE_BWRAP:-0}" = "1" ]; then
+      # User asked for bwrap but binary missing — log once per call so the
+      # health banner can surface this.
+      sb_log_error "lib.sh" "SB_USE_BWRAP=1 but bwrap not found in PATH; falling back to direct invocation" 0
+    fi
     local claude_ec=0
     if command -v timeout >/dev/null 2>&1; then
-      timeout "$timeout_s" claude "${CLI_ARGS[@]}" \
+      timeout "$timeout_s" "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
         < "$input_file" > "$out_file" 2>"$err_file"
       claude_ec=$?
     else
-      claude "${CLI_ARGS[@]}" \
+      "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
         < "$input_file" > "$out_file" 2>"$err_file"
       claude_ec=$?
     fi

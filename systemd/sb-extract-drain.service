@@ -4,7 +4,21 @@ After=default.target
 
 [Service]
 Type=oneshot
-# Do NOT add PrivateDevices=/ProtectSystem= sandboxing — it breaks claude's
-# pty allocation (see wiki: pty-openpty-privatedevices-quirk).
+# Sandboxing directives (G-SANDBOX-2, v0.21.0). The pty-incompat subset
+# (PrivateDevices=, ProtectSystem=, PrivateTmp=) stays OUT — they break
+# claude's pty allocation, see wiki/learnings/pty-openpty-privatedevices-quirk.
+# The directives below are verified safe with claude pty + extraction flow:
+#  - NoNewPrivileges: no setuid escalation from the extraction subprocess.
+#  - RestrictNamespaces: drop ability to unshare/clone new namespaces.
+#  - ProtectHome=read-only + ReadWritePaths=%h/.second-brain: $HOME is
+#    read-only except for the brain directory the extractor legitimately
+#    needs to write (transcripts, audit-log, extractor-health).
+#  - PrivateNetwork=no (default; extractor needs network for API fallback).
+#  - SystemCallFilter intentionally omitted — needs a pty syscall audit
+#    before enabling; deferred to a later cycle.
+NoNewPrivileges=true
+RestrictNamespaces=true
+ProtectHome=read-only
+ReadWritePaths=%h/.second-brain
 ExecStart=@EXEC@
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin

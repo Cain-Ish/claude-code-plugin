@@ -91,7 +91,6 @@ if [ "${SB_DREAM_AUTOSTAGE:-on}" = "off" ] && [ "$SESSION_COUNT" -ge "$DREAM_THR
     "$SESSION_COUNT" "$DREAM_THRESHOLD")" "dream-cadence-banner" 300
 fi
 # --- v2.8.0 maintainer auto-dispatch: reconcile previous + threshold -----
-KD_RESOLVED="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 N=${SB_MAINTAINER_THRESHOLD:-3}
 AUTO=${SB_MAINTAINER_AUTO:-on}
 PROJ_DIR="$BRAIN_DIR/projects/$slug"
@@ -122,15 +121,26 @@ elif [ -f "$DISP_FILE" ] && [ ! -f "$ACK_FILE" ]; then
   fi
 fi
 
-# [dispatch] Decide whether to emit the BLOCKING REQUIREMENT banner.
+# [suggest] Emit a user-facing maintenance-suggested banner when the
+# wiki-write counter crosses the threshold. Doctrinal alignment (C3-B,
+# wiki/decisions/2026-05-28-plugin-architecture-rethink.md): the banner does
+# NOT instruct Claude to auto-dispatch the knowledge-maintainer subagent —
+# Anthropic's pattern is explicit-invocation. The user runs
+# `/second-brain:dream` (whose 6-phase pipeline includes maintainer work)
+# when ready, and the dream-accept path resets the counter.
+#
+# Reconcile state machine (DISP_FILE/ACK_FILE/fail-count) is retained for
+# back-compat: a user or script may still manually create DISP_FILE before
+# explicit dispatch and the reset+failure paths above will fire correctly.
+# This branch no longer creates DISP_FILE itself.
 if [ "$AUTO" != "off" ] && [ ! -f "$DISABLED_FILE" ]; then
   COUNT=$(sb_get_wiki_writes "$slug")
   if [ "$COUNT" -ge "$N" ]; then
-    BANNER=$(printf '## ⚙ BLOCKING REQUIREMENT — knowledge-maintainer auto-dispatch\n\nProject `%s` has accumulated %s wiki writes since the last\nconsolidation cycle. Before responding to the user'"'"'s prompt, you MUST:\n\n1. Dispatch the `second-brain:knowledge-maintainer` subagent via the\n   Agent tool. Brief it with: "Auto-dispatched after %s wiki writes.\n   Run full 6-phase consolidation. Knowledge dir: %s.\n   Brain dir: ~/.second-brain. Project slug: %s."\n\n2. When the subagent returns, write this acknowledgment file to mark\n   the run complete (counter reset depends on it):\n\n       echo ok > ~/.second-brain/projects/%s/.maintainer-needed-last\n\n3. Print ONE LINE to the user in this exact format, derived from the\n   subagent'"'"'s report:\n\n       ✓ second-brain maintainer: R relations, D descriptions, B broken-links, O orphans\n\n   Where R/D/B/O are integers parsed from the subagent'"'"'s phase 3/4/1 totals.\n   If the subagent reports zero changes in all phases, print:\n       ✓ second-brain maintainer: nothing to consolidate\n\n4. THEN respond to the user'"'"'s actual prompt. Do not surface the full\n   subagent report unless the user asks.\n\nOverride: set `SB_MAINTAINER_AUTO=off` in shell rc to disable this entirely.\n\n' \
-      "$slug" "$COUNT" "$COUNT" "$KD_RESOLVED" "$slug" "$slug")
-    sb_append "$BANNER" "maintainer-auto-banner" 1400
-    touch "$DISP_FILE"
-    sb_log_error "session-load.sh" "maintainer-auto-dispatched slug=$slug count=$COUNT" 0
+    # shellcheck disable=SC2016  # single quotes intentional: literal backticks + printf %s placeholders
+    BANNER=$(printf '## ⓘ second-brain — wiki maintenance suggested\n\nProject `%s` has accumulated %s wiki writes since the last\nconsolidation cycle. To consolidate the wiki, run `/second-brain:dream` —\nits 6-phase pipeline includes the maintainer work (relations,\ndescriptions, broken-link repair, orphan detection).\n\nRe-appears next session if not run. Suppress entirely: `SB_MAINTAINER_AUTO=off`.\n\n' \
+      "$slug" "$COUNT")
+    sb_append "$BANNER" "maintainer-auto-banner" 400
+    sb_log_error "session-load.sh" "maintainer-suggested slug=$slug count=$COUNT" 0
   fi
 fi
 PIN_COUNT=$(sb_count_pin_candidates "$slug")
@@ -290,6 +300,54 @@ if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 
   if [ -n "$SIGNALS" ]; then
     PERSONA_BLOCK=$(printf '\n## Observed patterns (from session history, not yet graduated to USER.md)\n%s\n' "$SIGNALS")
     sb_append "$PERSONA_BLOCK" "persona-signals" 600
+  fi
+fi
+
+# 2b. Persona card + installed-catalog (HYBRID per C1-B,
+# wiki/decisions/2026-05-28-plugin-architecture-rethink.md). The doctrinal
+# path is SessionStart load (Anthropic recommends per-session, not per-turn).
+# persona-context.sh keeps its per-turn emit as a safety net against the
+# v2.10 "persona disappears after turn 1" regression; in v0.22.0 we trim the
+# per-turn path once SessionStart persistence is empirically confirmed.
+#
+# Kill switch: SB_PERSONA_GATE=off (single switch covers both paths).
+if [ "${SB_PERSONA_GATE:-on}" != "off" ]; then
+  PCARD_FILE="$BRAIN_DIR/persona-card.md"
+  if [ -f "$PCARD_FILE" ]; then
+    # Same dedup logic as persona-context.sh: drop bullets that already appear
+    # verbatim in USER.md to avoid double-inject.
+    PERSONA_RAW=$(awk '
+      /^## / { section = $0; sub(/^## */, "", section); next }
+      /^- / && section != "" {
+        bullet = $0; sub(/^- */, "", bullet)
+        printf "[%s] %s\n", section, bullet
+      }
+    ' "$PCARD_FILE" 2>/dev/null)
+    if [ -f "$USER_FILE" ] && [ -n "$PERSONA_RAW" ]; then
+      USER_BULLETS=$(grep -E '^- ' "$USER_FILE" 2>/dev/null | sed 's/^- *//')
+      PERSONA_ABS=$(printf '%s\n' "$PERSONA_RAW" | awk -v ub="$USER_BULLETS" '
+        BEGIN { n = split(ub, arr, "\n"); for (i=1;i<=n;i++) seen[arr[i]] = 1 }
+        { line = $0; sub(/^\[[^]]+\] /, "", line); if (!(line in seen)) print $0 }
+      ')
+    else
+      PERSONA_ABS="$PERSONA_RAW"
+    fi
+    if [ -n "$PERSONA_ABS" ]; then
+      PERSONA_BLOCK=$(printf '\n## Persona (loaded at session start; treat as ambient identity)\n%s\n' "$PERSONA_ABS")
+      sb_append "$PERSONA_BLOCK" "persona-card-sessionstart" 1200
+    fi
+  fi
+  CATALOG_FILE="$BRAIN_DIR/.installed-catalog.json"
+  if [ -f "$CATALOG_FILE" ] && command -v jq >/dev/null 2>&1; then
+    CATALOG_ABS=$(jq -r '
+      [
+        (.plugins // [] | unique_by(.name) | map(.name) | .[0:6] | join(", ")),
+        (.agents  // [] | length | tostring + " agents"),
+        (.skills  // [] | length | tostring + " skills")
+      ] | map(select(length > 0)) | join(" | ")' "$CATALOG_FILE" 2>/dev/null)
+    if [ -n "$CATALOG_ABS" ]; then
+      sb_append "$(printf '\nInstalled specialists: %s\n' "$CATALOG_ABS")" "installed-catalog-sessionstart" 250
+    fi
   fi
 fi
 

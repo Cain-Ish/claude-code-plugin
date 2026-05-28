@@ -1,13 +1,33 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 const SECTION_HEADER = { blockers: '## Open blockers', decisions: '## Recent decisions' };
 const ENTRY_PREFIX = { blockers: '- [active] ', decisions: '- [decision] ' };
 export async function pinToProject(args) {
     if (!(args.section in SECTION_HEADER)) {
         return { ok: false, line_added: '', project_slug: args.slug, reason: 'unknown section' };
     }
+    // Path-traversal hardening (G-MCP-1).
+    try {
+        validateSlug(args.slug);
+    }
+    catch (e) {
+        if (e instanceof PathGuardError) {
+            return { ok: false, line_added: '', project_slug: args.slug, reason: `invalid slug: ${e.message}` };
+        }
+        throw e;
+    }
     const dir = args.brainDir ?? join(process.env.HOME ?? '', '.second-brain');
-    const file = join(dir, 'projects', args.slug, 'PROJECT.md');
+    let file;
+    try {
+        file = assertWithin(dir, 'projects', args.slug, 'PROJECT.md');
+    }
+    catch (e) {
+        if (e instanceof PathGuardError) {
+            return { ok: false, line_added: '', project_slug: args.slug, reason: `path traversal blocked: ${e.message}` };
+        }
+        throw e;
+    }
     const content = await fs.readFile(file, 'utf-8');
     const sectionHeader = SECTION_HEADER[args.section];
     const newEntry = `${ENTRY_PREFIX[args.section]}${args.text.trim()}`;

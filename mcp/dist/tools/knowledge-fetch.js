@@ -3,6 +3,7 @@ import { join } from 'path';
 import { glob, escape } from 'glob';
 import { parseDoc } from './knowledge-search.js';
 import { capText, egressBudgetTokens, estimateTokens } from './egress-budget.js';
+import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 /** Collect the page's `##`/`###` headings, in order. */
 function headings(body) {
     return body.split('\n').filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
@@ -25,8 +26,32 @@ export async function knowledgeFetch(args) {
     const tier = args.tier ?? 'gist';
     const knowledgeDir = args.knowledgeDir ?? join(process.env.HOME ?? '', 'knowledge');
     const wikiRoot = join(knowledgeDir, 'wiki');
+    try {
+        validateSlug(args.slug);
+    }
+    catch (e) {
+        if (e instanceof PathGuardError) {
+            return {
+                slug: args.slug, path: null, tier,
+                text: `Invalid slug: ${e.message}. Slugs must be 1-128 chars, [a-zA-Z0-9._-], no leading dot.`,
+                tokens: 0, truncated: false, pointer: 'knowledge_search',
+            };
+        }
+        throw e;
+    }
     const matches = (await glob(`**/${escape(args.slug)}.md`, { cwd: wikiRoot, absolute: true }).catch(() => [])).sort();
-    const filePath = matches[0] ?? null;
+    // Defense in depth: even though validateSlug rules out traversal syntax,
+    // the wiki tree could contain symlinks pointing outside wikiRoot. Reject
+    // any match whose realpath escapes.
+    const filePath = matches.find((p) => {
+        try {
+            assertWithin(wikiRoot, p.startsWith(wikiRoot + '/') ? p.slice(wikiRoot.length + 1) : p);
+            return true;
+        }
+        catch {
+            return false;
+        }
+    }) ?? null;
     if (!filePath) {
         return {
             slug: args.slug,

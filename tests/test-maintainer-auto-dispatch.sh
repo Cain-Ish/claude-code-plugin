@@ -57,22 +57,26 @@ source "$LIB"
 sb_set_wiki_writes "test-slug" 2
 unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD SB_MAINTAINER_MAX_FAILS
 OUT=$(run_session_load)
-echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "below-threshold: should NOT emit banner"
+echo "$OUT" | grep -q "wiki maintenance suggested" && fail "below-threshold: should NOT emit banner"
 [ ! -f "$SANDBOX/.second-brain/projects/test-slug/.maintainer-dispatched" ] || \
   fail "below-threshold: dispatched marker should not exist"
 pass "below threshold (2 < 3): no banner emitted"
 
-# --- Test 3: counter at threshold → banner + dispatched marker -----------
+# --- Test 3: counter at threshold → user-facing suggestion banner ------
+# C3-B: banner no longer creates DISP_FILE (no longer instructs dispatch).
+# Reconcile state machine still recognizes DISP_FILE if manually created.
 init_sandbox "at-threshold"
 source "$LIB"
 sb_set_wiki_writes "test-slug" 3
 unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD SB_MAINTAINER_MAX_FAILS
 OUT=$(run_session_load)
-echo "$OUT" | grep -q "BLOCKING REQUIREMENT" || fail "at-threshold: banner missing"
-echo "$OUT" | grep -q "knowledge-maintainer" || fail "at-threshold: agent name missing"
-[ -f "$SANDBOX/.second-brain/projects/test-slug/.maintainer-dispatched" ] || \
-  fail "at-threshold: dispatched marker should be created"
-pass "at threshold (3 >= 3): banner emitted + .maintainer-dispatched created"
+echo "$OUT" | grep -q "wiki maintenance suggested" || fail "at-threshold: suggestion banner missing"
+echo "$OUT" | grep -q "/second-brain:dream" || fail "at-threshold: explicit-invocation path missing"
+echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "at-threshold: legacy BLOCKING wording must not appear"
+echo "$OUT" | grep -q "you MUST" && fail "at-threshold: legacy 'you MUST' wording must not appear"
+[ ! -f "$SANDBOX/.second-brain/projects/test-slug/.maintainer-dispatched" ] || \
+  fail "at-threshold: dispatched marker should NOT be created by suggestion banner (C3-B)"
+pass "at threshold (3 >= 3): user-facing suggestion banner; no auto-dispatch marker"
 
 # --- Test 4: SB_MAINTAINER_AUTO=off suppresses banner -------------------
 init_sandbox "kill-switch"
@@ -81,10 +85,10 @@ sb_set_wiki_writes "test-slug" 10
 export SB_MAINTAINER_AUTO=off
 OUT=$(run_session_load)
 unset SB_MAINTAINER_AUTO
-echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "kill-switch: should not emit banner"
+echo "$OUT" | grep -q "wiki maintenance suggested" && fail "kill-switch: should not emit banner"
 [ ! -f "$SANDBOX/.second-brain/projects/test-slug/.maintainer-dispatched" ] || \
   fail "kill-switch: dispatched marker should not exist"
-pass "SB_MAINTAINER_AUTO=off suppresses dispatch even at counter=10"
+pass "SB_MAINTAINER_AUTO=off suppresses banner even at counter=10"
 
 # --- Test 5: SB_MAINTAINER_THRESHOLD override --------------------------
 init_sandbox "threshold-override"
@@ -93,10 +97,12 @@ sb_set_wiki_writes "test-slug" 2
 export SB_MAINTAINER_THRESHOLD=2
 OUT=$(run_session_load)
 unset SB_MAINTAINER_THRESHOLD
-echo "$OUT" | grep -q "BLOCKING REQUIREMENT" || fail "threshold-override: banner missing at count=2 threshold=2"
+echo "$OUT" | grep -q "wiki maintenance suggested" || fail "threshold-override: banner missing at count=2 threshold=2"
 pass "SB_MAINTAINER_THRESHOLD=2 triggers at counter=2"
 
 # --- Test 6: success path → counter reset, fail-count reset, markers cleared
+# Reconcile path still works when DISP_FILE+ACK_FILE present (manually or
+# via legacy dispatch instructions an older session emitted).
 init_sandbox "success-path"
 source "$LIB"
 sb_set_wiki_writes "test-slug" 3
@@ -111,7 +117,7 @@ OUT=$(run_session_load)
 [ "$(sb_get_maintainer_fails "test-slug")" = "0" ] || fail "success-path: fail-count not reset"
 [ ! -f "$PROJ_DIR/.maintainer-dispatched" ] || fail "success-path: dispatched marker should be removed"
 [ ! -f "$PROJ_DIR/.maintainer-needed-last" ] || fail "success-path: ack marker should be removed"
-echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "success-path: should not emit a new banner after reset"
+echo "$OUT" | grep -q "wiki maintenance suggested" && fail "success-path: should not emit a new banner after reset"
 pass "success path: counter+fail-count reset, both markers cleared, no fresh banner"
 
 # --- Test 7: failure path → counter→N-1, fail-count++, error logged ----

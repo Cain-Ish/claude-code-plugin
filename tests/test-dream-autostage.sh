@@ -1,5 +1,8 @@
 #!/bin/bash
 # Tests for dream-autostage.sh
+# After C5-A: never stages a dream, never spawns subagent. Banner suggests
+# /second-brain:dream for explicit invocation. See
+# wiki/decisions/2026-05-28-plugin-architecture-rethink.md.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
@@ -21,13 +24,18 @@ assert_empty() {
 }
 assert_banner() {
   local label="$1" out="$2"
-  if printf '%s' "$out" | grep -q 'dream auto-staged'; then PASS=$((PASS+1)); echo "  PASS: $label (banner)";
-  else FAIL=$((FAIL+1)); echo "  FAIL: $label — expected banner, got: $out"; fi
+  if printf '%s' "$out" | grep -q '/second-brain:dream'; then PASS=$((PASS+1)); echo "  PASS: $label (suggestion banner)";
+  else FAIL=$((FAIL+1)); echo "  FAIL: $label — expected /second-brain:dream banner, got: $out"; fi
 }
 assert_contains() {
   local label="$1" out="$2" needle="$3"
   if printf '%s' "$out" | grep -q "$needle"; then PASS=$((PASS+1)); echo "  PASS: $label (has $needle)";
   else FAIL=$((FAIL+1)); echo "  FAIL: $label — '$needle' not in: $out"; fi
+}
+assert_not_contains() {
+  local label="$1" out="$2" needle="$3"
+  if printf '%s' "$out" | grep -q "$needle"; then FAIL=$((FAIL+1)); echo "  FAIL: $label — '$needle' should NOT appear in: $out";
+  else PASS=$((PASS+1)); echo "  PASS: $label (no $needle)"; fi
 }
 assert_eq() {
   local label="$1" a="$2" b="$3"
@@ -52,17 +60,22 @@ reset_brain() {
   mkdir -p "$BRAIN_DIR/transcripts" "$BRAIN_DIR/dreams"
 }
 
-echo "=== dream-autostage.sh tests ==="
+echo "=== dream-autostage.sh tests (C5-A: explicit-invocation only) ==="
 
 # Test 1: kill switch → no banner
 reset_brain; mk_transcripts 20
 OUT=$(SB_DREAM_AUTOSTAGE=off bash "$AUTOSTAGE" 2>/dev/null || true)
 assert_empty "kill switch off" "$OUT"
 
-# Test 2: no dream yet, >= threshold → banner
+# Test 2: no dream yet, >= threshold → banner, NO new dream staged
 reset_brain; mk_transcripts 12
+BEFORE=$(count_dreams)
 OUT=$(SB_DREAM_NEW_THRESHOLD=10 bash "$AUTOSTAGE" 2>/dev/null || true)
-assert_banner "no dream + 12 transcripts" "$OUT"
+AFTER=$(count_dreams)
+assert_banner "no dream + 12 transcripts → suggestion banner" "$OUT"
+assert_eq "threshold trip stages no new dream" "$BEFORE" "$AFTER"
+assert_not_contains "banner does not instruct subagent spawn" "$OUT" "Spawn"
+assert_not_contains "banner does not instruct subagent spawn (lowercase)" "$OUT" "run_in_background"
 
 # Test 3: below threshold → no banner
 reset_brain; mk_transcripts 3
@@ -80,8 +93,11 @@ reset_brain
 mk_dream drm_old completed
 sleep 1                      # ensure transcripts mtime > dream transcripts/ anchor
 mk_transcripts 12
+BEFORE=$(count_dreams)
 OUT=$(SB_DREAM_NEW_THRESHOLD=10 bash "$AUTOSTAGE" 2>/dev/null || true)
+AFTER=$(count_dreams)
 assert_banner "completed dream + 12 new transcripts" "$OUT"
+assert_eq "completed-watermark trip stages no new dream" "$BEFORE" "$AFTER"
 
 # Test 6: completed dream NEWER than all transcripts → no banner
 reset_brain
@@ -91,7 +107,7 @@ mk_dream drm_recent completed   # transcripts/ anchor created after the transcri
 OUT=$(SB_DREAM_NEW_THRESHOLD=10 bash "$AUTOSTAGE" 2>/dev/null || true)
 assert_empty "transcripts older than dream" "$OUT"
 
-# Test 7: pending dream → re-emit spawn banner (recovery), stage NOTHING new
+# Test 7: pending dream → recovery banner naming the id, no new dream staged
 reset_brain; mk_transcripts 2
 mk_dream drm_stranded pending
 BEFORE=$(count_dreams)
@@ -100,6 +116,7 @@ AFTER=$(count_dreams)
 assert_banner "pending dream → recovery banner" "$OUT"
 assert_contains "recovery names the pending id" "$OUT" "drm_stranded"
 assert_eq "pending recovery stages no new dream" "$BEFORE" "$AFTER"
+assert_not_contains "pending banner does not instruct subagent spawn" "$OUT" "Spawn"
 
 # Test 8: old pending + newer completed → recover the PENDING one, don't stage
 reset_brain

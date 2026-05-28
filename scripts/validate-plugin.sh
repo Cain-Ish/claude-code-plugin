@@ -76,6 +76,33 @@ if [ -f "$PLUGIN_JSON" ]; then
   fi
 fi
 
+# Version-sync check (P2c, v0.21.0). Anthropic's community marketplace pins
+# plugins to a specific commit SHA; if plugin.json and marketplace.json drift,
+# the next submission rejects. Fail the validation when they disagree so the
+# bump script can't ship a mismatched pair.
+MARKETPLACE_JSON="$PLUGIN_ROOT/.claude-plugin/marketplace.json"
+if [ -f "$PLUGIN_JSON" ] && [ -f "$MARKETPLACE_JSON" ]; then
+  PLUGIN_VER=$(jq -r '.version // ""' "$PLUGIN_JSON" 2>/dev/null)
+  MARKET_VER=$(jq -r '.plugins[0].version // ""' "$MARKETPLACE_JSON" 2>/dev/null)
+  if [ -n "$PLUGIN_VER" ] && [ -n "$MARKET_VER" ] && [ "$PLUGIN_VER" != "$MARKET_VER" ]; then
+    echo "FAIL: version drift — plugin.json=$PLUGIN_VER but marketplace.json=$MARKET_VER. Sync both on release."
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
+
+# claude plugin validate (P2c). Anthropic runs this on every community
+# submission; running it locally surfaces issues before the SHA pin. Skip
+# silently if the claude CLI isn't installed (e.g. in CI).
+if command -v claude >/dev/null 2>&1 && claude plugin --help >/dev/null 2>&1; then
+  if ! claude plugin validate "$PLUGIN_ROOT" >/dev/null 2>&1; then
+    # Re-run capturing output so the user sees what failed.
+    PV_OUT=$(claude plugin validate "$PLUGIN_ROOT" 2>&1 || true)
+    echo "FAIL: \`claude plugin validate\` reported issues:"
+    printf '%s\n' "$PV_OUT" | sed 's/^/  /' | head -20
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
+
 # Validate all shell scripts
 while IFS= read -r script; do
   if ! bash -n "$script" 2>/dev/null; then

@@ -2,7 +2,7 @@
 name: setup
 description: Scaffold the v1.0 hot tier — USER.md, projects/<slug>/PROJECT.md, projects.jsonl — for the active repo. Idempotent.
 user-invocable: true
-disable-model-invocation: false
+disable-model-invocation: true
 allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date *) Bash(test *) Bash(jq *) Bash(mkdir *)
 ---
 

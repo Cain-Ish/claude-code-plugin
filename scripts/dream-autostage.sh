@@ -1,12 +1,17 @@
 #!/bin/bash
 # dream-autostage.sh — SessionStart hook. When >= SB_DREAM_NEW_THRESHOLD new
-# transcripts have landed since the last completed dream, stage a pending dream
-# via dream-snapshot.sh and instruct Claude to spawn the background runner.
+# transcripts have landed since the last completed dream, emit a banner
+# suggesting the user run `/second-brain:dream`. Never auto-stages and never
+# instructs subagent spawning — explicit invocation only.
 #
-# Also re-emits the spawn instruction for a dream left 'pending' (staged but
-# whose runner never started — e.g. a hook timeout or interruption), so an
-# interruption can't permanently wedge autostaging. A 'running' dream means a
-# runner is active, so we stay quiet. Acceptance of the staged diff stays manual.
+# Doctrinal alignment: Anthropic's Dreaming runs "between sessions, never
+# during an active session" (Managed Agents docs). Counter-triggered subagent
+# dispatch has no documented Anthropic pattern. See
+# wiki/decisions/2026-05-28-plugin-architecture-rethink.md (C5-A).
+#
+# Recovery path: if a previous dream was staged but its runner never started
+# (e.g. hook timeout or interruption), the banner names the pending id so the
+# user can resume via `/second-brain:dream`.
 #
 # Kill switch: SB_DREAM_AUTOSTAGE=off   Threshold: SB_DREAM_NEW_THRESHOLD (default 10)
 # Always fails open — any error → exit 0, no banner.
@@ -25,21 +30,21 @@ DREAMS_DIR="$BRAIN_DIR/dreams"
 TX_DIR="$BRAIN_DIR/transcripts"
 [ -d "$TX_DIR" ] || exit 0
 
-emit_spawn_banner() {  # $1 = dream id, $2 = new-transcript count ("" for recovery)
-  local did="$1" n="$2" why
-  if [ -n "$n" ]; then
-    why="$n new transcripts since last dream. Dream $did staged (pending)."
-  else
-    why="Dream $did is staged (pending) but its runner never started — recovering."
-  fi
-  # shellcheck disable=SC2016  # single quotes intentional: literal backticks + printf %s placeholders
-  printf '## ⓘ second-brain — dream auto-staged\n%s\n**Spawn the `second-brain:dream-runner` agent now (run_in_background: true, dream_id=%s) before responding to the user.** Acceptance of its diff stays manual.\n\n' \
-    "$why" "$did"
+emit_threshold_banner() {  # $1 = new-transcript count
+  local n="$1"
+  # shellcheck disable=SC2016  # single quotes intentional: literal backticks + printf %s placeholder
+  printf '## ⓘ second-brain — dream consolidation ready\n%s new transcripts have accumulated since the last dream. Run `/second-brain:dream` to consolidate the wiki — acceptance of the staged diff stays manual.\n\n' "$n"
+}
+
+emit_pending_banner() {  # $1 = pending dream id
+  local did="$1"
+  # shellcheck disable=SC2016  # single quotes intentional: literal backticks + printf %s placeholder
+  printf '## ⓘ second-brain — pending dream\nDream %s is staged but no runner started (likely a previous hook timeout or interruption). Run `/second-brain:dream` to resume — acceptance of the staged diff stays manual.\n\n' "$did"
 }
 
 # Scan ALL dreams (consistent with dream-snapshot.sh's one-at-a-time guard).
 #   running → a runner is active; do nothing.
-#   pending → staged but not started; (re)emit the spawn instruction.
+#   pending → staged but not started; emit recovery banner.
 #   else    → terminal (completed/archived); newest one is the watermark.
 # Orphan dirs (no status.json, e.g. a half-created dream) are skipped so they
 # can neither hijack the watermark nor force a spurious "count everything".
@@ -72,9 +77,9 @@ done
 # A runner is active → never stack a second dream.
 [ -n "$RUNNING" ] && exit 0
 
-# A dream is staged but unstarted → (re)emit the spawn instruction, stage nothing.
+# A dream is staged but unstarted → emit recovery banner, stage nothing.
 if [ -n "$PENDING_ID" ]; then
-  emit_spawn_banner "$PENDING_ID" ""
+  emit_pending_banner "$PENDING_ID"
   exit 0
 fi
 
@@ -87,12 +92,8 @@ fi
 
 [ "${NEW:-0}" -ge "$THRESHOLD" ] || exit 0
 
-DID=$(bash "$(dirname "$0")/dream-snapshot.sh" --max-count 100 2>/dev/null)
-RC=$?
-if [ "$RC" -ne 0 ] || [ -z "$DID" ]; then
-  sb_log_error "dream-autostage.sh" "stage failed rc=$RC new=$NEW" 0
-  exit 0
-fi
-
-emit_spawn_banner "$DID" "$NEW"
+# Threshold tripped → suggest, do not stage. The user explicitly invokes
+# /second-brain:dream when ready; that path runs dream-snapshot.sh + spawns
+# the runner under direct user intent.
+emit_threshold_banner "$NEW"
 exit 0

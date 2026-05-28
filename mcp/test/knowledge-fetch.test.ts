@@ -72,10 +72,13 @@ describe('knowledge_fetch', () => {
     expect(a.path).toMatch(/concepts[/\\]dup\.md$/); // 'concepts' sorts before 'decisions'
   });
 
-  it('treats glob metacharacters in the slug literally (no wildcard match)', async () => {
-    // 'widget' exists; a slug 'wi*get' must NOT match it once the slug is escaped.
+  it('rejects glob metacharacters in the slug at validation', async () => {
+    // Post-G-MCP-1 (path-guard validateSlug): slugs are constrained to
+    // [a-zA-Z0-9._-]. A slug containing '*' is rejected at validation
+    // before any filesystem lookup — stricter than the previous
+    // escape-and-not-found path. 'widget' still exists; 'wi*get' is denied.
     const r = await knowledgeFetch({ slug: 'wi*get', tier: 'gist', knowledgeDir });
     expect(r.path).toBeNull();
-    expect(r.text.toLowerCase()).toContain('not found');
+    expect(r.text.toLowerCase()).toContain('invalid slug');
   });
 });

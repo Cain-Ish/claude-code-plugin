@@ -3245,10 +3245,10 @@ var Minipass = class extends EventEmitter {
    * Return a void Promise that resolves once the stream ends.
    */
   async promise() {
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       this.on(DESTROYED, () => reject(new Error("stream destroyed")));
       this.on("error", (er) => reject(er));
-      this.on("end", () => resolve2());
+      this.on("end", () => resolve3());
     });
   }
   /**
@@ -3272,7 +3272,7 @@ var Minipass = class extends EventEmitter {
         return Promise.resolve({ done: false, value: res });
       if (this[EOF])
         return stop();
-      let resolve2;
+      let resolve3;
       let reject;
       const onerr = (er) => {
         this.off("data", ondata);
@@ -3286,19 +3286,19 @@ var Minipass = class extends EventEmitter {
         this.off("end", onend);
         this.off(DESTROYED, ondestroy);
         this.pause();
-        resolve2({ value, done: !!this[EOF] });
+        resolve3({ value, done: !!this[EOF] });
       };
       const onend = () => {
         this.off("error", onerr);
         this.off("data", ondata);
         this.off(DESTROYED, ondestroy);
         stop();
-        resolve2({ done: true, value: void 0 });
+        resolve3({ done: true, value: void 0 });
       };
       const ondestroy = () => onerr(new Error("stream destroyed"));
       return new Promise((res2, rej) => {
         reject = rej;
-        resolve2 = res2;
+        resolve3 = res2;
         this.once(DESTROYED, ondestroy);
         this.once("error", onerr);
         this.once("end", onend);
@@ -4274,9 +4274,9 @@ var PathBase = class {
     if (this.#asyncReaddirInFlight) {
       await this.#asyncReaddirInFlight;
     } else {
-      let resolve2 = () => {
+      let resolve3 = () => {
       };
-      this.#asyncReaddirInFlight = new Promise((res) => resolve2 = res);
+      this.#asyncReaddirInFlight = new Promise((res) => resolve3 = res);
       try {
         for (const e of await this.#fs.promises.readdir(fullpath, {
           withFileTypes: true
@@ -4289,7 +4289,7 @@ var PathBase = class {
         children.provisional = 0;
       }
       this.#asyncReaddirInFlight = void 0;
-      resolve2();
+      resolve3();
     }
     return children.slice(0, children.provisional);
   }
@@ -4519,7 +4519,7 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep3, { nocase, childrenCacheSize = 16 * 1024, fs: fs8 = defaultFS } = {}) {
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs8 = defaultFS } = {}) {
     this.#fs = fsFromOption(fs8);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
@@ -4530,7 +4530,7 @@ var PathScurryBase = class {
     this.#resolveCache = new ResolveCache();
     this.#resolvePosixCache = new ResolveCache();
     this.#children = new ChildrenCache(childrenCacheSize);
-    const split = cwdPath.substring(this.rootPath.length).split(sep3);
+    const split = cwdPath.substring(this.rootPath.length).split(sep4);
     if (split.length === 1 && !split[0]) {
       split.pop();
     }
@@ -6696,14 +6696,95 @@ async function pinToUser(args) {
 // src/tools/pin-to-project.ts
 import { promises as fs6 } from "fs";
 import { join as join6 } from "path";
+
+// src/path-guard.ts
+import { resolve as resolve2, sep as sep3, isAbsolute } from "path";
+import { realpathSync as realpathSync2 } from "fs";
+var PathGuardError = class extends Error {
+  constructor(message, baseDir, candidate) {
+    super(message);
+    this.baseDir = baseDir;
+    this.candidate = candidate;
+    this.name = "PathGuardError";
+  }
+  baseDir;
+  candidate;
+};
+function realResolve(p) {
+  let current = "";
+  const segments = p.split(sep3);
+  for (let i = 0; i < segments.length; i++) {
+    const next = current === "" && segments[i] === "" ? sep3 : current === sep3 ? sep3 + segments[i] : current === "" ? segments[i] : current + sep3 + segments[i];
+    try {
+      current = realpathSync2(next);
+    } catch {
+      const rest = segments.slice(i + 1).join(sep3);
+      return rest ? current + sep3 + segments[i] + sep3 + rest : current + sep3 + segments[i];
+    }
+  }
+  return current;
+}
+function assertWithin(baseDir, ...parts) {
+  for (const part of parts) {
+    if (part.indexOf("\0") !== -1) {
+      throw new PathGuardError(`path component contains NUL byte`, baseDir, parts.join("/"));
+    }
+    if (isAbsolute(part)) {
+      throw new PathGuardError(`absolute path component not allowed: ${JSON.stringify(part)}`, baseDir, parts.join("/"));
+    }
+  }
+  const baseResolved = realResolve(resolve2(baseDir));
+  const candidate = resolve2(baseDir, ...parts);
+  const candidateResolved = realResolve(candidate);
+  if (candidateResolved !== baseResolved && !candidateResolved.startsWith(baseResolved + sep3)) {
+    throw new PathGuardError(
+      `path escapes base directory: ${candidateResolved} not within ${baseResolved}`,
+      baseDir,
+      parts.join("/")
+    );
+  }
+  return candidateResolved;
+}
+function validateSlug(slug) {
+  if (typeof slug !== "string") {
+    throw new PathGuardError("slug must be a string", "", String(slug));
+  }
+  if (slug.length === 0 || slug.length > 128) {
+    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
+  }
+  if (slug.startsWith(".")) {
+    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
+    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
+  }
+}
+
+// src/tools/pin-to-project.ts
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
 async function pinToProject(args) {
   if (!(args.section in SECTION_HEADER)) {
     return { ok: false, line_added: "", project_slug: args.slug, reason: "unknown section" };
   }
+  try {
+    validateSlug(args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, line_added: "", project_slug: args.slug, reason: `invalid slug: ${e.message}` };
+    }
+    throw e;
+  }
   const dir = args.brainDir ?? join6(process.env.HOME ?? "", ".second-brain");
-  const file = join6(dir, "projects", args.slug, "PROJECT.md");
+  let file;
+  try {
+    file = assertWithin(dir, "projects", args.slug, "PROJECT.md");
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, line_added: "", project_slug: args.slug, reason: `path traversal blocked: ${e.message}` };
+    }
+    throw e;
+  }
   const content = await fs6.readFile(file, "utf-8");
   const sectionHeader = SECTION_HEADER[args.section];
   const newEntry = `${ENTRY_PREFIX[args.section]}${args.text.trim()}`;

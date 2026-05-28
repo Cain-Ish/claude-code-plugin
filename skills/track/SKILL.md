@@ -3,7 +3,7 @@ name: track
 description: Declare which local folders or globs the second brain tracks as doc sources for the current project (e.g. docs/, .ai-docs/, "notes/**/*.mdx"). Tracked docs are auto-indexed each session and surface in knowledge_search. Usage: /second-brain:track <path|glob> | --list | --remove <path|glob>.
 argument-hint: "<path|glob> | --list | --remove <path|glob>"
 user-invocable: true
-disable-model-invocation: false
+disable-model-invocation: true
 allowed-tools: Bash(node *)
 ---
 

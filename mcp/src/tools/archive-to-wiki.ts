@@ -1,8 +1,10 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 
 export type SourceSection = 'blockers' | 'decisions';
 export type TargetCategory = 'issues' | 'decisions';
+const ALLOWED_TARGET_CATEGORIES: ReadonlySet<TargetCategory> = new Set<TargetCategory>(['issues', 'decisions']);
 export interface ArchiveToWikiArgs {
   slug: string; sourceSection: SourceSection; entryText: string;
   targetCategory: TargetCategory; brainDir?: string; knowledgeDir?: string;
@@ -17,8 +19,30 @@ const SOURCE_SECTION_HEADER: Record<SourceSection, string> = {
 export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToWikiResult> {
   const brainDir = args.brainDir ?? join(process.env.HOME ?? '', '.second-brain');
   const knowledgeDir = args.knowledgeDir ?? join(process.env.HOME ?? '', 'knowledge');
-  const projectFile = join(brainDir, 'projects', args.slug, 'PROJECT.md');
-  const wikiDir = join(knowledgeDir, 'wiki', args.targetCategory, args.slug);
+
+  // Path-traversal hardening (G-MCP-1, MCP Git CVE-2025-68143/4/5 pattern).
+  try {
+    validateSlug(args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, archived_path: '', reason: `invalid slug: ${e.message}` };
+    }
+    throw e;
+  }
+  if (!ALLOWED_TARGET_CATEGORIES.has(args.targetCategory)) {
+    return { ok: false, archived_path: '', reason: `invalid targetCategory: ${JSON.stringify(args.targetCategory)}` };
+  }
+  let projectFile: string;
+  let wikiDir: string;
+  try {
+    projectFile = assertWithin(brainDir, 'projects', args.slug, 'PROJECT.md');
+    wikiDir = assertWithin(knowledgeDir, 'wiki', args.targetCategory, args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, archived_path: '', reason: `path traversal blocked: ${e.message}` };
+    }
+    throw e;
+  }
   await fs.mkdir(wikiDir, { recursive: true });
 
   const content = await fs.readFile(projectFile, 'utf-8');

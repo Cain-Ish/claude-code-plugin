@@ -41,9 +41,19 @@
       { "matcher": "Write|Edit|MultiEdit", "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/wiki-write-guard.sh", "timeout": 5 }
       ]},
+      { "_comment": "v0.21.0 symlink-guard (G-HOOK-2). Resolves file_path through symlinks first; denies writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, or ~/.netrc. Per Anthropic doctrine 'symlink resolution before path validation'. Kill switch SB_SYMLINK_GUARD=off.",
+        "matcher": "Write|Edit|MultiEdit", "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/symlink-guard.sh", "timeout": 5 }
+      ]},
       { "_comment": "v2.10.0 outbound info-flow guard (HarnessAudit sar_flow channel). Asks when an egress tool call (Bash with network tool, or WebFetch/WebSearch) carries credential-shaped content. Defense-in-depth against the agent helpfully pasting session secrets into a curl request. Kill switch SB_FLOW_GUARD=off.",
         "matcher": "Bash|WebFetch|WebSearch", "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/flow-guard.sh", "timeout": 5 }
+      ]}
+    ],
+    "ConfigChange": [
+      { "_comment": "v0.21.0 config-change audit (G-HOOK-3). Records every ConfigChange event to audit-log.jsonl. Audit-only in v0.21.0; future iteration may add deny logic for high-risk diffs. Matchers: user_settings|project_settings|local_settings|policy_settings|skills. Kill switch SB_CONFIG_CHANGE_AUDIT=off.",
+        "matcher": "user_settings|project_settings|local_settings|policy_settings|skills", "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/config-change-guard.sh", "timeout": 5 }
       ]}
     ],
     "PostToolUse": [

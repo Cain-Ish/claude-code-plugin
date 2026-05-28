@@ -2980,7 +2980,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve2.call(this, root, ref);
+      let _sch = resolve3.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref];
         const { schemaId } = this.opts;
@@ -3007,7 +3007,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve2(root, ref) {
+    function resolve3(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3582,7 +3582,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve2(baseURI, relativeURI, options) {
+    function resolve3(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3809,7 +3809,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve: resolve2,
+      resolve: resolve3,
       resolveComponent,
       equal,
       serialize,
@@ -18889,7 +18889,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
+        await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -18906,7 +18906,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -18984,7 +18984,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve2(parseResult.data);
+            resolve3(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19245,12 +19245,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve2, interval);
+      const timeoutId = setTimeout(resolve3, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20350,7 +20350,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
+      await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -20999,12 +20999,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve2();
+        resolve3();
       } else {
-        this._stdout.once("drain", resolve2);
+        this._stdout.once("drain", resolve3);
       }
     });
   }
@@ -24135,10 +24135,10 @@ var Minipass = class extends EventEmitter {
    * Return a void Promise that resolves once the stream ends.
    */
   async promise() {
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       this.on(DESTROYED, () => reject(new Error("stream destroyed")));
       this.on("error", (er) => reject(er));
-      this.on("end", () => resolve2());
+      this.on("end", () => resolve3());
     });
   }
   /**
@@ -24162,7 +24162,7 @@ var Minipass = class extends EventEmitter {
         return Promise.resolve({ done: false, value: res });
       if (this[EOF])
         return stop();
-      let resolve2;
+      let resolve3;
       let reject;
       const onerr = (er) => {
         this.off("data", ondata);
@@ -24176,19 +24176,19 @@ var Minipass = class extends EventEmitter {
         this.off("end", onend);
         this.off(DESTROYED, ondestroy);
         this.pause();
-        resolve2({ value, done: !!this[EOF] });
+        resolve3({ value, done: !!this[EOF] });
       };
       const onend = () => {
         this.off("error", onerr);
         this.off("data", ondata);
         this.off(DESTROYED, ondestroy);
         stop();
-        resolve2({ done: true, value: void 0 });
+        resolve3({ done: true, value: void 0 });
       };
       const ondestroy = () => onerr(new Error("stream destroyed"));
       return new Promise((res2, rej) => {
         reject = rej;
-        resolve2 = res2;
+        resolve3 = res2;
         this.once(DESTROYED, ondestroy);
         this.once("error", onerr);
         this.once("end", onend);
@@ -25164,9 +25164,9 @@ var PathBase = class {
     if (this.#asyncReaddirInFlight) {
       await this.#asyncReaddirInFlight;
     } else {
-      let resolve2 = () => {
+      let resolve3 = () => {
       };
-      this.#asyncReaddirInFlight = new Promise((res) => resolve2 = res);
+      this.#asyncReaddirInFlight = new Promise((res) => resolve3 = res);
       try {
         for (const e of await this.#fs.promises.readdir(fullpath, {
           withFileTypes: true
@@ -25179,7 +25179,7 @@ var PathBase = class {
         children.provisional = 0;
       }
       this.#asyncReaddirInFlight = void 0;
-      resolve2();
+      resolve3();
     }
     return children.slice(0, children.provisional);
   }
@@ -25409,7 +25409,7 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep3, { nocase, childrenCacheSize = 16 * 1024, fs: fs16 = defaultFS } = {}) {
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs16 = defaultFS } = {}) {
     this.#fs = fsFromOption(fs16);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
@@ -25420,7 +25420,7 @@ var PathScurryBase = class {
     this.#resolveCache = new ResolveCache();
     this.#resolvePosixCache = new ResolveCache();
     this.#children = new ChildrenCache(childrenCacheSize);
-    const split = cwdPath.substring(this.rootPath.length).split(sep3);
+    const split = cwdPath.substring(this.rootPath.length).split(sep4);
     if (split.length === 1 && !split[0]) {
       split.pop();
     }
@@ -27111,14 +27111,95 @@ async function pinToUser(args) {
 // src/tools/pin-to-project.ts
 import { promises as fs2 } from "fs";
 import { join as join2 } from "path";
+
+// src/path-guard.ts
+import { resolve, sep as sep2, isAbsolute } from "path";
+import { realpathSync as realpathSync2 } from "fs";
+var PathGuardError = class extends Error {
+  constructor(message, baseDir, candidate) {
+    super(message);
+    this.baseDir = baseDir;
+    this.candidate = candidate;
+    this.name = "PathGuardError";
+  }
+  baseDir;
+  candidate;
+};
+function realResolve(p) {
+  let current = "";
+  const segments = p.split(sep2);
+  for (let i = 0; i < segments.length; i++) {
+    const next = current === "" && segments[i] === "" ? sep2 : current === sep2 ? sep2 + segments[i] : current === "" ? segments[i] : current + sep2 + segments[i];
+    try {
+      current = realpathSync2(next);
+    } catch {
+      const rest = segments.slice(i + 1).join(sep2);
+      return rest ? current + sep2 + segments[i] + sep2 + rest : current + sep2 + segments[i];
+    }
+  }
+  return current;
+}
+function assertWithin(baseDir, ...parts) {
+  for (const part of parts) {
+    if (part.indexOf("\0") !== -1) {
+      throw new PathGuardError(`path component contains NUL byte`, baseDir, parts.join("/"));
+    }
+    if (isAbsolute(part)) {
+      throw new PathGuardError(`absolute path component not allowed: ${JSON.stringify(part)}`, baseDir, parts.join("/"));
+    }
+  }
+  const baseResolved = realResolve(resolve(baseDir));
+  const candidate = resolve(baseDir, ...parts);
+  const candidateResolved = realResolve(candidate);
+  if (candidateResolved !== baseResolved && !candidateResolved.startsWith(baseResolved + sep2)) {
+    throw new PathGuardError(
+      `path escapes base directory: ${candidateResolved} not within ${baseResolved}`,
+      baseDir,
+      parts.join("/")
+    );
+  }
+  return candidateResolved;
+}
+function validateSlug(slug) {
+  if (typeof slug !== "string") {
+    throw new PathGuardError("slug must be a string", "", String(slug));
+  }
+  if (slug.length === 0 || slug.length > 128) {
+    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
+  }
+  if (slug.startsWith(".")) {
+    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
+    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
+  }
+}
+
+// src/tools/pin-to-project.ts
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
 async function pinToProject(args) {
   if (!(args.section in SECTION_HEADER)) {
     return { ok: false, line_added: "", project_slug: args.slug, reason: "unknown section" };
   }
+  try {
+    validateSlug(args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, line_added: "", project_slug: args.slug, reason: `invalid slug: ${e.message}` };
+    }
+    throw e;
+  }
   const dir = args.brainDir ?? join2(process.env.HOME ?? "", ".second-brain");
-  const file = join2(dir, "projects", args.slug, "PROJECT.md");
+  let file;
+  try {
+    file = assertWithin(dir, "projects", args.slug, "PROJECT.md");
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, line_added: "", project_slug: args.slug, reason: `path traversal blocked: ${e.message}` };
+    }
+    throw e;
+  }
   const content = await fs2.readFile(file, "utf-8");
   const sectionHeader = SECTION_HEADER[args.section];
   const newEntry = `${ENTRY_PREFIX[args.section]}${args.text.trim()}`;
@@ -27150,6 +27231,7 @@ async function pinToProject(args) {
 // src/tools/archive-to-wiki.ts
 import { promises as fs3 } from "fs";
 import { join as join3 } from "path";
+var ALLOWED_TARGET_CATEGORIES = /* @__PURE__ */ new Set(["issues", "decisions"]);
 var SOURCE_SECTION_HEADER = {
   blockers: "## Open blockers",
   decisions: "## Recent decisions"
@@ -27157,8 +27239,28 @@ var SOURCE_SECTION_HEADER = {
 async function archiveToWiki(args) {
   const brainDir2 = args.brainDir ?? join3(process.env.HOME ?? "", ".second-brain");
   const knowledgeDir = args.knowledgeDir ?? join3(process.env.HOME ?? "", "knowledge");
-  const projectFile = join3(brainDir2, "projects", args.slug, "PROJECT.md");
-  const wikiDir = join3(knowledgeDir, "wiki", args.targetCategory, args.slug);
+  try {
+    validateSlug(args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, archived_path: "", reason: `invalid slug: ${e.message}` };
+    }
+    throw e;
+  }
+  if (!ALLOWED_TARGET_CATEGORIES.has(args.targetCategory)) {
+    return { ok: false, archived_path: "", reason: `invalid targetCategory: ${JSON.stringify(args.targetCategory)}` };
+  }
+  let projectFile;
+  let wikiDir;
+  try {
+    projectFile = assertWithin(brainDir2, "projects", args.slug, "PROJECT.md");
+    wikiDir = assertWithin(knowledgeDir, "wiki", args.targetCategory, args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, archived_path: "", reason: `path traversal blocked: ${e.message}` };
+    }
+    throw e;
+  }
   await fs3.mkdir(wikiDir, { recursive: true });
   const content = await fs3.readFile(projectFile, "utf-8");
   const lines = content.split("\n");
@@ -27347,8 +27449,8 @@ function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
   let used = 0;
   for (const item of items) {
     const piece = render(item);
-    const sep3 = kept.length > 0 ? estimateTokens(separator) : 0;
-    const cost = estimateTokens(piece) + sep3;
+    const sep4 = kept.length > 0 ? estimateTokens(separator) : 0;
+    const cost = estimateTokens(piece) + sep4;
     if (kept.length > 0 && used + cost > maxTokens) break;
     kept.push(item);
     parts.push(piece);
@@ -27371,7 +27473,7 @@ function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
 
 // src/tools/doc-sources.ts
 import { promises as fs5 } from "fs";
-import { join as join5, relative, resolve, sep as sep2 } from "path";
+import { join as join5, relative, resolve as resolve2, sep as sep3 } from "path";
 function assertSafeSlug(slug) {
   if (!slug || /[\\/]|\.\./.test(slug)) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
@@ -27725,8 +27827,31 @@ async function knowledgeFetch(args) {
   const tier = args.tier ?? "gist";
   const knowledgeDir = args.knowledgeDir ?? join7(process.env.HOME ?? "", "knowledge");
   const wikiRoot = join7(knowledgeDir, "wiki");
+  try {
+    validateSlug(args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return {
+        slug: args.slug,
+        path: null,
+        tier,
+        text: `Invalid slug: ${e.message}. Slugs must be 1-128 chars, [a-zA-Z0-9._-], no leading dot.`,
+        tokens: 0,
+        truncated: false,
+        pointer: "knowledge_search"
+      };
+    }
+    throw e;
+  }
   const matches = (await glob(`**/${escape2(args.slug)}.md`, { cwd: wikiRoot, absolute: true }).catch(() => [])).sort();
-  const filePath = matches[0] ?? null;
+  const filePath = matches.find((p) => {
+    try {
+      assertWithin(wikiRoot, p.startsWith(wikiRoot + "/") ? p.slice(wikiRoot.length + 1) : p);
+      return true;
+    } catch {
+      return false;
+    }
+  }) ?? null;
   if (!filePath) {
     return {
       slug: args.slug,
@@ -28452,7 +28577,7 @@ Given the user's prompt plus optional context hints, return ONLY a JSON object w
 Be terse. Default silent on questions/specialists/risks \u2014 only populate when the value is concrete.
 Output ONLY the JSON object, no prose around it.`;
 function defaultRunner(system, user, model) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     const p = spawn("claude", ["-p", "--bare", "--model", model, "--system-prompt", system], {
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -28480,7 +28605,7 @@ function defaultRunner(system, user, model) {
     p.on("close", (code) => {
       clearTimeout(timer);
       if (killed) return;
-      if (code === 0) resolve2(out);
+      if (code === 0) resolve3(out);
       else reject(new Error(err || `claude -p exited ${code}`));
     });
     p.stdin.write(user);
