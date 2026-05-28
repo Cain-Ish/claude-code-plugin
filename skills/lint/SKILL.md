@@ -18,6 +18,17 @@ Health-check the v1.0 second-brain. Three structural checks; no content rules.
 > KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 > BD="$HOME/.second-brain"
 > ```
+>
+> **awk reserved-word note (applies to every awk block in this skill).** Do
+> not use the bare token `in` as a variable name in any awk program below —
+> `in` is reserved in both gawk and mawk (used by `for (x in arr)` and the
+> membership test `(elem in arr)`) and produces `syntax error at or near in`
+> on Pi OS / Debian default `awk` (which is mawk 1.3.4). Use `inside`,
+> `seen`, or any other identifier. Compound identifiers like `in_fence` are
+> fine — only the bare `in` token collides with the reserved word. Verified
+> RED: the historical form silently skipped Check 1 and Check 3 on Pi/
+> Debian. The regression is guarded by `tests/test-lint-skill.sh` (parse-
+> check across every awk block + RED-on-injection assertion).
 
 ## Checks
 
@@ -46,11 +57,8 @@ LINKED=$(find "$KD/wiki" "$BD/projects" -name '*.md' -type f 2>/dev/null | while
 done | grep -oE '\[\[[a-zA-Z0-9][a-zA-Z0-9.-]*\]\]' \
      | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
 
-# Plus slugs listed in any "## Cross-references" section.
-# `inside`, not `in`: `in` is a reserved word in gawk strict mode (used by
-# `for (x in arr)` and `(elem in arr)`) and using it as a variable name
-# produces "syntax error at or near in". Verified RED: the previous form
-# silently skipped Check 1 on systems with strict-mode awk.
+# Plus slugs listed in any "## Cross-references" section. (`inside`, not
+# `in` — see header note on awk reserved words.)
 CROSS=$(awk '
   /^## Cross-references/ { inside=1; next }
   /^## / && inside { inside=0 }
