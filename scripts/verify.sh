@@ -100,7 +100,12 @@ fi
 # Check 5: error-log freshness vs .last-verify
 ERR_LOG="$BRAIN_DIR/error-log.jsonl"
 LAST_VERIFY="$BRAIN_DIR/.last-verify"
-if [ -f "$ERR_LOG" ] && [ -f "$LAST_VERIFY" ]; then
+# `-s` (size>0) instead of `-f` (exists): an empty file is the normal post-
+# clear state (`: > error-log.jsonl`) and has nothing to validate. The old
+# `-f` + `jq -e '.'` pair tripped `jq` on the empty file and reported a
+# spurious "malformed JSON" — confused users into thinking their cleared
+# log was corrupt. Verified by tests/test-verify.sh subtest 9b.
+if [ -s "$ERR_LOG" ] && [ -f "$LAST_VERIFY" ]; then
   LAST_TS=$(head -1 "$LAST_VERIFY" | tr -d '[:space:]')
   if [ -n "$LAST_TS" ]; then
     if ! sb_require_jq; then

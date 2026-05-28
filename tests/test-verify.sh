@@ -111,6 +111,22 @@ OUT=$("$SCRIPT" 2>&1) && fail "malformed error-log should fail"
 echo "$OUT" | grep -q "malformed JSON" || fail "expected 'malformed JSON' message (got: $OUT)"
 pass "error-log malformed: fails distinctly"
 
+# --- Subtest 9b: empty error-log file → ok (truncating to clear is a normal pattern)
+# Pre-fix bug: `jq -e '.'` on an empty file exits non-zero, so the pre-validator
+# treated `: > error-log.jsonl` as "malformed JSON". After fix, the pre-validator
+# is gated on `[ -s "$ERR_LOG" ]` (exists AND non-zero size) so the empty case
+# passes cleanly. Real users hit this when running `/second-brain:status` after
+# clearing an old error log.
+reset_home "empty-errorlog"
+seed_clean
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "$NOW" > "$HOME/.second-brain/.last-verify"
+: > "$HOME/.second-brain/error-log.jsonl"   # truncate to empty
+OUT=$("$SCRIPT" 2>&1) || fail "empty error-log should NOT fail (got: $OUT)"
+echo "$OUT" | grep -q "malformed" && fail "empty error-log must NOT be flagged as malformed (got: $OUT)"
+echo "$OUT" | grep -q "verify: ok" || fail "expected 'verify: ok' for empty error-log (got: $OUT)"
+pass "error-log empty: ok (not malformed)"
+
 # --- Subtest 10: USER.md present but missing ## Intent section → exit non-zero
 reset_home "no-intent"
 seed_clean
