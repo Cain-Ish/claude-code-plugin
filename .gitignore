@@ -35,3 +35,4 @@ node_modules/
 *.swo
 docs/.amreview.wf.js
 docs/.screview.wf.js
+docs/.wmreview.wf.js
