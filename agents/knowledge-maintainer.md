@@ -77,22 +77,34 @@ Group pages by topic and merge overlapping content.
 
 **Decision rule**: When an entity/concept page overlaps with a narrower page, fold the narrow page in as a section of the broader one.
 
-## Phase 3: RELATE — Systematic Relation Building
+## Phase 3: RELATE — Typed Edge Curation
 
-Build `related:` links across the entire wiki. Every page should have at least 1 relation.
+Relationships are stored in the bi-temporal edge log `~/knowledge/graph/edges.jsonl`
+(the source of truth), and **projected** onto each page's `related:` frontmatter +
+`## Dependencies` block at reindex. **Do NOT hand-edit `related:` or anything between
+the `<!-- graph:begin -->` / `<!-- graph:end -->` markers** — they are generated and
+your edits will be overwritten. Curate the **edges** instead, via `knowledge_relate`.
 
-1. List all pages that have empty or missing `related:` frontmatter
-2. For each unlinked page:
-   - Read its content
-   - Scan all other pages' titles and descriptions for topical overlap
-   - Add `related:` entries only where a **concrete conceptual link** exists — not "both mention React"
-3. Add relations in priority order:
-   - **Entity ↔ Learning**: entity links to learnings describing patterns/gotchas about it
-   - **Entity ↔ Concept**: entity links to architectural concepts it implements
-   - **Learning ↔ Learning**: learnings in the same problem domain cross-link
-   - **Decision → Entity**: decisions link to affected entities
-   - **Issue → Entity**: issues link to affected systems
-4. Make relations **bidirectional**: if A links to B, add B to A's `related:` too
+1. Find pages with no current relations: `knowledge_neighbors({slug})` returns an empty
+   `edges` array. Prioritize those.
+2. For each, identify concrete typed relationships and assert them with
+   `knowledge_relate({from, to, type})` — only where a **concrete conceptual link**
+   exists (not "both mention React"):
+   - `requires` — A hard-depends on B (B must exist/work for A)
+   - `affects` — changing A impacts B (blast radius)
+   - `part_of` — A is a component of B
+   - `relates` — generic association; use only when none of the above fit. Prefer
+     **upgrading** migration's untyped `relates` edges to `requires`/`affects` where
+     the relationship is clearly one of those.
+3. Priority order (unchanged): Entity↔Learning, Entity↔Concept, Learning↔Learning,
+   Decision→Entity, Issue→Entity.
+4. **Supersession (don't delete history):** when a newer page/decision contradicts a
+   live edge, close it with `knowledge_relate({from, to, type, invalidate:true,
+   valid_to:<date>})`, then assert the replacement (often a `supersedes` edge). The
+   old edge stays in the log, queryable via `as_of` — it is invalidated, not erased.
+5. **Bidirectionality is automatic** — edges are walked both directions at read time.
+   Do NOT assert reverse duplicates.
+6. Run `knowledge_reindex` after curation to re-project pages.
 
 ## Phase 4: ENRICH — Category-Specific Content Quality
 
