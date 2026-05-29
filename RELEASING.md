@@ -80,3 +80,43 @@ A patch release that requires user action (e.g. running a script, exporting
 an env var) should be a minor. "Same patch number, different behavior" hides
 breakage from the user; "minor bump + upgrade-skill row"
 makes the change visible at install time.
+
+## Local development loop
+
+Editing the repo does **not** change the installed plugin until the cache
+refreshes — this is the recurring "I edited it and nothing happened" trap
+([[plugin-cache-vs-repo-gap]]). To iterate against your working tree directly,
+launch Claude Code with this repo as a local plugin dir:
+
+```bash
+# Run CC with the local checkout shadowing the installed copy
+claude --plugin-dir /home/cainish/Projects/claude-code-plugin
+# Inside the session, after editing skills/agents/hooks:
+/reload-plugins
+```
+
+- `--plugin-dir <path>` loads a **local** plugin and shadows the installed one
+  — your edits are live without a cache round-trip.
+- `/reload-plugins` re-reads skill/agent/hook definitions mid-session (the
+  bundled MCP server may still need a fresh session to drop old DB handles).
+- **Never use `--plugin-url`** for this loop. A remote zip is a
+  download-and-execute path — it fails the verify-before-install rule and the
+  P0 supply-chain posture. Local dir only.
+
+## Storage location invariant (do not write state into the plugin root)
+
+`${CLAUDE_PLUGIN_ROOT}` is **ephemeral**: Claude Code changes it on every
+update and cleans the previous copy ~7 days later. It is read-only territory
+for the plugin's bundled code/scripts — **never** write runtime state there.
+
+This plugin is already correct: all durable state lives **outside** the plugin
+root —
+
+- `~/knowledge/` — wiki cold tier + the relational graph (`graph/edges.jsonl`)
+- `~/.second-brain/` — USER.md, per-project PROJECT.md, transcripts, episodic
+  index, persona signals, audit/error logs
+
+If a future feature needs plugin-managed durable state, use
+`${CLAUDE_PLUGIN_DATA}` (`~/.claude/plugins/data/<id>/`, survives updates) —
+**not** `${CLAUDE_PLUGIN_ROOT}`. (Verified against CC 2.1.156 docs:
+code.claude.com/docs/en/plugins-reference#persistent-data-directory.)
