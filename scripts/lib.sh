@@ -323,6 +323,42 @@ sb_archive_transcript() {
   sb_prune_transcripts
 }
 
+# Archive a subagent's FINAL RESULT (not its full transcript) for dream mining +
+# episodic search. Keyed on agent_id so it never collides with a main-session
+# archive and de-dupes per agent. The result is already prose (the subagent's last
+# assistant text block), so it is written plain under an ASSISTANT: marker — NOT
+# through sb_preprocess_transcript (which parses raw JSONL lines). The file matches
+# the episodic indexer's session-meta + ASSISTANT body shape, so it is indexed with
+# no indexer change. See docs/specs/2026-05-29-subagent-capture-design.md.
+# Args: $1=agent_id $2=agent_type $3=slug $4=session_id $5=tool_count $6=result_text
+sb_archive_subagent_result() {
+  local agent_id="$1" agent_type="$2" slug="$3" session_id="$4" tool_count="$5" result="$6"
+  local archive_dir="$BRAIN_DIR/transcripts"
+  mkdir -p "$archive_dir" 2>/dev/null || return 1
+  local date_str safe_aid
+  date_str=$(date +%Y-%m-%d)
+  # sanitize agent_id for use as a filename component (defense in depth — it comes
+  # from the hook payload). Keep only filename-safe chars; bail if it empties out.
+  safe_aid=$(printf '%s' "$agent_id" | tr -cd 'A-Za-z0-9._-')
+  [ -n "$safe_aid" ] || safe_aid="unknown"
+  local archive_file="$archive_dir/sub-${safe_aid}_${slug}_${date_str}.txt"
+
+  {
+    echo "--- session-meta ---"
+    echo "session_id: $session_id"
+    echo "project_slug: $slug"
+    echo "agent_type: $agent_type"
+    echo "agent_id: $safe_aid"
+    echo "date: $date_str"
+    echo "tool_count: $tool_count"
+    echo "subagent_result: true"
+    echo "---"
+    echo ""
+    printf 'ASSISTANT:\n%s\n' "$result"
+  } > "$archive_file"
+  sb_prune_transcripts
+}
+
 # Enforce transcript archive caps: 100 files max, 5MB total.
 # Deletes oldest files first (sorted by filename which embeds date).
 sb_prune_transcripts() {
