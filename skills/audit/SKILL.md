@@ -3,7 +3,7 @@ name: audit
 description: Show what the second-brain safety layer did this session — every PreToolUse guard verdict, every tool-return injection flag, every wiki-write decision. Reads ~/.second-brain/audit-log.jsonl produced by hooks. Read-only.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(jq *) Bash(tail *) Bash(wc *) Bash(cat *) Bash(test *) Bash(grep *) Bash(sort *) Bash(uniq *) Bash(head *) Bash(printf *) Bash(date *)
+allowed-tools: Read Bash(jq *) Bash(tail *) Bash(wc *) Bash(cat *) Bash(test *) Bash(grep *) Bash(sort *) Bash(uniq *) Bash(head *) Bash(printf *) Bash(date *) Bash(find *) Bash(sed *) Bash(tr *) Bash(bash *)
 ---
 
 # Audit
@@ -76,6 +76,25 @@ allow:    0     (allow is only logged when explicit; absence = no allow events)
 - Any `flag` from `tool-return-scanner.sh` → list verbatim. These are *the* injection signals.
 - Any rule that triggered ≥ 5 times in one session → list (likely either a real issue or a noisy rule that needs tuning).
 - If the audit log has been rotated recently (file size near `SB_AUDIT_MAX_BYTES`), note it — pre-rotation events are lost.
+
+### 3b. Native auto-memory state (the OTHER memory writer)
+
+The safety layer governs the second-brain's own writes — but Claude Code's
+built-in auto-memory is a SECOND writer the audit should make visible, so the
+trajectory shows both. One line, read-only, via the shared detector:
+
+```bash
+AM=$(bash -c 'source "${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/lib.sh"; sb_auto_memory_state' 2>/dev/null)
+am() { printf '%s\n' "$AM" | grep -E "^$1=" | head -1 | cut -d= -f2-; }
+printf 'native auto-memory: %s  store=%s (%s files)\n' "$(am state)" "$(am path)" "$(am files)"
+```
+
+Parse the detector's `key=value` output with `grep`/`cut` — **never `eval`** it:
+the `path` field is derived from `settings.json` (a trust boundary), and `eval`
+on settings-derived data is a code-injection vector. See `sb_auto_memory_state`
+in `scripts/lib.sh` (which also sanitizes the value defensively). This line is
+informational — the audit never toggles auto-memory; `/second-brain:status`
+carries the disable-offer details.
 
 ### 4. Interpretation hints
 

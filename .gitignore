@@ -33,3 +33,4 @@ node_modules/
 .vscode/
 *.swp
 *.swo
+docs/.amreview.wf.js

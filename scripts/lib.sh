@@ -904,3 +904,96 @@ TMPL
   fi
   return 0
 }
+
+# Detect Claude Code's built-in auto-memory state. Pure-bash, offline, fail-soft
+# (never errors out; defaults to "on" rather than non-zero). Emits key=value
+# lines on stdout: state, reason, path, files, memory_lines. Consumed by the
+# status + audit skills to surface the native store alongside the second-brain.
+# See docs/specs/2026-05-29-auto-memory-coordination-design.md.
+#
+# State precedence (mirrors CC's own resolution; disable is OR across layers so
+# we only claim "on" when nothing anywhere disables it):
+#   1. CLAUDE_CODE_DISABLE_AUTO_MEMORY=1                          -> off / env-disabled
+#   2. autoMemoryEnabled:false in project OR user settings.json  -> off / setting-disabled
+#   3. otherwise                                                 -> on  / default-on
+sb_auto_memory_state() {
+  local home="${HOME:-/root}"
+  local proj_settings="$PWD/.claude/settings.json"
+  local user_settings="$home/.claude/settings.json"
+
+  # Boolean read: do NOT use `// empty` — jq's `//` treats `false` (not just
+  # null) as absent and would drop the very disable signal we need. Read the
+  # raw value; prints "false"/"true"/"null", or "" on missing/malformed file.
+  _sb_am_bool() {  # $1=file $2=jq-path
+    [ -f "$1" ] || return 0
+    jq -r "$2" "$1" 2>/dev/null || true
+  }
+  # String read: `// empty` is correct here (a string value or absent).
+  _sb_am_str() {   # $1=file $2=jq-path
+    [ -f "$1" ] || return 0
+    jq -r "$2 // empty" "$1" 2>/dev/null || true
+  }
+
+  local state reason
+  if [ "${CLAUDE_CODE_DISABLE_AUTO_MEMORY:-}" = "1" ]; then
+    state=off; reason=env-disabled
+  else
+    local proj_v user_v
+    proj_v=$(_sb_am_bool "$proj_settings" '.autoMemoryEnabled')
+    user_v=$(_sb_am_bool "$user_settings" '.autoMemoryEnabled')
+    if [ "$proj_v" = "false" ] || [ "$user_v" = "false" ]; then
+      state=off; reason=setting-disabled
+    else
+      state=on; reason=default-on
+    fi
+  fi
+
+  # path: user-settings autoMemoryDirectory wins (absolute or ~/-prefixed only),
+  # else default ~/.claude/projects/<dashed-project-key>/memory. The <project-key>
+  # is the GIT ROOT (Claude Code shares one auto-memory store per repo across
+  # worktrees/subdirs); outside a git repo, fall back to cwd — matching CC docs.
+  local custom_dir path=""
+  custom_dir=$(_sb_am_str "$user_settings" '.autoMemoryDirectory')
+  if [ -n "$custom_dir" ]; then
+    case "$custom_dir" in
+      "~/"*) path="$home/${custom_dir#\~/}" ;;
+      /*)    path="$custom_dir" ;;
+      *)     path="" ;;  # neither absolute nor ~/ — ignore, use default
+    esac
+  fi
+  if [ -z "$path" ]; then
+    local project_root dashed
+    project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
+    [ -z "$project_root" ] && project_root="$PWD"   # outside a git repo: use cwd
+    dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
+    path="$home/.claude/projects/$dashed/memory"
+  fi
+
+  # SECURITY: autoMemoryDirectory comes from settings.json — a trust boundary.
+  # A value carrying a newline or shell metacharacter would, once this output is
+  # consumed, smuggle extra key=value lines or inject shell (the adversarial-review
+  # finding). A real memory dir contains only path-safe characters, so if the
+  # resolved path has anything outside [space / A-Za-z0-9 . _ ~ -] (this set
+  # includes newline and every shell metacharacter by exclusion), reject it and
+  # fall back to the safe default. (Consumers also no longer eval — defense in depth.)
+  case "$path" in
+    *[!\ /A-Za-z0-9._~-]*)
+      local project_root dashed
+      project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
+      [ -z "$project_root" ] && project_root="$PWD"
+      dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
+      path="$home/.claude/projects/$dashed/memory"
+      ;;
+  esac
+
+  # size: .md file count + MEMORY.md line count (0 when the store doesn't exist yet).
+  local files=0 memory_lines=0
+  if [ -d "$path" ]; then
+    files=$(find "$path" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
+    [ -f "$path/MEMORY.md" ] && memory_lines=$(wc -l < "$path/MEMORY.md" 2>/dev/null | tr -d ' ')
+  fi
+
+  printf 'state=%s\nreason=%s\npath=%s\nfiles=%s\nmemory_lines=%s\n' \
+    "$state" "$reason" "$path" "${files:-0}" "${memory_lines:-0}"
+  return 0
+}
