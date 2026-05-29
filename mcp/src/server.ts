@@ -18,6 +18,8 @@ import { personaThink } from "./tools/persona-think.js";
 import { personaStats } from "./tools/persona-stats.js";
 import { personaDismiss } from "./tools/persona-dismiss.js";
 import { capList, egressBudgetTokens } from "./tools/egress-budget.js";
+import { knowledgeRelate } from "./tools/knowledge-relate.js";
+import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
 
 function resolveKnowledgeDir(): string {
   const candidates = [
@@ -46,10 +48,10 @@ function resolveActiveSlug(): string | undefined {
 }
 
 const server = new McpServer(
-  { name: "knowledge-base", version: "2.2.0" },
+  { name: "knowledge-base", version: "2.3.0" },
   {
     capabilities: { logging: {} },
-    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section.",
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of).",
   }
 );
 
@@ -509,6 +511,54 @@ server.registerTool(
         content: [{ type: "text" as const, text: `persona_dismiss error: ${error instanceof Error ? error.message : String(error)}` }],
         isError: true,
       };
+    }
+  }
+);
+
+// --- Relational graph tools ---
+
+server.registerTool(
+  "knowledge_relate",
+  {
+    description: "Assert (or invalidate) a typed, bi-temporal relationship between two wiki pages. Use when the user confirms that one thing relates to / requires / affects another, so a future session recalls it without re-explaining. types: requires | affects | relates | part_of | supersedes. Set invalidate:true with valid_to to mark a relationship no longer true (history is preserved, never deleted).",
+    inputSchema: {
+      from: z.string().describe("Source page slug (kebab-case)."),
+      to: z.string().describe("Target page slug (kebab-case)."),
+      type: z.enum(["requires", "affects", "relates", "part_of", "supersedes"]),
+      valid_from: z.string().optional().describe("Date the relationship became true (YYYY-MM-DD). Default: today."),
+      valid_to: z.string().optional().describe("Date it stopped being true (YYYY-MM-DD). Required semantics with invalidate:true."),
+      invalidate: z.boolean().optional().describe("Mark an existing relationship no longer valid instead of asserting one."),
+      reason: z.string().optional().describe("Why (especially on invalidate)."),
+    },
+  },
+  async (args) => {
+    try {
+      const result = await knowledgeRelate({ ...args, knowledgeDir: KNOWLEDGE_DIR });
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    } catch (error) {
+      return { content: [{ type: "text" as const, text: `Relate error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+    }
+  }
+);
+
+server.registerTool(
+  "knowledge_neighbors",
+  {
+    description: "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval.",
+    inputSchema: {
+      slug: z.string().describe("The page slug to start from."),
+      depth: z.number().min(1).max(4).optional().describe("Max hops. Default 2."),
+      direction: z.enum(["out", "in", "both"]).optional().describe("Default 'both'."),
+      edge_types: z.array(z.enum(["requires", "affects", "relates", "part_of", "supersedes"])).optional(),
+      as_of: z.string().optional().describe("Point-in-time (YYYY-MM-DD or ISO). Default now."),
+    },
+  },
+  async (args) => {
+    try {
+      const result = await knowledgeNeighbors({ ...args, knowledgeDir: KNOWLEDGE_DIR });
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    } catch (error) {
+      return { content: [{ type: "text" as const, text: `Neighbors error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
     }
   }
 );
