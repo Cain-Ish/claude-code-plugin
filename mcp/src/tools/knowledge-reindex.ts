@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import { join, relative } from 'path';
 import { parseDoc } from './knowledge-search.js';
 import { knowledgeValidate, ValidationIssue } from './knowledge-validate.js';
+import { projectGraphToPages } from './graph-project.js';
 
 export interface ReindexResult {
   pagesIndexed: number;
@@ -11,6 +12,10 @@ export interface ReindexResult {
 }
 
 export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexResult> {
+  // Project the relationship graph onto pages first, so the index + validation
+  // see current related: links. No-op when ~/knowledge/graph/edges.jsonl absent.
+  try { await projectGraphToPages(knowledgeDir); } catch { /* projection is best-effort */ }
+
   const wikiRoot = join(knowledgeDir, 'wiki');
   const indexPath = join(wikiRoot, 'index.md');
 
