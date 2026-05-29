@@ -131,6 +131,21 @@ grep -q "\[\[new-page\]\]" "$PROJ" || fail "happy: cross-ref not merged"
 pass "happy path: claude returns JSON → merge fires"
 restore_path
 
+# --- Test 1b: extractor relations[] land in edges.jsonl (capture-time graph).
+# Both endpoints are created via cross_refs (which scaffold wiki/entities/<slug>.md),
+# so the edge resolves and is asserted rather than quarantined.
+init_sandbox "relations"
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":[],"open_blockers":[],"cross_refs":["wg-tunnel","vps-ufw-depinned"],"files_touched":[],"relations":[{"from":"wg-tunnel","to":"vps-ufw-depinned","type":"requires","confidence":"high"}]}'
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+EDGES="$SANDBOX/knowledge/graph/edges.jsonl"
+[ -f "$EDGES" ] || fail "relations: edges.jsonl not created"
+grep -q '"from":"wg-tunnel"' "$EDGES" || fail "relations: edge not appended"
+grep -q '"source":"extractor"' "$EDGES" || fail "relations: source not stamped extractor"
+grep -q '"type":"requires"' "$EDGES" || fail "relations: edge type wrong"
+pass "extractor relations[] appended to edges.jsonl via merge-edges"
+restore_path
+
 # --- Test 2: Q&A-only transcript → predicate skips, PROJECT.md untouched.
 init_sandbox "qna"
 seed_transcript_qna_only

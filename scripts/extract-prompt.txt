@@ -29,6 +29,15 @@ Schema (all keys required, arrays may be empty):
       "evidence": "brief quote or action from the session that shows this",
       "confidence": "high|medium"
     }
+  ],
+  "relations":        [
+    {
+      "from": "kebab-case-slug",
+      "to": "kebab-case-slug",
+      "type": "requires|affects|relates|part_of",
+      "valid_from": "YYYY-MM-DD (optional; default today)",
+      "confidence": "high|medium"
+    }
   ]
 }
 
@@ -59,6 +68,11 @@ Rules:
   - Skip signals already obvious from the codebase or documented in the PROJECT.md you received
   - Categories: code_style (formatting, naming, patterns), communication (tone, verbosity), workflow (task approach, review style), tooling (tool preferences), decision_making (trade-off style, risk tolerance)
   - Max 2 per session — only genuinely non-obvious patterns
+- Relations: typed relationships between wiki pages that were explicitly established or confirmed THIS session. Use this to capture dependency knowledge so a future session recalls it without re-explaining.
+  - "requires" = A depends on B (B must exist/work for A). "affects" = changing A impacts B. "part_of" = A is a component of B. "relates" = generic association (use only when none of the above fit).
+  - `from`/`to` must be wiki page slugs (kebab-case) — prefer slugs that appear in cross_refs or wiki_updates this session so they resolve to real pages. Edges to non-existent pages are dropped.
+  - Only edges a future session genuinely benefits from. Do NOT restate edges already obvious from a page's existing content. Max 5 entries.
+  - Do not invent a "supersedes" edge here — supersession is decided during consolidation, not per-session.
 - If the session was pure Q&A with no real work, return all-empty arrays.
 
 Output ONLY the JSON object. No leading/trailing whitespace, no code fence, no explanation.
