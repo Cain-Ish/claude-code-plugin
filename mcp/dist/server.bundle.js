@@ -29127,6 +29127,17 @@ async function knowledgeNeighbors(args) {
   return { slug: args.slug, edges };
 }
 
+// src/tools/project-dir.ts
+import { basename as basename4 } from "path";
+function slugFromProjectDir(dir) {
+  if (!dir) return void 0;
+  const base = basename4(dir);
+  return base && base !== "/" && base !== "." ? base : void 0;
+}
+function activeProjectDir(env = process.env, cwd = process.cwd) {
+  return env.CLAUDE_PROJECT_DIR || cwd();
+}
+
 // src/server.ts
 function resolveKnowledgeDir() {
   const candidates = [
@@ -29148,8 +29159,7 @@ function resolveActiveSlug() {
     if (pin && fs17.existsSync(path2.join(BRAIN_DIR, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
-  const base = path2.basename(process.cwd());
-  return base && base !== "/" && base !== "." ? base : void 0;
+  return slugFromProjectDir(activeProjectDir());
 }
 var server = new McpServer(
   { name: "knowledge-base", version: "2.3.0" },
