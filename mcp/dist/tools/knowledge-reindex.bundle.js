@@ -1,6 +1,6 @@
 // src/tools/knowledge-reindex.ts
-import { promises as fs2 } from "fs";
-import { join as join3 } from "path";
+import { promises as fs4 } from "fs";
+import { join as join4 } from "path";
 
 // src/tools/knowledge-search.ts
 import { join } from "path";
@@ -4399,8 +4399,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs3 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs3);
+  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs5 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs5);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -4958,8 +4958,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs3) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs3 });
+  newRoot(fs5) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs5 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -4987,8 +4987,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs3) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs3 });
+  newRoot(fs5) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs5 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -6066,6 +6066,75 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
+// src/tools/graph-store.ts
+import { promises as fs } from "fs";
+var EDGE_TYPES = ["requires", "affects", "relates", "part_of", "supersedes"];
+function cmpTime(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function dateOf(iso) {
+  return iso.slice(0, 10);
+}
+function isValidRecord(r) {
+  return r && typeof r === "object" && (r.op === "assert" || r.op === "invalidate") && typeof r.from === "string" && r.from.length > 0 && typeof r.to === "string" && r.to.length > 0 && EDGE_TYPES.includes(r.type) && typeof r.recorded_at === "string" && r.recorded_at.length >= 10;
+}
+async function loadEdges(path2) {
+  let raw;
+  try {
+    raw = await fs.readFile(path2, "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const parsed = JSON.parse(t);
+      if (isValidRecord(parsed)) out.push(parsed);
+    } catch {
+    }
+  }
+  return out;
+}
+function identity(r) {
+  return `${r.from}	${r.type}	${r.to}`;
+}
+function foldToCurrent(records) {
+  const ordered = [...records].sort((a, b) => cmpTime(a.recorded_at, b.recorded_at));
+  const map = /* @__PURE__ */ new Map();
+  for (const r of ordered) {
+    const id = identity(r);
+    const cur = map.get(id);
+    if (r.op === "assert") {
+      if (!cur || cur.valid_to !== null) {
+        map.set(id, {
+          from: r.from,
+          to: r.to,
+          type: r.type,
+          valid_from: r.valid_from ?? dateOf(r.recorded_at),
+          valid_to: r.valid_to ?? null,
+          source: r.source,
+          confidence: r.confidence
+        });
+      } else {
+        if (r.valid_from != null) cur.valid_from = r.valid_from;
+        if (r.valid_to !== void 0 && r.valid_to !== null) cur.valid_to = r.valid_to;
+        if (r.source) cur.source = r.source;
+        if (r.confidence) cur.confidence = r.confidence;
+      }
+    } else {
+      if (cur) cur.valid_to = r.valid_to ?? dateOf(r.recorded_at);
+    }
+  }
+  return [...map.values()];
+}
+function validAt(e, t) {
+  if (cmpTime(e.valid_from, t) > 0) return false;
+  if (e.valid_to === null) return true;
+  return cmpTime(e.valid_to, t) > 0;
+}
+
 // src/tools/knowledge-search.ts
 var ACCESS_COUNTS_FILE = join(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 function parseDoc(content, filePath) {
@@ -6152,7 +6221,7 @@ function extractYamlList(yaml, key) {
 }
 
 // src/tools/knowledge-validate.ts
-import { promises as fs } from "fs";
+import { promises as fs2 } from "fs";
 import { join as join2, basename, relative } from "path";
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join2(knowledgeDir, "wiki");
@@ -6162,7 +6231,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
   for (const filePath of allPages) {
-    const content = await fs.readFile(filePath, "utf-8");
+    const content = await fs2.readFile(filePath, "utf-8");
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
@@ -6232,7 +6301,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     }
   }
   try {
-    const rootFiles = await fs.readdir(knowledgeDir, { withFileTypes: true });
+    const rootFiles = await fs2.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
         const rootPath = join2(knowledgeDir, entry.name);
@@ -6251,16 +6320,16 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     for (const issue of issues) {
       if (issue.autofix === "remove" && issue.type === "empty_page") {
         try {
-          await fs.unlink(issue.path);
+          await fs2.unlink(issue.path);
           fixed++;
         } catch {
         }
       }
       if (issue.autofix === "move_or_remove" && issue.type === "root_orphan") {
         try {
-          const stat = await fs.stat(issue.path);
+          const stat = await fs2.stat(issue.path);
           if (stat.size === 0) {
-            await fs.unlink(issue.path);
+            await fs2.unlink(issue.path);
             fixed++;
           }
         } catch {
@@ -6288,7 +6357,7 @@ var KNOWN_CATEGORIES = /* @__PURE__ */ new Set([
   "sources"
 ]);
 async function addFrontmatter(filePath, wikiDir) {
-  const original = await fs.readFile(filePath, "utf-8");
+  const original = await fs2.readFile(filePath, "utf-8");
   if (/^---\n/.test(original)) return;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
@@ -6306,7 +6375,7 @@ async function addFrontmatter(filePath, wikiDir) {
       created = slugDate[1];
     } else {
       try {
-        const stat = await fs.stat(filePath);
+        const stat = await fs2.stat(filePath);
         created = stat.mtime.toISOString().slice(0, 10);
       } catch {
         created = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -6329,7 +6398,7 @@ related: [${related.join(", ")}]
 ---
 
 `;
-  await fs.writeFile(filePath, fm + original, "utf-8");
+  await fs2.writeFile(filePath, fm + original, "utf-8");
 }
 function isSessionNarrative(content, slug) {
   const sessionSignals = [
@@ -6364,7 +6433,7 @@ function isSessionNarrative(content, slug) {
 }
 async function collectAllPages(dir, acc = []) {
   try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const entries = await fs2.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
       const p = join2(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
@@ -6375,13 +6444,95 @@ async function collectAllPages(dir, acc = []) {
   return acc;
 }
 
+// src/tools/graph-project.ts
+import { promises as fs3 } from "fs";
+import { join as join3 } from "path";
+var BEGIN = "<!-- graph:begin (generated from ~/knowledge/graph/edges.jsonl \u2014 do not hand-edit) -->";
+var END = "<!-- graph:end -->";
+var TYPE_LABEL = {
+  requires: "Requires",
+  affects: "Affects",
+  part_of: "Part of",
+  supersedes: "Supersedes"
+};
+function slugFromPath(p) {
+  return p.replace(/.*\//, "").replace(/\.md$/, "");
+}
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+async function projectGraphToPages(knowledgeDir) {
+  const records = await loadEdges(join3(knowledgeDir, "graph", "edges.jsonl"));
+  if (records.length === 0) return { pagesUpdated: 0 };
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const current = foldToCurrent(records).filter((e) => validAt(e, now));
+  const outBySlug = /* @__PURE__ */ new Map();
+  const relatedBySlug = /* @__PURE__ */ new Map();
+  const add = (slug, other) => {
+    if (!relatedBySlug.has(slug)) relatedBySlug.set(slug, /* @__PURE__ */ new Set());
+    relatedBySlug.get(slug).add(other);
+  };
+  for (const e of current) {
+    if (!outBySlug.has(e.from)) outBySlug.set(e.from, []);
+    outBySlug.get(e.from).push(e);
+    add(e.from, e.to);
+    add(e.to, e.from);
+  }
+  const wikiRoot = join3(knowledgeDir, "wiki");
+  const files = await glob("**/*.md", { cwd: wikiRoot, absolute: true });
+  let updated = 0;
+  for (const file of files) {
+    if (file.endsWith("index.md")) continue;
+    const slug = slugFromPath(file);
+    const related = relatedBySlug.get(slug);
+    if (!related || related.size === 0) continue;
+    let content = await fs3.readFile(file, "utf-8");
+    const before = content;
+    const relList = [...related].sort();
+    const relLine = `related: ${relList.map((s) => `[[${s}]]`).join(", ")}`;
+    if (/^related:.*$/m.test(content)) {
+      content = content.replace(/^related:.*$/m, relLine);
+    } else {
+      content = content.replace(/^---\n([\s\S]*?)\n---/, (_m, fm) => `---
+${fm}
+${relLine}
+---`);
+    }
+    const outs = outBySlug.get(slug) ?? [];
+    const grouped = {};
+    for (const e of outs) (grouped[e.type] ??= []).push(e.to);
+    const lines = [BEGIN, `## Dependencies (as of ${now.slice(0, 10)})`];
+    for (const t of ["requires", "affects", "part_of", "supersedes"]) {
+      const slugs = (grouped[t] ?? []).sort();
+      if (slugs.length) lines.push(`**${TYPE_LABEL[t]}:** ${slugs.map((s) => `[[${s}]]`).join(", ")}`);
+    }
+    lines.push(END);
+    const block = lines.join("\n");
+    const blockRe = new RegExp(`${escapeRe(BEGIN)}[\\s\\S]*?${escapeRe(END)}`);
+    if (blockRe.test(content)) content = content.replace(blockRe, block);
+    else content = content.replace(/\s*$/, `
+
+${block}
+`);
+    if (content !== before) {
+      await fs3.writeFile(file, content, "utf-8");
+      updated++;
+    }
+  }
+  return { pagesUpdated: updated };
+}
+
 // src/tools/knowledge-reindex.ts
 async function knowledgeReindex(knowledgeDir) {
-  const wikiRoot = join3(knowledgeDir, "wiki");
-  const indexPath = join3(wikiRoot, "index.md");
+  try {
+    await projectGraphToPages(knowledgeDir);
+  } catch {
+  }
+  const wikiRoot = join4(knowledgeDir, "wiki");
+  const indexPath = join4(wikiRoot, "index.md");
   let dirs;
   try {
-    const entries = await fs2.readdir(wikiRoot, { withFileTypes: true });
+    const entries = await fs4.readdir(wikiRoot, { withFileTypes: true });
     dirs = entries.filter((d) => d.isDirectory()).map((d) => d.name).sort();
   } catch {
     return { pagesIndexed: 0, categories: [], indexPath };
@@ -6389,14 +6540,14 @@ async function knowledgeReindex(knowledgeDir) {
   const sections = ["# Knowledge Base Index", ""];
   let totalPages = 0;
   for (const dir of dirs) {
-    const dirPath = join3(wikiRoot, dir);
+    const dirPath = join4(wikiRoot, dir);
     const files = await collectMd(dirPath);
     if (files.length === 0) continue;
     const entries = [];
     for (const filePath of files.sort()) {
       const slug = filePath.split("/").pop().replace(/\.md$/, "");
       try {
-        const content = await fs2.readFile(filePath, "utf-8");
+        const content = await fs4.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         const desc = doc.description || firstSentence(doc.body);
         entries.push({ slug, title: doc.title || slug, description: desc });
@@ -6418,7 +6569,7 @@ async function knowledgeReindex(knowledgeDir) {
     sections.push("");
   }
   sections.push(`<!-- generated: ${(/* @__PURE__ */ new Date()).toISOString()} -->`);
-  await fs2.writeFile(indexPath, sections.join("\n"), "utf-8");
+  await fs4.writeFile(indexPath, sections.join("\n"), "utf-8");
   const validation = await knowledgeValidate(knowledgeDir, { autofix: true });
   return {
     pagesIndexed: totalPages,
@@ -6434,8 +6585,8 @@ function firstSentence(body) {
 }
 async function collectMd(dir, acc = []) {
   try {
-    for (const e of await fs2.readdir(dir, { withFileTypes: true })) {
-      const p = join3(dir, e.name);
+    for (const e of await fs4.readdir(dir, { withFileTypes: true })) {
+      const p = join4(dir, e.name);
       if (e.isDirectory()) await collectMd(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }

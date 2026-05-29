@@ -2,7 +2,14 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { parseDoc } from './knowledge-search.js';
 import { knowledgeValidate } from './knowledge-validate.js';
+import { projectGraphToPages } from './graph-project.js';
 export async function knowledgeReindex(knowledgeDir) {
+    // Project the relationship graph onto pages first, so the index + validation
+    // see current related: links. No-op when ~/knowledge/graph/edges.jsonl absent.
+    try {
+        await projectGraphToPages(knowledgeDir);
+    }
+    catch { /* projection is best-effort */ }
     const wikiRoot = join(knowledgeDir, 'wiki');
     const indexPath = join(wikiRoot, 'index.md');
     let dirs;

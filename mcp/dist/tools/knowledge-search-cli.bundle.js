@@ -1,5 +1,5 @@
 // src/tools/knowledge-search.ts
-import { promises as fs3 } from "fs";
+import { promises as fs4 } from "fs";
 import { join as join3 } from "path";
 
 // src/tools/embeddings.ts
@@ -4516,8 +4516,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep3, { nocase, childrenCacheSize = 16 * 1024, fs: fs4 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs4);
+  constructor(cwd = process.cwd(), pathImpl, sep3, { nocase, childrenCacheSize = 16 * 1024, fs: fs5 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs5);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -5075,8 +5075,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs4) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs4 });
+  newRoot(fs5) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs5 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -5104,8 +5104,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs4) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs4 });
+  newRoot(fs5) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs5 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -6201,6 +6201,75 @@ async function loadRegistry(brainDir, slug) {
   }
 }
 
+// src/tools/graph-store.ts
+import { promises as fs3 } from "fs";
+var EDGE_TYPES = ["requires", "affects", "relates", "part_of", "supersedes"];
+function cmpTime(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function dateOf(iso) {
+  return iso.slice(0, 10);
+}
+function isValidRecord(r) {
+  return r && typeof r === "object" && (r.op === "assert" || r.op === "invalidate") && typeof r.from === "string" && r.from.length > 0 && typeof r.to === "string" && r.to.length > 0 && EDGE_TYPES.includes(r.type) && typeof r.recorded_at === "string" && r.recorded_at.length >= 10;
+}
+async function loadEdges(path2) {
+  let raw;
+  try {
+    raw = await fs3.readFile(path2, "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const parsed = JSON.parse(t);
+      if (isValidRecord(parsed)) out.push(parsed);
+    } catch {
+    }
+  }
+  return out;
+}
+function identity(r) {
+  return `${r.from}	${r.type}	${r.to}`;
+}
+function foldToCurrent(records) {
+  const ordered = [...records].sort((a, b) => cmpTime(a.recorded_at, b.recorded_at));
+  const map = /* @__PURE__ */ new Map();
+  for (const r of ordered) {
+    const id = identity(r);
+    const cur = map.get(id);
+    if (r.op === "assert") {
+      if (!cur || cur.valid_to !== null) {
+        map.set(id, {
+          from: r.from,
+          to: r.to,
+          type: r.type,
+          valid_from: r.valid_from ?? dateOf(r.recorded_at),
+          valid_to: r.valid_to ?? null,
+          source: r.source,
+          confidence: r.confidence
+        });
+      } else {
+        if (r.valid_from != null) cur.valid_from = r.valid_from;
+        if (r.valid_to !== void 0 && r.valid_to !== null) cur.valid_to = r.valid_to;
+        if (r.source) cur.source = r.source;
+        if (r.confidence) cur.confidence = r.confidence;
+      }
+    } else {
+      if (cur) cur.valid_to = r.valid_to ?? dateOf(r.recorded_at);
+    }
+  }
+  return [...map.values()];
+}
+function validAt(e, t) {
+  if (cmpTime(e.valid_from, t) > 0) return false;
+  if (e.valid_to === null) return true;
+  return cmpTime(e.valid_to, t) > 0;
+}
+
 // src/tools/knowledge-search.ts
 var ACCESS_COUNTS_FILE = join3(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
@@ -6208,7 +6277,7 @@ var ACCESS_BOOST_CAP = 10;
 var ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts() {
   try {
-    return JSON.parse(await fs3.readFile(ACCESS_COUNTS_FILE, "utf-8"));
+    return JSON.parse(await fs4.readFile(ACCESS_COUNTS_FILE, "utf-8"));
   } catch {
     return {};
   }
@@ -6219,7 +6288,7 @@ async function saveAccessCounts(counts) {
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await fs3.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {
+  await fs4.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {
   });
 }
 var TOP_K = 8;
@@ -6240,7 +6309,7 @@ async function knowledgeSearch(args) {
     scopeDirs = [join3(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs3.readdir(wikiRoot, { withFileTypes: true });
+      const entries = await fs4.readdir(wikiRoot, { withFileTypes: true });
       scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join3(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
@@ -6258,7 +6327,7 @@ async function knowledgeSearch(args) {
     }
     for (const filePath of paths) {
       try {
-        const content = await fs3.readFile(filePath, "utf-8");
+        const content = await fs4.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         allDocs.push({ doc, rawContent: content, source: "wiki", tokens: estimateTokens(content) });
       } catch {
@@ -6296,14 +6365,55 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     tokens,
     source
   }));
-  const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
   const GRAPH_BOOST = 0.3;
-  for (const entry of scored) {
-    if (entry.score <= 0) continue;
-    for (const rel of entry.related) {
-      const target = slugScoreMap.get(rel);
-      if (target && target !== entry) {
-        target.score += entry.score * GRAPH_BOOST;
+  const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
+  let graphEdges = [];
+  try {
+    const recs = await loadEdges(join3(knowledgeDir2, "graph", "edges.jsonl"));
+    if (recs.length > 0) {
+      const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+      graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
+    }
+  } catch {
+  }
+  if (graphEdges.length > 0) {
+    const TYPE_W = { requires: 1, affects: 1, part_of: 0.8, supersedes: 0.6, relates: 0.5 };
+    const adj = /* @__PURE__ */ new Map();
+    for (const e of graphEdges) {
+      for (const [a, b] of [[e.from, e.to], [e.to, e.from]]) {
+        if (!adj.has(a)) adj.set(a, []);
+        adj.get(a).push({ to: b, w: TYPE_W[e.type] ?? 0.5 });
+      }
+    }
+    for (const entry of scored) {
+      if (entry.score <= 0) continue;
+      const start = slugFromPath(entry.path);
+      let frontier = [{ node: start, factor: 1 }];
+      const seen = /* @__PURE__ */ new Set([start]);
+      for (let hop = 0; hop < 2; hop++) {
+        const next = [];
+        for (const { node, factor } of frontier) {
+          for (const { to, w } of adj.get(node) ?? []) {
+            const target = slugScoreMap.get(to);
+            const contrib = entry.score * GRAPH_BOOST * factor * w;
+            if (target && target !== entry) target.score += contrib;
+            if (!seen.has(to)) {
+              seen.add(to);
+              next.push({ node: to, factor: factor * GRAPH_BOOST });
+            }
+          }
+        }
+        frontier = next;
+      }
+    }
+  } else {
+    for (const entry of scored) {
+      if (entry.score <= 0) continue;
+      for (const rel of entry.related) {
+        const target = slugScoreMap.get(rel);
+        if (target && target !== entry) {
+          target.score += entry.score * GRAPH_BOOST;
+        }
       }
     }
   }
@@ -6508,7 +6618,7 @@ function slugFromPath(p) {
   return p.replace(/.*\//, "").replace(/\.md$/, "");
 }
 async function collectMarkdown(dir, acc = []) {
-  for (const e of await fs3.readdir(dir, { withFileTypes: true })) {
+  for (const e of await fs4.readdir(dir, { withFileTypes: true })) {
     const p = join3(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);

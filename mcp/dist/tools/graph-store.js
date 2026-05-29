@@ -1,0 +1,149 @@
+import { promises as fs } from 'fs';
+import { dirname } from 'path';
+export const EDGE_TYPES = ['requires', 'affects', 'relates', 'part_of', 'supersedes'];
+/** Lexicographic ISO comparison. ISO-8601 date ('2026-05-29') and Z-timestamp
+ *  ('2026-05-29T12:00:00Z') both sort correctly as strings. A date-only string
+ *  sorts BEFORE any same-day timestamp (shorter, and the next char in the longer
+ *  string is 'T'), which is exactly what the half-open [from,to) interval needs. */
+export function cmpTime(a, b) {
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+/** First 10 chars of an ISO string = YYYY-MM-DD. */
+export function dateOf(iso) {
+    return iso.slice(0, 10);
+}
+function isValidRecord(r) {
+    return r && typeof r === 'object'
+        && (r.op === 'assert' || r.op === 'invalidate')
+        && typeof r.from === 'string' && r.from.length > 0
+        && typeof r.to === 'string' && r.to.length > 0
+        && EDGE_TYPES.includes(r.type)
+        && typeof r.recorded_at === 'string' && r.recorded_at.length >= 10;
+}
+/** Read edges.jsonl line-by-line. A missing file yields [] (graph absent =
+ *  current behaviour preserved). Each line is parsed independently; any
+ *  unparseable or invalid line (incl. a torn final line) is skipped, never fatal. */
+export async function loadEdges(path) {
+    let raw;
+    try {
+        raw = await fs.readFile(path, 'utf-8');
+    }
+    catch {
+        return [];
+    }
+    const out = [];
+    for (const line of raw.split('\n')) {
+        const t = line.trim();
+        if (!t)
+            continue;
+        try {
+            const parsed = JSON.parse(t);
+            if (isValidRecord(parsed))
+                out.push(parsed);
+        }
+        catch { /* torn / malformed line — skip, keep the rest */ }
+    }
+    return out;
+}
+function identity(r) {
+    return `${r.from}\t${r.type}\t${r.to}`;
+}
+/** Fold the append-only log into current edge state, keyed by (from,type,to).
+ *  Records are applied in recorded_at order (stable). assert opens/updates an
+ *  interval; invalidate closes it. An assert after a close re-opens a fresh
+ *  interval. invalidate with no prior assert is ignored. */
+export function foldToCurrent(records) {
+    const ordered = [...records].sort((a, b) => cmpTime(a.recorded_at, b.recorded_at));
+    const map = new Map();
+    for (const r of ordered) {
+        const id = identity(r);
+        const cur = map.get(id);
+        if (r.op === 'assert') {
+            if (!cur || cur.valid_to !== null) {
+                map.set(id, {
+                    from: r.from, to: r.to, type: r.type,
+                    valid_from: r.valid_from ?? dateOf(r.recorded_at),
+                    valid_to: r.valid_to ?? null,
+                    source: r.source, confidence: r.confidence,
+                });
+            }
+            else {
+                if (r.valid_from != null)
+                    cur.valid_from = r.valid_from;
+                if (r.valid_to !== undefined && r.valid_to !== null)
+                    cur.valid_to = r.valid_to;
+                if (r.source)
+                    cur.source = r.source;
+                if (r.confidence)
+                    cur.confidence = r.confidence;
+            }
+        }
+        else { // invalidate
+            if (cur)
+                cur.valid_to = r.valid_to ?? dateOf(r.recorded_at);
+        }
+    }
+    return [...map.values()];
+}
+/** True iff the edge is valid at time T: valid_from <= T AND (valid_to null OR valid_to > T).
+ *  Half-open interval — an edge invalidated on date D is NOT valid at D. */
+export function validAt(e, t) {
+    if (cmpTime(e.valid_from, t) > 0)
+        return false;
+    if (e.valid_to === null)
+        return true;
+    return cmpTime(e.valid_to, t) > 0;
+}
+const GRAPH_DECAY = 0.3; // per-hop score decay (matches legacy GRAPH_BOOST)
+const TYPE_WEIGHT = {
+    requires: 1.0, affects: 1.0, part_of: 0.8, supersedes: 0.6, relates: 0.5,
+};
+/** BFS over current-valid edges from `slug`, up to `depth` hops. Score per
+ *  reached node = TYPE_WEIGHT * GRAPH_DECAY^hop, keeping the min-hop path. */
+export function neighbors(edges, slug, opts = {}) {
+    const depth = opts.depth ?? 2;
+    const direction = opts.direction ?? 'both';
+    const asOf = opts.asOf ?? new Date().toISOString();
+    const typeOk = (t) => !opts.edgeTypes || opts.edgeTypes.includes(t);
+    const live = edges.filter(e => validAt(e, asOf) && typeOk(e.type));
+    const out = [];
+    const seen = new Set([slug]);
+    let frontier = [{ node: slug, hop: 0 }];
+    while (frontier.length) {
+        const next = [];
+        for (const { node, hop } of frontier) {
+            if (hop >= depth)
+                continue;
+            for (const e of live) {
+                let other = null;
+                if ((direction === 'out' || direction === 'both') && e.from === node)
+                    other = e.to;
+                else if ((direction === 'in' || direction === 'both') && e.to === node)
+                    other = e.from;
+                if (other === null)
+                    continue;
+                out.push({
+                    from: e.from, to: e.to, type: e.type,
+                    hops: hop + 1, score: TYPE_WEIGHT[e.type] * Math.pow(GRAPH_DECAY, hop),
+                    valid_from: e.valid_from, valid_to: e.valid_to,
+                });
+                if (!seen.has(other)) {
+                    seen.add(other);
+                    next.push({ node: other, hop: hop + 1 });
+                }
+            }
+        }
+        frontier = next;
+    }
+    return out;
+}
+/** Append one validated edge record as a single JSONL line. Used by the
+ *  knowledge_relate MCP tool. (The hook write path appends from bash directly;
+ *  the JSONL line format is the shared contract.) */
+export async function appendEdge(path, rec) {
+    if (!isValidRecord(rec))
+        throw new Error(`invalid edge record: ${JSON.stringify(rec)}`);
+    await fs.mkdir(dirname(path), { recursive: true });
+    await fs.appendFile(path, JSON.stringify(rec) + '\n', 'utf-8');
+}
+//# sourceMappingURL=graph-store.js.map

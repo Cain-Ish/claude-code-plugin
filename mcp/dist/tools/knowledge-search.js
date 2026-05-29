@@ -3,6 +3,7 @@ import { join } from 'path';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
+import { loadEdges, foldToCurrent, validAt } from './graph-store.js';
 const ACCESS_COUNTS_FILE = join(process.env.HOME ?? '', '.second-brain', 'access-counts.json');
 const ACCESS_BOOST_FACTOR = 0.1;
 const ACCESS_BOOST_CAP = 10;
@@ -99,16 +100,67 @@ export async function knowledgeSearch(args) {
         tokens,
         source,
     }));
-    // Graph boost: pages referenced by high-scoring pages get a relevance bump
-    const slugScoreMap = new Map(scored.map(s => [slugFromPath(s.path), s]));
+    // Graph boost: propagate relevance through the typed relationship graph.
+    // If ~/knowledge/graph/edges.jsonl exists, walk current-valid typed edges up
+    // to 2 hops with per-hop decay. Otherwise fall back to the legacy one-hop
+    // boost over frontmatter `related:` (byte-for-byte prior behaviour).
     const GRAPH_BOOST = 0.3;
-    for (const entry of scored) {
-        if (entry.score <= 0)
-            continue;
-        for (const rel of entry.related) {
-            const target = slugScoreMap.get(rel);
-            if (target && target !== entry) {
-                target.score += entry.score * GRAPH_BOOST;
+    const slugScoreMap = new Map(scored.map(s => [slugFromPath(s.path), s]));
+    let graphEdges = [];
+    try {
+        const recs = await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
+        if (recs.length > 0) {
+            const nowIso = new Date().toISOString();
+            graphEdges = foldToCurrent(recs).filter(e => validAt(e, nowIso));
+        }
+    }
+    catch { /* no graph — legacy path below */ }
+    if (graphEdges.length > 0) {
+        // Multi-hop typed propagation (depth 2). requires/affects propagate full,
+        // relates weaker. Decay 0.3 per hop.
+        const TYPE_W = { requires: 1, affects: 1, part_of: 0.8, supersedes: 0.6, relates: 0.5 };
+        const adj = new Map();
+        for (const e of graphEdges) {
+            for (const [a, b] of [[e.from, e.to], [e.to, e.from]]) {
+                if (!adj.has(a))
+                    adj.set(a, []);
+                adj.get(a).push({ to: b, w: TYPE_W[e.type] ?? 0.5 });
+            }
+        }
+        for (const entry of scored) {
+            if (entry.score <= 0)
+                continue;
+            const start = slugFromPath(entry.path);
+            let frontier = [{ node: start, factor: 1 }];
+            const seen = new Set([start]);
+            for (let hop = 0; hop < 2; hop++) {
+                const next = [];
+                for (const { node, factor } of frontier) {
+                    for (const { to, w } of adj.get(node) ?? []) {
+                        const target = slugScoreMap.get(to);
+                        const contrib = entry.score * GRAPH_BOOST * factor * w;
+                        if (target && target !== entry)
+                            target.score += contrib;
+                        if (!seen.has(to)) {
+                            seen.add(to);
+                            next.push({ node: to, factor: factor * GRAPH_BOOST });
+                        }
+                    }
+                }
+                frontier = next;
+            }
+        }
+    }
+    else {
+        // Legacy one-hop boost over frontmatter related: (unchanged from 0.21.4).
+        for (const entry of scored) {
+            if (entry.score <= 0)
+                continue;
+            for (const rel of entry.related) {
+                const target = slugScoreMap.get(rel);
+                if (target && target !== entry) {
+                    target.score += entry.score * GRAPH_BOOST;
+                }
             }
         }
     }
