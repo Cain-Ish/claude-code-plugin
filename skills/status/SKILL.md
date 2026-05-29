@@ -130,6 +130,35 @@ fi
 
 If a dream is `completed`, nudge the user to run `/second-brain:dream` to review and accept/discard. If `running`, show elapsed time. If no active dreams, report "No active dreams."
 
+### 4e. Native auto-memory (the OTHER memory system)
+
+Claude Code ships a built-in auto-memory that writes its OWN per-repo
+`MEMORY.md` (separate from the second-brain's `~/.second-brain` + `~/knowledge`).
+It's ON by default. Surface its state ALWAYS — whether on or off — so the user
+can see both memory writers and decide whether the second-brain should be the
+single source of truth. The shared detector lives in `lib.sh`:
+
+```bash
+eval "$(bash -c 'source "${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/lib.sh"; sb_auto_memory_state' 2>/dev/null)"
+# state / reason / path / files / memory_lines are now set.
+if [ "${state:-unknown}" = "on" ]; then
+  echo "Native auto-memory: ON (${reason:-default-on})"
+  echo "  store: ${path:-?} (${files:-0} files, MEMORY.md ${memory_lines:-0} lines)"
+  echo "  note: two memory systems are active. To make second-brain the single"
+  echo "        source of truth, disable native auto-memory:"
+  echo "          export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1   # per shell/session"
+  echo "          # or in settings.json:  \"autoMemoryEnabled\": false"
+  echo "        Leave both on to keep native's scratchpad alongside."
+else
+  echo "Native auto-memory: OFF (${reason:-unknown}) — second-brain is the sole memory writer."
+fi
+```
+
+This is informational only. The skill NEVER edits settings or exports env —
+disabling a Claude Code built-in is the user's per-machine choice. (Detector:
+`sb_auto_memory_state` in `scripts/lib.sh`; design:
+docs/specs/2026-05-29-auto-memory-coordination-design.md.)
+
 ### 5. Pending PROJECT.md update flag
 
 If the Stop-hook predicate fired in a recent session, a flag file is left for the next session to act on. Surface it so the user knows there is queued reflection work.
@@ -224,6 +253,10 @@ Format as a clean block. Example:
 
 ## Persona
 - Signals: 5 tracked, 1 ready to graduate, 2 graduated
+
+## Native auto-memory (Claude Code built-in)
+- ON (default-on) — store: ~/.claude/projects/<repo>/memory/ (5 files, MEMORY.md 38 lines)
+- note: two memory systems active; disable via CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 to make second-brain sole writer
 
 ## Pending
 - (none)
