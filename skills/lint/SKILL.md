@@ -41,8 +41,14 @@ A wiki page is an *orphan* if no other wiki page or PROJECT.md links to it. Buil
 ALL=$(find "$KD/wiki" -name '*.md' -type f | while read f; do basename "$f" .md; done | sort -u)
 
 # All inbound links: [[slug]] occurrences across wiki + every PROJECT.md.
-# Strip fenced code blocks and inline backtick spans first so bash [[ test ]]
-# syntax and code-block placeholder examples don't surface as false dead-links.
+# Strip the graph projector's generated block (<!-- graph:begin --> ... <!-- graph:end -->),
+# fenced code blocks, and inline backtick spans first so generated [[links]], bash [[ test ]]
+# syntax, and code-block placeholder examples don't surface as false dead-links.
+# NOTE (graph skip): the projector's "## Dependencies" block is a generated projection of
+# ~/knowledge/graph/edges.jsonl, not authored content. Excluding it means a page linked ONLY
+# from generated blocks counts as an orphan — correct, because orphan-ness must reflect AUTHORED
+# references (the projector would just regenerate generated links). Dead edges are caught instead
+# by knowledge_validate, which checks the related: frontmatter the projector also writes.
 # Slug regex accepts uppercase letters (phase markers: `self-evolve-v1-P2-plan`)
 # and periods (version-style slugs: `vps-phase-3.2-2026-05-14`). Bash test
 # expressions are already excluded by the code-fence / inline-code strip
@@ -50,6 +56,9 @@ ALL=$(find "$KD/wiki" -name '*.md' -type f | while read f; do basename "$f" .md;
 # alnum (real bash tests start with space + `-`).
 LINKED=$(find "$KD/wiki" "$BD/projects" -name '*.md' -type f 2>/dev/null | while read -r f; do
   awk '
+    /<!-- graph:begin/ { in_graph = 1; next }
+    /<!-- graph:end/   { in_graph = 0; next }
+    in_graph { next }
     /^[[:space:]]*```/ { in_fence = !in_fence; next }
     in_fence { next }
     { gsub(/`[^`]*`/, ""); print }
@@ -90,6 +99,9 @@ Every `[[slug]]` should resolve to a real wiki page (filename `<slug>.md` under 
 # as Check 1 — keeps bash [[ test ]] and code-block examples out of the set.
 USED=$(find "$KD/wiki" "$BD/projects" -name '*.md' -type f 2>/dev/null | while read -r f; do
   awk '
+    /<!-- graph:begin/ { in_graph = 1; next }
+    /<!-- graph:end/   { in_graph = 0; next }
+    in_graph { next }
     /^[[:space:]]*```/ { in_fence = !in_fence; next }
     in_fence { next }
     { gsub(/`[^`]*`/, ""); print }

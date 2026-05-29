@@ -3,7 +3,7 @@ name: query
 description: Search the second-brain wiki for pages relevant to a question. Thin wrapper around the knowledge_search MCP tool — returns candidate pages and lets Claude synthesize a cited answer from them.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(test *) Bash(cat *) mcp__knowledge-base__knowledge_search
+allowed-tools: Read Bash(test *) Bash(cat *) mcp__knowledge-base__knowledge_search mcp__knowledge-base__knowledge_neighbors
 argument-hint: "[your question] [--scope <category>]"
 ---
 
@@ -20,6 +20,16 @@ Find wiki pages relevant to a question. This skill is a thin wrapper around the 
 `$ARGUMENTS` is the user's question. If it contains a `--scope <category>` token, peel that off and use it as the `scope` argument; otherwise leave `scope` unset to search all categories.
 
 Scope can be any wiki subdirectory name (e.g. `concepts`, `entities`, `learnings`). Omit to search all directories.
+
+### 1b. Relational questions → also walk the graph
+
+If the question is **relational** rather than topical — "what depends on X", "what does X require", "what breaks if I change X", "blast radius of X", "what's related to X" — also call `knowledge_neighbors` on X's slug alongside the BM25 search:
+
+```
+knowledge_neighbors(slug: "<X>", direction: "both")
+```
+
+`direction: "out"` = X's dependencies (what it requires/affects); `"in"` = its blast radius (what breaks if X changes); `"both"` (default) = the full neighbourhood. Each returned edge carries its type (`requires`/`affects`/`relates`/`part_of`/`supersedes`), hop distance, and validity interval. Synthesize the relational answer from these edges and cite the connected slugs. For purely topical questions ("how do we do X"), skip this and use `knowledge_search` alone. If the graph is absent/empty, fall back to `knowledge_search` only.
 
 ### 2. Call `knowledge_search`
 

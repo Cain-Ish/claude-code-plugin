@@ -134,5 +134,56 @@ gamma-page"
 [ "$OUT" = "$EXPECTED" ] || fail "Cross-references extractor produced wrong output: got '$OUT' expected '$EXPECTED'"
 pass "Cross-references extractor matches expected output on fixture"
 
+# --- Test 4: the dead-link extractor SKIPS the projector's generated graph block ---
+# The graph projector writes a fenced "<!-- graph:begin --> ... <!-- graph:end -->"
+# block of generated [[links]] (incl. Superseded: links to retired slugs). Lint must
+# NOT flag those as dead, but MUST still flag a genuine dead link in the real body.
+# We run the EXACT extractor awk shipped in the skill (extracted, not re-typed).
+LINKAWK="$TMP/linkextract.awk"
+# Pull the first link-extractor awk program out of SKILL.md (Check 1 / Check 2 share it).
+awk '
+  /awk '\''$/ { grab=1; next }
+  grab && /^[[:space:]]*'\''[[:space:]]*"/ { grab=0; next }
+  grab && /^[[:space:]]*'\''/ { grab=0; next }
+  grab { print }
+' "$SCRIPT" | awk 'NR==1,/print/' > "$LINKAWK"
+# Sanity: we captured an awk body that includes the fence toggle.
+grep -q 'in_fence' "$LINKAWK" || fail "Test 4 setup: could not extract the link-extractor awk from SKILL.md"
+# Whether the shipped awk also carries the graph guard:
+GUARDED=$(grep -c 'in_graph' "$LINKAWK")
+
+PAGE="$TMP/page.md"
+cat > "$PAGE" <<'EOF'
+---
+title: page
+---
+
+# page
+
+Real body links [[real-ref]] here.
+
+<!-- graph:begin (generated from ~/knowledge/graph/edges.jsonl — do not hand-edit) -->
+## Dependencies
+**Superseded:** [[retired-ghost]]
+<!-- graph:end -->
+EOF
+
+EXTRACTED=$(awk '
+  /^[[:space:]]*```/ { in_fence = !in_fence; next }
+  /<!-- graph:begin/ { in_graph = 1; next }
+  /<!-- graph:end/   { in_graph = 0; next }
+  in_graph { next }
+  in_fence { next }
+  { gsub(/`[^`]*`/, ""); print }
+' "$PAGE" | grep -oE '\[\[[a-zA-Z0-9][a-zA-Z0-9.-]*\]\]' | sed -E 's/\[\[([^]]+)\]\]/\1/' | sort -u)
+
+# Reference behaviour (what the guard MUST achieve): real-ref present, retired-ghost absent.
+echo "$EXTRACTED" | grep -qx 'real-ref'      || fail "Test 4: guard over-skipped — real body link 'real-ref' was dropped"
+echo "$EXTRACTED" | grep -qx 'retired-ghost' && fail "Test 4: 'retired-ghost' in the generated graph block was NOT skipped"
+
+# And assert the SHIPPED skill awk actually has the guard (RED until SKILL.md is patched).
+[ "$GUARDED" -ge 1 ] || fail "Test 4: SKILL.md link-extractor is missing the in_graph guard (graph block not skipped in the real skill)"
+pass "dead-link extractor skips the generated graph block, keeps real body links"
+
 echo
 echo "ALL PASS"

@@ -3,7 +3,7 @@ name: using-second-brain
 description: Use when starting any conversation - establishes how to consult the persona's identity, memory (wiki + episodic), and installed plugin catalog before answering substantive prompts. This is the persona-as-collaborator protocol.
 user-invocable: false
 disable-model-invocation: false
-allowed-tools: Read mcp__knowledge-base__knowledge_search mcp__knowledge-base__episodic_search
+allowed-tools: Read mcp__knowledge-base__knowledge_search mcp__knowledge-base__episodic_search mcp__knowledge-base__knowledge_neighbors
 ---
 
 # Using Second-Brain
@@ -36,6 +36,19 @@ You have a persona core. Before any non-trivial response:
 5. **When deep analysis would help**, suggest the user invoke `/second-brain:think` or prefix the next prompt with `/?` — both trigger an Opus-level advisor brief with structured intent read, prompt enrichment, clarifying questions, specialist suggestions, and risk flags.
 
 6. **When you would have asked a clarifying question**, first check if the persona-card or wiki already answers it. If so, proceed using that knowledge — don't ask the user to restate something already in their memory layer.
+
+## Earned interrupt (the wingman move)
+
+This **refines** "silence is the default" (point 4) — it does not replace it. The escape clause in point 4 is "engage only when expected value clearly exceeds the flow-disruption cost." A typed dependency edge you are about to break IS that case. **No graph signal → no interrupt.**
+
+**Graph check — before you *act on* a named entity.** When you are about to edit / refactor / delete / rename something that resolves to a wiki or graph node (not merely discuss it), do ONE `mcp__knowledge-base__knowledge_neighbors` call on its slug (`direction: "both"`). Then:
+
+- **Speak up once** — and only — if the result carries a costly-to-miss edge: a `requires` / `affects` / `part_of` edge you would break, or a `supersedes` / invalidated edge warning against reintroducing something already retired. One heads-up line (what it requires, what it affects, any "don't reintroduce X"), then proceed and do the work silently.
+- **Stay silent** if the graph is empty, absent, or returns nothing load-bearing. Most edits get no interrupt. The graph CLI being unavailable is also silence, not an error.
+
+Example: user says "let's refactor the router daemon" → `knowledge_neighbors router-daemon` → "Heads up: graph says router-daemon **affects** vps-collector + supplychain-monitor and **supersedes** pi-ip-ufw-sync (retired) — want me to check those dependents first?" → then refactor.
+
+**Native-memory cross-check.** Claude Code's built-in auto-memory (`MEMORY.md`) is already in your context at session start — you don't fetch it. If a fact there **contradicts** the second-brain graph/wiki on something load-bearing to the current action, flag the conflict ONCE; don't silently pick a side. The second-brain (graph + wiki) is the structured source of truth; native auto-memory is a flat scratchpad. (Only relevant while both memory systems run; inert once native is disabled — see `/second-brain:status`.)
 
 ## Engagement gate
 
