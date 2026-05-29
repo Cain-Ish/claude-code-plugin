@@ -112,4 +112,19 @@ head -1 "$F" | grep -q '^---' || fail "10: archive missing meta header (episodic
 grep -q '^ASSISTANT:' "$F" || fail "10: archive missing ASSISTANT: body marker (episodic parseExchanges needs it)"
 pass "archive is episodic-parseable (meta header + ASSISTANT body)"
 
+# --- Test 11: subagent floods must NOT evict main-session archives (adversarial-
+# review finding). A busy multi-agent session can write many sub- files; they get
+# their OWN prune budget so they can never crowd out real session memory. ---
+B="$TMP/b11"; mkdir -p "$B/transcripts"; T="$TMP/t11.jsonl"; mk_transcript "$T" 1 "$LONG"
+echo "PRECIOUS MAIN SESSION ARCHIVE" > "$B/transcripts/s1_repo_2026-01-01.txt"  # old, must survive
+# write 60 distinct substantive subagent results (> the per-subagent cap of 50)
+for i in $(seq 1 60); do
+  run_hook "$B" "general-purpose" "aid${i}" "$T" >/dev/null 2>&1
+done
+[ -f "$B/transcripts/s1_repo_2026-01-01.txt" ] || fail "11: main-session archive was EVICTED by a subagent flood"
+grep -q "PRECIOUS" "$B/transcripts/s1_repo_2026-01-01.txt" || fail "11: main-session archive corrupted"
+SUBN=$(ls "$B/transcripts/"sub-*.txt 2>/dev/null | wc -l | tr -d ' ')
+[ "$SUBN" -le 50 ] || fail "11: subagent archives exceeded their own cap (got $SUBN, cap 50)"
+pass "subagent flood capped separately (got $SUBN sub-files); main-session archive survived"
+
 echo; echo "ALL PASS"

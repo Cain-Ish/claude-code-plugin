@@ -356,6 +356,28 @@ sb_archive_subagent_result() {
     echo ""
     printf 'ASSISTANT:\n%s\n' "$result"
   } > "$archive_file"
+
+  # Prune subagent archives under their OWN budget FIRST, so a busy multi-agent
+  # session (hundreds of subagents) can never crowd main-session archives out of
+  # the shared 100-file cap. Oldest sub-*.txt by mtime are dropped beyond the cap.
+  local sub_cap="${SB_SUBAGENT_ARCHIVE_CAP:-50}"
+  local sub_files sub_count
+  # newest-first by mtime; delete everything past the cap. -printf is GNU; fall
+  # back to a stat-based sort on BSD/macOS.
+  sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f -printf '%T@ %p\n' 2>/dev/null \
+    | sort -rn | cut -d' ' -f2-)
+  if [ -z "$sub_files" ]; then
+    sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f 2>/dev/null \
+      | while IFS= read -r f; do printf '%s %s\n' "$(stat -f %m "$f" 2>/dev/null || echo 0)" "$f"; done \
+      | sort -rn | cut -d' ' -f2-)
+  fi
+  sub_count=$(printf '%s\n' "$sub_files" | grep -c . 2>/dev/null || echo 0)
+  if [ "$sub_count" -gt "$sub_cap" ]; then
+    printf '%s\n' "$sub_files" | tail -n +"$((sub_cap + 1))" | while IFS= read -r f; do
+      [ -n "$f" ] && rm -f "$f"
+    done
+  fi
+
   sb_prune_transcripts
 }
 
