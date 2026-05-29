@@ -6785,12 +6785,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs16, exportName) {
+    function addFormats(ajv, list, fs18, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs16[f]);
+        ajv.addFormat(f, fs18[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -21011,7 +21011,7 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs15 from "fs";
+import fs17 from "fs";
 import os from "os";
 import path2 from "path";
 
@@ -25409,8 +25409,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs16 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs16);
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs18 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs18);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -25968,8 +25968,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs16) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs16 });
+  newRoot(fs18) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs18 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -25997,8 +25997,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs16) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs16 });
+  newRoot(fs18) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs18 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -27305,7 +27305,7 @@ async function archiveToWiki(args) {
 }
 
 // src/tools/knowledge-search.ts
-import { promises as fs6 } from "fs";
+import { promises as fs7 } from "fs";
 import { join as join6 } from "path";
 
 // src/tools/embeddings.ts
@@ -27495,6 +27495,139 @@ async function loadRegistry(brainDir2, slug) {
   }
 }
 
+// src/tools/graph-store.ts
+import { promises as fs6 } from "fs";
+import { dirname } from "path";
+var EDGE_TYPES = ["requires", "affects", "relates", "part_of", "supersedes"];
+function cmpTime(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function dateOf(iso) {
+  return iso.slice(0, 10);
+}
+function isValidRecord(r) {
+  if (!(r && typeof r === "object")) return false;
+  if (r.op !== "assert" && r.op !== "invalidate") return false;
+  if (typeof r.from !== "string" || r.from.length === 0) return false;
+  if (typeof r.to !== "string" || r.to.length === 0) return false;
+  if (!EDGE_TYPES.includes(r.type)) return false;
+  if (typeof r.recorded_at !== "string" || r.recorded_at.length < 10) return false;
+  for (const k of ["valid_from", "valid_to"]) {
+    const v = r[k];
+    if (v !== void 0 && v !== null && typeof v !== "string") return false;
+  }
+  return true;
+}
+async function loadEdges(path3) {
+  let raw;
+  try {
+    raw = await fs6.readFile(path3, "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const parsed = JSON.parse(t);
+      if (isValidRecord(parsed)) out.push(parsed);
+    } catch {
+    }
+  }
+  return out;
+}
+function identity(r) {
+  return `${r.from}	${r.type}	${r.to}`;
+}
+function foldToCurrent(records) {
+  const ordered = [...records].sort((a, b) => cmpTime(a.recorded_at, b.recorded_at));
+  const map = /* @__PURE__ */ new Map();
+  for (const r of ordered) {
+    const id = identity(r);
+    const cur = map.get(id);
+    if (r.op === "assert") {
+      if (!cur || cur.valid_to !== null) {
+        map.set(id, {
+          from: r.from,
+          to: r.to,
+          type: r.type,
+          valid_from: r.valid_from ?? dateOf(r.recorded_at),
+          valid_to: null,
+          source: r.source,
+          confidence: r.confidence
+        });
+      } else {
+        if (r.valid_from != null) cur.valid_from = r.valid_from;
+        if (r.source) cur.source = r.source;
+        if (r.confidence) cur.confidence = r.confidence;
+      }
+    } else {
+      if (cur) cur.valid_to = r.valid_to ?? dateOf(r.recorded_at);
+    }
+  }
+  return [...map.values()];
+}
+function validAt(e, t) {
+  const td = dateOf(t);
+  if (cmpTime(dateOf(e.valid_from), td) > 0) return false;
+  if (e.valid_to === null) return true;
+  return cmpTime(dateOf(e.valid_to), td) > 0;
+}
+var GRAPH_DECAY = 0.3;
+var TYPE_WEIGHT = {
+  requires: 1,
+  affects: 1,
+  part_of: 0.8,
+  supersedes: 0.6,
+  relates: 0.5
+};
+function neighbors(edges, slug, opts = {}) {
+  const depth = opts.depth ?? 2;
+  const direction = opts.direction ?? "both";
+  const asOf = opts.asOf ?? (/* @__PURE__ */ new Date()).toISOString();
+  const typeOk = (t) => !opts.edgeTypes || opts.edgeTypes.includes(t);
+  const live = edges.filter((e) => validAt(e, asOf) && typeOk(e.type));
+  const best = /* @__PURE__ */ new Map();
+  const seen = /* @__PURE__ */ new Set([slug]);
+  let frontier = [{ node: slug, hop: 0 }];
+  while (frontier.length) {
+    const next = [];
+    for (const { node, hop } of frontier) {
+      if (hop >= depth) continue;
+      for (const e of live) {
+        let other = null;
+        if ((direction === "out" || direction === "both") && e.from === node) other = e.to;
+        else if ((direction === "in" || direction === "both") && e.to === node) other = e.from;
+        if (other === null) continue;
+        const id = identity(e);
+        const row = {
+          from: e.from,
+          to: e.to,
+          type: e.type,
+          hops: hop + 1,
+          score: TYPE_WEIGHT[e.type] * Math.pow(GRAPH_DECAY, hop),
+          valid_from: e.valid_from,
+          valid_to: e.valid_to
+        };
+        const prev = best.get(id);
+        if (!prev || row.hops < prev.hops) best.set(id, row);
+        if (!seen.has(other)) {
+          seen.add(other);
+          next.push({ node: other, hop: hop + 1 });
+        }
+      }
+    }
+    frontier = next;
+  }
+  return [...best.values()];
+}
+async function appendEdge(path3, rec) {
+  if (!isValidRecord(rec)) throw new Error(`invalid edge record: ${JSON.stringify(rec)}`);
+  await fs6.mkdir(dirname(path3), { recursive: true });
+  await fs6.appendFile(path3, JSON.stringify(rec) + "\n", "utf-8");
+}
+
 // src/tools/knowledge-search.ts
 var ACCESS_COUNTS_FILE = join6(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
@@ -27502,7 +27635,7 @@ var ACCESS_BOOST_CAP = 10;
 var ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts() {
   try {
-    return JSON.parse(await fs6.readFile(ACCESS_COUNTS_FILE, "utf-8"));
+    return JSON.parse(await fs7.readFile(ACCESS_COUNTS_FILE, "utf-8"));
   } catch {
     return {};
   }
@@ -27513,7 +27646,7 @@ async function saveAccessCounts(counts) {
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await fs6.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {
+  await fs7.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {
   });
 }
 var TOP_K = 8;
@@ -27534,7 +27667,7 @@ async function knowledgeSearch(args) {
     scopeDirs = [join6(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs6.readdir(wikiRoot, { withFileTypes: true });
+      const entries = await fs7.readdir(wikiRoot, { withFileTypes: true });
       scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join6(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
@@ -27552,7 +27685,7 @@ async function knowledgeSearch(args) {
     }
     for (const filePath of paths) {
       try {
-        const content = await fs6.readFile(filePath, "utf-8");
+        const content = await fs7.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         allDocs.push({ doc, rawContent: content, source: "wiki", tokens: estimateTokens(content) });
       } catch {
@@ -27590,14 +27723,55 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     tokens,
     source
   }));
-  const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
   const GRAPH_BOOST = 0.3;
-  for (const entry of scored) {
-    if (entry.score <= 0) continue;
-    for (const rel of entry.related) {
-      const target = slugScoreMap.get(rel);
-      if (target && target !== entry) {
-        target.score += entry.score * GRAPH_BOOST;
+  const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
+  let graphEdges = [];
+  try {
+    const recs = await loadEdges(join6(knowledgeDir, "graph", "edges.jsonl"));
+    if (recs.length > 0) {
+      const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+      graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
+    }
+  } catch {
+  }
+  if (graphEdges.length > 0) {
+    const TYPE_W = { requires: 1, affects: 1, part_of: 0.8, supersedes: 0.6, relates: 0.5 };
+    const adj = /* @__PURE__ */ new Map();
+    for (const e of graphEdges) {
+      for (const [a, b] of [[e.from, e.to], [e.to, e.from]]) {
+        if (!adj.has(a)) adj.set(a, []);
+        adj.get(a).push({ to: b, w: TYPE_W[e.type] ?? 0.5 });
+      }
+    }
+    for (const entry of scored) {
+      if (entry.score <= 0) continue;
+      const start = slugFromPath(entry.path);
+      let frontier = [{ node: start, factor: 1 }];
+      const seen = /* @__PURE__ */ new Set([start]);
+      for (let hop = 0; hop < 2; hop++) {
+        const next = [];
+        for (const { node, factor } of frontier) {
+          for (const { to, w } of adj.get(node) ?? []) {
+            const target = slugScoreMap.get(to);
+            const contrib = entry.score * GRAPH_BOOST * factor * w;
+            if (target && target !== entry) target.score += contrib;
+            if (!seen.has(to)) {
+              seen.add(to);
+              next.push({ node: to, factor: factor * GRAPH_BOOST });
+            }
+          }
+        }
+        frontier = next;
+      }
+    }
+  } else {
+    for (const entry of scored) {
+      if (entry.score <= 0) continue;
+      for (const rel of entry.related) {
+        const target = slugScoreMap.get(rel);
+        if (target && target !== entry) {
+          target.score += entry.score * GRAPH_BOOST;
+        }
       }
     }
   }
@@ -27802,7 +27976,7 @@ function slugFromPath(p) {
   return p.replace(/.*\//, "").replace(/\.md$/, "");
 }
 async function collectMarkdown(dir, acc = []) {
-  for (const e of await fs6.readdir(dir, { withFileTypes: true })) {
+  for (const e of await fs7.readdir(dir, { withFileTypes: true })) {
     const p = join6(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
@@ -27811,7 +27985,7 @@ async function collectMarkdown(dir, acc = []) {
 }
 
 // src/tools/knowledge-fetch.ts
-import { promises as fs7 } from "fs";
+import { promises as fs8 } from "fs";
 import { join as join7 } from "path";
 function headings(body) {
   return body.split("\n").filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
@@ -27867,7 +28041,7 @@ async function knowledgeFetch(args) {
       pointer: "knowledge_search"
     };
   }
-  const raw = await fs7.readFile(filePath, "utf-8");
+  const raw = await fs8.readFile(filePath, "utf-8");
   const doc = parseDoc(raw, filePath);
   const fullPointer = `Read ${filePath} for the full page`;
   const gist = doc.description || doc.title || args.slug;
@@ -27905,11 +28079,11 @@ async function knowledgeFetch(args) {
 }
 
 // src/tools/knowledge-reindex.ts
-import { promises as fs9 } from "fs";
-import { join as join9 } from "path";
+import { promises as fs11 } from "fs";
+import { join as join10 } from "path";
 
 // src/tools/knowledge-validate.ts
-import { promises as fs8 } from "fs";
+import { promises as fs9 } from "fs";
 import { join as join8, basename, relative as relative2 } from "path";
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join8(knowledgeDir, "wiki");
@@ -27919,7 +28093,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
   for (const filePath of allPages) {
-    const content = await fs8.readFile(filePath, "utf-8");
+    const content = await fs9.readFile(filePath, "utf-8");
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
@@ -27989,7 +28163,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     }
   }
   try {
-    const rootFiles = await fs8.readdir(knowledgeDir, { withFileTypes: true });
+    const rootFiles = await fs9.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
         const rootPath = join8(knowledgeDir, entry.name);
@@ -28008,16 +28182,16 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     for (const issue2 of issues) {
       if (issue2.autofix === "remove" && issue2.type === "empty_page") {
         try {
-          await fs8.unlink(issue2.path);
+          await fs9.unlink(issue2.path);
           fixed++;
         } catch {
         }
       }
       if (issue2.autofix === "move_or_remove" && issue2.type === "root_orphan") {
         try {
-          const stat = await fs8.stat(issue2.path);
+          const stat = await fs9.stat(issue2.path);
           if (stat.size === 0) {
-            await fs8.unlink(issue2.path);
+            await fs9.unlink(issue2.path);
             fixed++;
           }
         } catch {
@@ -28045,7 +28219,7 @@ var KNOWN_CATEGORIES = /* @__PURE__ */ new Set([
   "sources"
 ]);
 async function addFrontmatter(filePath, wikiDir) {
-  const original = await fs8.readFile(filePath, "utf-8");
+  const original = await fs9.readFile(filePath, "utf-8");
   if (/^---\n/.test(original)) return;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
@@ -28063,7 +28237,7 @@ async function addFrontmatter(filePath, wikiDir) {
       created = slugDate[1];
     } else {
       try {
-        const stat = await fs8.stat(filePath);
+        const stat = await fs9.stat(filePath);
         created = stat.mtime.toISOString().slice(0, 10);
       } catch {
         created = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -28086,7 +28260,7 @@ related: [${related.join(", ")}]
 ---
 
 `;
-  await fs8.writeFile(filePath, fm + original, "utf-8");
+  await fs9.writeFile(filePath, fm + original, "utf-8");
 }
 function isSessionNarrative(content, slug) {
   const sessionSignals = [
@@ -28121,7 +28295,7 @@ function isSessionNarrative(content, slug) {
 }
 async function collectAllPages(dir, acc = []) {
   try {
-    const entries = await fs8.readdir(dir, { withFileTypes: true });
+    const entries = await fs9.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
       const p = join8(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
@@ -28132,13 +28306,103 @@ async function collectAllPages(dir, acc = []) {
   return acc;
 }
 
+// src/tools/graph-project.ts
+import { promises as fs10 } from "fs";
+import { join as join9 } from "path";
+var BEGIN = "<!-- graph:begin (generated from ~/knowledge/graph/edges.jsonl \u2014 do not hand-edit) -->";
+var END = "<!-- graph:end -->";
+var TYPE_LABEL = {
+  requires: "Requires",
+  affects: "Affects",
+  part_of: "Part of",
+  supersedes: "Supersedes",
+  relates: "Related"
+};
+var TYPE_ORDER = ["requires", "affects", "part_of", "supersedes", "relates"];
+function slugFromPath2(p) {
+  return p.replace(/.*\//, "").replace(/\.md$/, "");
+}
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+async function projectGraphToPages(knowledgeDir) {
+  const records = await loadEdges(join9(knowledgeDir, "graph", "edges.jsonl"));
+  if (records.length === 0) return { pagesUpdated: 0 };
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const current = foldToCurrent(records).filter((e) => validAt(e, now));
+  const outBySlug = /* @__PURE__ */ new Map();
+  const relatedBySlug = /* @__PURE__ */ new Map();
+  const add = (slug, other) => {
+    if (!relatedBySlug.has(slug)) relatedBySlug.set(slug, /* @__PURE__ */ new Set());
+    relatedBySlug.get(slug).add(other);
+  };
+  for (const e of current) {
+    if (!outBySlug.has(e.from)) outBySlug.set(e.from, []);
+    outBySlug.get(e.from).push(e);
+    add(e.from, e.to);
+    add(e.to, e.from);
+  }
+  const wikiRoot = join9(knowledgeDir, "wiki");
+  const files = await glob("**/*.md", { cwd: wikiRoot, absolute: true });
+  let updated = 0;
+  for (const file of files) {
+    if (file.endsWith("index.md")) continue;
+    const slug = slugFromPath2(file);
+    const related = relatedBySlug.get(slug);
+    if (!related || related.size === 0) continue;
+    let content = await fs10.readFile(file, "utf-8");
+    const before = content;
+    const relList = [...related].sort();
+    const relLine = `related: ${relList.map((s) => `[[${s}]]`).join(", ")}`;
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (fmMatch) {
+      let fmBody = fmMatch[1];
+      fmBody = /^related:.*$/m.test(fmBody) ? fmBody.replace(/^related:.*$/m, () => relLine) : `${fmBody}
+${relLine}`;
+      content = content.replace(/^---\n[\s\S]*?\n---/, () => `---
+${fmBody}
+---`);
+    }
+    const outs = outBySlug.get(slug) ?? [];
+    const grouped = {};
+    for (const e of outs) (grouped[e.type] ??= []).push(e.to);
+    const lines = [BEGIN, "## Dependencies"];
+    for (const t of TYPE_ORDER) {
+      const slugs = (grouped[t] ?? []).sort();
+      if (slugs.length) lines.push(`**${TYPE_LABEL[t]}:** ${slugs.map((s) => `[[${s}]]`).join(", ")}`);
+    }
+    const hasRows = lines.length > 2;
+    const block = hasRows ? [...lines, END].join("\n") : "";
+    const blockRe = new RegExp(`\\n*${escapeRe(BEGIN)}[\\s\\S]*?${escapeRe(END)}`);
+    if (blockRe.test(content)) {
+      content = block ? content.replace(blockRe, () => `
+
+${block}`) : content.replace(blockRe, () => "");
+    } else if (block) {
+      content = content.replace(/\s*$/, () => `
+
+${block}
+`);
+    }
+    if (content !== before) {
+      await fs10.writeFile(file, content, "utf-8");
+      updated++;
+    }
+  }
+  return { pagesUpdated: updated };
+}
+
 // src/tools/knowledge-reindex.ts
 async function knowledgeReindex(knowledgeDir) {
-  const wikiRoot = join9(knowledgeDir, "wiki");
-  const indexPath = join9(wikiRoot, "index.md");
+  try {
+    await projectGraphToPages(knowledgeDir);
+  } catch {
+  }
+  const wikiRoot = join10(knowledgeDir, "wiki");
+  const indexPath = join10(wikiRoot, "index.md");
   let dirs;
   try {
-    const entries = await fs9.readdir(wikiRoot, { withFileTypes: true });
+    const entries = await fs11.readdir(wikiRoot, { withFileTypes: true });
     dirs = entries.filter((d) => d.isDirectory()).map((d) => d.name).sort();
   } catch {
     return { pagesIndexed: 0, categories: [], indexPath };
@@ -28146,14 +28410,14 @@ async function knowledgeReindex(knowledgeDir) {
   const sections = ["# Knowledge Base Index", ""];
   let totalPages = 0;
   for (const dir of dirs) {
-    const dirPath = join9(wikiRoot, dir);
+    const dirPath = join10(wikiRoot, dir);
     const files = await collectMd(dirPath);
     if (files.length === 0) continue;
     const entries = [];
     for (const filePath of files.sort()) {
       const slug = filePath.split("/").pop().replace(/\.md$/, "");
       try {
-        const content = await fs9.readFile(filePath, "utf-8");
+        const content = await fs11.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         const desc = doc.description || firstSentence(doc.body);
         entries.push({ slug, title: doc.title || slug, description: desc });
@@ -28175,7 +28439,7 @@ async function knowledgeReindex(knowledgeDir) {
     sections.push("");
   }
   sections.push(`<!-- generated: ${(/* @__PURE__ */ new Date()).toISOString()} -->`);
-  await fs9.writeFile(indexPath, sections.join("\n"), "utf-8");
+  await fs11.writeFile(indexPath, sections.join("\n"), "utf-8");
   const validation = await knowledgeValidate(knowledgeDir, { autofix: true });
   return {
     pagesIndexed: totalPages,
@@ -28191,8 +28455,8 @@ function firstSentence(body) {
 }
 async function collectMd(dir, acc = []) {
   try {
-    for (const e of await fs9.readdir(dir, { withFileTypes: true })) {
-      const p = join9(dir, e.name);
+    for (const e of await fs11.readdir(dir, { withFileTypes: true })) {
+      const p = join10(dir, e.name);
       if (e.isDirectory()) await collectMd(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -28202,40 +28466,40 @@ async function collectMd(dir, acc = []) {
 }
 
 // src/tools/dream.ts
-import { promises as fs10 } from "fs";
-import { join as join10 } from "path";
+import { promises as fs12 } from "fs";
+import { join as join11 } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 var exec = promisify(execFile);
 function brainDir() {
-  return join10(process.env.HOME ?? "", ".second-brain");
+  return join11(process.env.HOME ?? "", ".second-brain");
 }
 function dreamsDir() {
-  return join10(brainDir(), "dreams");
+  return join11(brainDir(), "dreams");
 }
 function scriptsDir() {
-  return join10(
-    process.env.CLAUDE_PLUGIN_ROOT ?? join10(__dirname, "..", ".."),
+  return join11(
+    process.env.CLAUDE_PLUGIN_ROOT ?? join11(__dirname, "..", ".."),
     "scripts"
   );
 }
 async function readStatus(dreamId) {
-  const statusPath = join10(dreamsDir(), dreamId, "status.json");
+  const statusPath = join11(dreamsDir(), dreamId, "status.json");
   try {
-    const raw = await fs10.readFile(statusPath, "utf-8");
+    const raw = await fs12.readFile(statusPath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 async function writeStatus(dreamId, status) {
-  const statusPath = join10(dreamsDir(), dreamId, "status.json");
-  await fs10.writeFile(statusPath, JSON.stringify(status, null, 2), "utf-8");
+  const statusPath = join11(dreamsDir(), dreamId, "status.json");
+  await fs12.writeFile(statusPath, JSON.stringify(status, null, 2), "utf-8");
 }
 async function listDreamIds() {
   const dir = dreamsDir();
   try {
-    const entries = await fs10.readdir(dir, { withFileTypes: true });
+    const entries = await fs12.readdir(dir, { withFileTypes: true });
     return entries.filter((e) => e.isDirectory() && e.name.startsWith("drm_")).map((e) => e.name).sort().reverse();
   } catch {
     return [];
@@ -28267,7 +28531,7 @@ async function dreamCreate(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join10(scriptsDir(), "dream-snapshot.sh"), ...scriptArgs],
+      [join11(scriptsDir(), "dream-snapshot.sh"), ...scriptArgs],
       { timeout: 3e4, env: { ...process.env } }
     );
     const dreamId = stdout.trim();
@@ -28295,9 +28559,9 @@ async function dreamStatus(args) {
   }
   let diffPreview;
   if (status.status === "completed") {
-    const diffPath = join10(dreamsDir(), args.dream_id, "diff.md");
+    const diffPath = join11(dreamsDir(), args.dream_id, "diff.md");
     try {
-      const content = await fs10.readFile(diffPath, "utf-8");
+      const content = await fs12.readFile(diffPath, "utf-8");
       const lines = content.split("\n");
       diffPreview = lines.slice(0, 50).join("\n");
       if (lines.length > 50) diffPreview += "\n... (truncated)";
@@ -28331,7 +28595,7 @@ async function dreamAccept(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join10(scriptsDir(), "dream-accept.sh"), args.dream_id],
+      [join11(scriptsDir(), "dream-accept.sh"), args.dream_id],
       { timeout: 3e4, env: { ...process.env } }
     );
     const output = stdout.trim();
@@ -28358,10 +28622,10 @@ async function dreamDiscard(args) {
   if (status.archived_at) {
     return { ok: false, reason: `dream ${args.dream_id} already archived` };
   }
-  const dreamDir = join10(dreamsDir(), args.dream_id);
+  const dreamDir = join11(dreamsDir(), args.dream_id);
   try {
-    await fs10.rm(join10(dreamDir, "staging"), { recursive: true, force: true });
-    await fs10.rm(join10(dreamDir, "transcripts"), {
+    await fs12.rm(join11(dreamDir, "staging"), { recursive: true, force: true });
+    await fs12.rm(join11(dreamDir, "transcripts"), {
       recursive: true,
       force: true
     });
@@ -28389,8 +28653,8 @@ async function dreamCancel(args) {
 }
 
 // src/tools/episodic-search.ts
-import { promises as fs11 } from "fs";
-import { join as join11, basename as basename3 } from "path";
+import { promises as fs13 } from "fs";
+import { join as join12, basename as basename3 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -28414,9 +28678,9 @@ function parseSessionMeta(lines) {
   return { meta, bodyStart: i };
 }
 async function loadIndex(brainDir2) {
-  const indexPath = join11(brainDir2, INDEX_FILE);
+  const indexPath = join12(brainDir2, INDEX_FILE);
   try {
-    const data = await fs11.readFile(indexPath, "utf-8");
+    const data = await fs13.readFile(indexPath, "utf-8");
     return JSON.parse(data);
   } catch {
     return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };
@@ -28474,7 +28738,7 @@ async function vectorSearch(query, index, limit, filters, brainDir2) {
   if (withEmbeddings.length === 0) return [];
   const queryEmbedding = await embedTexts(
     [query],
-    join11(brainDir2, "transcripts"),
+    join12(brainDir2, "transcripts"),
     [""]
   );
   if (!queryEmbedding) return [];
@@ -28503,13 +28767,13 @@ function textSearch(query, index, limit, filters) {
   return scored.slice(0, limit);
 }
 async function multiConceptSearch(concepts, index, limit, filters) {
-  const brainDir2 = index.exchanges[0]?.archivePath ? join11(index.exchanges[0].archivePath, "..", "..") : join11(process.env.HOME ?? "", ".second-brain");
+  const brainDir2 = index.exchanges[0]?.archivePath ? join12(index.exchanges[0].archivePath, "..", "..") : join12(process.env.HOME ?? "", ".second-brain");
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
   if (withEmbeddings.length === 0) return { results: [] };
   const conceptEmbeddings = await embedTexts(
     concepts,
-    join11(brainDir2, "transcripts"),
+    join12(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
   if (!conceptEmbeddings) return { results: [] };
@@ -28549,7 +28813,7 @@ function applyFilters(exchanges, filters) {
   return result;
 }
 async function episodicRead(filePath, startLine, endLine) {
-  const content = await fs11.readFile(filePath, "utf-8");
+  const content = await fs13.readFile(filePath, "utf-8");
   const lines = content.split("\n");
   const { meta } = parseSessionMeta(lines);
   const start = (startLine ?? 1) - 1;
@@ -28565,8 +28829,8 @@ async function episodicRead(filePath, startLine, endLine) {
 
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
-import { promises as fs12 } from "fs";
-import { join as join12 } from "path";
+import { promises as fs14 } from "fs";
+import { join as join13 } from "path";
 var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
 var COST_PER_CALL = Number(process.env.SB_PERSONA_COST_PER_CALL ?? "0.11");
 var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "30000");
@@ -28665,10 +28929,10 @@ ${args.prompt}` : args.prompt;
   }
 }
 async function readBudget(brainDir2) {
-  const file = join12(brainDir2, "persona-budget.json");
+  const file = join13(brainDir2, "persona-budget.json");
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   try {
-    const txt = await fs12.readFile(file, "utf-8");
+    const txt = await fs14.readFile(file, "utf-8");
     const j2 = JSON.parse(txt);
     if (j2.date === today) return { date: today, today_usd: Number(j2.today_usd) || 0 };
   } catch {
@@ -28678,30 +28942,30 @@ async function readBudget(brainDir2) {
 async function recordSpend(brainDir2, usd) {
   const current = await readBudget(brainDir2);
   const next = { date: current.date, today_usd: current.today_usd + usd };
-  await fs12.mkdir(brainDir2, { recursive: true }).catch(() => {
+  await fs14.mkdir(brainDir2, { recursive: true }).catch(() => {
   });
-  await fs12.writeFile(join12(brainDir2, "persona-budget.json"), JSON.stringify(next));
+  await fs14.writeFile(join13(brainDir2, "persona-budget.json"), JSON.stringify(next));
   return next;
 }
 
 // src/tools/persona-stats.ts
-import { promises as fs13 } from "fs";
-import { join as join13 } from "path";
+import { promises as fs15 } from "fs";
+import { join as join14 } from "path";
 var DEFAULT_BUDGET = Number(process.env.SB_PERSONA_DAILY_BUDGET ?? "20");
 async function personaStats(args = {}) {
-  const dir = args.brainDir ?? join13(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
-  let identity = "";
+  const dir = args.brainDir ?? join14(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  let identity2 = "";
   let cardBytes = 0;
   try {
-    const card = await fs13.readFile(join13(dir, "persona-card.md"), "utf-8");
+    const card = await fs15.readFile(join14(dir, "persona-card.md"), "utf-8");
     cardBytes = Buffer.byteLength(card, "utf-8");
-    identity = card.split("\n").filter((l) => l.startsWith("- ")).slice(0, 3).map((l) => l.slice(2).trim()).join("; ");
+    identity2 = card.split("\n").filter((l) => l.startsWith("- ")).slice(0, 3).map((l) => l.slice(2).trim()).join("; ");
   } catch {
   }
   let ungraduated = 0;
   let graduated = 0;
   try {
-    const psl = await fs13.readFile(join13(dir, "persona-signals.jsonl"), "utf-8");
+    const psl = await fs15.readFile(join14(dir, "persona-signals.jsonl"), "utf-8");
     for (const line of psl.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -28715,7 +28979,7 @@ async function personaStats(args = {}) {
   }
   let plugins = 0, agents = 0, skills = 0;
   try {
-    const cat = JSON.parse(await fs13.readFile(join13(dir, ".installed-catalog.json"), "utf-8"));
+    const cat = JSON.parse(await fs15.readFile(join14(dir, ".installed-catalog.json"), "utf-8"));
     plugins = Array.isArray(cat.plugins) ? cat.plugins.length : 0;
     agents = Array.isArray(cat.agents) ? cat.agents.length : 0;
     skills = Array.isArray(cat.skills) ? cat.skills.length : 0;
@@ -28723,7 +28987,7 @@ async function personaStats(args = {}) {
   }
   let dismissals = 0;
   try {
-    const dl = await fs13.readFile(join13(dir, ".persona-dismissals.jsonl"), "utf-8");
+    const dl = await fs15.readFile(join14(dir, ".persona-dismissals.jsonl"), "utf-8");
     const cutoff = Date.now() - 7 * 864e5;
     for (const line of dl.split("\n")) {
       if (!line.trim()) continue;
@@ -28738,13 +29002,13 @@ async function personaStats(args = {}) {
   }
   let spend = 0;
   try {
-    const b = JSON.parse(await fs13.readFile(join13(dir, "persona-budget.json"), "utf-8"));
+    const b = JSON.parse(await fs15.readFile(join14(dir, "persona-budget.json"), "utf-8"));
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     if (b.date === today) spend = Number(b.today_usd) || 0;
   } catch {
   }
   return {
-    identity_summary: identity,
+    identity_summary: identity2,
     persona_card_bytes: cardBytes,
     ungraduated_signals: ungraduated,
     graduated_signals: graduated,
@@ -28758,14 +29022,14 @@ async function personaStats(args = {}) {
 }
 
 // src/tools/persona-dismiss.ts
-import { promises as fs14 } from "fs";
-import { join as join14 } from "path";
+import { promises as fs16 } from "fs";
+import { join as join15 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
-  const dir = args.brainDir ?? join14(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
-  await fs14.mkdir(dir, { recursive: true }).catch(() => {
+  const dir = args.brainDir ?? join15(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  await fs16.mkdir(dir, { recursive: true }).catch(() => {
   });
-  const file = join14(dir, ".persona-dismissals.jsonl");
+  const file = join15(dir, ".persona-dismissals.jsonl");
   const now = /* @__PURE__ */ new Date();
   const entry = {
     at: now.toISOString(),
@@ -28775,7 +29039,7 @@ async function personaDismiss(args = {}) {
   const cutoff = now.getTime() - RETAIN_DAYS * 864e5;
   let kept = "";
   try {
-    const existing = await fs14.readFile(file, "utf-8");
+    const existing = await fs16.readFile(file, "utf-8");
     for (const line of existing.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -28788,7 +29052,7 @@ async function personaDismiss(args = {}) {
   } catch {
   }
   kept += JSON.stringify(entry) + "\n";
-  await fs14.writeFile(file, kept);
+  await fs16.writeFile(file, kept);
   const week = now.getTime() - 7 * 864e5;
   let count = 0;
   for (const line of kept.split("\n")) {
@@ -28801,6 +29065,66 @@ async function personaDismiss(args = {}) {
     }
   }
   return { ok: true, count_7d: count };
+}
+
+// src/tools/knowledge-relate.ts
+import { join as join16 } from "path";
+var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ].*)?$/;
+async function knowledgeRelate(args) {
+  try {
+    validateSlug(args.from);
+    validateSlug(args.to);
+  } catch (e) {
+    if (e instanceof PathGuardError) return { ok: false, reason: `invalid slug: ${e.message}` };
+    throw e;
+  }
+  if (!EDGE_TYPES.includes(args.type)) return { ok: false, reason: `invalid type: ${args.type}` };
+  for (const [k, v] of [["valid_from", args.valid_from], ["valid_to", args.valid_to]]) {
+    if (v !== void 0 && !ISO_DATE_RE.test(v)) return { ok: false, reason: `invalid ${k} (want YYYY-MM-DD): ${v}` };
+  }
+  const logPath = join16(args.knowledgeDir, "graph", "edges.jsonl");
+  if (args.invalidate) {
+    const current = foldToCurrent(await loadEdges(logPath));
+    const open = current.find((e) => e.from === args.from && e.to === args.to && e.type === args.type && e.valid_to === null);
+    if (!open) {
+      return { ok: false, reason: `no open ${args.type} edge ${args.from}->${args.to} to invalidate` };
+    }
+  }
+  const rec = {
+    op: args.invalidate ? "invalidate" : "assert",
+    from: args.from,
+    to: args.to,
+    type: args.type,
+    recorded_at: (/* @__PURE__ */ new Date()).toISOString(),
+    source: "manual",
+    confidence: "high"
+  };
+  if (args.valid_from) rec.valid_from = args.valid_from;
+  if (args.valid_to) rec.valid_to = args.valid_to;
+  if (args.reason) rec.reason = args.reason;
+  await appendEdge(logPath, rec);
+  return { ok: true, recorded: rec };
+}
+
+// src/tools/knowledge-neighbors.ts
+import { join as join17 } from "path";
+async function knowledgeNeighbors(args) {
+  try {
+    validateSlug(args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) return { slug: args.slug, edges: [] };
+    throw e;
+  }
+  const records = await loadEdges(join17(args.knowledgeDir, "graph", "edges.jsonl"));
+  if (records.length === 0) return { slug: args.slug, edges: [] };
+  const current = foldToCurrent(records);
+  const edges = neighbors(current, args.slug, {
+    depth: args.depth,
+    direction: args.direction,
+    edgeTypes: args.edge_types,
+    asOf: args.as_of
+  });
+  return { slug: args.slug, edges };
 }
 
 // src/server.ts
@@ -28820,18 +29144,18 @@ var KNOWLEDGE_DIR = resolveKnowledgeDir();
 var BRAIN_DIR = path2.join(os.homedir(), ".second-brain");
 function resolveActiveSlug() {
   try {
-    const pin = fs15.readFileSync(path2.join(BRAIN_DIR, ".active-session-slug"), "utf-8").trim();
-    if (pin && fs15.existsSync(path2.join(BRAIN_DIR, "projects", pin, "PROJECT.md"))) return pin;
+    const pin = fs17.readFileSync(path2.join(BRAIN_DIR, ".active-session-slug"), "utf-8").trim();
+    if (pin && fs17.existsSync(path2.join(BRAIN_DIR, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
   const base = path2.basename(process.cwd());
   return base && base !== "/" && base !== "." ? base : void 0;
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.2.0" },
+  { name: "knowledge-base", version: "2.3.0" },
   {
     capabilities: { logging: {} },
-    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section."
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
   }
 );
 function categorizeFile(filePath) {
@@ -28932,7 +29256,7 @@ server.registerTool(
   async () => {
     try {
       const wikiDir = path2.join(KNOWLEDGE_DIR, "wiki");
-      if (!fs15.existsSync(wikiDir)) {
+      if (!fs17.existsSync(wikiDir)) {
         return {
           content: [{
             type: "text",
@@ -28952,7 +29276,7 @@ server.registerTool(
         const cat = categorizeFile(file);
         let size = 0;
         try {
-          size = fs15.statSync(file).size;
+          size = fs17.statSync(file).size;
         } catch {
           continue;
         }
@@ -29259,6 +29583,50 @@ server.registerTool(
         content: [{ type: "text", text: `persona_dismiss error: ${error2 instanceof Error ? error2.message : String(error2)}` }],
         isError: true
       };
+    }
+  }
+);
+server.registerTool(
+  "knowledge_relate",
+  {
+    description: "Assert (or invalidate) a typed, bi-temporal relationship between two wiki pages. Use when the user confirms that one thing relates to / requires / affects another, so a future session recalls it without re-explaining. types: requires | affects | relates | part_of | supersedes. Set invalidate:true with valid_to to mark a relationship no longer true (history is preserved, never deleted).",
+    inputSchema: {
+      from: external_exports.string().describe("Source page slug (kebab-case)."),
+      to: external_exports.string().describe("Target page slug (kebab-case)."),
+      type: external_exports.enum(["requires", "affects", "relates", "part_of", "supersedes"]),
+      valid_from: external_exports.string().optional().describe("Date the relationship became true (YYYY-MM-DD). Default: today."),
+      valid_to: external_exports.string().optional().describe("Date it stopped being true (YYYY-MM-DD). Required semantics with invalidate:true."),
+      invalidate: external_exports.boolean().optional().describe("Mark an existing relationship no longer valid instead of asserting one."),
+      reason: external_exports.string().optional().describe("Why (especially on invalidate).")
+    }
+  },
+  async (args) => {
+    try {
+      const result = await knowledgeRelate({ ...args, knowledgeDir: KNOWLEDGE_DIR });
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error2) {
+      return { content: [{ type: "text", text: `Relate error: ${error2 instanceof Error ? error2.message : String(error2)}` }], isError: true };
+    }
+  }
+);
+server.registerTool(
+  "knowledge_neighbors",
+  {
+    description: "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval.",
+    inputSchema: {
+      slug: external_exports.string().describe("The page slug to start from."),
+      depth: external_exports.number().min(1).max(4).optional().describe("Max hops. Default 2."),
+      direction: external_exports.enum(["out", "in", "both"]).optional().describe("Default 'both'."),
+      edge_types: external_exports.array(external_exports.enum(["requires", "affects", "relates", "part_of", "supersedes"])).optional(),
+      as_of: external_exports.string().optional().describe("Point-in-time (YYYY-MM-DD or ISO). Default now.")
+    }
+  },
+  async (args) => {
+    try {
+      const result = await knowledgeNeighbors({ ...args, knowledgeDir: KNOWLEDGE_DIR });
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error2) {
+      return { content: [{ type: "text", text: `Neighbors error: ${error2 instanceof Error ? error2.message : String(error2)}` }], isError: true };
     }
   }
 );

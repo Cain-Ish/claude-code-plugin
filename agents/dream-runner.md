@@ -64,9 +64,19 @@ Phases 1–5 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 - Add `## History` entry for merges
 
 **Phase 3: RELATE**
-- Build `related:` links across all pages
-- Priority: Entity↔Learning, Entity↔Concept, Learning↔Learning
-- Bidirectional: if A→B, add B→A
+- Relationships now live in the bi-temporal edge log `~/knowledge/graph/edges.jsonl`
+  and are **projected** onto `related:` + the `## Dependencies` block at reindex.
+- **The dream does NOT curate edges.** The dream runs on a *staging copy of `wiki/`
+  only* — `graph/edges.jsonl` is intentionally NOT snapshotted, because an
+  append-only log cannot be safely merged back when live sessions may have appended
+  to it during the dream's runtime. Edge curation is owned by the live paths:
+  capture-time extraction, the manual `knowledge_relate` tool, and the
+  `knowledge-maintainer` agent (which runs against the live wiki).
+- In staging, **do not hand-edit `related:` or the `<!-- graph:begin -->` block** —
+  they are generated; staging edits would be lost at projection time anyway.
+- If you spot strong missing relationships while mining, **surface them in your
+  report** as suggested `knowledge_relate` calls for the user / maintainer to apply
+  live — do not write them into staging.
 
 **Phase 4: ENRICH**
 - Apply transcript mining insights (new pages, updates)

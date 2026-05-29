@@ -206,6 +206,13 @@ if ! echo "$DELTA_JSON" \
 fi
 rm -f "$MERGE_ERR"
 
+# --- Relationship edges (typed, bi-temporal) ---
+# Append any relations[] the extractor proposed to ~/knowledge/graph/edges.jsonl.
+# Pure-bash + deterministic; best-effort — a failure here must never fail the
+# Stop hook. Uses the same quality-gated $DELTA_JSON (the gate preserves the
+# relations field, only filtering decisions/blockers/cross_refs).
+echo "$DELTA_JSON" | bash "$(dirname "$0")/merge-edges.sh" --knowledge-dir "$KNOWLEDGE_DIR" 2>/dev/null || true
+
 # --- Persona signal extraction ---
 PERSONA_SIGNALS=$(echo "$DELTA_JSON" | jq -c '.persona_signals // []')
 if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then

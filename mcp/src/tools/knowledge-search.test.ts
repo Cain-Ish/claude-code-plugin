@@ -1,0 +1,56 @@
+import { describe, it, expect } from 'vitest';
+import { promises as fsp } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { knowledgeSearch } from './knowledge-search.js';
+import { appendEdge } from './graph-store.js';
+
+async function wiki(): Promise<string> {
+  const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-'));
+  await fsp.mkdir(join(dir, 'wiki', 'entities'), { recursive: true });
+  const w = (s: string, body: string, related = '[]') =>
+    fsp.writeFile(join(dir, 'wiki', 'entities', `${s}.md`),
+      `---\ntitle: ${s}\ntype: entities\ndescription: ${s}\nrelated: ${related}\n---\n\n# ${s}\n\n${body}\n`);
+  await w('alpha', 'alpha mentions wireguard tunnel keyword');
+  await w('beta', 'unrelated content about gardening');
+  await w('gamma', 'unrelated content about cooking');
+  return dir;
+}
+
+function slugs(r: { candidates: { path: string }[] }): string[] {
+  return r.candidates.map(c => c.path.replace(/.*\//, '').replace(/\.md$/, ''));
+}
+
+describe('knowledge_search back-compat (no graph dir)', () => {
+  it('frontmatter related: still drives a one-hop boost (legacy behaviour preserved)', async () => {
+    const dir = await wiki();
+    // legacy: alpha relates to beta via frontmatter only, no graph log present
+    await fsp.writeFile(join(dir, 'wiki', 'entities', 'alpha.md'),
+      `---\ntitle: alpha\ntype: entities\ndescription: alpha\nrelated: [[beta]]\n---\n\n# alpha\n\nwireguard tunnel keyword\n`);
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
+    expect(slugs(r)).toContain('alpha');
+    expect(slugs(r)).toContain('beta'); // boosted via frontmatter related, no graph log
+  });
+});
+
+describe('knowledge_search multi-hop typed boost (graph present)', () => {
+  it('a hit on alpha boosts its 1-hop and 2-hop requires-neighbours', async () => {
+    const dir = await wiki();
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'alpha', to: 'beta', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await appendEdge(log, { op: 'assert', from: 'beta', to: 'gamma', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
+    expect(slugs(r)).toContain('beta');   // 1 hop
+    expect(slugs(r)).toContain('gamma');  // 2 hops, via typed graph
+  });
+  it('an invalidated edge does not propagate boost', async () => {
+    const dir = await wiki();
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'alpha', to: 'beta', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await appendEdge(log, { op: 'invalidate', from: 'alpha', to: 'beta', type: 'requires', valid_to: '2026-05-10', recorded_at: '2026-05-10T00:00:00Z' });
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
+    // beta has no query-term hits of its own; with the edge invalidated it should
+    // not be pulled in by graph boost.
+    expect(slugs(r)).not.toContain('beta');
+  });
+});
