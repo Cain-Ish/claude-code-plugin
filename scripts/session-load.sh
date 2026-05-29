@@ -398,6 +398,36 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
   fi
 fi
 
+# 5a. Graph neighbourhood — current typed dependencies of the project's key
+# entities (the Cross-references slugs). Surfaces "changing A affects/requires
+# B,C,D" in the hot tier so a fresh session recalls the dependency web without
+# re-explaining. No-op when the graph CLI or edges.jsonl is absent (back-compat).
+GRAPH_CLI="$PLUGIN_ROOT/mcp/dist/tools/graph-neighbors-cli.bundle.js"
+if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/edges.jsonl" ] && command -v node >/dev/null 2>&1; then
+  # Up to 4 cross-reference slugs from PROJECT.md as graph entry points.
+  CR_SLUGS=$(awk '
+    /^## Cross-references$/ { f=1; next }
+    /^## / { f=0 }
+    f && /\[\[/ {
+      line=$0
+      while (match(line, /\[\[[^]]+\]\]/)) {
+        s=substr(line, RSTART+2, RLENGTH-4); print s
+        line=substr(line, RSTART+RLENGTH)
+      }
+    }
+  ' "$project_file" 2>/dev/null | sort -u | head -4)
+  GRAPH_OUT=""
+  while IFS= read -r s; do
+    [ -z "$s" ] && continue
+    nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>/dev/null \
+      | awk -F'\t' '{ printf "%s %s %s; ", $2, $1, $3 }')
+    [ -n "$nbr" ] && GRAPH_OUT="${GRAPH_OUT}- ${s}: ${nbr}\n"
+  done <<< "$CR_SLUGS"
+  if [ -n "$GRAPH_OUT" ]; then
+    sb_append "$(printf '\n[Dependency graph — current typed relations (as of today)]\n%b' "$GRAPH_OUT")" "graph-neighbourhood" 600
+  fi
+fi
+
 # 6. Dream completion nudge
 DREAMS_DIR="$BRAIN_DIR/dreams"
 if [ -d "$DREAMS_DIR" ] && command -v jq >/dev/null 2>&1; then
