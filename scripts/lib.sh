@@ -323,6 +323,64 @@ sb_archive_transcript() {
   sb_prune_transcripts
 }
 
+# Archive a subagent's FINAL RESULT (not its full transcript) for dream mining +
+# episodic search. Keyed on agent_id so it never collides with a main-session
+# archive and de-dupes per agent. The result is already prose (the subagent's last
+# assistant text block), so it is written plain under an ASSISTANT: marker — NOT
+# through sb_preprocess_transcript (which parses raw JSONL lines). The file matches
+# the episodic indexer's session-meta + ASSISTANT body shape, so it is indexed with
+# no indexer change. See docs/specs/2026-05-29-subagent-capture-design.md.
+# Args: $1=agent_id $2=agent_type $3=slug $4=session_id $5=tool_count $6=result_text
+sb_archive_subagent_result() {
+  local agent_id="$1" agent_type="$2" slug="$3" session_id="$4" tool_count="$5" result="$6"
+  local archive_dir="$BRAIN_DIR/transcripts"
+  mkdir -p "$archive_dir" 2>/dev/null || return 1
+  local date_str safe_aid
+  date_str=$(date +%Y-%m-%d)
+  # sanitize agent_id for use as a filename component (defense in depth — it comes
+  # from the hook payload). Keep only filename-safe chars; bail if it empties out.
+  safe_aid=$(printf '%s' "$agent_id" | tr -cd 'A-Za-z0-9._-')
+  [ -n "$safe_aid" ] || safe_aid="unknown"
+  local archive_file="$archive_dir/sub-${safe_aid}_${slug}_${date_str}.txt"
+
+  {
+    echo "--- session-meta ---"
+    echo "session_id: $session_id"
+    echo "project_slug: $slug"
+    echo "agent_type: $agent_type"
+    echo "agent_id: $safe_aid"
+    echo "date: $date_str"
+    echo "tool_count: $tool_count"
+    echo "subagent_result: true"
+    echo "---"
+    echo ""
+    printf 'ASSISTANT:\n%s\n' "$result"
+  } > "$archive_file"
+
+  # Prune subagent archives under their OWN budget FIRST, so a busy multi-agent
+  # session (hundreds of subagents) can never crowd main-session archives out of
+  # the shared 100-file cap. Oldest sub-*.txt by mtime are dropped beyond the cap.
+  local sub_cap="${SB_SUBAGENT_ARCHIVE_CAP:-50}"
+  local sub_files sub_count
+  # newest-first by mtime; delete everything past the cap. -printf is GNU; fall
+  # back to a stat-based sort on BSD/macOS.
+  sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f -printf '%T@ %p\n' 2>/dev/null \
+    | sort -rn | cut -d' ' -f2-)
+  if [ -z "$sub_files" ]; then
+    sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f 2>/dev/null \
+      | while IFS= read -r f; do printf '%s %s\n' "$(stat -f %m "$f" 2>/dev/null || echo 0)" "$f"; done \
+      | sort -rn | cut -d' ' -f2-)
+  fi
+  sub_count=$(printf '%s\n' "$sub_files" | grep -c . 2>/dev/null || echo 0)
+  if [ "$sub_count" -gt "$sub_cap" ]; then
+    printf '%s\n' "$sub_files" | tail -n +"$((sub_cap + 1))" | while IFS= read -r f; do
+      [ -n "$f" ] && rm -f "$f"
+    done
+  fi
+
+  sb_prune_transcripts
+}
+
 # Enforce transcript archive caps: 100 files max, 5MB total.
 # Deletes oldest files first (sorted by filename which embeds date).
 sb_prune_transcripts() {

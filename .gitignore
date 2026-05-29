@@ -34,3 +34,4 @@ node_modules/
 *.swp
 *.swo
 docs/.amreview.wf.js
+docs/.screview.wf.js

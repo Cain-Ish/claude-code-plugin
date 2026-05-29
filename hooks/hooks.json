@@ -28,6 +28,12 @@
           "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/sar-summary.sh", "timeout": 5 }
       ]}
     ],
+    "SubagentStop": [
+      { "_comment": "v0.22+ subagent capture — archive a substantive, non-self subagent's FINAL result (not its full transcript) into ~/.second-brain/transcripts/ so it becomes dream-minable + episodic-searchable. matcher '*' = all subagents; self-exclusion + the substantive gate live in-script (a select-only matcher can't express 'not these'). MUST always exit 0 (a blocking SubagentStop wedges the parent fan-out). OAuth-safe (file ops only). Kill switch SB_SUBAGENT_CAPTURE=off.",
+        "matcher": "*", "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/subagent-capture.sh", "timeout": 10 }
+      ]}
+    ],
     "PreCompact": [
       { "matcher": ".*", "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh", "timeout": 45 }
