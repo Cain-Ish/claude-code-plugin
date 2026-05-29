@@ -41,7 +41,11 @@ export declare function loadEdges(path: string): Promise<EdgeRecord[]>;
  *  interval. invalidate with no prior assert is ignored. */
 export declare function foldToCurrent(records: EdgeRecord[]): CurrentEdge[];
 /** True iff the edge is valid at time T: valid_from <= T AND (valid_to null OR valid_to > T).
- *  Half-open interval — an edge invalidated on date D is NOT valid at D. */
+ *  Half-open interval — an edge invalidated on date D is NOT valid at D.
+ *  Operands are normalized to date granularity (dateOf) before comparison so a
+ *  full-ISO valid_from/valid_to and a date-only T (or vice versa) compare on the
+ *  same footing — the graph is date-granular, and a noon assert must be visible
+ *  to a same-day date-only query. */
 export declare function validAt(e: {
     valid_from: string;
     valid_to: string | null;
@@ -61,11 +65,19 @@ export interface NeighborOpts {
     edgeTypes?: EdgeType[];
     asOf?: string;
 }
-/** BFS over current-valid edges from `slug`, up to `depth` hops. Score per
- *  reached node = TYPE_WEIGHT * GRAPH_DECAY^hop, keeping the min-hop path. */
+/** BFS over current-valid edges from `slug`, up to `depth` hops. Each distinct
+ *  edge (from,type,to) is emitted at most ONCE, keeping its min-hop occurrence
+ *  (score = TYPE_WEIGHT * GRAPH_DECAY^(hop-1)). This matters for the default
+ *  `direction:'both'`, where an edge a-b is otherwise discovered from both
+ *  endpoints (and again at deeper hops) and would be emitted multiple times
+ *  with conflicting scores. */
 export declare function neighbors(edges: CurrentEdge[], slug: string, opts?: NeighborOpts): NeighborEdge[];
 /** Append one validated edge record as a single JSONL line. Used by the
  *  knowledge_relate MCP tool. (The hook write path appends from bash directly;
- *  the JSONL line format is the shared contract.) */
+ *  the JSONL line format is the shared contract.) Each line is a single
+ *  appendFile call (O_APPEND); for typical short records this is atomic on local
+ *  filesystems, but very large records under concurrent writers are not lock-
+ *  protected — loadEdges skips any torn line, so the failure mode is a dropped
+ *  edge, never a crash. */
 export declare function appendEdge(path: string, rec: EdgeRecord): Promise<void>;
 //# sourceMappingURL=graph-store.d.ts.map

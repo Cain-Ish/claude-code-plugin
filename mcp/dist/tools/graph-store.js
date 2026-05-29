@@ -13,12 +13,27 @@ export function dateOf(iso) {
     return iso.slice(0, 10);
 }
 function isValidRecord(r) {
-    return r && typeof r === 'object'
-        && (r.op === 'assert' || r.op === 'invalidate')
-        && typeof r.from === 'string' && r.from.length > 0
-        && typeof r.to === 'string' && r.to.length > 0
-        && EDGE_TYPES.includes(r.type)
-        && typeof r.recorded_at === 'string' && r.recorded_at.length >= 10;
+    if (!(r && typeof r === 'object'))
+        return false;
+    if (r.op !== 'assert' && r.op !== 'invalidate')
+        return false;
+    if (typeof r.from !== 'string' || r.from.length === 0)
+        return false;
+    if (typeof r.to !== 'string' || r.to.length === 0)
+        return false;
+    if (!EDGE_TYPES.includes(r.type))
+        return false;
+    if (typeof r.recorded_at !== 'string' || r.recorded_at.length < 10)
+        return false;
+    // valid_from / valid_to, when present, must be ISO-ish strings (or null) — a
+    // number or object here would silently corrupt the lexicographic cmpTime in
+    // validAt. Reject the record rather than fold garbage into the graph.
+    for (const k of ['valid_from', 'valid_to']) {
+        const v = r[k];
+        if (v !== undefined && v !== null && typeof v !== 'string')
+            return false;
+    }
+    return true;
 }
 /** Read edges.jsonl line-by-line. A missing file yields [] (graph absent =
  *  current behaviour preserved). Each line is parsed independently; any
@@ -59,19 +74,20 @@ export function foldToCurrent(records) {
         const id = identity(r);
         const cur = map.get(id);
         if (r.op === 'assert') {
+            // An assert ONLY opens an interval — it never closes one. Any valid_to on
+            // an assert record is ignored (closing is exclusively invalidate's job),
+            // so a stray/garbage valid_to can't open a pre-closed, never-valid edge.
             if (!cur || cur.valid_to !== null) {
                 map.set(id, {
                     from: r.from, to: r.to, type: r.type,
                     valid_from: r.valid_from ?? dateOf(r.recorded_at),
-                    valid_to: r.valid_to ?? null,
+                    valid_to: null,
                     source: r.source, confidence: r.confidence,
                 });
             }
             else {
                 if (r.valid_from != null)
                     cur.valid_from = r.valid_from;
-                if (r.valid_to !== undefined && r.valid_to !== null)
-                    cur.valid_to = r.valid_to;
                 if (r.source)
                     cur.source = r.source;
                 if (r.confidence)
@@ -86,27 +102,36 @@ export function foldToCurrent(records) {
     return [...map.values()];
 }
 /** True iff the edge is valid at time T: valid_from <= T AND (valid_to null OR valid_to > T).
- *  Half-open interval — an edge invalidated on date D is NOT valid at D. */
+ *  Half-open interval — an edge invalidated on date D is NOT valid at D.
+ *  Operands are normalized to date granularity (dateOf) before comparison so a
+ *  full-ISO valid_from/valid_to and a date-only T (or vice versa) compare on the
+ *  same footing — the graph is date-granular, and a noon assert must be visible
+ *  to a same-day date-only query. */
 export function validAt(e, t) {
-    if (cmpTime(e.valid_from, t) > 0)
+    const td = dateOf(t);
+    if (cmpTime(dateOf(e.valid_from), td) > 0)
         return false;
     if (e.valid_to === null)
         return true;
-    return cmpTime(e.valid_to, t) > 0;
+    return cmpTime(dateOf(e.valid_to), td) > 0;
 }
 const GRAPH_DECAY = 0.3; // per-hop score decay (matches legacy GRAPH_BOOST)
 const TYPE_WEIGHT = {
     requires: 1.0, affects: 1.0, part_of: 0.8, supersedes: 0.6, relates: 0.5,
 };
-/** BFS over current-valid edges from `slug`, up to `depth` hops. Score per
- *  reached node = TYPE_WEIGHT * GRAPH_DECAY^hop, keeping the min-hop path. */
+/** BFS over current-valid edges from `slug`, up to `depth` hops. Each distinct
+ *  edge (from,type,to) is emitted at most ONCE, keeping its min-hop occurrence
+ *  (score = TYPE_WEIGHT * GRAPH_DECAY^(hop-1)). This matters for the default
+ *  `direction:'both'`, where an edge a-b is otherwise discovered from both
+ *  endpoints (and again at deeper hops) and would be emitted multiple times
+ *  with conflicting scores. */
 export function neighbors(edges, slug, opts = {}) {
     const depth = opts.depth ?? 2;
     const direction = opts.direction ?? 'both';
     const asOf = opts.asOf ?? new Date().toISOString();
     const typeOk = (t) => !opts.edgeTypes || opts.edgeTypes.includes(t);
     const live = edges.filter(e => validAt(e, asOf) && typeOk(e.type));
-    const out = [];
+    const best = new Map(); // edge identity -> min-hop row
     const seen = new Set([slug]);
     let frontier = [{ node: slug, hop: 0 }];
     while (frontier.length) {
@@ -122,11 +147,15 @@ export function neighbors(edges, slug, opts = {}) {
                     other = e.from;
                 if (other === null)
                     continue;
-                out.push({
+                const id = identity(e);
+                const row = {
                     from: e.from, to: e.to, type: e.type,
                     hops: hop + 1, score: TYPE_WEIGHT[e.type] * Math.pow(GRAPH_DECAY, hop),
                     valid_from: e.valid_from, valid_to: e.valid_to,
-                });
+                };
+                const prev = best.get(id);
+                if (!prev || row.hops < prev.hops)
+                    best.set(id, row);
                 if (!seen.has(other)) {
                     seen.add(other);
                     next.push({ node: other, hop: hop + 1 });
@@ -135,11 +164,15 @@ export function neighbors(edges, slug, opts = {}) {
         }
         frontier = next;
     }
-    return out;
+    return [...best.values()];
 }
 /** Append one validated edge record as a single JSONL line. Used by the
  *  knowledge_relate MCP tool. (The hook write path appends from bash directly;
- *  the JSONL line format is the shared contract.) */
+ *  the JSONL line format is the shared contract.) Each line is a single
+ *  appendFile call (O_APPEND); for typical short records this is atomic on local
+ *  filesystems, but very large records under concurrent writers are not lock-
+ *  protected — loadEdges skips any torn line, so the failure mode is a dropped
+ *  edge, never a crash. */
 export async function appendEdge(path, rec) {
     if (!isValidRecord(rec))
         throw new Error(`invalid edge record: ${JSON.stringify(rec)}`);

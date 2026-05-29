@@ -11,7 +11,17 @@ function dateOf(iso) {
   return iso.slice(0, 10);
 }
 function isValidRecord(r2) {
-  return r2 && typeof r2 === "object" && (r2.op === "assert" || r2.op === "invalidate") && typeof r2.from === "string" && r2.from.length > 0 && typeof r2.to === "string" && r2.to.length > 0 && EDGE_TYPES.includes(r2.type) && typeof r2.recorded_at === "string" && r2.recorded_at.length >= 10;
+  if (!(r2 && typeof r2 === "object")) return false;
+  if (r2.op !== "assert" && r2.op !== "invalidate") return false;
+  if (typeof r2.from !== "string" || r2.from.length === 0) return false;
+  if (typeof r2.to !== "string" || r2.to.length === 0) return false;
+  if (!EDGE_TYPES.includes(r2.type)) return false;
+  if (typeof r2.recorded_at !== "string" || r2.recorded_at.length < 10) return false;
+  for (const k of ["valid_from", "valid_to"]) {
+    const v = r2[k];
+    if (v !== void 0 && v !== null && typeof v !== "string") return false;
+  }
+  return true;
 }
 async function loadEdges(path) {
   let raw;
@@ -48,13 +58,12 @@ function foldToCurrent(records) {
           to: r2.to,
           type: r2.type,
           valid_from: r2.valid_from ?? dateOf(r2.recorded_at),
-          valid_to: r2.valid_to ?? null,
+          valid_to: null,
           source: r2.source,
           confidence: r2.confidence
         });
       } else {
         if (r2.valid_from != null) cur.valid_from = r2.valid_from;
-        if (r2.valid_to !== void 0 && r2.valid_to !== null) cur.valid_to = r2.valid_to;
         if (r2.source) cur.source = r2.source;
         if (r2.confidence) cur.confidence = r2.confidence;
       }
@@ -65,9 +74,10 @@ function foldToCurrent(records) {
   return [...map.values()];
 }
 function validAt(e, t) {
-  if (cmpTime(e.valid_from, t) > 0) return false;
+  const td = dateOf(t);
+  if (cmpTime(dateOf(e.valid_from), td) > 0) return false;
   if (e.valid_to === null) return true;
-  return cmpTime(e.valid_to, t) > 0;
+  return cmpTime(dateOf(e.valid_to), td) > 0;
 }
 var GRAPH_DECAY = 0.3;
 var TYPE_WEIGHT = {
@@ -83,7 +93,7 @@ function neighbors(edges, slug2, opts = {}) {
   const asOf = opts.asOf ?? (/* @__PURE__ */ new Date()).toISOString();
   const typeOk = (t) => !opts.edgeTypes || opts.edgeTypes.includes(t);
   const live = edges.filter((e) => validAt(e, asOf) && typeOk(e.type));
-  const out = [];
+  const best = /* @__PURE__ */ new Map();
   const seen = /* @__PURE__ */ new Set([slug2]);
   let frontier = [{ node: slug2, hop: 0 }];
   while (frontier.length) {
@@ -95,7 +105,8 @@ function neighbors(edges, slug2, opts = {}) {
         if ((direction2 === "out" || direction2 === "both") && e.from === node) other = e.to;
         else if ((direction2 === "in" || direction2 === "both") && e.to === node) other = e.from;
         if (other === null) continue;
-        out.push({
+        const id = identity(e);
+        const row = {
           from: e.from,
           to: e.to,
           type: e.type,
@@ -103,7 +114,9 @@ function neighbors(edges, slug2, opts = {}) {
           score: TYPE_WEIGHT[e.type] * Math.pow(GRAPH_DECAY, hop),
           valid_from: e.valid_from,
           valid_to: e.valid_to
-        });
+        };
+        const prev = best.get(id);
+        if (!prev || row.hops < prev.hops) best.set(id, row);
         if (!seen.has(other)) {
           seen.add(other);
           next.push({ node: other, hop: hop + 1 });
@@ -112,7 +125,7 @@ function neighbors(edges, slug2, opts = {}) {
     }
     frontier = next;
   }
-  return out;
+  return [...best.values()];
 }
 
 // src/path-guard.ts

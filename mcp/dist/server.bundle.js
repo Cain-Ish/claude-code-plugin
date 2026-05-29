@@ -27506,7 +27506,17 @@ function dateOf(iso) {
   return iso.slice(0, 10);
 }
 function isValidRecord(r) {
-  return r && typeof r === "object" && (r.op === "assert" || r.op === "invalidate") && typeof r.from === "string" && r.from.length > 0 && typeof r.to === "string" && r.to.length > 0 && EDGE_TYPES.includes(r.type) && typeof r.recorded_at === "string" && r.recorded_at.length >= 10;
+  if (!(r && typeof r === "object")) return false;
+  if (r.op !== "assert" && r.op !== "invalidate") return false;
+  if (typeof r.from !== "string" || r.from.length === 0) return false;
+  if (typeof r.to !== "string" || r.to.length === 0) return false;
+  if (!EDGE_TYPES.includes(r.type)) return false;
+  if (typeof r.recorded_at !== "string" || r.recorded_at.length < 10) return false;
+  for (const k of ["valid_from", "valid_to"]) {
+    const v = r[k];
+    if (v !== void 0 && v !== null && typeof v !== "string") return false;
+  }
+  return true;
 }
 async function loadEdges(path3) {
   let raw;
@@ -27543,13 +27553,12 @@ function foldToCurrent(records) {
           to: r.to,
           type: r.type,
           valid_from: r.valid_from ?? dateOf(r.recorded_at),
-          valid_to: r.valid_to ?? null,
+          valid_to: null,
           source: r.source,
           confidence: r.confidence
         });
       } else {
         if (r.valid_from != null) cur.valid_from = r.valid_from;
-        if (r.valid_to !== void 0 && r.valid_to !== null) cur.valid_to = r.valid_to;
         if (r.source) cur.source = r.source;
         if (r.confidence) cur.confidence = r.confidence;
       }
@@ -27560,9 +27569,10 @@ function foldToCurrent(records) {
   return [...map.values()];
 }
 function validAt(e, t) {
-  if (cmpTime(e.valid_from, t) > 0) return false;
+  const td = dateOf(t);
+  if (cmpTime(dateOf(e.valid_from), td) > 0) return false;
   if (e.valid_to === null) return true;
-  return cmpTime(e.valid_to, t) > 0;
+  return cmpTime(dateOf(e.valid_to), td) > 0;
 }
 var GRAPH_DECAY = 0.3;
 var TYPE_WEIGHT = {
@@ -27578,7 +27588,7 @@ function neighbors(edges, slug, opts = {}) {
   const asOf = opts.asOf ?? (/* @__PURE__ */ new Date()).toISOString();
   const typeOk = (t) => !opts.edgeTypes || opts.edgeTypes.includes(t);
   const live = edges.filter((e) => validAt(e, asOf) && typeOk(e.type));
-  const out = [];
+  const best = /* @__PURE__ */ new Map();
   const seen = /* @__PURE__ */ new Set([slug]);
   let frontier = [{ node: slug, hop: 0 }];
   while (frontier.length) {
@@ -27590,7 +27600,8 @@ function neighbors(edges, slug, opts = {}) {
         if ((direction === "out" || direction === "both") && e.from === node) other = e.to;
         else if ((direction === "in" || direction === "both") && e.to === node) other = e.from;
         if (other === null) continue;
-        out.push({
+        const id = identity(e);
+        const row = {
           from: e.from,
           to: e.to,
           type: e.type,
@@ -27598,7 +27609,9 @@ function neighbors(edges, slug, opts = {}) {
           score: TYPE_WEIGHT[e.type] * Math.pow(GRAPH_DECAY, hop),
           valid_from: e.valid_from,
           valid_to: e.valid_to
-        });
+        };
+        const prev = best.get(id);
+        if (!prev || row.hops < prev.hops) best.set(id, row);
         if (!seen.has(other)) {
           seen.add(other);
           next.push({ node: other, hop: hop + 1 });
@@ -27607,7 +27620,7 @@ function neighbors(edges, slug, opts = {}) {
     }
     frontier = next;
   }
-  return out;
+  return [...best.values()];
 }
 async function appendEdge(path3, rec) {
   if (!isValidRecord(rec)) throw new Error(`invalid edge record: ${JSON.stringify(rec)}`);
@@ -28302,8 +28315,10 @@ var TYPE_LABEL = {
   requires: "Requires",
   affects: "Affects",
   part_of: "Part of",
-  supersedes: "Supersedes"
+  supersedes: "Supersedes",
+  relates: "Related"
 };
+var TYPE_ORDER = ["requires", "affects", "part_of", "supersedes", "relates"];
 function slugFromPath2(p) {
   return p.replace(/.*\//, "").replace(/\.md$/, "");
 }
@@ -28339,30 +28354,36 @@ async function projectGraphToPages(knowledgeDir) {
     const before = content;
     const relList = [...related].sort();
     const relLine = `related: ${relList.map((s) => `[[${s}]]`).join(", ")}`;
-    if (/^related:.*$/m.test(content)) {
-      content = content.replace(/^related:.*$/m, relLine);
-    } else {
-      content = content.replace(/^---\n([\s\S]*?)\n---/, (_m, fm) => `---
-${fm}
-${relLine}
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (fmMatch) {
+      let fmBody = fmMatch[1];
+      fmBody = /^related:.*$/m.test(fmBody) ? fmBody.replace(/^related:.*$/m, () => relLine) : `${fmBody}
+${relLine}`;
+      content = content.replace(/^---\n[\s\S]*?\n---/, () => `---
+${fmBody}
 ---`);
     }
     const outs = outBySlug.get(slug) ?? [];
     const grouped = {};
     for (const e of outs) (grouped[e.type] ??= []).push(e.to);
-    const lines = [BEGIN, `## Dependencies (as of ${now.slice(0, 10)})`];
-    for (const t of ["requires", "affects", "part_of", "supersedes"]) {
+    const lines = [BEGIN, "## Dependencies"];
+    for (const t of TYPE_ORDER) {
       const slugs = (grouped[t] ?? []).sort();
       if (slugs.length) lines.push(`**${TYPE_LABEL[t]}:** ${slugs.map((s) => `[[${s}]]`).join(", ")}`);
     }
-    lines.push(END);
-    const block = lines.join("\n");
-    const blockRe = new RegExp(`${escapeRe(BEGIN)}[\\s\\S]*?${escapeRe(END)}`);
-    if (blockRe.test(content)) content = content.replace(blockRe, block);
-    else content = content.replace(/\s*$/, `
+    const hasRows = lines.length > 2;
+    const block = hasRows ? [...lines, END].join("\n") : "";
+    const blockRe = new RegExp(`\\n*${escapeRe(BEGIN)}[\\s\\S]*?${escapeRe(END)}`);
+    if (blockRe.test(content)) {
+      content = block ? content.replace(blockRe, () => `
+
+${block}`) : content.replace(blockRe, () => "");
+    } else if (block) {
+      content = content.replace(/\s*$/, () => `
 
 ${block}
 `);
+    }
     if (content !== before) {
       await fs10.writeFile(file, content, "utf-8");
       updated++;
@@ -29048,6 +29069,7 @@ async function personaDismiss(args = {}) {
 
 // src/tools/knowledge-relate.ts
 import { join as join16 } from "path";
+var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ].*)?$/;
 async function knowledgeRelate(args) {
   try {
     validateSlug(args.from);
@@ -29057,6 +29079,17 @@ async function knowledgeRelate(args) {
     throw e;
   }
   if (!EDGE_TYPES.includes(args.type)) return { ok: false, reason: `invalid type: ${args.type}` };
+  for (const [k, v] of [["valid_from", args.valid_from], ["valid_to", args.valid_to]]) {
+    if (v !== void 0 && !ISO_DATE_RE.test(v)) return { ok: false, reason: `invalid ${k} (want YYYY-MM-DD): ${v}` };
+  }
+  const logPath = join16(args.knowledgeDir, "graph", "edges.jsonl");
+  if (args.invalidate) {
+    const current = foldToCurrent(await loadEdges(logPath));
+    const open = current.find((e) => e.from === args.from && e.to === args.to && e.type === args.type && e.valid_to === null);
+    if (!open) {
+      return { ok: false, reason: `no open ${args.type} edge ${args.from}->${args.to} to invalidate` };
+    }
+  }
   const rec = {
     op: args.invalidate ? "invalidate" : "assert",
     from: args.from,
@@ -29069,7 +29102,6 @@ async function knowledgeRelate(args) {
   if (args.valid_from) rec.valid_from = args.valid_from;
   if (args.valid_to) rec.valid_to = args.valid_to;
   if (args.reason) rec.reason = args.reason;
-  const logPath = join16(args.knowledgeDir, "graph", "edges.jsonl");
   await appendEdge(logPath, rec);
   return { ok: true, recorded: rec };
 }

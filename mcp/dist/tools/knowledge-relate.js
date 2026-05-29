@@ -1,6 +1,7 @@
 import { join } from 'path';
-import { appendEdge, EDGE_TYPES } from './graph-store.js';
+import { appendEdge, loadEdges, foldToCurrent, EDGE_TYPES } from './graph-store.js';
 import { validateSlug, PathGuardError } from '../path-guard.js';
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ].*)?$/;
 export async function knowledgeRelate(args) {
     try {
         validateSlug(args.from);
@@ -13,6 +14,24 @@ export async function knowledgeRelate(args) {
     }
     if (!EDGE_TYPES.includes(args.type))
         return { ok: false, reason: `invalid type: ${args.type}` };
+    // Dates feed the lexicographic interval math (cmpTime/validAt) — reject a
+    // non-ISO date rather than persist a value that sorts wrong and silently makes
+    // the edge always- or never-valid.
+    for (const [k, v] of [['valid_from', args.valid_from], ['valid_to', args.valid_to]]) {
+        if (v !== undefined && !ISO_DATE_RE.test(v))
+            return { ok: false, reason: `invalid ${k} (want YYYY-MM-DD): ${v}` };
+    }
+    const logPath = join(args.knowledgeDir, 'graph', 'edges.jsonl');
+    // Invalidate must target an actually-open edge — otherwise foldToCurrent
+    // silently ignores it and the caller would get a misleading ok:true while the
+    // relationship stays live. Check before writing.
+    if (args.invalidate) {
+        const current = foldToCurrent(await loadEdges(logPath));
+        const open = current.find(e => e.from === args.from && e.to === args.to && e.type === args.type && e.valid_to === null);
+        if (!open) {
+            return { ok: false, reason: `no open ${args.type} edge ${args.from}->${args.to} to invalidate` };
+        }
+    }
     const rec = {
         op: args.invalidate ? 'invalidate' : 'assert',
         from: args.from, to: args.to, type: args.type,
@@ -25,7 +44,6 @@ export async function knowledgeRelate(args) {
         rec.valid_to = args.valid_to;
     if (args.reason)
         rec.reason = args.reason;
-    const logPath = join(args.knowledgeDir, 'graph', 'edges.jsonl');
     await appendEdge(logPath, rec);
     return { ok: true, recorded: rec };
 }

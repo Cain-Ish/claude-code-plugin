@@ -80,6 +80,29 @@ describe('foldToCurrent', () => {
         ]);
         expect(cur[0]).toMatchObject({ valid_from: '2026-05-21', valid_to: '2026-05-29' });
     });
+    it('ignores a stray valid_to on an assert (assert only opens, never closes)', () => {
+        const cur = foldToCurrent([
+            { op: 'assert', from: 'a', to: 'b', type: 'requires', valid_from: '2026-05-21', valid_to: '2026-05-22', recorded_at: '2026-05-21T00:00:00Z' },
+        ]);
+        expect(cur[0].valid_to).toBeNull(); // not closed by the bogus valid_to
+    });
+});
+describe('validAt — mixed date/timestamp granularity', () => {
+    it('a noon-timestamp valid_from is visible to a same-day date-only query', () => {
+        const e = { valid_from: '2026-05-29T12:00:00Z', valid_to: null };
+        expect(validAt(e, '2026-05-29')).toBe(true);
+    });
+});
+describe('loadEdges — type-corrupt records', () => {
+    it('skips a record whose valid_to is a number (would corrupt cmpTime)', async () => {
+        const p = await tmpLog([
+            JSON.stringify({ op: 'assert', from: 'a', to: 'b', type: 'requires', valid_to: 123, recorded_at: '2026-05-21T00:00:00Z' }),
+            JSON.stringify({ op: 'assert', from: 'a', to: 'c', type: 'relates', recorded_at: '2026-05-21T00:00:00Z' }),
+        ]);
+        const edges = await loadEdges(p);
+        expect(edges).toHaveLength(1);
+        expect(edges[0].to).toBe('c');
+    });
 });
 // --- A4: validAt ------------------------------------------------------------
 describe('validAt — half-open [valid_from, valid_to)', () => {
@@ -126,6 +149,14 @@ describe('neighbors', () => {
     it('as_of before invalidation still sees the old edge', () => {
         const r = neighbors(G, 'a', { depth: 1, direction: 'out', asOf: '2026-05-05' });
         expect(r.map(e => e.to)).toContain('old');
+    });
+    it('direction both emits each edge exactly once (no double-emit regression)', () => {
+        const r = neighbors(G, 'a', { depth: 2, direction: 'both', asOf: '2026-05-20' });
+        const ab = r.filter(e => e.from === 'a' && e.to === 'b');
+        const bc = r.filter(e => e.from === 'b' && e.to === 'c');
+        expect(ab).toHaveLength(1);
+        expect(bc).toHaveLength(1);
+        expect(ab[0].hops).toBe(1); // min-hop kept
     });
 });
 // --- A6: appendEdge ---------------------------------------------------------

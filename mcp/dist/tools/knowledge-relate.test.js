@@ -31,5 +31,19 @@ describe('knowledgeRelate', () => {
         const r = await knowledgeRelate({ from: 'a', to: 'b', type: 'bogus', knowledgeDir: dir });
         expect(r.ok).toBe(false);
     });
+    it('rejects invalidate when there is no open edge to close', async () => {
+        const dir = await kdir();
+        const r = await knowledgeRelate({ from: 'a', to: 'b', type: 'requires', invalidate: true, valid_to: '2026-05-29', knowledgeDir: dir });
+        expect(r.ok).toBe(false);
+        expect(r.reason).toMatch(/no open/i);
+        // and nothing was written
+        expect(await loadEdges(join(dir, 'graph', 'edges.jsonl'))).toEqual([]);
+    });
+    it('rejects a non-ISO valid_from', async () => {
+        const dir = await kdir();
+        const r = await knowledgeRelate({ from: 'a', to: 'b', type: 'requires', valid_from: 'yesterday', knowledgeDir: dir });
+        expect(r.ok).toBe(false);
+        expect(r.reason).toMatch(/valid_from/);
+    });
 });
 //# sourceMappingURL=knowledge-relate.test.js.map

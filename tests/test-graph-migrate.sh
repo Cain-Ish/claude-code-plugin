@@ -41,4 +41,14 @@ pass "body [[wiki-links]] migrated"
 grep -q 'related: \[\[page-b\]\]' "$KDIR/wiki/entities/page-a.md" || fail "migration mutated page related: (should be read-only)"
 pass "pages left untouched (reversible: delete graph/ to undo)"
 
+# --- Test 5: does not duplicate a relates edge already present from another source ---
+# Seed an extractor-sourced relates page-a->page-b, then migrate must NOT re-add it.
+GDIR="$KDIR/graph"; mkdir -p "$GDIR"
+: > "$GDIR/edges.jsonl"
+printf '%s\n' '{"op":"assert","from":"page-a","to":"page-b","type":"relates","valid_from":"2026-05-01","valid_to":null,"recorded_at":"2026-05-10T00:00:00Z","source":"extractor"}' > "$GDIR/edges.jsonl"
+KNOWLEDGE_DIR="$KDIR" bash "$SCRIPT" --knowledge-dir "$KDIR"
+AB=$(grep -c '"from":"page-a".*"to":"page-b"' "$GDIR/edges.jsonl" 2>/dev/null || echo 0)
+[ "$AB" -eq 1 ] || fail "migrate duplicated a relates edge already present from another source (count=$AB)"
+pass "migrate does not duplicate a relates edge from another source"
+
 echo; echo "ALL PASS"

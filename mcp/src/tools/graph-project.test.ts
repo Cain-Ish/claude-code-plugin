@@ -51,8 +51,39 @@ describe('projectGraphToPages', () => {
     const log = join(dir, 'graph', 'edges.jsonl');
     await appendEdge(log, { op: 'assert', from: 'wg-tunnel', to: 'router-daemon', type: 'affects', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
     await projectGraphToPages(dir);
+    const first = await fsp.readFile(join(dir, 'wiki', 'entities', 'wg-tunnel.md'), 'utf-8');
+    await projectGraphToPages(dir);
+    const second = await fsp.readFile(join(dir, 'wiki', 'entities', 'wg-tunnel.md'), 'utf-8');
+    expect(second.match(/<!-- graph:begin/g)?.length).toBe(1);
+    expect(second).toBe(first); // byte-stable across runs (no daily-date churn)
+  });
+  it('renders a relates out-edge under Related (not dropped)', async () => {
+    const dir = await setup();
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'wg-tunnel', to: 'router-daemon', type: 'relates', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
     await projectGraphToPages(dir);
     const md = await fsp.readFile(join(dir, 'wiki', 'entities', 'wg-tunnel.md'), 'utf-8');
-    expect(md.match(/<!-- graph:begin/g)?.length).toBe(1);
+    expect(md).toMatch(/\*\*Related:\*\* \[\[router-daemon\]\]/);
+  });
+  it('an in-only node gets related: but no empty Dependencies husk', async () => {
+    const dir = await setup();
+    const log = join(dir, 'graph', 'edges.jsonl');
+    // edge points TO router-daemon; router-daemon has no out-edges of its own
+    await appendEdge(log, { op: 'assert', from: 'wg-tunnel', to: 'router-daemon', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await projectGraphToPages(dir);
+    const md = await fsp.readFile(join(dir, 'wiki', 'entities', 'router-daemon.md'), 'utf-8');
+    expect(md).toMatch(/related: \[\[wg-tunnel\]\]/);   // gets the inbound relation
+    expect(md).not.toContain('<!-- graph:begin');        // but no empty block
+  });
+  it('does not rewrite a body line that starts with related:', async () => {
+    const dir = await setup();
+    const page = join(dir, 'wiki', 'entities', 'wg-tunnel.md');
+    await fsp.writeFile(page, `---\ntitle: wg-tunnel\ntype: entities\nrelated: []\n---\n\n# wg-tunnel\n\nrelated: this is prose not frontmatter\n`);
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'wg-tunnel', to: 'router-daemon', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await projectGraphToPages(dir);
+    const md = await fsp.readFile(page, 'utf-8');
+    expect(md).toContain('related: this is prose not frontmatter'); // body untouched
+    expect(md).toMatch(/^related: \[\[router-daemon\]\]/m);          // frontmatter updated
   });
 });

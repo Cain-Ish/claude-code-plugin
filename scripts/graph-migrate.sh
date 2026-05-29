@@ -25,11 +25,13 @@ LOG="$GRAPH_DIR/edges.jsonl"
 mkdir -p "$GRAPH_DIR"; touch "$LOG"
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Existing migration identities "from<TAB>to" (relates only) — for idempotency.
+# Existing relates identities "from<TAB>to" — for idempotency. Keyed on ANY
+# relates edge (not just source=migration:v1) so a relates edge already captured
+# by the extractor or knowledge_relate is not duplicated by a later migrate run.
 EXISTING_FILE=$(mktemp)
 PAIRS_FILE=$(mktemp)
 trap 'rm -f "$EXISTING_FILE" "$PAIRS_FILE"' EXIT
-jq -r 'select(.source=="migration:v1" and .type=="relates") | "\(.from)\t\(.to)"' \
+jq -r 'select(.type=="relates") | "\(.from)\t\(.to)"' \
   "$LOG" 2>/dev/null | sort -u > "$EXISTING_FILE"
 
 # Collect candidate (from, to, created) triples from every page. File/stream

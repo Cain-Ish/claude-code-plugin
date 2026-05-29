@@ -6076,7 +6076,17 @@ function dateOf(iso) {
   return iso.slice(0, 10);
 }
 function isValidRecord(r) {
-  return r && typeof r === "object" && (r.op === "assert" || r.op === "invalidate") && typeof r.from === "string" && r.from.length > 0 && typeof r.to === "string" && r.to.length > 0 && EDGE_TYPES.includes(r.type) && typeof r.recorded_at === "string" && r.recorded_at.length >= 10;
+  if (!(r && typeof r === "object")) return false;
+  if (r.op !== "assert" && r.op !== "invalidate") return false;
+  if (typeof r.from !== "string" || r.from.length === 0) return false;
+  if (typeof r.to !== "string" || r.to.length === 0) return false;
+  if (!EDGE_TYPES.includes(r.type)) return false;
+  if (typeof r.recorded_at !== "string" || r.recorded_at.length < 10) return false;
+  for (const k of ["valid_from", "valid_to"]) {
+    const v = r[k];
+    if (v !== void 0 && v !== null && typeof v !== "string") return false;
+  }
+  return true;
 }
 async function loadEdges(path2) {
   let raw;
@@ -6113,13 +6123,12 @@ function foldToCurrent(records) {
           to: r.to,
           type: r.type,
           valid_from: r.valid_from ?? dateOf(r.recorded_at),
-          valid_to: r.valid_to ?? null,
+          valid_to: null,
           source: r.source,
           confidence: r.confidence
         });
       } else {
         if (r.valid_from != null) cur.valid_from = r.valid_from;
-        if (r.valid_to !== void 0 && r.valid_to !== null) cur.valid_to = r.valid_to;
         if (r.source) cur.source = r.source;
         if (r.confidence) cur.confidence = r.confidence;
       }
@@ -6130,9 +6139,10 @@ function foldToCurrent(records) {
   return [...map.values()];
 }
 function validAt(e, t) {
-  if (cmpTime(e.valid_from, t) > 0) return false;
+  const td = dateOf(t);
+  if (cmpTime(dateOf(e.valid_from), td) > 0) return false;
   if (e.valid_to === null) return true;
-  return cmpTime(e.valid_to, t) > 0;
+  return cmpTime(dateOf(e.valid_to), td) > 0;
 }
 
 // src/tools/knowledge-search.ts
@@ -6453,8 +6463,10 @@ var TYPE_LABEL = {
   requires: "Requires",
   affects: "Affects",
   part_of: "Part of",
-  supersedes: "Supersedes"
+  supersedes: "Supersedes",
+  relates: "Related"
 };
+var TYPE_ORDER = ["requires", "affects", "part_of", "supersedes", "relates"];
 function slugFromPath(p) {
   return p.replace(/.*\//, "").replace(/\.md$/, "");
 }
@@ -6490,30 +6502,36 @@ async function projectGraphToPages(knowledgeDir) {
     const before = content;
     const relList = [...related].sort();
     const relLine = `related: ${relList.map((s) => `[[${s}]]`).join(", ")}`;
-    if (/^related:.*$/m.test(content)) {
-      content = content.replace(/^related:.*$/m, relLine);
-    } else {
-      content = content.replace(/^---\n([\s\S]*?)\n---/, (_m, fm) => `---
-${fm}
-${relLine}
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (fmMatch) {
+      let fmBody = fmMatch[1];
+      fmBody = /^related:.*$/m.test(fmBody) ? fmBody.replace(/^related:.*$/m, () => relLine) : `${fmBody}
+${relLine}`;
+      content = content.replace(/^---\n[\s\S]*?\n---/, () => `---
+${fmBody}
 ---`);
     }
     const outs = outBySlug.get(slug) ?? [];
     const grouped = {};
     for (const e of outs) (grouped[e.type] ??= []).push(e.to);
-    const lines = [BEGIN, `## Dependencies (as of ${now.slice(0, 10)})`];
-    for (const t of ["requires", "affects", "part_of", "supersedes"]) {
+    const lines = [BEGIN, "## Dependencies"];
+    for (const t of TYPE_ORDER) {
       const slugs = (grouped[t] ?? []).sort();
       if (slugs.length) lines.push(`**${TYPE_LABEL[t]}:** ${slugs.map((s) => `[[${s}]]`).join(", ")}`);
     }
-    lines.push(END);
-    const block = lines.join("\n");
-    const blockRe = new RegExp(`${escapeRe(BEGIN)}[\\s\\S]*?${escapeRe(END)}`);
-    if (blockRe.test(content)) content = content.replace(blockRe, block);
-    else content = content.replace(/\s*$/, `
+    const hasRows = lines.length > 2;
+    const block = hasRows ? [...lines, END].join("\n") : "";
+    const blockRe = new RegExp(`\\n*${escapeRe(BEGIN)}[\\s\\S]*?${escapeRe(END)}`);
+    if (blockRe.test(content)) {
+      content = block ? content.replace(blockRe, () => `
+
+${block}`) : content.replace(blockRe, () => "");
+    } else if (block) {
+      content = content.replace(/\s*$/, () => `
 
 ${block}
 `);
+    }
     if (content !== before) {
       await fs3.writeFile(file, content, "utf-8");
       updated++;
