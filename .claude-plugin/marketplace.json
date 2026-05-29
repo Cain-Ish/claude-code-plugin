@@ -1,5 +1,6 @@
 {
   "name": "second-brain",
+  "description": "Marketplace for the second-brain plugin — a self-evolving, local-first knowledge layer (session extraction, bi-temporal knowledge graph, code-review fan-out) for Claude Code.",
   "owner": {
     "name": "second-brain"
   },
