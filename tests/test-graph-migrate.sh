@@ -13,6 +13,9 @@ pass() { echo "PASS: $1"; }
 KDIR="$TMP/knowledge"; mkdir -p "$KDIR/wiki/entities"
 printf '%s\n' '---' 'title: A' 'type: entities' 'created: 2026-05-01' 'related: [[page-b]]' '---' '# A' > "$KDIR/wiki/entities/page-a.md"
 printf '%s\n' '---' 'title: B' 'type: entities' 'created: 2026-05-02' 'related: []' '---' '# B' > "$KDIR/wiki/entities/page-b.md"
+# page-d uses the BARE-YAML related: [x, y] form (no [[..]] anywhere) — the
+# majority format on the real wiki (103/135 pages). A [[..]]-only grep misses it.
+printf '%s\n' '---' 'title: D' 'type: entities' 'created: 2026-05-04' 'related: [page-a, page-b]' '---' '# D' 'no bracket links in this body' > "$KDIR/wiki/entities/page-d.md"
 
 # --- Test 1: migration creates untyped relates edges from related: ---
 KNOWLEDGE_DIR="$KDIR" bash "$SCRIPT" --knowledge-dir "$KDIR"
@@ -23,6 +26,11 @@ grep -q '"type":"relates"' "$LOG" || fail "migrated edge not typed relates"
 grep -q '"source":"migration:v1"' "$LOG" || fail "source not stamped migration:v1"
 grep -q '"valid_from":"2026-05-01"' "$LOG" || fail "valid_from not seeded from created"
 pass "related: links migrated as untyped relates edges with created→valid_from"
+
+# --- Test 1b: BARE-YAML related: [a, b] (no [[..]]) is migrated (the 103/135 case) ---
+grep -q '"from":"page-d".*"to":"page-a"' "$LOG" || fail "bare-YAML related: [page-a,..] not migrated (page-d->page-a missing)"
+grep -q '"from":"page-d".*"to":"page-b"' "$LOG" || fail "bare-YAML related: [..,page-b] not migrated (page-d->page-b missing)"
+pass "bare-YAML related: [a, b] frontmatter migrated (not just [[..]])"
 
 # --- Test 2: idempotent — second run adds no duplicates ---
 N1=$(wc -l < "$LOG")

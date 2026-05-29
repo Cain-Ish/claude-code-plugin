@@ -34,12 +34,38 @@ trap 'rm -f "$EXISTING_FILE" "$PAIRS_FILE"' EXIT
 jq -r 'select(.type=="relates") | "\(.from)\t\(.to)"' \
   "$LOG" 2>/dev/null | sort -u > "$EXISTING_FILE"
 
-# Collect candidate (from, to, created) triples from every page. File/stream
-# based (no shell-var accumulation) to survive the nested pipeline subshells.
+# Collect candidate (from, to, created) triples from every page. Targets come
+# from BOTH wiki-link formats the live wiki uses:
+#   (a) any [[wiki-link]] anywhere in the file (frontmatter brackets + body refs)
+#   (b) bare-YAML frontmatter lists `related: [slug-a, slug-b]` (no brackets) —
+#       these are the MAJORITY of pages (~103/135 on the dev wiki) and were
+#       missed by a [[..]]-only grep. parseDoc (knowledge-search.ts) reads both;
+#       migration must too or it imports nothing from those pages.
+# File/stream based (no shell-var accumulation) to survive the pipeline subshells.
 find "$WIKI" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while IFS= read -r file; do
   from=$(basename "$file" .md)
   created=$(awk -F': *' '/^created:/ { gsub(/["[:space:]]/,"",$2); print $2; exit }' "$file")
-  grep -oE '\[\[[^]]+\]\]' "$file" 2>/dev/null | sed 's/\[\[//; s/\]\]//' | while IFS= read -r to; do
+  {
+    # (a) bracketed wiki-links, anywhere
+    grep -oE '\[\[[^]]+\]\]' "$file" 2>/dev/null | sed 's/\[\[//; s/\]\]//'
+    # (b) bare-YAML `related: [a, b]` in the FIRST frontmatter block only, and
+    #     only when it is NOT the bracketed form (those are covered by (a)).
+    awk '
+      NR==1 && /^---[[:space:]]*$/ { fm=1; next }
+      fm && /^---[[:space:]]*$/    { exit }
+      fm && /^related:[[:space:]]*\[/ && !/\[\[/ {
+        line=$0
+        sub(/^related:[[:space:]]*\[/, "", line)
+        sub(/\].*$/, "", line)
+        n=split(line, arr, ",")
+        for (i=1; i<=n; i++) {
+          s=arr[i]
+          gsub(/[]["'"'"'[:space:]]/, "", s)   # strip brackets, quotes, whitespace
+          if (s != "") print s
+        }
+      }
+    ' "$file"
+  } | while IFS= read -r to; do
     [ -n "$to" ] && [ "$to" != "$from" ] && printf '%s\t%s\t%s\n' "$from" "$to" "$created"
   done
 done | sort -u > "$PAIRS_FILE"
