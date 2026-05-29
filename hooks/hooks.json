@@ -34,8 +34,8 @@
       ]}
     ],
     "PreToolUse": [
-      { "_comment": "v2.10.0 matcher broadened to cover Read (closes resource-scope gap where Read was declared in tool list but matcher didn't include it) and WebFetch/WebSearch/Task/MultiEdit (network + subagent + multi-file surface where tool_scope and sar_tool apply). MCP tools and read-only Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low.",
-        "matcher": "Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task", "hooks": [
+      { "_comment": "v2.10.0 matcher broadened to cover Read (closes resource-scope gap where Read was declared in tool list but matcher didn't include it) and WebFetch/WebSearch/Task/MultiEdit (network + subagent + multi-file surface where tool_scope and sar_tool apply). MCP tools and read-only Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low. v0.22+: 'Agent' added alongside 'Task' — Claude Code renamed the subagent-spawn tool Task->Agent (CC v2.1.63); keeping both matches subagent spawns on old and new CLIs.",
+        "matcher": "Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent", "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh", "timeout": 5 }
       ]},
       { "matcher": "Write|Edit|MultiEdit", "hooks": [

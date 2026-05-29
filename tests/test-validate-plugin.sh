@@ -32,8 +32,12 @@ setup_skeleton() {
            "$root/skills/setup" "$root/skills/improve" "$root/agents" \
            "$root/mcp" "$root/docs"
 
+  # Baseline fixture must be a COMPLETE, valid manifest (incl. author) so that
+  # `claude plugin validate --strict` — which treats manifest-completeness
+  # warnings as errors — passes on the unbroken skeleton. Each subtest then
+  # breaks exactly ONE thing and asserts the validator catches that.
   cat > "$root/.claude-plugin/plugin.json" <<'JSON'
-{"name":"x","description":"y","version":"0.0.0"}
+{"name":"x","description":"y","version":"0.0.0","author":{"name":"test"}}
 JSON
 
   cat > "$root/hooks/hooks.json" <<'JSON'

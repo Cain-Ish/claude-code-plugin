@@ -20,6 +20,7 @@ import { personaDismiss } from "./tools/persona-dismiss.js";
 import { capList, egressBudgetTokens } from "./tools/egress-budget.js";
 import { knowledgeRelate } from "./tools/knowledge-relate.js";
 import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
+import { slugFromProjectDir, activeProjectDir } from "./tools/project-dir.js";
 function resolveKnowledgeDir() {
     const candidates = [
         process.env.KNOWLEDGE_DIR,
@@ -35,15 +36,17 @@ function resolveKnowledgeDir() {
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
 const BRAIN_DIR = path.join(os.homedir(), '.second-brain');
 function resolveActiveSlug() {
-    // Mirror scripts/lib.sh sb_resolve_slug: prefer the pin (when its PROJECT.md exists), else basename(cwd).
+    // Mirror scripts/lib.sh sb_resolve_slug: prefer the pin (when its PROJECT.md exists), else basename(projectDir).
     try {
         const pin = fs.readFileSync(path.join(BRAIN_DIR, '.active-session-slug'), 'utf-8').trim();
         if (pin && fs.existsSync(path.join(BRAIN_DIR, 'projects', pin, 'PROJECT.md')))
             return pin;
     }
     catch { /* no pin */ }
-    const base = path.basename(process.cwd());
-    return base && base !== '/' && base !== '.' ? base : undefined;
+    // Prefer CLAUDE_PROJECT_DIR (Claude Code sets it in the stdio MCP server's env
+    // to the project root — stable, unlike process.cwd() which is the MCP process's
+    // launch dir and unreliable). Fall back to cwd on older CLIs that don't set it.
+    return slugFromProjectDir(activeProjectDir());
 }
 const server = new McpServer({ name: "knowledge-base", version: "2.3.0" }, {
     capabilities: { logging: {} },

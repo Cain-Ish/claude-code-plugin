@@ -11,6 +11,10 @@ knowledge/
 # Local-only Claude Code session settings (per-user permission grants etc.)
 .claude/settings.local.json
 
+# Transient harness runtime state (scheduled-task locks, etc.) — never committed.
+.claude/scheduled_tasks.lock
+.claude/*.lock
+
 # MCP server build artifacts.
 # mcp/dist/ IS tracked so marketplace installs work without npm — without
 # this, knowledge_search/index/stats fail until the user runs setup. The

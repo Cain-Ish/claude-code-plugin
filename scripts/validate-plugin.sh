@@ -93,11 +93,21 @@ fi
 # claude plugin validate (P2c). Anthropic runs this on every community
 # submission; running it locally surfaces issues before the SHA pin. Skip
 # silently if the claude CLI isn't installed (e.g. in CI).
+#
+# --strict (CC v2.1.x+) treats warnings as errors, so manifest gaps the plain
+# validate only warns about (e.g. a missing marketplace description) become hard
+# release-gate failures. We probe --strict support first: older CLIs that don't
+# know the flag exit non-zero on the --help probe, and we fall back to plain
+# validate so the gate still runs (offline/old-CLI graceful degradation).
 if command -v claude >/dev/null 2>&1 && claude plugin --help >/dev/null 2>&1; then
-  if ! claude plugin validate "$PLUGIN_ROOT" >/dev/null 2>&1; then
+  PV_STRICT=""
+  if claude plugin validate --help 2>/dev/null | grep -q -- '--strict'; then
+    PV_STRICT="--strict"
+  fi
+  if ! claude plugin validate $PV_STRICT "$PLUGIN_ROOT" >/dev/null 2>&1; then
     # Re-run capturing output so the user sees what failed.
-    PV_OUT=$(claude plugin validate "$PLUGIN_ROOT" 2>&1 || true)
-    echo "FAIL: \`claude plugin validate\` reported issues:"
+    PV_OUT=$(claude plugin validate $PV_STRICT "$PLUGIN_ROOT" 2>&1 || true)
+    echo "FAIL: \`claude plugin validate $PV_STRICT\` reported issues:"
     printf '%s\n' "$PV_OUT" | sed 's/^/  /' | head -20
     ERRORS=$((ERRORS + 1))
   fi
