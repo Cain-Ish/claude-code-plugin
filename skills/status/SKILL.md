@@ -138,19 +138,23 @@ It's ON by default. Surface its state ALWAYS — whether on or off — so the us
 can see both memory writers and decide whether the second-brain should be the
 single source of truth. The shared detector lives in `lib.sh`:
 
+Parse the detector's `key=value` output with `grep`/`cut` — **never `eval`** it
+(the `path` field derives from `settings.json`, a trust boundary; `eval` on
+settings-derived data is a code-injection vector — the detector sanitizes too):
+
 ```bash
-eval "$(bash -c 'source "${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/lib.sh"; sb_auto_memory_state' 2>/dev/null)"
-# state / reason / path / files / memory_lines are now set.
-if [ "${state:-unknown}" = "on" ]; then
-  echo "Native auto-memory: ON (${reason:-default-on})"
-  echo "  store: ${path:-?} (${files:-0} files, MEMORY.md ${memory_lines:-0} lines)"
+AM=$(bash -c 'source "${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/lib.sh"; sb_auto_memory_state' 2>/dev/null)
+am() { printf '%s\n' "$AM" | grep -E "^$1=" | head -1 | cut -d= -f2-; }
+if [ "$(am state)" = "on" ]; then
+  echo "Native auto-memory: ON ($(am reason))"
+  echo "  store: $(am path) ($(am files) files, MEMORY.md $(am memory_lines) lines)"
   echo "  note: two memory systems are active. To make second-brain the single"
   echo "        source of truth, disable native auto-memory:"
   echo "          export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1   # per shell/session"
   echo "          # or in settings.json:  \"autoMemoryEnabled\": false"
   echo "        Leave both on to keep native's scratchpad alongside."
 else
-  echo "Native auto-memory: OFF (${reason:-unknown}) — second-brain is the sole memory writer."
+  echo "Native auto-memory: OFF ($(am reason)) — second-brain is the sole memory writer."
 fi
 ```
 

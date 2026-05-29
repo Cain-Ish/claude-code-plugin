@@ -949,7 +949,9 @@ sb_auto_memory_state() {
   fi
 
   # path: user-settings autoMemoryDirectory wins (absolute or ~/-prefixed only),
-  # else default ~/.claude/projects/<dashed-cwd>/memory.
+  # else default ~/.claude/projects/<dashed-project-key>/memory. The <project-key>
+  # is the GIT ROOT (Claude Code shares one auto-memory store per repo across
+  # worktrees/subdirs); outside a git repo, fall back to cwd — matching CC docs.
   local custom_dir path=""
   custom_dir=$(_sb_am_str "$user_settings" '.autoMemoryDirectory')
   if [ -n "$custom_dir" ]; then
@@ -960,10 +962,29 @@ sb_auto_memory_state() {
     esac
   fi
   if [ -z "$path" ]; then
-    local dashed
-    dashed=$(printf '%s' "$PWD" | sed 's#/#-#g')
+    local project_root dashed
+    project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
+    [ -z "$project_root" ] && project_root="$PWD"   # outside a git repo: use cwd
+    dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
     path="$home/.claude/projects/$dashed/memory"
   fi
+
+  # SECURITY: autoMemoryDirectory comes from settings.json — a trust boundary.
+  # A value carrying a newline or shell metacharacter would, once this output is
+  # consumed, smuggle extra key=value lines or inject shell (the adversarial-review
+  # finding). A real memory dir contains only path-safe characters, so if the
+  # resolved path has anything outside [space / A-Za-z0-9 . _ ~ -] (this set
+  # includes newline and every shell metacharacter by exclusion), reject it and
+  # fall back to the safe default. (Consumers also no longer eval — defense in depth.)
+  case "$path" in
+    *[!\ /A-Za-z0-9._~-]*)
+      local project_root dashed
+      project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
+      [ -z "$project_root" ] && project_root="$PWD"
+      dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
+      path="$home/.claude/projects/$dashed/memory"
+      ;;
+  esac
 
   # size: .md file count + MEMORY.md line count (0 when the store doesn't exist yet).
   local files=0 memory_lines=0

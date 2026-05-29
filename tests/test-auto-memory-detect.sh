@@ -101,4 +101,52 @@ OUT=$(run_detect "$H" "$W"); RC=$?
 [ "$(field "$OUT" state)" = "on" ] || fail "9: malformed json should fall through to on, got: $OUT"
 pass "malformed settings: no crash, falls through to default-on"
 
+# --- Test 10: INJECTION — a malicious autoMemoryDirectory with newlines + $() must
+# NOT smuggle extra key=value lines or survive an eval of the output. The adversarial
+# review proved the original code let `eval "$(detector)"` run arbitrary commands and
+# hijack state. The detector must reject/neutralize a value containing newlines or shell
+# metacharacters so its output is always exactly 5 well-formed lines. ---
+H="$TMP/h10"; W="$TMP/w10"; mkdir -p "$H/.claude" "$W"
+# craft via jq so the newline + command-substitution land literally in the JSON string
+jq -n '{autoMemoryDirectory:"/tmp/evil\nstate=off\nPWNED=$(touch ''"$TMP"'/pwned')"}' \
+  > "$H/.claude/settings.json" 2>/dev/null \
+  || printf '%s\n' '{"autoMemoryDirectory":"/tmp/evil\nstate=off\nPWNED=$(touch '"$TMP"'/pwned)"}' > "$H/.claude/settings.json"
+rm -f "$TMP/pwned"
+OUT=$(run_detect "$H" "$W")
+NLINES=$(printf '%s\n' "$OUT" | grep -c '=')
+[ "$NLINES" -eq 5 ] || fail "10: detector emitted $NLINES key=value lines (expected exactly 5) — injected lines leaked: $OUT"
+# the path value must be a single safe token (no newline, no $(), no backtick)
+PV=$(field "$OUT" path)
+printf '%s' "$PV" | grep -qE '[`$()]' && fail "10: path still carries shell metacharacters: $PV"
+# state must NOT have been hijacked to off
+[ "$(field "$OUT" state)" = "on" ] || fail "10: state hijacked by injected line: got $(field "$OUT" state)"
+# and simulating the consumer's eval must not execute the payload
+eval "$OUT" 2>/dev/null || true
+[ ! -f "$TMP/pwned" ] || fail "10: INJECTION — eval of detector output executed the payload (pwned file created)"
+pass "injection: malicious autoMemoryDirectory neutralized (5 clean lines, no eval RCE, no state hijack)"
+
+# --- Test 11: cc-parity — store path is keyed on the GIT ROOT, not cwd. Run from a
+# SUBDIRECTORY of a git repo; the path must resolve to the repo-root-dashed store, not a
+# cwd-dashed one. (Native auto-memory shares one store per repo across subdirs/worktrees.) ---
+if command -v git >/dev/null 2>&1; then
+  H="$TMP/h11"; REPO="$TMP/gitrepo"; SUB="$REPO/src/deep"; mkdir -p "$H/.claude" "$SUB"
+  ( cd "$REPO" && git init -q && git config user.email t@t && git config user.name t )
+  ROOT_DASH=$(printf '%s' "$REPO" | sed 's#/#-#g')
+  EXPECT="$H/.claude/projects/$ROOT_DASH/memory"
+  OUT=$(run_detect "$H" "$SUB")
+  GOT=$(field "$OUT" path)
+  [ "$GOT" = "$EXPECT" ] || fail "11: from subdir, path should key on git root.\n  expected: $EXPECT\n  got:      $GOT"
+  pass "cc-parity: path keyed on git root from a subdirectory (not cwd)"
+
+  # --- Test 12: outside any git repo, fall back to cwd (matches CC docs) ---
+  H="$TMP/h12"; NOGIT="$TMP/nogit/work"; mkdir -p "$H/.claude" "$NOGIT"
+  NG_DASH=$(printf '%s' "$NOGIT" | sed 's#/#-#g')
+  OUT=$(run_detect "$H" "$NOGIT")
+  [ "$(field "$OUT" path)" = "$H/.claude/projects/$NG_DASH/memory" ] \
+    || fail "12: outside git, expected cwd-dashed fallback, got: $(field "$OUT" path)"
+  pass "cc-parity: outside a git repo, falls back to cwd-dashed path"
+else
+  echo "SKIP: tests 11-12 (git not available)"
+fi
+
 echo; echo "ALL PASS"
