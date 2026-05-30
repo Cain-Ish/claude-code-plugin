@@ -4,6 +4,7 @@ import { join as join8 } from "path";
 // src/cli/sb.ts
 import { promises as fs8, constants as fsConstants } from "fs";
 import { join as join7, delimiter as pathDelimiter } from "path";
+import { execFile } from "child_process";
 
 // src/tools/knowledge-search.ts
 import { promises as fs4 } from "fs";
@@ -6966,6 +6967,39 @@ async function hasClaudeOnPath() {
   }
   return false;
 }
+function claudeAuthStatus() {
+  const timeout = Math.min(Math.max(Number(process.env.SB_AUTH_PROBE_TIMEOUT_MS) || 3e3, 100), 3e4);
+  return new Promise((resolve3) => {
+    try {
+      execFile(
+        "claude",
+        ["auth", "status"],
+        { timeout, killSignal: "SIGKILL", maxBuffer: 256 * 1024 },
+        (_err, stdout) => {
+          const text = typeof stdout === "string" ? stdout.trim() : "";
+          if (!text) {
+            resolve3(null);
+            return;
+          }
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed && typeof parsed === "object") {
+              resolve3(parsed);
+              return;
+            }
+          } catch {
+          }
+          resolve3(null);
+        }
+      );
+    } catch {
+      resolve3(null);
+    }
+  });
+}
+function sanitizeField(v) {
+  return String(v).replace(/[^\x20-\x7e]/g, "").slice(0, 40);
+}
 async function runSb(args, deps) {
   const out = [];
   const err = [];
@@ -7098,17 +7132,43 @@ async function runSb(args, deps) {
         push("note: works in all contexts (Stop hooks, cron, CI)");
         return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
       }
-      if (await hasClaudeOnPath()) {
-        push("mode: subscription");
-        push("backend: claude CLI (OAuth via `claude /login`)");
-        push("note: real-time extraction inside a Claude Code session is NOT possible in this mode");
-        push("      due to the recursive-claude OAuth lock. Set ANTHROPIC_API_KEY for in-session extraction,");
-        push("      or rely on out-of-band extraction (see `sb auth doctor`).");
+      if (!await hasClaudeOnPath()) {
+        push("mode: none");
+        push("backend: none \u2014 neither ANTHROPIC_API_KEY nor `claude` CLI is available");
+        push("run: sb auth doctor");
         return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
       }
-      push("mode: none");
-      push("backend: none \u2014 neither ANTHROPIC_API_KEY nor `claude` CLI is available");
-      push("run: sb auth doctor");
+      const st = await claudeAuthStatus();
+      if (!st || typeof st.loggedIn !== "boolean") {
+        push("mode: unknown");
+        push("backend: claude CLI present, but `claude auth status` did not return parseable JSON (timeout or old CLI)");
+        push("run: claude auth status   # inspect the raw auth state yourself");
+        return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
+      }
+      if (!st.loggedIn) {
+        push("mode: none (logged out)");
+        push("backend: none \u2014 `claude auth status` reports loggedIn=false");
+        push("fix: run `claude /login` (OAuth) or `export ANTHROPIC_API_KEY=sk-ant-...`");
+        return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
+      }
+      if (st.authMethod === "api_key") {
+        push("mode: api-key (claude-managed)");
+        push("backend: claude CLI (api_key via apiKeyHelper / setup-token)");
+        push("auth: verified via `claude auth status` (authMethod=api_key)");
+        push("note: extraction still uses the recursive `claude` CLI path, so in-session Stop/PreCompact");
+        push("      extraction queues (recursive-claude lock). Set ANTHROPIC_API_KEY for the direct-curl backend.");
+        return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
+      }
+      push("mode: subscription");
+      push("backend: claude CLI (OAuth via `claude /login`)");
+      if (typeof st.authMethod === "string" && st.authMethod.length > 0) {
+        push(`auth: verified via \`claude auth status\` (authMethod=${sanitizeField(st.authMethod)})`);
+      } else {
+        push("auth: verified via `claude auth status` (loggedIn=true, authMethod unspecified)");
+      }
+      push("note: real-time extraction inside a Claude Code session is NOT possible in this mode");
+      push("      due to the recursive-claude OAuth lock. Set ANTHROPIC_API_KEY for in-session extraction,");
+      push("      or rely on out-of-band extraction (see `sb auth doctor`).");
       return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
     }
     if (sub === "doctor") {
