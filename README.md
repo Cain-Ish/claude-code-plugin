@@ -69,6 +69,13 @@ sb auth status      # which mode is active right now
 sb auth doctor      # walk-through of both setup paths
 ```
 
+`sb auth status` is authoritative: when no `ANTHROPIC_API_KEY` is set it queries
+the CLI's own `claude auth status` rather than guessing from `PATH`, so it
+distinguishes a real subscription from a **logged-out** machine and from a
+claude-managed API key. The probe is bounded by an untrappable timeout
+(`SB_AUTH_PROBE_TIMEOUT_MS`, default `3000`, clamped `100..30000`) so a hung or
+hijacked `claude` on `PATH` can't block it.
+
 The SessionStart banner always shows the active mode in one line.
 
 ## Skills
