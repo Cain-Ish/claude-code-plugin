@@ -3,7 +3,7 @@
 **Date:** 2026-06-01
 **Status:** Implemented in 0.22.2 (PR #7, branch `feat/graphiti-adoption-specs`) — brainstorm output (Graphiti eval `wf_ac6b4c11-117`), **revised after adversarial review** (`wf_51f2dbeb-ae1`)
 **Author:** second-brain session
-**Target release:** plugin 0.23.0 / knowledge-base MCP 2.4.0
+**Target release:** plugin 0.22.2 / knowledge-base MCP 2.3.1
 
 > **Revision note (post-review):** the original draft put **both** features in the dream. That violates the shipped contract — `agents/dream-runner.md` Phase 3: the dream runs on a **staging copy of `wiki/` only**, does **not** curate edges, and `graph/edges.jsonl` is **not** snapshotted. So edge-mutating work (B2's supersede/invalidate) **cannot** live in the dream. This revision splits by execution context:
 > - **B1 (community-summary pages)** → **dream** (theme pages are staging-safe wiki pages; clustering reads only staging `related:` links; invoked via a `scripts/*.sh` shim because the dream-runner cannot run `node`).
@@ -210,7 +210,7 @@ TS via vitest (`graph-cluster.test.ts`), shell via `tests/test-*.sh`; gated by t
 - `scripts/wiki-forget-score.sh` — add a `themes)` category arm with `prot="PROTECT:category"` (propagates to `wiki-forget-candidates.sh` + the dream Review re-score).
 - `mcp/src/tools/knowledge-validate.ts` — recognize `type: themes`/`generated:true` (don't mis-flag); add `themes` to `KNOWN_CATEGORIES` so `addFrontmatter` assigns `type: themes` if a theme page ever loses its frontmatter; *optional* net-new generated-region hand-edit warning.
 - `scripts/session-load.sh` — surface the active project's theme page within the byte budget.
-- `mcp/src/server.ts` — bump knowledge-base to `2.4.0` (bundled CLI + validate awareness; no new MCP *tool* required for v2).
+- `mcp/src/server.ts` — bump knowledge-base to `2.3.1` (bundled CLI + validate `themes` awareness; no new MCP *tool* / protocol change — additive patch).
 - `mcp/src/tools/knowledge-reindex.ts` — confirm `themes/` pages are indexed (verify; likely automatic).
 - `skills/upgrade/SKILL.md` — migration row (additive; `themes/` created lazily, no data migration).
 

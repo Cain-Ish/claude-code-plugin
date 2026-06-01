@@ -3,7 +3,7 @@
 **Date:** 2026-06-01
 **Status:** Implemented in 0.22.2 (PR #7, branch `feat/graphiti-adoption-specs`) — brainstorm output (Graphiti eval `wf_ac6b4c11-117`), **revised after adversarial review** (`wf_51f2dbeb-ae1`)
 **Author:** second-brain session
-**Target release:** plugin 0.23.0 (scripts + knowledge-maintainer + session-load). **No MCP server change.**
+**Target release:** plugin 0.22.2 (scripts + knowledge-maintainer + session-load). **No MCP server change.**
 
 > **Revision note (post-review):** the original draft routed conflict adjudication through the *dream*. That is wrong — `agents/dream-runner.md` Phase 3 states the dream does **not** curate edges and `graph/edges.jsonl` is intentionally **not** snapshotted into staging. Edge curation is owned by the **live paths** (`knowledge_relate`, the `knowledge-maintainer` agent). This revision moves the drain to the **maintainer** (live), adds a status-fold rule for the append-only sidecar, fixes a within-batch miss, normalizes timestamp granularity, gives the session-load surfacing a high-priority slot, and reframes the R1 motivation honestly.
 

@@ -56,4 +56,14 @@ OUT5=$(CLAUDE_PLUGIN_ROOT=/nonexistent bash "$SHIM" --knowledge-dir 2>&1); rc=$?
 [ "$rc" -eq 0 ] || fail "shim crashed (rc=$rc) on bare --knowledge-dir under set -u: $OUT5"
 pass "bare --knowledge-dir does not trip set -u"
 
+# --- plain YAML inline list related: [a, b] (addFrontmatter convention) is parsed ---
+KD2="$TMP/knowledge2"; mkdir -p "$KD2/wiki/entities"
+pageplain(){ local slug="$1"; shift; local list=""; for r in "$@"; do list="${list}${r}, "; done
+  printf '%s\n' '---' "title: $slug" 'type: entities' "related: [${list%, }]" '---' "# $slug" \
+    > "$KD2/wiki/entities/$slug.md"; }
+pageplain p q r; pageplain q p r; pageplain r p q     # triangle via plain related: [..]
+OUTP=$(SB_SUMMARIZE_MIN_CLUSTER=3 bash "$SHIM" --knowledge-dir "$KD2")
+[ "$(echo "$OUTP" | jq -r '.[0].members | join(",")')" = "p,q,r" ] || fail "plain related:[a,b] not clustered: $OUTP"
+pass "plain YAML list related: [a, b] is parsed (clusters p,q,r)"
+
 echo; echo "ALL PASS"

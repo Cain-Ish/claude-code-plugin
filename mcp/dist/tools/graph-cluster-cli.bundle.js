@@ -128,7 +128,12 @@ function links(text) {
 }
 function relatedFrom(fm) {
   const line = fm.split("\n").find((l) => /^related:/.test(l));
-  return line ? links(line) : [];
+  if (!line) return [];
+  const wl = links(line);
+  if (wl.length) return wl;
+  const m = line.match(/^related:\s*\[(.*)\]\s*$/);
+  if (!m) return [];
+  return m[1].split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter((s) => /^[a-z0-9][a-z0-9-]*$/i.test(s));
 }
 async function main() {
   const wikiDir = resolveWikiDir(process.argv.slice(2));
