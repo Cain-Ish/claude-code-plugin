@@ -63,7 +63,7 @@ Collect findings as a structured list of proposed wiki actions:
 - `update` — add content to an existing page
 - `relate` — add cross-links between existing pages
 
-### Step 2: 5-Phase Wiki Consolidation
+### Step 2: 7-Phase Wiki Consolidation
 
 Work exclusively on the staging wiki at `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 
@@ -89,9 +89,33 @@ Work exclusively on the staging wiki at `~/.second-brain/dreams/{dream_id}/stagi
 - **Concepts**: Problem → Solution → Where Applied → Trade-offs
 - Apply transcript mining insights from Step 1 (new pages, updated content)
 
-**2e. REINDEX** — Call `knowledge_reindex` MCP tool (pointed at staging dir is not possible via MCP, so manually update staging/wiki/index.md if needed)
+**2e. SUMMARIZE** — whole-corpus theme pages (skip if `SB_DREAM_SUMMARIZE=off`). Cluster the
+staging wiki's link graph and write one summary page per cluster, so a fresh session can be
+handed *themes*, not just nearest slugs. Clustering is deterministic and **staging-local**
+(reads `related:` + body `[[links]]`, never the live edge log):
 
-**2f. FORGET** — bound cold-tier wiki growth (skip entirely if `SB_WIKI_FORGET=off`).
+```bash
+CLUST=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/graph-cluster.sh" \
+  --knowledge-dir "$HOME/.second-brain/dreams/{dream_id}/staging")
+```
+
+`CLUST` is JSON `[{id, members, member_hash}]` for clusters ≥ `SB_SUMMARIZE_MIN_CLUSTER`
+(default 4), capped at `SB_SUMMARIZE_MAX_PAGES` (default 8). For each cluster:
+- If `staging/wiki/themes/<id>.md` exists with a **matching `member_hash`**, skip it
+  (membership *and* member content unchanged — no LLM call).
+- Else write/overwrite `staging/wiki/themes/<id>.md` with frontmatter `type: themes`,
+  `generated: true`, `related: [[member]]…` (the member slugs), `member_hash: <hash>`,
+  `created`/`updated`, and an LLM summary INSIDE the markers
+  `<!-- theme:begin (generated — do not hand-edit) -->` … `<!-- theme:end -->` describing
+  what the cluster is about and how its members relate. Author only the marked region.
+
+Theme pages are derived/regenerable (FORGET protects the `themes` category) and are staged
+like any other page — reviewed at `dream_accept`; the embedding cache + live index populate
+on accept, not at dream time.
+
+**2f. REINDEX** — Call `knowledge_reindex` MCP tool (pointed at staging dir is not possible via MCP, so manually update staging/wiki/index.md if needed). Run AFTER SUMMARIZE so new theme pages are catalogued.
+
+**2g. FORGET** — bound cold-tier wiki growth (skip entirely if `SB_WIKI_FORGET=off`).
 Scores the **LIVE** wiki read-only (it copies to a temp to probe; never mutates live —
 and real page ages matter, since staging mtimes are all fresh from the dream snapshot),
 selecting low-value, old, unlinked, recall-safe pages, and writes a manifest. Archiving

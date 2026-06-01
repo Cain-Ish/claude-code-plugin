@@ -153,7 +153,7 @@ export async function knowledgeValidate(
 
 const KNOWN_CATEGORIES = new Set([
   'concepts', 'decisions', 'entities', 'issues',
-  'learnings', 'security', 'state', 'sources',
+  'learnings', 'security', 'state', 'sources', 'themes',
 ]);
 
 export async function addFrontmatter(filePath: string, wikiDir: string): Promise<void> {

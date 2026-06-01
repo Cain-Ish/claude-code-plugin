@@ -28216,7 +28216,8 @@ var KNOWN_CATEGORIES = /* @__PURE__ */ new Set([
   "learnings",
   "security",
   "state",
-  "sources"
+  "sources",
+  "themes"
 ]);
 async function addFrontmatter(filePath, wikiDir) {
   const original = await fs9.readFile(filePath, "utf-8");
