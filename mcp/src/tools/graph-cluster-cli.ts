@@ -10,7 +10,7 @@
  * Env:   SB_SUMMARIZE_MIN_CLUSTER (default 4)
  */
 import { promises as fs } from 'fs';
-import { join } from 'path';
+import { join, basename } from 'path';
 import { buildAdjacency, labelPropagate, clusters, memberHash, djb2, type ClusterPage } from './graph-cluster.js';
 
 function resolveWikiDir(argv: string[]): string {
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
     let content = '';
     try { content = await fs.readFile(f, 'utf-8'); } catch { continue; }
     if (!content.trim()) continue;
-    const slug = (f.split('/').pop() ?? '').replace(/\.md$/, '');
+    const slug = basename(f, '.md');   // separator-agnostic (repo convention; cross-platform)
     const fm = frontmatter(content);
     const body = content.replace(/^---\n[\s\S]*?\n---/, '');
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });

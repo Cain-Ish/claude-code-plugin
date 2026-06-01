@@ -1,6 +1,6 @@
 // src/tools/graph-cluster-cli.ts
 import { promises as fs } from "fs";
-import { join } from "path";
+import { join, basename } from "path";
 
 // src/tools/graph-cluster.ts
 function buildAdjacency(pages) {
@@ -149,7 +149,7 @@ async function main() {
       continue;
     }
     if (!content.trim()) continue;
-    const slug = (f.split("/").pop() ?? "").replace(/\.md$/, "");
+    const slug = basename(f, ".md");
     const fm = frontmatter(content);
     const body = content.replace(/^---\n[\s\S]*?\n---/, "");
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });

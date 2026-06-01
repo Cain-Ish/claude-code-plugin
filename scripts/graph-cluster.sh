@@ -19,4 +19,6 @@ ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BUNDLE="$ROOT/mcp/dist/tools/graph-cluster-cli.bundle.js"
 
 if ! command -v node >/dev/null 2>&1 || [ ! -f "$BUNDLE" ]; then echo '[]'; exit 0; fi
-node "$BUNDLE" "$KDIR/wiki" 2>/dev/null || echo '[]'
+# Capture stdout and emit it ONLY on success, so a partial write before a non-zero exit
+# can't produce mixed "<partial>\n[]" invalid JSON — preserves the fail-safe contract.
+out=$(node "$BUNDLE" "$KDIR/wiki" 2>/dev/null) && printf '%s\n' "$out" || echo '[]'

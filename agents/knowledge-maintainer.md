@@ -120,7 +120,7 @@ your edits will be overwritten. Curate the **edges** instead, via `knowledge_rel
    Record the outcome by **appending** a status line (append-only — never rewrite a line):
    ```bash
    jq -nc --arg f "$from" --arg t "$type" --arg o "$to" --arg k "$kind" \
-     '{detected_at:(now|todate),from:$f,type:$t,to:$o,kind:$k,status:"resolved",resolved_by:"maintainer"}' \
+     '{detected_at:(now|todateiso8601),from:$f,type:$t,to:$o,kind:$k,status:"resolved",resolved_by:"maintainer"}' \
      >> ~/knowledge/graph/conflicts.jsonl   # use status:"dismissed" for a false alarm
    ```
    **Phase-3 budget priority** (this phase now carries three jobs under the 50-change cap):
