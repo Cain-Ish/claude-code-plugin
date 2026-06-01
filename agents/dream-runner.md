@@ -77,6 +77,9 @@ Phases 1–5 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 - If you spot strong missing relationships while mining, **surface them in your
   report** as suggested `knowledge_relate` calls for the user / maintainer to apply
   live — do not write them into staging.
+- You may **read** `~/knowledge/graph/conflicts.jsonl` (live, read-only) and echo the
+  folded open-conflict count into your report ("N open graph conflicts — resolve via the
+  maintainer"). You still **write nothing** to `graph/` — the maintainer owns the drain.
 
 **Phase 4: ENRICH**
 - Apply transcript mining insights (new pages, updates)

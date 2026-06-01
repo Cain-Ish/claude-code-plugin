@@ -281,6 +281,18 @@ if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
+# 0c. Graph-conflict banner — structural edge contradictions flagged at write time by
+# merge-edges.sh (graph/conflicts.jsonl). HIGH priority (a correctness signal): emitted
+# in the early-banner region, BEFORE the uncapped USER.md/PROJECT.md draw down the budget,
+# so it can never be the item silently dropped at the ceiling. Drained by the
+# knowledge-maintainer Phase 3 RELATE. No file ⇒ no line (back-compat).
+SL_KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; SL_KDIR="${SL_KDIR/#\~/$HOME}"
+CONFLICT_N=$(sb_conflicts_open_count "$SL_KDIR")
+if [ "${CONFLICT_N:-0}" -gt 0 ]; then
+  sb_append "$(printf '## ⚠ second-brain — %s graph conflict(s) pending\nStructural edge contradictions were detected at write time. Resolve via the knowledge-maintainer (Phase 3 RELATE) or `knowledge_relate`.\n\n' "$CONFLICT_N")" \
+    "graph-conflicts-banner" 250
+fi
+
 # 1. USER.md — always included
 if [ -f "$USER_FILE" ]; then
   USER_CONTENT=$(cat "$USER_FILE")

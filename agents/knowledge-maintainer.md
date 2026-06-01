@@ -85,6 +85,30 @@ Relationships are stored in the bi-temporal edge log `~/knowledge/graph/edges.js
 the `<!-- graph:begin -->` / `<!-- graph:end -->` markers** — they are generated and
 your edits will be overwritten. Curate the **edges** instead, via `knowledge_relate`.
 
+0. **Drain the write-time conflict queue FIRST.** `~/knowledge/graph/conflicts.jsonl`
+   holds structural contradictions flagged by `merge-edges.sh` at write time. It is
+   append-only; a conflict's current status is its LAST line, so fold by
+   `(from,type,to,kind)` and keep those whose latest status is `open`:
+   ```bash
+   jq -s 'group_by([.from,.type,.to,.kind]) | map(last) | map(select(.status=="open"))' \
+     ~/knowledge/graph/conflicts.jsonl 2>/dev/null
+   ```
+   For each open conflict, judge and act via `knowledge_relate`:
+   - `reintroduce` — a retired edge was re-asserted: was the retirement wrong (re-assert is
+     correct → **dismiss**), or does the re-assert need a fresh supersede/invalidate?
+   - `opposing` — a contradictory edge exists (e.g. `A supersedes B` vs `A requires B`):
+     invalidate the wrong one with `knowledge_relate({…, invalidate:true, valid_to:<date>})`.
+   - `multi_parent` — a second `part_of` parent: pick the correct parent, invalidate the other.
+   Record the outcome by **appending** a status line (append-only — never rewrite a line):
+   ```bash
+   jq -nc --arg f "$from" --arg t "$type" --arg o "$to" --arg k "$kind" \
+     '{detected_at:(now|todate),from:$f,type:$t,to:$o,kind:$k,status:"resolved",resolved_by:"maintainer"}' \
+     >> ~/knowledge/graph/conflicts.jsonl   # use status:"dismissed" for a false alarm
+   ```
+   **Phase-3 budget priority** (this phase now carries three jobs under the 50-change cap):
+   drain conflicts first (they surface an existing contradiction), then any SUPERSEDE
+   edges from Phase 2 reconcile, then routine relate; overflow defers to the next run.
+
 1. Find pages with no current relations: `knowledge_neighbors({slug})` returns an empty
    `edges` array. Prioritize those.
 2. For each, identify concrete typed relationships and assert them with
