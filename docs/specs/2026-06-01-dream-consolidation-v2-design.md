@@ -1,7 +1,7 @@
 # Design: consolidation v2 — community-summary pages (dream) + retrieval-grounded reconciliation (maintainer)
 
 **Date:** 2026-06-01
-**Status:** Proposed (design) — brainstorm output (Graphiti eval `wf_ac6b4c11-117`), **revised after adversarial review** (`wf_51f2dbeb-ae1`), pending approval
+**Status:** Implemented in 0.22.2 (PR #7, branch `feat/graphiti-adoption-specs`) — brainstorm output (Graphiti eval `wf_ac6b4c11-117`), **revised after adversarial review** (`wf_51f2dbeb-ae1`)
 **Author:** second-brain session
 **Target release:** plugin 0.23.0 / knowledge-base MCP 2.4.0
 

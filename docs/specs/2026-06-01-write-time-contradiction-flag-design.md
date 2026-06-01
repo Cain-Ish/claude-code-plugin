@@ -1,7 +1,7 @@
 # Design: deterministic write-time contradiction flag
 
 **Date:** 2026-06-01
-**Status:** Proposed (design) — brainstorm output (Graphiti eval `wf_ac6b4c11-117`), **revised after adversarial review** (`wf_51f2dbeb-ae1`), pending approval
+**Status:** Implemented in 0.22.2 (PR #7, branch `feat/graphiti-adoption-specs`) — brainstorm output (Graphiti eval `wf_ac6b4c11-117`), **revised after adversarial review** (`wf_51f2dbeb-ae1`)
 **Author:** second-brain session
 **Target release:** plugin 0.23.0 (scripts + knowledge-maintainer + session-load). **No MCP server change.**
 
@@ -88,7 +88,8 @@ Hard constraint: the detector **must not** depend on `graph-store.ts` (node may 
 
 ```bash
 # open conflicts = identities whose LAST line is status:open
-jq -s 'group_by([.from,.type,.to,.kind]) | map(last) | map(select(.status=="open"))' conflicts.jsonl
+jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[($r|[.from,.type,.to,.kind]|tojson)]=$r)
+        | [.[]] | map(select(.status=="open"))' conflicts.jsonl
 ```
 
 A re-detection of an already-`open` identity is a **no-op** (the fold shows it open → skip the append).
@@ -122,8 +123,8 @@ Because `LATEST` is updated after each append (architecture step 3), a single de
 CONFLICTS="$GRAPH_DIR/conflicts.jsonl"
 # pre-batch snapshot (normalized to second granularity); kept in a temp, updated per append
 SNAP=$(mktemp); trap 'rm -f "$SNAP"' EXIT
-[ -s "$LOG" ] && jq -s '[ .[] | .recorded_at |= .[0:19] ]
-  | group_by([.from,.type,.to]) | map(max_by(.recorded_at))' "$LOG" > "$SNAP" || echo '[]' > "$SNAP"
+[ -s "$LOG" ] && jq -s '[ to_entries[] | .value + {recorded_at:(.value.recorded_at|.[0:19]), _i:.key} ]
+  | group_by([.from,.type,.to]) | map(max_by([.recorded_at, ._i]))' "$LOG" > "$SNAP" || echo '[]' > "$SNAP"
 
 detect_conflict() {            # args: F T O ; on hit prints "<kind>\t<against-json>" and returns 0
   local F="$1" T="$2" O="$3" against opp
@@ -158,7 +159,7 @@ detect_conflict() {            # args: F T O ; on hit prints "<kind>\t<against-j
 }
 already_open() {               # F T O kind — fold conflicts.jsonl, true if last line is open
   [ -s "$CONFLICTS" ] && jq -e --arg f "$1" --arg t "$2" --arg o "$3" --arg k "$4" \
-    -s 'group_by([.from,.type,.to,.kind]) | map(last)
+    -nR 'reduce (inputs|fromjson?) as $r ({}; .[($r|[.from,.type,.to,.kind]|tojson)]=$r) | [.[]]
         | any(.from==$f and .type==$t and .to==$o and .kind==$k and .status=="open")' "$CONFLICTS" >/dev/null 2>&1
 }
 ```

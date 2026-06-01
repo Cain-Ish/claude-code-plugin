@@ -17,7 +17,7 @@ mkpage page-a; mkpage page-b; mkpage page-c
 LOG="$KDIR/graph/edges.jsonl"; CONF="$KDIR/graph/conflicts.jsonl"
 run(){ echo "$1" | KNOWLEDGE_DIR="$KDIR" bash "$SCRIPT" --knowledge-dir "$KDIR"; }
 # folded open conflicts (current status = last line per identity)
-open_count(){ [ -s "$CONF" ] && jq -s 'group_by([.from,.type,.to,.kind])|map(last)|map(select(.status=="open"))|length' "$CONF" || echo 0; }
+open_count(){ [ -s "$CONF" ] && jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[($r|[.from,.type,.to,.kind]|tojson)]=$r)|[.[]]|map(select(.status=="open"))|length' "$CONF" || echo 0; }
 seed(){ mkdir -p "$KDIR/graph"; printf '%s\n' "$1" >> "$LOG"; }
 reset(){ rm -f "$LOG" "$CONF"; mkdir -p "$KDIR/graph"; }
 

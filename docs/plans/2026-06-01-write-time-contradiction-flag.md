@@ -77,7 +77,7 @@ detect_enabled(){ [ "${SB_CONFLICT_DETECT:-on}" != off ] && [ -s "$LOG" ]; }
 
 ```bash
 if detect_enabled; then
-  jq -s '[ .[] | .recorded_at |= .[0:19] ] | group_by([.from,.type,.to]) | map(max_by(.recorded_at))' \
+  jq -s '[ to_entries[] | .value + {recorded_at:(.value.recorded_at|.[0:19]), _i:.key} ] | group_by([.from,.type,.to]) | map(max_by([.recorded_at, ._i]))' \
      "$LOG" > "$SNAP" 2>/dev/null || echo '[]' > "$SNAP"
 else echo '[]' > "$SNAP"; fi
 ```
@@ -95,7 +95,7 @@ echo '{"op":"assert","from":"page-a","to":"page-b","type":"requires","valid_to":
 echo '{"op":"invalidate","from":"page-a","to":"page-b","type":"requires","valid_to":"2026-06-01","recorded_at":"2026-06-01T10:00:00.123Z","source":"manual"}' >> "$LOG"
 run '{"relations":[{"from":"page-a","to":"page-b","type":"requires"}]}'
 [ -f "$CONF" ] || fail "R1 did not flag reintroduce"
-folded(){ jq -s 'group_by([.from,.type,.to,.kind])|map(last)|map(select(.status=="open"))' "$CONF"; }
+folded(){ jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[($r|[.from,.type,.to,.kind]|tojson)]=$r)|[.[]]|map(select(.status=="open"))' "$CONF"; }
 [ "$(folded | jq 'length')" = 1 ] || fail "R1 open-count != 1"
 grep -q '"kind":"reintroduce"' "$CONF" || fail "kind not reintroduce"
 grep -q '"from":"page-a"' "$LOG" && [ "$(grep -c '"to":"page-b"' "$LOG")" -ge 2 ] || fail "edge not also appended"
@@ -115,7 +115,7 @@ pass "status-fold (open→resolved = 0 open)"
 ```bash
 already_open(){ # F T O kind
   [ -s "$CONFLICTS" ] && jq -e --arg f "$1" --arg t "$2" --arg o "$3" --arg k "$4" \
-    -s 'group_by([.from,.type,.to,.kind])|map(last)|any(.from==$f and .type==$t and .to==$o and .kind==$k and .status=="open")' \
+    -nR 'reduce (inputs|fromjson?) as $r ({}; .[($r|[.from,.type,.to,.kind]|tojson)]=$r)|[.[]]|any(.from==$f and .type==$t and .to==$o and .kind==$k and .status=="open")' \
     "$CONFLICTS" >/dev/null 2>&1; }
 # inside the loop, before append:
 if detect_enabled; then
@@ -205,7 +205,7 @@ The conflict warning is a correctness signal — emit it in the **early-banner r
 - [ ] **Step 1: failing test** — populate USER.md+PROJECT.md to ≈6 KB and N open conflicts; assert the banner line is **present** and total ≤ 8000 B (spec test #12). (Model the fixture on `tests/test-session-load-graph.sh`.)
 - [ ] **Step 2:** run → FAIL (no banner).
 - [ ] **Step 3: impl** —
-  - Add `sb_conflicts_open_count <knowledge_dir>` to `lib.sh`: folds `conflicts.jsonl` and prints the open count (`jq -s 'group_by([.from,.type,.to,.kind])|map(last)|map(select(.status=="open"))|length'`), `echo 0` on absence/error.
+  - Add `sb_conflicts_open_count <knowledge_dir>` to `lib.sh`: folds `conflicts.jsonl` and prints the open count (`jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[($r|[.from,.type,.to,.kind]|tojson)]=$r)|[.[]]|map(select(.status=="open"))|length'`), `echo 0` on absence/error.
   - In `session-load.sh`, in the early-banner region (near the extractor-health banner ~L194), if the count >0:
     `sb_append "$(printf '## ⚠ second-brain — %s graph conflict(s) pending\nStructural edge contradictions detected at write time. Resolve via the knowledge-maintainer (Phase 3) or `knowledge_relate`.\n\n' "$N")" "graph-conflicts-banner" 250`
 - [ ] **Step 4:** run → PASS (present under near-full budget).
