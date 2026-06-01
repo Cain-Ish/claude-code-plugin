@@ -33,8 +33,9 @@ EOF
 OUT=$(run)
 printf '%s' "$OUT" | grep -q 'graph conflict' || fail "conflict banner missing under near-full budget"
 printf '%s' "$OUT" | grep -q '2 graph conflict' || fail "folded open-count wrong (expected 2; resolved identity should not count)"
-[ "${#OUT}" -le 8000 ] || fail "output exceeded 8000B (${#OUT})"
-pass "banner present + folded count=2 + within budget (${#OUT}B)"
+OB=$(printf '%s' "$OUT" | wc -c)   # count BYTES (>= chars) — conservative vs the 8000 cap (banners are multibyte)
+[ "$OB" -le 8000 ] || fail "output exceeded 8000B ($OB)"
+pass "banner present + folded count=2 + within budget (${OB}B)"
 
 # --- 2: all resolved → no banner ---
 cat > "$KDIR/graph/conflicts.jsonl" <<'EOF'

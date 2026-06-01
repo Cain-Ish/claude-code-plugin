@@ -154,7 +154,7 @@ updated: <date>
 
 - **FORGET**: `themes` must be **protected** — and today it is the *opposite* (unrecognized category → `*)`→ `s_cat=0.2`, unprotected → a fresh, not-yet-inbound-linked theme page is a prime candidate). Add an explicit `themes)` arm to `scripts/wiki-forget-score.sh`'s category `case` with `prot="PROTECT:category"`. Because `wiki-forget-candidates.sh` (the real entry point) and the dream Review-phase re-score both call `score.sh`, the protection propagates to **both** paths. Protection is enforced via the **protflag column** (`candidates.sh` filters `$5==""`), independent of the numeric score — so the unconditional stub-floor down-weight on a short generated page is harmless (a builder must not "fix" this by raising `s_cat` alone). Test #8 asserts a freshly-generated theme page (0 inbound links, fresh mtime) is **never** emitted as a candidate by `wiki-forget-candidates.sh`.
 - **Search**: no change required — theme pages are ordinary indexed pages once accepted. (Optional follow-up: a small boost so a theme page outranks its members on a broad query.)
-- **`session-load.sh`**: for the active project's key entities, surface the **theme page of their cluster** (one line) within the byte budget — region, not just nearest slugs.
+- **`session-load.sh`** *(deferred follow-up — NOT shipped in 0.22.2)*: a dedicated line surfacing the **theme page of the active project's cluster** is out of scope here. For now, theme pages surface through the **existing** wiki-enrichment keyword search like any indexed page (no dedicated lookup added to `session-load.sh`).
 - **Caches/index populate at `dream_accept`, not dream-time.** In-dream "REINDEX" only rebuilds the staging `index.md` (the MCP reindex can't target staging). The embedding cache + live index update when the accepted theme pages land live. The spec does **not** claim theme pages participate in retrieval mid-dream.
 
 ### B1.4 Config (B1)
@@ -177,7 +177,7 @@ updated: <date>
 | Theme page hand-edited inside markers | Region overwritten next SUMMARIZE (overwrite-enforced). |
 | Cluster oscillation | Synchronous + keep-own-label tie-break breaks 2-cycles; `maxIter` cutoff is deterministic. |
 | Theme vs FORGET | `themes` protected via the `score.sh` category arm → never a candidate. |
-| `graph-cluster.sh` shim / node missing | Shim exits non-zero; SUMMARIZE skips (fail-safe), dream continues; logged. |
+| `graph-cluster.sh` shim / node missing | Shim **prints `[]` and exits 0** (fail-safe); SUMMARIZE sees no clusters → writes no theme pages; dream continues. |
 
 ## Testing strategy (per the validate-the-real-capability learning)
 
