@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Guard the dream FORGET (Phase 2f) wiring + accept-time archiving in the dream skill.
+# Guard the dream FORGET (Phase 2g) wiring + accept-time archiving in the dream skill.
 # Behavior is LLM-driven; this asserts the contract the scripts depend on.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 D="$ROOT/skills/dream/SKILL.md"
 P=0;F=0; ok(){ P=$((P+1)); echo "  PASS $1"; }; bad(){ F=$((F+1)); echo "  FAIL $1"; }
 
-grep -q "2f. FORGET" "$D"            && ok "dream has FORGET phase"        || bad "no FORGET phase"
+grep -q "2g. FORGET" "$D"            && ok "dream has FORGET phase"        || bad "no FORGET phase"
 grep -q "SB_WIKI_FORGET=off" "$D"    && ok "kill switch documented"       || bad "no kill switch"
 grep -q "wiki-forget-candidates.sh" "$D" && ok "calls candidates script" || bad "no candidates call"
 grep -q "forget-manifest.tsv" "$D"   && ok "uses forget-manifest"         || bad "no manifest"

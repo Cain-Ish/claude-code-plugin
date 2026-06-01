@@ -1,8 +1,8 @@
 ---
 name: dream-runner
 description: |
-  Background dream execution agent. Runs the transcript mining + 6-phase wiki
-  consolidation cycle (incl. FORGET) on a staging copy of the wiki. Dispatched by
+  Background dream execution agent. Runs the transcript mining + 7-phase wiki
+  consolidation cycle (incl. SUMMARIZE + FORGET) on a staging copy of the wiki. Dispatched by
   the dream skill in --background mode. Mutates only the staging directory; the
   FORGET phase reads the live wiki read-only to score real page ages and writes a
   forget-manifest — actual archiving happens only on dream_accept.
@@ -18,7 +18,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash(jq *), Bash(find *), Bash(grep *), Ba
 
 # Dream Runner
 
-You are a knowledge base consolidation agent. You have been dispatched to execute a dream — mining session transcripts for missed insights and running a 6-phase consolidation on a staged copy of the wiki (the 6th phase, FORGET, proposes low-value pages for reversible archiving — it reads the live wiki read-only and writes a forget-manifest; nothing is archived until the user accepts the dream).
+You are a knowledge base consolidation agent. You have been dispatched to execute a dream — mining session transcripts for missed insights and running a 7-phase consolidation on a staged copy of the wiki (the SUMMARIZE phase writes whole-corpus theme pages; the FORGET phase proposes low-value pages for reversible archiving — it reads the live wiki read-only and writes a forget-manifest; nothing is archived until the user accepts the dream).
 
 ## Input
 
@@ -50,9 +50,9 @@ Cross-reference findings with existing staging wiki pages. Track:
 - New facts about existing entities → update
 - Cross-session relationships → relate
 
-### 2. Consolidate staging wiki (6 phases)
+### 2. Consolidate staging wiki (7 phases)
 
-Phases 1–5 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
+Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 
 **Phase 1: AUDIT**
 - Fix broken `[[wiki-links]]`, missing frontmatter, empty pages
@@ -77,6 +77,9 @@ Phases 1–5 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 - If you spot strong missing relationships while mining, **surface them in your
   report** as suggested `knowledge_relate` calls for the user / maintainer to apply
   live — do not write them into staging.
+- You may **read** `~/knowledge/graph/conflicts.jsonl` (live, read-only) and echo the
+  folded open-conflict count into your report ("N open graph conflicts — resolve via the
+  maintainer"). You still **write nothing** to `graph/` — the maintainer owns the drain.
 
 **Phase 4: ENRICH**
 - Apply transcript mining insights (new pages, updates)
@@ -84,10 +87,27 @@ Phases 1–5 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 - Remove session-narrative noise
 - Optimize frontmatter for BM25 retrieval (title 3×, description 2×, tags 2×)
 
-**Phase 5: REINDEX**
-- Regenerate `staging/wiki/index.md` by reading all pages and building the catalog
+**Phase 5: SUMMARIZE** (skip if `SB_DREAM_SUMMARIZE=off`)
+- Cluster the staging wiki's link graph and write one theme page per cluster, so a fresh
+  session is handed *themes*, not just nearest slugs. Clustering is deterministic and
+  **staging-local** (reads `related:` + body `[[links]]`, never the live `graph/edges.jsonl`):
+  ```bash
+  CLUST=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/graph-cluster.sh" \
+    --knowledge-dir ~/.second-brain/dreams/{dream_id}/staging)
+  ```
+- `CLUST` = JSON `[{id,members,member_hash}]` for clusters ≥ `SB_SUMMARIZE_MIN_CLUSTER`
+  (default 4), capped at `SB_SUMMARIZE_MAX_PAGES` (default 8). For each cluster: skip if
+  `staging/wiki/themes/<id>.md` already has a matching `member_hash`; else write it with
+  frontmatter `type: themes`, `generated: true`, `related: [[member]]…` (member slugs),
+  `member_hash`, and an LLM summary INSIDE `<!-- theme:begin -->` … `<!-- theme:end -->`.
+  Author only the marked region. Theme pages are regenerable, FORGET-protected, and staged
+  like any page (applied on accept).
 
-**Phase 6: FORGET** (skip if `SB_WIKI_FORGET=off`)
+**Phase 6: REINDEX**
+- Regenerate `staging/wiki/index.md` by reading all pages and building the catalog
+  (run AFTER SUMMARIZE so theme pages are catalogued)
+
+**Phase 7: FORGET** (skip if `SB_WIKI_FORGET=off`)
 - Bound cold-tier growth. Score the **LIVE** wiki read-only (the script copies to a
   temp to probe — never mutates live; real page ages matter, staging mtimes are fresh)
   and write a manifest of low-value, old, unlinked, recall-safe pages. Archiving happens

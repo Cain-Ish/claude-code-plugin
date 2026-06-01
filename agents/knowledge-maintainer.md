@@ -62,6 +62,22 @@ Fix structural issues before touching content.
 
 Group pages by topic and merge overlapping content.
 
+**Retrieval-grounded reconciliation** (Mem0-style; skip if `SB_RECONCILE=off` — the
+title-overlap heuristic below still runs). For each candidate page (a newly-mined page, or
+one flagged in step 2), call `knowledge_search(<title-or-key-text>)` for the top-k nearest
+**LIVE** pages (`SB_RECONCILE_TOPK`, default 5 — `knowledge_search` already fuses BM25 +
+embeddings and falls back to BM25-only when vectors are unavailable, e.g.
+`SECOND_BRAIN_DISABLE_EMBEDDINGS=1`), then choose exactly one op:
+- **ADD** — no near-equivalent → keep/create as-is.
+- **UPDATE `<slug>`** — merge the candidate's facts into the canonical page (the merge
+  steps below) instead of creating a near-duplicate; add a `## History` entry.
+- **NOOP** — already fully covered → drop the candidate.
+- **SUPERSEDE `<slug>`** — the candidate replaces an existing page → write the new page,
+  then do the deterministic edge invalidation in Phase 3 (§ Supersession).
+Bounded by `SB_RECONCILE_MAX` (default 20) and the 50-change cap. This grounds the dedup
+decision in retrieval instead of title-overlap guessing, so synonymous pages
+(`auth-bug` vs `auth-error`) stop fragmenting.
+
 1. Read all page titles and descriptions across every category
 2. Flag merge candidates:
    - Pages with overlapping titles (e.g. "companion-ui" + "companion-ui-migration" + "companion-ui-catalog")
@@ -85,6 +101,32 @@ Relationships are stored in the bi-temporal edge log `~/knowledge/graph/edges.js
 the `<!-- graph:begin -->` / `<!-- graph:end -->` markers** — they are generated and
 your edits will be overwritten. Curate the **edges** instead, via `knowledge_relate`.
 
+0. **Drain the write-time conflict queue FIRST.** `~/knowledge/graph/conflicts.jsonl`
+   holds structural contradictions flagged by `merge-edges.sh` at write time. It is
+   append-only; a conflict's current status is its LAST line, so fold by
+   `(from,type,to,kind)` and keep those whose latest status is `open`:
+   ```bash
+   # reduce-keyed fold = explicit "last-appended line per identity wins" + torn-line tolerant
+   # (same pattern as scripts/lib.sh sb_conflicts_open_count; no group_by sort-stability dependency)
+   jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[($r|[.from,.type,.to,.kind]|tojson)]=$r)
+           | [.[]] | map(select(.status=="open"))' ~/knowledge/graph/conflicts.jsonl 2>/dev/null
+   ```
+   For each open conflict, judge and act via `knowledge_relate`:
+   - `reintroduce` — a retired edge was re-asserted: was the retirement wrong (re-assert is
+     correct → **dismiss**), or does the re-assert need a fresh supersede/invalidate?
+   - `opposing` — a contradictory edge exists (e.g. `A supersedes B` vs `A requires B`):
+     invalidate the wrong one with `knowledge_relate({…, invalidate:true, valid_to:<date>})`.
+   - `multi_parent` — a second `part_of` parent: pick the correct parent, invalidate the other.
+   Record the outcome by **appending** a status line (append-only — never rewrite a line):
+   ```bash
+   jq -nc --arg f "$from" --arg t "$type" --arg o "$to" --arg k "$kind" \
+     '{detected_at:(now|todateiso8601),from:$f,type:$t,to:$o,kind:$k,status:"resolved",resolved_by:"maintainer"}' \
+     >> ~/knowledge/graph/conflicts.jsonl   # use status:"dismissed" for a false alarm
+   ```
+   **Phase-3 budget priority** (this phase now carries three jobs under the 50-change cap):
+   drain conflicts first (they surface an existing contradiction), then any SUPERSEDE
+   edges from Phase 2 reconcile, then routine relate; overflow defers to the next run.
+
 1. Find pages with no current relations: `knowledge_neighbors({slug})` returns an empty
    `edges` array. Prioritize those.
 2. For each, identify concrete typed relationships and assert them with
@@ -98,10 +140,17 @@ your edits will be overwritten. Curate the **edges** instead, via `knowledge_rel
      the relationship is clearly one of those.
 3. Priority order (unchanged): Entity↔Learning, Entity↔Concept, Learning↔Learning,
    Decision→Entity, Issue→Entity.
-4. **Supersession (don't delete history):** when a newer page/decision contradicts a
-   live edge, close it with `knowledge_relate({from, to, type, invalidate:true,
-   valid_to:<date>})`, then assert the replacement (often a `supersedes` edge). The
-   old edge stays in the log, queryable via `as_of` — it is invalidated, not erased.
+4. **Supersession (don't delete history; deterministic enumerated procedure):** when a
+   newer page replaces an old one (the Phase 2 `SUPERSEDE <slug>` op), do NOT cascade-
+   invalidate ("which edges are now wrong" is a judgment, not a structural rule). Instead:
+   (a) write the new page; (b) `knowledge_neighbors({slug:<old>, direction:"out"})` to
+   enumerate the old page's current-valid **out-edges** `(old,type,X)`; (c) decide an
+   **explicit list** of which to invalidate (keep any still-true, e.g. a `part_of`);
+   (d) loop one `knowledge_relate({from:<old>, type, to:X, invalidate:true, valid_to:<date>})`
+   per named edge; (e) assert `knowledge_relate({from:<new>, to:<old>, type:"supersedes"})`.
+   **Directionality guard:** `direction:"out"` + `knowledge_relate` match the **stored**
+   `(from,type,to)` row, not the bidirectional read — so an inbound `(X,type,old)` edge is
+   left untouched. The old edges stay in the log, queryable via `as_of` — invalidated, not erased.
 5. **Bidirectionality is automatic** — edges are walked both directions at read time.
    Do NOT assert reverse duplicates.
 6. Run `knowledge_reindex` after curation to re-project pages.

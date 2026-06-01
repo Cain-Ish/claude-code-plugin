@@ -127,7 +127,7 @@ export async function knowledgeValidate(knowledgeDir, opts = {}) {
 }
 const KNOWN_CATEGORIES = new Set([
     'concepts', 'decisions', 'entities', 'issues',
-    'learnings', 'security', 'state', 'sources',
+    'learnings', 'security', 'state', 'sources', 'themes',
 ]);
 export async function addFrontmatter(filePath, wikiDir) {
     const original = await fs.readFile(filePath, 'utf-8');

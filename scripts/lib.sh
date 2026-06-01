@@ -510,6 +510,20 @@ sb_count_pin_candidates() {
   [ -f "$f" ] && wc -l < "$f" 2>/dev/null | tr -d ' ' || echo 0
 }
 
+# Folded count of status:open structural conflicts in <knowledge_dir>/graph/conflicts.jsonl.
+# The sidecar is append-only; a conflict's CURRENT status is its last-appended line, so we
+# fold by identity (from,type,to,kind) and count those whose latest line is "open".
+sb_conflicts_open_count() {
+  local kd="${1:-$HOME/knowledge}"; kd="${kd/#\~/$HOME}"
+  local f="$kd/graph/conflicts.jsonl"
+  [ -s "$f" ] || { echo 0; return 0; }
+  # Reduce-keyed fold = explicit "last-appended line wins" per identity (depends only on
+  # documented jq object last-write-wins, not on group_by sort-stability). Per-line tolerant:
+  # a torn/partial last line is skipped (fromjson?) rather than zeroing the whole count.
+  jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[($r|[.from,.type,.to,.kind]|tojson)]=$r)
+          | [.[]] | map(select(.status=="open")) | length' "$f" 2>/dev/null || echo 0
+}
+
 # --- Dream lifecycle helpers ---
 
 sb_generate_dream_id() {
