@@ -62,7 +62,7 @@ Two upgrades to the consolidation layer, each placed in the context allowed to p
   ── DREAM path (dream-runner, STAGING copy of wiki/) ────────────────
    Phase 1 AUDIT → 2 DEDUPLICATE → 3 RELATE → 4 ENRICH
    Phase 4b SUMMARIZE (NEW)  ── B1: scripts/graph-cluster.sh (label-prop over staging related:)
-                                → write themes/<cluster>.md into staging
+                                → write themes/theme-<cluster>.md into staging
    Phase 5 REINDEX  ── regenerates staging index incl. theme pages
    Phase 6 FORGET   ── wiki-forget-candidates.sh (themes PROTECTED)
         │ dream_accept → theme pages land live + reindex + embed
@@ -128,7 +128,7 @@ This determinism is **our** obligation regardless of what Graphiti does — the 
 
 ### B1.2 Theme pages (LLM summaries, regenerable, gated)
 
-For each cluster with `≥ SB_SUMMARIZE_MIN_CLUSTER` members (default 4), the dream-runner writes `staging/wiki/themes/<cluster-slug>.md`:
+For each cluster with `≥ SB_SUMMARIZE_MIN_CLUSTER` members (default 4), the dream-runner writes `staging/wiki/themes/theme-<cluster-slug>.md` (**`theme-` prefix is mandatory** — the cluster id is the smallest member slug, which is almost always an *existing* page, the cluster's anchor; without the prefix the theme page collides with it and `knowledge_validate` reports a `duplicate_slug` error — observed on the first production dream, 2026-06-02):
 
 ```yaml
 ---

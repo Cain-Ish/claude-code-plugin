@@ -83,7 +83,10 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 
 **Phase 4: ENRICH**
 - Apply transcript mining insights (new pages, updates)
-- Category-specific quality: imperative learning titles, entity overviews, concept structure
+- Category-specific BODY quality: imperative learning titles, entity overviews, concept structure
+- Do **NOT** hand-edit `related:` — it is projected from `graph/edges.jsonl`; surface
+  relationship gaps as suggested `knowledge_relate` calls in your report (per Phase 3), not
+  frontmatter edits (the next reindex overwrites them).
 - Remove session-narrative noise
 - Optimize frontmatter for BM25 retrieval (title 3×, description 2×, tags 2×)
 
@@ -96,9 +99,11 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
     --knowledge-dir ~/.second-brain/dreams/{dream_id}/staging)
   ```
 - `CLUST` = JSON `[{id,members,member_hash}]` for clusters ≥ `SB_SUMMARIZE_MIN_CLUSTER`
-  (default 4), capped at `SB_SUMMARIZE_MAX_PAGES` (default 8). For each cluster: skip if
-  `staging/wiki/themes/<id>.md` already has a matching `member_hash`; else write it with
-  frontmatter `type: themes`, `generated: true`, `related: [[member]]…` (member slugs),
+  (default 4), capped at `SB_SUMMARIZE_MAX_PAGES` (default 8). Theme pages are slugged
+  **`theme-<id>`** (the id is the smallest member slug = usually an existing page; the
+  `theme-` prefix prevents a `duplicate_slug` collision with that anchor member). For each
+  cluster: skip if `staging/wiki/themes/theme-<id>.md` already has a matching `member_hash`;
+  else write it with frontmatter `type: themes`, `generated: true`, `related: [[member]]…` (member slugs),
   `member_hash`, and an LLM summary INSIDE `<!-- theme:begin -->` … `<!-- theme:end -->`.
   Author only the marked region. Theme pages are regenerable, FORGET-protected, and staged
   like any page (applied on accept).
