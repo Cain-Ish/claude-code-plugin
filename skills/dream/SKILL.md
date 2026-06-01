@@ -85,9 +85,11 @@ NOT curate edges** — `graph/edges.jsonl` is not snapshotted into staging, so d
 - If you spot strong missing relationships while mining, surface them in the dream report as
   suggested `knowledge_relate` calls for the user / `knowledge-maintainer` to apply **live**.
 
-**2d. ENRICH** — Category-specific quality:
+**2d. ENRICH** — Category-specific BODY quality. Do **NOT** hand-edit `related:` — it is
+projected from the edge log; surface relationship gaps as suggested `knowledge_relate` calls
+in the report (per 2c), not frontmatter edits (the next reindex overwrites them).
 - **Learnings**: imperative titles, actionable body, remove session noise
-- **Entities**: overview + current state + linked learnings/decisions
+- **Entities**: overview + current state + a body section referencing linked learnings/decisions
 - **Concepts**: Problem → Solution → Where Applied → Trade-offs
 - Apply transcript mining insights from Step 1 (new pages, updated content)
 
@@ -102,10 +104,13 @@ CLUST=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/graph-cluster.sh" \
 ```
 
 `CLUST` is JSON `[{id, members, member_hash}]` for clusters ≥ `SB_SUMMARIZE_MIN_CLUSTER`
-(default 4), capped at `SB_SUMMARIZE_MAX_PAGES` (default 8). For each cluster:
-- If `staging/wiki/themes/<id>.md` exists with a **matching `member_hash`**, skip it
+(default 4), capped at `SB_SUMMARIZE_MAX_PAGES` (default 8). Theme pages are slugged
+**`theme-<id>`** — the cluster id is the smallest member slug, which is usually an EXISTING
+page (the cluster's anchor), so the `theme-` prefix prevents a `duplicate_slug` collision with it.
+For each cluster:
+- If `staging/wiki/themes/theme-<id>.md` exists with a **matching `member_hash`**, skip it
   (membership *and* member content unchanged — no LLM call).
-- Else write/overwrite `staging/wiki/themes/<id>.md` with frontmatter `type: themes`,
+- Else write/overwrite `staging/wiki/themes/theme-<id>.md` with frontmatter `type: themes`,
   `generated: true`, `related: [[member]]…` (the member slugs), `member_hash: <hash>`,
   `created`/`updated`, and an LLM summary INSIDE the markers
   `<!-- theme:begin (generated — do not hand-edit) -->` … `<!-- theme:end -->` describing

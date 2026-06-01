@@ -48,7 +48,7 @@ Two upgrades to the consolidation layer, each placed in the context allowed to p
 | Hybrid search | `mcp/src/tools/knowledge-search.ts` | BM25 + ONNX cosine fused via RRF (`RRF_K=60`); the embedding block is a try/catch that **falls back to BM25 only** when `embedTexts→null`. Parses `related:` from frontmatter; **falls back to harvesting ALL body `[[links]]` only when `related:` is empty** (lines 335-340). |
 | Embeddings | `mcp/src/tools/embeddings.ts` | `embedTexts`/`cosineSimilarity`; cache `.embeddings-cache.json` keyed by page path, **per-path content hash** at line 104. Kill switch `SECOND_BRAIN_DISABLE_EMBEDDINGS=1`. |
 | Validate | `mcp/src/tools/knowledge-validate.ts` | Issue types: `orphan_file\|broken_link\|missing_frontmatter\|duplicate_slug\|stale_page\|empty_page\|root_orphan`. Iterates `doc.related` for `broken_link`. **No generated-region / theme awareness** (net-new if wanted). |
-| Forget | `scripts/wiki-forget-candidates.sh` → `scripts/wiki-forget-score.sh` | **`candidates.sh` is the real entry point** (dream FORGET + maintainer call it); it internally runs `score.sh`. `score.sh` category `case`: `learnings\|decisions\|concepts`→PROTECT; `entities\|...`→0.5; **`*)`→0.2, unprotected** — so an unrecognized `themes` category is currently a **prime forget candidate**. |
+| Forget | `scripts/wiki-forget-candidates.sh` → `scripts/wiki-forget-score.sh` | **`candidates.sh` is the real entry point** (dream FORGET + maintainer call it); it internally runs `score.sh`. `score.sh` category `case`: `learnings\|decisions\|concepts`→PROTECT; `entities\|...`→0.5; **`*)`→0.2, unprotected** — `themes` would hit `*)` without an explicit arm, so this work added a **`themes)`→`PROTECT:category` arm** (generated theme pages are never forget candidates). |
 | Dream-runner tools | `agents/dream-runner.md` frontmatter | `Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)`, `jq`, `find`, … — **no `node`**. A node CLI must be wrapped in a `scripts/*.sh` shim (the FORGET phase already does this: `wiki-forget-candidates.sh` → `wiki-recall-check.sh` → node search CLI). |
 
 ## Architecture
@@ -62,7 +62,7 @@ Two upgrades to the consolidation layer, each placed in the context allowed to p
   ── DREAM path (dream-runner, STAGING copy of wiki/) ────────────────
    Phase 1 AUDIT → 2 DEDUPLICATE → 3 RELATE → 4 ENRICH
    Phase 4b SUMMARIZE (NEW)  ── B1: scripts/graph-cluster.sh (label-prop over staging related:)
-                                → write themes/<cluster>.md into staging
+                                → write themes/theme-<cluster>.md into staging
    Phase 5 REINDEX  ── regenerates staging index incl. theme pages
    Phase 6 FORGET   ── wiki-forget-candidates.sh (themes PROTECTED)
         │ dream_accept → theme pages land live + reindex + embed
@@ -128,7 +128,7 @@ This determinism is **our** obligation regardless of what Graphiti does — the 
 
 ### B1.2 Theme pages (LLM summaries, regenerable, gated)
 
-For each cluster with `≥ SB_SUMMARIZE_MIN_CLUSTER` members (default 4), the dream-runner writes `staging/wiki/themes/<cluster-slug>.md`:
+For each cluster with `≥ SB_SUMMARIZE_MIN_CLUSTER` members (default 4), the dream-runner writes `staging/wiki/themes/theme-<cluster-slug>.md` (**`theme-` prefix is mandatory** — the cluster id is the smallest member slug, which is almost always an *existing* page, the cluster's anchor; without the prefix the theme page collides with it and `knowledge_validate` reports a `duplicate_slug` error — observed on the first production dream, 2026-06-02):
 
 ```yaml
 ---
@@ -152,7 +152,7 @@ updated: <date>
 
 ### B1.3 Interaction with FORGET, search, session-load
 
-- **FORGET**: `themes` must be **protected** — and today it is the *opposite* (unrecognized category → `*)`→ `s_cat=0.2`, unprotected → a fresh, not-yet-inbound-linked theme page is a prime candidate). Add an explicit `themes)` arm to `scripts/wiki-forget-score.sh`'s category `case` with `prot="PROTECT:category"`. Because `wiki-forget-candidates.sh` (the real entry point) and the dream Review-phase re-score both call `score.sh`, the protection propagates to **both** paths. Protection is enforced via the **protflag column** (`candidates.sh` filters `$5==""`), independent of the numeric score — so the unconditional stub-floor down-weight on a short generated page is harmless (a builder must not "fix" this by raising `s_cat` alone). Test #8 asserts a freshly-generated theme page (0 inbound links, fresh mtime) is **never** emitted as a candidate by `wiki-forget-candidates.sh`.
+- **FORGET**: `themes` is **protected** — without an explicit arm it would hit `*)` (`s_cat=0.2`, unprotected) and a fresh, not-yet-inbound-linked theme page would be a prime candidate, so this work added a `themes)` arm to `scripts/wiki-forget-score.sh`'s category `case` with `prot="PROTECT:category"`. Because `wiki-forget-candidates.sh` (the real entry point) and the dream Review-phase re-score both call `score.sh`, the protection propagates to **both** paths. Protection is enforced via the **protflag column** (`candidates.sh` filters `$5==""`), independent of the numeric score — so the unconditional stub-floor down-weight on a short generated page is harmless (a builder must not "fix" this by raising `s_cat` alone). Test #8 asserts a freshly-generated theme page (0 inbound links, fresh mtime) is **never** emitted as a candidate by `wiki-forget-candidates.sh`.
 - **Search**: no change required — theme pages are ordinary indexed pages once accepted. (Optional follow-up: a small boost so a theme page outranks its members on a broad query.)
 - **`session-load.sh`** *(deferred follow-up — NOT shipped in 0.22.2)*: a dedicated line surfacing the **theme page of the active project's cluster** is out of scope here. For now, theme pages surface through the **existing** wiki-enrichment keyword search like any indexed page (no dedicated lookup added to `session-load.sh`).
 - **Caches/index populate at `dream_accept`, not dream-time.** In-dream "REINDEX" only rebuilds the staging `index.md` (the MCP reindex can't target staging). The embedding cache + live index update when the accepted theme pages land live. The spec does **not** claim theme pages participate in retrieval mid-dream.
