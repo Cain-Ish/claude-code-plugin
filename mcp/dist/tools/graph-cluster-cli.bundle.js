@@ -87,13 +87,14 @@ function clusters(labels, opts) {
   }
   return out.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
+function djb2(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
 function memberHash(sortedMembers, contentHashBySlug) {
   const basis = sortedMembers.join("|") + "::" + sortedMembers.map((s) => contentHashBySlug[s] ?? "").join("|");
-  let h = 5381;
-  for (let i = 0; i < basis.length; i++) {
-    h = ((h << 5) + h ^ basis.charCodeAt(i)) >>> 0;
-  }
-  return h.toString(36);
+  return djb2(basis);
 }
 
 // src/tools/graph-cluster-cli.ts
@@ -129,11 +130,6 @@ function relatedFrom(fm) {
   const line = fm.split("\n").find((l) => /^related:/.test(l));
   return line ? links(line) : [];
 }
-function djb2(s) {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h ^ s.charCodeAt(i)) >>> 0;
-  return h.toString(36);
-}
 async function main() {
   const wikiDir = resolveWikiDir(process.argv.slice(2));
   const minSize = parseInt(process.env.SB_SUMMARIZE_MIN_CLUSTER ?? "4", 10) || 4;
@@ -154,8 +150,10 @@ async function main() {
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });
     contentHash[slug] = djb2(content);
   }
+  const maxPages = parseInt(process.env.SB_SUMMARIZE_MAX_PAGES ?? "8", 10) || 8;
   const labels = labelPropagate(buildAdjacency(pages));
-  const out = clusters(labels, { minSize }).map((c) => ({
+  const capped = [...clusters(labels, { minSize })].sort((a, b) => b.members.length - a.members.length || (a.id < b.id ? -1 : 1)).slice(0, maxPages).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const out = capped.map((c) => ({
     id: c.id,
     members: c.members,
     member_hash: memberHash(c.members, contentHash)

@@ -40,9 +40,20 @@ pass "SB_SUMMARIZE_MIN_CLUSTER=3 -> 2 clusters (4-clique + triangle)"
 [ "$(bash "$SHIM" --knowledge-dir "$KD")" = "$OUT" ] || fail "non-deterministic output across runs"
 pass "deterministic across runs"
 
+# --- SB_SUMMARIZE_MAX_PAGES cap (keeps the largest cluster) ---
+OUTC=$(SB_SUMMARIZE_MIN_CLUSTER=3 SB_SUMMARIZE_MAX_PAGES=1 bash "$SHIM" --knowledge-dir "$KD")
+[ "$(echo "$OUTC" | jq 'length')" = 1 ] || fail "MAX_PAGES=1 should cap to 1 cluster: $OUTC"
+[ "$(echo "$OUTC" | jq -c '.[0].members')" = '["a","b","c","d"]' ] || fail "cap should keep the largest cluster: $OUTC"
+pass "SB_SUMMARIZE_MAX_PAGES caps to largest-first"
+
 # --- fail-safe: bundle unreachable -> [] exit 0 ---
 OUT4=$(CLAUDE_PLUGIN_ROOT=/nonexistent bash "$SHIM" --knowledge-dir "$KD"); rc=$?
 [ "$rc" -eq 0 ] && [ "$OUT4" = '[]' ] || fail "fail-safe expected []/exit0, got rc=$rc out=$OUT4"
 pass "fail-safe [] when bundle unavailable"
+
+# --- set -u guard: --knowledge-dir with NO value must not crash (rc 0, fail-safe) ---
+OUT5=$(CLAUDE_PLUGIN_ROOT=/nonexistent bash "$SHIM" --knowledge-dir 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "shim crashed (rc=$rc) on bare --knowledge-dir under set -u: $OUT5"
+pass "bare --knowledge-dir does not trip set -u"
 
 echo; echo "ALL PASS"

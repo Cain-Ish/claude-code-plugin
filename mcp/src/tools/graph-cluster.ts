@@ -131,12 +131,16 @@ export function clusters(labels: Map<string, string>, opts: { minSize: number })
 /** Self-contained, content-aware djb2 hash over (sorted members + their content hashes),
  *  so a same-membership member-content change still triggers a theme-page refresh.
  *  Intentionally does NOT reuse embeddings.ts simpleHash (unexported + truncated text). */
+/** djb2 (xor variant) string hash, base36. The single shared content-hash primitive —
+ *  the CLI imports this for per-file hashes so memberHash and the CLI never drift. */
+export function djb2(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
 export function memberHash(sortedMembers: string[], contentHashBySlug: Record<string, string>): string {
   const basis = sortedMembers.join('|') + '::' +
     sortedMembers.map(s => contentHashBySlug[s] ?? '').join('|');
-  let h = 5381;
-  for (let i = 0; i < basis.length; i++) {
-    h = (((h << 5) + h) ^ basis.charCodeAt(i)) >>> 0;
-  }
-  return h.toString(36);
+  return djb2(basis);
 }

@@ -39,5 +39,8 @@ export declare function clusters(labels: Map<string, string>, opts: {
 /** Self-contained, content-aware djb2 hash over (sorted members + their content hashes),
  *  so a same-membership member-content change still triggers a theme-page refresh.
  *  Intentionally does NOT reuse embeddings.ts simpleHash (unexported + truncated text). */
+/** djb2 (xor variant) string hash, base36. The single shared content-hash primitive —
+ *  the CLI imports this for per-file hashes so memberHash and the CLI never drift. */
+export declare function djb2(s: string): string;
 export declare function memberHash(sortedMembers: string[], contentHashBySlug: Record<string, string>): string;
 //# sourceMappingURL=graph-cluster.d.ts.map

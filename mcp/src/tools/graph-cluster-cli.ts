@@ -11,7 +11,7 @@
  */
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { buildAdjacency, labelPropagate, clusters, memberHash, type ClusterPage } from './graph-cluster.js';
+import { buildAdjacency, labelPropagate, clusters, memberHash, djb2, type ClusterPage } from './graph-cluster.js';
 
 function resolveWikiDir(argv: string[]): string {
   if (argv[0] === '--knowledge-dir' && argv[1]) return join(argv[1], 'wiki');
@@ -42,11 +42,6 @@ function relatedFrom(fm: string): string[] {
   const line = fm.split('\n').find(l => /^related:/.test(l));
   return line ? links(line) : [];
 }
-function djb2(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) ^ s.charCodeAt(i)) >>> 0;
-  return h.toString(36);
-}
 
 async function main(): Promise<void> {
   const wikiDir = resolveWikiDir(process.argv.slice(2));
@@ -64,8 +59,16 @@ async function main(): Promise<void> {
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });
     contentHash[slug] = djb2(content);
   }
+  const maxPages = parseInt(process.env.SB_SUMMARIZE_MAX_PAGES ?? '8', 10) || 8;
   const labels = labelPropagate(buildAdjacency(pages));
-  const out = clusters(labels, { minSize }).map(c => ({
+  // Enforce the cap deterministically in code (the agent prose states it too, but bound the
+  // output regardless): keep the LARGEST clusters (most thematic), tie-break by id, then
+  // restore id order for stable output.
+  const capped = [...clusters(labels, { minSize })]
+    .sort((a, b) => b.members.length - a.members.length || (a.id < b.id ? -1 : 1))
+    .slice(0, maxPages)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const out = capped.map(c => ({
     id: c.id, members: c.members, member_hash: memberHash(c.members, contentHash),
   }));
   process.stdout.write(JSON.stringify(out) + '\n');

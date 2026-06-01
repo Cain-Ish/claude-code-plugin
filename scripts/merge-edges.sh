@@ -76,8 +76,9 @@ detect_conflict() {
 
 # True iff conflict identity (from,type,to,kind) currently folds to status:open.
 already_open() {
+  # Per-line tolerant fold (skip torn lines) so a partial last line can't mask an open conflict.
   [ -s "$CONFLICTS" ] && jq -e --arg f "$1" --arg t "$2" --arg o "$3" --arg k "$4" \
-    -s 'group_by([.from,.type,.to,.kind]) | map(last)
+    -nR '[inputs|fromjson?] | group_by([.from,.type,.to,.kind]) | map(last)
         | any(.from==$f and .type==$t and .to==$o and .kind==$k and .status=="open")' \
     "$CONFLICTS" >/dev/null 2>&1
 }

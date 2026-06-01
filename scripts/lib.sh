@@ -517,8 +517,10 @@ sb_conflicts_open_count() {
   local kd="${1:-$HOME/knowledge}"; kd="${kd/#\~/$HOME}"
   local f="$kd/graph/conflicts.jsonl"
   [ -s "$f" ] || { echo 0; return 0; }
-  jq -s 'group_by([.from,.type,.to,.kind]) | map(last)
-         | map(select(.status=="open")) | length' "$f" 2>/dev/null || echo 0
+  # Per-line tolerant fold: a torn/partial last line is skipped (fromjson?) rather than
+  # zeroing the whole count — the banner must survive a crash mid-append to the sidecar.
+  jq -nR '[inputs|fromjson?] | group_by([.from,.type,.to,.kind]) | map(last)
+          | map(select(.status=="open")) | length' "$f" 2>/dev/null || echo 0
 }
 
 # --- Dream lifecycle helpers ---

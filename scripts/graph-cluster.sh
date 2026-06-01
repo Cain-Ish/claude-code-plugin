@@ -9,7 +9,7 @@ set -u
 KDIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --knowledge-dir) KDIR="$2"; shift 2 ;;
+    --knowledge-dir) KDIR="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
     *) shift ;;
   esac
 done

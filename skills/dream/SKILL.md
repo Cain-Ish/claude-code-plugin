@@ -78,10 +78,12 @@ Work exclusively on the staging wiki at `~/.second-brain/dreams/{dream_id}/stagi
 - Update all `[[wiki-links]]` and `related:` references to point to surviving page
 - Add `## History` entry noting the merge
 
-**2c. RELATE** — Build `related:` links:
-- Every page should have at least 1 relation
-- Priority: Entity↔Learning, Entity↔Concept, Learning↔Learning
-- Make relations bidirectional
+**2c. RELATE** — relationships live in the bi-temporal edge log (`~/knowledge/graph/edges.jsonl`)
+and are **projected** onto `related:` + the `## Dependencies` block at reindex. **The dream does
+NOT curate edges** — `graph/edges.jsonl` is not snapshotted into staging, so do **not** hand-edit
+`related:` or the `<!-- graph:begin -->` block here (it is overwritten at projection).
+- If you spot strong missing relationships while mining, surface them in the dream report as
+  suggested `knowledge_relate` calls for the user / `knowledge-maintainer` to apply **live**.
 
 **2d. ENRICH** — Category-specific quality:
 - **Learnings**: imperative titles, actionable body, remove session noise
@@ -119,7 +121,7 @@ on accept, not at dream time.
 Scores the **LIVE** wiki read-only (it copies to a temp to probe; never mutates live —
 and real page ages matter, since staging mtimes are all fresh from the dream snapshot),
 selecting low-value, old, unlinked, recall-safe pages, and writes a manifest. Archiving
-happens only on accept (Review phase) — Phase 2f writes nothing to the wiki.
+happens only on accept (Review phase) — the FORGET phase writes nothing to the wiki.
 
 ```bash
 MAN=~/.second-brain/dreams/{dream_id}/forget-manifest.tsv
