@@ -106,8 +106,10 @@ your edits will be overwritten. Curate the **edges** instead, via `knowledge_rel
    append-only; a conflict's current status is its LAST line, so fold by
    `(from,type,to,kind)` and keep those whose latest status is `open`:
    ```bash
-   jq -s 'group_by([.from,.type,.to,.kind]) | map(last) | map(select(.status=="open"))' \
-     ~/knowledge/graph/conflicts.jsonl 2>/dev/null
+   # reduce-keyed fold = explicit "last-appended line per identity wins" + torn-line tolerant
+   # (same pattern as scripts/lib.sh sb_conflicts_open_count; no group_by sort-stability dependency)
+   jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[($r|[.from,.type,.to,.kind]|tojson)]=$r)
+           | [.[]] | map(select(.status=="open"))' ~/knowledge/graph/conflicts.jsonl 2>/dev/null
    ```
    For each open conflict, judge and act via `knowledge_relate`:
    - `reintroduce` — a retired edge was re-asserted: was the retirement wrong (re-assert is
