@@ -159,7 +159,9 @@ page (≥ 200 non-space prose chars) with no block predates the feature or was n
 Stubs are exempt. (`infm`/`drop`, not the reserved `in` — see the awk header note.)
 
 ```bash
-for type in learnings decisions entities issues concepts security; do
+# Structured types come from the KB single source of truth (kb-schema.json), not a hardcoded list.
+source "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/cache/second-brain/second-brain/*/}/scripts/kb-schema.sh" 2>/dev/null || true
+for type in ${SB_STRUCTURED_TYPES:-learnings decisions entities issues concepts security}; do
   d="$KD/wiki/$type"; [ -d "$d" ] || continue
   find "$d" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while read -r f; do
     # Skip pages that already have a block. Use `grep -l` (whole-file, capture) NOT `grep -q`:

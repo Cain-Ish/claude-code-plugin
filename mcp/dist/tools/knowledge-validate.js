@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import { join, basename, dirname, relative } from 'path';
 import { parseDoc } from './knowledge-search.js';
 import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
+import { ALL_CATEGORIES } from '../constants/kb-schema.js';
 // A structured page with this much prose (non-frontmatter, marked regions stripped) but no
 // ai-block is a backfill candidate; shorter pages are legitimate stubs, exempt. Env-overridable
 // in lockstep with kb-ai-block-candidates.sh / lint Check 4 (default 200).
@@ -163,10 +164,8 @@ export async function knowledgeValidate(knowledgeDir, opts = {}) {
     }
     return { issues, fixed, pagesScanned: allPages.length };
 }
-const KNOWN_CATEGORIES = new Set([
-    'concepts', 'decisions', 'entities', 'issues',
-    'learnings', 'security', 'state', 'sources', 'themes', 'projects',
-]);
+// Single source of truth: every recognized wiki category (kb-schema.json via kb-schema.ts).
+const KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 export async function addFrontmatter(filePath, wikiDir) {
     const original = await fs.readFile(filePath, 'utf-8');
     // Defensive: if frontmatter snuck in between scan and write, leave it alone.

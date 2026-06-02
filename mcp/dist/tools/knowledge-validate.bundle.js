@@ -6197,6 +6197,31 @@ function extractYamlList(yaml, key) {
   return items;
 }
 
+// ../kb-schema.json
+var kb_schema_default = {
+  _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
+  structured_types: ["learnings", "decisions", "entities", "issues", "concepts", "security"],
+  unstructured_types: ["state", "sources"],
+  generated_dirs: ["projects", "themes"],
+  edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
+  project_sections: ["blockers", "decisions"],
+  forget_protection: {
+    protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
+    discounted: ["entities", "sources", "issues"]
+  }
+};
+
+// src/constants/kb-schema.ts
+var STRUCTURED_TYPES = kb_schema_default.structured_types;
+var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
+var GENERATED_DIRS = kb_schema_default.generated_dirs;
+var EDGE_TYPES = kb_schema_default.edge_types;
+var PROJECT_SECTIONS = kb_schema_default.project_sections;
+var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
+var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
+var CONTENT_CATEGORIES = [...STRUCTURED_TYPES, ...UNSTRUCTURED_TYPES];
+var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
+
 // src/tools/knowledge-validate.ts
 var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
@@ -6344,18 +6369,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   }
   return { issues, fixed, pagesScanned: allPages.length };
 }
-var KNOWN_CATEGORIES = /* @__PURE__ */ new Set([
-  "concepts",
-  "decisions",
-  "entities",
-  "issues",
-  "learnings",
-  "security",
-  "state",
-  "sources",
-  "themes",
-  "projects"
-]);
+var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
   const original = await fs.readFile(filePath, "utf-8");
   if (/^---\n/.test(original)) return;

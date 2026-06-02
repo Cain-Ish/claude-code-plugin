@@ -17,7 +17,10 @@ done
 KDIR="${KDIR/#\~/$HOME}"
 WIKI="$KDIR/wiki"; [ -d "$WIKI" ] || exit 0
 
-for type in learnings decisions entities issues concepts security; do
+# Structured types come from the KB single source of truth (kb-schema.json), never hardcoded.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
+for type in ${SB_STRUCTURED_TYPES:-}; do
   dir="$WIKI/$type"; [ -d "$dir" ] || continue
   find "$dir" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | sort | while IFS= read -r f; do
     # idempotent: skip pages that already have a block (any spacing). `grep -l` (whole-file)

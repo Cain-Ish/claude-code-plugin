@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import { join, basename, dirname, relative } from 'path';
 import { parseDoc, ParsedDoc } from './knowledge-search.js';
 import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
+import { ALL_CATEGORIES } from '../constants/kb-schema.js';
 
 // A structured page with this much prose (non-frontmatter, marked regions stripped) but no
 // ai-block is a backfill candidate; shorter pages are legitimate stubs, exempt. Env-overridable
@@ -188,10 +189,8 @@ export async function knowledgeValidate(
   return { issues, fixed, pagesScanned: allPages.length };
 }
 
-const KNOWN_CATEGORIES = new Set([
-  'concepts', 'decisions', 'entities', 'issues',
-  'learnings', 'security', 'state', 'sources', 'themes', 'projects',
-]);
+// Single source of truth: every recognized wiki category (kb-schema.json via kb-schema.ts).
+const KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 
 export async function addFrontmatter(filePath: string, wikiDir: string): Promise<void> {
   const original = await fs.readFile(filePath, 'utf-8');
