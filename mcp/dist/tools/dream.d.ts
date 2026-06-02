@@ -1,3 +1,9 @@
+/** Convert a path to a form `bash` accepts as an argv script path. On Windows, Node's
+ *  `path.join` yields a backslash path (`C:\Users\x\...\dream-snapshot.sh`); passing that to
+ *  `bash` eats the `\` escapes (`C:Usersx...`) → "No such file or directory". Git Bash / MSYS
+ *  bash opens `/c/Users/x/...`, so map backslashes→slashes and `C:/`→`/c/`. No-op on POSIX
+ *  (no backslashes, no drive letter). Exported for tests. */
+export declare function toBashPath(p: string): string;
 interface DreamStatus {
     id: string;
     status: "pending" | "running" | "completed" | "failed" | "canceled";

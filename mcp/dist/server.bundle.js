@@ -28650,6 +28650,12 @@ function scriptsDir() {
     "scripts"
   );
 }
+function toBashPath(p) {
+  let s = p.replace(/\\/g, "/");
+  const drive = s.match(/^([A-Za-z]):\//);
+  if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
+  return s;
+}
 async function readStatus(dreamId) {
   const statusPath = join11(dreamsDir(), dreamId, "status.json");
   try {
@@ -28698,7 +28704,7 @@ async function dreamCreate(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join11(scriptsDir(), "dream-snapshot.sh"), ...scriptArgs],
+      [toBashPath(join11(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
       { timeout: 3e4, env: { ...process.env } }
     );
     const dreamId = stdout.trim();
@@ -28762,7 +28768,7 @@ async function dreamAccept(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join11(scriptsDir(), "dream-accept.sh"), args.dream_id],
+      [toBashPath(join11(scriptsDir(), "dream-accept.sh")), args.dream_id],
       { timeout: 3e4, env: { ...process.env } }
     );
     const output = stdout.trim();

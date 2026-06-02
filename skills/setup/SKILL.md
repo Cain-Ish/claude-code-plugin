@@ -114,22 +114,20 @@ if [ ! -f "$PCARD" ]; then
 # Persona
 
 ## Identity
-- ${ROLE:-senior engineer}
-- ${GOAL:-current project work}
+- ${ROLE:-(set your role in ~/.second-brain/USER.md)}
+- ${GOAL:-(current project — set Goal in PROJECT.md)}
 
 ## Communication style
 - direct, terse, no filler
-- evidence before completion claims (run the command, then claim)
 
 ## Working preferences
-- brainstorm 2-3 options before architecture decisions
-- fail loud over silent fallback (no \`2>/dev/null\` patterns)
-- skill bodies under ~500 lines; extract templates to siblings
+- brainstorm 2-3 options before a non-trivial decision
+- evidence before completion claims (run the check, then claim)
 
 ## How to engage me
-- Surface critical context; don't restate what I know
-- Ask one focused question only when ambiguity is costly to guess wrong
-- Default silent; volunteer only when expected value exceeds flow cost
+- surface critical context; don't restate what I already know
+- ask one focused question only when ambiguity is costly to guess wrong
+- default to silence; volunteer only when the value clearly exceeds the interruption
 EOF
   echo "Seeded persona-card.md ($(wc -c < "$PCARD") bytes)"
 else
