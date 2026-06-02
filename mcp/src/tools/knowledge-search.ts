@@ -92,7 +92,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       const doc: ParsedDoc = {
         title: '', description: e.gist, type: 'local-doc', tags: [],
         related: [], body: e.headings.join('\n'), path: e.path,
-        updated: e.mtime, created: e.mtime,
+        updated: e.mtime, created: e.mtime, project: '', area: '',
       };
       allDocs.push({ doc, rawContent: `${e.gist}\n${e.headings.join('\n')}`, source: 'local-doc', tokens: Math.ceil(e.size / 4) });
     }

@@ -6157,7 +6157,9 @@ function parseDoc(content, filePath) {
     body: content,
     path: filePath,
     updated: "",
-    created: ""
+    created: "",
+    project: "",
+    area: ""
   };
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
@@ -6170,6 +6172,8 @@ function parseDoc(content, filePath) {
     doc.related = extractYamlList(fm, "related");
     doc.updated = extractYamlValue(fm, "updated");
     doc.created = extractYamlValue(fm, "created");
+    doc.project = extractYamlValue(fm, "project");
+    doc.area = extractYamlValue(fm, "area");
   }
   if (!doc.title) {
     const headingMatch = doc.body.match(/^#\s+(.+)/m);
@@ -6365,7 +6369,8 @@ var KNOWN_CATEGORIES = /* @__PURE__ */ new Set([
   "security",
   "state",
   "sources",
-  "themes"
+  "themes",
+  "projects"
 ]);
 async function addFrontmatter(filePath, wikiDir) {
   const original = await fs2.readFile(filePath, "utf-8");
@@ -6541,6 +6546,36 @@ ${block}
   return { pagesUpdated: updated };
 }
 
+// src/tools/project-moc.ts
+var MOC_BEGIN = "<!-- moc:begin (generated from project: facets \u2014 do not hand-edit) -->";
+var MOC_END = "<!-- moc:end -->";
+function buildProjectMocs(pages, opts) {
+  const byProject = /* @__PURE__ */ new Map();
+  for (const p of pages) {
+    const proj = (p.project || "").trim();
+    if (!proj) continue;
+    if (!byProject.has(proj)) byProject.set(proj, []);
+    byProject.get(proj).push(p);
+  }
+  const out = /* @__PURE__ */ new Map();
+  for (const [proj, members] of [...byProject.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1)) {
+    if (members.length < opts.minMembers) continue;
+    const types2 = [...new Set(members.map((m) => m.type))].sort();
+    const lines = [MOC_BEGIN];
+    for (const t of types2) {
+      lines.push(`## ${t}`);
+      for (const m of members.filter((m2) => m2.type === t).sort((a, b) => a.slug < b.slug ? -1 : 1)) {
+        const desc = m.description ? ` \u2014 ${m.description}` : "";
+        lines.push(`- [[${m.slug}]]${desc}`);
+      }
+      lines.push("");
+    }
+    lines.push(MOC_END);
+    out.set(proj, lines.join("\n"));
+  }
+  return out;
+}
+
 // src/tools/knowledge-reindex.ts
 async function knowledgeReindex(knowledgeDir) {
   try {
@@ -6556,9 +6591,11 @@ async function knowledgeReindex(knowledgeDir) {
   } catch {
     return { pagesIndexed: 0, categories: [], indexPath };
   }
-  const sections = ["# Knowledge Base Index", ""];
+  const allPages = [];
+  const categoryRows = [];
   let totalPages = 0;
   for (const dir of dirs) {
+    if (dir === "projects") continue;
     const dirPath = join4(wikiRoot, dir);
     const files = await collectMd(dirPath);
     if (files.length === 0) continue;
@@ -6569,24 +6606,51 @@ async function knowledgeReindex(knowledgeDir) {
         const content = await fs4.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         const desc = doc.description || firstSentence(doc.body);
-        entries.push({ slug, title: doc.title || slug, description: desc });
+        entries.push({ slug, description: desc });
+        allPages.push({ slug, type: dir, project: doc.project, title: doc.title || slug, description: desc });
       } catch {
-        entries.push({ slug, title: slug, description: "" });
+        entries.push({ slug, description: "" });
+        allPages.push({ slug, type: dir, project: "", title: slug, description: "" });
       }
     }
-    const label = dir.charAt(0).toUpperCase() + dir.slice(1);
-    sections.push(`## ${label} (${entries.length} pages)`);
-    for (const e of entries) {
-      const desc = e.description ? ` \u2014 ${e.description}` : "";
-      sections.push(`- [[${e.slug}]]${desc}`);
-    }
-    sections.push("");
     totalPages += entries.length;
+    if (dir === "themes") continue;
+    const label = dir.charAt(0).toUpperCase() + dir.slice(1);
+    categoryRows.push(`- **${label}** (${entries.length}): ${entries.map((e) => e.slug).join(", ")}`);
   }
-  if (totalPages === 0) {
-    sections.push("*(no pages yet)*");
-    sections.push("");
+  const minMembers = Number(process.env.SB_MOC_MIN_MEMBERS || "3");
+  const mocs = process.env.SB_KB_MOC === "off" ? /* @__PURE__ */ new Map() : buildProjectMocs(allPages, { minMembers });
+  const projDir = join4(wikiRoot, "projects");
+  if (mocs.size > 0) await fs4.mkdir(projDir, { recursive: true });
+  for (const [proj, region] of mocs) {
+    const header = [
+      "---",
+      `title: ${proj}`,
+      "type: projects",
+      "generated: true",
+      "graph: exclude",
+      `description: Map of Content for project ${proj} (generated from project: facets).`,
+      "---",
+      ""
+    ].join("\n");
+    await fs4.writeFile(join4(projDir, `${proj}.md`), header + region + "\n", "utf-8");
   }
+  const sections = [
+    "---",
+    "title: Knowledge Base Index",
+    "type: index",
+    "graph: exclude",
+    "---",
+    "",
+    "# Knowledge Base Index",
+    ""
+  ];
+  const mocLinks = [];
+  for (const slug of await mocSlugs(projDir)) mocLinks.push(`- [[projects/${slug}]]`);
+  for (const slug of await mocSlugs(join4(wikiRoot, "themes"))) mocLinks.push(`- [[themes/${slug}]]`);
+  if (mocLinks.length) sections.push("## Maps of Content", "", ...mocLinks, "");
+  if (categoryRows.length) sections.push("## Categories", "", ...categoryRows, "");
+  if (totalPages === 0 && mocLinks.length === 0) sections.push("*(no pages yet)*", "");
   sections.push(`<!-- generated: ${(/* @__PURE__ */ new Date()).toISOString()} -->`);
   await fs4.writeFile(indexPath, sections.join("\n"), "utf-8");
   const validation = await knowledgeValidate(knowledgeDir, { autofix: true });
@@ -6601,6 +6665,13 @@ function firstSentence(body) {
   const text = body.replace(/^#.*\n/m, "").trim();
   const match2 = text.match(/^(.+?[.!?])\s/);
   return match2 ? match2[1].slice(0, 120) : text.slice(0, 120);
+}
+async function mocSlugs(dir) {
+  try {
+    return (await fs4.readdir(dir)).filter((f) => f.endsWith(".md") && f !== "index.md").map((f) => f.replace(/\.md$/, "")).sort();
+  } catch {
+    return [];
+  }
 }
 async function collectMd(dir, acc = []) {
   try {
