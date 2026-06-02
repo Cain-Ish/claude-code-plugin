@@ -22,7 +22,8 @@ acount(){ local v; v=$( [ -s "$AC" ] && jq -r --arg s "$1" '(.[$s].count // .[$s
 
 find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while read -r f; do
   slug=$(basename "$f" .md); cat=$(basename "$(dirname "$f")")
-  age=$(( (now - $(stat -c %Y "$f")) / 86400 ))
+  mt=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo "$now")  # GNU || BSD/macOS
+  age=$(( (now - mt) / 86400 ))
   # body byte-count is PROSE-ONLY: strip the authored ai-block so a uniform block can't lift
   # every page over the stub floor (spec §5b). Only strip when a COMPLETE block exists (a
   # closing ai:end is present) — an unterminated ai:begin is NOT a block, so it stays a raw

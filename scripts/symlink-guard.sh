@@ -53,12 +53,16 @@ esac
 # Resolve through symlinks. -m: missing-component-tolerant (Write targets the
 # file may not exist yet); we still resolve the parent's symlinks.
 RESOLVED=$(realpath -m -- "$FILE_PATH" 2>/dev/null)
-# realpath unavailable (binary absent): fail CLOSED toward credential safety, not open. We
-# can't resolve symlinks, so fall back to a lexical check of the literal path (expand a leading
-# ~) and STILL run the credential-prefix checks below — an obvious literal ~/.ssh write is denied.
-# A symlink escape could slip in this fallback, but realpath is a coreutils hard-dep so this is
-# effectively unreachable; the lexical check is strictly safer than the old blind `exit 0`.
-[ -z "$RESOLVED" ] && RESOLVED="${FILE_PATH/#\~/$HOME}"
+if [ -z "$RESOLVED" ]; then
+  # `realpath -m` failed: either the binary is absent OR it's BSD/macOS realpath (no `-m`
+  # missing-target tolerance, so a not-yet-created Write target yields nothing). Resolve the
+  # PARENT dir's symlinks PORTABLY via `cd … && pwd -P` (works on bash 3.2 / BSD / macOS) and
+  # append the basename, so a symlinked-parent escape into a credential dir is STILL caught.
+  # Last resort (parent doesn't exist): lexical ~-expansion — fail CLOSED, never blind-allow.
+  _pd=$(dirname -- "$FILE_PATH"); _pb=$(basename -- "$FILE_PATH")
+  _rpd=$(cd "$_pd" 2>/dev/null && pwd -P)
+  if [ -n "$_rpd" ]; then RESOLVED="$_rpd/$_pb"; else RESOLVED="${FILE_PATH/#\~/$HOME}"; fi
+fi
 
 # Source lib.sh for sb_log_audit. Fail-soft.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"

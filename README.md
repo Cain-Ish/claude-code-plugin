@@ -12,14 +12,17 @@ At SessionStart, the plugin reads `~/.second-brain/USER.md` and the project-scop
 ### 2. Explicit pin tools (MCP)
 Three MCP tools — `pin_to_user`, `pin_to_project`, `archive_to_wiki` — let Claude (or you) write a fact into the right tier. Pins are append-with-dedupe; the user confirms each pin before it lands. The `/second-brain:improve` skill proposes up to 3 candidate pins from the current session's evidence and waits for your approval.
 
-### 3. Local wiki + token-overlap search
-A Karpathy-inspired wiki under `~/knowledge/wiki/` holds longer-form notes, sources, and archived sessions, cross-referenced via `[[wiki-links]]`. The `knowledge_search` MCP tool uses a fast Node filesystem walk + token-overlap scoring (no embeddings, no API calls, no external dependencies). All knowledge stays on your machine.
+### 3. A local wiki it can search
+Longer-form notes, sources, and past sessions live in a local wiki, cross-linked so related ideas connect. Claude searches it on demand and gets sharper results when an optional on-device model is present — but it all works offline, and nothing leaves your machine.
 
-### 4. Stop-hook predicate
-A 4-condition boolean diff at Stop time decides whether the session is worth offering a pin proposal for. No background extraction, no friction logging — the predicate fires only when the session crossed concrete thresholds (e.g. files touched, baseline divergence).
+### 4. It learns automatically
+At the end of a session (and before a context compaction), the plugin quietly captures what mattered — decisions made, problems hit, things worth reusing — and files them into the right place. Memory builds up on its own, so you don't have to remember to save anything. You can still pin facts by hand whenever you want.
 
-### 5. Host AI-context import
-`/second-brain:import-host` finds existing AI-context files on your machine (`~/CLAUDE.md`, `~/AGENTS.md`, `.cursorrules`, repo-local equivalents) and routes their contents into the right tier — durable preferences to USER.md, project facts to PROJECT.md, longer narrative to wiki.
+### 5. It connects and tidies what it knows
+Related notes are linked into a lightweight knowledge graph, so Claude can follow "what depends on what." Each note also carries a short machine-readable summary so an AI can grasp it without re-reading the prose. Over time a consolidation pass merges duplicates and retires stale notes — always reversibly, never a hard delete.
+
+### 6. It can import what you already have
+`/second-brain:import-host` finds AI-context files you already keep (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, and repo-local equivalents) and folds their contents into the right tier — preferences, project facts, or longer notes.
 
 ## Installation
 
@@ -85,7 +88,7 @@ The SessionStart banner always shows the active mode in one line.
 | `/second-brain:setup` | Initialize hot-tier files (`USER.md`, `projects/<slug>/PROJECT.md`), wiki dirs, and build the MCP server |
 | `/second-brain:upgrade` | Detect installed plugin version and run idempotent migrations |
 | `/second-brain:status` | Dashboard of hot-tier and wiki state (line counts, last-pin timestamps, project slug) plus a runtime smoke check via `verify.sh` |
-| `/second-brain:query [question]` | Search the wiki via the `knowledge_search` MCP tool (Node fs walk + token-overlap scoring) |
+| `/second-brain:query [question]` | Search the wiki via the `knowledge_search` MCP tool (local BM25, with an optional on-device vector boost) |
 | `/second-brain:lint` | Health-check the wiki: orphan pages and dead `[[wiki-links]]` |
 | `/second-brain:improve` | Propose up to 3 pins (USER.md / PROJECT.md / wiki) from session evidence; user confirms each |
 | `/second-brain:doubt` | Adversarial drilling skill — challenge a claim or proposed change before acting |
@@ -93,6 +96,9 @@ The SessionStart banner always shows the active mode in one line.
 | `/second-brain:recall [query]` | Search past session transcripts via `episodic_search` (hybrid vector + text) |
 | `/second-brain:dream` | Background consolidation of the wiki (dedupe, link, prune); staging area, review before accept |
 | `/second-brain:review` | Read-only cross-project overview: open blockers, stale projects, pending dreams, ungraduated persona signals |
+| `/second-brain:audit` | Show what the safety layer did this session — guard verdicts, tool-return flags, wiki-write decisions (read-only) |
+| `/second-brain:track` | Register a docs/source location so the next session indexes it for retrieval |
+| `/second-brain:using-second-brain` | The persona-as-collaborator protocol — how Claude consults identity, memory, and the tool catalog before answering |
 | `/second-brain:code-review-deep [<PR#>]` | Multi-pass deep code review: review-unit decomposition + per-unit reviewers on the best available model (docs on Haiku), a git-history regression lens, an advisory architectural pass on critical/high units, FP-aware scoring with a surfaced lower-confidence band, wiki/episodic context. `--comment` posts to the PR |
 | `/second-brain:brainstorming` | Vendored from obra/superpowers — pause-and-design before implementation |
 | `/second-brain:writing-plans` | Vendored — write detailed implementation plan from a spec |
@@ -170,6 +176,8 @@ The plugin includes a local MCP server. Tools:
 | `pin_to_user` | Append-with-dedupe write to `USER.md` |
 | `pin_to_project` | Append-with-dedupe write to a project's `PROJECT.md` |
 | `archive_to_wiki` | Write a longer-form note as a wiki page |
+| `knowledge_relate` | Assert (or retire) a typed relationship between two pages |
+| `knowledge_neighbors` | Walk a page's relationship neighbourhood (multi-hop, point-in-time) |
 | `dream_*` | 6 tools for background knowledge consolidation (`create`, `status`, `list`, `accept`, `discard`, `cancel`) |
 | `persona_stats`, `persona_dismiss`, `persona_think` | Layer 5 persona surface |
 
@@ -204,11 +212,11 @@ If you set a custom `knowledge_dir` via `/plugin manage`, only the wiki tree mov
 
 The plugin is tested on:
 
-- **Linux** — bash via shell hooks; Node 22+ for the MCP server
-- **macOS** — same; `tr`-based path normalization avoids GNU-only sed flags
-- **Windows** — Git Bash from `git for windows` for the shell hooks; Node from the standard installer for the MCP server. Native cmd/PowerShell isn't supported because the hooks run bash scripts.
+- **Linux** — bash via shell hooks; Node 22+ for the MCP server (the primary target).
+- **macOS** — same, with BSD coreutils and the stock `/bin/bash` **3.2** in mind: scripts avoid bash-4-only features (no `mapfile`/`readarray`, associative arrays, or `${x^^}`/`${x,,}`), and every GNU/BSD coreutils divergence is dual-pathed — `stat -c … || stat -f`, `date -d … || date -v`, `command -v timeout || command -v gtimeout`, fixed-string grep instead of PCRE `-P`, and a portable `realpath -m … || cd "$(dirname)" && pwd -P` resolver. Install GNU coreutils (`brew install coreutils`) for the optional `timeout`/`gtimeout` extraction bound; without it extraction simply runs unbounded.
+- **Windows** — Git Bash from *Git for Windows* (or WSL) for the shell hooks; Node from the standard installer for the MCP server. Native cmd/PowerShell is **not** supported — the hooks run bash scripts, so a POSIX shell is required.
 
-Path resolution uses the cross-platform-safe `$HOME` (Git Bash maps it to `/c/Users/<user>`), and Node's `os.homedir()`. No GNU-only flags. JSON output handles CRLF line endings (jq on Windows emits CRLF; the validator strips it). Tests require `jq`, `mktemp`, and `bash` — all bundled with Git Bash.
+Path resolution uses the cross-platform-safe `$HOME` (Git Bash maps it to `/c/Users/<user>`) and Node's `os.homedir()`. CRLF line endings are handled (jq on Windows emits CRLF; the validator strips it). Portability is enforced by `tests/test-script-portability.sh`, which fails the suite on a re-introduced bash-4 builtin, unpaired `stat -c`/`date -d`, or PCRE `grep -P`. Tests require `jq`, `mktemp`, and `bash` — all bundled with Git Bash.
 
 ## Privacy
 
@@ -217,13 +225,13 @@ Path resolution uses the cross-platform-safe `$HOME` (Git Bash maps it to `/c/Us
 - Plugin code (shareable via marketplace): zero user data
 - Knowledge base (`~/knowledge/`): completely local, never synced
 - Hot-tier state (`~/.second-brain/`): completely local, never synced
-- Search: Node filesystem walk + token-overlap scoring over local wiki files — no embeddings, no vectordb, no model download
+- Search: runs locally — BM25 over your wiki files plus an optional on-device model; no cloud service, no external vectordb
 - No telemetry, no cloud services, no API calls
 - `.nosync` marker files are created on macOS to prevent iCloud sync (no-op on Windows/Linux — sync providers there have their own ignore mechanisms)
 
 ### What does talk to the network
 
-The v2.x plugin makes Anthropic API calls in three places, and nothing else:
+The plugin makes Anthropic API calls in three places, and nothing else:
 
 1. **Stop / PreCompact extractor** — sends the preprocessed session transcript (decisions, blockers, cross-references, files touched — roughly 15–20 KB after the jq preprocessor strips tool-result payloads and attachments) to whichever Anthropic endpoint your auth mode uses. Default model `claude-sonnet-4-6`, configurable via `SB_EXTRACTOR_MODEL`.
 2. **Persona Layer 2 advisor brief** — opt-in only, via `/?` prefix or `/second-brain:think`. Calls `claude-opus-4-7` by default; hard daily cap via `SB_PERSONA_DAILY_BUDGET` (default $20).
@@ -245,21 +253,17 @@ The knowledge base at `~/knowledge/` is fully compatible with Obsidian (uses sta
 
 ```
 Session N
-  ├─ SessionStart reads USER.md + projects/<slug>/PROJECT.md → emits as context
-  ├─ Baseline captured (current hot-tier line counts + last-modified timestamps)
-  ├─ Claude works; if something's worth remembering, it (or you) calls a pin MCP tool:
-  │     pin_to_user      → durable preference, applies across all projects
-  │     pin_to_project   → project-scoped fact, slug-routed
-  │     archive_to_wiki  → longer-form note that doesn't belong in the hot tier
-  └─ Stop hook → predicate evaluates 4 conditions vs. baseline; if any fired,
-                 emits a one-line nudge: "consider /second-brain:improve to propose pins"
+  ├─ SessionStart loads your hot tier (USER.md + this project's PROJECT.md) into context
+  ├─ Claude works; you can pin anything important by hand at any time
+  └─ At the end (and before a context compaction), the extractor captures what
+     mattered and files it for you — into the hot tier, the wiki, and the graph
 
-Session N+1 (SessionStart)
-  └─ Same hot-tier load; pins from Session N are now part of the auto-loaded context
+Session N+1
+  └─ The new knowledge is already loaded; relevant wiki notes surface on demand
 
-Result: memory is what *you* pinned. No autonomous writes, no background extraction,
-        no PR opened against your repo. The wiki is searched on demand via
-        /second-brain:query (token-overlap search).
+Result: memory builds up on its own, plus whatever you pin by hand. Everything stays
+        on your machine — written to your local knowledge base, never to your repo,
+        never to the cloud.
 ```
 
 ## Testing
@@ -272,7 +276,7 @@ Tests run in isolation under `mktemp` sandboxes (no real user data is touched). 
 make test                       # or: bash tests/run-all.sh
 ```
 
-Currently this runs 24 shell tests + 59 vitest assertions. Output is a per-test verdict and a summary; exit code is non-zero on any failure.
+Currently this runs 72 shell test suites + 357 vitest assertions (and grows with each feature). Output is a per-test verdict and a summary; exit code is non-zero on any failure.
 
 **Install the pre-push gate** so broken commits cannot be pushed:
 

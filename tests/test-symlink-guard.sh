@@ -139,5 +139,13 @@ assert_deny "realpath absent → fail CLOSED on literal ~/.ssh write" "$OUT" "ss
 OUT=$(gen Write "$HOME/work/repo/main.py" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
 assert_allow "realpath absent → normal project write not over-blocked" "$OUT"
 
+# --- Test 18: realpath absent + symlinked PARENT → portable cd/pwd -P resolver still denies ----
+# This is the macOS/BSD path (realpath lacks -m): the guard must resolve the parent dir's
+# symlinks via `cd … && pwd -P` and still catch a symlinked-parent escape into ~/.ssh.
+ln -sf "$HOME/.ssh" "$HOME/work/repo/foo2"
+OUT=$(gen Write "$HOME/work/repo/foo2/new_key" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+assert_deny "realpath absent + symlinked parent → cd/pwd -P fallback denies (macOS path)" "$OUT" "ssh"
+rm -f "$HOME/work/repo/foo2"
+
 echo
 echo "ALL PASS"

@@ -16,8 +16,11 @@ command -v jq >/dev/null 2>&1 || { echo "candidates: jq missing" >&2; exit 2; }
 
 scored=$(bash "$SCORER") || { echo "candidates: scorer failed" >&2; exit 2; }
 
-# score-eligible = score < FLOOR and empty protflag, capped
-mapfile -t cand < <(printf '%s\n' "$scored" | awk -F'\t' -v fl="$FLOOR" '($1+0)<fl && $5==""{print $2"\t"$3}' | head -n "$CAP")
+# score-eligible = score < FLOOR and empty protflag, capped.
+# Portable array fill (NOT `mapfile`/`readarray` — bash 4+, absent on macOS /bin/bash 3.2).
+cand=()
+while IFS= read -r _l; do [ -n "$_l" ] && cand+=("$_l"); done \
+  < <(printf '%s\n' "$scored" | awk -F'\t' -v fl="$FLOOR" '($1+0)<fl && $5==""{print $2"\t"$3}' | head -n "$CAP")
 [ "${#cand[@]}" -eq 0 ] && exit 0
 
 # One working copy of the corpus; toggle each candidate out for its probe so the
