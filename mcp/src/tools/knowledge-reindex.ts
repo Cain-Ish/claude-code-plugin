@@ -4,6 +4,7 @@ import { parseDoc } from './knowledge-search.js';
 import { knowledgeValidate, ValidationIssue } from './knowledge-validate.js';
 import { projectGraphToPages } from './graph-project.js';
 import { buildProjectMocs, MocInput } from './project-moc.js';
+import { stripAiBlock } from './ai-block.js';
 
 export interface ReindexResult {
   pagesIndexed: number;
@@ -106,7 +107,7 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
 }
 
 function firstSentence(body: string): string {
-  const text = body
+  const text = stripAiBlock(body)                          // drop the authored ai-block
     .replace(/<!-- graph:begin[\s\S]*?graph:end -->/g, '') // drop the generated projection block
     .replace(/^#.*\n/m, '')
     .trim();

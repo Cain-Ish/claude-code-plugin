@@ -27628,6 +27628,43 @@ async function appendEdge(path3, rec) {
   await fs6.appendFile(path3, JSON.stringify(rec) + "\n", "utf-8");
 }
 
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_SCHEMAS = {
+  learnings: { fields: ["claim", "trigger", "action", "scope", "evidence", "supersedes"], required: ["claim", "action"] },
+  decisions: { fields: ["context", "choice", "alternatives", "rationale", "status", "supersedes"], required: ["choice"] },
+  entities: { fields: ["identity", "current_state", "depends_on", "owns", "status"], required: ["identity"] },
+  issues: { fields: ["symptom", "cause", "fix", "severity", "status"], required: ["symptom", "status"] },
+  concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
+  security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
+};
+function parseAiBlock(content) {
+  const m = content.match(AI_BLOCK_RE);
+  if (!m) return null;
+  const out = {};
+  let last = "";
+  for (const raw of m[1].split("\n")) {
+    const line = raw.trimEnd();
+    if (!line.trim()) continue;
+    const kv = line.match(/^([a-z_][a-z0-9_]*):\s*(.*)$/i);
+    if (kv) {
+      last = kv[1];
+      out[last] = kv[2].trim();
+    } else if (last) {
+      out[last] = (out[last] + " " + line.trim()).trim();
+    }
+  }
+  return out;
+}
+function stripAiBlock(text) {
+  return text.replace(AI_BLOCK_RE, "");
+}
+function validateAiBlock(type, block) {
+  const schema = AI_BLOCK_SCHEMAS[type];
+  if (!schema) return [];
+  return schema.required.filter((f) => !block[f] || !block[f].trim());
+}
+
 // src/tools/knowledge-search.ts
 var ACCESS_COUNTS_FILE = join6(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
@@ -27806,7 +27843,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   for (let i = 0; i < scored.length; i++) {
     if (allDocs[i].source === "local-doc") continue;
     const { doc, rawContent } = allDocs[i];
-    if (AUTO_EXTRACTED_RE.test(rawContent) || doc.body.trim().length < MIN_SUBSTANTIVE_LENGTH) {
+    if (AUTO_EXTRACTED_RE.test(rawContent) || stripAiBlock(doc.body).trim().length < MIN_SUBSTANTIVE_LENGTH) {
       scored[i].score *= STUB_PENALTY;
     }
   }
@@ -27925,8 +27962,9 @@ function parseDoc(content, filePath) {
       doc.type = rel[wikiIdx + 1];
     }
   }
+  doc.aiBlock = parseAiBlock(content) ?? void 0;
   if (doc.related.length === 0) {
-    const wikiLinks = doc.body.match(/\[\[([^\]]+)\]\]/g);
+    const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
     if (wikiLinks) {
       doc.related = [...new Set(wikiLinks.map((l) => l.slice(2, -2)))];
     }
@@ -28090,7 +28128,7 @@ import { join as join10 } from "path";
 
 // src/tools/knowledge-validate.ts
 import { promises as fs9 } from "fs";
-import { join as join8, basename, relative as relative2 } from "path";
+import { join as join8, basename, dirname as dirname2, relative as relative2 } from "path";
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join8(knowledgeDir, "wiki");
   const issues = [];
@@ -28103,6 +28141,17 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
+    const aiBlock = parseAiBlock(content);
+    if (aiBlock) {
+      const ptype = doc.type || basename(dirname2(filePath));
+      const missing = validateAiBlock(ptype, aiBlock);
+      if (missing.length) issues.push({
+        type: "ai_block_incomplete",
+        severity: "warning",
+        path: filePath,
+        message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(", ")}`
+      });
+    }
     if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
       if (!slugMap.has(slug)) slugMap.set(slug, []);
       slugMap.get(slug).push(filePath);
@@ -28528,7 +28577,7 @@ async function knowledgeReindex(knowledgeDir) {
   };
 }
 function firstSentence(body) {
-  const text = body.replace(/<!-- graph:begin[\s\S]*?graph:end -->/g, "").replace(/^#.*\n/m, "").trim();
+  const text = stripAiBlock(body).replace(/<!-- graph:begin[\s\S]*?graph:end -->/g, "").replace(/^#.*\n/m, "").trim();
   const match2 = text.match(/^(.+?[.!?])\s/);
   return match2 ? match2[1].slice(0, 120) : text.slice(0, 120);
 }
@@ -29248,7 +29297,7 @@ function resolveActiveSlug() {
   return slugFromProjectDir(activeProjectDir());
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.4.1" },
+  { name: "knowledge-base", version: "2.5.0" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."

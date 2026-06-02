@@ -26,6 +26,7 @@ export interface ParsedDoc {
     created: string;
     project: string;
     area: string;
+    aiBlock?: Record<string, string>;
 }
 export declare function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult>;
 export declare function parseDoc(content: string, filePath: string): ParsedDoc;

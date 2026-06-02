@@ -1,6 +1,6 @@
 // src/tools/knowledge-validate.ts
 import { promises as fs } from "fs";
-import { join as join2, basename, relative } from "path";
+import { join as join2, basename, dirname, relative } from "path";
 
 // src/tools/knowledge-search.ts
 import { join } from "path";
@@ -6066,6 +6066,43 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_SCHEMAS = {
+  learnings: { fields: ["claim", "trigger", "action", "scope", "evidence", "supersedes"], required: ["claim", "action"] },
+  decisions: { fields: ["context", "choice", "alternatives", "rationale", "status", "supersedes"], required: ["choice"] },
+  entities: { fields: ["identity", "current_state", "depends_on", "owns", "status"], required: ["identity"] },
+  issues: { fields: ["symptom", "cause", "fix", "severity", "status"], required: ["symptom", "status"] },
+  concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
+  security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
+};
+function parseAiBlock(content) {
+  const m = content.match(AI_BLOCK_RE);
+  if (!m) return null;
+  const out = {};
+  let last = "";
+  for (const raw of m[1].split("\n")) {
+    const line = raw.trimEnd();
+    if (!line.trim()) continue;
+    const kv = line.match(/^([a-z_][a-z0-9_]*):\s*(.*)$/i);
+    if (kv) {
+      last = kv[1];
+      out[last] = kv[2].trim();
+    } else if (last) {
+      out[last] = (out[last] + " " + line.trim()).trim();
+    }
+  }
+  return out;
+}
+function stripAiBlock(text) {
+  return text.replace(AI_BLOCK_RE, "");
+}
+function validateAiBlock(type, block) {
+  const schema = AI_BLOCK_SCHEMAS[type];
+  if (!schema) return [];
+  return schema.required.filter((f) => !block[f] || !block[f].trim());
+}
+
 // src/tools/knowledge-search.ts
 var ACCESS_COUNTS_FILE = join(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 function parseDoc(content, filePath) {
@@ -6107,8 +6144,9 @@ function parseDoc(content, filePath) {
       doc.type = rel[wikiIdx + 1];
     }
   }
+  doc.aiBlock = parseAiBlock(content) ?? void 0;
   if (doc.related.length === 0) {
-    const wikiLinks = doc.body.match(/\[\[([^\]]+)\]\]/g);
+    const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
     if (wikiLinks) {
       doc.related = [...new Set(wikiLinks.map((l) => l.slice(2, -2)))];
     }
@@ -6168,6 +6206,17 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
+    const aiBlock = parseAiBlock(content);
+    if (aiBlock) {
+      const ptype = doc.type || basename(dirname(filePath));
+      const missing = validateAiBlock(ptype, aiBlock);
+      if (missing.length) issues.push({
+        type: "ai_block_incomplete",
+        severity: "warning",
+        path: filePath,
+        message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(", ")}`
+      });
+    }
     if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
       if (!slugMap.has(slug)) slugMap.set(slug, []);
       slugMap.get(slug).push(filePath);

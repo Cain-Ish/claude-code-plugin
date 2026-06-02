@@ -55,6 +55,37 @@ describe('knowledge_search multi-hop typed boost (graph present)', () => {
   });
 });
 
+describe('stub penalty excludes the ai-block (prose-only length)', () => {
+  it('a short page padded only by a query-heavy ai-block is still penalized vs a real-prose page', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-stub-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const block = ['<!-- ai:begin -->', 'claim: ' + 'wireguard handshake '.repeat(15), 'action: x', '<!-- ai:end -->'].join('\n');
+    await fsp.writeFile(join(dir, 'wiki', 'learnings', 'blockpad.md'), `---\ntitle: bp\ntype: learnings\n---\n${block}\n\nshort.`);
+    await fsp.writeFile(join(dir, 'wiki', 'learnings', 'full.md'), `---\ntitle: full\ntype: learnings\n---\n# full\n` + 'wireguard handshake real prose detail. '.repeat(10));
+    const r = await knowledgeSearch({ query: 'wireguard handshake', knowledgeDir: dir });
+    const bp = r.candidates.find(c => c.path.endsWith('/blockpad.md'));
+    const full = r.candidates.find(c => c.path.endsWith('/full.md'));
+    expect(bp && full).toBeTruthy();
+    expect(full!.score).toBeGreaterThan(bp!.score); // blockpad penalized (prose<100), full not
+  });
+});
+
+describe('parseDoc ai-block', () => {
+  it('exposes the parsed ai-block as doc.aiBlock', () => {
+    const md = ['---', 'title: A', 'type: learnings', '---',
+      '<!-- ai:begin -->', 'claim: c', 'action: a', '<!-- ai:end -->', '', '# A', 'body'].join('\n');
+    const doc = parseDoc(md, '/w/learnings/a.md');
+    expect(doc.aiBlock?.claim).toBe('c');
+  });
+  it('does NOT scrape a [[link]] inside the ai-block into related:', () => {
+    const md = ['---', 'title: B', 'type: learnings', '---',
+      '<!-- ai:begin -->', 'supersedes: [[ghost]]', 'claim: c', 'action: a', '<!-- ai:end -->', '', '# B', 'see [[real-page]]'].join('\n');
+    const doc = parseDoc(md, '/w/learnings/b.md');
+    expect(doc.related).toContain('real-page');
+    expect(doc.related).not.toContain('ghost');
+  });
+});
+
 describe('parseDoc project facet', () => {
   it('extracts the project: facet from frontmatter', () => {
     const md = ['---', 'title: Kiri Core', 'type: decisions', 'project: kiri', '---', '# Kiri Core'].join('\n');
