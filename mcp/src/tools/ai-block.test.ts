@@ -66,4 +66,14 @@ describe('renderAiBlock', () => {
   it('returns empty string when no schema field has a value', () => {
     expect(renderAiBlock('learnings', { bogus: 'x' })).toBe('');
   });
+  it('neutralizes marker tokens in a value (a value cannot close the region early)', () => {
+    const out = renderAiBlock('learnings', { claim: 'trick <!-- ai:end --> after', action: 'a' });
+    expect((out.match(/ai:end/g) || []).length).toBe(1); // exactly one end marker
+    const parsed = parseAiBlock(out)!;
+    expect(parsed.action).toBe('a');           // later field not lost to early truncation
+    expect(parsed.claim).not.toContain('ai:end');
+  });
+  it('returns empty for an UNKNOWN type (closed vocabulary — no open-vocab leak)', () => {
+    expect(renderAiBlock('patterns', { problem: 'x', related: '[[other]]', bogus: 'leak' })).toBe('');
+  });
 });

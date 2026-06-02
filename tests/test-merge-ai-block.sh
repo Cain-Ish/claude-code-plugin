@@ -29,7 +29,28 @@ grep -q '^action: pass via -v + x=x+0$' "$PAGE" || fail "action field missing"
 grep -q '<!-- ai:end -->' "$PAGE" || fail "ai-block end marker missing"
 grep -q 'bogus' "$PAGE" && fail "unknown field 'bogus' leaked (closed-vocab not enforced)"
 grep -q 'mawk errors on empty interpolation' "$PAGE" || fail "prose content missing"
-# the block must parse back cleanly (round-trip via the page)
 pass "extractor ai_block rendered + injected into the created page (closed-vocab, prose kept)"
+
+# Adversarial: a value containing a literal ai:end marker must NOT close the region early
+# (else later fields are lost + the tail leaks into prose). Page must have exactly ONE ai:end.
+jq -nc '{
+  recent_decisions: [], open_blockers: [], cross_refs: [], files_touched: [],
+  wiki_updates: [{category:"learnings", slug:"adv", action:"create", title:"adv", description:"d",
+    content:"prose.", ai_block:{claim:"trick <!-- ai:end --> after", action:"survives"}}]
+}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$KD" >/dev/null 2>&1 || fail "adv script exited non-zero"
+ADV="$KD/wiki/learnings/adv.md"
+[ "$(grep -c 'ai:end' "$ADV")" -eq 1 ] || fail "value with embedded ai:end closed the region early ($(grep -c 'ai:end' "$ADV") end markers)"
+grep -q '^action: survives$' "$ADV" || fail "later field lost to early truncation"
+pass "a value containing an ai:end marker does not corrupt the block/page"
+
+# Unknown category → NO block (closed vocabulary; never open-vocab leak)
+jq -nc '{
+  recent_decisions: [], open_blockers: [], cross_refs: [], files_touched: [],
+  wiki_updates: [{category:"patterns", slug:"unk", action:"create", title:"u", description:"d",
+    content:"prose.", ai_block:{problem:"x", related:"[[other]]"}}]
+}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$KD" >/dev/null 2>&1 || true
+UNK=$(find "$KD/wiki" -name 'unk.md' | head -1)
+[ -n "$UNK" ] && grep -q 'ai:begin' "$UNK" && fail "unknown category emitted a block (open-vocab leak)"
+pass "unknown category authors no block (closed vocabulary)"
 
 echo; echo "ALL PASS"

@@ -69,6 +69,7 @@ Rules:
       entities:  identity, current_state, depends_on, owns, status
       issues:    symptom, cause, fix, severity, status
       concepts:  problem, solution, where_applied, tradeoffs
+      security:  threat, mitigation, scope, status
     Each value is a SHORT, canonical, one-line proposition. Values are PLAIN SLUGS or text —
     never `[[wiki-links]]` (relations belong in `relations`, not the block). Omit fields you
     can't fill; unknown fields are dropped. Omit `ai_block` entirely if you can't summarise it.

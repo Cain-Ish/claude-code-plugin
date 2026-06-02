@@ -11,10 +11,10 @@ var AI_BLOCK_RENDER_BEGIN = "<!-- ai:begin (authored \u2014 flat YAML, see ai-bl
 var AI_BLOCK_RENDER_END = "<!-- ai:end -->";
 function renderAiBlock(type, block) {
   const schema = AI_BLOCK_SCHEMAS[type];
-  const order = schema ? schema.fields : Object.keys(block);
+  if (!schema) return "";
   const lines = [];
-  for (const f of order) {
-    const v = (block[f] ?? "").toString().replace(/\s+/g, " ").trim();
+  for (const f of schema.fields) {
+    const v = (block[f] ?? "").toString().replace(/<!--|-->|ai:(begin|end)/gi, " ").replace(/\s+/g, " ").trim();
     if (v) lines.push(`${f}: ${v}`);
   }
   if (lines.length === 0) return "";

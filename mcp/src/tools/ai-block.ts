@@ -52,10 +52,12 @@ export const AI_BLOCK_RENDER_END = '<!-- ai:end -->';
  *  empty values skipped. Returns '' when no schema field has a value (→ inject nothing). */
 export function renderAiBlock(type: string, block: Record<string, string>): string {
   const schema = AI_BLOCK_SCHEMAS[type];
-  const order = schema ? schema.fields : Object.keys(block);
+  if (!schema) return ''; // closed vocabulary: only the six known types produce a block
   const lines: string[] = [];
-  for (const f of order) {
-    const v = (block[f] ?? '').toString().replace(/\s+/g, ' ').trim();
+  for (const f of schema.fields) {
+    const v = (block[f] ?? '').toString()
+      .replace(/<!--|-->|ai:(begin|end)/gi, ' ') // neutralize marker tokens so a value can't close the region early
+      .replace(/\s+/g, ' ').trim();
     if (v) lines.push(`${f}: ${v}`);
   }
   if (lines.length === 0) return '';
