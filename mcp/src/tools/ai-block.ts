@@ -44,6 +44,26 @@ export function stripAiBlock(text: string): string {
   return text.replace(AI_BLOCK_RE, '');
 }
 
+export const AI_BLOCK_RENDER_BEGIN = '<!-- ai:begin (authored — flat YAML, see ai-block schema) -->';
+export const AI_BLOCK_RENDER_END = '<!-- ai:end -->';
+
+/** Inverse of parseAiBlock: render a block object as the marked region. Deterministic —
+ *  fields emitted in the type's schema order (closed vocabulary: unknown fields dropped),
+ *  empty values skipped. Returns '' when no schema field has a value (→ inject nothing). */
+export function renderAiBlock(type: string, block: Record<string, string>): string {
+  const schema = AI_BLOCK_SCHEMAS[type];
+  if (!schema) return ''; // closed vocabulary: only the six known types produce a block
+  const lines: string[] = [];
+  for (const f of schema.fields) {
+    const v = (block[f] ?? '').toString()
+      .replace(/<!--|-->|ai:(begin|end)/gi, ' ') // neutralize marker tokens so a value can't close the region early
+      .replace(/\s+/g, ' ').trim();
+    if (v) lines.push(`${f}: ${v}`);
+  }
+  if (lines.length === 0) return '';
+  return [AI_BLOCK_RENDER_BEGIN, ...lines, AI_BLOCK_RENDER_END].join('\n');
+}
+
 /** Missing REQUIRED fields for the page type (empty when type unknown or all present). */
 export function validateAiBlock(type: string, block: Record<string, string>): string[] {
   const schema = AI_BLOCK_SCHEMAS[type];

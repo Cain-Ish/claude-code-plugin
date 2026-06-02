@@ -19,7 +19,8 @@ Schema (all keys required, arrays may be empty):
       "action": "create|update",
       "title": "Human Title",
       "description": "One-line description for index",
-      "content": "New content or content to append"
+      "content": "New content or content to append",
+      "ai_block": { "<field>": "<value>" }
     }
   ],
   "persona_signals":  [
@@ -61,6 +62,17 @@ Rules:
   - Each entry's content should stand alone (no "as discussed above" references)
   - Max 3 wiki_updates per session
   - If the session was pure Q&A with no real work, return an empty array
+  - `ai_block` (the machine-first "shared intermediate" an AI reads instead of re-deriving from prose):
+    a flat object of per-type fields. Use the schema for the page's `category`:
+      learnings: claim, trigger, action, scope, evidence, supersedes
+      decisions: context, choice, alternatives, rationale, status, supersedes
+      entities:  identity, current_state, depends_on, owns, status
+      issues:    symptom, cause, fix, severity, status
+      concepts:  problem, solution, where_applied, tradeoffs
+      security:  threat, mitigation, scope, status
+    Each value is a SHORT, canonical, one-line proposition. Values are PLAIN SLUGS or text —
+    never `[[wiki-links]]` (relations belong in `relations`, not the block). Omit fields you
+    can't fill; unknown fields are dropped. Omit `ai_block` entirely if you can't summarise it.
 - Persona signals: implicit or explicit behavioral patterns observed in the user's actions during this session. Focus on HOW the user works, not WHAT they built.
   - "high" confidence: user explicitly stated a preference or corrected your approach ("don't do X", "always Y")
   - "medium" confidence: user's behavior consistently implies a pattern (e.g., always uses early returns, never writes comments, prefers terse responses)

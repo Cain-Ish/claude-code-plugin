@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAiBlock, stripAiBlock, validateAiBlock, AI_BLOCK_SCHEMAS } from './ai-block.js';
+import { parseAiBlock, stripAiBlock, validateAiBlock, renderAiBlock, AI_BLOCK_SCHEMAS } from './ai-block.js';
 const page = [
     '---', 'title: awk', 'type: learnings', '---',
     "<!-- ai:begin (schema'd, machine-first) -->",
@@ -45,6 +45,33 @@ describe('ai-block', () => {
     it('folds a continuation line into the previous field value', () => {
         const md = ['<!-- ai:begin -->', 'claim: line one', '  continued', 'action: do it', '<!-- ai:end -->'].join('\n');
         expect(parseAiBlock(md).claim).toBe('line one continued');
+    });
+});
+describe('renderAiBlock', () => {
+    it('renders schema-ordered fields in markers; drops unknown + empty fields', () => {
+        const out = renderAiBlock('learnings', { action: 'do it', claim: 'the claim', bogus: 'x', scope: '' });
+        expect(out).toMatch(/^<!-- ai:begin/);
+        expect(out.trimEnd()).toMatch(/<!-- ai:end -->$/);
+        expect(out.indexOf('claim: the claim')).toBeLessThan(out.indexOf('action: do it')); // schema order
+        expect(out).not.toContain('bogus'); // closed vocabulary
+        expect(out).not.toContain('scope:'); // empty field dropped
+    });
+    it('round-trips through parseAiBlock', () => {
+        const block = { claim: 'c', action: 'a' };
+        expect(parseAiBlock(renderAiBlock('learnings', block))).toMatchObject(block);
+    });
+    it('returns empty string when no schema field has a value', () => {
+        expect(renderAiBlock('learnings', { bogus: 'x' })).toBe('');
+    });
+    it('neutralizes marker tokens in a value (a value cannot close the region early)', () => {
+        const out = renderAiBlock('learnings', { claim: 'trick <!-- ai:end --> after', action: 'a' });
+        expect((out.match(/ai:end/g) || []).length).toBe(1); // exactly one end marker
+        const parsed = parseAiBlock(out);
+        expect(parsed.action).toBe('a'); // later field not lost to early truncation
+        expect(parsed.claim).not.toContain('ai:end');
+    });
+    it('returns empty for an UNKNOWN type (closed vocabulary — no open-vocab leak)', () => {
+        expect(renderAiBlock('patterns', { problem: 'x', related: '[[other]]', bogus: 'leak' })).toBe('');
     });
 });
 //# sourceMappingURL=ai-block.test.js.map
