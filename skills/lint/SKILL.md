@@ -150,6 +150,35 @@ done
 
 Suggest: drop the broken slug from `Cross-references`, or create the missing wiki page.
 
+### 4. Missing ai-block on structured pages
+
+A page in one of the six structured categories (learnings, decisions, entities, issues,
+concepts, security) should carry an `<!-- ai:begin … ai:end -->` block — the machine-first
+"shared intermediate" an AI reads instead of re-deriving the page from prose. A *substantive*
+page (≥ 200 non-space prose chars) with no block predates the feature or was never authored.
+Stubs are exempt. (`infm`/`drop`, not the reserved `in` — see the awk header note.)
+
+```bash
+for type in learnings decisions entities issues concepts security; do
+  d="$KD/wiki/$type"; [ -d "$d" ] || continue
+  find "$d" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while read -r f; do
+    grep -q '<!-- ai:begin' "$f" 2>/dev/null && continue
+    prose=$(awk '
+      NR==1 && /^---[[:space:]]*$/ { infm=1; next }
+      infm && /^---[[:space:]]*$/  { infm=0; next }
+      infm { next }
+      /<!--[[:space:]]*(graph|theme|ai):begin/ { drop=1 }
+      drop { if (/<!--[[:space:]]*(graph|theme|ai):end[[:space:]]*-->/) drop=0; next }
+      { print }
+    ' "$f" | tr -d '[:space:]' | wc -c)
+    [ "$prose" -ge 200 ] && echo "MISSING-BLOCK: $type/$(basename "$f" .md) ($f)"
+  done
+done
+```
+
+Suggest: run `/second-brain:maintain` — the knowledge-maintainer (Phase 4b) backfills the block
+from the page's own prose. Do **not** hand-author the block here (lint is read-only by default).
+
 ## Reporting
 
 Present findings in three sections; keep counts visible. Example:
@@ -167,6 +196,9 @@ Present findings in three sections; keep counts visible. Example:
 
 ## Broken Cross-references (1)
 - my-repo -> obsolete-concept (no wiki page)
+
+## Missing ai-blocks (1)
+- learnings/oauth-bare-flag (substantive page, no ai:begin block)
 
 ## Summary
 - Wiki pages scanned: 47
