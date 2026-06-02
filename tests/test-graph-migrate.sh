@@ -59,4 +59,42 @@ AB=$(grep -c '"from":"page-a".*"to":"page-b"' "$GDIR/edges.jsonl" 2>/dev/null ||
 [ "$AB" -eq 1 ] || fail "migrate duplicated a relates edge already present from another source (count=$AB)"
 pass "migrate does not duplicate a relates edge from another source"
 
+# Reset to a clean wiki for the hardening tests (0.22.4 — junk-edge root-cause fix).
+# Regression for the 6 live migration:v1 junk edges (shell fragments / aliases as
+# targets) found by the post-0.22.3 completeness audit. graph-migrate.sh must mirror
+# the sibling write path merge-edges.sh: skip fenced code blocks, split [[a|b]] aliases,
+# and emit ONLY edges whose target resolves to a real wiki page (the resolves() guard).
+rm -rf "$KDIR/graph"
+LOG="$KDIR/graph/edges.jsonl"
+
+# --- Test 6: [[..]] inside a fenced code block is NOT migrated ---
+# This is exactly how ' "$TEST" == *"Not logged in"* ' etc. were slurped from
+# claude-cli-bare-auth-modes (bash snippets in ``` fences). The fenced link targets a
+# REAL page (page-a), so ONLY the fence-skip — not the resolves() guard — can keep it
+# out; that makes this test independently RED-able if the fence logic regresses. The
+# prose [[page-b]] OUTSIDE the fence is the positive control: we must not over-skip.
+printf '%s\n' '---' 'title: E' 'type: entities' 'created: 2026-05-05' 'related: []' '---' '# E' '' 'Real prose link to [[page-b]] stays.' '```bash' 'if [[ "$X" == "y" ]]; then ref [[page-a]]; fi' '```' > "$KDIR/wiki/entities/page-e.md"
+KNOWLEDGE_DIR="$KDIR" bash "$SCRIPT" --knowledge-dir "$KDIR"
+grep -qE '"from":"page-e","to":"page-a"' "$LOG" 2>/dev/null && fail "fenced [[page-a]] slurped as an edge (fence skip regressed — target is a real page so resolves() can't be the reason)"
+pass "fenced code-block [[ ]] not migrated (even when the fenced target is a real page)"
+grep -qE '"from":"page-e","to":"page-b"' "$LOG" 2>/dev/null || fail "prose [[page-b]] outside the fence wrongly dropped (over-skip)"
+pass "prose [[link]] outside the fence still migrated (no over-skip)"
+
+# --- Test 7: an edge whose target is not a real wiki page is dropped (resolves guard) ---
+printf '%s\n' '---' 'title: F' 'type: entities' 'created: 2026-05-06' 'related: [ghost-page]' '---' '# F' > "$KDIR/wiki/entities/page-f.md"
+KNOWLEDGE_DIR="$KDIR" bash "$SCRIPT" --knowledge-dir "$KDIR"
+grep -q '"to":"ghost-page"' "$LOG" 2>/dev/null && fail "edge to non-existent page emitted (no resolves guard)"
+pass "edge to non-existent page dropped (resolves endpoint guard)"
+
+# --- Test 8: [[target|alias]] migrates to target, alias display stripped ---
+printf '%s\n' '---' 'title: G' 'type: entities' 'created: 2026-05-07' 'related: []' '---' '# G' '' 'See [[page-a|the A page]] for details.' > "$KDIR/wiki/entities/page-g.md"
+KNOWLEDGE_DIR="$KDIR" bash "$SCRIPT" --knowledge-dir "$KDIR"
+grep -q '"to":"page-a|the A page"' "$LOG" 2>/dev/null && fail "alias display leaked into edge target"
+grep -qE '"from":"page-g","to":"page-a"' "$LOG" 2>/dev/null || fail "alias [[target|display]] not resolved to target (page-g->page-a missing)"
+pass "[[target|alias]] migrates to target (alias stripped)"
+
+# --- Test 9 (regression): real-page edges still migrate after hardening ---
+grep -qE '"from":"page-a","to":"page-b"' "$LOG" 2>/dev/null || fail "resolves guard wrongly dropped a real-page edge (page-a->page-b)"
+pass "real-page edges still migrate after hardening"
+
 echo; echo "ALL PASS"

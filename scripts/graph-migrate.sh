@@ -30,9 +30,22 @@ NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # by the extractor or knowledge_relate is not duplicated by a later migrate run.
 EXISTING_FILE=$(mktemp)
 PAIRS_FILE=$(mktemp)
-trap 'rm -f "$EXISTING_FILE" "$PAIRS_FILE"' EXIT
+SLUGS_FILE=$(mktemp)
+trap 'rm -f "$EXISTING_FILE" "$PAIRS_FILE" "$SLUGS_FILE"' EXIT
 jq -r 'select(.type=="relates") | "\(.from)\t\(.to)"' \
   "$LOG" 2>/dev/null | sort -u > "$EXISTING_FILE"
+
+# Valid-slug index (built once) — the endpoint guard. A target only becomes an edge
+# if a real wiki page <slug>.md exists; otherwise it would project as a broken link.
+# Mirrors merge-edges.sh resolves() but prebuilt for the bulk import (one find, not
+# one-per-edge). DELIBERATE divergence: merge-edges.sh sanitises endpoints through
+# sb_sanitize_slug (which lowercases) before resolving; this importer keeps the RAW
+# slug and matches case-sensitively. That is intentional — on Linux's case-sensitive
+# FS, lowercasing would itself drop a genuinely mixed-case page (e.g. the real
+# self-evolve-v1-P12-plan.md), so exact match is the correct policy for bulk import.
+find "$WIKI" -name '*.md' -type f ! -name 'index.md' -printf '%f\n' 2>/dev/null \
+  | sed 's/\.md$//' | sort -u > "$SLUGS_FILE"
+resolves() { [ -n "${1:-}" ] && grep -qxF "$1" "$SLUGS_FILE"; }
 
 # Collect candidate (from, to, created) triples from every page. Targets come
 # from BOTH wiki-link formats the live wiki uses:
@@ -46,8 +59,23 @@ find "$WIKI" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while IFS= re
   from=$(basename "$file" .md)
   created=$(awk -F': *' '/^created:/ { gsub(/["[:space:]]/,"",$2); print $2; exit }' "$file")
   {
-    # (a) bracketed wiki-links, anywhere
-    grep -oE '\[\[[^]]+\]\]' "$file" 2>/dev/null | sed 's/\[\[//; s/\]\]//'
+    # (a) bracketed [[wiki-links]], anywhere EXCEPT inside fenced ``` code blocks
+    #     (so a bash `[[ "$X" == y ]]` test in a code fence is never slurped), with
+    #     the [[target|alias]] display form reduced to its target.
+    awk '
+      /^[[:space:]]*```/ { infence = !infence; next }
+      infence { next }
+      {
+        s = $0
+        while (match(s, /\[\[[^]]+\]\]/)) {
+          tok = substr(s, RSTART+2, RLENGTH-4)
+          sub(/\|.*/, "", tok)                       # [[target|alias]] -> target
+          gsub(/^[[:space:]]+/, "", tok); gsub(/[[:space:]]+$/, "", tok)
+          if (tok != "") print tok
+          s = substr(s, RSTART+RLENGTH)
+        }
+      }
+    ' "$file"
     # (b) bare-YAML `related: [a, b]` in the FIRST frontmatter block only, and
     #     only when it is NOT the bracketed form (those are covered by (a)).
     awk '
@@ -74,6 +102,10 @@ done | sort -u > "$PAIRS_FILE"
 while IFS=$'\t' read -r from to created; do
   [ -z "$from" ] && continue
   [ -z "$to" ] && continue
+  # Endpoint guard: only emit edges to a real wiki page. Drops shell-fragment /
+  # alias junk that a [[..]] scrape can pick up (the 6 migration:v1 junk edges the
+  # post-0.22.3 audit found). `from` is a page basename, so it always resolves.
+  resolves "$to" || continue
   if grep -qxF "$(printf '%s\t%s' "$from" "$to")" "$EXISTING_FILE"; then
     continue
   fi

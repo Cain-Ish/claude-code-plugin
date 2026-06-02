@@ -84,6 +84,9 @@ NOT curate edges** — `graph/edges.jsonl` is not snapshotted into staging, so d
 `related:` or the `<!-- graph:begin -->` block here (it is overwritten at projection).
 - If you spot strong missing relationships while mining, surface them in the dream report as
   suggested `knowledge_relate` calls for the user / `knowledge-maintainer` to apply **live**.
+- You may **read** `~/knowledge/graph/conflicts.jsonl` (live, read-only) and echo the folded
+  open-conflict count into the dream report ("N open graph conflicts — resolve via the
+  maintainer"). Write **nothing** to `graph/` — the `knowledge-maintainer` owns the drain.
 
 **2d. ENRICH** — Category-specific BODY quality. Do **NOT** hand-edit `related:` — it is
 projected from the edge log; surface relationship gaps as suggested `knowledge_relate` calls
