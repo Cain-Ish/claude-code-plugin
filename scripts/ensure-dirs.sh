@@ -8,7 +8,11 @@ mkdir -p "$BRAIN_DIR/regressions"
 mkdir -p "$BRAIN_DIR/transcripts"
 mkdir -p "$BRAIN_DIR/dreams"
 mkdir -p "$BRAIN_DIR/wiki-archive"
-mkdir -p "$KNOWLEDGE_DIR/wiki"/{concepts,entities,learnings}
+# Wiki content-category dirs from the KB source of truth (kb-schema.json, via lib.sh -> kb-schema.sh).
+# Creates ALL content categories (was only concepts/entities/learnings — the 3-vs-8 divergence).
+for _c in ${SB_CONTENT_CATEGORIES:-learnings decisions entities issues concepts security state sources}; do
+  mkdir -p "$KNOWLEDGE_DIR/wiki/$_c"
+done
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
 
 # GC stale per-session injection memos. persona-context.sh writes one file per

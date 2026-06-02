@@ -6,6 +6,12 @@
 # comma-list of PROTECT:category|age|linked. Signals: access-count (sparse-ok),
 # recency (mtime), connectivity (inbound [[links]]), category weight + stub floor.
 set -u
+# Category protection tiers come from the KB source of truth (kb-schema.json). Fallbacks below are
+# identical to the manifest and only used if jq/the manifest is unavailable (fail-safe: same tiers).
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
+: "${SB_FORGET_PROTECTED:=learnings decisions concepts security themes projects}"
+: "${SB_FORGET_DISCOUNTED:=entities sources issues}"
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"; KD="${KD/#\~/$HOME}"; WIKI="$KD/wiki"
 BD="${BRAIN_DIR:-$HOME/.second-brain}"; AC="$BD/access-counts.json"
 MINAGE="${SB_FORGET_MIN_AGE_DAYS:-30}"
@@ -43,11 +49,12 @@ find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while r
   s_acc=$(awk -v a="$acc" 'BEGIN{a=a+0; v=(a<=0)?0:(log(a+1)/log(20)); print (v>1)?1:v}')
   s_rec=$(awk -v d="$age" 'BEGIN{d=d+0; print (d>=180)?0:(1-d/180)}')
   s_con=$(awk -v c="$inb" 'BEGIN{c=c+0; print (c>=3)?1:c/3}')
-  case "$cat" in
-    learnings|decisions|concepts|themes|projects) s_cat=1.0; prot="PROTECT:category";;
-    entities|sources|patterns|issues) s_cat=0.5; prot="";;
-    *) s_cat=0.2; prot="";;
-  esac
+  # Category protection tier from kb-schema.json: PROTECTED -> never forget; DISCOUNTED -> mild;
+  # else default. (Fixes the old hardcoded case that omitted `security` -> 0.2 and listed a dead
+  # `patterns` category.)
+  s_cat=0.2; prot=""
+  case " $SB_FORGET_PROTECTED " in *" $cat "*) s_cat=1.0; prot="PROTECT:category";; esac
+  [ -z "$prot" ] && case " $SB_FORGET_DISCOUNTED " in *" $cat "*) s_cat=0.5;; esac
   # auto-generated noise (ULID evolve logs, session-narrative) is forgettable even
   # inside an otherwise-protected category — clear the category protection (age +
   # inbound-link protections and the recall probe still guard it).

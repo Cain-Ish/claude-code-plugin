@@ -4,6 +4,12 @@
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 
+# KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
+# / SB_GENERATED_DIRS / SB_EDGE_TYPES / SB_FORGET_PROTECTED / SB_FORGET_DISCOUNTED from kb-schema.json.
+# Sourced here so every lib.sh consumer has them. Fail-soft (no-op if jq/manifest absent).
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
+
 # Parse hook input from stdin. Sets: SB_INPUT, SB_SESSION_ID, SB_TRANSCRIPT_PATH, SB_TIMESTAMP
 sb_parse_input() {
   SB_INPUT=$(cat)
