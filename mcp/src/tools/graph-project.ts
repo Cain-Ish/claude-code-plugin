@@ -42,7 +42,10 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
   let updated = 0;
 
   for (const file of files) {
-    if (file.endsWith('index.md')) continue;
+    // Skip index.md and the generated MOC dirs (projects/, themes/) — they are pure
+    // projections; injecting related:/## Dependencies into a MOC would mangle it and break
+    // reindex idempotency.
+    if (file.endsWith('index.md') || /\/(projects|themes)\//.test(file)) continue;
     const slug = slugFromPath(file);
     const related = relatedBySlug.get(slug);
     if (!related || related.size === 0) continue;

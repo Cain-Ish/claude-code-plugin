@@ -6249,8 +6249,10 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
-    if (!slugMap.has(slug)) slugMap.set(slug, []);
-    slugMap.get(slug).push(filePath);
+    if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
+      if (!slugMap.has(slug)) slugMap.set(slug, []);
+      slugMap.get(slug).push(filePath);
+    }
     if (!content.trim()) {
       issues.push({
         type: "empty_page",
@@ -6500,7 +6502,7 @@ async function projectGraphToPages(knowledgeDir) {
   const files = await glob("**/*.md", { cwd: wikiRoot, absolute: true });
   let updated = 0;
   for (const file of files) {
-    if (file.endsWith("index.md")) continue;
+    if (file.endsWith("index.md") || /\/(projects|themes)\//.test(file)) continue;
     const slug = slugFromPath(file);
     const related = relatedBySlug.get(slug);
     if (!related || related.size === 0) continue;
@@ -6618,10 +6620,19 @@ async function knowledgeReindex(knowledgeDir) {
     const label = dir.charAt(0).toUpperCase() + dir.slice(1);
     categoryRows.push(`- **${label}** (${entries.length}): ${entries.map((e) => e.slug).join(", ")}`);
   }
-  const minMembers = Number(process.env.SB_MOC_MIN_MEMBERS || "3");
+  const rawMin = Number(process.env.SB_MOC_MIN_MEMBERS);
+  const minMembers = Number.isFinite(rawMin) && rawMin >= 1 ? rawMin : 3;
   const mocs = process.env.SB_KB_MOC === "off" ? /* @__PURE__ */ new Map() : buildProjectMocs(allPages, { minMembers });
   const projDir = join4(wikiRoot, "projects");
   if (mocs.size > 0) await fs4.mkdir(projDir, { recursive: true });
+  for (const existing of await mocSlugs(projDir)) {
+    if (!mocs.has(existing)) {
+      try {
+        await fs4.unlink(join4(projDir, `${existing}.md`));
+      } catch {
+      }
+    }
+  }
   for (const [proj, region] of mocs) {
     const header = [
       "---",
@@ -6662,7 +6673,7 @@ async function knowledgeReindex(knowledgeDir) {
   };
 }
 function firstSentence(body) {
-  const text = body.replace(/^#.*\n/m, "").trim();
+  const text = body.replace(/<!-- graph:begin[\s\S]*?graph:end -->/g, "").replace(/^#.*\n/m, "").trim();
   const match2 = text.match(/^(.+?[.!?])\s/);
   return match2 ? match2[1].slice(0, 120) : text.slice(0, 120);
 }

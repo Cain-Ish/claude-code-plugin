@@ -60,10 +60,17 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
 
   // Project MOCs — deterministic projection of the project: facet (>= minMembers). Written
   // BEFORE the index so the projects/ dir is listed, and before validation so they're checked.
-  const minMembers = Number(process.env.SB_MOC_MIN_MEMBERS || '3');
+  const rawMin = Number(process.env.SB_MOC_MIN_MEMBERS);
+  const minMembers = Number.isFinite(rawMin) && rawMin >= 1 ? rawMin : 3; // NaN/0/negative ⇒ default 3
   const mocs = process.env.SB_KB_MOC === 'off' ? new Map<string, string>() : buildProjectMocs(allPages, { minMembers });
   const projDir = join(wikiRoot, 'projects');
   if (mocs.size > 0) await fs.mkdir(projDir, { recursive: true });
+  // Prune stale MOCs: a project that dropped below the threshold (or was renamed/removed)
+  // must not leave an orphaned MOC. This keeps the projection a pure function of CURRENT
+  // input — output no longer depends on prior on-disk state.
+  for (const existing of await mocSlugs(projDir)) {
+    if (!mocs.has(existing)) { try { await fs.unlink(join(projDir, `${existing}.md`)); } catch { /* gone */ } }
+  }
   for (const [proj, region] of mocs) {
     const header = ['---', `title: ${proj}`, 'type: projects', 'generated: true', 'graph: exclude',
       `description: Map of Content for project ${proj} (generated from project: facets).`, '---', ''].join('\n');
@@ -99,7 +106,10 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
 }
 
 function firstSentence(body: string): string {
-  const text = body.replace(/^#.*\n/m, '').trim();
+  const text = body
+    .replace(/<!-- graph:begin[\s\S]*?graph:end -->/g, '') // drop the generated projection block
+    .replace(/^#.*\n/m, '')
+    .trim();
   const match = text.match(/^(.+?[.!?])\s/);
   return match ? match[1].slice(0, 120) : text.slice(0, 120);
 }

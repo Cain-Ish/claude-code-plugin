@@ -6168,8 +6168,10 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
-    if (!slugMap.has(slug)) slugMap.set(slug, []);
-    slugMap.get(slug).push(filePath);
+    if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
+      if (!slugMap.has(slug)) slugMap.set(slug, []);
+      slugMap.get(slug).push(filePath);
+    }
     if (!content.trim()) {
       issues.push({
         type: "empty_page",

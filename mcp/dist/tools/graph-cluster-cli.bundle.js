@@ -114,7 +114,7 @@ async function collect(dir, acc = []) {
   for (const e of entries) {
     const p = join(dir, e.name);
     if (e.isDirectory()) {
-      if (!e.name.startsWith(".")) await collect(p, acc);
+      if (!e.name.startsWith(".") && e.name !== "projects" && e.name !== "themes") await collect(p, acc);
     } else if (e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
   }
   return acc;

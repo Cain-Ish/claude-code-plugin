@@ -74,5 +74,50 @@ describe('reindex project MOCs', () => {
         expect(idx2).toBe(idx1);
         expect(moc2).toBe(moc1); // MOC has no timestamp → byte-identical
     });
+    // --- review fixes (release gate) ---
+    it('prunes a stale MOC when a project drops below the threshold (#4)', async () => {
+        const kd = await fsp.mkdtemp(join(tmpdir(), 'prune-'));
+        await page(kd, 'decisions', 'kiri-redesign', 'kiri');
+        await page(kd, 'decisions', 'kiri-core-design', 'kiri');
+        await page(kd, 'security', 'kiri-privilege-split', 'kiri');
+        await knowledgeReindex(kd);
+        expect(await fsp.access(join(kd, 'wiki', 'projects', 'kiri.md')).then(() => true)).toBe(true);
+        await fsp.unlink(join(kd, 'wiki', 'security', 'kiri-privilege-split.md')); // now 2 < 3
+        await knowledgeReindex(kd);
+        await expect(fsp.access(join(kd, 'wiki', 'projects', 'kiri.md'))).rejects.toThrow(); // pruned
+    });
+    it('clamps SB_MOC_MIN_MEMBERS: a garbage value does not MOC every single-member project (#5)', async () => {
+        const kd = await fsp.mkdtemp(join(tmpdir(), 'clamp-'));
+        await page(kd, 'concepts', 'solo', 'solo-project');
+        const prev = process.env.SB_MOC_MIN_MEMBERS;
+        process.env.SB_MOC_MIN_MEMBERS = 'three'; // NaN → must fall back to 3, not gate-everything
+        try {
+            await knowledgeReindex(kd);
+            await expect(fsp.access(join(kd, 'wiki', 'projects', 'solo-project.md'))).rejects.toThrow();
+        }
+        finally {
+            if (prev === undefined)
+                delete process.env.SB_MOC_MIN_MEMBERS;
+            else
+                process.env.SB_MOC_MIN_MEMBERS = prev;
+        }
+    });
+    it('does not mangle a MOC whose project key is an edge endpoint (#2 idempotency)', async () => {
+        const kd = await fsp.mkdtemp(join(tmpdir(), 'mangle-'));
+        await page(kd, 'decisions', 'arch-a', 'arch');
+        await page(kd, 'decisions', 'arch-b', 'arch');
+        await page(kd, 'decisions', 'arch-c', 'arch');
+        // an edge whose endpoint is the project KEY "arch" (== the MOC slug) — so on the 2nd
+        // reindex projectGraphToPages would try to inject related:/## Dependencies into the MOC
+        // unless it skips the projects/ dir.
+        await appendEdge(join(kd, 'graph', 'edges.jsonl'), { op: 'assert', from: 'arch-a', to: 'arch', type: 'part_of', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+        await knowledgeReindex(kd);
+        const moc1 = await fsp.readFile(join(kd, 'wiki', 'projects', 'arch.md'), 'utf-8');
+        await knowledgeReindex(kd);
+        const moc2 = await fsp.readFile(join(kd, 'wiki', 'projects', 'arch.md'), 'utf-8');
+        expect(moc2).toBe(moc1); // byte-identical across reindexes (not mangled)
+        expect(moc1).not.toContain('## Dependencies'); // member descriptions free of the projected block
+        expect(moc1).not.toMatch(/^related:/m); // MOC frontmatter not edge-injected
+    });
 });
 //# sourceMappingURL=knowledge-reindex.test.js.map

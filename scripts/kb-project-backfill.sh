@@ -27,7 +27,7 @@ PO=$(jq -rn 'reduce inputs as $r ({}; .[([$r.from,$r.type,$r.to]|tojson)]=$r) | 
 
 set_project() { # <slug> <project> — insert `project: <p>` before the first frontmatter close
   local slug="$1" proj="$2" f
-  f=$(find "$WIKI" -name "$slug.md" -type f ! -name 'index.md' 2>/dev/null | head -1)
+  f=$(find "$WIKI" -name "$slug.md" -type f ! -name 'index.md' 2>/dev/null | sort | head -1)
   [ -n "$f" ] || return 0
   grep -qE '^project:' "$f" && return 0   # idempotent: never overwrite an existing facet
   awk -v p="$proj" '

@@ -13,9 +13,14 @@ export async function knowledgeValidate(knowledgeDir, opts = {}) {
         const slug = basename(filePath, '.md');
         const doc = parseDoc(content, filePath);
         parsedDocs.push(doc);
-        if (!slugMap.has(slug))
-            slugMap.set(slug, []);
-        slugMap.get(slug).push(filePath);
+        // Generated MOC dirs (projects/, themes/) are derived VIEWS, not source pages — a MOC that
+        // shares a slug with a real page (e.g. project "architecture-v1" + page architecture-v1.md)
+        // is not a true duplicate, so exclude them from the duplicate_slug check.
+        if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
+            if (!slugMap.has(slug))
+                slugMap.set(slug, []);
+            slugMap.get(slug).push(filePath);
+        }
         if (!content.trim()) {
             issues.push({
                 type: 'empty_page',
