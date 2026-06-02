@@ -218,7 +218,7 @@ Tests prove the **real capability** (a structural contradiction is flagged; a le
 - `agents/knowledge-maintainer.md` — Phase 3 RELATE drains the folded conflict queue (judge → `knowledge_relate` → append status line). **This is the live-path owner.**
 - `agents/dream-runner.md` — Phase 3 note: may echo the open-conflict count read-only; still writes nothing to `graph/`.
 - `scripts/session-load.sh` — high-priority `graph-conflicts-banner` slot (folded open-count), emitted in the early-banner region.
-- `skills/upgrade/SKILL.md` — migration row for 0.23.0 (purely additive).
+- `skills/upgrade/SKILL.md` — shipped in the 0.22.2 migration row (purely additive).
 
 ## 9. Rollout
 

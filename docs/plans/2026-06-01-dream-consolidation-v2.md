@@ -231,7 +231,7 @@ Retrieval-grounded dedup + deterministic SUPERSEDE. Edge writes are LIVE (mainta
 ### Task G1: Version bump, migration, gate
 
 - [ ] **Step 1:** bump `mcp/src/server.ts` knowledge-base to `2.3.1`; `cd mcp && npm run build`; confirm the server boots and the new CLI is bundled.
-- [ ] **Step 2:** add a 0.23.0 migration row to `skills/upgrade/SKILL.md` (additive: `themes/` created lazily; no data migration).
+- [ ] **Step 2:** add the 0.22.2 migration row to `skills/upgrade/SKILL.md` (additive: `themes/` created lazily; no data migration).
 - [ ] **Step 3:** `bash tests/run-all.sh` + `cd mcp && npm run test` → all green (new TS + shell tests auto-discovered).
 - [ ] **Step 4:** `/second-brain:code-review-deep` on the branch (release gate). Address findings.
 - [ ] **Step 5:** smoke — run a real dream end-to-end: confirm theme pages stage into the diff, are reviewed at `dream_accept`, survive FORGET, and index after accept; run a maintainer pass and confirm reconcile decisions are bounded + git-visible. **Commit** — `chore(release): consolidation v2 — MCP 2.3.1 + migration + gate`.

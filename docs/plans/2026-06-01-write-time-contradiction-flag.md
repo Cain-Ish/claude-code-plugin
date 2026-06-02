@@ -235,11 +235,11 @@ The conflict warning is a correctness signal — emit it in the **early-banner r
 
 ### Task C1: Migration row + gate
 
-- [ ] **Step 1:** Add a 0.23.0 migration row to `skills/upgrade/SKILL.md` (purely additive: new `conflicts.jsonl` sidecar appears lazily; nothing to migrate).
+- [ ] **Step 1:** Add the 0.22.2 migration row to `skills/upgrade/SKILL.md` (purely additive: new `conflicts.jsonl` sidecar appears lazily; nothing to migrate).
 - [ ] **Step 2:** `bash tests/run-all.sh` → the new `test-merge-edges-conflict.sh` + `test-session-load-conflicts.sh` are auto-discovered and green; whole suite green.
 - [ ] **Step 3:** Run `/second-brain:code-review-deep` on the branch (the release gate per the deep-review-release-gate learning). Address findings.
 - [ ] **Step 4:** Smoke: run a real session, confirm `~/.second-brain/error-log.jsonl` has no new errors and `conflicts.jsonl` only appears on a genuine collision.
-- [ ] **Step 5: Commit** — `chore(release): write-time contradiction flag — 0.23.0 migration row + gate`.
+- [ ] **Step 5: Commit** — `chore(release): write-time contradiction flag — 0.22.2 migration row + gate`.
 
 ## Done-when
 
