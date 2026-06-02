@@ -48,6 +48,12 @@ OUT5=$(bash "$SC" --knowledge-dir "$TMP/knowledge")
 printf '%s\n' "$OUT5" | grep -q 'mistype' && fail "page declaring a non-structured type: was listed (should match validate's doc.type skip)"
 pass "explicit non-structured frontmatter type: excludes the page (lockstep with validate)"
 
+# single-quoted structured type: must still be recognized (quote-style parity with validate)
+printf "%s\n" '---' 'title: SQ' "type: 'learnings'" '---' '# SQ' "$(printf 'long prose detail. %.0s' $(seq 1 20))" > "$W/learnings/sqtype.md"
+OUT6=$(bash "$SC" --knowledge-dir "$TMP/knowledge")
+printf '%s\n' "$OUT6" | grep -q $'^learnings\tsqtype\t' || fail "single-quoted type: 'learnings' not recognized as structured (quote-strip parity gap)"
+pass "single-quoted frontmatter type: is recognized (strips \\047 like validate)"
+
 # odd-spaced COMPLETE block (<!--ai:begin-->, no spaces) must be recognized as a block and skipped
 printf '%s\n' '---' 'title: O' 'type: learnings' '---' '<!--ai:begin-->' 'claim: c' '<!--ai:end-->' '# O' "$(printf 'long prose. %.0s' $(seq 1 20))" > "$W/learnings/oddspace.md"
 OUT4=$(bash "$SC" --knowledge-dir "$TMP/knowledge")

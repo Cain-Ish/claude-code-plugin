@@ -170,7 +170,7 @@ for type in learnings decisions entities issues concepts security; do
     # Canonical type = explicit frontmatter `type:` (else the dir): a page mis-filed in a
     # structured dir but declaring a non-structured/typo'd type (`type: index`, `type: concept`)
     # is not a candidate -- keeps lint in lockstep with knowledge_validate.
-    ftype=$(awk 'NR==1 && !/^---[[:space:]]*$/{exit} NR>1 && /^---[[:space:]]*$/{exit} /^type:[[:space:]]/{sub(/^type:[[:space:]]*/,"");gsub(/[",]/,"");gsub(/[[:space:]]+$/,"");print;exit}' "$f")
+    ftype=$(awk 'NR==1 && !/^---[[:space:]]*$/{exit} NR>1 && /^---[[:space:]]*$/{exit} /^type:[[:space:]]/{sub(/^type:[[:space:]]*/,"");gsub(/[\047",]/,"");gsub(/[[:space:]]+$/,"");print;exit}' "$f")
     case "${ftype:-$type}" in learnings|decisions|entities|issues|concepts|security) ;; *) continue ;; esac
     # An UNTERMINATED region (begin, no matching end) is NOT a block: its held lines are emitted
     # at END so they still count (never silently drop a real page's prose -- mirrors the

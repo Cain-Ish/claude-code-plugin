@@ -27,7 +27,7 @@ for type in learnings decisions entities issues concepts security; do
     # Canonical type = explicit frontmatter `type:` (like knowledge_validate's doc.type), else the
     # dir. A page mis-filed in a structured dir but declaring a non-structured/typo'd type
     # (e.g. `type: index`, `type: concept`) is NOT a candidate -- keeps this in lockstep with validate.
-    ftype=$(awk 'NR==1 && !/^---[[:space:]]*$/{exit} NR>1 && /^---[[:space:]]*$/{exit} /^type:[[:space:]]/{sub(/^type:[[:space:]]*/,"");gsub(/[",]/,"");gsub(/[[:space:]]+$/,"");print;exit}' "$f")
+    ftype=$(awk 'NR==1 && !/^---[[:space:]]*$/{exit} NR>1 && /^---[[:space:]]*$/{exit} /^type:[[:space:]]/{sub(/^type:[[:space:]]*/,"");gsub(/[\047",]/,"");gsub(/[[:space:]]+$/,"");print;exit}' "$f")
     case "${ftype:-$type}" in learnings|decisions|entities|issues|concepts|security) ;; *) continue ;; esac
     # Prose length = body minus frontmatter and COMPLETE marked regions. An UNTERMINATED region
     # (begin with no matching end) is NOT a block -> its held lines are emitted at END so they
