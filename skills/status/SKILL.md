@@ -3,7 +3,7 @@ name: status
 description: Show second-brain hot-tier and wiki health at a glance. Reports USER.md size, active PROJECT.md size, projects.jsonl project count, wiki page counts per category, and index.md status.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) Bash(printf *) Bash(tr *) mcp__knowledge-base__knowledge_stats mcp__knowledge-base__persona_stats
+allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) Bash(printf *) Bash(tr *) mcp__knowledge-base__knowledge_stats mcp__knowledge-base__knowledge_validate mcp__knowledge-base__persona_stats
 ---
 
 <!-- user instruction verbatim: "1" -->
@@ -203,7 +203,8 @@ SPEND=0
 if [ -f "$BUDGET_FILE" ]; then
   B_DATE=$(jq -r '.date // ""' "$BUDGET_FILE" 2>/dev/null)
   if [ "$B_DATE" = "$TODAY" ]; then
-    SPEND=$(jq -r '.today_usd // 0' "$BUDGET_FILE" 2>/dev/null)
+    SPEND=$(jq -r '(.today_usd // 0) | tonumber? // 0' "$BUDGET_FILE" 2>/dev/null)
+    [ -n "$SPEND" ] || SPEND=0   # guard: %.4f below errors on a non-numeric/empty value
   fi
 fi
 CAP="${SB_PERSONA_DAILY_BUDGET:-20}"

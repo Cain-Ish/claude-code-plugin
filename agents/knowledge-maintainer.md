@@ -230,7 +230,7 @@ schema (one source of truth for "what a good X page contains").
 
 1. **Get the deterministic work-list** (blockless, substantive, structured pages):
    ```bash
-   bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-ai-block-candidates.sh" --knowledge-dir "$KD"
+   bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-ai-block-candidates.sh"
    ```
    Each TSV row is `<type>\t<slug>\t<path>`. A page that already has a block is skipped
    (idempotent); the script never mutates.

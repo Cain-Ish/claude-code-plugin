@@ -66,7 +66,7 @@ for d in "$DREAMS_DIR"/drm_*/; do
       # (The dream dir's own mtime drifts when the runner/accept writes into it.)
       anchor="${d}transcripts"
       [ -d "$anchor" ] || anchor="$sf"
-      t=$(stat -c %Y "$anchor" 2>/dev/null || echo 0)
+      t=$(stat -c %Y "$anchor" 2>/dev/null || stat -f %m "$anchor" 2>/dev/null || echo 0)  # GNU || BSD/macOS
       if [ "$t" -gt "$WATERMARK_TIME" ]; then
         WATERMARK_TIME="$t"; WATERMARK="$anchor"
       fi

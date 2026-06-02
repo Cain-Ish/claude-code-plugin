@@ -67,7 +67,7 @@ If no CLAUDE.md files exist, proceed without — the layer taxonomy provides eno
 
 Read `~/.second-brain/doubt-history.jsonl` (create if missing). Each line records a past run:
 ```json
-{"timestamp":"ISO8601","layers":["hooks","stop-predicate"],"perspectives":["failure","race"],"findings":2,"issues":1,"fragile":1}
+{"timestamp":"ISO8601","layers":["hooks","stop-extract"],"perspectives":["failure","race"],"findings":2,"issues":1,"fragile":1}
 ```
 
 Parse arguments:
@@ -195,7 +195,7 @@ Append to `~/.second-brain/doubt-history.jsonl`:
 ```bash
 jq -nc \
   --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --argjson layers '["hooks","stop-predicate"]' \
+  --argjson layers '["hooks","stop-extract"]' \
   --argjson perspectives '["failure","race"]' \
   --argjson findings 2 \
   --argjson issues 1 \

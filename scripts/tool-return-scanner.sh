@@ -114,7 +114,11 @@ done
 # sequence E3 80 80–E3 80 BF (UTF-8 encoding range — approximation; the
 # real range needs `iconv` for precision, but the surrogate is good enough
 # to flag suspicious presence).
-if printf '%s' "$OUTPUT" | LC_ALL=C grep -qP '\xf3\xa0\x80[\x80-\xbf]' 2>/dev/null; then
+# Match the 3-byte UTF-8 prefix (F3 A0 80) of the U+E00xx tag block via fixed-string grep on the
+# literal bytes — portable, since BSD/macOS grep has no PCRE mode (the old approach silently
+# no-op'd there).
+TAG_PREFIX=$(printf '\xf3\xa0\x80')
+if printf '%s' "$OUTPUT" | LC_ALL=C grep -qF "$TAG_PREFIX" 2>/dev/null; then
   MATCHED_LABELS="${MATCHED_LABELS}${MATCHED_LABELS:+,}unicode-tag-block"
   MATCHED_SAMPLES="${MATCHED_SAMPLES}${MATCHED_SAMPLES:+ | }unicode-tag-block=\"<U+E00xx tag characters present>\""
 fi

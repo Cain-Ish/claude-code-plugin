@@ -692,8 +692,9 @@ sb_call_extractor() {
       sb_log_error "lib.sh" "SB_USE_BWRAP=1 but bwrap not found in PATH; falling back to direct invocation" 0
     fi
     local claude_ec=0
-    if command -v timeout >/dev/null 2>&1; then
-      timeout "$timeout_s" "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
+    local TBIN; TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)  # GNU || macOS-brew
+    if [ -n "$TBIN" ]; then
+      "$TBIN" "$timeout_s" "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
         < "$input_file" > "$out_file" 2>"$err_file"
       claude_ec=$?
     else
@@ -740,8 +741,9 @@ sb_call_extractor() {
           CLI_ARGS_QUOTED+=("$(printf '%q' "$arg")")
         done
         local inner="claude ${CLI_ARGS_QUOTED[*]} < $(printf '%q' "$input_file") > $(printf '%q' "$out_file") 2> $(printf '%q' "$err_file")"
-        if command -v timeout >/dev/null 2>&1; then
-          inner="timeout $timeout_s $inner"
+        local TBIN2; TBIN2=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+        if [ -n "$TBIN2" ]; then
+          inner="$TBIN2 $timeout_s $inner"
         fi
         # script -qfc syntax is util-linux specific; we already require Linux
         # for the rest of the plugin so no portability shim here.
