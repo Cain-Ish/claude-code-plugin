@@ -6294,8 +6294,9 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   }
   const allSlugs = new Set(allPages.map((p) => basename(p, ".md")));
   for (const doc of parsedDocs) {
-    for (const ref of doc.related) {
-      if (!allSlugs.has(ref)) {
+    for (const rawRef of doc.related) {
+      const ref = rawRef.split("|")[0].trim();
+      if (ref && !allSlugs.has(ref)) {
         issues.push({
           type: "broken_link",
           severity: "warning",

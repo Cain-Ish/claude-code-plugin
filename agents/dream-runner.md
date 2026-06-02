@@ -107,10 +107,18 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
   `member_hash`, and an LLM summary INSIDE `<!-- theme:begin -->` … `<!-- theme:end -->`.
   Author only the marked region. Theme pages are regenerable, FORGET-protected, and staged
   like any page (applied on accept).
+- **Project MOCs (since 0.23.0)** are the deterministic sibling of theme pages: reindex projects
+  one `wiki/projects/<key>.md` per `project:` facet (≥3 members). You do **not** write them and
+  you do **not** assign `project:` on the live path — edge/facet curation is the live
+  `knowledge-maintainer`'s job. If mining shows a clear ungrouped project (several pages that
+  obviously belong together but lack a `project:` facet), **surface it in your report** as a
+  suggestion ("group pages X, Y, Z under project `<key>` — apply via the maintainer + `kb-project-backfill.sh`"),
+  the same surface-only pattern as relationship suggestions. The `projects/` and `themes/` dirs
+  are excluded from clustering input, so MOCs never become clustering hubs.
 
 **Phase 6: REINDEX**
 - Regenerate `staging/wiki/index.md` by reading all pages and building the catalog
-  (run AFTER SUMMARIZE so theme pages are catalogued)
+  (run AFTER SUMMARIZE so theme + project MOC pages are catalogued in the two-tier index)
 
 **Phase 7: FORGET** (skip if `SB_WIKI_FORGET=off`)
 - Bound cold-tier growth. Score the **LIVE** wiki read-only (the script copies to a

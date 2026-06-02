@@ -87,8 +87,11 @@ export async function knowledgeValidate(
 
   const allSlugs = new Set(allPages.map(p => basename(p, '.md')));
   for (const doc of parsedDocs) {
-    for (const ref of doc.related) {
-      if (!allSlugs.has(ref)) {
+    for (const rawRef of doc.related) {
+      // [[target|alias]] resolves to its target — split before checking (same alias rule as
+      // graph-migrate.sh). Without this, a valid aliased link is a false-positive broken_link.
+      const ref = rawRef.split('|')[0].trim();
+      if (ref && !allSlugs.has(ref)) {
         issues.push({
           type: 'broken_link',
           severity: 'warning',
