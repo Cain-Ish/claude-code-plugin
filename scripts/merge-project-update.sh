@@ -43,6 +43,9 @@ done
 [ -z "$KNOWLEDGE_DIR" ] && KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
+# Phase 1b: the render CLI turns a structured ai_block into the marked region deterministically
+# (reuses the TS schema → no bash/TS drift). Resolved relative to this script (plugin root).
+RENDER_CLI="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")"/.. && pwd)}/mcp/dist/tools/ai-block-render-cli.bundle.js"
 [ -f "$PROJECT_MD" ] || { echo "merge-project-update: project file not found: $PROJECT_MD" >&2; exit 2; }
 
 if [ -n "$JSON_FILE" ]; then
@@ -347,6 +350,14 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
     slug=$(sb_sanitize_slug "$raw_slug") || continue
     [ -z "$content" ] && continue
 
+    # Render the extractor's structured ai_block into the marked region (closed-vocab,
+    # schema-ordered). Fail-safe: no block / no node / no CLI ⇒ "" (inject nothing).
+    ai_region=""
+    aiblk=$(echo "$update" | jq -c '.ai_block // empty' 2>/dev/null)
+    if [ -n "$aiblk" ] && [ "$aiblk" != "null" ] && command -v node >/dev/null 2>&1 && [ -f "$RENDER_CLI" ]; then
+      ai_region=$(jq -nc --arg t "$category" --argjson b "$aiblk" '{type:$t,block:$b}' 2>/dev/null | node "$RENDER_CLI" 2>/dev/null)
+    fi
+
     # Gate: reject MR/session-style slugs
     if echo "$slug" | grep -qE '^mr[0-9]+-|^mr-[0-9]+|-mr[0-9]+$|-session$'; then
       continue
@@ -410,6 +421,7 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
         printf 'created: %s\n' "$ts_now"
         printf 'updated: %s\n' "$ts_now"
         printf '%s\n\n' "---"
+        [ -n "$ai_region" ] && printf '%s\n\n' "$ai_region"   # authored ai-block (shared intermediate)
         printf '# %s\n\n' "${title:-$slug}"
         printf '%s\n' "$content"
       } > "$target_file"
