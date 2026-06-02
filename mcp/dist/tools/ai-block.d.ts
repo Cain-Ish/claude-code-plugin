@@ -4,6 +4,11 @@ export interface AiBlockSchema {
     required: string[];
 }
 export declare const AI_BLOCK_SCHEMAS: Record<string, AiBlockSchema>;
+/** Own-key-safe schema lookup. A page's `type` is author-controlled (frontmatter or wiki
+ *  sub-dir name), so a bare `AI_BLOCK_SCHEMAS[type]` index would resolve inherited
+ *  `Object.prototype` keys — `type === "constructor"` returns the Object constructor (truthy,
+ *  no `.fields`/`.required`), crashing the consumers with a TypeError. Guard with hasOwnProperty. */
+export declare function schemaFor(type: string): AiBlockSchema | undefined;
 /** Parse the flat-YAML `key: value` body of the ai:begin…ai:end region into an object.
  *  A line not matching `key:` is folded (appended) into the previous field's value.
  *  Returns null when the page has no block. */

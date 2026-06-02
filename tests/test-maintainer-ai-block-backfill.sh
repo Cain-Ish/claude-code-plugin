@@ -13,6 +13,8 @@ grep -qiE 'validateAiBlock|knowledge_validate' "$M" || fail "no self-validation 
 grep -qiE 'six (structured|known) types|closed[- ]vocab' "$M" || fail "closed-vocabulary boundary not stated"
 grep -qiE 'never invent|extract.*from.*(prose|existing)|do not hallucinate' "$M" || fail "never-invent-values rule absent"
 grep -qiE '50.*change|counted against|cap' "$M" || fail "cap inheritance not stated"
-grep -qiE 'explicitly invoked|explicit-invocation|never auto-dispatch' "$M" || fail "explicit-invocation boundary not stated"
-pass "maintainer Phase 4b contract present (candidate script + render + validate + closed-vocab + cap + never-invent + explicit-invocation)"
+grep -qiE 'explicitly invoked|explicit-invocation|only on an explicit' "$M" || fail "explicit-invocation boundary not stated"
+# The Autonomous Dispatch section must carve out Phase 4b (else it contradicts the boundary).
+grep -qiE 'skip.*Phase 4b|Phase 4b.*skip' "$M" || fail "Autonomous Dispatch does not carve out Phase 4b (contradiction)"
+pass "maintainer Phase 4b contract present (candidate script + render + validate + closed-vocab + cap + never-invent + explicit-invocation + dispatch carve-out)"
 echo; echo "ALL PASS"

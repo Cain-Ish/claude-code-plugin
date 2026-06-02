@@ -49,6 +49,38 @@ grep -q 'irreplaceable prose tail' "$KD/wiki/learnings/bad.md" || fail "malforme
 [ "$(grep -c 'ai:begin' "$KD/wiki/learnings/bad.md")" -eq 1 ] || fail "refresh added a second begin marker to a malformed page"
 pass "malformed (begin-without-end) page is not corrupted by refresh"
 
+# 4) a real COMPLETE block at top + an inline <!-- ai:begin --> in PROSE: refresh must replace ONLY
+#    the first (real) block and must NOT re-arm drop on the prose mention (else it eats to EOF --
+#    the FORGET-bug class, realistic on this repo's own ai-block-documenting pages).
+{
+  printf '%s\n' '---' 'title: Inline' 'type: learnings' 'updated: 2026-05-01T00:00:00Z' '---'
+  printf '%s\n' '<!-- ai:begin (authored) -->' 'claim: orig claim' 'action: orig' '<!-- ai:end -->'
+  printf '%s\n' '' '# Inline' '' 'Prose before the mention.' \
+    'Docs note: a page may contain <!-- ai:begin --> in its prose.' \
+    'stray inline line' 'FINAL TAIL must survive.'
+} > "$KD/wiki/learnings/inline.md"
+run '{recent_decisions:[],open_blockers:[],cross_refs:[],files_touched:[],
+  wiki_updates:[{category:"learnings",slug:"inline",action:"update",title:"Inline",description:"d",
+    content:"a fresh distinct observation for the inline page.",ai_block:{claim:"fresh claim",action:"do"}}]}' || fail "inline-update nonzero"
+N="$KD/wiki/learnings/inline.md"
+grep -q 'FINAL TAIL must survive' "$N" || fail "prose tail after an inline ai:begin was eaten (FORGET-bug re-introduced)"
+grep -q '^claim: fresh claim$' "$N" || fail "real block not refreshed"
+grep -q 'orig claim' "$N" && fail "stale real-block field survived"
+grep -q 'Docs note: a page may contain' "$N" || fail "inline prose mention was lost"
+pass "a stray ai:begin in prose cannot re-arm the drop or eat the body"
+
+# 5) dedup-skip must STILL refresh the block (refresh runs before the prose-dedup early-continue).
+run '{recent_decisions:[],open_blockers:[],cross_refs:[],files_touched:[],
+  wiki_updates:[{category:"learnings",slug:"dedup",action:"create",title:"Dedup",description:"d",
+    content:"IDENTICAL DEDUP SENTINEL CONTENT for the dedup page.",ai_block:{claim:"v1 claim",action:"a"}}]}' || fail "dedup-create nonzero"
+run '{recent_decisions:[],open_blockers:[],cross_refs:[],files_touched:[],
+  wiki_updates:[{category:"learnings",slug:"dedup",action:"update",title:"Dedup",description:"d",
+    content:"IDENTICAL DEDUP SENTINEL CONTENT for the dedup page.",ai_block:{claim:"v2 claim",action:"a"}}]}' || fail "dedup-update nonzero"
+D="$KD/wiki/learnings/dedup.md"
+grep -q '^claim: v2 claim$' "$D" || fail "block NOT refreshed when prose was a duplicate (refresh must precede the dedup continue)"
+grep -q 'v1 claim' "$D" && fail "stale block survived the dedup-skipped refresh"
+pass "block refresh runs even when the prose content is a duplicate"
+
 # Prompt instructs refresh on update (so the extractor actually emits a block for update actions).
 grep -qiE 'ai_block.*(update|refresh)|(update|refresh).*ai.?block|refresh.*in place' "$ROOT/scripts/extract-prompt.txt" \
   || fail "extract-prompt.txt does not instruct emitting/refreshing ai_block on update"

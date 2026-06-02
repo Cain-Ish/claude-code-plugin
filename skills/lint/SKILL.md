@@ -162,14 +162,19 @@ Stubs are exempt. (`infm`/`drop`, not the reserved `in` — see the awk header n
 for type in learnings decisions entities issues concepts security; do
   d="$KD/wiki/$type"; [ -d "$d" ] || continue
   find "$d" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while read -r f; do
-    grep -q '<!-- ai:begin' "$f" 2>/dev/null && continue
+    grep -qE '<!--[[:space:]]*ai:begin' "$f" 2>/dev/null && continue
+    # An UNTERMINATED region (begin, no matching end) is NOT a block: its held lines are emitted
+    # at END so they still count (never silently drop a real page's prose -- mirrors the
+    # knowledge_validate bounded strip + the forget-scorer guard). `infm`/`drop`, not reserved `in`.
     prose=$(awk '
       NR==1 && /^---[[:space:]]*$/ { infm=1; next }
       infm && /^---[[:space:]]*$/  { infm=0; next }
       infm { next }
-      /<!--[[:space:]]*(graph|theme|ai):begin/ { drop=1 }
-      drop { if (/<!--[[:space:]]*(graph|theme|ai):end[[:space:]]*-->/) drop=0; next }
+      /<!--[[:space:]]*(graph|theme|ai):begin/ && !drop { drop=1; buf=$0 "\n"; next }
+      drop && /<!--[[:space:]]*(graph|theme|ai):end[[:space:]]*-->/ { drop=0; next }
+      drop { buf = buf $0 "\n"; next }
       { print }
+      END { if (drop) printf "%s", buf }
     ' "$f" | tr -d '[:space:]' | wc -c)
     [ "$prose" -ge 200 ] && echo "MISSING-BLOCK: $type/$(basename "$f" .md) ($f)"
   done

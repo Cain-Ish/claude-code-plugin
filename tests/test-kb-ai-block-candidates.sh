@@ -32,4 +32,19 @@ H1=$(md5sum "$W/learnings/cand.md"); OUT2=$(bash "$SC" --knowledge-dir "$TMP/kno
 [ "$H1" = "$H2" ] || fail "script mutated a page (must be read-only)"
 [ "$OUT" = "$OUT2" ] || fail "non-deterministic output across runs"
 pass "read-only + deterministic"
+
+# unterminated marked region: prose AFTER an unclosed <!-- graph:begin --> must still be counted
+# (drop-to-EOF would silently omit the page that most needs a block).
+printf '%s\n' '---' 'title: U' 'type: learnings' '---' '# U' 'short.' '<!-- graph:begin -->' \
+  "$(printf 'substantive trailing prose. %.0s' $(seq 1 20))" > "$W/learnings/unterm.md"
+OUT3=$(bash "$SC" --knowledge-dir "$TMP/knowledge")
+printf '%s\n' "$OUT3" | grep -q $'^learnings\tunterm\t' || fail "page with prose after an unterminated region not counted (drop-to-EOF regression)"
+pass "unterminated marked region does not silently drop trailing prose"
+
+# odd-spaced COMPLETE block (<!--ai:begin-->, no spaces) must be recognized as a block and skipped
+printf '%s\n' '---' 'title: O' 'type: learnings' '---' '<!--ai:begin-->' 'claim: c' '<!--ai:end-->' '# O' "$(printf 'long prose. %.0s' $(seq 1 20))" > "$W/learnings/oddspace.md"
+OUT4=$(bash "$SC" --knowledge-dir "$TMP/knowledge")
+printf '%s\n' "$OUT4" | grep -q 'oddspace' && fail "odd-spaced complete block listed as a candidate (grep skip too strict)"
+pass "odd-spaced complete block is recognized and skipped"
+
 echo; echo "ALL PASS"

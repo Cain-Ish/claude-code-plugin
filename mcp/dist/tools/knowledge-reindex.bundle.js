@@ -6155,6 +6155,9 @@ var AI_BLOCK_SCHEMAS = {
   concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
   security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
 };
+function schemaFor(type) {
+  return Object.prototype.hasOwnProperty.call(AI_BLOCK_SCHEMAS, type) ? AI_BLOCK_SCHEMAS[type] : void 0;
+}
 function parseAiBlock(content) {
   const m = content.match(AI_BLOCK_RE);
   if (!m) return null;
@@ -6178,7 +6181,7 @@ function stripAiBlock(text) {
   return text.replace(AI_BLOCK_RE_G, "");
 }
 function validateAiBlock(type, block) {
-  const schema = AI_BLOCK_SCHEMAS[type];
+  const schema = schemaFor(type);
   if (!schema) return [];
   return schema.required.filter((f) => !block[f] || !block[f].trim());
 }
@@ -6276,7 +6279,7 @@ function extractYamlList(yaml, key) {
 // src/tools/knowledge-validate.ts
 import { promises as fs2 } from "fs";
 import { join as join2, basename, dirname, relative } from "path";
-var AI_BLOCK_MIN_PROSE = 200;
+var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join2(knowledgeDir, "wiki");
   const issues = [];
@@ -6299,8 +6302,8 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         path: filePath,
         message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(", ")}`
       });
-    } else if (AI_BLOCK_SCHEMAS[ptype] && !/[/\\](projects|themes)[/\\]/.test(filePath)) {
-      const prose = stripAiBlock(content).replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, "").replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, "").replace(/^---\n[\s\S]*?\n---\n/, "");
+    } else if (schemaFor(ptype) && !/[/\\](projects|themes)[/\\]/.test(filePath)) {
+      const prose = stripAiBlock(content).replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, "").replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "");
       if (prose.trim().length >= AI_BLOCK_MIN_PROSE) issues.push({
         type: "ai_block_missing",
         severity: "warning",

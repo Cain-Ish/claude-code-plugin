@@ -20,14 +20,20 @@ WIKI="$KDIR/wiki"; [ -d "$WIKI" ] || exit 0
 for type in learnings decisions entities issues concepts security; do
   dir="$WIKI/$type"; [ -d "$dir" ] || continue
   find "$dir" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | sort | while IFS= read -r f; do
-    grep -q '<!-- ai:begin' "$f" 2>/dev/null && continue   # idempotent: already authored
+    grep -qE '<!--[[:space:]]*ai:begin' "$f" 2>/dev/null && continue   # idempotent: already authored (any spacing)
+    # Prose length = body minus frontmatter and COMPLETE marked regions. An UNTERMINATED region
+    # (begin with no matching end) is NOT a block -> its held lines are emitted at END so they
+    # still count (mirrors knowledge-validate.ts's bounded strip + the 59a9b25 forget-scorer guard;
+    # never under-counts a real page into silent omission). mawk-safe.
     prose=$(awk '
       NR==1 && /^---[[:space:]]*$/ { infm=1; next }
       infm && /^---[[:space:]]*$/  { infm=0; next }
       infm { next }
-      /<!--[[:space:]]*(graph|theme|ai):begin/ { drop=1 }
-      drop { if (/<!--[[:space:]]*(graph|theme|ai):end[[:space:]]*-->/) drop=0; next }
+      /<!--[[:space:]]*(graph|theme|ai):begin/ && !drop { drop=1; buf=$0 "\n"; next }
+      drop && /<!--[[:space:]]*(graph|theme|ai):end[[:space:]]*-->/ { drop=0; next }
+      drop { buf = buf $0 "\n"; next }
       { print }
+      END { if (drop) printf "%s", buf }
     ' "$f" | tr -d '[:space:]' | wc -c)
     [ "$prose" -ge "$MINPROSE" ] || continue
     printf '%s\t%s\t%s\n' "$type" "$(basename "$f" .md)" "$f"

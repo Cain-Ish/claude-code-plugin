@@ -8,11 +8,14 @@ var AI_BLOCK_SCHEMAS = {
   concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
   security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
 };
+function schemaFor(type) {
+  return Object.prototype.hasOwnProperty.call(AI_BLOCK_SCHEMAS, type) ? AI_BLOCK_SCHEMAS[type] : void 0;
+}
 var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
 var AI_BLOCK_RENDER_BEGIN = "<!-- ai:begin (authored \u2014 flat YAML, see ai-block schema) -->";
 var AI_BLOCK_RENDER_END = "<!-- ai:end -->";
 function renderAiBlock(type, block) {
-  const schema = AI_BLOCK_SCHEMAS[type];
+  const schema = schemaFor(type);
   if (!schema) return "";
   const lines = [];
   for (const f of schema.fields) {

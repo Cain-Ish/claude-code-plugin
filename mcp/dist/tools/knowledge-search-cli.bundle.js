@@ -6290,6 +6290,9 @@ var AI_BLOCK_SCHEMAS = {
   concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
   security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
 };
+function schemaFor(type) {
+  return Object.prototype.hasOwnProperty.call(AI_BLOCK_SCHEMAS, type) ? AI_BLOCK_SCHEMAS[type] : void 0;
+}
 function parseAiBlock(content) {
   const m = content.match(AI_BLOCK_RE);
   if (!m) return null;
@@ -6313,7 +6316,7 @@ function stripAiBlock(text) {
   return text.replace(AI_BLOCK_RE_G, "");
 }
 function aiBlockSnippet(type, block) {
-  const schema = AI_BLOCK_SCHEMAS[type];
+  const schema = schemaFor(type);
   const order = schema ? schema.fields : Object.keys(block);
   return order.filter((f) => (block[f] ?? "").trim()).map((f) => `${f}: ${block[f].trim()}`).join("; ");
 }

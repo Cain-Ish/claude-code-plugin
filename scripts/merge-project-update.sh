@@ -393,6 +393,34 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
     fi
 
     if [ "$action" = "update" ] && [ -f "$target_file" ]; then
+      # Phase 3: refresh the authored ai-block FIRST -- before the prose-dedup early-continue --
+      # so a sharpened block is applied even when the prose is a duplicate ("a stale block is
+      # worse than none"). Replace a COMPLETE region in place (FIRST ai:begin only, via a
+      # `replaced` latch + a `drop` that never re-arms -- so a stray ai:begin in prose can't
+      # duplicate the region or run away to EOF); inject after a real frontmatter fence if absent;
+      # leave a malformed begin-without-end page untouched (never eat the body). mawk-safe: ENVIRON.
+      if [ -n "$ai_region" ]; then
+        if grep -qE '<!--[[:space:]]*ai:begin' "$target_file" 2>/dev/null; then
+          if grep -qE '<!--[[:space:]]*ai:end[[:space:]]*-->' "$target_file" 2>/dev/null; then
+            AI_REGION="$ai_region" awk '
+              BEGIN { reg = ENVIRON["AI_REGION"] }
+              /<!--[[:space:]]*ai:begin/ && !replaced { print reg; drop=1; replaced=1; next }
+              drop && /<!--[[:space:]]*ai:end[[:space:]]*-->/ { drop=0; next }
+              drop { next }
+              { print }
+            ' "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
+          fi
+          # else: malformed (begin without end) -> no-op (safe)
+        else
+          AI_REGION="$ai_region" awk '
+            BEGIN { reg = ENVIRON["AI_REGION"]; fm=0; done=0 }
+            NR==1 && !/^---[[:space:]]*$/ { print; noinject=1; next }
+            noinject { print; next }
+            /^---[[:space:]]*$/ && fm<2 { print; fm++; if (fm==2 && !done) { print ""; print reg; print ""; done=1 } next }
+            { print }
+          ' "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
+        fi
+      fi
       # Content-aware dedup: skip if the first 60 chars of new content already appear in the page
       content_check=$(echo "$content" | head -c 60)
       if grep -qF "$content_check" "$target_file" 2>/dev/null; then
@@ -411,30 +439,6 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
       if grep -q '^updated:' "$target_file" 2>/dev/null; then
         awk -v ts="$ts_now" '{ if (/^updated:/) print "updated: " ts; else print }' \
           "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
-      fi
-      # Phase 3: refresh the authored ai-block on UPDATE (CREATE already injects it; 355-359
-      # computed $ai_region for any update carrying .ai_block). Replace a COMPLETE region in
-      # place; inject after frontmatter if absent; leave a malformed begin-without-end page
-      # untouched (never eat the body -- the FORGET-bug class). mawk-safe: $ai_region via ENVIRON.
-      if [ -n "$ai_region" ]; then
-        if grep -q '<!-- ai:begin' "$target_file" 2>/dev/null; then
-          if grep -qE '<!--[[:space:]]*ai:end[[:space:]]*-->' "$target_file" 2>/dev/null; then
-            AI_REGION="$ai_region" awk '
-              BEGIN { reg = ENVIRON["AI_REGION"] }
-              /<!-- ai:begin/ { print reg; drop=1; next }
-              drop && /<!--[[:space:]]*ai:end[[:space:]]*-->/ { drop=0; next }
-              drop { next }
-              { print }
-            ' "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
-          fi
-          # else: malformed (begin without end) -> no-op (safe)
-        else
-          AI_REGION="$ai_region" awk '
-            BEGIN { reg = ENVIRON["AI_REGION"]; fm=0; done=0 }
-            /^---[[:space:]]*$/ && fm<2 { print; fm++; if (fm==2 && !done) { print ""; print reg; print ""; done=1 } next }
-            { print }
-          ' "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
-        fi
       fi
     else
       {

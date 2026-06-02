@@ -80,6 +80,28 @@ describe('addFrontmatter category typing', () => {
         const res = await knowledgeValidate(dir, { autofix: false });
         expect(res.issues.find(i => i.type === 'ai_block_missing')).toBeUndefined();
     });
+    it('does not crash or flag a page typed with an inherited Object key (constructor/__proto__)', async () => {
+        const dir = await fs.mkdtemp(join(tmpdir(), 'kv-proto-'));
+        const wiki = join(dir, 'wiki');
+        await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+        // a structured-dir page whose type: is a prototype key, substantive prose, no block
+        await fs.writeFile(join(wiki, 'learnings', 'a.md'), '---\ntitle: A\ntype: constructor\n---\n# A\n' + 'long prose detail. '.repeat(20));
+        // and one WITH a block — exercises validateAiBlock's lookup (the TypeError crash path)
+        await fs.writeFile(join(wiki, 'learnings', 'b.md'), '---\ntitle: B\ntype: __proto__\n---\n<!-- ai:begin -->\nclaim: c\n<!-- ai:end -->\n# B\nprose');
+        const res = await knowledgeValidate(dir, { autofix: false }); // must not throw
+        expect(res.issues.find(i => i.type === 'ai_block_missing')).toBeUndefined();
+        expect(res.issues.find(i => i.type === 'ai_block_incomplete')).toBeUndefined();
+    });
+    it('strips CRLF frontmatter before measuring prose (no false-positive ai_block_missing)', async () => {
+        const dir = await fs.mkdtemp(join(tmpdir(), 'kv-crlf-'));
+        const wiki = join(dir, 'wiki');
+        await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+        // CRLF page: frontmatter ALONE > 200 chars, body tiny — only flagged if FM isn't stripped
+        const page = ['---', 'title: C', 'type: learnings', `description: ${'x'.repeat(260)}`, '---', '# C', 'tiny.'].join('\r\n');
+        await fs.writeFile(join(wiki, 'learnings', 'c.md'), page);
+        const res = await knowledgeValidate(dir, { autofix: false });
+        expect(res.issues.find(i => i.type === 'ai_block_missing')).toBeUndefined();
+    });
     it('does NOT double-flag: a page WITH a block is never ai_block_missing', async () => {
         const dir = await fs.mkdtemp(join(tmpdir(), 'kv-has-'));
         const wiki = join(dir, 'wiki');

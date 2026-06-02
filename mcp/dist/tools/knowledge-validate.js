@@ -1,10 +1,11 @@
 import { promises as fs } from 'fs';
 import { join, basename, dirname, relative } from 'path';
 import { parseDoc } from './knowledge-search.js';
-import { parseAiBlock, validateAiBlock, stripAiBlock, AI_BLOCK_SCHEMAS } from './ai-block.js';
+import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
 // A structured page with this much prose (non-frontmatter, marked regions stripped) but no
-// ai-block is a backfill candidate; shorter pages are legitimate stubs, exempt.
-const AI_BLOCK_MIN_PROSE = 200;
+// ai-block is a backfill candidate; shorter pages are legitimate stubs, exempt. Env-overridable
+// in lockstep with kb-ai-block-candidates.sh / lint Check 4 (default 200).
+const AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 export async function knowledgeValidate(knowledgeDir, opts = {}) {
     const wikiDir = join(knowledgeDir, 'wiki');
     const issues = [];
@@ -31,11 +32,11 @@ export async function knowledgeValidate(knowledgeDir, opts = {}) {
                     message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(', ')}`,
                 });
         }
-        else if (AI_BLOCK_SCHEMAS[ptype] && !/[/\\](projects|themes)[/\\]/.test(filePath)) {
+        else if (schemaFor(ptype) && !/[/\\](projects|themes)[/\\]/.test(filePath)) {
             const prose = stripAiBlock(content)
                 .replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, '')
                 .replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, '')
-                .replace(/^---\n[\s\S]*?\n---\n/, '');
+                .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
             if (prose.trim().length >= AI_BLOCK_MIN_PROSE)
                 issues.push({
                     type: 'ai_block_missing', severity: 'warning', path: filePath,
