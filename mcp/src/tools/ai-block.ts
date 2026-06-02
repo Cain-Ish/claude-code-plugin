@@ -3,7 +3,10 @@
 // fields (per-type schema). Pure module: parse / strip / validate. No I/O.
 // Spec: docs/specs/2026-06-02-ai-native-knowledge-representation-design.md
 
-export const AI_BLOCK_RE = /<!--\s*ai:begin[\s\S]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+// The begin marker is a single HTML comment line (its annotation tail stays on that line,
+// `[^\n]*?` — so a stray token can't fold the comment-tail into the parsed body). Requires a
+// matching ai:end; an unterminated ai:begin is NOT a block (no match → parse null / strip no-op).
+export const AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
 
 export interface AiBlockSchema { fields: string[]; required: string[]; }
 

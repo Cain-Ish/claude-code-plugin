@@ -6289,7 +6289,7 @@ function validAt(e, t) {
 }
 
 // src/tools/ai-block.ts
-var AI_BLOCK_RE = /<!--\s*ai:begin[\s\S]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
 function parseAiBlock(content) {
   const m = content.match(AI_BLOCK_RE);
   if (!m) return null;

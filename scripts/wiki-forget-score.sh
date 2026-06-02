@@ -23,13 +23,19 @@ acount(){ local v; v=$( [ -s "$AC" ] && jq -r --arg s "$1" '(.[$s].count // .[$s
 find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while read -r f; do
   slug=$(basename "$f" .md); cat=$(basename "$(dirname "$f")")
   age=$(( (now - $(stat -c %Y "$f")) / 86400 ))
-  # body byte-count is PROSE-ONLY: strip the authored ai-block so a uniform block can't
-  # lift every page over the stub floor (spec §5b). mawk-safe state toggle, no interpolation.
-  body=$(awk '
-    /<!--[[:space:]]*ai:begin/ { skip=1 }
-    skip==1 { if ($0 ~ /<!--[[:space:]]*ai:end[[:space:]]*-->/) skip=0; next }
-    { print }
-  ' "$f" | wc -c)
+  # body byte-count is PROSE-ONLY: strip the authored ai-block so a uniform block can't lift
+  # every page over the stub floor (spec §5b). Only strip when a COMPLETE block exists (a
+  # closing ai:end is present) — an unterminated ai:begin is NOT a block, so it stays a raw
+  # byte-exact count (matches the TS stripAiBlock no-op; never eats a real page toward FORGET).
+  if grep -qE '<!--[[:space:]]*ai:end[[:space:]]*-->' "$f"; then
+    body=$(awk '
+      /<!--[[:space:]]*ai:begin/ { skip=1 }
+      skip==1 { if ($0 ~ /<!--[[:space:]]*ai:end[[:space:]]*-->/) skip=0; next }
+      { print }
+    ' "$f" | wc -c)
+  else
+    body=$(wc -c < "$f")
+  fi
   inb=$(inbound "$slug"); acc=$(acount "$slug")
   # Pass values via -v + coerce to number (x=x+0) so an empty/sparse value can't produce a
   # mawk "syntax error at or near ;" (do NOT string-interpolate into the awk program).

@@ -39,10 +39,11 @@ export async function knowledgeValidate(
     // (additive during migration). Missing required field for the page's type → a warning.
     const aiBlock = parseAiBlock(content);
     if (aiBlock) {
-      const missing = validateAiBlock(doc.type || basename(dirname(filePath)), aiBlock);
+      const ptype = doc.type || basename(dirname(filePath));
+      const missing = validateAiBlock(ptype, aiBlock);
       if (missing.length) issues.push({
         type: 'ai_block_incomplete', severity: 'warning', path: filePath,
-        message: `ai-block missing required field(s) for type ${doc.type}: ${missing.join(', ')}`,
+        message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(', ')}`,
       });
     }
 

@@ -2,7 +2,10 @@
 // A marked region <!-- ai:begin … --> … <!-- ai:end --> holding flat YAML key:value
 // fields (per-type schema). Pure module: parse / strip / validate. No I/O.
 // Spec: docs/specs/2026-06-02-ai-native-knowledge-representation-design.md
-export const AI_BLOCK_RE = /<!--\s*ai:begin[\s\S]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+// The begin marker is a single HTML comment line (its annotation tail stays on that line,
+// `[^\n]*?` — so a stray token can't fold the comment-tail into the parsed body). Requires a
+// matching ai:end; an unterminated ai:begin is NOT a block (no match → parse null / strip no-op).
+export const AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
 // Per-type schemas (spec §4). `required` = the load-bearing fields a good page of that
 // type should carry; missing ones are WARNINGS (gentle), never errors.
 export const AI_BLOCK_SCHEMAS = {

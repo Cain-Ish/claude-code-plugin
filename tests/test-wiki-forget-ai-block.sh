@@ -20,13 +20,23 @@ mkdir -p "$KNOWLEDGE_DIR/wiki/entities" "$BRAIN_DIR"
 # f: long real prose, no block → full 0.5 entity category
 { echo '---'; echo 'title: F'; echo 'type: entities'; echo '---'; echo '# F'
   for i in $(seq 1 30); do echo "real prose line $i with enough content to comfortably exceed two hundred bytes"; done; } > "$KNOWLEDGE_DIR/wiki/entities/f.md"
+# g: short prose + an UNTERMINATED ai:begin (no ai:end) — must NOT be stripped (raw byte-exact
+# count), else the strip eats the page and demotes it toward FORGET (fail-open). Regression guard.
+{ echo '---'; echo 'title: G'; echo 'type: entities'; echo '---'
+  echo '<!-- ai:begin -->'
+  for i in $(seq 1 20); do echo "unterminated block line $i content content content content content"; done
+  echo '# G'; echo 'hi'; } > "$KNOWLEDGE_DIR/wiki/entities/g.md"
 
 OUT=$(bash "$SCORER" 2>/dev/null) || fail "scorer failed"
 se=$(printf '%s\n' "$OUT" | awk -F'\t' '$2=="e"{print $1}')
 sf=$(printf '%s\n' "$OUT" | awk -F'\t' '$2=="f"{print $1}')
-[ -n "$se" ] && [ -n "$sf" ] || fail "missing scores (e='$se' f='$sf')"
+sg=$(printf '%s\n' "$OUT" | awk -F'\t' '$2=="g"{print $1}')
+[ -n "$se" ] && [ -n "$sf" ] && [ -n "$sg" ] || fail "missing scores (e='$se' f='$sf' g='$sg')"
 awk -v a="$se" -v b="$sf" 'BEGIN{exit !(a+0 < b+0)}' \
   || fail "block-padded stub e=$se scored >= real-prose f=$sf — ai-block not excluded from wc -c"
 pass "ai-block excluded from FORGET body byte-count (block-padded page still hits the stub floor)"
+awk -v a="$sg" -v b="$sf" 'BEGIN{exit !(a+0 >= b+0)}' \
+  || fail "unterminated-block page g=$sg demoted below real-prose f=$sf — strip ate the page (fail-open toward FORGET)"
+pass "unterminated ai:begin is NOT stripped (raw count; never demotes a real page)"
 
 echo; echo "ALL PASS"

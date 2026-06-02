@@ -27629,7 +27629,7 @@ async function appendEdge(path3, rec) {
 }
 
 // src/tools/ai-block.ts
-var AI_BLOCK_RE = /<!--\s*ai:begin[\s\S]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
 var AI_BLOCK_SCHEMAS = {
   learnings: { fields: ["claim", "trigger", "action", "scope", "evidence", "supersedes"], required: ["claim", "action"] },
   decisions: { fields: ["context", "choice", "alternatives", "rationale", "status", "supersedes"], required: ["choice"] },
@@ -28143,12 +28143,13 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     parsedDocs.push(doc);
     const aiBlock = parseAiBlock(content);
     if (aiBlock) {
-      const missing = validateAiBlock(doc.type || basename(dirname2(filePath)), aiBlock);
+      const ptype = doc.type || basename(dirname2(filePath));
+      const missing = validateAiBlock(ptype, aiBlock);
       if (missing.length) issues.push({
         type: "ai_block_incomplete",
         severity: "warning",
         path: filePath,
-        message: `ai-block missing required field(s) for type ${doc.type}: ${missing.join(", ")}`
+        message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(", ")}`
       });
     }
     if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
