@@ -106,6 +106,19 @@ describe('reindex project MOCs', () => {
     } finally { if (prev === undefined) delete process.env.SB_MOC_MIN_MEMBERS; else process.env.SB_MOC_MIN_MEMBERS = prev; }
   });
 
+  it('project-MOC member description ignores the ai-block (firstSentence strips it)', async () => {
+    const kd = await fsp.mkdtemp(join(tmpdir(), 'ri-ai-'));
+    await fsp.mkdir(join(kd, 'wiki', 'concepts'), { recursive: true });
+    const body = ['<!-- ai:begin -->', 'problem: BLOCKWORD should not surface', 'solution: x', '<!-- ai:end -->', '', 'Real prose sentence here.'].join('\n');
+    await fsp.writeFile(join(kd, 'wiki', 'concepts', 'p.md'), `---\ntitle: P\ntype: concepts\nproject: demo\n---\n${body}`);
+    await fsp.writeFile(join(kd, 'wiki', 'concepts', 'q.md'), `---\ntitle: Q\ntype: concepts\nproject: demo\n---\n# Q\nprose`);
+    await fsp.writeFile(join(kd, 'wiki', 'concepts', 'r.md'), `---\ntitle: R\ntype: concepts\nproject: demo\n---\n# R\nprose`);
+    await knowledgeReindex(kd);
+    const moc = await fsp.readFile(join(kd, 'wiki', 'projects', 'demo.md'), 'utf-8');
+    expect(moc).toContain('[[p]]');
+    expect(moc).not.toContain('BLOCKWORD'); // member description must come from prose, not the block
+  });
+
   it('does not mangle a MOC whose project key is an edge endpoint (#2 idempotency)', async () => {
     const kd = await fsp.mkdtemp(join(tmpdir(), 'mangle-'));
     await page(kd, 'decisions', 'arch-a', 'arch');
