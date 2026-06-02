@@ -55,6 +55,21 @@ describe('knowledge_search multi-hop typed boost (graph present)', () => {
   });
 });
 
+describe('search consumes the ai-block (Phase 2)', () => {
+  it('indexes the ai-block and returns it as the result description', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-ai2-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    // ZEBRAFISH appears ONLY in the block — not in title/description/prose
+    const block = ['<!-- ai:begin -->', 'claim: ZEBRAFISH handshake', 'action: do x', '<!-- ai:end -->'].join('\n');
+    await fsp.writeFile(join(dir, 'wiki', 'learnings', 'z.md'),
+      `---\ntitle: Z\ntype: learnings\ndescription: unrelated prose description\n---\n${block}\n\n# Z\nplain prose body.`);
+    const r = await knowledgeSearch({ query: 'ZEBRAFISH handshake', knowledgeDir: dir });
+    const z = r.candidates.find(c => c.path.endsWith('/z.md'));
+    expect(z).toBeTruthy();                                          // block term is indexed → findable
+    expect(z!.description).toContain('claim: ZEBRAFISH handshake');  // block returned as the snippet
+  });
+});
+
 describe('stub penalty excludes the ai-block (prose-only length)', () => {
   it('a short page padded only by a query-heavy ai-block is still penalized vs a real-prose page', async () => {
     const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-stub-'));
