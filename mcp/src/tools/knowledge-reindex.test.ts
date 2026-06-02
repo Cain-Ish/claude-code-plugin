@@ -106,6 +106,20 @@ describe('reindex project MOCs', () => {
     } finally { if (prev === undefined) delete process.env.SB_MOC_MIN_MEMBERS; else process.env.SB_MOC_MIN_MEMBERS = prev; }
   });
 
+  it('reindex/graph-projection preserves the ai-block byte-for-byte', async () => {
+    const kd = await fsp.mkdtemp(join(tmpdir(), 'ri-keep-'));
+    await fsp.mkdir(join(kd, 'wiki', 'decisions'), { recursive: true });
+    const block = ['<!-- ai:begin -->', 'choice: use X', 'status: active', '<!-- ai:end -->'].join('\n');
+    await fsp.writeFile(join(kd, 'wiki', 'decisions', 'd.md'), `---\ntitle: D\ntype: decisions\nrelated: []\n---\n${block}\n\n# D\nbody [[other]]`);
+    await fsp.writeFile(join(kd, 'wiki', 'decisions', 'other.md'), `---\ntitle: O\ntype: decisions\n---\n# O\n`);
+    await appendEdge(join(kd, 'graph', 'edges.jsonl'),
+      { op: 'assert', from: 'd', to: 'other', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await knowledgeReindex(kd); // projects related: + ## Dependencies onto d.md
+    const after = await fsp.readFile(join(kd, 'wiki', 'decisions', 'd.md'), 'utf-8');
+    expect(after).toContain(block);                 // the ai-block survives projection intact
+    expect(after).toMatch(/related: \[\[other\]\]/); // projection still happened (edge applied)
+  });
+
   it('project-MOC member description ignores the ai-block (firstSentence strips it)', async () => {
     const kd = await fsp.mkdtemp(join(tmpdir(), 'ri-ai-'));
     await fsp.mkdir(join(kd, 'wiki', 'concepts'), { recursive: true });
