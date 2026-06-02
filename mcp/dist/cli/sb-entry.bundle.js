@@ -6290,6 +6290,14 @@ function validAt(e, t) {
 
 // src/tools/ai-block.ts
 var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_SCHEMAS = {
+  learnings: { fields: ["claim", "trigger", "action", "scope", "evidence", "supersedes"], required: ["claim", "action"] },
+  decisions: { fields: ["context", "choice", "alternatives", "rationale", "status", "supersedes"], required: ["choice"] },
+  entities: { fields: ["identity", "current_state", "depends_on", "owns", "status"], required: ["identity"] },
+  issues: { fields: ["symptom", "cause", "fix", "severity", "status"], required: ["symptom", "status"] },
+  concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
+  security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
+};
 function parseAiBlock(content) {
   const m = content.match(AI_BLOCK_RE);
   if (!m) return null;
@@ -6308,11 +6316,20 @@ function parseAiBlock(content) {
   }
   return out;
 }
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
 function stripAiBlock(text) {
-  return text.replace(AI_BLOCK_RE, "");
+  return text.replace(AI_BLOCK_RE_G, "");
+}
+function aiBlockSnippet(type, block) {
+  const schema = AI_BLOCK_SCHEMAS[type];
+  const order = schema ? schema.fields : Object.keys(block);
+  return order.filter((f) => (block[f] ?? "").trim()).map((f) => `${f}: ${block[f].trim()}`).join("; ");
 }
 
 // src/tools/knowledge-search.ts
+function aiBlockText(doc) {
+  return doc.aiBlock ? Object.values(doc.aiBlock).join(" ") : "";
+}
 var ACCESS_COUNTS_FILE = join3(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -6398,14 +6415,14 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     }
   }
   if (allDocs.length === 0) return { candidates: [] };
-  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(doc.body).length, 0) / allDocs.length || AVG_DOC_LENGTH;
+  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(stripAiBlock(doc.body)).length, 0) / allDocs.length || AVG_DOC_LENGTH;
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
   const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
-    description: source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
+    description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
     tokens,
     source
   }));
@@ -6540,7 +6557,8 @@ function computeDF(queryTokens, docs) {
         ...tokenize(doc.title),
         ...tokenize(doc.description),
         ...tokenize(doc.tags.join(" ")),
-        ...tokenize(doc.body)
+        ...tokenize(stripAiBlock(doc.body)),
+        ...tokenize(aiBlockText(doc))
       ];
       if (allTokens.includes(qt)) df++;
     }
@@ -6553,7 +6571,10 @@ function scoreBM25(queryTokens, doc, avgDL, N, dfMap) {
     { tokens: tokenize(doc.title), weight: 3 },
     { tokens: tokenize(doc.description), weight: 2 },
     { tokens: tokenize(doc.tags.join(" ")), weight: 2 },
-    { tokens: tokenize(doc.body), weight: 1 }
+    { tokens: tokenize(aiBlockText(doc)), weight: 1.5 },
+    // proposition-level shared intermediate
+    { tokens: tokenize(stripAiBlock(doc.body)), weight: 1 }
+    // prose body (block excluded → no double-count)
   ];
   let score = 0;
   for (const qt of queryTokens) {

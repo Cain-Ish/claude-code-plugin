@@ -27656,8 +27656,14 @@ function parseAiBlock(content) {
   }
   return out;
 }
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
 function stripAiBlock(text) {
-  return text.replace(AI_BLOCK_RE, "");
+  return text.replace(AI_BLOCK_RE_G, "");
+}
+function aiBlockSnippet(type, block) {
+  const schema = AI_BLOCK_SCHEMAS[type];
+  const order = schema ? schema.fields : Object.keys(block);
+  return order.filter((f) => (block[f] ?? "").trim()).map((f) => `${f}: ${block[f].trim()}`).join("; ");
 }
 function validateAiBlock(type, block) {
   const schema = AI_BLOCK_SCHEMAS[type];
@@ -27666,6 +27672,9 @@ function validateAiBlock(type, block) {
 }
 
 // src/tools/knowledge-search.ts
+function aiBlockText(doc) {
+  return doc.aiBlock ? Object.values(doc.aiBlock).join(" ") : "";
+}
 var ACCESS_COUNTS_FILE = join6(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -27751,14 +27760,14 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     }
   }
   if (allDocs.length === 0) return { candidates: [] };
-  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(doc.body).length, 0) / allDocs.length || AVG_DOC_LENGTH;
+  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(stripAiBlock(doc.body)).length, 0) / allDocs.length || AVG_DOC_LENGTH;
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
   const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
-    description: source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
+    description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
     tokens,
     source
   }));
@@ -27893,7 +27902,8 @@ function computeDF(queryTokens, docs) {
         ...tokenize(doc.title),
         ...tokenize(doc.description),
         ...tokenize(doc.tags.join(" ")),
-        ...tokenize(doc.body)
+        ...tokenize(stripAiBlock(doc.body)),
+        ...tokenize(aiBlockText(doc))
       ];
       if (allTokens.includes(qt)) df++;
     }
@@ -27906,7 +27916,10 @@ function scoreBM25(queryTokens, doc, avgDL, N, dfMap) {
     { tokens: tokenize(doc.title), weight: 3 },
     { tokens: tokenize(doc.description), weight: 2 },
     { tokens: tokenize(doc.tags.join(" ")), weight: 2 },
-    { tokens: tokenize(doc.body), weight: 1 }
+    { tokens: tokenize(aiBlockText(doc)), weight: 1.5 },
+    // proposition-level shared intermediate
+    { tokens: tokenize(stripAiBlock(doc.body)), weight: 1 }
+    // prose body (block excluded → no double-count)
   ];
   let score = 0;
   for (const qt of queryTokens) {
@@ -28105,6 +28118,13 @@ async function knowledgeFetch(args) {
     } else {
       const hs = headings(doc.body);
       text = [gist, "", ...hs, "", "(no summary yet \u2014 use tier=full for the body)"].join("\n").trim();
+    }
+  } else if (tier === "block") {
+    if (doc.aiBlock && Object.keys(doc.aiBlock).length) {
+      text = aiBlockSnippet(doc.type, doc.aiBlock);
+    } else {
+      const summary = summarySection(doc.body);
+      text = summary || [gist, "", ...headings(doc.body), "", "(no ai-block \u2014 use tier=summary/full)"].join("\n").trim();
     }
   } else {
     const capped = capText(doc.body.trim(), egressBudgetTokens(), fullPointer);
@@ -29297,7 +29317,7 @@ function resolveActiveSlug() {
   return slugFromProjectDir(activeProjectDir());
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.5.1" },
+  { name: "knowledge-base", version: "2.6.0" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
@@ -29332,10 +29352,10 @@ server.registerTool(
 server.registerTool(
   "knowledge_fetch",
   {
-    description: "Fetch a wiki page at a chosen detail tier (progressive disclosure). tier: 'gist' (one-line), 'skeleton' (gist + headings), 'summary' (the page's ## Summary section, or skeleton if none yet), 'full' (body, capped to the egress budget). Always returns a source pointer so you can escalate to the full page only when needed. Prefer this over reading the raw file for large pages.",
+    description: "Fetch a wiki page at a chosen detail tier (progressive disclosure). tier: 'gist' (one-line), 'skeleton' (gist + headings), 'block' (the machine-first ai-block shared-intermediate \u2014 claim/action/etc \u2014 or the summary if none), 'summary' (the page's ## Summary section, or skeleton if none yet), 'full' (body, capped to the egress budget). Always returns a source pointer so you can escalate to the full page only when needed. Prefer this over reading the raw file for large pages.",
     inputSchema: {
       slug: external_exports.string().describe("The page slug (filename without .md), e.g. from a knowledge_search result path."),
-      tier: external_exports.enum(["gist", "skeleton", "summary", "full"]).optional().describe("Detail level. Default 'gist'.")
+      tier: external_exports.enum(["gist", "skeleton", "block", "summary", "full"]).optional().describe("Detail level. Default 'gist'.")
     }
   },
   async ({ slug, tier }) => {

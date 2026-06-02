@@ -2,10 +2,11 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { glob, escape } from 'glob';
 import { parseDoc } from './knowledge-search.js';
+import { aiBlockSnippet } from './ai-block.js';
 import { capText, egressBudgetTokens, estimateTokens } from './egress-budget.js';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 
-export type Tier = 'gist' | 'skeleton' | 'summary' | 'full';
+export type Tier = 'gist' | 'skeleton' | 'summary' | 'full' | 'block';
 
 export interface KnowledgeFetchArgs {
   slug: string;
@@ -101,6 +102,14 @@ export async function knowledgeFetch(args: KnowledgeFetchArgs): Promise<Knowledg
     } else {
       const hs = headings(doc.body);
       text = [gist, '', ...hs, '', '(no summary yet — use tier=full for the body)'].join('\n').trim();
+    }
+  } else if (tier === 'block') {
+    // The machine-first shared intermediate. Falls back gracefully when the page has no block.
+    if (doc.aiBlock && Object.keys(doc.aiBlock).length) {
+      text = aiBlockSnippet(doc.type, doc.aiBlock);
+    } else {
+      const summary = summarySection(doc.body);
+      text = summary || [gist, '', ...headings(doc.body), '', '(no ai-block — use tier=summary/full)'].join('\n').trim();
     }
   } else {
     const capped = capText(doc.body.trim(), egressBudgetTokens(), fullPointer);

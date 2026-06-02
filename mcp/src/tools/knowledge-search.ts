@@ -4,7 +4,10 @@ import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge } from './graph-store.js';
-import { parseAiBlock, stripAiBlock } from './ai-block.js';
+import { parseAiBlock, stripAiBlock, aiBlockSnippet } from './ai-block.js';
+
+/** Concatenated ai-block field VALUES for BM25 tokenization (the proposition-level unit). */
+function aiBlockText(doc: ParsedDoc): string { return doc.aiBlock ? Object.values(doc.aiBlock).join(' ') : ''; }
 
 export interface KnowledgeSearchArgs { query: string; scope?: string; knowledgeDir?: string; brainDir?: string; projectSlug?: string; }
 export interface KnowledgeSearchResult { candidates: { path: string; score: number; description: string; tokens: number; source: string }[]; }
@@ -102,7 +105,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   if (allDocs.length === 0) return { candidates: [] };
 
-  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(doc.body).length, 0) / allDocs.length || AVG_DOC_LENGTH;
+  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(stripAiBlock(doc.body)).length, 0) / allDocs.length || AVG_DOC_LENGTH;
 
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
@@ -111,9 +114,11 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
-    description: source === 'local-doc'
-      ? doc.description
-      : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim()),
+    description: (doc.aiBlock && Object.keys(doc.aiBlock).length)
+      ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS)   // shared intermediate, budget-capped (Phase 2)
+      : (source === 'local-doc'
+        ? doc.description
+        : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim())),
     tokens,
     source,
   }));
@@ -271,7 +276,7 @@ function computeDF(queryTokens: string[], docs: ParsedDoc[]): Map<string, number
     for (const doc of docs) {
       const allTokens = [
         ...tokenize(doc.title), ...tokenize(doc.description),
-        ...tokenize(doc.tags.join(' ')), ...tokenize(doc.body),
+        ...tokenize(doc.tags.join(' ')), ...tokenize(stripAiBlock(doc.body)), ...tokenize(aiBlockText(doc)),
       ];
       if (allTokens.includes(qt)) df++;
     }
@@ -285,7 +290,8 @@ function scoreBM25(queryTokens: string[], doc: ParsedDoc, avgDL: number, N: numb
     { tokens: tokenize(doc.title), weight: 3.0 },
     { tokens: tokenize(doc.description), weight: 2.0 },
     { tokens: tokenize(doc.tags.join(' ')), weight: 2.0 },
-    { tokens: tokenize(doc.body), weight: 1.0 },
+    { tokens: tokenize(aiBlockText(doc)), weight: 1.5 },          // proposition-level shared intermediate
+    { tokens: tokenize(stripAiBlock(doc.body)), weight: 1.0 },    // prose body (block excluded → no double-count)
   ];
 
   let score = 0;

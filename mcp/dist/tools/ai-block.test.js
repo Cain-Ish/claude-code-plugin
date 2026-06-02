@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAiBlock, stripAiBlock, validateAiBlock, renderAiBlock, AI_BLOCK_SCHEMAS } from './ai-block.js';
+import { parseAiBlock, stripAiBlock, validateAiBlock, renderAiBlock, aiBlockSnippet, AI_BLOCK_SCHEMAS } from './ai-block.js';
 const page = [
     '---', 'title: awk', 'type: learnings', '---',
     "<!-- ai:begin (schema'd, machine-first) -->",
@@ -32,6 +32,12 @@ describe('ai-block', () => {
     it('has schemas for the six structured types', () => {
         for (const t of ['learnings', 'decisions', 'entities', 'issues', 'concepts', 'security'])
             expect(AI_BLOCK_SCHEMAS[t].required.length).toBeGreaterThan(0);
+    });
+    it('strips ALL blocks, not just the first', () => {
+        const md = ['a', '<!-- ai:begin -->', 'claim: x', '<!-- ai:end -->', 'b', '<!-- ai:begin -->', 'claim: y', '<!-- ai:end -->', 'c'].join('\n');
+        const s = stripAiBlock(md);
+        expect(s).not.toContain('ai:begin');
+        expect(s).not.toContain('claim:');
     });
     it('treats an UNTERMINATED ai:begin (no ai:end) as NOT a block (parse null, strip no-op)', () => {
         const md = ['---', 'title: x', '---', '<!-- ai:begin -->', 'claim: c', '', '# real prose continues forever'].join('\n');
@@ -72,6 +78,16 @@ describe('renderAiBlock', () => {
     });
     it('returns empty for an UNKNOWN type (closed vocabulary — no open-vocab leak)', () => {
         expect(renderAiBlock('patterns', { problem: 'x', related: '[[other]]', bogus: 'leak' })).toBe('');
+    });
+});
+describe('aiBlockSnippet', () => {
+    it('renders a compact, schema-ordered one-line summary (the shared intermediate)', () => {
+        const s = aiBlockSnippet('learnings', { action: 'do it', claim: 'the claim', scope: '' });
+        expect(s).toBe('claim: the claim; action: do it'); // schema order, empty dropped, no markers
+        expect(s).not.toContain('<!--');
+    });
+    it('is empty for an empty block', () => {
+        expect(aiBlockSnippet('learnings', {})).toBe('');
     });
 });
 //# sourceMappingURL=ai-block.test.js.map

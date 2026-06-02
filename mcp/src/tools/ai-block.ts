@@ -39,9 +39,11 @@ export function parseAiBlock(content: string): Record<string, string> | null {
   return out;
 }
 
-/** Remove the ai:begin…ai:end region so length/first-sentence consumers ignore it. */
+const AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, 'g'); // strip ALL blocks (defensive; spec = 1/page)
+
+/** Remove every ai:begin…ai:end region so length/first-sentence consumers ignore it. */
 export function stripAiBlock(text: string): string {
-  return text.replace(AI_BLOCK_RE, '');
+  return text.replace(AI_BLOCK_RE_G, '');
 }
 
 export const AI_BLOCK_RENDER_BEGIN = '<!-- ai:begin (authored — flat YAML, see ai-block schema) -->';
@@ -62,6 +64,14 @@ export function renderAiBlock(type: string, block: Record<string, string>): stri
   }
   if (lines.length === 0) return '';
   return [AI_BLOCK_RENDER_BEGIN, ...lines, AI_BLOCK_RENDER_END].join('\n');
+}
+
+/** Compact one-line summary of a block (schema-ordered, present fields only) — the
+ *  "shared intermediate" returned as a search snippet / injected into context. */
+export function aiBlockSnippet(type: string, block: Record<string, string>): string {
+  const schema = AI_BLOCK_SCHEMAS[type];
+  const order = schema ? schema.fields : Object.keys(block);
+  return order.filter(f => (block[f] ?? '').trim()).map(f => `${f}: ${block[f].trim()}`).join('; ');
 }
 
 /** Missing REQUIRED fields for the page type (empty when type unknown or all present). */
