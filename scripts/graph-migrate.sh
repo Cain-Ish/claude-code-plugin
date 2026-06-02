@@ -43,8 +43,11 @@ jq -r 'select(.type=="relates") | "\(.from)\t\(.to)"' \
 # slug and matches case-sensitively. That is intentional — on Linux's case-sensitive
 # FS, lowercasing would itself drop a genuinely mixed-case page (e.g. the real
 # self-evolve-v1-P12-plan.md), so exact match is the correct policy for bulk import.
-find "$WIKI" -name '*.md' -type f ! -name 'index.md' -printf '%f\n' 2>/dev/null \
-  | sed 's/\.md$//' | sort -u > "$SLUGS_FILE"
+# NB: portable basename via `sed 's#.*/##'` — NOT GNU `find -printf '%f'`, which errors
+# on BSD/macOS find and (stderr swallowed, no set -e) would yield an empty index → drop
+# every edge. Guarded by tests/test-graph-migrate.sh Test 10.
+find "$WIKI" -name '*.md' -type f ! -name 'index.md' 2>/dev/null \
+  | sed 's#.*/##; s/\.md$//' | sort -u > "$SLUGS_FILE"
 resolves() { [ -n "${1:-}" ] && grep -qxF "$1" "$SLUGS_FILE"; }
 
 # Collect candidate (from, to, created) triples from every page. Targets come

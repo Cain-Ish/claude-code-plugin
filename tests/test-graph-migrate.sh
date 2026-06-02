@@ -97,4 +97,12 @@ pass "[[target|alias]] migrates to target (alias stripped)"
 grep -qE '"from":"page-a","to":"page-b"' "$LOG" 2>/dev/null || fail "resolves guard wrongly dropped a real-page edge (page-a->page-b)"
 pass "real-page edges still migrate after hardening"
 
+# --- Test 10: portability — no GNU-only `find -printf` (Copilot #9) ---
+# BSD/macOS find has no -printf; it errors. With stderr swallowed and no `set -e`,
+# the slug index would come back EMPTY and resolves() would drop EVERY edge on those
+# platforms. Keep the slug-index build POSIX (find -print | sed basename).
+# strip comment lines first so the guard checks real usage, not the explanatory note.
+grep -vE '^[[:space:]]*#' "$SCRIPT" | grep -qE 'find\b[^|]*-printf' && fail "graph-migrate.sh uses non-portable 'find -printf' (use -print | sed basename)"
+pass "no GNU-only find -printf (portable slug index)"
+
 echo; echo "ALL PASS"
