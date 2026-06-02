@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAiBlock, stripAiBlock, validateAiBlock, AI_BLOCK_SCHEMAS } from './ai-block.js';
+import { parseAiBlock, stripAiBlock, validateAiBlock, renderAiBlock, AI_BLOCK_SCHEMAS } from './ai-block.js';
 
 const page = [
   '---', 'title: awk', 'type: learnings', '---',
@@ -47,5 +47,23 @@ describe('ai-block', () => {
   it('folds a continuation line into the previous field value', () => {
     const md = ['<!-- ai:begin -->', 'claim: line one', '  continued', 'action: do it', '<!-- ai:end -->'].join('\n');
     expect(parseAiBlock(md)!.claim).toBe('line one continued');
+  });
+});
+
+describe('renderAiBlock', () => {
+  it('renders schema-ordered fields in markers; drops unknown + empty fields', () => {
+    const out = renderAiBlock('learnings', { action: 'do it', claim: 'the claim', bogus: 'x', scope: '' });
+    expect(out).toMatch(/^<!-- ai:begin/);
+    expect(out.trimEnd()).toMatch(/<!-- ai:end -->$/);
+    expect(out.indexOf('claim: the claim')).toBeLessThan(out.indexOf('action: do it')); // schema order
+    expect(out).not.toContain('bogus');   // closed vocabulary
+    expect(out).not.toContain('scope:');  // empty field dropped
+  });
+  it('round-trips through parseAiBlock', () => {
+    const block = { claim: 'c', action: 'a' };
+    expect(parseAiBlock(renderAiBlock('learnings', block))).toMatchObject(block);
+  });
+  it('returns empty string when no schema field has a value', () => {
+    expect(renderAiBlock('learnings', { bogus: 'x' })).toBe('');
   });
 });
