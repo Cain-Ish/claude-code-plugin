@@ -40,12 +40,12 @@ while IFS= read -r line; do
 done < "$QUERIES"
 
 tokens=$(( bytes / 4 ))
-recall=$(awk "BEGIN{ if($total==0){print \"0.0\"} else {printf \"%.3f\", $hits/$total} }")
+recall=$(awk -v t="$total" -v h="$hits" 'BEGIN{ t=t+0; h=h+0; if(t==0){print "0.0"} else {printf "%.3f", h/t} }')
 echo "recall@$K=$recall tokens=$tokens queries=$total hits=$hits"
 [ -n "$misses" ] && echo "misses:$misses"
 if [ "$GATE" -eq 1 ]; then
   MINR="${SB_EVAL_MIN_RECALL:-0.8}"; MAXT="${SB_EVAL_MAX_TOKENS:-8000}"
-  awk "BEGIN{exit !($recall < $MINR)}" && { echo "GATE FAIL: recall $recall < $MINR"; exit 1; }
+  awk -v r="$recall" -v m="$MINR" 'BEGIN{ exit !((r+0) < (m+0)) }' && { echo "GATE FAIL: recall $recall < $MINR"; exit 1; }
   [ "$tokens" -gt "$MAXT" ] && { echo "GATE FAIL: tokens $tokens > $MAXT"; exit 1; }
   echo "GATE PASS"
 fi

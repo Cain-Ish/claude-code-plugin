@@ -127,5 +127,17 @@ assert_deny "write to ~/.aws node itself" "$OUT" "aws"
 OUT=$(run_guard "Write" "/etc")
 assert_deny "write to /etc node itself" "$OUT" "etc"
 
+# --- Test 17: realpath BINARY absent → fail CLOSED (lexical fallback still denies) -------
+# The deny-guard must not fail-open if `realpath` is missing. Shadow it with a stub that
+# produces no output (RESOLVED empty) and confirm a literal ~/.ssh write is still denied,
+# while a normal project write is still allowed (the lexical fallback must not over-block).
+STUB="$TMP/stub"; mkdir -p "$STUB"
+printf '#!/bin/sh\nexit 127\n' > "$STUB/realpath"; chmod +x "$STUB/realpath"
+gen(){ jq -nc --arg t "$1" --arg p "$2" '{session_id:"t",hook_event_name:"PreToolUse",tool_name:$t,tool_input:{file_path:$p}}'; }
+OUT=$(gen Write "$HOME/.ssh/authorized_keys" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+assert_deny "realpath absent → fail CLOSED on literal ~/.ssh write" "$OUT" "ssh"
+OUT=$(gen Write "$HOME/work/repo/main.py" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+assert_allow "realpath absent → normal project write not over-blocked" "$OUT"
+
 echo
 echo "ALL PASS"

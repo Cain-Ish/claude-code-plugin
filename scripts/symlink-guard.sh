@@ -53,7 +53,12 @@ esac
 # Resolve through symlinks. -m: missing-component-tolerant (Write targets the
 # file may not exist yet); we still resolve the parent's symlinks.
 RESOLVED=$(realpath -m -- "$FILE_PATH" 2>/dev/null)
-[ -z "$RESOLVED" ] && exit 0  # realpath unavailable on this system → fail open
+# realpath unavailable (binary absent): fail CLOSED toward credential safety, not open. We
+# can't resolve symlinks, so fall back to a lexical check of the literal path (expand a leading
+# ~) and STILL run the credential-prefix checks below — an obvious literal ~/.ssh write is denied.
+# A symlink escape could slip in this fallback, but realpath is a coreutils hard-dep so this is
+# effectively unreachable; the lexical check is strictly safer than the old blind `exit 0`.
+[ -z "$RESOLVED" ] && RESOLVED="${FILE_PATH/#\~/$HOME}"
 
 # Source lib.sh for sb_log_audit. Fail-soft.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"

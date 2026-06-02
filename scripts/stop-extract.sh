@@ -16,7 +16,7 @@
 # Honors env overrides:
 #   SB_EXTRACTOR_MODEL — model passed via `claude -p --model <id>`
 #                        (default: claude-sonnet-4-6)
-#   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 40)
+#   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 25)
 set -u
 
 # Defensive lib.sh source. If lib.sh is missing the script would crash on
