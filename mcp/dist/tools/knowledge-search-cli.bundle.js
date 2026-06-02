@@ -6280,6 +6280,30 @@ function validAt(e, t) {
   return cmpTime(dateOf(e.valid_to), td) > 0;
 }
 
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[\s\S]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+function parseAiBlock(content) {
+  const m = content.match(AI_BLOCK_RE);
+  if (!m) return null;
+  const out = {};
+  let last = "";
+  for (const raw of m[1].split("\n")) {
+    const line = raw.trimEnd();
+    if (!line.trim()) continue;
+    const kv = line.match(/^([a-z_][a-z0-9_]*):\s*(.*)$/i);
+    if (kv) {
+      last = kv[1];
+      out[last] = kv[2].trim();
+    } else if (last) {
+      out[last] = (out[last] + " " + line.trim()).trim();
+    }
+  }
+  return out;
+}
+function stripAiBlock(text) {
+  return text.replace(AI_BLOCK_RE, "");
+}
+
 // src/tools/knowledge-search.ts
 var ACCESS_COUNTS_FILE = join3(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
@@ -6458,7 +6482,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   for (let i = 0; i < scored.length; i++) {
     if (allDocs[i].source === "local-doc") continue;
     const { doc, rawContent } = allDocs[i];
-    if (AUTO_EXTRACTED_RE.test(rawContent) || doc.body.trim().length < MIN_SUBSTANTIVE_LENGTH) {
+    if (AUTO_EXTRACTED_RE.test(rawContent) || stripAiBlock(doc.body).trim().length < MIN_SUBSTANTIVE_LENGTH) {
       scored[i].score *= STUB_PENALTY;
     }
   }
@@ -6577,8 +6601,9 @@ function parseDoc(content, filePath) {
       doc.type = rel[wikiIdx + 1];
     }
   }
+  doc.aiBlock = parseAiBlock(content) ?? void 0;
   if (doc.related.length === 0) {
-    const wikiLinks = doc.body.match(/\[\[([^\]]+)\]\]/g);
+    const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
     if (wikiLinks) {
       doc.related = [...new Set(wikiLinks.map((l) => l.slice(2, -2)))];
     }

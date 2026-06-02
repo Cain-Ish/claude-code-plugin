@@ -4,6 +4,7 @@ import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
 import { loadEdges, foldToCurrent, validAt } from './graph-store.js';
+import { parseAiBlock, stripAiBlock } from './ai-block.js';
 const ACCESS_COUNTS_FILE = join(process.env.HOME ?? '', '.second-brain', 'access-counts.json');
 const ACCESS_BOOST_FACTOR = 0.1;
 const ACCESS_BOOST_CAP = 10;
@@ -198,7 +199,7 @@ export async function knowledgeSearch(args) {
         if (allDocs[i].source === 'local-doc')
             continue;
         const { doc, rawContent } = allDocs[i];
-        if (AUTO_EXTRACTED_RE.test(rawContent) || doc.body.trim().length < MIN_SUBSTANTIVE_LENGTH) {
+        if (AUTO_EXTRACTED_RE.test(rawContent) || stripAiBlock(doc.body).trim().length < MIN_SUBSTANTIVE_LENGTH) {
             scored[i].score *= STUB_PENALTY;
         }
     }
@@ -322,8 +323,11 @@ export function parseDoc(content, filePath) {
             doc.type = rel[wikiIdx + 1];
         }
     }
+    doc.aiBlock = parseAiBlock(content) ?? undefined;
     if (doc.related.length === 0) {
-        const wikiLinks = doc.body.match(/\[\[([^\]]+)\]\]/g);
+        // Scrape body [[links]] for related: — but NOT links inside the ai-block (block values
+        // are plain slugs by convention; strip it so a stray bracket can't pollute related:).
+        const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
         if (wikiLinks) {
             doc.related = [...new Set(wikiLinks.map(l => l.slice(2, -2)))];
         }

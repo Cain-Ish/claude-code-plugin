@@ -23,6 +23,24 @@ describe('addFrontmatter category typing', () => {
         await addFrontmatter(f, wiki);
         expect(await fs.readFile(f, 'utf-8')).toMatch(/^type: state$/m);
     });
+    it('warns (not errors) when an ai-block is missing a required field for its type', async () => {
+        const dir = await fs.mkdtemp(join(tmpdir(), 'kv-ai-'));
+        const wiki = join(dir, 'wiki');
+        await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+        await fs.writeFile(join(wiki, 'learnings', 'l.md'), '---\ntitle: L\ntype: learnings\n---\n<!-- ai:begin -->\nclaim: c\n<!-- ai:end -->\n# L\n');
+        const res = await knowledgeValidate(dir, { autofix: false });
+        const w = res.issues.find(i => i.type === 'ai_block_incomplete' && /action/.test(i.message));
+        expect(w).toBeDefined();
+        expect(w.severity).toBe('warning');
+    });
+    it('does not warn when the page has no ai-block (additive/optional during migration)', async () => {
+        const dir = await fs.mkdtemp(join(tmpdir(), 'kv-noai-'));
+        const wiki = join(dir, 'wiki');
+        await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+        await fs.writeFile(join(wiki, 'learnings', 'l.md'), '---\ntitle: L\ntype: learnings\n---\n# L\nprose\n');
+        const res = await knowledgeValidate(dir, { autofix: false });
+        expect(res.issues.find(i => i.type === 'ai_block_incomplete')).toBeUndefined();
+    });
     it('does NOT flag a generated project MOC sharing a slug with a real page as duplicate_slug (#3)', async () => {
         const dir = await fs.mkdtemp(join(tmpdir(), 'kv-collide-'));
         const wiki = join(dir, 'wiki');

@@ -4,6 +4,7 @@ import { parseDoc } from './knowledge-search.js';
 import { knowledgeValidate } from './knowledge-validate.js';
 import { projectGraphToPages } from './graph-project.js';
 import { buildProjectMocs } from './project-moc.js';
+import { stripAiBlock } from './ai-block.js';
 export async function knowledgeReindex(knowledgeDir) {
     // Project the relationship graph onto pages first, so the index + validation
     // see current related: links. No-op when ~/knowledge/graph/edges.jsonl absent.
@@ -106,7 +107,7 @@ export async function knowledgeReindex(knowledgeDir) {
     };
 }
 function firstSentence(body) {
-    const text = body
+    const text = stripAiBlock(body) // drop the authored ai-block
         .replace(/<!-- graph:begin[\s\S]*?graph:end -->/g, '') // drop the generated projection block
         .replace(/^#.*\n/m, '')
         .trim();

@@ -6145,6 +6145,43 @@ function validAt(e, t) {
   return cmpTime(dateOf(e.valid_to), td) > 0;
 }
 
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[\s\S]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_SCHEMAS = {
+  learnings: { fields: ["claim", "trigger", "action", "scope", "evidence", "supersedes"], required: ["claim", "action"] },
+  decisions: { fields: ["context", "choice", "alternatives", "rationale", "status", "supersedes"], required: ["choice"] },
+  entities: { fields: ["identity", "current_state", "depends_on", "owns", "status"], required: ["identity"] },
+  issues: { fields: ["symptom", "cause", "fix", "severity", "status"], required: ["symptom", "status"] },
+  concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
+  security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
+};
+function parseAiBlock(content) {
+  const m = content.match(AI_BLOCK_RE);
+  if (!m) return null;
+  const out = {};
+  let last = "";
+  for (const raw of m[1].split("\n")) {
+    const line = raw.trimEnd();
+    if (!line.trim()) continue;
+    const kv = line.match(/^([a-z_][a-z0-9_]*):\s*(.*)$/i);
+    if (kv) {
+      last = kv[1];
+      out[last] = kv[2].trim();
+    } else if (last) {
+      out[last] = (out[last] + " " + line.trim()).trim();
+    }
+  }
+  return out;
+}
+function stripAiBlock(text) {
+  return text.replace(AI_BLOCK_RE, "");
+}
+function validateAiBlock(type, block) {
+  const schema = AI_BLOCK_SCHEMAS[type];
+  if (!schema) return [];
+  return schema.required.filter((f) => !block[f] || !block[f].trim());
+}
+
 // src/tools/knowledge-search.ts
 var ACCESS_COUNTS_FILE = join(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 function parseDoc(content, filePath) {
@@ -6186,8 +6223,9 @@ function parseDoc(content, filePath) {
       doc.type = rel[wikiIdx + 1];
     }
   }
+  doc.aiBlock = parseAiBlock(content) ?? void 0;
   if (doc.related.length === 0) {
-    const wikiLinks = doc.body.match(/\[\[([^\]]+)\]\]/g);
+    const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
     if (wikiLinks) {
       doc.related = [...new Set(wikiLinks.map((l) => l.slice(2, -2)))];
     }
@@ -6236,7 +6274,7 @@ function extractYamlList(yaml, key) {
 
 // src/tools/knowledge-validate.ts
 import { promises as fs2 } from "fs";
-import { join as join2, basename, relative } from "path";
+import { join as join2, basename, dirname, relative } from "path";
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join2(knowledgeDir, "wiki");
   const issues = [];
@@ -6249,6 +6287,16 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
+    const aiBlock = parseAiBlock(content);
+    if (aiBlock) {
+      const missing = validateAiBlock(doc.type || basename(dirname(filePath)), aiBlock);
+      if (missing.length) issues.push({
+        type: "ai_block_incomplete",
+        severity: "warning",
+        path: filePath,
+        message: `ai-block missing required field(s) for type ${doc.type}: ${missing.join(", ")}`
+      });
+    }
     if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
       if (!slugMap.has(slug)) slugMap.set(slug, []);
       slugMap.get(slug).push(filePath);
@@ -6674,7 +6722,7 @@ async function knowledgeReindex(knowledgeDir) {
   };
 }
 function firstSentence(body) {
-  const text = body.replace(/<!-- graph:begin[\s\S]*?graph:end -->/g, "").replace(/^#.*\n/m, "").trim();
+  const text = stripAiBlock(body).replace(/<!-- graph:begin[\s\S]*?graph:end -->/g, "").replace(/^#.*\n/m, "").trim();
   const match2 = text.match(/^(.+?[.!?])\s/);
   return match2 ? match2[1].slice(0, 120) : text.slice(0, 120);
 }

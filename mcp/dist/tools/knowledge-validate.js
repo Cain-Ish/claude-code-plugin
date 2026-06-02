@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
-import { join, basename, relative } from 'path';
+import { join, basename, dirname, relative } from 'path';
 import { parseDoc } from './knowledge-search.js';
+import { parseAiBlock, validateAiBlock } from './ai-block.js';
 export async function knowledgeValidate(knowledgeDir, opts = {}) {
     const wikiDir = join(knowledgeDir, 'wiki');
     const issues = [];
@@ -13,6 +14,17 @@ export async function knowledgeValidate(knowledgeDir, opts = {}) {
         const slug = basename(filePath, '.md');
         const doc = parseDoc(content, filePath);
         parsedDocs.push(doc);
+        // AI-block schema check (gentle): only when a block exists — an absent block is fine
+        // (additive during migration). Missing required field for the page's type → a warning.
+        const aiBlock = parseAiBlock(content);
+        if (aiBlock) {
+            const missing = validateAiBlock(doc.type || basename(dirname(filePath)), aiBlock);
+            if (missing.length)
+                issues.push({
+                    type: 'ai_block_incomplete', severity: 'warning', path: filePath,
+                    message: `ai-block missing required field(s) for type ${doc.type}: ${missing.join(', ')}`,
+                });
+        }
         // Generated MOC dirs (projects/, themes/) are derived VIEWS, not source pages — a MOC that
         // shares a slug with a real page (e.g. project "architecture-v1" + page architecture-v1.md)
         // is not a true duplicate, so exclude them from the duplicate_slug check.
