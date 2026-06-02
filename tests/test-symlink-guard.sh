@@ -147,5 +147,13 @@ OUT=$(gen Write "$HOME/work/repo/foo2/new_key" | PATH="$STUB:$PATH" bash "$SCRIP
 assert_deny "realpath absent + symlinked parent → cd/pwd -P fallback denies (macOS path)" "$OUT" "ssh"
 rm -f "$HOME/work/repo/foo2"
 
+# --- Test 19: realpath absent + LEAF symlink (benign-named file IS a symlink into ~/.ssh) -------
+# The fallback must dereference the leaf, not just the parent — else a `Write innocent.txt`
+# whose innocent.txt → ~/.ssh/authorized_keys slips through on stock macOS (the review finding).
+ln -sf "$HOME/.ssh/authorized_keys" "$HOME/work/repo/innocent.txt"
+OUT=$(gen Write "$HOME/work/repo/innocent.txt" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+assert_deny "realpath absent + LEAF symlink into ~/.ssh → leaf-deref denies (macOS path)" "$OUT" "ssh"
+rm -f "$HOME/work/repo/innocent.txt"
+
 echo
 echo "ALL PASS"

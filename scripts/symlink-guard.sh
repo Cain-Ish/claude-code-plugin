@@ -52,16 +52,26 @@ esac
 
 # Resolve through symlinks. -m: missing-component-tolerant (Write targets the
 # file may not exist yet); we still resolve the parent's symlinks.
-RESOLVED=$(realpath -m -- "$FILE_PATH" 2>/dev/null)
+RESOLVED=$(realpath -m -- "$FILE_PATH" 2>/dev/null)        # GNU coreutils: follows leaf + parent, missing-tolerant
+[ -z "$RESOLVED" ] && RESOLVED=$(greadlink -f -- "$FILE_PATH" 2>/dev/null)  # macOS Homebrew coreutils
 if [ -z "$RESOLVED" ]; then
-  # `realpath -m` failed: either the binary is absent OR it's BSD/macOS realpath (no `-m`
-  # missing-target tolerance, so a not-yet-created Write target yields nothing). Resolve the
-  # PARENT dir's symlinks PORTABLY via `cd … && pwd -P` (works on bash 3.2 / BSD / macOS) and
-  # append the basename, so a symlinked-parent escape into a credential dir is STILL caught.
-  # Last resort (parent doesn't exist): lexical ~-expansion — fail CLOSED, never blind-allow.
+  # Stock BSD/macOS (no GNU realpath/greadlink, or BSD realpath which lacks `-m`): resolve the
+  # PARENT dir's symlinks PORTABLY via `cd … && pwd -P` (bash 3.2 / BSD safe), THEN dereference
+  # the leaf itself if it is a symlink — so a benign-named file that is a symlink INTO a
+  # credential dir is caught, not just a symlinked PARENT. Lexical ~-expansion is the last
+  # resort. Fail CLOSED throughout — never a blind allow.
   _pd=$(dirname -- "$FILE_PATH"); _pb=$(basename -- "$FILE_PATH")
   _rpd=$(cd "$_pd" 2>/dev/null && pwd -P)
-  if [ -n "$_rpd" ]; then RESOLVED="$_rpd/$_pb"; else RESOLVED="${FILE_PATH/#\~/$HOME}"; fi
+  if [ -n "$_rpd" ]; then
+    if [ -L "$_rpd/$_pb" ]; then
+      _tgt=$(readlink -- "$_rpd/$_pb" 2>/dev/null)
+      case "$_tgt" in /*) RESOLVED="$_tgt" ;; *) RESOLVED="$_rpd/$_tgt" ;; esac
+    else
+      RESOLVED="$_rpd/$_pb"
+    fi
+  else
+    RESOLVED="${FILE_PATH/#\~/$HOME}"
+  fi
 fi
 
 # Source lib.sh for sb_log_audit. Fail-soft.
