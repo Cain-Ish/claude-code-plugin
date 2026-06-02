@@ -220,6 +220,53 @@ The knowledge search uses BM25 with field weights: **title 3×, description 2×,
 - **Description**: what the source covers
 - **Body**: why it's relevant, key takeaways
 
+## Phase 4b: AI-block authoring / backfill (machine-first shared intermediate)
+
+Each structured page should carry an `<!-- ai:begin … ai:end -->` block — the schema'd,
+machine-first summary an AI reads instead of re-deriving the page from prose. The extractor
+authors it at capture; you **backfill** pages that predate the feature and **refresh** stale
+ones. This is the same per-category understanding Phase 4 just applied, emitted as the closed
+schema (one source of truth for "what a good X page contains").
+
+1. **Get the deterministic work-list** (blockless, substantive, structured pages):
+   ```bash
+   bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-ai-block-candidates.sh" --knowledge-dir "$KD"
+   ```
+   Each TSV row is `<type>\t<slug>\t<path>`. A page that already has a block is skipped
+   (idempotent); the script never mutates.
+
+2. **For each candidate** — closed vocabulary: only the **six structured types** `learnings,
+   decisions, entities, issues, concepts, security` (schemas below; never invent a field or a
+   type):
+   - Read the page body. **Extract** field values from the EXISTING prose + frontmatter only.
+     **Never invent / hallucinate** a value — a field you can't ground in the page is left
+     unset (the block is gentle/optional). Values are SHORT plain-text propositions, never
+     `[[wiki-links]]` (relations live in the edge graph).
+   - Schemas: `learnings`: claim, trigger, action, scope, evidence, supersedes · `decisions`:
+     context, choice, alternatives, rationale, status, supersedes · `entities`: identity,
+     current_state, depends_on, owns, status · `issues`: symptom, cause, fix, severity, status
+     · `concepts`: problem, solution, where_applied, tradeoffs · `security`: threat,
+     mitigation, scope, status.
+   - **Render** the region deterministically (closed-vocab post-filter + marker-token
+     neutralization handled by `renderAiBlock` — do not hand-format the markers):
+     ```bash
+     jq -nc --arg t "<type>" --argjson b '<block-json>' '{type:$t,block:$b}' \
+       | node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/ai-block-render-cli.bundle.js"
+     ```
+   - **Inject** the rendered region with `Edit`: between the frontmatter close (`---`) and the
+     first `# Heading`. Replace an existing region in place (refresh); never add a second.
+   - **Self-check**: a follow-up `knowledge_validate` run must show no new `ai_block_incomplete`
+     /`ai_block_missing` for the page (required fields you genuinely couldn't ground stay a
+     gentle `validateAiBlock` warning — that's fine; do NOT fabricate a value to silence it).
+
+3. **Budget**: each block authored counts as **one change against the 50/run cap** (unlike the
+   Phase 1 autofix sweep, which is uncounted). If candidates exceed the remaining budget, author
+   the highest-value first and **report the rest for the next run** — never exceed the cap.
+
+**Boundary:** this runs only when you (the maintainer) are **explicitly invoked** — never
+auto-dispatched on extraction or dream output (that would revert the 0.21.0 hardening). Never
+author blocks for non-structured types or generated `projects/`/`themes/` pages.
+
 ## Phase 5: REINDEX
 
 1. Regenerate `wiki/index.md` via `knowledge_reindex` MCP tool
