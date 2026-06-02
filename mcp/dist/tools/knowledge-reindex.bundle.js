@@ -6173,8 +6173,9 @@ function parseAiBlock(content) {
   }
   return out;
 }
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
 function stripAiBlock(text) {
-  return text.replace(AI_BLOCK_RE, "");
+  return text.replace(AI_BLOCK_RE_G, "");
 }
 function validateAiBlock(type, block) {
   const schema = AI_BLOCK_SCHEMAS[type];

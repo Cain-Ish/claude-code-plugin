@@ -68,6 +68,16 @@ describe('search consumes the ai-block (Phase 2)', () => {
     expect(z).toBeTruthy();                                          // block term is indexed → findable
     expect(z!.description).toContain('claim: ZEBRAFISH handshake');  // block returned as the snippet
   });
+  it('caps the block-snippet description at the context budget (SNIPPET_CHARS)', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-cap-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const big = 'wireguard '.repeat(60); // >200 chars in a single field
+    const block = ['<!-- ai:begin -->', `claim: ${big}`, 'action: a', '<!-- ai:end -->'].join('\n');
+    await fsp.writeFile(join(dir, 'wiki', 'learnings', 'big.md'), `---\ntitle: Big\ntype: learnings\n---\n${block}\n\n# Big\nwireguard.`);
+    const r = await knowledgeSearch({ query: 'wireguard', knowledgeDir: dir });
+    const b = r.candidates.find(c => c.path.endsWith('/big.md'));
+    expect(b!.description.length).toBeLessThanOrEqual(200); // budget bound preserved (2afcfe3)
+  });
 });
 
 describe('stub penalty excludes the ai-block (prose-only length)', () => {

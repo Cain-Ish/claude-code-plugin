@@ -1,4 +1,5 @@
 // src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
 var AI_BLOCK_SCHEMAS = {
   learnings: { fields: ["claim", "trigger", "action", "scope", "evidence", "supersedes"], required: ["claim", "action"] },
   decisions: { fields: ["context", "choice", "alternatives", "rationale", "status", "supersedes"], required: ["choice"] },
@@ -7,6 +8,7 @@ var AI_BLOCK_SCHEMAS = {
   concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
   security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
 };
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
 var AI_BLOCK_RENDER_BEGIN = "<!-- ai:begin (authored \u2014 flat YAML, see ai-block schema) -->";
 var AI_BLOCK_RENDER_END = "<!-- ai:end -->";
 function renderAiBlock(type, block) {

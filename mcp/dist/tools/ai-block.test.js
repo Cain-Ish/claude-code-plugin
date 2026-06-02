@@ -33,6 +33,12 @@ describe('ai-block', () => {
         for (const t of ['learnings', 'decisions', 'entities', 'issues', 'concepts', 'security'])
             expect(AI_BLOCK_SCHEMAS[t].required.length).toBeGreaterThan(0);
     });
+    it('strips ALL blocks, not just the first', () => {
+        const md = ['a', '<!-- ai:begin -->', 'claim: x', '<!-- ai:end -->', 'b', '<!-- ai:begin -->', 'claim: y', '<!-- ai:end -->', 'c'].join('\n');
+        const s = stripAiBlock(md);
+        expect(s).not.toContain('ai:begin');
+        expect(s).not.toContain('claim:');
+    });
     it('treats an UNTERMINATED ai:begin (no ai:end) as NOT a block (parse null, strip no-op)', () => {
         const md = ['---', 'title: x', '---', '<!-- ai:begin -->', 'claim: c', '', '# real prose continues forever'].join('\n');
         expect(parseAiBlock(md)).toBeNull();

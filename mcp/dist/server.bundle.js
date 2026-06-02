@@ -27656,8 +27656,9 @@ function parseAiBlock(content) {
   }
   return out;
 }
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
 function stripAiBlock(text) {
-  return text.replace(AI_BLOCK_RE, "");
+  return text.replace(AI_BLOCK_RE_G, "");
 }
 function aiBlockSnippet(type, block) {
   const schema = AI_BLOCK_SCHEMAS[type];
@@ -27759,14 +27760,14 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     }
   }
   if (allDocs.length === 0) return { candidates: [] };
-  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(doc.body).length, 0) / allDocs.length || AVG_DOC_LENGTH;
+  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(stripAiBlock(doc.body)).length, 0) / allDocs.length || AVG_DOC_LENGTH;
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
   const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
     path: doc.path,
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
-    description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
+    description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
     tokens,
     source
   }));

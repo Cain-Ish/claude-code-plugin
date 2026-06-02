@@ -105,7 +105,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   if (allDocs.length === 0) return { candidates: [] };
 
-  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(doc.body).length, 0) / allDocs.length || AVG_DOC_LENGTH;
+  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(stripAiBlock(doc.body)).length, 0) / allDocs.length || AVG_DOC_LENGTH;
 
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
@@ -115,7 +115,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
     description: (doc.aiBlock && Object.keys(doc.aiBlock).length)
-      ? aiBlockSnippet(doc.type, doc.aiBlock)   // the shared intermediate is the snippet (Phase 2)
+      ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS)   // shared intermediate, budget-capped (Phase 2)
       : (source === 'local-doc'
         ? doc.description
         : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim())),

@@ -8,7 +8,7 @@ export declare const AI_BLOCK_SCHEMAS: Record<string, AiBlockSchema>;
  *  A line not matching `key:` is folded (appended) into the previous field's value.
  *  Returns null when the page has no block. */
 export declare function parseAiBlock(content: string): Record<string, string> | null;
-/** Remove the ai:begin…ai:end region so length/first-sentence consumers ignore it. */
+/** Remove every ai:begin…ai:end region so length/first-sentence consumers ignore it. */
 export declare function stripAiBlock(text: string): string;
 export declare const AI_BLOCK_RENDER_BEGIN = "<!-- ai:begin (authored \u2014 flat YAML, see ai-block schema) -->";
 export declare const AI_BLOCK_RENDER_END = "<!-- ai:end -->";
