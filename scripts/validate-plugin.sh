@@ -172,6 +172,15 @@ for json_ref in ".mcp.json" "mcp/package.json"; do
   fi
 done
 
+# A bare ${CLAUDE_PLUGIN_ROOT} (no :- default) in .mcp.json resolves only in plugin context;
+# when the repo is opened as a PROJECT, the var is unset and Claude Code warns "Missing
+# environment variables: CLAUDE_PLUGIN_ROOT" and the server won't start. Require a fallback
+# default so the same file works in both contexts (installed plugin AND cloned-repo-as-project).
+if [ -f "$PLUGIN_ROOT/.mcp.json" ] && grep -qE '\$\{CLAUDE_PLUGIN_ROOT\}' "$PLUGIN_ROOT/.mcp.json"; then
+  echo 'FAIL: .mcp.json uses bare ${CLAUDE_PLUGIN_ROOT} (no :- default) — warns "missing env var" when the repo is opened as a project. Use ${CLAUDE_PLUGIN_ROOT:-.}'
+  ERRORS=$((ERRORS + 1))
+fi
+
 if [ $ERRORS -eq 0 ]; then
   echo "OK: all plugin files valid"
   exit 0
