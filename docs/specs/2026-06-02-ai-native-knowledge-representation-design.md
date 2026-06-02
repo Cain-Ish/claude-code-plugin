@@ -60,14 +60,28 @@ supersedes: <slug | ->
 | `concepts` | problem, solution, where_applied, tradeoffs |
 | `security` | threat, mitigation, scope, status |
 
-- **Frontmatter gains** `confidence:` (high/med/low) and `provenance:` (origin: session/source/version) — the weighting signals. (`created`/`updated` already give recency.)
-- **Format:** simple `key: value` (multi-line values allowed via folded text). Token-cheap, BM25-friendly (keys + values are plain text), human-skimmable. Not JSON (keeps BM25/embeddings + Obsidian rendering intact).
+- **Frontmatter gains** `confidence:` and `provenance:` — the weighting signals. **Confidence is HYBRID (RESOLVED — SOTA):** the producing AI's **verbalized** confidence (high/med/low) is the *primary* signal — a March 2026 study found verbalized confidence is the best-*calibrated* (ECE 0.166 vs 0.229 for self-consistency, at 1/5th the cost) — **corroborated** by an evidence/recurrence count (how many sessions/sources assert the claim, tracked in `evidence:`) and recency (`created`/`updated`). Not pure-corroboration (2026 research shows it's worse-calibrated alone). Refs: [LLM grader calibration](https://arxiv.org/abs/2603.29559), [verbal+consistency hybrid](https://openreview.net/forum?id=66D3rZrNjV).
+- **Field values are PLAIN SLUGS, never `[[wikilinks]]`** (e.g. `supersedes: other-slug`, not `supersedes: [[other-slug]]`). Constraint from the state-check: the FORGET connectivity signal and `parseDoc`'s body-`[[link]]` → `related:` fallback both scrape `[[..]]`; a bracketed value in the block would silently pollute connectivity + the projected `related:`. Relations belong in the edge graph, not the block.
+- **Format (RESOLVED — SOTA):** **flat YAML `key: value`** (multi-line via folded `>`), inside the marked region. YAML is the model-preferred structured format (GPT-5/Gemini benchmarks) and ~16% more token-efficient than JSON with better nested-data comprehension; it stays plain-text so BM25/embeddings/Obsidian keep working, and **flat** YAML is parseable by a tiny line parser with **no new dependency** (offline-first). NOT JSON (token cost + comprehension hit + embedding noise). Refs: [nested-format benchmark](https://www.improvingagents.com/blog/best-nested-data-format/), [token efficiency](https://shshell.com/blog/token-efficiency-module-13-lesson-2-format-comparison).
 
 ## 5. Consumption (where the win lands)
 
+- **The block is a first-class, proposition-level retrieval unit (RESOLVED — SOTA Q2).** "Dense X Retrieval"/factoid-wiki shows atomic propositions as retrieval units significantly outperform passage/sentence retrieval (sharper precision, fewer tokens, better downstream QA); AGRaME confirms proposition-granularity ranking. So:
+  - **Phase 1 (offline-first):** `knowledge_search` BM25-weights the block (high-signal, deduped) — `parseDoc` extracts it as `aiBlock`, scored above body, returned as the snippet. Works with no embeddings (the Pi default).
+  - **Phase 2 (embeddings present):** the block gets its **own embedding/vector** (proposition-level index), not folded into the page's body vector. Refs: [Dense X Retrieval](https://arxiv.org/html/2312.06648v2), [AGRaME](https://arxiv.org/pdf/2405.15028).
 - **session-load injection** prefers the `ai:begin` block over the prose body — token-cheap, no re-parse. The full prose stays one fetch away.
-- **`knowledge_search`** BM25-weights the block (it's the high-signal, deduped statement of the page) and can return the block as the snippet.
 - **The reading LLM** gets the shared intermediate first; it reads prose only when it needs nuance. This is the TriMem atomic-layer benefit.
+
+## 5b. Integration constraints (from the 2026-06-02 state-check — do not assume)
+
+A parallel read of the live subsystems surfaced these hard constraints; the implementation MUST honor them:
+
+- **Exclude the block from length/byte counts.** `wiki-forget-score.sh` (`wc -c` whole-file + `body<200` stub-floor) and `knowledge-search.ts` (stub penalty, `body<100`) must measure **prose only** — strip `<!-- ai:begin … ai:end -->` (and the other marked regions) before counting, or a uniform block shifts FORGET scores and escapes stub penalties. `tests/test-wiki-forget-score.sh` fixtures assume tiny stubs — update or the test breaks.
+- **`firstSentence` (knowledge-reindex.ts) must strip `ai:begin`** exactly as it already strips `graph:begin`, so the block never leaks into `index.md`/MOC descriptions.
+- **`parseDoc` gains `aiBlock`** (parsed from the marked region); a flat-YAML line parser (no new dep). BM25 weights it; the body-`[[link]]`→`related:` fallback must run on prose with the block stripped.
+- **`graph-project` is safe** (it rewrites only its own `graph:begin` region + `related:` frontmatter, both distinct from `ai:begin`) — but a regression test must prove a reindex never clobbers the block.
+- **Authoring respects the automation boundary.** The **extractor** (Stop/PreCompact — already automatic) authors the block at capture (extend `extract-prompt.txt` to emit `ai_block` per type + `merge-project-update.sh` to inject the region). The **dream/maintainer** *refresh* it — and they are **explicit-invocation-only** (banners, never auto-dispatch). Do NOT add auto-dispatch (it would revert the 0.21.0 hardening).
+- **`knowledge_fetch`** gains a block-aware path (a `block` tier, or block-first in `summary`) so a consumer can read the shared intermediate without the prose.
 
 ## 6. Authoring & maintenance
 
@@ -112,8 +126,10 @@ Each main group's block schema differs (§4 table) — a `learnings` block is `t
 - **P2 — consumption:** session-load injects the block; `knowledge_search` weights/returns it.
 - **P3 — maintenance + backfill:** dream/maintainer author+refresh blocks; lint staleness; one-shot backfill of existing pages.
 
-## 13. Open questions
+## 13. Resolved decisions (web-researched 2026-06-02 — SOTA over quick-win)
 
-- Block format: flat `key: value` (this spec) vs a fenced ```yaml block vs extending frontmatter. (Leaning `key: value` marked-region for BM25-friendliness + multi-line + consistency with existing marked regions.)
-- Should the block be embedding-indexed separately (its own vector) for sharper retrieval, or share the page's embedding?
-- Confidence: LLM-assigned vs derived from corroboration count (how many sessions/sources assert the claim)?
+1. **Block format → flat YAML `key: value`** in the `ai:begin` marked region (NOT JSON, NOT extended frontmatter). YAML is the model-preferred, token-efficient, plain-text (BM25/embedding-friendly) structured format; flat keeps it parseable by a tiny line parser with no new dependency (offline-first). [§4]
+2. **Embedding → proposition-level.** The block is its own retrieval unit: Phase 1 BM25-weights it (offline); Phase 2 gives it its own vector (proposition indexing beats passage/sentence). [§5]
+3. **Confidence → hybrid**, LLM-verbalized primary (best-calibrated per 2026 study) + evidence/recurrence corroboration + recency. [§4]
+
+(Remaining genuinely-open, to settle in the plan: the exact `aiBlock` BM25 weight (lean 1.5, between body 1.0 and tags 2.0); whether `knowledge_fetch` adds a `block` tier vs folds into `summary`.)
