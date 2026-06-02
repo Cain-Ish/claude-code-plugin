@@ -4,6 +4,7 @@ import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge } from './graph-store.js';
+import { parseAiBlock, stripAiBlock } from './ai-block.js';
 
 export interface KnowledgeSearchArgs { query: string; scope?: string; knowledgeDir?: string; brainDir?: string; projectSlug?: string; }
 export interface KnowledgeSearchResult { candidates: { path: string; score: number; description: string; tokens: number; source: string }[]; }
@@ -20,6 +21,7 @@ export interface ParsedDoc {
   created: string;
   project: string;
   area: string;
+  aiBlock?: Record<string, string>;
 }
 
 interface AccessCounts { [slug: string]: { count: number; last_accessed: string } }
@@ -336,8 +338,12 @@ export function parseDoc(content: string, filePath: string): ParsedDoc {
     }
   }
 
+  doc.aiBlock = parseAiBlock(content) ?? undefined;
+
   if (doc.related.length === 0) {
-    const wikiLinks = doc.body.match(/\[\[([^\]]+)\]\]/g);
+    // Scrape body [[links]] for related: — but NOT links inside the ai-block (block values
+    // are plain slugs by convention; strip it so a stray bracket can't pollute related:).
+    const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
     if (wikiLinks) {
       doc.related = [...new Set(wikiLinks.map(l => l.slice(2, -2)))];
     }

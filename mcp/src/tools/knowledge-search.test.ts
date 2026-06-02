@@ -55,6 +55,22 @@ describe('knowledge_search multi-hop typed boost (graph present)', () => {
   });
 });
 
+describe('parseDoc ai-block', () => {
+  it('exposes the parsed ai-block as doc.aiBlock', () => {
+    const md = ['---', 'title: A', 'type: learnings', '---',
+      '<!-- ai:begin -->', 'claim: c', 'action: a', '<!-- ai:end -->', '', '# A', 'body'].join('\n');
+    const doc = parseDoc(md, '/w/learnings/a.md');
+    expect(doc.aiBlock?.claim).toBe('c');
+  });
+  it('does NOT scrape a [[link]] inside the ai-block into related:', () => {
+    const md = ['---', 'title: B', 'type: learnings', '---',
+      '<!-- ai:begin -->', 'supersedes: [[ghost]]', 'claim: c', 'action: a', '<!-- ai:end -->', '', '# B', 'see [[real-page]]'].join('\n');
+    const doc = parseDoc(md, '/w/learnings/b.md');
+    expect(doc.related).toContain('real-page');
+    expect(doc.related).not.toContain('ghost');
+  });
+});
+
 describe('parseDoc project facet', () => {
   it('extracts the project: facet from frontmatter', () => {
     const md = ['---', 'title: Kiri Core', 'type: decisions', 'project: kiri', '---', '# Kiri Core'].join('\n');
