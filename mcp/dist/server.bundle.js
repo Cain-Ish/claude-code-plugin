@@ -28149,6 +28149,7 @@ import { join as join10 } from "path";
 // src/tools/knowledge-validate.ts
 import { promises as fs9 } from "fs";
 import { join as join8, basename, dirname as dirname2, relative as relative2 } from "path";
+var AI_BLOCK_MIN_PROSE = 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join8(knowledgeDir, "wiki");
   const issues = [];
@@ -28162,14 +28163,22 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
     const aiBlock = parseAiBlock(content);
+    const ptype = doc.type || basename(dirname2(filePath));
     if (aiBlock) {
-      const ptype = doc.type || basename(dirname2(filePath));
       const missing = validateAiBlock(ptype, aiBlock);
       if (missing.length) issues.push({
         type: "ai_block_incomplete",
         severity: "warning",
         path: filePath,
         message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(", ")}`
+      });
+    } else if (AI_BLOCK_SCHEMAS[ptype] && !/[/\\](projects|themes)[/\\]/.test(filePath)) {
+      const prose = stripAiBlock(content).replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, "").replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, "").replace(/^---\n[\s\S]*?\n---\n/, "");
+      if (prose.trim().length >= AI_BLOCK_MIN_PROSE) issues.push({
+        type: "ai_block_missing",
+        severity: "warning",
+        path: filePath,
+        message: `${ptype} page has substantive prose but no ai-block: ${slug}`
       });
     }
     if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
@@ -29317,7 +29326,7 @@ function resolveActiveSlug() {
   return slugFromProjectDir(activeProjectDir());
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.6.0" },
+  { name: "knowledge-base", version: "2.6.1" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."

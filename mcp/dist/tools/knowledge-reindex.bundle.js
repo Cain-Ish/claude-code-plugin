@@ -6276,6 +6276,7 @@ function extractYamlList(yaml, key) {
 // src/tools/knowledge-validate.ts
 import { promises as fs2 } from "fs";
 import { join as join2, basename, dirname, relative } from "path";
+var AI_BLOCK_MIN_PROSE = 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join2(knowledgeDir, "wiki");
   const issues = [];
@@ -6289,14 +6290,22 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
     const aiBlock = parseAiBlock(content);
+    const ptype = doc.type || basename(dirname(filePath));
     if (aiBlock) {
-      const ptype = doc.type || basename(dirname(filePath));
       const missing = validateAiBlock(ptype, aiBlock);
       if (missing.length) issues.push({
         type: "ai_block_incomplete",
         severity: "warning",
         path: filePath,
         message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(", ")}`
+      });
+    } else if (AI_BLOCK_SCHEMAS[ptype] && !/[/\\](projects|themes)[/\\]/.test(filePath)) {
+      const prose = stripAiBlock(content).replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, "").replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, "").replace(/^---\n[\s\S]*?\n---\n/, "");
+      if (prose.trim().length >= AI_BLOCK_MIN_PROSE) issues.push({
+        type: "ai_block_missing",
+        severity: "warning",
+        path: filePath,
+        message: `${ptype} page has substantive prose but no ai-block: ${slug}`
       });
     }
     if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {

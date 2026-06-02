@@ -52,6 +52,42 @@ describe('addFrontmatter category typing', () => {
         const res = await knowledgeValidate(dir, { autofix: false });
         expect(res.issues.find(i => i.type === 'duplicate_slug' && /architecture-v1/.test(i.message))).toBeUndefined();
     });
+    it('flags a structured, substantive page with NO ai-block as ai_block_missing', async () => {
+        const dir = await fs.mkdtemp(join(tmpdir(), 'kv-miss-'));
+        const wiki = join(dir, 'wiki');
+        await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+        await fs.writeFile(join(wiki, 'learnings', 'big.md'), '---\ntitle: Big\ntype: learnings\n---\n# Big\n' + 'substantive prose detail. '.repeat(20));
+        const res = await knowledgeValidate(dir, { autofix: false });
+        const w = res.issues.find(i => i.type === 'ai_block_missing' && /big/.test(i.message));
+        expect(w).toBeDefined();
+        expect(w.severity).toBe('warning');
+    });
+    it('does NOT flag a short structured stub as ai_block_missing', async () => {
+        const dir = await fs.mkdtemp(join(tmpdir(), 'kv-stub-'));
+        const wiki = join(dir, 'wiki');
+        await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+        await fs.writeFile(join(wiki, 'learnings', 's.md'), '---\ntitle: S\ntype: learnings\n---\n# S\ntiny.');
+        const res = await knowledgeValidate(dir, { autofix: false });
+        expect(res.issues.find(i => i.type === 'ai_block_missing')).toBeUndefined();
+    });
+    it('does NOT flag a non-structured type (state) or a generated MOC as ai_block_missing', async () => {
+        const dir = await fs.mkdtemp(join(tmpdir(), 'kv-nonstruct-'));
+        const wiki = join(dir, 'wiki');
+        await fs.mkdir(join(wiki, 'state'), { recursive: true });
+        await fs.mkdir(join(wiki, 'projects'), { recursive: true });
+        await fs.writeFile(join(wiki, 'state', 'st.md'), '---\ntitle: St\ntype: state\n---\n# St\n' + 'long state prose. '.repeat(20));
+        await fs.writeFile(join(wiki, 'projects', 'p.md'), '---\ntitle: P\ntype: projects\ngenerated: true\n---\n# P\n' + 'long moc prose. '.repeat(20));
+        const res = await knowledgeValidate(dir, { autofix: false });
+        expect(res.issues.find(i => i.type === 'ai_block_missing')).toBeUndefined();
+    });
+    it('does NOT double-flag: a page WITH a block is never ai_block_missing', async () => {
+        const dir = await fs.mkdtemp(join(tmpdir(), 'kv-has-'));
+        const wiki = join(dir, 'wiki');
+        await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+        await fs.writeFile(join(wiki, 'learnings', 'h.md'), '---\ntitle: H\ntype: learnings\n---\n<!-- ai:begin -->\nclaim: c\naction: a\n<!-- ai:end -->\n# H\n' + 'prose. '.repeat(20));
+        const res = await knowledgeValidate(dir, { autofix: false });
+        expect(res.issues.find(i => i.type === 'ai_block_missing')).toBeUndefined();
+    });
     it('does NOT flag a valid [[target|alias]] related link as broken (alias split)', async () => {
         const dir = await fs.mkdtemp(join(tmpdir(), 'kv-alias-'));
         const wiki = join(dir, 'wiki');
