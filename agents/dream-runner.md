@@ -89,6 +89,12 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
   frontmatter edits (the next reindex overwrites them).
 - Remove session-narrative noise
 - Optimize frontmatter for BM25 retrieval (title 3×, description 2×, tags 2×)
+- **AI-blocks (surface-only; skip if `SB_DREAM_AI_BLOCKS=off`)** — count staging structured
+  pages (learnings/decisions/entities/issues/concepts/security) lacking an `<!-- ai:begin -->`
+  block. **Do NOT author blocks in staging** — authoring stays a single path through the live
+  **knowledge-maintainer** (it grounds the block in current prose; the dream would re-derive
+  from prose it is still rewriting). Surface the count in the report: "N structured pages have
+  no ai-block — run `/second-brain:maintain` to backfill."
 
 **Phase 5: SUMMARIZE** (skip if `SB_DREAM_SUMMARIZE=off`)
 - Cluster the staging wiki's link graph and write one theme page per cluster, so a fresh

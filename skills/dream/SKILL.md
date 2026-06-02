@@ -95,6 +95,12 @@ in the report (per 2c), not frontmatter edits (the next reindex overwrites them)
 - **Entities**: overview + current state + a body section referencing linked learnings/decisions
 - **Concepts**: Problem → Solution → Where Applied → Trade-offs
 - Apply transcript mining insights from Step 1 (new pages, updated content)
+- **AI-blocks (surface-only; skip if `SB_DREAM_AI_BLOCKS=off`)** — scan staging for structured
+  pages (learnings/decisions/entities/issues/concepts/security) lacking an `<!-- ai:begin -->`
+  block and count them. **Do NOT author blocks in staging** — block authoring stays a single
+  path through the live **knowledge-maintainer** (it grounds the block in the page's current
+  prose; the dream would re-derive from prose it is still rewriting). Surface the count in the
+  dream report: "N structured pages have no ai-block — run `/second-brain:maintain` to backfill."
 
 **2e. SUMMARIZE** — whole-corpus theme pages (skip if `SB_DREAM_SUMMARIZE=off`). Cluster the
 staging wiki's link graph and write one summary page per cluster, so a fresh session can be
