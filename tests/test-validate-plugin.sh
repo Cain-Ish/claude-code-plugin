@@ -197,6 +197,19 @@ echo "{ not json" > "$PLUGIN_FOR_VALIDATOR/mcp/package.json"
 run_case "corrupt mcp/package.json fails" 1
 assert_output_contains "FAIL: mcp/package.json is not valid JSON"
 
+# Case 6b: bare ${CLAUDE_PLUGIN_ROOT} in .mcp.json (no :- default) → FAIL (project-context warning)
+setup_skeleton
+printf '%s\n' '{"mcpServers":{"kb":{"type":"stdio","command":"node","args":["${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js"]}}}' \
+  > "$PLUGIN_FOR_VALIDATOR/.mcp.json"
+run_case "bare \${CLAUDE_PLUGIN_ROOT} in .mcp.json fails" 1
+assert_output_contains "bare \${CLAUDE_PLUGIN_ROOT}"
+# and the fixed form (with :- default) passes the check
+setup_skeleton
+printf '%s\n' '{"mcpServers":{"kb":{"type":"stdio","command":"node","args":["${CLAUDE_PLUGIN_ROOT:-.}/mcp/dist/server.bundle.js"]}}}' \
+  > "$PLUGIN_FOR_VALIDATOR/.mcp.json"
+run_case "\${CLAUDE_PLUGIN_ROOT:-.} fallback in .mcp.json passes" 0
+assert_output_contains "OK: all plugin files valid"
+
 # Case 8: bad shell-script syntax → FAIL
 setup_skeleton
 echo "if then fi" > "$PLUGIN_FOR_VALIDATOR/scripts/dummy.sh"
