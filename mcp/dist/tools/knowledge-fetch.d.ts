@@ -1,4 +1,4 @@
-export type Tier = 'gist' | 'skeleton' | 'summary' | 'full';
+export type Tier = 'gist' | 'skeleton' | 'summary' | 'full' | 'block';
 export interface KnowledgeFetchArgs {
     slug: string;
     tier?: Tier;

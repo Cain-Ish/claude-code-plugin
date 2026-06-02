@@ -4,7 +4,9 @@ import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
 import { loadEdges, foldToCurrent, validAt } from './graph-store.js';
-import { parseAiBlock, stripAiBlock } from './ai-block.js';
+import { parseAiBlock, stripAiBlock, aiBlockSnippet } from './ai-block.js';
+/** Concatenated ai-block field VALUES for BM25 tokenization (the proposition-level unit). */
+function aiBlockText(doc) { return doc.aiBlock ? Object.values(doc.aiBlock).join(' ') : ''; }
 const ACCESS_COUNTS_FILE = join(process.env.HOME ?? '', '.second-brain', 'access-counts.json');
 const ACCESS_BOOST_FACTOR = 0.1;
 const ACCESS_BOOST_CAP = 10;
@@ -95,9 +97,11 @@ export async function knowledgeSearch(args) {
         path: doc.path,
         score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
         related: doc.related,
-        description: source === 'local-doc'
-            ? doc.description
-            : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim()),
+        description: (doc.aiBlock && Object.keys(doc.aiBlock).length)
+            ? aiBlockSnippet(doc.type, doc.aiBlock) // the shared intermediate is the snippet (Phase 2)
+            : (source === 'local-doc'
+                ? doc.description
+                : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim())),
         tokens,
         source,
     }));
@@ -259,7 +263,7 @@ function computeDF(queryTokens, docs) {
         for (const doc of docs) {
             const allTokens = [
                 ...tokenize(doc.title), ...tokenize(doc.description),
-                ...tokenize(doc.tags.join(' ')), ...tokenize(doc.body),
+                ...tokenize(doc.tags.join(' ')), ...tokenize(stripAiBlock(doc.body)), ...tokenize(aiBlockText(doc)),
             ];
             if (allTokens.includes(qt))
                 df++;
@@ -273,7 +277,8 @@ function scoreBM25(queryTokens, doc, avgDL, N, dfMap) {
         { tokens: tokenize(doc.title), weight: 3.0 },
         { tokens: tokenize(doc.description), weight: 2.0 },
         { tokens: tokenize(doc.tags.join(' ')), weight: 2.0 },
-        { tokens: tokenize(doc.body), weight: 1.0 },
+        { tokens: tokenize(aiBlockText(doc)), weight: 1.5 }, // proposition-level shared intermediate
+        { tokens: tokenize(stripAiBlock(doc.body)), weight: 1.0 }, // prose body (block excluded → no double-count)
     ];
     let score = 0;
     for (const qt of queryTokens) {

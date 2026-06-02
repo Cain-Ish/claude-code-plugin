@@ -16,6 +16,9 @@ export declare const AI_BLOCK_RENDER_END = "<!-- ai:end -->";
  *  fields emitted in the type's schema order (closed vocabulary: unknown fields dropped),
  *  empty values skipped. Returns '' when no schema field has a value (→ inject nothing). */
 export declare function renderAiBlock(type: string, block: Record<string, string>): string;
+/** Compact one-line summary of a block (schema-ordered, present fields only) — the
+ *  "shared intermediate" returned as a search snippet / injected into context. */
+export declare function aiBlockSnippet(type: string, block: Record<string, string>): string;
 /** Missing REQUIRED fields for the page type (empty when type unknown or all present). */
 export declare function validateAiBlock(type: string, block: Record<string, string>): string[];
 //# sourceMappingURL=ai-block.d.ts.map
