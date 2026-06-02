@@ -91,10 +91,10 @@ server.registerTool(
 server.registerTool(
   "knowledge_fetch",
   {
-    description: "Fetch a wiki page at a chosen detail tier (progressive disclosure). tier: 'gist' (one-line), 'skeleton' (gist + headings), 'summary' (the page's ## Summary section, or skeleton if none yet), 'full' (body, capped to the egress budget). Always returns a source pointer so you can escalate to the full page only when needed. Prefer this over reading the raw file for large pages.",
+    description: "Fetch a wiki page at a chosen detail tier (progressive disclosure). tier: 'gist' (one-line), 'skeleton' (gist + headings), 'block' (the machine-first ai-block shared-intermediate — claim/action/etc — or the summary if none), 'summary' (the page's ## Summary section, or skeleton if none yet), 'full' (body, capped to the egress budget). Always returns a source pointer so you can escalate to the full page only when needed. Prefer this over reading the raw file for large pages.",
     inputSchema: {
       slug: z.string().describe("The page slug (filename without .md), e.g. from a knowledge_search result path."),
-      tier: z.enum(["gist", "skeleton", "summary", "full"]).optional().describe("Detail level. Default 'gist'."),
+      tier: z.enum(["gist", "skeleton", "block", "summary", "full"]).optional().describe("Detail level. Default 'gist'."),
     },
   },
   async ({ slug, tier }) => {
