@@ -64,6 +64,14 @@ export function renderAiBlock(type: string, block: Record<string, string>): stri
   return [AI_BLOCK_RENDER_BEGIN, ...lines, AI_BLOCK_RENDER_END].join('\n');
 }
 
+/** Compact one-line summary of a block (schema-ordered, present fields only) — the
+ *  "shared intermediate" returned as a search snippet / injected into context. */
+export function aiBlockSnippet(type: string, block: Record<string, string>): string {
+  const schema = AI_BLOCK_SCHEMAS[type];
+  const order = schema ? schema.fields : Object.keys(block);
+  return order.filter(f => (block[f] ?? '').trim()).map(f => `${f}: ${block[f].trim()}`).join('; ');
+}
+
 /** Missing REQUIRED fields for the page type (empty when type unknown or all present). */
 export function validateAiBlock(type: string, block: Record<string, string>): string[] {
   const schema = AI_BLOCK_SCHEMAS[type];

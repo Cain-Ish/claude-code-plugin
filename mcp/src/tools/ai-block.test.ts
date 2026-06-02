@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAiBlock, stripAiBlock, validateAiBlock, renderAiBlock, AI_BLOCK_SCHEMAS } from './ai-block.js';
+import { parseAiBlock, stripAiBlock, validateAiBlock, renderAiBlock, aiBlockSnippet, AI_BLOCK_SCHEMAS } from './ai-block.js';
 
 const page = [
   '---', 'title: awk', 'type: learnings', '---',
@@ -75,5 +75,16 @@ describe('renderAiBlock', () => {
   });
   it('returns empty for an UNKNOWN type (closed vocabulary — no open-vocab leak)', () => {
     expect(renderAiBlock('patterns', { problem: 'x', related: '[[other]]', bogus: 'leak' })).toBe('');
+  });
+});
+
+describe('aiBlockSnippet', () => {
+  it('renders a compact, schema-ordered one-line summary (the shared intermediate)', () => {
+    const s = aiBlockSnippet('learnings', { action: 'do it', claim: 'the claim', scope: '' });
+    expect(s).toBe('claim: the claim; action: do it'); // schema order, empty dropped, no markers
+    expect(s).not.toContain('<!--');
+  });
+  it('is empty for an empty block', () => {
+    expect(aiBlockSnippet('learnings', {})).toBe('');
   });
 });
