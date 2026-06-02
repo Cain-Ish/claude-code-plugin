@@ -1,10 +1,15 @@
 import { promises as fs } from 'fs';
 import { join, basename, dirname, relative } from 'path';
 import { parseDoc, ParsedDoc } from './knowledge-search.js';
-import { parseAiBlock, validateAiBlock } from './ai-block.js';
+import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
+
+// A structured page with this much prose (non-frontmatter, marked regions stripped) but no
+// ai-block is a backfill candidate; shorter pages are legitimate stubs, exempt. Env-overridable
+// in lockstep with kb-ai-block-candidates.sh / lint Check 4 (default 200).
+const AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 
 export interface ValidationIssue {
-  type: 'orphan_file' | 'broken_link' | 'missing_frontmatter' | 'duplicate_slug' | 'stale_page' | 'empty_page' | 'root_orphan' | 'ai_block_incomplete';
+  type: 'orphan_file' | 'broken_link' | 'missing_frontmatter' | 'duplicate_slug' | 'stale_page' | 'empty_page' | 'root_orphan' | 'ai_block_incomplete' | 'ai_block_missing';
   severity: 'error' | 'warning';
   path: string;
   message: string;
@@ -35,15 +40,26 @@ export async function knowledgeValidate(
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
 
-    // AI-block schema check (gentle): only when a block exists — an absent block is fine
-    // (additive during migration). Missing required field for the page's type → a warning.
+    // AI-block checks (gentle, additive — spec §7). Block present but missing a required field
+    // → ai_block_incomplete. A structured, SUBSTANTIVE page with NO block at all →
+    // ai_block_missing (predates the feature / never authored). Stubs + non-structured types +
+    // generated MOCs (projects/, themes/) are exempt.
     const aiBlock = parseAiBlock(content);
+    const ptype = doc.type || basename(dirname(filePath));
     if (aiBlock) {
-      const ptype = doc.type || basename(dirname(filePath));
       const missing = validateAiBlock(ptype, aiBlock);
       if (missing.length) issues.push({
         type: 'ai_block_incomplete', severity: 'warning', path: filePath,
         message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(', ')}`,
+      });
+    } else if (schemaFor(ptype) && !/[/\\](projects|themes)[/\\]/.test(filePath)) {
+      const prose = stripAiBlock(content)
+        .replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, '')
+        .replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, '')
+        .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+      if (prose.trim().length >= AI_BLOCK_MIN_PROSE) issues.push({
+        type: 'ai_block_missing', severity: 'warning', path: filePath,
+        message: `${ptype} page has substantive prose but no ai-block: ${slug}`,
       });
     }
 

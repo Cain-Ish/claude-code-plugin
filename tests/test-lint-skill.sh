@@ -185,5 +185,40 @@ echo "$EXTRACTED" | grep -qx 'retired-ghost' && fail "Test 4: 'retired-ghost' in
 [ "$GUARDED" -ge 1 ] || fail "Test 4: SKILL.md link-extractor is missing the in_graph guard (graph block not skipped in the real skill)"
 pass "dead-link extractor skips the generated graph block, keeps real body links"
 
+# --- Test 5: Check 4 (missing ai-block) is present + functional -----------
+# The lint skill surfaces structured pages with no ai:begin block (Phase 3).
+grep -q 'Missing ai-block' "$SCRIPT" || fail "Test 5: lint skill missing Check 4 (ai-block)"
+grep -q 'MISSING-BLOCK:' "$SCRIPT"  || fail "Test 5: Check 4 has no MISSING-BLOCK report marker"
+# Anti-regression (static): Check 4's per-file skip must use `grep -l`, NOT `grep -q`. `grep -q`
+# early-exits and SIGPIPEs the upstream `find` under a job-control (monitor) shell -- the way the
+# skill is pasted at runtime -- silently zeroing the check. A script-context dynamic test can't
+# catch this (grep -q works in a plain script), so pin it statically.
+grep -qE "grep -lE '<!--\[\[:space:\]\]\*ai:begin'" "$SCRIPT" || fail "Test 5: Check 4 must use 'grep -l' (whole-file) for the block-skip, not grep -q (inline-SIGPIPE hazard)"
+awk '/### 4\. Missing ai-block/{c4=1} c4 && /grep -qE .<!--\[\[:space:\]\]\*ai:begin/{print "found grep -q in Check 4"; bad=1} END{exit bad?1:0}' "$SCRIPT" || fail "Test 5: Check 4 uses grep -q for the block-skip (inline-SIGPIPE hazard) -- use grep -l"
+# Functional: a long blockless learnings page is flagged; a stub + a page-with-block are not.
+KD="$TMP/knowledge"; mkdir -p "$KD/wiki/learnings"
+printf '%s\n' '---' 'title: A' 'type: learnings' '---' '# A' "$(printf 'real prose detail. %.0s' $(seq 1 20))" > "$KD/wiki/learnings/cand.md"
+printf '%s\n' '---' 'title: B' 'type: learnings' '---' '<!-- ai:begin -->' 'claim: c' '<!-- ai:end -->' '# B' "$(printf 'prose. %.0s' $(seq 1 20))" > "$KD/wiki/learnings/hasblock.md"
+printf '%s\n' '---' 'title: C' 'type: learnings' '---' '# C' 'tiny.' > "$KD/wiki/learnings/stub.md"
+MB=$(for type in learnings decisions entities issues concepts security; do
+  d="$KD/wiki/$type"; [ -d "$d" ] || continue
+  find "$d" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while read -r f; do
+    grep -q '<!-- ai:begin' "$f" 2>/dev/null && continue
+    prose=$(awk '
+      NR==1 && /^---[[:space:]]*$/ { infm=1; next }
+      infm && /^---[[:space:]]*$/  { infm=0; next }
+      infm { next }
+      /<!--[[:space:]]*(graph|theme|ai):begin/ { drop=1 }
+      drop { if (/<!--[[:space:]]*(graph|theme|ai):end[[:space:]]*-->/) drop=0; next }
+      { print }
+    ' "$f" | tr -d '[:space:]' | wc -c)
+    [ "$prose" -ge 200 ] && echo "MISSING-BLOCK: $type/$(basename "$f" .md) ($f)"
+  done
+done)
+echo "$MB" | grep -q 'learnings/cand'     || fail "Test 5: blockless substantive page not flagged"
+echo "$MB" | grep -q 'hasblock'           && fail "Test 5: page WITH a block was flagged"
+echo "$MB" | grep -q 'stub'               && fail "Test 5: stub was flagged"
+pass "Check 4 flags only blockless, substantive, structured pages"
+
 echo
 echo "ALL PASS"

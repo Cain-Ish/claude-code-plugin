@@ -150,6 +150,49 @@ done
 
 Suggest: drop the broken slug from `Cross-references`, or create the missing wiki page.
 
+### 4. Missing ai-block on structured pages
+
+A page in one of the six structured categories (learnings, decisions, entities, issues,
+concepts, security) should carry an `<!-- ai:begin … ai:end -->` block — the machine-first
+"shared intermediate" an AI reads instead of re-deriving the page from prose. A *substantive*
+page (≥ 200 non-space prose chars) with no block predates the feature or was never authored.
+Stubs are exempt. (`infm`/`drop`, not the reserved `in` — see the awk header note.)
+
+```bash
+for type in learnings decisions entities issues concepts security; do
+  d="$KD/wiki/$type"; [ -d "$d" ] || continue
+  find "$d" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while read -r f; do
+    # Skip pages that already have a block. Use `grep -l` (whole-file, capture) NOT `grep -q`:
+    # `grep -q` exits at the first match, and when this block is pasted into a job-control shell
+    # (monitor mode, how /second-brain:lint runs it) that early exit SIGPIPEs the upstream `find`
+    # and ends the loop after one page -> the check would silently report 0. `grep -l` reads to EOF.
+    [ -n "$(grep -lE '<!--[[:space:]]*ai:begin' "$f" 2>/dev/null)" ] && continue
+    # Canonical type = explicit frontmatter `type:` (else the dir): a page mis-filed in a
+    # structured dir but declaring a non-structured/typo'd type (`type: index`, `type: concept`)
+    # is not a candidate -- keeps lint in lockstep with knowledge_validate.
+    ftype=$(awk 'NR==1 && !/^---[[:space:]]*$/{exit} NR>1 && /^---[[:space:]]*$/{exit} /^type:[[:space:]]/{sub(/^type:[[:space:]]*/,"");gsub(/[\047",]/,"");gsub(/[[:space:]]+$/,"");print;exit}' "$f")
+    case "${ftype:-$type}" in learnings|decisions|entities|issues|concepts|security) ;; *) continue ;; esac
+    # An UNTERMINATED region (begin, no matching end) is NOT a block: its held lines are emitted
+    # at END so they still count (never silently drop a real page's prose -- mirrors the
+    # knowledge_validate bounded strip + the forget-scorer guard). `infm`/`drop`, not reserved `in`.
+    prose=$(awk '
+      NR==1 && /^---[[:space:]]*$/ { infm=1; next }
+      infm && /^---[[:space:]]*$/  { infm=0; next }
+      infm { next }
+      /<!--[[:space:]]*(graph|theme|ai):begin/ && !drop { drop=1; buf=$0 "\n"; next }
+      drop && /<!--[[:space:]]*(graph|theme|ai):end[[:space:]]*-->/ { drop=0; next }
+      drop { buf = buf $0 "\n"; next }
+      { print }
+      END { if (drop) printf "%s", buf }
+    ' "$f" | tr -d '[:space:]' | wc -c)
+    [ "$prose" -ge 200 ] && echo "MISSING-BLOCK: $type/$(basename "$f" .md) ($f)"
+  done
+done
+```
+
+Suggest: run `/second-brain:maintain` — the knowledge-maintainer (Phase 4b) backfills the block
+from the page's own prose. Do **not** hand-author the block here (lint is read-only by default).
+
 ## Reporting
 
 Present findings in three sections; keep counts visible. Example:
@@ -167,6 +210,9 @@ Present findings in three sections; keep counts visible. Example:
 
 ## Broken Cross-references (1)
 - my-repo -> obsolete-concept (no wiki page)
+
+## Missing ai-blocks (1)
+- learnings/oauth-bare-flag (substantive page, no ai:begin block)
 
 ## Summary
 - Wiki pages scanned: 47

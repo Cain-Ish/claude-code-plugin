@@ -16,6 +16,13 @@ export const AI_BLOCK_SCHEMAS = {
     concepts: { fields: ['problem', 'solution', 'where_applied', 'tradeoffs'], required: ['problem', 'solution'] },
     security: { fields: ['threat', 'mitigation', 'scope', 'status'], required: ['threat', 'mitigation'] },
 };
+/** Own-key-safe schema lookup. A page's `type` is author-controlled (frontmatter or wiki
+ *  sub-dir name), so a bare `AI_BLOCK_SCHEMAS[type]` index would resolve inherited
+ *  `Object.prototype` keys — `type === "constructor"` returns the Object constructor (truthy,
+ *  no `.fields`/`.required`), crashing the consumers with a TypeError. Guard with hasOwnProperty. */
+export function schemaFor(type) {
+    return Object.prototype.hasOwnProperty.call(AI_BLOCK_SCHEMAS, type) ? AI_BLOCK_SCHEMAS[type] : undefined;
+}
 /** Parse the flat-YAML `key: value` body of the ai:begin…ai:end region into an object.
  *  A line not matching `key:` is folded (appended) into the previous field's value.
  *  Returns null when the page has no block. */
@@ -51,7 +58,7 @@ export const AI_BLOCK_RENDER_END = '<!-- ai:end -->';
  *  fields emitted in the type's schema order (closed vocabulary: unknown fields dropped),
  *  empty values skipped. Returns '' when no schema field has a value (→ inject nothing). */
 export function renderAiBlock(type, block) {
-    const schema = AI_BLOCK_SCHEMAS[type];
+    const schema = schemaFor(type);
     if (!schema)
         return ''; // closed vocabulary: only the six known types produce a block
     const lines = [];
@@ -69,13 +76,13 @@ export function renderAiBlock(type, block) {
 /** Compact one-line summary of a block (schema-ordered, present fields only) — the
  *  "shared intermediate" returned as a search snippet / injected into context. */
 export function aiBlockSnippet(type, block) {
-    const schema = AI_BLOCK_SCHEMAS[type];
+    const schema = schemaFor(type);
     const order = schema ? schema.fields : Object.keys(block);
     return order.filter(f => (block[f] ?? '').trim()).map(f => `${f}: ${block[f].trim()}`).join('; ');
 }
 /** Missing REQUIRED fields for the page type (empty when type unknown or all present). */
 export function validateAiBlock(type, block) {
-    const schema = AI_BLOCK_SCHEMAS[type];
+    const schema = schemaFor(type);
     if (!schema)
         return [];
     return schema.required.filter(f => !block[f] || !block[f].trim());
