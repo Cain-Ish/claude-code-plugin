@@ -6357,7 +6357,9 @@ async function knowledgeSearch(args) {
         body: e.headings.join("\n"),
         path: e.path,
         updated: e.mtime,
-        created: e.mtime
+        created: e.mtime,
+        project: "",
+        area: ""
       };
       allDocs.push({ doc, rawContent: `${e.gist}
 ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) });
@@ -6546,7 +6548,9 @@ function parseDoc(content, filePath) {
     body: content,
     path: filePath,
     updated: "",
-    created: ""
+    created: "",
+    project: "",
+    area: ""
   };
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
@@ -6559,6 +6563,8 @@ function parseDoc(content, filePath) {
     doc.related = extractYamlList(fm, "related");
     doc.updated = extractYamlValue(fm, "updated");
     doc.created = extractYamlValue(fm, "created");
+    doc.project = extractYamlValue(fm, "project");
+    doc.area = extractYamlValue(fm, "area");
   }
   if (!doc.title) {
     const headingMatch = doc.body.match(/^#\s+(.+)/m);

@@ -37,8 +37,10 @@ Health-check the v1.0 second-brain. Three structural checks; no content rules.
 A wiki page is an *orphan* if no other wiki page or PROJECT.md links to it. Build the inbound-link set, then compare against the file set.
 
 ```bash
-# All wiki page slugs (filename without .md)
-ALL=$(find "$KD/wiki" -name '*.md' -type f | while read f; do basename "$f" .md; done | sort -u)
+# All wiki page slugs (filename without .md). Exclude the generated MOC dirs
+# (projects/, themes/) — like index.md they are auto-generated projections with no
+# AUTHORED inbound links by design, so they must never be flagged as orphans.
+ALL=$(find "$KD/wiki" -name '*.md' -type f -not -path '*/projects/*' -not -path '*/themes/*' | while read f; do basename "$f" .md; done | sort -u)
 
 # All inbound links: [[slug]] occurrences across wiki + every PROJECT.md.
 # Strip the graph projector's generated block (<!-- graph:begin --> ... <!-- graph:end -->),

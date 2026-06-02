@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { addFrontmatter } from './knowledge-validate.js';
+import { addFrontmatter, knowledgeValidate } from './knowledge-validate.js';
 
 describe('addFrontmatter category typing', () => {
   it('types a frontmatter-less page under wiki/themes/ as type: themes', async () => {
@@ -28,5 +28,18 @@ describe('addFrontmatter category typing', () => {
     await addFrontmatter(f, wiki);
 
     expect(await fs.readFile(f, 'utf-8')).toMatch(/^type: state$/m);
+  });
+
+  it('does NOT flag a generated project MOC sharing a slug with a real page as duplicate_slug (#3)', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-collide-'));
+    const wiki = join(dir, 'wiki');
+    await fs.mkdir(join(wiki, 'decisions'), { recursive: true });
+    await fs.mkdir(join(wiki, 'projects'), { recursive: true });
+    // a real content page AND a project MOC, both basename "architecture-v1"
+    await fs.writeFile(join(wiki, 'decisions', 'architecture-v1.md'), '---\ntitle: Arch\ntype: decisions\n---\n# Arch\n');
+    await fs.writeFile(join(wiki, 'projects', 'architecture-v1.md'),
+      '---\ntitle: architecture-v1\ntype: projects\ngenerated: true\ngraph: exclude\n---\n# moc\n');
+    const res = await knowledgeValidate(dir, { autofix: false });
+    expect(res.issues.find(i => i.type === 'duplicate_slug' && /architecture-v1/.test(i.message))).toBeUndefined();
   });
 });

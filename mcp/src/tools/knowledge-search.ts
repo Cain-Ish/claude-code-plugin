@@ -18,6 +18,8 @@ export interface ParsedDoc {
   path: string;
   updated: string;
   created: string;
+  project: string;
+  area: string;
 }
 
 interface AccessCounts { [slug: string]: { count: number; last_accessed: string } }
@@ -90,7 +92,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       const doc: ParsedDoc = {
         title: '', description: e.gist, type: 'local-doc', tags: [],
         related: [], body: e.headings.join('\n'), path: e.path,
-        updated: e.mtime, created: e.mtime,
+        updated: e.mtime, created: e.mtime, project: '', area: '',
       };
       allDocs.push({ doc, rawContent: `${e.gist}\n${e.headings.join('\n')}`, source: 'local-doc', tokens: Math.ceil(e.size / 4) });
     }
@@ -303,7 +305,7 @@ function scoreBM25(queryTokens: string[], doc: ParsedDoc, avgDL: number, N: numb
 export function parseDoc(content: string, filePath: string): ParsedDoc {
   const doc: ParsedDoc = {
     title: '', description: '', type: '', tags: [], related: [], body: content, path: filePath,
-    updated: '', created: '',
+    updated: '', created: '', project: '', area: '',
   };
 
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
@@ -317,6 +319,8 @@ export function parseDoc(content: string, filePath: string): ParsedDoc {
     doc.related = extractYamlList(fm, 'related');
     doc.updated = extractYamlValue(fm, 'updated');
     doc.created = extractYamlValue(fm, 'created');
+    doc.project = extractYamlValue(fm, 'project');
+    doc.area = extractYamlValue(fm, 'area');
   }
 
   if (!doc.title) {

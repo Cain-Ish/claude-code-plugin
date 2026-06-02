@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { promises as fsp } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { knowledgeSearch } from './knowledge-search.js';
+import { knowledgeSearch, parseDoc } from './knowledge-search.js';
 import { appendEdge } from './graph-store.js';
 async function wiki() {
     const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-'));
@@ -45,6 +45,17 @@ describe('knowledge_search multi-hop typed boost (graph present)', () => {
         // beta has no query-term hits of its own; with the edge invalidated it should
         // not be pulled in by graph boost.
         expect(slugs(r)).not.toContain('beta');
+    });
+});
+describe('parseDoc project facet', () => {
+    it('extracts the project: facet from frontmatter', () => {
+        const md = ['---', 'title: Kiri Core', 'type: decisions', 'project: kiri', '---', '# Kiri Core'].join('\n');
+        const doc = parseDoc(md, '/w/decisions/kiri-core-design.md');
+        expect(doc.project).toBe('kiri');
+    });
+    it('defaults project to empty string when absent', () => {
+        const md = ['---', 'title: X', 'type: concepts', '---', '# X'].join('\n');
+        expect(parseDoc(md, '/w/concepts/x.md').project).toBe('');
     });
 });
 //# sourceMappingURL=knowledge-search.test.js.map

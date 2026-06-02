@@ -30,7 +30,7 @@ find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while r
   s_rec=$(awk -v d="$age" 'BEGIN{d=d+0; print (d>=180)?0:(1-d/180)}')
   s_con=$(awk -v c="$inb" 'BEGIN{c=c+0; print (c>=3)?1:c/3}')
   case "$cat" in
-    learnings|decisions|concepts|themes) s_cat=1.0; prot="PROTECT:category";;
+    learnings|decisions|concepts|themes|projects) s_cat=1.0; prot="PROTECT:category";;
     entities|sources|patterns|issues) s_cat=0.5; prot="";;
     *) s_cat=0.2; prot="";;
   esac

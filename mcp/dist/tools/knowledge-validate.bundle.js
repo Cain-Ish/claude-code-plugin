@@ -6078,7 +6078,9 @@ function parseDoc(content, filePath) {
     body: content,
     path: filePath,
     updated: "",
-    created: ""
+    created: "",
+    project: "",
+    area: ""
   };
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
@@ -6091,6 +6093,8 @@ function parseDoc(content, filePath) {
     doc.related = extractYamlList(fm, "related");
     doc.updated = extractYamlValue(fm, "updated");
     doc.created = extractYamlValue(fm, "created");
+    doc.project = extractYamlValue(fm, "project");
+    doc.area = extractYamlValue(fm, "area");
   }
   if (!doc.title) {
     const headingMatch = doc.body.match(/^#\s+(.+)/m);
@@ -6164,8 +6168,10 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
-    if (!slugMap.has(slug)) slugMap.set(slug, []);
-    slugMap.get(slug).push(filePath);
+    if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
+      if (!slugMap.has(slug)) slugMap.set(slug, []);
+      slugMap.get(slug).push(filePath);
+    }
     if (!content.trim()) {
       issues.push({
         type: "empty_page",
@@ -6284,7 +6290,8 @@ var KNOWN_CATEGORIES = /* @__PURE__ */ new Set([
   "security",
   "state",
   "sources",
-  "themes"
+  "themes",
+  "projects"
 ]);
 async function addFrontmatter(filePath, wikiDir) {
   const original = await fs.readFile(filePath, "utf-8");

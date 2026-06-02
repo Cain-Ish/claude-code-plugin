@@ -34,8 +34,13 @@ export async function knowledgeValidate(
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
 
-    if (!slugMap.has(slug)) slugMap.set(slug, []);
-    slugMap.get(slug)!.push(filePath);
+    // Generated MOC dirs (projects/, themes/) are derived VIEWS, not source pages — a MOC that
+    // shares a slug with a real page (e.g. project "architecture-v1" + page architecture-v1.md)
+    // is not a true duplicate, so exclude them from the duplicate_slug check.
+    if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
+      if (!slugMap.has(slug)) slugMap.set(slug, []);
+      slugMap.get(slug)!.push(filePath);
+    }
 
     if (!content.trim()) {
       issues.push({
@@ -153,7 +158,7 @@ export async function knowledgeValidate(
 
 const KNOWN_CATEGORIES = new Set([
   'concepts', 'decisions', 'entities', 'issues',
-  'learnings', 'security', 'state', 'sources', 'themes',
+  'learnings', 'security', 'state', 'sources', 'themes', 'projects',
 ]);
 
 export async function addFrontmatter(filePath: string, wikiDir: string): Promise<void> {

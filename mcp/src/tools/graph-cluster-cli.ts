@@ -25,7 +25,9 @@ async function collect(dir: string, acc: string[] = []): Promise<string[]> {
   try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return acc; }
   for (const e of entries) {
     const p = join(dir, e.name);
-    if (e.isDirectory()) { if (!e.name.startsWith('.')) await collect(p, acc); }
+    // Skip generated MOC dirs (projects/, themes/): they are pure [[slug]] hubs over their
+    // members, so clustering them would re-introduce exactly the hubs the MOC layer removes.
+    if (e.isDirectory()) { if (!e.name.startsWith('.') && e.name !== 'projects' && e.name !== 'themes') await collect(p, acc); }
     else if (e.name.endsWith('.md') && e.name !== 'index.md') acc.push(p);
   }
   return acc;
