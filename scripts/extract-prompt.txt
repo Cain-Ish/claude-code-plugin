@@ -73,6 +73,8 @@ Rules:
     Each value is a SHORT, canonical, one-line proposition. Values are PLAIN SLUGS or text —
     never `[[wiki-links]]` (relations belong in `relations`, not the block). Omit fields you
     can't fill; unknown fields are dropped. Omit `ai_block` entirely if you can't summarise it.
+    Emit `ai_block` for `update` actions too — the page's block is refreshed in place from the
+    current best understanding, not only authored on `create`. A stale block is worse than none.
 - Persona signals: implicit or explicit behavioral patterns observed in the user's actions during this session. Focus on HOW the user works, not WHAT they built.
   - "high" confidence: user explicitly stated a preference or corrected your approach ("don't do X", "always Y")
   - "medium" confidence: user's behavior consistently implies a pattern (e.g., always uses early returns, never writes comments, prefers terse responses)
