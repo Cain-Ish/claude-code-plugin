@@ -20,7 +20,15 @@ WIKI="$KDIR/wiki"; [ -d "$WIKI" ] || exit 0
 for type in learnings decisions entities issues concepts security; do
   dir="$WIKI/$type"; [ -d "$dir" ] || continue
   find "$dir" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | sort | while IFS= read -r f; do
-    grep -qE '<!--[[:space:]]*ai:begin' "$f" 2>/dev/null && continue   # idempotent: already authored (any spacing)
+    # idempotent: skip pages that already have a block (any spacing). `grep -l` (whole-file)
+    # not `grep -q` -- `grep -q`'s early exit SIGPIPEs the upstream `find` under job-control
+    # (monitor) shells, ending the loop after one page; keep this identical to lint Check 4.
+    [ -n "$(grep -lE '<!--[[:space:]]*ai:begin' "$f" 2>/dev/null)" ] && continue
+    # Canonical type = explicit frontmatter `type:` (like knowledge_validate's doc.type), else the
+    # dir. A page mis-filed in a structured dir but declaring a non-structured/typo'd type
+    # (e.g. `type: index`, `type: concept`) is NOT a candidate -- keeps this in lockstep with validate.
+    ftype=$(awk 'NR==1 && !/^---[[:space:]]*$/{exit} NR>1 && /^---[[:space:]]*$/{exit} /^type:[[:space:]]/{sub(/^type:[[:space:]]*/,"");gsub(/[",]/,"");gsub(/[[:space:]]+$/,"");print;exit}' "$f")
+    case "${ftype:-$type}" in learnings|decisions|entities|issues|concepts|security) ;; *) continue ;; esac
     # Prose length = body minus frontmatter and COMPLETE marked regions. An UNTERMINATED region
     # (begin with no matching end) is NOT a block -> its held lines are emitted at END so they
     # still count (mirrors knowledge-validate.ts's bounded strip + the 59a9b25 forget-scorer guard;

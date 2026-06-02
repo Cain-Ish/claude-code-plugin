@@ -189,6 +189,12 @@ pass "dead-link extractor skips the generated graph block, keeps real body links
 # The lint skill surfaces structured pages with no ai:begin block (Phase 3).
 grep -q 'Missing ai-block' "$SCRIPT" || fail "Test 5: lint skill missing Check 4 (ai-block)"
 grep -q 'MISSING-BLOCK:' "$SCRIPT"  || fail "Test 5: Check 4 has no MISSING-BLOCK report marker"
+# Anti-regression (static): Check 4's per-file skip must use `grep -l`, NOT `grep -q`. `grep -q`
+# early-exits and SIGPIPEs the upstream `find` under a job-control (monitor) shell -- the way the
+# skill is pasted at runtime -- silently zeroing the check. A script-context dynamic test can't
+# catch this (grep -q works in a plain script), so pin it statically.
+grep -qE "grep -lE '<!--\[\[:space:\]\]\*ai:begin'" "$SCRIPT" || fail "Test 5: Check 4 must use 'grep -l' (whole-file) for the block-skip, not grep -q (inline-SIGPIPE hazard)"
+awk '/### 4\. Missing ai-block/{c4=1} c4 && /grep -qE .<!--\[\[:space:\]\]\*ai:begin/{print "found grep -q in Check 4"; bad=1} END{exit bad?1:0}' "$SCRIPT" || fail "Test 5: Check 4 uses grep -q for the block-skip (inline-SIGPIPE hazard) -- use grep -l"
 # Functional: a long blockless learnings page is flagged; a stub + a page-with-block are not.
 KD="$TMP/knowledge"; mkdir -p "$KD/wiki/learnings"
 printf '%s\n' '---' 'title: A' 'type: learnings' '---' '# A' "$(printf 'real prose detail. %.0s' $(seq 1 20))" > "$KD/wiki/learnings/cand.md"

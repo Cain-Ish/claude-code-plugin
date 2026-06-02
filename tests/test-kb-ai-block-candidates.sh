@@ -41,6 +41,13 @@ OUT3=$(bash "$SC" --knowledge-dir "$TMP/knowledge")
 printf '%s\n' "$OUT3" | grep -q $'^learnings\tunterm\t' || fail "page with prose after an unterminated region not counted (drop-to-EOF regression)"
 pass "unterminated marked region does not silently drop trailing prose"
 
+# a page mis-filed in a structured dir but declaring a non-structured/typo'd type is NOT a candidate
+# (canonical frontmatter type, in lockstep with knowledge_validate -- e.g. type: index/concept)
+printf '%s\n' '---' 'title: M' 'type: index' '---' '# M' "$(printf 'long prose detail. %.0s' $(seq 1 20))" > "$W/learnings/mistype.md"
+OUT5=$(bash "$SC" --knowledge-dir "$TMP/knowledge")
+printf '%s\n' "$OUT5" | grep -q 'mistype' && fail "page declaring a non-structured type: was listed (should match validate's doc.type skip)"
+pass "explicit non-structured frontmatter type: excludes the page (lockstep with validate)"
+
 # odd-spaced COMPLETE block (<!--ai:begin-->, no spaces) must be recognized as a block and skipped
 printf '%s\n' '---' 'title: O' 'type: learnings' '---' '<!--ai:begin-->' 'claim: c' '<!--ai:end-->' '# O' "$(printf 'long prose. %.0s' $(seq 1 20))" > "$W/learnings/oddspace.md"
 OUT4=$(bash "$SC" --knowledge-dir "$TMP/knowledge")

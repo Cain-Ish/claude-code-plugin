@@ -162,7 +162,16 @@ Stubs are exempt. (`infm`/`drop`, not the reserved `in` — see the awk header n
 for type in learnings decisions entities issues concepts security; do
   d="$KD/wiki/$type"; [ -d "$d" ] || continue
   find "$d" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while read -r f; do
-    grep -qE '<!--[[:space:]]*ai:begin' "$f" 2>/dev/null && continue
+    # Skip pages that already have a block. Use `grep -l` (whole-file, capture) NOT `grep -q`:
+    # `grep -q` exits at the first match, and when this block is pasted into a job-control shell
+    # (monitor mode, how /second-brain:lint runs it) that early exit SIGPIPEs the upstream `find`
+    # and ends the loop after one page -> the check would silently report 0. `grep -l` reads to EOF.
+    [ -n "$(grep -lE '<!--[[:space:]]*ai:begin' "$f" 2>/dev/null)" ] && continue
+    # Canonical type = explicit frontmatter `type:` (else the dir): a page mis-filed in a
+    # structured dir but declaring a non-structured/typo'd type (`type: index`, `type: concept`)
+    # is not a candidate -- keeps lint in lockstep with knowledge_validate.
+    ftype=$(awk 'NR==1 && !/^---[[:space:]]*$/{exit} NR>1 && /^---[[:space:]]*$/{exit} /^type:[[:space:]]/{sub(/^type:[[:space:]]*/,"");gsub(/[",]/,"");gsub(/[[:space:]]+$/,"");print;exit}' "$f")
+    case "${ftype:-$type}" in learnings|decisions|entities|issues|concepts|security) ;; *) continue ;; esac
     # An UNTERMINATED region (begin, no matching end) is NOT a block: its held lines are emitted
     # at END so they still count (never silently drop a real page's prose -- mirrors the
     # knowledge_validate bounded strip + the forget-scorer guard). `infm`/`drop`, not reserved `in`.
