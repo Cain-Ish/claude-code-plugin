@@ -28650,6 +28650,12 @@ function scriptsDir() {
     "scripts"
   );
 }
+function toBashPath(p) {
+  let s = p.replace(/\\/g, "/");
+  const drive = s.match(/^([A-Za-z]):\//);
+  if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
+  return s;
+}
 async function readStatus(dreamId) {
   const statusPath = join11(dreamsDir(), dreamId, "status.json");
   try {
@@ -28698,7 +28704,7 @@ async function dreamCreate(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join11(scriptsDir(), "dream-snapshot.sh"), ...scriptArgs],
+      [toBashPath(join11(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
       { timeout: 3e4, env: { ...process.env } }
     );
     const dreamId = stdout.trim();
@@ -28762,7 +28768,7 @@ async function dreamAccept(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join11(scriptsDir(), "dream-accept.sh"), args.dream_id],
+      [toBashPath(join11(scriptsDir(), "dream-accept.sh")), args.dream_id],
       { timeout: 3e4, env: { ...process.env } }
     );
     const output = stdout.trim();
@@ -29329,7 +29335,7 @@ function resolveActiveSlug() {
   return slugFromProjectDir(activeProjectDir());
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.6.1" },
+  { name: "knowledge-base", version: "2.6.2" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."

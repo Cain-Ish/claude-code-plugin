@@ -12,6 +12,18 @@ function dreamsDir() {
 function scriptsDir() {
     return join(process.env.CLAUDE_PLUGIN_ROOT ?? join(__dirname, "..", ".."), "scripts");
 }
+/** Convert a path to a form `bash` accepts as an argv script path. On Windows, Node's
+ *  `path.join` yields a backslash path (`C:\Users\x\...\dream-snapshot.sh`); passing that to
+ *  `bash` eats the `\` escapes (`C:Usersx...`) → "No such file or directory". Git Bash / MSYS
+ *  bash opens `/c/Users/x/...`, so map backslashes→slashes and `C:/`→`/c/`. No-op on POSIX
+ *  (no backslashes, no drive letter). Exported for tests. */
+export function toBashPath(p) {
+    let s = p.replace(/\\/g, "/");
+    const drive = s.match(/^([A-Za-z]):\//);
+    if (drive)
+        s = "/" + drive[1].toLowerCase() + s.slice(2);
+    return s;
+}
 function resolveKnowledgeDir() {
     const raw = process.env.KNOWLEDGE_DIR ?? process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR;
     if (raw && raw.trim() && !raw.includes("${")) {
@@ -71,7 +83,7 @@ export async function dreamCreate(args) {
         scriptArgs.push("--model", args.model);
     }
     try {
-        const { stdout, stderr } = await exec("bash", [join(scriptsDir(), "dream-snapshot.sh"), ...scriptArgs], { timeout: 30_000, env: { ...process.env } });
+        const { stdout, stderr } = await exec("bash", [toBashPath(join(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs], { timeout: 30_000, env: { ...process.env } });
         const dreamId = stdout.trim();
         if (!dreamId.startsWith("drm_")) {
             return {
@@ -135,7 +147,7 @@ export async function dreamList(args) {
 }
 export async function dreamAccept(args) {
     try {
-        const { stdout, stderr } = await exec("bash", [join(scriptsDir(), "dream-accept.sh"), args.dream_id], { timeout: 30_000, env: { ...process.env } });
+        const { stdout, stderr } = await exec("bash", [toBashPath(join(scriptsDir(), "dream-accept.sh")), args.dream_id], { timeout: 30_000, env: { ...process.env } });
         const output = stdout.trim();
         if (output)
             return { ok: true, summary: output };

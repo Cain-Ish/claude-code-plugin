@@ -20,6 +20,18 @@ function scriptsDir(): string {
   );
 }
 
+/** Convert a path to a form `bash` accepts as an argv script path. On Windows, Node's
+ *  `path.join` yields a backslash path (`C:\Users\x\...\dream-snapshot.sh`); passing that to
+ *  `bash` eats the `\` escapes (`C:Usersx...`) → "No such file or directory". Git Bash / MSYS
+ *  bash opens `/c/Users/x/...`, so map backslashes→slashes and `C:/`→`/c/`. No-op on POSIX
+ *  (no backslashes, no drive letter). Exported for tests. */
+export function toBashPath(p: string): string {
+  let s = p.replace(/\\/g, "/");
+  const drive = s.match(/^([A-Za-z]):\//);
+  if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
+  return s;
+}
+
 function resolveKnowledgeDir(): string {
   const raw =
     process.env.KNOWLEDGE_DIR ?? process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR;
@@ -130,7 +142,7 @@ export async function dreamCreate(
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join(scriptsDir(), "dream-snapshot.sh"), ...scriptArgs],
+      [toBashPath(join(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
       { timeout: 30_000, env: { ...process.env } }
     );
     const dreamId = stdout.trim();
@@ -244,7 +256,7 @@ export async function dreamAccept(
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [join(scriptsDir(), "dream-accept.sh"), args.dream_id],
+      [toBashPath(join(scriptsDir(), "dream-accept.sh")), args.dream_id],
       { timeout: 30_000, env: { ...process.env } }
     );
     const output = stdout.trim();

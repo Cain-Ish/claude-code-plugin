@@ -118,18 +118,19 @@ if [ ! -f "$PCARD_FILE" ]; then
 # Persona
 
 ## Identity
-- ${ROLE:-senior engineer}
+- ${ROLE:-(set your role in ~/.second-brain/USER.md)}
 
 ## Communication style
 - direct, terse, no filler
 
 ## Working preferences
-- brainstorm 2-3 options before architecture decisions
+- brainstorm 2-3 options before a non-trivial decision
+- evidence before completion claims (run the check, then claim)
 
 ## How to engage me
-- Surface critical context; don't restate what I know
-- Default silent; volunteer only when expected value exceeds flow cost
-- Before claiming code is ready to commit: run available checks (tests, lint, type-check, security review)
+- surface critical context; don't restate what I already know
+- ask one focused question only when ambiguity is costly to guess wrong
+- default to silence; volunteer only when the value clearly exceeds the interruption
 SEED
 fi
 PERSONA_ABS=""
