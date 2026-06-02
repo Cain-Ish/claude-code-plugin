@@ -212,7 +212,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   for (let i = 0; i < scored.length; i++) {
     if (allDocs[i].source === 'local-doc') continue;
     const { doc, rawContent } = allDocs[i];
-    if (AUTO_EXTRACTED_RE.test(rawContent) || doc.body.trim().length < MIN_SUBSTANTIVE_LENGTH) {
+    if (AUTO_EXTRACTED_RE.test(rawContent) || stripAiBlock(doc.body).trim().length < MIN_SUBSTANTIVE_LENGTH) {
       scored[i].score *= STUB_PENALTY;
     }
   }
