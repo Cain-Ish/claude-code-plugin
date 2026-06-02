@@ -15,7 +15,7 @@ while [ $# -gt 0 ]; do
     *) shift ;;
   esac
 done
-[ -n "$KDIR" ] || KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
+[ -n "$KDIR" ] || KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
 KDIR="${KDIR/#\~/$HOME}"
 WIKI="$KDIR/wiki"; EDGES="$KDIR/graph/edges.jsonl"; REG="$KDIR/graph/project-registry.jsonl"
 [ -f "$EDGES" ] && [ -f "$REG" ] || { echo "backfill: no edges/registry — nothing to do"; exit 0; }

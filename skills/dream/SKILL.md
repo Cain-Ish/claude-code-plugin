@@ -123,7 +123,14 @@ Theme pages are derived/regenerable (FORGET protects the `themes` category) and 
 like any other page — reviewed at `dream_accept`; the embedding cache + live index populate
 on accept, not at dream time.
 
-**2f. REINDEX** — Call `knowledge_reindex` MCP tool (pointed at staging dir is not possible via MCP, so manually update staging/wiki/index.md if needed). Run AFTER SUMMARIZE so new theme pages are catalogued.
+**Project MOCs (since 0.23.0)** are the deterministic sibling: reindex projects one
+`wiki/projects/<key>.md` per `project:` facet (≥3 members) into the two-tier index. The dream
+does NOT assign `project:` on the live path (that is the `knowledge-maintainer`'s job) — if
+mining surfaces a clear ungrouped project, **surface it as a suggestion** in the report
+("group X, Y, Z under project `<key>`"), the same surface-only pattern as relationships.
+`projects/` + `themes/` are excluded from clustering input so MOCs never become hubs.
+
+**2f. REINDEX** — Call `knowledge_reindex` MCP tool (pointed at staging dir is not possible via MCP, so manually update staging/wiki/index.md if needed). Run AFTER SUMMARIZE so new theme + project MOC pages are catalogued in the two-tier index.
 
 **2g. FORGET** — bound cold-tier wiki growth (skip entirely if `SB_WIKI_FORGET=off`).
 Scores the **LIVE** wiki read-only (it copies to a temp to probe; never mutates live —

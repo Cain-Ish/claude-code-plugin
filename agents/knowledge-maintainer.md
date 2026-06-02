@@ -123,9 +123,12 @@ your edits will be overwritten. Curate the **edges** instead, via `knowledge_rel
      '{detected_at:(now|todateiso8601),from:$f,type:$t,to:$o,kind:$k,status:"resolved",resolved_by:"maintainer"}' \
      >> ~/knowledge/graph/conflicts.jsonl   # use status:"dismissed" for a false alarm
    ```
-   **Phase-3 budget priority** (this phase now carries three jobs under the 50-change cap):
-   drain conflicts first (they surface an existing contradiction), then any SUPERSEDE
-   edges from Phase 2 reconcile, then routine relate; overflow defers to the next run.
+   **Phase-3 budget priority** (this phase now carries four jobs under the 50-change cap):
+   (1) drain conflicts first (they surface an existing contradiction), then (2) any SUPERSEDE
+   edges from Phase 2 reconcile, then (3) **project-structure reconciliation** (the facet/MOC
+   work below — `kb-project-backfill.sh` bulk-tags a whole `part_of` tree, so it can be large;
+   it ranks *below* the conflict drain so a correctness signal is never crowded out), then
+   (4) routine relate. Overflow defers to the next run.
 
 1. Find pages with no current relations: `knowledge_neighbors({slug})` returns an empty
    `edges` array. Prioritize those.
@@ -153,7 +156,31 @@ your edits will be overwritten. Curate the **edges** instead, via `knowledge_rel
    left untouched. The old edges stay in the log, queryable via `as_of` — invalidated, not erased.
 5. **Bidirectionality is automatic** — edges are walked both directions at read time.
    Do NOT assert reverse duplicates.
-6. Run `knowledge_reindex` after curation to re-project pages.
+
+**Project membership — hierarchical organization (since 0.23.0).** Pages may carry a
+`project:` (and optional `area:`) frontmatter facet; `knowledge_reindex` projects one
+FORGET-protected `wiki/projects/<key>.md` **MOC** per project with ≥ `SB_MOC_MIN_MEMBERS`
+(default 3) members and a de-hubbed two-tier `index.md`. This is how the flat-by-type wiki
+gains a project hierarchy **without moving any file**. Your job is to keep the *facets*
+correct so the projection stays accurate (you do NOT write MOC pages — reindex does):
+- **Deterministic (part_of trees):** for each anchor in `~/knowledge/graph/project-registry.jsonl`
+  (`{"anchor":"<root-slug>","project":"<key>"}` lines), run
+  `bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-project-backfill.sh"` — it walks `part_of` ancestry and
+  sets `project:` on members (idempotent, additive, reversible). It never overwrites an existing facet.
+- **Unlabeled pages (no `part_of`):** for a page with no `project:`, get a *reproducible*
+  suggestion from its edge-neighbours:
+  `bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-project-suggest.sh" --slug <slug>` (plurality of
+  neighbours' `project:` facets; empty if none). Setting a NEW `project:` is additive — apply
+  it when confident and log it. **Re-parenting** (changing an existing `project:`) is an
+  identity change → stage/report it, don't silently flip.
+- **Registry upkeep:** a new `part_of` root (a page that is `part_of` nothing but has children)
+  is a project anchor — add `{"anchor":<root>,"project":<key>}` (the key is a clean short name
+  you choose). **Closed vocabulary:** never invent project keys outside the registry + existing
+  facets; never set `project:` on a generated `projects/`/`themes/` page.
+- **Promote membership `relates` → `part_of`** where a real parent/child exists (a sub-design
+  that *is part of* a parent) — same upgrade as step 2; it deepens the project tree the MOC renders.
+6. Run `knowledge_reindex` after curation to re-project pages **and** regenerate the project/theme
+   MOCs + the two-tier index from the current facets + edges.
 
 ## Phase 4: ENRICH — Category-Specific Content Quality
 

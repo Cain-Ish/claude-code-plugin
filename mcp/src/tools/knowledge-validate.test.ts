@@ -42,4 +42,16 @@ describe('addFrontmatter category typing', () => {
     const res = await knowledgeValidate(dir, { autofix: false });
     expect(res.issues.find(i => i.type === 'duplicate_slug' && /architecture-v1/.test(i.message))).toBeUndefined();
   });
+
+  it('does NOT flag a valid [[target|alias]] related link as broken (alias split)', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-alias-'));
+    const wiki = join(dir, 'wiki');
+    await fs.mkdir(join(wiki, 'security'), { recursive: true });
+    await fs.mkdir(join(wiki, 'decisions'), { recursive: true });
+    await fs.writeFile(join(wiki, 'security', 'real-target.md'), '---\ntitle: T\ntype: security\n---\n# T\n');
+    await fs.writeFile(join(wiki, 'decisions', 'src.md'),
+      '---\ntitle: S\ntype: decisions\nrelated: [[real-target|nice display]]\n---\n# S\n');
+    const res = await knowledgeValidate(dir, { autofix: false });
+    expect(res.issues.find(i => i.type === 'broken_link' && /real-target/.test(i.message))).toBeUndefined();
+  });
 });
