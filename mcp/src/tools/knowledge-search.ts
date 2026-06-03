@@ -9,6 +9,30 @@ import { parseAiBlock, stripAiBlock, aiBlockSnippet } from './ai-block.js';
 /** Concatenated ai-block field VALUES for BM25 tokenization (the proposition-level unit). */
 function aiBlockText(doc: ParsedDoc): string { return doc.aiBlock ? Object.values(doc.aiBlock).join(' ') : ''; }
 
+/** Parse an env int with a default + clamp; tolerant of unset/garbage. (SP-1 scoping knobs.) */
+function clampEnvInt(name: string, def: number, lo: number, hi: number): number {
+  const n = parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def;
+}
+
+/** Slugs reachable within `hops` UNDIRECTED graph hops from any seed slug (seeds included; the
+ *  caller classifies seeds tier-1 regardless). Empty when no graph. (SP-1 project neighbourhood.) */
+function graphNeighbourhood(seeds: string[], edges: CurrentEdge[], hops: number): Set<string> {
+  const adj = new Map<string, string[]>();
+  for (const e of edges) for (const [a, b] of [[e.from, e.to], [e.to, e.from]] as [string, string][]) {
+    if (!adj.has(a)) adj.set(a, []);
+    adj.get(a)!.push(b);
+  }
+  const reached = new Set<string>(seeds);
+  let frontier = [...seeds];
+  for (let h = 0; h < hops; h++) {
+    const next: string[] = [];
+    for (const node of frontier) for (const to of adj.get(node) ?? []) if (!reached.has(to)) { reached.add(to); next.push(to); }
+    frontier = next;
+  }
+  return reached;
+}
+
 export interface KnowledgeSearchArgs { query: string; scope?: string; knowledgeDir?: string; brainDir?: string; projectSlug?: string; }
 export interface KnowledgeSearchResult { candidates: { path: string; score: number; description: string; tokens: number; source: string }[]; }
 
@@ -63,7 +87,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   const wikiRoot = join(knowledgeDir, 'wiki');
 
   let scopeDirs: string[];
-  if (args.scope) {
+  if (args.scope && args.scope !== 'all') {   // 'all' = explicit no-category + no-project scope (search everything)
     scopeDirs = [join(wikiRoot, args.scope)];
   } else {
     try {
@@ -112,6 +136,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
     path: doc.path,
+    tier: 0,   // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
     description: (doc.aiBlock && Object.keys(doc.aiBlock).length)
@@ -247,12 +272,35 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  const topScore = scored[0]?.score ?? 0;
-  const candidates = scored
-    .filter(c => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO))
+  // --- SP-1 project-scoped serving (scoped-first, auto-broaden). Pure reorder + filter. ---
+  const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== 'off' && args.scope !== 'all';
+  if (scopeOn) {
+    const slug = args.projectSlug!;
+    const projBySlug = new Map(allDocs.map(d => [slugFromPath(d.doc.path), d.doc.project ?? '']));
+    const anchors = allDocs.filter(d => (d.doc.project ?? '') === slug).map(d => slugFromPath(d.doc.path));
+    const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt('SB_SCOPE_HOPS', 2, 0, 4));
+    for (const s of scored) {
+      const sl = slugFromPath(s.path);
+      const proj = projBySlug.get(sl) ?? '';
+      s.tier = proj === slug ? 1 : neigh.has(sl) ? 2 : proj === '' ? 3 : 4;
+    }
+  }
+
+  scored.sort((a, b) => (scopeOn ? (a.tier - b.tier) || (b.score - a.score) : b.score - a.score));
+  const topScore = scored.reduce((m, s) => Math.max(m, s.score), 0);
+  const passesFloor = (c: { score: number }) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO);
+
+  let pool = scored;
+  if (scopeOn) {
+    const inScope = scored.filter(s => s.tier <= 3);
+    // Enough in-scope hits → drop other-project (tier 4). Thin → broaden (keep all; in-scope sorted first).
+    pool = inScope.filter(passesFloor).length >= clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100) ? inScope : scored;
+  }
+
+  const candidates = pool
+    .filter(passesFloor)
     .slice(0, TOP_K)
-    .map(({ related, ...rest }) => rest);
+    .map(({ related, tier, ...rest }) => rest);
 
   // Record access for returned results (fire-and-forget)
   const ts = new Date().toISOString();
