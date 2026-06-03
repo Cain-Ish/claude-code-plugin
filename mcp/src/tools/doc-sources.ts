@@ -35,7 +35,7 @@ export interface DocEntry {
 
 const JUNK_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '.next', 'dist', 'build']);
 
-function assertSafeSlug(slug: string): void {
+export function assertSafeSlug(slug: string): void {
   if (!slug || /[\\/]|\.\./.test(slug)) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
   }
