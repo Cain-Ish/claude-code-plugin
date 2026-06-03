@@ -412,6 +412,19 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
   fi
 fi
 
+# 5-raw. SP-2: raw-inbox backlog — surface how many unprocessed items await processing
+# for this project, so the user knows there's material to refine. Kill switch SB_RAW_INBOX=off.
+if [ "${SB_RAW_INBOX:-on}" != "off" ]; then
+  RAW_DIR_PATH="$BRAIN_DIR/projects/$slug/raw"
+  if [ -d "$RAW_DIR_PATH" ]; then
+    RAW_N=$(grep -rl '^status: unprocessed$' "$RAW_DIR_PATH" 2>/dev/null | wc -l | tr -d ' ')
+    if [ "${RAW_N:-0}" -gt 0 ]; then
+      sb_append "$(printf '## ⓘ raw inbox — %s unprocessed item(s)\nRun `/second-brain:capture --list` to review; the maintainer refines them into notes.\n\n' "$RAW_N")" \
+        "raw-inbox-banner" 250
+    fi
+  fi
+fi
+
 # 5a. Graph neighbourhood — current typed dependencies of the project's key
 # entities (the Cross-references slugs). Surfaces "changing A affects/requires
 # B,C,D" in the hot tier so a fresh session recalls the dependency web without
