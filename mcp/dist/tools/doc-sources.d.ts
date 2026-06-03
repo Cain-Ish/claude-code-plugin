@@ -16,6 +16,7 @@ export interface DocEntry {
     mtime: string;
     size: number;
 }
+export declare function assertSafeSlug(slug: string): void;
 export declare function readConfig(brainDir: string, slug: string): Promise<DocSourceConfig>;
 export declare function scanLocations(projectRoot: string, locations: string[]): Promise<DocEntry[]>;
 export interface DocRegistry {

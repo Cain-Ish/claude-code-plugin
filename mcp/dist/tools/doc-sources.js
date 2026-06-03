@@ -26,7 +26,7 @@ export function extractHeadings(content) {
     return content.split('\n').map((l) => l.trim()).filter((l) => /^#{2,3}\s+\S/.test(l));
 }
 const JUNK_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '.next', 'dist', 'build']);
-function assertSafeSlug(slug) {
+export function assertSafeSlug(slug) {
     if (!slug || /[\\/]|\.\./.test(slug)) {
         throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
     }
