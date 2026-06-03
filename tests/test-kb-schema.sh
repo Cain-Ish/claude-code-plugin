@@ -31,4 +31,10 @@ H=$(grep -rnE 'for [a-z]+ in learnings decisions entities issues concepts securi
 [ -z "$H" ] && pass "no hardcoded six-type loop (all use \$SB_STRUCTURED_TYPES)" \
   || fail "hardcoded six-type loop found (source kb-schema.sh + use \$SB_STRUCTURED_TYPES):" "$H"
 
+# --- SP-2: the `raw` group is visible to the json + bash readers (TS side in kb-schema.test.ts) ---
+[ "$(jq -r '.raw.dir' "$M")" = "raw" ] || fail "kb-schema.json .raw.dir != raw"
+[ "$SB_RAW_DIR" = "raw" ] || fail "kb-schema.sh did not export SB_RAW_DIR=raw (got '$SB_RAW_DIR')"
+[ "$SB_RAW_STATUSES" = "$(jq -r '.raw.statuses|join(" ")' "$M")" ] || fail "SB_RAW_STATUSES != manifest"
+pass "raw group visible to json + bash readers"
+
 echo; echo "ALL PASS"

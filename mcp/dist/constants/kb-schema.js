@@ -10,6 +10,9 @@ export const EDGE_TYPES = schema.edge_types;
 export const PROJECT_SECTIONS = schema.project_sections;
 export const FORGET_PROTECTED = schema.forget_protection.protected;
 export const FORGET_DISCOUNTED = schema.forget_protection.discounted;
+/** Raw inbox group: per-project staging for unprocessed material (SP-2). Never searched. */
+export const RAW_DIR = schema.raw.dir;
+export const RAW_STATUSES = schema.raw.statuses;
 /** Wiki categories that hold authored content (have a directory, are scaffolded + write-guarded). */
 export const CONTENT_CATEGORIES = [...STRUCTURED_TYPES, ...UNSTRUCTURED_TYPES];
 /** Every recognized wiki category, including the generated MOC dirs (projects/, themes/). */

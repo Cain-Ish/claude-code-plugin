@@ -6208,6 +6208,12 @@ var kb_schema_default = {
   forget_protection: {
     protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
     discounted: ["entities", "sources", "issues"]
+  },
+  raw: {
+    dir: "raw",
+    tier: "project",
+    statuses: ["unprocessed", "processed", "discarded"],
+    searchable: false
   }
 };
 
@@ -6219,6 +6225,8 @@ var EDGE_TYPES = kb_schema_default.edge_types;
 var PROJECT_SECTIONS = kb_schema_default.project_sections;
 var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
 var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
+var RAW_DIR = kb_schema_default.raw.dir;
+var RAW_STATUSES = kb_schema_default.raw.statuses;
 var CONTENT_CATEGORIES = [...STRUCTURED_TYPES, ...UNSTRUCTURED_TYPES];
 var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
 
