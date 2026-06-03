@@ -5,7 +5,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { glob } from "glob";
-import { EDGE_TYPES } from "./tools/graph-store.js";
+import { EDGE_TYPES, type EdgeType } from "./tools/graph-store.js";
 import { pinToUser } from "./tools/pin-to-user.js";
 import { pinToProject } from "./tools/pin-to-project.js";
 import { archiveToWiki } from "./tools/archive-to-wiki.js";
@@ -528,7 +528,7 @@ server.registerTool(
     inputSchema: {
       from: z.string().describe("Source page slug (kebab-case)."),
       to: z.string().describe("Target page slug (kebab-case)."),
-      type: z.enum(EDGE_TYPES as [string, ...string[]]),
+      type: z.enum(EDGE_TYPES as [EdgeType, ...EdgeType[]]),
       valid_from: z.string().optional().describe("Date the relationship became true (YYYY-MM-DD). Default: today."),
       valid_to: z.string().optional().describe("Date it stopped being true (YYYY-MM-DD). Required semantics with invalidate:true."),
       invalidate: z.boolean().optional().describe("Mark an existing relationship no longer valid instead of asserting one."),
@@ -553,7 +553,7 @@ server.registerTool(
       slug: z.string().describe("The page slug to start from."),
       depth: z.number().min(1).max(4).optional().describe("Max hops. Default 2."),
       direction: z.enum(["out", "in", "both"]).optional().describe("Default 'both'."),
-      edge_types: z.array(z.enum(EDGE_TYPES as [string, ...string[]])).optional(),
+      edge_types: z.array(z.enum(EDGE_TYPES as [EdgeType, ...EdgeType[]])).optional(),
       as_of: z.string().optional().describe("Point-in-time (YYYY-MM-DD or ISO). Default now."),
     },
   },

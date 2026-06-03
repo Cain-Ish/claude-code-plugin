@@ -14,12 +14,12 @@ var lastLoadError = null;
 function brainDirFromEnv() {
   return process.env.BRAIN_DIR || join(process.env.HOME ?? "", ".second-brain");
 }
-async function logLoadError(message, brainDir) {
+async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
     lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
   }
-  if (lastLoadError.loggedTo.has(brainDir)) return;
-  lastLoadError.loggedTo.add(brainDir);
+  if (lastLoadError.loggedTo.has(brainDir2)) return;
+  lastLoadError.loggedTo.add(brainDir2);
   const entry = {
     timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
     script: "embeddings",
@@ -27,8 +27,8 @@ async function logLoadError(message, brainDir) {
     exit_code: 0
   };
   try {
-    await fs.mkdir(brainDir, { recursive: true });
-    await fs.appendFile(join(brainDir, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+    await fs.mkdir(brainDir2, { recursive: true });
+    await fs.appendFile(join(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
   } catch {
   }
   try {
@@ -38,7 +38,7 @@ async function logLoadError(message, brainDir) {
   }
 }
 async function getPipeline() {
-  const brainDir = brainDirFromEnv();
+  const brainDir2 = brainDirFromEnv();
   if (process.env[DISABLE_ENV] === "1") {
     try {
       process.stderr.write(`[embeddings] disabled via ${DISABLE_ENV}=1
@@ -55,7 +55,7 @@ async function getPipeline() {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
-    await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir);
+    await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
     return null;
   }
 }
@@ -6189,13 +6189,13 @@ function assertSafeSlug(slug) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
   }
 }
-function registryPath(brainDir, slug) {
-  return join2(brainDir, "projects", slug, "doc-sources.json");
+function registryPath(brainDir2, slug) {
+  return join2(brainDir2, "projects", slug, "doc-sources.json");
 }
-async function loadRegistry(brainDir, slug) {
+async function loadRegistry(brainDir2, slug) {
   try {
     assertSafeSlug(slug);
-    return JSON.parse(await fs2.readFile(registryPath(brainDir, slug), "utf-8"));
+    return JSON.parse(await fs2.readFile(registryPath(brainDir2, slug), "utf-8"));
   } catch {
     return null;
   }
@@ -6325,6 +6325,28 @@ function aiBlockSnippet(type, block) {
 function aiBlockText(doc) {
   return doc.aiBlock ? Object.values(doc.aiBlock).join(" ") : "";
 }
+function clampEnvInt(name, def, lo, hi) {
+  const n = parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def;
+}
+function graphNeighbourhood(seeds, edges, hops) {
+  const adj = /* @__PURE__ */ new Map();
+  for (const e of edges) for (const [a, b] of [[e.from, e.to], [e.to, e.from]]) {
+    if (!adj.has(a)) adj.set(a, []);
+    adj.get(a).push(b);
+  }
+  const reached = new Set(seeds);
+  let frontier = [...seeds];
+  for (let h = 0; h < hops; h++) {
+    const next = [];
+    for (const node of frontier) for (const to of adj.get(node) ?? []) if (!reached.has(to)) {
+      reached.add(to);
+      next.push(to);
+    }
+    frontier = next;
+  }
+  return reached;
+}
 var ACCESS_COUNTS_FILE = join3(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -6359,7 +6381,7 @@ async function knowledgeSearch(args) {
   const knowledgeDir2 = args.knowledgeDir ?? join3(process.env.HOME ?? "", "knowledge");
   const wikiRoot = join3(knowledgeDir2, "wiki");
   let scopeDirs;
-  if (args.scope) {
+  if (args.scope && args.scope !== "all") {
     scopeDirs = [join3(wikiRoot, args.scope)];
   } else {
     try {
@@ -6415,6 +6437,8 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
   const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
     path: doc.path,
+    tier: 0,
+    // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
     description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
@@ -6527,9 +6551,27 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     const daysSince = (now - updated) / 864e5;
     scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
   }
-  scored.sort((a, b) => b.score - a.score);
-  const topScore = scored[0]?.score ?? 0;
-  const candidates = scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest);
+  const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
+  if (scopeOn) {
+    const slug = args.projectSlug;
+    const projBySlug = new Map(allDocs.map((d) => [slugFromPath(d.doc.path), d.doc.project ?? ""]));
+    const anchors = allDocs.filter((d) => (d.doc.project ?? "") === slug).map((d) => slugFromPath(d.doc.path));
+    const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt("SB_SCOPE_HOPS", 2, 0, 4));
+    for (const s of scored) {
+      const sl = slugFromPath(s.path);
+      const proj = projBySlug.get(sl) ?? "";
+      s.tier = proj === slug ? 1 : neigh.has(sl) ? 2 : proj === "" ? 3 : 4;
+    }
+  }
+  scored.sort((a, b) => scopeOn ? a.tier - b.tier || b.score - a.score : b.score - a.score);
+  const topScore = scored.reduce((m, s) => Math.max(m, s.score), 0);
+  const passesFloor = (c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO);
+  let pool = scored;
+  if (scopeOn) {
+    const inScope = scored.filter((s) => s.tier <= 3);
+    pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
+  }
+  const candidates = pool.filter(passesFloor).slice(0, TOP_K).map(({ related, tier, ...rest }) => rest);
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;
@@ -6698,7 +6740,9 @@ if (!query) {
 }
 var knowledgeDir = process.env.KNOWLEDGE_DIR || void 0;
 var minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || "0");
-var result = await knowledgeSearch({ query, knowledgeDir });
+var brainDir = process.env.BRAIN_DIR || (process.env.HOME ? `${process.env.HOME}/.second-brain` : void 0);
+var projectSlug = process.env.SB_ACTIVE_SLUG || void 0;
+var result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
 var top = result.candidates.filter((c) => c.score >= minScore).slice(0, 2);
 if (top.length === 0) {
   process.exit(0);
