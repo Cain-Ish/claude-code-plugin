@@ -3,7 +3,7 @@ name: setup
 description: Scaffold the v1.0 hot tier — USER.md, projects/<slug>/PROJECT.md, projects.jsonl — for the active repo. Idempotent.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date *) Bash(test *) Bash(jq *) Bash(mkdir *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(head *) Bash(cat *) Bash(wc *)
+allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date *) Bash(test *) Bash(jq *) Bash(mkdir *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(head *) Bash(cat *) Bash(wc *) Bash(node *)
 ---
 
 # Setup
@@ -137,7 +137,33 @@ fi
 
 The persona-card is user-owned content. The persona reads it; nothing in the plugin should ever rewrite it automatically. The user edits it directly when their role, style, or preferences change.
 
-### 6. Confirm
+### 6. Deep-scan the repo into the raw inbox (preview, then confirm)
+
+Seed this project's KB by capturing its **high-signal docs** (README, `docs/`, ADRs,
+`DESIGN.md`, …) into the raw inbox, where the maintainer later refines them into wiki
+notes. Skipped entirely if `SB_SCAN_SKIP=1`. Curation reuses the doc-sources junk +
+git-ignore filtering and a low-signal/secret denylist; the inbox dedups by content hash,
+so re-running setup only captures new or changed docs.
+
+```bash
+if [ "${SB_SCAN_SKIP:-0}" != "1" ]; then
+  SCAN_CLI="${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-scan-cli.bundle.js"
+  SCAN_ROOT_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  SCAN_ROOT="$SCAN_ROOT_DIR" node "$SCAN_CLI" --dry-run
+fi
+```
+
+Show the preview list. This writes nothing yet. **Ask the user to confirm** capturing
+these into the raw inbox (an impactful action). On a yes:
+
+```bash
+SCAN_ROOT="$SCAN_ROOT_DIR" node "$SCAN_CLI"
+```
+
+Report the captured/skipped counts and point the user to `/second-brain:capture --list`.
+If the preview was empty, say there were no high-signal docs to seed and move on.
+
+### 7. Confirm
 
 Print byte counts of `USER.md` and `PROJECT.md` and the combined total. Verify combined < ~3200 bytes (≈ 800-token hot-tier cap):
 
