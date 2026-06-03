@@ -248,8 +248,25 @@ if [ -n "$KEYWORDS" ] && [ -f "$EPISODIC_CLI" ]; then
   [ ${#EPISODIC_HINT} -gt $CAP_EPISODIC ] && EPISODIC_HINT=$(printf '%s' "$EPISODIC_HINT" | head -c $CAP_EPISODIC)
 fi
 
+# --- Behavioral principles re-surface (once per session, first coding-intent prompt) ---
+# Karpathy: prose in CLAUDE.md drifts; re-surfacing the compact Four Principles at the moment
+# coding begins is the salience a static file can't provide. Once per session (memo flag),
+# coding-intent only, kill switch SB_PRINCIPLES_INJECT=off.
+PRINCIPLES_ABS=""; PRINCIPLES_DONE=""
+_PMEMO="$BRAIN_DIR/.injected/${SESSION_ID}.json"
+PRINCIPLES_DONE=$(jq -r '.principles // ""' "$_PMEMO" 2>/dev/null)
+if [ "${SB_PRINCIPLES_INJECT:-on}" != "off" ] && [ "$PRINCIPLES_DONE" != "1" ] && [ -n "$SESSION_ID" ]; then
+  _PLOWER=$(printf '%s' "$P_TRIM" | tr '[:upper:]' '[:lower:]')
+  _CODING_RE='implement|refactor|debug|build|coding|\bcode\b|\bfix\b|\bbug\b|\bfunction\b|\bclass\b|\bmethod\b|\bapi\b|endpoint|\bscript\b|\bmodule\b|\bcomponent\b|\bfeature\b|optimi|migrat|\btest\b|add a|add the|add support|write a|write the|create a|create the'
+  if printf '%s' "$_PLOWER" | grep -qE "$_CODING_RE"; then
+    _PFILE="$PLUGIN_ROOT/skills/using-second-brain/principles.md"
+    [ -f "$_PFILE" ] && PRINCIPLES_ABS=$(awk '/<!-- compact:begin/{f=1;next}/<!-- compact:end/{f=0}f' "$_PFILE" 2>/dev/null)
+    [ -n "$PRINCIPLES_ABS" ] && PRINCIPLES_DONE=1
+  fi
+fi
+
 # Bail out if nothing useful surfaced.
-if [ -z "$PERSONA_ABS" ] && [ -z "$CATALOG_ABS" ] && [ -z "$WIKI_HITS" ] && [ -z "$EPISODIC_HINT" ]; then
+if [ -z "$PERSONA_ABS" ] && [ -z "$CATALOG_ABS" ] && [ -z "$WIKI_HITS" ] && [ -z "$EPISODIC_HINT" ] && [ -z "$PRINCIPLES_ABS" ]; then
   exit 0
 fi
 
@@ -307,6 +324,10 @@ Installed specialists: $CATALOG_ABS"
 $WIKI_HITS"
 [ -n "$EPISODIC_HINT" ] && [ "$SHOW_EPISODIC" = "1" ] && CTX="$CTX
 $EPISODIC_HINT"
+[ -n "$PRINCIPLES_ABS" ] && CTX="$CTX
+
+[Coding principles — apply to any code you write or change this session]
+$PRINCIPLES_ABS"
 
 # Update memo with this turn's hashes for next-turn dedup.
 if [ -n "$MEMO_FILE" ]; then
@@ -315,7 +336,8 @@ if [ -n "$MEMO_FILE" ]; then
     --arg c "$(sb_hash "$CATALOG_ABS")" \
     --arg w "$(sb_hash "$WIKI_HITS")" \
     --arg e "$(sb_hash "$EPISODIC_HINT")" \
-    '{persona:$p, catalog:$c, wiki:$w, episodic:$e}' > "$MEMO_FILE" 2>/dev/null || true
+    --arg pr "${PRINCIPLES_DONE:-}" \
+    '{persona:$p, catalog:$c, wiki:$w, episodic:$e, principles:$pr}' > "$MEMO_FILE" 2>/dev/null || true
 fi
 
 # If everything was suppressed, no header alone — exit silent.

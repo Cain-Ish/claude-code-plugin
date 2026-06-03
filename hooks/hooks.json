@@ -69,6 +69,10 @@
       { "_comment": "v2.9.0 HarnessAudit Layer 3 — scans Read/WebFetch/Bash/Grep/Glob output for indirect-prompt-injection patterns. Flags via additionalContext; never blocks. Kill switch SB_INJECTION_SCAN=off.",
         "matcher": "Read|WebFetch|Bash|Grep|Glob", "hooks": [
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/tool-return-scanner.sh", "timeout": 5 }
+      ]},
+      { "_comment": "Persona Principle 2 (Simplicity First) — advisory nudge on a large single change. Never blocks. Kill switch SB_SIMPLICITY_GATE=off; threshold SB_SIMPLICITY_GATE_LINES (default 150).",
+        "matcher": "Write|Edit|MultiEdit", "hooks": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/simplicity-gate.sh", "timeout": 5 }
       ]}
     ]
   }
