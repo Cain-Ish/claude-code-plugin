@@ -12,6 +12,10 @@ export const PROJECT_SECTIONS: readonly string[] = schema.project_sections;
 export const FORGET_PROTECTED: readonly string[] = schema.forget_protection.protected;
 export const FORGET_DISCOUNTED: readonly string[] = schema.forget_protection.discounted;
 
+/** Raw inbox group: per-project staging for unprocessed material (SP-2). Never searched. */
+export const RAW_DIR: string = schema.raw.dir;
+export const RAW_STATUSES: readonly string[] = schema.raw.statuses;
+
 /** Wiki categories that hold authored content (have a directory, are scaffolded + write-guarded). */
 export const CONTENT_CATEGORIES: readonly string[] = [...STRUCTURED_TYPES, ...UNSTRUCTURED_TYPES];
 /** Every recognized wiki category, including the generated MOC dirs (projects/, themes/). */

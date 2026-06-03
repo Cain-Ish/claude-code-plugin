@@ -14,6 +14,9 @@ if command -v jq >/dev/null 2>&1 && [ -f "$_SB_KB_SCHEMA" ]; then
   SB_EDGE_TYPES=$(jq -r '.edge_types | join(" ")' "$_SB_KB_SCHEMA" 2>/dev/null)
   SB_FORGET_PROTECTED=$(jq -r '.forget_protection.protected | join(" ")' "$_SB_KB_SCHEMA" 2>/dev/null)
   SB_FORGET_DISCOUNTED=$(jq -r '.forget_protection.discounted | join(" ")' "$_SB_KB_SCHEMA" 2>/dev/null)
+  SB_RAW_DIR=$(jq -r '.raw.dir' "$_SB_KB_SCHEMA" 2>/dev/null)
+  SB_RAW_STATUSES=$(jq -r '.raw.statuses | join(" ")' "$_SB_KB_SCHEMA" 2>/dev/null)
   export SB_STRUCTURED_TYPES SB_UNSTRUCTURED_TYPES SB_GENERATED_DIRS SB_CONTENT_CATEGORIES \
-         SB_ALL_CATEGORIES SB_EDGE_TYPES SB_FORGET_PROTECTED SB_FORGET_DISCOUNTED
+         SB_ALL_CATEGORIES SB_EDGE_TYPES SB_FORGET_PROTECTED SB_FORGET_DISCOUNTED \
+         SB_RAW_DIR SB_RAW_STATUSES
 fi

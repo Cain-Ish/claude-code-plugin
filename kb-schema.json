@@ -8,5 +8,11 @@
   "forget_protection": {
     "protected": ["learnings", "decisions", "concepts", "security", "themes", "projects"],
     "discounted": ["entities", "sources", "issues"]
+  },
+  "raw": {
+    "dir": "raw",
+    "tier": "project",
+    "statuses": ["unprocessed", "processed", "discarded"],
+    "searchable": false
   }
 }

@@ -1,9 +1,14 @@
-// src/tools/knowledge-validate.ts
-import { promises as fs } from "fs";
-import { join as join2, basename, dirname, relative } from "path";
+// src/tools/raw-capture-cli.ts
+import { homedir } from "os";
+import { join as join2, basename as basename2 } from "path";
+import { existsSync, readFileSync, statSync } from "fs";
 
-// src/tools/knowledge-search.ts
-import { join } from "path";
+// src/tools/raw-inbox.ts
+import { promises as fs } from "fs";
+import { join, basename, extname } from "path";
+
+// src/tools/doc-sources.ts
+import { createHash } from "crypto";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -5231,10 +5236,10 @@ var Ignore = class {
   ignored(p) {
     const fullpath = p.fullpath();
     const fullpaths = `${fullpath}/`;
-    const relative2 = p.relative() || ".";
-    const relatives = `${relative2}/`;
+    const relative = p.relative() || ".";
+    const relatives = `${relative}/`;
     for (const m of this.relative) {
-      if (m.match(relative2) || m.match(relatives))
+      if (m.match(relative) || m.match(relatives))
         return true;
     }
     for (const m of this.absolute) {
@@ -5245,9 +5250,9 @@ var Ignore = class {
   }
   childrenIgnored(p) {
     const fullpath = p.fullpath() + "/";
-    const relative2 = (p.relative() || ".") + "/";
+    const relative = (p.relative() || ".") + "/";
     for (const m of this.relativeChildren) {
-      if (m.match(relative2))
+      if (m.match(relative))
         return true;
     }
     for (const m of this.absoluteChildren) {
@@ -6066,406 +6071,299 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
-// src/tools/ai-block.ts
-var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
-var AI_BLOCK_SCHEMAS = {
-  learnings: { fields: ["claim", "trigger", "action", "scope", "evidence", "supersedes"], required: ["claim", "action"] },
-  decisions: { fields: ["context", "choice", "alternatives", "rationale", "status", "supersedes"], required: ["choice"] },
-  entities: { fields: ["identity", "current_state", "depends_on", "owns", "status"], required: ["identity"] },
-  issues: { fields: ["symptom", "cause", "fix", "severity", "status"], required: ["symptom", "status"] },
-  concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
-  security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
-};
-function schemaFor(type) {
-  return Object.prototype.hasOwnProperty.call(AI_BLOCK_SCHEMAS, type) ? AI_BLOCK_SCHEMAS[type] : void 0;
+// src/tools/doc-sources.ts
+function hashContent(content) {
+  return createHash("sha256").update(content).digest("hex");
 }
-function parseAiBlock(content) {
-  const m = content.match(AI_BLOCK_RE);
-  if (!m) return null;
-  const out = {};
-  let last = "";
-  for (const raw of m[1].split("\n")) {
-    const line = raw.trimEnd();
-    if (!line.trim()) continue;
-    const kv = line.match(/^([a-z_][a-z0-9_]*):\s*(.*)$/i);
-    if (kv) {
-      last = kv[1];
-      out[last] = kv[2].trim();
-    } else if (last) {
-      out[last] = (out[last] + " " + line.trim()).trim();
-    }
+function assertSafeSlug(slug) {
+  if (!slug || /[\\/]|\.\./.test(slug)) {
+    throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
   }
-  return out;
-}
-var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
-function stripAiBlock(text) {
-  return text.replace(AI_BLOCK_RE_G, "");
-}
-function validateAiBlock(type, block) {
-  const schema = schemaFor(type);
-  if (!schema) return [];
-  return schema.required.filter((f) => !block[f] || !block[f].trim());
 }
 
-// src/tools/knowledge-search.ts
-var ACCESS_COUNTS_FILE = join(process.env.HOME ?? "", ".second-brain", "access-counts.json");
-function parseDoc(content, filePath) {
-  const doc = {
-    title: "",
-    description: "",
-    type: "",
-    tags: [],
-    related: [],
-    body: content,
-    path: filePath,
-    updated: "",
-    created: "",
-    project: "",
-    area: ""
+// src/tools/raw-inbox.ts
+function rawDir(brainDir, slug) {
+  return join(brainDir, "projects", slug, "raw");
+}
+function slugify(text) {
+  const s = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  return s || "item";
+}
+function compactStamp(iso) {
+  return iso.replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+}
+function isBinary(buf) {
+  const n = Math.min(buf.length, 8192);
+  for (let i = 0; i < n; i++) if (buf[i] === 0) return true;
+  return false;
+}
+function contentTypeForFile(path2, binary) {
+  const ext2 = extname(path2).toLowerCase();
+  if (binary) return ext2 === ".pdf" ? "application/pdf" : "application/octet-stream";
+  return ext2 === ".md" || ext2 === ".markdown" ? "text/markdown" : "text/plain";
+}
+function fmValue(s) {
+  return s.replace(/[\r\n]+/g, " ");
+}
+function isSafeId(id) {
+  return !!id && !/[\\/]|\.\./.test(id);
+}
+function serialize(item) {
+  const fm = ["---"];
+  fm.push(`id: ${fmValue(item.id)}`);
+  fm.push(`source: ${fmValue(item.source)}`);
+  fm.push(`captured_at: ${fmValue(item.captured_at)}`);
+  fm.push(`captured_by: ${fmValue(item.captured_by)}`);
+  fm.push(`content_type: ${fmValue(item.content_type)}`);
+  fm.push(`status: ${fmValue(item.status)}`);
+  if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
+  if (item.blob) fm.push(`blob: ${fmValue(item.blob)}`);
+  fm.push(`hash: ${fmValue(item.hash)}`);
+  fm.push(`gist: ${fmValue(item.gist)}`);
+  fm.push("---", "", item.body, "");
+  return fm.join("\n");
+}
+function parse(content, id) {
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const base = {
+    id,
+    source: "",
+    captured_at: "",
+    captured_by: "user",
+    content_type: "",
+    status: "unprocessed",
+    hash: "",
+    gist: "",
+    body: ""
   };
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (fmMatch) {
-    const fm = fmMatch[1];
-    doc.body = fmMatch[2];
-    doc.title = extractYamlValue(fm, "title");
-    doc.description = extractYamlValue(fm, "description");
-    doc.type = extractYamlValue(fm, "type");
-    doc.tags = extractYamlList(fm, "tags");
-    doc.related = extractYamlList(fm, "related");
-    doc.updated = extractYamlValue(fm, "updated");
-    doc.created = extractYamlValue(fm, "created");
-    doc.project = extractYamlValue(fm, "project");
-    doc.area = extractYamlValue(fm, "area");
+  if (!m) {
+    return { ...base, body: content, malformed: true };
   }
-  if (!doc.title) {
-    const headingMatch = doc.body.match(/^#\s+(.+)/m);
-    if (headingMatch) doc.title = headingMatch[1].trim();
-  }
-  if (!doc.type) {
-    const rel = filePath.split("/");
-    const wikiIdx = rel.lastIndexOf("wiki");
-    if (wikiIdx >= 0 && wikiIdx + 1 < rel.length) {
-      doc.type = rel[wikiIdx + 1];
-    }
-  }
-  doc.aiBlock = parseAiBlock(content) ?? void 0;
-  if (doc.related.length === 0) {
-    const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
-    if (wikiLinks) {
-      doc.related = [...new Set(wikiLinks.map((l) => l.slice(2, -2)))];
-    }
-  }
-  return doc;
+  const [, fmText, body] = m;
+  const get = (k) => {
+    const mm = fmText.match(new RegExp(`^${k}:[ \\t]*(.*)$`, "m"));
+    return mm ? mm[1].trim() : void 0;
+  };
+  const status = get("status") ?? "";
+  const validStatus = status === "unprocessed" || status === "processed" || status === "discarded";
+  const item = {
+    id,
+    source: get("source") ?? "",
+    captured_at: get("captured_at") ?? "",
+    captured_by: get("captured_by") ?? "user",
+    content_type: get("content_type") ?? "",
+    status: validStatus ? status : "unprocessed",
+    target_node: get("target_node") || void 0,
+    blob: get("blob") || void 0,
+    hash: get("hash") ?? "",
+    gist: get("gist") ?? "",
+    body: body.trim()
+  };
+  if (!item.source || !item.captured_at || !item.content_type || !validStatus) item.malformed = true;
+  return item;
 }
-function extractYamlValue(yaml, key) {
-  const re = new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, "m");
-  const m = yaml.match(re);
-  return m ? m[1].trim() : "";
-}
-function extractYamlList(yaml, key) {
-  const lineMatch = yaml.match(new RegExp(`^${key}:[ \\t]+(\\S.*?)\\s*$`, "m"));
-  if (lineMatch) {
-    const value = lineMatch[1];
-    const wikiLinks = value.match(/\[\[([^\]\[]+)\]\]/g);
-    if (wikiLinks && wikiLinks.length > 0) {
-      return [...new Set(
-        wikiLinks.map((l) => l.slice(2, -2).trim()).filter(Boolean)
-      )];
-    }
-  }
-  const inline = yaml.match(new RegExp(`^${key}:\\s*\\[(.+?)\\]`, "m"));
-  if (inline) {
-    return inline[1].split(",").map((s) => s.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
+async function readItems(brainDir, slug) {
+  const dir = rawDir(brainDir, slug);
+  let names = [];
+  try {
+    names = (await fs.readdir(dir)).filter((n) => n.endsWith(".md"));
+  } catch {
+    return [];
   }
   const items = [];
-  const lines = yaml.split("\n");
-  let collecting = false;
-  for (const line of lines) {
-    if (line.match(new RegExp(`^${key}:`))) {
-      collecting = true;
-      continue;
-    }
-    if (collecting) {
-      const itemMatch = line.match(/^\s+-\s+(.+)/);
-      if (itemMatch) {
-        items.push(itemMatch[1].trim().replace(/^['"]|['"]$/g, ""));
-      } else {
-        collecting = false;
-      }
+  for (const name of names.sort()) {
+    try {
+      const content = await fs.readFile(join(dir, name), "utf-8");
+      items.push(parse(content, name.replace(/\.md$/, "")));
+    } catch {
     }
   }
   return items;
 }
-
-// ../kb-schema.json
-var kb_schema_default = {
-  _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
-  structured_types: ["learnings", "decisions", "entities", "issues", "concepts", "security"],
-  unstructured_types: ["state", "sources"],
-  generated_dirs: ["projects", "themes"],
-  edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
-  project_sections: ["blockers", "decisions"],
-  forget_protection: {
-    protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
-    discounted: ["entities", "sources", "issues"]
-  },
-  raw: {
-    dir: "raw",
-    tier: "project",
-    statuses: ["unprocessed", "processed", "discarded"],
-    searchable: false
-  }
-};
-
-// src/constants/kb-schema.ts
-var STRUCTURED_TYPES = kb_schema_default.structured_types;
-var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
-var GENERATED_DIRS = kb_schema_default.generated_dirs;
-var EDGE_TYPES = kb_schema_default.edge_types;
-var PROJECT_SECTIONS = kb_schema_default.project_sections;
-var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
-var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
-var RAW_DIR = kb_schema_default.raw.dir;
-var RAW_STATUSES = kb_schema_default.raw.statuses;
-var CONTENT_CATEGORIES = [...STRUCTURED_TYPES, ...UNSTRUCTURED_TYPES];
-var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
-
-// src/tools/knowledge-validate.ts
-var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
-async function knowledgeValidate(knowledgeDir, opts = {}) {
-  const wikiDir = join2(knowledgeDir, "wiki");
-  const issues = [];
-  let fixed = 0;
-  const allPages = await collectAllPages(wikiDir);
-  const slugMap = /* @__PURE__ */ new Map();
-  const parsedDocs = [];
-  for (const filePath of allPages) {
-    const content = await fs.readFile(filePath, "utf-8");
-    const slug = basename(filePath, ".md");
-    const doc = parseDoc(content, filePath);
-    parsedDocs.push(doc);
-    const aiBlock = parseAiBlock(content);
-    const ptype = doc.type || basename(dirname(filePath));
-    if (aiBlock) {
-      const missing = validateAiBlock(ptype, aiBlock);
-      if (missing.length) issues.push({
-        type: "ai_block_incomplete",
-        severity: "warning",
-        path: filePath,
-        message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(", ")}`
-      });
-    } else if (schemaFor(ptype) && !/[/\\](projects|themes)[/\\]/.test(filePath)) {
-      const prose = stripAiBlock(content).replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, "").replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "");
-      if (prose.trim().length >= AI_BLOCK_MIN_PROSE) issues.push({
-        type: "ai_block_missing",
-        severity: "warning",
-        path: filePath,
-        message: `${ptype} page has substantive prose but no ai-block: ${slug}`
-      });
-    }
-    if (!/[/\\](projects|themes)[/\\]/.test(filePath)) {
-      if (!slugMap.has(slug)) slugMap.set(slug, []);
-      slugMap.get(slug).push(filePath);
-    }
-    if (!content.trim()) {
-      issues.push({
-        type: "empty_page",
-        severity: "error",
-        path: filePath,
-        message: `Empty page: ${slug}`,
-        autofix: "remove"
-      });
-    }
-    const fmMatch = content.match(/^---\n/);
-    if (!fmMatch) {
-      issues.push({
-        type: "missing_frontmatter",
-        severity: "warning",
-        path: filePath,
-        message: `Missing YAML frontmatter: ${slug}`,
-        autofix: "add_frontmatter"
-      });
-    }
-    const datePrefix = slug.match(/^\d{4}-\d{2}-\d{2}-/);
-    if (datePrefix) {
-      issues.push({
-        type: "stale_page",
-        severity: "warning",
-        path: filePath,
-        message: `Date-prefixed filename should be renamed: ${slug}`,
-        autofix: "rename_strip_date"
-      });
-    }
-    if (isSessionNarrative(content, slug)) {
-      issues.push({
-        type: "stale_page",
-        severity: "warning",
-        path: filePath,
-        message: `Session-narrative page "${slug}" \u2014 content should be merged into its parent entity`,
-        autofix: "merge_into_entity"
-      });
-    }
-  }
-  const allSlugs = new Set(allPages.map((p) => basename(p, ".md")));
-  for (const doc of parsedDocs) {
-    for (const rawRef of doc.related) {
-      const ref = rawRef.split("|")[0].trim();
-      if (ref && !allSlugs.has(ref)) {
-        issues.push({
-          type: "broken_link",
-          severity: "warning",
-          path: doc.path,
-          message: `Broken wiki-link [[${ref}]] \u2014 no matching page`
-        });
-      }
-    }
-  }
-  for (const [slug, paths] of slugMap) {
-    if (paths.length > 1) {
-      issues.push({
-        type: "duplicate_slug",
-        severity: "error",
-        path: paths.join(", "),
-        message: `Duplicate slug "${slug}" in: ${paths.map((p) => relative(wikiDir, p)).join(", ")}`,
-        autofix: "merge"
-      });
-    }
-  }
-  try {
-    const rootFiles = await fs.readdir(knowledgeDir, { withFileTypes: true });
-    for (const entry of rootFiles) {
-      if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        const rootPath = join2(knowledgeDir, entry.name);
-        issues.push({
-          type: "root_orphan",
-          severity: "error",
-          path: rootPath,
-          message: `Orphan file at knowledge root \u2014 should be in wiki/ or removed: ${entry.name}`,
-          autofix: "move_or_remove"
-        });
-      }
-    }
-  } catch {
-  }
-  if (opts.autofix) {
-    for (const issue of issues) {
-      if (issue.autofix === "remove" && issue.type === "empty_page") {
-        try {
-          await fs.unlink(issue.path);
-          fixed++;
-        } catch {
-        }
-      }
-      if (issue.autofix === "move_or_remove" && issue.type === "root_orphan") {
-        try {
-          const stat = await fs.stat(issue.path);
-          if (stat.size === 0) {
-            await fs.unlink(issue.path);
-            fixed++;
-          }
-        } catch {
-        }
-      }
-      if (issue.autofix === "add_frontmatter" && issue.type === "missing_frontmatter") {
-        try {
-          await addFrontmatter(issue.path, wikiDir);
-          fixed++;
-        } catch {
-        }
-      }
-    }
-  }
-  return { issues, fixed, pagesScanned: allPages.length };
+async function listItems(brainDir, slug) {
+  assertSafeSlug(slug);
+  return readItems(brainDir, slug);
 }
-var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
-async function addFrontmatter(filePath, wikiDir) {
-  const original = await fs.readFile(filePath, "utf-8");
-  if (/^---\n/.test(original)) return;
-  const slug = basename(filePath, ".md");
-  const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
-  const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
-  const relPath = relative(wikiDir, filePath);
-  const firstSeg = relPath.split("/")[0];
-  const type = KNOWN_CATEGORIES.has(firstSeg) ? firstSeg : "state";
-  let created = "";
-  const dateLine = original.match(/\*\*Date(?:\s*\w+)?\*\*:\s*(\d{4}-\d{2}-\d{2})/i);
-  if (dateLine) {
-    created = dateLine[1];
+async function unprocessedCount(brainDir, slug) {
+  assertSafeSlug(slug);
+  const items = await readItems(brainDir, slug);
+  return items.filter((i) => i.status === "unprocessed" || i.malformed).length;
+}
+async function setStatus(brainDir, slug, id, status) {
+  assertSafeSlug(slug);
+  if (!isSafeId(id)) return false;
+  const file = join(rawDir(brainDir, slug), `${id}.md`);
+  let content;
+  try {
+    content = await fs.readFile(file, "utf-8");
+  } catch {
+    return false;
+  }
+  const next = /^status:[ \t]*.*$/m.test(content) ? content.replace(/^status:[ \t]*.*$/m, `status: ${status}`) : content.replace(/^---\r?\n/, `---
+status: ${status}
+`);
+  const tmp = `${file}.tmp`;
+  await fs.writeFile(tmp, next);
+  await fs.rename(tmp, file);
+  return true;
+}
+async function captureItem(input) {
+  assertSafeSlug(input.slug);
+  const dir = rawDir(input.brainDir, input.slug);
+  const now = input.now ?? (/* @__PURE__ */ new Date()).toISOString();
+  const capturedBy = input.capturedBy ?? "user";
+  let body = "";
+  let blobBuf;
+  let blobExt = "";
+  let contentType = "";
+  let gistSeed = "";
+  let hashInput = "";
+  if (input.kind === "paste") {
+    body = input.content ?? "";
+    contentType = "text/markdown";
+    gistSeed = body;
+    hashInput = `paste:${body}`;
+  } else if (input.kind === "url") {
+    const url = input.content ?? input.source;
+    body = url;
+    contentType = "text/uri-list";
+    gistSeed = url;
+    hashInput = `url:${url}`;
   } else {
-    const slugDate = slug.match(/^(\d{4}-\d{2}-\d{2})/) || slug.match(/(\d{4}-\d{2}-\d{2})$/);
-    if (slugDate) {
-      created = slugDate[1];
+    const buf = await fs.readFile(input.source);
+    const binary = isBinary(buf);
+    contentType = contentTypeForFile(input.source, binary);
+    hashInput = `file:${hashContent(buf.toString("binary"))}`;
+    if (binary) {
+      blobBuf = buf;
+      blobExt = extname(input.source) || ".bin";
+      gistSeed = basename(input.source);
+      body = `(binary ${contentType}; original captured as the sibling blob) \u2014 ${basename(input.source)}`;
     } else {
-      try {
-        const stat = await fs.stat(filePath);
-        created = stat.mtime.toISOString().slice(0, 10);
-      } catch {
-        created = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      }
+      body = buf.toString("utf-8");
+      gistSeed = body;
     }
   }
-  const updated = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const linkMatches = original.match(/\[\[([^\]]+)\]\]/g) || [];
-  const related = [...new Set(
-    linkMatches.map((l) => l.slice(2, -2).trim()).filter((r) => /^[a-z0-9][a-z0-9-]*$/i.test(r))
-  )];
-  const fm = `---
-title: "${title}"
-description: ""
-type: ${type}
-created: ${created}
-updated: ${updated}
-tags: []
-related: [${related.join(", ")}]
----
+  const hash = hashContent(hashInput);
+  const existing = (await readItems(input.brainDir, input.slug)).find((i) => i.hash === hash && i.status === "unprocessed");
+  if (existing) {
+    return { id: existing.id, duplicate: true, unprocessed: await unprocessedCount(input.brainDir, input.slug) };
+  }
+  await fs.mkdir(dir, { recursive: true });
+  const sourceSlug = input.kind === "url" ? slugify(input.content ?? input.source) : input.kind === "file" ? slugify(basename(input.source)) : slugify(body);
+  const baseId = `${compactStamp(now)}-${sourceSlug}`;
+  let id = baseId;
+  for (let n = 2; ; n++) {
+    try {
+      await fs.access(join(dir, `${id}.md`));
+      id = `${baseId}-${n}`;
+    } catch {
+      break;
+    }
+  }
+  const blob = blobBuf ? `${id}${blobExt}` : void 0;
+  if (blobBuf && blob) {
+    const btmp = join(dir, `${blob}.tmp`);
+    await fs.writeFile(btmp, blobBuf);
+    await fs.rename(btmp, join(dir, blob));
+  }
+  const gist = gistSeed.replace(/^#\s*/, "").split("\n").map((l) => l.trim()).find(Boolean)?.slice(0, 120) ?? "";
+  const item = {
+    id,
+    source: input.source,
+    captured_at: now,
+    captured_by: capturedBy,
+    content_type: contentType,
+    status: "unprocessed",
+    target_node: input.targetNode,
+    blob,
+    hash,
+    gist,
+    body
+  };
+  const file = join(dir, `${id}.md`);
+  const tmp = `${file}.tmp`;
+  await fs.writeFile(tmp, serialize(item));
+  await fs.rename(tmp, file);
+  return { id, duplicate: false, unprocessed: await unprocessedCount(input.brainDir, input.slug) };
+}
 
-`;
-  await fs.writeFile(filePath, fm + original, "utf-8");
-}
-function isSessionNarrative(content, slug) {
-  const sessionSignals = [
-    /^##\s+(key\s+)?findings?\b/im,
-    /^##\s+files\s+(changed|touched)\b/im,
-    /^##\s+review\s+approach\b/im,
-    /^##\s+open\s+items?\b/im,
-    /\bMR\s+!\d+\b/i,
-    /\bsession\b.*\bsummary\b/i,
-    /\bin\s+this\s+session\b/i,
-    /\bfriction\s+signals?:\s*\d+/i,
-    /\buser\s+turns?:\s*\d+/i
-  ];
-  const slugSignals = [
-    /^mr\d+-/,
-    /^mr-\d+/,
-    /-mr\d+$/,
-    /-session$/,
-    /-review$/,
-    /-upgrade$/,
-    /-build$/,
-    /-migration$/
-  ];
-  let score = 0;
-  for (const re of sessionSignals) {
-    if (re.test(content)) score++;
-  }
-  for (const re of slugSignals) {
-    if (re.test(slug)) score++;
-  }
-  return score >= 3;
-}
-async function collectAllPages(dir, acc = []) {
+// src/tools/raw-capture-cli.ts
+function resolveSlug(brainDir) {
+  if (process.env.SB_ACTIVE_SLUG) return process.env.SB_ACTIVE_SLUG;
   try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    for (const e of entries) {
-      const p = join2(dir, e.name);
-      if (e.isDirectory()) await collectAllPages(p, acc);
-      else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
-    }
+    const pin = readFileSync(join2(brainDir, ".active-session-slug"), "utf-8").trim();
+    if (pin && existsSync(join2(brainDir, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
-  return acc;
+  const base = basename2(process.cwd());
+  return base && base !== "/" && base !== "." && base !== ".." ? base : void 0;
 }
-export {
-  addFrontmatter,
-  knowledgeValidate
-};
+function takeNode(args) {
+  const i = args.indexOf("--node");
+  if (i >= 0 && args[i + 1]) return { rest: [...args.slice(0, i), ...args.slice(i + 2)], node: args[i + 1] };
+  return { rest: args };
+}
+async function main() {
+  const brainDir = process.env.BRAIN_DIR || join2(homedir(), ".second-brain");
+  const slug = resolveSlug(brainDir);
+  if (!slug) {
+    console.log("capture: could not resolve the active project (no slug). cd into a project.");
+    return;
+  }
+  const action = process.argv[2];
+  const { rest, node } = takeNode(process.argv.slice(3));
+  try {
+    if (action === "list") {
+      const items = await listItems(brainDir, slug);
+      const open = items.filter((i) => i.status === "unprocessed" || i.malformed).length;
+      console.log(`Raw inbox for ${slug} \u2014 ${items.length} item(s), ${open} unprocessed:`);
+      for (const i of items) {
+        console.log(`  - ${i.id} [${i.malformed ? "malformed" : i.status}] ${i.gist || i.source}`);
+      }
+      if (items.length === 0) console.log("  (empty \u2014 capture something, e.g. /second-brain:capture ./notes.md)");
+    } else if (action === "discard") {
+      const id = rest[0];
+      if (!id) {
+        console.log("usage: capture --discard <id>");
+        return;
+      }
+      console.log(await setStatus(brainDir, slug, id, "discarded") ? `Discarded ${id}.` : `No raw item with id ${id}.`);
+    } else if (action === "paste") {
+      const content = readFileSync(0, "utf-8");
+      if (!content.trim()) {
+        console.log("capture: nothing on stdin.");
+        return;
+      }
+      const r = await captureItem({ brainDir, slug, kind: "paste", source: "paste", content, targetNode: node });
+      console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} \u2014 ${r.unprocessed} unprocessed.`);
+    } else if (action === "capture") {
+      const src = rest[0];
+      if (!src) {
+        console.log("usage: capture <path|url> [--node <slug>]  |  capture paste");
+        return;
+      }
+      let kind;
+      let content;
+      let source = src;
+      if (/^https?:\/\//i.test(src)) {
+        kind = "url";
+        content = src;
+      } else if (existsSync(src) && statSync(src).isFile()) {
+        kind = "file";
+      } else {
+        kind = "paste";
+        content = src;
+        source = "paste";
+      }
+      const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node });
+      console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} (${kind}) \u2014 ${r.unprocessed} unprocessed.`);
+    } else {
+      const n = await unprocessedCount(brainDir, slug);
+      console.log(`usage: capture <path|url> | capture paste | capture --list | capture --discard <id>  (${n} unprocessed)`);
+    }
+  } catch (e) {
+    console.log(`capture error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+main();

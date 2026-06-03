@@ -5,6 +5,9 @@ export declare const EDGE_TYPES: readonly string[];
 export declare const PROJECT_SECTIONS: readonly string[];
 export declare const FORGET_PROTECTED: readonly string[];
 export declare const FORGET_DISCOUNTED: readonly string[];
+/** Raw inbox group: per-project staging for unprocessed material (SP-2). Never searched. */
+export declare const RAW_DIR: string;
+export declare const RAW_STATUSES: readonly string[];
 /** Wiki categories that hold authored content (have a directory, are scaffolded + write-guarded). */
 export declare const CONTENT_CATEGORIES: readonly string[];
 /** Every recognized wiki category, including the generated MOC dirs (projects/, themes/). */

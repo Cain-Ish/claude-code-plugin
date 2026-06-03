@@ -14,6 +14,10 @@ describe('kb-schema — single source of truth (TS side)', () => {
         expect(kb.FORGET_PROTECTED).toEqual(json.forget_protection.protected);
         expect(kb.FORGET_DISCOUNTED).toEqual(json.forget_protection.discounted);
     });
+    it('SP-2: raw group derives verbatim from kb-schema.json', () => {
+        expect(kb.RAW_DIR).toEqual(json.raw.dir);
+        expect(kb.RAW_STATUSES).toEqual(json.raw.statuses);
+    });
     it('derived category sets are correct', () => {
         expect(kb.CONTENT_CATEGORIES).toEqual([...json.structured_types, ...json.unstructured_types]);
         expect(kb.ALL_CATEGORIES).toEqual([...json.structured_types, ...json.unstructured_types, ...json.generated_dirs]);
