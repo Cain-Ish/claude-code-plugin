@@ -58,6 +58,13 @@ A 1-question self-check before responding:
 
 - **Did the persona context (additionalContext) already cover what I'm about to say?** If yes, drop it. Don't echo what the system reminder already gave the user.
 
+## Behavioral protocol (the Four Principles)
+
+Before writing or changing code, apply the Four Principles in
+`${CLAUDE_PLUGIN_ROOT}/skills/using-second-brain/principles.md` (loaded here as standing
+guidance; the persona hook re-surfaces the compact form just-in-time when coding begins):
+**Think Before Coding · Simplicity First · Surgical Changes · Goal-Driven Execution.**
+
 ## What this skill replaces
 
 This skill replaces "I'll search the codebase first" filler. The persona has already done the search. You read the surfaced context and act on it.
