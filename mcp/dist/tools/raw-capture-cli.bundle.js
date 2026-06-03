@@ -6102,18 +6102,24 @@ function contentTypeForFile(path2, binary) {
   if (binary) return ext2 === ".pdf" ? "application/pdf" : "application/octet-stream";
   return ext2 === ".md" || ext2 === ".markdown" ? "text/markdown" : "text/plain";
 }
+function fmValue(s) {
+  return s.replace(/[\r\n]+/g, " ");
+}
+function isSafeId(id) {
+  return !!id && !/[\\/]|\.\./.test(id);
+}
 function serialize(item) {
   const fm = ["---"];
-  fm.push(`id: ${item.id}`);
-  fm.push(`source: ${item.source}`);
-  fm.push(`captured_at: ${item.captured_at}`);
-  fm.push(`captured_by: ${item.captured_by}`);
-  fm.push(`content_type: ${item.content_type}`);
-  fm.push(`status: ${item.status}`);
-  if (item.target_node) fm.push(`target_node: ${item.target_node}`);
-  if (item.blob) fm.push(`blob: ${item.blob}`);
-  fm.push(`hash: ${item.hash}`);
-  fm.push(`gist: ${item.gist.replace(/\n/g, " ")}`);
+  fm.push(`id: ${fmValue(item.id)}`);
+  fm.push(`source: ${fmValue(item.source)}`);
+  fm.push(`captured_at: ${fmValue(item.captured_at)}`);
+  fm.push(`captured_by: ${fmValue(item.captured_by)}`);
+  fm.push(`content_type: ${fmValue(item.content_type)}`);
+  fm.push(`status: ${fmValue(item.status)}`);
+  if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
+  if (item.blob) fm.push(`blob: ${fmValue(item.blob)}`);
+  fm.push(`hash: ${fmValue(item.hash)}`);
+  fm.push(`gist: ${fmValue(item.gist)}`);
   fm.push("---", "", item.body, "");
   return fm.join("\n");
 }
@@ -6185,6 +6191,7 @@ async function unprocessedCount(brainDir, slug) {
 }
 async function setStatus(brainDir, slug, id, status) {
   assertSafeSlug(slug);
+  if (!isSafeId(id)) return false;
   const file = join(rawDir(brainDir, slug), `${id}.md`);
   let content;
   try {
@@ -6290,7 +6297,7 @@ function resolveSlug(brainDir) {
   } catch {
   }
   const base = basename2(process.cwd());
-  return base && base !== "/" && base !== "." ? base : void 0;
+  return base && base !== "/" && base !== "." && base !== ".." ? base : void 0;
 }
 function takeNode(args) {
   const i = args.indexOf("--node");
@@ -6338,6 +6345,7 @@ async function main() {
       }
       let kind;
       let content;
+      let source = src;
       if (/^https?:\/\//i.test(src)) {
         kind = "url";
         content = src;
@@ -6346,8 +6354,9 @@ async function main() {
       } else {
         kind = "paste";
         content = src;
+        source = "paste";
       }
-      const r = await captureItem({ brainDir, slug, kind, source: src, content, targetNode: node });
+      const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node });
       console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} (${kind}) \u2014 ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);

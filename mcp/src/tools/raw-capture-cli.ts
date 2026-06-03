@@ -10,7 +10,7 @@ function resolveSlug(brainDir: string): string | undefined {
     if (pin && existsSync(join(brainDir, 'projects', pin, 'PROJECT.md'))) return pin;
   } catch { /* no pin */ }
   const base = basename(process.cwd());
-  return base && base !== '/' && base !== '.' ? base : undefined;
+  return base && base !== '/' && base !== '.' && base !== '..' ? base : undefined;
 }
 
 /** Pull `--node <slug>` out of argv; return the rest + the node value. */
@@ -50,11 +50,11 @@ async function main(): Promise<void> {
     } else if (action === 'capture') {
       const src = rest[0];
       if (!src) { console.log('usage: capture <path|url> [--node <slug>]  |  capture paste'); return; }
-      let kind: 'file' | 'url' | 'paste'; let content: string | undefined;
+      let kind: 'file' | 'url' | 'paste'; let content: string | undefined; let source = src;
       if (/^https?:\/\//i.test(src)) { kind = 'url'; content = src; }
       else if (existsSync(src) && statSync(src).isFile()) { kind = 'file'; }
-      else { kind = 'paste'; content = src; }              // inline text fallback
-      const r = await captureItem({ brainDir, slug, kind, source: src, content, targetNode: node });
+      else { kind = 'paste'; content = src; source = 'paste'; } // inline text → canonical paste source
+      const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node });
       console.log(`${r.duplicate ? 'Already captured' : 'Captured'} ${r.id} (${kind}) — ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);

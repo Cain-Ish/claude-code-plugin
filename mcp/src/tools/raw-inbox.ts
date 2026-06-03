@@ -58,18 +58,27 @@ function contentTypeForFile(path: string, binary: boolean): string {
   return ext === '.md' || ext === '.markdown' ? 'text/markdown' : 'text/plain';
 }
 
+/** Flatten a frontmatter value to a single line. The parser is unquoted-flat-YAML, so a value
+ *  containing a newline would otherwise inject a spurious field (e.g. a fake `status:` line that
+ *  the first-match parser reads back, silently flipping the item's status). Strip CR/LF on write. */
+function fmValue(s: string): string { return s.replace(/[\r\n]+/g, ' '); }
+
+/** A raw item id is always `<stamp>-<slug>` (internally generated). Reject anything that could
+ *  escape the raw/ dir when an id arrives from outside (e.g. `--discard ../../wiki/page`). */
+function isSafeId(id: string): boolean { return !!id && !/[\\/]|\.\./.test(id); }
+
 function serialize(item: RawItem): string {
   const fm: string[] = ['---'];
-  fm.push(`id: ${item.id}`);
-  fm.push(`source: ${item.source}`);
-  fm.push(`captured_at: ${item.captured_at}`);
-  fm.push(`captured_by: ${item.captured_by}`);
-  fm.push(`content_type: ${item.content_type}`);
-  fm.push(`status: ${item.status}`);
-  if (item.target_node) fm.push(`target_node: ${item.target_node}`);
-  if (item.blob) fm.push(`blob: ${item.blob}`);
-  fm.push(`hash: ${item.hash}`);
-  fm.push(`gist: ${item.gist.replace(/\n/g, ' ')}`);
+  fm.push(`id: ${fmValue(item.id)}`);
+  fm.push(`source: ${fmValue(item.source)}`);
+  fm.push(`captured_at: ${fmValue(item.captured_at)}`);
+  fm.push(`captured_by: ${fmValue(item.captured_by)}`);
+  fm.push(`content_type: ${fmValue(item.content_type)}`);
+  fm.push(`status: ${fmValue(item.status)}`);
+  if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
+  if (item.blob) fm.push(`blob: ${fmValue(item.blob)}`);
+  fm.push(`hash: ${fmValue(item.hash)}`);
+  fm.push(`gist: ${fmValue(item.gist)}`);
   fm.push('---', '', item.body, '');
   return fm.join('\n');
 }
@@ -135,6 +144,7 @@ export async function unprocessedCount(brainDir: string, slug: string): Promise<
 
 export async function setStatus(brainDir: string, slug: string, id: string, status: RawStatus): Promise<boolean> {
   assertSafeSlug(slug);
+  if (!isSafeId(id)) return false; // never let an external id (`--discard <id>`) escape raw/
   const file = join(rawDir(brainDir, slug), `${id}.md`);
   let content: string;
   try { content = await fs.readFile(file, 'utf-8'); } catch { return false; }

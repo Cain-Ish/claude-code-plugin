@@ -73,6 +73,25 @@ describe('raw-inbox', () => {
         await expect(captureItem({ brainDir, slug: '../escape', kind: 'paste', source: 'paste',
             content: 'x', now: NOW })).rejects.toThrow();
     });
+    it('setStatus rejects a path-traversal id and never touches a file outside raw/', async () => {
+        const { brainDir, slug } = await brain();
+        await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: 'real', now: NOW });
+        const victim = join(brainDir, 'projects', slug, 'victim.md'); // a sibling of raw/, outside it
+        await fs.writeFile(victim, '---\nstatus: keep\n---\n');
+        const ok = await setStatus(brainDir, slug, '../victim', 'discarded');
+        expect(ok).toBe(false);
+        expect(await fs.readFile(victim, 'utf-8')).toBe('---\nstatus: keep\n---\n');
+    });
+    it('sanitizes newlines in frontmatter values so a crafted source cannot inject/flip status', async () => {
+        const { brainDir, slug } = await brain();
+        await captureItem({ brainDir, slug, kind: 'url',
+            source: 'http://x/\nstatus: discarded', content: 'http://x/\nstatus: discarded', now: NOW });
+        const items = await listItems(brainDir, slug);
+        expect(items).toHaveLength(1);
+        expect(items[0].status).toBe('unprocessed'); // the injected "status: discarded" did NOT take effect
+        expect(items[0].source).not.toContain('\n');
+        expect(await unprocessedCount(brainDir, slug)).toBe(1);
+    });
     it('flags a malformed item (missing frontmatter) without throwing', async () => {
         const { brainDir, slug } = await brain();
         await fs.mkdir(rawDir(brainDir, slug), { recursive: true });

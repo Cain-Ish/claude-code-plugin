@@ -12,7 +12,7 @@ function resolveSlug(brainDir) {
     }
     catch { /* no pin */ }
     const base = basename(process.cwd());
-    return base && base !== '/' && base !== '.' ? base : undefined;
+    return base && base !== '/' && base !== '.' && base !== '..' ? base : undefined;
 }
 /** Pull `--node <slug>` out of argv; return the rest + the node value. */
 function takeNode(args) {
@@ -67,6 +67,7 @@ async function main() {
             }
             let kind;
             let content;
+            let source = src;
             if (/^https?:\/\//i.test(src)) {
                 kind = 'url';
                 content = src;
@@ -77,8 +78,9 @@ async function main() {
             else {
                 kind = 'paste';
                 content = src;
-            } // inline text fallback
-            const r = await captureItem({ brainDir, slug, kind, source: src, content, targetNode: node });
+                source = 'paste';
+            } // inline text → canonical paste source
+            const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node });
             console.log(`${r.duplicate ? 'Already captured' : 'Captured'} ${r.id} (${kind}) — ${r.unprocessed} unprocessed.`);
         }
         else {

@@ -417,7 +417,11 @@ fi
 if [ "${SB_RAW_INBOX:-on}" != "off" ]; then
   RAW_DIR_PATH="$BRAIN_DIR/projects/$slug/raw"
   if [ -d "$RAW_DIR_PATH" ]; then
-    RAW_N=$(grep -rl '^status: unprocessed$' "$RAW_DIR_PATH" 2>/dev/null | wc -l | tr -d ' ')
+    # "open" = items not yet processed/discarded = unprocessed + malformed, matching the module's
+    # unprocessedCount (which counts malformed items as backlog). total - closed; mawk-free.
+    RAW_TOTAL=$(find "$RAW_DIR_PATH" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+    RAW_CLOSED=$(grep -rlE '^status: (processed|discarded)$' "$RAW_DIR_PATH" 2>/dev/null | wc -l | tr -d ' ')
+    RAW_N=$(( ${RAW_TOTAL:-0} - ${RAW_CLOSED:-0} ))
     if [ "${RAW_N:-0}" -gt 0 ]; then
       sb_append "$(printf '## ⓘ raw inbox — %s unprocessed item(s)\nRun `/second-brain:capture --list` to review; the maintainer refines them into notes.\n\n' "$RAW_N")" \
         "raw-inbox-banner" 250

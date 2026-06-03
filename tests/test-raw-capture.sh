@@ -31,6 +31,7 @@ RAW="$T/projects/demo/raw"
 [ "$(ls "$RAW"/*.md | wc -l)" -eq 1 ] || fail "expected exactly 1 item after idempotent re-capture"
 grep -q '^status: unprocessed$' "$RAW"/*.md || fail "item missing status: unprocessed"
 grep -q '^content_type: text/markdown$' "$RAW"/*.md || fail "item missing content_type"
+grep -q '^source: paste$' "$RAW"/*.md || fail "inline capture should record canonical source: paste"
 
 printf 'not a real item\n' > "$RAW/broken.md"
 run list | grep -q 'broken .*malformed' || fail "--list did not flag the malformed item"
