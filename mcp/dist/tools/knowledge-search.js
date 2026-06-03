@@ -268,10 +268,19 @@ export async function knowledgeSearch(args) {
     const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== 'off' && args.scope !== 'all';
     if (scopeOn) {
         const slug = args.projectSlug;
-        const projBySlug = new Map(allDocs.map(d => [slugFromPath(d.doc.path), d.doc.project ?? '']));
-        const anchors = allDocs.filter(d => (d.doc.project ?? '') === slug).map(d => slugFromPath(d.doc.path));
+        // Map slug→project from WIKI docs only. A local-doc carries project:'' and would
+        // otherwise overwrite a same-basename wiki page's real project in this map, leaking
+        // that other-project page into scope. local-docs are the active project's own files,
+        // so they are tiered directly below instead of via this lookup.
+        const projBySlug = new Map(allDocs.filter(d => d.source === 'wiki').map(d => [slugFromPath(d.doc.path), d.doc.project ?? '']));
+        const anchors = allDocs.filter(d => d.source === 'wiki' && (d.doc.project ?? '') === slug)
+            .map(d => slugFromPath(d.doc.path));
         const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt('SB_SCOPE_HOPS', 2, 0, 4));
         for (const s of scored) {
+            if (s.source === 'local-doc') {
+                s.tier = 1;
+                continue;
+            } // active project's own registry pages
             const sl = slugFromPath(s.path);
             const proj = projBySlug.get(sl) ?? '';
             s.tier = proj === slug ? 1 : neigh.has(sl) ? 2 : proj === '' ? 3 : 4;

@@ -162,5 +162,29 @@ describe('SP-1 project-scoped serving', () => {
         const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
         expect(slugs(r)).toContain('b1');
     });
+    it('C1: local-docs are tier-1 and a same-basename other-project wiki page never leaks into scope', async () => {
+        const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-localdoc-'));
+        await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+        const w = (s, project, body) => fsp.writeFile(join(dir, 'wiki', 'learnings', `${s}.md`), `---\ntitle: ${s}\ntype: learnings\n${project ? `project: ${project}\n` : ''}description: ${body}\n---\n\n# ${s}\n\n${body} ${'detail '.repeat(40)}\n`);
+        // three strong in-scope wiki anchors so tier-4 is dropped (>= SB_SCOPE_MIN_HITS)
+        await w('a1', 'alpha', 'wireguard tunnel keyword');
+        await w('a2', 'alpha', 'wireguard tunnel keyword');
+        await w('a3', 'alpha', 'wireguard tunnel keyword');
+        // a BETA wiki page whose basename ('notes') collides with the alpha local-doc below
+        await w('notes', 'beta', 'wireguard tunnel keyword');
+        const betaNotes = join(dir, 'wiki', 'learnings', 'notes.md');
+        // alpha local-doc registry; its entry basename collides with the beta wiki page
+        const localNotes = join(dir, 'proj-alpha', 'notes.md');
+        await fsp.mkdir(join(dir, 'projects', 'alpha'), { recursive: true });
+        await fsp.writeFile(join(dir, 'projects', 'alpha', 'doc-sources.json'), JSON.stringify({
+            generated_at: '2026-06-03T00:00:00Z', project: 'alpha',
+            entries: [{ id: 'notes', path: localNotes, rel: 'notes.md', gist: 'wireguard tunnel keyword local',
+                    headings: ['wireguard tunnel keyword'], hash: 'h', mtime: '2026-06-03T00:00:00Z', size: 400 }],
+        }));
+        const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+        const paths = r.candidates.map(c => c.path);
+        expect(paths).toContain(localNotes); // alpha's own local-doc is served (tier 1)
+        expect(paths).not.toContain(betaNotes); // the beta wiki page must NOT leak into alpha scope
+    });
 });
 //# sourceMappingURL=knowledge-search.test.js.map

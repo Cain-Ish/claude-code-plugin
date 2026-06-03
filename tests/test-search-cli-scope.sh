@@ -11,6 +11,10 @@ grep -q 'projectSlug' "$CLI_SRC" || fail "CLI does not pass projectSlug"
 pass "search CLI forwards project context (source)"
 grep -q 'SB_ACTIVE_SLUG' "$ROOT/scripts/persona-context.sh" || fail "persona-context.sh does not export SB_ACTIVE_SLUG"
 pass "persona-context.sh exports SB_ACTIVE_SLUG"
+# SP-1 W1: the session-start wiki enrichment must be scoped the same as the per-prompt path.
+grep -q 'SB_ACTIVE_SLUG=.*node "\$SEARCH_CLI"' "$ROOT/scripts/session-load.sh" \
+  || fail "session-load.sh does not forward SB_ACTIVE_SLUG to the search CLI"
+pass "session-load.sh scopes the session-start wiki enrichment"
 # functional (skips if node / bundle absent): beta page suppressed under SB_ACTIVE_SLUG=alpha
 command -v node >/dev/null 2>&1 || { echo "SKIP: node"; echo; echo "ALL PASS"; exit 0; }
 [ -f "$CLI" ] || { echo "SKIP: CLI bundle not built — run cd mcp && npm run build"; echo; echo "ALL PASS"; exit 0; }

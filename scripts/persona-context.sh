@@ -220,7 +220,8 @@ SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 WIKI_MIN_SCORE="${SB_PERSONA_WIKI_MIN_SCORE:-0.045}"
 if [ -n "$KEYWORDS" ] && [ -f "$SEARCH_CLI" ]; then
   # SP-1: scope the per-prompt wiki injection to the active project (the slug session-load pinned).
-  SB_ACTIVE_SLUG_VAL=$(cat "$BRAIN_DIR/.active-session-slug" 2>/dev/null || true)
+  # Strip whitespace to match the server's resolveActiveSlug() .trim() contract (a slug is kebab-case).
+  SB_ACTIVE_SLUG_VAL=$(cat "$BRAIN_DIR/.active-session-slug" 2>/dev/null | tr -d '[:space:]' || true)
   WIKI_RAW=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" \
     node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
   # Slug-only format. The CLI emits `### [[slug]] — description` lines; we
