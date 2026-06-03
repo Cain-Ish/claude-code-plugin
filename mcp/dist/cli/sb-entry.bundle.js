@@ -6333,6 +6333,28 @@ function aiBlockSnippet(type, block) {
 function aiBlockText(doc) {
   return doc.aiBlock ? Object.values(doc.aiBlock).join(" ") : "";
 }
+function clampEnvInt(name, def, lo, hi) {
+  const n = parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def;
+}
+function graphNeighbourhood(seeds, edges, hops) {
+  const adj = /* @__PURE__ */ new Map();
+  for (const e of edges) for (const [a, b] of [[e.from, e.to], [e.to, e.from]]) {
+    if (!adj.has(a)) adj.set(a, []);
+    adj.get(a).push(b);
+  }
+  const reached = new Set(seeds);
+  let frontier = [...seeds];
+  for (let h = 0; h < hops; h++) {
+    const next = [];
+    for (const node of frontier) for (const to of adj.get(node) ?? []) if (!reached.has(to)) {
+      reached.add(to);
+      next.push(to);
+    }
+    frontier = next;
+  }
+  return reached;
+}
 var ACCESS_COUNTS_FILE = join3(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -6367,7 +6389,7 @@ async function knowledgeSearch(args) {
   const knowledgeDir2 = args.knowledgeDir ?? join3(process.env.HOME ?? "", "knowledge");
   const wikiRoot = join3(knowledgeDir2, "wiki");
   let scopeDirs;
-  if (args.scope) {
+  if (args.scope && args.scope !== "all") {
     scopeDirs = [join3(wikiRoot, args.scope)];
   } else {
     try {
@@ -6423,6 +6445,8 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
   const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
     path: doc.path,
+    tier: 0,
+    // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
     description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
@@ -6535,9 +6559,33 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     const daysSince = (now - updated) / 864e5;
     scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
   }
-  scored.sort((a, b) => b.score - a.score);
-  const topScore = scored[0]?.score ?? 0;
-  const candidates = scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest);
+  const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
+  if (scopeOn) {
+    const slug = args.projectSlug;
+    const projBySlug = new Map(
+      allDocs.filter((d) => d.source === "wiki").map((d) => [slugFromPath(d.doc.path), d.doc.project ?? ""])
+    );
+    const anchors = allDocs.filter((d) => d.source === "wiki" && (d.doc.project ?? "") === slug).map((d) => slugFromPath(d.doc.path));
+    const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt("SB_SCOPE_HOPS", 2, 0, 4));
+    for (const s of scored) {
+      if (s.source === "local-doc") {
+        s.tier = 1;
+        continue;
+      }
+      const sl = slugFromPath(s.path);
+      const proj = projBySlug.get(sl) ?? "";
+      s.tier = proj === slug ? 1 : neigh.has(sl) ? 2 : proj === "" ? 3 : 4;
+    }
+  }
+  scored.sort((a, b) => scopeOn ? a.tier - b.tier || b.score - a.score : b.score - a.score);
+  const topScore = scored.reduce((m, s) => Math.max(m, s.score), 0);
+  const passesFloor = (c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO);
+  let pool = scored;
+  if (scopeOn) {
+    const inScope = scored.filter((s) => s.tier <= 3);
+    pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
+  }
+  const candidates = pool.filter(passesFloor).slice(0, TOP_K).map(({ related, tier, ...rest }) => rest);
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;

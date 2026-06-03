@@ -122,3 +122,91 @@ describe('parseDoc project facet', () => {
     expect(parseDoc(md, '/w/concepts/x.md').project).toBe('');
   });
 });
+
+describe('SP-1 project-scoped serving', () => {
+  async function scopedWiki(): Promise<string> {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-scope-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = (s: string, project: string, body: string) =>
+      fsp.writeFile(join(dir, 'wiki', 'learnings', `${s}.md`),
+        `---\ntitle: ${s}\ntype: learnings\n${project ? `project: ${project}\n` : ''}description: ${body}\n---\n\n# ${s}\n\n${body} ${'detail '.repeat(40)}\n`);
+    await w('a1', 'alpha', 'wireguard tunnel keyword');
+    await w('a2', 'alpha', 'wireguard tunnel keyword');
+    await w('b1', 'beta', 'wireguard tunnel keyword');
+    await w('s1', '', 'wireguard tunnel keyword');
+    await w('n1', '', 'wireguard tunnel keyword');
+    return dir;
+  }
+
+  it('in project alpha, returns alpha + shared first and excludes beta (in-scope strong)', async () => {
+    const dir = await scopedWiki();
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const s = slugs(r);
+    expect(s).toContain('a1'); expect(s).toContain('a2'); expect(s).toContain('s1');
+    expect(s).not.toContain('b1');
+  });
+
+  it('auto-broadens to other-project when in-scope is thin', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-broaden-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    await fsp.writeFile(join(dir, 'wiki', 'learnings', 'b1.md'),
+      `---\ntitle: b1\ntype: learnings\nproject: beta\n---\n\n# b1\n\nwireguard tunnel ${'x '.repeat(40)}\n`);
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    expect(slugs(r)).toContain('b1');
+  });
+
+  it('neighbourhood: a graph-linked untagged page ranks in-scope', async () => {
+    const dir = await scopedWiki();
+    await fsp.writeFile(join(dir, 'wiki', 'learnings', 'g1.md'),
+      `---\ntitle: g1\ntype: learnings\nproject: gamma\ndescription: wireguard tunnel keyword\n---\n\n# g1\n\nwireguard tunnel keyword ${'detail '.repeat(40)}\n`);
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'a1', to: 'n1', type: 'relates', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const s = slugs(r);
+    expect(s).toContain('n1');
+    expect(s).not.toContain('g1');   // other-project suppressed; n1 (neighbour) kept in-scope
+  });
+
+  it('scope:"all" and SB_PROJECT_SCOPE=off restore global ranking (beta included)', async () => {
+    const dir = await scopedWiki();
+    const all = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir, scope: 'all' });
+    expect(slugs(all)).toContain('b1');
+    process.env.SB_PROJECT_SCOPE = 'off';
+    const off = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    delete process.env.SB_PROJECT_SCOPE;
+    expect(slugs(off)).toContain('b1');
+  });
+
+  it('back-compat: no projectSlug → unchanged global behaviour (beta present)', async () => {
+    const dir = await scopedWiki();
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
+    expect(slugs(r)).toContain('b1');
+  });
+
+  it('C1: local-docs are tier-1 and a same-basename other-project wiki page never leaks into scope', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-localdoc-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = (s: string, project: string, body: string) =>
+      fsp.writeFile(join(dir, 'wiki', 'learnings', `${s}.md`),
+        `---\ntitle: ${s}\ntype: learnings\n${project ? `project: ${project}\n` : ''}description: ${body}\n---\n\n# ${s}\n\n${body} ${'detail '.repeat(40)}\n`);
+    // three strong in-scope wiki anchors so tier-4 is dropped (>= SB_SCOPE_MIN_HITS)
+    await w('a1', 'alpha', 'wireguard tunnel keyword');
+    await w('a2', 'alpha', 'wireguard tunnel keyword');
+    await w('a3', 'alpha', 'wireguard tunnel keyword');
+    // a BETA wiki page whose basename ('notes') collides with the alpha local-doc below
+    await w('notes', 'beta', 'wireguard tunnel keyword');
+    const betaNotes = join(dir, 'wiki', 'learnings', 'notes.md');
+    // alpha local-doc registry; its entry basename collides with the beta wiki page
+    const localNotes = join(dir, 'proj-alpha', 'notes.md');
+    await fsp.mkdir(join(dir, 'projects', 'alpha'), { recursive: true });
+    await fsp.writeFile(join(dir, 'projects', 'alpha', 'doc-sources.json'), JSON.stringify({
+      generated_at: '2026-06-03T00:00:00Z', project: 'alpha',
+      entries: [{ id: 'notes', path: localNotes, rel: 'notes.md', gist: 'wireguard tunnel keyword local',
+        headings: ['wireguard tunnel keyword'], hash: 'h', mtime: '2026-06-03T00:00:00Z', size: 400 }],
+    }));
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const paths = r.candidates.map(c => c.path);
+    expect(paths).toContain(localNotes);     // alpha's own local-doc is served (tier 1)
+    expect(paths).not.toContain(betaNotes);  // the beta wiki page must NOT leak into alpha scope
+  });
+});

@@ -9,7 +9,11 @@ const knowledgeDir = process.env.KNOWLEDGE_DIR || undefined;
 // Default 0 = no filter (preserves prior behavior for callers that don't set it).
 const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 
-const result = await knowledgeSearch({ query, knowledgeDir });
+// SP-1: forward project context so the per-prompt persona injection is project-scoped.
+// The calling hook (persona-context.sh / session-load.sh) sets SB_ACTIVE_SLUG.
+const brainDir = process.env.BRAIN_DIR || (process.env.HOME ? `${process.env.HOME}/.second-brain` : undefined);
+const projectSlug = process.env.SB_ACTIVE_SLUG || undefined;
+const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
 
 const top = result.candidates
   .filter(c => c.score >= minScore)

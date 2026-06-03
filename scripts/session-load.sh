@@ -403,7 +403,9 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
     sort -u | head -10 | tr '\n' ' ')
 
   if [ -n "${PROJ_KW// /}" ]; then
-    WIKI_HITS=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$SEARCH_CLI" "$PROJ_KW" 2>/dev/null || true)
+    # SP-1: scope the session-start wiki enrichment to the active project, same as the
+    # per-prompt path (persona-context.sh) — one chokepoint, consistent scoping both surfaces.
+    WIKI_HITS=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$slug" node "$SEARCH_CLI" "$PROJ_KW" 2>/dev/null || true)
     if [ -n "$WIKI_HITS" ]; then
       sb_append "$(printf '\n%s' "$WIKI_HITS")" "wiki-enrichment" 1500
     fi

@@ -27076,427 +27076,8 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
-// src/tools/pin-to-user.ts
-import { promises as fs } from "fs";
-import { join } from "path";
-var MAX_LINES = 15;
-async function pinToUser(args) {
-  const dir = args.brainDir ?? join(process.env.HOME ?? "", ".second-brain");
-  const file = join(dir, "USER.md");
-  const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const trimmed = args.text.trim();
-  const newLine = `- [${date3}] ${trimmed}`;
-  let content = "";
-  try {
-    content = await fs.readFile(file, "utf-8");
-  } catch {
-    content = "# USER preferences\n\n## Pinned\n";
-  }
-  const existing = content.split("\n").find((l) => {
-    const m = l.match(/^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/);
-    return m !== null && m[1].trim() === trimmed;
-  });
-  if (existing !== void 0) {
-    return { ok: true, line_added: existing, reason: "already present" };
-  }
-  const projected = content + (content.endsWith("\n") ? "" : "\n") + newLine + "\n";
-  if (projected.split("\n").filter(Boolean).length > MAX_LINES) {
-    return { ok: false, line_added: "", reason: `would exceed ${MAX_LINES}-line cap` };
-  }
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(file, projected, "utf-8");
-  return { ok: true, line_added: newLine };
-}
-
-// src/tools/pin-to-project.ts
-import { promises as fs2 } from "fs";
-import { join as join2 } from "path";
-
-// src/path-guard.ts
-import { resolve, sep as sep2, isAbsolute } from "path";
-import { realpathSync as realpathSync2 } from "fs";
-var PathGuardError = class extends Error {
-  constructor(message, baseDir, candidate) {
-    super(message);
-    this.baseDir = baseDir;
-    this.candidate = candidate;
-    this.name = "PathGuardError";
-  }
-  baseDir;
-  candidate;
-};
-function realResolve(p) {
-  let current = "";
-  const segments = p.split(sep2);
-  for (let i = 0; i < segments.length; i++) {
-    const next = current === "" && segments[i] === "" ? sep2 : current === sep2 ? sep2 + segments[i] : current === "" ? segments[i] : current + sep2 + segments[i];
-    try {
-      current = realpathSync2(next);
-    } catch {
-      const rest = segments.slice(i + 1).join(sep2);
-      return rest ? current + sep2 + segments[i] + sep2 + rest : current + sep2 + segments[i];
-    }
-  }
-  return current;
-}
-function assertWithin(baseDir, ...parts) {
-  for (const part of parts) {
-    if (part.indexOf("\0") !== -1) {
-      throw new PathGuardError(`path component contains NUL byte`, baseDir, parts.join("/"));
-    }
-    if (isAbsolute(part)) {
-      throw new PathGuardError(`absolute path component not allowed: ${JSON.stringify(part)}`, baseDir, parts.join("/"));
-    }
-  }
-  const baseResolved = realResolve(resolve(baseDir));
-  const candidate = resolve(baseDir, ...parts);
-  const candidateResolved = realResolve(candidate);
-  if (candidateResolved !== baseResolved && !candidateResolved.startsWith(baseResolved + sep2)) {
-    throw new PathGuardError(
-      `path escapes base directory: ${candidateResolved} not within ${baseResolved}`,
-      baseDir,
-      parts.join("/")
-    );
-  }
-  return candidateResolved;
-}
-function validateSlug(slug) {
-  if (typeof slug !== "string") {
-    throw new PathGuardError("slug must be a string", "", String(slug));
-  }
-  if (slug.length === 0 || slug.length > 128) {
-    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
-  }
-  if (slug.startsWith(".")) {
-    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
-  }
-  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
-    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
-  }
-}
-
-// src/tools/pin-to-project.ts
-var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
-var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
-async function pinToProject(args) {
-  if (!(args.section in SECTION_HEADER)) {
-    return { ok: false, line_added: "", project_slug: args.slug, reason: "unknown section" };
-  }
-  try {
-    validateSlug(args.slug);
-  } catch (e) {
-    if (e instanceof PathGuardError) {
-      return { ok: false, line_added: "", project_slug: args.slug, reason: `invalid slug: ${e.message}` };
-    }
-    throw e;
-  }
-  const dir = args.brainDir ?? join2(process.env.HOME ?? "", ".second-brain");
-  let file;
-  try {
-    file = assertWithin(dir, "projects", args.slug, "PROJECT.md");
-  } catch (e) {
-    if (e instanceof PathGuardError) {
-      return { ok: false, line_added: "", project_slug: args.slug, reason: `path traversal blocked: ${e.message}` };
-    }
-    throw e;
-  }
-  const content = await fs2.readFile(file, "utf-8");
-  const sectionHeader = SECTION_HEADER[args.section];
-  const newEntry = `${ENTRY_PREFIX[args.section]}${args.text.trim()}`;
-  const lines = content.split("\n");
-  const idx = lines.findIndex((line) => line.trim() === sectionHeader);
-  if (idx < 0) {
-    return { ok: false, line_added: "", project_slug: args.slug, reason: `section ${sectionHeader} not found` };
-  }
-  let endIdx = lines.length;
-  for (let i = idx + 1; i < lines.length; i++) {
-    if (lines[i].startsWith("## ")) {
-      endIdx = i;
-      break;
-    }
-  }
-  while (endIdx > idx + 1 && lines[endIdx - 1].trim() === "") endIdx--;
-  const trimmed = args.text.trim();
-  const prefix = ENTRY_PREFIX[args.section];
-  for (let i = idx + 1; i < endIdx; i++) {
-    if (lines[i].startsWith(prefix) && lines[i].slice(prefix.length).trim() === trimmed) {
-      return { ok: true, line_added: lines[i], project_slug: args.slug, reason: "already present" };
-    }
-  }
-  lines.splice(endIdx, 0, newEntry);
-  await fs2.writeFile(file, lines.join("\n"), "utf-8");
-  return { ok: true, line_added: newEntry, project_slug: args.slug };
-}
-
-// src/tools/archive-to-wiki.ts
-import { promises as fs3 } from "fs";
-import { join as join3 } from "path";
-var ALLOWED_TARGET_CATEGORIES = /* @__PURE__ */ new Set(["issues", "decisions"]);
-var SOURCE_SECTION_HEADER = {
-  blockers: "## Open blockers",
-  decisions: "## Recent decisions"
-};
-async function archiveToWiki(args) {
-  const brainDir2 = args.brainDir ?? join3(process.env.HOME ?? "", ".second-brain");
-  const knowledgeDir = args.knowledgeDir ?? join3(process.env.HOME ?? "", "knowledge");
-  try {
-    validateSlug(args.slug);
-  } catch (e) {
-    if (e instanceof PathGuardError) {
-      return { ok: false, archived_path: "", reason: `invalid slug: ${e.message}` };
-    }
-    throw e;
-  }
-  if (!ALLOWED_TARGET_CATEGORIES.has(args.targetCategory)) {
-    return { ok: false, archived_path: "", reason: `invalid targetCategory: ${JSON.stringify(args.targetCategory)}` };
-  }
-  let projectFile;
-  let wikiDir;
-  try {
-    projectFile = assertWithin(brainDir2, "projects", args.slug, "PROJECT.md");
-    wikiDir = assertWithin(knowledgeDir, "wiki", args.targetCategory, args.slug);
-  } catch (e) {
-    if (e instanceof PathGuardError) {
-      return { ok: false, archived_path: "", reason: `path traversal blocked: ${e.message}` };
-    }
-    throw e;
-  }
-  await fs3.mkdir(wikiDir, { recursive: true });
-  const content = await fs3.readFile(projectFile, "utf-8");
-  const lines = content.split("\n");
-  const sectionHeader = SOURCE_SECTION_HEADER[args.sourceSection];
-  const startIdx = lines.findIndex((l) => l.trim() === sectionHeader);
-  if (startIdx < 0) {
-    return { ok: false, archived_path: "", reason: `section ${sectionHeader} not found` };
-  }
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    if (lines[i].startsWith("## ")) {
-      endIdx = i;
-      break;
-    }
-  }
-  let matchIdx = -1;
-  for (let i = startIdx + 1; i < endIdx; i++) {
-    if (lines[i].includes(args.entryText) && lines[i].includes("[resolved]")) {
-      matchIdx = i;
-      break;
-    }
-  }
-  if (matchIdx < 0) {
-    return { ok: false, archived_path: "", reason: `no [resolved] entry matching text in ${sectionHeader}` };
-  }
-  const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const slugSafe = args.entryText.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
-  const archivePath = join3(wikiDir, `${date3}-${slugSafe}.md`);
-  await fs3.writeFile(
-    archivePath,
-    `# ${args.entryText}
-
-**Archived:** ${date3}
-**From:** projects/${args.slug}/PROJECT.md (section: ${args.sourceSection})
-**Status:** resolved
-`,
-    "utf-8"
-  );
-  lines[matchIdx] = `  \u2192 wiki/${args.targetCategory}/${args.slug}/${date3}-${slugSafe}.md`;
-  await fs3.writeFile(projectFile, lines.join("\n"), "utf-8");
-  return { ok: true, archived_path: archivePath };
-}
-
-// src/tools/knowledge-search.ts
-import { promises as fs7 } from "fs";
-import { join as join6 } from "path";
-
-// src/tools/embeddings.ts
-import { promises as fs4 } from "fs";
-import { join as join4 } from "path";
-var EMBEDDING_DIM = 384;
-var CACHE_FILE = ".embeddings-cache.json";
-var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
-var DISABLE_ENV = "SECOND_BRAIN_DISABLE_EMBEDDINGS";
-var pipelineInstance = null;
-var lastLoadError = null;
-function brainDirFromEnv() {
-  return process.env.BRAIN_DIR || join4(process.env.HOME ?? "", ".second-brain");
-}
-async function logLoadError(message, brainDir2) {
-  if (!lastLoadError || lastLoadError.msg !== message) {
-    lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
-  }
-  if (lastLoadError.loggedTo.has(brainDir2)) return;
-  lastLoadError.loggedTo.add(brainDir2);
-  const entry = {
-    timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
-    script: "embeddings",
-    message,
-    exit_code: 0
-  };
-  try {
-    await fs4.mkdir(brainDir2, { recursive: true });
-    await fs4.appendFile(join4(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
-  } catch {
-  }
-  try {
-    process.stderr.write(`[embeddings] ${message}
-`);
-  } catch {
-  }
-}
-async function getPipeline() {
-  const brainDir2 = brainDirFromEnv();
-  if (process.env[DISABLE_ENV] === "1") {
-    try {
-      process.stderr.write(`[embeddings] disabled via ${DISABLE_ENV}=1
-`);
-    } catch {
-    }
-    return null;
-  }
-  if (pipelineInstance) return pipelineInstance;
-  try {
-    const { pipeline } = await import("@huggingface/transformers");
-    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, { dtype: "fp32" });
-    return pipelineInstance;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
-    await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
-    return null;
-  }
-}
-function simpleHash(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h << 5) - h + s.charCodeAt(i) | 0;
-  }
-  return h.toString(36);
-}
-async function loadCache(wikiRoot) {
-  try {
-    const data = await fs4.readFile(join4(wikiRoot, CACHE_FILE), "utf-8");
-    const parsed = JSON.parse(data);
-    if (parsed.model === MODEL_ID) return parsed;
-  } catch {
-  }
-  return { model: MODEL_ID, entries: {} };
-}
-async function saveCache(wikiRoot, cache) {
-  try {
-    await fs4.writeFile(join4(wikiRoot, CACHE_FILE), JSON.stringify(cache));
-  } catch {
-  }
-}
-async function embedTexts(texts, wikiRoot, paths) {
-  const pipe2 = await getPipeline();
-  if (!pipe2) return null;
-  const cache = await loadCache(wikiRoot);
-  const results = [];
-  let cacheUpdated = false;
-  for (let i = 0; i < texts.length; i++) {
-    const hash = simpleHash(texts[i]);
-    const key = paths[i] || `query-${i}`;
-    if (cache.entries[key]?.hash === hash) {
-      results.push(cache.entries[key].vector);
-      continue;
-    }
-    const output = await pipe2(texts[i], { pooling: "mean", normalize: true });
-    const vec = Array.from(output.data).slice(0, EMBEDDING_DIM);
-    results.push(vec);
-    if (paths[i]) {
-      cache.entries[key] = { hash, vector: vec };
-      cacheUpdated = true;
-    }
-  }
-  if (cacheUpdated) await saveCache(wikiRoot, cache);
-  return results;
-}
-function cosineSimilarity(a, b) {
-  let dot = 0;
-  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
-  return dot;
-}
-
-// src/tools/egress-budget.ts
-var CHARS_PER_TOKEN = 4;
-var DEFAULT_EGRESS_BUDGET_TOKENS = 2e3;
-function estimateTokens(text) {
-  if (!text) return 0;
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
-}
-function egressBudgetTokens() {
-  const raw = process.env.SB_EGRESS_BUDGET_TOKENS;
-  const n = raw ? parseInt(raw, 10) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : DEFAULT_EGRESS_BUDGET_TOKENS;
-}
-function capText(text, maxTokens, pointer) {
-  const total = estimateTokens(text);
-  if (total <= maxTokens) {
-    return { text, truncated: false, omittedTokens: 0 };
-  }
-  const fullMarker = pointer ? `
-\u2026 truncated \u2014 full text via ${pointer}` : `
-\u2026 truncated`;
-  const marker = estimateTokens(fullMarker) <= maxTokens ? fullMarker : "\u2026";
-  const keepChars = Math.max(0, maxTokens - estimateTokens(marker)) * CHARS_PER_TOKEN;
-  const segmenter = new Intl.Segmenter(void 0, { granularity: "grapheme" });
-  let out = "";
-  for (const { segment } of segmenter.segment(text)) {
-    if (out.length + segment.length > keepChars) break;
-    out += segment;
-  }
-  return { text: out + marker, truncated: true, omittedTokens: total - estimateTokens(out) };
-}
-function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
-  const kept = [];
-  const parts = [];
-  let used = 0;
-  for (const item of items) {
-    const piece = render(item);
-    const sep4 = kept.length > 0 ? estimateTokens(separator) : 0;
-    const cost = estimateTokens(piece) + sep4;
-    if (kept.length > 0 && used + cost > maxTokens) break;
-    kept.push(item);
-    parts.push(piece);
-    used += cost;
-  }
-  let omitted = items.length - kept.length;
-  if (omitted > 0) {
-    let affordance = `${separator}\u2026 ${omitted} more \u2014 ${moreHint}`;
-    while (kept.length > 1 && used + estimateTokens(affordance) > maxTokens) {
-      const removed = parts.pop();
-      kept.pop();
-      used -= estimateTokens(removed) + estimateTokens(separator);
-      omitted = items.length - kept.length;
-      affordance = `${separator}\u2026 ${omitted} more \u2014 ${moreHint}`;
-    }
-    return { kept, text: parts.join(separator) + affordance, omitted };
-  }
-  return { kept, text: parts.join(separator), omitted };
-}
-
-// src/tools/doc-sources.ts
-import { promises as fs5 } from "fs";
-import { join as join5, relative, resolve as resolve2, sep as sep3 } from "path";
-function assertSafeSlug(slug) {
-  if (!slug || /[\\/]|\.\./.test(slug)) {
-    throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
-  }
-}
-function registryPath(brainDir2, slug) {
-  return join5(brainDir2, "projects", slug, "doc-sources.json");
-}
-async function loadRegistry(brainDir2, slug) {
-  try {
-    assertSafeSlug(slug);
-    return JSON.parse(await fs5.readFile(registryPath(brainDir2, slug), "utf-8"));
-  } catch {
-    return null;
-  }
-}
-
 // src/tools/graph-store.ts
-import { promises as fs6 } from "fs";
+import { promises as fs } from "fs";
 import { dirname } from "path";
 var EDGE_TYPES = ["requires", "affects", "relates", "part_of", "supersedes"];
 function cmpTime(a, b) {
@@ -27521,7 +27102,7 @@ function isValidRecord(r) {
 async function loadEdges(path3) {
   let raw;
   try {
-    raw = await fs6.readFile(path3, "utf-8");
+    raw = await fs.readFile(path3, "utf-8");
   } catch {
     return [];
   }
@@ -27624,8 +27205,427 @@ function neighbors(edges, slug, opts = {}) {
 }
 async function appendEdge(path3, rec) {
   if (!isValidRecord(rec)) throw new Error(`invalid edge record: ${JSON.stringify(rec)}`);
-  await fs6.mkdir(dirname(path3), { recursive: true });
-  await fs6.appendFile(path3, JSON.stringify(rec) + "\n", "utf-8");
+  await fs.mkdir(dirname(path3), { recursive: true });
+  await fs.appendFile(path3, JSON.stringify(rec) + "\n", "utf-8");
+}
+
+// src/tools/pin-to-user.ts
+import { promises as fs2 } from "fs";
+import { join } from "path";
+var MAX_LINES = 15;
+async function pinToUser(args) {
+  const dir = args.brainDir ?? join(process.env.HOME ?? "", ".second-brain");
+  const file = join(dir, "USER.md");
+  const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const trimmed = args.text.trim();
+  const newLine = `- [${date3}] ${trimmed}`;
+  let content = "";
+  try {
+    content = await fs2.readFile(file, "utf-8");
+  } catch {
+    content = "# USER preferences\n\n## Pinned\n";
+  }
+  const existing = content.split("\n").find((l) => {
+    const m = l.match(/^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/);
+    return m !== null && m[1].trim() === trimmed;
+  });
+  if (existing !== void 0) {
+    return { ok: true, line_added: existing, reason: "already present" };
+  }
+  const projected = content + (content.endsWith("\n") ? "" : "\n") + newLine + "\n";
+  if (projected.split("\n").filter(Boolean).length > MAX_LINES) {
+    return { ok: false, line_added: "", reason: `would exceed ${MAX_LINES}-line cap` };
+  }
+  await fs2.mkdir(dir, { recursive: true });
+  await fs2.writeFile(file, projected, "utf-8");
+  return { ok: true, line_added: newLine };
+}
+
+// src/tools/pin-to-project.ts
+import { promises as fs3 } from "fs";
+import { join as join2 } from "path";
+
+// src/path-guard.ts
+import { resolve, sep as sep2, isAbsolute } from "path";
+import { realpathSync as realpathSync2 } from "fs";
+var PathGuardError = class extends Error {
+  constructor(message, baseDir, candidate) {
+    super(message);
+    this.baseDir = baseDir;
+    this.candidate = candidate;
+    this.name = "PathGuardError";
+  }
+  baseDir;
+  candidate;
+};
+function realResolve(p) {
+  let current = "";
+  const segments = p.split(sep2);
+  for (let i = 0; i < segments.length; i++) {
+    const next = current === "" && segments[i] === "" ? sep2 : current === sep2 ? sep2 + segments[i] : current === "" ? segments[i] : current + sep2 + segments[i];
+    try {
+      current = realpathSync2(next);
+    } catch {
+      const rest = segments.slice(i + 1).join(sep2);
+      return rest ? current + sep2 + segments[i] + sep2 + rest : current + sep2 + segments[i];
+    }
+  }
+  return current;
+}
+function assertWithin(baseDir, ...parts) {
+  for (const part of parts) {
+    if (part.indexOf("\0") !== -1) {
+      throw new PathGuardError(`path component contains NUL byte`, baseDir, parts.join("/"));
+    }
+    if (isAbsolute(part)) {
+      throw new PathGuardError(`absolute path component not allowed: ${JSON.stringify(part)}`, baseDir, parts.join("/"));
+    }
+  }
+  const baseResolved = realResolve(resolve(baseDir));
+  const candidate = resolve(baseDir, ...parts);
+  const candidateResolved = realResolve(candidate);
+  if (candidateResolved !== baseResolved && !candidateResolved.startsWith(baseResolved + sep2)) {
+    throw new PathGuardError(
+      `path escapes base directory: ${candidateResolved} not within ${baseResolved}`,
+      baseDir,
+      parts.join("/")
+    );
+  }
+  return candidateResolved;
+}
+function validateSlug(slug) {
+  if (typeof slug !== "string") {
+    throw new PathGuardError("slug must be a string", "", String(slug));
+  }
+  if (slug.length === 0 || slug.length > 128) {
+    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
+  }
+  if (slug.startsWith(".")) {
+    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
+    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
+  }
+}
+
+// src/tools/pin-to-project.ts
+var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
+var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
+async function pinToProject(args) {
+  if (!(args.section in SECTION_HEADER)) {
+    return { ok: false, line_added: "", project_slug: args.slug, reason: "unknown section" };
+  }
+  try {
+    validateSlug(args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, line_added: "", project_slug: args.slug, reason: `invalid slug: ${e.message}` };
+    }
+    throw e;
+  }
+  const dir = args.brainDir ?? join2(process.env.HOME ?? "", ".second-brain");
+  let file;
+  try {
+    file = assertWithin(dir, "projects", args.slug, "PROJECT.md");
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, line_added: "", project_slug: args.slug, reason: `path traversal blocked: ${e.message}` };
+    }
+    throw e;
+  }
+  const content = await fs3.readFile(file, "utf-8");
+  const sectionHeader = SECTION_HEADER[args.section];
+  const newEntry = `${ENTRY_PREFIX[args.section]}${args.text.trim()}`;
+  const lines = content.split("\n");
+  const idx = lines.findIndex((line) => line.trim() === sectionHeader);
+  if (idx < 0) {
+    return { ok: false, line_added: "", project_slug: args.slug, reason: `section ${sectionHeader} not found` };
+  }
+  let endIdx = lines.length;
+  for (let i = idx + 1; i < lines.length; i++) {
+    if (lines[i].startsWith("## ")) {
+      endIdx = i;
+      break;
+    }
+  }
+  while (endIdx > idx + 1 && lines[endIdx - 1].trim() === "") endIdx--;
+  const trimmed = args.text.trim();
+  const prefix = ENTRY_PREFIX[args.section];
+  for (let i = idx + 1; i < endIdx; i++) {
+    if (lines[i].startsWith(prefix) && lines[i].slice(prefix.length).trim() === trimmed) {
+      return { ok: true, line_added: lines[i], project_slug: args.slug, reason: "already present" };
+    }
+  }
+  lines.splice(endIdx, 0, newEntry);
+  await fs3.writeFile(file, lines.join("\n"), "utf-8");
+  return { ok: true, line_added: newEntry, project_slug: args.slug };
+}
+
+// src/tools/archive-to-wiki.ts
+import { promises as fs4 } from "fs";
+import { join as join3 } from "path";
+var ALLOWED_TARGET_CATEGORIES = /* @__PURE__ */ new Set(["issues", "decisions"]);
+var SOURCE_SECTION_HEADER = {
+  blockers: "## Open blockers",
+  decisions: "## Recent decisions"
+};
+async function archiveToWiki(args) {
+  const brainDir2 = args.brainDir ?? join3(process.env.HOME ?? "", ".second-brain");
+  const knowledgeDir = args.knowledgeDir ?? join3(process.env.HOME ?? "", "knowledge");
+  try {
+    validateSlug(args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, archived_path: "", reason: `invalid slug: ${e.message}` };
+    }
+    throw e;
+  }
+  if (!ALLOWED_TARGET_CATEGORIES.has(args.targetCategory)) {
+    return { ok: false, archived_path: "", reason: `invalid targetCategory: ${JSON.stringify(args.targetCategory)}` };
+  }
+  let projectFile;
+  let wikiDir;
+  try {
+    projectFile = assertWithin(brainDir2, "projects", args.slug, "PROJECT.md");
+    wikiDir = assertWithin(knowledgeDir, "wiki", args.targetCategory, args.slug);
+  } catch (e) {
+    if (e instanceof PathGuardError) {
+      return { ok: false, archived_path: "", reason: `path traversal blocked: ${e.message}` };
+    }
+    throw e;
+  }
+  await fs4.mkdir(wikiDir, { recursive: true });
+  const content = await fs4.readFile(projectFile, "utf-8");
+  const lines = content.split("\n");
+  const sectionHeader = SOURCE_SECTION_HEADER[args.sourceSection];
+  const startIdx = lines.findIndex((l) => l.trim() === sectionHeader);
+  if (startIdx < 0) {
+    return { ok: false, archived_path: "", reason: `section ${sectionHeader} not found` };
+  }
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (lines[i].startsWith("## ")) {
+      endIdx = i;
+      break;
+    }
+  }
+  let matchIdx = -1;
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    if (lines[i].includes(args.entryText) && lines[i].includes("[resolved]")) {
+      matchIdx = i;
+      break;
+    }
+  }
+  if (matchIdx < 0) {
+    return { ok: false, archived_path: "", reason: `no [resolved] entry matching text in ${sectionHeader}` };
+  }
+  const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const slugSafe = args.entryText.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+  const archivePath = join3(wikiDir, `${date3}-${slugSafe}.md`);
+  await fs4.writeFile(
+    archivePath,
+    `# ${args.entryText}
+
+**Archived:** ${date3}
+**From:** projects/${args.slug}/PROJECT.md (section: ${args.sourceSection})
+**Status:** resolved
+`,
+    "utf-8"
+  );
+  lines[matchIdx] = `  \u2192 wiki/${args.targetCategory}/${args.slug}/${date3}-${slugSafe}.md`;
+  await fs4.writeFile(projectFile, lines.join("\n"), "utf-8");
+  return { ok: true, archived_path: archivePath };
+}
+
+// src/tools/knowledge-search.ts
+import { promises as fs7 } from "fs";
+import { join as join6 } from "path";
+
+// src/tools/embeddings.ts
+import { promises as fs5 } from "fs";
+import { join as join4 } from "path";
+var EMBEDDING_DIM = 384;
+var CACHE_FILE = ".embeddings-cache.json";
+var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
+var DISABLE_ENV = "SECOND_BRAIN_DISABLE_EMBEDDINGS";
+var pipelineInstance = null;
+var lastLoadError = null;
+function brainDirFromEnv() {
+  return process.env.BRAIN_DIR || join4(process.env.HOME ?? "", ".second-brain");
+}
+async function logLoadError(message, brainDir2) {
+  if (!lastLoadError || lastLoadError.msg !== message) {
+    lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
+  }
+  if (lastLoadError.loggedTo.has(brainDir2)) return;
+  lastLoadError.loggedTo.add(brainDir2);
+  const entry = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    script: "embeddings",
+    message,
+    exit_code: 0
+  };
+  try {
+    await fs5.mkdir(brainDir2, { recursive: true });
+    await fs5.appendFile(join4(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+  } catch {
+  }
+  try {
+    process.stderr.write(`[embeddings] ${message}
+`);
+  } catch {
+  }
+}
+async function getPipeline() {
+  const brainDir2 = brainDirFromEnv();
+  if (process.env[DISABLE_ENV] === "1") {
+    try {
+      process.stderr.write(`[embeddings] disabled via ${DISABLE_ENV}=1
+`);
+    } catch {
+    }
+    return null;
+  }
+  if (pipelineInstance) return pipelineInstance;
+  try {
+    const { pipeline } = await import("@huggingface/transformers");
+    pipelineInstance = await pipeline("feature-extraction", MODEL_ID, { dtype: "fp32" });
+    return pipelineInstance;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
+    await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
+    return null;
+  }
+}
+function simpleHash(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h << 5) - h + s.charCodeAt(i) | 0;
+  }
+  return h.toString(36);
+}
+async function loadCache(wikiRoot) {
+  try {
+    const data = await fs5.readFile(join4(wikiRoot, CACHE_FILE), "utf-8");
+    const parsed = JSON.parse(data);
+    if (parsed.model === MODEL_ID) return parsed;
+  } catch {
+  }
+  return { model: MODEL_ID, entries: {} };
+}
+async function saveCache(wikiRoot, cache) {
+  try {
+    await fs5.writeFile(join4(wikiRoot, CACHE_FILE), JSON.stringify(cache));
+  } catch {
+  }
+}
+async function embedTexts(texts, wikiRoot, paths) {
+  const pipe2 = await getPipeline();
+  if (!pipe2) return null;
+  const cache = await loadCache(wikiRoot);
+  const results = [];
+  let cacheUpdated = false;
+  for (let i = 0; i < texts.length; i++) {
+    const hash = simpleHash(texts[i]);
+    const key = paths[i] || `query-${i}`;
+    if (cache.entries[key]?.hash === hash) {
+      results.push(cache.entries[key].vector);
+      continue;
+    }
+    const output = await pipe2(texts[i], { pooling: "mean", normalize: true });
+    const vec = Array.from(output.data).slice(0, EMBEDDING_DIM);
+    results.push(vec);
+    if (paths[i]) {
+      cache.entries[key] = { hash, vector: vec };
+      cacheUpdated = true;
+    }
+  }
+  if (cacheUpdated) await saveCache(wikiRoot, cache);
+  return results;
+}
+function cosineSimilarity(a, b) {
+  let dot = 0;
+  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+  return dot;
+}
+
+// src/tools/egress-budget.ts
+var CHARS_PER_TOKEN = 4;
+var DEFAULT_EGRESS_BUDGET_TOKENS = 2e3;
+function estimateTokens(text) {
+  if (!text) return 0;
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+function egressBudgetTokens() {
+  const raw = process.env.SB_EGRESS_BUDGET_TOKENS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_EGRESS_BUDGET_TOKENS;
+}
+function capText(text, maxTokens, pointer) {
+  const total = estimateTokens(text);
+  if (total <= maxTokens) {
+    return { text, truncated: false, omittedTokens: 0 };
+  }
+  const fullMarker = pointer ? `
+\u2026 truncated \u2014 full text via ${pointer}` : `
+\u2026 truncated`;
+  const marker = estimateTokens(fullMarker) <= maxTokens ? fullMarker : "\u2026";
+  const keepChars = Math.max(0, maxTokens - estimateTokens(marker)) * CHARS_PER_TOKEN;
+  const segmenter = new Intl.Segmenter(void 0, { granularity: "grapheme" });
+  let out = "";
+  for (const { segment } of segmenter.segment(text)) {
+    if (out.length + segment.length > keepChars) break;
+    out += segment;
+  }
+  return { text: out + marker, truncated: true, omittedTokens: total - estimateTokens(out) };
+}
+function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
+  const kept = [];
+  const parts = [];
+  let used = 0;
+  for (const item of items) {
+    const piece = render(item);
+    const sep4 = kept.length > 0 ? estimateTokens(separator) : 0;
+    const cost = estimateTokens(piece) + sep4;
+    if (kept.length > 0 && used + cost > maxTokens) break;
+    kept.push(item);
+    parts.push(piece);
+    used += cost;
+  }
+  let omitted = items.length - kept.length;
+  if (omitted > 0) {
+    let affordance = `${separator}\u2026 ${omitted} more \u2014 ${moreHint}`;
+    while (kept.length > 1 && used + estimateTokens(affordance) > maxTokens) {
+      const removed = parts.pop();
+      kept.pop();
+      used -= estimateTokens(removed) + estimateTokens(separator);
+      omitted = items.length - kept.length;
+      affordance = `${separator}\u2026 ${omitted} more \u2014 ${moreHint}`;
+    }
+    return { kept, text: parts.join(separator) + affordance, omitted };
+  }
+  return { kept, text: parts.join(separator), omitted };
+}
+
+// src/tools/doc-sources.ts
+import { promises as fs6 } from "fs";
+import { join as join5, relative, resolve as resolve2, sep as sep3 } from "path";
+function assertSafeSlug(slug) {
+  if (!slug || /[\\/]|\.\./.test(slug)) {
+    throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
+  }
+}
+function registryPath(brainDir2, slug) {
+  return join5(brainDir2, "projects", slug, "doc-sources.json");
+}
+async function loadRegistry(brainDir2, slug) {
+  try {
+    assertSafeSlug(slug);
+    return JSON.parse(await fs6.readFile(registryPath(brainDir2, slug), "utf-8"));
+  } catch {
+    return null;
+  }
 }
 
 // src/tools/ai-block.ts
@@ -27678,6 +27678,28 @@ function validateAiBlock(type, block) {
 function aiBlockText(doc) {
   return doc.aiBlock ? Object.values(doc.aiBlock).join(" ") : "";
 }
+function clampEnvInt(name, def, lo, hi) {
+  const n = parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def;
+}
+function graphNeighbourhood(seeds, edges, hops) {
+  const adj = /* @__PURE__ */ new Map();
+  for (const e of edges) for (const [a, b] of [[e.from, e.to], [e.to, e.from]]) {
+    if (!adj.has(a)) adj.set(a, []);
+    adj.get(a).push(b);
+  }
+  const reached = new Set(seeds);
+  let frontier = [...seeds];
+  for (let h = 0; h < hops; h++) {
+    const next = [];
+    for (const node of frontier) for (const to of adj.get(node) ?? []) if (!reached.has(to)) {
+      reached.add(to);
+      next.push(to);
+    }
+    frontier = next;
+  }
+  return reached;
+}
 var ACCESS_COUNTS_FILE = join6(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -27712,7 +27734,7 @@ async function knowledgeSearch(args) {
   const knowledgeDir = args.knowledgeDir ?? join6(process.env.HOME ?? "", "knowledge");
   const wikiRoot = join6(knowledgeDir, "wiki");
   let scopeDirs;
-  if (args.scope) {
+  if (args.scope && args.scope !== "all") {
     scopeDirs = [join6(wikiRoot, args.scope)];
   } else {
     try {
@@ -27768,6 +27790,8 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
   const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
     path: doc.path,
+    tier: 0,
+    // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
     score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
     related: doc.related,
     description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
@@ -27880,9 +27904,33 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     const daysSince = (now - updated) / 864e5;
     scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
   }
-  scored.sort((a, b) => b.score - a.score);
-  const topScore = scored[0]?.score ?? 0;
-  const candidates = scored.filter((c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)).slice(0, TOP_K).map(({ related, ...rest }) => rest);
+  const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
+  if (scopeOn) {
+    const slug = args.projectSlug;
+    const projBySlug = new Map(
+      allDocs.filter((d) => d.source === "wiki").map((d) => [slugFromPath(d.doc.path), d.doc.project ?? ""])
+    );
+    const anchors = allDocs.filter((d) => d.source === "wiki" && (d.doc.project ?? "") === slug).map((d) => slugFromPath(d.doc.path));
+    const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt("SB_SCOPE_HOPS", 2, 0, 4));
+    for (const s of scored) {
+      if (s.source === "local-doc") {
+        s.tier = 1;
+        continue;
+      }
+      const sl = slugFromPath(s.path);
+      const proj = projBySlug.get(sl) ?? "";
+      s.tier = proj === slug ? 1 : neigh.has(sl) ? 2 : proj === "" ? 3 : 4;
+    }
+  }
+  scored.sort((a, b) => scopeOn ? a.tier - b.tier || b.score - a.score : b.score - a.score);
+  const topScore = scored.reduce((m, s) => Math.max(m, s.score), 0);
+  const passesFloor = (c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO);
+  let pool = scored;
+  if (scopeOn) {
+    const inScope = scored.filter((s) => s.tier <= 3);
+    pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
+  }
+  const candidates = pool.filter(passesFloor).slice(0, TOP_K).map(({ related, tier, ...rest }) => rest);
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;
@@ -29351,7 +29399,7 @@ function resolveActiveSlug() {
   return slugFromProjectDir(activeProjectDir());
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.6.2" },
+  { name: "knowledge-base", version: "2.6.4" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
@@ -29792,7 +29840,7 @@ server.registerTool(
     inputSchema: {
       from: external_exports.string().describe("Source page slug (kebab-case)."),
       to: external_exports.string().describe("Target page slug (kebab-case)."),
-      type: external_exports.enum(["requires", "affects", "relates", "part_of", "supersedes"]),
+      type: external_exports.enum(EDGE_TYPES),
       valid_from: external_exports.string().optional().describe("Date the relationship became true (YYYY-MM-DD). Default: today."),
       valid_to: external_exports.string().optional().describe("Date it stopped being true (YYYY-MM-DD). Required semantics with invalidate:true."),
       invalidate: external_exports.boolean().optional().describe("Mark an existing relationship no longer valid instead of asserting one."),
@@ -29816,7 +29864,7 @@ server.registerTool(
       slug: external_exports.string().describe("The page slug to start from."),
       depth: external_exports.number().min(1).max(4).optional().describe("Max hops. Default 2."),
       direction: external_exports.enum(["out", "in", "both"]).optional().describe("Default 'both'."),
-      edge_types: external_exports.array(external_exports.enum(["requires", "affects", "relates", "part_of", "supersedes"])).optional(),
+      edge_types: external_exports.array(external_exports.enum(EDGE_TYPES)).optional(),
       as_of: external_exports.string().optional().describe("Point-in-time (YYYY-MM-DD or ISO). Default now.")
     }
   },
