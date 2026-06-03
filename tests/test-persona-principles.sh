@@ -26,4 +26,27 @@ for seed in "$ROOT/skills/setup/SKILL.md" "$ROOT/scripts/persona-context.sh"; do
     && fail "$(basename "$seed"): Four-Principles content leaked into a persona-card seed (behavioral != identity)"
 done
 pass "principles stay in the behavioral layer, not the identity persona-card seeds"
+
+# --- persona-context.sh re-surface behavior ---
+PCTX="$ROOT/scripts/persona-context.sh"
+TMPB=$(mktemp -d); export BRAIN_DIR="$TMPB/.second-brain"; mkdir -p "$BRAIN_DIR"
+mk(){ jq -nc --arg p "$1" --arg s "$2" '{prompt:$p, session_id:$s, cwd:"/tmp"}'; }
+# coding-intent prompt → principles injected
+OUT=$(mk "implement the retry function" "sess-A" | CLAUDE_PLUGIN_ROOT="$ROOT" bash "$PCTX" 2>/dev/null)
+printf '%s' "$OUT" | grep -qi 'Coding principles (apply now)' || fail "coding-intent prompt did not re-surface principles"
+pass "coding-intent prompt re-surfaces the compact principles"
+# second coding prompt, same session → NOT re-injected (once per session)
+OUT2=$(mk "now refactor the parser" "sess-A" | CLAUDE_PLUGIN_ROOT="$ROOT" bash "$PCTX" 2>/dev/null)
+printf '%s' "$OUT2" | grep -qi 'Coding principles (apply now)' && fail "principles re-injected (should be once per session)"
+pass "principles injected once per session (memo dedupe)"
+# trivial / non-coding prompt in a fresh session → not injected
+OUT3=$(mk "thanks, that looks good" "sess-B" | CLAUDE_PLUGIN_ROOT="$ROOT" bash "$PCTX" 2>/dev/null)
+printf '%s' "$OUT3" | grep -qi 'Coding principles (apply now)' && fail "non-coding prompt injected principles"
+pass "non-coding prompt does not inject principles"
+# kill switch
+OUT4=$(mk "implement the cache" "sess-C" | SB_PRINCIPLES_INJECT=off CLAUDE_PLUGIN_ROOT="$ROOT" bash "$PCTX" 2>/dev/null)
+printf '%s' "$OUT4" | grep -qi 'Coding principles (apply now)' && fail "SB_PRINCIPLES_INJECT=off still injected"
+pass "SB_PRINCIPLES_INJECT=off suppresses the re-surface"
+rm -rf "$TMPB"; unset BRAIN_DIR
+
 echo; echo "ALL PASS"
