@@ -9,7 +9,13 @@ fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 
 grep -q 'raw-scan-cli.bundle.js' "$SKILL" || fail "setup skill does not invoke raw-scan-cli"
 grep -qE 'allowed-tools:.*Bash\(node \*\)' "$SKILL" || fail "setup skill missing Bash(node *) allowed-tool"
-pass "setup skill wires the scan CLI"
+# The preview and capture are separate bash fences (separate shells), so each must recompute
+# SCAN_ROOT_DIR itself — the `SCAN_ROOT_DIR=$(git rev-parse ...)` assignment must appear twice
+# (once per fence). A single occurrence means the capture fence references an unset var and the
+# scan silently does nothing. (Step 1's slug uses a different assignment, so it isn't counted.)
+N_ROOT=$(grep -cE 'SCAN_ROOT_DIR=\$\(git rev-parse' "$SKILL")
+[ "${N_ROOT:-0}" -ge 2 ] || fail "setup capture fence does not recompute SCAN_ROOT_DIR (found $N_ROOT, need >=2)"
+pass "setup skill wires the scan CLI (preview + capture both self-contained)"
 
 command -v node >/dev/null 2>&1 || { echo "SKIP: node"; echo; echo "ALL PASS"; exit 0; }
 [ -f "$CLI" ] || { echo "SKIP: CLI bundle not built"; echo; echo "ALL PASS"; exit 0; }

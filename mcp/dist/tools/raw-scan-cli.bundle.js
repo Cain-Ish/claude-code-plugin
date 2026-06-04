@@ -6282,7 +6282,8 @@ var NAME_INCLUDE = /^(readme|architecture|design|contributing|roadmap)/i;
 var LOW_SIGNAL = /^(changelog|license|licence|code_of_conduct)/i;
 var TEMPLATE_RE = /template/i;
 var SECRET_RE = /(^|\/)\.env|\.pem$|\.key$|id_rsa|secret|credential/i;
-function isHighSignal(rel) {
+function isHighSignal(relRaw) {
+  const rel = relRaw.replace(/\\/g, "/");
   const segs = rel.split("/");
   const file = segs[segs.length - 1];
   if (!/\.(md|markdown)$/i.test(file)) return false;
@@ -6300,7 +6301,7 @@ function scanCap() {
 }
 async function scanCandidates(projectRoot) {
   const root = resolve2(projectRoot);
-  const matches = await glob("**/*.{md,markdown}", { cwd: root, absolute: true, nodir: true }).catch(() => []);
+  const matches = await glob("**/*.{md,markdown}", { cwd: root, absolute: true, nodir: true, follow: false }).catch(() => []);
   const within = matches.filter((p) => {
     const r = resolve2(p);
     return r === root || r.startsWith(root + sep3);
@@ -6315,9 +6316,10 @@ async function runScan(projectRoot, brainDir, slug, opts) {
   const all = await scanCandidates(projectRoot);
   const cap = scanCap();
   const candidates = all.slice(0, cap);
-  const truncated = Math.max(0, all.length - cap);
-  if (opts.dryRun) return { candidates, captured: 0, skipped: 0, truncated };
-  let captured = 0, skipped = 0;
+  const overflow = all.slice(cap);
+  const truncated = overflow.length;
+  if (opts.dryRun) return { candidates, overflow, captured: 0, skipped: 0, errored: 0, truncated };
+  let captured = 0, skipped = 0, errored = 0;
   for (const src of candidates) {
     try {
       const r = await captureItem({ brainDir, slug, kind: "file", source: src, capturedBy: "setup-scan" });
@@ -6325,9 +6327,10 @@ async function runScan(projectRoot, brainDir, slug, opts) {
       else captured++;
     } catch {
       skipped++;
+      errored++;
     }
   }
-  return { candidates, captured, skipped, truncated };
+  return { candidates, overflow, captured, skipped, errored, truncated };
 }
 
 // src/tools/raw-scan-cli.ts
@@ -6353,13 +6356,17 @@ async function main() {
   try {
     const r = await runScan(projectRoot, brainDir, slug, { dryRun });
     if (dryRun) {
-      const more = r.truncated ? ` (+${r.truncated} over the SB_SCAN_MAX cap)` : "";
-      console.log(`${r.candidates.length} high-signal doc(s) to capture into ${slug}'s raw inbox${more}:`);
+      console.log(`${r.candidates.length} high-signal doc(s) to capture into ${slug}'s raw inbox:`);
       for (const p of r.candidates) console.log(`  - ${relative3(projectRoot, p)}`);
       if (r.candidates.length === 0) console.log("  (no high-signal docs found)");
+      if (r.overflow.length) {
+        console.log(`  \u2026and ${r.overflow.length} more over the SB_SCAN_MAX cap (NOT captured \u2014 raise SB_SCAN_MAX or /second-brain:track them):`);
+        for (const p of r.overflow) console.log(`    \xB7 ${relative3(projectRoot, p)}`);
+      }
     } else {
       const more = r.truncated ? `, ${r.truncated} over the cap (raise SB_SCAN_MAX or /second-brain:track them)` : "";
-      console.log(`Captured ${r.captured}, skipped ${r.skipped} already-in-inbox${more}. Review: /second-brain:capture --list`);
+      const errNote = r.errored ? ` (${r.errored} unreadable)` : "";
+      console.log(`Captured ${r.captured}, skipped ${r.skipped} already-in-inbox${errNote}${more}. Review: /second-brain:capture --list`);
     }
   } catch (e) {
     console.log(`scan error: ${e instanceof Error ? e.message : String(e)}`);

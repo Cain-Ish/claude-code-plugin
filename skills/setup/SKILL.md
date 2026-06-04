@@ -154,9 +154,12 @@ fi
 ```
 
 Show the preview list. This writes nothing yet. **Ask the user to confirm** capturing
-these into the raw inbox (an impactful action). On a yes:
+these into the raw inbox (an impactful action). On a yes (recompute the paths — each
+bash block runs as a separate shell, so vars from the preview block do not persist):
 
 ```bash
+SCAN_CLI="${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-scan-cli.bundle.js"
+SCAN_ROOT_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 SCAN_ROOT="$SCAN_ROOT_DIR" node "$SCAN_CLI"
 ```
 

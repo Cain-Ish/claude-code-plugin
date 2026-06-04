@@ -9,8 +9,11 @@ const LOW_SIGNAL = /^(changelog|license|licence|code_of_conduct)/i;          // 
 const TEMPLATE_RE = /template/i;                                              // basename
 const SECRET_RE = /(^|\/)\.env|\.pem$|\.key$|id_rsa|secret|credential/i;      // full rel path
 
-/** A repo-relative markdown path is high-signal iff it matches an include rule and no denylist. */
-function isHighSignal(rel: string): boolean {
+/** A repo-relative markdown path is high-signal iff it matches an include rule and no denylist.
+ *  Normalizes separators first: `path.relative` emits OS-native separators, so a Windows path
+ *  `docs\adr\x.md` must be split on `\` too or rule 2 / the secret anchor silently misfire. */
+export function isHighSignal(relRaw: string): boolean {
+  const rel = relRaw.replace(/\\/g, '/');
   const segs = rel.split('/');
   const file = segs[segs.length - 1];
   if (!/\.(md|markdown)$/i.test(file)) return false;
@@ -34,7 +37,8 @@ export function scanCap(): number {
 /** Walk the repo for high-signal markdown docs (junk + git-ignored dropped). Sorted, uncapped. */
 export async function scanCandidates(projectRoot: string): Promise<string[]> {
   const root = resolve(projectRoot);
-  const matches = await glob('**/*.{md,markdown}', { cwd: root, absolute: true, nodir: true }).catch(() => [] as string[]);
+  // follow:false → never traverse symlinked directories (a symlink loop would otherwise hang the scan).
+  const matches = await glob('**/*.{md,markdown}', { cwd: root, absolute: true, nodir: true, follow: false }).catch(() => [] as string[]);
   const within = matches.filter(p => { const r = resolve(p); return r === root || r.startsWith(root + sep); });
   const highSignal = within.filter(p => isHighSignal(relative(root, p)));
   const kept = filterIgnored(root, highSignal);  // drops JUNK_DIRS + `git check-ignore` paths
@@ -42,23 +46,34 @@ export async function scanCandidates(projectRoot: string): Promise<string[]> {
   return kept;
 }
 
-export interface ScanResult { candidates: string[]; captured: number; skipped: number; truncated: number; }
+export interface ScanResult {
+  candidates: string[];   // the (capped) set that will be / was captured
+  overflow: string[];     // candidates beyond the cap (shown in the dry-run preview so nothing is hidden)
+  captured: number;
+  skipped: number;        // already-in-inbox (dedup) OR unreadable at capture time
+  errored: number;        // subset of skipped that failed to read (kept separate so the CLI can be honest)
+  truncated: number;      // === overflow.length
+}
 
-/** Scan + (unless dryRun) capture each candidate into the raw inbox as `setup-scan` material. */
+/** Scan + (unless dryRun) capture each candidate into the raw inbox as `setup-scan` material.
+ *  Dedup is unprocessed-scoped (captureItem): re-running re-captures only new/changed docs. Once
+ *  SP-4 marks an item `processed`, re-capture policy for that doc is SP-4's concern (it owns the
+ *  processed lifecycle), so this scan intentionally does not dedup against processed items. */
 export async function runScan(projectRoot: string, brainDir: string, slug: string,
                               opts: { dryRun?: boolean }): Promise<ScanResult> {
   assertSafeSlug(slug);
   const all = await scanCandidates(projectRoot);
   const cap = scanCap();
   const candidates = all.slice(0, cap);
-  const truncated = Math.max(0, all.length - cap);
-  if (opts.dryRun) return { candidates, captured: 0, skipped: 0, truncated };
-  let captured = 0, skipped = 0;
+  const overflow = all.slice(cap);
+  const truncated = overflow.length;
+  if (opts.dryRun) return { candidates, overflow, captured: 0, skipped: 0, errored: 0, truncated };
+  let captured = 0, skipped = 0, errored = 0;
   for (const src of candidates) {
     try {
       const r = await captureItem({ brainDir, slug, kind: 'file', source: src, capturedBy: 'setup-scan' });
       if (r.duplicate) skipped++; else captured++;
-    } catch { skipped++; }  // unreadable → skip, never abort the scan
+    } catch { skipped++; errored++; }  // unreadable → skip, never abort the scan
   }
-  return { candidates, captured, skipped, truncated };
+  return { candidates, overflow, captured, skipped, errored, truncated };
 }

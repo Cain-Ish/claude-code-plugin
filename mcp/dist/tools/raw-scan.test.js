@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { scanCandidates, runScan, scanCap } from './raw-scan.js';
+import { scanCandidates, runScan, scanCap, isHighSignal } from './raw-scan.js';
 import { listItems } from './raw-inbox.js';
 /** Build a temp repo with a known file set; returns its root. NOT a git repo (junk-filter only). */
 async function repo() {
@@ -38,6 +38,12 @@ describe('raw-scan', () => {
         const got = rels(root, await scanCandidates(root)).sort();
         expect(got).toEqual(['README.md', 'docs/adr/ADR-001.md', 'docs/guide.md', 'src/DESIGN.md']);
     });
+    it('isHighSignal handles Windows backslash paths (cross-OS) — path.relative emits native sep', () => {
+        expect(isHighSignal('docs\\adr\\ADR-001.md')).toBe(true); // rule 2 (adr dir), backslashes
+        expect(isHighSignal('src\\components\\notes.md')).toBe(false); // NOT root, NOT a notes/ dir
+        expect(isHighSignal('config\\.env.md')).toBe(false); // secret denylist (.env) must still fire
+        expect(isHighSignal('README.md')).toBe(true); // root-level
+    });
     it('scanCap reads SB_SCAN_MAX (default 50)', () => {
         delete process.env.SB_SCAN_MAX;
         expect(scanCap()).toBe(50);
@@ -52,6 +58,7 @@ describe('raw-scan', () => {
         const r = await runScan(root, brainDir, slug, { dryRun: true });
         delete process.env.SB_SCAN_MAX;
         expect(r.candidates).toHaveLength(2);
+        expect(r.overflow).toHaveLength(2); // the over-cap paths are surfaced (not hidden) for preview
         expect(r.truncated).toBe(2); // 4 high-signal, cap 2
         expect(r.captured).toBe(0);
         expect(await listItems(brainDir, slug)).toHaveLength(0); // nothing written
