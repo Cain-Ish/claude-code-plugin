@@ -41,7 +41,7 @@ export async function readConfig(brainDir, slug) {
     }
 }
 /** Drop junk dirs always; then drop git-ignored paths via `git check-ignore` when in a repo. */
-function filterIgnored(projectRoot, absPaths) {
+export function filterIgnored(projectRoot, absPaths) {
     const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split('/').some((seg) => JUNK_DIRS.has(seg)));
     if (nonJunk.length === 0)
         return [];

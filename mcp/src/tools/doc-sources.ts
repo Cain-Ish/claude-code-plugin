@@ -49,7 +49,7 @@ export async function readConfig(brainDir: string, slug: string): Promise<DocSou
 }
 
 /** Drop junk dirs always; then drop git-ignored paths via `git check-ignore` when in a repo. */
-function filterIgnored(projectRoot: string, absPaths: string[]): string[] {
+export function filterIgnored(projectRoot: string, absPaths: string[]): string[] {
   const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split('/').some((seg) => JUNK_DIRS.has(seg)));
   if (nonJunk.length === 0) return [];
   const rels = nonJunk.map((p) => relative(projectRoot, p));

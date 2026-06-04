@@ -18,6 +18,8 @@ export interface DocEntry {
 }
 export declare function assertSafeSlug(slug: string): void;
 export declare function readConfig(brainDir: string, slug: string): Promise<DocSourceConfig>;
+/** Drop junk dirs always; then drop git-ignored paths via `git check-ignore` when in a repo. */
+export declare function filterIgnored(projectRoot: string, absPaths: string[]): string[];
 export declare function scanLocations(projectRoot: string, locations: string[]): Promise<DocEntry[]>;
 export interface DocRegistry {
     generated_at: string;
