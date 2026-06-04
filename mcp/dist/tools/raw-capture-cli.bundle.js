@@ -6207,6 +6207,27 @@ status: ${status}
   await fs.rename(tmp, file);
   return true;
 }
+async function markProcessed(brainDir, slug, id, nodeSlug) {
+  assertSafeSlug(slug);
+  if (!isSafeId(id)) return false;
+  const file = join(rawDir(brainDir, slug), `${id}.md`);
+  let content;
+  try {
+    content = await fs.readFile(file, "utf-8");
+  } catch {
+    return false;
+  }
+  let next = /^status:[ \t]*.*$/m.test(content) ? content.replace(/^status:[ \t]*.*$/m, "status: processed") : content.replace(/^---\r?\n/, "---\nstatus: processed\n");
+  if (nodeSlug) {
+    const tn = `target_node: ${fmValue(nodeSlug)}`;
+    next = /^target_node:[ \t]*.*$/m.test(next) ? next.replace(/^target_node:[ \t]*.*$/m, tn) : next.replace(/^status:[ \t]*processed$/m, `status: processed
+${tn}`);
+  }
+  const tmp = `${file}.tmp`;
+  await fs.writeFile(tmp, next);
+  await fs.rename(tmp, file);
+  return true;
+}
 async function captureItem(input) {
   assertSafeSlug(input.slug);
   const dir = rawDir(input.brainDir, input.slug);
@@ -6329,6 +6350,20 @@ async function main() {
         return;
       }
       console.log(await setStatus(brainDir, slug, id, "discarded") ? `Discarded ${id}.` : `No raw item with id ${id}.`);
+    } else if (action === "pending") {
+      for (const i of await listItems(brainDir, slug)) {
+        if (i.status !== "unprocessed" || i.malformed) continue;
+        const path2 = join2(rawDir(brainDir, slug), `${i.id}.md`);
+        const cell = (s) => (s || "").replace(/[\t\r\n]+/g, " ");
+        console.log([i.id, path2, i.captured_by, i.target_node ?? "", cell(i.gist)].join("	"));
+      }
+    } else if (action === "process") {
+      const id = rest[0];
+      if (!id) {
+        console.log("usage: capture process <id> [--node <slug>]");
+        return;
+      }
+      console.log(await markProcessed(brainDir, slug, id, node) ? `Processed ${id}` : `No raw item with id ${id}.`);
     } else if (action === "paste") {
       const content = readFileSync(0, "utf-8");
       if (!content.trim()) {

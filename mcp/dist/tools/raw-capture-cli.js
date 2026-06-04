@@ -1,7 +1,7 @@
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
-import { captureItem, listItems, setStatus, unprocessedCount } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir } from './raw-inbox.js';
 function resolveSlug(brainDir) {
     if (process.env.SB_ACTIVE_SLUG)
         return process.env.SB_ACTIVE_SLUG;
@@ -49,6 +49,25 @@ async function main() {
             }
             console.log(await setStatus(brainDir, slug, id, 'discarded')
                 ? `Discarded ${id}.` : `No raw item with id ${id}.`);
+        }
+        else if (action === 'pending') {
+            // Deterministic TSV work-list for the maintainer drain (Phase 4c): drainable items only.
+            for (const i of await listItems(brainDir, slug)) {
+                if (i.status !== 'unprocessed' || i.malformed)
+                    continue;
+                const path = join(rawDir(brainDir, slug), `${i.id}.md`);
+                const cell = (s) => (s || '').replace(/[\t\r\n]+/g, ' ');
+                console.log([i.id, path, i.captured_by, i.target_node ?? '', cell(i.gist)].join('\t'));
+            }
+        }
+        else if (action === 'process') {
+            const id = rest[0];
+            if (!id) {
+                console.log('usage: capture process <id> [--node <slug>]');
+                return;
+            }
+            console.log(await markProcessed(brainDir, slug, id, node)
+                ? `Processed ${id}` : `No raw item with id ${id}.`);
         }
         else if (action === 'paste') {
             const content = readFileSync(0, 'utf-8'); // stdin

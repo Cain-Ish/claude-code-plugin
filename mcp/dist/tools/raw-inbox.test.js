@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { captureItem, listItems, setStatus, unprocessedCount, rawDir } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed } from './raw-inbox.js';
 async function brain() {
     const brainDir = await fs.mkdtemp(join(tmpdir(), 'raw-'));
     const slug = 'alpha';
@@ -100,6 +100,28 @@ describe('raw-inbox', () => {
         const broken = items.find(i => i.id === 'broken');
         expect(broken.malformed).toBe(true);
         expect(await unprocessedCount(brainDir, slug)).toBe(1);
+    });
+    it('markProcessed sets status processed and the target_node back-ref', async () => {
+        const { brainDir, slug } = await brain();
+        const r = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: 'drain me', now: NOW });
+        expect(await markProcessed(brainDir, slug, r.id, 'auth-design')).toBe(true);
+        const item = (await listItems(brainDir, slug))[0];
+        expect(item.status).toBe('processed');
+        expect(item.target_node).toBe('auth-design');
+        expect(await unprocessedCount(brainDir, slug)).toBe(0);
+    });
+    it('markProcessed without a node still processes (no target_node added)', async () => {
+        const { brainDir, slug } = await brain();
+        const r = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: 'no node', now: NOW });
+        expect(await markProcessed(brainDir, slug, r.id)).toBe(true);
+        const item = (await listItems(brainDir, slug))[0];
+        expect(item.status).toBe('processed');
+        expect(item.target_node).toBeUndefined();
+    });
+    it('markProcessed rejects an unsafe id and a missing id', async () => {
+        const { brainDir, slug } = await brain();
+        expect(await markProcessed(brainDir, slug, '../evil', 'x')).toBe(false);
+        expect(await markProcessed(brainDir, slug, 'nope', 'x')).toBe(false);
     });
 });
 //# sourceMappingURL=raw-inbox.test.js.map

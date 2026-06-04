@@ -134,6 +134,34 @@ export async function setStatus(brainDir, slug, id, status) {
     await fs.rename(tmp, file); // atomic
     return true;
 }
+/** Drain transition: status→processed, and (if given) record the wiki node this item became as a
+ *  target_node back-ref. Surgical rewrite like setStatus; the raw .md is kept as the audit trail. */
+export async function markProcessed(brainDir, slug, id, nodeSlug) {
+    assertSafeSlug(slug);
+    if (!isSafeId(id))
+        return false;
+    const file = join(rawDir(brainDir, slug), `${id}.md`);
+    let content;
+    try {
+        content = await fs.readFile(file, 'utf-8');
+    }
+    catch {
+        return false;
+    }
+    let next = /^status:[ \t]*.*$/m.test(content)
+        ? content.replace(/^status:[ \t]*.*$/m, 'status: processed')
+        : content.replace(/^---\r?\n/, '---\nstatus: processed\n');
+    if (nodeSlug) {
+        const tn = `target_node: ${fmValue(nodeSlug)}`;
+        next = /^target_node:[ \t]*.*$/m.test(next)
+            ? next.replace(/^target_node:[ \t]*.*$/m, tn) // update existing
+            : next.replace(/^status:[ \t]*processed$/m, `status: processed\n${tn}`); // insert after status
+    }
+    const tmp = `${file}.tmp`;
+    await fs.writeFile(tmp, next);
+    await fs.rename(tmp, file); // atomic
+    return true;
+}
 export async function captureItem(input) {
     assertSafeSlug(input.slug);
     const dir = rawDir(input.brainDir, input.slug);
