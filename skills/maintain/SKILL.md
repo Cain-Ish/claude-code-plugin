@@ -9,7 +9,7 @@ allowed-tools: Agent Read
 # /second-brain:maintain — run the knowledge-maintainer
 
 Dispatch the **knowledge-maintainer** agent for an **explicit** full maintenance run over
-the knowledge base. Use the `Agent` tool with `subagent_type: "knowledge-maintainer"`.
+the knowledge base. Use the `Agent` tool with `subagent_type: "second-brain:knowledge-maintainer"`.
 
 Unlike an auto-dispatched maintenance run (which the plugin triggers after extraction or a
 reindex and which performs only the consolidation phases), an explicit `/second-brain:maintain`

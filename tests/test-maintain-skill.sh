@@ -12,8 +12,11 @@ grep -q '^user-invocable: true$' "$S" || fail "not user-invocable"
 grep -qE '^allowed-tools:.*\bAgent\b' "$S" || fail "allowed-tools must include Agent (to dispatch the agent)"
 pass "maintain skill is user-invocable + declares Agent"
 
-grep -q 'knowledge-maintainer' "$S" || fail "body does not dispatch the knowledge-maintainer agent"
+# Must use the NAMESPACED subagent_type — the plugin convention is second-brain:<agent>
+# (a bare "knowledge-maintainer" risks a dispatch-resolution failure).
+grep -q 'second-brain:knowledge-maintainer' "$S" \
+  || fail "body must dispatch via the namespaced subagent_type second-brain:knowledge-maintainer"
 grep -qE '4c|raw[- ]inbox' "$S" || fail "body does not mention the explicit-only Phase 4c (raw drain)"
-pass "maintain dispatches the knowledge-maintainer agent (explicit run, names 4c)"
+pass "maintain dispatches second-brain:knowledge-maintainer (explicit run, names 4c)"
 
 echo; echo "ALL PASS"

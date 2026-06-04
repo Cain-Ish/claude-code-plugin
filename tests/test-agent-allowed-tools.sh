@@ -4,7 +4,9 @@
 # This is the same missing-grant class that hid the maintainer's missing Bash(node *) for ~10
 # releases (skills are guarded by test-skill-allowed-tools.sh; agents had no guard until now).
 # Body-scan matches invocation patterns (node + quote/$, bash + ${CLAUDE_PLUGIN_ROOT}) to avoid
-# matching prose mentions.
+# matching prose mentions. Known (currently-unused) blind spots, by design, to keep it
+# false-positive-free: a script exec'd directly without a leading `bash ` prefix, and `node`
+# captured via `$(…)`. No agent uses either today; widen the patterns if one ever does.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"; A="$ROOT/agents"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
