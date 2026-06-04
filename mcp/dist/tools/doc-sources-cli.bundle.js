@@ -6103,7 +6103,7 @@ async function readConfig(brainDir, slug) {
   }
 }
 function filterIgnored(projectRoot, absPaths) {
-  const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split("/").some((seg) => JUNK_DIRS.has(seg)));
+  const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split(/[\\/]+/).some((seg) => JUNK_DIRS.has(seg)));
   if (nonJunk.length === 0) return [];
   const rels = nonJunk.map((p) => relative(projectRoot, p));
   const res = spawnSync("git", ["-C", projectRoot, "check-ignore", "--stdin"], { input: rels.join("\n"), encoding: "utf-8" });
