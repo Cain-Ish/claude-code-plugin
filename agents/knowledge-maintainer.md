@@ -273,6 +273,59 @@ output directly. Bulk-authoring page content stays deliberate and reviewed, not 
 §5b automation boundary). Never author blocks for non-structured types or generated
 `projects/`/`themes/` pages.
 
+## Phase 4c: RAW-INBOX DRAIN — turn captured material into wiki nodes
+
+The raw inbox (`~/.second-brain/projects/<slug>/raw/`) holds **unprocessed** material dropped by
+`/second-brain:capture` (SP-2) and the setup deep-scan (SP-3). This phase turns it into wiki nodes —
+**conservatively** and with provenance. Same authoring discipline as Phase 4b: author only from the
+captured material + existing prose, **never invent** content.
+
+1. **Get the deterministic work-list** (drainable = unprocessed, well-formed; for the active project):
+   ```bash
+   node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" pending
+   ```
+   Each TSV row is `id⇥path⇥captured_by⇥target_node⇥gist`. Empty output → skip this phase. (Malformed
+   items are excluded here — they still show in `/second-brain:capture --list` for manual repair.)
+
+2. **For each item** (closed vocabulary — the 8 content categories `learnings decisions entities issues
+   concepts security state sources`; never invent a type or content):
+   - `Read` the item's `path`.
+   - **Decide the target node:**
+     - `target_node` non-empty → **update** that wiki page (`Read` it in full first).
+     - else `knowledge_search` the gist / key terms → a top hit that is a *strong, same-topic* match →
+       **update** it.
+     - else **create** a new page. Judge the type from the content (`captured_by` is a hint:
+       `setup-scan` = existing repo docs → lean `entities`/`concepts`/`decisions`/`sources`;
+       `user`/`dream` = deliberate → lean `learnings`/`decisions`). `Write`
+       `~/knowledge/wiki/<type>/<kebab-slug>.md` with frontmatter (`title`, `type`, the active
+       `project:` facet) + body authored from the material, then add an ai-block via the Phase 4b
+       `ai-block-render-cli` path.
+   - **Provenance (forward):** add or extend a `## Sources` section on the node:
+     `- captured from <source> (raw <id>)` (use the item's `source` value — a path or URL).
+   - **Mark processed (back-ref):**
+     ```bash
+     node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" process <id> --node <slug>
+     ```
+     Sets the item `status: processed` and `target_node: <slug>` (the node it became). The raw `.md`
+     stays in `raw/` as the audit trail — never delete it.
+   - **Self-check:** a follow-up `knowledge_validate` shows no new `broken_link` / `ai_block_*` error
+     for the node.
+
+3. **Conservative — never auto-discard.** If an item is low-value / noise (boilerplate, a stub, a
+   `LICENSE` that slipped SP-3's denylist), **leave it unprocessed** and list it in the run report
+   (`left N item(s) unprocessed — prune with /second-brain:capture --discard <id>`). Do **not** mark an
+   item `discarded` yourself — pruning is the user's call.
+
+4. **Budget:** each item processed counts as **one change against the 50/run cap** (shared with the
+   other phases). Over budget → process the highest-value first and report the remainder for the next run.
+
+5. **Reindex:** after the loop, the Phase 5 `knowledge_reindex` catalogues the new/updated pages.
+
+**Boundary:** like Phase 4b, Phase 4c is **explicit-invocation only** — a `/second-brain:maintain`
+(or "maintain / clean up the KB") request. An auto-dispatched run (threshold counter / reindex-issues /
+post-extraction) **skips Phase 4c**: draining bulk-authors page content, which stays deliberate and
+reviewed, never unattended (the §5b automation boundary).
+
 ## Phase 5: REINDEX
 
 1. Regenerate `wiki/index.md` via `knowledge_reindex` MCP tool
@@ -324,9 +377,9 @@ This agent should be dispatched:
 
 The agent is self-sufficient. It reads the hot tier and wiki, identifies all work across all 6 phases, executes in order, and reports results. No human input needed during execution.
 
-**Exception — Phase 4b (ai-block authoring/backfill):** an **auto-dispatched** run (the
+**Exception — Phases 4b (ai-block authoring/backfill) and 4c (raw-inbox drain):** an **auto-dispatched** run (the
 `SB_MAINTAINER_THRESHOLD` wiki-write counter, a `knowledge_reindex`-issues trigger, or
-post-extraction) performs the consolidation phases (1–4, 5, 6) but **skips Phase 4b** —
-backfilling ai-blocks bulk-authors page content, so it is **explicit-invocation only** (a
+post-extraction) performs the consolidation phases (1–4, 5, 6) but **skips Phases 4b and 4c** —
+backfilling ai-blocks and draining the raw inbox bulk-author page content, so they are **explicit-invocation only** (a
 deliberate `/second-brain:maintain` or "maintain/clean up the KB" request). Unattended runs never
 bulk-author blocks; this keeps the auto-dispatch lightweight and the §5b automation boundary intact.
