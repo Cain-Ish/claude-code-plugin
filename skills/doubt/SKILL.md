@@ -117,7 +117,7 @@ For each (layer, perspective):
 1. **Read all key files** listed in the taxonomy for that layer.
 2. **Check runtime state** — don't just read source code. Verify actual artifacts:
    - Do the output files exist? (`ls ~/.second-brain/`, `ls ~/.second-brain/projects/`, `ls ~/.second-brain/wiki/`)
-   - What's in the data files? (`tail -5 ~/.second-brain/learnings.md`, `wc -l ~/.second-brain/.session-baseline-*.md`)
+   - What's in the data files? (`tail -5 ~/.second-brain/persona-signals.jsonl`, `wc -l ~/.second-brain/.session-baseline-*.md`)
    - Is the state consistent with what the code claims to produce?
    - The gap between "the code would write X" and "X actually exists on disk" is where the best bugs hide.
 3. **Start from doubt**: "I believe [layer] does NOT work correctly because..." — force yourself to find reasons to doubt.
