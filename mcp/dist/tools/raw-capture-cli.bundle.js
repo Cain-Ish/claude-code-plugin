@@ -6355,7 +6355,7 @@ async function main() {
         if (i.status !== "unprocessed" || i.malformed) continue;
         const path2 = join2(rawDir(brainDir, slug), `${i.id}.md`);
         const cell = (s) => (s || "").replace(/[\t\r\n]+/g, " ");
-        console.log([i.id, path2, i.captured_by, i.target_node ?? "", cell(i.gist)].join("	"));
+        console.log([i.id, path2, i.captured_by, cell(i.target_node ?? ""), cell(i.gist)].join("	"));
       }
     } else if (action === "process") {
       const id = rest[0];

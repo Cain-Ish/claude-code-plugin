@@ -48,7 +48,9 @@ async function main(): Promise<void> {
         if (i.status !== 'unprocessed' || i.malformed) continue;
         const path = join(rawDir(brainDir, slug), `${i.id}.md`);
         const cell = (s: string) => (s || '').replace(/[\t\r\n]+/g, ' ');
-        console.log([i.id, path, i.captured_by, i.target_node ?? '', cell(i.gist)].join('\t'));
+        // cell() every variable field — a tab in target_node (fmValue strips CR/LF, not tabs)
+        // would otherwise shift the TSV columns and corrupt the machine work-list.
+        console.log([i.id, path, i.captured_by, cell(i.target_node ?? ''), cell(i.gist)].join('\t'));
       }
     } else if (action === 'process') {
       const id = rest[0];

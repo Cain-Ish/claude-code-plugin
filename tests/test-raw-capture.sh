@@ -56,5 +56,11 @@ grep -q '^target_node: my-node$' "$RAW/$PID.md" || fail "target_node back-ref no
 [ -z "$(run pending | grep "$PID" || true)" ] || fail "processed item still appears in pending"
 pass "process flips status + sets target_node; pending excludes processed"
 
+# pending must tab-sanitize target_node (a tab would shift TSV columns)
+run capture "tab node test" --node "$(printf 'a\tb')" >/dev/null
+TNF=$(run pending | grep 'tab node test' | awk -F'\t' '{print NF}')
+[ "$TNF" = "5" ] || fail "pending row not 5 tab-fields (tab in target_node corrupts TSV): got $TNF"
+pass "pending tab-sanitizes target_node (5 TSV columns)"
+
 rm -rf "$T"
 echo; echo "ALL PASS"

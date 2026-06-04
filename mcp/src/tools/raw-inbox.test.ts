@@ -136,4 +136,16 @@ describe('raw-inbox', () => {
     expect(await markProcessed(brainDir, slug, '../evil', 'x')).toBe(false);
     expect(await markProcessed(brainDir, slug, 'nope', 'x')).toBe(false);
   });
+
+  it('markProcessed replaces a pre-existing target_node with no duplicate line', async () => {
+    const { brainDir, slug } = await brain();
+    const r = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste',
+      content: 'pre-attached', targetNode: 'old-node', now: NOW });
+    expect(await markProcessed(brainDir, slug, r.id, 'new-node')).toBe(true);
+    const item = (await listItems(brainDir, slug))[0];
+    expect(item.status).toBe('processed');
+    expect(item.target_node).toBe('new-node');
+    const raw = await fs.readFile(join(rawDir(brainDir, slug), `${r.id}.md`), 'utf-8');
+    expect((raw.match(/^target_node:/gm) || []).length).toBe(1); // exactly one — no duplicate
+  });
 });
