@@ -1,7 +1,7 @@
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
-import { captureItem, listItems, setStatus, unprocessedCount } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir } from './raw-inbox.js';
 
 function resolveSlug(brainDir: string): string | undefined {
   if (process.env.SB_ACTIVE_SLUG) return process.env.SB_ACTIVE_SLUG;
@@ -42,6 +42,21 @@ async function main(): Promise<void> {
       if (!id) { console.log('usage: capture --discard <id>'); return; }
       console.log(await setStatus(brainDir, slug, id, 'discarded')
         ? `Discarded ${id}.` : `No raw item with id ${id}.`);
+    } else if (action === 'pending') {
+      // Deterministic TSV work-list for the maintainer drain (Phase 4c): drainable items only.
+      for (const i of await listItems(brainDir, slug)) {
+        if (i.status !== 'unprocessed' || i.malformed) continue;
+        const path = join(rawDir(brainDir, slug), `${i.id}.md`);
+        const cell = (s: string) => (s || '').replace(/[\t\r\n]+/g, ' ');
+        // cell() every variable field — a tab in target_node (fmValue strips CR/LF, not tabs)
+        // would otherwise shift the TSV columns and corrupt the machine work-list.
+        console.log([i.id, path, i.captured_by, cell(i.target_node ?? ''), cell(i.gist)].join('\t'));
+      }
+    } else if (action === 'process') {
+      const id = rest[0];
+      if (!id) { console.log('usage: capture process <id> [--node <slug>]'); return; }
+      console.log(await markProcessed(brainDir, slug, id, node)
+        ? `Processed ${id}` : `No raw item with id ${id}.`);
     } else if (action === 'paste') {
       const content = readFileSync(0, 'utf-8');           // stdin
       if (!content.trim()) { console.log('capture: nothing on stdin.'); return; }

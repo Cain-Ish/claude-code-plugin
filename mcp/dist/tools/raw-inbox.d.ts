@@ -28,6 +28,9 @@ export declare function rawDir(brainDir: string, slug: string): string;
 export declare function listItems(brainDir: string, slug: string): Promise<RawItem[]>;
 export declare function unprocessedCount(brainDir: string, slug: string): Promise<number>;
 export declare function setStatus(brainDir: string, slug: string, id: string, status: RawStatus): Promise<boolean>;
+/** Drain transition: status→processed, and (if given) record the wiki node this item became as a
+ *  target_node back-ref. Surgical rewrite like setStatus; the raw .md is kept as the audit trail. */
+export declare function markProcessed(brainDir: string, slug: string, id: string, nodeSlug?: string): Promise<boolean>;
 export declare function captureItem(input: CaptureInput): Promise<{
     id: string;
     duplicate: boolean;

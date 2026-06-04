@@ -42,5 +42,25 @@ run discard "$ID" | grep -q "Discarded $ID" || fail "discard did not report"
 grep -q '^status: discarded$' "$RAW/$ID.md" || fail "status not flipped to discarded"
 pass "discard flips status"
 
+# --- SP-4: pending work-list + process (drain plumbing) ---
+run capture "a fresh drain candidate note" >/dev/null
+PID=$(run pending | cut -f1 | head -1)
+[ -n "$PID" ] || fail "pending emitted no unprocessed item"
+run pending | grep -q "$RAW/$PID.md" || fail "pending row missing the item path"
+run pending | grep -q 'a fresh drain candidate note' || fail "pending row missing the gist"
+pass "pending emits a TSV work-list (id, path, gist) of unprocessed items"
+
+run process "$PID" --node my-node | grep -q "Processed $PID" || fail "process did not report"
+grep -q '^status: processed$' "$RAW/$PID.md" || fail "status not flipped to processed"
+grep -q '^target_node: my-node$' "$RAW/$PID.md" || fail "target_node back-ref not set"
+[ -z "$(run pending | grep "$PID" || true)" ] || fail "processed item still appears in pending"
+pass "process flips status + sets target_node; pending excludes processed"
+
+# pending must tab-sanitize target_node (a tab would shift TSV columns)
+run capture "tab node test" --node "$(printf 'a\tb')" >/dev/null
+TNF=$(run pending | grep 'tab node test' | awk -F'\t' '{print NF}')
+[ "$TNF" = "5" ] || fail "pending row not 5 tab-fields (tab in target_node corrupts TSV): got $TNF"
+pass "pending tab-sanitizes target_node (5 TSV columns)"
+
 rm -rf "$T"
 echo; echo "ALL PASS"
