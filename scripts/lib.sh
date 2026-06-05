@@ -655,11 +655,50 @@ sb_log_extractor_diag() {
     "extractor-diag stage=$stage ec=$claude_ec out=$out_bytes err=\"$err_head\" tty=$tty_state cc=$cc ak=$ak pty=$pty_attempted" 0
 }
 
+# Backend 0 helper: call a local OpenAI-compatible chat endpoint (ollama /v1).
+# $1 url, $2 model, $3 system-prompt, $4 input-file, $5 out-file, $6 timeout.
+# Returns 0 and writes a JSON object to $5 on success; 1 otherwise. No creds.
+sb_extractor_local_call() {
+  local url="$1" model="$2" prompt="$3" input_file="$4" out_file="$5" timeout_s="${6:-60}"
+  command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 1
+  local payload
+  payload=$(jq -n --arg m "$model" --arg s "$prompt" --rawfile u "$input_file" \
+    '{model:$m, stream:false, messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null) || return 1
+  [ -n "$payload" ] || return 1
+  local TBIN resp
+  TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+  resp=$( ${TBIN:+"$TBIN" "$timeout_s"} curl -sS "${url%/}/v1/chat/completions" \
+    -H 'content-type: application/json' --data-binary @<(printf '%s' "$payload") 2>/dev/null ) || return 1
+  local text
+  text=$(printf '%s' "$resp" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+  [ -n "$text" ] || return 1
+  printf '%s' "$text" | sb_strip_code_fences > "$out_file"
+  jq -e 'type == "object"' "$out_file" >/dev/null 2>&1 || return 1
+  return 0
+}
+
 sb_call_extractor() {
   local input_file="$1" out_file="$2" model="$3" prompt="$4" timeout_s="${5:-30}"
   local err_file caller_script
   err_file=$(mktemp)
   caller_script="${SB_SCRIPT_NAME:-${0##*/}}"
+
+  # --- Backend 0: local LLM (OpenAI-compatible /v1) ------------------------
+  # Tried FIRST when SB_EXTRACTOR_LOCAL_URL is set and the engine isn't pinned
+  # to a remote backend. No recursive-claude lock (not claude), no Anthropic
+  # creds -> works in-session AND offline. ENGINE=local pins it (no fallback).
+  local _engine="${SB_EXTRACTOR_ENGINE:-auto}"
+  if [ -n "${SB_EXTRACTOR_LOCAL_URL:-}" ] && [ "$_engine" != "cli" ] && [ "$_engine" != "bare" ]; then
+    if sb_extractor_local_call "$SB_EXTRACTOR_LOCAL_URL" \
+         "${SB_EXTRACTOR_LOCAL_MODEL:-qwen2.5:3b}" "$prompt" "$input_file" "$out_file" "$timeout_s"; then
+      sb_write_extractor_health "local" "ok" ""
+      rm -f "$err_file"; return 0
+    fi
+    if [ "$_engine" = "local" ]; then
+      sb_write_extractor_health "local" "fail" "local endpoint ${SB_EXTRACTOR_LOCAL_URL} unreachable or non-JSON"
+      rm -f "$err_file"; return 1
+    fi
+  fi
 
   # --- Backend pre-selection (recursive-claude guard) ----------------------
   # Stop / PreCompact hooks run inside a Claude Code session (CLAUDECODE=1),
