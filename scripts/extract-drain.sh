@@ -98,7 +98,7 @@ done < <(ls -1tr "$TX_DIR"/*.txt 2>/dev/null)
 # Don't clobber a real failure marker: only report ok if anything succeeded.
 # A run where every extraction failed must surface status=fail so the
 # SessionStart banner alerts the user (otherwise a broken drainer looks healthy).
-# Report the REAL backend the per-transcript extractor recorded (local | cli-oauth |
+# Report the REAL backend the per-transcript extractor recorded (local | claude-cli |
 # anthropic-api), not a hardcoded label; default to "drainer" if none was written.
 DRAIN_BACKEND=$(jq -r '.backend // "drainer"' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null); : "${DRAIN_BACKEND:=drainer}"
 if [ "$processed" -eq 0 ] && [ "$failed" -gt 0 ]; then

@@ -682,9 +682,19 @@ sb_extractor_local_call() {
   local text
   text=$(printf '%s' "$resp" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
   [ -n "$text" ] || return 1
-  printf '%s' "$text" | sb_strip_code_fences > "$out_file"
-  jq -e 'type == "object"' "$out_file" >/dev/null 2>&1 || return 1
-  return 0
+  # Validate in a staging temp and only mv into $out_file on a valid JSON OBJECT —
+  # never leave non-object garbage in $out_file (a failed local in `auto` mode falls
+  # through, and a downstream return-0 would otherwise ship the stale partial as a
+  # "successful" extraction, defeating the degraded-breadcrumb fallback). Mirrors
+  # the .clean staging the claude-cli / anthropic-api backends use.
+  local tmp_out="${out_file}.local.$$"
+  printf '%s' "$text" | sb_strip_code_fences > "$tmp_out"
+  if jq -e 'type == "object"' "$tmp_out" >/dev/null 2>&1; then
+    mv "$tmp_out" "$out_file"
+    return 0
+  fi
+  rm -f "$tmp_out"
+  return 1
 }
 
 sb_call_extractor() {

@@ -111,6 +111,14 @@ SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
 HBACK=$(jq -r '.backend // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)
 [ "$HBACK" != "cli-oauth" ] && ok "summary backend not hardcoded cli-oauth (got '$HBACK')" || no "summary hardcoded backend=cli-oauth"
 
+# Test 2d (U2): the summary PRESERVES the real backend the per-transcript extractor
+# wrote (e.g. local), rather than overwriting it. Pre-seed a real backend; the stub
+# writes no health, so the summary must read+keep it.
+reset; mk_tx "c1_proj_2026-05-24.txt" proj
+printf '{"checked_at":"x","backend":"local","status":"ok","reason":""}\n' > "$BRAIN_DIR/.extractor-health.json"
+SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
+eq "summary preserves real backend=local" "$(jq -r '.backend // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)" "local"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

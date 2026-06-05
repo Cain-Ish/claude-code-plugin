@@ -74,5 +74,27 @@ BD_AUTO=$(mktemp -d)
 jq -e '.backend=="local" and .status=="ok"' "$BD_AUTO/.extractor-health.json" >/dev/null 2>&1 \
   && fail "auto wrongly reported local-ok on a bad url (did not fall through)" || pass "auto falls through a failed local (to the Claude path)"
 
+# HIGH-fix guard: a non-OBJECT local response (valid JSON array) must NOT leave any
+# content in out_file — validate-in-staging-then-mv, so a failed local in auto can't
+# ship stale garbage as a "successful" extraction.
+PORT3=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+python3 - "$PORT3" <<'PY' & SRV3=$!
+import sys,http.server,json
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("content-length",0)))
+        out=json.dumps({"choices":[{"message":{"content":'[1,2,3]'}}]}).encode()  # valid JSON, NOT an object
+        self.send_response(200); self.send_header("content-length",str(len(out))); self.end_headers(); self.wfile.write(out)
+    def log_message(self,*a): pass
+http.server.HTTPServer(("127.0.0.1",int(sys.argv[1])),H).handle_request()
+PY
+sleep 0.6
+BD_NOBJ=$(mktemp -d); ON=$(mktemp)   # fresh + empty
+( export SB_HEALTH_FILE="$BD_NOBJ/.extractor-health.json" BRAIN_DIR="$BD_NOBJ" \
+    SB_EXTRACTOR_ENGINE=local SB_EXTRACTOR_LOCAL_URL="http://127.0.0.1:$PORT3"
+  sb_call_extractor "$IN3" "$ON" m p 10 ) >/dev/null 2>&1
+[ -s "$ON" ] && fail "non-object local response left content in out_file (HIGH leak): $(cat "$ON")" || pass "non-object local leaves out_file empty (no garbage shipped)"
+kill $SRV3 2>/dev/null; rm -rf "$BD_NOBJ" "$ON"
+
 kill $SRV2 2>/dev/null; rm -rf "$BRAIN_DIR" "$BRAIN_DIR2" "$BD_PIN" "$BD_AUTO" "$IN" "$OUT" "$BIG" "$OUT2" "$REQ" "$IN3" "$O3"
 echo; echo "ALL PASS"
