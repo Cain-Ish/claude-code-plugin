@@ -80,3 +80,9 @@ A SessionStart line from `.extractor-health.json` + `.extraction-state.jsonl`: `
 - OAuth is an explicit `--oauth` opt-in: that variant adds the one relaxation (`~/.claude` RW to the background service), with the rest of the systemd hardening intact, and the installer prints the grant first.
 - Override trust boundary documented (U1): transcript content goes to whatever `SB_EXTRACTOR_LOCAL_URL`/`ANTHROPIC_BASE_URL` names — default is `localhost` (on-device). No `curl | bash`.
 - **Verified environment (2026-06-05):** ollama 0.23.4, model `qwen2.5:3b` (1.9 GB, Q4_K_M), `/v1` endpoint live on `localhost:11434`, ~3.5 GB RAM free on the Pi 5 (fits alongside the on-device embedder).
+
+## Correction (0.24.19)
+
+Two claims in this spec were wrong/over-stated and are corrected in 0.24.19 (Claude-first universal engine):
+- **`ANTHROPIC_BASE_URL` override did NOT exist** in SP-A — Backend 2's curl was hardcoded to `https://api.anthropic.com`. It was actually added in 0.24.19 (`lib.sh` ~899) with a test.
+- **"offline-first identity" / "local-LLM-preferred" over-frames local.** For a broadly-shipped Claude plugin, **Claude is the universal engine** (API key = in-session any OS; subscription = out-of-band drainer). The local model is an **opt-in** offline/privacy path (`SB_EXTRACTOR_LOCAL_URL`, unset by default) — tried first only when set, with Claude as the fallback. The plugin never assumes a local model is present.

@@ -1,27 +1,34 @@
 #!/bin/bash
-# U5: SessionStart capture-health self-check — the "wired != works" guard.
-# Shouts when transcripts exist but the drainer never turned them into deltas.
+# Auth-aware SessionStart capture self-check (U5 0.24.18 + SP-1 0.24.19).
+#  - API key  → extraction runs IN-SESSION at every Stop (Backend 2 curl); the
+#    out-of-band drainer is NOT needed → no "install the bridge" nag.
+#  - OAuth    → in-session is recursive-locked → needs drainer/local/key → nag WITH all 3 options.
+#  - none     → the auth-mode-line already covers it → no double-nag here.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"; SL="$ROOT/scripts/session-load.sh"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
-emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' | BRAIN_DIR="$1" bash "$SL" 2>/dev/null; }
+# $1 = brain dir, $2 = ANTHROPIC_API_KEY value ("" = OAuth, given `claude` is on PATH here)
+emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' | env ANTHROPIC_API_KEY="$2" BRAIN_DIR="$1" bash "$SL" 2>/dev/null; }
 
-# A: transcripts archived but none extracted + no timer → must SHOUT
-B=$(mktemp -d); mkdir -p "$B/transcripts"; : > "$B/transcripts/s1.txt"; : > "$B/USER.md"
-out=$(emit "$B")
-echo "$out" | grep -qi 'capture not running' || fail "no 'capture not running' banner when transcripts undrained (got: $(echo "$out" | head -c 300))"
-pass "shouts when transcripts archived but nothing extracted"
-echo "$out" | grep -q 'install-extract-timer.sh --apply' || fail "banner missing the one-command fix"
-pass "banner gives the install command"
+B=$(mktemp -d); mkdir -p "$B/transcripts"; : > "$B/transcripts/s1.txt"; : > "$B/USER.md"   # transcripts, none drained, no timer
 
-# B: kill switch suppresses
-SB_CAPTURE_HEALTH_BANNER=off emit "$B" | grep -qi 'capture not running' && fail "SB_CAPTURE_HEALTH_BANNER=off did not suppress" || true
-pass "SB_CAPTURE_HEALTH_BANNER=off suppresses"
+# 1. OAuth (no key) → SHOUT + offer all three paths
+oauth=$(emit "$B" "")
+echo "$oauth" | grep -qi 'capture not running' || fail "OAuth: no capture-not-running banner (got: $(echo "$oauth" | head -c 200))"
+pass "OAuth: shouts capture not running"
+echo "$oauth" | grep -q 'ANTHROPIC_API_KEY' || fail "OAuth banner must offer the API-key path"
+echo "$oauth" | grep -q 'install-extract-timer.sh' || fail "OAuth banner must offer the drainer path"
+pass "OAuth banner offers API-key + drainer (+ local) options"
 
-# C: no transcripts at all → no banner (fresh install isn't nagged)
+# 2. API key set → in-session works → NO bridge nag
+echo "$(emit "$B" "sk-ant-test")" | grep -qi 'capture not running' \
+  && fail "API-key user wrongly nagged to install the bridge (in-session capture works)" || pass "API-key: no false bridge-nag"
+
+# 3. kill switch
+SB_CAPTURE_HEALTH_BANNER=off emit "$B" "" | grep -qi 'capture not running' && fail "kill switch did not suppress" || pass "SB_CAPTURE_HEALTH_BANNER=off suppresses"
+
+# 4. no transcripts → silent (fresh install isn't nagged)
 B2=$(mktemp -d); : > "$B2/USER.md"
-emit "$B2" | grep -qi 'capture not running' && fail "nagged a fresh install with no transcripts" || true
-pass "silent when there are no transcripts (fresh install)"
+emit "$B2" "" | grep -qi 'capture not running' && fail "nagged a fresh install (no transcripts)" || pass "silent on fresh install"
 
-rm -rf "$B" "$B2"
-echo; echo "ALL PASS"
+rm -rf "$B" "$B2"; echo; echo "ALL PASS"
