@@ -191,4 +191,38 @@ DREAM_COUNT=$(find "$BRAIN_DIR/dreams" -maxdepth 1 -type d -name 'drm_*' | wc -l
 [ "$DREAM_COUNT" -le 5 ] || fail "should prune to max 5 dreams (got: $DREAM_COUNT)"
 pass "dream pruning: keeps max 5"
 
+# --- Subtest 8 (SP-C): a FRESH pending/running dream blocks a new one (no concurrent runs)
+setup "running-block"
+seed_wiki; seed_transcripts
+RID="drm_20260101T000000Z"; mkdir -p "$BRAIN_DIR/dreams/$RID"
+jq -nc --arg id "$RID" '{id:$id, status:"running", archived_at:null}' > "$BRAIN_DIR/dreams/$RID/status.json"
+OUT=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1); RC=$?
+[ "$RC" -ne 0 ] || fail "a fresh running dream must block a new one (got rc=$RC)"
+echo "$OUT" | grep -qi 'already running' || fail "expected 'already running' (got: $OUT)"
+[ "$(jq -r '.status' "$BRAIN_DIR/dreams/$RID/status.json")" = "running" ] || fail "fresh running must stay running"
+pass "fresh running dream blocks a new dream (no concurrent runs)"
+
+# --- Subtest 8b (SP-C): a long-but-HEALTHY run (mtime within the timeout) must NOT be reclaimed
+# (the deep-review false-positive: mtime is frozen during a run, so the margin must be generous).
+setup "running-healthy"
+seed_wiki; seed_transcripts
+HID="drm_20260101T000000Z"; mkdir -p "$BRAIN_DIR/dreams/$HID"
+jq -nc --arg id "$HID" '{id:$id, status:"running", archived_at:null}' > "$BRAIN_DIR/dreams/$HID/status.json"
+touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$BRAIN_DIR/dreams/$HID/status.json"
+OUT=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1); RC=$?   # default 6h timeout, dream is 2h old
+[ "$RC" -ne 0 ] || fail "a 2h-old running dream (under the 6h default) must still block, not reclaim"
+[ "$(jq -r '.status' "$BRAIN_DIR/dreams/$HID/status.json")" = "running" ] || fail "2h-old running dream was wrongly reclaimed"
+pass "long-but-healthy running dream (under timeout) is NOT reclaimed"
+
+# --- Subtest 9 (SP-C): a STALE running dream (no progress > timeout) is reclaimed → unblocks
+setup "running-reclaim"
+seed_wiki; seed_transcripts
+SID="drm_20260101T000000Z"; mkdir -p "$BRAIN_DIR/dreams/$SID"
+jq -nc --arg id "$SID" '{id:$id, status:"running", archived_at:null}' > "$BRAIN_DIR/dreams/$SID/status.json"
+touch -t "$(date -d '5 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-5H +%Y%m%d%H%M)" "$BRAIN_DIR/dreams/$SID/status.json"
+NEW=$(SB_DREAM_RUN_TIMEOUT=10800 bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+[ "$(jq -r '.status' "$BRAIN_DIR/dreams/$SID/status.json")" = "failed" ] || fail "a stale running dream must be reclaimed → failed (deadlock broken)"
+echo "$NEW" | grep -q '^drm_' || fail "a new dream should proceed after reclaim (got: $NEW)"
+pass "stale running dream reclaimed → failed, new dream proceeds"
+
 echo "ALL PASS"
