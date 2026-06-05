@@ -33,4 +33,7 @@ sb_validate_wiki "$KDIR" >/dev/null 2>&1 || true
 [ -f "$SDIR/kb-project-backfill.sh" ] && bash "$SDIR/kb-project-backfill.sh" >/dev/null 2>&1 || true
 # 3. reindex (index.md + project/theme MOCs + projects' related:/Dependencies)
 sb_reindex_wiki "$KDIR" >/dev/null 2>&1 || true
+# 4. retention prune (SP-D) — regenerable/dead-only GC (embeddings-cache, *.bak/*.tgz);
+# deterministic + content-free + zero-credential, like the steps above. Never live knowledge.
+[ -f "$SDIR/sb-prune-archives.sh" ] && bash "$SDIR/sb-prune-archives.sh" >/dev/null 2>&1 || true
 exit 0

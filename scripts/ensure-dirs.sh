@@ -14,10 +14,22 @@ for _c in ${SB_CONTENT_CATEGORIES:-learnings decisions entities issues concepts 
   mkdir -p "$KNOWLEDGE_DIR/wiki/$_c"
 done
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
-# Seed an opt-in-OFF config.json (SP-B) so the user has a self-documenting file to
-# flip; auto_improve:false means behaviour is unchanged until they opt in. Idempotent —
-# never clobbers an existing config.
-test -f "$BRAIN_DIR/config.json" || printf '{\n  "auto_improve": false\n}\n' > "$BRAIN_DIR/config.json"
+# Seed a self-documenting config.json (SP-B opt-in + SP-D retention). auto_improve:false
+# means behaviour is unchanged until the user opts in; the retention values equal the caps
+# already shipped, so they are informational (absent keys fall back to the same defaults via
+# sb_config_get). wiki_archive_ttl_days:0 = NEVER (the irreversible store stays off). Idempotent
+# — never clobbers an existing config; existing installs keep working via the hardcoded defaults.
+test -f "$BRAIN_DIR/config.json" || cat > "$BRAIN_DIR/config.json" <<'JSON'
+{
+  "auto_improve": false,
+  "retention": {
+    "dream_keep_count": 5,
+    "bak_ttl_days": 14,
+    "embeddings_cache_gc": true,
+    "wiki_archive_ttl_days": 0
+  }
+}
+JSON
 
 # GC stale per-session injection memos. persona-context.sh writes one file per
 # session-id under .injected/ and never deletes them — observed 189 files
