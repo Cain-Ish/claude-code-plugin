@@ -25,6 +25,16 @@ bash "$PRUNE" >/dev/null 2>&1 || true
 jq -e '.entries["episodic:dead9"]' "$CACHE" >/dev/null 2>&1 && pass "embeddings_cache_gc:false → cache untouched" || fail "GC ran despite the off switch"
 rm -f "$B/config.json"
 
+# EMPTY/rebuilding index (exchanges: []) → must NOT mass-drop the cache (deep-review HIGH).
+# The plugin's own degraded-embeddings banner tells users to remove+reindex; during that
+# window the index is empty but the cache must survive (else a needless full re-embed).
+printf '{"model":"m","exchanges":[]}\n' > "$B/episodic-index.json"
+printf '{"model":"m","entries":{"episodic:keepme":{"hash":"h","vector":[1]}}}\n' > "$CACHE"
+bash "$PRUNE" >/dev/null 2>&1 || true
+jq -e '.entries["episodic:keepme"]' "$CACHE" >/dev/null 2>&1 && pass "empty index → cache left intact (no mass-drop)" || fail "empty/rebuilding index wiped the cache (mass-drop)"
+# restore a populated index for the rest of the run
+printf '{"model":"m","exchanges":[{"id":"live1"},{"id":"live2"}]}\n' > "$B/episodic-index.json"
+
 # --- (b) .bak/.tgz TTL prune: recent kept, ancient pruned
 touch "$B/recent.bak"
 touch -t 202001010000 "$B/old.bak" "$B/old.tgz" "$B/episodic-index.json.pre-rebuild-x"

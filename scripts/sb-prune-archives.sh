@@ -22,14 +22,21 @@ if [ "$(sb_config_bool .retention.embeddings_cache_gc on)" = "on" ]; then
   CACHE="$BRAIN_DIR/transcripts/.embeddings-cache.json"
   IDX="$BRAIN_DIR/episodic-index.json"
   if [ -f "$CACHE" ] && [ -f "$IDX" ] && jq -e . "$CACHE" >/dev/null 2>&1 && jq -e . "$IDX" >/dev/null 2>&1; then
-    _tmp=$(mktemp)
-    if jq --slurpfile idx "$IDX" '
-          ($idx[0].exchanges // [] | map({key: ("episodic:" + .id), value: true}) | from_entries) as $live
-          | .entries |= with_entries(select((.key | startswith("episodic:") | not) or ($live[.key] == true)))
-        ' "$CACHE" > "$_tmp" 2>/dev/null && [ -s "$_tmp" ]; then
-      mv "$_tmp" "$CACHE"
-    else
-      rm -f "$_tmp"
+    # SAFETY: skip when the index has 0 live exchanges. The index is legitimately empty/
+    # partial mid-rebuild (the degraded-embeddings banner tells users to remove + re-index
+    # it); GC'ing against an empty live-set would drop the ENTIRE cache → a needless, slow
+    # full re-embed. An empty index = "unknown liveness", so leave the cache alone.
+    LIVE_N=$(jq -r '(.exchanges // []) | length' "$IDX" 2>/dev/null); case "$LIVE_N" in ''|*[!0-9]*) LIVE_N=0 ;; esac
+    if [ "$LIVE_N" -gt 0 ]; then
+      _tmp=$(mktemp)
+      if jq --slurpfile idx "$IDX" '
+            ($idx[0].exchanges // [] | map({key: ("episodic:" + .id), value: true}) | from_entries) as $live
+            | .entries |= with_entries(select((.key | startswith("episodic:") | not) or ($live[.key] == true)))
+          ' "$CACHE" > "$_tmp" 2>/dev/null && [ -s "$_tmp" ]; then
+        mv "$_tmp" "$CACHE"
+      else
+        rm -f "$_tmp"
+      fi
     fi
   fi
 fi
