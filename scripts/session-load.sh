@@ -252,6 +252,29 @@ if [ "${SB_AUTH_LINE:-on}" = "on" ]; then
   fi
 fi
 
+# 0a-ter. Capture-health self-check — the "wired != works" guard. Surfaces
+# whether the out-of-band drainer is actually turning archived transcripts into
+# knowledge. Shouts when transcripts exist but 0 have been extracted or the timer
+# isn't active. Silent on a fresh install (no transcripts). Suppress:
+# SB_CAPTURE_HEALTH_BANNER=off.
+if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" = "on" ]; then
+  CAP_STATE="$BRAIN_DIR/.extraction-state.jsonl"
+  CAP_N=$(ls -1 "$BRAIN_DIR/transcripts"/*.txt 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${CAP_N:-0}" -gt 0 ]; then
+    CAP_DONE=0
+    [ -f "$CAP_STATE" ] && CAP_DONE=$(grep -c '"outcome":"ok"' "$CAP_STATE" 2>/dev/null)
+    [ -n "$CAP_DONE" ] || CAP_DONE=0
+    CAP_TIMER=no
+    systemctl --user is-active sb-extract-drain.timer >/dev/null 2>&1 && CAP_TIMER=yes
+    if [ "$CAP_DONE" -eq 0 ] || [ "$CAP_TIMER" = "no" ]; then
+      # shellcheck disable=SC2016  # literal $CLAUDE_PLUGIN_ROOT for the user to run
+      sb_append "$(printf '## ⚠ second-brain — capture not running\n%s transcript(s) archived, %s extracted; drainer timer: %s.\nNothing is turning your sessions into knowledge automatically. Install the bridge:\n  `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply`  (local engine, hardened — add `--oauth` to use your Claude login instead)\nSuppress: `SB_CAPTURE_HEALTH_BANNER=off`.\n\n' "$CAP_N" "$CAP_DONE" "$CAP_TIMER")" "capture-health-banner" 600
+    else
+      sb_append "$(printf '## ⓘ second-brain capture: %s archived · %s extracted · timer active.\n\n' "$CAP_N" "$CAP_DONE")" "capture-health-line" 200
+    fi
+  fi
+fi
+
 # 0b. Episodic embeddings banner — surfaces missing native deps that prevent
 # vector search over transcripts. Production bug 2026-05-22: 976/981 exchanges
 # had embedding:[] because @huggingface/transformers was --external in the

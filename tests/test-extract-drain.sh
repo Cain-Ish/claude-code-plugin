@@ -103,6 +103,22 @@ SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
 flock -u 8; exec 8>&-
 eq "lock contention is a no-op" "$(done_count)" "0"
 
+# Test 2c (U2): summary health reports the REAL backend, not hardcoded "cli-oauth"
+# (the stub writes no per-call backend → summary should read the health file and
+# default to "drainer", never overwrite a real backend with a fixed label).
+reset; mk_tx "b1_proj_2026-05-24.txt" proj
+SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
+HBACK=$(jq -r '.backend // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)
+[ "$HBACK" != "cli-oauth" ] && ok "summary backend not hardcoded cli-oauth (got '$HBACK')" || no "summary hardcoded backend=cli-oauth"
+
+# Test 2d (U2): the summary PRESERVES the real backend the per-transcript extractor
+# wrote (e.g. local), rather than overwriting it. Pre-seed a real backend; the stub
+# writes no health, so the summary must read+keep it.
+reset; mk_tx "c1_proj_2026-05-24.txt" proj
+printf '{"checked_at":"x","backend":"local","status":"ok","reason":""}\n' > "$BRAIN_DIR/.extractor-health.json"
+SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
+eq "summary preserves real backend=local" "$(jq -r '.backend // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)" "local"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

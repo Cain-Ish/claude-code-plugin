@@ -1,0 +1,20 @@
+[Unit]
+Description=second-brain out-of-band extraction drainer (OAuth-capable)
+After=default.target
+
+[Service]
+Type=oneshot
+# OAuth-capable variant (opt-in via `install-extract-timer.sh --oauth`).
+# Same hardening as the default unit PLUS read/write of ~/.claude so a `claude -p`
+# fallback can read the OAuth token and write its session/cache. This is the one
+# credential relaxation in SP-A; prefer the hardened default + the local engine.
+#  - NoNewPrivileges / RestrictNamespaces: no escalation, no new namespaces.
+#  - ProtectHome=read-only + ReadWritePaths: $HOME read-only except the listed paths.
+#  - PrivateDevices/ProtectSystem/PrivateTmp stay OUT (break claude's pty), per
+#    wiki/learnings/pty-openpty-privatedevices-quirk.
+NoNewPrivileges=true
+RestrictNamespaces=true
+ProtectHome=read-only
+ReadWritePaths=%h/.second-brain %h/knowledge %h/.claude
+ExecStart=@EXEC@
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin

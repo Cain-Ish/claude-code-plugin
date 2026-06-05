@@ -19,6 +19,10 @@ Type=oneshot
 NoNewPrivileges=true
 RestrictNamespaces=true
 ProtectHome=read-only
-ReadWritePaths=%h/.second-brain
+# Extraction writes deltas to BOTH the hot tier (~/.second-brain: PROJECT.md,
+# state, health) AND the cold tier (~/knowledge: wiki pages + graph edges).
+# Without the knowledge grant an installed drainer silently can't write the wiki.
+# No ~/.claude grant — this hardened default runs the local engine (no creds).
+ReadWritePaths=%h/.second-brain %h/knowledge
 ExecStart=@EXEC@
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin

@@ -655,11 +655,74 @@ sb_log_extractor_diag() {
     "extractor-diag stage=$stage ec=$claude_ec out=$out_bytes err=\"$err_head\" tty=$tty_state cc=$cc ak=$ak pty=$pty_attempted" 0
 }
 
+# Backend 0 helper: call a local OpenAI-compatible chat endpoint (ollama /v1).
+# $1 url, $2 model, $3 system-prompt, $4 input-file, $5 out-file, $6 timeout.
+# Returns 0 and writes a JSON object to $5 on success; 1 otherwise. No creds.
+sb_extractor_local_call() {
+  local url="$1" model="$2" prompt="$3" input_file="$4" out_file="$5" timeout_s="${6:-60}"
+  command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 1
+  # Input budgeting: a small CPU model (e.g. qwen2.5:3b on a Pi) cannot chew a
+  # full multi-MB transcript — it overflows context and the run never finishes.
+  # Send only the most-recent SB_EXTRACTOR_LOCAL_MAX_BYTES (default 6000) — recent
+  # exchanges carry the session's decisions/plans. 0 disables the cap.
+  local src="$input_file" capped="" maxb="${SB_EXTRACTOR_LOCAL_MAX_BYTES:-6000}"
+  case "$maxb" in ''|*[!0-9]*) maxb=6000 ;; esac
+  if [ "$maxb" -gt 0 ] && [ "$(wc -c < "$input_file" 2>/dev/null || echo 0)" -gt "$maxb" ]; then
+    capped=$(mktemp) && tail -c "$maxb" "$input_file" > "$capped" && src="$capped"
+  fi
+  local payload
+  payload=$(jq -n --arg m "$model" --arg s "$prompt" --rawfile u "$src" \
+    '{model:$m, stream:false, messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null) || { [ -n "$capped" ] && rm -f "$capped"; return 1; }
+  [ -n "$capped" ] && rm -f "$capped"
+  [ -n "$payload" ] || return 1
+  local TBIN resp
+  TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+  resp=$( ${TBIN:+"$TBIN" "$timeout_s"} curl -sS "${url%/}/v1/chat/completions" \
+    -H 'content-type: application/json' --data-binary @<(printf '%s' "$payload") 2>/dev/null ) || return 1
+  local text
+  text=$(printf '%s' "$resp" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+  [ -n "$text" ] || return 1
+  # Validate in a staging temp and only mv into $out_file on a valid JSON OBJECT —
+  # never leave non-object garbage in $out_file (a failed local in `auto` mode falls
+  # through, and a downstream return-0 would otherwise ship the stale partial as a
+  # "successful" extraction, defeating the degraded-breadcrumb fallback). Mirrors
+  # the .clean staging the claude-cli / anthropic-api backends use.
+  local tmp_out="${out_file}.local.$$"
+  printf '%s' "$text" | sb_strip_code_fences > "$tmp_out"
+  if jq -e 'type == "object"' "$tmp_out" >/dev/null 2>&1; then
+    mv "$tmp_out" "$out_file"
+    return 0
+  fi
+  rm -f "$tmp_out"
+  return 1
+}
+
 sb_call_extractor() {
   local input_file="$1" out_file="$2" model="$3" prompt="$4" timeout_s="${5:-30}"
   local err_file caller_script
   err_file=$(mktemp)
   caller_script="${SB_SCRIPT_NAME:-${0##*/}}"
+
+  # --- Backend 0: local LLM (OpenAI-compatible /v1) ------------------------
+  # Tried FIRST when SB_EXTRACTOR_LOCAL_URL is set and the engine isn't pinned
+  # to a remote backend. No recursive-claude lock (not claude), no Anthropic
+  # creds -> works in-session AND offline. ENGINE=local pins it (no fallback).
+  local _engine="${SB_EXTRACTOR_ENGINE:-auto}"
+  if [ -n "${SB_EXTRACTOR_LOCAL_URL:-}" ] && [ "$_engine" != "cli" ] && [ "$_engine" != "bare" ]; then
+    # Default 90s: give the local model a fair shot, but in `auto` mode fall through
+    # to the Claude/API backend promptly when it can't deliver (e.g. a slow Pi CPU on
+    # a big transcript). ENGINE=local users who want to wait longer raise this.
+    if sb_extractor_local_call "$SB_EXTRACTOR_LOCAL_URL" \
+         "${SB_EXTRACTOR_LOCAL_MODEL:-qwen2.5:3b}" "$prompt" "$input_file" "$out_file" \
+         "${SB_EXTRACTOR_LOCAL_TIMEOUT:-90}"; then
+      sb_write_extractor_health "local" "ok" ""
+      rm -f "$err_file"; return 0
+    fi
+    if [ "$_engine" = "local" ]; then
+      sb_write_extractor_health "local" "fail" "local endpoint ${SB_EXTRACTOR_LOCAL_URL} unreachable or non-JSON"
+      rm -f "$err_file"; return 1
+    fi
+  fi
 
   # --- Backend pre-selection (recursive-claude guard) ----------------------
   # Stop / PreCompact hooks run inside a Claude Code session (CLAUDECODE=1),
