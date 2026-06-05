@@ -16,13 +16,17 @@ B=$(mktemp -d); mkdir -p "$B/transcripts"; : > "$B/transcripts/s1.txt"; : > "$B/
 oauth=$(emit "$B" "")
 echo "$oauth" | grep -qi 'capture not running' || fail "OAuth: no capture-not-running banner (got: $(echo "$oauth" | head -c 200))"
 pass "OAuth: shouts capture not running"
-echo "$oauth" | grep -q 'ANTHROPIC_API_KEY' || fail "OAuth banner must offer the API-key path"
+# anchor to a banner-UNIQUE string (the auth-mode-line also mentions ANTHROPIC_API_KEY)
+echo "$oauth" | grep -q 'instant in-session capture' || fail "OAuth capture banner must offer the API-key path (unique string)"
 echo "$oauth" | grep -q 'install-extract-timer.sh' || fail "OAuth banner must offer the drainer path"
 pass "OAuth banner offers API-key + drainer (+ local) options"
 
-# 2. API key set → in-session works → NO bridge nag
-echo "$(emit "$B" "sk-ant-test")" | grep -qi 'capture not running' \
-  && fail "API-key user wrongly nagged to install the bridge (in-session capture works)" || pass "API-key: no false bridge-nag"
+# 2. API key set → NEVER the drainer-install nag (in-session needs no drainer)
+apikey=$(emit "$B" "sk-ant-test")
+echo "$apikey" | grep -q 'install-extract-timer' && fail "API-key user wrongly told to install the drainer (in-session capture needs none)" || pass "API-key: no drainer-install nag"
+# 2b. but a genuine silent failure (transcripts piling up, nothing extracted) is still surfaced
+echo "$apikey" | grep -qiE 'no extraction recorded|extraction failing' || fail "API-key with 0 extraction should still warn (the silent-failure gap)"
+pass "API-key: surfaces a real silent failure (without the drainer nag)"
 
 # 3. kill switch
 SB_CAPTURE_HEALTH_BANNER=off emit "$B" "" | grep -qi 'capture not running' && fail "kill switch did not suppress" || pass "SB_CAPTURE_HEALTH_BANNER=off suppresses"

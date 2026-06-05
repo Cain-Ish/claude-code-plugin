@@ -269,12 +269,16 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" = "on" ]; then
     CAP_TIMER=no
     systemctl --user is-active sb-extract-drain.timer >/dev/null 2>&1 && CAP_TIMER=yes
     if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-      # API key: capture runs in-session — the drainer is unnecessary. Only flag a
-      # genuine failure (key/quota/model), never the absence of the bridge.
+      # API key: capture runs in-session — the drainer is unnecessary, so NEVER the
+      # install-the-bridge nag. But still surface a genuine "wired != works": a failed
+      # attempt, OR transcripts piling up with no extraction ever recorded (the Stop
+      # hook may not be firing). Never mentions the drainer.
       CAP_HEALTH=$(jq -r '.status // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)
       if [ "$CAP_HEALTH" = "fail" ]; then
         CAP_REASON=$(jq -r '.reason // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | tr '\n' ' ' | head -c 160)
         sb_append "$(printf '## ⚠ second-brain — extraction failing (API key)\nLast attempt failed: %s\nCheck the key/quota; tail `~/.second-brain/error-log.jsonl`.\n\n' "$CAP_REASON")" "capture-health-banner" 400
+      elif [ ! -f "$BRAIN_DIR/.extractor-health.json" ]; then
+        sb_append "$(printf '## ⚠ second-brain — no extraction recorded\n%s transcript(s) archived but the in-session extractor has never run — the Stop/PreCompact hook may not be firing. Tail `~/.second-brain/error-log.jsonl`.\n\n' "$CAP_N")" "capture-health-banner" 400
       fi
     elif command -v claude >/dev/null 2>&1; then
       # OAuth subscription: in-session queues (recursive-claude lock). Needs an
