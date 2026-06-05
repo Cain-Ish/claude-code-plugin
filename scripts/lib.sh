@@ -1085,6 +1085,32 @@ TMPL
 #   1. CLAUDE_CODE_DISABLE_AUTO_MEMORY=1                          -> off / env-disabled
 #   2. autoMemoryEnabled:false in project OR user settings.json  -> off / setting-disabled
 #   3. otherwise                                                 -> on  / default-on
+# --- config.json reader (SP-B) -----------------------------------------------
+# A persistent ~/.second-brain/config.json supplies defaults for knobs that are
+# otherwise env-only. PRECEDENCE: an explicit SB_* env var ALWAYS wins; config.json
+# is the persistent default when the env is unset; a hard-coded default is the final
+# fallback when the file/key is absent — so today's behaviour is byte-for-byte
+# preserved when no config.json exists. Pattern: "${SB_FOO:-$(sb_config_get .foo HARD)}".
+sb_config_get() {  # $1=jq-path  $2=default  → string value or default
+  local cf="${BRAIN_DIR:-$HOME/.second-brain}/config.json"
+  [ -f "$cf" ] || { printf '%s' "$2"; return 0; }
+  local v; v=$(jq -r "$1 // empty" "$cf" 2>/dev/null)
+  [ -n "$v" ] && printf '%s' "$v" || printf '%s' "$2"
+}
+sb_config_bool() {  # $1=jq-path  $2=default(on|off)
+  # Raw read (NO jq `//`) so an explicit `false` is honoured as OFF, not treated as
+  # absent — the trap _sb_am_bool documents below. Distinguish the three cases:
+  #   true → on   ·   false → off   ·   null/absent/malformed → the default.
+  local cf="${BRAIN_DIR:-$HOME/.second-brain}/config.json"
+  [ -f "$cf" ] || { printf '%s' "$2"; return 0; }
+  local v; v=$(jq -r "$1" "$cf" 2>/dev/null)
+  case "$v" in
+    true)  printf 'on' ;;
+    false) printf 'off' ;;
+    *)     printf '%s' "$2" ;;
+  esac
+}
+
 sb_auto_memory_state() {
   local home="${HOME:-/root}"
   local proj_settings="$PWD/.claude/settings.json"

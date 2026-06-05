@@ -143,4 +143,12 @@ if [ "$processed" -eq 0 ] && [ "$failed" -gt 0 ]; then
 else
   sb_write_extractor_health "$DRAIN_BACKEND" "ok" "drained $processed this run ($failed failed)"
 fi
+
+# SP-B: deterministic consolidation upkeep — opt-in via config.json `auto_improve`. Runs
+# here, inside the drainer's single-flight lock + defer guards, so no second timer is
+# needed. Content-free only (validate/backfill/reindex); the script self-throttles. LLM
+# authoring (raw-drain, dedup, enrich) stays on the explicit /second-brain:maintain path.
+if [ "$(sb_config_bool .auto_improve off)" = "on" ]; then
+  bash "$(dirname "$0")/maintain-deterministic.sh" >/dev/null 2>&1 || true
+fi
 exit 0

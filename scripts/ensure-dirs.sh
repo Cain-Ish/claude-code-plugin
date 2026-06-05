@@ -14,6 +14,10 @@ for _c in ${SB_CONTENT_CATEGORIES:-learnings decisions entities issues concepts 
   mkdir -p "$KNOWLEDGE_DIR/wiki/$_c"
 done
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
+# Seed an opt-in-OFF config.json (SP-B) so the user has a self-documenting file to
+# flip; auto_improve:false means behaviour is unchanged until they opt in. Idempotent —
+# never clobbers an existing config.
+test -f "$BRAIN_DIR/config.json" || printf '{\n  "auto_improve": false\n}\n' > "$BRAIN_DIR/config.json"
 
 # GC stale per-session injection memos. persona-context.sh writes one file per
 # session-id under .injected/ and never deletes them — observed 189 files
