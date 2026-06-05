@@ -298,7 +298,9 @@ fi
 # 1. USER.md — always included
 if [ -f "$USER_FILE" ]; then
   USER_CONTENT=$(cat "$USER_FILE")
-  sb_append "$USER_CONTENT" "USER.md" 0 force
+  # force = always land (priority-1 human rules), but cap at 6000B (USER.md is designed ≤~3200B)
+  # so even after banners the total stays under Claude Code's ~10K hook-output ceiling.
+  sb_append "$USER_CONTENT" "USER.md" 6000 force
 fi
 
 # 2. Persona signals — capped at 600 bytes

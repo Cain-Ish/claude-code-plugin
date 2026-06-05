@@ -10,8 +10,11 @@ SL="$ROOT/scripts/session-load.sh"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 
 # 1. the live USER.md append must pass `force`
-grep -qE 'sb_append "\$USER_CONTENT" "USER.md" 0 force' "$SL" \
+# force + a finite cap: always lands (priority-1) but bounded so a huge USER.md can't breach the hook cap.
+grep -qE 'sb_append "\$USER_CONTENT" "USER.md" [0-9]+ force' "$SL" \
   || fail "the USER.md sb_append does not pass the force arg (would be budget-starvable)"
+grep -qE 'sb_append "\$USER_CONTENT" "USER.md" 0 force' "$SL" \
+  && fail "USER.md is forced but UNCAPPED (max=0) — a huge USER.md could breach the ~10K hook cap"
 pass "session-load forces the USER.md section past the budget"
 
 # 2. functional: extract the real sb_append and prove force bypasses the budget, non-force doesn't
