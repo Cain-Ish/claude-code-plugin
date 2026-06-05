@@ -6281,7 +6281,7 @@ var DOC_DIRS = /* @__PURE__ */ new Set(["docs", "doc", "adr", "adrs", "rfc", "rf
 var NAME_INCLUDE = /^(readme|architecture|design|contributing|roadmap)/i;
 var LOW_SIGNAL = /^(changelog|license|licence|code_of_conduct)/i;
 var TEMPLATE_RE = /template/i;
-var SECRET_RE = /(^|\/)\.env|\.pem$|\.key$|id_rsa|secret|credential/i;
+var SECRET_RE = /(^|\/)\.env|\.(pem|key)(\.|$)|id_rsa|secret|credential/i;
 function isHighSignal(relRaw) {
   const rel = relRaw.replace(/\\/g, "/");
   const segs = rel.split("/");

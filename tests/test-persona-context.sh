@@ -234,5 +234,30 @@ echo "$out_d" | jq -e '.hookSpecificOutput.additionalContext | test("second-mark
 pass "memo re-injects when content changes"
 rm -rf "$BRAIN_DIR_CHANGE"
 
+# Test 10 (D3): USER.md<->persona-card dedup must handle backslash-bearing bullets.
+# Regression: the dedup passed USER bullets to awk via `-v ub=...`, and `-v` runs POSIX escape
+# processing on the value — so a bullet like `C:\temp\notes` had its `\t`/`\n` rewritten, the
+# seen[] key no longer matched the verbatim card bullet, dedup silently failed, and the bullet
+# was double-injected (USER.md at session-start + the card every prompt). Fixed via ENVIRON[].
+BRAIN_DIR_BS=$(mktemp -d)
+printf '# USER\n\n## Working\n- C:\\temp\\notes\n' > "$BRAIN_DIR_BS/USER.md"
+cat > "$BRAIN_DIR_BS/persona-card.md" <<'PCARD'
+# Persona
+
+## Identity
+- backslash-test-role
+
+## Working
+- C:\temp\notes
+PCARD
+out_bs=$(BRAIN_DIR="$BRAIN_DIR_BS" payload_sid "implement a substantive thing with enough words to clear the gate" "bs-session" | BRAIN_DIR="$BRAIN_DIR_BS" bash "$SCRIPT")
+echo "$out_bs" | jq -e '.hookSpecificOutput.additionalContext | test("backslash-test-role")' >/dev/null \
+  || fail "persona should inject for the backslash-dedup case (got: $out_bs)"
+if echo "$out_bs" | jq -r '.hookSpecificOutput.additionalContext' | grep -F 'C:\temp\notes' >/dev/null; then
+  fail "backslash bullet was NOT deduped against USER.md (mawk -v escape bug) — double-injected"
+fi
+pass "USER.md<->card dedup handles backslash bullets (no -v escape mangling)"
+rm -rf "$BRAIN_DIR_BS"
+
 echo
 echo "ALL PASS"
