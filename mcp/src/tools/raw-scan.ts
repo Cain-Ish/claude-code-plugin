@@ -7,11 +7,14 @@ const DOC_DIRS = new Set(['docs', 'doc', 'adr', 'adrs', 'rfc', 'rfcs', 'spec', '
 const NAME_INCLUDE = /^(readme|architecture|design|contributing|roadmap)/i;  // basename (sans ext)
 const LOW_SIGNAL = /^(changelog|license|licence|code_of_conduct)/i;          // basename (sans ext)
 const TEMPLATE_RE = /template/i;                                              // basename
-// `.pem`/`.key` match as an EXTENSION COMPONENT (a dot-token followed by another extension or
-// end-of-path), not $-anchored on the full path — every candidate already ends in `.md`, so the
-// old `\.pem$`/`\.key$` branches were structurally unreachable and `server.key.md` leaked through.
-// `(\.|$)` after the token keeps `monkey.md`/`api-keys.md` (no `.key` extension) from over-matching.
-const SECRET_RE = /(^|\/)\.env|\.(pem|key)(\.|$)|id_rsa|secret|credential/i;  // full rel path
+// Secret tokens match as dot-delimited components, NOT $-anchored on the full path — every
+// candidate already ends in `.md`, so `\.pem$`/`\.key$` were unreachable (`server.key.md` leaked).
+//  - `(^|\/)\.env` keeps the leading-dotfile family (`.env`, `.envrc`, `.env.local`);
+//  - `\.env\.` adds the mid-path component case (`config.env.md`) for parity with pem/key;
+//  - `\.(pem|key)(\.|$)` matches `.pem`/`.key` as an extension component.
+// The dot-delimited requirement keeps `monkey.md`/`api-keys.md`/`environment.md` (no secret token)
+// from over-matching.
+const SECRET_RE = /(^|\/)\.env|\.env\.|\.(pem|key)(\.|$)|id_rsa|secret|credential/i;  // full rel path
 
 /** A repo-relative markdown path is high-signal iff it matches an include rule and no denylist.
  *  Normalizes separators first: `path.relative` emits OS-native separators, so a Windows path
