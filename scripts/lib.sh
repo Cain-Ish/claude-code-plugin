@@ -896,7 +896,9 @@ sb_call_extractor() {
 
     if [ -n "$payload" ]; then
       local resp
-      resp=$(timeout "$timeout_s" curl -sS https://api.anthropic.com/v1/messages \
+      # Honor ANTHROPIC_BASE_URL for enterprise gateways / proxies / air-gapped
+      # Anthropic-compatible endpoints; default to the public host.
+      resp=$(timeout "$timeout_s" curl -sS "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/messages" \
         -H "x-api-key: $ANTHROPIC_API_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" \
