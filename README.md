@@ -94,7 +94,9 @@ The SessionStart banner always shows the active mode in one line.
 | `/second-brain:doubt` | Adversarial drilling skill — challenge a claim or proposed change before acting |
 | `/second-brain:import-host` | Import existing host AI-context files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, etc.) into USER.md / PROJECT.md / wiki |
 | `/second-brain:recall [query]` | Search past session transcripts via `episodic_search` (hybrid vector + text) |
-| `/second-brain:dream` | Background consolidation of the wiki (dedupe, link, prune); staging area, review before accept |
+| `/second-brain:capture <path\|url\|"text">` | Drop unprocessed material (a file, URL, or pasted text) into the project's raw inbox for the maintainer to refine later; `--list` / `--discard <id>` / `--node <slug>` |
+| `/second-brain:maintain` | Run the knowledge-maintainer live over the KB — audit, dedup, relate, enrich, author ai-blocks, **and drain the raw inbox into wiki nodes** (the explicit full run; bounded + reversible) |
+| `/second-brain:dream` | Background consolidation of the wiki (dedupe, link, prune); **stages** changes for review before accept (vs `maintain`, which writes live) |
 | `/second-brain:review` | Read-only cross-project overview: open blockers, stale projects, pending dreams, ungraduated persona signals |
 | `/second-brain:audit` | Show what the safety layer did this session — guard verdicts, tool-return flags, wiki-write decisions (read-only) |
 | `/second-brain:track` | Register a docs/source location so the next session indexes it for retrieval |
@@ -129,9 +131,9 @@ The persona is the *self* of second-brain — identity, memory, tools, judgment.
 - `SB_QUALITY_GATE=off` — disable Layer 4
 - `SB_QUALITY_GATE_LLM=on` — enable Haiku validation in Layer 4 (default rules-only)
 - `SB_QUALITY_GATE_STRICTNESS=aggressive` — Layer 4 rejects more (~30% vs default ~10%)
-- `SB_MAINTAINER_AUTO` — `off` disables auto-dispatch of `knowledge-maintainer` from SessionStart entirely. State files still update but are not read. (default `on`)
-- `SB_MAINTAINER_THRESHOLD` — wiki-write count at which the next SessionStart auto-dispatches the maintainer. Higher = less frequent consolidation. (default `3`)
-- `SB_MAINTAINER_MAX_FAILS` — consecutive failure count that creates the per-project `.maintainer-auto-disabled` marker. Delete the marker manually to re-arm. (default `3`)
+- `SB_MAINTAINER_AUTO` — `off` suppresses the SessionStart "wiki maintenance suggested" banner. (default `on`) — note: the plugin does **not** auto-dispatch the maintainer (explicit-invocation only, per the Anthropic doctrine rethink in 0.21.0); the banner just nudges you to run `/second-brain:maintain` (live) or `/second-brain:dream` (staged).
+- `SB_MAINTAINER_THRESHOLD` — wiki-write count at which that suggestion banner appears. Higher = less frequent nudging. (default `3`)
+- `SB_MAINTAINER_MAX_FAILS` — fail-count for the retained manual reconcile path (`DISP_FILE`) that creates the per-project `.maintainer-auto-disabled` marker; the auto path no longer creates `DISP_FILE` itself. Delete the marker to re-arm. (default `3`)
 
 **User-editable files:**
 - `~/.second-brain/persona-card.md` — your identity card. Read by Layer 1; the plugin never auto-rewrites it.
@@ -259,12 +261,28 @@ Session N
      mattered and files it for you — into the hot tier, the wiki, and the graph
 
 Session N+1
-  └─ The new knowledge is already loaded; relevant wiki notes surface on demand
+  └─ The new knowledge is already loaded; relevant wiki notes surface on demand —
+     scoped to the active project first, so you don't get another project's noise
 
 Result: memory builds up on its own, plus whatever you pin by hand. Everything stays
         on your machine — written to your local knowledge base, never to your repo,
         never to the cloud.
 ```
+
+You can also feed it explicitly, for material the extractor wouldn't catch on its own:
+
+```
+/second-brain:capture <file|url|"note">   ─┐  drop unprocessed material into the
+/second-brain:setup   (scans a repo's docs) ─┤  per-project raw INBOX (held out of search)
+                                              │
+/second-brain:maintain  ──────────────────────┘─▶  the maintainer DRAINS the inbox into
+                                                    proper wiki nodes (create/update, with
+                                                    provenance) and consolidates the wiki
+```
+
+The inbox is a staging area: captured material is *not* searched until the maintainer refines
+it into a wiki node — so a quick `capture` never pollutes retrieval, and you review what it
+became via the normal wiki.
 
 ## Testing
 
