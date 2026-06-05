@@ -522,20 +522,45 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
   fi
 fi
 
-# 6. Dream completion nudge
+# 6. Dream completion nudge (SP-C) — surface dreams AWAITING REVIEW only:
+# status=="completed" AND archived_at is unset. accept/discard stamp archived_at while
+# leaving status "completed", so WITHOUT the archived_at guard an already-applied dream
+# re-nags every session (the reported bug — every other consumer honours archived_at).
+# A genuinely-stale unaccepted dream (age > SB_DREAM_STALE_DAYS) gets a louder, distinct
+# banner. Age = status.json mtime (≈ completion time until archived; portable stat, no GNU date-parsing).
 DREAMS_DIR="$BRAIN_DIR/dreams"
 if [ -d "$DREAMS_DIR" ] && command -v jq >/dev/null 2>&1; then
+  STALE_DAYS="${SB_DREAM_STALE_DAYS:-7}"; case "$STALE_DAYS" in ''|*[!0-9]*) STALE_DAYS=7 ;; esac
+  NOW_S=$(date +%s)
+  PEND_N=0; PEND_ID=""; PEND_A=0; PEND_M=0
+  STALE_N=0; STALE_ID=""; STALE_AGE=0; STALE_A=0; STALE_M=0; STALE_OLDEST=""
   for sf in "$DREAMS_DIR"/drm_*/status.json; do
     [ -f "$sf" ] || continue
-    DSTATUS=$(jq -r '.status' "$sf" 2>/dev/null)
-    if [ "$DSTATUS" = "completed" ]; then
-      DID=$(jq -r '.id' "$sf" 2>/dev/null)
-      DA=$(jq -r '.outputs.pages_added // 0' "$sf" 2>/dev/null)
-      DM=$(jq -r '.outputs.pages_modified // 0' "$sf" 2>/dev/null)
-      sb_append "$(printf '\n[Dream %s completed: +%s added, ~%s modified — run /second-brain:dream to review and accept/discard]' "$DID" "$DA" "$DM")" "dream-nudge" 250
-      break
+    [ "$(jq -r '.status // ""' "$sf" 2>/dev/null)" = "completed" ] || continue
+    DARCH=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null)
+    { [ -n "$DARCH" ] && [ "$DARCH" != "null" ]; } && continue   # terminal (accepted/discarded) → silent
+    DID=$(jq -r '.id // ""' "$sf" 2>/dev/null)
+    DA=$(jq -r '.outputs.pages_added // 0' "$sf" 2>/dev/null)
+    DM=$(jq -r '.outputs.pages_modified // 0' "$sf" 2>/dev/null)
+    SMT=$(stat -c %Y "$sf" 2>/dev/null || stat -f %m "$sf" 2>/dev/null || echo "$NOW_S")
+    AGE_D=$(( (NOW_S - ${SMT:-$NOW_S}) / 86400 ))
+    if [ "$AGE_D" -gt "$STALE_DAYS" ]; then
+      STALE_N=$((STALE_N + 1))
+      if [ -z "$STALE_OLDEST" ] || [ "${SMT:-0}" -lt "$STALE_OLDEST" ]; then
+        STALE_OLDEST="$SMT"; STALE_ID="$DID"; STALE_AGE="$AGE_D"; STALE_A="$DA"; STALE_M="$DM"
+      fi
+    else
+      PEND_N=$((PEND_N + 1))
+      [ -z "$PEND_ID" ] && { PEND_ID="$DID"; PEND_A="$DA"; PEND_M="$DM"; }
     fi
   done
+  if [ "$STALE_N" -gt 0 ]; then
+    SX=""; [ "$STALE_N" -gt 1 ] && SX=" (+$((STALE_N - 1)) more awaiting review)"
+    sb_append "$(printf '\n[⚠ Dream %s finished ~%sd ago and is still UNREVIEWED: +%s added, ~%s modified — these changes are NOT in your wiki yet. Run /second-brain:dream to accept or discard.%s]' "$STALE_ID" "$STALE_AGE" "$STALE_A" "$STALE_M" "$SX")" "dream-stale-nudge" 340
+  elif [ "$PEND_N" -gt 0 ]; then
+    PX=""; [ "$PEND_N" -gt 1 ] && PX=" (+$((PEND_N - 1)) more)"
+    sb_append "$(printf '\n[Dream %s completed: +%s added, ~%s modified — run /second-brain:dream to review and accept/discard.%s]' "$PEND_ID" "$PEND_A" "$PEND_M" "$PX")" "dream-nudge" 300
+  fi
 fi
 
 # --- Emit collected output ---
