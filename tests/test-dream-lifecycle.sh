@@ -202,6 +202,18 @@ echo "$OUT" | grep -qi 'already running' || fail "expected 'already running' (go
 [ "$(jq -r '.status' "$BRAIN_DIR/dreams/$RID/status.json")" = "running" ] || fail "fresh running must stay running"
 pass "fresh running dream blocks a new dream (no concurrent runs)"
 
+# --- Subtest 8b (SP-C): a long-but-HEALTHY run (mtime within the timeout) must NOT be reclaimed
+# (the deep-review false-positive: mtime is frozen during a run, so the margin must be generous).
+setup "running-healthy"
+seed_wiki; seed_transcripts
+HID="drm_20260101T000000Z"; mkdir -p "$BRAIN_DIR/dreams/$HID"
+jq -nc --arg id "$HID" '{id:$id, status:"running", archived_at:null}' > "$BRAIN_DIR/dreams/$HID/status.json"
+touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$BRAIN_DIR/dreams/$HID/status.json"
+OUT=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1); RC=$?   # default 6h timeout, dream is 2h old
+[ "$RC" -ne 0 ] || fail "a 2h-old running dream (under the 6h default) must still block, not reclaim"
+[ "$(jq -r '.status' "$BRAIN_DIR/dreams/$HID/status.json")" = "running" ] || fail "2h-old running dream was wrongly reclaimed"
+pass "long-but-healthy running dream (under timeout) is NOT reclaimed"
+
 # --- Subtest 9 (SP-C): a STALE running dream (no progress > timeout) is reclaimed → unblocks
 setup "running-reclaim"
 seed_wiki; seed_transcripts

@@ -50,11 +50,15 @@ for sf in "$DREAMS_DIR"/drm_*/status.json; do
     did=$(jq -r '.id' "$sf" 2>/dev/null)
     # SP-C: a crash mid-run would otherwise stick at pending/running forever and DEADLOCK
     # every future dream (this guard refuses while one is active). Treat a pending/running
-    # dream whose status.json hasn't advanced in SB_DREAM_RUN_TIMEOUT (default 3h — well
-    # beyond a healthy consolidation) as crashed: mark it failed (recoverable — its staging
-    # is kept for SP-D to prune) and proceed, rather than block indefinitely.
+    # dream whose status.json hasn't advanced in SB_DREAM_RUN_TIMEOUT as crashed: mark it
+    # failed (recoverable — its staging is kept for SP-D to prune) and proceed.
+    # The liveness signal is the status.json mtime; the dream-runner heartbeats it between
+    # phases (re-stamps status=running), so a healthy run keeps it fresh. The default is a
+    # DELIBERATELY GENEROUS 6h — safely beyond any realistic 50-transcript consolidation
+    # even if a heartbeat is missed — so a still-running dream is never wrongly reclaimed;
+    # the cost is only that a genuine crash blocks for up to 6h before auto-recovery.
     smt=$(stat -c %Y "$sf" 2>/dev/null || stat -f %m "$sf" 2>/dev/null || echo 0)
-    run_to="${SB_DREAM_RUN_TIMEOUT:-10800}"; case "$run_to" in ''|*[!0-9]*) run_to=10800 ;; esac
+    run_to="${SB_DREAM_RUN_TIMEOUT:-21600}"; case "$run_to" in ''|*[!0-9]*) run_to=21600 ;; esac
     if [ "$(( $(date +%s) - ${smt:-0} ))" -gt "$run_to" ]; then
       tmp=$(mktemp) && jq --arg e "stale $s run reclaimed after ${run_to}s with no progress" \
         '.status="failed" | .error=$e' "$sf" > "$tmp" 2>/dev/null && mv "$tmp" "$sf" || rm -f "$tmp"

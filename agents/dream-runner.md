@@ -164,13 +164,17 @@ jq '.status = "completed" | .ended_at = "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"' \
   mv "$TMPFILE" ~/.second-brain/dreams/{dream_id}/status.json
 ```
 
-## Cancellation
+## Cancellation + heartbeat
 
-Between phases, check `status.json`. If status is `canceled`, stop immediately — do not update status further, just exit.
+Between phases, check `status.json`. If status is `canceled`, stop immediately — do not update status further, just exit. Otherwise **heartbeat**: re-stamp `status.json` so its mtime advances. This is the liveness signal `dream-snapshot.sh` uses to tell a crashed run (frozen mtime) from a healthy long one — without it, a long consolidation could be wrongly reclaimed and a second dream started concurrently.
 
 ```bash
 STATUS=$(jq -r '.status' ~/.second-brain/dreams/{dream_id}/status.json 2>/dev/null)
 [ "$STATUS" = "canceled" ] && exit 0
+# heartbeat: bump mtime (atomic re-write; keeps status=running)
+HB=$(mktemp) && jq --arg t "$(date -u +%FT%TZ)" '.heartbeat_at=$t' \
+  ~/.second-brain/dreams/{dream_id}/status.json > "$HB" \
+  && mv "$HB" ~/.second-brain/dreams/{dream_id}/status.json || rm -f "$HB"
 ```
 
 ## Constraints
