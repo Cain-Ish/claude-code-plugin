@@ -699,9 +699,12 @@ sb_call_extractor() {
   # creds -> works in-session AND offline. ENGINE=local pins it (no fallback).
   local _engine="${SB_EXTRACTOR_ENGINE:-auto}"
   if [ -n "${SB_EXTRACTOR_LOCAL_URL:-}" ] && [ "$_engine" != "cli" ] && [ "$_engine" != "bare" ]; then
+    # Default 90s: give the local model a fair shot, but in `auto` mode fall through
+    # to the Claude/API backend promptly when it can't deliver (e.g. a slow Pi CPU on
+    # a big transcript). ENGINE=local users who want to wait longer raise this.
     if sb_extractor_local_call "$SB_EXTRACTOR_LOCAL_URL" \
          "${SB_EXTRACTOR_LOCAL_MODEL:-qwen2.5:3b}" "$prompt" "$input_file" "$out_file" \
-         "${SB_EXTRACTOR_LOCAL_TIMEOUT:-300}"; then
+         "${SB_EXTRACTOR_LOCAL_TIMEOUT:-90}"; then
       sb_write_extractor_health "local" "ok" ""
       rm -f "$err_file"; return 0
     fi

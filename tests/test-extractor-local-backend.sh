@@ -55,5 +55,24 @@ BRAIN_DIR="$BRAIN_DIR2" SB_EXTRACTOR_LOCAL_URL="http://127.0.0.1:$PORT2" SB_EXTR
   sb_call_extractor "$BIG" "$OUT2" qwen2.5:3b "p" 10 >/dev/null 2>&1
 ULEN=$(jq -r '.messages[-1].content | length' "$REQ" 2>/dev/null)
 { [ -n "$ULEN" ] && [ "$ULEN" -le 500 ]; } && pass "input budgeted to cap (user content ${ULEN}B <= 500)" || fail "input NOT capped (user content '${ULEN}'B)"
-kill $SRV2 2>/dev/null; rm -rf "$BRAIN_DIR" "$BRAIN_DIR2" "$IN" "$OUT" "$BIG" "$OUT2" "$REQ"
+kill $SRV2 2>/dev/null
+
+# Fallback policy: `auto` (default) tries local FIRST then falls through to the
+# Claude/API backend when local can't deliver; `local` pins (no fallthrough).
+# Probe with an unreachable local URL (connection refused → fast fail).
+IN3=$(mktemp); printf 'x\n' > "$IN3"; O3=$(mktemp)
+BD_PIN=$(mktemp -d)
+( export SB_HEALTH_FILE="$BD_PIN/.extractor-health.json" BRAIN_DIR="$BD_PIN" \
+    SB_EXTRACTOR_ENGINE=local SB_EXTRACTOR_LOCAL_URL=http://127.0.0.1:1
+  sb_call_extractor "$IN3" "$O3" m p 3 ) >/dev/null 2>&1
+jq -e '.backend=="local" and .status=="fail"' "$BD_PIN/.extractor-health.json" >/dev/null 2>&1 \
+  && pass "engine=local pins (bad url → local/fail, no fallthrough)" || fail "pinned local wrong health ($(cat "$BD_PIN/.extractor-health.json" 2>/dev/null))"
+BD_AUTO=$(mktemp -d)
+( export SB_HEALTH_FILE="$BD_AUTO/.extractor-health.json" BRAIN_DIR="$BD_AUTO" \
+    SB_EXTRACTOR_ENGINE=auto SB_EXTRACTOR_LOCAL_URL=http://127.0.0.1:1
+  sb_call_extractor "$IN3" "$O3" m p 3 ) >/dev/null 2>&1
+jq -e '.backend=="local" and .status=="ok"' "$BD_AUTO/.extractor-health.json" >/dev/null 2>&1 \
+  && fail "auto wrongly reported local-ok on a bad url (did not fall through)" || pass "auto falls through a failed local (to the Claude path)"
+
+kill $SRV2 2>/dev/null; rm -rf "$BRAIN_DIR" "$BRAIN_DIR2" "$BD_PIN" "$BD_AUTO" "$IN" "$OUT" "$BIG" "$OUT2" "$REQ" "$IN3" "$O3"
 echo; echo "ALL PASS"
