@@ -661,9 +661,19 @@ sb_log_extractor_diag() {
 sb_extractor_local_call() {
   local url="$1" model="$2" prompt="$3" input_file="$4" out_file="$5" timeout_s="${6:-60}"
   command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 1
+  # Input budgeting: a small CPU model (e.g. qwen2.5:3b on a Pi) cannot chew a
+  # full multi-MB transcript — it overflows context and the run never finishes.
+  # Send only the most-recent SB_EXTRACTOR_LOCAL_MAX_BYTES (default 6000) — recent
+  # exchanges carry the session's decisions/plans. 0 disables the cap.
+  local src="$input_file" capped="" maxb="${SB_EXTRACTOR_LOCAL_MAX_BYTES:-6000}"
+  case "$maxb" in ''|*[!0-9]*) maxb=6000 ;; esac
+  if [ "$maxb" -gt 0 ] && [ "$(wc -c < "$input_file" 2>/dev/null || echo 0)" -gt "$maxb" ]; then
+    capped=$(mktemp) && tail -c "$maxb" "$input_file" > "$capped" && src="$capped"
+  fi
   local payload
-  payload=$(jq -n --arg m "$model" --arg s "$prompt" --rawfile u "$input_file" \
-    '{model:$m, stream:false, messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null) || return 1
+  payload=$(jq -n --arg m "$model" --arg s "$prompt" --rawfile u "$src" \
+    '{model:$m, stream:false, messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null) || { [ -n "$capped" ] && rm -f "$capped"; return 1; }
+  [ -n "$capped" ] && rm -f "$capped"
   [ -n "$payload" ] || return 1
   local TBIN resp
   TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
@@ -690,7 +700,8 @@ sb_call_extractor() {
   local _engine="${SB_EXTRACTOR_ENGINE:-auto}"
   if [ -n "${SB_EXTRACTOR_LOCAL_URL:-}" ] && [ "$_engine" != "cli" ] && [ "$_engine" != "bare" ]; then
     if sb_extractor_local_call "$SB_EXTRACTOR_LOCAL_URL" \
-         "${SB_EXTRACTOR_LOCAL_MODEL:-qwen2.5:3b}" "$prompt" "$input_file" "$out_file" "$timeout_s"; then
+         "${SB_EXTRACTOR_LOCAL_MODEL:-qwen2.5:3b}" "$prompt" "$input_file" "$out_file" \
+         "${SB_EXTRACTOR_LOCAL_TIMEOUT:-300}"; then
       sb_write_extractor_health "local" "ok" ""
       rm -f "$err_file"; return 0
     fi
