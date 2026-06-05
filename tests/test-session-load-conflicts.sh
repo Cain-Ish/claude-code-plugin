@@ -33,8 +33,11 @@ EOF
 OUT=$(run)
 printf '%s' "$OUT" | grep -q 'graph conflict' || fail "conflict banner missing under near-full budget"
 printf '%s' "$OUT" | grep -q '2 graph conflict' || fail "folded open-count wrong (expected 2; resolved identity should not count)"
-OB=$(printf '%s' "$OUT" | wc -c)   # count BYTES (>= chars) — conservative vs the 8000 cap (banners are multibyte)
-[ "$OB" -le 8000 ] || fail "output exceeded 8000B ($OB)"
+OB=$(printf '%s' "$OUT" | wc -c)   # count BYTES (>= chars; banners are multibyte)
+# Forced priority sections (USER.md + PROJECT.md, SP-E) bypass the 8000 soft budget by
+# design — they are the hot tier and must never be dropped — but the TOTAL must still stay
+# under Claude Code's ~10K hook-output HARD cap.
+[ "$OB" -le 10000 ] || fail "output exceeded the ~10K hook cap ($OB)"
 pass "banner present + folded count=2 + within budget (${OB}B)"
 
 # --- 2: all resolved → no banner ---

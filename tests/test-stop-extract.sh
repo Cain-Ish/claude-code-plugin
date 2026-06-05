@@ -177,9 +177,12 @@ stop_payload | "$SCRIPT" >/dev/null 2>&1
 seed_transcript_with_edit
 stop_payload | "$SCRIPT" >/dev/null 2>&1
 export PATH="$SAVED_PATH"
-DEGRADED_COUNT=$(grep -c '\[degraded\] LLM extraction unavailable' "$PROJ" 2>/dev/null || echo 0)
-[ "$DEGRADED_COUNT" -eq 1 ] || fail "no-claude-dedup: expected exactly 1 [degraded] line, got $DEGRADED_COUNT"
-pass "claude unavailable: [degraded] breadcrumb dedup'd to once per day"
+# SP-E: the breadcrumb now lives in a SIDECAR, dedup'd per day — NOT in PROJECT.md decisions.
+PENDING="$SANDBOX/.second-brain/projects/test-slug/pending-extraction.log"
+DEGRADED_COUNT=$(grep -c '\[degraded\] LLM extraction unavailable' "$PENDING" 2>/dev/null || echo 0)
+[ "$DEGRADED_COUNT" -eq 1 ] || fail "no-claude-dedup: expected exactly 1 [degraded] sidecar line, got $DEGRADED_COUNT"
+pass "claude unavailable: [degraded] breadcrumb dedup'd to once per day (in the sidecar)"
+grep -qF '[degraded]' "$PROJ" 2>/dev/null && fail "SP-E: [degraded] leaked into PROJECT.md Recent decisions" || pass "SP-E: PROJECT.md decisions stay clean of [degraded]"
 
 # --- Test 4: claude returns garbage → fail-soft, PROJECT.md untouched, exit 0.
 init_sandbox "garbage"
@@ -225,11 +228,13 @@ chmod +x "$SANDBOX/path-stub/claude"
 export PATH="$SANDBOX/path-stub:$PATH"
 stop_payload | "$SCRIPT" >/dev/null 2>&1
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
-grep -q "src/foo.ts" "$PROJ" || fail "scratch-filter: project path should be retained in breadcrumb"
-grep -q "/tmp/" "$PROJ" && fail "scratch-filter: /tmp path leaked into PROJECT.md breadcrumb"
-grep -q "/var/tmp/" "$PROJ" && fail "scratch-filter: /var/tmp path leaked into PROJECT.md breadcrumb"
-grep -q "/run/" "$PROJ" && fail "scratch-filter: /run path leaked into PROJECT.md breadcrumb"
-pass "degraded fallback strips /tmp, /var/tmp, /run; keeps project paths"
+PENDING="$SANDBOX/.second-brain/projects/test-slug/pending-extraction.log"   # SP-E: breadcrumb lives here now
+grep -q "src/foo.ts" "$PENDING" || fail "scratch-filter: project path should be retained in the sidecar breadcrumb"
+grep -q "/tmp/" "$PENDING" && fail "scratch-filter: /tmp path leaked into the breadcrumb"
+grep -q "/var/tmp/" "$PENDING" && fail "scratch-filter: /var/tmp path leaked into the breadcrumb"
+grep -q "/run/" "$PENDING" && fail "scratch-filter: /run path leaked into the breadcrumb"
+grep -qF '[degraded]' "$PROJ" 2>/dev/null && fail "SP-E: [degraded] leaked into PROJECT.md decisions" || true
+pass "degraded fallback strips /tmp, /var/tmp, /run; keeps project paths (in sidecar, not decisions)"
 restore_path
 
 echo "ALL PASS"

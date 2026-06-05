@@ -17,6 +17,15 @@ grep -qE 'sb_append "\$USER_CONTENT" "USER.md" 0 force' "$SL" \
   && fail "USER.md is forced but UNCAPPED (max=0) — a huge USER.md could breach the ~10K hook cap"
 pass "session-load forces the USER.md section past the budget"
 
+# 1b. SP-E: the PROJECT.md append must ALSO pass force + a finite cap — the sibling bug.
+# PROJECT.md is the project hot tier, appended AFTER ~9 banners, so it was budget-starvable
+# and could be silently dropped (losing the project's whole context).
+grep -qE 'sb_append "\$PROJ_CONTENT" "PROJECT.md" [0-9]+ force' "$SL" \
+  || fail "the PROJECT.md sb_append does not pass force (the project hot tier is budget-starvable)"
+grep -qE 'sb_append "\$PROJ_CONTENT" "PROJECT.md" 0 force' "$SL" \
+  && fail "PROJECT.md is forced but UNCAPPED (max=0) — a huge PROJECT.md could breach the ~10K hook cap"
+pass "session-load forces the PROJECT.md section past the budget (SP-E sibling fix)"
+
 # 2. functional: extract the real sb_append and prove force bypasses the budget, non-force doesn't
 TMP=$(mktemp); awk '/^sb_append\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$SL" > "$TMP"
 sb_log_error(){ :; }                      # no-op stub for the extracted function

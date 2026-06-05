@@ -116,10 +116,13 @@ else
   sb_log_error "pre-compact.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=$HEALTH_REASON" 0
 fi
 
-# Deterministic fallback: single [degraded] breadcrumb, deduped per day.
+# Deterministic fallback: single [degraded] breadcrumb in a SIDECAR (not PROJECT.md
+# decisions — SP-E), deduped per day. The transcript is archived for out-of-band drainer
+# recovery of the real knowledge; this just logs the gap.
 if [ -z "$DELTA_JSON" ]; then
   TODAY=$(date -u +%Y-%m-%d)
-  if grep -qF "[$TODAY] [degraded]" "$PROJECT_MD" 2>/dev/null; then
+  PENDING_LOG="$(dirname "$PROJECT_MD")/pending-extraction.log"
+  if grep -qF "[$TODAY] [degraded]" "$PENDING_LOG" 2>/dev/null; then
     DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
   else
     # Scratch-path filter: /tmp, /var/tmp, /proc, /dev, /run are session-ephemeral
@@ -145,12 +148,13 @@ if [ -z "$DELTA_JSON" ]; then
     else
       NOTE="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
     fi
-    DELTA_JSON=$(jq -cn --argjson f "$FILES_JSON" --arg n "$NOTE" '{
-      recent_decisions: [$n],
-      open_blockers:    [],
-      cross_refs:       [],
-      files_touched:    $f
-    }')
+    # Sidecar (out of PROJECT.md decisions), bounded to 50 lines.
+    mkdir -p "$(dirname "$PENDING_LOG")" 2>/dev/null || true
+    printf '[%s] %s\n' "$TODAY" "$NOTE" >> "$PENDING_LOG" 2>/dev/null || true
+    if [ -f "$PENDING_LOG" ]; then
+      tail -n 50 "$PENDING_LOG" > "$PENDING_LOG.tmp" 2>/dev/null && mv "$PENDING_LOG.tmp" "$PENDING_LOG" 2>/dev/null || rm -f "$PENDING_LOG.tmp" 2>/dev/null
+    fi
+    DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
   fi
 fi
 
