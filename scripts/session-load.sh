@@ -474,8 +474,20 @@ if [ "${SB_RAW_INBOX:-on}" != "off" ]; then
     RAW_CLOSED=$(grep -rlE '^status: (processed|discarded)$' "$RAW_DIR_PATH" 2>/dev/null | wc -l | tr -d ' ')
     RAW_N=$(( ${RAW_TOTAL:-0} - ${RAW_CLOSED:-0} ))
     if [ "${RAW_N:-0}" -gt 0 ]; then
-      sb_append "$(printf '## ⓘ raw inbox — %s unprocessed item(s)\nRun `/second-brain:capture --list` to review; the maintainer refines them into notes.\n\n' "$RAW_N")" \
-        "raw-inbox-banner" 250
+      # B1 (SP-B): when material is genuinely piling up AND auto-consolidation is OFF,
+      # show the self-install nudge instead of the plain backlog line (mutually
+      # exclusive — one banner per session, no fatigue). The nudge is honest about the
+      # two remedies: auto_improve auto-upkeeps STRUCTURE (validate/reindex), /maintain
+      # AUTHORS the backlog (needs a Claude session). Kill switch SB_AUTOCONSOLIDATE_NUDGE=off.
+      NUDGE_THRESH="${SB_NUDGE_RAW_THRESHOLD:-20}"; case "$NUDGE_THRESH" in ''|*[!0-9]*) NUDGE_THRESH=20 ;; esac
+      if [ "${SB_AUTOCONSOLIDATE_NUDGE:-on}" != "off" ] \
+         && [ "$(sb_config_bool .auto_improve off)" = "off" ] \
+         && [ "${RAW_N:-0}" -ge "$NUDGE_THRESH" ]; then
+        sb_append "$(printf '## ⓘ second-brain — auto-consolidation is off\n%s raw item(s) are piling up with nothing consolidating them automatically. Pick one:\n  • auto-upkeep:  set `auto_improve: true` in ~/.second-brain/config.json (keeps the wiki validated + reindexed on the drainer timer)\n  • author them:  /second-brain:maintain (refines raw items into wiki notes — needs a Claude session)\nSuppress: `SB_AUTOCONSOLIDATE_NUDGE=off`.\n\n' "$RAW_N")" "autoconsolidate-nudge" 450
+      else
+        sb_append "$(printf '## ⓘ raw inbox — %s unprocessed item(s)\nRun `/second-brain:capture --list` to review; the maintainer refines them into notes.\n\n' "$RAW_N")" \
+          "raw-inbox-banner" 250
+      fi
     fi
   fi
 fi

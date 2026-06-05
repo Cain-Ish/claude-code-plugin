@@ -74,6 +74,16 @@ set `SB_EXTRACTOR_LOCAL_URL=http://localhost:11434` (an ollama / OpenAI-compatib
 unset or can't deliver (e.g. a low-power CPU on a large transcript). The plugin
 never assumes a local model is present.
 
+**Auto-consolidation (opt-in).** By default nothing consolidates the knowledge
+base unattended — you run `/second-brain:maintain` when you want it tidied. To let
+the *content-free* upkeep (validate · project-backfill · reindex) run automatically
+in the out-of-band drainer, set `"auto_improve": true` in `~/.second-brain/config.json`
+(seeded `false`). This **never** authors prose or makes merge judgements — that
+stays on the explicit `/second-brain:maintain` path (a Claude session). Installing
+the drainer alone does **not** enable it: it gates on *both* the timer *and*
+`auto_improve`. A SessionStart nudge appears when the raw inbox piles up and
+auto-consolidation is off (`SB_AUTOCONSOLIDATE_NUDGE=off` to mute).
+
 Inspect or repair your auth setup any time with:
 
 ```bash
