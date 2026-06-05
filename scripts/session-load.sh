@@ -422,10 +422,15 @@ if [ "${SB_PERSONA_GATE:-on}" != "off" ]; then
   fi
 fi
 
-# 3. PROJECT.md — always included
+# 3. PROJECT.md — always included (the project hot tier). It is priority-1 context like
+# USER.md, so `force` it past the byte budget (otherwise earlier conditional banners can
+# spend the budget and SILENTLY DROP the project's whole context — the sibling of the
+# 0.24.16 USER.md bug). Capped at 3000B so PROJECT.md + USER.md (6000) + budget-bounded
+# banners stay under Claude Code's ~10K hook-output ceiling; SP-E's [degraded] routing
+# keeps it from bloating.
 if [ -f "$project_file" ]; then
   PROJ_CONTENT=$(printf '\n%s' "$(cat "$project_file")")
-  sb_append "$PROJ_CONTENT" "PROJECT.md" 0
+  sb_append "$PROJ_CONTENT" "PROJECT.md" 3000 force
 fi
 
 # 4. Index line — tiny, always fits

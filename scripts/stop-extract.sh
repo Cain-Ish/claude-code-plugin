@@ -148,13 +148,15 @@ else
   sb_log_error "stop-extract.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=$HEALTH_REASON" 0
 fi
 
-# Deterministic fallback when LLM is unavailable. Emits a single [degraded]
-# breadcrumb under Recent decisions — only once per day per project, so a
-# multi-session outage doesn't push real decisions off the 5-bullet cap.
-# Transcript is still archived below for dream-mining recovery.
+# Deterministic fallback when LLM is unavailable. Records a single [degraded] breadcrumb
+# in a SIDECAR (`pending-extraction.log`), NOT in PROJECT.md's Recent decisions — those
+# breadcrumbs are not decisions and were crowding real ones off the 5-bullet cap (SP-E).
+# The transcript is still archived below, so the out-of-band drainer mines the REAL
+# knowledge later; this sidecar just logs the gap. Deduped per day, bounded.
 if [ -z "$DELTA_JSON" ]; then
   TODAY=$(date -u +%Y-%m-%d)
-  if grep -qF "[$TODAY] [degraded]" "$PROJECT_MD" 2>/dev/null; then
+  PENDING_LOG="$(dirname "$PROJECT_MD")/pending-extraction.log"
+  if grep -qF "[$TODAY] [degraded]" "$PENDING_LOG" 2>/dev/null; then
     # Already recorded today — emit empty delta (merge becomes no-op).
     DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
   else
@@ -181,12 +183,14 @@ if [ -z "$DELTA_JSON" ]; then
     else
       NOTE="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
     fi
-    DELTA_JSON=$(jq -cn --argjson f "$FILES_JSON" --arg n "$NOTE" '{
-      recent_decisions: [$n],
-      open_blockers:    [],
-      cross_refs:       [],
-      files_touched:    $f
-    }')
+    # Write the breadcrumb to the sidecar (out of PROJECT.md decisions), bounded to 50 lines.
+    mkdir -p "$(dirname "$PENDING_LOG")" 2>/dev/null || true
+    printf '[%s] %s\n' "$TODAY" "$NOTE" >> "$PENDING_LOG" 2>/dev/null || true
+    if [ -f "$PENDING_LOG" ]; then
+      tail -n 50 "$PENDING_LOG" > "$PENDING_LOG.tmp" 2>/dev/null && mv "$PENDING_LOG.tmp" "$PENDING_LOG" 2>/dev/null || rm -f "$PENDING_LOG.tmp" 2>/dev/null
+    fi
+    # Empty delta → the merge never touches PROJECT.md's Recent decisions.
+    DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
   fi
 fi
 
