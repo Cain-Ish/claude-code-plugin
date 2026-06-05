@@ -266,8 +266,14 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" = "on" ]; then
     CAP_DONE=0
     [ -f "$CAP_STATE" ] && CAP_DONE=$(grep -c '"outcome":"ok"' "$CAP_STATE" 2>/dev/null)
     [ -n "$CAP_DONE" ] || CAP_DONE=0
+    # Per-OS scheduler probe (else it false-alarms "no timer" off Linux).
     CAP_TIMER=no
-    systemctl --user is-active sb-extract-drain.timer >/dev/null 2>&1 && CAP_TIMER=yes
+    case "$(uname -s)" in
+      Linux)               systemctl --user is-active sb-extract-drain.timer >/dev/null 2>&1 && CAP_TIMER=yes ;;
+      Darwin)              launchctl print "gui/$(id -u)/sb-extract-drain" >/dev/null 2>&1 && CAP_TIMER=yes ;;
+      MINGW*|MSYS*|CYGWIN*) schtasks /Query /TN sb-extract-drain >/dev/null 2>&1 && CAP_TIMER=yes ;;
+      *)                   CAP_TIMER=unknown ;;   # unobservable — don't assert "no timer"
+    esac
     if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
       # API key: capture runs in-session — the drainer is unnecessary, so NEVER the
       # install-the-bridge nag. But still surface a genuine "wired != works": a failed

@@ -48,6 +48,36 @@ OOUT=$(bash "$INSTALL" --oauth 2>&1 || true)
 printf '%s' "$OOUT" | grep -q '%h/.claude' && ok "--oauth print renders creds grant" || no "--oauth print missing creds grant"
 printf '%s' "$OOUT" | grep -qiE 'grant|NOTE' && ok "--oauth announces the grant" || no "--oauth announces the grant"
 
+# Test 7 (SP-4): launchd (macOS) rendering, forced via SB_INSTALL_OS_OVERRIDE.
+LA=$(SB_INSTALL_OS_OVERRIDE=launchd bash "$INSTALL" 2>&1)
+printf '%s' "$LA" | grep -q '<plist' && ok "launchd: renders a plist" || no "launchd: no plist"
+{ printf '%s' "$LA" | grep -q 'StartInterval' && printf '%s' "$LA" | grep -q 'RunAtLoad'; } && ok "launchd: StartInterval + RunAtLoad" || no "launchd: interval/runatload"
+printf '%s' "$LA" | grep -q 'extract-drain.sh' && ok "launchd: ProgramArguments → drainer" || no "launchd: drainer path"
+printf '%s' "$LA" | grep -qi 'logged in' && ok "launchd: prints the no-linger caveat" || no "launchd: no-linger caveat"
+
+# Test 8 (SP-4): launchd snapshots the user's engine env into the unit (minimal-env fix).
+LAE=$(SB_INSTALL_OS_OVERRIDE=launchd SB_EXTRACTOR_LOCAL_URL=http://x:1 bash "$INSTALL" 2>&1)
+printf '%s' "$LAE" | grep -q 'SB_EXTRACTOR_LOCAL_URL' && ok "launchd: snapshots SB_EXTRACTOR_LOCAL_URL into the unit env" || no "launchd: env snapshot"
+
+# Test 8b (SP-4 gate): a value with XML-special chars is escaped in the plist (valid XML).
+LAX=$(SB_INSTALL_OS_OVERRIDE=launchd SB_EXTRACTOR_LOCAL_URL='http://x?a=1&b=2' bash "$INSTALL" 2>&1)
+printf '%s' "$LAX" | grep -q '&amp;' && ok "launchd: XML-escapes & in env values" || no "launchd: unescaped & (invalid plist)"
+printf '%s' "$LAX" | grep -qE '<string>[^<]*&[^a]' && no "launchd: raw & leaked into a <string>" || ok "launchd: no raw & in <string>"
+
+# Test 9 (SP-4): windows (Task Scheduler) rendering.
+WIN=$(SB_INSTALL_OS_OVERRIDE=windows bash "$INSTALL" 2>&1)
+printf '%s' "$WIN" | grep -q 'schtasks /Create' && ok "windows: renders a schtasks command" || no "windows: no schtasks"
+printf '%s' "$WIN" | grep -q 'MINUTE /MO 30' && ok "windows: 30-min interval" || no "windows: interval"
+printf '%s' "$WIN" | grep -qi 'no sandbox' && ok "windows: prints the no-sandbox caveat" || no "windows: sandbox caveat"
+
+# Test 10 (SP-4): unsupported OS → the frictionless API-key fallback, no crash.
+UNS=$(SB_INSTALL_OS_OVERRIDE=plan9 bash "$INSTALL" 2>&1)
+printf '%s' "$UNS" | grep -q 'ANTHROPIC_API_KEY' && ok "unsupported OS → points at the API-key fallback" || no "unsupported OS fallback"
+
+# Test 11 (SP-4): the Linux/systemd path is unchanged under the OS override.
+SD=$(SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1)
+printf '%s' "$SD" | grep -q 'sb-extract-drain.service' && ok "systemd path intact" || no "systemd path broke"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

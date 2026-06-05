@@ -119,6 +119,23 @@ printf '{"checked_at":"x","backend":"local","status":"ok","reason":""}\n' > "$BR
 SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
 eq "summary preserves real backend=local" "$(jq -r '.backend // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)" "local"
 
+# SP-3 (cross-OS): no Linux-only /proc read in the drainer (breaks on macOS).
+grep -q '/proc/' "$DRAIN" && no "drainer still reads /proc (Linux-only)" || ok "no /proc read (portable defer-guard)"
+
+# Test 5b (SP-3): portable mkdir-lock — a held (fresh) lock is a no-op.
+reset; mk_tx "m1_proj_2026-05-24.txt" proj
+mkdir -p "$BRAIN_DIR/.extract-drain.lock.d"          # simulate a live run holding the lock
+SB_DRAIN_FORCE_MKDIR_LOCK=1 SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
+eq "fresh mkdir-lock held → no-op" "$(done_count)" "0"
+rmdir "$BRAIN_DIR/.extract-drain.lock.d" 2>/dev/null
+
+# Test 5c (SP-3): a STALE mkdir-lock is stolen → the drain proceeds.
+reset; mk_tx "m2_proj_2026-05-24.txt" proj
+mkdir -p "$BRAIN_DIR/.extract-drain.lock.d"
+touch -t 202001010000 "$BRAIN_DIR/.extract-drain.lock.d" 2>/dev/null
+SB_DRAIN_FORCE_MKDIR_LOCK=1 SB_DRAIN_LOCK_STALE=60 SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
+eq "stale mkdir-lock stolen → drained" "$(done_count)" "1"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

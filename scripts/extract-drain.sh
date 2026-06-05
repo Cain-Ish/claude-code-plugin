@@ -19,19 +19,34 @@ source "$(dirname "$0")/lib.sh"
 # let the next timer fire retry during an idle window. Detection: a `claude`
 # process (this uid) whose args lack `-p` (the -p ones are our own extractor /
 # other print-mode calls). SB_INTERACTIVE_OVERRIDE forces the verdict for tests.
+# Portable args read: `ps -p <pid> -o args=` works on Linux/macOS/Git-Bash (no /proc,
+# which is Linux-only). Returns the full command line for the pid.
+sb_drain_proc_args() { ps -p "$1" -o args= 2>/dev/null; }
+
 sb_drain_should_defer() {
   case "${SB_INTERACTIVE_OVERRIDE:-}" in
     active)   return 0 ;;
     inactive) return 1 ;;
   esac
   local p args
-  for p in $(pgrep -u "$(id -u)" -x claude 2>/dev/null); do
-    args=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)
-    case " $args " in
-      *" -p "*) : ;;   # print-mode (our extractor or similar) — ignore
-      *) return 0 ;;   # interactive session present → defer
-    esac
-  done
+  if command -v pgrep >/dev/null 2>&1; then
+    for p in $(pgrep -u "$(id -u)" -x claude 2>/dev/null); do
+      args=$(sb_drain_proc_args "$p")
+      case " $args " in
+        *" -p "*) : ;;   # print-mode (our extractor or similar) — ignore
+        *) return 0 ;;   # interactive session present → defer
+      esac
+    done
+  else
+    # No pgrep (some Git-Bash) — best-effort ps scan: defer on any interactive claude
+    # found; if ps yields nothing, proceed (fail-open, same posture as the /proc path).
+    while IFS= read -r args; do
+      [ -n "$args" ] || continue
+      case " $args " in *" -p "*) : ;; *) return 0 ;; esac
+    done <<EOF
+$(ps -e -o args= 2>/dev/null | grep -iE '(^|[ /\\])claude([ "]|\.exe|$)')
+EOF
+  fi
   return 1
 }
 
@@ -56,9 +71,31 @@ TX_DIR="$BRAIN_DIR/transcripts"
 STATE="$BRAIN_DIR/.extraction-state.jsonl"
 [ -d "$TX_DIR" ] || exit 0
 
-# Single-flight: a slow run must not overlap the next timer fire.
-exec 9>"$BRAIN_DIR/.extract-drain.lock" || exit 0
-flock -n 9 || exit 0
+# Single-flight: a slow run must not overlap the next timer fire. Prefer flock
+# (auto-releases on exit); fall back to an atomic mkdir-lock (stock macOS / Git-Bash
+# have no flock(1)) with a staleness steal so a crashed run can't block forever.
+if [ "${SB_DRAIN_FORCE_MKDIR_LOCK:-0}" != "1" ] && command -v flock >/dev/null 2>&1; then
+  exec 9>"$BRAIN_DIR/.extract-drain.lock" || exit 0
+  flock -n 9 || exit 0
+else
+  LOCK_DIR="$BRAIN_DIR/.extract-drain.lock.d"
+  STALE="${SB_DRAIN_LOCK_STALE:-1800}"; case "$STALE" in ''|*[!0-9]*) STALE=1800 ;; esac
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    lmtime=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0)
+    lage=$(( $(date +%s) - ${lmtime:-0} ))
+    if [ "$lage" -gt "$STALE" ]; then
+      # Steal a stale lock, but guard the steal race: if two runs both steal, each
+      # rmdir+mkdir can "succeed", so write our PID and read it back — only the last
+      # writer owns it; the other exits. (Bounded anyway: schedulers fire one/interval.)
+      rmdir "$LOCK_DIR" 2>/dev/null; mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+      echo "$$" > "$LOCK_DIR/pid" 2>/dev/null
+      [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] || exit 0
+    else
+      exit 0   # another run is active
+    fi
+  fi
+  trap 'rm -f "$LOCK_DIR/pid" 2>/dev/null; rmdir "$LOCK_DIR" 2>/dev/null' EXIT
+fi
 
 do_extract() {  # $1 = txt, $2 = slug ; honors the test stub
   if [ -n "${SB_EXTRACT_STUB:-}" ]; then
