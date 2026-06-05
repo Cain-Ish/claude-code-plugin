@@ -30,13 +30,13 @@ Success = ALL of:
 - Dream `accepted`/`discarded` states + `archived_at`-aware banner → **SP-C**.
 - `sb_prune_archives` retention (embeddings-cache GC, wiki-archive TTL) → **SP-D**.
 - First-class `## Plans`/`## State` schema + PROJECT.md byte cap + `[degraded]` routing → **SP-E**.
-- Full OpenAI-compatible `/v1/chat/completions` adapter (native ollama response shape) → **fast-follow after A proves out**. SP-A ships only the `ANTHROPIC_BASE_URL` override (local Anthropic-compatible proxy works with existing code).
+- Streaming, multi-model routing, prompt-token budgeting for the local model, and remote/LAN model hosts → later. SP-A's local backend is a single blocking `/v1/chat/completions` POST to `localhost` ollama (the native adapter **is** in A, since the verified setup is raw ollama).
 
 ## 4. Design — five isolated units
 
 ### U1 — Engine precedence + base-URL override (`scripts/lib.sh`)
 `sb_call_extractor` gains explicit backend selection, controlled by `SB_EXTRACTOR_ENGINE` (`auto` default | `local` | `cli` | `bare`). In `auto`, try in order and use the first usable:
-1. **local** — usable iff `SB_EXTRACTOR_LOCAL_URL` is set (suggested default for `local` mode: `http://localhost:11434`). For SP-A this reuses the existing curl backend by honoring `${ANTHROPIC_BASE_URL:-https://api.anthropic.com}` at `lib.sh:836`, so a local Anthropic-compatible proxy (e.g. LiteLLM in front of ollama) works with no new request code. No credentials required.
+1. **local** — usable iff `SB_EXTRACTOR_LOCAL_URL` is set (default `http://localhost:11434`). A **native OpenAI-compatible** call: `POST ${SB_EXTRACTOR_LOCAL_URL}/v1/chat/completions` with `{model, messages:[{role:user,content:<extract-prompt+transcript>}]}`, parse `.choices[0].message.content`. Confirmed live: **ollama 0.23.4 serves `/v1` natively** (no LiteLLM needed) with model `qwen2.5:3b`. Model id from `SB_EXTRACTOR_LOCAL_MODEL` (default `qwen2.5:3b`). No credentials required. *(Secondary: an Anthropic-shaped proxy is still reachable via the `${ANTHROPIC_BASE_URL:-https://api.anthropic.com}` override at `lib.sh:836` — kept for users who front their model with one, but not required.)*
 2. **cli-OAuth** — `claude -p` (non-`--bare`, honors OAuth). Only valid **out of session** (the drainer's context); the recursive-lock guard (`lib.sh:675-683`) still blocks in-session.
 3. **bare** — `claude -p --bare …` iff `ANTHROPIC_API_KEY` is set.
 
@@ -49,13 +49,13 @@ Confirm/repair the drain loop: enumerate undrained archived transcripts (done-se
 
 ### U3 — systemd unit (`systemd/sb-extract-drain.service`)
 Two variants from one source:
-- **OAuth-capable (default on install):** add `ReadWritePaths=%h/.claude` so `claude -p` can read OAuth creds + write its session/cache; **keep** `NoNewPrivileges=`, `RestrictNamespaces=`, `ProtectSystem=`, and writes otherwise scoped to `%h/.second-brain`.
-- **`--local-only` hardened:** **no** `%h/.claude` grant (the local engine needs no Anthropic creds) — zero credential exposure for the background service. This is the threat-model-preferred variant when a local model is configured.
+- **Hardened local-only (default):** **no** `%h/.claude` grant (the local ollama engine needs no Anthropic creds) — zero credential exposure for the background service. `NoNewPrivileges=`, `RestrictNamespaces=`, `ProtectSystem=`, writes scoped to `%h/.second-brain`.
+- **OAuth-capable (`--oauth` opt-in):** the above **plus** `ReadWritePaths=%h/.claude` so `claude -p` can read OAuth creds + write its session/cache.
 
-The single relaxation in the whole sub-project is the OAuth variant's `~/.claude` grant, and it is opt-out (use local engine + `--local-only`).
+The single relaxation in the whole sub-project is the OAuth variant's `~/.claude` grant, and it is **opt-in** (default ships zero-credential).
 
 ### U4 — Install + activate (`scripts/install-extract-timer.sh`)
-`--apply` installs the timer + service (idempotent; linger already enabled) and selects the unit variant: `--local-only` → hardened; else the OAuth-capable variant (printing the `~/.claude` grant it is making, per "show exact commands"). Re-runnable.
+`--apply` installs the timer + service (idempotent; linger already enabled). **Default = the hardened local-only unit** (no `~/.claude` grant — matches the credentials-P0 stance and the verified local-engine setup). The OAuth-capable variant is the **explicit `--oauth` opt-in**, and when chosen the installer prints the exact `~/.claude` grant it is making (per "show exact commands"). Re-runnable.
 
 ### U5 — Capture self-check banner (`scripts/session-load.sh`)
 A SessionStart line from `.extractor-health.json` + `.extraction-state.jsonl`: `capture: last drain <age> · backend=<b> · <n> deltas/7d`. When the timer is absent, or last drain > a threshold, or 0 deltas over the window, emit a **prominent** `## ⚠ capture not running` banner with the one-command fix (`install-extract-timer.sh --apply`). This is the "wired ≠ works" guard: dead capture can never silently persist again. Kill switch `SB_CAPTURE_HEALTH_BANNER=off`.
@@ -63,9 +63,9 @@ A SessionStart line from `.extractor-health.json` + `.extraction-state.jsonl`: `
 ## 5. Verification (the crux — no stub passes for "done")
 
 - **Plumbing tests** (CI-able, `SB_EXTRACT_STUB`): engine-precedence selection (each of local/cli/bare chosen under the right env), drainer done-set + no-double-drain, interactive-`claude` defer, the health-banner predicates. These prove the wiring.
-- **Real-run check** (operator/manual — CI cannot cover the OAuth-vs-sandbox conflict, which is exactly why this gap shipped): one **non-stubbed** extraction writes a **real** delta. Procedure by available engine:
-  - **local engine up:** runnable **in-session** (no recursive lock) — point `SB_EXTRACTOR_LOCAL_URL` at the model, run the drainer on one real transcript, confirm a wiki/PROJECT delta + `outcome:ok`.
-  - **OAuth only:** run `bash scripts/extract-drain.sh` in an **idle window** (no interactive `claude`), confirm the delta + `backend=cli-oauth status=ok`.
+- **Real-run check** (the must-pass — CI cannot cover the OAuth-vs-sandbox conflict, which is exactly why this gap shipped): one **non-stubbed** extraction writes a **real** delta. Primary procedure (the verified setup):
+  - **local engine (ollama `qwen2.5:3b`):** runnable **in-session** — no recursive lock — so this is done *during the build*. `SB_EXTRACTOR_ENGINE=local SB_EXTRACTOR_LOCAL_URL=http://localhost:11434` → run the drainer on one real archived transcript → confirm a real wiki/PROJECT/graph delta + `.extraction-state.jsonl outcome:ok backend=local`.
+  - **OAuth fallback (separate):** `bash scripts/extract-drain.sh` in an **idle window** (no interactive `claude`) → delta + `backend=cli-oauth status=ok`. (Operator step; can't run from inside this session.)
 - "Green stubbed test" is explicitly **not** sufficient. The spec records this so a future change can't regress to proxy-only validation.
 
 ## 6. Rollout & back-compat
@@ -76,6 +76,7 @@ A SessionStart line from `.extractor-health.json` + `.extraction-state.jsonl`: `
 
 ## 7. Security summary (threat model: credentials P0, offline-first)
 
-- Preferred path (local engine + `--local-only` unit): **zero** Anthropic credential exposure; fully offline.
-- OAuth fallback path: one minimal relaxation (`~/.claude` RW to the background service), explicit + opt-out, with the rest of the systemd hardening intact.
-- Override trust boundary documented (U1). No `curl | bash`; the installer prints the exact unit + grants before applying.
+- **Default install (hardened local-only unit + local ollama engine): zero Anthropic credential exposure; fully offline.** This is the out-of-the-box path on the verified machine.
+- OAuth is an explicit `--oauth` opt-in: that variant adds the one relaxation (`~/.claude` RW to the background service), with the rest of the systemd hardening intact, and the installer prints the grant first.
+- Override trust boundary documented (U1): transcript content goes to whatever `SB_EXTRACTOR_LOCAL_URL`/`ANTHROPIC_BASE_URL` names — default is `localhost` (on-device). No `curl | bash`.
+- **Verified environment (2026-06-05):** ollama 0.23.4, model `qwen2.5:3b` (1.9 GB, Q4_K_M), `/v1` endpoint live on `localhost:11434`, ~3.5 GB RAM free on the Pi 5 (fits alongside the on-device embedder).
