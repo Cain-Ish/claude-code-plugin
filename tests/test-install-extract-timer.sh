@@ -78,6 +78,17 @@ printf '%s' "$UNS" | grep -q 'ANTHROPIC_API_KEY' && ok "unsupported OS → point
 SD=$(SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1)
 printf '%s' "$SD" | grep -q 'sb-extract-drain.service' && ok "systemd path intact" || no "systemd path broke"
 
+# Test 12 (SP-B deep-review HIGH): a CUSTOM knowledge dir is forwarded to the out-of-band
+# job AND granted in the systemd sandbox (else extraction+consolidation hit the wrong tree).
+KD=/data/mykb
+SDC=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>/dev/null)
+printf '%s' "$SDC" | grep -q "Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$KD" && ok "systemd: custom KD forwarded via Environment=" || no "systemd: custom KD not forwarded"
+printf '%s' "$SDC" | grep -qE "^ReadWritePaths=.*$KD" && ok "systemd: custom KD granted in ReadWritePaths" || no "systemd: custom KD not granted (sandbox would block writes)"
+# default render must NOT inject a CLAUDE env line (back-compat)
+printf '%s' "$SD" | grep -q 'Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR' && no "default render injected a custom KD env line" || ok "default render unchanged (no custom KD)"
+LAK=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=launchd bash "$INSTALL" 2>/dev/null)
+printf '%s' "$LAK" | grep -q "$KD" && ok "launchd: custom KD snapshotted into the plist env" || no "launchd: custom KD not forwarded"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

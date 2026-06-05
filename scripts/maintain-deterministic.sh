@@ -21,8 +21,10 @@ if [ "${SB_MAINTAIN_FORCE:-0}" != "1" ]; then
 fi
 : > "$MARK"
 
-# Resolve the knowledge dir the same way the helpers do, but honour the KNOWLEDGE_DIR
-# env the rest of the plugin uses (the helpers take it as arg 1, default ~/knowledge).
+# Resolve the knowledge dir the same way the helpers do. Out-of-band the scheduler has no
+# CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR injection, so install-extract-timer.sh forwards a
+# custom dir into the unit's env (Environment=/plist + the systemd ReadWritePaths grant);
+# absent that, this is the default ~/knowledge — matching the out-of-band extraction path.
 KDIR="${KNOWLEDGE_DIR:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
 
 # 1. validate + autofix (frontmatter, empty pages, broken links) — deterministic

@@ -34,11 +34,26 @@ for a in "$@"; do
   esac
 done
 
+# The knowledge dir the out-of-band drainer must read/write. In-session (where --apply is
+# normally run) Claude Code sets CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR for a custom dir; the
+# scheduled job has no such injection, so we capture it at install time. Empty ⇒ default.
+INSTALL_KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-}}"
+
 render_service() {
   if [ "$VARIANT_SVC" = "sb-extract-drain-oauth.service" ]; then
     echo "# NOTE: --oauth grants this background service read/write of ~/.claude (your OAuth credentials)." >&2
   fi
-  sed "s#@EXEC@#bash $DRAINER#g" "$TPL_DIR/$VARIANT_SVC"
+  # A custom knowledge dir must be BOTH forwarded (Environment=) and granted in the
+  # sandbox (the default unit only grants %h/knowledge) — else the out-of-band extraction
+  # AND consolidation operate on the wrong tree / are blocked by ProtectHome.
+  if [ -n "$INSTALL_KD" ] && [ "$INSTALL_KD" != "$HOME/knowledge" ]; then
+    sed -e "s#@EXEC@#bash $DRAINER#g" \
+        -e "s#^ReadWritePaths=.*#&  $INSTALL_KD#" \
+        -e "/^Environment=PATH=/a Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$INSTALL_KD" \
+        "$TPL_DIR/$VARIANT_SVC"
+  else
+    sed "s#@EXEC@#bash $DRAINER#g" "$TPL_DIR/$VARIANT_SVC"
+  fi
 }
 
 # --- OS detection (overridable for tests via SB_INSTALL_OS_OVERRIDE) ----------
@@ -56,7 +71,10 @@ fi
 # knobs the user set in their shell so the out-of-band job actually sees them.
 env_snapshot() {
   local v val
-  for v in SB_EXTRACTOR_LOCAL_URL SB_EXTRACTOR_LOCAL_MODEL SB_EXTRACTOR_ENGINE ANTHROPIC_BASE_URL ANTHROPIC_API_KEY; do
+  # Include the knowledge dir (+ BRAIN_DIR) so the out-of-band consolidation/extraction
+  # target the user's actual wiki, not the default ~/knowledge (launchd/windows have no
+  # sandbox, so forwarding the var is sufficient there).
+  for v in SB_EXTRACTOR_LOCAL_URL SB_EXTRACTOR_LOCAL_MODEL SB_EXTRACTOR_ENGINE ANTHROPIC_BASE_URL ANTHROPIC_API_KEY CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR KNOWLEDGE_DIR; do
     eval "val=\${$v:-}"
     [ -n "$val" ] && printf '%s=%s\n' "$v" "$val"
   done
