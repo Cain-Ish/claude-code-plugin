@@ -45,22 +45,13 @@ if [ -d "$BRAIN_DIR/projects" ]; then
 fi
 
 WIKI_INDEX="$KNOWLEDGE_DIR/wiki/index.md"
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)}"
-REINDEX_JS="$PLUGIN_ROOT/mcp/dist/tools/knowledge-reindex.bundle.js"
-VALIDATE_JS="$PLUGIN_ROOT/mcp/dist/tools/knowledge-validate.bundle.js"
-
-if command -v node >/dev/null 2>&1; then
-  if [ ! -f "$WIKI_INDEX" ] && [ -f "$REINDEX_JS" ]; then
-    SB_BUNDLE="$REINDEX_JS" SB_KDIR="$KNOWLEDGE_DIR" node -e "
-      import { knowledgeReindex } from process.env.SB_BUNDLE;
-      knowledgeReindex(process.env.SB_KDIR).catch(() => {});
-    " 2>/dev/null || true
-  elif [ -f "$VALIDATE_JS" ]; then
-    SB_BUNDLE="$VALIDATE_JS" SB_KDIR="$KNOWLEDGE_DIR" node -e "
-      import { knowledgeValidate } from process.env.SB_BUNDLE;
-      knowledgeValidate(process.env.SB_KDIR, { autofix: true }).catch(() => {});
-    " 2>/dev/null || true
-  fi
+# Build the index on a fresh wiki, else validate+autofix an existing one. Delegated to the
+# canonical lib.sh helpers (dynamic-import + error-logging) — NOT an inline `node -e`, which had
+# carried a duplicate of the static-import-from-env SyntaxError bug that silently never ran.
+if [ ! -f "$WIKI_INDEX" ]; then
+  sb_reindex_wiki "$KNOWLEDGE_DIR"
+else
+  sb_validate_wiki "$KNOWLEDGE_DIR"
 fi
 
 exit 0

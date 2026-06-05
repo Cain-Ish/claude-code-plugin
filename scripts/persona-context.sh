@@ -157,8 +157,11 @@ if [ -f "$PCARD_FILE" ]; then
     # Dedup: drop persona lines whose bullet text (after `[Section] `) exactly
     # matches a bare bullet in USER.md.
     USER_BULLETS=$(grep -E '^- ' "$USER_BULLETS_FILE" 2>/dev/null | sed 's/^- *//')
-    PERSONA_ABS=$(printf '%s\n' "$PERSONA_RAW" | awk -v ub="$USER_BULLETS" '
-      BEGIN { n = split(ub, arr, "\n"); for (i=1;i<=n;i++) seen[arr[i]] = 1 }
+    # Pass bullets via ENVIRON[], NOT `-v ub=` — `-v` runs POSIX escape processing on the value,
+    # so a backslash bullet (`C:\temp\notes`) gets its `\t`/`\n` rewritten and the seen[] key no
+    # longer matches the verbatim card bullet (dedup silently fails → double-inject on mawk).
+    PERSONA_ABS=$(printf '%s\n' "$PERSONA_RAW" | SB_USER_BULLETS="$USER_BULLETS" awk '
+      BEGIN { n = split(ENVIRON["SB_USER_BULLETS"], arr, "\n"); for (i=1;i<=n;i++) seen[arr[i]] = 1 }
       { line = $0; sub(/^\[[^]]+\] /, "", line); if (!(line in seen)) print $0 }
     ')
   else

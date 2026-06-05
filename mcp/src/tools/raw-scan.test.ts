@@ -50,6 +50,29 @@ describe('raw-scan', () => {
     expect(isHighSignal('README.md')).toBe(true);                 // root-level
   });
 
+  it('excludes secret-named markdown docs whose secret token is not the final extension (.pem.md / .key.md)', () => {
+    // A private key wrapped in markdown: `server.key.md` / `my.pem.md`. The denylist anchored
+    // .pem$/.key$ to the FULL path, but every candidate already ends in .md — so the secret
+    // token is never the final extension and the branch was structurally unreachable (leak).
+    expect(isHighSignal('docs/my.pem.md')).toBe(false);           // .pem as an extension component
+    expect(isHighSignal('docs/server.key.md')).toBe(false);       // .key as an extension component
+    expect(isHighSignal('private.pem.markdown')).toBe(false);
+    // controls — must NOT over-exclude legitimate docs that merely contain the substring key/pem:
+    expect(isHighSignal('docs/api-keys.md')).toBe(true);          // "keys", not a ".key" extension
+    expect(isHighSignal('docs/api-keys.markdown')).toBe(true);    // .markdown keep-side
+    expect(isHighSignal('docs/keyboard-shortcuts.md')).toBe(true);
+    expect(isHighSignal('docs/monkey.md')).toBe(true);            // contains "key" but not ".key"
+    expect(isHighSignal('docs/keyx.md')).toBe(true);              // token must be dot-delimited (boundary)
+    expect(isHighSignal('docs/pemx.md')).toBe(true);
+  });
+
+  it('excludes .env markdown docs (leading-dotfile and mid-path component) without over-matching "env" words', () => {
+    expect(isHighSignal('docs/.envrc.md')).toBe(false);           // leading-dotfile family (.envrc) still caught
+    expect(isHighSignal('docs/.env.local.md')).toBe(false);
+    expect(isHighSignal('docs/config.env.md')).toBe(false);       // .env as a mid-path extension component (parity)
+    expect(isHighSignal('docs/environment.md')).toBe(true);       // "env" but NOT a .env token — keep
+  });
+
   it('scanCap reads SB_SCAN_MAX (default 50)', () => {
     delete process.env.SB_SCAN_MAX;
     expect(scanCap()).toBe(50);
