@@ -70,11 +70,15 @@ for sf in "$DREAMS_DIR"/drm_*/status.json; do
   fi
 done
 
-# Prune to max 5 dream directories (only delete oldest archived dreams)
+# Prune old dream dirs to retention.dream_keep_count (default 5), deleting only TERMINAL
+# (archived) dreams, oldest-first (drm_<ts> names sort chronologically). A pending/running/
+# completed-but-unreviewed dream is NEVER deleted. (SP-D: the count is now config-driven.)
+DREAM_KEEP="${SB_DREAM_KEEP_COUNT:-$(sb_config_get .retention.dream_keep_count 5)}"
+case "$DREAM_KEEP" in ''|*[!0-9]*) DREAM_KEEP=5 ;; esac
 DREAM_COUNT=$(find "$DREAMS_DIR" -maxdepth 1 -type d -name 'drm_*' 2>/dev/null | wc -l | tr -d ' ')
-if [ "$DREAM_COUNT" -ge 5 ]; then
+if [ "$DREAM_COUNT" -ge "$DREAM_KEEP" ]; then
   find "$DREAMS_DIR" -maxdepth 1 -type d -name 'drm_*' 2>/dev/null | sort | while read -r old; do
-    [ "$DREAM_COUNT" -lt 5 ] && break
+    [ "$DREAM_COUNT" -lt "$DREAM_KEEP" ] && break
     old_status=$(jq -r '.archived_at // ""' "$old/status.json" 2>/dev/null)
     if [ -n "$old_status" ] && [ "$old_status" != "null" ]; then
       rm -rf "$old"

@@ -40,6 +40,9 @@ printf 'not json{{\n' > "$CF"
 B2=$(mktemp -d); BRAIN_DIR="$B2" bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
 [ -f "$B2/config.json" ] && pass "ensure-dirs seeds config.json" || fail "ensure-dirs did not seed config.json"
 [ "$(jq -r '.auto_improve' "$B2/config.json" 2>/dev/null)" = "false" ] && pass "seeded auto_improve=false (opt-in preserved)" || fail "seeded value not false"
+# SP-D: the seed self-documents the retention block; wiki_archive_ttl_days=0 (the irreversible store stays off)
+[ "$(jq -r '.retention.wiki_archive_ttl_days' "$B2/config.json" 2>/dev/null)" = "0" ] && pass "seeded retention.wiki_archive_ttl_days=0 (irreversible store off)" || fail "retention block not seeded / wiki-archive not off"
+[ "$(jq -r '.retention.embeddings_cache_gc' "$B2/config.json" 2>/dev/null)" = "true" ] && pass "seeded retention.embeddings_cache_gc=true (the leak GC on)" || fail "embeddings_cache_gc not seeded true"
 # idempotent: a user's true is not clobbered on re-run
 printf '{"auto_improve": true}\n' > "$B2/config.json"; BRAIN_DIR="$B2" bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
 [ "$(jq -r '.auto_improve' "$B2/config.json" 2>/dev/null)" = "true" ] && pass "ensure-dirs does not clobber an existing config" || fail "clobbered user config"
