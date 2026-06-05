@@ -18,16 +18,33 @@ UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 SVC="sb-extract-drain.service"
 TIMER="sb-extract-drain.timer"
 
-render_service() { sed "s#@EXEC@#bash $DRAINER#g" "$TPL_DIR/$SVC"; }
+# Default = hardened local-only unit; --oauth opts into the creds-granting one.
+# Action + variant are parsed from anywhere in the args so `--apply --oauth`,
+# `--oauth --apply`, and bare `--oauth` (print) all work.
+VARIANT_SVC="$SVC"; ACTION=print
+for a in "$@"; do
+  case "$a" in
+    --oauth)     VARIANT_SVC="sb-extract-drain-oauth.service" ;;
+    --apply)     ACTION=apply ;;
+    --uninstall) ACTION=uninstall ;;
+  esac
+done
 
-case "${1:-}" in
-  --uninstall)
+render_service() {
+  if [ "$VARIANT_SVC" = "sb-extract-drain-oauth.service" ]; then
+    echo "# NOTE: --oauth grants this background service read/write of ~/.claude (your OAuth credentials)." >&2
+  fi
+  sed "s#@EXEC@#bash $DRAINER#g" "$TPL_DIR/$VARIANT_SVC"
+}
+
+case "$ACTION" in
+  uninstall)
     systemctl --user disable --now "$TIMER" 2>/dev/null || true
     rm -f "$UNIT_DIR/$SVC" "$UNIT_DIR/$TIMER"
     systemctl --user daemon-reload 2>/dev/null || true
     echo "uninstalled: removed $SVC + $TIMER"
     ;;
-  --apply)
+  apply)
     mkdir -p "$UNIT_DIR"
     render_service > "$UNIT_DIR/$SVC"
     cp "$TPL_DIR/$TIMER" "$UNIT_DIR/$TIMER"
