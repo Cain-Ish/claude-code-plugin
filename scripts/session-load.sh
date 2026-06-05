@@ -66,7 +66,7 @@ OUTPUT_FILE=$(mktemp)
 USED=0
 
 sb_append() {
-  local text="$1" label="$2" max="${3:-0}"
+  local text="$1" label="$2" max="${3:-0}" force="${4:-}"
   local size=${#text}
   [ "$size" -eq 0 ] && return 0
   if [ "$max" -gt 0 ] && [ "$size" -gt "$max" ]; then
@@ -74,7 +74,9 @@ sb_append() {
     size=$max
   fi
   local projected=$((USED + size))
-  if [ "$projected" -gt "$BYTE_BUDGET" ]; then
+  # `force` exempts a priority-1 section (USER.md) from the budget — the human's global Never/Always
+  # rules must always land, even when conditional banners have already spent the budget.
+  if [ -z "$force" ] && [ "$projected" -gt "$BYTE_BUDGET" ]; then
     sb_log_error "session-load.sh" "gate=byte-budget $label skipped (${size}B would exceed ${BYTE_BUDGET}B cap, used=${USED}B)" 0
     return 1
   fi
@@ -145,7 +147,7 @@ if [ "$AUTO" != "off" ] && [ ! -f "$DISABLED_FILE" ]; then
   COUNT=$(sb_get_wiki_writes "$slug")
   if [ "$COUNT" -ge "$N" ]; then
     # shellcheck disable=SC2016  # single quotes intentional: literal backticks + printf %s placeholders
-    BANNER=$(printf '## ⓘ second-brain — wiki maintenance suggested\n\nProject `%s` has accumulated %s wiki writes since the last\nconsolidation cycle. To consolidate the wiki, run `/second-brain:dream` —\nits 6-phase pipeline includes the maintainer work (relations,\ndescriptions, broken-link repair, orphan detection).\n\nRe-appears next session if not run. Suppress entirely: `SB_MAINTAINER_AUTO=off`.\n\n' \
+    BANNER=$(printf '## ⓘ second-brain — wiki maintenance suggested\n\nProject `%s` has accumulated %s wiki writes since the last consolidation.\nConsolidate the wiki with either:\n  • `/second-brain:maintain` — the knowledge-maintainer runs live (audit, dedup,\n    relate, enrich, ai-blocks, raw-inbox drain); bounded by a 50-change cap, reversible.\n  • `/second-brain:dream` — stages the changes for you to review before accepting.\n\nRe-appears next session if not run. Suppress entirely: `SB_MAINTAINER_AUTO=off`.\n\n' \
       "$slug" "$COUNT")
     sb_append "$BANNER" "maintainer-auto-banner" 400
     sb_log_error "session-load.sh" "maintainer-suggested slug=$slug count=$COUNT" 0
@@ -296,7 +298,7 @@ fi
 # 1. USER.md — always included
 if [ -f "$USER_FILE" ]; then
   USER_CONTENT=$(cat "$USER_FILE")
-  sb_append "$USER_CONTENT" "USER.md" 0
+  sb_append "$USER_CONTENT" "USER.md" 0 force
 fi
 
 # 2. Persona signals — capped at 600 bytes
