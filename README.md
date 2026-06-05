@@ -65,6 +65,15 @@ timeout. To enable in-session extraction on a Claude subscription, either
 also export an `ANTHROPIC_API_KEY` (preferred — the API key path doesn't go
 through OAuth at all) or run extraction out-of-band via cron/systemd-timer.
 
+**Extraction engine.** Claude is the engine — the universal path that works on
+any OS with no extra software: an `ANTHROPIC_API_KEY` extracts in-session, a
+subscription extracts out-of-band via the drainer (`install-extract-timer.sh`).
+A **local model is optional, off by default**, and purely for offline/privacy:
+set `SB_EXTRACTOR_LOCAL_URL=http://localhost:11434` (an ollama / OpenAI-compatible
+`/v1` endpoint) and the extractor tries it first, falling back to Claude when it's
+unset or can't deliver (e.g. a low-power CPU on a large transcript). The plugin
+never assumes a local model is present.
+
 Inspect or repair your auth setup any time with:
 
 ```bash

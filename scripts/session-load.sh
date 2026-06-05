@@ -252,11 +252,13 @@ if [ "${SB_AUTH_LINE:-on}" = "on" ]; then
   fi
 fi
 
-# 0a-ter. Capture-health self-check — the "wired != works" guard. Surfaces
-# whether the out-of-band drainer is actually turning archived transcripts into
-# knowledge. Shouts when transcripts exist but 0 have been extracted or the timer
-# isn't active. Silent on a fresh install (no transcripts). Suppress:
-# SB_CAPTURE_HEALTH_BANNER=off.
+# 0a-ter. Capture-health self-check — the "wired != works" guard, AUTH-AWARE.
+# Claude is the universal engine. An API key extracts IN-SESSION at every Stop
+# (Backend 2 curl) with no daemon — so an api-key user is NOT nagged to install the
+# out-of-band bridge; we only flag a real extraction failure. OAuth is recursive-
+# locked in-session, so it genuinely needs an out-of-band path — offer all three
+# (api-key / drainer / local). `none` is already covered by the auth-mode-line.
+# Suppress: SB_CAPTURE_HEALTH_BANNER=off.
 if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" = "on" ]; then
   CAP_STATE="$BRAIN_DIR/.extraction-state.jsonl"
   CAP_N=$(ls -1 "$BRAIN_DIR/transcripts"/*.txt 2>/dev/null | wc -l | tr -d ' ')
@@ -266,11 +268,27 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" = "on" ]; then
     [ -n "$CAP_DONE" ] || CAP_DONE=0
     CAP_TIMER=no
     systemctl --user is-active sb-extract-drain.timer >/dev/null 2>&1 && CAP_TIMER=yes
-    if [ "$CAP_DONE" -eq 0 ] || [ "$CAP_TIMER" = "no" ]; then
-      # shellcheck disable=SC2016  # literal $CLAUDE_PLUGIN_ROOT for the user to run
-      sb_append "$(printf '## ⚠ second-brain — capture not running\n%s transcript(s) archived, %s extracted; drainer timer: %s.\nNothing is turning your sessions into knowledge automatically. Install the bridge:\n  `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply`  (local engine, hardened — add `--oauth` to use your Claude login instead)\nSuppress: `SB_CAPTURE_HEALTH_BANNER=off`.\n\n' "$CAP_N" "$CAP_DONE" "$CAP_TIMER")" "capture-health-banner" 600
-    else
-      sb_append "$(printf '## ⓘ second-brain capture: %s archived · %s extracted · timer active.\n\n' "$CAP_N" "$CAP_DONE")" "capture-health-line" 200
+    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+      # API key: capture runs in-session — the drainer is unnecessary, so NEVER the
+      # install-the-bridge nag. But still surface a genuine "wired != works": a failed
+      # attempt, OR transcripts piling up with no extraction ever recorded (the Stop
+      # hook may not be firing). Never mentions the drainer.
+      CAP_HEALTH=$(jq -r '.status // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)
+      if [ "$CAP_HEALTH" = "fail" ]; then
+        CAP_REASON=$(jq -r '.reason // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | tr '\n' ' ' | head -c 160)
+        sb_append "$(printf '## ⚠ second-brain — extraction failing (API key)\nLast attempt failed: %s\nCheck the key/quota; tail `~/.second-brain/error-log.jsonl`.\n\n' "$CAP_REASON")" "capture-health-banner" 400
+      elif [ ! -f "$BRAIN_DIR/.extractor-health.json" ]; then
+        sb_append "$(printf '## ⚠ second-brain — no extraction recorded\n%s transcript(s) archived but the in-session extractor has never run — the Stop/PreCompact hook may not be firing. Tail `~/.second-brain/error-log.jsonl`.\n\n' "$CAP_N")" "capture-health-banner" 400
+      fi
+    elif command -v claude >/dev/null 2>&1; then
+      # OAuth subscription: in-session queues (recursive-claude lock). Needs an
+      # out-of-band path — present all three, API key first (zero-setup, any OS).
+      if [ "$CAP_DONE" -eq 0 ] || [ "$CAP_TIMER" = "no" ]; then
+        # shellcheck disable=SC2016  # literal $CLAUDE_PLUGIN_ROOT for the user to run
+        sb_append "$(printf '## ⚠ second-brain — capture not running (OAuth)\n%s transcript(s) archived, %s extracted; drainer timer: %s. Subscription auth can'\''t extract in-session (recursive-claude lock), so pick one:\n  • `export ANTHROPIC_API_KEY=sk-ant-...`  — instant in-session capture, any OS, no daemon\n  • `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth`  — out-of-band drainer via your Claude login\n  • `export SB_EXTRACTOR_LOCAL_URL=http://localhost:11434`  — a local model (offline)\nSuppress: `SB_CAPTURE_HEALTH_BANNER=off`.\n\n' "$CAP_N" "$CAP_DONE" "$CAP_TIMER")" "capture-health-banner" 700
+      else
+        sb_append "$(printf '## ⓘ second-brain capture: %s archived · %s extracted · timer active.\n\n' "$CAP_N" "$CAP_DONE")" "capture-health-line" 200
+      fi
     fi
   fi
 fi
