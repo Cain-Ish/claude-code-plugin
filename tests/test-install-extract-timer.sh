@@ -59,6 +59,11 @@ printf '%s' "$LA" | grep -qi 'logged in' && ok "launchd: prints the no-linger ca
 LAE=$(SB_INSTALL_OS_OVERRIDE=launchd SB_EXTRACTOR_LOCAL_URL=http://x:1 bash "$INSTALL" 2>&1)
 printf '%s' "$LAE" | grep -q 'SB_EXTRACTOR_LOCAL_URL' && ok "launchd: snapshots SB_EXTRACTOR_LOCAL_URL into the unit env" || no "launchd: env snapshot"
 
+# Test 8b (SP-4 gate): a value with XML-special chars is escaped in the plist (valid XML).
+LAX=$(SB_INSTALL_OS_OVERRIDE=launchd SB_EXTRACTOR_LOCAL_URL='http://x?a=1&b=2' bash "$INSTALL" 2>&1)
+printf '%s' "$LAX" | grep -q '&amp;' && ok "launchd: XML-escapes & in env values" || no "launchd: unescaped & (invalid plist)"
+printf '%s' "$LAX" | grep -qE '<string>[^<]*&[^a]' && no "launchd: raw & leaked into a <string>" || ok "launchd: no raw & in <string>"
+
 # Test 9 (SP-4): windows (Task Scheduler) rendering.
 WIN=$(SB_INSTALL_OS_OVERRIDE=windows bash "$INSTALL" 2>&1)
 printf '%s' "$WIN" | grep -q 'schtasks /Create' && ok "windows: renders a schtasks command" || no "windows: no schtasks"

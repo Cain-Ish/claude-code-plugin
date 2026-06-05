@@ -38,7 +38,8 @@ sb_drain_should_defer() {
       esac
     done
   else
-    # No pgrep (some Git-Bash) — best-effort scan; fail-closed on any interactive claude.
+    # No pgrep (some Git-Bash) — best-effort ps scan: defer on any interactive claude
+    # found; if ps yields nothing, proceed (fail-open, same posture as the /proc path).
     while IFS= read -r args; do
       [ -n "$args" ] || continue
       case " $args " in *" -p "*) : ;; *) return 0 ;; esac
@@ -83,12 +84,17 @@ else
     lmtime=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0)
     lage=$(( $(date +%s) - ${lmtime:-0} ))
     if [ "$lage" -gt "$STALE" ]; then
+      # Steal a stale lock, but guard the steal race: if two runs both steal, each
+      # rmdir+mkdir can "succeed", so write our PID and read it back — only the last
+      # writer owns it; the other exits. (Bounded anyway: schedulers fire one/interval.)
       rmdir "$LOCK_DIR" 2>/dev/null; mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+      echo "$$" > "$LOCK_DIR/pid" 2>/dev/null
+      [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] || exit 0
     else
       exit 0   # another run is active
     fi
   fi
-  trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
+  trap 'rm -f "$LOCK_DIR/pid" 2>/dev/null; rmdir "$LOCK_DIR" 2>/dev/null' EXIT
 fi
 
 do_extract() {  # $1 = txt, $2 = slug ; honors the test stub

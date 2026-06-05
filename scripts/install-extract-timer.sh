@@ -64,18 +64,21 @@ env_snapshot() {
 
 LA_LABEL="sb-extract-drain"
 LA_PLIST="$HOME/Library/LaunchAgents/$LA_LABEL.plist"
+# XML-escape a value going into a plist <string> (a `&` in e.g. ANTHROPIC_BASE_URL's
+# query string, or `<`/`>` in a path, would otherwise make the plist invalid XML).
+xml_esc() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
 la_render() {
   printf '<?xml version="1.0" encoding="UTF-8"?>\n'
   printf '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
   printf '<plist version="1.0"><dict>\n'
   printf '  <key>Label</key><string>%s</string>\n' "$LA_LABEL"
-  printf '  <key>ProgramArguments</key><array><string>/bin/bash</string><string>%s</string></array>\n' "$DRAINER"
+  printf '  <key>ProgramArguments</key><array><string>/bin/bash</string><string>%s</string></array>\n' "$(xml_esc "$DRAINER")"
   printf '  <key>StartInterval</key><integer>1800</integer>\n'
   printf '  <key>RunAtLoad</key><true/>\n'
   printf '  <key>EnvironmentVariables</key><dict>\n'
-  printf '    <key>HOME</key><string>%s</string>\n' "$HOME"
-  printf '    <key>PATH</key><string>%s</string>\n' "${PATH:-/usr/local/bin:/usr/bin:/bin}"
-  env_snapshot | while IFS='=' read -r _k _v; do printf '    <key>%s</key><string>%s</string>\n' "$_k" "$_v"; done
+  printf '    <key>HOME</key><string>%s</string>\n' "$(xml_esc "$HOME")"
+  printf '    <key>PATH</key><string>%s</string>\n' "$(xml_esc "${PATH:-/usr/local/bin:/usr/bin:/bin}")"
+  env_snapshot | while IFS='=' read -r _k _v; do printf '    <key>%s</key><string>%s</string>\n' "$_k" "$(xml_esc "$_v")"; done
   printf '  </dict>\n</dict></plist>\n'
 }
 la_note() {
