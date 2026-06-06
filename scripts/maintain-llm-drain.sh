@@ -84,7 +84,11 @@ BWRAP_ARGS=(
   --unshare-pid --new-session --die-with-parent
   --setenv HOME "$HOME" --setenv PATH "${PATH:-/usr/local/bin:/usr/bin:/bin}"
 )
-[ -f "$HOME/.claude/.credentials.json" ] && BWRAP_ARGS+=(--bind "$HOME/.claude/.credentials.json" "$HOME/.claude/.credentials.json")
+# READ-ONLY: the agent only needs to READ the token for the API. A writable bind would let a
+# prompt-injected agent truncate/overwrite the user's credentials (DoS). (Residual, inherent to any
+# OAuth headless run: the token is readable + network is up, so a prompt-injected agent could exfil
+# it — mitigated by this being opt-in/default-off + the content being the user's own + dream review.)
+[ -f "$HOME/.claude/.credentials.json" ] && BWRAP_ARGS+=(--ro-bind "$HOME/.claude/.credentials.json" "$HOME/.claude/.credentials.json")
 
 # Test-only: prove the gate reached the contained run without invoking claude (the real headless
 # run is operator-verified — it can't run from inside a Claude session).

@@ -35,9 +35,28 @@ if [ ! -d "$STAGING_WIKI" ]; then
   exit 1
 fi
 
-# Apply: rsync staging over live wiki (preserves files not in staging)
+# SECURITY (C/headless-maintainer hardening): staging is written by the consolidation agent —
+# under the opt-in headless maintainer that agent is UNATTENDED and could be prompt-injected by
+# captured wiki content. A symlink in staging that points OUTSIDE the wiki (e.g. → ~/.claude or
+# ~/knowledge/graph) would, on the copy below, plant a write-through/read-through trapdoor into the
+# LIVE wiki (a later unjailed write escapes; creds get read into a page). Refuse the accept if any
+# staged symlink escapes the staging tree. In-tree relative aliases (e.g. security/latest.md ->
+# 2026-06-06.md) are legitimate and preserved.
+OOT_LINKS=$(find "$STAGING_WIKI" -type l 2>/dev/null | while read -r _l; do
+  _t=$(readlink -f "$_l" 2>/dev/null)
+  case "$_t" in "$STAGING_WIKI"/*) : ;; *) printf '%s\n' "$_l" ;; esac
+done)
+if [ -n "$OOT_LINKS" ]; then
+  echo "error: staging contains symlink(s) pointing outside the wiki — refusing accept (escape risk):" >&2
+  printf '  %s\n' $OOT_LINKS >&2
+  exit 1
+fi
+
+# Apply: rsync staging over live wiki (preserves files not in staging). --safe-links drops any
+# out-of-tree symlink as defense-in-depth behind the reject guard; the cp fallback is already
+# covered by that guard (no out-of-tree symlink can reach it).
 if command -v rsync >/dev/null 2>&1; then
-  rsync -a --delete "$STAGING_WIKI/" "$LIVE_WIKI/"
+  rsync -a --delete --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/"
 else
   rm -rf "$LIVE_WIKI"
   cp -r "$STAGING_WIKI" "$LIVE_WIKI"

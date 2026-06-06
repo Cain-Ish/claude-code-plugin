@@ -19,7 +19,8 @@ grep -q 'bwrap absent' "$SCRIPT"                  && pass "bwrap-absent → skip
 # C1 (deep-review): ~/.claude must NOT be wholesale-writable (that would let the agent rewrite the
 # plugin's own code / hooks). Only the credential FILE is bound writable; plugins/settings stay ro.
 grep -q -- '--bind "\$HOME/.claude" "\$HOME/.claude"' "$SCRIPT" && fail "binds ALL of ~/.claude writable (plugin self-modification vector)" || pass "no wholesale ~/.claude writable bind"
-grep -q 'credentials.json' "$SCRIPT"              && pass "only the OAuth credential file is writable" || fail "creds-only bind missing"
+grep -q -- '--ro-bind "\$HOME/.claude/.credentials.json"' "$SCRIPT" && pass "creds bound READ-ONLY (no DoS/overwrite)" || fail "creds not ro-bound"
+grep -qE -- '[^o] --bind "\$HOME/.claude/.credentials' "$SCRIPT" && fail "creds bound writable (should be --ro-bind)" || pass "no writable creds bind"
 # the ONLY executed claude invocation must be the bwrap-jailed one (the -- claude line); guard against
 # a bare unconfined `claude -p` slipping in (the DRYRUN/echo + comments don't count as executed runs).
 BARE=$(grep -nE '(^|[^-] )claude -p' "$SCRIPT" | grep -v 'printf\|echo\|#' | grep -v -- '-- claude -p' | wc -l | tr -d ' ')
