@@ -151,4 +151,12 @@ fi
 if [ "$(sb_config_bool .auto_improve off)" = "on" ]; then
   bash "$(dirname "$0")/maintain-deterministic.sh" >/dev/null 2>&1 || true
 fi
+
+# C (opt-in headless-LLM maintainer): a SEPARATE, stronger consent than auto_improve — it runs a
+# headless `claude -p` consolidation (costs tokens, needs the OAuth grant) kernel-contained to a
+# dream's staging by bubblewrap, leaving it for `dream_accept` review. Self-gated on auto_maintain
+# + bwrap; weekly-throttled; never auto-accepts. Off by default.
+if [ "$(sb_config_bool .auto_maintain off)" = "on" ]; then
+  bash "$(dirname "$0")/maintain-llm-drain.sh" >/dev/null 2>&1 || true
+fi
 exit 0
