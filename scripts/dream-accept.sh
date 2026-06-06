@@ -42,9 +42,13 @@ fi
 # LIVE wiki (a later unjailed write escapes; creds get read into a page). Refuse the accept if any
 # staged symlink escapes the staging tree. In-tree relative aliases (e.g. security/latest.md ->
 # 2026-06-06.md) are legitimate and preserved.
+# Resolve BEFORE validate (the symlink-guard.sh doctrine): canonicalize the base too, else a
+# symlinked ancestor (macOS /private/tmp, a symlinked ~/.second-brain) makes every legit in-tree
+# alias resolve to a path that doesn't match the raw prefix → false-reject of a normal accept.
+_SW=$(readlink -f "$STAGING_WIKI" 2>/dev/null || printf '%s' "$STAGING_WIKI")
 OOT_LINKS=$(find "$STAGING_WIKI" -type l 2>/dev/null | while read -r _l; do
   _t=$(readlink -f "$_l" 2>/dev/null)
-  case "$_t" in "$STAGING_WIKI"/*) : ;; *) printf '%s\n' "$_l" ;; esac
+  case "$_t" in "$_SW"/*) : ;; *) printf '%s\n' "$_l" ;; esac
 done)
 if [ -n "$OOT_LINKS" ]; then
   echo "error: staging contains symlink(s) pointing outside the wiki — refusing accept (escape risk):" >&2

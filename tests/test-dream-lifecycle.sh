@@ -190,6 +190,19 @@ OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
 [ "$RC" -eq 0 ] || fail "accept must ALLOW an in-tree relative alias (got rc=$RC: $OUT)"
 pass "accept allows an in-tree relative alias symlink (legit preserved)"
 
+# --- Subtest 5d (C hardening regression): a SYMLINKED staging ancestor must NOT false-reject a
+# legit in-tree alias — the guard must canonicalize the base too (resolve-before-validate). Without
+# the fix this breaks every accept on macOS (/private/tmp) / symlinked-home setups.
+setup "accept-symlinked-base"
+seed_wiki; seed_transcripts
+REAL_SB="$HOME/.second-brain-real"; mv "$BRAIN_DIR" "$REAL_SB"; ln -s "$REAL_SB" "$BRAIN_DIR"   # BRAIN_DIR now a symlink
+DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+ln -s "test-entity.md" "$BRAIN_DIR/dreams/$DID/staging/wiki/entities/alias.md"   # in-tree alias, via symlinked staging
+jq '.status="completed"' "$BRAIN_DIR/dreams/$DID/status.json" > /tmp/ds.json && mv /tmp/ds.json "$BRAIN_DIR/dreams/$DID/status.json"
+OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
+[ "$RC" -eq 0 ] || fail "symlinked staging ancestor false-rejected a legit accept (got rc=$RC: $OUT)"
+pass "symlinked staging ancestor: legit in-tree alias still accepted (base canonicalized)"
+
 # --- Subtest 6: dream_set_status helper
 setup "set-status"
 seed_wiki
