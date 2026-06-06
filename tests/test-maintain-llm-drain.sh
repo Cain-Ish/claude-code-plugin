@@ -16,6 +16,10 @@ grep -q 'permission-mode bypassPermissions' "$SCRIPT" && pass "headless run is u
 grep -q -- '--bind "\$DREAM_DIR"' "$SCRIPT"       && pass "binds ONLY the dream dir writable"          || fail "dream-dir bind missing"
 grep -q -- '--ro-bind / /' "$SCRIPT"              && pass "everything else read-only (live wiki safe)" || fail "ro-bind missing"
 grep -q 'bwrap absent' "$SCRIPT"                  && pass "bwrap-absent → skip (never unconfined)"     || fail "no bwrap-absent guard"
+# C1 (deep-review): ~/.claude must NOT be wholesale-writable (that would let the agent rewrite the
+# plugin's own code / hooks). Only the credential FILE is bound writable; plugins/settings stay ro.
+grep -q -- '--bind "\$HOME/.claude" "\$HOME/.claude"' "$SCRIPT" && fail "binds ALL of ~/.claude writable (plugin self-modification vector)" || pass "no wholesale ~/.claude writable bind"
+grep -q 'credentials.json' "$SCRIPT"              && pass "only the OAuth credential file is writable" || fail "creds-only bind missing"
 # the ONLY executed claude invocation must be the bwrap-jailed one (the -- claude line); guard against
 # a bare unconfined `claude -p` slipping in (the DRYRUN/echo + comments don't count as executed runs).
 BARE=$(grep -nE '(^|[^-] )claude -p' "$SCRIPT" | grep -v 'printf\|echo\|#' | grep -v -- '-- claude -p' | wc -l | tr -d ' ')
@@ -52,5 +56,8 @@ seed_tx 1; seed_tx 2
 OUT=$(SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" 2>&1 || true)
 echo "$OUT" | grep -q 'DRYRUN dream=drm_' && pass "proceeds → stages a dream + reaches the contained run" || fail "did not reach the run (got: $(echo "$OUT" | head -c 160))"
 echo "$OUT" | grep -q 'bypassPermissions' && pass "dry-run shows the contained command" || fail "dry-run missing the contained command"
+# C3 (deep-review): the prompt must carry the dream-runner body (delimiter-derived) — a non-empty
+# prompt proves the body slice didn't silently truncate to nothing.
+PB=$(echo "$OUT" | sed -n 's/.*prompt_bytes=\([0-9]*\).*/\1/p'); [ "${PB:-0}" -gt 200 ] && pass "prompt carries the dream-runner body (${PB}B)" || fail "prompt empty/truncated (prompt_bytes=${PB:-?})"
 
 rm -rf "$B"; echo; echo "ALL PASS"
