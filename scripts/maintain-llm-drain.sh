@@ -84,7 +84,15 @@ BWRAP_ARGS=(
   --unshare-pid --new-session --die-with-parent
   --setenv HOME "$HOME" --setenv PATH "${PATH:-/usr/local/bin:/usr/bin:/bin}"
 )
-[ -f "$HOME/.claude/.credentials.json" ] && BWRAP_ARGS+=(--bind "$HOME/.claude/.credentials.json" "$HOME/.claude/.credentials.json")
+# READ-ONLY (deliberate, P0 over convenience): the agent only READS the token for the API. A
+# writable bind would let a prompt-injected agent truncate/overwrite the user's credentials (DoS) —
+# the user's threat model is credentials-at-risk, so we forbid that. TRADE-OFF: a token *refresh*
+# during the run can't persist into the jail; a near-expiry token therefore fails the run, which is
+# observable (the rc!=0 log below) and self-heals on the next run with a fresh token — acceptable
+# for a bounded weekly consolidation. (Residual, inherent to any OAuth headless run: the token is
+# readable + network is up → a prompt-injected agent could exfil it; mitigated by opt-in/default-off
+# + the content being the user's own captured knowledge + the dream review gate.)
+[ -f "$HOME/.claude/.credentials.json" ] && BWRAP_ARGS+=(--ro-bind "$HOME/.claude/.credentials.json" "$HOME/.claude/.credentials.json")
 
 # Test-only: prove the gate reached the contained run without invoking claude (the real headless
 # run is operator-verified — it can't run from inside a Claude session).

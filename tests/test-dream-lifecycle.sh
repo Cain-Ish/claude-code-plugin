@@ -167,6 +167,42 @@ ARCHIVED=$(jq -r '.archived_at' "$BRAIN_DIR/dreams/$DID/status.json")
 [ ! -d "$BRAIN_DIR/dreams/$DID/staging" ] || fail "staging should be cleaned up after accept"
 pass "accept: applies changes and archives dream"
 
+# --- Subtest 5b (C hardening): a staged OUT-OF-TREE symlink (the escape vector) is REFUSED
+setup "accept-symlink-escape"
+seed_wiki; seed_transcripts
+DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+SECRET="$HOME/secret-outside-wiki.txt"; echo "TOPSECRET" > "$SECRET"
+ln -s "$SECRET" "$BRAIN_DIR/dreams/$DID/staging/wiki/learnings/leak.md"   # symlink → outside the wiki
+jq '.status="completed"' "$BRAIN_DIR/dreams/$DID/status.json" > /tmp/ds.json && mv /tmp/ds.json "$BRAIN_DIR/dreams/$DID/status.json"
+OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
+[ "$RC" -ne 0 ] || fail "accept must REFUSE a staged out-of-tree symlink (escape)"
+echo "$OUT" | grep -qi 'outside the wiki\|escape' || fail "accept should explain the symlink refusal (got: $OUT)"
+[ ! -e "$HOME/knowledge/wiki/learnings/leak.md" ] || fail "the escape symlink reached the LIVE wiki!"
+pass "accept refuses an out-of-tree staged symlink (escape blocked)"
+
+# --- Subtest 5c (C hardening): an IN-TREE relative alias symlink is ALLOWED (legit, e.g. latest.md)
+setup "accept-symlink-intree"
+seed_wiki; seed_transcripts
+DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+ln -s "test-entity.md" "$BRAIN_DIR/dreams/$DID/staging/wiki/entities/alias.md"   # relative, in-tree
+jq '.status="completed"' "$BRAIN_DIR/dreams/$DID/status.json" > /tmp/ds.json && mv /tmp/ds.json "$BRAIN_DIR/dreams/$DID/status.json"
+OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
+[ "$RC" -eq 0 ] || fail "accept must ALLOW an in-tree relative alias (got rc=$RC: $OUT)"
+pass "accept allows an in-tree relative alias symlink (legit preserved)"
+
+# --- Subtest 5d (C hardening regression): a SYMLINKED staging ancestor must NOT false-reject a
+# legit in-tree alias — the guard must canonicalize the base too (resolve-before-validate). Without
+# the fix this breaks every accept on macOS (/private/tmp) / symlinked-home setups.
+setup "accept-symlinked-base"
+seed_wiki; seed_transcripts
+REAL_SB="$HOME/.second-brain-real"; mv "$BRAIN_DIR" "$REAL_SB"; ln -s "$REAL_SB" "$BRAIN_DIR"   # BRAIN_DIR now a symlink
+DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+ln -s "test-entity.md" "$BRAIN_DIR/dreams/$DID/staging/wiki/entities/alias.md"   # in-tree alias, via symlinked staging
+jq '.status="completed"' "$BRAIN_DIR/dreams/$DID/status.json" > /tmp/ds.json && mv /tmp/ds.json "$BRAIN_DIR/dreams/$DID/status.json"
+OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
+[ "$RC" -eq 0 ] || fail "symlinked staging ancestor false-rejected a legit accept (got rc=$RC: $OUT)"
+pass "symlinked staging ancestor: legit in-tree alias still accepted (base canonicalized)"
+
 # --- Subtest 6: dream_set_status helper
 setup "set-status"
 seed_wiki
