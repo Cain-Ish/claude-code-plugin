@@ -22,6 +22,7 @@ test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
 test -f "$BRAIN_DIR/config.json" || cat > "$BRAIN_DIR/config.json" <<'JSON'
 {
   "auto_improve": false,
+  "auto_maintain": false,
   "retention": {
     "dream_keep_count": 5,
     "bak_ttl_days": 14,
