@@ -6771,13 +6771,14 @@ async function episodicSearch(args, brainDir2) {
     return multiConceptSearch(query, index, limit, args);
   }
   const mode = args.mode ?? "both";
+  const candLimit = args.activeProject && !args.project ? Math.max(limit * 5, 25) : limit * 2;
   let vectorResults = [];
   let textResults = [];
   if (mode === "vector" || mode === "both") {
-    vectorResults = await vectorSearch(query, index, limit * 2, args, brainDir2);
+    vectorResults = await vectorSearch(query, index, candLimit, args, brainDir2);
   }
   if (mode === "text" || mode === "both") {
-    textResults = textSearch(query, index, limit * 2, args);
+    textResults = textSearch(query, index, candLimit, args);
   }
   const seen = /* @__PURE__ */ new Set();
   const merged = [];
@@ -6795,7 +6796,7 @@ async function episodicSearch(args, brainDir2) {
   }
   merged.sort((a, b) => b.similarity - a.similarity);
   return {
-    results: merged.slice(0, limit).map((r) => ({
+    results: scopeAndBroaden(merged, args).slice(0, limit).map((r) => ({
       sessionId: r.sessionId,
       project: r.project,
       date: r.date,
@@ -6860,8 +6861,12 @@ async function multiConceptSearch(concepts, index, limit, filters) {
     return { ...e, similarity: avgSim, minSimilarity: minSim };
   });
   const threshold = 0.2;
+  const ranked = scopeAndBroaden(
+    scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity),
+    filters
+  );
   return {
-    results: scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity).slice(0, limit).map((r) => ({
+    results: ranked.slice(0, limit).map((r) => ({
       sessionId: r.sessionId,
       project: r.project,
       date: r.date,
@@ -6887,6 +6892,14 @@ function applyFilters(exchanges, filters) {
     result2 = result2.filter((e) => e.date <= filters.before);
   }
   return result2;
+}
+function scopeAndBroaden(ranked, args) {
+  if (!args.activeProject || args.project) return ranked;
+  const slug = args.activeProject.toLowerCase();
+  const inScope = ranked.filter((r) => r.project.toLowerCase() === slug);
+  const parsed = parseInt(process.env.SB_EPISODIC_SCOPE_MIN_HITS ?? "", 10);
+  const minHits = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  return inScope.length >= minHits ? inScope : ranked;
 }
 
 // src/tools/pin-to-user.ts

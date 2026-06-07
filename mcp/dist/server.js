@@ -14,7 +14,7 @@ import { knowledgeFetch } from "./tools/knowledge-fetch.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
 import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
-import { episodicSearch, episodicRead } from "./tools/episodic-search.js";
+import { episodicSearch, episodicRead, withActiveScope } from "./tools/episodic-search.js";
 import { personaThink } from "./tools/persona-think.js";
 import { personaStats } from "./tools/persona-stats.js";
 import { personaDismiss } from "./tools/persona-dismiss.js";
@@ -49,7 +49,7 @@ function resolveActiveSlug() {
     // launch dir and unreliable). Fall back to cwd on older CLIs that don't set it.
     return slugFromProjectDir(activeProjectDir());
 }
-const server = new McpServer({ name: "knowledge-base", version: "2.6.4" }, {
+const server = new McpServer({ name: "knowledge-base", version: "2.6.5" }, {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of).",
 });
@@ -319,13 +319,13 @@ server.registerTool("episodic_search", {
         ]),
         mode: z.enum(["vector", "text", "both"]).optional().describe("Search mode. Default: 'both'"),
         limit: z.number().min(1).max(30).optional().describe("Max results. Default: 10"),
-        project: z.string().optional().describe("Filter by project slug (exact match)"),
+        project: z.string().optional().describe("Hard-filter to this exact project slug. Omit to default to the ACTIVE project (soft scope, so recall stays focused); pass \"all\" to deliberately search every project."),
         after: z.string().optional().describe("Only include results after this date (YYYY-MM-DD)"),
         before: z.string().optional().describe("Only include results before this date (YYYY-MM-DD)"),
     },
 }, async (args) => {
     try {
-        const result = await episodicSearch(args, BRAIN_DIR);
+        const result = await episodicSearch(withActiveScope(args, resolveActiveSlug()), BRAIN_DIR);
         if (result.results.length === 0) {
             return { content: [{ type: "text", text: "No matching conversations found." }] };
         }
