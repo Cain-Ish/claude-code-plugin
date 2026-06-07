@@ -7,13 +7,19 @@ export declare function slugFromProjectDir(dir: string | undefined): string | un
  *  stable CLAUDE_PROJECT_DIR env var (set by CC v2.1.x in the server's env to
  *  the project root) and falling back to cwd on older CLIs that don't set it. */
 export declare function activeProjectDir(env?: NodeJS.ProcessEnv, cwd?: () => string): string;
-/** Resolve the active project slug. Precedence: CLAUDE_PROJECT_DIR > pin > cwd.
+/** Resolve the active project slug.
+ *  Precedence: CLAUDE_PROJECT_DIR > cwd-if-known-project > pin > cwd.
  *
- *  CLAUDE_PROJECT_DIR is the PER-SESSION project root Claude Code sets — checked
- *  FIRST so a concurrent session can't hijack scoping. The global
- *  ~/.second-brain/.active-session-slug pin is a single shared file the last
- *  session's SessionStart overwrites; it stays BELOW CLAUDE_PROJECT_DIR (so a
- *  stale/concurrent pin no longer wins) but ABOVE bare cwd (it is project-root
- *  level and survives a subdir cwd) — the legacy path for CLIs without a project dir. */
+ *  Both CLAUDE_PROJECT_DIR and cwd are PER-PROCESS (a concurrent session can't
+ *  change them); the global ~/.second-brain/.active-session-slug pin is a single
+ *  shared file the last session's SessionStart overwrites, so it must NOT outrank
+ *  a per-process signal.
+ *  - CLAUDE_PROJECT_DIR (when set, the project root) wins outright.
+ *  - cwd is trusted ONLY when its basename names a KNOWN project
+ *    (projects/<slug>/PROJECT.md exists). That gate is the key: it accepts the
+ *    real project root (so a concurrent session's stale pin can't hijack it) but
+ *    rejects a subdir cwd (which falls to the pin — the session-root value).
+ *  - the pin is the subdir/legacy fallback; bare cwd is the last resort (a brand
+ *    new project session-load has just scaffolded). */
 export declare function resolveActiveSlug(brainDir: string, env?: NodeJS.ProcessEnv, cwd?: () => string): string | undefined;
 //# sourceMappingURL=project-dir.d.ts.map

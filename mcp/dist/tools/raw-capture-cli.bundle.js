@@ -1,7 +1,7 @@
 // src/tools/raw-capture-cli.ts
 import { homedir } from "os";
-import { join as join2, basename as basename2 } from "path";
-import { existsSync, readFileSync, statSync } from "fs";
+import { join as join3 } from "path";
+import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "fs";
 
 // src/tools/raw-inbox.ts
 import { promises as fs } from "fs";
@@ -6309,20 +6309,34 @@ async function captureItem(input) {
   return { id, duplicate: false, unprocessed: await unprocessedCount(input.brainDir, input.slug) };
 }
 
-// src/tools/raw-capture-cli.ts
-function resolveSlug(brainDir) {
-  if (process.env.SB_ACTIVE_SLUG) return process.env.SB_ACTIVE_SLUG;
-  if (process.env.CLAUDE_PROJECT_DIR) {
-    const b = basename2(process.env.CLAUDE_PROJECT_DIR);
-    if (b && b !== "/" && b !== "." && b !== "..") return /^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(b) ? "scratch" : b;
+// src/tools/project-dir.ts
+import { basename as basename2, join as join2 } from "path";
+import { readFileSync, existsSync } from "fs";
+function slugFromProjectDir(dir) {
+  if (!dir) return void 0;
+  const base = basename2(dir);
+  if (!base || base === "/" || base === "." || base === "..") return void 0;
+  if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
+  return base;
+}
+function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
+  if (env.CLAUDE_PROJECT_DIR) {
+    const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
+    if (fromEnv) return fromEnv;
   }
+  const cwdSlug = slugFromProjectDir(cwd());
+  if (cwdSlug && existsSync(join2(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
     const pin = readFileSync(join2(brainDir, ".active-session-slug"), "utf-8").trim();
     if (pin && existsSync(join2(brainDir, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
-  const base = basename2(process.cwd());
-  return base && base !== "/" && base !== "." && base !== ".." ? base : void 0;
+  return cwdSlug;
+}
+
+// src/tools/raw-capture-cli.ts
+function resolveSlug(brainDir) {
+  return process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
 }
 function takeNode(args) {
   const i = args.indexOf("--node");
@@ -6330,7 +6344,7 @@ function takeNode(args) {
   return { rest: args };
 }
 async function main() {
-  const brainDir = process.env.BRAIN_DIR || join2(homedir(), ".second-brain");
+  const brainDir = process.env.BRAIN_DIR || join3(homedir(), ".second-brain");
   const slug = resolveSlug(brainDir);
   if (!slug) {
     console.log("capture: could not resolve the active project (no slug). cd into a project.");
@@ -6357,7 +6371,7 @@ async function main() {
     } else if (action === "pending") {
       for (const i of await listItems(brainDir, slug)) {
         if (i.status !== "unprocessed" || i.malformed) continue;
-        const path2 = join2(rawDir(brainDir, slug), `${i.id}.md`);
+        const path2 = join3(rawDir(brainDir, slug), `${i.id}.md`);
         const cell = (s) => (s || "").replace(/[\t\r\n]+/g, " ");
         console.log([i.id, path2, i.captured_by, cell(i.target_node ?? ""), cell(i.gist)].join("	"));
       }
@@ -6369,7 +6383,7 @@ async function main() {
       }
       console.log(await markProcessed(brainDir, slug, id, node) ? `Processed ${id}` : `No raw item with id ${id}.`);
     } else if (action === "paste") {
-      const content = readFileSync(0, "utf-8");
+      const content = readFileSync2(0, "utf-8");
       if (!content.trim()) {
         console.log("capture: nothing on stdin.");
         return;
@@ -6388,7 +6402,7 @@ async function main() {
       if (/^https?:\/\//i.test(src)) {
         kind = "url";
         content = src;
-      } else if (existsSync(src) && statSync(src).isFile()) {
+      } else if (existsSync2(src) && statSync(src).isFile()) {
         kind = "file";
       } else {
         kind = "paste";

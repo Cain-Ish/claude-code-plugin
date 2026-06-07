@@ -247,21 +247,26 @@ sb_slug_from_dir() {
 # project-root level and survives a subdir cwd) — the legacy path for CLIs that
 # expose no project dir.
 sb_resolve_slug() {
-  local cwd="${1:-$PWD}"
+  local cwd="${1:-$PWD}" _s
+  # 1. CLAUDE_PROJECT_DIR — per-process project root (set by Claude Code when present).
   if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
-    local _s; _s=$(sb_slug_from_dir "$CLAUDE_PROJECT_DIR")
-    # skip a degenerate project dir (/, ., ..) and fall through to the pin — parity with the TS resolver
+    _s=$(sb_slug_from_dir "$CLAUDE_PROJECT_DIR")
     case "$_s" in /|.|..) ;; *) echo "$_s"; return 0 ;; esac
   fi
-  # NOTE (residual): on a legacy CLI that sets no CLAUDE_PROJECT_DIR, the pin below is still a
-  # global shared file, so concurrent sessions can race it — that edge is unfixable without a
-  # per-session dir signal. Modern CLIs (CLAUDE_PROJECT_DIR set) take the branch above and are safe.
+  # 2. cwd, but ONLY when its basename names a KNOWN project (projects/<slug>/ exists).
+  #    cwd is per-process, so it can't be clobbered by a concurrent session like the shared
+  #    pin can — but the known-project gate rejects a subdir cwd (→ falls to the pin below).
+  _s=$(sb_slug_from_dir "$cwd")
+  case "$_s" in /|.|..) _s="" ;; esac
+  if [ -n "$_s" ] && [ -f "$BRAIN_DIR/projects/$_s/PROJECT.md" ]; then echo "$_s"; return 0; fi
+  # 3. The pin (session-root level; survives a subdir cwd) — subdir/legacy fallback.
   local pinned="$BRAIN_DIR/.active-session-slug" slug
   if [ -f "$pinned" ]; then
     slug=$(tr -d '[:space:]' < "$pinned")
     if [ -n "$slug" ] && [ -f "$BRAIN_DIR/projects/$slug/PROJECT.md" ]; then echo "$slug"; return 0; fi
   fi
-  sb_slug_from_dir "$cwd"
+  # 4. Last resort: cwd basename (a brand-new project session-load has just scaffolded).
+  echo "${_s:-$(sb_slug_from_dir "$cwd")}"
 }
 
 # Strip markdown code fences from LLM output. Models sometimes wrap JSON in

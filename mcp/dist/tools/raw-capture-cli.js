@@ -1,25 +1,12 @@
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { join } from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir } from './raw-inbox.js';
+import { resolveActiveSlug } from './project-dir.js';
 function resolveSlug(brainDir) {
-    if (process.env.SB_ACTIVE_SLUG)
-        return process.env.SB_ACTIVE_SLUG;
-    // CLAUDE_PROJECT_DIR (per-session project root) beats the shared pin — a concurrent
-    // session can clobber the pin. tmp→scratch mirrors project-dir.ts / lib.sh sb_slug_from_dir.
-    if (process.env.CLAUDE_PROJECT_DIR) {
-        const b = basename(process.env.CLAUDE_PROJECT_DIR);
-        if (b && b !== '/' && b !== '.' && b !== '..')
-            return /^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(b) ? 'scratch' : b;
-    }
-    try {
-        const pin = readFileSync(join(brainDir, '.active-session-slug'), 'utf-8').trim();
-        if (pin && existsSync(join(brainDir, 'projects', pin, 'PROJECT.md')))
-            return pin;
-    }
-    catch { /* no pin */ }
-    const base = basename(process.cwd());
-    return base && base !== '/' && base !== '.' && base !== '..' ? base : undefined;
+    // SB_ACTIVE_SLUG (explicit override) first; else the shared resolver
+    // (CLAUDE_PROJECT_DIR > cwd-if-known-project > pin > cwd).
+    return process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
 }
 /** Pull `--node <slug>` out of argv; return the rest + the node value. */
 function takeNode(args) {

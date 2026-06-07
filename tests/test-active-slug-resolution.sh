@@ -21,17 +21,17 @@ r=$(run "/home/u/Projects/claude-code-plugin" "$TMP")
 [ "$r" = "claude-code-plugin" ] || fail "stale pin overrode CLAUDE_PROJECT_DIR (got '$r', want claude-code-plugin)"
 pass "CLAUDE_PROJECT_DIR beats the stale pin"
 
-# 2. legacy fallback (no CLAUDE_PROJECT_DIR): a VALID pin (project-root level) beats bare cwd
-r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; cd '$ROOT'; sb_resolve_slug")
-[ "$r" = "cainish" ] || fail "legacy fallback: valid pin should beat cwd (got '$r', want cainish)"
-pass "legacy fallback: valid pin beats bare cwd"
+# 2. THE live bug: no CLAUDE_PROJECT_DIR, cwd IS the known project, pin clobbered to cainish.
+#    The per-process cwd (a registered project) must beat the stale shared pin.
+mkdir -p "$SB/projects/claude-code-plugin"; touch "$SB/projects/claude-code-plugin/PROJECT.md"
+r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$ROOT'; sb_resolve_slug")
+[ "$r" = "claude-code-plugin" ] || fail "cwd (known project) should beat the stale pin (got '$r', want claude-code-plugin)"
+pass "cwd that names a known project beats the stale pin (no CLAUDE_PROJECT_DIR)"
 
-# 2b. but an INVALID pin (no matching PROJECT.md) falls through to the cwd basename
-SB3="$TMP/.sb3"; mkdir -p "$SB3/projects/claude-code-plugin"; touch "$SB3/projects/claude-code-plugin/PROJECT.md"
-printf 'no-such-project' > "$SB3/.active-session-slug"
-r=$(BRAIN_DIR="$SB3" bash -c "source '$ROOT/scripts/lib.sh'; cd '$ROOT'; sb_resolve_slug")
-[ "$r" = "claude-code-plugin" ] || fail "invalid pin should fall through to cwd (got '$r')"
-pass "invalid pin falls through to cwd basename"
+# 2b. a SUBDIR cwd (basename not a registered project) falls to the pin (subdir survival)
+r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$ROOT/scripts'; sb_resolve_slug")
+[ "$r" = "cainish" ] || fail "subdir cwd should fall to the pin (got '$r', want cainish)"
+pass "subdir cwd (not a known project) falls to the pin"
 
 # 3. tmp→scratch normalization is shared (sb_slug_from_dir)
 r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; sb_slug_from_dir /tmp/tmp.aB3xq")
@@ -51,9 +51,10 @@ r=$(cat "$SB2/.active-session-slug")
 [ "$r" = "claude-code-plugin" ] || fail "session-load did not refresh the pin to the project dir (got '$r')"
 pass "session-load refreshes the pin from CLAUDE_PROJECT_DIR"
 
-# 5. a degenerate CLAUDE_PROJECT_DIR (/) is skipped → falls through to the pin (TS/bash parity)
-r=$(BRAIN_DIR="$SB" CLAUDE_PROJECT_DIR="/" bash -c "source '$ROOT/scripts/lib.sh'; sb_resolve_slug")
-[ "$r" = "cainish" ] || fail "degenerate CLAUDE_PROJECT_DIR=/ should fall through to pin (got '$r')"
-pass "degenerate CLAUDE_PROJECT_DIR falls through to the pin"
+# 5. a degenerate CLAUDE_PROJECT_DIR (/) is skipped; from a non-project cwd it reaches the pin
+mkdir -p "$TMP/plain"
+r=$(BRAIN_DIR="$SB" CLAUDE_PROJECT_DIR="/" bash -c "source '$ROOT/scripts/lib.sh'; cd '$TMP/plain'; sb_resolve_slug")
+[ "$r" = "cainish" ] || fail "degenerate CLAUDE_PROJECT_DIR=/ + non-project cwd should reach the pin (got '$r')"
+pass "degenerate CLAUDE_PROJECT_DIR is skipped, non-project cwd reaches the pin"
 
 echo; echo "ALL PASS"
