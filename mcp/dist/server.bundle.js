@@ -29396,14 +29396,26 @@ async function knowledgeNeighbors(args) {
 }
 
 // src/tools/project-dir.ts
-import { basename as basename4 } from "path";
+import { basename as basename4, join as join18 } from "path";
+import { readFileSync, existsSync } from "fs";
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
   const base = basename4(dir);
-  return base && base !== "/" && base !== "." ? base : void 0;
+  if (!base || base === "/" || base === "." || base === "..") return void 0;
+  if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
+  return base;
 }
-function activeProjectDir(env = process.env, cwd = process.cwd) {
-  return env.CLAUDE_PROJECT_DIR || cwd();
+function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
+  if (env.CLAUDE_PROJECT_DIR) {
+    const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
+    if (fromEnv) return fromEnv;
+  }
+  try {
+    const pin = readFileSync(join18(brainDir2, ".active-session-slug"), "utf-8").trim();
+    if (pin && existsSync(join18(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
+  } catch {
+  }
+  return slugFromProjectDir(cwd());
 }
 
 // src/server.ts
@@ -29421,16 +29433,11 @@ function resolveKnowledgeDir() {
 }
 var KNOWLEDGE_DIR = resolveKnowledgeDir();
 var BRAIN_DIR = path2.join(os.homedir(), ".second-brain");
-function resolveActiveSlug() {
-  try {
-    const pin = fs17.readFileSync(path2.join(BRAIN_DIR, ".active-session-slug"), "utf-8").trim();
-    if (pin && fs17.existsSync(path2.join(BRAIN_DIR, "projects", pin, "PROJECT.md"))) return pin;
-  } catch {
-  }
-  return slugFromProjectDir(activeProjectDir());
+function resolveActiveSlug2() {
+  return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.6.5" },
+  { name: "knowledge-base", version: "2.6.6" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
@@ -29452,7 +29459,7 @@ server.registerTool(
   },
   async ({ query, scope }) => {
     try {
-      const result = await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug() });
+      const result = await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug2() });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     } catch (error2) {
       return {
@@ -29752,7 +29759,7 @@ server.registerTool(
   },
   async (args) => {
     try {
-      const result = await episodicSearch(withActiveScope(args, resolveActiveSlug()), BRAIN_DIR);
+      const result = await episodicSearch(withActiveScope(args, resolveActiveSlug2()), BRAIN_DIR);
       if (result.results.length === 0) {
         return { content: [{ type: "text", text: "No matching conversations found." }] };
       }

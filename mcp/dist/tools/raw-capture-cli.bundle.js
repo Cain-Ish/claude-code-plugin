@@ -6312,6 +6312,10 @@ async function captureItem(input) {
 // src/tools/raw-capture-cli.ts
 function resolveSlug(brainDir) {
   if (process.env.SB_ACTIVE_SLUG) return process.env.SB_ACTIVE_SLUG;
+  if (process.env.CLAUDE_PROJECT_DIR) {
+    const b = basename2(process.env.CLAUDE_PROJECT_DIR);
+    if (b && b !== "/" && b !== "." && b !== "..") return /^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(b) ? "scratch" : b;
+  }
   try {
     const pin = readFileSync(join2(brainDir, ".active-session-slug"), "utf-8").trim();
     if (pin && existsSync(join2(brainDir, "projects", pin, "PROJECT.md"))) return pin;

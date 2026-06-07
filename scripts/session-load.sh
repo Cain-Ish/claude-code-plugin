@@ -10,17 +10,14 @@ INDEX_FILE="$BRAIN_DIR/projects.jsonl"
 PROJECTS_DIR="$BRAIN_DIR/projects"
 BYTE_BUDGET=8000   # ~2000 tokens. Claude Code hard-caps hook output at 10K chars.
 
-slug=$(basename "$PWD")
-# Reject mktemp/temp-style slugs. A session started from /tmp/tmp.xK3p9q or
-# any short random-looking dir creates a ghost project that's never used and
-# never cleaned up — observed 33 such directories accumulated before this
-# guard was added. We replace the slug with "scratch" so the project is shared
-# rather than per-tempdir. The user can still rename it later if they want.
-case "$slug" in
-  tmp.*|tmp|.tmp.*|tmpfs|"")
-    slug="scratch"
-    ;;
-esac
+# Resolve THIS session's project from the per-session project dir (CLAUDE_PROJECT_DIR,
+# which Claude Code sets to the project root, else cwd) — NOT from the shared
+# .active-session-slug pin, which a CONCURRENT session in another project can clobber.
+# sb_slug_from_dir collapses tmp/scratch-style dirs into one shared "scratch" project
+# (a session from /tmp/tmp.xK3p9q would otherwise create a ghost project — 33 such
+# dirs accumulated before this guard).
+slug=$(sb_slug_from_dir "${CLAUDE_PROJECT_DIR:-$PWD}")
+# Refresh the pin (legacy fallback for the MCP server / CLIs when no project dir is set).
 echo "$slug" > "$BRAIN_DIR/.active-session-slug"
 project_file="$PROJECTS_DIR/$slug/PROJECT.md"
 

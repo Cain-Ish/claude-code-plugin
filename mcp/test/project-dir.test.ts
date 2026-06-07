@@ -1,0 +1,63 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { slugFromProjectDir, resolveActiveSlug } from '../src/tools/project-dir.js';
+
+describe('slugFromProjectDir — tmp→scratch normalization (parity with session-load.sh)', () => {
+  it('collapses tmp-like dirs to a single "scratch" project', () => {
+    expect(slugFromProjectDir('/tmp/tmp.aB3xq9')).toBe('scratch');
+    expect(slugFromProjectDir('/x/tmp')).toBe('scratch');
+    expect(slugFromProjectDir('/x/.tmp.zzz')).toBe('scratch');
+    expect(slugFromProjectDir('/x/tmpfs')).toBe('scratch');
+  });
+  it('leaves a real project basename intact', () => {
+    expect(slugFromProjectDir('/home/u/Projects/my-app')).toBe('my-app');
+    expect(slugFromProjectDir('/home/u/Projects/claude-code-plugin')).toBe('claude-code-plugin');
+  });
+  it('rejects degenerate dirs', () => {
+    expect(slugFromProjectDir('/')).toBeUndefined();
+    expect(slugFromProjectDir('/foo/..')).toBeUndefined();
+    expect(slugFromProjectDir(undefined)).toBeUndefined();
+  });
+});
+
+describe('resolveActiveSlug — per-session project dir beats the global pin', () => {
+  let brainDir: string;
+  beforeEach(() => {
+    brainDir = mkdtempSync(join(tmpdir(), 'slug-resolve-'));
+    // a STALE pin written by another (concurrent) session
+    mkdirSync(join(brainDir, 'projects', 'cainish'), { recursive: true });
+    writeFileSync(join(brainDir, 'projects', 'cainish', 'PROJECT.md'), '# PROJECT: cainish\n');
+    mkdirSync(join(brainDir, 'projects', 'claude-code-plugin'), { recursive: true });
+    writeFileSync(join(brainDir, 'projects', 'claude-code-plugin', 'PROJECT.md'), '# PROJECT: claude-code-plugin\n');
+    writeFileSync(join(brainDir, '.active-session-slug'), 'cainish');
+  });
+  afterEach(() => rmSync(brainDir, { recursive: true, force: true }));
+
+  it('prefers CLAUDE_PROJECT_DIR over a conflicting .active-session-slug pin (the concurrent-session bug)', () => {
+    const slug = resolveActiveSlug(brainDir, { CLAUDE_PROJECT_DIR: '/home/u/Projects/claude-code-plugin' }, () => '/somewhere/else');
+    expect(slug).toBe('claude-code-plugin'); // NOT the stale 'cainish' pin
+  });
+
+  it('uses the pin over bare cwd when CLAUDE_PROJECT_DIR is unset (legacy fallback, project-root level)', () => {
+    const slug = resolveActiveSlug(brainDir, {}, () => '/home/u/Projects/claude-code-plugin');
+    expect(slug).toBe('cainish'); // pin (a real project) beats cwd in the legacy path
+  });
+
+  it('falls back to cwd basename when CLAUDE_PROJECT_DIR unset and the pin is invalid', () => {
+    writeFileSync(join(brainDir, '.active-session-slug'), 'no-such-project');
+    const slug = resolveActiveSlug(brainDir, {}, () => '/home/u/Projects/my-app');
+    expect(slug).toBe('my-app');
+  });
+
+  it('normalizes a tmp project dir to scratch (not the pin)', () => {
+    const slug = resolveActiveSlug(brainDir, { CLAUDE_PROJECT_DIR: '/tmp/tmp.xY9' }, () => '/');
+    expect(slug).toBe('scratch');
+  });
+
+  it('skips a degenerate CLAUDE_PROJECT_DIR ("/") and falls through to the pin (TS/bash parity)', () => {
+    const slug = resolveActiveSlug(brainDir, { CLAUDE_PROJECT_DIR: '/' }, () => '/x');
+    expect(slug).toBe('cainish');
+  });
+});

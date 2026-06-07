@@ -5,6 +5,13 @@ import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, raw
 function resolveSlug(brainDir) {
     if (process.env.SB_ACTIVE_SLUG)
         return process.env.SB_ACTIVE_SLUG;
+    // CLAUDE_PROJECT_DIR (per-session project root) beats the shared pin — a concurrent
+    // session can clobber the pin. tmp→scratch mirrors project-dir.ts / lib.sh sb_slug_from_dir.
+    if (process.env.CLAUDE_PROJECT_DIR) {
+        const b = basename(process.env.CLAUDE_PROJECT_DIR);
+        if (b && b !== '/' && b !== '.' && b !== '..')
+            return /^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(b) ? 'scratch' : b;
+    }
     try {
         const pin = readFileSync(join(brainDir, '.active-session-slug'), 'utf-8').trim();
         if (pin && existsSync(join(brainDir, 'projects', pin, 'PROJECT.md')))
