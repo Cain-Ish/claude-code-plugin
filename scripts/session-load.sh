@@ -443,7 +443,7 @@ if [ -f "$project_file" ]; then
     PLAN_TOTAL=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- / && !/\[pinned\]/{c++} END{print c+0}' "$project_file")
     DEC_N=$(awk '/^## Recent decisions$/{f=1;next} /^## /{f=0} f && /^- /{c++} END{print c+0}' "$project_file")
     BLK_N=$(awk '/^## Open blockers$/{f=1;next} /^## /{f=0} f && /^- \[active\]/{c++} END{print c+0}' "$project_file")
-    sb_append "$(printf '✓ second-brain: project memory loaded — %s (plan %s/%s · %s decisions · %s active blockers)\n' \
+    sb_append "$(printf '\n✓ second-brain: project memory loaded — %s (plan %s/%s · %s decisions · %s active blockers)\n' \
       "$slug" "$PLAN_OPEN" "$PLAN_TOTAL" "$DEC_N" "$BLK_N")" "scope-banner" 200 force
   fi
 fi
