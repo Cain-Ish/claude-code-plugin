@@ -72,6 +72,8 @@ if [ ! -f "$PROJECT_MD" ]; then
 
 ## State
 
+## Plan
+
 ## Conventions
 
 ## Recent decisions

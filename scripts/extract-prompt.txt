@@ -11,6 +11,7 @@ Schema (all keys required, arrays may be empty):
   "recent_decisions": ["..."],
   "open_blockers":    ["..."],
   "cross_refs":       ["..."],
+  "plan":             ["- [ ] next step", "- [x] shipped thing"],
   "files_touched":    ["..."],
   "wiki_updates":     [
     {
@@ -48,6 +49,7 @@ Rules:
 - Open blockers: unresolved questions, deferred items, things explicitly called out as needing follow-up. Prefix each with one of [active], [resolved], [stale]. Skip ones already in "## Open blockers". Max 5 entries.
 - Cross-refs: wiki page slugs (kebab-case, lowercase) that name *concepts* mentioned at least twice and worth keeping a separate page for — not file paths, not generic words. Skip slugs already linked in "## Cross-references". Max 3 entries.
 - Files touched: absolute or repo-relative paths of files modified by Edit/Write/MultiEdit tool calls. Plain strings, no markdown.
+- Plan: the FORWARD-looking checklist of what's next for THIS project — distinct from decisions (past choices). Read the existing "## Plan" section in the PROJECT.md above and emit the UPDATED FULL list: carry unfinished items forward as "- [ ] ...", mark newly-completed ones "- [x] ...", add new next steps, drop finished/irrelevant ones. Max 7 items. NEVER include or rewrite any line marked "[pinned]" — those are human-authored north stars the merge preserves automatically. Emit [] when the session produced no clear forward work (the existing plan is then left untouched, never wiped).
 - Wiki updates: extract technology patterns, architecture decisions, entity relationships, and reusable concepts into wiki page proposals. Rules:
   - "entities" = specific technologies, libraries, services, repos, or components the project uses
   - "concepts" = design patterns, architectural approaches, or reusable ideas

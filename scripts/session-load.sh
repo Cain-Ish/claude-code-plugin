@@ -34,6 +34,8 @@ if [ ! -f "$project_file" ]; then
 
 ## State
 
+## Plan
+
 ## Conventions
 
 ## Recent decisions
@@ -431,6 +433,19 @@ fi
 if [ -f "$project_file" ]; then
   PROJ_CONTENT=$(printf '\n%s' "$(cat "$project_file")")
   sb_append "$PROJ_CONTENT" "PROJECT.md" 3000 force
+
+  # M3: a one-line, glanceable confirmation of WHICH project scope loaded — so a wrong
+  # cwd→slug resolution (the root cause of cross-project leak) is caught immediately, and
+  # the plan's open/total is surfaced so focus is visible. Forced (tiny, priority-1
+  # transparency). Kill switch: SB_SCOPE_BANNER=off.
+  if [ "${SB_SCOPE_BANNER:-on}" != "off" ]; then
+    PLAN_OPEN=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- \[ \]/{c++} END{print c+0}' "$project_file")
+    PLAN_TOTAL=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- / && !/\[pinned\]/{c++} END{print c+0}' "$project_file")
+    DEC_N=$(awk '/^## Recent decisions$/{f=1;next} /^## /{f=0} f && /^- /{c++} END{print c+0}' "$project_file")
+    BLK_N=$(awk '/^## Open blockers$/{f=1;next} /^## /{f=0} f && /^- \[active\]/{c++} END{print c+0}' "$project_file")
+    sb_append "$(printf '✓ second-brain: project memory loaded — %s (plan %s/%s · %s decisions · %s active blockers)\n' \
+      "$slug" "$PLAN_OPEN" "$PLAN_TOTAL" "$DEC_N" "$BLK_N")" "scope-banner" 200 force
+  fi
 fi
 
 # 4. Index line — tiny, always fits
