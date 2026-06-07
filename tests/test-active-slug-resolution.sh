@@ -57,4 +57,15 @@ r=$(BRAIN_DIR="$SB" CLAUDE_PROJECT_DIR="/" bash -c "source '$ROOT/scripts/lib.sh
 [ "$r" = "cainish" ] || fail "degenerate CLAUDE_PROJECT_DIR=/ + non-project cwd should reach the pin (got '$r')"
 pass "degenerate CLAUDE_PROJECT_DIR is skipped, non-project cwd reaches the pin"
 
+# 6. tier-4 parity: a non-project cwd with NO valid pin → the cwd basename (brand-new project)
+SB4="$TMP/.sb4"; mkdir -p "$SB4/projects"   # no pin, no registered projects
+r=$(BRAIN_DIR="$SB4" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$TMP/plain'; sb_resolve_slug")
+[ "$r" = "plain" ] || fail "tier-4 new project should be the cwd basename (got '$r', want plain)"
+pass "tier-4: non-project cwd with no pin resolves to the cwd basename"
+
+# 6b. tier-4 parity: a DEGENERATE cwd with no pin → empty (matches the TS resolver's undefined)
+r=$(BRAIN_DIR="$SB4" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd /; sb_resolve_slug")
+[ -z "$r" ] || fail "degenerate cwd with no pin should resolve to empty, not a '/' slug (got '$r')"
+pass "tier-4: degenerate cwd with no pin → empty (TS parity, no '/' slug leak)"
+
 echo; echo "ALL PASS"

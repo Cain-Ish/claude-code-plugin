@@ -265,8 +265,10 @@ sb_resolve_slug() {
     slug=$(tr -d '[:space:]' < "$pinned")
     if [ -n "$slug" ] && [ -f "$BRAIN_DIR/projects/$slug/PROJECT.md" ]; then echo "$slug"; return 0; fi
   fi
-  # 4. Last resort: cwd basename (a brand-new project session-load has just scaffolded).
-  echo "${_s:-$(sb_slug_from_dir "$cwd")}"
+  # 4. Last resort: the (already-normalized) cwd basename in $_s — a brand-new project not yet
+  #    scaffolded. Empty when the cwd was degenerate (blanked above), matching the TS resolver
+  #    returning undefined; callers then report "could not resolve" rather than emit a "/" slug.
+  echo "$_s"
 }
 
 # Strip markdown code fences from LLM output. Models sometimes wrap JSON in
