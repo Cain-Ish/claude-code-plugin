@@ -29410,12 +29410,14 @@ function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
     const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
     if (fromEnv) return fromEnv;
   }
+  const cwdSlug = slugFromProjectDir(cwd());
+  if (cwdSlug && existsSync(join18(brainDir2, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
     const pin = readFileSync(join18(brainDir2, ".active-session-slug"), "utf-8").trim();
     if (pin && existsSync(join18(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
-  return slugFromProjectDir(cwd());
+  return cwdSlug;
 }
 
 // src/server.ts
@@ -29437,7 +29439,7 @@ function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.6.6" },
+  { name: "knowledge-base", version: "2.6.7" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."

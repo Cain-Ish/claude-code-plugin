@@ -1,7 +1,6 @@
 // src/tools/doc-sources-config-cli.ts
 import { homedir } from "os";
-import { join as join2, basename } from "path";
-import { existsSync, readFileSync } from "fs";
+import { join as join3 } from "path";
 
 // src/tools/doc-sources.ts
 import { promises as fs } from "fs";
@@ -6120,22 +6119,37 @@ async function removeLocation(brainDir, slug, location) {
   return { locations, removed };
 }
 
-// src/tools/doc-sources-config-cli.ts
-function resolveSlug(brainDir) {
-  if (process.env.CLAUDE_PROJECT_DIR) {
-    const b = basename(process.env.CLAUDE_PROJECT_DIR);
-    if (b && b !== "/" && b !== "." && b !== "..") return /^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(b) ? "scratch" : b;
+// src/tools/project-dir.ts
+import { basename, join as join2 } from "path";
+import { readFileSync, existsSync } from "fs";
+function slugFromProjectDir(dir) {
+  if (!dir) return void 0;
+  const base = basename(dir);
+  if (!base || base === "/" || base === "." || base === "..") return void 0;
+  if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
+  return base;
+}
+function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
+  if (env.CLAUDE_PROJECT_DIR) {
+    const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
+    if (fromEnv) return fromEnv;
   }
+  const cwdSlug = slugFromProjectDir(cwd());
+  if (cwdSlug && existsSync(join2(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
     const pin = readFileSync(join2(brainDir, ".active-session-slug"), "utf-8").trim();
     if (pin && existsSync(join2(brainDir, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
-  const base = basename(process.cwd());
-  return base && base !== "/" && base !== "." ? base : void 0;
+  return cwdSlug;
+}
+
+// src/tools/doc-sources-config-cli.ts
+function resolveSlug(brainDir) {
+  return resolveActiveSlug(brainDir);
 }
 async function main() {
-  const brainDir = process.env.BRAIN_DIR || join2(homedir(), ".second-brain");
+  const brainDir = process.env.BRAIN_DIR || join3(homedir(), ".second-brain");
   const action = process.argv[2];
   const location = process.argv[3];
   const slug = resolveSlug(brainDir);

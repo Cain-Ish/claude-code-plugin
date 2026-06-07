@@ -1,23 +1,10 @@
 import { homedir } from 'os';
-import { join, basename } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { addLocation, removeLocation, listLocations } from './doc-sources.js';
+import { resolveActiveSlug } from './project-dir.js';
 function resolveSlug(brainDir) {
-    // CLAUDE_PROJECT_DIR (per-session project root) beats the shared pin — a concurrent
-    // session can clobber the pin. tmp→scratch mirrors project-dir.ts / lib.sh sb_slug_from_dir.
-    if (process.env.CLAUDE_PROJECT_DIR) {
-        const b = basename(process.env.CLAUDE_PROJECT_DIR);
-        if (b && b !== '/' && b !== '.' && b !== '..')
-            return /^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(b) ? 'scratch' : b;
-    }
-    try {
-        const pin = readFileSync(join(brainDir, '.active-session-slug'), 'utf-8').trim();
-        if (pin && existsSync(join(brainDir, 'projects', pin, 'PROJECT.md')))
-            return pin;
-    }
-    catch { /* no pin */ }
-    const base = basename(process.cwd());
-    return base && base !== '/' && base !== '.' ? base : undefined;
+    // The shared resolver: CLAUDE_PROJECT_DIR > cwd-if-known-project > pin > cwd.
+    return resolveActiveSlug(brainDir);
 }
 async function main() {
     const brainDir = process.env.BRAIN_DIR || join(homedir(), '.second-brain');

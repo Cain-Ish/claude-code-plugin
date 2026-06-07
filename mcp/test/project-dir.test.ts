@@ -40,9 +40,17 @@ describe('resolveActiveSlug — per-session project dir beats the global pin', (
     expect(slug).toBe('claude-code-plugin'); // NOT the stale 'cainish' pin
   });
 
-  it('uses the pin over bare cwd when CLAUDE_PROJECT_DIR is unset (legacy fallback, project-root level)', () => {
+  it('a cwd that names a KNOWN project beats the stale pin when CLAUDE_PROJECT_DIR is unset (the live concurrent-session bug)', () => {
+    // THIS is the case the merged 0.24.29 fix got wrong: no CLAUDE_PROJECT_DIR, cwd IS the real
+    // project (projects/claude-code-plugin exists), pin clobbered to 'cainish' by another session.
     const slug = resolveActiveSlug(brainDir, {}, () => '/home/u/Projects/claude-code-plugin');
-    expect(slug).toBe('cainish'); // pin (a real project) beats cwd in the legacy path
+    expect(slug).toBe('claude-code-plugin'); // per-process cwd wins; the racy pin is ignored
+  });
+
+  it('a SUBDIR cwd (not a known project) falls to the pin (subdir survival preserved)', () => {
+    // cwd is a subdir whose basename is not a registered project → use the session-root pin.
+    const slug = resolveActiveSlug(brainDir, {}, () => '/home/u/Projects/claude-code-plugin/scripts');
+    expect(slug).toBe('cainish');
   });
 
   it('falls back to cwd basename when CLAUDE_PROJECT_DIR unset and the pin is invalid', () => {

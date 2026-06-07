@@ -1,7 +1,6 @@
 // src/tools/raw-scan-cli.ts
 import { homedir } from "os";
-import { join as join3, basename as basename2, relative as relative3 } from "path";
-import { existsSync, readFileSync } from "fs";
+import { join as join4, relative as relative3 } from "path";
 
 // src/tools/raw-scan.ts
 import { resolve as resolve2, relative as relative2, sep as sep3 } from "path";
@@ -6333,23 +6332,37 @@ async function runScan(projectRoot, brainDir, slug, opts) {
   return { candidates, overflow, captured, skipped, errored, truncated };
 }
 
-// src/tools/raw-scan-cli.ts
-function resolveSlug(brainDir) {
-  if (process.env.SB_ACTIVE_SLUG) return process.env.SB_ACTIVE_SLUG;
-  if (process.env.CLAUDE_PROJECT_DIR) {
-    const b = basename2(process.env.CLAUDE_PROJECT_DIR);
-    if (b && b !== "/" && b !== "." && b !== "..") return /^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(b) ? "scratch" : b;
+// src/tools/project-dir.ts
+import { basename as basename2, join as join3 } from "path";
+import { readFileSync, existsSync } from "fs";
+function slugFromProjectDir(dir) {
+  if (!dir) return void 0;
+  const base = basename2(dir);
+  if (!base || base === "/" || base === "." || base === "..") return void 0;
+  if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
+  return base;
+}
+function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
+  if (env.CLAUDE_PROJECT_DIR) {
+    const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
+    if (fromEnv) return fromEnv;
   }
+  const cwdSlug = slugFromProjectDir(cwd());
+  if (cwdSlug && existsSync(join3(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
     const pin = readFileSync(join3(brainDir, ".active-session-slug"), "utf-8").trim();
     if (pin && existsSync(join3(brainDir, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
-  const base = basename2(process.cwd());
-  return base && base !== "/" && base !== "." && base !== ".." ? base : void 0;
+  return cwdSlug;
+}
+
+// src/tools/raw-scan-cli.ts
+function resolveSlug(brainDir) {
+  return process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
 }
 async function main() {
-  const brainDir = process.env.BRAIN_DIR || join3(homedir(), ".second-brain");
+  const brainDir = process.env.BRAIN_DIR || join4(homedir(), ".second-brain");
   const projectRoot = process.env.SCAN_ROOT || process.cwd();
   const slug = resolveSlug(brainDir);
   if (!slug) {
