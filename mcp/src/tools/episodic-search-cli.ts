@@ -5,7 +5,11 @@ const query = process.argv[2] || '';
 if (!query) { process.exit(0); }
 
 const brainDir = process.env.BRAIN_DIR || join(process.env.HOME ?? '', '.second-brain');
-const result = await episodicSearch({ query, limit: 2, mode: 'vector' }, brainDir);
+// SP-1 parity: scope the per-prompt hint to the active project (suppress other-project
+// noise, broaden only when this project has no in-scope hit). The slug is forwarded by
+// persona-context.sh, mirroring the knowledge-search CLI.
+const activeProject = process.env.SB_ACTIVE_SLUG?.trim() || undefined;
+const result = await episodicSearch({ query, limit: 2, mode: 'vector', activeProject }, brainDir);
 
 const top = result.results.filter(r => r.similarity >= 0.15);
 if (top.length === 0) { process.exit(0); }

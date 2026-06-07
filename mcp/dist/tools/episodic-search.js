@@ -196,13 +196,16 @@ export async function episodicSearch(args, brainDir) {
         return multiConceptSearch(query, index, limit, args);
     }
     const mode = args.mode ?? 'both';
+    // When scoping to an active project we may discard other-project candidates,
+    // so widen the per-engine pool to keep enough in-scope hits in play.
+    const candLimit = (args.activeProject && !args.project) ? Math.max(limit * 5, 25) : limit * 2;
     let vectorResults = [];
     let textResults = [];
     if (mode === 'vector' || mode === 'both') {
-        vectorResults = await vectorSearch(query, index, limit * 2, args, brainDir);
+        vectorResults = await vectorSearch(query, index, candLimit, args, brainDir);
     }
     if (mode === 'text' || mode === 'both') {
-        textResults = textSearch(query, index, limit * 2, args);
+        textResults = textSearch(query, index, candLimit, args);
     }
     // Merge and dedup — vector results take precedence
     const seen = new Set();
@@ -221,7 +224,7 @@ export async function episodicSearch(args, brainDir) {
     }
     merged.sort((a, b) => b.similarity - a.similarity);
     return {
-        results: merged.slice(0, limit).map(r => ({
+        results: scopeAndBroaden(merged, args).slice(0, limit).map(r => ({
             sessionId: r.sessionId,
             project: r.project,
             date: r.date,
@@ -294,10 +297,9 @@ async function multiConceptSearch(concepts, index, limit, filters) {
     });
     // Only return exchanges that have reasonable match to ALL concepts
     const threshold = 0.2;
+    const ranked = scopeAndBroaden(scored.filter(s => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity), filters);
     return {
-        results: scored
-            .filter(s => s.minSimilarity >= threshold)
-            .sort((a, b) => b.similarity - a.similarity)
+        results: ranked
             .slice(0, limit)
             .map(r => ({
             sessionId: r.sessionId,
@@ -325,6 +327,44 @@ function applyFilters(exchanges, filters) {
         result = result.filter(e => e.date <= filters.before);
     }
     return result;
+}
+/**
+ * Default the episodic search to the active project (MCP handler + CLI use this).
+ * Mirrors how knowledge_search auto-passes the active slug, closing the
+ * cross-project episodic leak. Precedence: an explicit `project` is a hard
+ * filter and wins; the sentinel `project: "all"` is a deliberate broaden (drop
+ * the filter, no scope); otherwise default the soft `activeProject` scope to the
+ * resolved slug.
+ */
+export function withActiveScope(args, activeSlug) {
+    if (args.project) {
+        if (args.project.toLowerCase() === 'all') {
+            // Deliberate broaden: drop BOTH the hard filter and any soft scope a caller pre-set,
+            // so "all" truly means every project (not just no hard filter).
+            const { project, activeProject, ...rest } = args;
+            return rest;
+        }
+        return args;
+    }
+    return activeSlug ? { ...args, activeProject: activeSlug } : args;
+}
+// Scope-first, broaden-if-thin: prefer same-project exchanges; fall back to the full ranked
+// set only when the active project has fewer than the minimum in-scope hits (so a thin/new
+// project still gets recall). A hard `project` filter (applied in applyFilters) takes
+// precedence — activeProject is the soft default scope. Default minHits is 1 (broaden ONLY on
+// zero in-scope hits): intentionally more aggressive than knowledge_search's floor of 3, to
+// keep cross-project session noise out of the human's and Claude's context entirely — when a
+// project has any in-scope hit we hard-drop higher-scoring other-project results (a deliberate
+// anti-noise trade-off). Tune via SB_EPISODIC_SCOPE_MIN_HITS; pass project:"all" to broaden on
+// demand. Exported for direct unit testing of the shared scoping used by both query paths.
+export function scopeAndBroaden(ranked, args) {
+    if (!args.activeProject || args.project)
+        return ranked;
+    const slug = args.activeProject.toLowerCase();
+    const inScope = ranked.filter(r => r.project.toLowerCase() === slug);
+    const parsed = parseInt(process.env.SB_EPISODIC_SCOPE_MIN_HITS ?? '', 10);
+    const minHits = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+    return inScope.length >= minHits ? inScope : ranked;
 }
 export async function episodicRead(filePath, startLine, endLine) {
     const content = await fs.readFile(filePath, 'utf-8');
