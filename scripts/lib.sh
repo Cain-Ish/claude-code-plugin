@@ -1030,6 +1030,8 @@ sb_extract_transcript() {
 
 ## State
 
+## Plan
+
 ## Conventions
 
 ## Recent decisions

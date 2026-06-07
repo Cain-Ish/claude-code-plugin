@@ -67,6 +67,7 @@ strip_cr() { tr -d '\r'; }
 DECISIONS=$(echo "$RAW" | jq -r '.recent_decisions // [] | .[]?' 2>/dev/null | strip_cr)
 BLOCKERS=$(echo  "$RAW" | jq -r '.open_blockers   // [] | .[]?' 2>/dev/null | strip_cr)
 REFS=$(echo      "$RAW" | jq -r '.cross_refs      // [] | .[]?' 2>/dev/null | strip_cr)
+PLAN=$(echo      "$RAW" | jq -r '.plan            // [] | .[]?' 2>/dev/null | strip_cr)
 
 CHANGED=0
 
@@ -138,7 +139,7 @@ insert_bullet() {
       oldest=$(awk -v s="$section" '
         $0 == s { flag=1; next }
         /^## / { flag=0 }
-        flag && /^- / { print; exit }
+        flag && /^- / && !/\[pinned\]/ { print; exit }
       ' "$TMP_OUT")
       [ -n "$oldest" ] && archive_dropped_decision "$oldest"
     fi
@@ -152,7 +153,7 @@ insert_bullet() {
       flag && !appended && !/^- / && !/^$/ {
         print new; appended=1; flag=0; print; next
       }
-      flag && /^- / && !dropped { dropped=1; next }
+      flag && /^- / && !/\[pinned\]/ && !dropped { dropped=1; next }
       { print }
       END {
         if (flag && !appended) { print new }
@@ -177,6 +178,63 @@ insert_bullet() {
   fi
   mv "$new_tmp" "$TMP_OUT"
   CHANGED=1
+}
+
+# Reconcile the ## Plan checklist with the freshly-extracted items. The Plan is
+# FORWARD state (what's next) — distinct from the backward-looking Recent decisions.
+# Strategy: the extractor emits the full current checklist each session; we replace
+# the non-[pinned] lines with it (capped), preserving [pinned] lines verbatim on top
+# (human-authored north stars the LLM must never rewrite or rotate). A degraded/empty
+# emission is a NO-OP — we never wipe the plan on a session that produced nothing.
+# NOTE: [pinned] is the shared human-protection marker — insert_bullet() honours it the
+# same way for ## Recent decisions / ## Open blockers (oldest NON-pinned bullet drops).
+merge_plan() {
+  local items="$1" cap="${2:-7}"
+  [ -z "$items" ] && return 0
+  # Only act when a ## Plan section exists (new projects scaffold it; the upgrade
+  # migration backfills older PROJECT.md files). No section → nothing to reconcile.
+  grep -q '^## Plan$' "$TMP_OUT" || return 0
+
+  local pinned_lines
+  pinned_lines=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- / && /\[pinned\]/' "$TMP_OUT")
+
+  local new_body="" n=0 t bare
+  while IFS= read -r it; do
+    [ -z "$it" ] && continue
+    t=$(printf '%s' "$it" | sed -E 's/^[[:space:]]*[-*+]?[[:space:]]*//')   # strip a leading -, * or + bullet
+    case "$t" in
+      '[ ]'*|'[x]'*|'[X]'*) ;;                                         # already has a checkbox
+      *) t="[ ] $t" ;;                                                 # default to an open box
+    esac
+    # never duplicate a [pinned] line — compare BARE text (drop checkbox + pinned prefix), exact match
+    if [ -n "$pinned_lines" ]; then
+      bare=$(printf '%s' "$t" | sed -E 's/^\[[ xX]\][[:space:]]*//')
+      if printf '%s\n' "$pinned_lines" | sed -E 's/^- \[pinned\][[:space:]]*//' | grep -qiFx -- "$bare"; then continue; fi
+    fi
+    new_body="${new_body}${new_body:+$'\n'}- $t"
+    n=$((n+1)); [ "$n" -ge "$cap" ] && break
+  done <<< "$items"
+
+  local body="$pinned_lines"
+  [ -n "$new_body" ] && body="${body}${body:+$'\n'}$new_body"
+
+  local new_tmp; new_tmp=$(mktemp)
+  BODY="$body" awk '
+    BEGIN { body=ENVIRON["BODY"] }
+    $0 == "## Plan" { print; print ""; if (length(body)) print body; print ""; f=1; next }
+    f && (/^## / || /^<!--/) { f=0; print; next }   # next heading OR the footer terminates — never swallow the <!-- last_updated --> footer
+    f { next }
+    { print }
+  ' "$TMP_OUT" > "$new_tmp"
+  # Preserve the module's no-op contract: only rewrite + mark dirty when the plan
+  # actually changed. The extractor re-emits the full list every session, so an
+  # unchanged plan must NOT churn last_updated.
+  if cmp -s "$new_tmp" "$TMP_OUT"; then
+    rm -f "$new_tmp"
+  else
+    mv "$new_tmp" "$TMP_OUT"
+    CHANGED=1
+  fi
 }
 
 # Detect if a new decision contradicts an existing one. Marks old as [superseded].
@@ -253,6 +311,9 @@ if [ -n "$BLOCKERS" ]; then
     insert_bullet "## Open blockers" "$line" 15
   done <<< "$BLOCKERS"
 fi
+
+# Forward-looking plan (replace-reconcile; preserves [pinned], never wipes on empty).
+merge_plan "$PLAN" 7
 
 if [ -n "$REFS" ]; then
   while IFS= read -r ref; do
