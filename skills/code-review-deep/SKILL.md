@@ -39,6 +39,12 @@ re-check likewise run on the Haiku model.
    - `knowledge_search` with 3–5 keywords drawn from the changed paths/stack → collect convention/decision pages. Pass their text as "project conventions" alongside CLAUDE.md.
    - `episodic_search` for prior reviews touching these files/this repo → distill a short "previously flagged / previously dismissed here" note.
    - Read `~/.second-brain/review-false-positives.md` if it exists (else treat as empty). Hold its contents for Pass 3.
+6. **Change-intent classification** (Haiku step). From the PR title/body (or
+   `git log origin/<base>..HEAD --oneline` when no PR), set `is_bugfix` = does this
+   change CLAIM TO FIX a reported runtime behavior (vs. a feature / refactor / docs /
+   test-only change)? Record it — it gates Pass 3.5.
+7. **Fragile-premises note.** Read `~/.second-brain/review-fragile-premises.md` if it
+   exists (else treat as empty). Hold its contents for Pass 2d.
 
 ## Pass 1 — Review-unit decomposition (Haiku model)
 
@@ -84,12 +90,12 @@ agent returns structured findings only (no file bodies). Collect them.
 
 If at least one `critical` or `high` unit exists, dispatch exactly ONE
 `Agent(subagent_type: "second-brain:quality-reviewer")` over the deduped union of
-all critical+high unit files. It **occupies one slot in wave 1** (as does the Pass
-2c history reviewer when it runs) — so wave 1 holds at most 3 unit-reviewers + the
-architectural reviewer + the history reviewer (≤5 concurrent total), keeping the cap
-intact. When either advisory/history pass is skipped, its slot returns to
-unit-reviewers (2b runs → ≤4 unit-reviewers + arch; 2c runs → ≤4 + history; both →
-≤3 + both; neither → ≤5 unit-reviewers) — the ≤5 cap holds in every combination. It
+all critical+high unit files. It **occupies one slot in wave 1** (as do the Pass 2c
+history reviewer and the Pass 2d premise reviewer when they run) — so wave 1 holds at
+most 2 unit-reviewers + the architectural + history + premise reviewers (≤5 concurrent
+total), keeping the cap intact. Each skipped advisory/lens pass returns its slot to
+unit-reviewers (all three of 2b/2c/2d run → ≤2 unit-reviewers; any two run → ≤3; any
+one runs → ≤4; none → ≤5 unit-reviewers) — the ≤5 cap holds in every combination. It
 depends only on Pass 1's unit list, not Pass 2's
 findings. Pass it `origin/<base>` (the SAME base-ref form Pass 2 uses), the change
 summary, and the file set, and instruct it to scope findings to lines changed since
@@ -114,6 +120,19 @@ architectural pass, its findings ARE bugs (category `regression`): they flow int
 Pass 3 dedup + scoring exactly like the per-unit findings. If every unit is docs-only,
 skip this pass.
 
+## Pass 2d — Runtime-premise pass (scored, parallel)
+
+If at least one non-skipped **code** unit exists (`docs_only:false`), dispatch exactly
+ONE `Agent(subagent_type:"second-brain:code-review-premise-reviewer")` over the deduped
+union of all non-skipped code-unit files. It **occupies one slot in wave 1** alongside
+the architectural (2b) and history (2c) reviewers. It depends only on Pass 1's unit
+list, not Pass 2's findings, so it runs concurrently. Pass it `origin/<base>`, the
+change summary, the combined project conventions (CLAUDE.md + wiki), the prior-review
+note, and the `review-fragile-premises.md` contents from Pass 0. Its findings (category
+`premise`) flow into Pass 3 dedup + scoring exactly like the per-unit findings. The
+premise reviewer NAMES unproven runtime premises (the bug class diff-static review
+misses); Pass 3.5 PROBES them. If every unit is docs-only, skip this pass.
+
 ## Pass 3 — Dedup + scoring + filter
 
 1. **Dedup**: if a shared file produced the same finding in two units, keep the
@@ -124,7 +143,10 @@ skip this pass.
 2. **Score**: for each unique finding dispatch
    `Agent(subagent_type: "second-brain:code-review-scorer")`, passing the finding,
    its file paths, the project conventions, and the false-positive store contents
-   from Pass 0.
+   from Pass 0. A `premise` finding (Pass 2d) scores HIGH when the premise is
+   load-bearing AND unproven AND — if Pass 3.5 ran — shown BROKEN; LOW when Pass 3.5
+   confirmed it holds or it is established/defended. A premise Pass 3.5 marked BROKEN
+   is force-promoted to confirmed (≥70) regardless of the scorer's number.
 3. **Partition** the scored findings into three buckets (keep all until Pass 4):
    - **confirmed** (score **≥ 70**): the numbered review output, sorted by severity then score.
    - **low-confidence** (score **16–69**): NOT confirmed, but surfaced in Pass 4 as a
@@ -133,6 +155,25 @@ skip this pass.
    - **killed-hard** (score **≤ 15**): dropped — neither shown nor recorded. The scorer
      now inherits the session model (matches the reviewer it gates), so a ≤15 kill is
      trustworthy enough to drop without recording.
+
+## Pass 3.5 — Bug-fix real-env verification (orchestrator, gated)
+
+Runs ONLY when `is_bugfix` (Pass 0) AND Pass 2d flagged ≥1 load-bearing premise. This
+is the ONE step that executes code — run by the orchestrator (this trusted session),
+NEVER by a sandboxed PR-influenced agent.
+
+1. **Confirm with the user.** Print exactly what each `proof_probe` will run; it
+   executes code. On decline: skip, mark the premise findings "unverified (user
+   declined)", continue to Pass 4. Never blocks the review.
+2. **Probe each flagged premise** via its `proof_probe`, exercising the changed code
+   path in the **real env** — the actual environment state, NOT a sandbox that sets
+   convenient values. Record `holds` / `BROKEN`. A BROKEN premise elevates its finding
+   to confirmed critical ("fix does not hold in the real runtime").
+3. **Failure-regime test check.** Confirm the change adds/modifies a test that
+   exercises the premise's FALSE regime (e.g. the env var UNSET). Missing → a
+   `test-gap` finding ("no test covers the regime where the bug occurs").
+
+Best-effort: any probe error is reported, never fails the review.
 
 ## Pass 4 — Output + false-positive write-back
 
@@ -169,6 +210,11 @@ skip this pass.
      containing the quality-reviewer output. For `--comment`, post it under that
      same labelled subhead, visually separated from the numbered bug list so a
      reader never mistakes an architectural opinion for a confirmed bug.
+   - **Runtime-premise verification.** If Pass 3.5 ran, append a section titled
+     `Runtime-premise verification` listing each probed premise with `holds` / `BROKEN`
+     and a one-line real-env evidence note. A confirmed BROKEN premise may be appended
+     (user-confirmed) to `~/.second-brain/review-fragile-premises.md` using the format
+     below — same best-effort, never-fail discipline as the false-positive store.
    - **Link format** (literal full SHA, renders in Markdown):
      `https://github.com/<owner>/<repo>/blob/<FULL-SHA>/<path>#L<start>-L<end>`
      — full SHA written literally (NOT `$(git rev-parse …)`), `#` after the path,
@@ -202,6 +248,20 @@ skip this pass.
          - source: user-dismissed
          - date: <YYYY-MM-DD>
 
+   Fragile-premises file (`~/.second-brain/review-fragile-premises.md`) — header on create:
+
+         # Review fragile-premise patterns
+         <!-- Read by code-review-premise-reviewer to raise severity on known-fragile runtime premises. Append-only. -->
+
+   Per entry:
+
+         ## <short premise title>
+         - repo: <owner/repo>
+         - premise: <the assumption that proved fragile>
+         - why fragile: <one-line: how it fails in the real runtime>
+         - source: pass-3.5-confirmed | user
+         - date: <YYYY-MM-DD>
+
 ## Degradation
 
 If parallel subagent dispatch is unavailable, fall back to a single-context
@@ -217,7 +277,9 @@ functional changes; real issues on lines this change did not modify.
 
 ## Notes
 
-- Do not build, typecheck, or run the app — CI handles that.
+- Do not build, typecheck, or run the app — CI handles that. The ONE exception is
+  **Pass 3.5**: a narrow, orchestrator-run, user-confirmed, bug-fix-only premise probe
+  (a specific `proof_probe`, not a general build/typecheck/test run).
 - Use `gh` for PR metadata/posting; use local `git diff` + Read for code.
 - Small changes (< 20 files) may yield only 1–3 units. That's fine.
 - If repeated runs leave "ghost" agents / RAM growth, triage on the affected box:
