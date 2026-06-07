@@ -221,11 +221,19 @@ SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 # Default 0.045 keeps strong + moderate hits, drops the long tail that
 # field reports flagged as "noise". Tune via SB_PERSONA_WIKI_MIN_SCORE.
 WIKI_MIN_SCORE="${SB_PERSONA_WIKI_MIN_SCORE:-0.045}"
-# SP-1: resolve the active project slug ONCE, unconditionally — shared by the wiki block below
-# AND the episodic hint. Hoisted out of the wiki block so the episodic call stays scoped (and
-# never trips a set -u unbound var) when the knowledge bundle is absent but the episodic bundle
-# is present. Strip whitespace to match the server's resolveActiveSlug() .trim() contract.
-SB_ACTIVE_SLUG_VAL=$(cat "$BRAIN_DIR/.active-session-slug" 2>/dev/null | tr -d '[:space:]' || true)
+# SP-1: resolve the active project slug ONCE — shared by the wiki block below AND the episodic
+# hint. Precedence CLAUDE_PROJECT_DIR > pin > cwd: the per-session project root (set by Claude
+# Code) wins so a CONCURRENT session's stale .active-session-slug pin can't hijack scoping; the
+# pin stays the legacy fallback. Mirrors lib.sh sb_resolve_slug (kept inline: this hot per-prompt
+# hook avoids sourcing lib.sh, which spawns jq via kb-schema.sh).
+SB_ACTIVE_SLUG_VAL=$(
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    _b=$(basename "$CLAUDE_PROJECT_DIR"); case "$_b" in tmp.*|tmp|.tmp.*|tmpfs|"") echo scratch ;; *) echo "$_b" ;; esac
+  elif [ -f "$BRAIN_DIR/.active-session-slug" ] && _p=$(tr -d '[:space:]' < "$BRAIN_DIR/.active-session-slug") && [ -n "$_p" ] && [ -f "$BRAIN_DIR/projects/$_p/PROJECT.md" ]; then
+    echo "$_p"
+  else
+    _b=$(basename "$PWD"); case "$_b" in tmp.*|tmp|.tmp.*|tmpfs|"") echo scratch ;; *) echo "$_b" ;; esac
+  fi)
 if [ -n "$KEYWORDS" ] && [ -f "$SEARCH_CLI" ]; then
   # SP-1: scope the per-prompt wiki injection to the active project (the slug session-load pinned).
   WIKI_RAW=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" \

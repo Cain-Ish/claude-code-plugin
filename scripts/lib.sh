@@ -227,23 +227,41 @@ sb_pin_to_user() {
   return 0
 }
 
-# Read the active session slug pinned by session-load.sh. Falls back to
-# basename of $1 if the pin file is missing (first-run or stale state).
+# Normalize a project directory path → slug. Collapses tmp/scratch-style dirs
+# into one shared "scratch" project (mirrors slugFromProjectDir in the MCP server,
+# so the bash and TS resolvers agree on the same slug for the same dir).
+sb_slug_from_dir() {
+  local base; base=$(basename "${1:-}")
+  case "$base" in
+    tmp.*|tmp|.tmp.*|tmpfs|"") echo "scratch" ;;
+    *) echo "$base" ;;
+  esac
+}
+
+# Resolve the active project slug. Precedence: CLAUDE_PROJECT_DIR > pin > cwd.
+# CLAUDE_PROJECT_DIR is the PER-SESSION project root Claude Code sets — checked
+# FIRST so a concurrent session in another project can't hijack this session's
+# scoping (the bug: the old order trusted the pin first). The global
+# .active-session-slug pin is a single shared file the last session's SessionStart
+# overwrites; it stays BELOW CLAUDE_PROJECT_DIR but ABOVE bare cwd (it is
+# project-root level and survives a subdir cwd) — the legacy path for CLIs that
+# expose no project dir.
 sb_resolve_slug() {
   local cwd="${1:-$PWD}"
-  local pinned="$BRAIN_DIR/.active-session-slug"
-
-  if [ -f "$pinned" ]; then
-    local slug
-    slug=$(tr -d '[:space:]' < "$pinned")
-    if [ -n "$slug" ] && [ -f "$BRAIN_DIR/projects/$slug/PROJECT.md" ]; then
-      echo "$slug"
-      return 0
-    fi
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    local _s; _s=$(sb_slug_from_dir "$CLAUDE_PROJECT_DIR")
+    # skip a degenerate project dir (/, ., ..) and fall through to the pin — parity with the TS resolver
+    case "$_s" in /|.|..) ;; *) echo "$_s"; return 0 ;; esac
   fi
-
-  echo "$(basename "$cwd")"
-  return 0
+  # NOTE (residual): on a legacy CLI that sets no CLAUDE_PROJECT_DIR, the pin below is still a
+  # global shared file, so concurrent sessions can race it — that edge is unfixable without a
+  # per-session dir signal. Modern CLIs (CLAUDE_PROJECT_DIR set) take the branch above and are safe.
+  local pinned="$BRAIN_DIR/.active-session-slug" slug
+  if [ -f "$pinned" ]; then
+    slug=$(tr -d '[:space:]' < "$pinned")
+    if [ -n "$slug" ] && [ -f "$BRAIN_DIR/projects/$slug/PROJECT.md" ]; then echo "$slug"; return 0; fi
+  fi
+  sb_slug_from_dir "$cwd"
 }
 
 # Strip markdown code fences from LLM output. Models sometimes wrap JSON in

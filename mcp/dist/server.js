@@ -21,7 +21,7 @@ import { personaDismiss } from "./tools/persona-dismiss.js";
 import { capList, egressBudgetTokens } from "./tools/egress-budget.js";
 import { knowledgeRelate } from "./tools/knowledge-relate.js";
 import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
-import { slugFromProjectDir, activeProjectDir } from "./tools/project-dir.js";
+import { resolveActiveSlug as resolveActiveSlugFromDir } from "./tools/project-dir.js";
 function resolveKnowledgeDir() {
     const candidates = [
         process.env.KNOWLEDGE_DIR,
@@ -37,19 +37,12 @@ function resolveKnowledgeDir() {
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
 const BRAIN_DIR = path.join(os.homedir(), '.second-brain');
 function resolveActiveSlug() {
-    // Mirror scripts/lib.sh sb_resolve_slug: prefer the pin (when its PROJECT.md exists), else basename(projectDir).
-    try {
-        const pin = fs.readFileSync(path.join(BRAIN_DIR, '.active-session-slug'), 'utf-8').trim();
-        if (pin && fs.existsSync(path.join(BRAIN_DIR, 'projects', pin, 'PROJECT.md')))
-            return pin;
-    }
-    catch { /* no pin */ }
-    // Prefer CLAUDE_PROJECT_DIR (Claude Code sets it in the stdio MCP server's env
-    // to the project root — stable, unlike process.cwd() which is the MCP process's
-    // launch dir and unreliable). Fall back to cwd on older CLIs that don't set it.
-    return slugFromProjectDir(activeProjectDir());
+    // Delegate to the shared resolver: the per-session project dir (CLAUDE_PROJECT_DIR,
+    // else cwd) is authoritative; the shared .active-session-slug pin is only a
+    // last-resort fallback — a concurrent session can no longer use it to hijack scoping.
+    return resolveActiveSlugFromDir(BRAIN_DIR);
 }
-const server = new McpServer({ name: "knowledge-base", version: "2.6.5" }, {
+const server = new McpServer({ name: "knowledge-base", version: "2.6.6" }, {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of).",
 });
