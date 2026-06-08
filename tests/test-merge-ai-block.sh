@@ -5,6 +5,7 @@
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"; SCRIPT="$ROOT/scripts/merge-project-update.sh"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+export BRAIN_DIR="$TMP/brain"; mkdir -p "$TMP/brain"  # isolate sb_inc_wiki_writes from the real ~/.second-brain
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 command -v jq >/dev/null 2>&1 || fail "jq required"
 command -v node >/dev/null 2>&1 || { echo "SKIP: node required for the render CLI"; exit 0; }
