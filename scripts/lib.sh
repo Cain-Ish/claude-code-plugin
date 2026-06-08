@@ -227,6 +227,42 @@ sb_pin_to_user() {
   return 0
 }
 
+# Portable canonicalization of a path to an absolute, symlink-resolved form. Works on GNU
+# (realpath / readlink -f) AND stock macOS/BSD where NEITHER exists, via a `cd … && pwd -P`
+# parent-resolve plus a one-level leaf deref — the same doctrine as scripts/symlink-guard.sh.
+# Echoes the resolved path; returns non-zero (and echoes nothing) only if even the parent dir
+# cannot be resolved. WHY: bare `readlink -f` yields empty on stock macOS, which silently broke
+# dream-accept.sh's symlink-escape scan (every staged symlink looked out-of-tree → every accept
+# refused, incl. the legit security/latest.md alias). Guarded by test-dream-lifecycle.sh 5e/5f.
+sb_realpath() {
+  local p="${1:-}" r=""
+  [ -n "$p" ] || return 1
+  r=$(realpath -- "$p" 2>/dev/null) && [ -n "$r" ] && { printf '%s\n' "$r"; return 0; }
+  r=$(readlink -f -- "$p" 2>/dev/null) && [ -n "$r" ] && { printf '%s\n' "$r"; return 0; }
+  r=$(greadlink -f -- "$p" 2>/dev/null) && [ -n "$r" ] && { printf '%s\n' "$r"; return 0; }
+  # Stock BSD/macOS (no GNU realpath/greadlink, BSD readlink without -f): resolve the parent's
+  # symlinks via `cd … && pwd -P` (bash 3.2 / BSD safe), then deref the leaf if it is a symlink.
+  local _pd _pb _rpd _tgt
+  _pd=$(dirname -- "$p"); _pb=$(basename -- "$p")
+  _rpd=$(cd "$_pd" 2>/dev/null && pwd -P) || return 1
+  if [ -L "$_rpd/$_pb" ]; then
+    _tgt=$(readlink -- "$_rpd/$_pb" 2>/dev/null)
+    case "$_tgt" in
+      /*) p="$_tgt" ;;
+      *)  p="$_rpd/$_tgt" ;;
+    esac
+    _pd=$(dirname -- "$p"); _pb=$(basename -- "$p")
+    # Fail CLOSED: if the target's own parent can't be resolved it is dangling or escaping
+    # (a legit in-tree alias always has an existing parent) — return empty so the caller's
+    # prefix test flags it, rather than echoing an unresolved `…/../..` that could match the
+    # in-tree prefix and slip an escape past the scan.
+    _rpd=$(cd "$_pd" 2>/dev/null && pwd -P) || return 1
+    printf '%s\n' "$_rpd/$_pb"
+  else
+    printf '%s\n' "$_rpd/$_pb"
+  fi
+}
+
 # Normalize a project directory path → slug. Collapses tmp/scratch-style dirs
 # into one shared "scratch" project (mirrors slugFromProjectDir in the MCP server,
 # so the bash and TS resolvers agree on the same slug for the same dir).

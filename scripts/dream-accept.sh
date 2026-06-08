@@ -45,14 +45,18 @@ fi
 # Resolve BEFORE validate (the symlink-guard.sh doctrine): canonicalize the base too, else a
 # symlinked ancestor (macOS /private/tmp, a symlinked ~/.second-brain) makes every legit in-tree
 # alias resolve to a path that doesn't match the raw prefix → false-reject of a normal accept.
-_SW=$(readlink -f "$STAGING_WIKI" 2>/dev/null || printf '%s' "$STAGING_WIKI")
+# Resolve targets with the PORTABLE sb_realpath (lib.sh), NOT bare `readlink -f`: stock
+# macOS/BSD readlink has no -f, so `readlink -f` returned empty there → every staged symlink
+# (incl. the legit security/latest.md alias) looked out-of-tree → every macOS accept was
+# refused. sb_realpath canonicalizes the base too (resolve-before-validate).
+_SW=$(sb_realpath "$STAGING_WIKI"); [ -n "$_SW" ] || _SW="$STAGING_WIKI"
 OOT_LINKS=$(find "$STAGING_WIKI" -type l 2>/dev/null | while read -r _l; do
-  _t=$(readlink -f "$_l" 2>/dev/null)
-  # In-tree (resolves under the staging wiki root) -> ok; anything else is an escape.
-  # `[[ ]]` glob-match, NOT `case`: a `case` here lives inside this $(...) command
-  # substitution, which the bash 3.2 parser (macOS /bin/bash) mis-parses -> the whole
-  # script fails to load. `$_SW` is quoted so its own glob chars stay literal; only `/*`
-  # is the wildcard. (guarded by tests/test-script-portability.sh check 8)
+  _t=$(sb_realpath "$_l")
+  # In-tree (resolves under the staging wiki root) -> ok; empty/anything else is an escape.
+  # `[[ ]]` glob-match, NOT `case`: a `case` inside this $(...) command substitution is
+  # mis-parsed by the bash 3.2 parser (macOS /bin/bash) -> the whole script fails to load.
+  # `$_SW` is quoted so its own glob chars stay literal; only `/*` is the wildcard.
+  # (both hazards guarded by tests/test-script-portability.sh check 8)
   [[ "$_t" == "$_SW"/* ]] || printf '%s\n' "$_l"
 done)
 if [ -n "$OOT_LINKS" ]; then

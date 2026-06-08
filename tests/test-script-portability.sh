@@ -54,6 +54,10 @@ h=$(grep -rn 'command -v timeout' "$ROOT" 2>/dev/null | grep -v 'gtimeout' || tr
 #    a `case` keyword seen while a comsub is still open (carried in from a prior line) -- or an
 #    inline `$(case ...)` -- is the hazard. Verified to flag only a real case-in-comsub (the common
 #    one-line `case "$x" in ''|*[!0-9]*) x=N ;; esac` numeric guard sits at depth 0, never flagged).
+#    The depth model is a HEURISTIC, not a bash parser: it can't see quoting, so a literal `$(` in a
+#    string could over-open, and naive `)`-counting could under/over-close. It is exact for the
+#    house style here (every comsub opens and closes deterministically); it is a tripwire for the
+#    real hazard, not a proof. Keep comsubs balanced per line and it stays sound.
 h=$(awk '
   FNR==1 { depth=0 }
   {

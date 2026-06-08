@@ -203,6 +203,63 @@ OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
 [ "$RC" -eq 0 ] || fail "symlinked staging ancestor false-rejected a legit accept (got rc=$RC: $OUT)"
 pass "symlinked staging ancestor: legit in-tree alias still accepted (base canonicalized)"
 
+# Build a fake bin that emulates STOCK macOS/BSD: no `realpath`, no `greadlink`, and a
+# `readlink` that does NOT support -f (the GNU-only canonicalize flag). Stock macOS bash 3.2
+# hosts look exactly like this. Used by subtests 5e/5f.
+make_macos_fakebin() {
+  local fb="$1"; mkdir -p "$fb"
+  local real_readlink; real_readlink=$(command -v readlink)
+  printf '#!/bin/bash\nexit 1\n' > "$fb/realpath"
+  printf '#!/bin/bash\nexit 1\n' > "$fb/greadlink"
+  # BSD readlink: reject -f, otherwise delegate to the real binary (one-level deref).
+  printf '#!/bin/bash\nfor a in "$@"; do [ "$a" = "-f" ] && exit 1; done\nexec %s "$@"\n' "$real_readlink" > "$fb/readlink"
+  chmod +x "$fb/realpath" "$fb/greadlink" "$fb/readlink"
+}
+
+# --- Subtest 5e (macOS portability): with readlink -f / realpath / greadlink UNAVAILABLE,
+# a legit IN-TREE alias must STILL be accepted. On such a host bare `readlink -f` yields empty,
+# so the old logic flagged EVERY staged symlink (incl. the legit security/latest.md alias) as an
+# escape and refused every accept. The escape scan must use a PORTABLE resolver.
+setup "accept-macos-intree"
+seed_wiki; seed_transcripts
+DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+ln -s "test-entity.md" "$BRAIN_DIR/dreams/$DID/staging/wiki/entities/alias.md"   # legit relative in-tree alias
+jq '.status="completed"' "$BRAIN_DIR/dreams/$DID/status.json" > /tmp/ds.json && mv /tmp/ds.json "$BRAIN_DIR/dreams/$DID/status.json"
+make_macos_fakebin "$HOME/fakebin"
+OUT=$(PATH="$HOME/fakebin:$PATH" bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
+[ "$RC" -eq 0 ] || fail "macOS regime (no readlink -f): legit in-tree alias false-rejected (rc=$RC: $OUT)"
+pass "accept allows in-tree alias when readlink -f is unavailable (macOS portability)"
+
+# --- Subtest 5f (macOS portability, security non-regression): an OUT-OF-TREE escape must STILL
+# be refused under the same no-readlink-f regime (the portable resolver must not weaken the guard).
+setup "accept-macos-escape"
+seed_wiki; seed_transcripts
+DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+SECRET="$HOME/secret-outside-wiki.txt"; echo "TOPSECRET" > "$SECRET"
+ln -s "$SECRET" "$BRAIN_DIR/dreams/$DID/staging/wiki/learnings/leak.md"   # symlink → outside the wiki
+jq '.status="completed"' "$BRAIN_DIR/dreams/$DID/status.json" > /tmp/ds.json && mv /tmp/ds.json "$BRAIN_DIR/dreams/$DID/status.json"
+make_macos_fakebin "$HOME/fakebin"
+OUT=$(PATH="$HOME/fakebin:$PATH" bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
+[ "$RC" -ne 0 ] || fail "macOS regime: out-of-tree escape NOT refused (rc=$RC: $OUT)"
+echo "$OUT" | grep -qi 'outside the wiki\|escape' || fail "macOS regime: escape refusal not explained (got: $OUT)"
+[ ! -e "$HOME/knowledge/wiki/learnings/leak.md" ] || fail "macOS regime: escape symlink reached the LIVE wiki!"
+pass "accept refuses out-of-tree escape when readlink -f is unavailable (macOS portability)"
+
+# --- Subtest 5g (macOS portability, fail-closed): a DANGLING RELATIVE `../` escape (target's
+# parent does not exist) must be refused, not slipped through. sb_realpath fails closed (empty)
+# when the target parent can't be resolved, so the prefix test flags it instead of matching an
+# unresolved `…/../..` against the in-tree prefix.
+setup "accept-macos-dangling-escape"
+seed_wiki; seed_transcripts
+DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+ln -s "../../../../../../tmp/sb-nonexistent-escape-$$/secret" \
+  "$BRAIN_DIR/dreams/$DID/staging/wiki/learnings/dangle.md"   # relative escape to a non-existent parent
+jq '.status="completed"' "$BRAIN_DIR/dreams/$DID/status.json" > /tmp/ds.json && mv /tmp/ds.json "$BRAIN_DIR/dreams/$DID/status.json"
+make_macos_fakebin "$HOME/fakebin"
+OUT=$(PATH="$HOME/fakebin:$PATH" bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
+[ "$RC" -ne 0 ] || fail "macOS regime: dangling relative escape NOT refused (rc=$RC: $OUT)"
+pass "accept refuses a dangling relative escape, fail-closed (macOS portability)"
+
 # --- Subtest 6: dream_set_status helper
 setup "set-status"
 seed_wiki
