@@ -8,6 +8,7 @@ set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/merge-project-update.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+export BRAIN_DIR="$TMP/brain"; mkdir -p "$TMP/brain"  # isolate the main body's sb_inc_wiki_writes from the real ~/.second-brain (T8/T9 below override with their own sandboxes)
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
 
