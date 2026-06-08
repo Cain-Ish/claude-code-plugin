@@ -49,6 +49,11 @@ fi
 # macOS/BSD readlink has no -f, so `readlink -f` returned empty there → every staged symlink
 # (incl. the legit security/latest.md alias) looked out-of-tree → every macOS accept was
 # refused. sb_realpath canonicalizes the base too (resolve-before-validate).
+# sb_realpath on an existing dir (verified above) only returns empty under a TOCTOU race (the dir
+# vanishing mid-accept). This fallback is SECURITY-load-bearing, not cosmetic: an empty _SW makes
+# the test `[[ "$_t" == "$_SW"/* ]]` degrade to `[[ "$_t" == /* ]]`, which matches EVERY absolute
+# path — so every out-of-tree symlink would look in-tree and the escape guard would silently accept
+# them all. Keep _SW non-empty so the prefix test stays meaningful.
 _SW=$(sb_realpath "$STAGING_WIKI"); [ -n "$_SW" ] || _SW="$STAGING_WIKI"
 OOT_LINKS=$(find "$STAGING_WIKI" -type l 2>/dev/null | while read -r _l; do
   _t=$(sb_realpath "$_l")
@@ -61,7 +66,10 @@ OOT_LINKS=$(find "$STAGING_WIKI" -type l 2>/dev/null | while read -r _l; do
 done)
 if [ -n "$OOT_LINKS" ]; then
   echo "error: staging contains symlink(s) pointing outside the wiki — refusing accept (escape risk):" >&2
-  printf '  %s\n' $OOT_LINKS >&2
+  # $OOT_LINKS is newline-delimited; read line-by-line so a path with spaces prints intact
+  # (an unquoted `printf … $OOT_LINKS` would word-split it). Display-only. Here-string, not a pipe,
+  # to avoid a needless subshell (`<<<` is bash 3.2 / macOS / Git-Bash safe).
+  while IFS= read -r _oot; do printf '  %s\n' "$_oot" >&2; done <<< "$OOT_LINKS"
   exit 1
 fi
 

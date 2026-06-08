@@ -275,6 +275,20 @@ OUT=$(PATH="$HOME/fakebin:$PATH" bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID
 [ "$RC" -ne 0 ] || fail "macOS regime: leaf-'..' escape NOT refused — resolved to wiki/.. and matched the in-tree prefix (rc=$RC: $OUT)"
 pass "accept refuses a leaf-'..' escape that resolves above the wiki (macOS portability)"
 
+# --- Subtest 5i (refusal-message hygiene): a flagged escape whose staged symlink FILENAME contains
+# a space must appear INTACT in the refusal message. The old un-quoted `printf '  %s\n' $OOT_LINKS`
+# word-split spaced paths across lines (display-only — the gate above it is quoted — but garbled).
+setup "accept-spaced-escape"
+seed_wiki; seed_transcripts
+DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+SECRET="$HOME/secret-outside-wiki.txt"; echo "TOPSECRET" > "$SECRET"
+ln -s "$SECRET" "$BRAIN_DIR/dreams/$DID/staging/wiki/learnings/a b.md"   # out-of-tree escape, spaced filename
+jq '.status="completed"' "$BRAIN_DIR/dreams/$DID/status.json" > /tmp/ds.json && mv /tmp/ds.json "$BRAIN_DIR/dreams/$DID/status.json"
+OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
+[ "$RC" -ne 0 ] || fail "spaced-name escape NOT refused (rc=$RC: $OUT)"
+echo "$OUT" | grep -qF 'a b.md' || fail "refusal message split the spaced path (want 'a b.md' intact, got: $OUT)"
+pass "refusal message shows a spaced escape path intact (read line-by-line, not word-split)"
+
 # --- Subtest 6: dream_set_status helper
 setup "set-status"
 seed_wiki

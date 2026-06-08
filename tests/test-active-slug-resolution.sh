@@ -23,8 +23,12 @@ pass "CLAUDE_PROJECT_DIR beats the stale pin"
 
 # 2. THE live bug: no CLAUDE_PROJECT_DIR, cwd IS the known project, pin clobbered to cainish.
 #    The per-process cwd (a registered project) must beat the stale shared pin.
-mkdir -p "$SB/projects/claude-code-plugin"; touch "$SB/projects/claude-code-plugin/PROJECT.md"
-r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$ROOT'; sb_resolve_slug")
+#    Use a CONTROLLED cwd whose basename names the registered project — NOT $ROOT, whose
+#    basename is the checkout/cache dir name (e.g. "0.24.33" when this runs from the plugin
+#    cache, or any CI/worktree dir). Keying the cwd off $ROOT made this subtest pass only when
+#    run from a directory literally named "claude-code-plugin".
+KP="$TMP/wd/claude-code-plugin"; mkdir -p "$KP"   # cwd basename = a registered project, location-independent
+r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$KP'; sb_resolve_slug")
 [ "$r" = "claude-code-plugin" ] || fail "cwd (known project) should beat the stale pin (got '$r', want claude-code-plugin)"
 pass "cwd that names a known project beats the stale pin (no CLAUDE_PROJECT_DIR)"
 

@@ -242,6 +242,10 @@ sb_realpath() {
   r=$(greadlink -f -- "$p" 2>/dev/null) && [ -n "$r" ] && { printf '%s\n' "$r"; return 0; }
   # Stock BSD/macOS (no GNU realpath/greadlink, BSD readlink without -f): resolve the parent's
   # symlinks via `cd … && pwd -P` (bash 3.2 / BSD safe), then deref the leaf if it is a symlink.
+  # The leaf deref is one level: the `cd … && pwd -P` below resolves all symlink DIRECTORY
+  # components of the (re-decomposed) target, but a multi-hop FILE-symlink leaf (a→b→c, all files)
+  # is resolved only one hop. Safe for the escape scan — `find -type l` lists every staged link, so
+  # an unresolved next hop is itself scanned (and flagged if it escapes) independently.
   local _pd _pb _rpd _tgt
   _pd=$(dirname -- "$p"); _pb=$(basename -- "$p")
   _rpd=$(cd "$_pd" 2>/dev/null && pwd -P) || return 1
