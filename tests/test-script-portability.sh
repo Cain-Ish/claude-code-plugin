@@ -44,4 +44,29 @@ pass "every 'find -printf' file has a stat fallback (or documents avoidance)"
 h=$(grep -rn 'command -v timeout' "$ROOT" 2>/dev/null | grep -v 'gtimeout' || true)
 [ -z "$h" ] && pass "timeout resolution includes gtimeout (macOS)" || fail "timeout without gtimeout fallback" "$h"
 
+# 8. No `case` statement inside a $(...) command substitution. macOS /bin/bash is 3.2, whose
+#    parser extracts the comsub body by naive paren-matching and mis-counts the `)` that closes
+#    each case pattern as the `$(` terminator -> a hard "syntax error" at LOAD time, so the WHOLE
+#    script fails to parse (not just the scan that uses it). Fixed by the bash 4.0 parser rewrite,
+#    so it is NOT reproducible with `bash -n` on a 4+/5.x CI host -- this static depth-scanner is
+#    the only guard that catches it. Fix: use `[[ "$x" == pat* ]]` glob-match inside the comsub,
+#    or lift the `case` out of the $(...). Depth is tracked by counting `$(` opens vs `)` closes;
+#    a `case` keyword seen while a comsub is still open (carried in from a prior line) -- or an
+#    inline `$(case ...)` -- is the hazard. Verified to flag only a real case-in-comsub (the common
+#    one-line `case "$x" in ''|*[!0-9]*) x=N ;; esac` numeric guard sits at depth 0, never flagged).
+h=$(awk '
+  FNR==1 { depth=0 }
+  {
+    line=$0; pre=depth
+    inline = (line ~ /\$\([ \t]*case[ \t]/)
+    kw = (line ~ /(^|[ \t;&|])case[ \t]/) && line !~ /^[[:space:]]*#/
+    if ((pre>0 && kw) || inline) print FILENAME":"FNR":"line
+    o=line; ocnt=gsub(/\$\(/,"",o)
+    c=line; ccnt=gsub(/\)/,"",c)
+    depth += ocnt - ccnt
+    if (depth<0) depth=0
+  }
+' "$ROOT"/*.sh 2>/dev/null || true)
+[ -z "$h" ] && pass "no case-in-\$() comsub (bash 3.2 parser hazard)" || fail "case inside \$(...) command substitution — breaks bash 3.2 (macOS /bin/bash); use [[ ]] glob-match or lift the case out" "$h"
+
 echo; echo "ALL PASS"

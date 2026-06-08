@@ -48,7 +48,12 @@ fi
 _SW=$(readlink -f "$STAGING_WIKI" 2>/dev/null || printf '%s' "$STAGING_WIKI")
 OOT_LINKS=$(find "$STAGING_WIKI" -type l 2>/dev/null | while read -r _l; do
   _t=$(readlink -f "$_l" 2>/dev/null)
-  case "$_t" in "$_SW"/*) : ;; *) printf '%s\n' "$_l" ;; esac
+  # In-tree (resolves under the staging wiki root) -> ok; anything else is an escape.
+  # `[[ ]]` glob-match, NOT `case`: a `case` here lives inside this $(...) command
+  # substitution, which the bash 3.2 parser (macOS /bin/bash) mis-parses -> the whole
+  # script fails to load. `$_SW` is quoted so its own glob chars stay literal; only `/*`
+  # is the wildcard. (guarded by tests/test-script-portability.sh check 8)
+  [[ "$_t" == "$_SW"/* ]] || printf '%s\n' "$_l"
 done)
 if [ -n "$OOT_LINKS" ]; then
   echo "error: staging contains symlink(s) pointing outside the wiki — refusing accept (escape risk):" >&2
