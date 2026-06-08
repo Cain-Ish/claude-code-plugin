@@ -260,6 +260,21 @@ OUT=$(PATH="$HOME/fakebin:$PATH" bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID
 [ "$RC" -ne 0 ] || fail "macOS regime: dangling relative escape NOT refused (rc=$RC: $OUT)"
 pass "accept refuses a dangling relative escape, fail-closed (macOS portability)"
 
+# --- Subtest 5h (macOS portability, security — leaf-`..` escape): a symlink whose target ENDS in
+# `..` resolves, parent-only, to `…/wiki/..` which glob-MATCHES the in-tree prefix `…/wiki/*` — it
+# must NOT be allowed (it physically points one level ABOVE the wiki). The resolver must
+# canonicalize a `..`/directory-trailing target WHOLE, not append a raw `..` leaf. (Found by the
+# adversarial re-review of the resolver; the parent IS resolvable so 5g's fail-closed didn't cover it.)
+setup "accept-macos-leaf-dotdot"
+seed_wiki; seed_transcripts
+DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
+ln -s "../.." "$BRAIN_DIR/dreams/$DID/staging/wiki/learnings/escape.md"   # ../.. from learnings/ = the staging dir (OUTSIDE wiki)
+jq '.status="completed"' "$BRAIN_DIR/dreams/$DID/status.json" > /tmp/ds.json && mv /tmp/ds.json "$BRAIN_DIR/dreams/$DID/status.json"
+make_macos_fakebin "$HOME/fakebin"
+OUT=$(PATH="$HOME/fakebin:$PATH" bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
+[ "$RC" -ne 0 ] || fail "macOS regime: leaf-'..' escape NOT refused — resolved to wiki/.. and matched the in-tree prefix (rc=$RC: $OUT)"
+pass "accept refuses a leaf-'..' escape that resolves above the wiki (macOS portability)"
+
 # --- Subtest 6: dream_set_status helper
 setup "set-status"
 seed_wiki

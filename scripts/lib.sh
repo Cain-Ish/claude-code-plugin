@@ -251,14 +251,20 @@ sb_realpath() {
       /*) p="$_tgt" ;;
       *)  p="$_rpd/$_tgt" ;;
     esac
-    _pd=$(dirname -- "$p"); _pb=$(basename -- "$p")
-    # Fail CLOSED: if the target's own parent can't be resolved it is dangling or escaping
-    # (a legit in-tree alias always has an existing parent) — return empty so the caller's
-    # prefix test flags it, rather than echoing an unresolved `…/../..` that could match the
-    # in-tree prefix and slip an escape past the scan.
-    _rpd=$(cd "$_pd" 2>/dev/null && pwd -P) || return 1
-    printf '%s\n' "$_rpd/$_pb"
   else
+    p="$_rpd/$_pb"
+  fi
+  # Canonicalize the final target. A DIRECTORY target (incl. a `.`/`..`-trailing one) is
+  # cd-resolved WHOLE so a trailing `..` is COLLAPSED — else `…/wiki/..` would be echoed verbatim
+  # and glob-match the caller's in-tree prefix `…/wiki/*`, letting a symlink that points ABOVE
+  # the tree (e.g. `ln -s ../..`) escape the guard. A file target keeps its leaf but resolves its
+  # parent's symlinks. Fail CLOSED (empty -> caller flags it) if either cd fails (dangling/escaping).
+  if [ -d "$p" ]; then
+    _rpd=$(cd "$p" 2>/dev/null && pwd -P) || return 1
+    printf '%s\n' "$_rpd"
+  else
+    _pd=$(dirname -- "$p"); _pb=$(basename -- "$p")
+    _rpd=$(cd "$_pd" 2>/dev/null && pwd -P) || return 1
     printf '%s\n' "$_rpd/$_pb"
   fi
 }
