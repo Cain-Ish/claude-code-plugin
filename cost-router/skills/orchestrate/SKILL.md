@@ -43,7 +43,7 @@ Before dispatching `cr-planner`, run:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/opus-budget.sh" over
 ```
 
-If it exits non-zero (over budget): skip THINK, downgrade to DO with a note to the user that the daily Opus budget is exhausted. Log `escalated: false` in route-log (budget blocked).
+If it exits 0 (over budget): skip THINK, downgrade to DO with a note to the user that the daily Opus budget is exhausted. Log `escalated: false` in route-log (budget blocked). If it exits non-zero (under budget): proceed with THINK.
 
 ### Step 3 — Plan (THINK tier, if needed and budget permits)
 
@@ -103,7 +103,7 @@ Outcome: 4/4 units verified ✓
 Append to the routing events log:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/route-log.sh" rl_emit \
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/route-log.sh" emit \
   "<task-slug>" \
   "<tier: THINK|DO|SCOUT>" \
   "<models-csv: e.g. sonnet,haiku>" \

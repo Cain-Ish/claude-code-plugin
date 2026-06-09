@@ -5,6 +5,11 @@ import { join as join2 } from "path";
 import { spawn } from "child_process";
 import { promises as fs } from "fs";
 import { join, dirname } from "path";
+function opusLedgerPath(brainDir2) {
+  if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
+  const bd = brainDir2 ?? (process.env.SB_BRAIN_DIR ?? `${process.env.HOME ?? "~"}/.second-brain`);
+  return join(bd, "opus-budget.json");
+}
 async function readOpusLedger(ledgerPath) {
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   try {
@@ -45,10 +50,16 @@ async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
     opus_calls: current.opus_calls + 1,
     cap_usd: current.cap_usd
   };
+  const tmpPath = `${ledgerPath}.tmp.${process.pid}`;
   try {
     await fs.mkdir(dirname(ledgerPath), { recursive: true });
-    await fs.writeFile(ledgerPath, JSON.stringify(next));
+    await fs.writeFile(tmpPath, JSON.stringify(next));
+    await fs.rename(tmpPath, ledgerPath);
   } catch {
+    try {
+      await fs.unlink(tmpPath);
+    } catch {
+    }
   }
 }
 var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
@@ -127,7 +138,7 @@ async function personaThink(args, deps = {}) {
   if (deps.budgetExceeded) {
     return { ...EMPTY, budget_skipped: true };
   }
-  const lPath = deps.ledgerPath ?? (deps.brainDir ? join(deps.brainDir, "opus-budget.json") : null);
+  const lPath = deps.ledgerPath ?? opusLedgerPath(deps.brainDir);
   const opusCap = deps.opusCap ?? Number(process.env.COST_ROUTER_OPUS_CAP_USD ?? "5.0");
   if (lPath) {
     const ledger = await readOpusLedger(lPath).catch(() => null);
@@ -157,7 +168,7 @@ ${args.prompt}` : args.prompt;
       if (inputTok > 0 || outputTok > 0) {
         await recordOpusLedger(lPath, inputTok, outputTok).catch(() => {
         });
-      } else {
+      } else if (deps.brainDir) {
         await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {
         });
       }

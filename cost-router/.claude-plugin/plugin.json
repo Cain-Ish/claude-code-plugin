@@ -1,7 +1,7 @@
 {
   "name": "cost-router",
   "description": "Routes work across model tiers — Opus for planning/design, Sonnet for implementation, Haiku for mechanical work — to cut Opus token spend. Ships an /orchestrate skill (per-dispatch model routing), model-pinned agents, an advisory /model-route classifier, and a consent-based setup. Install to enable cost routing; uninstall to disable. Integrates with second-brain (shared Opus budget + routing learning) when present.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": { "name": "second-brain" },
   "license": "MIT",
   "keywords": ["cost-optimization", "model-routing", "opus", "sonnet", "haiku", "orchestrator", "token-budget", "tar"]
