@@ -37,7 +37,7 @@ done
 if [ -d "$HOME/.claude/plugins/cache" ]; then
   while IFS= read -r mcp_file; do
     merge_names "$mcp_file"
-  done < <(find "$HOME/.claude/plugins/cache" -name ".mcp.json" -type f 2>/dev/null)
+  done < <(find "$HOME/.claude/plugins/cache" \( -name ".mcp.json" -o -path "*/.claude-plugin/mcp.json" \) -type f 2>/dev/null)
 fi
 
 # Build final registry
