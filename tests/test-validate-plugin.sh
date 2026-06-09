@@ -37,7 +37,7 @@ setup_skeleton() {
   # warnings as errors — passes on the unbroken skeleton. Each subtest then
   # breaks exactly ONE thing and asserts the validator catches that.
   cat > "$root/.claude-plugin/plugin.json" <<'JSON'
-{"name":"x","description":"y","version":"0.0.0","author":{"name":"test"}}
+{"name":"x","description":"y","version":"0.0.0","author":{"name":"test"},"mcpServers":"./.claude-plugin/mcp.json"}
 JSON
 
   cat > "$root/hooks/hooks.json" <<'JSON'
@@ -87,8 +87,8 @@ MD
 # Reflection protocol
 MD
 
-  cat > "$root/.mcp.json" <<'JSON'
-{"mcpServers":{}}
+  cat > "$root/.claude-plugin/mcp.json" <<'JSON'
+{"mcpServers":{"knowledge-base":{"type":"stdio","command":"node","args":["${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js"],"alwaysLoad":true}}}
 JSON
   cat > "$root/mcp/package.json" <<'JSON'
 {"name":"x","version":"0.0.0"}
@@ -187,9 +187,9 @@ assert_output_contains "FAIL: hooks.json PreCompact"
 
 # Case 6: missing runtime-referenced file → FAIL
 setup_skeleton
-rm "$PLUGIN_FOR_VALIDATOR/.mcp.json"
-run_case "missing .mcp.json fails" 1
-assert_output_contains "FAIL: required file missing: .mcp.json"
+rm "$PLUGIN_FOR_VALIDATOR/.claude-plugin/mcp.json"
+run_case "missing .claude-plugin/mcp.json fails" 1
+assert_output_contains "FAIL: required file missing: .claude-plugin/mcp.json"
 
 # Case 7: corrupt mcp/package.json → FAIL
 setup_skeleton
@@ -197,18 +197,45 @@ echo "{ not json" > "$PLUGIN_FOR_VALIDATOR/mcp/package.json"
 run_case "corrupt mcp/package.json fails" 1
 assert_output_contains "FAIL: mcp/package.json is not valid JSON"
 
-# Case 6b: bare ${CLAUDE_PLUGIN_ROOT} in .mcp.json (no :- default) → FAIL (project-context warning)
-setup_skeleton
-printf '%s\n' '{"mcpServers":{"kb":{"type":"stdio","command":"node","args":["${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js"]}}}' \
-  > "$PLUGIN_FOR_VALIDATOR/.mcp.json"
-run_case "bare \${CLAUDE_PLUGIN_ROOT} in .mcp.json fails" 1
-assert_output_contains "bare \${CLAUDE_PLUGIN_ROOT}"
-# and the fixed form (with :- default) passes the check
+# Case 6b: the ${CLAUDE_PLUGIN_ROOT:-.} default form → FAIL. Claude Code substitutes
+# ONLY the bare ${CLAUDE_PLUGIN_ROOT} token to an absolute path; the ${VAR:-default}
+# shell form is NOT applied, so the path collapses to cwd-relative and the server
+# starts only inside the plugin dir (the P0). (0.24.35 inverts the backwards 0.24.5 guard.)
 setup_skeleton
 printf '%s\n' '{"mcpServers":{"kb":{"type":"stdio","command":"node","args":["${CLAUDE_PLUGIN_ROOT:-.}/mcp/dist/server.bundle.js"]}}}' \
-  > "$PLUGIN_FOR_VALIDATOR/.mcp.json"
-run_case "\${CLAUDE_PLUGIN_ROOT:-.} fallback in .mcp.json passes" 0
+  > "$PLUGIN_FOR_VALIDATOR/.claude-plugin/mcp.json"
+run_case "\${CLAUDE_PLUGIN_ROOT:-.} default in mcp.json fails" 1
+assert_output_contains "not anchored by"
+# Case 6c: a bare relative bundle path (no var at all) is the SAME cwd-relative bug
+# shape and must ALSO fail — a guard that only rejects the :- form would miss it.
+setup_skeleton
+printf '%s\n' '{"mcpServers":{"kb":{"type":"stdio","command":"node","args":["mcp/dist/server.bundle.js"]}}}' \
+  > "$PLUGIN_FOR_VALIDATOR/.claude-plugin/mcp.json"
+run_case "bare relative bundle path in mcp.json fails" 1
+assert_output_contains "not anchored by"
+# and the bare ${CLAUDE_PLUGIN_ROOT}/ form (the only one CC substitutes) passes the check
+setup_skeleton
+printf '%s\n' '{"mcpServers":{"kb":{"type":"stdio","command":"node","args":["${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js"]}}}' \
+  > "$PLUGIN_FOR_VALIDATOR/.claude-plugin/mcp.json"
+run_case "bare \${CLAUDE_PLUGIN_ROOT} in mcp.json passes" 0
 assert_output_contains "OK: all plugin files valid"
+
+# Case 6d: a root .mcp.json must NOT exist — it is double-read as a project-scoped
+# MCP config (CLAUDE_PLUGIN_ROOT unset there) and reintroduces the startup failure.
+# The manifest must live at .claude-plugin/mcp.json, referenced from plugin.json.
+setup_skeleton
+printf '%s\n' '{"mcpServers":{}}' > "$PLUGIN_FOR_VALIDATOR/.mcp.json"
+run_case "root .mcp.json present fails" 1
+assert_output_contains "root .mcp.json"
+
+# Case 6e: plugin.json must wire the relocated manifest via "mcpServers" — the file
+# is no longer auto-discovered the way a root .mcp.json would be, so without the
+# reference CC never loads the server.
+setup_skeleton
+jq 'del(.mcpServers)' "$PLUGIN_FOR_VALIDATOR/.claude-plugin/plugin.json" > "$PLUGIN_FOR_VALIDATOR/.claude-plugin/plugin.json.tmp"
+mv "$PLUGIN_FOR_VALIDATOR/.claude-plugin/plugin.json.tmp" "$PLUGIN_FOR_VALIDATOR/.claude-plugin/plugin.json"
+run_case "plugin.json missing mcpServers reference fails" 1
+assert_output_contains 'plugin.json has no "mcpServers"'
 
 # Case 8: bad shell-script syntax → FAIL
 setup_skeleton

@@ -154,9 +154,11 @@ done < <(find "$PLUGIN_ROOT/agents" -name "*.md" -type f 2>/dev/null)
 
 # Verify runtime-referenced files exist. These are not skills or agents but are
 # loaded by other scripts/skills at runtime; if they go missing, parts of the
-# plugin break silently.
+# plugin break silently. The MCP manifest lives at .claude-plugin/mcp.json
+# (referenced from plugin.json's mcpServers), NOT at the repo root — see the
+# root-.mcp.json guard below for why.
 for ref in \
-  ".mcp.json" \
+  ".claude-plugin/mcp.json" \
   "mcp/package.json"; do
   if [ ! -f "$PLUGIN_ROOT/$ref" ]; then
     echo "FAIL: required file missing: $ref"
@@ -165,19 +167,41 @@ for ref in \
 done
 
 # JSON-validate the MCP manifests so a corrupt one is caught here, not at runtime
-for json_ref in ".mcp.json" "mcp/package.json"; do
+for json_ref in ".claude-plugin/mcp.json" "mcp/package.json"; do
   if [ -f "$PLUGIN_ROOT/$json_ref" ] && ! jq empty "$PLUGIN_ROOT/$json_ref" 2>/dev/null; then
     echo "FAIL: $json_ref is not valid JSON"
     ERRORS=$((ERRORS + 1))
   fi
 done
 
-# A bare ${CLAUDE_PLUGIN_ROOT} (no :- default) in .mcp.json resolves only in plugin context;
-# when the repo is opened as a PROJECT, the var is unset and Claude Code warns "Missing
-# environment variables: CLAUDE_PLUGIN_ROOT" and the server won't start. Require a fallback
-# default so the same file works in both contexts (installed plugin AND cloned-repo-as-project).
-if [ -f "$PLUGIN_ROOT/.mcp.json" ] && grep -qE '\$\{CLAUDE_PLUGIN_ROOT\}' "$PLUGIN_ROOT/.mcp.json"; then
-  echo 'FAIL: .mcp.json uses bare ${CLAUDE_PLUGIN_ROOT} (no :- default) — warns "missing env var" when the repo is opened as a project. Use ${CLAUDE_PLUGIN_ROOT:-.}'
+# MCP path-anchor guard (0.24.35 — inverts the 0.24.5 guard, which was backwards).
+# Claude Code substitutes ONLY the bare ${CLAUDE_PLUGIN_ROOT} token to an absolute
+# path. The ${VAR:-default} shell form is NOT applied, and a bare relative path
+# resolves against the user's cwd — either way the server starts only inside the
+# plugin's own directory and fails everywhere else (the P0 that broke every installed
+# user). So any bundled *.bundle.js arg MUST be anchored by a bare ${CLAUDE_PLUGIN_ROOT}/
+# prefix — never ${CLAUDE_PLUGIN_ROOT:-...}, never a bare relative path. (A var-less
+# server such as an npx command has no .bundle.js path and is unaffected.)
+MCP_MANIFEST="$PLUGIN_ROOT/.claude-plugin/mcp.json"
+if [ -f "$MCP_MANIFEST" ] && grep -qE '\.bundle\.js' "$MCP_MANIFEST" \
+   && ! grep -qE '\$\{CLAUDE_PLUGIN_ROOT\}/[^"]*\.bundle\.js' "$MCP_MANIFEST"; then
+  echo 'FAIL: .claude-plugin/mcp.json bundle path is not anchored by ${CLAUDE_PLUGIN_ROOT}/ (found a ${CLAUDE_PLUGIN_ROOT:-...} default or a bare relative path) — Claude Code resolves it against the user cwd, so the server fails to start outside the plugin dir. Use ${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js.'
+  ERRORS=$((ERRORS + 1))
+fi
+
+# A root .mcp.json is read a SECOND time as a project-scoped MCP config when the repo
+# is opened as a project (CLAUDE_PLUGIN_ROOT unset there → "missing env var" + a dead
+# server). Keep the manifest only at .claude-plugin/mcp.json, wired via plugin.json.
+if [ -f "$PLUGIN_ROOT/.mcp.json" ]; then
+  echo 'FAIL: root .mcp.json present — it is double-read as a project MCP config (var unset → broken). Move it to .claude-plugin/mcp.json and reference it from plugin.json mcpServers.'
+  ERRORS=$((ERRORS + 1))
+fi
+
+# plugin.json must wire the relocated manifest via "mcpServers" — unlike a root
+# .mcp.json it is not auto-discovered, so without the reference the server never loads.
+# ($PLUGIN_JSON is set near the top, next to the version-drift check.)
+if [ -f "$PLUGIN_JSON" ] && ! jq -e '.mcpServers' "$PLUGIN_JSON" >/dev/null 2>&1; then
+  echo 'FAIL: plugin.json has no "mcpServers" — the relocated .claude-plugin/mcp.json will not be loaded. Add "mcpServers": "./.claude-plugin/mcp.json".'
   ERRORS=$((ERRORS + 1))
 fi
 
