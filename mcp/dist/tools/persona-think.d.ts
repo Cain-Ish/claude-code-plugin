@@ -17,7 +17,27 @@ export interface PersonaThinkDeps {
     budgetExceeded?: boolean;
     model?: string;
     brainDir?: string;
+    /** Path to the Contract A Opus ledger (opus-budget.json). Defaults to brainDir/opus-budget.json
+     *  then ${COST_ROUTER_LEDGER}. Graceful no-op when absent/unwritable. */
+    ledgerPath?: string;
+    /** Override token counts for testing (avoids actual call to claude for cost estimation). */
+    inputTokens?: number;
+    outputTokens?: number;
+    /** Override the daily Opus cap (USD). Defaults to COST_ROUTER_OPUS_CAP_USD or 5.0. */
+    opusCap?: number;
 }
+export interface OpusLedger {
+    date: string;
+    opus_cost_usd: number;
+    opus_calls: number;
+    cap_usd: number;
+}
+/** Return the path for the shared Opus ledger, given an optional brainDir. */
+export declare function opusLedgerPath(brainDir?: string): string;
+/** Read the shared Opus ledger. Returns zeros on missing/stale file. Never throws. */
+export declare function readOpusLedger(ledgerPath: string): Promise<OpusLedger>;
+/** Record an Opus call's cost (in tokens) to the shared ledger. Graceful no-op on write failure. */
+export declare function recordOpusLedger(ledgerPath: string, inputTokens: number, outputTokens: number): Promise<void>;
 export declare function personaThink(args: PersonaThinkArgs, deps?: PersonaThinkDeps): Promise<PersonaBrief>;
 export interface BudgetState {
     date: string;

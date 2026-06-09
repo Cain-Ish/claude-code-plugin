@@ -29098,7 +29098,53 @@ async function episodicRead(filePath, startLine, endLine) {
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
 import { promises as fs14 } from "fs";
-import { join as join13 } from "path";
+import { join as join13, dirname as dirname3 } from "path";
+async function readOpusLedger(ledgerPath) {
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  try {
+    const txt = await fs14.readFile(ledgerPath, "utf-8");
+    const j2 = JSON.parse(txt);
+    if (j2.date === today) {
+      return {
+        date: today,
+        opus_cost_usd: Number(j2.opus_cost_usd) || 0,
+        opus_calls: Number(j2.opus_calls) || 0,
+        cap_usd: Number(j2.cap_usd) || 5
+      };
+    }
+  } catch {
+  }
+  return { date: today, opus_cost_usd: 0, opus_calls: 0, cap_usd: 5 };
+}
+async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
+  const callCost = inputTokens / 1e6 * 5 + outputTokens / 1e6 * 25;
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  let current = { date: today, opus_cost_usd: 0, opus_calls: 0, cap_usd: 5 };
+  try {
+    const txt = await fs14.readFile(ledgerPath, "utf-8");
+    const j2 = JSON.parse(txt);
+    if (j2.date === today) {
+      current = {
+        date: today,
+        opus_cost_usd: Number(j2.opus_cost_usd) || 0,
+        opus_calls: Number(j2.opus_calls) || 0,
+        cap_usd: Number(j2.cap_usd) || 5
+      };
+    }
+  } catch {
+  }
+  const next = {
+    date: today,
+    opus_cost_usd: current.opus_cost_usd + callCost,
+    opus_calls: current.opus_calls + 1,
+    cap_usd: current.cap_usd
+  };
+  try {
+    await fs14.mkdir(dirname3(ledgerPath), { recursive: true });
+    await fs14.writeFile(ledgerPath, JSON.stringify(next));
+  } catch {
+  }
+}
 var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
 var COST_PER_CALL = Number(process.env.SB_PERSONA_COST_PER_CALL ?? "0.11");
 var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "30000");
@@ -29175,6 +29221,18 @@ async function personaThink(args, deps = {}) {
   if (deps.budgetExceeded) {
     return { ...EMPTY, budget_skipped: true };
   }
+  const lPath = deps.ledgerPath ?? (deps.brainDir ? join13(deps.brainDir, "opus-budget.json") : null);
+  const opusCap = deps.opusCap ?? Number(process.env.COST_ROUTER_OPUS_CAP_USD ?? "5.0");
+  if (lPath) {
+    const ledger = await readOpusLedger(lPath).catch(() => null);
+    if (ledger && ledger.opus_cost_usd >= opusCap) {
+      return {
+        ...EMPTY,
+        budget_skipped: true,
+        error: `Opus daily budget exhausted (spent $${ledger.opus_cost_usd.toFixed(4)} of $${opusCap} cap) \u2014 try later or raise COST_ROUTER_OPUS_CAP_USD`
+      };
+    }
+  }
   const runner = deps.runner ?? defaultRunner;
   const model = deps.model ?? DEFAULT_MODEL;
   const hints = (args.context_hints ?? []).join("\n");
@@ -29187,7 +29245,17 @@ ${args.prompt}` : args.prompt;
     const raw = await runner(SYSTEM_PROMPT, user, model);
     const brief = parseBrief(raw);
     if (!brief) return { ...EMPTY, error: "no JSON in response" };
-    if (deps.brainDir) {
+    if (lPath) {
+      const inputTok = deps.inputTokens ?? 0;
+      const outputTok = deps.outputTokens ?? 0;
+      if (inputTok > 0 || outputTok > 0) {
+        await recordOpusLedger(lPath, inputTok, outputTok).catch(() => {
+        });
+      } else {
+        await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {
+        });
+      }
+    } else if (deps.brainDir) {
       await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {
       });
     }
