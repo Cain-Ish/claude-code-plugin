@@ -10,6 +10,12 @@
       "source": "./",
       "description": "Self-evolving AI second brain. Auto-learns from sessions, discovers tools, maintains a local knowledge base, and self-critiques code quality.",
       "version": "0.24.35"
+    },
+    {
+      "name": "cost-router",
+      "source": "./cost-router",
+      "description": "Model-cost router — Opus plans, Sonnet implements, Haiku does mechanical work, to cut Opus spend. Install to enable cost routing; uninstall to disable.",
+      "version": "0.1.0"
     }
   ]
 }

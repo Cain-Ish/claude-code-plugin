@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "_comment": "cost-router routing-status banner. Prints a one-line status showing active model tiers and remaining Opus budget. Suppressible via COST_ROUTER_BANNER=off. Matcher covers startup/resume/clear/compact (compact included: cost-router banner output is small and useful after compaction). Output kept well under the 10K hook ceiling.",
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/routing-status.sh", "timeout": 5 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "_comment": "cost-router per-prompt classifier. Classifies the incoming prompt into THINK/DO/SCOUT and injects a one-line advisory nudge. No LLM call — pure keyword heuristic. Suppressible via COST_ROUTER_AUTOROUTE=off. UserPromptSubmit hooks have no matcher (matcher field is ignored per this repo's convention).",
+        "hooks": [
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/classify-prompt.sh", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}
