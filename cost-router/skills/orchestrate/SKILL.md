@@ -23,7 +23,7 @@ Route `$ARGUMENTS` across model tiers to minimise Opus spend while preserving qu
 
 ### Step 0 — Consult routing history
 
-If a `cost-routing-patterns.md` wiki page exists (look under `${SB_BRAIN_DIR:-$HOME/.second-brain}/knowledge/cost-routing-patterns.md` or `${KNOWLEDGE_DIR:-$HOME/knowledge}/cost-routing-patterns.md`), read it briefly. Use its escalation patterns to bias tier classification for similar task shapes.
+If the `cost-routing-patterns.md` wiki page exists (written by second-brain's capture hook at `${SB_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}/wiki/cost-routing-patterns.md`), read it briefly. Use its escalation patterns to bias tier classification for similar task shapes.
 
 ### Step 1 — Classify the task
 

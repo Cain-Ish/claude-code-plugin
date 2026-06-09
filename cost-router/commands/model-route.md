@@ -9,7 +9,7 @@ Classify `$ARGUMENTS` (or the current request if no arguments) into the optimal 
 
 ## Step 1 — Consult routing history
 
-If `cost-routing-patterns.md` exists (check `${SB_BRAIN_DIR:-$HOME/.second-brain}/knowledge/cost-routing-patterns.md` and `${KNOWLEDGE_DIR:-$HOME/knowledge}/cost-routing-patterns.md`), read it. Use past escalation patterns to adjust the recommendation for similar task shapes.
+If the `cost-routing-patterns.md` wiki page exists (written by second-brain's capture hook at `${SB_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}/wiki/cost-routing-patterns.md`), read it. Use past escalation patterns to adjust the recommendation for similar task shapes.
 
 ## Step 2 — Classify using heuristics
 

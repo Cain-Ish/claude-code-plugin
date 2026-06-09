@@ -25,7 +25,9 @@
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-verify-gate.sh", "timeout": 10 },
         { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-extract.sh", "timeout": 45 },
         { "_comment": "v2.10.0 SAR summary — aggregates this session's audit-log verdicts into a one-line Safety Adherence Rate banner via systemMessage. Read-only; runs last so it can't be preempted by the gate or extractor. Kill switch SB_SAR_SUMMARY=off.",
-          "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/sar-summary.sh", "timeout": 5 }
+          "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/sar-summary.sh", "timeout": 5 },
+        { "_comment": "v0.24.36 cost-router-capture — aggregates Contract B routing events into a cost-routing-patterns wiki page for the /orchestrate and /model-route classifiers to read. Pure no-op (exit 0) when the events file is absent (cost-router not installed). Kill switch: simply do not install cost-router.",
+          "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/cost-router-capture.sh", "timeout": 10 }
       ]}
     ],
     "SubagentStop": [
