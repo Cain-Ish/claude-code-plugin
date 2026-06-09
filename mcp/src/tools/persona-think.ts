@@ -100,11 +100,14 @@ export async function recordOpusLedger(
     opus_calls: current.opus_calls + 1,
     cap_usd: current.cap_usd,
   };
+  const tmpPath = `${ledgerPath}.tmp.${process.pid}`;
   try {
     await fs.mkdir(dirname(ledgerPath), { recursive: true });
-    await fs.writeFile(ledgerPath, JSON.stringify(next));
+    await fs.writeFile(tmpPath, JSON.stringify(next));
+    await fs.rename(tmpPath, ledgerPath);
   } catch {
     // Graceful no-op — never break persona-think if ledger dir is unwritable
+    try { await fs.unlink(tmpPath); } catch { /* already gone */ }
   }
 }
 
@@ -182,8 +185,8 @@ export async function personaThink(args: PersonaThinkArgs, deps: PersonaThinkDep
   }
 
   // ── Contract A: shared Opus ledger check (BEFORE the call) ──────────────────
-  // Resolve ledger path: explicit > brainDir > env/default
-  const lPath = deps.ledgerPath ?? (deps.brainDir ? join(deps.brainDir, 'opus-budget.json') : null);
+  // Resolve ledger path: explicit > brainDir > COST_ROUTER_LEDGER/SB_BRAIN_DIR/default
+  const lPath = deps.ledgerPath ?? opusLedgerPath(deps.brainDir);
   const opusCap = deps.opusCap ?? Number(process.env.COST_ROUTER_OPUS_CAP_USD ?? '5.0');
 
   if (lPath) {
@@ -214,9 +217,9 @@ export async function personaThink(args: PersonaThinkArgs, deps: PersonaThinkDep
       const outputTok = deps.outputTokens ?? 0;
       if (inputTok > 0 || outputTok > 0) {
         await recordOpusLedger(lPath, inputTok, outputTok).catch(() => {});
-      } else {
+      } else if (deps.brainDir) {
         // Fall back to legacy fixed-cost estimate for backward compat
-        await recordSpend(deps.brainDir!, COST_PER_CALL).catch(() => {});
+        await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {});
       }
     } else if (deps.brainDir) {
       // Legacy path: no ledgerPath, just record to the persona budget

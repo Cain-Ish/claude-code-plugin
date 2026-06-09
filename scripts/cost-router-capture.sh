@@ -15,7 +15,7 @@ set -u
 
 # ── Resolve paths ──────────────────────────────────────────────────────────────
 
-_BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
+_BRAIN_DIR="${SB_BRAIN_DIR:-${BRAIN_DIR:-$HOME/.second-brain}}"
 _EVENTS="${COST_ROUTER_EVENTS:-$_BRAIN_DIR/cost-router-events.jsonl}"
 
 # Knowledge dir: SB_KNOWLEDGE_DIR > KNOWLEDGE_DIR > CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR > $HOME/knowledge
@@ -38,44 +38,51 @@ fi
 
 # ── Aggregate events ──────────────────────────────────────────────────────────
 
-# Cap at the last 500 events to keep summary bounded
+# Guard: skip if file is empty
 _LINES=$(wc -l < "$_EVENTS" 2>/dev/null | tr -d ' ')
 _LINES="${_LINES:-0}"
 if [ "$_LINES" -eq 0 ]; then
   exit 0
 fi
 
-# Total events
-_TOTAL=$(jq -s 'length' "$_EVENTS" 2>/dev/null || echo 0)
+# Cap at the last 500 events to keep summary bounded, then slurp into a temp var
+_WINDOW=$(tail -n 500 "$_EVENTS" 2>/dev/null || true)
+if [ -z "$_WINDOW" ]; then
+  exit 0
+fi
 
-# Counts by tier (using awk to be jq-version agnostic for group_by)
-_DO_COUNT=$(jq -r '.[].tier' "$_EVENTS" 2>/dev/null | grep -c '^DO$' || echo 0)
-_THINK_COUNT=$(jq -r '.[].tier' "$_EVENTS" 2>/dev/null | grep -c '^THINK$' || echo 0)
-_SCOUT_COUNT=$(jq -r '.[].tier' "$_EVENTS" 2>/dev/null | grep -c '^SCOUT$' || echo 0)
+# Total events (in the 500-event window)
+_TOTAL=$(printf '%s\n' "$_WINDOW" | jq -s 'length' 2>/dev/null || echo 0)
+
+# Counts by tier — jq -rs slurps JSONL, extracts field, grep counts
+_DO_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].tier' 2>/dev/null | grep -c '^DO$' || echo 0)
+_THINK_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].tier' 2>/dev/null | grep -c '^THINK$' || echo 0)
+_SCOUT_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].tier' 2>/dev/null | grep -c '^SCOUT$' || echo 0)
 
 # Escalation counts
-_ESCALATED=$(jq -r '.[].escalated' "$_EVENTS" 2>/dev/null | grep -c '^true$' || echo 0)
+_ESCALATED=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].escalated' 2>/dev/null | grep -c '^true$' || echo 0)
 _ESCALATE_RATE=$(awk -v e="$_ESCALATED" -v t="$_TOTAL" 'BEGIN {
   if (t > 0) printf "%.0f%%", (e / t) * 100
   else print "0%"
 }')
 
 # Outcome counts
-_OK_COUNT=$(jq -r '.[].outcome' "$_EVENTS" 2>/dev/null | grep -c '^ok$' || echo 0)
+_OK_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].outcome' 2>/dev/null | grep -c '^ok$' || echo 0)
 
 # Committed count
-_COMMITTED=$(jq -r '.[].committed' "$_EVENTS" 2>/dev/null | grep -c '^true$' || echo 0)
+_COMMITTED=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].committed' 2>/dev/null | grep -c '^true$' || echo 0)
 
-# Timestamp range (first and last events)
-_FIRST_TS=$(jq -r '.[0].ts // "unknown"' "$_EVENTS" 2>/dev/null || echo "unknown")
-_LAST_TS=$(jq -r '.[-1].ts // "unknown"' "$_EVENTS" 2>/dev/null || echo "unknown")
+# Timestamp range (first and last events in window)
+_FIRST_TS=$(printf '%s\n' "$_WINDOW" | jq -rs '.[0].ts // "unknown"' 2>/dev/null || echo "unknown")
+_LAST_TS=$(printf '%s\n' "$_WINDOW" | jq -rs '.[-1].ts // "unknown"' 2>/dev/null || echo "unknown")
 
 # Generated timestamp
 _GENERATED=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
 
-# ── Recent escalations (last 10, tier=THINK or escalated=true) ────────────────
-_RECENT_ESCALATED=$(jq -r '.[] | select(.escalated == true) | "- \(.ts[0:10]) [\(.tier)] \(.task) → \(.outcome)"' \
-  "$_EVENTS" 2>/dev/null | tail -10 || true)
+# ── Recent escalations (last 10, escalated=true) ──────────────────────────────
+_RECENT_ESCALATED=$(printf '%s\n' "$_WINDOW" | \
+  jq -rs '.[] | select(.escalated == true) | "- \(.ts[0:10]) [\(.tier)] \(.task) → \(.outcome)"' \
+  2>/dev/null | tail -10 || true)
 
 # ── Write the bounded summary ─────────────────────────────────────────────────
 

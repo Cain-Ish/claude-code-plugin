@@ -103,6 +103,16 @@ if [ -f "$PATTERNS_PAGE" ]; then
     fail "(b) tier names should appear in summary"
   fi
 
+  # Check that tier counts are NONZERO (catches the -s/slurp bug where all counts come out 0)
+  # DO appeared 3 times in 5 events → the table row should show "3" not "0"
+  _DO_ROW=$(grep 'DO (Sonnet' "$PATTERNS_PAGE" 2>/dev/null || true)
+  _DO_NUM=$(printf '%s\n' "$_DO_ROW" | grep -oE '\| [0-9]+' | head -1 | tr -d '| ' || echo "0")
+  if [ "${_DO_NUM:-0}" -ge 1 ] 2>/dev/null; then
+    pass "(b) DO tier count is nonzero in summary (got: $_DO_NUM)"
+  else
+    fail "(b) DO tier count should be nonzero (got: '$_DO_ROW') — possible jq -s missing bug"
+  fi
+
   # Check escalation mention (2 out of 5 events were escalated)
   if grep -qiE 'escalat' "$PATTERNS_PAGE"; then
     pass "(b) escalation info present in summary"

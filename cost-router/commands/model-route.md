@@ -67,6 +67,6 @@ Do not dispatch any agents. This command is advisory only.
 |-------|-------------|
 | Haiku 4.5 | 1× |
 | Sonnet 4.6 | ~3× |
-| Opus 4.8 | ~5–8× |
+| Opus 4.8 | ~5× |
 
 Default to Sonnet. Reach for Opus only when the heuristics above clearly apply. Reach for Haiku for anything deterministic.

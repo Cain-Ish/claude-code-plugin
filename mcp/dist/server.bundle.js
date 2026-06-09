@@ -29099,6 +29099,11 @@ async function episodicRead(filePath, startLine, endLine) {
 import { spawn } from "child_process";
 import { promises as fs14 } from "fs";
 import { join as join13, dirname as dirname3 } from "path";
+function opusLedgerPath(brainDir2) {
+  if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
+  const bd = brainDir2 ?? (process.env.SB_BRAIN_DIR ?? `${process.env.HOME ?? "~"}/.second-brain`);
+  return join13(bd, "opus-budget.json");
+}
 async function readOpusLedger(ledgerPath) {
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   try {
@@ -29139,10 +29144,16 @@ async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
     opus_calls: current.opus_calls + 1,
     cap_usd: current.cap_usd
   };
+  const tmpPath = `${ledgerPath}.tmp.${process.pid}`;
   try {
     await fs14.mkdir(dirname3(ledgerPath), { recursive: true });
-    await fs14.writeFile(ledgerPath, JSON.stringify(next));
+    await fs14.writeFile(tmpPath, JSON.stringify(next));
+    await fs14.rename(tmpPath, ledgerPath);
   } catch {
+    try {
+      await fs14.unlink(tmpPath);
+    } catch {
+    }
   }
 }
 var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
@@ -29221,7 +29232,7 @@ async function personaThink(args, deps = {}) {
   if (deps.budgetExceeded) {
     return { ...EMPTY, budget_skipped: true };
   }
-  const lPath = deps.ledgerPath ?? (deps.brainDir ? join13(deps.brainDir, "opus-budget.json") : null);
+  const lPath = deps.ledgerPath ?? opusLedgerPath(deps.brainDir);
   const opusCap = deps.opusCap ?? Number(process.env.COST_ROUTER_OPUS_CAP_USD ?? "5.0");
   if (lPath) {
     const ledger = await readOpusLedger(lPath).catch(() => null);
@@ -29251,7 +29262,7 @@ ${args.prompt}` : args.prompt;
       if (inputTok > 0 || outputTok > 0) {
         await recordOpusLedger(lPath, inputTok, outputTok).catch(() => {
         });
-      } else {
+      } else if (deps.brainDir) {
         await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {
         });
       }
@@ -29502,7 +29513,7 @@ function resolveKnowledgeDir() {
   return path2.join(os.homedir(), "knowledge");
 }
 var KNOWLEDGE_DIR = resolveKnowledgeDir();
-var BRAIN_DIR = path2.join(os.homedir(), ".second-brain");
+var BRAIN_DIR = process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR ?? path2.join(os.homedir(), ".second-brain");
 function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }

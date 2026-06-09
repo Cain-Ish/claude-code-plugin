@@ -37,7 +37,7 @@ function resolveKnowledgeDir(): string {
 }
 
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
-const BRAIN_DIR = path.join(os.homedir(), '.second-brain');
+const BRAIN_DIR = process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR ?? path.join(os.homedir(), '.second-brain');
 
 function resolveActiveSlug(): string | undefined {
   // Delegate to the shared resolver: the per-session project dir (CLAUDE_PROJECT_DIR,
