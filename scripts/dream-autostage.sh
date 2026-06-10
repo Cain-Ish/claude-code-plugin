@@ -16,6 +16,8 @@
 # Kill switch: SB_DREAM_AUTOSTAGE=off   Threshold: SB_DREAM_NEW_THRESHOLD (default 10)
 # Always fails open — any error → exit 0, no banner.
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 source "$(dirname "$0")/lib.sh"
 
 [ "${SB_DREAM_AUTOSTAGE:-on}" = "off" ] && exit 0

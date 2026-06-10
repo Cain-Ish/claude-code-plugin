@@ -4,6 +4,8 @@
 # Defaults: plugins-root=${CLAUDE_PLUGINS_DIR:-$HOME/.claude/plugins/cache}
 # Writes JSON catalog to ${BRAIN_DIR:-~/.second-brain}/.installed-catalog.json and stdout.
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 PLUGINS_ROOT="${1:-${CLAUDE_PLUGINS_DIR:-$HOME/.claude/plugins/cache}}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"

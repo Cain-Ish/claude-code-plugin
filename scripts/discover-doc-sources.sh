@@ -3,6 +3,8 @@
 # local doc-source registry (docs the user declared via doc-sources.config.json).
 # Zero cost when the project has no config. Always exits 0 (fail-soft).
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 LIB="$(dirname "$0")/lib.sh"
 source "$LIB" 2>/dev/null || exit 0

@@ -18,6 +18,8 @@
 #                        (default: claude-sonnet-4-6)
 #   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 25)
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 # Defensive lib.sh source. If lib.sh is missing the script would crash on
 # first $BRAIN_DIR reference under `set -u` and leave no trace. Without

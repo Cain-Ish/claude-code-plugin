@@ -11,6 +11,8 @@
 # Kill switch: SB_PERSONA_GATE=off
 # /? prefix is reserved for T6 (think tool); current behavior exits silently so T6 wiring can take over.
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 # Kill switch
 [ "${SB_PERSONA_GATE:-on}" = "off" ] && exit 0

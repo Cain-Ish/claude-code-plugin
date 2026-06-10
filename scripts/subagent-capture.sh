@@ -14,6 +14,8 @@
 #   - Drops mechanical (0-tool) and near-empty results.
 # Kill switch: SB_SUBAGENT_CAPTURE=off
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 source "$(dirname "$0")/lib.sh"
 
 # Kill switch + jq dependency (no jq => silently no-op, like other hooks).
