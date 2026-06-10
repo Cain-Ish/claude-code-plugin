@@ -40,7 +40,7 @@ echo "---------------------------"
 BRAIN_DIR="$TMP/brain"
 KNOWLEDGE_DIR="$TMP/knowledge"
 EVENTS="$TMP/brain/cost-router-events.jsonl"
-PATTERNS_PAGE="$KNOWLEDGE_DIR/wiki/cost-routing-patterns.md"
+PATTERNS_PAGE="$KNOWLEDGE_DIR/wiki/state/cost-routing-patterns.md"
 
 mkdir -p "$BRAIN_DIR" "$KNOWLEDGE_DIR/wiki"
 
@@ -170,4 +170,22 @@ fi
 
 echo "---------------------------"
 echo "PASS: $PASS, FAIL: $FAIL"
+[ "$FAIL" -eq 0 ]
+
+# --- R5.1 (CR-007): the page is born VALID — frontmatter present so
+# knowledge_validate never autofixes it and the next capture never strips it
+# back (the churn loop), and it lives under wiki/state/ (root is unindexed).
+if [ -f "$PATTERNS_PAGE" ]; then
+  head -1 "$PATTERNS_PAGE" | grep -qx -- '---' || fail "(e) page lacks frontmatter fence"
+  grep -q '^title:' "$PATTERNS_PAGE" || fail "(e) page lacks title:"
+  grep -q '^type: state' "$PATTERNS_PAGE" || fail "(e) page lacks type: state"
+  grep -q '^generated: true' "$PATTERNS_PAGE" || fail "(e) page lacks generated: true"
+  grep -q 'do not hand-edit' "$PATTERNS_PAGE" || fail "(e) page lacks the generated marker"
+  pass "(e) generated page is born-valid (frontmatter + marker, under wiki/state/)"
+else
+  fail "(e) patterns page missing for frontmatter checks"
+fi
+
+echo "-------------------"
+echo "FINAL PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]

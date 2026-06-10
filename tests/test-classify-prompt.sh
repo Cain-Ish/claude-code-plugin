@@ -72,38 +72,57 @@ assert_no_output() {
 echo "test-classify-prompt.sh"
 echo "-----------------------"
 
-# --- THINK tier (design/architecture/strategy prompts) ---
-assert_tier "design prompt"         "design a new caching layer"         "THINK"
-assert_tier "architect prompt"      "architect the auth subsystem"       "THINK"
-assert_tier "strategy prompt"       "what is the best strategy for this" "THINK"
-assert_tier "trade-off prompt"      "discuss the trade-off between X"    "THINK"
-assert_tier "approach prompt"       "what approach should I take"        "THINK"
-assert_tier "security prompt"       "security review the login flow"     "THINK"
-assert_tier "plan prompt"           "plan the migration"                 "THINK"
+# R5.1 (CR-006) contract: a nudge is shown ONLY for THINK/SCOUT on prompts
+# >= 25 chars (a "use the default" nudge carries no information; a false THINK
+# nudge advises the EXPENSIVE model). EVERY prompt still logs a route-log
+# event — silence is not data loss.
+assert_silent_logged() {
+  local label="$1" prompt="$2" expected_tier="$3"
+  local out
+  out=$(printf '%s' '{"prompt":"'"$prompt"'"}' \
+    | env COST_ROUTER_AUTOROUTE=on COST_ROUTER_EVENTS="$EVENTS_FILE" CLAUDE_PLUGIN_ROOT="$REPO_ROOT/cost-router" \
+        bash "$SCRIPT" 2>/dev/null)
+  local logged
+  logged=$(tail -1 "$EVENTS_FILE" 2>/dev/null | jq -r '.tier // empty' 2>/dev/null)
+  if [ -z "$out" ] && [ "$logged" = "$expected_tier" ]; then
+    PASS=$((PASS + 1)); echo "  PASS  $label → silent, logged $expected_tier"
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL  $label → expected NO output + logged tier $expected_tier (out='$(printf '%s' "$out" | head -c 60)', logged='$logged')"
+  fi
+}
 
-# --- SCOUT tier (read/search/enumerate prompts) ---
-assert_tier "read prompt"           "read the config file"               "SCOUT"
-assert_tier "show prompt"           "show me the logs"                   "SCOUT"
+# --- THINK tier: word-bounded design-intent prompts nudge ---
+assert_tier "design prompt"         "design a new caching layer"            "THINK"
+assert_tier "architect prompt"      "architect the auth subsystem for me"   "THINK"
+assert_tier "strategy prompt"       "what is the best strategy for this"    "THINK"
+assert_tier "trade-off prompt"      "discuss the trade-off between X and Y" "THINK"
+assert_tier "approach prompt"       "what approach should I take here"      "THINK"
+assert_tier "plan prompt"           "plan the database migration rollout"   "THINK"
+
+# --- THINK false-positive guards (deep-review CR-006) ---
+assert_silent_logged "plan-as-path stays DO"  "implement step 3 of the plan-x in docs" "DO"
+assert_tier          "lint beats dropped security keyword" "fix the lint warning in the security module" "SCOUT"
+
+# --- SCOUT tier (>= 25 chars → nudge) ---
 assert_tier "find prompt"           "find all usages of this function"   "SCOUT"
-assert_tier "list prompt"           "list the dependencies"              "SCOUT"
 assert_tier "search prompt"         "search for the pattern in tests"    "SCOUT"
-assert_tier "grep prompt"           "grep for the TODO comments"         "SCOUT"
 assert_tier "what is prompt"        "what is the value of this variable" "SCOUT"
-assert_tier "where is prompt"       "where is the config loaded"         "SCOUT"
-assert_tier "explain prompt"        "explain the error message"          "SCOUT"
-assert_tier "summarize prompt"      "summarize the changes"              "SCOUT"
+assert_tier "where is prompt"       "where is the config loaded from"    "SCOUT"
+assert_tier "grep prompt"           "grep for the TODO comments here"    "SCOUT"
 
-# --- DO tier (default implement/fix/write prompts) ---
-assert_tier "implement prompt"      "implement the login feature"        "DO"
-assert_tier "add prompt"            "add error handling to the function" "DO"
-assert_tier "fix prompt"            "fix the broken test"                "DO"
-assert_tier "write prompt"          "write a helper for date parsing"    "DO"
-assert_tier "edit prompt"           "edit the README"                    "DO"
-assert_tier "update prompt"         "update the dependency version"      "DO"
-assert_tier "create prompt"         "create a new endpoint"              "DO"
+# --- Short prompts: silent (even with tier keywords), still logged ---
+assert_silent_logged "short scout"  "show me the logs"   "SCOUT"
+assert_silent_logged "short think"  "plan the move"      "THINK"
+assert_silent_logged "trivial"      "continue"           "DO"
+assert_silent_logged "trivial yes"  "yes"                "DO"
 
-# --- Output format: valid JSON with additionalContext ---
-assert_valid_json_ctx "json structure" "implement a cache"
+# --- DO tier: ALWAYS silent (the default needs no advisory), still logged ---
+assert_silent_logged "implement prompt" "implement the login feature with sessions" "DO"
+assert_silent_logged "fix prompt"        "fix the broken test in the auth suite"     "DO"
+assert_silent_logged "write prompt"      "write a helper for date parsing in utils"  "DO"
+
+# --- Output format: valid JSON with additionalContext (a SCOUT nudge) ---
+assert_valid_json_ctx "json structure" "find all usages of this function"
 
 # --- Kill switch ---
 assert_no_output "kill switch off"  "design a new architecture"

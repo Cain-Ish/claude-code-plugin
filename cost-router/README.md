@@ -10,7 +10,7 @@ It's a separate plugin you toggle by installing/uninstalling — on to save, off
 | 🔨 Doing — writing/editing code, the everyday ~80% | **Sonnet** | nearly as good for code, cheaper |
 | 🔍 Looking — reading, searching, running tests | **Haiku** | mechanical, ~5× cheaper |
 
-Typical effect: **Opus spend drops ~70–85%** on implementation-heavy work.
+Pricing ratio: **Sonnet costs 60% of Opus per token, Haiku 20%** ($3/$15 and $1/$5 vs $5/$25) — savings scale with how much work routes down-tier. Measure your own delta after a week of route-log data.
 
 ## Install
 
@@ -38,7 +38,7 @@ Mostly. A plugin can't silently swap the model on every prompt — Claude Code d
 
 ## With second-brain
 
-If you also run second-brain, they share one Opus budget (no double-spending) and cost-router learns which routing choices paid off. Neither plugin needs the other.
+If you also run second-brain, they share one Opus budget (no double-spending) and cost-router accumulates the routing log it needs to learn which choices paid off. Neither plugin needs the other.
 
 ## Settings
 

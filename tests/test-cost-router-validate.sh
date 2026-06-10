@@ -93,3 +93,14 @@ fi
 echo "----------------------------"
 echo "PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]
+
+# --- R5.1 (CR-011): setup skill must not pre-allow arbitrary rm ---
+if grep -q 'Bash(rm' "$REPO_ROOT/cost-router/skills/setup/SKILL.md"; then
+  fail "setup skill pre-allows Bash(rm ...) — unused destructive grant"
+else
+  pass "setup skill carries no rm grant"
+fi
+
+echo "-------------------"
+echo "FINAL PASS: $PASS, FAIL: $FAIL"
+[ "$FAIL" -eq 0 ]

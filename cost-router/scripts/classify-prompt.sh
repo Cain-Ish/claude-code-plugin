@@ -19,6 +19,8 @@
 # Bash 3.2 / BSD-safe: no mapfile, no declare -A, no grep -P, no date -d.
 
 set -u
+# Nested-spawn circuit breaker (R1.1/R5.1): inside a plugin-spawned headless session, context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 # Kill switch
 [ "${COST_ROUTER_AUTOROUTE:-on}" = "off" ] && exit 0
@@ -36,10 +38,14 @@ P_LOWER=$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]')
 
 TIER=""
 
-# THINK: check first (highest priority)
-case "$P_LOWER" in
-  *design*|*architect*|*architecture*|*plan*|*strategy*|*"trade-off"*|*tradeoff*|\
-  *approach*|*"how should"*|*ambiguous*|*refactor*|*security*)
+# THINK: check first (highest priority). R5.1 (CR-006): word-bounded matches on
+# a space-padded copy — bare substrings fired on e.g. "docs/plans/foo.md"
+# (*plan*) and "the security module" (*security*), nudging toward the EXPENSIVE
+# model on routine prompts. `refactor` and `security` are dropped entirely.
+P_PAD=" $P_LOWER "
+case "$P_PAD" in
+  *" design"*|*" architect"*|*" plan "*|*" plans "*|*" planning "*|*" strategy"*|\
+  *" trade-off"*|*" tradeoff"*|*" approach "*|*"how should"*|*" ambiguous"*)
     TIER="THINK" ;;
 esac
 
@@ -66,7 +72,19 @@ case "$TIER" in
   *)     MODEL="Sonnet" ;;
 esac
 
+# ── Best-effort classification log (ALWAYS — silence is not data loss) ────────
+
+# Build a short prompt slug: first 40 chars, spaces→underscores, strip non-alnum/underscore/hyphen.
+SLUG=$(printf '%s' "$P_LOWER" | head -c 40 | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
+ROUTE_LOG="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/route-log.sh"
+bash "$ROUTE_LOG" emit "$SLUG" "$TIER" "" "0" "false" "classified" "false" 2>/dev/null || true
+
 # ── Emit nudge as additionalContext ───────────────────────────────────────────
+# R5.1 (CR-006): nudge ONLY when it carries information — DO is the default
+# (advising the default is per-prompt noise), and trivial prompts ("continue",
+# "yes") need no routing advice.
+[ "$TIER" = "DO" ] && exit 0
+[ "${#PROMPT}" -lt 25 ] && exit 0
 
 NUDGE="cost-router: this looks like ${TIER} → ${MODEL}. For full tiering run /cost-router:orchestrate."
 
@@ -76,12 +94,5 @@ jq -nc --arg ctx "$NUDGE" '{
     additionalContext: $ctx
   }
 }' 2>/dev/null || exit 0
-
-# ── Best-effort classification log ────────────────────────────────────────────
-
-# Build a short prompt slug: first 40 chars, spaces→underscores, strip non-alnum/underscore/hyphen.
-SLUG=$(printf '%s' "$P_LOWER" | head -c 40 | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
-ROUTE_LOG="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/route-log.sh"
-bash "$ROUTE_LOG" emit "$SLUG" "$TIER" "" "0" "false" "classified" "false" 2>/dev/null || true
 
 exit 0
