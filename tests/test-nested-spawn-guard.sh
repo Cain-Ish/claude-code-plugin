@@ -79,3 +79,16 @@ grep -q 'SB_NESTED_SPAWN=1' "$REPO_ROOT/scripts/extraction-quality-gate.sh" \
 pass "static: maintainer + quality-gate spawns guarded; drainer timeout knob dedicated (120s)"
 
 echo "ALL PASS"
+
+# --- Part F (R5.1): cost-router's own hooks honor the guard too — a nested
+# extractor session must not get routing banners/nudges injected (R1 deferral).
+for s in classify-prompt.sh routing-status.sh; do
+  grep -q 'SB_NESTED_SPAWN:-0' "$REPO_ROOT/cost-router/scripts/$s" \
+    || fail "static: cost-router/scripts/$s lacks the nested-spawn guard"
+  OUT=$(echo '{"prompt":"design something elaborate for me"}' \
+        | SB_NESTED_SPAWN=1 bash "$REPO_ROOT/cost-router/scripts/$s" )
+  [ -z "$OUT" ] || fail "runtime: cost-router/$s emitted output under SB_NESTED_SPAWN=1"
+done
+pass "cost-router hooks no-op under SB_NESTED_SPAWN=1"
+
+echo "ALL PASS (incl. cost-router)"

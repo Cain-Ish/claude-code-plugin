@@ -39,8 +39,9 @@ ob_today_spent() {
 
   stored_date=$(jq -r '.date // ""' "$path" 2>/dev/null || true)
   if [ "$stored_date" != "$today" ]; then
-    # Stale — reset the file and return 0
-    _ob_reset "$path"
+    # Stale — report 0 WITHOUT touching the file (R5.1, CR-009): `spent` is
+    # called by the SessionStart banner, and a read path must never mutate
+    # state. The reset happens lazily inside ob_record.
     printf '0'
     return
   fi

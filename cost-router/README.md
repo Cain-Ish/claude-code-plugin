@@ -10,7 +10,7 @@ It's a separate plugin you toggle by installing/uninstalling — on to save, off
 | 🔨 Doing — writing/editing code, the everyday ~80% | **Sonnet** | nearly as good for code, cheaper |
 | 🔍 Looking — reading, searching, running tests | **Haiku** | mechanical, ~5× cheaper |
 
-Typical effect: **Opus spend drops ~70–85%** on implementation-heavy work.
+Pricing ratio: **Sonnet costs 60% of Opus per token, Haiku 20%** ($3/$15 and $1/$5 vs $5/$25) — savings scale with how much work routes down-tier. Measure your own delta after a week of route-log data.
 
 ## Install
 
@@ -30,7 +30,7 @@ Uninstall: `claude plugin uninstall cost-router`.
 - **`/cost-router:orchestrate <task>`** — routes a whole task: Opus plans (only if needed), Sonnet implements, Haiku checks.
 - **`/cost-router:model-route <task>`** — just tells you which model fits, and why.
 - **`/cost-router:setup`** — offers `opusplan` (plan on Opus, execute on Sonnet) and tunes things for your setup.
-- Once installed you also get a per-prompt tier nudge and a session-start budget banner.
+- Once installed you also get a advisory tier nudge on substantive THINK/SCOUT prompts and a session-start budget banner.
 
 ## Is it fully automatic?
 
@@ -38,14 +38,14 @@ Mostly. A plugin can't silently swap the model on every prompt — Claude Code d
 
 ## With second-brain
 
-If you also run second-brain, they share one Opus budget (no double-spending) and cost-router learns which routing choices paid off. Neither plugin needs the other.
+If you also run second-brain, they share one Opus budget (no double-spending) and cost-router accumulates the routing log it needs to learn which choices paid off. Neither plugin needs the other.
 
 ## Settings
 
 | Variable | Default | Does |
 |---|---|---|
 | `COST_ROUTER_OPUS_CAP_USD` | `5.0` | Daily Opus cap (USD); over it, planning falls back to Sonnet |
-| `COST_ROUTER_AUTOROUTE` | `on` | `off` silences the per-prompt nudge |
+| `COST_ROUTER_AUTOROUTE` | `on` | `off` silences the advisory nudge (THINK/SCOUT prompts ≥25 chars; DO is always silent) |
 | `COST_ROUTER_BANNER` | `on` | `off` hides the budget banner |
 
 ## Details

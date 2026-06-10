@@ -57,11 +57,25 @@ rl_emit() {
   # Create parent dir (best-effort, no error on failure)
   [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || true
 
-  # Split models CSV into a JSON array via jq
-  # Use a printf-fed pipe so we don't rely on process substitution quirks
+  # Split models CSV into a JSON array via jq.
+  # R5.1 (CR-002): an EMPTY csv must short-circuit to [] — `printf '' | jq -R`
+  # exits 0 with NO output, so the `||` fallback never fired, `--argjson` got ""
+  # and the whole emit was silently dropped (100% of classifier events lost).
   local models_json
-  models_json=$(printf '%s' "$models_csv" \
-    | jq -Rc 'split(",")' 2>/dev/null) || models_json='[]'
+  if [ -z "$models_csv" ]; then
+    models_json='[]'
+  else
+    models_json=$(printf '%s' "$models_csv" \
+      | jq -Rc 'split(",")' 2>/dev/null) || models_json='[]'
+    [ -n "$models_json" ] || models_json='[]'
+  fi
+
+  # Bounded growth (deep-review): the always-log classifier appends one line per
+  # prompt; the only consumer reads tail -n 500. Rotate past 512KB, keep 1000.
+  if [ -f "$path" ] && [ "$(wc -c < "$path" 2>/dev/null | tr -d ' ')" -gt 524288 ]; then
+    tail -n 1000 "$path" > "${path}.tmp.$$" 2>/dev/null \
+      && mv "${path}.tmp.$$" "$path" 2>/dev/null || rm -f "${path}.tmp.$$" 2>/dev/null
+  fi
 
   # Build the JSON line and append atomically
   jq -cn \

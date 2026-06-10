@@ -139,3 +139,19 @@ fi
 echo "-----------------"
 echo "PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]
+
+# --- (d) R5.1 CR-002: EMPTY models CSV must still log (models: []) ---
+# Pre-fix, `printf '' | jq -Rc 'split(",")'` exits 0 with NO output, the ||
+# fallback never fires, --argjson gets "" and the whole emit is dropped —
+# which silently killed 100% of classifier events.
+rm -f "$EVENTS"
+COST_ROUTER_EVENTS="$EVENTS" bash "$SCRIPT" emit "empty_models" "DO" "" 0 false classified false
+if [ -f "$EVENTS" ] && jq -e 'select(.task=="empty_models") | .models == []' "$EVENTS" >/dev/null 2>&1; then
+  pass "(d) empty models CSV logs with models: []"
+else
+  fail "(d) empty models CSV event was dropped (or models != [])"
+fi
+
+echo "-----------------"
+echo "FINAL PASS: $PASS, FAIL: $FAIL"
+[ "$FAIL" -eq 0 ]

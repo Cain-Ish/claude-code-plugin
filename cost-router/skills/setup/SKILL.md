@@ -3,7 +3,7 @@ name: setup
 description: Consent-based cost-router configuration. Detects second-brain, offers opusplan alias, warns about blanket floor risks, and smoke-tests after writing. Never modifies settings without showing a diff and receiving explicit confirmation.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Write Edit Bash(test *) Bash(ls *) Bash(find *) Bash(jq *) Bash(cat *) Bash(grep *) Bash(mkdir *) Bash(mktemp *) Bash(rm *) Bash(mv *) Bash(basename *) Bash(dirname *) Bash(date *)
+allowed-tools: Read Write Edit Bash(test *) Bash(ls *) Bash(find *) Bash(jq *) Bash(cat *) Bash(grep *) Bash(mkdir *) Bash(mktemp *) Bash(mv *) Bash(basename *) Bash(dirname *) Bash(date *)
 argument-hint: "[--dry-run]"
 ---
 

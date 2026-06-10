@@ -8,6 +8,8 @@
 # Bash 3.2 / BSD-safe (no date -d, no GNU-only extensions).
 
 set -u
+# Nested-spawn circuit breaker (R1.1/R5.1): inside a plugin-spawned headless session, context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 # Kill switch
 [ "${COST_ROUTER_BANNER:-on}" = "off" ] && exit 0
@@ -24,8 +26,13 @@ if [ -f "$BUDGET_SH" ]; then
   CAP="${COST_ROUTER_OPUS_CAP_USD:-5.0}"
   # Compute remaining using awk (portable float arithmetic)
   if [ "$SPENT" != "?" ]; then
-    REMAINING=$(awk -v spent="$SPENT" -v cap="$CAP" 'BEGIN { r = cap - spent; printf "%.2f", r }')
-    BUDGET_LINE="Opus budget: \$${SPENT} used / \$${CAP} cap (\$${REMAINING} remaining today)"
+    # Clamp at 0 (R5.1, CR-009): "$-0.50 remaining" is nonsense — over cap is a state.
+    REMAINING=$(awk -v spent="$SPENT" -v cap="$CAP" 'BEGIN { r = cap - spent; if (r < 0) r = -1; printf "%.2f", r }')
+    if [ "$REMAINING" = "-1.00" ]; then
+      BUDGET_LINE="Opus budget: \$${SPENT} used / \$${CAP} cap (over cap)"
+    else
+      BUDGET_LINE="Opus budget: \$${SPENT} used / \$${CAP} cap (\$${REMAINING} remaining today)"
+    fi
   else
     BUDGET_LINE="Opus budget: unavailable"
   fi
