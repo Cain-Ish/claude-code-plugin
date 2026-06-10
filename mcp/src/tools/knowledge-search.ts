@@ -34,7 +34,22 @@ function graphNeighbourhood(seeds: string[], edges: CurrentEdge[], hops: number)
 }
 
 export interface KnowledgeSearchArgs { query: string; scope?: string; knowledgeDir?: string; brainDir?: string; projectSlug?: string; }
-export interface KnowledgeSearchResult { candidates: { path: string; score: number; description: string; tokens: number; source: string }[]; }
+export interface KnowledgeSearchResult {
+  candidates: {
+    path: string;
+    /** Raw engine score — BM25(+capped boosts) or RRF scale depending on mode. Filterable via KNOWLEDGE_MIN_SCORE (contract preserved). */
+    score: number;
+    /** Rank-normalized to (0,1] on ONE scale regardless of mode — interpretable across degraded/hybrid runs (R2.3). */
+    score_norm: number;
+    /** SP-1 project-scope tier (1=active project … 4=other project). Present only when scoping is active. */
+    tier?: number;
+    description: string;
+    tokens: number;
+    source: string;
+  }[];
+  /** Present when ONNX embeddings were unavailable — ranking fell back to BM25(+graph) only (R2.3). */
+  degraded?: 'bm25-only';
+}
 
 export interface ParsedDoc {
   title: string;
@@ -335,10 +350,15 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     pool = inScope.filter(passesFloor).length >= clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100) ? inScope : scored;
   }
 
+  const topFinal = pool.reduce((m, s) => Math.max(m, s.score), 0);
   const candidates = pool
     .filter(passesFloor)
     .slice(0, TOP_K)
-    .map(({ related, baseScore, tier, ...rest }) => rest);
+    .map(({ related, baseScore, tier, ...rest }) => ({
+      ...rest,
+      score_norm: topFinal > 0 ? Math.round((rest.score / topFinal) * 10000) / 10000 : 0,
+      ...(scopeOn ? { tier } : {}),
+    }));
 
   // Record access for returned results (fire-and-forget)
   const ts = new Date().toISOString();
@@ -351,7 +371,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   }
   saveAccessCounts(accessCounts).catch(() => {});
 
-  return { candidates };
+  return { candidates, ...(embeddingsActive ? {} : { degraded: 'bm25-only' as const }) };
 }
 
 function computeDF(queryTokens: string[], docs: ParsedDoc[]): Map<string, number> {

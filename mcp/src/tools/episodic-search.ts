@@ -39,6 +39,9 @@ export interface EpisodicSearchResult {
     lineStart: number;
     lineEnd: number;
   }[];
+  /** Present when vector search was requested but unavailable (no embeddings /
+   *  model missing) and only text matching ran (R2.3). */
+  degraded?: 'text-only';
 }
 
 export interface EpisodicReadResult {
@@ -286,8 +289,11 @@ export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string)
   let vectorResults: (IndexedExchange & { similarity: number })[] = [];
   let textResults: (IndexedExchange & { similarity: number })[] = [];
 
+  let degraded: 'text-only' | undefined;
   if (mode === 'vector' || mode === 'both') {
-    vectorResults = await vectorSearch(query, index, candLimit, args, brainDir);
+    const v = await vectorSearch(query, index, candLimit, args, brainDir);
+    vectorResults = v.hits;
+    if (v.unavailable) degraded = 'text-only';
   }
 
   if (mode === 'text' || mode === 'both') {
@@ -318,27 +324,33 @@ export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string)
       lineStart: r.lineStart,
       lineEnd: r.lineEnd,
     })),
+    ...(degraded ? { degraded } : {}),
   };
 }
 
 async function vectorSearch(
   query: string, index: EpisodicIndex, limit: number,
   filters: EpisodicSearchArgs, brainDir: string
-): Promise<(IndexedExchange & { similarity: number })[]> {
+): Promise<{ hits: (IndexedExchange & { similarity: number })[]; unavailable: boolean }> {
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter(e => e.embedding.length > 0);
-  if (withEmbeddings.length === 0) return [];
+  // unavailable = vector search COULD have matched but can't run (no vectors /
+  // no model); an empty filter result is not a degradation (R2.3).
+  if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
 
   const queryEmbedding = await embedTexts(
     [query], join(brainDir, 'transcripts'), ['']
   );
-  if (!queryEmbedding) return [];
+  if (!queryEmbedding) return { hits: [], unavailable: true };
   const qVec = queryEmbedding[0];
 
-  return withEmbeddings
-    .map(e => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) }))
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, limit);
+  return {
+    hits: withEmbeddings
+      .map(e => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) }))
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, limit),
+    unavailable: false,
+  };
 }
 
 function textSearch(
@@ -376,14 +388,16 @@ async function multiConceptSearch(
 
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter(e => e.embedding.length > 0);
-  if (withEmbeddings.length === 0) return { results: [] };
+  // Multi-concept search is vector-only: no embeddings = honestly degraded, not
+  // silently empty (R2.3).
+  if (withEmbeddings.length === 0) return { results: [], degraded: 'text-only' };
 
   const conceptEmbeddings = await embedTexts(
     concepts,
     join(brainDir, 'transcripts'),
     concepts.map((_, i) => `concept-${i}`)
   );
-  if (!conceptEmbeddings) return { results: [] };
+  if (!conceptEmbeddings) return { results: [], degraded: 'text-only' };
 
   // Score each exchange against all concepts
   const scored = withEmbeddings.map(e => {
