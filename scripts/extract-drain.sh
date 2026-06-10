@@ -107,6 +107,26 @@ do_extract() {  # $1 = txt, $2 = slug ; honors the test stub
 
 now() { date -u +%FT%TZ; }
 
+# --- Too-small fast-path (R1.2, HOOK-5) ---
+# Archives whose post-header body is tiny (e.g. 378-byte workflow-subagent
+# stubs) have nothing extractable: mark them done WITHOUT an LLM spawn. They
+# stay on disk for episodic search — only extraction is skipped. Runs before
+# the batch loop so stubs never consume batch slots.
+MIN_BODY="${SB_DRAIN_MIN_BYTES:-1024}"
+case "$MIN_BODY" in ''|*[!0-9]*) MIN_BODY=1024 ;; esac
+if [ "$MIN_BODY" -gt 0 ]; then
+  while IFS= read -r tf; do
+    [ -n "$tf" ] || continue
+    base=$(basename "$tf")
+    sb_extraction_done "$base" "$STATE" && continue
+    body_bytes=$(sed '1,/^---$/d' "$tf" 2>/dev/null | wc -c | tr -d ' ')
+    if [ "${body_bytes:-0}" -lt "$MIN_BODY" ]; then
+      printf '{"basename":%s,"ts":"%s","outcome":"ok","reason":"too-small"}\n' \
+        "$(jq -Rn --arg b "$base" '$b')" "$(now)" >> "$STATE"
+    fi
+  done < <(ls -1tr "$TX_DIR"/*.txt 2>/dev/null)
+fi
+
 processed=0
 failed=0
 # oldest-first by mtime (least-recently-modified). Sufficient for a drainer —

@@ -19,6 +19,9 @@ unset CLAUDECODE 2>/dev/null || true
 # it), which the new defer-guard would (correctly) skip on. Force the guard to
 # "inactive" for the processing tests; the defer test overrides to "active".
 export SB_INTERACTIVE_OVERRIDE=inactive
+# R1.2: the too-small fast-path would skip these deliberately tiny fixtures —
+# disable it for the legacy cases; the fast-path test re-enables it per-call.
+export SB_DRAIN_MIN_BYTES=0
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); echo "  PASS: $1"; }
@@ -135,6 +138,27 @@ mkdir -p "$BRAIN_DIR/.extract-drain.lock.d"
 touch -t 202001010000 "$BRAIN_DIR/.extract-drain.lock.d" 2>/dev/null
 SB_DRAIN_FORCE_MKDIR_LOCK=1 SB_DRAIN_LOCK_STALE=60 SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
 eq "stale mkdir-lock stolen → drained" "$(done_count)" "1"
+
+# Test fast-path (R1.2, HOOK-5): a sub-MIN_BYTES archive body (e.g. a 378-byte
+# workflow-subagent stub) is marked done WITHOUT an LLM spawn, exactly once.
+echo "Test: too-small fast-path marks done without an LLM spawn"
+reset
+CALLED="$SANDBOX/called"; rm -f "$CALLED"
+FPSTUB="$SANDBOX/fpstub.sh"
+cat > "$FPSTUB" <<EOF2
+#!/bin/bash
+touch "$CALLED"
+exit 0
+EOF2
+chmod +x "$FPSTUB"
+mk_tx "tiny1_x.txt" someproj     # mk_tx bodies are well under 1KB
+SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
+grep -q '"basename":"tiny1_x.txt"' "$STATE" 2>/dev/null && grep -q '"reason":"too-small"' "$STATE" 2>/dev/null \
+  && ok "too-small archive marked ok/too-small in state" || no "too-small not recorded in state"
+[ ! -f "$CALLED" ] && ok "extractor NOT spawned for too-small archive" || no "extractor was spawned for a too-small archive"
+# Idempotent: second run must skip it via sb_extraction_done.
+SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
+eq "too-small recorded exactly once" "$(grep -c '"basename":"tiny1_x.txt"' "$STATE" 2>/dev/null)" "1"
 
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.
