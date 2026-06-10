@@ -14,6 +14,8 @@
 #   - Drops mechanical (0-tool) and near-empty results.
 # Kill switch: SB_SUBAGENT_CAPTURE=off
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 source "$(dirname "$0")/lib.sh"
 
 # Kill switch + jq dependency (no jq => silently no-op, like other hooks).
@@ -51,6 +53,21 @@ TOOL_COUNT=$(jq -r '
 ' "$TRANSCRIPT" 2>/dev/null | wc -l | tr -d ' ')
 [ "${TOOL_COUNT:-0}" -ge 1 ] || exit 0
 
+MIN="${SB_SUBAGENT_MIN_RESULT:-80}"
+
+# R1.2 (HOOK-5): WORKFLOW subagents return their real answer via a
+# StructuredOutput tool call; the last TEXT block is then an interim "holding"
+# message. Skip ONLY when the final assistant record carries a StructuredOutput
+# call and no substantive text of its own — a normal agent that ends with some
+# other trailing tool_use (cleanup, TodoWrite) still has its last prose result
+# archived (deep-review: keying on ANY tool_use dropped those).
+FINAL_CONTENT=$(jq -c 'select(.type == "assistant") | .message.content' "$TRANSCRIPT" 2>/dev/null | tail -1)
+FINAL_SO=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "tool_use") | select(.name == "StructuredOutput")] | length' 2>/dev/null)
+FINAL_TEXT_LEN=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "text") | .text] | join("")' 2>/dev/null | tr -d '[:space:]' | wc -c | tr -d ' ')
+if [ "${FINAL_SO:-0}" -ge 1 ] && [ "${FINAL_TEXT_LEN:-0}" -lt "$MIN" ]; then
+  exit 0
+fi
+
 # --- Extract the FINAL result = last assistant record's concatenated text blocks. ---
 RESULT=$(jq -rc '
   select(.type == "assistant")
@@ -59,7 +76,6 @@ RESULT=$(jq -rc '
 ' "$TRANSCRIPT" 2>/dev/null | tail -1)
 
 # --- Substantive gate 2: drop near-empty results (the real 4-byte case). ---
-MIN="${SB_SUBAGENT_MIN_RESULT:-80}"
 RLEN=$(printf '%s' "$RESULT" | tr -d '[:space:]' | wc -c | tr -d ' ')
 [ "${RLEN:-0}" -ge "$MIN" ] || exit 0
 

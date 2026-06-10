@@ -1,6 +1,6 @@
 // src/tools/episodic-search.ts
 import { promises as fs2 } from "fs";
-import { join as join2, basename } from "path";
+import { join as join2, basename, relative, isAbsolute } from "path";
 
 // src/tools/embeddings.ts
 import { promises as fs } from "fs";

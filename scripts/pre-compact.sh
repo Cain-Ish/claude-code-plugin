@@ -4,10 +4,12 @@
 # knowledge from early in long sessions survive compaction cycles.
 #
 # Works in tandem with stop-extract.sh: both use a shared line-marker file
-# (.last-extracted-line-<slug>) so each processes a disjoint window.
+# (.last-extracted-line-<slug>--<session_id>) so each processes a disjoint window.
 #
 # Always exits 0 (fail-soft).
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 LIB="$(dirname "$0")/lib.sh"
 if ! source "$LIB" 2>/dev/null; then
@@ -25,7 +27,9 @@ cleanup() {
 trap cleanup EXIT
 
 EXTRACTOR_MODEL="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
-EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-40}"
+# 30s inside the 45s hooks.json budget: >=15s headroom so the hook can't be
+# killed between extraction and the marker write (HOOK-10 kill-after-extract).
+EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-30}"
 
 # --- Read hook payload from stdin ---
 RAW=$(cat 2>/dev/null || true)
@@ -37,6 +41,7 @@ fi
 
 TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
 CWD=$(echo "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
+SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
 if [ -z "$TRANSCRIPT" ]; then SB_GATE="transcript-path-empty"; exit 0; fi
 if [ ! -f "$TRANSCRIPT" ]; then SB_GATE="transcript-file-missing path=$TRANSCRIPT"; exit 0; fi
 
@@ -46,6 +51,7 @@ else
   SLUG=$(sb_resolve_slug "$PWD")
 fi
 if [ -z "$SLUG" ]; then SB_GATE="slug-empty"; exit 0; fi
+MARKER_KEY=$(sb_extraction_marker_key "$SLUG" "$SESSION_ID")
 
 PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
 KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
@@ -53,8 +59,13 @@ KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 if [ ! -f "$PROJECT_MD" ]; then SB_GATE="project-md-missing slug=$SLUG"; exit 0; fi
 
 # --- Determine unprocessed window ---
-LAST_LINE=$(sb_get_extraction_marker "$SLUG")
+LAST_LINE=$(sb_get_extraction_marker "$MARKER_KEY")
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d ' ')
+# Stale-marker clamp (deep-review): a marker past EOF would gate forever now
+# that markers persist — treat it as no marker.
+if [ "$LAST_LINE" -gt "$TOTAL_LINES" ]; then
+  LAST_LINE=0
+fi
 NEW_LINES=$((TOTAL_LINES - LAST_LINE))
 
 if [ "$NEW_LINES" -lt 20 ]; then
@@ -74,7 +85,7 @@ TOOL_COUNT=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
 
 if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
   SB_GATE="tool-count-zero-in-window new_lines=$NEW_LINES"
-  sb_set_extraction_marker "$SLUG" "$TOTAL_LINES"
+  sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
   exit 0
 fi
 
@@ -181,8 +192,9 @@ if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
 fi
 
 # --- Archive preprocessed transcript for dream mining ---
-SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null)
-sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$WINDOW_START" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
+# Archive the FULL delta (not the LLM-capped window) so dream-mining never
+# loses the middle of a >1000-line delta (deep-review).
+sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
 
 # --- Incremental episodic index update ---
 PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
@@ -191,6 +203,6 @@ if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/episodic-index-cli.bund
 fi
 
 # --- Update extraction marker ---
-sb_set_extraction_marker "$SLUG" "$TOTAL_LINES"
+sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
 
 exit 0

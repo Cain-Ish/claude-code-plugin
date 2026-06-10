@@ -3588,49 +3588,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative4, options, skipNormalization) {
+    function resolveComponent(base, relative5, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative4 = parse3(serialize(relative4, options), options);
+        relative5 = parse3(serialize(relative5, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative4.scheme) {
-        target.scheme = relative4.scheme;
-        target.userinfo = relative4.userinfo;
-        target.host = relative4.host;
-        target.port = relative4.port;
-        target.path = removeDotSegments(relative4.path || "");
-        target.query = relative4.query;
+      if (!options.tolerant && relative5.scheme) {
+        target.scheme = relative5.scheme;
+        target.userinfo = relative5.userinfo;
+        target.host = relative5.host;
+        target.port = relative5.port;
+        target.path = removeDotSegments(relative5.path || "");
+        target.query = relative5.query;
       } else {
-        if (relative4.userinfo !== void 0 || relative4.host !== void 0 || relative4.port !== void 0) {
-          target.userinfo = relative4.userinfo;
-          target.host = relative4.host;
-          target.port = relative4.port;
-          target.path = removeDotSegments(relative4.path || "");
-          target.query = relative4.query;
+        if (relative5.userinfo !== void 0 || relative5.host !== void 0 || relative5.port !== void 0) {
+          target.userinfo = relative5.userinfo;
+          target.host = relative5.host;
+          target.port = relative5.port;
+          target.path = removeDotSegments(relative5.path || "");
+          target.query = relative5.query;
         } else {
-          if (!relative4.path) {
+          if (!relative5.path) {
             target.path = base.path;
-            if (relative4.query !== void 0) {
-              target.query = relative4.query;
+            if (relative5.query !== void 0) {
+              target.query = relative5.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative4.path[0] === "/") {
-              target.path = removeDotSegments(relative4.path);
+            if (relative5.path[0] === "/") {
+              target.path = removeDotSegments(relative5.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative4.path;
+                target.path = "/" + relative5.path;
               } else if (!base.path) {
-                target.path = relative4.path;
+                target.path = relative5.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative4.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative5.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative4.query;
+            target.query = relative5.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3638,7 +3638,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative4.fragment;
+      target.fragment = relative5.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -26241,10 +26241,10 @@ var Ignore = class {
   ignored(p) {
     const fullpath = p.fullpath();
     const fullpaths = `${fullpath}/`;
-    const relative4 = p.relative() || ".";
-    const relatives = `${relative4}/`;
+    const relative5 = p.relative() || ".";
+    const relatives = `${relative5}/`;
     for (const m of this.relative) {
-      if (m.match(relative4) || m.match(relatives))
+      if (m.match(relative5) || m.match(relatives))
         return true;
     }
     for (const m of this.absolute) {
@@ -26255,9 +26255,9 @@ var Ignore = class {
   }
   childrenIgnored(p) {
     const fullpath = p.fullpath() + "/";
-    const relative4 = (p.relative() || ".") + "/";
+    const relative5 = (p.relative() || ".") + "/";
     for (const m of this.relativeChildren) {
-      if (m.match(relative4))
+      if (m.match(relative5))
         return true;
     }
     for (const m of this.absoluteChildren) {
@@ -28899,7 +28899,7 @@ async function dreamCancel(args) {
 
 // src/tools/episodic-search.ts
 import { promises as fs13 } from "fs";
-import { join as join12, basename as basename3 } from "path";
+import { join as join12, basename as basename3, relative as relative4, isAbsolute as isAbsolute2 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -29079,6 +29079,11 @@ function scopeAndBroaden(ranked, args) {
   const parsed = parseInt(process.env.SB_EPISODIC_SCOPE_MIN_HITS ?? "", 10);
   const minHits = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
   return inScope.length >= minHits ? inScope : ranked;
+}
+function assertTranscriptPath(brainDir2, filePath) {
+  const base = join12(brainDir2, "transcripts");
+  const rel = isAbsolute2(filePath) ? relative4(base, filePath) : filePath;
+  return assertWithin(base, rel);
 }
 async function episodicRead(filePath, startLine, endLine) {
   const content = await fs13.readFile(filePath, "utf-8");
@@ -29518,7 +29523,7 @@ function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.6.7" },
+  { name: "knowledge-base", version: "2.6.8" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
@@ -29866,16 +29871,17 @@ server.registerTool(
 server.registerTool(
   "episodic_read",
   {
-    description: "Read full conversation context from a specific transcript file. Use after episodic_search to get complete exchange details.",
+    description: "Read full conversation context from a specific transcript file (must be inside the second-brain transcripts directory). Use after episodic_search to get complete exchange details.",
     inputSchema: {
-      path: external_exports.string().describe("Absolute path to the transcript file"),
+      path: external_exports.string().describe("Absolute path to the transcript file (inside the second-brain transcripts directory)"),
       startLine: external_exports.number().optional().describe("Start line (1-indexed). Omit to read from beginning."),
       endLine: external_exports.number().optional().describe("End line (1-indexed). Omit to read to end.")
     }
   },
   async (args) => {
     try {
-      const result = await episodicRead(args.path, args.startLine, args.endLine);
+      const safePath = assertTranscriptPath(BRAIN_DIR, args.path);
+      const result = await episodicRead(safePath, args.startLine, args.endLine);
       const header = [
         `**Session**: ${result.sessionId}`,
         `**Project**: ${result.project}`,

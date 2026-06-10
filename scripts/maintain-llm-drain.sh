@@ -101,7 +101,7 @@ if [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
   exit 0
 fi
 rc=0
-${TBIN:+$TBIN "$TO"} bwrap "${BWRAP_ARGS[@]}" \
+SB_NESTED_SPAWN=1 ${TBIN:+$TBIN "$TO"} bwrap "${BWRAP_ARGS[@]}" \
   -- claude -p --permission-mode bypassPermissions --model "$MODEL" "$PROMPT" >/dev/null 2>&1 || rc=$?
 # Observable, not silent: a broken jail / auth / timeout leaves a completed-empty dream otherwise.
 [ "$rc" -ne 0 ] && sb_log_error "maintain-llm-drain" "headless consolidation exited $rc for $DREAM_ID (left for review; check bwrap/auth/timeout)" 0

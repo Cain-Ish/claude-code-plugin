@@ -19,6 +19,9 @@ unset CLAUDECODE 2>/dev/null || true
 # it), which the new defer-guard would (correctly) skip on. Force the guard to
 # "inactive" for the processing tests; the defer test overrides to "active".
 export SB_INTERACTIVE_OVERRIDE=inactive
+# R1.2: the too-small fast-path would skip these deliberately tiny fixtures —
+# disable it for the legacy cases; the fast-path test re-enables it per-call.
+export SB_DRAIN_MIN_BYTES=0
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); echo "  PASS: $1"; }
@@ -135,6 +138,49 @@ mkdir -p "$BRAIN_DIR/.extract-drain.lock.d"
 touch -t 202001010000 "$BRAIN_DIR/.extract-drain.lock.d" 2>/dev/null
 SB_DRAIN_FORCE_MKDIR_LOCK=1 SB_DRAIN_LOCK_STALE=60 SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
 eq "stale mkdir-lock stolen → drained" "$(done_count)" "1"
+
+# Test fast-path (R1.2, HOOK-5): a sub-MIN_BYTES archive body (e.g. a 378-byte
+# workflow-subagent stub) is marked done WITHOUT an LLM spawn, exactly once.
+echo "Test: too-small fast-path marks done without an LLM spawn"
+reset
+CALLED="$SANDBOX/called"; rm -f "$CALLED"
+FPSTUB="$SANDBOX/fpstub.sh"
+cat > "$FPSTUB" <<EOF2
+#!/bin/bash
+touch "$CALLED"
+exit 0
+EOF2
+chmod +x "$FPSTUB"
+mk_tx "tiny1_x.txt" someproj     # mk_tx bodies are well under 1KB
+SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
+grep -q '"basename":"tiny1_x.txt"' "$STATE" 2>/dev/null && grep -q '"reason":"too-small"' "$STATE" 2>/dev/null \
+  && ok "too-small archive marked ok/too-small in state" || no "too-small not recorded in state"
+[ ! -f "$CALLED" ] && ok "extractor NOT spawned for too-small archive" || no "extractor was spawned for a too-small archive"
+# Idempotent: second run must skip it via sb_extraction_done.
+SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
+eq "too-small recorded exactly once" "$(grep -c '"basename":"tiny1_x.txt"' "$STATE" 2>/dev/null)" "1"
+# Header guard (deep-review): a file WITHOUT the ^---$ terminator must NOT be
+# fast-path-classified too-small (sed would report 0 bytes for real content).
+printf 'no header here\nlots of real content that is not actually small at all\n' > "$BRAIN_DIR/transcripts/nohdr_x.txt"
+SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
+grep -q '"basename":"nohdr_x.txt".*"reason":"too-small"' "$STATE" 2>/dev/null \
+  && no "header-less archive misclassified as too-small" || ok "header-less archive not fast-path-classified"
+
+# Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
+# transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.
+echo "Test: GC sweeps — stale markers + scratch transcripts"
+reset
+export HOME="$SANDBOX"            # hermetic: the scratch prune walks $HOME/.claude
+touch -t 202601010000 "$BRAIN_DIR/.last-extracted-line-old--sess"
+touch "$BRAIN_DIR/.last-extracted-line-new--sess"
+mkdir -p "$HOME/.claude/projects/-x-second-brain-scratch"
+touch -t 202601010000 "$HOME/.claude/projects/-x-second-brain-scratch/old.jsonl"
+touch "$HOME/.claude/projects/-x-second-brain-scratch/new.jsonl"
+bash "$DRAIN" >/dev/null 2>&1 || true
+[ ! -f "$BRAIN_DIR/.last-extracted-line-old--sess" ] && ok "stale marker swept (7d)" || no "stale marker survived"
+[ -f "$BRAIN_DIR/.last-extracted-line-new--sess" ] && ok "fresh marker kept" || no "fresh marker swept"
+[ ! -f "$HOME/.claude/projects/-x-second-brain-scratch/old.jsonl" ] && ok "old scratch transcript pruned (3d)" || no "old scratch transcript survived"
+[ -f "$HOME/.claude/projects/-x-second-brain-scratch/new.jsonl" ] && ok "fresh scratch transcript kept" || no "fresh scratch transcript pruned"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

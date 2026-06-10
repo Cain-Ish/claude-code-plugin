@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
-import { join, basename } from 'path';
+import { join, basename, relative, isAbsolute } from 'path';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
+import { assertWithin } from '../path-guard.js';
 
 const INDEX_FILE = 'episodic-index.json';
 const SNIPPET_LEN = 200;
@@ -467,6 +468,18 @@ export function scopeAndBroaden<T extends { project: string }>(ranked: T[], args
   const parsed = parseInt(process.env.SB_EPISODIC_SCOPE_MIN_HITS ?? '', 10);
   const minHits = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
   return inScope.length >= minHits ? inScope : ranked;
+}
+
+/**
+ * episodic_read entry-point guard — the one G-MCP-1 surface the v0.21.0
+ * hardening pass (commit 4837873) missed. The model-supplied path must
+ * resolve inside ${brainDir}/transcripts, symlinks resolved BEFORE
+ * validation (path-guard doctrine). Returns the validated real path.
+ */
+export function assertTranscriptPath(brainDir: string, filePath: string): string {
+  const base = join(brainDir, 'transcripts');
+  const rel = isAbsolute(filePath) ? relative(base, filePath) : filePath;
+  return assertWithin(base, rel);
 }
 
 export async function episodicRead(

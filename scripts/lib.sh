@@ -324,8 +324,13 @@ sb_strip_code_fences() {
 }
 
 # --- Extraction marker helpers ---
-# Track which transcript lines have been extracted so pre-compact and stop
-# hooks process disjoint windows — nothing lost, nothing duplicated.
+# Track which transcript lines have been extracted. Keys are SESSION-scoped
+# (slug--session_id, R1.2): pre-compact and stop process disjoint windows of
+# one session, repeated Stop firings resume where the last finished (instead
+# of re-archiving from line 0 — the 18x-duplicate-archive bug), and two
+# concurrent sessions in one project cannot race each other's marker.
+# Stale markers are swept by extract-drain.sh after 30 days (kept past the
+# review skill's 14-day staleness window so its signal stays observable).
 
 sb_get_extraction_marker() {
   local slug="$1"
@@ -347,6 +352,15 @@ sb_set_extraction_marker() {
 sb_clear_extraction_marker() {
   local slug="$1"
   rm -f "$BRAIN_DIR/.last-extracted-line-$slug"
+}
+
+# Compose the extraction-marker key for a (slug, session) pair. The session id
+# is sanitized for filename safety (it comes from the hook payload).
+sb_extraction_marker_key() {
+  local slug="$1" sid
+  sid=$(printf '%s' "${2:-unknown}" | tr -cd 'A-Za-z0-9._-')
+  [ -n "$sid" ] || sid="unknown"
+  printf '%s--%s' "$slug" "$sid"
 }
 
 # Sanitize a slug for safe filesystem use. Strips path separators, dots,
@@ -774,6 +788,20 @@ sb_call_extractor() {
   err_file=$(mktemp)
   caller_script="${SB_SCRIPT_NAME:-${0##*/}}"
 
+  # R1.1 nested-spawn containment: the headless child (a) inherits
+  # SB_NESTED_SPAWN=1 so plugin hooks no-op inside it instead of re-running the
+  # full SessionStart/Stop stack (~24s on a Pi — the cause of every ec=124
+  # timeout), and (b) runs with cwd in a dedicated scratch dir so its junk
+  # transcript lands in ONE prunable ~/.claude/projects entry.
+  # NOTE: PreToolUse/PostToolUse/ConfigChange guards intentionally do NOT honor
+  # SB_NESTED_SPAWN — tool-safety checks stay active inside headless children
+  # (defense-in-depth); only capture/context hooks no-op.
+  local scratch_dir="$BRAIN_DIR/scratch"
+  if ! mkdir -p "$scratch_dir" 2>/dev/null; then
+    sb_log_error "lib.sh" "scratch mkdir failed; nested-spawn transcripts will land in the cwd project entry: $PWD" 0
+    scratch_dir="$PWD"
+  fi
+
   # --- Backend 0: local LLM (OpenAI-compatible /v1) ------------------------
   # Tried FIRST when SB_EXTRACTOR_LOCAL_URL is set and the engine isn't pinned
   # to a remote backend. No recursive-claude lock (not claude), no Anthropic
@@ -858,12 +886,12 @@ sb_call_extractor() {
     local claude_ec=0
     local TBIN; TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)  # GNU || macOS-brew
     if [ -n "$TBIN" ]; then
-      "$TBIN" "$timeout_s" "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
-        < "$input_file" > "$out_file" 2>"$err_file"
+      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "$TBIN" "$timeout_s" "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
+        < "$input_file" > "$out_file" 2>"$err_file" )
       claude_ec=$?
     else
-      "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
-        < "$input_file" > "$out_file" 2>"$err_file"
+      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
+        < "$input_file" > "$out_file" 2>"$err_file" )
       claude_ec=$?
     fi
 
@@ -917,7 +945,7 @@ sb_call_extractor() {
         # which would silently corrupt the 5KB system prompt.
         local pty_raw
         pty_raw=$(mktemp)
-        script -qfc "bash -c $(printf '%q' "$inner")" /dev/null > "$pty_raw" 2>/dev/null </dev/null || true
+        ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 script -qfc "bash -c $(printf '%q' "$inner")" /dev/null > "$pty_raw" 2>/dev/null </dev/null ) || true
         rm -f "$pty_raw"
         if [ -s "$out_file" ]; then
           # Strip ANSI/VT sequences from claude's stdout (the pty echoes them
@@ -1084,7 +1112,10 @@ sb_extract_transcript() {
   slug=$(sb_sanitize_slug "$slug") || slug="unknown"
   local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
   local model="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
-  local timeout_s="${SB_EXTRACT_TIMEOUT:-25}"
+  # Drainer-specific knob (deep-review): the hooks share SB_EXTRACT_TIMEOUT with
+  # small defaults (25s/30s inside 45s hook budgets) — reusing it here would let a
+  # drainer-oriented override re-open the kill-after-extract window in-hook.
+  local timeout_s="${SB_DRAIN_EXTRACT_TIMEOUT:-120}"
   local prompt_file="$sdir/extract-prompt.txt"
   [ -f "$prompt_file" ] || return 1
   local prompt; prompt=$(cat "$prompt_file")
@@ -1123,7 +1154,10 @@ TMPL
     cat "$project_md"
     echo; echo "---SEPARATOR---"; echo
     echo "=== TRANSCRIPT (preprocessed) ==="
-    sed '1,/^---$/d' "$txt"   # drop the meta header, keep the body
+    # Body only (meta header dropped), tail-capped: keep the NEWEST exchanges.
+    # An uncapped multi-MB archive can never finish before the timeout on a Pi
+    # and burns full retry cycles toward quarantine (R1.2, HOOK-4).
+    sed '1,/^---$/d' "$txt" | tail -c "${SB_EXTRACT_MAX_BYTES:-200000}"
   } > "$in_f"
 
   local delta=""

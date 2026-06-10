@@ -1,4 +1,6 @@
 #!/bin/bash
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 # Hot-tier loader with byte-budget enforcement.
 # Outputs USER.md + active PROJECT.md + persona signals + wiki enrichment,
 # capped at BYTE_BUDGET to avoid overflowing Claude's context window.

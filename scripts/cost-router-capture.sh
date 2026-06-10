@@ -12,6 +12,8 @@
 # Bash 3.2 / BSD-safe: no mapfile, no assoc arrays, no date -d, no grep -P.
 
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 # ── Resolve paths ──────────────────────────────────────────────────────────────
 

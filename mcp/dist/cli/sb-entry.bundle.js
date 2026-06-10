@@ -5356,10 +5356,10 @@ var Ignore = class {
   ignored(p) {
     const fullpath = p.fullpath();
     const fullpaths = `${fullpath}/`;
-    const relative2 = p.relative() || ".";
-    const relatives = `${relative2}/`;
+    const relative3 = p.relative() || ".";
+    const relatives = `${relative3}/`;
     for (const m of this.relative) {
-      if (m.match(relative2) || m.match(relatives))
+      if (m.match(relative3) || m.match(relatives))
         return true;
     }
     for (const m of this.absolute) {
@@ -5370,9 +5370,9 @@ var Ignore = class {
   }
   childrenIgnored(p) {
     const fullpath = p.fullpath() + "/";
-    const relative2 = (p.relative() || ".") + "/";
+    const relative3 = (p.relative() || ".") + "/";
     for (const m of this.relativeChildren) {
-      if (m.match(relative2))
+      if (m.match(relative3))
         return true;
     }
     for (const m of this.absoluteChildren) {
@@ -6749,7 +6749,72 @@ async function collectMarkdown(dir, acc = []) {
 
 // src/tools/episodic-search.ts
 import { promises as fs5 } from "fs";
-import { join as join4, basename } from "path";
+import { join as join4, basename, relative as relative2, isAbsolute as isAbsolute2 } from "path";
+
+// src/path-guard.ts
+import { resolve as resolve2, sep as sep3, isAbsolute } from "path";
+import { realpathSync as realpathSync2 } from "fs";
+var PathGuardError = class extends Error {
+  constructor(message, baseDir, candidate) {
+    super(message);
+    this.baseDir = baseDir;
+    this.candidate = candidate;
+    this.name = "PathGuardError";
+  }
+  baseDir;
+  candidate;
+};
+function realResolve(p) {
+  let current = "";
+  const segments = p.split(sep3);
+  for (let i = 0; i < segments.length; i++) {
+    const next = current === "" && segments[i] === "" ? sep3 : current === sep3 ? sep3 + segments[i] : current === "" ? segments[i] : current + sep3 + segments[i];
+    try {
+      current = realpathSync2(next);
+    } catch {
+      const rest = segments.slice(i + 1).join(sep3);
+      return rest ? current + sep3 + segments[i] + sep3 + rest : current + sep3 + segments[i];
+    }
+  }
+  return current;
+}
+function assertWithin(baseDir, ...parts) {
+  for (const part of parts) {
+    if (part.indexOf("\0") !== -1) {
+      throw new PathGuardError(`path component contains NUL byte`, baseDir, parts.join("/"));
+    }
+    if (isAbsolute(part)) {
+      throw new PathGuardError(`absolute path component not allowed: ${JSON.stringify(part)}`, baseDir, parts.join("/"));
+    }
+  }
+  const baseResolved = realResolve(resolve2(baseDir));
+  const candidate = resolve2(baseDir, ...parts);
+  const candidateResolved = realResolve(candidate);
+  if (candidateResolved !== baseResolved && !candidateResolved.startsWith(baseResolved + sep3)) {
+    throw new PathGuardError(
+      `path escapes base directory: ${candidateResolved} not within ${baseResolved}`,
+      baseDir,
+      parts.join("/")
+    );
+  }
+  return candidateResolved;
+}
+function validateSlug(slug) {
+  if (typeof slug !== "string") {
+    throw new PathGuardError("slug must be a string", "", String(slug));
+  }
+  if (slug.length === 0 || slug.length > 128) {
+    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
+  }
+  if (slug.startsWith(".")) {
+    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
+    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
+  }
+}
+
+// src/tools/episodic-search.ts
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -6937,71 +7002,6 @@ async function pinToUser(args) {
 // src/tools/pin-to-project.ts
 import { promises as fs7 } from "fs";
 import { join as join6 } from "path";
-
-// src/path-guard.ts
-import { resolve as resolve2, sep as sep3, isAbsolute } from "path";
-import { realpathSync as realpathSync2 } from "fs";
-var PathGuardError = class extends Error {
-  constructor(message, baseDir, candidate) {
-    super(message);
-    this.baseDir = baseDir;
-    this.candidate = candidate;
-    this.name = "PathGuardError";
-  }
-  baseDir;
-  candidate;
-};
-function realResolve(p) {
-  let current = "";
-  const segments = p.split(sep3);
-  for (let i = 0; i < segments.length; i++) {
-    const next = current === "" && segments[i] === "" ? sep3 : current === sep3 ? sep3 + segments[i] : current === "" ? segments[i] : current + sep3 + segments[i];
-    try {
-      current = realpathSync2(next);
-    } catch {
-      const rest = segments.slice(i + 1).join(sep3);
-      return rest ? current + sep3 + segments[i] + sep3 + rest : current + sep3 + segments[i];
-    }
-  }
-  return current;
-}
-function assertWithin(baseDir, ...parts) {
-  for (const part of parts) {
-    if (part.indexOf("\0") !== -1) {
-      throw new PathGuardError(`path component contains NUL byte`, baseDir, parts.join("/"));
-    }
-    if (isAbsolute(part)) {
-      throw new PathGuardError(`absolute path component not allowed: ${JSON.stringify(part)}`, baseDir, parts.join("/"));
-    }
-  }
-  const baseResolved = realResolve(resolve2(baseDir));
-  const candidate = resolve2(baseDir, ...parts);
-  const candidateResolved = realResolve(candidate);
-  if (candidateResolved !== baseResolved && !candidateResolved.startsWith(baseResolved + sep3)) {
-    throw new PathGuardError(
-      `path escapes base directory: ${candidateResolved} not within ${baseResolved}`,
-      baseDir,
-      parts.join("/")
-    );
-  }
-  return candidateResolved;
-}
-function validateSlug(slug) {
-  if (typeof slug !== "string") {
-    throw new PathGuardError("slug must be a string", "", String(slug));
-  }
-  if (slug.length === 0 || slug.length > 128) {
-    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
-  }
-  if (slug.startsWith(".")) {
-    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
-  }
-  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
-    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
-  }
-}
-
-// src/tools/pin-to-project.ts
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
 async function pinToProject(args) {

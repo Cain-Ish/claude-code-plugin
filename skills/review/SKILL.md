@@ -31,7 +31,7 @@ done
 
 ### 2. Stale projects
 
-A project is stale if its last extraction (from `~/.second-brain/.last-extracted-line-<slug>`) or PROJECT.md mtime is older than 14 days. Surface them so the user knows what's drifted.
+A project is stale if its last extraction (newest mtime among `~/.second-brain/.last-extracted-line-<slug>--*`) or PROJECT.md mtime is older than 14 days. Surface them so the user knows what's drifted.
 
 ```bash
 THRESHOLD=$(date -u -d '14 days ago' +%s 2>/dev/null || date -u -v -14d +%s 2>/dev/null)

@@ -18,6 +18,8 @@
 #                        (default: claude-sonnet-4-6)
 #   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 25)
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 # Defensive lib.sh source. If lib.sh is missing the script would crash on
 # first $BRAIN_DIR reference under `set -u` and leave no trace. Without
@@ -49,6 +51,7 @@ fi
 
 TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
 CWD=$(echo       "$RAW" | jq -r '.cwd             // empty' 2>/dev/null | tr -d '\r')
+SESSION_ID=$(echo "$RAW" | jq -r '.session_id     // "unknown"' 2>/dev/null | tr -d '\r')
 if [ -z "$TRANSCRIPT" ]; then log_gate "transcript-path-empty cwd=$CWD"; exit 0; fi
 if [ ! -f "$TRANSCRIPT" ]; then log_gate "transcript-file-missing path=$TRANSCRIPT"; exit 0; fi
 
@@ -58,6 +61,7 @@ else
   SLUG=$(sb_resolve_slug "$PWD")
 fi
 if [ -z "$SLUG" ]; then log_gate "slug-empty cwd=$CWD pwd=$PWD"; exit 0; fi
+MARKER_KEY=$(sb_extraction_marker_key "$SLUG" "$SESSION_ID")
 
 PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
 KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
@@ -89,23 +93,31 @@ fi
 mkdir -p "$KNOWLEDGE_DIR/wiki" 2>/dev/null || true
 
 # --- Determine unprocessed window (disjoint with pre-compact extractions) ---
-LAST_LINE=$(sb_get_extraction_marker "$SLUG")
+LAST_LINE=$(sb_get_extraction_marker "$MARKER_KEY")
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d ' ')
+# Stale-marker clamp (deep-review): a marker past EOF (transcript shrank, or a
+# key collision via the session_id "unknown" fallback) would gate extraction
+# forever now that markers are never cleared — treat it as no marker.
+if [ "$LAST_LINE" -gt "$TOTAL_LINES" ]; then
+  LAST_LINE=0
+fi
 NEW_LINES=$((TOTAL_LINES - LAST_LINE))
 
 if [ "$NEW_LINES" -lt 1 ]; then
   log_gate "no-new-lines marker=$LAST_LINE total=$TOTAL_LINES"
-  sb_clear_extraction_marker "$SLUG"
   exit 0
 fi
 
 START_LINE=$((LAST_LINE + 1))
-# Cap at 500 lines for the final window
+# The LLM input is capped at the newest 500 lines, but the substantive gate and
+# the archive must cover the FULL delta — otherwise a >500-line turn silently
+# drops its middle from both extraction and dream-mining (deep-review).
+EXTRACT_START=$START_LINE
 if [ "$NEW_LINES" -gt 500 ]; then
-  START_LINE=$((TOTAL_LINES - 500 + 1))
+  EXTRACT_START=$((TOTAL_LINES - 500 + 1))
 fi
 
-# Substantive-session gate: count tool_use entries in the window.
+# Substantive-session gate: count tool_use entries in the FULL delta.
 TOOL_COUNT=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
   select(.type == "assistant")
   | .message.content[]?
@@ -117,7 +129,8 @@ if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
   TS_LINES=$NEW_LINES
   TS_FIRST_TYPE=$(sed -n "${START_LINE}p" "$TRANSCRIPT" 2>/dev/null | jq -r '.type // "no-type"' 2>/dev/null | tr -d '\n')
   log_gate "tool-count-zero lines=$TS_LINES first-type=$TS_FIRST_TYPE marker=$LAST_LINE"
-  sb_clear_extraction_marker "$SLUG"
+  # Advance past the examined window: re-examining it next Stop can't find tools either.
+  sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
   exit 0
 fi
 
@@ -135,7 +148,7 @@ trap 'rm -f "$EXTRACT_INPUT" "$EXTRACT_OUT" 2>/dev/null' EXIT
   echo "---SEPARATOR---"
   echo
   echo "=== TRANSCRIPT (preprocessed) ==="
-  sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
+  sed -n "${EXTRACT_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
 } > "$EXTRACT_INPUT"
 
 DELTA_JSON=""
@@ -240,7 +253,6 @@ if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
 fi
 
 # --- Archive preprocessed transcript for dream mining ---
-SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null)
 sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
 
 # --- Incremental episodic index update ---
@@ -250,6 +262,6 @@ if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/episodic-index-cli.bund
 fi
 
 rm -f "$BRAIN_DIR/.session-baseline-$SLUG.md"
-sb_clear_extraction_marker "$SLUG"
+sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
 
 exit 0

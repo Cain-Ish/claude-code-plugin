@@ -7,6 +7,8 @@
 # Safety valve: blocks at most 2 times per session (marker file).
 # Always fails open — parse errors or missing data → approve.
 set -u
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 [ "${SB_VERIFY_GATE:-on}" = "off" ] && exit 0
 

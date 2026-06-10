@@ -127,4 +127,36 @@ SUBN=$(ls "$B/transcripts/"sub-*.txt 2>/dev/null | wc -l | tr -d ' ')
 [ "$SUBN" -le 50 ] || fail "11: subagent archives exceeded their own cap (got $SUBN, cap 50)"
 pass "subagent flood capped separately (got $SUBN sub-files); main-session archive survived"
 
+# --- Test 12 (R1.2, HOOK-5): workflow "holding" stub — the FINAL assistant
+# record is tool_use-only (StructuredOutput carries the real answer) and the
+# last TEXT block is an interim holding message => must NOT archive.
+B="$TMP/b12"; mkdir -p "$B"; T="$TMP/t12.jsonl"
+: > "$T"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the task"}]}}' >> "$T"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Grep","input":{"pattern":"x"}}]}}' >> "$T"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Holding here until the review returns; this filler comfortably exceeds the eighty-character minimum so the pre-R1 gate would have archived it as a result."}]}}' >> "$T"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"StructuredOutput","input":{"result":"the real answer went through the tool call"}}]}}' >> "$T"
+run_hook "$B" "general-purpose" "hold1" "$T" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] || fail "12: hook must exit 0"
+[ -z "$(arc "$B")" ] || fail "12: holding-message stub was archived"
+pass "workflow holding-message stub: NOT archived"
+
+# --- Test 13 (R1.2 regression): a final text-only record (real prose result)
+# after tool activity still archives — the Test-12 skip must not overreach.
+B="$TMP/b13"; mkdir -p "$B"; T="$TMP/t13.jsonl"; mk_transcript "$T" 1 "$LONG"
+run_hook "$B" "general-purpose" "real1" "$T" >/dev/null 2>&1
+ls "$B/transcripts/"sub-real1_*.txt >/dev/null 2>&1 || fail "13: real final prose result no longer archived"
+pass "final text result still archived"
+
+# --- Test 14 (deep-review): a trailing NON-StructuredOutput tool_use after a
+# substantive prose result must still archive (the skip is workflow-specific).
+B="$TMP/b14"; mkdir -p "$B"; T="$TMP/t14.jsonl"
+: > "$T"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the task"}]}}' >> "$T"
+jq -nc --arg t "$LONG" '{type:"assistant",message:{role:"assistant",content:[{type:"text",text:$t}]}}' >> "$T"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[]}}]}}' >> "$T"
+run_hook "$B" "general-purpose" "trail1" "$T" >/dev/null 2>&1
+ls "$B/transcripts/"sub-trail1_*.txt >/dev/null 2>&1 || fail "14: prose result with trailing non-SO tool_use was dropped"
+pass "trailing non-StructuredOutput tool_use: prose result still archived"
+
 echo; echo "ALL PASS"

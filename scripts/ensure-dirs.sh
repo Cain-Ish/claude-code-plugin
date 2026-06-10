@@ -1,4 +1,6 @@
 #!/bin/bash
+# Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
+[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 source "$(dirname "$0")/lib.sh"
 KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
