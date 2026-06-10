@@ -187,6 +187,12 @@ else
   sb_write_extractor_health "$DRAIN_BACKEND" "ok" "drained $processed this run ($failed failed)"
 fi
 
+# SP-D retention GC (R4, SCRIPTS-05): regenerable-only pruning (orphaned
+# embeddings-cache entries, *.bak/*.tgz past retention.bak_ttl_days) must NOT
+# depend on the SP-B auto_improve opt-in — it was silently inert on every
+# default install (bak_ttl_days did nothing).
+[ -f "$(dirname "$0")/sb-prune-archives.sh" ] && bash "$(dirname "$0")/sb-prune-archives.sh" >/dev/null 2>&1 || true
+
 # SP-B: deterministic consolidation upkeep — opt-in via config.json `auto_improve`. Runs
 # here, inside the drainer's single-flight lock + defer guards, so no second timer is
 # needed. Content-free only (validate/backfill/reindex); the script self-throttles. LLM

@@ -313,6 +313,29 @@ DREAM_COUNT=$(find "$BRAIN_DIR/dreams" -maxdepth 1 -type d -name 'drm_*' | wc -l
 [ "$DREAM_COUNT" -le 5 ] || fail "should prune to max 5 dreams (got: $DREAM_COUNT)"
 pass "dream pruning: keeps max 5"
 
+# --- Subtest 7b (R4, SCRIPTS-04): a FAILED dream past keep-count loses its
+# staging/transcripts (the ~1MB payload) but KEEPS status.json (forensics);
+# pending stays untouched entirely.
+setup "prune-failed"
+seed_wiki
+for i in $(seq 1 5); do
+  DID="drm_2026050${i}T000000Z"
+  mkdir -p "$BRAIN_DIR/dreams/$DID"
+  jq -nc --arg id "$DID" '{id:$id, status:"completed", archived_at:"2026-05-01"}' > "$BRAIN_DIR/dreams/$DID/status.json"
+done
+FID="drm_20260401T000000Z"   # sorts oldest
+mkdir -p "$BRAIN_DIR/dreams/$FID/staging/wiki" "$BRAIN_DIR/dreams/$FID/transcripts"
+echo x > "$BRAIN_DIR/dreams/$FID/staging/wiki/p.md"
+jq -nc --arg id "$FID" '{id:$id, status:"failed", archived_at:null, error:"boom"}' > "$BRAIN_DIR/dreams/$FID/status.json"
+# (no pending fixture here: a pending dream trips the one-at-a-time guard and
+# dream-snapshot exits BEFORE the prune — that path is subtest 8's coverage;
+# the prune's pending-safety is structural: only archived/failed/canceled match.)
+seed_transcripts
+bash "$REPO_ROOT/scripts/dream-snapshot.sh" >/dev/null 2>&1 || true
+[ -f "$BRAIN_DIR/dreams/$FID/status.json" ] || fail "failed dream's status.json must be kept (forensics)"
+[ ! -d "$BRAIN_DIR/dreams/$FID/staging" ] || fail "failed dream's staging should be pruned past keep-count"
+pass "failed dream pruned to status.json-only (R4)"
+
 # --- Subtest 8 (SP-C): a FRESH pending/running dream blocks a new one (no concurrent runs)
 setup "running-block"
 seed_wiki; seed_transcripts

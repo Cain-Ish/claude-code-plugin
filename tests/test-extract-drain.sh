@@ -185,3 +185,17 @@ bash "$DRAIN" >/dev/null 2>&1 || true
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
+
+# Test GC-2 (R4, SCRIPTS-05): retention GC (sb-prune-archives) runs WITHOUT the
+# auto_improve opt-in — a *.bak past bak_ttl_days is pruned on a default config.
+printf '{"auto_improve": false, "retention": {"bak_ttl_days": 14}}\n' > "$BRAIN_DIR/config.json"
+touch -t 202601010000 "$BRAIN_DIR/stale-rescue.bak"
+touch "$BRAIN_DIR/fresh-rescue.bak"
+bash "$DRAIN" >/dev/null 2>&1 || true
+[ ! -f "$BRAIN_DIR/stale-rescue.bak" ] && ok "stale .bak pruned without auto_improve" || no "stale .bak survived (retention GC still gated)"
+[ -f "$BRAIN_DIR/fresh-rescue.bak" ] && ok "fresh .bak kept" || no "fresh .bak wrongly pruned"
+rm -f "$BRAIN_DIR/config.json" "$BRAIN_DIR/fresh-rescue.bak"
+
+echo ""
+echo "Results R4: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]
