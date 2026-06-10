@@ -6594,7 +6594,12 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     const inScope = scored.filter((s) => s.tier <= 3);
     pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
   }
-  const candidates = pool.filter(passesFloor).slice(0, TOP_K).map(({ related, baseScore, tier, ...rest }) => rest);
+  const topFinal = pool.reduce((m, s) => Math.max(m, s.score), 0);
+  const candidates = pool.filter(passesFloor).slice(0, TOP_K).map(({ related, baseScore, tier, ...rest }) => ({
+    ...rest,
+    score_norm: topFinal > 0 ? Math.round(rest.score / topFinal * 1e4) / 1e4 : 0,
+    ...scopeOn ? { tier } : {}
+  }));
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;
@@ -6605,7 +6610,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   }
   saveAccessCounts(accessCounts).catch(() => {
   });
-  return { candidates };
+  return { candidates, ...embeddingsActive ? {} : { degraded: "bm25-only" } };
 }
 function computeDF(queryTokens, docs) {
   const dfMap = /* @__PURE__ */ new Map();

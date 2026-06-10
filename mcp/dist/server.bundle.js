@@ -27947,7 +27947,12 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     const inScope = scored.filter((s) => s.tier <= 3);
     pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
   }
-  const candidates = pool.filter(passesFloor).slice(0, TOP_K).map(({ related, baseScore, tier, ...rest }) => rest);
+  const topFinal = pool.reduce((m, s) => Math.max(m, s.score), 0);
+  const candidates = pool.filter(passesFloor).slice(0, TOP_K).map(({ related, baseScore, tier, ...rest }) => ({
+    ...rest,
+    score_norm: topFinal > 0 ? Math.round(rest.score / topFinal * 1e4) / 1e4 : 0,
+    ...scopeOn ? { tier } : {}
+  }));
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;
@@ -27958,7 +27963,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   }
   saveAccessCounts(accessCounts).catch(() => {
   });
-  return { candidates };
+  return { candidates, ...embeddingsActive ? {} : { degraded: "bm25-only" } };
 }
 function computeDF(queryTokens, docs) {
   const dfMap = /* @__PURE__ */ new Map();
@@ -28960,8 +28965,11 @@ async function episodicSearch(args, brainDir2) {
   const candLimit = args.activeProject && !args.project ? Math.max(limit * 5, 25) : limit * 2;
   let vectorResults = [];
   let textResults = [];
+  let degraded;
   if (mode === "vector" || mode === "both") {
-    vectorResults = await vectorSearch(query, index, candLimit, args, brainDir2);
+    const v = await vectorSearch(query, index, candLimit, args, brainDir2);
+    vectorResults = v.hits;
+    if (v.unavailable) degraded = "text-only";
   }
   if (mode === "text" || mode === "both") {
     textResults = textSearch(query, index, candLimit, args);
@@ -28992,21 +29000,25 @@ async function episodicSearch(args, brainDir2) {
       archivePath: r.archivePath,
       lineStart: r.lineStart,
       lineEnd: r.lineEnd
-    }))
+    })),
+    ...degraded ? { degraded } : {}
   };
 }
 async function vectorSearch(query, index, limit, filters, brainDir2) {
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
-  if (withEmbeddings.length === 0) return [];
+  if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
   const queryEmbedding = await embedTexts(
     [query],
     join12(brainDir2, "transcripts"),
     [""]
   );
-  if (!queryEmbedding) return [];
+  if (!queryEmbedding) return { hits: [], unavailable: true };
   const qVec = queryEmbedding[0];
-  return withEmbeddings.map((e) => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) })).sort((a, b) => b.similarity - a.similarity).slice(0, limit);
+  return {
+    hits: withEmbeddings.map((e) => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) })).sort((a, b) => b.similarity - a.similarity).slice(0, limit),
+    unavailable: false
+  };
 }
 function textSearch(query, index, limit, filters) {
   const filtered = applyFilters(index.exchanges, filters);
@@ -29033,13 +29045,13 @@ async function multiConceptSearch(concepts, index, limit, filters) {
   const brainDir2 = index.exchanges[0]?.archivePath ? join12(index.exchanges[0].archivePath, "..", "..") : join12(process.env.HOME ?? "", ".second-brain");
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
-  if (withEmbeddings.length === 0) return { results: [] };
+  if (withEmbeddings.length === 0) return { results: [], degraded: "text-only" };
   const conceptEmbeddings = await embedTexts(
     concepts,
     join12(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
-  if (!conceptEmbeddings) return { results: [] };
+  if (!conceptEmbeddings) return { results: [], degraded: "text-only" };
   const scored = withEmbeddings.map((e) => {
     const similarities = conceptEmbeddings.map((cv) => cosineSimilarity(cv, e.embedding));
     const minSim = Math.min(...similarities);
@@ -29540,7 +29552,7 @@ function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.6.8" },
+  { name: "knowledge-base", version: "2.6.9" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
@@ -29554,7 +29566,7 @@ function categorizeFile(filePath) {
 server.registerTool(
   "knowledge_search",
   {
-    description: "BM25-scored search across the knowledge base wiki. Reads full content of each markdown page, parses YAML frontmatter for field-weighted scoring (title 3x, description 2x, tags 2x, body 1x). Returns top 8 candidates with path, score, and snippet.",
+    description: "Hybrid search across the knowledge base wiki: BM25 (title 3x, description 2x, tags 2x, ai-block 1.5x, body 1x) fused with ONNX embeddings via RRF when available, plus capped graph-edge, access-frequency and recency boosts and project-scoped tiering. Returns top 8 candidates with path, raw score, score_norm (0..1, comparable across modes), tier (when project scoping is active), and snippet. Result carries degraded:'bm25-only' when embeddings are unavailable.",
     inputSchema: {
       query: external_exports.string().describe("Search query \u2014 tokenized on lowercase alphanumerics, date tokens filtered out, matched via BM25 scoring."),
       scope: external_exports.string().optional().describe("Restrict to a single wiki subdirectory (e.g. 'entities', 'learnings'). Omit to search all.")
@@ -29847,7 +29859,7 @@ server.registerTool(
 server.registerTool(
   "episodic_search",
   {
-    description: "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading.",
+    description: "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading. Result carries degraded:'text-only' when vector search is unavailable (embeddings missing) and only text matching ran.",
     inputSchema: {
       query: external_exports.union([
         external_exports.string().describe("Search query for semantic + text matching"),
