@@ -22,26 +22,46 @@ function slugs(r: { candidates: { path: string }[] }): string[] {
 }
 
 describe('knowledge_search back-compat (no graph dir)', () => {
-  it('frontmatter related: still drives a one-hop boost (legacy behaviour preserved)', async () => {
+  it('frontmatter related: boosts a weak-match neighbour above an equal non-neighbour (R2.1 contract)', async () => {
     const dir = await wiki();
-    // legacy: alpha relates to beta via frontmatter only, no graph log present
+    // R2.1 (MCP-SEARCH-1): boost is capped at <=1x a page's own base score, so a
+    // ZERO-base page can no longer ride related: into the results (deliberate —
+    // knowledge_neighbors is the graph-discovery tool). What the boost still
+    // does: lift a weak-text-match neighbour above an identical non-neighbour.
     await fsp.writeFile(join(dir, 'wiki', 'entities', 'alpha.md'),
       `---\ntitle: alpha\ntype: entities\ndescription: alpha\nrelated: [[beta]]\n---\n\n# alpha\n\nwireguard tunnel keyword\n`);
+    await fsp.writeFile(join(dir, 'wiki', 'entities', 'beta.md'),
+      `---\ntitle: beta\ntype: entities\ndescription: notes touching wireguard once\n---\n\n# beta\n\nmostly gardening content with one wireguard mention\n`);
+    await fsp.writeFile(join(dir, 'wiki', 'entities', 'delta.md'),
+      `---\ntitle: delta\ntype: entities\ndescription: notes touching wireguard once\n---\n\n# delta\n\nmostly gardening content with one wireguard mention\n`);
     const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
     expect(slugs(r)).toContain('alpha');
-    expect(slugs(r)).toContain('beta'); // boosted via frontmatter related, no graph log
+    expect(slugs(r)).toContain('beta'); // weak match + related boost → present
+    const beta = r.candidates.find(c => c.path.endsWith('/beta.md'))!;
+    const delta = r.candidates.find(c => c.path.endsWith('/delta.md'));
+    if (delta) expect(beta.score).toBeGreaterThan(delta.score); // the boost is what separates them
   });
 });
 
 describe('knowledge_search multi-hop typed boost (graph present)', () => {
-  it('a hit on alpha boosts its 1-hop and 2-hop requires-neighbours', async () => {
+  it('a hit on alpha boosts its weak-match 1-hop and 2-hop requires-neighbours (R2.1 contract)', async () => {
     const dir = await wiki();
+    // R2.1: zero-base pages cannot ride the graph (boost capped at <=1x own
+    // base); neighbours need SOME text relevance. 1-hop receives more than
+    // 2-hop (0.3 decay per hop).
+    await fsp.writeFile(join(dir, 'wiki', 'entities', 'beta.md'),
+      `---\ntitle: beta\ntype: entities\ndescription: notes touching wireguard once\n---\n\n# beta\n\ngardening content with one wireguard mention\n`);
+    await fsp.writeFile(join(dir, 'wiki', 'entities', 'gamma.md'),
+      `---\ntitle: gamma\ntype: entities\ndescription: notes touching wireguard once\n---\n\n# gamma\n\ncooking content with one wireguard mention\n`);
     const log = join(dir, 'graph', 'edges.jsonl');
     await appendEdge(log, { op: 'assert', from: 'alpha', to: 'beta', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
     await appendEdge(log, { op: 'assert', from: 'beta', to: 'gamma', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
     const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
     expect(slugs(r)).toContain('beta');   // 1 hop
     expect(slugs(r)).toContain('gamma');  // 2 hops, via typed graph
+    const beta = r.candidates.find(c => c.path.endsWith('/beta.md'))!;
+    const gamma = r.candidates.find(c => c.path.endsWith('/gamma.md'))!;
+    expect(beta.score).toBeGreaterThanOrEqual(gamma.score); // hop decay ordering
   });
   it('an invalidated edge does not propagate boost', async () => {
     const dir = await wiki();

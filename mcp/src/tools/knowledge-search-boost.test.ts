@@ -72,7 +72,9 @@ describe('boost cap invariant (<=2x base)', () => {
         `---\ntitle: "${title}"\ndescription: "${title}"\ntype: concepts\n---\n\n# ${title}\n\n${body}\n`);
     // Hub matches 'watchdog' weakly; sorts AFTER the fillers so the old code
     // propagates its already-inflated score onward (worst-case ordering).
-    page('zz-hub', 'general overview', 'A long overview mentioning the watchdog once. ' + 'Pure padding sentence here. '.repeat(10));
+    // Strong enough to pass the relevance floor in BOTH runs (measurable base),
+    // weak enough that the old code's 20 filler contributions blow past 2x.
+    page('zz-hub', 'general overview', 'Overview of the watchdog and the watchdog restart path. ' + 'Pure padding sentence here. '.repeat(4));
     const edges: string[] = [];
     for (let i = 0; i < 20; i++) {
       const tok = i % 2 === 0 ? 'watchdog' : 'restart';
