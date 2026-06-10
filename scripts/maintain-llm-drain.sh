@@ -33,6 +33,15 @@ if ! command -v bwrap >/dev/null 2>&1; then
   exit 0
 fi
 
+# Failure-aware lifecycle (R4, SCRIPTS-03): a structural failure must not burn
+# the full weekly slot, and repeated failures must STOP retrying loudly instead
+# of spinning forever. Quarantine clears on success, on a /second-brain:maintain
+# run, or by deleting the file (the autostage banner names it).
+FAILS_F="$BRAIN_DIR/.llm-maintain-fails"
+QUAR_F="$BRAIN_DIR/.llm-maintain-quarantine"
+RETRY="${SB_MAINTAIN_LLM_RETRY:-86400}"; case "$RETRY" in ''|*[!0-9]*) RETRY=86400 ;; esac
+[ -f "$QUAR_F" ] && [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ] && exit 0
+
 # Weekly throttle. SB_MAINTAIN_LLM_FORCE=1 bypasses (tests / manual).
 MARK="$BRAIN_DIR/.last-llm-maintain"
 INT="${SB_MAINTAIN_LLM_INTERVAL:-604800}"; case "$INT" in ''|*[!0-9]*) INT=604800 ;; esac
@@ -40,6 +49,21 @@ if [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ]; then
   mt=$(stat -c %Y "$MARK" 2>/dev/null || stat -f %m "$MARK" 2>/dev/null || echo 0)
   [ "$(( $(date +%s) - ${mt:-0} ))" -ge "$INT" ] || exit 0
 fi
+
+# _fail_step <summary>: count the failure, quarantine at 3 strikes, and re-stamp
+# the throttle to a ~24h retry horizon (mtime = now - INT + RETRY) instead of
+# the full interval. `date -d @` (GNU) || `date -r` (BSD) pairing.
+_fail_step() {
+  local n; n=$(cat "$FAILS_F" 2>/dev/null || echo 0); case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  n=$((n + 1)); printf '%s' "$n" > "$FAILS_F"
+  if [ "$n" -ge 3 ]; then
+    printf '[%s] quarantined after %s consecutive failures: %s\n' "$(date -u +%FT%TZ)" "$n" "$1" > "$QUAR_F"
+  fi
+  local target=$(( $(date +%s) - INT + RETRY ))
+  local stamp
+  stamp=$(date -u -d "@$target" +%Y%m%d%H%M.%S 2>/dev/null || date -u -r "$target" +%Y%m%d%H%M.%S 2>/dev/null)
+  [ -n "$stamp" ] && touch -t "$stamp" "$MARK" 2>/dev/null
+}
 
 # Don't stack: if a completed-but-unreviewed (archived_at unset) dream already exists, skip until
 # the user accepts/discards it (the SP-C terminal predicate).
@@ -49,6 +73,16 @@ for sf in "$BRAIN_DIR"/dreams/drm_*/status.json; do
   a=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null)
   { [ -z "$a" ] || [ "$a" = "null" ]; } && exit 0
 done
+
+# Preflight (R4, SCRIPTS-01): prove bwrap can actually create namespaces HERE,
+# BEFORE staging anything. Under systemd RestrictNamespaces=true this fails
+# instantly — pre-R4 that produced a stuck status=pending dream and burned the
+# weekly slot, silently, every cycle.
+if ! bwrap --ro-bind / / --unshare-pid --new-session -- /bin/true >/dev/null 2>&1; then
+  sb_log_error "maintain-llm-drain" "bwrap preflight failed — namespace creation blocked (RestrictNamespaces in the unit? see systemd/sb-extract-drain-oauth.service); no dream staged" 0
+  _fail_step "bwrap preflight failed (namespace creation blocked)"
+  exit 0
+fi
 
 : > "$MARK"   # stamp the throttle even if the run below fails — don't retry every drain cycle
 
@@ -101,10 +135,26 @@ if [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
   exit 0
 fi
 rc=0
+ERR_F=$(mktemp)
 SB_NESTED_SPAWN=1 ${TBIN:+$TBIN "$TO"} bwrap "${BWRAP_ARGS[@]}" \
-  -- claude -p --permission-mode bypassPermissions --model "$MODEL" "$PROMPT" >/dev/null 2>&1 || rc=$?
-# Observable, not silent: a broken jail / auth / timeout leaves a completed-empty dream otherwise.
-[ "$rc" -ne 0 ] && sb_log_error "maintain-llm-drain" "headless consolidation exited $rc for $DREAM_ID (left for review; check bwrap/auth/timeout)" 0
+  -- claude -p --permission-mode bypassPermissions --model "$MODEL" "$PROMPT" >/dev/null 2>"$ERR_F" || rc=$?
+if [ "$rc" -ne 0 ]; then
+  # R4 (SCRIPTS-02): a failure must be VISIBLE — capture stderr and transition
+  # pending→failed atomically so dream_list/status and the autostage scan show
+  # it, instead of a forever-pending mystery with error:null.
+  ERR_TAIL=$(tail -c 300 "$ERR_F" 2>/dev/null | tr '\n' ' ')
+  sb_log_error "maintain-llm-drain" "headless consolidation exited $rc for $DREAM_ID: ${ERR_TAIL:-no stderr} (status set to failed)" 0
+  SF="$DREAM_DIR/status.json"
+  if [ -f "$SF" ] && [ "$(jq -r '.status // ""' "$SF" 2>/dev/null)" != "completed" ]; then
+    jq --arg e "$(date -u +%FT%TZ)" --arg err "exit $rc: ${ERR_TAIL:-no stderr}" \
+      '.status = "failed" | .ended_at = $e | .error = $err' "$SF" > "$SF.tmp.$$" 2>/dev/null \
+      && mv "$SF.tmp.$$" "$SF" 2>/dev/null || rm -f "$SF.tmp.$$" 2>/dev/null
+  fi
+  _fail_step "headless run exit $rc: ${ERR_TAIL:-no stderr}"
+else
+  rm -f "$FAILS_F" "$QUAR_F" 2>/dev/null
+fi
+rm -f "$ERR_F" 2>/dev/null
 
 # 3. The dream is now completed-unaccepted (or failed). NEVER auto-accept — the SP-C nudge surfaces
 #    it and the user reviews via /second-brain:dream + dream_accept.
