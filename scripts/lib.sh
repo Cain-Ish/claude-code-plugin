@@ -324,8 +324,12 @@ sb_strip_code_fences() {
 }
 
 # --- Extraction marker helpers ---
-# Track which transcript lines have been extracted so pre-compact and stop
-# hooks process disjoint windows — nothing lost, nothing duplicated.
+# Track which transcript lines have been extracted. Keys are SESSION-scoped
+# (slug--session_id, R1.2): pre-compact and stop process disjoint windows of
+# one session, repeated Stop firings resume where the last finished (instead
+# of re-archiving from line 0 — the 18x-duplicate-archive bug), and two
+# concurrent sessions in one project cannot race each other's marker.
+# Stale markers are swept by extract-drain.sh after 7 days.
 
 sb_get_extraction_marker() {
   local slug="$1"
@@ -347,6 +351,15 @@ sb_set_extraction_marker() {
 sb_clear_extraction_marker() {
   local slug="$1"
   rm -f "$BRAIN_DIR/.last-extracted-line-$slug"
+}
+
+# Compose the extraction-marker key for a (slug, session) pair. The session id
+# is sanitized for filename safety (it comes from the hook payload).
+sb_extraction_marker_key() {
+  local slug="$1" sid
+  sid=$(printf '%s' "${2:-unknown}" | tr -cd 'A-Za-z0-9._-')
+  [ -n "$sid" ] || sid="unknown"
+  printf '%s--%s' "$slug" "$sid"
 }
 
 # Sanitize a slug for safe filesystem use. Strips path separators, dots,

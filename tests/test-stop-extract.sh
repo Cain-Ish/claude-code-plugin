@@ -109,7 +109,7 @@ EOF
 }
 
 stop_payload() {
-  jq -nc --arg sid "test-session" \
+  jq -nc --arg sid "${1:-test-session}" \
         --arg tp "$SANDBOX/transcript/session.jsonl" \
         --arg cwd "$SANDBOX/repo/test-slug" \
         '{session_id:$sid, transcript_path:$tp, cwd:$cwd, hook_event_name:"Stop"}'
@@ -170,12 +170,11 @@ export PATH=$(echo "$PATH" | tr ':' '\n' | while read -r d; do
   [ -x "$d/claude" ] || printf '%s:' "$d"
 done | sed 's/:$//')
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
-# Two consecutive runs in the same day with broken LLM.
+# Two consecutive runs in the same day with broken LLM. The second run uses a
+# NEW session id: markers are session-keyed now (R1.2), so a fresh session gets
+# a fresh window — the dedup-per-day invariant is what this test pins down.
 stop_payload | "$SCRIPT" >/dev/null 2>&1
-# Re-seed transcript (stop-extract clears the line-marker, so we need a
-# fresh window with tool_use) before the second run.
-seed_transcript_with_edit
-stop_payload | "$SCRIPT" >/dev/null 2>&1
+stop_payload "test-session-b" | "$SCRIPT" >/dev/null 2>&1
 export PATH="$SAVED_PATH"
 # SP-E: the breadcrumb now lives in a SIDECAR, dedup'd per day — NOT in PROJECT.md decisions.
 PENDING="$SANDBOX/.second-brain/projects/test-slug/pending-extraction.log"
@@ -235,6 +234,43 @@ grep -q "/var/tmp/" "$PENDING" && fail "scratch-filter: /var/tmp path leaked int
 grep -q "/run/" "$PENDING" && fail "scratch-filter: /run path leaked into the breadcrumb"
 grep -qF '[degraded]' "$PROJ" 2>/dev/null && fail "SP-E: [degraded] leaked into PROJECT.md decisions" || true
 pass "degraded fallback strips /tmp, /var/tmp, /run; keeps project paths (in sidecar, not decisions)"
+restore_path
+
+# --- Test 8 (R1.2): marker is session-keyed and ADVANCES — repeated Stops in
+# one session archive each window exactly once, never re-archiving from 0.
+init_sandbox "marker-advance"
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
+[ -f "$MARKER" ] || fail "marker-advance: session-keyed marker file not created"
+[ "$(cat "$MARKER")" = "3" ] || fail "marker-advance: marker should be 3 (TOTAL_LINES), got $(cat "$MARKER")"
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "marker-advance: archive not created"
+C1=$(grep -c 'src/foo.ts' "$ARCHIVE")
+# Second Stop, same session, transcript unchanged → no-new-lines gate; archive untouched.
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+[ "$(grep -c 'src/foo.ts' "$ARCHIVE")" = "$C1" ] || fail "marker-advance: rerun re-archived the same window"
+# New activity in the SAME session → only the new window is appended, once.
+cat >> "$SANDBOX/transcript/session.jsonl" <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/bar.ts","old_string":"a","new_string":"b"}}]}}
+EOF
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+[ "$(cat "$MARKER")" = "4" ] || fail "marker-advance: marker should advance to 4, got $(cat "$MARKER")"
+[ "$(grep -c 'src/bar.ts' "$ARCHIVE")" = "1" ] || fail "marker-advance: new window not appended exactly once"
+[ "$(grep -c 'src/foo.ts' "$ARCHIVE")" = "$C1" ] || fail "marker-advance: old window duplicated on append"
+pass "session-keyed marker advances; each window archived exactly once"
+restore_path
+
+# --- Test 9 (R1.2): two sessions in one project keep independent markers.
+init_sandbox "marker-two-sessions"
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+stop_payload "sess-a" | "$SCRIPT" >/dev/null 2>&1
+stop_payload "sess-b" | "$SCRIPT" >/dev/null 2>&1
+[ -f "$SANDBOX/.second-brain/.last-extracted-line-test-slug--sess-a" ] || fail "two-sessions: sess-a marker missing"
+[ -f "$SANDBOX/.second-brain/.last-extracted-line-test-slug--sess-b" ] || fail "two-sessions: sess-b marker missing"
+pass "independent per-session markers (no cross-session race)"
 restore_path
 
 echo "ALL PASS"
