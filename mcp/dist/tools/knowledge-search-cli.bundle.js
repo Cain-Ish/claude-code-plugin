@@ -6594,8 +6594,9 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     const inScope = scored.filter((s) => s.tier <= 3);
     pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
   }
-  const topFinal = pool.reduce((m, s) => Math.max(m, s.score), 0);
-  const candidates = pool.filter(passesFloor).slice(0, TOP_K).map(({ related, baseScore, tier, ...rest }) => ({
+  const returned = pool.filter(passesFloor).slice(0, TOP_K);
+  const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);
+  const candidates = returned.map(({ related, baseScore, tier, ...rest }) => ({
     ...rest,
     score_norm: topFinal > 0 ? Math.round(rest.score / topFinal * 1e4) / 1e4 : 0,
     ...scopeOn ? { tier } : {}
@@ -6768,7 +6769,7 @@ if (!query) {
 }
 var knowledgeDir = process.env.KNOWLEDGE_DIR || void 0;
 var minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || "0");
-var brainDir = process.env.BRAIN_DIR || (process.env.HOME ? `${process.env.HOME}/.second-brain` : void 0);
+var brainDir = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || (process.env.HOME ? `${process.env.HOME}/.second-brain` : void 0);
 var projectSlug = process.env.SB_ACTIVE_SLUG || void 0;
 var result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
 var top = result.candidates.filter((c) => c.score >= minScore).slice(0, 2);

@@ -39,7 +39,9 @@ export interface KnowledgeSearchResult {
     path: string;
     /** Raw engine score — BM25(+capped boosts) or RRF scale depending on mode. Filterable via KNOWLEDGE_MIN_SCORE (contract preserved). */
     score: number;
-    /** Rank-normalized to (0,1] on ONE scale regardless of mode — interpretable across degraded/hybrid runs (R2.3). */
+    /** Rank-normalized to (0,1] on ONE scale regardless of mode (R2.3). The
+     *  highest-scored RETURNED candidate is exactly 1; under project scoping
+     *  (tier-major ordering) that anchor may not be the first listed. */
     score_norm: number;
     /** SP-1 project-scope tier (1=active project … 4=other project). Present only when scoping is active. */
     tier?: number;
@@ -183,6 +185,9 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // a page with zero text relevance can no longer ride the graph at all.
   const GRAPH_BOOST = 0.3;
   const slugScoreMap = new Map(scored.map(s => [slugFromPath(s.path), s]));
+  // Keyed by basename slug — slug uniqueness across categories is a wiki
+  // invariant (knowledge_validate flags duplicates); a collision would share
+  // one accumulator (each page's cap still bounds its own application).
   const boostAccum = new Map<string, number>();
   let graphEdges: CurrentEdge[] = [];
   try {
@@ -201,7 +206,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     for (const e of graphEdges) {
       for (const [a, b] of [[e.from, e.to], [e.to, e.from]] as [string, string][]) {
         if (!adj.has(a)) adj.set(a, []);
-        adj.get(a)!.push({ to: b, w: TYPE_W[e.type] ?? 0.25 });
+        adj.get(a)!.push({ to: b, w: TYPE_W[e.type] ?? 0.25 });  // unknown types deliberately get the weakest weight
       }
     }
     for (const entry of scored) {
@@ -350,10 +355,12 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     pool = inScope.filter(passesFloor).length >= clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100) ? inScope : scored;
   }
 
-  const topFinal = pool.reduce((m, s) => Math.max(m, s.score), 0);
-  const candidates = pool
-    .filter(passesFloor)
-    .slice(0, TOP_K)
+  const returned = pool.filter(passesFloor).slice(0, TOP_K);
+  // Normalize against the max of the RETURNED set (deep-review C1): exactly one
+  // returned candidate is always 1; under tier-major (scoped) ordering that
+  // anchor may not be the first listed.
+  const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);
+  const candidates = returned
     .map(({ related, baseScore, tier, ...rest }) => ({
       ...rest,
       score_norm: topFinal > 0 ? Math.round((rest.score / topFinal) * 10000) / 10000 : 0,

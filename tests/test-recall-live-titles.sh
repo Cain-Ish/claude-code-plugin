@@ -19,5 +19,16 @@ bash "$ROOT/scripts/wiki-recall-check.sh" --live-titles "$ROOT/tests/fixtures/ev
 OUT=$(SB_EVAL_TITLE_SAMPLE=3 bash "$ROOT/scripts/wiki-recall-check.sh" --live-titles "$ROOT/tests/fixtures/eval-wiki" --k 2 2>&1)
 echo "$OUT" | grep -q 'queries=3' || fail "SB_EVAL_TITLE_SAMPLE=3 not honored: $OUT"
 
+# Same-effective-query titles dedupe to ONE probe (date tokens are dropped by the
+# engine, so a daily series can never self-recall at k=2 — don't flood the report):
+DUP=$(mktemp -d); trap 'rm -rf "$DUP"' EXIT
+mkdir -p "$DUP/wiki/state"
+for d in 01 02 03; do
+  printf -- '---\ntitle: "Daily digest — 2026-06-%s"\ntype: state\n---\n\n# Daily digest — 2026-06-%s\n\ncontent %s\n' "$d" "$d" "$d" \
+    > "$DUP/wiki/state/digest-2026-06-$d.md"
+done
+OUT=$(bash "$ROOT/scripts/wiki-recall-check.sh" --live-titles "$DUP" --k 2 2>&1)
+echo "$OUT" | grep -q 'queries=1' || fail "duplicate-title series not deduped to one query: $OUT"
+
 echo "PASS: live-title probe self-recalls the fixture corpus"
 echo "ALL PASS"

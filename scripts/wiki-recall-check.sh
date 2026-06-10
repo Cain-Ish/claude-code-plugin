@@ -36,11 +36,20 @@ trap 'rm -rf "$EVAL_BRAIN"; [ -n "$QUERIES_TMP" ] && rm -f "$QUERIES_TMP"' EXIT
 if [ "$LIVE_TITLES" -eq 1 ]; then
   QUERIES_TMP=$(mktemp); QUERIES="$QUERIES_TMP"
   CAP="${SB_EVAL_TITLE_SAMPLE:-0}"; case "$CAP" in ''|*[!0-9]*) CAP=0 ;; esac
-  n=0
+  n=0; SEEN_NORMS=""
   while IFS= read -r f; do
     slug=$(basename "$f" .md)
     title=$(sed -n 's/^title:[[:space:]]*["'\'']\{0,1\}\(.*[^"'\'' ]\)["'\'']\{0,1\}[[:space:]]*$/\1/p' "$f" | head -1)
     [ -n "$title" ] || continue
+    # Dedupe titles that collapse to the same effective query: the engine drops
+    # pure-number (date) tokens, so daily series like "Digest — 2026-06-10" all
+    # become ONE query — only 2 can occupy top-2, and probing each would flood
+    # the report with false "misses" (deep-review premise-1; bash-3.2-safe list).
+    norm=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' ' ' | tr ' ' '\n' | grep -vE '^[0-9]*$' | tr '\n' ' ')
+    [ -n "${norm// /}" ] || continue
+    printf '%s\n' "$SEEN_NORMS" | grep -qxF "$norm" && continue
+    SEEN_NORMS="$SEEN_NORMS$norm
+"
     jq -nc --arg q "$title" --arg e "$slug" '{q:$q, expect:[$e]}' >> "$QUERIES"
     n=$((n+1)); [ "$CAP" -gt 0 ] && [ "$n" -ge "$CAP" ] && break
   done < <(find "$CORPUS/wiki" -name '*.md' ! -name 'index.md' | sort)

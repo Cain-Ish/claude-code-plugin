@@ -326,7 +326,7 @@ if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
   # backfill on the next session-end indexer run.
   EPI_RELINKED=0
   if [ "$EPI_XFMR_MISSING" -eq 1 ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] \
-     && [ -x "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" ] \
+     && [ -f "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" ] \
      && bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" --relink-only >/dev/null 2>&1; then
     EPI_XFMR_MISSING=0; EPI_RELINKED=1
     sb_append "$(printf '## ⓘ second-brain — embeddings auto-relinked\nThis plugin version was missing its shared vector-deps symlink (a cache refresh ships without node_modules); re-linked automatically — no download. Empty embeddings backfill on the next session-end extraction.\n\n')" "episodic-embed-relinked" 300

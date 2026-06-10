@@ -27947,8 +27947,9 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     const inScope = scored.filter((s) => s.tier <= 3);
     pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
   }
-  const topFinal = pool.reduce((m, s) => Math.max(m, s.score), 0);
-  const candidates = pool.filter(passesFloor).slice(0, TOP_K).map(({ related, baseScore, tier, ...rest }) => ({
+  const returned = pool.filter(passesFloor).slice(0, TOP_K);
+  const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);
+  const candidates = returned.map(({ related, baseScore, tier, ...rest }) => ({
     ...rest,
     score_norm: topFinal > 0 ? Math.round(rest.score / topFinal * 1e4) / 1e4 : 0,
     ...scopeOn ? { tier } : {}
@@ -28959,7 +28960,7 @@ async function episodicSearch(args, brainDir2) {
   const limit = Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
   const query = args.query;
   if (Array.isArray(query)) {
-    return multiConceptSearch(query, index, limit, args);
+    return multiConceptSearch(query, index, limit, args, brainDir2);
   }
   const mode = args.mode ?? "both";
   const candLimit = args.activeProject && !args.project ? Math.max(limit * 5, 25) : limit * 2;
@@ -28969,7 +28970,7 @@ async function episodicSearch(args, brainDir2) {
   if (mode === "vector" || mode === "both") {
     const v = await vectorSearch(query, index, candLimit, args, brainDir2);
     vectorResults = v.hits;
-    if (v.unavailable) degraded = "text-only";
+    if (v.unavailable) degraded = mode === "both" ? "text-only" : "vector-unavailable";
   }
   if (mode === "text" || mode === "both") {
     textResults = textSearch(query, index, candLimit, args);
@@ -29041,17 +29042,18 @@ function textSearch(query, index, limit, filters) {
   }
   return scored.slice(0, limit);
 }
-async function multiConceptSearch(concepts, index, limit, filters) {
-  const brainDir2 = index.exchanges[0]?.archivePath ? join12(index.exchanges[0].archivePath, "..", "..") : join12(process.env.HOME ?? "", ".second-brain");
+async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
-  if (withEmbeddings.length === 0) return { results: [], degraded: "text-only" };
+  if (withEmbeddings.length === 0) {
+    return { results: [], ...filtered.length > 0 ? { degraded: "vector-unavailable" } : {} };
+  }
   const conceptEmbeddings = await embedTexts(
     concepts,
     join12(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
-  if (!conceptEmbeddings) return { results: [], degraded: "text-only" };
+  if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
   const scored = withEmbeddings.map((e) => {
     const similarities = conceptEmbeddings.map((cv) => cosineSimilarity(cv, e.embedding));
     const minSim = Math.min(...similarities);

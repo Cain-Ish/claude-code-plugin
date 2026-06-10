@@ -86,6 +86,14 @@ link_version() {
 
 # 1. Shared tree present, key-current, complete, importable → just (re)link and done.
 if [ -f "$SHARED_MARKER" ] && [ "$HAVE_KEY" = "$WANT_KEY" ] && deps_ok "$SHARED_NM"; then
+  # --relink-only must be MUTATION-FREE on every failure path (deep-review):
+  # validate the SHARED tree imports BEFORE touching the version symlink —
+  # otherwise an ABI-broken tree gets linked in, exit 3 leaves it half-mutated,
+  # and the deps-absent banner trigger is permanently silenced.
+  if [ "$RELINK_ONLY" -eq 1 ] && ! import_ok "$SHARED"; then
+    echo "install-vector-deps: --relink-only — shared tree present but not importable; not relinking (needs a rebuild)." >&2
+    exit 3
+  fi
   link_version
   if import_ok "$MCP_DIR"; then
     echo "install-vector-deps: OK — shared deps reused, mcp/node_modules linked."

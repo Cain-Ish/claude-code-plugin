@@ -12,7 +12,7 @@ describe('search output contract', () => {
   let kd: string; let brain: string;
   beforeAll(() => {
     process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
-    process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'sb-contract-ac-')); // hermetic access-counts
+    delete process.env.SB_BRAIN_DIR; process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'sb-contract-ac-')); // hermetic access-counts
     kd = mkdtempSync(join(tmpdir(), 'sb-contract-'));
     mkdirSync(join(kd, 'wiki', 'concepts'), { recursive: true });
     writeFileSync(join(kd, 'wiki', 'concepts', 'alpha.md'),

@@ -13,7 +13,7 @@ SOURCE="$SCRIPT_DIR/scripts/session-load.sh"
 
 BLOCK=$(awk '
   /^# 0b\./ {p=1}
-  p && /^# 1\./ {exit}
+  p && /^# 0c\./ {exit}
   p {print}
 ' "$SOURCE")
 [ -n "$BLOCK" ] || { echo "FAIL: could not extract block 0b from session-load.sh"; exit 1; }

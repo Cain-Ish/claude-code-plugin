@@ -9,7 +9,11 @@ import { appendEdge } from './graph-store.js';
 // Hermetic access-counts (R2.2): without this, every knowledgeSearch call here
 // read the developer's LIVE ~/.second-brain/access-counts.json into rankings
 // and wrote test slugs back into it.
-process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'ks-brain-'));
+delete process.env.SB_BRAIN_DIR; process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'ks-brain-'));
+// Deterministic BM25-only mode: with embeddings active, RRF rank jitter from
+// cosine differences between otherwise-identical fixture pages (their slug
+// tokens differ) breaks exact-score assertions (the invalidated-edge tie).
+process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
 
 async function wiki(): Promise<string> {
   const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-'));
@@ -71,13 +75,29 @@ describe('knowledge_search multi-hop typed boost (graph present)', () => {
   });
   it('an invalidated edge does not propagate boost', async () => {
     const dir = await wiki();
+    // Deep-review H1: under the R2.1 contract a zero-base page can never appear,
+    // which made this test vacuous (it passed even with validAt filtering
+    // deleted). Give the linked page the same weak match as a control page so
+    // the INVALIDATED edge is again the only discriminator: valid edge → linked
+    // beats control (see the sibling boost test); invalidated edge → they tie.
+    // Slugs are unique to THIS test: access counts are slug-keyed in the
+    // file-shared BRAIN_DIR, so reusing 'beta' would inherit access boosts from
+    // earlier tests and break the tie (observed: 1.2x flake under full suite).
+    await fsp.writeFile(join(dir, 'wiki', 'entities', 'ivbeta.md'),
+      `---\ntitle: ivbeta\ntype: entities\ndescription: notes touching wireguard once\n---\n\n# ivbeta\n\ngardening content with one wireguard mention\n`);
+    await fsp.writeFile(join(dir, 'wiki', 'entities', 'ivctrl.md'),
+      `---\ntitle: ivctrl\ntype: entities\ndescription: notes touching wireguard once\n---\n\n# ivctrl\n\ngardening content with one wireguard mention\n`);
     const log = join(dir, 'graph', 'edges.jsonl');
-    await appendEdge(log, { op: 'assert', from: 'alpha', to: 'beta', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
-    await appendEdge(log, { op: 'invalidate', from: 'alpha', to: 'beta', type: 'requires', valid_to: '2026-05-10', recorded_at: '2026-05-10T00:00:00Z' });
+    await appendEdge(log, { op: 'assert', from: 'alpha', to: 'ivbeta', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await appendEdge(log, { op: 'invalidate', from: 'alpha', to: 'ivbeta', type: 'requires', valid_to: '2026-05-10', recorded_at: '2026-05-10T00:00:00Z' });
     const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
-    // beta has no query-term hits of its own; with the edge invalidated it should
-    // not be pulled in by graph boost.
-    expect(slugs(r)).not.toContain('beta');
+    const linked = r.candidates.find(c => c.path.endsWith('/ivbeta.md'));
+    const control = r.candidates.find(c => c.path.endsWith('/ivctrl.md'));
+    // With the edge invalidated, the linked page must receive NO boost:
+    // identical score to the unlinked control page.
+    if (linked || control) {
+      expect(linked?.score ?? 0).toBe(control?.score ?? 0);
+    }
   });
 });
 

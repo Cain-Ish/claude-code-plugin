@@ -40,8 +40,10 @@ export interface EpisodicSearchResult {
     lineEnd: number;
   }[];
   /** Present when vector search was requested but unavailable (no embeddings /
-   *  model missing) and only text matching ran (R2.3). */
-  degraded?: 'text-only';
+   *  model missing): 'text-only' = text matching ran as the fallback (mode
+   *  'both'); 'vector-unavailable' = nothing could run (explicit vector mode /
+   *  multi-concept) (R2.3). */
+  degraded?: 'text-only' | 'vector-unavailable';
 }
 
 export interface EpisodicReadResult {
@@ -279,7 +281,7 @@ export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string)
 
   // Multi-concept AND search
   if (Array.isArray(query)) {
-    return multiConceptSearch(query, index, limit, args);
+    return multiConceptSearch(query, index, limit, args, brainDir);
   }
 
   const mode = args.mode ?? 'both';
@@ -289,11 +291,13 @@ export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string)
   let vectorResults: (IndexedExchange & { similarity: number })[] = [];
   let textResults: (IndexedExchange & { similarity: number })[] = [];
 
-  let degraded: 'text-only' | undefined;
+  let degraded: 'text-only' | 'vector-unavailable' | undefined;
   if (mode === 'vector' || mode === 'both') {
     const v = await vectorSearch(query, index, candLimit, args, brainDir);
     vectorResults = v.hits;
-    if (v.unavailable) degraded = 'text-only';
+    // 'text-only' is honest only when text actually runs as the fallback;
+    // explicit vector mode has no fallback (deep-review W4).
+    if (v.unavailable) degraded = mode === 'both' ? 'text-only' : 'vector-unavailable';
   }
 
   if (mode === 'text' || mode === 'both') {
@@ -380,24 +384,26 @@ function textSearch(
 
 async function multiConceptSearch(
   concepts: string[], index: EpisodicIndex, limit: number,
-  filters: EpisodicSearchArgs
+  filters: EpisodicSearchArgs, brainDir: string
 ): Promise<EpisodicSearchResult> {
-  const brainDir = index.exchanges[0]?.archivePath
-    ? join(index.exchanges[0].archivePath, '..', '..')
-    : join(process.env.HOME ?? '', '.second-brain');
+  // brainDir comes from the caller (deep-review C2): deriving it from the first
+  // exchange's archivePath silently reverted to the LIVE brain when the index
+  // came from a hermetic/test dir — the exact leak class R2.2 closed.
 
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter(e => e.embedding.length > 0);
   // Multi-concept search is vector-only: no embeddings = honestly degraded, not
-  // silently empty (R2.3).
-  if (withEmbeddings.length === 0) return { results: [], degraded: 'text-only' };
+  // silently empty (R2.3). An empty FILTER result is not a degradation (I6).
+  if (withEmbeddings.length === 0) {
+    return { results: [], ...(filtered.length > 0 ? { degraded: 'vector-unavailable' as const } : {}) };
+  }
 
   const conceptEmbeddings = await embedTexts(
     concepts,
     join(brainDir, 'transcripts'),
     concepts.map((_, i) => `concept-${i}`)
   );
-  if (!conceptEmbeddings) return { results: [], degraded: 'text-only' };
+  if (!conceptEmbeddings) return { results: [], degraded: 'vector-unavailable' };
 
   // Score each exchange against all concepts
   const scored = withEmbeddings.map(e => {

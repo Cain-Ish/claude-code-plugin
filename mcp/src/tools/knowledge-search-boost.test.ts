@@ -16,7 +16,7 @@ describe('hub-proof graph boost', () => {
 
   beforeAll(() => {
     process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
-    process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'sb-boost-brain-')); // hermetic access-counts
+    delete process.env.SB_BRAIN_DIR; process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'sb-boost-brain-')); // hermetic access-counts
     kd = mkdtempSync(join(tmpdir(), 'sb-boost-'));
     mkdirSync(join(kd, 'wiki', 'concepts'), { recursive: true });
     mkdirSync(join(kd, 'graph'), { recursive: true });
@@ -116,8 +116,16 @@ describe('boost cap invariant (<=2x base)', () => {
     process.env.BRAIN_DIR = probe;
     try {
       await knowledgeSearch({ query: 'watchdog restart', knowledgeDir: kdPlain });
+      // The save is fire-and-forget (unawaited) — poll briefly instead of
+      // asserting immediately (deep-review: load-dependent flake).
       const { existsSync } = await import('fs');
-      expect(existsSync(join(probe, 'access-counts.json'))).toBe(true);
+      const deadline = Date.now() + 2000;
+      let found = existsSync(join(probe, 'access-counts.json'));
+      while (!found && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 25));
+        found = existsSync(join(probe, 'access-counts.json'));
+      }
+      expect(found).toBe(true);
     } finally {
       process.env.BRAIN_DIR = prev;
       rmSync(probe, { recursive: true, force: true });
