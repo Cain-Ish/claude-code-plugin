@@ -70,6 +70,13 @@ rl_emit() {
     [ -n "$models_json" ] || models_json='[]'
   fi
 
+  # Bounded growth (deep-review): the always-log classifier appends one line per
+  # prompt; the only consumer reads tail -n 500. Rotate past 512KB, keep 1000.
+  if [ -f "$path" ] && [ "$(wc -c < "$path" 2>/dev/null | tr -d ' ')" -gt 524288 ]; then
+    tail -n 1000 "$path" > "${path}.tmp.$$" 2>/dev/null \
+      && mv "${path}.tmp.$$" "$path" 2>/dev/null || rm -f "${path}.tmp.$$" 2>/dev/null
+  fi
+
   # Build the JSON line and append atomically
   jq -cn \
     --arg ts "$ts" \

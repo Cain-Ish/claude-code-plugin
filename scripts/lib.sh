@@ -507,6 +507,10 @@ sb_archive_subagent_result() {
 sb_write_generated_page() {
   local out="$1" title="$2" desc="$3"
   local today created tmp
+  # Strip double quotes from YAML-quoted values (deep-review: an embedded quote
+  # would produce invalid YAML and re-create the autofix churn for any caller).
+  title=$(printf '%s' "$title" | tr -d '"')
+  desc=$(printf '%s' "$desc" | tr -d '"')
   today=$(date -u +%F)
   created="$today"
   if [ -f "$out" ]; then

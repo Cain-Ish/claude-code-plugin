@@ -98,6 +98,8 @@ assert_tier "strategy prompt"       "what is the best strategy for this"    "THI
 assert_tier "trade-off prompt"      "discuss the trade-off between X and Y" "THINK"
 assert_tier "approach prompt"       "what approach should I take here"      "THINK"
 assert_tier "plan prompt"           "plan the database migration rollout"   "THINK"
+assert_tier "punctuated plan"      "plan: migrate the database to postgres"     "THINK"
+assert_tier "redesign prompt"      "redesign the authentication flow for sso"   "THINK"
 
 # --- THINK false-positive guards (deep-review CR-006) ---
 assert_silent_logged "plan-as-path stays DO"  "implement step 3 of the plan-x in docs" "DO"

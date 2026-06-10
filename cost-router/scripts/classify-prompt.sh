@@ -6,14 +6,19 @@
 # Kill switch: COST_ROUTER_AUTOROUTE=off → exit 0 with no output.
 # Never exits nonzero / never breaks the prompt. Best-effort log only.
 #
-# Tier priority (checked in order):
-#   THINK (Opus):  design, architect, architecture, plan, strategy, trade-off/tradeoff,
-#                  approach, "how should", ambiguous, refactor, security
+# Tier priority (checked in order; R5.1 word-bounded on a punctuation-normalized
+# padded copy — see CR-006 in the deep-dive findings):
+#   THINK (Opus):  design/redesign, architect(ure), plan/plans/planning (words),
+#                  strategy, trade-off/tradeoff, approach (word), "how should", ambiguous
 #   SCOUT (Haiku): read, show, find, search, grep, list, "what is", "where is",
 #                  explain, summarize, run tests, lint, typecheck
 #   DO (Sonnet):   DEFAULT — implement, add, fix, write, edit, change, create, update
 #
-# Output: JSON {hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:"..."}}
+# Every prompt logs a route-log event. A nudge is INJECTED only for THINK/SCOUT
+# on prompts >= 25 chars: DO is the default (advising the default is noise) and
+# trivial prompts need no routing advice.
+#
+# Output (when nudging): JSON {hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:"..."}}
 #   (matches persona-context.sh output convention for UserPromptSubmit hooks).
 #
 # Bash 3.2 / BSD-safe: no mapfile, no declare -A, no grep -P, no date -d.
@@ -42,9 +47,11 @@ TIER=""
 # a space-padded copy — bare substrings fired on e.g. "docs/plans/foo.md"
 # (*plan*) and "the security module" (*security*), nudging toward the EXPENSIVE
 # model on routine prompts. `refactor` and `security` are dropped entirely.
-P_PAD=" $P_LOWER "
+# Punctuation → spaces before padding, so "plan:" / "plan," still word-match
+# (deep-review: trailing punctuation defeated the space-bounded tokens).
+P_PAD=" $(printf '%s' "$P_LOWER" | tr ',:;.!?' ' ') "
 case "$P_PAD" in
-  *" design"*|*" architect"*|*" plan "*|*" plans "*|*" planning "*|*" strategy"*|\
+  *" design"*|*" redesign"*|*" architect"*|*" plan "*|*" plans "*|*" planning "*|*" strategy"*|\
   *" trade-off"*|*" tradeoff"*|*" approach "*|*"how should"*|*" ambiguous"*)
     TIER="THINK" ;;
 esac

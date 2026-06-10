@@ -47,10 +47,10 @@ If it exits 0 (over budget): skip THINK, downgrade to DO with a note to the user
 
 ### Step 3 — Plan (THINK tier, if needed and budget permits)
 
-Dispatch `cr-planner` via the Task tool **passing `model: 'opus'` explicitly**:
+Dispatch `cr-planner` via the Task tool **passing `model: 'opus'` explicitly** (if the namespaced `cost-router:cr-*` agent type errors as unknown on your CLI version, retry with the bare name, e.g. `cr-planner`):
 
 ```
-Task(subagent_type: 'cr-planner', prompt: "<task context and full requirements>", model: 'opus')
+Task(subagent_type: 'cost-router:cr-planner', prompt: "<task context and full requirements>", model: 'opus')
 ```
 
 Collect the plan: ordered units, each with (a) what to change, (b) files, (c) verification criterion, (d) recommended tier.
@@ -63,11 +63,11 @@ For each unit from the plan (or the original task if no planning step):
 
 - **SCOUT work** (reads, searches, test-runs): dispatch `cr-scout` with `model: 'haiku'`:
   ```
-  Task(subagent_type: 'cr-scout', prompt: "<unit spec>", model: 'haiku')
+  Task(subagent_type: 'cost-router:cr-scout', prompt: "<unit spec>", model: 'haiku')
   ```
 - **DO work** (code changes): dispatch `cr-implementer` with `model: 'sonnet'`:
   ```
-  Task(subagent_type: 'cr-implementer', prompt: "<unit spec with verification criterion>", model: 'sonnet')
+  Task(subagent_type: 'cost-router:cr-implementer', prompt: "<unit spec with verification criterion>", model: 'sonnet')
   ```
 
 **Parallelize independent units** — dispatch them in a single fan-out if they touch different files/components.
@@ -79,7 +79,7 @@ The orchestrator itself stays light: do not write code here. Your job is routing
 After DO units complete, dispatch a SCOUT agent to run the unit's verification criterion (tests, lint, typecheck):
 
 ```
-Task(subagent_type: 'cr-scout', prompt: "Run <verification commands> and report pass/fail. Cite file:line for any failures.", model: 'haiku')
+Task(subagent_type: 'cost-router:cr-scout', prompt: "Run <verification commands> and report pass/fail. Cite file:line for any failures.", model: 'haiku')
 ```
 
 ### Step 6 — Escalate on failure

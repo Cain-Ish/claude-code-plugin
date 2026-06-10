@@ -22,7 +22,7 @@ grep -q 'do not hand-edit' "$OUT" || fail "missing generated marker"
 grep -q 'content line' "$OUT" || fail "stdin body missing"
 
 # created: survives regeneration; updated: refreshes.
-sed -i 's/^created: .*/created: 2020-01-01/' "$OUT"
+sed -i.bak 's/^created: .*/created: 2020-01-01/' "$OUT" && rm -f "$OUT.bak"
 ( source "$REPO_ROOT/scripts/lib.sh"
   printf 'new body\n' | sb_write_generated_page "$OUT" "Gen Page" "A generated test page" )
 grep -q '^created: 2020-01-01' "$OUT" || fail "created: not preserved across regeneration"
