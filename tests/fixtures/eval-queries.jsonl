@@ -8,3 +8,5 @@
 {"q":"what is the home raspberry pi host","expect":["pi5-host"]}
 {"q":"which host is public facing","expect":["ovh-vps"]}
 {"q":"how is past conversation made searchable","expect":["episodic-embeddings"]}
+{"q":"how does the recency boost rank newer pages","expect":["bm25-recency-boost"]}
+{"q":"dream staging directory for wiki changes","expect":["dream-staging"]}
