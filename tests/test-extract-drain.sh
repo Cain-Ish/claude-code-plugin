@@ -136,6 +136,22 @@ touch -t 202001010000 "$BRAIN_DIR/.extract-drain.lock.d" 2>/dev/null
 SB_DRAIN_FORCE_MKDIR_LOCK=1 SB_DRAIN_LOCK_STALE=60 SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
 eq "stale mkdir-lock stolen → drained" "$(done_count)" "1"
 
+# Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
+# transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.
+echo "Test: GC sweeps — stale markers + scratch transcripts"
+reset
+export HOME="$SANDBOX"            # hermetic: the scratch prune walks $HOME/.claude
+touch -t 202601010000 "$BRAIN_DIR/.last-extracted-line-old--sess"
+touch "$BRAIN_DIR/.last-extracted-line-new--sess"
+mkdir -p "$HOME/.claude/projects/-x-second-brain-scratch"
+touch -t 202601010000 "$HOME/.claude/projects/-x-second-brain-scratch/old.jsonl"
+touch "$HOME/.claude/projects/-x-second-brain-scratch/new.jsonl"
+bash "$DRAIN" >/dev/null 2>&1 || true
+[ ! -f "$BRAIN_DIR/.last-extracted-line-old--sess" ] && ok "stale marker swept (7d)" || no "stale marker survived"
+[ -f "$BRAIN_DIR/.last-extracted-line-new--sess" ] && ok "fresh marker kept" || no "fresh marker swept"
+[ ! -f "$HOME/.claude/projects/-x-second-brain-scratch/old.jsonl" ] && ok "old scratch transcript pruned (3d)" || no "old scratch transcript survived"
+[ -f "$HOME/.claude/projects/-x-second-brain-scratch/new.jsonl" ] && ok "fresh scratch transcript kept" || no "fresh scratch transcript pruned"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

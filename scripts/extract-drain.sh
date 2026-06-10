@@ -132,6 +132,17 @@ while IFS= read -r tf; do
   fi
 done < <(ls -1tr "$TX_DIR"/*.txt 2>/dev/null)
 
+# --- GC sweeps (R1.2) ---
+# Session-keyed extraction markers accumulate one file per session; sweep those
+# untouched for 7+ days (their sessions are long over). Also sweeps legacy
+# slug-keyed markers from pre-0.24.38.
+find "$BRAIN_DIR" -maxdepth 1 -name '.last-extracted-line-*' -mtime +7 -delete 2>/dev/null || true
+# Transcripts of our own nested extractor spawns (cwd = BRAIN_DIR/scratch →
+# they all land in one ~/.claude/projects entry). Pure junk byproducts.
+for pd in "$HOME"/.claude/projects/*second-brain-scratch*; do
+  [ -d "$pd" ] && find "$pd" -name '*.jsonl' -mtime +3 -delete 2>/dev/null
+done
+
 # Don't clobber a real failure marker: only report ok if anything succeeded.
 # A run where every extraction failed must surface status=fail so the
 # SessionStart banner alerts the user (otherwise a broken drainer looks healthy).
