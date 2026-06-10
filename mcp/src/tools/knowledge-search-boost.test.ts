@@ -16,6 +16,7 @@ describe('hub-proof graph boost', () => {
 
   beforeAll(() => {
     process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
+    process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'sb-boost-brain-')); // hermetic access-counts
     kd = mkdtempSync(join(tmpdir(), 'sb-boost-'));
     mkdirSync(join(kd, 'wiki', 'concepts'), { recursive: true });
     mkdirSync(join(kd, 'graph'), { recursive: true });
@@ -88,6 +89,7 @@ describe('boost cap invariant (<=2x base)', () => {
   };
   beforeAll(() => {
     process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
+    process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'sb-cap-brain-')); // hermetic access-counts
     kdGraph = mkdtempSync(join(tmpdir(), 'sb-cap-g-'));
     kdPlain = mkdtempSync(join(tmpdir(), 'sb-cap-p-'));
     mk(kdGraph, true); mk(kdPlain, false);
@@ -106,5 +108,19 @@ describe('boost cap invariant (<=2x base)', () => {
     const withoutG = hub(await knowledgeSearch({ query: q, knowledgeDir: kdPlain }));
     expect(withoutG).toBeGreaterThan(0); // hub must be measurable in both runs
     expect(withG).toBeLessThanOrEqual(withoutG * 2.01);
+  });
+
+  it('access counts are written under BRAIN_DIR, never $HOME (eval hermeticity)', async () => {
+    const probe = mkdtempSync(join(tmpdir(), 'sb-ac-probe-'));
+    const prev = process.env.BRAIN_DIR;
+    process.env.BRAIN_DIR = probe;
+    try {
+      await knowledgeSearch({ query: 'watchdog restart', knowledgeDir: kdPlain });
+      const { existsSync } = await import('fs');
+      expect(existsSync(join(probe, 'access-counts.json'))).toBe(true);
+    } finally {
+      process.env.BRAIN_DIR = prev;
+      rmSync(probe, { recursive: true, force: true });
+    }
   });
 });

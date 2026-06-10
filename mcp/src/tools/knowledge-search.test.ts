@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { promises as fsp } from 'fs';
+import { mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { knowledgeSearch, parseDoc } from './knowledge-search.js';
 import { appendEdge } from './graph-store.js';
+
+// Hermetic access-counts (R2.2): without this, every knowledgeSearch call here
+// read the developer's LIVE ~/.second-brain/access-counts.json into rankings
+// and wrote test slugs back into it.
+process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'ks-brain-'));
 
 async function wiki(): Promise<string> {
   const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-'));

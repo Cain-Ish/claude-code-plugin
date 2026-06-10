@@ -19,6 +19,11 @@ while [ $# -gt 0 ]; do case "$1" in
 esac; done
 command -v node >/dev/null 2>&1 || { echo "recall: node missing" >&2; exit 2; }
 command -v jq   >/dev/null 2>&1 || { echo "recall: jq missing"   >&2; exit 2; }
+# Hermetic brain dir (R2.2): the search CLI reads AND writes access-counts.json
+# under BRAIN_DIR. Without this, eval runs ranked with the user's live access
+# boosts (non-deterministic gate) and wrote fixture slugs into real state.
+EVAL_BRAIN=$(mktemp -d)
+trap 'rm -rf "$EVAL_BRAIN"' EXIT
 [ -f "$CLI" ]     || { echo "recall: search CLI missing ($CLI)" >&2; exit 2; }
 [ -f "$QUERIES" ] || { echo "recall: queries file missing ($QUERIES)" >&2; exit 2; }
 [ -d "$CORPUS/wiki" ] || { echo "recall: corpus has no wiki/ ($CORPUS)" >&2; exit 2; }
@@ -27,7 +32,7 @@ hits=0; total=0; bytes=0; misses=""
 while IFS= read -r line; do
   [ -z "$line" ] && continue
   q=$(printf '%s' "$line" | jq -r '.q')
-  out=$(KNOWLEDGE_DIR="$CORPUS" SECOND_BRAIN_DISABLE_EMBEDDINGS=1 node "$CLI" "$q" 2>/dev/null) \
+  out=$(KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EVAL_BRAIN" SB_BRAIN_DIR="$EVAL_BRAIN" SECOND_BRAIN_DISABLE_EMBEDDINGS=1 node "$CLI" "$q" 2>/dev/null) \
     || { echo "recall: search errored on query: $q" >&2; exit 2; }
   bytes=$(( bytes + ${#out} ))
   got=$(printf '%s' "$out" | grep -oE '\[\[[^]]+\]\]' | sed -E 's/\[\[|\]\]//g' | head -n "$K")

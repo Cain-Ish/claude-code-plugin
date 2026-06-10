@@ -52,13 +52,21 @@ export interface ParsedDoc {
 }
 
 interface AccessCounts { [slug: string]: { count: number; last_accessed: string } }
-const ACCESS_COUNTS_FILE = join(process.env.HOME ?? '', '.second-brain', 'access-counts.json');
+// R2.2 hermeticity: resolved per-call from SB_BRAIN_DIR/BRAIN_DIR (matching the
+// server + embeddings conventions), NOT hardcoded to $HOME — eval/test runs were
+// reading the LIVE access counts into their rankings AND writing fixture slugs
+// back into the user's real state, making the "deterministic" recall gate
+// flip-flop run-to-run.
+function accessCountsFile(): string {
+  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join(process.env.HOME ?? '', '.second-brain');
+  return join(brain, 'access-counts.json');
+}
 const ACCESS_BOOST_FACTOR = 0.1;
 const ACCESS_BOOST_CAP = 10;
 const ACCESS_PRUNE_DAYS = 90;
 
 async function loadAccessCounts(): Promise<AccessCounts> {
-  try { return JSON.parse(await fs.readFile(ACCESS_COUNTS_FILE, 'utf-8')); }
+  try { return JSON.parse(await fs.readFile(accessCountsFile(), 'utf-8')); }
   catch { return {}; }
 }
 
@@ -68,7 +76,7 @@ async function saveAccessCounts(counts: AccessCounts): Promise<void> {
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await fs.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => {});
+  await fs.writeFile(accessCountsFile(), JSON.stringify(pruned)).catch(() => {});
 }
 
 const TOP_K = 8;
