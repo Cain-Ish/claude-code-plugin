@@ -3,7 +3,7 @@ name: lint
 description: Health-check the second-brain wiki and PROJECT.md cross-references. Finds orphan wiki pages, dead [[wiki-links]], and broken Cross-references slugs. Read-only by default — offers fixes interactively.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(test *) Bash(basename *) Bash(sort *) Bash(comm *) Bash(awk *)
+allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(test *) Bash(basename *) Bash(sort *) Bash(comm *) Bash(awk *) Bash(bash *)
 ---
 
 <!-- user instruction verbatim: "1" -->
@@ -194,6 +194,22 @@ done
 
 Suggest: run `/second-brain:maintain` — the knowledge-maintainer (Phase 4b) backfills the block
 from the page's own prose. Do **not** hand-author the block here (lint is read-only by default).
+
+### 5. Live-title recall probe (search health)
+
+Every page's own title should retrieve that page in the top-2. A failure here
+means search RANKING is broken for real content (the hub-boost class, R2.1/R2.2),
+not that a page is bad. Read-only; deterministic BM25-only path with a hermetic
+brain dir (never touches live access counts).
+
+```bash
+bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-recall-check.sh" \
+  --live-titles "${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}" --k 2
+```
+
+Report the recall line; if misses are listed, name the missed slugs under a
+`## Search recall misses` section — they are SERVING bugs to investigate (or
+genuinely ambiguous titles), not pages to edit.
 
 ## Reporting
 
