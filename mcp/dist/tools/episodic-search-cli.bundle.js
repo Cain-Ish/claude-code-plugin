@@ -130,14 +130,17 @@ async function episodicSearch(args, brainDir2) {
   const limit = Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
   const query2 = args.query;
   if (Array.isArray(query2)) {
-    return multiConceptSearch(query2, index, limit, args);
+    return multiConceptSearch(query2, index, limit, args, brainDir2);
   }
   const mode = args.mode ?? "both";
   const candLimit = args.activeProject && !args.project ? Math.max(limit * 5, 25) : limit * 2;
   let vectorResults = [];
   let textResults = [];
+  let degraded;
   if (mode === "vector" || mode === "both") {
-    vectorResults = await vectorSearch(query2, index, candLimit, args, brainDir2);
+    const v = await vectorSearch(query2, index, candLimit, args, brainDir2);
+    vectorResults = v.hits;
+    if (v.unavailable) degraded = mode === "both" ? "text-only" : "vector-unavailable";
   }
   if (mode === "text" || mode === "both") {
     textResults = textSearch(query2, index, candLimit, args);
@@ -168,21 +171,25 @@ async function episodicSearch(args, brainDir2) {
       archivePath: r.archivePath,
       lineStart: r.lineStart,
       lineEnd: r.lineEnd
-    }))
+    })),
+    ...degraded ? { degraded } : {}
   };
 }
 async function vectorSearch(query2, index, limit, filters, brainDir2) {
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
-  if (withEmbeddings.length === 0) return [];
+  if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
   const queryEmbedding = await embedTexts(
     [query2],
     join2(brainDir2, "transcripts"),
     [""]
   );
-  if (!queryEmbedding) return [];
+  if (!queryEmbedding) return { hits: [], unavailable: true };
   const qVec = queryEmbedding[0];
-  return withEmbeddings.map((e) => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) })).sort((a, b) => b.similarity - a.similarity).slice(0, limit);
+  return {
+    hits: withEmbeddings.map((e) => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) })).sort((a, b) => b.similarity - a.similarity).slice(0, limit),
+    unavailable: false
+  };
 }
 function textSearch(query2, index, limit, filters) {
   const filtered = applyFilters(index.exchanges, filters);
@@ -205,17 +212,18 @@ function textSearch(query2, index, limit, filters) {
   }
   return scored.slice(0, limit);
 }
-async function multiConceptSearch(concepts, index, limit, filters) {
-  const brainDir2 = index.exchanges[0]?.archivePath ? join2(index.exchanges[0].archivePath, "..", "..") : join2(process.env.HOME ?? "", ".second-brain");
+async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   const filtered = applyFilters(index.exchanges, filters);
   const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
-  if (withEmbeddings.length === 0) return { results: [] };
+  if (withEmbeddings.length === 0) {
+    return { results: [], ...filtered.length > 0 ? { degraded: "vector-unavailable" } : {} };
+  }
   const conceptEmbeddings = await embedTexts(
     concepts,
     join2(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
-  if (!conceptEmbeddings) return { results: [] };
+  if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
   const scored = withEmbeddings.map((e) => {
     const similarities = conceptEmbeddings.map((cv) => cosineSimilarity(cv, e.embedding));
     const minSim = Math.min(...similarities);

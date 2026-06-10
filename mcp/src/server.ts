@@ -47,7 +47,7 @@ function resolveActiveSlug(): string | undefined {
 }
 
 const server = new McpServer(
-  { name: "knowledge-base", version: "2.6.8" },
+  { name: "knowledge-base", version: "2.6.9" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of).",
@@ -65,7 +65,7 @@ function categorizeFile(filePath: string): string {
 server.registerTool(
   "knowledge_search",
   {
-    description: "BM25-scored search across the knowledge base wiki. Reads full content of each markdown page, parses YAML frontmatter for field-weighted scoring (title 3x, description 2x, tags 2x, body 1x). Returns top 8 candidates with path, score, and snippet.",
+    description: "Hybrid search across the knowledge base wiki: BM25 (title 3x, description 2x, tags 2x, ai-block 1.5x, body 1x) fused with ONNX embeddings via RRF when available, plus capped graph-edge, access-frequency and recency boosts and project-scoped tiering. Returns top 8 candidates with path, raw score, score_norm (0..1, comparable across modes), tier (when project scoping is active), and snippet. Result carries degraded:'bm25-only' when embeddings are unavailable.",
     inputSchema: {
       query: z.string().describe("Search query — tokenized on lowercase alphanumerics, date tokens filtered out, matched via BM25 scoring."),
       scope: z.string().optional().describe("Restrict to a single wiki subdirectory (e.g. 'entities', 'learnings'). Omit to search all."),
@@ -383,7 +383,7 @@ server.registerTool(
 server.registerTool(
   "episodic_search",
   {
-    description: "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading.",
+    description: "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading. Result carries degraded:'text-only' when vector search is unavailable (embeddings missing) and only text matching ran.",
     inputSchema: {
       query: z.union([
         z.string().describe("Search query for semantic + text matching"),

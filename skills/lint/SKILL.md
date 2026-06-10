@@ -3,7 +3,7 @@ name: lint
 description: Health-check the second-brain wiki and PROJECT.md cross-references. Finds orphan wiki pages, dead [[wiki-links]], and broken Cross-references slugs. Read-only by default — offers fixes interactively.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(test *) Bash(basename *) Bash(sort *) Bash(comm *) Bash(awk *)
+allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(test *) Bash(basename *) Bash(sort *) Bash(comm *) Bash(awk *) Bash(bash *)
 ---
 
 <!-- user instruction verbatim: "1" -->
@@ -194,6 +194,29 @@ done
 
 Suggest: run `/second-brain:maintain` — the knowledge-maintainer (Phase 4b) backfills the block
 from the page's own prose. Do **not** hand-author the block here (lint is read-only by default).
+
+### 5. Live-title recall probe (search health)
+
+Every page's own title should retrieve that page in the top-2. A failure here
+means search RANKING is broken for real content (the hub-boost class, R2.1/R2.2),
+not that a page is bad. Read-only; deterministic BM25-only path with a hermetic
+brain dir (never touches live access counts).
+
+If `$CLAUDE_PLUGIN_ROOT` is not set in your Bash environment, resolve it first:
+`PR=$(ls -d ~/.claude/plugins/cache/second-brain/second-brain/*/ | sort -V | tail -1)`
+and use `$PR` in place of `$CLAUDE_PLUGIN_ROOT` below. Note: the full probe
+takes ~1 min per 100 pages on Pi-class hardware; cap with
+`SB_EVAL_TITLE_SAMPLE=40` for a quick spot-check.
+
+```bash
+bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-recall-check.sh" \
+  --live-titles "${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}" --k 2
+```
+
+Report the recall line; if misses are listed, name the missed slugs under a
+`## Search recall misses` section — they are SERVING bugs to investigate (or
+genuinely ambiguous titles), not pages to edit. Same-titled page series (e.g.
+daily digests) are deduplicated to one probe query automatically.
 
 ## Reporting
 

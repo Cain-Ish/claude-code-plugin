@@ -1,9 +1,6 @@
 // src/tools/knowledge-reindex.ts
 import { promises as fs4 } from "fs";
-import { join as join4 } from "path";
-
-// src/tools/knowledge-search.ts
-import { join } from "path";
+import { join as join3 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6187,7 +6184,6 @@ function validateAiBlock(type, block) {
 }
 
 // src/tools/knowledge-search.ts
-var ACCESS_COUNTS_FILE = join(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 function parseDoc(content, filePath) {
   const doc = {
     title: "",
@@ -6278,7 +6274,7 @@ function extractYamlList(yaml, key) {
 
 // src/tools/knowledge-validate.ts
 import { promises as fs2 } from "fs";
-import { join as join2, basename, dirname, relative } from "path";
+import { join, basename, dirname, relative } from "path";
 
 // ../kb-schema.json
 var kb_schema_default = {
@@ -6316,7 +6312,7 @@ var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
 // src/tools/knowledge-validate.ts
 var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
-  const wikiDir = join2(knowledgeDir, "wiki");
+  const wikiDir = join(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
   const allPages = await collectAllPages(wikiDir);
@@ -6418,7 +6414,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const rootFiles = await fs2.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        const rootPath = join2(knowledgeDir, entry.name);
+        const rootPath = join(knowledgeDir, entry.name);
         issues.push({
           type: "root_orphan",
           severity: "error",
@@ -6540,7 +6536,7 @@ async function collectAllPages(dir, acc = []) {
   try {
     const entries = await fs2.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
-      const p = join2(dir, e.name);
+      const p = join(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -6551,7 +6547,7 @@ async function collectAllPages(dir, acc = []) {
 
 // src/tools/graph-project.ts
 import { promises as fs3 } from "fs";
-import { join as join3 } from "path";
+import { join as join2 } from "path";
 var BEGIN = "<!-- graph:begin (generated from ~/knowledge/graph/edges.jsonl \u2014 do not hand-edit) -->";
 var END = "<!-- graph:end -->";
 var TYPE_LABEL = {
@@ -6569,7 +6565,7 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 async function projectGraphToPages(knowledgeDir) {
-  const records = await loadEdges(join3(knowledgeDir, "graph", "edges.jsonl"));
+  const records = await loadEdges(join2(knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { pagesUpdated: 0 };
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const current = foldToCurrent(records).filter((e) => validAt(e, now));
@@ -6585,7 +6581,7 @@ async function projectGraphToPages(knowledgeDir) {
     add(e.from, e.to);
     add(e.to, e.from);
   }
-  const wikiRoot = join3(knowledgeDir, "wiki");
+  const wikiRoot = join2(knowledgeDir, "wiki");
   const files = await glob("**/*.md", { cwd: wikiRoot, absolute: true });
   let updated = 0;
   for (const file of files) {
@@ -6671,8 +6667,8 @@ async function knowledgeReindex(knowledgeDir) {
     await projectGraphToPages(knowledgeDir);
   } catch {
   }
-  const wikiRoot = join4(knowledgeDir, "wiki");
-  const indexPath = join4(wikiRoot, "index.md");
+  const wikiRoot = join3(knowledgeDir, "wiki");
+  const indexPath = join3(wikiRoot, "index.md");
   let dirs;
   try {
     const entries = await fs4.readdir(wikiRoot, { withFileTypes: true });
@@ -6685,7 +6681,7 @@ async function knowledgeReindex(knowledgeDir) {
   let totalPages = 0;
   for (const dir of dirs) {
     if (dir === "projects") continue;
-    const dirPath = join4(wikiRoot, dir);
+    const dirPath = join3(wikiRoot, dir);
     const files = await collectMd(dirPath);
     if (files.length === 0) continue;
     const entries = [];
@@ -6710,12 +6706,12 @@ async function knowledgeReindex(knowledgeDir) {
   const rawMin = Number(process.env.SB_MOC_MIN_MEMBERS);
   const minMembers = Number.isFinite(rawMin) && rawMin >= 1 ? rawMin : 3;
   const mocs = process.env.SB_KB_MOC === "off" ? /* @__PURE__ */ new Map() : buildProjectMocs(allPages, { minMembers });
-  const projDir = join4(wikiRoot, "projects");
+  const projDir = join3(wikiRoot, "projects");
   if (mocs.size > 0) await fs4.mkdir(projDir, { recursive: true });
   for (const existing of await mocSlugs(projDir)) {
     if (!mocs.has(existing)) {
       try {
-        await fs4.unlink(join4(projDir, `${existing}.md`));
+        await fs4.unlink(join3(projDir, `${existing}.md`));
       } catch {
       }
     }
@@ -6731,7 +6727,7 @@ async function knowledgeReindex(knowledgeDir) {
       "---",
       ""
     ].join("\n");
-    await fs4.writeFile(join4(projDir, `${proj}.md`), header + region + "\n", "utf-8");
+    await fs4.writeFile(join3(projDir, `${proj}.md`), header + region + "\n", "utf-8");
   }
   const sections = [
     "---",
@@ -6745,7 +6741,7 @@ async function knowledgeReindex(knowledgeDir) {
   ];
   const mocLinks = [];
   for (const slug of await mocSlugs(projDir)) mocLinks.push(`- [[projects/${slug}]]`);
-  for (const slug of await mocSlugs(join4(wikiRoot, "themes"))) mocLinks.push(`- [[themes/${slug}]]`);
+  for (const slug of await mocSlugs(join3(wikiRoot, "themes"))) mocLinks.push(`- [[themes/${slug}]]`);
   if (mocLinks.length) sections.push("## Maps of Content", "", ...mocLinks, "");
   if (categoryRows.length) sections.push("## Categories", "", ...categoryRows, "");
   if (totalPages === 0 && mocLinks.length === 0) sections.push("*(no pages yet)*", "");
@@ -6774,7 +6770,7 @@ async function mocSlugs(dir) {
 async function collectMd(dir, acc = []) {
   try {
     for (const e of await fs4.readdir(dir, { withFileTypes: true })) {
-      const p = join4(dir, e.name);
+      const p = join3(dir, e.name);
       if (e.isDirectory()) await collectMd(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }

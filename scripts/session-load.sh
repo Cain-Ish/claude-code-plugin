@@ -318,7 +318,20 @@ if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
   EPI_TOTAL=$(jq -r   '.exchanges | length'                                       "$SB_EPI_INDEX" 2>/dev/null || echo 0)
   EPI_XFMR_MISSING=0
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ ! -d "$CLAUDE_PLUGIN_ROOT/mcp/node_modules/@huggingface/transformers" ] && EPI_XFMR_MISSING=1
-  if [ "${SB_EMBED_PENDING_BANNER:-on}" = "on" ] \
+  # R2.4 auto-heal (MCP-DEPS-1): a fresh version dir missing the shared-deps
+  # symlink is a pure LOCAL relink — no download, no consent needed. Try it
+  # before bannering; the manual banner remains for the genuinely-broken cases
+  # (no shared tree / key drift / import failure → installer exits 3). The
+  # pending-count nag is also suppressed for this one session: empty embeddings
+  # backfill on the next session-end indexer run.
+  EPI_RELINKED=0
+  if [ "$EPI_XFMR_MISSING" -eq 1 ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] \
+     && [ -f "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" ] \
+     && bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" --relink-only >/dev/null 2>&1; then
+    EPI_XFMR_MISSING=0; EPI_RELINKED=1
+    sb_append "$(printf '## ⓘ second-brain — embeddings auto-relinked\nThis plugin version was missing its shared vector-deps symlink (a cache refresh ships without node_modules); re-linked automatically — no download. Empty embeddings backfill on the next session-end extraction.\n\n')" "episodic-embed-relinked" 300
+  fi
+  if [ "${SB_EMBED_PENDING_BANNER:-on}" = "on" ] && [ "$EPI_RELINKED" -eq 0 ] \
      && { [ "$EPI_XFMR_MISSING" -eq 1 ] || { [ "${EPI_PENDING:-0}" -gt 10 ] && [ "${EPI_TOTAL:-0}" -gt 0 ]; }; }; then
     if [ "$EPI_XFMR_MISSING" -eq 1 ]; then
       EPI_REASON='`@huggingface/transformers` is not linked in this plugin cache — a version bump creates a fresh dir whose `mcp/node_modules` symlink to the shared deps is not yet created — so every NEW embedding will silently fail.'

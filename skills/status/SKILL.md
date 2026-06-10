@@ -89,6 +89,23 @@ knowledge_validate()
 
 If unavailable, skip — validation also runs automatically during `knowledge_reindex` and on session start via `ensure-dirs.sh`.
 
+### 4b2. Embeddings coverage
+
+One line: what fraction of indexed episodic exchanges have vectors. 100% =
+healthy; anything less means vector recall silently misses those exchanges
+(the next session-end extraction backfills them when the deps are linked —
+SessionStart auto-relinks a missing cache symlink since 0.24.39).
+
+```bash
+EPI=${BRAIN_DIR:-$HOME/.second-brain}/episodic-index.json
+if [ -f "$EPI" ]; then
+  jq -r '(.exchanges|length) as $t
+    | ([.exchanges[] | select((.embedding|length) > 0)] | length) as $e
+    | if $t == 0 then "Embeddings: no exchanges indexed yet"
+      else "Embeddings coverage: \($e)/\($t) exchanges (\(($e * 100 / $t) | floor)%)" end' "$EPI"
+fi
+```
+
 ### 4c. Persona signal stats
 
 Report accumulated persona signals and any ready for graduation:

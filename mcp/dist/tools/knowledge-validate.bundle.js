@@ -1,9 +1,6 @@
 // src/tools/knowledge-validate.ts
 import { promises as fs } from "fs";
-import { join as join2, basename, dirname, relative } from "path";
-
-// src/tools/knowledge-search.ts
-import { join } from "path";
+import { join, basename, dirname, relative } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6108,7 +6105,6 @@ function validateAiBlock(type, block) {
 }
 
 // src/tools/knowledge-search.ts
-var ACCESS_COUNTS_FILE = join(process.env.HOME ?? "", ".second-brain", "access-counts.json");
 function parseDoc(content, filePath) {
   const doc = {
     title: "",
@@ -6233,7 +6229,7 @@ var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
 // src/tools/knowledge-validate.ts
 var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
-  const wikiDir = join2(knowledgeDir, "wiki");
+  const wikiDir = join(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
   const allPages = await collectAllPages(wikiDir);
@@ -6335,7 +6331,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const rootFiles = await fs.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        const rootPath = join2(knowledgeDir, entry.name);
+        const rootPath = join(knowledgeDir, entry.name);
         issues.push({
           type: "root_orphan",
           severity: "error",
@@ -6457,7 +6453,7 @@ async function collectAllPages(dir, acc = []) {
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
-      const p = join2(dir, e.name);
+      const p = join(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }

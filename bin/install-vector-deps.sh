@@ -16,10 +16,17 @@
 # failed/offline npm install can never destroy a working install or leave a dangling
 # symlink. A unique staging dir also makes concurrent runs collision-free.
 #
-# Usage:  bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh
+# Usage:  bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh [--relink-only]
 # Override shared location with SB_VECTOR_DEPS_DIR (used by tests).
 # Safe to re-run: no-op when shared deps + symlink + import all check out.
 set -eu
+
+# --relink-only (R2.4): succeed ONLY via the no-network step-1 path (shared tree
+# present + key-current + complete + importable → symlink). Anything that would
+# require staging or npm exits 3 untouched — callers (SessionStart auto-heal)
+# rely on this NEVER downloading, preserving the consent-for-download boundary.
+RELINK_ONLY=0
+if [ "${1:-}" = "--relink-only" ]; then RELINK_ONLY=1; fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -79,12 +86,25 @@ link_version() {
 
 # 1. Shared tree present, key-current, complete, importable → just (re)link and done.
 if [ -f "$SHARED_MARKER" ] && [ "$HAVE_KEY" = "$WANT_KEY" ] && deps_ok "$SHARED_NM"; then
+  # --relink-only must be MUTATION-FREE on every failure path (deep-review):
+  # validate the SHARED tree imports BEFORE touching the version symlink —
+  # otherwise an ABI-broken tree gets linked in, exit 3 leaves it half-mutated,
+  # and the deps-absent banner trigger is permanently silenced.
+  if [ "$RELINK_ONLY" -eq 1 ] && ! import_ok "$SHARED"; then
+    echo "install-vector-deps: --relink-only — shared tree present but not importable; not relinking (needs a rebuild)." >&2
+    exit 3
+  fi
   link_version
   if import_ok "$MCP_DIR"; then
     echo "install-vector-deps: OK — shared deps reused, mcp/node_modules linked."
     exit 0
   fi
   echo "install-vector-deps: shared deps present but import failed — rebuilding (existing tree kept until the new one is ready)." >&2
+fi
+
+if [ "$RELINK_ONLY" -eq 1 ]; then
+  echo "install-vector-deps: --relink-only — shared tree absent/stale/broken; not proceeding (would need staging/npm)." >&2
+  exit 3
 fi
 
 mkdir -p "$SHARED"
