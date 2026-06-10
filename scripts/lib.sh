@@ -774,6 +774,14 @@ sb_call_extractor() {
   err_file=$(mktemp)
   caller_script="${SB_SCRIPT_NAME:-${0##*/}}"
 
+  # R1.1 nested-spawn containment: the headless child (a) inherits
+  # SB_NESTED_SPAWN=1 so plugin hooks no-op inside it instead of re-running the
+  # full SessionStart/Stop stack (~24s on a Pi — the cause of every ec=124
+  # timeout), and (b) runs with cwd in a dedicated scratch dir so its junk
+  # transcript lands in ONE prunable ~/.claude/projects entry.
+  local scratch_dir="$BRAIN_DIR/scratch"
+  mkdir -p "$scratch_dir" 2>/dev/null || scratch_dir="$PWD"
+
   # --- Backend 0: local LLM (OpenAI-compatible /v1) ------------------------
   # Tried FIRST when SB_EXTRACTOR_LOCAL_URL is set and the engine isn't pinned
   # to a remote backend. No recursive-claude lock (not claude), no Anthropic
@@ -858,12 +866,12 @@ sb_call_extractor() {
     local claude_ec=0
     local TBIN; TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)  # GNU || macOS-brew
     if [ -n "$TBIN" ]; then
-      "$TBIN" "$timeout_s" "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
-        < "$input_file" > "$out_file" 2>"$err_file"
+      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "$TBIN" "$timeout_s" "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
+        < "$input_file" > "$out_file" 2>"$err_file" )
       claude_ec=$?
     else
-      "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
-        < "$input_file" > "$out_file" 2>"$err_file"
+      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
+        < "$input_file" > "$out_file" 2>"$err_file" )
       claude_ec=$?
     fi
 
@@ -917,7 +925,7 @@ sb_call_extractor() {
         # which would silently corrupt the 5KB system prompt.
         local pty_raw
         pty_raw=$(mktemp)
-        script -qfc "bash -c $(printf '%q' "$inner")" /dev/null > "$pty_raw" 2>/dev/null </dev/null || true
+        ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 script -qfc "bash -c $(printf '%q' "$inner")" /dev/null > "$pty_raw" 2>/dev/null </dev/null ) || true
         rm -f "$pty_raw"
         if [ -s "$out_file" ]; then
           # Strip ANSI/VT sequences from claude's stdout (the pty echoes them
@@ -1084,7 +1092,7 @@ sb_extract_transcript() {
   slug=$(sb_sanitize_slug "$slug") || slug="unknown"
   local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
   local model="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
-  local timeout_s="${SB_EXTRACT_TIMEOUT:-25}"
+  local timeout_s="${SB_EXTRACT_TIMEOUT:-120}"   # drainer runs out-of-band (no hook budget); 25s was lost to ~24s plugin self-load pre-R1
   local prompt_file="$sdir/extract-prompt.txt"
   [ -f "$prompt_file" ] || return 1
   local prompt; prompt=$(cat "$prompt_file")
