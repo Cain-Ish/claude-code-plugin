@@ -1144,7 +1144,10 @@ TMPL
     cat "$project_md"
     echo; echo "---SEPARATOR---"; echo
     echo "=== TRANSCRIPT (preprocessed) ==="
-    sed '1,/^---$/d' "$txt"   # drop the meta header, keep the body
+    # Body only (meta header dropped), tail-capped: keep the NEWEST exchanges.
+    # An uncapped multi-MB archive can never finish before the timeout on a Pi
+    # and burns full retry cycles toward quarantine (R1.2, HOOK-4).
+    sed '1,/^---$/d' "$txt" | tail -c "${SB_EXTRACT_MAX_BYTES:-200000}"
   } > "$in_f"
 
   local delta=""
