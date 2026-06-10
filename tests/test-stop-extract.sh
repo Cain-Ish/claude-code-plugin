@@ -273,4 +273,34 @@ stop_payload "sess-b" | "$SCRIPT" >/dev/null 2>&1
 pass "independent per-session markers (no cross-session race)"
 restore_path
 
+# --- Test 10 (deep-review): a marker PAST the transcript end (shrink / unknown-
+# key collision) must be clamped to 0, not gate extraction forever.
+init_sandbox "marker-clamp"
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":["use clamp semantics for stale extraction markers"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+echo "5000" > "$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+grep -q "use clamp semantics for stale extraction markers" "$PROJ" || fail "marker-clamp: stale marker > EOF still gated extraction"
+[ "$(cat "$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session")" = "3" ] \
+  || fail "marker-clamp: marker not rewritten to TOTAL_LINES after clamp"
+pass "stale marker past EOF clamped; extraction proceeds from 0"
+restore_path
+
+# --- Test 11 (deep-review): with a >500-line delta, the substantive gate and the
+# archive must cover the FULL delta — a tool_use in the skipped middle must still
+# trigger extraction, and the archive must contain the early content.
+init_sandbox "window-full-delta"
+{
+  printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/early.ts","old_string":"a","new_string":"b"}}]}}'
+  i=0; while [ $i -lt 520 ]; do printf '%s\n' '{"type":"user","message":{"role":"user","content":"filler"}}'; i=$((i+1)); done
+} > "$SANDBOX/transcript/session.jsonl"
+stub_claude_json '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "window-full-delta: tool_use outside the last 500 lines was gated out (no archive)"
+grep -q 'src/early.ts' "$ARCHIVE" || fail "window-full-delta: early content missing from archive (middle dropped)"
+pass "full delta gated+archived; LLM window cap applies to extractor input only"
+restore_path
+
 echo "ALL PASS"

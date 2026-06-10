@@ -329,7 +329,8 @@ sb_strip_code_fences() {
 # one session, repeated Stop firings resume where the last finished (instead
 # of re-archiving from line 0 — the 18x-duplicate-archive bug), and two
 # concurrent sessions in one project cannot race each other's marker.
-# Stale markers are swept by extract-drain.sh after 7 days.
+# Stale markers are swept by extract-drain.sh after 30 days (kept past the
+# review skill's 14-day staleness window so its signal stays observable).
 
 sb_get_extraction_marker() {
   local slug="$1"
@@ -792,8 +793,14 @@ sb_call_extractor() {
   # full SessionStart/Stop stack (~24s on a Pi — the cause of every ec=124
   # timeout), and (b) runs with cwd in a dedicated scratch dir so its junk
   # transcript lands in ONE prunable ~/.claude/projects entry.
+  # NOTE: PreToolUse/PostToolUse/ConfigChange guards intentionally do NOT honor
+  # SB_NESTED_SPAWN — tool-safety checks stay active inside headless children
+  # (defense-in-depth); only capture/context hooks no-op.
   local scratch_dir="$BRAIN_DIR/scratch"
-  mkdir -p "$scratch_dir" 2>/dev/null || scratch_dir="$PWD"
+  if ! mkdir -p "$scratch_dir" 2>/dev/null; then
+    sb_log_error "lib.sh" "scratch mkdir failed; nested-spawn transcripts will land in the cwd project entry: $PWD" 0
+    scratch_dir="$PWD"
+  fi
 
   # --- Backend 0: local LLM (OpenAI-compatible /v1) ------------------------
   # Tried FIRST when SB_EXTRACTOR_LOCAL_URL is set and the engine isn't pinned
@@ -1105,7 +1112,10 @@ sb_extract_transcript() {
   slug=$(sb_sanitize_slug "$slug") || slug="unknown"
   local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
   local model="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
-  local timeout_s="${SB_EXTRACT_TIMEOUT:-120}"   # drainer runs out-of-band (no hook budget); 25s was lost to ~24s plugin self-load pre-R1
+  # Drainer-specific knob (deep-review): the hooks share SB_EXTRACT_TIMEOUT with
+  # small defaults (25s/30s inside 45s hook budgets) — reusing it here would let a
+  # drainer-oriented override re-open the kill-after-extract window in-hook.
+  local timeout_s="${SB_DRAIN_EXTRACT_TIMEOUT:-120}"
   local prompt_file="$sdir/extract-prompt.txt"
   [ -f "$prompt_file" ] || return 1
   local prompt; prompt=$(cat "$prompt_file")

@@ -61,6 +61,11 @@ if [ ! -f "$PROJECT_MD" ]; then SB_GATE="project-md-missing slug=$SLUG"; exit 0;
 # --- Determine unprocessed window ---
 LAST_LINE=$(sb_get_extraction_marker "$MARKER_KEY")
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d ' ')
+# Stale-marker clamp (deep-review): a marker past EOF would gate forever now
+# that markers persist — treat it as no marker.
+if [ "$LAST_LINE" -gt "$TOTAL_LINES" ]; then
+  LAST_LINE=0
+fi
 NEW_LINES=$((TOTAL_LINES - LAST_LINE))
 
 if [ "$NEW_LINES" -lt 20 ]; then
@@ -187,7 +192,9 @@ if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
 fi
 
 # --- Archive preprocessed transcript for dream mining ---
-sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$WINDOW_START" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
+# Archive the FULL delta (not the LLM-capped window) so dream-mining never
+# loses the middle of a >1000-line delta (deep-review).
+sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
 
 # --- Incremental episodic index update ---
 PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"

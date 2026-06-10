@@ -95,6 +95,12 @@ mkdir -p "$KNOWLEDGE_DIR/wiki" 2>/dev/null || true
 # --- Determine unprocessed window (disjoint with pre-compact extractions) ---
 LAST_LINE=$(sb_get_extraction_marker "$MARKER_KEY")
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d ' ')
+# Stale-marker clamp (deep-review): a marker past EOF (transcript shrank, or a
+# key collision via the session_id "unknown" fallback) would gate extraction
+# forever now that markers are never cleared — treat it as no marker.
+if [ "$LAST_LINE" -gt "$TOTAL_LINES" ]; then
+  LAST_LINE=0
+fi
 NEW_LINES=$((TOTAL_LINES - LAST_LINE))
 
 if [ "$NEW_LINES" -lt 1 ]; then
@@ -103,12 +109,15 @@ if [ "$NEW_LINES" -lt 1 ]; then
 fi
 
 START_LINE=$((LAST_LINE + 1))
-# Cap at 500 lines for the final window
+# The LLM input is capped at the newest 500 lines, but the substantive gate and
+# the archive must cover the FULL delta — otherwise a >500-line turn silently
+# drops its middle from both extraction and dream-mining (deep-review).
+EXTRACT_START=$START_LINE
 if [ "$NEW_LINES" -gt 500 ]; then
-  START_LINE=$((TOTAL_LINES - 500 + 1))
+  EXTRACT_START=$((TOTAL_LINES - 500 + 1))
 fi
 
-# Substantive-session gate: count tool_use entries in the window.
+# Substantive-session gate: count tool_use entries in the FULL delta.
 TOOL_COUNT=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
   select(.type == "assistant")
   | .message.content[]?
@@ -139,7 +148,7 @@ trap 'rm -f "$EXTRACT_INPUT" "$EXTRACT_OUT" 2>/dev/null' EXIT
   echo "---SEPARATOR---"
   echo
   echo "=== TRANSCRIPT (preprocessed) ==="
-  sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
+  sed -n "${EXTRACT_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
 } > "$EXTRACT_INPUT"
 
 DELTA_JSON=""

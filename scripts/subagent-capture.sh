@@ -55,14 +55,16 @@ TOOL_COUNT=$(jq -r '
 
 MIN="${SB_SUBAGENT_MIN_RESULT:-80}"
 
-# R1.2 (HOOK-5): workflow subagents return their real answer via a structured
-# tool call; the last TEXT block is then an interim "holding" message. If the
-# FINAL assistant record carries a tool_use and no substantive text of its own,
-# there is no final prose result — skip rather than archive boilerplate.
+# R1.2 (HOOK-5): WORKFLOW subagents return their real answer via a
+# StructuredOutput tool call; the last TEXT block is then an interim "holding"
+# message. Skip ONLY when the final assistant record carries a StructuredOutput
+# call and no substantive text of its own — a normal agent that ends with some
+# other trailing tool_use (cleanup, TodoWrite) still has its last prose result
+# archived (deep-review: keying on ANY tool_use dropped those).
 FINAL_CONTENT=$(jq -c 'select(.type == "assistant") | .message.content' "$TRANSCRIPT" 2>/dev/null | tail -1)
-FINAL_TOOLS=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "tool_use")] | length' 2>/dev/null)
+FINAL_SO=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "tool_use") | select(.name == "StructuredOutput")] | length' 2>/dev/null)
 FINAL_TEXT_LEN=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "text") | .text] | join("")' 2>/dev/null | tr -d '[:space:]' | wc -c | tr -d ' ')
-if [ "${FINAL_TOOLS:-0}" -ge 1 ] && [ "${FINAL_TEXT_LEN:-0}" -lt "$MIN" ]; then
+if [ "${FINAL_SO:-0}" -ge 1 ] && [ "${FINAL_TEXT_LEN:-0}" -lt "$MIN" ]; then
   exit 0
 fi
 

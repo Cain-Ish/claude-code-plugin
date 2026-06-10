@@ -148,4 +148,15 @@ run_hook "$B" "general-purpose" "real1" "$T" >/dev/null 2>&1
 ls "$B/transcripts/"sub-real1_*.txt >/dev/null 2>&1 || fail "13: real final prose result no longer archived"
 pass "final text result still archived"
 
+# --- Test 14 (deep-review): a trailing NON-StructuredOutput tool_use after a
+# substantive prose result must still archive (the skip is workflow-specific).
+B="$TMP/b14"; mkdir -p "$B"; T="$TMP/t14.jsonl"
+: > "$T"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the task"}]}}' >> "$T"
+jq -nc --arg t "$LONG" '{type:"assistant",message:{role:"assistant",content:[{type:"text",text:$t}]}}' >> "$T"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[]}}]}}' >> "$T"
+run_hook "$B" "general-purpose" "trail1" "$T" >/dev/null 2>&1
+ls "$B/transcripts/"sub-trail1_*.txt >/dev/null 2>&1 || fail "14: prose result with trailing non-SO tool_use was dropped"
+pass "trailing non-StructuredOutput tool_use: prose result still archived"
+
 echo; echo "ALL PASS"

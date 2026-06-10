@@ -79,7 +79,11 @@ if [ "${SB_DRAIN_FORCE_MKDIR_LOCK:-0}" != "1" ] && command -v flock >/dev/null 2
   flock -n 9 || exit 0
 else
   LOCK_DIR="$BRAIN_DIR/.extract-drain.lock.d"
-  STALE="${SB_DRAIN_LOCK_STALE:-1800}"; case "$STALE" in ''|*[!0-9]*) STALE=1800 ;; esac
+  # 7200s staleness (deep-review): the 120s drainer timeout makes a worst-case
+  # fully-degraded batch (5 x direct+pty+API retries) approach the old 1800s
+  # threshold, which equals the scheduler interval — a live run could be judged
+  # stale and its lock stolen, re-opening the overlap race the lock prevents.
+  STALE="${SB_DRAIN_LOCK_STALE:-7200}"; case "$STALE" in ''|*[!0-9]*) STALE=7200 ;; esac
   if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     lmtime=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0)
     lage=$(( $(date +%s) - ${lmtime:-0} ))
@@ -119,6 +123,10 @@ if [ "$MIN_BODY" -gt 0 ]; then
     [ -n "$tf" ] || continue
     base=$(basename "$tf")
     sb_extraction_done "$base" "$STATE" && continue
+    # Header guard (deep-review): on a file with no ^---$ terminator the sed
+    # below deletes to EOF and reports 0 bytes — a malformed/foreign archive
+    # would be silently misclassified as too-small. Leave it to the batch path.
+    grep -q '^---$' "$tf" 2>/dev/null || continue
     body_bytes=$(sed '1,/^---$/d' "$tf" 2>/dev/null | wc -c | tr -d ' ')
     if [ "${body_bytes:-0}" -lt "$MIN_BODY" ]; then
       printf '{"basename":%s,"ts":"%s","outcome":"ok","reason":"too-small"}\n' \
@@ -154,12 +162,16 @@ done < <(ls -1tr "$TX_DIR"/*.txt 2>/dev/null)
 
 # --- GC sweeps (R1.2) ---
 # Session-keyed extraction markers accumulate one file per session; sweep those
-# untouched for 7+ days (their sessions are long over). Also sweeps legacy
+# untouched for 30+ days (kept past the review skill's 14-day staleness window,
+# and past week-long idle sessions, per deep-review). Also sweeps legacy
 # slug-keyed markers from pre-0.24.38.
-find "$BRAIN_DIR" -maxdepth 1 -name '.last-extracted-line-*' -mtime +7 -delete 2>/dev/null || true
+find "$BRAIN_DIR" -maxdepth 1 -name '.last-extracted-line-*' -mtime +30 -delete 2>/dev/null || true
 # Transcripts of our own nested extractor spawns (cwd = BRAIN_DIR/scratch →
-# they all land in one ~/.claude/projects entry). Pure junk byproducts.
-for pd in "$HOME"/.claude/projects/*second-brain-scratch*; do
+# one ~/.claude/projects entry). Derive the encoded name from the live BRAIN_DIR
+# (CC encodes '/' and '.' as '-'); keep the substring glob as a fallback for
+# default-path entries in case the encoding scheme drifts (deep-review).
+SCRATCH_ENC=$(printf '%s' "$BRAIN_DIR/scratch" | sed 's|[/.]|-|g')
+for pd in "$HOME/.claude/projects/$SCRATCH_ENC" "$HOME"/.claude/projects/*second-brain-scratch*; do
   [ -d "$pd" ] && find "$pd" -name '*.jsonl' -mtime +3 -delete 2>/dev/null
 done
 

@@ -159,6 +159,12 @@ grep -q '"basename":"tiny1_x.txt"' "$STATE" 2>/dev/null && grep -q '"reason":"to
 # Idempotent: second run must skip it via sb_extraction_done.
 SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
 eq "too-small recorded exactly once" "$(grep -c '"basename":"tiny1_x.txt"' "$STATE" 2>/dev/null)" "1"
+# Header guard (deep-review): a file WITHOUT the ^---$ terminator must NOT be
+# fast-path-classified too-small (sed would report 0 bytes for real content).
+printf 'no header here\nlots of real content that is not actually small at all\n' > "$BRAIN_DIR/transcripts/nohdr_x.txt"
+SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
+grep -q '"basename":"nohdr_x.txt".*"reason":"too-small"' "$STATE" 2>/dev/null \
+  && no "header-less archive misclassified as too-small" || ok "header-less archive not fast-path-classified"
 
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.

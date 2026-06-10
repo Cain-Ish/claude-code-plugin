@@ -72,8 +72,10 @@ pass "spawn site exports SB_NESTED_SPAWN=1 and runs in BRAIN_DIR/scratch"
 # --- Part E: static — maintainer spawn guarded; drainer timeout default 120s.
 grep -q 'SB_NESTED_SPAWN=1' "$REPO_ROOT/scripts/maintain-llm-drain.sh" \
   || fail "static: maintain-llm-drain.sh claude spawn lacks SB_NESTED_SPAWN=1"
-grep -q 'SB_EXTRACT_TIMEOUT:-120' "$REPO_ROOT/scripts/lib.sh" \
-  || fail "static: sb_extract_transcript drainer timeout default is not 120s"
-pass "static: maintainer spawn guarded; drainer timeout default 120s"
+grep -q 'SB_DRAIN_EXTRACT_TIMEOUT:-120' "$REPO_ROOT/scripts/lib.sh" \
+  || fail "static: sb_extract_transcript drainer timeout default is not the dedicated 120s knob"
+grep -q 'SB_NESTED_SPAWN=1' "$REPO_ROOT/scripts/extraction-quality-gate.sh" \
+  || fail "static: extraction-quality-gate haiku_check spawn lacks SB_NESTED_SPAWN=1"
+pass "static: maintainer + quality-gate spawns guarded; drainer timeout knob dedicated (120s)"
 
 echo "ALL PASS"

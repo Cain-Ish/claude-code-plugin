@@ -85,10 +85,12 @@ Strictness: $STRICTNESS
 Candidate ($kind): $entry"
   local result
   # `--bare` requires ANTHROPIC_API_KEY (OAuth tokens ignored). Use only when set.
+  # SB_NESTED_SPAWN=1 (R1.1): this is a plugin-spawned headless claude — the
+  # child's capture/context hooks must no-op or its 5s budget dies to hook load.
   if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ "${SB_USE_BARE:-0}" = "1" ]; then
-    result=$(printf '%s' "$prompt" | timeout 5 claude -p --bare --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
+    result=$(printf '%s' "$prompt" | SB_NESTED_SPAWN=1 timeout 5 claude -p --bare --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
   else
-    result=$(printf '%s' "$prompt" | timeout 5 claude -p --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
+    result=$(printf '%s' "$prompt" | SB_NESTED_SPAWN=1 timeout 5 claude -p --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
   fi
   case "$result" in
     *ACCEPT*) return 0 ;;
