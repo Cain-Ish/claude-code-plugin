@@ -11,3 +11,10 @@ for s in capture maintain; do
 done
 pass "README documents /second-brain:capture and /second-brain:maintain"
 echo; echo "ALL PASS"
+
+# R6: the 5 de-vendored skills must not be sold as live /second-brain:* commands.
+for s in brainstorming writing-plans test-driven-development verification-before-completion systematic-debugging; do
+  grep -q "/second-brain:$s" "$ROOT/README.md" \
+    && { echo "FAIL: README lists deleted skill /second-brain:$s (de-vendored in 0.24.42)"; exit 1; }
+done
+echo "PASS: no de-vendored skills in README"

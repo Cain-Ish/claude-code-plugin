@@ -29,10 +29,14 @@ echo "Installed: $INSTALLED -> Current: $CURRENT"
 
 ### 2. Decide what to do
 
-- If `$INSTALLED == $CURRENT` -> exit "already up to date"
-- If `$INSTALLED < $CURRENT` -> walk migrations between them (step 3)
-- If `$INSTALLED > $CURRENT` -> exit with warning ("installed version is newer
-  than plugin.json — did you downgrade?"). Offer to overwrite the marker.
+Compare versions SEMVER-style, never lexicographically (string compare says
+`0.24.9 > 0.24.18`!) — e.g. `[ "$(printf '%s\n' "$INSTALLED" "$CURRENT" | sort -V | tail -1)" = "$CURRENT" ]`:
+
+- If `$INSTALLED == $CURRENT` -> step 4b (health check) then exit "already up to date"
+- If `$INSTALLED` semver-older than `$CURRENT` -> walk migrations between them (step 3)
+- If `$INSTALLED` semver-newer than `$CURRENT` -> exit with warning ("installed
+  version is newer than plugin.json — did you downgrade?"). Offer to overwrite
+  the marker.
 
 ### 3. Select applicable migration files
 
@@ -57,6 +61,24 @@ For each applicable migration file, in version order:
 2. Run its idempotent check
 3. If safe, apply it (with backup if it touches user data)
 4. Report success/failure
+
+### 4b. vector-deps health (re-runs EVERY upgrade, not version-gated)
+
+Smoke-import `@huggingface/transformers` from the plugin's mcp dir; on failure
+run the installer. Why: the mcp bundles mark it esbuild `--external` (native
+binaries), and a plugin cache refresh ships `dist/` but never `node_modules/`
+— without this gate vector search silently degrades to text-only on every
+fresh install or cache wipe (no error, just empty embeddings). SessionStart
+auto-relinks the no-network case since 0.24.39; this check covers the
+fresh-install/download case that needs consent.
+
+```bash
+cd "$CLAUDE_PLUGIN_ROOT/mcp" && node --input-type=module -e 'await import("@huggingface/transformers"); console.log("ok")' >/dev/null 2>&1 \
+  || bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"
+```
+
+Idempotent: the script no-ops when the import already works. Report the ~70MB
+network requirement before a first-ever install.
 
 ### 5. Update marker
 
