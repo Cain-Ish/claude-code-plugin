@@ -1,4 +1,8 @@
-# Second Brain — Hot-Tier Memory + Local Wiki for Claude Code
+## Skills
+
+> **Companion plugin:** the discipline skills (brainstorming, TDD, systematic-debugging, writing-plans, verification-before-completion) come from the upstream [obra/superpowers](https://github.com/obra/superpowers) plugin (>= 5.1.0) — no longer vendored since 0.24.42 (see NOTICE.md). The second-brain works without it; install it for the full workflow loop.
+
+| Skill | Purpose |# Second Brain — Hot-Tier Memory + Local Wiki for Claude Code
 
 A Claude Code plugin that gives Claude a two-layer memory: a small hot tier (`USER.md` + `projects/<slug>/PROJECT.md`) auto-loaded at every SessionStart, and a larger local wiki retrievable on demand. The plugin extracts decisions, blockers, and cross-references from each session via Stop/PreCompact LLM hooks and merges them into the hot tier and wiki. You can still pin manually; the auto-extraction layer surfaces candidates so you don't have to remember to.
 

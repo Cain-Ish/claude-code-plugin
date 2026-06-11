@@ -10,7 +10,7 @@
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-installed.sh", "timeout": 10 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-doc-sources.sh", "timeout": 10 },
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-load.sh", "timeout": 15 },
-          { "_comment": "v0.12.0 dream auto-stage — runs after session-load.sh. When >= SB_DREAM_NEW_THRESHOLD (default 10) new transcripts have landed since the most-recent dream, stages a pending dream and emits a banner instructing Claude to spawn the dream-runner agent. Acceptance stays manual. Kill switch SB_DREAM_AUTOSTAGE=off (then session-load.sh shows the legacy session-count nag instead). Timeout 20s covers dream-snapshot.sh's wiki copy.",
+          { "_comment": "dream-autostage (C5-A; R4) — NEVER stages and never spawns agents: when >= SB_DREAM_NEW_THRESHOLD (default 10) new transcripts accumulated since the last terminal dream, it emits a banner SUGGESTING /second-brain:dream (explicit invocation only). It also reclaims stale pendings (runner never started >24h) into failed, and banners failed dreams + the maintainer quarantine file. Kill switch SB_DREAM_AUTOSTAGE=off. Timeout 20s.",
             "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/dream-autostage.sh", "timeout": 20 }
         ]
       }

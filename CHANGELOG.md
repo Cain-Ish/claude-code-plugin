@@ -4,6 +4,23 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.24.42
+
+**R6a surface diet.** (1) The upgrade skill's 113KB migration table split: lean
+3.4KB runner + `skills/upgrade/migrations/<version>.md` (7 actionable files) +
+this CHANGELOG (58 narrative-only rows moved here; never context-loaded). A
+typical upgrade hop now costs <2K tokens instead of ~44K. Policy gated:
+CHANGELOG entry per release, 8KB runner cap. (2) The 5 vendored
+obra/superpowers skills (brainstorming, systematic-debugging,
+test-driven-development, verification-before-completion, writing-plans) are
+REMOVED — install the upstream superpowers plugin (the setup skill warns when
+absent; NOTICE.md documents the de-vendor). Kills the doubled skill-list
+tokens and nondeterministic dual-dispatch. (3) Dead-weight sweep:
+batch-extract.sh deleted (hardcoded --bare, unreferenced), lib.sh dead dream
+helpers deleted, run-all.sh's tree-dirtying chmod block deleted (exec bits are
+git-recorded; test-exec-bits now globs all tests), stale hooks.json
+dream-autostage comment rewritten to the real C5-A/R4 behavior.
+
 ## 0.24.41
 
 **R4 dream lifecycle: auto_maintain fails loudly, never silently.** (1) The OAuth systemd unit drops `RestrictNamespaces=true` — it made the maintainer's bubblewrap jail structurally impossible (100% failure, stuck-pending dreams); bwrap IS the containment there. Re-run `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth` to deploy the updated unit. (2) A bwrap preflight runs BEFORE staging; failures re-stamp the throttle to a 24h retry (not a burned weekly slot) and quarantine after 3 strikes (`~/.second-brain/.llm-maintain-quarantine`, surfaced at SessionStart; SELF-CLEARS once the preflight passes again — e.g. after the unit redeploy — or on success, or by deleting the file). (3) Headless failures transition the dream `pending→failed` with captured stderr; autostage reclaims stale pendings (>24h, runner never started) into failed and banners them. (4) Snapshot prune reclaims failed/canceled staging (status.json kept); retention GC (`bak_ttl_days`) now runs without the `auto_improve` opt-in.

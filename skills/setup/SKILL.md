@@ -166,6 +166,19 @@ SCAN_ROOT="$SCAN_ROOT_DIR" node "$SCAN_CLI"
 Report the captured/skipped counts and point the user to `/second-brain:capture --list`.
 If the preview was empty, say there were no high-signal docs to seed and move on.
 
+### 6b. Companion-plugin check (superpowers)
+
+Since 0.24.42 the discipline skills (brainstorming, TDD, systematic-debugging,
+writing-plans, verification-before-completion) are NOT vendored — they come
+from the upstream `superpowers` plugin (R6 de-vendor; see NOTICE.md). Check it
+is installed and warn if not:
+
+```bash
+ls -d ~/.claude/plugins/cache/*/superpowers/*/ >/dev/null 2>&1 \
+  && echo "superpowers: installed" \
+  || echo "WARN: superpowers plugin not installed — the second-brain's workflow prose references superpowers:* skills (brainstorming, TDD, debugging, plans, verification). Install it from the official marketplace for the full discipline loop; the second-brain itself works without it."
+```
+
 ### 7. Confirm
 
 Print byte counts of `USER.md` and `PROJECT.md` and the combined total. Verify combined < ~3200 bytes (≈ 800-token hot-tier cap):

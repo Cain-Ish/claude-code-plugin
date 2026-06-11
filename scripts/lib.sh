@@ -374,7 +374,7 @@ sb_sanitize_slug() {
 }
 
 # Preprocess JSONL transcript lines on stdin into a compact text summary.
-# Shared by stop-extract.sh, pre-compact.sh, and batch-extract.sh.
+# Shared by stop-extract.sh and pre-compact.sh.
 sb_preprocess_transcript() {
   jq -cr '
     if .type == "user" then
@@ -682,15 +682,9 @@ sb_generate_dream_id() {
   echo "drm_$(date -u +%Y%m%dT%H%M%SZ)"
 }
 
-sb_dream_dir() {
-  echo "$BRAIN_DIR/dreams/${1:?dream_id required}"
-}
-
-sb_dream_status() {
-  local dream_id="$1"
-  local status_file="$BRAIN_DIR/dreams/$dream_id/status.json"
-  [ -f "$status_file" ] && cat "$status_file" || echo '{}'
-}
+# (R6 sweep: the sb_dream_dir/sb_dream_status helpers were deleted — nothing
+# referenced them; dream paths are composed inline as "$BRAIN_DIR/dreams/<id>"
+# and status reads are inline jq, the canonical pattern across the scripts.)
 
 sb_dream_set_status() {
   local dream_id="$1" field="$2" value="$3"

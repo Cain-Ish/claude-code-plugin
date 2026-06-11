@@ -48,9 +48,9 @@ run_one_sh() {
   local started; started=$(date +%s)
   local ec=0
 
-  if [ ! -x "$script" ]; then
-    chmod +x "$script" 2>/dev/null || true
-  fi
+  # (R6 sweep: the chmod +x block was deleted — tests are invoked via `bash`
+  # below, so the exec bit was never used, and the chmod dirtied the working
+  # tree on every suite run. Exec bits are git-recorded; test-exec-bits gates.)
 
   if command -v timeout >/dev/null 2>&1; then
     timeout "$PER_TEST_TIMEOUT" bash "$script" >"$logfile" 2>&1; ec=$?
