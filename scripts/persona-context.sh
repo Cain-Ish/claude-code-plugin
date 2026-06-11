@@ -240,12 +240,19 @@ EPISODIC_HINT=""
 EPISODIC_CLI="$PLUGIN_ROOT/mcp/dist/tools/episodic-search-cli.bundle.js"
 COMBINED_CLI="$PLUGIN_ROOT/mcp/dist/tools/context-serve-cli.bundle.js"
 _SB_CTX_SEP='--8<--SB-EPISODIC--8<--'
+_CTX_OK=0
 if [ -n "$KEYWORDS" ] && [ -f "$COMBINED_CLI" ]; then
-  _CTX_OUT=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" \
-    node "$COMBINED_CLI" "$KEYWORDS" 2>/dev/null || true)
-  WIKI_RAW=$(printf '%s\n' "$_CTX_OUT" | awk -v s="$_SB_CTX_SEP" '$0==s{exit}{print}')
-  EPISODIC_HINT=$(printf '%s\n' "$_CTX_OUT" | awk -v s="$_SB_CTX_SEP" 'f{print} $0==s{f=1}')
-else
+  # rc-gated: a PRESENT-but-broken bundle (truncated cache write, node
+  # incompat) must fall through to the still-working single CLIs below, not
+  # silently lose both hints (R6b review: asymmetric-fallback shape).
+  if _CTX_OUT=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" \
+    node "$COMBINED_CLI" "$KEYWORDS" 2>/dev/null); then
+    _CTX_OK=1
+    WIKI_RAW=$(printf '%s\n' "$_CTX_OUT" | awk -v s="$_SB_CTX_SEP" '$0==s{exit}{print}')
+    EPISODIC_HINT=$(printf '%s\n' "$_CTX_OUT" | awk -v s="$_SB_CTX_SEP" 'f{print} $0==s{f=1}')
+  fi
+fi
+if [ "$_CTX_OK" -eq 0 ]; then
   if [ -n "$KEYWORDS" ] && [ -f "$SEARCH_CLI" ]; then
     # SP-1: scope the per-prompt wiki injection to the active project (the slug session-load pinned).
     WIKI_RAW=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" \

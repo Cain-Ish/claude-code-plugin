@@ -63,7 +63,16 @@ sb_log_error() {
   if [ "$exit_code" = "0" ]; then
     case "$error_msg" in gate=*) target="$BRAIN_DIR/audit-log.jsonl" ;; esac
   fi
-  sb_rotate_log "$target"
+  # Each log keeps ITS OWN rotation policy: the audit-log is the guard-verdict
+  # evidence channel with the larger 5MiB/5000-line window (sb_rotate_audit_log
+  # — applying the 512KB error-log cap to it would have truncated ~2MB of live
+  # verdict evidence on first trace; R6b review finding). error-log gets the
+  # tighter sb_rotate_log cap.
+  if [ "$target" = "$BRAIN_DIR/audit-log.jsonl" ]; then
+    sb_rotate_audit_log
+  else
+    sb_rotate_log "$target"
+  fi
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   if command -v jq >/dev/null 2>&1; then
     jq -nc \

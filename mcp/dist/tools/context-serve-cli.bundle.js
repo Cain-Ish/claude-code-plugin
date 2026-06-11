@@ -6934,7 +6934,7 @@ if (!query) {
 var SEP = "--8<--SB-EPISODIC--8<--";
 var knowledgeDir = process.env.KNOWLEDGE_DIR || void 0;
 var minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || "0");
-var brainDir = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join5(process.env.HOME ?? "", ".second-brain");
+var brainDir = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || (process.env.HOME ? join5(process.env.HOME, ".second-brain") : void 0);
 var projectSlug = process.env.SB_ACTIVE_SLUG?.trim() || void 0;
 var wikiLines = [];
 try {
@@ -6948,6 +6948,7 @@ try {
 }
 var epiLines = [];
 try {
+  if (!brainDir) throw new Error("no brain dir resolvable");
   const result = await episodicSearch(
     { query, limit: 2, mode: "vector", activeProject: projectSlug },
     brainDir

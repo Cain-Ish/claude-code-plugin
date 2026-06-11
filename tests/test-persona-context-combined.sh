@@ -73,4 +73,23 @@ EMPTY_OUT=$(env $RUNENV node "$COMBINED" "zzqx9 nonexistent gibberish" 2>/dev/nu
 [ -z "$EMPTY_OUT" ] || fail "D: expected no output when both sections empty, got: $EMPTY_OUT"
 pass "D: silent exit 0 when nothing surfaced"
 
+# --- E: PRESENT-but-broken combined bundle falls back to the single CLIs ------
+# (rc-gated, not just [ -f ] — a truncated cache write must not silently lose
+# both hints while the single CLIs still work; R6b review finding.)
+D="$SANDBOX/ptree"; mkdir -p "$D/mcp/dist/tools"
+cp -r "$REPO_ROOT/scripts" "$D/scripts"
+cp "$REPO_ROOT/kb-schema.json" "$D/kb-schema.json" 2>/dev/null || true
+echo 'this is not javascript' > "$D/mcp/dist/tools/context-serve-cli.bundle.js"
+cp "$REPO_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js" \
+   "$REPO_ROOT/mcp/dist/tools/episodic-search-cli.bundle.js" "$D/mcp/dist/tools/"
+BRAIN_E="$SANDBOX/brain-e"; mkdir -p "$BRAIN_E"
+printf '# Persona\n\n## Identity\n- combined-fallback-test\n' > "$BRAIN_E/persona-card.md"
+E_OUT=$(printf '{"prompt":"tell me about the tunnel alpha page details","session_id":"e-sess"}' \
+  | CLAUDE_PLUGIN_ROOT="$D" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" \
+    KNOWLEDGE_DIR="$KD" BRAIN_DIR="$BRAIN_E" SECOND_BRAIN_DISABLE_EMBEDDINGS=1 \
+    bash "$D/scripts/persona-context.sh" 2>/dev/null || true)
+printf '%s\n' "$E_OUT" | grep -q 'tunnel-alpha' \
+  || fail "E: broken combined bundle lost the wiki hint (no fallback to single CLIs): $E_OUT"
+pass "E: broken combined bundle falls back to the two-CLI path"
+
 echo "ALL PASS"

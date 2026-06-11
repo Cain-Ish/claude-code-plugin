@@ -60,18 +60,26 @@ grep -q 'filler-3999' "$ERR" || fail "(d) rotation dropped the NEWEST old lines 
 grep -q '"filler-0-' "$ERR" && fail "(d) rotation kept the oldest lines (must drop head)"
 pass "(d) error-log rotates at 512KB keeping the newest tail"
 
-# --- (e) audit-log gets the same rotation via the trace path ----------------
+# --- (e) the trace path applies the AUDIT-LOG's OWN rotation policy ---------
+# (5MiB/5000 lines, keep newest half — sb_rotate_audit_log), NOT the 512KB
+# error-log cap: the audit-log is the guard-verdict evidence channel with a
+# deliberately larger window; the 512KB cap would have truncated ~2MB of live
+# verdict evidence on the first routed trace (R6b review finding).
 : > "$AUD"
 i=0
-while [ "$i" -lt 4000 ]; do
-  printf '{"timestamp":"t","script":"seed","message":"afiller-%s-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","exit_code":0}\n' "$i"
+while [ "$i" -lt 6000 ]; do
+  printf '{"ts":"t","hook":"seed","verdict":"allow","rule":"r%s","session_id":"s"}\n' "$i"
   i=$((i+1))
 done >> "$AUD"
-PRE=$(wc -c < "$AUD" | tr -d ' ')
+# 6000 short lines ≈ 400KB: BELOW the 512KB byte cap but ABOVE the 5000-line
+# audit cap — only the audit policy rotates here, so survival of the right
+# lines proves which policy ran.
 sb_log_error "stop-extract.sh" "gate=post-rotation" 0
-POST=$(wc -c < "$AUD" | tr -d ' ')
-[ "$POST" -lt "$PRE" ] || fail "(e) audit-log did not rotate (${PRE}B -> ${POST}B)"
+LINES=$(wc -l < "$AUD" | tr -d ' ')
+[ "$LINES" -le 3002 ] || fail "(e) audit policy did not rotate (still $LINES lines)"
+grep -q '"r5999"' "$AUD" || fail "(e) rotation dropped the newest audit lines"
+grep -q '"r0"' "$AUD" && fail "(e) rotation kept the oldest audit lines"
 grep -q 'gate=post-rotation' "$AUD" || fail "(e) new trace missing after rotation"
-pass "(e) audit-log rotates at the cap on the trace path"
+pass "(e) trace path rotates via the audit-log's own 5000-line policy"
 
 echo "ALL PASS"
