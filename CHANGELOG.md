@@ -4,6 +4,21 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.24.46
+
+**R7a observability.** (1) `scripts/liveness-check.sh` — the
+shipped-vs-running gate (three past audit findings were this ONE missing
+check): per-plugin deployed-at-shipped-version probe against
+installed_plugins.json, cost-router bridge freshness, episodic-indexer
+keep-up, dangling vector-deps symlink. Advisory lines (OK/DRIFT/DORMANT/
+STALE/MISSING); `--strict` for the release checklist; wired into
+`/second-brain:review`. (2) `scripts/hook-timer.sh` — transparent latency
+wrapper on the 5 heavy hooks (session-load, persona-context, stop-extract,
+pre-compact, dream-autostage): appends `{kind:"latency", hook, duration_ms,
+exit_code}` to the audit-log, flags runs >70% of the hook budget;
+`/second-brain:status` renders p50/p95 per hook. The R1 ec=124 class becomes
+visible before it bites. No user action — lands with the cache refresh.
+
 ## 0.24.45
 
 **De-cap (user decision): premium spend is reported, never enforced.** The

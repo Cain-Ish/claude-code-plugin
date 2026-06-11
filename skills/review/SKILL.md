@@ -94,6 +94,20 @@ if [ -d "$WIKI" ]; then
 fi
 ```
 
+### 5b. Liveness / dormancy gate (R7)
+
+"Shipped" is not "running" — three past audit findings (a plugin never
+installed, a bridge with no producer, a dangling deps symlink) were all this
+one missing check. Run it and surface every non-OK line verbatim:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/liveness-check.sh"
+```
+
+OK lines can be summarized as "liveness: all green"; DRIFT/DORMANT/STALE/
+MISSING lines go into the dashboard as action items (each line says what to
+do). Release checklist uses the same script with `--strict`.
+
 ### 6. Format the output
 
 Combine the sections above into a single review block. Skip empty sections rather than printing "(none)" placeholders. Example shape:
