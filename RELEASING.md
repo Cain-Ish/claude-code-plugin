@@ -38,9 +38,11 @@ Before tagging `vX.Y.Z`:
       `dist/cli/sb-entry.bundle.js` and friends already committed. (If diff
       shows changes, the source was edited but the bundle was not rebuilt —
       commit the bundle update too.)
-- [ ] **`skills/upgrade/SKILL.md` migration table has a row for `vX.Y.Z`.**
-      The row says what changed and how to detect already-migrated state.
-      No row → upgraders will silently end up in an inconsistent state.
+- [ ] **`CHANGELOG.md` has a `## vX.Y.Z` entry** (release narrative — never
+      context-loaded). If the release has a real precondition/action, ALSO add
+      `skills/upgrade/migrations/vX.Y.Z.md` (the runner loads only files in the
+      upgrade hop). SKILL.md itself stays a lean runner (8KB cap, gated). No
+      entry → upgraders silently land in an inconsistent state (R6 policy).
 - [ ] **`README.md` matches what ships.** New CLI verbs, new config knobs,
       changed defaults — all documented. README is the user's first contact
       with the plugin; it can't lag the code.

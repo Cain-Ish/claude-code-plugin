@@ -17,6 +17,10 @@ EXEC_FILES=(
   ".githooks/pre-push"
   "tests/run-all.sh"
 )
+# R6: every tests/test-*.sh keeps its git-recorded exec bit — run-all no longer
+# chmods at runtime (that dirtied the tree every suite run), so a new test
+# committed as 644 would drift forever. The glob keeps this maintenance-free.
+while IFS= read -r t; do EXEC_FILES+=("$t"); done < <(git ls-files 'tests/test-*.sh')
 
 failed=0
 for f in "${EXEC_FILES[@]}"; do

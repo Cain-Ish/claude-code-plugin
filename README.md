@@ -1,4 +1,8 @@
-# Second Brain — Hot-Tier Memory + Local Wiki for Claude Code
+## Skills
+
+> **Companion plugin:** the discipline skills (brainstorming, TDD, systematic-debugging, writing-plans, verification-before-completion) come from the upstream [obra/superpowers](https://github.com/obra/superpowers) plugin (>= 5.1.0) — no longer vendored since 0.24.42 (see NOTICE.md). The second-brain works without it; install it for the full workflow loop.
+
+| Skill | Purpose |# Second Brain — Hot-Tier Memory + Local Wiki for Claude Code
 
 A Claude Code plugin that gives Claude a two-layer memory: a small hot tier (`USER.md` + `projects/<slug>/PROJECT.md`) auto-loaded at every SessionStart, and a larger local wiki retrievable on demand. The plugin extracts decisions, blockers, and cross-references from each session via Stop/PreCompact LLM hooks and merges them into the hot tier and wiki. You can still pin manually; the auto-extraction layer surfaces candidates so you don't have to remember to.
 
@@ -121,11 +125,6 @@ The SessionStart banner always shows the active mode in one line.
 | `/second-brain:track` | Register a docs/source location so the next session indexes it for retrieval |
 | `/second-brain:using-second-brain` | The persona-as-collaborator protocol — how Claude consults identity, memory, and the tool catalog before answering |
 | `/second-brain:code-review-deep [<PR#>]` | Multi-pass deep code review: review-unit decomposition + per-unit reviewers on the best available model (docs on Haiku), a git-history regression lens, an advisory architectural pass on critical/high units, FP-aware scoring with a surfaced lower-confidence band, wiki/episodic context. `--comment` posts to the PR |
-| `/second-brain:brainstorming` | Vendored from obra/superpowers — pause-and-design before implementation |
-| `/second-brain:writing-plans` | Vendored — write detailed implementation plan from a spec |
-| `/second-brain:test-driven-development` | Vendored — red-green-refactor discipline |
-| `/second-brain:verification-before-completion` | Vendored — evidence before completion claims |
-| `/second-brain:systematic-debugging` | Vendored — 4-phase root-cause-first debugging |
 
 The five `Vendored` skills are adapted from [obra/superpowers](https://github.com/obra/superpowers) (MIT). See `NOTICE.md`.
 

@@ -374,7 +374,7 @@ sb_sanitize_slug() {
 }
 
 # Preprocess JSONL transcript lines on stdin into a compact text summary.
-# Shared by stop-extract.sh, pre-compact.sh, and batch-extract.sh.
+# Shared by stop-extract.sh and pre-compact.sh.
 sb_preprocess_transcript() {
   jq -cr '
     if .type == "user" then
@@ -682,15 +682,9 @@ sb_generate_dream_id() {
   echo "drm_$(date -u +%Y%m%dT%H%M%SZ)"
 }
 
-sb_dream_dir() {
-  echo "$BRAIN_DIR/dreams/${1:?dream_id required}"
-}
-
-sb_dream_status() {
-  local dream_id="$1"
-  local status_file="$BRAIN_DIR/dreams/$dream_id/status.json"
-  [ -f "$status_file" ] && cat "$status_file" || echo '{}'
-}
+# (R6 sweep: the sb_dream_dir/sb_dream_status helpers were deleted — nothing
+# referenced them; dream paths are composed inline as "$BRAIN_DIR/dreams/<id>"
+# and status reads are inline jq, the canonical pattern across the scripts.)
 
 sb_dream_set_status() {
   local dream_id="$1" field="$2" value="$3"
@@ -1034,11 +1028,16 @@ sb_call_extractor() {
       local resp
       # Honor ANTHROPIC_BASE_URL for enterprise gateways / proxies / air-gapped
       # Anthropic-compatible endpoints; default to the public host.
+      # </dev/null: curl takes the payload via process substitution and never
+      # needs stdin — but WITHOUT closing it, any stdin-reading stand-in (test
+      # stub, gateway wrapper) inherits the caller's stdin and blocks until the
+      # timeout kills it whenever that stdin never EOFs (e.g. a background
+      # runner's open pipe — the in-suite-only test-lib-extractor-backend hang).
       resp=$(timeout "$timeout_s" curl -sS "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/messages" \
         -H "x-api-key: $ANTHROPIC_API_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" \
-        --data-binary @<(printf '%s' "$payload") 2>"$err_file" || true)
+        --data-binary @<(printf '%s' "$payload") </dev/null 2>"$err_file" || true)
 
       local text
       text=$(printf '%s' "$resp" | jq -r '.content[0].text // empty' 2>/dev/null)
