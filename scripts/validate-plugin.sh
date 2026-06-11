@@ -86,7 +86,22 @@ if [ -f "$MARKETPLACE_JSON" ]; then
   # was unchecked (the exact class this check was added for in v0.21.0). Each
   # entry's `source` dir must carry .claude-plugin/plugin.json with a matching
   # version.
+  # Fail CLOSED on schema surprises: tostring keeps @tsv alive on a non-string
+  # source (object/remote forms), and a parse failure must surface as an
+  # error, not silently skip every drift check (R8 premise review).
+  DRIFT_TSV=$(jq -r '.plugins[] | [.name, (.version // ""), (.source | tostring)] | @tsv' "$MARKETPLACE_JSON" 2>/dev/null)
+  if [ -z "$DRIFT_TSV" ]; then
+    echo "FAIL: could not parse .plugins[] from marketplace.json for the drift check"
+    ERRORS=$((ERRORS + 1))
+  fi
   while IFS=$'\t' read -r P_NAME P_VER P_SRC; do
+    [ -n "$P_NAME" ] || continue
+    case "$P_SRC" in
+      ./*|.) : ;;  # local relative source — checkable below
+      *)
+        echo "WARN: marketplace plugin '$P_NAME' has non-local source '$P_SRC' — drift not checkable here"
+        continue ;;
+    esac
     SRC_MANIFEST="$PLUGIN_ROOT/${P_SRC#./}/.claude-plugin/plugin.json"
     SRC_MANIFEST=$(printf '%s' "$SRC_MANIFEST" | sed 's|//*|/|g')
     if [ ! -f "$SRC_MANIFEST" ]; then
@@ -99,7 +114,9 @@ if [ -f "$MARKETPLACE_JSON" ]; then
       echo "FAIL: version drift — $P_NAME plugin.json=$SRC_VER but marketplace.json=$P_VER. Sync both on release."
       ERRORS=$((ERRORS + 1))
     fi
-  done < <(jq -r '.plugins[] | [.name, .version, .source] | @tsv' "$MARKETPLACE_JSON" 2>/dev/null)
+  done <<EOF_DRIFT
+$DRIFT_TSV
+EOF_DRIFT
 fi
 
 # claude plugin validate (P2c). Anthropic runs this on every community

@@ -116,10 +116,14 @@ if [ "$RUN_VITEST" = "1" ] && [ -d "$MCP_DIR" ] && [ -f "$MCP_DIR/package.json" 
   echo "${C_BOLD}--- vitest ($MCP_DIR) ---${C_RST}"
   vitest_log=$(mktemp)
   vitest_ec=0
+  # R8: vitest gets the same sandbox-HOME treatment as the bash lane (mcp/src
+  # resolves os.homedir() in 10+ modules; today's tests are mkdtemp-hermetic,
+  # this keeps a future homedir()-touching test from re-opening the leak).
+  VITEST_HOME="$SUITE_SANDBOX/vitest-home"; mkdir -p "$VITEST_HOME"
   if command -v timeout >/dev/null 2>&1; then
-    (cd "$MCP_DIR" && timeout "$PER_TEST_TIMEOUT" npx vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" timeout "$PER_TEST_TIMEOUT" npx vitest run --reporter=default) >"$vitest_log" 2>&1
   else
-    (cd "$MCP_DIR" && npx vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" npx vitest run --reporter=default) >"$vitest_log" 2>&1
   fi
   vitest_ec=$?
   if [ "$vitest_ec" -eq 0 ]; then
