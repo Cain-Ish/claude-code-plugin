@@ -3,7 +3,7 @@ name: recall
 description: Search past conversation transcripts for decisions, solutions, and context from previous sessions. Uses hybrid vector + text search over archived session transcripts.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read mcp__knowledge-base__episodic_search mcp__knowledge-base__episodic_read
+allowed-tools: Read mcp__plugin_second-brain_knowledge-base__episodic_search mcp__plugin_second-brain_knowledge-base__episodic_read
 argument-hint: "[query] [--project <slug>] [--after YYYY-MM-DD]"
 ---
 

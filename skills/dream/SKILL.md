@@ -9,7 +9,7 @@ description: |
 user-invocable: true
 disable-model-invocation: true
 argument-hint: "[--background] [instructions text]"
-allowed-tools: Read Write Edit Bash(ls *) Bash(cat *) Bash(wc *) Bash(date *) Bash(find *) Bash(grep *) Bash(diff *) Bash(jq *) Bash(bash *) Bash(mktemp *) Bash(mv *) Bash(mkdir *) Bash(rm *) Agent mcp__knowledge-base__dream_create mcp__knowledge-base__dream_status mcp__knowledge-base__dream_list mcp__knowledge-base__dream_accept mcp__knowledge-base__dream_discard mcp__knowledge-base__dream_cancel mcp__knowledge-base__knowledge_search mcp__knowledge-base__knowledge_reindex mcp__knowledge-base__knowledge_validate
+allowed-tools: Read Write Edit Bash(ls *) Bash(cat *) Bash(wc *) Bash(date *) Bash(find *) Bash(grep *) Bash(diff *) Bash(jq *) Bash(bash *) Bash(mktemp *) Bash(mv *) Bash(mkdir *) Bash(rm *) Agent mcp__plugin_second-brain_knowledge-base__dream_create mcp__plugin_second-brain_knowledge-base__dream_status mcp__plugin_second-brain_knowledge-base__dream_list mcp__plugin_second-brain_knowledge-base__dream_accept mcp__plugin_second-brain_knowledge-base__dream_discard mcp__plugin_second-brain_knowledge-base__dream_cancel mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__knowledge_reindex mcp__plugin_second-brain_knowledge-base__knowledge_validate
 ---
 
 # Dream — Knowledge Base Consolidation

@@ -948,11 +948,11 @@ sb_call_extractor() {
     local claude_ec=0
     local TBIN; TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)  # GNU || macOS-brew
     if [ -n "$TBIN" ]; then
-      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "$TBIN" "$timeout_s" "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
+      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "$TBIN" "$timeout_s" ${WRAP_PREFIX[@]+"${WRAP_PREFIX[@]}"} claude "${CLI_ARGS[@]}" \
         < "$input_file" > "$out_file" 2>"$err_file" )
       claude_ec=$?
     else
-      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "${WRAP_PREFIX[@]}" claude "${CLI_ARGS[@]}" \
+      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 ${WRAP_PREFIX[@]+"${WRAP_PREFIX[@]}"} claude "${CLI_ARGS[@]}" \
         < "$input_file" > "$out_file" 2>"$err_file" )
       claude_ec=$?
     fi

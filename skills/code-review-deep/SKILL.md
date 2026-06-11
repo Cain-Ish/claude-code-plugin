@@ -1,9 +1,10 @@
 ---
 name: code-review-deep
 description: In-depth multi-pass code review of a GitHub change (local checkout). Decomposes the diff into logical review units, reviews each on the best available model (docs on the Haiku model), runs an advisory architectural pass on the highest-risk units, scores findings with an FP-aware scorer, consults the second-brain for conventions and prior reviews, and records false positives. Local output by default; --comment posts to the PR.
+user-invocable: true
 disable-model-invocation: false
 argument-hint: "[<PR#>] [--comment] [--base <branch>]"
-allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__knowledge-base__knowledge_search mcp__knowledge-base__episodic_search
+allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__episodic_search
 ---
 
 # Deep Code Review

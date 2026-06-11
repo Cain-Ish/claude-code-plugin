@@ -16,8 +16,20 @@ REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$REPO_ROOT/scripts/stop-extract.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-fail() { echo "FAIL: $1"; exit 1; }
+fail() {
+  echo "FAIL: $1"
+  # Diagnostics for remote-CI failures (macOS job has no shell access):
+  echo "── error-log:"; tail -5 "$SANDBOX/.second-brain/error-log.jsonl" 
+  echo "── extractor-health:"; cat "$SANDBOX/.second-brain/extractor-health.json" 
+  echo "── PROJECT.md:"; head -20 "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" 
+  exit 1
+}
 pass() { echo "PASS: $1"; }
+
+# Portable content hash: macOS ships shasum, not sha256sum (macOS CI job).
+# A bare sha256sum would empty-string both sides under set -u and pass the
+# "unchanged" assertions VACUOUSLY (R8 premise review).
+content_hash() { sha256sum "$1"  | awk '{print $1}' || shasum -a 256 "$1" | awk '{print $1}'; }
 
 init_sandbox() {
   local name="$1"
@@ -151,9 +163,9 @@ init_sandbox "qna"
 seed_transcript_qna_only
 stub_claude_json '{"recent_decisions":["should-not-merge"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
-ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+ORIG_HASH=$(content_hash "$PROJ")
 stop_payload | "$SCRIPT" >/dev/null 2>&1
-NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+NEW_HASH=$(content_hash "$PROJ")
 [ "$ORIG_HASH" = "$NEW_HASH" ] || fail "qna: expected no merge but PROJECT.md changed"
 pass "Q&A-only transcript: predicate skips extraction"
 restore_path
@@ -188,7 +200,7 @@ init_sandbox "garbage"
 seed_transcript_with_edit
 stub_claude_garbage
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
-ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+ORIG_HASH=$(content_hash "$PROJ")
 stop_payload | "$SCRIPT" >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 0 ] || fail "garbage: expected exit 0 (fail-soft), got $rc"

@@ -7,10 +7,14 @@
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"; SL="$ROOT/scripts/session-load.sh"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
-# $1 = brain dir, $2 = ANTHROPIC_API_KEY value ("" = OAuth, given `claude` is on PATH here)
-emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' | env ANTHROPIC_API_KEY="$2" BRAIN_DIR="$1" bash "$SL" 2>/dev/null; }
+# $1 = brain dir, $2 = ANTHROPIC_API_KEY value ("" = OAuth). A stub `claude`
+# goes on PATH so the OAuth premise holds on hosts WITHOUT the real CLI (CI
+# runners) — the auth probe otherwise resolves "none" and the auth banner
+# displaces the capture banner this test asserts.
+STUB_BIN=$(mktemp -d); printf '#!/bin/bash\nexit 0\n' > "$STUB_BIN/claude"; chmod +x "$STUB_BIN/claude"
+emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' | env PATH="$STUB_BIN:$PATH" ANTHROPIC_API_KEY="$2" BRAIN_DIR="$1" bash "$SL" 2>/dev/null; }
 
-B=$(mktemp -d); mkdir -p "$B/transcripts"; : > "$B/transcripts/s1.txt"; : > "$B/USER.md"   # transcripts, none drained, no timer
+B=$(mktemp -d); mkdir -p "$B/transcripts"; : > "$B/transcripts/s1.txt"; : > "$B/USER.md"; touch -t 202001010000 "$B/USER.md"   # transcripts, none drained, no timer
 
 # 1. OAuth (no key) → SHOUT + offer all three paths
 oauth=$(emit "$B" "")
@@ -32,7 +36,7 @@ pass "API-key: surfaces a real silent failure (without the drainer nag)"
 SB_CAPTURE_HEALTH_BANNER=off emit "$B" "" | grep -qi 'capture not running' && fail "kill switch did not suppress" || pass "SB_CAPTURE_HEALTH_BANNER=off suppresses"
 
 # 4. no transcripts → silent (fresh install isn't nagged)
-B2=$(mktemp -d); : > "$B2/USER.md"
+B2=$(mktemp -d); : > "$B2/USER.md"; touch -t 202001010000 "$B2/USER.md"
 emit "$B2" "" | grep -qi 'capture not running' && fail "nagged a fresh install (no transcripts)" || pass "silent on fresh install"
 
 rm -rf "$B" "$B2"; echo; echo "ALL PASS"

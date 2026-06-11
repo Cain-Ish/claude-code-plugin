@@ -20,6 +20,17 @@ MCP_DIR="$ROOT/mcp"
 QUIET="${SB_RUN_ALL_QUIET:-0}"
 RUN_VITEST="${SB_RUN_ALL_VITEST:-1}"
 PER_TEST_TIMEOUT="${SB_RUN_ALL_TIMEOUT:-120}"
+SUITE_T0=$(date +%s)
+
+# R8 structural isolation: every test runs under a PER-TEST temp HOME so a
+# test that FORGETS its own sandbox cannot touch the real KB (the 0.24.32
+# tmp.* leak class). HOME alone is enough: BRAIN_DIR and KNOWLEDGE_DIR both
+# derive from $HOME when unset, so test-local derivations keep working —
+# presetting those two directly would OVERRIDE tests that sandbox HOME and
+# rely on the derivation (5 tests broke that way in the first cut). Tests
+# that need the real HOME read SB_SUITE_REAL_HOME_PATH.
+SUITE_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/sb-suite-home.XXXXXX")
+trap 'rm -rf "$SUITE_SANDBOX"' EXIT
 
 # Color codes (skipped if not a TTY).
 if [ -t 1 ]; then
@@ -52,10 +63,18 @@ run_one_sh() {
   # below, so the exec bit was never used, and the chmod dirtied the working
   # tree on every suite run. Exec bits are git-recorded; test-exec-bits gates.)
 
+  # R8: per-test temp HOME (see header). The real HOME is passed through as
+  # SB_SUITE_REAL_HOME_PATH for tests that genuinely need it.
+  local iso_home="$SUITE_SANDBOX/$(basename "$script" .sh)"
+  mkdir -p "$iso_home"
+  local -a iso_env=(
+    "SB_SUITE_REAL_HOME_PATH=$HOME"
+    "HOME=$iso_home"
+  )
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$PER_TEST_TIMEOUT" bash "$script" >"$logfile" 2>&1; ec=$?
+    env "${iso_env[@]}" timeout "$PER_TEST_TIMEOUT" bash "$script" >"$logfile" 2>&1; ec=$?
   else
-    bash "$script" >"$logfile" 2>&1; ec=$?
+    env "${iso_env[@]}" bash "$script" >"$logfile" 2>&1; ec=$?
   fi
   local elapsed=$(( $(date +%s) - started ))
 
@@ -97,10 +116,14 @@ if [ "$RUN_VITEST" = "1" ] && [ -d "$MCP_DIR" ] && [ -f "$MCP_DIR/package.json" 
   echo "${C_BOLD}--- vitest ($MCP_DIR) ---${C_RST}"
   vitest_log=$(mktemp)
   vitest_ec=0
+  # R8: vitest gets the same sandbox-HOME treatment as the bash lane (mcp/src
+  # resolves os.homedir() in 10+ modules; today's tests are mkdtemp-hermetic,
+  # this keeps a future homedir()-touching test from re-opening the leak).
+  VITEST_HOME="$SUITE_SANDBOX/vitest-home"; mkdir -p "$VITEST_HOME"
   if command -v timeout >/dev/null 2>&1; then
-    (cd "$MCP_DIR" && timeout "$PER_TEST_TIMEOUT" npx vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" timeout "$PER_TEST_TIMEOUT" npx vitest run --reporter=default) >"$vitest_log" 2>&1
   else
-    (cd "$MCP_DIR" && npx vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" npx vitest run --reporter=default) >"$vitest_log" 2>&1
   fi
   vitest_ec=$?
   if [ "$vitest_ec" -eq 0 ]; then
@@ -121,6 +144,9 @@ echo "${C_BOLD}--- summary ---${C_RST}"
 echo "  pass: $PASS"
 echo "  fail: $FAIL"
 echo "  skip: $SKIP"
+# R8: wall time in the summary (recorded Pi 5 baseline: ~156s full suite) so a
+# perf regression is visible at a glance, not only by forensic timing.
+echo "  wall: $(( $(date +%s) - SUITE_T0 ))s"
 if [ "$FAIL" -gt 0 ]; then
   echo
   echo "${C_RED}FAILED:${C_RST}"

@@ -4,6 +4,27 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.24.44
+
+**R8 process hardening.** (1) Minimal CI (`.github/workflows/ci.yml`):
+SHA-pinned official actions only, read-only token; Linux job runs tsc +
+vitest + bundle-current gate + full bash suite + validator; macOS job runs
+the dream-lifecycle + portability tests on real bash 3.2/BSD (closes the
+standing PROJECT.md macOS item). (2) Bundle-current gate
+(test-bundle-current.sh): every committed mcp/dist bundle must byte-match a
+rebuild from committed src (0.24.7/0.24.8 stale-dist class). (3)
+validate-plugin: version-drift now iterates EVERY marketplace plugin
+(cost-router was unchecked); surface budget (docs/surface-budget.json) fails
+undeliberate growth in skills/agents/scripts/tests; SKAG-6 — user-invocable +
+disable-model-invocation must be explicit in every skill; the upgrade-runner
+8KB cap enforced in the validator as promised. (4) Permission-dialect
+canonicalization: 10 skills' short-form `mcp__knowledge-base__*` grants (dead
+at runtime) swept to the live-verified `mcp__plugin_second-brain_knowledge-base__*`;
+guard now rejects the short form. (5) run-all: suite-temp
+HOME/BRAIN_DIR/KNOWLEDGE_DIR for every bash test (kills the real-KB leak
+class structurally) + wall-time in the summary. (6) RELEASING.md tag contract
+re-aligned to merge-gated releases (tags optional). No user action.
+
 ## 0.24.43
 
 **R6b per-prompt diet.** (1) New combined `context-serve-cli` answers the

@@ -1,9 +1,18 @@
 # Releasing
 
 This document is the binding release checklist for the `second-brain` plugin.
-Versions get tagged only when every box below is checked. Anything short of
-that produces a "shipped pending verification" build — useful for testing on
-your own machine, not for tagging or pushing to others.
+A version is released when every box below is checked on the merge commit.
+Anything short of that produces a "shipped pending verification" build —
+useful for testing on your own machine, not for pushing to others.
+
+> **Tag contract amendment (R8, 2026-06-11):** the practice moved from git
+> tags to marketplace-version + CHANGELOG.md as the release record (nothing
+> tagged since v0.22.1, while every release since is fully traceable via the
+> version-locked `plugin.json`/`marketplace.json` pair, its CHANGELOG entry,
+> and the merged PR). The gate below now binds to the MERGE, not the tag:
+> every release lands via a PR with `tests/run-all.sh` green locally AND the
+> `ci` workflow green server-side. Tags are optional annotations; if you do
+> tag, the old rule still holds (gate green on the tagged commit).
 
 ## Why this exists
 

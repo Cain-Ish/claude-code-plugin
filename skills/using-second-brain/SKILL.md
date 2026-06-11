@@ -3,14 +3,14 @@ name: using-second-brain
 description: Use when starting any conversation - establishes how to consult the persona's identity, memory (wiki + episodic), and installed plugin catalog before answering substantive prompts. This is the persona-as-collaborator protocol.
 user-invocable: false
 disable-model-invocation: false
-allowed-tools: Read mcp__knowledge-base__knowledge_search mcp__knowledge-base__episodic_search mcp__knowledge-base__knowledge_neighbors
+allowed-tools: Read mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__episodic_search mcp__plugin_second-brain_knowledge-base__knowledge_neighbors
 ---
 
 # Using Second-Brain
 
 ## Hard rule (non-negotiable)
 
-If the user's message names a host, service, project, decision, blocker, or wiki page slug — by literal name — you **MUST** call `mcp__knowledge-base__knowledge_search` on that name **before answering**. The auto-retrieved wiki block in `additionalContext` is best-effort and ranks against the whole message; it can miss when the relevant page exists but didn't score high enough. The hard rule kicks in when the user is *specific*. One query, top 1-2 hits, then answer. No exceptions.
+If the user's message names a host, service, project, decision, blocker, or wiki page slug — by literal name — you **MUST** call `mcp__plugin_second-brain_knowledge-base__knowledge_search` on that name **before answering**. The auto-retrieved wiki block in `additionalContext` is best-effort and ranks against the whole message; it can miss when the relevant page exists but didn't score high enough. The hard rule kicks in when the user is *specific*. One query, top 1-2 hits, then answer. No exceptions.
 
 Examples that trigger the rule:
 - "check the supplychain cron" → query `supplychain cron`
@@ -41,7 +41,7 @@ You have a persona core. Before any non-trivial response:
 
 This **refines** "silence is the default" (point 4) — it does not replace it. The escape clause in point 4 is "engage only when expected value clearly exceeds the flow-disruption cost." A typed dependency edge you are about to break IS that case. **No graph signal → no interrupt.**
 
-**Graph check — before you *act on* a named entity.** When you are about to edit / refactor / delete / rename something that resolves to a wiki or graph node (not merely discuss it), do ONE `mcp__knowledge-base__knowledge_neighbors` call on its slug (`direction: "both"`). Then:
+**Graph check — before you *act on* a named entity.** When you are about to edit / refactor / delete / rename something that resolves to a wiki or graph node (not merely discuss it), do ONE `mcp__plugin_second-brain_knowledge-base__knowledge_neighbors` call on its slug (`direction: "both"`). Then:
 
 - **Speak up once** — and only — if the result carries a costly-to-miss edge: a `requires` / `affects` / `part_of` edge you would break, or a `supersedes` / invalidated edge warning against reintroducing something already retired. One heads-up line (what it requires, what it affects, any "don't reintroduce X"), then proceed and do the work silently.
 - **Stay silent** if the graph is empty, absent, or returns nothing load-bearing. Most edits get no interrupt. The graph CLI being unavailable is also silence, not an error.

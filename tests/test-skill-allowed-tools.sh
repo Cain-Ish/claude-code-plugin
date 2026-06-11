@@ -25,7 +25,16 @@ req dream       mktemp mv mkdir rm
 req setup       grep sed awk head cat wc
 req review      basename dirname tr head
 req import-host tr
-req status      mcp__knowledge-base__knowledge_validate
+req status      mcp__plugin_second-brain_knowledge-base__knowledge_validate
 req upgrade     node
 
 echo; echo "ALL PASS"
+
+# R8: the SHORT MCP dialect is non-canonical — the runtime exposes plugin
+# tools as mcp__plugin_second-brain_knowledge-base__* (verified live), so a
+# short-form grant never matches and silently becomes a permission prompt.
+if grep -rln 'mcp__knowledge-base__' "$ROOT/skills" "$ROOT/agents"  | grep -q .; then
+  echo "FAIL: short-form mcp__knowledge-base__ grant found (canonical: mcp__plugin_second-brain_knowledge-base__*)"
+  exit 1
+fi
+echo "PASS: no non-canonical short-form MCP grants"
