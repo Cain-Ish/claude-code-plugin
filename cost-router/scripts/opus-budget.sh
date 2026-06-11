@@ -1,20 +1,26 @@
 #!/bin/bash
 # cost-router/scripts/opus-budget.sh
-# Contract A: shared Opus-budget ledger (cross-plugin file-format contract).
+# Contract A: shared premium-spend ledger (cross-plugin file-format contract).
+#
+# Records spend for PREMIUM models — anything above the DO/SCOUT tiers
+# (Opus today; Fable and future top-tier models tomorrow). INFORMATIONAL
+# ONLY since 0.24.45: there is no cap and no enforcement — the ledger exists
+# so banners/summaries can report what premium dispatches cost today. The
+# tier→model assignments change over releases, so nothing here hardcodes a
+# limit against a model name.
 #
 # Ledger path: ${COST_ROUTER_LEDGER:-${SB_BRAIN_DIR:-$HOME/.second-brain}/opus-budget.json}
-# Schema: {"date":"YYYY-MM-DD","opus_cost_usd":<float>,"opus_calls":<int>,"cap_usd":<float>}
+# (filename + key names are historical — kept for cross-plugin compatibility)
+# Schema: {"date":"YYYY-MM-DD","opus_cost_usd":<float>,"opus_calls":<int>}
 #
 # Daily reset: if stored "date" != today (UTC), treat spent as 0 and reset file.
-# Cap: from COST_ROUTER_OPUS_CAP_USD, default 5.0.
 #
 # Shell functions:
 #   ob_path        — print the ledger path
 #   ob_today_spent — echo the float spent today (0 if no ledger / stale date)
 #   ob_record <cost_usd> — add to today's total + increment opus_calls
-#   ob_over_budget — exit 0 if spent >= cap, else exit 1
 #
-# CLI: opus-budget.sh spent | record <cost_usd> | over
+# CLI: opus-budget.sh spent | record <cost_usd>
 #
 # Bash 3.2 / BSD-safe: no date -d, no GNU-only regex, no assoc arrays.
 # Float math via awk. Atomic writes via temp+mv.
@@ -52,11 +58,10 @@ ob_today_spent() {
 
 ob_record() {
   local cost_usd="$1"
-  local path today current_cost current_calls cap new_cost new_calls stored_date tmp
+  local path today current_cost current_calls new_cost new_calls stored_date tmp
 
   path=$(ob_path)
   today=$(date -u +%F)
-  cap="${COST_ROUTER_OPUS_CAP_USD:-5.0}"
 
   # Ensure parent dir exists
   local dir
@@ -86,33 +91,22 @@ ob_record() {
     --arg date "$today" \
     --argjson cost "$new_cost" \
     --argjson calls "$new_calls" \
-    --argjson cap "$cap" \
-    '{"date":$date,"opus_cost_usd":$cost,"opus_calls":$calls,"cap_usd":$cap}' \
+    '{"date":$date,"opus_cost_usd":$cost,"opus_calls":$calls}' \
     > "$tmp" && mv "$tmp" "$path"
-}
-
-ob_over_budget() {
-  local spent cap result
-  spent=$(ob_today_spent)
-  cap="${COST_ROUTER_OPUS_CAP_USD:-5.0}"
-  result=$(awk -v s="$spent" -v c="$cap" 'BEGIN { print (s + 0 >= c + 0) ? "1" : "0" }')
-  [ "$result" = "1" ]
 }
 
 # ── internal: reset ledger to today with zero spend ─────────────────────────
 
 _ob_reset() {
   local path="$1"
-  local today cap dir tmp
+  local today dir tmp
   today=$(date -u +%F)
-  cap="${COST_ROUTER_OPUS_CAP_USD:-5.0}"
   dir=$(dirname "$path")
   [ -d "$dir" ] || mkdir -p "$dir"
   tmp="${path}.tmp.$$"
   jq -cn \
     --arg date "$today" \
-    --argjson cap "$cap" \
-    '{"date":$date,"opus_cost_usd":0,"opus_calls":0,"cap_usd":$cap}' \
+    '{"date":$date,"opus_cost_usd":0,"opus_calls":0}' \
     > "$tmp" && mv "$tmp" "$path"
 }
 
@@ -133,10 +127,11 @@ if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
       ob_record "$2"
       ;;
     over)
-      ob_over_budget
+      echo "'over' was removed in 0.24.45 — the premium-spend ledger is informational, there is no cap" >&2
+      exit 1
       ;;
     *)
-      echo "usage: opus-budget.sh spent | record <cost_usd> | over" >&2
+      echo "usage: opus-budget.sh spent | record <cost_usd>" >&2
       exit 1
       ;;
   esac

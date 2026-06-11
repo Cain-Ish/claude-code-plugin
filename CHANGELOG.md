@@ -4,6 +4,19 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.24.45
+
+**De-cap (user decision): premium spend is reported, never enforced.** The
+hardcoded daily Opus cap is REMOVED from both plugins — premium-tier models
+change over releases (Opus today, Fable next), so no dollar limit is keyed to
+a model name anymore. cost-router 0.2.0: `opus-budget.sh over` removed
+(ledger informational, cap_usd no longer written), SessionStart banner now
+reads "premium-model spend today: $X (informational)", orchestrate skill
+reports spend instead of gating THINK on it. second-brain: persona_think no
+longer skips on a maxed ledger (spend still recorded after every call);
+persona-think CLI prints the day's spend as an informational line. MCP server
+2.7.0. `COST_ROUTER_OPUS_CAP_USD` / `SB_PERSONA_DAILY_BUDGET` are inert.
+
 ## 0.24.44
 
 **R8 process hardening.** (1) Minimal CI (`.github/workflows/ci.yml`):

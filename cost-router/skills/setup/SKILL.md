@@ -89,7 +89,7 @@ Effective state:
   Per-dispatch:      model: 'sonnet' / model: 'haiku' work as expected
   CLAUDE_CODE_SUBAGENT_MODEL: not set (recommended)
   second-brain:      detected / not detected
-  Opus daily cap:    $5.00 (COST_ROUTER_OPUS_CAP_USD)
+  Premium spend:     informational ledger, no cap (0.24.45 de-cap)
 ```
 
 ## Step 6 — Summary

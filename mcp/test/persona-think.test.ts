@@ -20,11 +20,13 @@ describe('persona_think', () => {
     expect(r.error).toBeUndefined();
   });
 
-  it('returns budget_skipped without invoking runner when budgetExceeded', async () => {
-    const fakeRunner = vi.fn();
-    const r = await personaThink({ prompt: 'anything' }, { runner: fakeRunner, budgetExceeded: true });
-    expect(r.budget_skipped).toBe(true);
-    expect(fakeRunner).not.toHaveBeenCalled();
+  it('invokes the runner even when the old budgetExceeded flag would have tripped (cap removed 0.24.45)', async () => {
+    const fakeRunner = vi.fn().mockResolvedValue(JSON.stringify({
+      intent_read: 'x', prompt_enrichment: '', clarifying_questions: [], relevant_specialists: [], risk_flags: [],
+    }));
+    const r = await personaThink({ prompt: 'anything' }, { runner: fakeRunner });
+    expect(fakeRunner).toHaveBeenCalled();
+    expect(r.budget_skipped).toBeUndefined();
   });
 
   it('returns error field on runner failure', async () => {
@@ -168,23 +170,24 @@ describe('shared Opus ledger (Contract A)', () => {
     expect(after.opus_calls).toBe(1);
   });
 
-  it('personaThink returns opus_budget_exhausted result when daily cap exceeded', async () => {
+  it('personaThink PROCEEDS on a maxed ledger and still records spend — the cap is gone, spend is informational (0.24.45)', async () => {
     const ledgerPath = join(brainDir, 'opus-budget.json');
-    // Write a ledger that is already at/above cap
     writeFileSync(ledgerPath, JSON.stringify({
       date: new Date().toISOString().slice(0, 10),
       opus_cost_usd: 10.0,
       opus_calls: 50,
-      cap_usd: 5.0,
     }));
-    const fakeRunner = vi.fn();
+    const fakeRunner = vi.fn().mockResolvedValue(JSON.stringify({
+      intent_read: 'x', prompt_enrichment: '', clarifying_questions: [], relevant_specialists: [], risk_flags: [],
+    }));
     const r = await personaThink(
-      { prompt: 'over-cap test' },
-      { runner: fakeRunner, ledgerPath, opusCap: 5.0 },
+      { prompt: 'over-old-cap test' },
+      { runner: fakeRunner, ledgerPath, inputTokens: 10000, outputTokens: 500 },
     );
-    expect(fakeRunner).not.toHaveBeenCalled();
-    expect(r.budget_skipped).toBe(true);
-    expect(r.error).toMatch(/budget|cap/i);
+    expect(fakeRunner).toHaveBeenCalled();
+    expect(r.budget_skipped).toBeUndefined();
+    const after = await readOpusLedger(ledgerPath);
+    expect(after.opus_cost_usd).toBeGreaterThan(10.0);
   });
 
   it('personaThink is a no-op (does not fail) when ledger dir is not writable', async () => {

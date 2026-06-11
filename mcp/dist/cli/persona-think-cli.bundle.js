@@ -10,27 +10,10 @@ function opusLedgerPath(brainDir2) {
   const bd = brainDir2 ?? (process.env.SB_BRAIN_DIR ?? `${process.env.HOME ?? "~"}/.second-brain`);
   return join(bd, "opus-budget.json");
 }
-async function readOpusLedger(ledgerPath) {
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  try {
-    const txt = await fs.readFile(ledgerPath, "utf-8");
-    const j = JSON.parse(txt);
-    if (j.date === today) {
-      return {
-        date: today,
-        opus_cost_usd: Number(j.opus_cost_usd) || 0,
-        opus_calls: Number(j.opus_calls) || 0,
-        cap_usd: Number(j.cap_usd) || 5
-      };
-    }
-  } catch {
-  }
-  return { date: today, opus_cost_usd: 0, opus_calls: 0, cap_usd: 5 };
-}
 async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
   const callCost = inputTokens / 1e6 * 5 + outputTokens / 1e6 * 25;
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  let current = { date: today, opus_cost_usd: 0, opus_calls: 0, cap_usd: 5 };
+  let current = { date: today, opus_cost_usd: 0, opus_calls: 0 };
   try {
     const txt = await fs.readFile(ledgerPath, "utf-8");
     const j = JSON.parse(txt);
@@ -38,8 +21,7 @@ async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
       current = {
         date: today,
         opus_cost_usd: Number(j.opus_cost_usd) || 0,
-        opus_calls: Number(j.opus_calls) || 0,
-        cap_usd: Number(j.cap_usd) || 5
+        opus_calls: Number(j.opus_calls) || 0
       };
     }
   } catch {
@@ -47,8 +29,7 @@ async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
   const next = {
     date: today,
     opus_cost_usd: current.opus_cost_usd + callCost,
-    opus_calls: current.opus_calls + 1,
-    cap_usd: current.cap_usd
+    opus_calls: current.opus_calls + 1
   };
   const tmpPath = `${ledgerPath}.tmp.${process.pid}`;
   try {
@@ -135,21 +116,7 @@ function parseBrief(raw) {
   }
 }
 async function personaThink(args, deps = {}) {
-  if (deps.budgetExceeded) {
-    return { ...EMPTY, budget_skipped: true };
-  }
   const lPath = deps.ledgerPath ?? opusLedgerPath(deps.brainDir);
-  const opusCap = deps.opusCap ?? Number(process.env.COST_ROUTER_OPUS_CAP_USD ?? "5.0");
-  if (lPath) {
-    const ledger = await readOpusLedger(lPath).catch(() => null);
-    if (ledger && ledger.opus_cost_usd >= opusCap) {
-      return {
-        ...EMPTY,
-        budget_skipped: true,
-        error: `Opus daily budget exhausted (spent $${ledger.opus_cost_usd.toFixed(4)} of $${opusCap} cap) \u2014 try later or raise COST_ROUTER_OPUS_CAP_USD`
-      };
-    }
-  }
   const runner = deps.runner ?? defaultRunner;
   const model = deps.model ?? DEFAULT_MODEL;
   const hints = (args.context_hints ?? []).join("\n");
@@ -203,7 +170,6 @@ async function recordSpend(brainDir2, usd) {
 
 // src/cli/persona-think-cli.ts
 var brainDir = process.env.BRAIN_DIR || join2(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
-var dailyBudget = Number(process.env.SB_PERSONA_DAILY_BUDGET ?? "20");
 var argvPrompt = process.argv.slice(2).join(" ").trim();
 var stdinPrompt = await new Promise((resolve) => {
   if (process.stdin.isTTY) return resolve("");
@@ -217,13 +183,7 @@ var stdinPrompt = await new Promise((resolve) => {
 var prompt = argvPrompt || stdinPrompt;
 if (!prompt) process.exit(0);
 var budget = await readBudget(brainDir);
-var budgetExceeded = budget.today_usd >= dailyBudget;
-var r = await personaThink({ prompt }, { budgetExceeded, brainDir });
-if (r.budget_skipped) {
-  process.stdout.write(`[persona think skipped \u2014 daily budget $${dailyBudget} reached]
-`);
-  process.exit(0);
-}
+var r = await personaThink({ prompt }, { brainDir });
 if (r.error) {
   process.stderr.write(`persona think error: ${r.error}
 `);
@@ -235,4 +195,5 @@ if (r.prompt_enrichment) lines.push(`Enrichment: ${r.prompt_enrichment}`);
 if (r.clarifying_questions.length) lines.push(`Ask user: ${r.clarifying_questions.map((q, i) => `${i + 1}) ${q}`).join("  ")}`);
 if (r.relevant_specialists.length) lines.push(`Consider: ${r.relevant_specialists.join(", ")}`);
 if (r.risk_flags.length) lines.push(`Risks: ${r.risk_flags.join("; ")}`);
+if (budget.today_usd > 0) lines.push(`Persona spend today: $${budget.today_usd.toFixed(2)} (informational)`);
 process.stdout.write(lines.join("\n") + "\n");
