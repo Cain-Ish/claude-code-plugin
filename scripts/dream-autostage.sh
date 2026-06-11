@@ -51,7 +51,7 @@ emit_failed_banner() {  # $1 = id, $2 = error tail (R4, SCRIPTS-02/04 visibility
 
 emit_quarantine_banner() {  # $1 = quarantine line (R4, SCRIPTS-03 visibility)
   # shellcheck disable=SC2016
-  printf '## ⚠ second-brain — auto_maintain quarantined\n%s\nFix the cause, then delete `~/.second-brain/.llm-maintain-quarantine` to re-enable (a successful `/second-brain:maintain` run also clears it).\n\n' "$1"
+  printf '## ⚠ second-brain — auto_maintain quarantined\n%s\nIf the error names bwrap/namespaces, redeploy the drainer unit: `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth`. The quarantine self-clears on the next drain cycle once the cause is fixed (or delete `~/.second-brain/.llm-maintain-quarantine`).\n\n' "$1"
 }
 
 # Anchor the new-transcripts watermark on a TERMINAL dream (R4: failed/canceled
@@ -96,7 +96,11 @@ for d in "$DREAMS_DIR"/drm_*/; do
         FAILED_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null)
         FAILED_ERR=$(jq -r '.error // "unknown error"' "$sf" 2>/dev/null | head -c 160)
       fi
-      update_watermark "$d" "$sf"
+      # Anchor ONLY on the stable create-time transcripts/ dir. Once the prune
+      # strips it, status.json's mtime is the FAILURE time — anchoring there
+      # would jump the watermark forward and silently un-count transcripts the
+      # failed dream never consolidated (deep-review).
+      [ -d "${d}transcripts" ] && update_watermark "$d" "$sf"
       ;;
     *) update_watermark "$d" "$sf" ;;
   esac
@@ -113,8 +117,12 @@ if [ -n "$PENDING_ID" ] && [ -n "$PENDING_CREATED" ]; then
   cre=$(date -u -d "$PENDING_CREATED" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$PENDING_CREATED" +%s 2>/dev/null || echo 0)
   if [ "${cre:-0}" -gt 0 ] && [ $(( $(date +%s) - cre )) -gt "$STALE_S" ]; then
     RECLAIM_ERR="runner never started — stale pending reclaimed by autostage"
+    # if/else keeps the document intact when a runner flipped pending→running
+    # in the scan-to-write window (deep-review: a bare select would emit an
+    # EMPTY doc and clobber status.json).
     jq --arg e "$(date -u +%FT%TZ)" --arg err "$RECLAIM_ERR" \
-      '.status = "failed" | .ended_at = $e | .error = $err' "$PENDING_SF" > "$PENDING_SF.tmp.$$" 2>/dev/null \
+      'if .status == "pending" then .status = "failed" | .ended_at = $e | .error = $err else . end' \
+      "$PENDING_SF" > "$PENDING_SF.tmp.$$" 2>/dev/null \
       && mv "$PENDING_SF.tmp.$$" "$PENDING_SF" 2>/dev/null || rm -f "$PENDING_SF.tmp.$$" 2>/dev/null
     FAILED_ID="$PENDING_ID"; FAILED_ERR="$RECLAIM_ERR"
     PENDING_ID=""

@@ -35,16 +35,29 @@ fi
 
 # Failure-aware lifecycle (R4, SCRIPTS-03): a structural failure must not burn
 # the full weekly slot, and repeated failures must STOP retrying loudly instead
-# of spinning forever. Quarantine clears on success, on a /second-brain:maintain
-# run, or by deleting the file (the autostage banner names it).
+# of spinning forever. The quarantine SELF-CLEARS once the cheap preflight
+# passes again (cause fixed), on a successful run, or by deleting the file
+# (the autostage banner names it).
 FAILS_F="$BRAIN_DIR/.llm-maintain-fails"
 QUAR_F="$BRAIN_DIR/.llm-maintain-quarantine"
 RETRY="${SB_MAINTAIN_LLM_RETRY:-86400}"; case "$RETRY" in ''|*[!0-9]*) RETRY=86400 ;; esac
-[ -f "$QUAR_F" ] && [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ] && exit 0
+if [ -f "$QUAR_F" ] && [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ]; then
+  # SELF-CLEARING quarantine (deep-review): it exists to stop POINTLESS retries.
+  # If the cheap preflight now passes (e.g. the unit was redeployed without
+  # RestrictNamespaces), clear it and proceed; otherwise stay down silently.
+  if bwrap --ro-bind / / --unshare-pid --new-session -- /bin/true >/dev/null 2>&1; then
+    rm -f "$QUAR_F" "$FAILS_F" 2>/dev/null
+  else
+    exit 0
+  fi
+fi
 
 # Weekly throttle. SB_MAINTAIN_LLM_FORCE=1 bypasses (tests / manual).
 MARK="$BRAIN_DIR/.last-llm-maintain"
 INT="${SB_MAINTAIN_LLM_INTERVAL:-604800}"; case "$INT" in ''|*[!0-9]*) INT=604800 ;; esac
+# Never re-stamp LATER than the configured interval (deep-review: with a
+# sub-daily INT, the retry target would land in the future, inverting "retry sooner").
+[ "$RETRY" -gt "$INT" ] && RETRY="$INT"
 if [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ]; then
   mt=$(stat -c %Y "$MARK" 2>/dev/null || stat -f %m "$MARK" 2>/dev/null || echo 0)
   [ "$(( $(date +%s) - ${mt:-0} ))" -ge "$INT" ] || exit 0
@@ -61,7 +74,9 @@ _fail_step() {
   fi
   local target=$(( $(date +%s) - INT + RETRY ))
   local stamp
-  stamp=$(date -u -d "@$target" +%Y%m%d%H%M.%S 2>/dev/null || date -u -r "$target" +%Y%m%d%H%M.%S 2>/dev/null)
+  # LOCAL-time render (deep-review): `touch -t` interprets its stamp as local
+  # time; a UTC render skewed the retry horizon by the timezone offset.
+  stamp=$(date -d "@$target" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$target" +%Y%m%d%H%M.%S 2>/dev/null)
   [ -n "$stamp" ] && touch -t "$stamp" "$MARK" 2>/dev/null
 }
 

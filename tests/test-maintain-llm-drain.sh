@@ -124,13 +124,24 @@ rm -f "$MARK"; run_drain SB_TEST_PROBE_RC=1
 [ -f "$QUAR" ] || fail "(b) no quarantine file after 3 consecutive failures"
 grep -q 'bwrap preflight failed' "$QUAR" || fail "(b) quarantine lacks the error summary"
 N_BEFORE=$(grep -c 'bwrap preflight failed' "$BRAIN_DIR/error-log.jsonl")
-rm -f "$MARK"; run_drain SB_TEST_PROBE_RC=1   # quarantined → must not probe/log even unthrottled
+rm -f "$MARK"; run_drain SB_TEST_PROBE_RC=1   # quarantined + cause persists → stay down silently
 N_AFTER=$(grep -c 'bwrap preflight failed' "$BRAIN_DIR/error-log.jsonl")
-[ "$N_BEFORE" = "$N_AFTER" ] || fail "(b) quarantined run still probed/logged"
-pass "(b) 3-strike quarantine; quarantined runs skip"
+[ "$N_BEFORE" = "$N_AFTER" ] || fail "(b) quarantined run still logged a new failure"
+[ -f "$QUAR" ] || fail "(b) quarantine cleared while the cause persists"
+pass "(b) 3-strike quarantine; quarantined runs stay down while the cause persists"
+
+# --- (b2) SELF-CLEARING: once the cause is fixed (probe passes), the next drain
+# clears the quarantine and proceeds (deep-review: the old gate was a dead-end —
+# the success-path clear was unreachable while quarantined).
+rm -f "$MARK"
+run_drain SB_TEST_PROBE_RC=0 SB_TEST_RUN_RC=0
+[ ! -f "$QUAR" ] || fail "(b2) quarantine did not self-clear after the cause was fixed"
+[ ! -f "$FAILS" ] || fail "(b2) fails counter not cleared on self-heal"
+pass "(b2) quarantine self-clears when the preflight passes again"
 
 # --- (c) probe ok, headless run fails → dream pending→failed with stderr ---
 rm -f "$QUAR" "$FAILS" "$MARK"
+rm -rf "$BRAIN_DIR/dreams"   # (b2)'s stub run left a pending dream that would block staging
 run_drain SB_TEST_PROBE_RC=0 SB_TEST_RUN_RC=1 SB_TEST_RUN_STDERR="boom: auth exploded"
 SF=$(ls "$BRAIN_DIR"/dreams/drm_*/status.json 2>/dev/null | head -1)
 [ -n "$SF" ] || fail "(c) no dream staged on the run-failure path"

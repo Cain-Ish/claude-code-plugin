@@ -87,7 +87,11 @@ if [ "$DREAM_COUNT" -ge "$DREAM_KEEP" ]; then
       rm -rf "$old"
       DREAM_COUNT=$((DREAM_COUNT - 1))
     elif [ "$old_st" = "failed" ] || [ "$old_st" = "canceled" ]; then
-      rm -rf "$old/staging" "$old/transcripts" 2>/dev/null || true
+      # Only strip failures older than a day (deep-review): a JUST-failed
+      # dream's staged partial work may still be wanted for debugging.
+      if [ -n "$(find "$old/status.json" -mtime +1 2>/dev/null)" ]; then
+        rm -rf "$old/staging" "$old/transcripts" 2>/dev/null || true
+      fi
     fi
   done
 fi

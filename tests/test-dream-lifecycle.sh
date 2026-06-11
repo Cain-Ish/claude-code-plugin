@@ -327,6 +327,7 @@ FID="drm_20260401T000000Z"   # sorts oldest
 mkdir -p "$BRAIN_DIR/dreams/$FID/staging/wiki" "$BRAIN_DIR/dreams/$FID/transcripts"
 echo x > "$BRAIN_DIR/dreams/$FID/staging/wiki/p.md"
 jq -nc --arg id "$FID" '{id:$id, status:"failed", archived_at:null, error:"boom"}' > "$BRAIN_DIR/dreams/$FID/status.json"
+touch -t 202601010000 "$BRAIN_DIR/dreams/$FID/status.json"   # >1 day old: fresh failures keep their staging for debugging
 # (no pending fixture here: a pending dream trips the one-at-a-time guard and
 # dream-snapshot exits BEFORE the prune — that path is subtest 8's coverage;
 # the prune's pending-safety is structural: only archived/failed/canceled match.)
