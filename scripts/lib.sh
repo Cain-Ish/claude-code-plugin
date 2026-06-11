@@ -37,11 +37,33 @@ sb_safe_json_array() {
 # error we want to log (jq absent) would itself fail silently. The printf
 # path strips C0 control chars (U+0000-U+001F) before escaping so a multi-
 # line error_msg can't fragment the JSONL record into two malformed lines.
+# R6b (HOOK-9): keep a log from growing unboundedly on unattended boxes —
+# once past 512KB, keep only the newest 1000 lines (the useful diagnostic
+# tail; the Pi accumulated a 9MB error-log before this).
+sb_rotate_log() {
+  local f="$1" sz
+  [ -f "$f" ] || return 0
+  sz=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+  case "$sz" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$sz" -gt 524288 ] || return 0
+  tail -n 1000 "$f" > "$f.tmp.$$" 2>/dev/null \
+    && mv "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
+}
+
 sb_log_error() {
   local script_name="${1:-unknown}"
   local error_msg="${2:-}"
   local exit_code="${3:-1}"
-  local ts
+  local ts target="$BRAIN_DIR/error-log.jsonl"
+  # R6b (HOOK-9): gate=* breadcrumbs logged with exit_code 0 are TRACE, not
+  # errors — they were 41% of error-log lines and polluted every "tail the
+  # error log" diagnosis plus verify.sh's freshness check. Route them to the
+  # audit-log (the trajectory channel). A gate= message with a NONZERO exit
+  # code is a real failure and stays in the error-log.
+  if [ "$exit_code" = "0" ]; then
+    case "$error_msg" in gate=*) target="$BRAIN_DIR/audit-log.jsonl" ;; esac
+  fi
+  sb_rotate_log "$target"
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   if command -v jq >/dev/null 2>&1; then
     jq -nc \
@@ -50,14 +72,14 @@ sb_log_error() {
       --arg m "$error_msg" \
       --argjson c "$exit_code" \
       '{timestamp:$t, script:$s, message:$m, exit_code:$c}' \
-      >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
+      >> "$target" 2>/dev/null
   else
     local esc_script esc_msg
     esc_script=$(printf '%s' "$script_name" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
     esc_msg=$(printf '%s' "$error_msg" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
     printf '{"timestamp":"%s","script":"%s","message":"%s","exit_code":%s}\n' \
       "$ts" "$esc_script" "$esc_msg" "$exit_code" \
-      >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
+      >> "$target" 2>/dev/null
   fi
 }
 

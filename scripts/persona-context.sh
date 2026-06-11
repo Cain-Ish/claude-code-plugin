@@ -231,36 +231,49 @@ WIKI_MIN_SCORE="${SB_PERSONA_WIKI_MIN_SCORE:-0.045}"
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" 2>/dev/null || true
 SB_ACTIVE_SLUG_VAL=$(sb_resolve_slug)
-if [ -n "$KEYWORDS" ] && [ -f "$SEARCH_CLI" ]; then
-  # SP-1: scope the per-prompt wiki injection to the active project (the slug session-load pinned).
-  WIKI_RAW=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" \
-    node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
-  # Slug-only format. The CLI emits `### [[slug]] — description` lines; we
-  # keep the `[[slug]]` tokens and drop descriptions because:
-  #  1. CAP_WIKI=600 truncated descriptions mid-word — the model saw a fragment
-  #     it couldn't use.
-  #  2. A slug list with the Read instruction below tells the model: "these
-  #     pages exist, decide which to read in full". That's stronger than a
-  #     decorative snippet.
-  # Cap at 12 slugs to bound size (~30 chars each = ~360B, well under CAP_WIKI).
-  if [ -n "$WIKI_RAW" ]; then
-    WIKI_HITS=$(printf '%s' "$WIKI_RAW" \
-      | grep -oE '\[\[[a-zA-Z0-9_-]+\]\]' \
-      | awk '!seen[$0]++' \
-      | head -12 \
-      | tr '\n' ' ' \
-      | sed 's/ *$//')
-    [ ${#WIKI_HITS} -gt $CAP_WIKI ] && WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c $CAP_WIKI)
+# R6b (HOOK-7): prefer the COMBINED CLI — one node boot answers both the wiki
+# and the episodic lookup (was two cold-starts, ~0.5-1s each on a Pi 5, every
+# prompt). Sections split on the separator line; the two-CLI path below stays
+# as the fallback for a stale plugin cache without the combined bundle.
+WIKI_RAW=""
+EPISODIC_HINT=""
+EPISODIC_CLI="$PLUGIN_ROOT/mcp/dist/tools/episodic-search-cli.bundle.js"
+COMBINED_CLI="$PLUGIN_ROOT/mcp/dist/tools/context-serve-cli.bundle.js"
+_SB_CTX_SEP='--8<--SB-EPISODIC--8<--'
+if [ -n "$KEYWORDS" ] && [ -f "$COMBINED_CLI" ]; then
+  _CTX_OUT=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" \
+    node "$COMBINED_CLI" "$KEYWORDS" 2>/dev/null || true)
+  WIKI_RAW=$(printf '%s\n' "$_CTX_OUT" | awk -v s="$_SB_CTX_SEP" '$0==s{exit}{print}')
+  EPISODIC_HINT=$(printf '%s\n' "$_CTX_OUT" | awk -v s="$_SB_CTX_SEP" 'f{print} $0==s{f=1}')
+else
+  if [ -n "$KEYWORDS" ] && [ -f "$SEARCH_CLI" ]; then
+    # SP-1: scope the per-prompt wiki injection to the active project (the slug session-load pinned).
+    WIKI_RAW=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" \
+      node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
+  fi
+  if [ -n "$KEYWORDS" ] && [ -f "$EPISODIC_CLI" ]; then
+    EPISODIC_HINT=$(BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" node "$EPISODIC_CLI" "$KEYWORDS" 2>/dev/null || true)
   fi
 fi
 
-# --- Episodic hint ---
-EPISODIC_HINT=""
-EPISODIC_CLI="$PLUGIN_ROOT/mcp/dist/tools/episodic-search-cli.bundle.js"
-if [ -n "$KEYWORDS" ] && [ -f "$EPISODIC_CLI" ]; then
-  EPISODIC_HINT=$(BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" node "$EPISODIC_CLI" "$KEYWORDS" 2>/dev/null || true)
-  [ ${#EPISODIC_HINT} -gt $CAP_EPISODIC ] && EPISODIC_HINT=$(printf '%s' "$EPISODIC_HINT" | head -c $CAP_EPISODIC)
+# Slug-only format. The CLI emits `### [[slug]] — description` lines; we
+# keep the `[[slug]]` tokens and drop descriptions because:
+#  1. CAP_WIKI=600 truncated descriptions mid-word — the model saw a fragment
+#     it couldn't use.
+#  2. A slug list with the Read instruction below tells the model: "these
+#     pages exist, decide which to read in full". That's stronger than a
+#     decorative snippet.
+# Cap at 12 slugs to bound size (~30 chars each = ~360B, well under CAP_WIKI).
+if [ -n "$WIKI_RAW" ]; then
+  WIKI_HITS=$(printf '%s' "$WIKI_RAW" \
+    | grep -oE '\[\[[a-zA-Z0-9_-]+\]\]' \
+    | awk '!seen[$0]++' \
+    | head -12 \
+    | tr '\n' ' ' \
+    | sed 's/ *$//')
+  [ ${#WIKI_HITS} -gt $CAP_WIKI ] && WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c $CAP_WIKI)
 fi
+[ ${#EPISODIC_HINT} -gt $CAP_EPISODIC ] && EPISODIC_HINT=$(printf '%s' "$EPISODIC_HINT" | head -c $CAP_EPISODIC)
 
 # --- Behavioral principles re-surface (once per session, first coding-intent prompt) ---
 # Karpathy: prose in CLAUDE.md drifts; re-surfacing the compact Four Principles at the moment
