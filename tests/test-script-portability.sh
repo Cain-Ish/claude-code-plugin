@@ -85,4 +85,28 @@ h=$(printf '%s\n' $ALL_SH | xargs awk '
 ' 2>/dev/null || true)
 [ -z "$h" ] && pass "no case-in-\$() comsub (bash 3.2 parser hazard)" || fail "case inside \$(...) command substitution — breaks bash 3.2 (macOS /bin/bash); use [[ ]] glob-match or lift the case out" "$h"
 
+# 9. Possibly-empty array expansion under set -u (bash 3.2/4.0-4.3 hazard).
+#    `"${ARR[@]}"` on an EMPTY array errors "unbound variable" under set -u on
+#    bash < 4.4 — macOS /bin/bash is 3.2, so the subshell dies rc=1 with empty
+#    stderr (the R8 macOS-CI stop-extract failure: WRAP_PREFIX=() expanded
+#    bare at the claude invocation killed every Backend-1 extraction).
+#    Rule: for every array initialized EMPTY (`NAME=()`) in a file, a bare
+#    `"${NAME[@]}"` expansion is flagged unless (a) the line uses the portable
+#    guard idiom `${NAME[@]+"${NAME[@]}"}`, or (b) the file length-checks
+#    `${#NAME[@]}` (the other established guard shape). Heuristic tripwire,
+#    not a parser — same doctrine as check 8.
+h=""
+for f in $ALL_SH; do
+  for name in $(grep -oE '^[[:space:]]*(local -a )?[A-Za-z_][A-Za-z0-9_]*=\(\)' "$f" 2>/dev/null \
+                 | sed 's/local -a //; s/^[[:space:]]*//; s/=()//' | sort -u); do
+    grep -qF "\${#$name[@]}" "$f" && continue
+    bad=$( { grep -nF "\"\${$name[@]}\"" "$f"; grep -nF "\"\${$name[*]}\"" "$f"; } 2>/dev/null \
+           | grep -vF "[@]+\"" || true)
+    [ -n "$bad" ] && h="$h
+$f: array $name=() expanded bare: $bad"
+  done
+done
+[ -z "$h" ] && pass "no bare empty-array expansion under set -u (bash <4.4 hazard)" \
+  || fail "bare \"\${ARR[@]}\" on a possibly-empty array — use \${ARR[@]+\"\${ARR[@]}\"} or a \${#ARR[@]} guard" "$h"
+
 echo; echo "ALL PASS"
