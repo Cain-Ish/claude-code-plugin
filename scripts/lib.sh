@@ -1028,11 +1028,16 @@ sb_call_extractor() {
       local resp
       # Honor ANTHROPIC_BASE_URL for enterprise gateways / proxies / air-gapped
       # Anthropic-compatible endpoints; default to the public host.
+      # </dev/null: curl takes the payload via process substitution and never
+      # needs stdin — but WITHOUT closing it, any stdin-reading stand-in (test
+      # stub, gateway wrapper) inherits the caller's stdin and blocks until the
+      # timeout kills it whenever that stdin never EOFs (e.g. a background
+      # runner's open pipe — the in-suite-only test-lib-extractor-backend hang).
       resp=$(timeout "$timeout_s" curl -sS "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/messages" \
         -H "x-api-key: $ANTHROPIC_API_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" \
-        --data-binary @<(printf '%s' "$payload") 2>"$err_file" || true)
+        --data-binary @<(printf '%s' "$payload") </dev/null 2>"$err_file" || true)
 
       local text
       text=$(printf '%s' "$resp" | jq -r '.content[0].text // empty' 2>/dev/null)
