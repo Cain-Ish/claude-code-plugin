@@ -34,12 +34,17 @@ h=$(grep -rnE 'grep[[:space:]]+-[A-Za-z]*P([[:space:]]|$)' "$ROOT" "$CR_ROOT" 2>
 h=$(grep -rn 'stat -c' "$ROOT" "$CR_ROOT" 2>/dev/null | grep -v 'stat -f' || true)
 [ -z "$h" ] && pass "every 'stat -c' is paired with a 'stat -f' fallback" || fail "unpaired GNU stat -c" "$h"
 
-# 5. GNU `date -d` must have a BSD `date -v` fallback (anywhere in the same file).
-#    Use grep -rnE | nocomment to exclude comment-only mentions (e.g. "# no date -d" docs).
-for f in $(grep -rnE 'date[[:space:]]+(-d|--date)' "$ROOT" "$CR_ROOT" 2>/dev/null | nocomment | cut -d: -f1 | sort -u || true); do
-  grep -qE 'date[[:space:]]+-v' "$f" || fail "GNU date -d without a BSD date -v fallback" "$f"
+# 5. GNU `date -d` must have a BSD fallback in the same file. Accepted BSD
+#    forms: `date -v` (arithmetic), `date -r <epoch>` (epoch render), or
+#    `date -j -f` (parse) — all legitimate pairings depending on the use.
+#    Detection also covers `date -u -d` (R4: the old regex missed the -u
+#    variant and let unpaired uses slip through unscanned).
+#    Use grep -rnE | nocomment to exclude comment-only mentions.
+for f in $(grep -rnE 'date[[:space:]]+(-u[[:space:]]+)?(-d|--date)' "$ROOT" "$CR_ROOT" 2>/dev/null | nocomment | cut -d: -f1 | sort -u || true); do
+  grep -qE 'date[[:space:]]+(-u[[:space:]]+)?(-v|-r|-j)' "$f" \
+    || fail "GNU date -d without a BSD fallback (-v/-r/-j)" "$f"
 done
-pass "every 'date -d' file also has a 'date -v' fallback"
+pass "every 'date -d' file also has a BSD date fallback (-v/-r/-j)"
 
 # 6. GNU `find -printf` must have a stat-based fallback in the same file.
 for f in $(grep -rlE 'find[^|]*-printf' "$ROOT" "$CR_ROOT" 2>/dev/null || true); do
