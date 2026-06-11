@@ -1,6 +1,8 @@
 #!/bin/bash
 # cost-router SessionStart hook — prints a one-line routing-status banner
-# showing active model tiers and remaining Opus budget for the day.
+# showing active model tiers and today's PREMIUM-model spend (informational —
+# no cap since 0.24.45; premium = any model above the DO/SCOUT tiers, Opus
+# today, Fable/future top tiers tomorrow).
 #
 # Suppressible: COST_ROUTER_BANNER=off
 # Output kept well under the 10K hook ceiling (< 200 bytes typical).
@@ -20,21 +22,16 @@ BUDGET_SH="$PLUGIN_ROOT/scripts/opus-budget.sh"
 # Tier summary (always shown)
 TIER_LINE="cost-router active: THINK=Opus | DO=Sonnet | SCOUT=Haiku"
 
-# Budget line (shown only when opus-budget.sh is available)
+# Spend line (shown only when opus-budget.sh is available). Informational —
+# no cap arithmetic, no "remaining": the ledger reports, it never blocks.
+# Premium = any model above the DO/SCOUT tiers (Opus today, Fable/future next).
 if [ -f "$BUDGET_SH" ]; then
-  SPENT=$(bash "$BUDGET_SH" spent 2>/dev/null || echo "?")
-  CAP="${COST_ROUTER_OPUS_CAP_USD:-5.0}"
-  # Compute remaining using awk (portable float arithmetic)
+  SPENT=$(bash "$BUDGET_SH" spent  || echo "?")
   if [ "$SPENT" != "?" ]; then
-    # Clamp at 0 (R5.1, CR-009): "$-0.50 remaining" is nonsense — over cap is a state.
-    REMAINING=$(awk -v spent="$SPENT" -v cap="$CAP" 'BEGIN { r = cap - spent; if (r < 0) r = -1; printf "%.2f", r }')
-    if [ "$REMAINING" = "-1.00" ]; then
-      BUDGET_LINE="Opus budget: \$${SPENT} used / \$${CAP} cap (over cap)"
-    else
-      BUDGET_LINE="Opus budget: \$${SPENT} used / \$${CAP} cap (\$${REMAINING} remaining today)"
-    fi
+    SPENT_FMT=$(awk -v s="$SPENT" 'BEGIN { printf "%.2f", s + 0 }')
+    BUDGET_LINE="premium-model spend today: \$${SPENT_FMT} (informational)"
   else
-    BUDGET_LINE="Opus budget: unavailable"
+    BUDGET_LINE="premium-model spend today: unavailable"
   fi
 else
   BUDGET_LINE=""

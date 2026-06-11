@@ -46,12 +46,12 @@ else
 fi
 
 rm -f "$LEDGER"
-COST_ROUTER_LEDGER="$LEDGER" bash "$SCRIPT" over 2>/dev/null
+OVER_OUT=$(COST_ROUTER_LEDGER="$LEDGER" bash "$SCRIPT" over 2>&1)
 OVER_EXIT=$?
-if [ "$OVER_EXIT" -ne 0 ]; then
-  pass "(a) fresh ledger: 'over' exits nonzero (not over budget)"
+if [ "$OVER_EXIT" -ne 0 ] && echo "$OVER_OUT" | grep -qi 'removed'; then
+  pass "(a) 'over' subcommand is GONE (cap removed) — usage error names the removal"
 else
-  fail "(a) fresh ledger: 'over' should exit nonzero, exited $OVER_EXIT"
+  fail "(a) 'over' should be a usage error naming the removal (exit=$OVER_EXIT out=$OVER_OUT)"
 fi
 
 # --- (b) after record 2.0 then record 1.5, spent is 3.5 ---
@@ -67,14 +67,12 @@ else
   fail "(b) after record 2.0 + 1.5, spent should be 3.5, got: '$SPENT'"
 fi
 
-# --- (c) with cap=3.0 and spent=3.5, 'over' exits 0 ---
-# Reuse ledger from (b) which has 3.5 spent
-COST_ROUTER_LEDGER="$LEDGER" COST_ROUTER_OPUS_CAP_USD=3.0 bash "$SCRIPT" over 2>/dev/null
-OVER_EXIT=$?
-if [ "$OVER_EXIT" -eq 0 ]; then
-  pass "(c) cap=3.0 spent=3.5: 'over' exits 0 (is over budget)"
+# --- (c) NO CAP (0.24.45): a recorded ledger has no cap_usd key, and the old
+# COST_ROUTER_OPUS_CAP_USD env is inert — the ledger is informational only.
+if jq -e 'has("cap_usd") | not' "$LEDGER" >/dev/null 2>&1; then
+  pass "(c) recorded ledger carries no cap_usd (informational ledger)"
 else
-  fail "(c) cap=3.0 spent=3.5: 'over' should exit 0, exited $OVER_EXIT"
+  fail "(c) recorded ledger still writes cap_usd: $(cat "$LEDGER")"
 fi
 
 # --- (d) R5.1 CR-009: `spent` is a PURE READ — stale ledger returns 0 but the
@@ -114,15 +112,19 @@ echo "-------------------"
 echo "PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]
 
-# --- (e) R5.1 CR-009: routing-status banner clamps over-cap (never "$-0.50") ---
+# --- (e) 0.24.45 de-cap: banner reports premium spend informationally — no cap
+# arithmetic, no "over cap", no negative remaining. Models above the DO/SCOUT
+# tiers change over time (Opus today, Fable tomorrow), so the ledger informs
+# rather than enforces.
 STATUS="$REPO_ROOT/cost-router/scripts/routing-status.sh"
 rm -f "$LEDGER"
-printf '{"date":"%s","opus_cost_usd":9.50,"opus_calls":3,"cap_usd":5.0}\n' "$(date -u +%F)" > "$LEDGER"
-OUT=$(COST_ROUTER_LEDGER="$LEDGER" COST_ROUTER_OPUS_CAP_USD=5.0 bash "$STATUS" )
+printf '{"date":"%s","opus_cost_usd":9.50,"opus_calls":3}\n' "$(date -u +%F)" > "$LEDGER"
+OUT=$(COST_ROUTER_LEDGER="$LEDGER" bash "$STATUS" )
 case "$OUT" in
   *'$-'*) fail "(e) banner rendered a negative remaining: $OUT" ;;
-  *'over cap'*) pass "(e) over-cap ledger renders 'over cap'" ;;
-  *) fail "(e) expected 'over cap' in banner, got: $OUT" ;;
+  *cap*) fail "(e) banner still speaks of a cap: $OUT" ;;
+  *'premium-model spend'*'9.50'*) pass "(e) banner reports premium spend informationally" ;;
+  *) fail "(e) expected 'premium-model spend ... 9.50' in banner, got: $OUT" ;;
 esac
 
 echo "-------------------"

@@ -193,7 +193,7 @@ fi
 
 ### 5b. Persona state
 
-Surface the persona core's live state — identity card size, dismissals 7d, today's persona spend vs daily budget cap. Read-only; nothing here mutates.
+Surface the persona core's live state — identity card size, dismissals 7d, today's persona spend (informational — the cap was removed in 0.24.45). Read-only; nothing here mutates.
 
 ```bash
 PCARD=~/.second-brain/persona-card.md
@@ -224,8 +224,7 @@ if [ -f "$BUDGET_FILE" ]; then
     [ -n "$SPEND" ] || SPEND=0   # guard: %.4f below errors on a non-numeric/empty value
   fi
 fi
-CAP="${SB_PERSONA_DAILY_BUDGET:-20}"
-printf "Persona spend today: \$%.4f / \$%s\n" "$SPEND" "$CAP"
+printf "Persona spend today: \$%.4f (informational, no cap)\n" "$SPEND"
 
 CATALOG=~/.second-brain/.installed-catalog.json
 if [ -f "$CATALOG" ]; then
@@ -238,7 +237,7 @@ else
 fi
 ```
 
-If `Persona dismissals (7d)` is above 3, the persona core auto-mutes its opinionated framing — that's the backoff working. If spend is approaching cap, deeper analyses (`/?` and `/second-brain:think`) start returning `budget_skipped`.
+If `Persona dismissals (7d)` is above 3, the persona core auto-mutes its opinionated framing — that's the backoff working. Spend never blocks anything (de-capped 0.24.45) — it is a number to read, not a gate.
 
 ### 6. Runtime smoke check
 

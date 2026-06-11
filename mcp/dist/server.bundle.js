@@ -29140,27 +29140,10 @@ function opusLedgerPath(brainDir2) {
   const bd = brainDir2 ?? (process.env.SB_BRAIN_DIR ?? `${process.env.HOME ?? "~"}/.second-brain`);
   return join13(bd, "opus-budget.json");
 }
-async function readOpusLedger(ledgerPath) {
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  try {
-    const txt = await fs14.readFile(ledgerPath, "utf-8");
-    const j2 = JSON.parse(txt);
-    if (j2.date === today) {
-      return {
-        date: today,
-        opus_cost_usd: Number(j2.opus_cost_usd) || 0,
-        opus_calls: Number(j2.opus_calls) || 0,
-        cap_usd: Number(j2.cap_usd) || 5
-      };
-    }
-  } catch {
-  }
-  return { date: today, opus_cost_usd: 0, opus_calls: 0, cap_usd: 5 };
-}
 async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
   const callCost = inputTokens / 1e6 * 5 + outputTokens / 1e6 * 25;
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  let current = { date: today, opus_cost_usd: 0, opus_calls: 0, cap_usd: 5 };
+  let current = { date: today, opus_cost_usd: 0, opus_calls: 0 };
   try {
     const txt = await fs14.readFile(ledgerPath, "utf-8");
     const j2 = JSON.parse(txt);
@@ -29168,8 +29151,7 @@ async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
       current = {
         date: today,
         opus_cost_usd: Number(j2.opus_cost_usd) || 0,
-        opus_calls: Number(j2.opus_calls) || 0,
-        cap_usd: Number(j2.cap_usd) || 5
+        opus_calls: Number(j2.opus_calls) || 0
       };
     }
   } catch {
@@ -29177,8 +29159,7 @@ async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
   const next = {
     date: today,
     opus_cost_usd: current.opus_cost_usd + callCost,
-    opus_calls: current.opus_calls + 1,
-    cap_usd: current.cap_usd
+    opus_calls: current.opus_calls + 1
   };
   const tmpPath = `${ledgerPath}.tmp.${process.pid}`;
   try {
@@ -29265,21 +29246,7 @@ function parseBrief(raw) {
   }
 }
 async function personaThink(args, deps = {}) {
-  if (deps.budgetExceeded) {
-    return { ...EMPTY, budget_skipped: true };
-  }
   const lPath = deps.ledgerPath ?? opusLedgerPath(deps.brainDir);
-  const opusCap = deps.opusCap ?? Number(process.env.COST_ROUTER_OPUS_CAP_USD ?? "5.0");
-  if (lPath) {
-    const ledger = await readOpusLedger(lPath).catch(() => null);
-    if (ledger && ledger.opus_cost_usd >= opusCap) {
-      return {
-        ...EMPTY,
-        budget_skipped: true,
-        error: `Opus daily budget exhausted (spent $${ledger.opus_cost_usd.toFixed(4)} of $${opusCap} cap) \u2014 try later or raise COST_ROUTER_OPUS_CAP_USD`
-      };
-    }
-  }
   const runner = deps.runner ?? defaultRunner;
   const model = deps.model ?? DEFAULT_MODEL;
   const hints = (args.context_hints ?? []).join("\n");
@@ -29334,7 +29301,6 @@ async function recordSpend(brainDir2, usd) {
 // src/tools/persona-stats.ts
 import { promises as fs15 } from "fs";
 import { join as join14 } from "path";
-var DEFAULT_BUDGET = Number(process.env.SB_PERSONA_DAILY_BUDGET ?? "20");
 async function personaStats(args = {}) {
   const dir = args.brainDir ?? join14(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
   let identity2 = "";
@@ -29399,8 +29365,7 @@ async function personaStats(args = {}) {
     installed_agents: agents,
     installed_skills: skills,
     dismissals_7d: dismissals,
-    today_spend_usd: spend,
-    daily_budget_usd: DEFAULT_BUDGET
+    today_spend_usd: spend
   };
 }
 
@@ -29554,7 +29519,7 @@ function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.6.9" },
+  { name: "knowledge-base", version: "2.7.0" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
@@ -29953,7 +29918,7 @@ server.registerTool(
 server.registerTool(
   "persona_stats",
   {
-    description: "Inspect the persona's current state \u2014 identity summary from persona-card.md, signal counts, installed catalog sizes, recent dismissals, today's persona spend vs daily budget. Read-only.",
+    description: "Inspect the persona's current state \u2014 identity summary from persona-card.md, signal counts, installed catalog sizes, recent dismissals, today's persona spend (informational \u2014 no enforcement). Read-only.",
     inputSchema: {}
   },
   async () => {
