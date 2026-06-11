@@ -3,7 +3,7 @@ name: improve
 description: Manual deep-dive on the current/most-recent session. Proposes up to 3 grounded "pin" candidates the user can accept/reject/edit. No autonomous critic.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Write Edit Bash(git log:*) Bash(jq *) Bash(date *) WebSearch mcp__knowledge-base__knowledge_search mcp__knowledge-base__pin_to_user mcp__knowledge-base__pin_to_project mcp__knowledge-base__archive_to_wiki
+allowed-tools: Read Write Edit Bash(git log:*) Bash(jq *) Bash(date *) WebSearch mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__pin_to_user mcp__plugin_second-brain_knowledge-base__pin_to_project mcp__plugin_second-brain_knowledge-base__archive_to_wiki
 ---
 
 # Improve

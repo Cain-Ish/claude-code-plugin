@@ -1,0 +1,54 @@
+# R8 minimal CI — the server-side backstop for the bypassed-hook /
+# other-machine case. Supply-chain posture: ONLY official actions, SHA-pinned
+# (lightweight tags resolved via the GitHub API at authoring time), top-level
+# read-only token, no secrets, no third-party actions.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Install mcp deps (lockfile-exact)
+        run: npm ci --prefix mcp
+      - name: Typecheck
+        run: cd mcp && npx tsc --noEmit
+      - name: Vitest
+        run: cd mcp && npm test
+      - name: Bundle-current gate
+        run: bash tests/test-bundle-current.sh
+      - name: Bash test suite
+        run: bash tests/run-all.sh
+        env:
+          SB_RUN_ALL_VITEST: '0' # vitest already ran above
+      - name: Plugin validator
+        run: bash scripts/validate-plugin.sh
+
+  macos:
+    # Closes the standing "run dream-lifecycle on real macOS" PROJECT.md item
+    # without buying hardware: bash 3.2 + BSD userland are the actual targets
+    # of the portability guards.
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: dream lifecycle on bash 3.2 / BSD coreutils
+        run: /bin/bash tests/test-dream-lifecycle.sh
+      - name: portability static guards
+        run: /bin/bash tests/test-script-portability.sh
+      - name: lib extraction-loop units
+        run: |
+          /bin/bash tests/test-stop-extract.sh
+          /bin/bash tests/test-dream-autostage.sh

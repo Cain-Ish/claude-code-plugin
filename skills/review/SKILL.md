@@ -3,7 +3,7 @@ name: review
 description: Surface open blockers, stale projects, pending dreams, and ungraduated persona signals across all registered projects. Read-only daily/weekly overview.
 user-invocable: true
 disable-model-invocation: false
-allowed-tools: Read Bash(jq *) Bash(date *) Bash(find *) Bash(ls *) Bash(test *) Bash(cat *) Bash(wc *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(basename *) Bash(dirname *) Bash(tr *) Bash(head *) mcp__knowledge-base__knowledge_stats
+allowed-tools: Read Bash(jq *) Bash(date *) Bash(find *) Bash(ls *) Bash(test *) Bash(cat *) Bash(wc *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(basename *) Bash(dirname *) Bash(tr *) Bash(head *) mcp__plugin_second-brain_knowledge-base__knowledge_stats
 ---
 
 # Review

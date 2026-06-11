@@ -3,7 +3,7 @@ name: import-host
 description: Detect existing AI-context files on the host (CLAUDE.md, AGENTS.md, .cursorrules, .windsurfrules, .continuerules, .aider.conf.yml, instructions.md) at $HOME and the current repo, and propose USER.md preferences plus PROJECT.md content. Prompts to confirm each chunk. Idempotent.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Write Edit Bash(test *) Bash(ls *) Bash(cat *) Bash(wc *) Bash(date *) Bash(grep *) Bash(find *) Bash(basename *) Bash(tr *) Bash(git rev-parse:*) mcp__knowledge-base__pin_to_user mcp__knowledge-base__pin_to_project
+allowed-tools: Read Write Edit Bash(test *) Bash(ls *) Bash(cat *) Bash(wc *) Bash(date *) Bash(grep *) Bash(find *) Bash(basename *) Bash(tr *) Bash(git rev-parse:*) mcp__plugin_second-brain_knowledge-base__pin_to_user mcp__plugin_second-brain_knowledge-base__pin_to_project
 ---
 
 <!-- user instruction verbatim: "1" -->

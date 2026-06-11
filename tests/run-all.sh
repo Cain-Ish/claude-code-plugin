@@ -20,6 +20,20 @@ MCP_DIR="$ROOT/mcp"
 QUIET="${SB_RUN_ALL_QUIET:-0}"
 RUN_VITEST="${SB_RUN_ALL_VITEST:-1}"
 PER_TEST_TIMEOUT="${SB_RUN_ALL_TIMEOUT:-120}"
+SUITE_T0=$(date +%s)
+
+# R8 structural isolation: every test runs under a suite-temp HOME/BRAIN_DIR/
+# KNOWLEDGE_DIR so a test that FORGETS its own sandbox cannot touch the real
+# KB (the 0.24.32 tmp.* leak class, including the KNOWLEDGE_DIR dimension the
+# enumerated grep guard misses). Tests that set their own sandboxes simply
+# override these. Opt out per-test by exporting SB_SUITE_REAL_HOME=1 inside
+# the test (claude-CLI-spawning tests that need real ~/.claude credentials).
+SUITE_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/sb-suite-home.XXXXXX")
+trap 'rm -rf "$SUITE_SANDBOX"' EXIT
+mkdir -p "$SUITE_SANDBOX/home" "$SUITE_SANDBOX/brain" "$SUITE_SANDBOX/knowledge"
+export SB_SUITE_ISOLATED_HOME="$SUITE_SANDBOX/home"
+export SB_SUITE_ISOLATED_BRAIN="$SUITE_SANDBOX/brain"
+export SB_SUITE_ISOLATED_KD="$SUITE_SANDBOX/knowledge"
 
 # Color codes (skipped if not a TTY).
 if [ -t 1 ]; then
@@ -52,10 +66,18 @@ run_one_sh() {
   # below, so the exec bit was never used, and the chmod dirtied the working
   # tree on every suite run. Exec bits are git-recorded; test-exec-bits gates.)
 
+  # R8: suite-temp HOME/BRAIN_DIR/KNOWLEDGE_DIR (see header). The real HOME is
+  # passed through as SB_SUITE_REAL_HOME_PATH for tests that genuinely need it.
+  local -a iso_env=(
+    "SB_SUITE_REAL_HOME_PATH=$HOME"
+    "HOME=$SB_SUITE_ISOLATED_HOME"
+    "BRAIN_DIR=$SB_SUITE_ISOLATED_BRAIN"
+    "KNOWLEDGE_DIR=$SB_SUITE_ISOLATED_KD"
+  )
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$PER_TEST_TIMEOUT" bash "$script" >"$logfile" 2>&1; ec=$?
+    env "${iso_env[@]}" timeout "$PER_TEST_TIMEOUT" bash "$script" >"$logfile" 2>&1; ec=$?
   else
-    bash "$script" >"$logfile" 2>&1; ec=$?
+    env "${iso_env[@]}" bash "$script" >"$logfile" 2>&1; ec=$?
   fi
   local elapsed=$(( $(date +%s) - started ))
 
@@ -121,6 +143,9 @@ echo "${C_BOLD}--- summary ---${C_RST}"
 echo "  pass: $PASS"
 echo "  fail: $FAIL"
 echo "  skip: $SKIP"
+# R8: wall time in the summary (recorded Pi 5 baseline: ~156s full suite) so a
+# perf regression is visible at a glance, not only by forensic timing.
+echo "  wall: $(( $(date +%s) - SUITE_T0 ))s"
 if [ "$FAIL" -gt 0 ]; then
   echo
   echo "${C_RED}FAILED:${C_RST}"
