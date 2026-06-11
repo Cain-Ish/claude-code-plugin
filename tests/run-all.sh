@@ -22,18 +22,15 @@ RUN_VITEST="${SB_RUN_ALL_VITEST:-1}"
 PER_TEST_TIMEOUT="${SB_RUN_ALL_TIMEOUT:-120}"
 SUITE_T0=$(date +%s)
 
-# R8 structural isolation: every test runs under a suite-temp HOME/BRAIN_DIR/
-# KNOWLEDGE_DIR so a test that FORGETS its own sandbox cannot touch the real
-# KB (the 0.24.32 tmp.* leak class, including the KNOWLEDGE_DIR dimension the
-# enumerated grep guard misses). Tests that set their own sandboxes simply
-# override these. Opt out per-test by exporting SB_SUITE_REAL_HOME=1 inside
-# the test (claude-CLI-spawning tests that need real ~/.claude credentials).
+# R8 structural isolation: every test runs under a PER-TEST temp HOME so a
+# test that FORGETS its own sandbox cannot touch the real KB (the 0.24.32
+# tmp.* leak class). HOME alone is enough: BRAIN_DIR and KNOWLEDGE_DIR both
+# derive from $HOME when unset, so test-local derivations keep working —
+# presetting those two directly would OVERRIDE tests that sandbox HOME and
+# rely on the derivation (5 tests broke that way in the first cut). Tests
+# that need the real HOME read SB_SUITE_REAL_HOME_PATH.
 SUITE_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/sb-suite-home.XXXXXX")
 trap 'rm -rf "$SUITE_SANDBOX"' EXIT
-mkdir -p "$SUITE_SANDBOX/home" "$SUITE_SANDBOX/brain" "$SUITE_SANDBOX/knowledge"
-export SB_SUITE_ISOLATED_HOME="$SUITE_SANDBOX/home"
-export SB_SUITE_ISOLATED_BRAIN="$SUITE_SANDBOX/brain"
-export SB_SUITE_ISOLATED_KD="$SUITE_SANDBOX/knowledge"
 
 # Color codes (skipped if not a TTY).
 if [ -t 1 ]; then
@@ -66,13 +63,13 @@ run_one_sh() {
   # below, so the exec bit was never used, and the chmod dirtied the working
   # tree on every suite run. Exec bits are git-recorded; test-exec-bits gates.)
 
-  # R8: suite-temp HOME/BRAIN_DIR/KNOWLEDGE_DIR (see header). The real HOME is
-  # passed through as SB_SUITE_REAL_HOME_PATH for tests that genuinely need it.
+  # R8: per-test temp HOME (see header). The real HOME is passed through as
+  # SB_SUITE_REAL_HOME_PATH for tests that genuinely need it.
+  local iso_home="$SUITE_SANDBOX/$(basename "$script" .sh)"
+  mkdir -p "$iso_home"
   local -a iso_env=(
     "SB_SUITE_REAL_HOME_PATH=$HOME"
-    "HOME=$SB_SUITE_ISOLATED_HOME"
-    "BRAIN_DIR=$SB_SUITE_ISOLATED_BRAIN"
-    "KNOWLEDGE_DIR=$SB_SUITE_ISOLATED_KD"
+    "HOME=$iso_home"
   )
   if command -v timeout >/dev/null 2>&1; then
     env "${iso_env[@]}" timeout "$PER_TEST_TIMEOUT" bash "$script" >"$logfile" 2>&1; ec=$?

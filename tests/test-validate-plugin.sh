@@ -58,10 +58,16 @@ JSON
 exit 0
 SH
 
+  cat > "$root/docs/surface-budget.json" <<'JSON'
+{"skills": 99, "agents": 99, "scripts": 99, "tests": 99, "upgrade_skill_max_bytes": 999999}
+JSON
+
   cat > "$root/skills/setup/SKILL.md" <<'MD'
 ---
 name: setup
 description: Setup
+user-invocable: true
+disable-model-invocation: false
 allowed-tools: Read Bash(echo *)
 ---
 body
@@ -71,6 +77,8 @@ MD
 ---
 name: improve
 description: Improve
+user-invocable: true
+disable-model-invocation: false
 allowed-tools: Read Bash(echo *)
 ---
 body
