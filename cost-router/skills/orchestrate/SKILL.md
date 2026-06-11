@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Cost-routing orchestrator. Classifies the task into tiers, plans with Opus only when genuinely needed (budget-gated), implements each unit via Sonnet/Haiku agents with explicit per-dispatch model routing, verifies cheaply, escalates on failure, and logs routing outcomes.
+description: Cost-routing orchestrator. Classifies the task into tiers, plans with Opus only when genuinely needed (spend-aware (informational, no cap)), implements each unit via Sonnet/Haiku agents with explicit per-dispatch model routing, verifies cheaply, escalates on failure, and logs routing outcomes.
 user-invocable: true
 disable-model-invocation: false
 allowed-tools: Read Grep Glob Bash Task TodoWrite
@@ -45,7 +45,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/opus-budget.sh" spent
 
 Mention the figure in your routing summary (Step 7). Never downgrade or block a THINK classification because of spend — the ledger informs the user, it does not gate the work.
 
-### Step 3 — Plan (THINK tier, if needed and budget permits)
+### Step 3 — Plan (THINK tier, if needed)
 
 Dispatch `cr-planner` via the Task tool **passing `model: 'opus'` explicitly** (if the namespaced `cost-router:cr-*` agent type errors as unknown on your CLI version, retry with the bare name, e.g. `cr-planner`):
 
@@ -84,7 +84,7 @@ Task(subagent_type: 'cost-router:cr-scout', prompt: "Run <verification commands>
 
 ### Step 6 — Escalate on failure
 
-If a DO unit fails verification and the failure is a genuine design issue (not a typo): escalate by dispatching `cr-planner` (subject to budget check from Step 2) with the failure context. Then re-execute the revised unit. Limit escalation to **1 retry per unit**. If still failing, surface to the user.
+If a DO unit fails verification and the failure is a genuine design issue (not a typo): escalate by dispatching `cr-planner` (noting the premium spend from Step 2 (informational — never a gate)) with the failure context. Then re-execute the revised unit. Limit escalation to **1 retry per unit**. If still failing, surface to the user.
 
 If a DO unit fails because the unit was under-specified: send back to planner with the ambiguity, not the implementer.
 

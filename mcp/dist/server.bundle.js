@@ -29301,7 +29301,6 @@ async function recordSpend(brainDir2, usd) {
 // src/tools/persona-stats.ts
 import { promises as fs15 } from "fs";
 import { join as join14 } from "path";
-var DEFAULT_BUDGET = Number(process.env.SB_PERSONA_DAILY_BUDGET ?? "20");
 async function personaStats(args = {}) {
   const dir = args.brainDir ?? join14(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
   let identity2 = "";
@@ -29366,8 +29365,7 @@ async function personaStats(args = {}) {
     installed_agents: agents,
     installed_skills: skills,
     dismissals_7d: dismissals,
-    today_spend_usd: spend,
-    daily_budget_usd: DEFAULT_BUDGET
+    today_spend_usd: spend
   };
 }
 

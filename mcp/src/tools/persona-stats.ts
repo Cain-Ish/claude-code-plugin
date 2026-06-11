@@ -15,10 +15,8 @@ export interface PersonaStatsResult {
   installed_skills: number;
   dismissals_7d: number;
   today_spend_usd: number;
-  daily_budget_usd: number;
 }
 
-const DEFAULT_BUDGET = Number(process.env.SB_PERSONA_DAILY_BUDGET ?? '20');
 
 export async function personaStats(args: PersonaStatsArgs = {}): Promise<PersonaStatsResult> {
   const dir = args.brainDir ?? join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.second-brain');
@@ -84,6 +82,5 @@ export async function personaStats(args: PersonaStatsArgs = {}): Promise<Persona
     installed_skills: skills,
     dismissals_7d: dismissals,
     today_spend_usd: spend,
-    daily_budget_usd: DEFAULT_BUDGET,
   };
 }
