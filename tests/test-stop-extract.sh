@@ -16,7 +16,14 @@ REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$REPO_ROOT/scripts/stop-extract.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-fail() { echo "FAIL: $1"; exit 1; }
+fail() {
+  echo "FAIL: $1"
+  # Diagnostics for remote-CI failures (macOS job has no shell access):
+  echo "── error-log:"; tail -5 "$SANDBOX/.second-brain/error-log.jsonl" 
+  echo "── extractor-health:"; cat "$SANDBOX/.second-brain/extractor-health.json" 
+  echo "── PROJECT.md:"; head -20 "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" 
+  exit 1
+}
 pass() { echo "PASS: $1"; }
 
 # Portable content hash: macOS ships shasum, not sha256sum (macOS CI job).

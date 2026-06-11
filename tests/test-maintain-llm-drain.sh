@@ -31,7 +31,10 @@ B=$(mktemp -d); export BRAIN_DIR="$B" KNOWLEDGE_DIR="$B/knowledge" HOME="$B"
 mkdir -p "$KNOWLEDGE_DIR/wiki/concepts" "$B/transcripts" "$B/dreams"
 printf -- '---\ntype: concepts\ntitle: X\n---\n# X\nbody\n' > "$KNOWLEDGE_DIR/wiki/concepts/x.md"
 BIN="$B/bin"; mkdir -p "$BIN"; printf '#!/bin/bash\nexit 0\n' > "$BIN/claude"; chmod +x "$BIN/claude"
-export PATH="$BIN:$PATH"   # stub claude (DRYRUN exits before invoking it anyway)
+# Stub bwrap too: case 4 must reach the DRYRUN print on hosts WITHOUT real
+# bubblewrap (CI runners) — the Pi has it installed, which masked this gap.
+printf '#!/bin/bash\nexit 0\n' > "$BIN/bwrap"; chmod +x "$BIN/bwrap"
+export PATH="$BIN:$PATH"   # stub claude+bwrap (DRYRUN exits before invoking them anyway)
 ndreams(){ find "$B/dreams" -maxdepth 1 -type d -name 'drm_*' 2>/dev/null | wc -l | tr -d ' '; }
 
 # 1. auto_maintain OFF (no config) → no run, no marker, no dream
