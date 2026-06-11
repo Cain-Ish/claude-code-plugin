@@ -61,4 +61,105 @@ echo "$OUT" | grep -q 'bypassPermissions' && pass "dry-run shows the contained c
 # prompt proves the body slice didn't silently truncate to nothing.
 PB=$(echo "$OUT" | sed -n 's/.*prompt_bytes=\([0-9]*\).*/\1/p'); [ "${PB:-0}" -gt 200 ] && pass "prompt carries the dream-runner body (${PB}B)" || fail "prompt empty/truncated (prompt_bytes=${PB:-?})"
 
-rm -rf "$B"; echo; echo "ALL PASS"
+rm -rf "$B"; echo; echo "ALL PASS (gating + containment)"
+
+# ═══ R4 (SCRIPTS-01/02/03): failure-aware lifecycle ═══════════════════════════
+# The maintainer must fail LOUDLY and recover sanely: probe-before-staging,
+# 24h retry horizon instead of a burned weekly slot, 3-strike quarantine,
+# pending→failed with captured stderr, success clears the counters.
+
+# --- Static: systemd reconciliation (Task 2) ---
+grep -q '^RestrictNamespaces=true' "$ROOT/systemd/sb-extract-drain-oauth.service" \
+  && fail "oauth unit still sets RestrictNamespaces=true (bwrap structurally impossible)"
+grep -q '^RestrictNamespaces=true' "$ROOT/systemd/sb-extract-drain.service" \
+  || fail "API-key unit lost RestrictNamespaces=true (should keep it)"
+pass "systemd: oauth unit allows namespaces; API-key unit keeps the restriction"
+
+B2=$(mktemp -d); trap 'rm -rf "$B2"' EXIT
+export HOME="$B2" BRAIN_DIR="$B2/brain" KNOWLEDGE_DIR="$B2/knowledge"
+export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$B2/knowledge"
+mkdir -p "$BRAIN_DIR/transcripts" "$KNOWLEDGE_DIR/wiki/concepts"
+printf -- '---\ntitle: t\ntype: concepts\n---\n\n# t\nbody\n' > "$KNOWLEDGE_DIR/wiki/concepts/t.md"
+printf 'tx\n' > "$BRAIN_DIR/transcripts/sess_x_2026-01-01.txt"
+printf '{"auto_maintain": true}\n' > "$BRAIN_DIR/config.json"
+MARK="$BRAIN_DIR/.last-llm-maintain"
+FAILS="$BRAIN_DIR/.llm-maintain-fails"
+QUAR="$BRAIN_DIR/.llm-maintain-quarantine"
+
+BIN2="$B2/bin"; mkdir -p "$BIN2"
+cat > "$BIN2/bwrap" <<'EOF'
+#!/bin/bash
+# Probe call ends in /bin/true; the real run carries 'claude' in its args.
+for a in "$@"; do
+  if [ "$a" = "/bin/true" ]; then exit "${SB_TEST_PROBE_RC:-0}"; fi
+done
+[ -n "${SB_TEST_RUN_STDERR:-}" ] && echo "$SB_TEST_RUN_STDERR" >&2
+exit "${SB_TEST_RUN_RC:-0}"
+EOF
+printf '#!/bin/bash\nexit 0\n' > "$BIN2/claude"
+chmod +x "$BIN2/bwrap" "$BIN2/claude"
+export PATH="$BIN2:$PATH"
+
+run_drain() { env "$@" bash "$SCRIPT" >/dev/null 2>&1 || true; }
+mark_age() { echo $(( $(date +%s) - $(stat -c %Y "$MARK" 2>/dev/null || stat -f %m "$MARK") )); }
+
+# --- (a) probe fails → no dream, error logged, ~24h retry re-stamp, fails=1 ---
+run_drain SB_TEST_PROBE_RC=1
+[ "$(find "$BRAIN_DIR/dreams" -maxdepth 1 -type d -name 'drm_*' 2>/dev/null | wc -l | tr -d ' ')" = "0" ] \
+  || fail "(a) probe failure still staged a dream"
+grep -q 'bwrap preflight failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "(a) probe failure not logged"
+[ "$(cat "$FAILS" 2>/dev/null)" = "1" ] || fail "(a) fails counter not 1 (got '$(cat "$FAILS" 2>/dev/null)')"
+[ -f "$MARK" ] || fail "(a) throttle mark missing after failure"
+AGE=$(mark_age)
+[ "$AGE" -gt 500000 ] && [ "$AGE" -lt 540000 ] \
+  || fail "(a) throttle not re-stamped to the retry horizon (age=${AGE}s, want ~518400)"
+pass "(a) probe failure: no dream, logged, 24h retry horizon, fails=1"
+
+# --- (b) 3 strikes → quarantine; further runs skip the probe entirely ---
+# The 24h re-stamp from (a) correctly throttles immediate retries — clear the
+# mark to simulate the next day's drain cycles (strikes 2 and 3).
+rm -f "$MARK"; run_drain SB_TEST_PROBE_RC=1
+rm -f "$MARK"; run_drain SB_TEST_PROBE_RC=1
+[ -f "$QUAR" ] || fail "(b) no quarantine file after 3 consecutive failures"
+grep -q 'bwrap preflight failed' "$QUAR" || fail "(b) quarantine lacks the error summary"
+N_BEFORE=$(grep -c 'bwrap preflight failed' "$BRAIN_DIR/error-log.jsonl")
+rm -f "$MARK"; run_drain SB_TEST_PROBE_RC=1   # quarantined + cause persists → stay down silently
+N_AFTER=$(grep -c 'bwrap preflight failed' "$BRAIN_DIR/error-log.jsonl")
+[ "$N_BEFORE" = "$N_AFTER" ] || fail "(b) quarantined run still logged a new failure"
+[ -f "$QUAR" ] || fail "(b) quarantine cleared while the cause persists"
+pass "(b) 3-strike quarantine; quarantined runs stay down while the cause persists"
+
+# --- (b2) SELF-CLEARING: once the cause is fixed (probe passes), the next drain
+# clears the quarantine and proceeds (deep-review: the old gate was a dead-end —
+# the success-path clear was unreachable while quarantined).
+rm -f "$MARK"
+run_drain SB_TEST_PROBE_RC=0 SB_TEST_RUN_RC=0
+[ ! -f "$QUAR" ] || fail "(b2) quarantine did not self-clear after the cause was fixed"
+[ ! -f "$FAILS" ] || fail "(b2) fails counter not cleared on self-heal"
+pass "(b2) quarantine self-clears when the preflight passes again"
+
+# --- (c) probe ok, headless run fails → dream pending→failed with stderr ---
+rm -f "$QUAR" "$FAILS" "$MARK"
+rm -rf "$BRAIN_DIR/dreams"   # (b2)'s stub run left a pending dream that would block staging
+run_drain SB_TEST_PROBE_RC=0 SB_TEST_RUN_RC=1 SB_TEST_RUN_STDERR="boom: auth exploded"
+SF=$(ls "$BRAIN_DIR"/dreams/drm_*/status.json 2>/dev/null | head -1)
+[ -n "$SF" ] || fail "(c) no dream staged on the run-failure path"
+[ "$(jq -r '.status' "$SF")" = "failed" ] || fail "(c) status not failed (got $(jq -r '.status' "$SF"))"
+jq -r '.error' "$SF" | grep -q 'boom' || fail "(c) stderr not captured into status.error"
+[ "$(jq -r '.ended_at' "$SF")" != "null" ] || fail "(c) ended_at not set"
+grep -q 'boom' "$BRAIN_DIR/error-log.jsonl" || fail "(c) stderr tail not in error-log"
+[ "$(cat "$FAILS" 2>/dev/null)" = "1" ] || fail "(c) fails counter not incremented"
+pass "(c) headless failure: pending→failed with captured stderr, logged"
+
+# --- (d) success → counters cleared, throttle stamped fresh ---
+rm -rf "$BRAIN_DIR/dreams"
+rm -f "$MARK"   # (c)'s 24h re-stamp would throttle this run (correct in prod)
+run_drain SB_TEST_PROBE_RC=0 SB_TEST_RUN_RC=0
+[ ! -f "$FAILS" ] || fail "(d) fails counter not cleared on success"
+[ ! -f "$QUAR" ] || fail "(d) quarantine not cleared on success"
+AGE=$(mark_age)
+[ "$AGE" -lt 120 ] || fail "(d) throttle mark not fresh after success (age=${AGE}s)"
+pass "(d) success clears counters; throttle stamped fresh"
+
+echo "ALL PASS"

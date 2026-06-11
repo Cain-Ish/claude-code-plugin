@@ -38,15 +38,18 @@ export PATH="$TMP/bin:$PATH"
 
 # Source lib.sh in a subshell so we can re-enter with fresh env
 run_case() {
-  local label="$1"
+  local label="$1" tmo="${2:-2}"
   rm -f "$BRAIN_DIR/.extractor-health.json"
   local input=$(mktemp) out=$(mktemp)
   printf "hello" > "$input"
   local start=$(date +%s)
   (
     source "$SCRIPT_DIR/scripts/lib.sh"
-    # Short timeout so a hung stub doesn't stall the test
-    sb_call_extractor "$input" "$out" "claude-sonnet-4-6" "test-system" 2 || true
+    # Timeout per case: A/B pass 10s — their CORRECT paths never run the CLI, so
+    # elapsed stays ~0s, but the inner `timeout` also wraps the curl stub, and a
+    # 2s ceiling got the stub killed under post-vitest load on a Pi (the
+    # status=fail suite flake). C keeps 2s so the hang-stub kill stays fast.
+    sb_call_extractor "$input" "$out" "claude-sonnet-4-6" "test-system" "$tmo" || true
   )
   local elapsed=$(( $(date +%s) - start ))
   local backend status
@@ -59,30 +62,31 @@ run_case() {
 # --- Case A: inside Claude Code + API key set ---------------------------------
 # Expected: anthropic-api (NOT claude-cli — that would hang).
 result_a=$(
-  CLAUDECODE=1 ANTHROPIC_API_KEY="sk-ant-test" run_case "A"
+  CLAUDECODE=1 ANTHROPIC_API_KEY="sk-ant-test" run_case "A" 10
 )
 echo "$result_a"
 echo "$result_a" | grep -q "backend=anthropic-api" \
   || { echo "FAIL A: expected backend=anthropic-api"; exit 1; }
 echo "$result_a" | grep -q "status=ok" \
   || { echo "FAIL A: expected status=ok"; exit 1; }
-# Must be fast — no 40s timeout burn on the CLI
+# Must be fast — the guard is vs a wrong-path CLI burn (>= the 10s timeout);
+# the correct path never runs the CLI so elapsed stays ~0 even under suite load.
 elapsed_a=$(echo "$result_a" | sed -n 's/.*elapsed=\([0-9]*\)s.*/\1/p')
-[ "${elapsed_a:-99}" -lt 3 ] \
-  || { echo "FAIL A: elapsed=${elapsed_a}s (expected <3s, CLI must be skipped)"; exit 1; }
+[ "${elapsed_a:-99}" -lt 10 ] \
+  || { echo "FAIL A: elapsed=${elapsed_a}s (expected <10s, CLI must be skipped)"; exit 1; }
 echo "PASS A: in-CC + API key → anthropic-api, fast"
 
 # --- Case B: inside Claude Code + no API key ----------------------------------
 # Expected: status=queued and very fast (no CLI hang attempt).
 result_b=$(
-  CLAUDECODE=1 run_case "B"
+  CLAUDECODE=1 run_case "B" 10
 )
 echo "$result_b"
 echo "$result_b" | grep -q "status=queued" \
   || { echo "FAIL B: expected status=queued"; exit 1; }
 elapsed_b=$(echo "$result_b" | sed -n 's/.*elapsed=\([0-9]*\)s.*/\1/p')
-[ "${elapsed_b:-99}" -lt 5 ] \
-  || { echo "FAIL B: elapsed=${elapsed_b}s (expected <5s, no CLI hang)"; exit 1; }
+[ "${elapsed_b:-99}" -lt 10 ] \
+  || { echo "FAIL B: elapsed=${elapsed_b}s (expected <10s, no CLI hang)"; exit 1; }
 echo "PASS B: in-CC + no API key → queued, fast-fail"
 
 # --- Case C: outside Claude Code + no API key ---------------------------------

@@ -148,6 +148,48 @@ reset_brain; mk_transcripts 3
 OUT=$(SB_DREAM_NEW_THRESHOLD=abc bash "$AUTOSTAGE" 2>/dev/null || true)
 assert_empty "non-numeric threshold → default 10 (3 no fire)" "$OUT"
 
+# ═══ R4 (SCRIPTS-02/04): stale-pending reclaim + failed-dream surfacing ═══════
+mk_dream_at() {  # $1=id $2=status $3=created_at ISO
+  local id="$1" st="$2" cre="$3" dir="$BRAIN_DIR/dreams/$1"
+  mkdir -p "$dir/transcripts"
+  jq -nc --arg id "$id" --arg st "$st" --arg c "$cre" '{id:$id, status:$st, created_at:$c, error:null}' > "$dir/status.json"
+}
+
+# (e) STALE pending (created 4 days ago, runner never started) → reclaimed to
+# failed + banner says failed, NOT "resume".
+reset_brain; mk_dream_at drm_stale pending "2026-06-07T00:00:00Z"
+OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_eq "stale pending transitioned to failed" "$(jq -r '.status' "$BRAIN_DIR/dreams/drm_stale/status.json")" "failed"
+assert_contains "reclaim sets the error reason" "$(jq -r '.error' "$BRAIN_DIR/dreams/drm_stale/status.json")" "runner never started"
+assert_contains "banner reports the failure" "$OUT" "dream failed"
+assert_not_contains "no resume banner for a dead pending" "$OUT" "Run \`/second-brain:dream\` to resume"
+
+# (f) FRESH pending → resume banner, untouched (pre-R4 behavior preserved).
+reset_brain; mk_dream_at drm_fresh pending "$(date -u +%FT%TZ)"
+OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_eq "fresh pending stays pending" "$(jq -r '.status' "$BRAIN_DIR/dreams/drm_fresh/status.json")" "pending"
+assert_contains "fresh pending gets the resume banner" "$OUT" "resume"
+
+# (g) FAILED dream (no pending/running) → one banner naming id + error; failed
+# is terminal for the watermark so the threshold logic still runs.
+reset_brain
+mk_dream_at drm_dead failed "2026-06-07T00:00:00Z"
+jq '.error = "exit 1: boom tail"' "$BRAIN_DIR/dreams/drm_dead/status.json" > "$BRAIN_DIR/dreams/drm_dead/status.json.t" \
+  && mv "$BRAIN_DIR/dreams/drm_dead/status.json.t" "$BRAIN_DIR/dreams/drm_dead/status.json"
+OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_contains "failed dream banner names the id" "$OUT" "drm_dead"
+assert_contains "failed dream banner carries the error" "$OUT" "boom tail"
+mk_transcripts 12
+OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_contains "threshold banner still fires alongside the failed notice" "$OUT" "dream consolidation ready"
+
+# (h) quarantine file alone (probe failures stage no dream) → surfaced.
+reset_brain
+printf '[2026-06-11T00:00:00Z] quarantined after 3 consecutive failures: bwrap preflight failed\n' > "$BRAIN_DIR/.llm-maintain-quarantine"
+OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_contains "quarantine file surfaced at SessionStart" "$OUT" "quarantine"
+rm -f "$BRAIN_DIR/.llm-maintain-quarantine"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
