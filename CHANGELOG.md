@@ -4,6 +4,18 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.24.43
+
+**R6b per-prompt diet.** (1) New combined `context-serve-cli` answers the
+per-prompt wiki AND episodic lookups in ONE node process — persona-context.sh
+paid two cold-starts on every UserPromptSubmit (measured live on the Pi 5:
+2.18s -> 1.38s per prompt). Falls back to the two-CLI path on a stale cache;
+wiki section byte-identical to knowledge-search-cli. (2) Log hygiene:
+`gate=*` breadcrumbs logged at exit_code 0 are trace, not errors — routed to
+audit-log.jsonl (they were ~41% of error-log lines and polluted verify.sh's
+freshness check); both logs now rotate at 512KB keeping the newest 1000 lines.
+No user action — lands with the cache refresh.
+
 ## 0.24.42
 
 **R6a surface diet.** (1) The upgrade skill's 113KB migration table split: lean
