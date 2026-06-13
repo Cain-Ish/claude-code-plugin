@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { parseFrontmatter, frontmatterParses } from './test-oracle.js';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -166,9 +167,8 @@ describe('malformed-frontmatter normalization (graph-pipeline fix)', () => {
     const res = await knowledgeValidate(dir, { autofix: true });
     expect(res.fixed).toBeGreaterThanOrEqual(1);
     const out = await fs.readFile(f, 'utf-8');
-    const frontmatter = out.match(/^---\n([\s\S]*?)\n---/)![1];
-    expect(frontmatter).toMatch(/^related: \[a, b\]$/m);   // valid YAML β
-    expect(frontmatter).not.toContain('[[');
+    expect(frontmatterParses(out)).toBe(true);                 // REAL YAML parse (a throw is the failure)
+    expect(parseFrontmatter(out).related).toEqual(['a', 'b']); // not re-read through isMalformedFrontmatter
     const res2 = await knowledgeValidate(dir, { autofix: false });
     expect(res2.issues.find(i => i.type === 'malformed_frontmatter')).toBeFalsy();
   });
@@ -176,9 +176,9 @@ describe('malformed-frontmatter normalization (graph-pipeline fix)', () => {
   it('autofix consumes orphaned block-list children into the inline value', async () => {
     const { dir, f } = await mkwiki('p', 'title: P\ntype: entities\nrelated: [[a]]\n  - stale-b');
     await knowledgeValidate(dir, { autofix: true });
-    const fm = (await fs.readFile(f, 'utf-8')).match(/^---\n([\s\S]*?)\n---/)![1];
-    expect(fm).toMatch(/^related: \[a\]$/m);
-    expect(fm).not.toMatch(/^[ \t]+- stale/m);
+    const out = await fs.readFile(f, 'utf-8');
+    expect(parseFrontmatter(out).related).toEqual(['a']);      // parsed: orphan 'stale-b' is GONE from the structure
+    expect(JSON.stringify(parseFrontmatter(out).related)).not.toContain('stale');
   });
 
   it('does NOT flag or rewrite a clean, complete β page', async () => {

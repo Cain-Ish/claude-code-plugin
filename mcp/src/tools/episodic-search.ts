@@ -1,4 +1,5 @@
 import { promises as fs } from 'fs';
+import { atomicWriteJson } from './atomic-write.js';
 import { join, basename, relative, isAbsolute } from 'path';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { assertWithin } from '../path-guard.js';
@@ -188,7 +189,7 @@ async function loadIndex(brainDir: string): Promise<EpisodicIndex> {
 }
 
 async function saveIndex(brainDir: string, index: EpisodicIndex): Promise<void> {
-  await fs.writeFile(join(brainDir, INDEX_FILE), JSON.stringify(index));
+  await atomicWriteJson(join(brainDir, INDEX_FILE), index);
 }
 
 export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: number; total: number; repaired: number; pending: number }> {
@@ -369,16 +370,26 @@ function textSearch(
   const scored: (IndexedExchange & { similarity: number })[] = [];
   for (const e of filtered) {
     const hay = (e.userSnippet + ' ' + e.assistantSnippet).toLowerCase();
-    let hits = 0;
+    // AND-gate: every query token must appear. Score by total term FREQUENCY so
+    // a denser overlap outranks a single-mention match (P8: the old code broke
+    // on first miss and forced hits/tokens.length === 1 → a constant 0.5).
+    let allHit = true;
+    let tf = 0;
     for (const t of tokens) {
-      if (hay.includes(t)) hits++;
-      else { hits = -1; break; }
+      const occ = hay.split(t).length - 1;
+      if (occ === 0) { allHit = false; break; }
+      tf += occ;
     }
-    if (hits === tokens.length) {
-      // Normalize score to (0, 0.5] so vector matches (which can score up to 1.0) still rank above text.
-      scored.push({ ...e, similarity: 0.25 + (hits / tokens.length) * 0.25 });
+    if (allHit) {
+      // tf >= tokens.length (each token hits >=1). Map into (0, 0.5] monotonically
+      // in tf, saturating below 0.5 so a vector match (up to 1.0) still outranks.
+      const similarity = 0.5 * (tf / (tf + tokens.length));
+      scored.push({ ...e, similarity });
     }
   }
+  // Sort by similarity DESC before truncating — slicing an unsorted list kept an
+  // arbitrary first-N, not the best-N (the other half of the P8 bug).
+  scored.sort((a, b) => b.similarity - a.similarity);
   return scored.slice(0, limit);
 }
 

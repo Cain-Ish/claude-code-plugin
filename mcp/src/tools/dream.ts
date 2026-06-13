@@ -1,4 +1,5 @@
 import { promises as fs } from "fs";
+import { atomicWriteJson } from './atomic-write.js';
 import { join, basename } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -78,7 +79,7 @@ async function writeStatus(
   status: DreamStatus
 ): Promise<void> {
   const statusPath = join(dreamsDir(), dreamId, "status.json");
-  await fs.writeFile(statusPath, JSON.stringify(status, null, 2), "utf-8");
+  await atomicWriteJson(statusPath, status);
 }
 
 async function listDreamIds(): Promise<string[]> {

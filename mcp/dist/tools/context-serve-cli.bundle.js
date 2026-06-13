@@ -1,9 +1,26 @@
 // src/tools/knowledge-search.ts
-import { promises as fs4 } from "fs";
+import { promises as fs5 } from "fs";
+
+// src/tools/atomic-write.ts
+import { promises as fs } from "fs";
+async function atomicWriteJson(filePath, value) {
+  const tmp = `${filePath}.tmp.${process.pid}`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify(value));
+    await fs.rename(tmp, filePath);
+  } catch {
+    try {
+      await fs.unlink(tmp);
+    } catch {
+    }
+  }
+}
+
+// src/tools/knowledge-search.ts
 import { join as join3 } from "path";
 
 // src/tools/embeddings.ts
-import { promises as fs } from "fs";
+import { promises as fs2 } from "fs";
 import { join } from "path";
 var EMBEDDING_DIM = 384;
 var CACHE_FILE = ".embeddings-cache.json";
@@ -27,8 +44,8 @@ async function logLoadError(message, brainDir2) {
     exit_code: 0
   };
   try {
-    await fs.mkdir(brainDir2, { recursive: true });
-    await fs.appendFile(join(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+    await fs2.mkdir(brainDir2, { recursive: true });
+    await fs2.appendFile(join(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
   } catch {
   }
   try {
@@ -68,7 +85,7 @@ function simpleHash(s) {
 }
 async function loadCache(wikiRoot) {
   try {
-    const data = await fs.readFile(join(wikiRoot, CACHE_FILE), "utf-8");
+    const data = await fs2.readFile(join(wikiRoot, CACHE_FILE), "utf-8");
     const parsed = JSON.parse(data);
     if (parsed.model === MODEL_ID) return parsed;
   } catch {
@@ -77,7 +94,7 @@ async function loadCache(wikiRoot) {
 }
 async function saveCache(wikiRoot, cache) {
   try {
-    await fs.writeFile(join(wikiRoot, CACHE_FILE), JSON.stringify(cache));
+    await fs2.writeFile(join(wikiRoot, CACHE_FILE), JSON.stringify(cache));
   } catch {
   }
 }
@@ -119,7 +136,7 @@ function estimateTokens(text) {
 }
 
 // src/tools/doc-sources.ts
-import { promises as fs2 } from "fs";
+import { promises as fs3 } from "fs";
 import { join as join2, relative, resolve, sep as sep2 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
@@ -4516,8 +4533,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep3, { nocase, childrenCacheSize = 16 * 1024, fs: fs6 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs6);
+  constructor(cwd = process.cwd(), pathImpl, sep3, { nocase, childrenCacheSize = 16 * 1024, fs: fs7 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs7);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -5075,8 +5092,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs6) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs6 });
+  newRoot(fs7) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs7 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -5104,8 +5121,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs6) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs6 });
+  newRoot(fs7) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs7 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -6195,14 +6212,14 @@ function registryPath(brainDir2, slug) {
 async function loadRegistry(brainDir2, slug) {
   try {
     assertSafeSlug(slug);
-    return JSON.parse(await fs2.readFile(registryPath(brainDir2, slug), "utf-8"));
+    return JSON.parse(await fs3.readFile(registryPath(brainDir2, slug), "utf-8"));
   } catch {
     return null;
   }
 }
 
 // src/tools/graph-store.ts
-import { promises as fs3 } from "fs";
+import { promises as fs4 } from "fs";
 var EDGE_TYPES = ["requires", "affects", "relates", "part_of", "supersedes"];
 function cmpTime(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
@@ -6226,7 +6243,7 @@ function isValidRecord(r) {
 async function loadEdges(path2) {
   let raw;
   try {
-    raw = await fs3.readFile(path2, "utf-8");
+    raw = await fs4.readFile(path2, "utf-8");
   } catch {
     return [];
   }
@@ -6356,7 +6373,7 @@ var ACCESS_BOOST_CAP = 10;
 var ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts() {
   try {
-    return JSON.parse(await fs4.readFile(accessCountsFile(), "utf-8"));
+    return JSON.parse(await fs5.readFile(accessCountsFile(), "utf-8"));
   } catch {
     return {};
   }
@@ -6367,8 +6384,7 @@ async function saveAccessCounts(counts) {
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await fs4.writeFile(accessCountsFile(), JSON.stringify(pruned)).catch(() => {
-  });
+  await atomicWriteJson(accessCountsFile(), pruned);
 }
 var TOP_K = 8;
 var SNIPPET_CHARS = 200;
@@ -6388,7 +6404,7 @@ async function knowledgeSearch(args) {
     scopeDirs = [join3(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs4.readdir(wikiRoot, { withFileTypes: true });
+      const entries = await fs5.readdir(wikiRoot, { withFileTypes: true });
       scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join3(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
@@ -6406,7 +6422,7 @@ async function knowledgeSearch(args) {
     }
     for (const filePath of paths) {
       try {
-        const content = await fs4.readFile(filePath, "utf-8");
+        const content = await fs5.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         allDocs.push({ doc, rawContent: content, source: "wiki", tokens: estimateTokens(content) });
       } catch {
@@ -6756,7 +6772,7 @@ function slugFromPath(p) {
   return p.replace(/.*\//, "").replace(/\.md$/, "");
 }
 async function collectMarkdown(dir, acc = []) {
-  for (const e of await fs4.readdir(dir, { withFileTypes: true })) {
+  for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
     const p = join3(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
@@ -6765,7 +6781,7 @@ async function collectMarkdown(dir, acc = []) {
 }
 
 // src/tools/episodic-search.ts
-import { promises as fs5 } from "fs";
+import { promises as fs6 } from "fs";
 import { join as join4, basename, relative as relative2, isAbsolute } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
@@ -6773,7 +6789,7 @@ var MAX_LIMIT = 30;
 async function loadIndex(brainDir2) {
   const indexPath = join4(brainDir2, INDEX_FILE);
   try {
-    const data = await fs5.readFile(indexPath, "utf-8");
+    const data = await fs6.readFile(indexPath, "utf-8");
     return JSON.parse(data);
   } catch {
     return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };
@@ -6853,18 +6869,22 @@ function textSearch(query2, index, limit, filters) {
   const scored = [];
   for (const e of filtered) {
     const hay = (e.userSnippet + " " + e.assistantSnippet).toLowerCase();
-    let hits = 0;
+    let allHit = true;
+    let tf = 0;
     for (const t of tokens) {
-      if (hay.includes(t)) hits++;
-      else {
-        hits = -1;
+      const occ = hay.split(t).length - 1;
+      if (occ === 0) {
+        allHit = false;
         break;
       }
+      tf += occ;
     }
-    if (hits === tokens.length) {
-      scored.push({ ...e, similarity: 0.25 + hits / tokens.length * 0.25 });
+    if (allHit) {
+      const similarity = 0.5 * (tf / (tf + tokens.length));
+      scored.push({ ...e, similarity });
     }
   }
+  scored.sort((a, b) => b.similarity - a.similarity);
   return scored.slice(0, limit);
 }
 async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
@@ -6952,7 +6972,7 @@ var epiLines = [];
 try {
   if (!brainDir) throw new Error("no brain dir resolvable");
   const result = await episodicSearch(
-    { query, limit: 2, mode: "vector", activeProject: projectSlug },
+    { query, limit: 2, mode: "both", activeProject: projectSlug },
     brainDir
   );
   const top = result.results.filter((r) => r.similarity >= 0.15);
