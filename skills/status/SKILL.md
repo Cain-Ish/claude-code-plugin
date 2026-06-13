@@ -249,6 +249,39 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/verify.sh"
 
 The script exits 0 with `verify: ok` when everything is healthy, or exits non-zero with one `verify: FAIL:` line per failed check. Do not auto-remediate — point the user at the relevant skill (`/second-brain:setup` for missing files, `/second-brain:improve` for oversized hot tier) and let them act.
 
+### 6b. Hook latency (R7 telemetry)
+
+The hook-timer wrapper logs `{kind:"latency", hook, duration_ms}` lines to
+the audit-log for the heavy hooks (session-load, persona-context,
+stop-extract, pre-compact, dream-autostage). Render p50/p95 per hook plus any
+budget warnings — the R1 timeout class (24s stacks vs 25s ceilings) becomes
+visible here BEFORE it turns into ec=124 failures:
+
+```bash
+AUD="$HOME/.second-brain/audit-log.jsonl"
+if [ -f "$AUD" ] && grep -q '"kind":"latency"' "$AUD" 2>/dev/null; then
+  grep '"kind":"latency"' "$AUD" | tail -500 \
+    | jq -r '[.hook, .duration_ms] | @tsv' 2>/dev/null \
+    | sort | awk -F'\t' '
+      { v[$1] = v[$1] " " $2; n[$1]++ }
+      END {
+        for (h in n) {
+          split(substr(v[h], 2), a, " "); m = n[h]
+          # values arrive sorted per hook only if input sorted by hook+num; sort here
+          for (i = 1; i < m; i++) for (j = i + 1; j <= m; j++)
+            if (a[i] + 0 > a[j] + 0) { t = a[i]; a[i] = a[j]; a[j] = t }
+          p50 = a[int((m + 1) * 0.50)]; p95 = a[int((m + 1) * 0.95)]
+          if (p50 == "") p50 = a[m]; if (p95 == "") p95 = a[m]
+          printf "  %-22s p50=%sms p95=%sms (n=%d)\n", h, p50, p95, m
+        }
+      }'
+  WARNS=$(grep -c '"budget_warn":true' "$AUD" 2>/dev/null || echo 0)
+  [ "$WARNS" -gt 0 ] && echo "  ⚠ $WARNS run(s) exceeded 70% of their hook budget — check which hook above is near its hooks.json timeout"
+else
+  echo "  (no latency telemetry yet — lands after the first wrapped-hook run on >=0.24.46)"
+fi
+```
+
 ### 7. Present the dashboard
 
 Format as a clean block. Example:

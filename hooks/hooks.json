@@ -2,80 +2,198 @@
   "hooks": {
     "SessionStart": [
       {
-        "_comment": "matcher EXCLUDES 'compact' — upstream anthropics/claude-code#15174: SessionStart hook output is silently dropped after compaction (v2.0.72+), so running session-load.sh on the compact event was pure waste. Removing it stops the post-compact context-bloat loop reported by users on long sessions.",
+        "_comment": "matcher EXCLUDES 'compact' \u2014 upstream anthropics/claude-code#15174: SessionStart hook output is silently dropped after compaction (v2.0.72+), so running session-load.sh on the compact event was pure waste. Removing it stops the post-compact context-bloat loop reported by users on long sessions.",
         "matcher": "startup|resume|clear",
         "hooks": [
-          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh", "timeout": 5 },
-          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-tools.sh", "timeout": 10 },
-          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-installed.sh", "timeout": 10 },
-          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-doc-sources.sh", "timeout": 10 },
-          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-load.sh", "timeout": 15 },
-          { "_comment": "dream-autostage (C5-A; R4) — NEVER stages and never spawns agents: when >= SB_DREAM_NEW_THRESHOLD (default 10) new transcripts accumulated since the last terminal dream, it emits a banner SUGGESTING /second-brain:dream (explicit invocation only). It also reclaims stale pendings (runner never started >24h) into failed, and banners failed dreams + the maintainer quarantine file. Kill switch SB_DREAM_AUTOSTAGE=off. Timeout 20s.",
-            "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/dream-autostage.sh", "timeout": 20 }
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/ensure-dirs.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-tools.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-installed.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-doc-sources.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh 15 ${CLAUDE_PLUGIN_ROOT}/scripts/session-load.sh",
+            "timeout": 15
+          },
+          {
+            "_comment": "dream-autostage (C5-A; R4) \u2014 NEVER stages and never spawns agents: when >= SB_DREAM_NEW_THRESHOLD (default 10) new transcripts accumulated since the last terminal dream, it emits a banner SUGGESTING /second-brain:dream (explicit invocation only). It also reclaims stale pendings (runner never started >24h) into failed, and banners failed dreams + the maintainer quarantine file. Kill switch SB_DREAM_AUTOSTAGE=off. Timeout 20s.",
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh 20 ${CLAUDE_PLUGIN_ROOT}/scripts/dream-autostage.sh",
+            "timeout": 20
+          }
         ]
       }
     ],
     "UserPromptSubmit": [
-      { "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/persona-context.sh", "timeout": 10 }
-      ]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh 10 ${CLAUDE_PLUGIN_ROOT}/scripts/persona-context.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-verify-gate.sh", "timeout": 10 },
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-extract.sh", "timeout": 45 },
-        { "_comment": "v2.10.0 SAR summary — aggregates this session's audit-log verdicts into a one-line Safety Adherence Rate banner via systemMessage. Read-only; runs last so it can't be preempted by the gate or extractor. Kill switch SB_SAR_SUMMARY=off.",
-          "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/sar-summary.sh", "timeout": 5 },
-        { "_comment": "v0.24.36 cost-router-capture — aggregates Contract B routing events into a cost-routing-patterns wiki page for the /orchestrate and /model-route classifiers to read. Pure no-op (exit 0) when the events file is absent (cost-router not installed). Kill switch: simply do not install cost-router.",
-          "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/cost-router-capture.sh", "timeout": 10 }
-      ]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-verify-gate.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh 45 ${CLAUDE_PLUGIN_ROOT}/scripts/stop-extract.sh",
+            "timeout": 45
+          },
+          {
+            "_comment": "v2.10.0 SAR summary \u2014 aggregates this session's audit-log verdicts into a one-line Safety Adherence Rate banner via systemMessage. Read-only; runs last so it can't be preempted by the gate or extractor. Kill switch SB_SAR_SUMMARY=off.",
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/sar-summary.sh",
+            "timeout": 5
+          },
+          {
+            "_comment": "v0.24.36 cost-router-capture \u2014 aggregates Contract B routing events into a cost-routing-patterns wiki page for the /orchestrate and /model-route classifiers to read. Pure no-op (exit 0) when the events file is absent (cost-router not installed). Kill switch: simply do not install cost-router.",
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/cost-router-capture.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "SubagentStop": [
-      { "_comment": "v0.22+ subagent capture — archive a substantive, non-self subagent's FINAL result (not its full transcript) into ~/.second-brain/transcripts/ so it becomes dream-minable + episodic-searchable. matcher '*' = all subagents; self-exclusion + the substantive gate live in-script (a select-only matcher can't express 'not these'). MUST always exit 0 (a blocking SubagentStop wedges the parent fan-out). OAuth-safe (file ops only). Kill switch SB_SUBAGENT_CAPTURE=off.",
-        "matcher": "*", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/subagent-capture.sh", "timeout": 10 }
-      ]}
+      {
+        "_comment": "v0.22+ subagent capture \u2014 archive a substantive, non-self subagent's FINAL result (not its full transcript) into ~/.second-brain/transcripts/ so it becomes dream-minable + episodic-searchable. matcher '*' = all subagents; self-exclusion + the substantive gate live in-script (a select-only matcher can't express 'not these'). MUST always exit 0 (a blocking SubagentStop wedges the parent fan-out). OAuth-safe (file ops only). Kill switch SB_SUBAGENT_CAPTURE=off.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/subagent-capture.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "PreCompact": [
-      { "matcher": ".*", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh", "timeout": 45 }
-      ]}
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh 45 ${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh",
+            "timeout": 45
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      { "_comment": "v2.10.0 matcher broadened to cover Read (closes resource-scope gap where Read was declared in tool list but matcher didn't include it) and WebFetch/WebSearch/Task/MultiEdit (network + subagent + multi-file surface where tool_scope and sar_tool apply). MCP tools and read-only Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low. v0.22+: 'Agent' added alongside 'Task' — Claude Code renamed the subagent-spawn tool Task->Agent (CC v2.1.63); keeping both matches subagent spawns on old and new CLIs.",
-        "matcher": "Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh", "timeout": 5 }
-      ]},
-      { "matcher": "Write|Edit|MultiEdit", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/wiki-write-guard.sh", "timeout": 5 }
-      ]},
-      { "_comment": "v0.21.0 symlink-guard (G-HOOK-2). Resolves file_path through symlinks first; denies writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, or ~/.netrc. Per Anthropic doctrine 'symlink resolution before path validation'. Kill switch SB_SYMLINK_GUARD=off.",
-        "matcher": "Write|Edit|MultiEdit", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/symlink-guard.sh", "timeout": 5 }
-      ]},
-      { "_comment": "v2.10.0 outbound info-flow guard (HarnessAudit sar_flow channel). Asks when an egress tool call (Bash with network tool, or WebFetch/WebSearch) carries credential-shaped content. Defense-in-depth against the agent helpfully pasting session secrets into a curl request. Kill switch SB_FLOW_GUARD=off.",
-        "matcher": "Bash|WebFetch|WebSearch", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/flow-guard.sh", "timeout": 5 }
-      ]}
+      {
+        "_comment": "v2.10.0 matcher broadened to cover Read (closes resource-scope gap where Read was declared in tool list but matcher didn't include it) and WebFetch/WebSearch/Task/MultiEdit (network + subagent + multi-file surface where tool_scope and sar_tool apply). MCP tools and read-only Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low. v0.22+: 'Agent' added alongside 'Task' \u2014 Claude Code renamed the subagent-spawn tool Task->Agent (CC v2.1.63); keeping both matches subagent spawns on old and new CLIs.",
+        "matcher": "Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/wiki-write-guard.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "_comment": "v0.21.0 symlink-guard (G-HOOK-2). Resolves file_path through symlinks first; denies writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, or ~/.netrc. Per Anthropic doctrine 'symlink resolution before path validation'. Kill switch SB_SYMLINK_GUARD=off.",
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/symlink-guard.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "_comment": "v2.10.0 outbound info-flow guard (HarnessAudit sar_flow channel). Asks when an egress tool call (Bash with network tool, or WebFetch/WebSearch) carries credential-shaped content. Defense-in-depth against the agent helpfully pasting session secrets into a curl request. Kill switch SB_FLOW_GUARD=off.",
+        "matcher": "Bash|WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/flow-guard.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "ConfigChange": [
-      { "_comment": "v0.21.0 config-change audit (G-HOOK-3). Records every ConfigChange event to audit-log.jsonl. Audit-only in v0.21.0; future iteration may add deny logic for high-risk diffs. Matchers: user_settings|project_settings|local_settings|policy_settings|skills. Kill switch SB_CONFIG_CHANGE_AUDIT=off.",
-        "matcher": "user_settings|project_settings|local_settings|policy_settings|skills", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/config-change-guard.sh", "timeout": 5 }
-      ]}
+      {
+        "_comment": "v0.21.0 config-change audit (G-HOOK-3). Records every ConfigChange event to audit-log.jsonl. Audit-only in v0.21.0; future iteration may add deny logic for high-risk diffs. Matchers: user_settings|project_settings|local_settings|policy_settings|skills. Kill switch SB_CONFIG_CHANGE_AUDIT=off.",
+        "matcher": "user_settings|project_settings|local_settings|policy_settings|skills",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/config-change-guard.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "matcher": "Write|Edit", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/quality-gate.sh", "timeout": 5 }
-      ]},
-      { "_comment": "v2.9.0 HarnessAudit Layer 3 — scans Read/WebFetch/Bash/Grep/Glob output for indirect-prompt-injection patterns. Flags via additionalContext; never blocks. Kill switch SB_INJECTION_SCAN=off.",
-        "matcher": "Read|WebFetch|Bash|Grep|Glob", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/tool-return-scanner.sh", "timeout": 5 }
-      ]},
-      { "_comment": "Persona Principle 2 (Simplicity First) — advisory nudge on a large single change. Never blocks. Kill switch SB_SIMPLICITY_GATE=off; threshold SB_SIMPLICITY_GATE_LINES (default 150).",
-        "matcher": "Write|Edit|MultiEdit", "hooks": [
-        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/simplicity-gate.sh", "timeout": 5 }
-      ]}
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/quality-gate.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "_comment": "v2.9.0 HarnessAudit Layer 3 \u2014 scans Read/WebFetch/Bash/Grep/Glob output for indirect-prompt-injection patterns. Flags via additionalContext; never blocks. Kill switch SB_INJECTION_SCAN=off.",
+        "matcher": "Read|WebFetch|Bash|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/tool-return-scanner.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "_comment": "Persona Principle 2 (Simplicity First) \u2014 advisory nudge on a large single change. Never blocks. Kill switch SB_SIMPLICITY_GATE=off; threshold SB_SIMPLICITY_GATE_LINES (default 150).",
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/simplicity-gate.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
