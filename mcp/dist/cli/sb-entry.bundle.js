@@ -6679,6 +6679,7 @@ function parseDoc(content, filePath) {
     project: "",
     area: ""
   };
+  let hasRelatedKey = false;
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
     const fm = fmMatch[1];
@@ -6688,6 +6689,7 @@ function parseDoc(content, filePath) {
     doc.type = extractYamlValue(fm, "type");
     doc.tags = extractYamlList(fm, "tags");
     doc.related = extractYamlList(fm, "related");
+    hasRelatedKey = /^related:/m.test(fm);
     doc.updated = extractYamlValue(fm, "updated");
     doc.created = extractYamlValue(fm, "created");
     doc.project = extractYamlValue(fm, "project");
@@ -6705,7 +6707,7 @@ function parseDoc(content, filePath) {
     }
   }
   doc.aiBlock = parseAiBlock(content) ?? void 0;
-  if (doc.related.length === 0) {
+  if (!hasRelatedKey) {
     const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
     if (wikiLinks) {
       doc.related = [...new Set(wikiLinks.map((l) => l.slice(2, -2)))];

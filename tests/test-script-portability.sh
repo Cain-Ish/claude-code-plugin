@@ -109,4 +109,18 @@ done
 [ -z "$h" ] && pass "no bare empty-array expansion under set -u (bash <4.4 hazard)" \
   || fail "bare \"\${ARR[@]}\" on a possibly-empty array — use \${ARR[@]+\"\${ARR[@]}\"} or a \${#ARR[@]} guard" "$h"
 
+# 10. No DUPLICATE top-level function definitions within a single script. A second
+#     `name() {` silently SHADOWS the first in bash (last def wins) — the 0.24.48
+#     sb_validate_wiki regression: a count-returning def was added above a
+#     pre-existing silent one, so the active function returned nothing and the
+#     telemetry that depended on it was dead, with every test still green.
+h=""
+for f in $ALL_SH; do
+  dups=$(grep -oE '^[A-Za-z_][A-Za-z0-9_]*\(\)' "$f" 2>/dev/null | sort | uniq -d)
+  [ -n "$dups" ] && h="$h
+$f: duplicated function def(s): $(printf '%s' "$dups" | tr '\n' ' ')"
+done
+[ -z "$h" ] && pass "no duplicated function definitions (shadowing hazard)" \
+  || fail "duplicate function definition — the second silently shadows the first (last-def-wins)" "$h"
+
 echo; echo "ALL PASS"

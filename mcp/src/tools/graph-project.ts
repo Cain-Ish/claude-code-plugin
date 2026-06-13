@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { glob } from 'glob';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge, EdgeType } from './graph-store.js';
+import { extractYamlList } from './knowledge-search.js';
 
 export interface ProjectResult { pagesUpdated: number; }
 
@@ -78,7 +79,15 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
     // only edge keeps a dangling related: target forever. `related: []` and a
     // clean page carry no artifacts, so a hand-authored empty page is never
     // touched (preserves the "clean page never rewritten" contract).
-    const hasGeneratedArtifacts = /^related:\s*\[[^\]]/m.test(content) || content.includes(BEGIN);
+    // P3: admit ANY non-empty `related:` shape (inline β, bracketless legacy, OR
+    // a multi-line block-list) plus a prior graph block — so an edgeless page that
+    // carries a stale block-list `related:\n  - x` is scrubbed too, not just the
+    // inline form. `related: []` and a clean page carry no artifacts (untouched).
+    const fmForArtifacts = content.match(/^---\n([\s\S]*?)\n---/);
+    const hasNonEmptyRelated = fmForArtifacts
+      ? extractYamlList(fmForArtifacts[1], 'related').length > 0
+      : false;
+    const hasGeneratedArtifacts = hasNonEmptyRelated || content.includes(BEGIN);
     if ((!related || related.size === 0) && !hasGeneratedArtifacts) continue;
 
     // 1. rewrite related: frontmatter (sorted union) — scoped to the FIRST

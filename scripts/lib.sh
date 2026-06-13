@@ -230,29 +230,12 @@ sb_validate_wiki() {
   fi
 }
 
-# Validate the wiki (broken links / orphans / dupes) with autofix. Same canonical dynamic-import
-# pattern + error-logging as sb_reindex_wiki — never the broken `import { x } from process.env`
-# static form (which SyntaxErrors silently; see sb_reindex_wiki). Idempotent, fail-open.
-sb_validate_wiki() {
-  local knowledge_dir="${1:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
-  knowledge_dir="${knowledge_dir/#\~/$HOME}"
-  local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
-  if [ -z "$plugin_root" ] || [ ! -d "$plugin_root" ]; then
-    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd) || plugin_root=""
-  fi
-  local validate_js="$plugin_root/mcp/dist/tools/knowledge-validate.bundle.js"
-  if command -v node >/dev/null 2>&1 && [ -f "$validate_js" ]; then
-    local _validate_err
-    _validate_err=$(SB_BUNDLE="$validate_js" SB_KDIR="$knowledge_dir" \
-      node --input-type=module -e "
-        const m = await import(process.env.SB_BUNDLE);
-        await m.knowledgeValidate(process.env.SB_KDIR, { autofix: true });
-      " 2>&1 >/dev/null) || true
-    if [ -n "$_validate_err" ]; then
-      sb_log_error "sb_validate_wiki" "validate-failed: $(printf '%s' "$_validate_err" | tr '\n' ' ' | head -c 200)" 0
-    fi
-  fi
-}
+# (P5 fix, 0.24.49: a SECOND sb_validate_wiki definition lived here and, being
+# the last def, shadowed the count-returning one above — so dream-accept's
+# "Normalized N pages" telemetry was always silent. Deleted; the count-returning
+# definition above is now the sole one. The ensure-dirs.sh / maintain-
+# deterministic.sh callers redirect stdout to /dev/null, so the extra count is
+# backward-compatible.)
 
 # Pin a preference line to USER.md. Adds a dated entry with case-insensitive
 # dedupe and a 2200-byte cap (aligned with hot-tier budget: USER.md + PROJECT.md
