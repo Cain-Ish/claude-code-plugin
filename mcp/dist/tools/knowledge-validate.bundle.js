@@ -1,5 +1,5 @@
 // src/tools/knowledge-validate.ts
-import { promises as fs } from "fs";
+import { promises as fs2 } from "fs";
 import { join, basename, dirname, relative } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
@@ -4396,8 +4396,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs2 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs2);
+  constructor(cwd = process.cwd(), pathImpl, sep2, { nocase, childrenCacheSize = 16 * 1024, fs: fs3 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs3);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -4955,8 +4955,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs2) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs2 });
+  newRoot(fs3) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs3 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -4984,8 +4984,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs2) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs2 });
+  newRoot(fs3) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs3 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -6063,6 +6063,85 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
+// src/tools/graph-store.ts
+import { promises as fs } from "fs";
+var EDGE_TYPES = ["requires", "affects", "relates", "part_of", "supersedes"];
+function cmpTime(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function dateOf(iso) {
+  return iso.slice(0, 10);
+}
+function isValidRecord(r) {
+  if (!(r && typeof r === "object")) return false;
+  if (r.op !== "assert" && r.op !== "invalidate") return false;
+  if (typeof r.from !== "string" || r.from.length === 0) return false;
+  if (typeof r.to !== "string" || r.to.length === 0) return false;
+  if (!EDGE_TYPES.includes(r.type)) return false;
+  if (typeof r.recorded_at !== "string" || r.recorded_at.length < 10) return false;
+  for (const k of ["valid_from", "valid_to"]) {
+    const v = r[k];
+    if (v !== void 0 && v !== null && typeof v !== "string") return false;
+  }
+  return true;
+}
+async function loadEdges(path2) {
+  let raw;
+  try {
+    raw = await fs.readFile(path2, "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const parsed = JSON.parse(t);
+      if (isValidRecord(parsed)) out.push(parsed);
+    } catch {
+    }
+  }
+  return out;
+}
+function identity(r) {
+  return `${r.from}	${r.type}	${r.to}`;
+}
+function foldToCurrent(records) {
+  const ordered = [...records].sort((a, b) => cmpTime(a.recorded_at, b.recorded_at));
+  const map = /* @__PURE__ */ new Map();
+  for (const r of ordered) {
+    const id = identity(r);
+    const cur = map.get(id);
+    if (r.op === "assert") {
+      if (!cur || cur.valid_to !== null) {
+        map.set(id, {
+          from: r.from,
+          to: r.to,
+          type: r.type,
+          valid_from: r.valid_from ?? dateOf(r.recorded_at),
+          valid_to: null,
+          source: r.source,
+          confidence: r.confidence
+        });
+      } else {
+        if (r.valid_from != null) cur.valid_from = r.valid_from;
+        if (r.source) cur.source = r.source;
+        if (r.confidence) cur.confidence = r.confidence;
+      }
+    } else {
+      if (cur) cur.valid_to = r.valid_to ?? dateOf(r.recorded_at);
+    }
+  }
+  return [...map.values()];
+}
+function validAt(e, t) {
+  const td = dateOf(t);
+  if (cmpTime(dateOf(e.valid_from), td) > 0) return false;
+  if (e.valid_to === null) return true;
+  return cmpTime(dateOf(e.valid_to), td) > 0;
+}
+
 // src/tools/ai-block.ts
 var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
 var AI_BLOCK_SCHEMAS = {
@@ -6154,7 +6233,7 @@ function parseDoc(content, filePath) {
   return doc;
 }
 function extractYamlValue(yaml, key) {
-  const re = new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, "m");
+  const re = new RegExp(`^${key}:\\s*['"]?(.*?)['"]?\\s*$`, "m");
   const m = yaml.match(re);
   return m ? m[1].trim() : "";
 }
@@ -6217,7 +6296,7 @@ var kb_schema_default = {
 var STRUCTURED_TYPES = kb_schema_default.structured_types;
 var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
 var GENERATED_DIRS = kb_schema_default.generated_dirs;
-var EDGE_TYPES = kb_schema_default.edge_types;
+var EDGE_TYPES2 = kb_schema_default.edge_types;
 var PROJECT_SECTIONS = kb_schema_default.project_sections;
 var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
 var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
@@ -6227,6 +6306,7 @@ var CONTENT_CATEGORIES = [...STRUCTURED_TYPES, ...UNSTRUCTURED_TYPES];
 var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
 
 // src/tools/knowledge-validate.ts
+var REQUIRED_FM_FIELDS = ["title", "description", "type", "created", "updated", "tags", "related"];
 var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join(knowledgeDir, "wiki");
@@ -6236,7 +6316,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
   for (const filePath of allPages) {
-    const content = await fs.readFile(filePath, "utf-8");
+    const content = await fs2.readFile(filePath, "utf-8");
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
@@ -6281,14 +6361,25 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         message: `Missing YAML frontmatter: ${slug}`,
         autofix: "add_frontmatter"
       });
-    } else if (isMalformedFrontmatter(content)) {
-      issues.push({
-        type: "malformed_frontmatter",
-        severity: "warning",
-        path: filePath,
-        message: `Invalid related:/tags: YAML frontmatter \u2014 run with autofix to normalize: ${slug}`,
-        autofix: "normalize_frontmatter"
-      });
+    } else {
+      if (isMalformedFrontmatter(content)) {
+        issues.push({
+          type: "malformed_frontmatter",
+          severity: "warning",
+          path: filePath,
+          message: `Invalid related:/tags: YAML frontmatter \u2014 run with autofix to normalize: ${slug}`,
+          autofix: "normalize_frontmatter"
+        });
+      }
+      if (!/[/\\](projects|themes)[/\\]/.test(filePath) && isIncompleteFrontmatter(content)) {
+        issues.push({
+          type: "incomplete_frontmatter",
+          severity: "warning",
+          path: filePath,
+          message: `Frontmatter missing required field(s) \u2014 run with autofix to patch: ${slug}`,
+          autofix: "patch_frontmatter"
+        });
+      }
     }
     const datePrefix = slug.match(/^\d{4}-\d{2}-\d{2}-/);
     if (datePrefix) {
@@ -6324,6 +6415,40 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
       }
     }
   }
+  try {
+    const edgeRecords = await loadEdges(join(knowledgeDir, "graph", "edges.jsonl"));
+    if (edgeRecords.length > 0) {
+      const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+      const current = foldToCurrent(edgeRecords).filter((e) => validAt(e, nowIso));
+      const expected = /* @__PURE__ */ new Map();
+      const addRel = (a, b) => {
+        if (!expected.has(a)) expected.set(a, /* @__PURE__ */ new Set());
+        expected.get(a).add(b);
+      };
+      for (const e of current) {
+        addRel(e.from, e.to);
+        addRel(e.to, e.from);
+      }
+      for (const doc of parsedDocs) {
+        const s = basename(doc.path, ".md");
+        if (/[/\\](projects|themes)[/\\]/.test(doc.path)) continue;
+        const want = expected.get(s) ?? /* @__PURE__ */ new Set();
+        const have = new Set(doc.related.map((r) => r.split("|")[0].trim()).filter(Boolean));
+        const wantLive = new Set([...want].filter((t) => allSlugs.has(t)));
+        const missing = [...wantLive].filter((t) => !have.has(t));
+        const extra = [...have].filter((t) => !wantLive.has(t));
+        if (missing.length || extra.length) {
+          issues.push({
+            type: "related_drift",
+            severity: "warning",
+            path: doc.path,
+            message: `related: drifted from the edge graph for ${s}` + (missing.length ? ` \u2014 missing [${missing.join(", ")}]` : "") + (extra.length ? ` \u2014 stale [${extra.join(", ")}]` : "") + ` (run knowledge_reindex to re-project)`
+          });
+        }
+      }
+    }
+  } catch {
+  }
   for (const [slug, paths] of slugMap) {
     if (paths.length > 1) {
       issues.push({
@@ -6336,7 +6461,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     }
   }
   try {
-    const rootFiles = await fs.readdir(knowledgeDir, { withFileTypes: true });
+    const rootFiles = await fs2.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
         const rootPath = join(knowledgeDir, entry.name);
@@ -6355,16 +6480,16 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     for (const issue of issues) {
       if (issue.autofix === "remove" && issue.type === "empty_page") {
         try {
-          await fs.unlink(issue.path);
+          await fs2.unlink(issue.path);
           fixed++;
         } catch {
         }
       }
       if (issue.autofix === "move_or_remove" && issue.type === "root_orphan") {
         try {
-          const stat = await fs.stat(issue.path);
+          const stat = await fs2.stat(issue.path);
           if (stat.size === 0) {
-            await fs.unlink(issue.path);
+            await fs2.unlink(issue.path);
             fixed++;
           }
         } catch {
@@ -6383,13 +6508,80 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         } catch {
         }
       }
+      if (issue.autofix === "patch_frontmatter" && issue.type === "incomplete_frontmatter") {
+        try {
+          if (await patchFrontmatter(issue.path, wikiDir)) fixed++;
+        } catch {
+        }
+      }
     }
   }
   return { issues, fixed, pagesScanned: allPages.length };
 }
+function isIncompleteFrontmatter(content) {
+  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  const fm = m[1];
+  return REQUIRED_FM_FIELDS.some((k) => !new RegExp(`^${k}:`, "m").test(fm));
+}
+async function patchFrontmatter(filePath, wikiDir) {
+  const original = await fs2.readFile(filePath, "utf-8");
+  const m = original.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  const fmBody = m[1];
+  const missing = REQUIRED_FM_FIELDS.filter((k) => !new RegExp(`^${k}:`, "m").test(fmBody));
+  if (missing.length === 0) return false;
+  const slug = basename(filePath, ".md");
+  const body = original.slice(m[0].length);
+  let mtimeDate;
+  try {
+    mtimeDate = (await fs2.stat(filePath)).mtime.toISOString().slice(0, 10);
+  } catch {
+    mtimeDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  }
+  const derive = (k) => {
+    switch (k) {
+      case "title": {
+        const h = body.match(/^#\s+(.+?)\s*$/m);
+        return `title: "${h ? h[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ")}"`;
+      }
+      case "description":
+        return 'description: ""';
+      case "type": {
+        const seg = relative(wikiDir, filePath).split(/[/\\]/)[0];
+        return `type: ${KNOWN_CATEGORIES.has(seg) ? seg : "state"}`;
+      }
+      case "created": {
+        const d = body.match(/\*\*Date(?:\s*\w+)?\*\*:\s*(\d{4}-\d{2}-\d{2})/i);
+        const sd = slug.match(/^(\d{4}-\d{2}-\d{2})/) || slug.match(/(\d{4}-\d{2}-\d{2})$/);
+        return `created: ${d ? d[1] : sd ? sd[1] : mtimeDate}`;
+      }
+      case "updated":
+        return `updated: ${mtimeDate}`;
+      // mtime, NEVER today
+      case "tags":
+        return "tags: []";
+      case "related": {
+        const links = body.match(/\[\[([^\]]+)\]\]/g) || [];
+        const rel = [...new Set(links.map((l) => l.slice(2, -2).split("|")[0].trim()).filter((r) => /^[a-z0-9][a-z0-9-]*$/i.test(r)))];
+        return `related: [${rel.join(", ")}]`;
+      }
+      default:
+        return "";
+    }
+  };
+  const newFm = `${fmBody}
+${missing.map(derive).join("\n")}`;
+  const next = original.replace(/^---\n[\s\S]*?\n---/, () => `---
+${newFm}
+---`);
+  if (next === original) return false;
+  await fs2.writeFile(filePath, next, "utf-8");
+  return true;
+}
 var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
-  const original = await fs.readFile(filePath, "utf-8");
+  const original = await fs2.readFile(filePath, "utf-8");
   if (/^---\n/.test(original)) return;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
@@ -6407,7 +6599,7 @@ async function addFrontmatter(filePath, wikiDir) {
       created = slugDate[1];
     } else {
       try {
-        const stat = await fs.stat(filePath);
+        const stat = await fs2.stat(filePath);
         created = stat.mtime.toISOString().slice(0, 10);
       } catch {
         created = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -6430,7 +6622,7 @@ related: [${related.join(", ")}]
 ---
 
 `;
-  await fs.writeFile(filePath, fm + original, "utf-8");
+  await fs2.writeFile(filePath, fm + original, "utf-8");
 }
 function isMalformedFrontmatter(content) {
   const m = content.match(/^---\n([\s\S]*?)\n---/);
@@ -6441,7 +6633,7 @@ function isMalformedFrontmatter(content) {
   return orphanBlockList || bracketlessMulti;
 }
 async function normalizeFrontmatter(filePath) {
-  const content = await fs.readFile(filePath, "utf-8");
+  const content = await fs2.readFile(filePath, "utf-8");
   const m = content.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return false;
   let fm = m[1];
@@ -6455,7 +6647,7 @@ async function normalizeFrontmatter(filePath) {
 ${fm}
 ---`);
   if (next === content) return false;
-  await fs.writeFile(filePath, next, "utf-8");
+  await fs2.writeFile(filePath, next, "utf-8");
   return true;
 }
 function isSessionNarrative(content, slug) {
@@ -6491,7 +6683,7 @@ function isSessionNarrative(content, slug) {
 }
 async function collectAllPages(dir, acc = []) {
   try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const entries = await fs2.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
       const p = join(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);

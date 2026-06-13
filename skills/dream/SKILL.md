@@ -73,6 +73,15 @@ Work exclusively on the staging wiki at `~/.second-brain/dreams/{dream_id}/stagi
 - Empty pages → delete
 - Date-prefixed filenames → rename, move date to `created:` field
 
+> Node-shape note (0.24.48): you do NOT need to hand-canonicalize frontmatter
+> FORMAT (β `related:`/`tags:`, missing required fields). `dream_accept` runs
+> the maintainer's exact shaper (`knowledge_validate` autofix, via
+> `sb_validate_wiki`) over the staging dir BEFORE merging onto live, and the
+> post-merge reindex re-projects relations. Focus your AUDIT on CONTENT (dead
+> links, dupes, empties) — the deterministic format pass is automatic and
+> identical to the maintainer's, so dream and maintainer output converge to the
+> same canonical shape.
+
 **2b. DEDUPLICATE** — Find pages with overlapping titles/content:
 - Merge overlapping pages: keep broader page, fold narrower into it
 - Update all `[[wiki-links]]` and `related:` references to point to surviving page

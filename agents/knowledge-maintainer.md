@@ -235,6 +235,13 @@ schema (one source of truth for "what a good X page contains").
    Each TSV row is `<type>\t<slug>\t<path>`. A page that already has a block is skipped
    (idempotent); the script never mutates.
 
+   **Also re-shape STALE existing blocks (0.24.48):** the candidate script only lists
+   *blockless* pages, but Phase 1's `knowledge_validate` reports `ai_block_incomplete`
+   for pages whose block is PRESENT but missing required fields. Treat those as
+   additional authoring candidates here — complete only the missing fields from the
+   page's own content (never fabricate), so existing blocks are kept in best shape too,
+   not just new ones.
+
 2. **For each candidate** — closed vocabulary: only the **six structured types** `learnings,
    decisions, entities, issues, concepts, security` (schemas below; never invent a field or a
    type):

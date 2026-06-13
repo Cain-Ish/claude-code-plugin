@@ -6706,7 +6706,7 @@ function parseDoc(content, filePath) {
   return doc;
 }
 function extractYamlValue(yaml, key) {
-  const re = new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, "m");
+  const re = new RegExp(`^${key}:\\s*['"]?(.*?)['"]?\\s*$`, "m");
   const m = yaml.match(re);
   return m ? m[1].trim() : "";
 }

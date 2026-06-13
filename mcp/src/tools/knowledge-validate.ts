@@ -3,6 +3,11 @@ import { join, basename, dirname, relative } from 'path';
 import { parseDoc, ParsedDoc, extractYamlList } from './knowledge-search.js';
 import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
 import { ALL_CATEGORIES } from '../constants/kb-schema.js';
+import { loadEdges, foldToCurrent, validAt } from './graph-store.js';
+
+// The canonical required frontmatter field set — the same 7 fields addFrontmatter
+// emits. A node is in "best shape" when all are present (node-shape convergence).
+const REQUIRED_FM_FIELDS = ['title', 'description', 'type', 'created', 'updated', 'tags', 'related'];
 
 // A structured page with this much prose (non-frontmatter, marked regions stripped) but no
 // ai-block is a backfill candidate; shorter pages are legitimate stubs, exempt. Env-overridable
@@ -10,7 +15,7 @@ import { ALL_CATEGORIES } from '../constants/kb-schema.js';
 const AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 
 export interface ValidationIssue {
-  type: 'orphan_file' | 'broken_link' | 'missing_frontmatter' | 'malformed_frontmatter' | 'duplicate_slug' | 'stale_page' | 'empty_page' | 'root_orphan' | 'ai_block_incomplete' | 'ai_block_missing';
+  type: 'orphan_file' | 'broken_link' | 'missing_frontmatter' | 'malformed_frontmatter' | 'incomplete_frontmatter' | 'related_drift' | 'duplicate_slug' | 'stale_page' | 'empty_page' | 'root_orphan' | 'ai_block_incomplete' | 'ai_block_missing';
   severity: 'error' | 'warning';
   path: string;
   message: string;
@@ -91,20 +96,36 @@ export async function knowledgeValidate(
         message: `Missing YAML frontmatter: ${slug}`,
         autofix: 'add_frontmatter',
       });
-    } else if (isMalformedFrontmatter(content)) {
-      // Invalid `related:`/`tags:` YAML produced by the graph projector's old
-      // emitter: the bracketless multi-item form `related: [[a]], [[b]]` (a real
-      // YAML parser rejects it) or orphaned block-list children left under an
-      // inline value. The in-tree regex readers tolerate these, so they slipped
-      // past every prior lint run — this detector + normalize autofix is the
-      // durable backstop AND the remediation path for already-corrupted pages.
-      issues.push({
-        type: 'malformed_frontmatter',
-        severity: 'warning',
-        path: filePath,
-        message: `Invalid related:/tags: YAML frontmatter — run with autofix to normalize: ${slug}`,
-        autofix: 'normalize_frontmatter',
-      });
+    } else {
+      if (isMalformedFrontmatter(content)) {
+        // Invalid `related:`/`tags:` YAML produced by the graph projector's old
+        // emitter: the bracketless multi-item form `related: [[a]], [[b]]` (a real
+        // YAML parser rejects it) or orphaned block-list children left under an
+        // inline value. The in-tree regex readers tolerate these, so they slipped
+        // past every prior lint run — this detector + normalize autofix is the
+        // durable backstop AND the remediation path for already-corrupted pages.
+        issues.push({
+          type: 'malformed_frontmatter',
+          severity: 'warning',
+          path: filePath,
+          message: `Invalid related:/tags: YAML frontmatter — run with autofix to normalize: ${slug}`,
+          autofix: 'normalize_frontmatter',
+        });
+      }
+      // Node-shape convergence: frontmatter present but missing required fields.
+      // The patch fills ONLY absent fields (never overwrites, never bumps
+      // updated:, never invents created='today') — so a page that merely lacks
+      // created/tags/etc. reaches canonical shape. Generated MOCs (projects/
+      // themes/) own their frontmatter and are regenerated, so they are exempt.
+      if (!/[/\\](projects|themes)[/\\]/.test(filePath) && isIncompleteFrontmatter(content)) {
+        issues.push({
+          type: 'incomplete_frontmatter',
+          severity: 'warning',
+          path: filePath,
+          message: `Frontmatter missing required field(s) — run with autofix to patch: ${slug}`,
+          autofix: 'patch_frontmatter',
+        });
+      }
     }
 
     const datePrefix = slug.match(/^\d{4}-\d{2}-\d{2}-/);
@@ -145,6 +166,49 @@ export async function knowledgeValidate(
       }
     }
   }
+
+  // Relation visibility (node-shape convergence): WARN where a page's `related:`
+  // frontmatter disagrees with the current-valid edge graph. DETECTION ONLY —
+  // the projector (graph-project.ts) is the sole writer of related:, so auto-
+  // rewriting here would fight it and could mass-delete hand-authored links.
+  // Skipped entirely when the graph is not enabled (no edges.jsonl). After a
+  // reindex the projector has already reconciled related:, so this mostly
+  // surfaces drift on the standalone-lint / pre-projection (dream staging) path.
+  try {
+    const edgeRecords = await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
+    if (edgeRecords.length > 0) {
+      const nowIso = new Date().toISOString();
+      const current = foldToCurrent(edgeRecords).filter(e => validAt(e, nowIso));
+      const expected = new Map<string, Set<string>>();
+      const addRel = (a: string, b: string) => {
+        if (!expected.has(a)) expected.set(a, new Set());
+        expected.get(a)!.add(b);
+      };
+      for (const e of current) { addRel(e.from, e.to); addRel(e.to, e.from); }
+      for (const doc of parsedDocs) {
+        const s = basename(doc.path, '.md');
+        if (/[/\\](projects|themes)[/\\]/.test(doc.path)) continue;
+        const want = expected.get(s) ?? new Set<string>();
+        const have = new Set(doc.related.map(r => r.split('|')[0].trim()).filter(Boolean));
+        // only compare against live endpoints — a drifted edge to a deleted page
+        // is the projector's concern, not a page-level drift warning
+        const wantLive = new Set([...want].filter(t => allSlugs.has(t)));
+        const missing = [...wantLive].filter(t => !have.has(t));
+        const extra = [...have].filter(t => !wantLive.has(t));
+        if (missing.length || extra.length) {
+          issues.push({
+            type: 'related_drift',
+            severity: 'warning',
+            path: doc.path,
+            message: `related: drifted from the edge graph for ${s}` +
+              (missing.length ? ` — missing [${missing.join(', ')}]` : '') +
+              (extra.length ? ` — stale [${extra.join(', ')}]` : '') +
+              ` (run knowledge_reindex to re-project)`,
+          });
+        }
+      }
+    }
+  } catch { /* graph dir absent / unreadable — no drift check */ }
 
   for (const [slug, paths] of slugMap) {
     if (paths.length > 1) {
@@ -202,10 +266,77 @@ export async function knowledgeValidate(
           if (await normalizeFrontmatter(issue.path)) fixed++;
         } catch { /* skip pages we can't write */ }
       }
+      if (issue.autofix === 'patch_frontmatter' && issue.type === 'incomplete_frontmatter') {
+        try {
+          if (await patchFrontmatter(issue.path, wikiDir)) fixed++;
+        } catch { /* skip pages we can't write */ }
+      }
     }
   }
 
   return { issues, fixed, pagesScanned: allPages.length };
+}
+
+// Frontmatter present but missing one or more canonical required fields.
+function isIncompleteFrontmatter(content: string): boolean {
+  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  const fm = m[1];
+  return REQUIRED_FM_FIELDS.some(k => !new RegExp(`^${k}:`, 'm').test(fm));
+}
+
+// Patch ONLY the absent required fields onto an existing frontmatter block,
+// preserving every existing field verbatim. Derivation mirrors addFrontmatter
+// (title from H1/slug, type from folder, created from body-date/slug/mtime) —
+// but `updated` derives from FILE MTIME, never "today", so shaping a page never
+// re-dates it (the churn/provenance risk). Returns true if the file changed.
+async function patchFrontmatter(filePath: string, wikiDir: string): Promise<boolean> {
+  const original = await fs.readFile(filePath, 'utf-8');
+  const m = original.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  const fmBody = m[1];
+  const missing = REQUIRED_FM_FIELDS.filter(k => !new RegExp(`^${k}:`, 'm').test(fmBody));
+  if (missing.length === 0) return false;
+
+  const slug = basename(filePath, '.md');
+  const body = original.slice(m[0].length);
+  let mtimeDate: string;
+  try { mtimeDate = (await fs.stat(filePath)).mtime.toISOString().slice(0, 10); }
+  catch { mtimeDate = new Date().toISOString().slice(0, 10); }
+
+  const derive = (k: string): string => {
+    switch (k) {
+      case 'title': {
+        const h = body.match(/^#\s+(.+?)\s*$/m);
+        return `title: "${h ? h[1].trim().replace(/"/g, "'") : slug.replace(/-/g, ' ')}"`;
+      }
+      case 'description': return 'description: ""';
+      case 'type': {
+        const seg = relative(wikiDir, filePath).split(/[/\\]/)[0];
+        return `type: ${KNOWN_CATEGORIES.has(seg) ? seg : 'state'}`;
+      }
+      case 'created': {
+        const d = body.match(/\*\*Date(?:\s*\w+)?\*\*:\s*(\d{4}-\d{2}-\d{2})/i);
+        const sd = slug.match(/^(\d{4}-\d{2}-\d{2})/) || slug.match(/(\d{4}-\d{2}-\d{2})$/);
+        return `created: ${d ? d[1] : sd ? sd[1] : mtimeDate}`;
+      }
+      case 'updated': return `updated: ${mtimeDate}`;   // mtime, NEVER today
+      case 'tags': return 'tags: []';
+      case 'related': {
+        const links = body.match(/\[\[([^\]]+)\]\]/g) || [];
+        const rel = [...new Set(links.map(l => l.slice(2, -2).split('|')[0].trim())
+          .filter(r => /^[a-z0-9][a-z0-9-]*$/i.test(r)))];
+        return `related: [${rel.join(', ')}]`;
+      }
+      default: return '';
+    }
+  };
+
+  const newFm = `${fmBody}\n${missing.map(derive).join('\n')}`;
+  const next = original.replace(/^---\n[\s\S]*?\n---/, () => `---\n${newFm}\n---`);
+  if (next === original) return false;
+  await fs.writeFile(filePath, next, 'utf-8');
+  return true;
 }
 
 // Single source of truth: every recognized wiki category (kb-schema.json via kb-schema.ts).
