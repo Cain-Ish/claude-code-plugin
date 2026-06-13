@@ -39,7 +39,7 @@ const epiLines: string[] = [];
 try {
   if (!brainDir) throw new Error('no brain dir resolvable');
   const result = await episodicSearch(
-    { query, limit: 2, mode: 'vector', activeProject: projectSlug }, brainDir);
+    { query, limit: 2, mode: 'both', activeProject: projectSlug }, brainDir);
   const top = result.results.filter(r => r.similarity >= 0.15);
   const seen = new Set<string>();
   const deduped = top.filter(r => {

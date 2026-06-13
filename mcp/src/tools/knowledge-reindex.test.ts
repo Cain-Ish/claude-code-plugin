@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { parseFrontmatter } from './test-oracle.js';
 import { promises as fsp } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -16,7 +17,7 @@ describe('knowledgeReindex integrates projection', () => {
       { op: 'assert', from: 'a-page', to: 'b-page', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
     await knowledgeReindex(dir);
     const md = await fsp.readFile(join(dir, 'wiki', 'entities', 'a-page.md'), 'utf-8');
-    expect(md).toMatch(/related: \[b-page\]/);   // canonical β (valid YAML) — body ## Dependencies keeps [[..]]
+    expect(parseFrontmatter(md).related).toEqual(['b-page']);   // real parse, not a regex re-quote
     expect(md).toMatch(/\*\*Requires:\*\* \[\[b-page\]\]/);
   });
   it('reindex with no graph dir still works (no-op projection)', async () => {
@@ -117,7 +118,7 @@ describe('reindex project MOCs', () => {
     await knowledgeReindex(kd); // projects related: + ## Dependencies onto d.md
     const after = await fsp.readFile(join(kd, 'wiki', 'decisions', 'd.md'), 'utf-8');
     expect(after).toContain(block);                 // the ai-block survives projection intact
-    expect(after).toMatch(/related: \[other\]/); // projection still happened (edge applied) — canonical β
+    expect(parseFrontmatter(after).related).toEqual(['other']); // projection happened, via real parse
   });
 
   it('project-MOC member description ignores the ai-block (firstSentence strips it)', async () => {

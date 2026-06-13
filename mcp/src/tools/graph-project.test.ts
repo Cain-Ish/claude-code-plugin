@@ -4,6 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { appendEdge } from './graph-store.js';
 import { projectGraphToPages } from './graph-project.js';
+import { parseFrontmatter } from './test-oracle.js';   // REAL YAML parser oracle, not the regex reader
 
 async function setup(): Promise<string> {
   const dir = await fsp.mkdtemp(join(tmpdir(), 'gp-'));
@@ -31,7 +32,7 @@ describe('projectGraphToPages', () => {
     await appendEdge(log, { op: 'assert', from: 'wg-tunnel', to: 'vps-ufw-depinned', type: 'requires', valid_from: '2026-05-29', recorded_at: '2026-05-29T00:00:00Z' });
     await projectGraphToPages(dir);
     const md = await fsp.readFile(join(dir, 'wiki', 'entities', 'wg-tunnel.md'), 'utf-8');
-    expect(md).toMatch(/related: \[router-daemon, vps-ufw-depinned\]/);  // valid YAML (β), not bracketless [[..]], [[..]]
+    expect(parseFrontmatter(md).related).toEqual(['router-daemon', 'vps-ufw-depinned']);  // REAL parse — throws on invalid YAML
     expect(md).toContain('<!-- graph:begin');
     expect(md).toMatch(/\*\*Requires:\*\* \[\[vps-ufw-depinned\]\]/);
     expect(md).toMatch(/\*\*Affects:\*\* \[\[router-daemon\]\]/);
@@ -72,7 +73,7 @@ describe('projectGraphToPages', () => {
     await appendEdge(log, { op: 'assert', from: 'wg-tunnel', to: 'router-daemon', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
     await projectGraphToPages(dir);
     const md = await fsp.readFile(join(dir, 'wiki', 'entities', 'router-daemon.md'), 'utf-8');
-    expect(md).toMatch(/related: \[wg-tunnel\]/);       // gets the inbound relation (β form)
+    expect(parseFrontmatter(md).related).toEqual(['wg-tunnel']);   // gets the inbound relation, via real parse
     expect(md).not.toContain('<!-- graph:begin');        // but no empty block
   });
   it('does not rewrite a body line that starts with related:', async () => {
@@ -98,8 +99,7 @@ describe('projectGraphToPages', () => {
     const md = await fsp.readFile(page, 'utf-8');
     expect(md).toMatch(/^related: \[router-daemon\]$/m);   // canonical β
     expect(md).not.toMatch(/^[ \t]+- stale-/m);            // no orphaned block-list children
-    const frontmatter = md.match(/^---\n([\s\S]*?)\n---/)![1];
-    expect(frontmatter).not.toContain('[[');               // no bracketless wiki-link form in frontmatter (body ## Dependencies still uses [[..]])
+    expect(parseFrontmatter(md).related).toEqual(['router-daemon']);   // valid YAML AND block-list consumed (a throw or wrong array fails)
   });
 
   it('scrubs related: → [] and removes the Dependencies block when a page loses its only edge (orphan-GC)', async () => {
@@ -108,7 +108,7 @@ describe('projectGraphToPages', () => {
     await appendEdge(log, { op: 'assert', from: 'wg-tunnel', to: 'router-daemon', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
     await projectGraphToPages(dir);
     const wg1 = await fsp.readFile(join(dir, 'wiki', 'entities', 'wg-tunnel.md'), 'utf-8');
-    expect(wg1).toMatch(/related: \[router-daemon\]/);
+    expect(parseFrontmatter(wg1).related).toEqual(['router-daemon']);
     expect(wg1).toContain('<!-- graph:begin');
     // invalidate the sole edge → BOTH endpoints become edgeless and must be scrubbed
     await appendEdge(log, { op: 'invalidate', from: 'wg-tunnel', to: 'router-daemon', type: 'requires', valid_to: '2026-05-10', recorded_at: '2026-05-10T00:00:00Z' });
@@ -116,9 +116,11 @@ describe('projectGraphToPages', () => {
     expect(r2.pagesUpdated).toBeGreaterThanOrEqual(2);
     const wg2 = await fsp.readFile(join(dir, 'wiki', 'entities', 'wg-tunnel.md'), 'utf-8');
     const rd2 = await fsp.readFile(join(dir, 'wiki', 'entities', 'router-daemon.md'), 'utf-8');
-    expect(wg2).toMatch(/^related: \[\]$/m);
+    // real parse: scrubbed to [] AND sibling keys (title/type) survive — a scrub
+    // that corrupted a neighbouring key would still match /^related: \[\]$/m.
+    expect(parseFrontmatter(wg2)).toMatchObject({ title: 'wg-tunnel', type: 'entities', related: [] });
     expect(wg2).not.toContain('<!-- graph:begin');     // husk removed
-    expect(rd2).toMatch(/^related: \[\]$/m);            // child that lost its only parent is cleaned
+    expect(parseFrontmatter(rd2)).toMatchObject({ title: 'router-daemon', type: 'entities', related: [] });
     // idempotent after scrub — a clean edgeless page is never rewritten again
     const r3 = await projectGraphToPages(dir);
     expect(r3.pagesUpdated).toBe(0);

@@ -1,4 +1,5 @@
 import { promises as fs } from 'fs';
+import { atomicWriteJson } from './atomic-write.js';
 import { join } from 'path';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
@@ -93,7 +94,7 @@ async function saveAccessCounts(counts: AccessCounts): Promise<void> {
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await fs.writeFile(accessCountsFile(), JSON.stringify(pruned)).catch(() => {});
+  await atomicWriteJson(accessCountsFile(), pruned);
 }
 
 const TOP_K = 8;

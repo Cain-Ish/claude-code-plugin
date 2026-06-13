@@ -4,6 +4,27 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.24.50
+
+**Deep-review correctness batch + test-quality start.**
+- **P4**: dream-snapshot `cp -r` reset all staged mtimes to "now" → dream-accept
+  rsynced them onto live → the FORGET age-gate was re-armed corpus-wide every
+  accepted dream (silently neutering the recency fix). `cp -rp` preserves mtimes.
+- **P8**: episodic text-search similarity was a constant 0.5 and results were
+  sliced unsorted (arbitrary truncation). Now varies by term-frequency density,
+  sorted before slicing.
+- **P7**: per-prompt episodic recall used mode:'vector' with no fallback —
+  silently empty without the embedding model. Now mode:'both'.
+- **P9**: episodic index / access-counts / dream status written non-atomically
+  → crash mid-write corrupts them. Now tmp+rename (shared atomicWriteJson).
+- **Test quality (user-raised: 506 green tests missed 14 bugs)**: added a real
+  js-yaml oracle (test-oracle.ts) + rewrote the high-severity graph/reindex/
+  validate tests that re-read the projector's output through the SAME tolerant
+  regex that masked the original invalid-YAML bug. Plus discriminating oracle
+  tests for episodic ranking and atomic writes.
+
+MCP server 2.7.4. An audit found 53 tautological tests; the rest are tracked.
+
 ## 0.24.49
 
 **Correctness wave (deep-review P1/P2/P3/P5).** The same bug class shipped

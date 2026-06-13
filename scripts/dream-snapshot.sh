@@ -100,8 +100,13 @@ DREAM_ID=$(sb_generate_dream_id)
 DREAM_DIR="$DREAMS_DIR/$DREAM_ID"
 mkdir -p "$DREAM_DIR/staging" "$DREAM_DIR/transcripts"
 
-# Snapshot wiki
-cp -r "$WIKI_DIR" "$DREAM_DIR/staging/wiki"
+# Snapshot wiki. -p PRESERVES mtimes (P4): FORGET scores age from mtime, and
+# dream-accept's rsync -a writes staged mtimes onto live — a plain `cp -r` reset
+# every page to "now", re-arming the FORGET age-gate corpus-wide so nothing
+# could ever age into a candidate (silently neutering the recency fix). `cp -rp`
+# keeps each unchanged page's real mtime; only pages the dream actually edits
+# get a fresh mtime (correct — they WERE modified).
+cp -rp "$WIKI_DIR" "$DREAM_DIR/staging/wiki"
 SNAPSHOT_BYTES=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')
 WIKI_PAGE_COUNT=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' ! -name 'index.md' 2>/dev/null | wc -l | tr -d ' ')
 

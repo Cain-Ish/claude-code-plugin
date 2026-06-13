@@ -198,18 +198,22 @@ function textSearch(query2, index, limit, filters) {
   const scored = [];
   for (const e of filtered) {
     const hay = (e.userSnippet + " " + e.assistantSnippet).toLowerCase();
-    let hits = 0;
+    let allHit = true;
+    let tf = 0;
     for (const t of tokens) {
-      if (hay.includes(t)) hits++;
-      else {
-        hits = -1;
+      const occ = hay.split(t).length - 1;
+      if (occ === 0) {
+        allHit = false;
         break;
       }
+      tf += occ;
     }
-    if (hits === tokens.length) {
-      scored.push({ ...e, similarity: 0.25 + hits / tokens.length * 0.25 });
+    if (allHit) {
+      const similarity = 0.5 * (tf / (tf + tokens.length));
+      scored.push({ ...e, similarity });
     }
   }
+  scored.sort((a, b) => b.similarity - a.similarity);
   return scored.slice(0, limit);
 }
 async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
@@ -280,7 +284,7 @@ if (!query) {
 }
 var brainDir = process.env.BRAIN_DIR || join3(process.env.HOME ?? "", ".second-brain");
 var activeProject = process.env.SB_ACTIVE_SLUG?.trim() || void 0;
-var result = await episodicSearch({ query, limit: 2, mode: "vector", activeProject }, brainDir);
+var result = await episodicSearch({ query, limit: 2, mode: "both", activeProject }, brainDir);
 var top = result.results.filter((r) => r.similarity >= 0.15);
 if (top.length === 0) {
   process.exit(0);

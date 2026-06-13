@@ -6785,12 +6785,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs18, exportName) {
+    function addFormats(ajv, list, fs19, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs18[f]);
+        ajv.addFormat(f, fs19[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -21011,7 +21011,7 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs17 from "fs";
+import fs18 from "fs";
 import os from "os";
 import path2 from "path";
 
@@ -25409,8 +25409,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs18 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs18);
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs19 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs19);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -25968,8 +25968,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs18) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs18 });
+  newRoot(fs19) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs19 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -25997,8 +25997,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs18) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs18 });
+  newRoot(fs19) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs19 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -27438,11 +27438,28 @@ async function archiveToWiki(args) {
 }
 
 // src/tools/knowledge-search.ts
-import { promises as fs7 } from "fs";
+import { promises as fs8 } from "fs";
+
+// src/tools/atomic-write.ts
+import { promises as fs5 } from "fs";
+async function atomicWriteJson(filePath, value) {
+  const tmp = `${filePath}.tmp.${process.pid}`;
+  try {
+    await fs5.writeFile(tmp, JSON.stringify(value));
+    await fs5.rename(tmp, filePath);
+  } catch {
+    try {
+      await fs5.unlink(tmp);
+    } catch {
+    }
+  }
+}
+
+// src/tools/knowledge-search.ts
 import { join as join6 } from "path";
 
 // src/tools/embeddings.ts
-import { promises as fs5 } from "fs";
+import { promises as fs6 } from "fs";
 import { join as join4 } from "path";
 var EMBEDDING_DIM = 384;
 var CACHE_FILE = ".embeddings-cache.json";
@@ -27466,8 +27483,8 @@ async function logLoadError(message, brainDir2) {
     exit_code: 0
   };
   try {
-    await fs5.mkdir(brainDir2, { recursive: true });
-    await fs5.appendFile(join4(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+    await fs6.mkdir(brainDir2, { recursive: true });
+    await fs6.appendFile(join4(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
   } catch {
   }
   try {
@@ -27507,7 +27524,7 @@ function simpleHash(s) {
 }
 async function loadCache(wikiRoot) {
   try {
-    const data = await fs5.readFile(join4(wikiRoot, CACHE_FILE), "utf-8");
+    const data = await fs6.readFile(join4(wikiRoot, CACHE_FILE), "utf-8");
     const parsed = JSON.parse(data);
     if (parsed.model === MODEL_ID) return parsed;
   } catch {
@@ -27516,7 +27533,7 @@ async function loadCache(wikiRoot) {
 }
 async function saveCache(wikiRoot, cache) {
   try {
-    await fs5.writeFile(join4(wikiRoot, CACHE_FILE), JSON.stringify(cache));
+    await fs6.writeFile(join4(wikiRoot, CACHE_FILE), JSON.stringify(cache));
   } catch {
   }
 }
@@ -27609,7 +27626,7 @@ function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
 }
 
 // src/tools/doc-sources.ts
-import { promises as fs6 } from "fs";
+import { promises as fs7 } from "fs";
 import { join as join5, relative, resolve as resolve2, sep as sep3 } from "path";
 function assertSafeSlug(slug) {
   if (!slug || /[\\/]|\.\./.test(slug)) {
@@ -27622,7 +27639,7 @@ function registryPath(brainDir2, slug) {
 async function loadRegistry(brainDir2, slug) {
   try {
     assertSafeSlug(slug);
-    return JSON.parse(await fs6.readFile(registryPath(brainDir2, slug), "utf-8"));
+    return JSON.parse(await fs7.readFile(registryPath(brainDir2, slug), "utf-8"));
   } catch {
     return null;
   }
@@ -27709,7 +27726,7 @@ var ACCESS_BOOST_CAP = 10;
 var ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts() {
   try {
-    return JSON.parse(await fs7.readFile(accessCountsFile(), "utf-8"));
+    return JSON.parse(await fs8.readFile(accessCountsFile(), "utf-8"));
   } catch {
     return {};
   }
@@ -27720,8 +27737,7 @@ async function saveAccessCounts(counts) {
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await fs7.writeFile(accessCountsFile(), JSON.stringify(pruned)).catch(() => {
-  });
+  await atomicWriteJson(accessCountsFile(), pruned);
 }
 var TOP_K = 8;
 var SNIPPET_CHARS = 200;
@@ -27741,7 +27757,7 @@ async function knowledgeSearch(args) {
     scopeDirs = [join6(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs7.readdir(wikiRoot, { withFileTypes: true });
+      const entries = await fs8.readdir(wikiRoot, { withFileTypes: true });
       scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join6(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
@@ -27759,7 +27775,7 @@ async function knowledgeSearch(args) {
     }
     for (const filePath of paths) {
       try {
-        const content = await fs7.readFile(filePath, "utf-8");
+        const content = await fs8.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         allDocs.push({ doc, rawContent: content, source: "wiki", tokens: estimateTokens(content) });
       } catch {
@@ -28109,7 +28125,7 @@ function slugFromPath(p) {
   return p.replace(/.*\//, "").replace(/\.md$/, "");
 }
 async function collectMarkdown(dir, acc = []) {
-  for (const e of await fs7.readdir(dir, { withFileTypes: true })) {
+  for (const e of await fs8.readdir(dir, { withFileTypes: true })) {
     const p = join6(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
@@ -28118,7 +28134,7 @@ async function collectMarkdown(dir, acc = []) {
 }
 
 // src/tools/knowledge-fetch.ts
-import { promises as fs8 } from "fs";
+import { promises as fs9 } from "fs";
 import { join as join7 } from "path";
 function headings(body) {
   return body.split("\n").filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
@@ -28174,7 +28190,7 @@ async function knowledgeFetch(args) {
       pointer: "knowledge_search"
     };
   }
-  const raw = await fs8.readFile(filePath, "utf-8");
+  const raw = await fs9.readFile(filePath, "utf-8");
   const doc = parseDoc(raw, filePath);
   const fullPointer = `Read ${filePath} for the full page`;
   const gist = doc.description || doc.title || args.slug;
@@ -28219,11 +28235,11 @@ async function knowledgeFetch(args) {
 }
 
 // src/tools/knowledge-reindex.ts
-import { promises as fs11 } from "fs";
+import { promises as fs12 } from "fs";
 import { join as join10 } from "path";
 
 // src/tools/knowledge-validate.ts
-import { promises as fs9 } from "fs";
+import { promises as fs10 } from "fs";
 import { join as join8, basename, dirname as dirname2, relative as relative2 } from "path";
 
 // ../kb-schema.json
@@ -28271,7 +28287,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
   for (const filePath of allPages) {
-    const content = await fs9.readFile(filePath, "utf-8");
+    const content = await fs10.readFile(filePath, "utf-8");
     const slug = basename(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
@@ -28416,7 +28432,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     }
   }
   try {
-    const rootFiles = await fs9.readdir(knowledgeDir, { withFileTypes: true });
+    const rootFiles = await fs10.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
         const rootPath = join8(knowledgeDir, entry.name);
@@ -28435,16 +28451,16 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     for (const issue2 of issues) {
       if (issue2.autofix === "remove" && issue2.type === "empty_page") {
         try {
-          await fs9.unlink(issue2.path);
+          await fs10.unlink(issue2.path);
           fixed++;
         } catch {
         }
       }
       if (issue2.autofix === "move_or_remove" && issue2.type === "root_orphan") {
         try {
-          const stat = await fs9.stat(issue2.path);
+          const stat = await fs10.stat(issue2.path);
           if (stat.size === 0) {
-            await fs9.unlink(issue2.path);
+            await fs10.unlink(issue2.path);
             fixed++;
           }
         } catch {
@@ -28480,7 +28496,7 @@ function isIncompleteFrontmatter(content) {
   return REQUIRED_FM_FIELDS.some((k) => !new RegExp(`^${k}:`, "m").test(fm));
 }
 async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
-  const original = await fs9.readFile(filePath, "utf-8");
+  const original = await fs10.readFile(filePath, "utf-8");
   const m = original.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return false;
   const fmBody = m[1];
@@ -28490,7 +28506,7 @@ async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
   const body = original.slice(m[0].length);
   let mtimeDate;
   try {
-    mtimeDate = (await fs9.stat(filePath)).mtime.toISOString().slice(0, 10);
+    mtimeDate = (await fs10.stat(filePath)).mtime.toISOString().slice(0, 10);
   } catch {
     mtimeDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   }
@@ -28532,12 +28548,12 @@ ${missing.map(derive).join("\n")}`;
 ${newFm}
 ---`);
   if (next === original) return false;
-  await fs9.writeFile(filePath, next, "utf-8");
+  await fs10.writeFile(filePath, next, "utf-8");
   return true;
 }
 var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
-  const original = await fs9.readFile(filePath, "utf-8");
+  const original = await fs10.readFile(filePath, "utf-8");
   if (/^---\n/.test(original)) return;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
@@ -28555,7 +28571,7 @@ async function addFrontmatter(filePath, wikiDir) {
       created = slugDate[1];
     } else {
       try {
-        const stat = await fs9.stat(filePath);
+        const stat = await fs10.stat(filePath);
         created = stat.mtime.toISOString().slice(0, 10);
       } catch {
         created = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -28578,7 +28594,7 @@ related: [${related.join(", ")}]
 ---
 
 `;
-  await fs9.writeFile(filePath, fm + original, "utf-8");
+  await fs10.writeFile(filePath, fm + original, "utf-8");
 }
 function isMalformedFrontmatter(content) {
   const m = content.match(/^---\n([\s\S]*?)\n---/);
@@ -28589,7 +28605,7 @@ function isMalformedFrontmatter(content) {
   return orphanBlockList || bracketlessMulti;
 }
 async function normalizeFrontmatter(filePath) {
-  const content = await fs9.readFile(filePath, "utf-8");
+  const content = await fs10.readFile(filePath, "utf-8");
   const m = content.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return false;
   let fm = m[1];
@@ -28603,7 +28619,7 @@ async function normalizeFrontmatter(filePath) {
 ${fm}
 ---`);
   if (next === content) return false;
-  await fs9.writeFile(filePath, next, "utf-8");
+  await fs10.writeFile(filePath, next, "utf-8");
   return true;
 }
 function isSessionNarrative(content, slug) {
@@ -28639,7 +28655,7 @@ function isSessionNarrative(content, slug) {
 }
 async function collectAllPages(dir, acc = []) {
   try {
-    const entries = await fs9.readdir(dir, { withFileTypes: true });
+    const entries = await fs10.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
       const p = join8(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
@@ -28651,7 +28667,7 @@ async function collectAllPages(dir, acc = []) {
 }
 
 // src/tools/graph-project.ts
-import { promises as fs10 } from "fs";
+import { promises as fs11 } from "fs";
 import { join as join9 } from "path";
 var BEGIN = "<!-- graph:begin (generated from ~/knowledge/graph/edges.jsonl \u2014 do not hand-edit) -->";
 var END = "<!-- graph:end -->";
@@ -28678,7 +28694,7 @@ async function projectGraphToPages(knowledgeDir) {
   const livePages = new Set(files.map(slugFromPath2));
   await Promise.all(files.map(async (f) => {
     try {
-      const head = (await fs10.readFile(f, "utf-8")).slice(0, 4096);
+      const head = (await fs11.readFile(f, "utf-8")).slice(0, 4096);
       const fm = head.match(/^---\n([\s\S]*?)\n---/);
       const proj = fm && fm[1].match(/^project:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
       if (proj) livePages.add(proj[1].trim());
@@ -28703,7 +28719,7 @@ async function projectGraphToPages(knowledgeDir) {
     if (file.endsWith("index.md") || /\/(projects|themes)\//.test(file)) continue;
     const slug = slugFromPath2(file);
     const related = relatedBySlug.get(slug);
-    let content = await fs10.readFile(file, "utf-8");
+    let content = await fs11.readFile(file, "utf-8");
     const before = content;
     const fmForArtifacts = content.match(/^---\n([\s\S]*?)\n---/);
     const hasNonEmptyRelated = fmForArtifacts ? extractYamlList(fmForArtifacts[1], "related").length > 0 : false;
@@ -28747,7 +28763,7 @@ ${block}
 `);
     }
     if (content !== before) {
-      await fs10.writeFile(file, content, "utf-8");
+      await fs11.writeFile(file, content, "utf-8");
       updated++;
     }
   }
@@ -28794,7 +28810,7 @@ async function knowledgeReindex(knowledgeDir) {
   const indexPath = join10(wikiRoot, "index.md");
   let dirs;
   try {
-    const entries = await fs11.readdir(wikiRoot, { withFileTypes: true });
+    const entries = await fs12.readdir(wikiRoot, { withFileTypes: true });
     dirs = entries.filter((d) => d.isDirectory()).map((d) => d.name).sort();
   } catch {
     return { pagesIndexed: 0, categories: [], indexPath };
@@ -28811,7 +28827,7 @@ async function knowledgeReindex(knowledgeDir) {
     for (const filePath of files.sort()) {
       const slug = filePath.split("/").pop().replace(/\.md$/, "");
       try {
-        const content = await fs11.readFile(filePath, "utf-8");
+        const content = await fs12.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         const desc = doc.description || firstSentence(doc.body);
         entries.push({ slug, description: desc });
@@ -28830,11 +28846,11 @@ async function knowledgeReindex(knowledgeDir) {
   const minMembers = Number.isFinite(rawMin) && rawMin >= 1 ? rawMin : 3;
   const mocs = process.env.SB_KB_MOC === "off" ? /* @__PURE__ */ new Map() : buildProjectMocs(allPages, { minMembers });
   const projDir = join10(wikiRoot, "projects");
-  if (mocs.size > 0) await fs11.mkdir(projDir, { recursive: true });
+  if (mocs.size > 0) await fs12.mkdir(projDir, { recursive: true });
   for (const existing of await mocSlugs(projDir)) {
     if (!mocs.has(existing)) {
       try {
-        await fs11.unlink(join10(projDir, `${existing}.md`));
+        await fs12.unlink(join10(projDir, `${existing}.md`));
       } catch {
       }
     }
@@ -28850,7 +28866,7 @@ async function knowledgeReindex(knowledgeDir) {
       "---",
       ""
     ].join("\n");
-    await fs11.writeFile(join10(projDir, `${proj}.md`), header + region + "\n", "utf-8");
+    await fs12.writeFile(join10(projDir, `${proj}.md`), header + region + "\n", "utf-8");
   }
   const sections = [
     "---",
@@ -28869,7 +28885,7 @@ async function knowledgeReindex(knowledgeDir) {
   if (categoryRows.length) sections.push("## Categories", "", ...categoryRows, "");
   if (totalPages === 0 && mocLinks.length === 0) sections.push("*(no pages yet)*", "");
   sections.push(`<!-- generated: ${(/* @__PURE__ */ new Date()).toISOString()} -->`);
-  await fs11.writeFile(indexPath, sections.join("\n"), "utf-8");
+  await fs12.writeFile(indexPath, sections.join("\n"), "utf-8");
   const validation = await knowledgeValidate(knowledgeDir, { autofix: true });
   return {
     pagesIndexed: totalPages,
@@ -28885,14 +28901,14 @@ function firstSentence(body) {
 }
 async function mocSlugs(dir) {
   try {
-    return (await fs11.readdir(dir)).filter((f) => f.endsWith(".md") && f !== "index.md").map((f) => f.replace(/\.md$/, "")).sort();
+    return (await fs12.readdir(dir)).filter((f) => f.endsWith(".md") && f !== "index.md").map((f) => f.replace(/\.md$/, "")).sort();
   } catch {
     return [];
   }
 }
 async function collectMd(dir, acc = []) {
   try {
-    for (const e of await fs11.readdir(dir, { withFileTypes: true })) {
+    for (const e of await fs12.readdir(dir, { withFileTypes: true })) {
       const p = join10(dir, e.name);
       if (e.isDirectory()) await collectMd(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
@@ -28903,7 +28919,7 @@ async function collectMd(dir, acc = []) {
 }
 
 // src/tools/dream.ts
-import { promises as fs12 } from "fs";
+import { promises as fs13 } from "fs";
 import { join as join11 } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -28929,7 +28945,7 @@ function toBashPath(p) {
 async function readStatus(dreamId) {
   const statusPath = join11(dreamsDir(), dreamId, "status.json");
   try {
-    const raw = await fs12.readFile(statusPath, "utf-8");
+    const raw = await fs13.readFile(statusPath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -28937,12 +28953,12 @@ async function readStatus(dreamId) {
 }
 async function writeStatus(dreamId, status) {
   const statusPath = join11(dreamsDir(), dreamId, "status.json");
-  await fs12.writeFile(statusPath, JSON.stringify(status, null, 2), "utf-8");
+  await atomicWriteJson(statusPath, status);
 }
 async function listDreamIds() {
   const dir = dreamsDir();
   try {
-    const entries = await fs12.readdir(dir, { withFileTypes: true });
+    const entries = await fs13.readdir(dir, { withFileTypes: true });
     return entries.filter((e) => e.isDirectory() && e.name.startsWith("drm_")).map((e) => e.name).sort().reverse();
   } catch {
     return [];
@@ -29004,7 +29020,7 @@ async function dreamStatus(args) {
   if (status.status === "completed") {
     const diffPath = join11(dreamsDir(), args.dream_id, "diff.md");
     try {
-      const content = await fs12.readFile(diffPath, "utf-8");
+      const content = await fs13.readFile(diffPath, "utf-8");
       const lines = content.split("\n");
       diffPreview = lines.slice(0, 50).join("\n");
       if (lines.length > 50) diffPreview += "\n... (truncated)";
@@ -29067,8 +29083,8 @@ async function dreamDiscard(args) {
   }
   const dreamDir = join11(dreamsDir(), args.dream_id);
   try {
-    await fs12.rm(join11(dreamDir, "staging"), { recursive: true, force: true });
-    await fs12.rm(join11(dreamDir, "transcripts"), {
+    await fs13.rm(join11(dreamDir, "staging"), { recursive: true, force: true });
+    await fs13.rm(join11(dreamDir, "transcripts"), {
       recursive: true,
       force: true
     });
@@ -29096,7 +29112,7 @@ async function dreamCancel(args) {
 }
 
 // src/tools/episodic-search.ts
-import { promises as fs13 } from "fs";
+import { promises as fs14 } from "fs";
 import { join as join12, basename as basename3, relative as relative4, isAbsolute as isAbsolute2 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
@@ -29123,7 +29139,7 @@ function parseSessionMeta(lines) {
 async function loadIndex(brainDir2) {
   const indexPath = join12(brainDir2, INDEX_FILE);
   try {
-    const data = await fs13.readFile(indexPath, "utf-8");
+    const data = await fs14.readFile(indexPath, "utf-8");
     return JSON.parse(data);
   } catch {
     return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };
@@ -29203,18 +29219,22 @@ function textSearch(query, index, limit, filters) {
   const scored = [];
   for (const e of filtered) {
     const hay = (e.userSnippet + " " + e.assistantSnippet).toLowerCase();
-    let hits = 0;
+    let allHit = true;
+    let tf = 0;
     for (const t of tokens) {
-      if (hay.includes(t)) hits++;
-      else {
-        hits = -1;
+      const occ = hay.split(t).length - 1;
+      if (occ === 0) {
+        allHit = false;
         break;
       }
+      tf += occ;
     }
-    if (hits === tokens.length) {
-      scored.push({ ...e, similarity: 0.25 + hits / tokens.length * 0.25 });
+    if (allHit) {
+      const similarity = 0.5 * (tf / (tf + tokens.length));
+      scored.push({ ...e, similarity });
     }
   }
+  scored.sort((a, b) => b.similarity - a.similarity);
   return scored.slice(0, limit);
 }
 async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
@@ -29292,7 +29312,7 @@ function assertTranscriptPath(brainDir2, filePath) {
   return assertWithin(base, rel);
 }
 async function episodicRead(filePath, startLine, endLine) {
-  const content = await fs13.readFile(filePath, "utf-8");
+  const content = await fs14.readFile(filePath, "utf-8");
   const lines = content.split("\n");
   const { meta } = parseSessionMeta(lines);
   const start = (startLine ?? 1) - 1;
@@ -29308,7 +29328,7 @@ async function episodicRead(filePath, startLine, endLine) {
 
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
-import { promises as fs14 } from "fs";
+import { promises as fs15 } from "fs";
 import { join as join13, dirname as dirname3 } from "path";
 function opusLedgerPath(brainDir2) {
   if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
@@ -29320,7 +29340,7 @@ async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   let current = { date: today, opus_cost_usd: 0, opus_calls: 0 };
   try {
-    const txt = await fs14.readFile(ledgerPath, "utf-8");
+    const txt = await fs15.readFile(ledgerPath, "utf-8");
     const j2 = JSON.parse(txt);
     if (j2.date === today) {
       current = {
@@ -29338,12 +29358,12 @@ async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
   };
   const tmpPath = `${ledgerPath}.tmp.${process.pid}`;
   try {
-    await fs14.mkdir(dirname3(ledgerPath), { recursive: true });
-    await fs14.writeFile(tmpPath, JSON.stringify(next));
-    await fs14.rename(tmpPath, ledgerPath);
+    await fs15.mkdir(dirname3(ledgerPath), { recursive: true });
+    await fs15.writeFile(tmpPath, JSON.stringify(next));
+    await fs15.rename(tmpPath, ledgerPath);
   } catch {
     try {
-      await fs14.unlink(tmpPath);
+      await fs15.unlink(tmpPath);
     } catch {
     }
   }
@@ -29457,7 +29477,7 @@ async function readBudget(brainDir2) {
   const file = join13(brainDir2, "persona-budget.json");
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   try {
-    const txt = await fs14.readFile(file, "utf-8");
+    const txt = await fs15.readFile(file, "utf-8");
     const j2 = JSON.parse(txt);
     if (j2.date === today) return { date: today, today_usd: Number(j2.today_usd) || 0 };
   } catch {
@@ -29467,21 +29487,21 @@ async function readBudget(brainDir2) {
 async function recordSpend(brainDir2, usd) {
   const current = await readBudget(brainDir2);
   const next = { date: current.date, today_usd: current.today_usd + usd };
-  await fs14.mkdir(brainDir2, { recursive: true }).catch(() => {
+  await fs15.mkdir(brainDir2, { recursive: true }).catch(() => {
   });
-  await fs14.writeFile(join13(brainDir2, "persona-budget.json"), JSON.stringify(next));
+  await fs15.writeFile(join13(brainDir2, "persona-budget.json"), JSON.stringify(next));
   return next;
 }
 
 // src/tools/persona-stats.ts
-import { promises as fs15 } from "fs";
+import { promises as fs16 } from "fs";
 import { join as join14 } from "path";
 async function personaStats(args = {}) {
   const dir = args.brainDir ?? join14(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
   let identity2 = "";
   let cardBytes = 0;
   try {
-    const card = await fs15.readFile(join14(dir, "persona-card.md"), "utf-8");
+    const card = await fs16.readFile(join14(dir, "persona-card.md"), "utf-8");
     cardBytes = Buffer.byteLength(card, "utf-8");
     identity2 = card.split("\n").filter((l) => l.startsWith("- ")).slice(0, 3).map((l) => l.slice(2).trim()).join("; ");
   } catch {
@@ -29489,7 +29509,7 @@ async function personaStats(args = {}) {
   let ungraduated = 0;
   let graduated = 0;
   try {
-    const psl = await fs15.readFile(join14(dir, "persona-signals.jsonl"), "utf-8");
+    const psl = await fs16.readFile(join14(dir, "persona-signals.jsonl"), "utf-8");
     for (const line of psl.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -29503,7 +29523,7 @@ async function personaStats(args = {}) {
   }
   let plugins = 0, agents = 0, skills = 0;
   try {
-    const cat = JSON.parse(await fs15.readFile(join14(dir, ".installed-catalog.json"), "utf-8"));
+    const cat = JSON.parse(await fs16.readFile(join14(dir, ".installed-catalog.json"), "utf-8"));
     plugins = Array.isArray(cat.plugins) ? cat.plugins.length : 0;
     agents = Array.isArray(cat.agents) ? cat.agents.length : 0;
     skills = Array.isArray(cat.skills) ? cat.skills.length : 0;
@@ -29511,7 +29531,7 @@ async function personaStats(args = {}) {
   }
   let dismissals = 0;
   try {
-    const dl = await fs15.readFile(join14(dir, ".persona-dismissals.jsonl"), "utf-8");
+    const dl = await fs16.readFile(join14(dir, ".persona-dismissals.jsonl"), "utf-8");
     const cutoff = Date.now() - 7 * 864e5;
     for (const line of dl.split("\n")) {
       if (!line.trim()) continue;
@@ -29526,7 +29546,7 @@ async function personaStats(args = {}) {
   }
   let spend = 0;
   try {
-    const b = JSON.parse(await fs15.readFile(join14(dir, "persona-budget.json"), "utf-8"));
+    const b = JSON.parse(await fs16.readFile(join14(dir, "persona-budget.json"), "utf-8"));
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     if (b.date === today) spend = Number(b.today_usd) || 0;
   } catch {
@@ -29545,12 +29565,12 @@ async function personaStats(args = {}) {
 }
 
 // src/tools/persona-dismiss.ts
-import { promises as fs16 } from "fs";
+import { promises as fs17 } from "fs";
 import { join as join15 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
   const dir = args.brainDir ?? join15(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
-  await fs16.mkdir(dir, { recursive: true }).catch(() => {
+  await fs17.mkdir(dir, { recursive: true }).catch(() => {
   });
   const file = join15(dir, ".persona-dismissals.jsonl");
   const now = /* @__PURE__ */ new Date();
@@ -29562,7 +29582,7 @@ async function personaDismiss(args = {}) {
   const cutoff = now.getTime() - RETAIN_DAYS * 864e5;
   let kept = "";
   try {
-    const existing = await fs16.readFile(file, "utf-8");
+    const existing = await fs17.readFile(file, "utf-8");
     for (const line of existing.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -29575,7 +29595,7 @@ async function personaDismiss(args = {}) {
   } catch {
   }
   kept += JSON.stringify(entry) + "\n";
-  await fs16.writeFile(file, kept);
+  await fs17.writeFile(file, kept);
   const week = now.getTime() - 7 * 864e5;
   let count = 0;
   for (const line of kept.split("\n")) {
@@ -29694,7 +29714,7 @@ function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.7.3" },
+  { name: "knowledge-base", version: "2.7.4" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
@@ -29798,7 +29818,7 @@ server.registerTool(
   async () => {
     try {
       const wikiDir = path2.join(KNOWLEDGE_DIR, "wiki");
-      if (!fs17.existsSync(wikiDir)) {
+      if (!fs18.existsSync(wikiDir)) {
         return {
           content: [{
             type: "text",
@@ -29818,7 +29838,7 @@ server.registerTool(
         const cat = categorizeFile(file);
         let size = 0;
         try {
-          size = fs17.statSync(file).size;
+          size = fs18.statSync(file).size;
         } catch {
           continue;
         }
