@@ -28312,6 +28312,14 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         message: `Missing YAML frontmatter: ${slug}`,
         autofix: "add_frontmatter"
       });
+    } else if (isMalformedFrontmatter(content)) {
+      issues.push({
+        type: "malformed_frontmatter",
+        severity: "warning",
+        path: filePath,
+        message: `Invalid related:/tags: YAML frontmatter \u2014 run with autofix to normalize: ${slug}`,
+        autofix: "normalize_frontmatter"
+      });
     }
     const datePrefix = slug.match(/^\d{4}-\d{2}-\d{2}-/);
     if (datePrefix) {
@@ -28400,6 +28408,12 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         } catch {
         }
       }
+      if (issue2.autofix === "normalize_frontmatter" && issue2.type === "malformed_frontmatter") {
+        try {
+          if (await normalizeFrontmatter(issue2.path)) fixed++;
+        } catch {
+        }
+      }
     }
   }
   return { issues, fixed, pagesScanned: allPages.length };
@@ -28448,6 +28462,32 @@ related: [${related.join(", ")}]
 
 `;
   await fs9.writeFile(filePath, fm + original, "utf-8");
+}
+function isMalformedFrontmatter(content) {
+  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  const fm = m[1];
+  const orphanBlockList = /^(?:related|tags):[ \t]+\S[^\n]*\n[ \t]+-[ \t]/m.test(fm);
+  const bracketlessMulti = /^(?:related|tags):[^\n]*\]\][ \t]*,/m.test(fm);
+  return orphanBlockList || bracketlessMulti;
+}
+async function normalizeFrontmatter(filePath) {
+  const content = await fs9.readFile(filePath, "utf-8");
+  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  let fm = m[1];
+  for (const key of ["related", "tags"]) {
+    const blockRe = new RegExp(`^${key}:[^\\n]*(?:\\n[ \\t]+-[^\\n]*)*$`, "m");
+    if (!blockRe.test(fm)) continue;
+    const slugs = extractYamlList(fm, key);
+    fm = fm.replace(blockRe, () => `${key}: [${slugs.join(", ")}]`);
+  }
+  const next = content.replace(/^---\n[\s\S]*?\n---/, () => `---
+${fm}
+---`);
+  if (next === content) return false;
+  await fs9.writeFile(filePath, next, "utf-8");
+  return true;
 }
 function isSessionNarrative(content, slug) {
   const sessionSignals = [
@@ -28516,7 +28556,19 @@ async function projectGraphToPages(knowledgeDir) {
   const records = await loadEdges(join9(knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { pagesUpdated: 0 };
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  const current = foldToCurrent(records).filter((e) => validAt(e, now));
+  const wikiRoot = join9(knowledgeDir, "wiki");
+  const files = await glob("**/*.md", { cwd: wikiRoot, absolute: true });
+  const livePages = new Set(files.map(slugFromPath2));
+  await Promise.all(files.map(async (f) => {
+    try {
+      const head = (await fs10.readFile(f, "utf-8")).slice(0, 4096);
+      const fm = head.match(/^---\n([\s\S]*?)\n---/);
+      const proj = fm && fm[1].match(/^project:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
+      if (proj) livePages.add(proj[1].trim());
+    } catch {
+    }
+  }));
+  const current = foldToCurrent(records).filter((e) => validAt(e, now)).filter((e) => livePages.has(e.from) && livePages.has(e.to));
   const outBySlug = /* @__PURE__ */ new Map();
   const relatedBySlug = /* @__PURE__ */ new Map();
   const add = (slug, other) => {
@@ -28529,23 +28581,27 @@ async function projectGraphToPages(knowledgeDir) {
     add(e.from, e.to);
     add(e.to, e.from);
   }
-  const wikiRoot = join9(knowledgeDir, "wiki");
-  const files = await glob("**/*.md", { cwd: wikiRoot, absolute: true });
   let updated = 0;
   for (const file of files) {
     if (file.endsWith("index.md") || /\/(projects|themes)\//.test(file)) continue;
     const slug = slugFromPath2(file);
     const related = relatedBySlug.get(slug);
-    if (!related || related.size === 0) continue;
     let content = await fs10.readFile(file, "utf-8");
     const before = content;
-    const relList = [...related].sort();
-    const relLine = `related: ${relList.map((s) => `[[${s}]]`).join(", ")}`;
+    const hasGeneratedArtifacts = /^related:\s*\[[^\]]/m.test(content) || content.includes(BEGIN);
+    if ((!related || related.size === 0) && !hasGeneratedArtifacts) continue;
+    const relList = related ? [...related].sort() : [];
+    const relLine = relList.length ? `related: [${relList.join(", ")}]` : "related: []";
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
     if (fmMatch) {
       let fmBody = fmMatch[1];
-      fmBody = /^related:.*$/m.test(fmBody) ? fmBody.replace(/^related:.*$/m, () => relLine) : `${fmBody}
+      const relBlockRe = /^related:[^\n]*(?:\n[ \t]+-[^\n]*)*$/m;
+      if (relBlockRe.test(fmBody)) {
+        fmBody = fmBody.replace(relBlockRe, () => relLine);
+      } else if (relList.length) {
+        fmBody = `${fmBody}
 ${relLine}`;
+      }
       content = content.replace(/^---\n[\s\S]*?\n---/, () => `---
 ${fmBody}
 ---`);
@@ -29519,7 +29575,7 @@ function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.7.0" },
+  { name: "knowledge-base", version: "2.7.1" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."

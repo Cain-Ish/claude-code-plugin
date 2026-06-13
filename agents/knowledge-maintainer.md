@@ -48,7 +48,7 @@ Run first, always. The hot tier is injected into every prompt, so noise here is 
 Fix structural issues before touching content.
 
 1. **Step 0 — autofix sweep (required, runs before the manual cap)**:
-   Call `knowledge_validate` with `autofix: true` first. This applies all safe automated fixes (frontmatter injection, empty-page removal, empty root-orphan cleanup) in one pass. Report `Auto-fixed N issues.` Frontmatter autofix is **uncapped** — if 45 pages are missing frontmatter, all 45 get fixed in this step. Do this even if the wiki looks fine, because the autofix is idempotent.
+   Call `knowledge_validate` with `autofix: true` first. This applies all safe automated fixes (frontmatter injection, **frontmatter normalization** — re-serialize invalid `related:`/`tags:` YAML to the canonical `[a, b]` form and drop orphaned block-list children, empty-page removal, empty root-orphan cleanup) in one pass. Report `Auto-fixed N issues.` Frontmatter autofix is **uncapped** — if 45 pages are malformed or missing frontmatter, all 45 get fixed in this step. Do this even if the wiki looks fine, because the autofix is idempotent.
 2. After the autofix sweep, re-run `knowledge_validate` (autofix: true) and address every remaining issue manually:
    - **Broken wiki-links**: `[[slug]]` with no matching page → create a stub or remove the link
    - **Missing frontmatter**: If any remain after Step 0, write the YAML block by hand (title from H1, type from folder, description filled in Phase 4)
