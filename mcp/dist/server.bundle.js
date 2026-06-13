@@ -28024,6 +28024,7 @@ function parseDoc(content, filePath) {
     project: "",
     area: ""
   };
+  let hasRelatedKey = false;
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
     const fm = fmMatch[1];
@@ -28033,6 +28034,7 @@ function parseDoc(content, filePath) {
     doc.type = extractYamlValue(fm, "type");
     doc.tags = extractYamlList(fm, "tags");
     doc.related = extractYamlList(fm, "related");
+    hasRelatedKey = /^related:/m.test(fm);
     doc.updated = extractYamlValue(fm, "updated");
     doc.created = extractYamlValue(fm, "created");
     doc.project = extractYamlValue(fm, "project");
@@ -28050,7 +28052,7 @@ function parseDoc(content, filePath) {
     }
   }
   doc.aiBlock = parseAiBlock(content) ?? void 0;
-  if (doc.related.length === 0) {
+  if (!hasRelatedKey) {
     const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
     if (wikiLinks) {
       doc.related = [...new Set(wikiLinks.map((l) => l.slice(2, -2)))];
@@ -28264,6 +28266,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join8(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
+  const graphEnabled = (await loadEdges(join8(knowledgeDir, "graph", "edges.jsonl"))).length > 0;
   const allPages = await collectAllPages(wikiDir);
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
@@ -28462,7 +28465,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
       }
       if (issue2.autofix === "patch_frontmatter" && issue2.type === "incomplete_frontmatter") {
         try {
-          if (await patchFrontmatter(issue2.path, wikiDir)) fixed++;
+          if (await patchFrontmatter(issue2.path, wikiDir, graphEnabled)) fixed++;
         } catch {
         }
       }
@@ -28476,7 +28479,7 @@ function isIncompleteFrontmatter(content) {
   const fm = m[1];
   return REQUIRED_FM_FIELDS.some((k) => !new RegExp(`^${k}:`, "m").test(fm));
 }
-async function patchFrontmatter(filePath, wikiDir) {
+async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
   const original = await fs9.readFile(filePath, "utf-8");
   const m = original.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return false;
@@ -28514,6 +28517,7 @@ async function patchFrontmatter(filePath, wikiDir) {
       case "tags":
         return "tags: []";
       case "related": {
+        if (graphEnabled) return "related: []";
         const links = body.match(/\[\[([^\]]+)\]\]/g) || [];
         const rel = [...new Set(links.map((l) => l.slice(2, -2).split("|")[0].trim()).filter((r) => /^[a-z0-9][a-z0-9-]*$/i.test(r)))];
         return `related: [${rel.join(", ")}]`;
@@ -28701,7 +28705,9 @@ async function projectGraphToPages(knowledgeDir) {
     const related = relatedBySlug.get(slug);
     let content = await fs10.readFile(file, "utf-8");
     const before = content;
-    const hasGeneratedArtifacts = /^related:\s*\[[^\]]/m.test(content) || content.includes(BEGIN);
+    const fmForArtifacts = content.match(/^---\n([\s\S]*?)\n---/);
+    const hasNonEmptyRelated = fmForArtifacts ? extractYamlList(fmForArtifacts[1], "related").length > 0 : false;
+    const hasGeneratedArtifacts = hasNonEmptyRelated || content.includes(BEGIN);
     if ((!related || related.size === 0) && !hasGeneratedArtifacts) continue;
     const relList = related ? [...related].sort() : [];
     const relLine = relList.length ? `related: [${relList.join(", ")}]` : "related: []";
@@ -29688,7 +29694,7 @@ function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.7.2" },
+  { name: "knowledge-base", version: "2.7.3" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."

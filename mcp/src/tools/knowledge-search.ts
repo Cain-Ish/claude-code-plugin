@@ -429,6 +429,7 @@ export function parseDoc(content: string, filePath: string): ParsedDoc {
     updated: '', created: '', project: '', area: '',
   };
 
+  let hasRelatedKey = false;   // P1: distinguish an explicit `related: []` from an ABSENT key
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
     const fm = fmMatch[1];
@@ -438,6 +439,7 @@ export function parseDoc(content: string, filePath: string): ParsedDoc {
     doc.type = extractYamlValue(fm, 'type');
     doc.tags = extractYamlList(fm, 'tags');
     doc.related = extractYamlList(fm, 'related');
+    hasRelatedKey = /^related:/m.test(fm);
     doc.updated = extractYamlValue(fm, 'updated');
     doc.created = extractYamlValue(fm, 'created');
     doc.project = extractYamlValue(fm, 'project');
@@ -459,9 +461,13 @@ export function parseDoc(content: string, filePath: string): ParsedDoc {
 
   doc.aiBlock = parseAiBlock(content) ?? undefined;
 
-  if (doc.related.length === 0) {
-    // Scrape body [[links]] for related: — but NOT links inside the ai-block (block values
-    // are plain slugs by convention; strip it so a stray bracket can't pollute related:).
+  if (!hasRelatedKey) {
+    // P1: scrape body [[links]] ONLY when the related: KEY is ABSENT — an explicit
+    // `related: []` is authoritative (it is the projector's canonical cleaned form
+    // for an edgeless page; re-filling it from body links would resurrect false
+    // related_drift + phantom boosts on exactly the pages the projector just cleaned).
+    // Strip the ai-block first (block values are plain slugs; a stray bracket there
+    // must not pollute related:).
     const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
     if (wikiLinks) {
       doc.related = [...new Set(wikiLinks.map(l => l.slice(2, -2)))];

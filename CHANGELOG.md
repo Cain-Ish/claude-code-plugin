@@ -4,6 +4,30 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.24.49
+
+**Correctness wave (deep-review P1/P2/P3/P5).** The same bug class shipped
+again in 0.24.48 — three interaction bugs made reindex non-idempotent on a
+graph-enabled wiki. Fixed as one unit so the projector/validator/parseDoc trio
+agree on the canonical empty shape `related: []`:
+- parseDoc: `related: []` is authoritative — body-`[[link]]` scrape fires only
+  when the key is ABSENT (was: whenever the list was empty → re-filled the
+  projector's cleaned pages → false related_drift forever).
+- patchFrontmatter: emits `related: []` on graph-enabled corpora instead of
+  body-deriving a value the projector would overwrite (the oscillation).
+- orphan-GC: admits edgeless pages with a legacy block-list `related:`, not
+  just the inline form → stale/dead links finally scrubbed.
+- Deleted a duplicate `sb_validate_wiki` (lib.sh) that shadowed the
+  count-returning def, killing dream-accept's convergence telemetry.
+- **Root-cause gate**: added js-yaml (DEV-only — never in the shipped bundle)
+  + a parse-validity property test asserting projector/validator output is
+  always valid YAML. This closes the structural cause of the whole
+  "not-working logic" family — there was no real parser anywhere, so every
+  test re-read through the same tolerant regex. Plus a duplicate-function lint
+  guard in test-script-portability.
+
+MCP server 2.7.3. Run `/second-brain:reindex` once.
+
 ## 0.24.48
 
 **Node-shape convergence (user-requested).** Lint, the maintainer, and the

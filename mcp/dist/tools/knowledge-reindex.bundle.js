@@ -6198,6 +6198,7 @@ function parseDoc(content, filePath) {
     project: "",
     area: ""
   };
+  let hasRelatedKey = false;
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (fmMatch) {
     const fm = fmMatch[1];
@@ -6207,6 +6208,7 @@ function parseDoc(content, filePath) {
     doc.type = extractYamlValue(fm, "type");
     doc.tags = extractYamlList(fm, "tags");
     doc.related = extractYamlList(fm, "related");
+    hasRelatedKey = /^related:/m.test(fm);
     doc.updated = extractYamlValue(fm, "updated");
     doc.created = extractYamlValue(fm, "created");
     doc.project = extractYamlValue(fm, "project");
@@ -6224,7 +6226,7 @@ function parseDoc(content, filePath) {
     }
   }
   doc.aiBlock = parseAiBlock(content) ?? void 0;
-  if (doc.related.length === 0) {
+  if (!hasRelatedKey) {
     const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
     if (wikiLinks) {
       doc.related = [...new Set(wikiLinks.map((l) => l.slice(2, -2)))];
@@ -6316,6 +6318,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
+  const graphEnabled = (await loadEdges(join(knowledgeDir, "graph", "edges.jsonl"))).length > 0;
   const allPages = await collectAllPages(wikiDir);
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
@@ -6514,7 +6517,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
       }
       if (issue.autofix === "patch_frontmatter" && issue.type === "incomplete_frontmatter") {
         try {
-          if (await patchFrontmatter(issue.path, wikiDir)) fixed++;
+          if (await patchFrontmatter(issue.path, wikiDir, graphEnabled)) fixed++;
         } catch {
         }
       }
@@ -6528,7 +6531,7 @@ function isIncompleteFrontmatter(content) {
   const fm = m[1];
   return REQUIRED_FM_FIELDS.some((k) => !new RegExp(`^${k}:`, "m").test(fm));
 }
-async function patchFrontmatter(filePath, wikiDir) {
+async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
   const original = await fs2.readFile(filePath, "utf-8");
   const m = original.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return false;
@@ -6566,6 +6569,7 @@ async function patchFrontmatter(filePath, wikiDir) {
       case "tags":
         return "tags: []";
       case "related": {
+        if (graphEnabled) return "related: []";
         const links = body.match(/\[\[([^\]]+)\]\]/g) || [];
         const rel = [...new Set(links.map((l) => l.slice(2, -2).split("|")[0].trim()).filter((r) => /^[a-z0-9][a-z0-9-]*$/i.test(r)))];
         return `related: [${rel.join(", ")}]`;
@@ -6753,7 +6757,9 @@ async function projectGraphToPages(knowledgeDir) {
     const related = relatedBySlug.get(slug);
     let content = await fs3.readFile(file, "utf-8");
     const before = content;
-    const hasGeneratedArtifacts = /^related:\s*\[[^\]]/m.test(content) || content.includes(BEGIN);
+    const fmForArtifacts = content.match(/^---\n([\s\S]*?)\n---/);
+    const hasNonEmptyRelated = fmForArtifacts ? extractYamlList(fmForArtifacts[1], "related").length > 0 : false;
+    const hasGeneratedArtifacts = hasNonEmptyRelated || content.includes(BEGIN);
     if ((!related || related.size === 0) && !hasGeneratedArtifacts) continue;
     const relList = related ? [...related].sort() : [];
     const relLine = relList.length ? `related: [${relList.join(", ")}]` : "related: []";

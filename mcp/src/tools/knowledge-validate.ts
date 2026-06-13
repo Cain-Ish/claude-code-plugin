@@ -36,6 +36,12 @@ export async function knowledgeValidate(
   const issues: ValidationIssue[] = [];
   let fixed = 0;
 
+  // P2: when the graph is enabled the PROJECTOR is the sole writer of related:
+  // (it scrubs edgeless pages to `related: []`). patchFrontmatter must then NOT
+  // body-derive a related: value the projector will overwrite — that oscillation
+  // broke reindex idempotency. graphEnabled gates patchFrontmatter to emit `[]`.
+  const graphEnabled = (await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'))).length > 0;
+
   const allPages = await collectAllPages(wikiDir);
   const slugMap = new Map<string, string[]>();
   const parsedDocs: ParsedDoc[] = [];
@@ -268,7 +274,7 @@ export async function knowledgeValidate(
       }
       if (issue.autofix === 'patch_frontmatter' && issue.type === 'incomplete_frontmatter') {
         try {
-          if (await patchFrontmatter(issue.path, wikiDir)) fixed++;
+          if (await patchFrontmatter(issue.path, wikiDir, graphEnabled)) fixed++;
         } catch { /* skip pages we can't write */ }
       }
     }
@@ -290,7 +296,7 @@ function isIncompleteFrontmatter(content: string): boolean {
 // (title from H1/slug, type from folder, created from body-date/slug/mtime) —
 // but `updated` derives from FILE MTIME, never "today", so shaping a page never
 // re-dates it (the churn/provenance risk). Returns true if the file changed.
-async function patchFrontmatter(filePath: string, wikiDir: string): Promise<boolean> {
+async function patchFrontmatter(filePath: string, wikiDir: string, graphEnabled = false): Promise<boolean> {
   const original = await fs.readFile(filePath, 'utf-8');
   const m = original.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return false;
@@ -323,6 +329,11 @@ async function patchFrontmatter(filePath: string, wikiDir: string): Promise<bool
       case 'updated': return `updated: ${mtimeDate}`;   // mtime, NEVER today
       case 'tags': return 'tags: []';
       case 'related': {
+        // P2: on a graph-enabled corpus the projector OWNS related: — emit `[]`
+        // so the projector and validator agree (no body-derived value for the
+        // projector to overwrite → no reindex oscillation). Only body-derive when
+        // the graph is OFF (then frontmatter related: is the only relatedness source).
+        if (graphEnabled) return 'related: []';
         const links = body.match(/\[\[([^\]]+)\]\]/g) || [];
         const rel = [...new Set(links.map(l => l.slice(2, -2).split('|')[0].trim())
           .filter(r => /^[a-z0-9][a-z0-9-]*$/i.test(r)))];
