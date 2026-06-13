@@ -73,6 +73,14 @@ if [ -n "$OOT_LINKS" ]; then
   exit 1
 fi
 
+# Node-shape convergence: run the SAME node-shaper the maintainer uses on the
+# STAGING wiki BEFORE it touches live, so dream-authored pages arrive in
+# canonical shape (valid β related:/tags:, patched required fields) rather than
+# relying on the post-rsync reindex to clean them after the fact. Fail-open —
+# a validator hiccup must never block an accepted dream from merging.
+_DREAM_FIXED=$(sb_validate_wiki "$DREAM_DIR/staging" 2>/dev/null || echo 0)
+[ "${_DREAM_FIXED:-0}" != "0" ] && echo "Normalized $_DREAM_FIXED staging page(s) to canonical shape before merge." >&2
+
 # Apply: rsync staging over live wiki (preserves files not in staging). --safe-links drops any
 # out-of-tree symlink as defense-in-depth behind the reject guard; the cp fallback is already
 # covered by that guard (no out-of-tree symlink can reach it).

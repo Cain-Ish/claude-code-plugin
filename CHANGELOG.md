@@ -4,6 +4,27 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.24.48
+
+**Node-shape convergence (user-requested).** Lint, the maintainer, and the
+dream now shape every node to one canonical form, differing only in INPUT
+(maintain=live wiki, dream=staging from past sessions):
+- `knowledge_validate` autofix extended into a full frontmatter shaper —
+  `incomplete_frontmatter`/`patch_frontmatter` fills ONLY absent required
+  fields (never overwrites, never invents `created`/`updated`=today; derives
+  from body date / slug date / mtime). Plus a WARN-only `related_drift` check
+  surfacing where `related:` disagrees with the edge graph (detection only —
+  the projector stays the sole writer).
+- The dream runs the maintainer's exact shaper on its STAGING dir at
+  `dream_accept` (new `sb_validate_wiki` helper), BEFORE merging onto live —
+  killing the format drift between the two engines.
+- Fixed `extractYamlValue`: an empty quoted value `description: ""` parsed to a
+  stray `"`, corrupting MOC descriptions and breaking reindex idempotency.
+- Maintainer Phase 4b now also re-shapes STALE existing ai-blocks (via
+  `knowledge_validate`'s `ai_block_incomplete`), not just blockless pages.
+
+MCP server 2.7.2. Run `/second-brain:reindex` once to patch incomplete pages.
+
 ## 0.24.47
 
 **Wiki graph-pipeline repair (user-reported).** Five coupled bugs, root-caused

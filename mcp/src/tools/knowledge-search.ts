@@ -471,8 +471,12 @@ export function parseDoc(content: string, filePath: string): ParsedDoc {
   return doc;
 }
 
-function extractYamlValue(yaml: string, key: string): string {
-  const re = new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm');
+export function extractYamlValue(yaml: string, key: string): string {
+  // `(.*?)` not `(.+?)`: an empty quoted value `key: ""` must parse to '' — with
+  // `.+?` the opening quote is eaten by `['"]?` and the closing quote becomes the
+  // captured value (`"`), which then leaks into MOC descriptions and breaks reindex
+  // idempotency once a page carries `description: ""`.
+  const re = new RegExp(`^${key}:\\s*['"]?(.*?)['"]?\\s*$`, 'm');
   const m = yaml.match(re);
   return m ? m[1].trim() : '';
 }

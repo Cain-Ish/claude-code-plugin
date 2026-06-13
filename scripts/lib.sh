@@ -197,6 +197,39 @@ sb_reindex_wiki() {
   fi
 }
 
+# Run the SAME node-shaper (knowledge_validate autofix) the maintainer uses, on
+# an ARBITRARY wiki dir — so the dream can normalize its STAGING pages to the
+# maintainer's exact format (canonical frontmatter, β related:/tags:, patched
+# required fields) before they are reviewed or merged onto live. The MCP
+# knowledge_validate tool is pinned to the startup KNOWLEDGE_DIR; this helper
+# points the bundle at any dir, mirroring sb_reindex_wiki. Echoes the autofix
+# count. The dir must contain a wiki/ subtree (we pass its PARENT as knowledgeDir).
+sb_validate_wiki() {
+  local knowledge_dir="${1:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
+  knowledge_dir="${knowledge_dir/#\~/$HOME}"
+  local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
+  if [ -z "$plugin_root" ] || [ ! -d "$plugin_root" ]; then
+    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd) || plugin_root=""
+  fi
+  local validate_js="$plugin_root/mcp/dist/tools/knowledge-validate.bundle.js"
+  if command -v node >/dev/null 2>&1 && [ -f "$validate_js" ]; then
+    local _val_err
+    _val_err=$(SB_BUNDLE="$validate_js" SB_KDIR="$knowledge_dir" \
+      node --input-type=module -e "
+        const m = await import(process.env.SB_BUNDLE);
+        const r = await m.knowledgeValidate(process.env.SB_KDIR, { autofix: true });
+        process.stdout.write(String(r.fixed || 0));
+      " 2>/tmp/.sb-validate-err) || true
+    _val_err_msg=$(cat /tmp/.sb-validate-err 2>/dev/null); rm -f /tmp/.sb-validate-err 2>/dev/null
+    if [ -n "$_val_err_msg" ]; then
+      sb_log_error "sb_validate_wiki" "validate-failed: $(printf '%s' "$_val_err_msg" | tr '\n' ' ' | head -c 200)" 0
+    fi
+    printf '%s' "${_val_err:-0}"
+  else
+    printf '0'
+  fi
+}
+
 # Validate the wiki (broken links / orphans / dupes) with autofix. Same canonical dynamic-import
 # pattern + error-logging as sb_reindex_wiki — never the broken `import { x } from process.env`
 # static form (which SyntaxErrors silently; see sb_reindex_wiki). Idempotent, fail-open.

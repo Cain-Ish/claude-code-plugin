@@ -6233,7 +6233,7 @@ function parseDoc(content, filePath) {
   return doc;
 }
 function extractYamlValue(yaml, key) {
-  const re = new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, "m");
+  const re = new RegExp(`^${key}:\\s*['"]?(.*?)['"]?\\s*$`, "m");
   const m = yaml.match(re);
   return m ? m[1].trim() : "";
 }
@@ -6310,6 +6310,7 @@ var CONTENT_CATEGORIES = [...STRUCTURED_TYPES, ...UNSTRUCTURED_TYPES];
 var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
 
 // src/tools/knowledge-validate.ts
+var REQUIRED_FM_FIELDS = ["title", "description", "type", "created", "updated", "tags", "related"];
 var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join(knowledgeDir, "wiki");
@@ -6364,14 +6365,25 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         message: `Missing YAML frontmatter: ${slug}`,
         autofix: "add_frontmatter"
       });
-    } else if (isMalformedFrontmatter(content)) {
-      issues.push({
-        type: "malformed_frontmatter",
-        severity: "warning",
-        path: filePath,
-        message: `Invalid related:/tags: YAML frontmatter \u2014 run with autofix to normalize: ${slug}`,
-        autofix: "normalize_frontmatter"
-      });
+    } else {
+      if (isMalformedFrontmatter(content)) {
+        issues.push({
+          type: "malformed_frontmatter",
+          severity: "warning",
+          path: filePath,
+          message: `Invalid related:/tags: YAML frontmatter \u2014 run with autofix to normalize: ${slug}`,
+          autofix: "normalize_frontmatter"
+        });
+      }
+      if (!/[/\\](projects|themes)[/\\]/.test(filePath) && isIncompleteFrontmatter(content)) {
+        issues.push({
+          type: "incomplete_frontmatter",
+          severity: "warning",
+          path: filePath,
+          message: `Frontmatter missing required field(s) \u2014 run with autofix to patch: ${slug}`,
+          autofix: "patch_frontmatter"
+        });
+      }
     }
     const datePrefix = slug.match(/^\d{4}-\d{2}-\d{2}-/);
     if (datePrefix) {
@@ -6406,6 +6418,40 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         });
       }
     }
+  }
+  try {
+    const edgeRecords = await loadEdges(join(knowledgeDir, "graph", "edges.jsonl"));
+    if (edgeRecords.length > 0) {
+      const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+      const current = foldToCurrent(edgeRecords).filter((e) => validAt(e, nowIso));
+      const expected = /* @__PURE__ */ new Map();
+      const addRel = (a, b) => {
+        if (!expected.has(a)) expected.set(a, /* @__PURE__ */ new Set());
+        expected.get(a).add(b);
+      };
+      for (const e of current) {
+        addRel(e.from, e.to);
+        addRel(e.to, e.from);
+      }
+      for (const doc of parsedDocs) {
+        const s = basename(doc.path, ".md");
+        if (/[/\\](projects|themes)[/\\]/.test(doc.path)) continue;
+        const want = expected.get(s) ?? /* @__PURE__ */ new Set();
+        const have = new Set(doc.related.map((r) => r.split("|")[0].trim()).filter(Boolean));
+        const wantLive = new Set([...want].filter((t) => allSlugs.has(t)));
+        const missing = [...wantLive].filter((t) => !have.has(t));
+        const extra = [...have].filter((t) => !wantLive.has(t));
+        if (missing.length || extra.length) {
+          issues.push({
+            type: "related_drift",
+            severity: "warning",
+            path: doc.path,
+            message: `related: drifted from the edge graph for ${s}` + (missing.length ? ` \u2014 missing [${missing.join(", ")}]` : "") + (extra.length ? ` \u2014 stale [${extra.join(", ")}]` : "") + ` (run knowledge_reindex to re-project)`
+          });
+        }
+      }
+    }
+  } catch {
   }
   for (const [slug, paths] of slugMap) {
     if (paths.length > 1) {
@@ -6466,9 +6512,76 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         } catch {
         }
       }
+      if (issue.autofix === "patch_frontmatter" && issue.type === "incomplete_frontmatter") {
+        try {
+          if (await patchFrontmatter(issue.path, wikiDir)) fixed++;
+        } catch {
+        }
+      }
     }
   }
   return { issues, fixed, pagesScanned: allPages.length };
+}
+function isIncompleteFrontmatter(content) {
+  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  const fm = m[1];
+  return REQUIRED_FM_FIELDS.some((k) => !new RegExp(`^${k}:`, "m").test(fm));
+}
+async function patchFrontmatter(filePath, wikiDir) {
+  const original = await fs2.readFile(filePath, "utf-8");
+  const m = original.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  const fmBody = m[1];
+  const missing = REQUIRED_FM_FIELDS.filter((k) => !new RegExp(`^${k}:`, "m").test(fmBody));
+  if (missing.length === 0) return false;
+  const slug = basename(filePath, ".md");
+  const body = original.slice(m[0].length);
+  let mtimeDate;
+  try {
+    mtimeDate = (await fs2.stat(filePath)).mtime.toISOString().slice(0, 10);
+  } catch {
+    mtimeDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  }
+  const derive = (k) => {
+    switch (k) {
+      case "title": {
+        const h = body.match(/^#\s+(.+?)\s*$/m);
+        return `title: "${h ? h[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ")}"`;
+      }
+      case "description":
+        return 'description: ""';
+      case "type": {
+        const seg = relative(wikiDir, filePath).split(/[/\\]/)[0];
+        return `type: ${KNOWN_CATEGORIES.has(seg) ? seg : "state"}`;
+      }
+      case "created": {
+        const d = body.match(/\*\*Date(?:\s*\w+)?\*\*:\s*(\d{4}-\d{2}-\d{2})/i);
+        const sd = slug.match(/^(\d{4}-\d{2}-\d{2})/) || slug.match(/(\d{4}-\d{2}-\d{2})$/);
+        return `created: ${d ? d[1] : sd ? sd[1] : mtimeDate}`;
+      }
+      case "updated":
+        return `updated: ${mtimeDate}`;
+      // mtime, NEVER today
+      case "tags":
+        return "tags: []";
+      case "related": {
+        const links = body.match(/\[\[([^\]]+)\]\]/g) || [];
+        const rel = [...new Set(links.map((l) => l.slice(2, -2).split("|")[0].trim()).filter((r) => /^[a-z0-9][a-z0-9-]*$/i.test(r)))];
+        return `related: [${rel.join(", ")}]`;
+      }
+      default:
+        return "";
+    }
+  };
+  const newFm = `${fmBody}
+${missing.map(derive).join("\n")}`;
+  const next = original.replace(/^---\n[\s\S]*?\n---/, () => `---
+${newFm}
+---`);
+  if (next === original) return false;
+  await fs2.writeFile(filePath, next, "utf-8");
+  return true;
 }
 var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
