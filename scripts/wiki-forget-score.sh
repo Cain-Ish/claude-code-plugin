@@ -17,6 +17,13 @@ BD="${BRAIN_DIR:-$HOME/.second-brain}"; AC="$BD/access-counts.json"
 MINAGE="${SB_FORGET_MIN_AGE_DAYS:-30}"
 WA="${SB_FORGET_W_ACCESS:-0.30}"; WR="${SB_FORGET_W_RECENCY:-0.25}"
 WC="${SB_FORGET_W_CONNECTIVITY:-0.25}"; WG="${SB_FORGET_W_CATEGORY:-0.20}"
+# Recency decay window (days): s_rec ramps 1 (fresh) → 0 at this horizon. Was a
+# hard-coded 180, which — against the 0.15 candidate floor plus the category
+# floor (0.04–0.10) — left a page above the floor until ~110+ days old (never,
+# for discounted types), so FORGET emitted zero candidates for any realistic
+# corpus. 90d lets a ~3-month unaccessed orphan reach s_rec≈0 → its score
+# collapses to the category floor, well under 0.15.
+REC_FULL_DAYS="${SB_FORGET_RECENCY_DAYS:-90}"
 command -v jq >/dev/null 2>&1 || { echo "forget-score: jq missing" >&2; exit 2; }
 [ -d "$WIKI" ] || { echo "forget-score: no wiki at $WIKI" >&2; exit 2; }
 now=$(date +%s)
@@ -47,7 +54,7 @@ find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while r
   # Pass values via -v + coerce to number (x=x+0) so an empty/sparse value can't produce a
   # mawk "syntax error at or near ;" (do NOT string-interpolate into the awk program).
   s_acc=$(awk -v a="$acc" 'BEGIN{a=a+0; v=(a<=0)?0:(log(a+1)/log(20)); print (v>1)?1:v}')
-  s_rec=$(awk -v d="$age" 'BEGIN{d=d+0; print (d>=180)?0:(1-d/180)}')
+  s_rec=$(awk -v d="$age" -v w="$REC_FULL_DAYS" 'BEGIN{d=d+0; w=w+0; if(w<=0)w=90; print (d>=w)?0:(1-d/w)}')
   s_con=$(awk -v c="$inb" 'BEGIN{c=c+0; print (c>=3)?1:c/3}')
   # Category protection tier from kb-schema.json: PROTECTED -> never forget; DISCOUNTED -> mild;
   # else default. (Fixes the old hardcoded case that omitted `security` -> 0.2 and listed a dead

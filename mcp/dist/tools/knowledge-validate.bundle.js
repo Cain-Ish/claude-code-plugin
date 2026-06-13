@@ -6281,6 +6281,14 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         message: `Missing YAML frontmatter: ${slug}`,
         autofix: "add_frontmatter"
       });
+    } else if (isMalformedFrontmatter(content)) {
+      issues.push({
+        type: "malformed_frontmatter",
+        severity: "warning",
+        path: filePath,
+        message: `Invalid related:/tags: YAML frontmatter \u2014 run with autofix to normalize: ${slug}`,
+        autofix: "normalize_frontmatter"
+      });
     }
     const datePrefix = slug.match(/^\d{4}-\d{2}-\d{2}-/);
     if (datePrefix) {
@@ -6369,6 +6377,12 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         } catch {
         }
       }
+      if (issue.autofix === "normalize_frontmatter" && issue.type === "malformed_frontmatter") {
+        try {
+          if (await normalizeFrontmatter(issue.path)) fixed++;
+        } catch {
+        }
+      }
     }
   }
   return { issues, fixed, pagesScanned: allPages.length };
@@ -6417,6 +6431,32 @@ related: [${related.join(", ")}]
 
 `;
   await fs.writeFile(filePath, fm + original, "utf-8");
+}
+function isMalformedFrontmatter(content) {
+  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  const fm = m[1];
+  const orphanBlockList = /^(?:related|tags):[ \t]+\S[^\n]*\n[ \t]+-[ \t]/m.test(fm);
+  const bracketlessMulti = /^(?:related|tags):[^\n]*\]\][ \t]*,/m.test(fm);
+  return orphanBlockList || bracketlessMulti;
+}
+async function normalizeFrontmatter(filePath) {
+  const content = await fs.readFile(filePath, "utf-8");
+  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  let fm = m[1];
+  for (const key of ["related", "tags"]) {
+    const blockRe = new RegExp(`^${key}:[^\\n]*(?:\\n[ \\t]+-[^\\n]*)*$`, "m");
+    if (!blockRe.test(fm)) continue;
+    const slugs = extractYamlList(fm, key);
+    fm = fm.replace(blockRe, () => `${key}: [${slugs.join(", ")}]`);
+  }
+  const next = content.replace(/^---\n[\s\S]*?\n---/, () => `---
+${fm}
+---`);
+  if (next === content) return false;
+  await fs.writeFile(filePath, next, "utf-8");
+  return true;
 }
 function isSessionNarrative(content, slug) {
   const sessionSignals = [

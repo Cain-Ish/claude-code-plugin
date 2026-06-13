@@ -22,6 +22,11 @@ out=$(bash "$SC")
 ds=$(echo "$out" | awk -F'\t' '$2=="dead-stub"{print $1}')
 km=$(echo "$out" | awk -F'\t' '$2=="keep-me"{print $1}')
 awk "BEGIN{exit !($ds < $km)}" && ok "dead-stub scores below keep-me" || bad "ds=$ds km=$km"
+# A 90-day unaccessed orphan stub must score BELOW the candidate FLOOR — i.e. be an
+# ACTUAL forget candidate, not merely ranked under keep-me. The old "ds<km" check passed
+# even when FORGET was completely dead (recency decayed too slowly to ever cross the floor).
+FLOOR="${SB_FORGET_FLOOR:-0.15}"
+awk "BEGIN{exit !($ds < $FLOOR)}" && ok "dead-stub below FORGET floor ($ds < $FLOOR) — a real candidate" || bad "dead-stub ds=$ds NOT below floor $FLOOR — FORGET silently emits zero candidates"
 echo "$out" | awk -F'\t' '$2=="keep-me"{print $5}' | grep -q "PROTECT:category" && ok "keep-me category-protected" || bad "keep-me not protected ($out)"
 echo "$out" | awk -F'\t' '$2=="dead-stub"{print $5}' | grep -qv "PROTECT:age" && ok "dead-stub not age-protected" || bad "dead-stub wrongly age-protected"
 # C1 regression: exactly one TSV row per page (3 pages), each with a numeric score.

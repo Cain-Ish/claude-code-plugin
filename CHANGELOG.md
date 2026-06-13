@@ -4,6 +4,33 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.24.47
+
+**Wiki graph-pipeline repair (user-reported).** Five coupled bugs, root-caused
+by a parallel investigation and each regression-tested:
+- **Formatter**: the projector emitted invalid YAML `related: [[a]], [[b]]`
+  (bracketless multi-item) and orphaned legacy block-list children — ~86% of
+  live pages were affected, masked because every in-tree reader is a tolerant
+  regex extractor. Now emits canonical `related: [a, b]` (β), valid YAML,
+  matching the sibling emitter and reader.
+- **Orphan-GC**: an edgeless page was *skipped*, so a node that lost its only
+  edge kept its stale `related:`/`## Dependencies` forever. Now edgeless-but-
+  dirty pages are scrubbed to `related: []` and the block removed.
+- **Dangling/noise**: the projector re-emitted links to deleted pages. Now
+  `current` edges are filtered to live page slugs (∪ project-facet MOC targets,
+  preserving idempotency).
+- **FORGET**: recency decayed over 180d while the candidate floor (0.15) sat
+  above the reachable score, so FORGET emitted zero candidates. Now a 90-day
+  window (`SB_FORGET_RECENCY_DAYS`); a regression test asserts a 90-day orphan
+  is an actual candidate.
+- **Lint normalizer**: `knowledge_validate` gains a dependency-free
+  `malformed_frontmatter` detector + `normalize_frontmatter` autofix (runs every
+  reindex/maintain) — re-serializes invalid `related:`/`tags:` and drops orphan
+  lines, so the formatter is enforced on every update and the ~125 corrupted
+  pages self-heal on the next consolidation. MCP server 2.7.1.
+
+Run `/second-brain:reindex` once after upgrading to heal existing pages.
+
 ## 0.24.46
 
 **R7a observability.** (1) `scripts/liveness-check.sh` — the

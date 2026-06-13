@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { join, basename, dirname, relative } from 'path';
-import { parseDoc, ParsedDoc } from './knowledge-search.js';
+import { parseDoc, ParsedDoc, extractYamlList } from './knowledge-search.js';
 import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
 import { ALL_CATEGORIES } from '../constants/kb-schema.js';
 
@@ -10,7 +10,7 @@ import { ALL_CATEGORIES } from '../constants/kb-schema.js';
 const AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 
 export interface ValidationIssue {
-  type: 'orphan_file' | 'broken_link' | 'missing_frontmatter' | 'duplicate_slug' | 'stale_page' | 'empty_page' | 'root_orphan' | 'ai_block_incomplete' | 'ai_block_missing';
+  type: 'orphan_file' | 'broken_link' | 'missing_frontmatter' | 'malformed_frontmatter' | 'duplicate_slug' | 'stale_page' | 'empty_page' | 'root_orphan' | 'ai_block_incomplete' | 'ai_block_missing';
   severity: 'error' | 'warning';
   path: string;
   message: string;
@@ -90,6 +90,20 @@ export async function knowledgeValidate(
         path: filePath,
         message: `Missing YAML frontmatter: ${slug}`,
         autofix: 'add_frontmatter',
+      });
+    } else if (isMalformedFrontmatter(content)) {
+      // Invalid `related:`/`tags:` YAML produced by the graph projector's old
+      // emitter: the bracketless multi-item form `related: [[a]], [[b]]` (a real
+      // YAML parser rejects it) or orphaned block-list children left under an
+      // inline value. The in-tree regex readers tolerate these, so they slipped
+      // past every prior lint run — this detector + normalize autofix is the
+      // durable backstop AND the remediation path for already-corrupted pages.
+      issues.push({
+        type: 'malformed_frontmatter',
+        severity: 'warning',
+        path: filePath,
+        message: `Invalid related:/tags: YAML frontmatter — run with autofix to normalize: ${slug}`,
+        autofix: 'normalize_frontmatter',
       });
     }
 
@@ -183,6 +197,11 @@ export async function knowledgeValidate(
           fixed++;
         } catch { /* skip pages we can't write */ }
       }
+      if (issue.autofix === 'normalize_frontmatter' && issue.type === 'malformed_frontmatter') {
+        try {
+          if (await normalizeFrontmatter(issue.path)) fixed++;
+        } catch { /* skip pages we can't write */ }
+      }
     }
   }
 
@@ -252,6 +271,45 @@ export async function addFrontmatter(filePath: string, wikiDir: string): Promise
     `---\n\n`;
 
   await fs.writeFile(filePath, fm + original, 'utf-8');
+}
+
+// Detect the two invalid `related:`/`tags:` frontmatter shapes the old projector
+// emitted, scoped to the FIRST frontmatter block. Both break a real YAML parser
+// while the in-tree regex readers silently tolerate them.
+//   (a) orphaned block-list children under an inline value:  related: [[a]]\n  - b
+//   (b) bracketless multi-item wiki-links:                   related: [[a]], [[b]]
+// A single `related: [[a]]` (valid nested-array YAML) and a clean `related: [a, b]`
+// or `related: []` are NOT flagged — keeps the validator from churning valid pages.
+function isMalformedFrontmatter(content: string): boolean {
+  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  const fm = m[1];
+  const orphanBlockList = /^(?:related|tags):[ \t]+\S[^\n]*\n[ \t]+-[ \t]/m.test(fm);
+  const bracketlessMulti = /^(?:related|tags):[^\n]*\]\][ \t]*,/m.test(fm);
+  return orphanBlockList || bracketlessMulti;
+}
+
+// Re-serialize `related:` and `tags:` to the canonical β form `key: [a, b]` (valid
+// YAML, read correctly by extractYamlList's inline branch, identical to the
+// addFrontmatter emitter), consuming any orphaned block-list children. Scoped to
+// the FIRST frontmatter block so a body line starting `related:` is never touched.
+// Returns true if the file changed. NEVER adds or removes non-list fields —
+// stripping unknown frontmatter would risk deleting legitimate user data.
+async function normalizeFrontmatter(filePath: string): Promise<boolean> {
+  const content = await fs.readFile(filePath, 'utf-8');
+  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return false;
+  let fm = m[1];
+  for (const key of ['related', 'tags']) {
+    const blockRe = new RegExp(`^${key}:[^\\n]*(?:\\n[ \\t]+-[^\\n]*)*$`, 'm');
+    if (!blockRe.test(fm)) continue;
+    const slugs = extractYamlList(fm, key);   // tolerant read of whatever broken shape exists
+    fm = fm.replace(blockRe, () => `${key}: [${slugs.join(', ')}]`);
+  }
+  const next = content.replace(/^---\n[\s\S]*?\n---/, () => `---\n${fm}\n---`);
+  if (next === content) return false;
+  await fs.writeFile(filePath, next, 'utf-8');
+  return true;
 }
 
 function isSessionNarrative(content: string, slug: string): boolean {

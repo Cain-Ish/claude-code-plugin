@@ -477,7 +477,7 @@ function extractYamlValue(yaml: string, key: string): string {
   return m ? m[1].trim() : '';
 }
 
-function extractYamlList(yaml: string, key: string): string[] {
+export function extractYamlList(yaml: string, key: string): string[] {
   // The wiki uses a non-standard `related: [[slug]], [[other]]` convention for
   // wiki-links in frontmatter. The naive `^key:\s*\[(.+?)\]` regex misparses
   // these as YAML inline lists, capturing `[slug` (with leading bracket) and

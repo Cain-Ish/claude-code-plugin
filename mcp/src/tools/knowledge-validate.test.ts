@@ -138,3 +138,60 @@ describe('addFrontmatter category typing', () => {
     expect(res.issues.find(i => i.type === 'broken_link' && /real-target/.test(i.message))).toBeUndefined();
   });
 });
+
+describe('malformed-frontmatter normalization (graph-pipeline fix)', () => {
+  const mkwiki = async (slug: string, fm: string) => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-mf-'));
+    const wiki = join(dir, 'wiki', 'entities');
+    await fs.mkdir(wiki, { recursive: true });
+    const f = join(wiki, `${slug}.md`);
+    await fs.writeFile(f, `---\n${fm}\n---\n\nbody body body\n`);
+    return { dir, f };
+  };
+
+  it('flags bracketless multi-item related: [[a]], [[b]] as malformed_frontmatter', async () => {
+    const { dir } = await mkwiki('p', 'title: P\ntype: entities\nrelated: [[a]], [[b]]');
+    const res = await knowledgeValidate(dir, { autofix: false });
+    expect(res.issues.find(i => i.type === 'malformed_frontmatter')).toBeTruthy();
+  });
+
+  it('flags orphaned block-list children under an inline related: as malformed', async () => {
+    const { dir } = await mkwiki('p', 'title: P\ntype: entities\nrelated: [[a]]\n  - stale-b\n  - stale-c');
+    const res = await knowledgeValidate(dir, { autofix: false });
+    expect(res.issues.find(i => i.type === 'malformed_frontmatter')).toBeTruthy();
+  });
+
+  it('autofix rewrites related: to canonical β, drops orphans, and the heal is idempotent', async () => {
+    const { dir, f } = await mkwiki('p', 'title: P\ntype: entities\nrelated: [[a]], [[b]]');
+    const res = await knowledgeValidate(dir, { autofix: true });
+    expect(res.fixed).toBeGreaterThanOrEqual(1);
+    const out = await fs.readFile(f, 'utf-8');
+    const frontmatter = out.match(/^---\n([\s\S]*?)\n---/)![1];
+    expect(frontmatter).toMatch(/^related: \[a, b\]$/m);   // valid YAML β
+    expect(frontmatter).not.toContain('[[');
+    const res2 = await knowledgeValidate(dir, { autofix: false });
+    expect(res2.issues.find(i => i.type === 'malformed_frontmatter')).toBeFalsy();
+  });
+
+  it('autofix consumes orphaned block-list children into the inline value', async () => {
+    const { dir, f } = await mkwiki('p', 'title: P\ntype: entities\nrelated: [[a]]\n  - stale-b');
+    await knowledgeValidate(dir, { autofix: true });
+    const fm = (await fs.readFile(f, 'utf-8')).match(/^---\n([\s\S]*?)\n---/)![1];
+    expect(fm).toMatch(/^related: \[a\]$/m);
+    expect(fm).not.toMatch(/^[ \t]+- stale/m);
+  });
+
+  it('does NOT flag or rewrite a clean β page', async () => {
+    const { dir, f } = await mkwiki('p', 'title: P\ntype: entities\nrelated: [a, b]\ntags: [x]');
+    const before = await fs.readFile(f, 'utf-8');
+    const res = await knowledgeValidate(dir, { autofix: true });
+    expect(res.issues.find(i => i.type === 'malformed_frontmatter')).toBeFalsy();
+    expect(await fs.readFile(f, 'utf-8')).toBe(before);   // untouched (idempotent)
+  });
+
+  it('does NOT flag a single valid [[a]] wiki-link (parses as nested array, not invalid)', async () => {
+    const { dir } = await mkwiki('p', 'title: P\ntype: entities\nrelated: [[a]]');
+    const res = await knowledgeValidate(dir, { autofix: false });
+    expect(res.issues.find(i => i.type === 'malformed_frontmatter')).toBeFalsy();
+  });
+});
