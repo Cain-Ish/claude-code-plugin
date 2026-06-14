@@ -4,6 +4,28 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.29.1
+
+**KB self-heal: generated state pages are born VALID (stop the autofix↔regenerate churn).**
+- `sb_write_generated_page` (lib.sh) emitted only 6 of the 7 canonical
+  `REQUIRED_FM_FIELDS` — it omitted `tags` and `related`. So every Stop-hook
+  regeneration of `wiki/state/cost-routing-patterns.md` was born INCOMPLETE:
+  `knowledge_validate` autofix patched `tags:[]`/`related:[]` on each reindex, then
+  the next regeneration stripped them again — an eternal churn loop the user could
+  never fix by hand (the plugin re-created the issue every session). The helper now
+  emits `tags: []` + `related: []` (byte-identical to what the autofix and the graph
+  projector write for an edgeless page), so the page round-trips clean and self-heals
+  on the next regeneration after deploy. This is the "stops churning" the helper's
+  own contract already claimed.
+- **Test oracle hardened (independent-oracle principle):** both
+  `test-lib-generated-page.sh` and `test-cost-router-capture.sh` asserted a
+  *handpicked* subset (title/type/generated/marker) and called it "born-valid" — so
+  they stayed green while the page was actually `incomplete_frontmatter` by the real
+  validator. They now derive the required-field set **directly from
+  `knowledge-validate.ts`'s `REQUIRED_FM_FIELDS`** and assert every field is present,
+  so the test tracks the validator and cannot drift. Verified discriminating (fails
+  with `tags`/`related` stripped, passes with the fix).
+
 ## 0.29.0
 
 **Command-surface collapse + SessionStart priority-rule guarantee.**
