@@ -74,4 +74,40 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_t
 [ "$rc" -eq 0 ] && pass "F3b: safe-mode accepts an additive dream (no live page removed)" || fail "F3b: safe-mode refused a non-deleting dream (rc=$rc)"
 rm -rf "$SB"
 
+# === 0.28.1: manual accept backs up live FIRST (reversibility), fail-closed ===
+# ORACLE for B1 is a ROUND-TRIP: extract the backup tarball and assert it
+# reproduces the PRE-accept live wiki (the snapshot BEFORE the merge), not the
+# post-accept state — not merely "a file exists".
+
+# --- B1: a manual accept tarballs live first; the tarball is the pre-accept snapshot
+setup 3 "p1 p2 p3 p4new"   # additive: pre=3 pages, post=4 (p4new merged in)
+PRE=$(cd "$KNOWLEDGE_DIR/wiki" && find . -name '*.md' ! -name 'index.md' -type f | sort)
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] || fail "B1: additive manual accept failed (rc=$rc)"
+BK=$(ls "$BRAIN_DIR"/wiki-backup-pre-accept-*.tgz 2>/dev/null | head -1)
+[ -n "$BK" ] || fail "B1: manual accept created NO pre-accept backup tarball"
+EX=$(mktemp -d); tar xzf "$BK" -C "$EX" 2>/dev/null
+BKSET=$(cd "$EX/wiki" && find . -name '*.md' ! -name 'index.md' -type f | sort)
+[ "$BKSET" = "$PRE" ] || fail "B1: backup is not the pre-accept snapshot (got: $(echo "$BKSET" | tr '\n' ' '))"
+[ "$(count "$KNOWLEDGE_DIR/wiki")" = "4" ] || fail "B1: accept didn't apply (live not 4 pages after)"
+pass "B1: manual accept tarballs live FIRST; backup round-trips to the pre-accept wiki (no p4new)"
+rm -rf "$SB" "$EX"
+
+# --- B2: backup CANNOT be written → REFUSE (fail-closed), live untouched -----
+setup 4 SAME
+BEFORE=$(count "$KNOWLEDGE_DIR/wiki")
+chmod 555 "$BRAIN_DIR"     # tar czf "$BRAIN_DIR/…tgz" → EACCES (dir traversal still works for reads)
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+chmod 755 "$BRAIN_DIR"     # restore so cleanup can remove it
+AFTER=$(count "$KNOWLEDGE_DIR/wiki")
+[ "$rc" -ne 0 ] && [ "$AFTER" = "$BEFORE" ] && pass "B2: backup failure (unwritable BRAIN_DIR) → REFUSE, live untouched (fail-closed)" || fail "B2: not fail-closed (rc=$rc, live $BEFORE→$AFTER)"
+rm -rf "$SB"
+
+# --- B3: SB_DREAM_ACCEPT_SKIP_BACKUP=1 (auto path) → no duplicate tarball -----
+setup 4 SAME
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_SKIP_BACKUP=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+BK=$(ls "$BRAIN_DIR"/wiki-backup-pre-accept-*.tgz 2>/dev/null | head -1)
+[ "$rc" -eq 0 ] && [ -z "$BK" ] && pass "B3: skip flag → accept proceeds with NO dream-accept tarball (auto path already backed up)" || fail "B3: skip flag mishandled (rc=$rc, bk=${BK:-none})"
+rm -rf "$SB"
+
 echo "ALL PASS"
