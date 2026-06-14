@@ -1,7 +1,8 @@
 ---
 name: query
 description: Search the second-brain wiki for pages relevant to a question. Thin wrapper around the knowledge_search MCP tool — returns candidate pages and lets Claude synthesize a cited answer from them.
-user-invocable: true
+# Surface-collapse (0.29.0): not a user slash command -- covered by automation/MCP; capability preserved via model-invocation where dmi=false.
+user-invocable: false
 disable-model-invocation: false
 allowed-tools: Read Bash(test *) Bash(cat *) mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__knowledge_neighbors
 argument-hint: "[your question] [--scope <category>]"

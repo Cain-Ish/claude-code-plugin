@@ -9,8 +9,11 @@ fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 
 [ -f "$SKILL" ] || fail "skills/capture/SKILL.md missing"
 grep -q 'raw-capture-cli.bundle.js' "$SKILL" || fail "capture skill does not invoke the raw-capture CLI"
-grep -q 'user-invocable: true' "$SKILL" || fail "capture skill not user-invocable"
-pass "capture skill present and wired"
+# 0.29.0 surface-collapse: capture is hook/automation-driven, NOT a user slash command.
+# It must be user-invocable: false (drained by /maintain + the hook capture path), while
+# still wired to the CLI so model-invocation keeps working. Assert the intended state.
+grep -q 'user-invocable: false' "$SKILL" || fail "capture skill should be user-invocable: false (surface-collapse) — hook/automation-driven"
+pass "capture skill present, CLI-wired, and hidden from the user surface"
 
 command -v node >/dev/null 2>&1 || { echo "SKIP: node"; echo; echo "ALL PASS"; exit 0; }
 [ -f "$CLI" ] || { echo "SKIP: CLI bundle not built"; echo; echo "ALL PASS"; exit 0; }

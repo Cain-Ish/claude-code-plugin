@@ -4,6 +4,35 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.29.0
+
+**Command-surface collapse + SessionStart priority-rule guarantee.**
+- **Surface collapse:** hid 5 skills from the user slash menu, each because its
+  capability is now owned elsewhere — so hiding the *command* loses nothing:
+  - `status` / `query` / `lint` — still **model-invocable** (`dmi:false`) and
+    backed by MCP (`knowledge_stats` / `knowledge_search` / `knowledge_validate`,
+    the last also auto-running with autofix on every reindex) plus the SessionStart
+    banner. The model reaches them on request; the user no longer needs the verb.
+  - `capture` — capture is **automatic**: the hook capture path (raw-capture CLI)
+    ingests material and `/second-brain:maintain` drains the raw inbox into notes.
+  - `improve` — session-insight capture is **automatic**: dream mines transcripts
+    into wiki pages, and `pin_to_user` / `pin_to_project` record pins on request.
+  - `doubt` (dev-QA adversarial review) is intentionally **kept visible** — it has
+    no automation replacement (`dmi:true` too), so hiding it would strand a dead
+    skill. Correctness over surface count.
+  - The KB stays correct via automation (dream / maintainer / `knowledge_validate`
+    autofix on reindex), not manual commands. The raw-inbox banner now points at
+    `/second-brain:maintain` (the automated drain) instead of the now-hidden
+    `/capture`.
+- **SessionStart cap fix (source, not symptom):** forced priority-1 sections
+  (USER.md + PROJECT.md, emitted `force` at the END) could be pushed past Claude
+  Code's 10K-char hook ceiling by the budget-gated banners ahead of them — and the
+  ceiling truncates from the END, dropping the very Never/Always rules `force`
+  guarantees. `session-load.sh` now RESERVES the forced sections' actual bytes
+  from the banner budget, so banners yield and the rules always land. New test
+  `test-session-load-budget-reserve.sh` is discriminating (output 9.1K with the
+  reserve vs 10.8K — over the cap — without it).
+
 ## 0.28.3
 
 **Two more from the ship-readiness hunt (every candidate reproduced).** MCP 2.7.6.
