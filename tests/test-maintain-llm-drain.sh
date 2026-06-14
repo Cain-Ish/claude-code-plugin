@@ -64,7 +64,48 @@ echo "$OUT" | grep -q 'bypassPermissions' && pass "dry-run shows the contained c
 # prompt proves the body slice didn't silently truncate to nothing.
 PB=$(echo "$OUT" | sed -n 's/.*prompt_bytes=\([0-9]*\).*/\1/p'); [ "${PB:-0}" -gt 200 ] && pass "prompt carries the dream-runner body (${PB}B)" || fail "prompt empty/truncated (prompt_bytes=${PB:-?})"
 
-rm -rf "$B"; echo; echo "ALL PASS (gating + containment)"
+# 5. Auto-accept gate (0.25.0). The DRYRUN path simulates a completed dream and
+#    the auto-accept block has its own DRYRUN guard, so these assert the DECISION
+#    without a real merge. Config is the only variable.
+aa_run(){ printf '{"auto_maintain": true%s}\n' "$1" > "$B/config.json"; rm -rf "$B/dreams"; seed_tx 3; seed_tx 4
+  SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" 2>&1 || true; }
+
+# 5a — DEFAULT (no auto_accept key) → NEVER auto-accepts (marketplace-safe default)
+OUT=$(aa_run "")
+echo "$OUT" | grep -q 'auto-accept' && fail "5a: default config auto-accepted (must be off)" || pass "5a: default (no auto_accept) leaves the dream for review"
+
+# 5b — auto_accept:"all" → applies the dream (DRYRUN decision line, forget flag present)
+OUT=$(aa_run ', "auto_accept": "all"')
+echo "$OUT" | grep -qE 'DRYRUN auto-accept=all dream=drm_.*forget=0' \
+  && pass "5b: auto_accept=all applies a completed dream" || fail "5b: auto_accept=all did not apply (got: $(echo "$OUT" | grep -i auto-accept | head -c 120))"
+
+# 5c — auto_accept:"safe" with NO forget-manifest → applies (clean reversible dream)
+OUT=$(aa_run ', "auto_accept": "safe"')
+echo "$OUT" | grep -qE 'DRYRUN auto-accept=safe dream=drm_.*forget=0' \
+  && pass "5c: auto_accept=safe applies a no-forget dream" || fail "5c: auto_accept=safe did not apply a clean dream"
+
+# 5d — the pure decision function sb_auto_accept_decision tested directly against
+#      real input→output pairs (NOT re-asserting the condition through the caller).
+#      Source lib.sh in a subshell to get the function.
+dec(){ bash -c "source '$ROOT/scripts/lib.sh' 2>/dev/null; sb_auto_accept_decision \"\$1\" \"\$2\" \"\$3\" \"\$4\"" _ "$@"; }
+declare -a CASES=(
+  "off|completed||0|skip:disabled"          # default → never accept
+  "all|completed||0|accept"                 # all + clean
+  "all|completed||1|accept"                 # all accepts a forget dream too (full autonomy)
+  "safe|completed||0|accept"                # safe + no forget → accept
+  "safe|completed||1|skip:safe-refuses-forget"  # safe + forget → REFUSE (the safety-critical case)
+  "all|running||0|skip:not-completed"       # not done yet → never
+  "all|completed|2026-01-01T00:00:00Z|0|skip:already-accepted"  # already archived → never
+)
+aa_fail=0
+for c in "${CASES[@]}"; do
+  IFS='|' read -r m s a f exp <<< "$c"
+  got=$(dec "$m" "$s" "$a" "$f")
+  [ "$got" = "$exp" ] || { echo "  FAIL 5d: ($m,$s,'$a',$f) → '$got' expected '$exp'"; aa_fail=1; }
+done
+[ "$aa_fail" = "0" ] && pass "5d: sb_auto_accept_decision correct across all 7 input cases (incl. safe-refuses-forget)" || fail "5d: decision-table mismatch"
+
+rm -rf "$B"; echo; echo "ALL PASS (gating + containment + auto-accept)"
 
 # ═══ R4 (SCRIPTS-01/02/03): failure-aware lifecycle ═══════════════════════════
 # The maintainer must fail LOUDLY and recover sanely: probe-before-staging,

@@ -4,6 +4,25 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.25.0
+
+**Autonomy: gated auto-accept + consent ladder.** The headless dream pipeline
+can now self-apply to the live wiki, behind a new `auto_accept` config key
+(default `"off"`):
+- `"safe"` applies only dreams with zero FORGET-archives and zero deletions
+  (reversible consolidation); `"all"` applies any completed dream.
+- Every auto-accept tarballs the live wiki first; FORGET stays a reversible
+  move (never delete). The headless path requires `auto_maintain` too, so full
+  unattended operation is a layered, explicit two-consent opt-in.
+- The decision is a pure, directly-tested function (`sb_auto_accept_decision`)
+  — 7 input→output cases incl. the safety-critical safe-refuses-forget gate.
+- New three-tier consent ladder (auto_improve/auto_maintain/auto_accept, all
+  default off) documented (wiki: autonomy-consent-ladder) and presented by
+  `/second-brain:setup`.
+Marketplace default unchanged (all off — nothing reaches the live wiki
+unattended without explicit opt-in). The command-surface collapse is tracked
+as a follow-up.
+
 ## 0.24.50
 
 **Deep-review correctness batch + test-quality start.**

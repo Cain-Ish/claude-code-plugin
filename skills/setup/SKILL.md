@@ -179,6 +179,24 @@ ls -d ~/.claude/plugins/cache/*/superpowers/*/ >/dev/null 2>&1 \
   || echo "WARN: superpowers plugin not installed — the second-brain's workflow prose references superpowers:* skills (brainstorming, TDD, debugging, plans, verification). Install it from the official marketplace for the full discipline loop; the second-brain itself works without it."
 ```
 
+### 6c. Autonomy consent ladder (present once, never auto-enable)
+
+Show the three-tier opt-in so the operator chooses their autonomy level explicitly.
+All default OFF; never write these for them — present and let them decide:
+
+```
+Autonomy is opt-in, three tiers (config.json — all default off):
+  auto_improve  : pin session learnings to the hot tier (cheap, reversible)
+  auto_maintain : run the headless LLM consolidation out-of-band — reads OAuth
+                  creds with network up; THE supply-chain line, enable consciously
+  auto_accept   : apply a completed dream to the live wiki unattended —
+                  "off" (manual review) | "safe" (no archives/deletes) | "all"
+                  Every auto-accept backs up the wiki first; FORGET is a
+                  reversible move, never a delete.
+Enable a tier by editing ~/.second-brain/config.json. Full hands-off needs both
+auto_maintain AND auto_accept. See the wiki: autonomy-consent-ladder.
+```
+
 ### 7. Confirm
 
 Print byte counts of `USER.md` and `PROJECT.md` and the combined total. Verify combined < ~3200 bytes (≈ 800-token hot-tier cap):
