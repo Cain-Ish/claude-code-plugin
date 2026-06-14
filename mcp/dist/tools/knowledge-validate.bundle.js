@@ -8561,7 +8561,7 @@ function parseDoc(content, filePath) {
     area: ""
   };
   let hasRelatedKey = false;
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (fmMatch) {
     const fm = fmMatch[1];
     doc.body = fmMatch[2];
@@ -8717,7 +8717,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         autofix: "remove"
       });
     }
-    const fmMatch = content.match(/^---\n/);
+    const fmMatch = content.match(/^---\r?\n/);
     if (!fmMatch) {
       issues.push({
         type: "missing_frontmatter",
