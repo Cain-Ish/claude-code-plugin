@@ -37,7 +37,7 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
   await Promise.all(files.map(async f => {
     try {
       const head = (await fs.readFile(f, 'utf-8')).slice(0, 4096);
-      const fm = head.match(/^---\n([\s\S]*?)\n---/);
+      const fm = head.match(/^---\r?\n([\s\S]*?)\r?\n---/);
       const proj = fm && fm[1].match(/^project:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
       if (proj) livePages.add(proj[1].trim());
     } catch { /* unreadable — its own slug is already in livePages */ }
@@ -83,7 +83,7 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
     // a multi-line block-list) plus a prior graph block — so an edgeless page that
     // carries a stale block-list `related:\n  - x` is scrubbed too, not just the
     // inline form. `related: []` and a clean page carry no artifacts (untouched).
-    const fmForArtifacts = content.match(/^---\n([\s\S]*?)\n---/);
+    const fmForArtifacts = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     const hasNonEmptyRelated = fmForArtifacts
       ? extractYamlList(fmForArtifacts[1], 'related').length > 0
       : false;
@@ -98,7 +98,7 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
     // not orphaned under no key. Edgeless-but-dirty pages collapse to `[]`.
     const relList = related ? [...related].sort() : [];
     const relLine = relList.length ? `related: [${relList.join(', ')}]` : 'related: []';
-    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (fmMatch) {
       let fmBody = fmMatch[1];
       const relBlockRe = /^related:[^\n]*(?:\n[ \t]+-[^\n]*)*$/m;
@@ -107,7 +107,7 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
       } else if (relList.length) {
         fmBody = `${fmBody}\n${relLine}`;   // only ADD a line when there are edges
       }
-      content = content.replace(/^---\n[\s\S]*?\n---/, () => `---\n${fmBody}\n---`);
+      content = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---\n${fmBody}\n---`);
     }
 
     // 2. rewrite (or strip) the ## Dependencies block. Static heading — NO date,

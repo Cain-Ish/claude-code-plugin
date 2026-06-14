@@ -289,7 +289,7 @@ export async function knowledgeValidate(
 
 // Frontmatter present but missing one or more canonical required fields.
 function isIncompleteFrontmatter(content: string): boolean {
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   const fm = m[1];
   return REQUIRED_FM_FIELDS.some(k => !new RegExp(`^${k}:`, 'm').test(fm));
@@ -302,7 +302,7 @@ function isIncompleteFrontmatter(content: string): boolean {
 // re-dates it (the churn/provenance risk). Returns true if the file changed.
 async function patchFrontmatter(filePath: string, wikiDir: string, graphEnabled = false): Promise<boolean> {
   const original = await fs.readFile(filePath, 'utf-8');
-  const m = original.match(/^---\n([\s\S]*?)\n---/);
+  const m = original.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   const fmBody = m[1];
   const missing = REQUIRED_FM_FIELDS.filter(k => !new RegExp(`^${k}:`, 'm').test(fmBody));
@@ -348,7 +348,7 @@ async function patchFrontmatter(filePath: string, wikiDir: string, graphEnabled 
   };
 
   const newFm = `${fmBody}\n${missing.map(derive).join('\n')}`;
-  const next = original.replace(/^---\n[\s\S]*?\n---/, () => `---\n${newFm}\n---`);
+  const next = original.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---\n${newFm}\n---`);
   if (next === original) return false;
   await fs.writeFile(filePath, next, 'utf-8');
   return true;
@@ -360,7 +360,7 @@ const KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 export async function addFrontmatter(filePath: string, wikiDir: string): Promise<void> {
   const original = await fs.readFile(filePath, 'utf-8');
   // Defensive: if frontmatter snuck in between scan and write, leave it alone.
-  if (/^---\n/.test(original)) return;
+  if (/^---\r?\n/.test(original)) return;
 
   const slug = basename(filePath, '.md');
 
@@ -433,7 +433,7 @@ export async function addFrontmatter(filePath: string, wikiDir: string): Promise
 // clean `related: [a, b]` / `related: []` / `related: [[a]]` (valid nested
 // array) all parse, so valid pages are never churned.
 function isMalformedFrontmatter(content: string): boolean {
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   try {
     yaml.load(m[1]);   // throws (YAMLException) on any invalid frontmatter
@@ -484,7 +484,7 @@ function dedupeTopLevelKeys(fm: string): string {
 // stripping unknown frontmatter would risk deleting legitimate user data.
 async function normalizeFrontmatter(filePath: string): Promise<boolean> {
   const content = await fs.readFile(filePath, 'utf-8');
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   let fm = m[1];
   // Repair the duplicate-mapping-key class first (e.g. `updated:` written twice
@@ -498,7 +498,7 @@ async function normalizeFrontmatter(filePath: string): Promise<boolean> {
     const slugs = extractYamlList(fm, key);   // tolerant read of whatever broken shape exists
     fm = fm.replace(blockRe, () => `${key}: [${slugs.join(', ')}]`);
   }
-  const next = content.replace(/^---\n[\s\S]*?\n---/, () => `---\n${fm}\n---`);
+  const next = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---\n${fm}\n---`);
   if (next === content) return false;
   await fs.writeFile(filePath, next, 'utf-8');
   return true;

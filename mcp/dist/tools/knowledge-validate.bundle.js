@@ -8884,14 +8884,14 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   return { issues, fixed, pagesScanned: allPages.length };
 }
 function isIncompleteFrontmatter(content) {
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   const fm = m[1];
   return REQUIRED_FM_FIELDS.some((k) => !new RegExp(`^${k}:`, "m").test(fm));
 }
 async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
   const original = await fs2.readFile(filePath, "utf-8");
-  const m = original.match(/^---\n([\s\S]*?)\n---/);
+  const m = original.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   const fmBody = m[1];
   const missing = REQUIRED_FM_FIELDS.filter((k) => !new RegExp(`^${k}:`, "m").test(fmBody));
@@ -8938,7 +8938,7 @@ async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
   };
   const newFm = `${fmBody}
 ${missing.map(derive).join("\n")}`;
-  const next = original.replace(/^---\n[\s\S]*?\n---/, () => `---
+  const next = original.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---
 ${newFm}
 ---`);
   if (next === original) return false;
@@ -8948,7 +8948,7 @@ ${newFm}
 var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
   const original = await fs2.readFile(filePath, "utf-8");
-  if (/^---\n/.test(original)) return;
+  if (/^---\r?\n/.test(original)) return;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
@@ -8991,7 +8991,7 @@ related: [${related.join(", ")}]
   await fs2.writeFile(filePath, fm + original, "utf-8");
 }
 function isMalformedFrontmatter(content) {
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   try {
     index_vite_proxy_tmp_default.load(m[1]);
@@ -9029,7 +9029,7 @@ function dedupeTopLevelKeys(fm) {
 }
 async function normalizeFrontmatter(filePath) {
   const content = await fs2.readFile(filePath, "utf-8");
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   let fm = m[1];
   fm = dedupeTopLevelKeys(fm);
@@ -9039,7 +9039,7 @@ async function normalizeFrontmatter(filePath) {
     const slugs = extractYamlList(fm, key);
     fm = fm.replace(blockRe, () => `${key}: [${slugs.join(", ")}]`);
   }
-  const next = content.replace(/^---\n[\s\S]*?\n---/, () => `---
+  const next = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---
 ${fm}
 ---`);
   if (next === content) return false;

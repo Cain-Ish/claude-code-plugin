@@ -120,7 +120,7 @@ async function collect(dir, acc = []) {
   return acc;
 }
 function frontmatter(content) {
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   return m ? m[1] : "";
 }
 function links(text) {
@@ -151,7 +151,7 @@ async function main() {
     if (!content.trim()) continue;
     const slug = basename(f, ".md");
     const fm = frontmatter(content);
-    const body = content.replace(/^---\n[\s\S]*?\n---/, "");
+    const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });
     contentHash[slug] = djb2(content);
   }

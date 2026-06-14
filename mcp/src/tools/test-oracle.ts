@@ -14,7 +14,7 @@ import { expect } from 'vitest';
  *  bracketless `related: [[a]], [[b]]` form) — which is exactly the failure the
  *  regex readers masked. Returns {} when there is no frontmatter. */
 export function parseFrontmatter(md: string): Record<string, unknown> {
-  const m = md.match(/^---\n([\s\S]*?)\n---/);
+  const m = md.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return {};
   const parsed = yaml.load(m[1]);   // throws on invalid YAML — the oracle
   return (parsed && typeof parsed === 'object') ? parsed as Record<string, unknown> : {};
@@ -23,7 +23,7 @@ export function parseFrontmatter(md: string): Record<string, unknown> {
 /** Does this frontmatter parse as valid YAML? (the discriminating predicate
  *  for "is the malformed-detector aligned with real YAML validity?") */
 export function frontmatterParses(md: string): boolean {
-  const m = md.match(/^---\n([\s\S]*?)\n---/);
+  const m = md.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return true;
   try { yaml.load(m[1]); return true; } catch { return false; }
 }
