@@ -34,7 +34,7 @@ async function collect(dir: string, acc: string[] = []): Promise<string[]> {
 }
 
 function frontmatter(content: string): string {
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   return m ? m[1] : '';
 }
 function links(text: string): string[] {
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     if (!content.trim()) continue;
     const slug = basename(f, '.md');   // separator-agnostic (repo convention; cross-platform)
     const fm = frontmatter(content);
-    const body = content.replace(/^---\n[\s\S]*?\n---/, '');
+    const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, '');
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });
     contentHash[slug] = djb2(content);
   }

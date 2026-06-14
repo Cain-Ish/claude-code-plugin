@@ -8888,14 +8888,14 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   return { issues, fixed, pagesScanned: allPages.length };
 }
 function isIncompleteFrontmatter(content) {
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   const fm = m[1];
   return REQUIRED_FM_FIELDS.some((k) => !new RegExp(`^${k}:`, "m").test(fm));
 }
 async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
   const original = await fs2.readFile(filePath, "utf-8");
-  const m = original.match(/^---\n([\s\S]*?)\n---/);
+  const m = original.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   const fmBody = m[1];
   const missing = REQUIRED_FM_FIELDS.filter((k) => !new RegExp(`^${k}:`, "m").test(fmBody));
@@ -8942,7 +8942,7 @@ async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
   };
   const newFm = `${fmBody}
 ${missing.map(derive).join("\n")}`;
-  const next = original.replace(/^---\n[\s\S]*?\n---/, () => `---
+  const next = original.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---
 ${newFm}
 ---`);
   if (next === original) return false;
@@ -8952,7 +8952,7 @@ ${newFm}
 var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
   const original = await fs2.readFile(filePath, "utf-8");
-  if (/^---\n/.test(original)) return;
+  if (/^---\r?\n/.test(original)) return;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
@@ -8995,7 +8995,7 @@ related: [${related.join(", ")}]
   await fs2.writeFile(filePath, fm + original, "utf-8");
 }
 function isMalformedFrontmatter(content) {
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   try {
     index_vite_proxy_tmp_default.load(m[1]);
@@ -9033,7 +9033,7 @@ function dedupeTopLevelKeys(fm) {
 }
 async function normalizeFrontmatter(filePath) {
   const content = await fs2.readFile(filePath, "utf-8");
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return false;
   let fm = m[1];
   fm = dedupeTopLevelKeys(fm);
@@ -9043,7 +9043,7 @@ async function normalizeFrontmatter(filePath) {
     const slugs = extractYamlList(fm, key);
     fm = fm.replace(blockRe, () => `${key}: [${slugs.join(", ")}]`);
   }
-  const next = content.replace(/^---\n[\s\S]*?\n---/, () => `---
+  const next = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---
 ${fm}
 ---`);
   if (next === content) return false;
@@ -9123,7 +9123,7 @@ async function projectGraphToPages(knowledgeDir) {
   await Promise.all(files.map(async (f) => {
     try {
       const head = (await fs3.readFile(f, "utf-8")).slice(0, 4096);
-      const fm = head.match(/^---\n([\s\S]*?)\n---/);
+      const fm = head.match(/^---\r?\n([\s\S]*?)\r?\n---/);
       const proj = fm && fm[1].match(/^project:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
       if (proj) livePages.add(proj[1].trim());
     } catch {
@@ -9149,13 +9149,13 @@ async function projectGraphToPages(knowledgeDir) {
     const related = relatedBySlug.get(slug);
     let content = await fs3.readFile(file, "utf-8");
     const before = content;
-    const fmForArtifacts = content.match(/^---\n([\s\S]*?)\n---/);
+    const fmForArtifacts = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     const hasNonEmptyRelated = fmForArtifacts ? extractYamlList(fmForArtifacts[1], "related").length > 0 : false;
     const hasGeneratedArtifacts = hasNonEmptyRelated || content.includes(BEGIN);
     if ((!related || related.size === 0) && !hasGeneratedArtifacts) continue;
     const relList = related ? [...related].sort() : [];
     const relLine = relList.length ? `related: [${relList.join(", ")}]` : "related: []";
-    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (fmMatch) {
       let fmBody = fmMatch[1];
       const relBlockRe = /^related:[^\n]*(?:\n[ \t]+-[^\n]*)*$/m;
@@ -9165,7 +9165,7 @@ async function projectGraphToPages(knowledgeDir) {
         fmBody = `${fmBody}
 ${relLine}`;
       }
-      content = content.replace(/^---\n[\s\S]*?\n---/, () => `---
+      content = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---
 ${fmBody}
 ---`);
     }

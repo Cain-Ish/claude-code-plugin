@@ -292,3 +292,46 @@ describe('related_drift detection (WARN-only relation visibility)', () => {
     expect(res.issues.find(i => i.type === 'related_drift')).toBeFalsy();
   });
 });
+
+// 0.29.2: 0.28.3 made parseDoc + the missing_frontmatter check CRLF-tolerant but
+// left ~15 other LF-only `^---\n` frontmatter regexes — including the
+// incomplete-frontmatter DETECTION (isIncompleteFrontmatter) and PATCH
+// (patchFrontmatter). On a CRLF page those returned no match, so a Windows /
+// autocrlf / imported page that lacked required fields was silently never flagged
+// AND never patched — un-healable by the automation. ORACLE: js-yaml (test-oracle),
+// not a re-implementation of the validator.
+describe('CRLF frontmatter tolerance (0.29.2)', () => {
+  const CRLF = (lines: string[]) => lines.join('\r\n');
+
+  it('detects + patches an incomplete CRLF page, and the result is js-yaml-valid + idempotent', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-crlf-'));
+    const wiki = join(dir, 'wiki');
+    await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+    const f = join(wiki, 'learnings', 'crlf-page.md');
+    // CRLF everywhere; missing the required `tags` + `related` fields.
+    await fs.writeFile(f, CRLF([
+      '---', 'title: CRLF Page', 'description: d', 'type: learnings',
+      'created: 2026-01-01', 'updated: 2026-01-01', '---', '', '# CRLF Page', '', 'body', '',
+    ]));
+
+    // DETECT (read-only): pre-fix the LF-only regex returned no match → page silently
+    // un-flagged. Post-fix it is correctly flagged incomplete.
+    const ro = await knowledgeValidate(dir, { autofix: false });
+    expect(ro.issues.some(i => i.type === 'incomplete_frontmatter' && /crlf-page/.test(i.path))).toBe(true);
+
+    // PATCH.
+    const fixedRes = await knowledgeValidate(dir, { autofix: true });
+    expect(fixedRes.fixed).toBeGreaterThan(0);
+    const out = await fs.readFile(f, 'utf-8');
+
+    // INDEPENDENT ORACLE: the patched frontmatter parses under a real YAML parser,
+    // and the two previously-missing required fields are now present.
+    expect(frontmatterParses(out)).toBe(true);
+    const fm = parseFrontmatter(out);
+    expect(Object.keys(fm)).toEqual(expect.arrayContaining(['tags', 'related']));
+
+    // IDEMPOTENT: a second pass has nothing left to patch (no oscillation).
+    const again = await knowledgeValidate(dir, { autofix: true });
+    expect(again.fixed).toBe(0);
+  });
+});

@@ -4,6 +4,28 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.29.2
+
+**Finish the CRLF hardening — close the 15 frontmatter regexes 0.28.3 missed (MCP 2.7.7).**
+0.28.3 made `parseDoc` + the `missing_frontmatter` check tolerate `---\r\n`, but
+**15 other LF-only `^---\n` frontmatter regexes** across the KB pipeline were left
+behind — so a CRLF page (Windows / `autocrlf` / `import-host`) was mis-handled by
+everything else. Most consequential: the incomplete-frontmatter **detection**
+(`isIncompleteFrontmatter`) and **patch** (`patchFrontmatter`) returned no match on a
+CRLF page, so an imported page lacking required fields was silently **never flagged
+and never patched** — un-healable by the automation, the exact "the plugin creates an
+issue you can't fix" class. Now CRLF-tolerant (`^---\r?\n … \r?\n---`) in:
+- `knowledge-validate.ts` (×7 — detect, patch, normalize, addFrontmatter guard, ai-block strip)
+- `graph-project.ts` (×4 — related: projection read + write-back)
+- `graph-cluster-cli.ts` (×2 — cluster frontmatter parse/strip)
+- `test-oracle.ts` (×2 — the js-yaml oracle itself)
+
+The match is CRLF-tolerant; the write-back normalizes the fence to LF (parses clean,
+stays idempotent). New CRLF round-trip test (`knowledge-validate.test.ts`) verified
+**discriminating** — a CRLF page is detected + patched + the result is js-yaml-valid +
+idempotent with the fix, and FAILS (page silently un-flagged) without it. Oracle =
+real js-yaml via `test-oracle`, never a re-implementation of the validator.
+
 ## 0.29.1
 
 **KB self-heal: generated state pages are born VALID (stop the autofix↔regenerate churn).**
