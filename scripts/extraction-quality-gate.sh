@@ -66,8 +66,8 @@ is_noise() {
   [ "$wc" -lt 3 ] && return 0
   if [ "$STRICTNESS" = "aggressive" ]; then
     # Aggressive: reject entries that don't reference a specific noun/file/identifier
-    printf '%s' "$entry" | grep -qiE '\b(it|this|that|they|them|we|us|stuff|things)\b' && {
-      printf '%s' "$entry" | grep -qE '[A-Z][a-z]+[A-Z]|\.\w+|/|::|@' || return 0
+    printf '%s' "$entry" | grep -qiwE '(it|this|that|they|them|we|us|stuff|things)' && {
+      printf '%s' "$entry" | grep -qE '[A-Z][a-z]+[A-Z]|\.[A-Za-z0-9_]+|/|::|@' || return 0
     }
   fi
   return 1

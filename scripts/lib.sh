@@ -797,17 +797,23 @@ sb_write_extractor_health() {
 # Strip ANSI/VT control sequences from $1, write cleaned bytes to stdout.
 # Required because `script -qfc` (Backend 1b) blends pty escape codes into
 # stdout — without stripping, jq sees garbage and the extraction is wasted.
-# Handles both OSC terminators: BEL (\x07) and ST (\x1b\\). Older sed
-# versions on this regex strip in order, so the OSC-BEL pattern runs first
-# then OSC-ST, then CSI, then single-char ESC sequences, then CR.
+# Handles both OSC terminators: BEL and ST (ESC \). Strips in order: OSC-BEL,
+# OSC-ST, CSI, single-char ESC sequences, then CR.
+# PORTABILITY (0.28.2): the control bytes are built in BASH via $'\xNN' (ANSI-C
+# quoting, bash 3.2-safe — the same idiom persona-tool-guard.sh uses) and
+# interpolated as LITERAL bytes. The previous `\x1b`/`\x07` inside the sed
+# program were GNU-sed-only — BSD/macOS sed treats `\x` as a literal 'x', so it
+# stripped NOTHING and pty escape codes leaked into the extracted wiki content.
 sb_strip_ansi() {
-  sed -E '
-    s/\x1b\][^\x07\x1b]*\x07//g;
-    s/\x1b\][^\x1b]*\x1b\\//g;
-    s/\x1b\[[0-9;?]*[A-Za-z]//g;
-    s/\x1b[78=>]//g;
-    s/\r//g
-  ' "$1"
+  local _esc _bel _cr
+  _esc=$'\x1b'; _bel=$'\x07'; _cr=$'\r'
+  sed -E "
+    s/${_esc}\][^${_bel}${_esc}]*${_bel}//g
+    s/${_esc}\][^${_esc}]*${_esc}\\\\//g
+    s/${_esc}\[[0-9;?]*[A-Za-z]//g
+    s/${_esc}[78=>]//g
+    s/${_cr}//g
+  " "$1"
 }
 
 # Log a one-line diagnostic capturing the state at empty-output time, so the

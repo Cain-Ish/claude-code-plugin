@@ -4,6 +4,29 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.28.2
+
+**macOS/BSD portability: GNU-only regex escapes that silently matched nothing.**
+A ship-readiness bug-hunt (fresh-install / portability / runtime / supply-chain
+/ hooks, every candidate reproduced before counting) surfaced GNU-sed/grep
+escapes that BSD treats as the literal char — so on macOS they stripped/matched
+NOTHING, silently:
+- `sb_strip_ansi` (lib.sh) used `\x1b`/`\x07` hex in `sed` → on BSD it stripped
+  no pty escape codes, leaking ANSI into extracted wiki content. Now builds the
+  literal control bytes in bash (`$'\xNN'`, the idiom persona-tool-guard already
+  uses) and matches them directly.
+- `stop-verify-gate` / `extraction-quality-gate` used `\b…\b` word-boundaries in
+  `grep -E` (GNU-only) → the test-run-detection and vague-word gates never fired
+  on macOS. Now `grep -wE`. The same gate's `\.\w+` → `\.[A-Za-z0-9_]+`.
+- `persona-context` used `\+` (GNU BRE) to trim keyword hyphens → no-op on BSD.
+  Now `*`.
+- Portability scanner gains rule 11: no `\b \w \s \d \xNN` inside a sed/grep
+  program — so this whole class can't regress. New `test-strip-ansi.sh` asserts
+  the strip via a byte-level oracle (no ESC/BEL/CR survives).
+
+Fresh-install dimension came back clean. Linux behaviour is unchanged (the new
+forms are byte-identical to the old GNU ones on GNU).
+
 ## 0.28.1
 
 **Manual dream-accept now backs up live first (reversibility symmetry).** Only

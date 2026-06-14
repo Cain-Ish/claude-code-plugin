@@ -54,7 +54,7 @@ VERIFY_CMDS=$(jq -r '
   | select(.type == "tool_use" and .name == "Bash")
   | .input.command // ""
 ' "$TRANSCRIPT" 2>/dev/null \
-  | grep -iE '\b(test|vitest|jest|pytest|mocha|lint|eslint|tsc|typecheck|type-check|build|check|prettier|biome)\b' \
+  | grep -iwE '(test|vitest|jest|pytest|mocha|lint|eslint|tsc|typecheck|type-check|build|check|prettier|biome)' \
   | head -1)
 
 # 2. Skill invocations (assistant text referencing review/security skills).

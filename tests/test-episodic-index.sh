@@ -81,18 +81,34 @@ echo "TEST 2: recovery run (embeddings enabled) repairs all pending rows"
 unset SECOND_BRAIN_DISABLE_EMBEDDINGS
 BRAIN_DIR="$TMP" node "$BUNDLE" 2>"$TMP/run2.err"
 T=$(count_total); P=$(count_pending)
-[ "$P" -eq 0 ] || { echo "FAIL: expected 0 pending after repair run, got $P" >&2; cat "$TMP/run2.err" >&2; exit 1; }
+# No-drop holds regardless of the model (rows are never lost) — assert always.
 [ "$T" -gt 0 ] || { echo "FAIL: lost exchanges across runs ($T)" >&2; exit 1; }
-echo "  OK: total=$T pending=$P (all repaired)"
+# The real ~70MB model may be unfetchable (offline CI: "fetch failed"). If it
+# couldn't load, rows stay text-searchable-but-unembedded (the no-poison degraded
+# state, NOT corruption) — skip the strict repair + vector assertions instead of
+# flaking. The repair path itself is covered by the vitest suite where the model
+# exists. (Mirrors the test-episodic-index.test.ts skipIf-offline guard.)
+MODEL_OK=1
+if grep -qiE 'model load failed|fetch failed|could not locate|ENOTFOUND|getaddrinfo|transformers.*(fail|error)' "$TMP/run2.err"; then
+  MODEL_OK=0
+  echo "  SKIP: embedding model unavailable (offline) — repair/vector assertions skipped; $T rows intact, no poison"
+else
+  [ "$P" -eq 0 ] || { echo "FAIL: expected 0 pending after repair run, got $P" >&2; cat "$TMP/run2.err" >&2; exit 1; }
+  echo "  OK: total=$T pending=$P (all repaired)"
+fi
 
 echo "TEST 3: vector search returns ≥1 result for an obvious query"
-HITS=$(BRAIN_DIR="$TMP" node --input-type=module -e "
+if [ "$MODEL_OK" -eq 1 ]; then
+  HITS=$(BRAIN_DIR="$TMP" node --input-type=module -e "
 import { episodicSearch } from '$SEARCH_FN_DIST';
 const r = await episodicSearch({ query: 'episodic indexer embeddings', mode: 'vector', limit: 5 }, process.env.BRAIN_DIR);
 console.log(r.results.length);
 " 2>/dev/null)
-[ "$HITS" -gt 0 ] || { echo "FAIL: vector search returned 0 results" >&2; exit 1; }
-echo "  OK: vector search hits=$HITS"
+  [ "$HITS" -gt 0 ] || { echo "FAIL: vector search returned 0 results" >&2; exit 1; }
+  echo "  OK: vector search hits=$HITS"
+else
+  echo "  SKIP: embedding model unavailable — vector search not exercised (covered locally + in vitest)"
+fi
 
 echo "TEST 4: multi-word text search tokenizes (matches non-contiguous tokens)"
 HITS=$(BRAIN_DIR="$TMP" node --input-type=module -e "
