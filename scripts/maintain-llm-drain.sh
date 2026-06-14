@@ -213,7 +213,9 @@ if [ "$AA_DECISION" = "accept" ]; then
   else
     # F3: safe mode forbids ANY deletion (not just forget-manifest entries).
     AA_NODELETE=0; [ "$AA_MODE" = "safe" ] && AA_NODELETE=1
-    if SB_DREAM_ACCEPT_NO_DELETE="$AA_NODELETE" bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>&1; then
+    # We already tarballed via AA_BACKUP above (the F2 guard), so tell dream-accept
+    # to SKIP its own 0.28.1 backup — one pre-accept tarball, not two.
+    if SB_DREAM_ACCEPT_SKIP_BACKUP=1 SB_DREAM_ACCEPT_NO_DELETE="$AA_NODELETE" bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>&1; then
       sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: applied dream $DREAM_ID${AA_BK:+ (backup $AA_BK)}" 0
     else
       sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: dream-accept refused/failed for $DREAM_ID — left for manual review (backup ${AA_BK:-none})" 0

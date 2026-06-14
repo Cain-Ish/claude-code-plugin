@@ -4,6 +4,20 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.28.1
+
+**Manual dream-accept now backs up live first (reversibility symmetry).** Only
+the *auto*-accept path tarballed the live wiki before applying; a **manual**
+`dream_accept` (or the `/second-brain:dream` Review phase) overwrote live with no
+undo — surfaced live during the first real headless-maintainer test. `dream-accept.sh`
+now tarballs the live wiki to `~/.second-brain/wiki-backup-pre-accept-*.tgz`
+before the destructive rsync, and **fails closed** (refuses the accept) if the
+backup can't be written — a disk-full/unwritable state is exactly when an
+overwrite would be unrecoverable. The auto path already backs up, so it passes
+`SB_DREAM_ACCEPT_SKIP_BACKUP=1` (one tarball, not two). Restore with
+`tar xzf <tgz> -C "$KNOWLEDGE_DIR"`. Tested with a round-trip oracle (extract the
+tarball, assert it reproduces the pre-accept wiki) + a fail-closed + skip case.
+
 ## 0.28.0
 
 **Setup-time autonomy consent — opt in once, no JSON editing.** The consent

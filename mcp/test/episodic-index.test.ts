@@ -84,7 +84,15 @@ describe('buildEpisodicIndex — degraded when embeddings disabled', () => {
   });
 });
 
-describe('buildEpisodicIndex — happy path (real model)', () => {
+// These tests need the REAL ~70MB embedding model. CI runs offline
+// (HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE) where the model cannot be fetched —
+// and a fetch attempt can HANG past the 120s test timeout (observed flake), not
+// fail fast. Skip the real-model path when offline; it runs locally where the
+// model exists. The degraded/no-model contract is covered by the other blocks.
+const EMBEDDINGS_OFFLINE =
+  process.env.HF_HUB_OFFLINE === '1' || process.env.TRANSFORMERS_OFFLINE === '1';
+
+describe.skipIf(EMBEDDINGS_OFFLINE)('buildEpisodicIndex — happy path (real model)', () => {
   let brainDir: string;
 
   beforeEach(() => {

@@ -118,6 +118,26 @@ if [ "${SB_DREAM_ACCEPT_NO_DELETE:-0}" = "1" ]; then
   fi
 fi
 
+# Universal backup safety net (0.28.1): tarball the LIVE wiki BEFORE the
+# destructive rsync, so a MANUAL accept is reversible too. Previously only the
+# AUTO-accept path (maintain-llm-drain's AA_BACKUP) backed up; the manual path's
+# "your accept IS the confirmation" left it with no undo, so a bad consolidation
+# accepted by hand overwrote live with no tarball. Fail CLOSED: if the backup
+# can't be written, REFUSE rather than overwrite live unprotected (a disk-full /
+# unwritable BRAIN_DIR is exactly when a wipe would be unrecoverable). The auto
+# path already tarballs, so it passes SB_DREAM_ACCEPT_SKIP_BACKUP=1 to avoid a
+# duplicate. Restore with: tar xzf <tgz> -C "$KNOWLEDGE_DIR".
+if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$LIVE_WIKI" ]; then
+  ACCEPT_BK="$BRAIN_DIR/wiki-backup-pre-accept-$(date -u +%Y%m%d%H%M%SZ).tgz"
+  if tar czf "$ACCEPT_BK" -C "$KNOWLEDGE_DIR" wiki 2>/dev/null; then
+    echo "Backed up live wiki → $ACCEPT_BK before applying."
+  else
+    rm -f "$ACCEPT_BK" 2>/dev/null
+    echo "error: refusing accept of $DREAM_ID — could not back up the live wiki first (disk full / unwritable $BRAIN_DIR); not overwriting live unprotected. Override with SB_DREAM_ACCEPT_SKIP_BACKUP=1." >&2
+    exit 1
+  fi
+fi
+
 # Apply: rsync staging over live wiki (preserves files not in staging). --safe-links drops any
 # out-of-tree symlink as defense-in-depth behind the reject guard; the cp fallback is already
 # covered by that guard (no out-of-tree symlink can reach it).
