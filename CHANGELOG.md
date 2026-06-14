@@ -4,6 +4,33 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.28.0
+
+**Setup-time autonomy consent — opt in once, no JSON editing.** The consent
+ladder (`auto_improve` / `auto_maintain` / `auto_accept`) was display-only: the
+0.25.0 autonomy code shipped but stayed dormant because nothing wrote the keys
+and `setup` was forbidden to. Now `/second-brain:setup`'s step 6c is interactive:
+it presents the three tiers, asks the operator to choose explicitly, and persists
+their choice — without ever flipping a default behind their back (it writes only
+the tiers they pick, only under an explicit `/setup`, and defaults every answer
+off).
+
+- New `scripts/set-autonomy.mjs` — the single, dependency-free writer, run under
+  setup's existing `Bash(node *)` grant (no new permission surface). It writes
+  booleans as real JSON booleans (the `sb_config_bool` "false-trap"), keeps
+  `auto_accept` a string enum, merges per-key so `retention.*` is never
+  clobbered, writes atomically (tmp+rename in `BRAIN_DIR`), refuses to clobber a
+  corrupt config, and **refuses to enable autonomy inside a nested plugin spawn**
+  (`SB_NESTED_SPAWN=1`) — fail-closed by design.
+- Enabling `auto_maintain` now prompts setup to SHOW (never run) the
+  `install-extract-timer.sh` command, defaulting to the hardened no-credentials
+  unit; `--oauth` (which grants the background service `~/.claude` OAuth access)
+  is called out as a distinct second consent. Linger stays printed-not-run.
+- `test-set-autonomy.sh`: oracle is jq on the real file PLUS a round-trip through
+  the real `sb_config_bool`/`sb_config_get` readers — proving writer and reader
+  agree on types — plus fail-closed checks (invalid value, nested spawn, corrupt
+  file all leave config untouched).
+
 ## 0.27.0
 
 **Command-surface collapse + ledger contract test.** Review follow-through on
