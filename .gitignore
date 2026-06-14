@@ -16,10 +16,16 @@ knowledge/
 .claude/*.lock
 
 # MCP server build artifacts.
-# mcp/dist/ IS tracked so marketplace installs work without npm — without
-# this, knowledge_search/index/stats fail until the user runs setup. The
-# setup skill rebuilds dist/ from src/ if needed (e.g., after dependency bumps).
+# Only the self-contained *.bundle.js files are tracked (marketplace installs
+# run them without npm — mcp.json launches dist/server.bundle.js). The per-file
+# tsc output (*.js / *.d.ts / *.map) is build-only: nothing imports it at
+# runtime (esbuild inlines everything), so it is ignored to keep ~176 redundant
+# artifacts out of the tree. `npm run build` regenerates whatever is needed.
 mcp/node_modules/
+mcp/dist/**/*.js
+mcp/dist/**/*.d.ts
+mcp/dist/**/*.map
+!mcp/dist/**/*.bundle.js
 
 # OS files
 .DS_Store

@@ -11,15 +11,27 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUNDLE="$REPO_ROOT/mcp/dist/tools/episodic-index-cli.bundle.js"
-SEARCH_FN_DIST="$REPO_ROOT/mcp/dist/tools/episodic-search.js"
 
 if [ ! -f "$BUNDLE" ]; then
   echo "FAIL: indexer bundle missing — run 'npm --prefix mcp run build'" >&2
   exit 1
 fi
 
+# TEST 3 imports episodicSearch as a MODULE. Per-file dist (dist/tools/*.js) is no
+# longer tracked — only the CLI *.bundle.js ship (see .gitignore) — and the CLI
+# bundle exposes no named exports. So build a self-contained ESM module of the
+# search source on the fly with esbuild (an mcp dev dep), emitted UNDER mcp/ so
+# `@huggingface/transformers` still resolves from mcp/node_modules. The name ends
+# in .js (gitignored, never committed) and is removed on exit.
+SEARCH_FN_DIST="$REPO_ROOT/mcp/dist/tools/episodic-search.testmod.js"
+( cd "$REPO_ROOT/mcp" && node_modules/.bin/esbuild src/tools/episodic-search.ts \
+    --bundle --platform=node --format=esm --target=node20 \
+    --external:@huggingface/transformers \
+    --outfile="dist/tools/episodic-search.testmod.js" ) >/dev/null 2>&1 \
+  || { echo "FAIL: could not build episodic-search test module (esbuild) — run 'npm ci --prefix mcp'" >&2; exit 1; }
+
 TMP=$(mktemp -d -t epi-int-XXXX)
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP" "$SEARCH_FN_DIST"' EXIT
 mkdir -p "$TMP/transcripts"
 
 cat >"$TMP/transcripts/sess1_test_2026-05-22.txt" <<'EOF'

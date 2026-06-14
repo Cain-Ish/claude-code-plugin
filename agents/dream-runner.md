@@ -109,7 +109,8 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
   **`theme-<id>`** (the id is the smallest member slug = usually an existing page; the
   `theme-` prefix prevents a `duplicate_slug` collision with that anchor member). For each
   cluster: skip if `staging/wiki/themes/theme-<id>.md` already has a matching `member_hash`;
-  else write it with frontmatter `type: themes`, `generated: true`, `related: [[member]]…` (member slugs),
+  else write it with frontmatter `type: themes`, `generated: true`, `related: [member-a, member-b]`
+  (canonical inline list of member slugs — NOT the bracketless `related: [[a]], [[b]]` form, which is invalid YAML),
   `member_hash`, and an LLM summary INSIDE `<!-- theme:begin -->` … `<!-- theme:end -->`.
   Author only the marked region. Theme pages are regenerable, FORGET-protected, and staged
   like any page (applied on accept).

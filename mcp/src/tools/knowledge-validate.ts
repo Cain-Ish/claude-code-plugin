@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { join, basename, dirname, relative } from 'path';
+import yaml from 'js-yaml';
 import { parseDoc, ParsedDoc, extractYamlList } from './knowledge-search.js';
 import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
 import { ALL_CATEGORIES } from '../constants/kb-schema.js';
@@ -415,20 +416,61 @@ export async function addFrontmatter(filePath: string, wikiDir: string): Promise
   await fs.writeFile(filePath, fm + original, 'utf-8');
 }
 
-// Detect the two invalid `related:`/`tags:` frontmatter shapes the old projector
-// emitted, scoped to the FIRST frontmatter block. Both break a real YAML parser
-// while the in-tree regex readers silently tolerate them.
-//   (a) orphaned block-list children under an inline value:  related: [[a]]\n  - b
-//   (b) bracketless multi-item wiki-links:                   related: [[a]], [[b]]
-// A single `related: [[a]]` (valid nested-array YAML) and a clean `related: [a, b]`
-// or `related: []` are NOT flagged — keeps the validator from churning valid pages.
+// Detect frontmatter a real YAML parser rejects — the durable backstop for the
+// whole class of corruption the in-tree tolerant regex readers silently mask.
+// Earlier this matched only two hard-coded broken shapes (orphaned block-list
+// children; bracketless multi-item wiki-links `related: [[a]], [[b]]`), so live
+// failures the regex didn't anticipate slipped through every lint run:
+//   - duplicated mapping key  (`updated: x` twice → the reader returns the STALE
+//     first value, corrupting the recency boost)
+//   - bad indentation from an unquoted value containing a colon
+//     (`description: … (generated from project: facets).`)
+// The fix is to use the SAME standard the test-oracle uses — `yaml.load()` —
+// so the runtime detector can never again diverge from real YAML validity. A
+// clean `related: [a, b]` / `related: []` / `related: [[a]]` (valid nested
+// array) all parse, so valid pages are never churned.
 function isMalformedFrontmatter(content: string): boolean {
   const m = content.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return false;
-  const fm = m[1];
-  const orphanBlockList = /^(?:related|tags):[ \t]+\S[^\n]*\n[ \t]+-[ \t]/m.test(fm);
-  const bracketlessMulti = /^(?:related|tags):[^\n]*\]\][ \t]*,/m.test(fm);
-  return orphanBlockList || bracketlessMulti;
+  try {
+    yaml.load(m[1]);   // throws (YAMLException) on any invalid frontmatter
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+// Collapse duplicate top-level frontmatter keys, keeping each key's LAST
+// occurrence (and its owned indented block-list continuation). Shallow by
+// design — frontmatter is a flat key: value map, so a key appearing at column 0
+// twice is always an error, and "keep last" preserves the freshest value (the
+// duplicate-`updated:` bug). A non-key line (stray/blank) is passed through
+// untouched; a page without duplicates round-trips byte-identically.
+function dedupeTopLevelKeys(fm: string): string {
+  const lines = fm.split('\n');
+  type Seg = { key: string | null; start: number; end: number };
+  const segs: Seg[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const km = lines[i].match(/^([A-Za-z_][\w.-]*):/);
+    if (km) {
+      let j = i + 1;
+      while (j < lines.length && /^[ \t]/.test(lines[j])) j++;  // owned continuation
+      segs.push({ key: km[1], start: i, end: j });
+      i = j;
+    } else {
+      segs.push({ key: null, start: i, end: i + 1 });
+      i++;
+    }
+  }
+  const lastIdxOf = new Map<string, number>();
+  segs.forEach((s, idx) => { if (s.key) lastIdxOf.set(s.key, idx); });
+  const out: string[] = [];
+  segs.forEach((s, idx) => {
+    if (s.key && lastIdxOf.get(s.key) !== idx) return;   // drop earlier duplicate
+    for (let k = s.start; k < s.end; k++) out.push(lines[k]);
+  });
+  return out.join('\n');
 }
 
 // Re-serialize `related:` and `tags:` to the canonical β form `key: [a, b]` (valid
@@ -442,6 +484,11 @@ async function normalizeFrontmatter(filePath: string): Promise<boolean> {
   const m = content.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return false;
   let fm = m[1];
+  // Repair the duplicate-mapping-key class first (e.g. `updated:` written twice
+  // — the regex reader returned the STALE first value). Collapse each duplicated
+  // top-level key to its LAST occurrence (the freshest value), preserving every
+  // key's owned indented continuation. A page with no duplicates is unchanged.
+  fm = dedupeTopLevelKeys(fm);
   for (const key of ['related', 'tags']) {
     const blockRe = new RegExp(`^${key}:[^\\n]*(?:\\n[ \\t]+-[^\\n]*)*$`, 'm');
     if (!blockRe.test(fm)) continue;

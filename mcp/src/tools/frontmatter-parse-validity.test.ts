@@ -9,12 +9,16 @@ import { projectGraphToPages } from './graph-project.js';
 import { knowledgeValidate } from './knowledge-validate.js';
 
 // THE retrospective gate (deep-review §2.1). The entire "not-working logic" bug
-// family shipped because no YAML PARSER exists in the codebase — every reader is
-// a tolerant regex, so malformed writer output never failed a round-trip. This
-// test uses js-yaml (a real parser, dev-only — never bundled into the shipped
-// server) as an oracle INDEPENDENT of extractYamlList: after the projector and
-// the validator autofix run, EVERY page's frontmatter must parse as valid YAML.
-// This would have caught the original bracketless `related: [[a]], [[b]]` bug.
+// family shipped because every reader is a tolerant regex, so malformed writer
+// output never failed a round-trip. This test uses js-yaml (a real parser) as an
+// oracle INDEPENDENT of extractYamlList: after the projector and the validator
+// autofix run, EVERY page's frontmatter must parse as valid YAML. This would have
+// caught the original bracketless `related: [[a]], [[b]]` bug.
+//
+// As of 0.26.0 the runtime validator ITSELF uses yaml.load() (js-yaml is a real
+// dependency, bundled into the server) to detect malformed frontmatter — so the
+// detector can no longer diverge from real YAML validity. The detector-alignment
+// test below is the contract that keeps it honest.
 
 function frontmatterOf(md: string): string | null {
   const m = md.match(/^---\n([\s\S]*?)\n---/);
@@ -62,6 +66,68 @@ describe('frontmatter parse-validity (real YAML oracle, independent of the regex
     await knowledgeValidate(dir, { autofix: true });
 
     await assertAllPagesParse(dir);   // EVERY page now valid YAML — the oracle
+  });
+
+  it('the malformed-frontmatter detector flags EXACTLY the pages a real YAML parser rejects (no more, no less)', async () => {
+    // Oracle = js-yaml. The detector (knowledge-validate's isMalformedFrontmatter)
+    // must agree with it on every shape — the 0.26.0 fix that replaced two
+    // hard-coded regex shapes (which missed live dup-key + unquoted-colon pages)
+    // with yaml.load(). Run WITHOUT autofix so we observe raw detection.
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'fpv-det-'));
+    const ent = join(dir, 'wiki', 'entities');
+    await fsp.mkdir(ent, { recursive: true });
+    const write = (s: string, fm: string) =>
+      fsp.writeFile(join(ent, `${s}.md`), `---\n${fm}\n---\n\n# ${s}\n\nbody\n`);
+
+    const fixtures: Record<string, string> = {
+      'ok-inline': 'title: a\ntype: entities\nrelated: [x, y]',
+      'ok-block': 'title: b\ntype: entities\nrelated:\n  - x\n  - y',
+      'ok-empty': 'title: c\ntype: entities\nrelated: []',
+      'ok-nested-single': 'title: d\ntype: entities\nrelated: [[x]]',     // valid nested array
+      'bad-bracketless': 'title: e\ntype: entities\nrelated: [[x]], [[y]]', // legacy invalid
+      'bad-dupkey': 'title: f\ntype: entities\nupdated: 2026-05-15\ntags: [t]\nupdated: 2026-06-08', // live bug class
+      'bad-colon': 'title: g\ntype: entities\ndescription: Map of Content (generated from project: facets).', // live bug class
+      'x': 'title: x\ntype: entities\nrelated: []',
+      'y': 'title: y\ntype: entities\nrelated: []',
+    };
+    for (const [s, fm] of Object.entries(fixtures)) await write(s, fm);
+
+    // independent expected set: which fixtures does a REAL parser reject?
+    const expectedBad = new Set(
+      Object.entries(fixtures).filter(([, fm]) => { try { yaml.load(fm); return false; } catch { return true; } })
+        .map(([s]) => s)
+    );
+    // sanity: the oracle actually discriminates (the 3 invalid classes are present)
+    expect(expectedBad).toEqual(new Set(['bad-bracketless', 'bad-dupkey', 'bad-colon']));
+
+    const res = await knowledgeValidate(dir, { autofix: false });
+    const flagged = new Set(
+      res.issues.filter(i => i.type === 'malformed_frontmatter')
+        .map(i => i.path.replace(/.*[/\\]/, '').replace(/\.md$/, ''))
+    );
+    expect(flagged).toEqual(expectedBad);   // detector === real YAML validity
+  });
+
+  it('autofix repairs a duplicate-key page AND keeps the LAST (freshest) value', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'fpv-dup-'));
+    const ent = join(dir, 'wiki', 'entities');
+    await fsp.mkdir(ent, { recursive: true });
+    const p = join(ent, 'dup.md');
+    await fsp.writeFile(p, '---\ntitle: d\ntype: entities\nupdated: 2026-05-15\ntags: [t]\nrelated: []\nupdated: 2026-06-08\n---\n\n# d\n\nbody\n');
+
+    // pre: invalid YAML, and the stale-first-value trap the regex reader fell into
+    const beforeFm = frontmatterOf(await fsp.readFile(p, 'utf-8'))!;
+    expect(() => yaml.load(beforeFm)).toThrow();
+
+    await knowledgeValidate(dir, { autofix: true });
+
+    const fm = frontmatterOf(await fsp.readFile(p, 'utf-8'))!;
+    // (YAML coerces an unquoted date to a Date object, so assert on the raw text:
+    //  the freshest value is kept and the stale duplicate is gone.)
+    expect(() => yaml.load(fm)).not.toThrow();                 // valid YAML now
+    expect(fm).toMatch(/^updated: 2026-06-08$/m);              // freshest value won
+    expect(fm).not.toContain('2026-05-15');                    // stale duplicate dropped
+    expect(fm).toMatch(/^title: d$/m);                         // unrelated fields preserved
   });
 
   it('a second reindex cycle keeps every page valid YAML (idempotent validity)', async () => {

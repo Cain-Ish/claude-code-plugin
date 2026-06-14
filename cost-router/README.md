@@ -1,6 +1,6 @@
 # cost-router
 
-**Use the expensive model only for thinking.** Opus is great at planning and hard problems — and it costs ~1.7× a Sonnet and ~5× a Haiku. `cost-router` keeps Opus for the *thinking* and hands the *doing* (writing code, reading files, running tests) to cheaper models, so your Opus budget stretches much further.
+**Use the expensive model only for thinking.** Opus is great at planning and hard problems — and per output token it's the priciest tier (exact ratios below). `cost-router` keeps Opus for the *thinking* and hands the *doing* (writing code, reading files, running tests) to cheaper models, so your Opus budget stretches much further.
 
 It's a separate plugin you toggle by installing/uninstalling — on to save, off to go back to normal.
 

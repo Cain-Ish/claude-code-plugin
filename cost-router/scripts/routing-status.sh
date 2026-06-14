@@ -22,19 +22,20 @@ BUDGET_SH="$PLUGIN_ROOT/scripts/opus-budget.sh"
 # Tier summary (always shown)
 TIER_LINE="cost-router active: THINK=Opus | DO=Sonnet | SCOUT=Haiku"
 
-# Spend line (shown only when opus-budget.sh is available). Informational —
-# no cap arithmetic, no "remaining": the ledger reports, it never blocks.
-# Premium = any model above the DO/SCOUT tiers (Opus today, Fable/future next).
+# Spend line — shown ONLY when premium spend has actually been recorded today.
+# cost-router itself never debits the ledger (the sole writer is second-brain's
+# persona-think), so standalone the line would be a permanent, misleading
+# "$0.00". Gating on spent>0 keeps the banner honest in both modes: an
+# integrated session surfaces the day's premium cost once an Opus dispatch is
+# recorded; a cost-router-only install shows just the tier line. Informational —
+# no cap, no "remaining": the ledger reports, it never blocks.
+BUDGET_LINE=""
 if [ -f "$BUDGET_SH" ]; then
-  SPENT=$(bash "$BUDGET_SH" spent  || echo "?")
-  if [ "$SPENT" != "?" ]; then
+  SPENT=$(bash "$BUDGET_SH" spent 2>/dev/null || echo 0)
+  if awk -v s="$SPENT" 'BEGIN { exit !(s + 0 > 0) }'; then
     SPENT_FMT=$(awk -v s="$SPENT" 'BEGIN { printf "%.2f", s + 0 }')
     BUDGET_LINE="premium-model spend today: \$${SPENT_FMT} (informational)"
-  else
-    BUDGET_LINE="premium-model spend today: unavailable"
   fi
-else
-  BUDGET_LINE=""
 fi
 
 # Emit as a single systemMessage line (< 200 bytes)
