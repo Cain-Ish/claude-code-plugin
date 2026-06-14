@@ -13,7 +13,12 @@ delete process.env.SB_BRAIN_DIR; process.env.BRAIN_DIR = mkdtempSync(join(tmpdir
 // Deterministic BM25-only mode: with embeddings active, RRF rank jitter from
 // cosine differences between otherwise-identical fixture pages (their slug
 // tokens differ) breaks exact-score assertions (the invalidated-edge tie).
+// REASSERTED in beforeEach below — another test file (episodic-index) deletes
+// this env in its own beforeEach, and under a shared vitest process that delete
+// would leak in here and flip embeddings on (CI-only RRF-jitter flake).
+import { beforeEach } from 'vitest';
 process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
+beforeEach(() => { process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1'; });
 
 async function wiki(): Promise<string> {
   const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-'));
