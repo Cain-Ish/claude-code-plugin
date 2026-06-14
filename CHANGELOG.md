@@ -4,6 +4,26 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.29.3
+
+**cost-router telemetry: stop silently dropping the Escalation + Notes bullets.**
+- `cost-router-capture.sh` built 6 markdown bullets with `printf '- …'` — a format
+  string starting with `-`, which **bash `printf` parses as an option flag**
+  (`printf: - : invalid option`). Every Stop-hook run therefore emitted the
+  `## Escalation` and `## Notes` headings with **all their bullets dropped** — and
+  `/cost-router:orchestrate` + `/cost-router:model-route` READ that page to bias tier
+  decisions, so they were consuming blank escalation data on every machine. Fixed with
+  `printf -- '- …'` (stops option parsing; bash-3.2/BSD-safe). Whole-repo swept — this
+  was the only file with dash-led `printf` formats.
+- **Test oracle hardened (task #43 in microcosm):** `test-cost-router-capture.sh`
+  asserted only `grep -qiE 'escalat'` — which passed because the **`## Escalation`
+  heading itself** matches the word, even with every bullet gone. It now asserts the
+  actual bullet + its counts (`Total escalated to Opus: N of M`) AND a general
+  structural oracle: **no `## section` may be empty** (heading → blank → next heading =
+  dropped content). Verified discriminating — the structural check flags
+  `[Escalation] [Notes]` on the buggy script, passes on the fixed one. Catches any
+  future content-drop, not just this `printf` class.
+
 ## 0.29.2
 
 **Finish the CRLF hardening — close the 15 frontmatter regexes 0.28.3 missed (MCP 2.7.7).**

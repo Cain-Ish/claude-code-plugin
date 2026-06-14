@@ -117,10 +117,10 @@ _RECENT_ESCALATED=$(printf '%s\n' "$_WINDOW" | \
     }'
 
   printf '\n## Escalation\n\n'
-  printf '- **Total escalated to Opus:** %s of %s (%s)\n' \
+  printf -- '- **Total escalated to Opus:** %s of %s (%s)\n' \
     "$_ESCALATED" "$_TOTAL" "$_ESCALATE_RATE"
-  printf '- **Outcomes reported ok:** %s of %s\n' "$_OK_COUNT" "$_TOTAL"
-  printf '- **Committed results:** %s of %s\n\n' "$_COMMITTED" "$_TOTAL"
+  printf -- '- **Outcomes reported ok:** %s of %s\n' "$_OK_COUNT" "$_TOTAL"
+  printf -- '- **Committed results:** %s of %s\n\n' "$_COMMITTED" "$_TOTAL"
 
   if [ -n "$_RECENT_ESCALATED" ]; then
     printf '## Recent Escalations\n\n'
@@ -128,9 +128,9 @@ _RECENT_ESCALATED=$(printf '%s\n' "$_WINDOW" | \
   fi
 
   printf '## Notes\n\n'
-  printf '- This page is read by `/cost-router:orchestrate` and `/cost-router:model-route` to bias future tier decisions.\n'
-  printf '- High escalation rate suggests tasks arriving at DO tier are genuinely hard — consider adjusting classification thresholds.\n'
-  printf '- Events file: `%s`\n' "$_EVENTS"
+  printf -- '- This page is read by `/cost-router:orchestrate` and `/cost-router:model-route` to bias future tier decisions.\n'
+  printf -- '- High escalation rate suggests tasks arriving at DO tier are genuinely hard — consider adjusting classification thresholds.\n'
+  printf -- '- Events file: `%s`\n' "$_EVENTS"
 } | sb_write_generated_page "$_OUT" "Cost-Routing Patterns" \
     "Auto-generated routing telemetry: tier distribution, escalations, and outcomes from cost-router-events.jsonl" \
   2>/dev/null || true

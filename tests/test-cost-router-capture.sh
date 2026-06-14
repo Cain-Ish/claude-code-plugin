@@ -113,11 +113,32 @@ if [ -f "$PATTERNS_PAGE" ]; then
     fail "(b) DO tier count should be nonzero (got: '$_DO_ROW') — possible jq -s missing bug"
   fi
 
-  # Check escalation mention (2 out of 5 events were escalated)
-  if grep -qiE 'escalat' "$PATTERNS_PAGE"; then
-    pass "(b) escalation info present in summary"
+  # (b) Escalation BULLET must render with its COUNT — not merely the word.
+  # Pre-0.29.3 bug: `printf '- ...'` (leading-dash format) was parsed by bash as a
+  # printf OPTION ("printf: - : invalid option") → every bullet under ## Escalation
+  # AND ## Notes was silently dropped, so the orchestrator (which READS this page to
+  # bias tier decisions) got blank escalation data. The old check `grep -qiE 'escalat'`
+  # passed anyway because the "## Escalation" HEADING matches the word. Assert the DATA.
+  if grep -qE 'Total escalated to Opus:.*[0-9]+ of [0-9]+' "$PATTERNS_PAGE"; then
+    pass "(b) escalation BULLET renders with counts (not just the heading word)"
   else
-    fail "(b) escalation info should appear in summary"
+    fail "(b) escalation bullet DROPPED — printf leading-dash option bug; orchestrator reads blank data"
+  fi
+
+  # (b) GENERAL structural oracle (independent of HOW the body is built): no '## section'
+  # may be empty — a heading followed only by blanks until the next '## ' or EOF means
+  # content was silently dropped. Catches ANY future content-drop in the generator.
+  _EMPTY_SECTS=$(awk '
+    function flush(){ if (cur != "" && !seen) empties = empties " [" cur "]" }
+    /^## /    { flush(); sub(/^## /,"",$0); cur=$0; seen=0; next }
+    /^# /     { next }
+    NF        { if (cur != "") seen=1 }
+    END       { flush(); sub(/^ /,"",empties); print empties }
+  ' "$PATTERNS_PAGE")
+  if [ -z "$_EMPTY_SECTS" ]; then
+    pass "(b) every '## section' has body content (no silently-dropped sections)"
+  else
+    fail "(b) EMPTY section(s) — content silently dropped:$_EMPTY_SECTS"
   fi
 
   # Check size is bounded (less than 10000 bytes to keep it small)
