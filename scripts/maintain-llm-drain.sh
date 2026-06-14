@@ -198,16 +198,26 @@ AA_DECISION=$(sb_auto_accept_decision "$AA_MODE" \
 if [ "$AA_DECISION" = "accept" ]; then
   AA_KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; AA_KDIR="${AA_KDIR/#\~/$HOME}"
   AA_BK=""
+  AA_BACKUP_OK=1
   if [ -d "$AA_KDIR/wiki" ]; then
     AA_BK="$BRAIN_DIR/wiki-backup-pre-autoaccept-$(date -u +%Y%m%d%H%M%SZ).tgz"
-    tar czf "$AA_BK" -C "$AA_KDIR" wiki 2>/dev/null || AA_BK=""
+    if ! tar czf "$AA_BK" -C "$AA_KDIR" wiki 2>/dev/null; then AA_BK=""; AA_BACKUP_OK=0; fi
   fi
-  if [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
+  # F2: never accept UNATTENDED without a backup. A failed backup (disk full) is
+  # exactly the situation that also produces a broken/empty staging — proceeding
+  # would be a correlated, unrecoverable wipe. Abort to manual review instead.
+  if [ "$AA_BACKUP_OK" = "0" ]; then
+    sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: pre-accept backup FAILED for $DREAM_ID — refusing unattended accept (left for manual review)" 0
+  elif [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
     printf 'DRYRUN auto-accept=%s dream=%s forget=%s backup=%s\n' "$AA_MODE" "$DREAM_ID" "$AA_FORGET" "${AA_BK:-none}"
-  elif bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>&1; then
-    sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: applied dream $DREAM_ID${AA_BK:+ (backup $AA_BK)}" 0
   else
-    sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: dream-accept failed for $DREAM_ID — left for manual review (backup ${AA_BK:-none})" 0
+    # F3: safe mode forbids ANY deletion (not just forget-manifest entries).
+    AA_NODELETE=0; [ "$AA_MODE" = "safe" ] && AA_NODELETE=1
+    if SB_DREAM_ACCEPT_NO_DELETE="$AA_NODELETE" bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>&1; then
+      sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: applied dream $DREAM_ID${AA_BK:+ (backup $AA_BK)}" 0
+    else
+      sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: dream-accept refused/failed for $DREAM_ID — left for manual review (backup ${AA_BK:-none})" 0
+    fi
   fi
 elif [ "$AA_DECISION" = "skip:safe-refuses-forget" ]; then
   sb_log_error "maintain-llm-drain" "auto_accept=safe: dream $DREAM_ID proposes FORGET archives — left for manual review" 0
