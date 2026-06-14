@@ -431,7 +431,10 @@ export function parseDoc(content: string, filePath: string): ParsedDoc {
   };
 
   let hasRelatedKey = false;   // P1: distinguish an explicit `related: []` from an ABSENT key
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  // CRLF-tolerant (0.28.3): a wiki page hand-edited on Windows / checked out with
+  // autocrlf has `---\r\n` fences; an LF-only `^---\n` silently misses the whole
+  // frontmatter (title/type/related lost from search). `\r?\n` matches both.
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (fmMatch) {
     const fm = fmMatch[1];
     doc.body = fmMatch[2];

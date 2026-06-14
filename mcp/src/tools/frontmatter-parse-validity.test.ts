@@ -7,6 +7,7 @@ import yaml from 'js-yaml';
 import { appendEdge } from './graph-store.js';
 import { projectGraphToPages } from './graph-project.js';
 import { knowledgeValidate } from './knowledge-validate.js';
+import { parseDoc } from './knowledge-search.js';
 
 // THE retrospective gate (deep-review §2.1). The entire "not-working logic" bug
 // family shipped because every reader is a tolerant regex, so malformed writer
@@ -128,6 +129,30 @@ describe('frontmatter parse-validity (real YAML oracle, independent of the regex
     expect(fm).toMatch(/^updated: 2026-06-08$/m);              // freshest value won
     expect(fm).not.toContain('2026-05-15');                    // stale duplicate dropped
     expect(fm).toMatch(/^title: d$/m);                         // unrelated fields preserved
+  });
+
+  it('CRLF frontmatter is READ by parseDoc and NOT double-blocked by the validator (Windows/autocrlf)', async () => {
+    // A page hand-edited on Windows / checked out with autocrlf has `---\r\n`
+    // fences. Pre-0.28.3 the LF-only `^---\n` missed it: parseDoc lost the
+    // frontmatter (title/type/related), and the validator saw "no frontmatter"
+    // → prepended a SECOND block (corruption on every reindex).
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'crlf-'));
+    const ent = join(dir, 'wiki', 'entities');
+    await fsp.mkdir(ent, { recursive: true });
+    const p = join(ent, 'crlf.md');
+    await fsp.writeFile(p, '---\r\ntitle: c\r\ntype: entities\r\nrelated: [x]\r\n---\r\n\r\n# c\r\n\r\nbody\r\n');
+
+    // (1) parseDoc reads the CRLF frontmatter
+    const doc = parseDoc(await fsp.readFile(p, 'utf8'), p);
+    expect(doc.title).toBe('c');
+    expect(doc.type).toBe('entities');
+    expect(doc.related).toEqual(['x']);
+
+    // (2) the validator does NOT flag it missing, and autofix does NOT double the block
+    const res = await knowledgeValidate(dir, { autofix: true });
+    expect(res.issues.filter(i => i.type === 'missing_frontmatter' && i.path.includes('crlf')).length).toBe(0);
+    const after = await fsp.readFile(p, 'utf8');
+    expect((after.match(/^---\r?$/gm) || []).length).toBe(2);   // exactly one block's two fences, not four
   });
 
   it('a second reindex cycle keeps every page valid YAML (idempotent validity)', async () => {

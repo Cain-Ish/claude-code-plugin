@@ -94,7 +94,10 @@ export async function knowledgeValidate(
       });
     }
 
-    const fmMatch = content.match(/^---\n/);
+    // CRLF-tolerant (0.28.3): an LF-only `^---\n` on a `---\r\n` (Windows/autocrlf)
+    // page reports NO frontmatter → the autofix prepended a SECOND block (corruption
+    // on every reindex). `\r?\n` detects both.
+    const fmMatch = content.match(/^---\r?\n/);
     if (!fmMatch) {
       issues.push({
         type: 'missing_frontmatter',

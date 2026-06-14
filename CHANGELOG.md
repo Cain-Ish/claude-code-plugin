@@ -4,6 +4,26 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.28.3
+
+**Two more from the ship-readiness hunt (every candidate reproduced).** MCP 2.7.6.
+- **CRLF frontmatter** (Windows / git autocrlf): the readers/validator hard-coded
+  LF `^---\n`, so a `---\r\n` page lost its whole frontmatter — and worse, the
+  validator saw "no frontmatter" and autofix PREPENDED a second block, corrupting
+  the page on every reindex. `parseDoc` and the validator's detector now use
+  `\r?\n`. (Other fence regexes are LF-only too but operate on plugin-written LF
+  content — noted for a follow-up; these two were the read-loss + corruption pair.)
+- **Generated MOC `title:`** was emitted unquoted (`title: ${proj}`) while 0.26.0
+  only quoted `description:` — an author-controlled `project:` facet with a colon
+  produced invalid YAML. Both now use JSON.stringify (valid double-quoted scalar).
+- New oracle test: a CRLF page is read by parseDoc AND not double-blocked by the
+  validator. Verified the title fix across colon/quote project names.
+
+The other 9 hunt candidates were verified NON-blocking (atomicWriteJson's
+swallow is intentional fail-soft; the dedupe multi-line edge needs a malformed +
+multi-line-quoted + duplicate-key triple-coincidence that cannot occur; the rest
+minor/edge) — not fixed, to avoid churn for non-bugs.
+
 ## 0.28.2
 
 **macOS/BSD portability: GNU-only regex escapes that silently matched nothing.**
