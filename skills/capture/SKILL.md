@@ -1,7 +1,10 @@
 ---
 name: capture
 description: Drop unprocessed material (a file, a URL, or pasted text) into the current project's raw inbox for later refinement into wiki notes. Usage: /second-brain:capture <path|url> | "<text>" | --list | --discard <id> | --node <slug>.
-user-invocable: true
+# Surface-collapse (0.29.0): not a user slash command. Capture is automatic — the hook
+# capture path (raw-capture CLI) ingests material and /second-brain:maintain drains the raw
+# inbox into wiki notes. This SKILL stays as the CLI's documentation, not a manual command.
+user-invocable: false
 disable-model-invocation: true
 allowed-tools: Read Bash(node *) Bash(test *) Bash(cat *) Bash(basename *)
 ---

@@ -1,7 +1,8 @@
 ---
 name: status
 description: Show second-brain hot-tier and wiki health at a glance. Reports USER.md size, active PROJECT.md size, projects.jsonl project count, wiki page counts per category, and index.md status.
-user-invocable: true
+# Surface-collapse (0.29.0): not a user slash command -- covered by automation/MCP; capability preserved via model-invocation where dmi=false.
+user-invocable: false
 disable-model-invocation: false
 allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) Bash(printf *) Bash(tr *) mcp__plugin_second-brain_knowledge-base__knowledge_stats mcp__plugin_second-brain_knowledge-base__knowledge_validate mcp__plugin_second-brain_knowledge-base__persona_stats
 ---

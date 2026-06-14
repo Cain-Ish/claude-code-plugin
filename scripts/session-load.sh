@@ -66,6 +66,18 @@ cp "$project_file" "$BRAIN_DIR/.session-baseline-$slug.md"
 OUTPUT_FILE=$(mktemp)
 USED=0
 
+# RESERVE the priority-1 forced sections (USER.md ≤6000 + PROJECT.md ≤3000, emitted
+# `force` at the END) from the banner budget, so conditional banners can never crowd
+# them past Claude Code's 10K-char hook ceiling — which truncates from the END, i.e.
+# exactly the human's Never/Always rules that `force` is meant to guarantee. Size from
+# the files (cheap, bytes), capped at each section's own emit cap; HARD_CAP stays under
+# 10K with margin. Banners get whatever room is left; forced always lands intact.
+HARD_CAP=9500
+_usz=$(wc -c < "$USER_FILE" 2>/dev/null || echo 0); [ "${_usz:-0}" -gt 6000 ] && _usz=6000
+_psz=$(wc -c < "$project_file" 2>/dev/null || echo 0); [ "${_psz:-0}" -gt 3000 ] && _psz=3000
+_banner_room=$(( HARD_CAP - ${_usz:-0} - ${_psz:-0} )); [ "$_banner_room" -lt 0 ] && _banner_room=0
+[ "$BYTE_BUDGET" -gt "$_banner_room" ] && BYTE_BUDGET=$_banner_room
+
 sb_append() {
   local text="$1" label="$2" max="${3:-0}" force="${4:-}"
   local size=${#text}
@@ -517,7 +529,7 @@ if [ "${SB_RAW_INBOX:-on}" != "off" ]; then
          && [ "${RAW_N:-0}" -ge "$NUDGE_THRESH" ]; then
         sb_append "$(printf '## ⓘ second-brain — auto-consolidation is off\n%s raw item(s) are piling up with nothing consolidating them automatically. Pick one:\n  • auto-upkeep:  set `auto_improve: true` in ~/.second-brain/config.json (keeps the wiki validated + reindexed on the drainer timer)\n  • author them:  /second-brain:maintain (refines raw items into wiki notes — needs a Claude session)\nSuppress: `SB_AUTOCONSOLIDATE_NUDGE=off`.\n\n' "$RAW_N")" "autoconsolidate-nudge" 450
       else
-        sb_append "$(printf '## ⓘ raw inbox — %s unprocessed item(s)\nRun `/second-brain:capture --list` to review; the maintainer refines them into notes.\n\n' "$RAW_N")" \
+        sb_append "$(printf '## ⓘ raw inbox — %s unprocessed item(s)\nThe maintainer drains these into wiki notes automatically (auto_maintain / the drainer timer); run `/second-brain:maintain` to do it now.\n\n' "$RAW_N")" \
           "raw-inbox-banner" 250
       fi
     fi

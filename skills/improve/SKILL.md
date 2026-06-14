@@ -1,7 +1,10 @@
 ---
 name: improve
 description: Manual deep-dive on the current/most-recent session. Proposes up to 3 grounded "pin" candidates the user can accept/reject/edit. No autonomous critic.
-user-invocable: true
+# Surface-collapse (0.29.0): not a user slash command. Session-insight capture is now automatic
+# — dream mines transcripts into wiki pages, and the pin_to_user / pin_to_project MCP tools let
+# the model record pins on request. This manual 3-candidate pinning flow is retired as a command.
+user-invocable: false
 disable-model-invocation: true
 allowed-tools: Read Write Edit Bash(git log:*) Bash(jq *) Bash(date *) WebSearch mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__pin_to_user mcp__plugin_second-brain_knowledge-base__pin_to_project mcp__plugin_second-brain_knowledge-base__archive_to_wiki
 ---
