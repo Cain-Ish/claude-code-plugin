@@ -179,23 +179,83 @@ ls -d ~/.claude/plugins/cache/*/superpowers/*/ >/dev/null 2>&1 \
   || echo "WARN: superpowers plugin not installed — the second-brain's workflow prose references superpowers:* skills (brainstorming, TDD, debugging, plans, verification). Install it from the official marketplace for the full discipline loop; the second-brain itself works without it."
 ```
 
-### 6c. Autonomy consent ladder (present once, never auto-enable)
+### 6c. Autonomy consent ladder (interactive opt-in — explicit choice only)
 
-Show the three-tier opt-in so the operator chooses their autonomy level explicitly.
-All default OFF; never write these for them — present and let them decide:
+Autonomy is **off by default**. This step lets the operator turn it on with a
+single explicit choice instead of hand-editing JSON — but it ONLY ever writes the
+tiers they pick, and only here, under their direct `/setup` invocation. Never
+infer or default a tier ON.
+
+First show the three tiers verbatim:
 
 ```
 Autonomy is opt-in, three tiers (config.json — all default off):
-  auto_improve  : pin session learnings to the hot tier (cheap, reversible)
-  auto_maintain : run the headless LLM consolidation out-of-band — reads OAuth
-                  creds with network up; THE supply-chain line, enable consciously
-  auto_accept   : apply a completed dream to the live wiki unattended —
+  auto_improve  : pin session learnings to the hot tier (cheap, reversible, no LLM call)
+  auto_maintain : run the headless LLM consolidation out-of-band — spawns a
+                  background `claude -p` that reads your OAuth creds with the
+                  network up. THE supply-chain line — enable consciously.
+  auto_accept   : apply a completed dream to the LIVE wiki unattended —
                   "off" (manual review) | "safe" (no archives/deletes) | "all"
                   Every auto-accept backs up the wiki first; FORGET is a
                   reversible move, never a delete.
-Enable a tier by editing ~/.second-brain/config.json. Full hands-off needs both
-auto_maintain AND auto_accept. See the wiki: autonomy-consent-ladder.
+Full hands-off needs BOTH auto_maintain AND auto_accept. See the wiki:
+autonomy-consent-ladder.
 ```
+
+Then:
+
+1. **Show current values** (re-run safe — don't clobber an earlier choice):
+   ```bash
+   jq -r '"auto_improve=\(.auto_improve)  auto_maintain=\(.auto_maintain)  auto_accept=\(.auto_accept)"' \
+     ~/.second-brain/config.json 2>/dev/null || echo "config.json not seeded yet (all tiers default off)"
+   ```
+   If a tier is already non-default, surface that and ask whether to change it
+   rather than silently re-prompting.
+
+2. **Ask the operator**, one decision per tier. Be explicit that `auto_maintain`
+   authorises a recurring background process with access to their Claude OAuth
+   credentials (their stated P0). Default every answer to OFF — only an explicit
+   yes enables a tier. If they want everything off and it's already off, skip the
+   write (nothing to do).
+
+3. **Persist their explicit choice** with the dedicated writer (runs under the
+   existing `Bash(node *)` grant — it validates values, writes booleans as real
+   JSON booleans, preserves all other keys, and refuses inside a nested spawn).
+   First confirm node is available, then write only the tiers they chose:
+   ```bash
+   node --version >/dev/null 2>&1 || echo "NODE-MISSING"   # node is the Bash(node *) grant
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/set-autonomy.mjs" \
+     --auto-improve <true|false> --auto-maintain <true|false> --auto-accept <off|safe|all>
+   ```
+   - The writer prints `autonomy written to …` on success — only report the tiers
+     as enabled if that line actually appeared (a non-zero exit or no success line
+     means nothing was written; say so rather than claiming a write).
+   - If node is missing (`NODE-MISSING`, exit 127), do NOT claim anything was
+     enabled. Tell the operator autonomy stays off and show the exact manual edit
+     for `~/.second-brain/config.json` — set `"auto_improve": true|false`,
+     `"auto_maintain": true|false` (literal booleans, no quotes) and
+     `"auto_accept": "off"|"safe"|"all"`.
+
+4. **If (and only if) they enabled `auto_maintain`**, the out-of-band scheduler
+   must be installed for it to actually run — but installing a recurring system
+   service is a host-state change, so DO NOT run it for them. Show the exact
+   command for them to run, defaulting to the **hardened, no-credentials** unit:
+   ```
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-extract-timer.sh" --apply
+   ```
+   Only if they specifically want the headless LLM maintainer's `claude -p`
+   fallback (which needs their OAuth token) do they add `--oauth` — call this out
+   as a SECOND, separate credential consent:
+   ```
+   # --oauth grants the background service read/write of ~/.claude (your OAuth
+   # credentials) and drops the systemd namespace restriction. Only with --oauth
+   # does the headless maintainer run; without it, auto_maintain stays inert on a
+   # machine with no in-session claude. Enable consciously.
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-extract-timer.sh" --apply --oauth
+   ```
+   On Linux the script also PRINTS a `loginctl enable-linger` line for them to run
+   (it never runs it — another deliberate host-state boundary). Off Linux there is
+   no credential sandbox at all; say so.
 
 ### 7. Confirm
 
