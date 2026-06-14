@@ -4,6 +4,23 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.27.0
+
+**Command-surface collapse + ledger contract test.** Review follow-through on
+the automation axis.
+- `review` and `recall` are no longer user slash commands (`user-invocable:
+  false`) — the SessionStart banner already surfaces `review`'s status, and
+  `recall` is covered by the `episodic_search` MCP tool + the search-conversations
+  agent. Both stay model-invocable, so no capability is lost; the user's command
+  surface shrinks toward the intended core (setup / track / maintain / dream).
+  Conservative on purpose: woven or independently-valuable commands (`query`,
+  `audit`, `status`, `improve`, `capture`, `code-review-deep`) are kept.
+- New cross-writer contract test: the two independent premium-spend ledger
+  writers — `recordOpusLedger()` (TypeScript, second-brain) and `ob_record`
+  (bash/jq, cost-router) — are asserted to emit the IDENTICAL key set against
+  the real on-disk JSON each produces, so a field added to one can no longer be
+  silently dropped by the other.
+
 ## 0.26.0
 
 **Review-driven correctness + build hygiene** (MCP 2.7.5, cost-router 0.2.1).
