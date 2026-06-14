@@ -81,6 +81,43 @@ fi
 _DREAM_FIXED=$(sb_validate_wiki "$DREAM_DIR/staging" 2>/dev/null || echo 0)
 [ "${_DREAM_FIXED:-0}" != "0" ] && echo "Normalized $_DREAM_FIXED staging page(s) to canonical shape before merge." >&2
 
+# F1 (premise review): STAGING-VALIDITY FLOOR before the destructive rsync. The
+# headless dream agent self-asserts status=completed; a timeout / prompt-injection
+# / disk-full could leave staging EMPTY or truncated, and `rsync --delete` would
+# then MIRROR that onto live — deleting every live page. A consolidation merges/
+# archives a FEW pages; it never guts the wiki. Refuse if staging is empty, or
+# has fewer than SB_DREAM_ACCEPT_MIN_RATIO% (default 50) of the live page count.
+# Protects EVERY accept (manual + auto). Set the ratio to 0 to disable (not advised).
+_count_pages() { find "$1" -name '*.md' ! -name 'index.md' -type f 2>/dev/null | wc -l | tr -d ' '; }
+STAGING_PAGES=$(_count_pages "$STAGING_WIKI")
+LIVE_PAGES=$(_count_pages "$LIVE_WIKI")
+MIN_RATIO="${SB_DREAM_ACCEPT_MIN_RATIO:-50}"
+case "$MIN_RATIO" in ''|*[!0-9]*) MIN_RATIO=50 ;; esac
+if [ "$LIVE_PAGES" -gt 0 ] && [ "$MIN_RATIO" -gt 0 ]; then
+  if [ "$STAGING_PAGES" -eq 0 ]; then
+    echo "error: refusing accept of $DREAM_ID — staging wiki is EMPTY but live has $LIVE_PAGES page(s); a broken dream must not --delete the live wiki" >&2
+    exit 1
+  fi
+  if [ $(( STAGING_PAGES * 100 )) -lt $(( LIVE_PAGES * MIN_RATIO )) ]; then
+    echo "error: refusing accept of $DREAM_ID — staging has $STAGING_PAGES page(s) vs $LIVE_PAGES live (< ${MIN_RATIO}%); looks like a truncated/broken dream, not a consolidation" >&2
+    exit 1
+  fi
+fi
+
+# F3 (premise review): SB_DREAM_ACCEPT_NO_DELETE=1 (set by auto_accept=safe) makes
+# "safe" mean what it says — refuse if the dream would remove ANY live page
+# (dedup/summarize delete pages directly in staging, leaving no forget-manifest
+# entry, so the manifest check alone is not a real no-deletions guarantee).
+if [ "${SB_DREAM_ACCEPT_NO_DELETE:-0}" = "1" ]; then
+  DELETED=$(comm -23 \
+    <(cd "$LIVE_WIKI" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f | sort || true) \
+    <(cd "$STAGING_WIKI" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f | sort || true) 2>/dev/null)
+  if [ -n "$DELETED" ]; then
+    echo "error: refusing accept of $DREAM_ID — auto_accept=safe but the dream removes live page(s): $(printf '%s' "$DELETED" | tr '\n' ' ' | head -c 300)" >&2
+    exit 1
+  fi
+fi
+
 # Apply: rsync staging over live wiki (preserves files not in staging). --safe-links drops any
 # out-of-tree symlink as defense-in-depth behind the reject guard; the cp fallback is already
 # covered by that guard (no out-of-tree symlink can reach it).

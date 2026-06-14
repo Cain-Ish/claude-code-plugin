@@ -1,0 +1,9 @@
+{
+  // Build-only config: emit the shipped dist/ WITHOUT test files. The base
+  // tsconfig.json still includes *.test.ts so `tsc --noEmit` typechecks them in
+  // CI — but tracked dist/ must never carry compiled *.test.js, or vitest's
+  // default glob double-runs stale copies (see vitest.config.ts). Keep these
+  // two configs in sync on everything except this exclude.
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}

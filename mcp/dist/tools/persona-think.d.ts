@@ -14,7 +14,6 @@ export interface PersonaBrief {
 }
 export interface PersonaThinkDeps {
     runner?: (system: string, user: string, model: string) => Promise<string>;
-    budgetExceeded?: boolean;
     model?: string;
     brainDir?: string;
     /** Path to the Contract A Opus ledger (opus-budget.json). Defaults to brainDir/opus-budget.json
@@ -23,14 +22,11 @@ export interface PersonaThinkDeps {
     /** Override token counts for testing (avoids actual call to claude for cost estimation). */
     inputTokens?: number;
     outputTokens?: number;
-    /** Override the daily Opus cap (USD). Defaults to COST_ROUTER_OPUS_CAP_USD or 5.0. */
-    opusCap?: number;
 }
 export interface OpusLedger {
     date: string;
     opus_cost_usd: number;
     opus_calls: number;
-    cap_usd: number;
 }
 /** Return the path for the shared Opus ledger, given an optional brainDir. */
 export declare function opusLedgerPath(brainDir?: string): string;

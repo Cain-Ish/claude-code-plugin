@@ -19,21 +19,20 @@ export async function readOpusLedger(ledgerPath) {
                 date: today,
                 opus_cost_usd: Number(j.opus_cost_usd) || 0,
                 opus_calls: Number(j.opus_calls) || 0,
-                cap_usd: Number(j.cap_usd) || 5.0,
             };
         }
     }
     catch {
         // file absent or malformed — fall through to zeroed ledger
     }
-    return { date: today, opus_cost_usd: 0, opus_calls: 0, cap_usd: 5.0 };
+    return { date: today, opus_cost_usd: 0, opus_calls: 0 };
 }
 /** Record an Opus call's cost (in tokens) to the shared ledger. Graceful no-op on write failure. */
 export async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
     // Opus pricing: $5/Mtok input, $25/Mtok output
     const callCost = (inputTokens / 1e6) * 5 + (outputTokens / 1e6) * 25;
     const today = new Date().toISOString().slice(0, 10);
-    let current = { date: today, opus_cost_usd: 0, opus_calls: 0, cap_usd: 5.0 };
+    let current = { date: today, opus_cost_usd: 0, opus_calls: 0 };
     try {
         const txt = await fs.readFile(ledgerPath, 'utf-8');
         const j = JSON.parse(txt);
@@ -42,7 +41,6 @@ export async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
                 date: today,
                 opus_cost_usd: Number(j.opus_cost_usd) || 0,
                 opus_calls: Number(j.opus_calls) || 0,
-                cap_usd: Number(j.cap_usd) || 5.0,
             };
         }
         // stale date → reset to zeroed current (already set above)
@@ -54,7 +52,6 @@ export async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
         date: today,
         opus_cost_usd: current.opus_cost_usd + callCost,
         opus_calls: current.opus_calls + 1,
-        cap_usd: current.cap_usd,
     };
     const tmpPath = `${ledgerPath}.tmp.${process.pid}`;
     try {
@@ -141,23 +138,11 @@ function parseBrief(raw) {
     }
 }
 export async function personaThink(args, deps = {}) {
-    if (deps.budgetExceeded) {
-        return { ...EMPTY, budget_skipped: true };
-    }
-    // ── Contract A: shared Opus ledger check (BEFORE the call) ──────────────────
-    // Resolve ledger path: explicit > brainDir > COST_ROUTER_LEDGER/SB_BRAIN_DIR/default
+    // De-capped (0.24.45): the premium-spend ledger is INFORMATIONAL — spend is
+    // recorded after the call (below) so banners/summaries can report it, but
+    // nothing blocks here. Premium-tier models change over releases (Opus →
+    // Fable → …); a hardcoded dollar cap keyed to one model name aged badly.
     const lPath = deps.ledgerPath ?? opusLedgerPath(deps.brainDir);
-    const opusCap = deps.opusCap ?? Number(process.env.COST_ROUTER_OPUS_CAP_USD ?? '5.0');
-    if (lPath) {
-        const ledger = await readOpusLedger(lPath).catch(() => null);
-        if (ledger && ledger.opus_cost_usd >= opusCap) {
-            return {
-                ...EMPTY,
-                budget_skipped: true,
-                error: `Opus daily budget exhausted (spent $${ledger.opus_cost_usd.toFixed(4)} of $${opusCap} cap) — try later or raise COST_ROUTER_OPUS_CAP_USD`,
-            };
-        }
-    }
     const runner = deps.runner ?? defaultRunner;
     const model = deps.model ?? DEFAULT_MODEL;
     const hints = (args.context_hints ?? []).join('\n');

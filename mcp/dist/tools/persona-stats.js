@@ -1,6 +1,5 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
-const DEFAULT_BUDGET = Number(process.env.SB_PERSONA_DAILY_BUDGET ?? '20');
 export async function personaStats(args = {}) {
     const dir = args.brainDir ?? join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.second-brain');
     let identity = '';
@@ -72,7 +71,6 @@ export async function personaStats(args = {}) {
         installed_skills: skills,
         dismissals_7d: dismissals,
         today_spend_usd: spend,
-        daily_budget_usd: DEFAULT_BUDGET,
     };
 }
 //# sourceMappingURL=persona-stats.js.map

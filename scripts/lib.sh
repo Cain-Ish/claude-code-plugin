@@ -237,6 +237,20 @@ sb_validate_wiki() {
 # deterministic.sh callers redirect stdout to /dev/null, so the extra count is
 # backward-compatible.)
 
+# Pure auto-accept decision (0.25.0 autonomy). Given the config mode and the
+# dream's state, echo exactly one of: accept | skip:disabled | skip:not-completed
+# | skip:already-accepted | skip:safe-refuses-forget. Pure (no I/O) so it is
+# tested directly against real input→output pairs, not re-asserted through its
+# own caller. The caller does the backup + dream-accept only on "accept".
+#   $1 mode (off|safe|all)  $2 status  $3 archived_at  $4 has_forget (0|1)
+sb_auto_accept_decision() {
+  case "${1:-off}" in off|''|null) echo "skip:disabled"; return ;; esac
+  [ "${2:-}" = "completed" ] || { echo "skip:not-completed"; return; }
+  case "${3:-}" in ''|null) : ;; *) echo "skip:already-accepted"; return ;; esac
+  if [ "${1}" = "safe" ] && [ "${4:-0}" = "1" ]; then echo "skip:safe-refuses-forget"; return; fi
+  echo "accept"
+}
+
 # Pin a preference line to USER.md. Adds a dated entry with case-insensitive
 # dedupe and a 2200-byte cap (aligned with hot-tier budget: USER.md + PROJECT.md
 # target ~3200 bytes total). Returns 0 on success, 1 on skip.

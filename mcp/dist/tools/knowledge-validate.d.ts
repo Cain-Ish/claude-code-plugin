@@ -1,5 +1,5 @@
 export interface ValidationIssue {
-    type: 'orphan_file' | 'broken_link' | 'missing_frontmatter' | 'duplicate_slug' | 'stale_page' | 'empty_page' | 'root_orphan' | 'ai_block_incomplete' | 'ai_block_missing';
+    type: 'orphan_file' | 'broken_link' | 'missing_frontmatter' | 'malformed_frontmatter' | 'incomplete_frontmatter' | 'related_drift' | 'duplicate_slug' | 'stale_page' | 'empty_page' | 'root_orphan' | 'ai_block_incomplete' | 'ai_block_missing';
     severity: 'error' | 'warning';
     path: string;
     message: string;

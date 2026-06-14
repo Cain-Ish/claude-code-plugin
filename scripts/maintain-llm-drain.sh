@@ -147,8 +147,13 @@ BWRAP_ARGS=(
 # run is operator-verified — it can't run from inside a Claude session).
 if [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
   printf 'DRYRUN dream=%s prompt_bytes=%s contained: bwrap --ro-bind / / --bind %s (creds-only ~/.claude) ; claude -p --permission-mode bypassPermissions\n' "$DREAM_ID" "${#PROMPT}" "$DREAM_DIR"
-  exit 0
-fi
+  # Simulate a successful consolidation so the auto-accept gate below is exercised
+  # in tests (the gate keys on status=completed). DRYRUN never runs the real
+  # bwrap'd agent and the auto-accept block has its own DRYRUN guard (no real
+  # accept), so this stays side-effect-free beyond the staged dream's status.
+  jq '.status = "completed"' "$DREAM_DIR/status.json" > "$DREAM_DIR/status.json.tmp.$$" 2>/dev/null \
+    && mv "$DREAM_DIR/status.json.tmp.$$" "$DREAM_DIR/status.json" 2>/dev/null || rm -f "$DREAM_DIR/status.json.tmp.$$" 2>/dev/null
+else
 rc=0
 ERR_F=$(mktemp)
 SB_NESTED_SPAWN=1 ${TBIN:+$TBIN "$TO"} bwrap "${BWRAP_ARGS[@]}" \
@@ -170,7 +175,52 @@ else
   rm -f "$FAILS_F" "$QUAR_F" 2>/dev/null
 fi
 rm -f "$ERR_F" 2>/dev/null
+fi   # close the DRYRUN-vs-real-run branch (DRYRUN simulates completion + falls through)
 
-# 3. The dream is now completed-unaccepted (or failed). NEVER auto-accept — the SP-C nudge surfaces
-#    it and the user reviews via /second-brain:dream + dream_accept.
+# 3. Auto-accept gate (0.25.0 autonomy). DEFAULT OFF — the marketplace-safe default
+#    keeps the original guarantee (nothing reaches the live wiki unattended without
+#    a human accept). The operator opts in via config.json "auto_accept":
+#      "safe" → apply ONLY a dream proposing no FORGET-archives and no deletions
+#               (pure reversible consolidation: rsync + reindex are idempotent)
+#      "all"  → apply any completed dream (full-autonomy operator choice; the
+#               FORGET archive is a reversible MOVE, and we tarball the wiki first,
+#               so even an archival dream is recoverable)
+#    Every auto-accept BACKS UP the live wiki first, then runs dream-accept.sh
+#    (out-of-tree-symlink reject + staging node-shape + rsync + reindex). On any
+#    failure it logs and leaves the dream for manual review — fail-safe, never
+#    fail-destructive.
+AA_MODE=$(sb_config_get .auto_accept off)
+ASF="$DREAM_DIR/status.json"
+AA_FORGET=0; [ -s "$DREAM_DIR/forget-manifest.tsv" ] && AA_FORGET=1
+AA_DECISION=$(sb_auto_accept_decision "$AA_MODE" \
+  "$(jq -r '.status // ""' "$ASF" 2>/dev/null)" \
+  "$(jq -r '.archived_at // ""' "$ASF" 2>/dev/null)" "$AA_FORGET")
+if [ "$AA_DECISION" = "accept" ]; then
+  AA_KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; AA_KDIR="${AA_KDIR/#\~/$HOME}"
+  AA_BK=""
+  AA_BACKUP_OK=1
+  if [ -d "$AA_KDIR/wiki" ]; then
+    AA_BK="$BRAIN_DIR/wiki-backup-pre-autoaccept-$(date -u +%Y%m%d%H%M%SZ).tgz"
+    if ! tar czf "$AA_BK" -C "$AA_KDIR" wiki 2>/dev/null; then AA_BK=""; AA_BACKUP_OK=0; fi
+  fi
+  # F2: never accept UNATTENDED without a backup. A failed backup (disk full) is
+  # exactly the situation that also produces a broken/empty staging — proceeding
+  # would be a correlated, unrecoverable wipe. Abort to manual review instead.
+  if [ "$AA_BACKUP_OK" = "0" ]; then
+    sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: pre-accept backup FAILED for $DREAM_ID — refusing unattended accept (left for manual review)" 0
+  elif [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
+    printf 'DRYRUN auto-accept=%s dream=%s forget=%s backup=%s\n' "$AA_MODE" "$DREAM_ID" "$AA_FORGET" "${AA_BK:-none}"
+  else
+    # F3: safe mode forbids ANY deletion (not just forget-manifest entries).
+    AA_NODELETE=0; [ "$AA_MODE" = "safe" ] && AA_NODELETE=1
+    if SB_DREAM_ACCEPT_NO_DELETE="$AA_NODELETE" bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>&1; then
+      sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: applied dream $DREAM_ID${AA_BK:+ (backup $AA_BK)}" 0
+    else
+      sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: dream-accept refused/failed for $DREAM_ID — left for manual review (backup ${AA_BK:-none})" 0
+    fi
+  fi
+elif [ "$AA_DECISION" = "skip:safe-refuses-forget" ]; then
+  sb_log_error "maintain-llm-drain" "auto_accept=safe: dream $DREAM_ID proposes FORGET archives — left for manual review" 0
+fi
+
 exit 0

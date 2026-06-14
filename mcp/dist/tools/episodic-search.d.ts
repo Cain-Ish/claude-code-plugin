@@ -27,6 +27,11 @@ export interface EpisodicSearchResult {
         lineStart: number;
         lineEnd: number;
     }[];
+    /** Present when vector search was requested but unavailable (no embeddings /
+     *  model missing): 'text-only' = text matching ran as the fallback (mode
+     *  'both'); 'vector-unavailable' = nothing could run (explicit vector mode /
+     *  multi-concept) (R2.3). */
+    degraded?: 'text-only' | 'vector-unavailable';
 }
 export interface EpisodicReadResult {
     content: string;
@@ -53,5 +58,12 @@ export declare function withActiveScope(args: EpisodicSearchArgs, activeSlug: st
 export declare function scopeAndBroaden<T extends {
     project: string;
 }>(ranked: T[], args: EpisodicSearchArgs): T[];
+/**
+ * episodic_read entry-point guard — the one G-MCP-1 surface the v0.21.0
+ * hardening pass (commit 4837873) missed. The model-supplied path must
+ * resolve inside ${brainDir}/transcripts, symlinks resolved BEFORE
+ * validation (path-guard doctrine). Returns the validated real path.
+ */
+export declare function assertTranscriptPath(brainDir: string, filePath: string): string;
 export declare function episodicRead(filePath: string, startLine?: number, endLine?: number): Promise<EpisodicReadResult>;
 //# sourceMappingURL=episodic-search.d.ts.map

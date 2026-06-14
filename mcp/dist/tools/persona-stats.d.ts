@@ -11,7 +11,6 @@ export interface PersonaStatsResult {
     installed_skills: number;
     dismissals_7d: number;
     today_spend_usd: number;
-    daily_budget_usd: number;
 }
 export declare function personaStats(args?: PersonaStatsArgs): Promise<PersonaStatsResult>;
 //# sourceMappingURL=persona-stats.d.ts.map
