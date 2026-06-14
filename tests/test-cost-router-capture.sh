@@ -177,11 +177,17 @@ echo "PASS: $PASS, FAIL: $FAIL"
 # back (the churn loop), and it lives under wiki/state/ (root is unindexed).
 if [ -f "$PATTERNS_PAGE" ]; then
   head -1 "$PATTERNS_PAGE" | grep -qx -- '---' || fail "(e) page lacks frontmatter fence"
-  grep -q '^title:' "$PATTERNS_PAGE" || fail "(e) page lacks title:"
   grep -q '^type: state' "$PATTERNS_PAGE" || fail "(e) page lacks type: state"
   grep -q '^generated: true' "$PATTERNS_PAGE" || fail "(e) page lacks generated: true"
   grep -q 'do not hand-edit' "$PATTERNS_PAGE" || fail "(e) page lacks the generated marker"
-  pass "(e) generated page is born-valid (frontmatter + marker, under wiki/state/)"
+  # Born-valid = valid by the REAL validator. Assert EVERY required field (incl. tags +
+  # related, the pair the helper used to omit → eternal autofix↔regenerate churn). The
+  # set is derived from knowledge-validate.ts so it tracks the validator, not a copy.
+  _req=$(grep -m1 'REQUIRED_FM_FIELDS *=' "$REPO_ROOT/mcp/src/tools/knowledge-validate.ts" | grep -oE "'[a-z]+'" | tr -d "'")
+  _miss=""
+  for k in $_req; do grep -qE "^${k}:" "$PATTERNS_PAGE" || _miss="$_miss $k"; done
+  [ -z "$_miss" ] && pass "(e) generated page born-valid vs validator REQUIRED_FM_FIELDS (under wiki/state/)" \
+                   || fail "(e) generated page incomplete — missing required field(s):$_miss"
 else
   fail "(e) patterns page missing for frontmatter checks"
 fi
