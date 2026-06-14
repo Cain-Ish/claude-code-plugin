@@ -73,8 +73,12 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
     if (!mocs.has(existing)) { try { await fs.unlink(join(projDir, `${existing}.md`)); } catch { /* gone */ } }
   }
   for (const [proj, region] of mocs) {
+    // Quote the description AND drop the inner colon: an unquoted value containing
+    // `project:` made every generated MOC invalid YAML (`bad indentation of a
+    // mapping entry`), which the tolerant regex readers masked but a real parser
+    // (and the validator's yaml.load detector) rejects.
     const header = ['---', `title: ${proj}`, 'type: projects', 'generated: true', 'graph: exclude',
-      `description: Map of Content for project ${proj} (generated from project: facets).`, '---', ''].join('\n');
+      `description: "Map of Content for the ${proj} project (auto-generated)."`, '---', ''].join('\n');
     await fs.writeFile(join(projDir, `${proj}.md`), header + region + '\n', 'utf-8');
   }
 

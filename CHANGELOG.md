@@ -4,6 +4,39 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.26.0
+
+**Review-driven correctness + build hygiene** (MCP 2.7.5, cost-router 0.2.1).
+Findings from a four-axis deep audit (data-quality, automation, cost-router,
+code-size).
+
+Data correctness — the runtime now uses a REAL YAML parser where it counted:
+- `knowledge_validate` detects malformed frontmatter with `yaml.load()` instead
+  of two hard-coded regex shapes. This catches the live failure classes the
+  regex missed — duplicated mapping keys (the reader returned the STALE first
+  `updated:` value, corrupting the recency boost) and unquoted values containing
+  a colon — and can never again diverge from real YAML validity. js-yaml is now
+  a runtime dependency. Autofix gained duplicate-key collapse (keep the freshest
+  value). A new oracle test asserts the detector flags EXACTLY the pages a real
+  parser rejects.
+- Project MOC frontmatter is quoted (and drops the inner colon) so every
+  generated `projects/*.md` is valid YAML — previously invalid on every reindex.
+- The dream-runner is instructed to write the canonical `related: [a, b]` inline
+  form, not the invalid bracketless `related: [[a]], [[b]]`.
+
+cost-router:
+- SessionStart banner no longer fires on `compact` (output is silently dropped
+  post-compaction, upstream #15174 — matches the root hooks' stance).
+- The premium-spend line shows only when spend was actually recorded today, so a
+  standalone install stops advertising a permanent, misleading `$0.00`.
+- README pricing states one baseline instead of two contradictory framings.
+
+Build hygiene — tracked `mcp/dist/` is now ONLY the 16 self-contained
+`*.bundle.js` that actually run (mcp.json launches `server.bundle.js`); the 176
+per-file `tsc` artifacts that nothing imports at runtime are untracked and
+gitignored. `build` typechecks without emitting them. `verify.sh` probes the
+bundle that launches. Removed dead `stop-hook-predicate.sh`.
+
 ## 0.25.0
 
 **Autonomy: gated auto-accept + consent ladder.** The headless dream pipeline

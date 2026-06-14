@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && npm run bundle",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && npm run bundle",
     "bundle": "esbuild src/server.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/server.bundle.js --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" && esbuild src/tools/knowledge-reindex.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/knowledge-reindex.bundle.js && esbuild src/tools/knowledge-validate.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/knowledge-validate.bundle.js && esbuild src/tools/knowledge-search-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/knowledge-search-cli.bundle.js && esbuild src/tools/episodic-index-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/episodic-index-cli.bundle.js && esbuild src/tools/episodic-search-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/episodic-search-cli.bundle.js && esbuild src/tools/context-serve-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/context-serve-cli.bundle.js && esbuild src/cli/sb-entry.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/cli/sb-entry.bundle.js && esbuild src/cli/persona-think-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/cli/persona-think-cli.bundle.js && esbuild src/tools/doc-sources-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/doc-sources-cli.bundle.js && esbuild src/tools/doc-sources-config-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/doc-sources-config-cli.bundle.js && esbuild src/tools/graph-neighbors-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/graph-neighbors-cli.bundle.js && esbuild src/tools/graph-cluster-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/graph-cluster-cli.bundle.js && esbuild src/tools/ai-block-render-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/ai-block-render-cli.bundle.js && esbuild src/tools/raw-capture-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/raw-capture-cli.bundle.js && esbuild src/tools/raw-scan-cli.ts --bundle --platform=node --target=node20 --format=esm --external:@huggingface/transformers --outfile=dist/tools/raw-scan-cli.bundle.js",
     "start": "node dist/server.bundle.js",
     "dev": "tsc --watch",
@@ -15,13 +16,13 @@
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "glob": "^11.0.0",
+    "js-yaml": "^4.2.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.0",
-    "js-yaml": "^4.2.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.5"
   }

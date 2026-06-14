@@ -2,8 +2,8 @@
   "hooks": {
     "SessionStart": [
       {
-        "_comment": "cost-router routing-status banner. Prints a one-line status showing active model tiers and remaining Opus budget. Suppressible via COST_ROUTER_BANNER=off. Matcher covers startup/resume/clear/compact (compact included: cost-router banner output is small and useful after compaction). Output kept well under the 10K hook ceiling.",
-        "matcher": "startup|resume|clear|compact",
+        "_comment": "cost-router routing-status banner. Prints a one-line status showing active model tiers and remaining Opus budget. Suppressible via COST_ROUTER_BANNER=off. Matcher EXCLUDES 'compact' — upstream anthropics/claude-code#15174: SessionStart hook output is silently dropped after compaction (v2.0.72+), so running on the compact event is pure waste (matches the root second-brain hooks' stance). Output kept well under the 10K hook ceiling.",
+        "matcher": "startup|resume|clear",
         "hooks": [
           { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/routing-status.sh", "timeout": 5 }
         ]

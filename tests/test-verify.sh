@@ -70,7 +70,7 @@ seed_clean
 FAKE_ROOT="$TMP/no-dist-fake-root"
 mkdir -p "$FAKE_ROOT/mcp"
 OUT=$(CLAUDE_PLUGIN_ROOT="$FAKE_ROOT" "$SCRIPT" 2>&1) && fail "missing dist should fail"
-echo "$OUT" | grep -q "dist/server.js\|mcp" || fail "expected MCP message (got: $OUT)"
+echo "$OUT" | grep -q "dist/server.bundle.js\|mcp" || fail "expected MCP message (got: $OUT)"
 pass "mcp dist missing: fails"
 
 # --- Subtest 6: error-log has new entry since last verify → exit non-zero
