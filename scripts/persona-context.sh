@@ -207,7 +207,7 @@ STOP_WORDS="the a an is are was were will be been have has had do does did can c
 # generic fragments ("claude", "v", "node") that missed their wiki pages.
 KEYWORDS=$(printf '%s' "$P_TRIM" \
   | tr -cs '[:alnum:]-' '\n' \
-  | sed 's/^-\+//; s/-\+$//' \
+  | sed 's/^-*//; s/-*$//' \
   | grep -v '^$' \
   | grep -vwF "$(echo "$STOP_WORDS" | tr ' ' '\n')" \
   | head -8 | tr '\n' ' ')

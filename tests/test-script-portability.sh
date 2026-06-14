@@ -123,4 +123,16 @@ done
 [ -z "$h" ] && pass "no duplicated function definitions (shadowing hazard)" \
   || fail "duplicate function definition — the second silently shadows the first (last-def-wins)" "$h"
 
+# 11. No GNU-only regex escapes (\b \w \s \d, and \xNN hex) inside a sed/grep
+#     PROGRAM. BSD/macOS sed & grep treat each as the LITERAL char, so the pattern
+#     silently matches NOTHING (the 0.28.2 sb_strip_ansi + verify-gate bugs: ANSI
+#     not stripped; the test/vague-word gates never fired). Portable forms: build
+#     a literal byte in bash ($'\xNN'), use a POSIX class ([[:alnum:]_] /
+#     [[:space:]] / [[:digit:]]), or `grep -w` instead of \b…\b. The leading
+#     boundary keeps "parsed"/"used" from matching the sed/grep word.
+h=$(grep -rnE '(\||;|^|[[:space:]])(sed|grep)[[:space:]]' "$ROOT" "$CR_ROOT" 2>/dev/null | nocomment \
+  | grep -E '\\[bwsdx]' | grep -vF "\$'" | grep -v 'NOT GNU' || true)
+[ -z "$h" ] && pass "no GNU-only regex escapes (\\b \\w \\s \\d \\x) in sed/grep programs" \
+  || fail "GNU-only regex escape in a sed/grep program (BSD matches nothing) — use a literal byte / POSIX class / grep -w" "$h"
+
 echo; echo "ALL PASS"
