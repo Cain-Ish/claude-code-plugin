@@ -27,6 +27,17 @@ jobs:
         run: cd mcp && npx tsc --noEmit
       - name: Vitest
         run: cd mcp && npm test
+        env:
+          # CI has no network to HuggingFace — the ~70MB embedding model can't be
+          # fetched, and a fetch attempt HANGS past the 5s test timeout. Run the
+          # suite deterministically WITHOUT the model: DISABLE skips embeddings;
+          # HF_HUB_OFFLINE makes transformers fail FAST (no network) for the few
+          # tests that re-enable embeddings (they now assert the model-absent
+          # no-poison contract). Offline-first by design — CI never downloads a
+          # model. The embedding/RRF path is covered locally where the model exists.
+          SECOND_BRAIN_DISABLE_EMBEDDINGS: '1'
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'
       - name: Bundle-current gate
         run: bash tests/test-bundle-current.sh
       - name: Bash test suite

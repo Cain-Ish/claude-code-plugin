@@ -1,4 +1,5 @@
 import { promises as fs } from 'fs';
+import { atomicWriteJson } from './atomic-write.js';
 import { join } from 'path';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
@@ -36,13 +37,21 @@ function graphNeighbourhood(seeds, edges, hops) {
     }
     return reached;
 }
-const ACCESS_COUNTS_FILE = join(process.env.HOME ?? '', '.second-brain', 'access-counts.json');
+// R2.2 hermeticity: resolved per-call from SB_BRAIN_DIR/BRAIN_DIR (matching the
+// server + embeddings conventions), NOT hardcoded to $HOME — eval/test runs were
+// reading the LIVE access counts into their rankings AND writing fixture slugs
+// back into the user's real state, making the "deterministic" recall gate
+// flip-flop run-to-run.
+function accessCountsFile() {
+    const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join(process.env.HOME ?? '', '.second-brain');
+    return join(brain, 'access-counts.json');
+}
 const ACCESS_BOOST_FACTOR = 0.1;
 const ACCESS_BOOST_CAP = 10;
 const ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts() {
     try {
-        return JSON.parse(await fs.readFile(ACCESS_COUNTS_FILE, 'utf-8'));
+        return JSON.parse(await fs.readFile(accessCountsFile(), 'utf-8'));
     }
     catch {
         return {};
@@ -55,7 +64,7 @@ async function saveAccessCounts(counts) {
         if (v.last_accessed >= cutoff)
             pruned[k] = v;
     }
-    await fs.writeFile(ACCESS_COUNTS_FILE, JSON.stringify(pruned)).catch(() => { });
+    await atomicWriteJson(accessCountsFile(), pruned);
 }
 const TOP_K = 8;
 const SNIPPET_CHARS = 200;
@@ -122,25 +131,35 @@ export async function knowledgeSearch(args) {
     const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(stripAiBlock(doc.body)).length, 0) / allDocs.length || AVG_DOC_LENGTH;
     const N = allDocs.length;
     const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
-    const scored = allDocs.map(({ doc, rawContent, source, tokens }) => ({
-        path: doc.path,
-        tier: 0, // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
-        score: scoreBM25(queryTokens, doc, avgDL, N, dfMap),
-        related: doc.related,
-        description: (doc.aiBlock && Object.keys(doc.aiBlock).length)
-            ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) // shared intermediate, budget-capped (Phase 2)
-            : (source === 'local-doc'
-                ? doc.description
-                : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim())),
-        tokens,
-        source,
-    }));
+    const scored = allDocs.map(({ doc, rawContent, source, tokens }) => {
+        const bm25 = scoreBM25(queryTokens, doc, avgDL, N, dfMap);
+        return {
+            path: doc.path,
+            tier: 0, // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
+            score: bm25,
+            baseScore: bm25, // frozen pre-boost BM25 (R2.1): boost math + the floor read THIS, never the mutated score
+            related: doc.related,
+            description: (doc.aiBlock && Object.keys(doc.aiBlock).length)
+                ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) // shared intermediate, budget-capped (Phase 2)
+                : (source === 'local-doc'
+                    ? doc.description
+                    : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim())),
+            tokens,
+            source,
+        };
+    });
     // Graph boost: propagate relevance through the typed relationship graph.
-    // If ~/knowledge/graph/edges.jsonl exists, walk current-valid typed edges up
-    // to 2 hops with per-hop decay. Otherwise fall back to the legacy one-hop
-    // boost over frontmatter `related:` (byte-for-byte prior behaviour).
+    // R2.1 (MCP-SEARCH-1): contributions are computed from FROZEN pre-boost base
+    // scores and accumulated separately, then capped at <=1x each page's own
+    // base. The previous in-place `target.score +=` compounded geometrically
+    // through hub pages (~10,000x observed live) and corrupted every ranking;
+    // a page with zero text relevance can no longer ride the graph at all.
     const GRAPH_BOOST = 0.3;
     const slugScoreMap = new Map(scored.map(s => [slugFromPath(s.path), s]));
+    // Keyed by basename slug — slug uniqueness across categories is a wiki
+    // invariant (knowledge_validate flags duplicates); a collision would share
+    // one accumulator (each page's cap still bounds its own application).
+    const boostAccum = new Map();
     let graphEdges = [];
     try {
         const recs = await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
@@ -152,18 +171,18 @@ export async function knowledgeSearch(args) {
     catch { /* no graph — legacy path below */ }
     if (graphEdges.length > 0) {
         // Multi-hop typed propagation (depth 2). requires/affects propagate full,
-        // relates weaker. Decay 0.3 per hop.
-        const TYPE_W = { requires: 1, affects: 1, part_of: 0.8, supersedes: 0.6, relates: 0.5 };
+        // relates much weaker (90% of real graphs are migration-generated relates).
+        const TYPE_W = { requires: 1, affects: 1, part_of: 0.8, supersedes: 0.6, relates: 0.25 };
         const adj = new Map();
         for (const e of graphEdges) {
             for (const [a, b] of [[e.from, e.to], [e.to, e.from]]) {
                 if (!adj.has(a))
                     adj.set(a, []);
-                adj.get(a).push({ to: b, w: TYPE_W[e.type] ?? 0.5 });
+                adj.get(a).push({ to: b, w: TYPE_W[e.type] ?? 0.25 }); // unknown types deliberately get the weakest weight
             }
         }
         for (const entry of scored) {
-            if (entry.score <= 0)
+            if (entry.baseScore <= 0)
                 continue;
             const start = slugFromPath(entry.path);
             let frontier = [{ node: start, factor: 1 }];
@@ -173,9 +192,9 @@ export async function knowledgeSearch(args) {
                 for (const { node, factor } of frontier) {
                     for (const { to, w } of adj.get(node) ?? []) {
                         const target = slugScoreMap.get(to);
-                        const contrib = entry.score * GRAPH_BOOST * factor * w;
-                        if (target && target !== entry)
-                            target.score += contrib;
+                        if (target && target !== entry) {
+                            boostAccum.set(to, (boostAccum.get(to) ?? 0) + entry.baseScore * GRAPH_BOOST * factor * w);
+                        }
                         if (!seen.has(to)) {
                             seen.add(to);
                             next.push({ node: to, factor: factor * GRAPH_BOOST });
@@ -187,20 +206,26 @@ export async function knowledgeSearch(args) {
         }
     }
     else {
-        // Legacy one-hop boost over frontmatter related: (unchanged from 0.21.4).
+        // Legacy one-hop boost over frontmatter related: — same frozen-base + cap discipline.
         for (const entry of scored) {
-            if (entry.score <= 0)
+            if (entry.baseScore <= 0)
                 continue;
             for (const rel of entry.related) {
                 const target = slugScoreMap.get(rel);
                 if (target && target !== entry) {
-                    target.score += entry.score * GRAPH_BOOST;
+                    boostAccum.set(rel, (boostAccum.get(rel) ?? 0) + entry.baseScore * GRAPH_BOOST);
                 }
             }
         }
     }
+    // Apply: total received boost capped at 1x the page's own base score.
+    for (const s of scored) {
+        const b = boostAccum.get(slugFromPath(s.path)) ?? 0;
+        s.score = s.baseScore + Math.min(b, s.baseScore);
+    }
     // Hybrid search: if ONNX embeddings are available, fuse BM25 + cosine via RRF
     const RRF_K = 60;
+    let embeddingsActive = false;
     try {
         const docTexts = allDocs.map(({ doc }) => `${doc.title} ${doc.description} ${doc.body}`.slice(0, 512));
         const docPaths = allDocs.map(({ doc }) => doc.path);
@@ -208,6 +233,7 @@ export async function knowledgeSearch(args) {
         const allPaths = ['', ...docPaths];
         const embeddings = await embedTexts(allTexts, wikiRoot, allPaths);
         if (embeddings) {
+            embeddingsActive = true;
             const bm25Only = scored.map(s => s.score);
             const queryVec = embeddings[0];
             const cosineScores = embeddings.slice(1).map(v => cosineSimilarity(queryVec, v));
@@ -288,17 +314,31 @@ export async function knowledgeSearch(args) {
     }
     scored.sort((a, b) => (scopeOn ? (a.tier - b.tier) || (b.score - a.score) : b.score - a.score));
     const topScore = scored.reduce((m, s) => Math.max(m, s.score), 0);
-    const passesFloor = (c) => c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO);
+    const topBase = scored.reduce((m, s) => Math.max(m, s.baseScore), 0);
+    // R2.1: in BM25-only mode the floor compares FROZEN base scores — the boost
+    // can no longer inflate the cutoff and evict honestly-scored pages. RRF
+    // scores are rank-derived (inflation-proof), so the floor stays on final
+    // scores in hybrid mode.
+    const passesFloor = (c) => embeddingsActive
+        ? c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO)
+        : c.score > 0 && (topBase === 0 || c.baseScore >= topBase * MIN_SCORE_RATIO);
     let pool = scored;
     if (scopeOn) {
         const inScope = scored.filter(s => s.tier <= 3);
         // Enough in-scope hits → drop other-project (tier 4). Thin → broaden (keep all; in-scope sorted first).
         pool = inScope.filter(passesFloor).length >= clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100) ? inScope : scored;
     }
-    const candidates = pool
-        .filter(passesFloor)
-        .slice(0, TOP_K)
-        .map(({ related, tier, ...rest }) => rest);
+    const returned = pool.filter(passesFloor).slice(0, TOP_K);
+    // Normalize against the max of the RETURNED set (deep-review C1): exactly one
+    // returned candidate is always 1; under tier-major (scoped) ordering that
+    // anchor may not be the first listed.
+    const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);
+    const candidates = returned
+        .map(({ related, baseScore, tier, ...rest }) => ({
+        ...rest,
+        score_norm: topFinal > 0 ? Math.round((rest.score / topFinal) * 10000) / 10000 : 0,
+        ...(scopeOn ? { tier } : {}),
+    }));
     // Record access for returned results (fire-and-forget)
     const ts = new Date().toISOString();
     for (const c of candidates) {
@@ -311,7 +351,7 @@ export async function knowledgeSearch(args) {
         accessCounts[slug].last_accessed = ts;
     }
     saveAccessCounts(accessCounts).catch(() => { });
-    return { candidates };
+    return { candidates, ...(embeddingsActive ? {} : { degraded: 'bm25-only' }) };
 }
 function computeDF(queryTokens, docs) {
     const dfMap = new Map();
@@ -361,6 +401,7 @@ export function parseDoc(content, filePath) {
         title: '', description: '', type: '', tags: [], related: [], body: content, path: filePath,
         updated: '', created: '', project: '', area: '',
     };
+    let hasRelatedKey = false; // P1: distinguish an explicit `related: []` from an ABSENT key
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
     if (fmMatch) {
         const fm = fmMatch[1];
@@ -370,6 +411,7 @@ export function parseDoc(content, filePath) {
         doc.type = extractYamlValue(fm, 'type');
         doc.tags = extractYamlList(fm, 'tags');
         doc.related = extractYamlList(fm, 'related');
+        hasRelatedKey = /^related:/m.test(fm);
         doc.updated = extractYamlValue(fm, 'updated');
         doc.created = extractYamlValue(fm, 'created');
         doc.project = extractYamlValue(fm, 'project');
@@ -388,9 +430,13 @@ export function parseDoc(content, filePath) {
         }
     }
     doc.aiBlock = parseAiBlock(content) ?? undefined;
-    if (doc.related.length === 0) {
-        // Scrape body [[links]] for related: — but NOT links inside the ai-block (block values
-        // are plain slugs by convention; strip it so a stray bracket can't pollute related:).
+    if (!hasRelatedKey) {
+        // P1: scrape body [[links]] ONLY when the related: KEY is ABSENT — an explicit
+        // `related: []` is authoritative (it is the projector's canonical cleaned form
+        // for an edgeless page; re-filling it from body links would resurrect false
+        // related_drift + phantom boosts on exactly the pages the projector just cleaned).
+        // Strip the ai-block first (block values are plain slugs; a stray bracket there
+        // must not pollute related:).
         const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
         if (wikiLinks) {
             doc.related = [...new Set(wikiLinks.map(l => l.slice(2, -2)))];
@@ -398,12 +444,16 @@ export function parseDoc(content, filePath) {
     }
     return doc;
 }
-function extractYamlValue(yaml, key) {
-    const re = new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm');
+export function extractYamlValue(yaml, key) {
+    // `(.*?)` not `(.+?)`: an empty quoted value `key: ""` must parse to '' — with
+    // `.+?` the opening quote is eaten by `['"]?` and the closing quote becomes the
+    // captured value (`"`), which then leaks into MOC descriptions and breaks reindex
+    // idempotency once a page carries `description: ""`.
+    const re = new RegExp(`^${key}:\\s*['"]?(.*?)['"]?\\s*$`, 'm');
     const m = yaml.match(re);
     return m ? m[1].trim() : '';
 }
-function extractYamlList(yaml, key) {
+export function extractYamlList(yaml, key) {
     // The wiki uses a non-standard `related: [[slug]], [[other]]` convention for
     // wiki-links in frontmatter. The naive `^key:\s*\[(.+?)\]` regex misparses
     // these as YAML inline lists, capturing `[slug` (with leading bracket) and

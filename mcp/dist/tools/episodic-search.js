@@ -1,6 +1,8 @@
 import { promises as fs } from 'fs';
-import { join, basename } from 'path';
+import { atomicWriteJson } from './atomic-write.js';
+import { join, basename, relative, isAbsolute } from 'path';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
+import { assertWithin } from '../path-guard.js';
 const INDEX_FILE = 'episodic-index.json';
 const SNIPPET_LEN = 200;
 const DEFAULT_LIMIT = 10;
@@ -109,7 +111,7 @@ async function loadIndex(brainDir) {
     }
 }
 async function saveIndex(brainDir, index) {
-    await fs.writeFile(join(brainDir, INDEX_FILE), JSON.stringify(index));
+    await atomicWriteJson(join(brainDir, INDEX_FILE), index);
 }
 export async function buildEpisodicIndex(brainDir) {
     const archiveDir = join(brainDir, 'transcripts');
@@ -193,7 +195,7 @@ export async function episodicSearch(args, brainDir) {
     const query = args.query;
     // Multi-concept AND search
     if (Array.isArray(query)) {
-        return multiConceptSearch(query, index, limit, args);
+        return multiConceptSearch(query, index, limit, args, brainDir);
     }
     const mode = args.mode ?? 'both';
     // When scoping to an active project we may discard other-project candidates,
@@ -201,8 +203,14 @@ export async function episodicSearch(args, brainDir) {
     const candLimit = (args.activeProject && !args.project) ? Math.max(limit * 5, 25) : limit * 2;
     let vectorResults = [];
     let textResults = [];
+    let degraded;
     if (mode === 'vector' || mode === 'both') {
-        vectorResults = await vectorSearch(query, index, candLimit, args, brainDir);
+        const v = await vectorSearch(query, index, candLimit, args, brainDir);
+        vectorResults = v.hits;
+        // 'text-only' is honest only when text actually runs as the fallback;
+        // explicit vector mode has no fallback (deep-review W4).
+        if (v.unavailable)
+            degraded = mode === 'both' ? 'text-only' : 'vector-unavailable';
     }
     if (mode === 'text' || mode === 'both') {
         textResults = textSearch(query, index, candLimit, args);
@@ -235,21 +243,27 @@ export async function episodicSearch(args, brainDir) {
             lineStart: r.lineStart,
             lineEnd: r.lineEnd,
         })),
+        ...(degraded ? { degraded } : {}),
     };
 }
 async function vectorSearch(query, index, limit, filters, brainDir) {
     const filtered = applyFilters(index.exchanges, filters);
     const withEmbeddings = filtered.filter(e => e.embedding.length > 0);
+    // unavailable = vector search COULD have matched but can't run (no vectors /
+    // no model); an empty filter result is not a degradation (R2.3).
     if (withEmbeddings.length === 0)
-        return [];
+        return { hits: [], unavailable: filtered.length > 0 };
     const queryEmbedding = await embedTexts([query], join(brainDir, 'transcripts'), ['']);
     if (!queryEmbedding)
-        return [];
+        return { hits: [], unavailable: true };
     const qVec = queryEmbedding[0];
-    return withEmbeddings
-        .map(e => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) }))
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, limit);
+    return {
+        hits: withEmbeddings
+            .map(e => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) }))
+            .sort((a, b) => b.similarity - a.similarity)
+            .slice(0, limit),
+        unavailable: false,
+    };
 }
 function textSearch(query, index, limit, filters) {
     const filtered = applyFilters(index.exchanges, filters);
@@ -261,33 +275,45 @@ function textSearch(query, index, limit, filters) {
     const scored = [];
     for (const e of filtered) {
         const hay = (e.userSnippet + ' ' + e.assistantSnippet).toLowerCase();
-        let hits = 0;
+        // AND-gate: every query token must appear. Score by total term FREQUENCY so
+        // a denser overlap outranks a single-mention match (P8: the old code broke
+        // on first miss and forced hits/tokens.length === 1 → a constant 0.5).
+        let allHit = true;
+        let tf = 0;
         for (const t of tokens) {
-            if (hay.includes(t))
-                hits++;
-            else {
-                hits = -1;
+            const occ = hay.split(t).length - 1;
+            if (occ === 0) {
+                allHit = false;
                 break;
             }
+            tf += occ;
         }
-        if (hits === tokens.length) {
-            // Normalize score to (0, 0.5] so vector matches (which can score up to 1.0) still rank above text.
-            scored.push({ ...e, similarity: 0.25 + (hits / tokens.length) * 0.25 });
+        if (allHit) {
+            // tf >= tokens.length (each token hits >=1). Map into (0, 0.5] monotonically
+            // in tf, saturating below 0.5 so a vector match (up to 1.0) still outranks.
+            const similarity = 0.5 * (tf / (tf + tokens.length));
+            scored.push({ ...e, similarity });
         }
     }
+    // Sort by similarity DESC before truncating — slicing an unsorted list kept an
+    // arbitrary first-N, not the best-N (the other half of the P8 bug).
+    scored.sort((a, b) => b.similarity - a.similarity);
     return scored.slice(0, limit);
 }
-async function multiConceptSearch(concepts, index, limit, filters) {
-    const brainDir = index.exchanges[0]?.archivePath
-        ? join(index.exchanges[0].archivePath, '..', '..')
-        : join(process.env.HOME ?? '', '.second-brain');
+async function multiConceptSearch(concepts, index, limit, filters, brainDir) {
+    // brainDir comes from the caller (deep-review C2): deriving it from the first
+    // exchange's archivePath silently reverted to the LIVE brain when the index
+    // came from a hermetic/test dir — the exact leak class R2.2 closed.
     const filtered = applyFilters(index.exchanges, filters);
     const withEmbeddings = filtered.filter(e => e.embedding.length > 0);
-    if (withEmbeddings.length === 0)
-        return { results: [] };
+    // Multi-concept search is vector-only: no embeddings = honestly degraded, not
+    // silently empty (R2.3). An empty FILTER result is not a degradation (I6).
+    if (withEmbeddings.length === 0) {
+        return { results: [], ...(filtered.length > 0 ? { degraded: 'vector-unavailable' } : {}) };
+    }
     const conceptEmbeddings = await embedTexts(concepts, join(brainDir, 'transcripts'), concepts.map((_, i) => `concept-${i}`));
     if (!conceptEmbeddings)
-        return { results: [] };
+        return { results: [], degraded: 'vector-unavailable' };
     // Score each exchange against all concepts
     const scored = withEmbeddings.map(e => {
         const similarities = conceptEmbeddings.map(cv => cosineSimilarity(cv, e.embedding));
@@ -365,6 +391,17 @@ export function scopeAndBroaden(ranked, args) {
     const parsed = parseInt(process.env.SB_EPISODIC_SCOPE_MIN_HITS ?? '', 10);
     const minHits = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
     return inScope.length >= minHits ? inScope : ranked;
+}
+/**
+ * episodic_read entry-point guard — the one G-MCP-1 surface the v0.21.0
+ * hardening pass (commit 4837873) missed. The model-supplied path must
+ * resolve inside ${brainDir}/transcripts, symlinks resolved BEFORE
+ * validation (path-guard doctrine). Returns the validated real path.
+ */
+export function assertTranscriptPath(brainDir, filePath) {
+    const base = join(brainDir, 'transcripts');
+    const rel = isAbsolute(filePath) ? relative(base, filePath) : filePath;
+    return assertWithin(base, rel);
 }
 export async function episodicRead(filePath, startLine, endLine) {
     const content = await fs.readFile(filePath, 'utf-8');

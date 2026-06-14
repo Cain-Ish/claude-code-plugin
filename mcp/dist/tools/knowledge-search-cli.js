@@ -10,7 +10,9 @@ const knowledgeDir = process.env.KNOWLEDGE_DIR || undefined;
 const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 // SP-1: forward project context so the per-prompt persona injection is project-scoped.
 // The calling hook (persona-context.sh / session-load.sh) sets SB_ACTIVE_SLUG.
-const brainDir = process.env.BRAIN_DIR || (process.env.HOME ? `${process.env.HOME}/.second-brain` : undefined);
+// SB_BRAIN_DIR first, matching the engine's accessCountsFile() and server.ts —
+// a split here would send scoping and access-counts to different trees (R2 review).
+const brainDir = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || (process.env.HOME ? `${process.env.HOME}/.second-brain` : undefined);
 const projectSlug = process.env.SB_ACTIVE_SLUG || undefined;
 const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
 const top = result.candidates
