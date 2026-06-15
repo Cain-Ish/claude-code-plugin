@@ -547,7 +547,7 @@ sb_archive_subagent_result() {
       | while IFS= read -r f; do printf '%s %s\n' "$(stat -f %m "$f" 2>/dev/null || echo 0)" "$f"; done \
       | sort -rn | cut -d' ' -f2-)
   fi
-  sub_count=$(printf '%s\n' "$sub_files" | grep -c . 2>/dev/null || echo 0)
+  sub_count=$(printf '%s\n' "$sub_files" | grep -c . 2>/dev/null || true)
   if [ "$sub_count" -gt "$sub_cap" ]; then
     printf '%s\n' "$sub_files" | tail -n +"$((sub_cap + 1))" | while IFS= read -r f; do
       [ -n "$f" ] && rm -f "$f"
@@ -612,7 +612,7 @@ sb_prune_transcripts() {
   local files
   files=$(find "$archive_dir" -name '*.txt' -type f 2>/dev/null | sort)
   local count
-  count=$(echo "$files" | grep -c . 2>/dev/null || echo 0)
+  count=$(echo "$files" | grep -c . 2>/dev/null || true)
 
   while [ "$count" -gt 100 ]; do
     local oldest
@@ -1158,7 +1158,7 @@ sb_count_recent_extraction_failures() {
   # last 20 entries from extractor scripts, count llm-extraction-failed
   tail -20 "$log" 2>/dev/null \
     | jq -r 'select(.script == "stop-extract.sh" or .script == "pre-compact.sh") | .message' 2>/dev/null \
-    | grep -c 'llm-extraction-failed' 2>/dev/null || echo 0
+    | grep -c 'llm-extraction-failed' 2>/dev/null || true
 }
 
 # Verify jq is available. If missing, log to error-log.jsonl and return 1.

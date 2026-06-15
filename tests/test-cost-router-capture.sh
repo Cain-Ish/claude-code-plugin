@@ -237,6 +237,29 @@ else
   fail "(f) capture deleted a NON-generated user file"
 fi
 
+# --- (g) 0.29.4: zero-escalation happy path — the `grep -c … || echo 0` branch ---
+# grep -c prints "0" AND exits 1 on no-match, so `|| echo 0` USED to fire too, making
+# _ESCALATED/_OK_COUNT/_COMMITTED the two-line string "0\n0" → the escalation bullet split
+# across two lines with a dangling orphan count. Every prior fixture carried ≥1 escalation,
+# so this branch was never exercised. Feed all-false events and assert the bullet renders
+# the count on ONE line (the existing line-122 oracle is line-based, so a split fails it).
+cat > "$EVENTS" <<'EOF'
+{"ts":"2026-06-09T12:00:00Z","task":"a","tier":"DO","models":["sonnet"],"units":1,"escalated":false,"outcome":"ok","committed":false}
+{"ts":"2026-06-09T12:05:00Z","task":"b","tier":"DO","models":["sonnet"],"units":1,"escalated":false,"outcome":"ok","committed":false}
+EOF
+COST_ROUTER_EVENTS="$EVENTS" BRAIN_DIR="$BRAIN_DIR" SB_KNOWLEDGE_DIR="$KNOWLEDGE_DIR" bash "$SCRIPT" >/dev/null 2>&1
+if grep -qE '^- \*\*Total escalated to Opus:\*\* 0 of 2 ' "$PATTERNS_PAGE"; then
+  pass "(g) zero-escalation bullet renders the count on ONE line (no 0\\n0 split)"
+else
+  fail "(g) zero-escalation bullet split — grep -c '||' echo 0 double-emit: $(grep -A1 'Total escalated' "$PATTERNS_PAGE" | tr '\n' '/')"
+fi
+# orphan-line guard: no line may be a bare 'N of M' count with no descriptive prefix.
+if grep -qE '^[0-9]+ of [0-9]+' "$PATTERNS_PAGE"; then
+  fail "(g) orphan count line present — a bullet was split by an embedded newline"
+else
+  pass "(g) no orphan count lines (every count stays attached to its bullet)"
+fi
+
 echo "-------------------"
 echo "FINAL2 PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]

@@ -94,7 +94,12 @@ mkdir -p "$KNOWLEDGE_DIR/wiki" 2>/dev/null || true
 
 # --- Determine unprocessed window (disjoint with pre-compact extractions) ---
 LAST_LINE=$(sb_get_extraction_marker "$MARKER_KEY")
-TOTAL_LINES=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d ' ')
+# Record count, NOT `wc -l`: the Stop hook can read the transcript before the final
+# JSONL line's trailing newline is flushed, and `wc -l` counts newlines — undercounting
+# by one. That dropped line (often the last/only tool_use) would be excluded from the
+# substantive gate + extractor + archive, AND the marker would advance past it so it's
+# never recovered. awk NR counts records regardless of a missing final newline.
+TOTAL_LINES=$(awk 'END{print NR}' "$TRANSCRIPT" 2>/dev/null)
 # Stale-marker clamp (deep-review): a marker past EOF (transcript shrank, or a
 # key collision via the session_id "unknown" fallback) would gate extraction
 # forever now that markers are never cleared — treat it as no marker.

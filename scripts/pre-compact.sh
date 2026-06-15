@@ -60,7 +60,10 @@ if [ ! -f "$PROJECT_MD" ]; then SB_GATE="project-md-missing slug=$SLUG"; exit 0;
 
 # --- Determine unprocessed window ---
 LAST_LINE=$(sb_get_extraction_marker "$MARKER_KEY")
-TOTAL_LINES=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d ' ')
+# Record count, NOT `wc -l`: a transcript whose final JSONL line lacks a trailing
+# newline (read mid-flush) would be undercounted by one, dropping that record from the
+# window + advancing the marker past it permanently. awk NR is newline-safe.
+TOTAL_LINES=$(awk 'END{print NR}' "$TRANSCRIPT" 2>/dev/null)
 # Stale-marker clamp (deep-review): a marker past EOF would gate forever now
 # that markers persist — treat it as no marker.
 if [ "$LAST_LINE" -gt "$TOTAL_LINES" ]; then
