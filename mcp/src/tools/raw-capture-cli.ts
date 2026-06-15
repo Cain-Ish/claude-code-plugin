@@ -3,6 +3,7 @@ import { join, basename } from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir } from './raw-inbox.js';
 import { resolveActiveSlug } from './project-dir.js';
+import { cleanEnvPath } from '../path-guard.js';
 
 function resolveSlug(brainDir: string): string | undefined {
   // SB_ACTIVE_SLUG (explicit override) first; else the shared resolver
@@ -18,7 +19,7 @@ function takeNode(args: string[]): { rest: string[]; node?: string } {
 }
 
 async function main(): Promise<void> {
-  const brainDir = process.env.BRAIN_DIR || join(homedir(), '.second-brain');
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join(homedir(), '.second-brain');
   const slug = resolveSlug(brainDir);
   if (!slug) { console.log('capture: could not resolve the active project (no slug). cd into a project.'); return; }
 

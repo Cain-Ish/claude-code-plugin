@@ -6067,6 +6067,11 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
+// src/path-guard.ts
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+
 // src/tools/doc-sources.ts
 function assertSafeSlug(slug) {
   if (!slug || /[\\/]|\.\./.test(slug)) {
@@ -6124,7 +6129,7 @@ import { basename, join as join2 } from "path";
 import { readFileSync, existsSync } from "fs";
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
-  const base = basename(dir);
+  const base = basename(cleanEnvPath(dir));
   if (!base || base === "/" || base === "." || base === "..") return void 0;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;
@@ -6149,7 +6154,7 @@ function resolveSlug(brainDir) {
   return resolveActiveSlug(brainDir);
 }
 async function main() {
-  const brainDir = process.env.BRAIN_DIR || join3(homedir(), ".second-brain");
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join3(homedir(), ".second-brain");
   const action = process.argv[2];
   const location = process.argv[3];
   const slug = resolveSlug(brainDir);

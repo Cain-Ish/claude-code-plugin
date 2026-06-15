@@ -62,6 +62,15 @@ fi
 
 cp "$project_file" "$BRAIN_DIR/.session-baseline-$slug.md"
 
+# CRLF normalize ONCE for the read-only parsing below. A Windows/imported CRLF PROJECT.md
+# defeats every `/^## Section$/` awk reader (header is `## Section\r`), which would zero all
+# scope-banner counters AND empty the PROJ_KW wiki-enrichment harvest. Only triggers when a CR
+# is actually present (the common LF case pays nothing). Safe: every use of $project_file from
+# here on is READ-only (the auto-scaffold write happened earlier, before this baseline copy).
+if LC_ALL=C grep -q "$(printf '\r')" "$project_file" 2>/dev/null; then
+  _proj_lf=$(mktemp) && tr -d '\r' < "$project_file" > "$_proj_lf" && project_file="$_proj_lf"
+fi
+
 # --- Collect components with byte tracking ---
 OUTPUT_FILE=$(mktemp)
 USED=0
@@ -534,7 +543,7 @@ if [ "${SB_RAW_INBOX:-on}" != "off" ]; then
       # AUTHORS the backlog (needs a Claude session). Kill switch SB_AUTOCONSOLIDATE_NUDGE=off.
       NUDGE_THRESH="${SB_NUDGE_RAW_THRESHOLD:-20}"; case "$NUDGE_THRESH" in ''|*[!0-9]*) NUDGE_THRESH=20 ;; esac
       if [ "${SB_AUTOCONSOLIDATE_NUDGE:-on}" != "off" ] \
-         && [ "$(sb_config_bool .auto_improve off)" = "off" ] \
+         && [ "$(sb_config_bool .auto_improve on)" = "off" ] \
          && [ "${RAW_N:-0}" -ge "$NUDGE_THRESH" ]; then
         sb_append "$(printf '## ⓘ second-brain — auto-consolidation is off\n%s raw item(s) are piling up with nothing consolidating them automatically. Pick one:\n  • auto-upkeep:  set `auto_improve: true` in ~/.second-brain/config.json (keeps the wiki validated + reindexed on the drainer timer)\n  • author them:  /second-brain:maintain (refines raw items into wiki notes — needs a Claude session)\nSuppress: `SB_AUTOCONSOLIDATE_NUDGE=off`.\n\n' "$RAW_N")" "autoconsolidate-nudge" 450
       else

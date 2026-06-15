@@ -22,11 +22,15 @@ import { capList, egressBudgetTokens } from "./tools/egress-budget.js";
 import { knowledgeRelate } from "./tools/knowledge-relate.js";
 import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
 import { resolveActiveSlug as resolveActiveSlugFromDir } from "./tools/project-dir.js";
+import { cleanEnvPath } from "./path-guard.js";
 
 function resolveKnowledgeDir(): string {
+  // cleanEnvPath: a CRLF-tainted KNOWLEDGE_DIR/BRAIN_DIR (Windows) makes fs.existsSync(wikiDir)
+  // false on a populated wiki — knowledge_stats then reports "not present" and every glob/fs
+  // tool reads a nonexistent CR-suffixed dir (silent total wiki-tool outage). Strip CR at read.
   const candidates = [
-    process.env.KNOWLEDGE_DIR,
-    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR,
+    cleanEnvPath(process.env.KNOWLEDGE_DIR),
+    cleanEnvPath(process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR),
   ];
   for (const raw of candidates) {
     if (raw && raw.trim() && !raw.includes("${")) {
@@ -37,7 +41,7 @@ function resolveKnowledgeDir(): string {
 }
 
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
-const BRAIN_DIR = process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR ?? path.join(os.homedir(), '.second-brain');
+const BRAIN_DIR = cleanEnvPath(process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR) || path.join(os.homedir(), '.second-brain');
 
 function resolveActiveSlug(): string | undefined {
   // Delegate to the shared resolver: the per-session project dir (CLAUDE_PROJECT_DIR,
@@ -47,7 +51,7 @@ function resolveActiveSlug(): string | undefined {
 }
 
 const server = new McpServer(
-  { name: "knowledge-base", version: "2.7.7" },
+  { name: "knowledge-base", version: "2.8.0" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of).",

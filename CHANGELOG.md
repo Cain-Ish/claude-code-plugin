@@ -4,6 +4,51 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.30.0
+
+Two themes: **automation on by default** + **cross-OS (Windows/macOS) hardening** from an
+adversarial audit. MCP 2.8.0.
+
+### Automation is ON by default
+It's an automation plugin — a fresh install should self-maintain without the operator
+remembering to opt in. `ensure-dirs.sh` now seeds `auto_improve: true`, `auto_maintain: true`,
+`auto_accept: "safe"` (and the bash readers default the same when a key is absent). Existing
+configs are never clobbered, and explicit `false`/`"off"` always wins. Notes:
+- `auto_maintain` (headless `claude -p` — reads OAuth + spends tokens) **only runs where
+  `bwrap` exists** (the airtight sandbox), so it's a no-op on macOS / Windows / bwrap-less
+  Linux. Set `auto_maintain: false` for a zero-spend box.
+- `auto_accept: "safe"` auto-accepts only LOW-RISK dream changes (no archives/deletes) and
+  backs up the wiki first. Use `"off"` to keep every apply a manual review, `"all"` for max.
+- `/second-brain:setup` now shows what's on and lets you dial it back, instead of opt-in.
+
+### Cross-OS hardening (Windows Git-Bash + macOS/BSD) — 13 fixes, all reproduced on Linux
+Root cause for the Windows breakage: a **CRLF-tainted env var** (`CLAUDE_PLUGIN_ROOT`, `HOME`,
+`KNOWLEDGE_DIR`, `BRAIN_DIR`, a `PATH` segment) carries a trailing `\r`, and a path `"x\r"`
+does not exist — so BOTH `bash <path>` AND `fs.stat/readFile` fail with a misleading "No such
+file or directory" on a file plainly present (the confirmed `dream_create` signature).
+- **New `cleanEnvPath` helper** (`path-guard.ts`) strips CR/LF; applied at every env-path read:
+  `toBashPath` + `scriptsDir`/`brainDir`/`resolveKnowledgeDir` (dream.ts), `server.ts`
+  (KNOWLEDGE_DIR/BRAIN_DIR — a CR taint silently zeroed `knowledge_stats` + all wiki tools),
+  `sb.ts` `hasClaudeOnPath` (per-PATH-segment, so an installed `claude` isn't missed),
+  `sb-entry.ts`, `doc-sources.ts` (`git -C <root>`), the raw/doc CLIs, and `project-dir.ts`
+  `slugFromProjectDir` (parity with bash so the slug never split-brains).
+- **Bash CRLF + slug:** `sb_slug_from_dir` strips `\r` (no ghost `proj\r` project);
+  `merge-project-update.sh` and `session-load.sh` CR-normalize PROJECT.md once before the awk
+  readers (a CRLF PROJECT.md otherwise silently no-ops the whole merge AND zeroes every
+  session-load scope counter + the wiki-enrichment harvest); the extractor's frontmatter strip
+  `tr -d '\r'` first (a CRLF archive's `---\r` defeated the terminator and deleted the whole
+  transcript).
+- **macOS/BSD coreutils:** `lib.sh` archive-prune `stat` is now GNU-first
+  (`stat -c %Y || stat -f %m`); `sb_validate_wiki` uses `mktemp` (honors `$TMPDIR`, no race);
+  `discover-installed.sh` replaces the GNU-only `find -quit` with a portable `head -n1`.
+- **Tests:** discriminating coverage added for `toBashPath`/`cleanEnvPath` CR-stripping
+  (vitest), `sb_slug_from_dir` CR, and a CRLF-PROJECT.md session-load harvest (each verified to
+  fail on the pre-fix code).
+- **Known follow-up:** `persona_think`'s `spawn('claude')` still needs a Windows-specific launch
+  (`.cmd`/`shell`) — deferred because the naive `shell:true` mangles its multi-line
+  `--system-prompt` arg; tracked for a dedicated fix. The Opus advisor is optional and
+  Linux-first, so the backbone is unaffected.
+
 ## 0.29.4
 
 **Output-correctness wave — 4 silently-wrong-output bugs found by an adversarial

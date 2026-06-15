@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import { join, relative, resolve, sep } from 'path';
 import { spawnSync } from 'child_process';
 import { glob } from 'glob';
+import { cleanEnvPath } from '../path-guard.js';
 
 export function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
@@ -50,6 +51,7 @@ export async function readConfig(brainDir: string, slug: string): Promise<DocSou
 
 /** Drop junk dirs always; then drop git-ignored paths via `git check-ignore` when in a repo. */
 export function filterIgnored(projectRoot: string, absPaths: string[]): string[] {
+  projectRoot = cleanEnvPath(projectRoot);   // CR-tainted root → `git -C <root>\r` fails → all files mis-classified
   const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split(/[\\/]+/).some((seg) => JUNK_DIRS.has(seg)));
   if (nonJunk.length === 0) return [];
   const rels = nonJunk.map((p) => relative(projectRoot, p));
@@ -63,6 +65,7 @@ export function filterIgnored(projectRoot: string, absPaths: string[]): string[]
 }
 
 export async function scanLocations(projectRoot: string, locations: string[]): Promise<DocEntry[]> {
+  projectRoot = cleanEnvPath(projectRoot);   // CR-tainted root → glob cwd ENOENT → empty scan
   const seen = new Set<string>();
   const absPaths: string[] = [];
   const rootResolved = resolve(projectRoot);

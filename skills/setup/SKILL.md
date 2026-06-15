@@ -179,27 +179,30 @@ ls -d ~/.claude/plugins/cache/*/superpowers/*/ >/dev/null 2>&1 \
   || echo "WARN: superpowers plugin not installed — the second-brain's workflow prose references superpowers:* skills (brainstorming, TDD, debugging, plans, verification). Install it from the official marketplace for the full discipline loop; the second-brain itself works without it."
 ```
 
-### 6c. Autonomy consent ladder (interactive opt-in — explicit choice only)
+### 6c. Autonomy consent ladder (review + dial-back — automation is ON by default)
 
-Autonomy is **off by default**. This step lets the operator turn it on with a
-single explicit choice instead of hand-editing JSON — but it ONLY ever writes the
-tiers they pick, and only here, under their direct `/setup` invocation. Never
-infer or default a tier ON.
+Since 0.29.5 automation is **ON by default** — it's an automation plugin, so a fresh
+install self-maintains without the operator having to remember to opt in. This step is
+the transparency surface: show what's on and let the operator **dial it back or off**
+with a single explicit choice instead of hand-editing JSON. It only writes the tiers
+they change.
 
-First show the three tiers verbatim:
+First show the three tiers verbatim, with their defaults:
 
 ```
-Autonomy is opt-in, three tiers (config.json — all default off):
-  auto_improve  : pin session learnings to the hot tier (cheap, reversible, no LLM call)
-  auto_maintain : run the headless LLM consolidation out-of-band — spawns a
-                  background `claude -p` that reads your OAuth creds with the
-                  network up. THE supply-chain line — enable consciously.
-  auto_accept   : apply a completed dream to the LIVE wiki unattended —
-                  "off" (manual review) | "safe" (no archives/deletes) | "all"
-                  Every auto-accept backs up the wiki first; FORGET is a
-                  reversible move, never a delete.
-Full hands-off needs BOTH auto_maintain AND auto_accept. See the wiki:
-autonomy-consent-ladder.
+Automation is ON by default (config.json), three tiers — change any here:
+  auto_improve  : true  — pin session learnings to the hot tier (cheap, reversible, no LLM call)
+  auto_maintain : true  — run the headless LLM consolidation out-of-band — spawns a
+                          background `claude -p` that reads your OAuth creds with the
+                          network up AND spends tokens. THE supply-chain line. It only
+                          runs where `bwrap` exists (airtight sandbox) — a no-op on
+                          macOS/Windows/bwrap-less Linux. Set false for a zero-spend box.
+  auto_accept   : "safe" — apply a completed dream to the LIVE wiki unattended —
+                          "off" (manual review) | "safe" (no archives/deletes) | "all".
+                          Every auto-accept backs up the wiki first; FORGET is a
+                          reversible move, never a delete.
+To go fully manual: auto_improve=false, auto_maintain=false, auto_accept="off".
+See the wiki: autonomy-consent-ladder.
 ```
 
 Then:
@@ -207,7 +210,7 @@ Then:
 1. **Show current values** (re-run safe — don't clobber an earlier choice):
    ```bash
    jq -r '"auto_improve=\(.auto_improve)  auto_maintain=\(.auto_maintain)  auto_accept=\(.auto_accept)"' \
-     ~/.second-brain/config.json 2>/dev/null || echo "config.json not seeded yet (all tiers default off)"
+     ~/.second-brain/config.json 2>/dev/null || echo "config.json not seeded yet (defaults: improve=on maintain=on accept=safe)"
    ```
    If a tier is already non-default, surface that and ask whether to change it
    rather than silently re-prompting.

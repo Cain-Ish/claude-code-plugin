@@ -213,14 +213,15 @@ sb_validate_wiki() {
   fi
   local validate_js="$plugin_root/mcp/dist/tools/knowledge-validate.bundle.js"
   if command -v node >/dev/null 2>&1 && [ -f "$validate_js" ]; then
-    local _val_err
+    local _val_err _verr
+    _verr=$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/.sb-validate-err.$$")   # unique + honors $TMPDIR; was a fixed /tmp name (race + ignored TMPDIR)
     _val_err=$(SB_BUNDLE="$validate_js" SB_KDIR="$knowledge_dir" \
       node --input-type=module -e "
         const m = await import(process.env.SB_BUNDLE);
         const r = await m.knowledgeValidate(process.env.SB_KDIR, { autofix: true });
         process.stdout.write(String(r.fixed || 0));
-      " 2>/tmp/.sb-validate-err) || true
-    _val_err_msg=$(cat /tmp/.sb-validate-err 2>/dev/null); rm -f /tmp/.sb-validate-err 2>/dev/null
+      " 2>"$_verr") || true
+    _val_err_msg=$(cat "$_verr" 2>/dev/null); rm -f "$_verr" 2>/dev/null
     if [ -n "$_val_err_msg" ]; then
       sb_log_error "sb_validate_wiki" "validate-failed: $(printf '%s' "$_val_err_msg" | tr '\n' ' ' | head -c 200)" 0
     fi
@@ -338,7 +339,11 @@ sb_realpath() {
 # into one shared "scratch" project (mirrors slugFromProjectDir in the MCP server,
 # so the bash and TS resolvers agree on the same slug for the same dir).
 sb_slug_from_dir() {
-  local base; base=$(basename "${1:-}")
+  # tr -d '\r': a CRLF-tainted CLAUDE_PROJECT_DIR (Windows) would yield a slug like "demo\r"
+  # → a ghost project dir + split-brain vs every pin/marker keyed on the clean slug. Strip
+  # CR before basename so the bash slug matches the (also-sanitized) MCP slugFromProjectDir.
+  local raw; raw=$(printf '%s' "${1:-}" | tr -d '\r')
+  local base; base=$(basename "$raw")
   case "$base" in
     tmp.*|tmp|.tmp.*|tmpfs|"") echo "scratch" ;;
     *) echo "$base" ;;
@@ -544,7 +549,7 @@ sb_archive_subagent_result() {
     | sort -rn | cut -d' ' -f2-)
   if [ -z "$sub_files" ]; then
     sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f 2>/dev/null \
-      | while IFS= read -r f; do printf '%s %s\n' "$(stat -f %m "$f" 2>/dev/null || echo 0)" "$f"; done \
+      | while IFS= read -r f; do printf '%s %s\n' "$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)" "$f"; done \
       | sort -rn | cut -d' ' -f2-)
   fi
   sub_count=$(printf '%s\n' "$sub_files" | grep -c . 2>/dev/null || true)
@@ -1269,7 +1274,9 @@ TMPL
     # Body only (meta header dropped), tail-capped: keep the NEWEST exchanges.
     # An uncapped multi-MB archive can never finish before the timeout on a Pi
     # and burns full retry cycles toward quarantine (R1.2, HOOK-4).
-    sed '1,/^---$/d' "$txt" | tail -c "${SB_EXTRACT_MAX_BYTES:-200000}"
+    # tr -d '\r' FIRST: a CRLF archive's header is `---\r`, which `/^---$/` never matches —
+    # then `1,/re/d` (no terminator hit) deletes the WHOLE transcript, starving the extractor.
+    tr -d '\r' < "$txt" | sed '1,/^---$/d' | tail -c "${SB_EXTRACT_MAX_BYTES:-200000}"
   } > "$in_f"
 
   local delta=""

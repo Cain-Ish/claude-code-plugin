@@ -16,16 +16,21 @@ for _c in ${SB_CONTENT_CATEGORIES:-learnings decisions entities issues concepts 
   mkdir -p "$KNOWLEDGE_DIR/wiki/$_c"
 done
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
-# Seed a self-documenting config.json (SP-B opt-in + SP-D retention). auto_improve:false
-# means behaviour is unchanged until the user opts in; the retention values equal the caps
-# already shipped, so they are informational (absent keys fall back to the same defaults via
-# sb_config_get). wiki_archive_ttl_days:0 = NEVER (the irreversible store stays off). Idempotent
-# — never clobbers an existing config; existing installs keep working via the hardcoded defaults.
+# Seed a self-documenting config.json. 0.29.5: automation is ON by default — this is an
+# automation plugin, so a fresh install self-maintains without the user remembering to opt in.
+#   auto_improve : true  — free + offline: validate + reindex the wiki on the drainer timer.
+#   auto_maintain: true  — runs the headless `claude -p` maintainer on its cadence. NOTE: this
+#                          reads your Claude OAuth + spends tokens. Disable with auto_maintain:false
+#                          (or env SB_MAINTAINER_AUTO=off) if you want a fully-offline/zero-spend box.
+#   auto_accept  : "safe" — auto-accept only LOW-RISK dream changes; "off" = always manual review,
+#                          "all" = accept everything (not the default — too aggressive).
+# Idempotent: never clobbers an existing config, so machines that already chose values keep them.
+# wiki_archive_ttl_days:0 = NEVER (the irreversible store stays off).
 test -f "$BRAIN_DIR/config.json" || cat > "$BRAIN_DIR/config.json" <<'JSON'
 {
-  "auto_improve": false,
-  "auto_maintain": false,
-  "auto_accept": "off",
+  "auto_improve": true,
+  "auto_maintain": true,
+  "auto_accept": "safe",
   "retention": {
     "dream_keep_count": 5,
     "bak_ttl_days": 14,

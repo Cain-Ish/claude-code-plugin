@@ -197,7 +197,7 @@ fi
 # here, inside the drainer's single-flight lock + defer guards, so no second timer is
 # needed. Content-free only (validate/backfill/reindex); the script self-throttles. LLM
 # authoring (raw-drain, dedup, enrich) stays on the explicit /second-brain:maintain path.
-if [ "$(sb_config_bool .auto_improve off)" = "on" ]; then
+if [ "$(sb_config_bool .auto_improve on)" = "on" ]; then
   bash "$(dirname "$0")/maintain-deterministic.sh" >/dev/null 2>&1 || true
 fi
 
@@ -205,7 +205,7 @@ fi
 # headless `claude -p` consolidation (costs tokens, needs the OAuth grant) kernel-contained to a
 # dream's staging by bubblewrap, leaving it for `dream_accept` review. Self-gated on auto_maintain
 # + bwrap; weekly-throttled; never auto-accepts. Off by default.
-if [ "$(sb_config_bool .auto_maintain off)" = "on" ]; then
+if [ "$(sb_config_bool .auto_maintain on)" = "on" ]; then
   bash "$(dirname "$0")/maintain-llm-drain.sh" >/dev/null 2>&1 || true
 fi
 exit 0

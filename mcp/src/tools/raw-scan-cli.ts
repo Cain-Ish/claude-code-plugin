@@ -3,6 +3,7 @@ import { join, basename, relative } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { runScan } from './raw-scan.js';
 import { resolveActiveSlug } from './project-dir.js';
+import { cleanEnvPath } from '../path-guard.js';
 
 function resolveSlug(brainDir: string): string | undefined {
   // SB_ACTIVE_SLUG (explicit override) first; else the shared resolver
@@ -11,7 +12,7 @@ function resolveSlug(brainDir: string): string | undefined {
 }
 
 async function main(): Promise<void> {
-  const brainDir = process.env.BRAIN_DIR || join(homedir(), '.second-brain');
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join(homedir(), '.second-brain');
   const projectRoot = process.env.SCAN_ROOT || process.cwd();
   const slug = resolveSlug(brainDir);
   if (!slug) { console.log('scan: could not resolve the active project. cd into a project.'); return; }

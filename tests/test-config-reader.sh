@@ -36,15 +36,18 @@ printf 'not json{{\n' > "$CF"
 [ "$(sb_config_get .auto_improve off)" = "off" ] && pass "malformed → get default" || fail "malformed get"
 [ "$(sb_config_bool .auto_improve off)" = "off" ] && pass "malformed → bool default" || fail "malformed bool"
 
-# 7. ensure-dirs seeds an opt-in-OFF config.json (friendly, but auto still off)
+# 7. ensure-dirs seeds an automation-ON config.json (0.29.5: it's an automation plugin —
+#    on by default so a fresh install self-maintains without the user remembering to opt in).
 B2=$(mktemp -d); BRAIN_DIR="$B2" bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
 [ -f "$B2/config.json" ] && pass "ensure-dirs seeds config.json" || fail "ensure-dirs did not seed config.json"
-[ "$(jq -r '.auto_improve' "$B2/config.json" 2>/dev/null)" = "false" ] && pass "seeded auto_improve=false (opt-in preserved)" || fail "seeded value not false"
+[ "$(jq -r '.auto_improve' "$B2/config.json" 2>/dev/null)" = "true" ]  && pass "seeded auto_improve=true (on by default)"  || fail "seeded auto_improve not true"
+[ "$(jq -r '.auto_maintain' "$B2/config.json" 2>/dev/null)" = "true" ] && pass "seeded auto_maintain=true (on by default)" || fail "seeded auto_maintain not true"
+[ "$(jq -r '.auto_accept' "$B2/config.json" 2>/dev/null)" = "safe" ]   && pass "seeded auto_accept=safe (prudent on)"       || fail "seeded auto_accept not safe"
 # SP-D: the seed self-documents the retention block; wiki_archive_ttl_days=0 (the irreversible store stays off)
 [ "$(jq -r '.retention.wiki_archive_ttl_days' "$B2/config.json" 2>/dev/null)" = "0" ] && pass "seeded retention.wiki_archive_ttl_days=0 (irreversible store off)" || fail "retention block not seeded / wiki-archive not off"
 [ "$(jq -r '.retention.embeddings_cache_gc' "$B2/config.json" 2>/dev/null)" = "true" ] && pass "seeded retention.embeddings_cache_gc=true (the leak GC on)" || fail "embeddings_cache_gc not seeded true"
-# idempotent: a user's true is not clobbered on re-run
-printf '{"auto_improve": true}\n' > "$B2/config.json"; BRAIN_DIR="$B2" bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
-[ "$(jq -r '.auto_improve' "$B2/config.json" 2>/dev/null)" = "true" ] && pass "ensure-dirs does not clobber an existing config" || fail "clobbered user config"
+# idempotent: a user's EXPLICIT off is not clobbered to the new on-default on re-run
+printf '{"auto_improve": false}\n' > "$B2/config.json"; BRAIN_DIR="$B2" bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+[ "$(jq -r '.auto_improve' "$B2/config.json" 2>/dev/null)" = "false" ] && pass "ensure-dirs does not clobber an existing config (explicit off preserved)" || fail "clobbered user config (forced the on-default over an explicit off)"
 
 rm -rf "$BRAIN_DIR" "$B2"; echo; echo "ALL PASS"

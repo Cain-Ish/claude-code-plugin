@@ -6,6 +6,72 @@ import { promises as fs9, constants as fsConstants } from "fs";
 import { join as join7, delimiter as pathDelimiter } from "path";
 import { execFile } from "child_process";
 
+// src/path-guard.ts
+import { resolve, sep, isAbsolute } from "path";
+import { realpathSync } from "fs";
+var PathGuardError = class extends Error {
+  constructor(message, baseDir, candidate) {
+    super(message);
+    this.baseDir = baseDir;
+    this.candidate = candidate;
+    this.name = "PathGuardError";
+  }
+  baseDir;
+  candidate;
+};
+function realResolve(p) {
+  let current = "";
+  const segments = p.split(sep);
+  for (let i = 0; i < segments.length; i++) {
+    const next = current === "" && segments[i] === "" ? sep : current === sep ? sep + segments[i] : current === "" ? segments[i] : current + sep + segments[i];
+    try {
+      current = realpathSync(next);
+    } catch {
+      const rest = segments.slice(i + 1).join(sep);
+      return rest ? current + sep + segments[i] + sep + rest : current + sep + segments[i];
+    }
+  }
+  return current;
+}
+function assertWithin(baseDir, ...parts) {
+  for (const part of parts) {
+    if (part.indexOf("\0") !== -1) {
+      throw new PathGuardError(`path component contains NUL byte`, baseDir, parts.join("/"));
+    }
+    if (isAbsolute(part)) {
+      throw new PathGuardError(`absolute path component not allowed: ${JSON.stringify(part)}`, baseDir, parts.join("/"));
+    }
+  }
+  const baseResolved = realResolve(resolve(baseDir));
+  const candidate = resolve(baseDir, ...parts);
+  const candidateResolved = realResolve(candidate);
+  if (candidateResolved !== baseResolved && !candidateResolved.startsWith(baseResolved + sep)) {
+    throw new PathGuardError(
+      `path escapes base directory: ${candidateResolved} not within ${baseResolved}`,
+      baseDir,
+      parts.join("/")
+    );
+  }
+  return candidateResolved;
+}
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+function validateSlug(slug) {
+  if (typeof slug !== "string") {
+    throw new PathGuardError("slug must be a string", "", String(slug));
+  }
+  if (slug.length === 0 || slug.length > 128) {
+    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
+  }
+  if (slug.startsWith(".")) {
+    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
+    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
+  }
+}
+
 // src/tools/knowledge-search.ts
 import { promises as fs5 } from "fs";
 
@@ -145,7 +211,7 @@ function estimateTokens(text) {
 
 // src/tools/doc-sources.ts
 import { promises as fs3 } from "fs";
-import { join as join2, relative, resolve, sep as sep2 } from "path";
+import { join as join2, relative, resolve as resolve2, sep as sep3 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -1203,8 +1269,8 @@ var path = {
   win32: { sep: "\\" },
   posix: { sep: "/" }
 };
-var sep = defaultPlatform === "win32" ? path.win32.sep : path.posix.sep;
-minimatch.sep = sep;
+var sep2 = defaultPlatform === "win32" ? path.win32.sep : path.posix.sep;
+minimatch.sep = sep2;
 var GLOBSTAR = /* @__PURE__ */ Symbol("globstar **");
 minimatch.GLOBSTAR = GLOBSTAR;
 var qmark2 = "[^/]";
@@ -3421,13 +3487,13 @@ var Minipass = class extends EventEmitter {
 };
 
 // node_modules/path-scurry/dist/esm/index.js
-var realpathSync = rps.native;
+var realpathSync2 = rps.native;
 var defaultFS = {
   lstatSync,
   readdir: readdirCB,
   readdirSync,
   readlinkSync,
-  realpathSync,
+  realpathSync: realpathSync2,
   promises: {
     lstat,
     readdir,
@@ -6791,71 +6857,6 @@ async function collectMarkdown(dir, acc = []) {
 // src/tools/episodic-search.ts
 import { promises as fs6 } from "fs";
 import { join as join4, basename, relative as relative2, isAbsolute as isAbsolute2 } from "path";
-
-// src/path-guard.ts
-import { resolve as resolve2, sep as sep3, isAbsolute } from "path";
-import { realpathSync as realpathSync2 } from "fs";
-var PathGuardError = class extends Error {
-  constructor(message, baseDir, candidate) {
-    super(message);
-    this.baseDir = baseDir;
-    this.candidate = candidate;
-    this.name = "PathGuardError";
-  }
-  baseDir;
-  candidate;
-};
-function realResolve(p) {
-  let current = "";
-  const segments = p.split(sep3);
-  for (let i = 0; i < segments.length; i++) {
-    const next = current === "" && segments[i] === "" ? sep3 : current === sep3 ? sep3 + segments[i] : current === "" ? segments[i] : current + sep3 + segments[i];
-    try {
-      current = realpathSync2(next);
-    } catch {
-      const rest = segments.slice(i + 1).join(sep3);
-      return rest ? current + sep3 + segments[i] + sep3 + rest : current + sep3 + segments[i];
-    }
-  }
-  return current;
-}
-function assertWithin(baseDir, ...parts) {
-  for (const part of parts) {
-    if (part.indexOf("\0") !== -1) {
-      throw new PathGuardError(`path component contains NUL byte`, baseDir, parts.join("/"));
-    }
-    if (isAbsolute(part)) {
-      throw new PathGuardError(`absolute path component not allowed: ${JSON.stringify(part)}`, baseDir, parts.join("/"));
-    }
-  }
-  const baseResolved = realResolve(resolve2(baseDir));
-  const candidate = resolve2(baseDir, ...parts);
-  const candidateResolved = realResolve(candidate);
-  if (candidateResolved !== baseResolved && !candidateResolved.startsWith(baseResolved + sep3)) {
-    throw new PathGuardError(
-      `path escapes base directory: ${candidateResolved} not within ${baseResolved}`,
-      baseDir,
-      parts.join("/")
-    );
-  }
-  return candidateResolved;
-}
-function validateSlug(slug) {
-  if (typeof slug !== "string") {
-    throw new PathGuardError("slug must be a string", "", String(slug));
-  }
-  if (slug.length === 0 || slug.length > 128) {
-    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
-  }
-  if (slug.startsWith(".")) {
-    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
-  }
-  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
-    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
-  }
-}
-
-// src/tools/episodic-search.ts
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -7126,7 +7127,8 @@ Environment:
 `;
 async function hasClaudeOnPath() {
   const path2 = process.env.PATH ?? "";
-  for (const dir of path2.split(pathDelimiter)) {
+  for (const rawDir of path2.split(pathDelimiter)) {
+    const dir = cleanEnvPath(rawDir);
     if (!dir) continue;
     try {
       await fs9.access(join7(dir, "claude"), fsConstants.X_OK);
@@ -7365,8 +7367,9 @@ async function runSb(args, deps) {
 }
 
 // src/cli/sb-entry.ts
-var brainDir = process.env.BRAIN_DIR || join8(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
-var knowledgeDir = process.env.KNOWLEDGE_DIR || process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || join8(process.env.HOME ?? process.env.USERPROFILE ?? "", "knowledge");
+var home = cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE);
+var brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join8(home, ".second-brain");
+var knowledgeDir = cleanEnvPath(process.env.KNOWLEDGE_DIR) || cleanEnvPath(process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR) || join8(home, "knowledge");
 var result = await runSb(process.argv.slice(2), { brainDir, knowledgeDir });
 if (result.stdout) process.stdout.write(result.stdout + "\n");
 if (result.stderr) process.stderr.write(result.stderr + "\n");

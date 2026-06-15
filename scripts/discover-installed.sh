@@ -17,10 +17,11 @@ mkdir -p "$BRAIN_DIR"
 # We compare against ANY file in the tree, not just $PLUGINS_ROOT itself —
 # directory mtime only bumps when entries at the immediate level change, so
 # a plugin update inside a subdirectory leaves a root-only check stale
-# indefinitely. `find -newer ... -quit` short-circuits on first hit, so the
-# overhead is negligible when nothing has changed.
+# indefinitely. `head -n1` closes the pipe on the first hit, short-circuiting find
+# portably — `-quit` is a GNU-only primary that BSD/macOS find rejects (its swallowed
+# error empties the capture and the script then re-discovers on every single run).
 if [ -f "$OUT_FILE" ] && [ -d "$PLUGINS_ROOT" ]; then
-  NEWER=$(find "$PLUGINS_ROOT" -newer "$OUT_FILE" -print -quit 2>/dev/null)
+  NEWER=$(find "$PLUGINS_ROOT" -newer "$OUT_FILE" -print 2>/dev/null | head -n1)
   if [ -z "$NEWER" ]; then
     cat "$OUT_FILE"
     exit 0

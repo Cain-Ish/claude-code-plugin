@@ -1,5 +1,6 @@
 import { basename, join } from 'path';
 import { readFileSync, existsSync } from 'fs';
+import { cleanEnvPath } from '../path-guard.js';
 
 /** Resolve the active project slug from a project directory path.
  *  Rejects degenerate basenames ('/', '.', '', undefined) → undefined.
@@ -7,7 +8,9 @@ import { readFileSync, existsSync } from 'fs';
  *  scripts/lib.sh sb_slug_from_dir (so the TS and bash resolvers agree). */
 export function slugFromProjectDir(dir: string | undefined): string | undefined {
   if (!dir) return undefined;
-  const base = basename(dir);
+  // CR-strip for parity with sb_slug_from_dir: a CRLF-tainted CLAUDE_PROJECT_DIR must yield
+  // the SAME slug on both sides, else the TS resolver and bash hooks split-brain the project.
+  const base = basename(cleanEnvPath(dir));
   if (!base || base === '/' || base === '.' || base === '..') return undefined;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return 'scratch';
   return base;
@@ -17,7 +20,7 @@ export function slugFromProjectDir(dir: string | undefined): string | undefined 
  *  stable CLAUDE_PROJECT_DIR env var (set by CC v2.1.x in the server's env to
  *  the project root) and falling back to cwd on older CLIs that don't set it. */
 export function activeProjectDir(env: NodeJS.ProcessEnv = process.env, cwd: () => string = process.cwd): string {
-  return env.CLAUDE_PROJECT_DIR || cwd();
+  return cleanEnvPath(env.CLAUDE_PROJECT_DIR) || cwd();
 }
 
 /** Resolve the active project slug.

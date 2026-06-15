@@ -32,11 +32,13 @@ fi
 
 # --- the extract-drain `auto_improve` gate ---
 mktx(){ mkdir -p "$1/transcripts"; : > "$1/transcripts/$2"; }
-# auto OFF (no config) → maintain NOT run
+# auto OFF (EXPLICIT — 0.30.0 made absent default to ON) → maintain NOT run
 G=$(mktemp -d); mktx "$G" "a_proj_2026-05-24.txt"; mkdir -p "$G/knowledge/wiki"
+printf '{"auto_improve": false}\n' > "$G/config.json"
 ( export BRAIN_DIR="$G" KNOWLEDGE_DIR="$G/knowledge" SB_INTERACTIVE_OVERRIDE=inactive SB_EXTRACT_STUB=1
   bash "$DRAIN" >/dev/null 2>&1 ) || true
 [ -f "$G/.last-maintain" ] && fail "deterministic maintain ran with auto_improve OFF" || pass "auto_improve off → no out-of-band maintain"
+rm -f "$G/config.json"
 # auto ON → maintain runs (marker appears)
 printf '{"auto_improve": true}\n' > "$G/config.json"; mktx "$G" "b_proj_2026-05-24.txt"
 ( export BRAIN_DIR="$G" KNOWLEDGE_DIR="$G/knowledge" SB_INTERACTIVE_OVERRIDE=inactive SB_EXTRACT_STUB=1 SB_MAINTAIN_FORCE=1
