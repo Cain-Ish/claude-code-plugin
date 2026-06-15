@@ -111,7 +111,7 @@ filter_array() {
   local idx=0
   while [ "$idx" -lt "$len" ]; do
     local entry
-    entry=$(printf '%s' "$arr_json" | jq -r ".[$idx]")
+    entry=$(printf '%s' "$arr_json" | jq -r ".[$idx]" | tr -d '\r')
     idx=$((idx + 1))
     if is_noise "$entry" "$key"; then
       jq -nc --arg k "$key" --arg e "$entry" --arg r "rules:noise" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

@@ -13,8 +13,8 @@ source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
 # Parse hook input from stdin. Sets: SB_INPUT, SB_SESSION_ID, SB_TRANSCRIPT_PATH, SB_TIMESTAMP
 sb_parse_input() {
   SB_INPUT=$(cat)
-  SB_SESSION_ID=$(echo "$SB_INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null)
-  SB_TRANSCRIPT_PATH=$(echo "$SB_INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
+  SB_SESSION_ID=$(echo "$SB_INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
+  SB_TRANSCRIPT_PATH=$(echo "$SB_INPUT" | jq -r '.transcript_path // ""' 2>/dev/null | tr -d '\r')
   SB_TIMESTAMP=$(date +"%Y-%m-%d")
 }
 
@@ -877,7 +877,7 @@ sb_extractor_local_call() {
   resp=$( ${TBIN:+"$TBIN" "$timeout_s"} curl -sS "${url%/}/v1/chat/completions" \
     -H 'content-type: application/json' --data-binary @<(printf '%s' "$payload") 2>/dev/null ) || return 1
   local text
-  text=$(printf '%s' "$resp" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+  text=$(printf '%s' "$resp" | jq -r '.choices[0].message.content // empty' 2>/dev/null | tr -d '\r')
   [ -n "$text" ] || return 1
   # Validate in a staging temp and only mv into $out_file on a valid JSON OBJECT —
   # never leave non-object garbage in $out_file (a failed local in `auto` mode falls
@@ -1121,7 +1121,7 @@ sb_call_extractor() {
         --data-binary @<(printf '%s' "$payload") </dev/null 2>"$err_file" || true)
 
       local text
-      text=$(printf '%s' "$resp" | jq -r '.content[0].text // empty' 2>/dev/null)
+      text=$(printf '%s' "$resp" | jq -r '.content[0].text // empty' 2>/dev/null | tr -d '\r')
 
       if [ -n "$text" ]; then
         printf '%s' "$text" | sb_strip_code_fences > "$out_file"
@@ -1134,7 +1134,7 @@ sb_call_extractor() {
           "non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
       else
         local api_err
-        api_err=$(printf '%s' "$resp" | jq -r '.error.message // empty' 2>/dev/null)
+        api_err=$(printf '%s' "$resp" | jq -r '.error.message // empty' 2>/dev/null | tr -d '\r')
         sb_write_extractor_health "anthropic-api" "fail" \
           "api: ${api_err:-no response}"
       fi
@@ -1317,10 +1317,14 @@ TMPL
 # is the persistent default when the env is unset; a hard-coded default is the final
 # fallback when the file/key is absent — so today's behaviour is byte-for-byte
 # preserved when no config.json exists. Pattern: "${SB_FOO:-$(sb_config_get .foo HARD)}".
+# tr -d '\r' on EVERY jq read: the Windows (Git-Bash) jq build emits CRLF in -r output, so
+# without this an `auto_improve: true` reads back as "true\r" — sb_config_bool's case then
+# falls through to the default and the WHOLE config system (every automation knob) silently
+# mis-reads on Windows. One strip here fixes every config consumer.
 sb_config_get() {  # $1=jq-path  $2=default  → string value or default
   local cf="${BRAIN_DIR:-$HOME/.second-brain}/config.json"
   [ -f "$cf" ] || { printf '%s' "$2"; return 0; }
-  local v; v=$(jq -r "$1 // empty" "$cf" 2>/dev/null)
+  local v; v=$(jq -r "$1 // empty" "$cf" 2>/dev/null | tr -d '\r')
   [ -n "$v" ] && printf '%s' "$v" || printf '%s' "$2"
 }
 sb_config_bool() {  # $1=jq-path  $2=default(on|off)
@@ -1329,7 +1333,7 @@ sb_config_bool() {  # $1=jq-path  $2=default(on|off)
   #   true → on   ·   false → off   ·   null/absent/malformed → the default.
   local cf="${BRAIN_DIR:-$HOME/.second-brain}/config.json"
   [ -f "$cf" ] || { printf '%s' "$2"; return 0; }
-  local v; v=$(jq -r "$1" "$cf" 2>/dev/null)
+  local v; v=$(jq -r "$1" "$cf" 2>/dev/null | tr -d '\r')
   case "$v" in
     true)  printf 'on' ;;
     false) printf 'off' ;;

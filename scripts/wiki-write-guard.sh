@@ -14,13 +14,13 @@ set -u
 RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null)
+TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 case "$TOOL" in
   Write|Edit|MultiEdit) ;;
   *) exit 0 ;;
 esac
 
-FILE_PATH=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+FILE_PATH=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null | tr -d '\r')
 [ -z "$FILE_PATH" ] && exit 0
 
 # Match any wiki page under a knowledge/wiki/<category>/ tree. We don't anchor on
@@ -89,7 +89,7 @@ fi
 
 case "$TOOL" in
   Write)
-    CONTENT=$(printf '%s' "$RAW" | jq -r '.tool_input.content // empty' 2>/dev/null)
+    CONTENT=$(printf '%s' "$RAW" | jq -r '.tool_input.content // empty' 2>/dev/null | tr -d '\r')
     [ -z "$CONTENT" ] && exit 0
     if ! starts_with_frontmatter "$CONTENT"; then
       deny "$DENY_MSG"
@@ -106,7 +106,7 @@ case "$TOOL" in
         '---'*) exit 0 ;;
       esac
     fi
-    NEW_STR=$(printf '%s' "$RAW" | jq -r '.tool_input.new_string // empty' 2>/dev/null)
+    NEW_STR=$(printf '%s' "$RAW" | jq -r '.tool_input.new_string // empty' 2>/dev/null | tr -d '\r')
     if ! starts_with_frontmatter "$NEW_STR"; then
       deny "File $FILE_PATH is missing YAML frontmatter and your edit doesn't add one. $DENY_MSG"
     fi

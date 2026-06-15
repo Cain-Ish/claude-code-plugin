@@ -126,7 +126,7 @@ DELTA_JSON=""
 if sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
   DELTA_JSON=$(cat "$EXTRACT_OUT")
 else
-  HEALTH_REASON=$(sb_get_extractor_health | jq -r '.reason // "unknown"' 2>/dev/null)
+  HEALTH_REASON=$(sb_get_extractor_health | jq -r '.reason // "unknown"' 2>/dev/null | tr -d '\r')
   sb_log_error "pre-compact.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=$HEALTH_REASON" 0
 fi
 
@@ -156,7 +156,7 @@ if [ -z "$DELTA_JSON" ]; then
       | .[0:5]
     ' 2>/dev/null || echo '[]')
     FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
-    FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null)
+    FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null | tr -d '\r')
     if [ -n "$FILES_LIST" ]; then
       NOTE="[degraded] LLM extraction unavailable; session touched: $FILES_LIST"
     else

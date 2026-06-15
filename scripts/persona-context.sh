@@ -20,10 +20,10 @@ set -u
 RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
-PROMPT=$(printf '%s' "$RAW" | jq -r '.prompt // empty' 2>/dev/null || true)
+PROMPT=$(printf '%s' "$RAW" | jq -r '.prompt // empty' 2>/dev/null | tr -d '\r' || true)
 [ -z "$PROMPT" ] && exit 0
 
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null || true)
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r' || true)
 
 # /? prefix → route to persona-think (Layer 2 Opus brief), bypass Layer 1 silent injection.
 case "$PROMPT" in
@@ -288,7 +288,7 @@ fi
 # coding-intent only, kill switch SB_PRINCIPLES_INJECT=off.
 PRINCIPLES_ABS=""; PRINCIPLES_DONE=""
 _PMEMO="$BRAIN_DIR/.injected/${SESSION_ID}.json"
-PRINCIPLES_DONE=$(jq -r '.principles // ""' "$_PMEMO" 2>/dev/null)
+PRINCIPLES_DONE=$(jq -r '.principles // ""' "$_PMEMO" 2>/dev/null | tr -d '\r')
 if [ "${SB_PRINCIPLES_INJECT:-on}" != "off" ] && [ "$PRINCIPLES_DONE" != "1" ] && [ -n "$SESSION_ID" ]; then
   _PLOWER=$(printf '%s' "$P_TRIM" | tr '[:upper:]' '[:lower:]')
   _CODING_RE='implement|refactor|debug|build|coding|\bcode\b|\bfix\b|\bbug\b|\bfunction\b|\bclass\b|\bmethod\b|\bapi\b|endpoint|\bscript\b|\bmodule\b|\bcomponent\b|\bfeature\b|optimi|migrat|\btest\b|add a|add the|add support|write a|write the|create a|create the'
@@ -334,8 +334,8 @@ sb_hash() {
 if [ -n "$MEMO_FILE" ] && [ -f "$MEMO_FILE" ]; then
   H_WIKI_NOW=$(sb_hash "$WIKI_HITS")
   H_EPISODIC_NOW=$(sb_hash "$EPISODIC_HINT")
-  H_WIKI_PREV=$(jq -r '.wiki // ""' "$MEMO_FILE" 2>/dev/null)
-  H_EPISODIC_PREV=$(jq -r '.episodic // ""' "$MEMO_FILE" 2>/dev/null)
+  H_WIKI_PREV=$(jq -r '.wiki // ""' "$MEMO_FILE" 2>/dev/null | tr -d '\r')
+  H_EPISODIC_PREV=$(jq -r '.episodic // ""' "$MEMO_FILE" 2>/dev/null | tr -d '\r')
   [ -n "$WIKI_HITS" ]   && [ "$H_WIKI_NOW"    = "$H_WIKI_PREV" ]    && SHOW_WIKI=0
   [ -n "$EPISODIC_HINT" ] && [ "$H_EPISODIC_NOW" = "$H_EPISODIC_PREV" ] && SHOW_EPISODIC=0
 fi

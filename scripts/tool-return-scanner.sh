@@ -23,8 +23,8 @@ RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
 # Resolve session + plugin paths.
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null)
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null)
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
+TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 [ -z "$TOOL" ] && exit 0
 
 # Only scan tools that ingest external/runtime content into context.

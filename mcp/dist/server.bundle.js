@@ -27212,38 +27212,6 @@ async function appendEdge(path3, rec) {
 // src/tools/pin-to-user.ts
 import { promises as fs2 } from "fs";
 import { join } from "path";
-var MAX_LINES = 15;
-async function pinToUser(args) {
-  const dir = args.brainDir ?? join(process.env.HOME ?? "", ".second-brain");
-  const file = join(dir, "USER.md");
-  const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const trimmed = args.text.trim();
-  const newLine = `- [${date3}] ${trimmed}`;
-  let content = "";
-  try {
-    content = await fs2.readFile(file, "utf-8");
-  } catch {
-    content = "# USER preferences\n\n## Pinned\n";
-  }
-  const existing = content.split("\n").find((l) => {
-    const m = l.match(/^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/);
-    return m !== null && m[1].trim() === trimmed;
-  });
-  if (existing !== void 0) {
-    return { ok: true, line_added: existing, reason: "already present" };
-  }
-  const projected = content + (content.endsWith("\n") ? "" : "\n") + newLine + "\n";
-  if (projected.split("\n").filter(Boolean).length > MAX_LINES) {
-    return { ok: false, line_added: "", reason: `would exceed ${MAX_LINES}-line cap` };
-  }
-  await fs2.mkdir(dir, { recursive: true });
-  await fs2.writeFile(file, projected, "utf-8");
-  return { ok: true, line_added: newLine };
-}
-
-// src/tools/pin-to-project.ts
-import { promises as fs3 } from "fs";
-import { join as join2 } from "path";
 
 // src/path-guard.ts
 import { resolve, sep as sep2, isAbsolute } from "path";
@@ -27311,7 +27279,39 @@ function validateSlug(slug) {
   }
 }
 
+// src/tools/pin-to-user.ts
+var MAX_LINES = 15;
+async function pinToUser(args) {
+  const dir = args.brainDir ?? join(cleanEnvPath(process.env.HOME), ".second-brain");
+  const file = join(dir, "USER.md");
+  const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const trimmed = args.text.trim();
+  const newLine = `- [${date3}] ${trimmed}`;
+  let content = "";
+  try {
+    content = await fs2.readFile(file, "utf-8");
+  } catch {
+    content = "# USER preferences\n\n## Pinned\n";
+  }
+  const existing = content.split("\n").find((l) => {
+    const m = l.match(/^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/);
+    return m !== null && m[1].trim() === trimmed;
+  });
+  if (existing !== void 0) {
+    return { ok: true, line_added: existing, reason: "already present" };
+  }
+  const projected = content + (content.endsWith("\n") ? "" : "\n") + newLine + "\n";
+  if (projected.split("\n").filter(Boolean).length > MAX_LINES) {
+    return { ok: false, line_added: "", reason: `would exceed ${MAX_LINES}-line cap` };
+  }
+  await fs2.mkdir(dir, { recursive: true });
+  await fs2.writeFile(file, projected, "utf-8");
+  return { ok: true, line_added: newLine };
+}
+
 // src/tools/pin-to-project.ts
+import { promises as fs3 } from "fs";
+import { join as join2 } from "path";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
 async function pinToProject(args) {
@@ -27326,7 +27326,7 @@ async function pinToProject(args) {
     }
     throw e;
   }
-  const dir = args.brainDir ?? join2(process.env.HOME ?? "", ".second-brain");
+  const dir = args.brainDir ?? join2(cleanEnvPath(process.env.HOME), ".second-brain");
   let file;
   try {
     file = assertWithin(dir, "projects", args.slug, "PROJECT.md");
@@ -27373,8 +27373,8 @@ var SOURCE_SECTION_HEADER = {
   decisions: "## Recent decisions"
 };
 async function archiveToWiki(args) {
-  const brainDir2 = args.brainDir ?? join3(process.env.HOME ?? "", ".second-brain");
-  const knowledgeDir = args.knowledgeDir ?? join3(process.env.HOME ?? "", "knowledge");
+  const brainDir2 = args.brainDir ?? join3(cleanEnvPath(process.env.HOME), ".second-brain");
+  const knowledgeDir = args.knowledgeDir ?? join3(cleanEnvPath(process.env.HOME), "knowledge");
   try {
     validateSlug(args.slug);
   } catch (e) {
@@ -31892,7 +31892,7 @@ async function recordSpend(brainDir2, usd) {
 import { promises as fs16 } from "fs";
 import { join as join14 } from "path";
 async function personaStats(args = {}) {
-  const dir = args.brainDir ?? join14(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  const dir = args.brainDir ?? join14(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
   let identity2 = "";
   let cardBytes = 0;
   try {
@@ -31964,7 +31964,7 @@ import { promises as fs17 } from "fs";
 import { join as join15 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
-  const dir = args.brainDir ?? join15(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  const dir = args.brainDir ?? join15(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
   await fs17.mkdir(dir, { recursive: true }).catch(() => {
   });
   const file = join15(dir, ".persona-dismissals.jsonl");
@@ -32109,7 +32109,7 @@ function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.8.0" },
+  { name: "knowledge-base", version: "2.8.1" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."

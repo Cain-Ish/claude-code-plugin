@@ -164,7 +164,7 @@ DELTA_JSON=""
 if sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
   DELTA_JSON=$(cat "$EXTRACT_OUT")
 else
-  HEALTH_REASON=$(sb_get_extractor_health | jq -r '.reason // "unknown"' 2>/dev/null)
+  HEALTH_REASON=$(sb_get_extractor_health | jq -r '.reason // "unknown"' 2>/dev/null | tr -d '\r')
   sb_log_error "stop-extract.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=$HEALTH_REASON" 0
 fi
 
@@ -197,7 +197,7 @@ if [ -z "$DELTA_JSON" ]; then
       | .[0:5]
     ' 2>/dev/null || echo '[]')
     FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
-    FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null)
+    FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null | tr -d '\r')
     if [ -n "$FILES_LIST" ]; then
       NOTE="[degraded] LLM extraction unavailable; session touched: $FILES_LIST"
     else
@@ -252,7 +252,7 @@ if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
   # for the session-load.sh banner. Lower-confidence still go through the
   # graduation counter in merge-persona-signals.sh.
   echo "$PERSONA_SIGNALS" | jq -c '.[] | select(.confidence == "high")' 2>/dev/null | while IFS= read -r sig; do
-    TEXT=$(printf '%s' "$sig" | jq -r '.signal // empty' 2>/dev/null)
+    TEXT=$(printf '%s' "$sig" | jq -r '.signal // empty' 2>/dev/null | tr -d '\r')
     [ -n "$TEXT" ] && sb_append_pin_candidate "$SLUG" "$TEXT"
   done
 fi

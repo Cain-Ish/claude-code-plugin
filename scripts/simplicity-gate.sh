@@ -6,7 +6,7 @@
 set -u
 [ "${SB_SIMPLICITY_GATE:-on}" = "off" ] && exit 0
 RAW=$(cat 2>/dev/null || true); [ -z "$RAW" ] && exit 0
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null)
+TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 case "$TOOL" in Write|Edit|MultiEdit) ;; *) exit 0 ;; esac
 LIMIT="${SB_SIMPLICITY_GATE_LINES:-150}"
 case "$LIMIT" in ''|*[!0-9]*) LIMIT=150 ;; esac

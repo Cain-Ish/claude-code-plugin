@@ -13,13 +13,13 @@ if [ ! -f "$DREAM_DIR/status.json" ]; then
   exit 1
 fi
 
-STATUS=$(jq -r '.status' "$DREAM_DIR/status.json" 2>/dev/null)
+STATUS=$(jq -r '.status' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
 if [ "$STATUS" != "completed" ]; then
   echo "error: dream $DREAM_ID is $STATUS, not completed" >&2
   exit 1
 fi
 
-ARCHIVED=$(jq -r '.archived_at // ""' "$DREAM_DIR/status.json" 2>/dev/null)
+ARCHIVED=$(jq -r '.archived_at // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
 if [ -n "$ARCHIVED" ] && [ "$ARCHIVED" != "null" ]; then
   echo "error: dream $DREAM_ID already accepted/archived at $ARCHIVED" >&2
   exit 1
@@ -159,7 +159,7 @@ jq --arg t "$NOW" '.archived_at = $t' "$DREAM_DIR/status.json" > "$tmp" && mv "$
 # Clean up staging to reclaim disk
 rm -rf "$DREAM_DIR/staging" "$DREAM_DIR/transcripts"
 
-ADDED=$(jq -r '.outputs.pages_added // 0' "$DREAM_DIR/status.json")
-MODIFIED=$(jq -r '.outputs.pages_modified // 0' "$DREAM_DIR/status.json")
-REMOVED=$(jq -r '.outputs.pages_removed // 0' "$DREAM_DIR/status.json")
+ADDED=$(jq -r '.outputs.pages_added // 0' "$DREAM_DIR/status.json" | tr -d '\r')
+MODIFIED=$(jq -r '.outputs.pages_modified // 0' "$DREAM_DIR/status.json" | tr -d '\r')
+REMOVED=$(jq -r '.outputs.pages_removed // 0' "$DREAM_DIR/status.json" | tr -d '\r')
 echo "Dream $DREAM_ID accepted: +$ADDED ~$MODIFIED -$REMOVED pages applied to live wiki"

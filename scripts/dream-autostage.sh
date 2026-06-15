@@ -83,18 +83,18 @@ for d in "$DREAMS_DIR"/drm_*/; do
   [ -d "$d" ] || continue
   sf="${d}status.json"
   [ -f "$sf" ] || continue
-  st=$(jq -r '.status // ""' "$sf" 2>/dev/null)
+  st=$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')
   case "$st" in
     running) RUNNING=1 ;;
     pending)
-      PENDING_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null)
+      PENDING_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
       PENDING_SF="$sf"
-      PENDING_CREATED=$(jq -r '.created_at // ""' "$sf" 2>/dev/null)
+      PENDING_CREATED=$(jq -r '.created_at // ""' "$sf" 2>/dev/null | tr -d '\r')
       ;;
     failed|canceled)
       if [ "$st" = "failed" ]; then
-        FAILED_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null)
-        FAILED_ERR=$(jq -r '.error // "unknown error"' "$sf" 2>/dev/null | head -c 160)
+        FAILED_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
+        FAILED_ERR=$(jq -r '.error // "unknown error"' "$sf" 2>/dev/null | head -c 160 | tr -d '\r')
       fi
       # Anchor ONLY on the stable create-time transcripts/ dir. Once the prune
       # strips it, status.json's mtime is the FAILURE time — anchoring there

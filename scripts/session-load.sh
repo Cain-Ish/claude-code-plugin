@@ -192,7 +192,7 @@ if [ "${SB_RULES_GAP_BANNER:-on}" != "off" ] && [ -f "$USER_FILE" ]; then
   RULES_FILE_RUNTIME="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)}/scripts/persona-rules.default.json"
   if [ -f "$RULES_FILE_RUNTIME" ]; then
     UM_MT=$(stat -c %Y "$USER_FILE" 2>/dev/null || stat -f %m "$USER_FILE" 2>/dev/null || echo 0)
-    PR_MT=$(stat -c %Y "$RULES_FILE_RUNTIME" 2>/dev/null || stat -f %m "$RULES_FILE_RUNTIME" 2>/dev/null || echo 0)
+    PR_MT=$(stat -c %Y "$RULES_FILE_RUNTIME" 2>/dev/null || stat -f %m "$RULES_FILE_RUNTIME" 2>/dev/null | tr -d '\r' || echo 0)
     if [ "$UM_MT" -gt "$PR_MT" ]; then
       # awk range `/start/,/end/` matches the header line on both ends — so
       # `/^## Never/,/^## /` collapses to just the Never header itself and
@@ -222,9 +222,9 @@ fi
 if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
   H_STATUS=$(jq -r '.status // "unknown"' "$SB_HEALTH_FILE" 2>/dev/null)
   if [ "$H_STATUS" = "fail" ]; then
-    H_BACKEND=$(jq -r '.backend // "unknown"' "$SB_HEALTH_FILE" 2>/dev/null)
-    H_REASON=$(jq  -r '.reason  // ""'        "$SB_HEALTH_FILE" 2>/dev/null)
-    H_AT=$(jq      -r '.checked_at // ""'     "$SB_HEALTH_FILE" 2>/dev/null)
+    H_BACKEND=$(jq -r '.backend // "unknown"' "$SB_HEALTH_FILE" 2>/dev/null | tr -d '\r')
+    H_REASON=$(jq  -r '.reason  // ""'        "$SB_HEALTH_FILE" 2>/dev/null | tr -d '\r')
+    H_AT=$(jq      -r '.checked_at // ""'     "$SB_HEALTH_FILE" 2>/dev/null | tr -d '\r')
     H_FAILS=$(sb_count_recent_extraction_failures)
     # Mode-aware hint. Previous single-template was telling users to "run
     # claude /login" on every failure — but the actual cause varies:
@@ -301,9 +301,9 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" = "on" ]; then
       # install-the-bridge nag. But still surface a genuine "wired != works": a failed
       # attempt, OR transcripts piling up with no extraction ever recorded (the Stop
       # hook may not be firing). Never mentions the drainer.
-      CAP_HEALTH=$(jq -r '.status // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)
+      CAP_HEALTH=$(jq -r '.status // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | tr -d '\r')
       if [ "$CAP_HEALTH" = "fail" ]; then
-        CAP_REASON=$(jq -r '.reason // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | tr '\n' ' ' | head -c 160)
+        CAP_REASON=$(jq -r '.reason // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | tr '\n' ' ' | head -c 160 | tr -d '\r')
         sb_append "$(printf '## ⚠ second-brain — extraction failing (API key)\nLast attempt failed: %s\nCheck the key/quota; tail `~/.second-brain/error-log.jsonl`.\n\n' "$CAP_REASON")" "capture-health-banner" 400
       elif [ ! -f "$BRAIN_DIR/.extractor-health.json" ]; then
         sb_append "$(printf '## ⚠ second-brain — no extraction recorded\n%s transcript(s) archived but the in-session extractor has never run — the Stop/PreCompact hook may not be firing. Tail `~/.second-brain/error-log.jsonl`.\n\n' "$CAP_N")" "capture-health-banner" 400
@@ -335,8 +335,8 @@ fi
 #   (2) pending — >10 already-indexed exchanges have empty embeddings.
 SB_EPI_INDEX="${BRAIN_DIR:-$HOME/.second-brain}/episodic-index.json"
 if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
-  EPI_PENDING=$(jq -r '[.exchanges[]? | select((.embedding|length)==0)] | length' "$SB_EPI_INDEX" 2>/dev/null || echo 0)
-  EPI_TOTAL=$(jq -r   '.exchanges | length'                                       "$SB_EPI_INDEX" 2>/dev/null || echo 0)
+  EPI_PENDING=$(jq -r '[.exchanges[]? | select((.embedding|length)==0)] | length' "$SB_EPI_INDEX" 2>/dev/null | tr -d '\r' || echo 0)
+  EPI_TOTAL=$(jq -r   '.exchanges | length'                                       "$SB_EPI_INDEX" 2>/dev/null | tr -d '\r' || echo 0)
   EPI_XFMR_MISSING=0
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ ! -d "$CLAUDE_PLUGIN_ROOT/mcp/node_modules/@huggingface/transformers" ] && EPI_XFMR_MISSING=1
   # R2.4 auto-heal (MCP-DEPS-1): a fresh version dir missing the shared-deps
@@ -599,11 +599,11 @@ if [ -d "$DREAMS_DIR" ] && command -v jq >/dev/null 2>&1; then
   for sf in "$DREAMS_DIR"/drm_*/status.json; do
     [ -f "$sf" ] || continue
     [ "$(jq -r '.status // ""' "$sf" 2>/dev/null)" = "completed" ] || continue
-    DARCH=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null)
+    DARCH=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
     { [ -n "$DARCH" ] && [ "$DARCH" != "null" ]; } && continue   # terminal (accepted/discarded) → silent
-    DID=$(jq -r '.id // ""' "$sf" 2>/dev/null)
-    DA=$(jq -r '.outputs.pages_added // 0' "$sf" 2>/dev/null)
-    DM=$(jq -r '.outputs.pages_modified // 0' "$sf" 2>/dev/null)
+    DID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
+    DA=$(jq -r '.outputs.pages_added // 0' "$sf" 2>/dev/null | tr -d '\r')
+    DM=$(jq -r '.outputs.pages_modified // 0' "$sf" 2>/dev/null | tr -d '\r')
     SMT=$(stat -c %Y "$sf" 2>/dev/null || stat -f %m "$sf" 2>/dev/null || echo "$NOW_S")
     AGE_D=$(( (NOW_S - ${SMT:-$NOW_S}) / 86400 ))
     if [ "$AGE_D" -gt "$STALE_DAYS" ]; then
@@ -627,7 +627,7 @@ fi
 
 # --- Emit collected output ---
 cat "$OUTPUT_FILE"
-rm -f "$OUTPUT_FILE"
+rm -f "$OUTPUT_FILE" "${_proj_lf:-}"   # _proj_lf is the CRLF-normalized PROJECT.md copy (only set when a CR was present)
 
 # --- Bookkeeping (no output) ---
 if [ "$USED" -gt "$BYTE_BUDGET" ]; then

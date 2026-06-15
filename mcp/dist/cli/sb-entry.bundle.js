@@ -7026,7 +7026,7 @@ import { promises as fs7 } from "fs";
 import { join as join5 } from "path";
 var MAX_LINES = 15;
 async function pinToUser(args) {
-  const dir = args.brainDir ?? join5(process.env.HOME ?? "", ".second-brain");
+  const dir = args.brainDir ?? join5(cleanEnvPath(process.env.HOME), ".second-brain");
   const file = join5(dir, "USER.md");
   const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const trimmed = args.text.trim();
@@ -7070,7 +7070,7 @@ async function pinToProject(args) {
     }
     throw e;
   }
-  const dir = args.brainDir ?? join6(process.env.HOME ?? "", ".second-brain");
+  const dir = args.brainDir ?? join6(cleanEnvPath(process.env.HOME), ".second-brain");
   let file;
   try {
     file = assertWithin(dir, "projects", args.slug, "PROJECT.md");

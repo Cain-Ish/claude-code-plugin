@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { cleanEnvPath } from '../path-guard.js';
 
 const MAX_LINES = 15;
 
@@ -7,7 +8,7 @@ export interface PinToUserArgs { text: string; brainDir?: string; }
 export interface PinToUserResult { ok: boolean; line_added: string; reason?: string; }
 
 export async function pinToUser(args: PinToUserArgs): Promise<PinToUserResult> {
-  const dir = args.brainDir ?? join(process.env.HOME ?? '', '.second-brain');
+  const dir = args.brainDir ?? join(cleanEnvPath(process.env.HOME), '.second-brain');
   const file = join(dir, 'USER.md');
   const date = new Date().toISOString().slice(0, 10);
   const trimmed = args.text.trim();
