@@ -4,6 +4,41 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.29.4
+
+**Output-correctness wave — 4 silently-wrong-output bugs found by an adversarial
+multi-agent audit (every finding reproduced by running the script).** All exit 0 while
+emitting wrong/incomplete content, so weak tests missed them.
+
+1. **`session-load.sh` — every session silently lost project wiki recall** *(highest
+   impact).* The `PROJ_KW` keyword harvest used awk **range** expressions
+   `/^## X$/,/^## /` whose START line also matches the `^## ` END pattern, collapsing
+   each range to its header → the harvest was **always empty** → the wiki-enrichment gate
+   never fired → the project's relevant wiki notes never loaded at session start. The same
+   trap the comment at ~line 188 already fixed for the Never-rules block. Now uses
+   in-section flags. New `test-session-load-wiki-enrichment.sh` (node-stub sentinel oracle)
+   is discriminating.
+2. **`grep -c … || echo 0` → `0\n0` (12 sites: cost-router-capture ×6, lib.sh ×3,
+   merge-project-update ×3).** `grep -c` prints `0` *and* exits 1 on zero matches, so
+   `|| echo 0` fired too — making counts the two-line string `0\n0`. In cost-router this
+   split the escalation bullet (orphan count line on the zero-escalation happy path that
+   the orchestrator reads); in merge-project it broke the supersede `$((overlap*100/old))`
+   integer math. Fixed to `|| true` (grep already prints its own `0`).
+3. **`wc -l` dropped a no-trailing-newline final transcript line** (stop-extract:97 +
+   pre-compact:63) — and the marker advanced past it, losing it **permanently**. The Stop
+   hook can read the transcript before the final newline flushes; `wc -l` counts newlines.
+   Now `awk 'END{print NR}'` (record-count, newline-safe).
+4. **`persona-context.sh` keyword filter `grep -vwF` shredded hyphenated identifiers**
+   (`is-prod`, `node-is-modules`) because `-w` treats a hyphen as a word boundary, so a
+   stopword *segment* matched and dropped the whole identifier — undoing the tokenizer's
+   deliberate hyphen-preservation. Fixed to `-vxF` (whole-line match).
+
+**Test oracles hardened** (the audit also flagged each test's weakness): cost-router now
+exercises the zero-escalation branch + an orphan-count-line guard; stop-extract seeds a
+no-trailing-newline final record and asserts it's archived + the marker reaches the true
+count; session-load + persona gained the coverage they entirely lacked. Each new check
+verified **discriminating** (fails on the buggy code, passes on the fix).
+
 ## 0.29.3
 
 **cost-router telemetry: stop silently dropping the Escalation + Notes bullets.**

@@ -487,11 +487,20 @@ SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 2>&1; then
   STOP_RE='(the|a|an|is|are|was|were|will|be|have|has|had|do|does|did|can|could|should|would|to|of|in|for|on|at|by|with|from|and|but|or|not|no|this|that|auto|scaffolded|describe|active|resolved|stale|decision|pinned|project|goal|state|open|recent|cross|references|conventions)'
 
+  # In-section FLAGS, not awk range expressions: a range `/^## X$/,/^## /` collapses to
+  # the single header line because the START line ALSO matches the `^## ` END pattern —
+  # so the harvest was ALWAYS empty and the whole wiki-enrichment block below never ran
+  # (every session started missing its project's wiki recall). Same trap the comment at
+  # ~line 188 already fixed for the Never-rules block; this one was left unfixed.
   PROJ_KW=$(awk '
-    /^## (Goal|State|Conventions)$/,/^## / { if (!/^##/ && !/^\(auto-scaffolded/ && NF>0) print }
-    /^## Recent decisions$/,/^## / { if (/^- /) print }
-    /^## Open blockers$/,/^## / { if (/^- /) print }
-    /^## Cross-references$/,/^## / { if (/\[\[/) { gsub(/[\[\]]/, ""); print } }
+    /^## (Goal|State|Conventions)$/ { f=1; next }
+    /^## Recent decisions$/         { f=2; next }
+    /^## Open blockers$/            { f=3; next }
+    /^## Cross-references$/         { f=4; next }
+    /^## /                          { f=0 }
+    f==1 && NF>0 && !/^\(auto-scaffolded/   { print }
+    (f==2 || f==3) && /^- /                 { print }
+    f==4 && /\[\[/ { gsub(/[\[\]]/, ""); print }
   ' "$project_file" 2>/dev/null | \
     tr -cs '[:alpha:]' '\n' | \
     grep -vxiE "$STOP_RE" | \

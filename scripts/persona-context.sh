@@ -209,7 +209,7 @@ KEYWORDS=$(printf '%s' "$P_TRIM" \
   | tr -cs '[:alnum:]-' '\n' \
   | sed 's/^-*//; s/-*$//' \
   | grep -v '^$' \
-  | grep -vwF "$(echo "$STOP_WORDS" | tr ' ' '\n')" \
+  | grep -vxF "$(echo "$STOP_WORDS" | tr ' ' '\n')" \
   | head -8 | tr '\n' ' ')
 KEYWORDS="${KEYWORDS% }"
 

@@ -252,7 +252,7 @@ detect_supersede() {
 
   local new_words new_count
   new_words=$(printf '%s' "$new_lower" | sed 's/\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] //' | tr -cs '[:alpha:]' '\n' | grep -vxE '(the|a|an|is|are|was|were|to|of|in|for|on|at|by|with|not|no|dont|never|don|do|instead|supersedes|replaces)' | sort -u)
-  new_count=$(echo "$new_words" | grep -c . 2>/dev/null || echo 0)
+  new_count=$(echo "$new_words" | grep -c . 2>/dev/null || true)
   [ "$new_count" -lt 3 ] && return 1
 
   local existing
@@ -269,9 +269,9 @@ detect_supersede() {
     local old_lower old_words old_count overlap pct
     old_lower=$(printf '%s' "$old_line" | tr '[:upper:]' '[:lower:]')
     old_words=$(printf '%s' "$old_lower" | sed 's/^- //' | sed 's/\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] //' | tr -cs '[:alpha:]' '\n' | grep -vxE '(the|a|an|is|are|was|were|to|of|in|for|on|at|by|with|not|no|dont|never|don|do)' | sort -u)
-    old_count=$(echo "$old_words" | grep -c . 2>/dev/null || echo 0)
+    old_count=$(echo "$old_words" | grep -c . 2>/dev/null || true)
     [ "$old_count" -eq 0 ] && continue
-    overlap=$(comm -12 <(echo "$new_words") <(echo "$old_words") | grep -c . 2>/dev/null || echo 0)
+    overlap=$(comm -12 <(echo "$new_words") <(echo "$old_words") | grep -c . 2>/dev/null || true)
     pct=$((overlap * 100 / old_count))
     if [ "$pct" -ge 50 ]; then
       local new_tmp

@@ -259,5 +259,41 @@ fi
 pass "USER.md<->card dedup handles backslash bullets (no -v escape mangling)"
 rm -rf "$BRAIN_DIR_BS"
 
+# Test 11 (0.29.4): the keyword stopword filter must whole-LINE match (grep -vxF), not
+# word-match (grep -vwF). The tokenizer deliberately preserves hyphens so technical ids
+# (claude-4-5, node-modules) survive — but -w treats a hyphen as a word boundary, so an
+# identifier whose SEGMENT is a stopword (node-IS-modules) matched the stopword and was
+# dropped, and its wiki page was never retrieved. Control-gated like Test 8b: only assert
+# when the search bundle actually retrieves the plain-keyword control page in this env.
+BRAIN_DIR_HY=$(mktemp -d); KNOW_DIR_HY=$(mktemp -d)
+mkdir -p "$KNOW_DIR_HY/wiki/entities"
+for pg in "widgetcontrol::widgetcontrol gadget" "node-is-modules::node-is-modules dependency"; do
+  slug=${pg%%::*}; body=${pg##*::}
+  cat > "$KNOW_DIR_HY/wiki/entities/$slug.md" <<EOF
+---
+title: "$slug"
+type: entities
+description: "$body resolution notes"
+tags: [$slug]
+created: 2026-01-01
+updated: 2026-01-01
+---
+$body — $slug reference page.
+EOF
+done
+hy_hit() { KNOWLEDGE_DIR="$KNOW_DIR_HY" BRAIN_DIR="$BRAIN_DIR_HY" payload_sid "$1" "$2" \
+  | KNOWLEDGE_DIR="$KNOW_DIR_HY" BRAIN_DIR="$BRAIN_DIR_HY" bash "$SCRIPT" \
+  | jq -r '.hookSpecificOutput.additionalContext // ""'; }
+ctl=$(hy_hit "tell me about widgetcontrol gadget in detail please" "hy-ctl")
+if echo "$ctl" | grep -q 'widgetcontrol'; then
+  hy=$(hy_hit "explain the node-is-modules dependency resolution order in detail" "hy-test")
+  echo "$hy" | grep -q 'node-is-modules' \
+    || fail "hyphenated id 'node-is-modules' dropped by the stopword filter (grep -vwF word-match) — its wiki page was not retrieved"
+  pass "hyphenated identifiers survive the keyword stopword filter (grep -vxF whole-line)"
+else
+  pass "keyword-hyphen test skipped (knowledge_search returned no hits in this env)"
+fi
+rm -rf "$BRAIN_DIR_HY" "$KNOW_DIR_HY"
+
 echo
 echo "ALL PASS"

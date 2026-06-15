@@ -272,6 +272,18 @@ stop_payload | "$SCRIPT" >/dev/null 2>&1
 [ "$(grep -c 'src/bar.ts' "$ARCHIVE")" = "1" ] || fail "marker-advance: new window not appended exactly once"
 [ "$(grep -c 'src/foo.ts' "$ARCHIVE")" = "$C1" ] || fail "marker-advance: old window duplicated on append"
 pass "session-keyed marker advances; each window archived exactly once"
+
+# --- Test 8b (0.29.4): a final record with NO trailing newline must still be counted.
+# `wc -l` counts newlines and undercounts a no-trailing-newline last line by one — and the
+# Stop hook can read the transcript before the final line's newline is flushed. Pre-fix that
+# dropped the final record (often the only tool_use) from the window AND advanced the marker
+# past it, losing it permanently. awk NR counts records regardless of a missing final newline.
+# printf '%s' (no \n) seeds the unflushed-last-line condition; the heredoc helpers can't.
+printf '%s' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/NONL.ts","old_string":"a","new_string":"b"}}]}}' >> "$SANDBOX/transcript/session.jsonl"
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+[ "$(cat "$MARKER")" = "5" ] || fail "no-trailing-newline: marker should reach 5 (awk NR), got $(cat "$MARKER") — wc -l undercount drops the final record"
+[ "$(grep -c 'src/NONL.ts' "$ARCHIVE")" = "1" ] || fail "no-trailing-newline: final no-newline record not archived (dropped by wc -l undercount)"
+pass "final record without a trailing newline is counted + archived (newline-safe record count)"
 restore_path
 
 # --- Test 9 (R1.2): two sessions in one project keep independent markers.
