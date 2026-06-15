@@ -8,7 +8,7 @@
 # dream's dir writable (live wiki + everything else read-only), so it physically cannot write live.
 #
 # Gated — airtight or not at all (capture ≠ consolidation ≠ LLM-authoring consent):
-#   1. config.json `auto_maintain: true`   — default TRUE since 0.29.5 (≠ auto_improve). It still
+#   1. config.json `auto_maintain: true`   — default TRUE since 0.30.0 (≠ auto_improve). It still
 #      only runs where guard #3 (bwrap) holds, so on macOS/Windows/bwrap-less Linux it is a no-op.
 #   2. the drainer's CLAUDECODE-refuse / interactive-defer / single-flight guards (via extract-drain)
 #   3. `claude` AND `bwrap` both present    — else SKIP; NEVER run the bypassPermissions agent unconfined
@@ -23,7 +23,7 @@ SDIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$SDIR/lib.sh"
 
-[ "$(sb_config_bool .auto_maintain on)" = "on" ] || exit 0      # default on (0.29.5); guards 2-4 + bwrap still apply
+[ "$(sb_config_bool .auto_maintain on)" = "on" ] || exit 0      # default on (0.30.0); guards 2-4 + bwrap still apply
 # Defense in depth: never spawn `claude -p` from inside a live session (the recursive-claude
 # OAuth lock → hang). extract-drain.sh already refuses on CLAUDECODE, but guard here too in case
 # this is ever run standalone. SB_MAINTAIN_LLM_FORCE=1 bypasses for tests.
@@ -86,7 +86,7 @@ _fail_step() {
 for sf in "$BRAIN_DIR"/dreams/drm_*/status.json; do
   [ -f "$sf" ] || continue
   [ "$(jq -r '.status // ""' "$sf" 2>/dev/null)" = "completed" ] || continue
-  a=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null)
+  a=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
   { [ -z "$a" ] || [ "$a" = "null" ]; } && exit 0
 done
 

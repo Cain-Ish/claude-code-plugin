@@ -78,12 +78,12 @@ DREAMS_DIR="$BRAIN_DIR/dreams"
 if [ -d "$DREAMS_DIR" ]; then
   for sf in "$DREAMS_DIR"/drm_*/status.json; do
     [ -f "$sf" ] || continue
-    DSTATUS=$(jq -r '.status' "$sf" 2>/dev/null)
-    DID=$(jq -r '.id' "$sf" 2>/dev/null)
+    DSTATUS=$(jq -r '.status' "$sf" 2>/dev/null | tr -d '\r')
+    DID=$(jq -r '.id' "$sf" 2>/dev/null | tr -d '\r')
     if [ "$DSTATUS" = "running" ]; then
-      STARTED=$(jq -r '.started_at // ""' "$sf" 2>/dev/null)
+      STARTED=$(jq -r '.started_at // ""' "$sf" 2>/dev/null | tr -d '\r')
       if [ -n "$STARTED" ] && [ "$STARTED" != "null" ]; then
-        STARTED_DATE=$(echo "$STARTED" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' || echo "")
+        STARTED_DATE=$(echo "$STARTED" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' | tr -d '\r' || echo "")
         TODAY=$(date -u +%Y-%m-%d)
         if [ -n "$STARTED_DATE" ] && [ "$STARTED_DATE" \< "$TODAY" ]; then
           FAILS+=("verify: FAIL: dream — $DID still running (started $STARTED), may be stale")
@@ -91,7 +91,7 @@ if [ -d "$DREAMS_DIR" ]; then
       fi
     elif [ "$DSTATUS" = "completed" ]; then
       ENDED=$(jq -r '.ended_at // ""' "$sf" 2>/dev/null)
-      ARCHIVED=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null)
+      ARCHIVED=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
       if [ "$ARCHIVED" = "null" ] || [ -z "$ARCHIVED" ]; then
         FAILS+=("verify: FAIL: dream — $DID completed but not reviewed (ended $ENDED)")
       fi

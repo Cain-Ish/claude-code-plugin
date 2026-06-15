@@ -15,8 +15,8 @@ set -u
 RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
-TRANSCRIPT=$(printf '%s' "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null)
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null)
+TRANSCRIPT=$(printf '%s' "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
 [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ] && exit 0
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"

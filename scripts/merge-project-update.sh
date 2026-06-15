@@ -404,12 +404,12 @@ WIKI_UPDATES_COUNT=$(echo "$RAW" | jq '.wiki_updates // [] | length' 2>/dev/null
 if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
   mkdir -p "$KNOWLEDGE_WIKI"
   while IFS= read -r update; do
-    raw_category=$(echo "$update" | jq -r '.category // "concepts"')
-    raw_slug=$(echo "$update" | jq -r '.slug // empty')
-    action=$(echo "$update" | jq -r '.action // "create"')
-    title=$(echo "$update" | jq -r '.title // ""')
-    description=$(echo "$update" | jq -r '.description // ""')
-    content=$(echo "$update" | jq -r '.content // ""')
+    raw_category=$(echo "$update" | jq -r '.category // "concepts"' | tr -d '\r')
+    raw_slug=$(echo "$update" | jq -r '.slug // empty' | tr -d '\r')
+    action=$(echo "$update" | jq -r '.action // "create"' | tr -d '\r')
+    title=$(echo "$update" | jq -r '.title // ""' | tr -d '\r')
+    description=$(echo "$update" | jq -r '.description // ""' | tr -d '\r')
+    content=$(echo "$update" | jq -r '.content // ""' | tr -d '\r')
 
     category=$(sb_sanitize_slug "$raw_category") || continue
     slug=$(sb_sanitize_slug "$raw_slug") || continue

@@ -24,7 +24,7 @@ if [ -f "$HOOKS" ]; then
     while IFS= read -r event; do
       event="${event%$'\r'}"  # jq on Windows (Git Bash) emits CRLF — strip the CR
       [ -z "$event" ] && continue
-      count=$(jq -r --arg e "$event" '.hooks[$e] | length' "$HOOKS" 2>/dev/null)
+      count=$(jq -r --arg e "$event" '.hooks[$e] | length' "$HOOKS" 2>/dev/null | tr -d '\r')
       if [ -z "$count" ] || [ "$count" = "null" ]; then
         continue
       fi
@@ -41,7 +41,7 @@ if [ -f "$HOOKS" ]; then
               echo "FAIL: hooks.json $event[$i] missing 'matcher'"
               ERRORS=$((ERRORS + 1))
             elif [ "$event" = "SessionStart" ]; then
-              matcher=$(jq -r --arg e "$event" --argjson i "$i" '.hooks[$e][$i].matcher // ""' "$HOOKS" 2>/dev/null)
+              matcher=$(jq -r --arg e "$event" --argjson i "$i" '.hooks[$e][$i].matcher // ""' "$HOOKS" 2>/dev/null | tr -d '\r')
               if [ -n "$matcher" ] && ! echo "$matcher" | grep -Eq "^($SESSION_START_MATCHERS)(\|($SESSION_START_MATCHERS))*$"; then
                 echo "WARN: hooks.json SessionStart[$i] matcher '$matcher' is not in the documented set ($SESSION_START_MATCHERS)"
               fi
@@ -55,7 +55,7 @@ if [ -f "$HOOKS" ]; then
           continue
         fi
 
-        hcount=$(jq -r --arg e "$event" --argjson i "$i" '.hooks[$e][$i].hooks | length' "$HOOKS" 2>/dev/null)
+        hcount=$(jq -r --arg e "$event" --argjson i "$i" '.hooks[$e][$i].hooks | length' "$HOOKS" 2>/dev/null | tr -d '\r')
         for j in $(seq 0 $((hcount - 1))); do
           if ! jq -e --arg e "$event" --argjson i "$i" --argjson j "$j" '.hooks[$e][$i].hooks[$j].command' "$HOOKS" >/dev/null 2>&1; then
             echo "FAIL: hooks.json $event[$i].hooks[$j] missing 'command'"
@@ -89,7 +89,11 @@ if [ -f "$MARKETPLACE_JSON" ]; then
   # Fail CLOSED on schema surprises: tostring keeps @tsv alive on a non-string
   # source (object/remote forms), and a parse failure must surface as an
   # error, not silently skip every drift check (R8 premise review).
-  DRIFT_TSV=$(jq -r '.plugins[] | [.name, (.version // ""), (.source | tostring)] | @tsv' "$MARKETPLACE_JSON" 2>/dev/null)
+  # tr -d '\r': the Windows (Git-Bash) jq build emits CRLF in -r output even when the input is
+  # clean LF, so the LAST @tsv field of each record (.source) keeps a trailing \r — `${P_SRC#./}`
+  # then becomes "\r" and the built manifest path "…/\r/.claude-plugin/plugin.json" doesn't exist
+  # → a spurious drift FAIL on every non-last entry. Normalize jq's output, not the data.
+  DRIFT_TSV=$(jq -r '.plugins[] | [.name, (.version // ""), (.source | tostring)] | @tsv' "$MARKETPLACE_JSON" 2>/dev/null | tr -d '\r')
   if [ -z "$DRIFT_TSV" ]; then
     echo "FAIL: could not parse .plugins[] from marketplace.json for the drift check"
     ERRORS=$((ERRORS + 1))
@@ -109,7 +113,7 @@ if [ -f "$MARKETPLACE_JSON" ]; then
       ERRORS=$((ERRORS + 1))
       continue
     fi
-    SRC_VER=$(jq -r '.version // ""' "$SRC_MANIFEST" 2>/dev/null)
+    SRC_VER=$(jq -r '.version // ""' "$SRC_MANIFEST" 2>/dev/null | tr -d '\r')   # Windows jq CRLF: keep the version comparison clean
     if [ -n "$SRC_VER" ] && [ -n "$P_VER" ] && [ "$SRC_VER" != "$P_VER" ]; then
       echo "FAIL: version drift — $P_NAME plugin.json=$SRC_VER but marketplace.json=$P_VER. Sync both on release."
       ERRORS=$((ERRORS + 1))
@@ -195,7 +199,7 @@ if [ -f "$BUDGET_JSON" ]; then
   LIVE_TESTS=$(find "$PLUGIN_ROOT/tests" -maxdepth 1 -name 'test-*.sh' -type f 2>/dev/null | wc -l | tr -d ' ')
   for pair in "skills:$LIVE_SKILLS" "agents:$LIVE_AGENTS" "scripts:$LIVE_SCRIPTS" "tests:$LIVE_TESTS"; do
     key="${pair%%:*}"; live="${pair#*:}"
-    cap=$(jq -r --arg k "$key" '.[$k] // empty' "$BUDGET_JSON" 2>/dev/null)
+    cap=$(jq -r --arg k "$key" '.[$k] // empty' "$BUDGET_JSON" 2>/dev/null | tr -d '\r')
     case "$cap" in ''|*[!0-9]*) continue ;; esac
     if [ "$live" -gt "$cap" ]; then
       echo "FAIL: surface budget exceeded — $key=$live > budget $cap (bump docs/surface-budget.json in the same commit to grow deliberately)"
@@ -203,7 +207,7 @@ if [ -f "$BUDGET_JSON" ]; then
     fi
   done
   # Lean-runner cap (R6 policy, enforced here as the SKILL.md Notes promise).
-  UPG_CAP=$(jq -r '.upgrade_skill_max_bytes // 8192' "$BUDGET_JSON" 2>/dev/null)
+  UPG_CAP=$(jq -r '.upgrade_skill_max_bytes // 8192' "$BUDGET_JSON" 2>/dev/null | tr -d '\r')
   UPG_BYTES=$(wc -c < "$PLUGIN_ROOT/skills/upgrade/SKILL.md" 2>/dev/null | tr -d ' ')
   case "$UPG_BYTES" in *[!0-9]*|'') UPG_BYTES=0 ;; esac
   if [ "$UPG_BYTES" -gt "$UPG_CAP" ]; then

@@ -104,11 +104,11 @@ else
 fi
 
 echo "$RAW" | jq -c '.relations[]?' 2>/dev/null | while IFS= read -r rel; do
-  from=$(echo "$rel" | jq -r '.from // empty')
-  to=$(echo "$rel"   | jq -r '.to // empty')
-  type=$(echo "$rel" | jq -r '.type // "relates"')
-  vf=$(echo "$rel"   | jq -r '.valid_from // empty')
-  conf=$(echo "$rel" | jq -r '.confidence // "medium"')
+  from=$(echo "$rel" | jq -r '.from // empty' | tr -d '\r')
+  to=$(echo "$rel"   | jq -r '.to // empty' | tr -d '\r')
+  type=$(echo "$rel" | jq -r '.type // "relates"' | tr -d '\r')
+  vf=$(echo "$rel"   | jq -r '.valid_from // empty' | tr -d '\r')
+  conf=$(echo "$rel" | jq -r '.confidence // "medium"' | tr -d '\r')
 
   # sanitize slugs (kebab/url-safe) — reuse lib.sh helper; reject on failure
   sfrom=$(sb_sanitize_slug "$from") || continue

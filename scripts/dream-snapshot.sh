@@ -45,9 +45,9 @@ mkdir -p "$DREAMS_DIR"
 
 for sf in "$DREAMS_DIR"/drm_*/status.json; do
   [ -f "$sf" ] || continue
-  s=$(jq -r '.status' "$sf" 2>/dev/null)
+  s=$(jq -r '.status' "$sf" 2>/dev/null | tr -d '\r')
   if [ "$s" = "pending" ] || [ "$s" = "running" ]; then
-    did=$(jq -r '.id' "$sf" 2>/dev/null)
+    did=$(jq -r '.id' "$sf" 2>/dev/null | tr -d '\r')
     # SP-C: a crash mid-run would otherwise stick at pending/running forever and DEADLOCK
     # every future dream (this guard refuses while one is active). Treat a pending/running
     # dream whose status.json hasn't advanced in SB_DREAM_RUN_TIMEOUT as crashed: mark it
@@ -81,8 +81,8 @@ DREAM_COUNT=$(find "$DREAMS_DIR" -maxdepth 1 -type d -name 'drm_*' 2>/dev/null |
 if [ "$DREAM_COUNT" -ge "$DREAM_KEEP" ]; then
   find "$DREAMS_DIR" -maxdepth 1 -type d -name 'drm_*' 2>/dev/null | sort | while read -r old; do
     [ "$DREAM_COUNT" -lt "$DREAM_KEEP" ] && break
-    old_archived=$(jq -r '.archived_at // ""' "$old/status.json" 2>/dev/null)
-    old_st=$(jq -r '.status // ""' "$old/status.json" 2>/dev/null)
+    old_archived=$(jq -r '.archived_at // ""' "$old/status.json" 2>/dev/null | tr -d '\r')
+    old_st=$(jq -r '.status // ""' "$old/status.json" 2>/dev/null | tr -d '\r')
     if [ -n "$old_archived" ] && [ "$old_archived" != "null" ]; then
       rm -rf "$old"
       DREAM_COUNT=$((DREAM_COUNT - 1))

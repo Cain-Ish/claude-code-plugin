@@ -181,7 +181,7 @@ ls -d ~/.claude/plugins/cache/*/superpowers/*/ >/dev/null 2>&1 \
 
 ### 6c. Autonomy consent ladder (review + dial-back — automation is ON by default)
 
-Since 0.29.5 automation is **ON by default** — it's an automation plugin, so a fresh
+Since 0.30.0 automation is **ON by default** — it's an automation plugin, so a fresh
 install self-maintains without the operator having to remember to opt in. This step is
 the transparency surface: show what's on and let the operator **dial it back or off**
 with a single explicit choice instead of hand-editing JSON. It only writes the tiers

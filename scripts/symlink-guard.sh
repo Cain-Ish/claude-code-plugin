@@ -35,13 +35,13 @@ RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 printf '%s' "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null)
+TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 case "$TOOL" in
   Write|Edit|MultiEdit) ;;
   *) exit 0 ;;
 esac
 
-FILE_PATH=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+FILE_PATH=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null | tr -d '\r')
 [ -z "$FILE_PATH" ] && exit 0
 
 # Tilde expansion. tool_input.file_path is usually absolute already; tilde-
@@ -80,7 +80,7 @@ if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
   sb_log_audit() { :; }
 fi
 
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null || true)
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r' || true)
 
 # Credential-dir prefix check. Each entry is "label:absolute-prefix".
 # Order matters only for which label the user sees first; the deny verdict

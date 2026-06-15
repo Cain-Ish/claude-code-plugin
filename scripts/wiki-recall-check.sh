@@ -60,7 +60,7 @@ fi
 hits=0; total=0; bytes=0; misses=""
 while IFS= read -r line; do
   [ -z "$line" ] && continue
-  q=$(printf '%s' "$line" | jq -r '.q')
+  q=$(printf '%s' "$line" | jq -r '.q' | tr -d '\r')
   out=$(KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EVAL_BRAIN" SB_BRAIN_DIR="$EVAL_BRAIN" SECOND_BRAIN_DISABLE_EMBEDDINGS=1 node "$CLI" "$q" 2>/dev/null) \
     || { echo "recall: search errored on query: $q" >&2; exit 2; }
   bytes=$(( bytes + ${#out} ))

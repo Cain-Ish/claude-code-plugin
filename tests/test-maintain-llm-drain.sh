@@ -37,7 +37,7 @@ printf '#!/bin/bash\nexit 0\n' > "$BIN/bwrap"; chmod +x "$BIN/bwrap"
 export PATH="$BIN:$PATH"   # stub claude+bwrap (DRYRUN exits before invoking them anyway)
 ndreams(){ find "$B/dreams" -maxdepth 1 -type d -name 'drm_*' 2>/dev/null | wc -l | tr -d ' '; }
 
-# 1. auto_maintain OFF (EXPLICIT — 0.29.5 made absent default to ON, so the off path
+# 1. auto_maintain OFF (EXPLICIT — 0.30.0 made absent default to ON, so the off path
 #    must now be opted out explicitly) → no run, no marker, no dream
 printf '{"auto_maintain": false}\n' > "$B/config.json"
 bash "$SCRIPT" >/dev/null 2>&1 || true
@@ -73,11 +73,11 @@ PB=$(echo "$OUT" | sed -n 's/.*prompt_bytes=\([0-9]*\).*/\1/p'); [ "${PB:-0}" -g
 aa_run(){ printf '{"auto_maintain": true%s}\n' "$1" > "$B/config.json"; rm -rf "$B/dreams"; seed_tx 3; seed_tx 4
   SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" 2>&1 || true; }
 
-# 5a — DEFAULT (no auto_accept key) → "safe" since 0.29.5 (on by default) → auto-accepts a
+# 5a — DEFAULT (no auto_accept key) → "safe" since 0.30.0 (on by default) → auto-accepts a
 #       CLEAN (no-forget) dream. The manual-review default moved to an explicit opt-out (5a-off).
 OUT=$(aa_run "")
 echo "$OUT" | grep -qE 'DRYRUN auto-accept=safe dream=drm_.*forget=0' \
-  && pass "5a: default (no auto_accept key) behaves as safe — auto-accepts a clean dream (0.29.5)" \
+  && pass "5a: default (no auto_accept key) behaves as safe — auto-accepts a clean dream (0.30.0)" \
   || fail "5a: default did not behave as auto_accept=safe (got: $(echo "$OUT" | grep -i auto-accept | head -c 120))"
 # 5a-off — EXPLICIT auto_accept:"off" → never auto-accepts (the manual-review opt-out)
 OUT=$(aa_run ', "auto_accept": "off"')

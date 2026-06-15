@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { cleanEnvPath } from '../path-guard.js';
 
 export interface PersonaDismissArgs {
   prompt_snippet?: string;
@@ -15,7 +16,7 @@ export interface PersonaDismissResult {
 const RETAIN_DAYS = 30;
 
 export async function personaDismiss(args: PersonaDismissArgs = {}): Promise<PersonaDismissResult> {
-  const dir = args.brainDir ?? join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.second-brain');
+  const dir = args.brainDir ?? join(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), '.second-brain');
   await fs.mkdir(dir, { recursive: true }).catch(() => {});
   const file = join(dir, '.persona-dismissals.jsonl');
 

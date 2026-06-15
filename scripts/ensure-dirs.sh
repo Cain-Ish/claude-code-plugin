@@ -16,7 +16,7 @@ for _c in ${SB_CONTENT_CATEGORIES:-learnings decisions entities issues concepts 
   mkdir -p "$KNOWLEDGE_DIR/wiki/$_c"
 done
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
-# Seed a self-documenting config.json. 0.29.5: automation is ON by default — this is an
+# Seed a self-documenting config.json. 0.30.0: automation is ON by default — this is an
 # automation plugin, so a fresh install self-maintains without the user remembering to opt in.
 #   auto_improve : true  — free + offline: validate + reindex the wiki on the drainer timer.
 #   auto_maintain: true  — runs the headless `claude -p` maintainer on its cadence. NOTE: this

@@ -36,7 +36,7 @@ trap 'rm -f "$TMP_PLUGINS" "$TMP_AGENTS" "$TMP_SKILLS"' EXIT
 # Extract a YAML frontmatter field value. Reads stdin.
 fm_value() {
   awk -v key="$1" '
-    /^---$/ { f = !f; next }
+    /^---[[:space:]]*$/ { f = !f; next }   # [[:space:]]*: a CRLF SKILL/agent .md fence is `---\r`; strict /^---$/ would never toggle
     f {
       pattern = "^" key ":"
       if ($0 ~ pattern) {
@@ -53,8 +53,8 @@ if [ -d "$PLUGINS_ROOT" ]; then
     [ -f "$pj" ] || continue
     name=$(jq -r '.name // empty' "$pj" 2>/dev/null) || continue
     [ -z "$name" ] && continue
-    desc=$(jq -r '.description // ""' "$pj" 2>/dev/null)
-    ver=$(jq -r '.version // ""' "$pj" 2>/dev/null)
+    desc=$(jq -r '.description // ""' "$pj" 2>/dev/null | tr -d '\r')
+    ver=$(jq -r '.version // ""' "$pj" 2>/dev/null | tr -d '\r')
     jq -nc --arg n "$name" --arg d "$desc" --arg v "$ver" \
       '{name:$n, description:$d, version:$v}' >> "$TMP_PLUGINS"
 

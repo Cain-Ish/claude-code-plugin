@@ -7,7 +7,32 @@ files, which exist solely for releases with a real migration action.
 ## 0.30.0
 
 Two themes: **automation on by default** + **cross-OS (Windows/macOS) hardening** from an
-adversarial audit. MCP 2.8.0.
+adversarial audit + a deep review. MCP 2.8.0.
+
+### Windows jq CRLF — the systemic faucet
+The Windows (Git-Bash) `jq` build emits **CRLF in `-r` output even when the input is clean LF**,
+so every `$(jq -r …)` value, `jq -r … | grep`, and config read is `\r`-contaminated on Windows —
+silently breaking comparisons, arithmetic, `grep '^x$'` patterns, and path building (the
+user-reported "error from version 0.30" was this in the validator's version-drift loop, building
+`…/\r/.claude-plugin/plugin.json`). Fixed at the leverage points and broadly:
+- **Config reader** (`sb_config_get`/`sb_config_bool`) strips `\r` — one fix makes EVERY config
+  knob (incl. the new automation defaults) CR-safe; without it `auto_improve: true` read back as
+  `"true\r"` and fell through to the default on Windows.
+- **Validator** drift loop + hook counts CR-normalized.
+- **121** single-line `$(jq -r …)` captures across 29 scripts CR-stripped; `cost-router` tier
+  counts strip `\r` *before* `grep -c`.
+- New `test-jq-crlf-windows.sh` reproduces Windows jq with a stub and runs the REAL validator /
+  config reader / cost-router under it (we can't run Windows in CI) — discriminating.
+
+### Deep-review fixes (the review found real gaps in this change)
+- **5 MCP write/stat handlers** (`pin_to_user`, `pin_to_project`, `archive_to_wiki`,
+  `persona_stats`, `persona_dismiss`) fell back to an **uncleaned `HOME`** — under a CRLF-tainted
+  HOME that silently wrote to a phantom `…\r/.second-brain` tree on POSIX (invisible data loss) /
+  ENOENT on Windows. Each now wraps its HOME fallback in `cleanEnvPath`.
+- `discover-installed.sh` frontmatter `awk '/^---$/'` → `/^---[[:space:]]*$/` (a CRLF `.md`
+  fence never toggled). `session-load.sh` cleans up the CRLF-normalized temp copy (no leak).
+
+
 
 ### Automation is ON by default
 It's an automation plugin — a fresh install should self-maintain without the operator

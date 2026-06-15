@@ -39,8 +39,8 @@ set_project() { # <slug> <project> — insert `project: <p>` before the first fr
 
 while IFS= read -r line; do
   [ -n "$line" ] || continue
-  anchor=$(printf '%s' "$line" | jq -r '.anchor // empty' 2>/dev/null)
-  proj=$(printf '%s' "$line" | jq -r '.project // empty' 2>/dev/null)
+  anchor=$(printf '%s' "$line" | jq -r '.anchor // empty' 2>/dev/null | tr -d '\r')
+  proj=$(printf '%s' "$line" | jq -r '.project // empty' 2>/dev/null | tr -d '\r')
   [ -n "$anchor" ] && [ -n "$proj" ] || continue
 
   # Fixpoint: grow the member set by adding any page that is part_of a current member.

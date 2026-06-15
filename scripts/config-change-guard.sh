@@ -36,7 +36,7 @@ if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
   exit 0
 fi
 
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null || true)
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r' || true)
 # Field-name fallback: Anthropic's ConfigChange JSON shape is documented at
 # the matcher-category level but not the field-name level (as of 2026-05-28
 # the only authoritative reference is the hook-output behavior). Try a few

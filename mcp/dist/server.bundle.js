@@ -27212,38 +27212,6 @@ async function appendEdge(path3, rec) {
 // src/tools/pin-to-user.ts
 import { promises as fs2 } from "fs";
 import { join } from "path";
-var MAX_LINES = 15;
-async function pinToUser(args) {
-  const dir = args.brainDir ?? join(process.env.HOME ?? "", ".second-brain");
-  const file = join(dir, "USER.md");
-  const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const trimmed = args.text.trim();
-  const newLine = `- [${date3}] ${trimmed}`;
-  let content = "";
-  try {
-    content = await fs2.readFile(file, "utf-8");
-  } catch {
-    content = "# USER preferences\n\n## Pinned\n";
-  }
-  const existing = content.split("\n").find((l) => {
-    const m = l.match(/^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/);
-    return m !== null && m[1].trim() === trimmed;
-  });
-  if (existing !== void 0) {
-    return { ok: true, line_added: existing, reason: "already present" };
-  }
-  const projected = content + (content.endsWith("\n") ? "" : "\n") + newLine + "\n";
-  if (projected.split("\n").filter(Boolean).length > MAX_LINES) {
-    return { ok: false, line_added: "", reason: `would exceed ${MAX_LINES}-line cap` };
-  }
-  await fs2.mkdir(dir, { recursive: true });
-  await fs2.writeFile(file, projected, "utf-8");
-  return { ok: true, line_added: newLine };
-}
-
-// src/tools/pin-to-project.ts
-import { promises as fs3 } from "fs";
-import { join as join2 } from "path";
 
 // src/path-guard.ts
 import { resolve, sep as sep2, isAbsolute } from "path";
@@ -27311,7 +27279,39 @@ function validateSlug(slug) {
   }
 }
 
+// src/tools/pin-to-user.ts
+var MAX_LINES = 15;
+async function pinToUser(args) {
+  const dir = args.brainDir ?? join(cleanEnvPath(process.env.HOME), ".second-brain");
+  const file = join(dir, "USER.md");
+  const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const trimmed = args.text.trim();
+  const newLine = `- [${date3}] ${trimmed}`;
+  let content = "";
+  try {
+    content = await fs2.readFile(file, "utf-8");
+  } catch {
+    content = "# USER preferences\n\n## Pinned\n";
+  }
+  const existing = content.split("\n").find((l) => {
+    const m = l.match(/^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/);
+    return m !== null && m[1].trim() === trimmed;
+  });
+  if (existing !== void 0) {
+    return { ok: true, line_added: existing, reason: "already present" };
+  }
+  const projected = content + (content.endsWith("\n") ? "" : "\n") + newLine + "\n";
+  if (projected.split("\n").filter(Boolean).length > MAX_LINES) {
+    return { ok: false, line_added: "", reason: `would exceed ${MAX_LINES}-line cap` };
+  }
+  await fs2.mkdir(dir, { recursive: true });
+  await fs2.writeFile(file, projected, "utf-8");
+  return { ok: true, line_added: newLine };
+}
+
 // src/tools/pin-to-project.ts
+import { promises as fs3 } from "fs";
+import { join as join2 } from "path";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
 async function pinToProject(args) {
@@ -27326,7 +27326,7 @@ async function pinToProject(args) {
     }
     throw e;
   }
-  const dir = args.brainDir ?? join2(process.env.HOME ?? "", ".second-brain");
+  const dir = args.brainDir ?? join2(cleanEnvPath(process.env.HOME), ".second-brain");
   let file;
   try {
     file = assertWithin(dir, "projects", args.slug, "PROJECT.md");
@@ -27373,8 +27373,8 @@ var SOURCE_SECTION_HEADER = {
   decisions: "## Recent decisions"
 };
 async function archiveToWiki(args) {
-  const brainDir2 = args.brainDir ?? join3(process.env.HOME ?? "", ".second-brain");
-  const knowledgeDir = args.knowledgeDir ?? join3(process.env.HOME ?? "", "knowledge");
+  const brainDir2 = args.brainDir ?? join3(cleanEnvPath(process.env.HOME), ".second-brain");
+  const knowledgeDir = args.knowledgeDir ?? join3(cleanEnvPath(process.env.HOME), "knowledge");
   try {
     validateSlug(args.slug);
   } catch (e) {
@@ -31892,7 +31892,7 @@ async function recordSpend(brainDir2, usd) {
 import { promises as fs16 } from "fs";
 import { join as join14 } from "path";
 async function personaStats(args = {}) {
-  const dir = args.brainDir ?? join14(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  const dir = args.brainDir ?? join14(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
   let identity2 = "";
   let cardBytes = 0;
   try {
@@ -31964,7 +31964,7 @@ import { promises as fs17 } from "fs";
 import { join as join15 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
-  const dir = args.brainDir ?? join15(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+  const dir = args.brainDir ?? join15(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
   await fs17.mkdir(dir, { recursive: true }).catch(() => {
   });
   const file = join15(dir, ".persona-dismissals.jsonl");

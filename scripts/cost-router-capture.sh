@@ -65,26 +65,26 @@ fi
 _TOTAL=$(printf '%s\n' "$_WINDOW" | jq -s 'length' 2>/dev/null || echo 0)
 
 # Counts by tier — jq -rs slurps JSONL, extracts field, grep counts
-_DO_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].tier' 2>/dev/null | grep -c '^DO$' || true)
-_THINK_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].tier' 2>/dev/null | grep -c '^THINK$' || true)
-_SCOUT_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].tier' 2>/dev/null | grep -c '^SCOUT$' || true)
+_DO_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].tier' 2>/dev/null | tr -d '\r' | grep -c '^DO$' || true)
+_THINK_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].tier' 2>/dev/null | tr -d '\r' | grep -c '^THINK$' || true)
+_SCOUT_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].tier' 2>/dev/null | tr -d '\r' | grep -c '^SCOUT$' || true)
 
 # Escalation counts
-_ESCALATED=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].escalated' 2>/dev/null | grep -c '^true$' || true)
+_ESCALATED=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].escalated' 2>/dev/null | tr -d '\r' | grep -c '^true$' || true)
 _ESCALATE_RATE=$(awk -v e="$_ESCALATED" -v t="$_TOTAL" 'BEGIN {
   if (t > 0) printf "%.0f%%", (e / t) * 100
   else print "0%"
 }')
 
 # Outcome counts
-_OK_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].outcome' 2>/dev/null | grep -c '^ok$' || true)
+_OK_COUNT=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].outcome' 2>/dev/null | tr -d '\r' | grep -c '^ok$' || true)
 
 # Committed count
-_COMMITTED=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].committed' 2>/dev/null | grep -c '^true$' || true)
+_COMMITTED=$(printf '%s\n' "$_WINDOW" | jq -rs '.[].committed' 2>/dev/null | tr -d '\r' | grep -c '^true$' || true)
 
 # Timestamp range (first and last events in window)
-_FIRST_TS=$(printf '%s\n' "$_WINDOW" | jq -rs '.[0].ts // "unknown"' 2>/dev/null || echo "unknown")
-_LAST_TS=$(printf '%s\n' "$_WINDOW" | jq -rs '.[-1].ts // "unknown"' 2>/dev/null || echo "unknown")
+_FIRST_TS=$(printf '%s\n' "$_WINDOW" | jq -rs '.[0].ts // "unknown"' 2>/dev/null | tr -d '\r' || echo "unknown")
+_LAST_TS=$(printf '%s\n' "$_WINDOW" | jq -rs '.[-1].ts // "unknown"' 2>/dev/null | tr -d '\r' || echo "unknown")
 
 # Generated timestamp
 _GENERATED=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")

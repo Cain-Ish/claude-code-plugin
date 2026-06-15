@@ -17,7 +17,7 @@ set -u
 RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null)
+TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 [ -z "$TOOL" ] && exit 0
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
@@ -40,11 +40,11 @@ elif [ -f "$DEFAULT_RULES" ]; then
 fi
 [ -z "$RULES_FILE" ] && exit 0
 
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null)
-CWD=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null)
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
+CWD=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 [ -z "$CWD" ] && CWD="$PWD"
-CMD=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null)
-PATH_INPUT=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+CMD=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null | tr -d '\r')
+PATH_INPUT=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null | tr -d '\r')
 
 # --- v2.10.0 tool-scope guard (HarnessAudit sar_tool) --------------------
 # Ask before a tool is invoked when it's outside the declared allowlist.
@@ -55,7 +55,7 @@ PATH_INPUT=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/
 # Run BEFORE resource-scope: if the tool itself is off-limits, the path
 # check is moot. Kill switch: SB_TOOL_SCOPE=off.
 if [ "${SB_TOOL_SCOPE:-on}" != "off" ]; then
-  TS_ENABLED=$(jq -r '.tool_scope.enabled // false' "$RULES_FILE" 2>/dev/null)
+  TS_ENABLED=$(jq -r '.tool_scope.enabled // false' "$RULES_FILE" 2>/dev/null | tr -d '\r')
   if [ "$TS_ENABLED" = "true" ]; then
     in_tool_scope=0
     while IFS= read -r allowed_tool; do
@@ -87,7 +87,7 @@ fi
 # Run BEFORE rule iteration so an out-of-scope path is gated even when no
 # named rule matches it. Kill switch: SB_RESOURCE_SCOPE=off.
 if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ]; then
-  SCOPE_ENABLED=$(jq -r '.resource_scope.enabled // false' "$RULES_FILE" 2>/dev/null)
+  SCOPE_ENABLED=$(jq -r '.resource_scope.enabled // false' "$RULES_FILE" 2>/dev/null | tr -d '\r')
   if [ "$SCOPE_ENABLED" = "true" ]; then
     # Is this tool subject to scope checking?
     TOOL_IN_SCOPE_LIST=$(jq -r --arg t "$TOOL" \
@@ -144,10 +144,10 @@ while [ "$i" -lt "$MATCH_COUNT" ]; do
   rule=$(jq -c --arg t "$TOOL" --argjson i "$i" '[.rules[] | select(.tool == $t)] | .[$i]' "$RULES_FILE")
   i=$((i + 1))
 
-  match_cmd=$(printf '%s' "$rule" | jq -r '.match_command // empty')
-  match_path=$(printf '%s' "$rule" | jq -r '.match_path // empty')
-  action=$(printf '%s' "$rule" | jq -r '.action')
-  reason=$(printf '%s' "$rule" | jq -r '.reason')
+  match_cmd=$(printf '%s' "$rule" | jq -r '.match_command // empty' | tr -d '\r')
+  match_path=$(printf '%s' "$rule" | jq -r '.match_path // empty' | tr -d '\r')
+  action=$(printf '%s' "$rule" | jq -r '.action' | tr -d '\r')
+  reason=$(printf '%s' "$rule" | jq -r '.reason' | tr -d '\r')
 
   if [ -n "$match_cmd" ]; then
     [ -z "$CMD" ] && continue
@@ -158,12 +158,12 @@ while [ "$i" -lt "$MATCH_COUNT" ]; do
     if ! printf '%s' "$PATH_INPUT" | grep -qE "$match_path"; then continue; fi
   fi
 
-  rule_name=$(printf '%s' "$rule" | jq -r '.name // "anonymous"')
+  rule_name=$(printf '%s' "$rule" | jq -r '.name // "anonymous"' | tr -d '\r')
   target="${PATH_INPUT:-${CMD:0:200}}"
 
   case "$action" in
     rewrite)
-      replace=$(printf '%s' "$rule" | jq -r '.replace // ""')
+      replace=$(printf '%s' "$rule" | jq -r '.replace // ""' | tr -d '\r')
       # v2.10.0: use SOH (\x01) as the sed delimiter instead of `|`. The
       # old `s|$match_cmd|$replace|g` form errored ("unknown option to s")
       # whenever match_cmd contained a `|` — which is common for grouped

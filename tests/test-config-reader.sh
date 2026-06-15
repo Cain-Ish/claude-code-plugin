@@ -36,7 +36,7 @@ printf 'not json{{\n' > "$CF"
 [ "$(sb_config_get .auto_improve off)" = "off" ] && pass "malformed → get default" || fail "malformed get"
 [ "$(sb_config_bool .auto_improve off)" = "off" ] && pass "malformed → bool default" || fail "malformed bool"
 
-# 7. ensure-dirs seeds an automation-ON config.json (0.29.5: it's an automation plugin —
+# 7. ensure-dirs seeds an automation-ON config.json (0.30.0: it's an automation plugin —
 #    on by default so a fresh install self-maintains without the user remembering to opt in).
 B2=$(mktemp -d); BRAIN_DIR="$B2" bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
 [ -f "$B2/config.json" ] && pass "ensure-dirs seeds config.json" || fail "ensure-dirs did not seed config.json"

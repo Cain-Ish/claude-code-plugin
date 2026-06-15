@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
+import { assertWithin, validateSlug, PathGuardError, cleanEnvPath } from '../path-guard.js';
 
 export type PinSection = 'blockers' | 'decisions';
 export interface PinToProjectArgs { text: string; slug: string; section: PinSection; brainDir?: string; }
@@ -22,7 +22,7 @@ export async function pinToProject(args: PinToProjectArgs): Promise<PinToProject
     }
     throw e;
   }
-  const dir = args.brainDir ?? join(process.env.HOME ?? '', '.second-brain');
+  const dir = args.brainDir ?? join(cleanEnvPath(process.env.HOME), '.second-brain');
   let file: string;
   try {
     file = assertWithin(dir, 'projects', args.slug, 'PROJECT.md');

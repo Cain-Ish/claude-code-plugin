@@ -95,7 +95,7 @@ GRAD_COUNT=$(echo "$GRAD_CANDIDATES" | jq 'length')
 if [ "$GRAD_COUNT" -gt 0 ]; then
   GRADUATED_INDICES=""
   for i in $(seq 0 $((GRAD_COUNT - 1))); do
-    SIG_TEXT=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal")
+    SIG_TEXT=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal" | tr -d '\r')
     if sb_pin_to_user "$SIG_TEXT"; then
       GRADUATED_INDICES="$GRADUATED_INDICES $i"
     fi
@@ -103,7 +103,7 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
 
   if [ -n "$GRADUATED_INDICES" ]; then
     for i in $GRADUATED_INDICES; do
-      SIG_TEXT_LOWER=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal")
+      SIG_TEXT_LOWER=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal" | tr -d '\r')
       MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT_LOWER" '
         # Mirror the merge-step dedup: set-min denominator, 50% threshold,
         # 3-word floor on both sides. Without this mirror, a graduated signal

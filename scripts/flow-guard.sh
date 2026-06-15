@@ -32,7 +32,7 @@ RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null)
+TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 [ -z "$TOOL" ] && exit 0
 
 # Only outbound channels concern us.
@@ -41,7 +41,7 @@ case "$TOOL" in
   *) exit 0 ;;
 esac
 
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null)
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # Fail-soft on lib.sh source so the guard still emits its decision JSON
@@ -53,14 +53,14 @@ fi
 # Pull the haystack — tool-specific payload.
 case "$TOOL" in
   Bash)
-    HAYSTACK=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null)
+    HAYSTACK=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null | tr -d '\r')
     ;;
   WebFetch)
     HAYSTACK=$(printf '%s' "$RAW" \
       | jq -r '[.tool_input.url // "", .tool_input.prompt // ""] | join(" ")' 2>/dev/null)
     ;;
   WebSearch)
-    HAYSTACK=$(printf '%s' "$RAW" | jq -r '.tool_input.query // empty' 2>/dev/null)
+    HAYSTACK=$(printf '%s' "$RAW" | jq -r '.tool_input.query // empty' 2>/dev/null | tr -d '\r')
     ;;
 esac
 [ -z "$HAYSTACK" ] && exit 0

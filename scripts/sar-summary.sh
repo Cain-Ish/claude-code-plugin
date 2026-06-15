@@ -27,7 +27,7 @@ RAW=$(cat 2>/dev/null || true)
 # Bail if stdin isn't a JSON object (fail-soft on malformed input).
 echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null)
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
 [ -z "$SESSION_ID" ] && exit 0
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"

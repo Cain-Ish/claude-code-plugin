@@ -26,11 +26,11 @@ RAW=$(cat 2>/dev/null || true)
 [ -n "$RAW" ] || exit 0
 echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
-TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null)
-AGENT_TYPE=$(echo "$RAW" | jq -r '.agent_type // empty' 2>/dev/null)
-AGENT_ID=$(echo "$RAW"   | jq -r '.agent_id // empty' 2>/dev/null)
-SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null)
-CWD=$(echo "$RAW"        | jq -r '.cwd // empty' 2>/dev/null)
+TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
+AGENT_TYPE=$(echo "$RAW" | jq -r '.agent_type // empty' 2>/dev/null | tr -d '\r')
+AGENT_ID=$(echo "$RAW"   | jq -r '.agent_id // empty' 2>/dev/null | tr -d '\r')
+SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
+CWD=$(echo "$RAW"        | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 
 # Need a readable transcript to capture anything.
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
@@ -62,7 +62,7 @@ MIN="${SB_SUBAGENT_MIN_RESULT:-80}"
 # other trailing tool_use (cleanup, TodoWrite) still has its last prose result
 # archived (deep-review: keying on ANY tool_use dropped those).
 FINAL_CONTENT=$(jq -c 'select(.type == "assistant") | .message.content' "$TRANSCRIPT" 2>/dev/null | tail -1)
-FINAL_SO=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "tool_use") | select(.name == "StructuredOutput")] | length' 2>/dev/null)
+FINAL_SO=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "tool_use") | select(.name == "StructuredOutput")] | length' 2>/dev/null | tr -d '\r')
 FINAL_TEXT_LEN=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "text") | .text] | join("")' 2>/dev/null | tr -d '[:space:]' | wc -c | tr -d ' ')
 if [ "${FINAL_SO:-0}" -ge 1 ] && [ "${FINAL_TEXT_LEN:-0}" -lt "$MIN" ]; then
   exit 0
