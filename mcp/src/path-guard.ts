@@ -85,6 +85,21 @@ export function assertWithin(baseDir: string, ...parts: string[]): string {
  *
  * Allowed: [a-zA-Z0-9._-], length 1–128, no leading dot.
  */
+/**
+ * Strip carriage-returns / line-feeds from an env-var-derived path string.
+ *
+ * Cross-OS hardening (0.30.0): on Windows a CRLF-tainted env value — CLAUDE_PLUGIN_ROOT,
+ * HOME, KNOWLEDGE_DIR, BRAIN_DIR, a PATH segment — carries a trailing/embedded `\r` when the
+ * env is piped through a CRLF file / registry / wrapper. A path `"x\r"` does not exist, so
+ * BOTH `fs.stat`/`readFile` AND `bash <path>` fail with a misleading ENOENT / "No such file or
+ * directory" on a file that is plainly present on disk (the confirmed dream_create signature).
+ * `path.join`/`normalize` do NOT strip it. So sanitize at every env-path read. No-op on clean
+ * POSIX input (no CR present). Returns '' for null/undefined so callers can `?? ''`-chain safely.
+ */
+export function cleanEnvPath(s: string | undefined | null): string {
+  return (s ?? '').replace(/[\r\n]/g, '');
+}
+
 export function validateSlug(slug: string): void {
   if (typeof slug !== 'string') {
     throw new PathGuardError('slug must be a string', '', String(slug));

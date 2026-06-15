@@ -6069,6 +6069,11 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
+// src/path-guard.ts
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+
 // src/tools/doc-sources.ts
 function hashContent(content) {
   return createHash("sha256").update(content).digest("hex");
@@ -6103,6 +6108,7 @@ async function readConfig(brainDir, slug) {
   }
 }
 function filterIgnored(projectRoot, absPaths) {
+  projectRoot = cleanEnvPath(projectRoot);
   const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split(/[\\/]+/).some((seg) => JUNK_DIRS.has(seg)));
   if (nonJunk.length === 0) return [];
   const rels = nonJunk.map((p) => relative(projectRoot, p));
@@ -6114,6 +6120,7 @@ function filterIgnored(projectRoot, absPaths) {
   return nonJunk;
 }
 async function scanLocations(projectRoot, locations) {
+  projectRoot = cleanEnvPath(projectRoot);
   const seen = /* @__PURE__ */ new Set();
   const absPaths = [];
   const rootResolved = resolve(projectRoot);
@@ -6170,7 +6177,7 @@ async function buildRegistry(projectRoot, brainDir, slug) {
 
 // src/tools/doc-sources-cli.ts
 async function main() {
-  const brainDir = process.env.BRAIN_DIR || join2(homedir(), ".second-brain");
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join2(homedir(), ".second-brain");
   const projectRoot = process.argv[2] || process.cwd();
   const slug = process.argv[3];
   if (!slug) {

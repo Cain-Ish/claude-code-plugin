@@ -6071,6 +6071,11 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
+// src/path-guard.ts
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+
 // src/tools/doc-sources.ts
 function hashContent(content) {
   return createHash("sha256").update(content).digest("hex");
@@ -6314,7 +6319,7 @@ import { basename as basename2, join as join2 } from "path";
 import { readFileSync, existsSync } from "fs";
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
-  const base = basename2(dir);
+  const base = basename2(cleanEnvPath(dir));
   if (!base || base === "/" || base === "." || base === "..") return void 0;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;
@@ -6344,7 +6349,7 @@ function takeNode(args) {
   return { rest: args };
 }
 async function main() {
-  const brainDir = process.env.BRAIN_DIR || join3(homedir(), ".second-brain");
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join3(homedir(), ".second-brain");
   const slug = resolveSlug(brainDir);
   if (!slug) {
     console.log("capture: could not resolve the active project (no slug). cd into a project.");

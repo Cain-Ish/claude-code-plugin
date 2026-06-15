@@ -46,6 +46,13 @@ r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; sb_slug_from_dir /ho
 [ "$r" = "my-app" ] || fail "real project basename mangled (got '$r')"
 pass "sb_slug_from_dir normalizes tmp-like dirs, preserves real names"
 
+# 3b. 0.30.0 cross-OS: a CRLF-tainted CLAUDE_PROJECT_DIR must NOT leak a trailing \r into the
+# slug (else a ghost project dir + split-brain vs the clean-slug pins/markers, and divergence
+# from the MCP slugFromProjectDir which also CR-strips). printf %b to inject a real CR.
+r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; sb_slug_from_dir \"\$(printf '%b' '/home/u/Projects/my-app\r')\"")
+[ "$r" = "my-app" ] || fail "sb_slug_from_dir leaked a CR into the slug (got $(printf '%q' "$r"))"
+pass "sb_slug_from_dir strips a trailing CR (no ghost 'my-app\\r' project on Windows)"
+
 # 4. session-load.sh writes the pin from the project dir (not a stale value)
 SB2="$TMP/.sb2"; mkdir -p "$SB2/projects"
 printf 'cainish' > "$SB2/.active-session-slug"

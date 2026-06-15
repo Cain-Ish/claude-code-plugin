@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import { atomicWriteJson } from './atomic-write.js';
+import { cleanEnvPath } from '../path-guard.js';
 import { join, basename } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -7,7 +8,7 @@ import { promisify } from "util";
 const exec = promisify(execFile);
 
 function brainDir(): string {
-  return join(process.env.HOME ?? "", ".second-brain");
+  return join(cleanEnvPath(process.env.HOME), ".second-brain");
 }
 
 function dreamsDir(): string {
@@ -16,7 +17,7 @@ function dreamsDir(): string {
 
 function scriptsDir(): string {
   return join(
-    process.env.CLAUDE_PLUGIN_ROOT ?? join(__dirname, "..", ".."),
+    cleanEnvPath(process.env.CLAUDE_PLUGIN_ROOT) || join(__dirname, "..", ".."),
     "scripts"
   );
 }
@@ -27,19 +28,24 @@ function scriptsDir(): string {
  *  bash opens `/c/Users/x/...`, so map backslashes→slashes and `C:/`→`/c/`. No-op on POSIX
  *  (no backslashes, no drive letter). Exported for tests. */
 export function toBashPath(p: string): string {
-  let s = p.replace(/\\/g, "/");
+  // cleanEnvPath strips any CR/LF FIRST: a CRLF-tainted CLAUDE_PLUGIN_ROOT leaves a `\r`
+  // in the joined path, and bash rejects "dream-snapshot.sh\r" with "No such file or
+  // directory" on a script that exists (the confirmed Windows dream_create failure).
+  let s = cleanEnvPath(p).replace(/\\/g, "/");
   const drive = s.match(/^([A-Za-z]):\//);
   if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
   return s;
 }
 
 function resolveKnowledgeDir(): string {
-  const raw =
-    process.env.KNOWLEDGE_DIR ?? process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR;
+  const raw = cleanEnvPath(
+    process.env.KNOWLEDGE_DIR ?? process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
+  );
+  const home = cleanEnvPath(process.env.HOME);
   if (raw && raw.trim() && !raw.includes("${")) {
-    return raw.startsWith("~") ? join(process.env.HOME ?? "", raw.slice(1)) : raw;
+    return raw.startsWith("~") ? join(home, raw.slice(1)) : raw;
   }
-  return join(process.env.HOME ?? "", "knowledge");
+  return join(home, "knowledge");
 }
 
 interface DreamStatus {

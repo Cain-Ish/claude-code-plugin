@@ -63,4 +63,16 @@ printf '%s' "$OUT" | grep -q 'WIKIENRICH_SENTINEL' \
   || fail "wiki-enrichment did not fire — PROJ_KW harvest is empty (awk range-collapse?); session starts without project wiki recall"
 pass "PROJECT.md harvest is non-empty → wiki-enrichment invokes the search CLI (sentinel present)"
 
+# 0.30.0 cross-OS: a CRLF PROJECT.md (Windows / imported) must NOT defeat the harvest. Every
+# `/^## Section$/` awk reader fails on `## Section\r`, so without the CR-normalization the harvest
+# is empty and the enrichment never fires — even though the same content works in LF above.
+sed 's/$/\r/' "$B/projects/$SLUG/PROJECT.md" > "$B/projects/$SLUG/PROJECT.md.crlf" && mv "$B/projects/$SLUG/PROJECT.md.crlf" "$B/projects/$SLUG/PROJECT.md"
+grep -q $'\r' "$B/projects/$SLUG/PROJECT.md" || fail "test setup: PROJECT.md is not actually CRLF"
+OUT_CRLF=$(printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
+  | env PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$PROJDIR" BRAIN_DIR="$B" \
+        KNOWLEDGE_DIR="$B/knowledge" ANTHROPIC_API_KEY="" bash "$SL" 2>/dev/null)
+printf '%s' "$OUT_CRLF" | grep -q 'WIKIENRICH_SENTINEL' \
+  || fail "CRLF PROJECT.md defeated the harvest — session-load did not CR-normalize before the awk readers"
+pass "CRLF PROJECT.md still harvests (session-load normalizes \\r before the awk readers)"
+
 rm -rf "$B" "$PROJDIR" "$STUB"; echo; echo "ALL PASS"

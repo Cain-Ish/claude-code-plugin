@@ -73,7 +73,11 @@ CHANGED=0
 
 TMP_OUT=$(mktemp)
 trap 'rm -f "$TMP_OUT"' EXIT
-cp "$PROJECT_MD" "$TMP_OUT"
+# tr -d '\r' (not cp): normalize CRLF at ingest so every downstream awk/grep reader sees LF.
+# A CRLF PROJECT.md (Windows/imported) otherwise silently no-ops the ENTIRE merge — section
+# headers like `## Recent decisions` never match `/^## .../`, so decisions/blockers/plan are
+# never written and dedup never fires. The merge writes TMP_OUT back, so this also LF-normalizes.
+tr -d '\r' < "$PROJECT_MD" > "$TMP_OUT"
 
 # Archive a dropped decision bullet to the wiki decisions log.
 archive_dropped_decision() {

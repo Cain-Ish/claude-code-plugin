@@ -14,8 +14,9 @@ seed(){ rm -f "$RAW"/*.md; local i; for i in $(seq 1 "$1"); do printf -- '---\ns
 emit(){ local cfg="$1"; shift; [ -n "$cfg" ] && printf '%s' "$cfg" > "$B/config.json" || rm -f "$B/config.json"
         ( cd "$WORK" && env BRAIN_DIR="$B" SB_NUDGE_RAW_THRESHOLD=5 "$@" bash "$SL" 2>/dev/null ); }
 
-# 1. auto OFF + 6 raw (>= thresh 5) → the NUDGE, mutually exclusive with the plain banner
-seed 6; out=$(emit "")
+# 1. auto OFF (EXPLICIT — 0.29.5 made absent default to ON) + 6 raw (>= thresh 5) → the
+#    NUDGE, mutually exclusive with the plain banner
+seed 6; out=$(emit '{"auto_improve": false}')
 echo "$out" | grep -q 'auto-consolidation is off' || fail "nudge did not fire (auto off + 6 raw). got: $(echo "$out" | grep -i 'raw\|consolidat' | head -c 160)"
 echo "$out" | grep -q 'raw inbox —' && fail "plain raw-inbox banner ALSO fired (not mutually exclusive)" || pass "auto off + overdue → nudge only"
 { echo "$out" | grep -q 'auto_improve: true' && echo "$out" | grep -q '/second-brain:maintain'; } && pass "nudge offers both remedies" || fail "nudge missing a remedy"

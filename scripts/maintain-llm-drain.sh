@@ -8,7 +8,8 @@
 # dream's dir writable (live wiki + everything else read-only), so it physically cannot write live.
 #
 # Gated — airtight or not at all (capture ≠ consolidation ≠ LLM-authoring consent):
-#   1. config.json `auto_maintain: true`   — the C-specific opt-in (default false; ≠ auto_improve)
+#   1. config.json `auto_maintain: true`   — default TRUE since 0.29.5 (≠ auto_improve). It still
+#      only runs where guard #3 (bwrap) holds, so on macOS/Windows/bwrap-less Linux it is a no-op.
 #   2. the drainer's CLAUDECODE-refuse / interactive-defer / single-flight guards (via extract-drain)
 #   3. `claude` AND `bwrap` both present    — else SKIP; NEVER run the bypassPermissions agent unconfined
 #   4. no unreviewed dream already pending  — don't stack work the user hasn't looked at
@@ -22,7 +23,7 @@ SDIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$SDIR/lib.sh"
 
-[ "$(sb_config_bool .auto_maintain off)" = "on" ] || exit 0      # the C opt-in (default off)
+[ "$(sb_config_bool .auto_maintain on)" = "on" ] || exit 0      # default on (0.29.5); guards 2-4 + bwrap still apply
 # Defense in depth: never spawn `claude -p` from inside a live session (the recursive-claude
 # OAuth lock → hang). extract-drain.sh already refuses on CLAUDECODE, but guard here too in case
 # this is ever run standalone. SB_MAINTAIN_LLM_FORCE=1 bypasses for tests.
@@ -189,7 +190,7 @@ fi   # close the DRYRUN-vs-real-run branch (DRYRUN simulates completion + falls 
 #    (out-of-tree-symlink reject + staging node-shape + rsync + reindex). On any
 #    failure it logs and leaves the dream for manual review — fail-safe, never
 #    fail-destructive.
-AA_MODE=$(sb_config_get .auto_accept off)
+AA_MODE=$(sb_config_get .auto_accept safe)
 ASF="$DREAM_DIR/status.json"
 AA_FORGET=0; [ -s "$DREAM_DIR/forget-manifest.tsv" ] && AA_FORGET=1
 AA_DECISION=$(sb_auto_accept_decision "$AA_MODE" \

@@ -6070,6 +6070,13 @@ glob.glob = glob;
 import { createHash } from "crypto";
 import { join, relative, resolve, sep as sep2 } from "path";
 import { spawnSync } from "child_process";
+
+// src/path-guard.ts
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+
+// src/tools/doc-sources.ts
 function hashContent(content) {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -6080,6 +6087,7 @@ function assertSafeSlug(slug) {
   }
 }
 function filterIgnored(projectRoot, absPaths) {
+  projectRoot = cleanEnvPath(projectRoot);
   const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split(/[\\/]+/).some((seg) => JUNK_DIRS.has(seg)));
   if (nonJunk.length === 0) return [];
   const rels = nonJunk.map((p) => relative(projectRoot, p));
@@ -6337,7 +6345,7 @@ import { basename as basename2, join as join3 } from "path";
 import { readFileSync, existsSync } from "fs";
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
-  const base = basename2(dir);
+  const base = basename2(cleanEnvPath(dir));
   if (!base || base === "/" || base === "." || base === "..") return void 0;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;
@@ -6362,7 +6370,7 @@ function resolveSlug(brainDir) {
   return process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
 }
 async function main() {
-  const brainDir = process.env.BRAIN_DIR || join4(homedir(), ".second-brain");
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join4(homedir(), ".second-brain");
   const projectRoot = process.env.SCAN_ROOT || process.cwd();
   const slug = resolveSlug(brainDir);
   if (!slug) {

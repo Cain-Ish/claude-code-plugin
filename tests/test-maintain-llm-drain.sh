@@ -37,9 +37,12 @@ printf '#!/bin/bash\nexit 0\n' > "$BIN/bwrap"; chmod +x "$BIN/bwrap"
 export PATH="$BIN:$PATH"   # stub claude+bwrap (DRYRUN exits before invoking them anyway)
 ndreams(){ find "$B/dreams" -maxdepth 1 -type d -name 'drm_*' 2>/dev/null | wc -l | tr -d ' '; }
 
-# 1. auto_maintain OFF (no config) → no run, no marker, no dream
+# 1. auto_maintain OFF (EXPLICIT — 0.29.5 made absent default to ON, so the off path
+#    must now be opted out explicitly) → no run, no marker, no dream
+printf '{"auto_maintain": false}\n' > "$B/config.json"
 bash "$SCRIPT" >/dev/null 2>&1 || true
 { [ ! -f "$B/.last-llm-maintain" ] && [ "$(ndreams)" = "0" ]; } && pass "auto_maintain off → no run" || fail "ran while off"
+rm -f "$B/config.json"
 
 # 2. auto_maintain ON + fresh throttle marker → skip (no new dream)
 printf '{"auto_maintain": true}\n' > "$B/config.json"
@@ -70,9 +73,15 @@ PB=$(echo "$OUT" | sed -n 's/.*prompt_bytes=\([0-9]*\).*/\1/p'); [ "${PB:-0}" -g
 aa_run(){ printf '{"auto_maintain": true%s}\n' "$1" > "$B/config.json"; rm -rf "$B/dreams"; seed_tx 3; seed_tx 4
   SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" 2>&1 || true; }
 
-# 5a — DEFAULT (no auto_accept key) → NEVER auto-accepts (marketplace-safe default)
+# 5a — DEFAULT (no auto_accept key) → "safe" since 0.29.5 (on by default) → auto-accepts a
+#       CLEAN (no-forget) dream. The manual-review default moved to an explicit opt-out (5a-off).
 OUT=$(aa_run "")
-echo "$OUT" | grep -q 'auto-accept' && fail "5a: default config auto-accepted (must be off)" || pass "5a: default (no auto_accept) leaves the dream for review"
+echo "$OUT" | grep -qE 'DRYRUN auto-accept=safe dream=drm_.*forget=0' \
+  && pass "5a: default (no auto_accept key) behaves as safe — auto-accepts a clean dream (0.29.5)" \
+  || fail "5a: default did not behave as auto_accept=safe (got: $(echo "$OUT" | grep -i auto-accept | head -c 120))"
+# 5a-off — EXPLICIT auto_accept:"off" → never auto-accepts (the manual-review opt-out)
+OUT=$(aa_run ', "auto_accept": "off"')
+echo "$OUT" | grep -q 'auto-accept' && fail "5a-off: explicit off auto-accepted (must not)" || pass "5a-off: explicit off leaves the dream for review"
 
 # 5b — auto_accept:"all" → applies the dream (DRYRUN decision line, forget flag present)
 OUT=$(aa_run ', "auto_accept": "all"')

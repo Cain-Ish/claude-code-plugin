@@ -27293,6 +27293,9 @@ function assertWithin(baseDir, ...parts) {
   }
   return candidateResolved;
 }
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
 function validateSlug(slug) {
   if (typeof slug !== "string") {
     throw new PathGuardError("slug must be a string", "", String(slug));
@@ -31317,19 +31320,19 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 var exec = promisify(execFile);
 function brainDir() {
-  return join11(process.env.HOME ?? "", ".second-brain");
+  return join11(cleanEnvPath(process.env.HOME), ".second-brain");
 }
 function dreamsDir() {
   return join11(brainDir(), "dreams");
 }
 function scriptsDir() {
   return join11(
-    process.env.CLAUDE_PLUGIN_ROOT ?? join11(__dirname, "..", ".."),
+    cleanEnvPath(process.env.CLAUDE_PLUGIN_ROOT) || join11(__dirname, "..", ".."),
     "scripts"
   );
 }
 function toBashPath(p) {
-  let s = p.replace(/\\/g, "/");
+  let s = cleanEnvPath(p).replace(/\\/g, "/");
   const drive = s.match(/^([A-Za-z]):\//);
   if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
   return s;
@@ -32067,7 +32070,7 @@ import { basename as basename4, join as join18 } from "path";
 import { readFileSync, existsSync } from "fs";
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
-  const base = basename4(dir);
+  const base = basename4(cleanEnvPath(dir));
   if (!base || base === "/" || base === "." || base === "..") return void 0;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;
@@ -32090,8 +32093,8 @@ function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
 // src/server.ts
 function resolveKnowledgeDir() {
   const candidates = [
-    process.env.KNOWLEDGE_DIR,
-    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
+    cleanEnvPath(process.env.KNOWLEDGE_DIR),
+    cleanEnvPath(process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR)
   ];
   for (const raw of candidates) {
     if (raw && raw.trim() && !raw.includes("${")) {
@@ -32101,12 +32104,12 @@ function resolveKnowledgeDir() {
   return path2.join(os.homedir(), "knowledge");
 }
 var KNOWLEDGE_DIR = resolveKnowledgeDir();
-var BRAIN_DIR = process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR ?? path2.join(os.homedir(), ".second-brain");
+var BRAIN_DIR = cleanEnvPath(process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR) || path2.join(os.homedir(), ".second-brain");
 function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.7.7" },
+  { name: "knowledge-base", version: "2.8.0" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."

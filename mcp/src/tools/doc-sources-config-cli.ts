@@ -3,6 +3,7 @@ import { join, basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { addLocation, removeLocation, listLocations } from './doc-sources.js';
 import { resolveActiveSlug } from './project-dir.js';
+import { cleanEnvPath } from '../path-guard.js';
 
 function resolveSlug(brainDir: string): string | undefined {
   // The shared resolver: CLAUDE_PROJECT_DIR > cwd-if-known-project > pin > cwd.
@@ -10,7 +11,7 @@ function resolveSlug(brainDir: string): string | undefined {
 }
 
 async function main(): Promise<void> {
-  const brainDir = process.env.BRAIN_DIR || join(homedir(), '.second-brain');
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join(homedir(), '.second-brain');
   const action = process.argv[2];
   const location = process.argv[3];
   const slug = resolveSlug(brainDir);
