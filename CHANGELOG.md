@@ -4,10 +4,10 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
-## 0.30.0
+## 0.30.1
 
-Two themes: **automation on by default** + **cross-OS (Windows/macOS) hardening** from an
-adversarial audit + a deep review. MCP 2.8.0.
+**Completes the cross-OS work that 0.30.0 shipped without** (a PR-merge race landed 0.30.0
+one commit short). MCP 2.8.1.
 
 ### Windows jq CRLF — the systemic faucet
 The Windows (Git-Bash) `jq` build emits **CRLF in `-r` output even when the input is clean LF**,
@@ -24,7 +24,7 @@ user-reported "error from version 0.30" was this in the validator's version-drif
 - New `test-jq-crlf-windows.sh` reproduces Windows jq with a stub and runs the REAL validator /
   config reader / cost-router under it (we can't run Windows in CI) — discriminating.
 
-### Deep-review fixes (the review found real gaps in this change)
+### Deep-review fixes (the review found real gaps in 0.30.0)
 - **5 MCP write/stat handlers** (`pin_to_user`, `pin_to_project`, `archive_to_wiki`,
   `persona_stats`, `persona_dismiss`) fell back to an **uncleaned `HOME`** — under a CRLF-tainted
   HOME that silently wrote to a phantom `…\r/.second-brain` tree on POSIX (invisible data loss) /
@@ -32,7 +32,10 @@ user-reported "error from version 0.30" was this in the validator's version-drif
 - `discover-installed.sh` frontmatter `awk '/^---$/'` → `/^---[[:space:]]*$/` (a CRLF `.md`
   fence never toggled). `session-load.sh` cleans up the CRLF-normalized temp copy (no leak).
 
+## 0.30.0
 
+Two themes: **automation on by default** + **cross-OS (Windows/macOS) hardening** from an
+adversarial audit. MCP 2.8.0.
 
 ### Automation is ON by default
 It's an automation plugin — a fresh install should self-maintain without the operator
