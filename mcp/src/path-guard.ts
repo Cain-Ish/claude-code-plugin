@@ -52,7 +52,16 @@ function realResolve(p: string): string {
     // realpathSync("C:\\") correctly yields the drive root ("C:\\"); strip the
     // trailing separator so the drive-root case below appends a single sep and
     // never produces a doubled separator ("C:\\\\Users") in the lexical tail.
-    current = realpathSync(segments[0] + sep).replace(new RegExp(`\\${sep}+$`), '');
+    try {
+      current = realpathSync(segments[0] + sep).replace(new RegExp(`\\${sep}+$`), '');
+    } catch {
+      // Missing/inaccessible drive root (unmapped/stale drive, transient root
+      // I/O error): degrade to the lexical drive letter — like the per-segment
+      // catch below — so realResolve still RETURNS rather than throwing a raw
+      // Error. Preserves the no-throw / PathGuardError-only contract callers
+      // rely on (they catch `e instanceof PathGuardError`).
+      current = segments[0];
+    }
     start = 1;
   }
   for (let i = start; i < segments.length; i++) {

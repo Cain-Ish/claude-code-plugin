@@ -24,7 +24,11 @@ function realResolve(p) {
   const segments = p.split(sep);
   let start = 0;
   if (/^[A-Za-z]:$/.test(segments[0])) {
-    current = realpathSync(segments[0] + sep).replace(new RegExp(`\\${sep}+$`), "");
+    try {
+      current = realpathSync(segments[0] + sep).replace(new RegExp(`\\${sep}+$`), "");
+    } catch {
+      current = segments[0];
+    }
     start = 1;
   }
   for (let i = start; i < segments.length; i++) {
