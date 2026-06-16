@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { join } from 'path';
+import { join, relative, isAbsolute } from 'path';
 import { glob, escape } from 'glob';
 import { parseDoc } from './knowledge-search.js';
 import { aiBlockSnippet } from './ai-block.js';
@@ -65,7 +65,12 @@ export async function knowledgeFetch(args: KnowledgeFetchArgs): Promise<Knowledg
   // the wiki tree could contain symlinks pointing outside wikiRoot. Reject
   // any match whose realpath escapes.
   const filePath = matches.find((p) => {
-    try { assertWithin(wikiRoot, p.startsWith(wikiRoot + '/') ? p.slice(wikiRoot.length + 1) : p); return true; }
+    try {
+      const rel = relative(wikiRoot, p);
+      const inside = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+      assertWithin(wikiRoot, inside ? rel : p);
+      return true;
+    }
     catch { return false; }
   }) ?? null;
   if (!filePath) {

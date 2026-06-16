@@ -22,8 +22,13 @@ var PathGuardError = class extends Error {
 function realResolve(p) {
   let current = "";
   const segments = p.split(sep);
-  for (let i = 0; i < segments.length; i++) {
-    const next = current === "" && segments[i] === "" ? sep : current === sep ? sep + segments[i] : current === "" ? segments[i] : current + sep + segments[i];
+  let start = 0;
+  if (/^[A-Za-z]:$/.test(segments[0])) {
+    current = realpathSync(segments[0] + sep).replace(new RegExp(`\\${sep}+$`), "");
+    start = 1;
+  }
+  for (let i = start; i < segments.length; i++) {
+    const next = current === "" && segments[i] === "" ? sep : current === sep ? sep + segments[i] : /^[A-Za-z]:$/.test(current) ? current + sep + segments[i] : current === "" ? segments[i] : current + sep + segments[i];
     try {
       current = realpathSync(next);
     } catch {
@@ -6843,7 +6848,7 @@ function isDateToken(t) {
   return DATE_TOKEN_RE.test(t);
 }
 function slugFromPath(p) {
-  return p.replace(/.*\//, "").replace(/\.md$/, "");
+  return p.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
 }
 async function collectMarkdown(dir, acc = []) {
   for (const e of await fs5.readdir(dir, { withFileTypes: true })) {

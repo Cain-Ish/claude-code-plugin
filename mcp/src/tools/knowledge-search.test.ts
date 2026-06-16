@@ -33,7 +33,7 @@ async function wiki(): Promise<string> {
 }
 
 function slugs(r: { candidates: { path: string }[] }): string[] {
-  return r.candidates.map(c => c.path.replace(/.*\//, '').replace(/\.md$/, ''));
+  return r.candidates.map(c => c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, ''));
 }
 
 describe('knowledge_search back-compat (no graph dir)', () => {

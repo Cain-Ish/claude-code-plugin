@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { join, relative } from 'path';
+import { basename, join, relative } from 'path';
 import { parseDoc } from './knowledge-search.js';
 import { knowledgeValidate, ValidationIssue } from './knowledge-validate.js';
 import { projectGraphToPages } from './graph-project.js';
@@ -41,7 +41,7 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
 
     const entries: { slug: string; description: string }[] = [];
     for (const filePath of files.sort()) {
-      const slug = filePath.split('/').pop()!.replace(/\.md$/, '');
+      const slug = basename(filePath).replace(/\.md$/, '');
       try {
         const content = await fs.readFile(filePath, 'utf-8');
         const doc = parseDoc(content, filePath);

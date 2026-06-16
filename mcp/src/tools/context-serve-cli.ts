@@ -30,7 +30,7 @@ try {
   const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
   const top = result.candidates.filter(c => c.score >= minScore).slice(0, 2);
   for (const c of top) {
-    const slug = c.path.replace(/.*\//, '').replace(/\.md$/, '');
+    const slug = c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
     wikiLines.push(`### [[${slug}]]${c.description ? ' — ' + c.description : ''}`);
   }
 } catch { /* fail-open: empty wiki section */ }

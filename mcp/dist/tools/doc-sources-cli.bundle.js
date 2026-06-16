@@ -6111,7 +6111,7 @@ function filterIgnored(projectRoot, absPaths) {
   projectRoot = cleanEnvPath(projectRoot);
   const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split(/[\\/]+/).some((seg) => JUNK_DIRS.has(seg)));
   if (nonJunk.length === 0) return [];
-  const rels = nonJunk.map((p) => relative(projectRoot, p));
+  const rels = nonJunk.map((p) => relative(projectRoot, p).split(/[\\/]+/).join("/"));
   const res = spawnSync("git", ["-C", projectRoot, "check-ignore", "--stdin"], { input: rels.join("\n"), encoding: "utf-8" });
   if (res.status === 0 || res.status === 1) {
     const ignored = new Set((res.stdout || "").split("\n").filter(Boolean).map((r) => join(projectRoot, r)));
@@ -6146,7 +6146,7 @@ async function scanLocations(projectRoot, locations) {
       entries.push({
         id: hash.slice(0, 12),
         path: p,
-        rel: relative(projectRoot, p),
+        rel: relative(projectRoot, p).split(/[\\/]+/).join("/"),
         gist: extractGist(content),
         headings: extractHeadings(content),
         hash,

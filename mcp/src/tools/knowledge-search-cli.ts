@@ -23,6 +23,6 @@ const top = result.candidates
 if (top.length === 0) { process.exit(0); }
 
 for (const c of top) {
-  const slug = c.path.replace(/.*\//, '').replace(/\.md$/, '');
+  const slug = c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
   console.log(`### [[${slug}]]${c.description ? ' — ' + c.description : ''}`);
 }

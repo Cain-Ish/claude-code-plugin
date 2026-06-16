@@ -6769,7 +6769,7 @@ function isDateToken(t) {
   return DATE_TOKEN_RE.test(t);
 }
 function slugFromPath(p) {
-  return p.replace(/.*\//, "").replace(/\.md$/, "");
+  return p.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
 }
 async function collectMarkdown(dir, acc = []) {
   for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
@@ -6795,6 +6795,6 @@ if (top.length === 0) {
   process.exit(0);
 }
 for (const c of top) {
-  const slug = c.path.replace(/.*\//, "").replace(/\.md$/, "");
+  const slug = c.path.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
   console.log(`### [[${slug}]]${c.description ? " \u2014 " + c.description : ""}`);
 }

@@ -13,7 +13,7 @@ const TYPE_LABEL: Record<EdgeType, string> = {
 };
 const TYPE_ORDER: EdgeType[] = ['requires', 'affects', 'part_of', 'supersedes', 'relates'];
 
-function slugFromPath(p: string): string { return p.replace(/.*\//, '').replace(/\.md$/, ''); }
+function slugFromPath(p: string): string { return p.replace(/^.*[\\/]/, '').replace(/\.md$/, ''); }
 function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /** Regenerate related: frontmatter + the ## Dependencies block on every page,
