@@ -27231,7 +27231,11 @@ function realResolve(p) {
   const segments = p.split(sep2);
   let start = 0;
   if (/^[A-Za-z]:$/.test(segments[0])) {
-    current = realpathSync2(segments[0] + sep2).replace(new RegExp(`\\${sep2}+$`), "");
+    try {
+      current = realpathSync2(segments[0] + sep2).replace(new RegExp(`\\${sep2}+$`), "");
+    } catch {
+      current = segments[0];
+    }
     start = 1;
   }
   for (let i = start; i < segments.length; i++) {

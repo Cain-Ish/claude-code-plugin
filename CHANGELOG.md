@@ -25,6 +25,14 @@ stale → they agree → pass). Fixed here:
   the base's. Wired into CI with `fetch-depth: 0` so `origin/main` resolves. Closes the "shipped
   without a bump" class the existing tests miss.
 
+### Deep-review fix (path-guard exception contract)
+The release deep-review caught a regression #79 introduced: `realResolve`'s new Windows drive-root
+seed (`realpathSync(driveLetter + sep)`) was the only `realpathSync` in the function **not** wrapped
+in a try/catch. On Windows with a missing/unmapped drive root it threw a raw `ENOENT` instead of
+degrading to a lexical path — leaking a raw `Error` past the helper's documented "returns, or throws
+`PathGuardError`" contract (callers gate on `e instanceof PathGuardError`). Now wrapped in the same
+lexical fallback the per-segment walk uses. POSIX-unaffected (the branch is dead code there).
+
 ### Node 20 → 22 (LTS)
 Node 20 ("Iron") reached end-of-life 2026-04-30. The esbuild bundle `--target` was still
 `node20` — actually *behind* the `node 22` CI already runs on. Bumped all 16 bundle targets (+ the
