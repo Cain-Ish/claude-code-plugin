@@ -41,8 +41,31 @@ function realResolve(p: string): string {
   let current = '';
   const segments = p.split(sep);
   // First segment may be '' (Unix absolute path starting with /).
-  for (let i = 0; i < segments.length; i++) {
-    const next = current === '' && segments[i] === '' ? sep : current === sep ? sep + segments[i] : current === '' ? segments[i] : current + sep + segments[i];
+  // On Windows the first segment of an absolute path is a bare drive letter
+  // ("C:"). realpathSync("C:") resolves the DRIVE-RELATIVE cwd (e.g. the
+  // process working dir on C:), NOT the drive root "C:\\" — a phantom path
+  // that silently breaks escape detection for any C:\\ baseDir. Seed `current`
+  // with the drive root ("C:\\") and skip that segment so the walk anchors
+  // correctly. POSIX paths never match /^[A-Za-z]:$/ so behavior is unchanged.
+  let start = 0;
+  if (/^[A-Za-z]:$/.test(segments[0])) {
+    // realpathSync("C:\\") correctly yields the drive root ("C:\\"); strip the
+    // trailing separator so the drive-root case below appends a single sep and
+    // never produces a doubled separator ("C:\\\\Users") in the lexical tail.
+    current = realpathSync(segments[0] + sep).replace(new RegExp(`\\${sep}+$`), '');
+    start = 1;
+  }
+  for (let i = start; i < segments.length; i++) {
+    const next =
+      current === '' && segments[i] === ''
+        ? sep
+        : current === sep
+        ? sep + segments[i]
+        : /^[A-Za-z]:$/.test(current)
+        ? current + sep + segments[i]
+        : current === ''
+        ? segments[i]
+        : current + sep + segments[i];
     try {
       current = realpathSync(next);
     } catch {

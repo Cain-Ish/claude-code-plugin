@@ -535,7 +535,7 @@ function isDateToken(t: string): boolean {
 }
 
 function slugFromPath(p: string): string {
-  return p.replace(/.*\//, '').replace(/\.md$/, '');
+  return p.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
 }
 
 async function collectMarkdown(dir: string, acc: string[] = []): Promise<string[]> {

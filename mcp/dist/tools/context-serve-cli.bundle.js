@@ -6769,7 +6769,7 @@ function isDateToken(t) {
   return DATE_TOKEN_RE.test(t);
 }
 function slugFromPath(p) {
-  return p.replace(/.*\//, "").replace(/\.md$/, "");
+  return p.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
 }
 async function collectMarkdown(dir, acc = []) {
   for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
@@ -6963,7 +6963,7 @@ try {
   const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
   const top = result.candidates.filter((c) => c.score >= minScore).slice(0, 2);
   for (const c of top) {
-    const slug = c.path.replace(/.*\//, "").replace(/\.md$/, "");
+    const slug = c.path.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
     wikiLines.push(`### [[${slug}]]${c.description ? " \u2014 " + c.description : ""}`);
   }
 } catch {

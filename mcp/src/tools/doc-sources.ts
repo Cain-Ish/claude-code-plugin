@@ -54,7 +54,9 @@ export function filterIgnored(projectRoot: string, absPaths: string[]): string[]
   projectRoot = cleanEnvPath(projectRoot);   // CR-tainted root → `git -C <root>\r` fails → all files mis-classified
   const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split(/[\\/]+/).some((seg) => JUNK_DIRS.has(seg)));
   if (nonJunk.length === 0) return [];
-  const rels = nonJunk.map((p) => relative(projectRoot, p));
+  // git check-ignore reasons over POSIX paths; backslash rels make git C-quote its
+  // stdout (e.g. "docs\\secret.md"), which then never matches a real abs path below.
+  const rels = nonJunk.map((p) => relative(projectRoot, p).split(/[\\/]+/).join('/'));
   const res = spawnSync('git', ['-C', projectRoot, 'check-ignore', '--stdin'], { input: rels.join('\n'), encoding: 'utf-8' });
   // status 0 = some ignored (listed on stdout); 1 = none ignored; other (128/ENOENT) = not a repo / no git → junk-skip only
   if (res.status === 0 || res.status === 1) {
@@ -86,7 +88,7 @@ export async function scanLocations(projectRoot: string, locations: string[]): P
       const st = await fs.stat(p);
       const hash = hashContent(content);
       entries.push({
-        id: hash.slice(0, 12), path: p, rel: relative(projectRoot, p),
+        id: hash.slice(0, 12), path: p, rel: relative(projectRoot, p).split(/[\\/]+/).join('/'),
         gist: extractGist(content), headings: extractHeadings(content),
         hash, mtime: st.mtime.toISOString(), size: st.size,
       });

@@ -3588,49 +3588,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative5, options, skipNormalization) {
+    function resolveComponent(base, relative6, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative5 = parse3(serialize(relative5, options), options);
+        relative6 = parse3(serialize(relative6, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative5.scheme) {
-        target.scheme = relative5.scheme;
-        target.userinfo = relative5.userinfo;
-        target.host = relative5.host;
-        target.port = relative5.port;
-        target.path = removeDotSegments(relative5.path || "");
-        target.query = relative5.query;
+      if (!options.tolerant && relative6.scheme) {
+        target.scheme = relative6.scheme;
+        target.userinfo = relative6.userinfo;
+        target.host = relative6.host;
+        target.port = relative6.port;
+        target.path = removeDotSegments(relative6.path || "");
+        target.query = relative6.query;
       } else {
-        if (relative5.userinfo !== void 0 || relative5.host !== void 0 || relative5.port !== void 0) {
-          target.userinfo = relative5.userinfo;
-          target.host = relative5.host;
-          target.port = relative5.port;
-          target.path = removeDotSegments(relative5.path || "");
-          target.query = relative5.query;
+        if (relative6.userinfo !== void 0 || relative6.host !== void 0 || relative6.port !== void 0) {
+          target.userinfo = relative6.userinfo;
+          target.host = relative6.host;
+          target.port = relative6.port;
+          target.path = removeDotSegments(relative6.path || "");
+          target.query = relative6.query;
         } else {
-          if (!relative5.path) {
+          if (!relative6.path) {
             target.path = base.path;
-            if (relative5.query !== void 0) {
-              target.query = relative5.query;
+            if (relative6.query !== void 0) {
+              target.query = relative6.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative5.path[0] === "/") {
-              target.path = removeDotSegments(relative5.path);
+            if (relative6.path[0] === "/") {
+              target.path = removeDotSegments(relative6.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative5.path;
+                target.path = "/" + relative6.path;
               } else if (!base.path) {
-                target.path = relative5.path;
+                target.path = relative6.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative5.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative6.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative5.query;
+            target.query = relative6.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3638,7 +3638,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative5.fragment;
+      target.fragment = relative6.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -26241,10 +26241,10 @@ var Ignore = class {
   ignored(p) {
     const fullpath = p.fullpath();
     const fullpaths = `${fullpath}/`;
-    const relative5 = p.relative() || ".";
-    const relatives = `${relative5}/`;
+    const relative6 = p.relative() || ".";
+    const relatives = `${relative6}/`;
     for (const m of this.relative) {
-      if (m.match(relative5) || m.match(relatives))
+      if (m.match(relative6) || m.match(relatives))
         return true;
     }
     for (const m of this.absolute) {
@@ -26255,9 +26255,9 @@ var Ignore = class {
   }
   childrenIgnored(p) {
     const fullpath = p.fullpath() + "/";
-    const relative5 = (p.relative() || ".") + "/";
+    const relative6 = (p.relative() || ".") + "/";
     for (const m of this.relativeChildren) {
-      if (m.match(relative5))
+      if (m.match(relative6))
         return true;
     }
     for (const m of this.absoluteChildren) {
@@ -27229,8 +27229,13 @@ var PathGuardError = class extends Error {
 function realResolve(p) {
   let current = "";
   const segments = p.split(sep2);
-  for (let i = 0; i < segments.length; i++) {
-    const next = current === "" && segments[i] === "" ? sep2 : current === sep2 ? sep2 + segments[i] : current === "" ? segments[i] : current + sep2 + segments[i];
+  let start = 0;
+  if (/^[A-Za-z]:$/.test(segments[0])) {
+    current = realpathSync2(segments[0] + sep2).replace(new RegExp(`\\${sep2}+$`), "");
+    start = 1;
+  }
+  for (let i = start; i < segments.length; i++) {
+    const next = current === "" && segments[i] === "" ? sep2 : current === sep2 ? sep2 + segments[i] : /^[A-Za-z]:$/.test(current) ? current + sep2 + segments[i] : current === "" ? segments[i] : current + sep2 + segments[i];
     try {
       current = realpathSync2(next);
     } catch {
@@ -28125,7 +28130,7 @@ function isDateToken(t) {
   return DATE_TOKEN_RE.test(t);
 }
 function slugFromPath(p) {
-  return p.replace(/.*\//, "").replace(/\.md$/, "");
+  return p.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
 }
 async function collectMarkdown(dir, acc = []) {
   for (const e of await fs8.readdir(dir, { withFileTypes: true })) {
@@ -28138,7 +28143,7 @@ async function collectMarkdown(dir, acc = []) {
 
 // src/tools/knowledge-fetch.ts
 import { promises as fs9 } from "fs";
-import { join as join7 } from "path";
+import { join as join7, relative as relative2, isAbsolute as isAbsolute2 } from "path";
 function headings(body) {
   return body.split("\n").filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
 }
@@ -28176,7 +28181,9 @@ async function knowledgeFetch(args) {
   const matches = (await glob(`**/${escape2(args.slug)}.md`, { cwd: wikiRoot, absolute: true }).catch(() => [])).sort();
   const filePath = matches.find((p) => {
     try {
-      assertWithin(wikiRoot, p.startsWith(wikiRoot + "/") ? p.slice(wikiRoot.length + 1) : p);
+      const rel = relative2(wikiRoot, p);
+      const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute2(rel);
+      assertWithin(wikiRoot, inside ? rel : p);
       return true;
     } catch {
       return false;
@@ -28239,11 +28246,11 @@ async function knowledgeFetch(args) {
 
 // src/tools/knowledge-reindex.ts
 import { promises as fs12 } from "fs";
-import { join as join10 } from "path";
+import { basename as basename2, join as join10 } from "path";
 
 // src/tools/knowledge-validate.ts
 import { promises as fs10 } from "fs";
-import { join as join8, basename, dirname as dirname2, relative as relative2 } from "path";
+import { join as join8, basename, dirname as dirname2, relative as relative3 } from "path";
 
 // node_modules/js-yaml/dist/js-yaml.mjs
 var __create2 = Object.create;
@@ -30791,7 +30798,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         type: "duplicate_slug",
         severity: "error",
         path: paths.join(", "),
-        message: `Duplicate slug "${slug}" in: ${paths.map((p) => relative2(wikiDir, p)).join(", ")}`,
+        message: `Duplicate slug "${slug}" in: ${paths.map((p) => relative3(wikiDir, p)).join(", ")}`,
         autofix: "merge"
       });
     }
@@ -30884,7 +30891,7 @@ async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
       case "description":
         return 'description: ""';
       case "type": {
-        const seg = relative2(wikiDir, filePath).split(/[/\\]/)[0];
+        const seg = relative3(wikiDir, filePath).split(/[/\\]/)[0];
         return `type: ${KNOWN_CATEGORIES.has(seg) ? seg : "state"}`;
       }
       case "created": {
@@ -30923,7 +30930,7 @@ async function addFrontmatter(filePath, wikiDir) {
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
-  const relPath = relative2(wikiDir, filePath);
+  const relPath = relative3(wikiDir, filePath);
   const firstSeg = relPath.split("/")[0];
   const type = KNOWN_CATEGORIES.has(firstSeg) ? firstSeg : "state";
   let created = "";
@@ -31075,7 +31082,7 @@ var TYPE_LABEL = {
 };
 var TYPE_ORDER = ["requires", "affects", "part_of", "supersedes", "relates"];
 function slugFromPath2(p) {
-  return p.replace(/.*\//, "").replace(/\.md$/, "");
+  return p.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
 }
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -31220,7 +31227,7 @@ async function knowledgeReindex(knowledgeDir) {
     if (files.length === 0) continue;
     const entries = [];
     for (const filePath of files.sort()) {
-      const slug = filePath.split("/").pop().replace(/\.md$/, "");
+      const slug = basename2(filePath).replace(/\.md$/, "");
       try {
         const content = await fs12.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
@@ -31508,7 +31515,7 @@ async function dreamCancel(args) {
 
 // src/tools/episodic-search.ts
 import { promises as fs14 } from "fs";
-import { join as join12, basename as basename3, relative as relative4, isAbsolute as isAbsolute2 } from "path";
+import { join as join12, basename as basename4, relative as relative5, isAbsolute as isAbsolute3 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -31703,7 +31710,7 @@ function scopeAndBroaden(ranked, args) {
 }
 function assertTranscriptPath(brainDir2, filePath) {
   const base = join12(brainDir2, "transcripts");
-  const rel = isAbsolute2(filePath) ? relative4(base, filePath) : filePath;
+  const rel = isAbsolute3(filePath) ? relative5(base, filePath) : filePath;
   return assertWithin(base, rel);
 }
 async function episodicRead(filePath, startLine, endLine) {
@@ -32066,11 +32073,11 @@ async function knowledgeNeighbors(args) {
 }
 
 // src/tools/project-dir.ts
-import { basename as basename4, join as join18 } from "path";
+import { basename as basename5, join as join18 } from "path";
 import { readFileSync, existsSync } from "fs";
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
-  const base = basename4(cleanEnvPath(dir));
+  const base = basename5(cleanEnvPath(dir));
   if (!base || base === "/" || base === "." || base === "..") return void 0;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;

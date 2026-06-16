@@ -188,7 +188,8 @@ sb_reindex_wiki() {
     local _reindex_err
     _reindex_err=$(SB_BUNDLE="$reindex_js" SB_KDIR="$knowledge_dir" \
       node --input-type=module -e "
-        const m = await import(process.env.SB_BUNDLE);
+        const { pathToFileURL } = await import('node:url');
+        const m = await import(pathToFileURL(process.env.SB_BUNDLE).href);
         await m.knowledgeReindex(process.env.SB_KDIR);
       " 2>&1 >/dev/null) || true
     if [ -n "$_reindex_err" ]; then
@@ -217,7 +218,8 @@ sb_validate_wiki() {
     _verr=$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/.sb-validate-err.$$")   # unique + honors $TMPDIR; was a fixed /tmp name (race + ignored TMPDIR)
     _val_err=$(SB_BUNDLE="$validate_js" SB_KDIR="$knowledge_dir" \
       node --input-type=module -e "
-        const m = await import(process.env.SB_BUNDLE);
+        const { pathToFileURL } = await import('node:url');
+        const m = await import(pathToFileURL(process.env.SB_BUNDLE).href);
         const r = await m.knowledgeValidate(process.env.SB_KDIR, { autofix: true });
         process.stdout.write(String(r.fixed || 0));
       " 2>"$_verr") || true

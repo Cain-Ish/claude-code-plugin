@@ -1,6 +1,6 @@
 // src/tools/knowledge-reindex.ts
 import { promises as fs4 } from "fs";
-import { join as join3 } from "path";
+import { basename as basename2, join as join3 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -9108,7 +9108,7 @@ var TYPE_LABEL = {
 };
 var TYPE_ORDER = ["requires", "affects", "part_of", "supersedes", "relates"];
 function slugFromPath(p) {
-  return p.replace(/.*\//, "").replace(/\.md$/, "");
+  return p.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
 }
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -9253,7 +9253,7 @@ async function knowledgeReindex(knowledgeDir) {
     if (files.length === 0) continue;
     const entries = [];
     for (const filePath of files.sort()) {
-      const slug = filePath.split("/").pop().replace(/\.md$/, "");
+      const slug = basename2(filePath).replace(/\.md$/, "");
       try {
         const content = await fs4.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
