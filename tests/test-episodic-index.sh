@@ -25,7 +25,7 @@ fi
 # in .js (gitignored, never committed) and is removed on exit.
 SEARCH_FN_DIST="$REPO_ROOT/mcp/dist/tools/episodic-search.testmod.js"
 ( cd "$REPO_ROOT/mcp" && node_modules/.bin/esbuild src/tools/episodic-search.ts \
-    --bundle --platform=node --format=esm --target=node20 \
+    --bundle --platform=node --format=esm --target=node22 \
     --external:@huggingface/transformers \
     --outfile="dist/tools/episodic-search.testmod.js" ) >/dev/null 2>&1 \
   || { echo "FAIL: could not build episodic-search test module (esbuild) — run 'npm ci --prefix mcp'" >&2; exit 1; }

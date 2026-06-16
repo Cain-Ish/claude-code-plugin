@@ -4,6 +4,35 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.30.2
+
+**Stamps the release that #79 shipped un-versioned + drops EOL Node 20.** MCP 2.8.2.
+
+### The version that never got bumped
+PR #79 (`fix(cross-os): Windows path-separator slug/path bugs across MCP`) landed the 0.30.2
+code and rebuilt the bundles but **never bumped the version** — `plugin.json` and
+`marketplace.json` both stayed at `0.30.1`, and there was no `## 0.30.2` CHANGELOG entry, so a
+fresh `git pull` on another machine reported `0.30.1`. The full CI suite was green on #79 because
+**no test asserts a release actually bumped its version**: `test-upgrade-migration-row.sh` only
+checks the CHANGELOG has a `## <plugin.json version>` heading (stale-but-consistent passes), and
+`validate-plugin.sh`'s drift check only compares `plugin.json` against `marketplace.json` (both
+stale → they agree → pass). Fixed here:
+- `plugin.json` + `marketplace.json` → `0.30.2`; MCP server self-version → `2.8.2`.
+- New **`test-release-version-bump.sh`** tripwire: when the working tree changes any shipped
+  source (`mcp/src`, `mcp/dist`, `mcp/package.json`, `scripts`, `hooks`, `skills`, `agents`,
+  `bin`, `systemd`, `.claude-plugin`) versus the base branch (`origin/main`, the previous
+  release — a git fact, not a self-assertion), the plugin version MUST be strictly greater than
+  the base's. Wired into CI with `fetch-depth: 0` so `origin/main` resolves. Closes the "shipped
+  without a bump" class the existing tests miss.
+
+### Node 20 → 22 (LTS)
+Node 20 ("Iron") reached end-of-life 2026-04-30. The esbuild bundle `--target` was still
+`node20` — actually *behind* the `node 22` CI already runs on. Bumped all 16 bundle targets (+ the
+one in `test-episodic-index.sh`) to `node22` and added an `engines: { node: ">=22" }` floor to
+`mcp/package.json`. The rebuilt bundles are **byte-identical** (the code uses no syntax esbuild
+down-levels differently between node20 and node22), so this is a zero-behavior-change toolchain
+bump — only the floor and intent move.
+
 ## 0.30.1
 
 **Completes the cross-OS work that 0.30.0 shipped without** (a PR-merge race landed 0.30.0

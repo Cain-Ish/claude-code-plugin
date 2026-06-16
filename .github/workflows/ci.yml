@@ -18,6 +18,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Full history so origin/main resolves — the release version-bump
+          # tripwire diffs the PR head against the base release.
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
@@ -46,6 +50,13 @@ jobs:
           SB_RUN_ALL_VITEST: '0' # vitest already ran above
       - name: Plugin validator
         run: bash scripts/validate-plugin.sh
+      - name: Release version-bump tripwire
+        # Server-side backstop: a PR that changes shipped source MUST bump the
+        # version. base_ref is set only for pull_request events; for push-to-main
+        # the test falls back to origin/main (== HEAD post-merge -> no-op pass).
+        run: bash tests/test-release-version-bump.sh
+        env:
+          SB_RELEASE_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
 
   macos:
     # Closes the standing "run dream-lifecycle on real macOS" PROJECT.md item
