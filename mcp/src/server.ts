@@ -51,7 +51,7 @@ function resolveActiveSlug(): string | undefined {
 }
 
 const server = new McpServer(
-  { name: "knowledge-base", version: "2.8.2" },
+  { name: "knowledge-base", version: "2.9.0" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of).",
@@ -262,14 +262,19 @@ server.registerTool(
 server.registerTool(
   "knowledge_validate",
   {
-    description: "Validate knowledge base health: detect orphan files, broken wiki-links, missing frontmatter, duplicate slugs, empty pages, and root-level orphans. Auto-fixes safe issues (removes empty pages, empty root orphans). Returns all issues with severity and suggested fixes.",
+    description: "Validate knowledge base health: detect orphan files, broken wiki-links, missing frontmatter, duplicate slugs, empty pages, and root-level orphans. Report-only by default; pass {autofix:true} to mutate (DELETES empty pages, rewrites/normalizes/patches frontmatter). Returns all issues with severity and suggested fixes.",
     inputSchema: z.object({
-      autofix: z.boolean().optional().describe("Auto-fix safe issues (empty pages, empty orphans). Default true."),
+      autofix: z.boolean().optional().describe("Set true to auto-fix safe issues — DELETES empty pages and rewrites frontmatter. Default false (report-only)."),
     }),
   },
   async ({ autofix }) => {
     try {
-      const result = await knowledgeValidate(KNOWLEDGE_DIR, { autofix: autofix ?? true });
+      // Phase 3b: default to NON-DESTRUCTIVE. A casual/unattended MODEL call must
+      // not silently delete "empty" pages or rewrite frontmatter — the model has to
+      // opt into mutation with {autofix:true}. Internal automation (sb_validate_wiki,
+      // knowledgeReindex) calls knowledgeValidate() DIRECTLY with explicit
+      // {autofix:true}, so it is unaffected by this tool-surface default flip.
+      const result = await knowledgeValidate(KNOWLEDGE_DIR, { autofix: autofix ?? false });
       const lines = [`Scanned ${result.pagesScanned} pages.`];
       if (result.fixed > 0) lines.push(`Auto-fixed ${result.fixed} issues.`);
       if (result.issues.length > 0) {
