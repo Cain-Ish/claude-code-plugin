@@ -33,7 +33,7 @@ cnt(){ [ -f "$CNT" ] && tr -d '[:space:]' < "$CNT" || echo "ABSENT"; }
 mk_tx(){  # header lines, then --- , then a body large enough to dodge the too-small fast-path
   { printf 'slug: proj\nsession: s1\ndate: 2026-01-01\n---\n'; head -c 4000 /dev/zero | tr '\0' 'x'; printf '\n'; } > "$TXD/$1"
 }
-reset(){ rm -f "$LOG" "$CNT" "$BRAIN_DIR/.extraction-state.jsonl"; rm -rf "$TXD"; mkdir -p "$TXD"; }
+reset(){ rm -f "$LOG" "$LOG.attempts" "$CNT" "$BRAIN_DIR/.last-drain-escape" "$BRAIN_DIR/.extraction-state.jsonl"; rm -rf "$TXD"; mkdir -p "$TXD"; }
 run(){ env "$@" SB_EXTRACT_STUB="$STUB" SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true; }
 backdate(){ local f="$1" ago="$2" t; t=$(( $(date +%s) - ago ));
   touch -d "@$t" "$f" 2>/dev/null || touch -t "$(date -r "$t" +%Y%m%d%H%M.%S 2>/dev/null)" "$f" 2>/dev/null; }
@@ -73,6 +73,19 @@ run SB_INTERACTIVE_OVERRIDE=inactive
 grep -q 'command -v pgrep' "$DRAIN" && grep -q 'ps -e -o args=' "$DRAIN" && pass "T8: pgrep||ps fallback preserved" || fail "T8: fallback missing"
 grep -q '/proc/' "$DRAIN" && fail "T8: introduced a /proc read (Linux-only)" || pass "T8: no /proc read (cross-OS)"
 grep -q 'SB_DRAIN_DEFER_PMODE_ONLY' "$DRAIN" && pass "T8: pmode-only relaxation wired" || fail "T8: pmode switch missing"
+
+# T9: age-escape is RATE-LIMITED — a FAILING escape (lock truly held, transcript stays pending)
+# must NOT re-fire on the very next tick (review fix: else it burns a full extract budget every
+# cycle until the transcript poison-pills). Oracle = the count of extraction ATTEMPTS.
+reset
+FSTUB="$SANDBOX/fstub.sh"; printf '#!/bin/bash\nprintf "%%s\\n" "${2:-?}" >> "%s.attempts"\nexit 1\n' "$LOG" > "$FSTUB"; chmod +x "$FSTUB"
+mk_tx a.txt; backdate "$TXD/a.txt" 172800
+attempts(){ [ -f "$LOG.attempts" ] && wc -l < "$LOG.attempts" | tr -d ' ' || echo 0; }
+cdrun(){ env SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=86400 SB_EXTRACT_STUB="$FSTUB" SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true; }
+cdrun; A1=$(attempts)
+cdrun; A2=$(attempts)
+[ "$A1" -ge "1" ] && pass "T9: first age-escape attempted extraction (A1=$A1)" || fail "T9: first escape didn't attempt (A1=$A1)"
+[ "$A2" = "$A1" ] && pass "T9: next tick rate-limited — no re-escape (attempts stayed $A1)" || fail "T9: re-escaped on next tick ($A1→$A2)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

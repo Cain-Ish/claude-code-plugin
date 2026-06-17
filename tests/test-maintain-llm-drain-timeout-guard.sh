@@ -46,6 +46,8 @@ if [ "$is_run" = 1 ] && [ "${SB_TEST_RUN_RC:-0}" = 0 ] && [ "${SB_TEST_RUN_NOADV
   jq '.status="completed"' "$dream_dir/status.json" > "$dream_dir/status.json.t" 2>/dev/null \
     && mv "$dream_dir/status.json.t" "$dream_dir/status.json" 2>/dev/null
 fi
+# A broken/injected agent may delete status.json before dying (still rc 0).
+[ "$is_run" = 1 ] && [ "${SB_TEST_RUN_DELETE_STATUS:-0}" = 1 ] && [ -n "$dream_dir" ] && rm -f "$dream_dir/status.json"
 [ -n "${SB_TEST_RUN_STDERR:-}" ] && echo "$SB_TEST_RUN_STDERR" >&2
 exit "${SB_TEST_RUN_RC:-0}"
 EOF
@@ -129,6 +131,15 @@ SF=$(dsf)
 [ "$(jq -r '.status' "$SF" 2>/dev/null)" = "failed" ] && pass "B2c: rc!=0 still →failed" || fail "B2c: rc!=0 not failed"
 jq -r '.error' "$SF" 2>/dev/null | grep -q 'boom' && pass "B2c: rc!=0 captures stderr" || fail "B2c: stderr not captured"
 [ "$(cat "$FAILS" 2>/dev/null)" = "1" ] && pass "B2c: rc!=0 counts a strike (hard failure)" || fail "B2c: strike not counted (got $(cat "$FAILS" 2>/dev/null))"
+
+# B2d: a "successful" spawn (rc 0) that DELETES status.json (broken/injected agent) must NOT
+# read as success — the failure counter is RETAINED, not cleared (review fix: missing status.json
+# is a silent death, not a completion).
+reset
+printf '2' > "$FAILS"   # pre-seed a strike (below the 3-strike quarantine threshold)
+run SB_TEST_PROBE_RC=0 SB_TEST_RUN_RC=0 SB_TEST_RUN_DELETE_STATUS=1
+[ "$(cat "$FAILS" 2>/dev/null)" = "2" ] && pass "B2d: missing status.json (rc=0) retains the strike counter" || fail "B2d: counter wrongly cleared on missing status.json (got '$(cat "$FAILS" 2>/dev/null)')"
+grep -q 'never reached completed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && pass "B2d: missing status.json logged as silent death" || fail "B2d: not logged"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

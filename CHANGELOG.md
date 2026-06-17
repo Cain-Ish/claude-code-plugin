@@ -48,6 +48,13 @@ independent oracle. New tests: dream-staleness, maintain-llm-drain-timeout-guard
 extract-drain-unstarve, lib-drain-timeout, drain-health-banner, verify-dream-staleness,
 dependency-audit.
 
+Post-review hardening (a final adversarial deep-review of the branch found no blocking
+bugs, 3 LOW gaps now closed): the age-based starvation-escape is rate-limited
+(`SB_DRAIN_ESCAPE_COOLDOWN`) so a permanently-held lock can't burn a full extract budget
+every tick; the B2 self-heal treats a MISSING status.json as a silent death (retains the
+failure counters, never reads it as success); and autostage blocks on ANY fresh running
+dream, not just the last one scanned.
+
 ## 0.30.2
 
 **Stamps the release that #79 shipped un-versioned + drops EOL Node 20.** MCP 2.8.2.

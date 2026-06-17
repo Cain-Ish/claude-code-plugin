@@ -202,14 +202,20 @@ else
   # terminal contract). Soft recovery: do NOT _fail_step / hold the quarantine — the
   # spawn itself reported ok; clear the counters ONLY on a real completion.
   SF="$DREAM_DIR/status.json"
-  st=$(jq -r '.status // ""' "$SF" 2>/dev/null | tr -d '\r')
-  if [ -f "$SF" ] && [ "$st" != "completed" ]; then
-    sb_log_error "maintain-llm-drain" "headless run for $DREAM_ID exited 0 but the dream never reached completed (status '${st:-missing}'; agent died before finishing) — forcing →failed" 0
-    jq --arg e "$(date -u +%FT%TZ)" --arg err "exit 0 but the dream never reached completed (was '${st:-pending}'; agent died before finishing)" \
-      '.status = "failed" | .ended_at = $e | .error = $err' "$SF" > "$SF.tmp.$$" 2>/dev/null \
-      && mv "$SF.tmp.$$" "$SF" 2>/dev/null || rm -f "$SF.tmp.$$" 2>/dev/null
+  st=""; [ -f "$SF" ] && st=$(jq -r '.status // ""' "$SF" 2>/dev/null | tr -d '\r')
+  if [ "$st" = "completed" ]; then
+    rm -f "$FAILS_F" "$QUAR_F" 2>/dev/null   # genuine success → reset the failure lifecycle
   else
-    rm -f "$FAILS_F" "$QUAR_F" 2>/dev/null
+    # Silent death: the spawn returned 0 but the dream is pending/running/MISSING (agent
+    # died, or a broken/injected agent deleted/truncated status.json). Heal what we can and
+    # DO NOT clear the counters/quarantine — the run did not actually succeed (review fix: a
+    # missing status.json must not read as success and wrongly reset the lifecycle).
+    sb_log_error "maintain-llm-drain" "headless run for $DREAM_ID exited 0 but the dream is '${st:-missing}' — never reached completed (agent died); forcing →failed, counters retained" 0
+    if [ -f "$SF" ]; then
+      jq --arg e "$(date -u +%FT%TZ)" --arg err "exit 0 but the dream never reached completed (was '${st:-pending}'; agent died before finishing)" \
+        '.status = "failed" | .ended_at = $e | .error = $err' "$SF" > "$SF.tmp.$$" 2>/dev/null \
+        && mv "$SF.tmp.$$" "$SF" 2>/dev/null || rm -f "$SF.tmp.$$" 2>/dev/null
+    fi
   fi
 fi
 rm -f "$ERR_F" 2>/dev/null

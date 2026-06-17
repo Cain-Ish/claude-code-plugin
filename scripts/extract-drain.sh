@@ -84,6 +84,7 @@ EOF
 # a hang. We therefore allow ONE drain through whenever starvation crosses a
 # bound. State lives in BRAIN_DIR so it survives across timer fires.
 DEFER_COUNT_F="$BRAIN_DIR/.drain-defer-count"
+ESCAPE_STAMP_F="$BRAIN_DIR/.last-drain-escape"
 sb_drain_defer_count() {
   local n=0
   [ -f "$DEFER_COUNT_F" ] && n=$(tr -d '[:space:]' < "$DEFER_COUNT_F" 2>/dev/null)
@@ -119,8 +120,18 @@ sb_drain_oldest_pending_age() {
 sb_drain_starved() {
   local dmax="${SB_DRAIN_DEFER_MAX:-6}";  case "$dmax"  in ''|*[!0-9]*) dmax=6 ;; esac
   local smax="${SB_DRAIN_STALE_MAX:-86400}"; case "$smax" in ''|*[!0-9]*) smax=86400 ;; esac
+  # Counter branch: N consecutive defers crossed the bound → escape (self-resets on escape).
   [ "$(sb_drain_defer_count)" -ge "$dmax" ] && return 0
-  [ "$(sb_drain_oldest_pending_age)" -gt "$smax" ] && return 0
+  # Age branch: oldest pending transcript older than smax. RATE-LIMITED via ESCAPE_STAMP_F so a
+  # permanently-held interactive lock can't burn a full extract budget on the same stale backlog
+  # every tick — escape at most once per SB_DRAIN_ESCAPE_COOLDOWN (default smax). The escape
+  # stamps ESCAPE_STAMP_F (see the defer block); honored here so "ONE escape" holds, not per-tick.
+  if [ "$(sb_drain_oldest_pending_age)" -gt "$smax" ]; then
+    local cd="${SB_DRAIN_ESCAPE_COOLDOWN:-$smax}"; case "$cd" in ''|*[!0-9]*) cd="$smax" ;; esac
+    local last=0
+    [ -f "$ESCAPE_STAMP_F" ] && last=$(stat -c %Y "$ESCAPE_STAMP_F" 2>/dev/null || stat -f %m "$ESCAPE_STAMP_F" 2>/dev/null || echo 0)
+    [ "$(( $(date +%s) - ${last:-0} ))" -gt "$cd" ] && return 0
+  fi
   return 1
 }
 
@@ -146,6 +157,7 @@ fi
 if _sb_defer_verdict; then
   if sb_drain_starved; then
     sb_drain_defer_reset
+    touch "$ESCAPE_STAMP_F" 2>/dev/null || true   # rate-limit the age-branch escape (one per cooldown)
     echo "extract-drain: interactive claude active but backlog starved — forcing ONE escape drain" >&2
   else
     sb_drain_defer_bump

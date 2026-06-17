@@ -80,7 +80,7 @@ update_watermark() {  # $1 = dream dir (trailing slash), $2 = status file
 # between phases, so a healthy run is never wrongly reclaimed.
 # Orphan dirs (no status.json, e.g. a half-created dream) are skipped so they
 # can neither hijack the watermark nor force a spurious "count everything".
-RUNNING_ID=""; RUNNING_SF=""
+RUNNING_ID=""; RUNNING_SF=""; FRESH_RUNNING=""
 PENDING_ID=""; PENDING_SF=""
 FAILED_ID=""; FAILED_ERR=""
 for d in "$DREAMS_DIR"/drm_*/; do
@@ -90,8 +90,17 @@ for d in "$DREAMS_DIR"/drm_*/; do
   st=$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')
   case "$st" in
     running)
-      RUNNING_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
-      RUNNING_SF="$sf"
+      # Classify each running dream during the scan: a FRESH (heartbeating) runner
+      # blocks unconditionally; only a STALE one becomes a reclaim candidate. (Review
+      # fix: keying off just the LAST-scanned running dream could ignore a still-fresh
+      # earlier one if two were ever running — a should-never-happen the one-at-a-time
+      # invariant prevents, but cheap to defend.)
+      if sb_dream_is_stale "$sf"; then
+        RUNNING_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
+        RUNNING_SF="$sf"
+      else
+        FRESH_RUNNING=1
+      fi
       ;;
     pending)
       PENDING_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
@@ -129,14 +138,14 @@ reclaim_dream() {  # $1=status file, $2=expected status (pending|running), $3=er
 # (deep-review / R4). Reclaim it to failed (same policy as dream-snapshot.sh's
 # deadlock-break) and fall through to the failed-banner surface; a fresh runner
 # still blocks. Staleness = sb_dream_is_stale (status.json mtime > 6h).
+# A fresh (heartbeating) runner blocks unconditionally — never stack or reclaim.
+[ -n "$FRESH_RUNNING" ] && exit 0
+# Otherwise a STALE running dream (no fresh one present) is reclaimed to failed so it
+# stops deadlocking every future dream (staleness already decided in the scan above).
 if [ -n "$RUNNING_ID" ]; then
-  if sb_dream_is_stale "$RUNNING_SF"; then
-    RECLAIM_ERR="stale running run reclaimed by autostage (no status.json progress within SB_DREAM_RUN_TIMEOUT)"
-    reclaim_dream "$RUNNING_SF" running "$RECLAIM_ERR"
-    FAILED_ID="$RUNNING_ID"; FAILED_ERR="$RECLAIM_ERR"
-  else
-    exit 0
-  fi
+  RECLAIM_ERR="stale running run reclaimed by autostage (no status.json progress within SB_DREAM_RUN_TIMEOUT)"
+  reclaim_dream "$RUNNING_SF" running "$RECLAIM_ERR"
+  FAILED_ID="$RUNNING_ID"; FAILED_ERR="$RECLAIM_ERR"
 fi
 
 # Stale pending (R4, SCRIPTS-02): the runner never started (hook timeout, or a
