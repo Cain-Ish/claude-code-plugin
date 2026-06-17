@@ -6,8 +6,28 @@ files, which exist solely for releases with a real migration action.
 
 ## 0.32.0
 
-**Post-Phase-1 hardening** (heartbeat clamp, persona slim, MCP nested-spawn guard,
-knowledge_validate autofix-default). MCP 2.9.0. _(Full narrative finalized at release.)_
+Post-Phase-1 hardening: four independent fixes from a design + adversarial-verify pass (one
+design — a machine heartbeat — was REFUTED and dropped for a simpler clamp).
+
+- **Heartbeat → clamp (task 14):** a machine heartbeat would have been redundant (the headless
+  run is already capped at 30min « the 6h staleness horizon) AND a weaker liveness signal. Instead
+  `SB_MAINTAIN_LLM_TIMEOUT` is clamped below `SB_DREAM_RUN_TIMEOUT`, so an operator override can
+  never let a live headless dream age past the horizon and get wrongly reclaimed + double-spawned.
+- **Persona slim (task 15):** the persona-card was injected per-prompt AND at SessionStart — a
+  ~95% paraphrase of USER.md, ~330 tokens re-sent every prompt. Both injections removed (USER.md
+  carries identity, loaded once per session); `persona_dismiss` wired from a phantom to real
+  backoff (self-suppress after N dismissals in a window; explicit `/?` briefs unaffected).
+- **MCP nested-spawn guard (task 16):** the 11 destructive knowledge-base write-tools now refuse
+  under `SB_NESTED_SPAWN=1` — a headless `claude -p` over untrusted transcript content (reachability
+  confirmed: alwaysLoad, no --allowedTools, env inherited) can no longer mutate the live wiki /
+  dream state / PROJECT.md / USER.md unattended.
+- **knowledge_validate autofix-default (task 17):** the MCP tool defaulted `autofix:true` — a
+  casual model call could delete pages. Flipped to report-only; the model must opt into mutation.
+  Internal automation passes `{autofix:true}` explicitly, so it is unaffected.
+
+MCP knowledge-base 2.8.2 → 2.9.0. Each change is TDD'd against an independent oracle (filesystem
+facts, spy call-counts, status.json mtime). See migrations/0.32.0.md for the one optional user
+step (folding a hand-edited persona-card into USER.md).
 
 ## 0.31.0
 
