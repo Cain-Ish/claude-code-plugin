@@ -119,6 +119,24 @@ $BODY"
 MODEL="${SB_MAINTAIN_LLM_MODEL:-claude-sonnet-4-6}"
 TO="${SB_MAINTAIN_LLM_TIMEOUT:-1800}"; case "$TO" in ''|*[!0-9]*) TO=1800 ;; esac
 TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+# B1 (HIGH): NEVER run the bypassPermissions agent without a wall-clock cap. The
+# old `${TBIN:+$TBIN "$TO"}` form SILENTLY DROPPED the timeout when neither
+# `timeout` (GNU/Linux) nor `gtimeout` (macOS coreutils) was on PATH, leaving an
+# UNBOUNDED `bwrap ... claude -p --permission-mode bypassPermissions` that could
+# hang forever (forever-pending dream + burned slot + creds readable for the hang).
+# Hard-fail instead: log, mark the staged dream failed, count the strike, exit 0
+# (fail-soft). DRYRUN never reaches here.
+if [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" != "1" ] && [ -z "$TBIN" ]; then
+  sb_log_error "maintain-llm-drain" "no timeout/gtimeout on PATH — refusing to run the bypassPermissions agent UNBOUNDED (install coreutils: apt install coreutils / brew install coreutils for gtimeout); dream $DREAM_ID left for review" 0
+  SF="$DREAM_DIR/status.json"
+  if [ -f "$SF" ] && [ "$(jq -r '.status // ""' "$SF" 2>/dev/null | tr -d '\r')" != "completed" ]; then
+    jq --arg e "$(date -u +%FT%TZ)" --arg err "refused: no timeout/gtimeout binary — would run unbounded" \
+      '.status = "failed" | .ended_at = $e | .error = $err' "$SF" > "$SF.tmp.$$" 2>/dev/null \
+      && mv "$SF.tmp.$$" "$SF" 2>/dev/null || rm -f "$SF.tmp.$$" 2>/dev/null
+  fi
+  _fail_step "no timeout/gtimeout binary (would run unbounded)"
+  exit 0
+fi
 
 # The jail. Writable: ONLY this dream's dir + the OAuth credential FILE (token refresh) + ephemeral
 # tmpfs for claude's own session scratch. CRITICALLY, the rest of ~/.claude — `plugins/` (the
@@ -173,7 +191,26 @@ if [ "$rc" -ne 0 ]; then
   fi
   _fail_step "headless run exit $rc: ${ERR_TAIL:-no stderr}"
 else
-  rm -f "$FAILS_F" "$QUAR_F" 2>/dev/null
+  # B2 (HIGH): the spawn returned 0, but the agent may have DIED before finishing
+  # (bwrap forks then the child OOMs/segfaults yet bwrap exits 0; or claude exits 0
+  # without advancing the dream). status.json would then sit at pending/running with
+  # error:null FOREVER — the terminal-less, deadlock-every-future-dream mystery R4
+  # fixed for rc!=0, now on the rc==0 path. A genuine success leaves status=completed
+  # (the agent sets it per the prompt), so anything NOT completed after a "successful"
+  # spawn is a silent death. Self-heal: force →failed (terminal, matching the rc!=0
+  # branch's `!= completed` predicate and sb_dream_is_stale's pending|running=non-
+  # terminal contract). Soft recovery: do NOT _fail_step / hold the quarantine — the
+  # spawn itself reported ok; clear the counters ONLY on a real completion.
+  SF="$DREAM_DIR/status.json"
+  st=$(jq -r '.status // ""' "$SF" 2>/dev/null | tr -d '\r')
+  if [ -f "$SF" ] && [ "$st" != "completed" ]; then
+    sb_log_error "maintain-llm-drain" "headless run for $DREAM_ID exited 0 but the dream never reached completed (status '${st:-missing}'; agent died before finishing) — forcing →failed" 0
+    jq --arg e "$(date -u +%FT%TZ)" --arg err "exit 0 but the dream never reached completed (was '${st:-pending}'; agent died before finishing)" \
+      '.status = "failed" | .ended_at = $e | .error = $err' "$SF" > "$SF.tmp.$$" 2>/dev/null \
+      && mv "$SF.tmp.$$" "$SF" 2>/dev/null || rm -f "$SF.tmp.$$" 2>/dev/null
+  else
+    rm -f "$FAILS_F" "$QUAR_F" 2>/dev/null
+  fi
 fi
 rm -f "$ERR_F" 2>/dev/null
 fi   # close the DRYRUN-vs-real-run branch (DRYRUN simulates completion + falls through)
