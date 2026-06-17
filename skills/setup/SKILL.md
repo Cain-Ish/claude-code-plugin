@@ -149,6 +149,7 @@ so re-running setup only captures new or changed docs.
 if [ "${SB_SCAN_SKIP:-0}" != "1" ]; then
   SCAN_CLI="${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-scan-cli.bundle.js"
   SCAN_ROOT_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  cd "$SCAN_ROOT_DIR" || { echo "setup: cannot cd into $SCAN_ROOT_DIR"; exit 1; }
   SCAN_ROOT="$SCAN_ROOT_DIR" node "$SCAN_CLI" --dry-run
 fi
 ```
@@ -160,6 +161,7 @@ bash block runs as a separate shell, so vars from the preview block do not persi
 ```bash
 SCAN_CLI="${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-scan-cli.bundle.js"
 SCAN_ROOT_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$SCAN_ROOT_DIR" || { echo "setup: cannot cd into $SCAN_ROOT_DIR"; exit 1; }
 SCAN_ROOT="$SCAN_ROOT_DIR" node "$SCAN_CLI"
 ```
 

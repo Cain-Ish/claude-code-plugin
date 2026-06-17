@@ -58,7 +58,7 @@ async function main(): Promise<void> {
     } else if (action === 'paste') {
       const content = readFileSync(0, 'utf-8');           // stdin
       if (!content.trim()) { console.log('capture: nothing on stdin.'); return; }
-      const r = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content, targetNode: node });
+      const r = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content, targetNode: node, origin: slug });
       console.log(`${r.duplicate ? 'Already captured' : 'Captured'} ${r.id} — ${r.unprocessed} unprocessed.`);
     } else if (action === 'capture') {
       const src = rest[0];
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
       if (/^https?:\/\//i.test(src)) { kind = 'url'; content = src; }
       else if (existsSync(src) && statSync(src).isFile()) { kind = 'file'; }
       else { kind = 'paste'; content = src; source = 'paste'; } // inline text → canonical paste source
-      const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node });
+      const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node, origin: slug });
       console.log(`${r.duplicate ? 'Already captured' : 'Captured'} ${r.id} (${kind}) — ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);

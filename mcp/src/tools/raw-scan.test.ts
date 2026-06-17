@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { promises as fs } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync, promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { scanCandidates, runScan, scanCap, isHighSignal } from './raw-scan.js';
+import { scanCandidates, runScan, scanCap, isHighSignal, originGuard } from './raw-scan.js';
 import { listItems } from './raw-inbox.js';
 
 /** Build a temp repo with a known file set; returns its root. NOT a git repo (junk-filter only). */
@@ -106,5 +106,37 @@ describe('raw-scan', () => {
     expect(r2.captured).toBe(0);
     expect(r2.skipped).toBe(4);
     expect(await listItems(brainDir, slug)).toHaveLength(4);
+  });
+});
+
+describe('originGuard', () => {
+  it('passes when the resource slug cannot be derived', () => {
+    expect(originGuard(undefined, 'b', false).ok).toBe(true);
+  });
+  it('passes when origin matches destination', () => {
+    expect(originGuard('a', 'a', false).ok).toBe(true);
+  });
+  it('FAILS LOUD when origin and destination disagree and no override is set', () => {
+    const r = originGuard('a', 'b', false);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('a');
+    expect(r.reason).toContain('b');
+  });
+  it('passes a mismatch when SB_ACTIVE_SLUG override is set', () => {
+    expect(originGuard('a', 'b', true).ok).toBe(true);
+  });
+});
+
+describe('runScan stamps origin', () => {
+  it('writes the supplied origin onto captured items', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'sb-scan-repo-'));
+    writeFileSync(join(repo, 'README.md'), '# Title\n\nbody\n');
+    const brain = mkdtempSync(join(tmpdir(), 'sb-scan-brain-'));
+    await runScan(repo, brain, 'dest', { origin: 'resource' });
+    const items = await listItems(brain, 'dest');
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].origin).toBe('resource');
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(brain, { recursive: true, force: true });
   });
 });

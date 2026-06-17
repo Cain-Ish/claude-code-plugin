@@ -177,7 +177,7 @@ function expand_(str, max, isTop) {
       }
       const pad = n.some(isPadded);
       N = [];
-      for (let i = x; test(i, y) && N.length < max; i += incr) {
+      for (let i = x; test(i, y); i += incr) {
         let c;
         if (isAlphaSequence) {
           c = String.fromCharCode(i);
@@ -6131,6 +6131,7 @@ function serialize(item) {
   fm.push(`source: ${fmValue(item.source)}`);
   fm.push(`captured_at: ${fmValue(item.captured_at)}`);
   fm.push(`captured_by: ${fmValue(item.captured_by)}`);
+  if (item.origin) fm.push(`origin: ${fmValue(item.origin)}`);
   fm.push(`content_type: ${fmValue(item.content_type)}`);
   fm.push(`status: ${fmValue(item.status)}`);
   if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
@@ -6168,6 +6169,7 @@ function parse(content, id) {
     source: get("source") ?? "",
     captured_at: get("captured_at") ?? "",
     captured_by: get("captured_by") ?? "user",
+    origin: get("origin") || void 0,
     content_type: get("content_type") ?? "",
     status: validStatus ? status : "unprocessed",
     target_node: get("target_node") || void 0,
@@ -6268,6 +6270,7 @@ async function captureItem(input) {
     source: input.source,
     captured_at: now,
     captured_by: capturedBy,
+    origin: input.origin,
     content_type: contentType,
     status: "unprocessed",
     target_node: input.targetNode,
@@ -6318,6 +6321,15 @@ async function scanCandidates(projectRoot) {
   kept.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
   return kept;
 }
+function originGuard(originSlug, destSlug, hasExplicitOverride) {
+  if (!originSlug) return { ok: true };
+  if (originSlug === destSlug) return { ok: true };
+  if (hasExplicitOverride) return { ok: true };
+  return {
+    ok: false,
+    reason: `refusing to file ${originSlug}'s docs into ${destSlug} (resolved active project \u2260 scanned repo). cd into ${originSlug}, or set SB_ACTIVE_SLUG=${destSlug} to override.`
+  };
+}
 async function runScan(projectRoot, brainDir, slug, opts) {
   assertSafeSlug(slug);
   const all = await scanCandidates(projectRoot);
@@ -6329,7 +6341,7 @@ async function runScan(projectRoot, brainDir, slug, opts) {
   let captured = 0, skipped = 0, errored = 0;
   for (const src of candidates) {
     try {
-      const r = await captureItem({ brainDir, slug, kind: "file", source: src, capturedBy: "setup-scan" });
+      const r = await captureItem({ brainDir, slug, kind: "file", source: src, capturedBy: "setup-scan", origin: opts.origin ?? slug });
       if (r.duplicate) skipped++;
       else captured++;
     } catch {
@@ -6377,9 +6389,15 @@ async function main() {
     console.log("scan: could not resolve the active project. cd into a project.");
     return;
   }
+  const originSlug = slugFromProjectDir(projectRoot);
+  const guard = originGuard(originSlug, slug, !!process.env.SB_ACTIVE_SLUG);
+  if (!guard.ok) {
+    console.log(`scan: ${guard.reason}`);
+    return;
+  }
   const dryRun = process.argv.includes("--dry-run");
   try {
-    const r = await runScan(projectRoot, brainDir, slug, { dryRun });
+    const r = await runScan(projectRoot, brainDir, slug, { dryRun, origin: originSlug });
     if (dryRun) {
       console.log(`${r.candidates.length} high-signal doc(s) to capture into ${slug}'s raw inbox:`);
       for (const p of r.candidates) console.log(`  - ${relative3(projectRoot, p)}`);

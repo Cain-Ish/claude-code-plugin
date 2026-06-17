@@ -182,7 +182,7 @@ function expand_(str, max, isTop) {
       }
       const pad = n.some(isPadded);
       N = [];
-      for (let i = x; test(i, y) && N.length < max; i += incr) {
+      for (let i = x; test(i, y); i += incr) {
         let c;
         if (isAlphaSequence) {
           c = String.fromCharCode(i);
@@ -6119,6 +6119,7 @@ function serialize(item) {
   fm.push(`source: ${fmValue(item.source)}`);
   fm.push(`captured_at: ${fmValue(item.captured_at)}`);
   fm.push(`captured_by: ${fmValue(item.captured_by)}`);
+  if (item.origin) fm.push(`origin: ${fmValue(item.origin)}`);
   fm.push(`content_type: ${fmValue(item.content_type)}`);
   fm.push(`status: ${fmValue(item.status)}`);
   if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
@@ -6156,6 +6157,7 @@ function parse(content, id) {
     source: get("source") ?? "",
     captured_at: get("captured_at") ?? "",
     captured_by: get("captured_by") ?? "user",
+    origin: get("origin") || void 0,
     content_type: get("content_type") ?? "",
     status: validStatus ? status : "unprocessed",
     target_node: get("target_node") || void 0,
@@ -6299,6 +6301,7 @@ async function captureItem(input) {
     source: input.source,
     captured_at: now,
     captured_by: capturedBy,
+    origin: input.origin,
     content_type: contentType,
     status: "unprocessed",
     target_node: input.targetNode,
@@ -6393,7 +6396,7 @@ async function main() {
         console.log("capture: nothing on stdin.");
         return;
       }
-      const r = await captureItem({ brainDir, slug, kind: "paste", source: "paste", content, targetNode: node });
+      const r = await captureItem({ brainDir, slug, kind: "paste", source: "paste", content, targetNode: node, origin: slug });
       console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} \u2014 ${r.unprocessed} unprocessed.`);
     } else if (action === "capture") {
       const src = rest[0];
@@ -6414,7 +6417,7 @@ async function main() {
         content = src;
         source = "paste";
       }
-      const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node });
+      const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node, origin: slug });
       console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} (${kind}) \u2014 ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);
