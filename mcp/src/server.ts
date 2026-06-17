@@ -514,7 +514,11 @@ server.registerTool(
   },
   guardDestructive("persona_dismiss", async (args) => {
     try {
-      const result = await personaDismiss(args);
+      // Thread the server's resolved BRAIN_DIR (like knowledgeSearch/episodicSearch/personaThink):
+      // the persona-context.sh dismissal-backoff gate READS $BRAIN_DIR/.persona-dismissals.jsonl, so
+      // the writer MUST land in the same dir or the backoff silently never fires under a non-default
+      // BRAIN_DIR (deep-review: split-path trap).
+      const result = await personaDismiss({ ...args, brainDir: BRAIN_DIR });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     } catch (error) {
       return {

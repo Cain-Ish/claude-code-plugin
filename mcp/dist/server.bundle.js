@@ -32703,7 +32703,7 @@ server.registerTool(
   },
   guardDestructive("persona_dismiss", async (args) => {
     try {
-      const result = await personaDismiss(args);
+      const result = await personaDismiss({ ...args, brainDir: BRAIN_DIR });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     } catch (error2) {
       return {
