@@ -4,6 +4,50 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.31.0
+
+**Restore the automation: un-starve + harden the hands-off pipeline.** The hands-off
+design was fully built but had drifted to "manual" through operational *starvation* and
+*silent failure* (not missing features). This release fixes the actual root causes.
+MCP unchanged (2.8.2). **No migration action** — no on-disk schema/format change; old
+dreams, wiki pages, `status.json`, configs are fully compatible, and the maintainer/dream
+write the SAME structure as before (the upgrade just pulls the new code).
+
+### Automation restoration
+- **Drainer un-starved (root cause #1):** `extract-drain.sh` deferred on ANY live
+  interactive session, so an always-on operator's timer almost never drained. A bounded
+  staleness-escape (persisted consecutive-defer counter + oldest-pending-transcript age)
+  now lets exactly ONE drain through when starvation crosses `SB_DRAIN_DEFER_MAX` (6) or
+  `SB_DRAIN_STALE_MAX` (24h). Opt-in `SB_DRAIN_DEFER_PMODE_ONLY=1` relaxes the base verdict.
+- **Slow-HW timeout:** `SB_DRAIN_EXTRACT_TIMEOUT` 120→240s (a Pi blew the old budget →
+  `ec=124` → poison-pill); inline budget proof keeps it under the 7200s lock-stale threshold.
+- **Loud silent failures (root cause #2):** new OS-aware SessionStart banner keys on the
+  ACTUAL drainer signatures (`ec=124` timeouts + poison-pilled transcripts), with a
+  Linux-vs-mac/Windows remedy. Kill switch `SB_DRAIN_HEALTH_BANNER=off`.
+- **Headless maintainer bounded + self-healing:** never runs the `bypassPermissions`
+  agent without a wall-clock cap (refuses if no `timeout`/`gtimeout`); self-heals a dream a
+  "successful" spawn left non-`completed` (silent death) → `failed`.
+- **One dream-staleness policy:** `sb_dream_is_stale` (status.json mtime > `SB_DREAM_RUN_TIMEOUT`)
+  replaces four disagreeing definitions across snapshot/autostage/verify/maintainer; autostage
+  now reclaims a stale RUNNING dream too. `SB_DREAM_PENDING_STALE` retired (superseded).
+
+### Hygiene
+- **Deps:** `npm audit --omit=dev` now clean — patched transitives pinned via overrides
+  (fast-uri, brace-expansion, hono, ip-address, vite, protobufjs, qs); vitest →4.1.9. NO
+  exploitable CVE existed (the vite KEV is a different project). Verified on Node 22
+  (375/375 tests, 0 production vulns).
+- **Debris:** deleted dead `migrate-to-{1.2.0,2.8.0}.sh` (unreachable by the 0.x runner,
+  retiring the 0.24.16 "kept" note); `SB_DREAM_SUMMARIZE` now machine-enforced in
+  `graph-cluster.sh`; `SB_DREAM_AI_BLOCKS`/`SB_RECONCILE` honestly downgraded to advisory
+  in the prompts; removed dead `sb_clear_extraction_marker`; added
+  `SB_PERSONA_SIGNAL_WINDOW_DAYS`/`SB_PROJECT_STALE_DAYS` overrides.
+
+Cross-OS verified throughout (no GNU-only `stat`/`date`/`timeout`/`pgrep`). Every fix
+designed + adversarially verified via workflow, then implemented test-first against an
+independent oracle. New tests: dream-staleness, maintain-llm-drain-timeout-guard,
+extract-drain-unstarve, lib-drain-timeout, drain-health-banner, verify-dream-staleness,
+dependency-audit.
+
 ## 0.30.2
 
 **Stamps the release that #79 shipped un-versioned + drops EOL Node 20.** MCP 2.8.2.
