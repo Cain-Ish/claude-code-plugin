@@ -434,8 +434,13 @@ fi
 # 2. Persona signals — capped at 600 bytes
 PERSONA_FILE="$BRAIN_DIR/persona-signals.jsonl"
 if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 2>&1; then
-  THIRTY_DAYS_AGO=$(date -u -v-30d +%Y-%m-%d 2>/dev/null \
-    || date -u -d "30 days ago" +%Y-%m-%d 2>/dev/null \
+  # Display window for ungraduated persona signals in the SessionStart banner.
+  # Distinct from merge-persona-signals.sh's 90-day RETENTION prune: the file keeps
+  # 90 days; this only chooses how recent a signal must be to be SHOWN.
+  PERSONA_WINDOW_DAYS="${SB_PERSONA_SIGNAL_WINDOW_DAYS:-30}"
+  case "$PERSONA_WINDOW_DAYS" in ''|*[!0-9]*) PERSONA_WINDOW_DAYS=30 ;; esac
+  THIRTY_DAYS_AGO=$(date -u -v-"${PERSONA_WINDOW_DAYS}"d +%Y-%m-%d 2>/dev/null \
+    || date -u -d "${PERSONA_WINDOW_DAYS} days ago" +%Y-%m-%d 2>/dev/null \
     || echo "1970-01-01")
 
   SIGNALS=$(jq -rs --arg cutoff "$THIRTY_DAYS_AGO" '

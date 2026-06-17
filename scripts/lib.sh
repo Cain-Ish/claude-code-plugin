@@ -417,10 +417,11 @@ sb_set_extraction_marker() {
   echo "$line" > "$BRAIN_DIR/.last-extracted-line-$slug"
 }
 
-sb_clear_extraction_marker() {
-  local slug="$1"
-  rm -f "$BRAIN_DIR/.last-extracted-line-$slug"
-}
+# (R1 sweep: sb_clear_extraction_marker was deleted — its only caller,
+# stop-extract.sh:253, was removed in the per-turn-reextraction fix
+# (docs/plans/2026-06-10-r1-extraction-loop.md). Markers are now swept by
+# extract-drain.sh's `-mtime +30 -delete` instead of cleared per run. No live
+# caller remained; the sb_get_/sb_set_/sb_extraction_marker_key trio stays.)
 
 # Compose the extraction-marker key for a (slug, session) pair. The session id
 # is sanitized for filename safety (it comes from the hook payload).
