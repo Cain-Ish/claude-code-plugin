@@ -80,14 +80,16 @@ if [ -d "$DREAMS_DIR" ]; then
     [ -f "$sf" ] || continue
     DSTATUS=$(jq -r '.status' "$sf" 2>/dev/null | tr -d '\r')
     DID=$(jq -r '.id' "$sf" 2>/dev/null | tr -d '\r')
-    if [ "$DSTATUS" = "running" ]; then
+    if sb_dream_is_stale "$sf"; then
+      # Unified staleness policy (sb_dream_is_stale, lib.sh): a pending|running
+      # dream whose status.json mtime has not advanced within SB_DREAM_RUN_TIMEOUT
+      # (6h). Supersedes the old running-only calendar-day check; widening to
+      # pending is intentional (one shared policy across snapshot/autostage/verify).
       STARTED=$(jq -r '.started_at // ""' "$sf" 2>/dev/null | tr -d '\r')
       if [ -n "$STARTED" ] && [ "$STARTED" != "null" ]; then
-        STARTED_DATE=$(echo "$STARTED" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}' | tr -d '\r' || echo "")
-        TODAY=$(date -u +%Y-%m-%d)
-        if [ -n "$STARTED_DATE" ] && [ "$STARTED_DATE" \< "$TODAY" ]; then
-          FAILS+=("verify: FAIL: dream — $DID still running (started $STARTED), may be stale")
-        fi
+        FAILS+=("verify: FAIL: dream — $DID $DSTATUS but stale (no status.json progress within SB_DREAM_RUN_TIMEOUT; started $STARTED)")
+      else
+        FAILS+=("verify: FAIL: dream — $DID $DSTATUS but stale (no status.json progress within SB_DREAM_RUN_TIMEOUT)")
       fi
     elif [ "$DSTATUS" = "completed" ]; then
       ENDED=$(jq -r '.ended_at // ""' "$sf" 2>/dev/null)

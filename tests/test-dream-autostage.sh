@@ -155,9 +155,21 @@ mk_dream_at() {  # $1=id $2=status $3=created_at ISO
   jq -nc --arg id "$id" --arg st "$st" --arg c "$cre" '{id:$id, status:$st, created_at:$c, error:null}' > "$dir/status.json"
 }
 
-# (e) STALE pending (created 4 days ago, runner never started) → reclaimed to
-# failed + banner says failed, NOT "resume".
-reset_brain; mk_dream_at drm_stale pending "2026-06-07T00:00:00Z"
+# Backdate a file's mtime by N seconds (cross-OS: GNU touch -d @epoch, else BSD
+# date -r + touch -t). Mirrors tests/test-dream-staleness.sh. The unified staleness
+# policy keys on status.json MTIME, so fixtures backdate that, not created_at.
+backdate() {  # $1=file $2=seconds_ago
+  local f="$1" ago="$2" t
+  t=$(( $(date +%s) - ago ))
+  touch -d "@$t" "$f" 2>/dev/null \
+    || touch -t "$(date -r "$t" +%Y%m%d%H%M.%S 2>/dev/null)" "$f" 2>/dev/null \
+    || { echo "  FAIL: cannot backdate mtime (need GNU or BSD touch)"; exit 1; }
+}
+
+# (e) STALE pending (status.json mtime > 6h, runner never started) → reclaimed to
+# failed + banner says failed, NOT "resume". mtime drives the reclaim now, not created_at.
+reset_brain; mk_dream drm_stale pending
+backdate "$BRAIN_DIR/dreams/drm_stale/status.json" 25200
 OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
 assert_eq "stale pending transitioned to failed" "$(jq -r '.status' "$BRAIN_DIR/dreams/drm_stale/status.json")" "failed"
 assert_contains "reclaim sets the error reason" "$(jq -r '.error' "$BRAIN_DIR/dreams/drm_stale/status.json")" "runner never started"
@@ -189,6 +201,30 @@ printf '[2026-06-11T00:00:00Z] quarantined after 3 consecutive failures: bwrap p
 OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
 assert_contains "quarantine file surfaced at SessionStart" "$OUT" "quarantine"
 rm -f "$BRAIN_DIR/.llm-maintain-quarantine"
+
+# (i) STALE running (crashed mid-run, status.json mtime > 6h) → reclaimed to
+# failed instead of deadlocking every future dream (the running-reclaim nuance
+# of the unified mtime policy).
+reset_brain; mk_dream drm_runstale running
+backdate "$BRAIN_DIR/dreams/drm_runstale/status.json" 25200
+OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_eq "stale running transitioned to failed" "$(jq -r '.status' "$BRAIN_DIR/dreams/drm_runstale/status.json")" "failed"
+assert_contains "stale running error names the cause" "$(jq -r '.error' "$BRAIN_DIR/dreams/drm_runstale/status.json")" "stale running"
+assert_contains "stale running surfaces a failure banner" "$OUT" "dream failed"
+assert_contains "stale running banner names the id" "$OUT" "drm_runstale"
+
+# (j) FRESH running (mtime=now, runner heartbeating) → blocks; never reclaimed,
+# never stacks a second dream. Preserves Test 4 intent under the mtime policy.
+reset_brain; mk_dream drm_runfresh running; mk_transcripts 20
+OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_eq "fresh running stays running" "$(jq -r '.status' "$BRAIN_DIR/dreams/drm_runfresh/status.json")" "running"
+assert_empty "fresh running blocks (no banner)" "$OUT"
+
+# (k) FRESH pending (mtime=now) → resume banner, untouched (regression-lock).
+reset_brain; mk_dream drm_pfresh pending
+OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_eq "fresh pending stays pending" "$(jq -r '.status' "$BRAIN_DIR/dreams/drm_pfresh/status.json")" "pending"
+assert_contains "fresh pending gets resume banner" "$OUT" "resume"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -70,14 +70,18 @@ update_watermark() {  # $1 = dream dir (trailing slash), $2 = status file
 }
 
 # Scan ALL dreams (consistent with dream-snapshot.sh's one-at-a-time guard).
-#   running → a runner is active; do nothing.
+#   running → a runner SHOULD be active; reclaim if stale (crashed mid-run),
+#             else block (one active dream at a time).
 #   pending → staged but not started; reclaim if stale, else recovery banner.
 #   failed  → terminal; surface once (R4) + counts for the watermark.
 #   else    → terminal (completed/archived); newest one is the watermark.
+# Staleness is the SINGLE shared policy sb_dream_is_stale (lib.sh): status.json
+# mtime older than SB_DREAM_RUN_TIMEOUT (6h). The runner re-stamps status.json
+# between phases, so a healthy run is never wrongly reclaimed.
 # Orphan dirs (no status.json, e.g. a half-created dream) are skipped so they
 # can neither hijack the watermark nor force a spurious "count everything".
-RUNNING=""
-PENDING_ID=""; PENDING_SF=""; PENDING_CREATED=""
+RUNNING_ID=""; RUNNING_SF=""
+PENDING_ID=""; PENDING_SF=""
 FAILED_ID=""; FAILED_ERR=""
 for d in "$DREAMS_DIR"/drm_*/; do
   [ -d "$d" ] || continue
@@ -85,11 +89,13 @@ for d in "$DREAMS_DIR"/drm_*/; do
   [ -f "$sf" ] || continue
   st=$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')
   case "$st" in
-    running) RUNNING=1 ;;
+    running)
+      RUNNING_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
+      RUNNING_SF="$sf"
+      ;;
     pending)
       PENDING_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
       PENDING_SF="$sf"
-      PENDING_CREATED=$(jq -r '.created_at // ""' "$sf" 2>/dev/null | tr -d '\r')
       ;;
     failed|canceled)
       if [ "$st" = "failed" ]; then
@@ -106,27 +112,41 @@ for d in "$DREAMS_DIR"/drm_*/; do
   esac
 done
 
-# A runner is active → never stack a second dream.
-[ -n "$RUNNING" ] && exit 0
+# reclaim_dream STATUS_FILE EXPECTED_STATUS ERROR — flip a stale pending|running
+# dream to terminal failed so it stops blocking new dreams and the failure
+# becomes visible instead of a forever-stuck mystery. The if/else keeps the
+# document intact if a runner flipped the status in the scan-to-write window
+# (deep-review: a bare `select` emits an EMPTY doc and clobbers status.json).
+reclaim_dream() {  # $1=status file, $2=expected status (pending|running), $3=error
+  jq --arg s "$2" --arg e "$(date -u +%FT%TZ)" --arg err "$3" \
+    'if .status == $s then .status = "failed" | .ended_at = $e | .error = $err else . end' \
+    "$1" > "$1.tmp.$$" 2>/dev/null \
+    && mv "$1.tmp.$$" "$1" 2>/dev/null || rm -f "$1.tmp.$$" 2>/dev/null
+}
+
+# A runner SHOULD be active → block, UNLESS it is stale (crashed mid-run). A
+# stale running dream would otherwise DEADLOCK every future dream forever
+# (deep-review / R4). Reclaim it to failed (same policy as dream-snapshot.sh's
+# deadlock-break) and fall through to the failed-banner surface; a fresh runner
+# still blocks. Staleness = sb_dream_is_stale (status.json mtime > 6h).
+if [ -n "$RUNNING_ID" ]; then
+  if sb_dream_is_stale "$RUNNING_SF"; then
+    RECLAIM_ERR="stale running run reclaimed by autostage (no status.json progress within SB_DREAM_RUN_TIMEOUT)"
+    reclaim_dream "$RUNNING_SF" running "$RECLAIM_ERR"
+    FAILED_ID="$RUNNING_ID"; FAILED_ERR="$RECLAIM_ERR"
+  else
+    exit 0
+  fi
+fi
 
 # Stale pending (R4, SCRIPTS-02): the runner never started (hook timeout, or a
 # pre-0.24.41 structural failure). Reclaim to failed so it stops blocking new
 # dreams and the failure becomes visible instead of a forever-pending mystery.
-STALE_S="${SB_DREAM_PENDING_STALE:-86400}"; case "$STALE_S" in ''|*[!0-9]*) STALE_S=86400 ;; esac
-if [ -n "$PENDING_ID" ] && [ -n "$PENDING_CREATED" ]; then
-  cre=$(date -u -d "$PENDING_CREATED" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$PENDING_CREATED" +%s 2>/dev/null || echo 0)
-  if [ "${cre:-0}" -gt 0 ] && [ $(( $(date +%s) - cre )) -gt "$STALE_S" ]; then
-    RECLAIM_ERR="runner never started — stale pending reclaimed by autostage"
-    # if/else keeps the document intact when a runner flipped pending→running
-    # in the scan-to-write window (deep-review: a bare select would emit an
-    # EMPTY doc and clobber status.json).
-    jq --arg e "$(date -u +%FT%TZ)" --arg err "$RECLAIM_ERR" \
-      'if .status == "pending" then .status = "failed" | .ended_at = $e | .error = $err else . end' \
-      "$PENDING_SF" > "$PENDING_SF.tmp.$$" 2>/dev/null \
-      && mv "$PENDING_SF.tmp.$$" "$PENDING_SF" 2>/dev/null || rm -f "$PENDING_SF.tmp.$$" 2>/dev/null
-    FAILED_ID="$PENDING_ID"; FAILED_ERR="$RECLAIM_ERR"
-    PENDING_ID=""
-  fi
+if [ -n "$PENDING_ID" ] && sb_dream_is_stale "$PENDING_SF"; then
+  RECLAIM_ERR="runner never started — stale pending reclaimed by autostage"
+  reclaim_dream "$PENDING_SF" pending "$RECLAIM_ERR"
+  FAILED_ID="$PENDING_ID"; FAILED_ERR="$RECLAIM_ERR"
+  PENDING_ID=""
 fi
 
 # A dream is staged but unstarted (and fresh) → emit recovery banner, stage nothing.
