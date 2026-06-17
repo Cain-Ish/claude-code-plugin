@@ -4,6 +4,11 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.32.0
+
+**Post-Phase-1 hardening** (heartbeat clamp, persona slim, MCP nested-spawn guard,
+knowledge_validate autofix-default). MCP 2.9.0. _(Full narrative finalized at release.)_
+
 ## 0.31.0
 
 **Restore the automation: un-starve + harden the hands-off pipeline.** The hands-off
