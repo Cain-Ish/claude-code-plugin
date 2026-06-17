@@ -1266,7 +1266,18 @@ sb_extract_transcript() {
   # Drainer-specific knob (deep-review): the hooks share SB_EXTRACT_TIMEOUT with
   # small defaults (25s/30s inside 45s hook budgets) — reusing it here would let a
   # drainer-oriented override re-open the kill-after-extract window in-hook.
-  local timeout_s="${SB_DRAIN_EXTRACT_TIMEOUT:-120}"
+  #
+  # Default 240s (Phase 1.2, slow-HW headroom): a Pi-class box pays ~24s on the
+  # nested-spawn hook stack before the extractor even starts, so a real extraction
+  # over the 200KB tail cap can blow the old 120s budget -> ec=124 -> retry; 3
+  # outcomes (SB_DRAIN_MAX_FAILS) terminally mark the transcript `error`. 240s
+  # doubles the per-attempt budget. BUDGET PROOF it stays well under the 7200s lock
+  # steal-threshold (SB_DRAIN_LOCK_STALE) even fully degraded: worst case per
+  # transcript = 3 retry paths (direct + pty + API) x timeout_s, x SB_DRAIN_BATCH=5
+  #   = 5 x 3 x 240 = 3600s = HALF of 7200 — a live run can't be judged stale and
+  # have its lock stolen. 240 is the LARGEST value keeping BATCH x 3 x timeout_s
+  # <= 7200/2; do NOT raise further without also raising SB_DRAIN_LOCK_STALE.
+  local timeout_s="${SB_DRAIN_EXTRACT_TIMEOUT:-240}"
   local prompt_file="$sdir/extract-prompt.txt"
   [ -f "$prompt_file" ] || return 1
   local prompt; prompt=$(cat "$prompt_file")
