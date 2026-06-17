@@ -23,6 +23,7 @@ import { knowledgeRelate } from "./tools/knowledge-relate.js";
 import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
 import { resolveActiveSlug as resolveActiveSlugFromDir } from "./tools/project-dir.js";
 import { cleanEnvPath } from "./path-guard.js";
+import { guardDestructive } from "./nested-spawn-guard.js";
 
 function resolveKnowledgeDir(): string {
   // cleanEnvPath: a CRLF-tainted KNOWLEDGE_DIR/BRAIN_DIR (Windows) makes fs.existsSync(wikiDir)
@@ -116,10 +117,10 @@ server.registerTool(
     description: "Pin a preference to USER.md. Use only when the user explicitly says 'pin to my second-brain' or runs /second-brain:pin. Plain 'remember this' should write to Claude Code's built-in auto-memory, not here.",
     inputSchema: { text: z.string() },
   },
-  async ({ text }) => {
+  guardDestructive("pin_to_user", async ({ text }) => {
     const result = await pinToUser({ text });
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-  }
+  })
 );
 
 server.registerTool(
@@ -132,10 +133,10 @@ server.registerTool(
       section: z.enum(["blockers", "decisions"]),
     },
   },
-  async ({ text, slug, section }) => {
+  guardDestructive("pin_to_project", async ({ text, slug, section }) => {
     const result = await pinToProject({ text, slug, section });
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-  }
+  })
 );
 
 server.registerTool(
@@ -149,10 +150,10 @@ server.registerTool(
       targetCategory: z.enum(["issues", "decisions"]),
     },
   },
-  async (input) => {
+  guardDestructive("archive_to_wiki", async (input) => {
     const result = await archiveToWiki(input);
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-  }
+  })
 );
 
 server.registerTool(
@@ -233,7 +234,7 @@ server.registerTool(
     description: "Regenerate wiki/index.md — a master catalog of all wiki pages with titles, descriptions, and category counts. Call after wiki writes or when index.md is stale.",
     inputSchema: z.object({}),
   },
-  async () => {
+  guardDestructive("knowledge_reindex", async () => {
     try {
       const result = await knowledgeReindex(KNOWLEDGE_DIR);
       const lines = [`Reindexed ${result.pagesIndexed} pages across ${result.categories.length} categories.`];
@@ -256,7 +257,7 @@ server.registerTool(
         isError: true,
       };
     }
-  }
+  })
 );
 
 server.registerTool(
@@ -267,7 +268,7 @@ server.registerTool(
       autofix: z.boolean().optional().describe("Set true to auto-fix safe issues — DELETES empty pages and rewrites frontmatter. Default false (report-only)."),
     }),
   },
-  async ({ autofix }) => {
+  guardDestructive("knowledge_validate", async ({ autofix }) => {
     try {
       // Phase 3b: default to NON-DESTRUCTIVE. A casual/unattended MODEL call must
       // not silently delete "empty" pages or rewrite frontmatter — the model has to
@@ -292,7 +293,7 @@ server.registerTool(
         isError: true,
       };
     }
-  }
+  })
 );
 
 // --- Dream tools ---
@@ -311,10 +312,10 @@ server.registerTool(
       model: z.string().optional().describe("Model for consolidation. Default: claude-sonnet-4-6"),
     },
   },
-  async (args) => {
+  guardDestructive("dream_create", async (args) => {
     const result = await dreamCreate(args);
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-  }
+  })
 );
 
 server.registerTool(
@@ -353,10 +354,10 @@ server.registerTool(
       dream_id: z.string().describe("The dream ID to accept"),
     },
   },
-  async (args) => {
+  guardDestructive("dream_accept", async (args) => {
     const result = await dreamAccept(args);
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-  }
+  })
 );
 
 server.registerTool(
@@ -367,10 +368,10 @@ server.registerTool(
       dream_id: z.string().describe("The dream ID to discard"),
     },
   },
-  async (args) => {
+  guardDestructive("dream_discard", async (args) => {
     const result = await dreamDiscard(args);
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-  }
+  })
 );
 
 server.registerTool(
@@ -381,10 +382,10 @@ server.registerTool(
       dream_id: z.string().describe("The dream ID to cancel"),
     },
   },
-  async (args) => {
+  guardDestructive("dream_cancel", async (args) => {
     const result = await dreamCancel(args);
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-  }
+  })
 );
 
 // --- Episodic memory tools ---
@@ -511,7 +512,7 @@ server.registerTool(
       reason: z.string().optional().describe("Why the suggestion was unhelpful."),
     },
   },
-  async (args) => {
+  guardDestructive("persona_dismiss", async (args) => {
     try {
       const result = await personaDismiss(args);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
@@ -521,7 +522,7 @@ server.registerTool(
         isError: true,
       };
     }
-  }
+  })
 );
 
 // --- Relational graph tools ---
@@ -540,14 +541,14 @@ server.registerTool(
       reason: z.string().optional().describe("Why (especially on invalidate)."),
     },
   },
-  async (args) => {
+  guardDestructive("knowledge_relate", async (args) => {
     try {
       const result = await knowledgeRelate({ ...args, knowledgeDir: KNOWLEDGE_DIR });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     } catch (error) {
       return { content: [{ type: "text" as const, text: `Relate error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
     }
-  }
+  })
 );
 
 server.registerTool(
