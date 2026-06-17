@@ -10,6 +10,7 @@ export interface RawItem {
   source: string;
   captured_at: string;
   captured_by: CapturedBy;
+  origin?: string;          // authoritative project the item was captured FROM (basename of the resource)
   content_type: string;
   status: RawStatus;
   target_node?: string;
@@ -28,6 +29,7 @@ export interface CaptureInput {
   content?: string;               // paste text / url string; for files it is read from disk
   targetNode?: string;
   capturedBy?: CapturedBy;
+  origin?: string;                // authoritative origin project (defaults to slug at the call site)
   now?: string;                   // ISO timestamp; injectable for deterministic tests
 }
 
@@ -73,6 +75,7 @@ function serialize(item: RawItem): string {
   fm.push(`source: ${fmValue(item.source)}`);
   fm.push(`captured_at: ${fmValue(item.captured_at)}`);
   fm.push(`captured_by: ${fmValue(item.captured_by)}`);
+  if (item.origin) fm.push(`origin: ${fmValue(item.origin)}`);
   fm.push(`content_type: ${fmValue(item.content_type)}`);
   fm.push(`status: ${fmValue(item.status)}`);
   if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
@@ -103,6 +106,7 @@ function parse(content: string, id: string): RawItem {
     source: get('source') ?? '',
     captured_at: get('captured_at') ?? '',
     captured_by: (get('captured_by') as CapturedBy) ?? 'user',
+    origin: get('origin') || undefined,
     content_type: get('content_type') ?? '',
     status: validStatus ? status : 'unprocessed',
     target_node: get('target_node') || undefined,
@@ -251,6 +255,7 @@ export async function captureItem(input: CaptureInput): Promise<{ id: string; du
   const gist = gistSeed.replace(/^#\s*/, '').split('\n').map(l => l.trim()).find(Boolean)?.slice(0, 120) ?? '';
   const item: RawItem = {
     id, source: input.source, captured_at: now, captured_by: capturedBy,
+    origin: input.origin,
     content_type: contentType, status: 'unprocessed',
     target_node: input.targetNode, blob, hash, gist, body,
   };
