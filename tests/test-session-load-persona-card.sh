@@ -1,9 +1,9 @@
 #!/bin/bash
-# Tests for the C1-B HYBRID SessionStart persona-card emit in session-load.sh.
-# The doctrinal path is SessionStart load (Anthropic recommends per-session,
-# not per-turn). persona-context.sh keeps a per-turn safety-net emit against
-# the v2.10 "persona disappears after turn 1" regression — that emit is tested
-# separately in tests/test-persona-context.sh.
+# Tests that session-load.sh NO LONGER injects the persona-card or installed-catalog at
+# SessionStart (removed in 0.32.0). USER.md — force-emitted as a priority-1 section — now
+# carries the unique identity, so the card was a ~95% paraphrase re-sent every session and the
+# catalog was per-session noise. Inverted from the old C1-B HYBRID assertions. persona-card.md
+# is still SEEDED by persona-context.sh so persona-stats has a card to summarize.
 set -u
 PLUGIN_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$PLUGIN_ROOT/scripts/session-load.sh"
@@ -35,94 +35,43 @@ run_session_load() {
     | bash "$SCRIPT" 2>/dev/null
 }
 
-# --- Test 1: persona-card present → emitted at SessionStart -----------
-init_sandbox "persona-emit"
+# --- Test 1 (inverted): persona-card present → NOT injected at SessionStart -----------
+init_sandbox "no-persona-emit"
 cat > "$BRAIN_DIR/persona-card.md" <<'EOF'
 # Persona
 
 ## Identity
 - sessionstart-test-marker
-
-## Style
-- terse
 EOF
 OUT=$(run_session_load)
 echo "$OUT" | grep -q 'sessionstart-test-marker' \
-  || fail "persona-card content missing from session-load output (got: $OUT)"
+  && fail "persona-card must NOT be injected at SessionStart in 0.32.0 (got: $OUT)"
 echo "$OUT" | grep -q 'Persona (loaded at session start' \
-  || fail "persona-card header missing (got: $OUT)"
-pass "persona-card emitted at SessionStart with marker header"
+  && fail "persona-card session-start header must be gone (got: $OUT)"
+pass "persona-card is NOT injected at SessionStart (removed in 0.32.0)"
 
-# --- Test 2: no persona-card.md → no persona section emitted ---------
-init_sandbox "persona-missing"
-OUT=$(run_session_load)
-echo "$OUT" | grep -q 'Persona (loaded at session start' \
-  && fail "persona-card header should NOT appear when persona-card.md absent (got: $OUT)"
-pass "no persona section when persona-card.md missing"
-
-# --- Test 3: SB_PERSONA_GATE=off suppresses the SessionStart emit too --
-init_sandbox "kill-switch"
-cat > "$BRAIN_DIR/persona-card.md" <<'EOF'
-# Persona
-
-## Identity
-- should-not-appear
+# --- Test 2 (inverted): installed-catalog present → NOT injected --------------------
+init_sandbox "no-catalog-emit"
+cat > "$BRAIN_DIR/.installed-catalog.json" <<'EOF'
+{ "plugins": [{"name":"second-brain"}], "agents": [{"name":"a1"}], "skills": [{"name":"s1"}] }
 EOF
-OUT=$(SB_PERSONA_GATE=off run_session_load)
-echo "$OUT" | grep -q 'should-not-appear' \
-  && fail "SB_PERSONA_GATE=off should suppress SessionStart persona emit (got: $OUT)"
-pass "SB_PERSONA_GATE=off suppresses SessionStart persona emit"
+OUT=$(run_session_load)
+echo "$OUT" | grep -q 'Installed specialists:' \
+  && fail "installed-catalog must NOT be injected at SessionStart in 0.32.0 (got: $OUT)"
+pass "installed-catalog is NOT injected at SessionStart (removed in 0.32.0)"
 
-# --- Test 4: USER.md-duplicate bullets stripped from persona section -
-init_sandbox "dedup"
+# --- Test 3 (positive control): USER.md IS still loaded (the identity path that replaced it) --
+init_sandbox "user-md-loads"
 cat > "$BRAIN_DIR/USER.md" <<'EOF'
 # User Profile
 
 ## Hard Rules
-- Zero AI attribution in commits
-EOF
-cat > "$BRAIN_DIR/persona-card.md" <<'EOF'
-# Persona
-
-## Identity
-- Zero AI attribution in commits
-- distinct-card-only-bullet
+- user-md-identity-marker
 EOF
 OUT=$(run_session_load)
-echo "$OUT" | grep -q 'distinct-card-only-bullet' \
-  || fail "card-only bullet should appear in persona section (got: $OUT)"
-# The duplicate bullet should appear once (from USER.md), not twice.
-DUP_COUNT=$(echo "$OUT" | grep -c 'Zero AI attribution in commits')
-[ "$DUP_COUNT" -le 1 ] \
-  || fail "USER.md-duplicate bullet should be stripped from persona section (count=$DUP_COUNT, got: $OUT)"
-pass "USER.md-duplicate bullets stripped from SessionStart persona emit"
-
-# --- Test 5: installed-catalog summary emitted when present ----------
-init_sandbox "catalog"
-cat > "$BRAIN_DIR/.installed-catalog.json" <<'EOF'
-{
-  "plugins": [{"name": "second-brain"}, {"name": "ralph-loop"}],
-  "agents": [{"name": "a1"}, {"name": "a2"}, {"name": "a3"}],
-  "skills": [{"name": "s1"}, {"name": "s2"}]
-}
-EOF
-OUT=$(run_session_load)
-echo "$OUT" | grep -q 'Installed specialists:' \
-  || fail "catalog summary header missing (got: $OUT)"
-echo "$OUT" | grep -q 'second-brain' \
-  || fail "plugin name missing from catalog (got: $OUT)"
-echo "$OUT" | grep -q '3 agents' \
-  || fail "agent count missing (got: $OUT)"
-echo "$OUT" | grep -q '2 skills' \
-  || fail "skill count missing (got: $OUT)"
-pass "installed-catalog summary emitted with plugin + counts"
-
-# --- Test 6: missing catalog file → no catalog line emitted ----------
-init_sandbox "no-catalog"
-OUT=$(run_session_load)
-echo "$OUT" | grep -q 'Installed specialists:' \
-  && fail "catalog line should NOT appear when .installed-catalog.json missing (got: $OUT)"
-pass "no catalog line when .installed-catalog.json missing"
+echo "$OUT" | grep -q 'user-md-identity-marker' \
+  || fail "USER.md identity must still load at SessionStart (got: $OUT)"
+pass "USER.md identity still loads at SessionStart (replaces the per-session card)"
 
 echo
 echo "ALL PASS"

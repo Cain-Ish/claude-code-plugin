@@ -92,4 +92,27 @@ printf '%s\n' "$E_OUT" | grep -q 'tunnel-alpha' \
   || fail "E: broken combined bundle lost the wiki hint (no fallback to single CLIs): $E_OUT"
 pass "E: broken combined bundle falls back to the two-CLI path"
 
+# --- F: dismissal-aware backoff — >= N recent dismissals suppress the ambient injection -------
+# ORACLE: persona-context.sh output. With >= SB_PERSONA_DISMISS_MAX (default 3) dismissals dated
+# inside the window, the gate must exit 0 with NO output even for an action prompt that would
+# otherwise surface the tunnel-alpha wiki hit.
+TODAY=$(date -u +%Y-%m-%d)
+BRAIN_F="$SANDBOX/brain-f"; mkdir -p "$BRAIN_F"
+for i in 1 2 3; do printf '{"at":"%sT12:00:0%dZ","reason":"noise"}\n' "$TODAY" "$i"; done > "$BRAIN_F/.persona-dismissals.jsonl"
+F_OUT=$(printf '{"prompt":"implement the tunnel alpha page feature now","session_id":"f-sess"}' \
+  | CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" KNOWLEDGE_DIR="$KD" BRAIN_DIR="$BRAIN_F" \
+    SECOND_BRAIN_DISABLE_EMBEDDINGS=1 bash "$PC" 2>/dev/null || true)
+[ -z "$F_OUT" ] || fail "F: >=3 recent dismissals must suppress the ambient injection, got: $F_OUT"
+pass "F: dismissal-aware backoff suppresses injection after >= SB_PERSONA_DISMISS_MAX dismissals"
+
+# --- G: below the dismissal threshold → injection still fires (positive control) --------------
+BRAIN_G="$SANDBOX/brain-g"; mkdir -p "$BRAIN_G"
+printf '{"at":"%sT12:00:00Z","reason":"noise"}\n' "$TODAY" > "$BRAIN_G/.persona-dismissals.jsonl"  # 1 < 3
+G_OUT=$(printf '{"prompt":"implement the tunnel alpha page feature now","session_id":"g-sess"}' \
+  | CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" KNOWLEDGE_DIR="$KD" BRAIN_DIR="$BRAIN_G" \
+    SECOND_BRAIN_DISABLE_EMBEDDINGS=1 bash "$PC" 2>/dev/null || true)
+printf '%s\n' "$G_OUT" | grep -q 'tunnel-alpha' \
+  || fail "G: 1 dismissal (< threshold) must NOT suppress injection, got: $G_OUT"
+pass "G: below the dismissal threshold the injection still fires"
+
 echo "ALL PASS"

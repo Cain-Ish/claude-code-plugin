@@ -152,6 +152,13 @@ SF=$(dsf)
 [ "$(jq -r '.status' "$SF" 2>/dev/null)" = "failed" ] && pass "B2e: corrupt status healed to failed" || fail "B2e: not healed ($(jq -r '.status' "$SF" 2>/dev/null))"
 [ "$(cat "$FAILS" 2>/dev/null)" = "2" ] && pass "B2e: corrupt status retains the strike counter" || fail "B2e: counter wrongly cleared (got '$(cat "$FAILS" 2>/dev/null)')"
 
+# CLAMP: an operator override of SB_MAINTAIN_LLM_TIMEOUT >= SB_DREAM_RUN_TIMEOUT must be clamped
+# below the staleness horizon, so a live headless dream can never age past 6h and get wrongly
+# reclaimed + double-spawned (review: the real "heartbeat" fix — the cap, not a machine heartbeat).
+reset
+run SB_MAINTAIN_LLM_DRYRUN=1 SB_MAINTAIN_LLM_TIMEOUT=99999 SB_DREAM_RUN_TIMEOUT=21600
+grep -q 'clamping to' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && pass "clamp: SB_MAINTAIN_LLM_TIMEOUT >= horizon is clamped below it" || fail "clamp: oversized maintain timeout not clamped"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

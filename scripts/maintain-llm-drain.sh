@@ -118,6 +118,17 @@ PROMPT="You are running HEADLESS and UNATTENDED to consolidate dream $DREAM_ID. 
 $BODY"
 MODEL="${SB_MAINTAIN_LLM_MODEL:-claude-sonnet-4-6}"
 TO="${SB_MAINTAIN_LLM_TIMEOUT:-1800}"; case "$TO" in ''|*[!0-9]*) TO=1800 ;; esac
+# Clamp the headless wall-clock cap BELOW the dream-staleness horizon so an operator override
+# can never let a still-running headless dream age past SB_DREAM_RUN_TIMEOUT (6h) and get wrongly
+# reclaimed + double-spawned by dream-snapshot/autostage (deep-review: THIS clamp — not a machine
+# heartbeat — is what guarantees a live headless run is never judged stale; sb_dream_is_stale uses
+# status.json mtime, which is fresh at spawn, so a sub-horizon cap means it can never fire here).
+RUN_HORIZON="${SB_DREAM_RUN_TIMEOUT:-21600}"; case "$RUN_HORIZON" in ''|*[!0-9]*) RUN_HORIZON=21600 ;; esac
+if [ "$TO" -ge "$RUN_HORIZON" ]; then
+  _clamped=$(( RUN_HORIZON - 60 )); [ "$_clamped" -lt 60 ] && _clamped=60
+  sb_log_error "maintain-llm-drain" "SB_MAINTAIN_LLM_TIMEOUT=$TO >= SB_DREAM_RUN_TIMEOUT=$RUN_HORIZON — clamping to ${_clamped}s so a live headless dream can't be wrongly reclaimed" 0
+  TO="$_clamped"
+fi
 TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
 # B1 (HIGH): NEVER run the bypassPermissions agent without a wall-clock cap. The
 # old `${TBIN:+$TBIN "$TO"}` form SILENTLY DROPPED the timeout when neither

@@ -32239,6 +32239,26 @@ function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
   return cwdSlug;
 }
 
+// src/nested-spawn-guard.ts
+function isNestedSpawn() {
+  return process.env.SB_NESTED_SPAWN === "1";
+}
+function nestedSpawnRefusal(toolName) {
+  return {
+    content: [{
+      type: "text",
+      text: `${toolName} is disabled in a nested/headless spawn (SB_NESTED_SPAWN=1): destructive knowledge-base writes are forbidden when running unattended over untrusted content. Re-run from an interactive session.`
+    }],
+    isError: true
+  };
+}
+function guardDestructive(toolName, handler) {
+  return async (...args) => {
+    if (isNestedSpawn()) return nestedSpawnRefusal(toolName);
+    return handler(...args);
+  };
+}
+
 // src/server.ts
 function resolveKnowledgeDir() {
   const candidates = [
@@ -32258,7 +32278,7 @@ function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
 var server = new McpServer(
-  { name: "knowledge-base", version: "2.8.2" },
+  { name: "knowledge-base", version: "2.9.0" },
   {
     capabilities: { logging: {} },
     instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
@@ -32317,10 +32337,10 @@ server.registerTool(
     description: "Pin a preference to USER.md. Use only when the user explicitly says 'pin to my second-brain' or runs /second-brain:pin. Plain 'remember this' should write to Claude Code's built-in auto-memory, not here.",
     inputSchema: { text: external_exports.string() }
   },
-  async ({ text }) => {
+  guardDestructive("pin_to_user", async ({ text }) => {
     const result = await pinToUser({ text });
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
-  }
+  })
 );
 server.registerTool(
   "pin_to_project",
@@ -32332,10 +32352,10 @@ server.registerTool(
       section: external_exports.enum(["blockers", "decisions"])
     }
   },
-  async ({ text, slug, section }) => {
+  guardDestructive("pin_to_project", async ({ text, slug, section }) => {
     const result = await pinToProject({ text, slug, section });
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
-  }
+  })
 );
 server.registerTool(
   "archive_to_wiki",
@@ -32348,10 +32368,10 @@ server.registerTool(
       targetCategory: external_exports.enum(["issues", "decisions"])
     }
   },
-  async (input) => {
+  guardDestructive("archive_to_wiki", async (input) => {
     const result = await archiveToWiki(input);
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
-  }
+  })
 );
 server.registerTool(
   "knowledge_stats",
@@ -32421,7 +32441,7 @@ server.registerTool(
     description: "Regenerate wiki/index.md \u2014 a master catalog of all wiki pages with titles, descriptions, and category counts. Call after wiki writes or when index.md is stale.",
     inputSchema: external_exports.object({})
   },
-  async () => {
+  guardDestructive("knowledge_reindex", async () => {
     try {
       const result = await knowledgeReindex(KNOWLEDGE_DIR);
       const lines = [`Reindexed ${result.pagesIndexed} pages across ${result.categories.length} categories.`];
@@ -32445,19 +32465,19 @@ Validation issues (${remaining.length}):`);
         isError: true
       };
     }
-  }
+  })
 );
 server.registerTool(
   "knowledge_validate",
   {
-    description: "Validate knowledge base health: detect orphan files, broken wiki-links, missing frontmatter, duplicate slugs, empty pages, and root-level orphans. Auto-fixes safe issues (removes empty pages, empty root orphans). Returns all issues with severity and suggested fixes.",
+    description: "Validate knowledge base health: detect orphan files, broken wiki-links, missing frontmatter, duplicate slugs, empty pages, and root-level orphans. Report-only by default; pass {autofix:true} to mutate (DELETES empty pages, rewrites/normalizes/patches frontmatter). Returns all issues with severity and suggested fixes.",
     inputSchema: external_exports.object({
-      autofix: external_exports.boolean().optional().describe("Auto-fix safe issues (empty pages, empty orphans). Default true.")
+      autofix: external_exports.boolean().optional().describe("Set true to auto-fix safe issues \u2014 DELETES empty pages and rewrites frontmatter. Default false (report-only).")
     })
   },
-  async ({ autofix }) => {
+  guardDestructive("knowledge_validate", async ({ autofix }) => {
     try {
-      const result = await knowledgeValidate(KNOWLEDGE_DIR, { autofix: autofix ?? true });
+      const result = await knowledgeValidate(KNOWLEDGE_DIR, { autofix: autofix ?? false });
       const lines = [`Scanned ${result.pagesScanned} pages.`];
       if (result.fixed > 0) lines.push(`Auto-fixed ${result.fixed} issues.`);
       if (result.issues.length > 0) {
@@ -32476,7 +32496,7 @@ ${result.issues.length} issues found:`);
         isError: true
       };
     }
-  }
+  })
 );
 server.registerTool(
   "dream_create",
@@ -32492,10 +32512,10 @@ server.registerTool(
       model: external_exports.string().optional().describe("Model for consolidation. Default: claude-sonnet-4-6")
     }
   },
-  async (args) => {
+  guardDestructive("dream_create", async (args) => {
     const result = await dreamCreate(args);
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
-  }
+  })
 );
 server.registerTool(
   "dream_status",
@@ -32531,10 +32551,10 @@ server.registerTool(
       dream_id: external_exports.string().describe("The dream ID to accept")
     }
   },
-  async (args) => {
+  guardDestructive("dream_accept", async (args) => {
     const result = await dreamAccept(args);
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
-  }
+  })
 );
 server.registerTool(
   "dream_discard",
@@ -32544,10 +32564,10 @@ server.registerTool(
       dream_id: external_exports.string().describe("The dream ID to discard")
     }
   },
-  async (args) => {
+  guardDestructive("dream_discard", async (args) => {
     const result = await dreamDiscard(args);
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
-  }
+  })
 );
 server.registerTool(
   "dream_cancel",
@@ -32557,10 +32577,10 @@ server.registerTool(
       dream_id: external_exports.string().describe("The dream ID to cancel")
     }
   },
-  async (args) => {
+  guardDestructive("dream_cancel", async (args) => {
     const result = await dreamCancel(args);
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
-  }
+  })
 );
 server.registerTool(
   "episodic_search",
@@ -32675,15 +32695,15 @@ server.registerTool(
 server.registerTool(
   "persona_dismiss",
   {
-    description: "Record a dismissal: the persona's last suggestion was unhelpful. Feeds dismissal-aware backoff. Use when the user says the persona was wrong or noisy. Logged to ~/.second-brain/.persona-dismissals.jsonl.",
+    description: "Record a dismissal: the persona's last ambient suggestion was unhelpful. Wires real dismissal-aware backoff \u2014 after SB_PERSONA_DISMISS_MAX (default 3) dismissals in the trailing window, persona-context.sh self-suppresses the per-prompt ambient injection (explicit /? Opus briefs are unaffected). Use when the user says the persona was wrong or noisy. Logged to ~/.second-brain/.persona-dismissals.jsonl.",
     inputSchema: {
       prompt_snippet: external_exports.string().optional().describe("First ~200 chars of the prompt being dismissed."),
       reason: external_exports.string().optional().describe("Why the suggestion was unhelpful.")
     }
   },
-  async (args) => {
+  guardDestructive("persona_dismiss", async (args) => {
     try {
-      const result = await personaDismiss(args);
+      const result = await personaDismiss({ ...args, brainDir: BRAIN_DIR });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     } catch (error2) {
       return {
@@ -32691,7 +32711,7 @@ server.registerTool(
         isError: true
       };
     }
-  }
+  })
 );
 server.registerTool(
   "knowledge_relate",
@@ -32707,14 +32727,14 @@ server.registerTool(
       reason: external_exports.string().optional().describe("Why (especially on invalidate).")
     }
   },
-  async (args) => {
+  guardDestructive("knowledge_relate", async (args) => {
     try {
       const result = await knowledgeRelate({ ...args, knowledgeDir: KNOWLEDGE_DIR });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     } catch (error2) {
       return { content: [{ type: "text", text: `Relate error: ${error2 instanceof Error ? error2.message : String(error2)}` }], isError: true };
     }
-  }
+  })
 );
 server.registerTool(
   "knowledge_neighbors",
