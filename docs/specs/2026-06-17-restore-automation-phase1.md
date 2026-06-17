@@ -25,6 +25,26 @@ Only **in-session real-time extraction** is *fundamentally* manual under OAuth (
 - The headless maintainer can **never** run unbounded, and a dead-on-arrival dream **self-heals** instead of wedging the pipeline.
 - No regressions: every change ships with a test verifying against an **independent oracle** (filesystem fact / crafted fixture / round-trip), never re-asserting the implementation through its own reader.
 
+## Cross-OS constraint (Windows / macOS / Linux — at least)
+
+The plugin must work on all three. Verified matrix (grep-confirmed, not assumed):
+
+| Layer | Linux | macOS | Windows (Git-Bash) |
+|---|---|---|---|
+| Out-of-band timer (`install-extract-timer.sh`, OS auto-detected) | systemd ✓ | launchd/plist ✓ | Task Scheduler/schtasks ✓ |
+| Extraction drainer (`claude -p`, no bwrap) | ✓ | ✓ | ✓ |
+| Headless LLM consolidation (`maintain-llm-drain`, dream auto-run) | bwrap ✓ | **no-op** (no bwrap) | **no-op** (no bwrap) |
+| In-session consolidation (`/dream`, `/maintain` — model does it) | ✓ | ✓ | ✓ |
+
+**Implication:** hands-off *extraction* is cross-OS; hands-off *consolidation* is Linux-only by safety design (won't run a bypassPermissions agent unconfined). On macOS/Windows the portable substitute is **in-session** `/dream`/`/maintain`.
+
+**Portability rules for every Phase 1 change:**
+- Time/stat: `stat -c %Y \|\| stat -f %m`, `date +%s`, `date -d @epoch \|\| date -r epoch` — never assume GNU coreutils.
+- Process detection: `pgrep \|\| ps -o args=` (Git-Bash has no `pgrep`) — pattern already in `extract-drain.sh`.
+- `timeout` vs `gtimeout` (macOS coreutils): resolved via `TBIN`; the only consumer (bwrap run) is Linux-only anyway.
+- Tests backdate mtime via `touch -d @epoch \|\| (date -r + touch -t)` (done in `test-dream-staleness.sh`).
+- **Fix 1.3 (loud banner) must be OS-aware:** on mac/win, "consolidation not running" → advise in-session `/dream`, NOT "install bubblewrap."
+
 ## The six fixes
 
 ### 1.1 — Un-starve the drainer defer  *(root cause #1)*
