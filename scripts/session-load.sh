@@ -256,6 +256,52 @@ if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
+# 0a-quater. Out-of-band DRAINER health banner — the silent-failure gap (root
+# cause #2). The 0-block above keys on .extractor-health.json status=="fail"; but
+# the common breakage is INVISIBLE to it: the in-session hook writes status==
+# "queued" (correctly deferring OAuth), while the OUT-OF-BAND extract-drain.sh
+# dies with ec=124 timeouts logged at exit_code:0 (TRACE) — 0 lines say
+# "llm-extraction-failed", so neither the fail-banner nor sb_count_recent_extraction_failures
+# fire. This banner keys on the ACTUAL signatures the drainer leaves: ec=124
+# timeouts and poison-pilled (terminal-error) transcripts, and is OS-aware. The
+# quarantine signal is deliberately NOT included — dream-autostage.sh already owns
+# the .llm-maintain-quarantine banner; duplicating it would double-fire on the same
+# SessionStart. Mutually exclusive with the FAILED banner above (suppress when
+# H_STATUS==fail). Kill switch: SB_DRAIN_HEALTH_BANNER=off. Fail-open.
+if [ "${SB_DRAIN_HEALTH_BANNER:-on}" != "off" ] && [ "${H_STATUS:-}" != "fail" ]; then
+  DRAIN_TO_THRESH="${SB_DRAIN_TIMEOUT_BANNER_THRESHOLD:-3}"; case "$DRAIN_TO_THRESH" in ''|*[!0-9]*) DRAIN_TO_THRESH=3 ;; esac
+  DEAD_THRESH="${SB_DRAIN_DEADLETTER_THRESHOLD:-5}"; case "$DEAD_THRESH" in ''|*[!0-9]*) DEAD_THRESH=5 ;; esac
+  DRAIN_TO_N=$(sb_count_drain_timeouts 40)
+  DEAD_N=$(sb_count_drain_dead_letters)
+  # Two OR'd triggers (quarantine is owned by dream-autostage.sh, not here).
+  if [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] || [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ]; then
+    DRAIN_WHY=""
+    [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] && DRAIN_WHY="${DRAIN_TO_N} recent drain timeout(s) (ec=124 — the extractor hangs past its deadline)"
+    [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }${DEAD_N} transcript(s) permanently failed extraction (poison-pilled)"
+    [ -n "$DRAIN_WHY" ] || DRAIN_WHY="the out-of-band extractor is not draining"
+    # OS-AWARE remedy. Linux: the drainer CAN run (bwrap) — raise the timeout (or
+    # install bubblewrap if missing). macOS/Windows: no bwrap-contained headless
+    # path — consolidate IN-SESSION via /second-brain:maintain or /second-brain:dream.
+    case "$(uname -s)" in
+      Linux)
+        if command -v bwrap >/dev/null 2>&1; then
+          DRAIN_FIX="fix: the drainer is timing out — raise the deadline: \`export SB_DRAIN_EXTRACT_TIMEOUT=300\` (default 240s; a Pi/slow box may need more). If you have an API key, \`export ANTHROPIC_API_KEY=sk-ant-...\` removes the recursive-claude hang entirely."
+        else
+          DRAIN_FIX="fix: install the sandbox the headless drainer needs — \`sudo apt install bubblewrap\` — then raise the deadline if needed: \`export SB_DRAIN_EXTRACT_TIMEOUT=300\`."
+        fi
+        ;;
+      Darwin|MINGW*|MSYS*|CYGWIN*)
+        DRAIN_FIX="fix: the bubblewrap-contained out-of-band drainer does not run on this OS, so consolidate IN-SESSION: run \`/second-brain:maintain\` (live) or \`/second-brain:dream\` (staged for review). An \`export ANTHROPIC_API_KEY=sk-ant-...\` also enables in-session capture at every Stop."
+        ;;
+      *)
+        DRAIN_FIX="fix: run \`/second-brain:maintain\` to consolidate in-session, or set \`export ANTHROPIC_API_KEY=sk-ant-...\` for in-session capture. Tail \`~/.second-brain/error-log.jsonl\` for the ec=124 diag lines."
+        ;;
+    esac
+    sb_append "$(printf '## \xe2\x9a\xa0 second-brain — background extraction is failing silently\nsignal: %s\nimpact: session insights are NOT reaching the wiki/learnings — they are lost on exit.\n%s\nSuppress: \x60SB_DRAIN_HEALTH_BANNER=off\x60.\n\n' "$DRAIN_WHY" "$DRAIN_FIX")" "drain-health-banner" 700
+    sb_log_error "session-load.sh" "drain-health: timeouts=${DRAIN_TO_N} dead=${DEAD_N} os=$(uname -s)" 0
+  fi
+fi
+
 # 0a-bis. Auth-mode line — one quiet line so the user always knows which
 # credential path the extractor will use this session. Critical for the dual-
 # auth UX (Claude subscription vs Anthropic API key): without this banner,

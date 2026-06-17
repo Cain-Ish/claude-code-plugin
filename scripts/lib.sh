@@ -1200,6 +1200,37 @@ sb_count_recent_extraction_failures() {
     | grep -c 'llm-extraction-failed' 2>/dev/null || true
 }
 
+# Count out-of-band DRAIN TIMEOUTS (extractor-diag ... ec=124) in the most-recent
+# window of error-log.jsonl. This is the SILENT-FAILURE signature the legacy
+# sb_count_recent_extraction_failures MISSES: extract-drain.sh logs these via
+# sb_log_extractor_diag at exit_code 0 (TRACE), and `claude -p` hanging past the
+# timeout (recursive-claude / OAuth lock with no API-key backstop) is exactly the
+# ec=124 case. We scan the raw .message text (not jq-parsed fields). tail-bounded
+# to the recent window so a long-ago, since-fixed burst doesn't re-nag forever.
+# $1 = window size (lines, default 40). Pure read; safe to call anywhere.
+sb_count_drain_timeouts() {
+  local win="${1:-40}"; case "$win" in ''|*[!0-9]*) win=40 ;; esac
+  local log="$BRAIN_DIR/error-log.jsonl"
+  [ -f "$log" ] || { echo 0; return; }
+  tail -n "$win" "$log" 2>/dev/null \
+    | grep -c 'extractor-diag .*ec=124' 2>/dev/null || true
+}
+
+# Count transcripts that reached a TERMINAL error in the drainer's done-set
+# (.extraction-state.jsonl outcome=="error" = poison-pilled past SB_DRAIN_MAX_FAILS).
+# Folded per-basename so a basename that retried then errored counts ONCE.
+# Echoes an integer. $1 = optional explicit state-file path (test override).
+sb_count_drain_dead_letters() {
+  local f="${1:-$BRAIN_DIR/.extraction-state.jsonl}"
+  [ -s "$f" ] || { echo 0; return 0; }
+  if command -v jq >/dev/null 2>&1; then
+    jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[$r.basename]=$r)
+            | [.[]] | map(select(.outcome=="error")) | length' "$f" 2>/dev/null || echo 0
+  else
+    echo 0
+  fi
+}
+
 # Verify jq is available. If missing, log to error-log.jsonl and return 1.
 # Caller pattern: `sb_require_jq || exit 0` — the hook then exits cleanly
 # rather than running jq commands that would silently no-op. The error is
