@@ -370,9 +370,13 @@ if [ -n "$REFS" ]; then
   done <<< "$REFS"
 fi
 
-# --- Auto-staleness: mark decisions/blockers older than 30 days as [stale] ---
-STALE_CUTOFF=$(date -v-30d +%Y-%m-%d 2>/dev/null \
-  || date -d "30 days ago" +%Y-%m-%d 2>/dev/null \
+# --- Auto-staleness: mark decisions/blockers older than N days as [stale] ---
+# N defaults to 30 (the review skill's staleness horizon); override per policy.
+# Validate-or-default (same idiom as SB_DREAM_STALE_DAYS / SB_FORGET_MIN_AGE_DAYS).
+STALE_DAYS="${SB_PROJECT_STALE_DAYS:-30}"
+case "$STALE_DAYS" in ''|*[!0-9]*) STALE_DAYS=30 ;; esac
+STALE_CUTOFF=$(date -v-"${STALE_DAYS}"d +%Y-%m-%d 2>/dev/null \
+  || date -d "${STALE_DAYS} days ago" +%Y-%m-%d 2>/dev/null \
   || echo "1970-01-01")
 
 mark_stale() {

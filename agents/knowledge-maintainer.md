@@ -62,8 +62,10 @@ Fix structural issues before touching content.
 
 Group pages by topic and merge overlapping content.
 
-**Retrieval-grounded reconciliation** (Mem0-style; skip if `SB_RECONCILE=off` — the
-title-overlap heuristic below still runs). For each candidate page (a newly-mined page, or
+**Retrieval-grounded reconciliation** (Mem0-style; advisory `SB_RECONCILE=off` — this is an
+LLM-judgment phase with no script to gate, so 'off' is honor-system: when off, skip the
+`knowledge_search`-grounded ADD/UPDATE/NOOP/SUPERSEDE decision and fall back to the
+title-overlap heuristic below, which still runs). For each candidate page (a newly-mined page, or
 one flagged in step 2), call `knowledge_search(<title-or-key-text>)` for the top-k nearest
 **LIVE** pages (`SB_RECONCILE_TOPK`, default 5 — `knowledge_search` already fuses BM25 +
 embeddings and falls back to BM25-only when vectors are unavailable, e.g.

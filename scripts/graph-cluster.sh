@@ -15,6 +15,11 @@ while [ $# -gt 0 ]; do
 done
 [ -z "$KDIR" ] && KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
 KDIR="${KDIR/#\~/$HOME}"
+# Machine-enforce the SUMMARIZE kill switch HERE (not just in the agent prose): when
+# SB_DREAM_SUMMARIZE=off, emit the same `[]` sentinel the fail-safe path uses so the
+# dream's SUMMARIZE loop writes zero theme pages — byte-identical to the documented skip,
+# independent of what the LLM does with the result. (Default on; only the literal `off` gates.)
+if [ "${SB_DREAM_SUMMARIZE:-on}" = "off" ]; then echo '[]'; exit 0; fi
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BUNDLE="$ROOT/mcp/dist/tools/graph-cluster-cli.bundle.js"
 

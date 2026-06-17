@@ -158,35 +158,8 @@ OUT=$(run_session_load)
 echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "auto-disable: banner should be suppressed when marker present"
 pass "3 consecutive failures auto-disable; subsequent runs suppressed"
 
-# --- Test 9: migration converts .maintainer-needed → .wiki-writes -------
-init_sandbox "migration"
-PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
-PROJ_DIR2="$SANDBOX/.second-brain/projects/other-slug"
-mkdir -p "$PROJ_DIR2"
-touch "$PROJ_DIR/.maintainer-needed"
-touch "$PROJ_DIR2/.maintainer-needed"
-unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD
-bash "$REPO_ROOT/scripts/migrate-to-2.8.0.sh" >/dev/null 2>&1
-[ -f "$PROJ_DIR/.maintainer-needed" ] && fail "migration: old flag should be removed (test-slug)"
-[ -f "$PROJ_DIR2/.maintainer-needed" ] && fail "migration: old flag should be removed (other-slug)"
-[ "$(cat "$PROJ_DIR/.wiki-writes")" = "3" ] || \
-  fail "migration: counter should be set to threshold (3), got $(cat "$PROJ_DIR/.wiki-writes" 2>/dev/null)"
-[ "$(cat "$PROJ_DIR2/.wiki-writes")" = "3" ] || \
-  fail "migration: counter should be set for other-slug too, got $(cat "$PROJ_DIR2/.wiki-writes" 2>/dev/null)"
-# Idempotent re-run is a no-op
-bash "$REPO_ROOT/scripts/migrate-to-2.8.0.sh" >/dev/null 2>&1
-[ "$(cat "$PROJ_DIR/.wiki-writes")" = "3" ] || fail "migration: re-run should be idempotent"
-pass "migration: old .maintainer-needed → .wiki-writes=N, idempotent"
-
-# --- Test 10: migration refuses non-numeric threshold ------------------
-init_sandbox "migration-bad-threshold"
-PROJ_DIR="$SANDBOX/.second-brain/projects/test-slug"
-touch "$PROJ_DIR/.maintainer-needed"
-SB_MAINTAINER_THRESHOLD=abc bash "$REPO_ROOT/scripts/migrate-to-2.8.0.sh" 2>/dev/null
-RC=$?
-[ "$RC" -ne 0 ] || fail "bad-threshold: script should exit non-zero on invalid N"
-[ -f "$PROJ_DIR/.maintainer-needed" ] || fail "bad-threshold: legacy flag should remain when migration refuses"
-[ ! -f "$PROJ_DIR/.wiki-writes" ] || fail "bad-threshold: counter should NOT exist when migration refuses"
-pass "migration refuses non-numeric SB_MAINTAINER_THRESHOLD; legacy flag preserved"
+# (Tests 9-10 retired: they were the sole callers of migrate-to-2.8.0.sh, a dead
+# pre-1.0-scheme migration the 0.x upgrade runner can never reach. Removed with
+# the script.)
 
 echo "ALL PASS"

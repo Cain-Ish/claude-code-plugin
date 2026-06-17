@@ -134,7 +134,9 @@ export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$B2/knowledge"
 mkdir -p "$BRAIN_DIR/transcripts" "$KNOWLEDGE_DIR/wiki/concepts"
 printf -- '---\ntitle: t\ntype: concepts\n---\n\n# t\nbody\n' > "$KNOWLEDGE_DIR/wiki/concepts/t.md"
 printf 'tx\n' > "$BRAIN_DIR/transcripts/sess_x_2026-01-01.txt"
-printf '{"auto_maintain": true}\n' > "$BRAIN_DIR/config.json"
+# auto_accept:off so the now-completed (advancing-stub) success runs don't trip the
+# real auto-accept/merge path — this block tests the failure-aware lifecycle, not accept.
+printf '{"auto_maintain": true, "auto_accept": "off"}\n' > "$BRAIN_DIR/config.json"
 MARK="$BRAIN_DIR/.last-llm-maintain"
 FAILS="$BRAIN_DIR/.llm-maintain-fails"
 QUAR="$BRAIN_DIR/.llm-maintain-quarantine"
@@ -143,9 +145,21 @@ BIN2="$B2/bin"; mkdir -p "$BIN2"
 cat > "$BIN2/bwrap" <<'EOF'
 #!/bin/bash
 # Probe call ends in /bin/true; the real run carries 'claude' in its args.
+is_run=0; dream_dir=""; prev=""
 for a in "$@"; do
   if [ "$a" = "/bin/true" ]; then exit "${SB_TEST_PROBE_RC:-0}"; fi
+  [ "$a" = "claude" ] && is_run=1
+  [ "$prev" = "--bind" ] && [ -z "$dream_dir" ] && dream_dir="$a"
+  prev="$a"
 done
+# A genuine agent advances the dream to completed before exiting. The stub mirrors
+# that on a successful real run (so the success-path counter-clear is exercised)
+# UNLESS the test forces a silent death (SB_TEST_RUN_NOADVANCE=1) or a non-zero rc.
+if [ "$is_run" = "1" ] && [ "${SB_TEST_RUN_RC:-0}" = "0" ] && [ "${SB_TEST_RUN_NOADVANCE:-0}" != "1" ] \
+   && [ -n "$dream_dir" ] && [ -f "$dream_dir/status.json" ]; then
+  jq '.status="completed"' "$dream_dir/status.json" > "$dream_dir/status.json.t" 2>/dev/null \
+    && mv "$dream_dir/status.json.t" "$dream_dir/status.json" 2>/dev/null
+fi
 [ -n "${SB_TEST_RUN_STDERR:-}" ] && echo "$SB_TEST_RUN_STDERR" >&2
 exit "${SB_TEST_RUN_RC:-0}"
 EOF

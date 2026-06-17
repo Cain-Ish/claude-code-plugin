@@ -417,10 +417,11 @@ sb_set_extraction_marker() {
   echo "$line" > "$BRAIN_DIR/.last-extracted-line-$slug"
 }
 
-sb_clear_extraction_marker() {
-  local slug="$1"
-  rm -f "$BRAIN_DIR/.last-extracted-line-$slug"
-}
+# (R1 sweep: sb_clear_extraction_marker was deleted — its only caller,
+# stop-extract.sh:253, was removed in the per-turn-reextraction fix
+# (docs/plans/2026-06-10-r1-extraction-loop.md). Markers are now swept by
+# extract-drain.sh's `-mtime +30 -delete` instead of cleared per run. No live
+# caller remained; the sb_get_/sb_set_/sb_extraction_marker_key trio stays.)
 
 # Compose the extraction-marker key for a (slug, session) pair. The session id
 # is sanitized for filename safety (it comes from the hook payload).
@@ -776,6 +777,38 @@ sb_dream_set_status() {
   else
     jq --arg f "$field" --arg v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
   fi
+}
+
+# Single source of truth for "is this dream wedged?" — the one staleness policy
+# shared by dream-snapshot.sh (deadlock-break before staging a new dream),
+# dream-autostage.sh (reclaim a never-started pending), verify.sh (health
+# report), and maintain-llm-drain.sh (post-run self-heal). Before this helper
+# the four disagreed (6h mtime / 24h created_at / calendar-day / none), which
+# produced contradictory health verdicts and a double-reclaim race.
+#
+# Policy: status is pending|running AND status.json mtime is older than
+# SB_DREAM_RUN_TIMEOUT (default 21600s = 6h). mtime is the liveness signal —
+# the dream-runner re-stamps status.json (status=running) between phases, so a
+# healthy run keeps it fresh; a crashed run goes quiet and ages out. A terminal
+# status (completed/failed/canceled) or a missing file is never stale.
+#
+# $1 = path to a dream's status.json. Echoes nothing.
+# Returns 0 = stale (caller may reclaim to failed), 1 = fresh / terminal / missing.
+sb_dream_is_stale() {
+  local sf="${1:-}"
+  [ -f "$sf" ] || return 1
+  local s
+  s=$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')
+  case "$s" in
+    pending|running) : ;;
+    *) return 1 ;;
+  esac
+  local run_to="${SB_DREAM_RUN_TIMEOUT:-21600}"
+  case "$run_to" in ''|*[!0-9]*) run_to=21600 ;; esac
+  local smt now
+  smt=$(stat -c %Y "$sf" 2>/dev/null || stat -f %m "$sf" 2>/dev/null || echo 0)
+  now=$(date +%s)
+  [ "$(( now - ${smt:-0} ))" -gt "$run_to" ]
 }
 
 # --- Extractor backend & health tracking ---------------------------------
@@ -1168,6 +1201,37 @@ sb_count_recent_extraction_failures() {
     | grep -c 'llm-extraction-failed' 2>/dev/null || true
 }
 
+# Count out-of-band DRAIN TIMEOUTS (extractor-diag ... ec=124) in the most-recent
+# window of error-log.jsonl. This is the SILENT-FAILURE signature the legacy
+# sb_count_recent_extraction_failures MISSES: extract-drain.sh logs these via
+# sb_log_extractor_diag at exit_code 0 (TRACE), and `claude -p` hanging past the
+# timeout (recursive-claude / OAuth lock with no API-key backstop) is exactly the
+# ec=124 case. We scan the raw .message text (not jq-parsed fields). tail-bounded
+# to the recent window so a long-ago, since-fixed burst doesn't re-nag forever.
+# $1 = window size (lines, default 40). Pure read; safe to call anywhere.
+sb_count_drain_timeouts() {
+  local win="${1:-40}"; case "$win" in ''|*[!0-9]*) win=40 ;; esac
+  local log="$BRAIN_DIR/error-log.jsonl"
+  [ -f "$log" ] || { echo 0; return; }
+  tail -n "$win" "$log" 2>/dev/null \
+    | grep -c 'extractor-diag .*ec=124' 2>/dev/null || true
+}
+
+# Count transcripts that reached a TERMINAL error in the drainer's done-set
+# (.extraction-state.jsonl outcome=="error" = poison-pilled past SB_DRAIN_MAX_FAILS).
+# Folded per-basename so a basename that retried then errored counts ONCE.
+# Echoes an integer. $1 = optional explicit state-file path (test override).
+sb_count_drain_dead_letters() {
+  local f="${1:-$BRAIN_DIR/.extraction-state.jsonl}"
+  [ -s "$f" ] || { echo 0; return 0; }
+  if command -v jq >/dev/null 2>&1; then
+    jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[$r.basename]=$r)
+            | [.[]] | map(select(.outcome=="error")) | length' "$f" 2>/dev/null || echo 0
+  else
+    echo 0
+  fi
+}
+
 # Verify jq is available. If missing, log to error-log.jsonl and return 1.
 # Caller pattern: `sb_require_jq || exit 0` — the hook then exits cleanly
 # rather than running jq commands that would silently no-op. The error is
@@ -1234,7 +1298,18 @@ sb_extract_transcript() {
   # Drainer-specific knob (deep-review): the hooks share SB_EXTRACT_TIMEOUT with
   # small defaults (25s/30s inside 45s hook budgets) — reusing it here would let a
   # drainer-oriented override re-open the kill-after-extract window in-hook.
-  local timeout_s="${SB_DRAIN_EXTRACT_TIMEOUT:-120}"
+  #
+  # Default 240s (Phase 1.2, slow-HW headroom): a Pi-class box pays ~24s on the
+  # nested-spawn hook stack before the extractor even starts, so a real extraction
+  # over the 200KB tail cap can blow the old 120s budget -> ec=124 -> retry; 3
+  # outcomes (SB_DRAIN_MAX_FAILS) terminally mark the transcript `error`. 240s
+  # doubles the per-attempt budget. BUDGET PROOF it stays well under the 7200s lock
+  # steal-threshold (SB_DRAIN_LOCK_STALE) even fully degraded: worst case per
+  # transcript = 3 retry paths (direct + pty + API) x timeout_s, x SB_DRAIN_BATCH=5
+  #   = 5 x 3 x 240 = 3600s = HALF of 7200 — a live run can't be judged stale and
+  # have its lock stolen. 240 is the LARGEST value keeping BATCH x 3 x timeout_s
+  # <= 7200/2; do NOT raise further without also raising SB_DRAIN_LOCK_STALE.
+  local timeout_s="${SB_DRAIN_EXTRACT_TIMEOUT:-240}"
   local prompt_file="$sdir/extract-prompt.txt"
   [ -f "$prompt_file" ] || return 1
   local prompt; prompt=$(cat "$prompt_file")
