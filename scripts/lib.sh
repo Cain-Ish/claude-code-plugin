@@ -778,6 +778,38 @@ sb_dream_set_status() {
   fi
 }
 
+# Single source of truth for "is this dream wedged?" — the one staleness policy
+# shared by dream-snapshot.sh (deadlock-break before staging a new dream),
+# dream-autostage.sh (reclaim a never-started pending), verify.sh (health
+# report), and maintain-llm-drain.sh (post-run self-heal). Before this helper
+# the four disagreed (6h mtime / 24h created_at / calendar-day / none), which
+# produced contradictory health verdicts and a double-reclaim race.
+#
+# Policy: status is pending|running AND status.json mtime is older than
+# SB_DREAM_RUN_TIMEOUT (default 21600s = 6h). mtime is the liveness signal —
+# the dream-runner re-stamps status.json (status=running) between phases, so a
+# healthy run keeps it fresh; a crashed run goes quiet and ages out. A terminal
+# status (completed/failed/canceled) or a missing file is never stale.
+#
+# $1 = path to a dream's status.json. Echoes nothing.
+# Returns 0 = stale (caller may reclaim to failed), 1 = fresh / terminal / missing.
+sb_dream_is_stale() {
+  local sf="${1:-}"
+  [ -f "$sf" ] || return 1
+  local s
+  s=$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')
+  case "$s" in
+    pending|running) : ;;
+    *) return 1 ;;
+  esac
+  local run_to="${SB_DREAM_RUN_TIMEOUT:-21600}"
+  case "$run_to" in ''|*[!0-9]*) run_to=21600 ;; esac
+  local smt now
+  smt=$(stat -c %Y "$sf" 2>/dev/null || stat -f %m "$sf" 2>/dev/null || echo 0)
+  now=$(date +%s)
+  [ "$(( now - ${smt:-0} ))" -gt "$run_to" ]
+}
+
 # --- Extractor backend & health tracking ---------------------------------
 # Unified entry point for both stop-extract.sh and pre-compact.sh. Tries the
 # `claude` CLI first; if its auth is broken, falls back to a direct Messages
