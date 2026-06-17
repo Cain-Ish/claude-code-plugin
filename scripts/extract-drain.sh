@@ -23,6 +23,31 @@ source "$(dirname "$0")/lib.sh"
 # which is Linux-only). Returns the full command line for the pid.
 sb_drain_proc_args() { ps -p "$1" -o args= 2>/dev/null; }
 
+# Relaxed verdict (opt-in, SB_DRAIN_DEFER_PMODE_ONLY=1): defer ONLY when ANOTHER
+# live `claude -p` is present (a concurrent extractor / print-mode call that
+# genuinely contends for the recursive-claude path). A plain interactive session
+# is ignored because the bounded extractor cannot hang on it. Mirrors
+# sb_drain_should_defer's pgrep||ps structure EXACTLY (cross-OS), inverting only
+# the -p test (present -> defer, instead of absent -> defer).
+sb_drain_pmode_present() {
+  case "${SB_INTERACTIVE_OVERRIDE:-}" in active) return 0 ;; inactive) return 1 ;; esac
+  local p args
+  if command -v pgrep >/dev/null 2>&1; then
+    for p in $(pgrep -u "$(id -u)" -x claude 2>/dev/null); do
+      args=$(sb_drain_proc_args "$p")
+      case " $args " in *" -p "*) return 0 ;; esac
+    done
+  else
+    while IFS= read -r args; do
+      [ -n "$args" ] || continue
+      case " $args " in *" -p "*) return 0 ;; esac
+    done <<EOF
+$(ps -e -o args= 2>/dev/null | grep -iE '(^|[ /\\])claude([ "]|\.exe|$)')
+EOF
+  fi
+  return 1
+}
+
 sb_drain_should_defer() {
   case "${SB_INTERACTIVE_OVERRIDE:-}" in
     active)   return 0 ;;
@@ -50,16 +75,85 @@ EOF
   return 1
 }
 
+# --- Persisted consecutive-defer counter (un-starve, root cause #1) -------
+# An always-on interactive operator makes sb_drain_should_defer return 0 on
+# EVERY timer fire, so the backlog never drains. The extractor is provably
+# BOUNDED (SB_DRAIN_EXTRACT_TIMEOUT x backend + MAX_FAILS poison-pill — see
+# lib.sh sb_call_extractor; CLAUDECODE is unset out-of-band so the in-session
+# queue branch never fires), so a forced attempt costs at most one timeout, not
+# a hang. We therefore allow ONE drain through whenever starvation crosses a
+# bound. State lives in BRAIN_DIR so it survives across timer fires.
+DEFER_COUNT_F="$BRAIN_DIR/.drain-defer-count"
+sb_drain_defer_count() {
+  local n=0
+  [ -f "$DEFER_COUNT_F" ] && n=$(tr -d '[:space:]' < "$DEFER_COUNT_F" 2>/dev/null)
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%d' "$n"
+}
+sb_drain_defer_bump() { printf '%d' "$(( $(sb_drain_defer_count) + 1 ))" > "$DEFER_COUNT_F" 2>/dev/null || true; }
+sb_drain_defer_reset() { rm -f "$DEFER_COUNT_F" 2>/dev/null || true; }
+
+# Age (seconds) of the OLDEST not-yet-done .txt in TX_DIR; 0 if none pending.
+# mtime via stat -c %Y (GNU) || stat -f %m (BSD/macOS); now via date +%s. The
+# oldest-first ls -1tr mirrors the batch loop's own ordering.
+sb_drain_oldest_pending_age() {
+  local txd="$BRAIN_DIR/transcripts" state="$BRAIN_DIR/.extraction-state.jsonl"
+  [ -d "$txd" ] || { printf '0'; return; }
+  local now mt tf base age
+  now=$(date +%s)
+  while IFS= read -r tf; do
+    [ -n "$tf" ] || continue
+    base=$(basename "$tf")
+    sb_extraction_done "$base" "$state" && continue
+    mt=$(stat -c %Y "$tf" 2>/dev/null || stat -f %m "$tf" 2>/dev/null || echo "$now")
+    case "$mt" in ''|*[!0-9]*) mt="$now" ;; esac
+    age=$(( now - mt )); [ "$age" -lt 0 ] && age=0
+    printf '%d' "$age"; return        # ls -1tr is oldest-first -> first pending is oldest
+  done < <(ls -1tr "$txd"/*.txt 2>/dev/null)
+  printf '0'
+}
+
+# Should we let ONE drain escape the defer despite a live interactive session?
+# Yes when consecutive defers crossed SB_DRAIN_DEFER_MAX (default 6) OR the
+# oldest pending transcript is older than SB_DRAIN_STALE_MAX (default 86400s).
+sb_drain_starved() {
+  local dmax="${SB_DRAIN_DEFER_MAX:-6}";  case "$dmax"  in ''|*[!0-9]*) dmax=6 ;; esac
+  local smax="${SB_DRAIN_STALE_MAX:-86400}"; case "$smax" in ''|*[!0-9]*) smax=86400 ;; esac
+  [ "$(sb_drain_defer_count)" -ge "$dmax" ] && return 0
+  [ "$(sb_drain_oldest_pending_age)" -gt "$smax" ] && return 0
+  return 1
+}
+
 # The whole point is to run outside a session — refuse the recursive-lock context.
 if [ "${CLAUDECODE:-}" = "1" ]; then
   echo "extract-drain: refusing to run inside a Claude Code session" >&2
   exit 0
 fi
 
-# Defer (don't fail) while an interactive session holds the global OAuth lock.
-if sb_drain_should_defer; then
-  echo "extract-drain: interactive claude session active — deferring (OAuth lock held)" >&2
-  exit 0
+# Defer (don't fail) while an interactive session is live — UNLESS the backlog
+# has starved past a bound, in which case we let exactly ONE drain through. The
+# extractor is bounded (timeout x backend + poison-pill), so a forced attempt is
+# safe under either premise: at worst it spends one SB_DRAIN_EXTRACT_TIMEOUT and
+# at most one poison-retry per starved transcript — never an unbounded hang.
+# SB_DRAIN_DEFER_PMODE_ONLY=1 additionally relaxes the BASE verdict to defer only
+# on another live `claude -p` (verified-false hang premise; off by default so the
+# empty-output quality guard for plain interactive sessions is preserved).
+if [ "${SB_DRAIN_DEFER_PMODE_ONLY:-0}" = "1" ]; then
+  _sb_defer_verdict() { sb_drain_pmode_present; }
+else
+  _sb_defer_verdict() { sb_drain_should_defer; }
+fi
+if _sb_defer_verdict; then
+  if sb_drain_starved; then
+    sb_drain_defer_reset
+    echo "extract-drain: interactive claude active but backlog starved — forcing ONE escape drain" >&2
+  else
+    sb_drain_defer_bump
+    echo "extract-drain: interactive claude session active — deferring (consecutive=$(sb_drain_defer_count))" >&2
+    exit 0
+  fi
+else
+  sb_drain_defer_reset
 fi
 
 BATCH="${SB_DRAIN_BATCH:-5}"
