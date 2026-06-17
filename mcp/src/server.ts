@@ -506,7 +506,7 @@ server.registerTool(
 server.registerTool(
   "persona_dismiss",
   {
-    description: "Record a dismissal: the persona's last suggestion was unhelpful. Feeds dismissal-aware backoff. Use when the user says the persona was wrong or noisy. Logged to ~/.second-brain/.persona-dismissals.jsonl.",
+    description: "Record a dismissal: the persona's last ambient suggestion was unhelpful. Wires real dismissal-aware backoff — after SB_PERSONA_DISMISS_MAX (default 3) dismissals in the trailing window, persona-context.sh self-suppresses the per-prompt ambient injection (explicit /? Opus briefs are unaffected). Use when the user says the persona was wrong or noisy. Logged to ~/.second-brain/.persona-dismissals.jsonl.",
     inputSchema: {
       prompt_snippet: z.string().optional().describe("First ~200 chars of the prompt being dismissed."),
       reason: z.string().optional().describe("Why the suggestion was unhelpful."),

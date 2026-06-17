@@ -460,53 +460,9 @@ if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 
   fi
 fi
 
-# 2b. Persona card + installed-catalog (HYBRID per C1-B,
-# wiki/decisions/2026-05-28-plugin-architecture-rethink.md). The doctrinal
-# path is SessionStart load (Anthropic recommends per-session, not per-turn).
-# persona-context.sh keeps its per-turn emit as a safety net against the
-# v2.10 "persona disappears after turn 1" regression; in v0.22.0 we trim the
-# per-turn path once SessionStart persistence is empirically confirmed.
-#
-# Kill switch: SB_PERSONA_GATE=off (single switch covers both paths).
-if [ "${SB_PERSONA_GATE:-on}" != "off" ]; then
-  PCARD_FILE="$BRAIN_DIR/persona-card.md"
-  if [ -f "$PCARD_FILE" ]; then
-    # Same dedup logic as persona-context.sh: drop bullets that already appear
-    # verbatim in USER.md to avoid double-inject.
-    PERSONA_RAW=$(awk '
-      /^## / { section = $0; sub(/^## */, "", section); next }
-      /^- / && section != "" {
-        bullet = $0; sub(/^- */, "", bullet)
-        printf "[%s] %s\n", section, bullet
-      }
-    ' "$PCARD_FILE" 2>/dev/null)
-    if [ -f "$USER_FILE" ] && [ -n "$PERSONA_RAW" ]; then
-      USER_BULLETS=$(grep -E '^- ' "$USER_FILE" 2>/dev/null | sed 's/^- *//')
-      PERSONA_ABS=$(printf '%s\n' "$PERSONA_RAW" | awk -v ub="$USER_BULLETS" '
-        BEGIN { n = split(ub, arr, "\n"); for (i=1;i<=n;i++) seen[arr[i]] = 1 }
-        { line = $0; sub(/^\[[^]]+\] /, "", line); if (!(line in seen)) print $0 }
-      ')
-    else
-      PERSONA_ABS="$PERSONA_RAW"
-    fi
-    if [ -n "$PERSONA_ABS" ]; then
-      PERSONA_BLOCK=$(printf '\n## Persona (loaded at session start; treat as ambient identity)\n%s\n' "$PERSONA_ABS")
-      sb_append "$PERSONA_BLOCK" "persona-card-sessionstart" 1200
-    fi
-  fi
-  CATALOG_FILE="$BRAIN_DIR/.installed-catalog.json"
-  if [ -f "$CATALOG_FILE" ] && command -v jq >/dev/null 2>&1; then
-    CATALOG_ABS=$(jq -r '
-      [
-        (.plugins // [] | unique_by(.name) | map(.name) | .[0:6] | join(", ")),
-        (.agents  // [] | length | tostring + " agents"),
-        (.skills  // [] | length | tostring + " skills")
-      ] | map(select(length > 0)) | join(" | ")' "$CATALOG_FILE" 2>/dev/null)
-    if [ -n "$CATALOG_ABS" ]; then
-      sb_append "$(printf '\nInstalled specialists: %s\n' "$CATALOG_ABS")" "installed-catalog-sessionstart" 250
-    fi
-  fi
-fi
+# 2b. Persona card + installed-catalog SessionStart injection REMOVED (0.32.0): USER.md
+# (force-emitted above) now carries the unique identity, so the card was a redundant paraphrase
+# and the catalog was per-session noise. persona-card.md is still seeded (persona-stats reads it).
 
 # 3. PROJECT.md — always included (the project hot tier). It is priority-1 context like
 # USER.md, so `force` it past the byte budget (otherwise earlier conditional banners can

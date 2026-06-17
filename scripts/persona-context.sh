@@ -101,14 +101,7 @@ BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 
-# Caps per section. Total adds up around ~2400B for the additionalContext payload,
-# well under the Claude Code 10K-char hook output limit.
-# CAP_PERSONA was raised from 400 to 1200 in v2.10 because the new structured
-# format (`[Section] bullet` per line, ~80 chars each) needs ~1100B to fit a
-# typical persona-card.md without truncating mid-section. The old 400-byte cap
-# fit only 4 bullets in the new format.
-CAP_PERSONA=1200
-CAP_CATALOG=200
+# Caps per section (wiki + episodic only; per-prompt persona/catalog injection removed in 0.32.0).
 CAP_WIKI=600
 CAP_EPISODIC=300
 
@@ -135,67 +128,25 @@ if [ ! -f "$PCARD_FILE" ]; then
 - default to silence; volunteer only when the value clearly exceeds the interruption
 SEED
 fi
+# Per-prompt persona-card + installed-catalog injection removed (0.32.0): the card was a
+# ~95% paraphrase of USER.md re-sent EVERY prompt (~330 tokens), and USER.md already loads
+# once at SessionStart. The seed block above is kept so persona-stats has a card to summarize.
 PERSONA_ABS=""
-if [ -f "$PCARD_FILE" ]; then
-  # USER.md is loaded by session-load.sh at session start; persona-card.md is
-  # injected per-prompt by this hook. Bullets that already appear verbatim in
-  # USER.md are stripped to avoid double-injection (observed in field data:
-  # 480B persona-card 100% duplicated USER.md "Hard Rules" entries).
-  #
-  # Format: keep `## Section` headings as `[section]` tags so the model can
-  # distinguish identity from style from hard rules. awk walks the persona-card
-  # in order, emitting `[Section] bullet` lines, then dedups against USER.md.
-  # `tr '\n' ';'` collapse was removed in v2.10 — it destroyed structure.
-  USER_BULLETS_FILE="$BRAIN_DIR/USER.md"
-  PERSONA_RAW=$(awk '
-    /^## / { section = $0; sub(/^## */, "", section); next }
-    /^- / && section != "" {
-      bullet = $0; sub(/^- */, "", bullet)
-      printf "[%s] %s\n", section, bullet
-    }
-  ' "$PCARD_FILE" 2>/dev/null)
-
-  if [ -f "$USER_BULLETS_FILE" ] && [ -n "$PERSONA_RAW" ]; then
-    # Dedup: drop persona lines whose bullet text (after `[Section] `) exactly
-    # matches a bare bullet in USER.md.
-    USER_BULLETS=$(grep -E '^- ' "$USER_BULLETS_FILE" 2>/dev/null | sed 's/^- *//')
-    # Pass bullets via ENVIRON[], NOT `-v ub=` — `-v` runs POSIX escape processing on the value,
-    # so a backslash bullet (`C:\temp\notes`) gets its `\t`/`\n` rewritten and the seen[] key no
-    # longer matches the verbatim card bullet (dedup silently fails → double-inject on mawk).
-    PERSONA_ABS=$(printf '%s\n' "$PERSONA_RAW" | SB_USER_BULLETS="$USER_BULLETS" awk '
-      BEGIN { n = split(ENVIRON["SB_USER_BULLETS"], arr, "\n"); for (i=1;i<=n;i++) seen[arr[i]] = 1 }
-      { line = $0; sub(/^\[[^]]+\] /, "", line); if (!(line in seen)) print $0 }
-    ')
-  else
-    PERSONA_ABS="$PERSONA_RAW"
-  fi
-
-  # Word-boundary trim. If the persona block exceeds CAP_PERSONA bytes, cut at
-  # the last newline that fits, so we never split mid-line or mid-word.
-  # ${var%$'\n'*} removes the shortest suffix from the last \n onward.
-  # Fallback: raw byte cut if no newline fits (single oversized line).
-  if [ ${#PERSONA_ABS} -gt $CAP_PERSONA ]; then
-    TRIMMED=$(printf '%s' "$PERSONA_ABS" | head -c $CAP_PERSONA)
-    TRIMMED_AT_NL="${TRIMMED%$'\n'*}"
-    if [ -n "$TRIMMED_AT_NL" ] && [ "$TRIMMED_AT_NL" != "$TRIMMED" ]; then
-      PERSONA_ABS="$TRIMMED_AT_NL"
-    else
-      PERSONA_ABS="$TRIMMED"
-    fi
-  fi
-fi
-
-# --- Plugin catalog summary ---
-CATALOG_FILE="$BRAIN_DIR/.installed-catalog.json"
 CATALOG_ABS=""
-if [ -f "$CATALOG_FILE" ]; then
-  CATALOG_ABS=$(jq -r '
-    [
-      (.plugins // [] | unique_by(.name) | map(.name) | .[0:6] | join(", ")),
-      (.agents  // [] | length | tostring + " agents"),
-      (.skills  // [] | length | tostring + " skills")
-    ] | map(select(length > 0)) | join(" | ")' "$CATALOG_FILE" 2>/dev/null)
-  [ ${#CATALOG_ABS} -gt $CAP_CATALOG ] && CATALOG_ABS=$(printf '%s' "$CATALOG_ABS" | head -c $CAP_CATALOG)
+
+# Dismissal-aware backoff — wires the persona_dismiss MCP tool to a REAL behavior (it was a
+# phantom: nothing read the dismissals log). If the user dismissed the ambient injection >= N
+# times in the trailing window, self-suppress THIS per-prompt injection. The explicit /? Opus
+# brief (handled above, already returned) is NOT affected. Cross-OS date: GNU -d, then BSD -v,
+# then a never-matches floor so a date failure fails OPEN (keeps the default-helpful injection).
+_DISMISS_F="$BRAIN_DIR/.persona-dismissals.jsonl"
+if [ -f "$_DISMISS_F" ]; then
+  _DMAX="${SB_PERSONA_DISMISS_MAX:-3}";        case "$_DMAX" in ''|*[!0-9]*) _DMAX=3 ;; esac
+  _DWIN="${SB_PERSONA_DISMISS_WINDOW_DAYS:-7}"; case "$_DWIN" in ''|*[!0-9]*) _DWIN=7 ;; esac
+  _DCUT=$(date -u -d "-${_DWIN} days" +%Y-%m-%d 2>/dev/null || date -u -v-"${_DWIN}"d +%Y-%m-%d 2>/dev/null || echo "9999-99-99")
+  _DCOUNT=$(jq -s -r --arg c "$_DCUT" '[ .[] | select(((.at // "")[0:10]) >= $c) ] | length' "$_DISMISS_F" 2>/dev/null || echo 0)
+  case "$_DCOUNT" in ''|*[!0-9]*) _DCOUNT=0 ;; esac
+  [ "$_DCOUNT" -ge "$_DMAX" ] && exit 0
 fi
 
 # --- Keyword extraction (preserved from intent-gate.sh) ---
