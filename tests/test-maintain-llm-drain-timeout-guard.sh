@@ -48,6 +48,7 @@ if [ "$is_run" = 1 ] && [ "${SB_TEST_RUN_RC:-0}" = 0 ] && [ "${SB_TEST_RUN_NOADV
 fi
 # A broken/injected agent may delete status.json before dying (still rc 0).
 [ "$is_run" = 1 ] && [ "${SB_TEST_RUN_DELETE_STATUS:-0}" = 1 ] && [ -n "$dream_dir" ] && rm -f "$dream_dir/status.json"
+[ "$is_run" = 1 ] && [ "${SB_TEST_RUN_TRUNCATE_STATUS:-0}" = 1 ] && [ -n "$dream_dir" ] && printf '{"id":"x","status":"pend' > "$dream_dir/status.json"
 [ -n "${SB_TEST_RUN_STDERR:-}" ] && echo "$SB_TEST_RUN_STDERR" >&2
 exit "${SB_TEST_RUN_RC:-0}"
 EOF
@@ -140,6 +141,16 @@ printf '2' > "$FAILS"   # pre-seed a strike (below the 3-strike quarantine thres
 run SB_TEST_PROBE_RC=0 SB_TEST_RUN_RC=0 SB_TEST_RUN_DELETE_STATUS=1
 [ "$(cat "$FAILS" 2>/dev/null)" = "2" ] && pass "B2d: missing status.json (rc=0) retains the strike counter" || fail "B2d: counter wrongly cleared on missing status.json (got '$(cat "$FAILS" 2>/dev/null)')"
 grep -q 'never reached completed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && pass "B2d: missing status.json logged as silent death" || fail "B2d: not logged"
+
+# B2e: a TRUNCATED/corrupt status.json after rc=0 → an in-place jq edit would itself fail on the
+# bad JSON; B2 must MINT a fresh terminal doc so the dream ends PARSEABLE + failed (counters kept).
+reset
+printf '2' > "$FAILS"
+run SB_TEST_PROBE_RC=0 SB_TEST_RUN_RC=0 SB_TEST_RUN_TRUNCATE_STATUS=1
+SF=$(dsf)
+{ [ -n "$SF" ] && jq -e . "$SF" >/dev/null 2>&1; } && pass "B2e: corrupt status.json minted to valid JSON (not left unparseable)" || fail "B2e: status.json left unparseable"
+[ "$(jq -r '.status' "$SF" 2>/dev/null)" = "failed" ] && pass "B2e: corrupt status healed to failed" || fail "B2e: not healed ($(jq -r '.status' "$SF" 2>/dev/null))"
+[ "$(cat "$FAILS" 2>/dev/null)" = "2" ] && pass "B2e: corrupt status retains the strike counter" || fail "B2e: counter wrongly cleared (got '$(cat "$FAILS" 2>/dev/null)')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

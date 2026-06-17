@@ -211,9 +211,19 @@ else
     # DO NOT clear the counters/quarantine — the run did not actually succeed (review fix: a
     # missing status.json must not read as success and wrongly reset the lifecycle).
     sb_log_error "maintain-llm-drain" "headless run for $DREAM_ID exited 0 but the dream is '${st:-missing}' — never reached completed (agent died); forcing →failed, counters retained" 0
-    if [ -f "$SF" ]; then
-      jq --arg e "$(date -u +%FT%TZ)" --arg err "exit 0 but the dream never reached completed (was '${st:-pending}'; agent died before finishing)" \
+    if [ -n "$st" ] && [ -f "$SF" ]; then
+      # Valid-but-non-completed (pending/running) → in-place heal.
+      jq --arg e "$(date -u +%FT%TZ)" --arg err "exit 0 but the dream never reached completed (was '$st'; agent died before finishing)" \
         '.status = "failed" | .ended_at = $e | .error = $err' "$SF" > "$SF.tmp.$$" 2>/dev/null \
+        && mv "$SF.tmp.$$" "$SF" 2>/dev/null || rm -f "$SF.tmp.$$" 2>/dev/null
+    else
+      # Missing OR corrupt/truncated status.json (the jq read yielded empty): an in-place jq edit
+      # would itself FAIL on the bad JSON and leave it unparseable forever (review fix). Mint a
+      # fresh minimal terminal doc instead — the dream_id is known — so dream_list/status and
+      # sb_dream_is_stale can read it.
+      jq -nc --arg id "$DREAM_ID" --arg e "$(date -u +%FT%TZ)" \
+        --arg err "exit 0 but status.json was missing/corrupt at completion (agent died before finishing)" \
+        '{id:$id, status:"failed", ended_at:$e, error:$err}' > "$SF.tmp.$$" 2>/dev/null \
         && mv "$SF.tmp.$$" "$SF" 2>/dev/null || rm -f "$SF.tmp.$$" 2>/dev/null
     fi
   fi

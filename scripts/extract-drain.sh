@@ -114,23 +114,43 @@ sb_drain_oldest_pending_age() {
   printf '0'
 }
 
-# Should we let ONE drain escape the defer despite a live interactive session?
-# Yes when consecutive defers crossed SB_DRAIN_DEFER_MAX (default 6) OR the
+# The forced escape is only SAFE+USEFUL when the attempt can BYPASS the global OAuth
+# recursive-lock a live interactive session holds: ANTHROPIC_API_KEY (curl/API backstop —
+# self-bounded via --max-time, lock-immune) OR the operator asserting the lock isn't global
+# (SB_DRAIN_DEFER_PMODE_ONLY=1). Under pure OAuth + a held lock a forced `claude -p` hangs to
+# the timeout and POISON-PILLS good transcripts (the regression commit ee8a74c's defer
+# prevents) — so when neither holds we do NOT escape; the loud drain-health banner tells the
+# operator to set a key or free a drain window. On the no-API-key (pmode) path we also require
+# a timeout/gtimeout binary, since without ANTHROPIC_API_KEY sb_call_extractor wraps claude in
+# `timeout` and would otherwise run UNBOUNDED if that binary is absent.
+sb_drain_escape_safe() {
+  [ -n "${ANTHROPIC_API_KEY:-}" ] && return 0
+  [ "${SB_DRAIN_DEFER_PMODE_ONLY:-0}" = "1" ] || return 1
+  command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 || return 1
+  return 0
+}
+
+# Should we let ONE drain escape the defer despite a live interactive session? Only when the
+# escape is safe (above) AND consecutive defers crossed SB_DRAIN_DEFER_MAX (default 6) OR the
 # oldest pending transcript is older than SB_DRAIN_STALE_MAX (default 86400s).
 sb_drain_starved() {
+  sb_drain_escape_safe || return 1
   local dmax="${SB_DRAIN_DEFER_MAX:-6}";  case "$dmax"  in ''|*[!0-9]*) dmax=6 ;; esac
   local smax="${SB_DRAIN_STALE_MAX:-86400}"; case "$smax" in ''|*[!0-9]*) smax=86400 ;; esac
-  # Counter branch: N consecutive defers crossed the bound → escape (self-resets on escape).
+  # Counter branch: N consecutive defers crossed the bound → escape (self-resets via the
+  # counter; deliberately does NOT stamp the age cooldown).
   [ "$(sb_drain_defer_count)" -ge "$dmax" ] && return 0
-  # Age branch: oldest pending transcript older than smax. RATE-LIMITED via ESCAPE_STAMP_F so a
-  # permanently-held interactive lock can't burn a full extract budget on the same stale backlog
-  # every tick — escape at most once per SB_DRAIN_ESCAPE_COOLDOWN (default smax). The escape
-  # stamps ESCAPE_STAMP_F (see the defer block); honored here so "ONE escape" holds, not per-tick.
+  # Age branch: oldest pending transcript older than smax, rate-limited to once per
+  # SB_DRAIN_ESCAPE_COOLDOWN (default smax). The cooldown is stamped HERE, only on an
+  # age-driven escape — so a counter escape can't suppress the next legitimate age escape.
   if [ "$(sb_drain_oldest_pending_age)" -gt "$smax" ]; then
     local cd="${SB_DRAIN_ESCAPE_COOLDOWN:-$smax}"; case "$cd" in ''|*[!0-9]*) cd="$smax" ;; esac
     local last=0
     [ -f "$ESCAPE_STAMP_F" ] && last=$(stat -c %Y "$ESCAPE_STAMP_F" 2>/dev/null || stat -f %m "$ESCAPE_STAMP_F" 2>/dev/null || echo 0)
-    [ "$(( $(date +%s) - ${last:-0} ))" -gt "$cd" ] && return 0
+    if [ "$(( $(date +%s) - ${last:-0} ))" -gt "$cd" ]; then
+      touch "$ESCAPE_STAMP_F" 2>/dev/null || true
+      return 0
+    fi
   fi
   return 1
 }
@@ -157,7 +177,6 @@ fi
 if _sb_defer_verdict; then
   if sb_drain_starved; then
     sb_drain_defer_reset
-    touch "$ESCAPE_STAMP_F" 2>/dev/null || true   # rate-limit the age-branch escape (one per cooldown)
     echo "extract-drain: interactive claude active but backlog starved — forcing ONE escape drain" >&2
   else
     sb_drain_defer_bump

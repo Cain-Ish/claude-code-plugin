@@ -57,8 +57,8 @@ for sf in "$DREAMS_DIR"/drm_*/status.json; do
     # before auto-recovery. On stale: mark failed (staging kept for SP-D to prune) and
     # proceed; otherwise refuse (one active dream at a time).
     if sb_dream_is_stale "$sf"; then
-      tmp=$(mktemp) && jq --arg e "stale $s run reclaimed (no status.json progress within SB_DREAM_RUN_TIMEOUT)" \
-        '.status="failed" | .error=$e' "$sf" > "$tmp" 2>/dev/null && mv "$tmp" "$sf" || rm -f "$tmp"
+      jq --arg e "stale $s run reclaimed (no status.json progress within SB_DREAM_RUN_TIMEOUT)" --arg t "$(date -u +%FT%TZ)" \
+        '.status="failed" | .error=$e | .ended_at=$t' "$sf" > "$sf.tmp.$$" 2>/dev/null && mv "$sf.tmp.$$" "$sf" 2>/dev/null || rm -f "$sf.tmp.$$" 2>/dev/null
       echo "warning: reclaimed stale $s dream $did — proceeding" >&2
     else
       echo "error: dream $did is already $s" >&2

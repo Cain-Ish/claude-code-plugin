@@ -25,28 +25,41 @@ vite 8.0.16"
 
 echo "=== dependency-audit floors (lockfile oracle) ==="
 
-# overrides block present with each key
-while read -r pkg floor; do
-  [ -n "$pkg" ] || continue
-  has=$(node -e "const p=require('$PKG');process.stdout.write(String(!!(p.overrides&&p.overrides['$pkg'])))" 2>/dev/null)
-  [ "$has" = "true" ] && pass "override declared: $pkg" || fail "override MISSING for $pkg"
-done <<< "$FLOORS"
-
-# every RESOLVED instance in the lockfile satisfies the floor (inline semver gte)
+# overrides block present AND its DECLARED floor is >= the audited floor — a weakened override
+# (e.g. dropping qs below its advisory floor) must FAIL even if the lockfile still resolves high.
 while read -r pkg floor; do
   [ -n "$pkg" ] || continue
   res=$(node -e '
-    const l=require("'"$LOCK"'");
-    const want="'"$pkg"'";
+    const p=require("'"$PKG"'"), want="'"$pkg"'", floor="'"$floor"'";
+    const o=(p.overrides||{})[want];
+    if(!o){process.stdout.write("missing");process.exit(0);}
+    const v=String(o).replace(/^[^0-9]*/,"").replace(/[^0-9.].*$/,"");   // strip >=/~/^ and range tail
     const gte=(a,b)=>{const A=a.split(".").map(Number),B=b.split(".").map(Number);for(let i=0;i<3;i++){if((A[i]||0)>(B[i]||0))return true;if((A[i]||0)<(B[i]||0))return false;}return true;};
+    process.stdout.write(gte(v,floor)?"ok":("WEAK:"+o));
+  ' 2>/dev/null)
+  case "$res" in
+    ok)      pass "override floor OK: $pkg >= $floor";;
+    missing) fail "override MISSING for $pkg";;
+    *)       fail "override for $pkg is BELOW the audited floor $floor: $res";;
+  esac
+done <<< "$FLOORS"
+
+# every RESOLVED instance in the lockfile satisfies the floor — fail-closed on a sub-floor
+# PRERELEASE (1.2.3-rc < 1.2.3, so a prerelease whose numeric part equals the floor is BELOW it).
+while read -r pkg floor; do
+  [ -n "$pkg" ] || continue
+  res=$(node -e '
+    const l=require("'"$LOCK"'"), want="'"$pkg"'", floor="'"$floor"'";
+    const cmp=(a,b)=>{const A=a.split(".").map(Number),B=b.split(".").map(Number);for(let i=0;i<3;i++){if((A[i]||0)>(B[i]||0))return 1;if((A[i]||0)<(B[i]||0))return -1;}return 0;};
+    const sat=(ver)=>{const pre=ver.includes("-"),num=ver.replace(/[^0-9.].*$/,""),c=cmp(num,floor);return c>0||(c===0&&!pre);};
     let bad=[],seen=0;
     for(const[k,v]of Object.entries(l.packages||{})){
-      if(k.endsWith("node_modules/"+want)&&v.version){seen++;if(!gte(v.version.replace(/[^0-9.].*$/,""),"'"$floor"'"))bad.push(v.version);}
+      if(k.endsWith("node_modules/"+want)&&v.version){seen++;if(!sat(v.version))bad.push(v.version);}
     }
     process.stdout.write(seen===0?"absent":(bad.length?("BAD:"+bad.join(",")):"ok"));
   ' 2>/dev/null)
   case "$res" in
-    ok)     pass "$pkg resolves >= $floor (patched)";;
+    ok)     pass "$pkg resolves >= $floor (patched, no sub-floor prerelease)";;
     absent) pass "$pkg not in tree (nothing to patch)";;
     *)      fail "$pkg has a version below the $floor floor: $res";;
   esac

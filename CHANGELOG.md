@@ -48,12 +48,19 @@ independent oracle. New tests: dream-staleness, maintain-llm-drain-timeout-guard
 extract-drain-unstarve, lib-drain-timeout, drain-health-banner, verify-dream-staleness,
 dependency-audit.
 
-Post-review hardening (a final adversarial deep-review of the branch found no blocking
-bugs, 3 LOW gaps now closed): the age-based starvation-escape is rate-limited
-(`SB_DRAIN_ESCAPE_COOLDOWN`) so a permanently-held lock can't burn a full extract budget
-every tick; the B2 self-heal treats a MISSING status.json as a silent death (retains the
-failure counters, never reads it as success); and autostage blocks on ANY fresh running
-dream, not just the last one scanned.
+Post-review hardening (two deep-reviews). The first pass closed 3 LOW gaps: the age-based
+starvation-escape is rate-limited (`SB_DRAIN_ESCAPE_COOLDOWN`); the B2 self-heal treats a
+missing status.json as a silent death (retains the failure counters); autostage blocks on
+ANY fresh running dream. A second FP-aware multi-agent code review then caught a real
+REGRESSION the first missed: the un-starve escape forced a `claude -p` under a held OAuth
+lock and could poison-pill GOOD transcripts (the exact failure the original defer prevents).
+Fixes: the escape is now GATED on `ANTHROPIC_API_KEY` (curl/API backstop, lock-immune) or the
+opt-in `SB_DRAIN_DEFER_PMODE_ONLY` + a timeout binary — under pure OAuth it keeps deferring and
+relies on the loud banner instead; the age cooldown is stamped only on age-driven escapes (a
+counter escape no longer suppresses it); B2 mints a fresh terminal status.json for a
+corrupt/truncated one (an in-place jq edit would itself fail); the dep-audit test asserts the
+override floor + fails closed on a sub-floor prerelease; dream-snapshot's reclaim sets
+`.ended_at`; and the new banner helpers gained direct coverage.
 
 ## 0.30.2
 

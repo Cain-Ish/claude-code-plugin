@@ -59,6 +59,28 @@ else
   printf '%s' "$O" | grep -q 'second-brain:maintain' && pass "6: non-Linux remedy points to in-session maintain" || fail "6: non-Linux remedy missing"
 fi
 
+# Direct unit coverage for the two threshold-driving banner helpers (review: they had no direct
+# test). Source lib.sh and assert the count logic against crafted fixtures, incl. the dead-letter
+# fold's per-basename last-write-wins (a retried-then-errored basename counts once; an
+# errored-then-recovered one does not count).
+export BRAIN_DIR="$B/helpers"; mkdir -p "$BRAIN_DIR"
+# shellcheck source=/dev/null
+. "$ROOT/scripts/lib.sh"
+printf '%s\n' \
+  '{"script":"extract-drain.sh","level":"TRACE","message":"extractor-diag stage=direct ec=124 x"}' \
+  '{"script":"extract-drain.sh","level":"TRACE","message":"extractor-diag stage=pty ec=124 x"}' \
+  '{"script":"x","message":"unrelated line, no token"}' > "$BRAIN_DIR/error-log.jsonl"
+HN=$(sb_count_drain_timeouts 40)
+[ "$HN" = "2" ] && pass "helper: sb_count_drain_timeouts counts ec=124 lines (2)" || fail "helper: timeouts=$HN (want 2)"
+printf '%s\n' \
+  '{"basename":"a.txt","outcome":"error"}' \
+  '{"basename":"b.txt","outcome":"retry"}' \
+  '{"basename":"b.txt","outcome":"error"}' \
+  '{"basename":"c.txt","outcome":"error"}' \
+  '{"basename":"c.txt","outcome":"ok"}' > "$BRAIN_DIR/.extraction-state.jsonl"
+HD=$(sb_count_drain_dead_letters)
+[ "$HD" = "2" ] && pass "helper: sb_count_drain_dead_letters last-write-wins (a+b errored, c recovered → 2)" || fail "helper: dead-letters=$HD (want 2)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

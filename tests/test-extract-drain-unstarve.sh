@@ -7,7 +7,9 @@
 # slug to invoked.log — never by re-reading the drainer's own state, plus raw
 # reads of the .drain-defer-count file (a filesystem fact the drainer wrote).
 set -u
-unset CLAUDECODE 2>/dev/null || true
+# The forced escape is now gated on a lock-bypass condition (ANTHROPIC_API_KEY or pmode); unset
+# both so the gate is deterministic, then escape cases supply ANTHROPIC_API_KEY explicitly.
+unset CLAUDECODE ANTHROPIC_API_KEY SB_DRAIN_DEFER_PMODE_ONLY 2>/dev/null || true
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 DRAIN="$ROOT/scripts/extract-drain.sh"
 PASS=0; FAIL=0
@@ -46,15 +48,15 @@ run SB_INTERACTIVE_OVERRIDE=active
 [ "$(invoked)" = "0" ] && pass "T1: deferred (no extract)" || fail "T1: extracted while active"
 [ "$(cnt)" = "1" ] && pass "T1: defer counter bumped to 1" || fail "T1: counter=$(cnt) (want 1)"
 
-# T2: active + counter at max → escape (extracts), counter reset
+# T2: active + counter at max + escape-safe (api key) → escape (extracts), counter reset
 reset; mk_tx a.txt; printf '6' > "$CNT"
-run SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_DEFER_MAX=6
+run SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_DEFER_MAX=6 ANTHROPIC_API_KEY=test-key
 [ "$(invoked)" -ge "1" ] && pass "T2: counter-threshold escape extracted" || fail "T2: did not escape (invoked=$(invoked))"
 [ "$(cnt)" = "ABSENT" ] && pass "T2: counter reset on escape" || fail "T2: counter not reset ($(cnt))"
 
-# T3: active + stale transcript (2d old) → age escape regardless of counter
+# T3: active + stale transcript (2d old) + escape-safe → age escape regardless of counter
 reset; mk_tx a.txt; backdate "$TXD/a.txt" 172800
-run SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=86400
+run SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=86400 ANTHROPIC_API_KEY=test-key
 [ "$(invoked)" -ge "1" ] && pass "T3: stale-age escape extracted" || fail "T3: age escape did not fire (invoked=$(invoked))"
 
 # T4: active + below both bounds → defer, counter increments 2→3
@@ -81,11 +83,27 @@ reset
 FSTUB="$SANDBOX/fstub.sh"; printf '#!/bin/bash\nprintf "%%s\\n" "${2:-?}" >> "%s.attempts"\nexit 1\n' "$LOG" > "$FSTUB"; chmod +x "$FSTUB"
 mk_tx a.txt; backdate "$TXD/a.txt" 172800
 attempts(){ [ -f "$LOG.attempts" ] && wc -l < "$LOG.attempts" | tr -d ' ' || echo 0; }
-cdrun(){ env SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=86400 SB_EXTRACT_STUB="$FSTUB" SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true; }
+cdrun(){ env SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=86400 ANTHROPIC_API_KEY=test-key SB_EXTRACT_STUB="$FSTUB" SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true; }
 cdrun; A1=$(attempts)
 cdrun; A2=$(attempts)
 [ "$A1" -ge "1" ] && pass "T9: first age-escape attempted extraction (A1=$A1)" || fail "T9: first escape didn't attempt (A1=$A1)"
 [ "$A2" = "$A1" ] && pass "T9: next tick rate-limited — no re-escape (attempts stayed $A1)" || fail "T9: re-escaped on next tick ($A1→$A2)"
+
+# T-gate: under pure OAuth (no ANTHROPIC_API_KEY, no pmode) a starved backlog must NOT escape —
+# a forced claude -p would hang on the held OAuth lock and poison-pill good transcripts
+# (regression ee8a74c). The loud drain-health banner is the remedy, not a futile forced drain.
+reset; mk_tx a.txt; printf '6' > "$CNT"
+run SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_DEFER_MAX=6   # deliberately NO key, NO pmode
+[ "$(invoked)" = "0" ] && pass "T-gate: starved but no key/pmode → does NOT escape (no OAuth-hang)" || fail "T-gate: escaped under pure OAuth (regression)"
+
+# T-interaction: a COUNTER-branch escape must NOT consume the AGE-branch cooldown (review fix).
+# counter at max + stale pending transcript + api key: run 1 escapes via the counter (no age
+# stamp); run 2 (counter reset, transcript still stale+pending) must STILL be able to age-escape.
+reset; mk_tx a.txt; backdate "$TXD/a.txt" 172800; printf '6' > "$CNT"
+icrun(){ env SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_DEFER_MAX=6 SB_DRAIN_STALE_MAX=86400 ANTHROPIC_API_KEY=test-key SB_EXTRACT_STUB="$FSTUB" SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true; }
+icrun; I1=$(attempts)
+icrun; I2=$(attempts)
+[ "$I2" -gt "$I1" ] && pass "T-interaction: counter escape does not consume the age cooldown ($I1→$I2)" || fail "T-interaction: counter escape suppressed the age escape ($I1→$I2)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
