@@ -69,3 +69,32 @@ describe('resolveActiveSlug — per-session project dir beats the global pin', (
     expect(slug).toBe('cainish');
   });
 });
+
+describe('resolveActiveSlug — registry-path (monorepo)', () => {
+  function brainWithChild(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'sb-resolve-'));
+    writeFileSync(join(dir, 'projects.jsonl'),
+      '{"slug":"acme__api","parent":"acme","root_path":"/repos/acme/packages/api"}\n');
+    mkdirSync(join(dir, 'projects', 'acme__api'), { recursive: true });
+    writeFileSync(join(dir, 'projects', 'acme__api', 'PROJECT.md'), '# PROJECT: acme__api\n');
+    return dir;
+  }
+  it('resolves a cwd inside a registered child to its path-qualified slug', () => {
+    const dir = brainWithChild();
+    const slug = resolveActiveSlug(dir, {} as NodeJS.ProcessEnv, () => '/repos/acme/packages/api/src');
+    expect(slug).toBe('acme__api');
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('CLAUDE_PROJECT_DIR inside a registered child also maps via root_path', () => {
+    const dir = brainWithChild();
+    const slug = resolveActiveSlug(dir, { CLAUDE_PROJECT_DIR: '/repos/acme/packages/api' } as any, () => '/elsewhere');
+    expect(slug).toBe('acme__api');
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('falls back to bare basename when no root_path matches (standalone, unchanged)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sb-resolve2-'));
+    const slug = resolveActiveSlug(dir, {} as NodeJS.ProcessEnv, () => '/repos/standalone');
+    expect(slug).toBe('standalone');
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

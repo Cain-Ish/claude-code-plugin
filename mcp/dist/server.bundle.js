@@ -31328,8 +31328,46 @@ async function collectMd(dir, acc = []) {
 import { promises as fs13 } from "fs";
 
 // src/tools/project-dir.ts
-import { basename as basename3, join as join11 } from "path";
-import { readFileSync, existsSync } from "fs";
+import { basename as basename3, join as join12 } from "path";
+import { readFileSync as readFileSync2, existsSync } from "fs";
+
+// src/tools/project-registry.ts
+import { readFileSync } from "fs";
+import { join as join11 } from "path";
+function loadRegistry2(brainDir2) {
+  let text;
+  try {
+    text = readFileSync(join11(brainDir2, "projects.jsonl"), "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s);
+      if (r && typeof r.slug === "string" && r.slug) out.push(r);
+    } catch {
+    }
+  }
+  return out;
+}
+function resolveSlugByPath(brainDir2, dir) {
+  const norm = (p) => cleanEnvPath(p).replace(/\\/g, "/").replace(/\/+$/, "");
+  const target = norm(dir);
+  let best;
+  for (const r of loadRegistry2(brainDir2)) {
+    if (!r.root_path) continue;
+    const rp = norm(r.root_path);
+    if (target === rp || target.startsWith(rp + "/")) {
+      if (!best || rp.length > best.len) best = { slug: r.slug, len: rp.length };
+    }
+  }
+  return best?.slug;
+}
+
+// src/tools/project-dir.ts
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
   const base = basename3(cleanEnvPath(dir));
@@ -31339,33 +31377,38 @@ function slugFromProjectDir(dir) {
 }
 function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
   if (env.CLAUDE_PROJECT_DIR) {
+    const byPath = resolveSlugByPath(brainDir2, env.CLAUDE_PROJECT_DIR);
+    if (byPath) return byPath;
     const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
     if (fromEnv) return fromEnv;
   }
-  const cwdSlug = slugFromProjectDir(cwd());
-  if (cwdSlug && existsSync(join11(brainDir2, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
+  const here = cwd();
+  const byCwdPath = resolveSlugByPath(brainDir2, here);
+  if (byCwdPath) return byCwdPath;
+  const cwdSlug = slugFromProjectDir(here);
+  if (cwdSlug && existsSync(join12(brainDir2, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
-    const pin = readFileSync(join11(brainDir2, ".active-session-slug"), "utf-8").trim();
-    if (pin && existsSync(join11(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
+    const pin = readFileSync2(join12(brainDir2, ".active-session-slug"), "utf-8").trim();
+    if (pin && existsSync(join12(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
   return cwdSlug;
 }
 
 // src/tools/dream.ts
-import { join as join12 } from "path";
+import { join as join13 } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 var exec = promisify(execFile);
 function brainDir() {
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join12(cleanEnvPath(process.env.HOME), ".second-brain");
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join13(cleanEnvPath(process.env.HOME), ".second-brain");
 }
 function dreamsDir() {
-  return join12(brainDir(), "dreams");
+  return join13(brainDir(), "dreams");
 }
 function scriptsDir() {
-  return join12(
-    cleanEnvPath(process.env.CLAUDE_PLUGIN_ROOT) || join12(__dirname, "..", ".."),
+  return join13(
+    cleanEnvPath(process.env.CLAUDE_PLUGIN_ROOT) || join13(__dirname, "..", ".."),
     "scripts"
   );
 }
@@ -31376,7 +31419,7 @@ function toBashPath(p) {
   return s;
 }
 async function readStatus(dreamId) {
-  const statusPath = join12(dreamsDir(), dreamId, "status.json");
+  const statusPath = join13(dreamsDir(), dreamId, "status.json");
   try {
     const raw = await fs13.readFile(statusPath, "utf-8");
     return JSON.parse(raw);
@@ -31385,7 +31428,7 @@ async function readStatus(dreamId) {
   }
 }
 async function writeStatus(dreamId, status) {
-  const statusPath = join12(dreamsDir(), dreamId, "status.json");
+  const statusPath = join13(dreamsDir(), dreamId, "status.json");
   await atomicWriteJson(statusPath, status);
 }
 async function listDreamIds() {
@@ -31418,7 +31461,7 @@ async function dreamCreate(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [toBashPath(join12(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
+      [toBashPath(join13(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
       { timeout: 3e4, env: { ...process.env } }
     );
     const dreamId = stdout.trim();
@@ -31442,7 +31485,7 @@ async function dreamStatus(args) {
   }
   let diffPreview;
   if (status.status === "completed") {
-    const diffPath = join12(dreamsDir(), args.dream_id, "diff.md");
+    const diffPath = join13(dreamsDir(), args.dream_id, "diff.md");
     try {
       const content = await fs13.readFile(diffPath, "utf-8");
       const lines = content.split("\n");
@@ -31478,7 +31521,7 @@ async function dreamAccept(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [toBashPath(join12(scriptsDir(), "dream-accept.sh")), args.dream_id],
+      [toBashPath(join13(scriptsDir(), "dream-accept.sh")), args.dream_id],
       { timeout: 3e4, env: { ...process.env } }
     );
     const output = stdout.trim();
@@ -31505,10 +31548,10 @@ async function dreamDiscard(args) {
   if (status.archived_at) {
     return { ok: false, reason: `dream ${args.dream_id} already archived` };
   }
-  const dreamDir = join12(dreamsDir(), args.dream_id);
+  const dreamDir = join13(dreamsDir(), args.dream_id);
   try {
-    await fs13.rm(join12(dreamDir, "staging"), { recursive: true, force: true });
-    await fs13.rm(join12(dreamDir, "transcripts"), {
+    await fs13.rm(join13(dreamDir, "staging"), { recursive: true, force: true });
+    await fs13.rm(join13(dreamDir, "transcripts"), {
       recursive: true,
       force: true
     });
@@ -31537,7 +31580,7 @@ async function dreamCancel(args) {
 
 // src/tools/episodic-search.ts
 import { promises as fs14 } from "fs";
-import { join as join13, basename as basename5, relative as relative5, isAbsolute as isAbsolute3 } from "path";
+import { join as join14, basename as basename5, relative as relative5, isAbsolute as isAbsolute3 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -31561,7 +31604,7 @@ function parseSessionMeta(lines) {
   return { meta, bodyStart: i };
 }
 async function loadIndex(brainDir2) {
-  const indexPath = join13(brainDir2, INDEX_FILE);
+  const indexPath = join14(brainDir2, INDEX_FILE);
   try {
     const data = await fs14.readFile(indexPath, "utf-8");
     return JSON.parse(data);
@@ -31626,7 +31669,7 @@ async function vectorSearch(query, index, limit, filters, brainDir2) {
   if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
   const queryEmbedding = await embedTexts(
     [query],
-    join13(brainDir2, "transcripts"),
+    join14(brainDir2, "transcripts"),
     [""]
   );
   if (!queryEmbedding) return { hits: [], unavailable: true };
@@ -31669,7 +31712,7 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   }
   const conceptEmbeddings = await embedTexts(
     concepts,
-    join13(brainDir2, "transcripts"),
+    join14(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
   if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
@@ -31731,7 +31774,7 @@ function scopeAndBroaden(ranked, args) {
   return inScope.length >= minHits ? inScope : ranked;
 }
 function assertTranscriptPath(brainDir2, filePath) {
-  const base = join13(brainDir2, "transcripts");
+  const base = join14(brainDir2, "transcripts");
   const rel = isAbsolute3(filePath) ? relative5(base, filePath) : filePath;
   return assertWithin(base, rel);
 }
@@ -31753,11 +31796,11 @@ async function episodicRead(filePath, startLine, endLine) {
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
 import { promises as fs15 } from "fs";
-import { join as join14, dirname as dirname3 } from "path";
+import { join as join15, dirname as dirname3 } from "path";
 function opusLedgerPath(brainDir2) {
   if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
   const bd = brainDir2 ?? (process.env.SB_BRAIN_DIR ?? `${process.env.HOME ?? "~"}/.second-brain`);
-  return join14(bd, "opus-budget.json");
+  return join15(bd, "opus-budget.json");
 }
 async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
   const callCost = inputTokens / 1e6 * 5 + outputTokens / 1e6 * 25;
@@ -31898,7 +31941,7 @@ ${args.prompt}` : args.prompt;
   }
 }
 async function readBudget(brainDir2) {
-  const file = join14(brainDir2, "persona-budget.json");
+  const file = join15(brainDir2, "persona-budget.json");
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   try {
     const txt = await fs15.readFile(file, "utf-8");
@@ -31913,19 +31956,19 @@ async function recordSpend(brainDir2, usd) {
   const next = { date: current.date, today_usd: current.today_usd + usd };
   await fs15.mkdir(brainDir2, { recursive: true }).catch(() => {
   });
-  await fs15.writeFile(join14(brainDir2, "persona-budget.json"), JSON.stringify(next));
+  await fs15.writeFile(join15(brainDir2, "persona-budget.json"), JSON.stringify(next));
   return next;
 }
 
 // src/tools/persona-stats.ts
 import { promises as fs16 } from "fs";
-import { join as join15 } from "path";
+import { join as join16 } from "path";
 async function personaStats(args = {}) {
-  const dir = args.brainDir ?? join15(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
+  const dir = args.brainDir ?? join16(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
   let identity2 = "";
   let cardBytes = 0;
   try {
-    const card = await fs16.readFile(join15(dir, "persona-card.md"), "utf-8");
+    const card = await fs16.readFile(join16(dir, "persona-card.md"), "utf-8");
     cardBytes = Buffer.byteLength(card, "utf-8");
     identity2 = card.split("\n").filter((l) => l.startsWith("- ")).slice(0, 3).map((l) => l.slice(2).trim()).join("; ");
   } catch {
@@ -31933,7 +31976,7 @@ async function personaStats(args = {}) {
   let ungraduated = 0;
   let graduated = 0;
   try {
-    const psl = await fs16.readFile(join15(dir, "persona-signals.jsonl"), "utf-8");
+    const psl = await fs16.readFile(join16(dir, "persona-signals.jsonl"), "utf-8");
     for (const line of psl.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -31947,7 +31990,7 @@ async function personaStats(args = {}) {
   }
   let plugins = 0, agents = 0, skills = 0;
   try {
-    const cat = JSON.parse(await fs16.readFile(join15(dir, ".installed-catalog.json"), "utf-8"));
+    const cat = JSON.parse(await fs16.readFile(join16(dir, ".installed-catalog.json"), "utf-8"));
     plugins = Array.isArray(cat.plugins) ? cat.plugins.length : 0;
     agents = Array.isArray(cat.agents) ? cat.agents.length : 0;
     skills = Array.isArray(cat.skills) ? cat.skills.length : 0;
@@ -31955,7 +31998,7 @@ async function personaStats(args = {}) {
   }
   let dismissals = 0;
   try {
-    const dl = await fs16.readFile(join15(dir, ".persona-dismissals.jsonl"), "utf-8");
+    const dl = await fs16.readFile(join16(dir, ".persona-dismissals.jsonl"), "utf-8");
     const cutoff = Date.now() - 7 * 864e5;
     for (const line of dl.split("\n")) {
       if (!line.trim()) continue;
@@ -31970,7 +32013,7 @@ async function personaStats(args = {}) {
   }
   let spend = 0;
   try {
-    const b = JSON.parse(await fs16.readFile(join15(dir, "persona-budget.json"), "utf-8"));
+    const b = JSON.parse(await fs16.readFile(join16(dir, "persona-budget.json"), "utf-8"));
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     if (b.date === today) spend = Number(b.today_usd) || 0;
   } catch {
@@ -31990,13 +32033,13 @@ async function personaStats(args = {}) {
 
 // src/tools/persona-dismiss.ts
 import { promises as fs17 } from "fs";
-import { join as join16 } from "path";
+import { join as join17 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
-  const dir = args.brainDir ?? join16(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
+  const dir = args.brainDir ?? join17(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
   await fs17.mkdir(dir, { recursive: true }).catch(() => {
   });
-  const file = join16(dir, ".persona-dismissals.jsonl");
+  const file = join17(dir, ".persona-dismissals.jsonl");
   const now = /* @__PURE__ */ new Date();
   const entry = {
     at: now.toISOString(),
@@ -32035,7 +32078,7 @@ async function personaDismiss(args = {}) {
 }
 
 // src/tools/knowledge-relate.ts
-import { join as join17 } from "path";
+import { join as join18 } from "path";
 var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ].*)?$/;
 async function knowledgeRelate(args) {
   try {
@@ -32049,7 +32092,7 @@ async function knowledgeRelate(args) {
   for (const [k, v] of [["valid_from", args.valid_from], ["valid_to", args.valid_to]]) {
     if (v !== void 0 && !ISO_DATE_RE.test(v)) return { ok: false, reason: `invalid ${k} (want YYYY-MM-DD): ${v}` };
   }
-  const logPath = join17(args.knowledgeDir, "graph", "edges.jsonl");
+  const logPath = join18(args.knowledgeDir, "graph", "edges.jsonl");
   if (args.invalidate) {
     const current = foldToCurrent(await loadEdges(logPath));
     const open = current.find((e) => e.from === args.from && e.to === args.to && e.type === args.type && e.valid_to === null);
@@ -32074,7 +32117,7 @@ async function knowledgeRelate(args) {
 }
 
 // src/tools/knowledge-neighbors.ts
-import { join as join18 } from "path";
+import { join as join19 } from "path";
 async function knowledgeNeighbors(args) {
   try {
     validateSlug(args.slug);
@@ -32082,7 +32125,7 @@ async function knowledgeNeighbors(args) {
     if (e instanceof PathGuardError) return { slug: args.slug, edges: [] };
     throw e;
   }
-  const records = await loadEdges(join18(args.knowledgeDir, "graph", "edges.jsonl"));
+  const records = await loadEdges(join19(args.knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { slug: args.slug, edges: [] };
   const current = foldToCurrent(records);
   const edges = neighbors(current, args.slug, {

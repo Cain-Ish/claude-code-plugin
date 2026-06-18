@@ -1,7 +1,7 @@
 // src/tools/raw-capture-cli.ts
 import { homedir } from "os";
-import { join as join3 } from "path";
-import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "fs";
+import { join as join4 } from "path";
+import { existsSync as existsSync2, readFileSync as readFileSync3, statSync } from "fs";
 
 // src/tools/raw-inbox.ts
 import { promises as fs } from "fs";
@@ -6331,8 +6331,46 @@ async function captureItem(input) {
 }
 
 // src/tools/project-dir.ts
-import { basename as basename2, join as join2 } from "path";
-import { readFileSync, existsSync } from "fs";
+import { basename as basename2, join as join3 } from "path";
+import { readFileSync as readFileSync2, existsSync } from "fs";
+
+// src/tools/project-registry.ts
+import { readFileSync } from "fs";
+import { join as join2 } from "path";
+function loadRegistry(brainDir) {
+  let text;
+  try {
+    text = readFileSync(join2(brainDir, "projects.jsonl"), "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s);
+      if (r && typeof r.slug === "string" && r.slug) out.push(r);
+    } catch {
+    }
+  }
+  return out;
+}
+function resolveSlugByPath(brainDir, dir) {
+  const norm = (p) => cleanEnvPath(p).replace(/\\/g, "/").replace(/\/+$/, "");
+  const target = norm(dir);
+  let best;
+  for (const r of loadRegistry(brainDir)) {
+    if (!r.root_path) continue;
+    const rp = norm(r.root_path);
+    if (target === rp || target.startsWith(rp + "/")) {
+      if (!best || rp.length > best.len) best = { slug: r.slug, len: rp.length };
+    }
+  }
+  return best?.slug;
+}
+
+// src/tools/project-dir.ts
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
   const base = basename2(cleanEnvPath(dir));
@@ -6342,14 +6380,19 @@ function slugFromProjectDir(dir) {
 }
 function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
   if (env.CLAUDE_PROJECT_DIR) {
+    const byPath = resolveSlugByPath(brainDir, env.CLAUDE_PROJECT_DIR);
+    if (byPath) return byPath;
     const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
     if (fromEnv) return fromEnv;
   }
-  const cwdSlug = slugFromProjectDir(cwd());
-  if (cwdSlug && existsSync(join2(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
+  const here = cwd();
+  const byCwdPath = resolveSlugByPath(brainDir, here);
+  if (byCwdPath) return byCwdPath;
+  const cwdSlug = slugFromProjectDir(here);
+  if (cwdSlug && existsSync(join3(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
-    const pin = readFileSync(join2(brainDir, ".active-session-slug"), "utf-8").trim();
-    if (pin && existsSync(join2(brainDir, "projects", pin, "PROJECT.md"))) return pin;
+    const pin = readFileSync2(join3(brainDir, ".active-session-slug"), "utf-8").trim();
+    if (pin && existsSync(join3(brainDir, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
   return cwdSlug;
@@ -6365,7 +6408,7 @@ function takeNode(args) {
   return { rest: args };
 }
 async function main() {
-  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join3(homedir(), ".second-brain");
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join4(homedir(), ".second-brain");
   const slug = resolveSlug(brainDir);
   if (!slug) {
     console.log("capture: could not resolve the active project (no slug). cd into a project.");
@@ -6392,7 +6435,7 @@ async function main() {
     } else if (action === "pending") {
       const { drainable, foreign } = partitionPending(await listItems(brainDir, slug), slug);
       for (const i of drainable) {
-        const path2 = join3(rawDir(brainDir, slug), `${i.id}.md`);
+        const path2 = join4(rawDir(brainDir, slug), `${i.id}.md`);
         const cell = (s) => (s || "").replace(/[\t\r\n]+/g, " ");
         console.log([i.id, path2, i.captured_by, cell(i.target_node ?? ""), cell(i.gist)].join("	"));
       }
@@ -6407,7 +6450,7 @@ async function main() {
       }
       console.log(await markProcessed(brainDir, slug, id, node) ? `Processed ${id}` : `No raw item with id ${id}.`);
     } else if (action === "paste") {
-      const content = readFileSync2(0, "utf-8");
+      const content = readFileSync3(0, "utf-8");
       if (!content.trim()) {
         console.log("capture: nothing on stdin.");
         return;
