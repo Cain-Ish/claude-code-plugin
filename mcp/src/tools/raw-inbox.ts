@@ -139,6 +139,20 @@ export async function listItems(brainDir: string, slug: string): Promise<RawItem
   return readItems(brainDir, slug);
 }
 
+/** Split the drainable work-list from foreign-origin items. Drainable iff unprocessed, well-formed,
+ *  AND (no origin → legacy conservative default) OR origin === activeSlug. Foreign-origin items are
+ *  held back so the maintainer never silently drains repo A's capture into project B. */
+export function partitionPending(items: RawItem[], activeSlug: string): { drainable: RawItem[]; foreign: RawItem[] } {
+  const drainable: RawItem[] = [];
+  const foreign: RawItem[] = [];
+  for (const i of items) {
+    if (i.status !== 'unprocessed' || i.malformed) continue;
+    if (i.origin && i.origin !== activeSlug) { foreign.push(i); continue; }
+    drainable.push(i);
+  }
+  return { drainable, foreign };
+}
+
 export async function unprocessedCount(brainDir: string, slug: string): Promise<number> {
   assertSafeSlug(slug);
   const items = await readItems(brainDir, slug);

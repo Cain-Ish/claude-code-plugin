@@ -6191,6 +6191,19 @@ async function listItems(brainDir, slug) {
   assertSafeSlug(slug);
   return readItems(brainDir, slug);
 }
+function partitionPending(items, activeSlug) {
+  const drainable = [];
+  const foreign = [];
+  for (const i of items) {
+    if (i.status !== "unprocessed" || i.malformed) continue;
+    if (i.origin && i.origin !== activeSlug) {
+      foreign.push(i);
+      continue;
+    }
+    drainable.push(i);
+  }
+  return { drainable, foreign };
+}
 async function unprocessedCount(brainDir, slug) {
   assertSafeSlug(slug);
   const items = await readItems(brainDir, slug);
@@ -6377,11 +6390,14 @@ async function main() {
       }
       console.log(await setStatus(brainDir, slug, id, "discarded") ? `Discarded ${id}.` : `No raw item with id ${id}.`);
     } else if (action === "pending") {
-      for (const i of await listItems(brainDir, slug)) {
-        if (i.status !== "unprocessed" || i.malformed) continue;
+      const { drainable, foreign } = partitionPending(await listItems(brainDir, slug), slug);
+      for (const i of drainable) {
         const path2 = join3(rawDir(brainDir, slug), `${i.id}.md`);
         const cell = (s) => (s || "").replace(/[\t\r\n]+/g, " ");
         console.log([i.id, path2, i.captured_by, cell(i.target_node ?? ""), cell(i.gist)].join("	"));
+      }
+      if (foreign.length) {
+        console.error(`pending: held back ${foreign.length} foreign-origin item(s) (origin\u2260${slug}): ${foreign.map((i) => i.id).join(", ")} \u2014 re-capture in the right project or /second-brain:capture --discard <id>`);
       }
     } else if (action === "process") {
       const id = rest[0];

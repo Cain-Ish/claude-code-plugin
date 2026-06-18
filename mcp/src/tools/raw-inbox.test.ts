@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending } from './raw-inbox.js';
+import type { RawItem } from './raw-inbox.js';
 
 async function brain(): Promise<{ brainDir: string; slug: string }> {
   const brainDir = await fs.mkdtemp(join(tmpdir(), 'raw-'));
@@ -168,5 +169,24 @@ describe('raw-inbox', () => {
     expect(item.origin).toBeUndefined();
     expect(item.malformed).toBeFalsy();
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('partitionPending', () => {
+  const mk = (over: Partial<RawItem>): RawItem => ({
+    id: 'i', source: 's', captured_at: 't', captured_by: 'user', content_type: 'text/markdown',
+    status: 'unprocessed', hash: 'h', gist: 'g', body: 'b', ...over,
+  });
+  it('drains own-origin, legacy (no origin), holds foreign, skips processed/malformed', () => {
+    const items: RawItem[] = [
+      mk({ id: 'own', origin: 'proja' }),
+      mk({ id: 'legacy' }),                                   // no origin → conservative default
+      mk({ id: 'foreign', origin: 'projb' }),                // different project → held back
+      mk({ id: 'done', origin: 'proja', status: 'processed' }),
+      mk({ id: 'bad', origin: 'proja', malformed: true }),
+    ];
+    const { drainable, foreign } = partitionPending(items, 'proja');
+    expect(drainable.map(i => i.id)).toEqual(['own', 'legacy']);
+    expect(foreign.map(i => i.id)).toEqual(['foreign']);
   });
 });

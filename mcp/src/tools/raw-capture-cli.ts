@@ -1,7 +1,7 @@
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
-import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir, partitionPending } from './raw-inbox.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { cleanEnvPath } from '../path-guard.js';
 
@@ -41,14 +41,19 @@ async function main(): Promise<void> {
       console.log(await setStatus(brainDir, slug, id, 'discarded')
         ? `Discarded ${id}.` : `No raw item with id ${id}.`);
     } else if (action === 'pending') {
-      // Deterministic TSV work-list for the maintainer drain (Phase 4c): drainable items only.
-      for (const i of await listItems(brainDir, slug)) {
-        if (i.status !== 'unprocessed' || i.malformed) continue;
+      // Deterministic TSV work-list for the maintainer drain (Phase 4c): own/legacy-origin drainable only.
+      const { drainable, foreign } = partitionPending(await listItems(brainDir, slug), slug);
+      for (const i of drainable) {
         const path = join(rawDir(brainDir, slug), `${i.id}.md`);
         const cell = (s: string) => (s || '').replace(/[\t\r\n]+/g, ' ');
         // cell() every variable field — a tab in target_node (fmValue strips CR/LF, not tabs)
         // would otherwise shift the TSV columns and corrupt the machine work-list.
         console.log([i.id, path, i.captured_by, cell(i.target_node ?? ''), cell(i.gist)].join('\t'));
+      }
+      if (foreign.length) {
+        // fail loud: foreign-origin items are NEVER drained silently (the 88-doc misroute class).
+        console.error(`pending: held back ${foreign.length} foreign-origin item(s) (origin≠${slug}): ` +
+          `${foreign.map(i => i.id).join(', ')} — re-capture in the right project or /second-brain:capture --discard <id>`);
       }
     } else if (action === 'process') {
       const id = rest[0];
