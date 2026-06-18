@@ -112,6 +112,35 @@ if [ ! -f ~/.second-brain/projects.jsonl ] || \
 fi
 ```
 
+### 4b. Project graph anchors + part_of edge (reconciliation projection)
+
+If a `parent` was confirmed, mirror the relationship into the relational graph so
+`knowledge_neighbors` and MOC cross-links surface family MOCs. This is graph
+navigation only — facet assignment is driven by `projects.jsonl` truth, never by
+the parent key.
+
+```bash
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; KD="${KD/#\~/$HOME}"
+REG="$KD/graph/project-registry.jsonl"; mkdir -p "$KD/graph"
+# each project anchors ITSELF (never the parent) — keeps facet assignment leaf-correct
+for pair in "$SLUG:$SLUG" "$PARENT:$PARENT"; do
+  a="${pair%%:*}"; p="${pair##*:}"; [ -n "$a" ] || continue
+  grep -qF "\"anchor\":\"$a\"" "$REG" 2>/dev/null || \
+    jq -nc --arg a "$a" --arg p "$p" '{anchor:$a, project:$p}' >> "$REG"
+done
+# project-level part_of edge (graph navigation): child → parent
+EDGES="$KD/graph/edges.jsonl"
+if [ -n "$PARENT" ] && ! jq -se --arg f "$SLUG" --arg t "$PARENT" \
+     'map(select(.from==$f and .to==$t and .type=="part_of" and .valid_to==null)) | length>0' "$EDGES" >/dev/null 2>&1; then
+  jq -nc --arg f "$SLUG" --arg t "$PARENT" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{op:"assert", from:$f, to:$t, type:"part_of", recorded_at:$ts, source:"setup", confidence:"high"}' >> "$EDGES"
+fi
+```
+
+Skip entirely if `$PARENT` is empty (standalone project — nothing to anchor or edge).
+The maintainer's Phase 3 re-validates `projects.jsonl ↔ graph` on its normal cadence;
+re-parenting requires `knowledge_relate --invalidate` on the old edge then a new assert.
+
 ### 5. Seed persona-card.md
 
 The persona-card is the always-loaded identity surface — short, dense, idempotent. Read once per UserPromptSubmit by `persona-context.sh`. Cap ≤ 14 non-blank lines / ~800 bytes.
