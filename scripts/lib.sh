@@ -430,6 +430,28 @@ sb_harden_projects_jsonl() {
     || { rm -f "$tmp"; echo "harden: rewrite failed for $f" >&2; return 1; }
 }
 
+# Setup collision identity. Given the registry, a candidate slug and its dir identity, classify:
+#   new       — no record with this slug
+#   same      — record exists AND identity matches (same git_remote; or both empty + same root_path)
+#   collision — record exists AND identity differs (two different repos sharing a slug)
+# Path compare is form-canonicalized (MSYS /c vs Windows C:\, like resolveSlugByPath/toBashPath).
+sb_project_identity() {
+  local reg="$1" slug="$2" rp="$3" gr="$4"
+  [ -f "$reg" ] || { echo "new"; return 0; }
+  command -v jq >/dev/null 2>&1 || { echo "new"; return 0; }
+  local rec; rec=$(jq -c --arg s "$slug" 'select(.slug==$s)' "$reg" 2>/dev/null | head -1)
+  [ -n "$rec" ] || { echo "new"; return 0; }
+  local ex_rp ex_gr
+  ex_rp=$(printf '%s' "$rec" | jq -r '.root_path // ""')
+  ex_gr=$(printf '%s' "$rec" | jq -r '.git_remote // ""')
+  _norm() { printf '%s' "${1:-}" | tr -d '\r' | sed -E 's#\\#/#g; s#^([A-Za-z]):/#/\L\1/#; s#/+$##'; }
+  if [ -n "$gr" ] || [ -n "$ex_gr" ]; then
+    [ "$gr" = "$ex_gr" ] && echo "same" || echo "collision"
+  else
+    [ "$(_norm "$rp")" = "$(_norm "$ex_rp")" ] && echo "same" || echo "collision"
+  fi
+}
+
 # True if DIR contains a recognized monorepo workspace manifest.
 sb_is_workspace_root() {
   local d="$1"
