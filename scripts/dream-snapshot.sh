@@ -8,7 +8,7 @@ set -u
 source "$(dirname "$0")/lib.sh"
 
 INSTRUCTIONS=""
-FILTER_SLUG=""
+FILTER_SLUGS=""
 FILTER_SINCE=""
 MAX_COUNT=50
 MODEL="claude-sonnet-4-6"
@@ -16,7 +16,7 @@ MODEL="claude-sonnet-4-6"
 while [ $# -gt 0 ]; do
   case "$1" in
     --instructions) INSTRUCTIONS="$2"; shift 2 ;;
-    --slug)         FILTER_SLUG="$2"; shift 2 ;;
+    --slug)         FILTER_SLUGS="${FILTER_SLUGS:+$FILTER_SLUGS }$2"; shift 2 ;;
     --since)
       if echo "$2" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
         FILTER_SINCE="$2"
@@ -30,7 +30,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-PROJECT_SLUG_RECORD="${FILTER_SLUG:-all}"
+PROJECT_SLUG_RECORD="${FILTER_SLUGS:-all}"
 
 KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
@@ -117,9 +117,11 @@ if [ -d "$TRANSCRIPT_DIR" ]; then
   for tf in $(ls -1 "$TRANSCRIPT_DIR"/*.txt 2>/dev/null | sort -r); do
     [ "$SELECTED" -ge "$MAX_COUNT" ] && break
 
-    if [ -n "$FILTER_SLUG" ]; then
+    if [ -n "$FILTER_SLUGS" ]; then
+      # OR every requested slug: a transcript matches if its name contains _<slug>_ for ANY family member.
+      ALT=$(printf '%s' "$FILTER_SLUGS" | tr ' ' '|')
       fname=$(basename "$tf")
-      echo "$fname" | grep -q "_${FILTER_SLUG}_" || continue
+      echo "$fname" | grep -qE "_(${ALT})_" || continue
     fi
 
     if [ -n "$FILTER_SINCE" ]; then

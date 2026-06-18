@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import { atomicWriteJson } from './atomic-write.js';
 import { cleanEnvPath } from '../path-guard.js';
 import { resolveActiveSlug } from './project-dir.js';
+import { projectFamily } from './project-registry.js';
 import { join, basename } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -112,6 +113,7 @@ export interface DreamCreateArgs {
     project_slug?: string;
     since?: string;
     max_count?: number;
+    family?: boolean;        // mine the whole monorepo family (Phase B)
   };
   model?: string;
 }
@@ -122,15 +124,23 @@ export interface DreamCreateResult {
   reason?: string;
 }
 
-/** Build the dream-snapshot.sh argv. Scope default: when the caller gives no project_slug, mine the
- *  ACTIVE project (leaf). project_slug:"all" is the explicit cross-project opt-out (no --slug → every
- *  transcript). An explicit slug is used verbatim. (Assumes instructions length already validated.) */
-export function buildSnapshotArgs(args: DreamCreateArgs, activeSlug: string | undefined): string[] {
+/** Build the dream-snapshot.sh argv. Scope: project_slug:"all" → no --slug (every transcript);
+ *  transcript_filter.family → one --slug per family member (sorted); else the single active project
+ *  (leaf) or an explicit project_slug. (Assumes instructions length already validated.) */
+export function buildSnapshotArgs(
+  args: DreamCreateArgs, activeSlug: string | undefined, family?: Set<string>,
+): string[] {
   const out: string[] = [];
   if (args.instructions) out.push('--instructions', args.instructions);
   const requested = args.transcript_filter?.project_slug;
-  const scope = requested ?? activeSlug;            // default = active project (leaf)
-  if (scope && scope !== 'all') out.push('--slug', scope);
+  if (requested === 'all') {
+    // explicit cross-project opt-out → no --slug
+  } else if (args.transcript_filter?.family && family && family.size) {
+    for (const s of [...family].sort()) out.push('--slug', s);
+  } else {
+    const scope = requested ?? activeSlug;
+    if (scope) out.push('--slug', scope);
+  }
   if (args.transcript_filter?.since) out.push('--since', args.transcript_filter.since);
   const maxCount = Math.min(args.transcript_filter?.max_count ?? 50, 100);
   out.push('--max-count', String(maxCount));
@@ -145,7 +155,8 @@ export async function dreamCreate(
     return { ok: false, dream: null, reason: "instructions exceed 4096 char limit" };
   }
   const activeSlug = resolveActiveSlug(brainDir());
-  const scriptArgs = buildSnapshotArgs(args, activeSlug);
+  const family = activeSlug ? projectFamily(brainDir(), activeSlug) : undefined;
+  const scriptArgs = buildSnapshotArgs(args, activeSlug, family);
 
   try {
     const { stdout, stderr } = await exec(

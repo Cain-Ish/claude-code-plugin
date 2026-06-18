@@ -51,6 +51,24 @@ describe('buildSnapshotArgs', () => {
   });
 });
 
+describe('buildSnapshotArgs — family', () => {
+  it('emits one --slug per family member (sorted)', () => {
+    const args = { transcript_filter: { family: true } };
+    const fam = new Set(['acme', 'acme__api', 'acme__web']);
+    expect(buildSnapshotArgs(args, 'acme__api', fam)).toEqual(
+      ['--slug', 'acme', '--slug', 'acme__api', '--slug', 'acme__web', '--max-count', '50']);
+  });
+  it('ignores the family set when family flag is not set (leaf default)', () => {
+    const fam = new Set(['acme', 'acme__api', 'acme__web']);
+    expect(buildSnapshotArgs({}, 'acme__api', fam)).toEqual(['--slug', 'acme__api', '--max-count', '50']);
+  });
+  it('"all" opt-out still wins over family', () => {
+    const fam = new Set(['acme', 'acme__api']);
+    expect(buildSnapshotArgs({ transcript_filter: { project_slug: 'all', family: true } }, 'acme__api', fam))
+      .toEqual(['--max-count', '50']);
+  });
+});
+
 describe('cleanEnvPath (env-var path CR/LF sanitizer)', () => {
   it('strips trailing CR/LF', () => {
     expect(cleanEnvPath('/home/u/knowledge\r')).toBe('/home/u/knowledge');

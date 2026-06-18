@@ -31447,12 +31447,17 @@ async function listDreamIds() {
     return [];
   }
 }
-function buildSnapshotArgs(args, activeSlug) {
+function buildSnapshotArgs(args, activeSlug, family) {
   const out = [];
   if (args.instructions) out.push("--instructions", args.instructions);
   const requested = args.transcript_filter?.project_slug;
-  const scope = requested ?? activeSlug;
-  if (scope && scope !== "all") out.push("--slug", scope);
+  if (requested === "all") {
+  } else if (args.transcript_filter?.family && family && family.size) {
+    for (const s of [...family].sort()) out.push("--slug", s);
+  } else {
+    const scope = requested ?? activeSlug;
+    if (scope) out.push("--slug", scope);
+  }
   if (args.transcript_filter?.since) out.push("--since", args.transcript_filter.since);
   const maxCount = Math.min(args.transcript_filter?.max_count ?? 50, 100);
   out.push("--max-count", String(maxCount));
@@ -31464,7 +31469,8 @@ async function dreamCreate(args) {
     return { ok: false, dream: null, reason: "instructions exceed 4096 char limit" };
   }
   const activeSlug = resolveActiveSlug(brainDir());
-  const scriptArgs = buildSnapshotArgs(args, activeSlug);
+  const family = activeSlug ? projectFamily(brainDir(), activeSlug) : void 0;
+  const scriptArgs = buildSnapshotArgs(args, activeSlug, family);
   try {
     const { stdout, stderr } = await exec(
       "bash",
