@@ -352,6 +352,72 @@ sb_slug_from_dir() {
   esac
 }
 
+# Detect a project's slug / parent / root_path for a directory, monorepo-aware.
+# Echoes a single TAB-separated line: <slug>\t<parent>\t<root_path>
+#   - git submodule (superproject exists)                                       → <super>__<leaf>, parent=<super>
+#   - single-git monorepo (workspace manifest at the git root, cwd in a subdir) → <root>__<leaf>, parent=<root>
+#   - .sb-monorepo.json marker at an ancestor with a "parent" key               → <parent>__<leaf>, parent=<parent>
+#   - otherwise (standalone, or working at the monorepo root)                    → <leaf>, parent=""
+sb_detect_project() {
+  local dir; dir=$(printf '%s' "${1:-$PWD}" | tr -d '\r')
+  local abs; abs=$(cd "$dir" 2>/dev/null && pwd) || abs="$dir"
+  local top; top=$(git -C "$abs" rev-parse --show-toplevel 2>/dev/null | tr -d '\r')
+  local sup; sup=$(git -C "$abs" rev-parse --show-superproject-working-tree 2>/dev/null | tr -d '\r')
+  local leaf; leaf=$(sb_slug_from_dir "$abs")
+
+  # Windows path-form normalization: git rev-parse may return a Windows-form
+  # path (C:/foo) while `cd && pwd` returns MSYS-form (/c/foo). Normalize the
+  # git-returned paths to the same form as $abs before string-comparing, while
+  # preserving the original git path for slug derivation (basename is form-agnostic).
+  local top_norm; top_norm=$([ -n "$top" ] && { cd "$top" 2>/dev/null && pwd; } || printf '%s' "$top")
+  local sup_norm; sup_norm=$([ -n "$sup" ] && { cd "$sup" 2>/dev/null && pwd; } || printf '%s' "$sup")
+
+  # 1. git submodule: the superproject is the monorepo root.
+  if [ -n "$sup" ]; then
+    printf '%s__%s\t%s\t%s\n' "$(sb_slug_from_dir "$sup")" "$leaf" "$(sb_slug_from_dir "$sup")" "$abs"
+    return 0
+  fi
+
+  # 2. single-git monorepo: a workspace manifest at the git root + cwd is a subdir of it.
+  if [ -n "$top" ] && [ "$abs" != "$top_norm" ] && sb_is_workspace_root "$top"; then
+    printf '%s__%s\t%s\t%s\n' "$(sb_slug_from_dir "$top")" "$leaf" "$(sb_slug_from_dir "$top")" "$abs"
+    return 0
+  fi
+
+  # 3. .sb-monorepo.json marker walking up from cwd (sibling-repo topology).
+  local marker; marker=$(sb_find_up "$abs" ".sb-monorepo.json")
+  if [ -n "$marker" ]; then
+    local pkey; pkey=$(jq -r '.parent // empty' "$marker" 2>/dev/null | tr -d '\r')
+    if [ -n "$pkey" ] && [ "$abs" != "$(dirname "$marker")" ]; then
+      printf '%s__%s\t%s\t%s\n' "$pkey" "$leaf" "$pkey" "$abs"
+      return 0
+    fi
+  fi
+
+  # 4. standalone (or working at the monorepo root): bare slug, no parent.
+  printf '%s\t\t%s\n' "$leaf" "${top:-$abs}"
+}
+
+# True if DIR contains a recognized monorepo workspace manifest.
+sb_is_workspace_root() {
+  local d="$1"
+  [ -f "$d/pnpm-workspace.yaml" ] || [ -f "$d/nx.json" ] || [ -f "$d/turbo.json" ] \
+    || [ -f "$d/lerna.json" ] || [ -f "$d/go.work" ] \
+    || { [ -f "$d/Cargo.toml" ] && grep -q '^\[workspace\]' "$d/Cargo.toml" 2>/dev/null; } \
+    || { [ -f "$d/package.json" ] && jq -e 'has("workspaces")' "$d/package.json" >/dev/null 2>&1; }
+}
+
+# Walk up from DIR looking for FILE; echo its full path, or nothing.
+sb_find_up() {
+  local d="$1" file="$2"
+  d=$(cd "$d" 2>/dev/null && pwd) || return 0
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    [ -f "$d/$file" ] && { printf '%s\n' "$d/$file"; return 0; }
+    d=$(dirname "$d")
+  done
+  [ -f "/$file" ] && printf '%s\n' "/$file"
+}
+
 # Resolve the active project slug. Precedence: CLAUDE_PROJECT_DIR > pin > cwd.
 # CLAUDE_PROJECT_DIR is the PER-SESSION project root Claude Code sets — checked
 # FIRST so a concurrent session in another project can't hijack this session's
