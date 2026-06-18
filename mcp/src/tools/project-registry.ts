@@ -43,9 +43,20 @@ export function projectFamily(brainDir: string, slug: string): Set<string> {
 
 /** Resolve which registered project owns `dir` by LONGEST-PREFIX match of `dir` against each
  *  record's root_path. Path-segment aware: /repos/acme matches /repos/acme/x but NOT
- *  /repos/acme-other. Returns the slug of the deepest matching root_path, or undefined. */
+ *  /repos/acme-other. Returns the slug of the deepest matching root_path, or undefined.
+ *
+ *  norm() canonicalizes both sides to MSYS form so Windows paths (C:\x, C:/x) and MSYS paths
+ *  (/c/x) compare equal. This is necessary because bash session-load.sh writes root_path via
+ *  `pwd` in Git Bash (MSYS form: /c/...) while the Node MCP server receives CLAUDE_PROJECT_DIR
+ *  or process.cwd() in Windows form (C:\... or C:/...). Mirrors toBashPath() in dream.ts. */
 export function resolveSlugByPath(brainDir: string, dir: string): string | undefined {
-  const norm = (p: string) => cleanEnvPath(p).replace(/\\/g, '/').replace(/\/+$/, '');
+  const norm = (p: string) => {
+    let s = cleanEnvPath(p).replace(/\\/g, '/');
+    // Canonicalize Windows drive letter to MSYS form: C:/x → /c/x
+    const drive = s.match(/^([A-Za-z]):\//);
+    if (drive) s = '/' + drive[1].toLowerCase() + s.slice(2);
+    return s.replace(/\/+$/, '');
+  };
   const target = norm(dir);
   let best: { slug: string; len: number } | undefined;
   for (const r of loadRegistry(brainDir)) {

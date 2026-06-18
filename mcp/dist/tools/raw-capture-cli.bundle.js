@@ -6357,7 +6357,12 @@ function loadRegistry(brainDir) {
   return out;
 }
 function resolveSlugByPath(brainDir, dir) {
-  const norm = (p) => cleanEnvPath(p).replace(/\\/g, "/").replace(/\/+$/, "");
+  const norm = (p) => {
+    let s = cleanEnvPath(p).replace(/\\/g, "/");
+    const drive = s.match(/^([A-Za-z]):\//);
+    if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
+    return s.replace(/\/+$/, "");
+  };
   const target = norm(dir);
   let best;
   for (const r of loadRegistry(brainDir)) {

@@ -75,4 +75,35 @@ describe('resolveSlugByPath', () => {
     expect(resolveSlugByPath(dir, '/repos/acme-other/src')).toBeUndefined();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  // Cross-form Windows/MSYS matching: bash writes root_path in MSYS form (/c/...)
+  // while Node reads CLAUDE_PROJECT_DIR/cwd in Windows form (C:/... or C:\...).
+  const WIN_FAMILY =
+    '{"slug":"acme","root_path":"/c/repos/acme"}\n' +
+    '{"slug":"acme__api","parent":"acme","root_path":"/c/repos/acme/packages/api"}\n';
+
+  it('MSYS root_path matches Windows fwd-slash query (cross-form)', () => {
+    const dir = brain(WIN_FAMILY);
+    expect(resolveSlugByPath(dir, 'C:/repos/acme/packages/api/src')).toBe('acme__api');
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('MSYS root_path matches Windows backslash query (cross-form)', () => {
+    const dir = brain(WIN_FAMILY);
+    expect(resolveSlugByPath(dir, 'C:\\repos\\acme\\packages\\api\\src')).toBe('acme__api');
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('Windows root_path in registry matches MSYS query (reverse cross-form)', () => {
+    const winReg =
+      '{"slug":"acme","root_path":"C:/repos/acme"}\n' +
+      '{"slug":"acme__api","parent":"acme","root_path":"C:/repos/acme/packages/api"}\n';
+    const dir = brain(winReg);
+    expect(resolveSlugByPath(dir, '/c/repos/acme/packages/api/src')).toBe('acme__api');
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('sibling-prefix false-positive guard holds across cross-form paths', () => {
+    const dir = brain(WIN_FAMILY);
+    // /c/repos/acme must NOT match C:/repos/acme-other/src
+    expect(resolveSlugByPath(dir, 'C:/repos/acme-other/src')).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
