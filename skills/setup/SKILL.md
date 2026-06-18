@@ -16,15 +16,23 @@ This skill is idempotent — re-running it will not clobber existing files. It o
 
 ### 1. Resolve active project
 
-Determine the repo slug from the current working directory's git root (falls back to `pwd` if not a git repo):
+Detect the repo slug, parent (if a monorepo sub-project), and root_path using `sb_detect_project`, then **confirm with the operator before writing**:
 
 ```bash
-SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+# Monorepo-aware detection: slug / parent / root_path. Source lib.sh for sb_detect_project.
+. "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh"
+IFS=$'\t' read -r SLUG PARENT ROOT_PATH < <(sb_detect_project "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 NAME="$SLUG"
-echo "Active project: $SLUG"
+if [ -n "$PARENT" ]; then
+  echo "Detected sub-project: slug=$SLUG  parent=$PARENT  root_path=$ROOT_PATH"
+else
+  echo "Detected standalone project: slug=$SLUG  root_path=$ROOT_PATH"
+fi
 ```
 
-Also ensure the base directories exist:
+Show the operator what was detected and ask them to **accept, edit the parent, or clear it (treat as standalone) before writing** — never write a guessed `parent` unattended. Only proceed to the next steps once the operator confirms the slug and parent are correct.
+
+Also ensure the base directories exist (note: the slug is path-qualified for sub-projects, e.g. `mono__api`):
 
 ```bash
 mkdir -p ~/.second-brain/projects/"$SLUG"
@@ -92,9 +100,14 @@ Set `<!-- last_updated: ... -->` to the current ISO8601 timestamp; leave `last_q
 Append a JSON line registering this project (one record per line; `projects.jsonl` is JSONL). Skip the append if a line with this `slug` already exists.
 
 ```bash
-if ! grep -q "\"slug\":\"$SLUG\"" ~/.second-brain/projects.jsonl 2>/dev/null; then
+mkdir -p ~/.second-brain/projects/"$SLUG"
+if [ ! -f ~/.second-brain/projects.jsonl ] || \
+   ! jq -se --arg s "$SLUG" 'map(select(.slug == $s)) | length > 0' ~/.second-brain/projects.jsonl >/dev/null 2>&1; then
   jq -nc --arg s "$SLUG" --arg n "$NAME" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}' \
+         --arg p "$PARENT" --arg rp "$ROOT_PATH" \
+    '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}
+     + (if $p  != "" then {parent:$p}     else {} end)
+     + (if $rp != "" then {root_path:$rp} else {} end)' \
     >> ~/.second-brain/projects.jsonl
 fi
 ```

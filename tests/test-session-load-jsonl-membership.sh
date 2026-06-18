@@ -70,5 +70,36 @@ run
   || fail "missing-file: PROJECT.md should still be created"
 pass "missing projects.jsonl: PROJECT.md still created, no error"
 
+# --- Phase B: registration records root_path (+ parent for a sub-project) ---
+# Build a monorepo in a temp dir so session-load writes the record end-to-end.
+MONO=$(mktemp -d)
+mkdir -p "$MONO/mono/packages/api"
+( cd "$MONO/mono" && git init -q )
+printf 'packages:\n  - "packages/*"\n' > "$MONO/mono/pnpm-workspace.yaml"
+
+# Verify sb_detect_project produces the right slug/parent (sources lib.sh in a subshell).
+read -r SLUG PARENT ROOTP < <(
+  ( . "$PLUGIN_ROOT/scripts/lib.sh"
+    cd "$MONO/mono/packages/api" && sb_detect_project "$PWD" ) \
+  | awk -F'\t' '{print $1, $2, $3}'
+)
+[ "$SLUG" = "mono__api" ]  && pass "detect child slug"  || fail "detect child slug ($SLUG)"
+[ "$PARENT" = "mono" ]     && pass "detect child parent" || fail "detect child parent ($PARENT)"
+
+# Drive session-load with a fresh sandbox + CLAUDE_PROJECT_DIR pointing at the child.
+init_sandbox "monorepo-child"
+: > "$BRAIN_DIR/projects.jsonl"
+export CLAUDE_PROJECT_DIR="$MONO/mono/packages/api"
+jq -nc --arg cwd "$MONO/mono/packages/api" \
+  '{session_id:"x", cwd:$cwd, hook_event_name:"SessionStart"}' \
+  | bash "$SCRIPT" >/dev/null 2>&1
+unset CLAUDE_PROJECT_DIR
+
+REC=$(jq -c --arg s "mono__api" 'select(.slug==$s)' "$BRAIN_DIR/projects.jsonl" 2>/dev/null | head -1)
+echo "$REC" | jq -e '.parent=="mono" and (.root_path|test("packages/api$"))' >/dev/null \
+  && pass "record has parent+root_path" || fail "record missing parent/root_path: $REC"
+
+rm -rf "$MONO"
+
 echo
 echo "ALL PASS"
