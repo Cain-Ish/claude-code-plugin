@@ -6,6 +6,7 @@ import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge } from './graph-store.js';
 import { parseAiBlock, stripAiBlock, aiBlockSnippet } from './ai-block.js';
+import { projectFamily } from './project-registry.js';
 
 /** Concatenated ai-block field VALUES for BM25 tokenization (the proposition-level unit). */
 function aiBlockText(doc: ParsedDoc): string { return doc.aiBlock ? Object.values(doc.aiBlock).join(' ') : ''; }
@@ -321,6 +322,9 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== 'off' && args.scope !== 'all';
   if (scopeOn) {
     const slug = args.projectSlug!;
+    // Family = the monorepo root + siblings + self (reads projects.jsonl truth, not the graph).
+    // Standalone projects → {slug}, so the family tier collapses to "own project" (today's behavior).
+    const family = args.brainDir ? projectFamily(args.brainDir, slug) : new Set<string>([slug]);
     // Map slug→project from WIKI docs only. A local-doc carries project:'' and would
     // otherwise overwrite a same-basename wiki page's real project in this map, leaking
     // that other-project page into scope. local-docs are the active project's own files,
@@ -334,7 +338,11 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       if (s.source === 'local-doc') { s.tier = 1; continue; }  // active project's own registry pages
       const sl = slugFromPath(s.path);
       const proj = projBySlug.get(sl) ?? '';
-      s.tier = proj === slug ? 1 : neigh.has(sl) ? 2 : proj === '' ? 3 : 4;
+      s.tier = proj === slug ? 1
+             : (proj !== '' && family.has(proj)) ? 2   // NEW: a family-member project's page
+             : neigh.has(sl) ? 3                        // graph-neighbour (was 2)
+             : proj === '' ? 4                          // global (was 3)
+             : 5;                                       // other project (was 4)
     }
   }
 
@@ -351,8 +359,8 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   let pool = scored;
   if (scopeOn) {
-    const inScope = scored.filter(s => s.tier <= 3);
-    // Enough in-scope hits → drop other-project (tier 4). Thin → broaden (keep all; in-scope sorted first).
+    const inScope = scored.filter(s => s.tier <= 4);
+    // Enough in-scope hits → drop other-project (tier 5). Thin → broaden (keep all; in-scope sorted first).
     pool = inScope.filter(passesFloor).length >= clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100) ? inScope : scored;
   }
 

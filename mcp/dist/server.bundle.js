@@ -27468,7 +27468,7 @@ async function atomicWriteJson(filePath, value) {
 }
 
 // src/tools/knowledge-search.ts
-import { join as join6 } from "path";
+import { join as join7 } from "path";
 
 // src/tools/embeddings.ts
 import { promises as fs6 } from "fs";
@@ -27703,6 +27703,50 @@ function validateAiBlock(type, block) {
   return schema.required.filter((f) => !block[f] || !block[f].trim());
 }
 
+// src/tools/project-registry.ts
+import { readFileSync } from "fs";
+import { join as join6 } from "path";
+function loadRegistry2(brainDir2) {
+  let text;
+  try {
+    text = readFileSync(join6(brainDir2, "projects.jsonl"), "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s);
+      if (r && typeof r.slug === "string" && r.slug) out.push(r);
+    } catch {
+    }
+  }
+  return out;
+}
+function projectFamily(brainDir2, slug) {
+  const recs = loadRegistry2(brainDir2);
+  const self = recs.find((r) => r.slug === slug);
+  const root = self?.parent ?? slug;
+  const fam = /* @__PURE__ */ new Set([slug, root]);
+  for (const r of recs) if ((r.parent ?? r.slug) === root) fam.add(r.slug);
+  return fam;
+}
+function resolveSlugByPath(brainDir2, dir) {
+  const norm = (p) => cleanEnvPath(p).replace(/\\/g, "/").replace(/\/+$/, "");
+  const target = norm(dir);
+  let best;
+  for (const r of loadRegistry2(brainDir2)) {
+    if (!r.root_path) continue;
+    const rp = norm(r.root_path);
+    if (target === rp || target.startsWith(rp + "/")) {
+      if (!best || rp.length > best.len) best = { slug: r.slug, len: rp.length };
+    }
+  }
+  return best?.slug;
+}
+
 // src/tools/knowledge-search.ts
 function aiBlockText(doc) {
   return doc.aiBlock ? Object.values(doc.aiBlock).join(" ") : "";
@@ -27730,8 +27774,8 @@ function graphNeighbourhood(seeds, edges, hops) {
   return reached;
 }
 function accessCountsFile() {
-  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join6(process.env.HOME ?? "", ".second-brain");
-  return join6(brain, "access-counts.json");
+  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join7(process.env.HOME ?? "", ".second-brain");
+  return join7(brain, "access-counts.json");
 }
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -27762,15 +27806,15 @@ var STUB_PENALTY = 0.5;
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
-  const knowledgeDir = args.knowledgeDir ?? join6(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join6(knowledgeDir, "wiki");
+  const knowledgeDir = args.knowledgeDir ?? join7(process.env.HOME ?? "", "knowledge");
+  const wikiRoot = join7(knowledgeDir, "wiki");
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
-    scopeDirs = [join6(wikiRoot, args.scope)];
+    scopeDirs = [join7(wikiRoot, args.scope)];
   } else {
     try {
       const entries = await fs8.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join6(wikiRoot, d.name));
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join7(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -27839,7 +27883,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const boostAccum = /* @__PURE__ */ new Map();
   let graphEdges = [];
   try {
-    const recs = await loadEdges(join6(knowledgeDir, "graph", "edges.jsonl"));
+    const recs = await loadEdges(join7(knowledgeDir, "graph", "edges.jsonl"));
     if (recs.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
@@ -27951,6 +27995,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
   if (scopeOn) {
     const slug = args.projectSlug;
+    const family = args.brainDir ? projectFamily(args.brainDir, slug) : /* @__PURE__ */ new Set([slug]);
     const projBySlug = new Map(
       allDocs.filter((d) => d.source === "wiki").map((d) => [slugFromPath(d.doc.path), d.doc.project ?? ""])
     );
@@ -27963,7 +28008,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       }
       const sl = slugFromPath(s.path);
       const proj = projBySlug.get(sl) ?? "";
-      s.tier = proj === slug ? 1 : neigh.has(sl) ? 2 : proj === "" ? 3 : 4;
+      s.tier = proj === slug ? 1 : proj !== "" && family.has(proj) ? 2 : neigh.has(sl) ? 3 : proj === "" ? 4 : 5;
     }
   }
   scored.sort((a, b) => scopeOn ? a.tier - b.tier || b.score - a.score : b.score - a.score);
@@ -27972,7 +28017,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const passesFloor = (c) => embeddingsActive ? c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO) : c.score > 0 && (topBase === 0 || c.baseScore >= topBase * MIN_SCORE_RATIO);
   let pool = scored;
   if (scopeOn) {
-    const inScope = scored.filter((s) => s.tier <= 3);
+    const inScope = scored.filter((s) => s.tier <= 4);
     pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
   }
   const returned = pool.filter(passesFloor).slice(0, TOP_K);
@@ -28138,7 +28183,7 @@ function slugFromPath(p) {
 }
 async function collectMarkdown(dir, acc = []) {
   for (const e of await fs8.readdir(dir, { withFileTypes: true })) {
-    const p = join6(dir, e.name);
+    const p = join7(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
   }
@@ -28147,7 +28192,7 @@ async function collectMarkdown(dir, acc = []) {
 
 // src/tools/knowledge-fetch.ts
 import { promises as fs9 } from "fs";
-import { join as join7, relative as relative2, isAbsolute as isAbsolute2 } from "path";
+import { join as join8, relative as relative2, isAbsolute as isAbsolute2 } from "path";
 function headings(body) {
   return body.split("\n").filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
 }
@@ -28164,8 +28209,8 @@ function summarySection(body) {
 }
 async function knowledgeFetch(args) {
   const tier = args.tier ?? "gist";
-  const knowledgeDir = args.knowledgeDir ?? join7(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join7(knowledgeDir, "wiki");
+  const knowledgeDir = args.knowledgeDir ?? join8(process.env.HOME ?? "", "knowledge");
+  const wikiRoot = join8(knowledgeDir, "wiki");
   try {
     validateSlug(args.slug);
   } catch (e) {
@@ -28250,11 +28295,11 @@ async function knowledgeFetch(args) {
 
 // src/tools/knowledge-reindex.ts
 import { promises as fs12 } from "fs";
-import { basename as basename2, join as join10 } from "path";
+import { basename as basename2, join as join11 } from "path";
 
 // src/tools/knowledge-validate.ts
 import { promises as fs10 } from "fs";
-import { join as join8, basename, dirname as dirname2, relative as relative3 } from "path";
+import { join as join9, basename, dirname as dirname2, relative as relative3 } from "path";
 
 // node_modules/js-yaml/dist/js-yaml.mjs
 var __create2 = Object.create;
@@ -30655,10 +30700,10 @@ var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
 var REQUIRED_FM_FIELDS = ["title", "description", "type", "created", "updated", "tags", "related"];
 var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
-  const wikiDir = join8(knowledgeDir, "wiki");
+  const wikiDir = join9(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
-  const graphEnabled = (await loadEdges(join8(knowledgeDir, "graph", "edges.jsonl"))).length > 0;
+  const graphEnabled = (await loadEdges(join9(knowledgeDir, "graph", "edges.jsonl"))).length > 0;
   const allPages = await collectAllPages(wikiDir);
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
@@ -30763,7 +30808,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     }
   }
   try {
-    const edgeRecords = await loadEdges(join8(knowledgeDir, "graph", "edges.jsonl"));
+    const edgeRecords = await loadEdges(join9(knowledgeDir, "graph", "edges.jsonl"));
     if (edgeRecords.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       const current = foldToCurrent(edgeRecords).filter((e) => validAt(e, nowIso));
@@ -30811,7 +30856,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const rootFiles = await fs10.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        const rootPath = join8(knowledgeDir, entry.name);
+        const rootPath = join9(knowledgeDir, entry.name);
         issues.push({
           type: "root_orphan",
           severity: "error",
@@ -31063,7 +31108,7 @@ async function collectAllPages(dir, acc = []) {
   try {
     const entries = await fs10.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
-      const p = join8(dir, e.name);
+      const p = join9(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -31074,7 +31119,7 @@ async function collectAllPages(dir, acc = []) {
 
 // src/tools/graph-project.ts
 import { promises as fs11 } from "fs";
-import { join as join9 } from "path";
+import { join as join10 } from "path";
 var BEGIN = "<!-- graph:begin (generated from ~/knowledge/graph/edges.jsonl \u2014 do not hand-edit) -->";
 var END = "<!-- graph:end -->";
 var TYPE_LABEL = {
@@ -31092,10 +31137,10 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 async function projectGraphToPages(knowledgeDir) {
-  const records = await loadEdges(join9(knowledgeDir, "graph", "edges.jsonl"));
+  const records = await loadEdges(join10(knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { pagesUpdated: 0 };
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  const wikiRoot = join9(knowledgeDir, "wiki");
+  const wikiRoot = join10(knowledgeDir, "wiki");
   const files = await glob("**/*.md", { cwd: wikiRoot, absolute: true });
   const livePages = new Set(files.map(slugFromPath2));
   await Promise.all(files.map(async (f) => {
@@ -31212,8 +31257,8 @@ async function knowledgeReindex(knowledgeDir) {
     await projectGraphToPages(knowledgeDir);
   } catch {
   }
-  const wikiRoot = join10(knowledgeDir, "wiki");
-  const indexPath = join10(wikiRoot, "index.md");
+  const wikiRoot = join11(knowledgeDir, "wiki");
+  const indexPath = join11(wikiRoot, "index.md");
   let dirs;
   try {
     const entries = await fs12.readdir(wikiRoot, { withFileTypes: true });
@@ -31226,7 +31271,7 @@ async function knowledgeReindex(knowledgeDir) {
   let totalPages = 0;
   for (const dir of dirs) {
     if (dir === "projects") continue;
-    const dirPath = join10(wikiRoot, dir);
+    const dirPath = join11(wikiRoot, dir);
     const files = await collectMd(dirPath);
     if (files.length === 0) continue;
     const entries = [];
@@ -31251,12 +31296,12 @@ async function knowledgeReindex(knowledgeDir) {
   const rawMin = Number(process.env.SB_MOC_MIN_MEMBERS);
   const minMembers = Number.isFinite(rawMin) && rawMin >= 1 ? rawMin : 3;
   const mocs = process.env.SB_KB_MOC === "off" ? /* @__PURE__ */ new Map() : buildProjectMocs(allPages, { minMembers });
-  const projDir = join10(wikiRoot, "projects");
+  const projDir = join11(wikiRoot, "projects");
   if (mocs.size > 0) await fs12.mkdir(projDir, { recursive: true });
   for (const existing of await mocSlugs(projDir)) {
     if (!mocs.has(existing)) {
       try {
-        await fs12.unlink(join10(projDir, `${existing}.md`));
+        await fs12.unlink(join11(projDir, `${existing}.md`));
       } catch {
       }
     }
@@ -31272,7 +31317,7 @@ async function knowledgeReindex(knowledgeDir) {
       "---",
       ""
     ].join("\n");
-    await fs12.writeFile(join10(projDir, `${proj}.md`), header + region + "\n", "utf-8");
+    await fs12.writeFile(join11(projDir, `${proj}.md`), header + region + "\n", "utf-8");
   }
   const sections = [
     "---",
@@ -31286,7 +31331,7 @@ async function knowledgeReindex(knowledgeDir) {
   ];
   const mocLinks = [];
   for (const slug of await mocSlugs(projDir)) mocLinks.push(`- [[projects/${slug}]]`);
-  for (const slug of await mocSlugs(join10(wikiRoot, "themes"))) mocLinks.push(`- [[themes/${slug}]]`);
+  for (const slug of await mocSlugs(join11(wikiRoot, "themes"))) mocLinks.push(`- [[themes/${slug}]]`);
   if (mocLinks.length) sections.push("## Maps of Content", "", ...mocLinks, "");
   if (categoryRows.length) sections.push("## Categories", "", ...categoryRows, "");
   if (totalPages === 0 && mocLinks.length === 0) sections.push("*(no pages yet)*", "");
@@ -31315,7 +31360,7 @@ async function mocSlugs(dir) {
 async function collectMd(dir, acc = []) {
   try {
     for (const e of await fs12.readdir(dir, { withFileTypes: true })) {
-      const p = join10(dir, e.name);
+      const p = join11(dir, e.name);
       if (e.isDirectory()) await collectMd(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -31330,44 +31375,6 @@ import { promises as fs13 } from "fs";
 // src/tools/project-dir.ts
 import { basename as basename3, join as join12 } from "path";
 import { readFileSync as readFileSync2, existsSync } from "fs";
-
-// src/tools/project-registry.ts
-import { readFileSync } from "fs";
-import { join as join11 } from "path";
-function loadRegistry2(brainDir2) {
-  let text;
-  try {
-    text = readFileSync(join11(brainDir2, "projects.jsonl"), "utf-8");
-  } catch {
-    return [];
-  }
-  const out = [];
-  for (const line of text.split("\n")) {
-    const s = line.trim();
-    if (!s) continue;
-    try {
-      const r = JSON.parse(s);
-      if (r && typeof r.slug === "string" && r.slug) out.push(r);
-    } catch {
-    }
-  }
-  return out;
-}
-function resolveSlugByPath(brainDir2, dir) {
-  const norm = (p) => cleanEnvPath(p).replace(/\\/g, "/").replace(/\/+$/, "");
-  const target = norm(dir);
-  let best;
-  for (const r of loadRegistry2(brainDir2)) {
-    if (!r.root_path) continue;
-    const rp = norm(r.root_path);
-    if (target === rp || target.startsWith(rp + "/")) {
-      if (!best || rp.length > best.len) best = { slug: r.slug, len: rp.length };
-    }
-  }
-  return best?.slug;
-}
-
-// src/tools/project-dir.ts
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
   const base = basename3(cleanEnvPath(dir));

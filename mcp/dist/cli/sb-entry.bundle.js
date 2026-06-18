@@ -1,9 +1,9 @@
 // src/cli/sb-entry.ts
-import { join as join8 } from "path";
+import { join as join9 } from "path";
 
 // src/cli/sb.ts
 import { promises as fs9, constants as fsConstants } from "fs";
-import { join as join7, delimiter as pathDelimiter } from "path";
+import { join as join8, delimiter as pathDelimiter } from "path";
 import { execFile } from "child_process";
 
 // src/path-guard.ts
@@ -100,7 +100,7 @@ async function atomicWriteJson(filePath, value) {
 }
 
 // src/tools/knowledge-search.ts
-import { join as join3 } from "path";
+import { join as join4 } from "path";
 
 // src/tools/embeddings.ts
 import { promises as fs2 } from "fs";
@@ -6421,6 +6421,37 @@ function aiBlockSnippet(type, block) {
   return order.filter((f) => (block[f] ?? "").trim()).map((f) => `${f}: ${block[f].trim()}`).join("; ");
 }
 
+// src/tools/project-registry.ts
+import { readFileSync } from "fs";
+import { join as join3 } from "path";
+function loadRegistry2(brainDir2) {
+  let text;
+  try {
+    text = readFileSync(join3(brainDir2, "projects.jsonl"), "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s);
+      if (r && typeof r.slug === "string" && r.slug) out.push(r);
+    } catch {
+    }
+  }
+  return out;
+}
+function projectFamily(brainDir2, slug) {
+  const recs = loadRegistry2(brainDir2);
+  const self = recs.find((r) => r.slug === slug);
+  const root = self?.parent ?? slug;
+  const fam = /* @__PURE__ */ new Set([slug, root]);
+  for (const r of recs) if ((r.parent ?? r.slug) === root) fam.add(r.slug);
+  return fam;
+}
+
 // src/tools/knowledge-search.ts
 function aiBlockText(doc) {
   return doc.aiBlock ? Object.values(doc.aiBlock).join(" ") : "";
@@ -6448,8 +6479,8 @@ function graphNeighbourhood(seeds, edges, hops) {
   return reached;
 }
 function accessCountsFile() {
-  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join3(process.env.HOME ?? "", ".second-brain");
-  return join3(brain, "access-counts.json");
+  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join4(process.env.HOME ?? "", ".second-brain");
+  return join4(brain, "access-counts.json");
 }
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -6480,15 +6511,15 @@ var STUB_PENALTY = 0.5;
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
-  const knowledgeDir2 = args.knowledgeDir ?? join3(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join3(knowledgeDir2, "wiki");
+  const knowledgeDir2 = args.knowledgeDir ?? join4(process.env.HOME ?? "", "knowledge");
+  const wikiRoot = join4(knowledgeDir2, "wiki");
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
-    scopeDirs = [join3(wikiRoot, args.scope)];
+    scopeDirs = [join4(wikiRoot, args.scope)];
   } else {
     try {
       const entries = await fs5.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join3(wikiRoot, d.name));
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join4(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -6557,7 +6588,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const boostAccum = /* @__PURE__ */ new Map();
   let graphEdges = [];
   try {
-    const recs = await loadEdges(join3(knowledgeDir2, "graph", "edges.jsonl"));
+    const recs = await loadEdges(join4(knowledgeDir2, "graph", "edges.jsonl"));
     if (recs.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
@@ -6669,6 +6700,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
   if (scopeOn) {
     const slug = args.projectSlug;
+    const family = args.brainDir ? projectFamily(args.brainDir, slug) : /* @__PURE__ */ new Set([slug]);
     const projBySlug = new Map(
       allDocs.filter((d) => d.source === "wiki").map((d) => [slugFromPath(d.doc.path), d.doc.project ?? ""])
     );
@@ -6681,7 +6713,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       }
       const sl = slugFromPath(s.path);
       const proj = projBySlug.get(sl) ?? "";
-      s.tier = proj === slug ? 1 : neigh.has(sl) ? 2 : proj === "" ? 3 : 4;
+      s.tier = proj === slug ? 1 : proj !== "" && family.has(proj) ? 2 : neigh.has(sl) ? 3 : proj === "" ? 4 : 5;
     }
   }
   scored.sort((a, b) => scopeOn ? a.tier - b.tier || b.score - a.score : b.score - a.score);
@@ -6690,7 +6722,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const passesFloor = (c) => embeddingsActive ? c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO) : c.score > 0 && (topBase === 0 || c.baseScore >= topBase * MIN_SCORE_RATIO);
   let pool = scored;
   if (scopeOn) {
-    const inScope = scored.filter((s) => s.tier <= 3);
+    const inScope = scored.filter((s) => s.tier <= 4);
     pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
   }
   const returned = pool.filter(passesFloor).slice(0, TOP_K);
@@ -6856,7 +6888,7 @@ function slugFromPath(p) {
 }
 async function collectMarkdown(dir, acc = []) {
   for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
-    const p = join3(dir, e.name);
+    const p = join4(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
   }
@@ -6865,12 +6897,12 @@ async function collectMarkdown(dir, acc = []) {
 
 // src/tools/episodic-search.ts
 import { promises as fs6 } from "fs";
-import { join as join4, basename, relative as relative2, isAbsolute as isAbsolute2 } from "path";
+import { join as join5, basename, relative as relative2, isAbsolute as isAbsolute2 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
 async function loadIndex(brainDir2) {
-  const indexPath = join4(brainDir2, INDEX_FILE);
+  const indexPath = join5(brainDir2, INDEX_FILE);
   try {
     const data = await fs6.readFile(indexPath, "utf-8");
     return JSON.parse(data);
@@ -6935,7 +6967,7 @@ async function vectorSearch(query, index, limit, filters, brainDir2) {
   if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
   const queryEmbedding = await embedTexts(
     [query],
-    join4(brainDir2, "transcripts"),
+    join5(brainDir2, "transcripts"),
     [""]
   );
   if (!queryEmbedding) return { hits: [], unavailable: true };
@@ -6978,7 +7010,7 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   }
   const conceptEmbeddings = await embedTexts(
     concepts,
-    join4(brainDir2, "transcripts"),
+    join5(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
   if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
@@ -7032,11 +7064,11 @@ function scopeAndBroaden(ranked, args) {
 
 // src/tools/pin-to-user.ts
 import { promises as fs7 } from "fs";
-import { join as join5 } from "path";
+import { join as join6 } from "path";
 var MAX_LINES = 15;
 async function pinToUser(args) {
-  const dir = args.brainDir ?? join5(cleanEnvPath(process.env.HOME), ".second-brain");
-  const file = join5(dir, "USER.md");
+  const dir = args.brainDir ?? join6(cleanEnvPath(process.env.HOME), ".second-brain");
+  const file = join6(dir, "USER.md");
   const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const trimmed = args.text.trim();
   const newLine = `- [${date}] ${trimmed}`;
@@ -7064,7 +7096,7 @@ async function pinToUser(args) {
 
 // src/tools/pin-to-project.ts
 import { promises as fs8 } from "fs";
-import { join as join6 } from "path";
+import { join as join7 } from "path";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
 async function pinToProject(args) {
@@ -7079,7 +7111,7 @@ async function pinToProject(args) {
     }
     throw e;
   }
-  const dir = args.brainDir ?? join6(cleanEnvPath(process.env.HOME), ".second-brain");
+  const dir = args.brainDir ?? join7(cleanEnvPath(process.env.HOME), ".second-brain");
   let file;
   try {
     file = assertWithin(dir, "projects", args.slug, "PROJECT.md");
@@ -7140,7 +7172,7 @@ async function hasClaudeOnPath() {
     const dir = cleanEnvPath(rawDir);
     if (!dir) continue;
     try {
-      await fs9.access(join7(dir, "claude"), fsConstants.X_OK);
+      await fs9.access(join8(dir, "claude"), fsConstants.X_OK);
       return true;
     } catch {
     }
@@ -7261,8 +7293,8 @@ async function runSb(args, deps) {
     return { stdout: "", stderr: err.join("\n"), exitCode: 2 };
   }
   if (cmd === "status") {
-    const userFile = join7(deps.brainDir, "USER.md");
-    const projectsFile = join7(deps.brainDir, "projects.jsonl");
+    const userFile = join8(deps.brainDir, "USER.md");
+    const projectsFile = join8(deps.brainDir, "projects.jsonl");
     let userBytes = 0, projectsCount = 0;
     try {
       userBytes = (await fs9.stat(userFile)).size;
@@ -7276,10 +7308,10 @@ async function runSb(args, deps) {
     push(`USER.md:             ${userBytes} bytes`);
     push(`Registered projects: ${projectsCount}`);
     try {
-      const projectDirs = await fs9.readdir(join7(deps.brainDir, "projects"), { withFileTypes: true });
+      const projectDirs = await fs9.readdir(join8(deps.brainDir, "projects"), { withFileTypes: true });
       for (const d of projectDirs) {
         if (!d.isDirectory()) continue;
-        const pf = join7(deps.brainDir, "projects", d.name, "PROJECT.md");
+        const pf = join8(deps.brainDir, "projects", d.name, "PROJECT.md");
         try {
           const size = (await fs9.stat(pf)).size;
           push(`  ${d.name}/PROJECT.md: ${size} bytes`);
@@ -7289,11 +7321,11 @@ async function runSb(args, deps) {
     } catch {
     }
     try {
-      const wikiDirs = await fs9.readdir(join7(deps.knowledgeDir, "wiki"), { withFileTypes: true });
+      const wikiDirs = await fs9.readdir(join8(deps.knowledgeDir, "wiki"), { withFileTypes: true });
       push("Wiki pages:");
       for (const d of wikiDirs) {
         if (!d.isDirectory()) continue;
-        const files = await fs9.readdir(join7(deps.knowledgeDir, "wiki", d.name));
+        const files = await fs9.readdir(join8(deps.knowledgeDir, "wiki", d.name));
         const count = files.filter((f) => f.endsWith(".md") && f !== "index.md").length;
         push(`  ${d.name}: ${count}`);
       }
@@ -7377,8 +7409,8 @@ async function runSb(args, deps) {
 
 // src/cli/sb-entry.ts
 var home = cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE);
-var brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join8(home, ".second-brain");
-var knowledgeDir = cleanEnvPath(process.env.KNOWLEDGE_DIR) || cleanEnvPath(process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR) || join8(home, "knowledge");
+var brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join9(home, ".second-brain");
+var knowledgeDir = cleanEnvPath(process.env.KNOWLEDGE_DIR) || cleanEnvPath(process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR) || join9(home, "knowledge");
 var result = await runSb(process.argv.slice(2), { brainDir, knowledgeDir });
 if (result.stdout) process.stdout.write(result.stdout + "\n");
 if (result.stderr) process.stderr.write(result.stderr + "\n");
