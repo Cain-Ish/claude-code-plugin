@@ -370,7 +370,6 @@ sb_detect_project() {
   # git-returned paths to the same form as $abs before string-comparing, while
   # preserving the original git path for slug derivation (basename is form-agnostic).
   local top_norm; top_norm=$([ -n "$top" ] && { cd "$top" 2>/dev/null && pwd; } || printf '%s' "$top")
-  local sup_norm; sup_norm=$([ -n "$sup" ] && { cd "$sup" 2>/dev/null && pwd; } || printf '%s' "$sup")
 
   # 1. git submodule: the superproject is the monorepo root.
   if [ -n "$sup" ]; then
