@@ -101,5 +101,18 @@ echo "$REC" | jq -e '.parent=="mono" and (.root_path|test("packages/api$"))' >/d
 
 rm -rf "$MONO"
 
+# --- Phase C: session-load records git_remote, and clears a stale parent on de-parenting ---
+. "$PLUGIN_ROOT/scripts/lib.sh"   # for sb_git_remote in this test
+GR=$(sb_git_remote "$PLUGIN_ROOT")   # this repo HAS an origin remote
+[ -n "$GR" ] && pass "sb_git_remote reads origin" || fail "sb_git_remote returned empty for a repo with a remote"
+[ -z "$(sb_git_remote "$TMP")" ] && pass "sb_git_remote empty for non-repo" || fail "sb_git_remote should be empty for a non-repo dir"
+
+# de-parenting: a record that WAS a sub-project, re-registered from a dir with no parent → parent removed
+init_sandbox "deparent"
+printf '%s\n' '{"slug":"test-project","name":"test-project","last_session_iso":"2026-05-01T00:00:00Z","hot_byte_count":0,"parent":"oldroot","root_path":"/old/path"}' > "$BRAIN_DIR/projects.jsonl"
+run   # run() drives session-load with cwd = test-project (a plain dir, no workspace manifest → no parent)
+PARENT_AFTER=$(jq -r --arg s test-project 'select(.slug==$s)|.parent // "ABSENT"' "$BRAIN_DIR/projects.jsonl" | head -1)
+[ "$PARENT_AFTER" = "ABSENT" ] && pass "stale parent cleared on de-parenting" || fail "stale parent not cleared (got: $PARENT_AFTER)"
+
 echo
 echo "ALL PASS"

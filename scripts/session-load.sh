@@ -19,7 +19,20 @@ BYTE_BUDGET=8000   # ~2000 tokens. Claude Code hard-caps hook output at 10K char
 # (a session from /tmp/tmp.xK3p9q would otherwise create a ghost project — 33 such
 # dirs accumulated before this guard).
 # Monorepo-aware: slug / parent / root_path for the active dir.
-IFS=$'\t' read -r slug parent root_path < <(sb_detect_project "${CLAUDE_PROJECT_DIR:-$PWD}")
+# IFS=$'\t' read collapses consecutive TABs (whitespace), so an empty parent field
+# (standalone dir: "slug\t\troot_path") gets swallowed into the parent variable.
+# Use read -ra to capture all fields; index explicitly to preserve the empty middle.
+_det_out=$(sb_detect_project "${CLAUDE_PROJECT_DIR:-$PWD}")
+IFS=$'\t' read -ra _det_fields <<< "$_det_out"
+slug="${_det_fields[0]:-}"
+if [ "${#_det_fields[@]}" -ge 3 ]; then
+  parent="${_det_fields[1]}"
+  root_path="${_det_fields[2]}"
+else
+  parent=""
+  root_path="${_det_fields[1]:-}"
+fi
+git_remote=$(sb_git_remote "${CLAUDE_PROJECT_DIR:-$PWD}")
 # Refresh the pin (legacy fallback for the MCP server / CLIs when no project dir is set).
 echo "$slug" > "$BRAIN_DIR/.active-session-slug"
 project_file="$PROJECTS_DIR/$slug/PROJECT.md"
@@ -56,10 +69,11 @@ TMPL
     if ! jq -se --arg s "$slug" 'map(select(.slug == $s)) | length > 0' \
         "$INDEX_FILE" >/dev/null 2>&1; then
       jq -nc --arg s "$slug" --arg n "$slug" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-             --arg p "$parent" --arg rp "$root_path" \
+             --arg p "$parent" --arg rp "$root_path" --arg gr "$git_remote" \
         '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}
-         + (if $p  != "" then {parent:$p}     else {} end)
-         + (if $rp != "" then {root_path:$rp} else {} end)' >> "$INDEX_FILE"
+         + (if $p  != "" then {parent:$p}      else {} end)
+         + (if $rp != "" then {root_path:$rp}  else {} end)
+         + (if $gr != "" then {git_remote:$gr} else {} end)' >> "$INDEX_FILE"
     fi
   fi
 fi
@@ -648,11 +662,12 @@ fi
 if [ -f "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
   TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   TMP_IDX=$(mktemp)
-  jq --arg s "$slug" --arg t "$TS" --arg p "$parent" --arg rp "$root_path" '
+  jq --arg s "$slug" --arg t "$TS" --arg p "$parent" --arg rp "$root_path" --arg gr "$git_remote" '
     if .slug == $s then
       .last_session_iso = $t
-      | (if $rp != "" then .root_path = $rp else . end)
-      | (if $p  != "" then .parent    = $p  else . end)
+      | (if $rp != "" then .root_path  = $rp else . end)
+      | (if $gr != "" then .git_remote = $gr else . end)
+      | (if $p  != "" then .parent = $p  else del(.parent) end)
     else . end
   ' "$INDEX_FILE" > "$TMP_IDX" 2>/dev/null && mv "$TMP_IDX" "$INDEX_FILE" || rm -f "$TMP_IDX"
 fi

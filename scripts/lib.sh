@@ -397,6 +397,13 @@ sb_detect_project() {
   printf '%s\t\t%s\n' "$leaf" "${top:-$abs}"
 }
 
+# Echo the origin remote URL of a dir's git repo (empty if no remote / not a repo). CR-stripped.
+# Phase C: doubles as collision identity (compared against an existing project's stored git_remote).
+sb_git_remote() {
+  local dir; dir=$(printf '%s' "${1:-$PWD}" | tr -d '\r')
+  git -C "$dir" remote get-url origin 2>/dev/null | tr -d '\r' | head -1
+}
+
 # True if DIR contains a recognized monorepo workspace manifest.
 sb_is_workspace_root() {
   local d="$1"
