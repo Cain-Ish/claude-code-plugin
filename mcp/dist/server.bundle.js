@@ -32418,7 +32418,8 @@ server.registerTool(
       transcript_filter: external_exports.object({
         project_slug: external_exports.string().optional().describe("Only include transcripts from this project"),
         since: external_exports.string().optional().describe("Only include transcripts since this ISO date (YYYY-MM-DD)"),
-        max_count: external_exports.number().optional().describe("Max transcripts to include (default 50, max 100)")
+        max_count: external_exports.number().optional().describe("Max transcripts to include (default 50, max 100)"),
+        family: external_exports.boolean().optional().describe("Mine the whole monorepo family \u2014 the active project's root + siblings, from projects.jsonl. 'all' (project_slug) wins if both are set.")
       }).optional(),
       model: external_exports.string().optional().describe("Model for consolidation. Default: claude-sonnet-4-6")
     }
