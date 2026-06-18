@@ -44,7 +44,7 @@ async function main(): Promise<void> {
       // Deterministic TSV work-list for the maintainer drain (Phase 4c): own/legacy-origin drainable only.
       const { drainable, foreign } = partitionPending(await listItems(brainDir, slug), slug);
       for (const i of drainable) {
-        const path = join(rawDir(brainDir, slug), `${i.id}.md`);
+        const path = join(rawDir(brainDir, slug), `${i.id}.md`).replace(/\\/g, '/');
         const cell = (s: string) => (s || '').replace(/[\t\r\n]+/g, ' ');
         // cell() every variable field — a tab in target_node (fmValue strips CR/LF, not tabs)
         // would otherwise shift the TSV columns and corrupt the machine work-list.

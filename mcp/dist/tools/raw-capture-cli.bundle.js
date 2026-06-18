@@ -6440,7 +6440,7 @@ async function main() {
     } else if (action === "pending") {
       const { drainable, foreign } = partitionPending(await listItems(brainDir, slug), slug);
       for (const i of drainable) {
-        const path2 = join4(rawDir(brainDir, slug), `${i.id}.md`);
+        const path2 = join4(rawDir(brainDir, slug), `${i.id}.md`).replace(/\\/g, "/");
         const cell = (s) => (s || "").replace(/[\t\r\n]+/g, " ");
         console.log([i.id, path2, i.captured_by, cell(i.target_node ?? ""), cell(i.gist)].join("	"));
       }
