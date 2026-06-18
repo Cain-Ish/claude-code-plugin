@@ -31358,7 +31358,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 var exec = promisify(execFile);
 function brainDir() {
-  return join12(cleanEnvPath(process.env.HOME), ".second-brain");
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join12(cleanEnvPath(process.env.HOME), ".second-brain");
 }
 function dreamsDir() {
   return join12(brainDir(), "dreams");

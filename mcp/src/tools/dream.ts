@@ -9,7 +9,7 @@ import { promisify } from "util";
 const exec = promisify(execFile);
 
 function brainDir(): string {
-  return join(cleanEnvPath(process.env.HOME), ".second-brain");
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(cleanEnvPath(process.env.HOME), ".second-brain");
 }
 
 function dreamsDir(): string {

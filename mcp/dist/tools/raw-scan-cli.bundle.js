@@ -6327,7 +6327,7 @@ function originGuard(originSlug, destSlug, hasExplicitOverride) {
   if (hasExplicitOverride) return { ok: true };
   return {
     ok: false,
-    reason: `refusing to file ${originSlug}'s docs into ${destSlug} (resolved active project \u2260 scanned repo). cd into ${originSlug}, or set SB_ACTIVE_SLUG=${destSlug} to override.`
+    reason: `refusing to file ${originSlug}'s docs into ${destSlug} (resolved active project != scanned repo). cd into ${originSlug}, or set SB_ACTIVE_SLUG=${destSlug} to override.`
   };
 }
 async function runScan(projectRoot, brainDir, slug, opts) {
