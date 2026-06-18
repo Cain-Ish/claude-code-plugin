@@ -19,7 +19,7 @@ run also performs the two **bulk-authoring** phases that auto-runs deliberately 
 - **Phase 4c** — drain the **raw inbox** (`/second-brain:capture` + setup deep-scan material)
   into wiki nodes (conservative create/update, never auto-discard, with provenance).
 
-Tell the agent this is an explicit run so it does not skip 4b/4c. When it finishes, relay its
+Tell the agent this is an explicit run so it does not skip 4b/4c or the opt-in **project backfill** phase (attributes untagged wiki nodes via `kb-project-suggest.sh`, staged/capped/reported — auto-dispatched runs skip it, exactly like 4b/4c). When it finishes, relay its
 report: pages audited/merged/related/enriched, ai-blocks authored, raw items drained
 (created / updated / left-unprocessed for manual prune), and the reindex result. The agent
 writes live and is bounded by its 50-change/run cap; if it reports work left over the cap,

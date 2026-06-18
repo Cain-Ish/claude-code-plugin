@@ -346,6 +346,23 @@ captured material + existing prose, **never invent** content.
 post-extraction) **skips Phase 4c**: draining bulk-authors page content, which stays deliberate and
 reviewed, never unattended (the §5b automation boundary).
 
+## Phase: Project backfill (opt-in, explicit /second-brain:maintain only — NOT on auto-runs)
+
+Only on an explicit `/second-brain:maintain` (never an auto-dispatched run). For wiki pages that
+carry NO `project:` facet, propose an attribution deterministically and stage it (subject to the
+50-change/run cap, reported, never silent):
+
+1. For each unattributed structured page <slug>, run:
+   `bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-project-suggest.sh" --knowledge-dir "$KD" --slug <slug>`
+   It returns the plurality `project:` facet of the page's edge-neighbours, or empty (no guess).
+2. Apply only NON-empty suggestions, capped at the 50-change budget, and only via the existing
+   never-overwrite facet set (`kb-project-backfill.sh`'s `set_project`) — a page that already has a
+   facet is never rewritten. Pages with an empty suggestion are LEFT unattributed (reported, not guessed).
+3. Report: pages attributed, pages left unattributed (no neighbour signal), and any hit on the cap.
+
+This phase is deterministic (reads the edge graph + neighbour facets) and additive. It is the
+Layer-2 semantic re-attribution the `0.33.0` upgrade points operators to.
+
 ## Phase 5: REINDEX
 
 1. Regenerate `wiki/index.md` via `knowledge_reindex` MCP tool
