@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toBashPath } from './dream.js';
+import { toBashPath, buildSnapshotArgs } from './dream.js';
 import { cleanEnvPath } from './../path-guard.js';
 
 describe('toBashPath (Windows -> bash argv path)', () => {
@@ -30,6 +30,24 @@ describe('toBashPath (Windows -> bash argv path)', () => {
   it('strips a MID-PATH carriage return from a CRLF-tainted plugin root', () => {
     expect(toBashPath('C:\\Users\\x\\plugin\r\\scripts\\dream-snapshot.sh'))
       .toBe('/c/Users/x/plugin/scripts/dream-snapshot.sh');
+  });
+});
+
+describe('buildSnapshotArgs', () => {
+  it('defaults scope to the active project when none requested', () => {
+    expect(buildSnapshotArgs({}, 'proja')).toEqual(['--slug', 'proja', '--max-count', '50']);
+  });
+  it('omits --slug for the explicit "all" opt-out', () => {
+    expect(buildSnapshotArgs({ transcript_filter: { project_slug: 'all' } }, 'proja')).toEqual(['--max-count', '50']);
+  });
+  it('uses an explicit project_slug verbatim', () => {
+    expect(buildSnapshotArgs({ transcript_filter: { project_slug: 'other' } }, 'proja')).toEqual(['--slug', 'other', '--max-count', '50']);
+  });
+  it('falls back to all transcripts when there is no active slug and none requested', () => {
+    expect(buildSnapshotArgs({}, undefined)).toEqual(['--max-count', '50']);
+  });
+  it('clamps max_count to 100', () => {
+    expect(buildSnapshotArgs({ transcript_filter: { max_count: 500 } }, undefined)).toEqual(['--max-count', '100']);
   });
 });
 

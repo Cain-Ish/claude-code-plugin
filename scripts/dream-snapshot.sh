@@ -30,6 +30,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+PROJECT_SLUG_RECORD="${FILTER_SLUG:-all}"
+
 KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
 WIKI_DIR="$KNOWLEDGE_DIR/wiki"
@@ -137,6 +139,7 @@ jq -nc \
   --arg now "$NOW" \
   --arg model "$MODEL" \
   --arg instr "$INSTRUCTIONS" \
+  --arg pslug "$PROJECT_SLUG_RECORD" \
   --argjson tc "$SELECTED" \
   --argjson wpc "$WIKI_PAGE_COUNT" \
   --argjson wsb "$SNAPSHOT_BYTES" \
@@ -152,7 +155,8 @@ jq -nc \
     inputs: {
       transcript_count: $tc,
       wiki_page_count: $wpc,
-      wiki_snapshot_bytes: $wsb
+      wiki_snapshot_bytes: $wsb,
+      project_slug: $pslug
     },
     outputs: {
       pages_added: 0,

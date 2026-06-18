@@ -1,6 +1,8 @@
 import { promises as fs } from "fs";
+import { homedir } from 'os';
 import { atomicWriteJson } from './atomic-write.js';
 import { cleanEnvPath } from '../path-guard.js';
+import { resolveActiveSlug } from './project-dir.js';
 import { join, basename } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -61,6 +63,7 @@ interface DreamStatus {
     transcript_count: number;
     wiki_page_count: number;
     wiki_snapshot_bytes: number;
+    project_slug?: string;
   };
   outputs: {
     pages_added: number;
@@ -120,31 +123,31 @@ export interface DreamCreateResult {
   reason?: string;
 }
 
+/** Build the dream-snapshot.sh argv. Scope default: when the caller gives no project_slug, mine the
+ *  ACTIVE project (leaf). project_slug:"all" is the explicit cross-project opt-out (no --slug → every
+ *  transcript). An explicit slug is used verbatim. (Assumes instructions length already validated.) */
+export function buildSnapshotArgs(args: DreamCreateArgs, activeSlug: string | undefined): string[] {
+  const out: string[] = [];
+  if (args.instructions) out.push('--instructions', args.instructions);
+  const requested = args.transcript_filter?.project_slug;
+  const scope = requested ?? activeSlug;            // default = active project (leaf)
+  if (scope && scope !== 'all') out.push('--slug', scope);
+  if (args.transcript_filter?.since) out.push('--since', args.transcript_filter.since);
+  const maxCount = Math.min(args.transcript_filter?.max_count ?? 50, 100);
+  out.push('--max-count', String(maxCount));
+  if (args.model) out.push('--model', args.model);
+  return out;
+}
+
 export async function dreamCreate(
   args: DreamCreateArgs
 ): Promise<DreamCreateResult> {
-  const scriptArgs: string[] = [];
-  if (args.instructions) {
-    if (args.instructions.length > 4096) {
-      return {
-        ok: false,
-        dream: null,
-        reason: "instructions exceed 4096 char limit",
-      };
-    }
-    scriptArgs.push("--instructions", args.instructions);
+  if (args.instructions && args.instructions.length > 4096) {
+    return { ok: false, dream: null, reason: "instructions exceed 4096 char limit" };
   }
-  if (args.transcript_filter?.project_slug) {
-    scriptArgs.push("--slug", args.transcript_filter.project_slug);
-  }
-  if (args.transcript_filter?.since) {
-    scriptArgs.push("--since", args.transcript_filter.since);
-  }
-  const maxCount = Math.min(args.transcript_filter?.max_count ?? 50, 100);
-  scriptArgs.push("--max-count", String(maxCount));
-  if (args.model) {
-    scriptArgs.push("--model", args.model);
-  }
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+  const activeSlug = resolveActiveSlug(brainDir);
+  const scriptArgs = buildSnapshotArgs(args, activeSlug);
 
   try {
     const { stdout, stderr } = await exec(
@@ -154,11 +157,7 @@ export async function dreamCreate(
     );
     const dreamId = stdout.trim();
     if (!dreamId.startsWith("drm_")) {
-      return {
-        ok: false,
-        dream: null,
-        reason: stderr.trim() || "dream-snapshot.sh failed",
-      };
+      return { ok: false, dream: null, reason: stderr.trim() || "dream-snapshot.sh failed" };
     }
     const status = await readStatus(dreamId);
     return { ok: true, dream: status };
