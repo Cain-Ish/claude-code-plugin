@@ -404,6 +404,32 @@ sb_git_remote() {
   git -C "$dir" remote get-url origin 2>/dev/null | tr -d '\r' | head -1
 }
 
+# Layer-1 migration: canonicalize projects.jsonl. Tolerates pretty-printed / JSON-array /
+# CRLF / duplicate-slug input; rewrites to one compact record per line (LF), dedup by slug
+# keeping the newest last_session_iso. Idempotent: a clean file is left untouched (no backup,
+# no churn). Fail-loud: a file jq cannot parse at all is left INTACT (return 1), no silent loss.
+sb_harden_projects_jsonl() {
+  local f="${1:?projects.jsonl path required}"
+  [ -f "$f" ] && [ -s "$f" ] || return 0          # absent / empty = nothing to harden
+  command -v jq >/dev/null 2>&1 || { echo "harden: jq required" >&2; return 0; }
+  local tmp; tmp=$(mktemp)
+  # -s slurps the whole file (handles pretty-print + JSON-array); flatten unwraps an array;
+  # drop non-objects/slug-less; dedup by slug keeping newest; -c one compact object per value;
+  # tr -d '\r' keeps the file LF-only despite jq's CRLF stdout on Windows.
+  if ! jq -sc 'flatten | map(select(type=="object" and (.slug|type=="string") and .slug!=""))
+               | group_by(.slug) | map(max_by(.last_session_iso // "")) | .[]' \
+        "$f" 2>/dev/null | tr -d '\r' > "$tmp" || [ ! -s "$tmp" ]; then
+    rm -f "$tmp"
+    echo "harden: could not parse $f — left intact (manual review)" >&2
+    return 1
+  fi
+  if cmp -s "$f" "$tmp"; then rm -f "$tmp"; return 0; fi   # already canonical → no churn, no backup
+  local bak; bak="$f.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+  cp "$f" "$bak" && mv "$tmp" "$f" \
+    && echo "harden: canonicalized $f (backup: $bak)" \
+    || { rm -f "$tmp"; echo "harden: rewrite failed for $f" >&2; return 1; }
+}
+
 # True if DIR contains a recognized monorepo workspace manifest.
 sb_is_workspace_root() {
   local d="$1"
