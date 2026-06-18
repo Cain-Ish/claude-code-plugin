@@ -31326,7 +31326,6 @@ async function collectMd(dir, acc = []) {
 
 // src/tools/dream.ts
 import { promises as fs13 } from "fs";
-import { homedir } from "os";
 
 // src/tools/project-dir.ts
 import { basename as basename3, join as join11 } from "path";
@@ -31414,8 +31413,7 @@ async function dreamCreate(args) {
   if (args.instructions && args.instructions.length > 4096) {
     return { ok: false, dream: null, reason: "instructions exceed 4096 char limit" };
   }
-  const brainDir2 = cleanEnvPath(process.env.BRAIN_DIR) || join12(homedir(), ".second-brain");
-  const activeSlug = resolveActiveSlug(brainDir2);
+  const activeSlug = resolveActiveSlug(brainDir());
   const scriptArgs = buildSnapshotArgs(args, activeSlug);
   try {
     const { stdout, stderr } = await exec(

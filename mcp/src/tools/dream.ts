@@ -1,5 +1,4 @@
 import { promises as fs } from "fs";
-import { homedir } from 'os';
 import { atomicWriteJson } from './atomic-write.js';
 import { cleanEnvPath } from '../path-guard.js';
 import { resolveActiveSlug } from './project-dir.js';
@@ -145,8 +144,7 @@ export async function dreamCreate(
   if (args.instructions && args.instructions.length > 4096) {
     return { ok: false, dream: null, reason: "instructions exceed 4096 char limit" };
   }
-  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
-  const activeSlug = resolveActiveSlug(brainDir);
+  const activeSlug = resolveActiveSlug(brainDir());
   const scriptArgs = buildSnapshotArgs(args, activeSlug);
 
   try {
