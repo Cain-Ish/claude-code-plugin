@@ -85,5 +85,14 @@ else
   echo "SKIP: submodule topology — git submodule add refused local path: $SUBMOD_ADD_ERR"
 fi
 
+# --- SECURITY: a hostile .sb-monorepo.json parent must NOT traverse out of projects/ ---
+# {"parent":"../../evil"} must be rejected (falls through to standalone), never become a slug
+# (which would reach `mkdir -p projects/<slug>` in setup and traverse the tree).
+mkdir -p "$TMP/evilmarker/sub"
+printf '{"parent":"../../evil"}\n' > "$TMP/evilmarker/.sb-monorepo.json"
+OUT=$(cd "$TMP/evilmarker/sub" && sb_detect_project "$PWD")
+check "hostile marker parent rejected (slug is bare leaf, no traversal)" "sub" "$(printf '%s' "$OUT" | cut -f1)"
+check "hostile marker parent rejected (parent empty)"                    ""    "$(printf '%s' "$OUT" | cut -f2)"
+
 rm -rf "$TMP"
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }

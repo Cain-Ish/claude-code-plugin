@@ -387,6 +387,11 @@ sb_detect_project() {
   local marker; marker=$(sb_find_up "$abs" ".sb-monorepo.json")
   if [ -n "$marker" ]; then
     local pkey; pkey=$(jq -r '.parent // empty' "$marker" 2>/dev/null | tr -d '\r')
+    # SECURITY: the marker is an in-repo file (an untrusted cloned repo could carry a hostile one).
+    # pkey becomes a slug AND a `mkdir -p projects/<slug>` path component in setup — reject anything
+    # that is not a clean slug (no `/`, no `..`, no spaces) so {"parent":"../../evil"} cannot traverse
+    # out of the projects tree. An invalid marker is ignored (falls through to the standalone case).
+    case "$pkey" in ''|.|..|*[!A-Za-z0-9._-]*) pkey="" ;; esac
     if [ -n "$pkey" ] && [ "$abs" != "$(dirname "$marker")" ]; then
       printf '%s__%s\t%s\t%s\n' "$pkey" "$leaf" "$pkey" "$abs"
       return 0
