@@ -8957,7 +8957,7 @@ async function addFrontmatter(filePath, wikiDir) {
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
   const relPath = relative(wikiDir, filePath);
-  const firstSeg = relPath.split("/")[0];
+  const firstSeg = relPath.split(/[/\\]/)[0];
   const type = KNOWN_CATEGORIES.has(firstSeg) ? firstSeg : "state";
   let created = "";
   const dateLine = original.match(/\*\*Date(?:\s*\w+)?\*\*:\s*(\d{4}-\d{2}-\d{2})/i);

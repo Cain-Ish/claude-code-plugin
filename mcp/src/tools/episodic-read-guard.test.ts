@@ -5,7 +5,15 @@ import { join } from 'path';
 import { assertTranscriptPath } from './episodic-search.js';
 import { PathGuardError } from '../path-guard.js';
 
-describe('episodic_read path guard (G-MCP-1, R1.3)', () => {
+function detectSymlinkSupport(): boolean {
+  const tmp = mkdtempSync(join(tmpdir(), 'epg-symcap-'));
+  try { symlinkSync(tmpdir(), join(tmp, 'probe')); return true; }
+  catch { return false; }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+}
+const canSymlink = detectSymlinkSupport();
+
+describe.skipIf(!canSymlink)('episodic_read path guard (G-MCP-1, R1.3)', () => {
   let brain: string;
   let outside: string;
   beforeAll(() => {

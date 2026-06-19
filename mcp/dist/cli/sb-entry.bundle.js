@@ -6890,7 +6890,7 @@ async function collectMarkdown(dir, acc = []) {
   for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
     const p = join4(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
-    else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
+    else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p.replace(/\\/g, "/"));
   }
   return acc;
 }
@@ -7168,13 +7168,16 @@ Environment:
 `;
 async function hasClaudeOnPath() {
   const path2 = process.env.PATH ?? "";
+  const names = process.platform === "win32" ? ["claude", "claude.exe", "claude.cmd"] : ["claude"];
   for (const rawDir of path2.split(pathDelimiter)) {
     const dir = cleanEnvPath(rawDir);
     if (!dir) continue;
-    try {
-      await fs9.access(join8(dir, "claude"), fsConstants.X_OK);
-      return true;
-    } catch {
+    for (const name of names) {
+      try {
+        await fs9.access(join8(dir, name), fsConstants.X_OK);
+        return true;
+      } catch {
+      }
     }
   }
   return false;
@@ -7186,7 +7189,7 @@ function claudeAuthStatus() {
       execFile(
         "claude",
         ["auth", "status"],
-        { timeout, killSignal: "SIGKILL", maxBuffer: 256 * 1024 },
+        { timeout, killSignal: "SIGKILL", maxBuffer: 256 * 1024, shell: process.platform === "win32" },
         (_err, stdout) => {
           const text = typeof stdout === "string" ? stdout.trim() : "";
           if (!text) {

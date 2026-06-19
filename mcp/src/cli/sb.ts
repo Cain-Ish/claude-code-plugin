@@ -39,17 +39,23 @@ Environment:
 // a child process — checks each PATH entry for an executable file.
 async function hasClaudeOnPath(): Promise<boolean> {
   const path = process.env.PATH ?? '';
+  // On Windows, `claude` ships as claude.exe or claude.cmd; probe all variants.
+  const names = process.platform === 'win32'
+    ? ['claude', 'claude.exe', 'claude.cmd']
+    : ['claude'];
   for (const rawDir of path.split(pathDelimiter)) {
     // cleanEnvPath per-segment: on Windows the LAST entry of a CRLF-tainted PATH carries a
     // trailing \r, so a genuinely-installed `claude` on that final dir is missed and auth
     // status mis-reports "mode: none". Strip CR before the fs.access probe.
     const dir = cleanEnvPath(rawDir);
     if (!dir) continue;
-    try {
-      await fs.access(join(dir, 'claude'), fsConstants.X_OK);
-      return true;
-    } catch {
-      // try next dir
+    for (const name of names) {
+      try {
+        await fs.access(join(dir, name), fsConstants.X_OK);
+        return true;
+      } catch {
+        // try next name / dir
+      }
     }
   }
   return false;
@@ -79,7 +85,7 @@ function claudeAuthStatus(): Promise<ClaudeAuthStatus | null> {
     try {
       execFile(
         'claude', ['auth', 'status'],
-        { timeout, killSignal: 'SIGKILL', maxBuffer: 256 * 1024 },
+        { timeout, killSignal: 'SIGKILL', maxBuffer: 256 * 1024, shell: process.platform === 'win32' },
         (_err, stdout) => {
           // stdout is populated even when the child exited non-zero or was killed.
           const text = typeof stdout === 'string' ? stdout.trim() : '';
