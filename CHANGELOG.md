@@ -4,6 +4,33 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.0
+
+Project scoping model + attribution correctness (M3), plus a cross-OS hardening pass. Closes the
+attribution incident (a setup scan filed 88 docs into the wrong project's inbox) and makes scoping
+monorepo-aware.
+
+- **Attribution incident fix:** capture derives its destination from the scanned resource (not the
+  ambient session slug) and fails loud on mismatch; each raw item carries an `origin:` provenance
+  field; the maintainer drain holds foreign-origin items out of the work-list; `dream` defaults its
+  mining scope to the active project (`"all"` is the explicit cross-project opt-out).
+- **M3 monorepo-aware scoping:** `projects.jsonl` gains optional `parent`/`root_path`/`git_remote`;
+  `resolveActiveSlug` maps a cwd to its registered monorepo child by longest-prefix `root_path`;
+  search adds a family tier (own > family > graph-neighbour > global > other); `sb_detect_project`
+  auto-detects submodule / workspace-manifest / `.sb-monorepo.json` topologies into `<root>__<leaf>`
+  slugs; `dream --family` mines the whole family. Standalone repos are the unchanged no-parent case.
+- **Migration & setup-collision:** Layer-1 `projects.jsonl` hardening (backup-first canonicalize +
+  dedup, in migrations/0.33.0.md); Layer-2 opt-in maintainer project-backfill (printed by upgrade,
+  never auto-dispatched); Layer-3 setup collision detection by `{root_path, git_remote}` identity
+  that prompts (path-qualified / rename / use-existing) instead of silently clobbering same-basename
+  repos.
+- **Cross-OS hardening (Windows/Git-Bash):** fixed path-separator + jq-CRLF + IFS-tab-collapse bugs
+  across registry/resolver/search/validate/capture/dream-snapshot/kb-project-suggest; symlink- and
+  POSIX-signal-dependent tests skip where unsupported (guards unchanged); a `.sb-monorepo.json`
+  marker path-traversal was closed by sanitizing the parent slug.
+
+See migrations/0.33.0.md for the one deterministic upgrade step (projects.jsonl hardening).
+
 ## 0.32.0
 
 Post-Phase-1 hardening: four independent fixes from a design + adversarial-verify pass (one
