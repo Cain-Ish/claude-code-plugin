@@ -190,10 +190,6 @@ OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
 echo "$OUT" | grep -qi 'outside the wiki\|escape' || fail "accept should explain the symlink refusal (got: $OUT)"
 [ ! -e "$HOME/knowledge/wiki/learnings/leak.md" ] || fail "the escape symlink reached the LIVE wiki!"
 pass "accept refuses an out-of-tree staged symlink (escape blocked)"
-else
-  echo "SKIP: out-of-tree symlink escape test — filesystem does not support real symlinks (Windows without Developer Mode)"
-  pass "symlink-escape guard not exercised here (no symlink support); covered on Unix/macOS/Linux"
-fi
 
 # --- Subtest 5c (C hardening): an IN-TREE relative alias symlink is ALLOWED (legit, e.g. latest.md)
 setup "accept-symlink-intree"
@@ -303,6 +299,11 @@ OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
 [ "$RC" -ne 0 ] || fail "spaced-name escape NOT refused (rc=$RC: $OUT)"
 echo "$OUT" | grep -qF 'a b.md' || fail "refusal message split the spaced path (want 'a b.md' intact, got: $OUT)"
 pass "refusal message shows a spaced escape path intact (read line-by-line, not word-split)"
+
+else
+  echo "SKIP: symlink-dependent accept subtests (5b-5i) — filesystem does not support real symlinks (Windows without Developer Mode); the dream-accept escape/alias guards are exercised on Unix/macOS/Linux"
+  pass "symlink-dependent accept guards not exercised here (no symlink support)"
+fi
 
 # --- Subtest 6: dream_set_status helper
 setup "set-status"
