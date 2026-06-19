@@ -550,7 +550,7 @@ async function collectMarkdown(dir: string, acc: string[] = []): Promise<string[
   for (const e of await fs.readdir(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
-    else if (e.isFile() && e.name.endsWith('.md') && e.name !== 'index.md') acc.push(p);
+    else if (e.isFile() && e.name.endsWith('.md') && e.name !== 'index.md') acc.push(p.replace(/\\/g, '/'));
   }
   return acc;
 }

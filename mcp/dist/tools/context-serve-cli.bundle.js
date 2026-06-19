@@ -6807,7 +6807,7 @@ async function collectMarkdown(dir, acc = []) {
   for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
     const p = join4(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
-    else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
+    else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p.replace(/\\/g, "/"));
   }
   return acc;
 }

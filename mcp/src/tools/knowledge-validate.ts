@@ -372,7 +372,7 @@ export async function addFrontmatter(filePath: string, wikiDir: string): Promise
 
   // Type: folder segment directly under wiki/.
   const relPath = relative(wikiDir, filePath);
-  const firstSeg = relPath.split('/')[0];
+  const firstSeg = relPath.split(/[/\\]/)[0];
   const type = KNOWN_CATEGORIES.has(firstSeg) ? firstSeg : 'state';
 
   // Created: a `**Date**: YYYY-MM-DD` line in the body wins; else date-prefixed slug;

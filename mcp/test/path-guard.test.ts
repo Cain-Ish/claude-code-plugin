@@ -4,6 +4,14 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { assertWithin, validateSlug, PathGuardError } from '../src/path-guard.js';
 
+function detectSymlinkSupport(): boolean {
+  const tmp = mkdtempSync(join(tmpdir(), 'pg-symcap-'));
+  try { symlinkSync(tmpdir(), join(tmp, 'probe')); return true; }
+  catch { return false; }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+}
+const canSymlink = detectSymlinkSupport();
+
 describe('assertWithin', () => {
   let baseDir: string;
   let outsideDir: string;
@@ -35,13 +43,13 @@ describe('assertWithin', () => {
     expect(() => assertWithin(baseDir, 'projects', 'foo\0bar')).toThrow(PathGuardError);
   });
 
-  it('rejects symlink that escapes baseDir', () => {
+  it.skipIf(!canSymlink)('rejects symlink that escapes baseDir', () => {
     // baseDir/sneaky → outsideDir
     symlinkSync(outsideDir, join(baseDir, 'sneaky'));
     expect(() => assertWithin(baseDir, 'sneaky', 'evil.txt')).toThrow(PathGuardError);
   });
 
-  it('allows symlink whose target stays inside baseDir', () => {
+  it.skipIf(!canSymlink)('allows symlink whose target stays inside baseDir', () => {
     mkdirSync(join(baseDir, 'real'), { recursive: true });
     symlinkSync(join(baseDir, 'real'), join(baseDir, 'alias'));
     const out = assertWithin(baseDir, 'alias', 'inside.txt');
@@ -54,7 +62,7 @@ describe('assertWithin', () => {
     expect(out).toMatch(/projects.new-slug.PROJECT.md$/);
   });
 
-  it('rejects when intermediate dir symlinks outside via missing leaf', () => {
+  it.skipIf(!canSymlink)('rejects when intermediate dir symlinks outside via missing leaf', () => {
     symlinkSync(outsideDir, join(baseDir, 'escape'));
     expect(() => assertWithin(baseDir, 'escape', 'newfile.txt')).toThrow(PathGuardError);
   });

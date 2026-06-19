@@ -137,6 +137,9 @@ describe('sb CLI', () => {
       const script = `#!/bin/sh\nprintf '%s' '${body}'\nexit ${exitCode}\n`;
       writeFileSync(join(pathDir, 'claude'), script);
       chmodSync(join(pathDir, 'claude'), 0o755);
+      if (process.platform === 'win32') {
+        writeFileSync(join(pathDir, 'claude.cmd'), `@echo off\r\necho ${body}\r\nexit /b ${exitCode}\r\n`);
+      }
     }
 
     beforeEach(() => {
@@ -276,7 +279,7 @@ describe('sb CLI', () => {
       expect(r.stdout).toMatch(/claude auth status/);
     });
 
-    it('auth status hard-kills a claude that ignores SIGTERM and does not hang', async () => {
+    it.skipIf(process.platform === 'win32')('auth status hard-kills a claude that ignores SIGTERM and does not hang', async () => {
       // A hijacked/hung claude that TRAPS SIGTERM must not block the caller.
       // The probe has to escalate to SIGKILL (untrappable). `sleep` runs as a
       // child of the trapping shell (NOT exec'd) so the trap stays installed.

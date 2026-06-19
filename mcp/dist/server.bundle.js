@@ -28190,7 +28190,7 @@ async function collectMarkdown(dir, acc = []) {
   for (const e of await fs8.readdir(dir, { withFileTypes: true })) {
     const p = join7(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
-    else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
+    else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p.replace(/\\/g, "/"));
   }
   return acc;
 }
@@ -30985,7 +30985,7 @@ async function addFrontmatter(filePath, wikiDir) {
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
   const relPath = relative3(wikiDir, filePath);
-  const firstSeg = relPath.split("/")[0];
+  const firstSeg = relPath.split(/[/\\]/)[0];
   const type = KNOWN_CATEGORIES.has(firstSeg) ? firstSeg : "state";
   let created = "";
   const dateLine = original.match(/\*\*Date(?:\s*\w+)?\*\*:\s*(\d{4}-\d{2}-\d{2})/i);
