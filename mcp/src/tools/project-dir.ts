@@ -35,8 +35,8 @@ export function activeProjectDir(env: NodeJS.ProcessEnv = process.env, cwd: () =
  *    yields the path-qualified slug for monorepo children), then falls back to bare basename.
  *  - cwd is checked against the registry first; if no root_path matches, trusted ONLY when
  *    its basename names a KNOWN project (projects/<slug>/PROJECT.md exists).
- *  - the pin is the subdir/legacy fallback; bare cwd is the last resort (a brand
- *    new project session-load has just scaffolded). */
+ *  - then the .active-session-slug pin (when it names a known project) is the per-session
+ *    fallback; bare cwd basename is the last resort. */
 export function resolveActiveSlug(
   brainDir: string,
   env: NodeJS.ProcessEnv = process.env,

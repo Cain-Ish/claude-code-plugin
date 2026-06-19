@@ -277,5 +277,6 @@ describe('SP-1 project-scoped serving', () => {
     const paths = r.candidates.map(c => c.path);
     expect(paths.some(p => /sibling/.test(p))).toBe(true);   // family member in-scope
     expect(paths.some(p => /foreign/.test(p))).toBe(false);  // unrelated project dropped
+    expect(slugs(r).some(s => /global/.test(s))).toBe(true);   // global pages stay in-scope (tier 4)
   });
 });

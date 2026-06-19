@@ -97,4 +97,13 @@ describe('resolveActiveSlug — registry-path (monorepo)', () => {
     expect(slug).toBe('standalone');
     rmSync(dir, { recursive: true, force: true });
   });
+  it('a cwd registry-path match wins over a same-basename known project', () => {
+    const dir = brainWithChild();
+    // also seed a bare `api` known project; the registry root_path match must still win
+    mkdirSync(join(dir, 'projects', 'api'), { recursive: true });
+    writeFileSync(join(dir, 'projects', 'api', 'PROJECT.md'), '# PROJECT: api\n');
+    const slug = resolveActiveSlug(dir, {} as NodeJS.ProcessEnv, () => '/repos/acme/packages/api/src');
+    expect(slug).toBe('acme__api');   // registry-path tier precedes the known-basename tier
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { loadRegistry, projectFamily, resolveSlugByPath } from './project-registry.js';
@@ -26,6 +26,11 @@ describe('loadRegistry', () => {
   it('returns [] when the registry is absent', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sb-reg-empty-'));
     expect(loadRegistry(dir)).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('skips a record whose slug is the empty string', () => {
+    const dir = brain('{"slug":""}\n{"slug":"real"}\n');
+    expect(loadRegistry(dir).map(r => r.slug)).toEqual(['real']);
     rmSync(dir, { recursive: true, force: true });
   });
 });
