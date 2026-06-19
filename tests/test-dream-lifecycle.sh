@@ -20,6 +20,16 @@ setup() {
   source "$REPO_ROOT/scripts/lib.sh"
 }
 
+# True only if this filesystem creates REAL symlinks (Windows/Git-Bash without Developer Mode
+# silently makes a file copy). The dream-accept escape guard can only be exercised where symlinks
+# are real; the guard itself is OS-agnostic and unchanged.
+supports_symlinks() {
+  local d; d=$(mktemp -d)
+  echo t > "$d/t.txt"; ln -s "$d/t.txt" "$d/l.txt" 2>/dev/null
+  local ok=1; [ -L "$d/l.txt" ] && ok=0
+  rm -rf "$d"; return $ok
+}
+
 # Seed a wiki with some test pages
 seed_wiki() {
   cat > "$HOME/knowledge/wiki/entities/test-entity.md" <<'EOF'
@@ -167,6 +177,7 @@ ARCHIVED=$(jq -r '.archived_at' "$BRAIN_DIR/dreams/$DID/status.json")
 [ ! -d "$BRAIN_DIR/dreams/$DID/staging" ] || fail "staging should be cleaned up after accept"
 pass "accept: applies changes and archives dream"
 
+if supports_symlinks; then
 # --- Subtest 5b (C hardening): a staged OUT-OF-TREE symlink (the escape vector) is REFUSED
 setup "accept-symlink-escape"
 seed_wiki; seed_transcripts
@@ -179,6 +190,10 @@ OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
 echo "$OUT" | grep -qi 'outside the wiki\|escape' || fail "accept should explain the symlink refusal (got: $OUT)"
 [ ! -e "$HOME/knowledge/wiki/learnings/leak.md" ] || fail "the escape symlink reached the LIVE wiki!"
 pass "accept refuses an out-of-tree staged symlink (escape blocked)"
+else
+  echo "SKIP: out-of-tree symlink escape test — filesystem does not support real symlinks (Windows without Developer Mode)"
+  pass "symlink-escape guard not exercised here (no symlink support); covered on Unix/macOS/Linux"
+fi
 
 # --- Subtest 5c (C hardening): an IN-TREE relative alias symlink is ALLOWED (legit, e.g. latest.md)
 setup "accept-symlink-intree"
