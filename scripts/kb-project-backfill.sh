@@ -37,6 +37,14 @@ set_project() { # <slug> <project> — insert `project: <p>` before the first fr
   ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 
+# Sort registry rows leaf-first: descending __ count, then descending length, then lexical.
+# This ensures a child anchor (e.g. acme__web) stamps its pages before the parent anchor
+# (e.g. acme) can reach them via the part_of walk, so the never-overwrite guard then locks
+# the correct leaf facet rather than the parent's.
+SORTED_REG=$(jq -Rr 'select(length>0)' "$REG" | tr -d '\r' | awk '{
+  n=split($0,a,"__"); print (1000-n) "\t" (1000-length($0)) "\t" $0
+}' | sort -k1,1n -k2,2n -k3 | cut -f3-)
+
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   anchor=$(printf '%s' "$line" | jq -r '.anchor // empty' 2>/dev/null | tr -d '\r')
@@ -54,5 +62,5 @@ while IFS= read -r line; do
   done
 
   for node in $members; do set_project "$node" "$proj"; done
-done < "$REG"
+done <<< "$SORTED_REG"
 echo "backfill: done"
