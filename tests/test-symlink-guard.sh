@@ -14,14 +14,26 @@ mkdir -p "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.aws" "$HOME/.config/claude" \
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
 
+# True only if this filesystem creates REAL symlinks (Windows/Git-Bash without Developer Mode
+# silently makes a file copy). The symlink-resolution guard can only be exercised where symlinks
+# are real; the guard itself is OS-agnostic and unchanged.
+supports_symlinks() {
+  local d; d=$(mktemp -d)
+  echo t > "$d/t.txt"; ln -s "$d/t.txt" "$d/l.txt" 2>/dev/null
+  local ok=1; [ -L "$d/l.txt" ] && ok=0
+  rm -rf "$d"; return $ok
+}
+
 # Helper: build a tool_input JSON and pipe to symlink-guard.sh; print stdout.
+# Uses printf (not jq --arg) to avoid Windows/Git-Bash jq translating POSIX paths
+# to Windows C:\ form — that mismatch breaks the guard's HOME-prefix check in the test.
 run_guard() {  # $1 tool, $2 file_path
-  jq -nc --arg t "$1" --arg p "$2" '{
-    session_id: "test",
-    hook_event_name: "PreToolUse",
-    tool_name: $t,
-    tool_input: { file_path: $p }
-  }' | bash "$SCRIPT" 2>/dev/null
+  # Escape double-quotes and backslashes in the path for safe JSON embedding.
+  local esc_tool esc_path
+  esc_tool=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_path=$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf '{"session_id":"test","hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"file_path":"%s"}}' \
+    "$esc_tool" "$esc_path" | bash "$SCRIPT" 2>/dev/null
 }
 
 assert_allow() {
@@ -73,18 +85,28 @@ assert_allow "write to project file" "$OUT"
 
 # --- Test 8: symlink-escape into ~/.ssh → deny (resolves through symlink)
 # Create a symlink inside the project that points into ~/.ssh.
-SYMLINK_PATH="$HOME/work/repo/innocent.txt"
-ln -sf "$HOME/.ssh/authorized_keys" "$SYMLINK_PATH"
-OUT=$(run_guard "Write" "$SYMLINK_PATH")
-assert_deny "symlink-escape from project file → ~/.ssh" "$OUT" "ssh"
-rm -f "$SYMLINK_PATH"
+if supports_symlinks; then
+  SYMLINK_PATH="$HOME/work/repo/innocent.txt"
+  ln -sf "$HOME/.ssh/authorized_keys" "$SYMLINK_PATH"
+  OUT=$(run_guard "Write" "$SYMLINK_PATH")
+  assert_deny "symlink-escape from project file → ~/.ssh" "$OUT" "ssh"
+  rm -f "$SYMLINK_PATH"
+else
+  echo "SKIP: test 8 — symlink-escape via leaf symlink requires real symlink support (Windows without Developer Mode)"
+  pass "symlink-escape via leaf symlink (skipped — no symlink support)"
+fi
 
 # --- Test 9: symlinked parent dir → deny (resolves through parent symlink)
 # project/foo is a symlink to ~/.ssh; project/foo/key is what Claude tries.
-ln -sf "$HOME/.ssh" "$HOME/work/repo/foo"
-OUT=$(run_guard "Write" "$HOME/work/repo/foo/new_key")
-assert_deny "write through symlinked parent dir into ~/.ssh" "$OUT" "ssh"
-rm -f "$HOME/work/repo/foo"
+if supports_symlinks; then
+  ln -sf "$HOME/.ssh" "$HOME/work/repo/foo"
+  OUT=$(run_guard "Write" "$HOME/work/repo/foo/new_key")
+  assert_deny "write through symlinked parent dir into ~/.ssh" "$OUT" "ssh"
+  rm -f "$HOME/work/repo/foo"
+else
+  echo "SKIP: test 9 — symlinked-parent escape requires real symlink support (Windows without Developer Mode)"
+  pass "write through symlinked parent dir (skipped — no symlink support)"
+fi
 
 # --- Test 10: SB_SYMLINK_GUARD=off → empty output (no decision) ---------
 OUT=$(SB_SYMLINK_GUARD=off run_guard "Write" "$HOME/.ssh/authorized_keys")
@@ -133,7 +155,8 @@ assert_deny "write to /etc node itself" "$OUT" "etc"
 # while a normal project write is still allowed (the lexical fallback must not over-block).
 STUB="$TMP/stub"; mkdir -p "$STUB"
 printf '#!/bin/sh\nexit 127\n' > "$STUB/realpath"; chmod +x "$STUB/realpath"
-gen(){ jq -nc --arg t "$1" --arg p "$2" '{session_id:"t",hook_event_name:"PreToolUse",tool_name:$t,tool_input:{file_path:$p}}'; }
+# Use printf (not jq --arg) so Git-Bash/Windows jq does not translate POSIX paths to C:\ form.
+gen(){ local et ep; et=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'); ep=$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g'); printf '{"session_id":"t","hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"file_path":"%s"}}' "$et" "$ep"; }
 OUT=$(gen Write "$HOME/.ssh/authorized_keys" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
 assert_deny "realpath absent → fail CLOSED on literal ~/.ssh write" "$OUT" "ssh"
 OUT=$(gen Write "$HOME/work/repo/main.py" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
@@ -142,18 +165,28 @@ assert_allow "realpath absent → normal project write not over-blocked" "$OUT"
 # --- Test 18: realpath absent + symlinked PARENT → portable cd/pwd -P resolver still denies ----
 # This is the macOS/BSD path (realpath lacks -m): the guard must resolve the parent dir's
 # symlinks via `cd … && pwd -P` and still catch a symlinked-parent escape into ~/.ssh.
-ln -sf "$HOME/.ssh" "$HOME/work/repo/foo2"
-OUT=$(gen Write "$HOME/work/repo/foo2/new_key" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
-assert_deny "realpath absent + symlinked parent → cd/pwd -P fallback denies (macOS path)" "$OUT" "ssh"
-rm -f "$HOME/work/repo/foo2"
+if supports_symlinks; then
+  ln -sf "$HOME/.ssh" "$HOME/work/repo/foo2"
+  OUT=$(gen Write "$HOME/work/repo/foo2/new_key" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+  assert_deny "realpath absent + symlinked parent → cd/pwd -P fallback denies (macOS path)" "$OUT" "ssh"
+  rm -f "$HOME/work/repo/foo2"
+else
+  echo "SKIP: test 18 — symlinked-parent escape requires real symlink support (Windows without Developer Mode)"
+  pass "realpath absent + symlinked parent (skipped — no symlink support)"
+fi
 
 # --- Test 19: realpath absent + LEAF symlink (benign-named file IS a symlink into ~/.ssh) -------
 # The fallback must dereference the leaf, not just the parent — else a `Write innocent.txt`
 # whose innocent.txt → ~/.ssh/authorized_keys slips through on stock macOS (the review finding).
-ln -sf "$HOME/.ssh/authorized_keys" "$HOME/work/repo/innocent.txt"
-OUT=$(gen Write "$HOME/work/repo/innocent.txt" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
-assert_deny "realpath absent + LEAF symlink into ~/.ssh → leaf-deref denies (macOS path)" "$OUT" "ssh"
-rm -f "$HOME/work/repo/innocent.txt"
+if supports_symlinks; then
+  ln -sf "$HOME/.ssh/authorized_keys" "$HOME/work/repo/innocent.txt"
+  OUT=$(gen Write "$HOME/work/repo/innocent.txt" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+  assert_deny "realpath absent + LEAF symlink into ~/.ssh → leaf-deref denies (macOS path)" "$OUT" "ssh"
+  rm -f "$HOME/work/repo/innocent.txt"
+else
+  echo "SKIP: test 19 — leaf-symlink escape requires real symlink support (Windows without Developer Mode)"
+  pass "realpath absent + LEAF symlink (skipped — no symlink support)"
+fi
 
 echo
 echo "ALL PASS"

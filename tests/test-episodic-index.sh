@@ -31,6 +31,13 @@ SEARCH_FN_DIST="$REPO_ROOT/mcp/dist/tools/episodic-search.testmod.js"
   || { echo "FAIL: could not build episodic-search test module (esbuild) — run 'npm ci --prefix mcp'" >&2; exit 1; }
 
 TMP=$(mktemp -d -t epi-int-XXXX)
+# On Windows/Git-Bash, mktemp returns a POSIX path (/tmp/…) that Node.js resolves to a
+# Windows path (C:\Users\…\AppData\Local\Temp\…).  The shell then reads "$TMP/episodic-index.json"
+# with the POSIX path while Node wrote it under the Windows path → ENOENT.
+# Fix: normalise TMP to the Windows-slash form Node will use, so both sides agree.
+_node_norm=$(node -e "process.stdout.write(require('path').resolve('$TMP').split(require('path').sep).join('/')+'\n')" 2>/dev/null)
+[ -n "$_node_norm" ] && TMP="$_node_norm"
+unset _node_norm
 trap 'rm -rf "$TMP" "$SEARCH_FN_DIST"' EXIT
 mkdir -p "$TMP/transcripts"
 
