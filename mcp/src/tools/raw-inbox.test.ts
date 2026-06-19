@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { promises as fs } from 'fs';
+import { promises as fs, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending } from './raw-inbox.js';
+import type { RawItem } from './raw-inbox.js';
 
 async function brain(): Promise<{ brainDir: string; slug: string }> {
   const brainDir = await fs.mkdtemp(join(tmpdir(), 'raw-'));
@@ -147,5 +148,45 @@ describe('raw-inbox', () => {
     expect(item.target_node).toBe('new-node');
     const raw = await fs.readFile(join(rawDir(brainDir, slug), `${r.id}.md`), 'utf-8');
     expect((raw.match(/^target_node:/gm) || []).length).toBe(1); // exactly one — no duplicate
+  });
+
+  it('round-trips the origin provenance field', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sb-raw-origin-'));
+    await captureItem({ brainDir: dir, slug: 'proja', kind: 'paste', source: 'paste', content: 'hello world', origin: 'proja' });
+    const [item] = await listItems(dir, 'proja');
+    expect(item.origin).toBe('proja');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('treats a legacy item with no origin as well-formed (origin undefined)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sb-raw-legacy-'));
+    const raw = join(dir, 'projects', 'proja', 'raw');
+    mkdirSync(raw, { recursive: true });
+    writeFileSync(join(raw, '20260101-000000-x.md'),
+      '---\nid: 20260101-000000-x\nsource: x\ncaptured_at: 2026-01-01T00:00:00Z\n' +
+      'captured_by: user\ncontent_type: text/markdown\nstatus: unprocessed\nhash: abc\ngist: x\n---\n\nbody\n');
+    const [item] = await listItems(dir, 'proja');
+    expect(item.origin).toBeUndefined();
+    expect(item.malformed).toBeFalsy();
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('partitionPending', () => {
+  const mk = (over: Partial<RawItem>): RawItem => ({
+    id: 'i', source: 's', captured_at: 't', captured_by: 'user', content_type: 'text/markdown',
+    status: 'unprocessed', hash: 'h', gist: 'g', body: 'b', ...over,
+  });
+  it('drains own-origin, legacy (no origin), holds foreign, skips processed/malformed', () => {
+    const items: RawItem[] = [
+      mk({ id: 'own', origin: 'proja' }),
+      mk({ id: 'legacy' }),                                   // no origin → conservative default
+      mk({ id: 'foreign', origin: 'projb' }),                // different project → held back
+      mk({ id: 'done', origin: 'proja', status: 'processed' }),
+      mk({ id: 'bad', origin: 'proja', malformed: true }),
+    ];
+    const { drainable, foreign } = partitionPending(items, 'proja');
+    expect(drainable.map(i => i.id)).toEqual(['own', 'legacy']);
+    expect(foreign.map(i => i.id)).toEqual(['foreign']);
   });
 });

@@ -62,12 +62,31 @@ export interface ScanResult {
   truncated: number;      // === overflow.length
 }
 
+/** Cross-check the capture DESTINATION slug against the scanned resource's slug. Returns ok:false when
+ *  they disagree and no explicit SB_ACTIVE_SLUG override is set, so the CLI fails loud instead of
+ *  silently filing repo A's docs into project B (the 88-doc misroute class). */
+export function originGuard(
+  originSlug: string | undefined,   // basename(SCAN_ROOT) — the resource scanned
+  destSlug: string,                 // the resolved capture destination
+  hasExplicitOverride: boolean,     // SB_ACTIVE_SLUG set
+): { ok: boolean; reason?: string } {
+  if (!originSlug) return { ok: true };               // cannot derive resource slug → no cross-check
+  if (originSlug === destSlug) return { ok: true };
+  if (hasExplicitOverride) return { ok: true };       // operator explicitly chose the destination
+  return {
+    ok: false,
+    reason: `refusing to file ${originSlug}'s docs into ${destSlug} ` +
+            `(resolved active project != scanned repo). cd into ${originSlug}, ` +
+            `or set SB_ACTIVE_SLUG=${destSlug} to override.`,
+  };
+}
+
 /** Scan + (unless dryRun) capture each candidate into the raw inbox as `setup-scan` material.
  *  Dedup is unprocessed-scoped (captureItem): re-running re-captures only new/changed docs. Once
  *  SP-4 marks an item `processed`, re-capture policy for that doc is SP-4's concern (it owns the
  *  processed lifecycle), so this scan intentionally does not dedup against processed items. */
 export async function runScan(projectRoot: string, brainDir: string, slug: string,
-                              opts: { dryRun?: boolean }): Promise<ScanResult> {
+                              opts: { dryRun?: boolean; origin?: string }): Promise<ScanResult> {
   assertSafeSlug(slug);
   const all = await scanCandidates(projectRoot);
   const cap = scanCap();
@@ -78,7 +97,7 @@ export async function runScan(projectRoot: string, brainDir: string, slug: strin
   let captured = 0, skipped = 0, errored = 0;
   for (const src of candidates) {
     try {
-      const r = await captureItem({ brainDir, slug, kind: 'file', source: src, capturedBy: 'setup-scan' });
+      const r = await captureItem({ brainDir, slug, kind: 'file', source: src, capturedBy: 'setup-scan', origin: opts.origin ?? slug });
       if (r.duplicate) skipped++; else captured++;
     } catch { skipped++; errored++; }  // unreadable → skip, never abort the scan
   }

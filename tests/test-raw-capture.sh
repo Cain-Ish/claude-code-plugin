@@ -49,7 +49,11 @@ pass "discard flips status"
 run capture "a fresh drain candidate note" >/dev/null
 PID=$(run pending | cut -f1 | head -1)
 [ -n "$PID" ] || fail "pending emitted no unprocessed item"
-run pending | grep -q "$RAW/$PID.md" || fail "pending row missing the item path"
+# Form-agnostic: the path column (field 2) ends with /<id>.md. bash sees $RAW in POSIX form
+# (/tmp/…) but Node emits the Windows form (C:/Users/…/Temp/…) after Git-for-Windows translates
+# the env-var path, so a full "$RAW/$PID.md" prefix match is wrong on Git Bash. The suffix check
+# still catches a missing/misnamed path column and is correct on every OS.
+run pending | cut -f2 | grep -q "/$PID\.md$" || fail "pending row missing the item path"
 run pending | grep -q 'a fresh drain candidate note' || fail "pending row missing the gist"
 pass "pending emits a TSV work-list (id, path, gist) of unprocessed items"
 

@@ -70,5 +70,49 @@ run
   || fail "missing-file: PROJECT.md should still be created"
 pass "missing projects.jsonl: PROJECT.md still created, no error"
 
+# --- Phase B: registration records root_path (+ parent for a sub-project) ---
+# Build a monorepo in a temp dir so session-load writes the record end-to-end.
+MONO=$(mktemp -d)
+mkdir -p "$MONO/mono/packages/api"
+( cd "$MONO/mono" && git init -q )
+printf 'packages:\n  - "packages/*"\n' > "$MONO/mono/pnpm-workspace.yaml"
+
+# Verify sb_detect_project produces the right slug/parent (sources lib.sh in a subshell).
+read -r SLUG PARENT ROOTP < <(
+  ( . "$PLUGIN_ROOT/scripts/lib.sh"
+    cd "$MONO/mono/packages/api" && sb_detect_project "$PWD" ) \
+  | awk -F'\t' '{print $1, $2, $3}'
+)
+[ "$SLUG" = "mono__api" ]  && pass "detect child slug"  || fail "detect child slug ($SLUG)"
+[ "$PARENT" = "mono" ]     && pass "detect child parent" || fail "detect child parent ($PARENT)"
+
+# Drive session-load with a fresh sandbox + CLAUDE_PROJECT_DIR pointing at the child.
+init_sandbox "monorepo-child"
+: > "$BRAIN_DIR/projects.jsonl"
+export CLAUDE_PROJECT_DIR="$MONO/mono/packages/api"
+jq -nc --arg cwd "$MONO/mono/packages/api" \
+  '{session_id:"x", cwd:$cwd, hook_event_name:"SessionStart"}' \
+  | bash "$SCRIPT" >/dev/null 2>&1
+unset CLAUDE_PROJECT_DIR
+
+REC=$(jq -c --arg s "mono__api" 'select(.slug==$s)' "$BRAIN_DIR/projects.jsonl" 2>/dev/null | head -1)
+echo "$REC" | jq -e '.parent=="mono" and (.root_path|test("packages/api$"))' >/dev/null \
+  && pass "record has parent+root_path" || fail "record missing parent/root_path: $REC"
+
+rm -rf "$MONO"
+
+# --- Phase C: session-load records git_remote, and clears a stale parent on de-parenting ---
+. "$PLUGIN_ROOT/scripts/lib.sh"   # for sb_git_remote in this test
+GR=$(sb_git_remote "$PLUGIN_ROOT")   # this repo HAS an origin remote
+[ -n "$GR" ] && pass "sb_git_remote reads origin" || fail "sb_git_remote returned empty for a repo with a remote"
+[ -z "$(sb_git_remote "$TMP")" ] && pass "sb_git_remote empty for non-repo" || fail "sb_git_remote should be empty for a non-repo dir"
+
+# de-parenting: a record that WAS a sub-project, re-registered from a dir with no parent → parent removed
+init_sandbox "deparent"
+printf '%s\n' '{"slug":"test-project","name":"test-project","last_session_iso":"2026-05-01T00:00:00Z","hot_byte_count":0,"parent":"oldroot","root_path":"/old/path"}' > "$BRAIN_DIR/projects.jsonl"
+run   # run() drives session-load with cwd = test-project (a plain dir, no workspace manifest → no parent)
+PARENT_AFTER=$(jq -r --arg s test-project 'select(.slug==$s)|.parent // "ABSENT"' "$BRAIN_DIR/projects.jsonl" | head -1)
+[ "$PARENT_AFTER" = "ABSENT" ] && pass "stale parent cleared on de-parenting" || fail "stale parent not cleared (got: $PARENT_AFTER)"
+
 echo
 echo "ALL PASS"

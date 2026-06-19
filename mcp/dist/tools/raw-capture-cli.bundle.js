@@ -1,7 +1,7 @@
 // src/tools/raw-capture-cli.ts
 import { homedir } from "os";
-import { join as join3 } from "path";
-import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "fs";
+import { join as join4 } from "path";
+import { existsSync as existsSync2, readFileSync as readFileSync3, statSync } from "fs";
 
 // src/tools/raw-inbox.ts
 import { promises as fs } from "fs";
@@ -182,7 +182,7 @@ function expand_(str, max, isTop) {
       }
       const pad = n.some(isPadded);
       N = [];
-      for (let i = x; test(i, y) && N.length < max; i += incr) {
+      for (let i = x; test(i, y); i += incr) {
         let c;
         if (isAlphaSequence) {
           c = String.fromCharCode(i);
@@ -6119,6 +6119,7 @@ function serialize(item) {
   fm.push(`source: ${fmValue(item.source)}`);
   fm.push(`captured_at: ${fmValue(item.captured_at)}`);
   fm.push(`captured_by: ${fmValue(item.captured_by)}`);
+  if (item.origin) fm.push(`origin: ${fmValue(item.origin)}`);
   fm.push(`content_type: ${fmValue(item.content_type)}`);
   fm.push(`status: ${fmValue(item.status)}`);
   if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
@@ -6156,6 +6157,7 @@ function parse(content, id) {
     source: get("source") ?? "",
     captured_at: get("captured_at") ?? "",
     captured_by: get("captured_by") ?? "user",
+    origin: get("origin") || void 0,
     content_type: get("content_type") ?? "",
     status: validStatus ? status : "unprocessed",
     target_node: get("target_node") || void 0,
@@ -6188,6 +6190,19 @@ async function readItems(brainDir, slug) {
 async function listItems(brainDir, slug) {
   assertSafeSlug(slug);
   return readItems(brainDir, slug);
+}
+function partitionPending(items, activeSlug) {
+  const drainable = [];
+  const foreign = [];
+  for (const i of items) {
+    if (i.status !== "unprocessed" || i.malformed) continue;
+    if (i.origin && i.origin !== activeSlug) {
+      foreign.push(i);
+      continue;
+    }
+    drainable.push(i);
+  }
+  return { drainable, foreign };
 }
 async function unprocessedCount(brainDir, slug) {
   assertSafeSlug(slug);
@@ -6299,6 +6314,7 @@ async function captureItem(input) {
     source: input.source,
     captured_at: now,
     captured_by: capturedBy,
+    origin: input.origin,
     content_type: contentType,
     status: "unprocessed",
     target_node: input.targetNode,
@@ -6315,8 +6331,51 @@ async function captureItem(input) {
 }
 
 // src/tools/project-dir.ts
-import { basename as basename2, join as join2 } from "path";
-import { readFileSync, existsSync } from "fs";
+import { basename as basename2, join as join3 } from "path";
+import { readFileSync as readFileSync2, existsSync } from "fs";
+
+// src/tools/project-registry.ts
+import { readFileSync } from "fs";
+import { join as join2 } from "path";
+function loadRegistry(brainDir) {
+  let text;
+  try {
+    text = readFileSync(join2(brainDir, "projects.jsonl"), "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s);
+      if (r && typeof r.slug === "string" && r.slug) out.push(r);
+    } catch {
+    }
+  }
+  return out;
+}
+function resolveSlugByPath(brainDir, dir) {
+  const norm = (p) => {
+    let s = cleanEnvPath(p).replace(/\\/g, "/");
+    const drive = s.match(/^([A-Za-z]):\//);
+    if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
+    return s.replace(/\/+$/, "");
+  };
+  const target = norm(dir);
+  let best;
+  for (const r of loadRegistry(brainDir)) {
+    if (!r.root_path) continue;
+    const rp = norm(r.root_path);
+    if (target === rp || target.startsWith(rp + "/")) {
+      if (!best || rp.length > best.len) best = { slug: r.slug, len: rp.length };
+    }
+  }
+  return best?.slug;
+}
+
+// src/tools/project-dir.ts
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
   const base = basename2(cleanEnvPath(dir));
@@ -6326,14 +6385,19 @@ function slugFromProjectDir(dir) {
 }
 function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
   if (env.CLAUDE_PROJECT_DIR) {
+    const byPath = resolveSlugByPath(brainDir, env.CLAUDE_PROJECT_DIR);
+    if (byPath) return byPath;
     const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
     if (fromEnv) return fromEnv;
   }
-  const cwdSlug = slugFromProjectDir(cwd());
-  if (cwdSlug && existsSync(join2(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
+  const here = cwd();
+  const byCwdPath = resolveSlugByPath(brainDir, here);
+  if (byCwdPath) return byCwdPath;
+  const cwdSlug = slugFromProjectDir(here);
+  if (cwdSlug && existsSync(join3(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
-    const pin = readFileSync(join2(brainDir, ".active-session-slug"), "utf-8").trim();
-    if (pin && existsSync(join2(brainDir, "projects", pin, "PROJECT.md"))) return pin;
+    const pin = readFileSync2(join3(brainDir, ".active-session-slug"), "utf-8").trim();
+    if (pin && existsSync(join3(brainDir, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
   return cwdSlug;
@@ -6349,7 +6413,7 @@ function takeNode(args) {
   return { rest: args };
 }
 async function main() {
-  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join3(homedir(), ".second-brain");
+  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join4(homedir(), ".second-brain");
   const slug = resolveSlug(brainDir);
   if (!slug) {
     console.log("capture: could not resolve the active project (no slug). cd into a project.");
@@ -6374,11 +6438,14 @@ async function main() {
       }
       console.log(await setStatus(brainDir, slug, id, "discarded") ? `Discarded ${id}.` : `No raw item with id ${id}.`);
     } else if (action === "pending") {
-      for (const i of await listItems(brainDir, slug)) {
-        if (i.status !== "unprocessed" || i.malformed) continue;
-        const path2 = join3(rawDir(brainDir, slug), `${i.id}.md`);
+      const { drainable, foreign } = partitionPending(await listItems(brainDir, slug), slug);
+      for (const i of drainable) {
+        const path2 = join4(rawDir(brainDir, slug), `${i.id}.md`).replace(/\\/g, "/");
         const cell = (s) => (s || "").replace(/[\t\r\n]+/g, " ");
         console.log([i.id, path2, i.captured_by, cell(i.target_node ?? ""), cell(i.gist)].join("	"));
+      }
+      if (foreign.length) {
+        console.error(`pending: held back ${foreign.length} foreign-origin item(s) (origin\u2260${slug}): ${foreign.map((i) => i.id).join(", ")} \u2014 re-capture in the right project or /second-brain:capture --discard <id>`);
       }
     } else if (action === "process") {
       const id = rest[0];
@@ -6388,12 +6455,12 @@ async function main() {
       }
       console.log(await markProcessed(brainDir, slug, id, node) ? `Processed ${id}` : `No raw item with id ${id}.`);
     } else if (action === "paste") {
-      const content = readFileSync2(0, "utf-8");
+      const content = readFileSync3(0, "utf-8");
       if (!content.trim()) {
         console.log("capture: nothing on stdin.");
         return;
       }
-      const r = await captureItem({ brainDir, slug, kind: "paste", source: "paste", content, targetNode: node });
+      const r = await captureItem({ brainDir, slug, kind: "paste", source: "paste", content, targetNode: node, origin: slug });
       console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} \u2014 ${r.unprocessed} unprocessed.`);
     } else if (action === "capture") {
       const src = rest[0];
@@ -6414,7 +6481,7 @@ async function main() {
         content = src;
         source = "paste";
       }
-      const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node });
+      const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node, origin: slug });
       console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} (${kind}) \u2014 ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);

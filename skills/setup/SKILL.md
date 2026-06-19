@@ -16,15 +16,41 @@ This skill is idempotent — re-running it will not clobber existing files. It o
 
 ### 1. Resolve active project
 
-Determine the repo slug from the current working directory's git root (falls back to `pwd` if not a git repo):
+Detect the repo slug, parent (if a monorepo sub-project), and root_path using `sb_detect_project`, then **confirm with the operator before writing**:
 
 ```bash
-SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+# Monorepo-aware detection: slug / parent / root_path. Source lib.sh for sb_detect_project.
+. "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh"
+_det=$(sb_detect_project "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+IFS=$'\t' read -ra _det_fields <<< "$_det"
+SLUG="${_det_fields[0]:-}"
+if [ "${#_det_fields[@]}" -ge 3 ]; then
+  PARENT="${_det_fields[1]}"; ROOT_PATH="${_det_fields[2]}"
+else
+  PARENT=""; ROOT_PATH="${_det_fields[1]:-}"
+fi
 NAME="$SLUG"
-echo "Active project: $SLUG"
+GIT_REMOTE=$(sb_git_remote "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+IDENT=$(sb_project_identity ~/.second-brain/projects.jsonl "$SLUG" "$ROOT_PATH" "$GIT_REMOTE")
+echo "Identity check for slug=$SLUG: $IDENT"
+if [ -n "$PARENT" ]; then
+  echo "Detected sub-project: slug=$SLUG  parent=$PARENT  root_path=$ROOT_PATH"
+else
+  echo "Detected standalone project: slug=$SLUG  root_path=$ROOT_PATH"
+fi
 ```
 
-Also ensure the base directories exist:
+If `$IDENT` is `collision`, **STOP immediately and prompt the operator** — a different repo already owns this slug in `projects.jsonl`. Offer exactly three options and wait for a choice before writing anything:
+
+1. **Use the path-qualified slug** `<root>__<leaf>` — the monorepo sub-project case. Re-run `sb_detect_project` treating the parent directory as the monorepo root, which produces a qualified slug that distinguishes the two repos.
+2. **Rename to a user-chosen unique slug** — the standalone collision case. Ask the operator to supply a unique name; there is no auto-hashing. Update `SLUG` and `NAME` to the chosen value before proceeding.
+3. **Use the existing project / abort** — if this repo truly is the same project (e.g. a re-clone), the operator can set `$IDENT` aside and proceed, or abort setup entirely.
+
+**Never merge or clobber** the existing record. Only proceed to scaffold and write once the operator has resolved the collision (or `$IDENT` is `new` or `same`).
+
+Show the operator what was detected and ask them to **accept, edit the parent, or clear it (treat as standalone) before writing** — never write a guessed `parent` unattended. Only proceed to the next steps once the operator confirms the slug and parent are correct.
+
+Also ensure the base directories exist (note: the slug is path-qualified for sub-projects, e.g. `mono__api`):
 
 ```bash
 mkdir -p ~/.second-brain/projects/"$SLUG"
@@ -92,12 +118,48 @@ Set `<!-- last_updated: ... -->` to the current ISO8601 timestamp; leave `last_q
 Append a JSON line registering this project (one record per line; `projects.jsonl` is JSONL). Skip the append if a line with this `slug` already exists.
 
 ```bash
-if ! grep -q "\"slug\":\"$SLUG\"" ~/.second-brain/projects.jsonl 2>/dev/null; then
+mkdir -p ~/.second-brain/projects/"$SLUG"
+if [ ! -f ~/.second-brain/projects.jsonl ] || \
+   ! jq -se --arg s "$SLUG" 'map(select(.slug == $s)) | length > 0' ~/.second-brain/projects.jsonl >/dev/null 2>&1; then
   jq -nc --arg s "$SLUG" --arg n "$NAME" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}' \
+         --arg p "$PARENT" --arg rp "$ROOT_PATH" --arg gr "$GIT_REMOTE" \
+    '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}
+     + (if $p  != "" then {parent:$p}      else {} end)
+     + (if $rp != "" then {root_path:$rp}  else {} end)
+     + (if $gr != "" then {git_remote:$gr} else {} end)' \
     >> ~/.second-brain/projects.jsonl
 fi
 ```
+
+### 4b. Project graph anchors + part_of edge (reconciliation projection)
+
+**Precondition: skip entirely if `$PARENT` is empty** (standalone project — nothing to anchor or edge). Only run this block when a parent was confirmed.
+
+If a `parent` was confirmed, mirror the relationship into the relational graph so
+`knowledge_neighbors` and MOC cross-links surface family MOCs. This is graph
+navigation only — facet assignment is driven by `projects.jsonl` truth, never by
+the parent key.
+
+```bash
+KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; KD="${KD/#\~/$HOME}"
+REG="$KD/graph/project-registry.jsonl"; mkdir -p "$KD/graph"
+# each project anchors ITSELF (never the parent) — keeps facet assignment leaf-correct
+for pair in "$SLUG:$SLUG" "$PARENT:$PARENT"; do
+  a="${pair%%:*}"; p="${pair##*:}"; [ -n "$a" ] || continue
+  grep -qF "\"anchor\":\"$a\"" "$REG" 2>/dev/null || \
+    jq -nc --arg a "$a" --arg p "$p" '{anchor:$a, project:$p}' >> "$REG"
+done
+# project-level part_of edge (graph navigation): child → parent
+EDGES="$KD/graph/edges.jsonl"
+if [ -n "$PARENT" ] && ! jq -se --arg f "$SLUG" --arg t "$PARENT" \
+     'map(select(.from==$f and .to==$t and .type=="part_of" and .valid_to==null)) | length>0' "$EDGES" >/dev/null 2>&1; then
+  jq -nc --arg f "$SLUG" --arg t "$PARENT" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{op:"assert", from:$f, to:$t, type:"part_of", recorded_at:$ts, source:"setup", confidence:"high"}' >> "$EDGES"
+fi
+```
+
+The maintainer's Phase 3 re-validates `projects.jsonl ↔ graph` on its normal cadence;
+re-parenting requires `knowledge_relate --invalidate` on the old edge then a new assert.
 
 ### 5. Seed persona-card.md
 
@@ -149,6 +211,7 @@ so re-running setup only captures new or changed docs.
 if [ "${SB_SCAN_SKIP:-0}" != "1" ]; then
   SCAN_CLI="${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-scan-cli.bundle.js"
   SCAN_ROOT_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  cd "$SCAN_ROOT_DIR" || { echo "setup: cannot cd into $SCAN_ROOT_DIR"; exit 1; }
   SCAN_ROOT="$SCAN_ROOT_DIR" node "$SCAN_CLI" --dry-run
 fi
 ```
@@ -160,6 +223,7 @@ bash block runs as a separate shell, so vars from the preview block do not persi
 ```bash
 SCAN_CLI="${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-scan-cli.bundle.js"
 SCAN_ROOT_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$SCAN_ROOT_DIR" || { echo "setup: cannot cd into $SCAN_ROOT_DIR"; exit 1; }
 SCAN_ROOT="$SCAN_ROOT_DIR" node "$SCAN_CLI"
 ```
 

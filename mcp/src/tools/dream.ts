@@ -1,6 +1,8 @@
 import { promises as fs } from "fs";
 import { atomicWriteJson } from './atomic-write.js';
 import { cleanEnvPath } from '../path-guard.js';
+import { resolveActiveSlug } from './project-dir.js';
+import { projectFamily } from './project-registry.js';
 import { join, basename } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -8,7 +10,7 @@ import { promisify } from "util";
 const exec = promisify(execFile);
 
 function brainDir(): string {
-  return join(cleanEnvPath(process.env.HOME), ".second-brain");
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(cleanEnvPath(process.env.HOME), ".second-brain");
 }
 
 function dreamsDir(): string {
@@ -61,6 +63,7 @@ interface DreamStatus {
     transcript_count: number;
     wiki_page_count: number;
     wiki_snapshot_bytes: number;
+    project_slug?: string;
   };
   outputs: {
     pages_added: number;
@@ -110,6 +113,7 @@ export interface DreamCreateArgs {
     project_slug?: string;
     since?: string;
     max_count?: number;
+    family?: boolean;        // mine the whole monorepo family (Phase B)
   };
   model?: string;
 }
@@ -120,31 +124,39 @@ export interface DreamCreateResult {
   reason?: string;
 }
 
+/** Build the dream-snapshot.sh argv. Scope: project_slug:"all" → no --slug (every transcript);
+ *  transcript_filter.family → one --slug per family member (sorted); else the single active project
+ *  (leaf) or an explicit project_slug. (Assumes instructions length already validated.) */
+export function buildSnapshotArgs(
+  args: DreamCreateArgs, activeSlug: string | undefined, family?: Set<string>,
+): string[] {
+  const out: string[] = [];
+  if (args.instructions) out.push('--instructions', args.instructions);
+  const requested = args.transcript_filter?.project_slug;
+  if (requested === 'all') {
+    // explicit cross-project opt-out → no --slug
+  } else if (args.transcript_filter?.family && family && family.size) {
+    for (const s of [...family].sort()) out.push('--slug', s);
+  } else {
+    const scope = requested ?? activeSlug;
+    if (scope) out.push('--slug', scope);
+  }
+  if (args.transcript_filter?.since) out.push('--since', args.transcript_filter.since);
+  const maxCount = Math.min(args.transcript_filter?.max_count ?? 50, 100);
+  out.push('--max-count', String(maxCount));
+  if (args.model) out.push('--model', args.model);
+  return out;
+}
+
 export async function dreamCreate(
   args: DreamCreateArgs
 ): Promise<DreamCreateResult> {
-  const scriptArgs: string[] = [];
-  if (args.instructions) {
-    if (args.instructions.length > 4096) {
-      return {
-        ok: false,
-        dream: null,
-        reason: "instructions exceed 4096 char limit",
-      };
-    }
-    scriptArgs.push("--instructions", args.instructions);
+  if (args.instructions && args.instructions.length > 4096) {
+    return { ok: false, dream: null, reason: "instructions exceed 4096 char limit" };
   }
-  if (args.transcript_filter?.project_slug) {
-    scriptArgs.push("--slug", args.transcript_filter.project_slug);
-  }
-  if (args.transcript_filter?.since) {
-    scriptArgs.push("--since", args.transcript_filter.since);
-  }
-  const maxCount = Math.min(args.transcript_filter?.max_count ?? 50, 100);
-  scriptArgs.push("--max-count", String(maxCount));
-  if (args.model) {
-    scriptArgs.push("--model", args.model);
-  }
+  const activeSlug = resolveActiveSlug(brainDir());
+  const family = activeSlug ? projectFamily(brainDir(), activeSlug) : undefined;
+  const scriptArgs = buildSnapshotArgs(args, activeSlug, family);
 
   try {
     const { stdout, stderr } = await exec(
@@ -154,11 +166,7 @@ export async function dreamCreate(
     );
     const dreamId = stdout.trim();
     if (!dreamId.startsWith("drm_")) {
-      return {
-        ok: false,
-        dream: null,
-        reason: stderr.trim() || "dream-snapshot.sh failed",
-      };
+      return { ok: false, dream: null, reason: stderr.trim() || "dream-snapshot.sh failed" };
     }
     const status = await readStatus(dreamId);
     return { ok: true, dream: status };

@@ -352,6 +352,131 @@ sb_slug_from_dir() {
   esac
 }
 
+# Detect a project's slug / parent / root_path for a directory, monorepo-aware.
+# Echoes a single TAB-separated line: <slug>\t<parent>\t<root_path>
+#   - git submodule (superproject exists)                                       → <super>__<leaf>, parent=<super>
+#   - single-git monorepo (workspace manifest at the git root, cwd in a subdir) → <root>__<leaf>, parent=<root>
+#   - .sb-monorepo.json marker at an ancestor with a "parent" key               → <parent>__<leaf>, parent=<parent>
+#   - otherwise (standalone, or working at the monorepo root)                    → <leaf>, parent=""
+sb_detect_project() {
+  local dir; dir=$(printf '%s' "${1:-$PWD}" | tr -d '\r')
+  local abs; abs=$(cd "$dir" 2>/dev/null && pwd) || abs="$dir"
+  local top; top=$(git -C "$abs" rev-parse --show-toplevel 2>/dev/null | tr -d '\r')
+  local sup; sup=$(git -C "$abs" rev-parse --show-superproject-working-tree 2>/dev/null | tr -d '\r')
+  local leaf; leaf=$(sb_slug_from_dir "$abs")
+
+  # Windows path-form normalization: git rev-parse may return a Windows-form
+  # path (C:/foo) while `cd && pwd` returns MSYS-form (/c/foo). Normalize the
+  # git-returned paths to the same form as $abs before string-comparing, while
+  # preserving the original git path for slug derivation (basename is form-agnostic).
+  local top_norm; top_norm=$([ -n "$top" ] && { cd "$top" 2>/dev/null && pwd; } || printf '%s' "$top")
+
+  # 1. git submodule: the superproject is the monorepo root.
+  if [ -n "$sup" ]; then
+    printf '%s__%s\t%s\t%s\n' "$(sb_slug_from_dir "$sup")" "$leaf" "$(sb_slug_from_dir "$sup")" "$abs"
+    return 0
+  fi
+
+  # 2. single-git monorepo: a workspace manifest at the git root + cwd is a subdir of it.
+  if [ -n "$top" ] && [ "$abs" != "$top_norm" ] && sb_is_workspace_root "$top"; then
+    printf '%s__%s\t%s\t%s\n' "$(sb_slug_from_dir "$top")" "$leaf" "$(sb_slug_from_dir "$top")" "$abs"
+    return 0
+  fi
+
+  # 3. .sb-monorepo.json marker walking up from cwd (sibling-repo topology).
+  local marker; marker=$(sb_find_up "$abs" ".sb-monorepo.json")
+  if [ -n "$marker" ]; then
+    local pkey; pkey=$(jq -r '.parent // empty' "$marker" 2>/dev/null | tr -d '\r')
+    # SECURITY: the marker is an in-repo file (an untrusted cloned repo could carry a hostile one).
+    # pkey becomes a slug AND a `mkdir -p projects/<slug>` path component in setup — reject anything
+    # that is not a clean slug (no `/`, no `..`, no spaces) so {"parent":"../../evil"} cannot traverse
+    # out of the projects tree. An invalid marker is ignored (falls through to the standalone case).
+    case "$pkey" in ''|.|..|*[!A-Za-z0-9._-]*) pkey="" ;; esac
+    if [ -n "$pkey" ] && [ "$abs" != "$(dirname "$marker")" ]; then
+      printf '%s__%s\t%s\t%s\n' "$pkey" "$leaf" "$pkey" "$abs"
+      return 0
+    fi
+  fi
+
+  # 4. standalone (or working at the monorepo root): bare slug, no parent.
+  printf '%s\t\t%s\n' "$leaf" "${top:-$abs}"
+}
+
+# Echo the origin remote URL of a dir's git repo (empty if no remote / not a repo). CR-stripped.
+# Phase C: doubles as collision identity (compared against an existing project's stored git_remote).
+sb_git_remote() {
+  local dir; dir=$(printf '%s' "${1:-$PWD}" | tr -d '\r')
+  git -C "$dir" remote get-url origin 2>/dev/null | tr -d '\r' | head -1
+}
+
+# Layer-1 migration: canonicalize projects.jsonl. Tolerates pretty-printed / JSON-array /
+# CRLF / duplicate-slug input; rewrites to one compact record per line (LF), dedup by slug
+# keeping the newest last_session_iso. Idempotent: a clean file is left untouched (no backup,
+# no churn). Fail-loud: a file jq cannot parse at all is left INTACT (return 1), no silent loss.
+sb_harden_projects_jsonl() {
+  local f="${1:?projects.jsonl path required}"
+  [ -f "$f" ] && [ -s "$f" ] || return 0          # absent / empty = nothing to harden
+  command -v jq >/dev/null 2>&1 || { echo "harden: jq required" >&2; return 0; }
+  local tmp; tmp=$(mktemp)
+  # -s slurps the whole file (handles pretty-print + JSON-array); flatten unwraps an array;
+  # drop non-objects/slug-less; dedup by slug keeping newest; -c one compact object per value;
+  # tr -d '\r' keeps the file LF-only despite jq's CRLF stdout on Windows.
+  if ! jq -sc 'flatten | map(select(type=="object" and (.slug|type=="string") and .slug!=""))
+               | group_by(.slug) | map(max_by(.last_session_iso // "")) | .[]' \
+        "$f" 2>/dev/null | tr -d '\r' > "$tmp" || [ ! -s "$tmp" ]; then
+    rm -f "$tmp"
+    echo "harden: could not parse $f — left intact (manual review)" >&2
+    return 1
+  fi
+  if cmp -s "$f" "$tmp"; then rm -f "$tmp"; return 0; fi   # already canonical → no churn, no backup
+  local bak; bak="$f.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+  cp "$f" "$bak" && mv "$tmp" "$f" \
+    && echo "harden: canonicalized $f (backup: $bak)" \
+    || { rm -f "$tmp"; echo "harden: rewrite failed for $f" >&2; return 1; }
+}
+
+# Setup collision identity. Given the registry, a candidate slug and its dir identity, classify:
+#   new       — no record with this slug
+#   same      — record exists AND identity matches (same git_remote; or both empty + same root_path)
+#   collision — record exists AND identity differs (two different repos sharing a slug)
+# Path compare is form-canonicalized (MSYS /c vs Windows C:\, like resolveSlugByPath/toBashPath).
+sb_project_identity() {
+  local reg="$1" slug="$2" rp="$3" gr="$4"
+  [ -f "$reg" ] || { echo "new"; return 0; }
+  command -v jq >/dev/null 2>&1 || { echo "new"; return 0; }
+  local rec; rec=$(jq -c --arg s "$slug" 'select(.slug==$s)' "$reg" 2>/dev/null | head -1)
+  [ -n "$rec" ] || { echo "new"; return 0; }
+  local ex_rp ex_gr
+  ex_rp=$(printf '%s' "$rec" | jq -r '.root_path // ""')
+  ex_gr=$(printf '%s' "$rec" | jq -r '.git_remote // ""')
+  _norm() { printf '%s' "${1:-}" | tr -d '\r' | sed -E 's#\\#/#g; s#^([A-Za-z]):/#/\L\1/#; s#/+$##'; }
+  if [ -n "$gr" ] || [ -n "$ex_gr" ]; then
+    [ "$gr" = "$ex_gr" ] && echo "same" || echo "collision"
+  else
+    [ "$(_norm "$rp")" = "$(_norm "$ex_rp")" ] && echo "same" || echo "collision"
+  fi
+}
+
+# True if DIR contains a recognized monorepo workspace manifest.
+sb_is_workspace_root() {
+  local d="$1"
+  [ -f "$d/pnpm-workspace.yaml" ] || [ -f "$d/nx.json" ] || [ -f "$d/turbo.json" ] \
+    || [ -f "$d/lerna.json" ] || [ -f "$d/go.work" ] \
+    || { [ -f "$d/Cargo.toml" ] && grep -q '^\[workspace\]' "$d/Cargo.toml" 2>/dev/null; } \
+    || { [ -f "$d/package.json" ] && jq -e 'has("workspaces")' "$d/package.json" >/dev/null 2>&1; }
+}
+
+# Walk up from DIR looking for FILE; echo its full path, or nothing.
+sb_find_up() {
+  local d="$1" file="$2"
+  d=$(cd "$d" 2>/dev/null && pwd) || return 0
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    [ -f "$d/$file" ] && { printf '%s\n' "$d/$file"; return 0; }
+    d=$(dirname "$d")
+  done
+  [ -f "/$file" ] && printf '%s\n' "/$file"
+}
+
 # Resolve the active project slug. Precedence: CLAUDE_PROJECT_DIR > pin > cwd.
 # CLAUDE_PROJECT_DIR is the PER-SESSION project root Claude Code sets — checked
 # FIRST so a concurrent session in another project can't hijack this session's

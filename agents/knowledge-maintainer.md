@@ -294,7 +294,9 @@ captured material + existing prose, **never invent** content.
    node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" pending
    ```
    Each TSV row is `id⇥path⇥captured_by⇥target_node⇥gist`. Empty output → skip this phase. (Malformed
-   items are excluded here — they still show in `/second-brain:capture --list` for manual repair.)
+   items are excluded here — they still show in `/second-brain:capture --list` for manual repair.
+   Foreign-origin items are also held back and flagged on stderr — the CLI refuses to mix another
+   project's capture into this drain; re-capture them in the right project.)
 
 2. **For each item** (closed vocabulary — the 8 content categories `learnings decisions entities issues
    concepts security state sources`; never invent a type or content):
@@ -311,9 +313,10 @@ captured material + existing prose, **never invent** content.
      - else **create** a new page. Judge the type from the content (`captured_by` is a hint:
        `setup-scan` = existing repo docs → lean `entities`/`concepts`/`decisions`/`sources`;
        `user`/`dream` = deliberate → lean `learnings`/`decisions`). `Write`
-       `~/knowledge/wiki/<type>/<kebab-slug>.md` with frontmatter (`title`, `type`, the active
-       `project:` facet) + body authored from the material, then add an ai-block via the Phase 4b
-       `ai-block-render-cli` path.
+       `~/knowledge/wiki/<type>/<kebab-slug>.md` with frontmatter (`title`, `type`, and the `project:`
+       facet taken from the item's `origin:` — the resource it was captured from; for a legacy item with
+       no `origin:`, fall back to the active slug) + body authored from the material, then add an ai-block
+       via the Phase 4b `ai-block-render-cli` path.
    - **Provenance (forward):** add or extend a `## Sources` section on the node:
      `- captured from <source> (raw <id>)` (use the item's `source` value — a path or URL).
    - **Mark processed (back-ref):**
@@ -342,6 +345,23 @@ captured material + existing prose, **never invent** content.
 (or "maintain / clean up the KB") request. An auto-dispatched run (threshold counter / reindex-issues /
 post-extraction) **skips Phase 4c**: draining bulk-authors page content, which stays deliberate and
 reviewed, never unattended (the §5b automation boundary).
+
+## Phase: Project backfill (opt-in, explicit /second-brain:maintain only — NOT on auto-runs)
+
+Only on an explicit `/second-brain:maintain` (never an auto-dispatched run). For wiki pages that
+carry NO `project:` facet, propose an attribution deterministically and stage it (subject to the
+50-change/run cap, reported, never silent):
+
+1. For each unattributed structured page <slug>, run:
+   `bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-project-suggest.sh" --knowledge-dir "$KD" --slug <slug>`
+   It returns the plurality `project:` facet of the page's edge-neighbours, or empty (no guess).
+2. Apply only NON-empty suggestions, capped at the 50-change budget, and only via the existing
+   never-overwrite facet set (`kb-project-backfill.sh`'s `set_project`) — a page that already has a
+   facet is never rewritten. Pages with an empty suggestion are LEFT unattributed (reported, not guessed).
+3. Report: pages attributed, pages left unattributed (no neighbour signal), and any hit on the cap.
+
+This phase is deterministic (reads the edge graph + neighbour facets) and additive. It is the
+Layer-2 semantic re-attribution the `0.33.0` upgrade points operators to.
 
 ## Phase 5: REINDEX
 

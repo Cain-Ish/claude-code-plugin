@@ -3105,9 +3105,6 @@ var require_utils = __commonJS({
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
-    var isHexPair = RegExp.prototype.test.bind(/^[\da-f]{2}$/iu);
-    var isUnreserved = RegExp.prototype.test.bind(/^[\da-z\-._~]$/iu);
-    var isPathCharacter = RegExp.prototype.test.bind(/^[\da-z\-._~!$&'()*+,;=:@/]$/iu);
     function stringArrayToHexStripped(input) {
       let acc = "";
       let code = 0;
@@ -3300,128 +3297,27 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    var HOST_DELIMS = { "@": "%40", "/": "%2F", "?": "%3F", "#": "%23", ":": "%3A" };
-    var HOST_DELIM_RE = /[@/?#:]/g;
-    var HOST_DELIM_NO_COLON_RE = /[@/?#]/g;
-    function reescapeHostDelimiters(host, isIP) {
-      const re = isIP ? HOST_DELIM_NO_COLON_RE : HOST_DELIM_RE;
-      re.lastIndex = 0;
-      return host.replace(re, (ch) => HOST_DELIMS[ch]);
-    }
-    function normalizePercentEncoding(input, decodeUnreserved = false) {
-      if (input.indexOf("%") === -1) {
-        return input;
+    function normalizeComponentEncoding(component, esc2) {
+      const func = esc2 !== true ? escape : unescape;
+      if (component.scheme !== void 0) {
+        component.scheme = func(component.scheme);
       }
-      let output = "";
-      for (let i = 0; i < input.length; i++) {
-        if (input[i] === "%" && i + 2 < input.length) {
-          const hex = input.slice(i + 1, i + 3);
-          if (isHexPair(hex)) {
-            const normalizedHex = hex.toUpperCase();
-            const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
-            if (decodeUnreserved && isUnreserved(decoded)) {
-              output += decoded;
-            } else {
-              output += "%" + normalizedHex;
-            }
-            i += 2;
-            continue;
-          }
-        }
-        output += input[i];
+      if (component.userinfo !== void 0) {
+        component.userinfo = func(component.userinfo);
       }
-      return output;
-    }
-    var BYTE_HEX = new Array(256);
-    {
-      const HEX_DIGITS = "0123456789ABCDEF";
-      for (let i = 0; i < 256; i++) {
-        BYTE_HEX[i] = "%" + HEX_DIGITS[i >> 4] + HEX_DIGITS[i & 15];
+      if (component.host !== void 0) {
+        component.host = func(component.host);
       }
-    }
-    function isEscapeSafe(cp) {
-      return cp >= 48 && cp <= 57 || cp >= 65 && cp <= 90 || cp >= 97 && cp <= 122 || cp === 42 || cp === 43 || cp === 45 || cp === 46 || cp === 47 || cp === 64 || cp === 95;
-    }
-    function percentEncodeNonAscii(cp) {
-      if (cp < 2048) {
-        return BYTE_HEX[192 | cp >> 6] + BYTE_HEX[128 | cp & 63];
+      if (component.path !== void 0) {
+        component.path = func(component.path);
       }
-      if (cp < 65536) {
-        return BYTE_HEX[224 | cp >> 12] + BYTE_HEX[128 | cp >> 6 & 63] + BYTE_HEX[128 | cp & 63];
+      if (component.query !== void 0) {
+        component.query = func(component.query);
       }
-      return BYTE_HEX[240 | cp >> 18] + BYTE_HEX[128 | cp >> 12 & 63] + BYTE_HEX[128 | cp >> 6 & 63] + BYTE_HEX[128 | cp & 63];
-    }
-    function normalizePathEncoding(input) {
-      let output = "";
-      for (let i = 0; i < input.length; i++) {
-        const ch = input[i];
-        if (ch === "%" && i + 2 < input.length) {
-          const hex = input.slice(i + 1, i + 3);
-          if (isHexPair(hex)) {
-            const normalizedHex = hex.toUpperCase();
-            const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
-            if (decoded !== "." && isUnreserved(decoded)) {
-              output += decoded;
-            } else {
-              output += "%" + normalizedHex;
-            }
-            i += 2;
-            continue;
-          }
-        }
-        if (isPathCharacter(ch)) {
-          output += ch;
-        } else {
-          const code = input.charCodeAt(i);
-          if (code < 128) {
-            output += isEscapeSafe(code) ? ch : BYTE_HEX[code];
-          } else if (code < 55296 || code > 57343) {
-            output += percentEncodeNonAscii(code);
-          } else if (code <= 56319 && i + 1 < input.length) {
-            const low = input.charCodeAt(i + 1);
-            if (low >= 56320 && low <= 57343) {
-              output += percentEncodeNonAscii(65536 + (code - 55296 << 10) + (low - 56320));
-              i++;
-            } else {
-              output += percentEncodeNonAscii(65533);
-            }
-          } else {
-            output += percentEncodeNonAscii(65533);
-          }
-        }
+      if (component.fragment !== void 0) {
+        component.fragment = func(component.fragment);
       }
-      return output;
-    }
-    function escapePreservingEscapes(input) {
-      let output = "";
-      for (let i = 0; i < input.length; i++) {
-        const ch = input[i];
-        if (ch === "%" && i + 2 < input.length) {
-          const hex = input.slice(i + 1, i + 3);
-          if (isHexPair(hex)) {
-            output += "%" + hex.toUpperCase();
-            i += 2;
-            continue;
-          }
-        }
-        const code = input.charCodeAt(i);
-        if (code < 128) {
-          output += isEscapeSafe(code) ? ch : BYTE_HEX[code];
-        } else if (code < 55296 || code > 57343) {
-          output += percentEncodeNonAscii(code);
-        } else if (code <= 56319 && i + 1 < input.length) {
-          const low = input.charCodeAt(i + 1);
-          if (low >= 56320 && low <= 57343) {
-            output += percentEncodeNonAscii(65536 + (code - 55296 << 10) + (low - 56320));
-            i++;
-          } else {
-            output += percentEncodeNonAscii(65533);
-          }
-        } else {
-          output += percentEncodeNonAscii(65533);
-        }
-      }
-      return output;
+      return component;
     }
     function recomposeAuthority(component) {
       const uriTokens = [];
@@ -3436,7 +3332,7 @@ var require_utils = __commonJS({
           if (ipV6res.isIPV6 === true) {
             host = `[${ipV6res.escapedHost}]`;
           } else {
-            host = reescapeHostDelimiters(host, false);
+            host = component.host;
           }
         }
         uriTokens.push(host);
@@ -3450,10 +3346,7 @@ var require_utils = __commonJS({
     module.exports = {
       nonSimpleDomain,
       recomposeAuthority,
-      reescapeHostDelimiters,
-      normalizePercentEncoding,
-      normalizePathEncoding,
-      escapePreservingEscapes,
+      normalizeComponentEncoding,
       removeDotSegments,
       isIPv4,
       isUUID,
@@ -3677,12 +3570,12 @@ var require_schemes = __commonJS({
 var require_fast_uri = __commonJS({
   "node_modules/fast-uri/index.js"(exports, module) {
     "use strict";
-    var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
+    var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
     function normalize2(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
-        normalizeString(uri, options);
+        serialize(parse3(uri, options), options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
         parse3(serialize(uri, options), options);
@@ -3749,9 +3642,19 @@ var require_fast_uri = __commonJS({
       return target;
     }
     function equal(uriA, uriB, options) {
-      const normalizedA = normalizeComparableURI(uriA, options);
-      const normalizedB = normalizeComparableURI(uriB, options);
-      return normalizedA !== void 0 && normalizedB !== void 0 && normalizedA.toLowerCase() === normalizedB.toLowerCase();
+      if (typeof uriA === "string") {
+        uriA = unescape(uriA);
+        uriA = serialize(normalizeComponentEncoding(parse3(uriA, options), true), { ...options, skipEscape: true });
+      } else if (typeof uriA === "object") {
+        uriA = serialize(normalizeComponentEncoding(uriA, true), { ...options, skipEscape: true });
+      }
+      if (typeof uriB === "string") {
+        uriB = unescape(uriB);
+        uriB = serialize(normalizeComponentEncoding(parse3(uriB, options), true), { ...options, skipEscape: true });
+      } else if (typeof uriB === "object") {
+        uriB = serialize(normalizeComponentEncoding(uriB, true), { ...options, skipEscape: true });
+      }
+      return uriA.toLowerCase() === uriB.toLowerCase();
     }
     function serialize(cmpts, opts) {
       const component = {
@@ -3776,12 +3679,12 @@ var require_fast_uri = __commonJS({
       if (schemeHandler && schemeHandler.serialize) schemeHandler.serialize(component, options);
       if (component.path !== void 0) {
         if (!options.skipEscape) {
-          component.path = escapePreservingEscapes(component.path);
+          component.path = escape(component.path);
           if (component.scheme !== void 0) {
             component.path = component.path.split("%3A").join(":");
           }
         } else {
-          component.path = normalizePercentEncoding(component.path);
+          component.path = unescape(component.path);
         }
       }
       if (options.reference !== "suffix" && component.scheme) {
@@ -3816,16 +3719,7 @@ var require_fast_uri = __commonJS({
       return uriTokens.join("");
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
-    function getParseError(parsed, matches) {
-      if (matches[2] !== void 0 && parsed.path && parsed.path[0] !== "/") {
-        return 'URI path must start with "/" when authority is present.';
-      }
-      if (typeof parsed.port === "number" && (parsed.port < 0 || parsed.port > 65535)) {
-        return "URI port is malformed.";
-      }
-      return void 0;
-    }
-    function parseWithStatus(uri, opts) {
+    function parse3(uri, opts) {
       const options = Object.assign({}, opts);
       const parsed = {
         scheme: void 0,
@@ -3836,7 +3730,6 @@ var require_fast_uri = __commonJS({
         query: void 0,
         fragment: void 0
       };
-      let malformedAuthorityOrPort = false;
       let isIP = false;
       if (options.reference === "suffix") {
         if (options.scheme) {
@@ -3856,11 +3749,6 @@ var require_fast_uri = __commonJS({
         parsed.fragment = matches[8];
         if (isNaN(parsed.port)) {
           parsed.port = matches[5];
-        }
-        const parseError = getParseError(parsed, matches);
-        if (parseError !== void 0) {
-          parsed.error = parsed.error || parseError;
-          malformedAuthorityOrPort = true;
         }
         if (parsed.host) {
           const ipv4result = isIPv4(parsed.host);
@@ -3900,18 +3788,14 @@ var require_fast_uri = __commonJS({
               parsed.scheme = unescape(parsed.scheme);
             }
             if (parsed.host !== void 0) {
-              parsed.host = reescapeHostDelimiters(unescape(parsed.host), isIP);
+              parsed.host = unescape(parsed.host);
             }
           }
           if (parsed.path) {
-            parsed.path = normalizePathEncoding(parsed.path);
+            parsed.path = escape(unescape(parsed.path));
           }
           if (parsed.fragment) {
-            try {
-              parsed.fragment = encodeURI(decodeURIComponent(parsed.fragment));
-            } catch {
-              parsed.error = parsed.error || "URI malformed";
-            }
+            parsed.fragment = encodeURI(decodeURIComponent(parsed.fragment));
           }
         }
         if (schemeHandler && schemeHandler.parse) {
@@ -3920,29 +3804,7 @@ var require_fast_uri = __commonJS({
       } else {
         parsed.error = parsed.error || "URI can not be parsed.";
       }
-      return { parsed, malformedAuthorityOrPort };
-    }
-    function parse3(uri, opts) {
-      return parseWithStatus(uri, opts).parsed;
-    }
-    function normalizeString(uri, opts) {
-      return normalizeStringWithStatus(uri, opts).normalized;
-    }
-    function normalizeStringWithStatus(uri, opts) {
-      const { parsed, malformedAuthorityOrPort } = parseWithStatus(uri, opts);
-      return {
-        normalized: malformedAuthorityOrPort ? uri : serialize(parsed, opts),
-        malformedAuthorityOrPort
-      };
-    }
-    function normalizeComparableURI(uri, opts) {
-      if (typeof uri === "string") {
-        const { normalized, malformedAuthorityOrPort } = normalizeStringWithStatus(uri, opts);
-        return malformedAuthorityOrPort ? void 0 : normalized;
-      }
-      if (typeof uri === "object") {
-        return serialize(uri, opts);
-      }
+      return parsed;
     }
     var fastUri = {
       SCHEMES,
@@ -21325,7 +21187,7 @@ function expand_(str, max, isTop) {
       }
       const pad = n.some(isPadded);
       N = [];
-      for (let i = x; test(i, y) && N.length < max; i += incr) {
+      for (let i = x; test(i, y); i += incr) {
         let c;
         if (isAlphaSequence) {
           c = String.fromCharCode(i);
@@ -22139,7 +22001,7 @@ var AST = class {
 _a = AST;
 
 // node_modules/minimatch/dist/esm/escape.js
-var escape = (s, { windowsPathsNoEscape = false, magicalBraces = false } = {}) => {
+var escape2 = (s, { windowsPathsNoEscape = false, magicalBraces = false } = {}) => {
   if (magicalBraces) {
     return windowsPathsNoEscape ? s.replace(/[?*()[\]{}]/g, "[$&]") : s.replace(/[?*()[\]\\{}]/g, "\\$&");
   }
@@ -22952,7 +22814,7 @@ var Minimatch = class {
 };
 minimatch.AST = AST;
 minimatch.Minimatch = Minimatch;
-minimatch.escape = escape;
+minimatch.escape = escape2;
 minimatch.unescape = unescape2;
 
 // node_modules/glob/dist/esm/glob.js
@@ -27209,7 +27071,7 @@ var glob = Object.assign(glob_, {
   iterateSync,
   Glob,
   hasMagic,
-  escape,
+  escape: escape2,
   unescape: unescape2
 });
 glob.glob = glob;
@@ -27606,7 +27468,7 @@ async function atomicWriteJson(filePath, value) {
 }
 
 // src/tools/knowledge-search.ts
-import { join as join6 } from "path";
+import { join as join7 } from "path";
 
 // src/tools/embeddings.ts
 import { promises as fs6 } from "fs";
@@ -27841,6 +27703,55 @@ function validateAiBlock(type, block) {
   return schema.required.filter((f) => !block[f] || !block[f].trim());
 }
 
+// src/tools/project-registry.ts
+import { readFileSync } from "fs";
+import { join as join6 } from "path";
+function loadRegistry2(brainDir2) {
+  let text;
+  try {
+    text = readFileSync(join6(brainDir2, "projects.jsonl"), "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s);
+      if (r && typeof r.slug === "string" && r.slug) out.push(r);
+    } catch {
+    }
+  }
+  return out;
+}
+function projectFamily(brainDir2, slug) {
+  const recs = loadRegistry2(brainDir2);
+  const self = recs.find((r) => r.slug === slug);
+  const root = self?.parent ?? slug;
+  const fam = /* @__PURE__ */ new Set([slug, root]);
+  for (const r of recs) if ((r.parent ?? r.slug) === root) fam.add(r.slug);
+  return fam;
+}
+function resolveSlugByPath(brainDir2, dir) {
+  const norm = (p) => {
+    let s = cleanEnvPath(p).replace(/\\/g, "/");
+    const drive = s.match(/^([A-Za-z]):\//);
+    if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
+    return s.replace(/\/+$/, "");
+  };
+  const target = norm(dir);
+  let best;
+  for (const r of loadRegistry2(brainDir2)) {
+    if (!r.root_path) continue;
+    const rp = norm(r.root_path);
+    if (target === rp || target.startsWith(rp + "/")) {
+      if (!best || rp.length > best.len) best = { slug: r.slug, len: rp.length };
+    }
+  }
+  return best?.slug;
+}
+
 // src/tools/knowledge-search.ts
 function aiBlockText(doc) {
   return doc.aiBlock ? Object.values(doc.aiBlock).join(" ") : "";
@@ -27868,8 +27779,8 @@ function graphNeighbourhood(seeds, edges, hops) {
   return reached;
 }
 function accessCountsFile() {
-  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join6(process.env.HOME ?? "", ".second-brain");
-  return join6(brain, "access-counts.json");
+  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join7(process.env.HOME ?? "", ".second-brain");
+  return join7(brain, "access-counts.json");
 }
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -27900,15 +27811,15 @@ var STUB_PENALTY = 0.5;
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
-  const knowledgeDir = args.knowledgeDir ?? join6(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join6(knowledgeDir, "wiki");
+  const knowledgeDir = args.knowledgeDir ?? join7(process.env.HOME ?? "", "knowledge");
+  const wikiRoot = join7(knowledgeDir, "wiki");
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
-    scopeDirs = [join6(wikiRoot, args.scope)];
+    scopeDirs = [join7(wikiRoot, args.scope)];
   } else {
     try {
       const entries = await fs8.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join6(wikiRoot, d.name));
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join7(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -27977,7 +27888,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const boostAccum = /* @__PURE__ */ new Map();
   let graphEdges = [];
   try {
-    const recs = await loadEdges(join6(knowledgeDir, "graph", "edges.jsonl"));
+    const recs = await loadEdges(join7(knowledgeDir, "graph", "edges.jsonl"));
     if (recs.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
@@ -28089,6 +28000,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
   if (scopeOn) {
     const slug = args.projectSlug;
+    const family = args.brainDir ? projectFamily(args.brainDir, slug) : /* @__PURE__ */ new Set([slug]);
     const projBySlug = new Map(
       allDocs.filter((d) => d.source === "wiki").map((d) => [slugFromPath(d.doc.path), d.doc.project ?? ""])
     );
@@ -28101,7 +28013,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       }
       const sl = slugFromPath(s.path);
       const proj = projBySlug.get(sl) ?? "";
-      s.tier = proj === slug ? 1 : neigh.has(sl) ? 2 : proj === "" ? 3 : 4;
+      s.tier = proj === slug ? 1 : proj !== "" && family.has(proj) ? 2 : neigh.has(sl) ? 3 : proj === "" ? 4 : 5;
     }
   }
   scored.sort((a, b) => scopeOn ? a.tier - b.tier || b.score - a.score : b.score - a.score);
@@ -28110,7 +28022,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const passesFloor = (c) => embeddingsActive ? c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO) : c.score > 0 && (topBase === 0 || c.baseScore >= topBase * MIN_SCORE_RATIO);
   let pool = scored;
   if (scopeOn) {
-    const inScope = scored.filter((s) => s.tier <= 3);
+    const inScope = scored.filter((s) => s.tier <= 4);
     pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
   }
   const returned = pool.filter(passesFloor).slice(0, TOP_K);
@@ -28276,7 +28188,7 @@ function slugFromPath(p) {
 }
 async function collectMarkdown(dir, acc = []) {
   for (const e of await fs8.readdir(dir, { withFileTypes: true })) {
-    const p = join6(dir, e.name);
+    const p = join7(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
   }
@@ -28285,7 +28197,7 @@ async function collectMarkdown(dir, acc = []) {
 
 // src/tools/knowledge-fetch.ts
 import { promises as fs9 } from "fs";
-import { join as join7, relative as relative2, isAbsolute as isAbsolute2 } from "path";
+import { join as join8, relative as relative2, isAbsolute as isAbsolute2 } from "path";
 function headings(body) {
   return body.split("\n").filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
 }
@@ -28302,8 +28214,8 @@ function summarySection(body) {
 }
 async function knowledgeFetch(args) {
   const tier = args.tier ?? "gist";
-  const knowledgeDir = args.knowledgeDir ?? join7(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join7(knowledgeDir, "wiki");
+  const knowledgeDir = args.knowledgeDir ?? join8(process.env.HOME ?? "", "knowledge");
+  const wikiRoot = join8(knowledgeDir, "wiki");
   try {
     validateSlug(args.slug);
   } catch (e) {
@@ -28320,7 +28232,7 @@ async function knowledgeFetch(args) {
     }
     throw e;
   }
-  const matches = (await glob(`**/${escape(args.slug)}.md`, { cwd: wikiRoot, absolute: true }).catch(() => [])).sort();
+  const matches = (await glob(`**/${escape2(args.slug)}.md`, { cwd: wikiRoot, absolute: true }).catch(() => [])).sort();
   const filePath = matches.find((p) => {
     try {
       const rel = relative2(wikiRoot, p);
@@ -28388,11 +28300,11 @@ async function knowledgeFetch(args) {
 
 // src/tools/knowledge-reindex.ts
 import { promises as fs12 } from "fs";
-import { basename as basename2, join as join10 } from "path";
+import { basename as basename2, join as join11 } from "path";
 
 // src/tools/knowledge-validate.ts
 import { promises as fs10 } from "fs";
-import { join as join8, basename, dirname as dirname2, relative as relative3 } from "path";
+import { join as join9, basename, dirname as dirname2, relative as relative3 } from "path";
 
 // node_modules/js-yaml/dist/js-yaml.mjs
 var __create2 = Object.create;
@@ -30793,10 +30705,10 @@ var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
 var REQUIRED_FM_FIELDS = ["title", "description", "type", "created", "updated", "tags", "related"];
 var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
-  const wikiDir = join8(knowledgeDir, "wiki");
+  const wikiDir = join9(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
-  const graphEnabled = (await loadEdges(join8(knowledgeDir, "graph", "edges.jsonl"))).length > 0;
+  const graphEnabled = (await loadEdges(join9(knowledgeDir, "graph", "edges.jsonl"))).length > 0;
   const allPages = await collectAllPages(wikiDir);
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
@@ -30901,7 +30813,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     }
   }
   try {
-    const edgeRecords = await loadEdges(join8(knowledgeDir, "graph", "edges.jsonl"));
+    const edgeRecords = await loadEdges(join9(knowledgeDir, "graph", "edges.jsonl"));
     if (edgeRecords.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       const current = foldToCurrent(edgeRecords).filter((e) => validAt(e, nowIso));
@@ -30949,7 +30861,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     const rootFiles = await fs10.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        const rootPath = join8(knowledgeDir, entry.name);
+        const rootPath = join9(knowledgeDir, entry.name);
         issues.push({
           type: "root_orphan",
           severity: "error",
@@ -31201,7 +31113,7 @@ async function collectAllPages(dir, acc = []) {
   try {
     const entries = await fs10.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
-      const p = join8(dir, e.name);
+      const p = join9(dir, e.name);
       if (e.isDirectory()) await collectAllPages(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -31212,7 +31124,7 @@ async function collectAllPages(dir, acc = []) {
 
 // src/tools/graph-project.ts
 import { promises as fs11 } from "fs";
-import { join as join9 } from "path";
+import { join as join10 } from "path";
 var BEGIN = "<!-- graph:begin (generated from ~/knowledge/graph/edges.jsonl \u2014 do not hand-edit) -->";
 var END = "<!-- graph:end -->";
 var TYPE_LABEL = {
@@ -31230,10 +31142,10 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 async function projectGraphToPages(knowledgeDir) {
-  const records = await loadEdges(join9(knowledgeDir, "graph", "edges.jsonl"));
+  const records = await loadEdges(join10(knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { pagesUpdated: 0 };
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  const wikiRoot = join9(knowledgeDir, "wiki");
+  const wikiRoot = join10(knowledgeDir, "wiki");
   const files = await glob("**/*.md", { cwd: wikiRoot, absolute: true });
   const livePages = new Set(files.map(slugFromPath2));
   await Promise.all(files.map(async (f) => {
@@ -31350,8 +31262,8 @@ async function knowledgeReindex(knowledgeDir) {
     await projectGraphToPages(knowledgeDir);
   } catch {
   }
-  const wikiRoot = join10(knowledgeDir, "wiki");
-  const indexPath = join10(wikiRoot, "index.md");
+  const wikiRoot = join11(knowledgeDir, "wiki");
+  const indexPath = join11(wikiRoot, "index.md");
   let dirs;
   try {
     const entries = await fs12.readdir(wikiRoot, { withFileTypes: true });
@@ -31364,7 +31276,7 @@ async function knowledgeReindex(knowledgeDir) {
   let totalPages = 0;
   for (const dir of dirs) {
     if (dir === "projects") continue;
-    const dirPath = join10(wikiRoot, dir);
+    const dirPath = join11(wikiRoot, dir);
     const files = await collectMd(dirPath);
     if (files.length === 0) continue;
     const entries = [];
@@ -31389,12 +31301,12 @@ async function knowledgeReindex(knowledgeDir) {
   const rawMin = Number(process.env.SB_MOC_MIN_MEMBERS);
   const minMembers = Number.isFinite(rawMin) && rawMin >= 1 ? rawMin : 3;
   const mocs = process.env.SB_KB_MOC === "off" ? /* @__PURE__ */ new Map() : buildProjectMocs(allPages, { minMembers });
-  const projDir = join10(wikiRoot, "projects");
+  const projDir = join11(wikiRoot, "projects");
   if (mocs.size > 0) await fs12.mkdir(projDir, { recursive: true });
   for (const existing of await mocSlugs(projDir)) {
     if (!mocs.has(existing)) {
       try {
-        await fs12.unlink(join10(projDir, `${existing}.md`));
+        await fs12.unlink(join11(projDir, `${existing}.md`));
       } catch {
       }
     }
@@ -31410,7 +31322,7 @@ async function knowledgeReindex(knowledgeDir) {
       "---",
       ""
     ].join("\n");
-    await fs12.writeFile(join10(projDir, `${proj}.md`), header + region + "\n", "utf-8");
+    await fs12.writeFile(join11(projDir, `${proj}.md`), header + region + "\n", "utf-8");
   }
   const sections = [
     "---",
@@ -31424,7 +31336,7 @@ async function knowledgeReindex(knowledgeDir) {
   ];
   const mocLinks = [];
   for (const slug of await mocSlugs(projDir)) mocLinks.push(`- [[projects/${slug}]]`);
-  for (const slug of await mocSlugs(join10(wikiRoot, "themes"))) mocLinks.push(`- [[themes/${slug}]]`);
+  for (const slug of await mocSlugs(join11(wikiRoot, "themes"))) mocLinks.push(`- [[themes/${slug}]]`);
   if (mocLinks.length) sections.push("## Maps of Content", "", ...mocLinks, "");
   if (categoryRows.length) sections.push("## Categories", "", ...categoryRows, "");
   if (totalPages === 0 && mocLinks.length === 0) sections.push("*(no pages yet)*", "");
@@ -31453,7 +31365,7 @@ async function mocSlugs(dir) {
 async function collectMd(dir, acc = []) {
   try {
     for (const e of await fs12.readdir(dir, { withFileTypes: true })) {
-      const p = join10(dir, e.name);
+      const p = join11(dir, e.name);
       if (e.isDirectory()) await collectMd(p, acc);
       else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
     }
@@ -31464,19 +31376,51 @@ async function collectMd(dir, acc = []) {
 
 // src/tools/dream.ts
 import { promises as fs13 } from "fs";
-import { join as join11 } from "path";
+
+// src/tools/project-dir.ts
+import { basename as basename3, join as join12 } from "path";
+import { readFileSync as readFileSync2, existsSync } from "fs";
+function slugFromProjectDir(dir) {
+  if (!dir) return void 0;
+  const base = basename3(cleanEnvPath(dir));
+  if (!base || base === "/" || base === "." || base === "..") return void 0;
+  if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
+  return base;
+}
+function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
+  if (env.CLAUDE_PROJECT_DIR) {
+    const byPath = resolveSlugByPath(brainDir2, env.CLAUDE_PROJECT_DIR);
+    if (byPath) return byPath;
+    const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
+    if (fromEnv) return fromEnv;
+  }
+  const here = cwd();
+  const byCwdPath = resolveSlugByPath(brainDir2, here);
+  if (byCwdPath) return byCwdPath;
+  const cwdSlug = slugFromProjectDir(here);
+  if (cwdSlug && existsSync(join12(brainDir2, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
+  try {
+    const pin = readFileSync2(join12(brainDir2, ".active-session-slug"), "utf-8").trim();
+    if (pin && existsSync(join12(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
+  } catch {
+  }
+  return cwdSlug;
+}
+
+// src/tools/dream.ts
+import { join as join13 } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 var exec = promisify(execFile);
 function brainDir() {
-  return join11(cleanEnvPath(process.env.HOME), ".second-brain");
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join13(cleanEnvPath(process.env.HOME), ".second-brain");
 }
 function dreamsDir() {
-  return join11(brainDir(), "dreams");
+  return join13(brainDir(), "dreams");
 }
 function scriptsDir() {
-  return join11(
-    cleanEnvPath(process.env.CLAUDE_PLUGIN_ROOT) || join11(__dirname, "..", ".."),
+  return join13(
+    cleanEnvPath(process.env.CLAUDE_PLUGIN_ROOT) || join13(__dirname, "..", ".."),
     "scripts"
   );
 }
@@ -31487,7 +31431,7 @@ function toBashPath(p) {
   return s;
 }
 async function readStatus(dreamId) {
-  const statusPath = join11(dreamsDir(), dreamId, "status.json");
+  const statusPath = join13(dreamsDir(), dreamId, "status.json");
   try {
     const raw = await fs13.readFile(statusPath, "utf-8");
     return JSON.parse(raw);
@@ -31496,7 +31440,7 @@ async function readStatus(dreamId) {
   }
 }
 async function writeStatus(dreamId, status) {
-  const statusPath = join11(dreamsDir(), dreamId, "status.json");
+  const statusPath = join13(dreamsDir(), dreamId, "status.json");
   await atomicWriteJson(statusPath, status);
 }
 async function listDreamIds() {
@@ -31508,42 +31452,39 @@ async function listDreamIds() {
     return [];
   }
 }
-async function dreamCreate(args) {
-  const scriptArgs = [];
-  if (args.instructions) {
-    if (args.instructions.length > 4096) {
-      return {
-        ok: false,
-        dream: null,
-        reason: "instructions exceed 4096 char limit"
-      };
-    }
-    scriptArgs.push("--instructions", args.instructions);
+function buildSnapshotArgs(args, activeSlug, family) {
+  const out = [];
+  if (args.instructions) out.push("--instructions", args.instructions);
+  const requested = args.transcript_filter?.project_slug;
+  if (requested === "all") {
+  } else if (args.transcript_filter?.family && family && family.size) {
+    for (const s of [...family].sort()) out.push("--slug", s);
+  } else {
+    const scope = requested ?? activeSlug;
+    if (scope) out.push("--slug", scope);
   }
-  if (args.transcript_filter?.project_slug) {
-    scriptArgs.push("--slug", args.transcript_filter.project_slug);
-  }
-  if (args.transcript_filter?.since) {
-    scriptArgs.push("--since", args.transcript_filter.since);
-  }
+  if (args.transcript_filter?.since) out.push("--since", args.transcript_filter.since);
   const maxCount = Math.min(args.transcript_filter?.max_count ?? 50, 100);
-  scriptArgs.push("--max-count", String(maxCount));
-  if (args.model) {
-    scriptArgs.push("--model", args.model);
+  out.push("--max-count", String(maxCount));
+  if (args.model) out.push("--model", args.model);
+  return out;
+}
+async function dreamCreate(args) {
+  if (args.instructions && args.instructions.length > 4096) {
+    return { ok: false, dream: null, reason: "instructions exceed 4096 char limit" };
   }
+  const activeSlug = resolveActiveSlug(brainDir());
+  const family = activeSlug ? projectFamily(brainDir(), activeSlug) : void 0;
+  const scriptArgs = buildSnapshotArgs(args, activeSlug, family);
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [toBashPath(join11(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
+      [toBashPath(join13(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
       { timeout: 3e4, env: { ...process.env } }
     );
     const dreamId = stdout.trim();
     if (!dreamId.startsWith("drm_")) {
-      return {
-        ok: false,
-        dream: null,
-        reason: stderr.trim() || "dream-snapshot.sh failed"
-      };
+      return { ok: false, dream: null, reason: stderr.trim() || "dream-snapshot.sh failed" };
     }
     const status = await readStatus(dreamId);
     return { ok: true, dream: status };
@@ -31562,7 +31503,7 @@ async function dreamStatus(args) {
   }
   let diffPreview;
   if (status.status === "completed") {
-    const diffPath = join11(dreamsDir(), args.dream_id, "diff.md");
+    const diffPath = join13(dreamsDir(), args.dream_id, "diff.md");
     try {
       const content = await fs13.readFile(diffPath, "utf-8");
       const lines = content.split("\n");
@@ -31598,7 +31539,7 @@ async function dreamAccept(args) {
   try {
     const { stdout, stderr } = await exec(
       "bash",
-      [toBashPath(join11(scriptsDir(), "dream-accept.sh")), args.dream_id],
+      [toBashPath(join13(scriptsDir(), "dream-accept.sh")), args.dream_id],
       { timeout: 3e4, env: { ...process.env } }
     );
     const output = stdout.trim();
@@ -31625,10 +31566,10 @@ async function dreamDiscard(args) {
   if (status.archived_at) {
     return { ok: false, reason: `dream ${args.dream_id} already archived` };
   }
-  const dreamDir = join11(dreamsDir(), args.dream_id);
+  const dreamDir = join13(dreamsDir(), args.dream_id);
   try {
-    await fs13.rm(join11(dreamDir, "staging"), { recursive: true, force: true });
-    await fs13.rm(join11(dreamDir, "transcripts"), {
+    await fs13.rm(join13(dreamDir, "staging"), { recursive: true, force: true });
+    await fs13.rm(join13(dreamDir, "transcripts"), {
       recursive: true,
       force: true
     });
@@ -31657,7 +31598,7 @@ async function dreamCancel(args) {
 
 // src/tools/episodic-search.ts
 import { promises as fs14 } from "fs";
-import { join as join12, basename as basename4, relative as relative5, isAbsolute as isAbsolute3 } from "path";
+import { join as join14, basename as basename5, relative as relative5, isAbsolute as isAbsolute3 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -31681,7 +31622,7 @@ function parseSessionMeta(lines) {
   return { meta, bodyStart: i };
 }
 async function loadIndex(brainDir2) {
-  const indexPath = join12(brainDir2, INDEX_FILE);
+  const indexPath = join14(brainDir2, INDEX_FILE);
   try {
     const data = await fs14.readFile(indexPath, "utf-8");
     return JSON.parse(data);
@@ -31746,7 +31687,7 @@ async function vectorSearch(query, index, limit, filters, brainDir2) {
   if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
   const queryEmbedding = await embedTexts(
     [query],
-    join12(brainDir2, "transcripts"),
+    join14(brainDir2, "transcripts"),
     [""]
   );
   if (!queryEmbedding) return { hits: [], unavailable: true };
@@ -31789,7 +31730,7 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   }
   const conceptEmbeddings = await embedTexts(
     concepts,
-    join12(brainDir2, "transcripts"),
+    join14(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
   if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
@@ -31851,7 +31792,7 @@ function scopeAndBroaden(ranked, args) {
   return inScope.length >= minHits ? inScope : ranked;
 }
 function assertTranscriptPath(brainDir2, filePath) {
-  const base = join12(brainDir2, "transcripts");
+  const base = join14(brainDir2, "transcripts");
   const rel = isAbsolute3(filePath) ? relative5(base, filePath) : filePath;
   return assertWithin(base, rel);
 }
@@ -31873,11 +31814,11 @@ async function episodicRead(filePath, startLine, endLine) {
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
 import { promises as fs15 } from "fs";
-import { join as join13, dirname as dirname3 } from "path";
+import { join as join15, dirname as dirname3 } from "path";
 function opusLedgerPath(brainDir2) {
   if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
   const bd = brainDir2 ?? (process.env.SB_BRAIN_DIR ?? `${process.env.HOME ?? "~"}/.second-brain`);
-  return join13(bd, "opus-budget.json");
+  return join15(bd, "opus-budget.json");
 }
 async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
   const callCost = inputTokens / 1e6 * 5 + outputTokens / 1e6 * 25;
@@ -32018,7 +31959,7 @@ ${args.prompt}` : args.prompt;
   }
 }
 async function readBudget(brainDir2) {
-  const file = join13(brainDir2, "persona-budget.json");
+  const file = join15(brainDir2, "persona-budget.json");
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   try {
     const txt = await fs15.readFile(file, "utf-8");
@@ -32033,19 +31974,19 @@ async function recordSpend(brainDir2, usd) {
   const next = { date: current.date, today_usd: current.today_usd + usd };
   await fs15.mkdir(brainDir2, { recursive: true }).catch(() => {
   });
-  await fs15.writeFile(join13(brainDir2, "persona-budget.json"), JSON.stringify(next));
+  await fs15.writeFile(join15(brainDir2, "persona-budget.json"), JSON.stringify(next));
   return next;
 }
 
 // src/tools/persona-stats.ts
 import { promises as fs16 } from "fs";
-import { join as join14 } from "path";
+import { join as join16 } from "path";
 async function personaStats(args = {}) {
-  const dir = args.brainDir ?? join14(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
+  const dir = args.brainDir ?? join16(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
   let identity2 = "";
   let cardBytes = 0;
   try {
-    const card = await fs16.readFile(join14(dir, "persona-card.md"), "utf-8");
+    const card = await fs16.readFile(join16(dir, "persona-card.md"), "utf-8");
     cardBytes = Buffer.byteLength(card, "utf-8");
     identity2 = card.split("\n").filter((l) => l.startsWith("- ")).slice(0, 3).map((l) => l.slice(2).trim()).join("; ");
   } catch {
@@ -32053,7 +31994,7 @@ async function personaStats(args = {}) {
   let ungraduated = 0;
   let graduated = 0;
   try {
-    const psl = await fs16.readFile(join14(dir, "persona-signals.jsonl"), "utf-8");
+    const psl = await fs16.readFile(join16(dir, "persona-signals.jsonl"), "utf-8");
     for (const line of psl.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -32067,7 +32008,7 @@ async function personaStats(args = {}) {
   }
   let plugins = 0, agents = 0, skills = 0;
   try {
-    const cat = JSON.parse(await fs16.readFile(join14(dir, ".installed-catalog.json"), "utf-8"));
+    const cat = JSON.parse(await fs16.readFile(join16(dir, ".installed-catalog.json"), "utf-8"));
     plugins = Array.isArray(cat.plugins) ? cat.plugins.length : 0;
     agents = Array.isArray(cat.agents) ? cat.agents.length : 0;
     skills = Array.isArray(cat.skills) ? cat.skills.length : 0;
@@ -32075,7 +32016,7 @@ async function personaStats(args = {}) {
   }
   let dismissals = 0;
   try {
-    const dl = await fs16.readFile(join14(dir, ".persona-dismissals.jsonl"), "utf-8");
+    const dl = await fs16.readFile(join16(dir, ".persona-dismissals.jsonl"), "utf-8");
     const cutoff = Date.now() - 7 * 864e5;
     for (const line of dl.split("\n")) {
       if (!line.trim()) continue;
@@ -32090,7 +32031,7 @@ async function personaStats(args = {}) {
   }
   let spend = 0;
   try {
-    const b = JSON.parse(await fs16.readFile(join14(dir, "persona-budget.json"), "utf-8"));
+    const b = JSON.parse(await fs16.readFile(join16(dir, "persona-budget.json"), "utf-8"));
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     if (b.date === today) spend = Number(b.today_usd) || 0;
   } catch {
@@ -32110,13 +32051,13 @@ async function personaStats(args = {}) {
 
 // src/tools/persona-dismiss.ts
 import { promises as fs17 } from "fs";
-import { join as join15 } from "path";
+import { join as join17 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
-  const dir = args.brainDir ?? join15(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
+  const dir = args.brainDir ?? join17(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
   await fs17.mkdir(dir, { recursive: true }).catch(() => {
   });
-  const file = join15(dir, ".persona-dismissals.jsonl");
+  const file = join17(dir, ".persona-dismissals.jsonl");
   const now = /* @__PURE__ */ new Date();
   const entry = {
     at: now.toISOString(),
@@ -32155,7 +32096,7 @@ async function personaDismiss(args = {}) {
 }
 
 // src/tools/knowledge-relate.ts
-import { join as join16 } from "path";
+import { join as join18 } from "path";
 var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ].*)?$/;
 async function knowledgeRelate(args) {
   try {
@@ -32169,7 +32110,7 @@ async function knowledgeRelate(args) {
   for (const [k, v] of [["valid_from", args.valid_from], ["valid_to", args.valid_to]]) {
     if (v !== void 0 && !ISO_DATE_RE.test(v)) return { ok: false, reason: `invalid ${k} (want YYYY-MM-DD): ${v}` };
   }
-  const logPath = join16(args.knowledgeDir, "graph", "edges.jsonl");
+  const logPath = join18(args.knowledgeDir, "graph", "edges.jsonl");
   if (args.invalidate) {
     const current = foldToCurrent(await loadEdges(logPath));
     const open = current.find((e) => e.from === args.from && e.to === args.to && e.type === args.type && e.valid_to === null);
@@ -32194,7 +32135,7 @@ async function knowledgeRelate(args) {
 }
 
 // src/tools/knowledge-neighbors.ts
-import { join as join17 } from "path";
+import { join as join19 } from "path";
 async function knowledgeNeighbors(args) {
   try {
     validateSlug(args.slug);
@@ -32202,7 +32143,7 @@ async function knowledgeNeighbors(args) {
     if (e instanceof PathGuardError) return { slug: args.slug, edges: [] };
     throw e;
   }
-  const records = await loadEdges(join17(args.knowledgeDir, "graph", "edges.jsonl"));
+  const records = await loadEdges(join19(args.knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { slug: args.slug, edges: [] };
   const current = foldToCurrent(records);
   const edges = neighbors(current, args.slug, {
@@ -32212,31 +32153,6 @@ async function knowledgeNeighbors(args) {
     asOf: args.as_of
   });
   return { slug: args.slug, edges };
-}
-
-// src/tools/project-dir.ts
-import { basename as basename5, join as join18 } from "path";
-import { readFileSync, existsSync } from "fs";
-function slugFromProjectDir(dir) {
-  if (!dir) return void 0;
-  const base = basename5(cleanEnvPath(dir));
-  if (!base || base === "/" || base === "." || base === "..") return void 0;
-  if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
-  return base;
-}
-function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
-  if (env.CLAUDE_PROJECT_DIR) {
-    const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
-    if (fromEnv) return fromEnv;
-  }
-  const cwdSlug = slugFromProjectDir(cwd());
-  if (cwdSlug && existsSync(join18(brainDir2, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
-  try {
-    const pin = readFileSync(join18(brainDir2, ".active-session-slug"), "utf-8").trim();
-    if (pin && existsSync(join18(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
-  } catch {
-  }
-  return cwdSlug;
 }
 
 // src/nested-spawn-guard.ts
@@ -32507,7 +32423,8 @@ server.registerTool(
       transcript_filter: external_exports.object({
         project_slug: external_exports.string().optional().describe("Only include transcripts from this project"),
         since: external_exports.string().optional().describe("Only include transcripts since this ISO date (YYYY-MM-DD)"),
-        max_count: external_exports.number().optional().describe("Max transcripts to include (default 50, max 100)")
+        max_count: external_exports.number().optional().describe("Max transcripts to include (default 50, max 100)"),
+        family: external_exports.boolean().optional().describe("Mine the whole monorepo family \u2014 the active project's root + siblings, from projects.jsonl. 'all' (project_slug) wins if both are set.")
       }).optional(),
       model: external_exports.string().optional().describe("Model for consolidation. Default: claude-sonnet-4-6")
     }

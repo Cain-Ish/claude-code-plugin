@@ -21,9 +21,10 @@ WIKI="$KDIR/wiki"; EDGES="$KDIR/graph/edges.jsonl"
 command -v jq >/dev/null 2>&1 || exit 0
 
 # Neighbors: the other endpoint of any current (valid_to==null) edge touching SLUG.
+# tr -d '\r': Windows jq emits CRLF; strip CR so slugs match filenames.
 NBRS=$(jq -rn --arg s "$SLUG" 'reduce inputs as $r ({}; .[([$r.from,$r.type,$r.to]|tojson)]=$r) | [.[]]
   | map(select(.valid_to==null and (.from==$s or .to==$s)))
-  | .[] | (if .from==$s then .to else .from end)' < "$EDGES" 2>/dev/null | sort -u)
+  | .[] | (if .from==$s then .to else .from end)' < "$EDGES" 2>/dev/null | tr -d '\r' | sort -u)
 [ -n "$NBRS" ] || exit 0
 
 proj_of() { # <slug> → its project: facet (empty if none)

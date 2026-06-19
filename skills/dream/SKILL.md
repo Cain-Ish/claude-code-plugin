@@ -32,7 +32,9 @@ On invocation, check current state via `dream_list` and act accordingly:
    - Remaining text after flags = instructions for the dream
 2. Call `dream_create` with:
    - `instructions`: from args or empty
-   - `transcript_filter`: default (all transcripts, max 50)
+   - `transcript_filter`: omit `project_slug` → the **active project** (leaf); `project_slug: "all"`
+     → every project; `family: true` → the whole **monorepo family** (the active project's root +
+     siblings, from `projects.jsonl`). `"all"` wins if both are set.
 3. Report dream ID and transcript count
 4. If BACKGROUND=true → spawn dream-runner agent with `run_in_background: true`, passing the dream_id. Report that dream is running in background and user will be notified on completion. Stop here.
 5. If inline → proceed to Execution phase

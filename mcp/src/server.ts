@@ -308,6 +308,7 @@ server.registerTool(
         project_slug: z.string().optional().describe("Only include transcripts from this project"),
         since: z.string().optional().describe("Only include transcripts since this ISO date (YYYY-MM-DD)"),
         max_count: z.number().optional().describe("Max transcripts to include (default 50, max 100)"),
+        family: z.boolean().optional().describe("Mine the whole monorepo family — the active project's root + siblings, from projects.jsonl. 'all' (project_slug) wins if both are set."),
       }).optional(),
       model: z.string().optional().describe("Model for consolidation. Default: claude-sonnet-4-6"),
     },

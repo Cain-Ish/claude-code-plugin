@@ -260,4 +260,23 @@ describe('SP-1 project-scoped serving', () => {
     expect(paths).toContain(localNotes);     // alpha's own local-doc is served (tier 1)
     expect(paths).not.toContain(betaNotes);  // the beta wiki page must NOT leak into alpha scope
   });
+
+  it('SP-1 family: a sibling project page is in-scope, an unrelated project is dropped', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-family-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = (s: string, project: string, body: string) =>
+      fsp.writeFile(join(dir, 'wiki', 'learnings', `${s}.md`),
+        `---\ntitle: ${s}\ntype: learnings\n${project ? `project: ${project}\n` : ''}description: ${body}\n---\n\n# ${s}\n\n${body} ${'detail '.repeat(40)}\n`);
+    await w('own',     'acme__api', 'shared shibboleth token');
+    await w('sibling', 'acme__web', 'shared shibboleth token');
+    await w('global',  '',          'shared shibboleth token');
+    await w('foreign', 'unrelated', 'shared shibboleth token');
+    await fsp.writeFile(join(dir, 'projects.jsonl'),
+      '{"slug":"acme"}\n{"slug":"acme__api","parent":"acme"}\n{"slug":"acme__web","parent":"acme"}\n{"slug":"unrelated"}\n');
+    const r = await knowledgeSearch({ query: 'shibboleth token', projectSlug: 'acme__api', knowledgeDir: dir, brainDir: dir });
+    const paths = r.candidates.map(c => c.path);
+    expect(paths.some(p => /sibling/.test(p))).toBe(true);   // family member in-scope
+    expect(paths.some(p => /foreign/.test(p))).toBe(false);  // unrelated project dropped
+    expect(slugs(r).some(s => /global/.test(s))).toBe(true);   // global pages stay in-scope (tier 4)
+  });
 });

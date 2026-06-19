@@ -20,6 +20,16 @@ setup() {
   source "$REPO_ROOT/scripts/lib.sh"
 }
 
+# True only if this filesystem creates REAL symlinks (Windows/Git-Bash without Developer Mode
+# silently makes a file copy). The dream-accept escape guard can only be exercised where symlinks
+# are real; the guard itself is OS-agnostic and unchanged.
+supports_symlinks() {
+  local d; d=$(mktemp -d)
+  echo t > "$d/t.txt"; ln -s "$d/t.txt" "$d/l.txt" 2>/dev/null
+  local ok=1; [ -L "$d/l.txt" ] && ok=0
+  rm -rf "$d"; return $ok
+}
+
 # Seed a wiki with some test pages
 seed_wiki() {
   cat > "$HOME/knowledge/wiki/entities/test-entity.md" <<'EOF'
@@ -167,6 +177,7 @@ ARCHIVED=$(jq -r '.archived_at' "$BRAIN_DIR/dreams/$DID/status.json")
 [ ! -d "$BRAIN_DIR/dreams/$DID/staging" ] || fail "staging should be cleaned up after accept"
 pass "accept: applies changes and archives dream"
 
+if supports_symlinks; then
 # --- Subtest 5b (C hardening): a staged OUT-OF-TREE symlink (the escape vector) is REFUSED
 setup "accept-symlink-escape"
 seed_wiki; seed_transcripts
@@ -288,6 +299,11 @@ OUT=$(bash "$REPO_ROOT/scripts/dream-accept.sh" "$DID" 2>&1); RC=$?
 [ "$RC" -ne 0 ] || fail "spaced-name escape NOT refused (rc=$RC: $OUT)"
 echo "$OUT" | grep -qF 'a b.md' || fail "refusal message split the spaced path (want 'a b.md' intact, got: $OUT)"
 pass "refusal message shows a spaced escape path intact (read line-by-line, not word-split)"
+
+else
+  echo "SKIP: symlink-dependent accept subtests (5b-5i) — filesystem does not support real symlinks (Windows without Developer Mode); the dream-accept escape/alias guards are exercised on Unix/macOS/Linux"
+  pass "symlink-dependent accept guards not exercised here (no symlink support)"
+fi
 
 # --- Subtest 6: dream_set_status helper
 setup "set-status"
