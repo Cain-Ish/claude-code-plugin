@@ -1594,9 +1594,19 @@ sb_auto_memory_state() {
       *)     path="" ;;  # neither absolute nor ~/ — ignore, use default
     esac
   fi
+  # Helper: normalize a git-returned path to the shell's native POSIX form.
+  # On Windows/MSYS2, git rev-parse may return C:/foo while `cd && pwd` returns
+  # /c/foo; converting via `cd && pwd` makes the result match $TMP/$HOME etc.
+  _sb_am_normpath() {
+    local p="$1"
+    [ -z "$p" ] && return 0
+    local norm; norm=$(cd "$p" 2>/dev/null && pwd) && printf '%s' "$norm" || printf '%s' "$p"
+  }
+
   if [ -z "$path" ]; then
     local project_root dashed
-    project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
+    project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null | tr -d '\r' || true)
+    [ -n "$project_root" ] && project_root=$(_sb_am_normpath "$project_root")
     [ -z "$project_root" ] && project_root="$PWD"   # outside a git repo: use cwd
     dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
     path="$home/.claude/projects/$dashed/memory"
@@ -1612,7 +1622,8 @@ sb_auto_memory_state() {
   case "$path" in
     *[!\ /A-Za-z0-9._~-]*)
       local project_root dashed
-      project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)
+      project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null | tr -d '\r' || true)
+      [ -n "$project_root" ] && project_root=$(_sb_am_normpath "$project_root")
       [ -z "$project_root" ] && project_root="$PWD"
       dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
       path="$home/.claude/projects/$dashed/memory"

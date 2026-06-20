@@ -37,7 +37,7 @@ if [ -f "$MP" ] && command -v jq >/dev/null 2>&1; then
     fi
     INST_VER=$(jq -r --arg n "$P_NAME" \
       '[.plugins | to_entries[] | select(.key | startswith($n + "@")) | .value[].version] | sort | last // ""' \
-      "$IPJ" 2>/dev/null)
+      "$IPJ" 2>/dev/null | tr -d '\r')
     if [ -z "$INST_VER" ] || [ "$INST_VER" = "null" ]; then
       say "MISSING: $P_NAME shipped ($P_VER) but not deployed — not in installed_plugins.json"
     elif [ "$INST_VER" != "$P_VER" ]; then
@@ -46,7 +46,7 @@ if [ -f "$MP" ] && command -v jq >/dev/null 2>&1; then
       say "OK: $P_NAME deployed at $P_VER"
     fi
   done <<EOF_PLUGINS
-$(jq -r '.plugins[] | [.name, .version] | @tsv' "$MP" 2>/dev/null)
+$(jq -r '.plugins[] | [.name, .version] | @tsv' "$MP" 2>/dev/null | tr -d '\r')
 EOF_PLUGINS
 else
   say "MISSING: marketplace.json or jq unavailable — deployment probe skipped"

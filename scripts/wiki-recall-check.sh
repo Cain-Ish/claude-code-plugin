@@ -69,7 +69,7 @@ while IFS= read -r line; do
   while IFS= read -r exp; do
     [ -z "$exp" ] && continue
     printf '%s\n' "$got" | grep -qxF "$exp" && { hit=1; break; }
-  done < <(printf '%s' "$line" | jq -r '.expect[]')
+  done < <(printf '%s' "$line" | jq -r '.expect[]' | tr -d '\r')
   [ "$hit" -eq 1 ] && hits=$(( hits + 1 )) || misses="$misses '$q'"
 done < "$QUERIES"
 
