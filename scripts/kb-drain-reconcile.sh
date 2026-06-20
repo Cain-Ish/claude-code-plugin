@@ -56,7 +56,7 @@ while IFS= read -r node_path; do
 
     # Find the raw item file.
     raw_file=""
-    for rdir in "${raw_dirs[@]}"; do
+    for rdir in ${raw_dirs[@]+"${raw_dirs[@]}"}; do
       [ -f "$rdir/${raw_id}.md" ] && { raw_file="$rdir/${raw_id}.md"; break; }
     done
     if [ -z "$raw_file" ]; then
