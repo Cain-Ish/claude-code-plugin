@@ -289,7 +289,24 @@ The raw inbox (`~/.second-brain/projects/<slug>/raw/`) holds **unprocessed** mat
 **conservatively** and with provenance. Same authoring discipline as Phase 4b: author only from the
 captured material + existing prose, **never invent** content.
 
-1. **Get the deterministic work-list** (drainable = unprocessed, well-formed; for the active project):
+### Resumability contract
+
+The drain is **resumable and idempotent**: `pending` only lists `status:unprocessed` items, and the
+reconcile script marks any node-backed item processed, so a truncated run is safely continued by
+re-running `/second-brain:maintain` — never restarted from scratch, never duplicated.
+
+**REQUIRED back-ref format** (reconcile depends on it — do not omit):
+```
+- captured from <source> (raw <id>)
+```
+
+1. **Sync prior truncated run first** — run reconcile BEFORE fetching `pending` so any node written
+   in a previous truncated run is marked processed and does not reappear in the work-list:
+   ```bash
+   bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-drain-reconcile.sh" --slug <active-slug>
+   ```
+
+2. **Get the deterministic work-list** (drainable = unprocessed, well-formed; for the active project):
    ```bash
    node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" pending
    ```
@@ -298,8 +315,9 @@ captured material + existing prose, **never invent** content.
    Foreign-origin items are also held back and flagged on stderr — the CLI refuses to mix another
    project's capture into this drain; re-capture them in the right project.)
 
-2. **For each item** (closed vocabulary — the 8 content categories `learnings decisions entities issues
-   concepts security state sources`; never invent a type or content):
+3. **For each item — process ONE item fully before starting the next** (closed vocabulary — the 8
+   content categories `learnings decisions entities issues concepts security state sources`; never
+   invent a type or content):
    - `Read` the item's `path`. **Binary items** (a `blob:` field in the frontmatter / a non-`text/*`
      `content_type` like `application/pdf`) have only a one-line *placeholder* in the `.md` body — the
      real bytes are in the sibling `<id>.<ext>` blob, which you cannot parse. Do **not** fabricate
@@ -317,9 +335,10 @@ captured material + existing prose, **never invent** content.
        facet taken from the item's `origin:` — the resource it was captured from; for a legacy item with
        no `origin:`, fall back to the active slug) + body authored from the material, then add an ai-block
        via the Phase 4b `ai-block-render-cli` path.
-   - **Provenance (forward):** add or extend a `## Sources` section on the node:
-     `- captured from <source> (raw <id>)` (use the item's `source` value — a path or URL).
-   - **Mark processed (back-ref):**
+   - **Provenance (forward — REQUIRED, reconcile depends on this exact format):** add or extend a
+     `## Sources` section on the node: `- captured from <source> (raw <id>)` (use the item's `source`
+     value — a path or URL). This back-ref is how reconcile finds the item; do not omit it.
+   - **Mark processed IMMEDIATELY after writing the node — before starting the next item. NEVER batch.**
      ```bash
      node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" process <id> --node <slug>
      ```
@@ -328,18 +347,24 @@ captured material + existing prose, **never invent** content.
    - **Self-check:** a follow-up `knowledge_validate` shows no new `broken_link` / `ai_block_*` error
      for the node.
 
-3. **Conservative — never auto-discard.** If an item is low-value / noise (boilerplate, a stub, a
+4. **Safety-net reconcile** — after the per-item loop, run reconcile once more to catch any node
+   written this run whose item was not marked (e.g. truncation mid-item):
+   ```bash
+   bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-drain-reconcile.sh" --slug <active-slug>
+   ```
+
+5. **Conservative — never auto-discard.** If an item is low-value / noise (boilerplate, a stub, a
    `LICENSE` that slipped SP-3's denylist), **leave it unprocessed** and list it in the run report
    (`left N item(s) unprocessed — prune with /second-brain:capture --discard <id>`). Do **not** mark an
    item `discarded` yourself — pruning is the user's call.
 
-4. **Budget:** each item processed counts as **one change against the 50/run cap** (shared with the
+6. **Budget:** each item processed counts as **one change against the 50/run cap** (shared with the
    other phases). Over budget → process the highest-value first and report the remainder for the next run.
    When the inbox is large, **reserve a slice for the drain** — don't let an earlier-phase load (esp.
    the Phase 4b ai-block backfill) consume the entire cap before any item is drained, or the inbox can
    stall run-after-run. Drain at least a few items each explicit run so the backlog always makes progress.
 
-5. **Reindex:** after the loop, the Phase 5 `knowledge_reindex` catalogues the new/updated pages.
+7. **Reindex:** after the loop, the Phase 5 `knowledge_reindex` catalogues the new/updated pages.
 
 **Boundary:** like Phase 4b, Phase 4c is **explicit-invocation only** — a `/second-brain:maintain`
 (or "maintain / clean up the KB") request. An auto-dispatched run (threshold counter / reindex-issues /
