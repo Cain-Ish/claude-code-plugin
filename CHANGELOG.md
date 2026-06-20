@@ -4,6 +4,23 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.2
+
+Windows dream-pipeline fix (no migration action). Second bug in the dream-on-Windows path chain,
+found by live-running 0.33.1: `dream_create` succeeded (the 0.33.1 git-bash fix worked) but
+`dream_list`/`dream_status` couldn't see the created dream.
+
+- **MCP server resolved `$HOME` via `process.env.HOME`, which is UNSET on Windows.** The server
+  runs as `node server.bundle.js` with no env block, so on Windows `process.env.HOME` is empty
+  (Windows uses `USERPROFILE`). `dream.ts` `brainDir()`/`resolveKnowledgeDir()` fell back to a
+  RELATIVE `.second-brain` — while the git-bash-spawned `dream-snapshot.sh` (HOME set by git-bash)
+  wrote the dream to the real `~/.second-brain/dreams`. The two sides diverged, so created dreams
+  were invisible to the read tools. Now node resolves home via `os.homedir()` (USERPROFILE on
+  Windows, == `$HOME` on POSIX), and `dream_create`/`dream_accept` pass the node-resolved
+  `BRAIN_DIR`/`KNOWLEDGE_DIR` into the git-bash spawn so both sides use identical paths.
+
+`/upgrade` to 0.33.2 is a marker bump (no data migration).
+
 ## 0.33.1
 
 Cross-platform + setup bug-fix release (no migration action). Three fixes found by live-running
