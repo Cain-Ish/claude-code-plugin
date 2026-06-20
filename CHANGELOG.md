@@ -4,6 +4,25 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.3
+
+Truncation-safe, resumable raw-inbox drain (no migration action). Found by live-draining a project
+backlog: the maintainer's Phase 4c wrote wiki nodes but the LLM batched the per-item "mark
+processed" bookkeeping and truncated on a large backlog — nodes existed but raw items stayed
+`unprocessed`, so a re-run RE-DRAINED them into duplicate nodes.
+
+- **New `scripts/kb-drain-reconcile.sh`** — deterministic, idempotent: scans `wiki/**` for the
+  `(raw <id>)` provenance back-refs the drain writes, and marks each referenced raw item
+  `status: processed` + `target_node: <slug>`. Ghost ids and already-processed items are no-ops; raw
+  items are never deleted.
+- **Maintainer Phase 4c** now runs reconcile at the START (syncs any prior truncated run so
+  duplicates can't arise on resume) and END (safety net), mandates strict per-item marking, and
+  documents a Resumability contract: a truncated drain is safely *continued* by re-running
+  `/second-brain:maintain` — never restarted, never duplicated. This matters most when transforming
+  an old/large backlog on another machine: it drains incrementally across runs with no dup/loss.
+
+`/upgrade` to 0.33.3 is a marker bump (no data migration).
+
 ## 0.33.2
 
 Windows dream-pipeline fix (no migration action). Second bug in the dream-on-Windows path chain,
