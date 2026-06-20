@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toBashPath, buildSnapshotArgs } from './dream.js';
+import { toBashPath, buildSnapshotArgs, resolveBashExePure } from './dream.js';
 import { cleanEnvPath } from './../path-guard.js';
 
 describe('toBashPath (Windows -> bash argv path)', () => {
@@ -66,6 +66,54 @@ describe('buildSnapshotArgs — family', () => {
     const fam = new Set(['acme', 'acme__api']);
     expect(buildSnapshotArgs({ transcript_filter: { project_slug: 'all', family: true } }, 'acme__api', fam))
       .toEqual(['--max-count', '50']);
+  });
+});
+
+describe('resolveBashExePure (win32 WSL-shadow fix)', () => {
+  const noExist = (_p: string) => false;
+
+  it('returns "bash" on non-win32 regardless of what exists', () => {
+    const exists = (_p: string) => true; // everything exists — still not win32
+    expect(resolveBashExePure('linux', exists, {})).toBe('bash');
+    expect(resolveBashExePure('darwin', exists, {})).toBe('bash');
+  });
+
+  it('returns the first existing candidate on win32 (default PROGRAMFILES)', () => {
+    // Simulate only C:\Program Files\Git\bin\bash.exe present
+    const exists = (p: string) => p === 'C:\\Program Files\\Git\\bin\\bash.exe';
+    expect(resolveBashExePure('win32', exists, {})).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
+  });
+
+  it('returns a custom PROGRAMFILES path when set in env', () => {
+    const env = { PROGRAMFILES: 'D:\\ProgramFiles' };
+    const exists = (p: string) => p === 'D:\\ProgramFiles\\Git\\bin\\bash.exe';
+    expect(resolveBashExePure('win32', exists, env)).toBe('D:\\ProgramFiles\\Git\\bin\\bash.exe');
+  });
+
+  it('falls through to x86 candidate when PROGRAMFILES candidate absent', () => {
+    const env = { PROGRAMFILES: 'C:\\Program Files' };
+    const exists = (p: string) => p === 'C:\\Program Files (x86)\\Git\\bin\\bash.exe';
+    expect(resolveBashExePure('win32', exists, env)).toBe('C:\\Program Files (x86)\\Git\\bin\\bash.exe');
+  });
+
+  it('falls through to LOCALAPPDATA candidate when earlier candidates absent', () => {
+    const env = { LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local' };
+    const target = 'C:\\Users\\u\\AppData\\Local\\Programs\\Git\\bin\\bash.exe';
+    const exists = (p: string) => p === target;
+    expect(resolveBashExePure('win32', exists, env)).toBe(target);
+  });
+
+  it('falls back to "bash" on win32 when no candidate exists (no git-bash installed)', () => {
+    expect(resolveBashExePure('win32', noExist, {})).toBe('bash');
+  });
+
+  it('probe order: PROGRAMFILES wins over x86 when both exist', () => {
+    // Both present; must return the PROGRAMFILES one (first in probe order)
+    const env = { PROGRAMFILES: 'C:\\Program Files' };
+    const exists = (p: string) =>
+      p === 'C:\\Program Files\\Git\\bin\\bash.exe' ||
+      p === 'C:\\Program Files (x86)\\Git\\bin\\bash.exe';
+    expect(resolveBashExePure('win32', exists, env)).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
   });
 });
 

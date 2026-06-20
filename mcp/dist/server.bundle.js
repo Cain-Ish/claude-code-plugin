@@ -31514,6 +31514,7 @@ async function collectMd(dir, acc = []) {
 
 // src/tools/dream.ts
 import { promises as fs13 } from "fs";
+import { existsSync as existsSync2 } from "fs";
 
 // src/tools/project-dir.ts
 import { basename as basename3, join as join12 } from "path";
@@ -31568,6 +31569,23 @@ function toBashPath(p) {
   if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
   return s;
 }
+function resolveBashExePure(platform, exists, env) {
+  if (platform !== "win32") return "bash";
+  const pf = env["PROGRAMFILES"] ?? "C:\\Program Files";
+  const localAppData = env["LOCALAPPDATA"] ?? "";
+  const candidates = [
+    `${pf}\\Git\\bin\\bash.exe`,
+    "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+    ...localAppData ? [`${localAppData}\\Programs\\Git\\bin\\bash.exe`] : []
+  ];
+  for (const c of candidates) {
+    if (exists(c)) return c;
+  }
+  return "bash";
+}
+function resolveBashExe() {
+  return resolveBashExePure(process.platform, existsSync2, process.env);
+}
 async function readStatus(dreamId) {
   const statusPath = join13(dreamsDir(), dreamId, "status.json");
   try {
@@ -31616,7 +31634,8 @@ async function dreamCreate(args) {
   const scriptArgs = buildSnapshotArgs(args, activeSlug, family);
   try {
     const { stdout, stderr } = await exec(
-      "bash",
+      resolveBashExe(),
+      // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join13(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
       { timeout: 3e4, env: { ...process.env } }
     );
@@ -31676,7 +31695,8 @@ async function dreamList(args) {
 async function dreamAccept(args) {
   try {
     const { stdout, stderr } = await exec(
-      "bash",
+      resolveBashExe(),
+      // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join13(scriptsDir(), "dream-accept.sh")), args.dream_id],
       { timeout: 3e4, env: { ...process.env } }
     );

@@ -1,4 +1,5 @@
 import { promises as fs } from "fs";
+import { existsSync } from "fs";
 import { atomicWriteJson } from './atomic-write.js';
 import { cleanEnvPath } from '../path-guard.js';
 import { resolveActiveSlug } from './project-dir.js';
@@ -37,6 +38,36 @@ export function toBashPath(p: string): string {
   const drive = s.match(/^([A-Za-z]):\//);
   if (drive) s = "/" + drive[1].toLowerCase() + s.slice(2);
   return s;
+}
+
+/** Pure probe function — testable without touching the real filesystem.
+ *  Returns the first candidate path for which `exists(p)` is true, or "bash" as fallback.
+ *  `env` should be `process.env` in production; pass a stub in tests. */
+export function resolveBashExePure(
+  platform: string,
+  exists: (p: string) => boolean,
+  env: Record<string, string | undefined>,
+): string {
+  if (platform !== "win32") return "bash";
+  const pf = env["PROGRAMFILES"] ?? "C:\\Program Files";
+  const localAppData = env["LOCALAPPDATA"] ?? "";
+  const candidates = [
+    `${pf}\\Git\\bin\\bash.exe`,
+    "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+    ...(localAppData ? [`${localAppData}\\Programs\\Git\\bin\\bash.exe`] : []),
+  ];
+  for (const c of candidates) {
+    if (exists(c)) return c;
+  }
+  return "bash"; // fallback — don't make machines without git-bash worse
+}
+
+/** Resolve the git-bash executable on Windows to avoid exec("bash") picking up the
+ *  WSL launcher (System32\bash.exe) from Machine-PATH before git-bash in User-PATH.
+ *  WSL bash mounts drives at /mnt/c, not /c, so toBashPath() MSYS paths break.
+ *  On POSIX, returns "bash" unchanged. */
+export function resolveBashExe(): string {
+  return resolveBashExePure(process.platform, existsSync, process.env as Record<string, string | undefined>);
 }
 
 function resolveKnowledgeDir(): string {
@@ -160,7 +191,7 @@ export async function dreamCreate(
 
   try {
     const { stdout, stderr } = await exec(
-      "bash",
+      resolveBashExe(), // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
       { timeout: 30_000, env: { ...process.env } }
     );
@@ -270,7 +301,7 @@ export async function dreamAccept(
 ): Promise<DreamAcceptResult> {
   try {
     const { stdout, stderr } = await exec(
-      "bash",
+      resolveBashExe(), // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join(scriptsDir(), "dream-accept.sh")), args.dream_id],
       { timeout: 30_000, env: { ...process.env } }
     );
