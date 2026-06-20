@@ -437,9 +437,12 @@ sb_harden_projects_jsonl() {
 
 # Setup collision identity. Given the registry, a candidate slug and its dir identity, classify:
 #   new       — no record with this slug
-#   same      — record exists AND identity matches (same git_remote; or both empty + same root_path)
-#   collision — record exists AND identity differs (two different repos sharing a slug)
-# Path compare is form-canonicalized (MSYS /c vs Windows C:\, like resolveSlugByPath/toBashPath).
+#   same      — record exists AND (identity matches; OR the stored record has NO identity yet —
+#               a legacy/pre-0.33 record — so there is nothing to conflict with: lazy-fill it)
+#   collision — record exists AND its STORED identity differs (two different repos sharing a slug)
+# Collision keys on the STORED identity, never the freshly-detected one: a legacy record without
+# git_remote/root_path must lazy-fill as the same project, not false-collide just because a remote
+# is now detectable. Path compare is form-canonicalized (MSYS /c vs Windows C:\, like toBashPath).
 sb_project_identity() {
   local reg="$1" slug="$2" rp="$3" gr="$4"
   [ -f "$reg" ] || { echo "new"; return 0; }
@@ -450,10 +453,15 @@ sb_project_identity() {
   ex_rp=$(printf '%s' "$rec" | jq -r '.root_path // ""')
   ex_gr=$(printf '%s' "$rec" | jq -r '.git_remote // ""')
   _norm() { printf '%s' "${1:-}" | tr -d '\r' | sed -E 's#\\#/#g; s#^([A-Za-z]):/#/\L\1/#; s#/+$##'; }
-  if [ -n "$gr" ] || [ -n "$ex_gr" ]; then
+  if [ -n "$ex_gr" ]; then
+    # stored record HAS a remote identity → authoritative compare
     [ "$gr" = "$ex_gr" ] && echo "same" || echo "collision"
-  else
+  elif [ -n "$ex_rp" ]; then
+    # stored record has a path identity but no remote → compare normalized paths
     [ "$(_norm "$rp")" = "$(_norm "$ex_rp")" ] && echo "same" || echo "collision"
+  else
+    # stored record carries NO identity (legacy) → nothing to conflict with → same (lazy-fill)
+    echo "same"
   fi
 }
 

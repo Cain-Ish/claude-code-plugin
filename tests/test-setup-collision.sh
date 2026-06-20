@@ -18,6 +18,13 @@ printf '%s\n' '{"slug":"local","name":"local","last_session_iso":"2026-05-01T00:
 check "no-remote same path" "same" "$(sb_project_identity "$REG" "local" "/repos/local" "")"
 # same slug + both-empty remote + DIFFERENT root_path → collision
 check "no-remote diff path" "collision" "$(sb_project_identity "$REG" "local" "/elsewhere/local" "")"
+# LEGACY record (pre-0.33: 4-field, NO root_path/git_remote) re-setup with a NEWLY-detected
+# remote → must lazy-fill as the SAME project, never a false collision (the live-setup bug).
+printf '%s\n' '{"slug":"legacy","name":"legacy","last_session_iso":"2026-05-01T00:00:00Z","hot_byte_count":0}' >> "$REG"
+check "legacy record + detected remote → same (lazy-fill, not false collision)" "same" \
+  "$(sb_project_identity "$REG" "legacy" "/repos/legacy" "git@github.com:me/legacy.git")"
+check "legacy record + no detected identity → same" "same" \
+  "$(sb_project_identity "$REG" "legacy" "" "")"
 
 rm -rf "$TMP"
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }
