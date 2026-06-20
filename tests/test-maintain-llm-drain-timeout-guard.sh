@@ -55,19 +55,28 @@ EOF
 printf '#!/bin/bash\nexit 0\n' > "$STUB/claude"
 chmod +x "$STUB/bwrap" "$STUB/claude"
 
-# CLEANBIN: symlink every tool on the CURRENT PATH except timeout/gtimeout, so the
-# script keeps all its coreutils but can't find a wall-clock binary.
+# CLEANBIN: a directory with wrapper scripts for every tool maintain-llm-drain.sh
+# (and lib.sh) actually calls, but NOT timeout/gtimeout.  On Windows/Git-Bash,
+# creating symlinks to PE32+ executables from a temp dir fails with DLL-resolution
+# errors, and walking the full PATH (including /c/Windows/system32) to build a
+# symlink forest takes 30s+ and times out.  Using tiny wrapper scripts avoids both
+# problems: they're plain text, resolve DLLs correctly (the shell resolves the
+# exec'd binary from its real path), and we only need ~20 of them.
 CLEANBIN="$SB/cleanbin"; mkdir -p "$CLEANBIN"
-IFS=: read -ra PDIRS <<< "$PATH"
-for d in "${PDIRS[@]}"; do
-  [ -d "$d" ] || continue
-  for f in "$d"/*; do
-    [ -e "$f" ] || continue
-    b=$(basename "$f")
-    case "$b" in timeout|gtimeout) continue ;; esac
-    [ -e "$CLEANBIN/$b" ] || ln -s "$f" "$CLEANBIN/$b" 2>/dev/null
-  done
+_make_wrapper() {
+  local name="$1" real
+  real=$(command -v "$name" 2>/dev/null) || return 0
+  # Safety: never wrap the binaries we are deliberately removing from PATH
+  case "$(basename "$real")" in timeout|gtimeout|timeout.exe|gtimeout.exe) return 0 ;; esac
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$real" > "$CLEANBIN/$name"
+  chmod +x "$CLEANBIN/$name"
+}
+for _t in bash sh jq stat date touch cat find wc head tail ls rm mkdir mv \
+          awk sed tr grep cp realpath readlink basename dirname mktemp git; do
+  _make_wrapper "$_t"
 done
+unset _t
+unset -f _make_wrapper
 ORIG_PATH="$PATH"
 
 reset(){ rm -rf "$BRAIN_DIR/dreams"; mkdir -p "$BRAIN_DIR/dreams"; rm -f "$FAILS" "$QUAR" "$MARK" "$SENT" "$BRAIN_DIR/error-log.jsonl"; }

@@ -114,17 +114,22 @@ pass "archive is episodic-parseable (meta header + ASSISTANT body)"
 
 # --- Test 11: subagent floods must NOT evict main-session archives (adversarial-
 # review finding). A busy multi-agent session can write many sub- files; they get
-# their OWN prune budget so they can never crowd out real session memory. ---
+# their OWN prune budget so they can never crowd out real session memory.
+# Cross-OS note: each run_hook call spawns bash+jq several times; on Windows/
+# Git-Bash that costs ~2s/call so 60 calls (the original loop) runs ~120s and
+# times out.  We override SB_SUBAGENT_ARCHIVE_CAP=5 and use 7 calls (cap+2) to
+# prove the cap enforces WITHOUT blowing the 90s wall-clock budget. ---
 B="$TMP/b11"; mkdir -p "$B/transcripts"; T="$TMP/t11.jsonl"; mk_transcript "$T" 1 "$LONG"
 echo "PRECIOUS MAIN SESSION ARCHIVE" > "$B/transcripts/s1_repo_2026-01-01.txt"  # old, must survive
-# write 60 distinct substantive subagent results (> the per-subagent cap of 50)
-for i in $(seq 1 60); do
-  run_hook "$B" "general-purpose" "aid${i}" "$T" >/dev/null 2>&1
+T11_CAP=5  # small cap so we only need cap+2 = 7 calls to prove the cap fires
+# write cap+2 distinct substantive subagent results (> the cap)
+for i in $(seq 1 $((T11_CAP + 2))); do
+  run_hook "$B" "general-purpose" "aid${i}" "$T" SB_SUBAGENT_ARCHIVE_CAP="$T11_CAP" >/dev/null 2>&1
 done
 [ -f "$B/transcripts/s1_repo_2026-01-01.txt" ] || fail "11: main-session archive was EVICTED by a subagent flood"
 grep -q "PRECIOUS" "$B/transcripts/s1_repo_2026-01-01.txt" || fail "11: main-session archive corrupted"
 SUBN=$(ls "$B/transcripts/"sub-*.txt 2>/dev/null | wc -l | tr -d ' ')
-[ "$SUBN" -le 50 ] || fail "11: subagent archives exceeded their own cap (got $SUBN, cap 50)"
+[ "$SUBN" -le "$T11_CAP" ] || fail "11: subagent archives exceeded their own cap (got $SUBN, cap $T11_CAP)"
 pass "subagent flood capped separately (got $SUBN sub-files); main-session archive survived"
 
 # --- Test 12 (R1.2, HOOK-5): workflow "holding" stub — the FINAL assistant
