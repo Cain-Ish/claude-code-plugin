@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { toBashPath, buildSnapshotArgs, resolveBashExePure } from './dream.js';
+import { describe, it, expect, afterEach } from 'vitest';
+import { isAbsolute } from 'path';
+import { homedir } from 'os';
+import { toBashPath, buildSnapshotArgs, resolveBashExePure, brainDir } from './dream.js';
 import { cleanEnvPath } from './../path-guard.js';
 
 describe('toBashPath (Windows -> bash argv path)', () => {
@@ -129,5 +131,48 @@ describe('cleanEnvPath (env-var path CR/LF sanitizer)', () => {
     expect(cleanEnvPath('/clean/path')).toBe('/clean/path');
     expect(cleanEnvPath(undefined)).toBe('');
     expect(cleanEnvPath(null)).toBe('');
+  });
+});
+
+describe('brainDir() home resolution (Windows HOME-unset regression)', () => {
+  const origEnv: Record<string, string | undefined> = {};
+
+  afterEach(() => {
+    // restore any env vars touched in these tests
+    for (const k of ['SB_BRAIN_DIR', 'BRAIN_DIR']) {
+      if (origEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = origEnv[k];
+    }
+  });
+
+  it('returns an ABSOLUTE path when SB_BRAIN_DIR and BRAIN_DIR are unset (the Windows HOME bug)', () => {
+    origEnv['SB_BRAIN_DIR'] = process.env['SB_BRAIN_DIR'];
+    origEnv['BRAIN_DIR'] = process.env['BRAIN_DIR'];
+    delete process.env['SB_BRAIN_DIR'];
+    delete process.env['BRAIN_DIR'];
+
+    const result = brainDir();
+    // Regression assertion: NEVER a relative path when env vars are absent
+    expect(isAbsolute(result)).toBe(true);
+    // Must point inside the user home dir (os.homedir())
+    expect(result).toBe(homedir() + require('path').sep + '.second-brain');
+  });
+
+  it('SB_BRAIN_DIR takes precedence over BRAIN_DIR and os.homedir()', () => {
+    origEnv['SB_BRAIN_DIR'] = process.env['SB_BRAIN_DIR'];
+    origEnv['BRAIN_DIR'] = process.env['BRAIN_DIR'];
+    process.env['SB_BRAIN_DIR'] = '/custom/sb-brain';
+    process.env['BRAIN_DIR'] = '/other/brain';
+
+    expect(brainDir()).toBe('/custom/sb-brain');
+  });
+
+  it('BRAIN_DIR takes precedence over os.homedir() when SB_BRAIN_DIR is unset', () => {
+    origEnv['SB_BRAIN_DIR'] = process.env['SB_BRAIN_DIR'];
+    origEnv['BRAIN_DIR'] = process.env['BRAIN_DIR'];
+    delete process.env['SB_BRAIN_DIR'];
+    process.env['BRAIN_DIR'] = '/custom/brain';
+
+    expect(brainDir()).toBe('/custom/brain');
   });
 });

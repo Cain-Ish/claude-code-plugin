@@ -31548,11 +31548,12 @@ function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
 
 // src/tools/dream.ts
 import { join as join13 } from "path";
+import { homedir } from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
 var exec = promisify(execFile);
 function brainDir() {
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join13(cleanEnvPath(process.env.HOME), ".second-brain");
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join13(homedir(), ".second-brain");
 }
 function dreamsDir() {
   return join13(brainDir(), "dreams");
@@ -31585,6 +31586,16 @@ function resolveBashExePure(platform, exists, env) {
 }
 function resolveBashExe() {
   return resolveBashExePure(process.platform, existsSync2, process.env);
+}
+function resolveKnowledgeDir() {
+  const raw = cleanEnvPath(
+    process.env.KNOWLEDGE_DIR ?? process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
+  );
+  const home = homedir();
+  if (raw && raw.trim() && !raw.includes("${")) {
+    return raw.startsWith("~") ? join13(home, raw.slice(1)) : raw;
+  }
+  return join13(home, "knowledge");
 }
 async function readStatus(dreamId) {
   const statusPath = join13(dreamsDir(), dreamId, "status.json");
@@ -31637,7 +31648,7 @@ async function dreamCreate(args) {
       resolveBashExe(),
       // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join13(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
-      { timeout: 3e4, env: { ...process.env } }
+      { timeout: 3e4, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
     );
     const dreamId = stdout.trim();
     if (!dreamId.startsWith("drm_")) {
@@ -31698,7 +31709,7 @@ async function dreamAccept(args) {
       resolveBashExe(),
       // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join13(scriptsDir(), "dream-accept.sh")), args.dream_id],
-      { timeout: 3e4, env: { ...process.env } }
+      { timeout: 3e4, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
     );
     const output = stdout.trim();
     if (output) return { ok: true, summary: output };
@@ -32334,7 +32345,7 @@ function guardDestructive(toolName, handler) {
 }
 
 // src/server.ts
-function resolveKnowledgeDir() {
+function resolveKnowledgeDir2() {
   const candidates = [
     cleanEnvPath(process.env.KNOWLEDGE_DIR),
     cleanEnvPath(process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR)
@@ -32346,7 +32357,7 @@ function resolveKnowledgeDir() {
   }
   return path2.join(os.homedir(), "knowledge");
 }
-var KNOWLEDGE_DIR = resolveKnowledgeDir();
+var KNOWLEDGE_DIR = resolveKnowledgeDir2();
 var BRAIN_DIR = cleanEnvPath(process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR) || path2.join(os.homedir(), ".second-brain");
 function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);

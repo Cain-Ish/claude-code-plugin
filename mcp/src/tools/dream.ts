@@ -5,13 +5,14 @@ import { cleanEnvPath } from '../path-guard.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { projectFamily } from './project-registry.js';
 import { join, basename } from "path";
+import { homedir } from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
 const exec = promisify(execFile);
 
-function brainDir(): string {
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(cleanEnvPath(process.env.HOME), ".second-brain");
+export function brainDir(): string {
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
 }
 
 function dreamsDir(): string {
@@ -74,7 +75,7 @@ function resolveKnowledgeDir(): string {
   const raw = cleanEnvPath(
     process.env.KNOWLEDGE_DIR ?? process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
   );
-  const home = cleanEnvPath(process.env.HOME);
+  const home = homedir();
   if (raw && raw.trim() && !raw.includes("${")) {
     return raw.startsWith("~") ? join(home, raw.slice(1)) : raw;
   }
@@ -193,7 +194,7 @@ export async function dreamCreate(
     const { stdout, stderr } = await exec(
       resolveBashExe(), // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
-      { timeout: 30_000, env: { ...process.env } }
+      { timeout: 30_000, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
     );
     const dreamId = stdout.trim();
     if (!dreamId.startsWith("drm_")) {
@@ -303,7 +304,7 @@ export async function dreamAccept(
     const { stdout, stderr } = await exec(
       resolveBashExe(), // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join(scriptsDir(), "dream-accept.sh")), args.dream_id],
-      { timeout: 30_000, env: { ...process.env } }
+      { timeout: 30_000, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
     );
     const output = stdout.trim();
     if (output) return { ok: true, summary: output };
