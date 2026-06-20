@@ -4,6 +4,28 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.1
+
+Cross-platform + setup bug-fix release (no migration action). Three fixes found by live-running
+the 0.33.0 plugin on Windows/Git-Bash:
+
+- **dream_* spawned WSL bash instead of git-bash (`mcp-bash-wsl-shadow`).** On Windows with WSL
+  installed, the MCP server's `exec("bash")` resolved to `System32\bash.exe` (WSL) via Machine-PATH;
+  WSL mounts the drive at `/mnt/c`, so the `/c/...` msys script path didn't exist → `dream_create`/
+  `dream_accept` failed with "No such file." Now the MCP server probes `Git\bin\bash.exe` explicitly
+  on win32 (falls back to `bash`); POSIX unchanged.
+- **`/second-brain:setup` false-collision on legacy `projects.jsonl` records.** `sb_project_identity`
+  keyed collision on the freshly-detected `git_remote`, so a pre-0.33 4-field record being re-set-up
+  on the SAME repo was flagged a collision once a remote became detectable. Collision now keys on the
+  STORED identity: a legacy record with no stored identity lazy-fills as `same`; only a differing
+  stored identity is a collision.
+- **CI bundle-current gate.** Committed `mcp/dist` bundles had been built with a drifted local esbuild
+  (passed the local gate, failed CI's lockfile-exact rebuild). Rebuilt all bundles via `npm ci`.
+
+Also: the cross-OS test sweep (resolves the prior pre-existing Windows test failures across path-
+separator, jq-CRLF, IFS-tab, symlink/flock/systemd capability-skips) landed in this line. No data
+migration — `/upgrade` to 0.33.1 is a marker bump (the 0.33.0 projects.jsonl hardening already ran).
+
 ## 0.33.0
 
 Project scoping model + attribution correctness (M3), plus a cross-OS hardening pass. Closes the
