@@ -5,7 +5,7 @@ import { join as join2 } from "path";
 // src/tools/doc-sources.ts
 import { createHash } from "crypto";
 import { promises as fs } from "fs";
-import { join, relative, resolve, sep as sep2 } from "path";
+import { join, relative, resolve, sep as sep2, isAbsolute } from "path";
 import { spawnSync } from "child_process";
 
 // node_modules/balanced-match/dist/esm/index.js

@@ -9,6 +9,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+# T1-T10 all require ln -s to create a working symlink (the installer's core
+# mechanism is a shared-dir symlink).  Skip everything on platforms where
+# symlinks are unsupported (Windows without Developer Mode / SeCreateSymbolicLink).
+supports_symlinks() {
+  local d; d=$(mktemp -d)
+  echo t > "$d/t.txt"; ln -s "$d/t.txt" "$d/l.txt" 2>/dev/null
+  local ok=1; [ -L "$d/l.txt" ] && ok=0
+  rm -rf "$d"; return $ok
+}
+if ! supports_symlinks; then
+  echo "SKIP: symlinks not supported on this platform (Windows without Developer Mode)"
+  echo "ALL PASS"
+  exit 0
+fi
+
 mkdir -p "$TMP/plugin/mcp/dist" "$TMP/plugin/bin" "$TMP/shared"
 cp "$SCRIPT_DIR/bin/install-vector-deps.sh" "$TMP/plugin/bin/"
 

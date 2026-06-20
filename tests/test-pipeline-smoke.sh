@@ -24,7 +24,11 @@ done
 PAD="lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat duis aute irure"
 
 # --- isolated sandbox ---
-SB=$(mktemp -d); KD=$(mktemp -d); RP=$(mktemp -d)
+# RP must be named "smoke" so its basename matches SB_ACTIVE_SLUG: raw-scan-cli
+# derives origin = basename(SCAN_ROOT) and partitionPending only drains items
+# whose origin equals the active slug.  A random mktemp name produces a mismatched
+# origin, causing all three scan items to be held back as foreign-origin.
+SB=$(mktemp -d); KD=$(mktemp -d); RP_BASE=$(mktemp -d); RP="$RP_BASE/smoke"; mkdir -p "$RP"
 export BRAIN_DIR="$SB" KNOWLEDGE_DIR="$KD" SB_ACTIVE_SLUG="smoke"
 mkdir -p "$SB/projects/smoke"; : > "$SB/projects/smoke/PROJECT.md"
 RAW="$SB/projects/smoke/raw"
@@ -79,6 +83,6 @@ ok "SP-1 scoped serving: scoped to alpha, the beta page is suppressed; alpha pag
 [ ! -e "$HOME/.second-brain/projects/smoke" ] || fail "LEAKED into the real ~/.second-brain"
 ok "isolation: real ~/.second-brain + ~/knowledge untouched"
 
-rm -rf "$SB" "$KD" "$RP"
+rm -rf "$SB" "$KD" "$RP_BASE"
 echo
 if [ "$FAILED" -eq 0 ]; then echo "ALL PASS"; else echo "ALL FAIL"; exit 1; fi

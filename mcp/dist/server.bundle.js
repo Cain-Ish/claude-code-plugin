@@ -27639,7 +27639,7 @@ function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
 
 // src/tools/doc-sources.ts
 import { promises as fs7 } from "fs";
-import { join as join5, relative, resolve as resolve2, sep as sep3 } from "path";
+import { join as join5, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute2 } from "path";
 function assertSafeSlug(slug) {
   if (!slug || /[\\/]|\.\./.test(slug)) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
@@ -28197,7 +28197,7 @@ async function collectMarkdown(dir, acc = []) {
 
 // src/tools/knowledge-fetch.ts
 import { promises as fs9 } from "fs";
-import { join as join8, relative as relative2, isAbsolute as isAbsolute2 } from "path";
+import { join as join8, relative as relative2, isAbsolute as isAbsolute3 } from "path";
 function headings(body) {
   return body.split("\n").filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
 }
@@ -28236,7 +28236,7 @@ async function knowledgeFetch(args) {
   const filePath = matches.find((p) => {
     try {
       const rel = relative2(wikiRoot, p);
-      const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute2(rel);
+      const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute3(rel);
       assertWithin(wikiRoot, inside ? rel : p);
       return true;
     } catch {
@@ -31598,7 +31598,7 @@ async function dreamCancel(args) {
 
 // src/tools/episodic-search.ts
 import { promises as fs14 } from "fs";
-import { join as join14, basename as basename5, relative as relative5, isAbsolute as isAbsolute3 } from "path";
+import { join as join14, basename as basename5, relative as relative5, isAbsolute as isAbsolute4 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -31793,7 +31793,7 @@ function scopeAndBroaden(ranked, args) {
 }
 function assertTranscriptPath(brainDir2, filePath) {
   const base = join14(brainDir2, "transcripts");
-  const rel = isAbsolute3(filePath) ? relative5(base, filePath) : filePath;
+  const rel = isAbsolute4(filePath) ? relative5(base, filePath) : filePath;
   return assertWithin(base, rel);
 }
 async function episodicRead(filePath, startLine, endLine) {

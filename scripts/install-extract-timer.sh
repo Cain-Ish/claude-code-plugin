@@ -176,7 +176,7 @@ case "$ACTION" in
     cat "$TPL_DIR/$TIMER"
     echo
     echo "# To install:   bash $0 --apply"
-    echo "# Then run:     loginctl enable-linger \"$USER\""
+    echo "# Then run:     loginctl enable-linger \"${USER:-$(id -un 2>/dev/null || echo "\$USER")}\""
     echo "# To remove:    bash $0 --uninstall"
     ;;
 esac

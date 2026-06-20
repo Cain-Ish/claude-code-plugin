@@ -99,12 +99,17 @@ SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true
 HSTATUS=$(jq -r '.status // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)
 eq "all-fail run reports health=fail" "$HSTATUS" "fail"
 
-# Test 5: lock held → no-op
-reset; mk_tx "s1_proj_2026-05-24.txt" proj
-exec 8>"$BRAIN_DIR/.extract-drain.lock"; flock -n 8
-SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
-flock -u 8; exec 8>&-
-eq "lock contention is a no-op" "$(done_count)" "0"
+# Test 5: lock held → no-op (flock-based; skipped when flock absent — mkdir-lock
+# variant is tested in tests 5b/5c below and runs on all platforms)
+if command -v flock >/dev/null 2>&1; then
+  reset; mk_tx "s1_proj_2026-05-24.txt" proj
+  exec 8>"$BRAIN_DIR/.extract-drain.lock"; flock -n 8
+  SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
+  flock -u 8; exec 8>&-
+  eq "lock contention is a no-op" "$(done_count)" "0"
+else
+  ok "lock contention is a no-op (flock absent — mkdir-lock path tested in 5b/5c)"
+fi
 
 # Test 2c (U2): summary health reports the REAL backend, not hardcoded "cli-oauth"
 # (the stub writes no per-call backend → summary should read the health file and

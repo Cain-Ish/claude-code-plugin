@@ -12,7 +12,20 @@ pass() { echo "PASS: $1"; }
 
 # Mirror the repo into TMP. Use cp -r; symlinks would let the script find the
 # real skills/ tree and miss our mutation.
-cp -r "$REPO_ROOT"/. "$TMP/" || fail "repo mirror failed"
+# Cross-OS note: cp -r of the whole repo copies mcp/node_modules (500MB+) and
+# .git (~23MB) — on Windows/Git-Bash that takes 90s+ and times out.  Copy only
+# the subtrees validate-plugin.sh actually inspects.
+for _d in skills scripts agents hooks docs .claude-plugin cost-router mcp; do
+  [ -e "$REPO_ROOT/$_d" ] || continue
+  # For mcp: only package.json is needed; skip node_modules (500MB+).
+  if [ "$_d" = "mcp" ]; then
+    mkdir -p "$TMP/mcp"
+    [ -f "$REPO_ROOT/mcp/package.json" ] && cp "$REPO_ROOT/mcp/package.json" "$TMP/mcp/package.json"
+    continue
+  fi
+  cp -r "$REPO_ROOT/$_d" "$TMP/$_d" || fail "repo mirror failed for $_d"
+done
+unset _d
 export CLAUDE_PLUGIN_ROOT="$TMP"
 
 # Sanity: validator passes on an unmutated mirror

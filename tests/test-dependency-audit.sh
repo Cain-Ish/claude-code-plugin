@@ -6,8 +6,12 @@
 # inline semver compare — a real lockfile fact, not a re-assertion of plugin code.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
-LOCK="$ROOT/mcp/package-lock.json"
-PKG="$ROOT/mcp/package.json"
+# Node.js on Windows (Git-Bash) cannot use MSYS2 POSIX paths (/c/foo); it needs
+# Windows-style paths (C:/foo).  Convert once here so both PKG and LOCK are
+# node-compatible.  On POSIX the sed is a no-op.
+NODE_ROOT="$(printf '%s' "$ROOT" | sed 's|^/\([a-zA-Z]\)/|\U\1:/|')"
+LOCK="$NODE_ROOT/mcp/package-lock.json"
+PKG="$NODE_ROOT/mcp/package.json"
 command -v node >/dev/null 2>&1 || { echo "SKIP: node absent"; exit 0; }
 [ -f "$LOCK" ] || { echo "SKIP: no package-lock.json"; exit 0; }
 PASS=0; FAIL=0

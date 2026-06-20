@@ -21,7 +21,9 @@ chmod +x "$STUB/jq"
 RUN(){ PATH="$STUB:$PATH" "$@"; }
 
 # Sanity: the stub really emits CRLF (a CR byte in -r output of a CR-free input).
-printf '{"a":"x"}' | "$STUB/jq" -r '.a' | LC_ALL=C grep -q "$(printf '\r')" \
+# Use od-based detection: Git-Bash grep reads pipes in text mode and strips \r from CRLF pairs,
+# so `grep -q $'\r'` always exits 1 even when \r is present. od is binary-safe.
+printf '{"a":"x"}' | "$STUB/jq" -r '.a' | od -An -tx1 | grep -q ' 0d' \
   || fail "stub jq does not emit CRLF — test would be vacuous"
 pass "stub reproduces Windows jq CRLF (-r output carries \\r)"
 

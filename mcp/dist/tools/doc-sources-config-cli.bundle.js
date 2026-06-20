@@ -4,7 +4,7 @@ import { join as join4 } from "path";
 
 // src/tools/doc-sources.ts
 import { promises as fs } from "fs";
-import { join, relative, resolve, sep as sep2 } from "path";
+import { join, relative, resolve, sep as sep2, isAbsolute } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6105,7 +6105,7 @@ async function listLocations(brainDir, slug) {
 async function addLocation(brainDir, slug, location) {
   assertSafeSlug(slug);
   const loc = normalizeLocation(location);
-  if (!loc || loc.startsWith("/") || loc.split("/").includes("..")) {
+  if (!loc || isAbsolute(loc) || loc.split("/").includes("..") || loc.split("\\").includes("..")) {
     throw new Error(`invalid location: ${JSON.stringify(location)} (must be a relative path or glob within the project)`);
   }
   const cfg = await readConfig(brainDir, slug);

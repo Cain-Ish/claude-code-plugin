@@ -62,7 +62,7 @@ if [ "${SB_TOOL_SCOPE:-on}" != "off" ]; then
       [ -z "$allowed_tool" ] && continue
       if [ "$allowed_tool" = "$TOOL" ]; then in_tool_scope=1; break; fi
     done < <(
-      jq -r '.tool_scope.allowlist[]?' "$RULES_FILE" 2>/dev/null
+      jq -r '.tool_scope.allowlist[]?' "$RULES_FILE" 2>/dev/null | tr -d '\r'
       printf '%s\n' "${SB_TOOL_SCOPE_EXTRA:-}" | tr ':' '\n'
     )
     if [ "$in_tool_scope" = "0" ]; then
@@ -113,7 +113,7 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ]; then
           "$prefix"|"$prefix"/*) in_scope=1; break ;;
         esac
       done < <(
-        jq -r '.resource_scope.allowlist[]?' "$RULES_FILE" 2>/dev/null
+        jq -r '.resource_scope.allowlist[]?' "$RULES_FILE" 2>/dev/null | tr -d '\r'
         # User can append extra paths via env, colon-separated like $PATH.
         # %s\n ensures `read` sees the final path even when EXTRA has no
         # trailing newline (which it never does as an env var value).
