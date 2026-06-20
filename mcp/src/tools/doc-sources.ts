@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
-import { join, relative, resolve, sep } from 'path';
+import { join, relative, resolve, sep, isAbsolute } from 'path';
 import { spawnSync } from 'child_process';
 import { glob } from 'glob';
 import { cleanEnvPath } from '../path-guard.js';
@@ -147,7 +147,7 @@ export async function listLocations(brainDir: string, slug: string): Promise<str
 export async function addLocation(brainDir: string, slug: string, location: string): Promise<{ locations: string[]; added: boolean }> {
   assertSafeSlug(slug);
   const loc = normalizeLocation(location);
-  if (!loc || loc.startsWith('/') || loc.split('/').includes('..')) {
+  if (!loc || isAbsolute(loc) || loc.split('/').includes('..') || loc.split('\\').includes('..')) {
     throw new Error(`invalid location: ${JSON.stringify(location)} (must be a relative path or glob within the project)`);
   }
   const cfg = await readConfig(brainDir, slug);

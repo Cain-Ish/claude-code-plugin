@@ -137,7 +137,7 @@ function estimateTokens(text) {
 
 // src/tools/doc-sources.ts
 import { promises as fs3 } from "fs";
-import { join as join2, relative, resolve, sep as sep2 } from "path";
+import { join as join2, relative, resolve, sep as sep2, isAbsolute } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {

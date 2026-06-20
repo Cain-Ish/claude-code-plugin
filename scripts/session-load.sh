@@ -85,7 +85,7 @@ cp "$project_file" "$BRAIN_DIR/.session-baseline-$slug.md"
 # scope-banner counters AND empty the PROJ_KW wiki-enrichment harvest. Only triggers when a CR
 # is actually present (the common LF case pays nothing). Safe: every use of $project_file from
 # here on is READ-only (the auto-scaffold write happened earlier, before this baseline copy).
-if LC_ALL=C grep -q "$(printf '\r')" "$project_file" 2>/dev/null; then
+if od -An -tx1 "$project_file" 2>/dev/null | grep -q ' 0d'; then
   _proj_lf=$(mktemp) && tr -d '\r' < "$project_file" > "$_proj_lf" && project_file="$_proj_lf"
 fi
 

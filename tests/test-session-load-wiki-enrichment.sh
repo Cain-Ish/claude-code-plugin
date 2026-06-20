@@ -67,7 +67,9 @@ pass "PROJECT.md harvest is non-empty → wiki-enrichment invokes the search CLI
 # `/^## Section$/` awk reader fails on `## Section\r`, so without the CR-normalization the harvest
 # is empty and the enrichment never fires — even though the same content works in LF above.
 sed 's/$/\r/' "$B/projects/$SLUG/PROJECT.md" > "$B/projects/$SLUG/PROJECT.md.crlf" && mv "$B/projects/$SLUG/PROJECT.md.crlf" "$B/projects/$SLUG/PROJECT.md"
-grep -q $'\r' "$B/projects/$SLUG/PROJECT.md" || fail "test setup: PROJECT.md is not actually CRLF"
+# Use od for CR detection: Git-Bash grep reads in text mode and strips \r from CRLF pairs,
+# so `grep -q $'\r'` always exits 1 even when CR bytes are present. od is binary-safe.
+od -An -tx1 "$B/projects/$SLUG/PROJECT.md" 2>/dev/null | grep -q ' 0d' || fail "test setup: PROJECT.md is not actually CRLF"
 OUT_CRLF=$(printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
   | env PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$PROJDIR" BRAIN_DIR="$B" \
         KNOWLEDGE_DIR="$B/knowledge" ANTHROPIC_API_KEY="" bash "$SL" 2>/dev/null)

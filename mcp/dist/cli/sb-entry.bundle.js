@@ -220,7 +220,7 @@ function estimateTokens(text) {
 
 // src/tools/doc-sources.ts
 import { promises as fs3 } from "fs";
-import { join as join2, relative, resolve as resolve2, sep as sep3 } from "path";
+import { join as join2, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute2 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6897,7 +6897,7 @@ async function collectMarkdown(dir, acc = []) {
 
 // src/tools/episodic-search.ts
 import { promises as fs6 } from "fs";
-import { join as join5, basename, relative as relative2, isAbsolute as isAbsolute2 } from "path";
+import { join as join5, basename, relative as relative2, isAbsolute as isAbsolute3 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;

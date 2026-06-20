@@ -6068,7 +6068,7 @@ glob.glob = glob;
 
 // src/tools/doc-sources.ts
 import { createHash } from "crypto";
-import { join, relative, resolve, sep as sep2 } from "path";
+import { join, relative, resolve, sep as sep2, isAbsolute } from "path";
 import { spawnSync } from "child_process";
 
 // src/path-guard.ts
@@ -6448,11 +6448,11 @@ async function main() {
     const r = await runScan(projectRoot, brainDir, slug, { dryRun, origin: originSlug });
     if (dryRun) {
       console.log(`${r.candidates.length} high-signal doc(s) to capture into ${slug}'s raw inbox:`);
-      for (const p of r.candidates) console.log(`  - ${relative3(projectRoot, p)}`);
+      for (const p of r.candidates) console.log(`  - ${relative3(projectRoot, p).split(/[\\/]+/).join("/")}`);
       if (r.candidates.length === 0) console.log("  (no high-signal docs found)");
       if (r.overflow.length) {
         console.log(`  \u2026and ${r.overflow.length} more over the SB_SCAN_MAX cap (NOT captured \u2014 raise SB_SCAN_MAX or /second-brain:track them):`);
-        for (const p of r.overflow) console.log(`    \xB7 ${relative3(projectRoot, p)}`);
+        for (const p of r.overflow) console.log(`    \xB7 ${relative3(projectRoot, p).split(/[\\/]+/).join("/")}`);
       }
     } else {
       const more = r.truncated ? `, ${r.truncated} over the cap (raise SB_SCAN_MAX or /second-brain:track them)` : "";
