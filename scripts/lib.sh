@@ -1032,10 +1032,14 @@ sb_extractor_local_call() {
     '{model:$m, stream:false, messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null) || { [ -n "$capped" ] && rm -f "$capped"; return 1; }
   [ -n "$capped" ] && rm -f "$capped"
   [ -n "$payload" ] || return 1
-  local TBIN resp
+  local TBIN resp _payload_tmp
   TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+  # Use a temp file for the payload: Windows curl (MinGW) cannot read /dev/fd/N
+  # process-substitution paths that work on Linux/macOS. @tmpfile is portable.
+  _payload_tmp=$(mktemp) && printf '%s' "$payload" > "$_payload_tmp" || { rm -f "$_payload_tmp"; return 1; }
   resp=$( ${TBIN:+"$TBIN" "$timeout_s"} curl -sS "${url%/}/v1/chat/completions" \
-    -H 'content-type: application/json' --data-binary @<(printf '%s' "$payload") 2>/dev/null ) || return 1
+    -H 'content-type: application/json' --data-binary "@$_payload_tmp" 2>/dev/null )
+  local _ec=$?; rm -f "$_payload_tmp"; [ $_ec -eq 0 ] || return 1
   local text
   text=$(printf '%s' "$resp" | jq -r '.choices[0].message.content // empty' 2>/dev/null | tr -d '\r')
   [ -n "$text" ] || return 1
@@ -1266,19 +1270,21 @@ sb_call_extractor() {
       '{model:$m, max_tokens:4096, system:$s, messages:[{role:"user", content:$u}]}' 2>/dev/null)
 
     if [ -n "$payload" ]; then
-      local resp
+      local resp _b2_tmp
       # Honor ANTHROPIC_BASE_URL for enterprise gateways / proxies / air-gapped
       # Anthropic-compatible endpoints; default to the public host.
-      # </dev/null: curl takes the payload via process substitution and never
-      # needs stdin — but WITHOUT closing it, any stdin-reading stand-in (test
-      # stub, gateway wrapper) inherits the caller's stdin and blocks until the
-      # timeout kills it whenever that stdin never EOFs (e.g. a background
-      # runner's open pipe — the in-suite-only test-lib-extractor-backend hang).
+      # Payload via temp file: Windows curl (MinGW) cannot read /dev/fd/N
+      # process-substitution paths; @tmpfile is portable across all platforms.
+      # (Previous comment noted </dev/null to prevent stdin inheritance by stubs
+      # — the temp file approach avoids that too since curl never reads stdin.)
+      _b2_tmp=$(mktemp) && printf '%s' "$payload" > "$_b2_tmp" || { rm -f "$_b2_tmp" 2>/dev/null; _b2_tmp=""; }
+      if [ -z "$_b2_tmp" ]; then resp=""; else
       resp=$(timeout "$timeout_s" curl -sS "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/messages" \
         -H "x-api-key: $ANTHROPIC_API_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" \
-        --data-binary @<(printf '%s' "$payload") </dev/null 2>"$err_file" || true)
+        --data-binary "@$_b2_tmp" 2>"$err_file" || true)
+      rm -f "$_b2_tmp"; fi
 
       local text
       text=$(printf '%s' "$resp" | jq -r '.content[0].text // empty' 2>/dev/null | tr -d '\r')

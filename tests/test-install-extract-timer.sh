@@ -16,7 +16,9 @@ no() { FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
 echo "=== install-extract-timer.sh tests ==="
 
 # Test 1: default (print) mode emits both units and touches nothing
-OUT=$(bash "$INSTALL" 2>&1 || true)
+# Force systemd rendering: on non-Linux hosts uname returns MINGW*/Darwin and the
+# default OS branch would output windows/launchd instead of systemd unit text.
+OUT=$(SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 || true)
 printf '%s' "$OUT" | grep -q 'sb-extract-drain.service' && ok "prints .service" || no "prints .service"
 printf '%s' "$OUT" | grep -q 'OnUnitActiveSec=30min'     && ok "prints .timer body" || no "prints .timer body"
 printf '%s' "$OUT" | grep -q 'extract-drain.sh'          && ok "ExecStart resolved to drainer path" || no "ExecStart resolved"
@@ -42,9 +44,9 @@ OAUTH="$SCRIPT_DIR/../systemd/sb-extract-drain-oauth.service"
 { [ -f "$OAUTH" ] && grep -q 'ReadWritePaths=.*%h/knowledge' "$OAUTH"; } && ok "oauth variant also writes knowledge" || no "oauth variant knowledge grant"
 
 # Test 6 (U4): installer default print = hardened (no creds); --oauth print = creds + announced grant
-DOUT=$(bash "$INSTALL" 2>&1 || true)
+DOUT=$(SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 || true)
 printf '%s' "$DOUT" | grep -q '%h/.claude' && no "default print leaked creds grant" || ok "default print = hardened (no creds)"
-OOUT=$(bash "$INSTALL" --oauth 2>&1 || true)
+OOUT=$(SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" --oauth 2>&1 || true)
 printf '%s' "$OOUT" | grep -q '%h/.claude' && ok "--oauth print renders creds grant" || no "--oauth print missing creds grant"
 printf '%s' "$OOUT" | grep -qiE 'grant|NOTE' && ok "--oauth announces the grant" || no "--oauth announces the grant"
 
