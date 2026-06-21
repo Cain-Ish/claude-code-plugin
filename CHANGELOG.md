@@ -4,6 +4,22 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.4
+
+Cross-project drain fix for the raw-capture CLI (no migration action). Found while live-draining
+witcherrpg's inbox from a claude-code-plugin session: `raw-capture-cli process <id>` returned
+"No raw item with id …" so the maintainer couldn't mark items processed (it hand-edited files
+as a workaround).
+
+- **`process`/`pending`/`list`/`discard` were hard-scoped to the ACTIVE project** (`SB_ACTIVE_SLUG
+  || resolveActiveSlug`), so they could never touch another project's inbox. Added a **`--slug
+  <project>` flag** (precedence: `--slug` > `SB_ACTIVE_SLUG` > `resolveActiveSlug`), parsed in any
+  order alongside `--node`. The maintainer's Phase 4c now passes `--slug <project>` explicitly, so
+  the drain targets the right inbox even when a different project is the active session — and is
+  immune to a `resolveActiveSlug` mis-resolution.
+
+`/upgrade` to 0.33.4 is a marker bump (no data migration).
+
 ## 0.33.3
 
 Truncation-safe, resumable raw-inbox drain (no migration action). Found by live-draining a project
