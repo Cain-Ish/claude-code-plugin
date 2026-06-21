@@ -4,6 +4,30 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.7
+
+Fix: the vector-deps installer no longer deep-copies ~490 MB per plugin version on Windows
+(no migration action). `install-vector-deps.sh` installs the native deps (onnxruntime-node,
+sharp, `@huggingface/transformers`) ONCE into `~/.second-brain/vector-deps` and links each
+plugin version's `mcp/node_modules` at it — but on git-bash/MSYS `ln -s` silently
+**deep-copies** the target (winsymlinks default), so every upgrade left a full real copy
+(~490 MB), accumulating to multiple GB across versions in the plugin cache.
+
+- **`link_version()` now links cross-OS without copying:** a Windows directory **junction**
+  (`node fs.symlinkSync(target, link, "junction")` — needs no admin / SeCreateSymbolicLink
+  privilege) and a normal `ln -s` on POSIX. Verified on Windows: git-bash `test -L`/`readlink`
+  recognize the junction and `rm -f` unlinks it without touching the shared tree, so the
+  existing idempotent relink logic is unchanged.
+- **`test-upgrade-vector-deps.sh` now runs on Windows.** Its OS gate previously probed bare
+  `ln -s` (which deep-copies), found no real symlink, and silently SKIPPED the whole suite —
+  hiding this bug. It now probes the real junction mechanism, and adds a structural **T11**
+  guard (runs on CI's linux/macos, which have no Windows runner) against reverting to a
+  deep-copying `ln -s`.
+- Reclaim existing duplication by pruning stale plugin-cache versions; the next
+  `install-vector-deps` run relinks the active version as a junction (single shared copy).
+
+`/upgrade` to 0.33.7 is a marker bump (no data migration).
+
 ## 0.33.6
 
 Opt-in raw-inbox prune (no migration action). Processed raw captures are kept in

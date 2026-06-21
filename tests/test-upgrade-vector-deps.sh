@@ -9,17 +9,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# T1-T10 all require ln -s to create a working symlink (the installer's core
-# mechanism is a shared-dir symlink).  Skip everything on platforms where
-# symlinks are unsupported (Windows without Developer Mode / SeCreateSymbolicLink).
-supports_symlinks() {
-  local d; d=$(mktemp -d)
-  echo t > "$d/t.txt"; ln -s "$d/t.txt" "$d/l.txt" 2>/dev/null
-  local ok=1; [ -L "$d/l.txt" ] && ok=0
+# The installer links a DIRECTORY into each plugin version (junction on Windows via node,
+# `ln -s` on POSIX). Probe that SAME mechanism — not bare `ln -s` — so this suite RUNS on
+# Windows/git-bash (where bare `ln -s` deep-copies; the old gate probed `ln -s`, found no
+# real symlink, and wrongly SKIPPED — which is exactly why the per-version ~490MB
+# duplication bug went uncaught here for so long).
+supports_dir_links() {
+  local d; d=$(mktemp -d); mkdir -p "$d/t"
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+      local tw lw; tw="$(cygpath -w "$d/t")"; lw="$(cygpath -w "$d/l")"
+      SBVD_T="$tw" SBVD_L="$lw" node -e 'require("fs").symlinkSync(process.env.SBVD_T,process.env.SBVD_L,"junction")' 2>/dev/null ;;
+    *) ln -s "$d/t" "$d/l" 2>/dev/null ;;
+  esac
+  local ok=1; [ -L "$d/l" ] && ok=0
   rm -rf "$d"; return $ok
 }
-if ! supports_symlinks; then
-  echo "SKIP: symlinks not supported on this platform (Windows without Developer Mode)"
+if ! supports_dir_links; then
+  echo "SKIP: directory links not supported on this platform"
   echo "ALL PASS"
   exit 0
 fi
@@ -168,5 +175,20 @@ mkdir -p "$TMP/shared/.staging.deadbeef/node_modules"
 run || { echo "FAIL T10: non-zero"; exit 1; }
 ls -d "$TMP/shared"/.staging.* >/dev/null 2>&1 && { echo "FAIL T10: stale staging dir not swept"; exit 1; }
 echo "PASS T10: stale staging dirs swept"
+
+# T11 (regression guard — runs on EVERY OS incl. CI's linux/macos, which have no Windows
+# runner): assert the WIRING, not just token presence. The per-version ~490MB duplication
+# bug is a bare `ln -s "$SHARED_NM"` that DEEP-COPIES on git-bash/MSYS; the fix routes
+# link_version through _link_dir (junction on Windows). A token-only grep would FALSE-PASS
+# if someone reverted just the call site to `ln -s` while leaving _link_dir as dead code.
+INST="$SCRIPT_DIR/bin/install-vector-deps.sh"
+grep -q '_link_dir "$SHARED_NM"' "$INST" \
+  || { echo "FAIL T11: link_version must call _link_dir (junction on Windows), not link inline"; exit 1; }
+if grep -q 'ln -s "$SHARED_NM"' "$INST"; then
+  echo "FAIL T11: bare 'ln -s \$SHARED_NM' deep-copies on git-bash — route via the junction helper"; exit 1
+fi
+grep -q 'symlinkSync' "$INST" && grep -q '"junction"' "$INST" && grep -q 'cygpath -w' "$INST" \
+  || { echo "FAIL T11: junction mechanism (node fs.symlinkSync ... \"junction\" + cygpath -w) missing"; exit 1; }
+echo "PASS T11: link_version wired to the junction helper; no deep-copying ln -s of the shared tree"
 
 echo "ALL PASS"

@@ -73,6 +73,28 @@ deps_ok() {
 # import_ok <dir-with-node_modules>: exit 0 iff transformers imports from there.
 import_ok() { ( cd "$1" && node --input-type=module -e 'await import("@huggingface/transformers"); console.log("ok")' ) 2>/dev/null | grep -q '^ok$'; }
 
+# _link_dir <target> <linkpath>: link a directory WITHOUT deep-copying. CRITICAL: on
+# git-bash/MSYS, `ln -s` silently DEEP-COPIES the target (winsymlinks default), which
+# duplicated the ~490MB shared tree into EVERY plugin version's mcp/node_modules (one
+# real copy per version — GBs accumulate across upgrades, defeating the whole "shared,
+# one copy on disk" design). Use a Windows directory JUNCTION there (created via node;
+# needs no admin/SeCreateSymbolicLink privilege), and a normal symlink on POSIX.
+# Verified on Windows: git-bash `test -L`/`readlink` recognize the junction, and `rm -f`
+# unlinks it WITHOUT deleting the shared target — so the link-detection in link_version
+# below works unchanged on both platforms.
+_link_dir() {
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+      local tw lw
+      tw="$(cygpath -w "$1")"; lw="$(cygpath -w "$2")"
+      SBVD_T="$tw" SBVD_L="$lw" node -e 'require("fs").symlinkSync(process.env.SBVD_T, process.env.SBVD_L, "junction")'
+      ;;
+    *)
+      ln -s "$1" "$2"
+      ;;
+  esac
+}
+
 link_version() {
   local nm="$MCP_DIR/node_modules"
   if [ -L "$nm" ]; then
@@ -81,7 +103,7 @@ link_version() {
   elif [ -e "$nm" ]; then
     rm -rf "$nm"
   fi
-  ln -s "$SHARED_NM" "$nm"
+  _link_dir "$SHARED_NM" "$nm"
 }
 
 # 1. Shared tree present, key-current, complete, importable → just (re)link and done.
