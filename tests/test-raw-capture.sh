@@ -69,5 +69,39 @@ TNF=$(run pending | grep 'tab node test' | awk -F'\t' '{print NF}')
 [ "$TNF" = "5" ] || fail "pending row not 5 tab-fields (tab in target_node corrupts TSV): got $TNF"
 pass "pending tab-sanitizes target_node (5 TSV columns)"
 
+# --- SP-5: --slug override (cross-project drain isolation) ---
+# Set up project A (alpha) and project B (beta) inboxes in the same BRAIN_DIR.
+mkdir -p "$T/projects/alpha" "$T/projects/beta"
+: > "$T/projects/alpha/PROJECT.md"
+: > "$T/projects/beta/PROJECT.md"
+
+# Capture an item into project alpha's inbox directly.
+ALPHA_OUT=$(BRAIN_DIR="$T" SB_ACTIVE_SLUG=alpha node "$CLI" capture "alpha-specific note")
+echo "$ALPHA_OUT" | grep -q 'Captured .* — 1 unprocessed' || fail "--slug test: alpha capture failed ($ALPHA_OUT)"
+ALPHA_ID=$(BRAIN_DIR="$T" SB_ACTIVE_SLUG=alpha node "$CLI" pending | cut -f1 | head -1)
+[ -n "$ALPHA_ID" ] || fail "--slug test: alpha pending returned nothing"
+
+# With active=beta, --slug alpha must list alpha's item (cross-project pending).
+POUT=$(BRAIN_DIR="$T" SB_ACTIVE_SLUG=beta node "$CLI" --slug alpha pending)
+echo "$POUT" | grep -q "$ALPHA_ID" || fail "--slug alpha pending (active=beta) did not list alpha's item ($POUT)"
+pass "--slug alpha pending lists alpha's item when active=beta"
+
+# Without --slug, active=beta: beta's pending is empty (alpha's item is invisible).
+BETA_POUT=$(BRAIN_DIR="$T" SB_ACTIVE_SLUG=beta node "$CLI" pending)
+[ -z "$(echo "$BETA_POUT" | grep "$ALPHA_ID" || true)" ] || fail "beta pending (no --slug) should NOT see alpha's item"
+pass "pending without --slug (active=beta) does not see alpha's item"
+
+# With active=beta, --slug alpha + process: should mark alpha's item processed.
+PROC_OUT=$(BRAIN_DIR="$T" SB_ACTIVE_SLUG=beta node "$CLI" --slug alpha process "$ALPHA_ID" --node alpha-node)
+echo "$PROC_OUT" | grep -q "Processed $ALPHA_ID" || fail "--slug alpha process (active=beta) failed ($PROC_OUT)"
+grep -q '^status: processed$' "$T/projects/alpha/raw/$ALPHA_ID.md" || fail "alpha item status not flipped to processed"
+grep -q '^target_node: alpha-node$' "$T/projects/alpha/raw/$ALPHA_ID.md" || fail "alpha item target_node not set"
+pass "--slug alpha process (active=beta) marks alpha's item processed with target_node"
+
+# Confirm: without --slug, active=beta, process on alpha's id returns not-found.
+NFOUT=$(BRAIN_DIR="$T" SB_ACTIVE_SLUG=beta node "$CLI" process "$ALPHA_ID" --node wrongnode)
+echo "$NFOUT" | grep -q 'No raw item' || fail "process without --slug (active=beta) should return not-found for alpha id ($NFOUT)"
+pass "process without --slug (active=beta) returns not-found for another project's id"
+
 rm -rf "$T"
 echo; echo "ALL PASS"

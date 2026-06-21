@@ -5,26 +5,36 @@ import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, raw
 import { resolveActiveSlug } from './project-dir.js';
 import { cleanEnvPath } from '../path-guard.js';
 
-function resolveSlug(brainDir: string): string | undefined {
-  // SB_ACTIVE_SLUG (explicit override) first; else the shared resolver
+function resolveSlug(brainDir: string, flagSlug?: string): string | undefined {
+  // Precedence: --slug flag > SB_ACTIVE_SLUG env > resolveActiveSlug
   // (CLAUDE_PROJECT_DIR > cwd-if-known-project > pin > cwd).
-  return process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
+  return flagSlug || process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
+}
+
+/** Pull a named flag `--<name> <value>` out of argv; return the rest + the value. */
+function takeFlag(args: string[], name: string): { rest: string[]; value?: string } {
+  const flag = `--${name}`;
+  const i = args.indexOf(flag);
+  if (i >= 0 && args[i + 1]) return { rest: [...args.slice(0, i), ...args.slice(i + 2)], value: args[i + 1] };
+  return { rest: args };
 }
 
 /** Pull `--node <slug>` out of argv; return the rest + the node value. */
 function takeNode(args: string[]): { rest: string[]; node?: string } {
-  const i = args.indexOf('--node');
-  if (i >= 0 && args[i + 1]) return { rest: [...args.slice(0, i), ...args.slice(i + 2)], node: args[i + 1] };
-  return { rest: args };
+  const { rest, value } = takeFlag(args, 'node');
+  return { rest, node: value };
 }
 
 async function main(): Promise<void> {
   const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join(homedir(), '.second-brain');
-  const slug = resolveSlug(brainDir);
-  if (!slug) { console.log('capture: could not resolve the active project (no slug). cd into a project.'); return; }
 
-  const action = process.argv[2];
-  const { rest, node } = takeNode(process.argv.slice(3));
+  // Strip --slug before positional parsing so order of flags doesn't matter.
+  const { rest: argvAfterSlug, value: flagSlug } = takeFlag(process.argv.slice(2), 'slug');
+  const slug = resolveSlug(brainDir, flagSlug);
+  if (!slug) { console.log('capture: could not resolve the active project (no slug). cd into a project or pass --slug <project>.'); return; }
+
+  const action = argvAfterSlug[0];
+  const { rest, node } = takeNode(argvAfterSlug.slice(1));
 
   try {
     if (action === 'list') {
@@ -37,7 +47,7 @@ async function main(): Promise<void> {
       if (items.length === 0) console.log('  (empty — capture something, e.g. /second-brain:capture ./notes.md)');
     } else if (action === 'discard') {
       const id = rest[0];
-      if (!id) { console.log('usage: capture --discard <id>'); return; }
+      if (!id) { console.log('usage: capture [--slug <project>] discard <id>'); return; }
       console.log(await setStatus(brainDir, slug, id, 'discarded')
         ? `Discarded ${id}.` : `No raw item with id ${id}.`);
     } else if (action === 'pending') {
@@ -57,7 +67,7 @@ async function main(): Promise<void> {
       }
     } else if (action === 'process') {
       const id = rest[0];
-      if (!id) { console.log('usage: capture process <id> [--node <slug>]'); return; }
+      if (!id) { console.log('usage: capture [--slug <project>] process <id> [--node <slug>]'); return; }
       console.log(await markProcessed(brainDir, slug, id, node)
         ? `Processed ${id}` : `No raw item with id ${id}.`);
     } else if (action === 'paste') {
@@ -67,7 +77,7 @@ async function main(): Promise<void> {
       console.log(`${r.duplicate ? 'Already captured' : 'Captured'} ${r.id} — ${r.unprocessed} unprocessed.`);
     } else if (action === 'capture') {
       const src = rest[0];
-      if (!src) { console.log('usage: capture <path|url> [--node <slug>]  |  capture paste'); return; }
+      if (!src) { console.log('usage: capture [--slug <project>] <path|url> [--node <slug>]  |  capture paste'); return; }
       let kind: 'file' | 'url' | 'paste'; let content: string | undefined; let source = src;
       if (/^https?:\/\//i.test(src)) { kind = 'url'; content = src; }
       else if (existsSync(src) && statSync(src).isFile()) { kind = 'file'; }
@@ -76,7 +86,7 @@ async function main(): Promise<void> {
       console.log(`${r.duplicate ? 'Already captured' : 'Captured'} ${r.id} (${kind}) — ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);
-      console.log(`usage: capture <path|url> | capture paste | capture --list | capture --discard <id>  (${n} unprocessed)`);
+      console.log(`usage: capture [--slug <project>] <path|url> | capture paste | capture list | capture discard <id> | capture pending | capture process <id>  (${n} unprocessed)`);
     }
   } catch (e) {
     console.log(`capture error: ${e instanceof Error ? e.message : String(e)}`);

@@ -306,9 +306,11 @@ re-running `/second-brain:maintain` — never restarted from scratch, never dupl
    bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-drain-reconcile.sh" --slug <active-slug>
    ```
 
-2. **Get the deterministic work-list** (drainable = unprocessed, well-formed; for the active project):
+2. **Get the deterministic work-list** (drainable = unprocessed, well-formed; for the project being
+   drained — pass `--slug` explicitly so the drain targets the correct inbox even when a different
+   project is the active session):
    ```bash
-   node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" pending
+   node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" --slug <active-slug> pending
    ```
    Each TSV row is `id⇥path⇥captured_by⇥target_node⇥gist`. Empty output → skip this phase. (Malformed
    items are excluded here — they still show in `/second-brain:capture --list` for manual repair.
@@ -340,7 +342,7 @@ re-running `/second-brain:maintain` — never restarted from scratch, never dupl
      value — a path or URL). This back-ref is how reconcile finds the item; do not omit it.
    - **Mark processed IMMEDIATELY after writing the node — before starting the next item. NEVER batch.**
      ```bash
-     node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" process <id> --node <slug>
+     node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" --slug <active-slug> process <id> --node <slug>
      ```
      Sets the item `status: processed` and `target_node: <slug>` (the node it became). The raw `.md`
      stays in `raw/` as the audit trail — never delete it.

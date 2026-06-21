@@ -6404,23 +6404,29 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
 }
 
 // src/tools/raw-capture-cli.ts
-function resolveSlug(brainDir) {
-  return process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
+function resolveSlug(brainDir, flagSlug) {
+  return flagSlug || process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
+}
+function takeFlag(args, name) {
+  const flag = `--${name}`;
+  const i = args.indexOf(flag);
+  if (i >= 0 && args[i + 1]) return { rest: [...args.slice(0, i), ...args.slice(i + 2)], value: args[i + 1] };
+  return { rest: args };
 }
 function takeNode(args) {
-  const i = args.indexOf("--node");
-  if (i >= 0 && args[i + 1]) return { rest: [...args.slice(0, i), ...args.slice(i + 2)], node: args[i + 1] };
-  return { rest: args };
+  const { rest, value } = takeFlag(args, "node");
+  return { rest, node: value };
 }
 async function main() {
   const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join4(homedir(), ".second-brain");
-  const slug = resolveSlug(brainDir);
+  const { rest: argvAfterSlug, value: flagSlug } = takeFlag(process.argv.slice(2), "slug");
+  const slug = resolveSlug(brainDir, flagSlug);
   if (!slug) {
-    console.log("capture: could not resolve the active project (no slug). cd into a project.");
+    console.log("capture: could not resolve the active project (no slug). cd into a project or pass --slug <project>.");
     return;
   }
-  const action = process.argv[2];
-  const { rest, node } = takeNode(process.argv.slice(3));
+  const action = argvAfterSlug[0];
+  const { rest, node } = takeNode(argvAfterSlug.slice(1));
   try {
     if (action === "list") {
       const items = await listItems(brainDir, slug);
@@ -6433,7 +6439,7 @@ async function main() {
     } else if (action === "discard") {
       const id = rest[0];
       if (!id) {
-        console.log("usage: capture --discard <id>");
+        console.log("usage: capture [--slug <project>] discard <id>");
         return;
       }
       console.log(await setStatus(brainDir, slug, id, "discarded") ? `Discarded ${id}.` : `No raw item with id ${id}.`);
@@ -6450,7 +6456,7 @@ async function main() {
     } else if (action === "process") {
       const id = rest[0];
       if (!id) {
-        console.log("usage: capture process <id> [--node <slug>]");
+        console.log("usage: capture [--slug <project>] process <id> [--node <slug>]");
         return;
       }
       console.log(await markProcessed(brainDir, slug, id, node) ? `Processed ${id}` : `No raw item with id ${id}.`);
@@ -6465,7 +6471,7 @@ async function main() {
     } else if (action === "capture") {
       const src = rest[0];
       if (!src) {
-        console.log("usage: capture <path|url> [--node <slug>]  |  capture paste");
+        console.log("usage: capture [--slug <project>] <path|url> [--node <slug>]  |  capture paste");
         return;
       }
       let kind;
@@ -6485,7 +6491,7 @@ async function main() {
       console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} (${kind}) \u2014 ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);
-      console.log(`usage: capture <path|url> | capture paste | capture --list | capture --discard <id>  (${n} unprocessed)`);
+      console.log(`usage: capture [--slug <project>] <path|url> | capture paste | capture list | capture discard <id> | capture pending | capture process <id>  (${n} unprocessed)`);
     }
   } catch (e) {
     console.log(`capture error: ${e instanceof Error ? e.message : String(e)}`);
