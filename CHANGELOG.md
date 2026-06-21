@@ -4,6 +4,29 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.5
+
+Truncation-free raw-inbox drain (no migration action). The Phase 4c drain previously ran entirely
+inside one knowledge-maintainer context; a large captured document exhausted the subagent's output
+budget, so it truncated after ~1–3 items. `0.33.3`'s reconcile made that *safe* (resumable, no
+duplicates) but you still had to re-run `/second-brain:maintain` repeatedly to finish a backlog.
+
+- **New `agents/raw-drainer.md`** — a lean, single-purpose drain worker: it reconciles, drains up
+  to `SB_DRAIN_BATCH` (default 5) items one-at-a-time with full provenance, reconciles again, and
+  ends with a parseable `DRAINED: <n>  REMAINING: <m>` line.
+- **`/second-brain:maintain` now loops it.** Stage 1 dispatches the knowledge-maintainer for
+  consolidation + ai-block authoring (no in-context drain); Stage 2 re-dispatches the `raw-drainer`
+  in a **fresh context per batch** until a full pass drains nothing new (`DRAINED: 0`) or the inbox
+  is empty (`REMAINING: 0`), with a 30-iteration fail-loud cap; Stage 3 reindexes. A fresh context
+  per batch can never truncate the whole drain.
+- **The knowledge-maintainer no longer drains in-context** — Phase 4c is delegated to the skill's
+  loop (auto-dispatched runs already skipped it). The conservative (never auto-discard), provenance,
+  and explicit-only invariants are preserved, and the drain stays resumable + idempotent
+  (reconcile-backed).
+
+`/upgrade` to 0.33.5 is a marker bump (no data migration — the drain just finishes in one
+`/second-brain:maintain` now).
+
 ## 0.33.4
 
 Cross-project drain fix for the raw-capture CLI (no migration action). Found while live-draining

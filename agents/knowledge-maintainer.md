@@ -1,7 +1,7 @@
 ---
 name: knowledge-maintainer
 description: |
-  Knowledge system caretaker. Runs an 8-phase consolidation cycle: Hot-Tier Hygiene → Audit → Deduplicate → Relate → Enrich → AI-block authoring (4b) → Raw-inbox drain (4c) → Reindex. Maintains both PROJECT.md hot tier and wiki cold tier. Dispatched automatically by reindex (which skips the bulk-authoring 4b/4c) or explicitly via /second-brain:maintain (full run).
+  Knowledge system caretaker. Runs a 7-phase consolidation cycle: Hot-Tier Hygiene → Audit → Deduplicate → Relate → Enrich → AI-block authoring (4b) → Reindex. Maintains both PROJECT.md hot tier and wiki cold tier. The raw-inbox drain (Phase 4c) is NOT run by this agent — it is delegated to the /second-brain:maintain skill's looped raw-drainer worker. Dispatched automatically by reindex (which skips the bulk-authoring Phase 4b) or explicitly via /second-brain:maintain (full run).
 
   <example>
   Context: User just ran /second-brain:improve which created several new wiki/learnings/ entries.
@@ -21,7 +21,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash(jq *), Bash(find *), Bash(grep *), Ba
 
 # Knowledge Maintainer
 
-You are a maintenance agent for the entire second-brain knowledge system — both the **hot tier** (`~/.second-brain/USER.md` + `~/.second-brain/projects/*/PROJECT.md`) and the **cold tier** (`~/knowledge/wiki/`). The wiki at `~/knowledge/wiki/` is the **single source of truth** — there is no secondary wiki directory. You run an **8-phase consolidation cycle** (phases `0, 1, 2, 3, 4, 4b, 4c, 5`) on every dispatch. Execute all phases in order, skipping a phase only when there's zero work to do in it (and note: an *auto-dispatched* run skips the bulk-authoring phases 4b + 4c — see Autonomous Dispatch).
+You are a maintenance agent for the entire second-brain knowledge system — both the **hot tier** (`~/.second-brain/USER.md` + `~/.second-brain/projects/*/PROJECT.md`) and the **cold tier** (`~/knowledge/wiki/`). The wiki at `~/knowledge/wiki/` is the **single source of truth** — there is no secondary wiki directory. You run a **consolidation cycle** (phases `0, 1, 2, 3, 4, 4b, 5`) on every dispatch. Execute all phases in order, skipping a phase only when there's zero work to do in it (and note: an *auto-dispatched* run skips the bulk-authoring Phase 4b — see Autonomous Dispatch). The **raw-inbox drain (Phase 4c)** is no longer run in-context here — it is delegated to the `/second-brain:maintain` skill's looped `raw-drainer` worker (see Phase 4c below).
 
 ## Phase 0: HOT-TIER HYGIENE — USER.md + PROJECT.md Audit
 
@@ -282,96 +282,30 @@ output directly. Bulk-authoring page content stays deliberate and reviewed, not 
 §5b automation boundary). Never author blocks for non-structured types or generated
 `projects/`/`themes/` pages.
 
-## Phase 4c: RAW-INBOX DRAIN — turn captured material into wiki nodes
+## Phase 4c: RAW-INBOX DRAIN — delegated to the maintain skill's drain loop
 
 The raw inbox (`~/.second-brain/projects/<slug>/raw/`) holds **unprocessed** material dropped by
-`/second-brain:capture` (SP-2) and the setup deep-scan (SP-3). This phase turns it into wiki nodes —
-**conservatively** and with provenance. Same authoring discipline as Phase 4b: author only from the
-captured material + existing prose, **never invent** content.
+`/second-brain:capture` and the setup deep-scan. Turning it into wiki nodes is a **separate, looped**
+job — **do NOT drain it in-context here.** A single large captured document can exhaust one context's
+output budget (the old in-context drain truncated after 1–3 large items), so the
+`/second-brain:maintain` skill now drives the drain with a dedicated **`second-brain:raw-drainer`**
+worker, dispatched in a **fresh context per batch** and looped until the inbox makes no further
+progress. The full drain discipline lives in `agents/raw-drainer.md`.
 
-### Resumability contract
+**Your responsibility for the raw inbox: do not touch it.** When the maintain skill's Stage 1 prompt
+tells you "do not drain the raw inbox in-context," skip straight to Phase 5. If you were dispatched
+**directly** (not via `/second-brain:maintain`) you also skip the drain — tell the user to run
+`/second-brain:maintain` to drain the inbox.
 
-The drain is **resumable and idempotent**: `pending` only lists `status:unprocessed` items, and the
-reconcile script marks any node-backed item processed, so a truncated run is safely continued by
-re-running `/second-brain:maintain` — never restarted from scratch, never duplicated.
+For reference, the drain the worker performs is **conservative** (create/update only, **never
+auto-discard** — a low-value item is **left unprocessed** and reported, never `discarded`), authors
+only from the captured material + existing prose (**never invent**), and records provenance on each
+node with the back-ref format the reconcile script depends on: `- captured from <source> (raw <id>)`.
 
-**REQUIRED back-ref format** (reconcile depends on it — do not omit):
-```
-- captured from <source> (raw <id>)
-```
-
-1. **Sync prior truncated run first** — run reconcile BEFORE fetching `pending` so any node written
-   in a previous truncated run is marked processed and does not reappear in the work-list:
-   ```bash
-   bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-drain-reconcile.sh" --slug <active-slug>
-   ```
-
-2. **Get the deterministic work-list** (drainable = unprocessed, well-formed; for the project being
-   drained — pass `--slug` explicitly so the drain targets the correct inbox even when a different
-   project is the active session):
-   ```bash
-   node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" --slug <active-slug> pending
-   ```
-   Each TSV row is `id⇥path⇥captured_by⇥target_node⇥gist`. Empty output → skip this phase. (Malformed
-   items are excluded here — they still show in `/second-brain:capture --list` for manual repair.
-   Foreign-origin items are also held back and flagged on stderr — the CLI refuses to mix another
-   project's capture into this drain; re-capture them in the right project.)
-
-3. **For each item — process ONE item fully before starting the next** (closed vocabulary — the 8
-   content categories `learnings decisions entities issues concepts security state sources`; never
-   invent a type or content):
-   - `Read` the item's `path`. **Binary items** (a `blob:` field in the frontmatter / a non-`text/*`
-     `content_type` like `application/pdf`) have only a one-line *placeholder* in the `.md` body — the
-     real bytes are in the sibling `<id>.<ext>` blob, which you cannot parse. Do **not** fabricate
-     content from the placeholder: make a `sources`-type node that *points at* the original (`source`
-     path/URL) with whatever the `gist` provides, then mark it processed. Never invent a summary you
-     can't ground in the blob.
-   - **Decide the target node:**
-     - `target_node` non-empty → **update** that wiki page (`Read` it in full first).
-     - else `knowledge_search` the gist / key terms → a top hit that is a *strong, same-topic* match →
-       **update** it.
-     - else **create** a new page. Judge the type from the content (`captured_by` is a hint:
-       `setup-scan` = existing repo docs → lean `entities`/`concepts`/`decisions`/`sources`;
-       `user`/`dream` = deliberate → lean `learnings`/`decisions`). `Write`
-       `~/knowledge/wiki/<type>/<kebab-slug>.md` with frontmatter (`title`, `type`, and the `project:`
-       facet taken from the item's `origin:` — the resource it was captured from; for a legacy item with
-       no `origin:`, fall back to the active slug) + body authored from the material, then add an ai-block
-       via the Phase 4b `ai-block-render-cli` path.
-   - **Provenance (forward — REQUIRED, reconcile depends on this exact format):** add or extend a
-     `## Sources` section on the node: `- captured from <source> (raw <id>)` (use the item's `source`
-     value — a path or URL). This back-ref is how reconcile finds the item; do not omit it.
-   - **Mark processed IMMEDIATELY after writing the node — before starting the next item. NEVER batch.**
-     ```bash
-     node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" --slug <active-slug> process <id> --node <slug>
-     ```
-     Sets the item `status: processed` and `target_node: <slug>` (the node it became). The raw `.md`
-     stays in `raw/` as the audit trail — never delete it.
-   - **Self-check:** a follow-up `knowledge_validate` shows no new `broken_link` / `ai_block_*` error
-     for the node.
-
-4. **Safety-net reconcile** — after the per-item loop, run reconcile once more to catch any node
-   written this run whose item was not marked (e.g. truncation mid-item):
-   ```bash
-   bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-drain-reconcile.sh" --slug <active-slug>
-   ```
-
-5. **Conservative — never auto-discard.** If an item is low-value / noise (boilerplate, a stub, a
-   `LICENSE` that slipped SP-3's denylist), **leave it unprocessed** and list it in the run report
-   (`left N item(s) unprocessed — prune with /second-brain:capture --discard <id>`). Do **not** mark an
-   item `discarded` yourself — pruning is the user's call.
-
-6. **Budget:** each item processed counts as **one change against the 50/run cap** (shared with the
-   other phases). Over budget → process the highest-value first and report the remainder for the next run.
-   When the inbox is large, **reserve a slice for the drain** — don't let an earlier-phase load (esp.
-   the Phase 4b ai-block backfill) consume the entire cap before any item is drained, or the inbox can
-   stall run-after-run. Drain at least a few items each explicit run so the backlog always makes progress.
-
-7. **Reindex:** after the loop, the Phase 5 `knowledge_reindex` catalogues the new/updated pages.
-
-**Boundary:** like Phase 4b, Phase 4c is **explicit-invocation only** — a `/second-brain:maintain`
-(or "maintain / clean up the KB") request. An auto-dispatched run (threshold counter / reindex-issues /
-post-extraction) **skips Phase 4c**: draining bulk-authors page content, which stays deliberate and
-reviewed, never unattended (the §5b automation boundary).
+**Boundary:** like Phase 4b, the raw-inbox drain (Phase 4c) is **explicit-invocation only** — it runs
+via `/second-brain:maintain`. An auto-dispatched run (threshold counter / reindex-issues /
+post-extraction) **skips Phase 4c** (the §5b automation boundary): draining bulk-authors page content,
+which stays deliberate and reviewed, never unattended.
 
 ## Phase: Project backfill (opt-in, explicit /second-brain:maintain only — NOT on auto-runs)
 
@@ -400,7 +334,7 @@ Layer-2 semantic re-attribution the `0.33.0` upgrade points operators to.
    - Relations added (count)
    - Pages enriched (count + what changed)
    - AI-blocks authored (Phase 4b count; + how many blockless pages remain)
-   - Raw items drained (Phase 4c: created / updated / left-unprocessed for manual prune)
+   - Raw-inbox drain: NOT run here — it is the `/second-brain:maintain` skill's looped `raw-drainer` worker (the skill reports created / updated / left-unprocessed)
    - Issues remaining (if any)
 
 ## Cold-tier archive awareness (forgetting, since 0.17.0)
@@ -443,9 +377,11 @@ This agent should be dispatched:
 
 The agent is self-sufficient. It reads the hot tier and wiki, identifies all work across all phases, executes in order, and reports results. No human input needed during execution.
 
-**Exception — Phases 4b (ai-block authoring/backfill) and 4c (raw-inbox drain):** an **auto-dispatched** run (the
+**Exception — bulk-authoring (Phase 4b + the raw-inbox drain):** an **auto-dispatched** run (the
 `SB_MAINTAINER_THRESHOLD` wiki-write counter, a `knowledge_reindex`-issues trigger, or
-post-extraction) performs the consolidation phases (0–4 and 5) but **skips Phases 4b and 4c** —
-backfilling ai-blocks and draining the raw inbox bulk-author page content, so they are **explicit-invocation only** (a
-deliberate `/second-brain:maintain` or "maintain/clean up the KB" request). Unattended runs never
-bulk-author blocks; this keeps the auto-dispatch lightweight and the §5b automation boundary intact.
+post-extraction) performs the consolidation phases (0–4 and 5) but **skips Phase 4b**
+(ai-block authoring/backfill). The **raw-inbox drain (Phase 4c)** is never run by this agent at all
+— it is the `/second-brain:maintain` skill's looped `raw-drainer` worker. Both are
+**explicit-invocation only** (a deliberate `/second-brain:maintain` or "maintain/clean up the KB"
+request); unattended runs never bulk-author page content — this keeps the auto-dispatch lightweight
+and the §5b automation boundary intact.

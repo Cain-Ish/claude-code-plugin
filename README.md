@@ -118,7 +118,7 @@ The SessionStart banner always shows the active mode in one line.
 | `/second-brain:import-host` | Import existing host AI-context files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, etc.) into USER.md / PROJECT.md / wiki |
 | `/second-brain:recall [query]` | Search past session transcripts via `episodic_search` (hybrid vector + text) |
 | `/second-brain:capture <path\|url\|"text">` | Drop unprocessed material (a file, URL, or pasted text) into the project's raw inbox for the maintainer to refine later; `--list` / `--discard <id>` / `--node <slug>` |
-| `/second-brain:maintain` | Run the knowledge-maintainer live over the KB — audit, dedup, relate, enrich, author ai-blocks, **and drain the raw inbox into wiki nodes** (the explicit full run; bounded + reversible) |
+| `/second-brain:maintain` | Consolidate the KB live — audit, dedup, relate, enrich, author ai-blocks (knowledge-maintainer), **and drain the raw inbox into wiki nodes** via a looped drain worker (the explicit full run; bounded + reversible) |
 | `/second-brain:dream` | Background consolidation of the wiki (dedupe, link, prune); **stages** changes for review before accept (vs `maintain`, which writes live) |
 | `/second-brain:review` | Read-only cross-project overview: open blockers, stale projects, pending dreams, ungraduated persona signals |
 | `/second-brain:audit` | Show what the safety layer did this session — guard verdicts, tool-return flags, wiki-write decisions (read-only) |
@@ -293,14 +293,14 @@ You can also feed it explicitly, for material the extractor wouldn't catch on it
 /second-brain:capture <file|url|"note">   ─┐  drop unprocessed material into the
 /second-brain:setup   (scans a repo's docs) ─┤  per-project raw INBOX (held out of search)
                                               │
-/second-brain:maintain  ──────────────────────┘─▶  the maintainer DRAINS the inbox into
+/second-brain:maintain  ──────────────────────┘─▶  the maintain run DRAINS the inbox into
                                                     proper wiki nodes (create/update, with
                                                     provenance) and consolidates the wiki
 ```
 
-The inbox is a staging area: captured material is *not* searched until the maintainer refines
-it into a wiki node — so a quick `capture` never pollutes retrieval, and you review what it
-became via the normal wiki.
+The inbox is a staging area: captured material is *not* searched until a `/second-brain:maintain`
+run refines it into a wiki node — so a quick `capture` never pollutes retrieval, and you review what
+it became via the normal wiki.
 
 ## Testing
 

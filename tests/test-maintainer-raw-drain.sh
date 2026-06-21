@@ -1,6 +1,9 @@
 #!/bin/bash
-# Guard: the knowledge-maintainer agent has a Phase 4c raw-inbox drain wired to the SP-2 CLI,
-# conservative (never auto-discard), explicit-only, with provenance.
+# Guard: the knowledge-maintainer DELEGATES the raw-inbox drain (Phase 4c) to the
+# /second-brain:maintain skill's looped raw-drainer worker — it no longer drains in-context
+# (the in-context loop truncated after 1–3 large items). This test pins the delegation and
+# guards against re-introducing the in-context drain loop, while keeping the conservative /
+# provenance / explicit-only invariants documented.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 A="$ROOT/agents/knowledge-maintainer.md"
@@ -8,37 +11,50 @@ fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 
 [ -f "$A" ] || fail "knowledge-maintainer.md missing"
 grep -q 'Phase 4c' "$A" || fail "no Phase 4c (raw-inbox drain) section"
-grep -q 'raw-capture-cli.bundle.js' "$A" || fail "Phase 4c does not invoke raw-capture-cli"
-grep -qw 'pending' "$A" || fail "Phase 4c missing the pending work-list"
-grep -qE 'process <id> --node <slug>' "$A" || fail "Phase 4c missing the exact process invocation"
-pass "Phase 4c invokes pending work-list + process <id> --node <slug>"
+pass "Phase 4c section present"
 
-# The agent shells out to `node …bundle.js`, so its tool allowlist must grant Bash(node *)
-# (else pending/process prompt-or-deny → items never flip to processed → re-drained duplicates).
-grep -qE '^tools:.*Bash\(node ' "$A" || fail "maintainer tools: missing Bash(node *) for the CLI calls"
-pass "maintainer grants Bash(node *)"
+# DELEGATION: Phase 4c must point at the raw-drainer loop and say it does NOT drain in-context.
+grep -qE 'raw-drainer' "$A" || fail "Phase 4c does not delegate to the raw-drainer worker"
+grep -qiE 'do not drain|do NOT drain|delegated|not run in-context' "$A" \
+  || fail "Phase 4c does not state the maintainer skips the in-context drain"
+pass "Phase 4c delegates to the raw-drainer loop (no in-context drain)"
 
+# REGRESSION GUARD: the maintainer must NOT carry the in-context drain CLI loop anymore
+# (re-adding it would reintroduce the truncation this change fixed).
+if grep -q 'raw-capture-cli.bundle.js' "$A"; then
+  fail "maintainer still invokes raw-capture-cli.bundle.js — the in-context drain loop must move to raw-drainer"
+fi
+if grep -qE 'process <id> --node' "$A"; then
+  fail "maintainer still contains 'process <id> --node' — the in-context drain loop must move to raw-drainer"
+fi
+pass "no in-context drain CLI loop remains in the maintainer"
+
+# The agent still shells to `node …bundle.js` for the Phase 4b ai-block render, so Bash(node *) stays.
+grep -qE '^tools:.*Bash\(node ' "$A" || fail "maintainer tools: missing Bash(node *) (needed for ai-block render)"
+pass "maintainer still grants Bash(node *) for Phase 4b"
+
+# Conservative policy + provenance contract stay documented (the worker honors them; reconcile
+# depends on the back-ref format).
 grep -qiE 'never .*discard|do not .*discard|left .*unprocessed' "$A" \
   || fail "Phase 4c missing the conservative never-auto-discard rule"
-pass "Phase 4c states the conservative (no auto-discard) policy"
+grep -qE 'captured from .*\(raw ' "$A" || fail "Phase 4c missing the 'captured from … (raw <id>)' provenance format"
+pass "Phase 4c documents conservative policy + provenance back-ref format"
 
-# Phase-4c-specific provenance line (NOT the pre-existing '### Sources' ENRICH heading).
-grep -qE 'captured from .*\(raw ' "$A" || fail "Phase 4c missing the 'captured from … (raw <id>)' provenance"
-pass "Phase 4c records source provenance on the node"
+# explicit-only boundary still stated for the drain.
+grep -qiE 'explicit-invocation only|explicit.*Phase 4c|Phase 4c.*explicit' "$A" \
+  || fail "Phase 4c missing the explicit-only boundary"
+pass "raw drain is explicit-invocation only"
 
-# Phase 4c must handle BINARY-blob items (PDF/image): the .md body is only a placeholder; the bytes
-# live in the sibling blob. The agent must NOT fabricate content from the placeholder.
-grep -qiE 'blob|binary' "$A" || fail "Phase 4c does not handle binary/blob items (would mis-author a PDF/image)"
-pass "Phase 4c handles binary/blob items"
-
-# Phase-count must not be stale: there is no 'Phase 6' (the phases are 0,1,2,3,4,4b,4c,5).
-if grep -qE '1[–-]4, 5, 6|Phase 6\b' "$A"; then fail "stale phase reference (there is no Phase 6)"; fi
+# Phase-count must not be stale: there is no 'Phase 6'. (ASCII boundary, not GNU \b — house rule.)
+if grep -qE 'Phase 6([^0-9]|$)' "$A"; then fail "stale phase reference (there is no Phase 6)"; fi
 pass "no stale 'Phase 6' reference"
 
-# explicit-only boundary appears for Phase 4c (the section names itself alongside 4b)
-grep -qiE 'Phase 4c.*explicit|explicit.*Phase 4c|4b/4c|4b and 4c|4b, 4c' "$A" \
-  || grep -qiE 'explicit-invocation only' "$A" \
-  || fail "Phase 4c missing the explicit-only boundary"
-pass "Phase 4c is explicit-invocation only"
+# The frontmatter description must NOT advertise the maintainer running the raw-inbox drain as a
+# cycle phase — it's delegated to the raw-drainer worker. Guard the stale "Raw-inbox drain (4c) →"
+# arrow-chain (the medium-severity stale-description regression).
+if grep -qE 'Raw-inbox drain \(4c\) →' "$A"; then
+  fail "frontmatter still lists 'Raw-inbox drain (4c) →' as a maintainer cycle phase (delegated now)"
+fi
+pass "frontmatter does not advertise the maintainer draining the inbox"
 
 echo; echo "ALL PASS"
