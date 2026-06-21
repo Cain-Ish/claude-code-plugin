@@ -6248,6 +6248,30 @@ ${tn}`);
   await fs.rename(tmp, file);
   return true;
 }
+async function pruneProcessed(brainDir, slug) {
+  assertSafeSlug(slug);
+  const dir = rawDir(brainDir, slug);
+  const items = await readItems(brainDir, slug);
+  let removed = 0;
+  for (const i of items) {
+    if (i.malformed) continue;
+    if (i.status !== "processed" && i.status !== "discarded") continue;
+    if (!isSafeId(i.id)) continue;
+    try {
+      await fs.unlink(join(dir, `${i.id}.md`));
+    } catch {
+      continue;
+    }
+    removed++;
+    if (i.blob && i.blob.startsWith(`${i.id}.`) && !/[\\/]|\.\./.test(i.blob)) {
+      try {
+        await fs.unlink(join(dir, i.blob));
+      } catch {
+      }
+    }
+  }
+  return removed;
+}
 async function captureItem(input) {
   assertSafeSlug(input.slug);
   const dir = rawDir(input.brainDir, input.slug);
@@ -6443,6 +6467,9 @@ async function main() {
         return;
       }
       console.log(await setStatus(brainDir, slug, id, "discarded") ? `Discarded ${id}.` : `No raw item with id ${id}.`);
+    } else if (action === "prune-processed") {
+      const n = await pruneProcessed(brainDir, slug);
+      console.log(`Pruned ${n} processed/discarded item(s) from ${slug} (audit-trail cleanup; unprocessed + malformed kept).`);
     } else if (action === "pending") {
       const { drainable, foreign } = partitionPending(await listItems(brainDir, slug), slug);
       for (const i of drainable) {
@@ -6491,7 +6518,7 @@ async function main() {
       console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} (${kind}) \u2014 ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);
-      console.log(`usage: capture [--slug <project>] <path|url> | capture paste | capture list | capture discard <id> | capture pending | capture process <id>  (${n} unprocessed)`);
+      console.log(`usage: capture [--slug <project>] <path|url> | capture paste | capture list | capture discard <id> | capture pending | capture process <id> | capture prune-processed  (${n} unprocessed)`);
     }
   } catch (e) {
     console.log(`capture error: ${e instanceof Error ? e.message : String(e)}`);

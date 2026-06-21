@@ -4,6 +4,23 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.6
+
+Opt-in raw-inbox prune (no migration action). Processed raw captures are kept in
+`~/.second-brain/projects/<slug>/raw/` as a provenance + truncation-recovery audit trail and are
+**never searched** (retrieval is scoped to `~/knowledge/wiki/` — verified across knowledge_search,
+episodic search, and the SessionStart/context hooks), so they carry no query-noise cost. For
+operators who prefer a transient inbox, this adds an explicit opt-out:
+
+- **New `prune-processed` CLI action** (`raw-capture-cli`) + `pruneProcessed()` — deletes a
+  project's `processed`/`discarded` raw `.md` (and any sibling blob); **always keeps** unprocessed +
+  malformed items. Idempotent. One-off via `/second-brain:capture --prune-processed`.
+- **`SB_RAW_PRUNE_AFTER_DRAIN=1`** — opt-in flag the `raw-drainer` honors *after* its safety-net
+  reconcile, so each drain batch clears the audit trail automatically. Default OFF (keep the trail).
+- Default behavior is unchanged; nothing is deleted unless you opt in.
+
+`/upgrade` to 0.33.6 is a marker bump (no data migration).
+
 ## 0.33.5
 
 Truncation-free raw-inbox drain (no migration action). The Phase 4c drain previously ran entirely

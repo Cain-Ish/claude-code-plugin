@@ -198,6 +198,32 @@ export async function markProcessed(brainDir: string, slug: string, id: string, 
   return true;
 }
 
+/** Opt-in audit-trail prune: delete raw `.md` files (and their sibling blob) whose status is a
+ *  CLOSED state (processed | discarded). Unprocessed + malformed items are ALWAYS kept (pending
+ *  work / needs manual repair). The default everywhere else KEEPS processed items as the
+ *  provenance + truncation-recovery audit trail; this is the deliberate opt-out for an operator who
+ *  wants the raw inbox to be transient. Returns the number of items removed. Idempotent. */
+export async function pruneProcessed(brainDir: string, slug: string): Promise<number> {
+  assertSafeSlug(slug);
+  const dir = rawDir(brainDir, slug);
+  const items = await readItems(brainDir, slug);
+  let removed = 0;
+  for (const i of items) {
+    if (i.malformed) continue;                                   // never delete an item flagged for manual repair
+    if (i.status !== 'processed' && i.status !== 'discarded') continue;
+    if (!isSafeId(i.id)) continue;                               // defense in depth (id derives from the filename)
+    try { await fs.unlink(join(dir, `${i.id}.md`)); } catch { continue; } // count only an actual delete
+    removed++;
+    // a binary item keeps its bytes in a sibling `<id><ext>` blob — remove it too. Constrain the
+    // blob to THIS item's own sibling (`<id>.<ext>`) so a hand-edited `blob:` field can't make prune
+    // delete another file in raw/ (e.g. a sibling `.md`); the traversal guard keeps it inside raw/.
+    if (i.blob && i.blob.startsWith(`${i.id}.`) && !/[\\/]|\.\./.test(i.blob)) {
+      try { await fs.unlink(join(dir, i.blob)); } catch { /* blob already gone */ }
+    }
+  }
+  return removed;
+}
+
 export async function captureItem(input: CaptureInput): Promise<{ id: string; duplicate: boolean; unprocessed: number }> {
   assertSafeSlug(input.slug);
   const dir = rawDir(input.brainDir, input.slug);

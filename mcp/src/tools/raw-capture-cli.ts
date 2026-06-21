@@ -1,7 +1,7 @@
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
-import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir, partitionPending } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir, partitionPending, pruneProcessed } from './raw-inbox.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { cleanEnvPath } from '../path-guard.js';
 
@@ -50,6 +50,11 @@ async function main(): Promise<void> {
       if (!id) { console.log('usage: capture [--slug <project>] discard <id>'); return; }
       console.log(await setStatus(brainDir, slug, id, 'discarded')
         ? `Discarded ${id}.` : `No raw item with id ${id}.`);
+    } else if (action === 'prune-processed') {
+      // Opt-in audit-trail cleanup: delete processed/discarded raw .md (+ blob) for this project.
+      // Default keeps them as provenance; this is the deliberate "transient inbox" opt-out.
+      const n = await pruneProcessed(brainDir, slug);
+      console.log(`Pruned ${n} processed/discarded item(s) from ${slug} (audit-trail cleanup; unprocessed + malformed kept).`);
     } else if (action === 'pending') {
       // Deterministic TSV work-list for the maintainer drain (Phase 4c): own/legacy-origin drainable only.
       const { drainable, foreign } = partitionPending(await listItems(brainDir, slug), slug);
@@ -86,7 +91,7 @@ async function main(): Promise<void> {
       console.log(`${r.duplicate ? 'Already captured' : 'Captured'} ${r.id} (${kind}) — ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);
-      console.log(`usage: capture [--slug <project>] <path|url> | capture paste | capture list | capture discard <id> | capture pending | capture process <id>  (${n} unprocessed)`);
+      console.log(`usage: capture [--slug <project>] <path|url> | capture paste | capture list | capture discard <id> | capture pending | capture process <id> | capture prune-processed  (${n} unprocessed)`);
     }
   } catch (e) {
     console.log(`capture error: ${e instanceof Error ? e.message : String(e)}`);

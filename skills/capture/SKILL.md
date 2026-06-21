@@ -27,6 +27,7 @@ CLI="${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-capture-cli.bundle.js"
 - pasted/piped text → `node "$CLI" paste [--node <slug>]` (reads stdin)
 - `--list` → `node "$CLI" list`
 - `--discard <id>` → `node "$CLI" discard <id>`
+- `--prune-processed` → `node "$CLI" prune-processed` — delete this project's **processed + discarded** audit-trail items (unprocessed and malformed are kept). Opt-in cleanup, **off by default**: processed raw `.md` files are normally kept as provenance + the drain's truncation-recovery trail, and are **never searched** (search is scoped to `~/knowledge/wiki/`), so keeping them has no retrieval cost. To make the drain prune automatically after each batch, set `SB_RAW_PRUNE_AFTER_DRAIN=1`.
 
 `--node <slug>` records that the item is evidence for an existing wiki page
 (provenance only — the link is projected later when the maintainer processes it).

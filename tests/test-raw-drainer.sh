@@ -57,4 +57,9 @@ grep -qE 'DRAINED:' "$A" || fail "missing the DRAINED: report token"
 grep -qE 'REMAINING:' "$A" || fail "missing the REMAINING: report token"
 pass "emits the DRAINED/REMAINING loop-control report line"
 
+# Opt-in audit-trail prune (default OFF): honors SB_RAW_PRUNE_AFTER_DRAIN and calls prune-processed.
+grep -q 'SB_RAW_PRUNE_AFTER_DRAIN' "$A" || fail "missing the opt-in SB_RAW_PRUNE_AFTER_DRAIN prune step"
+grep -q 'prune-processed' "$A" || fail "opt-in prune step does not invoke prune-processed"
+pass "honors the opt-in SB_RAW_PRUNE_AFTER_DRAIN audit-trail prune"
+
 echo; echo "ALL PASS"

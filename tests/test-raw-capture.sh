@@ -103,5 +103,27 @@ NFOUT=$(BRAIN_DIR="$T" SB_ACTIVE_SLUG=beta node "$CLI" process "$ALPHA_ID" --nod
 echo "$NFOUT" | grep -q 'No raw item' || fail "process without --slug (active=beta) should return not-found for alpha id ($NFOUT)"
 pass "process without --slug (active=beta) returns not-found for another project's id"
 
+# --- prune-processed: opt-in audit-trail cleanup (0.33.6) ---
+# The demo inbox now holds: broken.md (malformed), 1 discarded, 1 processed (my-node),
+# 1 unprocessed ("tab node test"). prune-processed must remove only the two CLOSED states.
+BEFORE=$(ls "$RAW"/*.md | wc -l | tr -d ' ')
+PRUNE_OUT=$(run prune-processed)
+echo "$PRUNE_OUT" | grep -qE 'Pruned 2 ' || fail "prune-processed should remove 2 (processed+discarded) ($PRUNE_OUT)"
+[ -f "$RAW/broken.md" ] || fail "prune must KEEP the malformed item (needs manual repair)"
+grep -q '^status: unprocessed$' "$RAW"/*.md || fail "prune must KEEP unprocessed items"
+! grep -q '^status: processed$' "$RAW"/*.md 2>/dev/null || fail "prune left a processed item"
+! grep -q '^status: discarded$' "$RAW"/*.md 2>/dev/null || fail "prune left a discarded item"
+AFTER=$(ls "$RAW"/*.md | wc -l | tr -d ' ')
+[ "$AFTER" -eq "$((BEFORE - 2))" ] || fail "prune file count wrong (before=$BEFORE after=$AFTER)"
+run prune-processed | grep -qE 'Pruned 0 ' || fail "prune-processed must be idempotent (0 on second run)"
+pass "prune-processed removes processed+discarded, keeps unprocessed+malformed, idempotent"
+
+# prune-processed must honor --slug — a DELETE has to be slug-scoped. alpha's only item was
+# processed in the SP-5 block; with active=beta, --slug alpha must prune ONLY alpha's closed item.
+PRUNE_ALPHA=$(BRAIN_DIR="$T" SB_ACTIVE_SLUG=beta node "$CLI" --slug alpha prune-processed)
+echo "$PRUNE_ALPHA" | grep -qE 'Pruned 1 ' || fail "--slug alpha prune-processed should remove alpha's 1 closed item ($PRUNE_ALPHA)"
+[ ! -f "$T/projects/alpha/raw/$ALPHA_ID.md" ] || fail "--slug alpha prune-processed did not delete alpha's processed item"
+pass "--slug alpha prune-processed (active=beta) is slug-scoped to alpha's closed items"
+
 rm -rf "$T"
 echo; echo "ALL PASS"

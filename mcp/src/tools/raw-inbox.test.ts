@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending, pruneProcessed } from './raw-inbox.js';
 import type { RawItem } from './raw-inbox.js';
 
 async function brain(): Promise<{ brainDir: string; slug: string }> {
@@ -169,6 +169,59 @@ describe('raw-inbox', () => {
     expect(item.origin).toBeUndefined();
     expect(item.malformed).toBeFalsy();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('pruneProcessed removes processed + discarded items (and blob siblings), keeps unprocessed + malformed', async () => {
+    const { brainDir, slug } = await brain();
+    // unprocessed → KEEP
+    const keep = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: 'keep me', now: NOW });
+    // processed → PRUNE
+    const proc = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: 'drained', now: '2026-06-03T14:16:00Z' });
+    await markProcessed(brainDir, slug, proc.id, 'some-node');
+    // discarded → PRUNE
+    const disc = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: 'noise', now: '2026-06-03T14:17:00Z' });
+    await setStatus(brainDir, slug, disc.id, 'discarded');
+    // binary, processed → PRUNE the .md AND its sibling blob
+    const bin = join(brainDir, 'pic.bin');
+    await fs.writeFile(bin, Buffer.from([0x00, 0x01, 0x00]));
+    const binItem = await captureItem({ brainDir, slug, kind: 'file', source: bin, now: '2026-06-03T14:18:00Z' });
+    await markProcessed(brainDir, slug, binItem.id, 'pic-node');
+    const blobPath = join(rawDir(brainDir, slug), `${binItem.id}.bin`);
+    await expect(fs.access(blobPath)).resolves.toBeUndefined(); // blob exists pre-prune
+    // binary, DISCARDED → also PRUNE the .md AND its blob (closed-state branch, same as processed)
+    const bin2 = join(brainDir, 'pic2.bin');
+    await fs.writeFile(bin2, Buffer.from([0x00, 0x02, 0x00]));
+    const binDisc = await captureItem({ brainDir, slug, kind: 'file', source: bin2, now: '2026-06-03T14:19:00Z' });
+    await setStatus(brainDir, slug, binDisc.id, 'discarded');
+    const blobPath2 = join(rawDir(brainDir, slug), `${binDisc.id}.bin`);
+    await expect(fs.access(blobPath2)).resolves.toBeUndefined(); // blob exists pre-prune
+    // malformed (missing frontmatter) → KEEP (needs manual repair)
+    await fs.writeFile(join(rawDir(brainDir, slug), 'broken.md'), 'no frontmatter');
+
+    const removed = await pruneProcessed(brainDir, slug);
+    expect(removed).toBe(4); // proc + disc + binItem + binDisc (.md count; blobs not double-counted)
+
+    const ids = (await listItems(brainDir, slug)).map(i => i.id);
+    expect(ids).toContain(keep.id);        // unprocessed kept
+    expect(ids).toContain('broken');       // malformed kept
+    expect(ids).not.toContain(proc.id);    // processed pruned
+    expect(ids).not.toContain(disc.id);    // discarded pruned
+    expect(ids).not.toContain(binItem.id); // binary processed pruned
+    await expect(fs.access(blobPath)).rejects.toThrow(); // blob sibling pruned too
+    expect(ids).not.toContain(binDisc.id); // binary discarded pruned
+    await expect(fs.access(blobPath2)).rejects.toThrow(); // discarded-binary blob pruned too
+  });
+
+  it('pruneProcessed is a no-op when nothing is closed (returns 0, keeps everything)', async () => {
+    const { brainDir, slug } = await brain();
+    await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: 'pending', now: NOW });
+    expect(await pruneProcessed(brainDir, slug)).toBe(0);
+    expect(await listItems(brainDir, slug)).toHaveLength(1);
+  });
+
+  it('pruneProcessed rejects an unsafe slug', async () => {
+    const { brainDir } = await brain();
+    await expect(pruneProcessed(brainDir, '../escape')).rejects.toThrow();
   });
 });
 

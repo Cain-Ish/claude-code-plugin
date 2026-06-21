@@ -164,6 +164,22 @@ was not marked (e.g. truncation mid-item):
 bash "$CLAUDE_PLUGIN_ROOT/scripts/kb-drain-reconcile.sh" --slug <slug>
 ```
 
+## Step 4b — opt-in audit-trail prune (default OFF — keep the trail)
+
+Processed raw `.md` files normally stay in `raw/` as the provenance + truncation-recovery audit
+trail. **Only** if the operator opted into a *transient* inbox by setting
+`SB_RAW_PRUNE_AFTER_DRAIN` to a truthy value (`1` / `true` / `yes` / `on`) do you delete the
+now-closed (processed/discarded) items for this project — and only **after** the Step 4 reconcile
+(so a truncated item is recovered before anything is removed):
+```bash
+case "${SB_RAW_PRUNE_AFTER_DRAIN:-}" in
+  1|true|yes|on) node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" --slug <slug> prune-processed ;;
+  *) : ;;   # default: keep the audit trail, do nothing
+esac
+```
+This removes only `processed`/`discarded` items — unprocessed and malformed are always kept. When
+the flag is unset (the default), do nothing. Note in your report whether (and how many) you pruned.
+
 ## Step 5 — report the batch result (REQUIRED final line, exact format)
 
 Re-run `pending` to get the authoritative remaining count, then end your entire response with a

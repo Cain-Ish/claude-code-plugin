@@ -71,3 +71,7 @@ call the `knowledge_reindex` MCP tool. Relay the result.
   the cap, re-run `/second-brain:maintain`.
 - The drain targets the **active project**'s inbox by default. The whole drain is resumable and
   idempotent (reconcile-backed), so re-running `/second-brain:maintain` is always safe.
+- **Transient inbox (opt-in):** processed raw `.md` files are kept in `raw/` as an audit trail by
+  default (never searched — search is scoped to `~/knowledge/wiki/`). Set `SB_RAW_PRUNE_AFTER_DRAIN=1`
+  to have each drain batch delete processed/discarded items after reconcile, or run
+  `/second-brain:capture --prune-processed` for a one-off cleanup. Unprocessed/malformed are kept.
