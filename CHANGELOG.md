@@ -4,6 +4,27 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.9
+
+Behavioral test coverage for critical wiring (no migration action). An audit found the suite has
+systemic "green ≠ working" gaps — tests that grep a source/prompt file for a string (PRESENCE) but
+never verify the behavior actually works (EFFECT), the same class as the persona-charter bug. First
+two critical gaps closed with real behavioral guards:
+
+- **`tests/test-subagent-dispatch-resolves.sh`** — every `second-brain:<X>` a skill references
+  (dispatch or cross-ref) must RESOLVE to a real agent (`agents/<X>.md` whose `name:` matches) or
+  skill, format-agnostically (maintain wraps `subagent_type:` across two lines, which a single-line
+  grep misses). A renamed/typo'd subagent_type silently no-ops the dispatch — this already shipped
+  once (9f2264a) and the old presence-greps did not catch it.
+- **`tests/test-guard-wiring.sh`** — each PreToolUse safety guard (wiki-write, symlink, flow,
+  persona-tool) must actually be REGISTERED in `hooks/hooks.json` with a matcher covering the tools
+  it protects; the per-guard unit tests pipe inputs straight to the script and never check the
+  harness wiring, so a deleted/narrowed registration would leave the guard inert but green.
+
+Remaining audited gaps (scope-banner emit, extraction→wiki, +10 high/4 medium) tracked for follow-up.
+
+`/upgrade` to 0.33.9 is a marker bump (no data migration).
+
 ## 0.33.8
 
 Persona charter — every persona now carries a standing operating ethos (no migration action).
