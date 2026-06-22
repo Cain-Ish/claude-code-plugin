@@ -102,7 +102,13 @@ USED=0
 HARD_CAP=9500
 _usz=$(wc -c < "$USER_FILE" 2>/dev/null || echo 0); [ "${_usz:-0}" -gt 6000 ] && _usz=6000
 _psz=$(wc -c < "$project_file" 2>/dev/null || echo 0); [ "${_psz:-0}" -gt 3000 ] && _psz=3000
-_banner_room=$(( HARD_CAP - ${_usz:-0} - ${_psz:-0} )); [ "$_banner_room" -lt 0 ] && _banner_room=0
+# The persona Charter is a THIRD force-emitted section (2b below) — extract it NOW and RESERVE its
+# bytes too (capped at its 500B emit cap), so forced USER(≤6000)+PROJECT(≤3000)+Charter(≤500) stay
+# within HARD_CAP and can never push total hook output past the ~10K ceiling (which truncates from
+# the END = the PROJECT.md tail — the 0.24.16-class bug `force`+reservation exist to prevent).
+CHARTER_BLOCK=$(awk '{sub(/\r$/,"")} /^## Charter$/{f=1;print;next} f&&/^## /{f=0} f{print}' "$BRAIN_DIR/persona-card.md" 2>/dev/null)
+_csz=${#CHARTER_BLOCK}; [ "$_csz" -gt 500 ] && _csz=500
+_banner_room=$(( HARD_CAP - ${_usz:-0} - ${_psz:-0} - ${_csz:-0} )); [ "$_banner_room" -lt 0 ] && _banner_room=0
 [ "$BYTE_BUDGET" -gt "$_banner_room" ] && BYTE_BUDGET=$_banner_room
 
 sb_append() {
@@ -478,9 +484,11 @@ if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 
   fi
 fi
 
-# 2b. Persona card + installed-catalog SessionStart injection REMOVED (0.32.0): USER.md
-# (force-emitted above) now carries the unique identity, so the card was a redundant paraphrase
-# and the catalog was per-session noise. persona-card.md is still seeded (persona-stats reads it).
+# 2b. Persona CHARTER — the standing operating ethos, emitted ONCE per session so it actively
+# governs the partnership for every install (NOT per-prompt — that 0.32.0 noise stays removed).
+# $CHARTER_BLOCK was extracted AND byte-reserved in the budget block above (capped 500B so the
+# three forced sections never breach the 10K ceiling). Single source: the card's ## Charter.
+[ -n "$CHARTER_BLOCK" ] && sb_append "$CHARTER_BLOCK" "persona-charter" 500 force
 
 # 3. PROJECT.md — always included (the project hot tier). It is priority-1 context like
 # USER.md, so `force` it past the byte budget (otherwise earlier conditional banners can

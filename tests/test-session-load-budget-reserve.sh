@@ -23,8 +23,11 @@ mkdir -p "$B/projects/$SLUG" "$B/transcripts"
 { printf -- '---\ntitle: p\n---\n'; for i in $(seq 1 52); do printf 'PROJECT decision %s with some descriptive bytes here.\n' "$i"; done; printf 'PROJECT_TAIL_MARKER\n'; } > "$B/projects/$SLUG/PROJECT.md"
 touch -t 202001010000 "$B/USER.md"
 printf '{"slug":"%s","path":"%s","plan_done":0,"plan_total":0}\n' "$SLUG" "$PROJDIR" > "$B/projects.jsonl"
-# A ~1300B persona-card (budget-gated, cap 1200) — distinct bullets so dedup keeps them.
-{ printf '## Identity\n'; for i in $(seq 1 22); do printf -- '- distinct observed persona pattern number %s with padding bytes here xyz\n' "$i"; done; } > "$B/persona-card.md"
+# A persona-card with a near-cap ## Charter (force-emitted at SessionStart + reserved in the budget)
+# plus Identity bullets (non-charter card content is NOT injected). The Charter exercises the THIRD
+# forced section so this guard catches the 10K-ceiling regression it would otherwise miss.
+{ printf '## Identity\n'; for i in $(seq 1 22); do printf -- '- distinct observed persona pattern number %s with padding bytes here xyz\n' "$i"; done; \
+  printf '\n## Charter\n'; for i in $(seq 1 6); do printf -- '- charter ethos bullet %s — partner who knows when to act, padding xyz.\n' "$i"; done; printf -- '- CHARTER_TAIL_MARKER\n'; } > "$B/persona-card.md"
 # pile up transcripts + an error-log so several banners (capture / auth / health) fire too
 for i in $(seq 1 6); do : > "$B/transcripts/s$i.txt"; done
 for i in $(seq 1 5); do printf '{"timestamp":"2026-06-14T00:00:0%sZ","script":"stop-extract.sh","message":"llm-extraction-failed","exit_code":0}\n' "$i"; done > "$B/error-log.jsonl"
@@ -39,5 +42,8 @@ pass "total SessionStart output ≤ 10000 (under Claude's hook ceiling)"
 printf '%s' "$OUT" | grep -q 'NEVER_RULE_TAIL_MARKER' || fail "USER.md priority-1 tail truncated — the rules force must guarantee"
 printf '%s' "$OUT" | grep -q 'PROJECT_TAIL_MARKER' || fail "PROJECT.md tail truncated"
 pass "both forced sections (USER.md + PROJECT.md) land INTACT under the cap"
+printf '%s' "$OUT" | grep -q 'CHARTER_TAIL_MARKER' \
+  || fail "persona ## Charter (the 3rd forced section) did not land at SessionStart"
+pass "persona Charter lands at SessionStart, reserved within the 10K ceiling"
 
 rm -rf "$B" "$PROJDIR" "$STUB"; echo; echo "ALL PASS"

@@ -4,6 +4,26 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.8
+
+Persona charter — every persona now carries a standing operating ethos (no migration action).
+The persona-card seed (both the `scripts/persona-context.sh` auto-seed and the
+`/second-brain:setup` scaffold) gains a neutral, 2nd-person `## Charter`: be indispensable
+without becoming a crutch; anticipate needs before they're articulated; handle the tedious so the
+user can focus on the brilliant; be less a servant asking permission, more a partner who knows
+when to act and when to step back; grasp the *why* behind the work, not just execute commands.
+
+- Applies to **new** personas (seeded) and **existing** ones — `/second-brain:setup` idempotently
+  adds the section if missing (user-invoked, never an automatic rewrite of the user-owned card).
+- **Actively governs every session:** `session-load.sh` injects the card's `## Charter` once per
+  SessionStart (NOT per-prompt — no return to the 0.32.0 per-prompt noise it deliberately removed),
+  so the ethos shapes the partnership on every install instead of merely documenting it.
+- Guards: `test-persona-card-seed.sh` asserts the Charter is present, consistent across both seeds,
+  and **neutral 2nd-person** (no first-person author voice); `test-session-load-persona-card.sh`
+  asserts the Charter — and only it — is emitted at SessionStart.
+
+`/upgrade` to 0.33.8 is a marker bump (no data migration).
+
 ## 0.33.7
 
 Fix: the vector-deps installer no longer deep-copies ~490 MB per plugin version on Windows

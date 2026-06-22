@@ -1,9 +1,10 @@
 #!/bin/bash
-# Tests that session-load.sh NO LONGER injects the persona-card or installed-catalog at
-# SessionStart (removed in 0.32.0). USER.md — force-emitted as a priority-1 section — now
-# carries the unique identity, so the card was a ~95% paraphrase re-sent every session and the
-# catalog was per-session noise. Inverted from the old C1-B HYBRID assertions. persona-card.md
-# is still SEEDED by persona-context.sh so persona-stats has a card to summarize.
+# Tests session-load.sh persona injection at SessionStart:
+#   - the FULL persona-card + installed-catalog are NOT injected (removed 0.32.0 as a redundant
+#     USER.md paraphrase / per-session noise); USER.md (force-emitted) carries the identity.
+#   - EXCEPT the persona-card's ## Charter, which IS injected once per session (0.33.8) — the
+#     standing operating ethos, NEW content not in USER.md, so the partnership ethos actively
+#     governs every session. persona-card.md is seeded by persona-context.sh / setup.
 set -u
 PLUGIN_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$PLUGIN_ROOT/scripts/session-load.sh"
@@ -72,6 +73,29 @@ OUT=$(run_session_load)
 echo "$OUT" | grep -q 'user-md-identity-marker' \
   || fail "USER.md identity must still load at SessionStart (got: $OUT)"
 pass "USER.md identity still loads at SessionStart (replaces the per-session card)"
+
+# --- Test 4 (0.33.8): the persona ## Charter (and ONLY it) IS injected at SessionStart -------
+init_sandbox "charter-emit"
+cat > "$BRAIN_DIR/persona-card.md" <<'EOF'
+# Persona
+
+## Identity
+- identity-should-not-emit
+
+## Charter
+- charter-marker-knows-when-to-act-and-when-to-step-back
+
+## How to engage me
+- engage-should-not-emit
+EOF
+OUT=$(run_session_load)
+echo "$OUT" | grep -q 'charter-marker-knows-when-to-act-and-when-to-step-back' \
+  || fail "persona ## Charter must be injected at SessionStart in 0.33.8 (got: $OUT)"
+echo "$OUT" | grep -q 'identity-should-not-emit' \
+  && fail "only the Charter section may emit, not Identity (got: $OUT)"
+echo "$OUT" | grep -q 'engage-should-not-emit' \
+  && fail "only the Charter section may emit, not later sections (got: $OUT)"
+pass "persona ## Charter IS injected at SessionStart; other card sections stay out"
 
 echo
 echo "ALL PASS"
