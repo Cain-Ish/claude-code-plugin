@@ -73,11 +73,52 @@ out=$(SB_PERSONA_GATE=off bash -c "$(declare -f payload); payload 'implement a n
 [ -z "$out" ] || fail "SB_PERSONA_GATE=off should suppress output (got: $out)"
 pass "kill switch honored"
 
-# Test 5: /? prefix without bundle present → silent (defer to T6 wiring; the test
-# environment may or may not have the bundle, but it should never crash)
+# Test 5: /? prefix never crashes (smoke — the real env may or may not have the bundle).
 out=$(payload "/? what's the best approach" | bash "$SCRIPT" 2>&1)
 echo "$out" | grep -qE '^\{' || [ -z "$out" ] || fail "/? prefix should emit either JSON or be silent (got: $out)"
 pass "/? prefix handled cleanly"
+
+# Test 5a (0.32.x /? delivery): with a PRESENT persona-think-cli bundle on the resolved
+# THINK_CLI path, a '/? <query>' prompt must deliver the Opus brief to additionalContext.
+# We stub the bundle (the script resolves it to $CLAUDE_PLUGIN_ROOT/mcp/dist/cli/
+# persona-think-cli.bundle.js) so it prints a sentinel; assert BOTH the sentinel AND the
+# '[Persona deep brief' wrapper reach additionalContext. The pre-existing Test 5 passed on
+# EMPTY output — so a /? route that silently delivered nothing (bundle path typo, node
+# swallow) would have shipped green. This asserts the actual effect.
+if command -v node >/dev/null 2>&1; then
+  THINK_ROOT=$(mktemp -d)
+  mkdir -p "$THINK_ROOT/mcp/dist/cli"
+  cat > "$THINK_ROOT/mcp/dist/cli/persona-think-cli.bundle.js" <<'STUBJS'
+let d='';process.stdin.on('data',c=>{d+=c;});process.stdin.on('end',()=>{
+  process.stdout.write('SB_THINK_SENTINEL_42 query=' + d.trim());
+});
+STUBJS
+  THINK_BRAIN=$(mktemp -d)
+  out=$(payload "/? what is the best caching strategy" \
+    | CLAUDE_PLUGIN_ROOT="$THINK_ROOT" BRAIN_DIR="$THINK_BRAIN" bash "$SCRIPT")
+  echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("SB_THINK_SENTINEL_42")' >/dev/null \
+    || fail "/? present-bundle: stubbed brief sentinel did NOT reach additionalContext (got: $out)"
+  echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("\\[Persona deep brief")' >/dev/null \
+    || fail "/? present-bundle: additionalContext missing the '[Persona deep brief' wrapper (got: $out)"
+  pass "/? present-bundle: Opus brief sentinel + '[Persona deep brief' wrapper delivered to additionalContext"
+  rm -rf "$THINK_ROOT" "$THINK_BRAIN"
+else
+  pass "/? present-bundle: skipped (node not on PATH)"
+fi
+
+# Test 5b (0.32.x /? dead-route guard): with the bundle MISSING, a '/?' prompt must NOT be
+# silently empty — it must emit the fallback hint naming persona-think-cli.bundle.js so the
+# user knows /? is dead (common cause: dist/ not rebuilt after a plugin pull). Force
+# CLAUDE_PLUGIN_ROOT to an empty temp root so the bundle is guaranteed absent regardless of
+# whether the real repo has it built.
+NOBUNDLE_ROOT=$(mktemp -d)        # no mcp/dist/cli/persona-think-cli.bundle.js inside
+NOBUNDLE_BRAIN=$(mktemp -d)
+out=$(payload "/? what is the best caching strategy" \
+  | CLAUDE_PLUGIN_ROOT="$NOBUNDLE_ROOT" BRAIN_DIR="$NOBUNDLE_BRAIN" bash "$SCRIPT")
+echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("persona-think-cli.bundle.js is missing")' >/dev/null \
+  || fail "/? missing-bundle: fallback hint ('persona-think-cli.bundle.js is missing') did NOT reach additionalContext — a dead /? would be silently empty (got: $out)"
+pass "/? missing-bundle: dead-route fallback hint delivered to additionalContext (never silently empty)"
+rm -rf "$NOBUNDLE_ROOT" "$NOBUNDLE_BRAIN"
 
 # Test 6: short action-verb prompt → still substantive (preserved from intent-gate)
 out=$(payload "fix the bug in auth" | bash "$SCRIPT")

@@ -27,4 +27,40 @@ check symlink-guard.sh       Write Edit MultiEdit
 check flow-guard.sh          Bash WebFetch WebSearch
 check persona-tool-guard.sh  Bash Write Edit MultiEdit Read
 
+# --- persona-tool-guard tool-scope REACHABILITY (the guard inspects per-tool inputs) ---
+# The persona-tool-guard's matcher in the REAL hooks.json must be a SUPERSET of every
+# file/command-bearing tool the guard actually reads input from. Grounded in the SOURCE
+# (scripts/persona-tool-guard.sh), not a hand-maintained list, so a future guard edit that
+# starts inspecting a new input field WITHOUT widening the matcher fails loudly here:
+#   - tool_input.command   (Bash)               -> CMD=        line ~46
+#   - tool_input.file_path (Write/Edit/...Read)  -> PATH_INPUT= line ~47
+#   - tool_name allowlist  (every matched tool)  -> tool_scope  line ~63
+# resource_scope.tools defaults (Write/Edit/MultiEdit/Read) are also command/file-bearing.
+GUARD_SRC="$ROOT/scripts/persona-tool-guard.sh"
+[ -f "$GUARD_SRC" ] || fail "scripts/persona-tool-guard.sh missing (cannot ground reachability)"
+
+# 1. Derive the guard's DECLARED file/command-bearing intent from the source:
+#    if the guard reads tool_input.command it must cover Bash; if it reads
+#    tool_input.file_path it must cover the file tools it scopes. These are the
+#    tools whose protection silently dies if the matcher narrows below them.
+grep -q 'tool_input\.command'   "$GUARD_SRC" || fail "guard no longer reads tool_input.command — update the reachability contract"
+grep -q 'tool_input\.file_path' "$GUARD_SRC" || fail "guard no longer reads tool_input.file_path — update the reachability contract"
+PTG_INTENT="Bash Write Edit MultiEdit Read"
+for t in $PTG_INTENT; do
+  covers persona-tool-guard.sh "$t" \
+    || fail "persona-tool-guard matcher is NOT a superset of its declared intent: missing '$t' (matcher='$(matcher_for persona-tool-guard.sh)') — guard inspects this tool's input but the matcher would never deliver it"
+done
+pass "persona-tool-guard matcher is a SUPERSET of its declared file/command-bearing intent ($PTG_INTENT)"
+
+# 2. Pin the OUT-OF-SCOPE contract as a recorded decision (hooks.json _comment:
+#    "MCP tools and read-only Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low").
+#    These are deliberately NOT matched. If a future matcher edit accidentally pulls them in,
+#    fail — so the exclusion stays an intentional decision, not silent scope creep.
+not_covered(){ ! covers persona-tool-guard.sh "$1"; }
+for t in mcp__example__do_thing Glob Grep NotebookEdit; do
+  not_covered "$t" \
+    || fail "persona-tool-guard matcher now MATCHES intentionally-out-of-scope tool '$t' (matcher='$(matcher_for persona-tool-guard.sh)') — out-of-scope contract broken; if intended, update this test + the hooks.json _comment"
+done
+pass "persona-tool-guard out-of-scope contract holds (mcp__*, Glob, Grep, NotebookEdit intentionally NOT matched)"
+
 echo; echo "ALL PASS"

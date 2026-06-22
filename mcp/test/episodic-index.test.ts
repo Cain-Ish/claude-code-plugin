@@ -171,6 +171,63 @@ describe.skipIf(EMBEDDINGS_OFFLINE)('buildEpisodicIndex — happy path (real mod
   }, 120_000);
 });
 
+describe.skipIf(EMBEDDINGS_OFFLINE)('episodicSearch — vector recall (real model)', () => {
+  // GREEN!=WORKING gap closed: every other episodic test runs with
+  // SECOND_BRAIN_DISABLE_EMBEDDINGS=1, so the cosine-vector recall path
+  // (episodic-search.ts vectorSearch) is never exercised on real vectors — a
+  // regression in embedding/cosine recall would leave the suite green. This
+  // builds a REAL-embedding index, then queries with a paraphrase that shares NO
+  // content token with the matching exchange, so a win can ONLY come from
+  // vectors (the text AND-gate finds nothing).
+  let brainDir: string;
+
+  beforeEach(() => {
+    brainDir = mkdtempSync(join(tmpdir(), 'epi-vec-'));
+    mkdirSync(join(brainDir, 'transcripts'), { recursive: true });
+    delete process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS;
+  });
+  afterEach(() => { rmSync(brainDir, { recursive: true, force: true }); });
+
+  it('a paraphrase with NO shared tokens recalls the semantic match via vectors (not text)', async () => {
+    // s1 is the only DB/index-tuning exchange; s2 (baking) and s3 (hiking) are
+    // semantically unrelated decoys.
+    writeTranscript(brainDir, 's1_proj_2026-06-01.txt', 's1', 'proj', '2026-06-01',
+      'USER: my postgres SELECT is sluggish on a huge users table how do I speed it up\n' +
+      'ASSISTANT: add a btree index on the filtered column so the planner avoids a sequential scan and latency drops sharply');
+    writeTranscript(brainDir, 's2_proj_2026-06-02.txt', 's2', 'proj', '2026-06-02',
+      'USER: what is the best way to bake sourdough bread at home\n' +
+      'ASSISTANT: maintain a lively starter, autolyse the flour, and proof the loaf overnight in the fridge for flavour');
+    writeTranscript(brainDir, 's3_proj_2026-06-03.txt', 's3', 'proj', '2026-06-03',
+      'USER: recommend a hiking trail near the coast with ocean views\n' +
+      'ASSISTANT: try the cliffside loop at dawn; bring water and sturdy boots for the rocky descent to the beach');
+
+    const built = await buildEpisodicIndex(brainDir);
+    // The vector engine can only run if rows actually got embedded — guard the
+    // recall assertions on a real embed (CI w/o the model would no-op safely).
+    expect(built.total).toBe(3);
+    const index = JSON.parse(readFileSync(join(brainDir, 'episodic-index.json'), 'utf-8'));
+    const allEmbedded = index.exchanges.every((e: any) => e.embedding && e.embedding.length === 384);
+
+    // Paraphrase shares NO content token (len>=2) with s1's snippets:
+    // making/record/retrieval/faster/tuning/lookups vs postgres/select/index/...
+    const query = 'making record retrieval faster by tuning lookups';
+
+    // (b) The text AND-gate finds NOTHING — so any vector win is attributable to
+    // vectors, not lexical overlap. This holds regardless of model availability.
+    const textRes = await episodicSearch({ query, mode: 'text' }, brainDir);
+    expect(textRes.results.length).toBe(0);
+
+    const vecRes = await episodicSearch({ query, mode: 'vector' }, brainDir);
+    if (allEmbedded) {
+      // (a) the semantic match is the top vector result
+      expect(vecRes.results.length).toBeGreaterThan(0);
+      expect(vecRes.results[0].sessionId).toBe('s1');
+      // (c) a real vector run is NOT degraded
+      expect(vecRes.degraded).toBeUndefined();
+    }
+  }, 120_000);
+});
+
 describe('episodicSearch — text fallback', () => {
   let brainDir: string;
 

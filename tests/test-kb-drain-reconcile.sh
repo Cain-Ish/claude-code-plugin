@@ -95,4 +95,52 @@ echo "$out4" | grep -q "reconciled 0 item" || fail "already-processed should rec
 [ "$(raw_node rawid-already)" = "original-node" ] || fail "already-processed target_node was overwritten"
 pass "already-processed: untouched"
 
+# --- Test 5: back-ref COUPLING — the EXACT documented worker template parses ---
+# agents/raw-drainer.md REQUIRES the back-ref line shape:
+#   - captured from <source> (raw <id>)
+# This proves the worker's documented output is parseable by reconcile's actual
+# regex; it goes RED if either the template prose or reconcile's regex drifts.
+make_raw "rawid-coupled" "unprocessed"
+cat > "$KD/wiki/entities/coupled.md" <<'EOF'
+---
+title: coupled
+type: entities
+---
+# coupled
+## Sources
+- captured from https://example.com/doc (raw rawid-coupled)
+EOF
+
+out5=$(bash "$S" --knowledge-dir "$KD" --brain-dir "$BD" --slug p 2>&1)
+[ $? -eq 0 ] || fail "coupling run exit non-zero: $out5"
+[ "$(raw_status rawid-coupled)" = "processed" ] || fail "documented template not parsed: rawid-coupled not processed (got: $(raw_status rawid-coupled))"
+[ "$(raw_node   rawid-coupled)" = "coupled" ]   || fail "documented template: target_node not set to node slug (got: $(raw_node rawid-coupled))"
+echo "$out5" | grep -q "reconciled 1 item" || fail "coupling run should reconcile 1, got: $out5"
+pass "back-ref coupling: exact '- captured from <source> (raw <id>)' template is parseable"
+
+# --- Test 6: MULTI-ref — one node, two back-refs, two items both flip; count=2 ---
+# Exercises reconcile's inner multi-id loop (the `while read raw_id` over all
+# (raw <id>) matches found in a single node).
+make_raw "rawid-multiA" "unprocessed"
+make_raw "rawid-multiB" "unprocessed"
+cat > "$KD/wiki/entities/multi.md" <<'EOF'
+---
+title: multi
+type: entities
+---
+# multi
+## Sources
+- captured from /a (raw rawid-multiA)
+- captured from /b (raw rawid-multiB)
+EOF
+
+out6=$(bash "$S" --knowledge-dir "$KD" --brain-dir "$BD" --slug p 2>&1)
+[ $? -eq 0 ] || fail "multi-ref run exit non-zero: $out6"
+[ "$(raw_status rawid-multiA)" = "processed" ] || fail "multi-ref: idA not processed (got: $(raw_status rawid-multiA))"
+[ "$(raw_status rawid-multiB)" = "processed" ] || fail "multi-ref: idB not processed (got: $(raw_status rawid-multiB))"
+[ "$(raw_node   rawid-multiA)" = "multi" ]      || fail "multi-ref: idA target_node wrong (got: $(raw_node rawid-multiA))"
+[ "$(raw_node   rawid-multiB)" = "multi" ]      || fail "multi-ref: idB target_node wrong (got: $(raw_node rawid-multiB))"
+echo "$out6" | grep -q "reconciled 2 item" || fail "multi-ref should report 'reconciled 2 item(s)', got: $out6"
+pass "multi-ref: both idA and idB flip; count line reports reconciled 2"
+
 echo; echo "ALL PASS"

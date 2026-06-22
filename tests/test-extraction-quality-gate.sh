@@ -70,5 +70,19 @@ echo "$out" | jq -e '.cross_refs == ["ok"]' >/dev/null \
   || fail "cross_refs: malformed slugs should be rejected, only 'ok' kept (got: $out)"
 pass "cross_refs: malformed slugs rejected"
 
+# Test 9 (HIGH): the gate filters sentence-shaped noise but PRESERVES the
+# durable payload keys it does not own (wiki_updates, relations). A real
+# extractor delta carries those alongside recent_decisions — they must flow
+# through untouched while the noisy decision is dropped, or the whole
+# extractor->gate->merge chain would silently lose every wiki page + edge.
+out=$(echo '{"recent_decisions":["files this session: noise.ts"],"wiki_updates":[{"category":"learnings","slug":"keep-me","content":"durable"}],"relations":[{"from":"a","to":"b","type":"requires"}]}' | bash "$SCRIPT")
+echo "$out" | jq -e '.wiki_updates[0].slug=="keep-me" and (.relations|length)==1' >/dev/null \
+  || fail "preserve-payload: wiki_updates/relations must survive the gate (got: $out)"
+echo "$out" | jq -e '.wiki_updates[0].content=="durable"' >/dev/null \
+  || fail "preserve-payload: wiki_updates content body altered (got: $out)"
+echo "$out" | jq -e '(.recent_decisions|length)==0' >/dev/null \
+  || fail "preserve-payload: the 'files this session' noise should still be filtered (got: $out)"
+pass "gate preserves wiki_updates + relations while filtering decision noise"
+
 echo
 echo "ALL PASS"

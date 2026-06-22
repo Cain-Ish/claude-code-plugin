@@ -171,6 +171,43 @@ SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 
 grep -q '"basename":"nohdr_x.txt".*"reason":"too-small"' "$STATE" 2>/dev/null \
   && no "header-less archive misclassified as too-small" || ok "header-less archive not fast-path-classified"
 
+# Test (CRITICAL): the drainer WRITES A REAL WIKI PAGE end-to-end. Unlike the
+# write-nothing STUB above, this stub emits a canned extractor delta and pipes it
+# through the REAL merge-project-update.sh — so a green drain run is proven by an
+# actual page on disk with its content body, not just outcome:ok in the state log.
+echo "Test: drain writes a real wiki page through the real merge"
+reset
+DRAIN_KDIR="$SANDBOX/drain-knowledge"; rm -rf "$DRAIN_KDIR"; mkdir -p "$DRAIN_KDIR/wiki"
+DRAIN_PROJ="$BRAIN_DIR/projects/proj/PROJECT.md"
+mkdir -p "$(dirname "$DRAIN_PROJ")"
+cat > "$DRAIN_PROJ" <<'PMEOF'
+# PROJECT: proj
+
+## Recent decisions
+
+## Open blockers
+
+## Cross-references
+
+<!-- last_updated: 2026-05-01T00:00:00Z -->
+PMEOF
+# A stub standing in for sb_extract_transcript: it emits the extractor's JSON
+# delta and runs it through the SAME merge the real path uses. Receives <txt> <slug>.
+MERGESTUB="$SANDBOX/merge-stub.sh"
+cat > "$MERGESTUB" <<EOF3
+#!/bin/bash
+printf '%s' '{"wiki_updates":[{"category":"learnings","slug":"drained-page","action":"create","title":"T","description":"d","content":"REAL DRAINED INSIGHT BODY"}]}' \\
+  | bash "$SCRIPT_DIR/merge-project-update.sh" --project-md "$DRAIN_PROJ" --knowledge-dir "$DRAIN_KDIR" >/dev/null 2>&1
+EOF3
+chmod +x "$MERGESTUB"
+mk_tx "d1_proj_2026-05-24.txt" proj
+SB_EXTRACT_STUB="$MERGESTUB" SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
+DRAINED_PAGE="$DRAIN_KDIR/wiki/learnings/drained-page.md"
+[ -f "$DRAINED_PAGE" ] && ok "drain created the wiki page on disk" || no "drain did not create $DRAINED_PAGE"
+grep -qF 'REAL DRAINED INSIGHT BODY' "$DRAINED_PAGE" 2>/dev/null \
+  && ok "drained page contains the real insight body" || no "drained page missing the insight body"
+eq "drain recorded the transcript as ok" "$(done_count)" "1"
+
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.
 echo "Test: GC sweeps — stale markers + scratch transcripts"

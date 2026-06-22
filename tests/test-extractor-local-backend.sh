@@ -97,4 +97,52 @@ BD_NOBJ=$(mktemp -d); ON=$(mktemp)   # fresh + empty
 kill $SRV3 2>/dev/null; rm -rf "$BD_NOBJ" "$ON"
 
 kill $SRV2 2>/dev/null; rm -rf "$BRAIN_DIR" "$BRAIN_DIR2" "$BD_PIN" "$BD_AUTO" "$IN" "$OUT" "$BIG" "$OUT2" "$REQ" "$IN3" "$O3"
+
+# --- E2E (HIGH): extractor prompt -> delta -> gate -> merge -> wiki page -------
+# Stand up a fake local /v1 backend returning a realistic wiki_updates delta, then
+# run the WHOLE drainer extraction path (sb_extract_transcript) against a fixture
+# archived transcript. This exercises the real chain end to end — the extractor
+# backend, the quality gate, AND merge-project-update.sh authoring a page — and
+# asserts the durable EFFECT (the learnings page exists on disk with its body),
+# not just that the backend returned JSON.
+PORTE=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+python3 - "$PORTE" <<'PY' & SRVE=$!
+import sys,http.server,json
+DELTA='{"wiki_updates":[{"category":"learnings","slug":"e2e-local-insight","action":"create","title":"E2E Local Insight","description":"d","content":"DURABLE E2E EXTRACTED INSIGHT BODY"}],"recent_decisions":["files this session: noise.ts"]}'
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("content-length",0)))
+        body=json.dumps({"choices":[{"message":{"content":DELTA}}]}).encode()
+        self.send_response(200); self.send_header("content-type","application/json")
+        self.send_header("content-length",str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self,*a): pass
+http.server.HTTPServer(("127.0.0.1",int(sys.argv[1])),H).handle_request()
+PY
+sleep 0.6
+E2E_HOME=$(mktemp -d)
+E2E_BRAIN="$E2E_HOME/.second-brain"; mkdir -p "$E2E_BRAIN/transcripts"
+E2E_KDIR="$E2E_HOME/knowledge"; mkdir -p "$E2E_KDIR/wiki"
+E2E_TX="$E2E_BRAIN/transcripts/e2e_localproj_2026-06-22.txt"
+cat > "$E2E_TX" <<'TXEOF'
+session_id: e2e
+project_slug: localproj
+date: 2026-06-22
+---
+USER: how should we link the vector deps across plugin versions?
+ASSISTANT: use a node junction (fs.symlinkSync junction) for cross-OS dir links.
+TXEOF
+E2E_PAGE="$E2E_KDIR/wiki/learnings/e2e-local-insight.md"
+( export HOME="$E2E_HOME" BRAIN_DIR="$E2E_BRAIN" \
+    CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$E2E_KDIR" \
+    SB_EXTRACTOR_ENGINE=local SB_EXTRACTOR_LOCAL_URL="http://127.0.0.1:$PORTE"
+  sb_extract_transcript "$E2E_TX" "localproj" ) >/dev/null 2>&1
+kill $SRVE 2>/dev/null
+[ -f "$E2E_PAGE" ] || fail "E2E: extractor->gate->merge did not author the wiki page ($E2E_PAGE)"
+grep -qF 'DURABLE E2E EXTRACTED INSIGHT BODY' "$E2E_PAGE" \
+  || fail "E2E: page exists but is missing the extracted content body (got: $(cat "$E2E_PAGE"))"
+grep -q '^type: learnings$' "$E2E_PAGE" \
+  || fail "E2E: page missing 'type: learnings' frontmatter (got: $(cat "$E2E_PAGE"))"
+pass "E2E local backend: extractor delta flows through gate+merge to a real wiki page"
+rm -rf "$E2E_HOME"
+
 echo; echo "ALL PASS"

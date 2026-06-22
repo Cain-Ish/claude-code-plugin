@@ -185,4 +185,31 @@ T9_EXISTS=0
 pass "merge leaves .wiki-writes alone on no-wiki-write run"
 unset HOME BRAIN_DIR
 
+# --- Test (MEDIUM): a plain wiki_updates CREATE (no ai_block) actually writes a
+# real wiki page. No ai_block => the node/render path is skipped entirely, so this
+# exercises the merge's page-authoring (frontmatter + content body) without needing
+# the bundled node renderer — and asserts the EFFECT (file exists, frontmatter type,
+# the content body landed verbatim), not just exit 0.
+PROJ="$TMP/p10.md"; WIKI10="$TMP/wiki10"; mkdir -p "$WIKI10"
+# T9 above ended with `unset HOME BRAIN_DIR`; restore both (HOME is referenced by
+# merge-project-update.sh under set -u) to per-test sandboxes so nothing escapes.
+export HOME="$TMP/sandbox-t10"; mkdir -p "$HOME"
+export BRAIN_DIR="$TMP/brain"
+seed_project "$PROJ"
+jq -nc '{
+  wiki_updates: [{
+    category: "learnings",
+    slug: "plain-create",
+    action: "create",
+    title: "T",
+    description: "d",
+    content: "REAL LEARNINGS BODY SENTINEL"
+  }]
+}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI10" >/dev/null 2>&1 || fail "wiki-create: script exited non-zero"
+PAGE="$WIKI10/wiki/learnings/plain-create.md"
+[ -f "$PAGE" ] || fail "wiki-create: page $PAGE was not created"
+grep -q '^type: learnings$' "$PAGE" || fail "wiki-create: page missing 'type: learnings' frontmatter (got: $(cat "$PAGE"))"
+grep -qF 'REAL LEARNINGS BODY SENTINEL' "$PAGE" || fail "wiki-create: content body sentinel missing from page (got: $(cat "$PAGE"))"
+pass "wiki_updates create writes a real learnings page (node-less path)"
+
 echo "ALL PASS"

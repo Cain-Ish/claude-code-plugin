@@ -4,6 +4,35 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.11
+
+Behavioral test coverage — the remaining 14 audited "green ≠ working" gaps closed (no migration action).
+Following 0.33.9's first two, every remaining gap where a test asserted PRESENCE (grep a source/prompt for a
+string) but never EFFECT is now a real behavioral test that RUNS the code and checks the actual result. Each
+new assertion was mutation-proven (the real behavior was broken, the test went red, then reverted).
+
+- **SessionStart (new `tests/test-session-load-scope-banner.sh`):** runs `session-load.sh` and asserts its
+  STDOUT — the cross-project-leak scope banner emits with the correct slug (and a stale pin never leaks),
+  `SB_SCOPE_BANNER=off` suppresses it in OUTPUT, the plan/decision/blocker counts are exact on LF *and* CRLF
+  PROJECT.md, and persona "Observed patterns" emits only the qualifying ungraduated signal.
+- **Extraction→wiki:** `test-extract-drain.sh` / `test-extractor-local-backend.sh` now prove a drained/extracted
+  delta actually writes a `learnings/*.md` page with its body (through the real merge), `test-extraction-quality-gate.sh`
+  proves the gate preserves `wiki_updates`+`relations` while filtering noise, `test-merge-project-update.sh` proves
+  the node-less create path writes a real page.
+- **Raw drain/maintain (new `tests/test-maintain-drain-loop.sh`):** executable loop-control contract (stop on
+  DRAINED:0 / REMAINING:0, 30-iter fail-loud cap, no-line→dispatch-once-more) + `DRAINED/REMAINING` parser;
+  `test-kb-drain-reconcile.sh` proves the documented back-ref template is parseable by reconcile's regex (coupling)
+  and the multi-ref loop flips both items.
+- **Retrieval (vitest):** real-model `skipIf(EMBEDDINGS_OFFLINE)` tests that `knowledge_search` RRF fusion ranks a
+  semantic match over a lexical decoy (not degraded), `episodic_search` vector recall returns a no-shared-token
+  paraphrase's match, and `knowledge_neighbors` forwards `as_of`/`depth`/`direction` through the MCP wrapper.
+- **Guards (`test-guard-wiring.sh`, `test-persona-context.sh`):** persona-tool-guard matcher is a superset of the
+  tools it inspects (out-of-scope set pinned), and the `/?` Opus brief actually reaches `additionalContext`
+  (sentinel + wrapper) with a non-empty fallback when the bundle is missing.
+
+`docs/surface-budget.json` tests 142→144 (two new files). No mcp/ runtime change. `/upgrade` to 0.33.11 is a
+marker bump (no data migration).
+
 ## 0.33.10
 
 Fix: `dream_accept` was completely broken on Windows (no migration action). GNU tar and rsync parse a

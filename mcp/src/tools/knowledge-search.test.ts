@@ -16,9 +16,17 @@ delete process.env.SB_BRAIN_DIR; process.env.BRAIN_DIR = mkdtempSync(join(tmpdir
 // REASSERTED in beforeEach below — another test file (episodic-index) deletes
 // this env in its own beforeEach, and under a shared vitest process that delete
 // would leak in here and flip embeddings on (CI-only RRF-jitter flake).
-import { beforeEach } from 'vitest';
+import { beforeEach, afterEach } from 'vitest';
 process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
 beforeEach(() => { process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1'; });
+
+// These tests need the REAL embedding model (no SECOND_BRAIN_DISABLE_EMBEDDINGS).
+// CI runs offline (HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE) where the model cannot
+// be fetched — and a fetch attempt can HANG past the timeout — so skip the real-
+// model path there. It runs locally where the model exists. Mirrors the gate in
+// test/episodic-index.test.ts:92-95.
+const EMBEDDINGS_OFFLINE =
+  process.env.HF_HUB_OFFLINE === '1' || process.env.TRANSFORMERS_OFFLINE === '1';
 
 async function wiki(): Promise<string> {
   const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-'));
@@ -279,4 +287,69 @@ describe('SP-1 project-scoped serving', () => {
     expect(paths.some(p => /foreign/.test(p))).toBe(false);  // unrelated project dropped
     expect(slugs(r).some(s => /global/.test(s))).toBe(true);   // global pages stay in-scope (tier 4)
   });
+});
+
+describe.skipIf(EMBEDDINGS_OFFLINE)('knowledge_search RRF vector fusion (real model)', () => {
+  // GREEN!=WORKING gap closed: every other test in this file runs in
+  // SECOND_BRAIN_DISABLE_EMBEDDINGS=1 (BM25-only), so the RRF fusion path
+  // (knowledge-search.ts:252-285) is NEVER exercised — a regression that broke
+  // cosine fusion would leave the whole suite green. This test runs WITHOUT the
+  // disable flag over a fixture where BM25 and the vector engine DISAGREE, and
+  // asserts the semantic winner that ONLY RRF can produce.
+  //
+  // Fixture (query 'quiet a noisy dog after dark'):
+  //  - target : strong SEMANTIC match (synonyms: puppy/hound/whining/late), but
+  //             carries almost none of the query's literal tokens → weak BM25.
+  //  - decoy  : a long off-topic warehouse doc that mentions the literal query
+  //             tokens once → strong BM25 (#1), but low cosine (off-topic).
+  //  - sem1   : a semantic sibling (kitten/dusk) that sits BETWEEN target and
+  //             decoy on cosine, demoting decoy's cosine rank to #2 so target's
+  //             cosine-rank lead exceeds its BM25-rank deficit under RRF.
+  // Empirically (probed against the real MiniLM model): BM25-only ranks decoy
+  // FIRST and floors/loses target; RRF fusion lifts target to #0 above decoy.
+  beforeEach(() => { delete process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS; });
+  afterEach(() => { process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1'; });
+
+  async function rrfWiki(): Promise<string> {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-rrf-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = (s: string, title: string, desc: string, body: string) =>
+      fsp.writeFile(join(dir, 'wiki', 'learnings', `${s}.md`),
+        `---\ntitle: ${title}\ntype: learnings\ndescription: ${desc}\n---\n\n# ${title}\n\n${body}\n`);
+    await w('target', 'Settling a restless puppy in the evening', 'calming a yappy hound late at bedtime',
+      'soothing methods to comfort a whining pup so the household can rest peacefully once it grows late and everyone wants to sleep');
+    await w('sem1', 'Comforting an anxious kitten at dusk', 'reassuring a fretful feline once the sun sets',
+      'gentle routines help a mewing cat relax and settle so the family can sleep through the small hours of the morning');
+    await w('decoy', 'Warehouse stocktake form', 'quarterly pallet audit record',
+      'the quarterly stocktake tallied every pallet and forklift on the loading dock a stray quiet noisy dog after dark wandered past the dark gate while staff logged crate counts shipping manifests and forklift fuel for the audit');
+    await w('distractor', 'Tomato gardening guide', 'watering tomato plants',
+      'tomato seedlings need consistent watering and full sun through the summer growing season for a healthy harvest of fruit and vegetables');
+    return dir;
+  }
+
+  it('a semantic-only match outranks a lexical-only decoy, and the result is NOT degraded (RRF actually ran)', async () => {
+    const dir = await rrfWiki();
+    const query = 'quiet a noisy dog after dark';
+
+    // Control: in BM25-only mode the engines genuinely DISAGREE — the lexical
+    // decoy ranks first; the synonym-only target loses (floored or below decoy).
+    process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
+    const bm = await knowledgeSearch({ query, knowledgeDir: dir });
+    delete process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS;
+    expect(bm.degraded).toBe('bm25-only');
+    const bmSlugs = slugs(bm);
+    expect(bmSlugs[0]).toBe('decoy');                          // BM25 favours the literal-token decoy
+    const bmTarget = bmSlugs.indexOf('target');
+    expect(bmTarget === -1 || bmTarget > 0).toBe(true);        // target does NOT win on BM25
+
+    // Hybrid: RRF fusion of BM25 + cosine flips the winner to the semantic target.
+    const hy = await knowledgeSearch({ query, knowledgeDir: dir });
+    expect(hy.degraded).toBeUndefined();                       // RRF path ran (not the BM25 fallback)
+    const s = slugs(hy);
+    const ti = s.indexOf('target');
+    const di = s.indexOf('decoy');
+    expect(ti).toBeGreaterThanOrEqual(0);                      // semantic target is returned
+    expect(di === -1 || ti < di).toBe(true);                  // and outranks the lexical decoy
+    expect(s[0]).toBe('target');                               // it is in fact the top hit
+  }, 120_000);
 });
