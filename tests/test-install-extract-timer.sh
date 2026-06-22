@@ -194,6 +194,19 @@ BR18O="$SANDBOX/brain18o"
 SB_INSTALL_OS_OVERRIDE=systemd BRAIN_DIR="$BR18O" ANTHROPIC_API_KEY=sk-ant-TESTKEY bash "$INSTALL" --apply --oauth >/dev/null 2>&1 || true
 grep -q 'ANTHROPIC_API_KEY' "$BR18O/.extract-timer-env" 2>/dev/null && ok "systemd --oauth: forwards the API key (creds explicitly granted)" || no "systemd --oauth: dropped the API key"
 
+# Test 19 (live-install bug): git-bash MSYS-translates schtasks' /flags (/Create -> C:\...\Git\Create) so
+# the task is silently never created. The windows calls must run under MSYS_NO_PATHCONV=1, and --apply must
+# FAIL LOUD (non-zero + a clear message) when schtasks rejects the task — not print "applied".
+grep -qE 'MSYS_NO_PATHCONV=1 schtasks /Create' "$INSTALL" && ok "windows: schtasks /Create runs under MSYS_NO_PATHCONV" || no "windows: schtasks /Create not MSYS_NO_PATHCONV-guarded"
+grep -qE 'MSYS_NO_PATHCONV=1 schtasks /Delete' "$INSTALL" && ok "windows: schtasks /Delete runs under MSYS_NO_PATHCONV" || no "windows: schtasks /Delete not MSYS_NO_PATHCONV-guarded"
+BR19="$SANDBOX/brain19"; FS="$SANDBOX/failstub"; mkdir -p "$FS"
+printf '#!/bin/sh\nexit 1\n' > "$FS/schtasks"; chmod +x "$FS/schtasks"
+OUT19=$(PATH="$FS:$PATH" SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR19" bash "$INSTALL" --apply 2>&1); RC19=$?
+{ [ "$RC19" -ne 0 ] && printf '%s' "$OUT19" | grep -qi 'NOT installed'; } \
+  && ok "windows: --apply fails loud (rc!=0 + 'NOT installed') when schtasks errors" \
+  || no "windows: --apply masked a schtasks failure (rc=$RC19)"
+printf '%s' "$OUT19" | grep -qi '^applied' && no "windows: printed 'applied' despite schtasks failing" || ok "windows: did NOT print 'applied' on schtasks failure"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

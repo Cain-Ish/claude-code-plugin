@@ -206,16 +206,23 @@ if [ "$OS" != "systemd" ]; then
       case "$ACTION" in
         apply)
           write_shim
-          schtasks /Create /TN "$WIN_TASK" /SC MINUTE /MO 30 /F /TR "$WIN_TR"
-          echo "applied: Scheduled Task $WIN_TASK (every 30 min)."
-          echo "# No sandbox on Windows — the task runs unsandboxed as you (--oauth no-op)." ;;
+          # MSYS_NO_PATHCONV=1: git-bash otherwise rewrites schtasks' /Create /TN /SC /F flags as POSIX
+          # paths (/Create -> C:\Program Files\Git\Create), so the task is never created. Fail LOUD if
+          # schtasks rejects it — never print "applied" on a silent failure (it leaves no scheduler).
+          if MSYS_NO_PATHCONV=1 schtasks /Create /TN "$WIN_TASK" /SC MINUTE /MO 30 /F /TR "$WIN_TR"; then
+            echo "applied: Scheduled Task $WIN_TASK (every 30 min)."
+            echo "# No sandbox on Windows — the task runs unsandboxed as you (--oauth no-op)."
+          else
+            echo "error: schtasks /Create failed — Scheduled Task $WIN_TASK was NOT installed." >&2
+            remove_shim; exit 1
+          fi ;;
         uninstall)
-          schtasks /Delete /TN "$WIN_TASK" /F 2>/dev/null || true
+          MSYS_NO_PATHCONV=1 schtasks /Delete /TN "$WIN_TASK" /F 2>/dev/null || true
           remove_shim
           echo "uninstalled: removed task $WIN_TASK" ;;
         *)
           echo "# === Windows Scheduled Task ($WIN_TASK) ==="
-          echo "schtasks /Create /TN $WIN_TASK /SC MINUTE /MO 30 /F /TR $WIN_TR"
+          echo "MSYS_NO_PATHCONV=1 schtasks /Create /TN $WIN_TASK /SC MINUTE /MO 30 /F /TR $WIN_TR"
           echo "# To install:  bash $0 --apply    |    To remove:  bash $0 --uninstall"
           echo "# No sandbox on Windows — the task runs unsandboxed as you." ;;
       esac ;;

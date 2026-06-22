@@ -4,6 +4,22 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.14
+
+Fix: the Windows extraction-timer install was silently broken (no migration action) — caught by a LIVE
+`--apply` (the tests stub `schtasks`, so they never exercised the real scheduler). git-bash MSYS-translates
+`schtasks`' POSIX-looking flags (`/Create` → `C:\Program Files\Git\Create`), so `schtasks` rejected the
+command and the task was **never created** — yet the script printed "applied". Now:
+
+- `scripts/install-extract-timer.sh` runs the Windows `schtasks /Create` and `/Delete` under
+  `MSYS_NO_PATHCONV=1` (verified against real `schtasks`: create→query→delete all succeed).
+- `--apply` is **fail-loud**: it checks the `schtasks` exit, prints "… was NOT installed" + exits non-zero
+  (rolling back the shim) instead of falsely claiming success.
+- `tests/test-install-extract-timer.sh` Test 19: asserts both calls are `MSYS_NO_PATHCONV`-guarded and that
+  `--apply` fails loud when `schtasks` errors (stubbed to exit 1).
+
+`/upgrade` to 0.33.14 is a marker bump (no data migration).
+
 ## 0.33.13
 
 Cross-platform extraction-timer hardening (no migration action). A 5-lens research sweep + a 3-lens deep
