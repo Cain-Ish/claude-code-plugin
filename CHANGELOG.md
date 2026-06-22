@@ -4,6 +4,18 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.15
+
+Fix: the 0.33.14 test (not the product) aborted the Linux CI bash suite (no migration action). The new
+`test-install-extract-timer.sh` Test 19 captured the intentionally-non-zero `--apply` via
+`OUT=$(... ); RC=$?` — and under `set -euo pipefail` an assignment from a failing command-substitution
+aborts the script on bash 4/5 (the ubuntu CI), but NOT bash 3.2 (macOS), so it slipped through as
+macos-pass / linux-fail (and was missed locally by not checking the final `Results:` line). Fixed to
+capture the status via an `if`-condition (which suspends `set -e`). The 0.33.14 schtasks fix itself was
+correct. Lesson reinforced: run the FULL suite (not just targeted gates) before push.
+
+`/upgrade` to 0.33.15 is a marker bump (no data migration).
+
 ## 0.33.14
 
 Fix: the Windows extraction-timer install was silently broken (no migration action) — caught by a LIVE

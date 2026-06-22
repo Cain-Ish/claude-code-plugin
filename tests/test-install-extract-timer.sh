@@ -201,7 +201,10 @@ grep -qE 'MSYS_NO_PATHCONV=1 schtasks /Create' "$INSTALL" && ok "windows: schtas
 grep -qE 'MSYS_NO_PATHCONV=1 schtasks /Delete' "$INSTALL" && ok "windows: schtasks /Delete runs under MSYS_NO_PATHCONV" || no "windows: schtasks /Delete not MSYS_NO_PATHCONV-guarded"
 BR19="$SANDBOX/brain19"; FS="$SANDBOX/failstub"; mkdir -p "$FS"
 printf '#!/bin/sh\nexit 1\n' > "$FS/schtasks"; chmod +x "$FS/schtasks"
-OUT19=$(PATH="$FS:$PATH" SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR19" bash "$INSTALL" --apply 2>&1); RC19=$?
+# --apply exits 1 on the (expected) schtasks failure. Capture it WITHOUT tripping `set -e`: an assignment
+# from a failing command-substitution aborts the script on bash 4/5 (the linux CI) but NOT bash 3.2 (macOS)
+# — which is exactly why this surfaced as linux-fail / macos-pass. The `if`-condition suspends `set -e`.
+if OUT19=$(PATH="$FS:$PATH" SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR19" bash "$INSTALL" --apply 2>&1); then RC19=0; else RC19=$?; fi
 { [ "$RC19" -ne 0 ] && printf '%s' "$OUT19" | grep -qi 'NOT installed'; } \
   && ok "windows: --apply fails loud (rc!=0 + 'NOT installed') when schtasks errors" \
   || no "windows: --apply masked a schtasks failure (rc=$RC19)"
