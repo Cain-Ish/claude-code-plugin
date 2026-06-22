@@ -21,7 +21,10 @@ echo "=== install-extract-timer.sh tests ==="
 OUT=$(SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 || true)
 printf '%s' "$OUT" | grep -q 'sb-extract-drain.service' && ok "prints .service" || no "prints .service"
 printf '%s' "$OUT" | grep -q 'OnUnitActiveSec=30min'     && ok "prints .timer body" || no "prints .timer body"
-printf '%s' "$OUT" | grep -q 'extract-drain.sh'          && ok "ExecStart resolved to drainer path" || no "ExecStart resolved"
+# ExecStart must reference the STABLE shim (bin/sb-extract-drain.sh), NOT a version-pinned
+# cache path (which goes stale/GC'd after a plugin upgrade — gap #1).
+printf '%s' "$OUT" | grep -qE 'ExecStart=bash .*/bin/sb-extract-drain\.sh' && ok "ExecStart → stable shim" || no "ExecStart → stable shim"
+printf '%s' "$OUT" | grep -qE 'ExecStart=.*/cache/.*/scripts/extract-drain\.sh' && no "ExecStart must NOT pin a versioned cache path" || ok "ExecStart not version-pinned"
 printf '%s' "$OUT" | grep -q 'enable-linger'             && ok "surfaces linger command" || no "surfaces linger command"
 [ ! -e "$XDG_CONFIG_HOME/systemd/user/sb-extract-drain.timer" ] \
   && ok "print mode writes nothing" || no "print mode writes nothing"
@@ -54,7 +57,9 @@ printf '%s' "$OOUT" | grep -qiE 'grant|NOTE' && ok "--oauth announces the grant"
 LA=$(SB_INSTALL_OS_OVERRIDE=launchd bash "$INSTALL" 2>&1)
 printf '%s' "$LA" | grep -q '<plist' && ok "launchd: renders a plist" || no "launchd: no plist"
 { printf '%s' "$LA" | grep -q 'StartInterval' && printf '%s' "$LA" | grep -q 'RunAtLoad'; } && ok "launchd: StartInterval + RunAtLoad" || no "launchd: interval/runatload"
-printf '%s' "$LA" | grep -q 'extract-drain.sh' && ok "launchd: ProgramArguments → drainer" || no "launchd: drainer path"
+# ProgramArguments must reference the STABLE shim, NOT a version-pinned cache path (gap #1).
+printf '%s' "$LA" | grep -qE '<string>[^<]*/bin/sb-extract-drain\.sh</string>' && ok "launchd: ProgramArguments → stable shim" || no "launchd: ProgramArguments → stable shim"
+printf '%s' "$LA" | grep -qE '<string>[^<]*/cache/.*/scripts/extract-drain\.sh</string>' && no "launchd must NOT pin a versioned cache path" || ok "launchd: not version-pinned"
 printf '%s' "$LA" | grep -qi 'logged in' && ok "launchd: prints the no-linger caveat" || no "launchd: no-linger caveat"
 
 # Test 8 (SP-4): launchd snapshots the user's engine env into the unit (minimal-env fix).
@@ -90,6 +95,104 @@ printf '%s' "$SDC" | grep -qE "^ReadWritePaths=.*$KD" && ok "systemd: custom KD 
 printf '%s' "$SD" | grep -q 'Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR' && no "default render injected a custom KD env line" || ok "default render unchanged (no custom KD)"
 LAK=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=launchd bash "$INSTALL" 2>/dev/null)
 printf '%s' "$LAK" | grep -q "$KD" && ok "launchd: custom KD snapshotted into the plist env" || no "launchd: custom KD not forwarded"
+
+# --- --apply tests (shim + env-file). These WRITE, so confine them to the sandbox: point both
+# BRAIN_DIR and HOME at $SANDBOX and stub the system schedulers on PATH so --apply is inert. ---
+mkdir -p "$SANDBOX/stubs"
+for tool in schtasks launchctl systemctl; do
+  printf '#!/bin/sh\nexit 0\n' > "$SANDBOX/stubs/$tool"; chmod +x "$SANDBOX/stubs/$tool"
+done
+# Prepend the stubs so --apply's scheduler calls are inert. Exported (not a word-split var) because
+# $PATH contains spaces on Windows (C:\Program Files...) which would shatter an `env VAR=$PATH` form.
+export PATH="$SANDBOX/stubs:$PATH"
+export HOME="$SANDBOX"
+
+# Does chmod actually take effect on this filesystem? (no-op on Windows MSYS / some mounts) — if not,
+# the mode-600 assertion is meaningless here but is genuinely exercised on the Linux/macOS CI.
+_cf=$(mktemp); chmod 600 "$_cf"
+_cm=$(stat -c '%a' "$_cf" 2>/dev/null || stat -f '%Lp' "$_cf" 2>/dev/null || echo '')
+chmod 644 "$_cf" 2>/dev/null
+[ "$(stat -c '%a' "$_cf" 2>/dev/null || stat -f '%Lp' "$_cf" 2>/dev/null || echo '')" != "$_cm" ] && CHMOD_WORKS=1 || CHMOD_WORKS=0
+rm -f "$_cf"
+
+# Test 13 (gap #1, behavioral): the generated shim resolves the HIGHEST-semver installed
+# extract-drain.sh, not the first/lowest — so a plugin upgrade can't leave the job on stale code.
+BR13="$SANDBOX/brain13"
+CB13="$SANDBOX/cache13/plug/second-brain"
+for v in 0.0.1 0.0.2; do
+  mkdir -p "$CB13/$v/scripts"
+  printf '#!/bin/bash\necho "RAN %s"\n' "$v" > "$CB13/$v/scripts/extract-drain.sh"
+  chmod +x "$CB13/$v/scripts/extract-drain.sh"
+done
+SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR13" bash "$INSTALL" --apply >/dev/null 2>&1 || true
+SHIM13="$BR13/bin/sb-extract-drain.sh"
+[ -f "$SHIM13" ] && ok "apply: generated the stable shim" || no "apply: shim not generated"
+grep -q 'sort -V' "$SHIM13" 2>/dev/null && ok "shim: uses sort -V latest-version resolution" || no "shim: no sort -V resolution loop"
+# Behavioral: the shim's CACHE_BASE was baked to the repo's parent at apply time. Rewrite that copy's
+# baked base to our two-version fake base and run it under an EMPTY HOME (so the cache-glob branch
+# resolves nothing) — it must exec 0.0.2 (highest semver), never 0.0.1.
+SHIM13C="$SANDBOX/shim13.sh"
+BAKED_BASE=$(grep -oE 'for _base in "[^"]+"' "$SHIM13" | head -1 | sed 's/for _base in "//; s/"$//')
+sed "s#$BAKED_BASE#$CB13#" "$SHIM13" > "$SHIM13C"
+RAN=$(HOME="$SANDBOX/emptyhome" bash "$SHIM13C" 2>/dev/null)
+[ "$RAN" = "RAN 0.0.2" ] && ok "shim: execs the HIGHEST version (0.0.2), not 0.0.1 [got: $RAN]" || no "shim: wrong version resolved [got: $RAN]"
+
+# Test 14 (gap #2, behavioral): --apply captures the engine env into a mode-600 .extract-timer-env
+# the shim sources — custom KD / local-model / api-key users no longer silently get defaults.
+BR14="$SANDBOX/brain14"
+SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR14" \
+  SB_EXTRACTOR_LOCAL_URL=http://x:1 CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=/data/kb \
+  bash "$INSTALL" --apply >/dev/null 2>&1 || true
+EF14="$BR14/.extract-timer-env"
+[ -f "$EF14" ] && ok "apply: wrote the engine env-file" || no "apply: env-file missing"
+grep -q '^export SB_EXTRACTOR_LOCAL_URL=' "$EF14" 2>/dev/null && ok "env-file: forwards SB_EXTRACTOR_LOCAL_URL" || no "env-file: missing SB_EXTRACTOR_LOCAL_URL"
+grep -q '/data/kb' "$EF14" 2>/dev/null && ok "env-file: forwards the custom KNOWLEDGE_DIR" || no "env-file: missing custom KD"
+grep -qE 'ENV_FILE=.*\.extract-timer-env' "$BR14/bin/sb-extract-drain.sh" 2>/dev/null \
+  && grep -q '\. "\$ENV_FILE"' "$BR14/bin/sb-extract-drain.sh" 2>/dev/null \
+  && ok "shim: sources the env-file" || no "shim: does not source the env-file"
+if [ "$CHMOD_WORKS" = "1" ]; then
+  MODE=$(stat -c '%a' "$EF14" 2>/dev/null || stat -f '%Lp' "$EF14" 2>/dev/null || echo '')
+  [ "$MODE" = "600" ] && ok "env-file: mode 600 (may hold ANTHROPIC_API_KEY)" || no "env-file: mode $MODE not 600"
+else
+  ok "env-file: mode-600 check skipped (chmod inert on this FS; enforced on CI)"
+fi
+
+# Test 15 (gap #3): the windows /TR resolves a git-bash bash path (not the bare command -v bash that
+# could catch WSL System32\bash.exe), and the installer wires win_bash for the probe.
+WINTR=$(SB_INSTALL_OS_OVERRIDE=windows bash "$INSTALL" 2>&1)
+printf '%s' "$WINTR" | grep -qiE 'bash\.exe|[Gg]it.[Bb]in.bash' && ok "windows: /TR points at a git-bash bash.exe" || no "windows: /TR has no git-bash bash path"
+grep -q 'BASH_W=$(win_bash)' "$INSTALL" && ok "installer: windows uses win_bash (WSL-safe probe)" || no "installer: windows not using win_bash"
+grep -qE 'Git\\+bin\\+bash\.exe' "$INSTALL" && ok "installer: win_bash probes the Git\\bin path list" || no "installer: no git-bash probe list"
+# The OLD sole resolver (bare command -v bash as BASH_W=) must be gone.
+grep -qE 'BASH_W=.*command -v bash' "$INSTALL" && no "installer: still resolves BASH_W via bare command -v bash" || ok "installer: no bare command -v bash as sole resolver"
+
+# Test 16 (uninstall cleanup): --uninstall removes the shim AND the env-file.
+BR16="$SANDBOX/brain16"
+SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR16" bash "$INSTALL" --apply >/dev/null 2>&1 || true
+[ -f "$BR16/bin/sb-extract-drain.sh" ] || no "uninstall-setup: apply did not create the shim"
+SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR16" bash "$INSTALL" --uninstall >/dev/null 2>&1 || true
+{ [ ! -e "$BR16/bin/sb-extract-drain.sh" ] && [ ! -e "$BR16/.extract-timer-env" ]; } \
+  && ok "uninstall: shim + env-file removed" || no "uninstall: shim/env-file left behind"
+
+# Test 17 (review MED): win_bash must survive UNSET PROGRAMFILES/LOCALAPPDATA under `set -u`. Without
+# the :- guards the for-list expansion aborts in the $(win_bash) subshell → empty BASH_W → a broken
+# schtasks /TR (and the cygpath fallback never runs). Print-mode windows with both vars unset.
+W17=$(env -u PROGRAMFILES -u LOCALAPPDATA SB_INSTALL_OS_OVERRIDE=windows bash "$INSTALL" 2>&1)
+printf '%s' "$W17" | grep -qi 'unbound variable' && no "win_bash: aborts on unset PROGRAMFILES/LOCALAPPDATA" || ok "win_bash: survives unset PROGRAMFILES/LOCALAPPDATA (set -u safe)"
+printf '%s' "$W17" | grep -qE '/TR +"[^"]*bash[^"]*"' && ok "win_bash: /TR keeps a non-empty bash program token when vars unset" || no "win_bash: empty/broken /TR program when vars unset"
+
+# Test 18 (review LOW, intent): the hardened systemd DEFAULT is creds-free by contract — its env-file
+# must NOT carry API creds; launchd/windows (no sandbox) and systemd --oauth MUST forward them.
+BR18="$SANDBOX/brain18"
+SB_INSTALL_OS_OVERRIDE=systemd BRAIN_DIR="$BR18" ANTHROPIC_API_KEY=sk-ant-TESTKEY SB_EXTRACTOR_LOCAL_URL=http://x:1 bash "$INSTALL" --apply >/dev/null 2>&1 || true
+grep -q 'ANTHROPIC_API_KEY' "$BR18/.extract-timer-env" 2>/dev/null && no "hardened systemd: leaked API creds into env-file (breaks creds-free contract)" || ok "hardened systemd: env-file omits API creds (creds-free)"
+grep -q 'SB_EXTRACTOR_LOCAL_URL' "$BR18/.extract-timer-env" 2>/dev/null && ok "hardened systemd: still forwards the local-engine knob" || no "hardened systemd: dropped the local-engine knob"
+BR18W="$SANDBOX/brain18w"
+SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR18W" ANTHROPIC_API_KEY=sk-ant-TESTKEY bash "$INSTALL" --apply >/dev/null 2>&1 || true
+grep -q 'ANTHROPIC_API_KEY' "$BR18W/.extract-timer-env" 2>/dev/null && ok "windows (no sandbox): forwards the API key" || no "windows: dropped the API key"
+BR18O="$SANDBOX/brain18o"
+SB_INSTALL_OS_OVERRIDE=systemd BRAIN_DIR="$BR18O" ANTHROPIC_API_KEY=sk-ant-TESTKEY bash "$INSTALL" --apply --oauth >/dev/null 2>&1 || true
+grep -q 'ANTHROPIC_API_KEY' "$BR18O/.extract-timer-env" 2>/dev/null && ok "systemd --oauth: forwards the API key (creds explicitly granted)" || no "systemd --oauth: dropped the API key"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

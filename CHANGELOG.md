@@ -4,6 +4,30 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.13
+
+Cross-platform extraction-timer hardening (no migration action). A 5-lens research sweep + a 3-lens deep
+review (fix-first, all findings addressed + mutation-proven) hardened `install-extract-timer.sh` so the
+out-of-band drainer is solid on Linux/macOS/Windows:
+
+- **Survives plugin upgrades (all OSes):** the scheduler now runs a STABLE shim
+  (`~/.second-brain/bin/sb-extract-drain.sh`) that resolves the LATEST installed plugin version's
+  `extract-drain.sh` and execs it — instead of a version-pinned cache path that goes stale/GC'd after an
+  upgrade. `sort -V` with a numeric-field fallback for older BSD `sort` (macOS).
+- **Windows env forwarding:** a captured, `chmod 600` env-file (`~/.second-brain/.extract-timer-env`,
+  sourced by the shim) carries the engine knobs (KNOWLEDGE_DIR / `SB_EXTRACTOR_*` / API key) the schtasks
+  task previously dropped — matching the launchd behaviour.
+- **WSL-safe bash on Windows:** `win_bash()` probes git-bash explicitly (guarded for unset
+  `PROGRAMFILES`/`LOCALAPPDATA` under `set -u`) instead of a bare `command -v bash` that could schedule the
+  WSL `System32\bash.exe` (the 0.33.1 class).
+- **Creds-free hardened systemd unit preserved:** the env-file omits `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`
+  on the hardened Linux default (forwarded only under `--oauth`, or on launchd/windows which have no sandbox).
+- sed-replacement escaping for `&`/`#` in a home path.
+
+`tests/test-install-extract-timer.sh` grows to 52 checks (shim latest-version resolution, env-file +
+mode-600, WSL-safe bash incl. the unset-var regression, creds gating, uninstall cleanup) — all mutation-proven.
+No mcp/ change; no new files. `/upgrade` to 0.33.13 is a marker bump (no data migration).
+
 ## 0.33.12
 
 Windows-portability sweep — close the `dream_accept` bug class at the root (no migration action). A 5-lens
