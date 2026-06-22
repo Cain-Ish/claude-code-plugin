@@ -4,6 +4,26 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.10
+
+Fix: `dream_accept` was completely broken on Windows (no migration action). GNU tar and rsync parse a
+leading drive letter as a REMOTE `host:path`, so `tar -f C:\Users\...\wiki-backup.tgz` failed with
+"Cannot connect to C: resolve failed" — and the MCP passes `BRAIN_DIR`/`KNOWLEDGE_DIR` to the bash
+scripts in Windows form. Every Windows `dream_accept` therefore fail-closed at the pre-accept backup,
+reporting a misleading "disk full / unwritable" message (the real tar error was swallowed by `2>/dev/null`).
+
+- `scripts/dream-accept.sh` now MSYS-normalizes `BRAIN_DIR`/`KNOWLEDGE_DIR` via `cygpath -u` (a no-op on
+  POSIX, where paths have no drive letter) before any tar/rsync, so the backup and the apply both work on
+  Windows. `dream-snapshot.sh` was unaffected — it uses mkdir/cp, which the MSYS runtime path-translates.
+- The backup failure is now **fail-loud**: it reports tar's actual stderr instead of guessing "disk full"
+  (that guess hid this bug for several releases — caught only when a real Windows accept failed).
+- `tests/test-dream-accept-guards.sh` gains **B4**: a behavioral test that feeds a real Windows-form
+  `BRAIN_DIR` (via `cygpath -w`) and asserts the accept succeeds and writes the backup — it runs on
+  git-bash (where the bug lives) and skips on Linux/macOS. The prior sandboxes only used MSYS-form temp
+  paths, so they never reproduced it.
+
+`/upgrade` to 0.33.10 is a marker bump (no data migration).
+
 ## 0.33.9
 
 Behavioral test coverage for critical wiring (no migration action). An audit found the suite has

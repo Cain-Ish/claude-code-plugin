@@ -5,6 +5,15 @@
 set -u
 source "$(dirname "$0")/lib.sh"
 
+# Windows (git-bash): the MCP passes BRAIN_DIR/KNOWLEDGE_DIR in Windows form (C:\...). GNU tar and
+# rsync parse a leading drive letter as a REMOTE host:path (`tar -f C:\...` → "Cannot connect to C:"),
+# so the pre-accept backup AND the rsync apply both fail-closed on Windows. Normalize to MSYS form
+# (/c/...) via cygpath, which exists only under git-bash/Cygwin; on POSIX cygpath is absent and this
+# is a no-op (real Linux/macOS paths have no drive letter). dream-snapshot.sh is unaffected — it uses
+# mkdir/cp, which the MSYS runtime path-translates; tar/rsync do not.
+_to_msys() { if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; else printf '%s' "$1"; fi; }
+BRAIN_DIR=$(_to_msys "$BRAIN_DIR")
+
 DREAM_ID="${1:?usage: dream-accept.sh <dream_id>}"
 DREAM_DIR="$BRAIN_DIR/dreams/$DREAM_ID"
 
@@ -27,6 +36,7 @@ fi
 
 KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+KNOWLEDGE_DIR=$(_to_msys "$KNOWLEDGE_DIR")   # MSYS-normalize (Windows): tar -C / rsync dest must not be C:\...
 LIVE_WIKI="$KNOWLEDGE_DIR/wiki"
 STAGING_WIKI="$DREAM_DIR/staging/wiki"
 
@@ -129,11 +139,14 @@ fi
 # duplicate. Restore with: tar xzf <tgz> -C "$KNOWLEDGE_DIR".
 if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$LIVE_WIKI" ]; then
   ACCEPT_BK="$BRAIN_DIR/wiki-backup-pre-accept-$(date -u +%Y%m%d%H%M%SZ).tgz"
-  if tar czf "$ACCEPT_BK" -C "$KNOWLEDGE_DIR" wiki 2>/dev/null; then
+  _bkerr=$(tar czf "$ACCEPT_BK" -C "$KNOWLEDGE_DIR" wiki 2>&1); _bkrc=$?
+  if [ "$_bkrc" -eq 0 ] && [ -s "$ACCEPT_BK" ]; then
     echo "Backed up live wiki → $ACCEPT_BK before applying."
   else
     rm -f "$ACCEPT_BK" 2>/dev/null
-    echo "error: refusing accept of $DREAM_ID — could not back up the live wiki first (disk full / unwritable $BRAIN_DIR); not overwriting live unprotected. Override with SB_DREAM_ACCEPT_SKIP_BACKUP=1." >&2
+    # Fail-loud with tar's ACTUAL error: a generic "disk full" guess hid a Windows tar host:path
+    # bug (`tar -f C:\...` → "Cannot connect to C:") for a whole release. Never overwrite unprotected.
+    echo "error: refusing accept of $DREAM_ID — could not back up the live wiki first; not overwriting live unprotected. tar (rc=$_bkrc): ${_bkerr:-<no stderr>}. If the wiki is genuinely fine, override with SB_DREAM_ACCEPT_SKIP_BACKUP=1." >&2
     exit 1
   fi
 fi

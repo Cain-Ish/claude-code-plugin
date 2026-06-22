@@ -128,4 +128,25 @@ BK=$(ls "$BRAIN_DIR"/wiki-backup-pre-accept-*.tgz 2>/dev/null | head -1)
 [ "$rc" -eq 0 ] && [ -z "$BK" ] && pass "B3: skip flag → accept proceeds with NO dream-accept tarball (auto path already backed up)" || fail "B3: skip flag mishandled (rc=$rc, bk=${BK:-none})"
 rm -rf "$SB"
 
+# --- B4 (0.33.10): a Windows-form BRAIN_DIR (C:\...) is MSYS-normalized so tar/rsync don't host-parse `C:`
+# GNU tar parses `tar -f C:\...` as a REMOTE host:path ("Cannot connect to C:"); the MCP passes BRAIN_DIR
+# in Windows form on Windows, so EVERY dream_accept failed-closed there ("could not back up the live wiki")
+# — a whole-release Windows regression the MSYS-only test sandboxes never reproduced. Behavioral oracle on
+# the platform where the bug lives: feed a REAL Windows-form BRAIN_DIR and require the accept to SUCCEED and
+# write the backup. cygpath + drive-letter paths exist only under git-bash/Cygwin → Linux/macOS skip.
+if command -v cygpath >/dev/null 2>&1; then
+  setup 4 SAME
+  WINBRAIN=$(cygpath -w "$BRAIN_DIR")     # the real sandbox brain dir in Windows form (C:\...)
+  BEFORE=$(count "$KNOWLEDGE_DIR/wiki")
+  BRAIN_DIR="$WINBRAIN" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+  AFTER=$(count "$KNOWLEDGE_DIR/wiki")
+  BK=$(ls "$BRAIN_DIR"/wiki-backup-pre-accept-*.tgz 2>/dev/null | head -1)   # $BRAIN_DIR is still MSYS in test scope
+  [ "$rc" -eq 0 ] && [ -n "$BK" ] && [ "$AFTER" = "4" ] \
+    && pass "B4: Windows-form BRAIN_DIR normalized — accept succeeds + backup written (no tar host:path failure)" \
+    || fail "B4: Windows-form BRAIN_DIR broke accept (rc=$rc, bk=${BK:-none}, live $BEFORE→$AFTER)"
+  rm -rf "$SB"
+else
+  pass "B4: Windows-form path normalization (skipped — no cygpath; the tar host:path bug is Windows-only)"
+fi
+
 echo "ALL PASS"
