@@ -30,6 +30,8 @@ mcp/dist/**/*.map
 # OS files
 .DS_Store
 Thumbs.db
+# git-bash / Cygwin crash dumps (transient; never committed)
+*.stackdump
 
 # Node
 node_modules/

@@ -131,7 +131,15 @@ if [ -d "$TRANSCRIPT_DIR" ]; then
       [ -n "$fdate" ] && [ "$fdate" \< "$FILTER_SINCE" ] && continue
     fi
 
-    ln -sf "$tf" "$DREAM_DIR/transcripts/$(basename "$tf")"
+    # `ln -s` DEEP-COPIES on git-bash/MSYS (winsymlinks off) — it silently produces a copy, not a link,
+    # so relying on symlink semantics on Windows is accidental. Be explicit: copy on Windows (cp -p keeps
+    # mtime, the only property the autostage watermark reads; pruned with the staging dir either way), keep
+    # the lean real symlink on POSIX. Both leave the source transcript untouched on prune.
+    _dst="$DREAM_DIR/transcripts/$(basename "$tf")"
+    case "$(uname -s 2>/dev/null)" in
+      MINGW*|MSYS*|CYGWIN*) cp -p "$tf" "$_dst" ;;
+      *) ln -sf "$tf" "$_dst" ;;
+    esac
     SELECTED=$((SELECTED + 1))
   done
 fi

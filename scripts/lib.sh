@@ -3,6 +3,13 @@
 # Source this at the top of any hook script: source "$(dirname "$0")/lib.sh"
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
+# Windows (git-bash): an inherited BRAIN_DIR from the Node MCP arrives in Windows form (C:\Users\...).
+# GNU tar/rsync read a leading drive letter as a remote host:path ("Cannot connect to C:") and `ln -s`
+# mis-links it — the dream_accept bug class (0.33.10). Normalize to MSYS form (/c/...) ONCE here, at the
+# inheritance boundary every script sources, so every current + future tar/rsync/ln sink is safe by
+# construction. cygpath exists only under git-bash/Cygwin; on POSIX it's absent and this is a no-op (real
+# Linux/macOS paths have no drive letter). Idempotent: cygpath -u on an already-MSYS path returns it as-is.
+command -v cygpath >/dev/null 2>&1 && BRAIN_DIR=$(cygpath -u "$BRAIN_DIR" 2>/dev/null || printf '%s' "$BRAIN_DIR")
 
 # KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
 # / SB_GENERATED_DIRS / SB_EDGE_TYPES / SB_FORGET_PROTECTED / SB_FORGET_DISCOUNTED from kb-schema.json.

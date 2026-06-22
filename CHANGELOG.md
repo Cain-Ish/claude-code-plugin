@@ -4,6 +4,28 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.12
+
+Windows-portability sweep — close the `dream_accept` bug class at the root (no migration action). A 5-lens
+sweep reproduced every tar/rsync/`ln`/spawn/CRLF site that consumes a plugin-provided path; the suite was
+already largely safe (the 0.33.7 + 0.33.10 fixes, and most scripts let the MSYS runtime translate paths), but
+two real items remained:
+
+- **`scripts/lib.sh` (root cause):** the Node MCP injects `BRAIN_DIR` in Windows form (`C:\Users\…`), which
+  GNU tar/rsync read as a remote `host:path` and `ln -s` mis-links. lib.sh now MSYS-normalizes `BRAIN_DIR`
+  via `cygpath -u` **once at the inheritance boundary every script sources** — so every current *and future*
+  tar/rsync/`ln` sink is safe by construction (no-op on POSIX; idempotent on already-MSYS paths). This
+  generalizes 0.33.10's per-script `dream-accept.sh` fix and makes the equivalent `dream.ts` env change moot.
+- **`scripts/dream-snapshot.sh`:** the transcript-staging `ln -sf` silently deep-copies on git-bash
+  (winsymlinks off). Made explicit — `cp -p` on Windows (mtime preserved; pruned with the dream), real
+  symlink on POSIX — so it no longer relies on accidental MSYS copy behavior.
+- **`tests/test-lib-brain-dir-msys.sh`** (new): behavioral guard — sources lib.sh and asserts an already-MSYS
+  path is unchanged (runs on Linux/macOS CI) and a Windows-form `C:\…` becomes `/c/…` round-tripping to the
+  same dir (git-bash; mutation-proven RED when the normalize is removed).
+
+CI has no Windows runner, so these are verified live on git-bash. `docs/surface-budget.json` tests 144→145.
+No mcp/ runtime change. `/upgrade` to 0.33.12 is a marker bump (no data migration).
+
 ## 0.33.11
 
 Behavioral test coverage — the remaining 14 audited "green ≠ working" gaps closed (no migration action).
