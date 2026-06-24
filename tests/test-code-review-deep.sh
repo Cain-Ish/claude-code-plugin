@@ -66,6 +66,11 @@ grep -qi "never paste file contents" "$ROOT/agents/code-review-unit-reviewer.md"
   && ok "unit-reviewer has lean-return instruction" \
   || bad "unit-reviewer missing lean-return (findings-only) instruction"
 
+# C2: unit-reviewer hunts inline-contract (code-comment) violations.
+grep -qi "inline-contract" "$ROOT/agents/code-review-unit-reviewer.md" \
+  && ok "unit-reviewer has inline-comment-compliance item" \
+  || bad "unit-reviewer missing inline-comment-compliance (inline-contract) item"
+
 # v2.1: unit-reviewer reasons harder (effort: high). Task 0 confirmed dispatched
 # agents honor effort:. ur_fm is the frontmatter extracted above.
 ur_effort_keys="$(printf '%s\n' "$ur_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
