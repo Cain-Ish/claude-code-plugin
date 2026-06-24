@@ -54,6 +54,21 @@ prior commit exists and that this change actually reverts or contradicts it. If 
 cannot ground the claim in real history, do NOT inflate the score — treat it as
 unverified (≤50).
 
+## Refute mode (skeptic votes)
+
+If your task says **REFUTE MODE**, invert your stance: assume this finding is a
+false positive and actively try to prove it wrong — pre-existing, intentional,
+linter-caught, or simply not a real runtime issue. Read the file and history to
+build the refutation. Only score >= 70 if, after a genuine attempt, you CANNOT
+refute it. (The orchestrator runs one normal scorer + two refute-mode scorers on
+critical/high findings and takes the median; your job is to be the skeptic.)
+
+## Verifying prior-review findings
+
+For `prior-review` findings, confirm the cited prior PR comment exists and that the
+current change actually re-triggers the concern. If the comment was resolved/addressed,
+targets lines this change did not touch, or no longer applies, score it low (<= 25).
+
 ## Output
 
 Return only the numeric score (0–100) and a one-sentence justification. If you

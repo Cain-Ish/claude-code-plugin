@@ -222,6 +222,18 @@ grep -qi "prior-review" "$ORCH" && ok "skill defines the prior-review finding ca
   grep -qi "Pass 2c" "$ORCH" && ok "orchestrator has Pass 2c (history/regression)" \
     || bad "orchestrator missing Pass 2c history/regression pass"
 
+# C3: adversarial refuter panel on critical/high findings.
+grep -qi "refuter panel" "$ORCH" && ok "Pass 3 has a refuter panel" \
+  || bad "Pass 3 missing the refuter panel"
+grep -qi "median" "$ORCH" && ok "refuter panel uses median-of-3" \
+  || bad "refuter panel missing the median-of-3 rule"
+grep -qiE "refute mode|skeptic mode" "$ROOT/agents/code-review-scorer.md" \
+  && ok "scorer has a refute mode" \
+  || bad "scorer missing refute mode"
+grep -qi "prior-review" "$ROOT/agents/code-review-scorer.md" \
+  && ok "scorer verifies prior-review findings" \
+  || bad "scorer missing prior-review verification note"
+
   # v2.1: the 16–69 band is surfaced, not dropped — the orchestrator must render a
   # distinct lower-confidence section.
   grep -qi "Lower-confidence findings" "$ORCH" \

@@ -149,6 +149,13 @@ misses); Pass 3.5 PROBES them. If every unit is docs-only, skip this pass.
    load-bearing AND unproven AND — if Pass 3.5 ran — shown BROKEN; LOW when Pass 3.5
    confirmed it holds or it is established/defended. A premise Pass 3.5 marked BROKEN
    is force-promoted to confirmed (≥70) regardless of the scorer's number.
+   For findings of severity **critical** or **high**, run a 3-vote **refuter panel**
+   instead of a single scorer: one normal `code-review-scorer` plus two dispatched
+   with **REFUTE MODE** in their task. The final score is the **median** of the three
+   (mathematically identical to "confirmed iff >= 2 of 3 score >= 70"), so it drops into
+   the >= 70 / 16-69 / <= 15 partition with no rule change. The panel scorers inherit the
+   session/best model (a quality floor — a refuter must out-reason the finder); do NOT
+   pin them to a cheaper model. Medium/low findings keep the single scorer.
 3. **Partition** the scored findings into three buckets (keep all until Pass 4):
    - **confirmed** (score **≥ 70**): the numbered review output, sorted by severity then score.
    - **low-confidence** (score **16–69**): NOT confirmed, but surfaced in Pass 4 as a
