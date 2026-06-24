@@ -4,6 +4,28 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.16
+
+code-review-deep Bundle B + cost-router deep-review routing (no migration action).
+
+- **C1 prior-PR-comment mining** (finding-generating, Pass 0): mines GitHub PR review comments on prior PRs
+  touching the changed files (`git log` -> PR numbers -> `gh api .../pulls/N/comments`, ~10-PR cap, path-filtered)
+  and emits `prior-review` findings into Pass 3 scoring. Adds `Bash(gh api *)` to the skill's allowed-tools.
+- **C2 inline-comment compliance**: the per-unit reviewer now flags diffs that violate guidance in nearby code
+  comments (keep-sorted / NOTE / INVARIANT / docstring contracts); reuses the existing `convention` category.
+- **C3 adversarial refuter panel**: critical/high findings are scored by 1 normal + 2 refute-mode scorers; the
+  final score is the median of the three (identical to "confirmed iff >= 2 of 3 score >= 70", so the
+  >= 70 / 16-69 / <= 15 partition is unchanged). Panel scorers inherit the session/best model (a quality floor).
+- **C4 least-privilege**: `disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch` on the five read-only
+  review agents (unit, scorer, history, premise, quality).
+- **C5/C6**: Pass-3 scoring shares the <= 5 wave cap (the refuter panel multiplies Pass-3 agents on a constrained
+  host); a cost-ownership note documents that the skill self-tiers and cost-router does not override it.
+
+cost-router 0.2.2 (separate plugin in this repo): a conservative, word-bounded REVIEW detector in
+`classify-prompt.sh` recognizes a deep-review request and points the user at `/second-brain:code-review-deep`
+(detect-&-degrade to `/cost-router:orchestrate` when second-brain is absent). It routes TO the self-tiering
+skill, never tiers or decomposes it; the hook is `set -u`-safe under an unset `HOME`.
+
 ## 0.33.15
 
 Fix: the 0.33.14 test (not the product) aborted the Linux CI bash suite (no migration action). The new

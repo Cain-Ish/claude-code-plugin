@@ -141,6 +141,90 @@ else
   PASS=$((PASS + 1)); echo "  PASS  empty payload → non-empty output but did not crash"
 fi
 
+# ── Bundle B: REVIEW routing (point at the self-tiering skill; never a tier) ──
+# detect-&-degrade is controlled deterministically via a sandbox HOME so the test
+# does not depend on what is installed on the runner.
+assert_review_skill() {            # second-brain present → points at the skill
+  local label="$1" prompt="$2"
+  local fh="$TMP/home-present"
+  mkdir -p "$fh/.claude/plugins/cache/second-brain/second-brain/9.9.9/skills/code-review-deep"
+  local out
+  out=$(printf '%s' '{"prompt":"'"$prompt"'"}' \
+    | env COST_ROUTER_AUTOROUTE=on COST_ROUTER_EVENTS="$EVENTS_FILE" \
+          CLAUDE_PLUGIN_ROOT="$REPO_ROOT/cost-router" HOME="$fh" \
+        bash "$SCRIPT" 2>/dev/null)
+  if printf '%s' "$out" | grep -q '/second-brain:code-review-deep'; then
+    PASS=$((PASS+1)); echo "  PASS  $label → points at code-review-deep"
+  else
+    FAIL=$((FAIL+1)); echo "  FAIL  $label → expected /second-brain:code-review-deep"
+    printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+}
+assert_review_degraded() {         # second-brain absent → orchestrate fallback
+  local label="$1" prompt="$2"
+  local fh="$TMP/home-absent"; mkdir -p "$fh"
+  local out
+  out=$(printf '%s' '{"prompt":"'"$prompt"'"}' \
+    | env COST_ROUTER_AUTOROUTE=on COST_ROUTER_EVENTS="$EVENTS_FILE" \
+          CLAUDE_PLUGIN_ROOT="$REPO_ROOT/cost-router" HOME="$fh" \
+        bash "$SCRIPT" 2>/dev/null)
+  if printf '%s' "$out" | grep -q '/cost-router:orchestrate' \
+     && ! printf '%s' "$out" | grep -q '/second-brain:'; then
+    PASS=$((PASS+1)); echo "  PASS  $label → degraded to /cost-router:orchestrate"
+  else
+    FAIL=$((FAIL+1)); echo "  FAIL  $label → expected orchestrate fallback, no /second-brain:"
+    printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+}
+assert_no_review() {               # over-routing guard: review skill NOT mentioned
+  local label="$1" prompt="$2"
+  local out
+  out=$(printf '%s' '{"prompt":"'"$prompt"'"}' \
+    | env COST_ROUTER_AUTOROUTE=on COST_ROUTER_EVENTS="$EVENTS_FILE" \
+          CLAUDE_PLUGIN_ROOT="$REPO_ROOT/cost-router" \
+        bash "$SCRIPT" 2>/dev/null)
+  if ! printf '%s' "$out" | grep -q 'code-review-deep'; then
+    PASS=$((PASS+1)); echo "  PASS  $label → no review nudge"
+  else
+    FAIL=$((FAIL+1)); echo "  FAIL  $label → unexpected review nudge"
+    printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+}
+
+assert_review_skill   "code review fires"        "please do a code review of this pr"
+assert_review_skill   "deep code review fires"   "deep code review of the auth module please"
+assert_review_skill   "review the diff fires"    "can you review the diff for me here"
+assert_review_skill   "short review-this-pr"     "review this pr"
+assert_review_skill   "review wins over THINK"   "how should I review this pr"
+assert_review_degraded "degraded fallback"       "please review the changes in this pr"
+assert_no_review      "review the logs is not a code review"  "review the logs from yesterday for errors"
+assert_no_review      "review meeting notes is not a code review"  "review the meeting notes for action items"
+assert_no_output      "kill switch off (review)" "please do a code review of this pr"
+
+# ── Fix 1: HOME-unset regression — must not crash, must not print "unbound" ──
+echo "  Testing HOME unset → no crash, degraded nudge..."
+_home_unset_out=$(printf '%s' '{"prompt":"please do a code review of this pr"}' \
+  | env -u HOME COST_ROUTER_AUTOROUTE=on COST_ROUTER_EVENTS="$EVENTS_FILE" \
+        CLAUDE_PLUGIN_ROOT="$REPO_ROOT/cost-router" \
+      bash "$SCRIPT" 2>&1)
+_home_unset_rc=$?
+_home_unset_stderr=$(printf '%s' '{"prompt":"please do a code review of this pr"}' \
+  | env -u HOME COST_ROUTER_AUTOROUTE=on COST_ROUTER_EVENTS="$EVENTS_FILE" \
+        CLAUDE_PLUGIN_ROOT="$REPO_ROOT/cost-router" \
+      bash "$SCRIPT" 2>&1 >/dev/null)
+if [ "$_home_unset_rc" -eq 0 ] && ! printf '%s' "$_home_unset_out" | grep -q 'unbound'; then
+  PASS=$((PASS+1)); echo "  PASS  HOME unset → no crash, degraded nudge"
+else
+  FAIL=$((FAIL+1)); echo "  FAIL  HOME unset → expected rc=0 and no 'unbound' in output (rc=$_home_unset_rc)"
+  printf '%s\n' "$_home_unset_out" | sed 's/^/        /'
+fi
+
+# ── Fix 2: "review pr <N>" pattern recall ──
+assert_review_skill   "review pr <N> fires"   "please review pr 123 for me"
+
+# ── Fix 2: spec §7 guard — "do a code review of PR 12" (incidentally passes via "code review") ──
+assert_review_skill   "spec §7 case fires"    "do a code review of PR 12"
+
 echo "-----------------------"
 echo "PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]

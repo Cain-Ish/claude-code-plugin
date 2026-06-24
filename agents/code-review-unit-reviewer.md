@@ -15,6 +15,7 @@ description: |
 color: cyan
 effort: high
 tools: Read, Bash(git diff *)
+disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch
 ---
 
 # Per-Unit Deep Reviewer
@@ -77,6 +78,12 @@ notes from episodic memory ("previously flagged / previously dismissed here").
 ### 8. Infrastructure/config (if applicable)
 - Missing required fields, unsafe defaults
 - Hardcoded env-specific values; breaking API/schema/deploy changes
+
+### 9. Inline-contract compliance
+- Does the diff violate guidance in nearby code comments? (`// keep sorted`,
+  `// do not call before init`, `NOTE`/`INVARIANT`/`WARNING`/`HACK` notes,
+  docstring contracts). Flag only when the change contradicts a still-valid
+  in-code instruction. Report under the `convention` category.
 
 ## Output
 

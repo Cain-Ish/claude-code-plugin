@@ -66,6 +66,11 @@ grep -qi "never paste file contents" "$ROOT/agents/code-review-unit-reviewer.md"
   && ok "unit-reviewer has lean-return instruction" \
   || bad "unit-reviewer missing lean-return (findings-only) instruction"
 
+# C2: unit-reviewer hunts inline-contract (code-comment) violations.
+grep -qi "inline-contract" "$ROOT/agents/code-review-unit-reviewer.md" \
+  && ok "unit-reviewer has inline-comment-compliance item" \
+  || bad "unit-reviewer missing inline-comment-compliance (inline-contract) item"
+
 # v2.1: unit-reviewer reasons harder (effort: high). Task 0 confirmed dispatched
 # agents honor effort:. ur_fm is the frontmatter extracted above.
 ur_effort_keys="$(printf '%s\n' "$ur_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
@@ -91,6 +96,21 @@ else
   case "$hr_tools" in *"git log"*) ok "history-reviewer tools grant git log" ;; *) bad "history-reviewer tools must grant Bash(git log *)" ;; esac
   case "$hr_tools" in *"git blame"*) ok "history-reviewer tools grant git blame" ;; *) bad "history-reviewer tools must grant Bash(git blame *)" ;; esac
 fi
+
+# C4: read-only review agents must declare disallowedTools (least privilege).
+for agent in code-review-unit-reviewer code-review-scorer code-review-history-reviewer code-review-premise-reviewer quality-reviewer; do
+  af="$ROOT/agents/$agent.md"
+  if [ ! -f "$af" ]; then bad "agent file missing for disallowedTools check: $agent"; continue; fi
+  afm="$(frontmatter "$af")"
+  dline="$(printf '%s\n' "$afm" | grep '^disallowedTools:' || true)"
+  if [ -z "$dline" ]; then
+    bad "$agent missing disallowedTools (least privilege)"
+  else
+    for deny in Write Edit; do
+      case "$dline" in *"$deny"*) ok "$agent disallows $deny" ;; *) bad "$agent disallowedTools missing $deny" ;; esac
+    done
+  fi
+done
 
 # --- Skill --------------------------------------------------------------
 skill="$ROOT/skills/code-review-deep/SKILL.md"
@@ -154,12 +174,18 @@ else
 
   # allowed-tools must grant the orchestrator what the design needs.
   at="$(echo "$sfm" | grep '^allowed-tools:')"
-  for need in "Agent" "Bash(gh pr" "Bash(gh repo" "Bash(git diff" "Bash(git remote" "knowledge_search" "episodic_search"; do
+  for need in "Agent" "Bash(gh pr" "Bash(gh api" "Bash(gh repo" "Bash(git diff" "Bash(git remote" "knowledge_search" "episodic_search"; do
     case "$at" in
       *"$need"*) ok "allowed-tools grants $need" ;;
       *) bad "allowed-tools missing $need" ;;
     esac
   done
+
+# C1: Pass 0 mines prior-PR review comments and emits prior-review findings.
+grep -qi "prior-PR" "$ORCH" && ok "skill mines prior-PR review comments (Pass 0)" \
+  || bad "skill missing prior-PR comment mining in Pass 0"
+grep -qi "prior-review" "$ORCH" && ok "skill defines the prior-review finding category" \
+  || bad "skill missing the prior-review finding category"
 
   # Reference integrity: every DISPATCHED subagent must resolve to an agent file.
   # Scope to subagent_type sites only — a bare "second-brain:<skill>" elsewhere
@@ -195,6 +221,26 @@ else
   # v2.2: the history/regression pass must exist and be scored (not advisory).
   grep -qi "Pass 2c" "$ORCH" && ok "orchestrator has Pass 2c (history/regression)" \
     || bad "orchestrator missing Pass 2c history/regression pass"
+
+# C3: adversarial refuter panel on critical/high findings.
+grep -qi "refuter panel" "$ORCH" && ok "Pass 3 has a refuter panel" \
+  || bad "Pass 3 missing the refuter panel"
+grep -qi "median" "$ORCH" && ok "refuter panel uses median-of-3" \
+  || bad "refuter panel missing the median-of-3 rule"
+grep -qiE "refute mode|skeptic mode" "$ROOT/agents/code-review-scorer.md" \
+  && ok "scorer has a refute mode" \
+  || bad "scorer missing refute mode"
+grep -qi "prior-review" "$ROOT/agents/code-review-scorer.md" \
+  && ok "scorer verifies prior-review findings" \
+  || bad "scorer missing prior-review verification note"
+# C5: Pass 3 scoring obeys the same <=5 wave cap (refuters multiply Pass-3 agents).
+grep -qi "scoring shares the .*wave cap" "$ORCH" \
+  && ok "Pass 3 scoring shares the <=5 wave cap" \
+  || bad "Pass 3 missing the shared <=5 wave-cap note"
+# C6: the skill documents the cost-router ownership boundary (self-tiering).
+grep -qi "cost-router does not override" "$ORCH" \
+  && ok "skill documents the cost-ownership boundary" \
+  || bad "skill missing the cost-ownership / self-tiering note"
 
   # v2.1: the 16–69 band is surfaced, not dropped — the orchestrator must render a
   # distinct lower-confidence section.

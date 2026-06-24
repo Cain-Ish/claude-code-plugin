@@ -17,6 +17,7 @@ description: |
 model: sonnet
 color: yellow
 tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(git blame *)
+disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch
 ---
 
 <!--

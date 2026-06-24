@@ -4,7 +4,7 @@ description: In-depth multi-pass code review of a GitHub change (local checkout)
 user-invocable: true
 disable-model-invocation: false
 argument-hint: "[<PR#>] [--comment] [--base <branch>]"
-allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__episodic_search
+allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh api *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__episodic_search
 ---
 
 # Deep Code Review
@@ -39,6 +39,7 @@ re-check likewise run on the Haiku model.
 5. **Second-brain reads.**
    - `knowledge_search` with 3–5 keywords drawn from the changed paths/stack → collect convention/decision pages. Pass their text as "project conventions" alongside CLAUDE.md.
    - `episodic_search` for prior reviews touching these files/this repo → distill a short "previously flagged / previously dismissed here" note.
+   - **Prior-PR review-comment mining (Haiku step, finding-generating).** Discover prior PRs touching the changed files: `git log origin/<base> -n 200 -- <changed files>`, parse PR numbers from merge/squash subjects (`Merge pull request #N`, `(#N)`), cap at the ~10 most-recent distinct PRs. For each, `gh api repos/<owner>/<repo>/pulls/<N>/comments` for inline review comments; keep only comments whose path is among the currently changed files (or same directory). Produce TWO outputs: (a) fold durable observations into the prior-review note above; (b) for each comment that STILL APPLIES (the change re-introduces/retains the concern), emit a `prior-review` candidate finding {file, lines, category: `prior-review`, severity, title, explanation citing PR #N + the comment, is_migrated_code}. These findings flow into Pass 3 dedup + scoring exactly like the per-unit findings. Best-effort: no remote / no `gh` / no PR history → skip silently and note "no prior-PR signal".
    - Read `~/.second-brain/review-false-positives.md` if it exists (else treat as empty). Hold its contents for Pass 3.
 6. **Change-intent classification** (Haiku step). From the PR title/body (or
    `git log origin/<base>..HEAD --oneline` when no PR), set `is_bugfix` = does this
@@ -140,7 +141,7 @@ misses); Pass 3.5 PROBES them. If every unit is docs-only, skip this pass.
    better-explained one. On a cross-pass collision between a `regression` finding
    (Pass 2c, which cites a prior commit short-SHA) and a non-regression finding on
    the same line, prefer the `regression` one — its commit citation is what makes it
-   actionable and would otherwise be lost.
+   actionable and would otherwise be lost. prior-review findings (Pass 0) participate in dedup and scoring like any other finding.
 2. **Score**: for each unique finding dispatch
    `Agent(subagent_type: "second-brain:code-review-scorer")`, passing the finding,
    its file paths, the project conventions, and the false-positive store contents
@@ -148,6 +149,17 @@ misses); Pass 3.5 PROBES them. If every unit is docs-only, skip this pass.
    load-bearing AND unproven AND — if Pass 3.5 ran — shown BROKEN; LOW when Pass 3.5
    confirmed it holds or it is established/defended. A premise Pass 3.5 marked BROKEN
    is force-promoted to confirmed (≥70) regardless of the scorer's number.
+   For findings of severity **critical** or **high**, run a 3-vote **refuter panel**
+   instead of a single scorer: one normal `code-review-scorer` plus two dispatched
+   with **REFUTE MODE** in their task. The final score is the **median** of the three
+   (mathematically identical to "confirmed iff >= 2 of 3 score >= 70"), so it drops into
+   the >= 70 / 16-69 / <= 15 partition with no rule change. The panel scorers inherit the
+   session/best model (a quality floor — a refuter must out-reason the finder); do NOT
+   pin them to a cheaper model. Medium/low findings keep the single scorer.
+   Dispatch scorers and refuter-panel votes in the same **waves of at most 5
+   concurrent agents** as Pass 2 — Pass 3 scoring shares the ≤5 wave cap (the
+   refuter panel multiplies Pass-3 agents ×3 for each critical/high finding, so this
+   bounds peak agent count and RAM on a constrained host, exactly as in Pass 2).
 3. **Partition** the scored findings into three buckets (keep all until Pass 4):
    - **confirmed** (score **≥ 70**): the numbered review output, sorted by severity then score.
    - **low-confidence** (score **16–69**): NOT confirmed, but surfaced in Pass 4 as a
@@ -195,6 +207,8 @@ Best-effort: any probe error is reported, never fails the review.
          ...
 
          Generated with [Claude Code](https://claude.ai/code) using second-brain:code-review-deep
+
+     Categories include: logic-error, type-safety, cross-file, edge-case, test-gap, convention, security, infrastructure, regression, premise, prior-review.
 
      Or, if none: `Analyzed X review units (Y files, Z skipped as trivial). No issues found.`
    - **Lower-confidence findings (unverified).** If the low-confidence bucket
@@ -290,6 +304,13 @@ functional changes; real issues on lines this change did not modify.
   whose parent `claude` exited → reap them; (c) the session `claude` RSS climbing
   run-over-run is parent-context bloat, inherent to inline fan-out — the wave cap +
   lean sub-agent returns above are the mitigation (bounded, not a true leak).
+- **Cost ownership.** Model tiering here is the skill's OWN (self-routing).
+  cost-router does not override it — cost-router only routes a review request *to*
+  this skill (see `cost-router` setup), because it cannot tier a running skill's
+  internal dispatches. The per-pass model choices in this skill are
+  correctness/resource decisions, not price decisions: best-model-for-code and the
+  code-as-prompt `.md` exception are accuracy floors; the wave caps and unit-size
+  bounds are RAM/peak-agent ceilings.
 - **Model vs. agent names:** whenever a pass names a model (Haiku / Sonnet / Opus) it
   means the dispatch `model` parameter (e.g. `model: "haiku"`) — NEVER an agent name.
   Subagents are always named via `subagent_type: "second-brain:<agent>"`. Don't go

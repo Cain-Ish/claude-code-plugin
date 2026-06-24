@@ -71,6 +71,21 @@ if [ -z "$TIER" ]; then
   TIER="DO"
 fi
 
+# ── REVIEW: a deep code review is NOT a tier ────────────────────────────────────
+# code-review-deep is itself a multi-pass cost-router; recognize the request and
+# point at that skill rather than tiering it. CR-006: word-bounded, multi-word
+# phrases ONLY — never bare "review" (it fires on "review the logs/plan/notes").
+REVIEW=""
+case "$P_PAD" in
+  *"code review"*|*"code-review"*|*"deep code review"*|\
+  *"review this pr"*|*"review the pr"*|*"review my pr"*|\
+  *"review pr "*|*"review pull request"*|\
+  *"review this mr"*|*"review the mr"*|\
+  *"review the diff"*|*"review my changes"*|*"review the changes"*|\
+  *"thorough review"*)
+    REVIEW="1" ;;
+esac
+
 # ── Map tier to model name ─────────────────────────────────────────────────────
 
 case "$TIER" in
@@ -85,6 +100,24 @@ esac
 SLUG=$(printf '%s' "$P_LOWER" | head -c 40 | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
 ROUTE_LOG="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/route-log.sh"
 bash "$ROUTE_LOG" emit "$SLUG" "$TIER" "" "0" "false" "classified" "false" 2>/dev/null || true
+
+# ── REVIEW nudge: point at the self-tiering skill; runs BEFORE the tier nudge so a
+# review prompt never also gets a THINK/SCOUT nudge. Exempt from the >=25-char floor
+# (the multi-word phrase is itself the signal). Detect-&-degrade on skill presence.
+if [ -n "$REVIEW" ]; then
+  SB_REVIEW_SKILL=""
+  for d in "${HOME:-}/.claude/plugins/cache/second-brain/second-brain/"*/skills/code-review-deep \
+           "${HOME:-}/.claude/plugins/marketplaces/second-brain/skills/code-review-deep"; do
+    [ -d "$d" ] && { SB_REVIEW_SKILL="1"; break; }
+  done
+  if [ -n "$SB_REVIEW_SKILL" ]; then
+    RNUDGE="cost-router: this looks like a deep code review. Run /second-brain:code-review-deep — it multi-passes the diff and self-routes mechanical/doc work to the cheap tier and code+architectural passes to the best model. (cost-router does not tier it; the skill routes itself.)"
+  else
+    RNUDGE="cost-router: this looks like a code review. For tiered help run /cost-router:orchestrate. (Install the second-brain plugin to unlock the dedicated multi-pass code-review-deep reviewer.)"
+  fi
+  jq -nc --arg ctx "$RNUDGE" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}' 2>/dev/null
+  exit 0
+fi
 
 # ── Emit nudge as additionalContext ───────────────────────────────────────────
 # R5.1 (CR-006): nudge ONLY when it carries information — DO is the default
