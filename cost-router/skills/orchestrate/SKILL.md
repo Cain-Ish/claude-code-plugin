@@ -32,6 +32,7 @@ Read `$ARGUMENTS`. Classify using these heuristics:
 - **SCOUT only** (Haiku): purely mechanical, deterministic, no judgment needed — reads, greps, test runs, listing.
 - **DO only** (Sonnet): well-specified implementation, clear files, known pattern. The default for ≥80% of tasks.
 - **THINK → DO** (Opus plan, then Sonnet execute): genuinely ambiguous requirements; cross-cutting architecture; security/correctness trade-offs; task that failed a first DO attempt. Do NOT default here — bias toward DO.
+- If the task is a deep code review (e.g. "review this PR / the diff / my changes"), do NOT decompose it — invoke `/second-brain:code-review-deep` directly (if second-brain is installed). It is a self-tiering multi-pass reviewer; routing it through orchestrate would double-route and bypass its per-pass model choices.
 
 Output your classification and a brief rationale (1–2 sentences) before proceeding.
 

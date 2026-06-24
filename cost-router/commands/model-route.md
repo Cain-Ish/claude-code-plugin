@@ -47,6 +47,10 @@ Recommend Opus when the task has:
 
 **Confidence: HIGH only when these signals are present.** Default toward Sonnet when in doubt.
 
+### Code review / "review this PR" request
+
+- A code-review / "review this PR" request → recommend `/second-brain:code-review-deep` (self-tiering; do not assign a single tier) rather than a raw Haiku/Sonnet/Opus pick. If second-brain is not installed, fall back to the normal tiering.
+
 ## Step 3 — Output the recommendation
 
 Format:
