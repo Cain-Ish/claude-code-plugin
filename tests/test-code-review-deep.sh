@@ -92,6 +92,21 @@ else
   case "$hr_tools" in *"git blame"*) ok "history-reviewer tools grant git blame" ;; *) bad "history-reviewer tools must grant Bash(git blame *)" ;; esac
 fi
 
+# C4: read-only review agents must declare disallowedTools (least privilege).
+for agent in code-review-unit-reviewer code-review-scorer code-review-history-reviewer code-review-premise-reviewer quality-reviewer; do
+  af="$ROOT/agents/$agent.md"
+  if [ ! -f "$af" ]; then bad "agent file missing for disallowedTools check: $agent"; continue; fi
+  afm="$(frontmatter "$af")"
+  dline="$(printf '%s\n' "$afm" | grep '^disallowedTools:' || true)"
+  if [ -z "$dline" ]; then
+    bad "$agent missing disallowedTools (least privilege)"
+  else
+    for deny in Write Edit; do
+      case "$dline" in *"$deny"*) ok "$agent disallows $deny" ;; *) bad "$agent disallowedTools missing $deny" ;; esac
+    done
+  fi
+done
+
 # --- Skill --------------------------------------------------------------
 skill="$ROOT/skills/code-review-deep/SKILL.md"
 if [ ! -f "$skill" ]; then

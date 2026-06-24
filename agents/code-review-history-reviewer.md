@@ -14,6 +14,7 @@ description: |
 color: yellow
 effort: high
 tools: Read, Bash(git diff *), Bash(git log *), Bash(git blame *)
+disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch
 ---
 
 # History / Regression Reviewer

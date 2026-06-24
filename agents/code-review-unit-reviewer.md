@@ -15,6 +15,7 @@ description: |
 color: cyan
 effort: high
 tools: Read, Bash(git diff *)
+disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch
 ---
 
 # Per-Unit Deep Reviewer

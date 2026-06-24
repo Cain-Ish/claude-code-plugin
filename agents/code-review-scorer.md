@@ -12,6 +12,7 @@ description: |
   </example>
 color: green
 tools: Read, Bash(git diff *), Bash(git log *), Bash(git blame *)
+disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch
 ---
 
 # Code-Review Confidence Scorer
