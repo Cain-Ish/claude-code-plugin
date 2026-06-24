@@ -4,7 +4,7 @@ description: In-depth multi-pass code review of a GitHub change (local checkout)
 user-invocable: true
 disable-model-invocation: false
 argument-hint: "[<PR#>] [--comment] [--base <branch>]"
-allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__episodic_search
+allowed-tools: Read Write Bash(gh pr view *) Bash(gh pr comment *) Bash(gh pr list *) Bash(gh pr diff *) Bash(gh api *) Bash(gh repo view *) Bash(git diff *) Bash(git log *) Bash(git blame *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git branch *) Bash(git status *) Bash(git remote *) Agent mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__episodic_search
 ---
 
 # Deep Code Review
@@ -39,6 +39,7 @@ re-check likewise run on the Haiku model.
 5. **Second-brain reads.**
    - `knowledge_search` with 3–5 keywords drawn from the changed paths/stack → collect convention/decision pages. Pass their text as "project conventions" alongside CLAUDE.md.
    - `episodic_search` for prior reviews touching these files/this repo → distill a short "previously flagged / previously dismissed here" note.
+   - **Prior-PR review-comment mining (Haiku step, finding-generating).** Discover prior PRs touching the changed files: `git log origin/<base> -n 200 -- <changed files>`, parse PR numbers from merge/squash subjects (`Merge pull request #N`, `(#N)`), cap at the ~10 most-recent distinct PRs. For each, `gh api repos/<owner>/<repo>/pulls/<N>/comments` for inline review comments; keep only comments whose path is among the currently changed files (or same directory). Produce TWO outputs: (a) fold durable observations into the prior-review note above; (b) for each comment that STILL APPLIES (the change re-introduces/retains the concern), emit a `prior-review` candidate finding {file, lines, category: `prior-review`, severity, title, explanation citing PR #N + the comment, is_migrated_code}. These findings flow into Pass 3 dedup + scoring exactly like the per-unit findings. Best-effort: no remote / no `gh` / no PR history → skip silently and note "no prior-PR signal".
    - Read `~/.second-brain/review-false-positives.md` if it exists (else treat as empty). Hold its contents for Pass 3.
 6. **Change-intent classification** (Haiku step). From the PR title/body (or
    `git log origin/<base>..HEAD --oneline` when no PR), set `is_bugfix` = does this
@@ -140,7 +141,7 @@ misses); Pass 3.5 PROBES them. If every unit is docs-only, skip this pass.
    better-explained one. On a cross-pass collision between a `regression` finding
    (Pass 2c, which cites a prior commit short-SHA) and a non-regression finding on
    the same line, prefer the `regression` one — its commit citation is what makes it
-   actionable and would otherwise be lost.
+   actionable and would otherwise be lost. prior-review findings (Pass 0) participate in dedup and scoring like any other finding.
 2. **Score**: for each unique finding dispatch
    `Agent(subagent_type: "second-brain:code-review-scorer")`, passing the finding,
    its file paths, the project conventions, and the false-positive store contents
@@ -195,6 +196,8 @@ Best-effort: any probe error is reported, never fails the review.
          ...
 
          Generated with [Claude Code](https://claude.ai/code) using second-brain:code-review-deep
+
+     Categories include: logic-error, type-safety, cross-file, edge-case, test-gap, convention, security, infrastructure, regression, premise, prior-review.
 
      Or, if none: `Analyzed X review units (Y files, Z skipped as trivial). No issues found.`
    - **Lower-confidence findings (unverified).** If the low-confidence bucket

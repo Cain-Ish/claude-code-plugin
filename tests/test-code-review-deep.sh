@@ -174,12 +174,18 @@ else
 
   # allowed-tools must grant the orchestrator what the design needs.
   at="$(echo "$sfm" | grep '^allowed-tools:')"
-  for need in "Agent" "Bash(gh pr" "Bash(gh repo" "Bash(git diff" "Bash(git remote" "knowledge_search" "episodic_search"; do
+  for need in "Agent" "Bash(gh pr" "Bash(gh api" "Bash(gh repo" "Bash(git diff" "Bash(git remote" "knowledge_search" "episodic_search"; do
     case "$at" in
       *"$need"*) ok "allowed-tools grants $need" ;;
       *) bad "allowed-tools missing $need" ;;
     esac
   done
+
+# C1: Pass 0 mines prior-PR review comments and emits prior-review findings.
+grep -qi "prior-PR" "$ORCH" && ok "skill mines prior-PR review comments (Pass 0)" \
+  || bad "skill missing prior-PR comment mining in Pass 0"
+grep -qi "prior-review" "$ORCH" && ok "skill defines the prior-review finding category" \
+  || bad "skill missing the prior-review finding category"
 
   # Reference integrity: every DISPATCHED subagent must resolve to an agent file.
   # Scope to subagent_type sites only — a bare "second-brain:<skill>" elsewhere
