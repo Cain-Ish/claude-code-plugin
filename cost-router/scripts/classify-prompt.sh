@@ -79,6 +79,7 @@ REVIEW=""
 case "$P_PAD" in
   *"code review"*|*"code-review"*|*"deep code review"*|\
   *"review this pr"*|*"review the pr"*|*"review my pr"*|\
+  *"review pr "*|*"review pull request"*|\
   *"review this mr"*|*"review the mr"*|\
   *"review the diff"*|*"review my changes"*|*"review the changes"*|\
   *"thorough review"*)
@@ -105,8 +106,8 @@ bash "$ROUTE_LOG" emit "$SLUG" "$TIER" "" "0" "false" "classified" "false" 2>/de
 # (the multi-word phrase is itself the signal). Detect-&-degrade on skill presence.
 if [ -n "$REVIEW" ]; then
   SB_REVIEW_SKILL=""
-  for d in "$HOME/.claude/plugins/cache/second-brain/second-brain/"*/skills/code-review-deep \
-           "$HOME/.claude/plugins/marketplaces/second-brain/skills/code-review-deep"; do
+  for d in "${HOME:-}/.claude/plugins/cache/second-brain/second-brain/"*/skills/code-review-deep \
+           "${HOME:-}/.claude/plugins/marketplaces/second-brain/skills/code-review-deep"; do
     [ -d "$d" ] && { SB_REVIEW_SKILL="1"; break; }
   done
   if [ -n "$SB_REVIEW_SKILL" ]; then

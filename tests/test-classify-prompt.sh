@@ -201,6 +201,30 @@ assert_no_review      "review the logs is not a code review"  "review the logs f
 assert_no_review      "review meeting notes is not a code review"  "review the meeting notes for action items"
 assert_no_output      "kill switch off (review)" "please do a code review of this pr"
 
+# ── Fix 1: HOME-unset regression — must not crash, must not print "unbound" ──
+echo "  Testing HOME unset → no crash, degraded nudge..."
+_home_unset_out=$(printf '%s' '{"prompt":"please do a code review of this pr"}' \
+  | env -u HOME COST_ROUTER_AUTOROUTE=on COST_ROUTER_EVENTS="$EVENTS_FILE" \
+        CLAUDE_PLUGIN_ROOT="$REPO_ROOT/cost-router" \
+      bash "$SCRIPT" 2>&1)
+_home_unset_rc=$?
+_home_unset_stderr=$(printf '%s' '{"prompt":"please do a code review of this pr"}' \
+  | env -u HOME COST_ROUTER_AUTOROUTE=on COST_ROUTER_EVENTS="$EVENTS_FILE" \
+        CLAUDE_PLUGIN_ROOT="$REPO_ROOT/cost-router" \
+      bash "$SCRIPT" 2>&1 >/dev/null)
+if [ "$_home_unset_rc" -eq 0 ] && ! printf '%s' "$_home_unset_out" | grep -q 'unbound'; then
+  PASS=$((PASS+1)); echo "  PASS  HOME unset → no crash, degraded nudge"
+else
+  FAIL=$((FAIL+1)); echo "  FAIL  HOME unset → expected rc=0 and no 'unbound' in output (rc=$_home_unset_rc)"
+  printf '%s\n' "$_home_unset_out" | sed 's/^/        /'
+fi
+
+# ── Fix 2: "review pr <N>" pattern recall ──
+assert_review_skill   "review pr <N> fires"   "please review pr 123 for me"
+
+# ── Fix 2: spec §7 guard — "do a code review of PR 12" (incidentally passes via "code review") ──
+assert_review_skill   "spec §7 case fires"    "do a code review of PR 12"
+
 echo "-----------------------"
 echo "PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]
