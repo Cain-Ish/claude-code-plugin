@@ -156,6 +156,10 @@ misses); Pass 3.5 PROBES them. If every unit is docs-only, skip this pass.
    the >= 70 / 16-69 / <= 15 partition with no rule change. The panel scorers inherit the
    session/best model (a quality floor — a refuter must out-reason the finder); do NOT
    pin them to a cheaper model. Medium/low findings keep the single scorer.
+   Dispatch scorers and refuter-panel votes in the same **waves of at most 5
+   concurrent agents** as Pass 2 — Pass 3 scoring shares the ≤5 wave cap (the
+   refuter panel multiplies Pass-3 agents ×3 for each critical/high finding, so this
+   bounds peak agent count and RAM on a constrained host, exactly as in Pass 2).
 3. **Partition** the scored findings into three buckets (keep all until Pass 4):
    - **confirmed** (score **≥ 70**): the numbered review output, sorted by severity then score.
    - **low-confidence** (score **16–69**): NOT confirmed, but surfaced in Pass 4 as a
@@ -300,6 +304,13 @@ functional changes; real issues on lines this change did not modify.
   whose parent `claude` exited → reap them; (c) the session `claude` RSS climbing
   run-over-run is parent-context bloat, inherent to inline fan-out — the wave cap +
   lean sub-agent returns above are the mitigation (bounded, not a true leak).
+- **Cost ownership.** Model tiering here is the skill's OWN (self-routing).
+  cost-router does not override it — cost-router only routes a review request *to*
+  this skill (see `cost-router` setup), because it cannot tier a running skill's
+  internal dispatches. The per-pass model choices in this skill are
+  correctness/resource decisions, not price decisions: best-model-for-code and the
+  code-as-prompt `.md` exception are accuracy floors; the wave caps and unit-size
+  bounds are RAM/peak-agent ceilings.
 - **Model vs. agent names:** whenever a pass names a model (Haiku / Sonnet / Opus) it
   means the dispatch `model` parameter (e.g. `model: "haiku"`) — NEVER an agent name.
   Subagents are always named via `subagent_type: "second-brain:<agent>"`. Don't go

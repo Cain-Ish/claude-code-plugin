@@ -233,6 +233,14 @@ grep -qiE "refute mode|skeptic mode" "$ROOT/agents/code-review-scorer.md" \
 grep -qi "prior-review" "$ROOT/agents/code-review-scorer.md" \
   && ok "scorer verifies prior-review findings" \
   || bad "scorer missing prior-review verification note"
+# C5: Pass 3 scoring obeys the same <=5 wave cap (refuters multiply Pass-3 agents).
+grep -qi "scoring shares the .*wave cap" "$ORCH" \
+  && ok "Pass 3 scoring shares the <=5 wave cap" \
+  || bad "Pass 3 missing the shared <=5 wave-cap note"
+# C6: the skill documents the cost-router ownership boundary (self-tiering).
+grep -qi "cost-router does not override" "$ORCH" \
+  && ok "skill documents the cost-ownership boundary" \
+  || bad "skill missing the cost-ownership / self-tiering note"
 
   # v2.1: the 16–69 band is surfaced, not dropped — the orchestrator must render a
   # distinct lower-confidence section.
