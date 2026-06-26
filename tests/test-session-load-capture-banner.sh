@@ -39,4 +39,33 @@ SB_CAPTURE_HEALTH_BANNER=off emit "$B" "" | grep -qi 'capture not running' && fa
 B2=$(mktemp -d); : > "$B2/USER.md"; touch -t 202001010000 "$B2/USER.md"
 emit "$B2" "" | grep -qi 'capture not running' && fail "nagged a fresh install (no transcripts)" || pass "silent on fresh install"
 
+# --- Task 5: self-healing capture banner. OAuth + no timer + CLAUDE_PLUGIN_ROOT set →
+# session-load runs `install-extract-timer.sh --ensure` ONCE and reports the outcome, instead
+# of only nagging. We point CLAUDE_PLUGIN_ROOT at a sandbox with a STUB install script so the
+# self-heal is exercised without touching the real host scheduler.
+heal_emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' \
+  | env PATH="$STUB_BIN:$PATH" ANTHROPIC_API_KEY="" CLAUDE_PLUGIN_ROOT="$1" ${2:+SB_DISABLE_AUTO_TIMER=$2} BRAIN_DIR="$B" bash "$SL" 2>/dev/null; }
+
+# 5a. success stub (prints 'applied' + exit 0) → installs + reports healed, suppresses the nag
+PR_OK=$(mktemp -d); mkdir -p "$PR_OK/scripts"
+printf '#!/bin/bash\necho "applied: test scheduler installed."\nexit 0\n' > "$PR_OK/scripts/install-extract-timer.sh"
+chmod +x "$PR_OK/scripts/install-extract-timer.sh"
+heal_ok=$(heal_emit "$PR_OK")
+echo "$heal_ok" | grep -qi 'self-installed' || fail "self-heal: success path must report the scheduler was self-installed (got: $(echo "$heal_ok" | head -c 200))"
+echo "$heal_ok" | grep -qi 'capture not running' && fail "self-heal: must NOT show the install-the-drainer nag once healed" || pass "self-heal: installs + reports healed, suppresses the nag"
+
+# 5b. failure stub (error + exit 1) → fall back to the nag, never falsely claim healed
+PR_FAIL=$(mktemp -d); mkdir -p "$PR_FAIL/scripts"
+printf '#!/bin/bash\necho "error: boom" >&2\nexit 1\n' > "$PR_FAIL/scripts/install-extract-timer.sh"
+chmod +x "$PR_FAIL/scripts/install-extract-timer.sh"
+heal_fail=$(heal_emit "$PR_FAIL")
+echo "$heal_fail" | grep -qi 'capture not running' || fail "self-heal: a failed install must fall back to the nag"
+echo "$heal_fail" | grep -qi 'self-installed' && fail "self-heal: must NOT claim healed when the install failed" || pass "self-heal: failed install falls back to the nag (no false healed claim)"
+
+# 5c. opt-out: SB_DISABLE_AUTO_TIMER=1 → never attempt self-heal, show the nag
+heal_off=$(heal_emit "$PR_OK" 1)
+echo "$heal_off" | grep -qi 'capture not running' || fail "self-heal opt-out: SB_DISABLE_AUTO_TIMER=1 must skip the heal and show the nag"
+echo "$heal_off" | grep -qi 'self-installed' && fail "self-heal opt-out: must not install when opted out" || pass "self-heal: SB_DISABLE_AUTO_TIMER=1 opts out (nag, no install)"
+rm -rf "$PR_OK" "$PR_FAIL"
+
 rm -rf "$B" "$B2"; echo; echo "ALL PASS"

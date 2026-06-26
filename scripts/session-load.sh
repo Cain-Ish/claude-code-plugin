@@ -379,9 +379,27 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" = "on" ]; then
         sb_append "$(printf '## ⚠ second-brain — no extraction recorded\n%s transcript(s) archived but the in-session extractor has never run — the Stop/PreCompact hook may not be firing. Tail `~/.second-brain/error-log.jsonl`.\n\n' "$CAP_N")" "capture-health-banner" 400
       fi
     elif command -v claude >/dev/null 2>&1; then
-      # OAuth subscription: in-session queues (recursive-claude lock). Needs an
-      # out-of-band path — present all three, API key first (zero-setup, any OS).
-      if [ "$CAP_DONE" -eq 0 ] || [ "$CAP_TIMER" = "no" ]; then
+      # OAuth subscription: in-session queues (recursive-claude lock). Needs an out-of-band path.
+      # SELF-HEAL (P1 Task 5): if the drainer scheduler is absent and the user hasn't opted out,
+      # install the hardened (no-credentials) unit ONCE via the idempotent --ensure mode, then
+      # report the outcome instead of only nagging. Bounded + fail-open — a slow/failed install
+      # must never block or break session-load; on failure we log loud and fall through to the
+      # nag. Requires CLAUDE_PLUGIN_ROOT (always set under Claude Code at runtime); when unset
+      # (e.g. a bare unit-test harness) self-heal is skipped and the nag path is preserved.
+      CAP_SELFHEALED=
+      if [ "$CAP_TIMER" = "no" ] && [ "${SB_DISABLE_AUTO_TIMER:-0}" != "1" ] \
+         && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -x "$CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh" ]; then
+        if ENSURE_OUT=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh" --ensure 2>&1) \
+           && printf '%s' "$ENSURE_OUT" | grep -qiE 'applied|already installed'; then
+          CAP_TIMER=yes; CAP_SELFHEALED=1
+        else
+          sb_log_error "session-load.sh" "capture self-heal: install-extract-timer --ensure failed — $(printf '%s' "$ENSURE_OUT" | tr '\n' ' ' | head -c 160)" 0
+        fi
+      fi
+      if [ -n "$CAP_SELFHEALED" ]; then
+        sb_append "$(printf '## ⓘ second-brain — capture scheduler self-installed.\nThe out-of-band drainer was missing and has been installed (hardened, no credentials); the first drain runs on its next tick. %s transcript(s) queued. Opt out next time with `SB_DISABLE_AUTO_TIMER=1`.\n\n' "$CAP_N")" "capture-selfheal-banner" 380
+      # Present all three remedies, API key first (zero-setup, any OS).
+      elif [ "$CAP_DONE" -eq 0 ] || [ "$CAP_TIMER" = "no" ]; then
         # shellcheck disable=SC2016  # literal $CLAUDE_PLUGIN_ROOT for the user to run
         sb_append "$(printf '## ⚠ second-brain — capture not running (OAuth)\n%s transcript(s) archived, %s extracted; drainer timer: %s. Subscription auth can'\''t extract in-session (recursive-claude lock), so pick one:\n  • `export ANTHROPIC_API_KEY=sk-ant-...`  — instant in-session capture, any OS, no daemon\n  • `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth`  — out-of-band drainer via your Claude login\n  • `export SB_EXTRACTOR_LOCAL_URL=http://localhost:11434`  — a local model (offline)\nSuppress: `SB_CAPTURE_HEALTH_BANNER=off`.\n\n' "$CAP_N" "$CAP_DONE" "$CAP_TIMER")" "capture-health-banner" 700
       else
