@@ -208,6 +208,91 @@ grep -qF 'REAL DRAINED INSIGHT BODY' "$DRAINED_PAGE" 2>/dev/null \
   && ok "drained page contains the real insight body" || no "drained page missing the insight body"
 eq "drain recorded the transcript as ok" "$(done_count)" "1"
 
+# --- P1 last-resort deterministic floor: when the LLM backend fails MAX_FAILS times, the drainer
+# captures a real files-changed delta from the archived transcript (no LLM) instead of quarantining
+# empty. The floor fires ONLY at the quarantine boundary (LLM retry preserved until then). The poison
+# stub fails the LLM path; the floor (real, not stubbed) parses the archived [Edit]/[Write] lines. ---
+echo "Test: last-resort deterministic floor at the quarantine boundary"
+reset
+FLOOR_KDIR="$SANDBOX/floor-knowledge"; rm -rf "$FLOOR_KDIR"; mkdir -p "$FLOOR_KDIR/wiki"
+export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$FLOOR_KDIR"
+FLOOR_PROJ="$BRAIN_DIR/projects/poison/PROJECT.md"; mkdir -p "$(dirname "$FLOOR_PROJ")"
+mk_proj() { cat > "$1" <<'PMEOF'
+# PROJECT: poison
+
+## Recent decisions
+
+## Open blockers
+
+## Cross-references
+
+<!-- last_updated: 2026-05-01T00:00:00Z -->
+PMEOF
+}
+mk_proj "$FLOOR_PROJ"
+cat > "$BRAIN_DIR/transcripts/fl1_poison_2026-05-24.txt" <<'TXEOF'
+--- session-meta ---
+session_id: fl1
+project_slug: poison
+date: 2026-05-24
+tool_count: 3
+line_count: 9
+---
+
+USER: do the thing
+ASSISTANT:
+  [Edit] /work/src/a.ts
+  [Read] /work/src/ignore-me.ts
+  [Write] /work/src/b.ts
+TXEOF
+SB_DRAIN_MAX_FAILS=1 bash "$DRAIN" >/dev/null 2>&1 || true   # 1st failure == quarantine boundary → floor
+grep -q '"reason":"deterministic-floor"' "$STATE" 2>/dev/null && ok "floor: marks ok/deterministic-floor at MAX_FAILS" || no "floor: no deterministic-floor outcome recorded"
+eq "floor: a floored transcript is not an error" "$(grep -c '"outcome":"error"' "$STATE" 2>/dev/null)" "0"
+grep -q '\[auto-captured\]' "$FLOOR_PROJ" 2>/dev/null && ok "floor: wrote an [auto-captured] decision to PROJECT.md" || no "floor: PROJECT.md got no auto-captured decision"
+{ grep -q '/work/src/a.ts' "$FLOOR_PROJ" && grep -q '/work/src/b.ts' "$FLOOR_PROJ"; } 2>/dev/null && ok "floor: decision cites the Edit + Write files" || no "floor: decision missing the changed files"
+grep -q 'ignore-me.ts' "$FLOOR_PROJ" 2>/dev/null && no "floor: leaked a Read-only file into the decision" || ok "floor: excluded the Read-only file"
+
+echo "Test: floor does not pre-empt LLM retry (fires only at the boundary)"
+reset
+mk_proj "$FLOOR_PROJ"
+cat > "$BRAIN_DIR/transcripts/fl2_poison_2026-05-24.txt" <<'TXEOF2'
+--- session-meta ---
+session_id: fl2
+project_slug: poison
+date: 2026-05-24
+tool_count: 1
+line_count: 7
+---
+
+USER: x
+ASSISTANT:
+  [Write] /work/src/c.ts
+TXEOF2
+SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # 1st of 3 → retry, NOT floor
+grep -q '"outcome":"retry"' "$STATE" 2>/dev/null && ok "floor: first failure is a retry (LLM not yet exhausted)" || no "floor: expected a retry on first failure"
+grep -q '"reason":"deterministic-floor"' "$STATE" 2>/dev/null && no "floor: fired before MAX_FAILS (pre-empted LLM retry)" || ok "floor: did NOT fire before the quarantine boundary"
+grep -q '\[auto-captured\]' "$FLOOR_PROJ" 2>/dev/null && no "floor: wrote a decision before exhausting LLM retry" || ok "floor: no premature PROJECT.md write"
+
+echo "Test: floor on a no-edit transcript still quarantines (no false ok)"
+reset
+cat > "$BRAIN_DIR/transcripts/fl3_poison_2026-05-24.txt" <<'TXEOF3'
+--- session-meta ---
+session_id: fl3
+project_slug: poison
+date: 2026-05-24
+tool_count: 0
+line_count: 7
+---
+
+USER: just a chat
+ASSISTANT:
+  some discussion, no file changes here
+TXEOF3
+SB_DRAIN_MAX_FAILS=1 bash "$DRAIN" >/dev/null 2>&1 || true
+eq "floor: no-edit transcript quarantines as error" "$(grep -c '"outcome":"error"' "$STATE" 2>/dev/null)" "1"
+grep -q '"reason":"deterministic-floor"' "$STATE" 2>/dev/null && no "floor: falsely floored a no-edit transcript" || ok "floor: did not falsely floor a no-edit transcript"
+unset CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
+
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.
 echo "Test: GC sweeps — stale markers + scratch transcripts"

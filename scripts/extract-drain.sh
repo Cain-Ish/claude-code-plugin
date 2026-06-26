@@ -275,11 +275,19 @@ while IFS= read -r tf; do
     printf '{"basename":%s,"ts":"%s","outcome":"ok"}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" >> "$STATE"
     processed=$((processed+1))
   else
-    failed=$((failed+1))
     fails=$(sb_extraction_fails "$base" "$STATE"); fails=$((fails+1))
-    if [ "$fails" -ge "$MAX_FAILS" ]; then
+    if [ "$fails" -ge "$MAX_FAILS" ] && [ "${SB_DRAIN_FLOOR:-on}" = "on" ] && sb_floor_transcript "$tf" "$slug"; then
+      # Last-resort deterministic floor (P1): the LLM backend has failed MAX_FAILS times — rather
+      # than quarantine this code-changing session with NOTHING captured, write the files-changed
+      # baseline (no LLM) and mark it done. Counts as a real capture (processed), so the health
+      # banner stays honest. Falls through to 'error' only if even the floor found no file change.
+      printf '{"basename":%s,"ts":"%s","outcome":"ok","reason":"deterministic-floor"}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" >> "$STATE"
+      processed=$((processed+1))
+    elif [ "$fails" -ge "$MAX_FAILS" ]; then
+      failed=$((failed+1))
       printf '{"basename":%s,"ts":"%s","outcome":"error","fails":%s}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" "$fails" >> "$STATE"
     else
+      failed=$((failed+1))
       printf '{"basename":%s,"ts":"%s","outcome":"retry","fails":%s}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" "$fails" >> "$STATE"
     fi
   fi

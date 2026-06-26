@@ -69,6 +69,64 @@ sb_extract_deterministic() {
     '{recent_decisions:$d, open_blockers:[], cross_refs:[], files_touched:$f, relations:[]}'
 }
 
+# Text-format twin of sb_extract_deterministic for the OUT-OF-BAND drainer (P1). The ARCHIVED
+# transcript body is PREPROCESSED TEXT (sb_preprocess_transcript renders tool calls as
+# "  [Edit] <path>" / "  [Write] <path>" lines), NOT raw JSONL — so this harvests the
+# Edit/Write/MultiEdit file paths from those lines (Read excluded: not a mutation), drops scratch
+# paths, dedups, caps at 5, and emits ONE grounded decision citing them. Same delta shape the merge
+# accepts. Emits an empty-but-valid delta when the transcript changed no files. Exits 0.
+#   sb_extract_archived_deterministic <archived_transcript>
+sb_extract_archived_deterministic() {
+  local txt="$1"
+  local files_json='[]'
+  if [ -f "$txt" ]; then
+    files_json=$(tr -d '\r' < "$txt" \
+      | grep -E '^[[:space:]]*\[(Edit|Write|MultiEdit)\] ' \
+      | sed -E 's/^[[:space:]]*\[(Edit|Write|MultiEdit)\] //' \
+      | grep -vE '^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/' \
+      | awk 'NF && !seen[$0]++' \
+      | head -5 \
+      | jq -Rsc 'split("\n") | map(select(. != ""))' 2>/dev/null || echo '[]')
+  fi
+  files_json=$(sb_safe_json_array "$files_json")
+  local decisions='[]'
+  if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
+    local list; list=$(printf '%s' "$files_json" | jq -r 'join(", ")' 2>/dev/null)
+    decisions=$(jq -cn --arg t "[auto-captured] Session changed: ${list} (LLM extraction unavailable; full context in the archived transcript)" '[$t]')
+  fi
+  jq -cn --argjson d "$decisions" --argjson f "$files_json" \
+    '{recent_decisions:$d, open_blockers:[], cross_refs:[], files_touched:$f, relations:[]}'
+}
+
+# Last-resort deterministic floor for the out-of-band drainer (P1). When the LLM backend has failed
+# MAX_FAILS times, capture the files-changed baseline from the archived transcript (no LLM) and merge
+# it into PROJECT.md — so the autonomous path NEVER quarantines a code-changing session with zero
+# capture. Returns 0 ONLY when a non-empty delta actually merged; 1 when the transcript had no
+# extractable file change (caller then quarantines as 'error', preserving honest "couldn't capture"
+# state rather than masking it as success).
+#   sb_floor_transcript <archived_transcript> <slug>
+sb_floor_transcript() {
+  local txt="$1" slug="$2"
+  [ -f "$txt" ] || return 1
+  slug=$(sb_sanitize_slug "$slug") || slug="unknown"
+  local delta; delta=$(sb_extract_archived_deterministic "$txt")
+  [ -n "$delta" ] || return 1
+  local nfiles; nfiles=$(printf '%s' "$delta" | jq '.files_touched | length' 2>/dev/null || echo 0)
+  [ "${nfiles:-0}" -gt 0 ] || return 1   # nothing changed deterministically → let the caller quarantine
+  local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
+  local project_md="$BRAIN_DIR/projects/$slug/PROJECT.md"
+  local kdir="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; kdir="${kdir/#\~/$HOME}"
+  if [ ! -f "$project_md" ]; then
+    mkdir -p "$(dirname "$project_md")"
+    printf '# PROJECT: %s\n\n## Recent decisions\n\n## Open blockers\n\n## Cross-references\n\n<!-- last_updated: %s -->\n' \
+      "$slug" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$project_md"
+  fi
+  local gated; gated=$(printf '%s' "$delta" | bash "$sdir/extraction-quality-gate.sh" 2>/dev/null)
+  if [ -n "$gated" ] && printf '%s' "$gated" | jq empty 2>/dev/null; then delta="$gated"; fi
+  printf '%s' "$delta" \
+    | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" >/dev/null 2>&1
+}
+
 # Log an error to error-log.jsonl for session-load.sh to surface.
 # Precondition: caller must ensure $BRAIN_DIR exists (e.g. mkdir -p before
 # calling). The 2>/dev/null on the redirect would otherwise swallow the
