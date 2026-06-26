@@ -83,6 +83,7 @@ sb_extract_archived_deterministic() {
     files_json=$(tr -d '\r' < "$txt" \
       | grep -E '^[[:space:]]*\[(Edit|Write|MultiEdit)\] ' \
       | sed -E 's/^[[:space:]]*\[(Edit|Write|MultiEdit)\] //' \
+      | sed 's#\\#/#g' \
       | grep -vE '^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/' \
       | awk 'NF && !seen[$0]++' \
       | head -5 \

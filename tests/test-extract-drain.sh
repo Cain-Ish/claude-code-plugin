@@ -252,6 +252,22 @@ grep -q '\[auto-captured\]' "$FLOOR_PROJ" 2>/dev/null && ok "floor: wrote an [au
 { grep -q '/work/src/a.ts' "$FLOOR_PROJ" && grep -q '/work/src/b.ts' "$FLOOR_PROJ"; } 2>/dev/null && ok "floor: decision cites the Edit + Write files" || no "floor: decision missing the changed files"
 grep -q 'ignore-me.ts' "$FLOOR_PROJ" 2>/dev/null && no "floor: leaked a Read-only file into the decision" || ok "floor: excluded the Read-only file"
 
+# WINDOWS-PATH boundary (the real cross-platform case the POSIX fixtures above miss): on Windows the
+# archived tool lines carry backslash paths ("C:\Work\...\tests\test.ts"). Two ways this corrupts:
+#   (1) awk -v new=... in merge-project-update.sh escape-processes the value → \t becomes a TAB, \W
+#       drops the backslash → garbage path. (2) un-normalized backslashes are unclickable.
+# Assert the floored decision carries the path CLEAN: forward-slashed, intact, no TAB.
+echo "Test: floor handles Windows backslash paths without mangling"
+reset
+mk_proj "$FLOOR_PROJ"
+printf '%s\r\n' '--- session-meta ---' 'project_slug: poison' 'date: 2026-05-24' '---' '' 'USER: w' 'ASSISTANT:' '  [Edit] C:\Work\proj\tests\test-thing.ts' '  [Write] C:\Work\proj\src\app.ts' > "$BRAIN_DIR/transcripts/flw_poison_2026-05-24.txt"
+SB_DRAIN_MAX_FAILS=1 bash "$DRAIN" >/dev/null 2>&1 || true
+WDEC=$(awk '/^## Recent decisions/{f=1;next}/^## /{f=0}f' "$FLOOR_PROJ")
+printf '%s' "$WDEC" | grep -qF 'C:/Work/proj/tests/test-thing.ts' && ok "win-path: Edit path normalized to forward slashes, intact" || no "win-path: Edit path mangled/missing (got: $(printf '%s' "$WDEC" | head -c 200))"
+printf '%s' "$WDEC" | grep -qF 'C:/Work/proj/src/app.ts' && ok "win-path: Write path normalized, intact" || no "win-path: Write path mangled/missing"
+printf '%s' "$WDEC" | grep -q $'\t' && no "win-path: \\t in a path expanded to a literal TAB (awk -v escape bug)" || ok "win-path: no TAB corruption from backslashes"
+printf '%s' "$WDEC" | grep -qF '\' && no "win-path: a raw backslash survived (un-normalized)" || ok "win-path: no raw backslashes remain"
+
 echo "Test: floor does not pre-empt LLM retry (fires only at the boundary)"
 reset
 mk_proj "$FLOOR_PROJ"

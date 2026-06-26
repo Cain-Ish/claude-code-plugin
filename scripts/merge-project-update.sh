@@ -147,8 +147,8 @@ insert_bullet() {
       ' "$TMP_OUT")
       [ -n "$oldest" ] && archive_dropped_decision "$oldest"
     fi
-    awk -v s="$section" -v new="- $bullet_text" '
-      BEGIN { flag=0; dropped=0; appended=0 }
+    BULLET="- $bullet_text" awk -v s="$section" '
+      BEGIN { flag=0; dropped=0; appended=0; new=ENVIRON["BULLET"] }
       $0 == s { print; flag=1; next }
       flag && /^## / {
         if (!appended) { print new; appended=1 }
@@ -164,8 +164,8 @@ insert_bullet() {
       }
     ' "$TMP_OUT" > "$new_tmp"
   else
-    awk -v s="$section" -v new="- $bullet_text" '
-      BEGIN { flag=0; appended=0 }
+    BULLET="- $bullet_text" awk -v s="$section" '
+      BEGIN { flag=0; appended=0; new=ENVIRON["BULLET"] }
       $0 == s { print; flag=1; next }
       flag && /^## / {
         if (!appended) { print new; appended=1 }
