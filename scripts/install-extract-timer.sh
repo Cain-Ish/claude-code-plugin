@@ -17,6 +17,11 @@ set -u
 SDIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SDIR/.." && pwd)"
 DRAINER="$SDIR/extract-drain.sh"
+# Source shared helpers for sb_timer_installed/sb_timer_health (--ensure). Fail-soft: the
+# print/apply/uninstall paths never touch lib.sh, and --ensure degrades to a plain --apply if
+# the helper is somehow unavailable — so a missing lib is non-fatal here.
+# shellcheck source=/dev/null
+[ -f "$SDIR/lib.sh" ] && . "$SDIR/lib.sh" 2>/dev/null || true
 # Stable SHIM + captured ENV-FILE. The scheduler runs a fixed path ($SHIM) that survives plugin
 # upgrades: it sources the engine env we capture here, resolves the LATEST installed plugin
 # version's extract-drain.sh under the plugin cache, and execs it (vs a version-pinned path that
@@ -39,6 +44,7 @@ for a in "$@"; do
   case "$a" in
     --oauth)     VARIANT_SVC="sb-extract-drain-oauth.service" ;;
     --apply)     ACTION=apply ;;
+    --ensure)    ACTION=ensure ;;
     --uninstall) ACTION=uninstall ;;
   esac
 done
@@ -138,6 +144,18 @@ if [ -z "$OS" ]; then
     MINGW*|MSYS*|CYGWIN*) OS=windows ;;
     *)                   OS=unsupported ;;
   esac
+fi
+
+# --ensure: the idempotent install-if-needed entrypoint for autonomous setup + session-load
+# self-heal. If the scheduler is already registered, no-op; otherwise fall through to the
+# normal per-OS --apply body. The command -v guard keeps it safe if lib.sh failed to source
+# (degrade to a plain re-apply, which is itself harmless/idempotent).
+if [ "$ACTION" = ensure ]; then
+  if command -v sb_timer_installed >/dev/null 2>&1 && sb_timer_installed "$OS"; then
+    echo "already installed: out-of-band drainer scheduler present ($OS)."
+    exit 0
+  fi
+  ACTION=apply
 fi
 
 # Scheduled jobs (launchd / Task Scheduler) get a MINIMAL env — snapshot the engine

@@ -1689,3 +1689,40 @@ sb_auto_memory_state() {
     "$state" "$reason" "$path" "${files:-0}" "${memory_lines:-0}"
   return 0
 }
+
+# --- Out-of-band drainer scheduler state (P1 Task 3) ---------------------
+# Is the per-OS extract-drain scheduler registered? Returns 0 (installed) / 1 (absent).
+# OS arg optional ($1); else SB_INSTALL_OS_OVERRIDE; else uname-derived (systemd|launchd|windows).
+# Signal = the install artifact the matching install-extract-timer.sh --apply branch writes and
+# --uninstall removes: the systemd user TIMER unit (Linux) / the LaunchAgent plist (macOS) / a
+# live schtasks query (Windows leaves no file artifact, so we ask the scheduler). Using the unit
+# FILE rather than `systemctl --user is-enabled` keeps this portable and unit-testable, and stays
+# in lockstep with what uninstall deletes. A unit present-but-administratively-disabled is a rare
+# partial state that the self-healing --ensure re-applies harmlessly.
+sb_timer_installed() {
+  local os="${1:-${SB_INSTALL_OS_OVERRIDE:-}}"
+  if [ -z "$os" ]; then
+    case "$(uname -s 2>/dev/null)" in
+      Linux)                os=systemd ;;
+      Darwin)               os=launchd ;;
+      MINGW*|MSYS*|CYGWIN*)  os=windows ;;
+      *)                    os=unsupported ;;
+    esac
+  fi
+  case "$os" in
+    systemd)
+      [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/sb-extract-drain.timer" ] ;;
+    launchd)
+      [ -f "$HOME/Library/LaunchAgents/sb-extract-drain.plist" ] ;;
+    windows)
+      MSYS_NO_PATHCONV=1 schtasks /Query /TN sb-extract-drain >/dev/null 2>&1 ;;
+    *)
+      return 1 ;;
+  esac
+}
+
+# One-line human status of the drainer scheduler: "installed" | "absent" (passes $@ through to
+# sb_timer_installed, so an explicit OS arg is honoured). For the session-load capture banner.
+sb_timer_health() {
+  if sb_timer_installed "$@"; then echo installed; else echo absent; fi
+}
