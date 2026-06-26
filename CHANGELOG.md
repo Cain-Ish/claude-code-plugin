@@ -4,6 +4,23 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.19
+
+P1 hardening — two issues the live 0.33.18 upgrade exposed on Windows.
+
+- **Self-heal couldn't repair a shim-less scheduler.** `sb_timer_installed` only checked the OS
+  registration, so a stale Scheduled Task / unit left by an old version whose shim was GC'd read as
+  "installed" — the scheduler then execs a non-existent `~/.second-brain/bin/sb-extract-drain.sh` and
+  fails silently every fire, and `--ensure` / the session-load self-heal never repaired it. Now the
+  shim is a required health signal (universal across systemd/launchd/windows): a
+  registration-without-shim reads "absent" → `--ensure` / self-heal re-applies and regenerates it.
+- **In-session floor didn't normalize Windows paths.** The in-session deterministic floor wrote
+  `C:\…` backslash paths to PROJECT.md while the drainer twin normalized to forward slashes. Both now
+  forward-slash-normalize, so captured decisions are clean, clickable, and consistent.
+
+`/upgrade` to 0.33.19 runs `install-extract-timer.sh --ensure` once — now shim-aware, so it repairs a
+stale shim-less task automatically. Skippable with `SB_DISABLE_AUTO_TIMER=1`. See `migrations/0.33.19.md`.
+
 ## 0.33.18
 
 P1 autonomous capture loop — make session capture run with **zero manual steps** on OAuth/subscription
