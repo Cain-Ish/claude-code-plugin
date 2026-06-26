@@ -4,6 +4,32 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.18
+
+P1 autonomous capture loop — make session capture run with **zero manual steps** on OAuth/subscription
+auth, without depending on the in-session recursive-`claude` lock.
+
+- **Deterministic capture floor (in-session).** When no extractor backend is reachable, the Stop hook
+  now writes a real files-changed delta to PROJECT.md (`sb_extract_deterministic` from the raw JSONL)
+  instead of only a `[degraded]` breadcrumb — capture is never a full no-op.
+- **Out-of-band drainer installed by default + self-healing.** `install-extract-timer.sh` gains an
+  idempotent `--ensure` mode; setup installs the **hardened, no-credentials** drainer scheduler
+  automatically, and the OAuth session-load banner self-installs it if it ever goes missing (instead of
+  only nagging). The `--oauth` credential grant stays a separate, explicit consent. Opt out everywhere
+  with `SB_DISABLE_AUTO_TIMER=1`.
+- **Last-resort floor for the drainer too.** The out-of-band drainer — the path the timer runs — now
+  falls back to a deterministic files-changed delta at the quarantine boundary (after the LLM has failed
+  `SB_DRAIN_MAX_FAILS` times), so an OAuth box with no working backend still captures real signal. LLM
+  enrichment is preserved until then. Opt out with `SB_DRAIN_FLOOR=off`.
+- **Cross-platform fix.** Decisions citing Windows paths (`C:\…`) were corrupted when written to
+  PROJECT.md — `awk -v` escape-processes its value, so `\t` became a TAB and `\W` dropped the backslash.
+  Fixed by passing the bullet through `ENVIRON` (not escape-processed); the floor also normalizes
+  backslashes to forward slashes. This fixed the bug class for the LLM extraction path as well.
+
+`/upgrade` to 0.33.18 runs `install-extract-timer.sh --ensure` once (idempotent, hardened, no
+credentials) so existing installs get the autonomous drainer — a one-line host-state change (a user
+scheduler entry), skippable with `SB_DISABLE_AUTO_TIMER=1`. See `migrations/0.33.18.md`.
+
 ## 0.33.17
 
 Fix: a stray `.second-brain/` (and sometimes `knowledge/`) folder appeared in the root of unrelated repos
