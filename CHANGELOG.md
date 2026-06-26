@@ -4,6 +4,20 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.17
+
+Fix: a stray `.second-brain/` (and sometimes `knowledge/`) folder appeared in the root of unrelated repos
+on Windows. ~16 MCP tool/CLI call sites resolved the brain/knowledge dir as `join(process.env.HOME ?? '',
+'.second-brain')`. On native-Windows Node, `HOME` is unset (Windows uses `USERPROFILE`), so the fallback
+collapsed to a CWD-relative path and wrote runtime state into whatever directory the MCP server ran from.
+Bash hooks run under MSYS where `$HOME` is set, which is why only the Node side rotted. Extracted a single
+canonical resolver (`mcp/src/brain-paths.ts`: `os.homedir()` + CR/LF stripping) and migrated all call sites
+plus `dream.ts` onto it. Added contract tests (fallback is absolute, homedir-anchored, ignores `HOME`) and a
+source-scan guard that fails the build if any file reintroduces `process.env.HOME` for path resolution.
+
+`/upgrade` to 0.33.17 is a marker bump (no data migration — runtime state regenerates; the canonical store at
+`~/.second-brain` was always correct).
+
 ## 0.33.16
 
 code-review-deep Bundle B + cost-router deep-review routing (no migration action).
