@@ -1,4 +1,5 @@
 import { knowledgeSearch } from './knowledge-search.js';
+import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 const query = process.argv[2] || '';
 if (!query) { process.exit(0); }
@@ -13,7 +14,7 @@ const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 // The calling hook (persona-context.sh / session-load.sh) sets SB_ACTIVE_SLUG.
 // SB_BRAIN_DIR first, matching the engine's accessCountsFile() and server.ts —
 // a split here would send scoping and access-counts to different trees (R2 review).
-const brainDir = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || (process.env.HOME ? `${process.env.HOME}/.second-brain` : undefined);
+const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG || undefined;
 const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
 

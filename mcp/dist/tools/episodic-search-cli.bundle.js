@@ -1,10 +1,27 @@
 // src/tools/episodic-search.ts
 import { promises as fs2 } from "fs";
-import { join as join2, basename, relative, isAbsolute } from "path";
+import { join as join3, basename, relative, isAbsolute } from "path";
 
 // src/tools/embeddings.ts
 import { promises as fs } from "fs";
+import { join as join2 } from "path";
+
+// src/brain-paths.ts
 import { join } from "path";
+import { homedir } from "os";
+
+// src/path-guard.ts
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+
+// src/brain-paths.ts
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+}
+
+// src/tools/embeddings.ts
 var EMBEDDING_DIM = 384;
 var CACHE_FILE = ".embeddings-cache.json";
 var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
@@ -12,7 +29,7 @@ var DISABLE_ENV = "SECOND_BRAIN_DISABLE_EMBEDDINGS";
 var pipelineInstance = null;
 var lastLoadError = null;
 function brainDirFromEnv() {
-  return process.env.BRAIN_DIR || join(process.env.HOME ?? "", ".second-brain");
+  return resolveBrainDir();
 }
 async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
@@ -28,7 +45,7 @@ async function logLoadError(message, brainDir2) {
   };
   try {
     await fs.mkdir(brainDir2, { recursive: true });
-    await fs.appendFile(join(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+    await fs.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
   } catch {
   }
   try {
@@ -68,7 +85,7 @@ function simpleHash(s) {
 }
 async function loadCache(wikiRoot) {
   try {
-    const data = await fs.readFile(join(wikiRoot, CACHE_FILE), "utf-8");
+    const data = await fs.readFile(join2(wikiRoot, CACHE_FILE), "utf-8");
     const parsed = JSON.parse(data);
     if (parsed.model === MODEL_ID) return parsed;
   } catch {
@@ -77,7 +94,7 @@ async function loadCache(wikiRoot) {
 }
 async function saveCache(wikiRoot, cache) {
   try {
-    await fs.writeFile(join(wikiRoot, CACHE_FILE), JSON.stringify(cache));
+    await fs.writeFile(join2(wikiRoot, CACHE_FILE), JSON.stringify(cache));
   } catch {
   }
 }
@@ -116,7 +133,7 @@ var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
 async function loadIndex(brainDir2) {
-  const indexPath = join2(brainDir2, INDEX_FILE);
+  const indexPath = join3(brainDir2, INDEX_FILE);
   try {
     const data = await fs2.readFile(indexPath, "utf-8");
     return JSON.parse(data);
@@ -181,7 +198,7 @@ async function vectorSearch(query2, index, limit, filters, brainDir2) {
   if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
   const queryEmbedding = await embedTexts(
     [query2],
-    join2(brainDir2, "transcripts"),
+    join3(brainDir2, "transcripts"),
     [""]
   );
   if (!queryEmbedding) return { hits: [], unavailable: true };
@@ -224,7 +241,7 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   }
   const conceptEmbeddings = await embedTexts(
     concepts,
-    join2(brainDir2, "transcripts"),
+    join3(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
   if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
@@ -277,12 +294,11 @@ function scopeAndBroaden(ranked, args) {
 }
 
 // src/tools/episodic-search-cli.ts
-import { join as join3 } from "path";
 var query = process.argv[2] || "";
 if (!query) {
   process.exit(0);
 }
-var brainDir = process.env.BRAIN_DIR || join3(process.env.HOME ?? "", ".second-brain");
+var brainDir = resolveBrainDir();
 var activeProject = process.env.SB_ACTIVE_SLUG?.trim() || void 0;
 var result = await episodicSearch({ query, limit: 2, mode: "both", activeProject }, brainDir);
 var top = result.results.filter((r) => r.similarity >= 0.15);

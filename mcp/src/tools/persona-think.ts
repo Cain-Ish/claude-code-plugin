@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import { join, dirname } from 'path';
+import { resolveBrainDir } from '../brain-paths.js';
 
 export interface PersonaThinkArgs {
   prompt: string;
@@ -43,7 +44,7 @@ export interface OpusLedger {
 /** Return the path for the shared Opus ledger, given an optional brainDir. */
 export function opusLedgerPath(brainDir?: string): string {
   if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
-  const bd = brainDir ?? (process.env.SB_BRAIN_DIR ?? `${process.env.HOME ?? '~'}/.second-brain`);
+  const bd = resolveBrainDir(brainDir);
   return join(bd, 'opus-budget.json');
 }
 

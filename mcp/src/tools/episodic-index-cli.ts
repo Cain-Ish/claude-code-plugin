@@ -1,7 +1,7 @@
 import { buildEpisodicIndex } from './episodic-search.js';
-import { join } from 'path';
+import { resolveBrainDir } from '../brain-paths.js';
 
-const brainDir = process.env.BRAIN_DIR || join(process.env.HOME ?? '', '.second-brain');
+const brainDir = resolveBrainDir();
 const result = await buildEpisodicIndex(brainDir);
 
 if (result.indexed > 0) {

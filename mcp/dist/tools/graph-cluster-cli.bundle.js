@@ -1,6 +1,6 @@
 // src/tools/graph-cluster-cli.ts
 import { promises as fs } from "fs";
-import { join, basename } from "path";
+import { join as join2, basename } from "path";
 
 // src/tools/graph-cluster.ts
 function buildAdjacency(pages) {
@@ -97,12 +97,29 @@ function memberHash(sortedMembers, contentHashBySlug) {
   return djb2(basis);
 }
 
+// src/brain-paths.ts
+import { join } from "path";
+import { homedir } from "os";
+
+// src/path-guard.ts
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+
+// src/brain-paths.ts
+function resolveKnowledgeDir(override) {
+  if (override) return override;
+  return cleanEnvPath(
+    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || process.env.KNOWLEDGE_DIR
+  ) || join(homedir(), "knowledge");
+}
+
 // src/tools/graph-cluster-cli.ts
 function resolveWikiDir(argv) {
-  if (argv[0] === "--knowledge-dir" && argv[1]) return join(argv[1], "wiki");
+  if (argv[0] === "--knowledge-dir" && argv[1]) return join2(argv[1], "wiki");
   if (argv[0]) return argv[0];
-  const kd = process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || process.env.KNOWLEDGE_DIR || join(process.env.HOME ?? "", "knowledge");
-  return join(kd, "wiki");
+  const kd = resolveKnowledgeDir();
+  return join2(kd, "wiki");
 }
 async function collect(dir, acc = []) {
   let entries;
@@ -112,7 +129,7 @@ async function collect(dir, acc = []) {
     return acc;
   }
   for (const e of entries) {
-    const p = join(dir, e.name);
+    const p = join2(dir, e.name);
     if (e.isDirectory()) {
       if (!e.name.startsWith(".") && e.name !== "projects" && e.name !== "themes") await collect(p, acc);
     } else if (e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);

@@ -5,6 +5,7 @@ import { parseDoc } from './knowledge-search.js';
 import { aiBlockSnippet } from './ai-block.js';
 import { capText, egressBudgetTokens, estimateTokens } from './egress-budget.js';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
+import { resolveKnowledgeDir } from '../brain-paths.js';
 
 export type Tier = 'gist' | 'skeleton' | 'summary' | 'full' | 'block';
 
@@ -44,7 +45,7 @@ function summarySection(body: string): string | null {
 
 export async function knowledgeFetch(args: KnowledgeFetchArgs): Promise<KnowledgeFetchResult> {
   const tier: Tier = args.tier ?? 'gist';
-  const knowledgeDir = args.knowledgeDir ?? join(process.env.HOME ?? '', 'knowledge');
+  const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join(knowledgeDir, 'wiki');
 
   try {

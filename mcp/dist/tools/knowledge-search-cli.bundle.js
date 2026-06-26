@@ -17,11 +17,32 @@ async function atomicWriteJson(filePath, value) {
 }
 
 // src/tools/knowledge-search.ts
-import { join as join4 } from "path";
+import { join as join5 } from "path";
+
+// src/brain-paths.ts
+import { join } from "path";
+import { homedir } from "os";
+
+// src/path-guard.ts
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+
+// src/brain-paths.ts
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+}
+function resolveKnowledgeDir(override) {
+  if (override) return override;
+  return cleanEnvPath(
+    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || process.env.KNOWLEDGE_DIR
+  ) || join(homedir(), "knowledge");
+}
 
 // src/tools/embeddings.ts
 import { promises as fs2 } from "fs";
-import { join } from "path";
+import { join as join2 } from "path";
 var EMBEDDING_DIM = 384;
 var CACHE_FILE = ".embeddings-cache.json";
 var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
@@ -29,7 +50,7 @@ var DISABLE_ENV = "SECOND_BRAIN_DISABLE_EMBEDDINGS";
 var pipelineInstance = null;
 var lastLoadError = null;
 function brainDirFromEnv() {
-  return process.env.BRAIN_DIR || join(process.env.HOME ?? "", ".second-brain");
+  return resolveBrainDir();
 }
 async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
@@ -45,7 +66,7 @@ async function logLoadError(message, brainDir2) {
   };
   try {
     await fs2.mkdir(brainDir2, { recursive: true });
-    await fs2.appendFile(join(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+    await fs2.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
   } catch {
   }
   try {
@@ -85,7 +106,7 @@ function simpleHash(s) {
 }
 async function loadCache(wikiRoot) {
   try {
-    const data = await fs2.readFile(join(wikiRoot, CACHE_FILE), "utf-8");
+    const data = await fs2.readFile(join2(wikiRoot, CACHE_FILE), "utf-8");
     const parsed = JSON.parse(data);
     if (parsed.model === MODEL_ID) return parsed;
   } catch {
@@ -94,7 +115,7 @@ async function loadCache(wikiRoot) {
 }
 async function saveCache(wikiRoot, cache) {
   try {
-    await fs2.writeFile(join(wikiRoot, CACHE_FILE), JSON.stringify(cache));
+    await fs2.writeFile(join2(wikiRoot, CACHE_FILE), JSON.stringify(cache));
   } catch {
   }
 }
@@ -137,7 +158,7 @@ function estimateTokens(text) {
 
 // src/tools/doc-sources.ts
 import { promises as fs3 } from "fs";
-import { join as join2, relative, resolve, sep as sep2, isAbsolute } from "path";
+import { join as join3, relative, resolve, sep as sep2, isAbsolute } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6207,7 +6228,7 @@ function assertSafeSlug(slug) {
   }
 }
 function registryPath(brainDir2, slug) {
-  return join2(brainDir2, "projects", slug, "doc-sources.json");
+  return join3(brainDir2, "projects", slug, "doc-sources.json");
 }
 async function loadRegistry(brainDir2, slug) {
   try {
@@ -6340,11 +6361,11 @@ function aiBlockSnippet(type, block) {
 
 // src/tools/project-registry.ts
 import { readFileSync } from "fs";
-import { join as join3 } from "path";
+import { join as join4 } from "path";
 function loadRegistry2(brainDir2) {
   let text;
   try {
-    text = readFileSync(join3(brainDir2, "projects.jsonl"), "utf-8");
+    text = readFileSync(join4(brainDir2, "projects.jsonl"), "utf-8");
   } catch {
     return [];
   }
@@ -6396,8 +6417,7 @@ function graphNeighbourhood(seeds, edges, hops) {
   return reached;
 }
 function accessCountsFile() {
-  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join4(process.env.HOME ?? "", ".second-brain");
-  return join4(brain, "access-counts.json");
+  return join5(resolveBrainDir(), "access-counts.json");
 }
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -6428,15 +6448,15 @@ var STUB_PENALTY = 0.5;
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
-  const knowledgeDir2 = args.knowledgeDir ?? join4(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join4(knowledgeDir2, "wiki");
+  const knowledgeDir2 = resolveKnowledgeDir(args.knowledgeDir);
+  const wikiRoot = join5(knowledgeDir2, "wiki");
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
-    scopeDirs = [join4(wikiRoot, args.scope)];
+    scopeDirs = [join5(wikiRoot, args.scope)];
   } else {
     try {
       const entries = await fs5.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join4(wikiRoot, d.name));
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join5(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -6505,7 +6525,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const boostAccum = /* @__PURE__ */ new Map();
   let graphEdges = [];
   try {
-    const recs = await loadEdges(join4(knowledgeDir2, "graph", "edges.jsonl"));
+    const recs = await loadEdges(join5(knowledgeDir2, "graph", "edges.jsonl"));
     if (recs.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
@@ -6805,7 +6825,7 @@ function slugFromPath(p) {
 }
 async function collectMarkdown(dir, acc = []) {
   for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
-    const p = join4(dir, e.name);
+    const p = join5(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p.replace(/\\/g, "/"));
   }
@@ -6819,7 +6839,7 @@ if (!query) {
 }
 var knowledgeDir = process.env.KNOWLEDGE_DIR || void 0;
 var minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || "0");
-var brainDir = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || (process.env.HOME ? `${process.env.HOME}/.second-brain` : void 0);
+var brainDir = resolveBrainDir();
 var projectSlug = process.env.SB_ACTIVE_SLUG || void 0;
 var result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
 var top = result.candidates.filter((c) => c.score >= minScore).slice(0, 2);

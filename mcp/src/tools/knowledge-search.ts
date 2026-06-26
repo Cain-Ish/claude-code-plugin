@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import { atomicWriteJson } from './atomic-write.js';
 import { join } from 'path';
+import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
@@ -77,8 +78,7 @@ interface AccessCounts { [slug: string]: { count: number; last_accessed: string 
 // back into the user's real state, making the "deterministic" recall gate
 // flip-flop run-to-run.
 function accessCountsFile(): string {
-  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join(process.env.HOME ?? '', '.second-brain');
-  return join(brain, 'access-counts.json');
+  return join(resolveBrainDir(), 'access-counts.json');
 }
 const ACCESS_BOOST_FACTOR = 0.1;
 const ACCESS_BOOST_CAP = 10;
@@ -110,7 +110,7 @@ const MIN_SUBSTANTIVE_LENGTH = 100;
 const AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {
-  const knowledgeDir = args.knowledgeDir ?? join(process.env.HOME ?? '', 'knowledge');
+  const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join(knowledgeDir, 'wiki');
 
   let scopeDirs: string[];

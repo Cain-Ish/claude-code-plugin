@@ -1,6 +1,3 @@
-// src/cli/sb-entry.ts
-import { join as join9 } from "path";
-
 // src/cli/sb.ts
 import { promises as fs9, constants as fsConstants } from "fs";
 import { join as join8, delimiter as pathDelimiter } from "path";
@@ -100,11 +97,25 @@ async function atomicWriteJson(filePath, value) {
 }
 
 // src/tools/knowledge-search.ts
-import { join as join4 } from "path";
+import { join as join5 } from "path";
+
+// src/brain-paths.ts
+import { join } from "path";
+import { homedir } from "os";
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+}
+function resolveKnowledgeDir(override) {
+  if (override) return override;
+  return cleanEnvPath(
+    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || process.env.KNOWLEDGE_DIR
+  ) || join(homedir(), "knowledge");
+}
 
 // src/tools/embeddings.ts
 import { promises as fs2 } from "fs";
-import { join } from "path";
+import { join as join2 } from "path";
 var EMBEDDING_DIM = 384;
 var CACHE_FILE = ".embeddings-cache.json";
 var MODEL_ID = "Xenova/all-MiniLM-L6-v2";
@@ -112,7 +123,7 @@ var DISABLE_ENV = "SECOND_BRAIN_DISABLE_EMBEDDINGS";
 var pipelineInstance = null;
 var lastLoadError = null;
 function brainDirFromEnv() {
-  return process.env.BRAIN_DIR || join(process.env.HOME ?? "", ".second-brain");
+  return resolveBrainDir();
 }
 async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
@@ -128,7 +139,7 @@ async function logLoadError(message, brainDir2) {
   };
   try {
     await fs2.mkdir(brainDir2, { recursive: true });
-    await fs2.appendFile(join(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+    await fs2.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
   } catch {
   }
   try {
@@ -168,7 +179,7 @@ function simpleHash(s) {
 }
 async function loadCache(wikiRoot) {
   try {
-    const data = await fs2.readFile(join(wikiRoot, CACHE_FILE), "utf-8");
+    const data = await fs2.readFile(join2(wikiRoot, CACHE_FILE), "utf-8");
     const parsed = JSON.parse(data);
     if (parsed.model === MODEL_ID) return parsed;
   } catch {
@@ -177,7 +188,7 @@ async function loadCache(wikiRoot) {
 }
 async function saveCache(wikiRoot, cache) {
   try {
-    await fs2.writeFile(join(wikiRoot, CACHE_FILE), JSON.stringify(cache));
+    await fs2.writeFile(join2(wikiRoot, CACHE_FILE), JSON.stringify(cache));
   } catch {
   }
 }
@@ -220,7 +231,7 @@ function estimateTokens(text) {
 
 // src/tools/doc-sources.ts
 import { promises as fs3 } from "fs";
-import { join as join2, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute2 } from "path";
+import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute2 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6290,7 +6301,7 @@ function assertSafeSlug(slug) {
   }
 }
 function registryPath(brainDir2, slug) {
-  return join2(brainDir2, "projects", slug, "doc-sources.json");
+  return join3(brainDir2, "projects", slug, "doc-sources.json");
 }
 async function loadRegistry(brainDir2, slug) {
   try {
@@ -6423,11 +6434,11 @@ function aiBlockSnippet(type, block) {
 
 // src/tools/project-registry.ts
 import { readFileSync } from "fs";
-import { join as join3 } from "path";
+import { join as join4 } from "path";
 function loadRegistry2(brainDir2) {
   let text;
   try {
-    text = readFileSync(join3(brainDir2, "projects.jsonl"), "utf-8");
+    text = readFileSync(join4(brainDir2, "projects.jsonl"), "utf-8");
   } catch {
     return [];
   }
@@ -6479,8 +6490,7 @@ function graphNeighbourhood(seeds, edges, hops) {
   return reached;
 }
 function accessCountsFile() {
-  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join4(process.env.HOME ?? "", ".second-brain");
-  return join4(brain, "access-counts.json");
+  return join5(resolveBrainDir(), "access-counts.json");
 }
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -6511,15 +6521,15 @@ var STUB_PENALTY = 0.5;
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
-  const knowledgeDir2 = args.knowledgeDir ?? join4(process.env.HOME ?? "", "knowledge");
-  const wikiRoot = join4(knowledgeDir2, "wiki");
+  const knowledgeDir2 = resolveKnowledgeDir(args.knowledgeDir);
+  const wikiRoot = join5(knowledgeDir2, "wiki");
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
-    scopeDirs = [join4(wikiRoot, args.scope)];
+    scopeDirs = [join5(wikiRoot, args.scope)];
   } else {
     try {
       const entries = await fs5.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join4(wikiRoot, d.name));
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join5(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -6588,7 +6598,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const boostAccum = /* @__PURE__ */ new Map();
   let graphEdges = [];
   try {
-    const recs = await loadEdges(join4(knowledgeDir2, "graph", "edges.jsonl"));
+    const recs = await loadEdges(join5(knowledgeDir2, "graph", "edges.jsonl"));
     if (recs.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
@@ -6888,7 +6898,7 @@ function slugFromPath(p) {
 }
 async function collectMarkdown(dir, acc = []) {
   for (const e of await fs5.readdir(dir, { withFileTypes: true })) {
-    const p = join4(dir, e.name);
+    const p = join5(dir, e.name);
     if (e.isDirectory()) await collectMarkdown(p, acc);
     else if (e.isFile() && e.name.endsWith(".md") && e.name !== "index.md") acc.push(p.replace(/\\/g, "/"));
   }
@@ -6897,12 +6907,12 @@ async function collectMarkdown(dir, acc = []) {
 
 // src/tools/episodic-search.ts
 import { promises as fs6 } from "fs";
-import { join as join5, basename, relative as relative2, isAbsolute as isAbsolute3 } from "path";
+import { join as join6, basename, relative as relative2, isAbsolute as isAbsolute3 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
 async function loadIndex(brainDir2) {
-  const indexPath = join5(brainDir2, INDEX_FILE);
+  const indexPath = join6(brainDir2, INDEX_FILE);
   try {
     const data = await fs6.readFile(indexPath, "utf-8");
     return JSON.parse(data);
@@ -6967,7 +6977,7 @@ async function vectorSearch(query, index, limit, filters, brainDir2) {
   if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
   const queryEmbedding = await embedTexts(
     [query],
-    join5(brainDir2, "transcripts"),
+    join6(brainDir2, "transcripts"),
     [""]
   );
   if (!queryEmbedding) return { hits: [], unavailable: true };
@@ -7010,7 +7020,7 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   }
   const conceptEmbeddings = await embedTexts(
     concepts,
-    join5(brainDir2, "transcripts"),
+    join6(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
   if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
@@ -7064,11 +7074,11 @@ function scopeAndBroaden(ranked, args) {
 
 // src/tools/pin-to-user.ts
 import { promises as fs7 } from "fs";
-import { join as join6 } from "path";
+import { join as join7 } from "path";
 var MAX_LINES = 15;
 async function pinToUser(args) {
-  const dir = args.brainDir ?? join6(cleanEnvPath(process.env.HOME), ".second-brain");
-  const file = join6(dir, "USER.md");
+  const dir = resolveBrainDir(args.brainDir);
+  const file = join7(dir, "USER.md");
   const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const trimmed = args.text.trim();
   const newLine = `- [${date}] ${trimmed}`;
@@ -7096,7 +7106,6 @@ async function pinToUser(args) {
 
 // src/tools/pin-to-project.ts
 import { promises as fs8 } from "fs";
-import { join as join7 } from "path";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
 async function pinToProject(args) {
@@ -7111,7 +7120,7 @@ async function pinToProject(args) {
     }
     throw e;
   }
-  const dir = args.brainDir ?? join7(cleanEnvPath(process.env.HOME), ".second-brain");
+  const dir = resolveBrainDir(args.brainDir);
   let file;
   try {
     file = assertWithin(dir, "projects", args.slug, "PROJECT.md");
@@ -7411,9 +7420,8 @@ async function runSb(args, deps) {
 }
 
 // src/cli/sb-entry.ts
-var home = cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE);
-var brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join9(home, ".second-brain");
-var knowledgeDir = cleanEnvPath(process.env.KNOWLEDGE_DIR) || cleanEnvPath(process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR) || join9(home, "knowledge");
+var brainDir = resolveBrainDir();
+var knowledgeDir = resolveKnowledgeDir();
 var result = await runSb(process.argv.slice(2), { brainDir, knowledgeDir });
 if (result.stdout) process.stdout.write(result.stdout + "\n");
 if (result.stderr) process.stderr.write(result.stderr + "\n");

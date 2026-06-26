@@ -1,6 +1,6 @@
 import { knowledgeSearch } from './knowledge-search.js';
 import { episodicSearch } from './episodic-search.js';
-import { join } from 'path';
+import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 // R6b (HOOK-7): the per-prompt UserPromptSubmit hook paid TWO node cold-starts
 // (knowledge-search-cli + episodic-search-cli, ~0.5-1s each on a Pi 5, every
@@ -19,10 +19,9 @@ const SEP = '--8<--SB-EPISODIC--8<--';
 // Same env resolution as knowledge-search-cli: SB_BRAIN_DIR first, matching
 // the engine's accessCountsFile() and server.ts (R2). The episodic side gains
 // SB_BRAIN_DIR support over the old CLI — strictly broader, same default.
-const knowledgeDir = process.env.KNOWLEDGE_DIR || undefined;
+const knowledgeDir = resolveKnowledgeDir();
 const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
-const brainDir = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR
-  || (process.env.HOME ? join(process.env.HOME, '.second-brain') : undefined);
+const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG?.trim() || undefined;
 
 const wikiLines: string[] = [];

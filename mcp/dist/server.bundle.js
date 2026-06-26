@@ -27349,7 +27349,11 @@ async function appendEdge(path3, rec) {
 
 // src/tools/pin-to-user.ts
 import { promises as fs2 } from "fs";
+import { join as join2 } from "path";
+
+// src/brain-paths.ts
 import { join } from "path";
+import { homedir } from "os";
 
 // src/path-guard.ts
 import { resolve, sep as sep2, isAbsolute } from "path";
@@ -27426,11 +27430,23 @@ function validateSlug(slug) {
   }
 }
 
+// src/brain-paths.ts
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+}
+function resolveKnowledgeDir(override) {
+  if (override) return override;
+  return cleanEnvPath(
+    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || process.env.KNOWLEDGE_DIR
+  ) || join(homedir(), "knowledge");
+}
+
 // src/tools/pin-to-user.ts
 var MAX_LINES = 15;
 async function pinToUser(args) {
-  const dir = args.brainDir ?? join(cleanEnvPath(process.env.HOME), ".second-brain");
-  const file = join(dir, "USER.md");
+  const dir = resolveBrainDir(args.brainDir);
+  const file = join2(dir, "USER.md");
   const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const trimmed = args.text.trim();
   const newLine = `- [${date3}] ${trimmed}`;
@@ -27458,7 +27474,6 @@ async function pinToUser(args) {
 
 // src/tools/pin-to-project.ts
 import { promises as fs3 } from "fs";
-import { join as join2 } from "path";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
 async function pinToProject(args) {
@@ -27473,7 +27488,7 @@ async function pinToProject(args) {
     }
     throw e;
   }
-  const dir = args.brainDir ?? join2(cleanEnvPath(process.env.HOME), ".second-brain");
+  const dir = resolveBrainDir(args.brainDir);
   let file;
   try {
     file = assertWithin(dir, "projects", args.slug, "PROJECT.md");
@@ -27520,8 +27535,8 @@ var SOURCE_SECTION_HEADER = {
   decisions: "## Recent decisions"
 };
 async function archiveToWiki(args) {
-  const brainDir2 = args.brainDir ?? join3(cleanEnvPath(process.env.HOME), ".second-brain");
-  const knowledgeDir = args.knowledgeDir ?? join3(cleanEnvPath(process.env.HOME), "knowledge");
+  const brainDir2 = resolveBrainDir(args.brainDir);
+  const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   try {
     validateSlug(args.slug);
   } catch (e) {
@@ -27618,7 +27633,7 @@ var DISABLE_ENV = "SECOND_BRAIN_DISABLE_EMBEDDINGS";
 var pipelineInstance = null;
 var lastLoadError = null;
 function brainDirFromEnv() {
-  return process.env.BRAIN_DIR || join4(process.env.HOME ?? "", ".second-brain");
+  return resolveBrainDir();
 }
 async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
@@ -27917,8 +27932,7 @@ function graphNeighbourhood(seeds, edges, hops) {
   return reached;
 }
 function accessCountsFile() {
-  const brain = process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR || join7(process.env.HOME ?? "", ".second-brain");
-  return join7(brain, "access-counts.json");
+  return join7(resolveBrainDir(), "access-counts.json");
 }
 var ACCESS_BOOST_FACTOR = 0.1;
 var ACCESS_BOOST_CAP = 10;
@@ -27949,7 +27963,7 @@ var STUB_PENALTY = 0.5;
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
-  const knowledgeDir = args.knowledgeDir ?? join7(process.env.HOME ?? "", "knowledge");
+  const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join7(knowledgeDir, "wiki");
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
@@ -28352,7 +28366,7 @@ function summarySection(body) {
 }
 async function knowledgeFetch(args) {
   const tier = args.tier ?? "gist";
-  const knowledgeDir = args.knowledgeDir ?? join8(process.env.HOME ?? "", "knowledge");
+  const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join8(knowledgeDir, "wiki");
   try {
     validateSlug(args.slug);
@@ -31548,12 +31562,12 @@ function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
 
 // src/tools/dream.ts
 import { join as join13 } from "path";
-import { homedir } from "os";
+import { homedir as homedir2 } from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
 var exec = promisify(execFile);
 function brainDir() {
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join13(homedir(), ".second-brain");
+  return resolveBrainDir();
 }
 function dreamsDir() {
   return join13(brainDir(), "dreams");
@@ -31587,11 +31601,11 @@ function resolveBashExePure(platform, exists, env) {
 function resolveBashExe() {
   return resolveBashExePure(process.platform, existsSync2, process.env);
 }
-function resolveKnowledgeDir() {
+function resolveKnowledgeDir2() {
   const raw = cleanEnvPath(
     process.env.KNOWLEDGE_DIR ?? process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
   );
-  const home = homedir();
+  const home = homedir2();
   if (raw && raw.trim() && !raw.includes("${")) {
     return raw.startsWith("~") ? join13(home, raw.slice(1)) : raw;
   }
@@ -31648,7 +31662,7 @@ async function dreamCreate(args) {
       resolveBashExe(),
       // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join13(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
-      { timeout: 3e4, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
+      { timeout: 3e4, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir2() } }
     );
     const dreamId = stdout.trim();
     if (!dreamId.startsWith("drm_")) {
@@ -31709,7 +31723,7 @@ async function dreamAccept(args) {
       resolveBashExe(),
       // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join13(scriptsDir(), "dream-accept.sh")), args.dream_id],
-      { timeout: 3e4, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
+      { timeout: 3e4, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir2() } }
     );
     const output = stdout.trim();
     if (output) return { ok: true, summary: output };
@@ -31986,7 +32000,7 @@ import { promises as fs15 } from "fs";
 import { join as join15, dirname as dirname3 } from "path";
 function opusLedgerPath(brainDir2) {
   if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
-  const bd = brainDir2 ?? (process.env.SB_BRAIN_DIR ?? `${process.env.HOME ?? "~"}/.second-brain`);
+  const bd = resolveBrainDir(brainDir2);
   return join15(bd, "opus-budget.json");
 }
 async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
@@ -32151,7 +32165,7 @@ async function recordSpend(brainDir2, usd) {
 import { promises as fs16 } from "fs";
 import { join as join16 } from "path";
 async function personaStats(args = {}) {
-  const dir = args.brainDir ?? join16(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
+  const dir = resolveBrainDir(args.brainDir);
   let identity2 = "";
   let cardBytes = 0;
   try {
@@ -32223,7 +32237,7 @@ import { promises as fs17 } from "fs";
 import { join as join17 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
-  const dir = args.brainDir ?? join17(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), ".second-brain");
+  const dir = resolveBrainDir(args.brainDir);
   await fs17.mkdir(dir, { recursive: true }).catch(() => {
   });
   const file = join17(dir, ".persona-dismissals.jsonl");
@@ -32345,7 +32359,7 @@ function guardDestructive(toolName, handler) {
 }
 
 // src/server.ts
-function resolveKnowledgeDir2() {
+function resolveKnowledgeDir3() {
   const candidates = [
     cleanEnvPath(process.env.KNOWLEDGE_DIR),
     cleanEnvPath(process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR)
@@ -32357,7 +32371,7 @@ function resolveKnowledgeDir2() {
   }
   return path2.join(os.homedir(), "knowledge");
 }
-var KNOWLEDGE_DIR = resolveKnowledgeDir2();
+var KNOWLEDGE_DIR = resolveKnowledgeDir3();
 var BRAIN_DIR = cleanEnvPath(process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR) || path2.join(os.homedir(), ".second-brain");
 function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);

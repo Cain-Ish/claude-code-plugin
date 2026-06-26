@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { assertWithin, validateSlug, PathGuardError, cleanEnvPath } from '../path-guard.js';
+import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
+import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 export type SourceSection = 'blockers' | 'decisions';
 export type TargetCategory = 'issues' | 'decisions';
@@ -17,8 +18,8 @@ const SOURCE_SECTION_HEADER: Record<SourceSection, string> = {
 };
 
 export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToWikiResult> {
-  const brainDir = args.brainDir ?? join(cleanEnvPath(process.env.HOME), '.second-brain');
-  const knowledgeDir = args.knowledgeDir ?? join(cleanEnvPath(process.env.HOME), 'knowledge');
+  const brainDir = resolveBrainDir(args.brainDir);
+  const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
 
   // Path-traversal hardening (G-MCP-1, MCP Git CVE-2025-68143/4/5 pattern).
   try {

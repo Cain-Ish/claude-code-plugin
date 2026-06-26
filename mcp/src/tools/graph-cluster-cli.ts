@@ -12,11 +12,12 @@
 import { promises as fs } from 'fs';
 import { join, basename } from 'path';
 import { buildAdjacency, labelPropagate, clusters, memberHash, djb2, type ClusterPage } from './graph-cluster.js';
+import { resolveKnowledgeDir } from '../brain-paths.js';
 
 function resolveWikiDir(argv: string[]): string {
   if (argv[0] === '--knowledge-dir' && argv[1]) return join(argv[1], 'wiki');
   if (argv[0]) return argv[0];
-  const kd = process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || process.env.KNOWLEDGE_DIR || join(process.env.HOME ?? '', 'knowledge');
+  const kd = resolveKnowledgeDir();
   return join(kd, 'wiki');
 }
 

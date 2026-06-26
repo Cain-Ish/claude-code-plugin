@@ -1,14 +1,28 @@
-// src/cli/persona-think-cli.ts
-import { join as join2 } from "path";
-
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
 import { promises as fs } from "fs";
-import { join, dirname } from "path";
+import { join as join2, dirname } from "path";
+
+// src/brain-paths.ts
+import { join } from "path";
+import { homedir } from "os";
+
+// src/path-guard.ts
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+
+// src/brain-paths.ts
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+}
+
+// src/tools/persona-think.ts
 function opusLedgerPath(brainDir2) {
   if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
-  const bd = brainDir2 ?? (process.env.SB_BRAIN_DIR ?? `${process.env.HOME ?? "~"}/.second-brain`);
-  return join(bd, "opus-budget.json");
+  const bd = resolveBrainDir(brainDir2);
+  return join2(bd, "opus-budget.json");
 }
 async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
   const callCost = inputTokens / 1e6 * 5 + outputTokens / 1e6 * 25;
@@ -149,7 +163,7 @@ ${args.prompt}` : args.prompt;
   }
 }
 async function readBudget(brainDir2) {
-  const file = join(brainDir2, "persona-budget.json");
+  const file = join2(brainDir2, "persona-budget.json");
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   try {
     const txt = await fs.readFile(file, "utf-8");
@@ -164,12 +178,12 @@ async function recordSpend(brainDir2, usd) {
   const next = { date: current.date, today_usd: current.today_usd + usd };
   await fs.mkdir(brainDir2, { recursive: true }).catch(() => {
   });
-  await fs.writeFile(join(brainDir2, "persona-budget.json"), JSON.stringify(next));
+  await fs.writeFile(join2(brainDir2, "persona-budget.json"), JSON.stringify(next));
   return next;
 }
 
 // src/cli/persona-think-cli.ts
-var brainDir = process.env.BRAIN_DIR || join2(process.env.HOME ?? process.env.USERPROFILE ?? "", ".second-brain");
+var brainDir = resolveBrainDir();
 var argvPrompt = process.argv.slice(2).join(" ").trim();
 var stdinPrompt = await new Promise((resolve) => {
   if (process.stdin.isTTY) return resolve("");

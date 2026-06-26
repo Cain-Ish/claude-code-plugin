@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import { existsSync } from "fs";
 import { atomicWriteJson } from './atomic-write.js';
 import { cleanEnvPath } from '../path-guard.js';
+import { resolveBrainDir } from '../brain-paths.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { projectFamily } from './project-registry.js';
 import { join, basename } from "path";
@@ -12,7 +13,7 @@ import { promisify } from "util";
 const exec = promisify(execFile);
 
 export function brainDir(): string {
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+  return resolveBrainDir();
 }
 
 function dreamsDir(): string {

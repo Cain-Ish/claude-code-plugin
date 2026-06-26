@@ -1,10 +1,10 @@
 import { episodicSearch } from './episodic-search.js';
-import { join } from 'path';
+import { resolveBrainDir } from '../brain-paths.js';
 
 const query = process.argv[2] || '';
 if (!query) { process.exit(0); }
 
-const brainDir = process.env.BRAIN_DIR || join(process.env.HOME ?? '', '.second-brain');
+const brainDir = resolveBrainDir();
 // SP-1 parity: scope the per-prompt hint to the active project (suppress other-project
 // noise, broaden only when this project has no in-scope hit). The slug is forwarded by
 // persona-context.sh, mirroring the knowledge-search CLI.

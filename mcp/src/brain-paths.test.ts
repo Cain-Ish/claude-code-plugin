@@ -1,0 +1,100 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { isAbsolute, join } from 'path';
+import { homedir } from 'os';
+import { globSync } from 'glob';
+import { fileURLToPath } from 'url';
+import { resolveBrainDir, resolveKnowledgeDir } from './brain-paths.js';
+
+// The bug: tools resolved `join(process.env.HOME ?? '', '.second-brain')`. On
+// Windows HOME is unset, so the result was a CWD-RELATIVE `.second-brain` that
+// landed in whatever repo the MCP server was launched from. These tests pin the
+// contract that closes that class: always absolute, anchored on os.homedir(),
+// never reading process.env.HOME.
+
+const ENV_KEYS = [
+  'HOME',
+  'SB_BRAIN_DIR',
+  'BRAIN_DIR',
+  'KNOWLEDGE_DIR',
+  'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR',
+];
+
+describe('brain-paths resolvers', () => {
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of ENV_KEYS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('resolveBrainDir falls back to homedir(), never a relative path', () => {
+    const dir = resolveBrainDir();
+    expect(isAbsolute(dir)).toBe(true);
+    expect(dir).toBe(join(homedir(), '.second-brain'));
+  });
+
+  it('resolveBrainDir ignores process.env.HOME (Windows regression)', () => {
+    // Even with HOME deliberately set to a bogus relative value, the resolver
+    // must anchor on homedir() — the old code would have produced "x/.second-brain".
+    process.env.HOME = 'x';
+    expect(resolveBrainDir()).toBe(join(homedir(), '.second-brain'));
+  });
+
+  it('resolveBrainDir honors SB_BRAIN_DIR over BRAIN_DIR', () => {
+    process.env.BRAIN_DIR = '/tmp/brain-b';
+    process.env.SB_BRAIN_DIR = '/tmp/brain-a';
+    expect(resolveBrainDir()).toBe('/tmp/brain-a');
+  });
+
+  it('resolveBrainDir strips CR/LF from env overrides', () => {
+    process.env.SB_BRAIN_DIR = '/tmp/brain\r\n';
+    expect(resolveBrainDir()).toBe('/tmp/brain');
+  });
+
+  it('resolveBrainDir explicit override wins over env', () => {
+    process.env.SB_BRAIN_DIR = '/tmp/env';
+    expect(resolveBrainDir('/tmp/override')).toBe('/tmp/override');
+  });
+
+  it('resolveKnowledgeDir falls back to homedir(), never a relative path', () => {
+    const dir = resolveKnowledgeDir();
+    expect(isAbsolute(dir)).toBe(true);
+    expect(dir).toBe(join(homedir(), 'knowledge'));
+  });
+
+  it('resolveKnowledgeDir honors CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR over KNOWLEDGE_DIR', () => {
+    process.env.KNOWLEDGE_DIR = '/tmp/kd-b';
+    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR = '/tmp/kd-a';
+    expect(resolveKnowledgeDir()).toBe('/tmp/kd-a');
+  });
+
+  it('resolveKnowledgeDir explicit override wins over env', () => {
+    process.env.KNOWLEDGE_DIR = '/tmp/env';
+    expect(resolveKnowledgeDir('/tmp/override')).toBe('/tmp/override');
+  });
+});
+
+// Bug-class guard: no source file may read `process.env.HOME` for path
+// resolution again. os.homedir() is the only sanctioned cross-OS primitive
+// (see brain-paths.ts). This fails loudly if a future tool reintroduces the
+// Windows CWD-relative-`.second-brain` footgun. brain-paths.ts itself is
+// exempt (its doc comment names the antipattern); test files are excluded.
+describe('source guard: no direct process.env.HOME path resolution', () => {
+  it('no non-test source file references process.env.HOME', () => {
+    const srcDir = join(fileURLToPath(new URL('.', import.meta.url)));
+    const files = globSync('**/*.ts', { cwd: srcDir, absolute: true })
+      .filter((f) => !f.endsWith('.test.ts') && !f.endsWith('brain-paths.ts'));
+    const offenders = files.filter((f) =>
+      readFileSync(f, 'utf-8').includes('process.env.HOME')
+    );
+    expect(offenders, `process.env.HOME found in: ${offenders.join(', ')}`).toEqual([]);
+  });
+});

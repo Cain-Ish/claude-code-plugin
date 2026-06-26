@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { cleanEnvPath } from '../path-guard.js';
+import { resolveBrainDir } from '../brain-paths.js';
 
 export interface PersonaStatsArgs {
   brainDir?: string;
@@ -20,7 +20,7 @@ export interface PersonaStatsResult {
 
 
 export async function personaStats(args: PersonaStatsArgs = {}): Promise<PersonaStatsResult> {
-  const dir = args.brainDir ?? join(cleanEnvPath(process.env.HOME ?? process.env.USERPROFILE), '.second-brain');
+  const dir = resolveBrainDir(args.brainDir);
 
   let identity = '';
   let cardBytes = 0;

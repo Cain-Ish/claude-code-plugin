@@ -3,8 +3,9 @@
 // as compact markdown lines so the bash hook can wrap it as additionalContext.
 import { join } from 'path';
 import { personaThink, readBudget } from '../tools/persona-think.js';
+import { resolveBrainDir } from '../brain-paths.js';
 
-const brainDir = process.env.BRAIN_DIR || join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.second-brain');
+const brainDir = resolveBrainDir();
 
 const argvPrompt = process.argv.slice(2).join(' ').trim();
 const stdinPrompt = await new Promise<string>((resolve) => {

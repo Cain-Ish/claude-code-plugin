@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { resolveBrainDir } from '../brain-paths.js';
 
 const EMBEDDING_DIM = 384;
 const CACHE_FILE = '.embeddings-cache.json';
@@ -15,7 +16,7 @@ let pipelineInstance: any = null;
 let lastLoadError: { msg: string; loggedTo: Set<string> } | null = null;
 
 function brainDirFromEnv(): string {
-  return process.env.BRAIN_DIR || join(process.env.HOME ?? '', '.second-brain');
+  return resolveBrainDir();
 }
 
 async function logLoadError(message: string, brainDir: string): Promise<void> {
