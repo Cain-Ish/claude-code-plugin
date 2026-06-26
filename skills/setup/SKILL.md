@@ -3,7 +3,7 @@ name: setup
 description: Scaffold the v1.0 hot tier — USER.md, projects/<slug>/PROJECT.md, projects.jsonl — for the active repo. Idempotent.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date *) Bash(test *) Bash(jq *) Bash(mkdir *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(head *) Bash(cat *) Bash(wc *) Bash(node *)
+allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date *) Bash(test *) Bash(jq *) Bash(mkdir *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(head *) Bash(cat *) Bash(wc *) Bash(node *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/install-extract-timer.sh*)
 ---
 
 # Setup
@@ -160,6 +160,36 @@ fi
 
 The maintainer's Phase 3 re-validates `projects.jsonl ↔ graph` on its normal cadence;
 re-parenting requires `knowledge_relate --invalidate` on the old edge then a new assert.
+
+### 4c. Install the out-of-band capture scheduler (autonomous, hardened — no credentials)
+
+The capture floor must run with **zero manual steps** (Constitution: fully autonomous). The
+in-session Stop hook archives every transcript and writes a deterministic delta, but the
+*out-of-band* drainer — which does the richer write-back when no interactive session is
+active — only runs if its per-OS scheduler is installed. Install it now via the **idempotent
+`--ensure`** mode: it no-ops if already present, else installs the **hardened, no-credentials**
+unit. This is safe to run unattended — it grants no access to `~/.claude` and uses only a
+local engine / the deterministic fallback. It is NOT the `--oauth` credential grant (that
+stays an explicit, separate consent under 6c).
+
+Opt out with `SB_DISABLE_AUTO_TIMER=1` (a zero-host-change install). **Fail loud** — never
+report setup as complete while hiding a scheduler install error.
+
+```bash
+if [ "${SB_DISABLE_AUTO_TIMER:-0}" = "1" ]; then
+  echo "capture scheduler: skipped (SB_DISABLE_AUTO_TIMER=1) — out-of-band drainer NOT installed"
+elif bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-extract-timer.sh" --ensure; then
+  : # the script prints 'applied …' (newly installed) or 'already installed …'
+else
+  echo "ERROR: capture scheduler install FAILED — out-of-band drainer is NOT active." >&2
+  echo "Re-run manually: bash \"\${CLAUDE_PLUGIN_ROOT}/scripts/install-extract-timer.sh\" --apply" >&2
+fi
+```
+
+The hardened unit drives the deterministic + local-engine write-back out-of-band. The
+credentialed headless-LLM path (`--oauth`) is dialed in separately under 6c, only if you
+enable `auto_maintain`. On Linux, run the `loginctl enable-linger` line the script prints to
+keep the timer alive without an active login (a host-state change the script never runs for you).
 
 ### 5. Seed persona-card.md
 
@@ -323,16 +353,14 @@ Then:
      `"auto_maintain": true|false` (literal booleans, no quotes) and
      `"auto_accept": "off"|"safe"|"all"`.
 
-4. **If (and only if) they enabled `auto_maintain`**, the out-of-band scheduler
-   must be installed for it to actually run — but installing a recurring system
-   service is a host-state change, so DO NOT run it for them. Show the exact
-   command for them to run, defaulting to the **hardened, no-credentials** unit:
-   ```
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-extract-timer.sh" --apply
-   ```
-   Only if they specifically want the headless LLM maintainer's `claude -p`
-   fallback (which needs their OAuth token) do they add `--oauth` — call this out
-   as a SECOND, separate credential consent:
+4. The **hardened, no-credentials** out-of-band scheduler was already installed
+   autonomously in step 4c (it drives the deterministic + local-engine capture
+   floor and grants no credentials). `auto_maintain` adds nothing on top unless you
+   also want the headless LLM maintainer's `claude -p` fallback, which needs your
+   OAuth token. So **only if (and only if) they enabled `auto_maintain`** AND want
+   that credentialed path, show the exact `--oauth` upgrade command for them to run —
+   a SECOND, separate credential consent (a host-state change, so DO NOT run it for
+   them):
    ```
    # --oauth grants the background service read/write of ~/.claude (your OAuth
    # credentials) and drops the systemd namespace restriction. Only with --oauth

@@ -79,6 +79,13 @@ INS=$(XDG_CONFIG_HOME="$LX/config" HOME="$LX/home" BRAIN_DIR="$LX/brain" \
       bash -c ". \"$LIB\"; sb_timer_health systemd")
 [ "$INS" = installed ] && ok "sb_timer_health: 'installed' after ensure ran" || no "sb_timer_health: expected 'installed', got '$INS'"
 
+# --- Task 4: the setup skill wires the autonomous --ensure install + documents the opt-out ---
+SKILL="$(cd "$(dirname "$0")/.." && pwd)/skills/setup/SKILL.md"
+grep -qE 'install-extract-timer\.sh" --ensure' "$SKILL" && ok "setup: autonomously invokes install-extract-timer.sh --ensure" || no "setup: missing autonomous --ensure call"
+grep -q 'SB_DISABLE_AUTO_TIMER' "$SKILL" && ok "setup: documents the SB_DISABLE_AUTO_TIMER opt-out" || no "setup: missing SB_DISABLE_AUTO_TIMER opt-out"
+# The autonomous default must be the HARDENED unit — setup must NOT auto-pass --oauth (creds stay manual).
+grep -qE 'install-extract-timer\.sh" --ensure[^\n]*--oauth' "$SKILL" && no "setup: --ensure must NOT auto-grant --oauth creds" || ok "setup: --ensure stays hardened (no auto --oauth)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
