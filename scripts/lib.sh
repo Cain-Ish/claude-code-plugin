@@ -36,6 +36,39 @@ sb_safe_json_array() {
   fi
 }
 
+# Deterministic, no-LLM extraction floor (P1 Task 1). Given a transcript and a line window,
+# emit a VALID delta JSON the merge pipeline accepts — derived purely from the structured
+# transcript, never an LLM. It captures the files this window changed (Edit/Write/MultiEdit,
+# scratch paths excluded, capped) plus ONE grounded summary decision that cites those files.
+# Deliberately NOT a per-message dump: a decision is emitted only when real files changed, so
+# the floor stays signal, not trash (Constitution: "must guide a future decision"). Exits 0.
+#   sb_extract_deterministic <transcript> <start_line> <total_line>
+sb_extract_deterministic() {
+  local transcript="$1" start="$2" total="$3"
+  local files_json
+  files_json=$(sed -n "${start},${total}p" "$transcript" 2>/dev/null | jq -rcs '
+    [ .[]
+      | select(.type == "assistant")
+      | .message.content[]?
+      | select(.type == "tool_use")
+      | select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
+      | .input.file_path ]
+    | unique
+    | map(select(. != null and . != ""))
+    | map(select(test("^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/") | not))
+    | .[0:5]
+  ' 2>/dev/null || echo '[]')
+  files_json=$(sb_safe_json_array "$files_json")
+  local decisions='[]'
+  if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
+    local list
+    list=$(printf '%s' "$files_json" | jq -r 'join(", ")' 2>/dev/null)
+    decisions=$(jq -cn --arg t "[auto-captured] Session changed: ${list} (LLM extraction unavailable; full context in the archived transcript)" '[$t]')
+  fi
+  jq -cn --argjson d "$decisions" --argjson f "$files_json" \
+    '{recent_decisions:$d, open_blockers:[], cross_refs:[], files_touched:$f, relations:[]}'
+}
+
 # Log an error to error-log.jsonl for session-load.sh to surface.
 # Precondition: caller must ensure $BRAIN_DIR exists (e.g. mkdir -p before
 # calling). The 2>/dev/null on the redirect would otherwise swallow the
