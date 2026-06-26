@@ -177,8 +177,9 @@ if [ -z "$DELTA_JSON" ]; then
   TODAY=$(date -u +%Y-%m-%d)
   PENDING_LOG="$(dirname "$PROJECT_MD")/pending-extraction.log"
   if grep -qF "[$TODAY] [degraded]" "$PENDING_LOG" 2>/dev/null; then
-    # Already recorded today — emit empty delta (merge becomes no-op).
-    DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+    # Already logged the breadcrumb today; still emit the deterministic delta — the files
+    # changed in THIS session window are real and distinct (merge dedups + 5-bullet caps).
+    DELTA_JSON=$(sb_extract_deterministic "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES")
   else
     # Scratch-path filter: /tmp, /var/tmp, /proc, /dev, /run are session-ephemeral
     # and have no value as future-session context — they only bloat the hot tier.
@@ -209,8 +210,9 @@ if [ -z "$DELTA_JSON" ]; then
     if [ -f "$PENDING_LOG" ]; then
       tail -n 50 "$PENDING_LOG" > "$PENDING_LOG.tmp" 2>/dev/null && mv "$PENDING_LOG.tmp" "$PENDING_LOG" 2>/dev/null || rm -f "$PENDING_LOG.tmp" 2>/dev/null
     fi
-    # Empty delta → the merge never touches PROJECT.md's Recent decisions.
-    DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+    # Deterministic delta (P1): a grounded files-changed decision so capture reaches
+    # PROJECT.md even with no LLM. The sidecar breadcrumb above stays the audit trail.
+    DELTA_JSON=$(sb_extract_deterministic "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES")
   fi
 fi
 

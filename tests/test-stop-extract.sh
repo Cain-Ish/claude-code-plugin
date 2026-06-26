@@ -246,6 +246,26 @@ grep -q "/var/tmp/" "$PENDING" && fail "scratch-filter: /var/tmp path leaked int
 grep -q "/run/" "$PENDING" && fail "scratch-filter: /run path leaked into the breadcrumb"
 grep -qF '[degraded]' "$PROJ" 2>/dev/null && fail "SP-E: [degraded] leaked into PROJECT.md decisions" || true
 pass "degraded fallback strips /tmp, /var/tmp, /run; keeps project paths (in sidecar, not decisions)"
+
+# --- Test 7b (P1 Task 2): degraded fallback now writes a REAL deterministic delta to
+# PROJECT.md — a grounded [auto-captured] files-changed decision — so capture is never a
+# full no-op under the OAuth lock. (files_touched is informational/not merged, so the
+# decision is the only path to PROJECT.md; it cites the files, staying signal not trash.)
+init_sandbox "deterministic-delta"
+seed_transcript_with_edit
+cat > "$SANDBOX/path-stub/claude" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$SANDBOX/path-stub/claude"
+export PATH="$SANDBOX/path-stub:$PATH"
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+grep -q "auto-captured" "$PROJ" || fail "deterministic-delta: no [auto-captured] decision merged into PROJECT.md"
+grep -q "src/foo.ts" "$PROJ" || fail "deterministic-delta: files-changed not reflected in PROJECT.md decision"
+grep -qF '[degraded]' "$PROJ" 2>/dev/null && fail "SP-E: [degraded] leaked into PROJECT.md decisions" || true
+pass "degraded fallback writes a real deterministic files-changed decision to PROJECT.md"
+restore_path
 restore_path
 
 # --- Test 8 (R1.2): marker is session-keyed and ADVANCES — repeated Stops in
