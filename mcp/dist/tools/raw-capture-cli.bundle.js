@@ -1,6 +1,5 @@
 // src/tools/raw-capture-cli.ts
-import { homedir } from "os";
-import { join as join4 } from "path";
+import { join as join5 } from "path";
 import { existsSync as existsSync2, readFileSync as readFileSync3, statSync } from "fs";
 
 // src/tools/raw-inbox.ts
@@ -6427,6 +6426,14 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
   return cwdSlug;
 }
 
+// src/brain-paths.ts
+import { join as join4 } from "path";
+import { homedir } from "os";
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join4(homedir(), ".second-brain");
+}
+
 // src/tools/raw-capture-cli.ts
 function resolveSlug(brainDir, flagSlug) {
   return flagSlug || process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
@@ -6442,7 +6449,7 @@ function takeNode(args) {
   return { rest, node: value };
 }
 async function main() {
-  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join4(homedir(), ".second-brain");
+  const brainDir = resolveBrainDir();
   const { rest: argvAfterSlug, value: flagSlug } = takeFlag(process.argv.slice(2), "slug");
   const slug = resolveSlug(brainDir, flagSlug);
   if (!slug) {
@@ -6473,7 +6480,7 @@ async function main() {
     } else if (action === "pending") {
       const { drainable, foreign } = partitionPending(await listItems(brainDir, slug), slug);
       for (const i of drainable) {
-        const path2 = join4(rawDir(brainDir, slug), `${i.id}.md`).replace(/\\/g, "/");
+        const path2 = join5(rawDir(brainDir, slug), `${i.id}.md`).replace(/\\/g, "/");
         const cell = (s) => (s || "").replace(/[\t\r\n]+/g, " ");
         console.log([i.id, path2, i.captured_by, cell(i.target_node ?? ""), cell(i.gist)].join("	"));
       }

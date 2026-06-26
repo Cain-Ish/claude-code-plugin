@@ -1,6 +1,5 @@
 // src/tools/raw-scan-cli.ts
-import { homedir } from "os";
-import { join as join5, relative as relative3 } from "path";
+import { relative as relative3 } from "path";
 
 // src/tools/raw-scan.ts
 import { resolve as resolve2, relative as relative2, sep as sep3 } from "path";
@@ -6425,12 +6424,20 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
   return cwdSlug;
 }
 
+// src/brain-paths.ts
+import { join as join5 } from "path";
+import { homedir } from "os";
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join5(homedir(), ".second-brain");
+}
+
 // src/tools/raw-scan-cli.ts
 function resolveSlug(brainDir) {
   return process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
 }
 async function main() {
-  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join5(homedir(), ".second-brain");
+  const brainDir = resolveBrainDir();
   const projectRoot = process.env.SCAN_ROOT || process.cwd();
   const slug = resolveSlug(brainDir);
   if (!slug) {

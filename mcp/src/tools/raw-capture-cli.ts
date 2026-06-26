@@ -4,6 +4,7 @@ import { existsSync, readFileSync, statSync } from 'fs';
 import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir, partitionPending, pruneProcessed } from './raw-inbox.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { cleanEnvPath } from '../path-guard.js';
+import { resolveBrainDir } from '../brain-paths.js';
 
 function resolveSlug(brainDir: string, flagSlug?: string): string | undefined {
   // Precedence: --slug flag > SB_ACTIVE_SLUG env > resolveActiveSlug
@@ -26,7 +27,7 @@ function takeNode(args: string[]): { rest: string[]; node?: string } {
 }
 
 async function main(): Promise<void> {
-  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join(homedir(), '.second-brain');
+  const brainDir = resolveBrainDir();
 
   // Strip --slug before positional parsing so order of flags doesn't matter.
   const { rest: argvAfterSlug, value: flagSlug } = takeFlag(process.argv.slice(2), 'slug');

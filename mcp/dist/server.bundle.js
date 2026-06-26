@@ -32372,7 +32372,7 @@ function resolveKnowledgeDir3() {
   return path2.join(os.homedir(), "knowledge");
 }
 var KNOWLEDGE_DIR = resolveKnowledgeDir3();
-var BRAIN_DIR = cleanEnvPath(process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR) || path2.join(os.homedir(), ".second-brain");
+var BRAIN_DIR = resolveBrainDir();
 function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }

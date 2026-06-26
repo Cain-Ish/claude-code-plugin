@@ -1,7 +1,3 @@
-// src/tools/doc-sources-cli.ts
-import { homedir } from "os";
-import { join as join2 } from "path";
-
 // src/tools/doc-sources.ts
 import { createHash } from "crypto";
 import { promises as fs } from "fs";
@@ -6175,9 +6171,17 @@ async function buildRegistry(projectRoot, brainDir, slug) {
   return reg;
 }
 
+// src/brain-paths.ts
+import { join as join2 } from "path";
+import { homedir } from "os";
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join2(homedir(), ".second-brain");
+}
+
 // src/tools/doc-sources-cli.ts
 async function main() {
-  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join2(homedir(), ".second-brain");
+  const brainDir = resolveBrainDir();
   const projectRoot = process.argv[2] || process.cwd();
   const slug = process.argv[3];
   if (!slug) {

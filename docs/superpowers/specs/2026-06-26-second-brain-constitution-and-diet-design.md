@@ -1,174 +1,189 @@
-# second-brain Constitution + Diet — design
+# second-brain Constitution + Diet — design (v2, research-grounded)
 
 **Date:** 2026-06-26
-**Status:** Draft for review
-**Author:** brainstormed with user (machuta)
-**Supersedes direction of:** [[second-brain-v1-redesign]] (2026-05-01) — which fixed "trash collector" once and regressed
+**Status:** Draft for implementation
+**Author:** brainstormed with user (machuta); v2 incorporates two deep-research streams
+**Supersedes direction of:** [[second-brain-v1-redesign]] (2026-05-01, regressed)
+
+> v2 changelog: folds in two verified research streams — (A) AI-memory systems
+> landscape (Hermes/MemGPT/mem0/ARC/ProMem/Khoj), (B) coding-agent KB content model
+> (Cline Memory Bank / Cursor rules / Aider repo-map / Codebase-Memory / mex / Codex CLI).
+> Adds the 6-layer content model, the capture/consolidation mechanics, the
+> project-orientation pillar, and the full-autonomy resolution.
 
 ---
 
 ## 0. Why this document exists
 
-The plugin works but has **re-accreted into a trash collector** — the exact failure the
-v1.0 redesign (2026-05-01) was built to fix, now regressed. Evidence:
+The plugin works but **re-accreted into a trash collector** — the exact failure the
+v1.0 redesign fixed once, now regressed (90 wiki pages / 8 categories; `auto_maintain`
+100% structural failure; ~10,000× search-score corruption; one dir-resolver copy-pasted
+to ~16 sites, 11 wrong — fixed 0.33.17). Root cause: accretion with no forcing function
+for simplicity, and a self-cleaning loop that exists but does not reliably run.
 
-- **90 wiki pages across 8 categories** (`decisions` alone = 40) — undifferentiated growth.
-- The 2026-06-10 deep-dive: **59/63 confirmed defects**; `auto_maintain` at **100%
-  structural failure**; **~10,000× search-score corruption** from the access-count boost.
-- Code-level symptom this session: **one dir resolver copy-pasted to ~16 sites, 11 wrong**
-  (the `process.env.HOME` CWD-relative bug). No single source of truth in the code either.
+**Two deep-research streams (2026-06-26) independently validate evolve-over-rewrite:**
+the architecture has the right shape (Hermes' pillars + the hook/MCP/timer primitives map
+1:1); the gaps are specific and additive. A second from-scratch rewrite would re-accrete
+(v1.0 proves it). The lever is governance + three targeted additions, not replacement.
 
-**Root cause (single):** accretion with no forcing function for simplicity, and a
-self-cleaning ("doubt") loop that exists but does not reliably run. A second from-scratch
-rewrite would regress the same way — v1.0 proves it. The lever is **governance, not codebase.**
+## 1. Mission (frozen north star)
 
-## 1. The Constitution (north star — frozen)
+**second-brain = the AI's MEMORY OF THE PROJECT + support skills/agents + an optional
+cost-router wrapper.** The core is the mental model a senior developer holds *before
+opening a file*: WHAT exists, WHERE it lives, WHY, HOW it works, WHY-THIS-WAY. So when the
+user asks for work, Claude starts **oriented**, not re-deriving by grep.
 
-**second-brain IS:** a local, growing knowledge source that guides Claude across a
-project's life — it gathers important information and user decisions, remembers the track
-and the high-level direction, and keeps Claude focused. It grows with the user. Everything
-stays local. Persona is its guardrail layer (helps Claude decide, flags issues, enforces
-rules so Claude codes better and understands the project). Dream is its background processor
-(consolidate, refactor, forget). Claude must know how to **search, update, delete, and
-process it in the background.**
+The mission is a triad:
+1. **Orientation** — the project mental model (what/where/why/how/why-this-way + a code map).
+2. **Compounding personalization** — learned best practices (global + per-project) that
+   become **active guardrails**, so Claude grows tailored to this user with use.
+3. **Support + cost** — persona agents that keep focus / ask the right questions / enforce
+   guardrails *while coding*, + an optional cost-router (Opus plans, Sonnet implements,
+   Haiku mechanical).
 
-**second-brain IS NOT:** a session log; a dumping ground for trivia; a graph maintained for
-its own sake; a place where saved nodes go unread. **If a saved item does not actively guide
-a future decision, it does not belong.**
+**IS NOT:** a session log; a trivia dump; a graph for its own sake; pages that sit unread.
+**Test:** *if a saved item does not actively guide a future decision, it does not belong.*
 
-This statement is the contract. Every later change is measured against it. It is enforced by
-a write-time gate (§5) and a CI surface budget (§6), not by discipline alone.
+**HARD CONSTRAINT — FULLY AUTONOMOUS:** zero required user interaction. Claude + plugin
+operate together automatically: auto-capture, auto-consolidate, auto-inject, auto-guard,
+auto-tailor. No manual `/dream`, no manual accept, no manual pins. (Resolution in §4.)
 
-## 2. Thesis: second-brain is hermes-shaped — it needs hermes' discipline, not replacement
+## 2. The memory content model (target shape) — 6 layers, not a monolith
 
-Hermes Agent's five pillars map almost 1:1 onto what already exists here:
+Research B converged hard (Cline, Cursor, Aider, mex, Codebase-Memory): agent project
+memory is a small *layered* artifact set; the anti-pattern is one giant instruction file
+that "floods context and drifts from the code."
 
-| Hermes pillar | second-brain equivalent | Current state |
-|---|---|---|
-| Memory (USER.md + MEMORY.md, frozen at session start) | USER.md + PROJECT.md hot tier + wiki | over-built |
-| Skills (learning → reusable, loaded next time) | learnings/decisions wiki pages | **passive — unread = trash** |
-| Soul | persona / charter | exists |
-| Crons | extraction-timer + dream auto-stage | **dead** (100% fail) |
-| Self-improving loop | dream FORGET / improve | **bolted on, not first-class** |
+| # | Layer | Holds | Read cadence | Update cadence |
+|---|---|---|---|---|
+| 1 | **Anchor / router** | tiny pointer (~one-liner + routes) | hot (always) | on structure change |
+| 2 | **Intent & requirements** | vision/concept, goals, **non-goals** | hot | on scope change (human/decision) |
+| 3 | **Architecture + conventions (ADR)** | why-this-way, patterns, rules; **<500 lines/rule, reference code not copy** | hot (thin) | append-only ADR/event log |
+| 4 | **Code-structure map** | token-capped, **PageRank-ranked signature index** (tree-sitter); the WHERE | on-demand | **regenerated out-of-band on code change** (drift); never hand-maintained |
+| 5 | **Relations graph** | typed edges (CALLS/IMPORTS/IMPLEMENTS) + **code↔requirement traceability** → blast-radius | on-demand (MCP) | with the map |
+| 6 | **Active / learned memory** | current focus + learned facts/practices | hot (thin) | **background extraction + usage-ranked pruning** |
 
-Hermes' transferable lessons, each achievable inside the Claude-plugin model (hooks + MCP +
-skills + out-of-band timer):
+Mapping to current storage: 1=CLAUDE.md; 2=USER.md+PROJECT.md(intent); 3=wiki
+decisions+PROJECT conventions; **4=MISSING**; **5=node↔node graph only, no code links**;
+6=extraction+persona signals+dream.
 
-1. **Memory is brutally simple on purpose.** Collapse the cold tier to the minimum that
-   earns keep.
-2. **Learning produces an active artifact** — a guardrail Claude loads next time, not a page
-   that sits unread.
-3. **The loop is a pillar, run by cron** — our cron is the out-of-band timer + dream; make it
-   real, with delete/refactor as its primary output.
+## 3. Capture / consolidation mechanics (the how)
 
-**Plugin-constraint note:** we cannot be an always-on autonomous server with its own chat
-gateway (hermes' 20%). We do not need to be. Everything load-bearing — context at
-SessionStart, search/update/delete via MCP, guardrails enforced at PreToolUse, background
-refactor via the timer — is already expressible as plugin primitives.
+Research A, verified across ≥3 independent sources each:
 
-## 3. Capability ledger — Keep / Fix / Cut
+- **Salience-filtered write path** (the anti-trash mechanism): filter low-signal →
+  canonicalize → dedup → priority-score (mem0 ADD/UPDATE/DELETE/**NOOP**). Never verbatim.
+- **Incremental capture beats threshold-triggered** (ARC ablation 31% vs 24-27%): consolidate
+  per-turn (Stop / optionally UserPromptSubmit), **not** only at a budget threshold.
+  PreCompact = safety-net (summarize-before-evict, MemGPT paging boundary).
+- **Grounded learned rules**: every guardrail must cite the transcript evidence that produced
+  it, or false beliefs lock in forever ("API X always fails → never retried").
+- **Out-of-band doubt-loop consolidation** (ProMem/ARC): first-pass extract → self-question
+  → supplementary memory → dedup; expensive + non-interactive ⇒ belongs on the timer.
+- **Usage-ranked forgetting** (Codex CLI): rank by usage_count + recency; prune entries
+  unrecalled beyond a window (~30 days). The freshness/bloat control.
+- **Six atomic operations** every contextual memory needs: Consolidate, Update, Index,
+  Forget, Retrieve, Condense.
 
-Nothing the user values is removed. Dream and persona are kept and **promoted**.
+## 4. Autonomy resolution (constraint vs safe-erase)
 
-| Capability | Fate | Note |
-|---|---|---|
-| Dream: background consolidation (dedup/relate/enrich) | **KEEP + PROMOTE** | becomes P3, the doubt loop |
-| Dream: FORGET / prune stale | **KEEP — make centerpiece** | the "self-recheck and refactor" |
-| Dream: human review gate (staging → accept/discard) | **KEEP** | strength; never erase good content unreviewed |
-| Dream: auto-stage on threshold | **KEEP, FIX** | cron dead: bwrap + `RestrictNamespaces` → fix runner, not feature |
-| Persona L1: silent context per prompt | **KEEP** | the "assistant always present" |
-| Persona L2: Opus brief (`/?`, `/think`) | **KEEP** | decision help on demand |
-| Persona L3: PreToolUse tool guard | **KEEP + PROMOTE** | the P2 guardrail engine — feed learned rules in |
-| Persona L4: quality gate (filters extractions) | **KEEP + PROMOTE** | the P2 anti-trash write-gate — make it the enforced default |
-| Persona L5: MCP self-inspection | **KEEP** | cheap, useful |
-| Hot tier (USER/PROJECT @ SessionStart) | **KEEP** | core |
-| On-demand wiki search | **KEEP, simplify stack** | keep recall; thin machinery |
-| Episodic recall (past sessions) | **KEEP** | "remember the track" |
-| Extraction pipeline (transcripts → knowledge) | **KEEP, FIX + retarget** | fix timeout/cron; output decisions/guardrails, not orphan pages |
-| **Access-count search boost** | **CUT** | caused ~10,000× corruption (R2) |
-| **Typed knowledge graph** (edges.jsonl / relate / neighbors) | **DEMOTE** | stop ranking search by it (kills corruption); keep typed relations only as cheap read-time metadata |
-| **8-category wiki split** | **COLLAPSE** | to a minimal set (§4) |
-| 44K-token upgrade skill, duplicated vendored skills, dead scripts | **CUT** | pure surface (R6) |
+Tension: full autonomy (no human gate) vs dream's human-review-before-erase. Resolved
+**with research mechanisms, not by dropping safety**:
+- **Safe forgetting** = usage-ranked pruning (only prune the demonstrably-unused), append-only
+  history so nothing is hard-deleted.
+- **Safe guardrails** = reflection grounding (a rule can't fire unless it cites evidence; a
+  contradicted rule is auto-retired).
+- **Safe auto-consolidation** = stage → **auto-accept** → keep a rollback/undo trail (reversible),
+  replacing the manual `dream_accept` gate.
 
-## 4. Workstreams
+## 5. Keep / Fix / Cut ledger
 
-Three workstreams + one forcing function. Each becomes its own implementation plan; this
-spec is the contract they share. Ordered by dependency.
+| Capability | Fate |
+|---|---|
+| dream (background consolidation, FORGET) | **KEEP + PROMOTE** → the §3 doubt-loop + usage-ranked forgetting; auto-accept+rollback (§4) |
+| persona L1 context / L2 brief / L3 guard / L4 quality-gate / L5 MCP | **KEEP + PROMOTE** (L3=guardrail engine, L4=salience write-path filter) |
+| extraction (Stop/PreCompact + marker) | **KEEP + FIX** → run autonomously; per-turn; salience-default; grounded |
+| hot tier + episodic recall + on-demand search | **KEEP** |
+| **Code-structure map (layer 4)** | **ADD** (the orientation gap; use tree-sitter+PageRank, don't reinvent) |
+| **Code↔knowledge relations (layer 5)** | **ADD** (typed code edges + traceability; MCP blast-radius query) |
+| access-count search boost | **CUT** (~10,000× corruption) |
+| typed node↔node graph | **DEMOTE** for search ranking; keep as read-time metadata; fold into layer 5 |
+| 8 wiki categories | **COLLAPSE** → minimal set aligned to the 6 layers |
+| 44K-token upgrade skill, dup vendored skills, dead scripts | **CUT** |
 
-**P0 — Constitution + governance forcing function (this spec + §5/§6).**
-Write the Constitution into the repo as an enforced artifact. Add the surface-budget CI gate.
-Nothing else is safe to start until the anti-accretion mechanism exists — otherwise the diet
-re-accretes.
+## 6. Workstreams (research-prioritized, dependency-ordered)
 
-**P1 — Diet the memory model.**
-- Cut the access-count boost. Demote the graph (no search ranking).
-- Collapse wiki categories to a minimal set. Proposed: **`project` (hot-tier mirror),
-  `decisions`, `guardrails`, `reference`** — merging entities/concepts/themes/learnings/issues
-  into decisions/guardrails/reference by function. Per-category page budget; merge mandate
-  over create.
-- Re-impose hot-tier token budget (≤800) and a wiki page-count budget.
+Each becomes its own implementation plan; this spec is the shared contract.
 
-**P2 — Learning → active guardrail (the anti-trash gate).**
-- Every extraction/save resolves to exactly one of: (a) a PROJECT decision, (b) a persona
-  guardrail rule (L3, fires at tool-time), or (c) discard. No orphan pages.
-- Promote persona L4 quality gate from opt-in to enforced default; tighten it to the
-  Constitution test ("does this guide a future decision?").
-- Wire learned guardrails into `persona-rules.json` so they actually block at PreToolUse —
-  closing the gap the SessionStart banner already warns about ("USER.md rules are advisory").
+- **P0 — Governance forcing function (FIRST).** Constitution as an enforced artifact + a
+  CI **surface-budget gate** (ratchet: baseline counts, fail on increase) + a generalized
+  duplicate-logic source-scan (extend the 0.33.17 `process.env.HOME` guard to the
+  config-read antipattern class). Nothing else is safe to change until accretion is blocked.
+- **P1 — Autonomous capture loop (HIGH/LOW).** Make extraction run with zero manual steps and
+  not depend on the in-session OAuth `claude` lock: out-of-band drainer timer as default
+  (install on setup) and/or a deterministic non-LLM capture fallback; add the salience
+  write-path filter as enforced default; per-turn incremental + PreCompact safety-net.
+- **P2 — Grounded learning → active guardrail (HIGH/MED).** Learned practices resolve to a
+  PROJECT decision **or** a persona-rules.json guardrail that fires at PreToolUse — each
+  carrying a citation to its transcript evidence; auto-retire contradicted rules.
+- **P3 — Orientation layer (HIGH user-value).** Auto-generated, token-capped, PageRank-ranked
+  code-structure map (layer 4) + typed code↔knowledge relations (layer 5), exposed via MCP
+  for blast-radius, regenerated out-of-band on code change (drift detection). Prefer a
+  proven generator (Aider-style tree-sitter+PageRank) over hand-rolling.
+- **P4 — Diet + autonomous doubt loop.** Collapse categories to the 6-layer-aligned minimal
+  set; cut access-boost; demote graph; fix dream `auto_maintain` (bwrap/RestrictNamespaces);
+  FORGET as centerpiece with usage-ranked pruning + auto-accept+rollback.
 
-**P3 — Make the doubt loop real.**
-- Fix the dead cron: remove `RestrictNamespaces=true` from the OAuth systemd unit / add the
-  bwrap preflight on every platform; verify auto-stage runs unattended on Windows + POSIX.
-- Promote dream FORGET to first-class: every dream proposes deletions/merges/contradiction
-  flags as its primary output, reviewed via the existing accept/discard gate.
+## 7. Governance (the forcing function — P0 detail)
 
-**Forcing function — anti-accretion governance (§5, §6).**
-
-## 5. Write-time Constitution gate
-
-A save is admitted only if it passes the Constitution test. Mechanism reuses persona L4
-(already built): the quality gate becomes the enforced default and its acceptance predicate
-becomes "does this actively guide a future decision, per §1?". Rejected content is dropped
-loudly (logged), never silently — consistent with the project's fail-loud convention.
-
-## 6. CI surface-budget gate
-
-A test that fails the build when the surface exceeds budget:
-- wiki page count per category over its cap (forces merge-not-create);
-- skill/script/MCP-tool file counts over budget;
-- duplicate-logic guard (generalize this session's `process.env.HOME` source-scan: no
-  copy-pasted resolver/config-read patterns).
-
-This is the mechanism v1.0 lacked. It is what makes the diet *stay*.
-
-## 7. The one resolved decision: the graph
-
-Demote, do not delete. Stop using the graph to rank search (removes the corruption surface).
-Keep typed relations only as cheap read-time metadata shown when a page is opened, if useful.
-Re-evaluate full removal after P1 if it earns no use.
+- **CONSTITUTION.md** — the §1 frozen mission, committed at repo root.
+- **Surface-budget gate** (test): records a committed baseline of wiki page count
+  (per category), skill/script/MCP-tool file counts; **fails when any count increases**
+  beyond baseline (ratchet — accretion blocked now; the P4 diet lowers the baseline). Ships
+  green immediately (baseline = current), so it does not red the build pre-diet.
+- **Duplicate-logic guard**: generalize `brain-paths.test.ts`'s source-scan so no file
+  re-introduces a copy-pasted dir-resolver / env-path-read antipattern.
 
 ## 8. Success criteria
 
-- Constitution committed and CI-enforced; surface-budget gate green.
-- Wiki page count down materially (target: a category set of ≤4, total pages bounded), with a
-  documented merge of the collapsed categories — no knowledge lost, only re-homed.
-- `auto_maintain` / dream auto-stage verified running unattended on Windows + one POSIX OS
-  (evidence, not assertion).
-- Every new saved item traceable to a decision or a guardrail; zero orphan pages added after
-  the gate ships.
-- Persona learned-guardrails block at PreToolUse (behavioral test), closing the advisory gap.
+- Constitution committed + CI surface-budget gate green (ratchet active).
+- Auto-capture runs end-to-end with zero manual steps on the user's OAuth setup (evidence:
+  a session's decisions land in PROJECT.md without `/capture`).
+- Compaction/clear-safe: a long session that compacts loses no captured decisions
+  (PreCompact + incremental marker union covers the full transcript).
+- Every learned guardrail carries a transcript citation; contradicted rules auto-retire.
+- A code-structure map + blast-radius query exist and are auto-regenerated on code change.
+- Wiki page count down materially after P4; zero orphan pages added post-gate.
 
 ## 9. Non-goals (YAGNI)
 
-- No autonomous always-on daemon / chat-gateway (out of plugin scope; hermes' 20%).
-- No migration to hermes-agent — would relocate accretion and forfeit hard-won
-  cross-platform fixes.
-- No new retrieval tech (no vector DB swap) — fix the stack we have.
-- No new wiki categories beyond the collapsed minimal set.
+- No autonomous always-on daemon / chat gateway (out of plugin scope).
+- No migration to hermes-agent (relocates accretion; forfeits cross-platform fixes).
+- No new retrieval tech for its own sake (no vector-DB swap); fix the stack we have.
+- No heavy native deps without a cross-platform plan (tree-sitter parsers must be vetted
+  like the vector-deps were — fallback to a pure-JS/regex symbol index if needed).
 
-## 10. Scope boundary
+## 10. Open questions (from research, to resolve per-workstream)
 
-This spec is the **Constitution + direction + capability contract**. Each workstream (P1/P2/P3)
-is decomposed into its own implementation plan via the writing-plans skill, built and reviewed
-independently under the existing release discipline (version-bump lockstep + migration row +
-deep-review gate + green suite + the new surface-budget gate).
+- Optimal code-map regeneration trigger/frequency (every commit / N edits / drift-threshold).
+- Per-turn LLM consolidation cost inside hooks — when must it defer to the timer?
+- Dual capture (continuous Stop + PreCompact safety-net) dedup conflicts.
+- Code↔requirement traceability edge generation (manual / LLM-inferred / commit-mined) +
+  staleness detection.
+- Knowledge-graph tier value vs simpler vector+markdown for a single-dev local context
+  (unproven for this use case).
+
+## 11. Sources (verified, adversarially)
+
+MemGPT (2310.08560); ProMem (2601.04463); ARC (2601.12030); Du survey (2603.07670v1);
+mem0 (2504.19413); Microsoft human-inspired memory (2605.08538v1); memory ops survey
+(2505.00675); Hermes Agent docs; Khoj; Cline Memory Bank; Cursor rules; Aider repo-map;
+Codebase-Memory (2603.27277v1); coding-agent taxonomy (2604.03515); mex; Codex CLI memories.
+(Caveat: most quantitative figures are 2026 preprints — directional, not load-bearing; the
+mechanism-level convergence across ≥3 independent sources is the robust part.)
+
+## 12. Scope boundary
+
+This spec is the contract. Each workstream (P0–P4) is decomposed into its own plan via the
+writing-plans skill and built/reviewed under the existing release discipline (version-bump
+lockstep + migration row + deep-review gate + green suite + the new surface-budget gate).

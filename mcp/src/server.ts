@@ -23,6 +23,7 @@ import { knowledgeRelate } from "./tools/knowledge-relate.js";
 import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
 import { resolveActiveSlug as resolveActiveSlugFromDir } from "./tools/project-dir.js";
 import { cleanEnvPath } from "./path-guard.js";
+import { resolveBrainDir } from "./brain-paths.js";
 import { guardDestructive } from "./nested-spawn-guard.js";
 
 function resolveKnowledgeDir(): string {
@@ -42,7 +43,7 @@ function resolveKnowledgeDir(): string {
 }
 
 const KNOWLEDGE_DIR = resolveKnowledgeDir();
-const BRAIN_DIR = cleanEnvPath(process.env.SB_BRAIN_DIR ?? process.env.BRAIN_DIR) || path.join(os.homedir(), '.second-brain');
+const BRAIN_DIR = resolveBrainDir();
 
 function resolveActiveSlug(): string | undefined {
   // Delegate to the shared resolver: the per-session project dir (CLAUDE_PROJECT_DIR,

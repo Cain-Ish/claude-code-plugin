@@ -1,7 +1,3 @@
-// src/tools/doc-sources-config-cli.ts
-import { homedir } from "os";
-import { join as join4 } from "path";
-
 // src/tools/doc-sources.ts
 import { promises as fs } from "fs";
 import { join, relative, resolve, sep as sep2, isAbsolute } from "path";
@@ -6197,12 +6193,20 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
   return cwdSlug;
 }
 
+// src/brain-paths.ts
+import { join as join4 } from "path";
+import { homedir } from "os";
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join4(homedir(), ".second-brain");
+}
+
 // src/tools/doc-sources-config-cli.ts
 function resolveSlug(brainDir) {
   return resolveActiveSlug(brainDir);
 }
 async function main() {
-  const brainDir = cleanEnvPath(process.env.BRAIN_DIR) || join4(homedir(), ".second-brain");
+  const brainDir = resolveBrainDir();
   const action = process.argv[2];
   const location = process.argv[3];
   const slug = resolveSlug(brainDir);

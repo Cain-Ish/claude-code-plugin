@@ -97,4 +97,18 @@ describe('source guard: no direct process.env.HOME path resolution', () => {
     );
     expect(offenders, `process.env.HOME found in: ${offenders.join(', ')}`).toEqual([]);
   });
+
+  // Constitution single-source guard: brain-dir resolution lives ONLY in brain-paths.ts.
+  // Any other file embedding the literal '.second-brain' is re-implementing the resolver —
+  // the copy-paste antipattern that produced the 0.33.17 stray-folder bug across ~21 sites.
+  it('no non-test source file constructs a .second-brain path (single-source resolution)', () => {
+    const srcDir = join(fileURLToPath(new URL('.', import.meta.url)));
+    const files = globSync('**/*.ts', { cwd: srcDir, absolute: true })
+      .filter((f) => !f.endsWith('.test.ts') && !f.endsWith('brain-paths.ts'));
+    // Match a STRING LITERAL starting with `.second-brain` (resolver construction such as
+    // join(homedir(), '.second-brain')) — NOT prose/doc mentions of `~/.second-brain`.
+    const RESOLVER_RE = /['"`]\.second-brain/;
+    const offenders = files.filter((f) => RESOLVER_RE.test(readFileSync(f, 'utf-8')));
+    expect(offenders, `.second-brain resolver literal found in: ${offenders.join(', ')}`).toEqual([]);
+  });
 });
