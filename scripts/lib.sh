@@ -55,6 +55,7 @@ sb_extract_deterministic() {
       | .input.file_path ]
     | unique
     | map(select(. != null and . != ""))
+    | map(gsub("\\\\"; "/"))
     | map(select(test("^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/") | not))
     | .[0:5]
   ' 2>/dev/null || echo '[]')
@@ -1768,6 +1769,13 @@ sb_timer_installed() {
       *)                    os=unsupported ;;
     esac
   fi
+  # The scheduler unit/plist/task all exec $BRAIN_DIR/bin/sb-extract-drain.sh, so a
+  # registered-but-shim-less state — e.g. a stale task left by an old plugin version whose shim was
+  # GC'd (observed live: a task execing a deleted shim, failing silently every fire) — is BROKEN and
+  # must read as not-installed, so --ensure / the session-load self-heal re-applies and regenerates
+  # the shim. write_shim writes this path on EVERY --apply across all OSes, so its presence is a
+  # universal health signal layered on top of the per-OS registration check below.
+  [ -f "${BRAIN_DIR:-$HOME/.second-brain}/bin/sb-extract-drain.sh" ] || return 1
   case "$os" in
     systemd)
       [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/sb-extract-drain.timer" ] ;;

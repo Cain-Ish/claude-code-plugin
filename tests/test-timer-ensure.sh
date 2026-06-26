@@ -79,6 +79,21 @@ INS=$(XDG_CONFIG_HOME="$LX/config" HOME="$LX/home" BRAIN_DIR="$LX/brain" \
       bash -c ". \"$LIB\"; sb_timer_health systemd")
 [ "$INS" = installed ] && ok "sb_timer_health: 'installed' after ensure ran" || no "sb_timer_health: expected 'installed', got '$INS'"
 
+# Regression (live-found): a registration present but the SHIM missing — e.g. a stale task left by an
+# old version whose shim was GC'd — must read as 'absent' so --ensure / the session-load self-heal
+# re-applies and regenerates it, instead of a false 'installed' that leaves the scheduler execing a
+# non-existent shim and failing silently every fire.
+SHX="$SANDBOX/shimless"; mkdir -p "$SHX/config/systemd/user"
+: > "$SHX/config/systemd/user/sb-extract-drain.timer"   # unit present, but NO $SHX/brain/bin/sb-extract-drain.sh
+SHL=$(XDG_CONFIG_HOME="$SHX/config" HOME="$SHX/home" BRAIN_DIR="$SHX/brain" \
+      bash -c ". \"$LIB\"; sb_timer_health systemd")
+[ "$SHL" = absent ] && ok "sb_timer_health: unit present but shim missing → 'absent' (repairable)" || no "sb_timer_health: shim-less state wrongly '$SHL'"
+# And once the shim exists alongside the unit → 'installed'.
+mkdir -p "$SHX/brain/bin"; : > "$SHX/brain/bin/sb-extract-drain.sh"
+SHL2=$(XDG_CONFIG_HOME="$SHX/config" HOME="$SHX/home" BRAIN_DIR="$SHX/brain" \
+       bash -c ". \"$LIB\"; sb_timer_health systemd")
+[ "$SHL2" = installed ] && ok "sb_timer_health: unit + shim both present → 'installed'" || no "sb_timer_health: unit+shim wrongly '$SHL2'"
+
 # --- Task 4: the setup skill wires the autonomous --ensure install + documents the opt-out ---
 SKILL="$(cd "$(dirname "$0")/.." && pwd)/skills/setup/SKILL.md"
 grep -qE 'install-extract-timer\.sh" --ensure' "$SKILL" && ok "setup: autonomously invokes install-extract-timer.sh --ensure" || no "setup: missing autonomous --ensure call"
