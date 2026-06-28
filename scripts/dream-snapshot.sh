@@ -131,15 +131,12 @@ if [ -d "$TRANSCRIPT_DIR" ]; then
       [ -n "$fdate" ] && [ "$fdate" \< "$FILTER_SINCE" ] && continue
     fi
 
-    # `ln -s` DEEP-COPIES on git-bash/MSYS (winsymlinks off) — it silently produces a copy, not a link,
-    # so relying on symlink semantics on Windows is accidental. Be explicit: copy on Windows (cp -p keeps
-    # mtime, the only property the autostage watermark reads; pruned with the staging dir either way), keep
-    # the lean real symlink on POSIX. Both leave the source transcript untouched on prune.
+    # Stage a SANITIZED copy (P6b): strip invisible/Tags-block smuggling chars before the
+    # dream-runner agent reads the transcript. Always a real copy (never a symlink) — the sanitizer
+    # must not write through to the original. mtime is preserved (the autostage watermark property);
+    # the source transcript is left untouched, and the staging dir is pruned wholesale either way.
     _dst="$DREAM_DIR/transcripts/$(basename "$tf")"
-    case "$(uname -s 2>/dev/null)" in
-      MINGW*|MSYS*|CYGWIN*) cp -p "$tf" "$_dst" ;;
-      *) ln -sf "$tf" "$_dst" ;;
-    esac
+    sb_strip_invisible_copy "$tf" "$_dst"
     SELECTED=$((SELECTED + 1))
   done
 fi

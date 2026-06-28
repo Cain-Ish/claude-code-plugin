@@ -266,17 +266,38 @@ sb_rotate_audit_log() {
   fi
 }
 
+# Resolve the plugin root: $CLAUDE_PLUGIN_ROOT when the hook harness sets it, else the lib.sh
+# location (../) for manual invocation and tests. Single source for every script that needs to
+# locate a bundled mcp/dist CLI — no per-call-site copy of this resolver (project rule).
+sb_plugin_root() {
+  local root="${CLAUDE_PLUGIN_ROOT:-}"
+  if [ -z "$root" ] || [ ! -d "$root" ]; then
+    # ${BASH_SOURCE[0]} is this lib.sh; its parent is scripts/, grandparent is the plugin root.
+    root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd) || root=""
+  fi
+  printf '%s' "$root"
+}
+
+# Copy SRC -> DST with invisible/Tags-block chars stripped, reusing the canonical TS sanitizer via
+# the bundled sanitize-cli. NEVER mutates SRC (critical: dream staging may otherwise symlink the
+# original transcript). Degrades to a plain copy + error-log entry if node/CLI is unavailable — the
+# episodic TS read path is an independent second line of defense. (P6b.)
+sb_strip_invisible_copy() {
+  local src="$1" dst="$2"
+  local cli; cli="$(sb_plugin_root)/mcp/dist/tools/sanitize-cli.bundle.js"
+  if command -v node >/dev/null 2>&1 && [ -f "$cli" ] && node "$cli" < "$src" > "$dst" 2>/dev/null; then
+    touch -r "$src" "$dst" 2>/dev/null || true   # preserve mtime (dream autostage watermark)
+  else
+    sb_log_error "dream-snapshot" "sanitize-cli unavailable; staged UNSANITIZED copy of $(basename "$src")" 0
+    cp -p "$src" "$dst"
+  fi
+}
+
 # Regenerate wiki/index.md catalog after wiki writes.
-# Plugin root is taken from $CLAUDE_PLUGIN_ROOT when the hook harness sets it,
-# falling back to the lib.sh location (../) for manual invocation and tests.
 sb_reindex_wiki() {
   local knowledge_dir="${1:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
-  local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
-  if [ -z "$plugin_root" ] || [ ! -d "$plugin_root" ]; then
-    # ${BASH_SOURCE[0]} is this lib.sh; its parent is scripts/, grandparent is plugin root.
-    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd) || plugin_root=""
-  fi
+  local plugin_root; plugin_root=$(sb_plugin_root)
   local reindex_js="$plugin_root/mcp/dist/tools/knowledge-reindex.bundle.js"
   if command -v node >/dev/null 2>&1 && [ -f "$reindex_js" ]; then
     # Dynamic ESM import requires --input-type=module + await import().
