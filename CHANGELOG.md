@@ -8,16 +8,22 @@ files, which exist solely for releases with a real migration action.
 
 P6a security-hardening quick-wins (first slice of the spec-v4 P6 security workstream).
 
-- **Strip invisible Unicode from captured content.** All raw-inbox items are now sanitized at the
-  `serialize()` write chokepoint: the Unicode Tags block (U+E0000–U+E007F — the ASCII-smuggling
-  channel that decodes to text for the model but renders invisibly) plus ZWSP / word-joiner / BOM
-  are removed before storage. Closes the prompt-injection path where untrusted captured text is
-  later mined into wiki pages and auto-injected. Preserves U+200C/U+200D so scripts and emoji ZWJ
-  sequences are untouched.
-- **Least-privilege the consolidation agents.** `raw-drainer` and `knowledge-maintainer` read
-  untrusted transcript content; their `Bash(node *)` grant (arbitrary-Node execution → RCE/exfil)
-  is scoped to `Bash(node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/*)` — the bundled CLIs they actually call.
-  A source-scan regression test fails the build if any consolidation agent re-introduces `node *`.
+- **Strip invisible Unicode from captured content (raw-inbox `/capture` ingest path).** Raw-inbox
+  items are sanitized on BOTH the write (`serialize()`) and read (`parse()`) paths — so legacy items
+  captured before this version are also cleaned on the way to the drainer: the Unicode Tags block
+  (U+E0000–U+E007F — one ASCII-smuggling channel that decodes to text for the model but renders
+  invisibly) plus ZWSP / word-joiner / BOM are removed from the body, gist, and free-text frontmatter
+  (source/origin/target_node, which otherwise ride into the wiki provenance back-ref). Preserves
+  U+200C/U+200D so scripts and emoji ZWJ sequences are untouched. **Scope:** this hardens the
+  raw-inbox capture path only; the transcript→dream→wiki path (`sb_archive_transcript` /
+  `sb_archive_subagent_result`) and the bidi-control / variation-selector channels are NOT covered
+  here — both are deferred to P6b.
+- **Least-privilege the consolidation agents' node grant.** `raw-drainer` and `knowledge-maintainer`
+  read untrusted transcript content; their unconditional `Bash(node *)` grant is scoped to
+  `Bash(node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/*)` — the bundled CLIs they actually call — *reducing*
+  (not eliminating) the arbitrary-Node surface. A directory-walked source-scan test fails the build
+  if any agent grants node outside that path (or a blanket `Bash(*)` / bare `Bash`). Full
+  containment (write-scoping, network sandbox, quarantine/dual-LLM) is deferred to P6b.
 
 - **Self-heal couldn't repair a shim-less scheduler.** `sb_timer_installed` only checked the OS
   registration, so a stale Scheduled Task / unit left by an old version whose shim was GC'd read as

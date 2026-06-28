@@ -60,26 +60,30 @@ function contentTypeForFile(path: string, binary: boolean): string {
   return ext === '.md' || ext === '.markdown' ? 'text/markdown' : 'text/plain';
 }
 
-/** Flatten a frontmatter value to a single line. The parser is unquoted-flat-YAML, so a value
- *  containing a newline would otherwise inject a spurious field (e.g. a fake `status:` line that
- *  the first-match parser reads back, silently flipping the item's status). Strip CR/LF on write. */
-function fmValue(s: string): string { return s.replace(/[\r\n]+/g, ' '); }
-
-/** A raw item id is always `<stamp>-<slug>` (internally generated). Reject anything that could
- *  escape the raw/ dir when an id arrives from outside (e.g. `--discard ../../wiki/page`). */
-function isSafeId(id: string): boolean { return !!id && !/[\\/]|\.\./.test(id); }
-
 /** Strip invisible characters that can smuggle hidden instructions into stored memory (later
- *  mined into wiki pages and auto-injected): the Unicode Tags block (U+E0000–U+E007F) decodes
- *  to ASCII for the model while rendering invisibly, and ZWSP/word-joiner/BOM hide token
- *  boundaries. We deliberately KEEP U+200C/U+200D (ZWNJ/ZWJ) — they are load-bearing in many
- *  scripts and in emoji ZWJ sequences. Applied at the serialize() write chokepoint so every
- *  persisted raw item is clean regardless of construction path. (Spec P6 /
+ *  mined into wiki pages and auto-injected): the Unicode Tags block (U+E0000–U+E007F) decodes to
+ *  ASCII for the model while rendering invisibly, and ZWSP/word-joiner/BOM hide token boundaries.
+ *  We deliberately KEEP U+200C/U+200D (ZWNJ/ZWJ) — load-bearing in many scripts and emoji ZWJ
+ *  sequences. Applied at BOTH serialize() (write) and parse() (read) so new AND pre-existing raw
+ *  items are clean on the way to the drainer. Scope: the Tags-block + zero-width channel; the
+ *  bidi-control (Trojan-Source) and variation-selector channels are deferred to P6b. (Spec P6 /
  *  wiki/learnings/claude-agent-architecture-deep-2026-06.) */
 const INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
 export function stripInvisible(s: string): string {
   return s.replace(INVISIBLE_RE, '');
 }
+
+/** Flatten a frontmatter value to a single line AND strip invisible/Tags-block chars. The parser
+ *  is unquoted-flat-YAML, so a value containing a newline would otherwise inject a spurious field
+ *  (e.g. a fake `status:` line that the first-match parser reads back, silently flipping status).
+ *  Stripping invisibles here means EVERY persisted frontmatter field (source/origin/target_node/
+ *  gist/…) is clean — not just body — so a smuggled char in a captured URL/path can't ride into the
+ *  wiki provenance back-ref. */
+function fmValue(s: string): string { return stripInvisible(s).replace(/[\r\n]+/g, ' '); }
+
+/** A raw item id is always `<stamp>-<slug>` (internally generated). Reject anything that could
+ *  escape the raw/ dir when an id arrives from outside (e.g. `--discard ../../wiki/page`). */
+function isSafeId(id: string): boolean { return !!id && !/[\\/]|\.\./.test(id); }
 
 function serialize(item: RawItem): string {
   const fm: string[] = ['---'];
@@ -93,7 +97,7 @@ function serialize(item: RawItem): string {
   if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
   if (item.blob) fm.push(`blob: ${fmValue(item.blob)}`);
   fm.push(`hash: ${fmValue(item.hash)}`);
-  fm.push(`gist: ${fmValue(stripInvisible(item.gist))}`);
+  fm.push(`gist: ${fmValue(item.gist)}`);
   fm.push('---', '', stripInvisible(item.body), '');
   return fm.join('\n');
 }
@@ -115,7 +119,9 @@ function parse(content: string, id: string): RawItem {
   const validStatus = status === 'unprocessed' || status === 'processed' || status === 'discarded';
   const item: RawItem = {
     id,
-    source: get('source') ?? '',
+    // Sanitize on READ too, so items written before the sanitizer shipped (or by any
+    // non-serialize path) are cleaned on the way to the drainer/wiki, not just on write.
+    source: stripInvisible(get('source') ?? ''),
     captured_at: get('captured_at') ?? '',
     captured_by: (get('captured_by') as CapturedBy) ?? 'user',
     origin: get('origin') || undefined,
@@ -124,8 +130,8 @@ function parse(content: string, id: string): RawItem {
     target_node: get('target_node') || undefined,
     blob: get('blob') || undefined,
     hash: get('hash') ?? '',
-    gist: get('gist') ?? '',
-    body: body.trim(),
+    gist: stripInvisible(get('gist') ?? ''),
+    body: stripInvisible(body.trim()),
   };
   // Malformed = missing the fields a well-formed capture always writes, or a bad status.
   if (!item.source || !item.captured_at || !item.content_type || !validStatus) item.malformed = true;

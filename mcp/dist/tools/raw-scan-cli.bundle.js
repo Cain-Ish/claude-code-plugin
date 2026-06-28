@@ -6121,12 +6121,12 @@ function contentTypeForFile(path2, binary) {
   if (binary) return ext2 === ".pdf" ? "application/pdf" : "application/octet-stream";
   return ext2 === ".md" || ext2 === ".markdown" ? "text/markdown" : "text/plain";
 }
-function fmValue(s) {
-  return s.replace(/[\r\n]+/g, " ");
-}
 var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
 function stripInvisible(s) {
   return s.replace(INVISIBLE_RE, "");
+}
+function fmValue(s) {
+  return stripInvisible(s).replace(/[\r\n]+/g, " ");
 }
 function serialize(item) {
   const fm = ["---"];
@@ -6140,7 +6140,7 @@ function serialize(item) {
   if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
   if (item.blob) fm.push(`blob: ${fmValue(item.blob)}`);
   fm.push(`hash: ${fmValue(item.hash)}`);
-  fm.push(`gist: ${fmValue(stripInvisible(item.gist))}`);
+  fm.push(`gist: ${fmValue(item.gist)}`);
   fm.push("---", "", stripInvisible(item.body), "");
   return fm.join("\n");
 }
@@ -6169,7 +6169,9 @@ function parse(content, id) {
   const validStatus = status === "unprocessed" || status === "processed" || status === "discarded";
   const item = {
     id,
-    source: get("source") ?? "",
+    // Sanitize on READ too, so items written before the sanitizer shipped (or by any
+    // non-serialize path) are cleaned on the way to the drainer/wiki, not just on write.
+    source: stripInvisible(get("source") ?? ""),
     captured_at: get("captured_at") ?? "",
     captured_by: get("captured_by") ?? "user",
     origin: get("origin") || void 0,
@@ -6178,8 +6180,8 @@ function parse(content, id) {
     target_node: get("target_node") || void 0,
     blob: get("blob") || void 0,
     hash: get("hash") ?? "",
-    gist: get("gist") ?? "",
-    body: body.trim()
+    gist: stripInvisible(get("gist") ?? ""),
+    body: stripInvisible(body.trim())
   };
   if (!item.source || !item.captured_at || !item.content_type || !validStatus) item.malformed = true;
   return item;

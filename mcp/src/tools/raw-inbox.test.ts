@@ -286,4 +286,33 @@ describe('stripInvisible (P6a security: invisible-char sanitizer)', () => {
     const items = await listItems(brainDir, slug);
     expect(items[0].body).toBe(family);
   });
+
+  it('sanitizes the source frontmatter field on a URL capture (write path)', async () => {
+    const { brainDir, slug } = await brain();
+    const url = 'https://example.com/' + String.fromCodePoint(0xE0041) + 'spec' + String.fromCodePoint(0x200B);
+    await captureItem({ brainDir, slug, kind: 'url', source: url, content: url, now: NOW });
+    const items = await listItems(brainDir, slug);
+    expect(items[0].source).not.toMatch(/[\u{E0000}-\u{E007F}\u{200B}]/u);
+    // and the raw on-disk frontmatter is clean, not just the parsed projection
+    const dir = rawDir(brainDir, slug);
+    const file = (await fs.readdir(dir)).find(n => n.endsWith('.md'))!;
+    const raw = await fs.readFile(join(dir, file), 'utf-8');
+    expect(raw).not.toMatch(/[\u{E0000}-\u{E007F}\u{200B}\u{2060}\u{FEFF}]/u);
+  });
+
+  it('cleans a pre-existing (legacy) dirty item on read (read path / backfill)', async () => {
+    const { brainDir, slug } = await brain();
+    // Simulate an item written BEFORE the sanitizer shipped: smuggled chars in body/gist/source.
+    const dir = rawDir(brainDir, slug);
+    await fs.mkdir(dir, { recursive: true });
+    const smug = String.fromCodePoint(0xE0041, 0xE0042);
+    const legacy = ['---', 'id: 20200101T000000Z-legacy', `source: http://x/${smug}`,
+      'captured_at: 2020-01-01T00:00:00Z', 'captured_by: user', 'content_type: text/markdown',
+      'status: unprocessed', 'hash: abc', `gist: g${smug}ist`, '---', '', `bo${smug}dy`, ''].join('\n');
+    await fs.writeFile(join(dir, '20200101T000000Z-legacy.md'), legacy);
+    const it0 = (await listItems(brainDir, slug)).find(i => i.id === '20200101T000000Z-legacy')!;
+    expect(it0.body).toBe('body');
+    expect(it0.gist).toBe('gist');
+    expect(it0.source).toBe('http://x/');
+  });
 });
