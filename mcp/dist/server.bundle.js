@@ -31782,6 +31782,14 @@ async function dreamCancel(args) {
 // src/tools/episodic-search.ts
 import { promises as fs14 } from "fs";
 import { join as join14, basename as basename5, relative as relative5, isAbsolute as isAbsolute4 } from "path";
+
+// src/tools/sanitize.ts
+var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+function stripInvisible(s) {
+  return s.replace(INVISIBLE_RE, "");
+}
+
+// src/tools/episodic-search.ts
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -31980,7 +31988,7 @@ function assertTranscriptPath(brainDir2, filePath) {
   return assertWithin(base, rel);
 }
 async function episodicRead(filePath, startLine, endLine) {
-  const content = await fs14.readFile(filePath, "utf-8");
+  const content = stripInvisible(await fs14.readFile(filePath, "utf-8"));
   const lines = content.split("\n");
   const { meta } = parseSessionMeta(lines);
   const start = (startLine ?? 1) - 1;

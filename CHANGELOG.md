@@ -4,6 +4,22 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.21
+
+P6b — transcript-ingest sanitization (the dominant poisoning vector P6a left open).
+
+- **Strip invisible Unicode from untrusted session transcripts at both consume points.** Reusing the
+  single canonical sanitizer (`stripInvisible`, now extracted to `mcp/src/tools/sanitize.ts`): the
+  dream pipeline stages a **sanitized real copy** of each transcript (`dream-snapshot.sh` →
+  bundled `sanitize-cli`) before the dream-runner agent reads it — never a symlink, so the source
+  transcript is never mutated — and the episodic read path (`buildEpisodicIndex` + `episodicRead`)
+  strips on read. Closes `transcript → dream → wiki → auto-injection` and `transcript → episodic`
+  for the Tags-block + zero-width channel. Degrades to a logged plain copy if node/CLI is absent.
+- Adds `sb_plugin_root()` to `lib.sh` (removing the duplicate plugin-root resolver) and a directory
+  re-used `sb_strip_invisible_copy()`.
+- **Scope:** bidi-control (Trojan-Source) + variation-selector channels, and the quarantine/dual-LLM
+  + write-scoping work, remain deferred (see the P6b plan's out-of-scope).
+
 ## 0.33.20
 
 P6a security-hardening quick-wins (first slice of the spec-v4 P6 security workstream).

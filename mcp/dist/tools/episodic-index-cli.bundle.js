@@ -140,6 +140,12 @@ async function embedTexts(texts, wikiRoot, paths) {
   return results;
 }
 
+// src/tools/sanitize.ts
+var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+function stripInvisible(s) {
+  return s.replace(INVISIBLE_RE, "");
+}
+
 // src/tools/episodic-search.ts
 var INDEX_FILE = "episodic-index.json";
 var SNIPPET_LEN = 200;
@@ -250,7 +256,7 @@ async function buildEpisodicIndex(brainDir2) {
   const newExchanges = [];
   const fileHashes = {};
   for (const filePath of files) {
-    const content = await fs3.readFile(filePath, "utf-8");
+    const content = stripInvisible(await fs3.readFile(filePath, "utf-8"));
     const hash = simpleHash2(content);
     const fname = basename(filePath);
     fileHashes[fname] = hash;
