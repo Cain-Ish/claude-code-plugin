@@ -16,7 +16,18 @@ Mission triad:
 2. **Compounding personalization** — learned best practices (global + per-project) that become
    ACTIVE guardrails, so Claude grows tailored to the user with use.
 3. **Support + cost** — persona agents that keep focus / ask the right questions / enforce
-   guardrails while coding, + an optional cost-router.
+   guardrails while coding, + an optional cost-router (the **model-routing** slice only — see
+   Token discipline).
+
+## Token discipline (core, not a bolt-on)
+
+Memory's job is to minimize the high-signal token set: **just-in-time retrieval** (store
+identifiers, fetch on demand), **summarize-before-evict** compaction, and **cache-stable
+injection** (volatile context — persona/wiki — goes LAST so the prompt-cache prefix stays
+warm). **Good memory IS token optimization** — it lives inside this plugin (knowledge_fetch
+tiers, BM25, PreCompact, hot/cold tier). The **cost-router is only the orthogonal model-routing
+axis** (which model, not which tokens); the two meet at the subagent boundary. Guidance:
+`wiki/learnings/claude-mechanics-best-practices-2026-06`.
 
 ## What it IS NOT
 
@@ -30,7 +41,15 @@ A session log; a trivia dump; a graph for its own sake; pages that sit unread.
 
 - **Fully autonomous** — zero required user interaction. Claude + plugin operate together
   automatically (capture, consolidate, inject, guard, tailor). Safety comes from reversible
-  auto-consolidation + grounded guardrails + usage-ranked forgetting, not a manual gate.
+  auto-consolidation + grounded guardrails + redundancy/importance-ranked forgetting (NOT raw
+  usage frequency — that is the rich-get-richer hub-bias footgun), not a manual gate.
+- **Untrusted-content isolation** — the plugin ingests untrusted text (transcripts, web, tool
+  returns), distills it, and re-injects it; this is a memory-poisoning substrate. Consolidation
+  must treat ingested content as DATA to summarize, never instructions to follow; the privileged
+  writer consumes only structured, provenance-tagged output, never raw transcript (quarantine /
+  dual-LLM). Least-privilege the background agents; the injection scanner is telemetry, NOT a trust
+  boundary. Inject context just-in-time via the conversation layer, not the wiki body every turn.
+  Grounding: `wiki/learnings/claude-agent-architecture-deep-2026-06`.
 - **Cross-platform** — must work on **macOS, Windows (git-bash/MSYS), and Linux** (+ BSD CI).
   Developed primarily on Windows, shipped to all; correctness is verified by the portability,
   bundle-drift, and validate gates running cross-platform in CI. No heavy native dependency is
