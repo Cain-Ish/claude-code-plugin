@@ -1,6 +1,10 @@
 import { promises as fs } from 'fs';
 import { join, basename, extname } from 'path';
 import { hashContent, assertSafeSlug } from './doc-sources.js';
+import { stripInvisible } from './sanitize.js';
+// Re-exported for back-compat: existing importers (and raw-inbox.test.ts) import stripInvisible
+// from here. The canonical definition now lives in ./sanitize.ts (single source of truth).
+export { stripInvisible } from './sanitize.js';
 
 export type RawStatus = 'unprocessed' | 'processed' | 'discarded';
 export type CapturedBy = 'user' | 'setup-scan' | 'dream';
@@ -58,19 +62,6 @@ function contentTypeForFile(path: string, binary: boolean): string {
   const ext = extname(path).toLowerCase();
   if (binary) return ext === '.pdf' ? 'application/pdf' : 'application/octet-stream';
   return ext === '.md' || ext === '.markdown' ? 'text/markdown' : 'text/plain';
-}
-
-/** Strip invisible characters that can smuggle hidden instructions into stored memory (later
- *  mined into wiki pages and auto-injected): the Unicode Tags block (U+E0000–U+E007F) decodes to
- *  ASCII for the model while rendering invisibly, and ZWSP/word-joiner/BOM hide token boundaries.
- *  We deliberately KEEP U+200C/U+200D (ZWNJ/ZWJ) — load-bearing in many scripts and emoji ZWJ
- *  sequences. Applied at BOTH serialize() (write) and parse() (read) so new AND pre-existing raw
- *  items are clean on the way to the drainer. Scope: the Tags-block + zero-width channel; the
- *  bidi-control (Trojan-Source) and variation-selector channels are deferred to P6b. (Spec P6 /
- *  wiki/learnings/claude-agent-architecture-deep-2026-06.) */
-const INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
-export function stripInvisible(s: string): string {
-  return s.replace(INVISIBLE_RE, '');
 }
 
 /** Flatten a frontmatter value to a single line AND strip invisible/Tags-block chars. The parser

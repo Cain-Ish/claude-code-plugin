@@ -6101,6 +6101,14 @@ function filterIgnored(projectRoot, absPaths) {
 // src/tools/raw-inbox.ts
 import { promises as fs } from "fs";
 import { join as join2, basename, extname } from "path";
+
+// src/tools/sanitize.ts
+var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+function stripInvisible(s) {
+  return s.replace(INVISIBLE_RE, "");
+}
+
+// src/tools/raw-inbox.ts
 function rawDir(brainDir, slug) {
   return join2(brainDir, "projects", slug, "raw");
 }
@@ -6120,10 +6128,6 @@ function contentTypeForFile(path2, binary) {
   const ext2 = extname(path2).toLowerCase();
   if (binary) return ext2 === ".pdf" ? "application/pdf" : "application/octet-stream";
   return ext2 === ".md" || ext2 === ".markdown" ? "text/markdown" : "text/plain";
-}
-var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
-function stripInvisible(s) {
-  return s.replace(INVISIBLE_RE, "");
 }
 function fmValue(s) {
   return stripInvisible(s).replace(/[\r\n]+/g, " ");
