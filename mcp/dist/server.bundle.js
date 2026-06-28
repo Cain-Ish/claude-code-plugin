@@ -27794,7 +27794,7 @@ function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
 import { promises as fs7 } from "fs";
 import { join as join5, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute2 } from "path";
 function assertSafeSlug(slug) {
-  if (!slug || /[\\/]|\.\./.test(slug)) {
+  if (!slug || slug.length > 128 || /[\\/\x00-\x1f]|\.\./.test(slug)) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
   }
 }

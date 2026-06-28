@@ -37,7 +37,9 @@ export interface DocEntry {
 const JUNK_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '.next', 'dist', 'build']);
 
 export function assertSafeSlug(slug: string): void {
-  if (!slug || /[\\/]|\.\./.test(slug)) {
+  // Reject separators + `..` (traversal), plus NUL/control chars (\x00-\x1f) and oversize — a slug
+  // becomes a directory name, so these are never legitimate (parity with path-guard's validateSlug).
+  if (!slug || slug.length > 128 || /[\\/\x00-\x1f]|\.\./.test(slug)) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
   }
 }

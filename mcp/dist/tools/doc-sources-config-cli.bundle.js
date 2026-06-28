@@ -6070,7 +6070,7 @@ function cleanEnvPath(s) {
 
 // src/tools/doc-sources.ts
 function assertSafeSlug(slug) {
-  if (!slug || /[\\/]|\.\./.test(slug)) {
+  if (!slug || slug.length > 128 || /[\\/\x00-\x1f]|\.\./.test(slug)) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
   }
 }

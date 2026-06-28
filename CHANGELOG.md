@@ -4,6 +4,20 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.23
+
+Path-traversal guard hardening + the cross-platform path-test discipline (adapted from
+`vercel-labs/skills` via the designer-skills deep-scan).
+
+- **`path-guard.ts` now has a dedicated test suite** (it was security-critical but untested). It
+  locks the full traversal-vector matrix — `..`, `..\`, absolute paths, `C:\…`, UNC, NUL, oversize —
+  feeding each vector in BOTH forward-slash and backslash form so a regression fails on either OS
+  instead of silently skipping on the one whose separator it uses, plus a containment **safety
+  invariant** for `assertWithin` (every vector either throws or stays inside base — never escapes).
+- **`assertSafeSlug` hardened** to also reject NUL/control chars (`\x00-\x1f`) and oversize (>128)
+  slugs, reaching parity with `path-guard`'s `validateSlug` (a slug becomes a directory name, so
+  these are never legitimate). Traversal chars (`/`, `\`, `..`) were already rejected.
+
 ## 0.33.22
 
 P7 — graph search-ranking boost demoted to off-by-default; P8a/b retrieval-eval guards.
