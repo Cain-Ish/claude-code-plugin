@@ -4,6 +4,11 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { knowledgeSearch } from './knowledge-search.js';
 
+// The graph ranking boost is opt-in (off by default) since P7; enable it for this file so the
+// boost's safety invariants (hub-proof, <=2x cap) are exercised against the ACTIVE boost path.
+beforeAll(() => { process.env.SB_GRAPH_RANKING_BOOST = '1'; });
+afterAll(() => { delete process.env.SB_GRAPH_RANKING_BOOST; });
+
 // R2.1 (MCP-SEARCH-1): graph boosts must be computed from FROZEN pre-boost base
 // scores and capped at <=1x each page's own base. The old in-place mutation
 // compounded geometrically through hub pages (~10,000x observed live), and the

@@ -179,6 +179,25 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     };
   });
 
+  // Load the typed relationship graph once: used by BOTH the (opt-in) ranking boost below AND the
+  // project-scoping neighbourhood inclusion further down (knowledge_neighbors-style — NOT demoted).
+  let graphEdges: CurrentEdge[] = [];
+  try {
+    const recs = await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
+    if (recs.length > 0) {
+      const nowIso = new Date().toISOString();
+      graphEdges = foldToCurrent(recs).filter(e => validAt(e, nowIso));
+    }
+  } catch { /* no graph — legacy path below */ }
+
+  // Graph ranking boost — DEMOTED to off-by-default (P7, 2026-06-28). Measured net-zero on the real
+  // corpus (6 gold-page ranks improved / 6 degraded / 80 unchanged of 92) while displacing exact
+  // title-matches, and it provably cannot improve recall (a zero-base page receives zero boost).
+  // The project-scoping neighbourhood + bi-temporal supersedes are unaffected. Opt in: SB_GRAPH_RANKING_BOOST=1.
+  const GRAPH_RANKING_BOOST = process.env.SB_GRAPH_RANKING_BOOST === '1' || process.env.SB_GRAPH_RANKING_BOOST === 'true';
+  if (!GRAPH_RANKING_BOOST) {
+    for (const s of scored) s.score = s.baseScore;
+  } else {
   // Graph boost: propagate relevance through the typed relationship graph.
   // R2.1 (MCP-SEARCH-1): contributions are computed from FROZEN pre-boost base
   // scores and accumulated separately, then capped at <=1x each page's own
@@ -191,15 +210,6 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // invariant (knowledge_validate flags duplicates); a collision would share
   // one accumulator (each page's cap still bounds its own application).
   const boostAccum = new Map<string, number>();
-  let graphEdges: CurrentEdge[] = [];
-  try {
-    const recs = await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
-    if (recs.length > 0) {
-      const nowIso = new Date().toISOString();
-      graphEdges = foldToCurrent(recs).filter(e => validAt(e, nowIso));
-    }
-  } catch { /* no graph — legacy path below */ }
-
   if (graphEdges.length > 0) {
     // Multi-hop typed propagation (depth 2). requires/affects propagate full,
     // relates much weaker (90% of real graphs are migration-generated relates).
@@ -248,6 +258,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     const b = boostAccum.get(slugFromPath(s.path)) ?? 0;
     s.score = s.baseScore + Math.min(b, s.baseScore);
   }
+  } // end SB_GRAPH_RANKING_BOOST opt-in block
 
   // Hybrid search: if ONNX embeddings are available, fuse BM25 + cosine via RRF
   const RRF_K = 60;

@@ -4,6 +4,23 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.22
+
+P7 — graph search-ranking boost demoted to off-by-default; P8a/b retrieval-eval guards.
+
+- **Graph ranking boost is now opt-in** (`SB_GRAPH_RANKING_BOOST=1`), off by default. A measurement
+  over the real wiki (96 pages / 170 edges) showed the boost is a wash — it improved a gold page's
+  rank in 6 cases, **degraded** it in 6, and changed nothing in 80 of 92 — while in the harm cases it
+  displaced a page's own exact title-match (rank 0→1). It also provably cannot improve recall (a
+  zero-base page receives zero boost). Demoting it removes the net-zero reranking and the historical
+  ~10,000× score-inflation complexity from the hot path. The graph machinery is unchanged for
+  `knowledge_neighbors` (blast-radius) + bi-temporal `supersedes`, and the project-scoping
+  neighbourhood is unaffected. Recall is provably unchanged (eval suite green).
+- **New deterministic retrieval-eval guards (P8a/b):** exact-term canary (#1 ranking), knowledge-update
+  (overwrite wins), episodic recall round-trip (search→read), abstention (no match for an absent term),
+  episodic golden + project-scoping, and a default-off guard for the boost flag. Closes the
+  previously-missing episodic recall coverage.
+
 ## 0.33.21
 
 P6b — transcript-ingest sanitization (the dominant poisoning vector P6a left open).

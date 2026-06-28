@@ -28035,9 +28035,6 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       source
     };
   });
-  const GRAPH_BOOST = 0.3;
-  const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
-  const boostAccum = /* @__PURE__ */ new Map();
   let graphEdges = [];
   try {
     const recs = await loadEdges(join7(knowledgeDir, "graph", "edges.jsonl"));
@@ -28047,51 +28044,59 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     }
   } catch {
   }
-  if (graphEdges.length > 0) {
-    const TYPE_W = { requires: 1, affects: 1, part_of: 0.8, supersedes: 0.6, relates: 0.25 };
-    const adj = /* @__PURE__ */ new Map();
-    for (const e of graphEdges) {
-      for (const [a, b] of [[e.from, e.to], [e.to, e.from]]) {
-        if (!adj.has(a)) adj.set(a, []);
-        adj.get(a).push({ to: b, w: TYPE_W[e.type] ?? 0.25 });
+  const GRAPH_RANKING_BOOST = process.env.SB_GRAPH_RANKING_BOOST === "1" || process.env.SB_GRAPH_RANKING_BOOST === "true";
+  if (!GRAPH_RANKING_BOOST) {
+    for (const s of scored) s.score = s.baseScore;
+  } else {
+    const GRAPH_BOOST = 0.3;
+    const slugScoreMap = new Map(scored.map((s) => [slugFromPath(s.path), s]));
+    const boostAccum = /* @__PURE__ */ new Map();
+    if (graphEdges.length > 0) {
+      const TYPE_W = { requires: 1, affects: 1, part_of: 0.8, supersedes: 0.6, relates: 0.25 };
+      const adj = /* @__PURE__ */ new Map();
+      for (const e of graphEdges) {
+        for (const [a, b] of [[e.from, e.to], [e.to, e.from]]) {
+          if (!adj.has(a)) adj.set(a, []);
+          adj.get(a).push({ to: b, w: TYPE_W[e.type] ?? 0.25 });
+        }
       }
-    }
-    for (const entry of scored) {
-      if (entry.baseScore <= 0) continue;
-      const start = slugFromPath(entry.path);
-      let frontier = [{ node: start, factor: 1 }];
-      const seen = /* @__PURE__ */ new Set([start]);
-      for (let hop = 0; hop < 2; hop++) {
-        const next = [];
-        for (const { node, factor } of frontier) {
-          for (const { to, w } of adj.get(node) ?? []) {
-            const target = slugScoreMap.get(to);
-            if (target && target !== entry) {
-              boostAccum.set(to, (boostAccum.get(to) ?? 0) + entry.baseScore * GRAPH_BOOST * factor * w);
-            }
-            if (!seen.has(to)) {
-              seen.add(to);
-              next.push({ node: to, factor: factor * GRAPH_BOOST });
+      for (const entry of scored) {
+        if (entry.baseScore <= 0) continue;
+        const start = slugFromPath(entry.path);
+        let frontier = [{ node: start, factor: 1 }];
+        const seen = /* @__PURE__ */ new Set([start]);
+        for (let hop = 0; hop < 2; hop++) {
+          const next = [];
+          for (const { node, factor } of frontier) {
+            for (const { to, w } of adj.get(node) ?? []) {
+              const target = slugScoreMap.get(to);
+              if (target && target !== entry) {
+                boostAccum.set(to, (boostAccum.get(to) ?? 0) + entry.baseScore * GRAPH_BOOST * factor * w);
+              }
+              if (!seen.has(to)) {
+                seen.add(to);
+                next.push({ node: to, factor: factor * GRAPH_BOOST });
+              }
             }
           }
-        }
-        frontier = next;
-      }
-    }
-  } else {
-    for (const entry of scored) {
-      if (entry.baseScore <= 0) continue;
-      for (const rel of entry.related) {
-        const target = slugScoreMap.get(rel);
-        if (target && target !== entry) {
-          boostAccum.set(rel, (boostAccum.get(rel) ?? 0) + entry.baseScore * GRAPH_BOOST);
+          frontier = next;
         }
       }
+    } else {
+      for (const entry of scored) {
+        if (entry.baseScore <= 0) continue;
+        for (const rel of entry.related) {
+          const target = slugScoreMap.get(rel);
+          if (target && target !== entry) {
+            boostAccum.set(rel, (boostAccum.get(rel) ?? 0) + entry.baseScore * GRAPH_BOOST);
+          }
+        }
+      }
     }
-  }
-  for (const s of scored) {
-    const b = boostAccum.get(slugFromPath(s.path)) ?? 0;
-    s.score = s.baseScore + Math.min(b, s.baseScore);
+    for (const s of scored) {
+      const b = boostAccum.get(slugFromPath(s.path)) ?? 0;
+      s.score = s.baseScore + Math.min(b, s.baseScore);
+    }
   }
   const RRF_K = 60;
   let embeddingsActive = false;

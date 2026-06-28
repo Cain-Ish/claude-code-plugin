@@ -45,6 +45,9 @@ function slugs(r: { candidates: { path: string }[] }): string[] {
 }
 
 describe('knowledge_search back-compat (no graph dir)', () => {
+  // The ranking boost is opt-in (off by default) since P7; these tests validate the opt-in path.
+  beforeEach(() => { process.env.SB_GRAPH_RANKING_BOOST = '1'; });
+  afterEach(() => { delete process.env.SB_GRAPH_RANKING_BOOST; });
   it('frontmatter related: boosts a weak-match neighbour above an equal non-neighbour (R2.1 contract)', async () => {
     const dir = await wiki();
     // R2.1 (MCP-SEARCH-1): boost is capped at <=1x a page's own base score, so a
@@ -67,6 +70,8 @@ describe('knowledge_search back-compat (no graph dir)', () => {
 });
 
 describe('knowledge_search multi-hop typed boost (graph present)', () => {
+  beforeEach(() => { process.env.SB_GRAPH_RANKING_BOOST = '1'; });
+  afterEach(() => { delete process.env.SB_GRAPH_RANKING_BOOST; });
   it('a hit on alpha boosts its weak-match 1-hop and 2-hop requires-neighbours (R2.1 contract)', async () => {
     const dir = await wiki();
     // R2.1: zero-base pages cannot ride the graph (boost capped at <=1x own

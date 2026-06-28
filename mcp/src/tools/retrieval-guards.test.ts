@@ -110,4 +110,31 @@ describe('P8a retrieval guards (deterministic)', () => {
     expect(scoped).toContain('grpcwidget');
     expect(scoped).not.toContain('restwidget');
   });
+
+  it('graph ranking boost is OFF by default and re-enables only via SB_GRAPH_RANKING_BOOST (P7)', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'rg-boost-'));
+    await fs.mkdir(join(dir, 'wiki', 'entities'), { recursive: true });
+    const W = (slug: string, related: string, body: string) =>
+      fs.writeFile(join(dir, 'wiki', 'entities', `${slug}.md`),
+        `---\ntitle: ${slug}\ntype: entities\ndescription: ${slug}\nrelated: ${related ? `[[${related}]]` : '[]'}\n---\n\n# ${slug}\n\n${body}\n`);
+    // 'strong' (high base) is related to 'related-one', so the boost (when on) flows to 'related-one'.
+    // 'loner-one' has the same weak text match but no relation — it is never boosted.
+    await W('strong', 'related-one', 'zzqterm zzqterm zzqterm zzqterm subsystem');
+    await W('related-one', '', 'zzqterm zzqterm related notes');
+    await W('loner-one', '', 'zzqterm zzqterm loner notes');
+    const scoreOf = (r: any, slug: string): number =>
+      r.candidates.find((c: any) => String(c.path).replace(/\\/g, '/').endsWith(`/${slug}.md`))?.score ?? 0;
+
+    delete process.env.SB_GRAPH_RANKING_BOOST;            // default
+    const off = await knowledgeSearch({ query: 'zzqterm', knowledgeDir: dir });
+    process.env.SB_GRAPH_RANKING_BOOST = '1';             // opt in
+    const on = await knowledgeSearch({ query: 'zzqterm', knowledgeDir: dir });
+    delete process.env.SB_GRAPH_RANKING_BOOST;
+
+    // sanity: the related page is actually retrieved both ways (not floor-evicted)
+    expect(scoreOf(off, 'related-one')).toBeGreaterThan(0);
+    // The proof of the P7 demote: the related page is boosted ONLY when the flag is set. With the
+    // default (flag unset) it is unboosted, so its with-flag score is strictly higher.
+    expect(scoreOf(on, 'related-one')).toBeGreaterThan(scoreOf(off, 'related-one'));
+  });
 });
