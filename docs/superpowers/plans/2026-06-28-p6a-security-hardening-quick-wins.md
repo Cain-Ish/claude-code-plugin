@@ -247,10 +247,29 @@ git commit -m "release: 0.33.20 — P6a security hardening (invisible-char strip
 3. **Manual ingest check:** capture a paste containing a Tags-block char (e.g. via the raw-capture CLI), then read the stored `~/.second-brain/projects/<slug>/raw/<id>.md` and confirm the invisible char is gone from the body.
 4. **Gates:** `bash scripts/validate-plugin.sh` and `bash tests/run-all.sh` both green; version `0.33.20` consistent across the three files.
 
-## Out of scope (deferred to P6b)
+## Done in P6a (incl. adversarial-review follow-up, commit 62e1c42)
 
-- Quarantine/dual-LLM split of the drainer (quarantined summarizer → privileged writer).
-- Bash transcript-archive sanitization in `scripts/lib.sh` `sb_archive_subagent_result()` (needs a cross-platform astral-codepoint stripper — no `perl` dependency).
+- Invisible-char strip (Tags-block + ZWSP/WJ/BOM) on the raw-inbox **write AND read** paths
+  (`serialize()` + `parse()`), covering legacy/dedup'd items, applied to body, gist, and all
+  free-text frontmatter (source/origin/target_node).
+- Scoped node grant on the consolidation agents + a directory-walked + body-scan grant guard.
+- Honest, scoped claims in CHANGELOG + code comments.
+
+## Out of scope (deferred to P6b) — incl. items the P6a adversarial review surfaced
+
+- **Transcript ingest sanitization** — `scripts/lib.sh` `sb_archive_transcript()` (the MAIN,
+  automatic vector — not just `sb_archive_subagent_result()`) writes untrusted session text verbatim
+  into `transcripts/*.txt`, which dream mines into auto-injected wiki pages. This is the DOMINANT
+  un-sanitized path; needs a cross-platform astral-codepoint stripper (no `perl` dep).
+- **Broader invisible channels** — bidi controls (U+202A–202E, U+2066–2069, U+200E/F — Trojan-Source)
+  and variation selectors (U+E0100–E01EF), with deliberate handling of legitimate RTL text and emoji
+  variation selectors (U+FE0F must be preserved).
+- **Quarantine/dual-LLM split** of the drainer (quarantined summarizer → privileged writer).
+- **Write-scoping** — `Bash(rm/mv/cp/touch *)` + `Write`/`Edit` are unscoped, so the node-grant
+  scoping is defense-in-depth, not containment (an injected agent could write a `.js` into `mcp/dist`
+  then run it). Needs sandboxing or path-scoped write grants.
 - `wiki-write-guard.sh` path canonicalization (currently string-glob; junction/`\\?\`/symlink hardening).
 - Severing network egress during consolidation (sandbox/deny proxy).
-- `Bash(rm/mv/cp *)` scoping (used for atomic writes/heartbeat cleanup; needs careful cross-platform path-scoped grants).
+- **One-time live-drain smoke check** confirming the scoped node grant executes without a permission
+  prompt (the matcher can't be unit-tested from source; structurally proven-analogous to the shipped
+  `Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)` grant, but unverified at runtime).
