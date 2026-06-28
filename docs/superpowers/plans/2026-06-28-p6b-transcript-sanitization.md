@@ -97,5 +97,9 @@ sb_strip_invisible_copy() {
 - A transcript with a smuggled Tags-block char, once staged for a dream, is clean in staging and unchanged at source; `episodicRead` of it returns clean text. Full suite green; version 0.33.21 consistent.
 
 ## Out of scope (still P6b-later / P6c)
+- **Scope the dream-runner's read grant** to the sanitized staging dir. Today the transcript chokepoint
+  is *prompt-enforced* — the agent is directed to read the staging copies, but its broad `Read`/`Glob`/
+  `Bash(cat/head/tail/grep *)` grants could still reach the un-sanitized originals at
+  `~/.second-brain/transcripts/`. Grant-enforcing the chokepoint turns defense-in-depth into closure.
 - bidi-control (Trojan-Source U+202A–202E/2066–2069) + variation-selector (U+E0100–E01EF) channels (need deliberate RTL/emoji-VS handling).
 - Quarantine/dual-LLM drainer split; write-scoping (rm/mv/cp + Write/Edit); network sandbox; wiki-write-guard path canonicalization; the live-drain node-grant smoke check.

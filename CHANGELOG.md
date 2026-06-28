@@ -13,8 +13,11 @@ P6b — transcript-ingest sanitization (the dominant poisoning vector P6a left o
   dream pipeline stages a **sanitized real copy** of each transcript (`dream-snapshot.sh` →
   bundled `sanitize-cli`) before the dream-runner agent reads it — never a symlink, so the source
   transcript is never mutated — and the episodic read path (`buildEpisodicIndex` + `episodicRead`)
-  strips on read. Closes `transcript → dream → wiki → auto-injection` and `transcript → episodic`
-  for the Tags-block + zero-width channel. Degrades to a logged plain copy if node/CLI is absent.
+  strips on read. Hardens `transcript → dream → wiki → auto-injection` and `transcript → episodic`
+  for the Tags-block + zero-width channel. (The episodic path is enforced; the dream path is
+  defense-in-depth — the dream-runner is *directed* to read the sanitized staging copies, but its
+  broad read grant could still reach the originals, so scoping that agent's read surface is a
+  deferred backlog item.) Degrades to a logged plain copy if node/CLI is absent.
 - Adds `sb_plugin_root()` to `lib.sh` (removing the duplicate plugin-root resolver) and a directory
   re-used `sb_strip_invisible_copy()`.
 - **Scope:** bidi-control (Trojan-Source) + variation-selector channels, and the quarantine/dual-LLM

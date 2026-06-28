@@ -288,7 +288,7 @@ sb_strip_invisible_copy() {
   if command -v node >/dev/null 2>&1 && [ -f "$cli" ] && node "$cli" < "$src" > "$dst" 2>/dev/null; then
     touch -r "$src" "$dst" 2>/dev/null || true   # preserve mtime (dream autostage watermark)
   else
-    sb_log_error "dream-snapshot" "sanitize-cli unavailable; staged UNSANITIZED copy of $(basename "$src")" 0
+    sb_log_error "dream-snapshot" "sanitize-cli unavailable or failed; staged UNSANITIZED copy of $(basename "$src")" 0
     cp -p "$src" "$dst"
   fi
 }
