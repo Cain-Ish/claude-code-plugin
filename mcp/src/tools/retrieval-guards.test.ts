@@ -78,4 +78,36 @@ describe('P8a retrieval guards (deterministic)', () => {
     expect(read.content).toContain('zzqxueglerb retry strategy');
     expect(read.sessionId).toBe('sess9');
   });
+
+  it('abstention: a query matching no document returns no positive-score candidate', async () => {
+    const dir = await seedWiki({
+      auth: 'authentication and login session handling',
+      cache: 'caching layer and invalidation',
+    });
+    const r = await knowledgeSearch({ query: 'nonexistentzzqterm', knowledgeDir: dir });
+    // BM25 score is 0 for zero term overlap, and the access-count boost is CUT + graph boost is
+    // multiplicative on base, so nothing can fabricate a positive score for an absent term.
+    expect(r.candidates.filter(c => c.score > 0), 'no doc should match an absent term').toHaveLength(0);
+  });
+
+  it('episodic golden + project scoping: each planted fact is retrievable and the project filter isolates', async () => {
+    const brainDir = await fs.mkdtemp(join(tmpdir(), 'rg-epg-'));
+    const tdir = join(brainDir, 'transcripts');
+    await fs.mkdir(tdir, { recursive: true });
+    const mk = (sess: string, proj: string, text: string) =>
+      fs.writeFile(join(tdir, `${sess}_${proj}_2026-06-28.txt`),
+        ['--- session-meta ---', `session_id: ${sess}`, `project_slug: ${proj}`, 'date: 2026-06-28', '---', '', 'USER:', text, ''].join('\n'));
+    await mk('s1', 'alpha', 'we picked grpcwidget for alpha transport');
+    await mk('s2', 'beta', 'we picked restwidget for beta transport');
+    await buildEpisodicIndex(brainDir);
+
+    // each distinctive fact is retrievable
+    expect(JSON.stringify((await episodicSearch({ query: 'grpcwidget', mode: 'text' }, brainDir)).results)).toContain('grpcwidget');
+    expect(JSON.stringify((await episodicSearch({ query: 'restwidget', mode: 'text' }, brainDir)).results)).toContain('restwidget');
+
+    // the project hard-filter isolates: 'transport' appears in both, but scoped to alpha returns only alpha
+    const scoped = JSON.stringify((await episodicSearch({ query: 'transport', mode: 'text', project: 'alpha' }, brainDir)).results);
+    expect(scoped).toContain('grpcwidget');
+    expect(scoped).not.toContain('restwidget');
+  });
 });
