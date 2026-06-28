@@ -3,6 +3,7 @@ import { atomicWriteJson } from './atomic-write.js';
 import { join, basename, relative, isAbsolute } from 'path';
 import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { assertWithin } from '../path-guard.js';
+import { stripInvisible } from './sanitize.js';
 
 const INDEX_FILE = 'episodic-index.json';
 const SNIPPET_LEN = 200;
@@ -207,7 +208,9 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   const fileHashes: Record<string, string> = {};
 
   for (const filePath of files) {
-    const content = await fs.readFile(filePath, 'utf-8');
+    // Sanitize untrusted transcript text before indexing it (P6b — invisible/Tags-block
+    // smuggling defense). Hash the cleaned content so a previously-dirty file re-indexes once.
+    const content = stripInvisible(await fs.readFile(filePath, 'utf-8'));
     const hash = simpleHash(content);
     const fname = basename(filePath);
     fileHashes[fname] = hash;
@@ -516,7 +519,7 @@ export function assertTranscriptPath(brainDir: string, filePath: string): string
 export async function episodicRead(
   filePath: string, startLine?: number, endLine?: number
 ): Promise<EpisodicReadResult> {
-  const content = await fs.readFile(filePath, 'utf-8');
+  const content = stripInvisible(await fs.readFile(filePath, 'utf-8'));
   const lines = content.split('\n');
   const { meta } = parseSessionMeta(lines);
 
