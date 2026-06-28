@@ -2,7 +2,7 @@
 name: audit
 description: Show what the second-brain safety layer did this session — every PreToolUse guard verdict, every tool-return injection flag, every wiki-write decision. Reads ~/.second-brain/audit-log.jsonl produced by hooks. Read-only.
 user-invocable: true
-disable-model-invocation: false
+disable-model-invocation: true
 allowed-tools: Read Bash(jq *) Bash(tail *) Bash(wc *) Bash(cat *) Bash(test *) Bash(grep *) Bash(sort *) Bash(uniq *) Bash(head *) Bash(printf *) Bash(date *) Bash(find *) Bash(sed *) Bash(tr *) Bash(bash *)
 ---
 

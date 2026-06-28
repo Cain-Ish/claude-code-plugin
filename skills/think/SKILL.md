@@ -2,7 +2,7 @@
 name: think
 description: Trigger a structured Opus-level advisor brief on a non-trivial topic. Returns intent read, prompt enrichment, clarifying questions, relevant specialists, and risk flags. Use for ambiguous prompts, design decisions, or multi-domain work where the persona's prior context matters. Costs ~$0.11/call with Opus.
 user-invocable: true
-disable-model-invocation: false
+disable-model-invocation: true
 allowed-tools: mcp__plugin_second-brain_knowledge-base__persona_think
 argument-hint: "[topic]"
 ---

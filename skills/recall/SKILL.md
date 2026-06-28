@@ -3,8 +3,8 @@ name: recall
 description: Search past conversation transcripts for decisions, solutions, and context from previous sessions. Uses hybrid vector + text search over archived session transcripts.
 # Surface-collapse (0.27.0): not a user slash command — the episodic_search MCP
 # tool and the search-conversations agent cover this; the model still invokes it.
-user-invocable: false
-disable-model-invocation: false
+user-invocable: true
+disable-model-invocation: true
 allowed-tools: Read mcp__plugin_second-brain_knowledge-base__episodic_search mcp__plugin_second-brain_knowledge-base__episodic_read
 argument-hint: "[query] [--project <slug>] [--after YYYY-MM-DD]"
 ---

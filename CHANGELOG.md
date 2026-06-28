@@ -4,6 +4,17 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.24
+
+P4 skill-catalog diet — shrink the model's per-session skill catalog (no functionality removed).
+
+- Converted 6 skills (status, review, audit, lint, recall, think) to user-invocable-only
+  (disable-model-invocation: true): they leave the model's auto-discovered catalog but stay
+  available as slash-commands. The model's second-brain catalog drops from ~9 to 3
+  (query, code-review-deep, using-second-brain) — less per-session metadata + selection ambiguity.
+  Dashboards (status/review/audit) being model-invocable also contradicted the silence-default
+  principle; user-only resolves both.
+
 ## 0.33.23
 
 Path-traversal guard hardening + the cross-platform path-test discipline (adapted from

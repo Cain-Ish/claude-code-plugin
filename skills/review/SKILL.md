@@ -3,8 +3,8 @@ name: review
 description: Surface open blockers, stale projects, pending dreams, and ungraduated persona signals across all registered projects. Read-only daily/weekly overview.
 # Surface-collapse (0.27.0): not a user slash command — the SessionStart banner
 # already surfaces this status, and the model can still invoke it on request.
-user-invocable: false
-disable-model-invocation: false
+user-invocable: true
+disable-model-invocation: true
 allowed-tools: Read Bash(jq *) Bash(date *) Bash(find *) Bash(ls *) Bash(test *) Bash(cat *) Bash(wc *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(basename *) Bash(dirname *) Bash(tr *) Bash(head *) mcp__plugin_second-brain_knowledge-base__knowledge_stats
 ---
 
