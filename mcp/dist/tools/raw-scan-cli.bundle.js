@@ -6124,6 +6124,10 @@ function contentTypeForFile(path2, binary) {
 function fmValue(s) {
   return s.replace(/[\r\n]+/g, " ");
 }
+var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+function stripInvisible(s) {
+  return s.replace(INVISIBLE_RE, "");
+}
 function serialize(item) {
   const fm = ["---"];
   fm.push(`id: ${fmValue(item.id)}`);
@@ -6136,8 +6140,8 @@ function serialize(item) {
   if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
   if (item.blob) fm.push(`blob: ${fmValue(item.blob)}`);
   fm.push(`hash: ${fmValue(item.hash)}`);
-  fm.push(`gist: ${fmValue(item.gist)}`);
-  fm.push("---", "", item.body, "");
+  fm.push(`gist: ${fmValue(stripInvisible(item.gist))}`);
+  fm.push("---", "", stripInvisible(item.body), "");
   return fm.join("\n");
 }
 function parse(content, id) {
