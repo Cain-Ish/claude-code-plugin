@@ -69,6 +69,18 @@ function fmValue(s: string): string { return s.replace(/[\r\n]+/g, ' '); }
  *  escape the raw/ dir when an id arrives from outside (e.g. `--discard ../../wiki/page`). */
 function isSafeId(id: string): boolean { return !!id && !/[\\/]|\.\./.test(id); }
 
+/** Strip invisible characters that can smuggle hidden instructions into stored memory (later
+ *  mined into wiki pages and auto-injected): the Unicode Tags block (U+E0000–U+E007F) decodes
+ *  to ASCII for the model while rendering invisibly, and ZWSP/word-joiner/BOM hide token
+ *  boundaries. We deliberately KEEP U+200C/U+200D (ZWNJ/ZWJ) — they are load-bearing in many
+ *  scripts and in emoji ZWJ sequences. Applied at the serialize() write chokepoint so every
+ *  persisted raw item is clean regardless of construction path. (Spec P6 /
+ *  wiki/learnings/claude-agent-architecture-deep-2026-06.) */
+const INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+export function stripInvisible(s: string): string {
+  return s.replace(INVISIBLE_RE, '');
+}
+
 function serialize(item: RawItem): string {
   const fm: string[] = ['---'];
   fm.push(`id: ${fmValue(item.id)}`);
@@ -81,8 +93,8 @@ function serialize(item: RawItem): string {
   if (item.target_node) fm.push(`target_node: ${fmValue(item.target_node)}`);
   if (item.blob) fm.push(`blob: ${fmValue(item.blob)}`);
   fm.push(`hash: ${fmValue(item.hash)}`);
-  fm.push(`gist: ${fmValue(item.gist)}`);
-  fm.push('---', '', item.body, '');
+  fm.push(`gist: ${fmValue(stripInvisible(item.gist))}`);
+  fm.push('---', '', stripInvisible(item.body), '');
   return fm.join('\n');
 }
 

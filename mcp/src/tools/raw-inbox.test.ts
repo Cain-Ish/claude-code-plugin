@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending, pruneProcessed } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending, pruneProcessed, stripInvisible } from './raw-inbox.js';
 import type { RawItem } from './raw-inbox.js';
 
 async function brain(): Promise<{ brainDir: string; slug: string }> {
@@ -241,5 +241,49 @@ describe('partitionPending', () => {
     const { drainable, foreign } = partitionPending(items, 'proja');
     expect(drainable.map(i => i.id)).toEqual(['own', 'legacy']);
     expect(foreign.map(i => i.id)).toEqual(['foreign']);
+  });
+});
+
+describe('stripInvisible (P6a security: invisible-char sanitizer)', () => {
+  it('removes the Unicode Tags block (ASCII-smuggling channel)', () => {
+    // U+E0041/E0042 are TAG LATIN CAPITAL A/B — invisible, decode to "AB" for the model.
+    const smuggled = 'hello' + String.fromCodePoint(0xE0041, 0xE0042) + 'world';
+    expect(stripInvisible(smuggled)).toBe('helloworld');
+  });
+
+  it('removes zero-width space, word joiner, and BOM', () => {
+    const dirty = 'a' + String.fromCodePoint(0x200B) + 'b'
+      + String.fromCodePoint(0x2060) + 'c' + String.fromCodePoint(0xFEFF) + 'd';
+    expect(stripInvisible(dirty)).toBe('abcd');
+  });
+
+  it('preserves ZWNJ/ZWJ used by scripts and emoji sequences', () => {
+    // U+200D joins the family emoji; stripping it would corrupt legitimate text.
+    const family = String.fromCodePoint(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467);
+    expect(stripInvisible(family)).toBe(family);
+  });
+
+  it('is idempotent and handles empty input', () => {
+    expect(stripInvisible('')).toBe('');
+    const once = stripInvisible('x' + String.fromCodePoint(0x200B) + 'y');
+    expect(stripInvisible(once)).toBe(once);
+  });
+
+  it('captureItem stores a sanitized body and gist (end-to-end)', async () => {
+    const { brainDir, slug } = await brain();
+    const smuggled = 'safe' + String.fromCodePoint(0xE0041, 0xE0042) + String.fromCodePoint(0x200B) + 'text';
+    await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: smuggled, now: NOW });
+    const items = await listItems(brainDir, slug);
+    expect(items[0].body).toBe('safetext');
+    expect(items[0].gist).toBe('safetext');
+    expect(items[0].body).not.toMatch(/[\u{E0000}-\u{E007F}\u{200B}]/u);
+  });
+
+  it('captureItem preserves emoji ZWJ sequences in the stored body', async () => {
+    const { brainDir, slug } = await brain();
+    const family = String.fromCodePoint(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467);
+    await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: family, now: NOW });
+    const items = await listItems(brainDir, slug);
+    expect(items[0].body).toBe(family);
   });
 });
