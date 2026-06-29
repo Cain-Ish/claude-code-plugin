@@ -4,6 +4,31 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.25
+
+P4 — FORGET is now redundancy/importance-ranked (v4 correction): the eviction score no longer
+rewards usage-frequency or recency.
+
+- **`wiki-forget-score.sh` scores STRUCTURAL IMPORTANCE only** — connectivity (inbound `[[links]]`)
+  + category weight + stub floor. The access-count term (was weight 0.30) and the recency term
+  (was 0.25) are removed from the eviction score: usage-frequency is the recsys "rich-get-richer"
+  hub bias (the same signal already cut from *search* — the ~10,000× score-inflation bug class),
+  and goal-agnostic recency decay demonstrably hurts. Access count is now `acc=` telemetry only.
+- **Recency survives only in its correct role** ("may break ties, never drive eviction"): the
+  `PROTECT:age` <30d safety floor (unchanged) + a new age-DESC tie-break in the final sort, so
+  among equal-importance pages the OLDEST is forgotten first.
+- **Near-zero blast radius:** the pages FORGET actually targets (old, unaccessed orphans) already
+  had access=0 and recency=0, so their score is unchanged. The only behavioral change is the
+  intended one — a *recent or frequently-read* low-importance orphan is no longer rescued by
+  frequency/recency (`PROTECT:age` still hard-protects genuinely fresh pages).
+- **Redundancy stays the orthogonal gate** (the live recall-probe in `wiki-forget-candidates.sh`):
+  the forget set is now low structural importance AND recall-redundant — "dedup-merge + low
+  importance" as a safe conjunction (a unique page can never be evicted regardless of its score).
+- Test locks the correction: a frequently-accessed (count=50), old, orphan page must now be a
+  forget candidate (access no longer rescues it); the recency tie-break orders equal scores
+  oldest-first. The internal `SB_FORGET_W_ACCESS` / `_W_RECENCY` / `_RECENCY_DAYS` knobs are now
+  inert (silently ignored — backward-compatible).
+
 ## 0.33.24
 
 P4 skill-catalog diet — shrink the model's per-session skill catalog (no functionality removed).

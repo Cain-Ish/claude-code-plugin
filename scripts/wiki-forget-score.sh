@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
-# Composite importance per wiki page (offline signals only; NO embeddings).
-# Lower score = more forgettable. Output TSV (sorted ascending):
+# Importance per wiki page (offline signals only; NO embeddings). Lower score = more
+# forgettable. Output TSV (sorted: score ASC, then age DESC as a recency tie-break):
 #   score<TAB>slug<TAB>path<TAB>reasons<TAB>protflag
 # protflag is empty when the page is eligible for forgetting; otherwise a
-# comma-list of PROTECT:category|age|linked. Signals: access-count (sparse-ok),
-# recency (mtime), connectivity (inbound [[links]]), category weight + stub floor.
+# comma-list of PROTECT:category|age|linked.
+#
+# v4 redundancy/importance correction (spec 2026-06-26 §3, "CORRECTED v4"): the eviction
+# score is STRUCTURAL IMPORTANCE only — connectivity (inbound [[links]]) + category weight +
+# stub floor. Usage-frequency (access-count) is NOT scored — it is the recsys
+# "rich-get-richer" hub bias (the ~10,000x search-boost bug class), shown only as `acc=`
+# telemetry. Recency (mtime) does NOT drive the score either; it survives ONLY as (a) the
+# PROTECT:age safety floor and (b) the age-DESC tie-break in the final sort ("recency may break
+# ties, never drive eviction"). REDUNDANCY is the orthogonal gate downstream in
+# wiki-forget-candidates.sh (the live recall-probe), so the forget set = low structural
+# importance AND recall-redundant ("dedup-merge + low importance", as a conjunction).
 set -u
 # Category protection tiers come from the KB source of truth (kb-schema.json). Fallbacks below are
 # identical to the manifest and only used if jq/the manifest is unavailable (fail-safe: same tiers).
@@ -15,15 +24,13 @@ source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"; KD="${KD/#\~/$HOME}"; WIKI="$KD/wiki"
 BD="${BRAIN_DIR:-$HOME/.second-brain}"; AC="$BD/access-counts.json"
 MINAGE="${SB_FORGET_MIN_AGE_DAYS:-30}"
-WA="${SB_FORGET_W_ACCESS:-0.30}"; WR="${SB_FORGET_W_RECENCY:-0.25}"
+# Importance weights (connectivity + category only; v4 dropped the access & recency terms).
+# Kept at their original 0.25/0.20 values so the eviction boundary is UNCHANGED for the pages
+# FORGET actually targets — old, unaccessed orphans already had s_acc=0 and s_rec=0, so
+# removing those two terms moves their score by exactly 0. The behavioral change is only that a
+# *recent or frequently-read* low-importance orphan is no longer rescued by recency/frequency
+# (the v4 correction); PROTECT:age still hard-protects genuinely fresh (<MINAGE) pages.
 WC="${SB_FORGET_W_CONNECTIVITY:-0.25}"; WG="${SB_FORGET_W_CATEGORY:-0.20}"
-# Recency decay window (days): s_rec ramps 1 (fresh) → 0 at this horizon. Was a
-# hard-coded 180, which — against the 0.15 candidate floor plus the category
-# floor (0.04–0.10) — left a page above the floor until ~110+ days old (never,
-# for discounted types), so FORGET emitted zero candidates for any realistic
-# corpus. 90d lets a ~3-month unaccessed orphan reach s_rec≈0 → its score
-# collapses to the category floor, well under 0.15.
-REC_FULL_DAYS="${SB_FORGET_RECENCY_DAYS:-90}"
 command -v jq >/dev/null 2>&1 || { echo "forget-score: jq missing" >&2; exit 2; }
 [ -d "$WIKI" ] || { echo "forget-score: no wiki at $WIKI" >&2; exit 2; }
 now=$(date +%s)
@@ -51,10 +58,10 @@ find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while r
     body=$(wc -c < "$f")
   fi
   inb=$(inbound "$slug"); acc=$(acount "$slug")
-  # Pass values via -v + coerce to number (x=x+0) so an empty/sparse value can't produce a
-  # mawk "syntax error at or near ;" (do NOT string-interpolate into the awk program).
-  s_acc=$(awk -v a="$acc" 'BEGIN{a=a+0; v=(a<=0)?0:(log(a+1)/log(20)); print (v>1)?1:v}')
-  s_rec=$(awk -v d="$age" -v w="$REC_FULL_DAYS" 'BEGIN{d=d+0; w=w+0; if(w<=0)w=90; print (d>=w)?0:(1-d/w)}')
+  # access-count (acc) is read for telemetry ONLY (the `acc=` reason field) — it is deliberately
+  # NOT folded into the score (v4: usage-frequency is the rich-get-richer hub bias). Recency is
+  # likewise unscored (age drives only PROTECT:age + the tie-break). Pass values via -v + coerce
+  # to number (x=x+0) so an empty/sparse value can't produce a mawk "syntax error at or near ;".
   s_con=$(awk -v c="$inb" 'BEGIN{c=c+0; print (c>=3)?1:c/3}')
   # Category protection tier from kb-schema.json: PROTECTED -> never forget; DISCOUNTED -> mild;
   # else default. (Fixes the old hardcoded case that omitted `security` -> 0.2 and listed a dead
@@ -67,11 +74,15 @@ find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while r
   # inbound-link protections and the recall probe still guard it).
   case "$slug" in evolve-01*|*session*) s_cat=0.1; prot="";; esac
   [ "$body" -lt 200 ] && s_cat=$(awk -v x="$s_cat" 'BEGIN{x=x+0; print (x<0.2)?x:0.2}')
-  score=$(awk -v wa="$WA" -v wr="$WR" -v wc="$WC" -v wg="$WG" -v sa="$s_acc" -v sr="$s_rec" -v sc="$s_con" -v sg="$s_cat" \
-    'BEGIN{printf "%.3f", (wa+0)*(sa+0)+(wr+0)*(sr+0)+(wc+0)*(sc+0)+(wg+0)*(sg+0)}')
+  score=$(awk -v wc="$WC" -v wg="$WG" -v sc="$s_con" -v sg="$s_cat" \
+    'BEGIN{printf "%.3f", (wc+0)*(sc+0)+(wg+0)*(sg+0)}')
   pf="$prot"
   [ "$age" -lt "$MINAGE" ] && pf="${pf:+$pf,}PROTECT:age"
   [ "$inb" -gt 0 ] && pf="${pf:+$pf,}PROTECT:linked"
-  printf '%s\t%s\t%s\tacc=%s inb=%s age=%sd cat=%s body=%sb\t%s\n' \
-    "$score" "$slug" "$f" "$acc" "$inb" "$age" "$cat" "$body" "$pf"
-done | sort -n
+  # Prepend age as a sort-only column; the sort below uses it as the age-DESC recency
+  # tie-break, then `cut -f2-` strips it so the emitted columns are unchanged.
+  printf '%s\t%s\t%s\t%s\tacc=%s inb=%s age=%sd cat=%s body=%sb\t%s\n' \
+    "$age" "$score" "$slug" "$f" "$acc" "$inb" "$age" "$cat" "$body" "$pf"
+# score ASC (primary), then age DESC (recency tie-break) — recency only breaks ties, never
+# drives eviction (v4). Explicit secondary key avoids relying on a stable sort (BSD sort isn't).
+done | sort -t$'\t' -k2,2n -k1,1nr | cut -f2-
