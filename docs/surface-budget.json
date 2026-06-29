@@ -2,7 +2,7 @@
   "_comment": "R8 surface budget — validate-plugin.sh fails when a live count EXCEEDS its budget without a same-commit bump here. Growth must be a deliberate, git-blameable choice. Ratchet DOWN freely.",
   "skills": 18,
   "agents": 9,
-  "scripts": 50,
-  "tests": 148,
+  "scripts": 51,
+  "tests": 149,
   "upgrade_skill_max_bytes": 8192
 }

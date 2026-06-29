@@ -59,7 +59,17 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 - Rename date-prefixed files, move date to `created:` field
 
 **Phase 2: DEDUPLICATE**
-- Merge overlapping pages (keep broader, fold narrower)
+- **Find near-duplicates deterministically — don't eyeball the whole corpus.** Run the
+  offline redundancy signal (MinHash/Jaccard, no embeddings) over the staging wiki:
+  ```bash
+  DUP=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-redundancy.sh" \
+    --knowledge-dir ~/.second-brain/dreams/{dream_id}/staging)
+  ```
+  `DUP` = JSON `[{a,b,sim,a_cat,b_cat}]` for page pairs with similarity ≥ `SB_REDUNDANCY_THRESHOLD`
+  (default 0.7), sorted by sim desc; `[]` when the signal is off/unavailable (then fall back to
+  manual judgement). Each pair is a **merge candidate**, not an order — the signal proposes, you decide.
+- For each flagged pair: merge overlapping pages (keep broader, fold narrower; prefer keeping the
+  higher-value category). **Never auto-delete** — a high `sim` is evidence, not a mandate.
 - Update all references to deleted slugs
 - Add `## History` entry for merges
 

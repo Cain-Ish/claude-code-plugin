@@ -4,6 +4,27 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.26
+
+P4 redundancy engine (foundation + dream DEDUPLICATE wiring) — embedding-free near-duplicate
+detection feeding consolidation.
+
+- **New offline near-duplicate signal** (`mcp/src/tools/minhash.ts` + `wiki-redundancy-cli` +
+  `scripts/wiki-redundancy.sh`): word 3-shingles → 128-hash MinHash signature → Jaccard estimate.
+  Fully DETERMINISTIC (fixed seeds, integer-only via `Math.imul` — byte-identical signatures on
+  every OS; no `Math.random`/float drift) and dependency-free (no embeddings, no native libs).
+  Reuses the shared `djb2` + `stripAiBlock`/`stripInvisible` primitives so "what counts as prose"
+  never drifts from the FORGET scorer. The shim is fail-safe + kill-switchable (`SB_REDUNDANCY=off`
+  → `[]`), mirroring `graph-cluster.sh`.
+- **Dream DEDUPLICATE now starts from a deterministic candidate list** instead of eyeballing the
+  whole staging corpus: it runs the shim, treats each pair (sim ≥ `SB_REDUNDANCY_THRESHOLD`,
+  default 0.7) as a merge candidate, and still decides every merge by hand — the signal proposes,
+  it never auto-deletes.
+- Foundation step — the FORGET redundancy gate (continuous redundancy as a forget signal *behind*
+  the recall-probe) lands next. Tests: 10 vitest (determinism, near-dup vs distinct, prose-stripping)
+  + a shim shell test (kill-switch, flags near-dups, skips distinct); surface budget +1 script / +1
+  test; new bundle reproducible (bundle-current gate green).
+
 ## 0.33.25
 
 P4 — FORGET is now redundancy/importance-ranked (v4 correction): the eviction score no longer
