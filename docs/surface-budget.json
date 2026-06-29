@@ -3,6 +3,6 @@
   "skills": 18,
   "agents": 9,
   "scripts": 51,
-  "tests": 149,
+  "tests": 150,
   "upgrade_skill_max_bytes": 8192
 }

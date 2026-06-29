@@ -148,7 +148,33 @@ mining surfaces a clear ungrouped project, **surface it as a suggestion** in the
 ("group X, Y, Z under project `<key>`"), the same surface-only pattern as relationships.
 `projects/` + `themes/` are excluded from clustering input so MOCs never become hubs.
 
-**2f. REINDEX** — Call `knowledge_reindex` MCP tool (pointed at staging dir is not possible via MCP, so manually update staging/wiki/index.md if needed). Run AFTER SUMMARIZE so new theme + project MOC pages are catalogued in the two-tier index.
+**2e′. REFLECT** — synthesize the cross-cutting *practice* a cluster teaches (skip if `SB_DREAM_REFLECT=off`
+— machine-enforced: `graph-cluster.sh --gate reflect` returns `[]` when off, so the write loop has zero
+iterations). SUMMARIZE *indexes* a cluster; REFLECT distills the rule its members add up to, GROUNDED by
+citing them so a synthesized rule stays traceable + retractable. The one ablation-backed memory op
+(Generative Agents 2304.03442).
+
+```bash
+RCLUST=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/graph-cluster.sh" --gate reflect \
+  --knowledge-dir "$HOME/.second-brain/dreams/{dream_id}/staging")
+```
+
+Same clusters as SUMMARIZE. For each cluster, **in order**: **(1) decide eligibility FIRST** — reflect
+ONLY if **≥ half the members are actionable** (learnings/issues/decisions) AND a genuine cross-cutting
+practice emerges; otherwise **SKIP entirely, write NOTHING** (never pad, never duplicate a theme).
+**(2) idempotence** — `<id>` = smallest member slug; skip if a `reflection-<id>` page already exists with
+a matching `member_hash` in EITHER `staging/wiki/learnings/` OR `staging/wiki/concepts/` (check both — the
+type may have been chosen differently on a prior run). **(3) write** ONE page at the exact path
+`staging/wiki/learnings/reflection-<id>.md` (type `learnings`, default) or
+`staging/wiki/concepts/reflection-<id>.md` (type `concepts`, pattern-shaped) — existing categories only,
+never a new `reflections/` dir — with `generated: true`, `reflection: true`, `related: [members]` (inline
+list, NOT the `[[a]], [[b]]` form), `member_hash`, the synthesis inside `<!-- reflect:begin -->` …
+`<!-- reflect:end -->`, and a closing `Grounded in: [[member]]…` evidence line. **Do NOT author the
+`ai:begin` block** — the knowledge-maintainer backfills `evidence:` from this prose (same single-path rule
+as 2d). Reflection pages are FORGET-protected (learnings/concepts), count against the dream change budget,
+and are staged like any page.
+
+**2f. REINDEX** — Call `knowledge_reindex` MCP tool (pointed at staging dir is not possible via MCP, so manually update staging/wiki/index.md if needed). Run AFTER SUMMARIZE + REFLECT so new theme, project-MOC, and reflection pages are catalogued in the two-tier index.
 
 **2g. FORGET** — bound cold-tier wiki growth (skip entirely if `SB_WIKI_FORGET=off`).
 Scores the **LIVE** wiki read-only (it copies to a temp to probe; never mutates live —

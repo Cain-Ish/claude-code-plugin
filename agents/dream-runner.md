@@ -133,9 +133,43 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
   the same surface-only pattern as relationship suggestions. The `projects/` and `themes/` dirs
   are excluded from clustering input, so MOCs never become clustering hubs.
 
+**Phase 5b: REFLECT** (skip if `SB_DREAM_REFLECT=off` — machine-enforced: `graph-cluster.sh --gate reflect` returns `[]` when off, so the loop below writes no reflection pages even if invoked)
+- SUMMARIZE *indexes* a cluster ("these pages are about X"); REFLECT synthesizes the cross-cutting
+  **practice** the cluster teaches ("here is the rule these learnings add up to"), GROUNDED by citing
+  its members so a synthesized rule stays traceable and can be retired if later contradicted. This is
+  the one ablation-backed memory op (Generative Agents 2304.03442) — distinct from dedup/relate/enrich/summarize.
+  ```bash
+  RCLUST=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/graph-cluster.sh" --gate reflect \
+    --knowledge-dir ~/.second-brain/dreams/{dream_id}/staging)
+  ```
+- `RCLUST` = the SAME deterministic clusters SUMMARIZE uses (`[{id,members,member_hash}]`, ≥
+  `SB_SUMMARIZE_MIN_CLUSTER`, capped at `SB_SUMMARIZE_MAX_PAGES`). For each cluster, **in this order**:
+  1. **ELIGIBILITY — decide BEFORE writing anything.** Reflect ONLY if **≥ half the members are
+     actionable** (`learnings` / `issues` / `decisions`, where a practice is extractable) AND a genuine
+     cross-cutting practice actually emerges. If the cluster is mostly entities/sources/topics
+     (SUMMARIZE's job) OR no real practice surfaces, **SKIP it entirely — write NOTHING.** A reflection
+     must earn its page; never pad and never duplicate a theme.
+  2. **IDEMPOTENCE.** `<id>` = smallest member slug (the `reflection-` prefix avoids a `duplicate_slug`
+     collision). Skip if a `reflection-<id>` page already exists with a matching `member_hash` in
+     **EITHER `staging/wiki/learnings/` OR `staging/wiki/concepts/`** (check both — the type may have
+     been chosen differently on a prior run; an unchanged cluster must not produce a second page).
+  3. **WRITE one page** at the EXACT path for its type — `staging/wiki/learnings/reflection-<id>.md`
+     (default: an actionable claim/trigger/action practice) or `staging/wiki/concepts/reflection-<id>.md`
+     (a pattern: problem/solution/tradeoffs). Existing categories only — never a new `reflections/` dir.
+     - **frontmatter:** `generated: true`, `reflection: true`, `related: [member-a, member-b, …]`
+       (canonical inline list of member slugs — NOT the `[[a]], [[b]]` form, which is invalid YAML),
+       `member_hash`, plus tags.
+     - **body:** the synthesized insight INSIDE `<!-- reflect:begin -->` … `<!-- reflect:end -->` (author
+       ONLY the marked region), ending with a `Grounded in: [[member-a]], [[member-b]], …` line — the
+       evidence citation. Do NOT author the `ai:begin` block (the live knowledge-maintainer backfills
+       `evidence:` from this prose — the same single-path rule as Phase 4b).
+- Reflection pages are regenerable, FORGET-protected (learnings/concepts are protected categories), and
+  staged like any page (applied on accept). They count against the dream's change budget alongside
+  SUMMARIZE/ENRICH — if the cap is near, write fewer (highest-value practices first).
+
 **Phase 6: REINDEX**
 - Regenerate `staging/wiki/index.md` by reading all pages and building the catalog
-  (run AFTER SUMMARIZE so theme + project MOC pages are catalogued in the two-tier index)
+  (run AFTER SUMMARIZE + REFLECT so theme, project-MOC, and reflection pages are catalogued in the two-tier index)
 
 **Phase 7: FORGET** (skip if `SB_WIKI_FORGET=off`)
 - Bound cold-tier growth. Score the **LIVE** wiki read-only (the script copies to a

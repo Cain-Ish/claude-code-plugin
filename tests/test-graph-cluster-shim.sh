@@ -66,4 +66,18 @@ OUTP=$(SB_SUMMARIZE_MIN_CLUSTER=3 bash "$SHIM" --knowledge-dir "$KD2")
 [ "$(echo "$OUTP" | jq -r '.[0].members | join(",")')" = "p,q,r" ] || fail "plain related:[a,b] not clustered: $OUTP"
 pass "plain YAML list related: [a, b] is parsed (clusters p,q,r)"
 
+# --- independent kill switches: --gate reflect honors SB_DREAM_REFLECT; default honors SB_DREAM_SUMMARIZE ---
+[ "$(SB_DREAM_REFLECT=off bash "$SHIM" --gate reflect --knowledge-dir "$KD")" = '[]' ] \
+  || fail "SB_DREAM_REFLECT=off must gate the --gate reflect consumer to []"
+pass "SB_DREAM_REFLECT=off gates the reflect consumer"
+[ "$(SB_DREAM_SUMMARIZE=off bash "$SHIM" --gate reflect --knowledge-dir "$KD")" != '[]' ] \
+  || fail "SB_DREAM_SUMMARIZE=off must NOT gate --gate reflect (switches are independent)"
+pass "reflect consumer is independent of SB_DREAM_SUMMARIZE"
+[ "$(SB_DREAM_SUMMARIZE=off bash "$SHIM" --knowledge-dir "$KD")" = '[]' ] \
+  || fail "SB_DREAM_SUMMARIZE=off must gate the default (summarize) consumer to []"
+pass "SB_DREAM_SUMMARIZE=off gates the summarize consumer"
+[ "$(SB_DREAM_REFLECT=off bash "$SHIM" --knowledge-dir "$KD")" != '[]' ] \
+  || fail "SB_DREAM_REFLECT=off must NOT gate the default summarize consumer"
+pass "summarize consumer is independent of SB_DREAM_REFLECT"
+
 echo; echo "ALL PASS"

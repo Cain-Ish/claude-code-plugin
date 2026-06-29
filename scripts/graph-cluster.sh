@@ -6,20 +6,24 @@
 # dream SUMMARIZE phase simply produces no theme pages this run.
 # Usage: graph-cluster.sh --knowledge-dir <dir>   (clusters <dir>/wiki)
 set -u
-KDIR=""
+KDIR=""; GATE="summarize"   # which consumer's kill switch to honor: summarize | reflect
 while [ $# -gt 0 ]; do
   case "$1" in
     --knowledge-dir) KDIR="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+    --gate) GATE="${2:-summarize}"; shift $(( $# > 1 ? 2 : 1 )) ;;
     *) shift ;;
   esac
 done
 [ -z "$KDIR" ] && KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
 KDIR="${KDIR/#\~/$HOME}"
-# Machine-enforce the SUMMARIZE kill switch HERE (not just in the agent prose): when
-# SB_DREAM_SUMMARIZE=off, emit the same `[]` sentinel the fail-safe path uses so the
-# dream's SUMMARIZE loop writes zero theme pages — byte-identical to the documented skip,
-# independent of what the LLM does with the result. (Default on; only the literal `off` gates.)
-if [ "${SB_DREAM_SUMMARIZE:-on}" = "off" ]; then echo '[]'; exit 0; fi
+# Machine-enforce the consumer's kill switch HERE (not just in agent prose): emit the same `[]`
+# sentinel the fail-safe path uses so the dream's SUMMARIZE/REFLECT loop writes zero pages —
+# byte-identical to the documented skip, independent of what the LLM does. The two consumers gate
+# INDEPENDENTLY (a user may want themes without reflections or vice-versa). Default on; only `off` gates.
+case "$GATE" in
+  reflect) [ "${SB_DREAM_REFLECT:-on}" = "off" ] && { echo '[]'; exit 0; } ;;
+  *)       [ "${SB_DREAM_SUMMARIZE:-on}" = "off" ] && { echo '[]'; exit 0; } ;;
+esac
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BUNDLE="$ROOT/mcp/dist/tools/graph-cluster-cli.bundle.js"
 

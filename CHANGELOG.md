@@ -4,6 +4,28 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.28
+
+P4 reflection op — the dream now synthesizes grounded cross-cutting practices from memory clusters.
+
+- **New dream phase REFLECT** (Phase 5b, after SUMMARIZE): SUMMARIZE *indexes* a cluster ("these
+  pages are about X"); REFLECT distills the *practice* its members add up to ("here's the rule"),
+  GROUNDED by citing the members so a synthesized rule stays traceable and can be retired if later
+  contradicted. The one ablation-backed memory op (Generative Agents 2304.03442) — distinct from
+  dedup/relate/enrich/summarize.
+- Reuses the SAME deterministic `graph-cluster.sh` clusters; fires only on **actionable** clusters
+  (learnings/issues/decisions, where a practice is extractable) — pure entity/topic clusters stay
+  SUMMARIZE's job. Writes ONE `reflection-<id>` page per eligible cluster (type `learnings`, or
+  `concepts` when pattern-shaped) in EXISTING categories — never a new `reflections/` dir (P4
+  collapses categories, not adds).
+- **Cadence resolved** (the spec's open question): per-dream, gated on cluster eligibility +
+  `member_hash` idempotence (an unchanged cluster is not re-reflected) — not the Generative-Agents
+  importance accumulator, which assumes a continuous agent loop we don't have.
+- **Independent kill switch:** `graph-cluster.sh` gains a `--gate` flag so REFLECT (`SB_DREAM_REFLECT`)
+  and SUMMARIZE (`SB_DREAM_SUMMARIZE`) gate independently, both machine-enforced (shim returns `[]`).
+- Wired in both the background dream-runner and the foreground dream skill. Tests: independent-gate
+  assertions in the shim test + a reflect-wiring guard (+1 test).
+
 ## 0.33.27
 
 P4 FORGET redundancy cross-check — MinHash now gates archiving to prevent false-forgets.
