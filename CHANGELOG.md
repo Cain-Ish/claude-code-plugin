@@ -4,6 +4,25 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.27
+
+P4 FORGET redundancy cross-check — MinHash now gates archiving to prevent false-forgets.
+
+- **`wiki-forget-candidates.sh` archives a page only when the recall-probe AND a MinHash near-dup
+  agree.** The recall-probe's notion of "redundant" is BM25 topic-coverage, looser than duplication —
+  it could false-forget a distinct page that merely shares a topic (e.g. "indexing basics" vs
+  "advanced indexing", same tags). The cross-check requires a genuine body near-duplicate
+  (sim ≥ `SB_FORGET_REDUNDANCY_THRESHOLD`, default 0.8) before archiving, so distinct same-topic pages
+  are kept. (Finding: after the 0.33.25 re-ranking every *unprotected* page is already a score
+  candidate and the recall-probe already gates redundancy — so MinHash's real value in FORGET is
+  precision, not new candidates.)
+- **Keep ≥1 per near-dup cluster:** once one twin is archived, its twins are protected from being
+  archived the same run — two near-dup copies are never both forgotten.
+- **Graceful fallback, never a silent no-op:** when the MinHash engine is unavailable (no node/bundle,
+  or `SB_REDUNDANCY=off`) FORGET reverts to the prior recall-probe-only behavior, announced on stderr.
+- Test rewrite locks all four paths: unique→protected, genuine near-dup→exactly one archived,
+  distinct same-topic→both kept, fallback→prior behavior.
+
 ## 0.33.26
 
 P4 redundancy engine (foundation + dream DEDUPLICATE wiring) — embedding-free near-duplicate
