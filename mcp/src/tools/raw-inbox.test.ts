@@ -316,3 +316,98 @@ describe('stripInvisible (P6a security: invisible-char sanitizer)', () => {
     expect(it0.source).toBe('http://x/');
   });
 });
+
+describe('raw-inbox write-path near-dup (NOOP/UPDATE)', () => {
+  const words = (n: number) => Array.from({ length: n }, (_, i) => `alpha${i}`).join(' ');
+  const A50 = words(50);
+  const A52 = words(52);                  // A50 is a 48-shingle prefix of A52's 50 → Jaccard 0.96 ≥ 0.9
+  const B = Array.from({ length: 50 }, (_, i) => `beta${i}`).join(' '); // disjoint tokens → sim ~0
+  // Stage a pre-existing raw item directly (captureItem would collapse near-dups, so a "dirty inbox
+  // that already had near-dups before the feature shipped" must be written by hand).
+  const writeRawFile = async (brainDir: string, slug: string, id: string, body: string, source = 'paste') => {
+    const dir = rawDir(brainDir, slug); await fs.mkdir(dir, { recursive: true });
+    const fm = ['---', `id: ${id}`, `source: ${source}`, 'captured_at: 2026-06-03T12:00:00Z',
+      'captured_by: user', 'content_type: text/markdown', 'status: unprocessed',
+      `hash: hash-${id}`, `gist: ${body.slice(0, 20)}`, '---', '', body, ''].join('\n');
+    await fs.writeFile(join(dir, `${id}.md`), fm);
+  };
+
+  it('UPDATE: a longer near-dup replaces the existing item in place (same id, keeps the longer body)', async () => {
+    const { brainDir, slug } = await brain();
+    const a = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A50, now: '2026-06-03T14:00:00Z' });
+    const b = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A52, now: '2026-06-03T15:00:00Z' });
+    expect(b.nearDup).toBe('updated');
+    expect(b.id).toBe(a.id);                                      // same item, updated in place
+    expect(await unprocessedCount(brainDir, slug)).toBe(1);       // collapsed to one
+    expect((await listItems(brainDir, slug))[0].body).toBe(A52);  // kept the LONGER body
+  });
+
+  it('NOOP: a shorter (or equal) near-dup is dropped; the more-complete item stays', async () => {
+    const { brainDir, slug } = await brain();
+    const a = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A52, now: '2026-06-03T14:00:00Z' });
+    const b = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A50, now: '2026-06-03T15:00:00Z' });
+    expect(b.nearDup).toBe('noop');
+    expect(b.id).toBe(a.id);
+    expect(await unprocessedCount(brainDir, slug)).toBe(1);
+    expect((await listItems(brainDir, slug))[0].body).toBe(A52); // longer original preserved
+  });
+
+  it('distinct captures are BOTH kept (no false near-dup collapse)', async () => {
+    const { brainDir, slug } = await brain();
+    await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A50, now: '2026-06-03T14:00:00Z' });
+    const b = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: B, now: '2026-06-03T15:00:00Z' });
+    expect(b.nearDup).toBeUndefined();
+    expect(b.duplicate).toBe(false);
+    expect(await unprocessedCount(brainDir, slug)).toBe(2);
+  });
+
+  it('SB_CAPTURE_DEDUP=off disables near-dup collapse (exact-hash dedup still applies)', async () => {
+    const { brainDir, slug } = await brain();
+    const prev = process.env.SB_CAPTURE_DEDUP;
+    process.env.SB_CAPTURE_DEDUP = 'off';
+    try {
+      await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A50, now: '2026-06-03T14:00:00Z' });
+      const b = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A52, now: '2026-06-03T15:00:00Z' });
+      expect(b.nearDup).toBeUndefined();
+      expect(await unprocessedCount(brainDir, slug)).toBe(2);    // both kept (near-dup off)
+    } finally {
+      if (prev === undefined) delete process.env.SB_CAPTURE_DEDUP; else process.env.SB_CAPTURE_DEDUP = prev;
+    }
+  });
+
+  it('a near-dup does NOT collapse into a PROCESSED item (unprocessed-scope only — re-capture of a drained item is kept)', async () => {
+    const { brainDir, slug } = await brain();
+    const a = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A52, now: '2026-06-03T14:00:00Z' });
+    await markProcessed(brainDir, slug, a.id);                   // drained into the wiki
+    const b = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A50, now: '2026-06-03T15:00:00Z' });
+    expect(b.nearDup).toBeUndefined();                          // a processed item is not a near-dup target
+    expect(b.duplicate).toBe(false);
+    expect(await unprocessedCount(brainDir, slug)).toBe(1);     // the new capture is added fresh
+  });
+
+  it('UPDATE preserves the original source/provenance (does not flip a file capture to paste)', async () => {
+    const { brainDir, slug } = await brain();
+    const f = join(brainDir, 'orig.md');
+    await fs.writeFile(f, A50);
+    const a = await captureItem({ brainDir, slug, kind: 'file', source: f, now: '2026-06-03T14:00:00Z' });
+    const b = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A52, now: '2026-06-03T15:00:00Z' });
+    expect(b.nearDup).toBe('updated');
+    expect(b.id).toBe(a.id);
+    const it = (await listItems(brainDir, slug))[0];
+    expect(it.body).toBe(A52);                                  // content enriched
+    expect(it.source).toBe(f);                                  // provenance PRESERVED (not 'paste')
+  });
+
+  it('best-match scan: a new capture references the LONGEST near-dup, not the first by id', async () => {
+    const { brainDir, slug } = await brain();
+    // Pre-existing near-dup pair: short sorts FIRST by id, long sorts later.
+    await writeRawFile(brainDir, slug, '20260603T140000Z-short', words(48));
+    await writeRawFile(brainDir, slug, '20260603T150000Z-long', A52);
+    const b = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content: A50, now: '2026-06-03T16:00:00Z' });
+    expect(b.nearDup).toBe('noop');                            // NOOP against the LONGER (best), not UPDATE the shorter
+    expect(b.id).toBe('20260603T150000Z-long');               // referenced the longest match, not the first
+    expect(await unprocessedCount(brainDir, slug)).toBe(2);    // new not added; both pre-existing kept
+    const items = await listItems(brainDir, slug);
+    expect(items.find(i => i.id === '20260603T140000Z-short')!.body).toBe(words(48)); // short NOT updated
+  });
+});

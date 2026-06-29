@@ -1936,7 +1936,7 @@ var L = class u2 {
     return this.#S;
   }
   constructor(e) {
-    let { max: t = 0, ttl: i, ttlResolution: s = 1, ttlAutopurge: n, updateAgeOnGet: o, updateAgeOnHas: r, allowStale: h, dispose: l, onInsert: c, disposeAfter: f, noDisposeOnSet: g, noUpdateTTL: p, maxSize: T = 0, maxEntrySize: w = 0, sizeCalculation: y, fetchMethod: a, memoMethod: m, noDeleteOnFetchRejection: _, noDeleteOnStaleGet: b, allowStaleOnFetchRejection: d, allowStaleOnFetchAbort: A, ignoreFetchAbort: z, perf: x } = e;
+    let { max: t = 0, ttl: i, ttlResolution: s = 1, ttlAutopurge: n, updateAgeOnGet: o, updateAgeOnHas: r, allowStale: h, dispose: l, onInsert: c, disposeAfter: f, noDisposeOnSet: g, noUpdateTTL: p, maxSize: T = 0, maxEntrySize: w = 0, sizeCalculation: y, fetchMethod: a, memoMethod: m, noDeleteOnFetchRejection: _, noDeleteOnStaleGet: b, allowStaleOnFetchRejection: d, allowStaleOnFetchAbort: A2, ignoreFetchAbort: z, perf: x } = e;
     if (x !== void 0 && typeof x?.now != "function") throw new TypeError("perf option must have a now() method if specified");
     if (this.#m = x ?? G, t !== 0 && !F(t)) throw new TypeError("max option must be a nonnegative integer");
     let v = t ? U(t) : Array;
@@ -1947,7 +1947,7 @@ var L = class u2 {
     }
     if (m !== void 0 && typeof m != "function") throw new TypeError("memoMethod must be a function if defined");
     if (this.#U = m, a !== void 0 && typeof a != "function") throw new TypeError("fetchMethod must be a function if specified");
-    if (this.#M = a, this.#W = !!a, this.#s = /* @__PURE__ */ new Map(), this.#i = Array.from({ length: t }).fill(void 0), this.#t = Array.from({ length: t }).fill(void 0), this.#a = new v(t), this.#c = new v(t), this.#l = 0, this.#h = 0, this.#y = R.create(t), this.#n = 0, this.#b = 0, typeof l == "function" && (this.#w = l), typeof c == "function" && (this.#D = c), typeof f == "function" ? (this.#S = f, this.#r = []) : (this.#S = void 0, this.#r = void 0), this.#T = !!this.#w, this.#j = !!this.#D, this.#f = !!this.#S, this.noDisposeOnSet = !!g, this.noUpdateTTL = !!p, this.noDeleteOnFetchRejection = !!_, this.allowStaleOnFetchRejection = !!d, this.allowStaleOnFetchAbort = !!A, this.ignoreFetchAbort = !!z, this.maxEntrySize !== 0) {
+    if (this.#M = a, this.#W = !!a, this.#s = /* @__PURE__ */ new Map(), this.#i = Array.from({ length: t }).fill(void 0), this.#t = Array.from({ length: t }).fill(void 0), this.#a = new v(t), this.#c = new v(t), this.#l = 0, this.#h = 0, this.#y = R.create(t), this.#n = 0, this.#b = 0, typeof l == "function" && (this.#w = l), typeof c == "function" && (this.#D = c), typeof f == "function" ? (this.#S = f, this.#r = []) : (this.#S = void 0, this.#r = void 0), this.#T = !!this.#w, this.#j = !!this.#D, this.#f = !!this.#S, this.noDisposeOnSet = !!g, this.noUpdateTTL = !!p, this.noDeleteOnFetchRejection = !!_, this.allowStaleOnFetchRejection = !!d, this.allowStaleOnFetchAbort = !!A2, this.ignoreFetchAbort = !!z, this.maxEntrySize !== 0) {
       if (this.#u !== 0 && !F(this.#u)) throw new TypeError("maxSize must be a positive integer if specified");
       if (!F(this.maxEntrySize)) throw new TypeError("maxEntrySize must be a positive integer if specified");
       this.#X();
@@ -2285,10 +2285,10 @@ var L = class u2 {
         let E = i && d.__staleWhileFetching !== void 0;
         return a && (a.fetch = "inflight", E && (a.returnedStale = true)), E ? d.__staleWhileFetching : d.__returned = d;
       }
-      let A = this.#p(b);
-      if (!y && !A) return a && (a.fetch = "hit"), this.#L(b), s && this.#x(b), a && this.#E(a, b), d;
+      let A2 = this.#p(b);
+      if (!y && !A2) return a && (a.fetch = "hit"), this.#L(b), s && this.#x(b), a && this.#E(a, b), d;
       let z = this.#P(e, b, _, w), v = z.__staleWhileFetching !== void 0 && i;
-      return a && (a.fetch = A ? "stale" : "refresh", v && A && (a.returnedStale = true)), v ? z.__staleWhileFetching : z.__returned = z;
+      return a && (a.fetch = A2 ? "stale" : "refresh", v && A2 && (a.returnedStale = true)), v ? z.__staleWhileFetching : z.__returned = z;
     }
   }
   forceFetch(e, t = {}) {
@@ -6091,6 +6091,86 @@ function stripInvisible(s) {
   return s.replace(INVISIBLE_RE, "");
 }
 
+// src/tools/graph-cluster.ts
+function djb2(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
+function stripAiBlock(text) {
+  return text.replace(AI_BLOCK_RE_G, "");
+}
+
+// src/tools/minhash.ts
+var SHINGLE_K = 3;
+var NUM_HASHES = 128;
+var EMPTY_HASH = 4294967295;
+var A = new Uint32Array(NUM_HASHES);
+var B = new Uint32Array(NUM_HASHES);
+{
+  let seed = 2654435761 >>> 0;
+  const nextRand = () => {
+    seed = Math.imul(seed, 1664525) + 1013904223 >>> 0;
+    return seed;
+  };
+  for (let i = 0; i < NUM_HASHES; i++) {
+    A[i] = (nextRand() | 1) >>> 0;
+    B[i] = nextRand() >>> 0;
+  }
+}
+function proseTokens(content) {
+  let t = stripAiBlock(stripInvisible(content));
+  t = t.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
+  t = t.replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, "");
+  t = t.replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, "");
+  t = t.replace(/\[\[([^\]]+)\]\]/g, " ");
+  return t.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+function shingles(content, k = SHINGLE_K) {
+  const w = proseTokens(content);
+  const set = /* @__PURE__ */ new Set();
+  if (w.length === 0) return set;
+  if (w.length < k) {
+    set.add(w.join(" "));
+    return set;
+  }
+  for (let i = 0; i + k <= w.length; i++) set.add(w.slice(i, i + k).join(" "));
+  return set;
+}
+function baseHash(shingle) {
+  return parseInt(djb2(shingle), 36) >>> 0;
+}
+function minhashSignature(shingleSet) {
+  const sig = new Uint32Array(NUM_HASHES).fill(EMPTY_HASH);
+  for (const sh of shingleSet) {
+    const base = baseHash(sh);
+    for (let i = 0; i < NUM_HASHES; i++) {
+      const h = Math.imul(A[i], base) + B[i] >>> 0;
+      if (h < sig[i]) sig[i] = h;
+    }
+  }
+  return sig;
+}
+function signatureOf(content) {
+  return minhashSignature(shingles(content));
+}
+function jaccardEstimate(a, b) {
+  const n = Math.min(a.length, b.length);
+  if (n === 0) return 0;
+  let eq = 0;
+  for (let i = 0; i < n; i++) if (a[i] === b[i]) eq++;
+  return eq / n;
+}
+function isEmptySignature(sig) {
+  if (sig.length === 0) return true;
+  for (let i = 0; i < sig.length; i++) if (sig[i] !== EMPTY_HASH) return false;
+  return true;
+}
+
 // src/tools/raw-inbox.ts
 function rawDir(brainDir, slug) {
   return join(brainDir, "projects", slug, "raw");
@@ -6317,9 +6397,38 @@ async function captureItem(input) {
     }
   }
   const hash = hashContent(hashInput);
-  const existing = (await readItems(input.brainDir, input.slug)).find((i) => i.hash === hash && i.status === "unprocessed");
+  const gist = gistSeed.replace(/^#\s*/, "").split("\n").map((l) => l.trim()).find(Boolean)?.slice(0, 120) ?? "";
+  const items = await readItems(input.brainDir, input.slug);
+  const existing = items.find((i) => i.hash === hash && i.status === "unprocessed");
   if (existing) {
     return { id: existing.id, duplicate: true, unprocessed: await unprocessedCount(input.brainDir, input.slug) };
+  }
+  if (!blobBuf && (process.env.SB_CAPTURE_DEDUP ?? "on").toLowerCase() !== "off") {
+    const tv = parseFloat(process.env.SB_CAPTURE_DEDUP_THRESHOLD ?? "");
+    const thr = Number.isFinite(tv) && tv > 0 && tv <= 1 ? tv : 0.9;
+    const newBody = stripInvisible(body.trim());
+    const newSig = signatureOf(body);
+    if (!isEmptySignature(newSig)) {
+      let best;
+      for (const i of items) {
+        if (i.status !== "unprocessed" || i.malformed || i.blob) continue;
+        const sig = signatureOf(i.body);
+        if (isEmptySignature(sig) || jaccardEstimate(newSig, sig) < thr) continue;
+        if (!best || i.body.length > best.body.length) best = i;
+      }
+      if (best) {
+        if (newBody.length > best.body.length) {
+          const updated = { ...best, hash, gist, body };
+          const p = join(dir, `${best.id}.md`);
+          const tmp2 = `${p}.tmp`;
+          await fs.mkdir(dir, { recursive: true });
+          await fs.writeFile(tmp2, serialize(updated));
+          await fs.rename(tmp2, p);
+          return { id: best.id, duplicate: true, nearDup: "updated", unprocessed: await unprocessedCount(input.brainDir, input.slug) };
+        }
+        return { id: best.id, duplicate: true, nearDup: "noop", unprocessed: await unprocessedCount(input.brainDir, input.slug) };
+      }
+    }
   }
   await fs.mkdir(dir, { recursive: true });
   const sourceSlug = input.kind === "url" ? slugify(input.content ?? input.source) : input.kind === "file" ? slugify(basename(input.source)) : slugify(body);
@@ -6339,7 +6448,6 @@ async function captureItem(input) {
     await fs.writeFile(btmp, blobBuf);
     await fs.rename(btmp, join(dir, blob));
   }
-  const gist = gistSeed.replace(/^#\s*/, "").split("\n").map((l) => l.trim()).find(Boolean)?.slice(0, 120) ?? "";
   const item = {
     id,
     source: input.source,
@@ -6456,6 +6564,11 @@ function takeNode(args) {
   const { rest, value } = takeFlag(args, "node");
   return { rest, node: value };
 }
+function captureVerb(r) {
+  if (r.nearDup === "updated") return "Updated near-duplicate (kept the longer version) \u2014";
+  if (r.nearDup === "noop") return "Skipped near-duplicate of";
+  return r.duplicate ? "Already captured" : "Captured";
+}
 async function main() {
   const brainDir = resolveBrainDir();
   const { rest: argvAfterSlug, value: flagSlug } = takeFlag(process.argv.slice(2), "slug");
@@ -6509,7 +6622,7 @@ async function main() {
         return;
       }
       const r = await captureItem({ brainDir, slug, kind: "paste", source: "paste", content, targetNode: node, origin: slug });
-      console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} \u2014 ${r.unprocessed} unprocessed.`);
+      console.log(`${captureVerb(r)} ${r.id} \u2014 ${r.unprocessed} unprocessed.`);
     } else if (action === "capture") {
       const src = rest[0];
       if (!src) {
@@ -6530,7 +6643,7 @@ async function main() {
         source = "paste";
       }
       const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node, origin: slug });
-      console.log(`${r.duplicate ? "Already captured" : "Captured"} ${r.id} (${kind}) \u2014 ${r.unprocessed} unprocessed.`);
+      console.log(`${captureVerb(r)} ${r.id} (${kind}) \u2014 ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);
       console.log(`usage: capture [--slug <project>] <path|url> | capture paste | capture list | capture discard <id> | capture pending | capture process <id> | capture prune-processed  (${n} unprocessed)`);

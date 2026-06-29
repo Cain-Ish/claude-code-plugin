@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import { join, basename, extname } from 'path';
 import { hashContent, assertSafeSlug } from './doc-sources.js';
 import { stripInvisible } from './sanitize.js';
+import { signatureOf, jaccardEstimate, isEmptySignature } from './minhash.js';
 // Re-exported for back-compat: existing importers (and raw-inbox.test.ts) import stripInvisible
 // from here. The canonical definition now lives in ./sanitize.ts (single source of truth).
 export { stripInvisible } from './sanitize.js';
@@ -233,7 +234,7 @@ export async function pruneProcessed(brainDir: string, slug: string): Promise<nu
   return removed;
 }
 
-export async function captureItem(input: CaptureInput): Promise<{ id: string; duplicate: boolean; unprocessed: number }> {
+export async function captureItem(input: CaptureInput): Promise<{ id: string; duplicate: boolean; unprocessed: number; nearDup?: 'noop' | 'updated' }> {
   assertSafeSlug(input.slug);
   const dir = rawDir(input.brainDir, input.slug);
   const now = input.now ?? new Date().toISOString();
@@ -275,12 +276,57 @@ export async function captureItem(input: CaptureInput): Promise<{ id: string; du
   }
 
   const hash = hashContent(hashInput);
+  const gist = gistSeed.replace(/^#\s*/, '').split('\n').map(l => l.trim()).find(Boolean)?.slice(0, 120) ?? '';
 
-  // Dedup: an existing UNPROCESSED item with the same hash → return it.
-  const existing = (await readItems(input.brainDir, input.slug))
-    .find(i => i.hash === hash && i.status === 'unprocessed');
+  const items = await readItems(input.brainDir, input.slug);
+
+  // Dedup (exact): an existing UNPROCESSED item with the same content hash → return it.
+  const existing = items.find(i => i.hash === hash && i.status === 'unprocessed');
   if (existing) {
     return { id: existing.id, duplicate: true, unprocessed: await unprocessedCount(input.brainDir, input.slug) };
+  }
+
+  // Write-path near-dup NOOP/UPDATE (text only; binary relies on the exact-hash dedup above). A
+  // capture that is a MinHash near-duplicate (sim >= threshold, default 0.9) of an existing
+  // UNPROCESSED item is collapsed to ONE item: keep the LONGER/more-complete body in place (UPDATE),
+  // else drop the new one (NOOP) — so the inbox never accretes near-dup captures, and never loses the
+  // more-complete version. Scoped to the not-yet-drained inbox only (never the wiki). Off via
+  // SB_CAPTURE_DEDUP=off. (mem0 ADD/UPDATE/NOOP salience filter, promoted to the write path.)
+  if (!blobBuf && (process.env.SB_CAPTURE_DEDUP ?? 'on').toLowerCase() !== 'off') {
+    const tv = parseFloat(process.env.SB_CAPTURE_DEDUP_THRESHOLD ?? '');
+    const thr = Number.isFinite(tv) && tv > 0 && tv <= 1 ? tv : 0.9;
+    // Compare lengths on the SAME normalized basis as the stored body (parse() returns
+    // stripInvisible(body.trim())) — else trailing whitespace/invisibles would spuriously look
+    // "longer" and trigger a content-free UPDATE that overwrites the existing item.
+    const newBody = stripInvisible(body.trim());
+    const newSig = signatureOf(body);
+    if (!isEmptySignature(newSig)) {
+      // Scan ALL unprocessed text items and keep the LONGEST near-dup as the reference, so a new
+      // capture is never dropped against a shorter match while a more-complete one goes unvisited
+      // (the pre-existing-near-dup-pair case). First-match-exit would mis-reference.
+      let best: RawItem | undefined;
+      for (const i of items) {
+        if (i.status !== 'unprocessed' || i.malformed || i.blob) continue;  // text, drainable items only
+        const sig = signatureOf(i.body);
+        if (isEmptySignature(sig) || jaccardEstimate(newSig, sig) < thr) continue;
+        if (!best || i.body.length > best.body.length) best = i;
+      }
+      if (best) {
+        if (newBody.length > best.body.length) {                 // new is genuinely more complete -> UPDATE
+          // Enrich content ONLY; preserve the existing item's id + ALL provenance (source,
+          // captured_at/by, origin, content_type, target_node) so a recapture can't erase the
+          // original source (e.g. flip a file capture to 'paste').
+          const updated: RawItem = { ...best, hash, gist, body };
+          const p = join(dir, `${best.id}.md`); const tmp = `${p}.tmp`;
+          await fs.mkdir(dir, { recursive: true });
+          await fs.writeFile(tmp, serialize(updated));
+          await fs.rename(tmp, p);                                // atomic
+          return { id: best.id, duplicate: true, nearDup: 'updated', unprocessed: await unprocessedCount(input.brainDir, input.slug) };
+        }
+        // existing is >= as complete -> drop the new capture (its content is subsumed by `best`)
+        return { id: best.id, duplicate: true, nearDup: 'noop', unprocessed: await unprocessedCount(input.brainDir, input.slug) };
+      }
+    }
   }
 
   // Unique id (collision suffix).
@@ -301,7 +347,6 @@ export async function captureItem(input: CaptureInput): Promise<{ id: string; du
     await fs.rename(btmp, join(dir, blob));
   }
 
-  const gist = gistSeed.replace(/^#\s*/, '').split('\n').map(l => l.trim()).find(Boolean)?.slice(0, 120) ?? '';
   const item: RawItem = {
     id, source: input.source, captured_at: now, captured_by: capturedBy,
     origin: input.origin,

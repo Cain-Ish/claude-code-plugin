@@ -4,6 +4,22 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.29
+
+P4 write-path NOOP — near-duplicate captures are collapsed at capture time (redundancy engine, write arm).
+
+- **`captureItem` now extends exact-hash dedup to NEAR-dup** (MinHash, reusing `minhash.ts`): a capture
+  that is a near-duplicate (sim ≥ `SB_CAPTURE_DEDUP_THRESHOLD`, default 0.9) of an existing UNPROCESSED
+  raw item is collapsed to one item — **keep the longer/more-complete body** in place (UPDATE) or drop
+  the new one (NOOP). Never loses the more-complete version; never compares against the wiki (only the
+  not-yet-drained inbox); text-only (binary keeps exact-hash dedup). Off via `SB_CAPTURE_DEDUP=off`.
+- This is the mem0 ADD/UPDATE/NOOP salience filter promoted to the write path — the inbox no longer
+  accretes near-dup captures (e.g. Stop + PreCompact capturing the same decision with minor wording
+  differences) that would each become a near-dup wiki page before the dream dedups them.
+- The capture CLI reports the outcome ("Updated near-duplicate (kept the longer version)" /
+  "Skipped near-duplicate of"). Tests: UPDATE, NOOP, distinct-kept, kill-switch, and the
+  unprocessed-scope-only guard (a re-capture of an already-drained item is kept).
+
 ## 0.33.28
 
 P4 reflection op — the dream now synthesizes grounded cross-cutting practices from memory clusters.

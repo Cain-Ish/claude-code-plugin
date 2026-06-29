@@ -26,6 +26,13 @@ function takeNode(args: string[]): { rest: string[]; node?: string } {
   return { rest, node: value };
 }
 
+/** Human verb for a capture result — distinguishes a fresh add from exact-dup / near-dup outcomes. */
+function captureVerb(r: { duplicate: boolean; nearDup?: 'noop' | 'updated' }): string {
+  if (r.nearDup === 'updated') return 'Updated near-duplicate (kept the longer version) —';
+  if (r.nearDup === 'noop') return 'Skipped near-duplicate of';
+  return r.duplicate ? 'Already captured' : 'Captured';
+}
+
 async function main(): Promise<void> {
   const brainDir = resolveBrainDir();
 
@@ -80,7 +87,7 @@ async function main(): Promise<void> {
       const content = readFileSync(0, 'utf-8');           // stdin
       if (!content.trim()) { console.log('capture: nothing on stdin.'); return; }
       const r = await captureItem({ brainDir, slug, kind: 'paste', source: 'paste', content, targetNode: node, origin: slug });
-      console.log(`${r.duplicate ? 'Already captured' : 'Captured'} ${r.id} — ${r.unprocessed} unprocessed.`);
+      console.log(`${captureVerb(r)} ${r.id} — ${r.unprocessed} unprocessed.`);
     } else if (action === 'capture') {
       const src = rest[0];
       if (!src) { console.log('usage: capture [--slug <project>] <path|url> [--node <slug>]  |  capture paste'); return; }
@@ -89,7 +96,7 @@ async function main(): Promise<void> {
       else if (existsSync(src) && statSync(src).isFile()) { kind = 'file'; }
       else { kind = 'paste'; content = src; source = 'paste'; } // inline text → canonical paste source
       const r = await captureItem({ brainDir, slug, kind, source, content, targetNode: node, origin: slug });
-      console.log(`${r.duplicate ? 'Already captured' : 'Captured'} ${r.id} (${kind}) — ${r.unprocessed} unprocessed.`);
+      console.log(`${captureVerb(r)} ${r.id} (${kind}) — ${r.unprocessed} unprocessed.`);
     } else {
       const n = await unprocessedCount(brainDir, slug);
       console.log(`usage: capture [--slug <project>] <path|url> | capture paste | capture list | capture discard <id> | capture pending | capture process <id> | capture prune-processed  (${n} unprocessed)`);
