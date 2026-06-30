@@ -80,8 +80,9 @@ interface AccessCounts { [slug: string]: { count: number; last_accessed: string 
 function accessCountsFile(): string {
   return join(resolveBrainDir(), 'access-counts.json');
 }
-const ACCESS_BOOST_FACTOR = 0.1;
-const ACCESS_BOOST_CAP = 10;
+// P4b (spec 2026-06-26 §6): the access-frequency SEARCH BOOST was cut — it is the recsys
+// "rich-get-richer" hub bias (the ~10,000x corruption class). Access counts now survive ONLY
+// as `acc=` telemetry in wiki-forget-score.sh (recorded below, never folded into ranking).
 const ACCESS_PRUNE_DAYS = 90;
 
 async function loadAccessCounts(): Promise<AccessCounts> {
@@ -304,17 +305,6 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     }
   }
 
-  // Access frequency boost: pages retrieved often get a minor relevance bump
-  const accessCounts = await loadAccessCounts();
-  for (let i = 0; i < scored.length; i++) {
-    if (scored[i].score <= 0) continue;
-    const slug = slugFromPath(scored[i].path);
-    const ac = accessCounts[slug];
-    if (ac) {
-      scored[i].score *= 1 + ACCESS_BOOST_FACTOR * Math.min(ac.count, ACCESS_BOOST_CAP);
-    }
-  }
-
   // Recency boost: recently-updated pages get a linear-decay bonus
   const RECENCY_BOOST_MAX = 0.3;
   const RECENCY_WINDOW_DAYS = 90;
@@ -387,7 +377,8 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       ...(scopeOn ? { tier } : {}),
     }));
 
-  // Record access for returned results (fire-and-forget)
+  // Record access for returned results (fire-and-forget) — telemetry only (see ACCESS_PRUNE_DAYS).
+  const accessCounts = await loadAccessCounts();
   const ts = new Date().toISOString();
   for (const c of candidates) {
     if (c.source === 'local-doc') continue;

@@ -6492,8 +6492,6 @@ function graphNeighbourhood(seeds, edges, hops) {
 function accessCountsFile() {
   return join5(resolveBrainDir(), "access-counts.json");
 }
-var ACCESS_BOOST_FACTOR = 0.1;
-var ACCESS_BOOST_CAP = 10;
 var ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts() {
   try {
@@ -6691,15 +6689,6 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       scored[i].score *= STUB_PENALTY;
     }
   }
-  const accessCounts = await loadAccessCounts();
-  for (let i = 0; i < scored.length; i++) {
-    if (scored[i].score <= 0) continue;
-    const slug = slugFromPath(scored[i].path);
-    const ac = accessCounts[slug];
-    if (ac) {
-      scored[i].score *= 1 + ACCESS_BOOST_FACTOR * Math.min(ac.count, ACCESS_BOOST_CAP);
-    }
-  }
   const RECENCY_BOOST_MAX = 0.3;
   const RECENCY_WINDOW_DAYS = 90;
   const now = Date.now();
@@ -6747,6 +6736,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     score_norm: topFinal > 0 ? Math.round(rest.score / topFinal * 1e4) / 1e4 : 0,
     ...scopeOn ? { tier } : {}
   }));
+  const accessCounts = await loadAccessCounts();
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;

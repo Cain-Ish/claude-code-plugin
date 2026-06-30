@@ -265,7 +265,10 @@ Each becomes its own implementation plan; this spec is the shared contract.
 - Wiki page count down materially after P4; zero orphan pages added post-gate.
 - Skill catalog reduced after P4 (fewer always-listed skills → lower per-session metadata cost).
 - Volatile context (persona/wiki) injected cache-stably + JIT (P1: no per-turn cache-write churn; wiki body not injected every turn).
-- Plan-first nudge fires on multi-file coding prompts and stays silent on one-line diffs (P5 fixtures).
+  - **P1c measured (2026-06-30):** the per-turn `UserPromptSubmit` injection from `persona-context.sh`
+    is ~662 B / ~165 tokens (slug pointers `[[…]]` + behavioral principles only); no full wiki page
+    body is injected (a body would be KB-scale). Bodies are fetched on demand via `knowledge_fetch`.
+- Plan-first nudge fires on multi-file coding prompts and stays silent on one-line diffs (P5 fixtures). **Shipped P5 (2026-06-30):** `plan-first-nudge.sh` + `test-plan-first-nudge.sh`.
 - Consolidation runs with no network egress and no raw-transcript access in the privileged writer (P6 quarantine boundary verified).
 - Ingested content is zero-width/Unicode-Tags-stripped before store+inject; injection scanner is logged-but-not-trusted (P6).
 - A LongMemEval-shaped recall suite (incl. abstention + knowledge-update) is green; capture reconciliation surfaces drift; guards proven live by violation-injection (P8).

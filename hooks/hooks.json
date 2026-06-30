@@ -146,6 +146,17 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "_comment": "P5 plan-first nudge (spec 2026-06-26 §6). SOFT, once-per-session advisory (additionalContext, permissionDecision allow — never blocks) that suggests planning when a session turns into multi-file code work (>=SB_PLAN_FIRST_FILES substantive code-file edits, default 2). Silent on single-file work and one-line diffs. Kill switch SB_PLAN_FIRST_NUDGE=off.",
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/plan-first-nudge.sh",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "ConfigChange": [

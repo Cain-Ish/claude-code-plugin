@@ -4,6 +4,16 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.30
+
+Constitution/diet roadmap — Batch A quick wins (P4b + P5 + P1c) and implementation plans staged for the three large remaining workstreams (P2, P3a, P6 quarantine).
+
+- **P4b — access-frequency SEARCH BOOST cut** (`knowledge-search.ts`): the per-result `1 + 0.1·min(count,10)` ranking multiplier is removed. It was the recsys "rich-get-richer" hub bias (same ~10,000× corruption class as the pre-R2.1 graph boost). Access counts still RECORD and survive ONLY as `acc=` telemetry in `wiki-forget-score.sh` (deliberately not scored, per the v4 FORGET correction) — recording, load/save, and pruning are unchanged. No ranking input is lost that the spec wanted kept.
+- **P5 — plan-first nudge** (new `scripts/plan-first-nudge.sh`, PreToolUse on Write|Edit|MultiEdit): a SOFT, once-per-session advisory (`additionalContext` + `permissionDecision:"allow"` — never blocks/asks) that suggests planning when a session crosses into multi-file code work (≥`SB_PLAN_FIRST_FILES` substantive code-file edits, default 2). Silent on single-file work and one-line diffs (`SB_PLAN_FIRST_MIN_LINES`, default 3). Kill switch `SB_PLAN_FIRST_NUDGE=off`. mawk-safe, fail-soft, session-id sanitized. Covered by `tests/test-plan-first-nudge.sh` (8 cases).
+- **P1c — JIT injection measured**: the per-turn `UserPromptSubmit` injection (`persona-context.sh`) is ~662 B / ~165 tokens (slug pointers + behavioral principles), no full wiki body — confirming the P1 "body not injected every turn" criterion. Recorded in the spec's success criteria.
+- **Plans staged** (no code): `docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md`, `…-p3a-orientation-code-map.md`, `…-p6-quarantine-dual-llm.md`. P6 network-egress severing folded into the P6 plan (a blanket `--unshare-net` would break the API-dependent headless run; the design is a netless deterministic writer + opt-in deny-proxy).
+- Surface budget: scripts 51→52, tests 150→151 (the new P5 script + test).
+
 ## 0.33.29
 
 P4 write-path NOOP — near-duplicate captures are collapsed at capture time (redundancy engine, write arm).
