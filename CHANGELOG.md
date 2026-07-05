@@ -4,6 +4,13 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.32
+
+Fix the 0.33.31 Linux-CI red: the two new test files shipped without their git exec bit.
+
+- `tests/test-normalize-path.sh` + `tests/test-run-all-skip-semantics.sh` were committed `100644` — authored on Windows, where the filesystem fakes the exec bit, so every local gate (including `test-exec-bits` itself) passed; on the Linux checkout they land non-executable and `test-exec-bits` fails the suite. Fixed with `git update-index --chmod=+x` (mode-only change, no content). The macOS lane stayed green because it runs only its 4 fixed tests — `test-exec-bits` lives in the Linux full-suite lane.
+- Root cause verified by full-suite reproduction on real Linux (WSL + userland node 22): the only non-environmental failure was `test-exec-bits`. Recorded as the newest instance of the "Windows-local gates can't see Linux-only red" class.
+
 ## 0.33.31
 
 Deep-audit batch B — all 9 HIGH-severity findings from the 11-agent deep audit closed (the Windows guard fail-open class, dream-accept data loss, and the REFLECT feedback loop), plus the run-all false-green fix.

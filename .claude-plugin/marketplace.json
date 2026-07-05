@@ -9,7 +9,7 @@
       "name": "second-brain",
       "source": "./",
       "description": "Self-evolving AI second brain. Auto-learns from sessions, discovers tools, maintains a local knowledge base, and self-critiques code quality.",
-      "version": "0.33.31"
+      "version": "0.33.32"
     },
     {
       "name": "cost-router",
