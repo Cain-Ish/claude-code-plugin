@@ -217,6 +217,26 @@ describe('codeNeighbors', () => {
       codeNeighbors({ brainDir: brain, slug: 'proj', node: 'src/a.ts', depth: 9 }),
     ).rejects.toThrow(/depth/);
   });
+
+  // Plan C1: "code_map/code_neighbors compute stale the same way at query
+  // time so a query between regens is honest" -- blast-radius answers from a
+  // stale graph must carry the warning (skeptic-review finding: the flag was
+  // missing here while code_map had it).
+  it('ok result carries a query-time stale flag via the shared drift predicate', async () => {
+    const brain = await storeGraph(graphFixture());
+    const sameRev = async () => `${'a'.repeat(40)}\n`;
+    const otherRev = async () => `${'b'.repeat(40)}\n`;
+    const fresh = await codeNeighbors({
+      brainDir: brain, slug: 'proj', node: 'src/b.ts', direction: 'in', runGit: sameRev,
+    });
+    if (fresh.kind !== 'ok') throw new Error(`expected ok, got ${fresh.kind}`);
+    expect(fresh.stale).toBe(false);
+    const drifted = await codeNeighbors({
+      brainDir: brain, slug: 'proj', node: 'src/b.ts', direction: 'in', runGit: otherRev,
+    });
+    if (drifted.kind !== 'ok') throw new Error(`expected ok, got ${drifted.kind}`);
+    expect(drifted.stale).toBe(true);
+  });
 });
 
 describe('server.ts registration (code_neighbors)', () => {

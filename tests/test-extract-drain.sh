@@ -342,3 +342,75 @@ rm -f "$BRAIN_DIR/config.json" "$BRAIN_DIR/fresh-rescue.bak"
 echo ""
 echo "Results R4: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
+
+# Test codemap regen block (P3a Task C2): the drainer resolves the target repo from
+# the registry (newest last_session_iso), invokes the code-map CLI bundle via node,
+# and honors the auto_codemap:false kill switch. Bundle + node are FAKED (a marker-
+# writing `node` shadowing the real one via PATH; an empty file at the bundle path
+# under a sandbox CLAUDE_PLUGIN_ROOT) so no real regen runs. auto_improve and
+# auto_maintain are disabled so no OTHER block can touch the fake node marker.
+echo "Test: codemap regen block targets the newest registry repo via the CLI"
+reset
+CMROOT="$SANDBOX/plugroot"; mkdir -p "$CMROOT/mcp/dist/tools"
+: > "$CMROOT/mcp/dist/tools/code-map-cli.bundle.js"
+CMREPO="$SANDBOX/cmrepo"; mkdir -p "$CMREPO"
+printf '{"slug":"older","root_path":"/definitely/not/this","last_session_iso":"2026-01-01T00:00:00Z"}\n{"slug":"cmproj","root_path":"%s","last_session_iso":"2026-07-01T00:00:00Z"}\n' \
+  "$CMREPO" > "$BRAIN_DIR/projects.jsonl"
+printf '{"auto_improve": false, "auto_maintain": false}\n' > "$BRAIN_DIR/config.json"
+CM_MARKER="$SANDBOX/cm-called"; rm -f "$CM_MARKER"
+NODEDIR="$SANDBOX/fakenode"; mkdir -p "$NODEDIR"
+cat > "$NODEDIR/node" <<EOF5
+#!/bin/bash
+printf 'args=%s project_dir=%s\n' "\$*" "\${CLAUDE_PROJECT_DIR:-}" >> "$CM_MARKER"
+exit 0
+EOF5
+chmod +x "$NODEDIR/node"
+CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
+grep -qF 'code-map-cli.bundle.js' "$CM_MARKER" 2>/dev/null \
+  && ok "codemap block invoked the CLI bundle via node" || no "codemap CLI not invoked"
+grep -qF "project_dir=$CMREPO" "$CM_MARKER" 2>/dev/null \
+  && ok "codemap targeted the newest registry root_path" || no "codemap target repo wrong (got: $(cat "$CM_MARKER" 2>/dev/null))"
+# Kill switch: auto_codemap:false must gate the whole block off (no CLI spawn).
+rm -f "$CM_MARKER"
+printf '{"auto_improve": false, "auto_maintain": false, "auto_codemap": false}\n' > "$BRAIN_DIR/config.json"
+CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
+[ ! -f "$CM_MARKER" ] && ok "auto_codemap:false gates the regen off" || no "codemap ran despite auto_codemap:false"
+printf '{"auto_improve": false, "auto_maintain": false}\n' > "$BRAIN_DIR/config.json"
+
+# Loud-failure path (skeptic-review must-fix): the CLI is fail-soft (always
+# exit 0, failures reported as 'code-map: ERROR ...' on stderr), so the drainer
+# must match that marker in captured stderr — a bare `||` never fires. Fake
+# node emits the marker; require the ec=1 error-log line.
+cat > "$NODEDIR/node" <<EOF5
+#!/bin/bash
+echo 'code-map: ERROR simulated store write failure' >&2
+exit 0
+EOF5
+chmod +x "$NODEDIR/node"
+rm -f "$BRAIN_DIR/error-log.jsonl"
+CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
+grep -q 'codemap regen failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  && ok "fail-soft CLI ERROR marker surfaces as a LOUD error-log line" \
+  || no "CLI 'code-map: ERROR' was swallowed (dead-|| regression)"
+
+# Corrupt-registry tolerance (skeptic-review fix): one garbage line must not
+# kill the slurp — the newest VALID record WITH a root_path still wins (the
+# newest overall record here lacks root_path and must be skipped, not block).
+cat > "$NODEDIR/node" <<EOF5
+#!/bin/bash
+printf 'project_dir=%s\n' "\${CLAUDE_PROJECT_DIR:-}" >> "$CM_MARKER"
+exit 0
+EOF5
+chmod +x "$NODEDIR/node"
+rm -f "$CM_MARKER"
+printf 'GARBAGE NOT JSON\n{"slug":"cmproj","root_path":"%s","last_session_iso":"2026-07-01T00:00:00Z"}\n{"slug":"newest-but-unmappable","last_session_iso":"2026-07-02T00:00:00Z"}\n' \
+  "$CMREPO" > "$BRAIN_DIR/projects.jsonl"
+CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
+grep -qF "project_dir=$CMREPO" "$CM_MARKER" 2>/dev/null \
+  && ok "garbage line tolerated; newest record WITH root_path targeted" \
+  || no "corrupt registry killed the codemap target resolution (got: $(cat "$CM_MARKER" 2>/dev/null))"
+rm -f "$BRAIN_DIR/config.json"
+
+echo ""
+echo "Results C2: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]

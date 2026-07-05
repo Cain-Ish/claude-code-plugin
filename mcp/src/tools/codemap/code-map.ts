@@ -6,43 +6,27 @@
  * instead of reading map.md so a caller-supplied token_budget takes effect at
  * query time; serialize owns the cap invariant.
  *
- * stale probes HEAD of graph.repo_root -- the store's own provenance, not the
- * querying process cwd -- so the comparison is always against the repo that
- * was actually mapped. 'nogit' from the probe (repo gone, git absent, no
- * commits) is tolerated as NOT stale: with no rev there is nothing honest to
- * compare, and a false 'stale' would teach the model to distrust a good map.
- * A 'nogit' STORE facing a real current rev IS stale (the repo gained
- * history since generation). Full drift semantics (dirty-tree, mtime) land in
- * Phase 3 drift.ts; this is the cheap query-time subset the plan asks for.
+ * stale comes from drift.ts::isStale (Task C1's SINGLE drift source -- the
+ * CLI's --check gate runs the identical predicate), probed against HEAD of
+ * graph.repo_root -- the store's own provenance, not the querying process cwd
+ * -- so the comparison is always against the repo that was actually mapped.
+ * That single-sourcing means a probe returning 'nogit' against a sha store IS
+ * stale (repo vanished or lost git -- the map's provenance can no longer be
+ * verified), a 'nogit' store facing a real rev IS stale (the repo gained
+ * history), and a graph generated from a dirty tree is ALWAYS stale.
  */
 
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { codemapDir, readGraph } from './store.js';
 import { serialize } from './serialize.js';
-
-const execFileAsync = promisify(execFile);
-
-/** HEAD sha of repoRoot, or 'nogit' on any git failure. Exported so
- *  code_neighbors (Phase 3) and tests share one probe shape. */
-export async function currentRev(repoRoot: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
-      cwd: repoRoot,
-      windowsHide: true,
-    });
-    return stdout.trim() || 'nogit';
-  } catch {
-    return 'nogit';
-  }
-}
+import { isStale } from './drift.js';
+import type { GitRunner } from './scan-sources.js';
 
 export interface CodeMapOpts {
   brainDir: string;
   slug: string;
   tokenBudget?: number;
-  /** injectable for tests (offline, deterministic); default shells `git rev-parse HEAD` */
-  revProbe?: (repoRoot: string) => Promise<string>;
+  /** injectable for tests (offline, deterministic); default shells out to git */
+  runGit?: GitRunner;
 }
 
 export type CodeMapResult =
@@ -67,14 +51,13 @@ export async function codeMap(opts: CodeMapOpts): Promise<CodeMapResult> {
       notice: `Code map for '${opts.slug}' not generated yet -- it regenerates automatically out-of-band (drainer tick); retry later or run the code-map CLI manually.`,
     };
   }
-  const current = await (opts.revProbe ?? currentRev)(graph.repo_root);
   return {
     kind: 'ok',
     map: opts.tokenBudget === undefined ? serialize(graph) : serialize(graph, opts.tokenBudget),
     generated_at: graph.generated_at,
     git_rev: graph.git_rev,
     generator: graph.generator,
-    stale: current !== 'nogit' && current !== graph.git_rev,
+    stale: await isStale(graph, graph.repo_root, opts.runGit),
     truncated: graph.truncated,
   };
 }

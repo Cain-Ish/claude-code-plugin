@@ -4,6 +4,16 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.34
+
+P3a Phase 3 — the code map becomes autonomous: real drift detection + out-of-band regeneration in the drainer. The orientation layer now exists and refreshes with zero manual steps (the constitution's requirement).
+
+- **New `mcp/src/tools/codemap/drift.ts`** (single source — the CLI and the `code_map` tool share the SAME predicate): stale = stored `git_rev` ≠ `git rev-parse HEAD`, OR both-`nogit` with a tracked-source mtime newer than `generated_at` (reuses `scanSources`, so ignore-dirs apply), OR the graph was generated from a DIRTY tree (always re-check). Deliberate semantic flip: a sha-stamped store whose probe now returns `nogit` (repo moved/deleted) reads `stale:true` — honest over optimistic. `--check` prints stale/fresh for real (0.33.33's placeholder removed); no-flag runs regenerate only when stale; `dirty` recorded via `isDirty` at generation.
+- **`extract-drain.sh` codemap block** (inside the drainer's single-flight lock, after the maintain blocks): targets `SB_CODEMAP_REPO` or the most-recently-active project's `root_path` from `projects.jsonl` — per-line `fromjson?` parse, so one garbage line cannot kill the slurp and a newest record WITHOUT a `root_path` cannot block an older mappable repo (skeptic-review fix; a plain `-s` slurp aborted on corruption and misreported "registry empty"); plugin root via `sb_plugin_root`; ships the **`auto_codemap` config key** (default on). Fail-loud posture, for real: the CLI is a fail-soft boundary (always exit 0, failures as `code-map: ERROR …` on stderr), so the drainer CAPTURES stderr and matches the marker — a bare `||` was dead code for every failure the CLI can hit (skeptic-review must-fix); missing bundle/node and matched failures are ec=1 error-log lines; the NORMAL empty-registry skip routes as a `gate=codemap-skip` audit-log trace (R6b) so a 30-min tick can't spam the error log.
+- **`code_neighbors` now carries the query-time `stale` flag too** (plan C1's "a query between regens is honest" applies to blast-radius answers; skeptic-review finding), via the same shared predicate. Freshness watermark hardened: `generated_at` stamps scan START and `isDirty` probes AFTER the read loop, so a file edited mid-regen reads stale on the next check instead of being permanently missed.
+- Tests: 14 drift cases (incl. unreadable-root and corrupt-`generated_at` fallback branches), +3 CLI dirty-tree cases, +5 drainer assertions in `tests/test-extract-drain.sh` (CLI invoked via faked node+bundle, newest-registry targeting, `auto_codemap:false` gates off, fail-soft ERROR marker surfaces loud, garbage-line registry tolerated), +1 neighbors stale case. No surface-budget change.
+- Remaining P3a: Phase 4 (layer-5 code↔wiki edges), Phase 5 (optional WASM tier).
+
 ## 0.33.33
 
 P3a Phases 1+2 — the orientation code-map ships (spec layer 4, the mission's weakest facet): a pure-JS, token-capped, PageRank-ranked code-structure map of the active project, exposed as two new MCP tools.

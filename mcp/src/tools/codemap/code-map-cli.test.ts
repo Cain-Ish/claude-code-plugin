@@ -156,6 +156,42 @@ describe('code-map-cli bundle (end to end)', () => {
     expect(readStoredGraph(brain, repo).git_rev).toBe(rev2);
   }, 30_000);
 
+  // --- Task C1 drift semantics (REQUIRE the post-C1 bundle: rebuild with
+  // `npm run bundle` when editing drift.ts/code-map-cli.ts — the pre-C1
+  // committed bundle ignores the dirty bit and these two tests fail on it) ---
+
+  it('dirty tree at generation records dirty:true and --check reports stale', async () => {
+    const { repo, brain, env } = fixture();
+    writeFileSync(join(repo, 'uncommitted.ts'), 'export const u = 9;\n'); // untracked => porcelain non-empty
+    await runCli([], env);
+    expect(readStoredGraph(brain, repo).dirty).toBe(true);
+    const { stdout } = await runCli(['--check'], env);
+    expect(stdout.trim()).toBe('stale'); // a previously-dirty tree is ALWAYS re-checked
+  }, 30_000);
+
+  it('previously-dirty graph regenerates on the no-flag path even at the same rev', async () => {
+    const { repo, brain, env } = fixture();
+    writeFileSync(join(repo, 'uncommitted.ts'), 'export const u = 9;\n');
+    await runCli([], env);
+    const before = statSync(join(storeDir(brain, repo), 'graph.json')).mtimeMs;
+    const { stderr } = await runCli([], env); // same HEAD, but dirty-generated => regen, not skip
+    expect(stderr).not.toContain('skipped');
+    const after = statSync(join(storeDir(brain, repo), 'graph.json')).mtimeMs;
+    expect(after).toBeGreaterThan(before);
+  }, 30_000);
+
+  it('clean regen after a dirty one clears the dirty bit and --check reads fresh', async () => {
+    const { repo, brain, env } = fixture();
+    writeFileSync(join(repo, 'uncommitted.ts'), 'export const u = 9;\n');
+    await runCli([], env);
+    git(repo, 'add', '.');
+    git(repo, 'commit', '--quiet', '-m', 'commit the stray');
+    await runCli([], env); // dirty store => regen; tree now clean
+    expect(readStoredGraph(brain, repo).dirty).toBe(false);
+    const { stdout } = await runCli(['--check'], env);
+    expect(stdout.trim()).toBe('fresh');
+  }, 30_000);
+
   it('fail-soft: nonexistent CLAUDE_PROJECT_DIR exits 0, reports on stderr, writes no store', async () => {
     const brain = tempDir('sb-codemap-cli-brain-');
     const missing = join(tmpdir(), 'sb-codemap-cli-definitely-missing-repo');

@@ -17,6 +17,8 @@
  */
 
 import { codemapDir, readGraph } from './store.js';
+import { isStale } from './drift.js';
+import type { GitRunner } from './scan-sources.js';
 import type { CodeEdge, CodeGraph } from './types.js';
 
 const DEFAULT_NEIGHBORS_MAX = 50;
@@ -41,6 +43,8 @@ export interface CodeNeighborsOpts {
   depth?: number;
   /** default SB_CODEMAP_NEIGHBORS_MAX or 50 */
   max?: number;
+  /** injectable git spawner for tests (drift probe) */
+  runGit?: GitRunner;
 }
 
 export type CodeNeighborsResult =
@@ -54,6 +58,9 @@ export type CodeNeighborsResult =
       depth: number;
       neighbors: CodeNeighborRow[];
       truncated: boolean;
+      /** query-time drift flag — same isStale predicate as code_map (plan C1:
+       *  "a query between regens is honest" applies to blast-radius too) */
+      stale: boolean;
     };
 
 function basename(id: string): string {
@@ -165,5 +172,6 @@ export async function codeNeighbors(opts: CodeNeighborsOpts): Promise<CodeNeighb
     depth,
     neighbors: rows.slice(0, cap),
     truncated: rows.length > cap,
+    stale: await isStale(graph, graph.repo_root, opts.runGit),
   };
 }

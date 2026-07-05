@@ -1,6 +1,4 @@
 // src/tools/codemap/code-map-cli.ts
-import { execFile as execFile2 } from "child_process";
-import { promisify as promisify2 } from "util";
 import { readFile } from "fs/promises";
 
 // src/brain-paths.ts
@@ -6632,26 +6630,50 @@ async function readGraph(dir) {
   return parsed;
 }
 
-// src/tools/codemap/code-map-cli.ts
-var execFileAsync2 = promisify2(execFile2);
-async function gitState(repoRoot) {
+// src/tools/codemap/drift.ts
+import { stat as stat2 } from "fs/promises";
+async function currentRev(repoRoot, runGit = defaultRunGit) {
   try {
-    const { stdout: revOut } = await execFileAsync2("git", ["rev-parse", "HEAD"], {
-      cwd: repoRoot,
-      windowsHide: true
-    });
-    const rev = revOut.trim();
-    if (!rev) return { rev: "nogit", dirty: false };
-    const { stdout: statusOut } = await execFileAsync2("git", ["status", "--porcelain"], {
-      cwd: repoRoot,
-      windowsHide: true,
-      maxBuffer: 16 * 1024 * 1024
-    });
-    return { rev, dirty: statusOut.trim().length > 0 };
+    const out = await runGit(["rev-parse", "HEAD"], repoRoot);
+    return out.trim() || "nogit";
   } catch {
-    return { rev: "nogit", dirty: false };
+    return "nogit";
   }
 }
+async function isDirty(repoRoot, runGit = defaultRunGit) {
+  try {
+    const out = await runGit(["status", "--porcelain"], repoRoot);
+    return out.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+async function isStale(graph, repoRoot, runGit = defaultRunGit) {
+  if (graph.dirty) return true;
+  const current = await currentRev(repoRoot, runGit);
+  if (graph.git_rev !== current) return true;
+  if (current !== "nogit") return false;
+  const generatedAt = Date.parse(graph.generated_at);
+  if (!Number.isFinite(generatedAt)) return true;
+  let files;
+  try {
+    files = (await scanSources(repoRoot, { runGit })).files;
+  } catch {
+    return true;
+  }
+  for (const f of files) {
+    let mtimeMs;
+    try {
+      mtimeMs = (await stat2(f.abs)).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (mtimeMs > generatedAt) return true;
+  }
+  return false;
+}
+
+// src/tools/codemap/code-map-cli.ts
 async function main() {
   const argv = process.argv.slice(2);
   const force = argv.includes("--force");
@@ -6667,20 +6689,20 @@ async function main() {
     return;
   }
   const dir = codemapDir(brainDir, slug);
-  const { rev, dirty } = await gitState(repoRoot);
   const existing = await readGraph(dir).catch(() => null);
-  const fresh = existing !== null && existing.git_rev === rev;
+  const stale = existing === null || await isStale(existing, repoRoot);
   if (check) {
-    process.stdout.write(fresh ? "fresh\n" : "stale\n");
+    process.stdout.write(stale ? "stale\n" : "fresh\n");
     return;
   }
-  if (fresh && !force) {
-    process.stderr.write(
-      `code-map: ${slug} fresh at ${rev === "nogit" ? "nogit" : rev.slice(0, 7)} -- skipped (--force to regenerate)
-`
-    );
+  if (!stale && !force) {
+    const at = existing.git_rev === "nogit" ? "nogit" : existing.git_rev.slice(0, 7);
+    process.stderr.write(`code-map: ${slug} fresh at ${at} -- skipped (--force to regenerate)
+`);
     return;
   }
+  const rev = await currentRev(repoRoot);
+  const generatedAt = (/* @__PURE__ */ new Date()).toISOString();
   const scan = await scanSources(repoRoot);
   const idSet = new Set(scan.files.map((f) => f.id));
   const resolveId = (candidate) => idSet.has(candidate) ? candidate : null;
@@ -6694,12 +6716,13 @@ async function main() {
     }
     extracted.set(f.id, extractFile(f.id, src, f.lang, resolveId));
   }
+  const dirty = await isDirty(repoRoot);
   const graph = buildGraph(scan.files, extracted, {
     slug,
     repoRoot,
     gitRev: rev,
     dirty,
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    generatedAt,
     truncated: scan.truncated
   });
   const mapMd = serialize(graph);

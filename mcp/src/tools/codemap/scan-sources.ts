@@ -67,7 +67,8 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-async function defaultRunGit(args: string[], cwd: string): Promise<string> {
+/** Exported for drift.ts — one git-spawner shape for the whole codemap layer. */
+export async function defaultRunGit(args: string[], cwd: string): Promise<string> {
   // execFile's default maxBuffer (1 MiB) truncates ls-files mid-record on
   // large monorepos; 64 MiB is headroom, not a target.
   const { stdout } = await execFileAsync('git', args, {

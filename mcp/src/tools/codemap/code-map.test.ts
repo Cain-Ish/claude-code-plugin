@@ -4,10 +4,19 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { codeMap } from './code-map.js';
 import { codemapDir, writeGraph } from './store.js';
+import type { GitRunner } from './scan-sources.js';
 import type { CodeGraph, FileNode } from './types.js';
 
 const REV_A = 'a'.repeat(40);
 const REV_B = 'b'.repeat(40);
+
+/** Stubbed git (rev-parse only — isStale never live-probes dirtiness). */
+function gitAt(rev: string): GitRunner {
+  return async (args) => {
+    if (args[0] === 'rev-parse') return `${rev}\n`;
+    throw new Error(`unexpected git ${args.join(' ')}`);
+  };
+}
 
 // 40 files, rank desc / id asc (build-graph's tested ordering contract, which
 // serialize trusts) with symbol payloads long enough that a 200-token budget
@@ -73,12 +82,12 @@ describe('codeMap', () => {
     return brain;
   }
 
-  const sameRev = async () => REV_A;
+  const sameRev = gitAt(REV_A);
 
   it('returns the token-capped map with provenance fields', async () => {
     const graph = graphFixture();
     const brain = await storeGraph(graph);
-    const res = await codeMap({ brainDir: brain, slug: 'proj', tokenBudget: 200, revProbe: sameRev });
+    const res = await codeMap({ brainDir: brain, slug: 'proj', tokenBudget: 200, runGit: sameRev });
     if (res.kind !== 'ok') throw new Error(`expected ok, got ${res.kind}`);
     expect(Math.ceil(res.map.length / 4)).toBeLessThanOrEqual(200); // cap invariant threaded through
     expect(res.map).toContain('src/file00.ts'); // highest rank present
@@ -92,7 +101,7 @@ describe('codeMap', () => {
 
   it('map is re-serialized from graph.json, not read from map.md', async () => {
     const brain = await storeGraph(graphFixture());
-    const res = await codeMap({ brainDir: brain, slug: 'proj', tokenBudget: 8000, revProbe: sameRev });
+    const res = await codeMap({ brainDir: brain, slug: 'proj', tokenBudget: 8000, runGit: sameRev });
     if (res.kind !== 'ok') throw new Error('expected ok');
     expect(res.map).not.toContain('unused-map-md');
     expect(res.map).toContain('src/file39.ts'); // large budget carries the whole graph
@@ -100,30 +109,54 @@ describe('codeMap', () => {
 
   it('stale:false when the stored rev matches current HEAD', async () => {
     const brain = await storeGraph(graphFixture());
-    const res = await codeMap({ brainDir: brain, slug: 'proj', revProbe: sameRev });
+    const res = await codeMap({ brainDir: brain, slug: 'proj', runGit: sameRev });
     if (res.kind !== 'ok') throw new Error('expected ok');
     expect(res.stale).toBe(false);
   });
 
   it('stale:true when the repo moved past the stored rev', async () => {
     const brain = await storeGraph(graphFixture());
-    const res = await codeMap({ brainDir: brain, slug: 'proj', revProbe: async () => REV_B });
+    const res = await codeMap({ brainDir: brain, slug: 'proj', runGit: gitAt(REV_B) });
     if (res.kind !== 'ok') throw new Error('expected ok');
     expect(res.stale).toBe(true);
   });
 
-  it("stale:false when the probe cannot resolve a rev ('nogit' tolerated)", async () => {
+  it("stale:true when git fails against a sha store (drift.ts single-source: provenance unverifiable)", async () => {
+    // Pre-C1 this read stale:false ("nogit tolerated"); isStale is now the one
+    // drift predicate, and a sha store the probe cannot verify IS stale.
     const brain = await storeGraph(graphFixture());
-    const res = await codeMap({ brainDir: brain, slug: 'proj', revProbe: async () => 'nogit' });
+    const res = await codeMap({
+      brainDir: brain,
+      slug: 'proj',
+      runGit: async () => {
+        throw new Error('git absent');
+      },
+    });
     if (res.kind !== 'ok') throw new Error('expected ok');
-    expect(res.stale).toBe(false);
+    expect(res.stale).toBe(true);
   });
 
   it("stale:true when a 'nogit' store faces a real current rev (honest mismatch)", async () => {
     const brain = await storeGraph(graphFixture({ git_rev: 'nogit' }));
-    const res = await codeMap({ brainDir: brain, slug: 'proj', revProbe: async () => REV_A });
+    const res = await codeMap({ brainDir: brain, slug: 'proj', runGit: sameRev });
     if (res.kind !== 'ok') throw new Error('expected ok');
     expect(res.stale).toBe(true);
+  });
+
+  it('stale:true for a dirty-generated graph, with zero git spawns', async () => {
+    const brain = await storeGraph(graphFixture({ dirty: true }));
+    let calls = 0;
+    const res = await codeMap({
+      brainDir: brain,
+      slug: 'proj',
+      runGit: async () => {
+        calls++;
+        return `${REV_A}\n`;
+      },
+    });
+    if (res.kind !== 'ok') throw new Error('expected ok');
+    expect(res.stale).toBe(true);
+    expect(calls).toBe(0);
   });
 
   it("probes the graph's own repo_root, not the querying process cwd", async () => {
@@ -133,9 +166,9 @@ describe('codeMap', () => {
     await codeMap({
       brainDir: brain,
       slug: 'proj',
-      revProbe: async (root) => {
-        probed.push(root);
-        return REV_A;
+      runGit: async (_args, cwd) => {
+        probed.push(cwd);
+        return `${REV_A}\n`;
       },
     });
     expect(probed).toEqual([graph.repo_root]);
@@ -143,16 +176,23 @@ describe('codeMap', () => {
 
   it('no store yet -> graceful notice (kind missing), not an error', async () => {
     const brain = tempBrain();
-    const res = await codeMap({ brainDir: brain, slug: 'proj', revProbe: sameRev });
+    const res = await codeMap({ brainDir: brain, slug: 'proj', runGit: sameRev });
     if (res.kind !== 'missing') throw new Error(`expected missing, got ${res.kind}`);
     expect(res.notice).toMatch(/not generated yet/i);
     expect(res.notice).toMatch(/out-of-band/i);
   });
 
-  it('missing store never invokes the rev probe (no pointless git spawn)', async () => {
+  it('missing store never invokes git (no pointless spawn)', async () => {
     const brain = tempBrain();
     let called = 0;
-    await codeMap({ brainDir: brain, slug: 'proj', revProbe: async () => { called++; return REV_A; } });
+    await codeMap({
+      brainDir: brain,
+      slug: 'proj',
+      runGit: async () => {
+        called++;
+        return `${REV_A}\n`;
+      },
+    });
     expect(called).toBe(0);
   });
 
@@ -161,13 +201,13 @@ describe('codeMap', () => {
     const dir = codemapDir(brain, 'proj');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'graph.json'), 'not json {{{');
-    await expect(codeMap({ brainDir: brain, slug: 'proj', revProbe: sameRev })).rejects.toThrow();
+    await expect(codeMap({ brainDir: brain, slug: 'proj', runGit: sameRev })).rejects.toThrow();
   });
 
   it('honors SB_CODEMAP_TOKEN_BUDGET when no explicit budget is passed', async () => {
     const brain = await storeGraph(graphFixture());
     process.env.SB_CODEMAP_TOKEN_BUDGET = '200';
-    const res = await codeMap({ brainDir: brain, slug: 'proj', revProbe: sameRev });
+    const res = await codeMap({ brainDir: brain, slug: 'proj', runGit: sameRev });
     if (res.kind !== 'ok') throw new Error('expected ok');
     expect(Math.ceil(res.map.length / 4)).toBeLessThanOrEqual(200);
     expect(res.map).toContain('more files omitted');
