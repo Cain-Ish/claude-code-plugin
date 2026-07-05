@@ -21,6 +21,8 @@ import { personaDismiss } from "./tools/persona-dismiss.js";
 import { capList, egressBudgetTokens } from "./tools/egress-budget.js";
 import { knowledgeRelate } from "./tools/knowledge-relate.js";
 import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
+import { codeMap } from "./tools/codemap/code-map.js";
+import { codeNeighbors } from "./tools/codemap/code-neighbors.js";
 import { resolveActiveSlug as resolveActiveSlugFromDir } from "./tools/project-dir.js";
 import { cleanEnvPath } from "./path-guard.js";
 import { resolveBrainDir } from "./brain-paths.js";
@@ -575,6 +577,66 @@ server.registerTool(
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     } catch (error) {
       return { content: [{ type: "text" as const, text: `Neighbors error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+    }
+  }
+);
+
+// --- Code-map tools (P3a orientation layer; read-only, no guardDestructive) ---
+
+server.registerTool(
+  "code_map",
+  {
+    description: "Return the token-capped, PageRank-ranked code-structure map for the active project (orientation: what exists / where it lives). Read-only; regenerated out-of-band on code change. Carries stale:true when the repo changed since generation. This is the CODE map — distinct from knowledge_search/knowledge_neighbors (the wiki).",
+    inputSchema: {
+      token_budget: z.number().min(200).max(8000).optional().describe("Token cap for the returned map (chars/4 estimate). Default SB_CODEMAP_TOKEN_BUDGET or 2000."),
+    },
+  },
+  async ({ token_budget }) => {
+    try {
+      const slug = resolveActiveSlug();
+      if (!slug) {
+        return { content: [{ type: "text" as const, text: "code_map: no active project resolvable (degenerate project dir) — nothing to map." }] };
+      }
+      const result = await codeMap({ brainDir: BRAIN_DIR, slug, tokenBudget: token_budget });
+      if (result.kind === "missing") {
+        return { content: [{ type: "text" as const, text: result.notice }] };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    } catch (error) {
+      return {
+        content: [{ type: "text" as const, text: `Code map error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "code_neighbors",
+  {
+    description: "Blast-radius query over the code-structure import graph: direction 'in' = importers (what breaks if this file changes), 'out' = its dependencies. node accepts a full POSIX-relative file id ('src/a.ts'), a symbol id ('src/a.ts#foo'), or a bare basename ('server.ts' — an ambiguous basename returns all matches to pick from). This walks the CODE graph — distinct from knowledge_neighbors (the wiki graph).",
+    inputSchema: {
+      node: z.string().describe("File id, symbol id, or bare basename to start from."),
+      direction: z.enum(["in", "out", "both"]).default("both").describe("'in' = importers (blast radius), 'out' = dependencies. Default 'both'."),
+      depth: z.number().min(1).max(4).default(1).describe("Max hops. Default 1."),
+    },
+  },
+  async ({ node, direction, depth }) => {
+    try {
+      const slug = resolveActiveSlug();
+      if (!slug) {
+        return { content: [{ type: "text" as const, text: "code_neighbors: no active project resolvable (degenerate project dir) — no code graph to query." }] };
+      }
+      const result = await codeNeighbors({ brainDir: BRAIN_DIR, slug, node, direction, depth });
+      if (result.kind === "missing") {
+        return { content: [{ type: "text" as const, text: result.notice }] };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    } catch (error) {
+      return {
+        content: [{ type: "text" as const, text: `Code neighbors error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
     }
   }
 );

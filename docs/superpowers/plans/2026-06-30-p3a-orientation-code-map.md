@@ -245,9 +245,17 @@ Return a graceful text notice when no `graph.json` exists yet (first run before 
 # git-rev drift via the CLI's own --check so a fresh tree costs ~nothing. The
 # heavy walk stays OUT of any Claude session (autonomy + cost). Kill: auto_codemap:false.
 if [ "$(sb_config_bool .auto_codemap on)" = "on" ]; then
-  CM_CLI="$PLUGIN_ROOT/mcp/dist/tools/codemap/code-map-cli.bundle.js"
-  [ -f "$CM_CLI" ] && command -v node >/dev/null 2>&1 && \
-    CLAUDE_PROJECT_DIR="${SB_CODEMAP_REPO:-$PWD}" node "$CM_CLI" >/dev/null 2>&1 || true
+  # Flat dist path — Phase 1 shipped the bundle at dist/tools/ (NOT dist/tools/codemap/;
+  # 0.33.33 Task A4 deviation note). Fail LOUD on a missing bundle: a silent
+  # `[ -f ] … || true` here would no-op the whole regen forever on a path typo
+  # (adversarial-review finding, 0.33.33 pre-release).
+  CM_CLI="$PLUGIN_ROOT/mcp/dist/tools/code-map-cli.bundle.js"
+  if [ -f "$CM_CLI" ] && command -v node >/dev/null 2>&1; then
+    CLAUDE_PROJECT_DIR="${SB_CODEMAP_REPO:-$PWD}" node "$CM_CLI" >/dev/null 2>&1 || \
+      sb_log_error "extract-drain.sh" "codemap regen failed" 0
+  else
+    sb_log_error "extract-drain.sh" "codemap regen skipped: bundle or node missing ($CM_CLI)" 0
+  fi
 fi
 ```
 - **Repo targeting note (spec open question):** the out-of-band drainer has no session cwd. v1 regenerates the codemap for the **last-active project** (resolve its `root_path` from `projects.jsonl`, the same source `session-load.sh` uses), so the drainer maps the repo the user actually works in. Add a `SB_CODEMAP_REPO` override and document the limitation (multi-repo users: each becomes active in turn and gets mapped on the next tick). A complementary **detached SessionStart catch-up** (mirroring the existing stale-`wiki/index.md` background reindex in `session-load.sh` lines ~701-717) may regen-if-stale in the background `&` for the *current* repo — cheap, deterministic, non-blocking — but the authoritative regen stays in the drainer.
@@ -337,3 +345,16 @@ XL — phase it. Recommended order and rough size: **Phase 0** (S, decision) →
 ## Sibling follow-up (NOT this plan)
 
 **P3b — cross-encoder reranker** over hybrid-search candidates (return a reranked top-3–5; vet cross-platform like vector-deps, pure-JS/no-rerank fallback). Independent of P3a; its own plan. Mentioned per spec §6 P3 so the reader knows P3 has two halves.
+
+---
+
+## Decision log
+
+- **2026-07-05 — Task 0 CONFIRMED (Phase 0 closed):** Tier-0 default = pure-JS regex/heuristic
+  extractor (zero deps, compiles into the bundle, works on all four OSes — satisfies the
+  autonomy + no-native-deps hard constraints); node-tree-sitter REJECTED (node-gyp/prebuild risk
+  on MSYS/BSD — exactly the CONSTITUTION.md class the vector-deps saga proved); web-tree-sitter
+  WASM stays the OPT-IN Phase 5 accuracy tier behind the vector-deps install discipline. No new
+  `dependencies` entry in mcp/package.json for Phases 1-4. Shared type contract anchored at
+  `mcp/src/tools/codemap/types.ts`. Version target recomputed at implementation time per
+  sb-change-control: Phases 1+2 ship together as 0.33.33 (plan authored at 0.33.29).

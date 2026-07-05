@@ -85,7 +85,7 @@ describe('nested-spawn-guard — Part C: exactly the destructive tools are wrapp
     'persona_dismiss', 'knowledge_relate'];
   const READONLY = ['knowledge_search', 'knowledge_fetch', 'knowledge_stats', 'dream_status',
     'dream_list', 'episodic_search', 'episodic_read', 'persona_think', 'persona_stats',
-    'knowledge_neighbors'];
+    'knowledge_neighbors', 'code_map', 'code_neighbors'];
 
   it('all 11 destructive tools ARE wrapped with guardDestructive', () => {
     for (const t of DESTRUCTIVE) {

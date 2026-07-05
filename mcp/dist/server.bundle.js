@@ -3225,8 +3225,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path3) {
-      let input = path3;
+    function removeDotSegments(path4) {
+      let input = path4;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3529,8 +3529,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path3, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
+        const [path4, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -3685,7 +3685,7 @@ var require_fast_uri = __commonJS({
         normalizeString(uri, options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
-        parse3(serialize(uri, options), options);
+        parse3(serialize2(uri, options), options);
       }
       return uri;
     }
@@ -3693,13 +3693,13 @@ var require_fast_uri = __commonJS({
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
-      return serialize(resolved, schemelessOptions);
+      return serialize2(resolved, schemelessOptions);
     }
     function resolveComponent(base, relative6, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
-        base = parse3(serialize(base, options), options);
-        relative6 = parse3(serialize(relative6, options), options);
+        base = parse3(serialize2(base, options), options);
+        relative6 = parse3(serialize2(relative6, options), options);
       }
       options = options || {};
       if (!options.tolerant && relative6.scheme) {
@@ -3753,7 +3753,7 @@ var require_fast_uri = __commonJS({
       const normalizedB = normalizeComparableURI(uriB, options);
       return normalizedA !== void 0 && normalizedB !== void 0 && normalizedA.toLowerCase() === normalizedB.toLowerCase();
     }
-    function serialize(cmpts, opts) {
+    function serialize2(cmpts, opts) {
       const component = {
         host: cmpts.host,
         scheme: cmpts.scheme,
@@ -3931,7 +3931,7 @@ var require_fast_uri = __commonJS({
     function normalizeStringWithStatus(uri, opts) {
       const { parsed, malformedAuthorityOrPort } = parseWithStatus(uri, opts);
       return {
-        normalized: malformedAuthorityOrPort ? uri : serialize(parsed, opts),
+        normalized: malformedAuthorityOrPort ? uri : serialize2(parsed, opts),
         malformedAuthorityOrPort
       };
     }
@@ -3941,7 +3941,7 @@ var require_fast_uri = __commonJS({
         return malformedAuthorityOrPort ? void 0 : normalized;
       }
       if (typeof uri === "object") {
-        return serialize(uri, opts);
+        return serialize2(uri, opts);
       }
     }
     var fastUri = {
@@ -3950,7 +3950,7 @@ var require_fast_uri = __commonJS({
       resolve: resolve3,
       resolveComponent,
       equal,
-      serialize,
+      serialize: serialize2,
       parse: parse3
     };
     module.exports = fastUri;
@@ -6923,12 +6923,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs19, exportName) {
+    function addFormats(ajv, list, fs20, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs19[f]);
+        ajv.addFormat(f, fs20[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7414,8 +7414,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path3, errorMaps, issueData } = params;
-  const fullPath = [...path3, ...issueData.path || []];
+  const { data, path: path4, errorMaps, issueData } = params;
+  const fullPath = [...path4, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7531,11 +7531,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path3, key) {
+  constructor(parent, value, path4, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path3;
+    this._path = path4;
     this._key = key;
   }
   get path() {
@@ -11172,10 +11172,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path3) {
-  if (!path3)
+function getElementAtPath(obj, path4) {
+  if (!path4)
     return obj;
-  return path3.reduce((acc, key) => acc?.[key], obj);
+  return path4.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11495,11 +11495,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path3, issues) {
+function prefixIssues(path4, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path3);
+    iss.path.unshift(path4);
     return iss;
   });
 }
@@ -21149,9 +21149,9 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs18 from "fs";
+import fs19 from "fs";
 import os from "os";
-import path2 from "path";
+import path3 from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -24693,12 +24693,12 @@ var PathBase = class {
   /**
    * Get the Path object referenced by the string path, resolved from this Path
    */
-  resolve(path3) {
-    if (!path3) {
+  resolve(path4) {
+    if (!path4) {
       return this;
     }
-    const rootPath = this.getRootString(path3);
-    const dir = path3.substring(rootPath.length);
+    const rootPath = this.getRootString(path4);
+    const dir = path4.substring(rootPath.length);
     const dirParts = dir.split(this.splitSep);
     const result = rootPath ? this.getRoot(rootPath).#resolveParts(dirParts) : this.#resolveParts(dirParts);
     return result;
@@ -25450,8 +25450,8 @@ var PathWin32 = class _PathWin32 extends PathBase {
   /**
    * @internal
    */
-  getRootString(path3) {
-    return win32.parse(path3).root;
+  getRootString(path4) {
+    return win32.parse(path4).root;
   }
   /**
    * @internal
@@ -25497,8 +25497,8 @@ var PathPosix = class _PathPosix extends PathBase {
   /**
    * @internal
    */
-  getRootString(path3) {
-    return path3.startsWith("/") ? "/" : "";
+  getRootString(path4) {
+    return path4.startsWith("/") ? "/" : "";
   }
   /**
    * @internal
@@ -25547,8 +25547,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs19 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs19);
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs20 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs20);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -25587,11 +25587,11 @@ var PathScurryBase = class {
   /**
    * Get the depth of a provided path, string, or the cwd
    */
-  depth(path3 = this.cwd) {
-    if (typeof path3 === "string") {
-      path3 = this.cwd.resolve(path3);
+  depth(path4 = this.cwd) {
+    if (typeof path4 === "string") {
+      path4 = this.cwd.resolve(path4);
     }
-    return path3.depth();
+    return path4.depth();
   }
   /**
    * Return the cache of child entries.  Exposed so subclasses can create
@@ -26078,9 +26078,9 @@ var PathScurryBase = class {
     process3();
     return results;
   }
-  chdir(path3 = this.cwd) {
+  chdir(path4 = this.cwd) {
     const oldCwd = this.cwd;
-    this.cwd = typeof path3 === "string" ? this.cwd.resolve(path3) : path3;
+    this.cwd = typeof path4 === "string" ? this.cwd.resolve(path4) : path4;
     this.cwd[setAsCwd](oldCwd);
   }
 };
@@ -26106,8 +26106,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs19) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs19 });
+  newRoot(fs20) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs20 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -26135,8 +26135,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs19) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs19 });
+  newRoot(fs20) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs20 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -26436,8 +26436,8 @@ var MatchRecord = class {
   }
   // match, absolute, ifdir
   entries() {
-    return [...this.store.entries()].map(([path3, n]) => [
-      path3,
+    return [...this.store.entries()].map(([path4, n]) => [
+      path4,
       !!(n & 2),
       !!(n & 1)
     ]);
@@ -26642,9 +26642,9 @@ var GlobUtil = class {
   signal;
   maxDepth;
   includeChildMatches;
-  constructor(patterns, path3, opts) {
+  constructor(patterns, path4, opts) {
     this.patterns = patterns;
-    this.path = path3;
+    this.path = path4;
     this.opts = opts;
     this.#sep = !opts.posix && opts.platform === "win32" ? "\\" : "/";
     this.includeChildMatches = opts.includeChildMatches !== false;
@@ -26663,11 +26663,11 @@ var GlobUtil = class {
       });
     }
   }
-  #ignored(path3) {
-    return this.seen.has(path3) || !!this.#ignore?.ignored?.(path3);
+  #ignored(path4) {
+    return this.seen.has(path4) || !!this.#ignore?.ignored?.(path4);
   }
-  #childrenIgnored(path3) {
-    return !!this.#ignore?.childrenIgnored?.(path3);
+  #childrenIgnored(path4) {
+    return !!this.#ignore?.childrenIgnored?.(path4);
   }
   // backpressure mechanism
   pause() {
@@ -26882,8 +26882,8 @@ var GlobUtil = class {
 };
 var GlobWalker = class extends GlobUtil {
   matches = /* @__PURE__ */ new Set();
-  constructor(patterns, path3, opts) {
-    super(patterns, path3, opts);
+  constructor(patterns, path4, opts) {
+    super(patterns, path4, opts);
   }
   matchEmit(e) {
     this.matches.add(e);
@@ -26920,8 +26920,8 @@ var GlobWalker = class extends GlobUtil {
 };
 var GlobStream = class extends GlobUtil {
   results;
-  constructor(patterns, path3, opts) {
-    super(patterns, path3, opts);
+  constructor(patterns, path4, opts) {
+    super(patterns, path4, opts);
     this.results = new Minipass({
       signal: this.signal,
       objectMode: true
@@ -27237,10 +27237,10 @@ function isValidRecord(r) {
   }
   return true;
 }
-async function loadEdges(path3) {
+async function loadEdges(path4) {
   let raw;
   try {
-    raw = await fs.readFile(path3, "utf-8");
+    raw = await fs.readFile(path4, "utf-8");
   } catch {
     return [];
   }
@@ -27341,10 +27341,10 @@ function neighbors(edges, slug, opts = {}) {
   }
   return [...best.values()];
 }
-async function appendEdge(path3, rec) {
+async function appendEdge(path4, rec) {
   if (!isValidRecord(rec)) throw new Error(`invalid edge record: ${JSON.stringify(rec)}`);
-  await fs.mkdir(dirname(path3), { recursive: true });
-  await fs.appendFile(path3, JSON.stringify(rec) + "\n", "utf-8");
+  await fs.mkdir(dirname(path4), { recursive: true });
+  await fs.appendFile(path4, JSON.stringify(rec) + "\n", "utf-8");
 }
 
 // src/tools/pin-to-user.ts
@@ -32341,6 +32341,200 @@ async function knowledgeNeighbors(args) {
   return { slug: args.slug, edges };
 }
 
+// src/tools/codemap/code-map.ts
+import { execFile as execFile2 } from "child_process";
+import { promisify as promisify2 } from "util";
+
+// src/tools/codemap/store.ts
+import { promises as fs18 } from "fs";
+import * as path2 from "path";
+function codemapDir(brainDir2, slug) {
+  return path2.join(brainDir2, "projects", slug, "codemap");
+}
+async function readGraph(dir) {
+  const file = path2.join(dir, "graph.json");
+  let raw;
+  try {
+    raw = await fs18.readFile(file, "utf-8");
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    throw e;
+  }
+  const parsed = JSON.parse(raw);
+  if (parsed === null || typeof parsed !== "object" || parsed.schema !== 1) {
+    throw new Error(`readGraph: unrecognized graph schema in ${file}`);
+  }
+  return parsed;
+}
+
+// src/tools/codemap/serialize.ts
+var DEFAULT_TOKEN_BUDGET = 2e3;
+var BUDGET_MARGIN = 0.95;
+var CHARS_PER_TOKEN2 = 4;
+function fileLine(f) {
+  return f.symbols.length > 0 ? `${f.id} \u2014 ${f.symbols.join(", ")}` : f.id;
+}
+function footerLine(omitted) {
+  return `(+${omitted} more files omitted)`;
+}
+function envTokenBudget() {
+  const n = Number(process.env.SB_CODEMAP_TOKEN_BUDGET);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_TOKEN_BUDGET;
+}
+function serialize(graph, tokenBudget = envTokenBudget()) {
+  if (!Number.isFinite(tokenBudget) || tokenBudget <= 0) {
+    throw new Error(
+      `serialize: tokenBudget must be a positive finite number, got ${tokenBudget}`
+    );
+  }
+  const total = graph.files.length;
+  if (total === 0) return "";
+  const capChars = Math.floor(tokenBudget * BUDGET_MARGIN * CHARS_PER_TOKEN2);
+  if (footerLine(total).length + 1 > capChars) {
+    throw new Error(
+      `serialize: tokenBudget ${tokenBudget} too small to emit even the omission footer`
+    );
+  }
+  const lines = [];
+  let used = 0;
+  let included = 0;
+  for (const f of graph.files) {
+    const line = fileLine(f);
+    const remainingAfter = total - included - 1;
+    const footerReserve = remainingAfter > 0 ? footerLine(remainingAfter).length + 1 : 0;
+    if (used + line.length + 1 + footerReserve > capChars) break;
+    lines.push(line);
+    used += line.length + 1;
+    included++;
+  }
+  const omitted = total - included;
+  if (omitted > 0) lines.push(footerLine(omitted));
+  return lines.join("\n") + "\n";
+}
+
+// src/tools/codemap/code-map.ts
+var execFileAsync = promisify2(execFile2);
+async function currentRev(repoRoot) {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+      cwd: repoRoot,
+      windowsHide: true
+    });
+    return stdout.trim() || "nogit";
+  } catch {
+    return "nogit";
+  }
+}
+async function codeMap(opts) {
+  const graph = await readGraph(codemapDir(opts.brainDir, opts.slug));
+  if (graph === null) {
+    return {
+      kind: "missing",
+      notice: `Code map for '${opts.slug}' not generated yet -- it regenerates automatically out-of-band (drainer tick); retry later or run the code-map CLI manually.`
+    };
+  }
+  const current = await (opts.revProbe ?? currentRev)(graph.repo_root);
+  return {
+    kind: "ok",
+    map: opts.tokenBudget === void 0 ? serialize(graph) : serialize(graph, opts.tokenBudget),
+    generated_at: graph.generated_at,
+    git_rev: graph.git_rev,
+    generator: graph.generator,
+    stale: current !== "nogit" && current !== graph.git_rev,
+    truncated: graph.truncated
+  };
+}
+
+// src/tools/codemap/code-neighbors.ts
+var DEFAULT_NEIGHBORS_MAX = 50;
+var MAX_DEPTH = 4;
+function basename6(id) {
+  return id.slice(id.lastIndexOf("/") + 1);
+}
+function resolveNode(graph, arg) {
+  if (graph.files.some((f) => f.id === arg)) return { id: arg };
+  const sym = graph.symbols.find((s) => s.id === arg);
+  if (sym) return { id: sym.file };
+  const matches = graph.files.filter((f) => basename6(f.id) === arg).map((f) => f.id).sort();
+  if (matches.length === 1) return { id: matches[0] };
+  if (matches.length > 1) return { matches };
+  return null;
+}
+function cmp(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function bfs(edges, start, direction, depth) {
+  const best = /* @__PURE__ */ new Map();
+  const seen = /* @__PURE__ */ new Set([start]);
+  let frontier = [{ node: start, hop: 0 }];
+  while (frontier.length) {
+    const next = [];
+    for (const { node, hop } of frontier) {
+      if (hop >= depth) continue;
+      for (const e of edges) {
+        let other = null;
+        if ((direction === "out" || direction === "both") && e.from === node) other = e.to;
+        else if ((direction === "in" || direction === "both") && e.to === node) other = e.from;
+        if (other === null) continue;
+        const id = JSON.stringify([e.from, e.to]);
+        const prev = best.get(id);
+        if (!prev || hop + 1 < prev.hops) {
+          best.set(id, { from: e.from, to: e.to, type: e.type, hops: hop + 1 });
+        }
+        if (!seen.has(other)) {
+          seen.add(other);
+          next.push({ node: other, hop: hop + 1 });
+        }
+      }
+    }
+    frontier = next;
+  }
+  return [...best.values()].sort((a, b) => a.hops - b.hops || cmp(a.from, b.from) || cmp(a.to, b.to));
+}
+async function codeNeighbors(opts) {
+  const depth = opts.depth ?? 1;
+  if (!Number.isInteger(depth) || depth < 1 || depth > MAX_DEPTH) {
+    throw new Error(`code_neighbors: depth must be an integer in 1..${MAX_DEPTH}, got ${depth}`);
+  }
+  const direction = opts.direction ?? "both";
+  const graph = await readGraph(codemapDir(opts.brainDir, opts.slug));
+  if (graph === null) {
+    return {
+      kind: "missing",
+      notice: `Code map for '${opts.slug}' not generated yet -- it regenerates automatically out-of-band (drainer tick); retry later or run the code-map CLI manually.`
+    };
+  }
+  const resolved = resolveNode(graph, opts.node);
+  if (resolved === null) {
+    return {
+      kind: "unknown",
+      node: opts.node,
+      notice: `No code node matching '${opts.node}' in the '${opts.slug}' code map (0 neighbors).`
+    };
+  }
+  const envMax = Number(process.env.SB_CODEMAP_NEIGHBORS_MAX);
+  const cap = opts.max ?? (Number.isFinite(envMax) && envMax > 0 ? Math.floor(envMax) : DEFAULT_NEIGHBORS_MAX);
+  if ("matches" in resolved) {
+    const capped = resolved.matches.slice(0, cap);
+    const more = resolved.matches.length - capped.length;
+    return {
+      kind: "ambiguous",
+      node: opts.node,
+      matches: capped,
+      note: `Basename '${opts.node}' is ambiguous -- ${resolved.matches.length} files match${more > 0 ? ` (showing ${capped.length})` : ""}; re-query with one full id.`
+    };
+  }
+  const rows = bfs(graph.edges, resolved.id, direction, depth);
+  return {
+    kind: "ok",
+    node: resolved.id,
+    direction,
+    depth,
+    neighbors: rows.slice(0, cap),
+    truncated: rows.length > cap
+  };
+}
+
 // src/nested-spawn-guard.ts
 function isNestedSpawn() {
   return process.env.SB_NESTED_SPAWN === "1";
@@ -32369,10 +32563,10 @@ function resolveKnowledgeDir3() {
   ];
   for (const raw of candidates) {
     if (raw && raw.trim() && !raw.includes("${")) {
-      return raw.startsWith("~") ? path2.join(os.homedir(), raw.slice(1)) : raw;
+      return raw.startsWith("~") ? path3.join(os.homedir(), raw.slice(1)) : raw;
     }
   }
-  return path2.join(os.homedir(), "knowledge");
+  return path3.join(os.homedir(), "knowledge");
 }
 var KNOWLEDGE_DIR = resolveKnowledgeDir3();
 var BRAIN_DIR = resolveBrainDir();
@@ -32387,8 +32581,8 @@ var server = new McpServer(
   }
 );
 function categorizeFile(filePath) {
-  const rel = path2.relative(path2.join(KNOWLEDGE_DIR, "wiki"), filePath);
-  const parts = rel.split(path2.sep);
+  const rel = path3.relative(path3.join(KNOWLEDGE_DIR, "wiki"), filePath);
+  const parts = rel.split(path3.sep);
   return parts.length > 1 ? parts[0] : "uncategorized";
 }
 server.registerTool(
@@ -32483,8 +32677,8 @@ server.registerTool(
   },
   async () => {
     try {
-      const wikiDir = path2.join(KNOWLEDGE_DIR, "wiki");
-      if (!fs18.existsSync(wikiDir)) {
+      const wikiDir = path3.join(KNOWLEDGE_DIR, "wiki");
+      if (!fs19.existsSync(wikiDir)) {
         return {
           content: [{
             type: "text",
@@ -32504,7 +32698,7 @@ server.registerTool(
         const cat = categorizeFile(file);
         let size = 0;
         try {
-          size = fs18.statSync(file).size;
+          size = fs19.statSync(file).size;
         } catch {
           continue;
         }
@@ -32857,6 +33051,62 @@ server.registerTool(
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     } catch (error2) {
       return { content: [{ type: "text", text: `Neighbors error: ${error2 instanceof Error ? error2.message : String(error2)}` }], isError: true };
+    }
+  }
+);
+server.registerTool(
+  "code_map",
+  {
+    description: "Return the token-capped, PageRank-ranked code-structure map for the active project (orientation: what exists / where it lives). Read-only; regenerated out-of-band on code change. Carries stale:true when the repo changed since generation. This is the CODE map \u2014 distinct from knowledge_search/knowledge_neighbors (the wiki).",
+    inputSchema: {
+      token_budget: external_exports.number().min(200).max(8e3).optional().describe("Token cap for the returned map (chars/4 estimate). Default SB_CODEMAP_TOKEN_BUDGET or 2000.")
+    }
+  },
+  async ({ token_budget }) => {
+    try {
+      const slug = resolveActiveSlug2();
+      if (!slug) {
+        return { content: [{ type: "text", text: "code_map: no active project resolvable (degenerate project dir) \u2014 nothing to map." }] };
+      }
+      const result = await codeMap({ brainDir: BRAIN_DIR, slug, tokenBudget: token_budget });
+      if (result.kind === "missing") {
+        return { content: [{ type: "text", text: result.notice }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error2) {
+      return {
+        content: [{ type: "text", text: `Code map error: ${error2 instanceof Error ? error2.message : String(error2)}` }],
+        isError: true
+      };
+    }
+  }
+);
+server.registerTool(
+  "code_neighbors",
+  {
+    description: "Blast-radius query over the code-structure import graph: direction 'in' = importers (what breaks if this file changes), 'out' = its dependencies. node accepts a full POSIX-relative file id ('src/a.ts'), a symbol id ('src/a.ts#foo'), or a bare basename ('server.ts' \u2014 an ambiguous basename returns all matches to pick from). This walks the CODE graph \u2014 distinct from knowledge_neighbors (the wiki graph).",
+    inputSchema: {
+      node: external_exports.string().describe("File id, symbol id, or bare basename to start from."),
+      direction: external_exports.enum(["in", "out", "both"]).default("both").describe("'in' = importers (blast radius), 'out' = dependencies. Default 'both'."),
+      depth: external_exports.number().min(1).max(4).default(1).describe("Max hops. Default 1.")
+    }
+  },
+  async ({ node, direction, depth }) => {
+    try {
+      const slug = resolveActiveSlug2();
+      if (!slug) {
+        return { content: [{ type: "text", text: "code_neighbors: no active project resolvable (degenerate project dir) \u2014 no code graph to query." }] };
+      }
+      const result = await codeNeighbors({ brainDir: BRAIN_DIR, slug, node, direction, depth });
+      if (result.kind === "missing") {
+        return { content: [{ type: "text", text: result.notice }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error2) {
+      return {
+        content: [{ type: "text", text: `Code neighbors error: ${error2 instanceof Error ? error2.message : String(error2)}` }],
+        isError: true
+      };
     }
   }
 );
