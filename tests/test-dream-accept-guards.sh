@@ -149,4 +149,69 @@ else
   pass "B4: Windows-form path normalization (skipped — no cygpath; the tar host:path bug is Windows-only)"
 fi
 
+# === P1 (finding D): live pages written AFTER the snapshot survive the accept ===
+# Staging is a full-mirror SNAPSHOT taken at status.json .created_at. A page the
+# drainer/maintainer writes to LIVE after that (not in staging) must NOT be
+# deleted by `rsync --delete`, while an OLD page the dream intentionally dropped
+# must still be deleted. ORACLE: the two files on disk after a real accept.
+setup 3 "p1 p2"     # live p1,p2,p3 ; staging p1,p2 (the dream drops p3)
+# Stamp created_at in the PAST; the pre-snapshot pages get an OLDER mtime.
+jq -nc '{id:"drm_test",status:"completed",archived_at:null,created_at:"2026-01-01T00:00:00Z"}' \
+  > "$BRAIN_DIR/dreams/drm_test/status.json"
+touch -t 202512010000 "$KNOWLEDGE_DIR/wiki/entities/p1.md" \
+                      "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
+                      "$KNOWLEDGE_DIR/wiki/entities/p3.md" 2>/dev/null
+# A POST-snapshot live page (mtime = now, newer than created_at), not in staging.
+printf -- '---\ntitle: newpage\ntype: entities\nrelated: []\n---\n\n# newpage\n' \
+  > "$KNOWLEDGE_DIR/wiki/entities/newpage.md"
+touch "$KNOWLEDGE_DIR/wiki/entities/newpage.md"
+# A POST-snapshot live EDIT to an existing page: p2 exists in staging (older
+# copy) but the live copy was edited after the snapshot. The panel-confirmed
+# hole: the no-rsync merge-cp path clobbered such edits with staging's older
+# copy (and Windows git-bash — no rsync — is the PRIMARY apply path). Both
+# paths must keep the newer live version (rsync: exclude; cp: stash+restore).
+printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"
+touch "$KNOWLEDGE_DIR/wiki/entities/p2.md"
+# MIN_RATIO=0 disables the F1 floor so this isolates the rsync protection.
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] || fail "P1: accept failed (rc=$rc)"
+# THE fix (both apply paths): the post-snapshot live page must survive.
+[ -f "$KNOWLEDGE_DIR/wiki/entities/newpage.md" ] \
+  || fail "P1: POST-snapshot live page was silently DELETED on accept (finding D not fixed)"
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p1.md" ] || fail "P1: a kept page went missing"
+grep -q 'LIVE EDIT after snapshot' "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
+  || fail "P1: POST-snapshot live EDIT was clobbered by the older staging copy (panel finding)"
+if command -v rsync >/dev/null 2>&1; then
+  # rsync path: --delete still removes the OLD page the dream intentionally dropped.
+  [ ! -f "$KNOWLEDGE_DIR/wiki/entities/p3.md" ] \
+    || fail "P1: an OLD dream-removed page survived — normal --delete broke (rsync path)"
+  pass "P1: post-snapshot new page + live edit preserved; old dream-removed page still deleted (rsync, finding D)"
+else
+  # cp fallback (no rsync): merge-only by design — never deletes, so p3 is
+  # retained. Safe-by-default (no data loss) over deletion-completeness. The
+  # key properties (post-snapshot page + edit preserved) are what finding D is about.
+  echo "SKIP: P1 deletion-completeness — no rsync; cp fallback is merge-only (post-snapshot preservation still asserted)"
+  pass "P1: post-snapshot new page + live edit preserved on the cp-fallback path (finding D)"
+fi
+rm -rf "$SB"
+
+# === P2: missing/unusable created_at → FAIL-SAFE (no deletions this accept) ===
+# With no trustworthy snapshot time the accept cannot tell which live pages
+# postdate the dream, so `rsync --delete` must not run at all: dream-dropped
+# pages survive (deletions skipped), everything live survives. Panel finding:
+# the previous behavior fell through to an UNPROTECTED --delete.
+setup 3 "p1 p2"     # live p1,p2,p3 ; staging p1,p2 (the dream drops p3)
+jq -nc '{id:"drm_test",status:"completed",archived_at:null}' \
+  > "$BRAIN_DIR/dreams/drm_test/status.json"     # NO created_at at all
+printf -- '---\ntitle: newpage\ntype: entities\nrelated: []\n---\n\n# newpage\n' \
+  > "$KNOWLEDGE_DIR/wiki/entities/newpage.md"
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] || fail "P2: accept failed (rc=$rc)"
+[ -f "$KNOWLEDGE_DIR/wiki/entities/newpage.md" ] \
+  || fail "P2: live-only page deleted despite unusable created_at (fail-safe broken)"
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p3.md" ] \
+  || fail "P2: dream deletion applied WITHOUT a snapshot time — unprotected --delete ran (not fail-safe)"
+pass "P2: missing created_at → merge-only accept (no deletions, nothing lost)"
+rm -rf "$SB"
+
 echo "ALL PASS"

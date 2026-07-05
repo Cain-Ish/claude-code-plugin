@@ -120,5 +120,18 @@ out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
 [ -z "$out" ] || fail "non-archived new page should be allowed (got: $out)"
 pass "non-archived new page allowed (tombstone inert)"
 
+# Test 12 (Windows form): C:\…\knowledge\wiki\… frontmatter enforced -------
+# Before the fix the backslash path never matched the '/'-separated glob, so
+# frontmatter enforcement + tombstone auto-restore were both inert on Windows.
+# Regression lock: drop the backslash normalization in wiki-write-guard.sh and
+# this flips to a silent allow (FAIL).
+cat > "$TMP/win-payload.json" <<'JSON'
+{"tool_name":"Write","tool_input":{"file_path":"C:\\Users\\me\\knowledge\\wiki\\learnings\\new.md","content":"# no frontmatter here\n"}}
+JSON
+out=$(bash "$SCRIPT" < "$TMP/win-payload.json")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "Windows C:\\ wiki write without frontmatter should deny (was inert on Windows): $out"
+pass "Windows C:\\ wiki write without frontmatter denied"
+
 echo
 echo "ALL PASS"

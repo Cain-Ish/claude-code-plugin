@@ -151,14 +151,93 @@ if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$LIVE_WIKI" ]; then
   fi
 fi
 
-# Apply: rsync staging over live wiki (preserves files not in staging). --safe-links drops any
-# out-of-tree symlink as defense-in-depth behind the reject guard; the cp fallback is already
-# covered by that guard (no out-of-tree symlink can reach it).
+# Post-snapshot protection (flow/premise review): staging is a full-mirror
+# SNAPSHOT taken at dream-create time (status.json .created_at). A completed
+# dream can sit unreviewed for DAYS while the drainer / knowledge-maintainer /
+# archive_to_wiki keep writing NEW pages to the LIVE wiki. Those pages are not
+# in staging, so a bare `rsync --delete` silently deletes them (and an older
+# staging copy would clobber a live page edited after the snapshot). The F1
+# floor only catches >50% loss; diff.md — computed at runner-completion — never
+# lists them. Protect every live page MODIFIED AFTER the snapshot: neither
+# delete nor overwrite it (merge-only; the newer LIVE version wins). A reference
+# file carries the snapshot mtime so `find -newer` (POSIX) stays portable — no
+# ISO date-parsing differences across GNU/BSD.
+PROTECT=""
+PROTECT_OK=1     # 0 = snapshot time unusable → fail-SAFE: apply merge-only, never --delete
+_snap_ref="$DREAM_DIR/.snap-ref.$$"
+CREATED_AT=$(jq -r '.created_at // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
+if [ -d "$LIVE_WIKI" ]; then
+  _ref_ok=0
+  if [ -n "$CREATED_AT" ] && [ "$CREATED_AT" != "null" ]; then
+    if touch -d "$CREATED_AT" "$_snap_ref" 2>/dev/null; then _ref_ok=1        # GNU
+    else
+      _tt=$(printf '%s' "$CREATED_AT" | sed -E 's/[^0-9]//g')                  # 2026-07-01T12:00:00Z -> 20260701120000
+      # TZ=UTC: created_at is UTC ('Z'), but POSIX `touch -t` reads LOCAL time —
+      # without the override the protect boundary shifts by the UTC offset
+      # (west-of-UTC leaves up to ~12h of post-snapshot writes unprotected).
+      if   [ "${#_tt}" -ge 14 ]; then TZ=UTC touch -t "${_tt:0:12}.${_tt:12:2}" "$_snap_ref" 2>/dev/null && _ref_ok=1   # POSIX/BSD, with seconds
+      elif [ "${#_tt}" -ge 12 ]; then TZ=UTC touch -t "${_tt:0:12}" "$_snap_ref" 2>/dev/null && _ref_ok=1              # seconds-less timestamp
+      fi
+    fi
+  fi
+  if [ "$_ref_ok" = "1" ]; then
+    PROTECT=$(cd "$LIVE_WIKI" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f -newer "$_snap_ref" 2>/dev/null | sed 's#^\./##')
+  else
+    # Fail-SAFE: with no trustworthy snapshot time we cannot tell which live
+    # pages postdate the dream, so --delete must not run at all this accept.
+    PROTECT_OK=0
+    echo "warn: dream $DREAM_ID has no usable created_at ('${CREATED_AT:-<empty>}') — applying merge-only (dream deletions skipped) to protect post-snapshot live pages." >&2
+  fi
+  rm -f "$_snap_ref" 2>/dev/null
+fi
+
+# Apply: rsync staging over live. --delete removes live pages the dream dropped
+# (dedup/forget) EXCEPT the post-snapshot pages protected above. --safe-links
+# drops any out-of-tree symlink as defense-in-depth behind the reject guard.
 if command -v rsync >/dev/null 2>&1; then
-  rsync -a --delete --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/"
+  if [ "$PROTECT_OK" != "1" ]; then
+    rsync -a --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/"    # merge-only (see warn above)
+  elif [ -n "$PROTECT" ]; then
+    _exf=$(mktemp)
+    # while-read (never an unquoted expansion — a page path containing a space
+    # must not word-split into broken patterns), each anchored to the transfer
+    # root ('/'-prefixed) so rsync neither deletes nor overwrites it — the
+    # newer live page is kept as-is.
+    printf '%s\n' "$PROTECT" | while IFS= read -r _rel; do
+      [ -n "$_rel" ] && printf '/%s\n' "$_rel"
+    done > "$_exf"
+    rsync -a --delete --safe-links --exclude-from="$_exf" "$STAGING_WIKI/" "$LIVE_WIKI/"
+    rm -f "$_exf"
+    echo "Preserved $(printf '%s\n' "$PROTECT" | grep -c .) live page(s) modified after the dream snapshot (merge-only; not deleted or overwritten)."
+  else
+    rsync -a --delete --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/"
+  fi
 else
-  rm -rf "$LIVE_WIKI"
-  cp -r "$STAGING_WIKI" "$LIVE_WIKI"
+  # No rsync — the NORMAL apply path on Windows git-bash (the primary dev
+  # platform), not a rare fallback. MERGE staging into live WITHOUT `rm -rf`
+  # (which would nuke every post-snapshot page). Post-snapshot EDITS must
+  # survive too, not just new pages: stash every protected page, merge-copy
+  # staging over live (namesakes overwritten), restore the stash — the newer
+  # live version wins, the same contract as the rsync exclude above.
+  _stash=""
+  if [ -n "$PROTECT" ]; then
+    _stash=$(mktemp -d)
+    printf '%s\n' "$PROTECT" | while IFS= read -r _rel; do
+      { [ -n "$_rel" ] && [ -f "$LIVE_WIKI/$_rel" ]; } || continue
+      mkdir -p "$_stash/$(dirname "$_rel")" && cp -p "$LIVE_WIKI/$_rel" "$_stash/$_rel"
+    done
+  fi
+  cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>/dev/null || { mkdir -p "$LIVE_WIKI" && cp -r "$STAGING_WIKI/." "$LIVE_WIKI/"; }
+  if [ -n "$_stash" ]; then
+    (cd "$_stash" 2>/dev/null && find . -type f 2>/dev/null | sed 's#^\./##') | while IFS= read -r _rel; do
+      [ -n "$_rel" ] && cp -p "$_stash/$_rel" "$LIVE_WIKI/$_rel"
+    done
+    rm -rf "$_stash"
+    echo "Preserved $(printf '%s\n' "$PROTECT" | grep -c .) live page(s) modified after the dream snapshot (restored over staging copies)."
+  fi
+  # Honest accounting (not silent): this path applies NO dream deletions —
+  # FORGET/DEDUPLICATE removals stay in place until an rsync-equipped accept.
+  echo "note: rsync unavailable — staging merged over live; dream deletions were NOT applied."
 fi
 
 # Reindex

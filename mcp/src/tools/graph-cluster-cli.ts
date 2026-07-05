@@ -66,6 +66,14 @@ async function main(): Promise<void> {
     if (!content.trim()) continue;
     const slug = basename(f, '.md');   // separator-agnostic (repo convention; cross-platform)
     const fm = frontmatter(content);
+    // Skip generated pages (reflection-*, theme copies outside themes/, state pages) from
+    // clustering INPUT, for the same reason the projects/themes dirs are skipped: they are
+    // synthesized hubs over their members. A reflection page lives in learnings/ or concepts/
+    // with `related:` listing every cluster member, so clustering it makes it a member of its
+    // OWN cluster — member_hash never matches again (idempotence defeated, the LLM re-reflects
+    // every dream) and when `reflection-<id>` sorts lexicographically first it BECOMES the
+    // cluster id, spawning reflection-reflection-<id>/theme-reflection-<id> pages each run.
+    if (/^generated:[ \t]*true\b/m.test(fm)) continue;
     const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, '');
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });
     contentHash[slug] = djb2(content);

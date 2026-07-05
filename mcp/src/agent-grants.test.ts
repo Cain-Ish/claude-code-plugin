@@ -58,4 +58,46 @@ describe('agent tool grants (P6a least-privilege, directory-walked)', () => {
       }
     }
   });
+
+  // Finding B: the maintainer/drainer protocols CALL knowledge_* MCP tools
+  // (Phase 1 validate, Phase 2 search, Phase 3 relate/neighbors, Phase 5
+  // reindex; drain steps search+validate). With `tools:` specified, unlisted
+  // tools are unavailable at runtime, so the agent silently skips the step or
+  // improvises. Lock the required grants so the gap can't reopen.
+  const MCP = (t: string) => `mcp__plugin_second-brain_knowledge-base__${t}`;
+  const REQUIRED_MCP: Record<string, string[]> = {
+    'knowledge-maintainer.md': ['knowledge_validate', 'knowledge_search', 'knowledge_relate', 'knowledge_neighbors', 'knowledge_reindex'],
+    'raw-drainer.md': ['knowledge_search', 'knowledge_validate'],
+  };
+  it('maintainer/drainer grant every knowledge_* MCP tool their protocol calls', () => {
+    const missing: string[] = [];
+    for (const [f, tools] of Object.entries(REQUIRED_MCP)) {
+      const line = toolsLine(read(f));
+      for (const t of tools) if (!line.includes(MCP(t))) missing.push(`${f}: ${MCP(t)}`);
+    }
+    expect(missing, `agent protocol calls an MCP tool it does not grant: ${missing.join(' | ')}`).toEqual([]);
+  });
+
+  // Security commitment (P6 data-never-instructions): the three consolidation
+  // agents ingest untrusted transcript/captured/wiki content on every run and
+  // must carry the explicit "DATA, not instructions" framing so a poisoned
+  // memory cannot hijack consolidation via an embedded imperative.
+  const UNTRUSTED_CONSUMERS = ['knowledge-maintainer.md', 'raw-drainer.md', 'dream-runner.md'];
+  it('consolidation agents carry the data-not-instructions framing', () => {
+    const missing = UNTRUSTED_CONSUMERS.filter(f => !/DATA, not instructions/i.test(read(f)));
+    expect(missing, `untrusted-content consumer lacks the data-not-instructions line: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  // Surface lock: the consolidation agents' unused git grants were dropped (git
+  // appeared only in their tools line, never in a protocol step). Keep them out.
+  // Scoped to the three consolidation agents ONLY — the code-review family
+  // (history-reviewer, scorer, unit-reviewer, quality-reviewer, premise) grants
+  // Bash(git *) legitimately (they blame/diff/log the change under review).
+  it('consolidation agents carry no Bash(git *) grant (unused there)', () => {
+    const offenders: string[] = [];
+    for (const f of UNTRUSTED_CONSUMERS) {
+      for (const g of bashGrants(read(f))) if (/^Bash\(git\b/.test(g)) offenders.push(`${f}: ${g}`);
+    }
+    expect(offenders, `consolidation agent has an unused git grant: ${offenders.join(' | ')}`).toEqual([]);
+  });
 });

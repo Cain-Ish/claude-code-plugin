@@ -11,6 +11,45 @@ BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 # Linux/macOS paths have no drive letter). Idempotent: cygpath -u on an already-MSYS path returns it as-is.
 command -v cygpath >/dev/null 2>&1 && BRAIN_DIR=$(cygpath -u "$BRAIN_DIR" 2>/dev/null || printf '%s' "$BRAIN_DIR")
 
+# sb_normalize_path — canonicalize a path STRING to the plugin's POSIX form so
+# the PreToolUse guards compare like-with-like. On Windows git-bash a hook
+# payload's file_path arrives as 'C:\Users\…' (or 'C:/Users/…') while $HOME —
+# and every credential/scope prefix derived from it — is '/c/Users/…'. That
+# form mismatch silently fail-OPENED symlink-guard / persona-tool-guard /
+# wiki-write-guard (all three inert on Windows, the platform this plugin is
+# developed on). This is the one funnel every guard runs its paths through,
+# mirroring the brain-paths.ts homedir() funnel on the TS side. Two lexical,
+# idempotent, symlink-free steps:
+#   1. backslash -> forward slash (Claude Code never uses '\' as a Unix separator)
+#   2. drive-letter absolute (C:/…) -> cygpath -u POSIX form (/c/…) when cygpath
+#      exists (git-bash/Cygwin); a no-op on Linux/macOS (no drive letter, no cygpath)
+# Prints the normalized path; empty in -> empty out. Callers that must resolve
+# symlinks realpath FIRST, then normalize the result (realpath emits C:/ form on
+# Windows, so its OUTPUT is what needs normalizing).
+sb_normalize_path() {
+  local p="$1" u d
+  [ -z "$p" ] && return 0
+  p="${p//\\//}"
+  # Windows extended-length prefix \\?\C:\… (→ //?/C:/… after slashing): strip
+  # to the plain drive form so it can't sail past the drive-letter case below.
+  p="${p#"//?/"}"
+  # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…) is the same
+  # local drive in disguise — rewrite to drive form. Other-host UNC paths are
+  # not locally resolvable and pass through unchanged (documented limit).
+  case "$p" in
+    //localhost/[A-Za-z]\$/*)  d="${p#//localhost/}";  d="${d%%\$*}"; p="$d:${p#//localhost/[A-Za-z]\$}" ;;
+    //127.0.0.1/[A-Za-z]\$/*)  d="${p#//127.0.0.1/}";  d="${d%%\$*}"; p="$d:${p#//127.0.0.1/[A-Za-z]\$}" ;;
+  esac
+  case "$p" in
+    [A-Za-z]:/*)
+      if command -v cygpath >/dev/null 2>&1; then
+        u=$(cygpath -u "$p" 2>/dev/null) && [ -n "$u" ] && p="$u"
+      fi
+      ;;
+  esac
+  printf '%s' "$p"
+}
+
 # KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
 # / SB_GENERATED_DIRS / SB_EDGE_TYPES / SB_FORGET_PROTECTED / SB_FORGET_DISCOUNTED from kb-schema.json.
 # Sourced here so every lib.sh consumer has them. Fail-soft (no-op if jq/manifest absent).
@@ -866,13 +905,27 @@ sb_write_generated_page() {
 }
 
 # Enforce transcript archive caps: 100 files max, 5MB total.
-# Deletes oldest files first (sorted by filename which embeds date).
+# Deletes oldest files first, ranked by MTIME (see below — NOT by filename).
 sb_prune_transcripts() {
   local archive_dir="$BRAIN_DIR/transcripts"
   [ -d "$archive_dir" ] || return 0
 
+  # OLDEST-first by mtime, NOT a lexical filename sort. Archives are named
+  # "${session_id}_${slug}_${date}.txt" — the random session UUID LEADS, so
+  # `sort` orders by UUID hex (age-random): the cap would then evict a
+  # just-archived, not-yet-drained transcript, silently breaking the "the
+  # transcript is still archived; the drainer mines the real knowledge later"
+  # recovery contract (stop-extract.sh). mtime is the true age. -printf is GNU;
+  # fall back to a stat-based sort on BSD/macOS — the same idiom the sub-*.txt
+  # cap in sb_archive_transcript already uses.
   local files
-  files=$(find "$archive_dir" -name '*.txt' -type f 2>/dev/null | sort)
+  files=$(find "$archive_dir" -name '*.txt' -type f -printf '%T@ %p\n' 2>/dev/null \
+    | sort -n | cut -d' ' -f2-)
+  if [ -z "$files" ]; then
+    files=$(find "$archive_dir" -name '*.txt' -type f 2>/dev/null \
+      | while IFS= read -r f; do printf '%s %s\n' "$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)" "$f"; done \
+      | sort -n | cut -d' ' -f2-)
+  fi
   local count
   count=$(echo "$files" | grep -c . 2>/dev/null || true)
 

@@ -50,6 +50,27 @@ case "$FILE_PATH" in
   '~'*) FILE_PATH="$HOME${FILE_PATH#\~}" ;;
 esac
 
+# Source lib.sh for sb_log_audit + sb_normalize_path. Fail-soft: define no-op /
+# minimal fallbacks so the guard still emits its deny JSON (its primary job)
+# even if the source fails. sb_normalize_path MUST be available before the
+# credential match below, so the guard stays armed on Windows even without lib.sh.
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
+  sb_log_audit() { :; }
+  sb_normalize_path() {
+    local p="${1//\\//}"
+    p="${p#"//?/"}"   # \\?\C:\… extended-length prefix (minimal mirror of lib.sh's canonical)
+    case "$p" in [A-Za-z]:/*) command -v cygpath >/dev/null 2>&1 && p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p") ;; esac
+    printf '%s' "$p"
+  }
+fi
+
+# Windows git-bash sends 'C:\…' / 'C:/…'; normalize to the /c/… POSIX form the
+# credential prefixes use BEFORE realpath (so it resolves) and again AFTER (GNU
+# realpath re-emits C:/ form on Windows — normalizing its OUTPUT is the G-HOOK-2
+# fix: without it the credential-dir prefixes never match and the guard is inert).
+FILE_PATH=$(sb_normalize_path "$FILE_PATH")
+
 # Resolve through symlinks. -m: missing-component-tolerant (Write targets the
 # file may not exist yet); we still resolve the parent's symlinks.
 RESOLVED=$(realpath -m -- "$FILE_PATH" 2>/dev/null)        # GNU coreutils: follows leaf + parent, missing-tolerant
@@ -73,12 +94,9 @@ if [ -z "$RESOLVED" ]; then
     RESOLVED="${FILE_PATH/#\~/$HOME}"
   fi
 fi
-
-# Source lib.sh for sb_log_audit. Fail-soft.
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
-  sb_log_audit() { :; }
-fi
+# Normalize realpath's OUTPUT to the /c/… form so it matches the credential
+# prefixes (see the pre-realpath note above — this is the load-bearing half).
+RESOLVED=$(sb_normalize_path "$RESOLVED")
 
 SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r' || true)
 
@@ -98,18 +116,24 @@ CRED_PREFIXES=(
 NETRC_FILE="$HOME/.netrc"
 
 MATCHED_LABEL=""
+# Case-INSENSITIVE compare: NTFS and default APFS are case-insensitive, so
+# /c/Users/me/.SSH/ IS ~/.ssh there — a case-varied path must not slip the
+# prefix check. On case-sensitive Linux this can over-match a literally
+# distinct ~/.SSH dir; acceptable — a rare false deny is fail-safe, a missed
+# credential write is not. (tr, not ${x,,}: bash-3.2/BSD portable.)
+RESOLVED_LC=$(printf '%s' "$RESOLVED" | tr '[:upper:]' '[:lower:]')
 for entry in "${CRED_PREFIXES[@]}"; do
   label="${entry%%:*}"
-  prefix="${entry#*:}"
+  prefix=$(printf '%s' "${entry#*:}" | tr '[:upper:]' '[:lower:]')
   # Match the directory node itself (no trailing /) as well as anything
   # under it. Without the equality case, a Write whose path resolves to the
   # exact dir (e.g. ~/.ssh) would slip past the dir-tree prefix check.
-  case "$RESOLVED" in
+  case "$RESOLVED_LC" in
     "$prefix"*)         MATCHED_LABEL="$label"; break ;;
     "${prefix%/}")      MATCHED_LABEL="$label"; break ;;
   esac
 done
-if [ -z "$MATCHED_LABEL" ] && [ "$RESOLVED" = "$NETRC_FILE" ]; then
+if [ -z "$MATCHED_LABEL" ] && [ "$RESOLVED_LC" = "$(printf '%s' "$NETRC_FILE" | tr '[:upper:]' '[:lower:]')" ]; then
   MATCHED_LABEL="netrc"
 fi
 

@@ -15,7 +15,10 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TESTS_DIR="$ROOT/tests"
+# SB_RUN_ALL_TESTS_DIR overrides the shell-test directory (defaults to the
+# repo's tests/). Used by test-run-all-skip-semantics.sh to point the runner at
+# a fixture dir; production runs never set it.
+TESTS_DIR="${SB_RUN_ALL_TESTS_DIR:-$ROOT/tests}"
 MCP_DIR="$ROOT/mcp"
 QUIET="${SB_RUN_ALL_QUIET:-0}"
 RUN_VITEST="${SB_RUN_ALL_VITEST:-1}"
@@ -78,8 +81,15 @@ run_one_sh() {
   fi
   local elapsed=$(( $(date +%s) - started ))
 
-  # Detect SKIP convention used by some existing tests.
-  if grep -qE '^SKIP[:\s]' "$logfile" 2>/dev/null; then
+  # Detect the whole-file SKIP convention used by some existing tests.
+  # CRITICAL: only honor SKIP when the test also EXITED 0. A test that prints a
+  # mid-run "SKIP:" line for one optional subtest and then FAILS a real
+  # assertion (exit != 0) must count as FAIL, not SKIP — otherwise a genuine
+  # failure (e.g. a security-check regression on Windows, which has no CI lane)
+  # is silently reclassified as SKIP and the suite reports ALL GREEN. The grep
+  # must NOT precede the exit-code gate. ('[: ]', not '[:\s]': in ERE the class
+  # [:\s] is the literal set {':','\','s'} — it never matched a space.)
+  if [ "$ec" -eq 0 ] && grep -qE '^SKIP[: ]' "$logfile" 2>/dev/null; then
     SKIP=$((SKIP+1))
     SKIPPED_TESTS+=("$name")
     printf '  %sSKIP%s  %-50s %ds\n' "$C_YELLOW" "$C_RST" "$name" "$elapsed"

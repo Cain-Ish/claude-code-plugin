@@ -114,5 +114,72 @@ run   # run() drives session-load with cwd = test-project (a plain dir, no works
 PARENT_AFTER=$(jq -r --arg s test-project 'select(.slug==$s)|.parent // "ABSENT"' "$BRAIN_DIR/projects.jsonl" | head -1)
 [ "$PARENT_AFTER" = "ABSENT" ] && pass "stale parent cleared on de-parenting" || fail "stale parent not cleared (got: $PARENT_AFTER)"
 
+# --- Phase D: bookkeeping rewrite keeps projects.jsonl LINE-BY-LINE parseable ---
+# project-registry.ts loadRegistry() reads projects.jsonl one line at a time and
+# JSON.parses each line (malformed lines silently skipped). The SessionStart
+# bookkeeping rewrite used `jq` without -c, pretty-printing every record across
+# ~8 lines, so the reader returned [] and project scoping / dream family filters
+# / search tiering all ran registry-blind. This asserts the CONSUMER's contract:
+# after a rewrite, every non-empty line is a complete JSON object. Regression
+# lock — drop the -c in session-load.sh and this fails (a lone "{" line).
+init_sandbox "compact-after-rewrite"
+cat > "$BRAIN_DIR/projects.jsonl" <<'EOF'
+{
+  "slug": "test-project",
+  "name": "test-project",
+  "last_session_iso": "2026-05-01T00:00:00Z",
+  "hot_byte_count": 0
+}
+{
+  "slug": "other-project",
+  "name": "other-project",
+  "last_session_iso": "2026-04-01T00:00:00Z",
+  "hot_byte_count": 0
+}
+EOF
+run
+LINE_BAD=0; LINE_N=0
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  LINE_N=$((LINE_N + 1))
+  printf '%s' "$line" | jq -e 'type == "object" and (.slug | type == "string")' >/dev/null 2>&1 \
+    || LINE_BAD=1
+done < "$BRAIN_DIR/projects.jsonl"
+[ "$LINE_BAD" = "0" ] \
+  || fail "projects.jsonl has a line that is not a complete JSON object (registry reader would return []) — rewrite pretty-printed it"
+[ "$LINE_N" = "2" ] \
+  || fail "expected 2 compact record lines after rewrite, got $LINE_N"
+pass "bookkeeping rewrite keeps projects.jsonl one compact object per line (registry-readable)"
+
+# Both records must survive the rewrite (self-heal, not lose the non-active one).
+count_entries_for "test-project" | grep -q '^1$' || fail "active record lost/duplicated after rewrite"
+count_entries_for "other-project" | grep -q '^1$' || fail "non-active record lost after rewrite"
+pass "rewrite preserves all records (self-heals pretty-printed → compact)"
+
+# --- Phase E: corrupt line MID-file → rewrite SKIPS, registry left INTACT ---
+# jq dies at the corrupt line after emitting the records before it. If the
+# rewrite gate blessed that partial output (the single-stage `jq | tr > f`
+# pipeline masked jq's exit code behind tr's — panel-confirmed by live repro),
+# every record AFTER the bad line would be silently truncated away — and never
+# re-registered, since registration only runs when PROJECT.md is absent. Safe
+# behavior: skip the rewrite, leave the file byte-intact. Regression lock:
+# re-pipe jq straight through tr (single stage) and this fails.
+init_sandbox "corrupt-line-no-truncate"
+cat > "$BRAIN_DIR/projects.jsonl" <<'EOF'
+{"slug":"test-project","name":"test-project","last_session_iso":"2026-05-01T00:00:00Z","hot_byte_count":0}
+GARBAGE not json
+{"slug":"other-project","name":"other-project","last_session_iso":"2026-04-01T00:00:00Z","hot_byte_count":0}
+EOF
+mkdir -p "$BRAIN_DIR/projects/test-project"
+printf '# PROJECT: test-project\n' > "$BRAIN_DIR/projects/test-project/PROJECT.md"
+run
+grep -q '^GARBAGE not json$' "$BRAIN_DIR/projects.jsonl" \
+  || fail "corrupt registry was rewritten — expected skip-and-leave-intact"
+grep -q '"slug":"other-project"' "$BRAIN_DIR/projects.jsonl" \
+  || fail "record AFTER the corrupt line was truncated away (the panel-confirmed data-loss regression)"
+LINES=$(grep -c . "$BRAIN_DIR/projects.jsonl")
+[ "$LINES" = "3" ] || fail "registry line count changed (expected 3 intact lines, got $LINES)"
+pass "corrupt mid-file line → rewrite skipped, registry left byte-intact (no truncation)"
+
 echo
 echo "ALL PASS"

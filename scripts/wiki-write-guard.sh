@@ -23,6 +23,13 @@ esac
 FILE_PATH=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null | tr -d '\r')
 [ -z "$FILE_PATH" ] && exit 0
 
+# Windows git-bash sends 'C:\…\knowledge\wiki\…\x.md'; the backslash form never
+# matches the '/'-separated glob below, so frontmatter enforcement + tombstone
+# auto-restore were both inert on Windows. Convert to forward slashes (the
+# match is a '/knowledge/wiki/' substring, so the C:/ drive form matches fine —
+# no cygpath needed, and every downstream test/mkdir/mv accepts the mixed form).
+FILE_PATH="${FILE_PATH//\\//}"
+
 # Match any wiki page under a knowledge/wiki/<category>/ tree. We don't anchor on
 # $HOME because tests use tmp dirs; matching on the literal "/knowledge/wiki/" segment
 # is precise enough — no real project nests its own wiki under that path.

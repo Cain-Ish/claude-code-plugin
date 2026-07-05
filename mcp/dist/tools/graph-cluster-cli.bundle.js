@@ -168,6 +168,7 @@ async function main() {
     if (!content.trim()) continue;
     const slug = basename(f, ".md");
     const fm = frontmatter(content);
+    if (/^generated:[ \t]*true\b/m.test(fm)) continue;
     const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });
     contentHash[slug] = djb2(content);

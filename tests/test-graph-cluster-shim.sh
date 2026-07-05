@@ -80,4 +80,26 @@ pass "SB_DREAM_SUMMARIZE=off gates the summarize consumer"
   || fail "SB_DREAM_REFLECT=off must NOT gate the default summarize consumer"
 pass "summarize consumer is independent of SB_DREAM_REFLECT"
 
+# --- REFLECT feedback-loop guard: generated pages are excluded from cluster INPUT ---
+# A reflection page (generated: true, related: [all members]) written by a prior dream
+# must NOT join its own cluster on the next run: it would defeat member_hash idempotence
+# (the LLM re-reflects every dream) and, sorting lexicographically first, could BECOME
+# the cluster id (spawning reflection-reflection-<id> pages). Regression lock: drop the
+# generated:true filter in graph-cluster-cli.ts and members gain "reflection-a" (FAIL).
+KD3="$TMP/knowledge3"; mkdir -p "$KD3/wiki/entities" "$KD3/wiki/learnings"
+page3(){ local slug="$1"; shift; local rel=""; for r in "$@"; do rel="${rel}[[${r}]], "; done
+  printf '%s\n' '---' "title: $slug" 'type: entities' "related: ${rel%, }" '---' "# $slug body" \
+    > "$KD3/wiki/entities/$slug.md"; }
+page3 a b c d; page3 b a c d; page3 c a b d; page3 d a b c
+printf '%s\n' '---' 'title: reflection-a' 'type: learnings' 'generated: true' 'reflection: true' \
+  'related: [a, b, c, d]' 'member_hash: deadbeef' '---' '# synthesized practice' \
+  > "$KD3/wiki/learnings/reflection-a.md"
+OUTR=$(bash "$SHIM" --knowledge-dir "$KD3")
+[ "$(echo "$OUTR" | jq 'length')" = 1 ] || fail "reflection fixture: expected 1 cluster, got: $OUTR"
+[ "$(echo "$OUTR" | jq -c '.[0].members')" = '["a","b","c","d"]' ] \
+  || fail "REFLECT feedback loop: generated reflection page joined its own cluster: $OUTR"
+[ "$(echo "$OUTR" | jq -r '.[0].id')" = "a" ] \
+  || fail "cluster id churned (expected 'a'): $OUTR"
+pass "generated (reflection) page excluded from cluster input; id + members stable"
+
 echo; echo "ALL PASS"

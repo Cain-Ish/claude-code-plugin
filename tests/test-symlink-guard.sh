@@ -188,5 +188,80 @@ else
   pass "realpath absent + LEAF symlink (skipped — no symlink support)"
 fi
 
+# --- Test 20 (Windows form): C:\ credential path is denied ---------------
+# THE G-HOOK-2 fix. On Windows, Claude Code sends 'C:\Users\…' and GNU realpath
+# re-emits 'C:/Users/…'; before the fix neither matched the '/c/…' credential
+# prefixes and the guard was completely inert on the platform this plugin is
+# developed on. cygpath + realpath are STUBBED so the Windows path is exercised
+# identically on Linux/BSD CI. Regression lock: drop the RESOLVED normalization
+# in symlink-guard.sh and this test flips to a silent allow (FAIL).
+WINHOME="$TMP/winhome"; mkdir -p "$WINHOME/.ssh" "$WINHOME/work/repo"
+WINBIN="$TMP/winbin"; mkdir -p "$WINBIN"
+# cygpath -u 'C:/winhome/<rest>' -> $WINHOME/<rest>; passthrough otherwise.
+cat > "$WINBIN/cygpath" <<'EOF'
+#!/bin/sh
+p="$2"; W="$SB_TEST_WINHOME"
+case "$p" in
+  C:/winhome/*) printf '%s/%s\n' "$W" "${p#C:/winhome/}" ;;
+  C:/winhome)   printf '%s\n' "$W" ;;
+  *) printf '%s\n' "$p" ;;
+esac
+EOF
+# realpath emits the Windows 'C:/winhome/…' drive form (as GNU realpath does on
+# git-bash) so the guard MUST normalize its output to match the /c/… prefixes.
+cat > "$WINBIN/realpath" <<'EOF'
+#!/bin/sh
+f=""; for a; do case "$a" in -*) ;; *) f="$a";; esac; done
+W="$SB_TEST_WINHOME"
+case "$f" in
+  "$W"/*) printf 'C:/winhome/%s\n' "${f#"$W"/}" ;;
+  "$W")   printf 'C:/winhome\n' ;;
+  *) printf '%s\n' "$f" ;;
+esac
+EOF
+chmod +x "$WINBIN/cygpath" "$WINBIN/realpath"
+win_guard() {  # $1 tool  $2 windows-form path
+  local et ep
+  et=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  ep=$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf '{"session_id":"t","hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"file_path":"%s"}}' "$et" "$ep" \
+    | HOME="$WINHOME" SB_TEST_WINHOME="$WINHOME" PATH="$WINBIN:$PATH" bash "$SCRIPT" 2>/dev/null
+}
+OUT=$(win_guard "Write" 'C:\winhome\.ssh\authorized_keys')
+assert_deny "Windows C:\\ path into ~/.ssh → deny (G-HOOK-2 armed on Windows)" "$OUT" "ssh"
+OUT=$(win_guard "Write" 'C:\winhome\work\repo\main.py')
+assert_allow "Windows C:\\ project path → allow (not over-blocked)" "$OUT"
+
+# --- Test 21: case-varied credential path is still denied -----------------
+# NTFS (and default APFS) are case-insensitive: C:\winhome\.SSH IS ~/.ssh
+# there, so a case-sensitive prefix match lets '.SSH' sail through (panel-
+# confirmed bypass). Regression lock: make the credential compare case-
+# sensitive again and this flips to a silent allow (FAIL).
+OUT=$(win_guard "Write" 'C:\winhome\.SSH\authorized_keys')
+assert_deny "case-varied .SSH path → deny (case-insensitive FS bypass closed)" "$OUT" "ssh"
+
+# --- Test 22: \\?\ extended-length form is still denied -------------------
+# \\?\C:\… is a legal Windows path form; before the normalizer stripped it,
+# the drive-letter case never matched and the guard was blind to it.
+OUT=$(win_guard "Write" '\\?\C:\winhome\.ssh\authorized_keys')
+assert_deny "extended-length \\\\?\\ credential path → deny" "$OUT" "ssh"
+
+# --- Test 23: lib.sh unsourceable → inline fallback normalizer still arms the guard
+# The guard carries a minimal inline sb_normalize_path for the lib-missing
+# configuration. That branch was previously untested — drift there would
+# disarm the Windows guard ONLY when lib.sh fails to source, invisibly.
+# Force the source to fail (CLAUDE_PLUGIN_ROOT=/nonexistent) and require deny.
+win_guard_nolib() {  # $1 tool  $2 windows-form path  (win_guard + broken plugin root)
+  local et ep
+  et=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  ep=$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf '{"session_id":"t","hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"file_path":"%s"}}' "$et" "$ep" \
+    | CLAUDE_PLUGIN_ROOT=/nonexistent HOME="$WINHOME" SB_TEST_WINHOME="$WINHOME" PATH="$WINBIN:$PATH" bash "$SCRIPT" 2>/dev/null
+}
+OUT=$(win_guard_nolib "Write" 'C:\winhome\.ssh\authorized_keys')
+assert_deny "lib.sh unsourceable → inline fallback still denies (fallback branch armed)" "$OUT" "ssh"
+OUT=$(win_guard_nolib "Write" '\\?\C:\winhome\.ssh\authorized_keys')
+assert_deny "lib.sh unsourceable + \\\\?\\ form → deny (fallback strips long-path prefix)" "$OUT" "ssh"
+
 echo
 echo "ALL PASS"

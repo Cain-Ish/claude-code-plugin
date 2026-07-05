@@ -534,7 +534,10 @@ fi
 
 # 4. Index line — tiny, always fits
 if [ -f "$INDEX_FILE" ]; then
-  IDX_LINE=$(printf '\n%s' "$(jq --arg s "$slug" -r 'select(.slug == $s)' "$INDEX_FILE" 2>/dev/null | head -1)")
+  # -c so a matched record renders as ONE compact line — jq pretty-prints
+  # objects by default even with -r, so `head -1` used to grab a lone "{" and
+  # inject it into the hot tier. tr -d '\r' for Windows CRLF stdout.
+  IDX_LINE=$(printf '\n%s' "$(jq -c --arg s "$slug" 'select(.slug == $s)' "$INDEX_FILE" 2>/dev/null | tr -d '\r' | head -1)")
   sb_append "$IDX_LINE" "index-line" 200
 fi
 
@@ -687,15 +690,36 @@ fi
 
 if [ -f "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
   TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  TMP_IDX=$(mktemp)
-  jq --arg s "$slug" --arg t "$TS" --arg p "$parent" --arg rp "$root_path" --arg gr "$git_remote" '
+  TMP_IDX=$(mktemp); TMP_RAW=$(mktemp)
+  # -c: ONE compact object per line so the MCP registry reader
+  # (project-registry.ts parses projects.jsonl line-by-line) can load it.
+  # WITHOUT -c, jq pretty-prints each record across ~8 lines and the reader
+  # silently returns [] — blinding resolveSlugByPath (monorepo child slugs
+  # collapse), projectFamily (dream transcript filters), and search tiering,
+  # AND permanently undoing the 0.33.0 sb_harden_projects_jsonl repair on the
+  # next session. TWO-STAGE write (jq → TMP_RAW, then tr → TMP_IDX): jq's exit
+  # code must gate the mv DIRECTLY. Piped (jq | tr > f) the pipeline status is
+  # tr's, and a corrupt line MID-file makes jq emit the records before it and
+  # then die — partial-but-non-empty output that [ -s ] would bless, silently
+  # TRUNCATING the registry (records after the bad line are unrecoverable:
+  # registration only re-runs when PROJECT.md is absent). tr -d '\r': jq's
+  # stdout is CRLF on Windows. [ -s ] still backstops the empty-input case.
+  if jq -c --arg s "$slug" --arg t "$TS" --arg p "$parent" --arg rp "$root_path" --arg gr "$git_remote" '
     if .slug == $s then
       .last_session_iso = $t
       | (if $rp != "" then .root_path  = $rp else . end)
       | (if $gr != "" then .git_remote = $gr else . end)
       | (if $p  != "" then .parent = $p  else del(.parent) end)
     else . end
-  ' "$INDEX_FILE" > "$TMP_IDX" 2>/dev/null && mv "$TMP_IDX" "$INDEX_FILE" || rm -f "$TMP_IDX"
+  ' "$INDEX_FILE" > "$TMP_RAW" 2>/dev/null && tr -d '\r' < "$TMP_RAW" > "$TMP_IDX" && [ -s "$TMP_IDX" ]; then
+    mv "$TMP_IDX" "$INDEX_FILE"
+  else
+    rm -f "$TMP_IDX"
+    # Fail loud: a skipped rewrite means the registry holds an unparseable line —
+    # the file is left INTACT (never truncated) but needs repair.
+    sb_log_error "session-load.sh" "projects.jsonl bookkeeping rewrite skipped: jq could not parse the registry (corrupt line?) — file left untouched" 0
+  fi
+  rm -f "$TMP_RAW"
 fi
 
 # --- Stale wiki/index.md auto-reindex (background, no output) ---

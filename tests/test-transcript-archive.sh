@@ -80,4 +80,28 @@ AFTER_SIZE=$(find "$BRAIN_DIR/transcripts" -type f -exec cat {} + 2>/dev/null | 
 [ "$AFTER_SIZE" -le 5242880 ] || fail "pruning should enforce 5MB cap (got $AFTER_SIZE bytes)"
 pass "prune: enforces 5MB cap"
 
+# --- Subtest 5: prune drops the MTIME-oldest, not the filename-lexical-oldest.
+# Regression lock for the UUID-leading-filename bug: archives are named
+# "${uuid}_${slug}_${date}.txt", so a lexical sort is age-random and could evict
+# a freshly-archived, not-yet-drained transcript. Build the adversarial case:
+# the genuinely-oldest file sorts LAST by filename (ffff… prefix), and 100 newer
+# files sort FIRST (0000… prefixes). A correct (mtime) prune drops the ffff… one.
+setup "prune-mtime-order"
+D="$BRAIN_DIR/transcripts"
+for i in $(seq 1 100); do
+  printf 'recent %d\n' "$i" > "$D/00000000-newer-$(printf '%03d' "$i")_proj_2026-07-02.txt"
+done
+OLD="$D/ffffffff-oldest_proj_2026-01-01.txt"
+printf 'OLD — should prune first\n' > "$OLD"
+# Make OLD genuinely the oldest by mtime (POSIX `touch -t CCYYMMDDhhmm`, GNU+BSD).
+touch -t 202601010000 "$OLD" 2>/dev/null || fail "touch -t unavailable — cannot set mtime for test"
+sb_prune_transcripts
+[ ! -f "$OLD" ] \
+  || fail "prune dropped by FILENAME order: the mtime-oldest (ffff… prefix) survived"
+[ -f "$D/00000000-newer-001_proj_2026-07-02.txt" ] \
+  || fail "prune wrongly dropped a newer file (0000… prefix) before the mtime-oldest"
+REMAIN=$(ls "$D" | wc -l | tr -d ' ')
+[ "$REMAIN" -le 100 ] || fail "prune did not reach the 100-file cap (got $REMAIN)"
+pass "prune: drops mtime-oldest, not filename-lexical-oldest (UUID-leading bug)"
+
 echo "ALL PASS"

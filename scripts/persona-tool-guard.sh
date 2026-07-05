@@ -28,6 +28,12 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 # job) even when audit logging is unavailable.
 if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
   sb_log_audit() { :; }
+  sb_normalize_path() {
+    local p="${1//\\//}"
+    p="${p#"//?/"}"   # \\?\C:\… extended-length prefix (minimal mirror of lib.sh's canonical)
+    case "$p" in [A-Za-z]:/*) command -v cygpath >/dev/null 2>&1 && p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p") ;; esac
+    printf '%s' "$p"
+  }
 fi
 
 USER_RULES="$BRAIN_DIR/persona-rules.json"
@@ -45,6 +51,13 @@ CWD=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 [ -z "$CWD" ] && CWD="$PWD"
 CMD=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null | tr -d '\r')
 PATH_INPUT=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null | tr -d '\r')
+# Windows git-bash sends 'C:\…' paths; the scope allowlist and self-edit regexes
+# are all forward-slash / $HOME-prefix based, so an un-normalized backslash path
+# matches NOTHING (drive-letter absolutes fall through to the "$CWD/…" relative
+# case and then trivially prefix-match $CWD — the resource-scope fail-open).
+# Normalize both the working dir and the target to the /c/… POSIX form first.
+CWD=$(sb_normalize_path "$CWD")
+PATH_INPUT=$(sb_normalize_path "$PATH_INPUT")
 
 # --- v2.10.0 tool-scope guard (HarnessAudit sar_tool) --------------------
 # Ask before a tool is invoked when it's outside the declared allowlist.

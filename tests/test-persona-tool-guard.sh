@@ -200,5 +200,46 @@ echo "$new_cmd" | grep -q 'baz' \
   || fail "rewrite with pipe-in-pattern did not substitute (got: $new_cmd)"
 pass "rewrite: match_command with | is handled correctly (M3 regression)"
 
+# Test 21 (Windows form): C:\ out-of-scope path ASKS (resource-scope) ------
+# Before the fix a 'C:\…' path matched neither /* nor ~/* so persona-tool-guard
+# treated it as CWD-relative and it trivially prefix-matched the "$CWD"
+# allowlist entry → silent ALLOW (the dominant L1 boundary fail-open on
+# Windows, the dev platform). cygpath is STUBBED so this runs on Linux/BSD CI.
+# Regression lock: remove the CWD/PATH_INPUT normalization in
+# persona-tool-guard.sh and this flips back to a silent allow (FAIL).
+WINBIN=$(mktemp -d)
+cat > "$WINBIN/cygpath" <<'EOF'
+#!/bin/sh
+p="$2"
+case "$p" in
+  [A-Za-z]:/*) d=$(printf '%s' "$p" | cut -c1 | tr 'A-Z' 'a-z'); r=$(printf '%s' "$p" | cut -c3-); printf '/%s%s\n' "$d" "$r" ;;
+  *) printf '%s\n' "$p" ;;
+esac
+EOF
+chmod +x "$WINBIN/cygpath"
+cat > "$WINBIN/payload.json" <<'JSON'
+{"tool_name":"Edit","tool_input":{"file_path":"C:\\Users\\attacker\\.aws\\credentials"},"cwd":"C:\\proj","session_id":"win1"}
+JSON
+out=$(BRAIN_DIR="$SCOPE_BRAIN" HOME="/c/Users/victim" PATH="$WINBIN:$PATH" bash "$SCRIPT" < "$WINBIN/payload.json")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "Windows C:\\ out-of-scope Edit should ASK (resource-scope fail-open on Windows): $out"
+pass "resource-scope: Windows C:\\ out-of-scope path asks"
+
+# Test 22: same Windows payload with lib.sh UNSOURCEABLE → the guard's inline
+# fallback sb_normalize_path must keep the resource-scope check armed. That
+# fallback branch was previously untested — drift between the inline copy and
+# lib.sh's canonical would disarm the guard only in the lib-missing
+# configuration, invisibly (panel finding). CLAUDE_PLUGIN_ROOT=/nonexistent
+# also removes persona-rules.DEFAULT.json (the guard exits 0 with no rules at
+# all — before ever reaching the scope check), so the rules must come from the
+# USER file in BRAIN_DIR: that isolates exactly the lib-missing branch.
+NOLIB_BRAIN=$(mktemp -d)
+cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$NOLIB_BRAIN/persona-rules.json"
+out=$(BRAIN_DIR="$NOLIB_BRAIN" HOME="/c/Users/victim" CLAUDE_PLUGIN_ROOT=/nonexistent PATH="$WINBIN:$PATH" bash "$SCRIPT" < "$WINBIN/payload.json")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "lib.sh unsourceable: Windows out-of-scope Edit should still ASK via the inline fallback: $out"
+pass "resource-scope: inline fallback (lib.sh unsourceable) still asks on Windows path"
+rm -rf "$WINBIN" "$NOLIB_BRAIN"
+
 echo
 echo "ALL PASS"
