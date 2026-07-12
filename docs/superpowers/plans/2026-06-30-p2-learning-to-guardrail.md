@@ -293,3 +293,18 @@ Task 2 and Task 3 both depend on Task 1 and can be built in parallel by two work
 - **Dismissal-driven auto-retire** (retire a rule the user keeps overriding) — needs the `persona_dismiss` signal wired into synthesis; future.
 - **PROJECT.md-decision synthesis from signals** — the project-scoped half is already served by the extraction→`merge-project-update.sh` path; P2 adds the guardrail half. Unifying both behind one "learned practice resolver" is a later consolidation.
 - **Regex-subsumption contradiction detection** — deliberately avoided (undecidable, false-positive prone); exact-string identity only.
+
+---
+
+## ACE-alignment addendum (2026-07-13, loop-engineering research P3.1)
+
+**Context:** ACE — Agentic Context Engineering (arXiv 2510.04618, Stanford / SambaNova / UC Berkeley, Oct 2025) — is the closest published analogue to this plan's design and the field's strongest evidence FOR it: itemized delta entries with deterministic non-LLM merge beat monolithic context rewrites (+14.8% agent benchmark self-improvement WITHOUT ground-truth labels, verified measured in Table 1/3), and the failure modes it names — "context collapse" (full-rewrite compresses away hard-won detail) and "brevity bias" — are exactly what this plan's discrete-rule + append-only-retire shape avoids. The plan as written IS ACE-shaped: delta bullets ≙ learned rules; provenance ≙ `citation`; soft-retire ≙ bi-temporal `valid_to`. This addendum records the three ACE mechanisms the plan does NOT yet have, as an optional post-MVP task so implementers don't reinvent them ad hoc.
+
+### Task 6 (OPTIONAL, post-Task-5): grow-and-refine counters + semantic dedup
+
+- [ ] **Helpfulness counters on learned rules** (`helpful_count`, `harmful_count`, `last_fired`): increment `harmful_count` from the existing `persona_dismiss` signal path when a dismissal names a learned rule's friction; increment `helpful_count` when a rule's `ask` is accepted (the user proceeds via an edited/confirmed action — detectable from the PreToolUse verdict + subsequent tool success in the audit-log, same-session). Counters are METADATA for retire decisions and the `/second-brain:status` render — never ranking (the P1 firewall applies).
+- [ ] **Dismissal-driven soft-retire** (upgrades the plan's "future" note to concrete): `harmful_count >= SB_LEARNED_RETIRE_DISMISSALS` (default 3) with `helpful_count == 0` → set `valid_to` + `retire_reason:"dismissed"` — same append-only mechanics as Task 4's contradiction retire, fully reversible.
+- [ ] **Near-dup dedup at graduation** (ACE grow-and-refine, lazy variant): before writing a new learned rule, compare its `match_command`/`match_path` against ACTIVE learned rules with the existing MinHash near-dup machinery (capture's NOOP/UPDATE thresholds); a near-dup UPDATES the existing rule's evidence list + counters instead of appending a sibling. Prevents playbook bloat without regex subsumption (still banned — this is similarity, not implication).
+- [ ] Tests: counter increments from fixture audit rows; retire at threshold + reversibility; near-dup folds instead of duplicating; `SB_PERSONA_LEARNED=off` still kills the whole layer.
+
+**Non-goals reaffirmed:** no LLM in the merge path (ACE's own reflector/curator split is satisfied by our extraction→deterministic-merge pipeline); no `deny`/`rewrite` escalation; counters never feed search/forget ranking.

@@ -33,7 +33,15 @@ FILE_PATH="${FILE_PATH//\\//}"
 # Match any wiki page under a knowledge/wiki/<category>/ tree. We don't anchor on
 # $HOME because tests use tmp dirs; matching on the literal "/knowledge/wiki/" segment
 # is precise enough — no real project nests its own wiki under that path.
+# The LEGACY branch (P0.4 misroute lock, canonical-wiki invariant): any .md write into
+# a literal ".second-brain/wiki/" tree is the raw-drainer misroute class — pages landed
+# there LIVE, invisible to knowledge_search, until hand-moved. The prose pin in
+# agents/raw-drainer.md can drift; this deny cannot. The adjacent-segment match cannot
+# hit dream staging (".second-brain/dreams/<id>/staging/…"). Flagged here, denied below
+# (deny() is not defined yet at this point in the file).
+LEGACY_WIKI=0
 case "$FILE_PATH" in
+  */.second-brain/wiki/*.md) LEGACY_WIKI=1 ;;
   */knowledge/wiki/*/*.md) ;;
   *) exit 0 ;;
 esac
@@ -54,6 +62,13 @@ deny() {
   }' 2>/dev/null || true
   exit 0
 }
+
+# Legacy-wiki misroute: deny with the corrected canonical path. Fires for Write, Edit
+# and MultiEdit alike — frontmatter cannot save a page written where search never looks.
+if [ "$LEGACY_WIKI" = "1" ]; then
+  SUGGEST=$(printf '%s' "$FILE_PATH" | sed 's|\.second-brain/wiki|knowledge/wiki|')
+  deny "Legacy wiki path — .second-brain/wiki is NOT the wiki. Pages written here are invisible to knowledge_search (the raw-drainer misroute bug class). The canonical wiki is KNOWLEDGE_DIR (~/knowledge/wiki). Write to: $SUGGEST"
+fi
 
 DENY_MSG="Wiki pages require YAML frontmatter. Prepend a block like:
 ---

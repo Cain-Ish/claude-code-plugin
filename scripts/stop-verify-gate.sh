@@ -77,7 +77,35 @@ SKILL_TOOL=$(jq -r '
   | grep -iE 'review|security|simplify|qa|verification' \
   | head -1)
 
+# Anti-gaming slice (P0.5, loop-eng research): verification evidence is SUSPECT when
+# the same session DELETED a test file — the cheapest reward-hack in the catalog
+# (delete the failing test, run the now-green suite, claim verified). TDD test EDITS
+# are normal and never flagged; only rm / git rm of a test-shaped path. One pointed
+# block through the same 2-block valve. Kill switch: SB_VERIFY_ANTIGAME=off.
+# BSD-safe patterns only: [[:space:]] classes, no \b/\s/\w.
+TEST_RM=""
+if [ "${SB_VERIFY_ANTIGAME:-on}" != "off" ]; then
+  TEST_RM=$(jq -r '
+    select(.type == "assistant")
+    | .message.content[]?
+    | select(.type == "tool_use" and .name == "Bash")
+    | .input.command // ""
+  ' "$TRANSCRIPT" 2>/dev/null \
+    | grep -E '(^|[^[:alnum:]_-])(git[[:space:]]+)?rm[[:space:]]' \
+    | grep -E '(tests?/|[._-]test\.|[._-]spec\.|/test_[a-z0-9_]+\.py)' \
+    | head -1)
+fi
+
 if [ -n "$VERIFY_CMDS" ] || [ -n "$SKILL_EVIDENCE" ] || [ -n "$SKILL_TOOL" ]; then
+  if [ -n "$TEST_RM" ]; then
+    mkdir -p "$BRAIN_DIR" 2>/dev/null
+    echo "$((BLOCK_COUNT + 1))" > "$MARKER"
+    jq -nc --arg cmd "$TEST_RM" '{
+      decision: "block",
+      reason: ("Verification evidence coincides with a test-file deletion in this session: `\($cmd)`. Deleting a test and then claiming green is the cheapest way to fake verification. Re-run the FULL suite and state explicitly why removing that test is correct (obsolete behavior? coverage superseded where?) — or restore it. Suppress this check: SB_VERIFY_ANTIGAME=off.")
+    }'
+    exit 0
+  fi
   rm -f "$MARKER" 2>/dev/null
   exit 0
 fi

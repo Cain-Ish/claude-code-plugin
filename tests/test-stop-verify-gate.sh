@@ -165,6 +165,54 @@ add_edit_turn "$T"
 OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
 assert_block "mixed md + code, no verification" "$OUT"
 
+# --- Anti-gaming slice (P0.5): test deletion + verification claim ---
+add_test_rm_turn() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"git rm tests/broken.test.ts"}}]}}' >> "$file"
+}
+add_tmp_rm_turn() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"rm -rf \"$TMPDIR/scratch-9\""}}]}}' >> "$file"
+}
+add_test_edit_turn() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"tests/broken.test.ts","old_string":"a","new_string":"b"}}]}}' >> "$file"
+}
+
+# Test 12: code modified + tests ran BUT a test file was rm'd → pointed block.
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_test_rm_turn "$T"
+add_test_run "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_block "verification claim + test-file deletion" "$OUT"
+printf '%s' "$OUT" | grep -q 'test-file deletion' \
+  || { FAIL=$((FAIL + 1)); echo "  FAIL: block reason should name the deletion"; }
+
+# Test 13: same session with SB_VERIFY_ANTIGAME=off → approve (kill switch).
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_test_rm_turn "$T"
+add_test_run "$T"
+OUT=$(mk_input "$T" | SB_VERIFY_ANTIGAME=off bash "$GATE" 2>/dev/null || true)
+assert_approve "anti-game kill switch off" "$OUT"
+
+# Test 14: ordinary tmp-dir rm (no test-shaped path) + tests ran → approve.
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_tmp_rm_turn "$T"
+add_test_run "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_approve "non-test rm not flagged" "$OUT"
+
+# Test 15: TDD — test file EDITED (not deleted) + tests ran → approve.
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_test_edit_turn "$T"
+add_test_run "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_approve "TDD test edit not flagged" "$OUT"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

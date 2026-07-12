@@ -133,5 +133,56 @@ echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/nul
   || fail "Windows C:\\ wiki write without frontmatter should deny (was inert on Windows): $out"
 pass "Windows C:\\ wiki write without frontmatter denied"
 
+# --- Legacy-wiki misroute lock (P0.4) -------------------------------------
+# The raw-drainer once wrote pages into legacy ~/.second-brain/wiki LIVE —
+# invisible to knowledge_search until hand-moved. The prose pin in
+# agents/raw-drainer.md can drift; this deny cannot (canonical-wiki invariant).
+
+# Test 13: Write into a .second-brain/wiki tree → deny EVEN WITH frontmatter,
+# and the reason must carry the corrected canonical path.
+LEGACY="$TMP/.second-brain/wiki/learnings/misrouted.md"
+PAYLOAD=$(jq -nc --arg p "$LEGACY" --arg c $'---\ntitle: x\ntype: learnings\n---\nbody' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "legacy-wiki Write should deny even with frontmatter (got: $out)"
+echo "$out" | grep -q 'knowledge/wiki/learnings/misrouted.md' \
+  || fail "deny reason should carry the corrected canonical path (got: $out)"
+pass "legacy .second-brain/wiki Write denied with canonical redirect"
+
+# Test 14: Edit into the legacy tree → deny too (misroute is tool-agnostic).
+PAYLOAD=$(jq -nc --arg p "$LEGACY" \
+  '{tool_name:"Edit", tool_input:{file_path:$p, old_string:"a", new_string:"---\nb"}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "legacy-wiki Edit should deny (got: $out)"
+pass "legacy .second-brain/wiki Edit denied"
+
+# Test 15 (Windows form): C:\…\.second-brain\wiki\… caught after backslash
+# normalization — the misroute happened on Windows in the live incident.
+cat > "$TMP/win-legacy.json" <<'JSON'
+{"tool_name":"Write","tool_input":{"file_path":"C:\\Users\\me\\.second-brain\\wiki\\state\\x.md","content":"---\ntitle: x\n---\nbody\n"}}
+JSON
+out=$(bash "$SCRIPT" < "$TMP/win-legacy.json")
+echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "Windows legacy-wiki write should deny (got: $out)"
+pass "Windows C:\\ legacy wiki write denied"
+
+# Test 16: dream STAGING under .second-brain/dreams/<id>/staging/wiki → silent
+# (the adjacent-segment match must not hit the sanctioned staging copy).
+STAGING="$TMP/.second-brain/dreams/drm_x/staging/wiki/state/y.md"
+PAYLOAD=$(jq -nc --arg p "$STAGING" --arg c $'---\ntitle: y\n---\nbody' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -z "$out" ] || fail "dream staging write should be silent (got: $out)"
+pass "dream staging wiki copy untouched by the legacy deny"
+
+# Test 17: kill switch — SB_PERSONA_GATE=off silences the legacy deny too.
+PAYLOAD=$(jq -nc --arg p "$LEGACY" --arg c $'---\ntitle: x\n---\nbody' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | SB_PERSONA_GATE=off bash "$SCRIPT")
+[ -z "$out" ] || fail "SB_PERSONA_GATE=off should silence the legacy deny (got: $out)"
+pass "kill switch silences the legacy deny"
+
 echo
 echo "ALL PASS"

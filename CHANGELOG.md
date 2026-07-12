@@ -4,6 +4,14 @@ Release narrative for every version (newest first). Never context-loaded;
 the `/second-brain:upgrade` runner reads ONLY `skills/upgrade/migrations/<version>.md`
 files, which exist solely for releases with a real migration action.
 
+## 0.33.36
+
+P0.4+P0.5 (loop-eng research, Phase 0 complete) — two verification-integrity machine locks: the raw-drainer legacy-wiki misroute class (the audit's OPEN medium) and the cheapest verification reward-hack (delete the failing test, claim green).
+
+- **P0.4 — `wiki-write-guard.sh` legacy-wiki deny**: any Write/Edit/MultiEdit into a literal `.second-brain/wiki/` tree is DENIED with the corrected canonical path in the reason. Pages written there are invisible to `knowledge_search` — the live incident the prose pin in `agents/raw-drainer.md` (0.33.5) mitigated but could never enforce. Deny fires even with valid frontmatter; the adjacent-segment match cannot hit dream staging (`.second-brain/dreams/<id>/staging/…` — tested); Windows backslash form caught after the existing normalization (the incident's actual platform); rides `SB_PERSONA_GATE`; guard-fail-safe class unchanged. `tests/test-wiki-write-guard.sh` 12→17 cases.
+- **P0.5 — `stop-verify-gate.sh` anti-gaming slice** (kill switch `SB_VERIFY_ANTIGAME`, default on): verification evidence that co-occurs with an `rm`/`git rm` of a test-shaped path (`tests/`, `[._-]test.`, `[._-]spec.`, `test_*.py`) in the same session turns the approve into ONE pointed block through the existing 2-block valve — naming the deletion command and demanding a full-suite re-run plus an explicit justification (or a restore). Deliberately deletion-only: TDD test EDITS are normal and never flagged; tmp-dir cleanups don't match. BSD-safe patterns ([[:space:]], no `\b`/`\s`). `tests/test-stop-verify-gate.sh` 11→15 cases (pointed block, kill switch, non-test rm unflagged, TDD edit unflagged).
+- No surface-budget change. Dev flag catalog: `SB_VERIFY_ANTIGAME` registered.
+
 ## 0.33.35
 
 P0.1+P0.2 (loop-engineering research, orient rung) — the code map is finally INJECTED and GRANTED instead of generated-into-nothing: sessions start oriented, and the two code-structure reviewers query blast radius instead of re-deriving imports by hand.
