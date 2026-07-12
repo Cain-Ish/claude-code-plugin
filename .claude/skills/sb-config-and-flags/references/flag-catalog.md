@@ -92,6 +92,7 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_DRAIN_TIMEOUT_BANNER_THRESHOLD` | `3` | Timeout outcomes before the timeout banner. | TUNE | session-load.sh:296 | none |
 | `SB_EMBED_PENDING_BANNER` | `on` | Banner when embeddings backlog or `@huggingface/transformers` unlinked. | KS | session-load.sh:443 | bash |
 | `SB_SCOPE_BANNER` | `on` | One-line "which project scope loaded" banner (catches wrong cwd→slug resolution). | KS | session-load.sh:525 | bash |
+| `SB_CODEMAP_ORIENT` | `on` | Code-map orientation: inject the architectural spine (top-ranked source files from `codemap/map.md`) + code_map/code_neighbors pointer at SessionStart. No-op when the store is absent/empty. | KS | session-load.sh:479 | bash |
 | `SB_RULES_GAP_BANNER` | `on` | Banner when USER.md is newer than persona-rules JSON (soft-vs-hard rules drift). | KS | session-load.sh:215 | none |
 | `SB_RAW_INBOX` | `on` | Raw-inbox backlog banner. | KS | session-load.sh:584 | bash |
 | `SB_AUTOCONSOLIDATE_NUDGE` | `on` | Self-install nudge when raw ≥ threshold AND config `auto_improve` is off. | KS | session-load.sh:599 | bash |

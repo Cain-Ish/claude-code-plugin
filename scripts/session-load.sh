@@ -465,6 +465,60 @@ if [ "${CONFLICT_N:-0}" -gt 0 ]; then
     "graph-conflicts-banner" 250
 fi
 
+# 0d. Code-map orientation (P3a orient rung) — inject the architectural spine (top
+# PageRank-ranked SOURCE files from the token-capped map.md the drainer generates) so a
+# fresh session starts ORIENTED instead of re-deriving structure, and point at the
+# code_map / code_neighbors MCP tools for the full symbol-level map and for pre-edit
+# blast-radius. map.md is code_map's injection tier BY DESIGN, but P3a shipped the
+# generator and granted it to nothing — this is the missing wire. Placed in the
+# priority-banner region (BEFORE the forced USER.md/PROJECT.md, which increment USED and
+# would otherwise budget-starve it — live-verified on this repo: placed last, an 8.3KB
+# PROJECT.md starved it in exactly the populated sessions that need orientation most).
+# DELIBERATE priority call: orientation (mission facet #1) outranks the later
+# opportunistic banners (wiki enrichment, graph, dream nudges) it now competes with —
+# those repeat every session and also surface via /second-brain:status, and a skip is
+# loud in error-log.jsonl (gate=byte-budget). Still budget-CHECKED, so it can never
+# breach the 10K hook ceiling. Absent/empty store → silent no-op (back-compat).
+# Kill switch: SB_CODEMAP_ORIENT=off.
+if [ "${SB_CODEMAP_ORIENT:-on}" != "off" ]; then
+  CODEMAP_MD="$BRAIN_DIR/projects/$slug/codemap/map.md"
+  if [ -s "$CODEMAP_MD" ]; then
+    # Top 10 ranked file PATHS only: everything before the ' — ' separator that
+    # serialize.ts emits (bash %%-expansion, not awk $1 — a path CAN carry spaces,
+    # and $1 would inject a truncated bogus fragment as a "top file"). Skip the
+    # '(+N more…)' footer. Per-line \r strip for a CRLF store. read loop + case:
+    # bash-3.2/BSD floor, no GNU-isms.
+    CODEMAP_SPINE=''
+    _cm_n=0
+    while IFS= read -r _cm_line && [ "$_cm_n" -lt 10 ]; do
+      _cm_line=${_cm_line%$'\r'}
+      _cm_line=${_cm_line%% — *}
+      case "$_cm_line" in ''|\(*) continue ;; esac
+      CODEMAP_SPINE="$CODEMAP_SPINE$_cm_line"$'\n'
+      _cm_n=$((_cm_n + 1))
+    done < "$CODEMAP_MD"
+    CODEMAP_SPINE=${CODEMAP_SPINE%$'\n'}
+    if [ -n "$CODEMAP_SPINE" ]; then
+      # Leading \n separates from the banner above; the trailing blank line is added
+      # OUTSIDE the $() (which strips trailing newlines) so the forced USER.md that
+      # follows — the one section that does NOT prepend its own \n — stays separated.
+      CODEMAP_BLOCK=$(printf '\n[Code map — architectural spine (highest-connectivity source files). Call `code_map` for the full symbol-level map; `code_neighbors <file>` for blast-radius before you edit or refactor a source file.]\n%s' "$CODEMAP_SPINE")$'\n\n'
+      # Self-truncate at LINE boundaries down to the 620B cap — sb_append's head -c
+      # would cut mid-path AND eat the trailing separator, gluing a mangled fragment
+      # onto USER.md's '# USER' header. Dropping whole spine lines keeps every
+      # surviving path real and the separator intact; sb_append's max never fires.
+      while [ "${#CODEMAP_BLOCK}" -gt 620 ]; do
+        _cm_body=${CODEMAP_BLOCK%$'\n\n'}
+        case "$_cm_body" in
+          *$'\n'*) CODEMAP_BLOCK="${_cm_body%$'\n'*}"$'\n\n' ;;
+          *) CODEMAP_BLOCK=''; break ;;
+        esac
+      done
+      [ -n "$CODEMAP_BLOCK" ] && sb_append "$CODEMAP_BLOCK" "codemap-orientation" 620
+    fi
+  fi
+fi
+
 # 1. USER.md — always included
 if [ -f "$USER_FILE" ]; then
   USER_CONTENT=$(cat "$USER_FILE")

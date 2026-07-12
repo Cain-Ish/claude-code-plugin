@@ -14,7 +14,7 @@ description: |
   </example>
 color: cyan
 effort: high
-tools: Read, Bash(git diff *)
+tools: Read, Bash(git diff *), mcp__plugin_second-brain_knowledge-base__code_map, mcp__plugin_second-brain_knowledge-base__code_neighbors
 disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch
 ---
 
@@ -31,7 +31,13 @@ notes from episodic memory ("previously flagged / previously dismissed here").
 1. Read ALL files in your unit with the Read tool.
 2. Run `git diff <base>...HEAD -- <file>` for each file to see what changed.
 3. If a file imports a symbol from a file NOT in your unit, Read that imported
-   file too (up to 5 extra) for cross-reference context.
+   file too (up to 5 extra) for cross-reference context. To find that cross-file
+   impact precisely instead of guessing, call `code_neighbors <file>`:
+   `direction:"in"` lists the importers that break if this file changes (the
+   highest-value blast radius for §3 below), `direction:"out"` its own
+   dependencies; `code_map` gives the project's ranked spine for orientation.
+   (Local-project code map only — a cold or absent store returns nothing, so fall
+   back to reading imports by hand.)
 4. For files shown as deleted in the diff, do NOT attempt to Read them.
 5. Apply the checklist. Report only real, runtime-affecting bugs. Skip nitpicks
    and style unless they violate the provided conventions.

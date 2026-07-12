@@ -100,4 +100,58 @@ describe('agent tool grants (P6a least-privilege, directory-walked)', () => {
     }
     expect(offenders, `consolidation agent has an unused git grant: ${offenders.join(' | ')}`).toEqual([]);
   });
+
+  // P0.2 orient-rung tranche: the two code-review agents whose LENS uses code
+  // structure — the per-unit reviewer follows cross-file imports (its "highest
+  // value" §3), the quality reviewer judges coupling/architecture — carry the
+  // read-only code_map + code_neighbors grants so they query blast radius instead
+  // of re-deriving structure by hand. Scoped to these two ON PURPOSE: the
+  // history reviewer (git-blame lens) and premise reviewer (runtime-env lens) are
+  // orthogonal to the import graph, and the wiki drainer never reads code — a
+  // code-structure grant there would be an UNUSED grant against P6a least-privilege.
+  const REQUIRED_CODEMAP = ['code-review-unit-reviewer.md', 'quality-reviewer.md'];
+  it('code-structure reviewers grant read-only code_map + code_neighbors', () => {
+    const missing: string[] = [];
+    for (const f of REQUIRED_CODEMAP) {
+      const line = toolsLine(read(f));
+      for (const t of ['code_map', 'code_neighbors']) if (!line.includes(MCP(t))) missing.push(`${f}: ${MCP(t)}`);
+    }
+    expect(missing, `orient-rung reviewer missing a code-map grant: ${missing.join(' | ')}`).toEqual([]);
+  });
+  it('granted reviewers actually USE the code map in their protocol (effect, not presence)', () => {
+    // The grant is worthless if the body never calls it (the 0.33.9/0.33.11
+    // presence-vs-effect audit class). Test the BODY with the frontmatter stripped —
+    // the tools: grant itself contains the substring, so matching the whole file
+    // would be a tautology that can never fail while the parity test passes
+    // (review finding, 0.33.35).
+    const body = (f: string) => read(f).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+    const missing = REQUIRED_CODEMAP.filter(f => !/code_neighbors/.test(body(f)));
+    expect(missing, `agent grants code_neighbors but its protocol never uses it: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  // No agent may grant a sub-agent DISPATCH tool. Subagents cannot nest (platform
+  // dispatch-depth cap = 1) and a reviewer/consolidation agent that could spawn more
+  // agents breaks both that cap and the fresh-context/independent-critique guarantee.
+  // Empty whitelist, directory-walked — a future agent added with such a grant fails here.
+  it('every agent declares an explicit tools: line (omitting it inherits ALL tools, incl. Task)', () => {
+    // Without this, the dispatch lock below passes VACUOUSLY for an agent with no
+    // tools: line — which is the WORST case: default-inherit grants everything
+    // (review finding, 0.33.35).
+    const missing = agentFiles.filter(f => toolsLine(read(f)).trim() === '');
+    expect(missing, `agent file missing a tools: line (inherits all tools): ${missing.join(', ')}`).toEqual([]);
+  });
+  it('no agent grants Agent/Task/Skill (no recursive dispatch)', () => {
+    const offenders: string[] = [];
+    for (const f of agentFiles) {
+      const line = toolsLine(read(f));
+      for (const t of ['Agent', 'Task', 'Skill']) {
+        // comma/start-bounded token match; `(\\(|,|$)` also catches the scoped form
+        // `Skill(foo)` / `Task(...)` — the same specifier syntax as Bash(git *) —
+        // which a bare `(,|$)` boundary let through (review finding, 0.33.35).
+        // Substrings inside longer tool names (or prose) still don't match.
+        if (new RegExp(`(^|,)\\s*${t}\\s*(\\(|,|$)`).test(line)) offenders.push(`${f}: ${t}`);
+      }
+    }
+    expect(offenders, `agent grants a recursive-dispatch tool: ${offenders.join(' | ')}`).toEqual([]);
+  });
 });

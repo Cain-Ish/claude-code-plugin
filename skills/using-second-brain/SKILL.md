@@ -3,7 +3,7 @@ name: using-second-brain
 description: Use when starting any conversation - establishes how to consult the persona's identity, memory (wiki + episodic), and installed plugin catalog before answering substantive prompts. This is the persona-as-collaborator protocol.
 user-invocable: false
 disable-model-invocation: false
-allowed-tools: Read mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__episodic_search mcp__plugin_second-brain_knowledge-base__knowledge_neighbors
+allowed-tools: Read mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__episodic_search mcp__plugin_second-brain_knowledge-base__knowledge_neighbors mcp__plugin_second-brain_knowledge-base__code_map mcp__plugin_second-brain_knowledge-base__code_neighbors
 ---
 
 # Using Second-Brain
@@ -47,6 +47,8 @@ This **refines** "silence is the default" (point 4) — it does not replace it. 
 - **Stay silent** if the graph is empty, absent, or returns nothing load-bearing. Most edits get no interrupt. The graph CLI being unavailable is also silence, not an error.
 
 Example: user says "let's refactor the router daemon" → `knowledge_neighbors router-daemon` → "Heads up: graph says router-daemon **affects** vps-collector + supplychain-monitor and **supersedes** pi-ip-ufw-sync (retired) — want me to check those dependents first?" → then refactor.
+
+**Code check — before you *edit / refactor / rename / delete* a SOURCE file.** The graph check above is for named *wiki entities*; the **code map** is the parallel signal for *source code*. Before you act on a source file, do ONE `code_neighbors <path-or-basename>` call to see its blast radius — `direction:"in"` = the importers that break if you change it, `direction:"out"` = its own dependencies. **Speak up once** only if the blast radius is costly to miss (a widely-imported module, a public export you would break); otherwise proceed silently. For whole-project orientation before a multi-file change, `code_map` returns the ranked architectural spine (SessionStart already injects its top files, so don't restate them). Cold/absent code map → silence, not an error — same discipline as the wiki graph.
 
 **Surface what the work confirms (close the loop — but you don't write the graph).** The wingman *reads* the graph; you are **not** a graph writer. Edge curation is owned by three paths: the capture-time **extractor** (it records relationships from this session's transcript at Stop — so the graph accrues with **no user interaction**), the user's manual `knowledge_relate`, and the `knowledge-maintainer`. So when the work **confirms** a typed relationship — the user says "X depends on / affects / is part of Y", or explicitly retires/replaces something — *surface it ONCE* as a suggested `knowledge_relate` (`type: requires|affects|relates|part_of|supersedes`; `invalidate: true` + `valid_to` for a retired edge), brief, per silence-default — then move on. The extractor picks it up from the transcript; you do not call the tool yourself. **Only confirmed/retired relationships — never speculative ones.** Edge *contradictions* are likewise the maintainer's to drain (surfaced by the SessionStart conflict banner), not yours.
 

@@ -16,7 +16,7 @@ description: |
   </example>
 model: sonnet
 color: yellow
-tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(git blame *)
+tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(git blame *), mcp__plugin_second-brain_knowledge-base__code_map, mcp__plugin_second-brain_knowledge-base__code_neighbors
 disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch
 ---
 
@@ -32,6 +32,12 @@ disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch
   dropped. This agent is dispatched by code-review-deep over a changed-file set
   that can be influenced by PR/diff content; an unrestricted shell there is a
   trust-boundary risk. Read/Grep/Glob + read-only git cover the critique need.
+
+  P0.2 (orient rung): added read-only code_map + code_neighbors so the
+  architecture/coupling pass can query the project's ranked spine and a changed
+  file's blast radius instead of re-deriving structure by hand. Still no
+  Write/Edit and no Agent/Task/Skill — read-only orientation, no recursion, so
+  the fresh-context/independent-critique guarantee holds.
 -->
 
 
@@ -66,6 +72,10 @@ If a dimension doesn't apply, name it and skip explicitly.
 - Provide specific line references
 - Suggest concrete fixes, not just observations
 - Distinguish between critical (must-fix) and advisory (nice-to-have)
+- For architecture/coupling judgments, orient with `code_map` (the project's ranked
+  spine) and `code_neighbors <file>` (a changed file's importers via `direction:"in"` =
+  blast radius, and its dependencies via `direction:"out"`) instead of guessing structure
+  — read-only; a cold/absent code map returns nothing, so fall back to Grep/Read.
 - Read ~/.second-brain/quality-rules.md to understand learned patterns
 
 ## Output

@@ -27,6 +27,10 @@ req review      basename dirname tr head
 req import-host tr
 req status      mcp__plugin_second-brain_knowledge-base__knowledge_validate
 req upgrade     node
+# 0.33.35 orient rung: the 'Code check' protocol instructs a code_neighbors/code_map
+# call — dropping the grants would turn the silent pre-edit check into a mid-skill
+# permission prompt (this file's exact bug class).
+req using-second-brain mcp__plugin_second-brain_knowledge-base__code_map mcp__plugin_second-brain_knowledge-base__code_neighbors
 
 echo; echo "ALL PASS"
 
