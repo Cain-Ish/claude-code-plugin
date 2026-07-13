@@ -213,6 +213,53 @@ add_test_run "$T"
 OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
 assert_approve "TDD test edit not flagged" "$OUT"
 
+# --- P2.1 deterministic backpressure + P2.2 critic offer ---
+mk_input_cwd() { # transcript cwd [sid]
+  jq -nc --arg tp "$1" --arg cwd "$2" --arg sid "${3:-test-$$-$RANDOM}" \
+    '{transcript_path:$tp, session_id:$sid, cwd:$cwd}'
+}
+add_edit_of() { # file path
+  local file="$1" p="$2"
+  jq -nc --arg p "$p" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Edit",input:{file_path:$p,old_string:"a",new_string:"b"}}]}}' >> "$file"
+}
+
+# Test 16: block names the discovered verify command + the changed files.
+PROJ=$(mktemp -d); mkdir -p "$PROJ/tests"; printf '#!/bin/bash\n' > "$PROJ/tests/run-all.sh"
+T=$(mk_transcript)
+add_edit_turn "$T"
+OUT=$(mk_input_cwd "$T" "$PROJ" | bash "$GATE" 2>/dev/null || true)
+assert_block "no-verification block (P2.1)" "$OUT"
+printf '%s' "$OUT" | grep -q 'bash tests/run-all.sh' \
+  || { FAIL=$((FAIL + 1)); echo "  FAIL: block should name the discovered command"; }
+printf '%s' "$OUT" | grep -q 'src/foo.ts' \
+  || { FAIL=$((FAIL + 1)); echo "  FAIL: block should name the changed file"; }
+rm -rf "$PROJ"
+
+# Test 17: substantive verified diff → ONE critic-offer systemMessage, once per session.
+T=$(mk_transcript)
+add_edit_of "$T" "src/a.ts"; add_edit_of "$T" "src/b.ts"; add_edit_of "$T" "src/c.ts"
+add_test_run "$T"
+IN=$(mk_input_cwd "$T" "/tmp" "critic-sid-1")
+OUT=$(printf '%s' "$IN" | bash "$GATE" 2>/dev/null || true)
+printf '%s' "$OUT" | jq -e '.systemMessage | test("quality-reviewer")' >/dev/null \
+  || { FAIL=$((FAIL + 1)); echo "  FAIL: substantive verified diff should offer the critic (got: $OUT)"; }
+OUT2=$(printf '%s' "$IN" | bash "$GATE" 2>/dev/null || true)
+[ -z "$OUT2" ] || { FAIL=$((FAIL + 1)); echo "  FAIL: critic offer must fire once per session (got: $OUT2)"; }
+PASS=$((PASS + 1)); echo "  PASS: critic offer fires once on a substantive verified diff"
+
+# Test 18: small diff (1 file) + verified → no offer; kill switch also silences.
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_test_run "$T"
+OUT=$(mk_input_cwd "$T" "/tmp" "critic-sid-2" | bash "$GATE" 2>/dev/null || true)
+[ -z "$OUT" ] || { FAIL=$((FAIL + 1)); echo "  FAIL: small diff must not trigger the offer (got: $OUT)"; }
+T=$(mk_transcript)
+add_edit_of "$T" "src/a.ts"; add_edit_of "$T" "src/b.ts"; add_edit_of "$T" "src/c.ts"
+add_test_run "$T"
+OUT=$(mk_input_cwd "$T" "/tmp" "critic-sid-3" | SB_CRITIC_OFFER=off bash "$GATE" 2>/dev/null || true)
+[ -z "$OUT" ] || { FAIL=$((FAIL + 1)); echo "  FAIL: SB_CRITIC_OFFER=off must silence the offer (got: $OUT)"; }
+PASS=$((PASS + 1)); echo "  PASS: no offer on small diffs; kill switch honored"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

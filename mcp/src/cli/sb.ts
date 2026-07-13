@@ -6,6 +6,7 @@ import { knowledgeSearch } from '../tools/knowledge-search.js';
 import { episodicSearch } from '../tools/episodic-search.js';
 import { pinToUser } from '../tools/pin-to-user.js';
 import { pinToProject, type PinSection } from '../tools/pin-to-project.js';
+import { unprocessedCount } from '../tools/raw-inbox.js';
 
 export interface SbDeps {
   brainDir: string;
@@ -210,6 +211,123 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
         push(`  ${d.name}: ${count}`);
       }
     } catch {}
+
+    // P1.1 loop liveness (docs/plans/2026-07-13-p1-observability.md Task 1): the
+    // autonomous loops fail SILENTLY — a drainer dead on this OS produces no errors.
+    // Every value below reads an EXISTING state file the loops already stamp; a
+    // missing file renders "never" — loud, not blank. Observation only (P1 firewall).
+    push('Loop liveness:');
+    const age = (ms: number): string => {
+      const h = (Date.now() - ms) / 3600000;
+      if (h < 1) return `${Math.max(1, Math.round(h * 60))}m ago`;
+      if (h < 48) return `${Math.round(h)}h ago`;
+      return `${Math.round(h / 24)}d ago`;
+    };
+    // Drainer: .extractor-health.json is rewritten at the end of EVERY run — its
+    // mtime IS the last tick; status/reason describe how that run went.
+    try {
+      const hf = join(deps.brainDir, '.extractor-health.json');
+      const st = await fs.stat(hf);
+      const h = JSON.parse(await fs.readFile(hf, 'utf-8')) as { status?: string; reason?: string };
+      push(`  drainer last ran:    ${age(st.mtimeMs)} (${sanitizeField(h.status ?? '?')}: ${sanitizeField(h.reason ?? '?')})`);
+    } catch { push('  drainer last ran:    never (no .extractor-health.json)'); }
+    // Extraction done-set recency + transcript backlog (archived but not terminal).
+    // The backlog row must render even when the done-set file is ABSENT — that is
+    // the archived-but-never-drained state (a dead drainer), the exact case this
+    // section exists to expose; an absent done-set just means an empty done set.
+    const done = new Set<string>();
+    try {
+      const stateRaw = await fs.readFile(join(deps.brainDir, '.extraction-state.jsonl'), 'utf-8');
+      let newestTs = '';
+      for (const l of stateRaw.split('\n').filter(Boolean)) {
+        try {
+          const r = JSON.parse(l) as { basename?: string; ts?: string; outcome?: string };
+          if (r.ts && r.ts > newestTs) newestTs = r.ts;
+          if (r.basename && (r.outcome === 'ok' || r.outcome === 'error')) done.add(r.basename);
+        } catch { /* one corrupt line must not blind the whole read */ }
+      }
+      push(`  last extraction:     ${newestTs ? sanitizeField(newestTs) : 'never'}`);
+    } catch { push('  last extraction:     never (no .extraction-state.jsonl)'); }
+    try {
+      const archived = (await fs.readdir(join(deps.brainDir, 'transcripts'))).filter(f => f.endsWith('.txt'));
+      const backlog = archived.filter(f => !done.has(f)).length;
+      push(`  transcript backlog:  ${backlog} of ${archived.length} archived`);
+    } catch { push('  transcript backlog:  no transcripts dir'); }
+    // Scheduler shim — the universal registration signal (the per-OS timer check
+    // lives in bash lib.sh; a missing shim means every fire fails silently).
+    try {
+      await fs.access(join(deps.brainDir, 'bin', 'sb-extract-drain.sh'));
+      push('  scheduler shim:      present');
+    } catch { push('  scheduler shim:      ABSENT (out-of-band drain cannot run)'); }
+    // Newest dream: status + heartbeat age (status.json mtime is re-stamped
+    // between phases; stale pending/running = a wedged run).
+    try {
+      const dreamsDir = join(deps.brainDir, 'dreams');
+      const ids = (await fs.readdir(dreamsDir)).filter(d => d.startsWith('drm_')).sort();
+      if (ids.length === 0) { push('  newest dream:        none'); }
+      else {
+        const id = ids[ids.length - 1];
+        const sf = join(dreamsDir, id, 'status.json');
+        const st = await fs.stat(sf);
+        const s = JSON.parse(await fs.readFile(sf, 'utf-8')) as { status?: string };
+        push(`  newest dream:        ${sanitizeField(id)} ${sanitizeField(s.status ?? '?')} (heartbeat ${age(st.mtimeMs)})`);
+      }
+    } catch { push('  newest dream:        none'); }
+    // Raw-inbox depth across all registered projects (malformed counts as unprocessed).
+    try {
+      const projectDirs = await fs.readdir(join(deps.brainDir, 'projects'), { withFileTypes: true });
+      let raw = 0;
+      for (const d of projectDirs) {
+        if (!d.isDirectory()) continue;
+        try { raw += await unprocessedCount(deps.brainDir, d.name); } catch { /* non-slug dir */ }
+      }
+      push(`  raw-inbox depth:     ${raw} unprocessed`);
+    } catch { push('  raw-inbox depth:     0 unprocessed (no projects dir)'); }
+
+    // P1.3 utilization + dormant-capability report (observation-only — the P1
+    // firewall forbids any ranking use). Counts come from stop-extract's per-session
+    // fold of Skill/Task tool_use into utilization-counts.json. Dormant = THIS
+    // plugin's own installed skills/agents never seen in the counts — the direct
+    // answer to "which of the capabilities we ship are actually used?".
+    push('Utilization:');
+    let util: Record<string, { count?: number; last_used?: string }> = {};
+    try {
+      util = JSON.parse(await fs.readFile(join(deps.brainDir, 'utilization-counts.json'), 'utf-8'));
+      if (util === null || typeof util !== 'object' || Array.isArray(util)) util = {};
+    } catch { /* absent or corrupt → render as empty, dormant report still runs */ }
+    const entries = Object.entries(util).filter(([, v]) => v && typeof v.count === 'number');
+    if (entries.length === 0) push('  (no invocations recorded yet)');
+    else {
+      entries.sort((a, b) => (b[1].count ?? 0) - (a[1].count ?? 0));
+      for (const [name, v] of entries.slice(0, 5)) {
+        push(`  ${sanitizeField(name)}: ${v.count} (last ${sanitizeField(v.last_used ?? '?')})`);
+      }
+    }
+    try {
+      // 3 levels up = plugin root from BOTH mcp/src/cli (dev) and mcp/dist/cli (bundle).
+      const pluginRoot = new URL('../../../', import.meta.url);
+      const { fileURLToPath } = await import('url');
+      const root = fileURLToPath(pluginRoot);
+      const skills = (await fs.readdir(join(root, 'skills'), { withFileTypes: true }))
+        .filter(d => d.isDirectory()).map(d => `skill!${d.name}`);
+      const agents = (await fs.readdir(join(root, 'agents')))
+        .filter(f => f.endsWith('.md')).map(f => `agent!${f.replace(/\.md$/, '')}`);
+      const used = new Set(Object.keys(util));
+      const isUsed = (kind: string, name: string): boolean => {
+        for (const k of used) {
+          if (!k.startsWith(kind + ':')) continue;
+          if (k === `${kind}:${name}` || k.endsWith(`:${name}`)) return true;
+        }
+        return false;
+      };
+      const dormant = [...skills, ...agents]
+        .map(t => t.split('!') as [string, string])
+        .filter(([kind, name]) => !isUsed(kind, name))
+        .map(([kind, name]) => `${kind}:${name}`);
+      const total = skills.length + agents.length;
+      if (dormant.length === 0) push(`  dormant: none of ${total} shipped capabilities`);
+      else push(`  dormant: ${dormant.length} of ${total} shipped capabilities (${dormant.slice(0, 6).map(sanitizeField).join(', ')}${dormant.length > 6 ? ', …' : ''})`);
+    } catch { /* not running from a plugin checkout — skip the dormant report */ }
     return { stdout: out.join('\n'), stderr: err.join('\n'), exitCode: 0 };
   }
 

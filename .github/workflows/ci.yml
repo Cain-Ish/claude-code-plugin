@@ -74,3 +74,8 @@ jobs:
         run: |
           /bin/bash tests/test-stop-extract.sh
           /bin/bash tests/test-dream-autostage.sh
+      # X.1 (loop-eng research): the capture→store→recall pipeline END TO END on real
+      # bash 3.2 + BSD coreutils — unit suites stayed green while the loop died
+      # per-platform; this is the composition lock. Needs node (present on the runner).
+      - name: loop smoke (capture→store→recall composition)
+        run: /bin/bash tests/test-loop-smoke.sh

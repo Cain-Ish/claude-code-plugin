@@ -113,6 +113,81 @@ if [ "$NEW_LINES" -lt 1 ]; then
   exit 0
 fi
 
+# --- P1.2/P1.3/P1.4 loop telemetry (docs/plans/2026-07-13-p1-observability.md) ---
+# OBSERVATION ONLY — machine-locked by mcp/src/telemetry-firewall.test.ts: nothing
+# here may ever feed ranking/forgetting. Gated on the session's injection manifest
+# (written by session-load), so it runs EXACTLY ONCE per session (manifest deleted
+# after) and scans only the new-lines window (same disjoint-window discipline as
+# extraction) so a resume can't double-count history. Deterministic jq only — no
+# LLM, transcript is DATA. Fail-soft: a telemetry error must never fail the hook.
+if [ "${SB_TELEMETRY:-on}" != "off" ]; then
+  MANIFEST_SID=$(printf '%s' "$SESSION_ID" | tr -cd 'A-Za-z0-9_-' | head -c 64)
+  MANIFEST="$BRAIN_DIR/.injected-manifest-$MANIFEST_SID.jsonl"
+  if [ -n "$MANIFEST_SID" ] && [ -f "$MANIFEST" ]; then
+    TEL_WINDOW=$(awk -v s="$LAST_LINE" 'NR>s' "$TRANSCRIPT" 2>/dev/null)
+    # P1.3 utilization: Skill + Task(subagent_type) invocations -> counts store.
+    TEL_NAMES=$(printf '%s\n' "$TEL_WINDOW" | jq -r '
+      select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
+      | if .name=="Skill" then ("skill:" + (.input.skill // "unknown"))
+        elif .name=="Task" then ("agent:" + (.input.subagent_type // "unknown"))
+        else empty end
+    ' 2>/dev/null | tr -d '\r')
+    if [ -n "$TEL_NAMES" ]; then
+      UTIL_JSON="$BRAIN_DIR/utilization-counts.json"
+      TEL_TMP=$(mktemp 2>/dev/null) && {
+        { [ -s "$UTIL_JSON" ] && cat "$UTIL_JSON" 2>/dev/null || echo '{}'; } \
+          | jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg names "$TEL_NAMES" '
+              . as $base | reduce ($names | split("\n") | map(select(length>0)))[] as $n ($base;
+                .[$n] = {count: ((.[$n].count // 0) + 1), last_used: $now})
+            ' > "$TEL_TMP" 2>/dev/null \
+          && mv "$TEL_TMP" "$UTIL_JSON" 2>/dev/null \
+          || { rm -f "$TEL_TMP"; sb_log_error "stop-extract.sh" "telemetry: utilization fold failed (corrupt store? $UTIL_JSON)" 1; }
+      }
+    fi
+    # P1.2 value + P1.4 compounding: injected ids subsequently used this session.
+    TEL_READS=$(printf '%s\n' "$TEL_WINDOW" | jq -r '
+      select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
+      | select(.name=="Read") | .input.file_path // empty' 2>/dev/null | tr -d '\r' | tr '\\' '/')
+    TEL_FETCH=$(printf '%s\n' "$TEL_WINDOW" | jq -r '
+      select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
+      | select(.name | test("knowledge_fetch|knowledge_neighbors|code_neighbors"))
+      | (.input.slug // .input.node // empty)' 2>/dev/null | tr -d '\r')
+    TEL_INJ=0; TEL_HIT=0; TEL_PRIOR=0; TEL_HITS=""
+    TEL_TODAY=$(date -u +%Y-%m-%d)
+    while IFS= read -r _tel_line; do
+      [ -z "$_tel_line" ] && continue
+      _tel_kind=$(printf '%s' "$_tel_line" | jq -r '.kind // empty' 2>/dev/null | tr -d '\r')
+      _tel_id=$(printf '%s' "$_tel_line" | jq -r '.id // empty' 2>/dev/null | tr -d '\r')
+      [ -n "$_tel_id" ] || continue
+      TEL_INJ=$((TEL_INJ + 1))
+      _tel_hit=0
+      case "$_tel_kind" in
+        codemap)
+          { printf '%s\n' "$TEL_READS" | grep -qF "$_tel_id" || printf '%s\n' "$TEL_FETCH" | grep -qF "$_tel_id"; } && _tel_hit=1 ;;
+        wiki|graph)
+          { printf '%s\n' "$TEL_FETCH" | grep -qxF "$_tel_id" || printf '%s\n' "$TEL_READS" | grep -qF "/$_tel_id.md"; } && _tel_hit=1 ;;
+      esac
+      if [ "$_tel_hit" = 1 ]; then
+        TEL_HIT=$((TEL_HIT + 1)); TEL_HITS="${TEL_HITS:+$TEL_HITS,}$_tel_id"
+        # P1.4: a hit on a page CREATED before today = prior-session knowledge reused.
+        if [ "$_tel_kind" = "wiki" ] || [ "$_tel_kind" = "graph" ]; then
+          _tel_pf=$(find "$KNOWLEDGE_DIR/wiki" -maxdepth 2 -name "$_tel_id.md" 2>/dev/null | head -1)
+          if [ -n "$_tel_pf" ]; then
+            _tel_created=$(sed -n 's/^created:[[:space:]]*//p' "$_tel_pf" 2>/dev/null | head -1 | tr -d '\r"')
+            [ -n "$_tel_created" ] && [ "$_tel_created" \< "$TEL_TODAY" ] && TEL_PRIOR=$((TEL_PRIOR + 1))
+          fi
+        fi
+      fi
+    done < "$MANIFEST"
+    # ec=0 gate= trace -> audit-log (R6b routing); one row per session.
+    sb_log_error "stop-extract.sh" "gate=value-loop injected=$TEL_INJ read=$TEL_HIT prior=$TEL_PRIOR hits=${TEL_HITS:-none}" 0
+    rm -f "$MANIFEST"
+  fi
+  # GC stray manifests from sessions that never reached a Stop (7d, same policy as
+  # the .injected/ memos). Deliberately quiet: GC of already-lost telemetry.
+  find "$BRAIN_DIR" -maxdepth 1 -name '.injected-manifest-*.jsonl' -mtime +7 -exec rm -f {} + 2>/dev/null || true
+fi
+
 START_LINE=$((LAST_LINE + 1))
 # The LLM input is capped at the newest 500 lines, but the substantive gate and
 # the archive must cover the FULL delta — otherwise a >500-line turn silently

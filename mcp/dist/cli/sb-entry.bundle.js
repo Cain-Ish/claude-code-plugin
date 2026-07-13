@@ -1,6 +1,6 @@
 // src/cli/sb.ts
-import { promises as fs9, constants as fsConstants } from "fs";
-import { join as join8, delimiter as pathDelimiter } from "path";
+import { promises as fs10, constants as fsConstants } from "fs";
+import { join as join9, delimiter as pathDelimiter } from "path";
 import { execFile } from "child_process";
 
 // src/path-guard.ts
@@ -2160,7 +2160,7 @@ var L = class u2 {
     return this.#S;
   }
   constructor(e) {
-    let { max: t = 0, ttl: i, ttlResolution: s = 1, ttlAutopurge: n, updateAgeOnGet: o, updateAgeOnHas: r, allowStale: h, dispose: l, onInsert: c, disposeAfter: f, noDisposeOnSet: g, noUpdateTTL: p, maxSize: T = 0, maxEntrySize: w = 0, sizeCalculation: y, fetchMethod: a, memoMethod: m, noDeleteOnFetchRejection: _, noDeleteOnStaleGet: b, allowStaleOnFetchRejection: d, allowStaleOnFetchAbort: A, ignoreFetchAbort: z, perf: x } = e;
+    let { max: t = 0, ttl: i, ttlResolution: s = 1, ttlAutopurge: n, updateAgeOnGet: o, updateAgeOnHas: r, allowStale: h, dispose: l, onInsert: c, disposeAfter: f, noDisposeOnSet: g, noUpdateTTL: p, maxSize: T = 0, maxEntrySize: w = 0, sizeCalculation: y, fetchMethod: a, memoMethod: m, noDeleteOnFetchRejection: _, noDeleteOnStaleGet: b, allowStaleOnFetchRejection: d, allowStaleOnFetchAbort: A2, ignoreFetchAbort: z, perf: x } = e;
     if (x !== void 0 && typeof x?.now != "function") throw new TypeError("perf option must have a now() method if specified");
     if (this.#m = x ?? G, t !== 0 && !F(t)) throw new TypeError("max option must be a nonnegative integer");
     let v = t ? U(t) : Array;
@@ -2171,7 +2171,7 @@ var L = class u2 {
     }
     if (m !== void 0 && typeof m != "function") throw new TypeError("memoMethod must be a function if defined");
     if (this.#U = m, a !== void 0 && typeof a != "function") throw new TypeError("fetchMethod must be a function if specified");
-    if (this.#M = a, this.#W = !!a, this.#s = /* @__PURE__ */ new Map(), this.#i = Array.from({ length: t }).fill(void 0), this.#t = Array.from({ length: t }).fill(void 0), this.#a = new v(t), this.#c = new v(t), this.#l = 0, this.#h = 0, this.#y = R.create(t), this.#n = 0, this.#b = 0, typeof l == "function" && (this.#w = l), typeof c == "function" && (this.#D = c), typeof f == "function" ? (this.#S = f, this.#r = []) : (this.#S = void 0, this.#r = void 0), this.#T = !!this.#w, this.#j = !!this.#D, this.#f = !!this.#S, this.noDisposeOnSet = !!g, this.noUpdateTTL = !!p, this.noDeleteOnFetchRejection = !!_, this.allowStaleOnFetchRejection = !!d, this.allowStaleOnFetchAbort = !!A, this.ignoreFetchAbort = !!z, this.maxEntrySize !== 0) {
+    if (this.#M = a, this.#W = !!a, this.#s = /* @__PURE__ */ new Map(), this.#i = Array.from({ length: t }).fill(void 0), this.#t = Array.from({ length: t }).fill(void 0), this.#a = new v(t), this.#c = new v(t), this.#l = 0, this.#h = 0, this.#y = R.create(t), this.#n = 0, this.#b = 0, typeof l == "function" && (this.#w = l), typeof c == "function" && (this.#D = c), typeof f == "function" ? (this.#S = f, this.#r = []) : (this.#S = void 0, this.#r = void 0), this.#T = !!this.#w, this.#j = !!this.#D, this.#f = !!this.#S, this.noDisposeOnSet = !!g, this.noUpdateTTL = !!p, this.noDeleteOnFetchRejection = !!_, this.allowStaleOnFetchRejection = !!d, this.allowStaleOnFetchAbort = !!A2, this.ignoreFetchAbort = !!z, this.maxEntrySize !== 0) {
       if (this.#u !== 0 && !F(this.#u)) throw new TypeError("maxSize must be a positive integer if specified");
       if (!F(this.maxEntrySize)) throw new TypeError("maxEntrySize must be a positive integer if specified");
       this.#X();
@@ -2509,10 +2509,10 @@ var L = class u2 {
         let E = i && d.__staleWhileFetching !== void 0;
         return a && (a.fetch = "inflight", E && (a.returnedStale = true)), E ? d.__staleWhileFetching : d.__returned = d;
       }
-      let A = this.#p(b);
-      if (!y && !A) return a && (a.fetch = "hit"), this.#L(b), s && this.#x(b), a && this.#E(a, b), d;
+      let A2 = this.#p(b);
+      if (!y && !A2) return a && (a.fetch = "hit"), this.#L(b), s && this.#x(b), a && this.#E(a, b), d;
       let z = this.#P(e, b, _, w), v = z.__staleWhileFetching !== void 0 && i;
-      return a && (a.fetch = A ? "stale" : "refresh", v && A && (a.returnedStale = true)), v ? z.__staleWhileFetching : z.__returned = z;
+      return a && (a.fetch = A2 ? "stale" : "refresh", v && A2 && (a.returnedStale = true)), v ? z.__staleWhileFetching : z.__returned = z;
     }
   }
   forceFetch(e, t = {}) {
@@ -4627,8 +4627,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs10 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs10);
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs11 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs11);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -5186,8 +5186,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs10) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs10 });
+  newRoot(fs11) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs11 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -5215,8 +5215,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs10) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs10 });
+  newRoot(fs11) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs11 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -6903,6 +6903,14 @@ async function collectMarkdown(dir, acc = []) {
 // src/tools/episodic-search.ts
 import { promises as fs6 } from "fs";
 import { join as join6, basename, relative as relative2, isAbsolute as isAbsolute3 } from "path";
+
+// src/tools/sanitize.ts
+var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+function stripInvisible(s) {
+  return s.replace(INVISIBLE_RE, "");
+}
+
+// src/tools/episodic-search.ts
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -7153,6 +7161,96 @@ async function pinToProject(args) {
   return { ok: true, line_added: newEntry, project_slug: args.slug };
 }
 
+// src/tools/raw-inbox.ts
+import { promises as fs9 } from "fs";
+import { join as join8, basename as basename2, extname } from "path";
+
+// src/tools/minhash.ts
+var NUM_HASHES = 128;
+var A = new Uint32Array(NUM_HASHES);
+var B = new Uint32Array(NUM_HASHES);
+{
+  let seed = 2654435761 >>> 0;
+  const nextRand = () => {
+    seed = Math.imul(seed, 1664525) + 1013904223 >>> 0;
+    return seed;
+  };
+  for (let i = 0; i < NUM_HASHES; i++) {
+    A[i] = (nextRand() | 1) >>> 0;
+    B[i] = nextRand() >>> 0;
+  }
+}
+
+// src/tools/raw-inbox.ts
+function rawDir(brainDir2, slug) {
+  return join8(brainDir2, "projects", slug, "raw");
+}
+function parse(content, id) {
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const base = {
+    id,
+    source: "",
+    captured_at: "",
+    captured_by: "user",
+    content_type: "",
+    status: "unprocessed",
+    hash: "",
+    gist: "",
+    body: ""
+  };
+  if (!m) {
+    return { ...base, body: content, malformed: true };
+  }
+  const [, fmText, body] = m;
+  const get = (k) => {
+    const mm = fmText.match(new RegExp(`^${k}:[ \\t]*(.*)$`, "m"));
+    return mm ? mm[1].trim() : void 0;
+  };
+  const status = get("status") ?? "";
+  const validStatus = status === "unprocessed" || status === "processed" || status === "discarded";
+  const item = {
+    id,
+    // Sanitize on READ too, so items written before the sanitizer shipped (or by any
+    // non-serialize path) are cleaned on the way to the drainer/wiki, not just on write.
+    source: stripInvisible(get("source") ?? ""),
+    captured_at: get("captured_at") ?? "",
+    captured_by: get("captured_by") ?? "user",
+    origin: get("origin") || void 0,
+    content_type: get("content_type") ?? "",
+    status: validStatus ? status : "unprocessed",
+    target_node: get("target_node") || void 0,
+    blob: get("blob") || void 0,
+    hash: get("hash") ?? "",
+    gist: stripInvisible(get("gist") ?? ""),
+    body: stripInvisible(body.trim())
+  };
+  if (!item.source || !item.captured_at || !item.content_type || !validStatus) item.malformed = true;
+  return item;
+}
+async function readItems(brainDir2, slug) {
+  const dir = rawDir(brainDir2, slug);
+  let names = [];
+  try {
+    names = (await fs9.readdir(dir)).filter((n) => n.endsWith(".md"));
+  } catch {
+    return [];
+  }
+  const items = [];
+  for (const name of names.sort()) {
+    try {
+      const content = await fs9.readFile(join8(dir, name), "utf-8");
+      items.push(parse(content, name.replace(/\.md$/, "")));
+    } catch {
+    }
+  }
+  return items;
+}
+async function unprocessedCount(brainDir2, slug) {
+  assertSafeSlug(slug);
+  const items = await readItems(brainDir2, slug);
+  return items.filter((i) => i.status === "unprocessed" || i.malformed).length;
+}
+
 // src/cli/sb.ts
 var HELP = `Usage: sb <command> [args]
 
@@ -7173,12 +7271,12 @@ Environment:
 async function hasClaudeOnPath() {
   const path2 = process.env.PATH ?? "";
   const names = process.platform === "win32" ? ["claude", "claude.exe", "claude.cmd"] : ["claude"];
-  for (const rawDir of path2.split(pathDelimiter)) {
-    const dir = cleanEnvPath(rawDir);
+  for (const rawDir2 of path2.split(pathDelimiter)) {
+    const dir = cleanEnvPath(rawDir2);
     if (!dir) continue;
     for (const name of names) {
       try {
-        await fs9.access(join8(dir, name), fsConstants.X_OK);
+        await fs10.access(join9(dir, name), fsConstants.X_OK);
         return true;
       } catch {
       }
@@ -7300,27 +7398,27 @@ async function runSb(args, deps) {
     return { stdout: "", stderr: err.join("\n"), exitCode: 2 };
   }
   if (cmd === "status") {
-    const userFile = join8(deps.brainDir, "USER.md");
-    const projectsFile = join8(deps.brainDir, "projects.jsonl");
+    const userFile = join9(deps.brainDir, "USER.md");
+    const projectsFile = join9(deps.brainDir, "projects.jsonl");
     let userBytes = 0, projectsCount = 0;
     try {
-      userBytes = (await fs9.stat(userFile)).size;
+      userBytes = (await fs10.stat(userFile)).size;
     } catch {
     }
     try {
-      const txt = await fs9.readFile(projectsFile, "utf-8");
+      const txt = await fs10.readFile(projectsFile, "utf-8");
       projectsCount = txt.split("\n").filter((l) => l.includes('"slug"')).length;
     } catch {
     }
     push(`USER.md:             ${userBytes} bytes`);
     push(`Registered projects: ${projectsCount}`);
     try {
-      const projectDirs = await fs9.readdir(join8(deps.brainDir, "projects"), { withFileTypes: true });
+      const projectDirs = await fs10.readdir(join9(deps.brainDir, "projects"), { withFileTypes: true });
       for (const d of projectDirs) {
         if (!d.isDirectory()) continue;
-        const pf = join8(deps.brainDir, "projects", d.name, "PROJECT.md");
+        const pf = join9(deps.brainDir, "projects", d.name, "PROJECT.md");
         try {
-          const size = (await fs9.stat(pf)).size;
+          const size = (await fs10.stat(pf)).size;
           push(`  ${d.name}/PROJECT.md: ${size} bytes`);
         } catch {
         }
@@ -7328,14 +7426,122 @@ async function runSb(args, deps) {
     } catch {
     }
     try {
-      const wikiDirs = await fs9.readdir(join8(deps.knowledgeDir, "wiki"), { withFileTypes: true });
+      const wikiDirs = await fs10.readdir(join9(deps.knowledgeDir, "wiki"), { withFileTypes: true });
       push("Wiki pages:");
       for (const d of wikiDirs) {
         if (!d.isDirectory()) continue;
-        const files = await fs9.readdir(join8(deps.knowledgeDir, "wiki", d.name));
+        const files = await fs10.readdir(join9(deps.knowledgeDir, "wiki", d.name));
         const count = files.filter((f) => f.endsWith(".md") && f !== "index.md").length;
         push(`  ${d.name}: ${count}`);
       }
+    } catch {
+    }
+    push("Loop liveness:");
+    const age = (ms) => {
+      const h = (Date.now() - ms) / 36e5;
+      if (h < 1) return `${Math.max(1, Math.round(h * 60))}m ago`;
+      if (h < 48) return `${Math.round(h)}h ago`;
+      return `${Math.round(h / 24)}d ago`;
+    };
+    try {
+      const hf = join9(deps.brainDir, ".extractor-health.json");
+      const st = await fs10.stat(hf);
+      const h = JSON.parse(await fs10.readFile(hf, "utf-8"));
+      push(`  drainer last ran:    ${age(st.mtimeMs)} (${sanitizeField(h.status ?? "?")}: ${sanitizeField(h.reason ?? "?")})`);
+    } catch {
+      push("  drainer last ran:    never (no .extractor-health.json)");
+    }
+    const done = /* @__PURE__ */ new Set();
+    try {
+      const stateRaw = await fs10.readFile(join9(deps.brainDir, ".extraction-state.jsonl"), "utf-8");
+      let newestTs = "";
+      for (const l of stateRaw.split("\n").filter(Boolean)) {
+        try {
+          const r = JSON.parse(l);
+          if (r.ts && r.ts > newestTs) newestTs = r.ts;
+          if (r.basename && (r.outcome === "ok" || r.outcome === "error")) done.add(r.basename);
+        } catch {
+        }
+      }
+      push(`  last extraction:     ${newestTs ? sanitizeField(newestTs) : "never"}`);
+    } catch {
+      push("  last extraction:     never (no .extraction-state.jsonl)");
+    }
+    try {
+      const archived = (await fs10.readdir(join9(deps.brainDir, "transcripts"))).filter((f) => f.endsWith(".txt"));
+      const backlog = archived.filter((f) => !done.has(f)).length;
+      push(`  transcript backlog:  ${backlog} of ${archived.length} archived`);
+    } catch {
+      push("  transcript backlog:  no transcripts dir");
+    }
+    try {
+      await fs10.access(join9(deps.brainDir, "bin", "sb-extract-drain.sh"));
+      push("  scheduler shim:      present");
+    } catch {
+      push("  scheduler shim:      ABSENT (out-of-band drain cannot run)");
+    }
+    try {
+      const dreamsDir = join9(deps.brainDir, "dreams");
+      const ids = (await fs10.readdir(dreamsDir)).filter((d) => d.startsWith("drm_")).sort();
+      if (ids.length === 0) {
+        push("  newest dream:        none");
+      } else {
+        const id = ids[ids.length - 1];
+        const sf = join9(dreamsDir, id, "status.json");
+        const st = await fs10.stat(sf);
+        const s = JSON.parse(await fs10.readFile(sf, "utf-8"));
+        push(`  newest dream:        ${sanitizeField(id)} ${sanitizeField(s.status ?? "?")} (heartbeat ${age(st.mtimeMs)})`);
+      }
+    } catch {
+      push("  newest dream:        none");
+    }
+    try {
+      const projectDirs = await fs10.readdir(join9(deps.brainDir, "projects"), { withFileTypes: true });
+      let raw = 0;
+      for (const d of projectDirs) {
+        if (!d.isDirectory()) continue;
+        try {
+          raw += await unprocessedCount(deps.brainDir, d.name);
+        } catch {
+        }
+      }
+      push(`  raw-inbox depth:     ${raw} unprocessed`);
+    } catch {
+      push("  raw-inbox depth:     0 unprocessed (no projects dir)");
+    }
+    push("Utilization:");
+    let util = {};
+    try {
+      util = JSON.parse(await fs10.readFile(join9(deps.brainDir, "utilization-counts.json"), "utf-8"));
+      if (util === null || typeof util !== "object" || Array.isArray(util)) util = {};
+    } catch {
+    }
+    const entries = Object.entries(util).filter(([, v]) => v && typeof v.count === "number");
+    if (entries.length === 0) push("  (no invocations recorded yet)");
+    else {
+      entries.sort((a, b) => (b[1].count ?? 0) - (a[1].count ?? 0));
+      for (const [name, v] of entries.slice(0, 5)) {
+        push(`  ${sanitizeField(name)}: ${v.count} (last ${sanitizeField(v.last_used ?? "?")})`);
+      }
+    }
+    try {
+      const pluginRoot = new URL("../../../", import.meta.url);
+      const { fileURLToPath: fileURLToPath3 } = await import("url");
+      const root = fileURLToPath3(pluginRoot);
+      const skills = (await fs10.readdir(join9(root, "skills"), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => `skill!${d.name}`);
+      const agents = (await fs10.readdir(join9(root, "agents"))).filter((f) => f.endsWith(".md")).map((f) => `agent!${f.replace(/\.md$/, "")}`);
+      const used = new Set(Object.keys(util));
+      const isUsed = (kind, name) => {
+        for (const k of used) {
+          if (!k.startsWith(kind + ":")) continue;
+          if (k === `${kind}:${name}` || k.endsWith(`:${name}`)) return true;
+        }
+        return false;
+      };
+      const dormant = [...skills, ...agents].map((t) => t.split("!")).filter(([kind, name]) => !isUsed(kind, name)).map(([kind, name]) => `${kind}:${name}`);
+      const total = skills.length + agents.length;
+      if (dormant.length === 0) push(`  dormant: none of ${total} shipped capabilities`);
+      else push(`  dormant: ${dormant.length} of ${total} shipped capabilities (${dormant.slice(0, 6).map(sanitizeField).join(", ")}${dormant.length > 6 ? ", \u2026" : ""})`);
     } catch {
     }
     return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };

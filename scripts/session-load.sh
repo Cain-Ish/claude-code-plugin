@@ -12,6 +12,31 @@ INDEX_FILE="$BRAIN_DIR/projects.jsonl"
 PROJECTS_DIR="$BRAIN_DIR/projects"
 BYTE_BUDGET=8000   # ~2000 tokens. Claude Code hard-caps hook output at 10K chars.
 
+# P1.2 (docs/plans/2026-07-13-p1-observability.md Task 2): session_id from the hook
+# payload names this session's injection manifest — stdin was previously UNREAD here
+# (slug comes from CLAUDE_PROJECT_DIR). TTY-guarded so a manual no-pipe invocation
+# can't hang; sanitized to a path-safe token; fail-open (no id → telemetry skips).
+SL_SESSION_ID=""
+if [ ! -t 0 ]; then
+  _sl_raw=$(cat 2>/dev/null || true)
+  SL_SESSION_ID=$(printf '%s' "$_sl_raw" | jq -r '.session_id // empty' 2>/dev/null \
+    | tr -d '\r' | tr -cd 'A-Za-z0-9_-' | head -c 64)
+fi
+
+# Append emitted-injection ids to the session manifest (kind: codemap|wiki|graph).
+# OBSERVATION ONLY — consumed once by stop-extract's value-loop pass, then deleted.
+# ids are slugs/repo-paths (safe charsets; no JSON escaping needed). Never fails the
+# hook: an unwritable manifest just loses telemetry.
+sb_manifest_add() {
+  [ "${SB_TELEMETRY:-on}" = "off" ] && return 0
+  [ -n "$SL_SESSION_ID" ] || return 0
+  local kind="$1" ids="$2" line
+  { while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      printf '{"kind":"%s","id":"%s"}\n' "$kind" "$line"
+    done <<< "$ids"; } >> "$BRAIN_DIR/.injected-manifest-$SL_SESSION_ID.jsonl" 2>/dev/null || true
+}
+
 # Resolve THIS session's project from the per-session project dir (CLAUDE_PROJECT_DIR,
 # which Claude Code sets to the project root, else cwd) — NOT from the shared
 # .active-session-slug pin, which a CONCURRENT session in another project can clobber.
@@ -409,6 +434,44 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" = "on" ]; then
   fi
 fi
 
+# 0a-quinquies. Loop-DEAD banner (P1.1, docs/plans/2026-07-13-p1-observability.md) —
+# the case the two drainer banners above CANNOT see: the scheduler is REGISTERED but
+# the drainer has not ticked AT ALL in SB_LOOP_DEAD_HOURS (48). Timeout/dead-letter
+# banners need attempts to leave signatures; a task that never fires leaves nothing —
+# the live Windows/macOS breakage shape. Age = newest mtime of the two files the
+# drainer stamps on EVERY run (.extractor-health.json, .extraction-state.jsonl);
+# never-ran falls back to the shim's own mtime (≈ install time). Reuses CAP_TIMER
+# when 0a-ter probed it (avoids a second schtasks/systemctl spawn); timer=unknown
+# (unobservable OS) → no claim, no banner. Fail-open on any stat failure.
+# Kill switch: SB_LOOP_DEAD_BANNER=off.
+if [ "${SB_LOOP_DEAD_BANNER:-on}" != "off" ]; then
+  _ld_timer="${CAP_TIMER:-}"
+  if [ -z "$_ld_timer" ]; then
+    [ "$(sb_timer_health)" = "installed" ] && _ld_timer=yes || _ld_timer=no
+  fi
+  if [ "$_ld_timer" = "yes" ]; then
+    LOOP_DEAD_H="${SB_LOOP_DEAD_HOURS:-48}"; case "$LOOP_DEAD_H" in ''|*[!0-9]*) LOOP_DEAD_H=48 ;; esac
+    _ld_now=$(date +%s)
+    _ld_newest=0
+    for _ld_f in "$BRAIN_DIR/.extractor-health.json" "$BRAIN_DIR/.extraction-state.jsonl" "$BRAIN_DIR/bin/sb-extract-drain.sh"; do
+      [ -f "$_ld_f" ] || continue
+      _ld_m=$(stat -c %Y "$_ld_f" 2>/dev/null || stat -f %m "$_ld_f" 2>/dev/null) || continue
+      case "$_ld_m" in ''|*[!0-9]*) continue ;; esac
+      # The shim is the FALLBACK clock (install time): only counts when neither
+      # drainer-stamped file exists, so a fresh install isn't instantly "dead".
+      case "$_ld_f" in
+        */bin/sb-extract-drain.sh) [ "$_ld_newest" -eq 0 ] && _ld_newest=$_ld_m ;;
+        *) [ "$_ld_m" -gt "$_ld_newest" ] && _ld_newest=$_ld_m ;;
+      esac
+    done
+    if [ "$_ld_newest" -gt 0 ] && [ $(( (_ld_now - _ld_newest) / 3600 )) -ge "$LOOP_DEAD_H" ]; then
+      _ld_age_h=$(( (_ld_now - _ld_newest) / 3600 ))
+      sb_append "$(printf '## ⚠ second-brain — the scheduled drainer looks DEAD\nregistered, but no run in ~%sh (threshold %sh). Out-of-band extraction is NOT happening.\nprobe: `sb status` (Loop liveness section), or run the drainer once by hand: `bash "$CLAUDE_PLUGIN_ROOT/scripts/extract-drain.sh"`.\nSuppress: `SB_LOOP_DEAD_BANNER=off`.\n\n' "$_ld_age_h" "$LOOP_DEAD_H")" "loop-dead-banner" 450
+      sb_log_error "session-load.sh" "loop-dead: last-tick ${_ld_age_h}h ago (threshold ${LOOP_DEAD_H}h) timer=yes" 0
+    fi
+  fi
+fi
+
 # 0b. Episodic embeddings banner — surfaces missing native deps that prevent
 # vector search over transcripts. Production bug 2026-05-22: 976/981 exchanges
 # had embedding:[] because @huggingface/transformers was --external in the
@@ -514,7 +577,10 @@ if [ "${SB_CODEMAP_ORIENT:-on}" != "off" ]; then
           *) CODEMAP_BLOCK=''; break ;;
         esac
       done
-      [ -n "$CODEMAP_BLOCK" ] && sb_append "$CODEMAP_BLOCK" "codemap-orientation" 620
+      if [ -n "$CODEMAP_BLOCK" ] && sb_append "$CODEMAP_BLOCK" "codemap-orientation" 620; then
+        # Manifest the EMITTED spine lines (post-truncation), not the raw harvest.
+        sb_manifest_add codemap "$(printf '%s' "$CODEMAP_BLOCK" | grep -v '^\[' | grep -v '^$')"
+      fi
     fi
   fi
 fi
@@ -628,7 +694,9 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
     # per-prompt path (persona-context.sh) — one chokepoint, consistent scoping both surfaces.
     WIKI_HITS=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$slug" node "$SEARCH_CLI" "$PROJ_KW" 2>/dev/null || true)
     if [ -n "$WIKI_HITS" ]; then
-      sb_append "$(printf '\n%s' "$WIKI_HITS")" "wiki-enrichment" 1500
+      if sb_append "$(printf '\n%s' "$WIKI_HITS")" "wiki-enrichment" 1500; then
+        sb_manifest_add wiki "$(printf '%s\n' "$WIKI_HITS" | sed -n 's/.*\[\[\([^]]*\)\]\].*/\1/p')"
+      fi
     fi
   fi
 fi
@@ -688,7 +756,9 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
     [ -n "$nbr" ] && GRAPH_OUT="${GRAPH_OUT}- ${s}: ${nbr}\n"
   done <<< "$CR_SLUGS"
   if [ -n "$GRAPH_OUT" ]; then
-    sb_append "$(printf '\n[Dependency graph — current typed relations (as of today)]\n%b' "$GRAPH_OUT")" "graph-neighbourhood" 600
+    if sb_append "$(printf '\n[Dependency graph — current typed relations (as of today)]\n%b' "$GRAPH_OUT")" "graph-neighbourhood" 600; then
+      sb_manifest_add graph "$(printf '%b' "$GRAPH_OUT" | sed -n 's/^- \([^:]*\):.*/\1/p')"
+    fi
   fi
 fi
 

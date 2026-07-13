@@ -30,8 +30,10 @@ if [ "$BLOCK_COUNT" -ge 2 ]; then
   exit 0
 fi
 
-# Check if code was modified (Write, Edit, or MultiEdit tool calls).
-CODE_MODIFIED=$(jq -r '
+# Check if code was modified (Write, Edit, or MultiEdit tool calls). P2.1: keep the
+# FULL distinct changed-file set, not just the first hit — the block reason names
+# what actually changed, and the critic offer keys on its size.
+CHANGED_FILES=$(jq -r '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use")
@@ -39,11 +41,31 @@ CODE_MODIFIED=$(jq -r '
   | .input.file_path // ""
   | select(. != "")
   | select((endswith(".md") or endswith(".markdown") or endswith(".txt") or test("(^|/)docs/")) | not)
-' "$TRANSCRIPT" 2>/dev/null | head -1)
+' "$TRANSCRIPT" 2>/dev/null | tr -d '\r' | sort -u)
+CODE_MODIFIED=$(printf '%s\n' "$CHANGED_FILES" | head -1)
+CHANGED_N=0
+[ -n "$CHANGED_FILES" ] && CHANGED_N=$(printf '%s\n' "$CHANGED_FILES" | grep -c .)
 
 if [ -z "$CODE_MODIFIED" ]; then
   rm -f "$MARKER" 2>/dev/null
   exit 0
+fi
+
+# P2.1: discover the project's EXACT verify command from cheap cwd probes, so the
+# block says "run THIS" instead of a generic nag. NAMING ONLY — auto-running from a
+# Stop hook was review-killed (blocks the turn for minutes; breaks the fail-open
+# invariant). If/when the auto-team pinned-command resolver lands, reuse it here —
+# do NOT grow these probes into a second resolver (single-source discipline).
+VERIFY_CMD=""
+CWD_DIR=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
+if [ -n "$CWD_DIR" ] && [ -d "$CWD_DIR" ]; then
+  if [ -f "$CWD_DIR/tests/run-all.sh" ]; then
+    VERIFY_CMD="bash tests/run-all.sh"
+  elif [ -f "$CWD_DIR/package.json" ] && jq -e '.scripts.test // empty' "$CWD_DIR/package.json" >/dev/null 2>&1; then
+    VERIFY_CMD="npm test"
+  elif [ -f "$CWD_DIR/Makefile" ] && grep -qE '^test:' "$CWD_DIR/Makefile" 2>/dev/null; then
+    VERIFY_CMD="make test"
+  fi
 fi
 
 # Code was modified — look for verification evidence.
@@ -106,15 +128,35 @@ if [ -n "$VERIFY_CMDS" ] || [ -n "$SKILL_EVIDENCE" ] || [ -n "$SKILL_TOOL" ]; th
     }'
     exit 0
   fi
+  # P2.2 critic offer: verification RAN, but rules can't judge design — on a
+  # SUBSTANTIVE diff, offer the already-shipped fresh-context critic ONCE per
+  # session (non-blocking systemMessage; the model/user decides). This engages the
+  # judge rung on the 90% solo path without new machinery or coercion.
+  # Kill switch: SB_CRITIC_OFFER=off; threshold SB_CRITIC_OFFER_MIN_FILES (3).
+  if [ "${SB_CRITIC_OFFER:-on}" != "off" ]; then
+    OFFER_MIN="${SB_CRITIC_OFFER_MIN_FILES:-3}"; case "$OFFER_MIN" in ''|*[!0-9]*) OFFER_MIN=3 ;; esac
+    OFFER_MARKER="$BRAIN_DIR/.critic-offer-$SESSION_ID"
+    if [ "$CHANGED_N" -ge "$OFFER_MIN" ] && [ ! -f "$OFFER_MARKER" ]; then
+      mkdir -p "$BRAIN_DIR" 2>/dev/null
+      : > "$OFFER_MARKER" 2>/dev/null
+      jq -nc --arg n "$CHANGED_N" '{
+        systemMessage: ("second-brain: " + $n + " source files changed and checks ran — rules verified mechanics, not design. For an independent fresh-context critique, dispatch the quality-reviewer agent (or persona_think) on the diff. Suppress: SB_CRITIC_OFFER=off.")
+      }'
+    fi
+  fi
   rm -f "$MARKER" 2>/dev/null
   exit 0
 fi
 
-# No verification evidence found — block.
+# No verification evidence found — block. P2.1: name WHAT changed and the EXACT
+# command to run (discovered above), not a generic nag — deterministic backpressure.
 mkdir -p "$BRAIN_DIR" 2>/dev/null
 echo "$((BLOCK_COUNT + 1))" > "$MARKER"
 
-jq -nc '{
+FILES_PREVIEW=$(printf '%s\n' "$CHANGED_FILES" | head -5 | tr '\n' ' ')
+CMD_LINE="run the project's checks (tests, lint, type-check)"
+[ -n "$VERIFY_CMD" ] && CMD_LINE="run \`$VERIFY_CMD\` (discovered in this project)"
+jq -nc --arg n "$CHANGED_N" --arg files "$FILES_PREVIEW" --arg cmd "$CMD_LINE" '{
   decision: "block",
-  reason: "Code was modified but no verification ran. Before completing, run applicable checks: tests, lint, type-check. Then invoke relevant review skills (/review, /security-review, /simplify) for quality and security. Evidence before assertions."
+  reason: ("Code was modified (" + $n + " file(s): " + $files + "…) but no verification ran. Before completing: " + $cmd + ", then invoke relevant review skills (/review, /security-review, /simplify). Evidence before assertions.")
 }'
