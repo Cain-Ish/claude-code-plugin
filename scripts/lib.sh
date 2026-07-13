@@ -50,6 +50,24 @@ sb_normalize_path() {
   printf '%s' "$p"
 }
 
+# sb_mtime — portable file mtime as epoch seconds via `stat -c %Y` || `stat -f %m`
+# || 0. THE single funnel for the ~17 copy-pasted GNU/BSD stat sites (portability
+# floor: any line using the GNU form needs its BSD twin, which this one-liner has).
+# Callers needing a NON-zero fail default (e.g. an unstattable file read as
+# just-touched → echo "$now") keep their own inline form; sb_mtime yields 0 on
+# failure, i.e. fail-CLOSED for age checks.
+sb_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
+
+# sb_knowledge_dir — THE single resolver for the bash-side KNOWLEDGE_DIR, mirroring
+# mcp/src/brain-paths.ts precedence: plugin OPTION > KNOWLEDGE_DIR env > $HOME/knowledge,
+# with leading-~ expansion. Replaces the 4 divergent hand-rolled precedence variants
+# that had accreted across ~38 sites. Sites that resolve BEFORE sourcing lib.sh, take a
+# --knowledge-dir arg, or honor an extra alias (SB_KNOWLEDGE_DIR) keep their own form.
+sb_knowledge_dir() {
+  local d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
+  printf '%s' "${d/#\~/$HOME}"
+}
+
 # KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
 # / SB_GENERATED_DIRS / SB_EDGE_TYPES / SB_FORGET_PROTECTED / SB_FORGET_DISCOUNTED from kb-schema.json.
 # Sourced here so every lib.sh consumer has them. Fail-soft (no-op if jq/manifest absent).
@@ -156,7 +174,7 @@ sb_floor_transcript() {
   [ "${nfiles:-0}" -gt 0 ] || return 1   # nothing changed deterministically → let the caller quarantine
   local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
   local project_md="$BRAIN_DIR/projects/$slug/PROJECT.md"
-  local kdir="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; kdir="${kdir/#\~/$HOME}"
+  local kdir; kdir="$(sb_knowledge_dir)"
   if [ ! -f "$project_md" ]; then
     mkdir -p "$(dirname "$project_md")"
     printf '# PROJECT: %s\n\n## Recent decisions\n\n## Open blockers\n\n## Cross-references\n\n<!-- last_updated: %s -->\n' \
@@ -334,7 +352,7 @@ sb_strip_invisible_copy() {
 
 # Regenerate wiki/index.md catalog after wiki writes.
 sb_reindex_wiki() {
-  local knowledge_dir="${1:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
+  local knowledge_dir="${1:-$(sb_knowledge_dir)}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
   local plugin_root; plugin_root=$(sb_plugin_root)
   local reindex_js="$plugin_root/mcp/dist/tools/knowledge-reindex.bundle.js"
@@ -366,7 +384,7 @@ sb_reindex_wiki() {
 # points the bundle at any dir, mirroring sb_reindex_wiki. Echoes the autofix
 # count. The dir must contain a wiki/ subtree (we pass its PARENT as knowledgeDir).
 sb_validate_wiki() {
-  local knowledge_dir="${1:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
+  local knowledge_dir="${1:-$(sb_knowledge_dir)}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
   local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
   if [ -z "$plugin_root" ] || [ ! -d "$plugin_root" ]; then
@@ -845,7 +863,7 @@ sb_archive_subagent_result() {
     | sort -rn | cut -d' ' -f2-)
   if [ -z "$sub_files" ]; then
     sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f 2>/dev/null \
-      | while IFS= read -r f; do printf '%s %s\n' "$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)" "$f"; done \
+      | while IFS= read -r f; do printf '%s %s\n' "$(sb_mtime "$f")" "$f"; done \
       | sort -rn | cut -d' ' -f2-)
   fi
   sub_count=$(printf '%s\n' "$sub_files" | grep -c . 2>/dev/null || true)
@@ -923,7 +941,7 @@ sb_prune_transcripts() {
     | sort -n | cut -d' ' -f2-)
   if [ -z "$files" ]; then
     files=$(find "$archive_dir" -name '*.txt' -type f 2>/dev/null \
-      | while IFS= read -r f; do printf '%s %s\n' "$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)" "$f"; done \
+      | while IFS= read -r f; do printf '%s %s\n' "$(sb_mtime "$f")" "$f"; done \
       | sort -n | cut -d' ' -f2-)
   fi
   local count
@@ -1113,7 +1131,7 @@ sb_dream_is_stale() {
   local run_to="${SB_DREAM_RUN_TIMEOUT:-21600}"
   case "$run_to" in ''|*[!0-9]*) run_to=21600 ;; esac
   local smt now
-  smt=$(stat -c %Y "$sf" 2>/dev/null || stat -f %m "$sf" 2>/dev/null || echo 0)
+  smt=$(sb_mtime "$sf")
   now=$(date +%s)
   [ "$(( now - ${smt:-0} ))" -gt "$run_to" ]
 }
@@ -1627,7 +1645,7 @@ sb_extract_transcript() {
   [ -f "$prompt_file" ] || return 1
   local prompt; prompt=$(cat "$prompt_file")
 
-  local kdir="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; kdir="${kdir/#\~/$HOME}"
+  local kdir; kdir="$(sb_knowledge_dir)"
   local project_md="$BRAIN_DIR/projects/$slug/PROJECT.md"
   if [ ! -f "$project_md" ]; then
     mkdir -p "$(dirname "$project_md")"

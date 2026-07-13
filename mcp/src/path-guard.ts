@@ -132,6 +132,16 @@ export function cleanEnvPath(s: string | undefined | null): string {
   return (s ?? '').replace(/[\r\n]/g, '');
 }
 
+export function assertSafeSlug(slug: string): void {
+  // Reject separators + `..` (traversal), plus NUL/control chars (\x00-\x1f) and oversize — a slug
+  // becomes a directory name, so these are never legitimate (parity with validateSlug below; the
+  // charset stays looser on purpose — see path-guard.test.ts for the accepted forms). Moved here
+  // from doc-sources.ts so hash/slug-only importers don't drag doc-sources' glob tree into bundles.
+  if (!slug || slug.length > 128 || /[\\/\x00-\x1f]|\.\./.test(slug)) {
+    throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
+  }
+}
+
 export function validateSlug(slug: string): void {
   if (typeof slug !== 'string') {
     throw new PathGuardError('slug must be a string', '', String(slug));

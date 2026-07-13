@@ -6,7 +6,7 @@ description: >-
   pipeline and its bm25-only degradation contract, MinHash near-duplicate detection (capture
   NOOP/UPDATE, dream DEDUPLICATE, FORGET cross-check), deterministic label-propagation clustering,
   the bi-temporal edge store (assert/invalidate, supersedes), structural-importance-only
-  forgetting, the REFLECT operation, planned PageRank code-map, and the lethal-trifecta
+  forgetting, the REFLECT operation, the shipped PageRank code-map, and the lethal-trifecta
   consolidation security model. Load it when a task touches ranking/scoring math, similarity
   thresholds, dedup/forget/cluster/reflect semantics, graph validity intervals, or when deciding
   whether a proposed boost/weight/decay is safe — and when evaluating an idea borrowed from
@@ -46,7 +46,7 @@ Mechanism → home, at a glance:
 | REFLECT | `agents/dream-runner.md:144-176` | `SB_DREAM_REFLECT=off` (machine-enforced) |
 | Bi-temporal edges | `mcp/src/tools/graph-store.ts` + `scripts/merge-edges.sh` | 5 edge types; half-open [from,to) validity |
 | FORGET scoring | `scripts/wiki-forget-score.sh` + `wiki-forget-candidates.sh` | floor 0.15, cap 5/dream, min age 30d |
-| PageRank code map | NOT BUILT — plan only | `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` |
+| PageRank code map | `mcp/src/tools/codemap/` (SHIPPED 0.33.33–0.33.35) | damping 0.85, 30 iters; `SB_CODEMAP_TOKEN_BUDGET=2000`; `auto_codemap` on |
 | Injection model | `mcp/src/tools/sanitize.ts`, agent framing, bwrap jail | P6 plan = the unbuilt remainder |
 
 ---
@@ -237,23 +237,34 @@ paper, each deliberate:
 
 ---
 
-## 6. PageRank (P3a) — PLANNED, not built
+## 6. PageRank code map (P3a) — SHIPPED 0.33.33–0.33.35
 
-**Status: zero code.** `Glob mcp/src/tools/codemap/**` → no files (verified 2026-07-05). The plan
-is `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`. Do not describe a code map,
-`code_map`/`code_neighbors` MCP tools, or PageRank ranking as existing features.
+**Status: shipped** (verified 2026-07-13 at 0.33.37): the `mcp/src/tools/codemap/` module family
+(scan-sources, extract, pagerank, build-graph, serialize, store, drift + `code-map-cli`), two
+read-only MCP tools `code_map`/`code_neighbors` in `mcp/src/server.ts`, autonomous out-of-band
+regeneration in the drainer (`scripts/extract-drain.sh`, config key `auto_codemap`, default on —
+0.33.34), and SessionStart spine injection (`session-load.sh` §0d, kill switch
+`SB_CODEMAP_ORIENT` — 0.33.35, placed BEFORE the forced USER.md/PROJECT.md sections after live
+verification caught it being budget-starved when placed last). Shaping plan:
+`docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`. Remaining P3a: Phase 4
+(layer-5 code↔wiki edges), Phase 5 (opt-in WASM tree-sitter tier).
 
 **Theory.** PageRank ranks graph nodes by stationary visit probability of a random surfer with
 damping; on a file-import graph it surfaces the files everything depends on — Aider's repo-map
 uses exactly this to pick which files/symbols fit a token budget.
 
-**Planned shape (from the plan, for evaluating future work):** deterministic PageRank — damping
-0.85, iterate nodes in sorted id order, fixed 30 iterations OR L1-convergence epsilon 1e-6,
-dangling-node mass redistributed uniformly (plan :149); pure-JS/regex extractor by default with
-tree-sitter demoted to an opt-in WASM tier (node-gyp native bindings explicitly REJECTED, :90);
-token-capped `map.md` under `SB_CODEMAP_TOKEN_BUDGET=2000`; stored per-project under
-`BRAIN_DIR/projects/<slug>/codemap/`, NOT in the wiki graph. Determinism across OS (POSIX-
-normalized node ids, no Map-insertion-order reliance) is a tested contract in the plan (:327).
+**As built:** deterministic PageRank — damping 0.85, fixed 30 iterations OR L1-convergence
+epsilon 1e-6, sorted accumulation order (never Map insertion order — a tested contract,
+`pagerank.ts`); pure-JS/regex Tier-0 extractor for ts/js/py (node-gyp native tree-sitter
+REJECTED; WASM deferred to Phase 5); token-capped `map.md` under `SB_CODEMAP_TOKEN_BUDGET`
+(default 2000; chars/4 estimate, budget×0.95 stop, never-exceed tested at the boundary); stored
+per-project under `BRAIN_DIR/projects/<slug>/codemap/`, deliberately NOT in the wiki graph
+(separate store, separate tools — `knowledge_neighbors` untouched). Drift (`drift.ts`, one
+predicate shared by CLI and both tools): stored `git_rev` ≠ HEAD, nogit-mtime fallback,
+dirty-tree always re-checks; query-time answers carry an honest `stale` flag. Incident worth
+keeping: the first cut ingested COMMITTED build artifacts — 17 tracked `mcp/dist` bundles ate
+42% of the map budget until the ignore-dirs list applied to BOTH enumeration paths (0.33.33
+adversarial review, empirically proven on this repo).
 
 ---
 
@@ -398,7 +409,7 @@ to say so explicitly.
 | CaMeL quarantine / dual-LLM | 2503.18813 + Willison trifecta | ACCEPTED, PLAN-QUEUED (P6 remainder); deterministic-writer variant chosen over two LLMs | P6 plan §Architecture |
 | Incremental > threshold capture | ARC (2601.12030; 31% vs 24–27% ablation) | ADOPTED (Stop-hook incremental + PreCompact safety net, 0.33.18) | spec §3; stop-extract.sh |
 | Sleep-time consolidation | Letta/MemGPT sleep-time agents | VALIDATED-KEEP (dream = background consolidation; in-band "remember-to-remember" tool calls rejected as the field's dominant failure mode) | dream pipeline |
-| Repo-map = tree-sitter + PageRank | Aider | ACCEPTED-with-modification, PLAN-QUEUED (P3a): PageRank yes; tree-sitter demoted to opt-in WASM, pure-JS regex default | P3a plan §6 |
+| Repo-map = tree-sitter + PageRank | Aider | ADOPTED-with-modification, SHIPPED 0.33.33–0.33.35 (P3a): PageRank yes; tree-sitter demoted to opt-in WASM (deferred), pure-JS regex default | mcp/src/tools/codemap/; §6 |
 | Cross-encoder reranker | Anthropic contextual-retrieval + field nDCG results | ACCEPTED in spec (P3b), NOT STARTED — no plan doc, no code | spec §6 P3 |
 | Usage-frequency ranking/forgetting | recsys frequency boosting | REJECTED twice (P4b search cut 0.33.30; FORGET terms cut 0.33.25); constitutionally enshrined | §1 incident C; §8 |
 | Ebbinghaus/recency decay as eviction driver | classic forgetting curves | REJECTED as a score input ("goal-agnostic decay demonstrably hurts", spec citing 2511.21726); kept only as age-floor + tie-break | §8 |
@@ -442,8 +453,8 @@ grep -n 'generated:' mcp/src/tools/graph-cluster-cli.ts; bash tests/test-graph-c
 grep -nE 'W_CONNECTIVITY|W_CATEGORY|acc=' scripts/wiki-forget-score.sh
 # Bi-temporal fold semantics unchanged
 grep -nE 'assert|invalidate|valid_to' mcp/src/tools/graph-store.ts | head -20
-# PageRank still unbuilt? (empty output = still plan-only)
-ls mcp/src/tools/codemap 2>/dev/null; grep -rln 'pagerank' mcp/src/ || echo "P3a still plan-only"
+# PageRank code map still shipped? (expect: codemap module files + pagerank hits)
+ls mcp/src/tools/codemap 2>/dev/null; grep -rln 'pagerank' mcp/src/ || echo "codemap MISSING — §6 is stale"
 # P6 quarantine still unbuilt? (no candidate-facts/consolidate-writer sources = plan-only)
 ls mcp/src/tools/candidate-facts.ts mcp/dist/tools/consolidate-writer-cli.bundle.js 2>/dev/null || echo "P6 still plan-only"
 # Agent injection-framing + grant locks still enforced
@@ -453,5 +464,6 @@ jq -r .version .claude-plugin/plugin.json
 ```
 
 Volatile facts to re-stamp on next edit: env-knob defaults (grep the named var) and the
-OPEN/PLANNED statuses of the recency-after-RRF residual, P3a, P3b, and P6 (check CHANGELOG
-headings newer than 0.33.31 first). The 6/6/80 P7 measurement is a frozen historical fact.
+OPEN/PLANNED statuses of the recency-after-RRF residual, P3b, and P6 (check CHANGELOG
+headings newer than 0.33.31 first). P3a shipped 0.33.33–0.33.35 (§6 re-verified 2026-07-13
+at 0.33.37); the 6/6/80 P7 measurement is a frozen historical fact.

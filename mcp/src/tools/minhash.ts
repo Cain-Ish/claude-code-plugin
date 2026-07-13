@@ -10,6 +10,7 @@
 import { djb2 } from './graph-cluster.js';
 import { stripAiBlock } from './ai-block.js';
 import { stripInvisible } from './sanitize.js';
+import { stripFrontmatter } from './frontmatter.js';
 
 export const SHINGLE_K = 3;     // word 3-grams — the prose near-duplicate sweet spot
 export const NUM_HASHES = 128;  // signature length; Jaccard standard error ≤ 1/(2·sqrt(128)) ≈ 0.044 (max at J=0.5)
@@ -31,7 +32,7 @@ const B = new Uint32Array(NUM_HASHES);
  *  markup. Then lowercase to alnum word tokens. */
 export function proseTokens(content: string): string[] {
   let t = stripAiBlock(stripInvisible(content));
-  t = t.replace(/^---\r?\n[\s\S]*?\r?\n---/, '');                  // YAML frontmatter
+  t = stripFrontmatter(t);                                         // YAML frontmatter
   t = t.replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, ''); // generated theme region
   t = t.replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, ''); // projected dependencies region
   t = t.replace(/\[\[([^\]]+)\]\]/g, ' ');                         // drop link markup (structure, not prose)

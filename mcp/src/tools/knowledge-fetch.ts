@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { join, relative, isAbsolute } from 'path';
 import { glob, escape } from 'glob';
-import { parseDoc } from './knowledge-search.js';
+import { parseDoc } from './frontmatter.js';
 import { aiBlockSnippet } from './ai-block.js';
 import { capText, egressBudgetTokens, estimateTokens } from './egress-budget.js';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';

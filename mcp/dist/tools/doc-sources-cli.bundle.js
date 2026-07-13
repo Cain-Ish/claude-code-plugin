@@ -1,5 +1,4 @@
 // src/tools/doc-sources.ts
-import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import { join, relative, resolve, sep as sep2, isAbsolute } from "path";
 import { spawnSync } from "child_process";
@@ -6069,19 +6068,42 @@ glob.glob = glob;
 function cleanEnvPath(s) {
   return (s ?? "").replace(/[\r\n]/g, "");
 }
+function assertSafeSlug(slug) {
+  if (!slug || slug.length > 128 || /[\\/\x00-\x1f]|\.\./.test(slug)) {
+    throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
+  }
+}
 
-// src/tools/doc-sources.ts
+// src/tools/content-hash.ts
+import { createHash } from "crypto";
 function hashContent(content) {
   return createHash("sha256").update(content).digest("hex");
 }
+
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
+
+// src/tools/frontmatter.ts
+function matchFrontmatter(content) {
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  return m ? { fm: m[1], body: m[2] } : null;
+}
+function extractYamlValue(yaml, key) {
+  const re = new RegExp(`^${key}:\\s*['"]?(.*?)['"]?\\s*$`, "m");
+  const m = yaml.match(re);
+  return m ? m[1].trim() : "";
+}
+
+// src/tools/doc-sources.ts
 function extractGist(content) {
-  const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  const body = fm ? content.slice(fm[0].length) : content;
+  const fm = matchFrontmatter(content);
+  const body = fm ? fm.body : content;
   const h1 = body.match(/^#\s+(.+)$/m);
   if (h1) return h1[1].trim();
   if (fm) {
-    const t = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-    if (t) return t[1].trim();
+    const t = extractYamlValue(fm.fm, "title");
+    if (t) return t;
   }
   const first = body.split("\n").map((l) => l.trim()).find((l) => l.length > 0);
   return first ?? "";
@@ -6090,11 +6112,6 @@ function extractHeadings(content) {
   return content.split("\n").map((l) => l.trim()).filter((l) => /^#{2,3}\s+\S/.test(l));
 }
 var JUNK_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".venv", "venv", ".next", "dist", "build"]);
-function assertSafeSlug(slug) {
-  if (!slug || slug.length > 128 || /[\\/\x00-\x1f]|\.\./.test(slug)) {
-    throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
-  }
-}
 async function readConfig(brainDir, slug) {
   try {
     const j2 = JSON.parse(await fs.readFile(join(brainDir, "projects", slug, "doc-sources.config.json"), "utf-8"));

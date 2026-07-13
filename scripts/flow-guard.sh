@@ -30,10 +30,18 @@ set -u
 
 RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
-echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
-[ -z "$TOOL" ] && exit 0
+# ONE jq for the two single-line fields (0.33.38 hot-path: this PreToolUse guard
+# fires on EVERY Bash/WebFetch/WebSearch call and previously spent a type==object
+# check + one jq per field). Line-per-field -r protocol, NOT @tsv (@tsv would
+# backslash-escape values). If RAW is not a JSON object jq errors → both empty →
+# TOOL empty → exit 0, the same fail-soft the dropped type==object check gave.
+{
+  IFS= read -r TOOL
+  IFS= read -r SESSION_ID
+} < <(printf '%s' "$RAW" | jq -r '.tool_name // "", .session_id // ""' 2>/dev/null | tr -d '\r')
+[ -z "${TOOL:-}" ] && exit 0
+: "${SESSION_ID:=}"
 
 # Only outbound channels concern us.
 case "$TOOL" in
@@ -41,7 +49,6 @@ case "$TOOL" in
   *) exit 0 ;;
 esac
 
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # Fail-soft on lib.sh source so the guard still emits its decision JSON

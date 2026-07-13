@@ -51,7 +51,7 @@ substrate, milestone not met. `NOT-STARTED` = no plan doc, no code.
 | # | Problem | Status (as of 0.33.31) | Plan doc |
 |---|---|---|---|
 | 1 | P2: learning → active guardrail | PLAN-QUEUED (zero code) | `docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md` |
-| 2 | P3a: orientation code-map | PLAN-QUEUED (zero code) | `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` |
+| 2 | P3a: orientation code-map | SHIPPED 0.33.33–0.33.35 (Phases 1–3; Phases 4–5 open — verified 2026-07-13 at 0.33.37) | `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` |
 | 3 | P8: memory eval / silent-failure detection | PARTIAL | spec §6 P8 (no standalone plan doc) |
 | 4 | Safe fully-autonomous consolidation | PLAN-QUEUED + shipped substrate | `docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md` |
 | 5 | Guard liveness as a continuous property | PARTIAL | none (spec §6 P8 names it) |
@@ -149,38 +149,48 @@ plan §Task 0 decision table; "Aider's repo-map is itself approximate" — plan 
 - A complete phased XL plan with the cross-platform generator decision already made:
   `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`.
 
-**First three steps (from the queued plan):**
+**What shipped (Phases 0–3, 0.33.33–0.33.35 — the plan executed, kept here as the as-built
+record):**
 
-1. **Phase 0 — decision spike (no feature code).** Confirm and record the generator decision:
-   pure-JS regex extractor is the shipped Tier-0 default; `web-tree-sitter` WASM is the
-   opt-in Tier-1 (Phase 5); **node-tree-sitter native bindings are REJECTED** (node-gyp,
-   HIGH Windows/BSD risk).
-2. **Phase 1, Tasks A1–A4.** Source enumeration over `git ls-files` with blowup caps
-   (`SB_CODEMAP_MAX_FILE_BYTES` default 512 KiB, `SB_CODEMAP_MAX_FILES` default 4000); Tier-0
-   regex symbol/import extraction for ts/js/py; **deterministic** PageRank (damping 0.85, fixed
-   30 iterations, sorted accumulation order — never Map insertion order); store at
-   `BRAIN_DIR/projects/<slug>/codemap/{graph.json,map.md}` with `map.md` capped at
-   `SB_CODEMAP_TOKEN_BUDGET` (default 2000 tokens); a `code-map-cli` added to the esbuild
-   bundle list in `mcp/package.json`.
-3. **Phase 2, Tasks B1–B2.** Two new MCP tools in `mcp/src/server.ts`: `code_map` (ranked map +
-   `stale` flag) and `code_neighbors` (BFS blast-radius; `direction:'in'` = what breaks).
-   Ship Phase 1+2 together — "a map with no MCP tool is useless" (plan §overview).
+1. **Phases 1+2 (0.33.33).** The `mcp/src/tools/codemap/` module family: `git ls-files -z`
+   source enumeration with blowup caps (`SB_CODEMAP_MAX_FILE_BYTES` 512 KiB,
+   `SB_CODEMAP_MAX_FILES` 4000); Tier-0 pure-JS regex symbol/import extraction for ts/js/py
+   (node-tree-sitter REJECTED; WASM deferred to Phase 5); **deterministic** PageRank (damping
+   0.85, fixed 30 iterations or L1<1e-6, sorted accumulation order); store at
+   `BRAIN_DIR/projects/<slug>/codemap/{graph.json,map.md}` capped at `SB_CODEMAP_TOKEN_BUDGET`
+   (default 2000 tokens); `code-map-cli` bundle; and the two MCP tools `code_map` (ranked map +
+   honest `stale` flag) and `code_neighbors` (BFS blast-radius; `direction:'in'` = what breaks).
+2. **Phase 3 (0.33.34).** Real drift detection (`drift.ts` — one predicate shared by CLI and
+   both tools: `git_rev` ≠ HEAD, nogit-mtime fallback, dirty-tree always re-checks) +
+   autonomous out-of-band regeneration in the drainer (`extract-drain.sh`, config key
+   `auto_codemap`, default on).
+3. **The orient rung (0.33.35).** SessionStart spine injection (`session-load.sh` §0d, kill
+   switch `SB_CODEMAP_ORIENT` — placed BEFORE the forced USER.md/PROJECT.md after live
+   verification caught budget starvation) + read-only `code_map`/`code_neighbors` grants for
+   `code-review-unit-reviewer` and `quality-reviewer` (deliberately narrower than the auto-team
+   B0 five-agent slice — least privilege).
 
-Fenced wrong paths: duplicating `knowledge_neighbors` (the wiki graph and code graph are
-separate stores, separate tools — plan §Separation table); storing under `KNOWLEDGE_DIR/graph`;
-new `scripts/*.sh` or `tests/test-*.sh` (all tests vitest under `mcp/src/` — zero budget bump);
-auto-downloading optional deps; building P3b reranker inside P3a.
+Fenced wrong paths (still binding for Phases 4–5): duplicating `knowledge_neighbors` (the wiki
+graph and code graph are separate stores, separate tools — plan §Separation table); storing
+under `KNOWLEDGE_DIR/graph`; new `scripts/*.sh` or `tests/test-*.sh` beyond the shipped set
+(codemap unit tests are vitest under `mcp/src/`); auto-downloading optional deps; building P3b
+reranker inside P3a.
 
 **You have a result when:** a cold-start session (fresh context, zero prior greps) answers
 "where does X live" and "what breaks if I change Y" for the active project from `code_map` /
 `code_neighbors` output alone; the served map is ≤ 2000 tokens (default budget, never
 exceeded); after a new commit the tools report `stale:true` until the drainer regenerates; and
 a Windows-generated `graph.json` answers queries byte-identically on Linux (POSIX-normalized
-node ids — a tested contract per plan Task A3). Falsifier: if answering still requires grep, or
-the map exceeds budget on a large repo, the orientation claim fails.
+node ids — a tested contract per plan Task A3). Shipped substrate meets the mechanical clauses
+(budget cap, drift/staleness, determinism — all test-locked; live smoke 0.33.33: 106 files /
+~1816 tokens under budget, dist noise 0). The cold-start orientation clause has no recorded
+measurement yet — the value-loop telemetry (0.33.37 `gate=value-loop`) is the instrument for
+it. Falsifier unchanged: if answering still requires grep, or the map exceeds budget on a
+large repo, the orientation claim fails.
 
-**Status: PLAN-QUEUED, zero code.** No `mcp/src/tools/codemap/` dir; `code_map` appears
-nowhere in `mcp/src/`. Same stale-version caution as P2 (plan targets 0.33.30, already taken).
+**Status: SHIPPED (Phases 0–3) as of 0.33.35, verified 2026-07-13 at 0.33.37. Open remainder:
+Phase 4 (layer-5 code↔wiki edges), Phase 5 (opt-in WASM tier), and the cold-start milestone
+measurement above.**
 
 ---
 
@@ -401,7 +411,7 @@ From spec §10 unless noted. Do not oversell any of these as active workstreams.
 | Question | State (as of 0.33.31) |
 |---|---|
 | P3b cross-encoder reranker (spec calls it "highest-ROI retrieval gain") | NOT-STARTED — no plan doc, no code; `grep -ril rerank .` → docs only. Vet deps like `bin/install-vector-deps.sh` |
-| Code-map regen trigger/cadence (every commit / N edits / drift threshold) | open; P3a ships git-rev drift as the first answer |
+| Code-map regen trigger/cadence (every commit / N edits / drift threshold) | RESOLVED 0.33.34 — git-rev drift + dirty-tree re-check, regenerated out-of-band by the drainer (`auto_codemap`) |
 | Dual-capture (Stop + PreCompact) dedup conflicts | partially resolved empirically — write-path MinHash NOOP/UPDATE at capture (`mcp/src/tools/raw-inbox.ts:289-306`, `SB_CAPTURE_DEDUP_THRESHOLD` 0.9, 0.33.29) |
 | Quarantine boundary granularity: does the privileged writer ever need free-text? | open; P6 plan bets "no" (structured candidate-facts only) — the bet itself is testable |
 | Reflection cadence | RESOLVED 0.33.28 (per-dream + `member_hash` idempotence). Residual frontier: self-referential memory ops need input/output separation — 0.33.31 had to exclude `generated: true` pages from clustering input after a reflection page could become its own cluster id (`mcp/src/tools/graph-cluster-cli.ts:69-76`) |
@@ -417,8 +427,8 @@ sb-memory-systems-reference. What is genuinely novel vs known → sb-external-po
   route around gates.
 - Plan docs before code for anything L/XL; evidence bar and idea lifecycle →
   sb-research-methodology.
-- The queued P2/P3a/P6 plans carry stale version targets (authored at 0.33.29) — recompute
-  version and budget arithmetic at implementation time.
+- The queued P2/P6 plans carry stale version targets (authored at 0.33.29) — recompute
+  version and budget arithmetic at implementation time. (P3a executed 0.33.33–0.33.35.)
 - Nothing here may contradict `CONSTITUTION.md`; when a frontier idea and a constitution
   constraint collide, the constitution wins or gets amended first (a governance change, not a
   workaround).
@@ -442,7 +452,7 @@ Re-verify volatile facts before relying on them:
 jq -r .version .claude-plugin/plugin.json && cat docs/surface-budget.json
 # P2 still zero-code? (expect: hits only in docs/)
 grep -rl 'persona-rules.learned' . --include='*.sh' --include='*.ts'
-# P3a still zero-code? (expect: no output)
+# P3a still shipped? (expect: codemap module files + code_map hits in mcp/src)
 ls mcp/src/tools/codemap 2>/dev/null; grep -rln 'code_map' mcp/src
 # P3b still not started? (expect: docs/CHANGELOG hits only)
 grep -ril rerank . | grep -v node_modules

@@ -16,7 +16,7 @@ SDIR="$(cd "$(dirname "$0")" && pwd)"
 MARK="$BRAIN_DIR/.last-maintain"
 INT="${SB_MAINTAIN_INTERVAL:-3600}"; case "$INT" in ''|*[!0-9]*) INT=3600 ;; esac
 if [ "${SB_MAINTAIN_FORCE:-0}" != "1" ]; then
-  mt=$(stat -c %Y "$MARK" 2>/dev/null || stat -f %m "$MARK" 2>/dev/null || echo 0)
+  mt=$(sb_mtime "$MARK")
   [ "$(( $(date +%s) - ${mt:-0} ))" -ge "$INT" ] || exit 0
 fi
 : > "$MARK"

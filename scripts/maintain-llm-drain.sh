@@ -60,7 +60,7 @@ INT="${SB_MAINTAIN_LLM_INTERVAL:-604800}"; case "$INT" in ''|*[!0-9]*) INT=60480
 # sub-daily INT, the retry target would land in the future, inverting "retry sooner").
 [ "$RETRY" -gt "$INT" ] && RETRY="$INT"
 if [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ]; then
-  mt=$(stat -c %Y "$MARK" 2>/dev/null || stat -f %m "$MARK" 2>/dev/null || echo 0)
+  mt=$(sb_mtime "$MARK")
   [ "$(( $(date +%s) - ${mt:-0} ))" -ge "$INT" ] || exit 0
 fi
 
@@ -261,7 +261,7 @@ AA_DECISION=$(sb_auto_accept_decision "$AA_MODE" \
   "$(jq -r '.status // ""' "$ASF" 2>/dev/null)" \
   "$(jq -r '.archived_at // ""' "$ASF" 2>/dev/null)" "$AA_FORGET")
 if [ "$AA_DECISION" = "accept" ]; then
-  AA_KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; AA_KDIR="${AA_KDIR/#\~/$HOME}"
+  AA_KDIR="$(sb_knowledge_dir)"
   AA_BK=""
   AA_BACKUP_OK=1
   if [ -d "$AA_KDIR/wiki" ]; then

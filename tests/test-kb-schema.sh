@@ -31,6 +31,20 @@ H=$(grep -rnE 'for [a-z]+ in learnings decisions entities issues concepts securi
 [ -z "$H" ] && pass "no hardcoded six-type loop (all use \$SB_STRUCTURED_TYPES)" \
   || fail "hardcoded six-type loop found (source kb-schema.sh + use \$SB_STRUCTURED_TYPES):" "$H"
 
+# DRIFT GUARD (0.33.38): the bash-side KNOWLEDGE_DIR must resolve through lib.sh's
+# sb_knowledge_dir() (option > env > default, mirroring mcp/src/brain-paths.ts) — NOT a
+# hand-rolled `${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-…:-$HOME/knowledge}`. The allowlisted
+# files keep the inline form for a stated reason: they resolve BEFORE sourcing lib.sh
+# (persona-context.sh, cost-router-capture.sh), never source lib.sh at all (the standalone
+# kb-*/wiki-*/graph-cluster helpers), or deliberately invert the precedence for the systemd-
+# timer env (maintain-deterministic.sh). lib.sh is the definition site. Any NEW script that
+# trips this must call sb_knowledge_dir instead.
+KD_ALLOW='lib.sh|persona-context.sh|cost-router-capture.sh|maintain-deterministic.sh|graph-cluster.sh|kb-drain-reconcile.sh|kb-project-backfill.sh|kb-project-suggest.sh|kb-ai-block-candidates.sh|wiki-forget-candidates.sh|wiki-forget-score.sh|wiki-redundancy.sh|wiki-restore.sh'
+KD=$(grep -lE 'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR.*:-.*HOME/knowledge' "$ROOT"/scripts/*.sh 2>/dev/null \
+       | grep -vE "/(${KD_ALLOW})\$" || true)
+[ -z "$KD" ] && pass "no NEW hand-rolled KNOWLEDGE_DIR resolution (all use \$(sb_knowledge_dir))" \
+  || fail "hand-rolled KNOWLEDGE_DIR resolution found (use sb_knowledge_dir from lib.sh):" "$KD"
+
 # --- SP-2: the `raw` group is visible to the json + bash readers (TS side in kb-schema.test.ts) ---
 [ "$(jq -r '.raw.dir' "$M")" = "raw" ] || fail "kb-schema.json .raw.dir != raw"
 [ "$SB_RAW_DIR" = "raw" ] || fail "kb-schema.sh did not export SB_RAW_DIR=raw (got '$SB_RAW_DIR')"

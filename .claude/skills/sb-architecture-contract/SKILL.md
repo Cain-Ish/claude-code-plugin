@@ -3,7 +3,7 @@ name: sb-architecture-contract
 description: >-
   The second-brain plugin's load-bearing design contract: the two-tier memory model and why it
   exists, the full hook wiring (8 events), the capture→drain→wiki→dream→forget data lifecycle with
-  exact scripts and state files, BRAIN_DIR vs KNOWLEDGE_DIR geography, the 21-tool MCP server and
+  exact scripts and state files, BRAIN_DIR vs KNOWLEDGE_DIR geography, the 23-tool MCP server and
   why its dist bundles are committed, single-source resolver discipline, the ~12 provable invariants
   with their enforcing tests, and the known weak points. Load this when you need to understand WHY
   the system is shaped this way, which invariant a change might break, where a piece of state
@@ -16,16 +16,16 @@ description: >-
 
 # sb-architecture-contract — load-bearing design, invariants, weak points
 
-As of 0.33.31 (2026-07-05, working tree; HEAD `6fba312` = 0.33.30 release — the 0.33.31 batch is
-uncommitted at authoring time). All paths are repo-relative; run commands from the repo root in
-bash (git-bash on Windows).
+As of 0.33.37 (2026-07-13, working tree — tool table and surface counts re-verified at this
+version; deeper file:line cites last fully verified at 0.33.31). All paths are repo-relative;
+run commands from the repo root in bash (git-bash on Windows).
 
 **Definitions used throughout (definition home — siblings link here):**
 
 | Term | Definition |
 |---|---|
 | **BRAIN_DIR** | Private runtime-state dir, default `~/.second-brain`. Bash: `BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"` + one-time MSYS `cygpath -u` normalization (`scripts/lib.sh:5-12`). TS: `resolveBrainDir()` = `SB_BRAIN_DIR` \|\| `BRAIN_DIR` (CR-stripped) \|\| `join(homedir(), '.second-brain')` (`mcp/src/brain-paths.ts`). |
-| **KNOWLEDGE_DIR** | The durable knowledge base, default `~/knowledge`. TS resolution is currently SPLIT across three divergent `resolveKnowledgeDir` copies with conflicting precedence: `brain-paths.ts:35-42` (`CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` > `KNOWLEDGE_DIR`) vs `server.ts:29-43` (what all 21 MCP tools actually use) and `dream.ts:75-84` (both `KNOWLEDGE_DIR` > option) — OPEN audit medium, see §6. Bash pattern: `"${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"`. |
+| **KNOWLEDGE_DIR** | The durable knowledge base, default `~/knowledge`. TS resolution is currently SPLIT across three divergent `resolveKnowledgeDir` copies with conflicting precedence: `brain-paths.ts:35-42` (`CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` > `KNOWLEDGE_DIR`) vs `server.ts:31` (what the wiki-facing MCP tools actually use) and `dream.ts:75` (both `KNOWLEDGE_DIR` > option) — OPEN audit medium, see §6. Bash pattern: `"${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"`. |
 | **hot tier** | `USER.md` + `projects/<slug>/PROJECT.md` (+ persona Charter) — auto-injected into context at SessionStart under a byte budget. |
 | **cold tier** | The wiki (`$KNOWLEDGE_DIR/wiki/**`) — fetched on demand via MCP tools, never bulk-injected. |
 | **dream** | A background consolidation job: wiki snapshot → agent works on the STAGING copy → guarded accept applies it to live. State in `$BRAIN_DIR/dreams/drm_*/`. |
@@ -211,33 +211,35 @@ files with purpose + evidence): [references/state-files.md](references/state-fil
 Trap: `~/.second-brain/wiki/` is legacy; pages written there are invisible to search. Canonical
 wiki = `~/knowledge/wiki`.
 
-## 5. MCP server — `mcp/src/server.ts`, 21 tools
+## 5. MCP server — `mcp/src/server.ts`, 23 tools
 
-Re-verify: `grep -n -A1 'registerTool(' mcp/src/server.ts`. Lines as of 0.33.31:
+Re-verify: `grep -n -A1 'registerTool(' mcp/src/server.ts`. Lines as of 0.33.37:
 
 | Line | Tool | One line |
 |---|---|---|
-| 71 | `knowledge_search` | hybrid BM25 (title 3x, desc 2x, tags 2x, ai-block 1.5x, body 1x) + ONNX embeddings via RRF; top 8; `degraded:'bm25-only'` without embeddings |
-| 93 | `knowledge_fetch` | progressive disclosure: gist/skeleton/block/summary/full, egress-budget capped |
-| 115 | `pin_to_user` | pin a preference to USER.md (explicit pin only) |
-| 127 | `pin_to_project` | append a blockers/decisions entry to PROJECT.md |
-| 143 | `archive_to_wiki` | graduate a [resolved] PROJECT.md entry into `wiki/<category>/` with back-ref |
-| 160 | `knowledge_stats` | file/category/byte stats read from the wiki tree |
-| 232 | `knowledge_reindex` | regenerate wiki/index.md (runs validation with autofix) |
-| 264 | `knowledge_validate` | orphans/broken links/missing frontmatter/dupes; `autofix:true` MUTATES (deletes empty pages) |
-| 302 | `dream_create` | spawn dream-snapshot.sh (one active dream) |
-| 323 | `dream_status` | lifecycle + diff preview |
-| 337 | `dream_list` | newest-first, archived excluded by default |
-| 351 | `dream_accept` | spawn dream-accept.sh (guarded apply, §3.5) |
-| 365 | `dream_discard` | delete staging/transcripts, stamp archived_at |
-| 379 | `dream_cancel` | pending/running → canceled (runner self-stops on status check) |
-| 395 | `episodic_search` | hybrid vector+text transcript search; `degraded:'text-only'` w/o embeddings |
-| 437 | `episodic_read` | read a transcript slice; path-constrained to the transcripts dir |
-| 467 | `persona_think` | spawn `claude -p` Opus advisor brief |
-| 489 | `persona_stats` | read-only persona state |
-| 509 | `persona_dismiss` | dismissal-aware injection backoff |
-| 536 | `knowledge_relate` | assert/invalidate typed bi-temporal edge (requires/affects/relates/part_of/supersedes) |
-| 560 | `knowledge_neighbors` | multi-hop directional graph walk, point-in-time `as_of` |
+| 73 | `knowledge_search` | hybrid BM25 (title 3x, desc 2x, tags 2x, ai-block 1.5x, body 1x) + ONNX embeddings via RRF; top 8; `degraded:'bm25-only'` without embeddings |
+| 95 | `knowledge_fetch` | progressive disclosure: gist/skeleton/block/summary/full, egress-budget capped |
+| 117 | `pin_to_user` | pin a preference to USER.md (explicit pin only) |
+| 129 | `pin_to_project` | append a blockers/decisions entry to PROJECT.md |
+| 145 | `archive_to_wiki` | graduate a [resolved] PROJECT.md entry into `wiki/<category>/` with back-ref |
+| 162 | `knowledge_stats` | file/category/byte stats read from the wiki tree |
+| 234 | `knowledge_reindex` | regenerate wiki/index.md (runs validation with autofix) |
+| 266 | `knowledge_validate` | orphans/broken links/missing frontmatter/dupes; `autofix:true` MUTATES (deletes empty pages) |
+| 304 | `dream_create` | spawn dream-snapshot.sh (one active dream) |
+| 325 | `dream_status` | lifecycle + diff preview |
+| 339 | `dream_list` | newest-first, archived excluded by default |
+| 353 | `dream_accept` | spawn dream-accept.sh (guarded apply, §3.5) |
+| 367 | `dream_discard` | delete staging/transcripts, stamp archived_at |
+| 381 | `dream_cancel` | pending/running → canceled (runner self-stops on status check) |
+| 397 | `episodic_search` | hybrid vector+text transcript search; `degraded:'text-only'` w/o embeddings |
+| 439 | `episodic_read` | read a transcript slice; path-constrained to the transcripts dir |
+| 469 | `persona_think` | spawn `claude -p` Opus advisor brief |
+| 491 | `persona_stats` | read-only persona state |
+| 510 | `persona_dismiss` | dismissal-aware injection backoff |
+| 538 | `knowledge_relate` | assert/invalidate typed bi-temporal edge (requires/affects/relates/part_of/supersedes) |
+| 562 | `knowledge_neighbors` | multi-hop directional graph walk, point-in-time `as_of` |
+| 586 | `code_map` | token-capped PageRank-ranked code-structure map (read-only; `BRAIN_DIR/projects/<slug>/codemap/` store, honest `stale` flag) — shipped 0.33.33 |
+| 614 | `code_neighbors` | import-graph blast-radius BFS (`in` = importers, `out` = dependencies, depth ≤4); CODE graph, distinct from `knowledge_neighbors` — shipped 0.33.33 |
 
 Destructive tools are wrapped by `guardDestructive` (`nested-spawn-guard.ts`) — refused under
 `SB_NESTED_SPAWN=1`, because a headless spawn over untrusted transcript content once had
@@ -301,7 +303,7 @@ above shipped through a green suite to prove it.
 | 12 | PreToolUse guards compare paths through `sb_normalize_path` — path-form parity on Windows (without it, guards fail-OPEN there) | lib.sh:14-51 funnel + minimal inline fallback in each guard so it stays armed if lib.sh fails to source | `tests/test-normalize-path.sh`, `tests/test-symlink-guard.sh`, `tests/test-persona-tool-guard.sh` |
 
 Also machine-enforced governance (details → sb-change-control): the surface-budget ratchet —
-live counts (skills 18 / agents 9 / scripts 52 / tests 153, all at budget exactly as of 0.33.31)
+live counts (skills 18 / agents 9 / scripts 52 / tests 157, all at budget exactly as of 0.33.37)
 may not grow past `docs/surface-budget.json` without a same-commit bump; enforced by
 `scripts/validate-plugin.sh` R8 (:191-218). NOTE: `CONSTITUTION.md:4` names
 `tests/test-surface-budget.sh` as the gate — **that file does not exist**; R8 in
@@ -354,7 +356,8 @@ validate-plugin.sh is the real enforcement.
 
 ## Provenance and maintenance
 
-Derived from the working tree at 0.33.31 (2026-07-05, HEAD `6fba312`): `hooks/hooks.json`,
+Derived from the working tree at 0.33.31 (2026-07-05, HEAD `6fba312`); §5 tool table + surface
+counts + version stamps re-verified 2026-07-13 at 0.33.37. Sources: `hooks/hooks.json`,
 `scripts/lib.sh`, `scripts/session-load.sh`, `scripts/stop-extract.sh`, `scripts/extract-drain.sh`,
 `scripts/dream-snapshot.sh`, `scripts/dream-accept.sh`, `scripts/maintain-llm-drain.sh`,
 `scripts/wiki-forget-candidates.sh`, `scripts/ensure-dirs.sh`, `scripts/validate-plugin.sh`,
@@ -370,10 +373,10 @@ Volatile facts — re-verify before trusting a stale copy of this skill:
 jq -r .version .claude-plugin/plugin.json                      # plugin version (was 0.33.31)
 jq -r '.hooks | keys | length' hooks/hooks.json                # hook events (was 8)
 jq '[.hooks[][] | .hooks[]] | length' hooks/hooks.json         # hook command entries (was 22)
-grep -c 'registerTool(' mcp/src/server.ts                      # MCP tools (was 21)
+grep -c 'registerTool(' mcp/src/server.ts                      # MCP tools (was 23)
 grep -rn 'function resolveKnowledgeDir' mcp/src --include='*.ts'  # >1 hit = two-wikis split still open
-cat docs/surface-budget.json                                    # budget (skills 18/agents 9/scripts 52/tests 153)
-ls tests/test-*.sh | wc -l                                      # live test count (was 153)
+cat docs/surface-budget.json                                    # budget (skills 18/agents 9/scripts 52/tests 157)
+ls tests/test-*.sh | wc -l                                      # live test count (was 157)
 grep -n 'REQUIRED_FM_FIELDS' mcp/src/tools/knowledge-validate.ts  # 7 frontmatter fields
 jq -r '.structured_types, .unstructured_types' kb-schema.json   # wiki categories (6+2)
 grep -n 'SB_DREAM_ACCEPT_MIN_RATIO' scripts/dream-accept.sh     # accept floor default (was 50)

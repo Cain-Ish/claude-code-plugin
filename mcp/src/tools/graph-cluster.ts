@@ -92,27 +92,6 @@ export function labelPropagate(adj: Map<string, Set<string>>, opts: LabelOpts = 
   return normalize(labels);
 }
 
-/** Single synchronous step: assign a new node the plurality community of its current
- *  neighbours (smallest-slug tie-break). Returns the node's own slug if it has no
- *  labelled neighbours. */
-export function assignNewNode(
-  adj: Map<string, Set<string>>,
-  labels: Map<string, string>,
-  node: string,
-): string {
-  const nbrs = adj.get(node);
-  if (!nbrs || nbrs.size === 0) return node;
-  const tally = new Map<string, number>();
-  for (const nb of nbrs) {
-    const l = labels.get(nb);
-    if (l !== undefined) tally.set(l, (tally.get(l) ?? 0) + 1);
-  }
-  if (tally.size === 0) return node;
-  const max = Math.max(...tally.values());
-  const tied = [...tally.entries()].filter(([, c]) => c === max).map(([l]) => l).sort();
-  return tied[0];
-}
-
 /** Group a label map into clusters ≥ minSize, sorted by id, members sorted. */
 export function clusters(labels: Map<string, string>, opts: { minSize: number }): Cluster[] {
   const groups = new Map<string, string[]>();

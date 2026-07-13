@@ -7,7 +7,6 @@
 // subject emits YAML, parse it with a REAL parser (js-yaml). Where an absolute
 // floor exists, assert the absolute value, never relative ordering alone.
 import yaml from 'js-yaml';
-import { expect } from 'vitest';
 
 /** Extract the first `---\n…\n---` frontmatter block and parse it with a REAL
  *  YAML parser. Throws on invalid YAML (duplicate keys, bad indentation, the
@@ -28,20 +27,3 @@ export function frontmatterParses(md: string): boolean {
   try { yaml.load(m[1]); return true; } catch { return false; }
 }
 
-/** Assert a frontmatter field deep-equals an EXTERNALLY-stated expected value,
- *  via a real parse — the drop-in for every `toMatch(/related: \[…\]/)`. */
-export function assertFrontmatterField(md: string, key: string, expected: unknown): void {
-  const fm = parseFrontmatter(md);   // a throw here IS the failure (invalid YAML)
-  expect(fm[key]).toEqual(expected);
-}
-
-/** Run a producer twice and assert byte-identical output (idempotency floor).
- *  Pass a `mutate` to perturb hidden state (e.g. shuffle insertion order)
- *  between runs so determinism is tested against real nondeterminism, not a
- *  replayed call. */
-export async function assertIdempotentBytes(produce: () => Promise<string>, mutate?: () => Promise<void>): Promise<void> {
-  const a = await produce();
-  if (mutate) await mutate();
-  const b = await produce();
-  expect(b).toBe(a);
-}

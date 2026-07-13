@@ -8,8 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { promises as fs } from 'fs';
 import { join, sep } from 'path';
 import { tmpdir } from 'os';
-import { assertWithin, validateSlug, cleanEnvPath, PathGuardError } from './path-guard.js';
-import { assertSafeSlug } from './tools/doc-sources.js';
+import { assertWithin, validateSlug, cleanEnvPath, assertSafeSlug, PathGuardError } from './path-guard.js';
 
 const NUL = String.fromCharCode(0);
 const SPACE = String.fromCharCode(32);
@@ -46,7 +45,7 @@ describe('validateSlug (strict syntactic slug guard)', () => {
   });
 });
 
-describe('assertSafeSlug (doc-sources slug guard) — parity with the traversal invariant', () => {
+describe('assertSafeSlug (project-slug guard, lives in path-guard) — parity with the traversal invariant', () => {
   it('rejects every separator/traversal vector in both forms', () => {
     for (const v of TRAVERSAL_VECTORS) {
       expect(() => assertSafeSlug(v), `should reject ${JSON.stringify(v)}`).toThrow();

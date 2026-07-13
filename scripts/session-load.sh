@@ -240,8 +240,8 @@ fi
 if [ "${SB_RULES_GAP_BANNER:-on}" != "off" ] && [ -f "$USER_FILE" ]; then
   RULES_FILE_RUNTIME="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)}/scripts/persona-rules.default.json"
   if [ -f "$RULES_FILE_RUNTIME" ]; then
-    UM_MT=$(stat -c %Y "$USER_FILE" 2>/dev/null || stat -f %m "$USER_FILE" 2>/dev/null || echo 0)
-    PR_MT=$(stat -c %Y "$RULES_FILE_RUNTIME" 2>/dev/null || stat -f %m "$RULES_FILE_RUNTIME" 2>/dev/null | tr -d '\r' || echo 0)
+    UM_MT=$(sb_mtime "$USER_FILE")
+    PR_MT=$(sb_mtime "$RULES_FILE_RUNTIME")
     if [ "$UM_MT" -gt "$PR_MT" ]; then
       # awk range `/start/,/end/` matches the header line on both ends — so
       # `/^## Never/,/^## /` collapses to just the Never header itself and
@@ -269,11 +269,14 @@ fi
 # hook subprocess failures with zero user-visible signal — wiki/learnings
 # stayed empty for days. Banner is HIGH priority so it lands first.
 if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
-  H_STATUS=$(jq -r '.status // "unknown"' "$SB_HEALTH_FILE" 2>/dev/null)
+  # ONE jq for the four health fields (0.33.38: was 1 + 3 conditional spawns).
+  # Line-per-field -r protocol; reason is newline-folded so a multiline value
+  # can't break the read frame. The whole-stream `tr -d '\r'` also fixes the old
+  # H_STATUS CR-taint on Windows ("fail\r" != "fail").
+  { IFS= read -r H_STATUS; IFS= read -r H_BACKEND; IFS= read -r H_REASON; IFS= read -r H_AT; } < <(
+    jq -r '(.status // "unknown"), (.backend // "unknown"), ((.reason // "") | gsub("[\r\n]"; " ")), (.checked_at // "")' \
+      "$SB_HEALTH_FILE" 2>/dev/null | tr -d '\r')
   if [ "$H_STATUS" = "fail" ]; then
-    H_BACKEND=$(jq -r '.backend // "unknown"' "$SB_HEALTH_FILE" 2>/dev/null | tr -d '\r')
-    H_REASON=$(jq  -r '.reason  // ""'        "$SB_HEALTH_FILE" 2>/dev/null | tr -d '\r')
-    H_AT=$(jq      -r '.checked_at // ""'     "$SB_HEALTH_FILE" 2>/dev/null | tr -d '\r')
     H_FAILS=$(sb_count_recent_extraction_failures)
     # Mode-aware hint. Previous single-template was telling users to "run
     # claude /login" on every failure — but the actual cause varies:
@@ -357,7 +360,7 @@ fi
 # new machines silently default to OAuth-only and the user only discovers the
 # in-session limitation when they notice extractor failures days later.
 # Suppress: SB_AUTH_LINE=off
-if [ "${SB_AUTH_LINE:-on}" = "on" ]; then
+if [ "${SB_AUTH_LINE:-on}" != "off" ]; then
   if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
     AUTH_PREFIX="${ANTHROPIC_API_KEY:0:10}"
     sb_append "$(printf '## ⓘ second-brain auth\nmode: api-key (key: %s…, len=%s) — direct anthropic-api, works in all contexts.\n\n' \
@@ -376,7 +379,7 @@ fi
 # locked in-session, so it genuinely needs an out-of-band path — offer all three
 # (api-key / drainer / local). `none` is already covered by the auth-mode-line.
 # Suppress: SB_CAPTURE_HEALTH_BANNER=off.
-if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" = "on" ]; then
+if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
   CAP_STATE="$BRAIN_DIR/.extraction-state.jsonl"
   CAP_N=$(ls -1 "$BRAIN_DIR/transcripts"/*.txt 2>/dev/null | wc -l | tr -d ' ')
   if [ "${CAP_N:-0}" -gt 0 ]; then
@@ -486,8 +489,12 @@ fi
 #   (2) pending — >10 already-indexed exchanges have empty embeddings.
 SB_EPI_INDEX="${BRAIN_DIR:-$HOME/.second-brain}/episodic-index.json"
 if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
-  EPI_PENDING=$(jq -r '[.exchanges[]? | select((.embedding|length)==0)] | length' "$SB_EPI_INDEX" 2>/dev/null | tr -d '\r' || echo 0)
-  EPI_TOTAL=$(jq -r   '.exchanges | length'                                       "$SB_EPI_INDEX" 2>/dev/null | tr -d '\r' || echo 0)
+  # ONE jq for the two counts (0.33.38: was 2 spawns). Empty (jq parse failure)
+  # defaults to 0 below — same fail-soft as the old per-field `|| echo 0`.
+  { IFS= read -r EPI_PENDING; IFS= read -r EPI_TOTAL; } < <(
+    jq -r '([.exchanges[]? | select((.embedding|length)==0)] | length), (.exchanges | length)' \
+      "$SB_EPI_INDEX" 2>/dev/null | tr -d '\r')
+  : "${EPI_PENDING:=0}" "${EPI_TOTAL:=0}"
   EPI_XFMR_MISSING=0
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ ! -d "$CLAUDE_PLUGIN_ROOT/mcp/node_modules/@huggingface/transformers" ] && EPI_XFMR_MISSING=1
   # R2.4 auto-heal (MCP-DEPS-1): a fresh version dir missing the shared-deps
@@ -503,7 +510,7 @@ if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
     EPI_XFMR_MISSING=0; EPI_RELINKED=1
     sb_append "$(printf '## ⓘ second-brain — embeddings auto-relinked\nThis plugin version was missing its shared vector-deps symlink (a cache refresh ships without node_modules); re-linked automatically — no download. Empty embeddings backfill on the next session-end extraction.\n\n')" "episodic-embed-relinked" 300
   fi
-  if [ "${SB_EMBED_PENDING_BANNER:-on}" = "on" ] && [ "$EPI_RELINKED" -eq 0 ] \
+  if [ "${SB_EMBED_PENDING_BANNER:-on}" != "off" ] && [ "$EPI_RELINKED" -eq 0 ] \
      && { [ "$EPI_XFMR_MISSING" -eq 1 ] || { [ "${EPI_PENDING:-0}" -gt 10 ] && [ "${EPI_TOTAL:-0}" -gt 0 ]; }; }; then
     if [ "$EPI_XFMR_MISSING" -eq 1 ]; then
       EPI_REASON='`@huggingface/transformers` is not linked in this plugin cache — a version bump creates a fresh dir whose `mcp/node_modules` symlink to the shared deps is not yet created — so every NEW embedding will silently fail.'
@@ -521,7 +528,7 @@ fi
 # in the early-banner region, BEFORE the uncapped USER.md/PROJECT.md draw down the budget,
 # so it can never be the item silently dropped at the ceiling. Drained by the
 # knowledge-maintainer Phase 3 RELATE. No file ⇒ no line (back-compat).
-SL_KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; SL_KDIR="${SL_KDIR/#\~/$HOME}"
+SL_KDIR="$(sb_knowledge_dir)"
 CONFLICT_N=$(sb_conflicts_open_count "$SL_KDIR")
 if [ "${CONFLICT_N:-0}" -gt 0 ]; then
   sb_append "$(printf '## ⚠ second-brain — %s graph conflict(s) pending\nStructural edge contradictions were detected at write time. Resolve via the knowledge-maintainer (Phase 3 RELATE) or `knowledge_relate`.\n\n' "$CONFLICT_N")" \
@@ -662,8 +669,7 @@ if [ -f "$INDEX_FILE" ]; then
 fi
 
 # 5. Wiki enrichment — fills remaining budget, capped at 1500 bytes
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 
@@ -776,12 +782,15 @@ if [ -d "$DREAMS_DIR" ] && command -v jq >/dev/null 2>&1; then
   STALE_N=0; STALE_ID=""; STALE_AGE=0; STALE_A=0; STALE_M=0; STALE_OLDEST=""
   for sf in "$DREAMS_DIR"/drm_*/status.json; do
     [ -f "$sf" ] || continue
-    [ "$(jq -r '.status // ""' "$sf" 2>/dev/null)" = "completed" ] || continue
-    DARCH=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
+    # ONE jq for the five status fields (0.33.38: was 5 jq per dream file, per
+    # SessionStart). Line-per-field -r protocol; all five are single-line.
+    { IFS= read -r DSTATUS; IFS= read -r DARCH; IFS= read -r DID; IFS= read -r DA; IFS= read -r DM; } < <(
+      jq -r '(.status // ""), (.archived_at // ""), (.id // ""), (.outputs.pages_added // 0), (.outputs.pages_modified // 0)' \
+        "$sf" 2>/dev/null | tr -d '\r')
+    [ "$DSTATUS" = "completed" ] || continue
     { [ -n "$DARCH" ] && [ "$DARCH" != "null" ]; } && continue   # terminal (accepted/discarded) → silent
-    DID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
-    DA=$(jq -r '.outputs.pages_added // 0' "$sf" 2>/dev/null | tr -d '\r')
-    DM=$(jq -r '.outputs.pages_modified // 0' "$sf" 2>/dev/null | tr -d '\r')
+    # mtime: own portable form (fail default is $NOW_S, not sb_mtime's 0 — an
+    # unstattable status.json should read as just-completed, never epoch-stale).
     SMT=$(stat -c %Y "$sf" 2>/dev/null || stat -f %m "$sf" 2>/dev/null || echo "$NOW_S")
     AGE_D=$(( (NOW_S - ${SMT:-$NOW_S}) / 86400 ))
     if [ "$AGE_D" -gt "$STALE_DAYS" ]; then
@@ -850,15 +859,14 @@ fi
 # Decoupled from extraction success: when LLM extraction is broken for days,
 # manual /pin or /archive writes still happen but reindex never fires. This
 # closes that gap by triggering reindex if the index is >24h old.
-WIKI_INDEX="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}/wiki/index.md"
-WIKI_INDEX="${WIKI_INDEX/#\~/$HOME}"
+WIKI_INDEX="$(sb_knowledge_dir)/wiki/index.md"
 if [ -f "$WIKI_INDEX" ]; then
-  INDEX_MTIME=$(stat -c %Y "$WIKI_INDEX" 2>/dev/null || stat -f %m "$WIKI_INDEX" 2>/dev/null || echo 0)
+  INDEX_MTIME=$(sb_mtime "$WIKI_INDEX")
   NOW_S=$(date +%s)
   INDEX_AGE_S=$((NOW_S - INDEX_MTIME))
   if [ "$INDEX_AGE_S" -gt 86400 ]; then
     (
-      sb_reindex_wiki "${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}" >/dev/null 2>&1 || true
+      sb_reindex_wiki "$(sb_knowledge_dir)" >/dev/null 2>&1 || true
     ) &
     disown 2>/dev/null || true
   fi

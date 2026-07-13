@@ -218,7 +218,8 @@ describe('server.ts registration (code_map)', () => {
   const src = readFileSync(new URL('../../server.ts', import.meta.url), 'utf-8');
 
   it('registers the code_map tool', () => {
-    expect(/registerTool\(\s*"code_map"/.test(src)).toBe(true);
+    // registerJsonTool is server.ts's single registration path (audit batch 0.33.38).
+    expect(/register(Json)?Tool\(\s*"code_map"/.test(src)).toBe(true);
   });
 
   it('read-only: code_map is NOT wrapped in guardDestructive', () => {

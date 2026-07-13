@@ -40,8 +40,8 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$PROJECT_MD" ] || { echo "merge-project-update: --project-md is required" >&2; exit 2; }
-[ -z "$KNOWLEDGE_DIR" ] && KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+[ -z "$KNOWLEDGE_DIR" ] && KNOWLEDGE_DIR="$(sb_knowledge_dir)"
+KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"   # re-expand: a --knowledge-dir arg may carry a literal ~
 KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
 # Phase 1b: the render CLI turns a structured ai_block into the marked region deterministically
 # (reuses the TS schema → no bash/TS drift). Resolved relative to this script (plugin root).

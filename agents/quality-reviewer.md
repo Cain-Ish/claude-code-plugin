@@ -1,7 +1,7 @@
 ---
 name: quality-reviewer
 description: |
-  Subagent for deep code quality review and adversarial-critic duties. Goes beyond the automatic quality gate to find architectural issues, performance problems, subtle bugs, and serves as the fresh-context critic in the /second-brain:improve learning pipeline (prevents same-context judge-and-author bias).
+  Subagent for deep code quality review and adversarial-critic duties. Goes beyond the automatic quality gate to find architectural issues, performance problems, subtle bugs, and serves as the fresh-context critic for adversarial validation — e.g. the /second-brain:doubt findings gate (prevents same-context judge-and-author bias).
 
   <example>
   Context: User just finished a non-trivial refactor and wants more than a syntax review.
@@ -10,9 +10,9 @@ description: |
   </example>
 
   <example>
-  Context: The /second-brain:improve skill has extracted a candidate learning and needs a fresh-context critic to score it.
-  user: [running /second-brain:improve, candidate proposal generated]
-  assistant: "Dispatching quality-reviewer with only the proposal text and destination file (no transcript) to score independently."
+  Context: The /second-brain:doubt skill collected ISSUE/FRAGILE findings and needs a fresh-context critic to validate them.
+  user: [doubt session complete, findings and branch log collected]
+  assistant: "Dispatching quality-reviewer with only the findings and branch log (no session context) to confirm or dispute each independently."
   </example>
 model: sonnet
 color: yellow
@@ -76,7 +76,9 @@ If a dimension doesn't apply, name it and skip explicitly.
   spine) and `code_neighbors <file>` (a changed file's importers via `direction:"in"` =
   blast radius, and its dependencies via `direction:"out"`) instead of guessing structure
   — read-only; a cold/absent code map returns nothing, so fall back to Grep/Read.
-- Read ~/.second-brain/quality-rules.md to understand learned patterns
+- Learned review patterns live in the wiki (`~/knowledge/wiki/learnings/`) — Read the
+  relevant pages when the change touches a known area (`quality-rules.md` is a retired
+  0.7.0-era artifact; it no longer exists)
 
 ## Output
 

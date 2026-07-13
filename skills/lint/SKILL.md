@@ -1,13 +1,12 @@
 ---
 name: lint
 description: Health-check the second-brain wiki and PROJECT.md cross-references. Finds orphan wiki pages, dead [[wiki-links]], and broken Cross-references slugs. Read-only by default — offers fixes interactively.
-# Surface-collapse (0.29.0): not a user slash command -- covered by automation/MCP; capability preserved via model-invocation where dmi=false.
+# 0.33.24 skill-catalog diet: user slash command only — model-invocation disabled
+# (knowledge_validate/reindex cover the automated path; the interactive lint stays explicit).
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(test *) Bash(basename *) Bash(sort *) Bash(comm *) Bash(awk *) Bash(bash *)
 ---
-
-<!-- user instruction verbatim: "1" -->
 
 # Lint
 

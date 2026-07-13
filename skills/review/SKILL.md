@@ -1,8 +1,8 @@
 ---
 name: review
 description: Surface open blockers, stale projects, pending dreams, and ungraduated persona signals across all registered projects. Read-only daily/weekly overview.
-# Surface-collapse (0.27.0): not a user slash command — the SessionStart banner
-# already surfaces this status, and the model can still invoke it on request.
+# 0.33.24 skill-catalog diet: user slash command only — model-invocation disabled
+# (dashboards being model-invocable contradicted the silence-default principle).
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read Bash(jq *) Bash(date *) Bash(find *) Bash(ls *) Bash(test *) Bash(cat *) Bash(wc *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(basename *) Bash(dirname *) Bash(tr *) Bash(head *) mcp__plugin_second-brain_knowledge-base__knowledge_stats
@@ -68,7 +68,7 @@ done
 
 ### 4. Ungraduated persona signals
 
-Persona signals with `count >= 2` and `graduated == false` are observed-but-not-yet-pinned behaviors. Surface them so the user can graduate via `/second-brain:improve` or pin manually.
+Persona signals with `count >= 2` and `graduated == false` are observed-but-not-yet-pinned behaviors. Graduation is automatic (`merge-persona-signals.sh` auto-pins count≥2 high-confidence signals to USER.md at Stop); surface any that linger so the user can pin them explicitly via the `pin_to_user` MCP tool.
 
 ```bash
 PSFILE=~/.second-brain/persona-signals.jsonl
@@ -140,4 +140,4 @@ Keep it terse. The point is "what needs attention" — not a complete dump.
 
 - This skill is read-only. It surfaces state; it doesn't mutate anything.
 - If a section has nothing to report, omit the header entirely.
-- For action: `/second-brain:improve` graduates signals; `/second-brain:dream` reviews dreams; `pin_to_project` (MCP) or `sb pin project` updates blockers.
+- For action: signal graduation is automatic (`merge-persona-signals.sh` at Stop; `pin_to_user` for manual pins); `/second-brain:dream` reviews dreams; `pin_to_project` (MCP) or `sb pin project` updates blockers.

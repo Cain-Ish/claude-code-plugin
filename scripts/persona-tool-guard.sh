@@ -17,8 +17,24 @@ set -u
 RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
-[ -z "$TOOL" ] && exit 0
+# ONE jq for the four single-line fields (0.33.38 hot-path audit: this guard ran
+# one jq per field on EVERY tool call — ~1.2s/call on Windows at ~33ms/spawn).
+# Line-per-field -r protocol, NOT @tsv: @tsv backslash-escapes values, which would
+# corrupt Windows file_path backslashes; -r lines need no unescaping, and these
+# four fields are single-line by nature. The multiline-capable field (command) is
+# read in a second spawn below. Garbage stdin → jq fails → TOOL empty → exit 0
+# (same fail-soft as the old per-field form).
+{
+  IFS= read -r TOOL
+  IFS= read -r SESSION_ID
+  IFS= read -r CWD
+  IFS= read -r PATH_INPUT
+} < <(printf '%s' "$RAW" \
+      | jq -r '.tool_name // "", .session_id // "", .cwd // "", .tool_input.file_path // ""' 2>/dev/null \
+      | tr -d '\r')
+[ -z "${TOOL:-}" ] && exit 0
+[ -z "${CWD:-}" ] && CWD="$PWD"
+: "${SESSION_ID:=}" "${PATH_INPUT:=}"
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -46,11 +62,9 @@ elif [ -f "$DEFAULT_RULES" ]; then
 fi
 [ -z "$RULES_FILE" ] && exit 0
 
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
-CWD=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
-[ -z "$CWD" ] && CWD="$PWD"
+# command is the one MULTILINE payload field (heredocs) — its own -r spawn keeps
+# real newlines intact, which the rule regexes below match against.
 CMD=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null | tr -d '\r')
-PATH_INPUT=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null | tr -d '\r')
 # Windows git-bash sends 'C:\…' paths; the scope allowlist and self-edit regexes
 # are all forward-slash / $HOME-prefix based, so an un-normalized backslash path
 # matches NOTHING (drive-letter absolutes fall through to the "$CWD/…" relative
@@ -67,9 +81,16 @@ PATH_INPUT=$(sb_normalize_path "$PATH_INPUT")
 # or per-session via SB_TOOL_SCOPE_EXTRA (colon-separated, like PATH).
 # Run BEFORE resource-scope: if the tool itself is off-limits, the path
 # check is moot. Kill switch: SB_TOOL_SCOPE=off.
+# Both scope-enabled flags in ONE spawn (they live in the same rules file); the
+# allowlist walks below stay lazy — they only spawn when a scope is actually enabled
+# (off by default, so the common path pays nothing extra).
+{
+  IFS= read -r TS_ENABLED
+  IFS= read -r RS_ENABLED
+} < <(jq -r '(.tool_scope.enabled // false), (.resource_scope.enabled // false)' "$RULES_FILE" 2>/dev/null | tr -d '\r')
+
 if [ "${SB_TOOL_SCOPE:-on}" != "off" ]; then
-  TS_ENABLED=$(jq -r '.tool_scope.enabled // false' "$RULES_FILE" 2>/dev/null | tr -d '\r')
-  if [ "$TS_ENABLED" = "true" ]; then
+  if [ "${TS_ENABLED:-false}" = "true" ]; then
     in_tool_scope=0
     while IFS= read -r allowed_tool; do
       [ -z "$allowed_tool" ] && continue
@@ -100,8 +121,7 @@ fi
 # Run BEFORE rule iteration so an out-of-scope path is gated even when no
 # named rule matches it. Kill switch: SB_RESOURCE_SCOPE=off.
 if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ]; then
-  SCOPE_ENABLED=$(jq -r '.resource_scope.enabled // false' "$RULES_FILE" 2>/dev/null | tr -d '\r')
-  if [ "$SCOPE_ENABLED" = "true" ]; then
+  if [ "${RS_ENABLED:-false}" = "true" ]; then
     # Is this tool subject to scope checking?
     TOOL_IN_SCOPE_LIST=$(jq -r --arg t "$TOOL" \
       '.resource_scope.tools // [] | index($t) | if . == null then "no" else "yes" end' \
@@ -148,19 +168,32 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ]; then
   fi
 fi
 
-# Iterate matching rules (filter by tool first via jq, then test each in bash).
-MATCH_COUNT=$(jq --arg t "$TOOL" '[.rules[] | select(.tool == $t)] | length' "$RULES_FILE")
-[ "$MATCH_COUNT" = "0" ] || [ -z "$MATCH_COUNT" ] && exit 0
+# Iterate matching rules. ONE jq enumerates every tool-matching rule as a fixed
+# 6-line frame (name/action/match_command/match_path/replace/reason) + a \x01
+# sentinel line — the old form re-parsed the whole rules file per index and then
+# spawned one jq per FIELD (1+5N spawns; ~8 default Bash rules ≈ 40 spawns/call).
+# Raw -r lines preserve regex strings byte-for-byte (no @tsv backslash mangling);
+# rule fields are single-line by construction, and reason/replace get their
+# newlines folded defensively so a multiline value cannot break the framing.
+RULE_STREAM=$(jq -r --arg t "$TOOL" '
+  .rules[] | select(.tool == $t) |
+    (.name // "anonymous"),
+    (.action // ""),
+    (.match_command // ""),
+    (.match_path // ""),
+    ((.replace // "") | gsub("[\r\n]"; " ")),
+    ((.reason // "") | gsub("[\r\n]"; " ")),
+    "--SB-RULE-END--"
+' "$RULES_FILE" 2>/dev/null | tr -d '\r')
+[ -z "$RULE_STREAM" ] && exit 0
 
-i=0
-while [ "$i" -lt "$MATCH_COUNT" ]; do
-  rule=$(jq -c --arg t "$TOOL" --argjson i "$i" '[.rules[] | select(.tool == $t)] | .[$i]' "$RULES_FILE")
-  i=$((i + 1))
-
-  match_cmd=$(printf '%s' "$rule" | jq -r '.match_command // empty' | tr -d '\r')
-  match_path=$(printf '%s' "$rule" | jq -r '.match_path // empty' | tr -d '\r')
-  action=$(printf '%s' "$rule" | jq -r '.action' | tr -d '\r')
-  reason=$(printf '%s' "$rule" | jq -r '.reason' | tr -d '\r')
+while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
+      && IFS= read -r match_path && IFS= read -r replace && IFS= read -r reason \
+      && IFS= read -r _sentinel; do
+  # Frame check: the 7th line of every rule frame is the sentinel token (non-empty: $() strips trailing newlines, so an empty sentinel would silently drop the LAST rule). A
+  # non-empty value here means a field slipped the frame (multiline leak) —
+  # stop matching rather than mis-apply rules to the wrong fields. Fail-soft.
+  [ "$_sentinel" = "--SB-RULE-END--" ] || break
 
   if [ -n "$match_cmd" ]; then
     [ -z "$CMD" ] && continue
@@ -171,12 +204,10 @@ while [ "$i" -lt "$MATCH_COUNT" ]; do
     if ! printf '%s' "$PATH_INPUT" | grep -qE "$match_path"; then continue; fi
   fi
 
-  rule_name=$(printf '%s' "$rule" | jq -r '.name // "anonymous"' | tr -d '\r')
   target="${PATH_INPUT:-${CMD:0:200}}"
 
   case "$action" in
     rewrite)
-      replace=$(printf '%s' "$rule" | jq -r '.replace // ""' | tr -d '\r')
       # v2.10.0: use SOH (\x01) as the sed delimiter instead of `|`. The
       # old `s|$match_cmd|$replace|g` form errored ("unknown option to s")
       # whenever match_cmd contained a `|` — which is common for grouped
@@ -224,6 +255,6 @@ while [ "$i" -lt "$MATCH_COUNT" ]; do
       exit 0
       ;;
   esac
-done
+done <<< "$RULE_STREAM"
 
 exit 0

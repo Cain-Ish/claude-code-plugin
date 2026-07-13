@@ -161,6 +161,25 @@ export function neighbors(edges: CurrentEdge[], slug: string, opts: NeighborOpts
   const typeOk = (t: EdgeType) => !opts.edgeTypes || opts.edgeTypes.includes(t);
   const live = edges.filter(e => validAt(e, asOf) && typeOk(e.type));
 
+  // Adjacency built ONCE up front (the previous loop rescanned the whole live
+  // edge list for every frontier node — O(nodes × edges)). The single live-order
+  // pass appends each edge to both endpoints' lists, so per-node iteration order
+  // — and therefore the emitted row order — is identical to the old scan. The
+  // both-direction self-loop is registered only under `from`, mirroring the old
+  // else-if (an out match on a node shadowed the in match on the same node).
+  const adj = new Map<string, { e: CurrentEdge; other: string }[]>();
+  const push = (k: string, v: { e: CurrentEdge; other: string }) => {
+    let list = adj.get(k);
+    if (!list) { list = []; adj.set(k, list); }
+    list.push(v);
+  };
+  for (const e of live) {
+    if (direction === 'out' || direction === 'both') push(e.from, { e, other: e.to });
+    if ((direction === 'in' || direction === 'both') && !(direction === 'both' && e.from === e.to)) {
+      push(e.to, { e, other: e.from });
+    }
+  }
+
   const best = new Map<string, NeighborEdge>(); // edge identity -> min-hop row
   const seen = new Set<string>([slug]);
   let frontier: { node: string; hop: number }[] = [{ node: slug, hop: 0 }];
@@ -169,11 +188,7 @@ export function neighbors(edges: CurrentEdge[], slug: string, opts: NeighborOpts
     const next: { node: string; hop: number }[] = [];
     for (const { node, hop } of frontier) {
       if (hop >= depth) continue;
-      for (const e of live) {
-        let other: string | null = null;
-        if ((direction === 'out' || direction === 'both') && e.from === node) other = e.to;
-        else if ((direction === 'in' || direction === 'both') && e.to === node) other = e.from;
-        if (other === null) continue;
+      for (const { e, other } of adj.get(node) ?? []) {
         const id = identity(e);
         const row: NeighborEdge = {
           from: e.from, to: e.to, type: e.type,

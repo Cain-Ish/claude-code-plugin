@@ -6066,7 +6066,6 @@ var glob = Object.assign(glob_, {
 glob.glob = glob;
 
 // src/tools/doc-sources.ts
-import { createHash } from "crypto";
 import { join, relative, resolve, sep as sep2, isAbsolute } from "path";
 import { spawnSync } from "child_process";
 
@@ -6074,17 +6073,37 @@ import { spawnSync } from "child_process";
 function cleanEnvPath(s) {
   return (s ?? "").replace(/[\r\n]/g, "");
 }
-
-// src/tools/doc-sources.ts
-function hashContent(content) {
-  return createHash("sha256").update(content).digest("hex");
-}
-var JUNK_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".venv", "venv", ".next", "dist", "build"]);
 function assertSafeSlug(slug) {
   if (!slug || slug.length > 128 || /[\\/\x00-\x1f]|\.\./.test(slug)) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
   }
 }
+
+// src/tools/content-hash.ts
+import { createHash } from "crypto";
+function hashContent(content) {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
+function stripAiBlock(text) {
+  return text.replace(AI_BLOCK_RE_G, "");
+}
+
+// src/tools/frontmatter.ts
+function matchFrontmatter(content) {
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  return m ? { fm: m[1], body: m[2] } : null;
+}
+function stripFrontmatter(content) {
+  const m = matchFrontmatter(content);
+  return m ? m.body : content;
+}
+
+// src/tools/doc-sources.ts
+var JUNK_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".venv", "venv", ".next", "dist", "build"]);
 function filterIgnored(projectRoot, absPaths) {
   projectRoot = cleanEnvPath(projectRoot);
   const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split(/[\\/]+/).some((seg) => JUNK_DIRS.has(seg)));
@@ -6115,13 +6134,6 @@ function djb2(s) {
   return h.toString(36);
 }
 
-// src/tools/ai-block.ts
-var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
-var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
-function stripAiBlock(text) {
-  return text.replace(AI_BLOCK_RE_G, "");
-}
-
 // src/tools/minhash.ts
 var SHINGLE_K = 3;
 var NUM_HASHES = 128;
@@ -6141,7 +6153,7 @@ var B = new Uint32Array(NUM_HASHES);
 }
 function proseTokens(content) {
   let t = stripAiBlock(stripInvisible(content));
-  t = t.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
+  t = stripFrontmatter(t);
   t = t.replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, "");
   t = t.replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, "");
   t = t.replace(/\[\[([^\]]+)\]\]/g, " ");
@@ -6229,7 +6241,7 @@ function serialize(item) {
   return fm.join("\n");
 }
 function parse(content, id) {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const m = matchFrontmatter(content);
   const base = {
     id,
     source: "",
@@ -6244,7 +6256,7 @@ function parse(content, id) {
   if (!m) {
     return { ...base, body: content, malformed: true };
   }
-  const [, fmText, body] = m;
+  const { fm: fmText, body } = m;
   const get = (k) => {
     const mm = fmText.match(new RegExp(`^${k}:[ \\t]*(.*)$`, "m"));
     return mm ? mm[1].trim() : void 0;

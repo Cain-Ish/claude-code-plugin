@@ -15,8 +15,7 @@ if [ ! -d "$DREAM_DIR" ]; then
   exit 1
 fi
 
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 LIVE_WIKI="$KNOWLEDGE_DIR/wiki"
 STAGING_WIKI="$DREAM_DIR/staging/wiki"
 

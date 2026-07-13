@@ -4,7 +4,9 @@ import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 const query = process.argv[2] || '';
 if (!query) { process.exit(0); }
 
-const knowledgeDir = process.env.KNOWLEDGE_DIR || undefined;
+// Knowledge dir resolves canonically inside knowledgeSearch via brain-paths.ts
+// (plugin option > KNOWLEDGE_DIR env > ~/knowledge, CRLF-cleaned) — a local
+// env-read here used to invert that precedence (brain-paths source-scan lock).
 // BM25 score floor — caller (persona-context.sh, session-load.sh) sets a
 // minimum to suppress weak/irrelevant matches that surfaced as "noise".
 // Default 0 = no filter (preserves prior behavior for callers that don't set it).
@@ -16,7 +18,7 @@ const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 // a split here would send scoping and access-counts to different trees (R2 review).
 const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG || undefined;
-const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
+const result = await knowledgeSearch({ query, brainDir, projectSlug });
 
 const top = result.candidates
   .filter(c => c.score >= minScore)

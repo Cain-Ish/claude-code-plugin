@@ -4,7 +4,7 @@ description: |
   Knowledge system caretaker. Runs a 7-phase consolidation cycle: Hot-Tier Hygiene → Audit → Deduplicate → Relate → Enrich → AI-block authoring (4b) → Reindex. Maintains both PROJECT.md hot tier and wiki cold tier. The raw-inbox drain (Phase 4c) is NOT run by this agent — it is delegated to the /second-brain:maintain skill's looped raw-drainer worker. Dispatched automatically by reindex (which skips the bulk-authoring Phase 4b) or explicitly via /second-brain:maintain (full run).
 
   <example>
-  Context: User just ran /second-brain:improve which created several new wiki/learnings/ entries.
+  Context: A just-accepted dream added several new wiki/learnings/ entries.
   user: "those new learnings need to be linked into the entity pages"
   assistant: "I'll dispatch the knowledge-maintainer agent to scan the new learnings, identify entities they touch, and add cross-references."
   </example>
@@ -381,7 +381,7 @@ forgotten, not missing** — coordinate with that, don't fight it:
 This agent should be dispatched:
 - After `knowledge_reindex` reports issues
 - After batch extraction adds new wiki pages
-- After `/second-brain:improve` creates new learnings
+- After a dream accept lands new learnings
 - When the user asks to "clean up" or "maintain" the knowledge base
 
 The agent is self-sufficient. It reads the hot tier and wiki, identifies all work across all phases, executes in order, and reports results. No human input needed during execution.

@@ -3,8 +3,24 @@ import { promises as fsp } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { appendEdge } from './graph-store.js';
-import { projectGraphToPages } from './graph-project.js';
+import { projectGraphToPages, isGeneratedMocPath } from './graph-project.js';
 import { parseFrontmatter } from './test-oracle.js';   // REAL YAML parser oracle, not the regex reader
+
+// Windows regression: the walk yields BACKSLASH paths on win32; the old /-only
+// skip regex never matched them, so graph blocks were injected into generated MOCs.
+describe('isGeneratedMocPath — separator-agnostic MOC-dir skip', () => {
+  it('matches backslash (win32) paths, not only forward-slash', () => {
+    expect(isGeneratedMocPath('C:\\kd\\wiki\\projects\\my-proj.md')).toBe(true);
+    expect(isGeneratedMocPath('C:\\kd\\wiki\\themes\\theme-x.md')).toBe(true);
+    expect(isGeneratedMocPath('/kd/wiki/projects/my-proj.md')).toBe(true);
+    expect(isGeneratedMocPath('/kd/wiki/themes/theme-x.md')).toBe(true);
+  });
+  it('does not match content pages, including pages NAMED projects/themes', () => {
+    expect(isGeneratedMocPath('C:\\kd\\wiki\\entities\\a.md')).toBe(false);
+    expect(isGeneratedMocPath('/kd/wiki/entities/projects.md')).toBe(false);
+    expect(isGeneratedMocPath('/kd/wiki/entities/themes.md')).toBe(false);
+  });
+});
 
 async function setup(): Promise<string> {
   const dir = await fsp.mkdtemp(join(tmpdir(), 'gp-'));

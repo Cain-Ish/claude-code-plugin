@@ -146,7 +146,7 @@ sb_drain_starved() {
   if [ "$(sb_drain_oldest_pending_age)" -gt "$smax" ]; then
     local cd="${SB_DRAIN_ESCAPE_COOLDOWN:-$smax}"; case "$cd" in ''|*[!0-9]*) cd="$smax" ;; esac
     local last=0
-    [ -f "$ESCAPE_STAMP_F" ] && last=$(stat -c %Y "$ESCAPE_STAMP_F" 2>/dev/null || stat -f %m "$ESCAPE_STAMP_F" 2>/dev/null || echo 0)
+    [ -f "$ESCAPE_STAMP_F" ] && last=$(sb_mtime "$ESCAPE_STAMP_F")
     if [ "$(( $(date +%s) - ${last:-0} ))" -gt "$cd" ]; then
       touch "$ESCAPE_STAMP_F" 2>/dev/null || true
       return 0
@@ -210,7 +210,7 @@ else
   # stale and its lock stolen, re-opening the overlap race the lock prevents.
   STALE="${SB_DRAIN_LOCK_STALE:-7200}"; case "$STALE" in ''|*[!0-9]*) STALE=7200 ;; esac
   if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    lmtime=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0)
+    lmtime=$(sb_mtime "$LOCK_DIR")
     lage=$(( $(date +%s) - ${lmtime:-0} ))
     if [ "$lage" -gt "$STALE" ]; then
       # Steal a stale lock, but guard the steal race: if two runs both steal, each
@@ -276,7 +276,7 @@ while IFS= read -r tf; do
     processed=$((processed+1))
   else
     fails=$(sb_extraction_fails "$base" "$STATE"); fails=$((fails+1))
-    if [ "$fails" -ge "$MAX_FAILS" ] && [ "${SB_DRAIN_FLOOR:-on}" = "on" ] && sb_floor_transcript "$tf" "$slug"; then
+    if [ "$fails" -ge "$MAX_FAILS" ] && [ "${SB_DRAIN_FLOOR:-on}" != "off" ] && sb_floor_transcript "$tf" "$slug"; then
       # Last-resort deterministic floor (P1): the LLM backend has failed MAX_FAILS times — rather
       # than quarantine this code-changing session with NOTHING captured, write the files-changed
       # baseline (no LLM) and mark it done. Counts as a real capture (processed), so the health

@@ -1,13 +1,12 @@
 ---
 name: status
 description: Show second-brain hot-tier and wiki health at a glance. Reports USER.md size, active PROJECT.md size, projects.jsonl project count, wiki page counts per category, and index.md status.
-# Surface-collapse (0.29.0): not a user slash command -- covered by automation/MCP; capability preserved via model-invocation where dmi=false.
+# 0.33.24 skill-catalog diet: user slash command only — model-invocation disabled
+# (dashboards being model-invocable contradicted the silence-default principle).
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) Bash(printf *) Bash(tr *) mcp__plugin_second-brain_knowledge-base__knowledge_stats mcp__plugin_second-brain_knowledge-base__knowledge_validate mcp__plugin_second-brain_knowledge-base__persona_stats
 ---
-
-<!-- user instruction verbatim: "1" -->
 
 # Status
 
@@ -18,13 +17,17 @@ Show a compact dashboard of the v1.0 second-brain state: the hot tier (USER.md +
 ### 1. Resolve the active project
 
 ```bash
-SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+# Monorepo-aware detection (same idiom as the setup skill): source lib.sh for sb_detect_project.
+. "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh"
+_det=$(sb_detect_project "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+IFS=$'\t' read -ra _det_fields <<< "$_det"
+SLUG="${_det_fields[0]:-}"
 echo "Active project: $SLUG"
 ```
 
 ### 2. Hot-tier sizes
 
-Report byte counts for each hot-tier file. The combined target is ≤ ~3200 bytes (≈ 800 tokens).
+Report byte counts for each hot-tier file. Size contract lives in the `setup` skill (single home): USER.md targets ~3200 B; SessionStart emit caps are 6000 B (USER) / 3000 B (PROJECT) inside the 8000 B injection budget.
 
 ```bash
 USER_FILE=~/.second-brain/USER.md
@@ -35,12 +38,11 @@ U=0; P=0
 [ -f "$USER_FILE" ]    && U=$(wc -c < "$USER_FILE" | tr -d ' ')
 [ -f "$PROJECT_FILE" ] && P=$(wc -c < "$PROJECT_FILE" | tr -d ' ')
 
-echo "USER.md:    ${U} bytes"
-echo "PROJECT.md ($SLUG): ${P} bytes"
-echo "Combined:   $((U + P)) bytes (cap ≈ 3200)"
+echo "USER.md:    ${U} bytes (target ≈ 3200)"
+echo "PROJECT.md ($SLUG): ${P} bytes (emit cap 3000)"
 ```
 
-If the combined size exceeds ~3200 bytes, flag it — the hot tier is meant to stay small and always-loaded.
+If USER.md exceeds ~3200 bytes, flag it — the hot tier is meant to stay small and always-loaded (caps: see the `setup` skill's size contract).
 
 ### 3. Index.txt project count
 
@@ -123,7 +125,7 @@ else
 fi
 ```
 
-If signals are ready to graduate (count ≥ 3, not yet graduated), nudge the user to run `/second-brain:improve`.
+Graduation is automatic since the `/second-brain:improve` retirement: `merge-persona-signals.sh` (Stop hook) auto-pins count≥2 high-confidence signals to USER.md. If ungraduated signals linger here, offer to pin them explicitly via the `pin_to_user` MCP tool.
 
 ### 4d. Dream status
 
@@ -181,18 +183,7 @@ disabling a Claude Code built-in is the user's per-machine choice. (Detector:
 `sb_auto_memory_state` in `scripts/lib.sh`; design:
 docs/specs/2026-05-29-auto-memory-coordination-design.md.)
 
-### 5. Pending PROJECT.md update flag
-
-If the Stop-hook predicate fired in a recent session, a flag file is left for the next session to act on. Surface it so the user knows there is queued reflection work.
-
-```bash
-FLAG=~/.second-brain/.project-update-pending-"$SLUG"
-if [ -f "$FLAG" ]; then
-  echo "Pending PROJECT.md update flagged for $SLUG (run /second-brain:improve to apply)."
-fi
-```
-
-### 5b. Persona state
+### 5. Persona state
 
 Surface the persona core's live state — identity card size, dismissals 7d, today's persona spend (informational — the cap was removed in 0.24.45). Read-only; nothing here mutates.
 
@@ -248,7 +239,7 @@ Run `verify.sh` to surface live-state issues that the static validator can't see
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/verify.sh"
 ```
 
-The script exits 0 with `verify: ok` when everything is healthy, or exits non-zero with one `verify: FAIL:` line per failed check. Do not auto-remediate — point the user at the relevant skill (`/second-brain:setup` for missing files, `/second-brain:improve` for oversized hot tier) and let them act.
+The script exits 0 with `verify: ok` when everything is healthy, or exits non-zero with one `verify: FAIL:` line per failed check. Do not auto-remediate — point the user at the relevant skill (`/second-brain:setup` for missing files, `/second-brain:maintain` for an oversized hot tier — its Phase 0 is hot-tier hygiene) and let them act.
 
 ### 6b. Hook latency (R7 telemetry)
 
@@ -294,9 +285,8 @@ Format as a clean block. Example:
 - slug: claude-code-plugin
 
 ## Hot tier
-- USER.md:    420 bytes
-- PROJECT.md: 1180 bytes
-- Combined:   1600 bytes (cap ~3200)
+- USER.md:    420 bytes (target ~3200)
+- PROJECT.md: 1180 bytes (emit cap 3000)
 - Registered projects: 3
 
 ## Cold tier (wiki pages)
@@ -312,9 +302,6 @@ Format as a clean block. Example:
 ## Native auto-memory (Claude Code built-in)
 - ON (default-on) — store: ~/.claude/projects/<repo>/memory/ (5 files, MEMORY.md 38 lines)
 - note: two memory systems active; disable via CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 to make second-brain sole writer
-
-## Pending
-- (none)
 ```
 
-Keep the output terse. No reflection-pipeline metrics — `learnings.md`, `friction-log.jsonl`, `quality-rules.md`, `persona.md`, and `tool-registry.json` no longer exist. `error-log.jsonl` is not dumped here, but `verify.sh` (Step 6) flags new entries since the last successful verify. If the user wants deep reflection on the current session, point them at `/second-brain:improve`.
+Keep the output terse. No reflection-pipeline metrics — `learnings.md`, `friction-log.jsonl`, `quality-rules.md`, `persona.md`, and `tool-registry.json` no longer exist. `error-log.jsonl` is not dumped here, but `verify.sh` (Step 6) flags new entries since the last successful verify. Deep session reflection is automatic now — Stop-hook extraction plus dream consolidation (`/second-brain:dream`); explicit pins go through the `pin_to_user`/`pin_to_project` MCP tools.

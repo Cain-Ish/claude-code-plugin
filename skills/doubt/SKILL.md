@@ -19,7 +19,7 @@ Each layer maps to specific files. Pick layers to doubt based on the selection a
 |----|-------|-----------|
 | `hooks` | Hook system | `hooks/hooks.json`, `scripts/ensure-dirs.sh`, `scripts/session-load.sh` |
 | `stop-extract` | Stop-hook extraction | `scripts/stop-extract.sh`, `scripts/lib.sh` |
-| `learning` | Learning pipeline | `skills/improve/SKILL.md` |
+| `learning` | Learning pipeline | `scripts/merge-persona-signals.sh`, `scripts/extract-prompt.txt` |
 | `mcp` | MCP server | `mcp/src/server.ts` |
 | `quality` | Quality gate | `scripts/quality-gate.sh`, `agents/quality-reviewer.md` |
 | `compact` | Compaction handling | `scripts/pre-compact.sh`, `scripts/lib.sh` |
@@ -116,7 +116,8 @@ For each (layer, perspective):
 
 1. **Read all key files** listed in the taxonomy for that layer.
 2. **Check runtime state** — don't just read source code. Verify actual artifacts:
-   - Do the output files exist? (`ls ~/.second-brain/`, `ls ~/.second-brain/projects/`, `ls ~/.second-brain/wiki/`)
+   - Do the output files exist? (`ls ~/.second-brain/`, `ls ~/.second-brain/projects/`, `ls ~/knowledge/wiki/`)
+   - Legacy `~/.second-brain/wiki/` must be EMPTY or absent — a page there is invisible to `knowledge_search` (the raw-drainer misroute signature). Probe: `find ~/.second-brain/wiki -name '*.md' 2>/dev/null` must print nothing.
    - What's in the data files? (`tail -5 ~/.second-brain/persona-signals.jsonl`, `wc -l ~/.second-brain/.session-baseline-*.md`)
    - Is the state consistent with what the code claims to produce?
    - The gap between "the code would write X" and "X actually exists on disk" is where the best bugs hide.
@@ -134,7 +135,7 @@ For each (layer, perspective):
      - L2: "Output stale because the timestamp uses local TZ?" → VALIDATED → backtrack to `race condition`.
      - L2': "Two hooks write the same file without a lock?" → ISSUE found.
    The pattern is adversarial dialogue with deliberate exploration, not a fixed-depth chain or checklist. A trivial layer might need 2 exchanges across 1 branch; a complex one might need 10+ across 3–4 branches with backtracks. Stop when every remaining branch evaluates to `impossible` (with a citation) — not after a fixed count.
-5. **Follow cross-layer chains**: If a finding in one layer touches another layer's input/output, trace the chain. The best findings come from following a failure across layer boundaries (e.g., "knowledge_search never returns results → vectors.db doesn't exist → ensure-dirs.sh doesn't create it → setup was never run").
+5. **Follow cross-layer chains**: If a finding in one layer touches another layer's input/output, trace the chain. The best findings come from following a failure across layer boundaries (e.g., "knowledge_search can't find a page → it was written to legacy `~/.second-brain/wiki/` → a drainer misrouted the destination → the wiki-write-guard legacy deny never fired").
 6. **Answer each question honestly** by reading the actual code AND checking runtime state. Cite file:line. No speculation.
 7. **Classify each answer**:
    - **VALIDATED**: Works correctly, code and runtime state prove it
@@ -230,7 +231,7 @@ Output a brief `## Self-Assessment` section at the end of the report with 2-3 se
 ### 8. Integration offers
 
 After the report, offer but do NOT auto-execute:
-- "Promote finding #N to a learning via `/second-brain:improve`?"
+- "Capture finding #N via `/second-brain:capture` (the raw-inbox drain turns it into a wiki learning)?"
 - "Create a regression probe in `~/.second-brain/regressions/` for finding #N?"
 - "Fix finding #N directly?"
 - "Update the doubt skill with improvements from the self-assessment?"

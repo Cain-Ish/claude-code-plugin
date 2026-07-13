@@ -243,7 +243,8 @@ describe('server.ts registration (code_neighbors)', () => {
   const src = readFileSync(new URL('../../server.ts', import.meta.url), 'utf-8');
 
   it('registers the code_neighbors tool', () => {
-    expect(/registerTool\(\s*"code_neighbors"/.test(src)).toBe(true);
+    // registerJsonTool is server.ts's single registration path (audit batch 0.33.38).
+    expect(/register(Json)?Tool\(\s*"code_neighbors"/.test(src)).toBe(true);
   });
 
   it('read-only: code_neighbors is NOT wrapped in guardDestructive', () => {

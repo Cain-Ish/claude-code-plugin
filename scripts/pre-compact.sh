@@ -54,8 +54,7 @@ if [ -z "$SLUG" ]; then SB_GATE="slug-empty"; exit 0; fi
 MARKER_KEY=$(sb_extraction_marker_key "$SLUG" "$SESSION_ID")
 
 PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 if [ ! -f "$PROJECT_MD" ]; then SB_GATE="project-md-missing slug=$SLUG"; exit 0; fi
 
 # --- Determine unprocessed window ---

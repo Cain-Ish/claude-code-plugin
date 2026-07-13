@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { stripFrontmatter } from './tools/frontmatter.js';
 
 // repo-root/agents/ resolved from mcp/src/ — directory-walked, not a hardcoded list,
 // so a NEW agent added later with an over-broad grant is caught too. (Spec P6 / P6a.)
@@ -124,7 +125,7 @@ describe('agent tool grants (P6a least-privilege, directory-walked)', () => {
     // the tools: grant itself contains the substring, so matching the whole file
     // would be a tautology that can never fail while the parity test passes
     // (review finding, 0.33.35).
-    const body = (f: string) => read(f).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+    const body = (f: string) => stripFrontmatter(read(f));
     const missing = REQUIRED_CODEMAP.filter(f => !/code_neighbors/.test(body(f)));
     expect(missing, `agent grants code_neighbors but its protocol never uses it: ${missing.join(', ')}`).toEqual([]);
   });

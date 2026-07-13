@@ -1,10 +1,12 @@
 import { promises as fs } from 'fs';
-import { basename, join, relative } from 'path';
-import { parseDoc } from './knowledge-search.js';
+import { basename, join } from 'path';
+import { parseDoc } from './frontmatter.js';
 import { knowledgeValidate, ValidationIssue } from './knowledge-validate.js';
 import { projectGraphToPages } from './graph-project.js';
 import { buildProjectMocs, MocInput } from './project-moc.js';
 import { stripAiBlock } from './ai-block.js';
+import { loadEdges } from './graph-store.js';
+import { walkWiki } from './walk-wiki.js';
 
 export interface ReindexResult {
   pagesIndexed: number;
@@ -14,9 +16,13 @@ export interface ReindexResult {
 }
 
 export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexResult> {
+  // edges.jsonl is parsed ONCE per reindex and threaded into both the projector
+  // and the validator (each used to re-load it — three parses per call).
+  const edgeRecords = await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
+
   // Project the relationship graph onto pages first, so the index + validation
   // see current related: links. No-op when ~/knowledge/graph/edges.jsonl absent.
-  try { await projectGraphToPages(knowledgeDir); } catch { /* projection is best-effort */ }
+  try { await projectGraphToPages(knowledgeDir, edgeRecords); } catch { /* projection is best-effort */ }
 
   const wikiRoot = join(knowledgeDir, 'wiki');
   const indexPath = join(wikiRoot, 'index.md');
@@ -36,7 +42,7 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
   for (const dir of dirs) {
     if (dir === 'projects') continue; // generated MOCs — projected below, not indexed as content
     const dirPath = join(wikiRoot, dir);
-    const files = await collectMd(dirPath);
+    const files = await walkWiki(dirPath);
     if (files.length === 0) continue;
 
     const entries: { slug: string; description: string }[] = [];
@@ -100,7 +106,7 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
 
   await fs.writeFile(indexPath, sections.join('\n'), 'utf-8');
 
-  const validation = await knowledgeValidate(knowledgeDir, { autofix: true });
+  const validation = await knowledgeValidate(knowledgeDir, { autofix: true, edges: edgeRecords });
 
   return {
     pagesIndexed: totalPages,
@@ -128,15 +134,4 @@ async function mocSlugs(dir: string): Promise<string[]> {
       .map(f => f.replace(/\.md$/, ''))
       .sort();
   } catch { return []; }
-}
-
-async function collectMd(dir: string, acc: string[] = []): Promise<string[]> {
-  try {
-    for (const e of await fs.readdir(dir, { withFileTypes: true })) {
-      const p = join(dir, e.name);
-      if (e.isDirectory()) await collectMd(p, acc);
-      else if (e.isFile() && e.name.endsWith('.md') && e.name !== 'index.md') acc.push(p);
-    }
-  } catch { /* dir vanished */ }
-  return acc;
 }

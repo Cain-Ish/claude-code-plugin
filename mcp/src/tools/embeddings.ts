@@ -126,7 +126,3 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
   return dot; // vectors are already normalized
 }
-
-export function isAvailable(): boolean {
-  return process.env[DISABLE_ENV] !== '1' && pipelineInstance !== null;
-}

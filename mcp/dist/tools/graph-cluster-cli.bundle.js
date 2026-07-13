@@ -1,6 +1,6 @@
 // src/tools/graph-cluster-cli.ts
-import { promises as fs } from "fs";
-import { join as join2, basename } from "path";
+import { promises as fs2 } from "fs";
+import { join as join3, basename } from "path";
 
 // src/tools/graph-cluster.ts
 function buildAdjacency(pages) {
@@ -109,19 +109,32 @@ function cleanEnvPath(s) {
 // src/brain-paths.ts
 function resolveKnowledgeDir(override) {
   if (override) return override;
-  return cleanEnvPath(
-    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || process.env.KNOWLEDGE_DIR
-  ) || join(homedir(), "knowledge");
+  for (const raw of [process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR, process.env.KNOWLEDGE_DIR]) {
+    const c = cleanEnvPath(raw);
+    if (!c.trim() || c.includes("${")) continue;
+    return c.startsWith("~") ? join(homedir(), c.slice(1)) : c;
+  }
+  return join(homedir(), "knowledge");
 }
 
-// src/tools/graph-cluster-cli.ts
-function resolveWikiDir(argv) {
-  if (argv[0] === "--knowledge-dir" && argv[1]) return join2(argv[1], "wiki");
-  if (argv[0]) return argv[0];
-  const kd = resolveKnowledgeDir();
-  return join2(kd, "wiki");
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
+
+// src/tools/frontmatter.ts
+function matchFrontmatter(content) {
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  return m ? { fm: m[1], body: m[2] } : null;
 }
-async function collect(dir, acc = []) {
+function stripFrontmatter(content) {
+  const m = matchFrontmatter(content);
+  return m ? m.body : content;
+}
+
+// src/tools/walk-wiki.ts
+import { promises as fs } from "fs";
+import { join as join2 } from "path";
+async function walkWiki(dir, opts = {}, acc = []) {
   let entries;
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
@@ -129,16 +142,27 @@ async function collect(dir, acc = []) {
     return acc;
   }
   for (const e of entries) {
+    if (opts.skipHidden && e.name.startsWith(".")) continue;
     const p = join2(dir, e.name);
     if (e.isDirectory()) {
-      if (!e.name.startsWith(".") && e.name !== "projects" && e.name !== "themes") await collect(p, acc);
-    } else if (e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
+      if (opts.skipDirs?.includes(e.name)) continue;
+      await walkWiki(p, opts, acc);
+    } else if (e.isFile() && e.name.endsWith(".md") && (opts.includeIndex || e.name !== "index.md")) {
+      acc.push(opts.posix ? p.replace(/\\/g, "/") : p);
+    }
   }
   return acc;
 }
+
+// src/tools/graph-cluster-cli.ts
+function resolveWikiDir(argv) {
+  if (argv[0] === "--knowledge-dir" && argv[1]) return join3(argv[1], "wiki");
+  if (argv[0]) return argv[0];
+  const kd = resolveKnowledgeDir();
+  return join3(kd, "wiki");
+}
 function frontmatter(content) {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  return m ? m[1] : "";
+  return matchFrontmatter(content)?.fm ?? "";
 }
 function links(text) {
   return [...text.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1].split("|")[0].trim()).filter(Boolean);
@@ -155,13 +179,13 @@ function relatedFrom(fm) {
 async function main() {
   const wikiDir = resolveWikiDir(process.argv.slice(2));
   const minSize = parseInt(process.env.SB_SUMMARIZE_MIN_CLUSTER ?? "4", 10) || 4;
-  const files = await collect(wikiDir);
+  const files = await walkWiki(wikiDir, { skipHidden: true, skipDirs: ["projects", "themes"] });
   const pages = [];
   const contentHash = {};
   for (const f of files) {
     let content = "";
     try {
-      content = await fs.readFile(f, "utf-8");
+      content = await fs2.readFile(f, "utf-8");
     } catch {
       continue;
     }
@@ -169,7 +193,7 @@ async function main() {
     const slug = basename(f, ".md");
     const fm = frontmatter(content);
     if (/^generated:[ \t]*true\b/m.test(fm)) continue;
-    const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
+    const body = stripFrontmatter(content);
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });
     contentHash[slug] = djb2(content);
   }

@@ -8,7 +8,9 @@ allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date 
 
 # Setup
 
-Scaffold the second-brain v1.0 hot tier for the active repo. The hot tier is the small, always-loaded surface: `USER.md` (your global preferences) plus a per-repo `PROJECT.md` (goal, state, conventions) plus an `projects.jsonl` registry. Combined target ≤ ~3200 bytes (~800 tokens).
+Scaffold the second-brain v1.0 hot tier for the active repo. The hot tier is the small, always-loaded surface: `USER.md` (your global preferences) plus a per-repo `PROJECT.md` (goal, state, conventions) plus an `projects.jsonl` registry.
+
+**Size contract (single home for these numbers — other skills defer here):** USER.md targets ~3200 bytes (~800 tokens); SessionStart emit caps are 6000 B (USER.md) / 3000 B (PROJECT.md); the total SessionStart injection budget is 8000 B (`scripts/session-load.sh` — `BYTE_BUDGET=8000`, forced-section caps, "USER.md is designed ≤~3200B").
 
 This skill is idempotent — re-running it will not clobber existing files. It only fills in what's missing.
 
@@ -374,17 +376,16 @@ Then:
 
 ### 7. Confirm
 
-Print byte counts of `USER.md` and `PROJECT.md` and the combined total. Verify combined < ~3200 bytes (≈ 800-token hot-tier cap):
+Print byte counts of `USER.md` and `PROJECT.md`. Verify against the size contract in the intro (USER.md target ~3200 B; emit caps 6000/3000; 8000 B SessionStart budget):
 
 ```bash
 U=$(test -f ~/.second-brain/USER.md && wc -c < ~/.second-brain/USER.md || echo 0)
 P=$(wc -c < ~/.second-brain/projects/"$SLUG"/PROJECT.md)
-echo "USER.md: $U bytes"
-echo "PROJECT.md ($SLUG): $P bytes"
-echo "Combined: $((U + P)) bytes (cap ≈ 3200)"
+echo "USER.md: $U bytes (target ≈ 3200)"
+echo "PROJECT.md ($SLUG): $P bytes (emit cap 3000)"
 ```
 
-If the combined size exceeds ~3200 bytes, advise the user to trim — the hot tier is meant to stay small and always-loaded.
+If USER.md exceeds ~3200 bytes, advise the user to trim — the hot tier is meant to stay small and always-loaded (SessionStart hard-caps the emit at 6000/3000 B, so oversize means silent truncation, not breakage).
 
 ## Notes
 

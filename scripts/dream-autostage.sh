@@ -63,7 +63,7 @@ update_watermark() {  # $1 = dream dir (trailing slash), $2 = status file
   local anchor="${1}transcripts"
   [ -d "$anchor" ] || anchor="$2"
   local t
-  t=$(stat -c %Y "$anchor" 2>/dev/null || stat -f %m "$anchor" 2>/dev/null || echo 0)  # GNU || BSD/macOS
+  t=$(sb_mtime "$anchor")
   if [ "$t" -gt "$WATERMARK_TIME" ]; then
     WATERMARK_TIME="$t"; WATERMARK="$anchor"
   fi

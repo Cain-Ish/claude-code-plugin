@@ -1,6 +1,7 @@
 import { resolve, relative, sep } from 'path';
 import { glob } from 'glob';
-import { filterIgnored, assertSafeSlug } from './doc-sources.js';
+import { filterIgnored } from './doc-sources.js';
+import { assertSafeSlug } from '../path-guard.js';
 import { captureItem } from './raw-inbox.js';
 
 const DOC_DIRS = new Set(['docs', 'doc', 'adr', 'adrs', 'rfc', 'rfcs', 'spec', 'specs', 'decisions', '.ai-docs', 'notes']);

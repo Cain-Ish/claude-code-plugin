@@ -110,7 +110,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh 5 ${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh",
             "timeout": 5
           }
         ]

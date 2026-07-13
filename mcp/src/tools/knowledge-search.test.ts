@@ -358,3 +358,39 @@ describe.skipIf(EMBEDDINGS_OFFLINE)('knowledge_search RRF vector fusion (real mo
     expect(s[0]).toBe('target');                               // it is in fact the top hit
   }, 120_000);
 });
+
+// Tokenize-once oracle (0.33.38): scoreBM25/computeDF were refactored from
+// per-query-token re-tokenization to per-doc token-count maps. The refactor is
+// PURE — this fixture pins the exact pre-refactor ranking AND scores (captured
+// from the tokenization-per-call implementation), so any drift in the math is
+// a hard failure, not a plausible-looking reorder. BM25-only + no created/
+// updated dates (no recency boost) + long bodies (no stub penalty) keeps the
+// scores fully deterministic.
+describe('BM25 ranking regression (tokenize-once refactor oracle)', () => {
+  it('fixture ranking and scores match the known-good pre-refactor output', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-bm25-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const FILLER = 'Long enough body text to dodge the stub penalty entirely. '.repeat(4);
+    const page = (slug: string, fm: string, body: string) =>
+      fsp.writeFile(join(dir, 'wiki', 'learnings', `${slug}.md`), `---\n${fm}\n---\n\n${body}\n`);
+    await page('title-hit', 'title: wireguard tunnel setup\ntype: learnings\ndescription: vpn notes\ntags: []\nrelated: []',
+      `# t\n\n${FILLER}network config.`);
+    await page('tag-hit', 'title: unrelated one\ntype: learnings\ndescription: something else\ntags: [wireguard]\nrelated: []',
+      `# t\n\n${FILLER}gardening notes.`);
+    await page('body-hit', 'title: unrelated two\ntype: learnings\ndescription: still other\ntags: []\nrelated: []',
+      `# t\n\n${FILLER}wireguard appears once in the body only.`);
+    await page('body-hit-repeated', 'title: unrelated three\ntype: learnings\ndescription: other\ntags: []\nrelated: []',
+      `# t\n\nwireguard wireguard wireguard tunnel tunnel. ${FILLER}`);
+    await page('miss', 'title: nothing here\ntype: learnings\ndescription: none\ntags: []\nrelated: []',
+      `# t\n\n${FILLER}cooking.`);
+
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
+    expect(r.degraded).toBe('bm25-only');
+    // Known-good order + exact raw scores from the pre-refactor implementation
+    // (verified against a verbatim copy of the old scoreBM25/computeDF on this
+    // fixture: title-hit 5.64, body-hit-repeated 1.64, tag-hit 0.96, body-hit
+    // 0.28 → below the 0.15 relevance floor, miss 0 → dropped).
+    expect(slugs(r)).toEqual(['title-hit', 'body-hit-repeated', 'tag-hit']);
+    expect(r.candidates.map(c => c.score)).toEqual([5.64, 1.64, 0.96]);
+  });
+});

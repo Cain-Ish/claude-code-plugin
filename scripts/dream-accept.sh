@@ -34,8 +34,7 @@ if [ -n "$ARCHIVED" ] && [ "$ARCHIVED" != "null" ]; then
   exit 1
 fi
 
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 KNOWLEDGE_DIR=$(_to_msys "$KNOWLEDGE_DIR")   # MSYS-normalize (Windows): tar -C / rsync dest must not be C:\...
 LIVE_WIKI="$KNOWLEDGE_DIR/wiki"
 STAGING_WIKI="$DREAM_DIR/staging/wiki"

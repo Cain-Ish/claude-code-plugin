@@ -34,9 +34,17 @@ export function resolveBrainDir(override?: string): string {
 
 export function resolveKnowledgeDir(override?: string): string {
   if (override) return override;
-  return (
-    cleanEnvPath(
-      process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || process.env.KNOWLEDGE_DIR
-    ) || join(homedir(), 'knowledge')
-  );
+  // THE SINGLE knowledge-dir resolver (server.ts and dream.ts once carried local
+  // copies with the OPPOSITE precedence — env over option). Canonical precedence:
+  // plugin option > env > ~/knowledge. Per-candidate guards absorbed from those
+  // copies: a value still containing an unexpanded `${...}` placeholder (a root
+  // .mcp.json loaded outside a plugin context leaves the literal
+  // ${CLAUDE_PLUGIN_OPTION_...}) is rejected rather than used as a path, a
+  // whitespace-only value is skipped, and a leading `~` expands against homedir().
+  for (const raw of [process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR, process.env.KNOWLEDGE_DIR]) {
+    const c = cleanEnvPath(raw);
+    if (!c.trim() || c.includes('${')) continue;
+    return c.startsWith('~') ? join(homedir(), c.slice(1)) : c;
+  }
+  return join(homedir(), 'knowledge');
 }

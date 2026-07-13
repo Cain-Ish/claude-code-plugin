@@ -23,9 +23,17 @@ RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
 # Resolve session + plugin paths.
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
-[ -z "$TOOL" ] && exit 0
+# ONE jq for the two single-line fields (0.33.38 hot-path: this PostToolUse hook
+# fires on EVERY Read/WebFetch/Bash/Grep/Glob return — measured ~1152ms/call).
+# Line-per-field -r protocol, NOT @tsv. The two heavy fields below (OUTPUT — up
+# to 100KB, multiline; TOOL_TARGET — the multiline-capable command) keep their
+# OWN spawns, exactly as persona-tool-guard.sh frames its multiline `command`.
+{
+  IFS= read -r SESSION_ID
+  IFS= read -r TOOL
+} < <(printf '%s' "$RAW" | jq -r '.session_id // "", .tool_name // ""' 2>/dev/null | tr -d '\r')
+[ -z "${TOOL:-}" ] && exit 0
+: "${SESSION_ID:=}"
 
 # Only scan tools that ingest external/runtime content into context.
 case "$TOOL" in

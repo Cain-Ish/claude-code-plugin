@@ -1,8 +1,8 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { glob } from 'glob';
-import { loadEdges, foldToCurrent, validAt, CurrentEdge, EdgeType } from './graph-store.js';
-import { extractYamlList } from './knowledge-search.js';
+import { loadEdges, foldToCurrent, validAt, CurrentEdge, EdgeRecord, EdgeType } from './graph-store.js';
+import { extractYamlList, extractYamlValue, matchFrontmatter, replaceFrontmatter } from './frontmatter.js';
+import { walkWiki } from './walk-wiki.js';
 
 export interface ProjectResult { pagesUpdated: number; }
 
@@ -16,15 +16,25 @@ const TYPE_ORDER: EdgeType[] = ['requires', 'affects', 'part_of', 'supersedes', 
 function slugFromPath(p: string): string { return p.replace(/^.*[\\/]/, '').replace(/\.md$/, ''); }
 function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
+/** Is this path inside a generated MOC dir (projects/, themes/)? Must accept BOTH
+ *  separators: on Windows the walk yields backslash paths, and the previous
+ *  /-only regex never matched — graph blocks were injected into generated MOCs. */
+export function isGeneratedMocPath(p: string): boolean {
+  return /[/\\](projects|themes)[/\\]/.test(p);
+}
+
 /** Regenerate related: frontmatter + the ## Dependencies block on every page,
- *  from current-valid edges. No edges.jsonl ⇒ no-op (returns pagesUpdated:0). */
-export async function projectGraphToPages(knowledgeDir: string): Promise<ProjectResult> {
-  const records = await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
+ *  from current-valid edges. No edges.jsonl ⇒ no-op (returns pagesUpdated:0).
+ *  `preloadedEdges` lets knowledgeReindex thread its single loadEdges result
+ *  instead of re-parsing edges.jsonl. */
+export async function projectGraphToPages(knowledgeDir: string, preloadedEdges?: EdgeRecord[]): Promise<ProjectResult> {
+  const records = preloadedEdges ?? await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
   if (records.length === 0) return { pagesUpdated: 0 };
 
   const now = new Date().toISOString();
   const wikiRoot = join(knowledgeDir, 'wiki');
-  const files = await glob('**/*.md', { cwd: wikiRoot, absolute: true });
+  // includeIndex: index slugs must stay in livePages so edges to them survive the live-endpoint filter.
+  const files = await walkWiki(wikiRoot, { includeIndex: true, skipHidden: true });
 
   // livePages = every on-disk page slug ∪ every `project:` facet value. The
   // union matters: a `part_of -> <project-key>` edge legitimately targets a
@@ -37,9 +47,9 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
   await Promise.all(files.map(async f => {
     try {
       const head = (await fs.readFile(f, 'utf-8')).slice(0, 4096);
-      const fm = head.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-      const proj = fm && fm[1].match(/^project:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
-      if (proj) livePages.add(proj[1].trim());
+      const fm = matchFrontmatter(head);
+      const proj = fm ? extractYamlValue(fm.fm, 'project') : '';
+      if (proj) livePages.add(proj);
     } catch { /* unreadable — its own slug is already in livePages */ }
   }));
 
@@ -65,7 +75,7 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
     // Skip index.md and the generated MOC dirs (projects/, themes/) — they are pure
     // projections; injecting related:/## Dependencies into a MOC would mangle it and break
     // reindex idempotency.
-    if (file.endsWith('index.md') || /\/(projects|themes)\//.test(file)) continue;
+    if (file.endsWith('index.md') || isGeneratedMocPath(file)) continue;
     const slug = slugFromPath(file);
     const related = relatedBySlug.get(slug);
 
@@ -83,9 +93,9 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
     // a multi-line block-list) plus a prior graph block — so an edgeless page that
     // carries a stale block-list `related:\n  - x` is scrubbed too, not just the
     // inline form. `related: []` and a clean page carry no artifacts (untouched).
-    const fmForArtifacts = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    const fmForArtifacts = matchFrontmatter(content);
     const hasNonEmptyRelated = fmForArtifacts
-      ? extractYamlList(fmForArtifacts[1], 'related').length > 0
+      ? extractYamlList(fmForArtifacts.fm, 'related').length > 0
       : false;
     const hasGeneratedArtifacts = hasNonEmptyRelated || content.includes(BEGIN);
     if ((!related || related.size === 0) && !hasGeneratedArtifacts) continue;
@@ -98,16 +108,16 @@ export async function projectGraphToPages(knowledgeDir: string): Promise<Project
     // not orphaned under no key. Edgeless-but-dirty pages collapse to `[]`.
     const relList = related ? [...related].sort() : [];
     const relLine = relList.length ? `related: [${relList.join(', ')}]` : 'related: []';
-    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    const fmMatch = matchFrontmatter(content);
     if (fmMatch) {
-      let fmBody = fmMatch[1];
+      let fmBody = fmMatch.fm;
       const relBlockRe = /^related:[^\n]*(?:\n[ \t]+-[^\n]*)*$/m;
       if (relBlockRe.test(fmBody)) {
         fmBody = fmBody.replace(relBlockRe, () => relLine);
       } else if (relList.length) {
         fmBody = `${fmBody}\n${relLine}`;   // only ADD a line when there are edges
       }
-      content = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---\n${fmBody}\n---`);
+      content = replaceFrontmatter(content, fmBody);
     }
 
     // 2. rewrite (or strip) the ## Dependencies block. Static heading — NO date,

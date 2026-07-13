@@ -80,6 +80,24 @@ describe('brain-paths resolvers', () => {
     process.env.KNOWLEDGE_DIR = '/tmp/env';
     expect(resolveKnowledgeDir('/tmp/override')).toBe('/tmp/override');
   });
+
+  // Guards absorbed from the deleted server.ts/dream.ts local copies (0.33.38
+  // single-source consolidation) — the canonical resolver must carry them.
+  it('resolveKnowledgeDir expands a leading ~ against homedir()', () => {
+    process.env.KNOWLEDGE_DIR = '~/kd';
+    expect(resolveKnowledgeDir()).toBe(join(homedir(), 'kd'));
+  });
+
+  it('resolveKnowledgeDir rejects an unexpanded ${...} placeholder (root .mcp.json gotcha)', () => {
+    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR = '${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR}';
+    process.env.KNOWLEDGE_DIR = '/tmp/kd-real';
+    expect(resolveKnowledgeDir()).toBe('/tmp/kd-real');
+  });
+
+  it('resolveKnowledgeDir skips a whitespace-only candidate', () => {
+    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR = '   ';
+    expect(resolveKnowledgeDir()).toBe(join(homedir(), 'knowledge'));
+  });
 });
 
 // Bug-class guard: no source file may read `process.env.HOME` for path
@@ -110,5 +128,21 @@ describe('source guard: no direct process.env.HOME path resolution', () => {
     const RESOLVER_RE = /['"`]\.second-brain/;
     const offenders = files.filter((f) => RESOLVER_RE.test(readFileSync(f, 'utf-8')));
     expect(offenders, `.second-brain resolver literal found in: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  // Knowledge-dir single-source guard (0.33.38): server.ts and dream.ts each carried a
+  // local resolveKnowledgeDir with the OPPOSITE precedence to brain-paths (env over
+  // plugin option), so the server and its tools could read two different wikis. Any
+  // re-implementation signature — a same-named local function, a read of the plugin
+  // option var, or a fallback-chain read of KNOWLEDGE_DIR — must live in brain-paths.ts
+  // only. (A bare required-arg read like graph-neighbors-cli's `process.env.KNOWLEDGE_DIR;`
+  // followed by exit-if-unset is not a resolution chain and stays allowed.)
+  it('no non-test source file re-implements knowledge-dir resolution (single-source)', () => {
+    const srcDir = join(fileURLToPath(new URL('.', import.meta.url)));
+    const files = globSync('**/*.ts', { cwd: srcDir, absolute: true })
+      .filter((f) => !f.endsWith('.test.ts') && !f.endsWith('brain-paths.ts'));
+    const RE = /function\s+resolveKnowledgeDir|process\.env\.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR|process\.env\.KNOWLEDGE_DIR\s*(\|\||\?\?)/;
+    const offenders = files.filter((f) => RE.test(readFileSync(f, 'utf-8')));
+    expect(offenders, `local knowledge-dir resolution found in: ${offenders.join(', ')}`).toEqual([]);
   });
 });

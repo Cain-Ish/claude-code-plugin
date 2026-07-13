@@ -4,8 +4,9 @@ description: |
   Background dream execution agent. Runs the transcript mining + 7-phase wiki
   consolidation cycle (incl. SUMMARIZE + FORGET) on a staging copy of the wiki. Dispatched by
   the dream skill in --background mode. Mutates only the staging directory; the
-  FORGET phase reads the live wiki read-only to score real page ages and writes a
-  forget-manifest — actual archiving happens only on dream_accept.
+  FORGET phase reads the live wiki read-only (structural-importance scoring; real page
+  ages gate the protect floor) and writes a forget-manifest — actual archiving happens
+  only on dream_accept.
 
   <example>
   Context: User ran /second-brain:dream --background which created drm_20260511T143022Z.
@@ -181,8 +182,10 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
 
 **Phase 7: FORGET** (skip if `SB_WIKI_FORGET=off`)
 - Bound cold-tier growth. Score the **LIVE** wiki read-only (the script copies to a
-  temp to probe — never mutates live; real page ages matter, staging mtimes are fresh)
-  and write a manifest of low-value, old, unlinked, recall-safe pages. Archiving happens
+  temp to probe — never mutates live; real page ages matter for the <30d PROTECT floor,
+  staging mtimes are fresh) and write a manifest of low-value, unlinked, recall-safe
+  pages. Scoring is connectivity + category weight ONLY — structural importance;
+  access counts and recency are telemetry, never scored. Archiving happens
   only on accept — this phase writes nothing to the wiki.
 ```bash
 MAN=~/.second-brain/dreams/{dream_id}/forget-manifest.tsv

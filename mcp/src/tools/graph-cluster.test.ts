@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildAdjacency, labelPropagate, assignNewNode, clusters, memberHash,
+  buildAdjacency, labelPropagate, clusters, memberHash,
   type ClusterPage,
 } from './graph-cluster.js';
 
@@ -54,15 +54,6 @@ describe('labelPropagate (deterministic)', () => {
     const shuffled = adjOf([...barbell].reverse().map(([u, v]) => [v, u] as [string, string]));
     const a2 = labelPropagate(shuffled);
     expect(norm(a2)).toBe(norm(a1)); // shuffle-invariant => no visit-order leakage
-  });
-});
-
-describe('assignNewNode (incremental)', () => {
-  it('assigns the plurality community of a new node without re-clustering', () => {
-    const adj = adjOf([['a', 'b'], ['b', 'c'], ['x', 'y']]);
-    const labels = new Map(Object.entries({ a: 'a', b: 'a', c: 'a', x: 'x', y: 'x' }));
-    adj.set('new', new Set(['a', 'b', 'x'])); // 2 of community 'a', 1 of 'x'
-    expect(assignNewNode(adj, labels, 'new')).toBe('a');
   });
 });
 

@@ -1,10 +1,11 @@
 import { promises as fs } from 'fs';
 import { join, basename, dirname, relative } from 'path';
 import yaml from 'js-yaml';
-import { parseDoc, ParsedDoc, extractYamlList } from './knowledge-search.js';
+import { parseDoc, ParsedDoc, extractYamlList, matchFrontmatter, replaceFrontmatter, stripFrontmatter, FM_OPEN_RE } from './frontmatter.js';
 import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
 import { ALL_CATEGORIES } from '../constants/kb-schema.js';
-import { loadEdges, foldToCurrent, validAt } from './graph-store.js';
+import { loadEdges, foldToCurrent, validAt, EdgeRecord } from './graph-store.js';
+import { walkWiki } from './walk-wiki.js';
 
 // The canonical required frontmatter field set — the same 7 fields addFrontmatter
 // emits. A node is in "best shape" when all are present (node-shape convergence).
@@ -31,19 +32,24 @@ export interface ValidationResult {
 
 export async function knowledgeValidate(
   knowledgeDir: string,
-  opts: { autofix?: boolean } = {}
+  opts: { autofix?: boolean; edges?: EdgeRecord[] } = {}
 ): Promise<ValidationResult> {
   const wikiDir = join(knowledgeDir, 'wiki');
   const issues: ValidationIssue[] = [];
   let fixed = 0;
 
+  // Single edges.jsonl read per validate: the graphEnabled gate AND the drift
+  // check below share it, and knowledgeReindex threads its own already-loaded
+  // records via opts.edges (was three parses of the same file per reindex).
+  const edgeRecords = opts.edges ?? await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
+
   // P2: when the graph is enabled the PROJECTOR is the sole writer of related:
   // (it scrubs edgeless pages to `related: []`). patchFrontmatter must then NOT
   // body-derive a related: value the projector will overwrite — that oscillation
   // broke reindex idempotency. graphEnabled gates patchFrontmatter to emit `[]`.
-  const graphEnabled = (await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'))).length > 0;
+  const graphEnabled = edgeRecords.length > 0;
 
-  const allPages = await collectAllPages(wikiDir);
+  const allPages = await walkWiki(wikiDir);
   const slugMap = new Map<string, string[]>();
   const parsedDocs: ParsedDoc[] = [];
 
@@ -66,10 +72,9 @@ export async function knowledgeValidate(
         message: `ai-block missing required field(s) for type ${ptype}: ${missing.join(', ')}`,
       });
     } else if (schemaFor(ptype) && !/[/\\](projects|themes)[/\\]/.test(filePath)) {
-      const prose = stripAiBlock(content)
+      const prose = stripFrontmatter(stripAiBlock(content)
         .replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, '')
-        .replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, '')
-        .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+        .replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, ''));
       if (prose.trim().length >= AI_BLOCK_MIN_PROSE) issues.push({
         type: 'ai_block_missing', severity: 'warning', path: filePath,
         message: `${ptype} page has substantive prose but no ai-block: ${slug}`,
@@ -96,9 +101,8 @@ export async function knowledgeValidate(
 
     // CRLF-tolerant (0.28.3): an LF-only `^---\n` on a `---\r\n` (Windows/autocrlf)
     // page reports NO frontmatter → the autofix prepended a SECOND block (corruption
-    // on every reindex). `\r?\n` detects both.
-    const fmMatch = content.match(/^---\r?\n/);
-    if (!fmMatch) {
+    // on every reindex). FM_OPEN_RE detects both.
+    if (!FM_OPEN_RE.test(content)) {
       issues.push({
         type: 'missing_frontmatter',
         severity: 'warning',
@@ -185,7 +189,6 @@ export async function knowledgeValidate(
   // reindex the projector has already reconciled related:, so this mostly
   // surfaces drift on the standalone-lint / pre-projection (dream staging) path.
   try {
-    const edgeRecords = await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
     if (edgeRecords.length > 0) {
       const nowIso = new Date().toISOString();
       const current = foldToCurrent(edgeRecords).filter(e => validAt(e, nowIso));
@@ -289,10 +292,9 @@ export async function knowledgeValidate(
 
 // Frontmatter present but missing one or more canonical required fields.
 function isIncompleteFrontmatter(content: string): boolean {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const m = matchFrontmatter(content);
   if (!m) return false;
-  const fm = m[1];
-  return REQUIRED_FM_FIELDS.some(k => !new RegExp(`^${k}:`, 'm').test(fm));
+  return REQUIRED_FM_FIELDS.some(k => !new RegExp(`^${k}:`, 'm').test(m.fm));
 }
 
 // Patch ONLY the absent required fields onto an existing frontmatter block,
@@ -302,14 +304,14 @@ function isIncompleteFrontmatter(content: string): boolean {
 // re-dates it (the churn/provenance risk). Returns true if the file changed.
 async function patchFrontmatter(filePath: string, wikiDir: string, graphEnabled = false): Promise<boolean> {
   const original = await fs.readFile(filePath, 'utf-8');
-  const m = original.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const m = matchFrontmatter(original);
   if (!m) return false;
-  const fmBody = m[1];
+  const fmBody = m.fm;
   const missing = REQUIRED_FM_FIELDS.filter(k => !new RegExp(`^${k}:`, 'm').test(fmBody));
   if (missing.length === 0) return false;
 
   const slug = basename(filePath, '.md');
-  const body = original.slice(m[0].length);
+  const body = m.body;
   let mtimeDate: string;
   try { mtimeDate = (await fs.stat(filePath)).mtime.toISOString().slice(0, 10); }
   catch { mtimeDate = new Date().toISOString().slice(0, 10); }
@@ -348,7 +350,7 @@ async function patchFrontmatter(filePath: string, wikiDir: string, graphEnabled 
   };
 
   const newFm = `${fmBody}\n${missing.map(derive).join('\n')}`;
-  const next = original.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---\n${newFm}\n---`);
+  const next = replaceFrontmatter(original, newFm);
   if (next === original) return false;
   await fs.writeFile(filePath, next, 'utf-8');
   return true;
@@ -360,7 +362,7 @@ const KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 export async function addFrontmatter(filePath: string, wikiDir: string): Promise<void> {
   const original = await fs.readFile(filePath, 'utf-8');
   // Defensive: if frontmatter snuck in between scan and write, leave it alone.
-  if (/^---\r?\n/.test(original)) return;
+  if (FM_OPEN_RE.test(original)) return;
 
   const slug = basename(filePath, '.md');
 
@@ -433,10 +435,10 @@ export async function addFrontmatter(filePath: string, wikiDir: string): Promise
 // clean `related: [a, b]` / `related: []` / `related: [[a]]` (valid nested
 // array) all parse, so valid pages are never churned.
 function isMalformedFrontmatter(content: string): boolean {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const m = matchFrontmatter(content);
   if (!m) return false;
   try {
-    yaml.load(m[1]);   // throws (YAMLException) on any invalid frontmatter
+    yaml.load(m.fm);   // throws (YAMLException) on any invalid frontmatter
     return false;
   } catch {
     return true;
@@ -484,9 +486,9 @@ function dedupeTopLevelKeys(fm: string): string {
 // stripping unknown frontmatter would risk deleting legitimate user data.
 async function normalizeFrontmatter(filePath: string): Promise<boolean> {
   const content = await fs.readFile(filePath, 'utf-8');
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const m = matchFrontmatter(content);
   if (!m) return false;
-  let fm = m[1];
+  let fm = m.fm;
   // Repair the duplicate-mapping-key class first (e.g. `updated:` written twice
   // — the regex reader returned the STALE first value). Collapse each duplicated
   // top-level key to its LAST occurrence (the freshest value), preserving every
@@ -498,7 +500,7 @@ async function normalizeFrontmatter(filePath: string): Promise<boolean> {
     const slugs = extractYamlList(fm, key);   // tolerant read of whatever broken shape exists
     fm = fm.replace(blockRe, () => `${key}: [${slugs.join(', ')}]`);
   }
-  const next = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---\n${fm}\n---`);
+  const next = replaceFrontmatter(content, fm);
   if (next === content) return false;
   await fs.writeFile(filePath, next, 'utf-8');
   return true;
@@ -535,16 +537,4 @@ function isSessionNarrative(content: string, slug: string): boolean {
     if (re.test(slug)) score++;
   }
   return score >= 3;
-}
-
-async function collectAllPages(dir: string, acc: string[] = []): Promise<string[]> {
-  try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    for (const e of entries) {
-      const p = join(dir, e.name);
-      if (e.isDirectory()) await collectAllPages(p, acc);
-      else if (e.isFile() && e.name.endsWith('.md') && e.name !== 'index.md') acc.push(p);
-    }
-  } catch { /* dir doesn't exist */ }
-  return acc;
 }

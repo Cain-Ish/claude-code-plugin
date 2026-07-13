@@ -13,6 +13,8 @@ import { promises as fs } from 'fs';
 import { join, basename } from 'path';
 import { buildAdjacency, labelPropagate, clusters, memberHash, djb2, type ClusterPage } from './graph-cluster.js';
 import { resolveKnowledgeDir } from '../brain-paths.js';
+import { matchFrontmatter, stripFrontmatter } from './frontmatter.js';
+import { walkWiki } from './walk-wiki.js';
 
 function resolveWikiDir(argv: string[]): string {
   if (argv[0] === '--knowledge-dir' && argv[1]) return join(argv[1], 'wiki');
@@ -21,22 +23,8 @@ function resolveWikiDir(argv: string[]): string {
   return join(kd, 'wiki');
 }
 
-async function collect(dir: string, acc: string[] = []): Promise<string[]> {
-  let entries;
-  try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return acc; }
-  for (const e of entries) {
-    const p = join(dir, e.name);
-    // Skip generated MOC dirs (projects/, themes/): they are pure [[slug]] hubs over their
-    // members, so clustering them would re-introduce exactly the hubs the MOC layer removes.
-    if (e.isDirectory()) { if (!e.name.startsWith('.') && e.name !== 'projects' && e.name !== 'themes') await collect(p, acc); }
-    else if (e.name.endsWith('.md') && e.name !== 'index.md') acc.push(p);
-  }
-  return acc;
-}
-
 function frontmatter(content: string): string {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  return m ? m[1] : '';
+  return matchFrontmatter(content)?.fm ?? '';
 }
 function links(text: string): string[] {
   return [...text.matchAll(/\[\[([^\]]+)\]\]/g)].map(m => m[1].split('|')[0].trim()).filter(Boolean);
@@ -57,7 +45,9 @@ function relatedFrom(fm: string): string[] {
 async function main(): Promise<void> {
   const wikiDir = resolveWikiDir(process.argv.slice(2));
   const minSize = parseInt(process.env.SB_SUMMARIZE_MIN_CLUSTER ?? '4', 10) || 4;
-  const files = await collect(wikiDir);
+  // Skip generated MOC dirs (projects/, themes/): they are pure [[slug]] hubs over their
+  // members, so clustering them would re-introduce exactly the hubs the MOC layer removes.
+  const files = await walkWiki(wikiDir, { skipHidden: true, skipDirs: ['projects', 'themes'] });
   const pages: ClusterPage[] = [];
   const contentHash: Record<string, string> = {};
   for (const f of files) {
@@ -74,7 +64,7 @@ async function main(): Promise<void> {
     // every dream) and when `reflection-<id>` sorts lexicographically first it BECOMES the
     // cluster id, spawning reflection-reflection-<id>/theme-reflection-<id> pages each run.
     if (/^generated:[ \t]*true\b/m.test(fm)) continue;
-    const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, '');
+    const body = stripFrontmatter(content);
     pages.push({ slug, related: relatedFrom(fm), bodyLinks: [...new Set(links(body))] });
     contentHash[slug] = djb2(content);
   }

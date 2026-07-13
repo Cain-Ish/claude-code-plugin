@@ -6,8 +6,6 @@ disable-model-invocation: true
 allowed-tools: Read Write Edit Bash(test *) Bash(ls *) Bash(cat *) Bash(wc *) Bash(date *) Bash(grep *) Bash(find *) Bash(basename *) Bash(tr *) Bash(git rev-parse:*) mcp__plugin_second-brain_knowledge-base__pin_to_user mcp__plugin_second-brain_knowledge-base__pin_to_project
 ---
 
-<!-- user instruction verbatim: "1" -->
-
 # Import host
 
 Bootstrap the v1.0 hot tier (`USER.md` + `PROJECT.md`) from AI-context files you've already written for Claude Code, Aider, Cursor, Continue, Windsurf, or AGENTS.md (the OpenCode/agent-rules standard). The skill is read-only against your host files and explicit-confirm against second-brain writes.
@@ -77,7 +75,11 @@ If `~/.second-brain/USER.md` does not exist yet, the first `pin_to_user` call wi
 For files (or slices) categorized as project-level, resolve the active project slug:
 
 ```bash
-SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+# Monorepo-aware detection (same idiom as the setup skill): source lib.sh for sb_detect_project.
+. "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh"
+_det=$(sb_detect_project "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+IFS=$'\t' read -ra _det_fields <<< "$_det"
+SLUG="${_det_fields[0]:-}"
 ```
 
 If `~/.second-brain/projects/$SLUG/PROJECT.md` does not exist, instruct the user to run `/second-brain:setup` first — this skill fills in content but does not scaffold the file.
@@ -116,5 +118,5 @@ Suggest follow-ups: `/second-brain:lint` (catch any orphan or dead references in
 
 - This is a **bootstrap** skill — it is most useful right after `/second-brain:setup`. Re-running it later is safe but will mostly hit the duplicate-skip path.
 - The skill never deletes or modifies your host files (`~/CLAUDE.md`, `.cursorrules`, etc.). They stay where they are.
-- All writes go through the v1.0 MCP tools (`pin_to_user`, `pin_to_project`) or direct `Edit`s on `PROJECT.md`. There is no critic-gate, no persona/quality-rules file, no `archive_to_wiki` invocation here — those are explicit user actions handled by `/second-brain:improve`.
-- Hot-tier cap reminder: USER.md ≤ 15 lines (enforced by `pin_to_user`); USER.md + PROJECT.md combined ~3200 bytes target. If a proposed import would push over, distill harder before re-trying.
+- All writes go through the v1.0 MCP tools (`pin_to_user`, `pin_to_project`) or direct `Edit`s on `PROJECT.md`. There is no critic-gate, no persona/quality-rules file, no `archive_to_wiki` invocation here — graduating resolved entries (`archive_to_wiki`) stays an explicit user request, and session-insight capture is automatic (Stop-hook extraction + dream consolidation).
+- Hot-tier cap reminder: USER.md ≤ 15 lines (enforced by `pin_to_user`). The byte-size contract (USER.md ~3200 B target; emit caps 6000/3000; 8000 B SessionStart budget) lives in the `setup` skill. If a proposed import would push over, distill harder before re-trying.

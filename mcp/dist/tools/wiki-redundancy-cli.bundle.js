@@ -1,6 +1,6 @@
 // src/tools/wiki-redundancy-cli.ts
-import { promises as fs } from "fs";
-import { join as join2, basename, dirname } from "path";
+import { promises as fs2 } from "fs";
+import { join as join3, basename, dirname } from "path";
 
 // src/tools/graph-cluster.ts
 function djb2(s) {
@@ -22,6 +22,16 @@ function stripInvisible(s) {
   return s.replace(INVISIBLE_RE, "");
 }
 
+// src/tools/frontmatter.ts
+function matchFrontmatter(content) {
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  return m ? { fm: m[1], body: m[2] } : null;
+}
+function stripFrontmatter(content) {
+  const m = matchFrontmatter(content);
+  return m ? m.body : content;
+}
+
 // src/tools/minhash.ts
 var SHINGLE_K = 3;
 var NUM_HASHES = 128;
@@ -41,7 +51,7 @@ var B = new Uint32Array(NUM_HASHES);
 }
 function proseTokens(content) {
   let t = stripAiBlock(stripInvisible(content));
-  t = t.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
+  t = stripFrontmatter(t);
   t = t.replace(/<!--\s*theme:begin[\s\S]*?theme:end\s*-->/g, "");
   t = t.replace(/<!--\s*graph:begin[\s\S]*?graph:end\s*-->/g, "");
   t = t.replace(/\[\[([^\]]+)\]\]/g, " ");
@@ -111,18 +121,18 @@ function cleanEnvPath(s) {
 // src/brain-paths.ts
 function resolveKnowledgeDir(override) {
   if (override) return override;
-  return cleanEnvPath(
-    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR || process.env.KNOWLEDGE_DIR
-  ) || join(homedir(), "knowledge");
+  for (const raw of [process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR, process.env.KNOWLEDGE_DIR]) {
+    const c = cleanEnvPath(raw);
+    if (!c.trim() || c.includes("${")) continue;
+    return c.startsWith("~") ? join(homedir(), c.slice(1)) : c;
+  }
+  return join(homedir(), "knowledge");
 }
 
-// src/tools/wiki-redundancy-cli.ts
-function resolveWikiDir(argv) {
-  if (argv[0] === "--knowledge-dir" && argv[1]) return join2(argv[1], "wiki");
-  if (argv[0]) return argv[0];
-  return join2(resolveKnowledgeDir(), "wiki");
-}
-async function collect(dir, acc = []) {
+// src/tools/walk-wiki.ts
+import { promises as fs } from "fs";
+import { join as join2 } from "path";
+async function walkWiki(dir, opts = {}, acc = []) {
   let entries;
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
@@ -130,12 +140,23 @@ async function collect(dir, acc = []) {
     return acc;
   }
   for (const e of entries) {
+    if (opts.skipHidden && e.name.startsWith(".")) continue;
     const p = join2(dir, e.name);
     if (e.isDirectory()) {
-      if (!e.name.startsWith(".") && e.name !== "projects" && e.name !== "themes") await collect(p, acc);
-    } else if (e.name.endsWith(".md") && e.name !== "index.md") acc.push(p);
+      if (opts.skipDirs?.includes(e.name)) continue;
+      await walkWiki(p, opts, acc);
+    } else if (e.isFile() && e.name.endsWith(".md") && (opts.includeIndex || e.name !== "index.md")) {
+      acc.push(opts.posix ? p.replace(/\\/g, "/") : p);
+    }
   }
   return acc;
+}
+
+// src/tools/wiki-redundancy-cli.ts
+function resolveWikiDir(argv) {
+  if (argv[0] === "--knowledge-dir" && argv[1]) return join3(argv[1], "wiki");
+  if (argv[0]) return argv[0];
+  return join3(resolveKnowledgeDir(), "wiki");
 }
 function envFloat(name, def, lo, hi) {
   const v = parseFloat(process.env[name] ?? "");
@@ -146,12 +167,12 @@ async function main() {
   const threshold = envFloat("SB_REDUNDANCY_THRESHOLD", 0.7, 0.01, 1);
   const mp = parseInt(process.env.SB_REDUNDANCY_MAX_PAIRS ?? "", 10);
   const maxPairs = Math.max(1, Number.isNaN(mp) ? 50 : mp);
-  const files = await collect(wikiDir);
+  const files = await walkWiki(wikiDir, { skipHidden: true, skipDirs: ["projects", "themes"] });
   const pages = [];
   for (const f of files) {
     let content = "";
     try {
-      content = await fs.readFile(f, "utf-8");
+      content = await fs2.readFile(f, "utf-8");
     } catch {
       continue;
     }

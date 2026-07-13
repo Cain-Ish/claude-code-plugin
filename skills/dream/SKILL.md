@@ -200,8 +200,9 @@ if [ "${SB_WIKI_FORGET:-on}" != "off" ]; then
 fi
 ```
 
-The selector scores offline signals (access/recency/connectivity/category — no
-embeddings), takes `score < SB_FORGET_FLOOR` (default 0.15), unprotected, capped at
+The selector scores structural importance only — connectivity + category weight (no
+embeddings; access counts and recency are telemetry, never scored — age survives only as
+the <30d PROTECT floor and a sort tie-break). It takes `score < SB_FORGET_FLOOR` (default 0.15), unprotected, capped at
 `SB_FORGET_MAX_PER_DREAM` (default 5), and drops any page its live recall-probe shows is
 the UNIQUE answer to its topic. If `$n > 0`, add a `## Proposed archives (N)` section to
 `diff.md` listing the staged slugs so they're reviewed alongside the consolidation.

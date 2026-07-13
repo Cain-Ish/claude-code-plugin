@@ -6,8 +6,15 @@ import { embedTexts, cosineSimilarity } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge } from './graph-store.js';
-import { parseAiBlock, stripAiBlock, aiBlockSnippet } from './ai-block.js';
+import { stripAiBlock, aiBlockSnippet } from './ai-block.js';
 import { projectFamily } from './project-registry.js';
+import { parseDoc, ParsedDoc } from './frontmatter.js';
+import { walkWiki } from './walk-wiki.js';
+
+// Frontmatter parsing moved to ./frontmatter.ts (single source); re-exported
+// here for back-compat — existing importers keep working unchanged.
+export { parseDoc, extractYamlValue, extractYamlList } from './frontmatter.js';
+export type { ParsedDoc } from './frontmatter.js';
 
 /** Concatenated ai-block field VALUES for BM25 tokenization (the proposition-level unit). */
 function aiBlockText(doc: ParsedDoc): string { return doc.aiBlock ? Object.values(doc.aiBlock).join(' ') : ''; }
@@ -54,21 +61,6 @@ export interface KnowledgeSearchResult {
   }[];
   /** Present when ONNX embeddings were unavailable — ranking fell back to BM25(+graph) only (R2.3). */
   degraded?: 'bm25-only';
-}
-
-export interface ParsedDoc {
-  title: string;
-  description: string;
-  type: string;
-  tags: string[];
-  related: string[];
-  body: string;
-  path: string;
-  updated: string;
-  created: string;
-  project: string;
-  area: string;
-  aiBlock?: Record<string, string>;
 }
 
 interface AccessCounts { [slug: string]: { count: number; last_accessed: string } }
@@ -132,8 +124,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   const allDocs: { doc: ParsedDoc; rawContent: string; source: 'wiki' | 'local-doc'; tokens: number }[] = [];
 
   for (const dir of scopeDirs) {
-    let paths: string[] = [];
-    try { paths = await collectMarkdown(dir); } catch { continue; }
+    const paths = await walkWiki(dir, { posix: true });   // posix: result paths are the /-separated contract
     for (const filePath of paths) {
       try {
         const content = await fs.readFile(filePath, 'utf-8');
@@ -157,13 +148,19 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   if (allDocs.length === 0) return { candidates: [] };
 
-  const avgDL = allDocs.reduce((sum, { doc }) => sum + tokenize(stripAiBlock(doc.body)).length, 0) / allDocs.length || AVG_DOC_LENGTH;
+  // Tokenize each doc ONCE into per-field token-count maps (the old hot path
+  // re-tokenized every doc for every query token — O(Q×N×L)). Reused for
+  // avgDL, DF, BM25 scoring, and the stub check; the math is identical to the
+  // per-call tokenization it replaces (locked by the ranking-regression test).
+  const indexed = allDocs.map(({ doc }) => indexDoc(doc));
+
+  const avgDL = indexed.reduce((sum, d) => sum + d.bodyLen, 0) / allDocs.length || AVG_DOC_LENGTH;
 
   const N = allDocs.length;
-  const dfMap = computeDF(queryTokens, allDocs.map(({ doc }) => doc));
+  const dfMap = computeDF(queryTokens, indexed);
 
-  const scored = allDocs.map(({ doc, rawContent, source, tokens }) => {
-    const bm25 = scoreBM25(queryTokens, doc, avgDL, N, dfMap);
+  const scored = allDocs.map(({ doc, rawContent, source, tokens }, i) => {
+    const bm25 = scoreBM25(queryTokens, indexed[i], avgDL, N, dfMap);
     return {
       path: doc.path,
       tier: 0,   // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
@@ -299,8 +296,8 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // Stub penalty: auto-extracted skeletons and very short pages rank below real content
   for (let i = 0; i < scored.length; i++) {
     if (allDocs[i].source === 'local-doc') continue;
-    const { doc, rawContent } = allDocs[i];
-    if (AUTO_EXTRACTED_RE.test(rawContent) || stripAiBlock(doc.body).trim().length < MIN_SUBSTANTIVE_LENGTH) {
+    const { rawContent } = allDocs[i];
+    if (AUTO_EXTRACTED_RE.test(rawContent) || indexed[i].strippedBody.trim().length < MIN_SUBSTANTIVE_LENGTH) {
       scored[i].score *= STUB_PENALTY;
     }
   }
@@ -392,148 +389,57 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   return { candidates, ...(embeddingsActive ? {} : { degraded: 'bm25-only' as const }) };
 }
 
-function computeDF(queryTokens: string[], docs: ParsedDoc[]): Map<string, number> {
+interface FieldIndex { counts: Map<string, number>; len: number; weight: number }
+interface DocIndex { fields: FieldIndex[]; terms: Set<string>; strippedBody: string; bodyLen: number }
+
+function toCounts(s: string): { counts: Map<string, number>; len: number } {
+  const toks = tokenize(s);
+  const counts = new Map<string, number>();
+  for (const t of toks) counts.set(t, (counts.get(t) ?? 0) + 1);
+  return { counts, len: toks.length };
+}
+
+/** One-pass per-doc index over the same 5 fields/weights scoreBM25 always used. */
+function indexDoc(doc: ParsedDoc): DocIndex {
+  const strippedBody = stripAiBlock(doc.body);
+  const fields = [
+    { text: doc.title, weight: 3.0 },
+    { text: doc.description, weight: 2.0 },
+    { text: doc.tags.join(' '), weight: 2.0 },
+    { text: aiBlockText(doc), weight: 1.5 },   // proposition-level shared intermediate
+    { text: strippedBody, weight: 1.0 },       // prose body (block excluded → no double-count)
+  ].map(({ text, weight }) => ({ ...toCounts(text), weight }));
+  const terms = new Set<string>();
+  for (const f of fields) for (const t of f.counts.keys()) terms.add(t);
+  return { fields, terms, strippedBody, bodyLen: fields[4].len };
+}
+
+function computeDF(queryTokens: string[], docs: DocIndex[]): Map<string, number> {
   const dfMap = new Map<string, number>();
   for (const qt of queryTokens) {
     if (isDateToken(qt)) continue;
     let df = 0;
-    for (const doc of docs) {
-      const allTokens = [
-        ...tokenize(doc.title), ...tokenize(doc.description),
-        ...tokenize(doc.tags.join(' ')), ...tokenize(stripAiBlock(doc.body)), ...tokenize(aiBlockText(doc)),
-      ];
-      if (allTokens.includes(qt)) df++;
-    }
+    for (const d of docs) if (d.terms.has(qt)) df++;
     dfMap.set(qt, df);
   }
   return dfMap;
 }
 
-function scoreBM25(queryTokens: string[], doc: ParsedDoc, avgDL: number, N: number, dfMap: Map<string, number>): number {
-  const fields = [
-    { tokens: tokenize(doc.title), weight: 3.0 },
-    { tokens: tokenize(doc.description), weight: 2.0 },
-    { tokens: tokenize(doc.tags.join(' ')), weight: 2.0 },
-    { tokens: tokenize(aiBlockText(doc)), weight: 1.5 },          // proposition-level shared intermediate
-    { tokens: tokenize(stripAiBlock(doc.body)), weight: 1.0 },    // prose body (block excluded → no double-count)
-  ];
-
+function scoreBM25(queryTokens: string[], doc: DocIndex, avgDL: number, N: number, dfMap: Map<string, number>): number {
   let score = 0;
   for (const qt of queryTokens) {
     if (isDateToken(qt)) continue;
     const df = dfMap.get(qt) ?? 0;
     const idf = Math.log((N - df + 0.5) / (df + 0.5) + 1);
-    for (const field of fields) {
-      const tf = field.tokens.filter(t => t === qt).length;
+    for (const field of doc.fields) {
+      const tf = field.counts.get(qt) ?? 0;
       if (tf === 0) continue;
-      const dl = field.tokens.length || 1;
+      const dl = field.len || 1;
       const tfNorm = (tf * (BM25_K1 + 1)) / (tf + BM25_K1 * (1 - BM25_B + BM25_B * dl / avgDL));
       score += idf * tfNorm * field.weight;
     }
   }
   return Math.round(score * 100) / 100;
-}
-
-export function parseDoc(content: string, filePath: string): ParsedDoc {
-  const doc: ParsedDoc = {
-    title: '', description: '', type: '', tags: [], related: [], body: content, path: filePath,
-    updated: '', created: '', project: '', area: '',
-  };
-
-  let hasRelatedKey = false;   // P1: distinguish an explicit `related: []` from an ABSENT key
-  // CRLF-tolerant (0.28.3): a wiki page hand-edited on Windows / checked out with
-  // autocrlf has `---\r\n` fences; an LF-only `^---\n` silently misses the whole
-  // frontmatter (title/type/related lost from search). `\r?\n` matches both.
-  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (fmMatch) {
-    const fm = fmMatch[1];
-    doc.body = fmMatch[2];
-    doc.title = extractYamlValue(fm, 'title');
-    doc.description = extractYamlValue(fm, 'description');
-    doc.type = extractYamlValue(fm, 'type');
-    doc.tags = extractYamlList(fm, 'tags');
-    doc.related = extractYamlList(fm, 'related');
-    hasRelatedKey = /^related:/m.test(fm);
-    doc.updated = extractYamlValue(fm, 'updated');
-    doc.created = extractYamlValue(fm, 'created');
-    doc.project = extractYamlValue(fm, 'project');
-    doc.area = extractYamlValue(fm, 'area');
-  }
-
-  if (!doc.title) {
-    const headingMatch = doc.body.match(/^#\s+(.+)/m);
-    if (headingMatch) doc.title = headingMatch[1].trim();
-  }
-
-  if (!doc.type) {
-    const rel = filePath.split('/');
-    const wikiIdx = rel.lastIndexOf('wiki');
-    if (wikiIdx >= 0 && wikiIdx + 1 < rel.length) {
-      doc.type = rel[wikiIdx + 1];
-    }
-  }
-
-  doc.aiBlock = parseAiBlock(content) ?? undefined;
-
-  if (!hasRelatedKey) {
-    // P1: scrape body [[links]] ONLY when the related: KEY is ABSENT — an explicit
-    // `related: []` is authoritative (it is the projector's canonical cleaned form
-    // for an edgeless page; re-filling it from body links would resurrect false
-    // related_drift + phantom boosts on exactly the pages the projector just cleaned).
-    // Strip the ai-block first (block values are plain slugs; a stray bracket there
-    // must not pollute related:).
-    const wikiLinks = stripAiBlock(doc.body).match(/\[\[([^\]]+)\]\]/g);
-    if (wikiLinks) {
-      doc.related = [...new Set(wikiLinks.map(l => l.slice(2, -2)))];
-    }
-  }
-
-  return doc;
-}
-
-export function extractYamlValue(yaml: string, key: string): string {
-  // `(.*?)` not `(.+?)`: an empty quoted value `key: ""` must parse to '' — with
-  // `.+?` the opening quote is eaten by `['"]?` and the closing quote becomes the
-  // captured value (`"`), which then leaks into MOC descriptions and breaks reindex
-  // idempotency once a page carries `description: ""`.
-  const re = new RegExp(`^${key}:\\s*['"]?(.*?)['"]?\\s*$`, 'm');
-  const m = yaml.match(re);
-  return m ? m[1].trim() : '';
-}
-
-export function extractYamlList(yaml: string, key: string): string[] {
-  // The wiki uses a non-standard `related: [[slug]], [[other]]` convention for
-  // wiki-links in frontmatter. The naive `^key:\s*\[(.+?)\]` regex misparses
-  // these as YAML inline lists, capturing `[slug` (with leading bracket) and
-  // breaking every link-validity check. Detect the wikilink convention first
-  // and extract `[[slug]]` tokens directly; only fall through to the standard
-  // YAML inline / block parsers if no wikilinks are present on the line.
-  const lineMatch = yaml.match(new RegExp(`^${key}:[ \\t]+(\\S.*?)\\s*$`, 'm'));
-  if (lineMatch) {
-    const value = lineMatch[1];
-    const wikiLinks = value.match(/\[\[([^\]\[]+)\]\]/g);
-    if (wikiLinks && wikiLinks.length > 0) {
-      return [...new Set(
-        wikiLinks.map(l => l.slice(2, -2).trim()).filter(Boolean)
-      )];
-    }
-  }
-  const inline = yaml.match(new RegExp(`^${key}:\\s*\\[(.+?)\\]`, 'm'));
-  if (inline) {
-    return inline[1].split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
-  }
-  const items: string[] = [];
-  const lines = yaml.split('\n');
-  let collecting = false;
-  for (const line of lines) {
-    if (line.match(new RegExp(`^${key}:`))) { collecting = true; continue; }
-    if (collecting) {
-      const itemMatch = line.match(/^\s+-\s+(.+)/);
-      if (itemMatch) { items.push(itemMatch[1].trim().replace(/^['"]|['"]$/g, '')); }
-      else { collecting = false; }
-    }
-  }
-  return items;
 }
 
 function tokenize(s: string): string[] {
@@ -546,13 +452,4 @@ function isDateToken(t: string): boolean {
 
 function slugFromPath(p: string): string {
   return p.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
-}
-
-async function collectMarkdown(dir: string, acc: string[] = []): Promise<string[]> {
-  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) await collectMarkdown(p, acc);
-    else if (e.isFile() && e.name.endsWith('.md') && e.name !== 'index.md') acc.push(p.replace(/\\/g, '/'));
-  }
-  return acc;
 }

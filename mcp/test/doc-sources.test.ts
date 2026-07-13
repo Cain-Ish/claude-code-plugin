@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { extractGist, extractHeadings, hashContent } from '../src/tools/doc-sources.js';
+import { extractGist, extractHeadings } from '../src/tools/doc-sources.js';
+import { hashContent } from '../src/tools/content-hash.js';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';

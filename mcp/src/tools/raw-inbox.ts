@@ -1,6 +1,8 @@
 import { promises as fs } from 'fs';
 import { join, basename, extname } from 'path';
-import { hashContent, assertSafeSlug } from './doc-sources.js';
+import { assertSafeSlug } from '../path-guard.js';
+import { hashContent } from './content-hash.js';
+import { matchFrontmatter, FM_OPEN_RE } from './frontmatter.js';
 import { stripInvisible } from './sanitize.js';
 import { signatureOf, jaccardEstimate, isEmptySignature } from './minhash.js';
 // Re-exported for back-compat: existing importers (and raw-inbox.test.ts) import stripInvisible
@@ -96,13 +98,13 @@ function serialize(item: RawItem): string {
 
 /** Tolerant flat-frontmatter parse. id comes from the filename (authoritative). */
 function parse(content: string, id: string): RawItem {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const m = matchFrontmatter(content);
   const base: RawItem = {
     id, source: '', captured_at: '', captured_by: 'user', content_type: '',
     status: 'unprocessed', hash: '', gist: '', body: '',
   };
   if (!m) { return { ...base, body: content, malformed: true }; }
-  const [, fmText, body] = m;
+  const { fm: fmText, body } = m;
   const get = (k: string): string | undefined => {
     const mm = fmText.match(new RegExp(`^${k}:[ \\t]*(.*)$`, 'm'));
     return mm ? mm[1].trim() : undefined;
@@ -178,7 +180,7 @@ export async function setStatus(brainDir: string, slug: string, id: string, stat
   try { content = await fs.readFile(file, 'utf-8'); } catch { return false; }
   const next = /^status:[ \t]*.*$/m.test(content)
     ? content.replace(/^status:[ \t]*.*$/m, `status: ${status}`)
-    : content.replace(/^---\r?\n/, `---\nstatus: ${status}\n`);
+    : content.replace(FM_OPEN_RE, `---\nstatus: ${status}\n`);
   const tmp = `${file}.tmp`;
   await fs.writeFile(tmp, next);
   await fs.rename(tmp, file); // atomic
@@ -195,7 +197,7 @@ export async function markProcessed(brainDir: string, slug: string, id: string, 
   try { content = await fs.readFile(file, 'utf-8'); } catch { return false; }
   let next = /^status:[ \t]*.*$/m.test(content)
     ? content.replace(/^status:[ \t]*.*$/m, 'status: processed')
-    : content.replace(/^---\r?\n/, '---\nstatus: processed\n');
+    : content.replace(FM_OPEN_RE, '---\nstatus: processed\n');
   if (nodeSlug) {
     const tn = `target_node: ${fmValue(nodeSlug)}`;
     next = /^target_node:[ \t]*.*$/m.test(next)

@@ -57,8 +57,7 @@ if [ ! -f "$MCP_DIST" ]; then
 fi
 
 # Check 4b: knowledge wiki dir exists.
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 WIKI_DIR="$KNOWLEDGE_DIR/wiki"
 if [ ! -d "$WIKI_DIR" ]; then
   FAILS+=("verify: FAIL: wiki — directory missing at $WIKI_DIR (run /second-brain:setup)")

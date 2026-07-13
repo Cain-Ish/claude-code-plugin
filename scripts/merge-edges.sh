@@ -17,8 +17,8 @@ while [ $# -gt 0 ]; do
     *) echo "merge-edges: unknown arg: $1" >&2; exit 2 ;;
   esac
 done
-[ -z "$KNOWLEDGE_DIR" ] && KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+[ -z "$KNOWLEDGE_DIR" ] && KNOWLEDGE_DIR="$(sb_knowledge_dir)"
+KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"   # re-expand: a --knowledge-dir arg may carry a literal ~
 WIKI="$KNOWLEDGE_DIR/wiki"
 GRAPH_DIR="$KNOWLEDGE_DIR/graph"
 LOG="$GRAPH_DIR/edges.jsonl"

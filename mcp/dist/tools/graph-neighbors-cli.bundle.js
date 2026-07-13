@@ -93,6 +93,21 @@ function neighbors(edges, slug2, opts = {}) {
   const asOf = opts.asOf ?? (/* @__PURE__ */ new Date()).toISOString();
   const typeOk = (t) => !opts.edgeTypes || opts.edgeTypes.includes(t);
   const live = edges.filter((e) => validAt(e, asOf) && typeOk(e.type));
+  const adj = /* @__PURE__ */ new Map();
+  const push = (k, v) => {
+    let list = adj.get(k);
+    if (!list) {
+      list = [];
+      adj.set(k, list);
+    }
+    list.push(v);
+  };
+  for (const e of live) {
+    if (direction2 === "out" || direction2 === "both") push(e.from, { e, other: e.to });
+    if ((direction2 === "in" || direction2 === "both") && !(direction2 === "both" && e.from === e.to)) {
+      push(e.to, { e, other: e.from });
+    }
+  }
   const best = /* @__PURE__ */ new Map();
   const seen = /* @__PURE__ */ new Set([slug2]);
   let frontier = [{ node: slug2, hop: 0 }];
@@ -100,11 +115,7 @@ function neighbors(edges, slug2, opts = {}) {
     const next = [];
     for (const { node, hop } of frontier) {
       if (hop >= depth2) continue;
-      for (const e of live) {
-        let other = null;
-        if ((direction2 === "out" || direction2 === "both") && e.from === node) other = e.to;
-        else if ((direction2 === "in" || direction2 === "both") && e.to === node) other = e.from;
-        if (other === null) continue;
+      for (const { e, other } of adj.get(node) ?? []) {
         const id = identity(e);
         const row = {
           from: e.from,

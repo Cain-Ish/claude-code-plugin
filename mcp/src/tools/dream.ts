@@ -2,11 +2,10 @@ import { promises as fs } from "fs";
 import { existsSync } from "fs";
 import { atomicWriteJson } from './atomic-write.js';
 import { cleanEnvPath } from '../path-guard.js';
-import { resolveBrainDir } from '../brain-paths.js';
+import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { projectFamily } from './project-registry.js';
 import { join, basename } from "path";
-import { homedir } from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
@@ -70,17 +69,6 @@ export function resolveBashExePure(
  *  On POSIX, returns "bash" unchanged. */
 export function resolveBashExe(): string {
   return resolveBashExePure(process.platform, existsSync, process.env as Record<string, string | undefined>);
-}
-
-function resolveKnowledgeDir(): string {
-  const raw = cleanEnvPath(
-    process.env.KNOWLEDGE_DIR ?? process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
-  );
-  const home = homedir();
-  if (raw && raw.trim() && !raw.includes("${")) {
-    return raw.startsWith("~") ? join(home, raw.slice(1)) : raw;
-  }
-  return join(home, "knowledge");
 }
 
 interface DreamStatus {

@@ -6067,13 +6067,17 @@ glob.glob = glob;
 function cleanEnvPath(s) {
   return (s ?? "").replace(/[\r\n]/g, "");
 }
-
-// src/tools/doc-sources.ts
 function assertSafeSlug(slug) {
   if (!slug || slug.length > 128 || /[\\/\x00-\x1f]|\.\./.test(slug)) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
   }
 }
+
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
+
+// src/tools/doc-sources.ts
 async function readConfig(brainDir, slug) {
   try {
     const j2 = JSON.parse(await fs.readFile(join(brainDir, "projects", slug, "doc-sources.config.json"), "utf-8"));

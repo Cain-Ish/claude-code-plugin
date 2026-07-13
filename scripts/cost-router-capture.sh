@@ -22,7 +22,18 @@ set -u
 _BRAIN_DIR="${SB_BRAIN_DIR:-${BRAIN_DIR:-$HOME/.second-brain}}"
 _EVENTS="${COST_ROUTER_EVENTS:-$_BRAIN_DIR/cost-router-events.jsonl}"
 
+# ── Guard: no-op when events file absent — BEFORE sourcing lib.sh ─────────────
+# lib.sh is ~330ms+ to source; on every Stop hook the overwhelmingly common case
+# is "cost-router not installed" → this events file simply does not exist. Bail
+# here so the Stop hook pays nothing. The check depends ONLY on $_EVENTS
+# (COST_ROUTER_EVENTS env, or $_BRAIN_DIR resolved above) — neither needs lib.sh.
+if [ ! -f "$_EVENTS" ]; then
+  exit 0
+fi
+
 # Knowledge dir: SB_KNOWLEDGE_DIR > KNOWLEDGE_DIR > CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR > $HOME/knowledge
+# (resolved here, still ahead of the source, so it keeps its SB_KNOWLEDGE_DIR alias precedence —
+#  intentionally NOT sb_knowledge_dir, which has no SB_KNOWLEDGE_DIR tier and isn't defined yet.)
 _KDIR="${SB_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}}"
 _KDIR="${_KDIR/#\~/$HOME}"
 
@@ -31,12 +42,6 @@ _OUT="$_KDIR/wiki/state/cost-routing-patterns.md"
 # lib.sh provides sb_write_generated_page (born-valid frontmatter; R5.1).
 # Defensive source: a missing lib must not break the Stop hook.
 if ! source "$(dirname "$0")/lib.sh" 2>/dev/null; then
-  exit 0
-fi
-
-# ── Guard: no-op when events file absent ─────────────────────────────────────
-
-if [ ! -f "$_EVENTS" ]; then
   exit 0
 fi
 

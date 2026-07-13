@@ -12,24 +12,12 @@ import { promises as fs } from 'fs';
 import { join, basename, dirname } from 'path';
 import { shingles, minhashSignature, nearDuplicatePairs, type PageSig } from './minhash.js';
 import { resolveKnowledgeDir } from '../brain-paths.js';
+import { walkWiki } from './walk-wiki.js';
 
 function resolveWikiDir(argv: string[]): string {
   if (argv[0] === '--knowledge-dir' && argv[1]) return join(argv[1], 'wiki');
   if (argv[0]) return argv[0];
   return join(resolveKnowledgeDir(), 'wiki');
-}
-
-async function collect(dir: string, acc: string[] = []): Promise<string[]> {
-  let entries;
-  try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return acc; }
-  for (const e of entries) {
-    const p = join(dir, e.name);
-    // Skip generated MOC dirs (projects/, themes/): they are regenerable [[slug]] hubs, not authored
-    // prose — and themes are FORGET-protected, so flagging them as duplicates is pure noise.
-    if (e.isDirectory()) { if (!e.name.startsWith('.') && e.name !== 'projects' && e.name !== 'themes') await collect(p, acc); }
-    else if (e.name.endsWith('.md') && e.name !== 'index.md') acc.push(p);
-  }
-  return acc;
 }
 
 function envFloat(name: string, def: number, lo: number, hi: number): number {
@@ -42,7 +30,9 @@ async function main(): Promise<void> {
   const threshold = envFloat('SB_REDUNDANCY_THRESHOLD', 0.7, 0.01, 1);
   const mp = parseInt(process.env.SB_REDUNDANCY_MAX_PAIRS ?? '', 10);
   const maxPairs = Math.max(1, Number.isNaN(mp) ? 50 : mp); // NaN -> 50; never silently turn 0 into 50
-  const files = await collect(wikiDir);
+  // Skip generated MOC dirs (projects/, themes/): they are regenerable [[slug]] hubs, not authored
+  // prose — and themes are FORGET-protected, so flagging them as duplicates is pure noise.
+  const files = await walkWiki(wikiDir, { skipHidden: true, skipDirs: ['projects', 'themes'] });
   const pages: PageSig[] = [];
   for (const f of files) {
     let content = '';

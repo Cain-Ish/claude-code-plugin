@@ -2,8 +2,7 @@
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 source "$(dirname "$0")/lib.sh"
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 
 mkdir -p "$BRAIN_DIR/projects"
 mkdir -p "$BRAIN_DIR/regressions"
@@ -76,7 +75,19 @@ WIKI_INDEX="$KNOWLEDGE_DIR/wiki/index.md"
 if [ ! -f "$WIKI_INDEX" ]; then
   sb_reindex_wiki "$KNOWLEDGE_DIR"
 else
-  sb_validate_wiki "$KNOWLEDGE_DIR"
+  # Throttle the full-wiki validate+autofix to once per 24h. It is a SYNCHRONOUS
+  # node spawn that ran on EVERY SessionStart (startup|resume|clear) — pure
+  # latency for a wiki that rarely drifts between sessions. Stamp mtime is the
+  # clock, the same >86400s age idiom as session-load.sh's stale-index reindex
+  # (855-865). First run (no stamp) always validates; the fresh-wiki reindex
+  # path above is untouched. Fail-soft: the count on stdout is dropped so it
+  # never leaks into SessionStart context.
+  _EV_STAMP="$BRAIN_DIR/.last-ensure-validate"
+  _EV_AGE=$(( $(date +%s) - $(sb_mtime "$_EV_STAMP") ))
+  if [ ! -f "$_EV_STAMP" ] || [ "$_EV_AGE" -gt 86400 ]; then
+    sb_validate_wiki "$KNOWLEDGE_DIR" >/dev/null 2>&1
+    : > "$_EV_STAMP"   # stamp AFTER the run so the next 24h window starts here
+  fi
 fi
 
 exit 0

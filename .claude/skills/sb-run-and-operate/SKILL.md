@@ -18,10 +18,11 @@ description: >
 
 # sb-run-and-operate — install, run, upgrade, operate
 
-Everything here is verified against the working tree at plugin version **0.33.31 (2026-07-05,
-commit 6fba312 + the uncommitted 0.33.31 release batch)**. Commands are bash, run from the repo
-root unless they use `$CLAUDE_PLUGIN_ROOT` (the installed plugin's cache dir; inside this repo,
-the repo root works for both). Platform-specific commands are flagged.
+Everything here is verified against the working tree at plugin version **0.33.37 (2026-07-13;
+counts, versions, and surface tables re-verified — deeper cites last fully verified at
+0.33.31)**. Commands are bash, run from the repo root unless they use `$CLAUDE_PLUGIN_ROOT`
+(the installed plugin's cache dir; inside this repo, the repo root works for both).
+Platform-specific commands are flagged.
 
 ## 0. Terms used throughout (defined once)
 
@@ -29,7 +30,7 @@ the repo root works for both). Platform-specific commands are flagged.
 |---|---|
 | **BRAIN_DIR** | `~/.second-brain` — private machine state (registry, transcripts, dreams, logs, config). Env override `BRAIN_DIR` / `SB_BRAIN_DIR`. |
 | **KNOWLEDGE_DIR** | `~/knowledge` — the knowledge tier (`wiki/` + `graph/`). Set by the `knowledge_dir` plugin option, delivered as env `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR`. |
-| **hot tier** | `USER.md` + `projects/<slug>/PROJECT.md` + `projects.jsonl` — the small always-loaded surface injected at SessionStart; combined target ≤ ~3200 bytes (`skills/setup/SKILL.md:11`). |
+| **hot tier** | `USER.md` + `projects/<slug>/PROJECT.md` + `projects.jsonl` — the small always-loaded surface injected at SessionStart. Size contract (USER.md ~3200 B target; emit caps 6000/3000; 8000 B budget) home: `skills/setup/SKILL.md`. |
 | **drainer** | `scripts/extract-drain.sh` — out-of-band job that LLM-extracts archived transcripts a live session could not process; run every 30 min by a per-OS scheduler (§4). |
 | **dream** | Staged background consolidation of the wiki: snapshot → run 7 phases on a **staging copy** → human/auto review → `dream_accept` applies to live (§7). |
 | **FORGET** | Dream phase that proposes low-value pages for **reversible archive** (move to `~/.second-brain/wiki-archive/`, never delete). |
@@ -45,12 +46,13 @@ Inside Claude Code (`README.md:33-37`):
 ```
 
 The marketplace (`.claude-plugin/marketplace.json`) carries two plugins: `second-brain` (source
-`./`, v0.33.31) and `cost-router` (source `./cost-router`, v0.2.2 — §9). Installing second-brain
+`./`, v0.33.37) and `cost-router` (source `./cost-router`, v0.2.2 — §9). Installing second-brain
 wires, via `.claude-plugin/plugin.json`:
 
 - **One MCP server** — `mcpServers: "./.claude-plugin/mcp.json"` → stdio server `knowledge-base`
-  = `node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js`, `alwaysLoad: true`. 21 tools as of
-  0.33.31 (`grep -c 'registerTool(' mcp/src/server.ts`). The bundles under `mcp/dist/` are
+  = `node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js`, `alwaysLoad: true`. 23 tools as of
+  0.33.37 (`grep -c 'registerTool(' mcp/src/server.ts` — `code_map`/`code_neighbors` landed
+  0.33.33). The bundles under `mcp/dist/` are
   **committed**, so a marketplace install needs no build step (`README.md:204`).
 - **Hooks** — declared in `hooks/hooks.json` (not plugin.json), across 8 events: SessionStart
   (dir scaffold + discovery + hot-tier load + dream banner), UserPromptSubmit (persona context),
@@ -190,7 +192,7 @@ Mechanism (`skills/upgrade/SKILL.md`):
 2. Compare with `sort -V`, **never** string compare (`0.24.9 > 0.24.18` lexically).
 3. Apply only migration files `skills/upgrade/migrations/<version>.md` where
    `> INSTALLED AND <= CURRENT`. A version with no file is a marker-bump-only release — most
-   releases; the narrative lives in CHANGELOG.md, which is never context-loaded. As of 0.33.31
+   releases; the narrative lives in CHANGELOG.md, which is never context-loaded. As of 0.33.37
    there are 18 migration files: 0.16.0, 0.20.0, 0.20.1, 0.22.0, 0.24.18, 0.24.28, 0.24.41,
    0.24.42, 0.24.45, 0.24.47, 0.24.48, 0.24.49, 0.24.50, 0.25.0, 0.32.0, 0.33.0, 0.33.18,
    0.33.19.
@@ -266,7 +268,7 @@ Live state check: `ls ~/.second-brain/dreams/ && cat ~/.second-brain/dreams/drm_
 
 ## 8. The user-facing surface
 
-As of 0.33.31: **18 skills** (`ls -d skills/*/ | wc -l`) and **9 agents** (`ls agents/*.md`).
+As of 0.33.37: **18 skills** (`ls -d skills/*/ | wc -l`) and **9 agents** (`ls agents/*.md`).
 Invocation column from each SKILL.md frontmatter: `/` = user slash command
 (`user-invocable: true`), `M` = model may auto-invoke (`disable-model-invocation: false`),
 `docs` = neither (retained as documentation after the 0.27.0/0.29.0 surface collapses).
@@ -306,7 +308,7 @@ Invocation column from each SKILL.md frontmatter: `/` = user slash command
 
 ## 9. cost-router subplugin (one-pager)
 
-Separately installable from the same marketplace (v0.2.2, as of 0.33.31). Entire job: model-tier
+Separately installable from the same marketplace (v0.2.2, as of 0.33.37). Entire job: model-tier
 routing — Opus plans, Sonnet implements, Haiku does mechanical work. Enable = install
 (`/plugin install cost-router@second-brain` + one-time `/cost-router:setup`); disable =
 uninstall. Surface: 2 skills (`setup`, `orchestrate`), 1 command (`model-route`, advisory
@@ -335,17 +337,17 @@ Derived from repo evidence only: `.claude-plugin/{plugin,marketplace,mcp}.json`,
 `skills/dream/SKILL.md`, `scripts/{install-extract-timer,extract-drain,ensure-dirs,dream-accept,
 wiki-restore,session-load,lib}.sh`, `bin/{sb,install-vector-deps.sh}`, `mcp/src/cli/sb.ts`,
 `mcp/src/server.ts`, `cost-router/`. Authored 2026-07-05 against the 0.33.31 working tree
-(HEAD 6fba312 + uncommitted release batch).
+(HEAD 6fba312 + uncommitted release batch); counts/versions re-verified 2026-07-13 at 0.33.37.
 
 Volatile facts — re-verify before trusting counts/versions:
 
 ```bash
-jq -r .version .claude-plugin/plugin.json                      # plugin version (was 0.33.31)
+jq -r .version .claude-plugin/plugin.json                      # plugin version (was 0.33.37)
 jq -r '.plugins[].version' .claude-plugin/marketplace.json     # second-brain + cost-router versions
 ls -d skills/*/ | wc -l                                        # skill count (was 18)
 ls agents/*.md | wc -l                                         # agent count (was 9)
 ls skills/upgrade/migrations/                                  # migration files (was 18)
-grep -c 'registerTool(' mcp/src/server.ts                      # MCP tool count (was 21)
+grep -c 'registerTool(' mcp/src/server.ts                      # MCP tool count (was 23)
 jq -r '.hooks | keys[]' hooks/hooks.json                       # hook events (was 8)
 head -6 skills/*/SKILL.md | grep -E 'name:|invocable|invocation'  # skill invocation flags
 sed -n '30,41p' scripts/ensure-dirs.sh                         # config.json defaults

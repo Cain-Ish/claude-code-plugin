@@ -64,8 +64,7 @@ if [ -z "$SLUG" ]; then log_gate "slug-empty cwd=$CWD pwd=$PWD"; exit 0; fi
 MARKER_KEY=$(sb_extraction_marker_key "$SLUG" "$SESSION_ID")
 
 PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
-KNOWLEDGE_DIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"
+KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 if [ ! -f "$PROJECT_MD" ]; then
   mkdir -p "$(dirname "$PROJECT_MD")"
   cat > "$PROJECT_MD" <<TMPL
