@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { episodicSearch, withActiveScope, scopeAndBroaden } from '../src/tools/episodic-search.js';
+import { episodicSearch, withActiveScope, scopeAndBroaden } from './episodic-search.js';
 
 // SP-1 parity for the episodic tier: when an active project is set, prefer
 // same-project exchanges and suppress other-project noise; broaden only when

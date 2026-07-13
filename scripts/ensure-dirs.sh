@@ -5,7 +5,6 @@ source "$(dirname "$0")/lib.sh"
 KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 
 mkdir -p "$BRAIN_DIR/projects"
-mkdir -p "$BRAIN_DIR/regressions"
 mkdir -p "$BRAIN_DIR/transcripts"
 mkdir -p "$BRAIN_DIR/dreams"
 mkdir -p "$BRAIN_DIR/wiki-archive"

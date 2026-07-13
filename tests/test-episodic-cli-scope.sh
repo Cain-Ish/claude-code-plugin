@@ -4,7 +4,7 @@
 # The episodic CLI must read SB_ACTIVE_SLUG and pass it as activeProject, and
 # persona-context.sh must forward SB_ACTIVE_SLUG to that CLI (as it already does
 # for the knowledge-search CLI). Behavior is covered by the vitest unit test
-# mcp/test/episodic-search-scope.test.ts; this guards the wiring.
+# mcp/src/tools/episodic-search-scope.test.ts; this guards the wiring.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 CLI_SRC="$ROOT/mcp/src/tools/episodic-search-cli.ts"

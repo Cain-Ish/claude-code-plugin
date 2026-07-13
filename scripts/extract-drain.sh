@@ -307,6 +307,24 @@ SCRATCH_ENC=$(printf '%s' "$BRAIN_DIR/scratch" | sed 's|[/.]|-|g')
 for pd in "$HOME/.claude/projects/$SCRATCH_ENC" "$HOME"/.claude/projects/*second-brain-scratch*; do
   [ -d "$pd" ] && find "$pd" -name '*.jsonl' -mtime +3 -delete 2>/dev/null
 done
+# .extraction-state.jsonl ledger GC (state hygiene): the append-only done-set keeps
+# one row per transcript forever, but transcripts are pruned by the 100-file / 5MB
+# archive cap (sb_prune_transcripts) — leaving dead rows that grow the ledger without
+# bound. Rewrite it keeping only rows whose basename still exists under transcripts/.
+# Atomic tmp+mv; a torn/corrupt row is dropped by fromjson? (same tolerance the
+# done/fails readers use). Lossless: a live transcript's terminal state is preserved.
+if [ -s "$STATE" ]; then
+  LIVE_BN=$(ls -1 "$TX_DIR" 2>/dev/null | jq -Rsc 'split("\n") | map(select(length>0))' 2>/dev/null)
+  [ -n "$LIVE_BN" ] || LIVE_BN='[]'
+  STATE_TMP="$STATE.tmp.$$"
+  if jq -cR --argjson live "$LIVE_BN" \
+       'fromjson? | select(.basename as $b | $live | index($b) != null)' \
+       "$STATE" > "$STATE_TMP" 2>/dev/null; then
+    mv "$STATE_TMP" "$STATE" 2>/dev/null || rm -f "$STATE_TMP" 2>/dev/null
+  else
+    rm -f "$STATE_TMP" 2>/dev/null
+  fi
+fi
 
 # Don't clobber a real failure marker: only report ok if anything succeeded.
 # A run where every extraction failed must surface status=fail so the

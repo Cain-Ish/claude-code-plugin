@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { pinToProject } from '../src/tools/pin-to-project.js';
+import { pinToProject } from './pin-to-project.js';
 
 const tpl = `# PROJECT: test
 ## Goal

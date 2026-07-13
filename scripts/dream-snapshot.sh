@@ -68,6 +68,27 @@ for sf in "$DREAMS_DIR"/drm_*/status.json; do
   fi
 done
 
+# Unreviewed-completed cap (state hygiene): a completed dream that is never accepted
+# or discarded holds its ~1MB staging payload forever AND gives no signal it needs
+# review. Refuse to create a NEW dream once >= 3 completed dreams remain unreviewed
+# (archived_at unset) — the operator must dream_accept or dream_discard some first.
+# NEVER deletes anything; the backlog is preserved for review. Loud (sb_log_error +
+# stderr) so the refusal surfaces at the next SessionStart banner and to the caller.
+UNREVIEWED=0
+for csf in "$DREAMS_DIR"/drm_*/status.json; do
+  [ -f "$csf" ] || continue
+  cst=$(jq -r '.status // ""' "$csf" 2>/dev/null | tr -d '\r')
+  car=$(jq -r '.archived_at // ""' "$csf" 2>/dev/null | tr -d '\r')
+  if [ "$cst" = "completed" ] && { [ -z "$car" ] || [ "$car" = "null" ]; }; then
+    UNREVIEWED=$((UNREVIEWED + 1))
+  fi
+done
+if [ "$UNREVIEWED" -ge 3 ]; then
+  sb_log_error "dream-snapshot.sh" "refused: $UNREVIEWED completed dreams await review — run dream_accept or dream_discard before creating another" 1
+  echo "error: $UNREVIEWED completed dreams are unreviewed — run dream_accept or dream_discard on some before creating a new dream" >&2
+  exit 1
+fi
+
 # Prune old dream dirs to retention.dream_keep_count (default 5), oldest-first
 # (drm_<ts> names sort chronologically). Archived dreams are deleted whole;
 # FAILED/CANCELED dreams (R4, SCRIPTS-04) lose their staging/transcripts payload

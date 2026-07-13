@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, chmodSync } from 'fs';
 import { join, delimiter as pathDelimiter } from 'path';
 import { tmpdir } from 'os';
-import { runSb } from '../src/cli/sb.js';
+import { runSb } from './sb.js';
 
 describe('sb CLI', () => {
   let brainDir: string;

@@ -11,7 +11,7 @@ REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
 
-GUARDED="ensure-dirs.sh discover-tools.sh discover-installed.sh discover-doc-sources.sh session-load.sh dream-autostage.sh persona-context.sh stop-verify-gate.sh stop-extract.sh sar-summary.sh cost-router-capture.sh pre-compact.sh subagent-capture.sh"
+GUARDED="ensure-dirs.sh discover-installed.sh discover-doc-sources.sh session-load.sh dream-autostage.sh persona-context.sh stop-verify-gate.sh stop-extract.sh sar-summary.sh cost-router-capture.sh pre-compact.sh subagent-capture.sh"
 SECURITY="persona-tool-guard.sh wiki-write-guard.sh symlink-guard.sh flow-guard.sh config-change-guard.sh quality-gate.sh tool-return-scanner.sh simplicity-gate.sh"
 
 # --- Part A: static — every capture/context hook carries the guard line.

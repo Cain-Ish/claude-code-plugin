@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { personaThink, readBudget, recordSpend, readOpusLedger, recordOpusLedger, type PersonaThinkDeps } from '../src/tools/persona-think.js';
+import { personaThink, readBudget, recordSpend, readOpusLedger, recordOpusLedger, type PersonaThinkDeps } from './persona-think.js';
 
 describe('persona_think', () => {
   it('returns structured brief on a substantive prompt', async () => {

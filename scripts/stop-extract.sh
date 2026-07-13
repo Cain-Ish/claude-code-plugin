@@ -133,11 +133,19 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
     ' 2>/dev/null | tr -d '\r')
     if [ -n "$TEL_NAMES" ]; then
       UTIL_JSON="$BRAIN_DIR/utilization-counts.json"
+      # Key aging (state hygiene): the counts store is append-keyed and never shrank —
+      # a skill/agent used once a year ago kept its row forever. After the fold, drop
+      # entries whose last_used is older than 180 days. Cutoff via the cross-platform
+      # date fallback (GNU -d twin of BSD -v). last_used is a full ISO timestamp, so a
+      # date-only cutoff compares correctly lexicographically (prefix rule).
+      UTIL_CUTOFF=$(date -u -v-180d +%Y-%m-%d 2>/dev/null \
+        || date -u -d '180 days ago' +%Y-%m-%d 2>/dev/null || echo '1970-01-01')
       TEL_TMP=$(mktemp 2>/dev/null) && {
         { [ -s "$UTIL_JSON" ] && cat "$UTIL_JSON" 2>/dev/null || echo '{}'; } \
-          | jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg names "$TEL_NAMES" '
+          | jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg names "$TEL_NAMES" --arg cutoff "$UTIL_CUTOFF" '
               . as $base | reduce ($names | split("\n") | map(select(length>0)))[] as $n ($base;
                 .[$n] = {count: ((.[$n].count // 0) + 1), last_used: $now})
+              | with_entries(select(.value.last_used >= $cutoff))
             ' > "$TEL_TMP" 2>/dev/null \
           && mv "$TEL_TMP" "$UTIL_JSON" 2>/dev/null \
           || { rm -f "$TEL_TMP"; sb_log_error "stop-extract.sh" "telemetry: utilization fold failed (corrupt store? $UTIL_JSON)" 1; }
@@ -182,9 +190,12 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
     sb_log_error "stop-extract.sh" "gate=value-loop injected=$TEL_INJ read=$TEL_HIT prior=$TEL_PRIOR hits=${TEL_HITS:-none}" 0
     rm -f "$MANIFEST"
   fi
-  # GC stray manifests from sessions that never reached a Stop (7d, same policy as
-  # the .injected/ memos). Deliberately quiet: GC of already-lost telemetry.
-  find "$BRAIN_DIR" -maxdepth 1 -name '.injected-manifest-*.jsonl' -mtime +7 -exec rm -f {} + 2>/dev/null || true
+  # GC stray per-session markers from sessions that never reached a Stop (7d, same
+  # policy as the .injected/ memos). Covers the telemetry manifest AND the two
+  # verify-gate session markers (.verify-gate-blocks-*, .critic-offer-*), which were
+  # written per-session by stop-verify-gate.sh and never swept. One find, -o group.
+  # Deliberately quiet: GC of already-lost per-session state.
+  find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.verify-gate-blocks-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
 fi
 
 START_LINE=$((LAST_LINE + 1))

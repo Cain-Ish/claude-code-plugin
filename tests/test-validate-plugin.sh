@@ -21,6 +21,20 @@ TMPDIR_BASE="${TMPDIR:-/tmp}"
 SANDBOX=$(mktemp -d "$TMPDIR_BASE/second-brain-validate-plugin.XXXXXX")
 trap 'rm -rf "$SANDBOX"' EXIT
 
+# R3 PATH-stub (idiom copied from tests/test-normalize-path.sh): the real
+# `claude plugin validate` costs ~2s per invocation and dominates this suite's wall
+# time (~34s). Every subtest asserts validate-plugin.sh's OWN structural checks
+# (jq/grep/file) — so a stub that exits 0 with no output turns the `claude plugin
+# validate` block into a no-op for those cases WITHOUT weakening any FAIL assertion
+# (each broken fixture still trips the script's own check). The real CLI is still
+# exercised once, in the dedicated real-CLI case (Case 1).
+STUB_BIN="$SANDBOX/stubbin"; mkdir -p "$STUB_BIN"
+cat > "$STUB_BIN/claude" <<'SH'
+#!/bin/sh
+exit 0
+SH
+chmod +x "$STUB_BIN/claude"
+
 PASS=0
 FAIL=0
 PLUGIN_FOR_VALIDATOR=""
@@ -113,9 +127,11 @@ MD
 }
 
 run_case() {
-  local name="$1" expected_exit="$2"
-  local actual_exit
-  CLAUDE_PLUGIN_ROOT="$PLUGIN_FOR_VALIDATOR" bash "$SCRIPT" >"$SANDBOX/out" 2>&1
+  local name="$1" expected_exit="$2" real_cli="${3:-}"
+  local actual_exit stub_prefix="$STUB_BIN:"
+  # Dedicated real-CLI case: leave PATH untouched so the real `claude` is found.
+  [ "$real_cli" = "real" ] && stub_prefix=""
+  PATH="$stub_prefix$PATH" CLAUDE_PLUGIN_ROOT="$PLUGIN_FOR_VALIDATOR" bash "$SCRIPT" >"$SANDBOX/out" 2>&1
   actual_exit=$?
   if [ "$actual_exit" = "$expected_exit" ]; then
     PASS=$((PASS + 1))
@@ -142,9 +158,11 @@ assert_output_contains() {
 echo "test-validate-plugin.sh"
 echo "-----------------------"
 
-# Case 1: clean skeleton passes
+# Case 1: clean skeleton passes. DEDICATED real-CLI case — runs the real
+# `claude plugin validate --strict` end-to-end against a valid plugin so the CLI
+# integration stays covered. Every other case stubs claude for speed (see run_case).
 setup_skeleton
-run_case "clean skeleton passes" 0
+run_case "clean skeleton passes" 0 real
 
 # Case 2: bad hooks.json JSON
 setup_skeleton

@@ -12,6 +12,11 @@
 #   SB_RUN_ALL_QUIET=1   suppress per-test stdout (just show verdicts)
 #   SB_RUN_ALL_VITEST=0  skip the mcp/ vitest suite (default: run it)
 #   SB_RUN_ALL_TIMEOUT=N per-test timeout in seconds (default: 120)
+#   SB_EXPECTED_SKIPS="a b"  space/comma list of test names (no .sh) EXPECTED to
+#                        whole-file-SKIP on this host. Setting it (even to "")
+#                        ARMS the false-green guard: any UNEXPECTED skip then fails
+#                        the suite. Unset + no per-platform default = warn-only.
+#                        See the expected-skips reconciliation block near the end.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -139,11 +144,11 @@ if [ "$RUN_VITEST" = "1" ] && [ -d "$MCP_DIR" ] && [ -f "$MCP_DIR/package.json" 
   if [ "$vitest_ec" -eq 0 ]; then
     PASS=$((PASS+1))
     tests_line=$(grep -E '^\s*Tests' "$vitest_log" | tail -1)
-    printf '  %sPASS%s  %-50s  %s\n' "$C_GREEN" "$C_RST" "vitest (mcp/test)" "$tests_line"
+    printf '  %sPASS%s  %-50s  %s\n' "$C_GREEN" "$C_RST" "vitest (mcp)" "$tests_line"
   else
     FAIL=$((FAIL+1))
     FAILED_TESTS+=("vitest")
-    printf '  %sFAIL%s  %-50s  (ec=%d)\n' "$C_RED" "$C_RST" "vitest (mcp/test)" "$vitest_ec"
+    printf '  %sFAIL%s  %-50s  (ec=%d)\n' "$C_RED" "$C_RST" "vitest (mcp)" "$vitest_ec"
     tail -50 "$vitest_log" | sed 's/^/         /'
   fi
   rm -f "$vitest_log"
@@ -163,6 +168,56 @@ if [ "$FAIL" -gt 0 ]; then
   for t in "${FAILED_TESTS[@]}"; do echo "  - $t"; done
   exit 1
 fi
+# --- expected-skips reconciliation (false-green guard) -----------------------
+# A test that SKIPs when it should have RUN silently hides a real failure — the
+# Windows-no-CI-lane risk. Reconcile the ACTUAL whole-file skips against a per-host
+# allowlist. The guard is ARMED when SB_EXPECTED_SKIPS is set (even to ""), or when
+# a per-platform default below is pinned; an UNEXPECTED skip then fails the suite.
+# UNARMED (no observed baseline for this OS) → skips are WARN-ONLY: a spurious
+# hard-fail is worse than a missed skip, and we cannot observe every OS from here.
+#
+# To arm a platform: observe its real skip set, then pin the kebab test names (no
+# .sh) into its case arm. Derive candidates WITHOUT running the full suite:
+#   grep -nE '^[[:space:]]*echo "SKIP[: ]' tests/test-*.sh
+# A whole-file skip prints a COLUMN-0 'SKIP:'/'SKIP ' line and exits 0. Tool-absence
+# skips (node/jq/python/esbuild/bundles) don't fire on a provisioned box; the usual
+# Windows entries are real-symlink and offline-embedding-model skips.
+EXPECTED_SKIPS_ARMED=0
+if [ "${SB_EXPECTED_SKIPS+set}" = "set" ]; then
+  EXPECTED_SKIPS_LIST="$SB_EXPECTED_SKIPS"; EXPECTED_SKIPS_ARMED=1
+else
+  case "$(uname -s 2>/dev/null || echo unknown)" in
+    Linux)                EXPECTED_SKIPS_LIST="__unset__" ;;
+    Darwin)               EXPECTED_SKIPS_LIST="__unset__" ;;
+    MINGW*|MSYS*|CYGWIN*) EXPECTED_SKIPS_LIST="__unset__" ;;
+    *)                    EXPECTED_SKIPS_LIST="__unset__" ;;
+  esac
+  [ "$EXPECTED_SKIPS_LIST" != "__unset__" ] && EXPECTED_SKIPS_ARMED=1
+fi
+
+if [ "$SKIP" -gt 0 ]; then
+  EXP_NORM=" $(printf '%s' "${EXPECTED_SKIPS_LIST:-}" | tr ',' ' ') "
+  declare -a UNEXPECTED_SKIPS=()
+  for t in "${SKIPPED_TESTS[@]}"; do
+    case "$EXP_NORM" in
+      *" $t "*) : ;;                      # allowlisted → expected
+      *) UNEXPECTED_SKIPS+=("$t") ;;
+    esac
+  done
+  if [ "$EXPECTED_SKIPS_ARMED" = "1" ] && [ "${#UNEXPECTED_SKIPS[@]}" -gt 0 ]; then
+    echo
+    echo "${C_RED}UNEXPECTED SKIP(S):${C_RST} a test that should have run was skipped (false-green class)."
+    for t in "${UNEXPECTED_SKIPS[@]}"; do echo "  - $t"; done
+    echo "  Host: $(uname -s 2>/dev/null || echo unknown). If these ARE expected here, pin them in"
+    echo "  run-all.sh's per-platform manifest or set SB_EXPECTED_SKIPS."
+    exit 1
+  elif [ "$EXPECTED_SKIPS_ARMED" != "1" ]; then
+    echo
+    echo "${C_YELLOW}note:${C_RST} expected-skips guard UNARMED for $(uname -s 2>/dev/null || echo unknown) — the $SKIP skip(s) below are warn-only."
+    echo "  Arm it via SB_EXPECTED_SKIPS or a pinned per-platform list in run-all.sh."
+  fi
+fi
+
 if [ "$SKIP" -gt 0 ]; then
   echo
   echo "${C_YELLOW}skipped:${C_RST}"

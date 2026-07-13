@@ -178,6 +178,19 @@ add_test_edit_turn() {
   local file="$1"
   echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"tests/broken.test.ts","old_string":"a","new_string":"b"}}]}}' >> "$file"
 }
+# A single &&-chain that runs a test file AND rm's a NON-test path ($TMP). The test
+# path and the rm co-occur on one line but the rm's OWN argument is not a test —
+# argument-scoped matching must NOT flag this (the live false-positive class).
+add_probe_rm_chain_turn() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"bash tests/test-foo.sh --verbose && rm -rf \"$TMP\""}}]}}' >> "$file"
+}
+# A genuine test deletion whose OWN span carries the test path, on an &&-chain —
+# splitting must still surface it (true positive not lost to the split).
+add_test_rm_chain_turn() {
+  local file="$1"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"rm tests/broken.test.ts && echo removed"}}]}}' >> "$file"
+}
 
 # Test 12: code modified + tests ran BUT a test file was rm'd → pointed block.
 T=$(mk_transcript)
@@ -259,6 +272,42 @@ add_test_run "$T"
 OUT=$(mk_input_cwd "$T" "/tmp" "critic-sid-3" | SB_CRITIC_OFFER=off bash "$GATE" 2>/dev/null || true)
 [ -z "$OUT" ] || { FAIL=$((FAIL + 1)); echo "  FAIL: SB_CRITIC_OFFER=off must silence the offer (got: $OUT)"; }
 PASS=$((PASS + 1)); echo "  PASS: no offer on small diffs; kill switch honored"
+
+# --- P0.5 gate-precision regressions (argument-scoped + windowed anti-game) ---
+
+# Test 19 (precision-i): probe payload — `bash tests/test-foo.sh && rm -rf "$TMP"`
+# on ONE &&-chain must NOT flag. The test path and rm co-occur on the line, but the
+# rm's own argument is $TMP, not a test file. This is the live false-positive class.
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_probe_rm_chain_turn "$T"
+add_test_run "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_approve "probe payload (test-path + rm on one chain) not flagged" "$OUT"
+
+# Test 20 (precision-ii): a real deletion whose OWN span carries the test path —
+# `rm tests/broken.test.ts && echo removed` — must STILL flag after the split.
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_test_rm_chain_turn "$T"
+add_test_run "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_block "true test deletion on an &&-chain still flags" "$OUT"
+printf '%s' "$OUT" | grep -q 'test-file deletion' \
+  || { FAIL=$((FAIL + 1)); echo "  FAIL: block reason should name the deletion"; }
+
+# Test 21 (window): a deletion BEHIND the anti-game marker must not re-flag on a
+# later Stop. Without the window the historical rm re-fired every Stop and burned
+# both slots of the 2-block valve. The marker records how far a prior Stop scanned.
+T=$(mk_transcript)
+add_edit_turn "$T"          # line 1
+add_test_rm_turn "$T"       # line 2: git rm tests/broken.test.ts
+add_test_run "$T"           # line 3
+INPUT=$(mk_input "$T")
+SID=$(printf '%s' "$INPUT" | jq -r '.session_id')
+echo "3" > "$BRAIN_DIR/.verify-gate-agseen-$SID"   # prior Stop already scanned all 3 lines
+OUT=$(printf '%s' "$INPUT" | bash "$GATE" 2>/dev/null || true)
+assert_approve "deletion behind anti-game marker does not re-flag" "$OUT"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

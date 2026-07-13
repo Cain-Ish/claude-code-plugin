@@ -52,4 +52,20 @@ bash "$PRUNE" >/dev/null 2>&1 || true
 # Ignore comments (they reference it to explain the deliberate avoidance).
 grep -vE '^[[:space:]]*#' "$PRUNE" | grep -q 'wiki-archive' && fail "a code line in sb-prune-archives touches the wiki-archive (irreversible — must be deferred)" || pass "wiki-archive untouched by code (irreversible store deferred)"
 
+# --- (c) wiki embeddings-cache eviction: an entry keyed by a .md path that no longer
+# exists is dropped; the live entry survives lossless (hash+vector intact). The wiki
+# cache lives under <knowledge_dir>/wiki, resolved by sb_knowledge_dir → set KNOWLEDGE_DIR.
+export KNOWLEDGE_DIR="$B/knowledge"
+mkdir -p "$B/knowledge/wiki/learnings"
+LIVEP="$B/knowledge/wiki/learnings/live.md"; : > "$LIVEP"
+DEADP="$B/knowledge/wiki/learnings/dead.md"   # deliberately never created
+WCACHE="$B/knowledge/wiki/.embeddings-cache.json"
+jq -n --arg lp "$LIVEP" --arg dp "$DEADP" \
+  '{model:"m", entries: {($lp): {hash:"h", vector:[1,2,3]}, ($dp): {hash:"h", vector:[9]}}}' > "$WCACHE"
+bash "$PRUNE" >/dev/null 2>&1 || true
+jq -e --arg dp "$DEADP" '.entries | has($dp) | not' "$WCACHE" >/dev/null 2>&1 && pass "wiki cache: dead .md path evicted" || fail "wiki cache: dead path survived"
+jq -e --arg lp "$LIVEP" '.entries[$lp].hash=="h" and (.entries[$lp].vector==[1,2,3])' "$WCACHE" >/dev/null 2>&1 && pass "wiki cache: live entry kept byte-identical (lossless)" || fail "wiki cache: live entry dropped or mutated"
+jq -e '(.entries | length)==1' "$WCACHE" >/dev/null 2>&1 && pass "wiki cache: exactly the survivor remains" || fail "wiki cache: wrong entry count after eviction"
+unset KNOWLEDGE_DIR
+
 rm -rf "$B"; echo; echo "ALL PASS"

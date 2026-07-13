@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { pinToUser } from '../src/tools/pin-to-user.js';
+import { pinToUser } from './pin-to-user.js';
 
 describe('pin_to_user', () => {
   let dir: string;

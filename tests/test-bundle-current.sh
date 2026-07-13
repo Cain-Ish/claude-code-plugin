@@ -20,11 +20,16 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 BUNDLE_SCRIPT=$(jq -r '.scripts.bundle' "$MCP/package.json")
 [ -n "$BUNDLE_SCRIPT" ] || fail "no bundle script in mcp/package.json"
 
-checked=0
+# Record each expected outfile (relative to dist/) so the orphan guard below can
+# prove every COMMITTED bundle is actually produced by the script. Written to a file
+# because the `while` runs in a pipe-subshell — a shell var would not survive it.
+EXPECTED="$TMP/expected.txt"; : > "$EXPECTED"
+
 printf '%s\n' "$BUNDLE_SCRIPT" | sed 's/ && /\n/g' | while IFS= read -r cmd; do
   out=$(printf '%s' "$cmd" | grep -oE -- '--outfile=[^ ]+' | cut -d= -f2)
   [ -n "$out" ] || fail "could not parse outfile from: $cmd"
   rel="${out#dist/}"
+  printf '%s\n' "$rel" >> "$EXPECTED"
   mkdir -p "$TMP/$(dirname "$rel")"
   newcmd=${cmd//--outfile=$out/--outfile=$TMP/$rel}
   ( cd "$MCP" && PATH="$MCP/node_modules/.bin:$PATH" eval "$newcmd" ) >/dev/null 2>&1 \
@@ -33,5 +38,23 @@ printf '%s\n' "$BUNDLE_SCRIPT" | sed 's/ && /\n/g' | while IFS= read -r cmd; do
     || fail "mcp/dist/$rel is STALE — committed bundle differs from a rebuild of committed src (run: cd mcp && npm run bundle)"
   echo "PASS: $rel current"
 done || exit 1
+
+# Orphan guard: the STALE check above only covers bundles the script KNOWS about.
+# A *.bundle.js committed under dist/ with NO scripts.bundle entry is never rebuilt
+# nor byte-compared — it can ship stale forever (e.g. a tool renamed in src, its old
+# bundle left behind). Fail on any committed bundle the script does not produce.
+orphans=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  rel="${f#$MCP/dist/}"
+  if ! grep -qxF "$rel" "$EXPECTED"; then
+    echo "FAIL: orphan bundle mcp/dist/$rel — committed but no scripts.bundle entry builds it"
+    echo "      (stale-artifact risk: add an esbuild entry for it, or delete the file)"
+    orphans=$((orphans + 1))
+  fi
+done <<EOF
+$(find "$MCP/dist" -name '*.bundle.js' 2>/dev/null)
+EOF
+[ "$orphans" -eq 0 ] || exit 1
 
 echo "ALL PASS"

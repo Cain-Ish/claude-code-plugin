@@ -387,4 +387,21 @@ NEW=$(SB_DREAM_RUN_TIMEOUT=10800 bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&
 echo "$NEW" | grep -q '^drm_' || fail "a new dream should proceed after reclaim (got: $NEW)"
 pass "stale running dream reclaimed → failed, new dream proceeds"
 
+# --- Subtest 10 (state hygiene): >= 3 completed-but-unreviewed dreams (archived_at
+# unset) REFUSE a new dream — the operator must dream_accept / dream_discard first.
+# Nothing is deleted; the three stay completed+unreviewed for review.
+setup "unreviewed-cap"
+seed_wiki; seed_transcripts
+for i in 1 2 3; do
+  CDID="drm_2026060${i}T000000Z"; mkdir -p "$BRAIN_DIR/dreams/$CDID"
+  jq -nc --arg id "$CDID" '{id:$id, status:"completed", archived_at:null}' > "$BRAIN_DIR/dreams/$CDID/status.json"
+done
+OUT=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1); RC=$?
+[ "$RC" -ne 0 ] || fail "3 unreviewed completed dreams must refuse a new dream (got rc=$RC)"
+echo "$OUT" | grep -qE 'dream_accept|dream_discard' || fail "refusal must name dream_accept/dream_discard (got: $OUT)"
+[ "$(jq -r '.status' "$BRAIN_DIR/dreams/drm_20260601T000000Z/status.json")" = "completed" ] || fail "unreviewed dreams must be left intact (never deleted)"
+NEWCOUNT=$(find "$BRAIN_DIR/dreams" -maxdepth 1 -type d -name 'drm_*' | wc -l | tr -d ' ')
+[ "$NEWCOUNT" -eq 3 ] || fail "refusal must not create a new dream dir (got $NEWCOUNT)"
+pass "unreviewed-completed cap refuses a new dream (names accept/discard, deletes nothing)"
+
 echo "ALL PASS"

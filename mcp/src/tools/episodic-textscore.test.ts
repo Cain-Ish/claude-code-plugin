@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { episodicSearch } from '../src/tools/episodic-search.js';
+import { episodicSearch } from './episodic-search.js';
 
 // P8 (deep-review): episodic text-mode similarity was a CONSTANT 0.5 — the
 // AND-loop broke on the first miss, so the push condition forced

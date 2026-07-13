@@ -21,6 +21,12 @@ SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null |
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 MARKER="$BRAIN_DIR/.verify-gate-blocks-$SESSION_ID"
+# Dedicated anti-game scan window marker (P0.5 precision): records how far into the
+# transcript the last anti-game evaluation scanned, so a historical test-deletion is
+# not re-flagged every Stop (which burned both slots of the 2-block valve). This is
+# a SEPARATE marker from stop-extract.sh's extraction marker — that one is owned by
+# stop-extract.sh, which runs AFTER this hook; advancing it here would skip lines.
+AG_MARKER="$BRAIN_DIR/.verify-gate-agseen-$SESSION_ID"
 
 # Safety valve: max 2 blocks per session to prevent infinite loops.
 BLOCK_COUNT=0
@@ -47,7 +53,7 @@ CHANGED_N=0
 [ -n "$CHANGED_FILES" ] && CHANGED_N=$(printf '%s\n' "$CHANGED_FILES" | grep -c .)
 
 if [ -z "$CODE_MODIFIED" ]; then
-  rm -f "$MARKER" 2>/dev/null
+  rm -f "$MARKER" "$AG_MARKER" 2>/dev/null
   exit 0
 fi
 
@@ -105,23 +111,41 @@ SKILL_TOOL=$(jq -r '
 # are normal and never flagged; only rm / git rm of a test-shaped path. One pointed
 # block through the same 2-block valve. Kill switch: SB_VERIFY_ANTIGAME=off.
 # BSD-safe patterns only: [[:space:]] classes, no \b/\s/\w.
+# WINDOW-scoped: scan only transcript lines a PRIOR Stop has not already scanned,
+# so one historical deletion doesn't re-fire every Stop (reuses stop-extract.sh's
+# `awk -v s="$LAST_LINE" 'NR>s'` slice, but keyed on AG_MARKER — see its comment).
+AG_LAST=0
+[ -f "$AG_MARKER" ] && AG_LAST=$(cat "$AG_MARKER" 2>/dev/null | tr -d '[:space:]')
+case "$AG_LAST" in ''|*[!0-9]*) AG_LAST=0 ;; esac
+
 TEST_RM=""
 if [ "${SB_VERIFY_ANTIGAME:-on}" != "off" ]; then
-  TEST_RM=$(jq -r '
+  # ARGUMENT-scoped: split each command on &&/;/| into spans and flag only a span
+  # whose OWN first token is rm / git rm AND that references a test-shaped path.
+  # The old line-level `grep rm-line | grep test-path` false-flagged an innocent
+  # `bash tests/test-x.sh && rm -rf "$TMP"` (rm's argument is $TMP, not a test).
+  # jq does the split so the SAME regex engine runs on BSD and GNU (no \b/\s/\w).
+  TEST_RM=$(awk -v s="$AG_LAST" 'NR>s' "$TRANSCRIPT" 2>/dev/null | jq -r '
     select(.type == "assistant")
     | .message.content[]?
     | select(.type == "tool_use" and .name == "Bash")
     | .input.command // ""
-  ' "$TRANSCRIPT" 2>/dev/null \
-    | grep -E '(^|[^[:alnum:]_-])(git[[:space:]]+)?rm[[:space:]]' \
-    | grep -E '(tests?/|[._-]test\.|[._-]spec\.|/test_[a-z0-9_]+\.py)' \
-    | head -1)
+    | select(. != "")
+    | [ split("&&|[;|]"; "")[]
+        | sub("^[[:space:]]*[({][[:space:]]*"; "") | sub("^[[:space:]]+"; "")
+        | select(test("^(sudo[[:space:]]+)?(git[[:space:]]+)?rm([[:space:]]|$)"))
+        | select(test("(tests?/|[._-]test\\.|[._-]spec\\.|/test_[a-z0-9_]+\\.py)")) ]
+    | select(length > 0)
+    | .[0]
+  ' 2>/dev/null | head -1)
 fi
 
 if [ -n "$VERIFY_CMDS" ] || [ -n "$SKILL_EVIDENCE" ] || [ -n "$SKILL_TOOL" ]; then
   if [ -n "$TEST_RM" ]; then
     mkdir -p "$BRAIN_DIR" 2>/dev/null
     echo "$((BLOCK_COUNT + 1))" > "$MARKER"
+    # Advance the anti-game window past this deletion so it can't re-flag next Stop.
+    AG_TOTAL=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d '[:space:]'); echo "${AG_TOTAL:-0}" > "$AG_MARKER" 2>/dev/null || true
     jq -nc --arg cmd "$TEST_RM" '{
       decision: "block",
       reason: ("Verification evidence coincides with a test-file deletion in this session: `\($cmd)`. Deleting a test and then claiming green is the cheapest way to fake verification. Re-run the FULL suite and state explicitly why removing that test is correct (obsolete behavior? coverage superseded where?) — or restore it. Suppress this check: SB_VERIFY_ANTIGAME=off.")

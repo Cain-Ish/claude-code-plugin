@@ -1,7 +1,10 @@
 #!/bin/bash
 # extraction-quality-gate.sh — Layer 4 (Karpathy "compile-on-ingest with validator")
 # Reads DELTA_JSON on stdin, filters low-quality entries, writes filtered JSON to stdout.
-# Rejections logged to ~/.second-brain/.rejected-extractions.jsonl
+# Rejections are recorded as audit-log TRACE rows via sb_log_audit (verdict=deny,
+# rule=the reason code, target=the category, reason=the rejected text) — the bounded
+# trajectory channel (sb_rotate_audit_log caps it), replacing the old unbounded,
+# never-rotated .rejected-extractions.jsonl append.
 #
 # Modes:
 #   default (rules-only, free, ~0ms)
@@ -20,8 +23,10 @@ if [ "${SB_QUALITY_GATE:-on}" = "off" ]; then
   exit 0
 fi
 
-BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
-LOG_FILE="$BRAIN_DIR/.rejected-extractions.jsonl"
+# Sourced for sb_log_audit (+ its bounded audit-log rotation) and BRAIN_DIR. lib.sh
+# and kb-schema.sh are stdout-silent, so the gate's pure-JSON stdout contract holds.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
 STRICTNESS="${SB_QUALITY_GATE_STRICTNESS:-conservative}"
 LLM_MODE="${SB_QUALITY_GATE_LLM:-off}"
 HAIKU_MODEL="${SB_QUALITY_GATE_MODEL:-claude-haiku-4-5-20251001}"
@@ -114,14 +119,12 @@ filter_array() {
     entry=$(printf '%s' "$arr_json" | jq -r ".[$idx]" | tr -d '\r')
     idx=$((idx + 1))
     if is_noise "$entry" "$key"; then
-      jq -nc --arg k "$key" --arg e "$entry" --arg r "rules:noise" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{key:$k, entry:$e, reason:$r, at:$t}' >> "$LOG_FILE"
+      sb_log_audit "extraction-quality-gate" "deny" "rules:noise" "$key" "$entry"
       continue
     fi
     if [ "$LLM_MODE" = "on" ]; then
       if ! haiku_check "$entry" "$key"; then
-        jq -nc --arg k "$key" --arg e "$entry" --arg r "llm:rejected" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-          '{key:$k, entry:$e, reason:$r, at:$t}' >> "$LOG_FILE"
+        sb_log_audit "extraction-quality-gate" "deny" "llm:rejected" "$key" "$entry"
         continue
       fi
     fi

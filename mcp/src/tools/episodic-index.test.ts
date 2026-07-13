@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { buildEpisodicIndex, episodicSearch } from '../src/tools/episodic-search.js';
+import { buildEpisodicIndex, episodicSearch } from './episodic-search.js';
 
 function writeTranscript(brainDir: string, filename: string, sessionId: string, project: string, date: string, body: string) {
   const path = join(brainDir, 'transcripts', filename);

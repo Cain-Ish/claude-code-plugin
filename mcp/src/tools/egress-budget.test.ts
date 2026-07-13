@@ -5,7 +5,7 @@ import {
   DEFAULT_EGRESS_BUDGET_TOKENS,
   capText,
   capList,
-} from '../src/tools/egress-budget.js';
+} from './egress-budget.js';
 
 describe('estimateTokens', () => {
   it('uses the chars/4 heuristic, rounding up', () => {

@@ -45,9 +45,36 @@ fi
 # just-made backup is always kept; only genuinely-stale one-shot artifacts are reclaimed. ttl 0 = off.
 BAK_TTL="$(sb_config_get .retention.bak_ttl_days 14)"; case "$BAK_TTL" in ''|*[!0-9]*) BAK_TTL=14 ;; esac
 if [ "$BAK_TTL" -gt 0 ] && [ -d "$BRAIN_DIR" ]; then
+  # *.bak.* covers the stamped registry backups sb_harden_projects_jsonl writes
+  # (projects.jsonl.bak.<UTC-stamp>) — otherwise every hardening leaves a permanent copy.
   find "$BRAIN_DIR" -maxdepth 1 -type f \
-    \( -name '*.bak' -o -name '*.bak-*' -o -name '*.broken.bak' -o -name '*.pre-rebuild-*' -o -name '*.tgz' \) \
+    \( -name '*.bak' -o -name '*.bak-*' -o -name '*.bak.*' -o -name '*.broken.bak' -o -name '*.pre-rebuild-*' -o -name '*.tgz' \) \
     -mtime "+$BAK_TTL" -delete 2>/dev/null || true
+fi
+
+# (c) wiki embeddings-cache eviction — the wiki BM25/vector cache
+# (<knowledge_dir>/wiki/.embeddings-cache.json) keys each entry by the .md file's
+# absolute path; a page that was forgotten/renamed/merged leaves a dead vector entry
+# forever. Drop entries whose key path no longer exists on disk. Lossless: a survivor
+# keeps its exact {hash,vector}; a missed vector is simply re-embedded on next search.
+# Atomic tmp+mv. Gated on the same embeddings_cache_gc knob as (a).
+if [ "$(sb_config_bool .retention.embeddings_cache_gc on)" = "on" ]; then
+  WIKI_CACHE="$(sb_knowledge_dir)/wiki/.embeddings-cache.json"
+  if [ -f "$WIKI_CACHE" ] && jq -e '(.entries | type) == "object"' "$WIKI_CACHE" >/dev/null 2>&1; then
+    KEEP='[]'
+    while IFS= read -r _k; do
+      [ -n "$_k" ] || continue
+      [ -f "$_k" ] && KEEP=$(printf '%s' "$KEEP" | jq -c --arg k "$_k" '. + [$k]')
+    done < <(jq -r '.entries | keys[]' "$WIKI_CACHE" 2>/dev/null | tr -d '\r')
+    _wtmp="$WIKI_CACHE.tmp.$$"
+    if jq -c --argjson keep "$KEEP" \
+         '.entries |= with_entries(select(.key as $k | $keep | index($k) != null))' \
+         "$WIKI_CACHE" > "$_wtmp" 2>/dev/null && [ -s "$_wtmp" ]; then
+      mv "$_wtmp" "$WIKI_CACHE" 2>/dev/null || rm -f "$_wtmp" 2>/dev/null
+    else
+      rm -f "$_wtmp" 2>/dev/null
+    fi
+  fi
 fi
 
 exit 0

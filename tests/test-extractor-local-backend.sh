@@ -9,6 +9,30 @@ fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 command -v python3 >/dev/null 2>&1 || { echo "SKIP: python3 absent"; exit 0; }
 command -v curl >/dev/null 2>&1 || { echo "SKIP: curl absent"; exit 0; }
 
+# Poll until a listener holds $1, probing every 50ms up to a 5s cap. Replaces a
+# fixed `sleep 0.6` readiness race. NOTE: the stubs below are one-shot servers
+# (handle_request() serves exactly ONE connection) — a bare TCP connect probe would
+# be ACCEPTED and consume that one shot, breaking the test. So we probe by trying to
+# BIND the port: once the stub is listening a fresh bind fails with EADDRINUSE, and
+# a bind attempt never touches the server's accept queue.
+wait_port() {
+  local port="$1" i=0
+  while [ "$i" -lt 100 ]; do
+    if python3 -c 'import socket,sys
+s=socket.socket()
+try:
+    s.bind(("127.0.0.1",int(sys.argv[1])))
+    s.close()
+    sys.exit(1)
+except OSError:
+    sys.exit(0)' "$port" 2>/dev/null; then
+      return 0
+    fi
+    i=$((i+1)); sleep 0.05
+  done
+  return 1
+}
+
 PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
 python3 - "$PORT" <<'PY' & SRV=$!
 import sys,http.server,json
@@ -21,7 +45,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self,*a): pass
 http.server.HTTPServer(("127.0.0.1",int(sys.argv[1])),H).handle_request()
 PY
-sleep 0.6
+wait_port "$PORT"
 IN=$(mktemp); printf 'a real transcript body\n' > "$IN"; OUT=$(mktemp)
 
 SB_EXTRACTOR_LOCAL_URL="http://127.0.0.1:$PORT" \
@@ -49,7 +73,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self,*a): pass
 http.server.HTTPServer(("127.0.0.1",int(sys.argv[1])),H).handle_request()
 PY
-sleep 0.6
+wait_port "$PORT2"
 export BRAIN_DIR2=$(mktemp -d); BIG=$(mktemp); head -c 20000 /dev/zero | tr '\0' 'A' > "$BIG"; OUT2=$(mktemp)
 BRAIN_DIR="$BRAIN_DIR2" SB_EXTRACTOR_LOCAL_URL="http://127.0.0.1:$PORT2" SB_EXTRACTOR_LOCAL_MAX_BYTES=500 \
   sb_call_extractor "$BIG" "$OUT2" qwen2.5:3b "p" 10 >/dev/null 2>&1
@@ -88,7 +112,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self,*a): pass
 http.server.HTTPServer(("127.0.0.1",int(sys.argv[1])),H).handle_request()
 PY
-sleep 0.6
+wait_port "$PORT3"
 BD_NOBJ=$(mktemp -d); ON=$(mktemp)   # fresh + empty
 ( export SB_HEALTH_FILE="$BD_NOBJ/.extractor-health.json" BRAIN_DIR="$BD_NOBJ" \
     SB_EXTRACTOR_ENGINE=local SB_EXTRACTOR_LOCAL_URL="http://127.0.0.1:$PORT3"
@@ -118,7 +142,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self,*a): pass
 http.server.HTTPServer(("127.0.0.1",int(sys.argv[1])),H).handle_request()
 PY
-sleep 0.6
+wait_port "$PORTE"
 E2E_HOME=$(mktemp -d)
 E2E_BRAIN="$E2E_HOME/.second-brain"; mkdir -p "$E2E_BRAIN/transcripts"
 E2E_KDIR="$E2E_HOME/knowledge"; mkdir -p "$E2E_KDIR/wiki"

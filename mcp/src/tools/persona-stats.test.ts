@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { personaStats } from '../src/tools/persona-stats.js';
+import { personaStats } from './persona-stats.js';
 
 describe('persona_stats', () => {
   let brainDir: string;

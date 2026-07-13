@@ -4,8 +4,8 @@
 // BOTH forward-slash (`../`) and backslash (`..\`) form so a regression fails on either OS rather than
 // silently skipping on the one whose separator it happens to use. (Adapted from vercel-labs/skills'
 // paired Unix/Windows path tests — see PROJECT.md deep-scan decision.)
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { promises as fs } from 'fs';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { promises as fs, mkdtempSync, rmSync, mkdirSync, symlinkSync, writeFileSync } from 'fs';
 import { join, sep } from 'path';
 import { tmpdir } from 'os';
 import { assertWithin, validateSlug, cleanEnvPath, assertSafeSlug, PathGuardError } from './path-guard.js';
@@ -104,5 +104,78 @@ describe('cleanEnvPath (CR/LF stripping for env-derived paths)', () => {
     expect(cleanEnvPath('/clean/path')).toBe('/clean/path');
     expect(cleanEnvPath(null)).toBe('');
     expect(cleanEnvPath(undefined)).toBe('');
+  });
+});
+
+// --- folded from mcp/test/path-guard.test.ts: REAL on-disk symlink vectors ---
+// (Above covers validateSlug/assertSafeSlug/cleanEnvPath + realpath containment; these add
+// actual symlink-escape cases, auto-skipped where the FS lacks symlink support.)
+function detectSymlinkSupport(): boolean {
+  const tmp = mkdtempSync(join(tmpdir(), 'pg-symcap-'));
+  try { symlinkSync(tmpdir(), join(tmp, 'probe')); return true; }
+  catch { return false; }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+}
+const canSymlink = detectSymlinkSupport();
+
+describe('assertWithin — real-symlink escape vectors (folded)', () => {
+  let baseDir: string;
+  let outsideDir: string;
+  beforeEach(() => {
+    baseDir = mkdtempSync(join(tmpdir(), 'pg-base-'));
+    outsideDir = mkdtempSync(join(tmpdir(), 'pg-out-'));
+    mkdirSync(join(baseDir, 'projects'), { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(baseDir, { recursive: true, force: true });
+    rmSync(outsideDir, { recursive: true, force: true });
+  });
+
+  it('allows normal joined paths inside baseDir', () => {
+    const out = assertWithin(baseDir, 'projects', 'foo', 'PROJECT.md');
+    expect(out).toMatch(/projects.foo.PROJECT.md$/);
+  });
+
+  it('rejects ../ escape via path traversal', () => {
+    expect(() => assertWithin(baseDir, 'projects', '..', '..', '..', 'etc', 'passwd'))
+      .toThrow(PathGuardError);
+  });
+
+  it('rejects absolute path component', () => {
+    expect(() => assertWithin(baseDir, '/etc/passwd')).toThrow(PathGuardError);
+  });
+
+  it('rejects NUL byte in path component', () => {
+    expect(() => assertWithin(baseDir, 'projects', 'foo\0bar')).toThrow(PathGuardError);
+  });
+
+  it.skipIf(!canSymlink)('rejects symlink that escapes baseDir', () => {
+    // baseDir/sneaky → outsideDir
+    symlinkSync(outsideDir, join(baseDir, 'sneaky'));
+    expect(() => assertWithin(baseDir, 'sneaky', 'evil.txt')).toThrow(PathGuardError);
+  });
+
+  it.skipIf(!canSymlink)('allows symlink whose target stays inside baseDir', () => {
+    mkdirSync(join(baseDir, 'real'), { recursive: true });
+    symlinkSync(join(baseDir, 'real'), join(baseDir, 'alias'));
+    const out = assertWithin(baseDir, 'alias', 'inside.txt');
+    expect(out).toMatch(/real.inside.txt$/);
+  });
+
+  it('allows write-target whose leaf does not exist yet', () => {
+    // The leaf file does not exist; helper must not throw on that alone.
+    const out = assertWithin(baseDir, 'projects', 'new-slug', 'PROJECT.md');
+    expect(out).toMatch(/projects.new-slug.PROJECT.md$/);
+  });
+
+  it.skipIf(!canSymlink)('rejects when intermediate dir symlinks outside via missing leaf', () => {
+    symlinkSync(outsideDir, join(baseDir, 'escape'));
+    expect(() => assertWithin(baseDir, 'escape', 'newfile.txt')).toThrow(PathGuardError);
+  });
+
+  it('rejects baseDir-relative ../ even when target dir is created', () => {
+    writeFileSync(join(outsideDir, 'real-target'), 'x');
+    expect(() => assertWithin(baseDir, '..', 'pg-out-real-target'))
+      .toThrow(PathGuardError);
   });
 });

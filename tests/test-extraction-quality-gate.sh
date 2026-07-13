@@ -31,11 +31,14 @@ echo "$out" | jq -e '((.recent_decisions | length) == 0) and ((.open_blockers | 
   || fail "all-noise: arrays should be empty (got: $out)"
 pass "all-noise produces empty arrays"
 
-# Test 4: rejection log written
-test -s "$BD/.rejected-extractions.jsonl" || fail "rejection log should have entries"
-tail -1 "$BD/.rejected-extractions.jsonl" | jq -e '.reason and .entry and .at' >/dev/null \
-  || fail "log entries should be structured JSON"
-pass "rejection log structured"
+# Test 4: rejections recorded as bounded audit-log TRACE rows (Tests 1+3 rejected noise),
+# and the legacy unbounded .rejected-extractions.jsonl is no longer written.
+test -s "$BD/audit-log.jsonl" || fail "rejections should be recorded in the audit-log"
+tail -1 "$BD/audit-log.jsonl" \
+  | jq -e '.hook=="extraction-quality-gate" and .verdict=="deny" and (.rule|length>0) and (.target|length>0) and (.reason|length>0)' >/dev/null \
+  || fail "audit rows should be structured JSON (hook/verdict/rule/target/reason)"
+[ ! -f "$BD/.rejected-extractions.jsonl" ] || fail "legacy .rejected-extractions.jsonl must no longer be written"
+pass "rejections recorded as structured audit-log rows (unbounded file retired)"
 
 # Test 5: empty input → silent
 out=$(echo "" | bash "$SCRIPT")

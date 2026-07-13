@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { archiveToWiki } from '../src/tools/archive-to-wiki.js';
+import { archiveToWiki } from './archive-to-wiki.js';
 
 const tpl = `# PROJECT: test
 ## Open blockers

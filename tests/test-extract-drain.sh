@@ -309,6 +309,18 @@ eq "floor: no-edit transcript quarantines as error" "$(grep -c '"outcome":"error
 grep -q '"reason":"deterministic-floor"' "$STATE" 2>/dev/null && no "floor: falsely floored a no-edit transcript" || ok "floor: did not falsely floor a no-edit transcript"
 unset CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
 
+# Ledger GC (state hygiene): the append-only .extraction-state.jsonl done-set must drop
+# rows whose transcript basename no longer exists under transcripts/ (pruned by the archive
+# cap), and keep rows whose transcript is still live. The live row here is pre-marked done
+# so the batch loop skips it (sb_extraction_done) and the GC is what's under test.
+echo "Test: ledger GC drops dead rows, keeps live rows"
+reset
+mk_tx "live_proj_2026-05-24.txt" proj
+printf '{"basename":"live_proj_2026-05-24.txt","ts":"x","outcome":"ok"}\n{"basename":"gone_proj_2026-05-24.txt","ts":"x","outcome":"ok"}\n' > "$STATE"
+bash "$DRAIN" >/dev/null 2>&1 || true
+grep -q '"basename":"live_proj_2026-05-24.txt"' "$STATE" 2>/dev/null && ok "ledger GC kept the live row" || no "ledger GC dropped a live row"
+grep -q '"basename":"gone_proj_2026-05-24.txt"' "$STATE" 2>/dev/null && no "ledger GC kept a dead row (orphan)" || ok "ledger GC dropped the dead row"
+
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.
 echo "Test: GC sweeps — stale markers + scratch transcripts"
