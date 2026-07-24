@@ -1,0 +1,493 @@
+# Instincts generated from https://github.com/Cain-Ish/claude-code-plugin
+# Generated: 2026-07-24T18:11:38.063Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: claude-code-plugin-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Commit Length
+
+## Action
+
+Write moderate-length commit messages (~72 characters)
+
+## Evidence
+
+- Average commit message length: 72 chars
+- Based on 13 commits
+
+---
+id: claude-code-plugin-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Naming Files
+
+## Action
+
+Use kebab-case naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: kebab-case
+
+---
+id: claude-code-plugin-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: claude-code-plugin-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: claude-code-plugin-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: claude-code-plugin-workflow-feature-development-with-test
+trigger: "when doing feature development with test"
+confidence: 0.7
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Workflow Feature Development With Test
+
+## Action
+
+Follow the feature-development-with-test workflow:
+1. Edit or create implementation files (e.g., agent or skill markdown files).
+2. Update or add corresponding test scripts to validate the new or changed behavior.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~4x per month
+- Files: agents/*.md, skills/*/SKILL.md, tests/test-*.sh
+
+---
+id: claude-code-plugin-workflow-documentation-spec-plan-cycle
+trigger: "when doing documentation spec plan cycle"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Workflow Documentation Spec Plan Cycle
+
+## Action
+
+Follow the documentation-spec-plan-cycle workflow:
+1. Create or update a design spec in docs/specs.
+2. Create or update a plan in docs/plans.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: docs/specs/*.md, docs/plans/*.md
+
+---
+id: claude-code-plugin-workflow-release-version-bump-and-changelog
+trigger: "when doing release version bump and changelog"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Workflow Release Version Bump And Changelog
+
+## Action
+
+Follow the release-version-bump-and-changelog workflow:
+1. Update the plugin or marketplace version in plugin.json and/or marketplace.json.
+2. Update the CHANGELOG.md with release notes.
+3. Commit all related release metadata together.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: .claude-plugin/plugin.json, .claude-plugin/marketplace.json, cost-router/.claude-plugin/plugin.json
+
+---
+id: claude-code-plugin-workflow-test-enhancement-or-fix
+trigger: "when doing test enhancement or fix"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Workflow Test Enhancement Or Fix
+
+## Action
+
+Follow the test-enhancement-or-fix workflow:
+1. Edit or add test scripts (e.g., test-*.sh) to cover new or fixed functionality.
+2. Optionally update implementation files if needed for the test.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: tests/test-*.sh, cost-router/scripts/*.sh
+
+---
+id: claude-code-plugin-instinct-file-naming
+trigger: "When creating or renaming a file"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct File Naming
+
+## Action
+
+Use kebab-case for file names
+
+## Evidence
+
+- Pattern in file naming conventions
+- No camelCase or PascalCase files detected
+
+---
+id: claude-code-plugin-instinct-function-naming
+trigger: "When defining a function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Function Naming
+
+## Action
+
+Use camelCase for function names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.functions
+
+---
+id: claude-code-plugin-instinct-class-naming
+trigger: "When defining a class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Class Naming
+
+## Action
+
+Use PascalCase for class names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.classes
+
+---
+id: claude-code-plugin-instinct-constant-naming
+trigger: "When defining a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Constant Naming
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.constants
+
+---
+id: claude-code-plugin-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Import Style
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in codeStyle.importStyle
+
+---
+id: claude-code-plugin-instinct-export-style
+trigger: "When exporting from a module"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in codeStyle.exportStyle
+
+---
+id: claude-code-plugin-instinct-test-script-pattern
+trigger: "When adding or updating tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Test Script Pattern
+
+## Action
+
+Write shell scripts named test-*.sh in the tests/ directory
+
+## Evidence
+
+- Pattern in tests/test-*.sh
+- Workflow: feature-development-with-test
+- Workflow: test-enhancement-or-fix
+
+---
+id: claude-code-plugin-instinct-test-location
+trigger: "When creating new tests"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Test Location
+
+## Action
+
+Place test scripts in the separate tests/ directory
+
+## Evidence
+
+- Pattern in architecture.testLocation
+- Workflow: feature-development-with-test
+
+---
+id: claude-code-plugin-instinct-git-commit-prefix
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Git Commit Prefix
+
+## Action
+
+Start the commit message with a prefix such as spec:, plan:, fix:, or release:
+
+## Evidence
+
+- Seen in commits: 'spec: ...', 'plan: ...', 'fix: ...', 'release: ...'
+
+---
+id: claude-code-plugin-instinct-git-commit-length
+trigger: "When writing a commit message"
+confidence: 0.8
+domain: git
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Git Commit Length
+
+## Action
+
+Keep the commit message concise (around 72 characters on average)
+
+## Evidence
+
+- Pattern: average commit message length is 72
+
+---
+id: claude-code-plugin-instinct-git-commit-bundle
+trigger: "When committing related changes (e.g., release metadata)"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Git Commit Bundle
+
+## Action
+
+Commit all related files together in a single commit
+
+## Evidence
+
+- Workflow: release-version-bump-and-changelog
+- Seen in release commits
+
+---
+id: claude-code-plugin-instinct-workflow-feature-with-test
+trigger: "When adding or modifying a feature or agent behavior"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Workflow Feature With Test
+
+## Action
+
+Edit or create implementation files and update/add corresponding test scripts
+
+## Evidence
+
+- Workflow: feature-development-with-test
+- Files: agents/*.md, skills/*/SKILL.md, tests/test-*.sh
+
+---
+id: claude-code-plugin-instinct-workflow-spec-plan
+trigger: "When planning or designing a new feature or bundle"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Workflow Spec Plan
+
+## Action
+
+Create or update a design spec in docs/specs and a plan in docs/plans
+
+## Evidence
+
+- Workflow: documentation-spec-plan-cycle
+- Files: docs/specs/*.md, docs/plans/*.md
+
+---
+id: claude-code-plugin-instinct-workflow-release
+trigger: "When ready to release a new version"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Workflow Release
+
+## Action
+
+Update plugin/marketplace version, update CHANGELOG.md, and commit all release metadata together
+
+## Evidence
+
+- Workflow: release-version-bump-and-changelog
+- Files: .claude-plugin/plugin.json, .claude-plugin/marketplace.json, cost-router/.claude-plugin/plugin.json, cost-router/CHANGELOG.md, CHANGELOG.md
+
+---
+id: claude-code-plugin-instinct-workflow-test-enhancement
+trigger: "When fixing a bug or adding new test coverage"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Workflow Test Enhancement
+
+## Action
+
+Edit or add test scripts to cover the new or fixed functionality, optionally update implementation files
+
+## Evidence
+
+- Workflow: test-enhancement-or-fix
+- Files: tests/test-*.sh, cost-router/scripts/*.sh
+
