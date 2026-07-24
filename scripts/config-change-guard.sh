@@ -21,6 +21,7 @@
 # Always exits 0. No stdout (audit-only).
 set -u
 
+[ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_CONFIG_CHANGE_AUDIT:=off}" # hook-profile shim: this check runs before lib.sh's mapping (or lib-less)
 [ "${SB_CONFIG_CHANGE_AUDIT:-on}" = "off" ] && exit 0
 
 RAW=$(cat 2>/dev/null || true)

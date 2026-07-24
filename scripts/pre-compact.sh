@@ -181,11 +181,12 @@ if ! echo "$DELTA_JSON" \
 fi
 rm -f "$MERGE_ERR"; MERGE_ERR=""
 
-# --- Persona signal extraction ---
-PERSONA_SIGNALS=$(echo "$DELTA_JSON" | jq -c '.persona_signals // []')
-if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
+# --- Persona signal + rule-candidate extraction ---
+PERSONA_PAYLOAD=$(echo "$DELTA_JSON" | jq -c \
+  '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}')
+if echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
   PERSONA_ERR=$(mktemp)
-  if ! echo "$PERSONA_SIGNALS" \
+  if ! echo "$PERSONA_PAYLOAD" \
     | bash "$(dirname "$0")/merge-persona-signals.sh" 2>"$PERSONA_ERR"; then
     ERR_TAIL=$(tr '\n' ' ' < "$PERSONA_ERR" | head -c 200)
     sb_log_error "pre-compact.sh" "persona-merge-failed err=$ERR_TAIL" 0

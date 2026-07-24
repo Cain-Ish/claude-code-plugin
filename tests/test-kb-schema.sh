@@ -25,6 +25,18 @@ pass "bash loader (kb-schema.sh) exports match the manifest"
   || fail "structured_types unexpected: $SB_STRUCTURED_TYPES"
 pass "structured_types = the canonical six"
 
+# ai-block contracts: every structured type has a block schema in the manifest, no extras,
+# and each carries non-empty fields+required — a fresh machine learns the block grammar
+# from kb-schema.json alone (markers + per-type field sets), never from code.
+AB_TYPES=$(jq -r '.ai_blocks.types|keys_unsorted|join(" ")' "$M" | tr -d '\r')
+[ "$AB_TYPES" = "$SB_STRUCTURED_TYPES" ] \
+  || fail "ai_blocks.types keys != structured_types ($AB_TYPES)"
+AB_EMPTY=$(jq -r '.ai_blocks.types[] | select((.fields|length)==0 or (.required|length)==0) | "x"' "$M" | tr -d '\r')
+[ -z "$AB_EMPTY" ] || fail "an ai_blocks.types entry has empty fields/required"
+jq -e '.ai_blocks.markers.begin and .ai_blocks.markers.end and (.frontmatter_required|length>0)' "$M" >/dev/null \
+  || fail "ai_blocks.markers or frontmatter_required missing from manifest"
+pass "ai-block contracts + markers + frontmatter_required live in the manifest"
+
 # DRIFT GUARD: no script/skill may hardcode the six-type loop — it must use \$SB_STRUCTURED_TYPES.
 H=$(grep -rnE 'for [a-z]+ in learnings decisions entities issues concepts security' "$ROOT/scripts" "$ROOT/skills" 2>/dev/null \
       | grep -vF 'SB_STRUCTURED_TYPES' || true)

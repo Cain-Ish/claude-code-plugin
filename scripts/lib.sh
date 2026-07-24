@@ -11,6 +11,22 @@ BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 # Linux/macOS paths have no drive letter). Idempotent: cygpath -u on an already-MSYS path returns it as-is.
 command -v cygpath >/dev/null 2>&1 && BRAIN_DIR=$(cygpath -u "$BRAIN_DIR" 2>/dev/null || printf '%s' "$BRAIN_DIR")
 
+# SB_HOOK_PROFILE=minimal — one lever that collapses the hook surface to essentials.
+# Maps onto the EXISTING kill switches (individually-set values always win; ${VAR:-}
+# preserves any explicit setting). Essentials that stay on: guards, extraction,
+# session-load. Everything advisory/cosmetic goes quiet.
+# Split contract: this block only covers flags read AFTER lib.sh is sourced.
+# Kill-switch checks that run pre-source or in lib-less scripts carry their own
+# one-line SB_HOOK_PROFILE shim at the check site; the pairing is machine-locked
+# in mcp/src/prose-locks.test.ts.
+if [ "${SB_HOOK_PROFILE:-}" = "minimal" ]; then
+  : "${SB_SAR_SUMMARY:=off}" "${SB_PLAN_FIRST_NUDGE:=off}" "${SB_DREAM_AUTOSTAGE:=off}" \
+    "${SB_CRITIC_OFFER:=off}" "${SB_LOOP_DEAD_BANNER:=off}" "${SB_CODEMAP_ORIENT:=off}" \
+    "${SB_INJECTION_SCAN:=off}" "${SB_CONFIG_CHANGE_AUDIT:=off}"
+  export SB_SAR_SUMMARY SB_PLAN_FIRST_NUDGE SB_DREAM_AUTOSTAGE SB_CRITIC_OFFER \
+    SB_LOOP_DEAD_BANNER SB_CODEMAP_ORIENT SB_INJECTION_SCAN SB_CONFIG_CHANGE_AUDIT
+fi
+
 # sb_normalize_path — canonicalize a path STRING to the plugin's POSIX form so
 # the PreToolUse guards compare like-with-like. On Windows git-bash a hook
 # payload's file_path arrives as 'C:\Users\…' (or 'C:/Users/…') while $HOME —
@@ -1700,8 +1716,10 @@ TMPL
     | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" \
       >/dev/null 2>&1 || return 1
 
-  local sigs; sigs=$(printf '%s' "$delta" | jq -c '.persona_signals // []' 2>/dev/null)
-  if [ -n "$sigs" ] && printf '%s' "$sigs" | jq -e 'length > 0' >/dev/null 2>&1; then
+  local sigs; sigs=$(printf '%s' "$delta" | jq -c \
+    '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}' 2>/dev/null)
+  if [ -n "$sigs" ] && printf '%s' "$sigs" \
+    | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
     printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
   fi
   return 0

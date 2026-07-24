@@ -1,7 +1,11 @@
 #!/bin/bash
 # Merge persona signals from LLM extraction into the accumulation file.
-# Input: JSON array of persona_signals on stdin
-# Storage: ~/.second-brain/persona-signals.jsonl
+# Input on stdin: either the legacy bare JSON array of persona_signals, or an
+# object {persona_signals: [...], rule_candidates: [...]} — the object form
+# lets the Stop-hook route both extractor outputs through this one consumer.
+# Storage: ~/.second-brain/persona-signals.jsonl (signals),
+#          ~/.second-brain/persona-rules.pending.json (rule candidates),
+#          ~/.second-brain/persona-rules.json .learned[] (auto-armed warn rules)
 set -u
 source "$(dirname "$0")/lib.sh"
 
@@ -13,8 +17,22 @@ PRUNE_DAYS=90
 TODAY=$(date -u +%Y-%m-%d)
 SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
 
-NEW_SIGNALS=$(cat)
-if ! echo "$NEW_SIGNALS" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+RAW_INPUT=$(cat)
+if printf '%s' "$RAW_INPUT" | jq -e 'type == "object"' >/dev/null 2>&1; then
+  NEW_SIGNALS=$(printf '%s' "$RAW_INPUT" | jq -c '.persona_signals // []')
+  NEW_CANDIDATES=$(printf '%s' "$RAW_INPUT" | jq -c '.rule_candidates // []')
+else
+  NEW_SIGNALS="$RAW_INPUT"
+  NEW_CANDIDATES='[]'
+fi
+if ! echo "$NEW_SIGNALS" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  NEW_SIGNALS='[]'
+fi
+if ! echo "$NEW_CANDIDATES" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  NEW_CANDIDATES='[]'
+fi
+if echo "$NEW_SIGNALS" | jq -e 'length == 0' >/dev/null 2>&1 \
+  && echo "$NEW_CANDIDATES" | jq -e 'length == 0' >/dev/null 2>&1; then
   exit 0
 fi
 
@@ -84,6 +102,40 @@ MERGED=$(echo "$MERGED" | jq -c \
   --arg cutoff "$CUTOFF" \
   '[.[] | select(.graduated == true or .last_seen >= $cutoff)]')
 
+# --- Numeric confidence (score) + code-enforced weekly decay ---
+# score is DERIVED fresh every run from count + last_seen, so repeated runs
+# are idempotent (no compounding): occurrence base (1-2 obs -> 0.3, 3-5 ->
+# 0.5, 6-10 -> 0.7, 11+ -> 0.85) minus 0.02 per FULL week since last_seen,
+# clamped to a 0.1 floor, rounded to 2 decimals. The string `confidence`
+# field stays untouched — graduation below and the Stop-hook pin-candidate
+# routing still read it. Date math is pure jq (fromdateiso8601 + now), so no
+# GNU/BSD `date -d`/-v divergence; an unparseable last_seen decays as zero
+# weeks rather than nuking the record. Ungraduated signals decayed below 0.2
+# are PRUNED (logged loud below); graduated ones are kept — their record is
+# the dedup ledger that stops a paraphrase from re-graduating into a
+# duplicate USER.md pin.
+SCORED=$(echo "$MERGED" | jq -c '
+  map(. + {score:
+    ((if .count >= 11 then 0.85
+      elif .count >= 6 then 0.7
+      elif .count >= 3 then 0.5
+      else 0.3 end)
+     - 0.02 * ((((now - ((((.last_seen // "") + "T00:00:00Z") | fromdateiso8601?) // now)) / 604800) | floor)
+               | if . < 0 then 0 else . end))
+    | (if . < 0.1 then 0.1 else . end)
+    | (. * 100 | round) / 100
+  })
+  | {keep:   map(select(.graduated == true or .score >= 0.2)),
+     pruned: map(select(.graduated != true and .score < 0.2) | .signal)}
+')
+PRUNED_N=$(echo "$SCORED" | jq -r '.pruned | length' | tr -d '\r')
+case "$PRUNED_N" in ''|*[!0-9]*) PRUNED_N=0 ;; esac
+if [ "$PRUNED_N" -gt 0 ]; then
+  PRUNED_LIST=$(echo "$SCORED" | jq -r '.pruned | join("; ")' | tr -d '\r' | head -c 400)
+  sb_log_error "merge-persona-signals.sh" "decay-pruned n=$PRUNED_N signals=$PRUNED_LIST" 0
+fi
+MERGED=$(echo "$SCORED" | jq -c '.keep')
+
 # --- Auto-graduate high-confidence signals with 2+ observations ---
 # Threshold was count>=3, but field data showed cross-session paraphrase
 # divergence + the old strict dedup kept nearly everything at count=1. After
@@ -143,3 +195,129 @@ if [ -n "$MERGED" ] && echo "$MERGED" | jq -e 'type == "array"' >/dev/null 2>&1;
     rm -f "$TMP_SIG" 2>/dev/null
   fi
 fi
+
+# --- Rule-candidate accumulation → auto-arm as learned WARN rules ---
+# Candidates come from the extractor only when the transcript showed an
+# explicit user correction, a revert of an assistant edit, or the same
+# mistake twice. Each is accumulated in persona-rules.pending.json keyed by
+# a stable cksum of event+pattern; at 3 sightings it auto-arms into the USER
+# persona-rules.json under .learned[] with action "warn" — advisory-only, so
+# unattended arming can never block or prompt. deny/rewrite arming stays a
+# human decision, and the shipped default rules file is never written.
+if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
+  PENDING_FILE="$BRAIN_DIR/persona-rules.pending.json"
+  [ -s "$PENDING_FILE" ] || echo '{}' > "$PENDING_FILE"
+  USER_RULES="$BRAIN_DIR/persona-rules.json"
+  DEFAULT_RULES="$(dirname "$0")/persona-rules.default.json"
+
+  # Pending entries share the signals' PRUNE_DAYS retention: a candidate not
+  # re-sighted inside the window is stale evidence — without this the file
+  # grows without bound and an ancient count=2 could arm off one fresh sighting.
+  # One jq pass computes keep + pruned count; write-back is atomic tmp+mv.
+  PEND_SPLIT=$(jq -c --arg cutoff "$CUTOFF" '
+    {keep: with_entries(select((.value.last_seen // "1970-01-01") >= $cutoff)),
+     pruned_n: ([.[] | select((.last_seen // "1970-01-01") < $cutoff)] | length)}
+  ' "$PENDING_FILE" 2>/dev/null || echo '')
+  if [ -n "$PEND_SPLIT" ]; then
+    PEND_PRUNED=$(printf '%s' "$PEND_SPLIT" | jq -r '.pruned_n' | tr -d '\r')
+    case "$PEND_PRUNED" in ''|*[!0-9]*) PEND_PRUNED=0 ;; esac
+    if [ "$PEND_PRUNED" -gt 0 ]; then
+      TMP_PEND="$PENDING_FILE.tmp.$$"
+      if printf '%s' "$PEND_SPLIT" | jq -c '.keep' > "$TMP_PEND" 2>/dev/null; then
+        mv "$TMP_PEND" "$PENDING_FILE"
+        sb_log_error "merge-persona-signals.sh" "pending-pruned n=$PEND_PRUNED last_seen older than ${PRUNE_DAYS}d" 0
+      else
+        rm -f "$TMP_PEND" 2>/dev/null
+        sb_log_error "merge-persona-signals.sh" "pending-prune-write-failed" 0
+      fi
+    fi
+  fi
+
+  # In-batch dedup (unique_by): three copies inside ONE extraction must count
+  # once, or a single chatty session could arm a rule by itself. Shape gate:
+  # only bash|file events (the only frames the guard evaluates — anything else
+  # would accumulate permanently-inert entries), non-empty pattern + message,
+  # action warn.
+  # Candidates are TRANSCRIPT-DERIVED (untrusted): the message is truncated to
+  # 200 chars (it becomes advisory context on every matching tool call — an
+  # unbounded message is a stored-injection channel), and the pattern is
+  # rejected when overly long (>120 — a regex is not safely truncatable) or
+  # overly broad (nothing but regex metacharacters — ".*" would fire on every
+  # call and turn one rule into a permanent high-frequency channel).
+  CAND_LIST=$(echo "$NEW_CANDIDATES" | jq -c '
+    map(select((type == "object")
+      and ((.event // "") | IN("bash", "file"))
+      and ((.pattern // "") != "")
+      and ((.pattern | length) <= 120)
+      and ((.pattern | test("^[.*+?^$()\\[\\]{}|\\\\ ]*$")) | not)
+      and ((.message // "") != ""))
+      | .message |= .[0:200])
+    | unique_by((.event // "") + " " + (.pattern // ""))
+    | .[]')
+
+  while IFS= read -r cand; do
+    [ -z "$cand" ] && continue
+    ev=$(printf '%s' "$cand" | jq -r '.event' | tr -d '\r')
+    pat=$(printf '%s' "$cand" | jq -r '.pattern' | tr -d '\r')
+    msg=$(printf '%s' "$cand" | jq -r '.message' | tr -d '\r')
+    # cksum (POSIX, present on MSYS/BSD/Linux) gives a stable content key that
+    # is safe as a JSON object key regardless of what regex chars pattern holds.
+    key="$ev-$(printf '%s\n%s\n' "$ev" "$pat" | cksum | tr -s ' \t' '-')"
+
+    TMP_PEND="$PENDING_FILE.tmp.$$"
+    if jq -c --arg k "$key" --arg ev "$ev" --arg pat "$pat" --arg msg "$msg" --arg today "$TODAY" '
+      .[$k] = (if .[$k] then
+          .[$k] | .count += 1 | .last_seen = $today | .message = $msg
+        else
+          {event: $ev, pattern: $pat, action: "warn", message: $msg,
+           count: 1, first_seen: $today, last_seen: $today}
+        end)
+    ' "$PENDING_FILE" > "$TMP_PEND" 2>/dev/null; then
+      mv "$TMP_PEND" "$PENDING_FILE"
+    else
+      rm -f "$TMP_PEND" 2>/dev/null
+      sb_log_error "merge-persona-signals.sh" "pending-candidate-update-failed key=$key" 0
+      continue
+    fi
+
+    CNT=$(jq -r --arg k "$key" '.[$k].count // 0' "$PENDING_FILE" | tr -d '\r')
+    case "$CNT" in ''|*[!0-9]*) CNT=0 ;; esac
+    if [ "$CNT" -ge 3 ]; then
+      # Seed the USER rules file from the shipped defaults if absent FIRST:
+      # the guard prefers the user file whenever it exists, so writing a
+      # learned-only file would silently shadow every default rule. Seed via
+      # tmp+mv — the guard reads this file mid-session and must never see a
+      # half-copied one.
+      if [ ! -s "$USER_RULES" ]; then
+        TMP_SEED="$USER_RULES.tmp.$$"
+        if [ -s "$DEFAULT_RULES" ]; then
+          cp "$DEFAULT_RULES" "$TMP_SEED" && mv "$TMP_SEED" "$USER_RULES"
+        else
+          echo '{"rules":[]}' > "$TMP_SEED" && mv "$TMP_SEED" "$USER_RULES"
+        fi
+      fi
+      # Idempotent: an already-armed event+pattern is never re-added.
+      ALREADY=$(jq -r --arg ev "$ev" --arg pat "$pat" \
+        '[.learned // [] | .[] | select(.event == $ev and .pattern == $pat)] | length' \
+        "$USER_RULES" | tr -d '\r')
+      case "$ALREADY" in ''|*[!0-9]*) ALREADY=0 ;; esac
+      if [ "$ALREADY" -eq 0 ]; then
+        TMP_RULES="$USER_RULES.tmp.$$"
+        # .learned[] is capped at 50 (evict oldest): the guard walks the whole
+        # array on EVERY tool call, so unbounded growth is a hot-path tax.
+        if jq --arg ev "$ev" --arg pat "$pat" --arg msg "$msg" '
+          .learned = ((.learned // []) + [{event: $ev, pattern: $pat, action: "warn", message: $msg}])
+          | .learned |= (if length > 50 then .[length-50:] else . end)
+        ' "$USER_RULES" > "$TMP_RULES" 2>/dev/null; then
+          mv "$TMP_RULES" "$USER_RULES"
+          sb_log_audit "merge-persona-signals.sh" "arm" "learned-warn-rule" "$ev:$pat" "$msg" "$SESSION_ID"
+        else
+          rm -f "$TMP_RULES" 2>/dev/null
+          sb_log_error "merge-persona-signals.sh" "learned-rule-arm-failed event=$ev pattern=$pat" 0
+        fi
+      fi
+    fi
+  done <<< "$CAND_LIST"
+fi
+
+exit 0

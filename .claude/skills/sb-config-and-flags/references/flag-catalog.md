@@ -75,6 +75,7 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_PLAN_FIRST_FILES` | `2` | Distinct-code-file count that triggers the plan nudge. | TUNE | plan-first-nudge.sh:45 | bash |
 | `SB_PLAN_FIRST_MIN_LINES` | `3` | Edits below this line count never count a file toward the threshold. | TUNE | plan-first-nudge.sh:42 | none |
 | `SB_VERIFY_GATE` | `on` | Stop-hook verification gate. | KS | stop-verify-gate.sh:13 | bash |
+| `SB_HOOK_PROFILE` | unset | `minimal` collapses the hook surface to essentials in one lever: defaults SAR banner, plan-first nudge, dream autostage, critic offer, loop-dead banner, codemap orient, injection scan, and config-change audit to off (individually-set values always win). Guards, extraction, and session-load stay on. | profile | lib.sh (profile block) | bash |
 | `SB_SAR_SUMMARY` | `on` | Stop-hook Safety-Adherence-Rate one-line banner from audit-log verdicts. | KS | sar-summary.sh:22 | bash |
 | `SB_SUBAGENT_CAPTURE` | `on` | SubagentStop: archive substantive, non-self subagent FINAL results into `~/.second-brain/transcripts/`. | KS | subagent-capture.sh:22 | bash |
 | `SB_SUBAGENT_MIN_RESULT` | `80` | Min result size (bytes) to count as substantive. | TUNE | subagent-capture.sh:56 | none |

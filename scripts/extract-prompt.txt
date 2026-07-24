@@ -32,6 +32,14 @@ Schema (all keys required, arrays may be empty):
       "confidence": "high|medium"
     }
   ],
+  "rule_candidates":  [
+    {
+      "event": "bash|file",
+      "pattern": "short extended-regex or literal — matched against the shell command (bash) or the file path (file)",
+      "action": "warn",
+      "message": "one-line advisory shown when the pattern recurs"
+    }
+  ],
   "relations":        [
     {
       "from": "kebab-case-slug",
@@ -84,6 +92,13 @@ Rules:
   - Skip signals already obvious from the codebase or documented in the PROJECT.md you received
   - Categories: code_style (formatting, naming, patterns), communication (tone, verbosity), workflow (task approach, review style), tooling (tool preferences), decision_making (trade-off style, risk tolerance)
   - Max 2 per session — only genuinely non-obvious patterns
+- Rule candidates: mechanical guard-rule proposals. Emit one ONLY when the transcript shows at least one of: (a) the user explicitly corrected an assistant action ("don't do X", "stop using Y"), (b) the user reverted an assistant edit, or (c) the assistant made the same mistake twice. Do NOT emit for style preferences (those are persona_signals) or one-off typos.
+  - "event" picks what the rule matches: "bash" = shell commands, "file" = edited/written file paths. Only bash|file are accepted today — any other event is dropped by the consumer.
+  - "pattern" must be SHORT and specific — the exact command fragment or path fragment that recurred, not a broad wildcard. "action" is always "warn". "message" states the correction in one line, imperative voice.
+  - Examples:
+    {"event":"bash","pattern":"npm install -g","action":"warn","message":"User corrected global npm installs before — install project-local instead."}
+    {"event":"file","pattern":"src/generated/","action":"warn","message":"Edits under src/generated/ were reverted — the tree is build output, change the generator."}
+  - Max 2 per session; emit [] when no correction/revert/repeat occurred.
 - Relations: typed relationships between wiki pages that were explicitly established or confirmed THIS session. Use this to capture dependency knowledge so a future session recalls it without re-explaining.
   - "requires" = A depends on B (B must exist/work for A). "affects" = changing A impacts B. "part_of" = A is a component of B. "relates" = generic association (use only when none of the above fit).
   - `from`/`to` must be wiki page slugs (kebab-case) — prefer slugs that appear in cross_refs or wiki_updates this session so they resolve to real pages. Edges to non-existent pages are dropped.

@@ -22,14 +22,15 @@ grep -q 'do not hand-edit' "$OUT" || fail "missing generated marker"
 grep -q 'content line' "$OUT" || fail "stdin body missing"
 
 # INDEPENDENT ORACLE: "born-valid" means valid by the REAL validator, not a handpicked
-# subset. Derive the canonical required-field set straight from knowledge-validate.ts's
-# REQUIRED_FM_FIELDS so this test cannot drift from the validator (add an 8th required
+# subset. Derive the canonical required-field set straight from kb-schema.json's
+# frontmatter_required — the single source the validator itself derives from — so this
+# test cannot drift from the validator (add an 8th required
 # field there and this fails until the generator emits it). Pre-fix tags+related were
 # absent and the page was born INCOMPLETE while these checks stayed green — the exact
 # "test re-asserts a weaker notion than the oracle" gap.
-VALIDATE_TS="$REPO_ROOT/mcp/src/tools/knowledge-validate.ts"
-REQUIRED=$(grep -m1 'REQUIRED_FM_FIELDS *=' "$VALIDATE_TS" | grep -oE "'[a-z]+'" | tr -d "'")
-[ -n "$REQUIRED" ] || fail "could not parse REQUIRED_FM_FIELDS from $VALIDATE_TS"
+KB_MANIFEST="$REPO_ROOT/kb-schema.json"
+REQUIRED=$(jq -r '.frontmatter_required[]' "$KB_MANIFEST" 2>/dev/null | tr -d '\r')
+[ -n "$REQUIRED" ] || fail "could not read frontmatter_required from $KB_MANIFEST"
 for k in $REQUIRED; do
   grep -qE "^${k}:" "$OUT" || fail "generated page NOT born-valid: missing required field '$k:' (validator flags incomplete_frontmatter)"
 done

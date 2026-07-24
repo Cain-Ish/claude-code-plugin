@@ -71,6 +71,14 @@ Loop, up to a hard cap of **30 iterations**:
      low-value items remain). **Stop the loop.**
    - **`<m>` (REMAINING) is 0** → the inbox is empty. **Stop the loop.**
    - otherwise → dispatch the worker again (more items to drain).
+
+   **No-shrink stall check.** Across **successful** batches (parseable report, `DRAINED > 0`),
+   `<m>` must **strictly decrease**. The first successful batch where it fails to decrease arms
+   a counter; a **second consecutive** non-decreasing batch → **stop the loop and report a
+   stall naming the stuck count** (fail loud). A decreasing batch resets the counter.
+   (`DRAINED: 0` already terminates the loop above — this catches the pathological
+   drain-but-no-shrink shape, where batches keep claiming progress while the inbox never gets
+   smaller.)
 4. If you reach the 30-iteration cap with `<m>` still > 0, **stop and report a possible stall**
    (fail loud) — name the remaining count so the user can inspect with
    `/second-brain:capture --list`. (A healthy drain terminates on `DRAINED: 0` long before the

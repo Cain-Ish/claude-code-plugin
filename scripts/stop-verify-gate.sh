@@ -157,6 +157,7 @@ if [ -n "$VERIFY_CMDS" ] || [ -n "$SKILL_EVIDENCE" ] || [ -n "$SKILL_TOOL" ]; th
   # session (non-blocking systemMessage; the model/user decides). This engages the
   # judge rung on the 90% solo path without new machinery or coercion.
   # Kill switch: SB_CRITIC_OFFER=off; threshold SB_CRITIC_OFFER_MIN_FILES (3).
+  [ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_CRITIC_OFFER:=off}" # hook-profile shim: this check runs before lib.sh's mapping (or lib-less)
   if [ "${SB_CRITIC_OFFER:-on}" != "off" ]; then
     OFFER_MIN="${SB_CRITIC_OFFER_MIN_FILES:-3}"; case "$OFFER_MIN" in ''|*[!0-9]*) OFFER_MIN=3 ;; esac
     OFFER_MARKER="$BRAIN_DIR/.critic-offer-$SESSION_ID"

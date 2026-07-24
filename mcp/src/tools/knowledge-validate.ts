@@ -3,13 +3,14 @@ import { join, basename, dirname, relative } from 'path';
 import yaml from 'js-yaml';
 import { parseDoc, ParsedDoc, extractYamlList, matchFrontmatter, replaceFrontmatter, stripFrontmatter, FM_OPEN_RE } from './frontmatter.js';
 import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
-import { ALL_CATEGORIES } from '../constants/kb-schema.js';
+import { ALL_CATEGORIES, FRONTMATTER_REQUIRED } from '../constants/kb-schema.js';
 import { loadEdges, foldToCurrent, validAt, EdgeRecord } from './graph-store.js';
 import { walkWiki } from './walk-wiki.js';
 
 // The canonical required frontmatter field set — the same 7 fields addFrontmatter
-// emits. A node is in "best shape" when all are present (node-shape convergence).
-const REQUIRED_FM_FIELDS = ['title', 'description', 'type', 'created', 'updated', 'tags', 'related'];
+// emits; sourced from kb-schema.json so every machine and the bash side agree.
+// A node is in "best shape" when all are present (node-shape convergence).
+const REQUIRED_FM_FIELDS = FRONTMATTER_REQUIRED;
 
 // A structured page with this much prose (non-frontmatter, marked regions stripped) but no
 // ai-block is a backfill candidate; shorter pages are legitimate stubs, exempt. Env-overridable

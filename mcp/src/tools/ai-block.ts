@@ -3,23 +3,23 @@
 // fields (per-type schema). Pure module: parse / strip / validate. No I/O.
 // Spec: archive/docs branch, docs/specs/2026-06-02-ai-native-knowledge-representation-design.md
 
+import { AI_BLOCK_TYPES } from '../constants/kb-schema.js';
+
 // The begin marker is a single HTML comment line (its annotation tail stays on that line,
 // `[^\n]*?` — so a stray token can't fold the comment-tail into the parsed body). Requires a
 // matching ai:end; an unterminated ai:begin is NOT a block (no match → parse null / strip no-op).
+// Marker literals are deliberately code-owned (a regex templated from the manifest risks
+// semantic drift); kb-schema.json's ai_blocks.markers documents the grammar, and the
+// kb-schema test binds the two by asserting a manifest-built block matches this regex.
 export const AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
 
 export interface AiBlockSchema { fields: string[]; required: string[]; }
 
-// Per-type schemas (spec §4). `required` = the load-bearing fields a good page of that
-// type should carry; missing ones are WARNINGS (gentle), never errors.
-export const AI_BLOCK_SCHEMAS: Record<string, AiBlockSchema> = {
-  learnings: { fields: ['claim', 'trigger', 'action', 'scope', 'evidence', 'supersedes'], required: ['claim', 'action'] },
-  decisions: { fields: ['context', 'choice', 'alternatives', 'rationale', 'status', 'supersedes'], required: ['choice'] },
-  entities:  { fields: ['identity', 'current_state', 'depends_on', 'owns', 'status'], required: ['identity'] },
-  issues:    { fields: ['symptom', 'cause', 'fix', 'severity', 'status'], required: ['symptom', 'status'] },
-  concepts:  { fields: ['problem', 'solution', 'where_applied', 'tradeoffs'], required: ['problem', 'solution'] },
-  security:  { fields: ['threat', 'mitigation', 'scope', 'status'], required: ['threat', 'mitigation'] },
-};
+// Per-type schemas come from kb-schema.json (ai_blocks.types) — the single source of
+// truth every machine shares; the bash side and external readers see the same file.
+// `required` = the load-bearing fields a good page of that type should carry; missing
+// ones are WARNINGS (gentle), never errors.
+export const AI_BLOCK_SCHEMAS: Record<string, AiBlockSchema> = AI_BLOCK_TYPES;
 
 /** Own-key-safe schema lookup. A page's `type` is author-controlled (frontmatter or wiki
  *  sub-dir name), so a bare `AI_BLOCK_SCHEMAS[type]` index would resolve inherited

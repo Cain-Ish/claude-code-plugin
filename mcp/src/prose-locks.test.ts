@@ -48,6 +48,47 @@ describe('agent frontmatter lints (directory-walked)', () => {
   });
 });
 
+describe('SB_HOOK_PROFILE reaches every mapped kill switch (shim-or-source ordering)', () => {
+  // lib.sh's minimal-profile block only maps flags read AFTER sourcing. A kill-switch
+  // check that runs pre-source (or in a lib-less script) silently ignores the profile
+  // unless the check site carries its own one-line SB_HOOK_PROFILE shim. Lock: for each
+  // mapped (flag, script) pair, the first ${FLAG...} expansion must be preceded — by
+  // character offset — by either a SB_HOOK_PROFILE shim or a `source ...lib.sh` line.
+  const scriptsDir = repoRoot + 'scripts/';
+  const pairs: Array<[flag: string, script: string]> = [
+    ['SB_SAR_SUMMARY', 'sar-summary.sh'],
+    ['SB_PLAN_FIRST_NUDGE', 'plan-first-nudge.sh'],
+    ['SB_CRITIC_OFFER', 'stop-verify-gate.sh'],
+    ['SB_INJECTION_SCAN', 'tool-return-scanner.sh'],
+    ['SB_CONFIG_CHANGE_AUDIT', 'config-change-guard.sh'],
+    ['SB_DREAM_AUTOSTAGE', 'dream-autostage.sh'],
+    ['SB_LOOP_DEAD_BANNER', 'session-load.sh'],
+    ['SB_CODEMAP_ORIENT', 'session-load.sh'],
+  ];
+
+  for (const [flag, script] of pairs) {
+    it(`${script}: ${flag} check sees the profile (shim or prior lib.sh source)`, () => {
+      const src = read(scriptsDir + script);
+      // First real usage = first parameter expansion of the flag ("${FLAG" — bare
+      // comment mentions like "Kill switch: FLAG=off" don't count).
+      const usage = src.indexOf('${' + flag);
+      expect(usage, `${script} never expands \${${flag}} — pair stale?`).toBeGreaterThan(-1);
+      const shim = src.indexOf('SB_HOOK_PROFILE');
+      // Source forms in the tree: `source "$(dirname "$0")/lib.sh"` and
+      // `if ! source "$PLUGIN_ROOT/scripts/lib.sh"` — nested quotes, so match
+      // any same-line `source …lib.sh` rather than a quoted-path shape.
+      const lib = src.search(/source [^\n]*lib\.sh/);
+      const shimOk = shim !== -1 && shim < usage;
+      const libOk = lib !== -1 && lib < usage;
+      expect(
+        shimOk || libOk,
+        `${script}: first \${${flag}} use at offset ${usage} is reached before any ` +
+          `SB_HOOK_PROFILE shim (${shim}) or lib.sh source (${lib}) — the minimal profile is dead for it`
+      ).toBe(true);
+    });
+  }
+});
+
 describe('prose-contract locks (drain-loop delegation discipline)', () => {
   const skillSrc = () => read(repoRoot + 'skills/maintain/SKILL.md');
   const drainerSrc = () => read(agentsDir + 'raw-drainer.md');

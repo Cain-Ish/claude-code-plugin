@@ -51,7 +51,6 @@ stage changes for review, forgetting archives rather than deletes.
 | `/second-brain:recall` | Search past session transcripts (hybrid vector + text) |
 | `/second-brain:lint` | Wiki health check: orphans, dead `[[wiki-links]]`, broken cross-refs |
 | `/second-brain:maintain` | Explicit full consolidation run, incl. draining the raw inbox into wiki nodes |
-| `/second-brain:capture` | Raw-inbox interface — ingest a file/URL/text; `--list` inspects, `--discard <id>` prunes (capture itself is otherwise automatic) |
 | `/second-brain:dream` | Staged consolidation — every change reviewed before accept; `--background` supported |
 | `/second-brain:review` | Read-only cross-project overview: blockers, stale projects, pending dreams |
 | `/second-brain:audit` | What the safety layer did this session (guard verdicts, injection flags) |
@@ -60,6 +59,8 @@ stage changes for review, forgetting archives rather than deletes.
 | `/second-brain:think` | Opus advisor brief: intent, enrichment, risks (opt-in, ~$0.11/call) |
 | `/second-brain:doubt` | Adversarial self-audit of the plugin's own layers |
 | `/second-brain:code-review-deep` | Multi-pass PR review with parallel per-unit reviewers and FP-aware scoring |
+
+`/second-brain:capture` is documented for its raw-inbox interface (`--list` to inspect, `--discard <id>` to prune) but is not a slash command — capture itself is automatic.
 
 The other four skills (`query`, `using-second-brain`, `capture`, `improve`) are invoked by the
 model, not as slash commands. Nine agents back the loop: four code-review reviewers/scorers,

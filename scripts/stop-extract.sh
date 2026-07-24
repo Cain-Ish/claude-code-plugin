@@ -324,11 +324,14 @@ rm -f "$MERGE_ERR"
 # relations field, only filtering decisions/blockers/cross_refs).
 echo "$DELTA_JSON" | bash "$(dirname "$0")/merge-edges.sh" --knowledge-dir "$KNOWLEDGE_DIR" 2>/dev/null || true
 
-# --- Persona signal extraction ---
-PERSONA_SIGNALS=$(echo "$DELTA_JSON" | jq -c '.persona_signals // []')
-if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
+# --- Persona signal + rule-candidate extraction ---
+# One payload object carries both extractor outputs: the merge script owns
+# signal dedup/scoring AND candidate accumulation, so they must arrive together.
+PERSONA_PAYLOAD=$(echo "$DELTA_JSON" | jq -c \
+  '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}')
+if echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
   PERSONA_ERR=$(mktemp)
-  if ! echo "$PERSONA_SIGNALS" \
+  if ! echo "$PERSONA_PAYLOAD" \
     | bash "$(dirname "$0")/merge-persona-signals.sh" 2>"$PERSONA_ERR"; then
     ERR_TAIL=$(tr '\n' ' ' < "$PERSONA_ERR" | head -c 200)
     log_gate "persona-merge-failed err=$ERR_TAIL"
@@ -338,7 +341,7 @@ if echo "$PERSONA_SIGNALS" | jq -e 'length > 0' >/dev/null 2>&1; then
   # Auto-pin-suggest: high-confidence signals route to .pin-candidates.jsonl
   # for the session-load.sh banner. Lower-confidence still go through the
   # graduation counter in merge-persona-signals.sh.
-  echo "$PERSONA_SIGNALS" | jq -c '.[] | select(.confidence == "high")' 2>/dev/null | while IFS= read -r sig; do
+  echo "$PERSONA_PAYLOAD" | jq -c '.persona_signals[] | select(.confidence == "high")' 2>/dev/null | while IFS= read -r sig; do
     TEXT=$(printf '%s' "$sig" | jq -r '.signal // empty' 2>/dev/null | tr -d '\r')
     [ -n "$TEXT" ] && sb_append_pin_candidate "$SLUG" "$TEXT"
   done

@@ -90,6 +90,18 @@ notes from episodic memory ("previously flagged / previously dismissed here").
   docstring contracts). Flag only when the change contradicts a still-valid
   in-code instruction. Report under the `convention` category.
 
+### 10. Behavioral coverage
+Does the diff carry tests that exercise the changed **behavior** — not merely
+types, imports, or wiring? Rate gaps by consequence: a behavior change with zero
+behavioral coverage is a finding (`test-gap`), severity scaled by what regresses
+silently when that behavior breaks.
+
+### 11. Type design
+Do new/changed types encapsulate their invariants — can an invalid state even be
+represented? An invariant enforced once at construction beats checks scattered
+across use sites; a type every caller can build into a broken value is a
+`type-safety` finding.
+
 ## Output
 
 For each issue, return:

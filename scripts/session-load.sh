@@ -610,14 +610,22 @@ if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 
     || date -u -d "${PERSONA_WINDOW_DAYS} days ago" +%Y-%m-%d 2>/dev/null \
     || echo "1970-01-01")
 
+  # Injection threshold: only signals with numeric score >= 0.7 surface
+  # ambiently, ranked by score desc, capped at 6 — weak/decayed patterns stay
+  # in the file for graduation counting but never spend banner bytes. The
+  # score field is stamped by merge-persona-signals.sh; records that predate
+  # it fall back to the same count->base map (no decay) so the threshold
+  # never fails open on an unstamped file.
   SIGNALS=$(jq -rs --arg cutoff "$THIRTY_DAYS_AGO" '
+    def base: if .count >= 11 then 0.85 elif .count >= 6 then 0.7
+              elif .count >= 3 then 0.5 else 0.3 end;
     [.[] | select(
       .last_seen >= $cutoff and
       .graduated == false and
-      .count >= 2
+      ((.score // base) >= 0.7)
     )]
-    | sort_by(-.count)
-    | .[0:5]
+    | sort_by(-(.score // base))
+    | .[0:6]
     | .[] | "- [\(.category)] \(.signal) (seen \(.count)x)"
   ' "$PERSONA_FILE" 2>/dev/null)
 

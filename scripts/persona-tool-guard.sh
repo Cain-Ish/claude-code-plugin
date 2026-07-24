@@ -175,15 +175,32 @@ fi
 # Raw -r lines preserve regex strings byte-for-byte (no @tsv backslash mangling);
 # rule fields are single-line by construction, and reason/replace get their
 # newlines folded defensively so a multiline value cannot break the framing.
+# Learned rules (.learned[], auto-armed by merge-persona-signals.sh) are
+# normalized into the same frame AFTER the authored rules, so an authored
+# ask/deny always wins over a learned advisory on the same input (first match
+# exits). Their event field maps onto the frame: bash -> match_command against
+# Bash, file -> match_path against the file-touching tools. Only action=warn
+# is honored from .learned — a poisoned learned entry can therefore never
+# escalate itself into a deny/rewrite.
 RULE_STREAM=$(jq -r --arg t "$TOOL" '
-  .rules[] | select(.tool == $t) |
+  (.rules[] | select(.tool == $t) |
     (.name // "anonymous"),
     (.action // ""),
     (.match_command // ""),
     (.match_path // ""),
     ((.replace // "") | gsub("[\r\n]"; " ")),
     ((.reason // "") | gsub("[\r\n]"; " ")),
-    "--SB-RULE-END--"
+    "--SB-RULE-END--"),
+  (.learned[]? | select((.action // "") == "warn") |
+   select(((.event // "") == "bash" and $t == "Bash")
+       or ((.event // "") == "file" and ($t == "Edit" or $t == "Write" or $t == "MultiEdit"))) |
+    ("learned:" + .event + ":" + ((.pattern // "")[0:40])),
+    "warn",
+    (if .event == "bash" then (.pattern // "") | gsub("[\r\n]"; " ") else "" end),
+    (if .event == "file" then (.pattern // "") | gsub("[\r\n]"; " ") else "" end),
+    "",
+    ((.message // "") | gsub("[\r\n]"; " ")),
+    "--SB-RULE-END--")
 ' "$RULES_FILE" 2>/dev/null | tr -d '\r')
 [ -z "$RULE_STREAM" ] && exit 0
 
@@ -195,13 +212,15 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
   # stop matching rather than mis-apply rules to the wrong fields. Fail-soft.
   [ "$_sentinel" = "--SB-RULE-END--" ] || break
 
+  # `--` ends option parsing: rule patterns include learned (transcript-derived)
+  # content, and a pattern starting with '-' must be a regex, never a grep flag.
   if [ -n "$match_cmd" ]; then
     [ -z "$CMD" ] && continue
-    if ! printf '%s' "$CMD" | grep -qE "$match_cmd"; then continue; fi
+    if ! printf '%s' "$CMD" | grep -qE -- "$match_cmd"; then continue; fi
   fi
   if [ -n "$match_path" ]; then
     [ -z "$PATH_INPUT" ] && continue
-    if ! printf '%s' "$PATH_INPUT" | grep -qE "$match_path"; then continue; fi
+    if ! printf '%s' "$PATH_INPUT" | grep -qE -- "$match_path"; then continue; fi
   fi
 
   target="${PATH_INPUT:-${CMD:0:200}}"
@@ -239,6 +258,21 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
           hookEventName: "PreToolUse",
           permissionDecision: "ask",
           permissionDecisionReason: $r
+        }
+      }' 2>/dev/null || true
+      exit 0
+      ;;
+    warn)
+      # Advisory-only: surface the learned lesson as additionalContext and
+      # let the call proceed untouched. Deliberately NO permissionDecision:
+      # emitting "allow" would auto-approve the call and bypass the user's
+      # own permission prompts — an advisory must never widen permissions,
+      # only inform. Never blocks, never prompts, always exits 0.
+      sb_log_audit "persona-tool-guard.sh" "warn" "$rule_name" "$target" "$reason" "$SESSION_ID"
+      jq -nc --arg r "$reason" '{
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: $r
         }
       }' 2>/dev/null || true
       exit 0

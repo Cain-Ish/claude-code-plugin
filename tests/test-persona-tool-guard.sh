@@ -241,5 +241,49 @@ echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null
 pass "resource-scope: inline fallback (lib.sh unsourceable) still asks on Windows path"
 rm -rf "$WINBIN" "$NOLIB_BRAIN"
 
+# --- learned WARN rules (auto-armed by merge-persona-signals.sh) ---
+# Test 23: a learned bash warn rule fires advisory additionalContext, sets NO
+# permissionDecision (an explicit "allow" would auto-approve the call and
+# bypass the user's permission prompts), and exits 0.
+cat > "$TS_BRAIN/persona-rules.json" <<'EOF'
+{
+  "rules": [],
+  "learned": [
+    {"event":"bash","pattern":"npm install -g","action":"warn","message":"Learned: install project-local, not global."},
+    {"event":"file","pattern":"src/generated/","action":"warn","message":"Learned: src/generated is build output; change the generator."}
+  ]
+}
+EOF
+out=$(BRAIN_DIR="$TS_BRAIN" \
+  echo '{"tool_name":"Bash","tool_input":{"command":"npm install -g typescript"},"session_id":"w1"}' \
+  | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT") || fail "warn rule must exit 0"
+echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("project-local")' >/dev/null \
+  || fail "learned bash warn should emit its message as additionalContext (got: $out)"
+echo "$out" | jq -e '.hookSpecificOutput | has("permissionDecision") | not' >/dev/null \
+  || fail "warn must NOT set permissionDecision — advisory only (got: $out)"
+pass "learned warn: bash rule fires advisory, allows, exits 0"
+
+# Test 24: learned file warn rule matches Edit paths; bash-event rules don't.
+out=$(BRAIN_DIR="$TS_BRAIN" \
+  echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/u/proj/src/generated/api.ts"},"cwd":"/home/u/proj","session_id":"w2"}' \
+  | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT") || fail "file warn rule must exit 0"
+echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("build output")' >/dev/null \
+  || fail "learned file warn should emit advisory on matching Edit path (got: $out)"
+echo "$out" | jq -e '.hookSpecificOutput | has("permissionDecision") | not' >/dev/null \
+  || fail "file warn must NOT set permissionDecision (got: $out)"
+# Non-matching input stays silent (advisory never fires spuriously).
+out=$(BRAIN_DIR="$TS_BRAIN" \
+  echo '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"w3"}' \
+  | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "non-matching command must stay silent with learned rules present (got: $out)"
+pass "learned warn: file rule fires on Edit, non-matches silent"
+
+# Test 25: warn verdicts land in the audit log like ask/deny/rewrite.
+grep -q '"verdict":"warn"' "$TS_BRAIN/audit-log.jsonl" \
+  || fail "audit-log should contain warn verdicts"
+grep -q '"rule":"learned:bash:npm install -g"' "$TS_BRAIN/audit-log.jsonl" \
+  || fail "audit-log should name the learned rule that fired"
+pass "learned warn: verdicts audit-logged"
+
 echo
 echo "ALL PASS"

@@ -2,6 +2,19 @@
   "_comment": "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
   "structured_types": ["learnings", "decisions", "entities", "issues", "concepts", "security"],
   "unstructured_types": ["state", "sources"],
+  "frontmatter_required": ["title", "description", "type", "created", "updated", "tags", "related"],
+  "ai_blocks": {
+    "markers": { "begin": "<!-- ai:begin", "end": "<!-- ai:end -->" },
+    "body": "flat YAML key: value lines",
+    "types": {
+      "learnings": { "fields": ["claim", "trigger", "action", "scope", "evidence", "supersedes"], "required": ["claim", "action"] },
+      "decisions": { "fields": ["context", "choice", "alternatives", "rationale", "status", "supersedes"], "required": ["choice"] },
+      "entities":  { "fields": ["identity", "current_state", "depends_on", "owns", "status"], "required": ["identity"] },
+      "issues":    { "fields": ["symptom", "cause", "fix", "severity", "status"], "required": ["symptom", "status"] },
+      "concepts":  { "fields": ["problem", "solution", "where_applied", "tradeoffs"], "required": ["problem", "solution"] },
+      "security":  { "fields": ["threat", "mitigation", "scope", "status"], "required": ["threat", "mitigation"] }
+    }
+  },
   "generated_dirs": ["projects", "themes"],
   "edge_types": ["requires", "affects", "relates", "part_of", "supersedes"],
   "project_sections": ["blockers", "decisions"],

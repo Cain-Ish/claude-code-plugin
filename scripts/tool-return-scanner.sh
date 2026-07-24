@@ -17,6 +17,7 @@
 # Always exits 0 (fail-soft).
 set -u
 
+[ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_INJECTION_SCAN:=off}" # hook-profile shim: this check runs before lib.sh's mapping (or lib-less)
 [ "${SB_INJECTION_SCAN:-on}" = "off" ] && exit 0
 
 RAW=$(cat 2>/dev/null || true)

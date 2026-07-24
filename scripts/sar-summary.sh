@@ -19,6 +19,7 @@ set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
+[ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_SAR_SUMMARY:=off}" # hook-profile shim: this check runs before lib.sh's mapping (or lib-less)
 [ "${SB_SAR_SUMMARY:-on}" = "off" ] && exit 0
 
 RAW=$(cat 2>/dev/null || true)

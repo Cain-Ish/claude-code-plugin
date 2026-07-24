@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import * as kb from './kb-schema.js';
-import { AI_BLOCK_SCHEMAS } from '../tools/ai-block.js';
+import { AI_BLOCK_SCHEMAS, AI_BLOCK_RE } from '../tools/ai-block.js';
 import { EDGE_TYPES as GRAPH_EDGE_TYPES } from '../tools/graph-store.js';
 
 const json = JSON.parse(readFileSync(new URL('../../../kb-schema.json', import.meta.url), 'utf-8'));
@@ -15,6 +15,7 @@ describe('kb-schema — single source of truth (TS side)', () => {
     expect(kb.PROJECT_SECTIONS).toEqual(json.project_sections);
     expect(kb.FORGET_PROTECTED).toEqual(json.forget_protection.protected);
     expect(kb.FORGET_DISCOUNTED).toEqual(json.forget_protection.discounted);
+    expect(kb.FRONTMATTER_REQUIRED).toEqual(json.frontmatter_required);
   });
   it('SP-2: raw group derives verbatim from kb-schema.json', () => {
     expect(kb.RAW_DIR).toEqual(json.raw.dir);
@@ -32,6 +33,15 @@ describe('kb-schema — single source of truth (TS side)', () => {
   });
   it('ai-block AI_BLOCK_SCHEMAS keys == manifest structured_types (no divergence)', () => {
     expect(Object.keys(AI_BLOCK_SCHEMAS).sort()).toEqual([...kb.STRUCTURED_TYPES].sort());
+  });
+  it('ai-block AI_BLOCK_SCHEMAS == manifest ai_blocks.types (field contracts, not just keys)', () => {
+    expect(AI_BLOCK_SCHEMAS).toEqual(json.ai_blocks.types);
+  });
+  it('manifest ai_blocks.markers grammar is accepted by the code-owned AI_BLOCK_RE', () => {
+    // Binds the manifest's declared marker literals to the regex without templating it:
+    // a block built from the manifest markers must be a valid block to the code.
+    const block = json.ai_blocks.markers.begin + ' (authored) -->\nclaim: x\n' + json.ai_blocks.markers.end;
+    expect(AI_BLOCK_RE.test(block)).toBe(true);
   });
   it('graph-store EDGE_TYPES == manifest edge_types (no divergence)', () => {
     expect([...GRAPH_EDGE_TYPES]).toEqual(json.edge_types);

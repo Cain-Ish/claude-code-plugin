@@ -154,10 +154,12 @@ pass "scope banner counts survive a CRLF PROJECT.md (Windows line endings)"
 # HIGH — persona-signals EMIT: only qualifying ungraduated signals appear.
 # ============================================================================
 # Seed persona-signals.jsonl with:
-#   (A) qualifying:  recent, ungraduated, count>=2   → MUST appear
-#   (B) graduated:   recent, count>=2, graduated     → MUST NOT appear
-#   (C) count==1:    recent, ungraduated, count==1   → MUST NOT appear
-#   (D) stale:       count>=2, ungraduated, old date → MUST NOT appear (outside window)
+#   (A) qualifying:  recent, ungraduated, count 6 (score 0.7)   → MUST appear
+#   (B) graduated:   recent, count>=2, graduated                → MUST NOT appear
+#   (C) count==1:    recent, ungraduated, count==1 (score 0.3)  → MUST NOT appear
+#   (D) stale:       count>=2, ungraduated, old date            → MUST NOT appear (outside window)
+#   (E) mid-count:   recent, ungraduated, count 4 (score 0.5)   → MUST NOT appear (below 0.7)
+#   (F) stamped:     recent, ungraduated, count 2, score 0.9    → MUST appear (stored score wins)
 init_proj "persona" "persona-proj"
 cat > "$BRAIN/projects/persona-proj/PROJECT.md" <<'EOF'
 # PROJECT: persona-proj
@@ -166,23 +168,29 @@ seeded.
 EOF
 TODAY=$(date -u +%Y-%m-%d)
 {
-  printf '{"category":"workflow","signal":"QUALIFYING-prefers-tdd-loops","evidence":[],"confidence":"medium","first_seen":"%s","last_seen":"%s","count":3,"graduated":false}\n' "$TODAY" "$TODAY"
-  printf '{"category":"style","signal":"GRADUATED-already-in-usermd","evidence":[],"confidence":"high","first_seen":"%s","last_seen":"%s","count":5,"graduated":true}\n' "$TODAY" "$TODAY"
+  printf '{"category":"workflow","signal":"QUALIFYING-prefers-tdd-loops","evidence":[],"confidence":"medium","first_seen":"%s","last_seen":"%s","count":6,"graduated":false}\n' "$TODAY" "$TODAY"
+  printf '{"category":"style","signal":"GRADUATED-already-in-usermd","evidence":[],"confidence":"high","first_seen":"%s","last_seen":"%s","count":15,"graduated":true}\n' "$TODAY" "$TODAY"
   printf '{"category":"tooling","signal":"SINGLESEEN-only-once","evidence":[],"confidence":"low","first_seen":"%s","last_seen":"%s","count":1,"graduated":false}\n' "$TODAY" "$TODAY"
-  printf '{"category":"workflow","signal":"STALE-beyond-the-window","evidence":[],"confidence":"medium","first_seen":"2020-01-01","last_seen":"2020-01-01","count":4,"graduated":false}\n'
+  printf '{"category":"workflow","signal":"STALE-beyond-the-window","evidence":[],"confidence":"medium","first_seen":"2020-01-01","last_seen":"2020-01-01","count":12,"graduated":false}\n'
+  printf '{"category":"workflow","signal":"MIDCOUNT-below-threshold","evidence":[],"confidence":"medium","first_seen":"%s","last_seen":"%s","count":4,"graduated":false}\n' "$TODAY" "$TODAY"
+  printf '{"category":"tooling","signal":"STAMPED-explicit-high-score","evidence":[],"confidence":"medium","first_seen":"%s","last_seen":"%s","count":2,"graduated":false,"score":0.9}\n' "$TODAY" "$TODAY"
 } > "$BRAIN/persona-signals.jsonl"
 OUT=$(run_load)
 printf '%s' "$OUT" | grep -q '## Observed patterns' \
   || fail "persona 'Observed patterns' header missing (got: $OUT)"
-printf '%s' "$OUT" | grep -qF -- '- [workflow] QUALIFYING-prefers-tdd-loops (seen 3x)' \
+printf '%s' "$OUT" | grep -qF -- '- [workflow] QUALIFYING-prefers-tdd-loops (seen 6x)' \
   || fail "qualifying ungraduated signal line missing/malformed (got: $OUT)"
+printf '%s' "$OUT" | grep -qF -- '- [tooling] STAMPED-explicit-high-score (seen 2x)' \
+  || fail "a stamped score>=0.7 signal must appear regardless of count (got: $OUT)"
 printf '%s' "$OUT" | grep -q 'GRADUATED-already-in-usermd' \
   && fail "a GRADUATED signal must NOT appear in Observed patterns (got: $OUT)"
 printf '%s' "$OUT" | grep -q 'SINGLESEEN-only-once' \
-  && fail "a count==1 signal must NOT appear (count>=2 required) (got: $OUT)"
+  && fail "a count==1 (score 0.3) signal must NOT appear (score>=0.7 required) (got: $OUT)"
+printf '%s' "$OUT" | grep -q 'MIDCOUNT-below-threshold' \
+  && fail "a count=4 (score 0.5) signal must NOT appear (score>=0.7 required) (got: $OUT)"
 printf '%s' "$OUT" | grep -q 'STALE-beyond-the-window' \
   && fail "a stale (out-of-window) signal must NOT appear (got: $OUT)"
-pass "persona Observed-patterns emits only the qualifying ungraduated signal"
+pass "persona Observed-patterns emits only score>=0.7 ungraduated signals"
 
 echo
 echo "ALL PASS"

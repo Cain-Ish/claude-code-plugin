@@ -13,6 +13,7 @@
 #
 # Kill switch: SB_PLAN_FIRST_NUDGE=off. No awk (mawk-safe). Fail-soft; always exits 0.
 set -u
+[ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_PLAN_FIRST_NUDGE:=off}" # hook-profile shim: this check runs before lib.sh's mapping (or lib-less)
 [ "${SB_PLAN_FIRST_NUDGE:-on}" = "off" ] && exit 0
 
 RAW=$(cat 2>/dev/null || true); [ -z "$RAW" ] && exit 0

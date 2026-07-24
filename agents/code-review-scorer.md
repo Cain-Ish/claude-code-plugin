@@ -48,6 +48,24 @@ verify the finding by reading the relevant file(s).
   + the recorded reason fits this finding): force the score to **≤10** and name the
   matched pattern in your justification.
 
+## False-positive skip list (suppress or score low)
+
+These shapes are noise, not bugs — suppress them or score ≤10 unless the evidence
+says this instance is genuinely different:
+
+- Magic numbers that are well-known constants (ports, HTTP codes, powers of two).
+- "Missing await" on an intentional fire-and-forget call.
+- "Consider error handling" where the caller visibly handles it.
+- Security warnings on non-crypto uses of `Math.random`.
+- Style preferences dressed as bugs.
+- "Unused" symbols that are exported API.
+- TODO comments reported as findings.
+- Framework-idiomatic patterns flagged as smells.
+- "Could be null" where the type system already guarantees non-null.
+- Performance nits on cold paths.
+- Duplicated-code claims across genuinely different domains.
+- Missing-tests findings when the diff is test-only.
+
 ## Verifying history findings
 
 For `regression`/history findings, use `git log`/`git blame` to confirm the cited

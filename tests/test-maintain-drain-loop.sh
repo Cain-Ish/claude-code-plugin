@@ -50,7 +50,7 @@ sb_parse_blame() {
 # the same index ("" = clean, non-empty = offending legacy-wiki paths).
 # Sets globals on return:
 #   DISPATCHES  — how many worker dispatches happened
-#   STOP_REASON — drained-zero | remaining-zero | cap | no-line | postflight-abort
+#   STOP_REASON — drained-zero | remaining-zero | cap | no-line | no-shrink | postflight-abort
 #   REPORT      — human report text (fail-loud on cap / stall / postflight)
 #   BLAME       — blame class carried from the last worker output that had one
 # Contract (skills/maintain/SKILL.md Stage 2):
@@ -60,6 +60,10 @@ sb_parse_blame() {
 #   * stop when DRAINED (n) == 0  -> drained-zero
 #   * stop when REMAINING (m) == 0 -> remaining-zero
 #   * otherwise redispatch
+#   * no-shrink stall: across SUCCESSFUL batches (parseable, DRAINED>0) REMAINING
+#     must STRICTLY DECREASE; the first non-decreasing successful batch arms a
+#     counter, the SECOND CONSECUTIVE one stops (no-shrink) with the stuck count
+#     named; a decreasing batch resets the counter
 #   * hard cap 30 iterations: if still REMAINING>0 -> stop + fail-loud (names count)
 #   * no parseable line: dispatch once more; if the SECOND CONSECUTIVE dispatch
 #     also has no line -> stop + report (don't loop blind); the BLAME scan runs
@@ -68,6 +72,8 @@ sb_drain_loop() {
   DISPATCHES=0; STOP_REASON=""; REPORT=""; BLAME=""
   consec_no_line=0
   last_m=""
+  prev_success_m=""   # REMAINING from the last SUCCESSFUL (DRAINED>0) batch
+  no_shrink=0         # consecutive successful batches where REMAINING failed to decrease
   i=0
   while [ "$i" -lt 30 ]; do
     i=$((i + 1))
@@ -93,6 +99,19 @@ sb_drain_loop() {
       last_m="$m"
       if [ "$n" -eq 0 ]; then STOP_REASON="drained-zero"; return 0; fi
       if [ "$m" -eq 0 ]; then STOP_REASON="remaining-zero"; return 0; fi
+      # Successful batch (DRAINED>0, REMAINING>0): REMAINING must strictly
+      # decrease. First non-decrease arms the counter; second consecutive stops.
+      if [ -n "$prev_success_m" ] && [ "$m" -ge "$prev_success_m" ]; then
+        no_shrink=$((no_shrink + 1))
+        if [ "$no_shrink" -ge 2 ]; then
+          STOP_REASON="no-shrink"
+          REPORT="STALL: REMAINING stuck at $m across two consecutive successful batches — drained without shrinking; inspect with /second-brain:capture --list"
+          return 0
+        fi
+      else
+        no_shrink=0
+      fi
+      prev_success_m="$m"
       # else: progress made, more remain -> loop again
     else
       consec_no_line=$((consec_no_line + 1))
@@ -163,15 +182,17 @@ pass "loop: REMAINING:0 stops the loop even when DRAINED>0"
 
 # ---------------------------------------------------------------------------
 # Test 3 — never hits DRAINED:0 -> stops at exactly 30 with fail-loud report.
+# (REMAINING strictly decreases each batch so the no-shrink stall never arms —
+# this fixture isolates the cap.)
 # ---------------------------------------------------------------------------
 WORKER_OUT=()
 k=0
-while [ "$k" -lt 40 ]; do WORKER_OUT[$k]='DRAINED: 1  REMAINING: 8'; k=$((k + 1)); done
+while [ "$k" -lt 40 ]; do WORKER_OUT[$k]="DRAINED: 1  REMAINING: $((100 - k))"; k=$((k + 1)); done
 sb_drain_loop
 [ "$DISPATCHES" -eq 30 ]   || fail "cap: expected exactly 30 dispatches, got $DISPATCHES"
 [ "$STOP_REASON" = cap ]   || fail "cap: expected stop reason cap, got $STOP_REASON"
 echo "$REPORT" | grep -q '30-iteration cap' || fail "cap: report must mention the 30-iteration cap, got: $REPORT"
-echo "$REPORT" | grep -q 'REMAINING: 8'     || fail "cap: fail-loud report must name the remaining count, got: $REPORT"
+echo "$REPORT" | grep -q 'REMAINING: 71'    || fail "cap: fail-loud report must name the remaining count, got: $REPORT"
 pass "loop: never-DRAINED:0 stops at exactly 30 with fail-loud report naming REMAINING"
 
 # ---------------------------------------------------------------------------
@@ -271,5 +292,40 @@ sb_drain_loop
 [ "$BLAME" = caller-under-supplied ] || fail "unknown-refusal: BLAME must survive the no-line branch, got '$BLAME'"
 echo "$REPORT" | grep -q 'caller-under-supplied' || fail "unknown-refusal: stall report must carry BLAME, got: $REPORT"
 pass "loop: unparseable refusal stalls after 2 dispatches with BLAME carried into the report"
+
+# ---------------------------------------------------------------------------
+# Test 10 — no-shrink stall: ['2/5','1/5','1/5'] -> the 2nd batch (first
+# non-decrease) ARMS the counter, the 3rd (second consecutive) STOPS.
+# Exactly 3 dispatches; report names the stuck count.
+# ---------------------------------------------------------------------------
+WORKER_OUT=(
+  'DRAINED: 2  REMAINING: 5'
+  'DRAINED: 1  REMAINING: 5'   # first non-decrease -> arms
+  'DRAINED: 1  REMAINING: 5'   # second consecutive -> stops
+  'DRAINED: 1  REMAINING: 5'   # must NOT be reached
+)
+POSTFLIGHT_OUT=('' '' '' '')
+sb_drain_loop
+[ "$DISPATCHES" -eq 3 ]        || fail "no-shrink: expected stop after 3rd dispatch, got $DISPATCHES"
+[ "$STOP_REASON" = no-shrink ] || fail "no-shrink: expected stop reason no-shrink, got $STOP_REASON"
+echo "$REPORT" | grep -q 'stuck at 5' || fail "no-shrink: report must name the stuck count, got: $REPORT"
+pass "loop: [2/5,1/5,1/5] -> first repeat arms, second consecutive stops no-shrink naming 5"
+
+# ---------------------------------------------------------------------------
+# Test 11 — recovery: REMAINING resumes decreasing after one non-decrease ->
+# counter resets, loop continues to a normal drained-zero stop.
+# ---------------------------------------------------------------------------
+WORKER_OUT=(
+  'DRAINED: 2  REMAINING: 8'
+  'DRAINED: 1  REMAINING: 8'   # first non-decrease -> arms
+  'DRAINED: 3  REMAINING: 5'   # decreases -> counter resets
+  'DRAINED: 1  REMAINING: 5'   # first non-decrease again (counter was reset)
+  'DRAINED: 0  REMAINING: 5'   # normal drained-zero stop
+)
+POSTFLIGHT_OUT=('' '' '' '' '')
+sb_drain_loop
+[ "$DISPATCHES" -eq 5 ]           || fail "no-shrink reset: expected 5 dispatches, got $DISPATCHES"
+[ "$STOP_REASON" = drained-zero ] || fail "no-shrink reset: expected drained-zero, got $STOP_REASON"
+pass "loop: a decreasing batch resets the no-shrink counter (recovers to drained-zero)"
 
 echo; echo "ALL PASS"
