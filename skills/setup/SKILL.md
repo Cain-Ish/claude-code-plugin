@@ -63,7 +63,7 @@ test -f ~/.second-brain/projects.jsonl || : > ~/.second-brain/projects.jsonl
 
 Check whether `~/.second-brain/USER.md` exists.
 
-- If it exists: leave it alone, report its current byte count. Then verify it contains a `## Intent` section — if missing, append the default Intent block below (idempotent; same block the v1.2.0 migration appends).
+- If it exists: leave it alone, report its current byte count. Then verify it contains a `## Intent` section — if missing, append the default Intent block below (idempotent).
 - If it does not exist:
   - If `~/.second-brain/persona.md` exists (legacy 0.7.0 file), offer to condense it interactively into ≤15 lines of preferences and write the result to `USER.md`.
   - Otherwise prompt the user for ≤15 lines of cross-project preferences (tone, languages, defaults, "always do X / never do Y"). Write them to `USER.md` using the `Write` tool.
@@ -284,7 +284,7 @@ If the preview was empty, say there were no high-signal docs to seed and move on
 
 ### 6b. Companion-plugin check (superpowers)
 
-Since 0.24.42 the discipline skills (brainstorming, TDD, systematic-debugging,
+The discipline skills (brainstorming, TDD, systematic-debugging,
 writing-plans, verification-before-completion) are NOT vendored — they come
 from the upstream `superpowers` plugin (R6 de-vendor; see NOTICE.md). Check it
 is installed and warn if not:
@@ -297,7 +297,7 @@ ls -d ~/.claude/plugins/cache/*/superpowers/*/ >/dev/null 2>&1 \
 
 ### 6c. Autonomy consent ladder (review + dial-back — automation is ON by default)
 
-Since 0.30.0 automation is **ON by default** — it's an automation plugin, so a fresh
+Automation is **ON by default** — it's an automation plugin, so a fresh
 install self-maintains without the operator having to remember to opt in. This step is
 the transparency surface: show what's on and let the operator **dial it back or off**
 with a single explicit choice instead of hand-editing JSON. It only writes the tiers
@@ -391,4 +391,4 @@ If USER.md exceeds ~3200 bytes, advise the user to trim — the hot tier is mean
 
 - All data stays local under `~/.second-brain/`. Nothing is synced or pushed.
 - Do not place `~/.second-brain/` inside iCloud Drive, Dropbox, Google Drive, or OneDrive — those clients can corrupt JSONL during concurrent writes.
-- This skill replaces the 0.7.0 setup flow. Legacy files (`learnings.md`, `quality-rules.md`, `friction-log.jsonl`, `persona.md`) are not created here; the `upgrade` skill handles migration.
+- Legacy files (`learnings.md`, `quality-rules.md`, `friction-log.jsonl`, `persona.md`) are not created here; the `upgrade` skill handles migration.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# flow-guard.sh — v2.10.0 PreToolUse hook (HarnessAudit sar_flow channel).
+# flow-guard.sh — PreToolUse hook (HarnessAudit sar_flow channel).
 #
 # Asks before a tool call that combines an OUTBOUND egress channel with a
 # CREDENTIAL-shaped payload in the tool input. Closes the third L1 boundary
@@ -31,11 +31,10 @@ set -u
 RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
-# ONE jq for the two single-line fields (0.33.38 hot-path: this PreToolUse guard
-# fires on EVERY Bash/WebFetch/WebSearch call and previously spent a type==object
-# check + one jq per field). Line-per-field -r protocol, NOT @tsv (@tsv would
-# backslash-escape values). If RAW is not a JSON object jq errors → both empty →
-# TOOL empty → exit 0, the same fail-soft the dropped type==object check gave.
+# ONE jq for the two single-line fields — this PreToolUse guard fires on EVERY
+# Bash/WebFetch/WebSearch call, so it gets exactly one jq spawn on the hot path.
+# Line-per-field -r protocol, NOT @tsv (@tsv would backslash-escape values). If
+# RAW is not a JSON object jq errors → both empty → TOOL empty → exit 0 (fail-soft).
 {
   IFS= read -r TOOL
   IFS= read -r SESSION_ID
@@ -123,8 +122,8 @@ scan "bearer-blob"    '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
 
 # Decision: ask. The audit-log TARGET intentionally carries only the
 # matched labels — NOT the haystack content — because the haystack
-# contains the secret value we just detected. v2.10.0 review (B2): the
-# old "${HAYSTACK:0:80}" sliced enough of e.g. a JWT prefix into the
+# contains the secret value we just detected. Never log raw haystack
+# slices: even a short prefix carries enough of e.g. a JWT into the
 # log to be re-recognized by downstream consumers. Labels alone give
 # /second-brain:audit and the SAR summary everything they need.
 TARGET="${TOOL}:(${MATCHED_LABELS})"

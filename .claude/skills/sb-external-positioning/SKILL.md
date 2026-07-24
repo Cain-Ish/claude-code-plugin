@@ -63,7 +63,7 @@ the primary source. Repo-side landing sites are verified against the working tre
 | LongMemEval (2410.10813) | ACCEPTED as the eval bar; suite NOT built yet | spec §6 P8; `tests/test-knowledge-eval.sh` (smaller regression gate) |
 | ARC incremental capture (2601.12030, preprint) | ADOPTED (per-turn capture > threshold-triggered) | spec §3; CHANGELOG 0.33.18 |
 | CaMeL dual-LLM (2503.18813) | ACCEPTED, PLAN-QUEUED (P6 remainder) | `docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md` |
-| Aider repo-map (tree-sitter + PageRank) | ACCEPTED with modification, PLAN-QUEUED (P3a) | `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` |
+| Aider repo-map (tree-sitter + PageRank) | ACCEPTED with modification; P3a Phases 1-3 SHIPPED (PageRank code-map live), Phases 4-5 (code↔wiki edges, tree-sitter tier) still queued | `mcp/src/tools/codemap/`; `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` |
 | Cross-encoder reranker (Anthropic contextual retrieval) | ACCEPTED in spec (P3b), NOT STARTED — no plan, no code | spec §6 P3; `grep -ril rerank mcp/src scripts` is empty |
 | MinHash near-dup LSH (standard technique; no single paper) | ADOPTED as the P4 redundancy engine | `mcp/src/tools/minhash.ts`; `scripts/wiki-redundancy.sh`; CHANGELOG 0.33.26 |
 | Path-test discipline (vercel-labs/skills, designer-skills deep-scan) | ADOPTED (traversal-vector matrix, 0.33.23) | `mcp/src/path-guard.test.ts`; CHANGELOG 0.33.23 |

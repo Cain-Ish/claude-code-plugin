@@ -120,14 +120,17 @@ Every key consumed in live code (grep in §10; verified 2026-07-05):
 | `auto_improve` | `true` | extract-drain.sh:333; session-load.sh:600 | Free + offline deterministic upkeep (validate + reindex wiki) on the drainer timer. `false` + raw backlog ≥ threshold → autoconsolidate nudge banner. |
 | `auto_maintain` | `true` (on since 0.30.0) | extract-drain.sh:341; maintain-llm-drain.sh:26 | Headless `claude -p` maintainer on cadence. READS YOUR CLAUDE OAUTH + SPENDS TOKENS (ensure-dirs.sh:22-24). On Linux requires bubblewrap or skips loud. Quarantine marker: `~/.second-brain/.llm-maintain-quarantine`. |
 | `auto_accept` | `"safe"` | maintain-llm-drain.sh:257 → `sb_auto_accept_decision` (lib.sh:409) | `safe` = auto-accept only LOW-RISK dream changes: sets `SB_DREAM_ACCEPT_NO_DELETE=1` (dream-accept.sh:117 comment) and leaves FORGET-proposing dreams for manual review. `off` = always manual. `"all"` = accept everything (documented in the seed comment as "too aggressive", not the default). |
+| `auto_codemap` | NOT seeded — hard default `on` at the consumer | extract-drain.sh:368 | Out-of-band code-map regen (P3a Task C2) inside the drainer's single-flight lock: runs `mcp/dist/tools/code-map-cli.bundle.js` (source `mcp/src/tools/codemap/`) against `SB_CODEMAP_REPO` or the newest registry `root_path`; the CLI self-gates on git-rev drift. `false` = kill switch. |
 | `retention.dream_keep_count` | `5` | dream-snapshot.sh:77 (env `SB_DREAM_KEEP_COUNT` wins) | Dream snapshots retained — the ONLY layered knob (§1.1). |
 | `retention.bak_ttl_days` | `14` | sb-prune-archives.sh:46 (validate-or-default) | Backup TTL days. |
 | `retention.embeddings_cache_gc` | `true` | sb-prune-archives.sh:21 | Embeddings-cache GC on/off. |
 | `retention.wiki_archive_ttl_days` | `0` (= NEVER) | seeded + asserted by test-config-reader.sh:47; NO live code consumer found (grep 2026-07-05) | Reserved: TTL for the FORGET archive. 0 keeps the irreversible store off. |
 
-**`auto_codemap` does NOT exist.** It appears only in the P3a plan
-(`docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md:246-247`) — plan-only, no
-implementation, no consumer. Any runbook mentioning it is describing unshipped work.
+**`auto_codemap` is LIVE** (P3a Task C2, shipped 0.33.33+). Definition site + default:
+`sb_config_bool .auto_codemap on` at `scripts/extract-drain.sh:368` — hard default `on`,
+deliberately NOT seeded into config.json. Consumer: the drainer's code-map regen block
+(extract-drain.sh:363-399), which drives the `mcp/src/tools/codemap/` implementation via the
+committed CLI bundle. Kill switch exercised by `tests/test-extract-drain.sh:385-389`.
 
 Reader tested by `tests/test-config-reader.sh`; the CRLF hazard by `tests/test-jq-crlf-windows.sh`.
 
@@ -330,8 +333,8 @@ jq -r '.. | ._comment? // empty' hooks/hooks.json | grep -oE 'SB_[A-Z0-9_]+' | s
 # userConfig + persona-rules shipped defaults (expect tool_scope=false, resource_scope=true)
 jq .userConfig .claude-plugin/plugin.json
 jq '{tool_scope: .tool_scope.enabled, resource_scope: .resource_scope.enabled}' scripts/persona-rules.default.json
-# config.json seed + auto_codemap absence (expect: plan doc hits only)
-sed -n '29,41p' scripts/ensure-dirs.sh; grep -rn 'auto_codemap' scripts skills agents mcp/src hooks bin
+# config.json seed + auto_codemap liveness (expect: consumer extract-drain.sh:368 + kill-switch test test-extract-drain.sh:385-389)
+sed -n '29,41p' scripts/ensure-dirs.sh; grep -rn 'auto_codemap' scripts tests skills agents mcp/src hooks bin
 ```
 
 ## Provenance and maintenance
@@ -349,6 +352,6 @@ site was re-verified by reading the file or by the §10 bulk greps on 2026-07-05
 
 Volatile facts and their one-line re-checks (all in §10): the ~187-name census; the 92
 bash-tested / 9 vitest-tested coverage split; the persona-rules shipped defaults; the config.json
-seed keys; `auto_codemap` absence; hook wiring/timeouts (`jq . hooks/hooks.json`); the surface
+seed keys; `auto_codemap` liveness; hook wiring/timeouts (`jq . hooks/hooks.json`); the surface
 budget counts (`cat docs/surface-budget.json`). If plugin.json's version no longer starts with
 0.33, re-run all of §10 before trusting any table here.

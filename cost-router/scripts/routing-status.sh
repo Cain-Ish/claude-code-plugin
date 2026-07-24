@@ -1,8 +1,8 @@
 #!/bin/bash
 # cost-router SessionStart hook — prints a one-line routing-status banner
 # showing active model tiers and today's PREMIUM-model spend (informational —
-# no cap since 0.24.45; premium = any model above the DO/SCOUT tiers, Opus
-# today, Fable/future top tiers tomorrow).
+# no cap; premium = any model above the DO/SCOUT tiers, Opus today,
+# Fable/future top tiers tomorrow).
 #
 # Suppressible: COST_ROUTER_BANNER=off
 # Output kept well under the 10K hook ceiling (< 200 bytes typical).
@@ -10,7 +10,7 @@
 # Bash 3.2 / BSD-safe (no date -d, no GNU-only extensions).
 
 set -u
-# Nested-spawn circuit breaker (R1.1/R5.1): inside a plugin-spawned headless session, context hooks no-op.
+# Nested-spawn circuit breaker: inside a plugin-spawned headless session, context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 # Kill switch

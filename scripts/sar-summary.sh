@@ -1,5 +1,5 @@
 #!/bin/bash
-# sar-summary.sh — v2.10.0 Stop hook (HarnessAudit SAR channel).
+# sar-summary.sh — Stop hook (HarnessAudit SAR channel).
 #
 # Aggregates audit-log.jsonl entries for the current session_id, computes
 # a Safety Adherence Rate (SAR), and emits a one-line banner via the
@@ -34,11 +34,11 @@ BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 AUDIT="$BRAIN_DIR/audit-log.jsonl"
 [ -f "$AUDIT" ] || exit 0
 
-# v2.10.0 — rotate the audit log here. lib.sh defines sb_rotate_audit_log
-# (5000 lines / 5 MiB cap, drops oldest 50%) but had no call site in v2.9.0,
-# so the file grew unbounded in practice. Stop is the cheapest place: it
-# fires once per session, we already touch the audit file, and the rotation
-# is a no-op when caps are not exceeded.
+# Rotate the audit log here. lib.sh defines sb_rotate_audit_log
+# (5000 lines / 5 MiB cap, drops oldest 50%) but has no call site of its
+# own — without this call the file grows unbounded. Stop is the cheapest
+# place: it fires once per session, we already touch the audit file, and
+# the rotation is a no-op when caps are not exceeded.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 if source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
   sb_rotate_audit_log 2>/dev/null || true

@@ -1,12 +1,12 @@
 /**
- * P3a Task B1 -- code_map MCP tool core: read the per-project codemap store,
+ * code_map MCP tool core: read the per-project codemap store,
  * return the token-capped map + provenance + a query-time stale flag.
  *
  * Read-only. The map is re-serialized from graph.json (the machine tier)
  * instead of reading map.md so a caller-supplied token_budget takes effect at
  * query time; serialize owns the cap invariant.
  *
- * stale comes from drift.ts::isStale (Task C1's SINGLE drift source -- the
+ * stale comes from drift.ts::isStale (the SINGLE drift source -- the
  * CLI's --check gate runs the identical predicate), probed against HEAD of
  * graph.repo_root -- the store's own provenance, not the querying process cwd
  * -- so the comparison is always against the repo that was actually mapped.

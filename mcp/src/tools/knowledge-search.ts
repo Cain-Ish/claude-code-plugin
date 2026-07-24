@@ -11,8 +11,7 @@ import { projectFamily } from './project-registry.js';
 import { parseDoc, ParsedDoc } from './frontmatter.js';
 import { walkWiki } from './walk-wiki.js';
 
-// Frontmatter parsing moved to ./frontmatter.ts (single source); re-exported
-// here for back-compat — existing importers keep working unchanged.
+// Frontmatter parsing lives in ./frontmatter.ts (single source); re-exported here for back-compat.
 export { parseDoc, extractYamlValue, extractYamlList } from './frontmatter.js';
 export type { ParsedDoc } from './frontmatter.js';
 
@@ -168,7 +167,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       baseScore: bm25,   // frozen pre-boost BM25 (R2.1): boost math + the floor read THIS, never the mutated score
       related: doc.related,
       description: (doc.aiBlock && Object.keys(doc.aiBlock).length)
-        ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS)   // shared intermediate, budget-capped (Phase 2)
+        ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS)   // shared intermediate, budget-capped
         : (source === 'local-doc'
           ? doc.description
           : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim())),
@@ -337,10 +336,10 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       const sl = slugFromPath(s.path);
       const proj = projBySlug.get(sl) ?? '';
       s.tier = proj === slug ? 1
-             : (proj !== '' && family.has(proj)) ? 2   // NEW: a family-member project's page
-             : neigh.has(sl) ? 3                        // graph-neighbour (was 2)
-             : proj === '' ? 4                          // global (was 3)
-             : 5;                                       // other project (was 4)
+             : (proj !== '' && family.has(proj)) ? 2   // a family-member project's page
+             : neigh.has(sl) ? 3                        // graph-neighbour
+             : proj === '' ? 4                          // global
+             : 5;                                       // other project
     }
   }
 

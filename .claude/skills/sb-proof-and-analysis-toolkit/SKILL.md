@@ -190,12 +190,13 @@ signatures on every OS.
 | b | **pin exact output values** so cross-version/OS drift fails loudly | `mcp/src/tools/minhash.test.ts:60-65` pins signature words `2181256834`, `1304033094` — any seed/LCG/shingling change fails |
 | c | output ordering asserted, not assumed (sorted members, sorted pair order) | `minhash.test.ts:69-82`; `graph-cluster.ts clusters()` sorts members + ids |
 
-**Planned extension (label the status):** the P3a code-map's PageRank is held to the same
-bar in its plan — "fixed iteration count + sorted accumulation order", identical rank
-ordering across runs, value equality only to fixed tolerance
-(`docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`, Task A3). As of 0.33.31
-(2026-07-05) that is a **plan with no code** — verify before citing it as shipped:
-`ls mcp/src/tools/codemap 2>/dev/null || echo "not landed"`.
+**Shipped extension:** the P3a code-map's PageRank is held to the same bar — "fixed
+iteration count + sorted accumulation order", identical rank ordering across runs, value
+equality only to fixed tolerance
+(`docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`, Task A3). P3a Phases 1-3
+**LANDED** (0.33.33-0.33.35): `mcp/src/tools/codemap/` carries `pagerank.ts` +
+`pagerank.test.ts` (the two-run-identical + shuffled-input-identical-ordering assertions at
+`pagerank.test.ts:28-50`) — confirm with `ls mcp/src/tools/codemap`.
 
 **Apply it to your change when:** any consumer compares your output across runs (hashes,
 idempotence gates, caches, regenerated pages) — write tiers a–c *before* the consumer exists,
@@ -407,6 +408,6 @@ Volatile facts — re-verify before relying on them:
 | refuter-panel rule unchanged | `grep -n "Refute mode" agents/code-review-scorer.md && grep -n "refuter panel" skills/code-review-deep/SKILL.md` |
 | surface counts == budget | `bash scripts/validate-plugin.sh` (exit 0) |
 | dead-branch example still exists | `git branch --list fix/home-cwd-relative-brain-dir` (deleting it retires the live demo; the transcript remains the record) |
-| P3a PageRank still unlanded | `ls mcp/src/tools/codemap 2>/dev/null \|\| echo "not landed"` |
+| P3a PageRank landed (Phases 1-3; expect pagerank.ts et al.) | `ls mcp/src/tools/codemap 2>/dev/null \|\| echo "not landed"` |
 | 0.33.31 committed yet | `git log --oneline --grep="0.33.31"` and read the release commit body |
 | REFLECT pre-fix demo baseline | once 0.33.31 is committed, `HEAD` no longer carries the pre-fix bundle — use the 0.33.30 sha `6fba312` in §1 of the transcripts sibling |

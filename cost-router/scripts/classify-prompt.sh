@@ -6,8 +6,8 @@
 # Kill switch: COST_ROUTER_AUTOROUTE=off → exit 0 with no output.
 # Never exits nonzero / never breaks the prompt. Best-effort log only.
 #
-# Tier priority (checked in order; R5.1 word-bounded on a punctuation-normalized
-# padded copy — see CR-006 in the deep-dive findings):
+# Tier priority (checked in order; word-bounded on a punctuation-normalized
+# padded copy):
 #   THINK (Opus):  design/redesign, architect(ure), plan/plans/planning (words),
 #                  strategy, trade-off/tradeoff, approach (word), "how should", ambiguous
 #   SCOUT (Haiku): read, show, find, search, grep, list, "what is", "where is",
@@ -24,7 +24,7 @@
 # Bash 3.2 / BSD-safe: no mapfile, no declare -A, no grep -P, no date -d.
 
 set -u
-# Nested-spawn circuit breaker (R1.1/R5.1): inside a plugin-spawned headless session, context hooks no-op.
+# Nested-spawn circuit breaker: inside a plugin-spawned headless session, context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 # Kill switch
@@ -43,7 +43,7 @@ P_LOWER=$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]')
 
 TIER=""
 
-# THINK: check first (highest priority). R5.1 (CR-006): word-bounded matches on
+# THINK: check first (highest priority). Word-bounded matches on
 # a space-padded copy — bare substrings fired on e.g. "docs/plans/foo.md"
 # (*plan*) and "the security module" (*security*), nudging toward the EXPENSIVE
 # model on routine prompts. `refactor` and `security` are dropped entirely.
@@ -73,7 +73,7 @@ fi
 
 # ── REVIEW: a deep code review is NOT a tier ────────────────────────────────────
 # code-review-deep is itself a multi-pass cost-router; recognize the request and
-# point at that skill rather than tiering it. CR-006: word-bounded, multi-word
+# point at that skill rather than tiering it. Word-bounded, multi-word
 # phrases ONLY — never bare "review" (it fires on "review the logs/plan/notes").
 REVIEW=""
 case "$P_PAD" in
@@ -120,7 +120,7 @@ if [ -n "$REVIEW" ]; then
 fi
 
 # ── Emit nudge as additionalContext ───────────────────────────────────────────
-# R5.1 (CR-006): nudge ONLY when it carries information — DO is the default
+# Nudge ONLY when it carries information — DO is the default
 # (advising the default is per-prompt noise), and trivial prompts ("continue",
 # "yes") need no routing advice.
 [ "$TIER" = "DO" ] && exit 0

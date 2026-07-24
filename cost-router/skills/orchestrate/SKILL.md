@@ -38,7 +38,7 @@ Output your classification and a brief rationale (1–2 sentences) before procee
 
 ### Step 2 — Note premium spend (if THINK needed)
 
-Before dispatching `cr-planner`, read today's premium-model spend (informational — there is NO cap since 0.24.45; premium = any model above the DO/SCOUT tiers, Opus today, Fable/future next):
+Before dispatching `cr-planner`, read today's premium-model spend (informational — there is NO spend cap; premium = any model above the DO/SCOUT tiers, Opus today, Fable/future next):
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/opus-budget.sh" spent

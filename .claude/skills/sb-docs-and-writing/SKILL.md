@@ -224,9 +224,11 @@ Templates + real subjects: [references/templates.md §7](references/templates.md
 
 Terse, evidence-first, incident-anchored. Concretely:
 
-- Every rule ships with the bug/version that motivated it ("the dream_accept bug class
-  (0.33.10)"). Comments carry the WHY — incident + version + mechanism +
-  fix-by-construction — never just the what.
+- Every rule ships with the incident that motivated it ("the dream_accept bug class").
+  Comments carry the WHY — incident + mechanism + fix-by-construction — never just the
+  what. Stable cross-reference IDs (R1-R9, HOOK-5, G-HOOK-2) are allowed in comments; raw
+  VERSION NUMBERS, DATES, PLAN-DOC PATHS, and task codenames belong in CHANGELOG/git-blame
+  — NOT in code comments.
 - Numbers over adjectives ("41% of error-log lines", "~662 B / ~165 tokens").
 - CAPITALIZED load-bearing words (ONLY, NEVER, DATA, OPT-IN, BEFORE) instead of italics.
 - Em-dash mechanism→consequence sentences; decisions stamped "settled/RESOLVED — do not
@@ -241,7 +243,9 @@ Three exemplary quotes (calibrate your drafts against these):
 2. Norms as falsifiable rules (`RELEASING.md`, bypass policy):
    > "If you find yourself using a bypass twice in a row on different commits, the gate is
    > wrong, not your work. Open an issue, fix the test, then resume."
-3. The war-story comment pattern (`scripts/lib.sh:6-11`):
+3. The war-story comment pattern (`scripts/lib.sh:6-11` — exemplary for incident +
+   mechanism + fix-by-construction; its "(0.33.10)" tag predates the version-numbers-
+   belong-in-CHANGELOG/git-blame rule above and would be dropped if written today):
    > "GNU tar/rsync read a leading drive letter as a remote host:path ('Cannot connect to
    > C:') and `ln -s` mis-links it — the dream_accept bug class (0.33.10). Normalize to
    > MSYS form (/c/...) ONCE here, at the inheritance boundary every script sources, so

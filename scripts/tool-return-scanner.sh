@@ -1,5 +1,5 @@
 #!/bin/bash
-# tool-return-scanner.sh — v2.9.0 PostToolUse hook (HarnessAudit Layer 3:
+# tool-return-scanner.sh — PostToolUse hook (HarnessAudit Layer 3:
 # System Stability). Scans the output of Read / WebFetch / Bash / Grep for
 # indirect prompt-injection patterns. On match, emits a warning via
 # hookSpecificOutput.additionalContext so Claude treats the content as

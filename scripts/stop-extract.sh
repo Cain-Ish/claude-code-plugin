@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop-hook orchestrator (v1.2.0). Reads the Stop hook payload, decides
+# Stop-hook orchestrator. Reads the Stop hook payload, decides
 # whether the session was substantive enough to extract from, calls the
 # `claude` CLI as a subprocess to produce a structured JSON delta, and
 # pipes that delta into merge-project-update.sh.
@@ -112,8 +112,8 @@ if [ "$NEW_LINES" -lt 1 ]; then
   exit 0
 fi
 
-# --- P1.2/P1.3/P1.4 loop telemetry (docs/plans/2026-07-13-p1-observability.md) ---
-# OBSERVATION ONLY — machine-locked by mcp/src/telemetry-firewall.test.ts: nothing
+# --- Loop telemetry (utilization / value / compounding) — OBSERVATION ONLY ---
+# Machine-locked by mcp/src/telemetry-firewall.test.ts: nothing
 # here may ever feed ranking/forgetting. Gated on the session's injection manifest
 # (written by session-load), so it runs EXACTLY ONCE per session (manifest deleted
 # after) and scans only the new-lines window (same disjoint-window discipline as
@@ -124,7 +124,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
   MANIFEST="$BRAIN_DIR/.injected-manifest-$MANIFEST_SID.jsonl"
   if [ -n "$MANIFEST_SID" ] && [ -f "$MANIFEST" ]; then
     TEL_WINDOW=$(awk -v s="$LAST_LINE" 'NR>s' "$TRANSCRIPT" 2>/dev/null)
-    # P1.3 utilization: Skill + Task(subagent_type) invocations -> counts store.
+    # utilization: Skill + Task(subagent_type) invocations -> counts store.
     TEL_NAMES=$(printf '%s\n' "$TEL_WINDOW" | jq -r '
       select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
       | if .name=="Skill" then ("skill:" + (.input.skill // "unknown"))
@@ -151,7 +151,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
           || { rm -f "$TEL_TMP"; sb_log_error "stop-extract.sh" "telemetry: utilization fold failed (corrupt store? $UTIL_JSON)" 1; }
       }
     fi
-    # P1.2 value + P1.4 compounding: injected ids subsequently used this session.
+    # value + compounding: injected ids subsequently used this session.
     TEL_READS=$(printf '%s\n' "$TEL_WINDOW" | jq -r '
       select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
       | select(.name=="Read") | .input.file_path // empty' 2>/dev/null | tr -d '\r' | tr '\\' '/')
@@ -176,7 +176,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
       esac
       if [ "$_tel_hit" = 1 ]; then
         TEL_HIT=$((TEL_HIT + 1)); TEL_HITS="${TEL_HITS:+$TEL_HITS,}$_tel_id"
-        # P1.4: a hit on a page CREATED before today = prior-session knowledge reused.
+        # A hit on a page CREATED before today = prior-session knowledge reused.
         if [ "$_tel_kind" = "wiki" ] || [ "$_tel_kind" = "graph" ]; then
           _tel_pf=$(find "$KNOWLEDGE_DIR/wiki" -maxdepth 2 -name "$_tel_id.md" 2>/dev/null | head -1)
           if [ -n "$_tel_pf" ]; then
@@ -186,7 +186,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         fi
       fi
     done < "$MANIFEST"
-    # ec=0 gate= trace -> audit-log (R6b routing); one row per session.
+    # ec=0 gate= trace -> audit-log; one row per session.
     sb_log_error "stop-extract.sh" "gate=value-loop injected=$TEL_INJ read=$TEL_HIT prior=$TEL_PRIOR hits=${TEL_HITS:-none}" 0
     rm -f "$MANIFEST"
   fi

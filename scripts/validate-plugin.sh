@@ -76,19 +76,19 @@ if [ -f "$PLUGIN_JSON" ]; then
   fi
 fi
 
-# Version-sync check (P2c, v0.21.0). Anthropic's community marketplace pins
+# Version-sync check. Anthropic's community marketplace pins
 # plugins to a specific commit SHA; if plugin.json and marketplace.json drift,
 # the next submission rejects. Fail the validation when they disagree so the
 # bump script can't ship a mismatched pair.
 MARKETPLACE_JSON="$PLUGIN_ROOT/.claude-plugin/marketplace.json"
 if [ -f "$MARKETPLACE_JSON" ]; then
-  # R8: iterate EVERY marketplace entry, not .plugins[0] — cost-router's drift
-  # was unchecked (the exact class this check was added for in v0.21.0). Each
+  # Iterate EVERY marketplace entry, not .plugins[0] — checking only the first
+  # entry left cost-router's drift unchecked. Each
   # entry's `source` dir must carry .claude-plugin/plugin.json with a matching
   # version.
   # Fail CLOSED on schema surprises: tostring keeps @tsv alive on a non-string
   # source (object/remote forms), and a parse failure must surface as an
-  # error, not silently skip every drift check (R8 premise review).
+  # error, not silently skip every drift check.
   # tr -d '\r': the Windows (Git-Bash) jq build emits CRLF in -r output even when the input is
   # clean LF, so the LAST @tsv field of each record (.source) keeps a trailing \r — `${P_SRC#./}`
   # then becomes "\r" and the built manifest path "…/\r/.claude-plugin/plugin.json" doesn't exist
@@ -162,7 +162,7 @@ while IFS= read -r skill_file; do
     # body-level '---' thematic break and leak body lines into the frontmatter.
     frontmatter=$(awk '/^---$/{n++; next} n==1' "$skill_file")
 
-    # SKAG-6 (R8): user-invocable + disable-model-invocation must be EXPLICIT —
+    # user-invocable + disable-model-invocation must be EXPLICIT —
     # implicit defaults made the dispatch surface unauditable (a side-effectful
     # skill silently model-invocable is the failure class).
     for field in name description allowed-tools user-invocable disable-model-invocation; do
@@ -206,7 +206,7 @@ if [ -f "$BUDGET_JSON" ]; then
       ERRORS=$((ERRORS + 1))
     fi
   done
-  # Lean-runner cap (R6 policy, enforced here as the SKILL.md Notes promise).
+  # Lean-runner cap — enforced here as the SKILL.md Notes promise.
   UPG_CAP=$(jq -r '.upgrade_skill_max_bytes // 8192' "$BUDGET_JSON" 2>/dev/null | tr -d '\r')
   UPG_BYTES=$(wc -c < "$PLUGIN_ROOT/skills/upgrade/SKILL.md" 2>/dev/null | tr -d ' ')
   case "$UPG_BYTES" in *[!0-9]*|'') UPG_BYTES=0 ;; esac
@@ -241,7 +241,7 @@ for json_ref in ".claude-plugin/mcp.json" "mcp/package.json"; do
   fi
 done
 
-# MCP path-anchor guard (0.24.35 — inverts the 0.24.5 guard, which was backwards).
+# MCP path-anchor guard — REQUIRES the bare ${CLAUDE_PLUGIN_ROOT}/ anchor on bundle paths.
 # Claude Code substitutes ONLY the bare ${CLAUDE_PLUGIN_ROOT} token to an absolute
 # path. The ${VAR:-default} shell form is NOT applied, and a bare relative path
 # resolves against the user's cwd — either way the server starts only inside the

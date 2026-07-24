@@ -249,7 +249,7 @@ sb_log_error() {
   fi
 }
 
-# --- Audit log (v2.9.0, HarnessAudit Layer 1) ----------------------------
+# --- Audit log ------------------------------------------------------------
 # Trajectory log separate from error-log.jsonl. Captures every guard verdict
 # (allow / ask / deny / flag) emitted by persona-tool-guard, tool-return
 # scanner, wiki-write guard, etc. The intent is the HarnessAudit principle:
@@ -411,14 +411,13 @@ sb_validate_wiki() {
   fi
 }
 
-# (P5 fix, 0.24.49: a SECOND sb_validate_wiki definition lived here and, being
-# the last def, shadowed the count-returning one above — so dream-accept's
-# "Normalized N pages" telemetry was always silent. Deleted; the count-returning
-# definition above is now the sole one. The ensure-dirs.sh / maintain-
-# deterministic.sh callers redirect stdout to /dev/null, so the extra count is
-# backward-compatible.)
+# (sb_validate_wiki above must stay the SOLE definition in this file: bash's
+# last-definition-wins means a later duplicate would shadow the count-returning
+# one and silently kill dream-accept's "Normalized N pages" telemetry. Callers
+# that don't want the count — ensure-dirs.sh, maintain-deterministic.sh —
+# redirect stdout to /dev/null.)
 
-# Pure auto-accept decision (0.25.0 autonomy). Given the config mode and the
+# Pure auto-accept decision. Given the config mode and the
 # dream's state, echo exactly one of: accept | skip:disabled | skip:not-completed
 # | skip:already-accepted | skip:safe-refuses-forget. Pure (no I/O) so it is
 # tested directly against real input→output pairs, not re-asserted through its
@@ -728,11 +727,11 @@ sb_set_extraction_marker() {
   echo "$line" > "$BRAIN_DIR/.last-extracted-line-$slug"
 }
 
-# (R1 sweep: sb_clear_extraction_marker was deleted — its only caller,
-# stop-extract.sh:253, was removed in the per-turn-reextraction fix
-# (docs/plans/2026-06-10-r1-extraction-loop.md). Markers are now swept by
-# extract-drain.sh's `-mtime +30 -delete` instead of cleared per run. No live
-# caller remained; the sb_get_/sb_set_/sb_extraction_marker_key trio stays.)
+# There is deliberately NO sb_clear_extraction_marker. Markers are GC'd by
+# extract-drain.sh's `-mtime +30 -delete` sweep, never cleared per run: a
+# per-run clear would re-extract the same transcript window on every Stop
+# (the 18x re-archive bug class). The sb_get_/sb_set_/sb_extraction_marker_key
+# trio is the complete API.
 
 # Compose the extraction-marker key for a (slug, session) pair. The session id
 # is sanitized for filename safety (it comes from the hook payload).
@@ -824,7 +823,7 @@ sb_archive_transcript() {
 # assistant text block), so it is written plain under an ASSISTANT: marker — NOT
 # through sb_preprocess_transcript (which parses raw JSONL lines). The file matches
 # the episodic indexer's session-meta + ASSISTANT body shape, so it is indexed with
-# no indexer change. See docs/specs/2026-05-29-subagent-capture-design.md.
+# no indexer change.
 # Args: $1=agent_id $2=agent_type $3=slug $4=session_id $5=tool_count $6=result_text
 sb_archive_subagent_result() {
   local agent_id="$1" agent_type="$2" slug="$3" session_id="$4" tool_count="$5" result="$6"
@@ -876,8 +875,8 @@ sb_archive_subagent_result() {
   sb_prune_transcripts
 }
 
-# Write a machine-GENERATED wiki page with born-valid frontmatter (R5.1 —
-# generated-page contract; deep-review CR-007/SCRIPTS-06/MCP-CHURN-1). The churn
+# Write a machine-GENERATED wiki page with born-valid frontmatter (the
+# generated-page contract). The churn
 # class this kills: a frontmatter-less generated page gets autofixed by
 # knowledge_validate, then clobbered back (frontmatter stripped) by the next
 # capture run — forever. Born-valid ends the loop, and wiki/state/ keeps
@@ -1000,7 +999,7 @@ sb_get_session_count() {
 
 sb_reset_session_count() { echo 0 > "$BRAIN_DIR/projects/$1/.session-count" 2>/dev/null; }
 
-# --- v2.8.0 maintainer auto-dispatch state helpers ----------------------
+# --- Maintainer auto-dispatch state helpers -----------------------------
 # Per-project wiki-write counter. session-load.sh consumes this at the
 # threshold and dispatches the maintainer subagent.
 
@@ -1085,9 +1084,9 @@ sb_generate_dream_id() {
   echo "drm_$(date -u +%Y%m%dT%H%M%SZ)"
 }
 
-# (R6 sweep: the sb_dream_dir/sb_dream_status helpers were deleted — nothing
-# referenced them; dream paths are composed inline as "$BRAIN_DIR/dreams/<id>"
-# and status reads are inline jq, the canonical pattern across the scripts.)
+# No dream dir/status helpers exist here by design: dream paths are composed
+# inline as "$BRAIN_DIR/dreams/<id>" and status reads are inline jq — the
+# canonical pattern across the scripts.
 
 sb_dream_set_status() {
   local dream_id="$1" field="$2" value="$3"
@@ -1327,9 +1326,9 @@ sb_call_extractor() {
   # an API key is present; otherwise we use the slower full path that
   # honors OAuth. Override with SB_USE_BARE=1 to force.
   #
-  # SB_USE_BWRAP=1 (opt-in, v0.21.0 P2b): wrap the claude invocation in
+  # SB_USE_BWRAP=1 (opt-in): wrap the claude invocation in
   # bubblewrap so the extractor sees a read-only root with only
-  # ~/.second-brain writable. Closes G-SANDBOX-1. Requires bwrap binary;
+  # ~/.second-brain writable. Requires bwrap binary;
   # falls back to direct invocation if absent. Network stays enabled
   # (extractor needs the API).
   if [ "$SB_SKIP_CLI" != "1" ] && command -v claude >/dev/null 2>&1; then
@@ -1582,7 +1581,7 @@ sb_require_jq() {
   return 1
 }
 
-# --- Out-of-band extraction helpers (v0.13.0) ----------------------------
+# --- Out-of-band extraction helpers ---------------------------------------
 # A transcript is "done" once a terminal (ok|error) line exists in the
 # append-only done-set ~/.second-brain/.extraction-state.jsonl.
 sb_extraction_done() {
@@ -1818,7 +1817,7 @@ sb_auto_memory_state() {
   # finding). A real memory dir contains only path-safe characters, so if the
   # resolved path has anything outside [space / A-Za-z0-9 . _ ~ -] (this set
   # includes newline and every shell metacharacter by exclusion), reject it and
-  # fall back to the safe default. (Consumers also no longer eval — defense in depth.)
+  # fall back to the safe default. (Consumers must never eval this output — defense in depth.)
   case "$path" in
     *[!\ /A-Za-z0-9._~-]*)
       local project_root dashed

@@ -17,7 +17,7 @@ export interface ReindexResult {
 
 export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexResult> {
   // edges.jsonl is parsed ONCE per reindex and threaded into both the projector
-  // and the validator (each used to re-load it — three parses per call).
+  // and the validator — neither re-loads it.
   const edgeRecords = await loadEdges(join(knowledgeDir, 'graph', 'edges.jsonl'));
 
   // Project the relationship graph onto pages first, so the index + validation
@@ -79,12 +79,12 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
     if (!mocs.has(existing)) { try { await fs.unlink(join(projDir, `${existing}.md`)); } catch { /* gone */ } }
   }
   for (const [proj, region] of mocs) {
-    // QUOTE both title and description (0.28.3): `proj` is an author-controlled
+    // QUOTE both title and description: `proj` is an author-controlled
     // project: facet value. An unquoted value containing a colon (or other YAML
     // meta char) makes the generated MOC invalid YAML — the tolerant regex
-    // readers mask it but the validator's yaml.load detector rejects it (0.26.0
-    // fixed description; title was still raw). JSON.stringify yields a valid
-    // double-quoted scalar (YAML accepts JSON-style quoting + escapes).
+    // readers mask it but the validator's yaml.load detector rejects it.
+    // JSON.stringify yields a valid double-quoted scalar (YAML accepts
+    // JSON-style quoting + escapes).
     const header = ['---', `title: ${JSON.stringify(proj)}`, 'type: projects', 'generated: true', 'graph: exclude',
       `description: ${JSON.stringify(`Map of Content for the ${proj} project (auto-generated).`)}`, '---', ''].join('\n');
     await fs.writeFile(join(projDir, `${proj}.md`), header + region + '\n', 'utf-8');

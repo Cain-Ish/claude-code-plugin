@@ -156,8 +156,8 @@ describe('code-map-cli bundle (end to end)', () => {
     expect(readStoredGraph(brain, repo).git_rev).toBe(rev2);
   }, 30_000);
 
-  // --- Task C1 drift semantics (REQUIRE the post-C1 bundle: rebuild with
-  // `npm run bundle` when editing drift.ts/code-map-cli.ts — the pre-C1
+  // --- Drift semantics (REQUIRE the current bundle: rebuild with
+  // `npm run bundle` when editing drift.ts/code-map-cli.ts — a stale
   // committed bundle ignores the dirty bit and these two tests fail on it) ---
 
   it('dirty tree at generation records dirty:true and --check reports stale', async () => {

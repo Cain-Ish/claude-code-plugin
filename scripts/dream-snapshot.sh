@@ -91,8 +91,8 @@ fi
 
 # Prune old dream dirs to retention.dream_keep_count (default 5), oldest-first
 # (drm_<ts> names sort chronologically). Archived dreams are deleted whole;
-# FAILED/CANCELED dreams (R4, SCRIPTS-04) lose their staging/transcripts payload
-# (~1MB each, previously never reclaimed) but KEEP status.json for forensics.
+# FAILED/CANCELED dreams lose their staging/transcripts payload
+# (~1MB each — worth reclaiming) but KEEP status.json for forensics.
 # A pending/running/completed-but-unreviewed dream is NEVER touched.
 DREAM_KEEP="${SB_DREAM_KEEP_COUNT:-$(sb_config_get .retention.dream_keep_count 5)}"
 case "$DREAM_KEEP" in ''|*[!0-9]*) DREAM_KEEP=5 ;; esac

@@ -20,7 +20,7 @@ That env var is highest-precedence — it overrides every per-agent `model:` pin
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `COST_ROUTER_LEDGER` | brain-dir default | Premium-spend ledger path (informational; cap removed 0.24.45) |
+| `COST_ROUTER_LEDGER` | brain-dir default | Premium-spend ledger path (informational — no spend cap) |
 | `COST_ROUTER_AUTOROUTE` | `on` | `off` disables the per-prompt classifier nudge |
 | `COST_ROUTER_BANNER` | `on` | `off` suppresses the SessionStart budget banner |
 | `COST_ROUTER_LEDGER` | `${SB_BRAIN_DIR:-~/.second-brain}/opus-budget.json` | Path to the shared Opus-budget ledger |
@@ -43,7 +43,7 @@ cost-router and second-brain integrate by **shared file formats**, not code — 
 ```json
 { "date": "2026-06-09", "opus_cost_usd": 0.42, "opus_calls": 7 }
 ```
-After a premium-tier call (any model above DO/SCOUT — Opus today, Fable/future next), add its cost (`in/1e6×$5 + out/1e6×$25` at Opus pricing). When `date` differs from today, reset to today with zeroed counters. INFORMATIONAL ONLY (0.24.45): no cap field, no enforcement — readers tolerate a legacy `cap_usd` key by ignoring it. Producers/consumers: `cost-router/scripts/opus-budget.sh`, second-brain `mcp/src/tools/persona-think.ts`.
+After a premium-tier call (any model above DO/SCOUT — Opus today, Fable/future next), add its cost (`in/1e6×$5 + out/1e6×$25` at Opus pricing). When `date` differs from today, reset to today with zeroed counters. INFORMATIONAL ONLY: no cap field, no enforcement — readers tolerate a legacy `cap_usd` key by ignoring it. Producers/consumers: `cost-router/scripts/opus-budget.sh`, second-brain `mcp/src/tools/persona-think.ts`.
 
 ### Contract B — routing events (the learning loop)
 **Path:** `${COST_ROUTER_EVENTS:-${SB_BRAIN_DIR:-$HOME/.second-brain}/cost-router-events.jsonl}` (append-only JSONL)

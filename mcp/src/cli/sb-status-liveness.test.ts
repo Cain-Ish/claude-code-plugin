@@ -4,10 +4,10 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { runSb } from './sb.js';
 
-// P1.1 (docs/plans/2026-07-13-p1-observability.md Task 1): `sb status` must answer
-// "did the loops run?" in one read. Fallback branches are first-class here: every
-// state file ABSENT must render a loud "never/ABSENT/none", not a blank — silence
-// is exactly the failure mode this section exists to end.
+// Loop liveness: `sb status` must answer "did the loops run?" in one read.
+// Fallback branches are first-class here: every state file ABSENT must render a
+// loud "never/ABSENT/none", not a blank — silence is exactly the failure mode
+// this section exists to end.
 
 let brain: string;
 let knowledge: string;

@@ -1,10 +1,10 @@
 /**
- * P3a Task A1 — source enumeration (repo scoping + ignore rules).
+ * Source enumeration (repo scoping + ignore rules).
  * Plan: docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md.
  *
  * Pure: dir in, file list out — no store access, no timestamps. Output is
  * id-sorted so identical trees yield byte-identical downstream graphs (the
- * determinism contract A3/A4 build on).
+ * determinism contract build-graph.ts and store.ts build on).
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';

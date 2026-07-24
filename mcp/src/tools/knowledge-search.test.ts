@@ -12,11 +12,9 @@ import { appendEdge } from './graph-store.js';
 delete process.env.SB_BRAIN_DIR; process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'ks-brain-'));
 // Deterministic BM25-only mode: with embeddings active, RRF rank jitter from
 // cosine differences between otherwise-identical fixture pages (their slug tokens
-// differ) breaks exact-score assertions (the invalidated-edge tie). The former
-// per-test REASSERT hack (a sibling file, episodic-index, deletes this env in its
-// own beforeEach and it leaked in under the shared vitest process) is gone: the
-// global vitest.setup.ts snapshots+restores process.env around EVERY test, so no
-// sibling's env delete can bleed in. This top-level set is captured by that
+// differ) breaks exact-score assertions (the invalidated-edge tie). The global
+// vitest.setup.ts snapshots+restores process.env around EVERY test, so no
+// sibling's env delete can bleed in — this top-level set is captured by that
 // snapshot at each test start.
 process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
 

@@ -141,7 +141,7 @@ Theme pages are derived/regenerable (FORGET protects the `themes` category) and 
 like any other page — reviewed at `dream_accept`; the embedding cache + live index populate
 on accept, not at dream time.
 
-**Project MOCs (since 0.23.0)** are the deterministic sibling: reindex projects one
+**Project MOCs** are the deterministic sibling: reindex projects one
 `wiki/projects/<key>.md` per `project:` facet (≥3 members) into the two-tier index. The dream
 does NOT assign `project:` on the live path (that is the `knowledge-maintainer`'s job) — if
 mining surfaces a clear ungrouped project, **surface it as a suggestion** in the report

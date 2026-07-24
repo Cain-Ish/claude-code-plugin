@@ -180,8 +180,10 @@ fi
 # .sh) into its case arm. Derive candidates WITHOUT running the full suite:
 #   grep -nE '^[[:space:]]*echo "SKIP[: ]' tests/test-*.sh
 # A whole-file skip prints a COLUMN-0 'SKIP:'/'SKIP ' line and exits 0. Tool-absence
-# skips (node/jq/python/esbuild/bundles) don't fire on a provisioned box; the usual
-# Windows entries are real-symlink and offline-embedding-model skips.
+# skips (node/jq/python/esbuild/bundles) don't fire on a provisioned box.
+# Windows (MINGW*/MSYS*/CYGWIN*) is ARMED below with its observed skip set
+# (dream lifecycle/accept-guard + real-symlink skips); Linux, Darwin, and the
+# fallback arm remain UNARMED (__unset__) — their skip sets were never measured.
 EXPECTED_SKIPS_ARMED=0
 if [ "${SB_EXPECTED_SKIPS+set}" = "set" ]; then
   EXPECTED_SKIPS_LIST="$SB_EXPECTED_SKIPS"; EXPECTED_SKIPS_ARMED=1
@@ -189,7 +191,7 @@ else
   case "$(uname -s 2>/dev/null || echo unknown)" in
     Linux)                EXPECTED_SKIPS_LIST="__unset__" ;;
     Darwin)               EXPECTED_SKIPS_LIST="__unset__" ;;
-    MINGW*|MSYS*|CYGWIN*) EXPECTED_SKIPS_LIST="__unset__" ;;
+    MINGW*|MSYS*|CYGWIN*) EXPECTED_SKIPS_LIST="test-dream-accept-guards test-dream-lifecycle test-symlink-guard" ;;
     *)                    EXPECTED_SKIPS_LIST="__unset__" ;;
   esac
   [ "$EXPECTED_SKIPS_LIST" != "__unset__" ] && EXPECTED_SKIPS_ARMED=1

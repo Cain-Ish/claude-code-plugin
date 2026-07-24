@@ -39,7 +39,7 @@ _KDIR="${_KDIR/#\~/$HOME}"
 
 _OUT="$_KDIR/wiki/state/cost-routing-patterns.md"
 
-# lib.sh provides sb_write_generated_page (born-valid frontmatter; R5.1).
+# lib.sh provides sb_write_generated_page (born-valid frontmatter).
 # Defensive source: a missing lib must not break the Stop hook.
 if ! source "$(dirname "$0")/lib.sh" 2>/dev/null; then
   exit 0

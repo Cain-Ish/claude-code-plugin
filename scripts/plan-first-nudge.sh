@@ -1,5 +1,5 @@
 #!/bin/bash
-# plan-first-nudge.sh — PreToolUse advisory (spec 2026-06-26 §6 "P5 — Plan-first guardrail").
+# plan-first-nudge.sh — PreToolUse advisory nudging plan-before-code.
 # A SOFT, ONCE-PER-SESSION nudge toward planning when a session turns into MULTI-FILE coding
 # work. Fires the first time the session has made a SUBSTANTIVE edit to its Nth distinct code
 # file (N = SB_PLAN_FIRST_FILES, default 2). Stays SILENT for single-file work and one-line

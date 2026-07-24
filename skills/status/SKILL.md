@@ -97,7 +97,7 @@ If unavailable, skip — validation also runs automatically during `knowledge_re
 One line: what fraction of indexed episodic exchanges have vectors. 100% =
 healthy; anything less means vector recall silently misses those exchanges
 (the next session-end extraction backfills them when the deps are linked —
-SessionStart auto-relinks a missing cache symlink since 0.24.39).
+SessionStart auto-relinks a missing cache symlink).
 
 ```bash
 EPI=${BRAIN_DIR:-$HOME/.second-brain}/episodic-index.json
@@ -185,7 +185,7 @@ docs/specs/2026-05-29-auto-memory-coordination-design.md.)
 
 ### 5. Persona state
 
-Surface the persona core's live state — identity card size, dismissals 7d, today's persona spend (informational — the cap was removed in 0.24.45). Read-only; nothing here mutates.
+Surface the persona core's live state — identity card size, dismissals 7d, today's persona spend (informational — no cap). Read-only; nothing here mutates.
 
 ```bash
 PCARD=~/.second-brain/persona-card.md
@@ -229,7 +229,7 @@ else
 fi
 ```
 
-If `Persona dismissals (7d)` is above 3, the persona core auto-mutes its opinionated framing — that's the backoff working. Spend never blocks anything (de-capped 0.24.45) — it is a number to read, not a gate.
+If `Persona dismissals (7d)` is above 3, the persona core auto-mutes its opinionated framing — that's the backoff working. Spend never blocks anything — it is a number to read, not a gate.
 
 ### 6. Runtime smoke check
 

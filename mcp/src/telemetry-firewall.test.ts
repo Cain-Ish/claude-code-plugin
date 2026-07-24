@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 
-// P1 observability FIREWALL (docs/plans/2026-07-13-p1-observability.md Task 5).
+// Observability firewall: retrieval surfaces must never read the loop-telemetry stores.
 //
-// The P1 tranche records loop telemetry: utilization-counts.json (skill/agent
+// The loop-telemetry stores are: utilization-counts.json (skill/agent
 // invocation counts), .injected-manifest-* (per-session injection manifests), and
 // value-loop / compound-loop TRACE rows. That data is OBSERVATION ONLY. The moment
 // ranking, forgetting, graph, or search code reads it, the system grows the

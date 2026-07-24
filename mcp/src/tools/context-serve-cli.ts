@@ -17,8 +17,8 @@ if (!query) { process.exit(0); }
 const SEP = '--8<--SB-EPISODIC--8<--';
 
 // Same env resolution as knowledge-search-cli: SB_BRAIN_DIR first, matching
-// the engine's accessCountsFile() and server.ts (R2). The episodic side gains
-// SB_BRAIN_DIR support over the old CLI — strictly broader, same default.
+// the engine's accessCountsFile() and server.ts (R2). The episodic side
+// honors SB_BRAIN_DIR too.
 const knowledgeDir = resolveKnowledgeDir();
 const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 const brainDir = resolveBrainDir();

@@ -33,7 +33,7 @@ FILE_PATH="${FILE_PATH//\\//}"
 # Match any wiki page under a knowledge/wiki/<category>/ tree. We don't anchor on
 # $HOME because tests use tmp dirs; matching on the literal "/knowledge/wiki/" segment
 # is precise enough — no real project nests its own wiki under that path.
-# The LEGACY branch (P0.4 misroute lock, canonical-wiki invariant): any .md write into
+# The LEGACY branch (canonical-wiki invariant): any .md write into
 # a literal ".second-brain/wiki/" tree is the raw-drainer misroute class — pages landed
 # there LIVE, invisible to knowledge_search, until hand-moved. The prose pin in
 # agents/raw-drainer.md can drift; this deny cannot. The adjacent-segment match cannot

@@ -4,8 +4,8 @@
 # persona-rules.default.json (plugin shipped). Returns hookSpecificOutput with
 # permissionDecision and optional updatedInput.
 #
-# v2.9.0: every verdict (ask/deny/rewrite) is appended to audit-log.jsonl
-# via sb_log_audit so /second-brain:audit can summarize what the safety
+# Every verdict (ask/deny/rewrite) is appended to audit-log.jsonl via
+# sb_log_audit so /second-brain:audit can summarize what the safety
 # layer did this session.
 #
 # Kill switch: SB_PERSONA_GATE=off
@@ -73,7 +73,7 @@ CMD=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null | tr
 CWD=$(sb_normalize_path "$CWD")
 PATH_INPUT=$(sb_normalize_path "$PATH_INPUT")
 
-# --- v2.10.0 tool-scope guard (HarnessAudit sar_tool) --------------------
+# --- Tool-scope guard (sar_tool channel) ---------------------------------
 # Ask before a tool is invoked when it's outside the declared allowlist.
 # Per HarnessAudit, out-of-scope tool use is one of three L1 boundary-
 # violation channels (alongside resource-scope and info-flow). Disabled
@@ -114,7 +114,7 @@ if [ "${SB_TOOL_SCOPE:-on}" != "off" ]; then
   fi
 fi
 
-# --- v2.9.0 resource-scope guard (HarnessAudit Layer 1) ------------------
+# --- Resource-scope guard -------------------------------------------------
 # Ask before file-touching tools target a path outside the configured
 # allowlist. Per the paper: 50%+ of agents apply reasonable tools to
 # unauthorized RESOURCES — this is the dominant boundary-violation mode.
@@ -208,10 +208,10 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
 
   case "$action" in
     rewrite)
-      # v2.10.0: use SOH (\x01) as the sed delimiter instead of `|`. The
-      # old `s|$match_cmd|$replace|g` form errored ("unknown option to s")
-      # whenever match_cmd contained a `|` — which is common for grouped
-      # regex alternations — and silently zeroed-out NEW_CMD. SOH cannot
+      # Use SOH (\x01) as the sed delimiter instead of `|`: a `|` delimiter
+      # errors ("unknown option to s") whenever match_cmd itself contains
+      # a `|` — common for grouped regex alternations — and would silently
+      # zero out NEW_CMD. SOH cannot
       # appear in a shell command, so it's a safe delimiter. If either
       # operand somehow contains SOH (the user is doing something exotic)
       # we skip rewrite and pass the command through unchanged rather

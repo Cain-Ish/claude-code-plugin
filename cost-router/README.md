@@ -44,7 +44,7 @@ If you also run second-brain, they share one Opus budget (no double-spending) an
 
 | Variable | Default | Does |
 |---|---|---|
-| `COST_ROUTER_LEDGER` | brain-dir default | Premium-spend ledger path (informational — the cap was removed in 0.24.45; premium-tier models change, Opus today, Fable next) |
+| `COST_ROUTER_LEDGER` | brain-dir default | Premium-spend ledger path (informational — no spend cap; premium-tier models change, Opus today, Fable next) |
 | `COST_ROUTER_AUTOROUTE` | `on` | `off` silences the advisory nudge (THINK/SCOUT prompts ≥25 chars; DO is always silent) |
 | `COST_ROUTER_BANNER` | `on` | `off` hides the budget banner |
 

@@ -37,13 +37,16 @@ printf '%s\n' "$OUT" | grep -qiE 'fail: *1|FAILED' \
 pass "mid-run SKIP + exit 1 → counted FAIL, suite exits 1"
 
 # --- Case 2: genuine whole-file skip (prints SKIP, exits 0) stays SKIP -----
+# Pin the expected-skips manifest to this fixture's skip: this case locks SKIP
+# CLASSIFICATION, and must stay green on platforms whose per-platform manifest
+# is armed (an unpinned unexpected skip correctly fails the suite there).
 D2="$TMP/case2"; mkdir -p "$D2"
 cat > "$D2/test-pure-skip.sh" <<'EOF'
 #!/bin/bash
 echo "SKIP: feature unavailable on this platform"
 exit 0
 EOF
-OUT=$(run_suite "$D2")
+OUT=$(SB_EXPECTED_SKIPS="test-pure-skip" run_suite "$D2")
 printf '%s\n' "$OUT" | grep -q 'EXIT=0' \
   || fail "pure-skip (exit 0) must keep the suite green: $OUT"
 printf '%s\n' "$OUT" | grep -qE 'skip: *1' \

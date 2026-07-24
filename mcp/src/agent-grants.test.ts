@@ -102,7 +102,7 @@ describe('agent tool grants (P6a least-privilege, directory-walked)', () => {
     expect(offenders, `consolidation agent has an unused git grant: ${offenders.join(' | ')}`).toEqual([]);
   });
 
-  // P0.2 orient-rung tranche: the two code-review agents whose LENS uses code
+  // The two code-review agents whose LENS uses code
   // structure — the per-unit reviewer follows cross-file imports (its "highest
   // value" §3), the quality reviewer judges coupling/architecture — carry the
   // read-only code_map + code_neighbors grants so they query blast radius instead

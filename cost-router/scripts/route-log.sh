@@ -58,7 +58,7 @@ rl_emit() {
   [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || true
 
   # Split models CSV into a JSON array via jq.
-  # R5.1 (CR-002): an EMPTY csv must short-circuit to [] — `printf '' | jq -R`
+  # An EMPTY csv must short-circuit to [] — `printf '' | jq -R`
   # exits 0 with NO output, so the `||` fallback never fired, `--argjson` got ""
   # and the whole emit was silently dropped (100% of classifier events lost).
   local models_json

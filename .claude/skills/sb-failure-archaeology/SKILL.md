@@ -237,7 +237,7 @@ git show HEAD:CHANGELOG.md | grep -c "^## 0.33.31"          # 0 = 0.33.31 still 
 git log --oneline | wc -l                                   # commit count (was 780)
 grep -c "^## 0.33.19" CHANGELOG.md                          # 0 = doc defect still open
 git cherry main fix/home-cwd-relative-brain-dir             # "-" = branch still dead/merged
-ls docs/superpowers/plans/ | grep -c "p2-\|p3a-\|p6-quar"   # 3 = P2/P3a/P6 plans still code-less (cross-check CHANGELOG for landings)
+ls docs/superpowers/plans/ | grep -c "p2-\|p3a-\|p6-quar"   # 3 = plan DOCS present (files persist after landing; P3a Phases 1-3 shipped 0.33.33+, P2 remainder + P6 still code-less — cross-check CHANGELOG)
 grep -n "access-frequency" mcp/src/server.ts | head -2      # stale tool description still present?
 ls skills/upgrade/migrations/ | wc -l                       # migration files (was 18)
 git log --all --oneline --grep="^Revert" | wc -l            # still 0 true reverts?

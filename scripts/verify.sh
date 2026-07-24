@@ -49,8 +49,8 @@ if [ "$TOTAL" -gt "$LINE_CAP" ]; then
 fi
 
 # Check 4: MCP dist artifact exists. The runtime launches the BUNDLE
-# (mcp.json → dist/server.bundle.js); the per-file tsc output is no longer
-# tracked (build hygiene, 0.26.0), so probe the bundle that actually runs.
+# (mcp.json → dist/server.bundle.js); the per-file tsc output is not what
+# ships, so probe the bundle that actually runs.
 MCP_DIST="$PLUGIN_ROOT/mcp/dist/server.bundle.js"
 if [ ! -f "$MCP_DIST" ]; then
   FAILS+=("verify: FAIL: mcp — dist/server.bundle.js missing at $MCP_DIST (run /second-brain:setup)")

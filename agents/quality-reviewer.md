@@ -33,9 +33,9 @@ disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch
   that can be influenced by PR/diff content; an unrestricted shell there is a
   trust-boundary risk. Read/Grep/Glob + read-only git cover the critique need.
 
-  P0.2 (orient rung): added read-only code_map + code_neighbors so the
-  architecture/coupling pass can query the project's ranked spine and a changed
-  file's blast radius instead of re-deriving structure by hand. Still no
+  Read-only code_map + code_neighbors serve the architecture/coupling pass:
+  it queries the project's ranked spine and a changed file's blast radius
+  instead of re-deriving structure by hand. Still no
   Write/Edit and no Agent/Task/Skill — read-only orientation, no recursion, so
   the fresh-context/independent-critique guarantee holds.
 -->

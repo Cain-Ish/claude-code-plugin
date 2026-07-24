@@ -1,12 +1,12 @@
 /**
- * P3a orientation code-map — shared type contract (spec layer 4).
+ * Orientation code-map — shared type contract.
  * Plan: docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md.
  *
  * Node ids are POSIX-relative paths ('/' separators on every OS) so a graph
  * generated on Windows compares/queries identically on Linux CI. Symbol ids
  * are `<file-id>#<symbol-name>`.
  *
- * Store location (Task A4): BRAIN_DIR/projects/<slug>/codemap/ — the CODE
+ * Store location (store.ts): BRAIN_DIR/projects/<slug>/codemap/ — the CODE
  * graph is deliberately separate from the wiki graph (KNOWLEDGE_DIR/graph);
  * see the plan's "Separation from the wiki graph" table.
  */

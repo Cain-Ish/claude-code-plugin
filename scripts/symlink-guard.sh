@@ -1,7 +1,7 @@
 #!/bin/bash
 # symlink-guard.sh — PreToolUse hook for Write/Edit/MultiEdit.
 #
-# Closes G-HOOK-2 (wiki/security/plugin-hardening-gap-analysis-2026-05-28.md).
+# Closes gap G-HOOK-2: symlinked wiki paths bypassed the write guard.
 # Blocks writes whose path (after symlink resolution) lands inside a known
 # credential-bearing directory. Defense against the symlink-escape exfil
 # scenario where Claude is instructed to write a benign-looking file that is

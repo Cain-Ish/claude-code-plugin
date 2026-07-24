@@ -23,7 +23,7 @@ If the tool returns a brief, format it as a tight block:
 
 Omit any field that is empty. If all fields are empty, say "(no notable signal — proceed as planned)".
 
-Spend is informational since 0.24.45 — no budget gate exists; the brief always runs. Mention the per-call cost (~$0.11 on Opus-class models) if the user asks about cost.
+Spend is informational — no budget gate exists; the brief always runs. Mention the per-call cost (~$0.11 on Opus-class models) if the user asks about cost.
 
 If the response has `error`, surface the error once and proceed without the brief.
 

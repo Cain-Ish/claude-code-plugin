@@ -1,5 +1,5 @@
 #!/bin/bash
-# config-change-guard.sh — ConfigChange hook (audit-only, v0.21.0).
+# config-change-guard.sh — ConfigChange hook (audit-only).
 #
 # Closes G-HOOK-3 (wiki/security/plugin-hardening-gap-analysis-2026-05-28.md):
 # previously mid-session edits to settings.json were not observed by the
@@ -8,9 +8,7 @@
 # every ConfigChange event to audit-log.jsonl so /second-brain:audit can
 # surface them post-hoc.
 #
-# Scope (v0.21.0): audit-only. Does NOT block. Future iteration may add
-# a deny path for high-risk diffs (e.g. broadening permission rules) once
-# we have empirical data on which changes legitimately fire mid-session.
+# Scope: audit-only. Does NOT block.
 #
 # Matcher categories Anthropic emits:
 #   user_settings, project_settings, local_settings, policy_settings, skills

@@ -23,7 +23,7 @@ while IFS= read -r _l; do [ -n "$_l" ] && cand+=("$_l"); done \
   < <(printf '%s\n' "$scored" | awk -F'\t' -v fl="$FLOOR" '($1+0)<fl && $5==""{print $2"\t"$3}' | head -n "$CAP")
 [ "${#cand[@]}" -eq 0 ] && exit 0
 
-# FORGET redundancy cross-check (0.33.27): a candidate the recall-probe deems redundant is only
+# FORGET redundancy cross-check: a candidate the recall-probe deems redundant is only
 # archived if MinHash ALSO confirms a genuine near-dup twin (body sim >= forget threshold). This
 # stops the recall-probe from false-forgetting a distinct-but-same-TOPIC page (e.g. "indexing
 # basics" vs "advanced indexing", which share tags so the probe sees coverage, yet are NOT dups).

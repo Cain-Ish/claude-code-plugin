@@ -1,11 +1,11 @@
 #!/bin/bash
-# Tests for v2.8.0 maintainer auto-dispatch — counter helpers + session-load.sh
+# Tests for maintainer auto-dispatch — counter helpers + session-load.sh
 # state machine. We never invoke `claude` here; session-load.sh writes
 # additionalContext to stdout and we assert on its content + marker files.
 set -u
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 LIB="$REPO_ROOT/scripts/lib.sh"
-# shellcheck disable=SC2034  # SCRIPT is used by tests added in later tasks
+# shellcheck disable=SC2034  # SCRIPT is only referenced inside run_session_load(), defined below
 SCRIPT="$REPO_ROOT/scripts/session-load.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

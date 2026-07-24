@@ -165,7 +165,7 @@ sb-external-positioning. What this skill owns is the VETTING pattern, visible in
 | Graphiti bi-temporal `supersedes` | ADOPTED; survived the P7 demote | Kept for the mechanism it uniquely fixes (suppressing superseded facts), even while the graph's *ranking* role was cut. |
 | GraphRAG-Bench skepticism | ADOPTED as justify-or-demote (0.33.22) | A skeptical paper triggered a MEASUREMENT, not a rewrite: instrument first, demote on the wash result. |
 | ARC incremental capture | ADOPTED (0.33.18) | Chosen over threshold-triggered capture on the paper's ablation numbers (31% vs 24-27%), then verified by the repo's own criterion (compaction loses no captured decisions). |
-| Aider repo-map (tree-sitter + PageRank) | ACCEPTED-with-modification, plan-queued (P3a) | PageRank borrowed; tree-sitter demoted to opt-in WASM tier after a cross-platform risk spike (p3a plan :84-101). |
+| Aider repo-map (tree-sitter + PageRank) | ACCEPTED-with-modification; P3a Phases 1-3 shipped (PageRank code-map live), Phases 4-5 still queued | PageRank borrowed; tree-sitter demoted to opt-in WASM tier after a cross-platform risk spike (p3a plan :84-101). |
 | CaMeL dual-LLM quarantine | ACCEPTED, plan-queued (P6); ~7-pt utility cost explicitly budgeted | Cost of the borrow written into the plan before implementation. |
 | Cross-encoder reranker | ACCEPTED in spec, NOT started | Stays labeled not-started; no code, no plan doc — claim discipline. |
 | Usage-frequency ranking (recsys) | REJECTED twice (0.33.25 FORGET, 0.33.30 search) | The rich-get-richer hub bias — "literally our ~10,000× score-inflation bug" — now enshrined as a CONSTITUTION.md:44-45 constraint. |

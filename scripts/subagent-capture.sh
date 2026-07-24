@@ -4,7 +4,6 @@
 # Closes the multi-agent extraction blind spot — the main-session Stop extractor
 # only ever sees the top-level transcript, never the per-subagent ones.
 #
-# Design: docs/specs/2026-05-29-subagent-capture-design.md
 # Properties (load-bearing):
 #   - ALWAYS exit 0. A non-zero SubagentStop would PREVENT the subagent from
 #     stopping and wedge the parent's fan-out.
@@ -55,7 +54,7 @@ TOOL_COUNT=$(jq -r '
 
 MIN="${SB_SUBAGENT_MIN_RESULT:-80}"
 
-# R1.2 (HOOK-5): WORKFLOW subagents return their real answer via a
+# HOOK-5: WORKFLOW subagents return their real answer via a
 # StructuredOutput tool call; the last TEXT block is then an interim "holding"
 # message. Skip ONLY when the final assistant record carries a StructuredOutput
 # call and no substantive text of its own — a normal agent that ends with some

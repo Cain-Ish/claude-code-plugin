@@ -1,8 +1,8 @@
-// P8a — deterministic retrieval guards (no LLM, no model). These are invariant/characterization
+// Deterministic retrieval guards (no LLM, no model). These are invariant/characterization
 // guards over the live search surfaces: a regression that breaks recall, overwrite semantics, or
 // the episodic search→read round-trip flips one of these RED. Embeddings are disabled so every
-// assertion is BM25 / text-mode deterministic. Fills the previously-missing episodic recall
-// coverage and protects the P6b episodic sanitization change.
+// assertion is BM25 / text-mode deterministic. Covers episodic recall (search→read round-trip)
+// and protects the episodic sanitization guarantee.
 import { describe, it, expect, beforeAll } from 'vitest';
 import { promises as fs, mkdtempSync } from 'fs';
 import { join } from 'path';

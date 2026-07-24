@@ -198,8 +198,8 @@ from the page's own prose. Do **not** hand-author the block here (lint is read-o
 ### 5. Live-title recall probe (search health)
 
 Every page's own title should retrieve that page in the top-2. A failure here
-means search RANKING is broken for real content (the hub-boost class, R2.1/R2.2),
-not that a page is bad. Read-only; deterministic BM25-only path with a hermetic
+means search RANKING is broken for real content (the hub-boost bug class —
+R2.1/R2.2 contracts), not that a page is bad. Read-only; deterministic BM25-only path with a hermetic
 brain dir (never touches live access counts).
 
 If `$CLAUDE_PLUGIN_ROOT` is not set in your Bash environment, resolve it first:
@@ -256,5 +256,5 @@ No re-indexing step is required — `knowledge_search` reads the wiki tree direc
 
 ## Notes
 
-- No content rules: this skill no longer checks freshness tiers, coverage labels, append-only drift, contradictions, or stub size. Those were 0.7.0 ingest-pipeline concerns and are out of scope in v1.0.
+- No content rules: freshness tiers, coverage labels, append-only drift, and contradictions are owned by the maintainer/dream consolidation cycle, not this skill (stub pages are `knowledge_validate`'s territory). Lint checks structure and retrieval health only.
 - No write actions are taken without an explicit Y from the user.

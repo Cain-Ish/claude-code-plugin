@@ -1,6 +1,6 @@
 #!/bin/bash
 # Idempotent merge of a JSON delta into PROJECT.md + wiki pages. Used by
-# the v1.2.0+ Stop-hook auto-archival flow (scripts/stop-extract.sh).
+# the Stop-hook auto-archival flow (scripts/stop-extract.sh).
 #
 # Usage:
 #   bash merge-project-update.sh --project-md <path> --knowledge-dir <dir> [--json-file <path>]
@@ -43,7 +43,7 @@ done
 [ -z "$KNOWLEDGE_DIR" ] && KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR/#\~/$HOME}"   # re-expand: a --knowledge-dir arg may carry a literal ~
 KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
-# Phase 1b: the render CLI turns a structured ai_block into the marked region deterministically
+# The render CLI turns a structured ai_block into the marked region deterministically
 # (reuses the TS schema → no bash/TS drift). Resolved relative to this script (plugin root).
 RENDER_CLI="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")"/.. && pwd)}/mcp/dist/tools/ai-block-render-cli.bundle.js"
 [ -f "$PROJECT_MD" ] || { echo "merge-project-update: project file not found: $PROJECT_MD" >&2; exit 2; }
@@ -462,7 +462,7 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
     fi
 
     if [ "$action" = "update" ] && [ -f "$target_file" ]; then
-      # Phase 3: refresh the authored ai-block FIRST -- before the prose-dedup early-continue --
+      # Refresh the authored ai-block FIRST -- before the prose-dedup early-continue --
       # so a sharpened block is applied even when the prose is a duplicate ("a stale block is
       # worse than none"). Replace a COMPLETE region in place (FIRST ai:begin only, via a
       # `replaced` latch + a `drop` that never re-arms -- so a stray ai:begin in prose can't

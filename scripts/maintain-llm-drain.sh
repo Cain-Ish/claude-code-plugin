@@ -8,7 +8,7 @@
 # dream's dir writable (live wiki + everything else read-only), so it physically cannot write live.
 #
 # Gated — airtight or not at all (capture ≠ consolidation ≠ LLM-authoring consent):
-#   1. config.json `auto_maintain: true`   — default TRUE since 0.30.0 (≠ auto_improve). It still
+#   1. config.json `auto_maintain: true`   — default TRUE (≠ auto_improve). It still
 #      only runs where guard #3 (bwrap) holds, so on macOS/Windows/bwrap-less Linux it is a no-op.
 #   2. the drainer's CLAUDECODE-refuse / interactive-defer / single-flight guards (via extract-drain)
 #   3. `claude` AND `bwrap` both present    — else SKIP; NEVER run the bypassPermissions agent unconfined
@@ -23,7 +23,7 @@ SDIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$SDIR/lib.sh"
 
-[ "$(sb_config_bool .auto_maintain on)" = "on" ] || exit 0      # default on (0.30.0); guards 2-4 + bwrap still apply
+[ "$(sb_config_bool .auto_maintain on)" = "on" ] || exit 0      # default on; guards 2-4 + bwrap still apply
 # Defense in depth: never spawn `claude -p` from inside a live session (the recursive-claude
 # OAuth lock → hang). extract-drain.sh already refuses on CLAUDECODE, but guard here too in case
 # this is ever run standalone. SB_MAINTAIN_LLM_FORCE=1 bypasses for tests.
@@ -34,7 +34,7 @@ if ! command -v bwrap >/dev/null 2>&1; then
   exit 0
 fi
 
-# Failure-aware lifecycle (R4, SCRIPTS-03): a structural failure must not burn
+# Failure-aware lifecycle: a structural failure must not burn
 # the full weekly slot, and repeated failures must STOP retrying loudly instead
 # of spinning forever. The quarantine SELF-CLEARS once the cheap preflight
 # passes again (cause fixed), on a successful run, or by deleting the file
@@ -90,10 +90,10 @@ for sf in "$BRAIN_DIR"/dreams/drm_*/status.json; do
   { [ -z "$a" ] || [ "$a" = "null" ]; } && exit 0
 done
 
-# Preflight (R4, SCRIPTS-01): prove bwrap can actually create namespaces HERE,
+# Preflight: prove bwrap can actually create namespaces HERE,
 # BEFORE staging anything. Under systemd RestrictNamespaces=true this fails
-# instantly — pre-R4 that produced a stuck status=pending dream and burned the
-# weekly slot, silently, every cycle.
+# instantly — unchecked, that produces a stuck status=pending dream and burns
+# the weekly slot, silently, every cycle.
 if ! bwrap --ro-bind / / --unshare-pid --new-session -- /bin/true >/dev/null 2>&1; then
   sb_log_error "maintain-llm-drain" "bwrap preflight failed — namespace creation blocked (RestrictNamespaces in the unit? see systemd/sb-extract-drain-oauth.service); no dream staged" 0
   _fail_step "bwrap preflight failed (namespace creation blocked)"
@@ -130,9 +130,9 @@ if [ "$TO" -ge "$RUN_HORIZON" ]; then
   TO="$_clamped"
 fi
 TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
-# B1 (HIGH): NEVER run the bypassPermissions agent without a wall-clock cap. The
-# old `${TBIN:+$TBIN "$TO"}` form SILENTLY DROPPED the timeout when neither
-# `timeout` (GNU/Linux) nor `gtimeout` (macOS coreutils) was on PATH, leaving an
+# NEVER run the bypassPermissions agent without a wall-clock cap. A bare
+# `${TBIN:+$TBIN "$TO"}` expansion SILENTLY DROPS the timeout when neither
+# `timeout` (GNU/Linux) nor `gtimeout` (macOS coreutils) is on PATH, leaving an
 # UNBOUNDED `bwrap ... claude -p --permission-mode bypassPermissions` that could
 # hang forever (forever-pending dream + burned slot + creds readable for the hang).
 # Hard-fail instead: log, mark the staged dream failed, count the strike, exit 0
@@ -189,7 +189,7 @@ ERR_F=$(mktemp)
 SB_NESTED_SPAWN=1 ${TBIN:+$TBIN "$TO"} bwrap "${BWRAP_ARGS[@]}" \
   -- claude -p --permission-mode bypassPermissions --model "$MODEL" "$PROMPT" >/dev/null 2>"$ERR_F" || rc=$?
 if [ "$rc" -ne 0 ]; then
-  # R4 (SCRIPTS-02): a failure must be VISIBLE — capture stderr and transition
+  # A failure must be VISIBLE — capture stderr and transition
   # pending→failed atomically so dream_list/status and the autostage scan show
   # it, instead of a forever-pending mystery with error:null.
   ERR_TAIL=$(tail -c 300 "$ERR_F" 2>/dev/null | tr '\n' ' ')
@@ -202,11 +202,11 @@ if [ "$rc" -ne 0 ]; then
   fi
   _fail_step "headless run exit $rc: ${ERR_TAIL:-no stderr}"
 else
-  # B2 (HIGH): the spawn returned 0, but the agent may have DIED before finishing
+  # The spawn returned 0, but the agent may have DIED before finishing
   # (bwrap forks then the child OOMs/segfaults yet bwrap exits 0; or claude exits 0
   # without advancing the dream). status.json would then sit at pending/running with
-  # error:null FOREVER — the terminal-less, deadlock-every-future-dream mystery R4
-  # fixed for rc!=0, now on the rc==0 path. A genuine success leaves status=completed
+  # error:null FOREVER — the terminal-less, deadlock-every-future-dream mystery the
+  # rc!=0 branch guards against, here on the rc==0 path. A genuine success leaves status=completed
   # (the agent sets it per the prompt), so anything NOT completed after a "successful"
   # spawn is a silent death. Self-heal: force →failed (terminal, matching the rc!=0
   # branch's `!= completed` predicate and sb_dream_is_stale's pending|running=non-
@@ -242,7 +242,7 @@ fi
 rm -f "$ERR_F" 2>/dev/null
 fi   # close the DRYRUN-vs-real-run branch (DRYRUN simulates completion + falls through)
 
-# 3. Auto-accept gate (0.25.0 autonomy). DEFAULT OFF — the marketplace-safe default
+# 3. Auto-accept gate. DEFAULT OFF — the marketplace-safe default
 #    keeps the original guarantee (nothing reaches the live wiki unattended without
 #    a human accept). The operator opts in via config.json "auto_accept":
 #      "safe" → apply ONLY a dream proposing no FORGET-archives and no deletions
@@ -268,7 +268,7 @@ if [ "$AA_DECISION" = "accept" ]; then
     AA_BK="$BRAIN_DIR/wiki-backup-pre-autoaccept-$(date -u +%Y%m%d%H%M%SZ).tgz"
     if ! tar czf "$AA_BK" -C "$AA_KDIR" wiki 2>/dev/null; then AA_BK=""; AA_BACKUP_OK=0; fi
   fi
-  # F2: never accept UNATTENDED without a backup. A failed backup (disk full) is
+  # Never accept UNATTENDED without a backup. A failed backup (disk full) is
   # exactly the situation that also produces a broken/empty staging — proceeding
   # would be a correlated, unrecoverable wipe. Abort to manual review instead.
   if [ "$AA_BACKUP_OK" = "0" ]; then
@@ -276,10 +276,10 @@ if [ "$AA_DECISION" = "accept" ]; then
   elif [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
     printf 'DRYRUN auto-accept=%s dream=%s forget=%s backup=%s\n' "$AA_MODE" "$DREAM_ID" "$AA_FORGET" "${AA_BK:-none}"
   else
-    # F3: safe mode forbids ANY deletion (not just forget-manifest entries).
+    # Safe mode forbids ANY deletion (not just forget-manifest entries).
     AA_NODELETE=0; [ "$AA_MODE" = "safe" ] && AA_NODELETE=1
-    # We already tarballed via AA_BACKUP above (the F2 guard), so tell dream-accept
-    # to SKIP its own 0.28.1 backup — one pre-accept tarball, not two.
+    # We already tarballed via AA_BACKUP above, so tell dream-accept
+    # to SKIP its own backup — one pre-accept tarball, not two.
     if SB_DREAM_ACCEPT_SKIP_BACKUP=1 SB_DREAM_ACCEPT_NO_DELETE="$AA_NODELETE" bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>&1; then
       sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: applied dream $DREAM_ID${AA_BK:+ (backup $AA_BK)}" 0
     else

@@ -26,7 +26,7 @@
             "timeout": 15
           },
           {
-            "_comment": "dream-autostage (C5-A; R4) \u2014 NEVER stages and never spawns agents: when >= SB_DREAM_NEW_THRESHOLD (default 10) new transcripts accumulated since the last terminal dream, it emits a banner SUGGESTING /second-brain:dream (explicit invocation only). It also reclaims stale pendings (runner never started >24h) into failed, and banners failed dreams + the maintainer quarantine file. Kill switch SB_DREAM_AUTOSTAGE=off. Timeout 20s.",
+            "_comment": "dream-autostage \u2014 NEVER stages and never spawns agents: when >= SB_DREAM_NEW_THRESHOLD (default 10) new transcripts accumulated since the last terminal dream, it emits a banner SUGGESTING /second-brain:dream (explicit invocation only). It also reclaims stale pendings (runner never started >24h) into failed, and banners failed dreams + the maintainer quarantine file. Kill switch SB_DREAM_AUTOSTAGE=off. Timeout 20s.",
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh 20 ${CLAUDE_PLUGIN_ROOT}/scripts/dream-autostage.sh",
             "timeout": 20
@@ -59,13 +59,13 @@
             "timeout": 45
           },
           {
-            "_comment": "v2.10.0 SAR summary \u2014 aggregates this session's audit-log verdicts into a one-line Safety Adherence Rate banner via systemMessage. Read-only; runs last so it can't be preempted by the gate or extractor. Kill switch SB_SAR_SUMMARY=off.",
+            "_comment": "SAR summary \u2014 aggregates this session's audit-log verdicts into a one-line Safety Adherence Rate banner via systemMessage. Read-only; runs last so it can't be preempted by the gate or extractor. Kill switch SB_SAR_SUMMARY=off.",
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/sar-summary.sh",
             "timeout": 5
           },
           {
-            "_comment": "v0.24.36 cost-router-capture \u2014 aggregates Contract B routing events into a cost-routing-patterns wiki page for the /orchestrate and /model-route classifiers to read. Pure no-op (exit 0) when the events file is absent (cost-router not installed). Kill switch: simply do not install cost-router.",
+            "_comment": "cost-router-capture \u2014 aggregates Contract B routing events into a cost-routing-patterns wiki page for the /orchestrate and /model-route classifiers to read. Pure no-op (exit 0) when the events file is absent (cost-router not installed). Kill switch: simply do not install cost-router.",
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/cost-router-capture.sh",
             "timeout": 10
@@ -75,7 +75,7 @@
     ],
     "SubagentStop": [
       {
-        "_comment": "v0.22+ subagent capture \u2014 archive a substantive, non-self subagent's FINAL result (not its full transcript) into ~/.second-brain/transcripts/ so it becomes dream-minable + episodic-searchable. matcher '*' = all subagents; self-exclusion + the substantive gate live in-script (a select-only matcher can't express 'not these'). MUST always exit 0 (a blocking SubagentStop wedges the parent fan-out). OAuth-safe (file ops only). Kill switch SB_SUBAGENT_CAPTURE=off.",
+        "_comment": "subagent capture \u2014 archive a substantive, non-self subagent's FINAL result (not its full transcript) into ~/.second-brain/transcripts/ so it becomes dream-minable + episodic-searchable. matcher '*' = all subagents; self-exclusion + the substantive gate live in-script (a select-only matcher can't express 'not these'). MUST always exit 0 (a blocking SubagentStop wedges the parent fan-out). OAuth-safe (file ops only). Kill switch SB_SUBAGENT_CAPTURE=off.",
         "matcher": "*",
         "hooks": [
           {
@@ -100,7 +100,7 @@
     ],
     "PreToolUse": [
       {
-        "_comment": "v2.10.0 matcher broadened to cover Read (closes resource-scope gap where Read was declared in tool list but matcher didn't include it) and WebFetch/WebSearch/Task/MultiEdit (network + subagent + multi-file surface where tool_scope and sar_tool apply). MCP tools and read-only Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low. v0.22+: 'Agent' added alongside 'Task' \u2014 Claude Code renamed the subagent-spawn tool Task->Agent (CC v2.1.63); keeping both matches subagent spawns on old and new CLIs.",
+        "_comment": "matcher covers the file (Read/Write/Edit/MultiEdit), shell (Bash), network (WebFetch/WebSearch), and subagent-spawn surface where tool_scope and sar_tool apply. Both Task and Agent match \u2014 both agent-spawn tool names exist across CLI versions and both must be guarded. MCP tools and read-only Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low.",
         "matcher": "Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent",
         "hooks": [
           {
@@ -121,7 +121,7 @@
         ]
       },
       {
-        "_comment": "v0.21.0 symlink-guard (G-HOOK-2). Resolves file_path through symlinks first; denies writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, or ~/.netrc. Per Anthropic doctrine 'symlink resolution before path validation'. Kill switch SB_SYMLINK_GUARD=off.",
+        "_comment": "symlink-guard (G-HOOK-2) \u2014 resolves file_path through symlinks FIRST, then denies writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, or ~/.netrc. Kill switch SB_SYMLINK_GUARD=off.",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -132,7 +132,7 @@
         ]
       },
       {
-        "_comment": "v2.10.0 outbound info-flow guard (HarnessAudit sar_flow channel). Asks when an egress tool call (Bash with network tool, or WebFetch/WebSearch) carries credential-shaped content. Defense-in-depth against the agent helpfully pasting session secrets into a curl request. Kill switch SB_FLOW_GUARD=off.",
+        "_comment": "outbound info-flow guard (sar_flow channel) \u2014 asks when an egress tool call (Bash with network tool, or WebFetch/WebSearch) carries credential-shaped content. Defense-in-depth against the agent helpfully pasting session secrets into a curl request. Kill switch SB_FLOW_GUARD=off.",
         "matcher": "Bash|WebFetch|WebSearch",
         "hooks": [
           {
@@ -143,7 +143,7 @@
         ]
       },
       {
-        "_comment": "P5 plan-first nudge (spec 2026-06-26 §6). SOFT, once-per-session advisory (additionalContext, permissionDecision allow — never blocks) that suggests planning when a session turns into multi-file code work (>=SB_PLAN_FIRST_FILES substantive code-file edits, default 2). Silent on single-file work and one-line diffs. Kill switch SB_PLAN_FIRST_NUDGE=off.",
+        "_comment": "plan-first nudge \u2014 SOFT, once-per-session advisory (additionalContext, permissionDecision allow \u2014 never blocks) that suggests planning when a session turns into multi-file code work (>=SB_PLAN_FIRST_FILES substantive code-file edits, default 2). Silent on single-file work and one-line diffs. Kill switch SB_PLAN_FIRST_NUDGE=off.",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -156,7 +156,7 @@
     ],
     "ConfigChange": [
       {
-        "_comment": "v0.21.0 config-change audit (G-HOOK-3). Records every ConfigChange event to audit-log.jsonl. Audit-only in v0.21.0; future iteration may add deny logic for high-risk diffs. Matchers: user_settings|project_settings|local_settings|policy_settings|skills. Kill switch SB_CONFIG_CHANGE_AUDIT=off.",
+        "_comment": "config-change audit (G-HOOK-3) \u2014 records every ConfigChange event to audit-log.jsonl. Audit-only; never blocks. Matchers: user_settings|project_settings|local_settings|policy_settings|skills. Kill switch SB_CONFIG_CHANGE_AUDIT=off.",
         "matcher": "user_settings|project_settings|local_settings|policy_settings|skills",
         "hooks": [
           {
@@ -179,7 +179,7 @@
         ]
       },
       {
-        "_comment": "v2.9.0 HarnessAudit Layer 3 \u2014 scans Read/WebFetch/Bash/Grep/Glob output for indirect-prompt-injection patterns. Flags via additionalContext; never blocks. Kill switch SB_INJECTION_SCAN=off.",
+        "_comment": "HarnessAudit Layer 3 \u2014 scans Read/WebFetch/Bash/Grep/Glob output for indirect-prompt-injection patterns. Flags via additionalContext; never blocks. Kill switch SB_INJECTION_SCAN=off.",
         "matcher": "Read|WebFetch|Bash|Grep|Glob",
         "hooks": [
           {

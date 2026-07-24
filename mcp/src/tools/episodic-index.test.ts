@@ -65,11 +65,11 @@ describe('buildEpisodicIndex — degraded when embeddings disabled', () => {
   });
 
   it('does NOT write to BRAIN_DIR/error-log.jsonl when embeddings are explicitly disabled (opt-in is not an error)', async () => {
-    // Contract update (post v0.21.1): SECOND_BRAIN_DISABLE_EMBEDDINGS=1 is a
-    // user-controlled opt-in, not a degradation. Logging it to error-log
-    // every process startup (in-memory dedup couldn't span processes) was
-    // flooding the audit channel — vitest runs alone dropped ~500 noise
-    // rows. stderr is the correct channel for an acknowledged disable.
+    // SECOND_BRAIN_DISABLE_EMBEDDINGS=1 is a user-controlled opt-in, not a
+    // degradation. Logging it to error-log every process startup (in-memory
+    // dedup can't span processes) floods the audit channel — a vitest run
+    // alone drops ~500 noise rows. stderr is the correct channel for an
+    // acknowledged disable.
     // Real load failures (transformers missing, etc.) still log — see the
     // separate "happy path" describe block, which exercises that path.
     writeTranscript(brainDir, 'sess1_proj_2026-05-22.txt', 'sess1', 'proj', '2026-05-22', FIXTURE_BODY);

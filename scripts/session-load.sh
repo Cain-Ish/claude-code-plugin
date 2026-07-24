@@ -12,10 +12,10 @@ INDEX_FILE="$BRAIN_DIR/projects.jsonl"
 PROJECTS_DIR="$BRAIN_DIR/projects"
 BYTE_BUDGET=8000   # ~2000 tokens. Claude Code hard-caps hook output at 10K chars.
 
-# P1.2 (docs/plans/2026-07-13-p1-observability.md Task 2): session_id from the hook
-# payload names this session's injection manifest — stdin was previously UNREAD here
-# (slug comes from CLAUDE_PROJECT_DIR). TTY-guarded so a manual no-pipe invocation
-# can't hang; sanitized to a path-safe token; fail-open (no id → telemetry skips).
+# session_id from the hook payload names this session's injection manifest — stdin
+# is otherwise unread here (slug comes from CLAUDE_PROJECT_DIR). TTY-guarded so a
+# manual no-pipe invocation can't hang; sanitized to a path-safe token; fail-open
+# (no id → telemetry skips).
 SL_SESSION_ID=""
 if [ ! -t 0 ]; then
   _sl_raw=$(cat 2>/dev/null || true)
@@ -166,12 +166,12 @@ SESSION_COUNT=$(sb_get_session_count "$slug")
 DREAM_THRESHOLD="${SB_DREAM_CADENCE:-15}"
 # Legacy session-count nag: only when auto-stage is disabled. When autostage is
 # on (default), dream-autostage.sh owns the nudge — suppress here to avoid a
-# double banner. See docs/specs/2026-05-24-dream-auto-stage-design.md §7.
+# double banner.
 if [ "${SB_DREAM_AUTOSTAGE:-on}" = "off" ] && [ "$SESSION_COUNT" -ge "$DREAM_THRESHOLD" ]; then
   sb_append "$(printf '## ⓘ second-brain — dream consolidation suggested\n%s sessions since last dream (threshold: %s).\nRun: `/second-brain:dream --background` — mines transcripts for missed learnings, stages changes for review.\n\n' \
     "$SESSION_COUNT" "$DREAM_THRESHOLD")" "dream-cadence-banner" 300
 fi
-# --- v2.8.0 maintainer auto-dispatch: reconcile previous + threshold -----
+# --- Maintainer auto-dispatch: reconcile previous + threshold -----
 N=${SB_MAINTAINER_THRESHOLD:-3}
 AUTO=${SB_MAINTAINER_AUTO:-on}
 PROJ_DIR="$BRAIN_DIR/projects/$slug"
@@ -203,8 +203,7 @@ elif [ -f "$DISP_FILE" ] && [ ! -f "$ACK_FILE" ]; then
 fi
 
 # [suggest] Emit a user-facing maintenance-suggested banner when the
-# wiki-write counter crosses the threshold. Doctrinal alignment (C3-B,
-# wiki/decisions/2026-05-28-plugin-architecture-rethink.md): the banner does
+# wiki-write counter crosses the threshold. The banner does
 # NOT instruct Claude to auto-dispatch the knowledge-maintainer subagent —
 # Anthropic's pattern is explicit-invocation. The user runs
 # `/second-brain:dream` (whose 6-phase pipeline includes maintainer work)
@@ -269,7 +268,7 @@ fi
 # hook subprocess failures with zero user-visible signal — wiki/learnings
 # stayed empty for days. Banner is HIGH priority so it lands first.
 if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
-  # ONE jq for the four health fields (0.33.38: was 1 + 3 conditional spawns).
+  # ONE jq for the four health fields — hot path.
   # Line-per-field -r protocol; reason is newline-folded so a multiline value
   # can't break the read frame. The whole-stream `tr -d '\r'` also fixes the old
   # H_STATUS CR-taint on Windows ("fail\r" != "fail").
@@ -437,7 +436,7 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
   fi
 fi
 
-# 0a-quinquies. Loop-DEAD banner (P1.1, docs/plans/2026-07-13-p1-observability.md) —
+# 0a-quinquies. Loop-DEAD banner —
 # the case the two drainer banners above CANNOT see: the scheduler is REGISTERED but
 # the drainer has not ticked AT ALL in SB_LOOP_DEAD_HOURS (48). Timeout/dead-letter
 # banners need attempts to leave signatures; a task that never fires leaves nothing —
@@ -489,7 +488,7 @@ fi
 #   (2) pending — >10 already-indexed exchanges have empty embeddings.
 SB_EPI_INDEX="${BRAIN_DIR:-$HOME/.second-brain}/episodic-index.json"
 if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
-  # ONE jq for the two counts (0.33.38: was 2 spawns). Empty (jq parse failure)
+  # ONE jq for the two counts — hot path. Empty (jq parse failure)
   # defaults to 0 below — same fail-soft as the old per-field `|| echo 0`.
   { IFS= read -r EPI_PENDING; IFS= read -r EPI_TOTAL; } < <(
     jq -r '([.exchanges[]? | select((.embedding|length)==0)] | length), (.exchanges | length)' \
@@ -539,8 +538,7 @@ fi
 # PageRank-ranked SOURCE files from the token-capped map.md the drainer generates) so a
 # fresh session starts ORIENTED instead of re-deriving structure, and point at the
 # code_map / code_neighbors MCP tools for the full symbol-level map and for pre-edit
-# blast-radius. map.md is code_map's injection tier BY DESIGN, but P3a shipped the
-# generator and granted it to nothing — this is the missing wire. Placed in the
+# blast-radius. map.md is code_map's injection tier BY DESIGN. Placed in the
 # priority-banner region (BEFORE the forced USER.md/PROJECT.md, which increment USED and
 # would otherwise budget-starve it — live-verified on this repo: placed last, an 8.3KB
 # PROJECT.md starved it in exactly the populated sessions that need orientation most).
@@ -630,7 +628,7 @@ if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 
 fi
 
 # 2b. Persona CHARTER — the standing operating ethos, emitted ONCE per session so it actively
-# governs the partnership for every install (NOT per-prompt — that 0.32.0 noise stays removed).
+# governs the partnership for every install (NOT per-prompt — per-prompt repetition is noise).
 # $CHARTER_BLOCK was extracted AND byte-reserved in the budget block above (capped 500B so the
 # three forced sections never breach the 10K ceiling). Single source: the card's ## Charter.
 [ -n "$CHARTER_BLOCK" ] && sb_append "$CHARTER_BLOCK" "persona-charter" 500 force
@@ -707,7 +705,7 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
   fi
 fi
 
-# 5-raw. SP-2: raw-inbox backlog — surface how many unprocessed items await processing
+# 5-raw. Raw-inbox backlog — surface how many unprocessed items await processing
 # for this project, so the user knows there's material to refine. Kill switch SB_RAW_INBOX=off.
 if [ "${SB_RAW_INBOX:-on}" != "off" ]; then
   RAW_DIR_PATH="$BRAIN_DIR/projects/$slug/raw"
@@ -782,8 +780,8 @@ if [ -d "$DREAMS_DIR" ] && command -v jq >/dev/null 2>&1; then
   STALE_N=0; STALE_ID=""; STALE_AGE=0; STALE_A=0; STALE_M=0; STALE_OLDEST=""
   for sf in "$DREAMS_DIR"/drm_*/status.json; do
     [ -f "$sf" ] || continue
-    # ONE jq for the five status fields (0.33.38: was 5 jq per dream file, per
-    # SessionStart). Line-per-field -r protocol; all five are single-line.
+    # ONE jq for the five status fields — hot path. Line-per-field -r protocol;
+    # all five are single-line.
     { IFS= read -r DSTATUS; IFS= read -r DARCH; IFS= read -r DID; IFS= read -r DA; IFS= read -r DM; } < <(
       jq -r '(.status // ""), (.archived_at // ""), (.id // ""), (.outputs.pages_added // 0), (.outputs.pages_modified // 0)' \
         "$sf" 2>/dev/null | tr -d '\r')

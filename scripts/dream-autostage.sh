@@ -6,8 +6,7 @@
 #
 # Doctrinal alignment: Anthropic's Dreaming runs "between sessions, never
 # during an active session" (Managed Agents docs). Counter-triggered subagent
-# dispatch has no documented Anthropic pattern. See
-# wiki/decisions/2026-05-28-plugin-architecture-rethink.md (C5-A).
+# dispatch has no documented Anthropic pattern.
 #
 # Recovery path: if a previous dream was staged but its runner never started
 # (e.g. hook timeout or interruption), the banner names the pending id so the
@@ -44,17 +43,17 @@ emit_pending_banner() {  # $1 = pending dream id
   printf '## ⓘ second-brain — pending dream\nDream %s is staged but no runner started (likely a previous hook timeout or interruption). Run `/second-brain:dream` to resume — acceptance of the staged diff stays manual.\n\n' "$did"
 }
 
-emit_failed_banner() {  # $1 = id, $2 = error tail (R4, SCRIPTS-02/04 visibility)
+emit_failed_banner() {  # $1 = id, $2 = error tail
   # shellcheck disable=SC2016
   printf '## ⚠ second-brain — dream failed\nDream %s failed: %s\nRetry via `/second-brain:maintain` (explicit run) or stage a fresh dream with `/second-brain:dream`.\n\n' "$1" "$2"
 }
 
-emit_quarantine_banner() {  # $1 = quarantine line (R4, SCRIPTS-03 visibility)
+emit_quarantine_banner() {  # $1 = quarantine line
   # shellcheck disable=SC2016
   printf '## ⚠ second-brain — auto_maintain quarantined\n%s\nIf the error names bwrap/namespaces, redeploy the drainer unit: `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth`. The quarantine self-clears on the next drain cycle once the cause is fixed (or delete `~/.second-brain/.llm-maintain-quarantine`).\n\n' "$1"
 }
 
-# Anchor the new-transcripts watermark on a TERMINAL dream (R4: failed/canceled
+# Anchor the new-transcripts watermark on a TERMINAL dream (failed/canceled
 # count as terminal too). The transcripts/ subdir is populated once at create
 # and never touched afterwards — a stable create-time mark.
 WATERMARK=""
@@ -73,7 +72,7 @@ update_watermark() {  # $1 = dream dir (trailing slash), $2 = status file
 #   running → a runner SHOULD be active; reclaim if stale (crashed mid-run),
 #             else block (one active dream at a time).
 #   pending → staged but not started; reclaim if stale, else recovery banner.
-#   failed  → terminal; surface once (R4) + counts for the watermark.
+#   failed  → terminal; surface once + counts for the watermark.
 #   else    → terminal (completed/archived); newest one is the watermark.
 # Staleness is the SINGLE shared policy sb_dream_is_stale (lib.sh): status.json
 # mtime older than SB_DREAM_RUN_TIMEOUT (6h). The runner re-stamps status.json
@@ -134,8 +133,8 @@ reclaim_dream() {  # $1=status file, $2=expected status (pending|running), $3=er
 }
 
 # A runner SHOULD be active → block, UNLESS it is stale (crashed mid-run). A
-# stale running dream would otherwise DEADLOCK every future dream forever
-# (deep-review / R4). Reclaim it to failed (same policy as dream-snapshot.sh's
+# stale running dream would otherwise DEADLOCK every future dream forever.
+# Reclaim it to failed (same policy as dream-snapshot.sh's
 # deadlock-break) and fall through to the failed-banner surface; a fresh runner
 # still blocks. Staleness = sb_dream_is_stale (status.json mtime > 6h).
 # A fresh (heartbeating) runner blocks unconditionally — never stack or reclaim.
@@ -148,9 +147,9 @@ if [ -n "$RUNNING_ID" ]; then
   FAILED_ID="$RUNNING_ID"; FAILED_ERR="$RECLAIM_ERR"
 fi
 
-# Stale pending (R4, SCRIPTS-02): the runner never started (hook timeout, or a
-# pre-0.24.41 structural failure). Reclaim to failed so it stops blocking new
-# dreams and the failure becomes visible instead of a forever-pending mystery.
+# Stale pending: the runner never started (hook timeout, or a structurally
+# failed runner start). Reclaim to failed so it stops blocking new dreams and
+# the failure becomes visible instead of a forever-pending mystery.
 if [ -n "$PENDING_ID" ] && sb_dream_is_stale "$PENDING_SF"; then
   RECLAIM_ERR="runner never started — stale pending reclaimed by autostage"
   reclaim_dream "$PENDING_SF" pending "$RECLAIM_ERR"

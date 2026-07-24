@@ -9,12 +9,12 @@ mkdir -p "$BRAIN_DIR/transcripts"
 mkdir -p "$BRAIN_DIR/dreams"
 mkdir -p "$BRAIN_DIR/wiki-archive"
 # Wiki content-category dirs from the KB source of truth (kb-schema.json, via lib.sh -> kb-schema.sh).
-# Creates ALL content categories (was only concepts/entities/learnings — the 3-vs-8 divergence).
+# Creates ALL content categories.
 for _c in ${SB_CONTENT_CATEGORIES:-learnings decisions entities issues concepts security state sources}; do
   mkdir -p "$KNOWLEDGE_DIR/wiki/$_c"
 done
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
-# Seed a self-documenting config.json. 0.30.0: automation is ON by default — this is an
+# Seed a self-documenting config.json. Automation is ON by default — this is an
 # automation plugin, so a fresh install self-maintains without the user remembering to opt in.
 #   auto_improve : true  — free + offline: validate + reindex the wiki on the drainer timer.
 #   auto_maintain: true  — runs the headless `claude -p` maintainer on its cadence. NOTE: this

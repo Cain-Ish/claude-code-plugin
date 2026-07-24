@@ -212,10 +212,10 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
       }
     } catch {}
 
-    // P1.1 loop liveness (docs/plans/2026-07-13-p1-observability.md Task 1): the
-    // autonomous loops fail SILENTLY — a drainer dead on this OS produces no errors.
-    // Every value below reads an EXISTING state file the loops already stamp; a
-    // missing file renders "never" — loud, not blank. Observation only (P1 firewall).
+    // Loop liveness: did the autonomous loops actually run? They fail SILENTLY — a
+    // drainer dead on this OS produces no errors. Every value below reads an
+    // EXISTING state file the loops already stamp; a missing file renders "never" —
+    // loud, not blank. Observation only (telemetry firewall).
     push('Loop liveness:');
     const age = (ms: number): string => {
       const h = (Date.now() - ms) / 3600000;

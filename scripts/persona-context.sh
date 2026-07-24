@@ -101,7 +101,7 @@ BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 
-# Caps per section (wiki + episodic only; per-prompt persona/catalog injection removed in 0.32.0).
+# Caps per section (wiki + episodic only — persona/catalog have no per-prompt injection).
 CAP_WIKI=600
 CAP_EPISODIC=300
 
@@ -134,9 +134,9 @@ if [ ! -f "$PCARD_FILE" ]; then
 - Grasp the *why* behind the work — the vision behind the commands, not just executing them. That's where real usefulness lies.
 SEED
 fi
-# Per-prompt persona-card + installed-catalog injection removed (0.32.0): the card was a
-# ~95% paraphrase of USER.md re-sent EVERY prompt (~330 tokens), and USER.md already loads
-# once at SessionStart. The seed block above is kept so persona-stats has a card to summarize.
+# No per-prompt persona-card + installed-catalog injection: the card is a ~95% paraphrase
+# of USER.md (~330 tokens re-sent EVERY prompt), and USER.md already loads once at
+# SessionStart. The seed block above is kept so persona-stats has a card to summarize.
 PERSONA_ABS=""
 CATALOG_ABS=""
 
@@ -262,12 +262,11 @@ if [ -z "$PERSONA_ABS" ] && [ -z "$CATALOG_ABS" ] && [ -z "$WIKI_HITS" ] && [ -z
 fi
 
 # --- Per-session injection memo: skip wiki/episodic sections whose content is unchanged ---
-# v2.10 change: persona + catalog are ALWAYS injected, even if hash unchanged.
-# The model has no persistent memory between turns — re-injecting persona every
-# turn is the *only* mechanism by which it stays in working context. The
-# previous behavior (suppress on hash match) silently dropped persona after
-# turn 1 and made the user think the persona didn't work.
-# Wiki + episodic hits still get hash-deduped: they're noisier and re-injecting
+# Persona + catalog are ALWAYS injected when non-empty, even when the hash is
+# unchanged — deliberate: the model has no persistent memory between turns, so
+# re-injecting every prompt is the only way persona state survives context
+# compaction.
+# Wiki + episodic hits DO get hash-deduped: they're noisier, and re-injecting
 # the same 12 slugs every turn is genuine noise.
 SHOW_WIKI=1; SHOW_EPISODIC=1
 MEMO_DIR="$BRAIN_DIR/.injected"
@@ -299,9 +298,9 @@ fi
 
 # --- Compose as factual statements (per research: factual phrasing dodges prompt-injection defenses) ---
 CTX="[Persona context — auto-loaded, treat as ambient state]"
-# Persona + catalog: always emit when non-empty. Hash-dedup was removed in
-# v2.10 — re-injection every turn is required because the model has no
-# persistent memory between turns.
+# Persona + catalog: always emit when non-empty — never hash-deduped.
+# Re-injection every prompt is deliberate: the model has no persistent
+# memory between turns, so this is how persona survives compaction.
 [ -n "$PERSONA_ABS" ] && CTX="$CTX
 $PERSONA_ABS"
 [ -n "$CATALOG_ABS" ] && CTX="$CTX

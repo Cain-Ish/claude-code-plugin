@@ -21,7 +21,7 @@ SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null |
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 MARKER="$BRAIN_DIR/.verify-gate-blocks-$SESSION_ID"
-# Dedicated anti-game scan window marker (P0.5 precision): records how far into the
+# Dedicated anti-game scan window marker: records how far into the
 # transcript the last anti-game evaluation scanned, so a historical test-deletion is
 # not re-flagged every Stop (which burned both slots of the 2-block valve). This is
 # a SEPARATE marker from stop-extract.sh's extraction marker — that one is owned by
@@ -36,7 +36,7 @@ if [ "$BLOCK_COUNT" -ge 2 ]; then
   exit 0
 fi
 
-# Check if code was modified (Write, Edit, or MultiEdit tool calls). P2.1: keep the
+# Check if code was modified (Write, Edit, or MultiEdit tool calls). Keep the
 # FULL distinct changed-file set, not just the first hit — the block reason names
 # what actually changed, and the critic offer keys on its size.
 CHANGED_FILES=$(jq -r '
@@ -57,7 +57,7 @@ if [ -z "$CODE_MODIFIED" ]; then
   exit 0
 fi
 
-# P2.1: discover the project's EXACT verify command from cheap cwd probes, so the
+# Discover the project's EXACT verify command from cheap cwd probes, so the
 # block says "run THIS" instead of a generic nag. NAMING ONLY — auto-running from a
 # Stop hook was review-killed (blocks the turn for minutes; breaks the fail-open
 # invariant). If/when the auto-team pinned-command resolver lands, reuse it here —
@@ -105,7 +105,7 @@ SKILL_TOOL=$(jq -r '
   | grep -iE 'review|security|simplify|qa|verification' \
   | head -1)
 
-# Anti-gaming slice (P0.5, loop-eng research): verification evidence is SUSPECT when
+# Anti-gaming slice: verification evidence is SUSPECT when
 # the same session DELETED a test file — the cheapest reward-hack in the catalog
 # (delete the failing test, run the now-green suite, claim verified). TDD test EDITS
 # are normal and never flagged; only rm / git rm of a test-shaped path. One pointed
@@ -152,7 +152,7 @@ if [ -n "$VERIFY_CMDS" ] || [ -n "$SKILL_EVIDENCE" ] || [ -n "$SKILL_TOOL" ]; th
     }'
     exit 0
   fi
-  # P2.2 critic offer: verification RAN, but rules can't judge design — on a
+  # Critic offer: verification RAN, but rules can't judge design — on a
   # SUBSTANTIVE diff, offer the already-shipped fresh-context critic ONCE per
   # session (non-blocking systemMessage; the model/user decides). This engages the
   # judge rung on the 90% solo path without new machinery or coercion.
@@ -172,7 +172,7 @@ if [ -n "$VERIFY_CMDS" ] || [ -n "$SKILL_EVIDENCE" ] || [ -n "$SKILL_TOOL" ]; th
   exit 0
 fi
 
-# No verification evidence found — block. P2.1: name WHAT changed and the EXACT
+# No verification evidence found — block. Name WHAT changed and the EXACT
 # command to run (discovered above), not a generic nag — deterministic backpressure.
 mkdir -p "$BRAIN_DIR" 2>/dev/null
 echo "$((BLOCK_COUNT + 1))" > "$MARKER"

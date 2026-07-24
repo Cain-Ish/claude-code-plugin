@@ -1,6 +1,6 @@
 {
   "tool_scope": {
-    "_comment": "v2.10.0 HarnessAudit sar_tool channel. Asks when a tool not in 'allowlist' is invoked. Opt-in (disabled by default) — flipping to true with a small allowlist is the cheapest way to detect tool-misuse before it touches files. Per-session extension via SB_TOOL_SCOPE_EXTRA='Tool1:Tool2' (colon-separated). Kill switch: SB_TOOL_SCOPE=off.",
+    "_comment": "HarnessAudit sar_tool channel. Asks when a tool not in 'allowlist' is invoked. Opt-in (disabled by default) — flipping to true with a small allowlist is the cheapest way to detect tool-misuse before it touches files. Per-session extension via SB_TOOL_SCOPE_EXTRA='Tool1:Tool2' (colon-separated). Kill switch: SB_TOOL_SCOPE=off.",
     "enabled": false,
     "allowlist": [
       "Read", "Bash", "BashOutput", "KillShell",
@@ -11,7 +11,7 @@
     ]
   },
   "resource_scope": {
-    "_comment": "v2.9.0 HarnessAudit Layer 1 resource-scope guard. Asks before file-touching tools (Edit/Write/MultiEdit/Read) target a path outside the allowlist. Per the paper: agents most often violate boundaries by applying reasonable tools to unauthorized RESOURCES, not by calling obviously wrong tools. Kill switch: SB_RESOURCE_SCOPE=off. Extra paths via SB_RESOURCE_SCOPE_EXTRA (colon-separated, like PATH).",
+    "_comment": "HarnessAudit Layer 1 resource-scope guard. Asks before file-touching tools (Edit/Write/MultiEdit/Read) target a path outside the allowlist. Per the paper: agents most often violate boundaries by applying reasonable tools to unauthorized RESOURCES, not by calling obviously wrong tools. Kill switch: SB_RESOURCE_SCOPE=off. Extra paths via SB_RESOURCE_SCOPE_EXTRA (colon-separated, like PATH).",
     "enabled": true,
     "tools": ["Edit", "Write", "MultiEdit", "Read"],
     "allowlist": [

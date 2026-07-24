@@ -1,5 +1,7 @@
 # P1 — Loop Observability Implementation Plan (liveness → value → utilization → compounding)
 
+**Status: SHIPPED (0.33.36–0.33.37).** Tasks 1–4 shipped in 0.33.37 (`19c07f6`); Task 5 (the firewall lock) shipped in 0.33.36 (`4df214b`). Two deviations from the plan as written — see the notes on Tasks 3 and 4.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement task-by-task. Checkbox (`- [ ]`) tasks; respect dependency order (Task 1 ships alone; Tasks 2+4 share a pass; Task 3 is independent).
 
 **Goal:** Close the measurement gap named by the loop-engineering research (`docs/specs/2026-07-08-loop-engineering-research-and-plugin-improvement.md` Phase 1): the plugin's autonomous loops fail SILENTLY (a drainer dead on the maintainer's own OS produced zero errors), and nothing measures whether the memory the loops maintain actually HELPS (injected slugs Read? skills ever invoked? prior-session knowledge reused?). Four telemetry slices, strictly observation-only.
@@ -31,31 +33,35 @@ This plan implements spec Phase 1 (P1.1–P1.4) and gates Phase 4 (P4.1 routing 
 
 ### Task 1: P1.1 liveness — one queryable surface + the loop-dead banner
 
-- [ ] `sb status` gains a `## Loop liveness` section: extractor health (`status`, `reason`, `checked_at` age), newest done-set entry age, backlog count (the §5 comm probe, CRLF-safe), scheduler state (`sb_timer_health`), newest dream (id, status, heartbeat age vs `SB_DREAM_RUN_TIMEOUT`), raw-inbox unprocessed depth. Every value from an EXISTING state file; missing file renders `never` — loud, not blank.
-- [ ] `session-load.sh` loop-dead banner: timer reports `installed` AND newest of (`.extractor-health.json` `checked_at`, newest done-set `ts`) older than `SB_LOOP_DEAD_HOURS` → one banner naming the last-run age and the probe command. This is the case today's banners MISS (self-install covers timer-absent; drain-health covers timeouts/dead-letters; nothing covers installed-but-never-ticks — the live Windows/macOS breakage).
-- [ ] Tests: bash — banner fires on stale marker + timer-installed fixture; silent when fresh, when timer absent (self-install banner owns that), and with `SB_LOOP_DEAD_BANNER=off`; vitest — status section renders with all files present / all absent.
+- [x] `sb status` gains a `## Loop liveness` section: extractor health (`status`, `reason`, `checked_at` age), newest done-set entry age, backlog count (the §5 comm probe, CRLF-safe), scheduler state (`sb_timer_health`), newest dream (id, status, heartbeat age vs `SB_DREAM_RUN_TIMEOUT`), raw-inbox unprocessed depth. Every value from an EXISTING state file; missing file renders `never` — loud, not blank.
+- [x] `session-load.sh` loop-dead banner: timer reports `installed` AND newest of (`.extractor-health.json` `checked_at`, newest done-set `ts`) older than `SB_LOOP_DEAD_HOURS` → one banner naming the last-run age and the probe command. This is the case today's banners MISS (self-install covers timer-absent; drain-health covers timeouts/dead-letters; nothing covers installed-but-never-ticks — the live Windows/macOS breakage).
+- [x] Tests: bash — banner fires on stale marker + timer-installed fixture; silent when fresh, when timer absent (self-install banner owns that), and with `SB_LOOP_DEAD_BANNER=off`; vitest — status section renders with all files present / all absent.
 
 ### Task 2: P1.2 value — injection manifest + Stop-time Read correlation
 
-- [ ] `session-load.sh`: each injecting section (wiki-enrichment slugs, code-map spine, graph neighbourhood) appends `{kind, id}` lines to `$BRAIN_DIR/.injected-manifest-<session_id>.jsonl` as it emits (7-day GC alongside the existing `.injected/` memos).
-- [ ] `stop-extract.sh`: after extraction, one jq pass over the transcript collects Read file_paths + `knowledge_fetch`/`knowledge_search`-followed-by-Read slugs; intersect with the manifest; append TRACE `gate=value-loop injected=N read=M hits=<csv>` (ec=0 → audit-log via R6b). Delete the manifest.
-- [ ] Tests: manifest written; correlation counts a Read hit and a zero-hit session; no-manifest fallback silent; `SB_TELEMETRY=off` skips.
+- [x] `session-load.sh`: each injecting section (wiki-enrichment slugs, code-map spine, graph neighbourhood) appends `{kind, id}` lines to `$BRAIN_DIR/.injected-manifest-<session_id>.jsonl` as it emits (7-day GC alongside the existing `.injected/` memos).
+- [x] `stop-extract.sh`: after extraction, one jq pass over the transcript collects Read file_paths + `knowledge_fetch`/`knowledge_search`-followed-by-Read slugs; intersect with the manifest; append TRACE `gate=value-loop injected=N read=M hits=<csv>` (ec=0 → audit-log via R6b). Delete the manifest.
+- [x] Tests: manifest written; correlation counts a Read hit and a zero-hit session; no-manifest fallback silent; `SB_TELEMETRY=off` skips.
 
 ### Task 3: P1.3 utilization — invocation counts + dormant report
 
-- [ ] `extract-drain.sh` (inside the single-flight lock, after codemap regen): per newly-drained transcript, jq-count `tool_use` where `name=="Skill"` (`.input.skill`) or `name=="Task"` (`.input.subagent_type`), fold into `$BRAIN_DIR/utilization-counts.json` (`{name: {count, last_used}}`, atomic tmp+rename).
-- [ ] `sb status` `## Utilization` section: top-used + DORMANT list = this plugin's own installed surface (`skills/*/` user-invocable + `agents/*.md`) with zero count in the trailing 30 days. Cross-plugin names render as counts only (no dormancy claim — we can't enumerate other catalogs).
-- [ ] Tests: counts fold correctly across two drains; dormant list flags a never-invoked fixture agent; corrupt counts file → rebuilt loud, not crash.
+> **Deviation (shipped form):** the utilization fold landed in `scripts/stop-extract.sh` (the Stop pass, alongside the Task-2/4 correlation), not `extract-drain.sh` as planned below.
+
+- [x] `extract-drain.sh` (inside the single-flight lock, after codemap regen): per newly-drained transcript, jq-count `tool_use` where `name=="Skill"` (`.input.skill`) or `name=="Task"` (`.input.subagent_type`), fold into `$BRAIN_DIR/utilization-counts.json` (`{name: {count, last_used}}`, atomic tmp+rename). *(Shipped in `stop-extract.sh` — see deviation note.)*
+- [x] `sb status` `## Utilization` section: top-used + DORMANT list = this plugin's own installed surface (`skills/*/` user-invocable + `agents/*.md`) with zero count in the trailing 30 days. Cross-plugin names render as counts only (no dormancy claim — we can't enumerate other catalogs).
+- [x] Tests: counts fold correctly across two drains; dormant list flags a never-invoked fixture agent; corrupt counts file → rebuilt loud, not crash.
 
 ### Task 4: P1.4 compounding — prior-session knowledge actually reused
 
-- [ ] In the Task-2 Stop pass: for each manifest hit that is a wiki page, read its frontmatter `created` date; count hits where `created` < session start date → append TRACE `gate=compound-loop prior_pages_read=K of_total_hits=M`.
-- [ ] `sb status` renders the cumulative ratio from the audit-log tail (last 200 value/compound rows): "prior-session knowledge reused in X of Y sessions with hits".
-- [ ] Tests: a fixture page created yesterday Read today counts; a same-session page does not; missing frontmatter date → excluded loud (TRACE note), not crash.
+> **Deviation (shipped form):** P1.4 landed as a `prior=` field inside the single `gate=value-loop` TRACE row — there is no separate `gate=compound-loop` row. The cumulative-ratio display in `sb status` was NOT built and remains open.
+
+- [x] In the Task-2 Stop pass: for each manifest hit that is a wiki page, read its frontmatter `created` date; count hits where `created` < session start date → append TRACE `gate=compound-loop prior_pages_read=K of_total_hits=M`. *(Shipped as `prior=` inside the `gate=value-loop` row — see deviation note.)*
+- [ ] `sb status` renders the cumulative ratio from the audit-log tail (last 200 value/compound rows): "prior-session knowledge reused in X of Y sessions with hits". **NOT built — still open** (see deviation note).
+- [x] Tests: a fixture page created yesterday Read today counts; a same-session page does not; missing frontmatter date → excluded loud (TRACE note), not crash.
 
 ### Task 5: the firewall machine lock
 
-- [ ] Source-scan test (vitest or bash): `knowledge-search.ts`, `episodic-search.ts`, `codemap/*.ts`, `graph-store.ts`, `wiki-forget-score.sh`, `wiki-forget-candidates.sh` contain NO reference to `utilization-counts`, `.injected-manifest`, `value-loop`, `compound-loop`. This is the undo-rows-16-18 guarantee as a failing test, not a promise.
+- [x] Source-scan test (vitest or bash): `knowledge-search.ts`, `episodic-search.ts`, `codemap/*.ts`, `graph-store.ts`, `wiki-forget-score.sh`, `wiki-forget-candidates.sh` contain NO reference to `utilization-counts`, `.injected-manifest`, `value-loop`, `compound-loop`. This is the undo-rows-16-18 guarantee as a failing test, not a promise. *(Shipped early, in 0.33.36 `4df214b`, ahead of the telemetry it firewalls.)*
 
 ## Success criteria
 

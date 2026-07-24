@@ -89,7 +89,7 @@ Effective state:
   Per-dispatch:      model: 'sonnet' / model: 'haiku' work as expected
   CLAUDE_CODE_SUBAGENT_MODEL: not set (recommended)
   second-brain:      detected / not detected
-  Premium spend:     informational ledger, no cap (0.24.45 de-cap)
+  Premium spend:     informational ledger — no spend cap
 ```
 
 ## Step 6 — Summary

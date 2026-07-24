@@ -123,7 +123,7 @@ remove_shim() { rm -f "$SHIM" "$ENV_FILE" 2>/dev/null || true; rmdir "$SB_DIR/bi
 
 # WSL-safe git-bash resolution for schtasks /TR — returns a Windows-form path. Probe known git-bash
 # locations first (git-bash `[ -f "C:\\..." ]` works); only fall back to `command -v bash` if none
-# exist, so we don't accidentally schedule the WSL System32\bash.exe (the 0.33.1 bug class — gap #3).
+# exist, so we don't accidentally schedule the WSL System32\bash.exe (the WSL-bash shadow bug class).
 win_bash() {
   local c
   for c in "${PROGRAMFILES:-}\\Git\\bin\\bash.exe" \

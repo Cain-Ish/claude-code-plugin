@@ -236,7 +236,7 @@ do_extract() {  # $1 = txt, $2 = slug ; honors the test stub
 
 now() { date -u +%FT%TZ; }
 
-# --- Too-small fast-path (R1.2, HOOK-5) ---
+# --- Too-small fast-path (HOOK-5) ---
 # Archives whose post-header body is tiny (e.g. 378-byte workflow-subagent
 # stubs) have nothing extractable: mark them done WITHOUT an LLM spawn. They
 # stay on disk for episodic search — only extraction is skipped. Runs before
@@ -293,11 +293,11 @@ while IFS= read -r tf; do
   fi
 done < <(ls -1tr "$TX_DIR"/*.txt 2>/dev/null)
 
-# --- GC sweeps (R1.2) ---
+# --- GC sweeps ---
 # Session-keyed extraction markers accumulate one file per session; sweep those
 # untouched for 30+ days (kept past the review skill's 14-day staleness window,
 # and past week-long idle sessions, per deep-review). Also sweeps legacy
-# slug-keyed markers from pre-0.24.38.
+# slug-keyed markers (the retired marker-key scheme).
 find "$BRAIN_DIR" -maxdepth 1 -name '.last-extracted-line-*' -mtime +30 -delete 2>/dev/null || true
 # Transcripts of our own nested extractor spawns (cwd = BRAIN_DIR/scratch →
 # one ~/.claude/projects entry). Derive the encoded name from the live BRAIN_DIR
@@ -338,10 +338,10 @@ else
   sb_write_extractor_health "$DRAIN_BACKEND" "ok" "drained $processed this run ($failed failed)"
 fi
 
-# SP-D retention GC (R4, SCRIPTS-05): regenerable-only pruning (orphaned
+# SP-D retention GC: regenerable-only pruning (orphaned
 # embeddings-cache entries, *.bak/*.tgz past retention.bak_ttl_days) must NOT
-# depend on the SP-B auto_improve opt-in — it was silently inert on every
-# default install (bak_ttl_days did nothing).
+# depend on the SP-B auto_improve opt-in — gated behind it, the pruning is
+# silently inert on every default install (bak_ttl_days does nothing).
 [ -f "$(dirname "$0")/sb-prune-archives.sh" ] && bash "$(dirname "$0")/sb-prune-archives.sh" >/dev/null 2>&1 || true
 
 # SP-B: deterministic consolidation upkeep — opt-in via config.json `auto_improve`. Runs
@@ -383,10 +383,9 @@ if [ "$(sb_config_bool .auto_codemap on)" = "on" ]; then
       "$BRAIN_DIR/projects.jsonl" 2>/dev/null | tr -d '\r')
   fi
   if [ -n "$CM_REPO" ] && [ -d "$CM_REPO" ]; then
-    # Flat dist path — Phase 1 shipped the bundle at dist/tools/ (NOT dist/tools/codemap/;
-    # 0.33.33 Task A4 deviation note). Fail LOUD on a missing bundle: a silent
-    # `[ -f ] … || true` here would no-op the whole regen forever on a path typo
-    # (adversarial-review finding, 0.33.33 pre-release).
+    # Flat dist path — the bundle lives at dist/tools/ (NOT dist/tools/codemap/).
+    # Fail LOUD on a missing bundle: a silent
+    # `[ -f ] … || true` here would no-op the whole regen forever on a path typo.
     CM_CLI="$(sb_plugin_root)/mcp/dist/tools/code-map-cli.bundle.js"
     if [ -f "$CM_CLI" ] && command -v node >/dev/null 2>&1; then
       # Real failures stay LOUD (error-log). The CLI is a fail-soft boundary —

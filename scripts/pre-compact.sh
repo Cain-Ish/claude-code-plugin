@@ -1,5 +1,5 @@
 #!/bin/bash
-# PreCompact hook (v1.7.0). Runs LLM extraction on the unprocessed transcript
+# PreCompact hook. Runs LLM extraction on the unprocessed transcript
 # window BEFORE compaction discards context. Ensures decisions, patterns, and
 # knowledge from early in long sessions survive compaction cycles.
 #

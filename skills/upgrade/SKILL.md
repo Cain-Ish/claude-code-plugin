@@ -15,7 +15,7 @@ them. Migration ACTIONS live in `skills/upgrade/migrations/<version>.md` —
 one file per release that has a real precondition or action. A version with
 NO file is marker-bump-only (its narrative is in the repo CHANGELOG.md, which
 is never context-loaded). This split keeps a typical 1–2 version hop under
-~2K tokens instead of loading the full release history (R6, deep-dive).
+~2K tokens instead of loading the full release history.
 
 ## Steps
 
@@ -69,7 +69,7 @@ run the installer. Why: the mcp bundles mark it esbuild `--external` (native
 binaries), and a plugin cache refresh ships `dist/` but never `node_modules/`
 — without this gate vector search silently degrades to text-only on every
 fresh install or cache wipe (no error, just empty embeddings). SessionStart
-auto-relinks the no-network case since 0.24.39; this check covers the
+auto-relinks the no-network case; this check covers the
 fresh-install/download case that needs consent.
 
 ```bash
