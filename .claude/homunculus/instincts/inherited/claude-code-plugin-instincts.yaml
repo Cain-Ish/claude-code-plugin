@@ -1,0 +1,318 @@
+# Instincts generated from https://github.com/Cain-Ish/claude-code-plugin
+# Generated: 2026-07-24T18:26:00.955Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: claude-code-plugin-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: fix
+
+## Evidence
+
+- 1 commits analyzed
+- Detected conventional commit pattern
+- Examples: fix(portability): 0.34.2 — parenthesize the jq score pipeline; older-jq object-value grammar broke Linux CI
+
+---
+id: claude-code-plugin-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Commit Length
+
+## Action
+
+Write detailed commit messages (~107 characters for first line)
+
+## Evidence
+
+- Average commit message length: 107 chars
+- Based on 1 commits
+
+---
+id: claude-code-plugin-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: claude-code-plugin-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: claude-code-plugin-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: claude-code-plugin-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: claude-code-plugin-instinct-file-naming
+trigger: "When creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct File Naming
+
+## Action
+
+Name the file using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.files
+
+---
+id: claude-code-plugin-instinct-function-naming
+trigger: "When defining a function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Function Naming
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.functions
+
+---
+id: claude-code-plugin-instinct-class-naming
+trigger: "When defining a class"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Class Naming
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.classes
+
+---
+id: claude-code-plugin-instinct-constant-naming
+trigger: "When defining a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Constant Naming
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in namingConventions.constants
+
+---
+id: claude-code-plugin-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Import Style
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in importStyle
+
+---
+id: claude-code-plugin-instinct-export-style
+trigger: "When exporting functions or variables"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle
+
+---
+id: claude-code-plugin-instinct-git-commit-prefix
+trigger: "When writing a commit message for a bug fix"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Git Commit Prefix
+
+## Action
+
+Prefix the commit message with 'fix'
+
+## Evidence
+
+- Seen in commit: fix(portability): 0.34.2 — parenthesize the jq score pipeline; older-jq object-value grammar broke Linux CI
+
+---
+id: claude-code-plugin-instinct-git-commit-format
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Git Commit Format
+
+## Action
+
+Follow the conventional commit format: <type>(<scope>): <short summary> — <details>
+
+## Evidence
+
+- Pattern in commits.type: conventional
+- Seen in commit: fix(portability): 0.34.2 — ...
+
+---
+id: claude-code-plugin-instinct-git-commit-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Git Commit Length
+
+## Action
+
+Write commit messages with detailed descriptions, averaging around 100 characters
+
+## Evidence
+
+- Pattern in commits.averageLength: 107
+
+---
+id: claude-code-plugin-instinct-test-location
+trigger: "When creating new test files"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: Cain-Ish/claude-code-plugin
+---
+
+# Claude Code Plugin Instinct Test Location
+
+## Action
+
+Place test files in a separate directory from source files
+
+## Evidence
+
+- Pattern in architecture.folderStructure.testLocation: separate
+
