@@ -592,6 +592,14 @@ sb_detect_project() {
   fi
 
   # 4. standalone (or working at the monorepo root): bare slug, no parent.
+  # Identity invariant: the origin REMOTE is the project identity; the folder basename
+  # is only the fallback for remote-less dirs. A re-clone under a new folder name
+  # (repo `name` cloned as `name-2`) must resolve to the registered slug instead of
+  # minting a second project. No remote / no registry match / lookup failure all fall
+  # open to the basename. (Monorepo cases 1-3 keep basename derivation — same bug
+  # class but rarer; noted follow-up in the identity plan.)
+  local rslug; rslug=$(sb_remote_override_slug "$abs" "$leaf")
+  [ -n "$rslug" ] && leaf="$rslug"
   printf '%s\t\t%s\n' "$leaf" "${top:-$abs}"
 }
 
@@ -600,6 +608,92 @@ sb_detect_project() {
 sb_git_remote() {
   local dir; dir=$(printf '%s' "${1:-$PWD}" | tr -d '\r')
   git -C "$dir" remote get-url origin 2>/dev/null | tr -d '\r' | head -1
+}
+
+# Canonicalize a git remote URL to its host/path identity so different URL forms of
+# the same repository compare equal: trim, lowercase, drop the scheme (proto://) and
+# any user@ prefix, fold the scp-form "host:path" colon to "/", strip trailing slashes
+# and one trailing ".git". Empty in -> empty out.
+# LOCKSTEP: three twins implement this — this function, the jq def in $SB_JQ_REMOTE_ID
+# below, and normalizeRemote in mcp/src/brain-paths.ts. All are pinned to the shared
+# fixture tests/fixtures/remote-normalization.tsv so they cannot drift.
+sb_normalize_remote() {
+  # tr 'A-Z' 'a-z', NOT '[:upper:]': ASCII-only lowercasing. BSD tr is multibyte-aware
+  # under a UTF-8 locale and would fold non-ASCII (Ö→ö) that the jq twin's
+  # ascii_downcase and the TS twin's ASCII-only fold leave alone — the three must agree.
+  printf '%s' "${1:-}" | tr -d '\r' | tr 'A-Z' 'a-z' | sed -E '
+    s#^[[:space:]]+##; s#[[:space:]]+$##;
+    s#^[a-z+]+://##;
+    s#^[^@/]*@##;
+    s#^([^/:]+):#\1/#;
+    s#/+$##; s#\.git$##; s#/+$##'
+}
+
+# jq twin of sb_normalize_remote (nrm), single-sourced in ONE variable so the registry
+# lookup (sb_slug_from_remote) and the registry dedupe (sb_harden_projects_jsonl) share
+# one definition and cannot fork. rkeep picks the canonical record from an array of
+# records sharing one normalized remote: the slug equal to the remote's repo basename
+# wins (the user-facing project name), else the record with the newest last_session_iso.
+# The survivor's root_path may be stale for one session (it can point at another clone);
+# session-load lazy-updates it on the next resolution from the live clone.
+SB_JQ_REMOTE_ID='
+  def nrm: ascii_downcase
+    | sub("^\\s+";"") | sub("\\s+$";"")
+    | sub("^[a-z+]+://";"")
+    | sub("^[^@/]*@";"")
+    | sub("^(?<h>[^/:]+):";"\(.h)/")
+    | sub("/+$";"") | sub("\\.git$";"") | sub("/+$";"");
+  def rkeep: ((.[0].git_remote | nrm | sub(".*/";"")) as $base
+    | (map(select(.slug == $base)) | .[0]) // max_by(.last_session_iso // ""));
+'
+
+# Look up the registered slug that owns a git remote: sb_slug_from_remote <registry> <raw-url>.
+# Echoes the canonical slug, or nothing when the remote/registry is absent or unmatched.
+# Identity ENHANCEMENT, not a guard: a registry jq cannot parse logs loudly but FAILS
+# OPEN to empty output (rc 0) so callers fall back to the basename slug.
+sb_slug_from_remote() {
+  local reg="${1:-}" raw="${2:-}"
+  [ -n "$raw" ] && [ -f "$reg" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local want; want=$(sb_normalize_remote "$raw")
+  [ -n "$want" ] || return 0
+  local out
+  # MSYS_NO_PATHCONV: on Git-Bash a bare-path remote (/srv/git/repo) passed as a jq
+  # arg would be rewritten to a Windows path and never match the registry. The flag
+  # suppresses conversion of EVERY argument, so the registry is fed via stdin
+  # redirection (opened by bash, immune to conversion) instead of a path argument.
+  if ! out=$(MSYS_NO_PATHCONV=1 jq -sr --arg want "$want" "$SB_JQ_REMOTE_ID"'
+        [ .[] | select(type=="object")
+              | select(((.slug // "") | type) == "string" and (.slug // "") != "")
+              | select(((.git_remote // "") | type) == "string" and (.git_remote // "") != "")
+              | select((.git_remote | nrm) == $want) ]
+        | if length == 0 then empty else rkeep.slug end
+      ' < "$reg" 2>/dev/null); then
+    sb_log_error "lib.sh" "sb_slug_from_remote: jq could not parse $reg — remote lookup skipped (basename fallback)" 0
+    return 0
+  fi
+  printf '%s\n' "$out" | tr -d '\r' | head -1
+  return 0
+}
+
+# Remote-identity override for a basename-derived slug: echo the registered slug that
+# owns DIR's origin remote when it is non-empty and DIFFERS from BASE, else nothing.
+# Shared by BOTH funnels (sb_detect_project capture/registration, sb_resolve_slug
+# query) so they cannot split-brain a re-cloned repo. Cost: one git spawn; the jq
+# lookup only runs when a remote exists. Fails open to the basename.
+# SECURITY: .git/config is attacker-writable text — a crafted origin matching a
+# registered remote inherits that project's slug. The override therefore must never
+# be silent: every firing is audit-logged (rule remote-identity-override). First-seen
+# remote→slug pinning is the queued hardening.
+sb_remote_override_slug() {
+  local dir="$1" base="$2" gr rslug
+  gr=$(sb_git_remote "$dir")
+  [ -n "$gr" ] || return 0
+  rslug=$(sb_slug_from_remote "$BRAIN_DIR/projects.jsonl" "$gr")
+  [ -n "$rslug" ] && [ "$rslug" != "$base" ] || return 0
+  sb_log_audit "slug-resolve" "flag" "remote-identity-override" "$dir" \
+    "basename=$base remote=$gr slug=$rslug"
+  printf '%s\n' "$rslug"
 }
 
 # Layer-1 migration: canonicalize projects.jsonl. Tolerates pretty-printed / JSON-array /
@@ -614,18 +708,45 @@ sb_harden_projects_jsonl() {
   # -s slurps the whole file (handles pretty-print + JSON-array); flatten unwraps an array;
   # drop non-objects/slug-less; dedup by slug keeping newest; -c one compact object per value;
   # tr -d '\r' keeps the file LF-only despite jq's CRLF stdout on Windows.
-  if ! jq -sc 'flatten | map(select(type=="object" and (.slug|type=="string") and .slug!=""))
-               | group_by(.slug) | map(max_by(.last_session_iso // "")) | .[]' \
+  # Remote-identity dedupe (after the slug dedup): records sharing one NORMALIZED
+  # git_remote are the SAME repository re-cloned under different folder names —
+  # collapse each group to its canonical record (rkeep). Records with an empty or
+  # non-string git_remote are never grouped (no remote = no shared identity).
+  if ! jq -sc "$SB_JQ_REMOTE_ID"'
+        flatten | map(select(type=="object" and (.slug|type=="string") and .slug!=""))
+        | group_by(.slug) | map(max_by(.last_session_iso // ""))
+        | (map(select(((.git_remote // "") | type) != "string" or (.git_remote // "") == ""))) as $noremote
+        | (map(select(((.git_remote // "") | type) == "string" and (.git_remote // "") != ""))
+           | group_by(.git_remote | nrm)
+           | map(if length > 1 then rkeep else .[0] end)) as $withremote
+        | $noremote + $withremote | .[]' \
         "$f" 2>/dev/null | tr -d '\r' > "$tmp" || [ ! -s "$tmp" ]; then
     rm -f "$tmp"
     echo "harden: could not parse $f — left intact (manual review)" >&2
     return 1
   fi
   if cmp -s "$f" "$tmp"; then rm -f "$tmp"; return 0; fi   # already canonical → no churn, no backup
+  # Slugs a remote-identity collapse is about to DROP (computed from the pre-rewrite
+  # file so the report names them even after the records are gone). Dropping a slug
+  # redirects that project's future sessions — never silent.
+  local dropped
+  dropped=$(jq -sr "$SB_JQ_REMOTE_ID"'
+      flatten | map(select(type=="object" and (.slug|type=="string") and .slug!=""))
+      | group_by(.slug) | map(max_by(.last_session_iso // ""))
+      | map(select(((.git_remote // "") | type) == "string" and (.git_remote // "") != ""))
+      | group_by(.git_remote | nrm)
+      | map(select(length > 1) | (map(.slug) - [rkeep.slug]))
+      | flatten | join(",")' "$f" 2>/dev/null | tr -d '\r')
   local bak; bak="$f.bak.$(date -u +%Y%m%dT%H%M%SZ)"
-  cp "$f" "$bak" && mv "$tmp" "$f" \
-    && echo "harden: canonicalized $f (backup: $bak)" \
-    || { rm -f "$tmp"; echo "harden: rewrite failed for $f" >&2; return 1; }
+  if cp "$f" "$bak" && mv "$tmp" "$f"; then
+    echo "harden: canonicalized $f (backup: $bak)"
+    if [ -n "$dropped" ]; then
+      echo "harden: remote-identity dedupe collapsed duplicate-remote slugs: $dropped (same origin remote = one project; backup: $bak)" >&2
+      sb_log_error "lib.sh" "sb_harden_projects_jsonl: collapsed duplicate-remote slugs in $f: $dropped (backup: $bak)" 0
+    fi
+  else
+    rm -f "$tmp"; echo "harden: rewrite failed for $f" >&2; return 1
+  fi
 }
 
 # Setup collision identity. Given the registry, a candidate slug and its dir identity, classify:
@@ -687,18 +808,29 @@ sb_find_up() {
 # project-root level and survives a subdir cwd) — the legacy path for CLIs that
 # expose no project dir.
 sb_resolve_slug() {
-  local cwd="${1:-$PWD}" _s
+  local cwd="${1:-$PWD}" _s _r
   # 1. CLAUDE_PROJECT_DIR — per-process project root (set by Claude Code when present).
   if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
     _s=$(sb_slug_from_dir "$CLAUDE_PROJECT_DIR")
-    case "$_s" in /|.|..) ;; *) echo "$_s"; return 0 ;; esac
+    case "$_s" in /|.|..) ;; *)
+      # Remote identity beats the basename (a re-clone under a new folder name must
+      # resolve the REGISTERED slug) — same lookup as sb_detect_project, so the
+      # capture funnel and this query funnel can never split-brain one repo.
+      _r=$(sb_remote_override_slug "$CLAUDE_PROJECT_DIR" "$_s")
+      echo "${_r:-$_s}"; return 0 ;;
+    esac
   fi
   # 2. cwd, but ONLY when its basename names a KNOWN project (projects/<slug>/ exists).
   #    cwd is per-process, so it can't be clobbered by a concurrent session like the shared
   #    pin can — but the known-project gate rejects a subdir cwd (→ falls to the pin below).
+  #    Remote identity outranks the known-project gate here too (same rationale as tier 1).
   _s=$(sb_slug_from_dir "$cwd")
   case "$_s" in /|.|..) _s="" ;; esac
-  if [ -n "$_s" ] && [ -f "$BRAIN_DIR/projects/$_s/PROJECT.md" ]; then echo "$_s"; return 0; fi
+  if [ -n "$_s" ]; then
+    _r=$(sb_remote_override_slug "$cwd" "$_s")
+    if [ -n "$_r" ]; then echo "$_r"; return 0; fi
+    if [ -f "$BRAIN_DIR/projects/$_s/PROJECT.md" ]; then echo "$_s"; return 0; fi
+  fi
   # 3. The pin (session-root level; survives a subdir cwd) — subdir/legacy fallback.
   local pinned="$BRAIN_DIR/.active-session-slug" slug
   if [ -f "$pinned" ]; then

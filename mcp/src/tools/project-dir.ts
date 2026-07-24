@@ -1,7 +1,8 @@
 import { basename, join } from 'path';
 import { readFileSync, existsSync } from 'fs';
 import { cleanEnvPath } from '../path-guard.js';
-import { resolveSlugByPath } from './project-registry.js';
+import { originRemote } from '../brain-paths.js';
+import { resolveSlugByPath, resolveSlugByRemote } from './project-registry.js';
 
 /** Resolve the active project slug from a project directory path.
  *  Rejects degenerate basenames ('/', '.', '', undefined) → undefined.
@@ -24,8 +25,32 @@ export function activeProjectDir(env: NodeJS.ProcessEnv = process.env, cwd: () =
   return cleanEnvPath(env.CLAUDE_PROJECT_DIR) || cwd();
 }
 
+/** Remote-identity upgrade for a basename-derived slug: the dir's origin remote
+ *  (parsed from .git, no spawn) looked up in the projects.jsonl registry. The remote
+ *  is the project IDENTITY; the basename is only the fallback for remote-less dirs —
+ *  so a re-clone under a new folder name (`name-2` of repo `name`) resolves to the
+ *  registered slug instead of minting a second project. Any failure → undefined
+ *  (fail open to the basename). Mirrors sb_detect_project case 4 in scripts/lib.sh. */
+function remoteIdentitySlug(brainDir: string, dir: string): string | undefined {
+  const url = originRemote(dir);
+  if (!url) return undefined;
+  return resolveSlugByRemote(brainDir, url);
+}
+
+/** Loud observability for the identity override: .git/config is attacker-writable
+ *  text, so a crafted origin can inherit a registered project's slug. The override
+ *  is accepted (fail-open identity enhancement) but must never be silent — one
+ *  structured stderr line per firing, mirroring the bash sb_log_audit
+ *  remote-identity-override event. Never throws. */
+function logRemoteOverride(dir: string, base: string, slug: string): void {
+  try {
+    console.error(JSON.stringify({ event: 'remote-identity-override', dir, basename: base, slug }));
+  } catch { /* logging must never break resolution */ }
+}
+
 /** Resolve the active project slug.
- *  Precedence: CLAUDE_PROJECT_DIR (registry-path > basename) > cwd registry-path > cwd-if-known-project > pin > cwd.
+ *  Precedence: CLAUDE_PROJECT_DIR (registry-path > remote-identity > basename)
+ *  > cwd registry-path > cwd remote-identity > cwd-if-known-project > pin > cwd.
  *
  *  Both CLAUDE_PROJECT_DIR and cwd are PER-PROCESS (a concurrent session can't
  *  change them); the global ~/.second-brain/.active-session-slug pin is a single
@@ -48,12 +73,26 @@ export function resolveActiveSlug(
     const byPath = resolveSlugByPath(brainDir, env.CLAUDE_PROJECT_DIR);
     if (byPath) return byPath;
     const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
-    if (fromEnv) return fromEnv;
+    if (fromEnv) {
+      const byRemote = remoteIdentitySlug(brainDir, env.CLAUDE_PROJECT_DIR);
+      if (byRemote && byRemote !== fromEnv) {
+        logRemoteOverride(env.CLAUDE_PROJECT_DIR, fromEnv, byRemote);
+        return byRemote;
+      }
+      return fromEnv;
+    }
   }
   const here = cwd();
   const byCwdPath = resolveSlugByPath(brainDir, here);
   if (byCwdPath) return byCwdPath;
   const cwdSlug = slugFromProjectDir(here);
+  if (cwdSlug) {
+    const byRemote = remoteIdentitySlug(brainDir, here);
+    if (byRemote && byRemote !== cwdSlug) {
+      logRemoteOverride(here, cwdSlug, byRemote);
+      return byRemote;
+    }
+  }
   if (cwdSlug && existsSync(join(brainDir, 'projects', cwdSlug, 'PROJECT.md'))) return cwdSlug;
   try {
     const pin = readFileSync(join(brainDir, '.active-session-slug'), 'utf-8').trim();

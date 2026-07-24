@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { loadRegistry, projectFamily, resolveSlugByPath } from './project-registry.js';
+import { loadRegistry, projectFamily, resolveSlugByPath, resolveSlugByRemote } from './project-registry.js';
 
 function brain(records: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'sb-reg-'));
@@ -109,6 +109,39 @@ describe('resolveSlugByPath', () => {
     const dir = brain(WIN_FAMILY);
     // /c/repos/acme must NOT match C:/repos/acme-other/src
     expect(resolveSlugByPath(dir, 'C:/repos/acme-other/src')).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('resolveSlugByRemote — remote identity lookup', () => {
+  const REMOTES =
+    '{"slug":"name","last_session_iso":"2026-01-01T00:00:00Z","git_remote":"https://github.com/example/name.git"}\n' +
+    '{"slug":"noremote","last_session_iso":"2026-02-01T00:00:00Z"}\n';
+
+  it('matches any URL form of the registered remote (ssh/scp vs https)', () => {
+    const dir = brain(REMOTES);
+    expect(resolveSlugByRemote(dir, 'git@github.com:Example/Name.git')).toBe('name');
+    expect(resolveSlugByRemote(dir, 'ssh://git@github.com/example/name')).toBe('name');
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('returns undefined for an unregistered or empty remote (basename fallback)', () => {
+    const dir = brain(REMOTES);
+    expect(resolveSlugByRemote(dir, 'https://github.com/example/other.git')).toBeUndefined();
+    expect(resolveSlugByRemote(dir, '')).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('multiple slugs sharing a remote: the repo-basename slug wins (rkeep parity)', () => {
+    const dir = brain(
+      '{"slug":"name-2","last_session_iso":"2026-06-01T00:00:00Z","git_remote":"https://github.com/example/name.git"}\n' +
+      '{"slug":"name","last_session_iso":"2026-01-01T00:00:00Z","git_remote":"git@github.com:example/name.git"}\n');
+    expect(resolveSlugByRemote(dir, 'https://github.com/Example/Name')).toBe('name');
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('multiple slugs, none matching the basename: newest last_session_iso wins', () => {
+    const dir = brain(
+      '{"slug":"alpha","last_session_iso":"2026-01-01T00:00:00Z","git_remote":"https://github.com/example/zeta.git"}\n' +
+      '{"slug":"beta","last_session_iso":"2026-06-01T00:00:00Z","git_remote":"git@github.com:example/zeta.git"}\n');
+    expect(resolveSlugByRemote(dir, 'https://github.com/example/zeta')).toBe('beta');
     rmSync(dir, { recursive: true, force: true });
   });
 });

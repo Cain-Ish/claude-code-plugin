@@ -105,7 +105,7 @@ async function atomicWriteJson(filePath, value) {
 import { join as join6 } from "path";
 
 // src/brain-paths.ts
-import { join } from "path";
+import { join, isAbsolute as isAbsolute2 } from "path";
 import { homedir } from "os";
 function resolveBrainDir(override) {
   if (override) return override;
@@ -239,7 +239,7 @@ function estimateTokens(text) {
 
 // src/tools/doc-sources.ts
 import { promises as fs3 } from "fs";
-import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute2 } from "path";
+import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6966,7 +6966,7 @@ function slugFromPath(p) {
 
 // src/tools/episodic-search.ts
 import { promises as fs7 } from "fs";
-import { join as join7, basename, relative as relative2, isAbsolute as isAbsolute3 } from "path";
+import { join as join7, basename, relative as relative2, isAbsolute as isAbsolute4 } from "path";
 
 // src/tools/sanitize.ts
 var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;

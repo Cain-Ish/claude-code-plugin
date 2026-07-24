@@ -98,7 +98,7 @@ function memberHash(sortedMembers, contentHashBySlug) {
 }
 
 // src/brain-paths.ts
-import { join } from "path";
+import { join, isAbsolute } from "path";
 import { homedir } from "os";
 
 // src/path-guard.ts

@@ -1,13 +1,13 @@
 // src/tools/episodic-search.ts
 import { promises as fs2 } from "fs";
-import { join as join3, basename, relative, isAbsolute } from "path";
+import { join as join3, basename, relative, isAbsolute as isAbsolute2 } from "path";
 
 // src/tools/embeddings.ts
 import { promises as fs } from "fs";
 import { join as join2 } from "path";
 
 // src/brain-paths.ts
-import { join } from "path";
+import { join, isAbsolute } from "path";
 import { homedir } from "os";
 
 // src/path-guard.ts

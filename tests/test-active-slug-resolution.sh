@@ -79,4 +79,49 @@ r=$(BRAIN_DIR="$SB4" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJEC
 [ -z "$r" ] || fail "degenerate cwd with no pin should resolve to empty, not a '/' slug (got '$r')"
 pass "tier-4: degenerate cwd with no pin → empty (TS parity, no '/' slug leak)"
 
+# 7. remote identity: a re-clone under a NEW folder name (`name-2` of registered repo `name`)
+#    resolves the registered slug in BOTH funnels — sb_resolve_slug (query/capture callers
+#    here) AND sb_detect_project (registration) — on both sb_resolve_slug branches.
+SB7="$TMP/.sb7"; mkdir -p "$SB7/projects/name"
+touch "$SB7/projects/name/PROJECT.md"
+printf '%s\n' \
+  '{"slug":"name","name":"name","last_session_iso":"2026-01-01T00:00:00Z","git_remote":"https://github.com/example/name.git"}' \
+  > "$SB7/projects.jsonl"
+RC="$TMP/wd/name-2"; mkdir -p "$RC"
+( cd "$RC" && git init -q && git remote add origin "https://github.com/example/name.git" )
+
+# 7a. CLAUDE_PROJECT_DIR branch: remote identity beats the basename
+r=$(BRAIN_DIR="$SB7" CLAUDE_PROJECT_DIR="$RC" bash -c "source '$ROOT/scripts/lib.sh'; cd '$TMP'; sb_resolve_slug")
+[ "$r" = "name" ] || fail "re-clone via CLAUDE_PROJECT_DIR should resolve registered slug (got '$r', want name)"
+pass "re-clone: CLAUDE_PROJECT_DIR branch resolves the registered slug via remote identity"
+
+# 7b. cwd branch (no CLAUDE_PROJECT_DIR): same override
+r=$(BRAIN_DIR="$SB7" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$RC'; sb_resolve_slug")
+[ "$r" = "name" ] || fail "re-clone via cwd should resolve registered slug (got '$r', want name)"
+pass "re-clone: cwd branch resolves the registered slug via remote identity"
+
+# 7c. the capture/registration funnel agrees: sb_detect_project on the same sandbox → no split-brain
+r=$(BRAIN_DIR="$SB7" bash -c "source '$ROOT/scripts/lib.sh'; sb_detect_project '$RC'" | cut -f1)
+[ "$r" = "name" ] || fail "sb_detect_project disagrees with sb_resolve_slug on the re-clone (got '$r', want name)"
+pass "re-clone: sb_detect_project and sb_resolve_slug agree (no capture/query split-brain)"
+
+# 7d. the override is LOUD: audit-logged, never silent (.git/config is attacker-writable)
+grep -q 'remote-identity-override' "$SB7/audit-log.jsonl" \
+  || fail "remote-identity override was not audit-logged (want remote-identity-override in audit-log.jsonl)"
+pass "remote-identity override is audit-logged"
+
+# 7e. a remote-less dir keeps its basename (identity enhancement, not a guard)
+RL="$TMP/wd/name-9"; mkdir -p "$RL"
+( cd "$RL" && git init -q )
+r=$(BRAIN_DIR="$SB7" CLAUDE_PROJECT_DIR="$RL" bash -c "source '$ROOT/scripts/lib.sh'; cd '$TMP'; sb_resolve_slug")
+[ "$r" = "name-9" ] || fail "remote-less dir should keep its basename (got '$r', want name-9)"
+pass "remote-less dir keeps its basename"
+
+# 7f. pin precedence preserved: a non-project, remote-less cwd still falls to the pin
+printf 'name' > "$SB7/.active-session-slug"
+mkdir -p "$TMP/wd/plain7"
+r=$(BRAIN_DIR="$SB7" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$TMP/wd/plain7'; sb_resolve_slug")
+[ "$r" = "name" ] || fail "non-project cwd should still fall to the pin (got '$r', want name)"
+pass "pin still wins for a non-project, remote-less cwd (precedence preserved)"
+
 echo; echo "ALL PASS"

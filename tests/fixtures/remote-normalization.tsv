@@ -1,0 +1,14 @@
+https://github.com/Owner/Repo.git	github.com/owner/repo
+https://github.com/owner/repo	github.com/owner/repo
+https://github.com/owner/repo/	github.com/owner/repo
+https://github.com/Owner/Repo.git/	github.com/owner/repo
+http://code.example.org/Team/Repo	code.example.org/team/repo
+git://github.com/owner/repo.git	github.com/owner/repo
+ssh://git@github.com/Owner/Repo.git	github.com/owner/repo
+git@github.com:Owner/Repo.git	github.com/owner/repo
+git@GitHub.COM:OWNER/RePo.git	github.com/owner/repo
+https://user:Pass@gitlab.example.com/Group/Sub/Repo.git	gitlab.example.com/group/sub/repo
+
+git+ssh://git@github.com/owner/repo.git	github.com/owner/repo
+/srv/git/Repo.git	/srv/git/repo
+https://github.com/Öwner/Repo.git	github.com/Öwner/repo

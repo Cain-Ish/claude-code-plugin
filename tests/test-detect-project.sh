@@ -8,6 +8,10 @@ check() { # <desc> <expected> <actual>
 }
 
 TMP=$(mktemp -d)
+# Hermetic: sb_detect_project's standalone case consults $BRAIN_DIR/projects.jsonl for
+# remote-identity resolution — point it at a sandbox so the user's real registry can
+# never leak slugs into (or absorb noise from) these fixtures.
+BRAIN_DIR="$TMP/brain"; mkdir -p "$BRAIN_DIR"
 
 # --- standalone git repo ---
 mkdir -p "$TMP/standalone"; ( cd "$TMP/standalone" && git init -q )
@@ -93,6 +97,63 @@ printf '{"parent":"../../evil"}\n' > "$TMP/evilmarker/.sb-monorepo.json"
 OUT=$(cd "$TMP/evilmarker/sub" && sb_detect_project "$PWD")
 check "hostile marker parent rejected (slug is bare leaf, no traversal)" "sub" "$(printf '%s' "$OUT" | cut -f1)"
 check "hostile marker parent rejected (parent empty)"                    ""    "$(printf '%s' "$OUT" | cut -f2)"
+
+# --- remote-URL normalization: the shared fixture locks the bash + jq + TS twins together ---
+# Every row is asserted against BOTH bash-side implementations (sb_normalize_remote and the
+# $SB_JQ_REMOTE_ID jq def); the vitest suite asserts normalizeRemote against the same file.
+FIX="$HERE/tests/fixtures/remote-normalization.tsv"
+if [ -f "$FIX" ]; then
+  rows=0
+  while IFS=$'\t' read -r raw want; do
+    raw=$(printf '%s' "$raw" | tr -d '\r'); want=$(printf '%s' "$want" | tr -d '\r')
+    [ -n "$raw" ] || continue   # blank fixture line = the empty-line handling case (skipped)
+    check "normalize [$raw]"         "$want" "$(sb_normalize_remote "$raw")"
+    # MSYS_NO_PATHCONV: the bare-path fixture row would otherwise be rewritten to a
+    # Windows path by Git-Bash before jq sees it (same reason sb_slug_from_remote sets it).
+    check "jq-twin normalize [$raw]" "$want" "$(MSYS_NO_PATHCONV=1 jq -nr --arg u "$raw" "$SB_JQ_REMOTE_ID"'$u | nrm')"
+    rows=$((rows+1))
+  done < "$FIX"
+  check "fixture exercised (>=8 rows)" "1" "$([ "$rows" -ge 8 ] && echo 1 || echo 0)"
+else
+  echo "FAIL: shared fixture missing: $FIX"; fail=1
+fi
+check "normalize empty -> empty" "" "$(sb_normalize_remote "")"
+
+# --- remote identity: a re-clone under a new folder name resolves to the registered slug ---
+printf '%s\n' \
+  '{"slug":"name","name":"name","last_session_iso":"2026-01-01T00:00:00Z","git_remote":"https://github.com/example/name.git"}' \
+  > "$BRAIN_DIR/projects.jsonl"
+mkdir -p "$TMP/name-2"
+( cd "$TMP/name-2" && git init -q && git remote add origin "https://github.com/example/name.git" )
+OUT=$(cd "$TMP/name-2" && sb_detect_project "$PWD")
+check "re-clone (name-2) resolves registered slug" "name" "$(printf '%s' "$OUT" | cut -f1)"
+check "re-clone keeps its own root_path"           "1"    "$([ -n "$(printf '%s' "$OUT" | cut -f3)" ] && echo 1 || echo 0)"
+
+# ssh/scp form of the SAME repo matches the https-registered remote (normalized identity)
+mkdir -p "$TMP/name-3"
+( cd "$TMP/name-3" && git init -q && git remote add origin "git@github.com:Example/Name.git" )
+OUT=$(cd "$TMP/name-3" && sb_detect_project "$PWD")
+check "ssh-form re-clone matches https-registered remote" "name" "$(printf '%s' "$OUT" | cut -f1)"
+
+# remote-less dir keeps its basename (identity enhancement, not a guard)
+mkdir -p "$TMP/name-4"
+( cd "$TMP/name-4" && git init -q )
+OUT=$(cd "$TMP/name-4" && sb_detect_project "$PWD")
+check "remote-less dir keeps basename" "name-4" "$(printf '%s' "$OUT" | cut -f1)"
+
+# unregistered remote falls open to the basename
+mkdir -p "$TMP/other"
+( cd "$TMP/other" && git init -q && git remote add origin "https://github.com/example/other.git" )
+OUT=$(cd "$TMP/other" && sb_detect_project "$PWD")
+check "unregistered remote falls back to basename" "other" "$(printf '%s' "$OUT" | cut -f1)"
+
+# bare-path (local filesystem) remote: the leading-slash jq arg must survive Git-Bash
+# path mangling inside sb_slug_from_remote, so the registry lookup still matches.
+printf '%s\n' \
+  '{"slug":"name5","name":"name5","last_session_iso":"2026-01-01T00:00:00Z","git_remote":"/srv/git/name5.git"}' \
+  >> "$BRAIN_DIR/projects.jsonl"
+check "bare-path remote registry lookup" "name5" \
+  "$(sb_slug_from_remote "$BRAIN_DIR/projects.jsonl" "/srv/git/name5.git")"
 
 rm -rf "$TMP"
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }

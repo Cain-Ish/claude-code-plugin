@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { isAbsolute, join } from 'path';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { globSync } from 'glob';
 import { fileURLToPath } from 'url';
-import { resolveBrainDir, resolveKnowledgeDir } from './brain-paths.js';
+import { resolveBrainDir, resolveKnowledgeDir, normalizeRemote, originRemote } from './brain-paths.js';
 
 // The bug: tools resolved `join(process.env.HOME ?? '', '.second-brain')`. On
 // Windows HOME is unset, so the result was a CWD-RELATIVE `.second-brain` that
@@ -97,6 +97,77 @@ describe('brain-paths resolvers', () => {
   it('resolveKnowledgeDir skips a whitespace-only candidate', () => {
     process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR = '   ';
     expect(resolveKnowledgeDir()).toBe(join(homedir(), 'knowledge'));
+  });
+});
+
+// The shared fixture is the drift lock between the three normalization twins:
+// normalizeRemote here, and sb_normalize_remote + the $SB_JQ_REMOTE_ID jq def in
+// scripts/lib.sh (both asserted over the same rows by tests/test-detect-project.sh).
+describe('normalizeRemote — shared fixture parity (tests/fixtures/remote-normalization.tsv)', () => {
+  const srcDir = fileURLToPath(new URL('.', import.meta.url));
+  const fixture = join(srcDir, '..', '..', 'tests', 'fixtures', 'remote-normalization.tsv');
+  const rows = readFileSync(fixture, 'utf-8')
+    .split('\n')
+    .map((l) => l.replace(/\r$/, ''))
+    .filter((l) => l.trim() !== '') // blank fixture line = the empty-line handling case
+    .map((l) => l.split('\t') as [string, string]);
+
+  it('fixture is present and non-trivial', () => {
+    expect(rows.length).toBeGreaterThanOrEqual(8);
+  });
+  it.each(rows)('normalizes %s -> %s', (raw, want) => {
+    expect(normalizeRemote(raw)).toBe(want);
+  });
+  it('empty in -> empty out', () => {
+    expect(normalizeRemote('')).toBe('');
+  });
+});
+
+describe('originRemote — .git parsing without spawning git', () => {
+  let tmp: string;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'origin-remote-')); });
+  afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+
+  it('reads [remote "origin"] url from a plain .git directory', () => {
+    const repo = join(tmp, 'repo');
+    mkdirSync(join(repo, '.git'), { recursive: true });
+    writeFileSync(join(repo, '.git', 'config'),
+      '[core]\n\trepositoryformatversion = 0\n' +
+      '[remote "origin"]\n\turl = git@github.com:Owner/Repo.git\n' +
+      '\tfetch = +refs/heads/*:refs/remotes/origin/*\n' +
+      '[remote "upstream"]\n\turl = https://github.com/other/fork.git\n');
+    expect(originRemote(repo)).toBe('git@github.com:Owner/Repo.git');
+  });
+
+  it('follows a .git FILE gitdir pointer that has its own config (submodule layout)', () => {
+    const gd = join(tmp, 'store', 'modules', 'sub');
+    mkdirSync(gd, { recursive: true });
+    writeFileSync(join(gd, 'config'), '[remote "origin"]\n\turl = https://github.com/o/sub.git\n');
+    const sub = join(tmp, 'sub');
+    mkdirSync(sub);
+    writeFileSync(join(sub, '.git'), `gitdir: ${gd}\n`);
+    expect(originRemote(sub)).toBe('https://github.com/o/sub.git');
+  });
+
+  it('resolves a worktree .git file via commondir back to the main .git config', () => {
+    const main = join(tmp, 'main');
+    const wtGitdir = join(main, '.git', 'worktrees', 'wt');
+    mkdirSync(wtGitdir, { recursive: true });
+    writeFileSync(join(main, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/o/r.git\n');
+    writeFileSync(join(wtGitdir, 'commondir'), '../..\n'); // relative → main/.git
+    const wt = join(tmp, 'wt');
+    mkdirSync(wt);
+    writeFileSync(join(wt, '.git'), `gitdir: ${wtGitdir}\n`);
+    expect(originRemote(wt)).toBe('https://github.com/o/r.git');
+  });
+
+  it('returns "" for a non-repo dir, a missing dir, and a config without origin', () => {
+    expect(originRemote(join(tmp, 'nope'))).toBe('');
+    const bare = join(tmp, 'bare');
+    mkdirSync(join(bare, '.git'), { recursive: true });
+    writeFileSync(join(bare, '.git', 'config'), '[core]\n\tbare = false\n');
+    expect(originRemote(bare)).toBe('');
+    expect(originRemote('')).toBe('');
   });
 });
 

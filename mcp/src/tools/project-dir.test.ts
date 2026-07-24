@@ -136,3 +136,53 @@ describe('resolveActiveSlug — registry-path (monorepo)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('resolveActiveSlug — remote identity beats basename (the re-clone bug)', () => {
+  let brainDir: string;
+  let work: string;
+  // repo `name` registered with remote X; the session runs from a re-clone dir `name-2`
+  function cloneDir(dirName: string, remoteUrl?: string): string {
+    const d = join(work, dirName);
+    mkdirSync(join(d, '.git'), { recursive: true });
+    writeFileSync(join(d, '.git', 'config'),
+      remoteUrl ? `[remote "origin"]\n\turl = ${remoteUrl}\n` : '[core]\n\tbare = false\n');
+    return d;
+  }
+  beforeEach(() => {
+    brainDir = mkdtempSync(join(tmpdir(), 'sb-remote-'));
+    work = mkdtempSync(join(tmpdir(), 'sb-remote-work-'));
+    writeFileSync(join(brainDir, 'projects.jsonl'),
+      '{"slug":"name","last_session_iso":"2026-01-01T00:00:00Z","git_remote":"https://github.com/example/name.git"}\n');
+    mkdirSync(join(brainDir, 'projects', 'name'), { recursive: true });
+    writeFileSync(join(brainDir, 'projects', 'name', 'PROJECT.md'), '# PROJECT: name\n');
+  });
+  afterEach(() => {
+    rmSync(brainDir, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  it('CLAUDE_PROJECT_DIR pointing at a re-clone resolves the registered slug', () => {
+    const d = cloneDir('name-2', 'https://github.com/example/name.git');
+    expect(resolveActiveSlug(brainDir, { CLAUDE_PROJECT_DIR: d }, () => '/elsewhere')).toBe('name');
+  });
+
+  it('ssh/scp remote form matches the https-registered identity', () => {
+    const d = cloneDir('name-3', 'git@github.com:Example/Name.git');
+    expect(resolveActiveSlug(brainDir, { CLAUDE_PROJECT_DIR: d }, () => '/elsewhere')).toBe('name');
+  });
+
+  it('cwd fallback path also gets the remote upgrade', () => {
+    const d = cloneDir('name-2', 'https://github.com/example/name.git');
+    expect(resolveActiveSlug(brainDir, {}, () => d)).toBe('name');
+  });
+
+  it('a remote-less dir keeps its basename (fail open, no behavior change)', () => {
+    const d = cloneDir('name-4');
+    expect(resolveActiveSlug(brainDir, { CLAUDE_PROJECT_DIR: d }, () => '/elsewhere')).toBe('name-4');
+  });
+
+  it('an unregistered remote falls back to the basename', () => {
+    const d = cloneDir('other', 'https://github.com/example/other.git');
+    expect(resolveActiveSlug(brainDir, { CLAUDE_PROJECT_DIR: d }, () => '/elsewhere')).toBe('other');
+  });
+});

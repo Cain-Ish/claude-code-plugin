@@ -6237,7 +6237,7 @@ async function buildRegistry(projectRoot, brainDir, slug) {
 }
 
 // src/brain-paths.ts
-import { join as join2 } from "path";
+import { join as join2, isAbsolute as isAbsolute2 } from "path";
 import { homedir } from "os";
 function resolveBrainDir(override) {
   if (override) return override;

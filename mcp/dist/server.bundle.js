@@ -21301,8 +21301,9 @@ import { promises as fs2 } from "fs";
 import { join as join2 } from "path";
 
 // src/brain-paths.ts
-import { join } from "path";
+import { join, isAbsolute as isAbsolute2 } from "path";
 import { homedir } from "os";
+import { readFileSync, statSync, existsSync } from "fs";
 
 // src/path-guard.ts
 import { resolve, sep, isAbsolute } from "path";
@@ -21397,6 +21398,48 @@ function resolveKnowledgeDir(override) {
     return c.startsWith("~") ? join(homedir(), c.slice(1)) : c;
   }
   return join(homedir(), "knowledge");
+}
+function normalizeRemote(url) {
+  let s = (url ?? "").replace(/\r/g, "").replace(/[A-Z]/g, (c) => c.toLowerCase()).trim();
+  s = s.replace(/^[a-z+]+:\/\//, "");
+  s = s.replace(/^[^@/]*@/, "");
+  s = s.replace(/^([^/:]+):/, "$1/");
+  return s.replace(/\/+$/, "").replace(/\.git$/, "").replace(/\/+$/, "");
+}
+function originRemote(dir) {
+  try {
+    const d = cleanEnvPath(dir);
+    if (!d) return "";
+    const gitPath = join(d, ".git");
+    let configDir;
+    if (statSync(gitPath).isDirectory()) {
+      configDir = gitPath;
+    } else {
+      const m = readFileSync(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
+      if (!m) return "";
+      const gd = m[1];
+      configDir = isAbsolute2(gd) ? gd : join(d, gd);
+      if (!existsSync(join(configDir, "config"))) {
+        const cd = readFileSync(join(configDir, "commondir"), "utf-8").trim();
+        configDir = isAbsolute2(cd) ? cd : join(configDir, cd);
+      }
+    }
+    const cfg = readFileSync(join(configDir, "config"), "utf-8");
+    let inOrigin = false;
+    for (const line of cfg.split("\n")) {
+      const t = line.trim();
+      if (t.startsWith("[")) {
+        inOrigin = /^\[remote\s+"origin"\]/.test(t);
+        continue;
+      }
+      if (!inOrigin) continue;
+      const mu = t.match(/^url\s*=\s*(.+)$/);
+      if (mu) return mu[1].trim();
+    }
+    return "";
+  } catch {
+    return "";
+  }
 }
 
 // src/tools/pin-to-user.ts
@@ -21749,7 +21792,7 @@ function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
 
 // src/tools/doc-sources.ts
 import { promises as fs7 } from "fs";
-import { join as join5, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute2 } from "path";
+import { join as join5, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -28018,12 +28061,12 @@ async function loadRegistry(brainDir2, slug) {
 }
 
 // src/tools/project-registry.ts
-import { readFileSync } from "fs";
+import { readFileSync as readFileSync2 } from "fs";
 import { join as join6 } from "path";
 function loadRegistry2(brainDir2) {
   let text;
   try {
-    text = readFileSync(join6(brainDir2, "projects.jsonl"), "utf-8");
+    text = readFileSync2(join6(brainDir2, "projects.jsonl"), "utf-8");
   } catch {
     return [];
   }
@@ -28064,6 +28107,18 @@ function resolveSlugByPath(brainDir2, dir) {
     }
   }
   return best?.slug;
+}
+function resolveSlugByRemote(brainDir2, rawRemote) {
+  const want = normalizeRemote(rawRemote);
+  if (!want) return void 0;
+  const matches = loadRegistry2(brainDir2).filter(
+    (r) => typeof r.git_remote === "string" && r.git_remote !== "" && normalizeRemote(r.git_remote) === want
+  );
+  if (matches.length === 0) return void 0;
+  const base = want.replace(/.*\//, "");
+  const byBase = matches.find((r) => r.slug === base);
+  if (byBase) return byBase.slug;
+  return matches.reduce((a, b) => (b.last_session_iso ?? "") > (a.last_session_iso ?? "") ? b : a).slug;
 }
 
 // src/tools/walk-wiki.ts
@@ -28430,7 +28485,7 @@ function slugFromPath(p) {
 
 // src/tools/knowledge-fetch.ts
 import { promises as fs10 } from "fs";
-import { join as join9, relative as relative2, isAbsolute as isAbsolute3 } from "path";
+import { join as join9, relative as relative2, isAbsolute as isAbsolute4 } from "path";
 function headings(body) {
   return body.split("\n").filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
 }
@@ -28469,7 +28524,7 @@ async function knowledgeFetch(args) {
   const filePath = matches.find((p) => {
     try {
       const rel = relative2(wikiRoot, p);
-      const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute3(rel);
+      const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute4(rel);
       assertWithin(wikiRoot, inside ? rel : p);
       return true;
     } catch {
@@ -31549,11 +31604,11 @@ async function mocSlugs(dir) {
 
 // src/tools/dream.ts
 import { promises as fs14 } from "fs";
-import { existsSync as existsSync2 } from "fs";
+import { existsSync as existsSync3 } from "fs";
 
 // src/tools/project-dir.ts
 import { basename as basename3, join as join13 } from "path";
-import { readFileSync as readFileSync2, existsSync } from "fs";
+import { readFileSync as readFileSync3, existsSync as existsSync2 } from "fs";
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
   const base = basename3(cleanEnvPath(dir));
@@ -31561,21 +31616,46 @@ function slugFromProjectDir(dir) {
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;
 }
+function remoteIdentitySlug(brainDir2, dir) {
+  const url = originRemote(dir);
+  if (!url) return void 0;
+  return resolveSlugByRemote(brainDir2, url);
+}
+function logRemoteOverride(dir, base, slug) {
+  try {
+    console.error(JSON.stringify({ event: "remote-identity-override", dir, basename: base, slug }));
+  } catch {
+  }
+}
 function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
   if (env.CLAUDE_PROJECT_DIR) {
     const byPath = resolveSlugByPath(brainDir2, env.CLAUDE_PROJECT_DIR);
     if (byPath) return byPath;
     const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
-    if (fromEnv) return fromEnv;
+    if (fromEnv) {
+      const byRemote = remoteIdentitySlug(brainDir2, env.CLAUDE_PROJECT_DIR);
+      if (byRemote && byRemote !== fromEnv) {
+        logRemoteOverride(env.CLAUDE_PROJECT_DIR, fromEnv, byRemote);
+        return byRemote;
+      }
+      return fromEnv;
+    }
   }
   const here = cwd();
   const byCwdPath = resolveSlugByPath(brainDir2, here);
   if (byCwdPath) return byCwdPath;
   const cwdSlug = slugFromProjectDir(here);
-  if (cwdSlug && existsSync(join13(brainDir2, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
+  if (cwdSlug) {
+    const byRemote = remoteIdentitySlug(brainDir2, here);
+    if (byRemote && byRemote !== cwdSlug) {
+      logRemoteOverride(here, cwdSlug, byRemote);
+      return byRemote;
+    }
+  }
+  if (cwdSlug && existsSync2(join13(brainDir2, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
-    const pin = readFileSync2(join13(brainDir2, ".active-session-slug"), "utf-8").trim();
-    if (pin && existsSync(join13(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
+    const pin = readFileSync3(join13(brainDir2, ".active-session-slug"), "utf-8").trim();
+    if (pin && existsSync2(join13(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
   return cwdSlug;
@@ -31619,7 +31699,7 @@ function resolveBashExePure(platform, exists, env) {
   return "bash";
 }
 function resolveBashExe() {
-  return resolveBashExePure(process.platform, existsSync2, process.env);
+  return resolveBashExePure(process.platform, existsSync3, process.env);
 }
 async function readStatus(dreamId) {
   const statusPath = join14(dreamsDir(), dreamId, "status.json");
@@ -31791,7 +31871,7 @@ async function dreamCancel(args) {
 
 // src/tools/episodic-search.ts
 import { promises as fs15 } from "fs";
-import { join as join15, basename as basename5, relative as relative4, isAbsolute as isAbsolute4 } from "path";
+import { join as join15, basename as basename5, relative as relative4, isAbsolute as isAbsolute5 } from "path";
 
 // src/tools/sanitize.ts
 var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
@@ -31994,7 +32074,7 @@ function scopeAndBroaden(ranked, args) {
 }
 function assertTranscriptPath(brainDir2, filePath) {
   const base = join15(brainDir2, "transcripts");
-  const rel = isAbsolute4(filePath) ? relative4(base, filePath) : filePath;
+  const rel = isAbsolute5(filePath) ? relative4(base, filePath) : filePath;
   return assertWithin(base, rel);
 }
 async function episodicRead(filePath, startLine, endLine) {
@@ -32346,7 +32426,7 @@ import { stat as stat2 } from "fs/promises";
 // src/tools/codemap/scan-sources.ts
 import { execFile as execFile2 } from "child_process";
 import { promisify as promisify2 } from "util";
-import { statSync } from "fs";
+import { statSync as statSync2 } from "fs";
 import { stat } from "fs/promises";
 import * as path3 from "path";
 var execFileAsync = promisify2(execFile2);
@@ -32384,7 +32464,7 @@ function byId(a, b) {
 async function scanSources(repoRoot, opts = {}) {
   let rootStat;
   try {
-    rootStat = statSync(repoRoot);
+    rootStat = statSync2(repoRoot);
   } catch {
     throw new Error(`scanSources: repoRoot does not exist: ${repoRoot}`);
   }

@@ -158,7 +158,7 @@ function nearDuplicatePairs(pages, threshold = 0.7) {
 }
 
 // src/brain-paths.ts
-import { join } from "path";
+import { join, isAbsolute } from "path";
 import { homedir } from "os";
 
 // src/path-guard.ts

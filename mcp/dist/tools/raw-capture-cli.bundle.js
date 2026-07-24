@@ -1,6 +1,6 @@
 // src/tools/raw-capture-cli.ts
 import { join as join5 } from "path";
-import { existsSync as existsSync2, readFileSync as readFileSync3, statSync } from "fs";
+import { existsSync as existsSync3, readFileSync as readFileSync4, statSync as statSync2 } from "fs";
 
 // src/tools/raw-inbox.ts
 import { promises as fs } from "fs";
@@ -466,16 +466,67 @@ async function captureItem(input) {
 }
 
 // src/tools/project-dir.ts
-import { basename as basename2, join as join3 } from "path";
-import { readFileSync as readFileSync2, existsSync } from "fs";
+import { basename as basename2, join as join4 } from "path";
+import { readFileSync as readFileSync3, existsSync as existsSync2 } from "fs";
+
+// src/brain-paths.ts
+import { join as join2, isAbsolute } from "path";
+import { homedir } from "os";
+import { readFileSync, statSync, existsSync } from "fs";
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join2(homedir(), ".second-brain");
+}
+function normalizeRemote(url) {
+  let s = (url ?? "").replace(/\r/g, "").replace(/[A-Z]/g, (c) => c.toLowerCase()).trim();
+  s = s.replace(/^[a-z+]+:\/\//, "");
+  s = s.replace(/^[^@/]*@/, "");
+  s = s.replace(/^([^/:]+):/, "$1/");
+  return s.replace(/\/+$/, "").replace(/\.git$/, "").replace(/\/+$/, "");
+}
+function originRemote(dir) {
+  try {
+    const d = cleanEnvPath(dir);
+    if (!d) return "";
+    const gitPath = join2(d, ".git");
+    let configDir;
+    if (statSync(gitPath).isDirectory()) {
+      configDir = gitPath;
+    } else {
+      const m = readFileSync(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
+      if (!m) return "";
+      const gd = m[1];
+      configDir = isAbsolute(gd) ? gd : join2(d, gd);
+      if (!existsSync(join2(configDir, "config"))) {
+        const cd = readFileSync(join2(configDir, "commondir"), "utf-8").trim();
+        configDir = isAbsolute(cd) ? cd : join2(configDir, cd);
+      }
+    }
+    const cfg = readFileSync(join2(configDir, "config"), "utf-8");
+    let inOrigin = false;
+    for (const line of cfg.split("\n")) {
+      const t = line.trim();
+      if (t.startsWith("[")) {
+        inOrigin = /^\[remote\s+"origin"\]/.test(t);
+        continue;
+      }
+      if (!inOrigin) continue;
+      const mu = t.match(/^url\s*=\s*(.+)$/);
+      if (mu) return mu[1].trim();
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
 
 // src/tools/project-registry.ts
-import { readFileSync } from "fs";
-import { join as join2 } from "path";
+import { readFileSync as readFileSync2 } from "fs";
+import { join as join3 } from "path";
 function loadRegistry(brainDir) {
   let text;
   try {
-    text = readFileSync(join2(brainDir, "projects.jsonl"), "utf-8");
+    text = readFileSync2(join3(brainDir, "projects.jsonl"), "utf-8");
   } catch {
     return [];
   }
@@ -509,6 +560,18 @@ function resolveSlugByPath(brainDir, dir) {
   }
   return best?.slug;
 }
+function resolveSlugByRemote(brainDir, rawRemote) {
+  const want = normalizeRemote(rawRemote);
+  if (!want) return void 0;
+  const matches = loadRegistry(brainDir).filter(
+    (r) => typeof r.git_remote === "string" && r.git_remote !== "" && normalizeRemote(r.git_remote) === want
+  );
+  if (matches.length === 0) return void 0;
+  const base = want.replace(/.*\//, "");
+  const byBase = matches.find((r) => r.slug === base);
+  if (byBase) return byBase.slug;
+  return matches.reduce((a, b) => (b.last_session_iso ?? "") > (a.last_session_iso ?? "") ? b : a).slug;
+}
 
 // src/tools/project-dir.ts
 function slugFromProjectDir(dir) {
@@ -518,32 +581,49 @@ function slugFromProjectDir(dir) {
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;
 }
+function remoteIdentitySlug(brainDir, dir) {
+  const url = originRemote(dir);
+  if (!url) return void 0;
+  return resolveSlugByRemote(brainDir, url);
+}
+function logRemoteOverride(dir, base, slug) {
+  try {
+    console.error(JSON.stringify({ event: "remote-identity-override", dir, basename: base, slug }));
+  } catch {
+  }
+}
 function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
   if (env.CLAUDE_PROJECT_DIR) {
     const byPath = resolveSlugByPath(brainDir, env.CLAUDE_PROJECT_DIR);
     if (byPath) return byPath;
     const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
-    if (fromEnv) return fromEnv;
+    if (fromEnv) {
+      const byRemote = remoteIdentitySlug(brainDir, env.CLAUDE_PROJECT_DIR);
+      if (byRemote && byRemote !== fromEnv) {
+        logRemoteOverride(env.CLAUDE_PROJECT_DIR, fromEnv, byRemote);
+        return byRemote;
+      }
+      return fromEnv;
+    }
   }
   const here = cwd();
   const byCwdPath = resolveSlugByPath(brainDir, here);
   if (byCwdPath) return byCwdPath;
   const cwdSlug = slugFromProjectDir(here);
-  if (cwdSlug && existsSync(join3(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
+  if (cwdSlug) {
+    const byRemote = remoteIdentitySlug(brainDir, here);
+    if (byRemote && byRemote !== cwdSlug) {
+      logRemoteOverride(here, cwdSlug, byRemote);
+      return byRemote;
+    }
+  }
+  if (cwdSlug && existsSync2(join4(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
-    const pin = readFileSync2(join3(brainDir, ".active-session-slug"), "utf-8").trim();
-    if (pin && existsSync(join3(brainDir, "projects", pin, "PROJECT.md"))) return pin;
+    const pin = readFileSync3(join4(brainDir, ".active-session-slug"), "utf-8").trim();
+    if (pin && existsSync2(join4(brainDir, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
   return cwdSlug;
-}
-
-// src/brain-paths.ts
-import { join as join4 } from "path";
-import { homedir } from "os";
-function resolveBrainDir(override) {
-  if (override) return override;
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join4(homedir(), ".second-brain");
 }
 
 // src/tools/raw-capture-cli.ts
@@ -612,7 +692,7 @@ async function main() {
       }
       console.log(await markProcessed(brainDir, slug, id, node) ? `Processed ${id}` : `No raw item with id ${id}.`);
     } else if (action === "paste") {
-      const content = readFileSync3(0, "utf-8");
+      const content = readFileSync4(0, "utf-8");
       if (!content.trim()) {
         console.log("capture: nothing on stdin.");
         return;
@@ -631,7 +711,7 @@ async function main() {
       if (/^https?:\/\//i.test(src)) {
         kind = "url";
         content = src;
-      } else if (existsSync2(src) && statSync(src).isFile()) {
+      } else if (existsSync3(src) && statSync2(src).isFile()) {
         kind = "file";
       } else {
         kind = "paste";

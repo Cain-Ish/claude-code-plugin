@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { cleanEnvPath } from '../path-guard.js';
+import { normalizeRemote } from '../brain-paths.js';
 
 export interface ProjectRecord {
   slug: string;
@@ -9,6 +10,7 @@ export interface ProjectRecord {
   hot_byte_count?: number;
   parent?: string;     // monorepo root slug; absent = standalone/root (Phase B, M3)
   root_path?: string;  // absolute project dir; absent = legacy record (Phase B, M3)
+  git_remote?: string; // origin remote URL — the project's identity; absent = remote-less/legacy
 }
 
 /** Read projects.jsonl tolerantly: one JSON object per line, blank/malformed lines skipped.
@@ -67,4 +69,24 @@ export function resolveSlugByPath(brainDir: string, dir: string): string | undef
     }
   }
   return best?.slug;
+}
+
+/** Resolve a registered slug by git-remote identity: the record whose normalized
+ *  git_remote equals the normalized input owns the remote. The origin remote is the
+ *  project identity, so a re-clone under a new folder name maps back to its existing
+ *  project. When several slugs share one remote (pre-dedupe registries), the slug
+ *  equal to the remote's repo basename wins, else the newest last_session_iso —
+ *  the same selection sb_slug_from_remote's jq (rkeep) applies on the bash side.
+ *  Returns undefined for an empty/unmatched remote (callers fall back to basename). */
+export function resolveSlugByRemote(brainDir: string, rawRemote: string): string | undefined {
+  const want = normalizeRemote(rawRemote);
+  if (!want) return undefined;
+  const matches = loadRegistry(brainDir).filter(
+    r => typeof r.git_remote === 'string' && r.git_remote !== '' && normalizeRemote(r.git_remote) === want
+  );
+  if (matches.length === 0) return undefined;
+  const base = want.replace(/.*\//, '');
+  const byBase = matches.find(r => r.slug === base);
+  if (byBase) return byBase.slug;
+  return matches.reduce((a, b) => ((b.last_session_iso ?? '') > (a.last_session_iso ?? '') ? b : a)).slug;
 }
