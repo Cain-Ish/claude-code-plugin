@@ -4,5 +4,13 @@
       "source": "local",
       "path": "."
     }
+  },
+  "permissions": {
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(chmod 777 *)",
+      "Bash(rm -rf /*)",
+      "Bash(ssh *)"
+    ]
   }
 }
