@@ -116,14 +116,17 @@ MERGED=$(echo "$MERGED" | jq -c \
 # duplicate USER.md pin.
 SCORED=$(echo "$MERGED" | jq -c '
   map(. + {score:
-    ((if .count >= 11 then 0.85
+    # The WHOLE value expression is parenthesized: an object value that is a bare
+    # pipeline (`{k: a | b / c}`) parses on newer jq but is a SYNTAX ERROR on the
+    # older jq CI ships — the object-value grammar there needs one enclosing group.
+    (((if .count >= 11 then 0.85
       elif .count >= 6 then 0.7
       elif .count >= 3 then 0.5
       else 0.3 end)
      - 0.02 * ((((now - ((((.last_seen // "") + "T00:00:00Z") | fromdateiso8601?) // now)) / 604800) | floor)
                | if . < 0 then 0 else . end))
     | (if . < 0.1 then 0.1 else . end)
-    | (. * 100 | round) / 100
+    | ((. * 100 | round) / 100))
   })
   | {keep:   map(select(.graduated == true or .score >= 0.2)),
      pruned: map(select(.graduated != true and .score < 0.2) | .signal)}
