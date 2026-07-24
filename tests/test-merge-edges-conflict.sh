@@ -1,6 +1,6 @@
 #!/bin/bash
 # Write-time contradiction detector in merge-edges.sh.
-# Spec: docs/specs/2026-06-01-write-time-contradiction-flag-design.md
+# Spec: archive/docs branch, docs/specs/2026-06-01-write-time-contradiction-flag-design.md
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$ROOT/scripts/merge-edges.sh"

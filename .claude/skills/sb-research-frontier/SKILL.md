@@ -41,7 +41,7 @@ are volatile; re-verify with the one-liners in Provenance before acting.
 | FORGET | the dream phase that proposes reversible page archiving (never hard-deletes) | sb-memory-systems-reference |
 | guard | a PreToolUse hook script that can deny/ask/rewrite a tool call before it runs | sb-architecture-contract |
 | hot tier | USER.md + PROJECT.md context injected at SessionStart under a byte budget | sb-architecture-contract |
-| surface budget | `docs/surface-budget.json` ratchet — live counts of skills/agents/scripts/tests may not grow without a same-commit bump | sb-change-control |
+| surface budget | `.claude-plugin/surface-budget.json` ratchet — live counts of skills/agents/scripts/tests may not grow without a same-commit bump | sb-change-control |
 
 **Status legend:** `PLAN-QUEUED` = plan doc exists, zero code. `PARTIAL` = some shipped
 substrate, milestone not met. `NOT-STARTED` = no plan doc, no code.
@@ -122,7 +122,7 @@ memory, not a result.
 **Status: PLAN-QUEUED, zero code.** `grep -r 'persona-rules.learned' --include='*.sh' scripts/`
 → no hits; the string appears only in the plan doc. Caution: the plan was authored at 0.33.29 —
 its version target (0.33.30) and test-budget arithmetic (`151 → 154`) are stale; recompute
-against the live `docs/surface-budget.json` (tests: 153 as of 0.33.31) in the same commit
+against the live `.claude-plugin/surface-budget.json` (tests: 153 as of 0.33.31) in the same commit
 (mechanics → sb-change-control).
 
 ---
@@ -449,7 +449,7 @@ Re-verify volatile facts before relying on them:
 
 ```bash
 # current version + surface budget (counts drift every release)
-jq -r .version .claude-plugin/plugin.json && cat docs/surface-budget.json
+jq -r .version .claude-plugin/plugin.json && cat .claude-plugin/surface-budget.json
 # P2 still zero-code? (expect: hits only in docs/)
 grep -rl 'persona-rules.learned' . --include='*.sh' --include='*.ts'
 # P3a still shipped? (expect: codemap module files + code_map hits in mcp/src)

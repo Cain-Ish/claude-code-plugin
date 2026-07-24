@@ -293,7 +293,7 @@ Owned mechanically by **sb-change-control**; the P6-specific deltas:
 
 1. `cd mcp && npm run build` — `tsc --noEmit` clean; esbuild emits
    `consolidate-writer-cli.bundle.js` and re-embeds `candidate-facts.ts`. Verify the new bundle.
-2. Bump `docs/surface-budget.json`: `agents` 9→10 (`dream-summarizer.md`); `tests` from 153 up by
+2. Bump `.claude-plugin/surface-budget.json`: `agents` 9→10 (`dream-summarizer.md`); `tests` from 153 up by
    the count of new test files. `scripts` unchanged (the writer is an `mcp/` CLI, not a `.sh`). SAME
    commit as the additions (R8).
 3. Bump `version` in `.claude-plugin/plugin.json` + the `second-brain` entry of

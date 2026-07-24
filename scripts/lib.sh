@@ -1711,7 +1711,7 @@ TMPL
 # (never errors out; defaults to "on" rather than non-zero). Emits key=value
 # lines on stdout: state, reason, path, files, memory_lines. Consumed by the
 # status + audit skills to surface the native store alongside the second-brain.
-# See docs/specs/2026-05-29-auto-memory-coordination-design.md.
+# See archive/docs branch, docs/specs/2026-05-29-auto-memory-coordination-design.md.
 #
 # State precedence (mirrors CC's own resolution; disable is OR across layers so
 # we only claim "on" when nothing anywhere disables it):

@@ -66,6 +66,20 @@ next dispatch — never restarted from scratch, never duplicated.
 - captured from <source> (raw <id>)
 ```
 
+## Step 0 — verify the delegation packet (before any drain work)
+
+The dispatch prompt is your **delegation packet**. It MUST carry the **absolute** wiki
+destination path (the resolved `$KNOWLEDGE_DIR/wiki`, e.g. `/home/user/knowledge/wiki` or
+`C:/Users/<name>/knowledge/wiki`). If that destination is **absent or relative**, do **NOT**
+drain: name the missing/defective field, then end your response with the standard report line
+followed by the blame line —
+```
+DRAINED: 0  REMAINING: <m from a fresh `pending` check if obtainable, else the literal word unknown>
+BLAME: caller-under-supplied
+```
+— and stop. Never repair the packet by guessing a destination — a guessed path is exactly how
+pages land in the legacy wiki where search cannot see them.
+
 ## Step 1 — reconcile first (recover any prior truncated batch)
 
 Run reconcile BEFORE fetching `pending`, so any node written in a previous (possibly truncated)
@@ -203,3 +217,12 @@ having drained nothing → only deliberately-skipped low-value items remain) or 
 empty). So if a full scan found only obvious low-value items (you drained none), report
 `DRAINED: 0  REMAINING: <m>` — that is the correct terminal signal, not an error. Above the final line, briefly list what you created / updated / skipped (and why
 skipped), so the skill can relay it to the user.
+
+**On failure only** (packet refused in Step 0, or the batch aborted), add ONE optional final
+line after the report classifying the fault:
+```
+BLAME: caller-under-supplied | child-under-delivered
+```
+`caller-under-supplied` = the delegation packet was defective (Step 0); `child-under-delivered`
+= the packet was fine but you could not honor this protocol. Pick exactly one — the maintain
+skill records it so session extraction can route the fix (skill prompt vs agent definition).

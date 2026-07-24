@@ -41,7 +41,7 @@ resolves() {
 
 # Structural conflict detector (pure jq over the running snapshot $SNAP). On a hit,
 # prints "<kind>\t<against-json>" and returns 0; else returns 1.
-# Spec: docs/specs/2026-06-01-write-time-contradiction-flag-design.md §2.
+# Spec: archive/docs branch, docs/specs/2026-06-01-write-time-contradiction-flag-design.md §2.
 detect_conflict() {
   local F="$1" T="$2" O="$3" against opp
   # R1 reintroduce: latest record for (F,T,O) is closed (op:invalidate or valid_to set).

@@ -304,7 +304,7 @@ above shipped through a green suite to prove it.
 
 Also machine-enforced governance (details → sb-change-control): the surface-budget ratchet —
 live counts (skills 18 / agents 9 / scripts 52 / tests 157, all at budget exactly as of 0.33.37)
-may not grow past `docs/surface-budget.json` without a same-commit bump; enforced by
+may not grow past `.claude-plugin/surface-budget.json` without a same-commit bump; enforced by
 `scripts/validate-plugin.sh` R8 (:191-218). NOTE: `CONSTITUTION.md:4` names
 `tests/test-surface-budget.sh` as the gate — **that file does not exist**; R8 in
 validate-plugin.sh is the real enforcement.
@@ -364,7 +364,7 @@ counts + version stamps re-verified 2026-07-13 at 0.33.37. Sources: `hooks/hooks
 `scripts/hook-timer.sh`, `agents/dream-runner.md`, `agents/raw-drainer.md`, `mcp/src/server.ts`,
 `mcp/src/brain-paths.ts`, `mcp/src/brain-paths.test.ts`, `mcp/src/tools/project-dir.ts`,
 `mcp/src/tools/graph-cluster.ts`, `mcp/src/tools/knowledge-validate.ts`, `mcp/src/tools/dream.ts`,
-`mcp/package.json`, `kb-schema.json`, `docs/surface-budget.json`, `tests/test-stop-extract.sh`,
+`mcp/package.json`, `kb-schema.json`, `.claude-plugin/surface-budget.json`, `tests/test-stop-extract.sh`,
 `tests/test-extract-drain.sh`, `CONSTITUTION.md`, `CHANGELOG.md`, `.github/workflows/ci.yml`.
 
 Volatile facts — re-verify before trusting a stale copy of this skill:
@@ -375,7 +375,7 @@ jq -r '.hooks | keys | length' hooks/hooks.json                # hook events (wa
 jq '[.hooks[][] | .hooks[]] | length' hooks/hooks.json         # hook command entries (was 22)
 grep -c 'registerTool(' mcp/src/server.ts                      # MCP tools (was 23)
 grep -rn 'function resolveKnowledgeDir' mcp/src --include='*.ts'  # >1 hit = two-wikis split still open
-cat docs/surface-budget.json                                    # budget (skills 18/agents 9/scripts 52/tests 157)
+cat .claude-plugin/surface-budget.json                                    # budget (skills 18/agents 9/scripts 52/tests 157)
 ls tests/test-*.sh | wc -l                                      # live test count (was 157)
 grep -n 'REQUIRED_FM_FIELDS' mcp/src/tools/knowledge-validate.ts  # 7 frontmatter fields
 jq -r '.structured_types, .unstructured_types' kb-schema.json   # wiki categories (6+2)

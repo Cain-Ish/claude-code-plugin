@@ -1,5 +1,7 @@
 # cost-router
 
+**DEPRECATED** — cost-router's orchestration role is being absorbed into second-brain; the spend ledger has been removed. Existing installs keep working; do not build on the Contract A file format.
+
 **Use the expensive model only for thinking.** Opus is great at planning and hard problems — and per output token it's the priciest tier (exact ratios below). `cost-router` keeps Opus for the *thinking* and hands the *doing* (writing code, reading files, running tests) to cheaper models, so your Opus budget stretches much further.
 
 It's a separate plugin you toggle by installing/uninstalling — on to save, off to go back to normal.
@@ -30,7 +32,7 @@ Uninstall: `claude plugin uninstall cost-router`.
 - **`/cost-router:orchestrate <task>`** — routes a whole task: Opus plans (only if needed), Sonnet implements, Haiku checks.
 - **`/cost-router:model-route <task>`** — just tells you which model fits, and why.
 - **`/cost-router:setup`** — offers `opusplan` (plan on Opus, execute on Sonnet) and tunes things for your setup.
-- Once installed you also get a advisory tier nudge on substantive THINK/SCOUT prompts and a session-start budget banner.
+- Once installed you also get a advisory tier nudge on substantive THINK/SCOUT prompts and a session-start routing banner.
 
 ## Is it fully automatic?
 
@@ -38,15 +40,14 @@ Mostly. A plugin can't silently swap the model on every prompt — Claude Code d
 
 ## With second-brain
 
-If you also run second-brain, they share one Opus budget (no double-spending) and cost-router accumulates the routing log it needs to learn which choices paid off. Neither plugin needs the other.
+If you also run second-brain, cost-router accumulates the routing log it needs to learn which choices paid off. Neither plugin needs the other.
 
 ## Settings
 
 | Variable | Default | Does |
 |---|---|---|
-| `COST_ROUTER_LEDGER` | brain-dir default | Premium-spend ledger path (informational — no spend cap; premium-tier models change, Opus today, Fable next) |
 | `COST_ROUTER_AUTOROUTE` | `on` | `off` silences the advisory nudge (THINK/SCOUT prompts ≥25 chars; DO is always silent) |
-| `COST_ROUTER_BANNER` | `on` | `off` hides the budget banner |
+| `COST_ROUTER_BANNER` | `on` | `off` hides the routing banner |
 
 ## Details
 

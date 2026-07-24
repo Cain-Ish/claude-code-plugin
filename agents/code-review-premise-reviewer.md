@@ -11,6 +11,7 @@ description: |
   Context: code-review-deep has decomposed a change and is fanning out reviewers.
   assistant: "Dispatching code-review-premise-reviewer to enumerate unproven runtime premises."
   </example>
+model: inherit
 color: yellow
 effort: high
 tools: Read, Bash(git diff *), Bash(git log *), Bash(grep *)

@@ -188,10 +188,10 @@ while IFS= read -r agent_file; do
   fi
 done < <(find "$PLUGIN_ROOT/agents" -name "*.md" -type f 2>/dev/null)
 
-# R8 surface budget: live counts must not EXCEED docs/surface-budget.json —
+# R8 surface budget: live counts must not EXCEED .claude-plugin/surface-budget.json —
 # growth without a same-commit baseline bump fails (deliberate, git-blameable
 # growth only). Shrinking is always fine (ratchet the baseline down when seen).
-BUDGET_JSON="$PLUGIN_ROOT/docs/surface-budget.json"
+BUDGET_JSON="$PLUGIN_ROOT/.claude-plugin/surface-budget.json"
 if [ -f "$BUDGET_JSON" ]; then
   LIVE_SKILLS=$(find "$PLUGIN_ROOT/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
   LIVE_AGENTS=$(find "$PLUGIN_ROOT/agents" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -202,7 +202,7 @@ if [ -f "$BUDGET_JSON" ]; then
     cap=$(jq -r --arg k "$key" '.[$k] // empty' "$BUDGET_JSON" 2>/dev/null | tr -d '\r')
     case "$cap" in ''|*[!0-9]*) continue ;; esac
     if [ "$live" -gt "$cap" ]; then
-      echo "FAIL: surface budget exceeded — $key=$live > budget $cap (bump docs/surface-budget.json in the same commit to grow deliberately)"
+      echo "FAIL: surface budget exceeded — $key=$live > budget $cap (bump .claude-plugin/surface-budget.json in the same commit to grow deliberately)"
       ERRORS=$((ERRORS + 1))
     fi
   done
@@ -211,11 +211,11 @@ if [ -f "$BUDGET_JSON" ]; then
   UPG_BYTES=$(wc -c < "$PLUGIN_ROOT/skills/upgrade/SKILL.md" 2>/dev/null | tr -d ' ')
   case "$UPG_BYTES" in *[!0-9]*|'') UPG_BYTES=0 ;; esac
   if [ "$UPG_BYTES" -gt "$UPG_CAP" ]; then
-    echo "FAIL: skills/upgrade/SKILL.md is ${UPG_BYTES}B (cap $UPG_CAP) — narrative goes to CHANGELOG.md, actions to migrations/<version>.md"
+    echo "FAIL: skills/upgrade/SKILL.md is ${UPG_BYTES}B (cap $UPG_CAP) — narrative goes to the release commit body, actions to migrations/<version>.md"
     ERRORS=$((ERRORS + 1))
   fi
 else
-  echo "FAIL: docs/surface-budget.json missing (R8 surface budget baseline)"
+  echo "FAIL: .claude-plugin/surface-budget.json missing (R8 surface budget baseline)"
   ERRORS=$((ERRORS + 1))
 fi
 

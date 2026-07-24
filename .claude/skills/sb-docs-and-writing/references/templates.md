@@ -214,7 +214,7 @@ Hard rules baked into the runner (`skills/upgrade/SKILL.md`):
 - The runner compares versions SEMVER-style, never lexicographically ("string compare says
   `0.24.9 > 0.24.18`", SKILL.md:32-33) — never write a migration that assumes string order.
 - `skills/upgrade/SKILL.md` itself is capped at 8192 bytes, machine-enforced
-  (`docs/surface-budget.json` `upgrade_skill_max_bytes`; `scripts/validate-plugin.sh:209-216`:
+  (`.claude-plugin/surface-budget.json` `upgrade_skill_max_bytes`; `scripts/validate-plugin.sh:209-216`:
   "narrative goes to CHANGELOG.md, actions to migrations/<version>.md").
 
 ---

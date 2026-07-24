@@ -1,6 +1,6 @@
 ---
 name: code-review-deep
-description: In-depth multi-pass code review of a GitHub change (local checkout). Decomposes the diff into logical review units, reviews each on the best available model (docs on the Haiku model), runs an advisory architectural pass on the highest-risk units, scores findings with an FP-aware scorer, consults the second-brain for conventions and prior reviews, and records false positives. Local output by default; --comment posts to the PR.
+description: In-depth multi-pass code review of a GitHub change (local checkout), run on the best available model. Use when a change warrants more than a surface look — large or high-risk diffs, pre-merge verification, or an explicit request for a deep/thorough review. Local output by default; --comment posts to the PR. NOT for quick single-file feedback — review the diff directly instead.
 user-invocable: true
 disable-model-invocation: false
 argument-hint: "[<PR#>] [--comment] [--base <branch>]"

@@ -3,7 +3,7 @@
 # regenerable Map-of-Content is never archived out from under the projector. Same protection
 # class as type: themes. Protection is via the protflag column (candidates.sh filters $5==""),
 # independent of the numeric score.
-# Spec: docs/specs/2026-06-02-knowledge-base-hierarchical-organization-design.md §4.3 / §8.
+# Spec: archive/docs branch, docs/specs/2026-06-02-knowledge-base-hierarchical-organization-design.md §4.3 / §8.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCORER="$ROOT/scripts/wiki-forget-score.sh"

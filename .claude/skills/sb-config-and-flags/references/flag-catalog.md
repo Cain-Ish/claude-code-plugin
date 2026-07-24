@@ -214,7 +214,7 @@ grep for `process.env.SB_` alone MISSES the helper-mediated ones (grep for the b
 | `SB_PERSONA_DISMISS_WINDOW_DAYS` | `7` | Trailing dismissal window. | TUNE | persona-context.sh:151 | none |
 | `SB_PERSONA_WIKI_MIN_SCORE` | `0.045` | Min search score for wiki snippets in ambient context. | TUNE | persona-context.sh:182 | none |
 | `SB_PERSONA_MODEL` | `claude-opus-4-7` | persona_think brief model. | TUNE | persona-think.ts:110 | none |
-| `SB_PERSONA_COST_PER_CALL` | `0.11` | Spend LOGGING only — informational, no enforcement since 0.24.45. | informational | persona-think.ts:111 | none |
+| `SB_PERSONA_COST_PER_CALL` | — | REMOVED — spend is not tracked anywhere; the persona ledger and all cost logging were deleted. | removed | none | none |
 | `SB_PERSONA_TIMEOUT_MS` | `30000` | persona_think spawn timeout. | TUNE | persona-think.ts:112 | none |
 | `SB_PERSONA_DAILY_BUDGET` | — | DEPRECATED: "no longer gate anything" — `skills/upgrade/migrations/0.24.45.md:11,22`. Zero live consumers in scripts/ or mcp/src (verified by grep 2026-07-05). | DEPRECATED | migrations/0.24.45.md:11 | — |
 

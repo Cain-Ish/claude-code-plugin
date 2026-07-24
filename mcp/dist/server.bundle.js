@@ -6923,12 +6923,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs21, exportName) {
+    function addFormats(ajv, list, fs20, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs21[f]);
+        ajv.addFormat(f, fs20[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -21149,7 +21149,7 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs20 from "fs";
+import fs19 from "fs";
 import path4 from "path";
 
 // src/tools/graph-store.ts
@@ -26145,8 +26145,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep5, { nocase, childrenCacheSize = 16 * 1024, fs: fs21 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs21);
+  constructor(cwd = process.cwd(), pathImpl, sep5, { nocase, childrenCacheSize = 16 * 1024, fs: fs20 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs20);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -26704,8 +26704,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs21) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs21 });
+  newRoot(fs20) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs20 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -26733,8 +26733,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs21) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs21 });
+  newRoot(fs20) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs20 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -32006,48 +32006,7 @@ async function episodicRead(filePath, startLine, endLine) {
 
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
-import { promises as fs16 } from "fs";
-import { join as join16, dirname as dirname3 } from "path";
-function opusLedgerPath(brainDir2) {
-  if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
-  const bd = resolveBrainDir(brainDir2);
-  return join16(bd, "opus-budget.json");
-}
-async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
-  const callCost = inputTokens / 1e6 * 5 + outputTokens / 1e6 * 25;
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  let current = { date: today, opus_cost_usd: 0, opus_calls: 0 };
-  try {
-    const txt = await fs16.readFile(ledgerPath, "utf-8");
-    const j2 = JSON.parse(txt);
-    if (j2.date === today) {
-      current = {
-        date: today,
-        opus_cost_usd: Number(j2.opus_cost_usd) || 0,
-        opus_calls: Number(j2.opus_calls) || 0
-      };
-    }
-  } catch {
-  }
-  const next = {
-    date: today,
-    opus_cost_usd: current.opus_cost_usd + callCost,
-    opus_calls: current.opus_calls + 1
-  };
-  const tmpPath = `${ledgerPath}.tmp.${process.pid}`;
-  try {
-    await fs16.mkdir(dirname3(ledgerPath), { recursive: true });
-    await fs16.writeFile(tmpPath, JSON.stringify(next));
-    await fs16.rename(tmpPath, ledgerPath);
-  } catch {
-    try {
-      await fs16.unlink(tmpPath);
-    } catch {
-    }
-  }
-}
 var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
-var COST_PER_CALL = Number(process.env.SB_PERSONA_COST_PER_CALL ?? "0.11");
 var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "30000");
 var SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
 Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
@@ -32119,7 +32078,6 @@ function parseBrief(raw) {
   }
 }
 async function personaThink(args, deps = {}) {
-  const lPath = deps.ledgerPath ?? opusLedgerPath(deps.brainDir);
   const runner = deps.runner ?? defaultRunner;
   const model = deps.model ?? DEFAULT_MODEL;
   const hints = (args.context_hints ?? []).join("\n");
@@ -32132,54 +32090,21 @@ ${args.prompt}` : args.prompt;
     const raw = await runner(SYSTEM_PROMPT, user, model);
     const brief = parseBrief(raw);
     if (!brief) return { ...EMPTY, error: "no JSON in response" };
-    if (lPath) {
-      const inputTok = deps.inputTokens ?? 0;
-      const outputTok = deps.outputTokens ?? 0;
-      if (inputTok > 0 || outputTok > 0) {
-        await recordOpusLedger(lPath, inputTok, outputTok).catch(() => {
-        });
-      } else if (deps.brainDir) {
-        await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {
-        });
-      }
-    } else if (deps.brainDir) {
-      await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {
-      });
-    }
     return brief;
   } catch (e) {
     return { ...EMPTY, error: e?.message ?? String(e) };
   }
 }
-async function readBudget(brainDir2) {
-  const file = join16(brainDir2, "persona-budget.json");
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  try {
-    const txt = await fs16.readFile(file, "utf-8");
-    const j2 = JSON.parse(txt);
-    if (j2.date === today) return { date: today, today_usd: Number(j2.today_usd) || 0 };
-  } catch {
-  }
-  return { date: today, today_usd: 0 };
-}
-async function recordSpend(brainDir2, usd) {
-  const current = await readBudget(brainDir2);
-  const next = { date: current.date, today_usd: current.today_usd + usd };
-  await fs16.mkdir(brainDir2, { recursive: true }).catch(() => {
-  });
-  await fs16.writeFile(join16(brainDir2, "persona-budget.json"), JSON.stringify(next));
-  return next;
-}
 
 // src/tools/persona-stats.ts
-import { promises as fs17 } from "fs";
-import { join as join17 } from "path";
+import { promises as fs16 } from "fs";
+import { join as join16 } from "path";
 async function personaStats(args = {}) {
   const dir = resolveBrainDir(args.brainDir);
   let identity2 = "";
   let cardBytes = 0;
   try {
-    const card = await fs17.readFile(join17(dir, "persona-card.md"), "utf-8");
+    const card = await fs16.readFile(join16(dir, "persona-card.md"), "utf-8");
     cardBytes = Buffer.byteLength(card, "utf-8");
     identity2 = card.split("\n").filter((l) => l.startsWith("- ")).slice(0, 3).map((l) => l.slice(2).trim()).join("; ");
   } catch {
@@ -32187,7 +32112,7 @@ async function personaStats(args = {}) {
   let ungraduated = 0;
   let graduated = 0;
   try {
-    const psl = await fs17.readFile(join17(dir, "persona-signals.jsonl"), "utf-8");
+    const psl = await fs16.readFile(join16(dir, "persona-signals.jsonl"), "utf-8");
     for (const line of psl.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -32201,7 +32126,7 @@ async function personaStats(args = {}) {
   }
   let plugins = 0, agents = 0, skills = 0;
   try {
-    const cat = JSON.parse(await fs17.readFile(join17(dir, ".installed-catalog.json"), "utf-8"));
+    const cat = JSON.parse(await fs16.readFile(join16(dir, ".installed-catalog.json"), "utf-8"));
     plugins = Array.isArray(cat.plugins) ? cat.plugins.length : 0;
     agents = Array.isArray(cat.agents) ? cat.agents.length : 0;
     skills = Array.isArray(cat.skills) ? cat.skills.length : 0;
@@ -32209,7 +32134,7 @@ async function personaStats(args = {}) {
   }
   let dismissals = 0;
   try {
-    const dl = await fs17.readFile(join17(dir, ".persona-dismissals.jsonl"), "utf-8");
+    const dl = await fs16.readFile(join16(dir, ".persona-dismissals.jsonl"), "utf-8");
     const cutoff = Date.now() - 7 * 864e5;
     for (const line of dl.split("\n")) {
       if (!line.trim()) continue;
@@ -32222,13 +32147,6 @@ async function personaStats(args = {}) {
     }
   } catch {
   }
-  let spend = 0;
-  try {
-    const b = JSON.parse(await fs17.readFile(join17(dir, "persona-budget.json"), "utf-8"));
-    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    if (b.date === today) spend = Number(b.today_usd) || 0;
-  } catch {
-  }
   return {
     identity_summary: identity2,
     persona_card_bytes: cardBytes,
@@ -32237,20 +32155,19 @@ async function personaStats(args = {}) {
     installed_plugins: plugins,
     installed_agents: agents,
     installed_skills: skills,
-    dismissals_7d: dismissals,
-    today_spend_usd: spend
+    dismissals_7d: dismissals
   };
 }
 
 // src/tools/persona-dismiss.ts
-import { promises as fs18 } from "fs";
-import { join as join18 } from "path";
+import { promises as fs17 } from "fs";
+import { join as join17 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
   const dir = resolveBrainDir(args.brainDir);
-  await fs18.mkdir(dir, { recursive: true }).catch(() => {
+  await fs17.mkdir(dir, { recursive: true }).catch(() => {
   });
-  const file = join18(dir, ".persona-dismissals.jsonl");
+  const file = join17(dir, ".persona-dismissals.jsonl");
   const now = /* @__PURE__ */ new Date();
   const entry = {
     at: now.toISOString(),
@@ -32260,7 +32177,7 @@ async function personaDismiss(args = {}) {
   const cutoff = now.getTime() - RETAIN_DAYS * 864e5;
   let kept = "";
   try {
-    const existing = await fs18.readFile(file, "utf-8");
+    const existing = await fs17.readFile(file, "utf-8");
     for (const line of existing.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -32273,7 +32190,7 @@ async function personaDismiss(args = {}) {
   } catch {
   }
   kept += JSON.stringify(entry) + "\n";
-  await fs18.writeFile(file, kept);
+  await fs17.writeFile(file, kept);
   const week = now.getTime() - 7 * 864e5;
   let count = 0;
   for (const line of kept.split("\n")) {
@@ -32289,7 +32206,7 @@ async function personaDismiss(args = {}) {
 }
 
 // src/tools/knowledge-relate.ts
-import { join as join19 } from "path";
+import { join as join18 } from "path";
 var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ].*)?$/;
 async function knowledgeRelate(args) {
   try {
@@ -32303,7 +32220,7 @@ async function knowledgeRelate(args) {
   for (const [k, v] of [["valid_from", args.valid_from], ["valid_to", args.valid_to]]) {
     if (v !== void 0 && !ISO_DATE_RE.test(v)) return { ok: false, reason: `invalid ${k} (want YYYY-MM-DD): ${v}` };
   }
-  const logPath = join19(args.knowledgeDir, "graph", "edges.jsonl");
+  const logPath = join18(args.knowledgeDir, "graph", "edges.jsonl");
   if (args.invalidate) {
     const current = foldToCurrent(await loadEdges(logPath));
     const open = current.find((e) => e.from === args.from && e.to === args.to && e.type === args.type && e.valid_to === null);
@@ -32328,7 +32245,7 @@ async function knowledgeRelate(args) {
 }
 
 // src/tools/knowledge-neighbors.ts
-import { join as join20 } from "path";
+import { join as join19 } from "path";
 async function knowledgeNeighbors(args) {
   try {
     validateSlug(args.slug);
@@ -32336,7 +32253,7 @@ async function knowledgeNeighbors(args) {
     if (e instanceof PathGuardError) return { slug: args.slug, edges: [] };
     throw e;
   }
-  const records = await loadEdges(join20(args.knowledgeDir, "graph", "edges.jsonl"));
+  const records = await loadEdges(join19(args.knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { slug: args.slug, edges: [] };
   const current = foldToCurrent(records);
   const edges = neighbors(current, args.slug, {
@@ -32349,7 +32266,7 @@ async function knowledgeNeighbors(args) {
 }
 
 // src/tools/codemap/store.ts
-import { promises as fs19 } from "fs";
+import { promises as fs18 } from "fs";
 import * as path2 from "path";
 function codemapDir(brainDir2, slug) {
   return path2.join(brainDir2, "projects", slug, "codemap");
@@ -32358,7 +32275,7 @@ async function readGraph(dir) {
   const file = path2.join(dir, "graph.json");
   let raw;
   try {
-    raw = await fs19.readFile(file, "utf-8");
+    raw = await fs18.readFile(file, "utf-8");
   } catch (e) {
     if (e.code === "ENOENT") return null;
     throw e;
@@ -32767,7 +32684,7 @@ registerJsonTool(
   {},
   async () => {
     const wikiDir = path4.join(KNOWLEDGE_DIR, "wiki");
-    if (!fs20.existsSync(wikiDir)) {
+    if (!fs19.existsSync(wikiDir)) {
       return [
         `# Knowledge Base Stats`,
         ``,
@@ -32782,7 +32699,7 @@ registerJsonTool(
       const cat = categorizeFile(file);
       let size = 0;
       try {
-        size = fs20.statSync(file).size;
+        size = fs19.statSync(file).size;
       } catch {
         continue;
       }
@@ -32968,11 +32885,11 @@ registerJsonTool(
     prompt: external_exports.string().describe("The user prompt or topic to brief on."),
     context_hints: external_exports.array(external_exports.string()).optional().describe("Optional extra context strings to feed into the brief (e.g. relevant wiki snippets, project state).")
   },
-  (args) => personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir: BRAIN_DIR })
+  (args) => personaThink({ prompt: args.prompt, context_hints: args.context_hints })
 );
 registerJsonTool(
   "persona_stats",
-  "Inspect the persona's current state \u2014 identity summary from persona-card.md, signal counts, installed catalog sizes, recent dismissals, today's persona spend (informational \u2014 no enforcement). Read-only.",
+  "Inspect the persona's current state \u2014 identity summary from persona-card.md, signal counts, installed catalog sizes, recent dismissals. Read-only.",
   {},
   () => personaStats({})
 );

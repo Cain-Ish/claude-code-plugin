@@ -18,6 +18,14 @@ description: >-
 
 # sb-docs-and-writing — documents of record + house style
 
+> **PRE-1.0 DIET (2026-07-24): `docs/plans/`, `docs/specs/`, `docs/superpowers/` and
+> `CHANGELOG.md` were REMOVED from main** — the repo ships as a plugin and no longer carries
+> internal planning docs. All existing citations below resolve via the `archive/docs` branch
+> (`git show archive/docs:<path>`). Release records now live in release-commit bodies
+> (`release: X.Y.Z — thesis` + bullets + gates line). New plans/specs go to the second-brain
+> wiki, NOT the repo. The surface-budget baseline moved from `docs/` to
+> `.claude-plugin/surface-budget.json` (references below already updated).
+
 This repo treats prose as product code: agent/skill markdown IS the program, the CHANGELOG
 is the narrative of record, and several style rules are machine-enforced by tests. This
 skill tells you which document a fact belongs in, the exact shape each document takes, and
@@ -44,7 +52,7 @@ per-project `PROJECT.md`); **dream** = staged background consolidation of the wi
 | `CONSTITUTION.md` | Frozen north star: mission triad, hard constraints, governance | 66 lines; content owned by sb-architecture-contract |
 | `RELEASING.md` | Binding release checklist, bypass policy, dev loop, storage invariant | 133 lines; process owned by sb-change-control |
 | `README.md` | User-facing surface. Contract: "matches what ships … it can't lag the code" (`RELEASING.md:55-57`) | 337 lines; user surface owned by sb-run-and-operate |
-| `docs/surface-budget.json` | Growth ratchet counts (skills 18 / agents 9 / scripts 52 / tests 153 as of 0.33.31) | Mechanics owned by sb-change-control; the doc-side convention (CHANGELOG closer) is §2 |
+| `.claude-plugin/surface-budget.json` | Growth ratchet counts (skills 18 / agents 9 / scripts 52 / tests 153 as of 0.33.31) | Mechanics owned by sb-change-control; the doc-side convention (CHANGELOG closer) is §2 |
 
 There is deliberately NO repo-level `CLAUDE.md` or `CONTRIBUTING.md` (verified 2026-07-05).
 Contributor doctrine lives in RELEASING.md + CONSTITUTION.md + each plan's Global Constraints.
@@ -124,6 +132,12 @@ Frontmatter template: [references/templates.md §5](references/templates.md).
 `name`, `description`, `allowed-tools`, `user-invocable`, `disable-model-invocation` —
 `scripts/validate-plugin.sh:157-178` (SKAG-6) fails on any missing field, because implicit
 defaults made the dispatch surface unauditable. (Gate mechanics: sb-validation-and-qa.)
+
+- **Descriptions are routing triggers only** (skill AND agent frontmatter): a description
+  that summarizes the workflow gets followed INSTEAD of the body — a superpowers-tested
+  failure mode (obra/superpowers writing-skills). Mechanism goes in the body; the
+  description carries only when-to-invoke triggers and scope boundaries ("use when… NOT
+  for…"). Naming WHAT the skill produces is fine; enumerating HOW it proceeds is the hazard.
 
 **The exposure matrix** — what each flag combination means, with the live examples:
 
@@ -261,14 +275,14 @@ process (sb-change-control) — these documents are gated surface.
 | 1 | Orphaned 0.33.19: no `## 0.33.19` header exists; its bullets (shim-aware timer health, in-session floor path normalization, "See `migrations/0.33.19.md`") sit inside the `## 0.33.20` section | `grep -n "^## 0.33.19" CHANGELOG.md` → empty; bullets end ~`CHANGELOG.md:215-226` | Insert `## 0.33.19` + its thesis above the stranded bullets |
 | 2 | `CONSTITUTION.md:3-4` cites `tests/test-surface-budget.sh` as the surface-budget enforcer — that file does not exist; the actual gate is `scripts/validate-plugin.sh:191-220` | `ls tests/test-surface-budget.sh` → no such file | Point the sentence at validate-plugin.sh (CONSTITUTION edits are extra-sensitive — confirm with the maintainer) |
 | 3 | `README.md:5` is `\| Skill \| Purpose \|# Second Brain — …` — a table-header row glued to the H1 on one line. Looks like an edit artifact; intent UNVERIFIED | `sed -n '5p' README.md` | Confirm intent, then split the line; README changes ride a release ("README matches what ships") |
-| 4 | `RELEASING.md:40-41` claims "Currently 24 shell + 59 vitest = 83 checks" — live is 153 shell tests + ~493 vitest cases | `ls tests/test-*.sh \| wc -l` → 153 | Replace the stale count with a pointer to `docs/surface-budget.json` + suite output |
+| 4 | `RELEASING.md:40-41` claims "Currently 24 shell + 59 vitest = 83 checks" — live is 153 shell tests + ~493 vitest cases | `ls tests/test-*.sh \| wc -l` → 153 | Replace the stale count with a pointer to `.claude-plugin/surface-budget.json` + suite output |
 | 5 | `RELEASING.md:50` says CHANGELOG headers are `## vX.Y.Z`; every actual header is bare `## X.Y.Z` | `grep -c '^## v' CHANGELOG.md` → 0 | Drop the `v` in RELEASING.md |
 
 ## Provenance and maintenance
 
 Derived 2026-07-05 (plugin version 0.33.31, uncommitted working-tree batch; HEAD `6fba312`)
 entirely from repo evidence: `CHANGELOG.md`, `RELEASING.md`, `CONSTITUTION.md`, `README.md`,
-`docs/surface-budget.json`, `docs/plans/2026-06-24-code-review-deep-bundle-b.md`,
+`.claude-plugin/surface-budget.json`, `docs/plans/2026-06-24-code-review-deep-bundle-b.md`,
 `docs/specs/2026-06-24-code-review-deep-bundle-b-design.md`,
 `docs/specs/2026-06-18-project-scoping-model-design.md`, `skills/upgrade/migrations/0.33.0.md`,
 `skills/*/SKILL.md` frontmatter, `agents/*.md` frontmatter, `mcp/src/agent-grants.test.ts`,
@@ -279,7 +293,7 @@ Re-verify volatile facts before trusting them:
 
 | Fact class | One-liner |
 |---|---|
-| Surface counts (skills/agents/scripts/tests) | `cat docs/surface-budget.json` |
+| Surface counts (skills/agents/scripts/tests) | `cat .claude-plugin/surface-budget.json` |
 | CHANGELOG entry count / tail ordering | `grep -c '^## ' CHANGELOG.md` (122); `grep -n '^## ' CHANGELOG.md \| tail -12` |
 | Doc defect 1 (0.33.19) still open | `grep -n "^## 0.33.19" CHANGELOG.md` (empty = still open) |
 | Doc defect 2 (stale test ref) still open | `grep -n 'test-surface-budget' CONSTITUTION.md; ls tests/test-surface-budget.sh` |

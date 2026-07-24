@@ -1,6 +1,6 @@
 /**
  * Source enumeration (repo scoping + ignore rules).
- * Plan: docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md.
+ * Plan: archive/docs branch, docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md.
  *
  * Pure: dir in, file list out — no store access, no timestamps. Output is
  * id-sorted so identical trees yield byte-identical downstream graphs (the

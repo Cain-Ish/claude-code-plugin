@@ -281,7 +281,7 @@ prequel) and the ranking theory behind both cuts: sb-memory-systems-reference §
 **Worked example C — the surface-budget counting method.** "How big is the plugin surface"
 is not a vibe; the counting commands are pinned in `scripts/validate-plugin.sh:196-199`
 (top-level dirs under `skills/`; `agents/*.md`; top-level `scripts/*.sh`; `tests/test-*.sh`)
-and compared against `docs/surface-budget.json`. As of 0.33.31 (2026-07-05): skills 18,
+and compared against `.claude-plugin/surface-budget.json`. As of 0.33.31 (2026-07-05): skills 18,
 agents 9, scripts 52, tests 153 — live counts verified equal to budget. Reproduce:
 `bash scripts/validate-plugin.sh`. Budget governance (when a bump is legitimate):
 sb-change-control.

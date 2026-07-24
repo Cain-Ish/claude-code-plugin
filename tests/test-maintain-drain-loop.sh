@@ -34,21 +34,38 @@ sb_parse_report() {
   return 0
 }
 
+# sb_parse_blame <worker-output-text>
+# Echoes the blame class when a `BLAME: <class>` line (agents/raw-drainer.md
+# Step 0/Step 5) is present; echoes nothing otherwise. The maintain prose
+# requires this to be scanned in EVERY branch — including no-line stalls —
+# so a packet refusal's classification is never lost.
+sb_parse_blame() {
+  printf '%s\n' "$1" | grep -oE 'BLAME:[[:space:]]*(caller-under-supplied|child-under-delivered)' \
+    | tail -1 | sed -E 's/BLAME:[[:space:]]*//'
+}
+
 # sb_drain_loop  — drives the loop over scripted worker outputs.
 # Worker outputs are provided in the global array WORKER_OUT (one element per
-# dispatch). Sets globals on return:
+# dispatch); POSTFLIGHT_OUT holds the scripted touch-set postflight result for
+# the same index ("" = clean, non-empty = offending legacy-wiki paths).
+# Sets globals on return:
 #   DISPATCHES  — how many worker dispatches happened
-#   STOP_REASON — drained-zero | remaining-zero | cap | no-line | exhausted
-#   REPORT      — human report text (fail-loud on cap / consecutive no-line)
+#   STOP_REASON — drained-zero | remaining-zero | cap | no-line | postflight-abort
+#   REPORT      — human report text (fail-loud on cap / stall / postflight)
+#   BLAME       — blame class carried from the last worker output that had one
 # Contract (skills/maintain/SKILL.md Stage 2):
+#   * after EVERY batch, the touch-set postflight: any *.md newer than the stamp
+#     under the legacy wiki -> HARD ABORT (postflight-abort), report names the
+#     paths and records BLAME: child-under-delivered
 #   * stop when DRAINED (n) == 0  -> drained-zero
 #   * stop when REMAINING (m) == 0 -> remaining-zero
 #   * otherwise redispatch
 #   * hard cap 30 iterations: if still REMAINING>0 -> stop + fail-loud (names count)
 #   * no parseable line: dispatch once more; if the SECOND CONSECUTIVE dispatch
-#     also has no line -> stop + report (don't loop blind)
+#     also has no line -> stop + report (don't loop blind); the BLAME scan runs
+#     in this branch too (a Step-0 packet refusal may carry REMAINING: unknown)
 sb_drain_loop() {
-  DISPATCHES=0; STOP_REASON=""; REPORT=""
+  DISPATCHES=0; STOP_REASON=""; REPORT=""; BLAME=""
   consec_no_line=0
   last_m=""
   i=0
@@ -56,7 +73,18 @@ sb_drain_loop() {
     i=$((i + 1))
     idx=$((DISPATCHES))            # 0-based index into the scripted outputs
     out="${WORKER_OUT[$idx]:-}"
+    pf="${POSTFLIGHT_OUT[$idx]:-}"
     DISPATCHES=$((DISPATCHES + 1))
+
+    b=$(sb_parse_blame "$out"); [ -n "$b" ] && BLAME="$b"
+
+    # Touch-set postflight runs after EVERY batch, before the report decision.
+    if [ -n "$pf" ]; then
+      STOP_REASON="postflight-abort"
+      BLAME="child-under-delivered"
+      REPORT="ABORT: legacy-wiki write detected after batch $DISPATCHES: $pf — BLAME: child-under-delivered"
+      return 0
+    fi
 
     if parsed=$(sb_parse_report "$out"); then
       consec_no_line=0
@@ -70,7 +98,7 @@ sb_drain_loop() {
       consec_no_line=$((consec_no_line + 1))
       if [ "$consec_no_line" -ge 2 ]; then
         STOP_REASON="no-line"
-        REPORT="STALL: two consecutive worker dispatches returned no parseable DRAINED/REMAINING line"
+        REPORT="STALL: two consecutive worker dispatches returned no parseable DRAINED/REMAINING line${BLAME:+ — BLAME: $BLAME}"
         return 0
       fi
       # first unparseable dispatch -> dispatch once more
@@ -186,5 +214,62 @@ sb_drain_loop
 [ "$DISPATCHES" -eq 4 ]           || fail "reset: expected 4 dispatches, got $DISPATCHES"
 [ "$STOP_REASON" = drained-zero ] || fail "reset: expected drained-zero, got $STOP_REASON"
 pass "loop: a parseable dispatch resets the consecutive-no-line counter"
+
+# ---------------------------------------------------------------------------
+# Test 7 — touch-set postflight hit on batch 2 -> HARD ABORT, names the path,
+# records BLAME: child-under-delivered. (skills/maintain/SKILL.md Stage 2 step 2)
+# ---------------------------------------------------------------------------
+WORKER_OUT=(
+  'DRAINED: 3  REMAINING: 9'
+  'DRAINED: 2  REMAINING: 7'
+  'DRAINED: 0  REMAINING: 7'   # must NOT be reached
+)
+POSTFLIGHT_OUT=(
+  ''
+  '/home/u/.second-brain/wiki/learnings/leaked.md'
+  ''
+)
+sb_drain_loop
+[ "$DISPATCHES" -eq 2 ]               || fail "postflight: expected abort after 2nd dispatch, got $DISPATCHES"
+[ "$STOP_REASON" = postflight-abort ] || fail "postflight: expected postflight-abort, got $STOP_REASON"
+[ "$BLAME" = child-under-delivered ]  || fail "postflight: expected BLAME child-under-delivered, got '$BLAME'"
+echo "$REPORT" | grep -q 'leaked.md'  || fail "postflight: report must name the offending path, got: $REPORT"
+pass "loop: legacy-wiki write after a batch hard-aborts with BLAME: child-under-delivered"
+
+# ---------------------------------------------------------------------------
+# Test 8 — Step-0 packet refusal with a numeric REMAINING: parses as a normal
+# drained-zero stop AND the BLAME classification is captured, not lost.
+# ---------------------------------------------------------------------------
+WORKER_OUT=(
+  'packet missing absolute wiki destination
+DRAINED: 0  REMAINING: 4
+BLAME: caller-under-supplied'
+)
+POSTFLIGHT_OUT=('')
+sb_drain_loop
+[ "$DISPATCHES" -eq 1 ]                || fail "refusal: expected 1 dispatch, got $DISPATCHES"
+[ "$STOP_REASON" = drained-zero ]      || fail "refusal: expected drained-zero, got $STOP_REASON"
+[ "$BLAME" = caller-under-supplied ]   || fail "refusal: BLAME must be captured, got '$BLAME'"
+pass "loop: packet refusal (numeric REMAINING) stops drained-zero with BLAME captured"
+
+# ---------------------------------------------------------------------------
+# Test 9 — Step-0 refusal with 'REMAINING: unknown' (unparseable) twice ->
+# no-line stall, and the stall report still carries the BLAME class.
+# ---------------------------------------------------------------------------
+WORKER_OUT=(
+  'packet defective
+DRAINED: 0  REMAINING: unknown
+BLAME: caller-under-supplied'
+  'packet defective again
+DRAINED: 0  REMAINING: unknown
+BLAME: caller-under-supplied'
+)
+POSTFLIGHT_OUT=('' '')
+sb_drain_loop
+[ "$DISPATCHES" -eq 2 ]              || fail "unknown-refusal: expected 2 dispatches, got $DISPATCHES"
+[ "$STOP_REASON" = no-line ]         || fail "unknown-refusal: expected no-line stall, got $STOP_REASON"
+[ "$BLAME" = caller-under-supplied ] || fail "unknown-refusal: BLAME must survive the no-line branch, got '$BLAME'"
+echo "$REPORT" | grep -q 'caller-under-supplied' || fail "unknown-refusal: stall report must carry BLAME, got: $REPORT"
+pass "loop: unparseable refusal stalls after 2 dispatches with BLAME carried into the report"
 
 echo; echo "ALL PASS"

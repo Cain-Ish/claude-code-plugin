@@ -2,7 +2,7 @@
 # Generated theme pages (type: themes) must be category-protected from FORGET, so a
 # regenerable summary is never archived out from under the summarizer. Protection is via
 # the protflag column (candidates.sh filters $5==""), independent of the numeric score.
-# Spec: docs/specs/2026-06-01-dream-consolidation-v2-design.md §B1.3.
+# Spec: archive/docs branch, docs/specs/2026-06-01-dream-consolidation-v2-design.md §B1.3.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCORER="$ROOT/scripts/wiki-forget-score.sh"

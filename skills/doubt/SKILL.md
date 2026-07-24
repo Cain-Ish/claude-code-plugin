@@ -1,6 +1,6 @@
 ---
 name: doubt
-description: Adversarial validation of the second-brain plugin. Questions architectural layers from a position of maximum skepticism, drilling from general to granular. Rotates focus across runs using git-change priority, history rotation, and perspective variety so different questions are asked each time.
+description: Adversarial validation of the second-brain plugin — questions whether each architectural layer actually works, from a position of maximum skepticism. Focus varies between runs, so repeated invocations ask different questions. Use for periodic self-audit, after significant changes (--changed), or to interrogate one layer (--layer <name>).
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read Agent Bash(git diff *) Bash(git log *) Bash(git show *) Bash(find *) Bash(grep *) Bash(ls *) Bash(wc *) Bash(cat *) Bash(head *) Bash(tail *) Bash(jq *) Bash(date *) Bash(test *) Bash(sort *) Bash(uniq *)

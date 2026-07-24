@@ -23,7 +23,7 @@ npm ci --prefix mcp            # lockfile-exact deps; REQUIRED or bundle gates s
 #         ## X.Y.Z            <- bare heading, no date, no "v"
 #     thesis paragraph, then bolded evidence bullets. DIFF-CHECK that the previous
 #     "## <prev>" heading survived your insertion (the 0.33.19 heading was lost this way).
-# 1d. If counts grew: bump docs/surface-budget.json + add a "Surface budget: X n->m" bullet.
+# 1d. If counts grew: bump .claude-plugin/surface-budget.json + add a "Surface budget: X n->m" bullet.
 # 1e. If a real user action exists: add skills/upgrade/migrations/X.Y.Z.md
 #     (skills/upgrade/SKILL.md must stay <= 8192 bytes).
 # 1f. If any mcp/src file changed: rebuild bundles and stage mcp/dist/**

@@ -2,8 +2,8 @@
 
 The frozen north star. Every change is measured against this. Enforced by the surface-budget
 gate (`tests/test-surface-budget.sh`) and the single-source resolution guard
-(`mcp/src/brain-paths.test.ts`). Full design:
-`docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`.
+(`mcp/src/brain-paths.test.ts`). Full design (archive/docs branch):
+`git show archive/docs:docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`.
 
 ## What second-brain IS
 
@@ -59,7 +59,7 @@ A session log; a trivia dump; a graph for its own sake; pages that sit unread.
 ## Governance (machine-enforced)
 
 - **Surface-budget ratchet** — live counts (skills / agents / scripts / tests) may not GROW
-  beyond `docs/surface-budget.json` without a same-commit, git-blameable bump there; enforced
+  beyond `.claude-plugin/surface-budget.json` without a same-commit, git-blameable bump there; enforced
   by `scripts/validate-plugin.sh` (R8). Ratchet DOWN freely as the diet (spec P4) removes surface.
 - **Single-source resolution** — brain/knowledge dir resolution lives ONLY in
   `mcp/src/brain-paths.ts`; no file re-implements it (enforced by the source-scan in

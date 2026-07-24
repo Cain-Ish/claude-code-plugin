@@ -1,7 +1,7 @@
 ---
 name: knowledge-maintainer
 description: |
-  Knowledge system caretaker. Runs a 7-phase consolidation cycle: Hot-Tier Hygiene → Audit → Deduplicate → Relate → Enrich → AI-block authoring (4b) → Reindex. Maintains both PROJECT.md hot tier and wiki cold tier. The raw-inbox drain (Phase 4c) is NOT run by this agent — it is delegated to the /second-brain:maintain skill's looped raw-drainer worker. Dispatched automatically by reindex (which skips the bulk-authoring Phase 4b) or explicitly via /second-brain:maintain (full run).
+  Knowledge system caretaker for both the PROJECT.md hot tier and the wiki cold tier. Dispatch when the knowledge base needs consolidation or repair — new learnings to cross-link, broken wiki-links, duplicate slugs, stale hot-tier entries, missing ai-blocks, or a stale index. The raw-inbox drain is NOT this agent's job — it belongs to the /second-brain:maintain skill's looped raw-drainer worker. Dispatched automatically by reindex (reduced scope) or explicitly via /second-brain:maintain (full run).
 
   <example>
   Context: A just-accepted dream added several new wiki/learnings/ entries.

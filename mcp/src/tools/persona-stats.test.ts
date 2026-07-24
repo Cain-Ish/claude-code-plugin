@@ -55,10 +55,8 @@ describe('persona_stats', () => {
     expect(r.dismissals_7d).toBe(2);
   });
 
-  it('reports today_spend_usd from persona-budget.json', async () => {
-    writeFileSync(join(brainDir, 'persona-budget.json'),
-      JSON.stringify({ date: new Date().toISOString().slice(0, 10), today_usd: 1.23 }), 'utf-8');
+  it('has no spend field — cost is not tracked', async () => {
     const r = await personaStats({ brainDir });
-    expect(r.today_spend_usd).toBeCloseTo(1.23);
+    expect('today_spend_usd' in r).toBe(false);
   });
 });

@@ -89,7 +89,6 @@ Effective state:
   Per-dispatch:      model: 'sonnet' / model: 'haiku' work as expected
   CLAUDE_CODE_SUBAGENT_MODEL: not set (recommended)
   second-brain:      detected / not detected
-  Premium spend:     informational ledger — no spend cap
 ```
 
 ## Step 6 — Summary
@@ -99,5 +98,4 @@ Print a brief summary of what was changed (or "no changes made" if the user decl
 Remind the user:
 - Use `/cost-router:orchestrate <task>` to route work across tiers automatically.
 - Use `/cost-router:model-route <task>` for an advisory tier recommendation.
-- The Opus budget ledger lives at `${COST_ROUTER_LEDGER:-~/.second-brain/opus-budget.json}`.
 - To undo: run `claude plugin uninstall cost-router` and manually revert `~/.claude/settings.json` if you changed it.

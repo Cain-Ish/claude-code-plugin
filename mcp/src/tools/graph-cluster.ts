@@ -10,7 +10,7 @@
  *     on bipartite-ish structure), else take the smallest slug among the tied labels;
  *   - deterministic cutoff at maxIter.
  * Labels ARE slugs; a community's id is the lexicographically-smallest slug among its
- * members. No graph DB, no dependency. Spec: docs/specs/2026-06-01-dream-consolidation-v2-design.md §B1.1.
+ * members. No graph DB, no dependency. Spec: archive/docs branch, docs/specs/2026-06-01-dream-consolidation-v2-design.md §B1.1.
  */
 
 export interface ClusterPage {

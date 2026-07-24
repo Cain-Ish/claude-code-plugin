@@ -1,5 +1,5 @@
 #!/bin/bash
-# X.1 LOOP smoke test (loop-eng research; docs/plans/2026-07-13-p1-observability.md
+# X.1 LOOP smoke test (loop-eng research; archive/docs branch, docs/plans/2026-07-13-p1-observability.md
 # context): the capture→store→recall pipeline END TO END, deterministically (LLM
 # steps stubbed) — the unit suites test each stage in isolation, which is exactly
 # how the drainer died silently per-platform while everything stayed green. This

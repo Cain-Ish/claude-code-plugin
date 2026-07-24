@@ -32,7 +32,7 @@ Terms used below, defined once:
   `$HOME` when unset (that derivation is load-bearing for test isolation).
 - **guard** — a PreToolUse hook script under `scripts/` (e.g.
   `symlink-guard.sh`) that emits an allow/deny JSON decision.
-- **surface budget** — `docs/surface-budget.json`, the growth ratchet
+- **surface budget** — `.claude-plugin/surface-budget.json`, the growth ratchet
   enforced by `scripts/validate-plugin.sh` (details in sb-change-control;
   the `tests` key is enforced here in the add-a-test checklist).
 
@@ -62,7 +62,7 @@ is years of releases out of date.
 | Fact | Value | Re-verify (repo root) |
 |------|-------|-----------------------|
 | Shell tests | 153 files | `ls tests/test-*.sh \| wc -l` |
-| Budget cap for tests | 153 | `jq .tests docs/surface-budget.json` |
+| Budget cap for tests | 153 | `jq .tests .claude-plugin/surface-budget.json` |
 | Vitest files | 53 (37 in `mcp/src/**`, 16 in `mcp/test/`) | `find mcp/src mcp/test -name '*.test.ts' \| wc -l` |
 | Vitest cases (offline) | 509 total: 496 pass, 13 skipped | `cd mcp && SECOND_BRAIN_DISABLE_EMBEDDINGS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 npx vitest run 2>&1 \| grep -E '^\s*Tests'` |
 | Golden retrieval fixture | 12 queries over `tests/fixtures/eval-wiki`; acceptance: recall@2 = 1.0 (`SB_EVAL_MIN_RECALL`, default 1.0 — a SINGLE missed query fails the release gate; the old 0.8 gate stayed green through the hub-boost bug) | `awk 'END{print NR}' tests/fixtures/eval-queries.jsonl`; `bash tests/test-knowledge-eval.sh` → `PASS: recall+token gate` |
@@ -382,9 +382,9 @@ The shell lane's analogue is `tests/test-script-portability.sh` (above).
 10. Commit with the exec bit: `git update-index --chmod=+x tests/test-<topic>.sh`
     (else `test-exec-bits.sh` fails the suite).
 11. **Budget bump, same commit (mandatory):** raise `"tests"` in
-    `docs/surface-budget.json` by +1, or `validate-plugin.sh` fails with
+    `.claude-plugin/surface-budget.json` by +1, or `validate-plugin.sh` fails with
     "surface budget exceeded — tests=N > budget <cap> (bump
-    docs/surface-budget.json in the same commit to grow deliberately)".
+    .claude-plugin/surface-budget.json in the same commit to grow deliberately)".
     The counter is `find tests -maxdepth 1 -name 'test-*.sh' -type f | wc -l`
     — shell tests only; `.test.ts` files are not budgeted. House convention:
     record the delta in the CHANGELOG bullet ("Surface budget: tests
@@ -442,7 +442,7 @@ uncommitted 0.33.31 batch, read 2026-07-05: `tests/run-all.sh`,
 `tests/test-dream-accept-guards.sh`, `tests/test-exec-bits.sh`,
 `mcp/src/brain-paths.test.ts`, `mcp/src/agent-grants.test.ts`,
 `mcp/vitest.config.ts`, `scripts/validate-plugin.sh` (budget section),
-`docs/surface-budget.json`, `Makefile`, `.githooks/pre-push`, `RELEASING.md`,
+`.claude-plugin/surface-budget.json`, `Makefile`, `.githooks/pre-push`, `RELEASING.md`,
 and CHANGELOG.md incident entries (0.24.30, 0.24.50, 0.30.2, 0.33.7, 0.33.9,
 0.33.15, 0.33.31). Vitest case count is from a live offline run on
 2026-07-05. Authored 2026-07-05 against version 0.33.31.
@@ -451,7 +451,7 @@ Facts that drift, and their one-line re-checks (repo root):
 
 | Fact class | Re-verify |
 |------------|-----------|
-| Shell-test count + budget | `ls tests/test-*.sh \| wc -l && jq .tests docs/surface-budget.json` |
+| Shell-test count + budget | `ls tests/test-*.sh \| wc -l && jq .tests .claude-plugin/surface-budget.json` |
 | Vitest file/case counts | `find mcp/src mcp/test -name '*.test.ts' \| wc -l`; `cd mcp && SECOND_BRAIN_DISABLE_EMBEDDINGS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 npx vitest run 2>&1 \| grep -E '^\s*Tests'` |
 | Golden retrieval fixture count + gate | `awk 'END{print NR}' tests/fixtures/eval-queries.jsonl` (12); `grep -n SB_EVAL_MIN_RECALL tests/test-knowledge-eval.sh` (default 1.0) |
 | run-all env knobs / SKIP semantics | `sed -n '11,25p;84,99p' tests/run-all.sh` |

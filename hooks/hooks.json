@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "_comment": "matcher EXCLUDES 'compact' \u2014 upstream anthropics/claude-code#15174: SessionStart hook output is silently dropped after compaction (v2.0.72+), so running session-load.sh on the compact event was pure waste. Removing it stops the post-compact context-bloat loop reported by users on long sessions.",
-        "matcher": "startup|resume|clear",
+        "matcher": "startup|resume|clear|fork",
         "hooks": [
           {
             "type": "command",
@@ -39,8 +39,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh 10 ${CLAUDE_PLUGIN_ROOT}/scripts/persona-context.sh",
-            "timeout": 10
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh 25 ${CLAUDE_PLUGIN_ROOT}/scripts/persona-context.sh",
+            "timeout": 25
           }
         ]
       }

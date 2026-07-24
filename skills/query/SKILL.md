@@ -1,6 +1,6 @@
 ---
 name: query
-description: Search the second-brain wiki for pages relevant to a question. Thin wrapper around the knowledge_search MCP tool — returns candidate pages and lets Claude synthesize a cited answer from them.
+description: Answer a question from the second-brain wiki, citing the pages used. Use when the user asks something the wiki likely covers — topical or relational ("what depends on X", "what breaks if X changes"). Supports --scope <category> to narrow the search.
 # Surface-collapse (0.29.0): not a user slash command -- covered by automation/MCP; capability preserved via model-invocation where dmi=false.
 user-invocable: false
 disable-model-invocation: false

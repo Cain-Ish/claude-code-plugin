@@ -1,11 +1,11 @@
 ---
 name: dream
 description: |
-  Run a "dream" — background consolidation of the knowledge base. Mines session
-  transcripts for missed insights, deduplicates wiki entries, builds cross-links,
-  and stages all changes for review before applying. Equivalent to Anthropic's
-  managed-agents Dreams API, running locally. Supports inline (default) and
-  background (--background) execution modes.
+  Run a "dream" — consolidation of the knowledge base that stages every change
+  for review before anything is applied. Use when accumulated sessions should be
+  consolidated into the wiki, or to check/accept/discard an existing dream.
+  Equivalent to Anthropic's managed-agents Dreams API, running locally. Supports
+  inline (default) and background (--background) execution modes.
 user-invocable: true
 disable-model-invocation: true
 argument-hint: "[--background] [instructions text]"

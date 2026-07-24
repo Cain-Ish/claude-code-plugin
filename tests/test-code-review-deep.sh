@@ -32,14 +32,15 @@ for agent in code-review-unit-reviewer code-review-scorer code-review-history-re
     || bad "agents/$agent.md missing 'description:'"
 done
 
-# Scorer must NOT pin a model — v2.1 un-pins it so it inherits the session/best
-# model, matching the reviewer it gates (removes the capability inversion).
+# Scorer must not pin a REAL model — it inherits the session/best model, matching
+# the reviewer it gates (removes the capability inversion). Inheritance must be
+# EXPLICIT (`model: inherit`) so a silent omission can't hide a future pin.
 scorer_fm="$(frontmatter "$ROOT/agents/code-review-scorer.md")"
-scorer_keys="$(printf '%s\n' "$scorer_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
-if printf '%s\n' "$scorer_keys" | grep -qi '^model:'; then
-  bad "code-review-scorer must NOT pin 'model:' (v2.1: inherits to match the reviewer)"
+scorer_model="$(printf '%s\n' "$scorer_fm" | grep -i '^model:' | head -1 | sed 's/^[Mm]odel:[[:space:]]*//' | tr -d '\r')"
+if [ "$scorer_model" = "inherit" ]; then
+  ok "code-review-scorer inherits model explicitly (model: inherit)"
 else
-  ok "code-review-scorer inherits model (no model: pin)"
+  bad "code-review-scorer must declare 'model: inherit' (no real-model pin, no silent omission; got '${scorer_model:-<absent>}')"
 fi
 
 # v2.2: the scorer must be able to verify regression findings, which requires
@@ -48,17 +49,17 @@ scorer_tools="$(printf '%s\n' "$scorer_fm" | grep '^tools:')"
 case "$scorer_tools" in *"git log"*) ok "scorer tools grant git log" ;; *) bad "code-review-scorer tools must grant Bash(git log *)" ;; esac
 case "$scorer_tools" in *"git blame"*) ok "scorer tools grant git blame" ;; *) bad "code-review-scorer tools must grant Bash(git blame *)" ;; esac
 
-# Unit-reviewer must NOT pin a model — it inherits the session/best model so
-# code units get the strongest model (v2 directive).
+# Unit-reviewer must not pin a REAL model — it inherits the session/best model so
+# code units get the strongest model. Inheritance must be EXPLICIT (`model: inherit`).
 ur_fm="$(frontmatter "$ROOT/agents/code-review-unit-reviewer.md")"
-# Check only TOP-LEVEL frontmatter keys (column-0 `key:` lines), not the indented
-# `description: |` block body — otherwise a description/example line beginning
-# "model:" would false-FAIL this guard.
-ur_keys="$(printf '%s\n' "$ur_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
-if printf '%s\n' "$ur_keys" | grep -qi '^model:'; then
-  bad "code-review-unit-reviewer must NOT pin 'model:' (it inherits the best model)"
+# Match only the TOP-LEVEL column-0 `model:` line, not the indented
+# `description: |` block body — a description line beginning "model:" must not
+# reach this guard.
+ur_model="$(printf '%s\n' "$ur_fm" | grep -i '^model:' | head -1 | sed 's/^[Mm]odel:[[:space:]]*//' | tr -d '\r')"
+if [ "$ur_model" = "inherit" ]; then
+  ok "code-review-unit-reviewer inherits model explicitly (model: inherit)"
 else
-  ok "code-review-unit-reviewer inherits model (no model: pin)"
+  bad "code-review-unit-reviewer must declare 'model: inherit' (no real-model pin, no silent omission; got '${ur_model:-<absent>}')"
 fi
 
 # Lean returns: bounds the orchestrator's retained context (leak mitigation).
@@ -86,9 +87,12 @@ if [ ! -f "$hr" ]; then
 else
   hr_fm="$(frontmatter "$hr")"
   hr_keys="$(printf '%s\n' "$hr_fm" | grep -oE '^[A-Za-z_-]+:' || true)"
-  printf '%s\n' "$hr_keys" | grep -qi '^model:' \
-    && bad "code-review-history-reviewer must NOT pin 'model:' (it inherits the best model)" \
-    || ok "code-review-history-reviewer inherits model (no model: pin)"
+  hr_model="$(printf '%s\n' "$hr_fm" | grep -i '^model:' | head -1 | sed 's/^[Mm]odel:[[:space:]]*//' | tr -d '\r')"
+  if [ "$hr_model" = "inherit" ]; then
+    ok "code-review-history-reviewer inherits model explicitly (model: inherit)"
+  else
+    bad "code-review-history-reviewer must declare 'model: inherit' (no real-model pin; got '${hr_model:-<absent>}')"
+  fi
   printf '%s\n' "$hr_keys" | grep -qi '^effort:' \
     && ok "history-reviewer sets effort (deeper reasoning)" \
     || bad "history-reviewer missing 'effort: high'"

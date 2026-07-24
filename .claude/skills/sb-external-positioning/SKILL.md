@@ -268,7 +268,7 @@ Re-check statuses with the Provenance commands before republishing any of this.
    `~/.second-brain/wiki-archive/` with a JSONL event log and `scripts/wiki-restore.sh`;
    `wiki_archive_ttl_days: 0` default = archived pages are never auto-deleted. **Honest
    wording:** "invalidate-don't-delete history; every eviction is reversible."
-3. **Surface-budget-governed agent harness.** `docs/surface-budget.json` (as of 0.33.31:
+3. **Surface-budget-governed agent harness.** `.claude-plugin/surface-budget.json` (as of 0.33.31:
    skills 18, agents 9, scripts 52, tests 153) is a ratchet enforced by
    `scripts/validate-plugin.sh` (R8): live counts may not grow without a same-commit,
    git-blameable budget bump; CONSTITUTION.md is the enforced mission artifact. This
@@ -384,7 +384,7 @@ grep -ril rerank mcp/src scripts || echo "P3b still not started"
 ls mcp/src/tools/minhash.ts mcp/src/path-guard.test.ts scripts/wiki-restore.sh  # §1.7 + §3.1 landing sites still present
 grep -ri graphify --exclude-dir=node_modules --exclude-dir=.claude . || echo "graphify still phantom"
 awk 'END{print NR}' tests/fixtures/eval-queries.jsonl          # golden-query count (was 12)
-cat docs/surface-budget.json                                    # budget counts (skills/agents/scripts/tests)
+cat .claude-plugin/surface-budget.json                                    # budget counts (skills/agents/scripts/tests)
 grep -n '## 0.33' CHANGELOG.md | head -5                        # newest release headings
 grep -rn 'LongMemEval' tests/ mcp/src || echo "P8 suite still missing"
 ```

@@ -3,7 +3,7 @@
  * Pure, LLM-free, offline. This is the GUARD move of POINT/SERVE/GUARD:
  * cap how much any single retrieval dumps into Claude's context, never expand,
  * and always leave a drill-down affordance.
- * Spec: docs/superpowers/specs/2026-05-24-context-aware-memory-egress-design.md
+ * Spec: archive/docs branch, docs/superpowers/specs/2026-05-24-context-aware-memory-egress-design.md
  */
 
 const CHARS_PER_TOKEN = 4;

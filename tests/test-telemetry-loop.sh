@@ -1,5 +1,5 @@
 #!/bin/bash
-# P1.2/P1.3/P1.4 telemetry loop (docs/plans/2026-07-13-p1-observability.md Tasks 2-4):
+# P1.2/P1.3/P1.4 telemetry loop (archive/docs branch, docs/plans/2026-07-13-p1-observability.md Tasks 2-4):
 # session-load WRITES an injection manifest; stop-extract correlates it against the
 # transcript's tool_use records EXACTLY ONCE (manifest deleted), folds Skill/Task
 # invocations into utilization-counts.json, and emits ONE `gate=value-loop` TRACE row

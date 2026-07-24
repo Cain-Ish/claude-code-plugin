@@ -378,12 +378,12 @@ registerJsonTool(
     prompt: z.string().describe("The user prompt or topic to brief on."),
     context_hints: z.array(z.string()).optional().describe("Optional extra context strings to feed into the brief (e.g. relevant wiki snippets, project state)."),
   },
-  (args) => personaThink({ prompt: args.prompt, context_hints: args.context_hints }, { brainDir: BRAIN_DIR })
+  (args) => personaThink({ prompt: args.prompt, context_hints: args.context_hints })
 );
 
 registerJsonTool(
   "persona_stats",
-  "Inspect the persona's current state — identity summary from persona-card.md, signal counts, installed catalog sizes, recent dismissals, today's persona spend (informational — no enforcement). Read-only.",
+  "Inspect the persona's current state — identity summary from persona-card.md, signal counts, installed catalog sizes, recent dismissals. Read-only.",
   {},
   () => personaStats({})
 );

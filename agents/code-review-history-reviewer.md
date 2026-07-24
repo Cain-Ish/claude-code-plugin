@@ -11,6 +11,7 @@ description: |
   Context: code-review-deep has decomposed a PR and is fanning out reviewers.
   assistant: "Dispatching code-review-history-reviewer to blame-walk the changed code for reverts and re-introduced bugs."
   </example>
+model: inherit
 color: yellow
 effort: high
 tools: Read, Bash(git diff *), Bash(git log *), Bash(git blame *)

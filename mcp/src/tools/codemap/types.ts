@@ -1,6 +1,6 @@
 /**
  * Orientation code-map — shared type contract.
- * Plan: docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md.
+ * Plan: archive/docs branch, docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md.
  *
  * Node ids are POSIX-relative paths ('/' separators on every OS) so a graph
  * generated on Windows compares/queries identically on Linux CI. Symbol ids

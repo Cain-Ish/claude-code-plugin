@@ -1,64 +1,6 @@
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
-import { promises as fs } from "fs";
-import { join as join2, dirname } from "path";
-
-// src/brain-paths.ts
-import { join } from "path";
-import { homedir } from "os";
-
-// src/path-guard.ts
-function cleanEnvPath(s) {
-  return (s ?? "").replace(/[\r\n]/g, "");
-}
-
-// src/brain-paths.ts
-function resolveBrainDir(override) {
-  if (override) return override;
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
-}
-
-// src/tools/persona-think.ts
-function opusLedgerPath(brainDir2) {
-  if (process.env.COST_ROUTER_LEDGER) return process.env.COST_ROUTER_LEDGER;
-  const bd = resolveBrainDir(brainDir2);
-  return join2(bd, "opus-budget.json");
-}
-async function recordOpusLedger(ledgerPath, inputTokens, outputTokens) {
-  const callCost = inputTokens / 1e6 * 5 + outputTokens / 1e6 * 25;
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  let current = { date: today, opus_cost_usd: 0, opus_calls: 0 };
-  try {
-    const txt = await fs.readFile(ledgerPath, "utf-8");
-    const j = JSON.parse(txt);
-    if (j.date === today) {
-      current = {
-        date: today,
-        opus_cost_usd: Number(j.opus_cost_usd) || 0,
-        opus_calls: Number(j.opus_calls) || 0
-      };
-    }
-  } catch {
-  }
-  const next = {
-    date: today,
-    opus_cost_usd: current.opus_cost_usd + callCost,
-    opus_calls: current.opus_calls + 1
-  };
-  const tmpPath = `${ledgerPath}.tmp.${process.pid}`;
-  try {
-    await fs.mkdir(dirname(ledgerPath), { recursive: true });
-    await fs.writeFile(tmpPath, JSON.stringify(next));
-    await fs.rename(tmpPath, ledgerPath);
-  } catch {
-    try {
-      await fs.unlink(tmpPath);
-    } catch {
-    }
-  }
-}
 var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
-var COST_PER_CALL = Number(process.env.SB_PERSONA_COST_PER_CALL ?? "0.11");
 var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "30000");
 var SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
 Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
@@ -130,7 +72,6 @@ function parseBrief(raw) {
   }
 }
 async function personaThink(args, deps = {}) {
-  const lPath = deps.ledgerPath ?? opusLedgerPath(deps.brainDir);
   const runner = deps.runner ?? defaultRunner;
   const model = deps.model ?? DEFAULT_MODEL;
   const hints = (args.context_hints ?? []).join("\n");
@@ -143,47 +84,13 @@ ${args.prompt}` : args.prompt;
     const raw = await runner(SYSTEM_PROMPT, user, model);
     const brief = parseBrief(raw);
     if (!brief) return { ...EMPTY, error: "no JSON in response" };
-    if (lPath) {
-      const inputTok = deps.inputTokens ?? 0;
-      const outputTok = deps.outputTokens ?? 0;
-      if (inputTok > 0 || outputTok > 0) {
-        await recordOpusLedger(lPath, inputTok, outputTok).catch(() => {
-        });
-      } else if (deps.brainDir) {
-        await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {
-        });
-      }
-    } else if (deps.brainDir) {
-      await recordSpend(deps.brainDir, COST_PER_CALL).catch(() => {
-      });
-    }
     return brief;
   } catch (e) {
     return { ...EMPTY, error: e?.message ?? String(e) };
   }
 }
-async function readBudget(brainDir2) {
-  const file = join2(brainDir2, "persona-budget.json");
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  try {
-    const txt = await fs.readFile(file, "utf-8");
-    const j = JSON.parse(txt);
-    if (j.date === today) return { date: today, today_usd: Number(j.today_usd) || 0 };
-  } catch {
-  }
-  return { date: today, today_usd: 0 };
-}
-async function recordSpend(brainDir2, usd) {
-  const current = await readBudget(brainDir2);
-  const next = { date: current.date, today_usd: current.today_usd + usd };
-  await fs.mkdir(brainDir2, { recursive: true }).catch(() => {
-  });
-  await fs.writeFile(join2(brainDir2, "persona-budget.json"), JSON.stringify(next));
-  return next;
-}
 
 // src/cli/persona-think-cli.ts
-var brainDir = resolveBrainDir();
 var argvPrompt = process.argv.slice(2).join(" ").trim();
 var stdinPrompt = await new Promise((resolve) => {
   if (process.stdin.isTTY) return resolve("");
@@ -196,8 +103,7 @@ var stdinPrompt = await new Promise((resolve) => {
 });
 var prompt = argvPrompt || stdinPrompt;
 if (!prompt) process.exit(0);
-var budget = await readBudget(brainDir);
-var r = await personaThink({ prompt }, { brainDir });
+var r = await personaThink({ prompt });
 if (r.error) {
   process.stderr.write(`persona think error: ${r.error}
 `);
@@ -209,5 +115,4 @@ if (r.prompt_enrichment) lines.push(`Enrichment: ${r.prompt_enrichment}`);
 if (r.clarifying_questions.length) lines.push(`Ask user: ${r.clarifying_questions.map((q, i) => `${i + 1}) ${q}`).join("  ")}`);
 if (r.relevant_specialists.length) lines.push(`Consider: ${r.relevant_specialists.join(", ")}`);
 if (r.risk_flags.length) lines.push(`Risks: ${r.risk_flags.join("; ")}`);
-if (budget.today_usd > 0) lines.push(`Persona spend today: $${budget.today_usd.toFixed(2)} (informational)`);
 process.stdout.write(lines.join("\n") + "\n");

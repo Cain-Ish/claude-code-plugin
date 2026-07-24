@@ -20,6 +20,15 @@ disable-model-invocation: false
 
 # sb-change-control — how a change ships here
 
+> **PRE-1.0 DIET (2026-07-24): `docs/plans/`, `docs/specs/`, `docs/superpowers/` and
+> `CHANGELOG.md` were REMOVED from main** — the repo ships as a plugin and no longer carries
+> internal planning docs. All existing citations below resolve via the `archive/docs` branch
+> (`git show archive/docs:<path>`). Release records now live in release-commit bodies
+> (`release: X.Y.Z — thesis` + bullets + gates line). New plans/specs go to the second-brain
+> wiki, NOT the repo. The surface-budget baseline moved from `docs/` to
+> `.claude-plugin/surface-budget.json` (validate-plugin.sh R8 reads the new path;
+> references below already updated).
+
 This repo is a Claude Code plugin ("second-brain") that ships as version-locked release batches.
 Change control is unusually strict because the plugin's own history proves what happens without it:
 releases shipped with core features broken before the gate existed (RELEASING.md:19-22), a release
@@ -33,7 +42,7 @@ Terms used throughout (defined once):
 |---|---|
 | BRAIN_DIR | Runtime state dir, default `~/.second-brain` (logs, transcripts, dreams, persona state) |
 | KNOWLEDGE_DIR | Wiki/cold-tier dir, default `~/knowledge` (plugin.json `userConfig.knowledge_dir`) |
-| surface budget | `docs/surface-budget.json` — caps on live counts of skills/agents/scripts/shell-tests, enforced by `scripts/validate-plugin.sh` |
+| surface budget | `.claude-plugin/surface-budget.json` — caps on live counts of skills/agents/scripts/shell-tests, enforced by `scripts/validate-plugin.sh` |
 | tripwire | `tests/test-release-version-bump.sh` — shipped-source-changed ⇒ version strictly bumped vs `origin/main` |
 | bundle-current | `tests/test-bundle-current.sh` — committed `mcp/dist/*.bundle.js` must byte-match a rebuild of committed `mcp/src` |
 | MSYS / git-bash | The Windows bash environment this plugin is developed on (Windows is the dev platform; there is NO Windows CI lane) |
@@ -80,9 +89,9 @@ As of 0.33.31 (2026-07-05) the budget and the live counts are EQUAL on all four 
 Verified live: `skills` dirs 18, `agents/*.md` 9, `scripts/*.sh` (top-level) 52,
 `tests/test-*.sh` (top-level) 153, `skills/upgrade/SKILL.md` 4630 B. Consequence: ANY new
 top-level file in `skills/`, `agents/`, `scripts/`, or a new `tests/test-*.sh` makes
-`validate-plugin.sh` FAIL ("surface budget exceeded — …") unless `docs/surface-budget.json`
+`validate-plugin.sh` FAIL ("surface budget exceeded — …") unless `.claude-plugin/surface-budget.json`
 is bumped IN THE SAME COMMIT. That is by design: "Growth must be a deliberate, git-blameable
-choice. Ratchet DOWN freely." (`docs/surface-budget.json` `_comment`). House convention: record
+choice. Ratchet DOWN freely." (`.claude-plugin/surface-budget.json` `_comment`). House convention: record
 the delta in the CHANGELOG bullet ("Surface budget: tests 151→153", CHANGELOG.md:18).
 
 Not budgeted: vitest `.test.ts` files (any count), `scripts/` subdirectories, `cost-router/`,
@@ -110,7 +119,7 @@ real release commit `6fba312` (0.33.30, `git show 6fba312 --stat`):
    (deps must be lockfile-exact first: `npm ci --prefix mcp`), commit the bundles. NEVER
    hand-edit anything under `mcp/dist/` — the bundle-current gate byte-compares dist against a
    rebuild of src, so a hand edit both fails the gate and signals routing around review.
-5. `docs/surface-budget.json` — bumped iff counts grew (§2).
+5. `.claude-plugin/surface-budget.json` — bumped iff counts grew (§2).
 6. `skills/upgrade/migrations/X.Y.Z.md` — ONLY when a real user precondition/action exists
    (18 files exist for ~200 releases; sparse by design). `skills/upgrade/SKILL.md` stays a lean
    runner ≤ 8192 bytes (machine-enforced).
@@ -293,7 +302,7 @@ one-liners only:
 
 Derived from repo evidence read/run on 2026-07-05 against the working tree (HEAD `6fba312` =
 0.33.30 + the uncommitted 0.33.31 batch; `plugin.json` already says 0.33.31): RELEASING.md,
-CONSTITUTION.md, CHANGELOG.md (head), `docs/surface-budget.json`, `scripts/validate-plugin.sh`,
+CONSTITUTION.md, CHANGELOG.md (head), `.claude-plugin/surface-budget.json`, `scripts/validate-plugin.sh`,
 `tests/test-release-version-bump.sh`, `tests/run-all.sh`, Makefile, `.githooks/pre-push`,
 `scripts/lib.sh` (:1-51), `scripts/symlink-guard.sh` / `scripts/wiki-write-guard.sh` headers,
 `mcp/src/agent-grants.test.ts`, `mcp/package.json`, `.github/workflows/ci.yml`, and git history
@@ -304,7 +313,7 @@ Volatile facts — re-verify before trusting:
 
 ```bash
 jq -r .version .claude-plugin/plugin.json                      # current version (was 0.33.31)
-cat docs/surface-budget.json                                    # budget caps (were 18/9/52/153/8192)
+cat .claude-plugin/surface-budget.json                                    # budget caps (were 18/9/52/153/8192)
 echo "skills:$(find skills -mindepth 1 -maxdepth 1 -type d|wc -l) agents:$(find agents -maxdepth 1 -name '*.md'|wc -l) scripts:$(find scripts -maxdepth 1 -name '*.sh'|wc -l) tests:$(find tests -maxdepth 1 -name 'test-*.sh'|wc -l)"  # live counts vs caps (were AT CAP)
 git log -1 --format=%B $(git log --format=%h --grep='^release:' -1)  # latest release body = current gates line
 git log --oneline --grep="Merge pull request" -1               # branch policy still direct-on-main? (was #82 last merge-commit; #83 squashed)

@@ -180,12 +180,12 @@ fi
 
 This is informational only. The skill NEVER edits settings or exports env —
 disabling a Claude Code built-in is the user's per-machine choice. (Detector:
-`sb_auto_memory_state` in `scripts/lib.sh`; design:
-docs/specs/2026-05-29-auto-memory-coordination-design.md.)
+`sb_auto_memory_state` in `scripts/lib.sh`; design history on the
+`archive/docs` branch: `git show archive/docs:docs/specs/2026-05-29-auto-memory-coordination-design.md`.)
 
 ### 5. Persona state
 
-Surface the persona core's live state — identity card size, dismissals 7d, today's persona spend (informational — no cap). Read-only; nothing here mutates.
+Surface the persona core's live state — identity card size, dismissals 7d, installed catalog. Read-only; nothing here mutates.
 
 ```bash
 PCARD=~/.second-brain/persona-card.md
@@ -206,18 +206,6 @@ if [ -f "$DISMISSAL_FILE" ]; then
 fi
 echo "Persona dismissals (7d): $DISMISSALS_7D"
 
-BUDGET_FILE=~/.second-brain/persona-budget.json
-TODAY=$(date -u +%Y-%m-%d)
-SPEND=0
-if [ -f "$BUDGET_FILE" ]; then
-  B_DATE=$(jq -r '.date // ""' "$BUDGET_FILE" 2>/dev/null)
-  if [ "$B_DATE" = "$TODAY" ]; then
-    SPEND=$(jq -r '(.today_usd // 0) | tonumber? // 0' "$BUDGET_FILE" 2>/dev/null)
-    [ -n "$SPEND" ] || SPEND=0   # guard: %.4f below errors on a non-numeric/empty value
-  fi
-fi
-printf "Persona spend today: \$%.4f (informational, no cap)\n" "$SPEND"
-
 CATALOG=~/.second-brain/.installed-catalog.json
 if [ -f "$CATALOG" ]; then
   P=$(jq -r '.plugins | length' "$CATALOG" 2>/dev/null)
@@ -229,7 +217,7 @@ else
 fi
 ```
 
-If `Persona dismissals (7d)` is above 3, the persona core auto-mutes its opinionated framing — that's the backoff working. Spend never blocks anything — it is a number to read, not a gate.
+If `Persona dismissals (7d)` is above 3, the persona core auto-mutes its opinionated framing — that's the backoff working.
 
 ### 6. Runtime smoke check
 

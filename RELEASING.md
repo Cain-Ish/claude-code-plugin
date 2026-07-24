@@ -5,11 +5,13 @@ A version is released when every box below is checked on the merge commit.
 Anything short of that produces a "shipped pending verification" build —
 useful for testing on your own machine, not for pushing to others.
 
-> **Tag contract amendment (R8, 2026-06-11):** the practice moved from git
-> tags to marketplace-version + CHANGELOG.md as the release record (nothing
-> tagged since v0.22.1, while every release since is fully traceable via the
-> version-locked `plugin.json`/`marketplace.json` pair, its CHANGELOG entry,
-> and the merged PR). The gate below now binds to the MERGE, not the tag:
+> **Tag contract amendment (R8, 2026-06-11; amended 2026-07-24):** the practice
+> moved from git tags to marketplace-version + the release commit body as the
+> release record (nothing tagged since v0.22.1, while every release since is
+> fully traceable via the version-locked `plugin.json`/`marketplace.json` pair,
+> its `release: X.Y.Z — …` commit body, and the merged PR). The pre-1.0
+> CHANGELOG.md was removed from main in the pre-1.0 diet; it is preserved on
+> the `archive/docs` branch. The gate below now binds to the MERGE, not the tag:
 > every release lands via a PR with `tests/run-all.sh` green locally AND the
 > `ci` workflow green server-side. Tags are optional annotations; if you do
 > tag, the old rule still holds (gate green on the tagged commit).
@@ -47,11 +49,13 @@ Before tagging `vX.Y.Z`:
       `dist/cli/sb-entry.bundle.js` and friends already committed. (If diff
       shows changes, the source was edited but the bundle was not rebuilt —
       commit the bundle update too.)
-- [ ] **`CHANGELOG.md` has a `## vX.Y.Z` entry** (release narrative — never
-      context-loaded). If the release has a real precondition/action, ALSO add
+- [ ] **The release commit body is the release record** (until 1.0): a
+      `release: X.Y.Z — thesis` subject, narrative bullets, and the gates line.
+      (Pre-1.0 CHANGELOG.md history lives on the `archive/docs` branch.) If the
+      release has a real precondition/action, ALSO add
       `skills/upgrade/migrations/vX.Y.Z.md` (the runner loads only files in the
       upgrade hop). SKILL.md itself stays a lean runner (8KB cap, gated). No
-      entry → upgraders silently land in an inconsistent state (R6 policy).
+      migration row → upgraders silently land in an inconsistent state (R6 policy).
 - [ ] **`README.md` matches what ships.** New CLI verbs, new config knobs,
       changed defaults — all documented. README is the user's first contact
       with the plugin; it can't lag the code.

@@ -1,7 +1,7 @@
 #!/bin/bash
 # scripts/graph-cluster.sh shim -> bundled clustering CLI: clusters a wiki's link graph
 # (deterministic label propagation), gated by SB_SUMMARIZE_MIN_CLUSTER, fail-safe to [].
-# Spec: docs/specs/2026-06-01-dream-consolidation-v2-design.md §B1.
+# Spec: archive/docs branch, docs/specs/2026-06-01-dream-consolidation-v2-design.md §B1.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SHIM="$ROOT/scripts/graph-cluster.sh"

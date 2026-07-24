@@ -325,7 +325,7 @@ not let the campaign paper over them (details: **sb-failure-archaeology** / **sb
   tests `test-maintain-llm-drain.sh`, `test-dream-accept-guards.sh`,
   `test-maintain-llm-drain-timeout-guard.sh`, `test-injection-corpus.sh`,
   `test-dream-lifecycle.sh`, `mcp/src/agent-grants.test.ts`; `CHANGELOG.md` (0.33.20/21/30/31);
-  `systemd/*.service`; `docs/surface-budget.json`.
+  `systemd/*.service`; `.claude-plugin/surface-budget.json`.
 - **Authored:** 2026-07-05, against the uncommitted **0.33.31** working tree (plugin.json version
   `0.33.31`; HEAD `6fba312` = release 0.33.30). All Phase-0 expected outputs were produced by
   running the commands on this tree.
@@ -335,7 +335,7 @@ not let the campaign paper over them (details: **sb-failure-archaeology** / **sb
   - Version → `jq -r .version .claude-plugin/plugin.json`.
   - Accept-guard floor still green → `bash tests/test-maintain-llm-drain.sh && bash tests/test-dream-accept-guards.sh`.
   - Trifecta legs today → `sed -n '150,190p' scripts/maintain-llm-drain.sh` (creds bind + network).
-  - Surface budget → `cat docs/surface-budget.json` (agents/tests counts the split bumps).
+  - Surface budget → `cat .claude-plugin/surface-budget.json` (agents/tests counts the split bumps).
   - Auto flags → `cat ~/.second-brain/config.json` (auto_maintain / auto_accept).
   - Open audit findings → the audit JSON was an internal artifact with NO stable path (do not
     hunt for `deep-audit-findings.json`). Its durable echoes: `CHANGELOG.md` `## 0.33.31` (the

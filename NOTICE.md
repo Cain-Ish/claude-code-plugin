@@ -9,7 +9,8 @@ test-driven-development, verification-before-completion, writing-plans) from
 with upstream superpowers installed alongside, the duplicate near-identical
 skill descriptions doubled skill-list tokens in every session and dispatched
 nondeterministically between divergent bodies (the fragmented
-`docs/specs` vs `docs/superpowers/specs` corpus in this repo is the scar).
+`docs/specs` vs `docs/superpowers/specs` corpus — now preserved on the
+`archive/docs` branch — is the scar).
 
 **Install the upstream plugin instead** (`superpowers` ≥ 5.1.0 from the
 official marketplace). The `/second-brain:setup` skill warns when it is

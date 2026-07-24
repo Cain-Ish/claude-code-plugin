@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Release version-bump tripwire — the gap that let #79 ship 0.30.2's code as
 # "0.30.1". The existing guards are blind to it: test-upgrade-migration-row.sh
-# only checks the CHANGELOG has a `## <plugin.json version>` heading (stale-but-
+# only checks migration-file hygiene against plugin.json's version (stale-but-
 # consistent passes), and validate-plugin.sh's drift check only compares
 # plugin.json against marketplace.json (both stale -> they agree -> pass). Neither
 # has a notion of "the previous release", so "changed shipped code without bumping
@@ -83,4 +83,4 @@ fi
 # The #79 failure mode: code shipped, version unchanged (or downgraded).
 echo "----- shipped files changed vs $BASE_REF without a version bump -----"
 printf '%s\n' "$CHANGED" | sed 's/^/    /'
-fail "version is '$CUR_VER' but base ($BASE_REF) is already '$BASE_VER' — bump .claude-plugin/plugin.json + marketplace.json (+ CHANGELOG '## <v>') before shipping. No bump = incomplete release."
+fail "version is '$CUR_VER' but base ($BASE_REF) is already '$BASE_VER' — bump .claude-plugin/plugin.json + marketplace.json before shipping. No bump = incomplete release."

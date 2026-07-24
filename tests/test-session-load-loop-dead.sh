@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests the loop-DEAD banner (P1.1, docs/plans/2026-07-13-p1-observability.md):
+# Tests the loop-DEAD banner (P1.1, archive/docs branch, docs/plans/2026-07-13-p1-observability.md):
 # scheduler REGISTERED but the drainer has not ticked in SB_LOOP_DEAD_HOURS — the
 # case the timeout/dead-letter banners cannot see (they need attempts to leave
 # signatures; a task that never fires leaves nothing). Timer state is injected via

@@ -1,6 +1,6 @@
 ---
 name: upgrade
-description: Detect installed plugin version vs the version in plugin.json, run idempotent migrations between them, and update the installed-version marker. Safe to run anytime — no-op when already at current version. Use after pulling a new plugin release.
+description: Bring an installed second-brain plugin up to date with the current release. Use after pulling a new plugin version. Safe to run anytime — idempotent, no-op when already at the current version.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read Write Edit Bash(cat *) Bash(jq *) Bash(test *) Bash(date *) Bash(grep *) Bash(awk *) Bash(ls *) Bash(cp *) Bash(mv *) Bash(mkdir *) Bash(node *) Bash(cd *) Bash(bash *)
@@ -13,8 +13,8 @@ Idempotent migration runner. Reads the canonical version from
 `~/.second-brain/.installed-version`, and applies only the migrations between
 them. Migration ACTIONS live in `skills/upgrade/migrations/<version>.md` —
 one file per release that has a real precondition or action. A version with
-NO file is marker-bump-only (its narrative is in the repo CHANGELOG.md, which
-is never context-loaded). This split keeps a typical 1–2 version hop under
+NO file is marker-bump-only (its narrative is in the release commit body,
+which is never context-loaded). This split keeps a typical 1–2 version hop under
 ~2K tokens instead of loading the full release history.
 
 ## Steps
@@ -103,6 +103,6 @@ test -x "${CLAUDE_PLUGIN_ROOT}/scripts/validate-plugin.sh" \
 - If a migration would be destructive, gate it behind explicit user
   confirmation.
 - RELEASE POLICY (R6): a `migrations/<version>.md` file is added ONLY when a
-  release has a real precondition or action; every release adds a CHANGELOG.md
-  entry. The validator caps this SKILL.md at 8KB so it cannot regrow into a
-  context-loaded changelog.
+  release has a real precondition or action; release narrative lives in the
+  release commit body. The validator caps this SKILL.md at 8KB so it cannot
+  regrow into a context-loaded changelog.

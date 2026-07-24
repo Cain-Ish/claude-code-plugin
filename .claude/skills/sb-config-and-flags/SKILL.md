@@ -296,7 +296,7 @@ touched. Do all eight or a gate fails:
    validator rules): sb-architecture-contract references/extending-the-plugin.md.
 3. **Test** — `tests/test-<name>.sh` covering the kill-switch branch AND the default branch
    (house rule: test fallback branches, not just happy path). Mechanics: sb-validation-and-qa.
-4. **docs/surface-budget.json** — bump `scripts`/`tests` counts in the SAME commit (6fba312:
+4. **.claude-plugin/surface-budget.json** — bump `scripts`/`tests` counts in the SAME commit (6fba312:
    scripts 51→52, tests 150→151), else the validate-plugin.sh R8 gate fails.
 5. **CHANGELOG.md** — entry naming the flag, its default, and its kill switch.
 6. **Version bump** — `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` together
@@ -353,5 +353,5 @@ site was re-verified by reading the file or by the §10 bulk greps on 2026-07-05
 Volatile facts and their one-line re-checks (all in §10): the ~187-name census; the 92
 bash-tested / 9 vitest-tested coverage split; the persona-rules shipped defaults; the config.json
 seed keys; `auto_codemap` liveness; hook wiring/timeouts (`jq . hooks/hooks.json`); the surface
-budget counts (`cat docs/surface-budget.json`). If plugin.json's version no longer starts with
+budget counts (`cat .claude-plugin/surface-budget.json`). If plugin.json's version no longer starts with
 0.33, re-run all of §10 before trusting any table here.

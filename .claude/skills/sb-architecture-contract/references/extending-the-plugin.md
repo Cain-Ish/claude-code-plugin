@@ -9,7 +9,7 @@ skills/agents markdown authoring → sb-docs-and-writing §5-6; bundle mechanics
 
 Before either recipe: the surface budget is AT CAP (skills 18 / agents 9 / scripts 52 /
 tests 153) — any new top-level `scripts/*.sh` or `tests/test-*.sh` fails `validate-plugin.sh`
-unless `docs/surface-budget.json` is bumped in the SAME commit. Prefer folding into an existing
+unless `.claude-plugin/surface-budget.json` is bumped in the SAME commit. Prefer folding into an existing
 script; growth must be a deliberate, git-blameable choice (sb-change-control §2). A new hook is
 classified "new feature" → plan doc expected (sb-change-control §1).
 
@@ -150,7 +150,7 @@ one-shot probe in sb-debugging-playbook D1.
 
 ### A10. The same-commit ship set
 
-New `scripts/*.sh` → `docs/surface-budget.json` `scripts` +1. `scripts/` and `hooks/` are both
+New `scripts/*.sh` → `.claude-plugin/surface-budget.json` `scripts` +1. `scripts/` and `hooks/` are both
 version-tripwire trigger paths → version bump in `plugin.json` + `marketplace.json`. CHANGELOG
 bullet naming the default, the kill switch, and the regression lock. All gates green locally.
 Sequence and gate list: sb-change-control §§2-4.

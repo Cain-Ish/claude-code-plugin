@@ -44,7 +44,7 @@ setup_skeleton() {
   rm -rf "$root"
   mkdir -p "$root/.claude-plugin" "$root/hooks" "$root/scripts" \
            "$root/skills/setup" "$root/skills/improve" "$root/agents" \
-           "$root/mcp" "$root/docs"
+           "$root/mcp"
 
   # Baseline fixture must be a COMPLETE, valid manifest (incl. author) so that
   # `claude plugin validate --strict` — which treats manifest-completeness
@@ -72,7 +72,7 @@ JSON
 exit 0
 SH
 
-  cat > "$root/docs/surface-budget.json" <<'JSON'
+  cat > "$root/.claude-plugin/surface-budget.json" <<'JSON'
 {"skills": 99, "agents": 99, "scripts": 99, "tests": 99, "upgrade_skill_max_bytes": 999999}
 JSON
 
@@ -104,9 +104,6 @@ MD
 MD
   cat > "$root/skills/improve/signal-patterns.md" <<'MD'
 # Signal patterns
-MD
-  cat > "$root/docs/reflection-protocol.md" <<'MD'
-# Reflection protocol
 MD
 
   cat > "$root/.claude-plugin/mcp.json" <<'JSON'

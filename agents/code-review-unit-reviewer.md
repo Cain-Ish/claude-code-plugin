@@ -2,16 +2,15 @@
 name: code-review-unit-reviewer
 description: |
   Deep-reviews a single review unit (a group of related changed files) within a
-  GitHub change. Reads every file in the unit, diffs each against the base,
-  follows cross-file imports, and applies a diff-scoped bug taxonomy focused on
-  runtime-affecting bugs — especially cross-file interaction bugs that
-  breadth-only review misses. Dispatched in parallel (one per unit) by the
-  code-review-deep skill.
+  GitHub change, hunting runtime-affecting bugs — especially the cross-file
+  interaction bugs that breadth-only review misses. Dispatched in parallel
+  (one per unit) by the code-review-deep skill.
 
   <example>
   Context: code-review-deep has decomposed a PR into review units and is fanning out.
   assistant: "Dispatching code-review-unit-reviewer per unit to hunt cross-file bugs in parallel."
   </example>
+model: inherit
 color: cyan
 effort: high
 tools: Read, Bash(git diff *), mcp__plugin_second-brain_knowledge-base__code_map, mcp__plugin_second-brain_knowledge-base__code_neighbors

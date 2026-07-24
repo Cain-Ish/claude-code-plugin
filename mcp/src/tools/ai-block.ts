@@ -1,7 +1,7 @@
 // AI-native representation — the per-page machine-first "shared intermediate" block.
 // A marked region <!-- ai:begin … --> … <!-- ai:end --> holding flat YAML key:value
 // fields (per-type schema). Pure module: parse / strip / validate. No I/O.
-// Spec: docs/specs/2026-06-02-ai-native-knowledge-representation-design.md
+// Spec: archive/docs branch, docs/specs/2026-06-02-ai-native-knowledge-representation-design.md
 
 // The begin marker is a single HTML comment line (its annotation tail stays on that line,
 // `[^\n]*?` — so a stray token can't fold the comment-tail into the parsed body). Requires a

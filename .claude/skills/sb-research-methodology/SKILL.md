@@ -141,7 +141,7 @@ Then, before writing code:
       fenced-wrong-paths section first — those fences are prior negative results.
 - [ ] Kill-switch name chosen (`SB_*`), default justified by current evidence level.
 - [ ] Machine lock you will add at Stage 5a named (which test, what it asserts).
-- [ ] Surface-budget headroom checked (`docs/surface-budget.json`; enforced by
+- [ ] Surface-budget headroom checked (`.claude-plugin/surface-budget.json`; enforced by
       `scripts/validate-plugin.sh` R8) — prefer folding into existing files.
 
 ---

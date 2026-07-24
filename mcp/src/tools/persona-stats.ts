@@ -15,7 +15,6 @@ export interface PersonaStatsResult {
   installed_agents: number;
   installed_skills: number;
   dismissals_7d: number;
-  today_spend_usd: number;
 }
 
 
@@ -66,13 +65,6 @@ export async function personaStats(args: PersonaStatsArgs = {}): Promise<Persona
     }
   } catch {}
 
-  let spend = 0;
-  try {
-    const b = JSON.parse(await fs.readFile(join(dir, 'persona-budget.json'), 'utf-8'));
-    const today = new Date().toISOString().slice(0, 10);
-    if (b.date === today) spend = Number(b.today_usd) || 0;
-  } catch {}
-
   return {
     identity_summary: identity,
     persona_card_bytes: cardBytes,
@@ -82,6 +74,5 @@ export async function personaStats(args: PersonaStatsArgs = {}): Promise<Persona
     installed_agents: agents,
     installed_skills: skills,
     dismissals_7d: dismissals,
-    today_spend_usd: spend,
   };
 }
