@@ -47,16 +47,4 @@ r=$(RUN bash -c "source '$ROOT/scripts/lib.sh'; printf '{\"auto_accept\":\"safe\
 pass "sb_config_get returns a clean string under Windows jq"
 rm -rf "$T"
 
-# 3. cost-router counts via `jq -rs '.[].tier' | grep -c '^DO$'` — a \r makes the line "DO\r" so
-#    `grep '^DO$'` never matches and every tier count comes out 0.
-T=$(mktemp -d); export BRAIN_DIR="$T/brain" SB_KNOWLEDGE_DIR="$T/knowledge"; mkdir -p "$BRAIN_DIR"
-printf '%s\n' '{"ts":"2026-06-15T00:00:01Z","tier":"DO","escalated":true,"outcome":"ok","committed":true}' \
-              '{"ts":"2026-06-15T00:00:02Z","tier":"DO","escalated":false,"outcome":"ok","committed":true}' > "$BRAIN_DIR/cost-router-events.jsonl"
-RUN bash "$ROOT/scripts/cost-router-capture.sh" 2>/dev/null
-P="$T/knowledge/wiki/state/cost-routing-patterns.md"
-grep -qE '\| DO \(Sonnet/implement\) \| 2 ' "$P" 2>/dev/null \
-  || fail "cost-router tier count is wrong under Windows jq — \\r defeated 'grep -c ^DO\$' (got: $(grep -i 'DO (Sonnet' "$P" 2>/dev/null | head -c 80))"
-pass "cost-router tier counts survive Windows jq (tr -d before grep)"
-unset BRAIN_DIR SB_KNOWLEDGE_DIR; rm -rf "$T"
-
 echo; echo "ALL PASS"

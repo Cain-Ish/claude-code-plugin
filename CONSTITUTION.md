@@ -7,7 +7,7 @@ gate (`tests/test-surface-budget.sh`) and the single-source resolution guard
 
 ## What second-brain IS
 
-The AI's **memory of the project** + support skills/agents + an optional cost-router wrapper.
+The AI's **memory of the project** + support skills/agents + in-house model-tier routing.
 The mental model a senior dev holds *before opening a file*: WHAT exists, WHERE it lives, WHY,
 HOW it works, WHY-THIS-WAY — so Claude starts **oriented**, not re-deriving by grep.
 
@@ -16,8 +16,8 @@ Mission triad:
 2. **Compounding personalization** — learned best practices (global + per-project) that become
    ACTIVE guardrails, so Claude grows tailored to the user with use.
 3. **Support + cost** — persona agents that keep focus / ask the right questions / enforce
-   guardrails while coding, + an optional cost-router (the **model-routing** slice only — see
-   Token discipline).
+   guardrails while coding, + in-house orchestration/model-routing (`skills/team` — the
+   **model-routing** slice only; see Token discipline).
 
 ## Token discipline (core, not a bolt-on)
 
@@ -25,7 +25,7 @@ Memory's job is to minimize the high-signal token set: **just-in-time retrieval*
 identifiers, fetch on demand), **summarize-before-evict** compaction, and **cache-stable
 injection** (volatile context — persona/wiki — goes LAST so the prompt-cache prefix stays
 warm). **Good memory IS token optimization** — it lives inside this plugin (knowledge_fetch
-tiers, BM25, PreCompact, hot/cold tier). The **cost-router is only the orthogonal model-routing
+tiers, BM25, PreCompact, hot/cold tier). **Model routing (`skills/team`) is only the orthogonal
 axis** (which model, not which tokens); the two meet at the subagent boundary. Guidance:
 `wiki/learnings/claude-mechanics-best-practices-2026-06`.
 

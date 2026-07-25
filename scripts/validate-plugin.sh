@@ -82,10 +82,9 @@ fi
 # bump script can't ship a mismatched pair.
 MARKETPLACE_JSON="$PLUGIN_ROOT/.claude-plugin/marketplace.json"
 if [ -f "$MARKETPLACE_JSON" ]; then
-  # Iterate EVERY marketplace entry, not .plugins[0] — checking only the first
-  # entry left cost-router's drift unchecked. Each
-  # entry's `source` dir must carry .claude-plugin/plugin.json with a matching
-  # version.
+  # Iterate EVERY marketplace entry, not .plugins[0], so any future additional
+  # entry's drift is checked too. Each entry's `source` dir must carry
+  # .claude-plugin/plugin.json with a matching version.
   # Fail CLOSED on schema surprises: tostring keeps @tsv alive on a non-string
   # source (object/remote forms), and a parse failure must surface as an
   # error, not silently skip every drift check.

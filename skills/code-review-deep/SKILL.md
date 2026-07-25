@@ -305,9 +305,10 @@ functional changes; real issues on lines this change did not modify.
   run-over-run is parent-context bloat, inherent to inline fan-out — the wave cap +
   lean sub-agent returns above are the mitigation (bounded, not a true leak).
 - **Cost ownership.** Model tiering here is the skill's OWN (self-routing).
-  cost-router does not override it — cost-router only routes a review request *to*
-  this skill (see `cost-router` setup), because it cannot tier a running skill's
-  internal dispatches. The per-pass model choices in this skill are
+  The team protocol (`skills/team/PROTOCOL.md`) does not override it — outer
+  orchestration only routes a review request *to* this skill, because it cannot
+  tier a running skill's internal dispatches (the former cost-router plugin was
+  absorbed and removed). The per-pass model choices in this skill are
   correctness/resource decisions, not price decisions: best-model-for-code and the
   code-as-prompt `.md` exception are accuracy floors; the wave caps and unit-size
   bounds are RAM/peak-agent ceilings.

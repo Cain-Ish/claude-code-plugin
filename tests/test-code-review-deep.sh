@@ -241,8 +241,9 @@ grep -qi "prior-review" "$ROOT/agents/code-review-scorer.md" \
 grep -qi "scoring shares the .*wave cap" "$ORCH" \
   && ok "Pass 3 scoring shares the <=5 wave cap" \
   || bad "Pass 3 missing the shared <=5 wave-cap note"
-# C6: the skill documents the cost-router ownership boundary (self-tiering).
-grep -qi "cost-router does not override" "$ORCH" \
+# C6: the skill documents the tiering ownership boundary (self-tiering — outer
+# orchestration routes TO the skill, never tiers its internal dispatches).
+grep -qi "does not override" "$ORCH" \
   && ok "skill documents the cost-ownership boundary" \
   || bad "skill missing the cost-ownership / self-tiering note"
 

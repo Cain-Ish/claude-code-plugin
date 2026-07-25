@@ -31,7 +31,7 @@ Eight hook events wire the autonomous loop (`hooks/hooks.json`):
 - **UserPromptSubmit** — injects persona card, catalog, and relevant wiki hits per prompt (no LLM call).
 - **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, a soft plan-first nudge.
 - **PostToolUse** — quality gate on writes, injection-pattern scan of tool returns (telemetry, never blocks), simplicity nudge on large single changes.
-- **Stop** — verify gate, then the LLM extractor files what mattered into hot tier + wiki; SAR safety-summary banner; cost-router event capture.
+- **Stop** — verify gate, then the LLM extractor files what mattered into hot tier + wiki; SAR safety-summary banner.
 - **SubagentStop** — archives substantive subagent results into the episodic transcript store.
 - **PreCompact** — same extraction before a context compaction, so nothing is lost to the window.
 - **ConfigChange** — audit-logs every settings/skills change (never blocks).
@@ -100,14 +100,10 @@ optional LLM quality gate. Don't put `~/knowledge/` inside a synced drive.
 - **`~/.second-brain/config.json`** — persistent settings (e.g. `auto_improve`).
 - **`SB_*` environment variables** — every guard, banner, nudge, and pipeline has a kill switch (`SB_PERSONA_GATE=off`, `SB_SYMLINK_GUARD=off`, `SB_INJECTION_SCAN=off`, …). Precedence: env > config.json > defaults. `sb help` and `sb auth status`/`doctor` are the inspection surface.
 
-## cost-router
+## Model-tier routing
 
-The repo bundles a sibling plugin, `cost-router` (`/plugin install cost-router@second-brain`):
-Opus plans, Sonnet implements, Haiku does mechanical work, so Opus spend stretches further.
-It adds `/cost-router:orchestrate`, `/cost-router:model-route`, and `/cost-router:setup`, plus an
-advisory tier nudge and a session-start routing banner. It is deprecated — its orchestration
-role is being absorbed into second-brain. Existing installs keep working; second-brain works
-fine without it.
+Model-tier routing is built in (the team protocol, `skills/team/PROTOCOL.md`); the former
+cost-router plugin was absorbed and removed.
 
 ## License
 

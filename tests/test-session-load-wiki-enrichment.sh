@@ -51,7 +51,7 @@ Router shipping; knowledge base self-healing.
 ## Open blockers
 - vector dependencies offline on a fresh install
 ## Cross-references
-See [[cost-router-patterns]] and [[crlf-frontmatter]].
+See [[routing-patterns]] and [[crlf-frontmatter]].
 EOF
 printf '{"slug":"%s","path":"%s","plan_done":0,"plan_total":0}\n' "$SLUG" "$PROJDIR" > "$B/projects.jsonl"
 

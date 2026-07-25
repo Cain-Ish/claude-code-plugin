@@ -27,9 +27,8 @@ fail() { echo "FAIL: $1"; exit 1; }
 
 # SHIPPED second-brain surface — a change here is a release and must bump the
 # version. Excludes: docs/ (narrative), tests/ (a test-only change is not a
-# release), cost-router/ (its own independent version, guarded separately),
-# package-lock.json (npm churn), marketplace.json (shared with cost-router; its
-# second-brain entry mirrors plugin.json, which is already a trigger).
+# release), package-lock.json (npm churn), marketplace.json (its second-brain
+# entry mirrors plugin.json, which is already a trigger).
 TRIGGERS="mcp/src mcp/dist mcp/package.json scripts hooks skills agents bin systemd .claude-plugin/plugin.json .claude-plugin/mcp.json"
 
 # --- resolve the base (previous release) ref ------------------------------------

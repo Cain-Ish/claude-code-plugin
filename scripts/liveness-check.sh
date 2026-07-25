@@ -1,9 +1,9 @@
 #!/bin/bash
-# R7 liveness/dormancy gate — "shipped" is not "running". Three independent
-# audit findings (CR-001 cost-router never installed, MCP-INTEG-1 bridge
-# consumer without producer, MCP-DEPS-1 dangling embeddings) were all ONE
-# missing check: does each value artifact actually exist, match the shipped
-# version, and show recent life on THIS box?
+# R7 liveness/dormancy gate — "shipped" is not "running". Independent audit
+# findings (plugin shipped but never installed, MCP-INTEG-1 bridge consumer
+# without producer, MCP-DEPS-1 dangling embeddings) were all ONE missing
+# check: does each value artifact actually exist, match the shipped version,
+# and show recent life on THIS box?
 #
 # Output: one line per probe — OK: / DRIFT: / DORMANT: / STALE: / MISSING:.
 # Advisory by default (always exit 0); --strict exits 1 when any non-OK line
@@ -24,8 +24,6 @@ BAD=0
 say() { printf '%s\n' "$1"; case "$1" in OK:*) : ;; *) BAD=1 ;; esac; }
 
 mtime_of() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
-NOW=$(date +%s)
-WEEK=$((7 * 86400))
 
 # ── 1. Deployment: every marketplace plugin installed at the shipped version ─
 if [ -f "$MP" ] && command -v jq >/dev/null 2>&1; then
@@ -52,19 +50,7 @@ else
   say "MISSING: marketplace.json or jq unavailable — deployment probe skipped"
 fi
 
-# ── 2. Bridge: cost-router installed → its capture bridge must produce ──────
-if [ -f "$IPJ" ] && jq -e '.plugins | keys[] | select(startswith("cost-router@"))' "$IPJ" >/dev/null 2>&1; then
-  EV="$BRAIN_DIR/cost-router-events.jsonl"
-  if [ ! -f "$EV" ]; then
-    say "DORMANT: cost-router installed but $EV never produced (bridge dormant)"
-  elif [ $((NOW - $(mtime_of "$EV"))) -gt "$WEEK" ]; then
-    say "DORMANT: cost-router bridge stale — last event $(( (NOW - $(mtime_of "$EV")) / 86400 ))d ago"
-  else
-    say "OK: cost-router bridge producing (events fresh)"
-  fi
-fi
-
-# ── 3. Episodic indexer keeps up with the transcript archive ────────────────
+# ── 2. Episodic indexer keeps up with the transcript archive ────────────────
 IDX="$BRAIN_DIR/episodic-index.json"
 NEWEST_TX=""
 if [ -d "$BRAIN_DIR/transcripts" ]; then
@@ -82,7 +68,7 @@ if [ -n "$NEWEST_TX" ]; then
   fi
 fi
 
-# ── 4. Embeddings deps: cache symlink must not dangle ───────────────────────
+# ── 3. Embeddings deps: cache symlink must not dangle ───────────────────────
 VD="$BRAIN_DIR/vector-deps/node_modules"
 if [ -L "$VD" ] || [ -e "$VD" ]; then
   if [ -e "$VD" ]; then

@@ -11,7 +11,7 @@ REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
 
-GUARDED="ensure-dirs.sh discover-installed.sh discover-doc-sources.sh session-load.sh dream-autostage.sh persona-context.sh stop-verify-gate.sh stop-extract.sh sar-summary.sh cost-router-capture.sh pre-compact.sh subagent-capture.sh"
+GUARDED="ensure-dirs.sh discover-installed.sh discover-doc-sources.sh session-load.sh dream-autostage.sh persona-context.sh stop-verify-gate.sh stop-extract.sh sar-summary.sh pre-compact.sh subagent-capture.sh"
 SECURITY="persona-tool-guard.sh wiki-write-guard.sh symlink-guard.sh flow-guard.sh config-change-guard.sh quality-gate.sh tool-return-scanner.sh simplicity-gate.sh"
 
 # --- Part A: static — every capture/context hook carries the guard line.
@@ -79,16 +79,3 @@ grep -q 'SB_NESTED_SPAWN=1' "$REPO_ROOT/scripts/extraction-quality-gate.sh" \
 pass "static: maintainer + quality-gate spawns guarded; drainer timeout knob dedicated (240s)"
 
 echo "ALL PASS"
-
-# --- Part F (R5.1): cost-router's own hooks honor the guard too — a nested
-# extractor session must not get routing banners/nudges injected (R1 deferral).
-for s in classify-prompt.sh routing-status.sh; do
-  grep -q 'SB_NESTED_SPAWN:-0' "$REPO_ROOT/cost-router/scripts/$s" \
-    || fail "static: cost-router/scripts/$s lacks the nested-spawn guard"
-  OUT=$(echo '{"prompt":"design something elaborate for me"}' \
-        | SB_NESTED_SPAWN=1 bash "$REPO_ROOT/cost-router/scripts/$s" )
-  [ -z "$OUT" ] || fail "runtime: cost-router/$s emitted output under SB_NESTED_SPAWN=1"
-done
-pass "cost-router hooks no-op under SB_NESTED_SPAWN=1"
-
-echo "ALL PASS (incl. cost-router)"

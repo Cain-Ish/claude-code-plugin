@@ -47,11 +47,11 @@ H=$(grep -rnE 'for [a-z]+ in learnings decisions entities issues concepts securi
 # sb_knowledge_dir() (option > env > default, mirroring mcp/src/brain-paths.ts) — NOT a
 # hand-rolled `${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-…:-$HOME/knowledge}`. The allowlisted
 # files keep the inline form for a stated reason: they resolve BEFORE sourcing lib.sh
-# (persona-context.sh, cost-router-capture.sh), never source lib.sh at all (the standalone
+# (persona-context.sh), never source lib.sh at all (the standalone
 # kb-*/wiki-*/graph-cluster helpers), or deliberately invert the precedence for the systemd-
 # timer env (maintain-deterministic.sh). lib.sh is the definition site. Any NEW script that
 # trips this must call sb_knowledge_dir instead.
-KD_ALLOW='lib.sh|persona-context.sh|cost-router-capture.sh|maintain-deterministic.sh|graph-cluster.sh|kb-drain-reconcile.sh|kb-project-backfill.sh|kb-project-suggest.sh|kb-ai-block-candidates.sh|wiki-forget-candidates.sh|wiki-forget-score.sh|wiki-redundancy.sh|wiki-restore.sh'
+KD_ALLOW='lib.sh|persona-context.sh|maintain-deterministic.sh|graph-cluster.sh|kb-drain-reconcile.sh|kb-project-backfill.sh|kb-project-suggest.sh|kb-ai-block-candidates.sh|wiki-forget-candidates.sh|wiki-forget-score.sh|wiki-redundancy.sh|wiki-restore.sh'
 KD=$(grep -lE 'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR.*:-.*HOME/knowledge' "$ROOT"/scripts/*.sh 2>/dev/null \
        | grep -vE "/(${KD_ALLOW})\$" || true)
 [ -z "$KD" ] && pass "no NEW hand-rolled KNOWLEDGE_DIR resolution (all use \$(sb_knowledge_dir))" \

@@ -73,7 +73,8 @@ Re-verify the whole table:
 | Stop | (all) | `stop-verify-gate.sh` | 10 | verification nudge |
 | Stop | (all) | ⏲45 `stop-extract.sh` | 45 | the capture pipeline (§3.2) |
 | Stop | (all) | `sar-summary.sh` | 5 | Safety-Adherence-Rate banner; kill `SB_SAR_SUMMARY=off` |
-| Stop | (all) | `cost-router-capture.sh` | 10 | pure no-op when cost-router absent |
+
+> Note (0.35.x): the cost-router plugin was absorbed and removed (its Stop hook `cost-router-capture.sh` is gone; tier routing lives in `skills/team/PROTOCOL.md`). History: wiki `entities/cost-router` + the archive/docs branch. `COST_ROUTER_*` flags are gone.
 | SubagentStop | `*` | `subagent-capture.sh` | 10 | archives subagent FINAL result; "MUST always exit 0 (a blocking SubagentStop wedges the parent fan-out)" (hooks.json comment) |
 | PreCompact | `.*` | ⏲45 `pre-compact.sh` | 45 | same extraction on the pre-compaction window; shares markers with Stop |
 | PreToolUse | `Bash\|Write\|Edit\|MultiEdit\|Read\|WebFetch\|WebSearch\|Task\|Agent` (`Agent` = CC v2.1.63 rename of Task) | `persona-tool-guard.sh` | 5 | rule-based allow/ask/deny; every verdict → audit-log; kill `SB_PERSONA_GATE=off` |

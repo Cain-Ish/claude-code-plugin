@@ -15,7 +15,7 @@ pass() { echo "PASS: $1"; }
 # Cross-OS note: cp -r of the whole repo copies mcp/node_modules (500MB+) and
 # .git (~23MB) — on Windows/Git-Bash that takes 90s+ and times out.  Copy only
 # the subtrees validate-plugin.sh actually inspects.
-for _d in skills scripts agents hooks docs .claude-plugin cost-router mcp; do
+for _d in skills scripts agents hooks docs .claude-plugin mcp; do
   [ -e "$REPO_ROOT/$_d" ] || continue
   # For mcp: only package.json is needed; skip node_modules (500MB+).
   if [ "$_d" = "mcp" ]; then

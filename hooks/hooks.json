@@ -63,12 +63,6 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/sar-summary.sh",
             "timeout": 5
-          },
-          {
-            "_comment": "cost-router-capture \u2014 aggregates Contract B routing events into a cost-routing-patterns wiki page for the /orchestrate and /model-route classifiers to read. Pure no-op (exit 0) when the events file is absent (cost-router not installed). Kill switch: simply do not install cost-router.",
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/cost-router-capture.sh",
-            "timeout": 10
           }
         ]
       }

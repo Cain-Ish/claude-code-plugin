@@ -84,7 +84,8 @@ servers as `CLAUDE_PLUGIN_OPTION_<UPPERNAME>` env vars — so the wiki root arri
 | Knowledge dir (TS, brain-paths funnel: search/fetch, archive_to_wiki, sb CLI, CLI shims) | `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` → `KNOWLEDGE_DIR` → `homedir()/knowledge` | `brain-paths.ts:35-42` |
 | Knowledge dir (MCP server + dream tools) | **REVERSED: `KNOWLEDGE_DIR` → `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR`** → `homedir()/knowledge` | `mcp/src/server.ts:29-43`; `mcp/src/tools/dream.ts:75-84` — divergence, see rules below |
 | Knowledge dir (shell) | `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` → `$HOME/knowledge`, then tilde-expand `${kdir/#\~/$HOME}` | `lib.sh:159,337,369,1630` |
-| Knowledge dir (cost-router only) | `SB_KNOWLEDGE_DIR` → `KNOWLEDGE_DIR` → `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` → `$HOME/knowledge` | `cost-router-capture.sh:26` |
+
+> Note (0.35.x): cost-router was absorbed and removed — its capture script (and its `SB_KNOWLEDGE_DIR`-first resolution row) and all `COST_ROUTER_*` flags are gone. History: wiki `entities/cost-router` + the archive/docs branch. Any `cost-router` mention below/in references is historical.
 
 Rules and caveats:
 
