@@ -4,7 +4,9 @@ A local-first memory layer for Claude Code. It gives Claude the mental model a s
 before opening a file — what exists, where it lives, why it's shaped that way — via a small hot
 tier (`USER.md` + per-project `PROJECT.md`) auto-loaded every session and a larger local wiki
 retrieved on demand. It learns on its own: hooks extract decisions, blockers, and learnings from
-each session and consolidate them into the knowledge base, reversibly.
+each session, and consolidation applies them to the knowledge base reversibly — fully unattended
+where sandboxing permits (Linux); elsewhere changes stage automatically and apply on the next
+`/second-brain:dream` or `/second-brain:maintain` run.
 
 The mission and hard constraints (full autonomy, untrusted-content isolation, cross-platform)
 are fixed in [CONSTITUTION.md](CONSTITUTION.md) and machine-enforced by the test suite.
@@ -41,7 +43,7 @@ stage changes for review, forgetting archives rather than deletes.
 
 ## Commands
 
-14 user-invocable skills:
+15 user-invocable skills:
 
 | Command | Purpose |
 |---|---|
@@ -59,12 +61,14 @@ stage changes for review, forgetting archives rather than deletes.
 | `/second-brain:think` | Opus advisor brief: intent, enrichment, risks (opt-in, ~$0.11/call) |
 | `/second-brain:doubt` | Adversarial self-audit of the plugin's own layers |
 | `/second-brain:code-review-deep` | Multi-pass PR review with parallel per-unit reviewers and FP-aware scoring |
+| `/second-brain:team` | Run one goal as a team: task DAG, tiered team-worker waves, ledgered reports, judged merge gate |
 
 `/second-brain:capture` is documented for its raw-inbox interface (`--list` to inspect, `--discard <id>` to prune) but is not a slash command — capture itself is automatic.
 
 The other four skills (`query`, `using-second-brain`, `capture`, `improve`) are invoked by the
-model, not as slash commands. Nine agents back the loop: four code-review reviewers/scorers,
-dream-runner, knowledge-maintainer, raw-drainer, quality-reviewer, and search-conversations.
+model, not as slash commands. Ten agents back the loop: four code-review reviewers/scorers,
+dream-runner, knowledge-maintainer, raw-drainer, quality-reviewer, search-conversations, and
+the team-worker wave executor.
 
 ## MCP tools
 
