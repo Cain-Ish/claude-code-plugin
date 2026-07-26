@@ -212,4 +212,56 @@ grep -q '^type: learnings$' "$PAGE" || fail "wiki-create: page missing 'type: le
 grep -qF 'REAL LEARNINGS BODY SENTINEL' "$PAGE" || fail "wiki-create: content body sentinel missing from page (got: $(cat "$PAGE"))"
 pass "wiki_updates create writes a real learnings page (node-less path)"
 
+# --- Test: session_goal → deterministic one-line ## State note (replace-style) ---
+PROJ="$TMP/p11.md"; WIKI11="$TMP/wiki11"; mkdir -p "$WIKI11"
+seed_project "$PROJ"
+jq -nc '{session_goal:"ship the intent spine (reached: verify)"}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI11" >/dev/null 2>&1 || fail "state-note: script exited non-zero"
+grep -q '^last session goal: ship the intent spine (reached: verify)$' "$PROJ" \
+  || fail "state-note: note line missing from PROJECT.md"
+grep -q '^unchanged\.$' "$PROJ" || fail "state-note: pre-existing ## State content was clobbered"
+awk '/^## State$/{f=1;next} /^## /{f=0} f' "$PROJ" | grep -q '^last session goal:' \
+  || fail "state-note: note did not land inside ## State"
+# A later session REPLACES the note — never accumulates.
+jq -nc '{session_goal:"harden the drift gate (reached: implement)"}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI11" >/dev/null 2>&1
+N=$(grep -c '^last session goal:' "$PROJ" || true)
+[ "$N" -eq 1 ] || fail "state-note: expected exactly 1 note line after replace, got $N"
+grep -q 'harden the drift gate (reached: implement)' "$PROJ" || fail "state-note: replace did not update the note"
+pass "session_goal: one-line ## State note, replace-style, preserves other State content"
+
+# --- Test: empty session_goal is a no-op (note survives, nothing churns) ---
+ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+jq -nc '{session_goal:""}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI11" >/dev/null 2>&1 || fail "state-empty: script exited non-zero"
+NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+[ "$ORIG_HASH" = "$NEW_HASH" ] || fail "state-empty: empty session_goal must be a no-op (file changed)"
+pass "session_goal: empty emission never wipes the note or bumps last_updated"
+
+# --- Test: PROJECT.md WITHOUT a ## State heading → section appended, not dropped ---
+PROJ="$TMP/p12.md"; WIKI12="$TMP/wiki12"; mkdir -p "$WIKI12"
+cat > "$PROJ" <<'EOF'
+# PROJECT: no-state-slug
+
+## Goal
+hand-rolled file.
+
+## Recent decisions
+
+<!-- last_updated: 2026-05-01T00:00:00Z -->
+EOF
+jq -nc '{session_goal:"resume without a State section (reached: plan)"}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI12" >/dev/null 2>&1 || fail "state-append: script exited non-zero"
+grep -q '^## State$' "$PROJ" || fail "state-append: missing heading should be appended"
+grep -q '^last session goal: resume without a State section (reached: plan)$' "$PROJ" \
+  || fail "state-append: note missing after heading append"
+# Second merge now finds the heading and replaces in place (still exactly one note).
+jq -nc '{session_goal:"second pass (reached: implement)"}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI12" >/dev/null 2>&1
+N=$(grep -c '^last session goal:' "$PROJ" || true)
+[ "$N" -eq 1 ] || fail "state-append: expected exactly 1 note after replace, got $N"
+N=$(grep -c '^## State$' "$PROJ" || true)
+[ "$N" -eq 1 ] || fail "state-append: heading duplicated on second merge"
+pass "session_goal: missing ## State heading appended once, then replaced in place"
+
 echo "ALL PASS"

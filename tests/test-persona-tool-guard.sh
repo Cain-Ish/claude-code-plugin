@@ -285,5 +285,141 @@ grep -q '"rule":"learned:bash:npm install -g"' "$TS_BRAIN/audit-log.jsonl" \
   || fail "audit-log should name the learned rule that fired"
 pass "learned warn: verdicts audit-logged"
 
+# --- Session Intent Spine: implement → verify phase flip on a verification command ---
+SPINE_BRAIN=$(mktemp -d)
+mkdir -p "$SPINE_BRAIN/.injected"
+
+# Test 26: a test-shaped Bash command flips implement → verify (guard verdict untouched).
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"npx vitest run prose-locks"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "verify" ] \
+  || fail "vitest command should flip phase implement -> verify"
+pass "spine: verification command flips phase to verify"
+
+# Test 27: a non-verification command leaves the phase alone.
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"git status"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "implement" ] \
+  || fail "non-verify command must not flip the phase"
+pass "spine: non-verification command leaves phase untouched"
+
+# Test 28: no phase file → the guard never creates one (plan-first-nudge owns creation).
+rm -f "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"npx vitest run"},"session_id":"sess-flip"}
+JSON
+[ -f "$SPINE_BRAIN/.injected/sess-flip.phase" ] \
+  && fail "guard must not create the phase file"
+pass "spine: absent phase file is never created here"
+
+# Test 29: SB_INTENT_SPINE=off leaves the phase alone (kill switch checked first).
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+SB_INTENT_SPINE=off BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"npx vitest run"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "implement" ] \
+  || fail "SB_INTENT_SPINE=off must not flip the phase"
+pass "spine: SB_INTENT_SPINE=off suppresses the flip"
+
+# Test 30: first-token anchoring — a test-runner NAME inside an argument must not
+# flip. `cat .eslintrc.json` (eslint substring) and a commit message carrying a
+# test path were the live false-flip class.
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"cat .eslintrc.json"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "implement" ] \
+  || fail "cat .eslintrc.json must NOT flip the phase (substring false positive)"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"git commit -m \"cleanup tests/test-foo.sh comment\""},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "implement" ] \
+  || fail "a commit message mentioning a test path must NOT flip the phase"
+pass "spine: argument mentions of runners/test paths never flip (first-token anchor)"
+
+# Test 31: env-assignment prefixes are skipped before anchoring; npm script forms flip.
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"SB_X=1 bash tests/test-foo.sh"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "verify" ] \
+  || fail "SB_X=1 bash tests/test-foo.sh MUST flip (env assignment skipped)"
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"npm run test:unit"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "verify" ] \
+  || fail "npm run test:unit MUST flip"
+pass "spine: env-prefixed test run + npm run test:* flip"
+
+# Test 33: quote-aware splitting — separators INSIDE quoted text never form spans,
+# and subshell parens never glue to tokens (both reviewer-reproduced live).
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"git commit -m \"old msg; npm test still fails\""},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "implement" ] \
+  || fail "';' inside a quoted commit message must NOT split a span (false flip)"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"git commit -m \"build && npm test always green\""},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "implement" ] \
+  || fail "'&&' inside a quoted commit message must NOT split a span (false flip)"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"(cd foo && npm test)"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "verify" ] \
+  || fail "(cd foo && npm test) MUST flip (paren must not glue to the token)"
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"(npm test)"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "verify" ] \
+  || fail "(npm test) MUST flip (paren must not glue to the token)"
+pass "spine: quoted separators inert; subshell-wrapped test runs still anchor"
+
+# Test 34: quote-parity guard — an UNTERMINATED quote is invalid shell (bash
+# rejects it, nothing executes), so the phase must never be evaluated for it;
+# the sentinel keeps a legitimate closing quote at end-of-string flip-capable.
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"npm test -- --grep it's_slow"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "implement" ] \
+  || fail "odd-apostrophe command is invalid shell — must NOT flip"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"npm test \"$FILTER\""},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "verify" ] \
+  || fail "command ENDING in a closing double quote MUST flip (sentinel regression trap)"
+printf 'implement' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Bash","tool_input":{"command":"echo \"it's fine\" && npm test"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "verify" ] \
+  || fail "apostrophe inside balanced double quotes MUST still flip"
+pass "spine: quote parity — unterminated skips, sentinel keeps trailing-quote flips"
+
+# Test 32: verify → implement revert — a file edit after verification means the
+# evidence is stale; a residual false flip also self-heals through this path.
+printf 'verify' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Edit","tool_input":{"file_path":"/tmp/x.ts"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "implement" ] \
+  || fail "Edit during verify must revert phase to implement"
+printf 'plan' > "$SPINE_BRAIN/.injected/sess-flip.phase"
+BRAIN_DIR="$SPINE_BRAIN" bash "$SCRIPT" >/dev/null <<'JSON'
+{"tool_name":"Edit","tool_input":{"file_path":"/tmp/x.ts"},"session_id":"sess-flip"}
+JSON
+[ "$(cat "$SPINE_BRAIN/.injected/sess-flip.phase")" = "plan" ] \
+  || fail "Edit during plan must not touch the phase (only verify reverts)"
+pass "spine: verify -> implement revert on file edits (plan untouched)"
+rm -rf "$SPINE_BRAIN"
+
 echo
 echo "ALL PASS"

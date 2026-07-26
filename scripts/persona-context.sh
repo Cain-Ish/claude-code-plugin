@@ -24,6 +24,9 @@ PROMPT=$(printf '%s' "$RAW" | jq -r '.prompt // empty' 2>/dev/null | tr -d '\r' 
 [ -z "$PROMPT" ] && exit 0
 
 SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r' || true)
+# Spine state (memo + .phase) is keyed by session id across four hooks — sanitize once
+# here so every writer/reader derives the identical filename (no path separators).
+SESSION_ID="${SESSION_ID//[^A-Za-z0-9_-]/}"; SESSION_ID="${SESSION_ID:0:64}"
 
 # /? prefix → route to persona-think (Layer 2 Opus brief), bypass Layer 1 silent injection.
 case "$PROMPT" in
@@ -167,7 +170,7 @@ KEYWORDS=$(printf '%s' "$P_TRIM" \
   | sed 's/^-*//; s/-*$//' \
   | grep -v '^$' \
   | grep -vxF "$(echo "$STOP_WORDS" | tr ' ' '\n')" \
-  | head -8 | tr '\n' ' ')
+  | head -12 | tr '\n' ' ')
 KEYWORDS="${KEYWORDS% }"
 
 # --- Wiki hits via existing bundle ---
@@ -256,8 +259,43 @@ if [ "${SB_PRINCIPLES_INJECT:-on}" != "off" ] && [ "$PRINCIPLES_DONE" != "1" ] &
   fi
 fi
 
+# --- Session Intent Spine: frozen goal + phase, re-injected verbatim every prompt ---
+# The first ACTION-classified prompt is the session's WHY. Freeze it (with its
+# already-computed keywords, which power the drift gate) into the per-session memo,
+# then re-emit one bounded goal-plus-phase line on every later prompt — the only
+# signal that survives context compaction. Exempt from the hash-dedup below by
+# the same compaction-survival rule that exempts persona/catalog. Kill switch
+# SB_INTENT_SPINE=off is checked before any spine work.
+GOAL_LINE=""; SPINE_GOAL=""; SPINE_KW=""
+if [ "${SB_INTENT_SPINE:-on}" != "off" ] && [ -n "$SESSION_ID" ]; then
+  SPINE_GOAL=$(jq -r '.goal // ""' "$_PMEMO" 2>/dev/null | tr -d '\r')
+  SPINE_KW=$(jq -r '.goal_kw // ""' "$_PMEMO" 2>/dev/null | tr -d '\r')
+  if [ -z "$SPINE_GOAL" ] && [ "$ACTION" -eq 1 ]; then
+    # Freeze ONCE at ≤170 bytes on a valid UTF-8 boundary: head -c can split a
+    # multibyte char, so iconv -c drops the byte-cut tail (fall back to the raw
+    # cut if iconv is absent/fails — fail-open). The emit below then uses the
+    # stored goal VERBATIM: 18B frame + phase (≤9B) + 170B ≤ 197B keeps every
+    # turn inside the 200B budget with no per-prompt re-trim (and no spawns).
+    SPINE_GOAL=$(printf '%s' "$PROMPT" | tr '\n\r\t' '   ' | tr -s ' ' | head -c 170)
+    if command -v iconv >/dev/null 2>&1; then
+      # Gate on OUTPUT, not exit code: some iconv builds (MSYS) emit the cleaned
+      # stream yet still exit nonzero on the truncated tail byte.
+      _SP_CLEAN=$(printf '%s' "$SPINE_GOAL" | iconv -f utf-8 -t utf-8 -c 2>/dev/null) || true
+      [ -n "$_SP_CLEAN" ] && SPINE_GOAL="$_SP_CLEAN"
+    fi
+    SPINE_KW="$KEYWORDS"
+  fi
+  if [ -n "$SPINE_GOAL" ]; then
+    SPINE_PHASE=""
+    _SPINE_PHF="$BRAIN_DIR/.injected/${SESSION_ID}.phase"
+    [ -f "$_SPINE_PHF" ] && { IFS= read -r SPINE_PHASE < "$_SPINE_PHF" 2>/dev/null || true; }
+    case "$SPINE_PHASE" in implement|verify) ;; *) SPINE_PHASE="plan" ;; esac
+    GOAL_LINE="[Goal: $SPINE_GOAL | phase: $SPINE_PHASE]"
+  fi
+fi
+
 # Bail out if nothing useful surfaced.
-if [ -z "$PERSONA_ABS" ] && [ -z "$CATALOG_ABS" ] && [ -z "$WIKI_HITS" ] && [ -z "$EPISODIC_HINT" ] && [ -z "$PRINCIPLES_ABS" ]; then
+if [ -z "$PERSONA_ABS" ] && [ -z "$CATALOG_ABS" ] && [ -z "$WIKI_HITS" ] && [ -z "$EPISODIC_HINT" ] && [ -z "$PRINCIPLES_ABS" ] && [ -z "$GOAL_LINE" ]; then
   exit 0
 fi
 
@@ -319,21 +357,58 @@ $EPISODIC_HINT"
 [Coding principles — apply to any code you write or change this session]
 $PRINCIPLES_ABS"
 
-# Update memo with this turn's hashes for next-turn dedup.
+# Update memo with this turn's hashes for next-turn dedup. Merge OVER the prior
+# object: the frozen goal fields and any gate state other spine hooks recorded
+# (plan_ack, scope) must survive this per-prompt rewrite. Atomic (unique temp +
+# mv) so a concurrent reader never sees a half-written file. A PRESENT memo that
+# fails to parse is NEVER reset to {} — that would silently drop the frozen
+# goal/gate state; log loud and skip this turn's rewrite instead (context still
+# emits; a later good parse resumes the dedup).
 if [ -n "$MEMO_FILE" ]; then
-  jq -nc \
-    --arg p "$(sb_hash "$PERSONA_ABS")" \
-    --arg c "$(sb_hash "$CATALOG_ABS")" \
-    --arg w "$(sb_hash "$WIKI_HITS")" \
-    --arg e "$(sb_hash "$EPISODIC_HINT")" \
-    --arg pr "${PRINCIPLES_DONE:-}" \
-    '{persona:$p, catalog:$c, wiki:$w, episodic:$e, principles:$pr}' > "$MEMO_FILE" 2>/dev/null || true
+  _MEMO_PREV='{}'; _MEMO_OK=1
+  if [ -s "$MEMO_FILE" ]; then
+    _MEMO_PREV=$(jq -c '.' "$MEMO_FILE" 2>/dev/null)
+    if [ -z "$_MEMO_PREV" ]; then
+      _MEMO_OK=0
+      command -v sb_log_error >/dev/null 2>&1 \
+        && sb_log_error "persona-context.sh" "memo-parse-failed path=$MEMO_FILE — skipping rewrite to preserve frozen state" 0
+    fi
+  fi
+  if [ "$_MEMO_OK" = "1" ]; then
+    jq -nc \
+      --argjson prev "$_MEMO_PREV" \
+      --arg p "$(sb_hash "$PERSONA_ABS")" \
+      --arg c "$(sb_hash "$CATALOG_ABS")" \
+      --arg w "$(sb_hash "$WIKI_HITS")" \
+      --arg e "$(sb_hash "$EPISODIC_HINT")" \
+      --arg pr "${PRINCIPLES_DONE:-}" \
+      --arg g "$SPINE_GOAL" --arg gk "$SPINE_KW" \
+      '$prev + {persona:$p, catalog:$c, wiki:$w, episodic:$e, principles:$pr}
+        + (if $g != "" then {goal:$g, goal_kw:$gk} else {} end)' > "$MEMO_FILE.tmp.$$" 2>/dev/null \
+      && mv "$MEMO_FILE.tmp.$$" "$MEMO_FILE" 2>/dev/null \
+      || rm -f "$MEMO_FILE.tmp.$$" 2>/dev/null || true
+  fi
 fi
 
-# If everything was suppressed, no header alone — exit silent.
+# If everything was suppressed, no header alone — but the goal line (when frozen)
+# still goes out, in a minimal envelope so the always-emit overhead on quiet turns
+# is the line itself, nothing more.
 if [ "$CTX" = "[Persona context — auto-loaded, treat as ambient state]" ]; then
+  if [ -n "$GOAL_LINE" ]; then
+    jq -nc --arg ctx "$GOAL_LINE" '{
+      hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit",
+        additionalContext: $ctx
+      }
+    }' 2>/dev/null || true
+  fi
   exit 0
 fi
+
+# Goal line rides FIRST — context-edge position carries the strongest re-grounding
+# salience, and it must never sit behind the section dedup above.
+[ -n "$GOAL_LINE" ] && CTX="$GOAL_LINE
+$CTX"
 
 CTX="$CTX
 ---

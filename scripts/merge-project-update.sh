@@ -68,6 +68,9 @@ DECISIONS=$(echo "$RAW" | jq -r '.recent_decisions // [] | .[]?' 2>/dev/null | s
 BLOCKERS=$(echo  "$RAW" | jq -r '.open_blockers   // [] | .[]?' 2>/dev/null | strip_cr)
 REFS=$(echo      "$RAW" | jq -r '.cross_refs      // [] | .[]?' 2>/dev/null | strip_cr)
 PLAN=$(echo      "$RAW" | jq -r '.plan            // [] | .[]?' 2>/dev/null | strip_cr)
+# One line only, bounded, leading markdown-header chars stripped (a '#'-prefixed
+# emission would fork the section structure).
+SESSION_GOAL=$(echo "$RAW" | jq -r '.session_goal // ""' 2>/dev/null | strip_cr | head -1 | sed 's/^#*[[:space:]]*//' | head -c 240)
 
 CHANGED=0
 
@@ -241,6 +244,40 @@ merge_plan() {
   fi
 }
 
+# One-line resumable WHY under ## State: "last session goal: … (reached: <phase>)".
+# Replace-style like merge_plan: the previous note line is dropped, every other line
+# in the section (human notes) is preserved, and an empty emission is a no-op — the
+# note is never wiped by a session that produced nothing.
+merge_state() {
+  local note="$1"
+  [ -z "$note" ] && return 0
+  local new_tmp; new_tmp=$(mktemp)
+  if grep -q '^## State$' "$TMP_OUT"; then
+    NOTE="last session goal: $note" awk '
+      BEGIN { note=ENVIRON["NOTE"] }
+      /^## State$/ { print; print note; f=1; next }
+      f && /^## / { f=0 }
+      f && /^last session goal: / { next }
+      { print }
+    ' "$TMP_OUT" > "$new_tmp"
+  else
+    # Heading absent (older/hand-rolled PROJECT.md): append the section at EOF
+    # rather than silently dropping the note.
+    NOTE="last session goal: $note" awk '
+      { print }
+      END { print ""; print "## State"; print ENVIRON["NOTE"] }
+    ' "$TMP_OUT" > "$new_tmp"
+  fi
+  # No-op contract: only rewrite + mark dirty when the note actually changed, so an
+  # unchanged goal never churns last_updated.
+  if cmp -s "$new_tmp" "$TMP_OUT"; then
+    rm -f "$new_tmp"
+  else
+    mv "$new_tmp" "$TMP_OUT"
+    CHANGED=1
+  fi
+}
+
 # Detect if a new decision contradicts an existing one. Marks old as [superseded].
 # Requires: negation words in new + >50% word overlap with existing.
 detect_supersede() {
@@ -318,6 +355,9 @@ fi
 
 # Forward-looking plan (replace-reconcile; preserves [pinned], never wipes on empty).
 merge_plan "$PLAN" 7
+
+# Resumable session WHY (replace-style one-liner; never wipes on empty).
+merge_state "$SESSION_GOAL"
 
 if [ -n "$REFS" ]; then
   while IFS= read -r ref; do

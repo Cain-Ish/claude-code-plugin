@@ -22,9 +22,9 @@ command -v cygpath >/dev/null 2>&1 && BRAIN_DIR=$(cygpath -u "$BRAIN_DIR" 2>/dev
 if [ "${SB_HOOK_PROFILE:-}" = "minimal" ]; then
   : "${SB_SAR_SUMMARY:=off}" "${SB_PLAN_FIRST_NUDGE:=off}" "${SB_DREAM_AUTOSTAGE:=off}" \
     "${SB_CRITIC_OFFER:=off}" "${SB_LOOP_DEAD_BANNER:=off}" "${SB_CODEMAP_ORIENT:=off}" \
-    "${SB_INJECTION_SCAN:=off}" "${SB_CONFIG_CHANGE_AUDIT:=off}"
+    "${SB_INJECTION_SCAN:=off}" "${SB_CONFIG_CHANGE_AUDIT:=off}" "${SB_INTENT_SPINE:=off}"
   export SB_SAR_SUMMARY SB_PLAN_FIRST_NUDGE SB_DREAM_AUTOSTAGE SB_CRITIC_OFFER \
-    SB_LOOP_DEAD_BANNER SB_CODEMAP_ORIENT SB_INJECTION_SCAN SB_CONFIG_CHANGE_AUDIT
+    SB_LOOP_DEAD_BANNER SB_CODEMAP_ORIENT SB_INJECTION_SCAN SB_CONFIG_CHANGE_AUDIT SB_INTENT_SPINE
 fi
 
 # sb_normalize_path — canonicalize a path STRING to the plugin's POSIX form so

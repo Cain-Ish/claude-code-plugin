@@ -212,5 +212,101 @@ else
 fi
 rm -rf "$BRAIN_DIR_HY" "$KNOW_DIR_HY"
 
+# --- Session Intent Spine: goal anchor + always-emit goal line ---
+SP_BRAIN=$(mktemp -d); SP_KNOW=$(mktemp -d); mkdir -p "$SP_KNOW/wiki"
+sp_ctx() { jq -r '.hookSpecificOutput.additionalContext // ""'; }
+
+# Spine 1: the first ACTION prompt freezes the goal (with its "because" clause) and
+# emits the goal line with phase plan; goal + keywords land in the memo.
+out=$(payload_sid "implement the retry backoff because timeouts cascade in prod" "spine-1" \
+  | BRAIN_DIR="$SP_BRAIN" KNOWLEDGE_DIR="$SP_KNOW" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SP_KNOW" bash "$SCRIPT" | sp_ctx)
+printf '%s' "$out" | grep -qF '[Goal: implement the retry backoff because timeouts cascade in prod | phase: plan]' \
+  || fail "spine: ACTION prompt should freeze + emit the goal line (got: $out)"
+[ "$(jq -r '.goal // ""' "$SP_BRAIN/.injected/spine-1.json")" = "implement the retry backoff because timeouts cascade in prod" ] \
+  || fail "spine: goal not frozen in the memo"
+[ -n "$(jq -r '.goal_kw // ""' "$SP_BRAIN/.injected/spine-1.json")" ] \
+  || fail "spine: goal keywords not frozen in the memo"
+pass "spine: first ACTION prompt freezes goal + emits goal line (phase plan)"
+
+# Spine 2: a later prompt in the same session — wiki/episodic/principles all deduped
+# or empty (the simulated post-compaction quiet turn) — STILL carries the goal line
+# verbatim, and the whole injection stays within the 200B/turn overhead budget.
+out2=$(payload_sid "consider the overall direction again please" "spine-1" \
+  | BRAIN_DIR="$SP_BRAIN" KNOWLEDGE_DIR="$SP_KNOW" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SP_KNOW" bash "$SCRIPT" | sp_ctx)
+printf '%s' "$out2" | grep -qF '[Goal: implement the retry backoff because timeouts cascade in prod | phase: plan]' \
+  || fail "spine: goal line must re-inject VERBATIM on a quiet turn (got: $out2)"
+LEN=$(printf '%s' "$out2" | wc -c | tr -d ' ')
+[ "$LEN" -le 200 ] || fail "spine: quiet-turn overhead $LEN bytes exceeds the 200B budget (got: $out2)"
+pass "spine: verbatim re-injection on a quiet turn, <=200B overhead"
+
+# Spine 3: the goal is FROZEN — a later ACTION prompt must not overwrite it.
+out3=$(payload_sid "fix the flaky login suite right now" "spine-1" \
+  | BRAIN_DIR="$SP_BRAIN" KNOWLEDGE_DIR="$SP_KNOW" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SP_KNOW" bash "$SCRIPT" | sp_ctx)
+printf '%s' "$out3" | grep -qF '[Goal: implement the retry backoff' \
+  || fail "spine: goal line lost on a later ACTION prompt (got: $out3)"
+printf '%s' "$out3" | grep -qF 'flaky login' && fail "spine: later ACTION prompt overwrote the frozen goal"
+pass "spine: goal frozen from the FIRST action prompt only"
+
+# Spine 4: the phase token tracks the phase file (plan -> implement here).
+printf 'implement' > "$SP_BRAIN/.injected/spine-1.phase"
+out4=$(payload_sid "consider the direction once more please" "spine-1" \
+  | BRAIN_DIR="$SP_BRAIN" KNOWLEDGE_DIR="$SP_KNOW" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SP_KNOW" bash "$SCRIPT" | sp_ctx)
+printf '%s' "$out4" | grep -qF '| phase: implement]' \
+  || fail "spine: phase token should reflect the phase file (got: $out4)"
+pass "spine: phase token tracks the phase file"
+
+# Spine 5: kill switch — no goal line anywhere, no goal frozen.
+SPOFF_BRAIN=$(mktemp -d)
+out5=$(payload_sid "implement the cache warmup because latency spikes" "spine-off" \
+  | SB_INTENT_SPINE=off BRAIN_DIR="$SPOFF_BRAIN" KNOWLEDGE_DIR="$SP_KNOW" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SP_KNOW" bash "$SCRIPT" | sp_ctx)
+printf '%s' "$out5" | grep -qF '[Goal: ' && fail "spine: SB_INTENT_SPINE=off must suppress the goal line (got: $out5)"
+[ "$(jq -r '.goal // ""' "$SPOFF_BRAIN/.injected/spine-off.json" 2>/dev/null)" = "" ] \
+  || fail "spine: SB_INTENT_SPINE=off must not freeze a goal"
+pass "spine: SB_INTENT_SPINE=off suppresses anchor + goal line"
+
+# Spine 6: a very long ACTION prompt is capped ONCE at freeze — memo goal <=170
+# BYTES of valid UTF-8, and the quiet-turn goal line fits the 200B budget with
+# the frame intact (no per-prompt re-trim).
+LONGP="implement the mega feature because $(yes 'reasons pile up' | head -20 | tr '\n' ' ')"
+payload_sid "$LONGP" "spine-long" \
+  | BRAIN_DIR="$SP_BRAIN" KNOWLEDGE_DIR="$SP_KNOW" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SP_KNOW" bash "$SCRIPT" >/dev/null
+G6=$(jq -r '.goal // ""' "$SP_BRAIN/.injected/spine-long.json" | tr -d '\r\n')
+GLEN=$(printf '%s' "$G6" | wc -c | tr -d ' ')
+[ "$GLEN" -le 170 ] || fail "spine: frozen goal should be capped at 170 bytes (got $GLEN)"
+if command -v iconv >/dev/null 2>&1; then
+  printf '%s' "$G6" | iconv -f utf-8 -t utf-8 >/dev/null 2>&1 \
+    || fail "spine: frozen goal is not valid UTF-8"
+fi
+out6=$(payload_sid "consider the overall direction again please" "spine-long" \
+  | BRAIN_DIR="$SP_BRAIN" KNOWLEDGE_DIR="$SP_KNOW" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SP_KNOW" bash "$SCRIPT" | sp_ctx)
+LEN6=$(printf '%s' "$out6" | wc -c | tr -d ' ')
+[ "$LEN6" -le 200 ] || fail "spine: long-goal line $LEN6 bytes exceeds the 200B budget"
+printf '%s' "$out6" | grep -qF '| phase: plan]' || fail "spine: truncation must preserve the frame (got: $out6)"
+pass "spine: long goal capped at freeze (memo <=170 bytes valid UTF-8, line <=200B, frame intact)"
+
+# Spine 7: multibyte goal — byte truncation must land on a character boundary
+# (no mojibake / replacement chars re-emitted every turn). iconv-gated: the
+# freeze path itself falls back to the raw cut where iconv is absent.
+if command -v iconv >/dev/null 2>&1; then
+  MB_TAIL=$(printf 'タイムアウト再試行%.0s' 1 2 3 4 5 6 7 8)
+  payload_sid "implement 国際化のリトライ改善 because $MB_TAIL" "spine-mb" \
+    | BRAIN_DIR="$SP_BRAIN" KNOWLEDGE_DIR="$SP_KNOW" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SP_KNOW" bash "$SCRIPT" >/dev/null
+  G7=$(jq -r '.goal // ""' "$SP_BRAIN/.injected/spine-mb.json" | tr -d '\r\n')
+  [ -n "$G7" ] || fail "spine-mb: multibyte goal not frozen"
+  G7LEN=$(printf '%s' "$G7" | wc -c | tr -d ' ')
+  [ "$G7LEN" -le 170 ] || fail "spine-mb: goal exceeds 170 bytes (got $G7LEN)"
+  [ "$(printf '%s' "$G7" | iconv -f utf-8 -t utf-8 -c 2>/dev/null)" = "$G7" ] \
+    || fail "spine-mb: goal carries invalid UTF-8 (byte-split character survived)"
+  out7=$(payload_sid "consider the overall direction again please" "spine-mb" \
+    | BRAIN_DIR="$SP_BRAIN" KNOWLEDGE_DIR="$SP_KNOW" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SP_KNOW" bash "$SCRIPT" | sp_ctx)
+  printf '%s' "$out7" | grep -qF '[Goal: implement' || fail "spine-mb: goal line missing (got: $out7)"
+  LEN7=$(printf '%s' "$out7" | wc -c | tr -d ' ')
+  [ "$LEN7" -le 200 ] || fail "spine-mb: line $LEN7 bytes exceeds the 200B budget"
+  pass "spine: multibyte goal truncates on a UTF-8 boundary (no mojibake, <=200B line)"
+else
+  pass "spine: multibyte truncation skipped (iconv not on PATH)"
+fi
+rm -rf "$SP_BRAIN" "$SP_KNOW" "$SPOFF_BRAIN"
+
 echo
 echo "ALL PASS"

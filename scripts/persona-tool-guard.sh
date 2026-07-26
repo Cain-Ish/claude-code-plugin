@@ -73,6 +73,98 @@ CMD=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null | tr
 CWD=$(sb_normalize_path "$CWD")
 PATH_INPUT=$(sb_normalize_path "$PATH_INPUT")
 
+# Session Intent Spine — phase transitions. implement → verify only when a Bash
+# span's FIRST TOKEN is a verification runner: substring matching flipped on
+# `cat .eslintrc.json` / a commit message mentioning a test path; anchoring on the
+# command word cannot. verify → implement when a file edit lands after verification
+# (the edit invalidates the evidence, and a residual false flip self-heals).
+# Pure bash — parameter expansion, read/set builtins, case-globs: zero extra spawns
+# on the hot path. Fail-open: a read/write failure never touches the guard verdict.
+# Kill switch checked before any spine work.
+if [ "${SB_INTENT_SPINE:-on}" != "off" ] && [ -n "$SESSION_ID" ]; then
+  _SPINE_SID="${SESSION_ID//[^A-Za-z0-9_-]/}"; _SPINE_SID="${_SPINE_SID:0:64}"
+  _SPINE_PHF="$BRAIN_DIR/.injected/$_SPINE_SID.phase"
+  if [ -n "$_SPINE_SID" ] && [ -f "$_SPINE_PHF" ]; then
+    _SPINE_CUR=""
+    IFS= read -r _SPINE_CUR < "$_SPINE_PHF" 2>/dev/null || true
+    case "$TOOL" in
+      Write|Edit|MultiEdit|NotebookEdit)
+        [ "$_SPINE_CUR" = "verify" ] && { printf 'implement' > "$_SPINE_PHF" 2>/dev/null || true; } ;;
+      Bash)
+        if [ "$_SPINE_CUR" = "implement" ] && [ -n "$CMD" ]; then
+          # Strip quoted content FIRST (split on the quote char; even-indexed
+          # segments are outside quotes) so a separator inside a string literal —
+          # a commit message saying "old; npm test" — never forms a span. Accepted
+          # residuals (display-phase heuristics; both degrade toward NO-flip):
+          # escaped quotes and `bash -c '…'`/`sh -c '…'` indirection are not
+          # anchored into, and cross-nested odd-quote text (a lone `"` inside
+          # '…') fails the parity guard below. Newlines fold to ';' beforehand so
+          # multi-line commands keep span boundaries through the single-line read.
+          # Quote-parity guard: a sentinel char is appended so a legitimate
+          # closing quote at end-of-string still yields a trailing segment —
+          # balanced quotes then always produce an ODD segment count. EVEN =
+          # unterminated quote = invalid shell bash rejects without executing,
+          # so the phase is never evaluated for it.
+          _SPINE_TXT="${CMD//$'\n'/;} x"
+          _SPINE_OK=1
+          IFS='"' read -ra _SPINE_QSEG <<< "$_SPINE_TXT"
+          [ $((${#_SPINE_QSEG[@]} % 2)) -eq 0 ] && _SPINE_OK=0
+          _SPINE_TXT=""; _SPINE_I=0
+          for _SPINE_SEG in ${_SPINE_QSEG[@]+"${_SPINE_QSEG[@]}"}; do
+            [ $((_SPINE_I % 2)) -eq 0 ] && _SPINE_TXT="$_SPINE_TXT $_SPINE_SEG"
+            _SPINE_I=$((_SPINE_I + 1))
+          done
+          IFS="'" read -ra _SPINE_QSEG <<< "$_SPINE_TXT"
+          [ $((${#_SPINE_QSEG[@]} % 2)) -eq 0 ] && _SPINE_OK=0
+          _SPINE_TXT=""; _SPINE_I=0
+          for _SPINE_SEG in ${_SPINE_QSEG[@]+"${_SPINE_QSEG[@]}"}; do
+            [ $((_SPINE_I % 2)) -eq 0 ] && _SPINE_TXT="$_SPINE_TXT $_SPINE_SEG"
+            _SPINE_I=$((_SPINE_I + 1))
+          done
+          [ "$_SPINE_OK" = "1" ] || _SPINE_TXT=""   # parity failed — nothing to evaluate
+          # Subshell/group/backtick punctuation becomes whitespace so it can
+          # never glue to a token: `(npm test)` must anchor on npm.
+          _SPINE_TXT="${_SPINE_TXT//\(/ }"; _SPINE_TXT="${_SPINE_TXT//\)/ }"
+          _SPINE_TXT="${_SPINE_TXT//\{/ }"; _SPINE_TXT="${_SPINE_TXT//\}/ }"
+          _SPINE_TXT="${_SPINE_TXT//\`/ }"
+          # Split into spans on &&, single & (background), ;, |; per span, skip
+          # leading env assignments (same span discipline as the verify gate's
+          # anti-game scan) so only the command word anchors.
+          _SPINE_SPANS="${_SPINE_TXT//&&/$'\n'}"
+          _SPINE_SPANS="${_SPINE_SPANS//&/$'\n'}"
+          _SPINE_SPANS="${_SPINE_SPANS//;/$'\n'}"
+          _SPINE_SPANS="${_SPINE_SPANS//|/$'\n'}"
+          while IFS= read -r _SPINE_SPAN; do
+            [ -n "$_SPINE_SPAN" ] || continue
+            set -f; set -- $_SPINE_SPAN; set +f
+            while [ $# -gt 0 ]; do
+              case "$1" in [A-Za-z_]*=*) shift ;; *) break ;; esac
+            done
+            [ $# -gt 0 ] || continue
+            _T1="${1:-}"; _T2="${2:-}"; _T3="${3:-}"
+            _SPINE_HIT=0
+            case "$_T1" in
+              vitest|jest|pytest|tsc|eslint) _SPINE_HIT=1 ;;
+              npx) case "$_T2" in vitest|jest|pytest|tsc|eslint) _SPINE_HIT=1 ;; esac ;;
+              npm) case "$_T2" in
+                     test|t) _SPINE_HIT=1 ;;
+                     run) case "$_T3" in test*) _SPINE_HIT=1 ;; esac ;;
+                   esac ;;
+              make) case "$_T2" in test*) _SPINE_HIT=1 ;; esac ;;
+              go|cargo) [ "$_T2" = "test" ] && _SPINE_HIT=1 ;;
+              bash|sh) case "$_T2" in *tests/test-*.sh|*run-all.sh) _SPINE_HIT=1 ;; esac ;;
+              *tests/test-*|*run-all.sh) _SPINE_HIT=1 ;;
+            esac
+            if [ "$_SPINE_HIT" = "1" ]; then
+              printf 'verify' > "$_SPINE_PHF" 2>/dev/null || true
+              break
+            fi
+          done <<< "$_SPINE_SPANS"
+        fi ;;
+    esac
+  fi
+fi
+
 # --- Tool-scope guard (sar_tool channel) ---------------------------------
 # Ask before a tool is invoked when it's outside the declared allowlist.
 # Per HarnessAudit, out-of-scope tool use is one of three L1 boundary-

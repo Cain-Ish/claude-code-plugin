@@ -43,7 +43,9 @@ JSON
 # accumulated (one per Claude Code session in the last 30 days). 7-day TTL is
 # generous: any session older than a week has no useful dedup signal anyway.
 if [ -d "$BRAIN_DIR/.injected" ]; then
-  find "$BRAIN_DIR/.injected" -maxdepth 1 -name '*.json' -type f -mtime +7 -delete 2>/dev/null || true
+  # *.phase rides the same TTL: the intent-spine phase file is per-session state
+  # with the exact lifetime of its sibling memo.
+  find "$BRAIN_DIR/.injected" -maxdepth 1 \( -name '*.json' -o -name '*.phase' \) -type f -mtime +7 -delete 2>/dev/null || true
 fi
 
 # GC stale ghost projects. session-load.sh used to accept any $PWD basename as

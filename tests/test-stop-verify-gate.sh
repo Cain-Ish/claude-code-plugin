@@ -309,6 +309,43 @@ echo "3" > "$BRAIN_DIR/.verify-gate-agseen-$SID"   # prior Stop already scanned 
 OUT=$(printf '%s' "$INPUT" | bash "$GATE" 2>/dev/null || true)
 assert_approve "deletion behind anti-game marker does not re-flag" "$OUT"
 
+# --- Session Intent Spine (Gate C): the block quotes the frozen goal + reached phase ---
+
+# Test 22: memo goal + phase present → block reason quotes both (closes the WHY loop).
+T=$(mk_transcript)
+add_edit_turn "$T"
+INPUT=$(mk_input "$T")
+SID=$(printf '%s' "$INPUT" | jq -r '.session_id')
+mkdir -p "$BRAIN_DIR/.injected"
+jq -nc '{goal:"ship the intent spine because sessions forget why"}' > "$BRAIN_DIR/.injected/$SID.json"
+printf 'implement' > "$BRAIN_DIR/.injected/$SID.phase"
+OUT=$(printf '%s' "$INPUT" | bash "$GATE" 2>/dev/null || true)
+assert_block "spine: block with frozen goal on record" "$OUT"
+printf '%s' "$OUT" | jq -r '.reason // ""' | grep -q 'Session goal: "ship the intent spine because sessions forget why"' \
+  || { FAIL=$((FAIL + 1)); echo "  FAIL: block reason should quote the frozen goal (got: $OUT)"; }
+printf '%s' "$OUT" | grep -q 'phase reached: implement' \
+  || { FAIL=$((FAIL + 1)); echo "  FAIL: block reason should name the reached phase (got: $OUT)"; }
+
+# Test 23: SB_INTENT_SPINE=off → same setup, reason carries NO goal quote (kill switch first).
+T=$(mk_transcript)
+add_edit_turn "$T"
+INPUT=$(mk_input "$T")
+SID=$(printf '%s' "$INPUT" | jq -r '.session_id')
+jq -nc '{goal:"ship the intent spine because sessions forget why"}' > "$BRAIN_DIR/.injected/$SID.json"
+printf 'implement' > "$BRAIN_DIR/.injected/$SID.phase"
+OUT=$(printf '%s' "$INPUT" | SB_INTENT_SPINE=off bash "$GATE" 2>/dev/null || true)
+assert_block "spine off: still blocks (gate unchanged)" "$OUT"
+printf '%s' "$OUT" | grep -q 'Session goal' \
+  && { FAIL=$((FAIL + 1)); echo "  FAIL: SB_INTENT_SPINE=off must not quote the goal (got: $OUT)"; }
+
+# Test 24: no memo on disk → reason unchanged (fail-open: absent state never mutates the block).
+T=$(mk_transcript)
+add_edit_turn "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_block "spine: no memo → plain block" "$OUT"
+printf '%s' "$OUT" | grep -q 'Session goal' \
+  && { FAIL=$((FAIL + 1)); echo "  FAIL: goal quote must not appear without a frozen goal (got: $OUT)"; }
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

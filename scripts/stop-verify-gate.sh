@@ -11,6 +11,7 @@ set -u
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
 [ "${SB_VERIFY_GATE:-on}" = "off" ] && exit 0
+[ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_INTENT_SPINE:=off}" # hook-profile shim: this check runs before lib.sh's mapping (script is lib-less until the audit call)
 
 RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
@@ -178,10 +179,31 @@ fi
 mkdir -p "$BRAIN_DIR" 2>/dev/null
 echo "$((BLOCK_COUNT + 1))" > "$MARKER"
 
+# Session Intent Spine — close the loop on the frozen WHY: quote the session goal
+# and the phase actually reached, so the block is the external done-check against
+# the original intent, not a generic nag. Fail-open: no memo/phase (or spine off)
+# leaves the reason unchanged.
+SPINE_NOTE=""
+if [ "${SB_INTENT_SPINE:-on}" != "off" ]; then
+  _SP_SID="${SESSION_ID//[^A-Za-z0-9_-]/}"; _SP_SID="${_SP_SID:0:64}"
+  _SP_GOAL=$(jq -r '.goal // ""' "$BRAIN_DIR/.injected/$_SP_SID.json" 2>/dev/null | tr -d '\r')
+  _SP_PHASE=""
+  [ -f "$BRAIN_DIR/.injected/$_SP_SID.phase" ] && { IFS= read -r _SP_PHASE < "$BRAIN_DIR/.injected/$_SP_SID.phase" 2>/dev/null || true; }
+  case "$_SP_PHASE" in implement|verify) ;; *) _SP_PHASE="plan" ;; esac
+  [ -n "$_SP_GOAL" ] && SPINE_NOTE=" Session goal: \"$_SP_GOAL\" (phase reached: $_SP_PHASE) — verification is what closes it."
+fi
+
 FILES_PREVIEW=$(printf '%s\n' "$CHANGED_FILES" | head -5 | tr '\n' ' ')
 CMD_LINE="run the project's checks (tests, lint, type-check)"
 [ -n "$VERIFY_CMD" ] && CMD_LINE="run \`$VERIFY_CMD\` (discovered in this project)"
-jq -nc --arg n "$CHANGED_N" --arg files "$FILES_PREVIEW" --arg cmd "$CMD_LINE" '{
+# Audit the gate verdict (lazy lib.sh load; a source failure must never mute the block).
+if ! command -v sb_log_audit >/dev/null 2>&1; then
+  if ! source "$(dirname "$0")/lib.sh" 2>/dev/null; then
+    sb_log_audit() { :; }
+  fi
+fi
+sb_log_audit "stop-verify-gate.sh" "deny" "gate-c-verify-block" "$FILES_PREVIEW" "no verification evidence;$SPINE_NOTE" "$SESSION_ID" 2>/dev/null || true
+jq -nc --arg n "$CHANGED_N" --arg files "$FILES_PREVIEW" --arg cmd "$CMD_LINE" --arg note "$SPINE_NOTE" '{
   decision: "block",
-  reason: ("Code was modified (" + $n + " file(s): " + $files + "…) but no verification ran. Before completing: " + $cmd + ", then invoke relevant review skills (/review, /security-review, /simplify). Evidence before assertions.")
+  reason: ("Code was modified (" + $n + " file(s): " + $files + "…) but no verification ran. Before completing: " + $cmd + ", then invoke relevant review skills (/review, /security-review, /simplify). Evidence before assertions." + $note)
 }'

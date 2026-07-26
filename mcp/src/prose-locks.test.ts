@@ -64,6 +64,10 @@ describe('SB_HOOK_PROFILE reaches every mapped kill switch (shim-or-source order
     ['SB_DREAM_AUTOSTAGE', 'dream-autostage.sh'],
     ['SB_LOOP_DEAD_BANNER', 'session-load.sh'],
     ['SB_CODEMAP_ORIENT', 'session-load.sh'],
+    ['SB_INTENT_SPINE', 'persona-context.sh'],
+    ['SB_INTENT_SPINE', 'plan-first-nudge.sh'],
+    ['SB_INTENT_SPINE', 'persona-tool-guard.sh'],
+    ['SB_INTENT_SPINE', 'stop-verify-gate.sh'],
   ];
 
   for (const [flag, script] of pairs) {
@@ -112,5 +116,83 @@ describe('prose-contract locks (drain-loop delegation discipline)', () => {
     const src = drainerSrc();
     expect(src).toContain('delegation packet');
     expect(src).toContain('BLAME: caller-under-supplied');
+  });
+});
+
+describe('session intent spine locks', () => {
+  const scriptsDir = repoRoot + 'scripts/';
+  const pctx = () => read(scriptsDir + 'persona-context.sh');
+  const nudge = () => read(scriptsDir + 'plan-first-nudge.sh');
+  const guard = () => read(scriptsDir + 'persona-tool-guard.sh');
+  const stopGate = () => read(scriptsDir + 'stop-verify-gate.sh');
+
+  it('goal line is always-emit: present and never gated on a memo hash', () => {
+    // The [Goal: …] line must re-inject VERBATIM every prompt (compaction survival);
+    // routing it through the SHOW_* hash-dedup or memoizing a goal hash would
+    // silently drop it exactly when it matters (unchanged goal = every turn).
+    const src = pctx();
+    expect(src).toContain('[Goal: ');
+    expect(src).not.toMatch(/SHOW_\w+[^\n]*GOAL_LINE|GOAL_LINE[^\n]*SHOW_\w+/);
+    expect(src).not.toMatch(/H_GOAL|goal_hash/i);
+  });
+
+  it('SB_INTENT_SPINE kill switch precedes the first spine action in every spine script', () => {
+    // The switch must be checked BEFORE any spine work, per code path — offset
+    // ordering against each script's distinctive spine marker.
+    const cases: Array<[src: string, file: string, marker: string]> = [
+      [pctx(), 'persona-context.sh', '[Goal: '],
+      [nudge(), 'plan-first-nudge.sh', '.phase'],
+      [guard(), 'persona-tool-guard.sh', '.phase'],
+      [stopGate(), 'stop-verify-gate.sh', 'phase reached'],
+    ];
+    for (const [src, file, marker] of cases) {
+      const kill = src.indexOf('${SB_INTENT_SPINE');
+      const action = src.indexOf(marker);
+      expect(kill, `${file}: no \${SB_INTENT_SPINE} check found`).toBeGreaterThan(-1);
+      expect(action, `${file}: spine marker '${marker}' not found — lock stale?`).toBeGreaterThan(-1);
+      expect(kill, `${file}: spine action at ${action} runs before the SB_INTENT_SPINE check at ${kill}`).toBeLessThan(action);
+    }
+  });
+
+  it('gate literals: each deny names its exact retry path', () => {
+    const src = nudge();
+    expect(src).toContain('state the plan: goal, files in scope, verify command — then retry');
+    expect(src).toContain('confirm scope change or return to goal — then retry');
+    expect(stopGate()).toContain('phase reached');
+  });
+
+  it('spine emits permissionDecision only at the two defined deny points', () => {
+    // Gate A + Gate B are the ONLY spine denies; the drift warn is additionalContext
+    // only (an advisory must never widen permissions), the legacy advisory keeps its
+    // single "allow", and nothing spine-side ever emits "ask".
+    const src = nudge();
+    expect((src.match(/permissionDecision: "deny"/g) ?? []).length).toBe(2);
+    expect((src.match(/permissionDecision: "allow"/g) ?? []).length).toBe(1);
+    expect(src).not.toMatch(/permissionDecision: "ask"/);
+    // The other two spine touchpoints add no permission surface at all.
+    expect(pctx()).not.toContain('permissionDecision');
+    expect(stopGate()).not.toContain('permissionDecision');
+    // persona-tool-guard: the phase-transition block (kill-switch check → closing
+    // fi) must stay emission-free — it may never alter a guard verdict — and must
+    // carry BOTH transitions (implement→verify flip, verify→implement revert).
+    const g = guard();
+    const flipStart = g.indexOf('${SB_INTENT_SPINE');
+    expect(flipStart).toBeGreaterThan(-1);
+    const flip = g.slice(flipStart, g.indexOf('\nfi\n', flipStart));
+    expect(flip).not.toContain('permissionDecision');
+    expect(flip).not.toContain('hookSpecificOutput');
+    expect(flip).toContain("printf 'verify'");
+    expect(flip).toContain("printf 'implement'");
+  });
+
+  it('slice-2 persistence: extractor field, merge consumer, and GC sweep stay paired', () => {
+    // session_goal flows extract-prompt.txt → merge-project-update.sh → the
+    // "## State" one-liner; a rename on either side silently kills the resume.
+    expect(read(scriptsDir + 'extract-prompt.txt')).toContain('session_goal');
+    const merge = read(scriptsDir + 'merge-project-update.sh');
+    expect(merge).toContain('session_goal');
+    expect(merge).toContain('last session goal: ');
+    // The verify-gate anti-game marker must stay in the Stop-hook GC sweep.
+    expect(read(scriptsDir + 'stop-extract.sh')).toContain(".verify-gate-agseen-*'");
   });
 });

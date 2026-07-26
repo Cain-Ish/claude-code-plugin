@@ -191,11 +191,11 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
     rm -f "$MANIFEST"
   fi
   # GC stray per-session markers from sessions that never reached a Stop (7d, same
-  # policy as the .injected/ memos). Covers the telemetry manifest AND the two
-  # verify-gate session markers (.verify-gate-blocks-*, .critic-offer-*), which were
-  # written per-session by stop-verify-gate.sh and never swept. One find, -o group.
-  # Deliberately quiet: GC of already-lost per-session state.
-  find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.verify-gate-blocks-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
+  # policy as the .injected/ memos). Covers the telemetry manifest AND the three
+  # verify-gate session markers (.verify-gate-blocks-*, .verify-gate-agseen-*,
+  # .critic-offer-*), which are written per-session by stop-verify-gate.sh and were
+  # never swept. One find, -o group. Deliberately quiet: GC of already-lost state.
+  find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.verify-gate-blocks-*' -o -name '.verify-gate-agseen-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
 fi
 
 START_LINE=$((LAST_LINE + 1))
