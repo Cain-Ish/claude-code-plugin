@@ -265,6 +265,80 @@ sb_log_error() {
   fi
 }
 
+# --- Model resolution -----------------------------------------------------
+# Every model reference in the plugin is a TIER INTENT resolved here, never a literal. Two
+# surfaces exist and must never share a verdict: `headless` (claude -p spawns, accepts full IDs)
+# and `dispatch` (Agent tool, alias-only schema enum). Alias->model mapping provably diverges
+# between them in the same environment on the same day, because a running session keeps its
+# startup-era harness mapping. The ladder itself lives in model-ladder.json so a newly released
+# model is picked up by the alias rung with no code change.
+
+sb_model_manifest() {
+  if [ -n "${SB_MODEL_LADDER:-}" ]; then printf '%s\n' "$SB_MODEL_LADDER"; return 0; fi
+  printf '%s\n' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/model-ladder.json"
+}
+
+sb_model_auth_fingerprint() {
+  if [ -n "${ANTHROPIC_API_KEY:-}" ]; then printf 'apikey\n'; else printf 'oauth\n'; fi
+}
+
+sb_model_cache_file() { printf '%s\n' "$BRAIN_DIR/model-availability.json"; }
+
+# Prints ok | blocked | unknown. Always exits 0 — an unreadable cache is `unknown`, never fatal.
+sb_model_cache_get() {
+  local surface="${1:-headless}" model="${2:-}" f ttl now at state fp
+  [ -n "$model" ] || { printf 'unknown\n'; return 0; }
+  f=$(sb_model_cache_file)
+  [ -f "$f" ] || { printf 'unknown\n'; return 0; }
+  # A credential change means a different allowlist — every prior verdict is void.
+  fp=$(jq -r '.auth_fingerprint // ""' "$f" 2>/dev/null | tr -d '\r')
+  [ "$fp" = "$(sb_model_auth_fingerprint)" ] || { printf 'unknown\n'; return 0; }
+  state=$(jq -r --arg s "$surface" --arg m "$model" \
+            '.surfaces[$s][$m].state // "unknown"' "$f" 2>/dev/null | tr -d '\r')
+  case "$state" in ok|blocked) ;; *) printf 'unknown\n'; return 0 ;; esac
+  # Integer epoch, not an ISO string: `date -d` is GNU-only and this runs on BSD/macOS too.
+  at=$(jq -r --arg s "$surface" --arg m "$model" \
+         '.surfaces[$s][$m].epoch // 0' "$f" 2>/dev/null | tr -d '\r')
+  case "$at" in ''|*[!0-9]*) at=0 ;; esac
+  ttl="${SB_MODEL_CACHE_TTL:-604800}"; case "$ttl" in ''|*[!0-9]*) ttl=604800 ;; esac
+  now=$(date -u +%s)
+  if [ "$at" -gt 0 ] && [ $(( now - at )) -ge "$ttl" ]; then printf 'unknown\n'; return 0; fi
+  printf '%s\n' "$state"
+}
+
+sb_model_cache_put() {
+  local surface="${1:-headless}" model="${2:-}" state="${3:-blocked}"
+  local reason="${4:-}" resolved="${5:-}"
+  [ -n "$model" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  local f tmp fp now iso base
+  f=$(sb_model_cache_file)
+  mkdir -p "$(dirname "$f")" 2>/dev/null || return 1
+  fp=$(sb_model_auth_fingerprint); now=$(date -u +%s); iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  tmp=$(mktemp) || return 1
+  base="$tmp.base"
+  if [ -f "$f" ] && [ "$(jq -r '.auth_fingerprint // ""' "$f" 2>/dev/null | tr -d '\r')" = "$fp" ]; then
+    cat "$f" > "$base" 2>/dev/null || printf '{}' > "$base"
+  else
+    printf '{"schema":1,"auth_fingerprint":"%s","surfaces":{}}' "$fp" > "$base"
+  fi
+  # setpath creates the intermediate objects; avoids the fragile nested-assign jq pipeline.
+  if jq --arg fp "$fp" --arg s "$surface" --arg m "$model" --arg st "$state" \
+        --arg r "$reason" --arg rv "$resolved" --arg iso "$iso" --argjson e "$now" \
+        '.schema = 1 | .auth_fingerprint = $fp
+         | setpath(["surfaces",$s,$m];
+             {state:$st, reason:$r, at:$iso, epoch:$e}
+             + (if $rv == "" then {} else {resolved:$rv} end))' \
+        "$base" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+    mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp" "$base" 2>/dev/null; return 1; }
+    rm -f "$base" 2>/dev/null
+    return 0
+  fi
+  rm -f "$tmp" "$base" 2>/dev/null
+  sb_log_error "lib.sh" "model-availability write failed for $surface/$model" 1
+  return 1
+}
+
 # --- Audit log ------------------------------------------------------------
 # Trajectory log separate from error-log.jsonl. Captures every guard verdict
 # (allow / ask / deny / flag) emitted by persona-tool-guard, tool-return
