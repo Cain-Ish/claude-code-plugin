@@ -4,7 +4,7 @@ import { DISPATCH_ALIASES, LADDERS, PIN_ENVS, PROTOCOL_NAMES, SURFACES, TIERS } 
 describe("model-ladder manifest", () => {
   it("declares the three tiers and two surfaces", () => {
     expect(TIERS).toEqual(["fast", "mid", "deep"]);
-    expect(SURFACES.sort()).toEqual(["dispatch", "headless"]);
+    expect([...SURFACES].sort()).toEqual(["dispatch", "headless"]);
   });
 
   it("leads every ladder with a bare alias", () => {
