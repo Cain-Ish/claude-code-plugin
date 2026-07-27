@@ -1,0 +1,24 @@
+{
+  "_comment": "Single source of truth for model selection. Ladders are ORDERED preference lists walked by sb_resolve_model (bash) and resolveModel (TS). Rung 0 is always a bare ALIAS so a newly released model is picked up with no code change; pinned IDs below it exist only as the demotion path. The dispatch ladders may contain aliases ONLY -- the Agent tool's model param is a schema-level enum and rejects full IDs before any API call. Guarded by tests/test-model-ladder.sh.",
+  "schema": 1,
+  "tiers": ["fast", "mid", "deep"],
+  "protocol_names": { "fast": "SCOUT", "mid": "DO", "deep": "THINK" },
+  "dispatch_aliases": ["haiku", "sonnet", "opus", "fable"],
+  "ladders": {
+    "headless": {
+      "fast": ["haiku", "claude-haiku-4-5", "sonnet"],
+      "mid": ["sonnet", "claude-sonnet-5", "claude-sonnet-4-6", "opus", "haiku"],
+      "deep": ["opus", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "sonnet"]
+    },
+    "dispatch": {
+      "fast": ["haiku", "sonnet"],
+      "mid": ["sonnet", "opus", "haiku"],
+      "deep": ["opus", "fable", "sonnet"]
+    }
+  },
+  "pins": {
+    "fast": ["SB_MODEL_TIER_FAST", "SB_QUALITY_GATE_MODEL"],
+    "mid": ["SB_MODEL_TIER_MID", "SB_EXTRACTOR_MODEL", "SB_MAINTAIN_LLM_MODEL"],
+    "deep": ["SB_MODEL_TIER_DEEP", "SB_PERSONA_MODEL"]
+  }
+}
