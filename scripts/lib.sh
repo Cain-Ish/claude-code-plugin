@@ -400,8 +400,22 @@ sb_model_blocked_verdict() {
   if [ "$ec" != "0" ] && printf '%s' "$blob" | grep -qE '"is_error"[[:space:]]*:[[:space:]]*true'; then
     return 0
   fi
-  if printf '%s' "$blob" | grep -qiE "there's an issue with the selected model|not_found_error|model not found|permission_error|does not have access|was retired|is deprecated|invalid model"; then
-    return 0
+  # The wide signature list is diagnostic-output text from a FAILED spawn, so it is safe only
+  # when ec != 0. On a clean exit (ec == 0) that same wide list is a trap: this plugin's own
+  # extractor summarizes sessions about model deprecation, API errors, and this very feature, so
+  # a successful summary saying "the model is deprecated" or "model not found" would be misread
+  # as a failure, blocklisting a working model and demoting the whole ladder on its own prose. At
+  # ec == 0 only the exact CLI-emitted phrase is trusted: it is the live-observed poisoned-output
+  # case (a retired-but-known ID printing a warning to stdout while exiting 0), and it is the one
+  # string in the list no summarized model-prose would independently produce.
+  if [ "$ec" != "0" ]; then
+    if printf '%s' "$blob" | grep -qiE "there's an issue with the selected model|not_found_error|model not found|permission_error|does not have access|was retired|is deprecated|invalid model"; then
+      return 0
+    fi
+  else
+    if printf '%s' "$blob" | grep -qiE "there's an issue with the selected model"; then
+      return 0
+    fi
   fi
   return 1
 }

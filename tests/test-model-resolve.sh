@@ -114,7 +114,7 @@ pass "SB_MODEL_ELASTIC=0 bypasses the ladder"
 # --- verdict table --------------------------------------------------------
 mkout(){ printf '%s' "$1" > "$TMP/out"; : > "$TMP/err"; }
 
-mkout '{"is_error":true,"subtype":"success","result":"model not found"}'
+mkout '{"is_error":true,"subtype":"success","result":"boom"}'
 sb_model_blocked_verdict 1 "$TMP/out" "$TMP/err" || fail "exit!=0 + is_error:true must be a blocked verdict"
 pass "primary signal: exit!=0 + is_error (subtype lies and must be ignored)"
 
@@ -122,13 +122,35 @@ mkout '{"is_error":false,"subtype":"success","result":"fine"}'
 sb_model_blocked_verdict 0 "$TMP/out" "$TMP/err" && fail "a clean success must NOT be a blocked verdict"
 pass "clean success is not a blocked verdict"
 
-for sig in "There's an issue with the selected model (claude-3-opus-20240229)" \
-           "not_found_error" "model not found" "permission_error" \
+# Ordering: auth must pre-empt the primary signal even when both are present in the same blob --
+# fixtures containing only an auth string can't prove this (they'd pass even if auth ran last).
+mkout 'Not logged in. {"is_error":true,"result":"model not found"}'
+sb_model_blocked_verdict 1 "$TMP/out" "$TMP/err" \
+  && fail "auth signature must win over a co-occurring is_error+model-signature blob"
+pass "auth check pre-empts the primary signal when both are present (ordering proof)"
+
+# The wide 8-signature list is diagnostic output from a FAILED spawn (ec != 0) -- it must never
+# be trusted on a clean exit, or this plugin's own extractor -- which summarizes sessions about
+# model deprecation and API errors -- would blocklist a working model over its own prose.
+for sig in "not_found_error" "model not found" "permission_error" \
            "does not have access" "was retired" "is deprecated" "invalid model"; do
   mkout "$sig"
-  sb_model_blocked_verdict 0 "$TMP/out" "$TMP/err" || fail "signature not detected: $sig"
+  sb_model_blocked_verdict 1 "$TMP/out" "$TMP/err" || fail "signature not detected: $sig"
 done
-pass "secondary signatures detected (poisoned-output case, exit code 0)"
+pass "secondary signatures detected on a failed spawn (non-zero exit)"
+
+mkout "There's an issue with the selected model (claude-3-opus-20240229)"
+sb_model_blocked_verdict 0 "$TMP/out" "$TMP/err" \
+  || fail "the exit-0 poisoned-output phrase must still be detected after the exit-code split"
+pass "exit-0 poisoned-output signature still detected (retired-but-known ID, exit 0)"
+
+# Regression lock: a clean success whose CONTENT discusses model deprecation/not-found in prose
+# (exactly what this repo's own extractor produces when summarizing a session about this
+# feature) must never be misread as a blocked verdict.
+mkout '{"is_error":false,"result":"The old API is deprecated and that model not found error was fixed."}'
+sb_model_blocked_verdict 0 "$TMP/out" "$TMP/err" \
+  && fail "extractor prose describing deprecation/not-found must NOT be a blocked verdict at exit 0"
+pass "clean-exit content mentioning deprecation/not-found is not misread as a blocked verdict"
 
 for authsig in "Not logged in" "please run /login" "Unauthorized" "invalid api key"; do
   mkout "$authsig"
