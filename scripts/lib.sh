@@ -380,6 +380,37 @@ sb_resolve_model() {
   sb_log_error "lib.sh" \
     "model-ladder exhausted: tier=$tier surface=$surface all ${#rungs[@]} rungs blocked; using ${rungs[0]}" 1
   printf '%s\n' "${rungs[0]}"
+  return 0
+}
+
+# Exit 0 = "this failure was the MODEL, not the network, not the credentials".
+# PRIMARY signal is the process exit code plus the `is_error` envelope field. The headless JSON
+# reports "subtype":"success" even on a model error, so subtype is never read.
+# SECONDARY signal is a stdout/stderr signature, needed because a retired-but-known ID does not
+# fail cleanly: it prints deprecation text and "There's an issue with the selected model (<id>)"
+# onto stdout, poisoning the output stream while exiting 0.
+sb_model_blocked_verdict() {
+  local ec="${1:-0}" out="${2:-/dev/null}" err="${3:-/dev/null}" blob
+  blob=$( { head -c 2000 "$out" 2>/dev/null; printf '\n'; head -c 2000 "$err" 2>/dev/null; } )
+  # Auth first: an auth failure is an auth verdict. Misclassifying it would blocklist a model
+  # that is perfectly available and demote the whole ladder on a login problem.
+  if printf '%s' "$blob" | grep -qiE 'not logged in|please run /login|unauthorized|invalid api key'; then
+    return 1
+  fi
+  if [ "$ec" != "0" ] && printf '%s' "$blob" | grep -qE '"is_error"[[:space:]]*:[[:space:]]*true'; then
+    return 0
+  fi
+  if printf '%s' "$blob" | grep -qiE "there's an issue with the selected model|not_found_error|model not found|permission_error|does not have access|was retired|is deprecated|invalid model"; then
+    return 0
+  fi
+  return 1
+}
+
+sb_note_model_blocked() {
+  local surface="${1:-headless}" model="${2:-}" reason="${3:-}"
+  [ -n "$model" ] || return 0
+  sb_model_cache_put "$surface" "$model" blocked "$(printf '%s' "$reason" | tr -d '\n' | head -c 160)"
+  sb_log_error "lib.sh" "model blocked: surface=$surface model=$model reason=$(printf '%s' "$reason" | tr -d '\n' | head -c 120)" 1
 }
 
 # --- Audit log ------------------------------------------------------------

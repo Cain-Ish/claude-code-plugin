@@ -111,4 +111,29 @@ pass "pin is rung 0, demotable, and demotion is logged"
   || fail "SB_MODEL_ELASTIC=0 must return rung 0 verbatim"
 pass "SB_MODEL_ELASTIC=0 bypasses the ladder"
 
+# --- verdict table --------------------------------------------------------
+mkout(){ printf '%s' "$1" > "$TMP/out"; : > "$TMP/err"; }
+
+mkout '{"is_error":true,"subtype":"success","result":"model not found"}'
+sb_model_blocked_verdict 1 "$TMP/out" "$TMP/err" || fail "exit!=0 + is_error:true must be a blocked verdict"
+pass "primary signal: exit!=0 + is_error (subtype lies and must be ignored)"
+
+mkout '{"is_error":false,"subtype":"success","result":"fine"}'
+sb_model_blocked_verdict 0 "$TMP/out" "$TMP/err" && fail "a clean success must NOT be a blocked verdict"
+pass "clean success is not a blocked verdict"
+
+for sig in "There's an issue with the selected model (claude-3-opus-20240229)" \
+           "not_found_error" "model not found" "permission_error" \
+           "does not have access" "was retired" "is deprecated" "invalid model"; do
+  mkout "$sig"
+  sb_model_blocked_verdict 0 "$TMP/out" "$TMP/err" || fail "signature not detected: $sig"
+done
+pass "secondary signatures detected (poisoned-output case, exit code 0)"
+
+for authsig in "Not logged in" "please run /login" "Unauthorized" "invalid api key"; do
+  mkout "$authsig"
+  sb_model_blocked_verdict 1 "$TMP/out" "$TMP/err" && fail "auth failure misread as a model verdict: $authsig"
+done
+pass "auth failures are NOT model verdicts (auth check runs first)"
+
 echo; echo "ALL PASS"
