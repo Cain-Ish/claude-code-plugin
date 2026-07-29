@@ -69,4 +69,46 @@ sb_model_cache_put headless s-2 blocked "test" || fail "cache_put failed (s-2)"
   || fail "fingerprint flip (oauth -> apikey) must invalidate every verdict"
 pass "auth-fingerprint flip invalidates the cache"
 
+# --- resolver: clean cache returns rung 0 --------------------------------
+rm -f "$BRAIN_DIR/model-availability.json"
+[ "$(sb_resolve_model mid)" = "sonnet" ] || fail "clean resolve should return rung 0 (sonnet)"
+[ "$(sb_resolve_model mid dispatch)" = "sonnet" ] || fail "dispatch surface resolve failed"
+[ "$(sb_resolve_model deep)" = "opus" ] || fail "deep resolve should return opus"
+pass "clean cache resolves to rung 0 on both surfaces"
+
+# --- resolver: blocked rungs are skipped in order ------------------------
+sb_model_cache_put headless sonnet blocked "test"
+[ "$(sb_resolve_model mid)" = "s-1" ] || fail "blocked rung 0 must demote to rung 1"
+sb_model_cache_put headless s-1 blocked "test"
+[ "$(sb_resolve_model mid)" = "s-2" ] || fail "two blocked rungs must demote to rung 2"
+pass "blocked rungs are skipped in ladder order"
+
+# --- resolver: exhaustion returns rung 0 AND logs ------------------------
+sb_model_cache_put headless s-2 blocked "test"
+: > "$BRAIN_DIR/error-log.jsonl"
+OUT=$(sb_resolve_model mid)
+[ "$OUT" = "sonnet" ] || fail "exhausted ladder must still return rung 0, got '$OUT'"
+grep -q 'model-ladder exhausted' "$BRAIN_DIR/error-log.jsonl" \
+  || fail "exhaustion must be logged loud (fail loud, never silent)"
+pass "exhausted ladder returns rung 0 and logs loud"
+
+# --- resolver: pin becomes the first rung, still demotable ---------------
+rm -f "$BRAIN_DIR/model-availability.json"
+[ "$(SB_MODEL_TIER_MID=pinned-x sb_resolve_model mid)" = "pinned-x" ] \
+  || fail "an operator pin must become rung 0"
+[ "$(SB_EXTRACTOR_MODEL=legacy-x sb_resolve_model mid)" = "legacy-x" ] \
+  || fail "a legacy per-caller pin must still work (back-compat)"
+sb_model_cache_put headless pinned-x blocked "test"
+: > "$BRAIN_DIR/error-log.jsonl"
+[ "$(SB_MODEL_TIER_MID=pinned-x sb_resolve_model mid)" = "sonnet" ] \
+  || fail "a blocked pin must demote rather than strand the operator"
+grep -q 'model demotion' "$BRAIN_DIR/error-log.jsonl" \
+  || fail "demoting away from an explicit pin must be logged"
+pass "pin is rung 0, demotable, and demotion is logged"
+
+# --- resolver: kill switch -----------------------------------------------
+[ "$(SB_MODEL_ELASTIC=0 sb_resolve_model mid)" = "sonnet" ] \
+  || fail "SB_MODEL_ELASTIC=0 must return rung 0 verbatim"
+pass "SB_MODEL_ELASTIC=0 bypasses the ladder"
+
 echo; echo "ALL PASS"

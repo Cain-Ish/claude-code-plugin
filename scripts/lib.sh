@@ -339,6 +339,49 @@ sb_model_cache_put() {
   return 1
 }
 
+# Prints the first model on <tier>'s ladder that is not cached `blocked`. Operator pins declared
+# in the manifest become rung 0 — honored, but still demotable: silently ignoring a pin would be
+# the silent-fallback failure this repo bans, while refusing to demote would strand an operator
+# whose admin blocked the model they pinned. Never prints an empty string: a wrong model that
+# errors loudly beats a malformed spawn with no --model value.
+sb_resolve_model() {
+  local tier="${1:-mid}" surface="${2:-headless}" manifest m st pin_env pin_val
+  manifest=$(sb_model_manifest)
+  local -a rungs=()
+  if [ -f "$manifest" ] && command -v jq >/dev/null 2>&1; then
+    while IFS= read -r pin_env; do
+      [ -n "$pin_env" ] || continue
+      # Indirect expansion, NOT eval: bash 3.2 supports ${!var} and an env value is
+      # attacker-adjacent input that must never reach the parser.
+      pin_val="${!pin_env:-}"
+      [ -n "$pin_val" ] && rungs+=("$pin_val")
+    done < <(jq -r --arg t "$tier" '.pins[$t][]? // empty' "$manifest" 2>/dev/null | tr -d '\r')
+    while IFS= read -r m; do
+      [ -n "$m" ] && rungs+=("$m")
+    done < <(jq -r --arg s "$surface" --arg t "$tier" \
+               '.ladders[$s][$t][]? // empty' "$manifest" 2>/dev/null | tr -d '\r')
+  fi
+  if [ "${#rungs[@]}" -eq 0 ]; then
+    sb_log_error "lib.sh" "model-ladder unreadable or empty (tier=$tier surface=$surface); using sonnet" 1
+    printf 'sonnet\n'; return 0
+  fi
+  if [ "${SB_MODEL_ELASTIC:-1}" = "0" ]; then printf '%s\n' "${rungs[0]}"; return 0; fi
+  local idx=0
+  # bash 3.2 + set -u: a bare "${rungs[@]}" aborts on an empty array — keep the +expansion guard.
+  for m in ${rungs[@]+"${rungs[@]}"}; do
+    st=$(sb_model_cache_get "$surface" "$m")
+    if [ "$st" != "blocked" ]; then
+      [ "$idx" -gt 0 ] && sb_log_error "lib.sh" \
+        "model demotion: tier=$tier surface=$surface preferred=${rungs[0]} using=$m" 1
+      printf '%s\n' "$m"; return 0
+    fi
+    idx=$(( idx + 1 ))
+  done
+  sb_log_error "lib.sh" \
+    "model-ladder exhausted: tier=$tier surface=$surface all ${#rungs[@]} rungs blocked; using ${rungs[0]}" 1
+  printf '%s\n' "${rungs[0]}"
+}
+
 # --- Audit log ------------------------------------------------------------
 # Trajectory log separate from error-log.jsonl. Captures every guard verdict
 # (allow / ask / deny / flag) emitted by persona-tool-guard, tool-return
