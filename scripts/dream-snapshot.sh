@@ -11,7 +11,8 @@ INSTRUCTIONS=""
 FILTER_SLUGS=""
 FILTER_SINCE=""
 MAX_COUNT=50
-MODEL="claude-sonnet-4-6"
+# Tier intent, not a literal — recorded into status.json and overridable via --model.
+MODEL="tier:mid"
 
 while [ $# -gt 0 ]; do
   case "$1" in

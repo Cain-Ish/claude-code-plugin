@@ -1573,6 +1573,12 @@ sb_call_extractor() {
   err_file=$(mktemp)
   caller_script="${SB_SCRIPT_NAME:-${0##*/}}"
 
+  # The third arg is either a concrete model id (legacy callers) or `tier:<name>`. The tier form
+  # is re-resolved on every attempt so a demotion recorded during attempt 1 takes effect on
+  # attempt 2 — a caller-resolved string would go stale the moment it was blocklisted.
+  local model_spec="$model" model_tier=""
+  case "$model_spec" in tier:*) model_tier="${model_spec#tier:}" ;; esac
+
   # R1.1 nested-spawn containment: the headless child (a) inherits
   # SB_NESTED_SPAWN=1 so plugin hooks no-op inside it instead of re-running the
   # full SessionStart/Stop stack (~24s on a Pi — the cause of every ec=124
@@ -1641,133 +1647,153 @@ sb_call_extractor() {
   # ~/.second-brain writable. Requires bwrap binary;
   # falls back to direct invocation if absent. Network stays enabled
   # (extractor needs the API).
-  if [ "$SB_SKIP_CLI" != "1" ] && command -v claude >/dev/null 2>&1; then
-    local -a CLI_ARGS=(-p --model "$model" --system-prompt "$prompt")
-    if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ "${SB_USE_BARE:-0}" = "1" ]; then
-      CLI_ARGS=(-p --bare --model "$model" --system-prompt "$prompt")
-    fi
-    local -a WRAP_PREFIX=()
-    if [ "${SB_USE_BWRAP:-0}" = "1" ] && command -v bwrap >/dev/null 2>&1; then
-      WRAP_PREFIX=(
-        bwrap
-        --ro-bind / /
-        --bind "$HOME/.second-brain" "$HOME/.second-brain"
-        --tmpfs /tmp
-        --proc /proc
-        --dev /dev
-        --unshare-pid
-        --new-session
-        --die-with-parent
-        --setenv HOME "$HOME"
-        --setenv PATH "${PATH:-/usr/local/bin:/usr/bin:/bin}"
-        --setenv ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}"
-        --
-      )
-    elif [ "${SB_USE_BWRAP:-0}" = "1" ]; then
-      # User asked for bwrap but binary missing — log once per call so the
-      # health banner can surface this.
-      sb_log_error "lib.sh" "SB_USE_BWRAP=1 but bwrap not found in PATH; falling back to direct invocation" 0
-    fi
-    local claude_ec=0
-    local TBIN; TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)  # GNU || macOS-brew
-    if [ -n "$TBIN" ]; then
-      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "$TBIN" "$timeout_s" ${WRAP_PREFIX[@]+"${WRAP_PREFIX[@]}"} claude "${CLI_ARGS[@]}" \
-        < "$input_file" > "$out_file" 2>"$err_file" )
-      claude_ec=$?
-    else
-      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 ${WRAP_PREFIX[@]+"${WRAP_PREFIX[@]}"} claude "${CLI_ARGS[@]}" \
-        < "$input_file" > "$out_file" 2>"$err_file" )
-      claude_ec=$?
-    fi
-
-    # Cheap auth-failure signature check on combined stdout+stderr tail.
-    local combined
-    combined=$(head -c 400 "$out_file" 2>/dev/null; head -c 400 "$err_file" 2>/dev/null)
-    if echo "$combined" | grep -qiE '(not logged in|please run /login|unauthorized|invalid api key)'; then
-      sb_write_extractor_health "claude-cli" "fail" \
-        "auth: $(printf '%s' "$combined" | tr '\n' ' ' | head -c 120)"
-    elif [ -s "$out_file" ]; then
-      sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
-        && mv "${out_file}.clean" "$out_file"
-      if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
-        sb_write_extractor_health "claude-cli" "ok" ""
-        rm -f "$err_file"
-        return 0
+  # One retry, and only for a tier spec: a model-unavailable verdict on attempt 1 blocklists
+  # that rung, so attempt 2 re-resolves onto the next one. Bounded at 2 attempts — a caller
+  # that passed a literal model id runs exactly once, exactly as before.
+  local _sb_attempt=0
+  while [ "$_sb_attempt" -lt 2 ]; do
+    _sb_attempt=$(( _sb_attempt + 1 ))
+    if [ -n "$model_tier" ]; then model=$(sb_resolve_model "$model_tier" headless); fi
+    if [ "$SB_SKIP_CLI" != "1" ] && command -v claude >/dev/null 2>&1; then
+      local -a CLI_ARGS=(-p --model "$model" --system-prompt "$prompt")
+      if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ "${SB_USE_BARE:-0}" = "1" ]; then
+        CLI_ARGS=(-p --bare --model "$model" --system-prompt "$prompt")
       fi
-      sb_write_extractor_health "claude-cli" "fail" \
-        "non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
-    else
-      # --- Backend 1b: empty-output retry under pty wrap -----------------
-      # claude -p inside a Claude Code hook subprocess sometimes returns 0
-      # bytes (upstream anthropics/claude-code#38651, #38774, #9026, #7263).
-      # In our local repro the same call from an interactive Bash succeeds
-      # — the failure is specific to the hook-firing moment when the
-      # parent process is mid-compact / mid-stop. A pty-allocated retry via
-      # script(1) helps in some non-TTY contexts (see [[router-daemon]] and
-      # [[pty-openpty-privatedevices-quirk]] for prior art). If the pty
-      # retry also returns empty, the diagnostic line we log here gives the
-      # ground truth for the *next* failure cycle.
-      local pty_tried="no"
-      sb_log_extractor_diag "$caller_script" "direct" "$claude_ec" \
-        "$(wc -c < "$out_file" | tr -d ' ')" "$err_file" "$pty_tried"
-      if [ "${SB_PTY_RETRY:-on}" != "off" ] && command -v script >/dev/null 2>&1; then
-        pty_tried="yes"
-        : > "$out_file"; : > "$err_file"
-        local -a CLI_ARGS_QUOTED=()
-        for arg in "${CLI_ARGS[@]}"; do
-          CLI_ARGS_QUOTED+=("$(printf '%q' "$arg")")
-        done
-        local inner="claude ${CLI_ARGS_QUOTED[*]} < $(printf '%q' "$input_file") > $(printf '%q' "$out_file") 2> $(printf '%q' "$err_file")"
-        local TBIN2; TBIN2=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
-        if [ -n "$TBIN2" ]; then
-          inner="$TBIN2 $timeout_s $inner"
-        fi
-        # script -qfc syntax is util-linux specific; we already require Linux
-        # for the rest of the plugin so no portability shim here.
-        # Wrap the inner command in `bash -c` explicitly: script(1) invokes
-        # its -c arg via $SHELL, and `printf %q` produces bash-specific
-        # $'...' C-string escapes that other shells (dash) do not parse,
-        # which would silently corrupt the 5KB system prompt.
-        local pty_raw
-        pty_raw=$(mktemp)
-        ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 script -qfc "bash -c $(printf '%q' "$inner")" /dev/null > "$pty_raw" 2>/dev/null </dev/null ) || true
-        rm -f "$pty_raw"
-        if [ -s "$out_file" ]; then
-          # Strip ANSI/VT sequences from claude's stdout (the pty echoes them
-          # back when allocated).
-          sb_strip_ansi "$out_file" > "${out_file}.clean" 2>/dev/null \
-            && mv "${out_file}.clean" "$out_file"
-          sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
-            && mv "${out_file}.clean" "$out_file"
-          if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
-            sb_write_extractor_health "claude-cli" "ok" "pty-retry"
-            rm -f "$err_file"
-            return 0
-          fi
-          sb_write_extractor_health "claude-cli" "fail" \
-            "pty-retry-non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
-        else
-          # Both direct and pty-wrapped came back empty. The most likely
-          # remaining cause is recursive-claude / OAuth-state conflict (parent
-          # Claude Code holds the OAuth token mid-API-call). Recommend the
-          # ANTHROPIC_API_KEY backstop, which uses a distinct credential path.
-          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-            sb_write_extractor_health "claude-cli" "fail" \
-              "empty after pty-retry (recursive-claude conflict suspected) — set ANTHROPIC_API_KEY for direct-API backstop"
-          else
-            sb_write_extractor_health "claude-cli" "fail" \
-              "empty after pty-retry — falling back to anthropic-api"
-          fi
-          sb_log_extractor_diag "$caller_script" "pty" "$claude_ec" \
-            "$(wc -c < "$out_file" | tr -d ' ')" "$err_file" "$pty_tried"
-        fi
+      local -a WRAP_PREFIX=()
+      if [ "${SB_USE_BWRAP:-0}" = "1" ] && command -v bwrap >/dev/null 2>&1; then
+        WRAP_PREFIX=(
+          bwrap
+          --ro-bind / /
+          --bind "$HOME/.second-brain" "$HOME/.second-brain"
+          --tmpfs /tmp
+          --proc /proc
+          --dev /dev
+          --unshare-pid
+          --new-session
+          --die-with-parent
+          --setenv HOME "$HOME"
+          --setenv PATH "${PATH:-/usr/local/bin:/usr/bin:/bin}"
+          --setenv ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}"
+          --
+        )
+      elif [ "${SB_USE_BWRAP:-0}" = "1" ]; then
+        # User asked for bwrap but binary missing — log once per call so the
+        # health banner can surface this.
+        sb_log_error "lib.sh" "SB_USE_BWRAP=1 but bwrap not found in PATH; falling back to direct invocation" 0
+      fi
+      local claude_ec=0
+      local TBIN; TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)  # GNU || macOS-brew
+      if [ -n "$TBIN" ]; then
+        ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "$TBIN" "$timeout_s" ${WRAP_PREFIX[@]+"${WRAP_PREFIX[@]}"} claude "${CLI_ARGS[@]}" \
+          < "$input_file" > "$out_file" 2>"$err_file" )
+        claude_ec=$?
       else
-        sb_write_extractor_health "claude-cli" "fail" \
-          "empty output: $(head -c 100 "$err_file" | tr '\n' ' ')"
+        ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 ${WRAP_PREFIX[@]+"${WRAP_PREFIX[@]}"} claude "${CLI_ARGS[@]}" \
+          < "$input_file" > "$out_file" 2>"$err_file" )
+        claude_ec=$?
       fi
+
+      # Cheap auth-failure signature check on combined stdout+stderr tail.
+      local combined
+      combined=$(head -c 400 "$out_file" 2>/dev/null; head -c 400 "$err_file" 2>/dev/null)
+      if echo "$combined" | grep -qiE '(not logged in|please run /login|unauthorized|invalid api key)'; then
+        sb_write_extractor_health "claude-cli" "fail" \
+          "auth: $(printf '%s' "$combined" | tr '\n' ' ' | head -c 120)"
+      elif [ -s "$out_file" ]; then
+        sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
+          && mv "${out_file}.clean" "$out_file"
+        if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+          sb_write_extractor_health "claude-cli" "ok" ""
+          rm -f "$err_file"
+          return 0
+        fi
+        sb_write_extractor_health "claude-cli" "fail" \
+          "non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
+      else
+        # --- Backend 1b: empty-output retry under pty wrap -----------------
+        # claude -p inside a Claude Code hook subprocess sometimes returns 0
+        # bytes (upstream anthropics/claude-code#38651, #38774, #9026, #7263).
+        # In our local repro the same call from an interactive Bash succeeds
+        # — the failure is specific to the hook-firing moment when the
+        # parent process is mid-compact / mid-stop. A pty-allocated retry via
+        # script(1) helps in some non-TTY contexts (see [[router-daemon]] and
+        # [[pty-openpty-privatedevices-quirk]] for prior art). If the pty
+        # retry also returns empty, the diagnostic line we log here gives the
+        # ground truth for the *next* failure cycle.
+        local pty_tried="no"
+        sb_log_extractor_diag "$caller_script" "direct" "$claude_ec" \
+          "$(wc -c < "$out_file" | tr -d ' ')" "$err_file" "$pty_tried"
+        if [ "${SB_PTY_RETRY:-on}" != "off" ] && command -v script >/dev/null 2>&1; then
+          pty_tried="yes"
+          : > "$out_file"; : > "$err_file"
+          local -a CLI_ARGS_QUOTED=()
+          for arg in "${CLI_ARGS[@]}"; do
+            CLI_ARGS_QUOTED+=("$(printf '%q' "$arg")")
+          done
+          local inner="claude ${CLI_ARGS_QUOTED[*]} < $(printf '%q' "$input_file") > $(printf '%q' "$out_file") 2> $(printf '%q' "$err_file")"
+          local TBIN2; TBIN2=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+          if [ -n "$TBIN2" ]; then
+            inner="$TBIN2 $timeout_s $inner"
+          fi
+          # script -qfc syntax is util-linux specific; we already require Linux
+          # for the rest of the plugin so no portability shim here.
+          # Wrap the inner command in `bash -c` explicitly: script(1) invokes
+          # its -c arg via $SHELL, and `printf %q` produces bash-specific
+          # $'...' C-string escapes that other shells (dash) do not parse,
+          # which would silently corrupt the 5KB system prompt.
+          local pty_raw
+          pty_raw=$(mktemp)
+          ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 script -qfc "bash -c $(printf '%q' "$inner")" /dev/null > "$pty_raw" 2>/dev/null </dev/null ) || true
+          rm -f "$pty_raw"
+          if [ -s "$out_file" ]; then
+            # Strip ANSI/VT sequences from claude's stdout (the pty echoes them
+            # back when allocated).
+            sb_strip_ansi "$out_file" > "${out_file}.clean" 2>/dev/null \
+              && mv "${out_file}.clean" "$out_file"
+            sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
+              && mv "${out_file}.clean" "$out_file"
+            if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+              sb_write_extractor_health "claude-cli" "ok" "pty-retry"
+              rm -f "$err_file"
+              return 0
+            fi
+            sb_write_extractor_health "claude-cli" "fail" \
+              "pty-retry-non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
+          else
+            # Both direct and pty-wrapped came back empty. The most likely
+            # remaining cause is recursive-claude / OAuth-state conflict (parent
+            # Claude Code holds the OAuth token mid-API-call). Recommend the
+            # ANTHROPIC_API_KEY backstop, which uses a distinct credential path.
+            if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+              sb_write_extractor_health "claude-cli" "fail" \
+                "empty after pty-retry (recursive-claude conflict suspected) — set ANTHROPIC_API_KEY for direct-API backstop"
+            else
+              sb_write_extractor_health "claude-cli" "fail" \
+                "empty after pty-retry — falling back to anthropic-api"
+            fi
+            sb_log_extractor_diag "$caller_script" "pty" "$claude_ec" \
+              "$(wc -c < "$out_file" | tr -d ' ')" "$err_file" "$pty_tried"
+          fi
+        else
+          sb_write_extractor_health "claude-cli" "fail" \
+            "empty output: $(head -c 100 "$err_file" | tr '\n' ' ')"
+        fi
+      fi
+      # A model-unavailable failure is the one failure worth re-spawning for: record it, then
+      # let the loop re-resolve onto the next rung. Runs BEFORE the reset below so the verdict
+      # can still read the poisoned stdout a retired-but-known ID writes into $out_file.
+      if sb_model_blocked_verdict "$claude_ec" "$out_file" "$err_file"; then
+        sb_note_model_blocked headless "$model" \
+          "attempt=$_sb_attempt ec=$claude_ec $(head -c 100 "$out_file" 2>/dev/null | tr -d '\n')"
+        sb_write_extractor_health "claude-cli" "fail" "model unavailable: $model"
+        if [ -n "$model_tier" ] && [ "$_sb_attempt" -lt 2 ]; then
+          : > "$out_file"; : > "$err_file"; continue
+        fi
+      fi
+      : > "$out_file"   # reset before fallback attempt
     fi
-    : > "$out_file"   # reset before fallback attempt
-  fi
+    break
+  done
 
   # --- Backend 2: ANTHROPIC_API_KEY via curl -------------------------------
   if [ -n "${ANTHROPIC_API_KEY:-}" ] && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
@@ -1934,7 +1960,9 @@ sb_extract_transcript() {
   # path already applies to JSON-sourced slugs.
   slug=$(sb_sanitize_slug "$slug") || slug="unknown"
   local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
-  local model="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
+  # Tier intent, not a literal: SB_EXTRACTOR_MODEL is declared as a MID pin in model-ladder.json
+  # and is applied by sb_resolve_model as rung 0.
+  local model="tier:mid"
   # Drainer-specific knob (deep-review): the hooks share SB_EXTRACT_TIMEOUT with
   # small defaults (25s/30s inside 45s hook budgets) — reusing it here would let a
   # drainer-oriented override re-open the kill-after-extract window in-hook.

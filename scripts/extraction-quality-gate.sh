@@ -29,7 +29,9 @@ fi
 source "$(dirname "$0")/lib.sh"
 STRICTNESS="${SB_QUALITY_GATE_STRICTNESS:-conservative}"
 LLM_MODE="${SB_QUALITY_GATE_LLM:-off}"
-HAIKU_MODEL="${SB_QUALITY_GATE_MODEL:-claude-haiku-4-5-20251001}"
+# Resolved once per gate invocation, not pinned: SB_QUALITY_GATE_MODEL is declared as a FAST pin
+# in model-ladder.json, so an operator override still lands at rung 0 of the walked ladder.
+HAIKU_MODEL="$(sb_resolve_model fast headless)"
 
 mkdir -p "$BRAIN_DIR" 2>/dev/null
 
@@ -92,11 +94,24 @@ Candidate ($kind): $entry"
   # `--bare` requires ANTHROPIC_API_KEY (OAuth tokens ignored). Use only when set.
   # SB_NESTED_SPAWN=1 (R1.1): this is a plugin-spawned headless claude — the
   # child's capture/context hooks must no-op or its 5s budget dies to hook load.
+  # Captured to files rather than read straight off a pipeline: a model-unavailable failure has to
+  # be RECORDED or every later run re-spawns the same dead model, and the verdict needs both the
+  # exit code and the stderr text that `2>/dev/null` used to discard. This gate spawns `claude`
+  # directly (not via sb_call_extractor), so it owns the verdict itself.
+  local _qg_out _qg_err _qg_ec
+  _qg_out=$(mktemp); _qg_err=$(mktemp)
   if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ "${SB_USE_BARE:-0}" = "1" ]; then
-    result=$(printf '%s' "$prompt" | SB_NESTED_SPAWN=1 timeout 5 claude -p --bare --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
+    printf '%s' "$prompt" | SB_NESTED_SPAWN=1 timeout 5 claude -p --bare --model "$HAIKU_MODEL" \
+      > "$_qg_out" 2>"$_qg_err"; _qg_ec=$?
   else
-    result=$(printf '%s' "$prompt" | SB_NESTED_SPAWN=1 timeout 5 claude -p --model "$HAIKU_MODEL" 2>/dev/null | tr -d '\r' | head -1 || true)
+    printf '%s' "$prompt" | SB_NESTED_SPAWN=1 timeout 5 claude -p --model "$HAIKU_MODEL" \
+      > "$_qg_out" 2>"$_qg_err"; _qg_ec=$?
   fi
+  if sb_model_blocked_verdict "$_qg_ec" "$_qg_out" "$_qg_err"; then
+    sb_note_model_blocked headless "$HAIKU_MODEL" "quality-gate ec=$_qg_ec"
+  fi
+  result=$(tr -d '\r' < "$_qg_out" | head -1)
+  rm -f "$_qg_out" "$_qg_err"
   case "$result" in
     *ACCEPT*) return 0 ;;
     *) return 1 ;;

@@ -116,7 +116,9 @@ BODY=$(awk 'p; /^---$/{c++; if(c==2) p=1}' "$SDIR/../agents/dream-runner.md" | s
 PROMPT="You are running HEADLESS and UNATTENDED to consolidate dream $DREAM_ID. Work ONLY inside its staging/wiki — the live wiki is mounted read-only and you physically cannot write it. Follow these instructions exactly, then set the dream status to completed:
 
 $BODY"
-MODEL="${SB_MAINTAIN_LLM_MODEL:-claude-sonnet-4-6}"
+# Resolved once, not pinned: SB_MAINTAIN_LLM_MODEL is declared as a MID pin in model-ladder.json,
+# so an operator override still lands at rung 0 of the walked ladder.
+MODEL="$(sb_resolve_model mid headless)"
 TO="${SB_MAINTAIN_LLM_TIMEOUT:-1800}"; case "$TO" in ''|*[!0-9]*) TO=1800 ;; esac
 # Clamp the headless wall-clock cap BELOW the dream-staleness horizon so an operator override
 # can never let a still-running headless dream age past SB_DREAM_RUN_TIMEOUT (6h) and get wrongly
@@ -188,6 +190,12 @@ rc=0
 ERR_F=$(mktemp)
 SB_NESTED_SPAWN=1 ${TBIN:+$TBIN "$TO"} bwrap "${BWRAP_ARGS[@]}" \
   -- claude -p --permission-mode bypassPermissions --model "$MODEL" "$PROMPT" >/dev/null 2>"$ERR_F" || rc=$?
+# Record a model-unavailable failure before the generic failure handling below: this run is
+# self-throttled to SB_MAINTAIN_LLM_INTERVAL (7d), so without a blocklist entry the next run a
+# week later would re-spawn the same dead model. stdout went to /dev/null; stderr carries it.
+if sb_model_blocked_verdict "${rc:-0}" /dev/null "$ERR_F"; then
+  sb_note_model_blocked headless "$MODEL" "maintain-drain rc=${rc:-0}"
+fi
 if [ "$rc" -ne 0 ]; then
   # A failure must be VISIBLE — capture stderr and transition
   # pending→failed atomically so dream_list/status and the autostage scan show

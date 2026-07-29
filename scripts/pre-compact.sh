@@ -26,7 +26,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-EXTRACTOR_MODEL="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
+# Tier intent, not a literal: SB_EXTRACTOR_MODEL is declared as a MID pin in model-ladder.json
+# and is applied by sb_resolve_model as rung 0, per attempt, inside sb_call_extractor.
+EXTRACTOR_MODEL="tier:mid"
 # 30s inside the 45s hooks.json budget: >=15s headroom so the hook can't be
 # killed between extraction and the marker write (HOOK-10 kill-after-extract).
 EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-30}"

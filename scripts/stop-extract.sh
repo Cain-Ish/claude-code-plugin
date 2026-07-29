@@ -15,7 +15,9 @@
 #
 # Honors env overrides:
 #   SB_EXTRACTOR_MODEL — model passed via `claude -p --model <id>`
-#                        (default: claude-sonnet-4-6)
+#                        (no literal default: the extractor asks for the MID tier and
+#                        sb_resolve_model walks the model-ladder.json headless ladder,
+#                        where SB_EXTRACTOR_MODEL is declared as a pin at rung 0)
 #   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 25)
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
@@ -38,7 +40,9 @@ SB_GATE=""
 log_gate() { SB_GATE="$1"; }
 trap '[ -n "$SB_GATE" ] && sb_log_error "stop-extract.sh" "gate=$SB_GATE" 0' EXIT
 
-EXTRACTOR_MODEL="${SB_EXTRACTOR_MODEL:-claude-sonnet-4-6}"
+# Tier intent, not a literal: SB_EXTRACTOR_MODEL is declared as a MID pin in model-ladder.json
+# and is applied by sb_resolve_model as rung 0, per attempt, inside sb_call_extractor.
+EXTRACTOR_MODEL="tier:mid"
 EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-25}"
 
 RAW=$(cat 2>/dev/null || true)

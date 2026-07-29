@@ -158,4 +158,31 @@ for authsig in "Not logged in" "please run /login" "Unauthorized" "invalid api k
 done
 pass "auth failures are NOT model verdicts (auth check runs first)"
 
+# --- tier: spec resolves inside sb_call_extractor -------------------------
+# A stub `claude` on PATH that always emits the retired-model poison text lets us assert the
+# two-attempt loop demotes rung 0 and retries, without touching the network.
+STUB="$TMP/bin"; mkdir -p "$STUB"
+cat > "$STUB/claude" <<'STUBSH'
+#!/bin/bash
+mdl=""
+while [ $# -gt 0 ]; do case "$1" in --model) mdl="$2"; shift 2 ;; *) shift ;; esac; done
+echo "$mdl" >> "$TMP_ATTEMPTS"
+if [ "$mdl" = "sonnet" ]; then
+  echo "There's an issue with the selected model ($mdl)."
+  exit 1
+fi
+echo '{"ok":true}'
+STUBSH
+chmod +x "$STUB/claude"
+export TMP_ATTEMPTS="$TMP/attempts"; : > "$TMP_ATTEMPTS"
+rm -f "$BRAIN_DIR/model-availability.json"
+printf 'transcript' > "$TMP/in"
+( PATH="$STUB:$PATH" CLAUDECODE="" SB_PTY_RETRY=off \
+  sb_call_extractor "$TMP/in" "$TMP/out2" "tier:mid" "sys" 20 ) >/dev/null 2>&1 || true
+grep -q '^sonnet$' "$TMP_ATTEMPTS" || fail "attempt 1 should have used rung 0 (sonnet)"
+grep -q '^s-1$' "$TMP_ATTEMPTS" || fail "attempt 2 should have demoted to rung 1 (s-1)"
+[ "$(sb_model_cache_get headless sonnet)" = "blocked" ] \
+  || fail "the failing model must be recorded blocked for next time"
+pass "tier: spec drives a two-attempt loop that demotes and records"
+
 echo; echo "ALL PASS"
