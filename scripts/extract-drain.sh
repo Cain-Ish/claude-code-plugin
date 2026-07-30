@@ -355,10 +355,11 @@ if [ "$(sb_config_bool .auto_improve on)" = "on" ]; then
   bash "$(dirname "$0")/maintain-deterministic.sh" >/dev/null 2>&1 || true
 fi
 
-# C (opt-in headless-LLM maintainer): a SEPARATE, stronger consent than auto_improve — it runs a
-# headless `claude -p` consolidation (costs tokens, needs the OAuth grant) kernel-contained to a
-# dream's staging by bubblewrap, leaving it for `dream_accept` review. Self-gated on auto_maintain
-# + bwrap; weekly-throttled; never auto-accepts. Off by default.
+# C (headless-LLM maintainer): a SEPARATE, stronger consent than auto_improve — it runs the
+# QUARANTINED zero-tool summarizer (costs tokens, needs the OAuth grant) over a staged dream,
+# with the quarantine attested at runtime and bwrap as additive defense where functional.
+# Self-gated on auto_maintain + the CLI schema-enforcement floor; weekly-throttled; the
+# auto-accept gate applies per config.json auto_accept.
 if [ "$(sb_config_bool .auto_maintain on)" = "on" ]; then
   bash "$(dirname "$0")/maintain-llm-drain.sh" >/dev/null 2>&1 || true
 fi

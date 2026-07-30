@@ -27,15 +27,26 @@ you see something else. Do not skip Phase 0.
 
 The mission's hard constraint is **zero required user interaction** (CONSTITUTION.md:42-45), but
 the one mechanism that bounds memory growth — `dream` (background consolidation) → `dream_accept`
-(apply to live wiki) — still has a human-review gate, and the unattended path (`auto_maintain` →
-`scripts/maintain-llm-drain.sh`) is a **Linux-only** bubblewrap-jailed monolith that reads raw
-transcripts AND reasons AND writes the live-bound staging wiki in **one LLM context with network
-up**. That is the **lethal trifecta**: untrusted input (transcripts) + access to private data
-(the wiki + OAuth token) + an exfiltration/persistence channel (network + the memory that is
-auto-injected every future session). A prompt-injected transcript can steer the same context that
-writes the memory Claude later trusts — a delayed-trigger poisoning substrate. The fix is the
-**P6 quarantine / dual-LLM split**, planned in full but **unimplemented** as of 0.33.31:
-`docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md` (8 tasks). This skill turns that
+(apply to live wiki) — still has a human-review gate. The unattended path (`auto_maintain` →
+`scripts/maintain-llm-drain.sh`) WAS a **Linux-only** bubblewrap-jailed monolith that read raw
+transcripts AND reasoned AND wrote the live-bound staging wiki in **one LLM context with network
+up** — the **lethal trifecta**: untrusted input (transcripts) + access to private data (the wiki
++ OAuth token) + an exfiltration/persistence channel (network + the memory that is auto-injected
+every future session). A prompt-injected transcript can steer the same context that writes the
+memory Claude later trusts — a delayed-trigger poisoning substrate.
+
+**STATUS (2026-07-30, slice 1 merged): Stage A of the split is BUILT.** The spawn is now a
+QUARANTINED **zero-tool** `claude -p` (validator-enforced `--json-schema` output, runtime
+init-event ATTESTATION that fails loud, `--no-session-persistence` + empty setting-sources,
+self-transcript exclusion, CLI ≥2.1.205 preflight) — **cross-platform**; bwrap is demoted to
+ADDITIVE Linux defense, gating nothing on any OS. Superseding decision: wiki
+`decisions/cross-platform-autonomy-architecture.md` (part_of p6-quarantine-dual-llm-split).
+Remaining: Stage B deterministic **netless** writer + candidate-facts promotion (slice 2),
+arm-gates (slice 3 — held-untrusted confirm gate, injection wrapping; the forget-manifest drop
+is FIXED — `dream-accept.sh` now applies the manifest on every accept path), scheduling flips
+(slices 4-6). Accepted residual: the model-API channel itself. Original 8-task plan (bwrap-era):
+`git show archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`. Sections
+below that describe bwrap as the GATE are historical context for that era. This skill turns the
 plan into an executable, measured, gate-driven campaign.
 
 ## Terms (defined once; cross-refs own the rest)
@@ -81,14 +92,18 @@ cd /c/Workplace/Projects/claude-code-plugin   # repo root; adjust to your checko
 sed -n '105,190p' scripts/maintain-llm-drain.sh
 ```
 
-**Expected:** you will see (a) `DREAM_ID=$(bash "$SDIR/dream-snapshot.sh" ...)` staging a dream;
-(b) a single `claude -p --permission-mode bypassPermissions` run inside `bwrap` (line ~189-190);
-(c) the jail binds `--ro-bind / /` + `--bind "$DREAM_DIR"` writable + a **read-only** creds bind
-(`--ro-bind "$HOME/.claude/.credentials.json"`, line ~174) with **network up**. That single
-context holds all three legs. This is exactly what P6 splits.
+**Expected (slice-1 layout, current):** (a) `DREAM_ID=$(bash "$SDIR/dream-snapshot.sh" ...)`
+staging a dream; (b) the Stage A input assembly (sanitized transcripts INLINED as DATA between
+BEGIN/END markers, self-transcript excluded, byte-capped); (c) TWO spawn sites of the quarantined
+zero-tool `claude -p --tools "" --strict-mcp-config --setting-sources "" --json-schema` — one
+bwrap-wrapped (`BWRAP_OK=1`, additive) and one plain — both under `SB_NESTED_SPAWN=1` + the
+wall-clock timeout; (d) the runtime ATTESTATION block parsing the init event (tools ⊆
+{StructuredOutput}, mcp_servers == []) that discards output and fails loud otherwise. Network is
+up and the creds are readable — the accepted-residual model-API channel; the untrusted-input and
+write legs are cut by zero tools + staging-only output.
 
-> **If** the file already shows two stages (`dream-summarizer` + `consolidate-writer-cli`) →
-> P6 has landed; you are ADVANCING, not starting. Jump to Phase 5 (validation) and re-scope.
+> **If** the file additionally shows the Stage B `consolidate-writer` CLI consuming
+> `candidate-facts.json` → slice 2 has landed too; jump to Phase 5 (validation) and re-scope.
 
 ### 0.2 — Run the dream cycle "manually" (the DRYRUN gate)
 
@@ -98,26 +113,26 @@ lock). Use the DRYRUN, which is the maintainer's own testable seam:
 ```bash
 B=$(mktemp -d); mkdir -p "$B/knowledge/wiki/learnings" "$B/bin"
 printf -- '---\ntitle: x\ntype: learnings\ndescription: d\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\nbody\n' > "$B/knowledge/wiki/learnings/x.md"
-# Stub claude AND bwrap onto PATH (the shipped test's own trick, tests/test-maintain-llm-drain.sh:33-37):
-# maintain-llm-drain.sh:31-35 exits 0 at `command -v claude` / `command -v bwrap` BEFORE the DRYRUN
-# branch is reached — so on any bwrap-less host (macOS/Windows, i.e. the dev platform) the unstubbed
-# command is a silent no-op (RC=0, no stdout; only a skip line in "$B/error-log.jsonl").
-# DRYRUN prints and exits before invoking either binary, so exit-0 stubs are safe.
-printf '#!/bin/bash\nexit 0\n' > "$B/bin/claude"; printf '#!/bin/bash\nexit 0\n' > "$B/bin/bwrap"
-chmod +x "$B/bin/claude" "$B/bin/bwrap"
+# Stub claude onto PATH (mirror the shipped test's write_claude_mock, tests/test-maintain-llm-drain.sh):
+# the stub MUST answer `--version` ≥ 2.1.205 — the CLI schema-enforcement floor preflight runs
+# BEFORE anything is staged, and a silent stub fails it (strike + no dream). bwrap needs no stub:
+# it is ADDITIVE now (probed via BWRAP_OK, never a gate). DRYRUN prints and exits before any
+# real spawn, so the exit-0 body is safe.
+printf '#!/bin/bash\nfor a in "$@"; do [ "$a" = "--version" ] && { echo "2.1.220 (Claude Code)"; exit 0; }; done\nexit 0\n' > "$B/bin/claude"
+chmod +x "$B/bin/claude"
 unset CLAUDECODE
 PATH="$B/bin:$PATH" SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 \
   BRAIN_DIR="$B" KNOWLEDGE_DIR="$B/knowledge" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$B/knowledge" HOME="$B" \
   bash scripts/maintain-llm-drain.sh 2>&1
 ```
 
-**Expected:** a line `DRYRUN dream=drm_... prompt_bytes=... contained: bwrap ... claude -p
---permission-mode bypassPermissions` and (because DRYRUN simulates `status=completed`) a
-`DRYRUN auto-accept=safe dream=drm_... forget=0 backup=...` line. This proves the gate reaches the
-contained run and the auto-accept decision fires. **If** you get nothing, the first gates are
-`command -v claude` / `command -v bwrap` (maintain-llm-drain.sh:31-35) — confirm both stubs are on
-PATH and executable (and check `$B/error-log.jsonl` for the "bwrap absent — skipping" line); then
-check `command -v jq` and that `CLAUDECODE` is unset.
+**Expected:** a line `DRYRUN dream=drm_... prompt_bytes=... tx=... excluded_self=... jail=none
+quarantine: claude -p --tools "" --strict-mcp-config --setting-sources "" ...` (`jail=bwrap` on a
+bwrap-capable Linux box) and (because DRYRUN simulates `status=completed`) an auto-accept line.
+This proves the gates reach the quarantined spawn and the auto-accept decision fires. **If** you
+get nothing, the first gates are `command -v claude` and the CLI ≥2.1.205 `--version` preflight —
+confirm the stub is on PATH, executable, and answers `--version` (check `$B/error-log.jsonl` for
+a version-floor refusal); then check `command -v jq` and that `CLAUDECODE` is unset.
 
 ### 0.3 — Prove the accept guards hold (the safety floor you must not regress)
 

@@ -151,12 +151,13 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_EXTRACT_STUB` | empty | Test stub replacing the real extractor. | TESTDBL | extract-drain.sh:230 | bash |
 | `SB_MAINTAIN_INTERVAL` | `3600` (s) | Min interval between deterministic maintenance runs. | TUNE | maintain-deterministic.sh:17 | none |
 | `SB_MAINTAIN_FORCE` | `0` | Bypass the deterministic-maintenance interval. | DEBUG | maintain-deterministic.sh:18 | bash |
-| `SB_MAINTAIN_LLM_FORCE` | `0` | Bypass interval/quarantine guards on the headless LLM maintainer. | DEBUG | maintain-llm-drain.sh:30 | bash |
-| `SB_MAINTAIN_LLM_INTERVAL` | `604800` (s = 7d) | Headless-maintainer cadence. | TUNE | maintain-llm-drain.sh:58 | none |
-| `SB_MAINTAIN_LLM_RETRY` | `86400` (s) | Retry interval after a failed run. | TUNE | maintain-llm-drain.sh:44 | none |
-| `SB_MAINTAIN_LLM_MODEL` | unset | MID-tier pin for the headless maintainer. | TUNE | model-ladder.json | bash |
-| `SB_MAINTAIN_LLM_TIMEOUT` | `1800` (s) | Maintainer run timeout. | TUNE | maintain-llm-drain.sh:120 | bash |
-| `SB_MAINTAIN_LLM_DRYRUN` | `0` | Dry-run (no spawn). | TESTDBL | maintain-llm-drain.sh:140 | bash |
+| `SB_MAINTAIN_LLM_FORCE` | `0` | Bypass interval/quarantine guards on the headless LLM maintainer. | DEBUG | maintain-llm-drain.sh:31 | bash |
+| `SB_MAINTAIN_LLM_INTERVAL` | `604800` (s = 7d) | Headless-maintainer cadence. | TUNE | maintain-llm-drain.sh:77 | none |
+| `SB_MAINTAIN_LLM_RETRY` | `86400` (s) | Retry interval after a failed run. | TUNE | maintain-llm-drain.sh:63 | none |
+| `SB_MAINTAIN_LLM_MODEL` | unset | MID-tier pin for the headless maintainer (quarantined summarizer). | TUNE | model-ladder.json | bash |
+| `SB_MAINTAIN_LLM_TIMEOUT` | `1800` (s) | Maintainer run timeout. | TUNE | maintain-llm-drain.sh:217 | bash |
+| `SB_MAINTAIN_LLM_MAX_INPUT` | `262144` (bytes) | Byte cap on the transcript DATA inlined into the quarantined summarizer prompt. | TUNE | maintain-llm-drain.sh:189 | bash |
+| `SB_MAINTAIN_LLM_DRYRUN` | `0` | Dry-run (no spawn). | TESTDBL | maintain-llm-drain.sh:235 | bash |
 | `SB_RAW_PRUNE_AFTER_DRAIN` | unset (off) | Truthy (`1/true/yes/on`) = drainer deletes processed+discarded raw items after each batch. ADVISORY — the case statement lives in agent prompt text `agents/raw-drainer.md:~182`. | KS(opt-in), ADVISORY | raw-drainer.md | bash |
 
 **Elastic model resolution** — cross-cutting: `sb_resolve_model`/`resolveModel` back every headless
