@@ -678,8 +678,62 @@ fi
 # 0.24.16 USER.md bug). Capped at 3000B so PROJECT.md + USER.md (6000) + budget-bounded
 # banners stay under Claude Code's ~10K hook-output ceiling; SP-E's [degraded] routing
 # keeps it from bloating.
+# Section-priority hot-tier render. When PROJECT.md exceeds its emit cap, the blunt
+# head cut keeps whatever sits at the TOP (Goal/State/Plan) and silently drops the
+# tail — which is where Conventions, Recent decisions, and Open blockers live: the
+# operational payload the hot tier exists to deliver. The 2026-07 live file ran ~8KB
+# against the 3000B cap, so blockers never reached the model at ANY SessionStart.
+# Select sections by priority instead, emit in document order, breadcrumb the drops.
+sb_project_hot_render() {
+  local file="$1" cap="$2" tmpd total
+  total=$(wc -c < "$file" | tr -d ' '); : "${total:=0}"
+  if [ "$total" -le "$cap" ]; then cat "$file"; return 0; fi
+  tmpd=$(mktemp -d 2>/dev/null) || { head -c "$cap" "$file"; return 0; }
+  # Split into NN-<name> files in document order; everything before the first ## is
+  # 00-preamble (frontmatter + the # PROJECT header).
+  awk -v d="$tmpd" '
+    BEGIN{ out=d"/00-preamble" }
+    /^## /{ n++; name=$0; sub(/^## +/,"",name); gsub(/[^A-Za-z0-9]+/,"-",name)
+            out=sprintf("%s/%02d-%s", d, n, name) }
+    { print >> out }
+  ' "$file"
+  # Operational payload first; State/Plan bulk gives way. MUST-LAND sections are
+  # truncated into the remaining budget rather than skipped.
+  local pri="preamble Open-blockers Recent-decisions Conventions Goal How-to State Plan Cross-references"
+  local budget=$cap picked="" dropped="" name f sz
+  for name in $pri; do
+    f=$(ls "$tmpd"/[0-9][0-9]-"$name" 2>/dev/null | head -1)
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    sz=$(wc -c < "$f" | tr -d ' ')
+    if [ "${sz:-0}" -le "$budget" ]; then
+      picked="$picked|$f|"; budget=$(( budget - sz ))
+    else
+      case "$name" in
+        preamble|Open-blockers|Recent-decisions)
+          head -c "$budget" "$f" > "$f.t" 2>/dev/null && mv "$f.t" "$f"
+          picked="$picked|$f|"; dropped="$dropped ${name}(tail)"; budget=0 ;;
+        *) dropped="$dropped ${name}(${sz}B)" ;;
+      esac
+    fi
+  done
+  local emitted=""
+  for f in "$tmpd"/[0-9][0-9]-*; do
+    [ -f "$f" ] || continue
+    case "$picked" in *"|$f|"*) cat "$f"; emitted=1 ;; esac
+  done
+  [ -n "$emitted" ] || head -c "$cap" "$file"   # defensive: never emit nothing
+  # Breadcrumb to the audit channel (gate= + ec=0), not the error log — this fires
+  # every session while the file is over-cap and is trajectory, not failure.
+  [ -n "$dropped" ] && sb_log_error "session-load.sh" \
+    "gate=hot-tier-sections over-cap ${total}B>${cap}B dropped:${dropped}" 0
+  rm -rf "$tmpd" 2>/dev/null
+  return 0
+}
+
 if [ -f "$project_file" ]; then
-  PROJ_CONTENT=$(printf '\n%s' "$(cat "$project_file")")
+  # Render to cap-10: the printf wrapper adds a leading newline, and sb_append's own
+  # head -c 3000 would otherwise shave the final byte(s) off the LAST emitted section.
+  PROJ_CONTENT=$(printf '\n%s' "$(sb_project_hot_render "$project_file" 2990)")
   sb_append "$PROJ_CONTENT" "PROJECT.md" 3000 force
 
   # M3: a one-line, glanceable confirmation of WHICH project scope loaded — so a wrong
