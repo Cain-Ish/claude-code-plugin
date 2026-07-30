@@ -31,6 +31,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Resolve the tier intent to a real model id BEFORE it is recorded. Unlike the extractor call
+# sites, $MODEL here is not handed to a spawn that could resolve it later — it is written into
+# status.json and returned verbatim by dream_status / dream_list / dream_create, so a `tier:*`
+# string would be shown to the user as their model and would be unusable to any future consumer
+# that spawned from the field. Placed after the parse loop so an explicit --model still wins.
+case "$MODEL" in tier:*) MODEL="$(sb_resolve_model "${MODEL#tier:}" headless)" ;; esac
+
 PROJECT_SLUG_RECORD="${FILTER_SLUGS:-all}"
 
 KNOWLEDGE_DIR="$(sb_knowledge_dir)"

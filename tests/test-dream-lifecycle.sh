@@ -97,6 +97,16 @@ STATUS=$(jq -r '.status' "$BRAIN_DIR/dreams/$DID/status.json")
 TC=$(jq -r '.inputs.transcript_count' "$BRAIN_DIR/dreams/$DID/status.json")
 [ "$TC" -eq 3 ] || fail "should have 3 transcripts (got: $TC)"
 
+# The recorded model must be a REAL model id, never a tier intent. dream-snapshot's default is
+# `tier:mid` (elastic model resolution) and it resolves that before writing status.json — unlike
+# the extractor call sites, nothing downstream resolves this field: dream_create/dream_status/
+# dream_list return it verbatim, so a leaked `tier:*` would be shown to the user AS their model
+# and would be unusable to any future consumer that spawned from it. This locks the resolution
+# step in place; deleting it puts the tier spec straight back into user-visible metadata.
+MDL=$(jq -r '.model // ""' "$BRAIN_DIR/dreams/$DID/status.json" | tr -d '\r')
+[ -n "$MDL" ] || fail "status.json recorded an empty model"
+case "$MDL" in tier:*) fail "status.json recorded an unresolved tier spec as the model: $MDL" ;; esac
+
 # Check staging has wiki pages
 [ -f "$BRAIN_DIR/dreams/$DID/staging/wiki/entities/test-entity.md" ] || fail "staging wiki missing entity page"
 pass "snapshot: creates proper dream structure"
