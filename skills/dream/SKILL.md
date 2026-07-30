@@ -233,31 +233,13 @@ Proceed to Review phase.
    - Key insights surfaced
 3. Apply:
    - Call `dream_accept` to apply the consolidation to the live wiki.
-   - **Forgetting** — if `~/.second-brain/dreams/{dream_id}/forget-manifest.tsv` exists,
-     archive each listed LIVE page (reversible move, never delete — the user's accept
-     IS the confirmation). The manifest was built BEFORE consolidation, so re-validate
-     each slug against the POST-accept wiki and skip any page the dream just enriched
-     (now linked / higher-scoring — the enrichment race):
-     ```bash
-     MAN=~/.second-brain/dreams/{dream_id}/forget-manifest.tsv
-     ARC=~/.second-brain/wiki-archive; LOG=~/.second-brain/wiki-archive-log.jsonl
-     KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"; KD="${KD/#\~/$HOME}"
-     mkdir -p "$ARC"
-     # still-forgettable in the post-consolidation live wiki (re-score guard)
-     STILL=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-forget-score.sh" \
-       | awk -F'\t' -v fl="${SB_FORGET_FLOOR:-0.15}" '($1+0)<fl && $5==""{print $2}')
-     while IFS=$'\t' read -r slug cat; do
-       [ -n "$slug" ] || continue
-       printf '%s\n' "$STILL" | grep -qxF "$slug" \
-         || { echo "FORGET: keeping '$slug' — no longer low-value after consolidation"; continue; }
-       src="$KD/wiki/$cat/$slug.md"; [ -f "$src" ] || continue
-       mkdir -p "$ARC/$cat"; mv "$src" "$ARC/$cat/$slug.md"
-       printf '{"event":"archived","slug":"%s","category":"%s","date":"%s"}\n' \
-         "$slug" "$cat" "$(date -u +%FT%TZ)" >> "$LOG"
-     done < "$MAN"
-     rm -f "$MAN"
-     ```
-     Then call `knowledge_reindex` so archived pages leave the search index.
+   - **Forgetting** — handled by `dream_accept` itself (machine lock in
+     `scripts/dream-accept.sh`): if `forget-manifest.tsv` exists, each listed
+     page that is STILL forgettable in the post-accept wiki (re-score guard —
+     pages the dream just enriched are kept) is archived to
+     `~/.second-brain/wiki-archive/` (reversible move, never delete — the
+     user's accept IS the confirmation) and logged to `wiki-archive-log.jsonl`.
+     The accept output reports `FORGET: archived N page(s)` — relay that count.
 4. Report completion — consolidation changes + N pages archived (restore any with
    `bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-restore.sh" <slug>`).
 

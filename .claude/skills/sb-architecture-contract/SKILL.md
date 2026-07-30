@@ -312,26 +312,33 @@ validate-plugin.sh is the real enforcement.
 
 ## 8. Known weak points (stated plainly)
 
-1. **`auto_maintain` is Linux-only and historically fragile.** It requires bubblewrap; absent
-   bwrap it logs a skip ("NEVER run the bypassPermissions agent unconfined"). Under the hardened
-   systemd unit, `RestrictNamespaces=true` once made bwrap structurally impossible — 100% failure
-   rate, silent for weeks (fixed 0.24.41 with preflight + quarantine). macOS/Windows have NO
-   unattended consolidation path (they stay on explicit `/second-brain:maintain`).
+1. **`auto_maintain` was historically fragile and Linux-gated.** Since slice 1 (2026-07-30) the
+   spawn is the quarantined zero-tool Stage A summarizer — cross-platform, bwrap demoted to
+   ADDITIVE Linux defense (no longer a gate; no bypassPermissions anywhere). The systemd
+   `RestrictNamespaces=true` incident (100% silent failure, fixed 0.24.41 with preflight +
+   quarantine) remains the cautionary history. Unattended consolidation on Windows/macOS is now
+   structurally possible but stays OFF until the arm-gates + scheduling slices land
+   (campaign slices 2-5; macOS additionally needs launchd OAuth-token injection).
 2. **No Windows CI lane** while Windows git-bash is the primary dev platform. `ci.yml` has only
    `linux` and `macos` jobs; CI also runs embeddings-disabled/offline, so the embedding/RRF path
    is only exercised locally. Every Windows bug class in the archaeology shipped through green CI.
-3. **Windows/no-rsync accept never applies deletions.** The merge-copy fallback announces
-   "dream deletions were NOT applied" — FORGET/DEDUPLICATE removals wait for an rsync-equipped
-   accept (`dream-accept.sh:216-241`).
+3. **Windows/no-rsync accept never applies DEDUPLICATE deletions.** The merge-copy fallback
+   announces "dream deletions were NOT applied" — staging-side removals wait for an
+   rsync-equipped accept. FORGET is the exception since 2026-07-30: the forget-manifest is now
+   applied by `dream-accept.sh` itself (a reversible `mv` to `wiki-archive/`, re-score guarded),
+   so it works on every accept path on every OS, rsync or not.
 4. **ConfigChange guard is audit-only** — records to audit-log, blocks nothing
    (`config-change-guard.sh`; "future iteration may add deny logic").
-5. **P6 dual-LLM quarantine split is NOT implemented.** The consolidation writer is still one LLM
-   reading untrusted content while holding write grants, mitigated by kernel jail (bwrap, Linux
-   only) + advisory DATA-not-instructions framing + sanitization. Two quarantine mechanisms DO
-   exist and work — the maintainer 3-strike file `.llm-maintain-quarantine` and the edge
-   quarantine `graph/edges-quarantine.jsonl` — but the summarizer/netless-writer split is
-   plan-queued only (`docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`). Do not claim
-   either extreme: "quarantine exists" and "quarantine is missing" are both half-wrong.
+5. **P6 dual-LLM quarantine split: Stage A DONE, Stage B open.** Since slice 1 (2026-07-30) the
+   unattended summarizer is quarantined for real: zero tools, validator-enforced JSON-schema
+   output, runtime init-event attestation (fail-loud), self-transcript exclusion — it can read
+   untrusted transcripts but cannot write anything except its schema-shaped `candidate-facts.json`.
+   Still open: the Stage B deterministic NETLESS writer that consumes those facts (campaign
+   slice 2) — until it lands, candidate facts are produced but not auto-applied — plus the
+   arm-gates (held-untrusted confirm gate, injection wrapping). The maintainer 3-strike file
+   `.llm-maintain-quarantine` and the edge quarantine `graph/edges-quarantine.jsonl` remain
+   separate, working mechanisms. Accepted residual: the model-API channel (see wiki
+   `decisions/cross-platform-autonomy-architecture.md`).
 6. **Drainer starvation under always-on interactive OAuth use.** The escape only fires when SAFE
    (API key, or `SB_DRAIN_DEFER_PMODE_ONLY=1` + a timeout binary); pure-OAuth boxes with a held
    lock keep deferring and rely on the SessionStart drain-health banner.

@@ -214,4 +214,45 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_t
 pass "P2: missing created_at → merge-only accept (no deletions, nothing lost)"
 rm -rf "$SB"
 
+# === F5: FORGET manifest handled by the ACCEPT SCRIPT (machine lock) =========
+# Previously the archive loop lived only in dream-skill prose, so auto_accept
+# and raw MCP dream_accept silently dropped the manifest (P6 arm-gate).
+
+# --- F5a: still-forgettable manifest page → archived, logged, manifest gone --
+setup 4 SAME
+D="$BRAIN_DIR/dreams/drm_test"
+printf 'p1\tentities\n' > "$D/forget-manifest.tsv"
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] || fail "F5a: accept failed (rc=$rc)"
+[ ! -f "$KNOWLEDGE_DIR/wiki/entities/p1.md" ] || fail "F5a: manifest page still live — FORGET not applied by the accept script"
+[ -f "$BRAIN_DIR/wiki-archive/entities/p1.md" ] || fail "F5a: archived page missing from wiki-archive (deleted, not moved?)"
+grep -q '"slug":"p1"' "$BRAIN_DIR/wiki-archive-log.jsonl" 2>/dev/null || fail "F5a: no archive-log entry for p1"
+[ ! -f "$D/forget-manifest.tsv" ] || fail "F5a: manifest not consumed after accept"
+pass "F5a: accept-script FORGET — page archived (reversible), logged, manifest consumed"
+rm -rf "$SB"
+
+# --- F5b: LLM-influenced manifest fields are DATA — traversal rejected ------
+setup 4 SAME
+D="$BRAIN_DIR/dreams/drm_test"
+printf -- '../evil\tentities\np2\t../../escape\n' > "$D/forget-manifest.tsv"
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] || fail "F5b: accept failed (rc=$rc)"
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p2.md" ] || fail "F5b: page moved despite invalid category (traversal guard broken)"
+[ -z "$(find "$BRAIN_DIR/wiki-archive" -name '*.md' -type f 2>/dev/null)" ] || fail "F5b: something was archived from an all-invalid manifest"
+pass "F5b: invalid slug/category manifest lines rejected, nothing moved"
+rm -rf "$SB"
+
+# --- F5c: enrichment race — page linked during the dream is KEPT ------------
+setup 4 SAME
+D="$BRAIN_DIR/dreams/drm_test"
+printf -- '---\ntitle: linker\ntype: entities\nrelated: []\n---\n\n# linker\n\nsee [[p3]] and [[p3]] again\n' \
+  > "$D/staging/wiki/entities/linker.md"
+printf 'p3\tentities\n' > "$D/forget-manifest.tsv"
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] || fail "F5c: accept failed (rc=$rc)"
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p3.md" ] || fail "F5c: post-consolidation-linked page was archived (re-score guard broken)"
+[ ! -f "$D/forget-manifest.tsv" ] || fail "F5c: manifest not consumed"
+pass "F5c: re-score guard keeps a page the dream just linked (enrichment race)"
+rm -rf "$SB"
+
 echo "ALL PASS"

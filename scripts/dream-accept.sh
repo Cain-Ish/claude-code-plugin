@@ -239,6 +239,49 @@ else
   echo "note: rsync unavailable — staging merged over live; dream deletions were NOT applied."
 fi
 
+# FORGET manifest — the machine lock for what was previously dream-skill prose
+# only (arm-gate from the P6 v2 decision): archive still-forgettable manifest
+# pages from the POST-accept live wiki. Reversible move, never a delete —
+# scripts/wiki-restore.sh undoes. Runs on EVERY accept path (skill, auto_accept,
+# raw MCP dream_accept); before this, any non-skill accept silently dropped the
+# manifest. auto_accept=safe never reaches here with a manifest present
+# (sb_auto_accept_decision: safe-refuses-forget).
+MANIFEST="$DREAM_DIR/forget-manifest.tsv"
+FORGOT_N=0
+if [ -f "$MANIFEST" ]; then
+  ARC_DIR="$BRAIN_DIR/wiki-archive"; ARC_LOG="$BRAIN_DIR/wiki-archive-log.jsonl"
+  # Re-score guard: the manifest was built BEFORE consolidation — re-validate
+  # each slug against the post-accept wiki and keep any page the dream just
+  # enriched (now linked / higher-scoring). Scorer failure = archive NOTHING
+  # (fail-safe), keep the manifest for an attended pass, log loud.
+  _ffl=$(mktemp)
+  if bash "$(dirname "$0")/wiki-forget-score.sh" > "$_ffl" 2>/dev/null; then
+    STILL=$(awk -F'\t' -v fl="${SB_FORGET_FLOOR:-0.15}" '($1+0)<fl && $5==""{print $2}' "$_ffl")
+    mkdir -p "$ARC_DIR"
+    while IFS=$'\t' read -r _slug _cat _rest; do
+      _slug=${_slug%$'\r'}; _cat=${_cat%$'\r'}
+      [ -n "$_slug" ] && [ -n "$_cat" ] || continue
+      # The manifest is LLM-influenced DATA: validate both fields before they
+      # touch a path (no separators, no dotfiles/.. — mirrors validateSlug).
+      case "$_slug" in .*|*[!a-zA-Z0-9._-]*) echo "FORGET: skipping invalid slug '$_slug'" >&2; continue ;; esac
+      case "$_cat"  in .*|*[!a-zA-Z0-9_-]*)  echo "FORGET: skipping invalid category '$_cat'" >&2; continue ;; esac
+      printf '%s\n' "$STILL" | grep -qxF -- "$_slug" \
+        || { echo "FORGET: keeping '$_slug' — no longer low-value after consolidation"; continue; }
+      _srcp="$LIVE_WIKI/$_cat/$_slug.md"
+      [ -f "$_srcp" ] || continue
+      mkdir -p "$ARC_DIR/$_cat" && mv "$_srcp" "$ARC_DIR/$_cat/$_slug.md" || continue
+      printf '{"event":"archived","slug":"%s","category":"%s","dream":"%s","date":"%s"}\n' \
+        "$_slug" "$_cat" "$DREAM_ID" "$(date -u +%FT%TZ)" >> "$ARC_LOG"
+      FORGOT_N=$((FORGOT_N + 1))
+    done < "$MANIFEST"
+    rm -f "$MANIFEST"
+    [ "$FORGOT_N" -gt 0 ] && echo "FORGET: archived $FORGOT_N page(s) → $ARC_DIR (restore: scripts/wiki-restore.sh <slug>)"
+  else
+    sb_log_error "dream-accept" "wiki-forget-score.sh failed — archiving nothing from $DREAM_ID's forget manifest (manifest kept for attended review)" 0
+  fi
+  rm -f "$_ffl"
+fi
+
 # Reindex
 sb_reindex_wiki "$KNOWLEDGE_DIR"
 
