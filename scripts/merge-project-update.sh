@@ -278,6 +278,75 @@ merge_state() {
   fi
 }
 
+# P0 rec 2 (capture widening): procedural runbooks — "how X is done here".
+# Renders extractor-emitted procedures[] into a compact ## How-to section: one
+# line per runbook `- <verb>: <commands> (needs: …) — avoids: …`, deduped by
+# task_verb case-insensitively (newest wins), capped at 5 entries (oldest
+# dropped). The section is created BEFORE ## Recent decisions when absent:
+# PROJECT.md rides the SessionStart hot tier under a 3000B head-keeping cap,
+# so anything appended after the footer would be the first truncation
+# casualty. Empty/absent procedures → byte-identical no-op.
+merge_howto() {
+  local raw="$1" cap="${2:-5}"
+  local new_entries
+  # Backticks/CR/LF stripped inside jq: a stray backtick in exact_commands
+  # would fracture downstream markdown rendering of the line.
+  new_entries=$(printf '%s' "$raw" | jq -r '
+    .procedures // [] | .[0:2] | .[]
+    | select(type == "object")
+    | select(((.task_verb // "") | tostring) != "" and ((.exact_commands // "") | tostring) != "")
+    | "- " + (.task_verb | tostring | gsub("[`\r\n:]"; " ") | gsub("(^ +| +$)"; "") | .[0:40])
+      + ": " + (.exact_commands | tostring | gsub("[`\r\n]"; " ") | .[0:200])
+      + (if ((.preconditions // "") | tostring) != "" then " (needs: " + (.preconditions | tostring | gsub("[`\r\n]"; " ") | .[0:80]) + ")" else "" end)
+      + (if ((.gotcha_avoided // "") | tostring) != "" then " — avoids: " + (.gotcha_avoided | tostring | gsub("[`\r\n]"; " ") | .[0:100]) else "" end)
+  ' 2>/dev/null | strip_cr)
+  [ -z "$new_entries" ] && return 0
+
+  local body entry verb lower_verb
+  body=$(awk '/^## How-to$/{f=1;next} /^## /{f=0} f && /^- /' "$TMP_OUT")
+  while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    verb=$(printf '%s' "$entry" | sed 's/^- //; s/:.*//')
+    lower_verb=$(printf '%s' "$verb" | tr '[:upper:]' '[:lower:]')
+    # Same-verb dedup: drop any existing line whose "- <verb>:" prefix matches
+    # case-insensitively (ENVIRON + tolower — portable, no awk -v backslash trap).
+    body=$(printf '%s\n' "$body" | HOWTO_V="- $lower_verb:" awk '
+      BEGIN { v = ENVIRON["HOWTO_V"] }
+      { if (index(tolower($0), v) == 1) next; print }')
+    body="${body}${body:+
+}$entry"
+  done <<< "$new_entries"
+  # Cap: newest entries live at the BOTTOM; keep the last $cap lines.
+  body=$(printf '%s\n' "$body" | grep -v '^$' | tail -n "$cap")
+  [ -z "$body" ] && return 0
+
+  local new_tmp; new_tmp=$(mktemp)
+  if grep -q '^## How-to$' "$TMP_OUT"; then
+    BODY="$body" awk '
+      BEGIN { body = ENVIRON["BODY"] }
+      $0 == "## How-to" { print; print ""; if (length(body)) print body; print ""; f=1; next }
+      f && (/^## / || /^<!--/) { f=0; print; next }
+      f { next }
+      { print }
+    ' "$TMP_OUT" > "$new_tmp"
+  else
+    BODY="$body" awk '
+      BEGIN { body = ENVIRON["BODY"]; done = 0 }
+      /^## Recent decisions$/ && !done { print "## How-to"; print ""; print body; print ""; done=1 }
+      { print }
+      END { if (!done) { print ""; print "## How-to"; print ""; print body } }
+    ' "$TMP_OUT" > "$new_tmp"
+  fi
+  # No-op contract: only rewrite + mark dirty on a real change (idempotent re-emissions
+  # of the same runbooks must not churn last_updated).
+  if cmp -s "$new_tmp" "$TMP_OUT"; then
+    rm -f "$new_tmp"
+  else
+    mv "$new_tmp" "$TMP_OUT"
+    CHANGED=1
+  fi
+}
+
 # Detect if a new decision contradicts an existing one. Marks old as [superseded].
 # Requires: negation words in new + >50% word overlap with existing.
 detect_supersede() {
@@ -358,6 +427,9 @@ merge_plan "$PLAN" 7
 
 # Resumable session WHY (replace-style one-liner; never wipes on empty).
 merge_state "$SESSION_GOAL"
+
+# Procedural runbooks → ## How-to (replace-by-verb, cap 5, no-op on empty).
+merge_howto "$RAW" 5
 
 if [ -n "$REFS" ]; then
   while IFS= read -r ref; do

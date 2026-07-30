@@ -286,4 +286,63 @@ N=$(grep -c '^## State$' "$PROJ" || true)
 [ "$N" -eq 1 ] || fail "state-append: heading duplicated on second merge"
 pass "session_goal: missing ## State heading appended once, then replaced in place"
 
+# --- Tests (P0 rec 2): procedures[] → ## How-to runbook block -------------------
+# Contract: extractor-emitted procedures land as ONE compact line each under
+# ## How-to (created before ## Recent decisions when absent — the hot-tier 3000B
+# cap truncates the TAIL, so runbooks must not land after the footer); dedup is
+# by task_verb case-insensitively (newest wins); section capped at 5 entries;
+# empty/absent procedures is a byte-identical no-op.
+PROJ="$TMP/p13.md"; WIKI13="$TMP/wiki13"; mkdir -p "$WIKI13"
+seed_project "$PROJ"
+jq -nc '{
+  procedures: [
+    {task_verb:"build", exact_commands:"npm ci --prefix mcp && cd mcp && npm run bundle",
+     preconditions:"node >=18", gotcha_avoided:"stale dist bundle ships reviewed-source-but-old-code"},
+    {task_verb:"test", exact_commands:"bash tests/run-all.sh", preconditions:"", gotcha_avoided:""}
+  ]
+}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI13" >/dev/null 2>&1 || fail "howto: script exited non-zero"
+grep -q '^## How-to$' "$PROJ" || fail "howto: ## How-to section not created"
+grep -q '^- build: npm ci --prefix mcp' "$PROJ" || fail "howto: build runbook line missing (got: $(awk '/^## How-to$/{f=1;next} /^## /{f=0} f' "$PROJ"))"
+grep -q 'needs: node >=18' "$PROJ" || fail "howto: preconditions not rendered"
+grep -q 'avoids: stale dist bundle' "$PROJ" || fail "howto: gotcha_avoided not rendered"
+grep -q '^- test: bash tests/run-all.sh$' "$PROJ" || fail "howto: bare runbook (no pre/gotcha) renders without suffixes"
+# Placement: the section must appear BEFORE ## Recent decisions (head-survivable
+# under the 3000B injection truncation).
+HOWTO_LN=$(grep -n '^## How-to$' "$PROJ" | cut -d: -f1)
+DEC_LN=$(grep -n '^## Recent decisions$' "$PROJ" | cut -d: -f1)
+[ "$HOWTO_LN" -lt "$DEC_LN" ] || fail "howto: section landed after ## Recent decisions (tail-truncation casualty)"
+pass "procedures: ## How-to created before decisions, one line per runbook"
+
+# Replace-by-verb: a newer build runbook supersedes the old line (no accumulation).
+jq -nc '{procedures: [{task_verb:"Build", exact_commands:"make bundle", preconditions:"", gotcha_avoided:""}]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI13" >/dev/null 2>&1 || fail "howto-replace: script exited non-zero"
+N=$(awk '/^## How-to$/{f=1;next} /^## /{f=0} f && /^- /' "$PROJ" | grep -ci '^- build:' || true)
+[ "$N" -eq 1 ] || fail "howto-replace: expected exactly 1 build line after same-verb update, got $N"
+grep -q '^- Build: make bundle$' "$PROJ" || fail "howto-replace: newest build runbook did not win"
+grep -q '^- test: bash tests/run-all.sh$' "$PROJ" || fail "howto-replace: unrelated test runbook was lost"
+pass "procedures: same-verb runbook replaced in place (newest wins, case-insensitive)"
+
+# Cap 5: seeding 6 distinct verbs leaves 5, oldest dropped.
+for v in v1 v2 v3 v4 v5 v6; do
+  jq -nc --arg v "$v" '{procedures:[{task_verb:$v, exact_commands:("cmd-"+$v), preconditions:"", gotcha_avoided:""}]}' \
+    | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI13" >/dev/null 2>&1
+done
+N=$(awk '/^## How-to$/{f=1;next} /^## /{f=0} f && /^- /' "$PROJ" | wc -l | tr -d ' ')
+[ "$N" -eq 5 ] || fail "howto-cap: expected 5 entries after overflow, got $N"
+grep -q '^- v6: cmd-v6$' "$PROJ" || fail "howto-cap: newest entry v6 missing"
+awk '/^## How-to$/{f=1;next} /^## /{f=0} f' "$PROJ" | grep -q '^- Build:' && fail "howto-cap: oldest entries not dropped (Build survived a 6-verb overflow past cap 5)"
+pass "procedures: How-to capped at 5, oldest dropped"
+
+# Empty/absent procedures → byte-identical no-op.
+ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+jq -nc '{procedures: []}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI13" >/dev/null 2>&1 || fail "howto-empty: script exited non-zero"
+NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+[ "$ORIG_HASH" = "$NEW_HASH" ] || fail "howto-empty: empty procedures mutated PROJECT.md"
+# Malformed entries (missing verb or commands) are skipped, not rendered.
+jq -nc '{procedures: [{task_verb:"", exact_commands:"x"}, {task_verb:"y", exact_commands:""}]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI13" >/dev/null 2>&1
+NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+[ "$ORIG_HASH" = "$NEW_HASH" ] || fail "howto-malformed: entry without verb/commands must be skipped"
+pass "procedures: empty + malformed emissions are no-ops"
+
 echo "ALL PASS"
