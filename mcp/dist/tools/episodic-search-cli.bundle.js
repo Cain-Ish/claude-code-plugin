@@ -1,9 +1,26 @@
 // src/tools/episodic-search.ts
-import { promises as fs2 } from "fs";
+import { promises as fs3 } from "fs";
+
+// src/tools/atomic-write.ts
+import { promises as fs } from "fs";
+async function atomicWriteJson(filePath, value) {
+  const tmp = `${filePath}.tmp.${process.pid}`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify(value));
+    await fs.rename(tmp, filePath);
+  } catch {
+    try {
+      await fs.unlink(tmp);
+    } catch {
+    }
+  }
+}
+
+// src/tools/episodic-search.ts
 import { join as join3, basename, relative, isAbsolute as isAbsolute2 } from "path";
 
 // src/tools/embeddings.ts
-import { promises as fs } from "fs";
+import { promises as fs2 } from "fs";
 import { join as join2 } from "path";
 
 // src/brain-paths.ts
@@ -44,8 +61,8 @@ async function logLoadError(message, brainDir2) {
     exit_code: 0
   };
   try {
-    await fs.mkdir(brainDir2, { recursive: true });
-    await fs.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+    await fs2.mkdir(brainDir2, { recursive: true });
+    await fs2.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
   } catch {
   }
   try {
@@ -85,7 +102,7 @@ function simpleHash(s) {
 }
 async function loadCache(wikiRoot) {
   try {
-    const data = await fs.readFile(join2(wikiRoot, CACHE_FILE), "utf-8");
+    const data = await fs2.readFile(join2(wikiRoot, CACHE_FILE), "utf-8");
     const parsed = JSON.parse(data);
     if (parsed.model === MODEL_ID) return parsed;
   } catch {
@@ -93,10 +110,7 @@ async function loadCache(wikiRoot) {
   return { model: MODEL_ID, entries: {} };
 }
 async function saveCache(wikiRoot, cache) {
-  try {
-    await fs.writeFile(join2(wikiRoot, CACHE_FILE), JSON.stringify(cache));
-  } catch {
-  }
+  await atomicWriteJson(join2(wikiRoot, CACHE_FILE), cache);
 }
 async function embedTexts(texts, wikiRoot, paths) {
   const pipe = await getPipeline();
@@ -135,7 +149,7 @@ var MAX_LIMIT = 30;
 async function loadIndex(brainDir2) {
   const indexPath = join3(brainDir2, INDEX_FILE);
   try {
-    const data = await fs2.readFile(indexPath, "utf-8");
+    const data = await fs3.readFile(indexPath, "utf-8");
     return JSON.parse(data);
   } catch {
     return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };

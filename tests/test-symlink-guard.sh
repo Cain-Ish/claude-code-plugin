@@ -75,6 +75,18 @@ assert_deny "direct write to ~/.config/claude/auth.json" "$OUT" "claude-config"
 OUT=$(run_guard "Write" "$HOME/.netrc")
 assert_deny "direct write to ~/.netrc" "$OUT" "netrc"
 
+# --- Test 5b: direct write to ~/.claude/.credentials.json (file) → deny --
+OUT=$(run_guard "Write" "$HOME/.claude/.credentials.json")
+assert_deny "direct write to ~/.claude/.credentials.json" "$OUT" "claude-oauth"
+
+# --- Test 5c: legit ~/.claude write (plans/memory/settings) → allow ------
+# The ~/.claude TREE must never be a credential prefix: plan files, auto-memory
+# and settings.json are routine write targets. Only the token FILE is denied.
+OUT=$(run_guard "Write" "$HOME/.claude/plans/some-plan.md")
+assert_allow "write to ~/.claude/plans/*" "$OUT"
+OUT=$(run_guard "Edit" "$HOME/.claude/settings.json")
+assert_allow "edit of ~/.claude/settings.json" "$OUT"
+
 # --- Test 6: direct write to /etc/* → deny -------------------------------
 OUT=$(run_guard "Write" "/etc/sudoers.d/test")
 assert_deny "direct write to /etc/sudoers.d/test" "$OUT" "etc"

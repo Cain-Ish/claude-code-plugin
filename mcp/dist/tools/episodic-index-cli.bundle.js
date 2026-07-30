@@ -110,10 +110,7 @@ async function loadCache(wikiRoot) {
   return { model: MODEL_ID, entries: {} };
 }
 async function saveCache(wikiRoot, cache) {
-  try {
-    await fs2.writeFile(join2(wikiRoot, CACHE_FILE), JSON.stringify(cache));
-  } catch {
-  }
+  await atomicWriteJson(join2(wikiRoot, CACHE_FILE), cache);
 }
 async function embedTexts(texts, wikiRoot, paths) {
   const pipe = await getPipeline();

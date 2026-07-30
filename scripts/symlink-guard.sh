@@ -20,7 +20,9 @@
 #
 # Credential-dir prefixes (after realpath, case-sensitive):
 #   $HOME/.ssh, $HOME/.gnupg, $HOME/.aws, $HOME/.config/claude,
-#   $HOME/.config/gh, $HOME/.netrc (file), /etc, $HOME/.password-store.
+#   $HOME/.config/gh, $HOME/.netrc (file), /etc, $HOME/.password-store,
+#   $HOME/.claude/.credentials.json (file — the OAuth token; the ~/.claude
+#   TREE is deliberately not a prefix, it holds legitimate write targets).
 #
 # Verdict: deny. Reason carries which credential dir matched (no content
 # leaked).
@@ -112,8 +114,13 @@ CRED_PREFIXES=(
   "passwordstore:$HOME/.password-store/"
   "etc:/etc/"
 )
-# Special case: $HOME/.netrc is a single file, not a prefix tree.
-NETRC_FILE="$HOME/.netrc"
+# Special case: single credential FILES, not prefix trees. ~/.claude must NOT
+# be a prefix entry — plans/, projects/ (memory), settings.json live there and
+# are legitimate write targets; only the OAuth token file is a credential.
+CRED_FILES=(
+  "netrc:$HOME/.netrc"
+  "claude-oauth:$HOME/.claude/.credentials.json"
+)
 
 MATCHED_LABEL=""
 # Case-INSENSITIVE compare: NTFS and default APFS are case-insensitive, so
@@ -133,8 +140,12 @@ for entry in "${CRED_PREFIXES[@]}"; do
     "${prefix%/}")      MATCHED_LABEL="$label"; break ;;
   esac
 done
-if [ -z "$MATCHED_LABEL" ] && [ "$RESOLVED_LC" = "$(printf '%s' "$NETRC_FILE" | tr '[:upper:]' '[:lower:]')" ]; then
-  MATCHED_LABEL="netrc"
+if [ -z "$MATCHED_LABEL" ]; then
+  for entry in "${CRED_FILES[@]}"; do
+    label="${entry%%:*}"
+    f=$(printf '%s' "${entry#*:}" | tr '[:upper:]' '[:lower:]')
+    if [ "$RESOLVED_LC" = "$f" ]; then MATCHED_LABEL="$label"; break; fi
+  done
 fi
 
 [ -z "$MATCHED_LABEL" ] && exit 0

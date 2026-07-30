@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { resolveBrainDir } from '../brain-paths.js';
+import { atomicWriteJson } from './atomic-write.js';
 
 const EMBEDDING_DIM = 384;
 const CACHE_FILE = '.embeddings-cache.json';
@@ -85,9 +86,10 @@ async function loadCache(wikiRoot: string): Promise<EmbeddingCache> {
 }
 
 async function saveCache(wikiRoot: string, cache: EmbeddingCache): Promise<void> {
-  try {
-    await fs.writeFile(join(wikiRoot, CACHE_FILE), JSON.stringify(cache));
-  } catch { /* non-critical */ }
+  // tmp+rename via the house helper: this cache is rewritten on every search that
+  // embeds a new/changed page, so a plain writeFile races any concurrent reader
+  // (or a second writer) into a torn file → silent full re-embed.
+  await atomicWriteJson(join(wikiRoot, CACHE_FILE), cache);
 }
 
 export async function embedTexts(texts: string[], wikiRoot: string, paths: string[]): Promise<number[][] | null> {
