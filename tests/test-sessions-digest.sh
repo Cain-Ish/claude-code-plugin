@@ -191,6 +191,49 @@ printf '%s' "$OUT_NONE" | grep -q '\[Recent sessions' \
 pass "session-load: absent digest file is a silent no-op"
 
 # ============================================================================
+# 3b. Drainer guards (adversarial-review fixes, live-reproduced pre-fix):
+# a SUBAGENT archive carries the PARENT session's id — draining it must NOT
+# replace the session's real digest entry; a headerless archive must NOT
+# collapse onto a shared "unknown" key.
+# ============================================================================
+GBRAIN="$TMP/guard-brain"
+mkdir -p "$GBRAIN/projects"
+BRAIN_DIR="$GBRAIN"
+GDIGEST="$GBRAIN/sessions-digest.jsonl"
+# Seed the session's REAL continuity line.
+sb_append_session_digest "guard-slug" "parent-sid" "the real goal" "done: the real outcome"
+# A subagent-result archive with the SAME (parent) session id.
+GSUB="$TMP/sub-agent1_guard-slug_2026-07-30.txt"
+cat > "$GSUB" <<'EOF'
+--- session-meta ---
+session_id: parent-sid
+project_slug: guard-slug
+agent_type: general-purpose
+agent_id: agent1
+date: 2026-07-30
+tool_count: 5
+subagent_result: true
+---
+
+ASSISTANT:
+subagent result body
+EOF
+sb_call_extractor() { printf '{"recent_decisions":[],"session_goal":"SUBAGENT-DERIVED GOAL","session_outcome":"done: subagent noise"}' > "$2"; return 0; }
+sb_extract_transcript "$GSUB" "guard-slug" >/dev/null 2>&1 || fail "guard-sub: extraction failed"
+grep -qF 'the real goal' "$GDIGEST" || fail "guard-sub: real digest entry was lost"
+grep -qF 'SUBAGENT-DERIVED GOAL' "$GDIGEST" && fail "guard-sub: subagent extraction REPLACED the session's digest entry"
+pass "drainer: subagent archive never touches the parent session's digest entry"
+# Headerless archive (no session_id) → no digest write at all.
+GNOHDR="$TMP/nohdr_guard-slug_2026-07-30.txt"
+printf -- '--- session-meta ---\nproject_slug: guard-slug\n---\n\nUSER: x\nASSISTANT: y\n' > "$GNOHDR"
+BEFORE=$(cat "$GDIGEST")
+sb_extract_transcript "$GNOHDR" "guard-slug" >/dev/null 2>&1 || fail "guard-nohdr: extraction failed"
+AFTER=$(cat "$GDIGEST")
+[ "$BEFORE" = "$AFTER" ] || fail "guard-nohdr: headerless archive wrote a digest entry (unknown-key collision class)"
+pass "drainer: archive without session_id writes no digest line (no unknown-key collisions)"
+unset -f sb_call_extractor
+
+# ============================================================================
 # 4. Wiring locks: every extraction path calls the helper
 # ============================================================================
 grep -q 'sb_append_session_digest' "$PLUGIN_ROOT/scripts/stop-extract.sh" \

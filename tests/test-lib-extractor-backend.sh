@@ -119,4 +119,29 @@ echo "$result_c" | grep -q "status=queued" \
   && { echo "FAIL C: must NOT short-circuit when CLAUDECODE unset"; exit 1; }
 echo "PASS C: outside CC → CLI path runs (no short-circuit)"
 
+# --- Case D: API path hits the max_tokens output cap ---------------------------
+# A truncated response returns a valid envelope whose text is a JSON *prefix* +
+# stop_reason "max_tokens". Health must name the truncation (capture-widening
+# review: cap 3→8 raised output demand — an overflow must be diagnosable, not
+# generic "non-json"). Also locks the widened output budget: the Backend 2
+# payload must request max_tokens >= 8192.
+cat > "$TMP/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '%s' '{"stop_reason":"max_tokens","content":[{"text":"{\"recent_decisions\":[\"trunca"}]}'
+EOF
+chmod +x "$TMP/bin/curl"
+result_d=$(
+  CLAUDECODE=1 ANTHROPIC_API_KEY="sk-ant-test" run_case "D" 10
+)
+echo "$result_d"
+echo "$result_d" | grep -q "status=fail" \
+  || { echo "FAIL D: truncated output must record status=fail"; exit 1; }
+reason_d=$(jq -r '.reason // ""' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null)
+printf '%s' "$reason_d" | grep -q 'max-tokens-truncated' \
+  || { echo "FAIL D: reason must name the truncation (got: $reason_d)"; exit 1; }
+grep -q 'max_tokens:8192' "$SCRIPT_DIR/scripts/lib.sh" \
+  || { echo "FAIL D: Backend 2 payload must request max_tokens:8192 (widened schema budget)"; exit 1; }
+echo "PASS D: max_tokens truncation named in health; output budget 8192 locked"
+
 echo "ALL PASS"
