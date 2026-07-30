@@ -125,14 +125,14 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_EXTRACTOR_LOCAL_MODEL` | `qwen2.5:3b` | Local model name. | TUNE | lib.sh:1273 | none |
 | `SB_EXTRACTOR_LOCAL_TIMEOUT` | `90` (s) | Local-backend timeout before auto-fallback. | TUNE | lib.sh:1274 | none |
 | `SB_EXTRACTOR_LOCAL_MAX_BYTES` | `6000` | Input cap for local extraction. | TUNE | lib.sh:1207 | bash |
-| `SB_EXTRACTOR_MODEL` | `claude-sonnet-4-6` | Remote extractor model. | TUNE | lib.sh:1610 | none |
+| `SB_EXTRACTOR_MODEL` | unset | MID-tier pin (rung 0) for extraction. Was a hard default of `claude-sonnet-4-6`; now declared in `model-ladder.json` `.pins.mid`. | TUNE | model-ladder.json | bash |
 | `SB_EXTRACT_TIMEOUT` | `25` (stop-extract.sh:42) / `30` (pre-compact.sh:32) s | IN-HOOK extraction timeouts (inside 45s hook budgets). Deliberately NOT shared with the drainer (next row). | TUNE | stop-extract.sh:42 | none |
 | `SB_DRAIN_EXTRACT_TIMEOUT` | `240` (s) | Drainer per-attempt extraction budget. BUDGET PROOF (comment lib.sh:1612-1625): worst case 5 (BATCH) × 3 (retry paths) × 240 = 3600s = HALF of the 7200s lock steal-threshold — "do NOT raise further without also raising SB_DRAIN_LOCK_STALE". | TUNE | lib.sh:1625 | bash |
 | `SB_EXTRACT_MAX_BYTES` | `200000` | Transcript tail cap fed to the extractor. | TUNE | lib.sh:1669 | bash |
 | `SB_QUALITY_GATE` | `on` | Extraction quality filter `extraction-quality-gate.sh` (passthrough `cat` when off). Invoked from the extraction pipeline (lib.sh:165, lib.sh:1679, stop-extract.sh:221) — NOT hooks.json-wired, and NOT the PostToolUse `quality-gate.sh` nudge, which has no switch (§2 note). | KS | extraction-quality-gate.sh:18 | bash |
 | `SB_QUALITY_GATE_STRICTNESS` | `conservative` | Strictness mode of the extraction quality filter. | MODE | extraction-quality-gate.sh:25 | bash |
 | `SB_QUALITY_GATE_LLM` | `off` | OPT-IN LLM (haiku) second-pass on the quality filter, spawned with `SB_NESTED_SPAWN=1`. | KS(opt-in) | extraction-quality-gate.sh:26 | none |
-| `SB_QUALITY_GATE_MODEL` | `claude-haiku-4-5-20251001` | Model for the LLM quality pass. | TUNE | extraction-quality-gate.sh:27 | none |
+| `SB_QUALITY_GATE_MODEL` | unset | FAST-tier pin for the LLM quality pass. | TUNE | model-ladder.json | bash |
 | `SB_FORCE_CLI` | `0` | Escape hatch: force the legacy `claude -p` path even in-session ("debugging only", lib.sh:1293). | DEBUG | lib.sh:1295 | none |
 | `SB_USE_BARE` | `0` | Use `claude -p --bare`. | MODE | extraction-quality-gate.sh:90 | none |
 | `SB_USE_BWRAP` | `0` | Wrap the spawn in bubblewrap. | MODE | lib.sh:1323 | none |
@@ -154,10 +154,24 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_MAINTAIN_LLM_FORCE` | `0` | Bypass interval/quarantine guards on the headless LLM maintainer. | DEBUG | maintain-llm-drain.sh:30 | bash |
 | `SB_MAINTAIN_LLM_INTERVAL` | `604800` (s = 7d) | Headless-maintainer cadence. | TUNE | maintain-llm-drain.sh:58 | none |
 | `SB_MAINTAIN_LLM_RETRY` | `86400` (s) | Retry interval after a failed run. | TUNE | maintain-llm-drain.sh:44 | none |
-| `SB_MAINTAIN_LLM_MODEL` | `claude-sonnet-4-6` | Maintainer model. | TUNE | maintain-llm-drain.sh:119 | none |
+| `SB_MAINTAIN_LLM_MODEL` | unset | MID-tier pin for the headless maintainer. | TUNE | model-ladder.json | bash |
 | `SB_MAINTAIN_LLM_TIMEOUT` | `1800` (s) | Maintainer run timeout. | TUNE | maintain-llm-drain.sh:120 | bash |
 | `SB_MAINTAIN_LLM_DRYRUN` | `0` | Dry-run (no spawn). | TESTDBL | maintain-llm-drain.sh:140 | bash |
 | `SB_RAW_PRUNE_AFTER_DRAIN` | unset (off) | Truthy (`1/true/yes/on`) = drainer deletes processed+discarded raw items after each batch. ADVISORY — the case statement lives in agent prompt text `agents/raw-drainer.md:~182`. | KS(opt-in), ADVISORY | raw-drainer.md | bash |
+
+**Elastic model resolution** — cross-cutting: `sb_resolve_model`/`resolveModel` back every headless
+spawn site (extractor, quality gate, maintainer) plus `persona_think` (§7) with a demote-on-block
+ladder read from `model-ladder.json`, the single source of truth for model selection. No consumer
+may hardcode a model-ID literal — guarded by the `tests/test-model-ladder.sh` tripwire.
+
+| Var | Default | Effect | Kind | Site | Tests |
+|---|---|---|---|---|---|
+| `SB_MODEL_TIER_FAST` | unset | Pin the FAST tier; becomes ladder rung 0, still demotable. | TUNE | lib.sh (sb_resolve_model) | bash |
+| `SB_MODEL_TIER_MID` | unset | Pin the MID tier; becomes ladder rung 0, still demotable. | TUNE | lib.sh (sb_resolve_model) | bash |
+| `SB_MODEL_TIER_DEEP` | unset | Pin the DEEP tier; becomes ladder rung 0, still demotable. | TUNE | lib.sh (sb_resolve_model) | bash+vitest |
+| `SB_MODEL_CACHE_TTL` | `604800` (s = 7d) | Availability-verdict expiry; a blocked model is retried after this. | TUNE | lib.sh (sb_model_cache_get) | bash+vitest |
+| `SB_MODEL_ELASTIC` | `1` | KS: `0` disables demotion entirely — tier rung 0 verbatim. | KS | lib.sh (sb_resolve_model) | bash |
+| `SB_MODEL_LADDER` | unset | Override the manifest path (test hook only). | TESTDBL | lib.sh (sb_model_manifest) | bash |
 
 ## 5. Dream lifecycle
 
@@ -216,7 +230,7 @@ grep for `process.env.SB_` alone MISSES the helper-mediated ones (grep for the b
 | `SB_PERSONA_DISMISS_MAX` | `3` | Dismissals in the window → ambient injection self-suppresses (explicit briefs unaffected). | TUNE | persona-context.sh:150 | bash |
 | `SB_PERSONA_DISMISS_WINDOW_DAYS` | `7` | Trailing dismissal window. | TUNE | persona-context.sh:151 | none |
 | `SB_PERSONA_WIKI_MIN_SCORE` | `0.045` | Min search score for wiki snippets in ambient context. | TUNE | persona-context.sh:182 | none |
-| `SB_PERSONA_MODEL` | `claude-opus-4-7` | persona_think brief model. | TUNE | persona-think.ts:110 | none |
+| `SB_PERSONA_MODEL` | unset | DEEP-tier pin for the persona_think brief. | TUNE | model-ladder.json | bash+vitest |
 | `SB_PERSONA_COST_PER_CALL` | — | REMOVED — spend is not tracked anywhere; the persona ledger and all cost logging were deleted. | removed | none | none |
 | `SB_PERSONA_TIMEOUT_MS` | `30000` | persona_think spawn timeout. | TUNE | persona-think.ts:112 | none |
 | `SB_PERSONA_DAILY_BUDGET` | — | DEPRECATED: "no longer gate anything" — `skills/upgrade/migrations/0.24.45.md:11,22`. Zero live consumers in scripts/ or mcp/src (verified by grep 2026-07-05). | DEPRECATED | migrations/0.24.45.md:11 | — |
@@ -262,14 +276,20 @@ scheduled-task marker), `SB_THINK_SENTINEL_42` (CLI-shim invocation sentinel), a
 `SB_TEST_WINHOME`, `SB_TEST_RUN_NOADVANCE`, `SB_TEST_RUN_SENTINEL`, `SB_TEST_RUN_TRUNCATE_STATUS`,
 `SB_TEST_RUN_DELETE_STATUS`. See sb-validation-and-qa for the runner mechanics.
 
-## Coverage summary (as of 0.33.31, 2026-07-05)
+## Coverage summary (as of 0.33.31, 2026-07-05; elastic-model-resolution rows below that line not
+re-audited into the totals)
 
-- Bash-test-referenced: 92 vars (includes every hook kill switch in §2).
+- Bash-test-referenced: 92 vars (includes every hook kill switch in §2), plus the 6
+  `SB_MODEL_*`/legacy-pin rows added by the elastic-model-resolution feature
+  (`SB_MODEL_TIER_FAST/MID/DEEP`, `SB_MODEL_CACHE_TTL`, `SB_MODEL_ELASTIC`, `SB_MODEL_LADDER`,
+  `SB_EXTRACTOR_MODEL`, `SB_QUALITY_GATE_MODEL`, `SB_MAINTAIN_LLM_MODEL`, `SB_PERSONA_MODEL` — all
+  now `bash` via `tests/test-model-resolve.sh`).
 - Vitest-referenced: 9 — `SB_ACTIVE_SLUG SB_BRAIN_DIR SB_CAPTURE_DEDUP SB_GRAPH_RANKING_BOOST
-  SB_MOC_MIN_MEMBERS SB_NESTED_SPAWN SB_PROJECT_SCOPE SB_SCAN_MAX SB_SCOPE_MIN_HITS`.
+  SB_MOC_MIN_MEMBERS SB_NESTED_SPAWN SB_PROJECT_SCOPE SB_SCAN_MAX SB_SCOPE_MIN_HITS`, plus
+  `SB_MODEL_TIER_DEEP SB_MODEL_CACHE_TTL SB_PERSONA_MODEL` via `mcp/src/model-resolve.test.ts`.
 - Referenced in NO test (notable real knobs; internals/deprecated excluded): the "none" rows above
-  — concentrated in per-model/timeout tuning (`SB_EXTRACTOR_MODEL`, `SB_EXTRACT_TIMEOUT`,
-  `SB_MAINTAIN_LLM_{INTERVAL,RETRY,MODEL}`), FORGET weights/thresholds, persona tuning, and the
+  — concentrated in per-model/timeout tuning (`SB_EXTRACT_TIMEOUT`,
+  `SB_MAINTAIN_LLM_{INTERVAL,RETRY}`), FORGET weights/thresholds, persona tuning, and the
   env-override branches of TS knobs. House rule: where the default path IS tested, the
   env-override branch typically is not — adding that branch test is a standing improvement.
 

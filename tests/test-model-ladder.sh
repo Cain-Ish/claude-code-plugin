@@ -64,4 +64,13 @@ for sym in TIERS SURFACES DISPATCH_ALIASES LADDERS PIN_ENVS PROTOCOL_NAMES; do
 done
 pass "TS mirror imports the manifest and exports the six symbols"
 
+# TRIPWIRE: no model-ID literal anywhere except the manifest. This is the guard that stops the
+# whole bug class from regressing once the immediate pain is gone — a future call site that
+# hardcodes a version fails the suite instead of shipping and breaking on a restricted org.
+LIT=$(grep -rnE 'claude-(opus|sonnet|haiku|fable|mythos)-[0-9]' \
+        "$ROOT/scripts" "$ROOT/skills" "$ROOT/agents" "$ROOT/mcp/src" "$ROOT/hooks" 2>/dev/null \
+        | grep -vF 'model-ladder' || true)
+[ -z "$LIT" ] && pass "no model-ID literal outside the manifest" \
+  || fail "model-ID literal found (add a rung to model-ladder.json instead):" "$LIT"
+
 echo; echo "ALL PASS"

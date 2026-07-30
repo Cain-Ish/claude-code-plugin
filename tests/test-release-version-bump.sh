@@ -29,7 +29,10 @@ fail() { echo "FAIL: $1"; exit 1; }
 # version. Excludes: docs/ (narrative), tests/ (a test-only change is not a
 # release), package-lock.json (npm churn), marketplace.json (its second-brain
 # entry mirrors plugin.json, which is already a trigger).
-TRIGGERS="mcp/src mcp/dist mcp/package.json scripts hooks skills agents bin systemd .claude-plugin/plugin.json .claude-plugin/mcp.json"
+# model-ladder.json is behaviour-defining DATA, not config: every model the
+# plugin spawns resolves through its ladders, so editing a rung changes shipped
+# behaviour exactly like a scripts/ edit and must force a bump.
+TRIGGERS="mcp/src mcp/dist mcp/package.json model-ladder.json scripts hooks skills agents bin systemd .claude-plugin/plugin.json .claude-plugin/mcp.json"
 
 # --- resolve the base (previous release) ref ------------------------------------
 BASE_REF="${SB_RELEASE_BASE_REF:-}"

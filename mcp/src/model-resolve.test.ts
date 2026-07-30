@@ -2,7 +2,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { LADDERS } from "./constants/model-ladder.js";
 import { resolveModel } from "./model-resolve.js";
+
+// Rungs 1+ come from the manifest, never a literal here — tests/test-model-ladder.sh's tripwire
+// fails the suite on a hardcoded model-ID string outside model-ladder.json, and a test asserting
+// against a stale duplicate would silently drift from the real ladder anyway.
+const deepLadder = LADDERS.headless.deep;
 
 let dir: string;
 const saved = { ...process.env };
@@ -32,7 +38,7 @@ describe("resolveModel", () => {
 
   it("skips a blocked rung", () => {
     cache({ opus: { state: "blocked", epoch: Math.floor(Date.now() / 1000) } });
-    expect(resolveModel("deep")).toBe("claude-opus-5");
+    expect(resolveModel("deep")).toBe(deepLadder[1]);
   });
 
   it("re-admits an expired verdict", () => {
@@ -66,10 +72,7 @@ describe("resolveModel", () => {
 
   it("returns rung 0 when every rung is blocked", () => {
     const epoch = Math.floor(Date.now() / 1000);
-    cache(Object.fromEntries(
-      ["opus", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "sonnet"]
-        .map((m) => [m, { state: "blocked", epoch }]),
-    ));
-    expect(resolveModel("deep")).toBe("opus");
+    cache(Object.fromEntries(deepLadder.map((m) => [m, { state: "blocked", epoch }])));
+    expect(resolveModel("deep")).toBe(deepLadder[0]);
   });
 });
