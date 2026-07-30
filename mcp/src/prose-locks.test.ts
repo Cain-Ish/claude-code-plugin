@@ -68,6 +68,7 @@ describe('SB_HOOK_PROFILE reaches every mapped kill switch (shim-or-source order
     ['SB_INTENT_SPINE', 'plan-first-nudge.sh'],
     ['SB_INTENT_SPINE', 'persona-tool-guard.sh'],
     ['SB_INTENT_SPINE', 'stop-verify-gate.sh'],
+    ['SB_OBSERVATION_LEDGER', 'observe-tool-use.sh'],
   ];
 
   for (const [flag, script] of pairs) {

@@ -423,6 +423,21 @@ grep -qF "project_dir=$CMREPO" "$CM_MARKER" 2>/dev/null \
   || no "corrupt registry killed the codemap target resolution (got: $(cat "$CM_MARKER" 2>/dev/null))"
 rm -f "$BRAIN_DIR/config.json"
 
+# --- Observation-ledger GC (P0 rec 5): >7-day-old per-session ledgers swept,
+# fresh ones kept. touch -t sets an old mtime portably (GNU + BSD).
+reset
+mkdir -p "$BRAIN_DIR/observations"
+printf '{"ts":"2026-01-01T00:00:00Z","tool":"Bash","target":"x","ok":true}\n' > "$BRAIN_DIR/observations/old-session.jsonl"
+touch -t 202601010000 "$BRAIN_DIR/observations/old-session.jsonl"
+printf '{"ts":"2026-07-30T00:00:00Z","tool":"Bash","target":"y","ok":true}\n' > "$BRAIN_DIR/observations/fresh-session.jsonl"
+bash "$DRAIN" >/dev/null 2>&1 || true
+[ ! -f "$BRAIN_DIR/observations/old-session.jsonl" ] \
+  && ok "observation GC: >7d ledger swept" \
+  || no "observation GC: old ledger survived"
+[ -f "$BRAIN_DIR/observations/fresh-session.jsonl" ] \
+  && ok "observation GC: fresh ledger kept" \
+  || no "observation GC: fresh ledger was deleted"
+
 echo ""
 echo "Results C2: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -299,6 +299,9 @@ done < <(ls -1tr "$TX_DIR"/*.txt 2>/dev/null)
 # and past week-long idle sessions, per deep-review). Also sweeps legacy
 # slug-keyed markers (the retired marker-key scheme).
 find "$BRAIN_DIR" -maxdepth 1 -name '.last-extracted-line-*' -mtime +30 -delete 2>/dev/null || true
+# Observation ledgers (P0 rec 5): one file per session; after 7 days the
+# session's transcript has been drained (or pruned past recovery) — sweep.
+find "$BRAIN_DIR/observations" -maxdepth 1 -name '*.jsonl' -mtime +7 -delete 2>/dev/null || true
 # Transcripts of our own nested extractor spawns (cwd = BRAIN_DIR/scratch →
 # one ~/.claude/projects entry). Derive the encoded name from the live BRAIN_DIR
 # (CC encodes '/' and '.' as '-'); keep the substring glob as a fallback for
