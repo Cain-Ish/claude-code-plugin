@@ -212,6 +212,28 @@ grep -q '^type: learnings$' "$PAGE" || fail "wiki-create: page missing 'type: le
 grep -qF 'REAL LEARNINGS BODY SENTINEL' "$PAGE" || fail "wiki-create: content body sentinel missing from page (got: $(cat "$PAGE"))"
 pass "wiki_updates create writes a real learnings page (node-less path)"
 
+# --- Test (P0 rec 1): an issues-category wiki_update writes a real wiki page.
+# The category whitelist lived ONLY in extract-prompt.txt — this locks the writer
+# half: the merge must route category "issues" to wiki/issues/ like any other
+# structured category (no writer-side whitelist regression).
+PROJ="$TMP/p10i.md"; WIKI10I="$TMP/wiki10i"; mkdir -p "$WIKI10I"
+seed_project "$PROJ"
+jq -nc '{
+  wiki_updates: [{
+    category: "issues",
+    slug: "jq-crlf-windows-stdout",
+    action: "create",
+    title: "jq 1.8.1 emits CRLF on Windows stdout",
+    description: "symptom/cause/fix",
+    content: "ISSUES BODY SENTINEL: symptom, root cause, fix"
+  }]
+}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI10I" >/dev/null 2>&1 || fail "issues-create: script exited non-zero"
+IPAGE="$WIKI10I/wiki/issues/jq-crlf-windows-stdout.md"
+[ -f "$IPAGE" ] || fail "issues-create: page $IPAGE was not created"
+grep -q '^type: issues$' "$IPAGE" || fail "issues-create: page missing 'type: issues' frontmatter"
+grep -qF 'ISSUES BODY SENTINEL' "$IPAGE" || fail "issues-create: content body missing"
+pass "wiki_updates create routes category issues to wiki/issues/ (error→fix class unlocked)"
+
 # --- Test: session_goal → deterministic one-line ## State note (replace-style) ---
 PROJ="$TMP/p11.md"; WIKI11="$TMP/wiki11"; mkdir -p "$WIKI11"
 seed_project "$PROJ"

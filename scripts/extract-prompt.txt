@@ -13,10 +13,19 @@ Schema (all keys required, arrays may be empty):
   "cross_refs":       ["..."],
   "plan":             ["- [ ] next step", "- [x] shipped thing"],
   "session_goal":     "one line, or \"\"",
+  "session_outcome":  "done|partial|abandoned: what actually shipped, or \"\"",
   "files_touched":    ["..."],
+  "procedures":       [
+    {
+      "task_verb": "build|test|release|deploy|<short verb phrase>",
+      "exact_commands": "the literal command sequence that worked (one line)",
+      "preconditions": "what must be true first, or \"\"",
+      "gotcha_avoided": "the trap this sequence avoids, or \"\""
+    }
+  ],
   "wiki_updates":     [
     {
-      "category": "entities|concepts|learnings",
+      "category": "entities|concepts|learnings|issues",
       "slug": "kebab-case-name",
       "action": "create|update",
       "title": "Human Title",
@@ -60,19 +69,22 @@ Rules:
 - Files touched: absolute or repo-relative paths of files modified by Edit/Write/MultiEdit tool calls. Plain strings, no markdown.
 - Plan: the FORWARD-looking checklist of what's next for THIS project — distinct from decisions (past choices). Read the existing "## Plan" section in the PROJECT.md above and emit the UPDATED FULL list: carry unfinished items forward as "- [ ] ...", mark newly-completed ones "- [x] ...", add new next steps, drop finished/irrelevant ones. Max 7 items. NEVER include or rewrite any line marked "[pinned]" — those are human-authored north stars the merge preserves automatically. Emit [] when the session produced no clear forward work (the existing plan is then left untouched, never wiped).
 - Session goal: the session's WHY, persisted so the next session resumes it. If the transcript contains a `[Goal: <text> | phase: <p>]` context line, copy <text> VERBATIM plus the LAST <p> seen, formatted exactly: "<text> (reached: <p>)". Otherwise, if the session had one clear driving objective, state it in <=120 chars with the same "(reached: plan|implement|verify)" suffix — your best judgment of how far it got. Pure Q&A or no clear objective: "".
+- Session outcome: one line "done|partial|abandoned: <what actually shipped>", judged from the transcript's END state — tests/gates shown passing or work committed = done; real progress but unfinished = partial; the approach was dropped or reverted = abandoned. Never claim done without transcript evidence of verification (a passing run, a commit, an explicit confirmation). <=100 chars after the colon. Pure Q&A or no clear objective: "".
+- Procedures: reusable runbooks — "how X is done HERE". Emit one ONLY when the transcript shows a multi-step (>=3 tool_use) sequence that SUCCEEDED, especially after at least one failed attempt. Filter: would a fresh session re-derive this by trial and error? Routine single commands, one-off fixes, and anything already obvious from the repo's README or scripts do NOT qualify. Prioritize build/test/release/deploy runbooks. "exact_commands" is the literal command sequence that worked, one line, steps joined with " && ", <=200 chars, no backticks. Max 2 procedures per session; [] is the norm.
 - Wiki updates: extract technology patterns, architecture decisions, entity relationships, and reusable concepts into wiki page proposals. Rules:
   - "entities" = specific technologies, libraries, services, repos, or components the project uses
   - "concepts" = design patterns, architectural approaches, or reusable ideas
+  - "issues" = the error→fix class: a concrete error, gotcha, or environment quirk WITH its resolution. Title = the symptom as an assertion ("jq 1.8.1 emits CRLF on Windows stdout"); content = symptom → root cause → fix. This is where one-time tool/version/config-specific gotchas belong — they are the class a future session hits again verbatim.
   - "learnings" = non-obvious insights, gotchas, or hard-won knowledge from this session. Must pass THREE filters:
     1. NOT a platitude: skip universal principles any developer already knows ("write good tests", "read before editing", "think about real need"). If it could appear in a generic engineering handbook, it's not a learning.
-    2. REUSABLE: skip one-time tool-specific gotchas that only apply to one tool/version/config combination and are unlikely to recur (e.g., "Asana MCP doesn't expose start_on field", "React.lazy defeated by monolithic re-export"). Keep it only if a future session in a different project could benefit.
+    2. REUSABLE: a learning must generalize — keep it here only if a future session in a different project could benefit. One-time tool-specific gotchas that only apply to one tool/version/config combination (e.g., "Asana MCP doesn't expose start_on field", "React.lazy defeated by monolithic re-export") are NOT learnings — route them to the "issues" category instead (symptom/cause/fix). Do NOT drop them.
     3. NOT self-referential: skip learnings about the second-brain plugin's own internals (its scripts, its extraction pipeline, its wiki structure). Those are changelog entries, not knowledge.
   - Prefer "update" over "create" when a related page likely exists (check cross_refs and PROJECT.md for clues)
   - Only "create" when a genuinely new entity/concept was introduced (new library, new pattern, new service)
   - NEVER use MR numbers, ticket IDs, or session dates as slugs (e.g. "mr84-sma-review" is wrong, "react-sma" is right). Knowledge lives in the entity it describes, not in the event that produced it.
   - Content should be factual, specific, and AI-readable — not session narrative. No "we reviewed", "in this session", "MR !84 introduced" — just state the facts.
   - Each entry's content should stand alone (no "as discussed above" references)
-  - Max 3 wiki_updates per session
+  - Max 8 wiki_updates per session. A genuinely dense session legitimately touches many pages (create AND update) — but do NOT pad toward the cap; near-duplicates are collapsed downstream, so prefer one update-in-place over a near-identical create. A typical session yields 2-4.
   - If the session was pure Q&A with no real work, return an empty array
   - `ai_block` (the machine-first "shared intermediate" an AI reads instead of re-deriving from prose):
     a flat object of per-type fields. Use the schema for the page's `category`:
