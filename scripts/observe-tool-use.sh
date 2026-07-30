@@ -60,13 +60,18 @@ fi
 # tr -d '\r': jq stdout is CRLF on Windows git-bash (jq discipline, rule 4).
 printf '%s' "$RAW" | jq -c --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
   (.tool_response // .tool_output // .tool_result // null) as $resp
-  | ( if ($resp | type) == "object" then
+  # PostToolUseFailure alone proves failure: upstream PostToolUse fires ONLY on
+  # success (live-found 0.40.0 defect — a nonzero-exit Bash left NO ledger line),
+  # so the failure event is wired to this same script and forces ok:false even
+  # when the payload carries no error markers.
+  | ( ((.hook_event_name // "") == "PostToolUseFailure")
+      or ( if ($resp | type) == "object" then
         (($resp.is_error // $resp.isError // false) == true)
         or ((($resp.error // "") | tostring) != "")
         or ((($resp.exitCode // $resp.exit_code // 0) | tonumber? // 0) != 0)
       elif ($resp | type) == "string" then
         ($resp | test("^\\s*(Error|error:|fatal:)"))
-      else false end ) as $err
+      else false end ) ) as $err
   | {
       ts: $ts,
       tool: .tool_name,

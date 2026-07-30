@@ -46,6 +46,21 @@ jq -es '.[1] | select(.tool=="Edit" and .target=="/repo/src/a.ts")' "$F" >/dev/n
   || fail "append: second record wrong: $(tail -1 "$F")"
 pass "second tool use appends (2 lines, order preserved)"
 
+# 2b. PostToolUseFailure event → ok:false even with NO error markers in the
+# response. Live-found 0.40.0 defect: upstream PostToolUse fires ONLY on
+# success (code.claude.com/docs/en/hooks), so failed tool calls — the exact
+# error→fix class the ledger exists for — left no line at all. The failure
+# event is wired to the same script; the event name alone must force ok:false.
+jq -nc '{hook_event_name:"PostToolUseFailure", tool_name:"Bash", session_id:"sess-failev",
+         tool_input:{command:"npm test"}, tool_response:{stdout:"", stderr:"boom"}}' \
+  | bash "$SCRIPT"; rc=$?
+[ "$rc" -eq 0 ] || fail "fail-event: expected exit 0, got $rc"
+FEV="$OBS_DIR/sess-failev.jsonl"
+[ -f "$FEV" ] || fail "fail-event: no ledger line for a PostToolUseFailure payload"
+jq -e 'select(.tool=="Bash" and .ok==false)' "$FEV" >/dev/null 2>&1 \
+  || fail "fail-event: PostToolUseFailure must force ok:false (got: $(cat "$FEV"))"
+pass "PostToolUseFailure event → ok:false regardless of response markers"
+
 # 3. Error shapes: is_error flag, error field, and nonzero exit code.
 payload "Bash" "sess-err" '{"command":"npm test"}' '{"is_error":true,"error":"FAIL tests/x.sh: assertion"}' | bash "$SCRIPT"
 payload "Read" "sess-err" '{"file_path":"/gone.txt"}' '{"error":"ENOENT: no such file"}' | bash "$SCRIPT"
@@ -158,6 +173,9 @@ pass "absent ledger → no observations section, extraction unaffected"
 jq -e '.hooks.PostToolUse[] | select(.hooks[].command | test("observe-tool-use")) | .matcher' \
   "$PLUGIN_ROOT/hooks/hooks.json" >/dev/null 2>&1 \
   || fail "wiring: hooks.json has no PostToolUse entry for observe-tool-use.sh"
+jq -e '.hooks.PostToolUseFailure[] | select(.hooks[].command | test("observe-tool-use"))' \
+  "$PLUGIN_ROOT/hooks/hooks.json" >/dev/null 2>&1 \
+  || fail "wiring: hooks.json has no PostToolUseFailure entry — failed tool calls invisible to the ledger (PostToolUse fires only on success)"
 MATCHER=$(jq -r '.hooks.PostToolUse[] | select(.hooks[].command | test("observe-tool-use")) | .matcher' "$PLUGIN_ROOT/hooks/hooks.json")
 for t in Bash Write Edit Read Task; do
   printf '%s' "$MATCHER" | grep -q "$t" || fail "wiring: matcher missing $t (got: $MATCHER)"

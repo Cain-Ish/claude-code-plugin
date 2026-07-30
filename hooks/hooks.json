@@ -161,6 +161,19 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "_comment": "observation ledger, failure side (0.40.1) — PostToolUse fires ONLY on successful tool completion (code.claude.com/docs/en/hooks), so without this entry every FAILED tool call — the exact error→fix class the ledger exists to mine — left no line (live-reproduced on 0.40.0 ship day: exit-42 Bash, no record). Same script; the event name alone forces ok:false. Kill switch SB_OBSERVATION_LEDGER=off.",
+        "matcher": "Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/observe-tool-use.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
