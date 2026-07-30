@@ -261,7 +261,7 @@ registerJsonTool(
       max_count: z.number().optional().describe("Max transcripts to include (default 50, max 100)"),
       family: z.boolean().optional().describe("Mine the whole monorepo family — the active project's root + siblings, from projects.jsonl. 'all' (project_slug) wins if both are set."),
     }).optional(),
-    model: z.string().optional().describe("Model for consolidation. Default: claude-sonnet-4-6"),
+    model: z.string().optional().describe("Model for consolidation. Default: the MID tier from model-ladder.json, resolved per run."),
   },
   (args) => dreamCreate(args),
   (h) => guardDestructive("dream_create", h)

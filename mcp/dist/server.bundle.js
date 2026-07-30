@@ -32094,7 +32094,79 @@ async function episodicRead(filePath, startLine, endLine) {
 
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
-var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
+
+// src/model-resolve.ts
+import { readFileSync as readFileSync4 } from "node:fs";
+import { join as join16 } from "node:path";
+
+// ../model-ladder.json
+var model_ladder_default = {
+  _comment: "Single source of truth for model selection. Ladders are ORDERED preference lists walked by sb_resolve_model (bash) and resolveModel (TS). Rung 0 is always a bare ALIAS so a newly released model is picked up with no code change; pinned IDs below it exist only as the demotion path. The dispatch ladders may contain aliases ONLY -- the Agent tool's model param is a schema-level enum and rejects full IDs before any API call. Guarded by tests/test-model-ladder.sh.",
+  schema: 1,
+  tiers: ["fast", "mid", "deep"],
+  protocol_names: { fast: "SCOUT", mid: "DO", deep: "THINK" },
+  dispatch_aliases: ["haiku", "sonnet", "opus", "fable"],
+  ladders: {
+    headless: {
+      fast: ["haiku", "claude-haiku-4-5", "sonnet"],
+      mid: ["sonnet", "claude-sonnet-5", "claude-sonnet-4-6", "opus", "haiku"],
+      deep: ["opus", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "sonnet"]
+    },
+    dispatch: {
+      fast: ["haiku", "sonnet"],
+      mid: ["sonnet", "opus", "haiku"],
+      deep: ["opus", "fable", "sonnet"]
+    }
+  },
+  pins: {
+    fast: ["SB_MODEL_TIER_FAST", "SB_QUALITY_GATE_MODEL"],
+    mid: ["SB_MODEL_TIER_MID", "SB_EXTRACTOR_MODEL", "SB_MAINTAIN_LLM_MODEL"],
+    deep: ["SB_MODEL_TIER_DEEP", "SB_PERSONA_MODEL"]
+  }
+};
+
+// src/constants/model-ladder.ts
+var TIERS = model_ladder_default.tiers;
+var SURFACES = Object.keys(model_ladder_default.ladders);
+var DISPATCH_ALIASES = model_ladder_default.dispatch_aliases;
+var LADDERS = model_ladder_default.ladders;
+var PIN_ENVS = model_ladder_default.pins;
+var PROTOCOL_NAMES = model_ladder_default.protocol_names;
+
+// src/model-resolve.ts
+var DEFAULT_TTL_SECONDS = 604800;
+var authFingerprint = () => process.env.ANTHROPIC_API_KEY ? "apikey" : "oauth";
+function blockedSet(surface) {
+  const blocked = /* @__PURE__ */ new Set();
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync4(join16(resolveBrainDir(), "model-availability.json"), "utf8"));
+  } catch {
+    return blocked;
+  }
+  if (parsed.auth_fingerprint !== authFingerprint()) return blocked;
+  const ttlRaw = Number(process.env.SB_MODEL_CACHE_TTL);
+  const ttl = Number.isFinite(ttlRaw) && ttlRaw > 0 ? ttlRaw : DEFAULT_TTL_SECONDS;
+  const now = Math.floor(Date.now() / 1e3);
+  for (const [model, v] of Object.entries(parsed.surfaces?.[surface] ?? {})) {
+    if (v?.state !== "blocked") continue;
+    const epoch = typeof v.epoch === "number" ? v.epoch : 0;
+    if (epoch > 0 && now - epoch >= ttl) continue;
+    blocked.add(model);
+  }
+  return blocked;
+}
+function resolveModel(tier, surface = "headless") {
+  const pins = (PIN_ENVS[tier] ?? []).map((envName) => process.env[envName]).filter((v) => typeof v === "string" && v.length > 0);
+  const rungs = [...pins, ...LADDERS[surface]?.[tier] ?? []];
+  if (rungs.length === 0) return "sonnet";
+  if (process.env.SB_MODEL_ELASTIC === "0") return rungs[0];
+  const blocked = blockedSet(surface);
+  return rungs.find((m) => !blocked.has(m)) ?? rungs[0];
+}
+
+// src/tools/persona-think.ts
+var advisorModel = () => resolveModel("deep", "headless");
 var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "30000");
 var SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
 Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
@@ -32167,7 +32239,7 @@ function parseBrief(raw) {
 }
 async function personaThink(args, deps = {}) {
   const runner = deps.runner ?? defaultRunner;
-  const model = deps.model ?? DEFAULT_MODEL;
+  const model = deps.model ?? advisorModel();
   const hints = (args.context_hints ?? []).join("\n");
   const user = hints ? `Context hints:
 ${hints}
@@ -32186,13 +32258,13 @@ ${args.prompt}` : args.prompt;
 
 // src/tools/persona-stats.ts
 import { promises as fs16 } from "fs";
-import { join as join16 } from "path";
+import { join as join17 } from "path";
 async function personaStats(args = {}) {
   const dir = resolveBrainDir(args.brainDir);
   let identity2 = "";
   let cardBytes = 0;
   try {
-    const card = await fs16.readFile(join16(dir, "persona-card.md"), "utf-8");
+    const card = await fs16.readFile(join17(dir, "persona-card.md"), "utf-8");
     cardBytes = Buffer.byteLength(card, "utf-8");
     identity2 = card.split("\n").filter((l) => l.startsWith("- ")).slice(0, 3).map((l) => l.slice(2).trim()).join("; ");
   } catch {
@@ -32200,7 +32272,7 @@ async function personaStats(args = {}) {
   let ungraduated = 0;
   let graduated = 0;
   try {
-    const psl = await fs16.readFile(join16(dir, "persona-signals.jsonl"), "utf-8");
+    const psl = await fs16.readFile(join17(dir, "persona-signals.jsonl"), "utf-8");
     for (const line of psl.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -32214,7 +32286,7 @@ async function personaStats(args = {}) {
   }
   let plugins = 0, agents = 0, skills = 0;
   try {
-    const cat = JSON.parse(await fs16.readFile(join16(dir, ".installed-catalog.json"), "utf-8"));
+    const cat = JSON.parse(await fs16.readFile(join17(dir, ".installed-catalog.json"), "utf-8"));
     plugins = Array.isArray(cat.plugins) ? cat.plugins.length : 0;
     agents = Array.isArray(cat.agents) ? cat.agents.length : 0;
     skills = Array.isArray(cat.skills) ? cat.skills.length : 0;
@@ -32222,7 +32294,7 @@ async function personaStats(args = {}) {
   }
   let dismissals = 0;
   try {
-    const dl = await fs16.readFile(join16(dir, ".persona-dismissals.jsonl"), "utf-8");
+    const dl = await fs16.readFile(join17(dir, ".persona-dismissals.jsonl"), "utf-8");
     const cutoff = Date.now() - 7 * 864e5;
     for (const line of dl.split("\n")) {
       if (!line.trim()) continue;
@@ -32249,13 +32321,13 @@ async function personaStats(args = {}) {
 
 // src/tools/persona-dismiss.ts
 import { promises as fs17 } from "fs";
-import { join as join17 } from "path";
+import { join as join18 } from "path";
 var RETAIN_DAYS = 30;
 async function personaDismiss(args = {}) {
   const dir = resolveBrainDir(args.brainDir);
   await fs17.mkdir(dir, { recursive: true }).catch(() => {
   });
-  const file = join17(dir, ".persona-dismissals.jsonl");
+  const file = join18(dir, ".persona-dismissals.jsonl");
   const now = /* @__PURE__ */ new Date();
   const entry = {
     at: now.toISOString(),
@@ -32294,7 +32366,7 @@ async function personaDismiss(args = {}) {
 }
 
 // src/tools/knowledge-relate.ts
-import { join as join18 } from "path";
+import { join as join19 } from "path";
 var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ].*)?$/;
 async function knowledgeRelate(args) {
   try {
@@ -32308,7 +32380,7 @@ async function knowledgeRelate(args) {
   for (const [k, v] of [["valid_from", args.valid_from], ["valid_to", args.valid_to]]) {
     if (v !== void 0 && !ISO_DATE_RE.test(v)) return { ok: false, reason: `invalid ${k} (want YYYY-MM-DD): ${v}` };
   }
-  const logPath = join18(args.knowledgeDir, "graph", "edges.jsonl");
+  const logPath = join19(args.knowledgeDir, "graph", "edges.jsonl");
   if (args.invalidate) {
     const current = foldToCurrent(await loadEdges(logPath));
     const open = current.find((e) => e.from === args.from && e.to === args.to && e.type === args.type && e.valid_to === null);
@@ -32333,7 +32405,7 @@ async function knowledgeRelate(args) {
 }
 
 // src/tools/knowledge-neighbors.ts
-import { join as join19 } from "path";
+import { join as join20 } from "path";
 async function knowledgeNeighbors(args) {
   try {
     validateSlug(args.slug);
@@ -32341,7 +32413,7 @@ async function knowledgeNeighbors(args) {
     if (e instanceof PathGuardError) return { slug: args.slug, edges: [] };
     throw e;
   }
-  const records = await loadEdges(join19(args.knowledgeDir, "graph", "edges.jsonl"));
+  const records = await loadEdges(join20(args.knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { slug: args.slug, edges: [] };
   const current = foldToCurrent(records);
   const edges = neighbors(current, args.slug, {
@@ -32865,7 +32937,7 @@ registerJsonTool(
       max_count: external_exports.number().optional().describe("Max transcripts to include (default 50, max 100)"),
       family: external_exports.boolean().optional().describe("Mine the whole monorepo family \u2014 the active project's root + siblings, from projects.jsonl. 'all' (project_slug) wins if both are set.")
     }).optional(),
-    model: external_exports.string().optional().describe("Model for consolidation. Default: claude-sonnet-4-6")
+    model: external_exports.string().optional().describe("Model for consolidation. Default: the MID tier from model-ladder.json, resolved per run.")
   },
   (args) => dreamCreate(args),
   (h) => guardDestructive("dream_create", h)

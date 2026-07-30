@@ -1,6 +1,93 @@
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
-var DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? "claude-opus-4-7";
+
+// src/model-resolve.ts
+import { readFileSync } from "node:fs";
+import { join as join2 } from "node:path";
+
+// src/brain-paths.ts
+import { join, isAbsolute } from "path";
+import { homedir } from "os";
+
+// src/path-guard.ts
+function cleanEnvPath(s) {
+  return (s ?? "").replace(/[\r\n]/g, "");
+}
+
+// src/brain-paths.ts
+function resolveBrainDir(override) {
+  if (override) return override;
+  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+}
+
+// ../model-ladder.json
+var model_ladder_default = {
+  _comment: "Single source of truth for model selection. Ladders are ORDERED preference lists walked by sb_resolve_model (bash) and resolveModel (TS). Rung 0 is always a bare ALIAS so a newly released model is picked up with no code change; pinned IDs below it exist only as the demotion path. The dispatch ladders may contain aliases ONLY -- the Agent tool's model param is a schema-level enum and rejects full IDs before any API call. Guarded by tests/test-model-ladder.sh.",
+  schema: 1,
+  tiers: ["fast", "mid", "deep"],
+  protocol_names: { fast: "SCOUT", mid: "DO", deep: "THINK" },
+  dispatch_aliases: ["haiku", "sonnet", "opus", "fable"],
+  ladders: {
+    headless: {
+      fast: ["haiku", "claude-haiku-4-5", "sonnet"],
+      mid: ["sonnet", "claude-sonnet-5", "claude-sonnet-4-6", "opus", "haiku"],
+      deep: ["opus", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "sonnet"]
+    },
+    dispatch: {
+      fast: ["haiku", "sonnet"],
+      mid: ["sonnet", "opus", "haiku"],
+      deep: ["opus", "fable", "sonnet"]
+    }
+  },
+  pins: {
+    fast: ["SB_MODEL_TIER_FAST", "SB_QUALITY_GATE_MODEL"],
+    mid: ["SB_MODEL_TIER_MID", "SB_EXTRACTOR_MODEL", "SB_MAINTAIN_LLM_MODEL"],
+    deep: ["SB_MODEL_TIER_DEEP", "SB_PERSONA_MODEL"]
+  }
+};
+
+// src/constants/model-ladder.ts
+var TIERS = model_ladder_default.tiers;
+var SURFACES = Object.keys(model_ladder_default.ladders);
+var DISPATCH_ALIASES = model_ladder_default.dispatch_aliases;
+var LADDERS = model_ladder_default.ladders;
+var PIN_ENVS = model_ladder_default.pins;
+var PROTOCOL_NAMES = model_ladder_default.protocol_names;
+
+// src/model-resolve.ts
+var DEFAULT_TTL_SECONDS = 604800;
+var authFingerprint = () => process.env.ANTHROPIC_API_KEY ? "apikey" : "oauth";
+function blockedSet(surface) {
+  const blocked = /* @__PURE__ */ new Set();
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(join2(resolveBrainDir(), "model-availability.json"), "utf8"));
+  } catch {
+    return blocked;
+  }
+  if (parsed.auth_fingerprint !== authFingerprint()) return blocked;
+  const ttlRaw = Number(process.env.SB_MODEL_CACHE_TTL);
+  const ttl = Number.isFinite(ttlRaw) && ttlRaw > 0 ? ttlRaw : DEFAULT_TTL_SECONDS;
+  const now = Math.floor(Date.now() / 1e3);
+  for (const [model, v] of Object.entries(parsed.surfaces?.[surface] ?? {})) {
+    if (v?.state !== "blocked") continue;
+    const epoch = typeof v.epoch === "number" ? v.epoch : 0;
+    if (epoch > 0 && now - epoch >= ttl) continue;
+    blocked.add(model);
+  }
+  return blocked;
+}
+function resolveModel(tier, surface = "headless") {
+  const pins = (PIN_ENVS[tier] ?? []).map((envName) => process.env[envName]).filter((v) => typeof v === "string" && v.length > 0);
+  const rungs = [...pins, ...LADDERS[surface]?.[tier] ?? []];
+  if (rungs.length === 0) return "sonnet";
+  if (process.env.SB_MODEL_ELASTIC === "0") return rungs[0];
+  const blocked = blockedSet(surface);
+  return rungs.find((m) => !blocked.has(m)) ?? rungs[0];
+}
+
+// src/tools/persona-think.ts
+var advisorModel = () => resolveModel("deep", "headless");
 var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "30000");
 var SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
 Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
@@ -73,7 +160,7 @@ function parseBrief(raw) {
 }
 async function personaThink(args, deps = {}) {
   const runner = deps.runner ?? defaultRunner;
-  const model = deps.model ?? DEFAULT_MODEL;
+  const model = deps.model ?? advisorModel();
   const hints = (args.context_hints ?? []).join("\n");
   const user = hints ? `Context hints:
 ${hints}

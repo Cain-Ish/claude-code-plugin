@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { resolveModel } from '../model-resolve.js';
 
 export interface PersonaThinkArgs {
   prompt: string;
@@ -20,7 +21,9 @@ export interface PersonaThinkDeps {
   model?: string;
 }
 
-const DEFAULT_MODEL = process.env.SB_PERSONA_MODEL ?? 'claude-opus-4-7';
+// Resolved per call, not at module load: a demotion recorded mid-session must take effect
+// without restarting the MCP server. SB_PERSONA_MODEL is a DEEP pin in model-ladder.json.
+const advisorModel = (): string => resolveModel('deep', 'headless');
 const THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? '30000');
 
 const SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
@@ -89,7 +92,7 @@ function parseBrief(raw: string): PersonaBrief | null {
 
 export async function personaThink(args: PersonaThinkArgs, deps: PersonaThinkDeps = {}): Promise<PersonaBrief> {
   const runner = deps.runner ?? defaultRunner;
-  const model = deps.model ?? DEFAULT_MODEL;
+  const model = deps.model ?? advisorModel();
   const hints = (args.context_hints ?? []).join('\n');
   const user = hints ? `Context hints:\n${hints}\n\nUser prompt:\n${args.prompt}` : args.prompt;
 
