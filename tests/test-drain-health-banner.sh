@@ -81,6 +81,38 @@ printf '%s\n' \
 HD=$(sb_count_drain_dead_letters)
 [ "$HD" = "2" ] && pass "helper: sb_count_drain_dead_letters last-write-wins (a+b errored, c recovered → 2)" || fail "helper: dead-letters=$HD (want 2)"
 
+echo "=== drainer dead-man switch ==="
+# Fires on SILENCE (stale progress + newer queued work) — the state no failure-
+# signature banner can see: the 2026-07 lock wedge left ZERO log lines for six
+# days while the scheduler exited 0 and 17 queued transcripts were evicted.
+DM='drainer DEAD-MAN'
+
+# D1: stale state + newer queued transcript → dead-man fires
+reset; mkdir -p "$B/transcripts"
+: > "$B/.extraction-state.jsonl"; touch -t 202601010000 "$B/.extraction-state.jsonl"
+printf 'x' > "$B/transcripts/fresh_claude-code-plugin_2026-07-30.txt"
+O=$(emit)
+printf '%s' "$O" | grep -q "$DM" && pass "D1: stale progress + newer queue fires dead-man" || fail "D1: dead-man did not fire"
+grep -q "drain-deadman" "$B/error-log.jsonl" 2>/dev/null && pass "D1b: dead-man logged loud to error-log" || fail "D1b: no error-log entry"
+
+# D2: stale state, NO newer transcripts (idle machine) → silent (false-positive guard)
+reset; rm -f "$B/transcripts"/*.txt
+: > "$B/.extraction-state.jsonl"; touch -t 202601010000 "$B/.extraction-state.jsonl"
+O=$(emit)
+printf '%s' "$O" | grep -q "$DM" && fail "D2: dead-man false-fired on an idle machine" || pass "D2: staleness alone stays silent (no queued work = no drain expected)"
+
+# D3: fresh state + queued transcript → silent (drainer is alive)
+reset; : > "$B/.extraction-state.jsonl"
+printf 'x' > "$B/transcripts/fresh2_claude-code-plugin_2026-07-30.txt"
+O=$(emit)
+printf '%s' "$O" | grep -q "$DM" && fail "D3: dead-man fired though progress is fresh" || pass "D3: fresh progress stays silent"
+
+# D4: kill switch
+reset; : > "$B/.extraction-state.jsonl"; touch -t 202601010000 "$B/.extraction-state.jsonl"
+printf 'x' > "$B/transcripts/fresh3_claude-code-plugin_2026-07-30.txt"
+O=$(SB_DRAIN_DEADMAN=off emit)
+printf '%s' "$O" | grep -q "$DM" && fail "D4: kill switch ignored" || pass "D4: SB_DRAIN_DEADMAN=off suppresses"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

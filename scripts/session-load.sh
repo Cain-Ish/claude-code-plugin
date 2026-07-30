@@ -353,6 +353,37 @@ if [ "${SB_DRAIN_HEALTH_BANNER:-on}" != "off" ] && [ "${H_STATUS:-}" != "fail" ]
   fi
 fi
 
+# 0a-quinquies. Drainer DEAD-MAN switch — fires on the drainer's SILENCE, which
+# no other banner can see. 0a-quater keys on failure SIGNATURES the drainer
+# leaves (ec=124 diags, dead letters); a WEDGED drainer leaves none: the 2026-07
+# lock wedge ran the scheduler green 48x/day for six days with zero log lines
+# while 17 queued transcripts aged past the eviction cap — permanent loss. The
+# only observable of that state is progress-file staleness WHILE newer work
+# exists. Both conditions are required: staleness alone false-alarms on an idle
+# machine where no drain is expected. Fail-open; kill switch SB_DRAIN_DEADMAN=off.
+if [ "${SB_DRAIN_DEADMAN:-on}" != "off" ]; then
+  DEADMAN_H="${SB_DRAIN_DEADMAN_HOURS:-24}"; case "$DEADMAN_H" in ''|*[!0-9]*) DEADMAN_H=24 ;; esac
+  DM_STATE="$BRAIN_DIR/.extraction-state.jsonl"
+  DM_TX_DIR="$BRAIN_DIR/transcripts"
+  if [ -d "$DM_TX_DIR" ]; then
+    DM_STATE_M=$(sb_mtime "$DM_STATE"); DM_STATE_M="${DM_STATE_M:-0}"
+    DM_AGE_S=$(( $(date +%s) - DM_STATE_M ))
+    if [ "$DM_AGE_S" -gt $(( DEADMAN_H * 3600 )) ]; then
+      # Progress is stale — is there NEWER work the drainer should have taken?
+      # grep -c prints its count even on exit 1 (zero matches) — no `|| echo 0`
+      # fallback, which would emit a SECOND zero and break the -gt comparison.
+      DM_NEWER=$(find "$DM_TX_DIR" -maxdepth 1 -name '*.txt' -newer "$DM_STATE" 2>/dev/null | head -5 | grep -c .)
+      # No state file at all: any queued transcript older than the threshold counts.
+      [ -f "$DM_STATE" ] || DM_NEWER=$(find "$DM_TX_DIR" -maxdepth 1 -name '*.txt' -mmin +$(( DEADMAN_H * 60 )) 2>/dev/null | head -5 | grep -c .)
+      if [ "${DM_NEWER:-0}" -gt 0 ]; then
+        DM_AGE_H=$(( DM_AGE_S / 3600 ))
+        sb_append "$(printf '## \xe2\x9a\xa0 second-brain — drainer DEAD-MAN: no extraction progress in %sh\nsignal: .extraction-state.jsonl is stale while newer transcripts are queued — the scheduler may be firing and exiting without draining (wedged lock, dead unit).\nimpact: queued sessions age toward the eviction cap and are then LOST un-mined.\nfix: check \x60ls ~/.second-brain/.extract-drain.lock.d\x60 (a stale non-empty lock wedges the run), then \x60bash ~/.second-brain/bin/sb-extract-drain.sh\x60 manually and watch error-log.jsonl.\nSuppress: \x60SB_DRAIN_DEADMAN=off\x60.\n\n' "$DM_AGE_H")" "drain-deadman-banner" 700
+        sb_log_error "session-load.sh" "drain-deadman: state age ${DM_AGE_H}h > ${DEADMAN_H}h with newer queued transcripts" 1
+      fi
+    fi
+  fi
+fi
+
 # 0a-bis. Auth-mode line — one quiet line so the user always knows which
 # credential path the extractor will use this session. Critical for the dual-
 # auth UX (Claude subscription vs Anthropic API key): without this banner,

@@ -93,6 +93,8 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_DRAIN_HEALTH_BANNER` | `on` | Drainer-health banner. | KS | session-load.sh:295 | bash |
 | `SB_DRAIN_DEADLETTER_THRESHOLD` | `5` | Error-marked transcripts before the dead-letter banner. | TUNE | session-load.sh:297 | none |
 | `SB_DRAIN_TIMEOUT_BANNER_THRESHOLD` | `3` | Timeout outcomes before the timeout banner. | TUNE | session-load.sh:296 | none |
+| `SB_DRAIN_DEADMAN` | `on` | KS: dead-man banner when extraction progress is stale WHILE newer transcripts are queued — fires on the drainer's SILENCE (wedged lock, dead unit), which no failure-signature banner can see. | KS | session-load.sh (0a-quinquies) | none |
+| `SB_DRAIN_DEADMAN_HOURS` | `24` | Progress-staleness threshold for the dead-man banner. | TUNE | session-load.sh (0a-quinquies) | none |
 | `SB_EMBED_PENDING_BANNER` | `on` | Banner when embeddings backlog or `@huggingface/transformers` unlinked. | KS | session-load.sh:443 | bash |
 | `SB_SCOPE_BANNER` | `on` | One-line "which project scope loaded" banner (catches wrong cwd→slug resolution). | KS | session-load.sh:525 | bash |
 | `SB_CODEMAP_ORIENT` | `on` | Code-map orientation: inject the architectural spine (top-ranked source files from `codemap/map.md`) + code_map/code_neighbors pointer at SessionStart. No-op when the store is absent/empty. | KS | session-load.sh:479 | bash |
