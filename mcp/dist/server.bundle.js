@@ -32146,7 +32146,7 @@ function blockedSet(surface) {
   }
   if (parsed.auth_fingerprint !== authFingerprint()) return blocked;
   const ttlRaw = Number(process.env.SB_MODEL_CACHE_TTL);
-  const ttl = Number.isFinite(ttlRaw) && ttlRaw > 0 ? ttlRaw : DEFAULT_TTL_SECONDS;
+  const ttl = Number.isFinite(ttlRaw) && ttlRaw >= 0 ? ttlRaw : DEFAULT_TTL_SECONDS;
   const now = Math.floor(Date.now() / 1e3);
   for (const [model, v] of Object.entries(parsed.surfaces?.[surface] ?? {})) {
     if (v?.state !== "blocked") continue;

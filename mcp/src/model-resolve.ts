@@ -21,8 +21,13 @@ function blockedSet(surface: string): Set<string> {
   }
   // A credential change means a different allowlist — discard every prior verdict.
   if (parsed.auth_fingerprint !== authFingerprint()) return blocked;
+  // TTL=0 is the operator's cache-disable: bash's digit-only check (scripts/lib.sh,
+  // sb_model_cache_get) accepts "0", and with ttl=0 every cached verdict is instantly
+  // expired. Clamping 0 up to the 7-day default here would make TS trust a cache the
+  // operator explicitly asked it not to — the two resolvers disagreeing about
+  // availability for exactly the one setting this module exists to keep in lockstep.
   const ttlRaw = Number(process.env.SB_MODEL_CACHE_TTL);
-  const ttl = Number.isFinite(ttlRaw) && ttlRaw > 0 ? ttlRaw : DEFAULT_TTL_SECONDS;
+  const ttl = Number.isFinite(ttlRaw) && ttlRaw >= 0 ? ttlRaw : DEFAULT_TTL_SECONDS;
   const now = Math.floor(Date.now() / 1000);
   for (const [model, v] of Object.entries(parsed.surfaces?.[surface] ?? {})) {
     if (v?.state !== "blocked") continue;

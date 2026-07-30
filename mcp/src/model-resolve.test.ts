@@ -58,6 +58,12 @@ describe("resolveModel", () => {
     expect(resolveModel("deep")).toBe("legacy-x");
   });
 
+  it("SB_MODEL_CACHE_TTL=0 re-admits instantly instead of falling back to the 7-day default", () => {
+    process.env.SB_MODEL_CACHE_TTL = "0";
+    cache({ opus: { state: "blocked", epoch: Math.floor(Date.now() / 1000) } });
+    expect(resolveModel("deep")).toBe("opus");
+  });
+
   it("returns rung 0 when every rung is blocked", () => {
     const epoch = Math.floor(Date.now() / 1000);
     cache(Object.fromEntries(

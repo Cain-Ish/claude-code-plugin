@@ -1,7 +1,24 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { personaThink } from './persona-think.js';
 
 describe('persona_think', () => {
+  // advisorModel() now resolves per call and reads $BRAIN_DIR/model-availability.json.
+  // Without pinning BRAIN_DIR, these tests would read the developer's real cache file and
+  // become environment-dependent — point it at a fresh, empty temp dir instead.
+  let dir: string;
+  const saved = { ...process.env };
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'sb-persona-think-'));
+    process.env.BRAIN_DIR = dir;
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    process.env = { ...saved };
+  });
+
   it('returns structured brief on a substantive prompt', async () => {
     const fakeRunner = vi.fn().mockResolvedValue(JSON.stringify({
       intent_read: 'user wants to build login',
