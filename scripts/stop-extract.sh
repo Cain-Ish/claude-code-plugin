@@ -351,6 +351,14 @@ if echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candida
   done
 fi
 
+# --- Sessions digest (P0 rec 4): pushed continuity for the next SessionStart ---
+# Deterministic post-extraction append; the helper replaces the same-session
+# entry (Stop fires per turn) and skips when both fields are empty (degraded
+# deltas carry neither — the drainer appends later from the real extraction).
+DG_GOAL=$(echo "$DELTA_JSON" | jq -r '.session_goal // ""' 2>/dev/null | tr -d '\r')
+DG_OUT=$(echo "$DELTA_JSON" | jq -r '.session_outcome // ""' 2>/dev/null | tr -d '\r')
+sb_append_session_digest "$SLUG" "$SESSION_ID" "$DG_GOAL" "$DG_OUT" || true
+
 # --- Archive preprocessed transcript for dream mining ---
 sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
 

@@ -674,6 +674,27 @@ if [ -f "$INDEX_FILE" ]; then
   sb_append "$IDX_LINE" "index-line" 200
 fi
 
+# 4b. Recent-sessions digest (P0 rec 4, capture widening) — PUSHED continuity:
+# the last few sessions' goal→outcome lines for THIS project, appended by every
+# extraction path into sessions-digest.jsonl (lib.sh sb_append_session_digest).
+# ChatGPT recent-conversations-digest pattern: push, don't hope the model pulls
+# episodic search. Newest first; other slugs never leak; ~800B budget slice.
+# Absent/empty file → silent no-op. Kill switch: SB_SESSIONS_DIGEST=off.
+if [ "${SB_SESSIONS_DIGEST:-on}" != "off" ] && [ -s "$BRAIN_DIR/sessions-digest.jsonl" ] \
+   && command -v jq >/dev/null 2>&1; then
+  DIGEST_N="${SB_SESSIONS_DIGEST_N:-5}"; case "$DIGEST_N" in ''|*[!0-9]*) DIGEST_N=5 ;; esac
+  DIGEST_LINES=$(jq -Rrs --arg slug "$slug" --argjson n "$DIGEST_N" '
+    [ split("\n")[] | fromjson? | select(type=="object") | select(.slug == $slug) ]
+    | (if length > $n then .[length-$n:] else . end) | reverse | .[]
+    | "- " + ((.ts // "")[0:10]) + ": "
+      + ((.goal // "") | if . == "" then "(no goal recorded)" else . end)
+      + (if (.outcome // "") != "" then " → " + .outcome else "" end)
+  ' "$BRAIN_DIR/sessions-digest.jsonl" 2>/dev/null | tr -d '\r')
+  if [ -n "$DIGEST_LINES" ]; then
+    sb_append "$(printf '\n[Recent sessions — newest first]\n%s\n' "$DIGEST_LINES")" "sessions-digest" 800
+  fi
+fi
+
 # 5. Wiki enrichment — fills remaining budget, capped at 1500 bytes
 KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"

@@ -1185,6 +1185,52 @@ sb_archive_subagent_result() {
   sb_prune_transcripts
 }
 
+# --- Sessions digest (P0 rec 4, capture widening) ---------------------------
+# Pushed continuity: one compact JSONL line per SESSION — {ts, slug,
+# session_id, goal, outcome} — in $BRAIN_DIR/sessions-digest.jsonl, appended
+# deterministically after every successful extraction merge (Stop, PreCompact,
+# drainer). The ChatGPT recent-conversations-digest pattern: session-load.sh
+# PUSHES the last few entries at SessionStart instead of hoping the model
+# pulls episodic search. The Stop hook fires per TURN, not per session, so a
+# same-session append REPLACES the prior entry (latest wins). Capped at
+# SB_SESSIONS_DIGEST_KEEP (15) entries per slug, oldest dropped; other slugs
+# untouched. Corrupt lines are dropped by fromjson? (same tolerance as the
+# extraction-state readers). Fail-soft: always returns 0 — callers are
+# capture hooks and must never block on telemetry.
+sb_append_session_digest() {
+  local slug="$1" sid="$2" goal="$3" outcome="$4"
+  if [ -z "$goal" ] && [ -z "$outcome" ]; then return 0; fi
+  local f="$BRAIN_DIR/sessions-digest.jsonl" keep="${SB_SESSIONS_DIGEST_KEEP:-15}"
+  case "$keep" in ''|*[!0-9]*) keep=15 ;; esac
+  mkdir -p "$BRAIN_DIR" 2>/dev/null || return 0
+  local tmp; tmp=$(mktemp 2>/dev/null) || return 0
+  # One jq pass over (existing records + the new one, appended LAST): drop
+  # older records with the new record's session_id, then apply the per-slug
+  # cap keeping the newest. tr -d '\r' both sides — jq stdout is CRLF on
+  # Windows git-bash, and an inherited CRLF file would poison fromjson?.
+  if {
+    [ -f "$f" ] && tr -d '\r' < "$f" 2>/dev/null
+    jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg slug "$slug" --arg sid "$sid" \
+         --arg goal "$goal" --arg outcome "$outcome" \
+      '{ts:$ts, slug:$slug, session_id:$sid,
+        goal:    ($goal    | gsub("[\r\n]"; " ") | .[0:200]),
+        outcome: ($outcome | gsub("[\r\n]"; " ") | .[0:200])}' 2>/dev/null
+  } | jq -cRs --arg slug "$slug" --arg sid "$sid" --argjson keep "$keep" '
+        [ split("\n")[] | fromjson? | select(type=="object") ]
+        | . as $recs | ($recs | length - 1) as $n
+        | (if $n < 0 then [] else [ $recs[:$n][] | select(.session_id != $sid) ] + [ $recs[$n] ] end)
+        | [ .[] | select(.slug != $slug) ]
+          + ([ .[] | select(.slug == $slug) ] | if length > $keep then .[length-$keep:] else . end)
+        | .[]
+      ' 2>/dev/null | tr -d '\r' > "$tmp" && [ -s "$tmp" ]; then
+    mv "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  else
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sessions-digest append failed slug=$slug sid=$sid" 0
+  fi
+  return 0
+}
+
 # Write a machine-GENERATED wiki page with born-valid frontmatter (the
 # generated-page contract). The churn
 # class this kills: a frontmatter-less generated page gets autofixed by
@@ -2037,6 +2083,17 @@ TMPL
   printf '%s' "$delta" \
     | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" \
       >/dev/null 2>&1 || return 1
+
+  # Sessions digest (P0 rec 4): the drainer is the recovery path for sessions
+  # the in-session extractor skipped — append their continuity line too. The
+  # session id comes from the archive's meta header (sanitized: it is
+  # attacker-influenceable, same posture as the slug above).
+  local dg_sid dg_goal dg_out
+  dg_sid=$(awk -F': ' '/^session_id:/ {print $2; exit}' "$txt" 2>/dev/null | tr -d '\r' | tr -cd 'A-Za-z0-9_-' | cut -c1-64)
+  [ -n "$dg_sid" ] || dg_sid="unknown"
+  dg_goal=$(printf '%s' "$delta" | jq -r '.session_goal // ""' 2>/dev/null | tr -d '\r')
+  dg_out=$(printf '%s' "$delta" | jq -r '.session_outcome // ""' 2>/dev/null | tr -d '\r')
+  sb_append_session_digest "$slug" "$dg_sid" "$dg_goal" "$dg_out" || true
 
   local sigs; sigs=$(printf '%s' "$delta" | jq -c \
     '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}' 2>/dev/null)

@@ -196,6 +196,13 @@ if echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candida
   rm -f "$PERSONA_ERR"; PERSONA_ERR=""
 fi
 
+# --- Sessions digest (P0 rec 4): same-session entry is REPLACED at the next
+# Stop, so a mid-session PreCompact append never duplicates and never goes
+# stale past the session's end.
+DG_GOAL=$(echo "$DELTA_JSON" | jq -r '.session_goal // ""' 2>/dev/null | tr -d '\r')
+DG_OUT=$(echo "$DELTA_JSON" | jq -r '.session_outcome // ""' 2>/dev/null | tr -d '\r')
+sb_append_session_digest "$SLUG" "$SESSION_ID" "$DG_GOAL" "$DG_OUT" || true
+
 # --- Archive preprocessed transcript for dream mining ---
 # Archive the FULL delta (not the LLM-capped window) so dream-mining never
 # loses the middle of a >1000-line delta (deep-review).
