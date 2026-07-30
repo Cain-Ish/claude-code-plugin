@@ -199,6 +199,21 @@ WIKI_RAW=""
 EPISODIC_HINT=""
 EPISODIC_CLI="$PLUGIN_ROOT/mcp/dist/tools/episodic-search-cli.bundle.js"
 COMBINED_CLI="$PLUGIN_ROOT/mcp/dist/tools/context-serve-cli.bundle.js"
+# Mid-session cache-refresh guard: /plugin update + /reload-plugins re-point
+# PLUGIN_ROOT to a FRESH version dir whose mcp/node_modules junction does not
+# exist yet (the marketplace ships dist/, never node_modules), and SessionStart's
+# auto-relink only fires at the NEXT session — so every prompt for the REST of
+# the current session would silently degrade to bm25-only. The dir test costs
+# nothing per prompt; the relink (no-network, shared-tree only) runs once. A
+# failed relink is breadcrumbed to the error log rather than swallowed.
+if [ -f "$COMBINED_CLI" ] \
+   && [ ! -d "$PLUGIN_ROOT/mcp/node_modules/@huggingface/transformers" ] \
+   && [ -f "$PLUGIN_ROOT/bin/install-vector-deps.sh" ]; then
+  if ! bash "$PLUGIN_ROOT/bin/install-vector-deps.sh" --relink-only >/dev/null 2>&1; then
+    printf '{"timestamp":"%s","script":"persona-context.sh","message":"vector-deps relink failed after cache refresh — embeddings bm25-only until fixed","exit_code":0}\n' \
+      "$(date -u +%FT%TZ)" >> "${BRAIN_DIR:-$HOME/.second-brain}/error-log.jsonl" 2>/dev/null
+  fi
+fi
 _SB_CTX_SEP='--8<--SB-EPISODIC--8<--'
 _CTX_OK=0
 if [ -n "$KEYWORDS" ] && [ -f "$COMBINED_CLI" ]; then
