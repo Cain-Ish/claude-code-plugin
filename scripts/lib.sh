@@ -608,6 +608,9 @@ sb_auto_accept_decision() {
   [ "${2:-}" = "completed" ] || { echo "skip:not-completed"; return; }
   case "${3:-}" in ''|null) : ;; *) echo "skip:already-accepted"; return ;; esac
   if [ "${1}" = "safe" ] && [ "${4:-0}" = "1" ]; then echo "skip:safe-refuses-forget"; return; fi
+  # Untrusted-derived pages are deliberately NOT a refusal reason: dream-accept.sh's
+  # held-untrusted gate holds/reverts them under `safe` (reversible, never deleted), so the
+  # lane keeps running instead of stalling behind a human at the unreviewed-dream cap.
   echo "accept"
 }
 

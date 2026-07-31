@@ -123,6 +123,9 @@ echo "$OUT" | grep -q 'DRYRUN dream=drm_' && pass "proceeds → stages a dream +
 echo "$OUT" | grep -q -- '--tools ""' && pass "dry-run shows the zero-tool quarantine command" || fail "dry-run missing the quarantine command"
 echo "$OUT" | grep -q 'bypassPermissions' && fail "dry-run still shows bypassPermissions" || pass "dry-run carries no bypassPermissions"
 echo "$OUT" | grep -q 'jail=bwrap' && pass "additive jail engaged when the bwrap probe passes" || fail "jail not engaged (got: $(echo "$OUT" | grep DRYRUN | head -c 160))"
+echo "$OUT" | grep -q 'DRYRUN stage-b:.*consolidate-writer' && pass "dry-run names the Stage B writer (two-stage split visible)" || fail "dry-run missing the stage-b line"
+echo "$OUT" | grep -q 'stage-b:.*netless=' && pass "stage-b line states the netless mode honestly" || fail "stage-b line missing netless= marker"
+grep -q 'candidate_facts.json_schema' "$SCRIPT" && pass "Stage A schema sourced from kb-schema.json (single source)" || fail "inline schema copy resurfaced in the harness"
 # The inlined-transcript prompt must be non-trivial — proves the DATA assembly didn't
 # silently truncate to nothing.
 PB=$(echo "$OUT" | sed -n 's/.*prompt_bytes=\([0-9]*\).*/\1/p'); [ "${PB:-0}" -gt 200 ] && pass "prompt carries the inlined transcripts (${PB}B)" || fail "prompt empty/truncated (prompt_bytes=${PB:-?})"

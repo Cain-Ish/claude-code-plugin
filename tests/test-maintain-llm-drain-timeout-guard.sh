@@ -79,7 +79,8 @@ _make_wrapper() {
   chmod +x "$CLEANBIN/$name"
 }
 for _t in bash sh jq stat date touch cat find wc head tail ls rm mkdir mv \
-          awk sed tr grep sort cp realpath readlink basename dirname mktemp git; do
+          awk sed tr grep sort cp realpath readlink basename dirname mktemp git \
+          node; do   # node: the Stage B consolidate-writer is a hard harness dependency
   _make_wrapper "$_t"
 done
 unset _t
