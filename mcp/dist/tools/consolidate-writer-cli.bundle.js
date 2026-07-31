@@ -708,6 +708,18 @@ async function main() {
     return 1;
   }
   const report = await applyCandidates2(stagingRoot, facts, { dreamId: base, date });
+  const edgeDoc = JSON.stringify({ relations: report.edges ?? [] }) + "\n";
+  const edgeTmp = join2(stagingRoot, `proposed-edges.json.tmp.${process.pid}`);
+  try {
+    await fs2.writeFile(edgeTmp, edgeDoc);
+    await fs2.rename(edgeTmp, join2(stagingRoot, "proposed-edges.json"));
+  } catch (err) {
+    await fs2.unlink(edgeTmp).catch(() => {
+    });
+    process.stderr.write(`consolidate-writer: could not write proposed-edges.json: ${err instanceof Error ? err.message : String(err)}
+`);
+    return 1;
+  }
   process.stdout.write(JSON.stringify({ ...report, rejected: rejected.length }) + "\n");
   return 0;
 }

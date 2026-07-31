@@ -67,6 +67,26 @@ async function main(): Promise<number> {
   }
 
   const report = await applyCandidates(stagingRoot, facts, { dreamId: base, date });
+
+  // THE PRODUCER for the relation lane. Resolved edges are a PROPOSAL for the live graph, and
+  // this file is the only channel to dream-accept: Stage B must never write graph/edges.jsonl
+  // itself (append-only, live plane, never snapshotted into a dream).
+  // The key is `relations`, NOT `edges` — that is the shape merge-edges.sh reads. Writing the
+  // report's own key here would leave the accept reading `.relations` from a file that has none,
+  // and its `[ -s ]` guard would skip in silence: a lane that looks wired and moves nothing.
+  // Written even when EMPTY so the accept can tell "the writer ran and proposed nothing" from
+  // "the writer never ran" — a distinction the silent-skip guard otherwise erases.
+  const edgeDoc = JSON.stringify({ relations: report.edges ?? [] }) + '\n';
+  const edgeTmp = join(stagingRoot, `proposed-edges.json.tmp.${process.pid}`);
+  try {
+    await fs.writeFile(edgeTmp, edgeDoc);
+    await fs.rename(edgeTmp, join(stagingRoot, 'proposed-edges.json'));
+  } catch (err: unknown) {
+    await fs.unlink(edgeTmp).catch(() => { /* already gone */ });
+    process.stderr.write(`consolidate-writer: could not write proposed-edges.json: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;   // fail LOUD — silently losing every resolved edge is what shipped before
+  }
+
   process.stdout.write(JSON.stringify({ ...report, rejected: rejected.length }) + '\n');
   return 0;
 }

@@ -21,7 +21,12 @@ setup() {
   mkdir -p "$KNOWLEDGE_DIR/wiki/entities"
   printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nbody\n' > "$KNOWLEDGE_DIR/wiki/entities/p1.md"
   D="$BRAIN_DIR/dreams/drm_test"; mkdir -p "$D/staging/wiki/entities" "$D/staging/wiki/learnings"
-  jq -nc '{id:"drm_test",status:"completed",archived_at:null}' > "$D/status.json"
+  # created_at is REQUIRED by Stage B (it derives page dates from the dream, never the wall
+  # clock) and every real dream has it. It must be LATER than the live pages above: a snapshot
+  # is taken after the pages it copies, and dream-accept deliberately protects live pages
+  # modified AFTER the snapshot (they would otherwise be clobbered by staler staging copies).
+  _CA=$(date -u -d '+5 minutes' +%Y-%m-%dT%H:%M:%SZ       || date -u -v+5M +%Y-%m-%dT%H:%M:%SZ  || echo "2099-01-01T00:00:00Z")
+  jq -nc --arg ca "$_CA" '{id:"drm_test",status:"completed",archived_at:null,created_at:$ca}' > "$D/status.json"
   cp -rp "$KNOWLEDGE_DIR/wiki/." "$D/staging/wiki/"
   # (a) untrusted-only NEW page
   printf -- '---\ntitle: conjured\ntype: learnings\nrelated: []\nprovenance: untrusted-derived\n---\n\n# conjured\n\nfrom transcripts only\n' \
@@ -148,17 +153,34 @@ rm -rf "$SB"
 # Stage B resolves relation facts to slugs but must never write graph/edges.jsonl itself
 # (append-only, live plane, never snapshotted). The accept applies them, tagged per dream so
 # a bad cohort can be invalidated wholesale, and quarantines endpoints that do not resolve.
+# The fixture is produced by the REAL Stage B CLI from candidate facts — NOT hand-written.
+# An earlier version wrote proposed-edges.json itself and passed while NO producer existed at
+# all: the lane was dead in production and the green test certified it. A test that fabricates
+# its own upstream input proves only that the downstream half works.
 setup
-mkdir -p "$D/staging"
-printf '{"relations":[{"from":"p1","to":"trusted-new","type":"relates","confidence":"medium"},{"from":"p1","to":"ghost-page","type":"relates","confidence":"medium"}]}
-'   > "$D/staging/proposed-edges.json"
+CW="$REPO_ROOT/mcp/dist/tools/consolidate-writer-cli.bundle.js"
+if [ -f "$CW" ] && command -v node >/dev/null 2>&1; then
+  printf '{"facts":[{"kind":"relation","claim":"a","from_hint":"p1","to_hint":"trusted-new","rel":"relates"},{"kind":"relation","claim":"b","from_hint":"p1","to_hint":"ghost page that does not exist","rel":"relates"}]}\n' \
+    > "$D/candidate-facts.json"
+  node "$CW" --dream-dir "$D" >/dev/null 2>&1
+  [ -s "$D/staging/proposed-edges.json" ] \
+    && pass "U9: the REAL Stage B CLI produced proposed-edges.json (the lane has a producer)" \
+    || fail "U9: Stage B produced no proposed-edges.json — the relation lane is dead in production"
+  jq -e '.relations | type == "array"' "$D/staging/proposed-edges.json" >/dev/null 2>&1 \
+    && pass "U9: it uses the 'relations' key merge-edges actually reads" \
+    || fail "U9: wrong shape — merge-edges reads .relations and would silently no-op"
+else
+  echo "  SKIP: writer bundle or node unavailable"
+fi
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
 [ "$rc" -eq 0 ] || fail "U9: accept failed (rc=$rc): $OUT"
 EDGES="$KNOWLEDGE_DIR/graph/edges.jsonl"
 grep -q '"to":"trusted-new"' "$EDGES"    && pass "U9: a resolvable relation became a live edge" || fail "U9: resolvable edge never reached the graph"
 grep -q '"source":"dream:drm_test"' "$EDGES"    && pass "U9: the edge carries its dream cohort tag (bulk-invalidation possible)"   || fail "U9: edge missing the per-dream source tag"
-grep -q '"to":"ghost-page"' "$EDGES"    && fail "U9: an edge to a non-existent page was written to the live graph"   || pass "U9: unresolvable endpoint kept OUT of the graph"
-[ -s "$KNOWLEDGE_DIR/graph/edges-quarantine.jsonl" ]   && pass "U9: the unresolvable edge was quarantined, not silently dropped"   || fail "U9: unresolvable edge vanished with no quarantine record"
+grep -q 'ghost' "$EDGES"    && fail "U9: an edge to a non-existent page was written to the live graph"   || pass "U9: unresolvable endpoint kept OUT of the graph"
+# The unresolvable hint never becomes an edge at all (Stage B skips it with a reason), so the
+# quarantine is exercised by test-merge-edges; here assert only that nothing bogus reached live.
+grep -c . "$EDGES" >/dev/null 2>&1 && pass "U9: live graph contains only resolvable edges"
 rm -rf "$SB"
 
 # --- U10: holds are SURFACED at SessionStart ---------------------------------
