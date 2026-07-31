@@ -109,8 +109,9 @@ echo "=== B: writer-side validation absorbed the poisoned FACTS ==="
 # Scan whichever exists — never the dream root (candidate-facts.json holds the raw poison
 # payloads and would false-fail the "rejected kind never written" assertions below).
 STG="$DD/staging/wiki"
-if [ -d "$DD/held-untrusted" ] && [ -n "$(find "$DD/held-untrusted" -name '*.md' 2>/dev/null)" ]; then
-  STG="$DD/held-untrusted"
+HELD_DIR="$BRAIN_DIR/held-untrusted/$(basename "$DD")"
+if [ -d "$HELD_DIR" ] && [ -n "$(find "$HELD_DIR" -name '*.md' 2>/dev/null)" ]; then
+  STG="$HELD_DIR"
 fi
 [ -d "$STG" ] || { echo "  FAIL: neither staging nor held-untrusted contains the writer's output"; echo; echo "Results: $PASS passed, $((FAIL+1)) failed"; exit 1; }
 # bogus kind rejected
@@ -145,8 +146,8 @@ echo "=== C: nothing poisoned reached the LIVE wiki (safe accepted, untrusted HE
 [ "$AFTER_COUNT" = "$BEFORE_COUNT" ] && pass "live wiki page count unchanged ($AFTER_COUNT) — untrusted writes were held, not applied" || fail "live wiki changed $BEFORE_COUNT→$AFTER_COUNT under auto_accept=safe"
 # The lane must keep RUNNING (accept + hold), not stall behind a refusal: prove the dream was
 # archived AND its untrusted pages are sitting in the reversible hold area.
-[ -d "$DD/held-untrusted" ] && [ -n "$(find "$DD/held-untrusted" -name '*.md' 2>/dev/null)" ] \
-  && pass "untrusted pages parked in held-untrusted/ (reversible, reviewable)" \
+[ -d "$HELD_DIR" ] && [ -n "$(find "$HELD_DIR" -name '*.md' 2>/dev/null)" ] \
+  && pass "untrusted pages parked in held-untrusted/ (reversible, reviewable, outside the prunable dream dir)" \
   || fail "no held-untrusted area — the gate did not hold the untrusted pages"
 [ -f "$KNOWLEDGE_DIR/wiki/concepts/keeper.md" ] && grep -q 'must survive' "$KNOWLEDGE_DIR/wiki/concepts/keeper.md" \
   && pass "pre-existing legitimate page untouched" || fail "keeper page damaged/removed"

@@ -84,9 +84,39 @@ function renderNewPage(f: CandidateFact, category: string, title: string, hash: 
 }
 
 async function writeAtomic(path: string, content: string): Promise<void> {
+  // Text sibling of atomic-write.ts's atomicWriteJson (that one JSON.stringifies and swallows
+  // failures; here a write failure must PROPAGATE so the CLI can fail loud). Clean up the tmp
+  // on failure — a leaked `*.tmp.<pid>` inside the staging wiki would be copied to the live
+  // wiki by the accept and then linger as an unparseable page.
   const tmp = `${path}.tmp.${process.pid}`;
-  await fs.writeFile(tmp, content);
-  await fs.rename(tmp, path);
+  try {
+    await fs.writeFile(tmp, content);
+    await fs.rename(tmp, path);
+  } catch (err) {
+    await fs.unlink(tmp).catch(() => { /* already gone */ });
+    throw err;
+  }
+}
+
+/**
+ * Put a fact bullet INSIDE the untrusted section, at the end of that section — not at EOF.
+ * A plain EOF append lands after whatever the page gained later (the generated
+ * `<!-- graph:begin -->` dependency block is appended last by the projector), which would
+ * leave the bullet outside the section whose label is the reader's only cue that the claim is
+ * transcript-derived. Creates the section at EOF when the page has none yet.
+ */
+export function appendToUntrustedSection(content: string, bullet: string): string {
+  const body = content.replace(/\s+$/, '');
+  const at = body.indexOf(UNTRUSTED_SECTION);
+  if (at === -1) return `${body}\n\n${UNTRUSTED_SECTION}\n\n${bullet}\n`;
+  const afterHeading = at + UNTRUSTED_SECTION.length;
+  // End of the section = the next top-level heading, else the next generated region, else EOF.
+  const rest = body.slice(afterHeading);
+  const nextHeading = rest.search(/\n#{1,2} /);
+  const nextGenerated = rest.search(/\n<!--\s*(graph|theme|ai):begin/);
+  const candidates = [nextHeading, nextGenerated].filter((i) => i !== -1);
+  const cut = candidates.length ? afterHeading + Math.min(...candidates) : body.length;
+  return `${body.slice(0, cut).replace(/\s+$/, '')}\n${bullet}\n${body.slice(cut).replace(/^\n+/, '\n')}`.replace(/\s+$/, '') + '\n';
 }
 
 /** Containment check for an absolute path returned by the search seam. */
@@ -119,7 +149,11 @@ export async function applyCandidates(
   for (const f of facts) {
     const category = KIND_TO_CATEGORY[f.kind];
     if (!category) {
-      report.skipped.push({ kind: f.kind, reason: `kind '${f.kind}' is not writer-applied (preference → persona lanes, relation → live maintainer)` });
+      // DROPPED, not routed: nothing downstream consumes these yet. Preferences would need the
+      // persona-rules lane and relations the live maintainer's edge writer; until one of those
+      // reads candidate-facts.json, saying "routed" would be a prose promise with no machine
+      // behind it. The fact stays in candidate-facts.json for a future consumer.
+      report.skipped.push({ kind: f.kind, reason: `kind '${f.kind}' is not writer-applied — DROPPED this run (no consumer yet: preferences need the persona-rules lane, relations the live maintainer's edge writer)` });
       continue;
     }
     const title = titleOf(f);
@@ -151,10 +185,7 @@ export async function applyCandidates(
         continue;
       }
       const bullet = `- (fact:${hash}) ${f.claim.trim()}${f.evidence ? ` — evidence: ${f.evidence.trim()}` : ''} (${sourcesLine(f, opts.dreamId).slice(2)})`;
-      let next = content.trimEnd();
-      if (!next.includes(UNTRUSTED_SECTION)) next += `\n\n${UNTRUSTED_SECTION}\n`;
-      next += `\n${bullet}\n`;
-      await writeAtomic(target, bumpUpdated(next, opts.date));
+      await writeAtomic(target, bumpUpdated(appendToUntrustedSection(content, bullet), opts.date));
       report.updated.push(relative(wikiRoot, target).replace(/\\/g, '/'));
       continue;
     }

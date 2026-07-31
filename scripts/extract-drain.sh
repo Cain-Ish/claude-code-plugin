@@ -23,6 +23,21 @@ source "$(dirname "$0")/lib.sh"
 # which is Linux-only). Returns the full command line for the pid.
 sb_drain_proc_args() { ps -p "$1" -o args= 2>/dev/null; }
 
+# Windows/MSYS liveness probe. The POSIX fallback below (`ps -e -o args=`) is a GNU-ism that
+# MSYS ps REJECTS outright ("ps: unknown option -- o", verified live on Git-Bash), so the
+# heredoc it feeds is EMPTY and the defer guard silently answers "no interactive session" on
+# the PRIMARY dev platform — fail-open, and the exact condition the guard exists to prevent
+# (a `claude -p` spawned under the global OAuth recursive lock hangs to its timeout and
+# poison-pills good transcripts). MSYS `ps -W` DOES enumerate native Windows processes; it
+# prints the exe PATH with no args, which is enough to spot a live Claude Code CLI.
+# Match claude.exe specifically — the Claude DESKTOP app (…\WindowsApps\Claude_*\…) is a
+# different program and must not pin the drainer into a permanent defer.
+sb_drain_win_claude_present() {
+  command -v uname >/dev/null 2>&1 || return 1
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) : ;; *) return 1 ;; esac
+  ps -W 2>/dev/null | grep -qiE '[/\\]claude\.exe([[:space:]]|$)'
+}
+
 # Relaxed verdict (opt-in, SB_DRAIN_DEFER_PMODE_ONLY=1): defer ONLY when ANOTHER
 # live `claude -p` is present (a concurrent extractor / print-mode call that
 # genuinely contends for the recursive-claude path). A plain interactive session
@@ -63,6 +78,10 @@ sb_drain_should_defer() {
       esac
     done
   else
+    # Windows first: ps -W is the ONLY probe that sees native Claude processes here, and the
+    # POSIX form below cannot even parse. It carries no args, so any live claude.exe defers —
+    # conservative by design (the un-starve escape still releases a genuinely starved queue).
+    if sb_drain_win_claude_present; then return 0; fi
     # No pgrep (some Git-Bash) — best-effort ps scan: defer on any interactive claude
     # found; if ps yields nothing, proceed (fail-open, same posture as the /proc path).
     while IFS= read -r args; do

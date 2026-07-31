@@ -190,14 +190,30 @@ can never be evicted"). Actual archiving happens at accept in the dream skill's 
 reversible move to `$BRAIN_DIR/wiki-archive/` + event log `wiki-archive-log.jsonl`. Restore:
 `bash scripts/wiki-restore.sh --list` then reverse. Scoring math → sb-memory-systems-reference.
 
-### 3.7 Headless LLM maintainer — `scripts/maintain-llm-drain.sh`
-When `auto_maintain` is on, the drainer tail stages a dream and runs a headless
-`claude -p --permission-mode bypassPermissions` INSIDE bubblewrap with ONLY the dream dir writable
-("that guarantee is enforced by the KERNEL, not a prompt" — file header). Gates: `claude` AND
-`bwrap` present or SKIP ("NEVER run the bypassPermissions agent unconfined"); bwrap namespace
-preflight; no unreviewed dream pending; 7-day throttle. 3 consecutive failures →
-`$BRAIN_DIR/.llm-maintain-quarantine` (self-clearing, bannered at SessionStart). Result is left
-completed-UNACCEPTED for review.
+### 3.7 The consolidation lane — `scripts/maintain-llm-drain.sh` (two stages)
+Reached via the brain-os engine (§3.8) when `auto_maintain` is on. The old shape — ONE
+`claude -p --permission-mode bypassPermissions` inside bubblewrap — is RETIRED; there is no
+`bypassPermissions` anywhere and bwrap gates nothing.
+- **Stage A (quarantined summarizer)**: `claude -p` with ZERO tools, validator-enforced
+  `--json-schema` output (schema read from `kb-schema.json` `.candidate_facts` — the same object
+  the writer validates against), `--no-session-persistence`, empty setting-sources,
+  self-transcript exclusion. The quarantine is ATTESTED at runtime from the stream-json init
+  event (tools ⊆ {StructuredOutput} ∧ mcp_servers == []); anything else DISCARDS the output and
+  fails loud. Emits `candidate-facts.json`. bwrap wraps it additively where functional.
+- **Stage B (privileged writer)**: `consolidate-writer-cli.bundle.js` — deterministic, no LLM,
+  no credentials. Applies validated facts to `staging/wiki` via a local BM25 reconcile. Netless
+  by kernel (`bwrap --unshare-net`, Linux) AND by structure (source-scan test, every OS);
+  transcripts are never bound into it.
+Gates: `claude` present + CLI ≥2.1.205 preflight + node/writer-bundle preconditions; no
+unreviewed dream pending; 7-day throttle. Stage A and Stage B share ONE staleness budget.
+3 consecutive failures → `$BRAIN_DIR/.llm-maintain-quarantine` (self-clearing, bannered at
+SessionStart). What reaches live is decided by `auto_accept` + the held-untrusted gate (§3.6a).
+
+### 3.8 The brain-os engine seam — `scripts/brain-os-run.sh`
+Every OFFLINE pass (prune, deterministic upkeep, embedding warm pass, the consolidation lane,
+code-map regen) runs behind one entry point invoked once from the drainer tick, inside its
+single-flight lock. Optional by construction: `brain_os:false` / `SB_BRAIN_OS=off` disables the
+whole offline lane and capture + retrieval are untouched. Fail-soft as a lane, fail-loud per pass.
 
 ## 4. Data geography — BRAIN_DIR vs KNOWLEDGE_DIR
 

@@ -33,7 +33,10 @@ if [ -n "$ARCHIVED" ] && [ "$ARCHIVED" != "null" ]; then
   # Release path for the held-untrusted gate: an already-accepted dream whose held
   # pages are being confirmed after the fact. Applies ONLY the held pages (paths come
   # from our own filesystem walk, not user input), reindexes, and clears the hold.
-  if [ "${SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED:-0}" = "1" ] && [ -d "$DREAM_DIR/held-untrusted" ]; then
+  _HELD_ROOT="$BRAIN_DIR/held-untrusted/$DREAM_ID"
+  # Legacy location (holds written before they moved out of the prunable dream dir).
+  [ -d "$_HELD_ROOT" ] || _HELD_ROOT="$DREAM_DIR/held-untrusted"
+  if [ "${SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED:-0}" = "1" ] && [ -d "$_HELD_ROOT" ]; then
     RKD="$(sb_knowledge_dir)"; RKD=$(_to_msys "$RKD")
     # Same reversibility floor as every other apply path (0.28.1): tarball live FIRST and
     # fail CLOSED. An operator confirming a hold is not a reason to skip the undo trail.
@@ -48,7 +51,7 @@ if [ -n "$ARCHIVED" ] && [ "$ARCHIVED" != "null" ]; then
     RN=0; RSKIP=0
     while IFS= read -r _hf; do
       [ -n "$_hf" ] || continue
-      _rel=${_hf#"$DREAM_DIR/held-untrusted/"}
+      _rel=${_hf#"$_HELD_ROOT/"}
       _dest="$RKD/wiki/$_rel"
       # A live page may have appeared at this slug while the hold sat here (the drainer and
       # the maintainer keep writing). NEVER clobber it, and never write THROUGH a symlink.
@@ -67,10 +70,10 @@ if [ -n "$ARCHIVED" ] && [ "$ARCHIVED" != "null" ]; then
         sb_log_error "dream-accept" "held-untrusted release failed for $_rel in $DREAM_ID (held copy retained)" 0
         RSKIP=$((RSKIP + 1))
       fi
-    done < <(find "$DREAM_DIR/held-untrusted" -type f -name '*.md' 2>/dev/null)
+    done < <(find "$_HELD_ROOT" -type f -name '*.md' 2>/dev/null)
     if [ "$RN" -gt 0 ] || [ "$RSKIP" -gt 0 ]; then
       # Only drop the hold area once nothing is left un-released; skipped pages stay held.
-      [ "$RSKIP" -eq 0 ] && rm -rf "$DREAM_DIR/held-untrusted"
+      [ "$RSKIP" -eq 0 ] && rm -rf "$_HELD_ROOT"
       [ "$RN" -gt 0 ] && sb_reindex_wiki "$RKD"
       echo "RELEASED $RN previously-held untrusted page(s) into the live wiki (confirmed); $RSKIP skipped/retained."
       exit 0
@@ -196,49 +199,45 @@ if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$LIVE_WIKI" ]; then
   fi
 fi
 
-# Held-untrusted confirm gate (P6 arm-gate): a NEW page that exists only because the
-# quarantined summarizer distilled it from transcripts (provenance: untrusted-derived,
-# no live counterpart) is exactly what a poisoned transcript could conjure from nothing.
-# Without explicit confirmation, HOLD it — a reversible move to $DREAM_DIR/held-untrusted/
-# (never deleted, excluded from the apply below) — and apply the rest of the dream.
-# Confirm with SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 (auto_accept=all passes it; safe-mode
-# auto-accept refuses upstream via sb_auto_accept_decision). A page that UPDATES a live
-# page is corroborated by that page's existence and applies normally.
-# Two shapes of untrusted write, both handled here:
-#   NEW page  (provenance: untrusted-derived, no live counterpart) → MOVED to held-untrusted/
-#   FOLD-IN   (untrusted bullets appended to an existing live page) → staging copy REVERTED to
-#             the live bytes, so the apply below is a no-op for that page.
-# Without the fold-in arm the gate would be trivially bypassable: the writer's UPDATE lane
-# appends transcript-derived claims to pages that already exist live, which are not "new"
-# and so would sail through unattended.
-# FAIL-LOUD, FAIL-CLOSED: if any hold/revert step fails we ABORT the accept. Continuing would
-# leave the unconfirmed page in staging and the apply below would merge it into live — the
-# exact outcome this gate exists to prevent. (Nothing has been written to live at this point.)
+# Held-untrusted confirm gate (P6 arm-gate). CORROBORATION is the dividing line:
+#
+#   NEW page, no live counterpart  → HELD. Conjured from nothing by transcript-derived
+#     text; nothing in the wiki vouches for it. Moved to $BRAIN_DIR/held-untrusted/<dream>/
+#     (OUTSIDE the dream dir — dream retention prunes old dream dirs, which would have
+#     deleted the holds and made "never deleted" false), excluded from the apply.
+#   FOLD-IN onto an existing live page → APPLIED. The live page's existence is the
+#     corroboration (the original P6 T5 rule), the appended claims sit under an explicit
+#     "## Candidate facts (untrusted)" heading, retrieval wraps them in the
+#     untrusted-reference banner, and the pre-accept tarball makes the whole apply
+#     reversible. Reverting these instead cost the UPDATE lane its entire output every
+#     cycle AND destroyed it (staging is rm -rf'ed below, so a reverted fold-in was
+#     unrecoverable) — a data-loss bug, not a safety win.
+#
+# Confirm with SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 (auto_accept=all passes it) to apply
+# held pages directly.
+# FAIL-LOUD, FAIL-CLOSED: if a hold fails we ABORT the accept. Continuing would leave the
+# unconfirmed page in staging and the apply below would merge it into live — the exact
+# outcome this gate exists to prevent. (Nothing has been written to live at this point.)
 HELD_N=0
+HELD_ROOT="$BRAIN_DIR/held-untrusted/$DREAM_ID"
 if [ "${SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED:-0}" != "1" ] && [ -d "$STAGING_WIKI" ]; then
   HELD_LIST=""
   while IFS= read -r _uf; do
     [ -n "$_uf" ] || continue
     _rel=${_uf#"$STAGING_WIKI/"}
-    if [ -f "$LIVE_WIKI/$_rel" ]; then
-      # Fold-in: restore the live bytes over the staging copy (revert the untrusted append).
-      if ! cp -p "$LIVE_WIKI/$_rel" "$_uf"; then
-        echo "error: refusing accept of $DREAM_ID — could not revert untrusted fold-in on '$_rel'; aborting rather than applying unconfirmed untrusted content" >&2
-        sb_log_error "dream-accept" "untrusted fold-in revert failed for $_rel in $DREAM_ID — accept ABORTED (fail-closed)" 0
-        exit 1
-      fi
-      HELD_N=$((HELD_N + 1)); HELD_LIST="$HELD_LIST $_rel(fold-in reverted)"
-      continue
-    fi
-    if ! mkdir -p "$DREAM_DIR/held-untrusted/$(dirname "$_rel")" || ! mv "$_uf" "$DREAM_DIR/held-untrusted/$_rel"; then
+    [ -f "$LIVE_WIKI/$_rel" ] && continue          # corroborated fold-in → applies normally
+    if ! mkdir -p "$HELD_ROOT/$(dirname "$_rel")" || ! mv "$_uf" "$HELD_ROOT/$_rel"; then
       echo "error: refusing accept of $DREAM_ID — could not hold untrusted-only new page '$_rel'; aborting rather than applying it unconfirmed" >&2
       sb_log_error "dream-accept" "held-untrusted hold failed for $_rel in $DREAM_ID — accept ABORTED (fail-closed; the page stayed in staging and would otherwise have been applied)" 0
       exit 1
     fi
     HELD_N=$((HELD_N + 1)); HELD_LIST="$HELD_LIST $_rel"
-  done < <(grep -rlE '^provenance: untrusted-derived|^## Candidate facts \(untrusted\)' "$STAGING_WIKI" 2>/dev/null)
+  done < <(grep -rl '^provenance: untrusted-derived' "$STAGING_WIKI" 2>/dev/null)
   if [ "$HELD_N" -gt 0 ]; then
-    echo "HELD $HELD_N untrusted write(s) pending confirm:$HELD_LIST (release: re-accept with SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1)"
+    echo "HELD $HELD_N untrusted-only new page(s) pending confirm:$HELD_LIST (release: bash scripts/dream-accept.sh $DREAM_ID with SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1)"
+    # The stdout line above is swallowed by unattended callers, so ALSO record it where the
+    # SessionStart banner and any operator can find it — an invisible hold is a silent drop.
+    sb_log_error "dream-accept" "HELD $HELD_N untrusted-only new page(s) from $DREAM_ID in $HELD_ROOT — release with SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1" 0
   fi
 fi
 

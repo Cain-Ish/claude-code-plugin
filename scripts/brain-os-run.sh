@@ -54,7 +54,10 @@ fi
 #    SB_BRAIN_DIR is pointed at a scratch dir so the warm pass cannot write access-count
 #    telemetry for pages nobody actually read (R2.2 hermeticity).
 if [ "$(sb_config_bool .auto_embed on)" = "on" ] && [ "${SECOND_BRAIN_DISABLE_EMBEDDINGS:-0}" != "1" ]; then
-  _KD="${KNOWLEDGE_DIR:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
+  # sb_knowledge_dir(), never a hand-rolled chain: the inline form had the OPPOSITE
+  # precedence (env before the plugin option), which is the "two wikis" bug class —
+  # the engine would warm a cache for a different tree than the MCP server reads.
+  _KD="$(sb_knowledge_dir)"
   _SEARCH_CLI="$(sb_plugin_root)/mcp/dist/tools/knowledge-search-cli.bundle.js"
   if [ -d "$_KD/wiki" ] && [ -f "$_SEARCH_CLI" ] && command -v node >/dev/null 2>&1; then
     _EMB_SCRATCH="$BRAIN_DIR/scratch/embed-warm"

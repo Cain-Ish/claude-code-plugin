@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # P6 held-untrusted confirm gate (arm-gate for unattended consolidation): an
 # untrusted-only NEW page (provenance: untrusted-derived, no live counterpart) must be
-# HELD — moved to $DREAM_DIR/held-untrusted/, never applied, never deleted — unless the
+# HELD — moved to $BRAIN_DIR/held-untrusted/<dream>/, never applied, never deleted — unless the
 # accept carries SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1. Trusted pages and untrusted
 # UPDATES of existing live pages apply normally. ORACLE: real files on disk.
 set -u
@@ -29,9 +29,8 @@ setup() {
   # (b) trusted NEW page (no provenance facet) — must always apply
   printf -- '---\ntitle: trusted-new\ntype: entities\nrelated: []\n---\n\n# trusted-new\n\nok\n' \
     > "$D/staging/wiki/entities/trusted-new.md"
-  # (c) untrusted-marked rewrite of an existing live page — must be REVERTED without confirm.
-  # ("the page already exists live" is NOT corroboration: a poisoned fact folded into a
-  # trusted page is exactly the bypass the fold-in arm closes.)
+  # (c) untrusted-marked update of an existing live page — CORROBORATED by that page's
+  # existence, so it APPLIES (labeled untrusted + reversible via the pre-accept tarball).
   printf -- '---\ntitle: p1\ntype: entities\nrelated: []\nprovenance: untrusted-derived\n---\n\n# p1\n\nbody plus fact\n' \
     > "$D/staging/wiki/entities/p1.md"
 }
@@ -41,19 +40,28 @@ setup
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
 [ "$rc" -eq 0 ] || fail "U1: accept failed (rc=$rc): $OUT"
 [ ! -f "$KNOWLEDGE_DIR/wiki/learnings/conjured.md" ] || fail "U1: untrusted-only new page reached live WITHOUT confirm"
-[ -f "$D/held-untrusted/learnings/conjured.md" ] || fail "U1: held page missing from held-untrusted/ (deleted, not held?)"
+[ -f "$BRAIN_DIR/held-untrusted/drm_test/learnings/conjured.md" ] || fail "U1: held page missing from held-untrusted/ (deleted, not held?)"
 [ -f "$KNOWLEDGE_DIR/wiki/entities/trusted-new.md" ] || fail "U1: trusted new page was not applied"
+# CORROBORATION rule: a page that already exists live vouches for the update, so an
+# untrusted fold-in onto it APPLIES (labeled + reversible via the pre-accept tarball).
+# Holding these instead both starved the lane and DESTROYED the facts (staging is rm -rf'ed).
 grep -q 'body plus fact' "$KNOWLEDGE_DIR/wiki/entities/p1.md" \
-  && fail "U1: untrusted rewrite of a live page was applied without confirm" \
-  || pass "U1b: untrusted rewrite of an existing live page reverted"
-printf '%s' "$OUT" | grep -q 'HELD 2 untrusted write' || fail "U1: expected HELD 2 (1 new + 1 fold-in) in output: $OUT"
+  && pass "U1b: corroborated untrusted update of an existing live page applied (lane produces value)" \
+  || fail "U1b: corroborated update was dropped — the UPDATE lane produces nothing"
+printf '%s' "$OUT" | grep -q 'HELD 1 untrusted-only new page' || fail "U1: expected HELD 1 (the conjured page only) in output: $OUT"
 pass "U1: untrusted-only new page held; trusted new page applied"
+
+# Holds must live OUTSIDE the dream dir: dream retention prunes old dream dirs, which would
+# delete the holds and make "reversible, never deleted" false.
+[ -f "$BRAIN_DIR/held-untrusted/drm_test/learnings/conjured.md" ] \
+  && pass "U1c: hold stored outside the prunable dream dir (survives dream retention)" \
+  || fail "U1c: hold stored inside the dream dir — retention pruning would delete it"
 
 # --- U2: re-accept WITH confirm → held page released into live ---------------
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 bash "$ACCEPT" drm_test 2>&1); rc=$?
 [ "$rc" -eq 0 ] || fail "U2: release accept failed (rc=$rc): $OUT"
 [ -f "$KNOWLEDGE_DIR/wiki/learnings/conjured.md" ] || fail "U2: held page not released into live"
-[ ! -d "$D/held-untrusted" ] || fail "U2: held-untrusted/ not cleared after release"
+[ ! -d "$BRAIN_DIR/held-untrusted/drm_test" ] || fail "U2: held-untrusted/ not cleared after release"
 printf '%s' "$OUT" | grep -q 'RELEASED 1' || fail "U2: no RELEASED line: $OUT"
 pass "U2: confirm re-accept releases the held page"
 rm -rf "$SB"
@@ -63,7 +71,7 @@ setup
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 bash "$ACCEPT" drm_test 2>&1); rc=$?
 [ "$rc" -eq 0 ] || fail "U3: accept failed (rc=$rc)"
 [ -f "$KNOWLEDGE_DIR/wiki/learnings/conjured.md" ] || fail "U3: confirmed accept did not apply the untrusted page"
-[ ! -d "$D/held-untrusted" ] || fail "U3: held-untrusted/ created despite confirm"
+[ ! -d "$BRAIN_DIR/held-untrusted/drm_test" ] || fail "U3: held-untrusted/ created despite confirm"
 pass "U3: confirmed accept applies untrusted-new directly"
 rm -rf "$SB"
 
@@ -78,7 +86,7 @@ rm -rf "$SB"
 [ "$(sb_auto_accept_decision all completed '' 0)" = "accept" ] || fail "U4: all should accept"
 pass "U4: safe accepts (hold gate protects); FORGET refusal preserved"
 
-# --- U5: fold-in UPDATE of a live page is REVERTED without confirm ------------
+# --- U5: fold-in UPDATE of a live page APPLIES (corroborated by the live page) ----
 # The writer appends untrusted bullets to EXISTING pages; those are not "new", so without
 # this arm they would sail into live unattended.
 setup
@@ -87,15 +95,18 @@ printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nbody\n\n#
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
 [ "$rc" -eq 0 ] || fail "U5: accept failed (rc=$rc): $OUT"
 grep -q 'poisoned claim folded in' "$KNOWLEDGE_DIR/wiki/entities/p1.md" \
-  && fail "U5: untrusted fold-in reached the live page without confirm" \
-  || pass "U5: untrusted fold-in reverted (live page unchanged)"
-printf '%s' "$OUT" | grep -q 'fold-in reverted' || fail "U5: fold-in revert not reported"
+  && pass "U5: corroborated fold-in applied and preserved (not silently destroyed)" \
+  || fail "U5: fold-in content lost — staging is rm -rf'ed, so a reverted fold-in is unrecoverable"
+# The applied bullet must stay inside the labeled untrusted section, so a reader (and the
+# retrieval banner) can tell distilled claims from human-authored prose.
+grep -q '## Candidate facts (untrusted)' "$KNOWLEDGE_DIR/wiki/entities/p1.md" \
+  || fail "U5: fold-in applied WITHOUT its untrusted section heading (label lost)"
 rm -rf "$SB"
 
 # --- U6: hold FAILURE aborts the accept (fail-closed, never applies) ----------
 # Make the hold target un-creatable by planting a FILE where the hold dir must go.
 setup
-: > "$D/held-untrusted"
+: > "$BRAIN_DIR/held-untrusted"
 BEFORE=$(find "$KNOWLEDGE_DIR/wiki" -name '*.md' | wc -l | tr -d ' ')
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
 AFTER=$(find "$KNOWLEDGE_DIR/wiki" -name '*.md' | wc -l | tr -d ' ')
@@ -110,7 +121,7 @@ rm -rf "$SB"
 # --- U7: release never clobbers a live page that appeared meanwhile ----------
 setup
 CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test >/dev/null 2>&1
-[ -f "$D/held-untrusted/learnings/conjured.md" ] || fail "U7: setup — page not held"
+[ -f "$BRAIN_DIR/held-untrusted/drm_test/learnings/conjured.md" ] || fail "U7: setup — page not held"
 mkdir -p "$KNOWLEDGE_DIR/wiki/learnings"
 printf -- '---\ntitle: conjured\ntype: learnings\nrelated: []\n---\n\n# conjured\n\nTRUSTED CONTENT WRITTEN LATER\n' \
   > "$KNOWLEDGE_DIR/wiki/learnings/conjured.md"
@@ -118,7 +129,7 @@ OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 bash "
 grep -q 'TRUSTED CONTENT WRITTEN LATER' "$KNOWLEDGE_DIR/wiki/learnings/conjured.md" \
   && pass "U7: release skipped the slug now occupied by a trusted live page (no clobber)" \
   || fail "U7: release CLOBBERED a newer trusted live page"
-[ -f "$D/held-untrusted/learnings/conjured.md" ] || fail "U7: skipped page was not retained in the hold area"
+[ -f "$BRAIN_DIR/held-untrusted/drm_test/learnings/conjured.md" ] || fail "U7: skipped page was not retained in the hold area"
 rm -rf "$SB"
 
 echo "ALL PASS"

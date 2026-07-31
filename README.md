@@ -101,8 +101,28 @@ optional LLM quality gate. Don't put `~/knowledge/` inside a synced drive.
 ## Configuration
 
 - **`knowledge_dir`** (plugin userConfig, via `/plugin manage`) — moves the wiki tree; default `~/knowledge`. Runtime state stays in `~/.second-brain/`.
-- **`~/.second-brain/config.json`** — persistent settings (e.g. `auto_improve`).
+- **`~/.second-brain/config.json`** — persistent settings (e.g. `auto_improve`, `brain_os`).
 - **`SB_*` environment variables** — every guard, banner, nudge, and pipeline has a kill switch (`SB_PERSONA_GATE=off`, `SB_SYMLINK_GUARD=off`, `SB_INJECTION_SCAN=off`, …). Precedence: env > config.json > defaults. `sb help` and `sb auth status`/`doctor` are the inspection surface.
+
+## The offline engine (brain-os)
+
+Work that *processes* already-captured knowledge — retention pruning, deterministic upkeep,
+precomputing wiki embeddings, the consolidation lane, code-map regen — runs out-of-band behind
+one seam, `scripts/brain-os-run.sh`, invoked from the drainer's scheduled tick. Nothing about it
+is always-on: there is no daemon, it holds the drainer's single-flight lock, and each pass keeps
+its own switch (`auto_improve`, `auto_embed`, `auto_maintain`, `auto_codemap`).
+
+It is **optional by construction** — `brain_os: false` (or `SB_BRAIN_OS=off`) disables the whole
+offline lane and capture, retrieval and the in-session `/second-brain:maintain` + `/second-brain:dream`
+paths keep working exactly as before.
+
+The consolidation lane inside it is a two-stage split: a **quarantined zero-tool summarizer**
+reads transcripts as DATA and can only emit schema-validated candidate facts (its quarantine is
+attested at runtime, not assumed), and a **deterministic netless writer** applies those facts to a
+dream's staging tree — no LLM, no network, no transcripts in its context. What reaches the live
+wiki is governed by `auto_accept` plus a confirm gate: transcript-derived pages with no live
+counterpart are *held* (reversible, never deleted) rather than applied unattended, while updates
+to pages that already exist apply under an explicit "candidate facts (untrusted)" heading.
 
 ## Model-tier routing
 

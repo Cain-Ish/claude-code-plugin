@@ -68,14 +68,31 @@ describe('applyCandidates', () => {
     expect(await fs.readFile(target, 'utf-8')).toBe(snap1);
   });
 
-  it('skips preference/relation kinds with a routed reason (edges are live-maintainer-only)', async () => {
+  it('appends fact bullets INSIDE the untrusted section, never after a generated block', async () => {
+    const target = join(root, 'staging', 'wiki', 'entities', 'widget.md');
+    await fs.writeFile(target,
+      '---\ntitle: widget\ndescription: d\ntype: entities\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# widget\n\nbody\n\n' +
+      '## Candidate facts (untrusted)\n\n- (fact:old000) an earlier claim\n\n' +
+      '<!-- graph:begin (generated) -->\n**Related:** [[x]]\n<!-- graph:end -->\n');
+    const search: SearchFn = async () => [{ path: target, score_norm: 0.9 }];
+    await applyCandidates(join(root, 'staging'), [{ kind: 'entity', claim: 'a newer claim' }], OPTS(search));
+    const page = await fs.readFile(target, 'utf-8');
+    const bulletAt = page.indexOf('a newer claim');
+    const graphAt = page.indexOf('<!-- graph:begin');
+    expect(bulletAt).toBeGreaterThan(page.indexOf('## Candidate facts (untrusted)'));
+    expect(bulletAt).toBeLessThan(graphAt);       // inside the section, not after the generated block
+    expect(page).toContain('an earlier claim');   // pre-existing bullet preserved
+    expect(page).toContain('<!-- graph:end -->'); // generated region intact
+  });
+
+  it('skips preference/relation kinds, naming them DROPPED (no consumer exists yet)', async () => {
     const r = await applyCandidates(join(root, 'staging'), [
       { kind: 'preference', claim: 'user prefers terse replies' },
       { kind: 'relation', claim: 'A requires B' },
     ], OPTS());
     expect(r.added).toEqual([]);
     expect(r.skipped).toHaveLength(2);
-    expect(r.skipped[0].reason).toMatch(/persona lanes/);
+    expect(r.skipped[0].reason).toMatch(/DROPPED/);
     expect(r.skipped[1].reason).toMatch(/live maintainer/);
   });
 

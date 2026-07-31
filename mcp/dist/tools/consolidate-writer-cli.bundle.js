@@ -480,6 +480,7 @@ var init_raw_inbox = __esm({
 // src/tools/consolidate-writer.ts
 var consolidate_writer_exports = {};
 __export(consolidate_writer_exports, {
+  appendToUntrustedSection: () => appendToUntrustedSection,
   applyCandidates: () => applyCandidates,
   factHash: () => factHash
 });
@@ -529,8 +530,33 @@ function renderNewPage(f, category, title, hash, opts) {
 }
 async function writeAtomic(path2, content) {
   const tmp = `${path2}.tmp.${process.pid}`;
-  await fs.writeFile(tmp, content);
-  await fs.rename(tmp, path2);
+  try {
+    await fs.writeFile(tmp, content);
+    await fs.rename(tmp, path2);
+  } catch (err) {
+    await fs.unlink(tmp).catch(() => {
+    });
+    throw err;
+  }
+}
+function appendToUntrustedSection(content, bullet) {
+  const body = content.replace(/\s+$/, "");
+  const at = body.indexOf(UNTRUSTED_SECTION);
+  if (at === -1) return `${body}
+
+${UNTRUSTED_SECTION}
+
+${bullet}
+`;
+  const afterHeading = at + UNTRUSTED_SECTION.length;
+  const rest = body.slice(afterHeading);
+  const nextHeading = rest.search(/\n#{1,2} /);
+  const nextGenerated = rest.search(/\n<!--\s*(graph|theme|ai):begin/);
+  const candidates = [nextHeading, nextGenerated].filter((i) => i !== -1);
+  const cut = candidates.length ? afterHeading + Math.min(...candidates) : body.length;
+  return `${body.slice(0, cut).replace(/\s+$/, "")}
+${bullet}
+${body.slice(cut).replace(/^\n+/, "\n")}`.replace(/\s+$/, "") + "\n";
 }
 function withinWiki(wikiRoot, p) {
   const rel = relative(resolve2(wikiRoot), resolve2(p));
@@ -552,7 +578,7 @@ async function applyCandidates(stagingRoot, facts, opts) {
   for (const f of facts) {
     const category = KIND_TO_CATEGORY[f.kind];
     if (!category) {
-      report.skipped.push({ kind: f.kind, reason: `kind '${f.kind}' is not writer-applied (preference \u2192 persona lanes, relation \u2192 live maintainer)` });
+      report.skipped.push({ kind: f.kind, reason: `kind '${f.kind}' is not writer-applied \u2014 DROPPED this run (no consumer yet: preferences need the persona-rules lane, relations the live maintainer's edge writer)` });
       continue;
     }
     const title = titleOf(f);
@@ -582,15 +608,7 @@ async function applyCandidates(stagingRoot, facts, opts) {
         continue;
       }
       const bullet = `- (fact:${hash}) ${f.claim.trim()}${f.evidence ? ` \u2014 evidence: ${f.evidence.trim()}` : ""} (${sourcesLine(f, opts.dreamId).slice(2)})`;
-      let next = content.trimEnd();
-      if (!next.includes(UNTRUSTED_SECTION)) next += `
-
-${UNTRUSTED_SECTION}
-`;
-      next += `
-${bullet}
-`;
-      await writeAtomic(target, bumpUpdated(next, opts.date));
+      await writeAtomic(target, bumpUpdated(appendToUntrustedSection(content, bullet), opts.date));
       report.updated.push(relative(wikiRoot, target).replace(/\\/g, "/"));
       continue;
     }
