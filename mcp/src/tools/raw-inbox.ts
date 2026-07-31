@@ -44,8 +44,9 @@ export function rawDir(brainDir: string, slug: string): string {
   return join(brainDir, 'projects', slug, 'raw');
 }
 
-/** kebab slug from arbitrary text: lowercase, non-alnum→'-', collapse, trim, cap length. */
-function slugify(text: string): string {
+/** kebab slug from arbitrary text: lowercase, non-alnum→'-', collapse, trim, cap length.
+ * Exported for the consolidate-writer (Stage B) so fact→slug derivation shares one definition. */
+export function slugify(text: string): string {
   const s = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
   return s || 'item';
 }

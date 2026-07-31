@@ -6091,6 +6091,34 @@ var kb_schema_default = {
       security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
     }
   },
+  candidate_facts: {
+    _comment: "Stage A <-> Stage B contract for the P6 quarantined consolidation split. json_schema is passed VERBATIM to the Stage A summarizer spawn (claude -p --json-schema, validator-enforced from CLI 2.1.205) by scripts/maintain-llm-drain.sh (jq -c .candidate_facts.json_schema). The Stage B writer (mcp/src/tools/candidate-facts.ts) validates against the SAME object, deriving the kind vocabulary and byte caps from it - never a second copy. kind_to_category maps writable kinds to wiki categories; kinds absent from the map (preference, relation) are SKIPPED by the writer with a logged reason: preferences route to attended persona lanes, relations to the live maintainer (edge writes are live-maintainer-only).",
+    kind_to_category: { decision: "decisions", learning: "learnings", entity: "entities", issue: "issues" },
+    json_schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["facts"],
+      properties: {
+        facts: {
+          type: "array",
+          maxItems: 200,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "claim"],
+            properties: {
+              kind: { type: "string", enum: ["decision", "learning", "entity", "issue", "preference", "relation"] },
+              title: { type: "string", maxLength: 120 },
+              claim: { type: "string", minLength: 1, maxLength: 2e3 },
+              evidence: { type: "string", maxLength: 1e3 },
+              source: { type: "string", maxLength: 300 },
+              confidence: { type: "string", enum: ["high", "medium", "low"] }
+            }
+          }
+        }
+      }
+    }
+  },
   generated_dirs: ["projects", "themes"],
   edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
   project_sections: ["blockers", "decisions"],
@@ -6116,6 +6144,7 @@ var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
 var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
 var RAW_DIR = kb_schema_default.raw.dir;
 var RAW_STATUSES = kb_schema_default.raw.statuses;
+var CANDIDATE_FACTS = kb_schema_default.candidate_facts;
 var FRONTMATTER_REQUIRED = kb_schema_default.frontmatter_required;
 var AI_BLOCK_TYPES = kb_schema_default.ai_blocks.types;
 var CONTENT_CATEGORIES = [...STRUCTURED_TYPES, ...UNSTRUCTURED_TYPES];

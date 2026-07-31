@@ -16,6 +16,13 @@ export const FORGET_DISCOUNTED: readonly string[] = schema.forget_protection.dis
 export const RAW_DIR: string = schema.raw.dir;
 export const RAW_STATUSES: readonly string[] = schema.raw.statuses;
 
+/** P6 Stage A↔B contract: the summarizer's --json-schema object and the writer's kind→category
+ * map. Both sides read THIS object (bash: jq .candidate_facts.json_schema) — never a copy. */
+export const CANDIDATE_FACTS: {
+  kind_to_category: Record<string, string>;
+  json_schema: any;
+} = schema.candidate_facts;
+
 /** Frontmatter fields every authored wiki page must carry. */
 export const FRONTMATTER_REQUIRED: readonly string[] = schema.frontmatter_required;
 /** Per-structured-type ai-block field contracts (marker grammar in schema.ai_blocks.markers). */
