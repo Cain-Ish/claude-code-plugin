@@ -29,7 +29,6 @@ async function main(): Promise<number> {
   // but embeddings caches its disable check at module scope in some paths; be strict.
   const { validateCandidateFacts } = await import('./candidate-facts.js');
   const { applyCandidates } = await import('./consolidate-writer.js');
-  const { knowledgeSearch } = await import('./knowledge-search.js');
 
   const stagingRoot = join(dreamDir, 'staging');
   try { await fs.access(join(stagingRoot, 'wiki')); }
@@ -67,14 +66,7 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const report = await applyCandidates(stagingRoot, facts, {
-    dreamId: base,
-    date,
-    searchFn: async (query, scope) => {
-      const r = await knowledgeSearch({ query, scope, knowledgeDir: stagingRoot });
-      return r.candidates.map((c) => ({ path: c.path, score_norm: c.score_norm }));
-    },
-  });
+  const report = await applyCandidates(stagingRoot, facts, { dreamId: base, date });
   process.stdout.write(JSON.stringify({ ...report, rejected: rejected.length }) + '\n');
   return 0;
 }

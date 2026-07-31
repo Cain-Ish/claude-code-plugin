@@ -79,6 +79,20 @@ bash "$WH" restore "deadbeef" >/dev/null 2>&1; rc=$?
   && pass "H6: wiki untouched by the refused restore" || fail "H6: wiki mutated by a refused restore"
 rm -rf "$SB"
 
+echo "=== H6b: a snapshot FAILURE is loud, never a silent no-op ==="
+# The reversibility window dying quietly is the worst failure mode: callers would believe the
+# wiki is protected. Corrupt the history repo so `git add` must fail.
+setup
+bash "$WH" snapshot "base" >/dev/null 2>&1
+printf 'not a git dir
+' > "$BRAIN_DIR/wiki-history.git/HEAD"
+printf 'changed
+' >> "$KNOWLEDGE_DIR/wiki/learnings/a.md"
+rm -f "$BRAIN_DIR/error-log.jsonl"
+bash "$WH" snapshot "should fail loudly" >/dev/null 2>&1
+grep -q 'wiki-history' "$BRAIN_DIR/error-log.jsonl"    && pass "H6b: a broken history repo is LOGGED, not silently skipped"   || fail "H6b: snapshot failed silently — callers would think the wiki was protected"
+rm -rf "$SB"
+
 echo "=== H7: wired into the write paths (engine + accept) ==="
 grep -q 'wiki-history.sh' "$ROOT/scripts/brain-os-run.sh" && pass "H7: engine snapshots after its passes" || fail "H7: engine does not snapshot"
 grep -q 'wiki-history.sh' "$ROOT/scripts/dream-accept.sh" && pass "H7: accept snapshots what it applied" || fail "H7: accept does not snapshot"

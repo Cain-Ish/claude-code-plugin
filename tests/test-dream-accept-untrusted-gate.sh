@@ -132,4 +132,16 @@ grep -q 'TRUSTED CONTENT WRITTEN LATER' "$KNOWLEDGE_DIR/wiki/learnings/conjured.
 [ -f "$BRAIN_DIR/held-untrusted/drm_test/learnings/conjured.md" ] || fail "U7: skipped page was not retained in the hold area"
 rm -rf "$SB"
 
+# --- U8: holds stay releasable AFTER dream retention prunes the dream dir ---------
+# Holds deliberately outlive their dream; if release required the dream dir to exist,
+# "never deleted" would silently become "kept forever and never applicable".
+setup
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test >/dev/null 2>&1
+[ -f "$BRAIN_DIR/held-untrusted/drm_test/learnings/conjured.md" ] || fail "U8: setup — page not held"
+rm -rf "$BRAIN_DIR/dreams/drm_test"          # retention prunes the dream, holds remain
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 bash "$ACCEPT" drm_test 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "U8: orphaned-hold release failed (rc=$rc): $OUT"
+[ -f "$KNOWLEDGE_DIR/wiki/learnings/conjured.md" ]   && pass "U8: held page still releasable after its dream dir was pruned"   || fail "U8: hold became permanently unreleasable once the dream was pruned"
+rm -rf "$SB"
+
 echo "ALL PASS"

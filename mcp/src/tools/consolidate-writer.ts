@@ -23,16 +23,37 @@ export interface ApplyReport {
   skipped: { kind: string; reason: string }[];
 }
 
-/** Injectable local-search seam (tests stub it; the CLI wires knowledgeSearch over staging). */
-export type SearchFn = (query: string, scope: string) => Promise<{ path: string; score_norm: number }[]>;
-
 export interface ApplyOpts {
   dreamId: string;
   /** YYYY-MM-DD for created/updated — derived from the dream id, never wall clock. */
   date: string;
-  searchFn: SearchFn;
-  /** score_norm floor for folding a fact into an existing page instead of adding one. */
-  updateNorm?: number;
+}
+
+/**
+ * Does this fact belong on an EXISTING page? Deterministic, corpus-independent, and
+ * corpus-order-independent: the fact's own slug must match the page's slug exactly, or the
+ * page's title tokens must be a subset of the fact's tokens (the fact is *about* that page).
+ *
+ * This deliberately replaced a BM25 reconcile, which was actively harmful:
+ *  - knowledgeSearch returns `score_norm = score / topScore`, so the top hit is ALWAYS 1.0.
+ *    Any `score_norm >= threshold` test is therefore vacuous — a single shared token ("the")
+ *    was enough to graft an unrelated fact onto whatever page ranked first, and fold-ins apply
+ *    to the LIVE wiki unattended. Verified by running the committed bundle, not by reading it.
+ *  - BM25 ranking carries a 90-day RECENCY boost, so the same inputs could resolve differently
+ *    on different days — breaking Stage B's byte-determinism contract outright.
+ * Fold-in means "this page is the corroboration", so an exact, explainable match is the honest
+ * bar. Everything else becomes a new page, which the accept gate holds until confirmed.
+ */
+const TITLE_STOP = new Set(['the', 'a', 'an', 'of', 'and', 'or', 'to', 'for', 'in', 'on', 'is', 'are', 'was', 'were', 'be', 'it', 'its', 'this', 'that', 'with', 'by', 'as', 'at', 'from']);
+function titleTokens(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !TITLE_STOP.has(t));
+}
+export function isFoldInMatch(factTitle: string, factClaim: string, pageSlug: string, pageTitle: string): boolean {
+  if (slugify(factTitle) === pageSlug) return true;
+  const pt = titleTokens(pageTitle);
+  if (pt.length === 0) return false;
+  const factSet = new Set([...titleTokens(factTitle), ...titleTokens(factClaim)]);
+  return pt.every((t) => factSet.has(t));
 }
 
 /** djb2 over the fact's identity fields, base36 — the idempotency key. */
@@ -144,7 +165,6 @@ export async function applyCandidates(
 ): Promise<ApplyReport> {
   const report: ApplyReport = { added: [], updated: [], skipped: [] };
   const wikiRoot = join(stagingRoot, 'wiki');
-  const updateNorm = opts.updateNorm ?? 0.75;
 
   for (const f of facts) {
     const category = KIND_TO_CATEGORY[f.kind];
@@ -160,27 +180,34 @@ export async function applyCandidates(
     if (!title) { report.skipped.push({ kind: f.kind, reason: 'empty title/claim' }); continue; }
     const hash = factHash(f);
 
-    // Local reconcile (BM25 over staging, embeddings off): a strong same-category hit
-    // means this fact belongs on an existing page — fold in, don't fragment.
+    // Deterministic reconcile over the fact's OWN category dir. Scanning the directory (rather
+    // than querying a ranker) keeps this corpus- and order-independent: same facts + same
+    // staging => same decisions, byte for byte, on any day.
     let target: string | null = null;
-    try {
-      const hits = await opts.searchFn(`${title} ${f.claim.slice(0, 200)}`, category);
-      const top = hits[0];
-      if (top && top.score_norm >= updateNorm) {
-        if (!withinWiki(wikiRoot, top.path)) {
-          report.skipped.push({ kind: f.kind, reason: `search hit escapes staging wiki: ${top.path}` });
-          continue;
-        }
-        target = resolve(top.path);
-      }
-    } catch (err: unknown) {
-      // Search seam failure downgrades to ADD (still deterministic) — but visibly.
-      report.skipped.push({ kind: f.kind, reason: `reconcile search failed (${err instanceof Error ? err.message : String(err)}) — falling through to add` });
+    const catDir = join(wikiRoot, category);
+    let pages: string[] = [];
+    try { pages = (await fs.readdir(catDir)).filter((n) => n.endsWith('.md') && n !== 'index.md').sort(); }
+    catch { pages = []; }
+    for (const page of pages) {
+      const slug = page.slice(0, -3);
+      const p = join(catDir, page);
+      let head = '';
+      try { head = (await fs.readFile(p, 'utf-8')).slice(0, 600); } catch { continue; }
+      const pageTitle = (head.match(/^title:\s*(.+)$/m)?.[1] || slug).replace(/^["']|["']$/g, '').trim();
+      if (isFoldInMatch(title, f.claim, slug, pageTitle)) { target = resolve(p); break; }
+    }
+    if (target && !withinWiki(wikiRoot, target)) {
+      report.skipped.push({ kind: f.kind, reason: `resolved target escapes staging wiki: ${target}` });
+      continue;
     }
 
     if (target) {
       const content = await fs.readFile(target, 'utf-8');
-      if (content.includes(`(fact:${hash})`)) {
+      // BOTH markers: a page this writer CREATED carries `fact_hash: <h>` in frontmatter, while
+      // a folded-in bullet carries `(fact:<h>)`. Checking only the bullet form meant the second
+      // run re-appended a bullet restating the very fact the page was created from — the page
+      // then fails byte-idempotency forever after.
+      if (content.includes(`(fact:${hash})`) || content.includes(`fact_hash: ${hash}`)) {
         report.skipped.push({ kind: f.kind, reason: `duplicate fact ${hash} (idempotent)` });
         continue;
       }

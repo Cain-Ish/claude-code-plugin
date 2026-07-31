@@ -200,6 +200,15 @@ if _sb_defer_verdict; then
   else
     sb_drain_defer_bump
     echo "extract-drain: interactive claude session active — deferring (consecutive=$(sb_drain_defer_count))" >&2
+    # The defer exists for ONE reason: a `claude -p` spawned while a session holds the global
+    # OAuth lock hangs to its timeout. That applies to extraction and to the consolidation
+    # pass — NOT to the engine's four deterministic passes (prune, upkeep, embedding warm,
+    # code-map), which spawn no claude and touch no credential. Skipping those too would mean
+    # an always-on operator gets NO offline processing at all: on Windows the defer now fires
+    # whenever claude.exe is running, and the un-starve escape cannot release it under pure
+    # OAuth. So run the LLM-free half here and defer only what actually needs the lock.
+    SB_BRAIN_OS_NO_LLM=1 bash "$(dirname "$0")/brain-os-run.sh" >/dev/null 2>&1 || \
+      sb_log_error "extract-drain.sh" "brain-os (LLM-free passes, deferred tick) exited nonzero" 1
     exit 0
   fi
 else

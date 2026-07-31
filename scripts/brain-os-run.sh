@@ -71,7 +71,10 @@ fi
 # 4. The consolidation lane (Stage A quarantined summarizer → Stage B deterministic writer).
 #    A SEPARATE, stronger consent than auto_improve: it spends tokens and needs the OAuth
 #    grant. Self-gated + weekly-throttled inside; auto_accept governs what reaches live.
-if [ "$(sb_config_bool .auto_maintain on)" = "on" ]; then
+# SB_BRAIN_OS_NO_LLM=1 (set by the drainer on a DEFERRED tick) runs everything except this
+# pass: the deterministic passes need no OAuth lock, so an always-on operator still gets
+# offline processing instead of nothing at all.
+if [ "${SB_BRAIN_OS_NO_LLM:-0}" != "1" ] && [ "$(sb_config_bool .auto_maintain on)" = "on" ]; then
   _pass consolidate bash "$SDIR/maintain-llm-drain.sh" >/dev/null 2>&1
 fi
 

@@ -4,11 +4,10 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
-import { applyCandidates, factHash, SearchFn } from './consolidate-writer.js';
+import { applyCandidates, factHash, isFoldInMatch } from './consolidate-writer.js';
 import { CandidateFact } from './candidate-facts.js';
 
 let root: string;
-const noHits: SearchFn = async () => [];
 
 async function mkStaging(): Promise<string> {
   const d = await fs.mkdtemp(join(tmpdir(), 'cw-test-'));
@@ -16,9 +15,10 @@ async function mkStaging(): Promise<string> {
   return d;
 }
 
-const OPTS = (searchFn: SearchFn = noHits) => ({
-  dreamId: 'drm_20260730T120000Z', date: '2026-07-30', searchFn,
-});
+// No search stub: resolution is deterministic and reads the staging tree itself. The old
+// stubbed seam is exactly what hid the vacuous-threshold bug — hand-picked score_norm values
+// (0.9/0.99) could never reveal that the real ranker always returns 1.0 for the top hit.
+const OPTS = () => ({ dreamId: 'drm_20260730T120000Z', date: '2026-07-30' });
 
 beforeEach(async () => { root = await mkStaging(); });
 afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
@@ -40,9 +40,8 @@ describe('applyCandidates', () => {
   it('UPDATE folds a strong same-category hit into the existing page, bumps updated:', async () => {
     const target = join(root, 'staging', 'wiki', 'entities', 'widget.md');
     await fs.writeFile(target, '---\ntitle: widget\ndescription: d\ntype: entities\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# widget\n\nbody\n');
-    const search: SearchFn = async () => [{ path: target, score_norm: 0.9 }];
     const facts: CandidateFact[] = [{ kind: 'entity', claim: 'widget gained a new mode', source: 's.txt' }];
-    const r = await applyCandidates(join(root, 'staging'), facts, OPTS(search));
+    const r = await applyCandidates(join(root, 'staging'), facts, OPTS());
     expect(r.updated).toEqual(['entities/widget.md']);
     const page = await fs.readFile(target, 'utf-8');
     expect(page).toContain('## Candidate facts (untrusted)');
@@ -53,15 +52,14 @@ describe('applyCandidates', () => {
   it('is idempotent: a second run over the same facts is a no-op (both ADD and UPDATE)', async () => {
     const target = join(root, 'staging', 'wiki', 'entities', 'widget.md');
     await fs.writeFile(target, '---\ntitle: widget\ndescription: d\ntype: entities\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# widget\n\nbody\n');
-    const search: SearchFn = async (q, scope) => (scope === 'entities' ? [{ path: target, score_norm: 0.9 }] : []);
     const facts: CandidateFact[] = [
       { kind: 'entity', claim: 'widget gained a new mode' },
       { kind: 'decision', claim: 'we chose X over Y' },
     ];
     const staging = join(root, 'staging');
-    await applyCandidates(staging, facts, OPTS(search));
+    await applyCandidates(staging, facts, OPTS());
     const snap1 = await fs.readFile(target, 'utf-8');
-    const r2 = await applyCandidates(staging, facts, OPTS(search));
+    const r2 = await applyCandidates(staging, facts, OPTS());
     expect(r2.added).toEqual([]);
     expect(r2.updated).toEqual([]);
     expect(r2.skipped.every((s) => s.reason.includes('idempotent'))).toBe(true);
@@ -74,10 +72,9 @@ describe('applyCandidates', () => {
       '---\ntitle: widget\ndescription: d\ntype: entities\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# widget\n\nbody\n\n' +
       '## Candidate facts (untrusted)\n\n- (fact:old000) an earlier claim\n\n' +
       '<!-- graph:begin (generated) -->\n**Related:** [[x]]\n<!-- graph:end -->\n');
-    const search: SearchFn = async () => [{ path: target, score_norm: 0.9 }];
-    await applyCandidates(join(root, 'staging'), [{ kind: 'entity', claim: 'a newer claim' }], OPTS(search));
+    await applyCandidates(join(root, 'staging'), [{ kind: 'entity', claim: 'widget got a newer claim' }], OPTS());
     const page = await fs.readFile(target, 'utf-8');
-    const bulletAt = page.indexOf('a newer claim');
+    const bulletAt = page.indexOf('widget got a newer claim');
     const graphAt = page.indexOf('<!-- graph:begin');
     expect(bulletAt).toBeGreaterThan(page.indexOf('## Candidate facts (untrusted)'));
     expect(bulletAt).toBeLessThan(graphAt);       // inside the section, not after the generated block
@@ -96,25 +93,44 @@ describe('applyCandidates', () => {
     expect(r.skipped[1].reason).toMatch(/live maintainer/);
   });
 
-  it('rejects a search hit that escapes the staging wiki (containment)', async () => {
-    const outside = join(root, 'outside.md');
-    await fs.writeFile(outside, 'x');
-    const search: SearchFn = async () => [{ path: outside, score_norm: 0.99 }];
-    const r = await applyCandidates(join(root, 'staging'), [{ kind: 'entity', claim: 'evil' }], OPTS(search));
-    expect(r.updated).toEqual([]);
-    expect(r.added).toEqual([]);
-    expect(r.skipped[0].reason).toMatch(/escapes staging wiki/);
-    expect(await fs.readFile(outside, 'utf-8')).toBe('x');
+  // THE regression test for the vacuous-threshold bug. The old BM25 seam returned
+  // score_norm 1.0 for its top hit ALWAYS, so a fact sharing one incidental token was folded
+  // onto an unrelated live page — and fold-ins bypass the hold gate. An unrelated fact must ADD.
+  it('an unrelated fact ADDs a new page instead of grafting onto a lexically-similar one', async () => {
+    const staging = join(root, 'staging');
+    await fs.mkdir(join(staging, 'wiki', 'decisions'), { recursive: true });
+    await fs.writeFile(join(staging, 'wiki', 'decisions', 'database-backup-retention.md'),
+      '---\ntitle: database backup retention\ndescription: d\ntype: decisions\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# database backup retention\n\nWe keep nightly database backups for 30 days.\n');
+    const r = await applyCandidates(staging, [{
+      kind: 'decision',
+      claim: 'The team decided to adopt Vite for the frontend build; the database was not involved.',
+    }], OPTS());
+    expect(r.updated).toEqual([]);                       // must NOT graft onto the backup page
+    expect(r.added).toHaveLength(1);
+    const victim = await fs.readFile(join(staging, 'wiki', 'decisions', 'database-backup-retention.md'), 'utf-8');
+    expect(victim).not.toContain('Vite');
+    expect(victim).not.toContain('## Candidate facts (untrusted)');
   });
 
-  it('same-slug different-fact ADD disambiguates by hash instead of clobbering', async () => {
+  it('fold-in matching is explainable: exact slug, or the page title fully contained in the fact', () => {
+    expect(isFoldInMatch('Widget calibration', 'anything', 'widget-calibration', 'Widget calibration')).toBe(true);
+    expect(isFoldInMatch('x', 'the widget gained a mode', 'widget', 'widget')).toBe(true);
+    expect(isFoldInMatch('Vite adopted', 'the database was not involved', 'database-backup-retention', 'database backup retention')).toBe(false);
+    expect(isFoldInMatch('anything', 'shares only the stopword the', 'alpha-policy', 'alpha policy')).toBe(false);
+  });
+
+  it('a second fact under the same title folds into that page instead of duplicating it', async () => {
     const staging = join(root, 'staging');
     const f1: CandidateFact = { kind: 'learning', title: 'same title', claim: 'first claim' };
     const f2: CandidateFact = { kind: 'learning', title: 'same title', claim: 'second, different claim' };
     const r1 = await applyCandidates(staging, [f1], OPTS());
     const r2 = await applyCandidates(staging, [f2], OPTS());
     expect(r1.added).toEqual(['learnings/same-title.md']);
-    expect(r2.added).toEqual([`learnings/same-title-${factHash(f2)}.md`]);
+    expect(r2.added).toEqual([]);                                  // no duplicate page
+    expect(r2.updated).toEqual(['learnings/same-title.md']);
+    const page = await fs.readFile(join(staging, 'wiki', 'learnings', 'same-title.md'), 'utf-8');
+    expect(page).toContain(`(fact:${factHash(f2)})`);              // the new fact landed on it
+    expect(page).toContain('first claim');                         // the original survives
   });
 });
 

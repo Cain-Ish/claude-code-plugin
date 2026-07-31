@@ -17,9 +17,68 @@ BRAIN_DIR=$(_to_msys "$BRAIN_DIR")
 DREAM_ID="${1:?usage: dream-accept.sh <dream_id>}"
 DREAM_DIR="$BRAIN_DIR/dreams/$DREAM_ID"
 
+# _release_holds <held_root>: apply previously-held untrusted pages to the live wiki after an
+# explicit confirm. ONE implementation, two callers — the normal already-archived dream, and an
+# ORPHANED hold whose dream dir was pruned by retention (holds deliberately outlive their dream,
+# so they must stay releasable afterwards or "never deleted" degrades into "never applicable").
+_release_holds() {
+  local _HELD_ROOT="$1"
+  RKD="$(sb_knowledge_dir)"; RKD=$(_to_msys "$RKD")
+  # Same reversibility floor as every other apply path (0.28.1): tarball live FIRST and
+  # fail CLOSED. An operator confirming a hold is not a reason to skip the undo trail.
+  if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$RKD/wiki" ]; then
+    R_BK="$BRAIN_DIR/wiki-backup-pre-release-$(date -u +%Y%m%d%H%M%SZ).tgz"
+    if ! tar czf "$R_BK" -C "$RKD" wiki 2>/dev/null || [ ! -s "$R_BK" ]; then
+      rm -f "$R_BK" 2>/dev/null
+      echo "error: refusing to release held pages for $DREAM_ID — could not back up the live wiki first" >&2
+      exit 1
+    fi
+  fi
+  RN=0; RSKIP=0
+  while IFS= read -r _hf; do
+    [ -n "$_hf" ] || continue
+    _rel=${_hf#"$_HELD_ROOT/"}
+    _dest="$RKD/wiki/$_rel"
+    # A live page may have appeared at this slug while the hold sat here (the drainer and
+    # the maintainer keep writing). NEVER clobber it, and never write THROUGH a symlink.
+    if [ -L "$_dest" ]; then
+      echo "RELEASE: skipping '$_rel' — destination is a symlink (never written through)" >&2
+      RSKIP=$((RSKIP + 1)); continue
+    fi
+    if [ -e "$_dest" ]; then
+      echo "RELEASE: skipping '$_rel' — a live page now exists at that slug (held copy kept, not applied)" >&2
+      RSKIP=$((RSKIP + 1)); continue
+    fi
+    if mkdir -p "$RKD/wiki/$(dirname "$_rel")" && cp -p "$_hf" "$_dest"; then
+      rm -f "$_hf" 2>/dev/null; RN=$((RN + 1))
+    else
+      echo "RELEASE: FAILED to write '$_rel' (held copy kept)" >&2
+      sb_log_error "dream-accept" "held-untrusted release failed for $_rel in $DREAM_ID (held copy retained)" 0
+      RSKIP=$((RSKIP + 1))
+    fi
+  done < <(find "$_HELD_ROOT" -type f -name '*.md' 2>/dev/null)
+  if [ "$RN" -gt 0 ] || [ "$RSKIP" -gt 0 ]; then
+    # Only drop the hold area once nothing is left un-released; skipped pages stay held.
+    [ "$RSKIP" -eq 0 ] && rm -rf "$_HELD_ROOT"
+    [ "$RN" -gt 0 ] && sb_reindex_wiki "$RKD"
+    echo "RELEASED $RN previously-held untrusted page(s) into the live wiki (confirmed); $RSKIP skipped/retained."
+    return 0
+  fi
+  return 1   # nothing was held here — let the caller fall through to its normal error
+}
+
 if [ ! -f "$DREAM_DIR/status.json" ]; then
-  echo "error: dream not found: $DREAM_ID" >&2
-  exit 1
+  # Holds OUTLIVE their dream on purpose (retention prunes dream dirs past keep-count), so a
+  # release must still be possible after the dream itself is gone — otherwise "never deleted"
+  # would mean "kept forever and never applicable", which is worse than deleting them.
+  if [ "${SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED:-0}" = "1" ] && [ -d "$BRAIN_DIR/held-untrusted/$DREAM_ID" ]; then
+    _release_holds "$BRAIN_DIR/held-untrusted/$DREAM_ID" && exit 0
+    echo "error: no held pages to release for $DREAM_ID" >&2
+    exit 1
+  else
+    echo "error: dream not found: $DREAM_ID" >&2
+    exit 1
+  fi
 fi
 
 STATUS=$(jq -r '.status' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
@@ -37,47 +96,7 @@ if [ -n "$ARCHIVED" ] && [ "$ARCHIVED" != "null" ]; then
   # Legacy location (holds written before they moved out of the prunable dream dir).
   [ -d "$_HELD_ROOT" ] || _HELD_ROOT="$DREAM_DIR/held-untrusted"
   if [ "${SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED:-0}" = "1" ] && [ -d "$_HELD_ROOT" ]; then
-    RKD="$(sb_knowledge_dir)"; RKD=$(_to_msys "$RKD")
-    # Same reversibility floor as every other apply path (0.28.1): tarball live FIRST and
-    # fail CLOSED. An operator confirming a hold is not a reason to skip the undo trail.
-    if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$RKD/wiki" ]; then
-      R_BK="$BRAIN_DIR/wiki-backup-pre-release-$(date -u +%Y%m%d%H%M%SZ).tgz"
-      if ! tar czf "$R_BK" -C "$RKD" wiki 2>/dev/null || [ ! -s "$R_BK" ]; then
-        rm -f "$R_BK" 2>/dev/null
-        echo "error: refusing to release held pages for $DREAM_ID — could not back up the live wiki first" >&2
-        exit 1
-      fi
-    fi
-    RN=0; RSKIP=0
-    while IFS= read -r _hf; do
-      [ -n "$_hf" ] || continue
-      _rel=${_hf#"$_HELD_ROOT/"}
-      _dest="$RKD/wiki/$_rel"
-      # A live page may have appeared at this slug while the hold sat here (the drainer and
-      # the maintainer keep writing). NEVER clobber it, and never write THROUGH a symlink.
-      if [ -L "$_dest" ]; then
-        echo "RELEASE: skipping '$_rel' — destination is a symlink (never written through)" >&2
-        RSKIP=$((RSKIP + 1)); continue
-      fi
-      if [ -e "$_dest" ]; then
-        echo "RELEASE: skipping '$_rel' — a live page now exists at that slug (held copy kept, not applied)" >&2
-        RSKIP=$((RSKIP + 1)); continue
-      fi
-      if mkdir -p "$RKD/wiki/$(dirname "$_rel")" && cp -p "$_hf" "$_dest"; then
-        rm -f "$_hf" 2>/dev/null; RN=$((RN + 1))
-      else
-        echo "RELEASE: FAILED to write '$_rel' (held copy kept)" >&2
-        sb_log_error "dream-accept" "held-untrusted release failed for $_rel in $DREAM_ID (held copy retained)" 0
-        RSKIP=$((RSKIP + 1))
-      fi
-    done < <(find "$_HELD_ROOT" -type f -name '*.md' 2>/dev/null)
-    if [ "$RN" -gt 0 ] || [ "$RSKIP" -gt 0 ]; then
-      # Only drop the hold area once nothing is left un-released; skipped pages stay held.
-      [ "$RSKIP" -eq 0 ] && rm -rf "$_HELD_ROOT"
-      [ "$RN" -gt 0 ] && sb_reindex_wiki "$RKD"
-      echo "RELEASED $RN previously-held untrusted page(s) into the live wiki (confirmed); $RSKIP skipped/retained."
-      exit 0
-    fi
+    _release_holds "$_HELD_ROOT" && exit 0
   fi
   echo "error: dream $DREAM_ID already accepted/archived at $ARCHIVED" >&2
   exit 1

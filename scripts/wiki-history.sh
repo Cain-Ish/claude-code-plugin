@@ -63,7 +63,15 @@ _init_if_needed() {
 _snapshot() {
   local reason="${1:-consolidation}" out
   _init_if_needed || return 1
-  _git add -A >/dev/null 2>&1
+  # `add` failure must NOT look like "nothing changed": with its error discarded, the
+  # diff --cached check below sees an empty index and returns success, so the reversibility
+  # window would die silently exactly when it is most needed (locked file, full disk, bad
+  # index). Fail LOUD instead.
+  local add_err
+  if ! add_err=$(_git add -A 2>&1); then
+    sb_log_error "wiki-history" "git add failed — NO snapshot taken, the wiki is unprotected this cycle: ${add_err:0:200}" 1
+    return 1
+  fi
   # Nothing staged => nothing changed => no empty commit (keeps the log meaningful).
   if _git diff --cached --quiet 2>/dev/null; then return 0; fi
   local n
@@ -94,7 +102,10 @@ case "${1:-}" in
     # Snapshot the CURRENT state first — a restore must itself be undoable, or the undo
     # mechanism becomes a way to lose work.
     _snapshot "pre-restore safety snapshot" >/dev/null 2>&1
-    if ! _git checkout "$REF" -- . 2>/dev/null; then
+    # `-- .` is resolved against the CURRENT directory, so running this from inside the wiki
+    # would restore only that subtree while reporting a full restore. `:/` pins the pathspec to
+    # the work-tree ROOT regardless of cwd.
+    if ! _git checkout "$REF" -- :/ 2>/dev/null; then
       echo "error: restore failed; wiki left untouched" >&2
       sb_log_error "wiki-history" "restore to $REF failed" 1
       exit 1
