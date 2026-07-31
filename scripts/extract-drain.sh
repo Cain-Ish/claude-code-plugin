@@ -373,6 +373,12 @@ else
   sb_write_extractor_health "$DRAIN_BACKEND" "ok" "drained $processed this run ($failed failed)"
 fi
 
+# Retention GC stays OUTSIDE the engine gate on purpose: pruning regenerable artifacts
+# (orphaned embeddings entries, *.bak/*.tgz past retention.bak_ttl_days) must happen even when
+# the offline engine is disabled, or `bak_ttl_days` goes silently inert on every install that
+# turns brain_os off — the same class of bug the auto_improve gating once caused.
+[ -f "$(dirname "$0")/sb-prune-archives.sh" ] && bash "$(dirname "$0")/sb-prune-archives.sh" >/dev/null 2>&1 || true
+
 # OFFLINE ENGINE ("brain-os"): every pass that PROCESSES already-captured knowledge —
 # retention pruning, deterministic upkeep, the embedding warm pass, the quarantined
 # consolidation lane, code-map regen — now lives behind ONE seam instead of four inline

@@ -96,6 +96,23 @@ CLAUDE_PLUGIN_ROOT="$STUBROOT" bash "$STUBROOT/scripts/brain-os-run.sh" >/dev/nu
 grep -q "pass 'maintain' exited" "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
   && pass "E4: the failure was logged LOUDLY (error-log)" || fail "E4: pass failure swallowed silently"
 
+echo "=== E4b: retention pruning is NOT behind the engine gate ==="
+# Retention must survive brain_os:false. Gating regenerable-artifact GC behind an opt-in is
+# exactly how bak_ttl_days went silently inert once before.
+grep -q 'sb-prune-archives' "$ROOT/scripts/brain-os-run.sh"   && fail "E4b: prune runs inside the engine — brain_os:false would stop retention GC"   || pass "E4b: prune is not an engine pass"
+grep -q 'sb-prune-archives' "$ROOT/scripts/extract-drain.sh"   && pass "E4b: prune runs in the drainer, outside the engine gate"   || fail "E4b: prune lost entirely — retention GC no longer runs anywhere"
+
+echo "=== E4c: a deferred tick still runs the LLM-free passes ==="
+# The defer exists only because `claude -p` hangs under the OAuth lock; the deterministic
+# passes need no lock. Skipping them too starves an always-on operator completely.
+grep -q 'SB_BRAIN_OS_NO_LLM' "$ROOT/scripts/extract-drain.sh"   && pass "E4c: the drainer runs the engine LLM-free on a deferred tick"   || fail "E4c: a deferred tick skips the engine entirely (starvation)"
+printf '{"brain_os": true, "auto_improve": true, "auto_maintain": true, "auto_codemap": false, "auto_embed": false}
+' > "$BRAIN_DIR/config.json"
+rm -f "$BRAIN_DIR/.last-maintain"; rm -rf "$BRAIN_DIR/dreams"; mkdir -p "$BRAIN_DIR/dreams"
+SB_BRAIN_OS_NO_LLM=1 bash "$ENGINE" >/dev/null 2>&1
+[ -f "$BRAIN_DIR/.last-maintain" ] && pass "E4c: NO_LLM still ran the deterministic upkeep"   || fail "E4c: NO_LLM skipped the deterministic passes too"
+[ -z "$(ls -A "$BRAIN_DIR/dreams" )" ]   && pass "E4c: NO_LLM skipped the token-spending consolidation lane"   || fail "E4c: NO_LLM still spawned the consolidation lane"
+
 echo "=== E5: the drainer delegates to the engine (one seam) ==="
 grep -q 'brain-os-run.sh' "$ROOT/scripts/extract-drain.sh" \
   && pass "E5: extract-drain.sh calls the engine" || fail "E5: drainer does not call the engine"

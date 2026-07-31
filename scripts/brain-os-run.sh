@@ -9,11 +9,14 @@
 # needs no timer of its own.
 #
 # Passes, in dependency order:
-#   1. prune      — archive/backup retention (ungated: retention must not depend on opt-ins)
-#   2. maintain   — deterministic upkeep: validate+autofix → project-backfill → reindex
-#   3. embed      — NEW: offline embedding warm pass over the wiki
-#   4. consolidate— the quarantined Stage A summarizer + deterministic Stage B writer
-#   5. codemap    — out-of-band code-structure regen
+#   1. maintain   — deterministic upkeep: validate+autofix → project-backfill → reindex
+#   2. embed      — offline embedding warm pass over the wiki
+#   3. consolidate— the quarantined Stage A summarizer + deterministic Stage B writer
+#   4. codemap    — out-of-band code-structure regen
+#   5. history    — snapshot the wiki (the reversibility window)
+# Retention pruning is NOT a pass here: it must run even when the engine is off, so it stays
+# in the drainer. Putting it behind `brain_os` would repeat the exact bug the drainer comment
+# warns about — gating retention behind an opt-in made bak_ttl_days silently inert.
 # Reindex precedes embed so pages written this cycle are embedded in the same cycle.
 #
 # OPTIONAL BY CONSTRUCTION: `brain_os: false` in config.json (or SB_BRAIN_OS=off) disables
@@ -37,16 +40,12 @@ _pass() {  # _pass <name> <command...> — run a pass, log a nonzero exit, never
   "$@" || sb_log_error "brain-os" "pass '$_name' exited $? (lane continues)" 1
 }
 
-# 1. Retention pruning — deliberately ungated (see extract-drain history: gating it behind
-#    auto_improve made bak_ttl_days silently inert on every default install).
-[ -f "$SDIR/sb-prune-archives.sh" ] && _pass prune bash "$SDIR/sb-prune-archives.sh" >/dev/null 2>&1
-
-# 2. Deterministic upkeep (content-free, no credentials). Self-throttled internally.
+# 1. Deterministic upkeep (content-free, no credentials). Self-throttled internally.
 if [ "$(sb_config_bool .auto_improve on)" = "on" ]; then
   _pass maintain bash "$SDIR/maintain-deterministic.sh" >/dev/null 2>&1
 fi
 
-# 3. Embedding warm pass (NEW). knowledgeSearch embeds every page in scope and caches the
+# 2. Embedding warm pass (NEW). knowledgeSearch embeds every page in scope and caches the
 #    vectors in KNOWLEDGE_DIR/wiki/.embeddings-cache.json, so ONE offline search moves that
 #    cost out of the user's next session entirely. Deliberately reuses the shipped search
 #    path rather than re-deriving the cache key/hash — a second implementation would drift
@@ -68,7 +67,7 @@ if [ "$(sb_config_bool .auto_embed on)" = "on" ] && [ "${SECOND_BRAIN_DISABLE_EM
   fi
 fi
 
-# 4. The consolidation lane (Stage A quarantined summarizer → Stage B deterministic writer).
+# 3. The consolidation lane (Stage A quarantined summarizer → Stage B deterministic writer).
 #    A SEPARATE, stronger consent than auto_improve: it spends tokens and needs the OAuth
 #    grant. Self-gated + weekly-throttled inside; auto_accept governs what reaches live.
 # SB_BRAIN_OS_NO_LLM=1 (set by the drainer on a DEFERRED tick) runs everything except this
@@ -78,7 +77,7 @@ if [ "${SB_BRAIN_OS_NO_LLM:-0}" != "1" ] && [ "$(sb_config_bool .auto_maintain o
   _pass consolidate bash "$SDIR/maintain-llm-drain.sh" >/dev/null 2>&1
 fi
 
-# 5. Out-of-band code-map regen (deterministic, content-free). The CLI self-gates on
+# 4. Out-of-band code-map regen (deterministic, content-free). The CLI self-gates on
 #    git-rev drift, so a fresh tree costs one git probe — the heavy walk stays OUT of any
 #    Claude session (autonomy + cost).
 if [ "$(sb_config_bool .auto_codemap on)" = "on" ]; then
@@ -119,7 +118,7 @@ if [ "$(sb_config_bool .auto_codemap on)" = "on" ]; then
   fi
 fi
 
-# 6. Reversibility window: commit whatever this lane changed. CONSTITUTION.md allows unattended
+# 5. Reversibility window: commit whatever this lane changed. CONSTITUTION.md allows unattended
 #    writes only because they are reversible; the pre-accept tarball covers one accept, this
 #    gives the wiki a walkable history so any unattended change can be inspected and undone.
 #    Last, so it captures every pass above. Never gates the lane.
