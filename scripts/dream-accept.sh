@@ -400,14 +400,34 @@ fi
 # dream's edges wholesale. Fail-soft: a graph hiccup must not fail an applied accept.
 _PE="$DREAM_DIR/staging/proposed-edges.json"
 if [ -s "$_PE" ] && [ -f "$(dirname "$0")/merge-edges.sh" ]; then
-  _PE_N=$(jq -r '(.relations // []) | length' "$_PE"  | tr -d '')
+  # ENFORCE THE rel LOCK HERE, at the boundary that actually feeds the graph. The schema
+  # restricts what Stage A may emit, but proposed-edges.json is a FILE on disk: anything that
+  # writes it (a future Stage B change, a tampered dream dir) could name `supersedes`, and
+  # merge-edges.sh accepts all five edge types. A lock one hop upstream of the write is no lock.
+  _ALLOWED=$(jq -r '.candidate_facts.relation_edge_types | join(" ")' "$(dirname "$0")/../kb-schema.json"  | tr -d '\r')
+  [ -n "$_ALLOWED" ] || _ALLOWED="relates"
+  _PEF="$DREAM_DIR/staging/.proposed-edges.filtered.json"
+  jq -c --arg allowed "$_ALLOWED"     '{relations: [(.relations // [])[] | . as $r | select((($allowed | split(" ")) | index($r.type // "relates")) != null)]}'     "$_PE" > "$_PEF"  || printf '{"relations":[]}' > "$_PEF"
+  _PE_N=$(jq -r '(.relations // []) | length' "$_PEF"  | tr -d '\r')
+  _PE_RAW=$(jq -r '(.relations // []) | length' "$_PE"  | tr -d '\r')
+  if [ "${_PE_RAW:-0}" -gt "${_PE_N:-0}" ]; then
+    sb_log_error "dream-accept" "dropped $(( _PE_RAW - _PE_N )) proposed edge(s) from $DREAM_ID whose type is outside '$_ALLOWED' — the unattended lane may not create typed or supersedes edges" 0
+  fi
   if [ "${_PE_N:-0}" -gt 0 ]; then
-    if bash "$(dirname "$0")/merge-edges.sh" --knowledge-dir "$KNOWLEDGE_DIR" --source "dream:$DREAM_ID" < "$_PE" >/dev/null 2>&1; then
-      echo "Proposed $_PE_N relation edge(s) from $DREAM_ID (unresolvable endpoints quarantined)."
+    # merge-edges.sh is a FAIL-SOFT boundary: it exits 0 even when it appends nothing (the same
+    # dead-`||` class this repo documents for the code-map CLI), so its exit code proves nothing.
+    # COUNT what actually landed instead of announcing success on faith.
+    _EB=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl"  || echo 0)
+    bash "$(dirname "$0")/merge-edges.sh" --knowledge-dir "$KNOWLEDGE_DIR" --source "dream:$DREAM_ID" < "$_PEF" >/dev/null 2>&1       || sb_log_error "dream-accept" "merge-edges exited nonzero for $DREAM_ID (pages applied; graph may be unchanged)" 0
+    _EA=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl"  || echo 0)
+    _APPLIED=$(( _EA - _EB ))
+    if [ "$_APPLIED" -gt 0 ]; then
+      echo "Applied $_APPLIED relation edge(s) from $DREAM_ID ($(( _PE_N - _APPLIED )) unresolvable -> quarantined)."
     else
-      sb_log_error "dream-accept" "merge-edges failed for $DREAM_ID's proposed edges (pages applied; graph unchanged)" 0
+      echo "Proposed $_PE_N relation edge(s) from $DREAM_ID; NONE applied (endpoints unresolvable -> quarantined)."
     fi
   fi
+  rm -f "$_PEF" 
 fi
 
 # Reindex

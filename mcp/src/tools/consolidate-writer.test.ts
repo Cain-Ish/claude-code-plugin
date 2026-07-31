@@ -130,7 +130,13 @@ describe('applyCandidates', () => {
     expect(reasons).toMatch(/unresolved/);
     expect(reasons).toMatch(/self-loop/);
     // Stage B must NEVER write the live graph itself.
-    expect(r.added.concat(r.updated).some((p) => p.includes('graph'))).toBe(false);
+    // Stage B must never touch the live graph. Asserting "no report path contains 'graph'"
+    // was vacuous — report paths are wiki-relative and could never say that. Assert the real
+    // property: no file outside the staging WIKI was created anywhere under the dream root.
+    const strayGraph = await fs.readdir(join(staging, 'wiki'), { withFileTypes: true });
+    expect(strayGraph.some((e) => e.name === 'graph')).toBe(false);
+    await expect(fs.access(join(root, 'graph'))).rejects.toThrow();
+    await expect(fs.access(join(staging, 'graph'))).rejects.toThrow();
   });
 
   // Found by a peer reviewer's probe: resolution scanned only the four categories the writer
