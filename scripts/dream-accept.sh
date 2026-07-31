@@ -388,3 +388,9 @@ ADDED=$(jq -r '.outputs.pages_added // 0' "$DREAM_DIR/status.json" | tr -d '\r')
 MODIFIED=$(jq -r '.outputs.pages_modified // 0' "$DREAM_DIR/status.json" | tr -d '\r')
 REMOVED=$(jq -r '.outputs.pages_removed // 0' "$DREAM_DIR/status.json" | tr -d '\r')
 echo "Dream $DREAM_ID accepted: +$ADDED ~$MODIFIED -$REMOVED pages applied to live wiki"
+
+# Reversibility window: record what this accept did to the wiki. The pre-accept tarball can
+# undo the WHOLE accept; this history can show and undo it page-by-page later. Fail-soft — a
+# history failure must never turn a successful accept into an error.
+[ -f "$(dirname "$0")/wiki-history.sh" ] && \
+  bash "$(dirname "$0")/wiki-history.sh" snapshot "dream $DREAM_ID accepted (+$ADDED ~$MODIFIED -$REMOVED)" >/dev/null 2>&1 || true

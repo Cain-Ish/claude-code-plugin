@@ -116,4 +116,10 @@ if [ "$(sb_config_bool .auto_codemap on)" = "on" ]; then
   fi
 fi
 
+# 6. Reversibility window: commit whatever this lane changed. CONSTITUTION.md allows unattended
+#    writes only because they are reversible; the pre-accept tarball covers one accept, this
+#    gives the wiki a walkable history so any unattended change can be inspected and undone.
+#    Last, so it captures every pass above. Never gates the lane.
+[ -f "$SDIR/wiki-history.sh" ] && _pass history bash "$SDIR/wiki-history.sh" snapshot "brain-os engine run" >/dev/null 2>&1
+
 exit 0
