@@ -133,6 +133,27 @@ describe('applyCandidates', () => {
     expect(r.added.concat(r.updated).some((p) => p.includes('graph'))).toBe(false);
   });
 
+  // Found by a peer reviewer's probe: resolution scanned only the four categories the writer
+  // CREATES pages in, so an endpoint in concepts/, security/, state/ or sources/ silently
+  // resolved to nothing — indistinguishable from the model proposing a bad edge.
+  it('resolves endpoints in categories the writer never creates pages in (concepts/, security/)', async () => {
+    const staging = join(root, 'staging');
+    await fs.mkdir(join(staging, 'wiki', 'concepts'), { recursive: true });
+    await fs.mkdir(join(staging, 'wiki', 'security'), { recursive: true });
+    const page = (t: string, ty: string) => `---\ntitle: ${t}\ntype: ${ty}\nrelated: []\n---\n\n# ${t}\n`;
+    await fs.writeFile(join(staging, 'wiki', 'entities', 'widget.md'), page('widget', 'entities'));
+    await fs.writeFile(join(staging, 'wiki', 'concepts', 'lethal-trifecta.md'), page('lethal trifecta', 'concepts'));
+    await fs.writeFile(join(staging, 'wiki', 'security', 'threat-model.md'), page('threat model', 'security'));
+    const r = await applyCandidates(staging, [
+      { kind: 'relation', claim: 'a', from_hint: 'widget', to_hint: 'lethal-trifecta', rel: 'relates' },
+      { kind: 'relation', claim: 'b', from_hint: 'widget', to_hint: 'threat model', rel: 'relates' },
+    ], OPTS());
+    expect(r.edges).toEqual([
+      { from: 'widget', to: 'lethal-trifecta', type: 'relates', confidence: 'medium' },
+      { from: 'widget', to: 'threat-model', type: 'relates', confidence: 'medium' },
+    ]);
+  });
+
   it('a relation can name a page created in the SAME run (relations resolve last)', async () => {
     const staging = join(root, 'staging');
     await fs.writeFile(join(staging, 'wiki', 'entities', 'widget.md'),

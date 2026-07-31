@@ -13,6 +13,7 @@
 import { promises as fs } from 'fs';
 import { join, relative, isAbsolute, resolve } from 'path';
 import { CandidateFact, KIND_TO_CATEGORY } from './candidate-facts.js';
+import { CONTENT_CATEGORIES } from '../constants/kb-schema.js';
 import { validateSlug, assertWithin, PathGuardError } from '../path-guard.js';
 import { slugify } from './raw-inbox.js';
 import { matchFrontmatter } from './frontmatter.js';
@@ -267,7 +268,12 @@ export async function applyCandidates(
   // both endpoints against the live wiki and quarantines whatever does not resolve.
   if (relationFacts.length) {
     const slugsByCat = new Map<string, { slug: string; title: string }[]>();
-    for (const cat of new Set(Object.values(KIND_TO_CATEGORY))) {
+    // EVERY content category, not just the four the writer can CREATE pages in. A relation
+    // may legitimately point at a concepts/, security/, state/ or sources/ page — those exist
+    // and are linkable, they simply are not shapes Stage A emits as facts. Scanning only
+    // KIND_TO_CATEGORY made every such endpoint silently unresolvable, which reads as "the
+    // model proposed a bad edge" when in truth the resolver never looked there.
+    for (const cat of CONTENT_CATEGORIES) {
       const dir = join(wikiRoot, cat);
       let names: string[] = [];
       try { names = (await fs.readdir(dir)).filter((n) => n.endsWith('.md') && n !== 'index.md').sort(); }

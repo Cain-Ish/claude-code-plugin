@@ -577,7 +577,7 @@ async function applyCandidates(stagingRoot, facts, opts) {
   }
   if (relationFacts.length) {
     const slugsByCat = /* @__PURE__ */ new Map();
-    for (const cat of new Set(Object.values(KIND_TO_CATEGORY))) {
+    for (const cat of CONTENT_CATEGORIES) {
       const dir = join(wikiRoot, cat);
       let names = [];
       try {
@@ -640,6 +640,7 @@ var init_consolidate_writer = __esm({
   "src/tools/consolidate-writer.ts"() {
     "use strict";
     init_candidate_facts();
+    init_kb_schema2();
     init_path_guard();
     init_raw_inbox();
     init_frontmatter();
