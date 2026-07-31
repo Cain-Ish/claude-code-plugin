@@ -286,6 +286,14 @@ export interface DreamAcceptResult {
   reason?: string;
 }
 
+/** Wall-clock for dream-accept.sh. Default 10 min: the post-apply steps (FORGET re-score,
+ *  reindex, history snapshot) scale with wiki size and run after live is already mutated, so a
+ *  premature kill is worse than a slow accept. Env override: SB_DREAM_ACCEPT_TIMEOUT_MS. */
+function acceptTimeoutMs(): number {
+  const raw = Number(cleanEnvPath(process.env.SB_DREAM_ACCEPT_TIMEOUT_MS));
+  return Number.isFinite(raw) && raw >= 30_000 ? raw : 600_000;
+}
+
 export async function dreamAccept(
   args: DreamAcceptArgs
 ): Promise<DreamAcceptResult> {
@@ -293,7 +301,12 @@ export async function dreamAccept(
     const { stdout, stderr } = await exec(
       resolveBashExe(), // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join(scriptsDir(), "dream-accept.sh")), args.dream_id],
-      { timeout: 30_000, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
+      // ACCEPT_TIMEOUT_MS, not 30s: the accept now runs wiki-size-unbounded work AFTER it has
+      // already mutated the live wiki — the FORGET re-score (wiki-forget-score.sh measured at
+      // ~105s on a 237-page wiki), the reindex, and the history snapshot. A 30s kill therefore
+      // reported ok:false on an accept that had partially applied, with the forget manifest
+      // half-consumed and no snapshot recorded. Overridable for slow/huge wikis.
+      { timeout: acceptTimeoutMs(), env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
     );
     const output = stdout.trim();
     if (output) return { ok: true, summary: output };

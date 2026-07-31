@@ -16,6 +16,11 @@ export interface CandidateFact {
   evidence?: string;
   source?: string;
   confidence?: string;
+  /** kind:"relation" only — free-text endpoints Stage B resolves to real slugs. */
+  from_hint?: string;
+  to_hint?: string;
+  /** Closed to `relates` for the unattended lane (see kb-schema _comment). */
+  rel?: string;
 }
 
 export interface ValidatedFacts {
@@ -26,6 +31,7 @@ export interface ValidatedFacts {
 const ITEM_PROPS = CANDIDATE_FACTS.json_schema.properties.facts.items.properties;
 export const FACT_KINDS: readonly string[] = ITEM_PROPS.kind.enum;
 export const KIND_TO_CATEGORY: Record<string, string> = CANDIDATE_FACTS.kind_to_category;
+export const RELATION_EDGE_TYPES: readonly string[] = CANDIDATE_FACTS.relation_edge_types;
 export const MAX_FACTS: number = CANDIDATE_FACTS.json_schema.properties.facts.maxItems;
 const CAPS: Record<string, number> = Object.fromEntries(
   Object.entries(ITEM_PROPS)
@@ -93,6 +99,19 @@ export function validateCandidateFacts(raw: unknown): ValidatedFacts {
     if (typeof f.evidence === 'string') fact.evidence = sanitizeFactLine(f.evidence);
     if (typeof f.source === 'string') fact.source = sanitizeFactLine(f.source);
     if (typeof f.confidence === 'string') fact.confidence = f.confidence;
+    // A relation fact is only useful if it names BOTH endpoints with a permitted edge type.
+    // Rejecting here (rather than silently dropping downstream) keeps the count visible.
+    if (kind === 'relation') {
+      const fh = typeof f.from_hint === 'string' ? sanitizeFactLine(f.from_hint) : '';
+      const th = typeof f.to_hint === 'string' ? sanitizeFactLine(f.to_hint) : '';
+      const rl = typeof f.rel === 'string' ? f.rel : 'relates';
+      if (!fh || !th) { out.rejected.push({ index, reason: 'relation fact missing from_hint/to_hint' }); return; }
+      if (!RELATION_EDGE_TYPES.includes(rl)) {
+        out.rejected.push({ index, reason: `relation rel '${rl}' not permitted unattended (allowed: ${RELATION_EDGE_TYPES.join(', ')})` });
+        return;
+      }
+      fact.from_hint = fh; fact.to_hint = th; fact.rel = rl;
+    }
     if (fact.claim.trim().length === 0) { out.rejected.push({ index, reason: 'claim empty after sanitization' }); return; }
     out.facts.push(fact);
   });

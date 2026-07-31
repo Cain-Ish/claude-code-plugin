@@ -20,6 +20,7 @@ export const RAW_STATUSES: readonly string[] = schema.raw.statuses;
  * map. Both sides read THIS object (bash: jq .candidate_facts.json_schema) — never a copy. */
 export const CANDIDATE_FACTS: {
   kind_to_category: Record<string, string>;
+  relation_edge_types: string[];
   json_schema: any;
 } = schema.candidate_facts;
 

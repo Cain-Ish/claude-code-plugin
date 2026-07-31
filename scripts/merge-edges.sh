@@ -6,14 +6,19 @@
 # appends an op:assert line or quarantines the edge. JSONL line format is the
 # contract shared with mcp/src/tools/graph-store.ts.
 #
-# Usage: echo '<delta-json>' | bash merge-edges.sh --knowledge-dir <dir>
+# Usage: echo '<delta-json>' | bash merge-edges.sh --knowledge-dir <dir> [--source <tag>]
 set -u
 source "$(dirname "$0")/lib.sh"
 
 KNOWLEDGE_DIR=""
+# Cohort tag written into every edge this batch appends. Attribution is the machine lock behind
+# reversibility: one jq loop can invalidate every edge from a bad cohort (e.g. `dream:<id>`)
+# without touching hand-curated ones. Default keeps the historical value.
+EDGE_SOURCE="extractor"
 while [ $# -gt 0 ]; do
   case "$1" in
     --knowledge-dir) KNOWLEDGE_DIR="$2"; shift 2 ;;
+    --source) EDGE_SOURCE=$(printf '%s' "$2" | tr -cd 'A-Za-z0-9:._-' | cut -c1-64); shift 2 ;;
     *) echo "merge-edges: unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -120,10 +125,10 @@ echo "$RAW" | jq -c '.relations[]?' 2>/dev/null | while IFS= read -r rel; do
   # build the record (valid_from optional)
   if [ -n "$vf" ]; then
     rec=$(jq -nc --arg f "$sfrom" --arg t "$sto" --arg ty "$type" --arg vf "$vf" --arg now "$NOW" --arg c "$conf" \
-      '{op:"assert",from:$f,to:$t,type:$ty,valid_from:$vf,valid_to:null,recorded_at:$now,source:"extractor",confidence:$c}')
+      --arg src "$EDGE_SOURCE" '{op:"assert",from:$f,to:$t,type:$ty,valid_from:$vf,valid_to:null,recorded_at:$now,source:$src,confidence:$c}')
   else
     rec=$(jq -nc --arg f "$sfrom" --arg t "$sto" --arg ty "$type" --arg now "$NOW" --arg c "$conf" \
-      '{op:"assert",from:$f,to:$t,type:$ty,valid_to:null,recorded_at:$now,source:"extractor",confidence:$c}')
+      --arg src "$EDGE_SOURCE" '{op:"assert",from:$f,to:$t,type:$ty,valid_to:null,recorded_at:$now,source:$src,confidence:$c}')
   fi
 
   # endpoint guard: both must resolve to real pages, else quarantine

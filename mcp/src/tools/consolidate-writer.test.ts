@@ -82,15 +82,16 @@ describe('applyCandidates', () => {
     expect(page).toContain('<!-- graph:end -->'); // generated region intact
   });
 
-  it('skips preference/relation kinds, naming them DROPPED (no consumer exists yet)', async () => {
+  it('preference is DROPPED (still no consumer); relation is handled by the edge lane, not dropped', async () => {
     const r = await applyCandidates(join(root, 'staging'), [
       { kind: 'preference', claim: 'user prefers terse replies' },
-      { kind: 'relation', claim: 'A requires B' },
+      { kind: 'relation', claim: 'A relates to B', from_hint: 'nothing here', to_hint: 'nor here', rel: 'relates' },
     ], OPTS());
     expect(r.added).toEqual([]);
-    expect(r.skipped).toHaveLength(2);
-    expect(r.skipped[0].reason).toMatch(/DROPPED/);
-    expect(r.skipped[1].reason).toMatch(/live maintainer/);
+    expect(r.skipped.find((x) => x.kind === 'preference')?.reason).toMatch(/DROPPED/);
+    // The relation reached the edge lane and failed on RESOLUTION, not on being unsupported.
+    expect(r.skipped.find((x) => x.kind === 'relation')?.reason).toMatch(/endpoint unresolved/);
+    expect(r.edges).toBeUndefined();
   });
 
   // THE regression test for the vacuous-threshold bug. The old BM25 seam returned
@@ -110,6 +111,38 @@ describe('applyCandidates', () => {
     const victim = await fs.readFile(join(staging, 'wiki', 'decisions', 'database-backup-retention.md'), 'utf-8');
     expect(victim).not.toContain('Vite');
     expect(victim).not.toContain('## Candidate facts (untrusted)');
+  });
+
+  it('relation facts resolve to edges only when BOTH endpoints are unambiguous', async () => {
+    const staging = join(root, 'staging');
+    await fs.mkdir(join(staging, 'wiki', 'decisions'), { recursive: true });
+    await fs.writeFile(join(staging, 'wiki', 'entities', 'widget.md'),
+      '---\ntitle: widget\ntype: entities\nrelated: []\n---\n\n# widget\n');
+    await fs.writeFile(join(staging, 'wiki', 'decisions', 'adopt-vite.md'),
+      '---\ntitle: adopt vite\ntype: decisions\nrelated: []\n---\n\n# adopt vite\n');
+    const r = await applyCandidates(staging, [
+      { kind: 'relation', claim: 'widget relates to the vite decision', from_hint: 'widget', to_hint: 'adopt vite', rel: 'relates' },
+      { kind: 'relation', claim: 'dangling', from_hint: 'widget', to_hint: 'no such page here', rel: 'relates' },
+      { kind: 'relation', claim: 'self', from_hint: 'widget', to_hint: 'widget', rel: 'relates' },
+    ], OPTS());
+    expect(r.edges).toEqual([{ from: 'widget', to: 'adopt-vite', type: 'relates', confidence: 'medium' }]);
+    const reasons = r.skipped.map((x) => x.reason).join(' ');
+    expect(reasons).toMatch(/unresolved/);
+    expect(reasons).toMatch(/self-loop/);
+    // Stage B must NEVER write the live graph itself.
+    expect(r.added.concat(r.updated).some((p) => p.includes('graph'))).toBe(false);
+  });
+
+  it('a relation can name a page created in the SAME run (relations resolve last)', async () => {
+    const staging = join(root, 'staging');
+    await fs.writeFile(join(staging, 'wiki', 'entities', 'widget.md'),
+      '---\ntitle: widget\ntype: entities\nrelated: []\n---\n\n# widget\n');
+    const r = await applyCandidates(staging, [
+      { kind: 'relation', claim: 'links to the new page', from_hint: 'widget', to_hint: 'brand new finding', rel: 'relates' },
+      { kind: 'learning', title: 'brand new finding', claim: 'something learned' },
+    ], OPTS());
+    expect(r.added).toEqual(['learnings/brand-new-finding.md']);
+    expect(r.edges).toEqual([{ from: 'widget', to: 'brand-new-finding', type: 'relates', confidence: 'medium' }]);
   });
 
   it('fold-in matching is explainable: exact slug, or the page title fully contained in the fact', () => {

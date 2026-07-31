@@ -27871,8 +27871,9 @@ var kb_schema_default = {
     }
   },
   candidate_facts: {
-    _comment: "Stage A <-> Stage B contract for the P6 quarantined consolidation split. json_schema is passed VERBATIM to the Stage A summarizer spawn (claude -p --json-schema, validator-enforced from CLI 2.1.205) by scripts/maintain-llm-drain.sh (jq -c .candidate_facts.json_schema). The Stage B writer (mcp/src/tools/candidate-facts.ts) validates against the SAME object, deriving the kind vocabulary and byte caps from it - never a second copy. kind_to_category maps writable kinds to wiki categories; kinds absent from the map (preference, relation) are SKIPPED by the writer with a logged reason: preferences route to attended persona lanes, relations to the live maintainer (edge writes are live-maintainer-only).",
+    _comment: "Stage A <-> Stage B contract for the P6 quarantined consolidation split. json_schema is passed VERBATIM to the Stage A summarizer spawn (claude -p --json-schema, validator-enforced from CLI 2.1.205) by scripts/maintain-llm-drain.sh (jq -c .candidate_facts.json_schema). The Stage B writer (mcp/src/tools/candidate-facts.ts) validates against the SAME object, deriving the kind vocabulary and byte caps from it - never a second copy. kind_to_category maps writable kinds to wiki categories; kinds absent from the map are handled elsewhere: `preference` is DROPPED (no consumer yet); `relation` carries from_hint/to_hint/rel and becomes a proposed EDGE (Stage B resolves the hints deterministically, dream-accept applies them via merge-edges.sh). `rel` is deliberately restricted to `relates` for the unattended lane - typed edges (requires/affects/part_of) and especially `supersedes` stay a live-maintainer judgement: a wrong typed edge distorts knowledge_neighbors blast-radius answers, and a wrong supersedes retires a true page.",
     kind_to_category: { decision: "decisions", learning: "learnings", entity: "entities", issue: "issues" },
+    relation_edge_types: ["relates"],
     json_schema: {
       type: "object",
       additionalProperties: false,
@@ -27887,6 +27888,9 @@ var kb_schema_default = {
             required: ["kind", "claim"],
             properties: {
               kind: { type: "string", enum: ["decision", "learning", "entity", "issue", "preference", "relation"] },
+              from_hint: { type: "string", maxLength: 120 },
+              to_hint: { type: "string", maxLength: 120 },
+              rel: { type: "string", enum: ["relates"] },
               title: { type: "string", maxLength: 120 },
               claim: { type: "string", minLength: 1, maxLength: 2e3 },
               evidence: { type: "string", maxLength: 1e3 },
@@ -31833,13 +31837,22 @@ async function dreamList(args) {
   }
   return { ok: true, dreams };
 }
+function acceptTimeoutMs() {
+  const raw = Number(cleanEnvPath(process.env.SB_DREAM_ACCEPT_TIMEOUT_MS));
+  return Number.isFinite(raw) && raw >= 3e4 ? raw : 6e5;
+}
 async function dreamAccept(args) {
   try {
     const { stdout, stderr } = await exec(
       resolveBashExe(),
       // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join14(scriptsDir(), "dream-accept.sh")), args.dream_id],
-      { timeout: 3e4, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
+      // ACCEPT_TIMEOUT_MS, not 30s: the accept now runs wiki-size-unbounded work AFTER it has
+      // already mutated the live wiki — the FORGET re-score (wiki-forget-score.sh measured at
+      // ~105s on a 237-page wiki), the reindex, and the history snapshot. A 30s kill therefore
+      // reported ok:false on an accept that had partially applied, with the forget manifest
+      // half-consumed and no snapshot recorded. Overridable for slow/huge wikis.
+      { timeout: acceptTimeoutMs(), env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
     );
     const output = stdout.trim();
     if (output) return { ok: true, summary: output };

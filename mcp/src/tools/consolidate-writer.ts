@@ -21,6 +21,8 @@ export interface ApplyReport {
   added: string[];
   updated: string[];
   skipped: { kind: string; reason: string }[];
+  /** Edges proposed for the LIVE graph — applied by dream-accept via merge-edges.sh, never here. */
+  edges?: { from: string; to: string; type: string; confidence: string }[];
 }
 
 export interface ApplyOpts {
@@ -165,9 +167,13 @@ export async function applyCandidates(
 ): Promise<ApplyReport> {
   const report: ApplyReport = { added: [], updated: [], skipped: [] };
   const wikiRoot = join(stagingRoot, 'wiki');
+  const relationFacts: CandidateFact[] = [];
 
   for (const f of facts) {
     const category = KIND_TO_CATEGORY[f.kind];
+    // Relations are not pages: they resolve into edges AFTER this loop, so a relation may
+    // reference a page this very run created. Deferred, not dropped.
+    if (f.kind === 'relation') { relationFacts.push(f); continue; }
     if (!category) {
       // DROPPED, not routed: nothing downstream consumes these yet. Preferences would need the
       // persona-rules lane and relations the live maintainer's edge writer; until one of those
@@ -252,5 +258,59 @@ export async function applyCandidates(
       }
     }
   }
+
+  // RELATION PASS — runs after every page fact so a relation can name a page this run created.
+  // Stage B does NOT write edges: `graph/edges.jsonl` is an append-only LIVE log that is
+  // deliberately never snapshotted into a dream (an append-only log cannot be merged back), so
+  // writing it from staging would escape the dream model entirely. Instead we emit a PROPOSAL
+  // that dream-accept feeds to the existing merge-edges.sh at accept time, which re-validates
+  // both endpoints against the live wiki and quarantines whatever does not resolve.
+  if (relationFacts.length) {
+    const slugsByCat = new Map<string, { slug: string; title: string }[]>();
+    for (const cat of new Set(Object.values(KIND_TO_CATEGORY))) {
+      const dir = join(wikiRoot, cat);
+      let names: string[] = [];
+      try { names = (await fs.readdir(dir)).filter((n) => n.endsWith('.md') && n !== 'index.md').sort(); }
+      catch { continue; }
+      const entries: { slug: string; title: string }[] = [];
+      for (const n of names) {
+        let head = '';
+        try { head = (await fs.readFile(join(dir, n), 'utf-8')).slice(0, 400); } catch { continue; }
+        const slug = n.slice(0, -3);
+        entries.push({ slug, title: (head.match(/^title:\s*(.+)$/m)?.[1] || slug).replace(/^["']|["']$/g, '').trim() });
+      }
+      slugsByCat.set(cat, entries);
+    }
+    const all = [...slugsByCat.values()].flat();
+    const resolveHint = (hint: string): string | null => {
+      const want = slugify(hint);
+      if (all.some((e) => e.slug === want)) return want;            // exact slug
+      const ht = titleTokens(hint);
+      if (!ht.length) return null;
+      // Unambiguous title containment only: if two pages match, resolving to "the first" would
+      // be an arbitrary choice dressed up as a decision.
+      const hits = all.filter((e) => { const t = titleTokens(e.title); return t.length > 0 && t.every((x) => ht.includes(x)); });
+      return hits.length === 1 ? hits[0].slug : null;
+    };
+    const edges: { from: string; to: string; type: string; confidence: string }[] = [];
+    const seen = new Set<string>();
+    for (const f of relationFacts) {
+      const from = resolveHint(f.from_hint || '');
+      const to = resolveHint(f.to_hint || '');
+      if (!from || !to) {
+        report.skipped.push({ kind: f.kind, reason: `relation endpoint unresolved (from='${f.from_hint}' to='${f.to_hint}') — no edge proposed` });
+        continue;
+      }
+      if (from === to) { report.skipped.push({ kind: f.kind, reason: `relation is a self-loop on '${from}'` }); continue; }
+      const key = `${from}|${f.rel}|${to}`;
+      if (seen.has(key)) { report.skipped.push({ kind: f.kind, reason: `duplicate relation ${key} (idempotent)` }); continue; }
+      seen.add(key);
+      // confidence is forced to medium: these are transcript-derived guesses, and the graph's
+      // own consumers treat confidence as a trust signal.
+      edges.push({ from, to, type: f.rel || 'relates', confidence: 'medium' });
+    }
+    if (edges.length) report.edges = edges.sort((a, b) => `${a.from}|${a.type}|${a.to}`.localeCompare(`${b.from}|${b.type}|${b.to}`));
+  }
+
   return report;
 }

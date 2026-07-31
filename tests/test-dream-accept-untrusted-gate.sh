@@ -144,4 +144,21 @@ OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 bash "
 [ -f "$KNOWLEDGE_DIR/wiki/learnings/conjured.md" ]   && pass "U8: held page still releasable after its dream dir was pruned"   || fail "U8: hold became permanently unreleasable once the dream was pruned"
 rm -rf "$SB"
 
+# --- U9: Phase 3 — proposed edges reach the LIVE graph through merge-edges ---------
+# Stage B resolves relation facts to slugs but must never write graph/edges.jsonl itself
+# (append-only, live plane, never snapshotted). The accept applies them, tagged per dream so
+# a bad cohort can be invalidated wholesale, and quarantines endpoints that do not resolve.
+setup
+mkdir -p "$D/staging"
+printf '{"relations":[{"from":"p1","to":"trusted-new","type":"relates","confidence":"medium"},{"from":"p1","to":"ghost-page","type":"relates","confidence":"medium"}]}
+'   > "$D/staging/proposed-edges.json"
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "U9: accept failed (rc=$rc): $OUT"
+EDGES="$KNOWLEDGE_DIR/graph/edges.jsonl"
+grep -q '"to":"trusted-new"' "$EDGES"    && pass "U9: a resolvable relation became a live edge" || fail "U9: resolvable edge never reached the graph"
+grep -q '"source":"dream:drm_test"' "$EDGES"    && pass "U9: the edge carries its dream cohort tag (bulk-invalidation possible)"   || fail "U9: edge missing the per-dream source tag"
+grep -q '"to":"ghost-page"' "$EDGES"    && fail "U9: an edge to a non-existent page was written to the live graph"   || pass "U9: unresolvable endpoint kept OUT of the graph"
+[ -s "$KNOWLEDGE_DIR/graph/edges-quarantine.jsonl" ]   && pass "U9: the unresolvable edge was quarantined, not silently dropped"   || fail "U9: unresolvable edge vanished with no quarantine record"
+rm -rf "$SB"
+
 echo "ALL PASS"

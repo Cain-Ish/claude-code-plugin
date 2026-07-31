@@ -392,6 +392,24 @@ if [ -f "$MANIFEST" ]; then
   rm -f "$_ffl"
 fi
 
+# PROPOSED EDGES (Phase 3): Stage B resolved relation facts to slugs but did NOT write them —
+# graph/edges.jsonl is an append-only LIVE log that is never snapshotted into a dream, so it can
+# only be written on this side. merge-edges.sh re-validates BOTH endpoints against the live wiki
+# (a held-untrusted page never resolves, so its edges quarantine instead of dangling), detects
+# contradictions into conflicts.jsonl, and tags the cohort so one jq loop can invalidate this
+# dream's edges wholesale. Fail-soft: a graph hiccup must not fail an applied accept.
+_PE="$DREAM_DIR/staging/proposed-edges.json"
+if [ -s "$_PE" ] && [ -f "$(dirname "$0")/merge-edges.sh" ]; then
+  _PE_N=$(jq -r '(.relations // []) | length' "$_PE"  | tr -d '')
+  if [ "${_PE_N:-0}" -gt 0 ]; then
+    if bash "$(dirname "$0")/merge-edges.sh" --knowledge-dir "$KNOWLEDGE_DIR" --source "dream:$DREAM_ID" < "$_PE" >/dev/null 2>&1; then
+      echo "Proposed $_PE_N relation edge(s) from $DREAM_ID (unresolvable endpoints quarantined)."
+    else
+      sb_log_error "dream-accept" "merge-edges failed for $DREAM_ID's proposed edges (pages applied; graph unchanged)" 0
+    fi
+  fi
+fi
+
 # Reindex
 sb_reindex_wiki "$KNOWLEDGE_DIR"
 

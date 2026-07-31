@@ -111,8 +111,9 @@ var init_kb_schema = __esm({
         }
       },
       candidate_facts: {
-        _comment: "Stage A <-> Stage B contract for the P6 quarantined consolidation split. json_schema is passed VERBATIM to the Stage A summarizer spawn (claude -p --json-schema, validator-enforced from CLI 2.1.205) by scripts/maintain-llm-drain.sh (jq -c .candidate_facts.json_schema). The Stage B writer (mcp/src/tools/candidate-facts.ts) validates against the SAME object, deriving the kind vocabulary and byte caps from it - never a second copy. kind_to_category maps writable kinds to wiki categories; kinds absent from the map (preference, relation) are SKIPPED by the writer with a logged reason: preferences route to attended persona lanes, relations to the live maintainer (edge writes are live-maintainer-only).",
+        _comment: "Stage A <-> Stage B contract for the P6 quarantined consolidation split. json_schema is passed VERBATIM to the Stage A summarizer spawn (claude -p --json-schema, validator-enforced from CLI 2.1.205) by scripts/maintain-llm-drain.sh (jq -c .candidate_facts.json_schema). The Stage B writer (mcp/src/tools/candidate-facts.ts) validates against the SAME object, deriving the kind vocabulary and byte caps from it - never a second copy. kind_to_category maps writable kinds to wiki categories; kinds absent from the map are handled elsewhere: `preference` is DROPPED (no consumer yet); `relation` carries from_hint/to_hint/rel and becomes a proposed EDGE (Stage B resolves the hints deterministically, dream-accept applies them via merge-edges.sh). `rel` is deliberately restricted to `relates` for the unattended lane - typed edges (requires/affects/part_of) and especially `supersedes` stay a live-maintainer judgement: a wrong typed edge distorts knowledge_neighbors blast-radius answers, and a wrong supersedes retires a true page.",
         kind_to_category: { decision: "decisions", learning: "learnings", entity: "entities", issue: "issues" },
+        relation_edge_types: ["relates"],
         json_schema: {
           type: "object",
           additionalProperties: false,
@@ -127,6 +128,9 @@ var init_kb_schema = __esm({
                 required: ["kind", "claim"],
                 properties: {
                   kind: { type: "string", enum: ["decision", "learning", "entity", "issue", "preference", "relation"] },
+                  from_hint: { type: "string", maxLength: 120 },
+                  to_hint: { type: "string", maxLength: 120 },
+                  rel: { type: "string", enum: ["relates"] },
                   title: { type: "string", maxLength: 120 },
                   claim: { type: "string", minLength: 1, maxLength: 2e3 },
                   evidence: { type: "string", maxLength: 1e3 },
@@ -196,6 +200,7 @@ __export(candidate_facts_exports, {
   FACT_KINDS: () => FACT_KINDS,
   KIND_TO_CATEGORY: () => KIND_TO_CATEGORY,
   MAX_FACTS: () => MAX_FACTS,
+  RELATION_EDGE_TYPES: () => RELATION_EDGE_TYPES,
   sanitizeFactLine: () => sanitizeFactLine,
   sanitizeFactString: () => sanitizeFactString,
   validateCandidateFacts: () => validateCandidateFacts
@@ -248,6 +253,22 @@ function validateCandidateFacts(raw) {
     if (typeof f.evidence === "string") fact.evidence = sanitizeFactLine(f.evidence);
     if (typeof f.source === "string") fact.source = sanitizeFactLine(f.source);
     if (typeof f.confidence === "string") fact.confidence = f.confidence;
+    if (kind === "relation") {
+      const fh = typeof f.from_hint === "string" ? sanitizeFactLine(f.from_hint) : "";
+      const th = typeof f.to_hint === "string" ? sanitizeFactLine(f.to_hint) : "";
+      const rl = typeof f.rel === "string" ? f.rel : "relates";
+      if (!fh || !th) {
+        out.rejected.push({ index, reason: "relation fact missing from_hint/to_hint" });
+        return;
+      }
+      if (!RELATION_EDGE_TYPES.includes(rl)) {
+        out.rejected.push({ index, reason: `relation rel '${rl}' not permitted unattended (allowed: ${RELATION_EDGE_TYPES.join(", ")})` });
+        return;
+      }
+      fact.from_hint = fh;
+      fact.to_hint = th;
+      fact.rel = rl;
+    }
     if (fact.claim.trim().length === 0) {
       out.rejected.push({ index, reason: "claim empty after sanitization" });
       return;
@@ -256,7 +277,7 @@ function validateCandidateFacts(raw) {
   });
   return out;
 }
-var ITEM_PROPS, FACT_KINDS, KIND_TO_CATEGORY, MAX_FACTS, CAPS, CONFIDENCE;
+var ITEM_PROPS, FACT_KINDS, KIND_TO_CATEGORY, RELATION_EDGE_TYPES, MAX_FACTS, CAPS, CONFIDENCE;
 var init_candidate_facts = __esm({
   "src/tools/candidate-facts.ts"() {
     "use strict";
@@ -265,6 +286,7 @@ var init_candidate_facts = __esm({
     ITEM_PROPS = CANDIDATE_FACTS.json_schema.properties.facts.items.properties;
     FACT_KINDS = ITEM_PROPS.kind.enum;
     KIND_TO_CATEGORY = CANDIDATE_FACTS.kind_to_category;
+    RELATION_EDGE_TYPES = CANDIDATE_FACTS.relation_edge_types;
     MAX_FACTS = CANDIDATE_FACTS.json_schema.properties.facts.maxItems;
     CAPS = Object.fromEntries(
       Object.entries(ITEM_PROPS).filter(([, p]) => typeof p.maxLength === "number").map(([k, p]) => [k, p.maxLength])
@@ -461,8 +483,13 @@ ${fm.body}`;
 async function applyCandidates(stagingRoot, facts, opts) {
   const report = { added: [], updated: [], skipped: [] };
   const wikiRoot = join(stagingRoot, "wiki");
+  const relationFacts = [];
   for (const f of facts) {
     const category = KIND_TO_CATEGORY[f.kind];
+    if (f.kind === "relation") {
+      relationFacts.push(f);
+      continue;
+    }
     if (!category) {
       report.skipped.push({ kind: f.kind, reason: `kind '${f.kind}' is not writer-applied \u2014 DROPPED this run (no consumer yet: preferences need the persona-rules lane, relations the live maintainer's edge writer)` });
       continue;
@@ -547,6 +574,64 @@ async function applyCandidates(stagingRoot, facts, opts) {
         throw err;
       }
     }
+  }
+  if (relationFacts.length) {
+    const slugsByCat = /* @__PURE__ */ new Map();
+    for (const cat of new Set(Object.values(KIND_TO_CATEGORY))) {
+      const dir = join(wikiRoot, cat);
+      let names = [];
+      try {
+        names = (await fs.readdir(dir)).filter((n) => n.endsWith(".md") && n !== "index.md").sort();
+      } catch {
+        continue;
+      }
+      const entries = [];
+      for (const n of names) {
+        let head = "";
+        try {
+          head = (await fs.readFile(join(dir, n), "utf-8")).slice(0, 400);
+        } catch {
+          continue;
+        }
+        const slug = n.slice(0, -3);
+        entries.push({ slug, title: (head.match(/^title:\s*(.+)$/m)?.[1] || slug).replace(/^["']|["']$/g, "").trim() });
+      }
+      slugsByCat.set(cat, entries);
+    }
+    const all = [...slugsByCat.values()].flat();
+    const resolveHint = (hint) => {
+      const want = slugify(hint);
+      if (all.some((e) => e.slug === want)) return want;
+      const ht = titleTokens(hint);
+      if (!ht.length) return null;
+      const hits = all.filter((e) => {
+        const t = titleTokens(e.title);
+        return t.length > 0 && t.every((x) => ht.includes(x));
+      });
+      return hits.length === 1 ? hits[0].slug : null;
+    };
+    const edges = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const f of relationFacts) {
+      const from = resolveHint(f.from_hint || "");
+      const to = resolveHint(f.to_hint || "");
+      if (!from || !to) {
+        report.skipped.push({ kind: f.kind, reason: `relation endpoint unresolved (from='${f.from_hint}' to='${f.to_hint}') \u2014 no edge proposed` });
+        continue;
+      }
+      if (from === to) {
+        report.skipped.push({ kind: f.kind, reason: `relation is a self-loop on '${from}'` });
+        continue;
+      }
+      const key = `${from}|${f.rel}|${to}`;
+      if (seen.has(key)) {
+        report.skipped.push({ kind: f.kind, reason: `duplicate relation ${key} (idempotent)` });
+        continue;
+      }
+      seen.add(key);
+      edges.push({ from, to, type: f.rel || "relates", confidence: "medium" });
+    }
+    if (edges.length) report.edges = edges.sort((a, b) => `${a.from}|${a.type}|${a.to}`.localeCompare(`${b.from}|${b.type}|${b.to}`));
   }
   return report;
 }
