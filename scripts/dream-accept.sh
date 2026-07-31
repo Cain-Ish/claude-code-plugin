@@ -28,7 +28,9 @@ _release_holds() {
   # fail CLOSED. An operator confirming a hold is not a reason to skip the undo trail.
   if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$RKD/wiki" ]; then
     R_BK="$BRAIN_DIR/wiki-backup-pre-release-$(date -u +%Y%m%d%H%M%SZ).tgz"
-    if ! tar czf "$R_BK" -C "$RKD" wiki 2>/dev/null || [ ! -s "$R_BK" ]; then
+    _RBK="wiki"; [ -d "$RKD/graph" ] && _RBK="wiki graph"
+    # shellcheck disable=SC2086 -- deliberate word-split (two literal path args)
+    if ! tar czf "$R_BK" -C "$RKD" $_RBK 2>/dev/null || [ ! -s "$R_BK" ]; then
       rm -f "$R_BK" 2>/dev/null
       echo "error: refusing to release held pages for $DREAM_ID — could not back up the live wiki first" >&2
       exit 1
@@ -206,7 +208,11 @@ fi
 # duplicate. Restore with: tar xzf <tgz> -C "$KNOWLEDGE_DIR".
 if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$LIVE_WIKI" ]; then
   ACCEPT_BK="$BRAIN_DIR/wiki-backup-pre-accept-$(date -u +%Y%m%d%H%M%SZ).tgz"
-  _bkerr=$(tar czf "$ACCEPT_BK" -C "$KNOWLEDGE_DIR" wiki 2>&1); _bkrc=$?
+  # `wiki` AND `graph`: since Phase 3 the accept also APPENDS to graph/edges.jsonl, so a
+  # wiki-only tarball no longer undoes the whole accept — the very claim it exists to back.
+  _BKP="wiki"; [ -d "$KNOWLEDGE_DIR/graph" ] && _BKP="wiki graph"
+  # shellcheck disable=SC2086 -- deliberate word-split (two literal path args)
+  _bkerr=$(tar czf "$ACCEPT_BK" -C "$KNOWLEDGE_DIR" $_BKP 2>&1); _bkrc=$?
   if [ "$_bkrc" -eq 0 ] && [ -s "$ACCEPT_BK" ]; then
     echo "Backed up live wiki → $ACCEPT_BK before applying."
   else

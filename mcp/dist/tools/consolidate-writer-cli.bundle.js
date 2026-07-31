@@ -602,12 +602,7 @@ async function applyCandidates(stagingRoot, facts, opts) {
     const resolveHint = (hint) => {
       const want = slugify(hint);
       if (all.some((e) => e.slug === want)) return want;
-      const ht = titleTokens(hint);
-      if (!ht.length) return null;
-      const hits = all.filter((e) => {
-        const t = titleTokens(e.title);
-        return t.length > 0 && t.every((x) => ht.includes(x));
-      });
+      const hits = all.filter((e) => isFoldInMatch(hint, hint, e.slug, e.title));
       return hits.length === 1 ? hits[0].slug : null;
     };
     const edges = [];
@@ -631,7 +626,10 @@ async function applyCandidates(stagingRoot, facts, opts) {
       seen.add(key);
       edges.push({ from, to, type: f.rel || "relates", confidence: "medium" });
     }
-    if (edges.length) report.edges = edges.sort((a, b) => `${a.from}|${a.type}|${a.to}`.localeCompare(`${b.from}|${b.type}|${b.to}`));
+    if (edges.length) {
+      const key = (e) => `${e.from}|${e.type}|${e.to}`;
+      report.edges = edges.sort((a, b) => key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+    }
   }
   return report;
 }

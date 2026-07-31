@@ -288,14 +288,14 @@ export async function applyCandidates(
       slugsByCat.set(cat, entries);
     }
     const all = [...slugsByCat.values()].flat();
+    // Reuses isFoldInMatch — the same exported, tested predicate the page lane uses — so
+    // "does this text refer to that page" has ONE definition. The only addition here is the
+    // ambiguity rule: with two matches, picking "the first" would be an arbitrary choice
+    // dressed up as a decision, so it resolves to nothing and the caller says why.
     const resolveHint = (hint: string): string | null => {
       const want = slugify(hint);
-      if (all.some((e) => e.slug === want)) return want;            // exact slug
-      const ht = titleTokens(hint);
-      if (!ht.length) return null;
-      // Unambiguous title containment only: if two pages match, resolving to "the first" would
-      // be an arbitrary choice dressed up as a decision.
-      const hits = all.filter((e) => { const t = titleTokens(e.title); return t.length > 0 && t.every((x) => ht.includes(x)); });
+      if (all.some((e) => e.slug === want)) return want;            // exact slug wins outright
+      const hits = all.filter((e) => isFoldInMatch(hint, hint, e.slug, e.title));
       return hits.length === 1 ? hits[0].slug : null;
     };
     const edges: { from: string; to: string; type: string; confidence: string }[] = [];
@@ -315,7 +315,13 @@ export async function applyCandidates(
       // own consumers treat confidence as a trust signal.
       edges.push({ from, to, type: f.rel || 'relates', confidence: 'medium' });
     }
-    if (edges.length) report.edges = edges.sort((a, b) => `${a.from}|${a.type}|${a.to}`.localeCompare(`${b.from}|${b.type}|${b.to}`));
+    // CODEPOINT compare, never localeCompare: localeCompare is locale- and ICU-sensitive, so
+    // the same edge list could sort differently on two machines — exactly the non-determinism
+    // this writer's contract forbids, and a rule this repo already applies elsewhere.
+    if (edges.length) {
+      const key = (e: { from: string; type: string; to: string }) => `${e.from}|${e.type}|${e.to}`;
+      report.edges = edges.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+    }
   }
 
   return report;
