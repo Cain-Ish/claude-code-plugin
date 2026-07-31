@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# brain-os-run.sh — the OFFLINE ENGINE seam. Asserts the contract that makes it safe to
+# put every out-of-band pass behind one entry point:
+#   - it is OPTIONAL: brain_os:false / SB_BRAIN_OS=off disables the whole offline lane and
+#     nothing else in the plugin changes (the plugin must work without the engine);
+#   - each pass keeps its OWN gate, so enabling the engine changes no defaults;
+#   - a failing pass does not abort the lane, and never fails silently;
+#   - the embedding warm pass writes the wiki vector cache WITHOUT touching live
+#     access-count telemetry (hermeticity);
+#   - the drainer delegates to it (one seam, not four inline blocks).
+# ORACLE: files the passes actually create, and a stub PATH we control.
+set -u
+ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
+ENGINE="$ROOT/scripts/brain-os-run.sh"
+command -v jq >/dev/null 2>&1 || { echo "SKIP: jq absent"; exit 0; }
+PASS=0; FAIL=0
+pass(){ PASS=$((PASS+1)); echo "  PASS: $1"; }
+fail(){ FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
+
+SB=$(mktemp -d); trap 'rm -rf "$SB"' EXIT
+export HOME="$SB" BRAIN_DIR="$SB/brain" KNOWLEDGE_DIR="$SB/knowledge"
+export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOWLEDGE_DIR" CLAUDE_PLUGIN_ROOT="$ROOT"
+mkdir -p "$BRAIN_DIR" "$KNOWLEDGE_DIR/wiki/learnings"
+printf -- '---\ntitle: seed page\ndescription: a seed page for the engine test\ntype: learnings\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# seed page\n\nbody text about widgets and calibration\n' \
+  > "$KNOWLEDGE_DIR/wiki/learnings/seed-page.md"
+
+echo "=== E1: disabled engine is a true no-op ==="
+printf '{"brain_os": false, "auto_improve": true, "auto_maintain": true}\n' > "$BRAIN_DIR/config.json"
+rm -f "$BRAIN_DIR/.last-maintain"
+bash "$ENGINE" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] || fail "E1: disabled engine exited $rc (must be a clean no-op)"
+[ ! -f "$BRAIN_DIR/.last-maintain" ] && pass "E1: brain_os:false runs no pass (deterministic upkeep did not fire)" \
+  || fail "E1: a pass ran despite brain_os:false"
+
+printf '{"brain_os": true, "auto_improve": true}\n' > "$BRAIN_DIR/config.json"
+SB_BRAIN_OS=off bash "$ENGINE" >/dev/null 2>&1
+[ ! -f "$BRAIN_DIR/.last-maintain" ] && pass "E1: SB_BRAIN_OS=off env kill switch also disables the lane" \
+  || fail "E1: env kill switch ignored"
+
+echo "=== E2: enabled engine runs the deterministic pass; per-pass gates still apply ==="
+printf '{"brain_os": true, "auto_improve": true, "auto_maintain": false, "auto_codemap": false, "auto_embed": false}\n' > "$BRAIN_DIR/config.json"
+bash "$ENGINE" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] || fail "E2: engine exited $rc"
+[ -f "$BRAIN_DIR/.last-maintain" ] && pass "E2: deterministic upkeep ran under the engine" \
+  || fail "E2: deterministic upkeep did not run"
+[ ! -d "$BRAIN_DIR/dreams" ] || [ -z "$(ls -A "$BRAIN_DIR/dreams" 2>/dev/null)" ] \
+  && pass "E2: auto_maintain:false kept the token-spending lane OFF" \
+  || fail "E2: consolidation lane ran despite auto_maintain:false"
+
+# auto_improve:false must switch the deterministic pass off even with the engine on.
+rm -f "$BRAIN_DIR/.last-maintain"
+printf '{"brain_os": true, "auto_improve": false, "auto_maintain": false, "auto_codemap": false, "auto_embed": false}\n' > "$BRAIN_DIR/config.json"
+bash "$ENGINE" >/dev/null 2>&1
+[ ! -f "$BRAIN_DIR/.last-maintain" ] && pass "E2: per-pass gate (auto_improve:false) still honored under the engine" \
+  || fail "E2: engine overrode a per-pass gate"
+
+echo "=== E3: embedding warm pass caches vectors without polluting access counts ==="
+if [ -f "$ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js" ] && command -v node >/dev/null 2>&1; then
+  printf '{"brain_os": true, "auto_improve": false, "auto_maintain": false, "auto_codemap": false, "auto_embed": true}\n' > "$BRAIN_DIR/config.json"
+  rm -f "$KNOWLEDGE_DIR/wiki/.embeddings-cache.json" "$BRAIN_DIR/access-counts.json"
+  bash "$ENGINE" >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 0 ] || fail "E3: engine exited $rc during the warm pass"
+  # With embeddings unavailable (no vector deps) the cache legitimately stays absent — assert
+  # the invariant that always holds: the warm pass must never write live access telemetry.
+  [ ! -f "$BRAIN_DIR/access-counts.json" ] \
+    && pass "E3: warm pass wrote NO access-count telemetry (hermetic)" \
+    || fail "E3: warm pass polluted live access-counts.json"
+  if [ -f "$KNOWLEDGE_DIR/wiki/.embeddings-cache.json" ]; then
+    jq -e '.entries | length > 0' "$KNOWLEDGE_DIR/wiki/.embeddings-cache.json" >/dev/null 2>&1 \
+      && pass "E3: wiki embedding cache populated offline" \
+      || fail "E3: cache file written but empty"
+  else
+    echo "  NOTE: no embedding cache — vector deps unavailable here (bm25-only); hermeticity still asserted"
+  fi
+  # Disabling the pass must stop it.
+  rm -f "$KNOWLEDGE_DIR/wiki/.embeddings-cache.json"
+  printf '{"brain_os": true, "auto_improve": false, "auto_maintain": false, "auto_codemap": false, "auto_embed": false}\n' > "$BRAIN_DIR/config.json"
+  bash "$ENGINE" >/dev/null 2>&1
+  [ ! -f "$KNOWLEDGE_DIR/wiki/.embeddings-cache.json" ] \
+    && pass "E3: auto_embed:false skips the warm pass" || fail "E3: warm pass ran despite auto_embed:false"
+else
+  echo "  SKIP: search bundle or node unavailable — warm pass not exercised"
+fi
+
+echo "=== E4: a failing pass is logged, not swallowed, and does not abort the lane ==="
+# Point the engine at a maintain script that fails, via a stub plugin root.
+STUBROOT="$SB/stubroot"; mkdir -p "$STUBROOT/scripts"
+cp "$ROOT/scripts/brain-os-run.sh" "$ROOT/scripts/lib.sh" "$STUBROOT/scripts/"
+printf '#!/bin/bash\nexit 7\n' > "$STUBROOT/scripts/maintain-deterministic.sh"
+chmod +x "$STUBROOT/scripts/maintain-deterministic.sh"
+printf '{"brain_os": true, "auto_improve": true, "auto_maintain": false, "auto_codemap": false, "auto_embed": false}\n' > "$BRAIN_DIR/config.json"
+rm -f "$BRAIN_DIR/error-log.jsonl"
+CLAUDE_PLUGIN_ROOT="$STUBROOT" bash "$STUBROOT/scripts/brain-os-run.sh" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && pass "E4: a failing pass does not abort the lane (engine still exits 0)" \
+  || fail "E4: engine exited $rc — one bad pass wedged the drain cycle"
+grep -q "pass 'maintain' exited" "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  && pass "E4: the failure was logged LOUDLY (error-log)" || fail "E4: pass failure swallowed silently"
+
+echo "=== E5: the drainer delegates to the engine (one seam) ==="
+grep -q 'brain-os-run.sh' "$ROOT/scripts/extract-drain.sh" \
+  && pass "E5: extract-drain.sh calls the engine" || fail "E5: drainer does not call the engine"
+for legacy in maintain-deterministic.sh maintain-llm-drain.sh code-map-cli.bundle.js; do
+  grep -q "$legacy" "$ROOT/scripts/extract-drain.sh" \
+    && fail "E5: '$legacy' still invoked inline in the drainer (two call paths)" \
+    || pass "E5: '$legacy' no longer inline in the drainer"
+done
+
+echo
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ] || exit 1

@@ -22,6 +22,13 @@ test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
 #                          (or env SB_MAINTAINER_AUTO=off) if you want a fully-offline/zero-spend box.
 #   auto_accept  : "safe" — auto-accept only LOW-RISK dream changes; "off" = always manual review,
 #                          "all" = accept everything (not the default — too aggressive).
+#   brain_os     : true  — the OFFLINE ENGINE seam: one entry point for every out-of-band pass
+#                          that processes already-captured knowledge (prune, deterministic
+#                          upkeep, embedding warm pass, consolidation lane, code-map). false =
+#                          no offline processing at all; capture + retrieval keep working and
+#                          consolidation stays on the in-session /second-brain:maintain path.
+#   auto_embed   : true  — free + offline: precompute wiki embeddings on the drainer timer so
+#                          the first search of a session isn't paying to embed changed pages.
 # Idempotent: never clobbers an existing config, so machines that already chose values keep them.
 # wiki_archive_ttl_days:0 = NEVER (the irreversible store stays off).
 test -f "$BRAIN_DIR/config.json" || cat > "$BRAIN_DIR/config.json" <<'JSON'
@@ -29,6 +36,8 @@ test -f "$BRAIN_DIR/config.json" || cat > "$BRAIN_DIR/config.json" <<'JSON'
   "auto_improve": true,
   "auto_maintain": true,
   "auto_accept": "safe",
+  "brain_os": true,
+  "auto_embed": true,
   "retention": {
     "dream_keep_count": 5,
     "bak_ttl_days": 14,

@@ -149,6 +149,8 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_DRAIN_DEFER_PMODE_ONLY` | `0` | `1`: only defer when a `claude -p` (print-mode) process is present, not any interactive session. | MODE | extract-drain.sh:128 | bash |
 | `SB_INTERACTIVE_OVERRIDE` | empty | Force the defer decision: `active` = always defer, `inactive` = never (bypasses pgrep/ps detection). | TESTDBL | extract-drain.sh:33 | bash |
 | `SB_EXTRACT_STUB` | empty | Test stub replacing the real extractor. | TESTDBL | extract-drain.sh:230 | bash |
+| `SB_BRAIN_OS` | `on` | `off` disables the ENTIRE offline engine lane (prune, deterministic upkeep, embedding warm pass, consolidation, code-map). Capture + retrieval keep working. | KS | brain-os-run.sh:33 | bash |
+| `SB_CW_TIMEOUT` | `300` (s) | Stage B (consolidate-writer) wall clock; clamped into the remaining staleness budget so Stage A+B cannot outrun `SB_DREAM_RUN_TIMEOUT`. | TUNE | maintain-llm-drain.sh | bash |
 | `SB_MAINTAIN_INTERVAL` | `3600` (s) | Min interval between deterministic maintenance runs. | TUNE | maintain-deterministic.sh:17 | none |
 | `SB_MAINTAIN_FORCE` | `0` | Bypass the deterministic-maintenance interval. | DEBUG | maintain-deterministic.sh:18 | bash |
 | `SB_MAINTAIN_LLM_FORCE` | `0` | Bypass interval/quarantine guards on the headless LLM maintainer. | DEBUG | maintain-llm-drain.sh:31 | bash |

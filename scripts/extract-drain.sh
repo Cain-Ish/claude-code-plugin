@@ -341,77 +341,13 @@ else
   sb_write_extractor_health "$DRAIN_BACKEND" "ok" "drained $processed this run ($failed failed)"
 fi
 
-# SP-D retention GC: regenerable-only pruning (orphaned
-# embeddings-cache entries, *.bak/*.tgz past retention.bak_ttl_days) must NOT
-# depend on the SP-B auto_improve opt-in — gated behind it, the pruning is
-# silently inert on every default install (bak_ttl_days does nothing).
-[ -f "$(dirname "$0")/sb-prune-archives.sh" ] && bash "$(dirname "$0")/sb-prune-archives.sh" >/dev/null 2>&1 || true
+# OFFLINE ENGINE ("brain-os"): every pass that PROCESSES already-captured knowledge —
+# retention pruning, deterministic upkeep, the embedding warm pass, the quarantined
+# consolidation lane, code-map regen — now lives behind ONE seam instead of four inline
+# blocks here. It runs inside this drainer's single-flight lock and defer guards, keeps
+# each pass's own config gate, and is optional: `brain_os: false` (or SB_BRAIN_OS=off)
+# disables the offline lane entirely and the plugin keeps capturing and retrieving exactly
+# as before. Fail-soft here — a broken engine must never wedge the drain cycle.
+bash "$(dirname "$0")/brain-os-run.sh" >/dev/null 2>&1 ||   sb_log_error "extract-drain.sh" "brain-os engine exited nonzero (drain cycle unaffected)" 1
 
-# SP-B: deterministic consolidation upkeep — opt-in via config.json `auto_improve`. Runs
-# here, inside the drainer's single-flight lock + defer guards, so no second timer is
-# needed. Content-free only (validate/backfill/reindex); the script self-throttles. LLM
-# authoring (raw-drain, dedup, enrich) stays on the explicit /second-brain:maintain path.
-if [ "$(sb_config_bool .auto_improve on)" = "on" ]; then
-  bash "$(dirname "$0")/maintain-deterministic.sh" >/dev/null 2>&1 || true
-fi
-
-# C (headless-LLM maintainer): a SEPARATE, stronger consent than auto_improve — it runs the
-# QUARANTINED zero-tool summarizer (costs tokens, needs the OAuth grant) over a staged dream,
-# with the quarantine attested at runtime and bwrap as additive defense where functional.
-# Self-gated on auto_maintain + the CLI schema-enforcement floor; weekly-throttled; the
-# auto-accept gate applies per config.json auto_accept.
-if [ "$(sb_config_bool .auto_maintain on)" = "on" ]; then
-  bash "$(dirname "$0")/maintain-llm-drain.sh" >/dev/null 2>&1 || true
-fi
-
-# P3a Task C2: out-of-band code-map regen (deterministic, content-free). Default on;
-# the CLI self-gates on git-rev drift (drift.ts isStale) so a fresh tree costs one
-# git probe — the heavy walk stays OUT of any Claude session (autonomy + cost).
-# Runs inside this drainer's single-flight lock like the maintain blocks above.
-# Kill switch: auto_codemap:false in config.json.
-if [ "$(sb_config_bool .auto_codemap on)" = "on" ]; then
-  # The drainer has no session cwd: target SB_CODEMAP_REPO when set, else the
-  # most-recently-active project's root_path from the registry (the same source
-  # session-load.sh trusts). Multi-repo users get each repo mapped as it becomes
-  # the most recent — a documented v1 limit (plan Task C2).
-  CM_REPO="${SB_CODEMAP_REPO:-}"
-  if [ -z "$CM_REPO" ] && [ -f "$BRAIN_DIR/projects.jsonl" ]; then
-    # -R + per-line fromjson?: ONE garbage line must not kill the whole slurp
-    # (a plain -s aborts on it and misreports a present-but-corrupt registry as
-    # empty — skeptic-review finding; corrupt projects.jsonl is a real class
-    # here and sb_harden_projects_jsonl deliberately leaves unparseable files
-    # intact). select(.root_path): the newest record may lack root_path (it is
-    # optional) — an older mappable repo must still win. tr -d '\r': Windows jq
-    # emits CRLF on stdout (would poison the -d test below with a CR suffix).
-    CM_REPO=$(jq -Rrs 'split("\n") | map(fromjson? | select(type=="object") | select(.root_path)) | max_by(.last_session_iso // "") | .root_path // empty' \
-      "$BRAIN_DIR/projects.jsonl" 2>/dev/null | tr -d '\r')
-  fi
-  if [ -n "$CM_REPO" ] && [ -d "$CM_REPO" ]; then
-    # Flat dist path — the bundle lives at dist/tools/ (NOT dist/tools/codemap/).
-    # Fail LOUD on a missing bundle: a silent
-    # `[ -f ] … || true` here would no-op the whole regen forever on a path typo.
-    CM_CLI="$(sb_plugin_root)/mcp/dist/tools/code-map-cli.bundle.js"
-    if [ -f "$CM_CLI" ] && command -v node >/dev/null 2>&1; then
-      # Real failures stay LOUD (error-log). The CLI is a fail-soft boundary —
-      # it ALWAYS exits 0 and reports failures as 'code-map: ERROR …' on
-      # stderr — so `|| log` alone is DEAD CODE for every failure the CLI can
-      # actually hit (skeptic-review must-fix: an unwritable store would
-      # silently no-op every tick forever). Capture stderr and match the ERROR
-      # marker; `||` still covers node-binary/bundle-load crashes (nonzero).
-      CM_ERR=$(CLAUDE_PROJECT_DIR="$CM_REPO" node "$CM_CLI" 2>&1 >/dev/null) || \
-        sb_log_error "extract-drain.sh" "codemap regen crashed for $CM_REPO: ${CM_ERR:0:200}" 1
-      case "$CM_ERR" in *"code-map: ERROR"*)
-        sb_log_error "extract-drain.sh" "codemap regen failed for $CM_REPO: ${CM_ERR:0:200}" 1 ;;
-      esac
-    else
-      sb_log_error "extract-drain.sh" "codemap regen skipped: bundle or node missing ($CM_CLI)" 1
-    fi
-  else
-    # NORMAL state (empty registry pre-first-session), never a silent no-op —
-    # but the drainer ticks every 30 min, so an error-log line here is the
-    # failed-dream-banner spam class. gate=* + ec=0 routes it to the audit-log
-    # TRACE channel (R6b, sb_log_error).
-    sb_log_error "extract-drain.sh" "gate=codemap-skip: no target repo (SB_CODEMAP_REPO unset; registry empty or root_path missing: '${CM_REPO:-}')" 0
-  fi
-fi
 exit 0
