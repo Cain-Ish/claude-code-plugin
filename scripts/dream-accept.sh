@@ -30,6 +30,52 @@ fi
 
 ARCHIVED=$(jq -r '.archived_at // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
 if [ -n "$ARCHIVED" ] && [ "$ARCHIVED" != "null" ]; then
+  # Release path for the held-untrusted gate: an already-accepted dream whose held
+  # pages are being confirmed after the fact. Applies ONLY the held pages (paths come
+  # from our own filesystem walk, not user input), reindexes, and clears the hold.
+  if [ "${SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED:-0}" = "1" ] && [ -d "$DREAM_DIR/held-untrusted" ]; then
+    RKD="$(sb_knowledge_dir)"; RKD=$(_to_msys "$RKD")
+    # Same reversibility floor as every other apply path (0.28.1): tarball live FIRST and
+    # fail CLOSED. An operator confirming a hold is not a reason to skip the undo trail.
+    if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$RKD/wiki" ]; then
+      R_BK="$BRAIN_DIR/wiki-backup-pre-release-$(date -u +%Y%m%d%H%M%SZ).tgz"
+      if ! tar czf "$R_BK" -C "$RKD" wiki 2>/dev/null || [ ! -s "$R_BK" ]; then
+        rm -f "$R_BK" 2>/dev/null
+        echo "error: refusing to release held pages for $DREAM_ID — could not back up the live wiki first" >&2
+        exit 1
+      fi
+    fi
+    RN=0; RSKIP=0
+    while IFS= read -r _hf; do
+      [ -n "$_hf" ] || continue
+      _rel=${_hf#"$DREAM_DIR/held-untrusted/"}
+      _dest="$RKD/wiki/$_rel"
+      # A live page may have appeared at this slug while the hold sat here (the drainer and
+      # the maintainer keep writing). NEVER clobber it, and never write THROUGH a symlink.
+      if [ -L "$_dest" ]; then
+        echo "RELEASE: skipping '$_rel' — destination is a symlink (never written through)" >&2
+        RSKIP=$((RSKIP + 1)); continue
+      fi
+      if [ -e "$_dest" ]; then
+        echo "RELEASE: skipping '$_rel' — a live page now exists at that slug (held copy kept, not applied)" >&2
+        RSKIP=$((RSKIP + 1)); continue
+      fi
+      if mkdir -p "$RKD/wiki/$(dirname "$_rel")" && cp -p "$_hf" "$_dest"; then
+        rm -f "$_hf" 2>/dev/null; RN=$((RN + 1))
+      else
+        echo "RELEASE: FAILED to write '$_rel' (held copy kept)" >&2
+        sb_log_error "dream-accept" "held-untrusted release failed for $_rel in $DREAM_ID (held copy retained)" 0
+        RSKIP=$((RSKIP + 1))
+      fi
+    done < <(find "$DREAM_DIR/held-untrusted" -type f -name '*.md' 2>/dev/null)
+    if [ "$RN" -gt 0 ] || [ "$RSKIP" -gt 0 ]; then
+      # Only drop the hold area once nothing is left un-released; skipped pages stay held.
+      [ "$RSKIP" -eq 0 ] && rm -rf "$DREAM_DIR/held-untrusted"
+      [ "$RN" -gt 0 ] && sb_reindex_wiki "$RKD"
+      echo "RELEASED $RN previously-held untrusted page(s) into the live wiki (confirmed); $RSKIP skipped/retained."
+      exit 0
+    fi
+  fi
   echo "error: dream $DREAM_ID already accepted/archived at $ARCHIVED" >&2
   exit 1
 fi
@@ -147,6 +193,52 @@ if [ "${SB_DREAM_ACCEPT_SKIP_BACKUP:-0}" != "1" ] && [ -d "$LIVE_WIKI" ]; then
     # bug (`tar -f C:\...` → "Cannot connect to C:") for a whole release. Never overwrite unprotected.
     echo "error: refusing accept of $DREAM_ID — could not back up the live wiki first; not overwriting live unprotected. tar (rc=$_bkrc): ${_bkerr:-<no stderr>}. If the wiki is genuinely fine, override with SB_DREAM_ACCEPT_SKIP_BACKUP=1." >&2
     exit 1
+  fi
+fi
+
+# Held-untrusted confirm gate (P6 arm-gate): a NEW page that exists only because the
+# quarantined summarizer distilled it from transcripts (provenance: untrusted-derived,
+# no live counterpart) is exactly what a poisoned transcript could conjure from nothing.
+# Without explicit confirmation, HOLD it — a reversible move to $DREAM_DIR/held-untrusted/
+# (never deleted, excluded from the apply below) — and apply the rest of the dream.
+# Confirm with SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 (auto_accept=all passes it; safe-mode
+# auto-accept refuses upstream via sb_auto_accept_decision). A page that UPDATES a live
+# page is corroborated by that page's existence and applies normally.
+# Two shapes of untrusted write, both handled here:
+#   NEW page  (provenance: untrusted-derived, no live counterpart) → MOVED to held-untrusted/
+#   FOLD-IN   (untrusted bullets appended to an existing live page) → staging copy REVERTED to
+#             the live bytes, so the apply below is a no-op for that page.
+# Without the fold-in arm the gate would be trivially bypassable: the writer's UPDATE lane
+# appends transcript-derived claims to pages that already exist live, which are not "new"
+# and so would sail through unattended.
+# FAIL-LOUD, FAIL-CLOSED: if any hold/revert step fails we ABORT the accept. Continuing would
+# leave the unconfirmed page in staging and the apply below would merge it into live — the
+# exact outcome this gate exists to prevent. (Nothing has been written to live at this point.)
+HELD_N=0
+if [ "${SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED:-0}" != "1" ] && [ -d "$STAGING_WIKI" ]; then
+  HELD_LIST=""
+  while IFS= read -r _uf; do
+    [ -n "$_uf" ] || continue
+    _rel=${_uf#"$STAGING_WIKI/"}
+    if [ -f "$LIVE_WIKI/$_rel" ]; then
+      # Fold-in: restore the live bytes over the staging copy (revert the untrusted append).
+      if ! cp -p "$LIVE_WIKI/$_rel" "$_uf"; then
+        echo "error: refusing accept of $DREAM_ID — could not revert untrusted fold-in on '$_rel'; aborting rather than applying unconfirmed untrusted content" >&2
+        sb_log_error "dream-accept" "untrusted fold-in revert failed for $_rel in $DREAM_ID — accept ABORTED (fail-closed)" 0
+        exit 1
+      fi
+      HELD_N=$((HELD_N + 1)); HELD_LIST="$HELD_LIST $_rel(fold-in reverted)"
+      continue
+    fi
+    if ! mkdir -p "$DREAM_DIR/held-untrusted/$(dirname "$_rel")" || ! mv "$_uf" "$DREAM_DIR/held-untrusted/$_rel"; then
+      echo "error: refusing accept of $DREAM_ID — could not hold untrusted-only new page '$_rel'; aborting rather than applying it unconfirmed" >&2
+      sb_log_error "dream-accept" "held-untrusted hold failed for $_rel in $DREAM_ID — accept ABORTED (fail-closed; the page stayed in staging and would otherwise have been applied)" 0
+      exit 1
+    fi
+    HELD_N=$((HELD_N + 1)); HELD_LIST="$HELD_LIST $_rel"
+  done < <(grep -rlE '^provenance: untrusted-derived|^## Candidate facts \(untrusted\)' "$STAGING_WIKI" 2>/dev/null)
+  if [ "$HELD_N" -gt 0 ]; then
+    echo "HELD $HELD_N untrusted write(s) pending confirm:$HELD_LIST (release: re-accept with SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1)"
   fi
 fi
 
