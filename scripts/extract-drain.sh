@@ -214,9 +214,13 @@ else
     lage=$(( $(date +%s) - ${lmtime:-0} ))
     if [ "$lage" -gt "$STALE" ]; then
       # Steal a stale lock, but guard the steal race: if two runs both steal, each
-      # rmdir+mkdir can "succeed", so write our PID and read it back — only the last
+      # clear+mkdir can "succeed", so write our PID and read it back — only the last
       # writer owns it; the other exits. (Bounded anyway: schedulers fire one/interval.)
-      rmdir "$LOCK_DIR" 2>/dev/null; mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+      # rm -rf, NOT rmdir: the steal path itself writes $LOCK_DIR/pid, so a run killed
+      # after that point leaves the dir NON-EMPTY — rmdir then fails forever, mkdir
+      # fails, and every future run exits 0 while the queue ages past the eviction cap
+      # (the 2026-07 six-day wedge: scheduler green 48x/day, 17 transcripts lost).
+      rm -rf "$LOCK_DIR" 2>/dev/null; mkdir "$LOCK_DIR" 2>/dev/null || exit 0
       echo "$$" > "$LOCK_DIR/pid" 2>/dev/null
       [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] || exit 0
     else

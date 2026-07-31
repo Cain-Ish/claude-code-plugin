@@ -438,6 +438,26 @@ bash "$DRAIN" >/dev/null 2>&1 || true
   && ok "observation GC: fresh ledger kept" \
   || no "observation GC: fresh ledger was deleted"
 
+# --- lock steal must clear a NON-EMPTY stale lock dir ------------------------
+# The steal path itself writes $LOCK_DIR/pid, so any run killed after that point
+# (sleep, SIGKILL, session teardown — the EXIT trap never fires) leaves the dir
+# non-empty. rmdir cannot remove a non-empty dir, mkdir then fails, and the run
+# exits 0: the scheduler fires forever while draining nothing, and queued
+# transcripts age out of the eviction cap un-mined. The steal must remove
+# whatever a dead run left behind. Staleness is overridden here only to REACH
+# the steal branch; the mechanism under test is the clear itself.
+LOCK="$BRAIN_DIR/.extract-drain.lock.d"
+mkdir -p "$LOCK"; echo "99999" > "$LOCK/pid"
+sleep 2
+SB_DRAIN_FORCE_MKDIR_LOCK=1 SB_DRAIN_LOCK_STALE=1 SB_EXTRACT_STUB="$STUB" \
+  bash "$DRAIN" >/dev/null 2>&1 || true
+if [ "$(cat "$LOCK/pid" 2>/dev/null)" = "99999" ]; then
+  no "lock steal: dead run's non-empty lock dir still wedged (pid 99999 survives)"
+else
+  ok "lock steal: non-empty stale lock cleared, drainer proceeded"
+fi
+rm -rf "$LOCK" 2>/dev/null || true
+
 echo ""
 echo "Results C2: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -308,5 +308,33 @@ else
 fi
 rm -rf "$SP_BRAIN" "$SP_KNOW" "$SPOFF_BRAIN"
 
+# --- mid-session cache-refresh relink guard --------------------------------
+# /plugin update + /reload-plugins re-point CLAUDE_PLUGIN_ROOT to a FRESH version
+# dir whose mcp/node_modules junction does not exist yet (the marketplace ships
+# dist/, never node_modules). SessionStart's auto-relink only fires at the NEXT
+# session, so without a per-prompt guard every prompt for the REST of the current
+# session silently degrades to bm25-only (hit three times on 2026-07-30 alone).
+RL_ROOT=$(mktemp -d); RL_BRAIN=$(mktemp -d)
+mkdir -p "$RL_ROOT/mcp/dist/tools" "$RL_ROOT/bin"
+printf 'console.log("")\n' > "$RL_ROOT/mcp/dist/tools/context-serve-cli.bundle.js"
+cat > "$RL_ROOT/bin/install-vector-deps.sh" <<'RLS'
+#!/bin/bash
+echo "$1" >> "$(cd "$(dirname "$0")/.." && pwd)/relink-invoked"
+mkdir -p "$(cd "$(dirname "$0")/.." && pwd)/mcp/node_modules/@huggingface/transformers"
+exit 0
+RLS
+chmod +x "$RL_ROOT/bin/install-vector-deps.sh"
+printf '{"prompt":"check the model ladder resolution here"}' \
+  | CLAUDE_PLUGIN_ROOT="$RL_ROOT" BRAIN_DIR="$RL_BRAIN" bash "$SCRIPT" >/dev/null 2>&1
+[ -f "$RL_ROOT/relink-invoked" ] && grep -q -- '--relink-only' "$RL_ROOT/relink-invoked" \
+  || fail "relink guard: missing junction did not trigger --relink-only relink"
+pass "relink guard: fresh cache without node_modules triggers a no-network relink"
+printf '{"prompt":"check the model ladder resolution again"}' \
+  | CLAUDE_PLUGIN_ROOT="$RL_ROOT" BRAIN_DIR="$RL_BRAIN" bash "$SCRIPT" >/dev/null 2>&1
+[ "$(grep -c . "$RL_ROOT/relink-invoked")" = "1" ] \
+  || fail "relink guard: re-invoked though the junction now exists (must be once-only)"
+pass "relink guard: present junction skips the relink (no per-prompt spawn)"
+rm -rf "$RL_ROOT" "$RL_BRAIN"
+
 echo
 echo "ALL PASS"

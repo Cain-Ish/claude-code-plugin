@@ -46,4 +46,24 @@ printf '%s' "$OUT" | grep -q 'CHARTER_TAIL_MARKER' \
   || fail "persona ## Charter (the 3rd forced section) did not land at SessionStart"
 pass "persona Charter lands at SessionStart, reserved within the 10K ceiling"
 
+# --- section-priority: an over-cap PROJECT.md must still inject its payload ---
+# 2026-07 incident: the live PROJECT.md sat at ~8KB while the emit cap is 3000B; the
+# blunt head cut kept whatever was at the TOP (Goal/State/Plan) and silently dropped
+# Conventions, Recent decisions, and Open blockers — the operational payload the hot
+# tier exists to deliver — at EVERY SessionStart. Selection must be by section
+# priority, not file order; the State tail is what gives way.
+{ printf -- '---\ntitle: p\n---\n# PROJECT: x\n\n## Goal\nGoal line here.\n\n## State\n'
+  for i in $(seq 1 80); do printf -- '- state filler %s with plenty of descriptive padding bytes for volume.\n' "$i"; done
+  printf -- '- STATE_DEEP_TAIL_MARKER\n\n## Conventions\n- CONVENTION_MARKER keep tests green.\n\n## Recent decisions\n- [decision] DECISION_MARKER chose X.\n\n## Open blockers\n- [active] BLOCKER_MARKER fix Y.\n'
+} > "$B/projects/$SLUG/PROJECT.md"
+PSZ=$(wc -c < "$B/projects/$SLUG/PROJECT.md" | tr -d ' ')
+[ "$PSZ" -gt 3000 ] || fail "fixture too small ($PSZ B) — must exceed the 3000B emit cap"
+OUT=$(printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
+  | env PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$PROJDIR" BRAIN_DIR="$B" ANTHROPIC_API_KEY="" bash "$SL" 2>/dev/null)
+printf '%s' "$OUT" | grep -q 'BLOCKER_MARKER'    || fail "over-cap PROJECT.md: blockers dropped (head-cut instead of section priority)"
+printf '%s' "$OUT" | grep -q 'DECISION_MARKER'   || fail "over-cap PROJECT.md: decisions dropped"
+printf '%s' "$OUT" | grep -q 'CONVENTION_MARKER' || fail "over-cap PROJECT.md: conventions dropped"
+printf '%s' "$OUT" | grep -q 'STATE_DEEP_TAIL_MARKER' && fail "over-cap PROJECT.md: State deep tail survived — nothing was trimmed, cap not honored?"
+pass "over-cap PROJECT.md: blockers+decisions+conventions injected; State tail gave way"
+
 rm -rf "$B" "$PROJDIR" "$STUB"; echo; echo "ALL PASS"
