@@ -58,4 +58,35 @@ echo '{"relations":[{"from":"page-a","to":"page-b","type":"affects","valid_from"
 grep -q '"valid_from":"2026-05-29"' "$LOG" || fail "valid_from not recorded"
 pass "valid_from passes through"
 
+# --- --source cohort tagging (Phase 3): edges must be attributable ------------
+# Attribution IS the reversibility lock: one jq loop invalidates a bad dream's edges
+# without touching curated ones. Default stays "extractor" for the historical caller.
+echo '{"relations":[{"from":"page-a","to":"page-b","type":"relates"}]}'   | KNOWLEDGE_DIR="$KDIR" bash "$SCRIPT" --knowledge-dir "$KDIR" --source "dream:drm_test"
+grep -q '"source":"dream:drm_test"' "$LOG" || fail "--source tag not written to the edge"
+pass "--source tags the cohort"
+echo '{"relations":[{"from":"page-b","to":"page-a","type":"relates"}]}'   | KNOWLEDGE_DIR="$KDIR" bash "$SCRIPT" --knowledge-dir "$KDIR"
+grep -q '"source":"extractor"' "$LOG" || fail "default source regressed"
+pass "default source unchanged when --source is omitted"
+
+# --- quarantine RE-DRAIN: a quarantined edge whose endpoints appear later --------
+# Before this, edges-quarantine.jsonl had a writer and NO reader — a legitimate edge whose
+# target page merely arrived later rotted there forever. That is exactly the held-untrusted
+# case, so the drain is what makes "quarantined, not dropped" a true statement.
+MD="$(cd "$(dirname "$0")"/.. && pwd)/scripts/maintain-deterministic.sh"
+if [ -f "$MD" ]; then
+  QF="$KDIR/graph/edges-quarantine.jsonl"
+  NOWTS=$(date -u +%FT%TZ)
+  OLDTS=$(date -u -d '-60 days' +%FT%TZ  || date -u -v-60d +%FT%TZ  || echo "2000-01-01T00:00:00Z")
+  printf '{"op":"assert","from":"page-a","to":"page-b","type":"relates","valid_to":null,"recorded_at":"%s","source":"dream:drm_q","confidence":"medium"}
+{"op":"assert","from":"page-a","to":"never-exists","type":"relates","valid_to":null,"recorded_at":"%s","source":"extractor","confidence":"medium"}
+{"op":"assert","from":"page-a","to":"ancient-ghost","type":"relates","valid_to":null,"recorded_at":"%s","source":"extractor","confidence":"medium"}
+'     "$NOWTS" "$NOWTS" "$OLDTS" > "$QF"
+  BEFORE_EDGES=$(grep -c . "$LOG"  || echo 0)
+  SB_MAINTAIN_FORCE=1 BRAIN_DIR="$KDIR/.brain" KNOWLEDGE_DIR="$KDIR"     CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KDIR" bash "$MD" >/dev/null 2>&1
+  grep -q '"to":"page-b".*"source":"dream:drm_q"' "$LOG"     && pass "re-drain replayed the now-resolvable edge WITH its original cohort tag"     || fail "re-drain did not replay a resolvable quarantined edge (or lost its source tag)"
+  grep -q 'never-exists' "$QF"      && pass "still-unresolvable edge stays quarantined" || fail "unresolvable edge was dropped"
+  grep -q 'ancient-ghost' "$QF"      && fail "TTL did not drop a 60-day-old never-resolving entry (quarantine grows unbounded)"     || pass "TTL drops never-resolving entries (bounded quarantine)"
+  grep -q 'page-b' "$QF"      && fail "replayed edge left behind in the quarantine (would re-apply forever)"     || pass "replayed edge removed from the quarantine"
+fi
+
 echo; echo "ALL PASS"

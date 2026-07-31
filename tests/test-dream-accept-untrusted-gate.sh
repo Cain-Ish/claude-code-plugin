@@ -161,4 +161,21 @@ grep -q '"to":"ghost-page"' "$EDGES"    && fail "U9: an edge to a non-existent p
 [ -s "$KNOWLEDGE_DIR/graph/edges-quarantine.jsonl" ]   && pass "U9: the unresolvable edge was quarantined, not silently dropped"   || fail "U9: unresolvable edge vanished with no quarantine record"
 rm -rf "$SB"
 
+# --- U10: holds are SURFACED at SessionStart ---------------------------------
+# A hold nobody can see is indistinguishable from a silent drop: the "HELD n" line goes to
+# stdout, which the unattended caller discards, so without this banner the pages would
+# accumulate unreleased forever and the operator would never learn they exist.
+setup
+mkdir -p "$BRAIN_DIR/held-untrusted/drm_test/learnings"
+printf 'x
+' > "$BRAIN_DIR/held-untrusted/drm_test/learnings/held.md"
+printf '# USER
+' > "$BRAIN_DIR/USER.md"
+SL=$(printf '{"session_id":"s","cwd":"%s"}' "$REPO_ROOT" |   CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/scripts/session-load.sh" 2>&1)
+printf '%s' "$SL" | grep -q 'untrusted-derived page'   && pass "U10: SessionStart surfaces the held pages" || fail "U10: holds are invisible at SessionStart"
+printf '%s' "$SL" | grep -q 'SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1'   && pass "U10: the banner states how to release them" || fail "U10: banner gives no release path"
+SL2=$(printf '{"session_id":"s2","cwd":"%s"}' "$REPO_ROOT" |   CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_HELD_BANNER=off bash "$REPO_ROOT/scripts/session-load.sh" 2>&1)
+printf '%s' "$SL2" | grep -q 'untrusted-derived page'   && fail "U10: SB_HELD_BANNER=off did not suppress the banner" || pass "U10: SB_HELD_BANNER=off suppresses it"
+rm -rf "$SB"
+
 echo "ALL PASS"

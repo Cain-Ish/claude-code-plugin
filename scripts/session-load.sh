@@ -926,6 +926,23 @@ if [ -d "$DREAMS_DIR" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
+# HELD-UNTRUSTED surfacing. The accept gate holds pages a poisoned transcript could have
+# conjured from nothing — reversible and never deleted, but until now completely INVISIBLE:
+# the "HELD n" line goes to stdout, which the unattended caller discards, and nothing else
+# read the hold area. A hold nobody can see is indistinguishable from a silent drop, so the
+# knowledge just accumulates unreleased forever. Count it here (cheap: one find) and say how
+# to release. Kill switch: SB_HELD_BANNER=off.
+if [ "${SB_HELD_BANNER:-on}" != "off" ] && [ -d "$BRAIN_DIR/held-untrusted" ]; then
+  HELD_TOTAL=$(find "$BRAIN_DIR/held-untrusted" -name '*.md' -type f  | grep -c . || echo 0)
+  if [ "${HELD_TOTAL:-0}" -gt 0 ]; then
+    HELD_DREAMS=$(find "$BRAIN_DIR/held-untrusted" -mindepth 1 -maxdepth 1 -type d  | grep -c . || echo 0)
+    HELD_ONE=$(find "$BRAIN_DIR/held-untrusted" -mindepth 1 -maxdepth 1 -type d  | head -1)
+    HELD_ONE=$(basename "${HELD_ONE:-}" )
+    sb_append "$(printf '
+[%s untrusted-derived page(s) from %s dream(s) are HELD, not in your wiki — transcript-distilled pages with no existing page to corroborate them. Review: ls %s/held-untrusted/. Release one dream: SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 bash scripts/dream-accept.sh %s]'       "$HELD_TOTAL" "$HELD_DREAMS" "$BRAIN_DIR" "${HELD_ONE:-<dream_id>}")" "held-untrusted-nudge" 420
+  fi
+fi
+
 # --- Emit collected output ---
 cat "$OUTPUT_FILE"
 rm -f "$OUTPUT_FILE" "${_proj_lf:-}"   # _proj_lf is the CRLF-normalized PROJECT.md copy (only set when a CR was present)

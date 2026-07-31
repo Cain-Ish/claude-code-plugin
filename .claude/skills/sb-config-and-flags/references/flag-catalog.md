@@ -151,6 +151,9 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_DRAIN_DEFER_PMODE_ONLY` | `0` | `1`: only defer when a `claude -p` (print-mode) process is present, not any interactive session. | MODE | extract-drain.sh:128 | bash |
 | `SB_INTERACTIVE_OVERRIDE` | empty | Force the defer decision: `active` = always defer, `inactive` = never (bypasses pgrep/ps detection). | TESTDBL | extract-drain.sh:33 | bash |
 | `SB_EXTRACT_STUB` | empty | Test stub replacing the real extractor. | TESTDBL | extract-drain.sh:230 | bash |
+| `SB_HELD_BANNER` | `on` | `off` hides the SessionStart banner counting untrusted-derived pages HELD by the accept gate. The banner is the ONLY user-visible signal that holds exist (the accept's stdout line is discarded unattended). | KS | session-load.sh | bash |
+| `SB_EDGE_QUARANTINE_TTL_DAYS` | `30` | Age after which a quarantined graph edge whose endpoints STILL do not resolve is dropped. Bounds `edges-quarantine.jsonl`, which before the re-drain had a writer and no reader. | TUNE | maintain-deterministic.sh | bash |
+| `SB_DREAM_ACCEPT_TIMEOUT_MS` | `600000` (10 min) | Wall clock for `dream-accept.sh` via MCP `dream_accept`. Was 30s, which a whole-wiki FORGET re-score (~105s on a 237-page wiki) blew past AFTER live had been mutated. Floor 30000. | TUNE | mcp/src/tools/dream.ts | vitest |
 | `SB_BRAIN_OS` | `on` | `off` disables the ENTIRE offline engine lane (prune, deterministic upkeep, embedding warm pass, consolidation, code-map). Capture + retrieval keep working. | KS | brain-os-run.sh:33 | bash |
 | `SB_CW_TIMEOUT` | `300` (s) | Stage B (consolidate-writer) wall clock; clamped into the remaining staleness budget so Stage A+B cannot outrun `SB_DREAM_RUN_TIMEOUT`. | TUNE | maintain-llm-drain.sh | bash |
 | `SB_MAINTAIN_INTERVAL` | `3600` (s) | Min interval between deterministic maintenance runs. | TUNE | maintain-deterministic.sh:17 | none |
