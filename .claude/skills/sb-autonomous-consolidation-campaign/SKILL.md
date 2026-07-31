@@ -35,19 +35,29 @@ up** — the **lethal trifecta**: untrusted input (transcripts) + access to priv
 every future session). A prompt-injected transcript can steer the same context that writes the
 memory Claude later trusts — a delayed-trigger poisoning substrate.
 
-**STATUS (2026-07-30, slice 1 merged): Stage A of the split is BUILT.** The spawn is now a
-QUARANTINED **zero-tool** `claude -p` (validator-enforced `--json-schema` output, runtime
-init-event ATTESTATION that fails loud, `--no-session-persistence` + empty setting-sources,
-self-transcript exclusion, CLI ≥2.1.205 preflight) — **cross-platform**; bwrap is demoted to
-ADDITIVE Linux defense, gating nothing on any OS. Superseding decision: wiki
-`decisions/cross-platform-autonomy-architecture.md` (part_of p6-quarantine-dual-llm-split).
-Remaining: Stage B deterministic **netless** writer + candidate-facts promotion (slice 2),
-arm-gates (slice 3 — held-untrusted confirm gate, injection wrapping; the forget-manifest drop
-is FIXED — `dream-accept.sh` now applies the manifest on every accept path), scheduling flips
-(slices 4-6). Accepted residual: the model-API channel itself. Original 8-task plan (bwrap-era):
-`git show archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`. Sections
-below that describe bwrap as the GATE are historical context for that era. This skill turns the
-plan into an executable, measured, gate-driven campaign.
+**STATUS (2026-07-30): the dual-LLM split is BUILT END-TO-END (slices 1-3).**
+- **Stage A** — QUARANTINED **zero-tool** `claude -p`: validator-enforced `--json-schema`
+  output (schema read from `kb-schema.json` `.candidate_facts.json_schema` — one source, shared
+  with the writer), runtime init-event ATTESTATION that fails loud, `--no-session-persistence`
+  + empty setting-sources, self-transcript exclusion, CLI ≥2.1.205 preflight. Cross-platform;
+  bwrap is ADDITIVE Linux defense, gating nothing on any OS. No `bypassPermissions` anywhere.
+- **Stage B** — `mcp/dist/tools/consolidate-writer-cli.bundle.js`: DETERMINISTIC, no LLM.
+  Re-validates the facts (the summarizer's own output is untrusted-derived), applies them to
+  `staging/wiki` via a local BM25 reconcile, path-guarded and idempotent. Netless twice over:
+  `bwrap --unshare-net` on Linux (kernel) + a static source-scan test forbidding
+  network/child-process imports (structural, every OS). Transcripts are never bound into it.
+- **Arm-gates** — held-untrusted confirm gate in `dream-accept.sh` (untrusted-only NEW pages are
+  HELD, never applied or deleted, released only under `SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1`);
+  `auto_accept=safe` refuses such dreams (`sb_auto_accept_decision` arg5); FORGET-manifest drop
+  FIXED (applied on every accept path); untrusted-reference banners at both injection sites.
+- **Milestone gate MET**: `tests/test-consolidation-poison-fixture.sh` drives the whole lane with
+  poisoned transcripts AND a poisoned summarizer output — 20 assertions, oracle = files on disk.
+
+Remaining: scheduling flips (Windows schtasks → macOS launchd + OAuth-token injection → Linux
+unshare-net proxy), then the V4 hands-off cycles. Accepted residual: the model-API channel.
+Superseding decision: wiki `decisions/cross-platform-autonomy-architecture.md`. Original 8-task
+plan (bwrap-era): `git show archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`.
+Sections below that describe bwrap as the GATE, or Stage B as unbuilt, are historical context.
 
 ## Terms (defined once; cross-refs own the rest)
 

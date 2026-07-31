@@ -329,16 +329,16 @@ validate-plugin.sh is the real enforcement.
    so it works on every accept path on every OS, rsync or not.
 4. **ConfigChange guard is audit-only** — records to audit-log, blocks nothing
    (`config-change-guard.sh`; "future iteration may add deny logic").
-5. **P6 dual-LLM quarantine split: Stage A DONE, Stage B open.** Since slice 1 (2026-07-30) the
-   unattended summarizer is quarantined for real: zero tools, validator-enforced JSON-schema
-   output, runtime init-event attestation (fail-loud), self-transcript exclusion — it can read
-   untrusted transcripts but cannot write anything except its schema-shaped `candidate-facts.json`.
-   Still open: the Stage B deterministic NETLESS writer that consumes those facts (campaign
-   slice 2) — until it lands, candidate facts are produced but not auto-applied — plus the
-   arm-gates (held-untrusted confirm gate, injection wrapping). The maintainer 3-strike file
-   `.llm-maintain-quarantine` and the edge quarantine `graph/edges-quarantine.jsonl` remain
-   separate, working mechanisms. Accepted residual: the model-API channel (see wiki
-   `decisions/cross-platform-autonomy-architecture.md`).
+5. **P6 dual-LLM quarantine split: BUILT (Stage A + Stage B + arm-gates), scheduling not flipped.**
+   Stage A is the quarantined zero-tool summarizer (attested at runtime, fail-loud); Stage B is
+   `consolidate-writer-cli.bundle.js` — deterministic, no LLM, netless by kernel (bwrap
+   `--unshare-net`, Linux) AND by structure (source-scan test, every OS), with transcripts never
+   bound into it. Untrusted-only NEW pages are held at accept behind an explicit confirm, and
+   `auto_accept=safe` refuses those dreams outright. What remains is OPERATIONAL, not
+   architectural: the per-OS scheduling flips and the V4 hands-off validation. The maintainer
+   3-strike file `.llm-maintain-quarantine` and the edge quarantine
+   `graph/edges-quarantine.jsonl` remain separate, working mechanisms. Accepted residual: the
+   model-API channel (see wiki `decisions/cross-platform-autonomy-architecture.md`).
 6. **Drainer starvation under always-on interactive OAuth use.** The escape only fires when SAFE
    (API key, or `SB_DRAIN_DEFER_PMODE_ONLY=1` + a timeout binary); pure-OAuth boxes with a held
    lock keep deferring and rely on the SessionStart drain-health banner.
