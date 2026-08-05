@@ -21595,7 +21595,9 @@ async function archiveToWiki(args) {
     `description: ${JSON.stringify(args.entryText.slice(0, 200))}`,
     `created: ${ts}`,
     `updated: ${ts}`,
-    `project: ${args.slug}`,
+    // Quoted like every other writer of this facet (parseDoc strips quotes) — safe
+    // today because validateSlug ran, but the quoting must not depend on that.
+    `project: ${JSON.stringify(args.slug)}`,
     "---",
     ""
   ].join("\n");
@@ -28471,8 +28473,8 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   return {
     candidates,
     ...embeddingsActive ? {} : { degraded: "bm25-only" },
-    // Scoping telemetry (fail-loud): anchors=0 with scoping on means the project: facet
-    // is unpopulated for this slug — tiers silently collapsed, which was invisible before.
+    // Scoping telemetry: anchors=0 with scoping on means tier-1 anchoring collapsed
+    // for this slug (see the interface doc for what that can mean).
     ...scopeOn ? { scoped_to: args.projectSlug, anchors: anchorCount } : {}
   };
 }
@@ -31601,6 +31603,12 @@ async function knowledgeReindex(knowledgeDir) {
     }
   }
   for (const [proj, region] of mocs) {
+    try {
+      validateSlug(proj);
+    } catch {
+      console.error(`[reindex] skipping MOC for invalid project facet: ${JSON.stringify(proj)}`);
+      continue;
+    }
     const header = [
       "---",
       `title: ${JSON.stringify(proj)}`,
@@ -32471,8 +32479,9 @@ async function resolveProjectAnchor(knowledgeDir, slug) {
   let text;
   try {
     text = await fs18.readFile(join20(knowledgeDir, "graph", "project-registry.jsonl"), "utf-8");
-  } catch {
-    return void 0;
+  } catch (e) {
+    if (e.code === "ENOENT") return void 0;
+    throw e;
   }
   for (const line of text.split("\n")) {
     const s = line.trim();
@@ -32503,16 +32512,18 @@ async function knowledgeNeighbors(args) {
   };
   const edges = neighbors(current, args.slug, opts);
   if (edges.length > 0) return { slug: args.slug, edges };
+  const isGraphNode = current.some((e) => e.from === args.slug || e.to === args.slug);
+  if (isGraphNode) return { slug: args.slug, edges };
   if (args.as_of) return { slug: args.slug, edges };
   const anchor = await resolveProjectAnchor(args.knowledgeDir, args.slug);
-  if (!anchor || anchor === args.slug) return { slug: args.slug, edges };
+  if (!anchor || anchor === args.slug) return { slug: args.slug, edges, anchor_miss: true };
   try {
     validateSlug(anchor);
   } catch {
-    return { slug: args.slug, edges };
+    return { slug: args.slug, edges, anchor_miss: true };
   }
   const anchorEdges = neighbors(current, anchor, opts);
-  if (anchorEdges.length === 0) return { slug: args.slug, edges };
+  if (anchorEdges.length === 0) return { slug: args.slug, edges, anchor_miss: true };
   return { slug: args.slug, resolved_anchor: anchor, edges: anchorEdges };
 }
 
@@ -33175,7 +33186,7 @@ registerJsonTool(
 );
 registerJsonTool(
   "knowledge_neighbors",
-  "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval. A PROJECT slug (e.g. the active project) also works: when the slug has no edges of its own it resolves via graph/project-registry.jsonl to the project's anchor entity (result carries resolved_anchor) \u2014 use this to start traversal FROM the current project.",
+  "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval. A PROJECT slug (e.g. the active project) also works: a slug that is not a graph node resolves via graph/project-registry.jsonl to the project's anchor entity (result carries resolved_anchor; anchor_miss:true means the registry has no mapping for it) \u2014 use this to start traversal FROM the current project.",
   {
     slug: external_exports.string().describe("The page slug to start from."),
     depth: external_exports.number().min(1).max(4).optional().describe("Max hops. Default 2."),

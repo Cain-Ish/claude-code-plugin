@@ -125,6 +125,55 @@ describe('knowledgeNeighbors', () => {
     expect(past.edges).toEqual([]);
   });
 
+  it('a REAL node whose edges are direction-filtered to zero is never anchor-substituted', async () => {
+    // my-project has one OUTBOUND edge; queried with direction:'in' the honest answer
+    // is []. Falling back to the anchor here would present another entity's edges
+    // under the queried name (the reproduced ts-review Block finding).
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-dirfilter-'));
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'my-project', to: 'direct-dep', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await appendEdge(log, { op: 'assert', from: 'learning-1', to: 'my-anchor', type: 'part_of', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await fsp.writeFile(join(dir, 'graph', 'project-registry.jsonl'),
+      '{"anchor":"my-anchor","project":"my-project"}\n', 'utf-8');
+    const r = await knowledgeNeighbors({ slug: 'my-project', direction: 'in', knowledgeDir: dir });
+    expect(r.resolved_anchor).toBeUndefined();
+    expect(r.anchor_miss).toBeUndefined();   // slug IS a graph node — no fallback attempted
+    expect(r.edges).toEqual([]);
+  });
+
+  it('registry miss is visible: anchor_miss:true when fallback found nothing', async () => {
+    // Without this marker "no registry mapping" is indistinguishable from "node with
+    // no dependencies" — the invisible-dead-feature premise finding.
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-miss-'));
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'a', to: 'b', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    const r = await knowledgeNeighbors({ slug: 'unmapped-project', knowledgeDir: dir });
+    expect(r.anchor_miss).toBe(true);
+    expect(r.edges).toEqual([]);
+  });
+
+  it('a real registry I/O error (EISDIR) throws instead of masquerading as empty', async () => {
+    // ENOENT = normal "no registry yet"; anything else must surface as a tool error.
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-eisdir-'));
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'a', to: 'b', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await fsp.mkdir(join(dir, 'graph', 'project-registry.jsonl'));   // a DIRECTORY at the file path
+    await expect(knowledgeNeighbors({ slug: 'unmapped-project', knowledgeDir: dir })).rejects.toThrow();
+  });
+
+  it('a valid-JSON row with a traversal-shaped anchor is rejected (validateSlug guard)', async () => {
+    // The one guard between a corrupted registry row and neighbors(); a refactor
+    // dropping the validateSlug call must fail here.
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-badanchor-'));
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'learning-1', to: 'my-anchor', type: 'part_of', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await fsp.writeFile(join(dir, 'graph', 'project-registry.jsonl'),
+      '{"anchor":"../etc","project":"my-project"}\n', 'utf-8');
+    const r = await knowledgeNeighbors({ slug: 'my-project', knowledgeDir: dir });
+    expect(r.resolved_anchor).toBeUndefined();
+    expect(r.edges).toEqual([]);
+  });
+
   it('malformed registry lines are skipped, valid row still resolves', async () => {
     const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-mal-'));
     const log = join(dir, 'graph', 'edges.jsonl');

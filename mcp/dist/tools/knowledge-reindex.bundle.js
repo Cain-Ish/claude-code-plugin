@@ -2,6 +2,32 @@
 import { promises as fs5 } from "fs";
 import { basename as basename2, join as join4 } from "path";
 
+// src/path-guard.ts
+var PathGuardError = class extends Error {
+  constructor(message, baseDir, candidate) {
+    super(message);
+    this.baseDir = baseDir;
+    this.candidate = candidate;
+    this.name = "PathGuardError";
+  }
+  baseDir;
+  candidate;
+};
+function validateSlug(slug) {
+  if (typeof slug !== "string") {
+    throw new PathGuardError("slug must be a string", "", String(slug));
+  }
+  if (slug.length === 0 || slug.length > 128) {
+    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
+  }
+  if (slug.startsWith(".")) {
+    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
+    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
+  }
+}
+
 // ../kb-schema.json
 var kb_schema_default = {
   _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
@@ -3285,6 +3311,12 @@ async function knowledgeReindex(knowledgeDir) {
     }
   }
   for (const [proj, region] of mocs) {
+    try {
+      validateSlug(proj);
+    } catch {
+      console.error(`[reindex] skipping MOC for invalid project facet: ${JSON.stringify(proj)}`);
+      continue;
+    }
     const header = [
       "---",
       `title: ${JSON.stringify(proj)}`,

@@ -63,8 +63,10 @@ export interface KnowledgeSearchResult {
   degraded?: 'bm25-only';
   /** Present when project scoping was active: the slug it keyed on. */
   scoped_to?: string;
-  /** Present with scoped_to: how many wiki pages carry project:<scoped_to>. 0 means the
-   *  facet is unpopulated for this project — scoping was effectively inert (fail-loud signal). */
+  /** Present with scoped_to: how many wiki pages carry project:<scoped_to> exactly.
+   *  0 means tier-1 anchoring collapsed for this slug — an unpopulated facet, an
+   *  unknown/mistyped slug, or a genuinely new project. Family (tier 2) and graph
+   *  (tier 3) scoping may still be active; this counts direct facets only. */
   anchors?: number;
 }
 
@@ -396,8 +398,8 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   return {
     candidates,
     ...(embeddingsActive ? {} : { degraded: 'bm25-only' as const }),
-    // Scoping telemetry (fail-loud): anchors=0 with scoping on means the project: facet
-    // is unpopulated for this slug — tiers silently collapsed, which was invisible before.
+    // Scoping telemetry: anchors=0 with scoping on means tier-1 anchoring collapsed
+    // for this slug (see the interface doc for what that can mean).
     ...(scopeOn ? { scoped_to: args.projectSlug!, anchors: anchorCount } : {}),
   };
 }

@@ -171,8 +171,9 @@ async function resolveProjectAnchor(knowledgeDir2, slug2) {
   let text;
   try {
     text = await fs2.readFile(join(knowledgeDir2, "graph", "project-registry.jsonl"), "utf-8");
-  } catch {
-    return void 0;
+  } catch (e) {
+    if (e.code === "ENOENT") return void 0;
+    throw e;
   }
   for (const line of text.split("\n")) {
     const s = line.trim();
@@ -203,16 +204,18 @@ async function knowledgeNeighbors(args) {
   };
   const edges = neighbors(current, args.slug, opts);
   if (edges.length > 0) return { slug: args.slug, edges };
+  const isGraphNode = current.some((e) => e.from === args.slug || e.to === args.slug);
+  if (isGraphNode) return { slug: args.slug, edges };
   if (args.as_of) return { slug: args.slug, edges };
   const anchor = await resolveProjectAnchor(args.knowledgeDir, args.slug);
-  if (!anchor || anchor === args.slug) return { slug: args.slug, edges };
+  if (!anchor || anchor === args.slug) return { slug: args.slug, edges, anchor_miss: true };
   try {
     validateSlug(anchor);
   } catch {
-    return { slug: args.slug, edges };
+    return { slug: args.slug, edges, anchor_miss: true };
   }
   const anchorEdges = neighbors(current, anchor, opts);
-  if (anchorEdges.length === 0) return { slug: args.slug, edges };
+  if (anchorEdges.length === 0) return { slug: args.slug, edges, anchor_miss: true };
   return { slug: args.slug, resolved_anchor: anchor, edges: anchorEdges };
 }
 

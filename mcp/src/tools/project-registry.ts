@@ -13,7 +13,11 @@ export interface ProjectRecord {
   git_remote?: string; // origin remote URL — the project's identity; absent = remote-less/legacy
 }
 
-/** Read projects.jsonl tolerantly: one JSON object per line, blank/malformed lines skipped.
+/** NOTE: this module reads BRAIN_DIR/projects.jsonl (project metadata). The similarly
+ *  named KNOWLEDGE_DIR/graph/project-registry.jsonl (project-key → graph-anchor rows)
+ *  is a different file with a different schema, read only by knowledge-neighbors.ts.
+ *
+ *  Read projects.jsonl tolerantly: one JSON object per line, blank/malformed lines skipped.
  *  Returns [] when the file is absent or unreadable. A hand-pretty-printed file is repaired by
  *  the Phase C migration, not silently mis-parsed here. */
 export function loadRegistry(brainDir: string): ProjectRecord[] {

@@ -871,15 +871,29 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
     }
   ' "$project_file" 2>/dev/null | sort -u | head -4)
   # Project slug first, dedup, cap 5 seeds total. The CLI's knowledgeNeighbors resolves
-  # an edgeless project slug through graph/project-registry.jsonl to its anchor entity —
-  # the hardened per-line TS resolver; no bash reimplementation here (review 0.43.0 #2/#3).
-  # head -12 bounds a hub anchor's edge list (87+ live) so one seed cannot eat the 600B cap.
+  # a non-node project slug through graph/project-registry.jsonl to its anchor entity —
+  # the hardened per-line TS resolver; deliberately no bash/jq reimplementation here.
+  # head -12 bounds a hub anchor's edge list so one seed cannot eat the 600B cap.
   GRAPH_SEEDS=$(printf '%s\n%s\n' "$slug" "$CR_SLUGS" | awk 'NF && !seen[$0]++' | head -5)
   GRAPH_OUT=""
+  GRAPH_FIRST=1
   while IFS= read -r s; do
     [ -z "$s" ] && continue
-    nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>/dev/null | head -12 \
-      | awk -F'\t' '{ printf "%s %s %s; ", $2, $1, $3 }')
+    # For the primary (project) seed, capture stderr and log CLI failures — this seed
+    # now runs every session, and a crashed resolver must not read as "no edges".
+    if [ "$GRAPH_FIRST" = 1 ]; then
+      GRAPH_ERR_F=$(mktemp)
+      nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>"$GRAPH_ERR_F" | head -12 \
+        | awk -F'\t' '{ printf "%s %s %s; ", $2, $1, $3 }')
+      if [ -s "$GRAPH_ERR_F" ]; then
+        sb_log_error "session-load.sh" "graph-neighbors-cli failed for project seed=$s: $(head -c 200 "$GRAPH_ERR_F" | tr '\n' ' ')" 0
+      fi
+      rm -f "$GRAPH_ERR_F"
+      GRAPH_FIRST=0
+    else
+      nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>/dev/null | head -12 \
+        | awk -F'\t' '{ printf "%s %s %s; ", $2, $1, $3 }')
+    fi
     [ -n "$nbr" ] && GRAPH_OUT="${GRAPH_OUT}- ${s}: ${nbr}\n"
   done <<< "$GRAPH_SEEDS"
   if [ -n "$GRAPH_OUT" ]; then

@@ -6940,8 +6940,8 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   return {
     candidates,
     ...embeddingsActive ? {} : { degraded: "bm25-only" },
-    // Scoping telemetry (fail-loud): anchors=0 with scoping on means the project: facet
-    // is unpopulated for this slug — tiers silently collapsed, which was invisible before.
+    // Scoping telemetry: anchors=0 with scoping on means tier-1 anchoring collapsed
+    // for this slug (see the interface doc for what that can mean).
     ...scopeOn ? { scoped_to: args.projectSlug, anchors: anchorCount } : {}
   };
 }

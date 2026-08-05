@@ -55,6 +55,19 @@ describe('reindex project MOCs', () => {
     await expect(fsp.access(join(kd, 'wiki', 'projects', 'cainish-bridge.md'))).rejects.toThrow(); // 2 < 3
   });
 
+  it('a traversal-shaped project: facet never becomes a MOC filename (0.43.0 HIGH)', async () => {
+    // project: is untrusted page frontmatter; join(projDir, proj + '.md') without
+    // validation was an arbitrary-.md-write primitive. The write site must guard.
+    const kd = await fsp.mkdtemp(join(tmpdir(), 'moc-evil-'));
+    await page(kd, 'decisions', 'e1', '../evil');
+    await page(kd, 'decisions', 'e2', '../evil');
+    await page(kd, 'decisions', 'e3', '../evil');
+    await knowledgeReindex(kd);
+    // join(projDir, '../evil.md') would land at wiki/evil.md — must not exist.
+    await expect(fsp.access(join(kd, 'wiki', 'evil.md'))).rejects.toThrow();
+    await expect(fsp.access(join(kd, 'evil.md'))).rejects.toThrow();
+  });
+
   it('de-hubbed two-tier index: graph:exclude, MOC link, per-type counts, no flat page hub-links', async () => {
     const kd = await fsp.mkdtemp(join(tmpdir(), 'idx-'));
     await page(kd, 'decisions', 'kiri-redesign', 'kiri');

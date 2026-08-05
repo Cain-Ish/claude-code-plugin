@@ -423,7 +423,7 @@ registerJsonTool(
 
 registerJsonTool(
   "knowledge_neighbors",
-  "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval. A PROJECT slug (e.g. the active project) also works: when the slug has no edges of its own it resolves via graph/project-registry.jsonl to the project's anchor entity (result carries resolved_anchor) — use this to start traversal FROM the current project.",
+  "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval. A PROJECT slug (e.g. the active project) also works: a slug that is not a graph node resolves via graph/project-registry.jsonl to the project's anchor entity (result carries resolved_anchor; anchor_miss:true means the registry has no mapping for it) — use this to start traversal FROM the current project.",
   {
     slug: z.string().describe("The page slug to start from."),
     depth: z.number().min(1).max(4).optional().describe("Max hops. Default 2."),

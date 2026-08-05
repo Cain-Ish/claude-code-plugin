@@ -84,7 +84,9 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
     `description: ${JSON.stringify(args.entryText.slice(0, 200))}`,
     `created: ${ts}`,
     `updated: ${ts}`,
-    `project: ${args.slug}`,
+    // Quoted like every other writer of this facet (parseDoc strips quotes) — safe
+    // today because validateSlug ran, but the quoting must not depend on that.
+    `project: ${JSON.stringify(args.slug)}`,
     '---',
     '',
   ].join('\n');

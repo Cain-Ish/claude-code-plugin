@@ -60,4 +60,37 @@ RC=$?
 echo "$OUT2" | grep -q 'Dependency graph' && fail "graph block emitted with no edges.jsonl"
 pass "no graph dir → clean no-op (back-compat)"
 
+# --- Test 3: project-first seeding — the project slug itself (no edges of its own,
+# EMPTY Cross-references) resolves through graph/project-registry.jsonl to its anchor
+# entity, and the anchor's neighbourhood lands in the session brief. This is the
+# headline path: bash → graph-neighbors-cli → knowledgeNeighbors registry resolver.
+mkdir -p "$KDIR/graph"
+cat > "$BRAIN_DIR/projects/demo/PROJECT.md" <<'EOF'
+# PROJECT: demo
+
+## Goal
+project-first seeding
+
+## State
+
+## Conventions
+
+## Recent decisions
+
+## Open blockers
+
+## Cross-references
+
+<!-- last_updated: 2026-05-29T00:00:00Z -->
+<!-- last_queried_wiki: -->
+EOF
+printf '%s\n' '{"op":"assert","from":"hub-learning","to":"demo-anchor","type":"part_of","valid_from":"2026-05-29","recorded_at":"2026-05-29T00:00:00Z"}' > "$KDIR/graph/edges.jsonl"
+printf '%s\n' '{"anchor":"demo-anchor","project":"demo"}' > "$KDIR/graph/project-registry.jsonl"
+OUT3=$(cd "$WORKDIR" && echo '{"hook_event_name":"SessionStart","source":"startup"}' | bash "$ROOT/scripts/session-load.sh" 2>/dev/null)
+echo "$OUT3" | grep -q 'hub-learning' \
+  || fail "project-first seed: anchor neighbourhood not injected (expected hub-learning via demo→demo-anchor registry row; got: $(echo "$OUT3" | grep -A2 'Dependency graph' || echo 'no graph block'))"
+echo "$OUT3" | grep -q -- '- demo:' \
+  || fail "project-first seed: brief line not labeled with the project slug"
+pass "project slug with no own edges seeds the graph brief via the registry anchor"
+
 echo; echo "ALL PASS"

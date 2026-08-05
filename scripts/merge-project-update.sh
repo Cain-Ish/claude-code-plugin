@@ -48,12 +48,22 @@ KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
 RENDER_CLI="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")"/.. && pwd)}/mcp/dist/tools/ai-block-render-cli.bundle.js"
 [ -f "$PROJECT_MD" ] || { echo "merge-project-update: project file not found: $PROJECT_MD" >&2; exit 2; }
 # Originating project slug = the PROJECT.md parent dir. Stamped as the project: facet on
-# pages this run creates (write-time linkage; the backfill only ever ran retroactively).
+# pages this run creates, and the key for the wiki-writes counter + session-count reset.
 # Validated, NOT sb_sanitize_slug'd: the facet must equal the registry slug EXACTLY for
 # scoped search (sub-project slugs like mono__api carry underscores sanitize would eat).
-# "." / "/" (bare --project-md) or an unsafe dir name ⇒ no stamp, not a bogus facet.
+# Charset mirrors validateSlug (path-guard.ts): dots ALLOWED (real project dirs like
+# my.app must keep their counters + facet), leading dot / "/" / empty rejected. A
+# rejected name blanks the slug (no bogus facet) and is logged — blanking also disables
+# the two state sinks above, which must never happen silently.
 PROJECT_SLUG=$(basename "$(dirname "$PROJECT_MD")")
-case "$PROJECT_SLUG" in .|/|''|*[!a-zA-Z0-9_-]*) PROJECT_SLUG="" ;; esac
+case "$PROJECT_SLUG" in
+  ''|/|.*|*[!a-zA-Z0-9._-]*)
+    if [ -n "$PROJECT_SLUG" ] && [ "$PROJECT_SLUG" != "." ] && [ "$PROJECT_SLUG" != "/" ]; then
+      sb_log_error "merge-project-update.sh" "project slug '$PROJECT_SLUG' fails the facet charset — project: stamp, wiki-writes counter, and session-count reset skipped this run" 0
+    fi
+    PROJECT_SLUG=""
+    ;;
+esac
 
 if [ -n "$JSON_FILE" ]; then
   RAW=$(cat "$JSON_FILE")
@@ -553,7 +563,7 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
       page_project="$PROJECT_SLUG"
     fi
     # Same exact-match rule as PROJECT_SLUG: validate charset, never rewrite.
-    case "$page_project" in *[!a-zA-Z0-9_-]*) page_project="" ;; esac
+    case "$page_project" in /|.*|*[!a-zA-Z0-9._-]*) page_project="" ;; esac
 
     # Render the extractor's structured ai_block into the marked region (closed-vocab,
     # schema-ordered). Fail-safe: no block / no node / no CLI ⇒ "" (inject nothing).

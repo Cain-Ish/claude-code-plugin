@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { basename, join } from 'path';
+import { validateSlug } from '../path-guard.js';
 import { parseDoc } from './frontmatter.js';
 import { knowledgeValidate, ValidationIssue } from './knowledge-validate.js';
 import { projectGraphToPages } from './graph-project.js';
@@ -79,6 +80,12 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
     if (!mocs.has(existing)) { try { await fs.unlink(join(projDir, `${existing}.md`)); } catch { /* gone */ } }
   }
   for (const [proj, region] of mocs) {
+    // The project: facet is read from ANY page's frontmatter (untrusted — hand-edited
+    // pages, future writers) and becomes a filename here. Without this guard a page
+    // carrying `project: ../../evil` turns reindex into an arbitrary-.md-write
+    // primitive. Writers charset-guard their own output, but the path sink must not
+    // depend on every writer doing so.
+    try { validateSlug(proj); } catch { console.error(`[reindex] skipping MOC for invalid project facet: ${JSON.stringify(proj)}`); continue; }
     // QUOTE both title and description: `proj` is an author-controlled
     // project: facet value. An unquoted value containing a colon (or other YAML
     // meta char) makes the generated MOC invalid YAML — the tolerant regex

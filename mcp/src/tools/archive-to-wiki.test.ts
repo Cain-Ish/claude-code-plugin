@@ -48,7 +48,7 @@ describe('archive_to_wiki', () => {
     expect(res.ok).toBe(true);
     const page = readFileSync(res.archived_path, 'utf-8');
     expect(page.startsWith('---\n')).toBe(true);
-    expect(page).toMatch(/^project: test-slug$/m);
+    expect(page).toMatch(/^project: "test-slug"$/m);
     expect(page).toMatch(/^type: issues$/m);
     expect(page).toMatch(/^title: /m);
     expect(page).toMatch(/^created: /m);

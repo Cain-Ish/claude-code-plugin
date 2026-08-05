@@ -268,6 +268,45 @@ grep -q '^project: myproj2$' "$DLOG" || fail "decisions-log: project: facet miss
 [ -f "$WIKI13/wiki/decisions/project-decisions-log.md" ] && fail "decisions-log: global log must NOT be created when the slug is known"
 pass "rotated decisions archive to per-project decisions log with project: facet"
 
+# --- Test (project-first fallback branches): the charset gate's REJECT path and the
+# dotted-slug ACCEPT path, plus a non-empty per-update override. Fixtures elsewhere
+# are all clean-alnum, so without these the guard branches are dead code to the suite.
+# (a) dotted project dir (real class: my.app) keeps facet + wiki-writes counter.
+PROJ_DIRD="$TMP/projects/my.app"; mkdir -p "$PROJ_DIRD"
+PROJ="$PROJ_DIRD/PROJECT.md"; WIKI14="$TMP/wiki14"; mkdir -p "$WIKI14"
+export BRAIN_DIR="$TMP/brain14"; mkdir -p "$BRAIN_DIR"
+seed_project "$PROJ"
+jq -nc '{wiki_updates:[{category:"learnings", slug:"dotted-page", action:"create", title:"D", description:"d", content:"DOTTED BODY SENTINEL"}]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI14" >/dev/null 2>&1 || fail "dotted-slug: script exited non-zero"
+grep -q '^project: my.app$' "$WIKI14/wiki/learnings/dotted-page.md" || fail "dotted-slug: facet missing for dotted project dir"
+[ -f "$BRAIN_DIR/projects/my.app/.wiki-writes" ] || fail "dotted-slug: wiki-writes counter did not fire for dotted slug"
+pass "dotted project slug keeps project: facet AND wiki-writes counter"
+
+# (b) charset-unsafe dir name (space) → no facet, no crash, blank slug logged loudly.
+PROJ_DIRU="$TMP/projects/bad name"; mkdir -p "$PROJ_DIRU"
+PROJ="$PROJ_DIRU/PROJECT.md"; WIKI15="$TMP/wiki15"; mkdir -p "$WIKI15"
+export BRAIN_DIR="$TMP/brain15"; mkdir -p "$BRAIN_DIR"
+seed_project "$PROJ"
+jq -nc '{wiki_updates:[{category:"learnings", slug:"unsafe-origin", action:"create", title:"U", description:"d", content:"UNSAFE ORIGIN BODY"}]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI15" >/dev/null 2>&1 || fail "unsafe-slug: script exited non-zero"
+UPAGE="$WIKI15/wiki/learnings/unsafe-origin.md"
+[ -f "$UPAGE" ] || fail "unsafe-slug: page not created"
+if grep -q '^project:' "$UPAGE"; then fail "unsafe-slug: charset-rejected dir name must yield NO facet"; fi
+grep -q "fails the facet charset" "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "unsafe-slug: blanking was not logged to error-log (silent disable of counters)"
+pass "charset-unsafe project dir → no facet, loud error-log entry"
+
+# (c) non-empty per-update override attributes the page to ANOTHER project.
+PROJ_DIRO="$TMP/projects/homeproj"; mkdir -p "$PROJ_DIRO"
+PROJ="$PROJ_DIRO/PROJECT.md"; WIKI16="$TMP/wiki16"; mkdir -p "$WIKI16"
+export BRAIN_DIR="$TMP/brain16"; mkdir -p "$BRAIN_DIR"
+seed_project "$PROJ"
+jq -nc '{wiki_updates:[{category:"learnings", slug:"other-team-page", action:"create", title:"O", description:"d", content:"OVERRIDE BODY SENTINEL", project:"other-team"}]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI16" >/dev/null 2>&1 || fail "override: script exited non-zero"
+grep -q '^project: other-team$' "$WIKI16/wiki/learnings/other-team-page.md" \
+  || fail "override: non-empty project override not honored"
+pass "per-update project override attributes page to the named project"
+
 # --- Test: session_goal → deterministic one-line ## State note (replace-style) ---
 PROJ="$TMP/p11.md"; WIKI11="$TMP/wiki11"; mkdir -p "$WIKI11"
 seed_project "$PROJ"
