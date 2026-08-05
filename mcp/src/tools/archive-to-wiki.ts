@@ -70,11 +70,26 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
   if (matchIdx < 0) {
     return { ok: false, archived_path: '', reason: `no [resolved] entry matching text in ${sectionHeader}` };
   }
-  const date = new Date().toISOString().slice(0, 10);
+  const ts = new Date().toISOString();
+  const date = ts.slice(0, 10);
   const slugSafe = args.entryText.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
   const archivePath = join(wikiDir, `${date}-${slugSafe}.md`);
+  // Full frontmatter incl. the project: facet — without it every graduated entry is
+  // tier-4 "global" to project-scoped search and invisible to the project MOC.
+  // JSON.stringify = YAML-safe double-quoted scalar (entryText is user prose).
+  const frontmatter = [
+    '---',
+    `title: ${JSON.stringify(args.entryText.slice(0, 120))}`,
+    `type: ${args.targetCategory}`,
+    `description: ${JSON.stringify(args.entryText.slice(0, 200))}`,
+    `created: ${ts}`,
+    `updated: ${ts}`,
+    `project: ${args.slug}`,
+    '---',
+    '',
+  ].join('\n');
   await fs.writeFile(archivePath,
-    `# ${args.entryText}\n\n**Archived:** ${date}\n**From:** projects/${args.slug}/PROJECT.md (section: ${args.sourceSection})\n**Status:** resolved\n`,
+    `${frontmatter}# ${args.entryText}\n\n**Archived:** ${date}\n**From:** projects/${args.slug}/PROJECT.md (section: ${args.sourceSection})\n**Status:** resolved\n`,
     'utf-8'
   );
   lines[matchIdx] = `  → wiki/${args.targetCategory}/${args.slug}/${date}-${slugSafe}.md`;

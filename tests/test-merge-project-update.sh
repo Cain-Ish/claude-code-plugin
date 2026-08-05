@@ -234,6 +234,40 @@ grep -q '^type: issues$' "$IPAGE" || fail "issues-create: page missing 'type: is
 grep -qF 'ISSUES BODY SENTINEL' "$IPAGE" || fail "issues-create: content body missing"
 pass "wiki_updates create routes category issues to wiki/issues/ (error→fix class unlocked)"
 
+# --- Test (project-first): a new wiki page is stamped with the originating project's
+# slug as its project: facet (write-time linkage — before this, no writer set the facet
+# and every new page was tier-4 "global" to project-scoped search). An explicit
+# project:"" in the update marks the page deliberately global (no facet line).
+PROJ_DIR12="$TMP/projects/myproj"; mkdir -p "$PROJ_DIR12"
+PROJ="$PROJ_DIR12/PROJECT.md"; WIKI12="$TMP/wiki12"; mkdir -p "$WIKI12"
+seed_project "$PROJ"
+jq -nc '{
+  wiki_updates: [
+    {category:"learnings", slug:"proj-stamped",   action:"create", title:"P", description:"d", content:"STAMPED BODY SENTINEL"},
+    {category:"learnings", slug:"global-learning", action:"create", title:"G", description:"d", content:"GLOBAL BODY SENTINEL", project:""}
+  ]
+}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI12" >/dev/null 2>&1 || fail "proj-stamp: script exited non-zero"
+SPAGE="$WIKI12/wiki/learnings/proj-stamped.md"
+[ -f "$SPAGE" ] || fail "proj-stamp: page not created"
+grep -q '^project: myproj$' "$SPAGE" || fail "proj-stamp: default project: facet missing (got: $(cat "$SPAGE"))"
+GPAGE="$WIKI12/wiki/learnings/global-learning.md"
+[ -f "$GPAGE" ] || fail "proj-stamp: global page not created"
+if grep -q '^project:' "$GPAGE"; then fail "proj-stamp: explicit project:\"\" override must yield NO facet"; fi
+pass "wiki_updates create stamps project: from originating slug; \"\" override stays global"
+
+# --- Test (project-first): rotated-out decisions land in a PER-PROJECT decisions log
+# carrying the project: facet — not the shared cross-project global file.
+PROJ_DIR13="$TMP/projects/myproj2"; mkdir -p "$PROJ_DIR13"
+PROJ="$PROJ_DIR13/PROJECT.md"; WIKI13="$TMP/wiki13"; mkdir -p "$WIKI13"
+seed_project "$PROJ"
+jq -nc '{recent_decisions:["rot d1","rot d2","rot d3","rot d4","rot d5","rot d6"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI13" >/dev/null 2>&1 || fail "decisions-log: script exited non-zero"
+DLOG="$WIKI13/wiki/decisions/myproj2-decisions-log.md"
+[ -f "$DLOG" ] || fail "decisions-log: per-project log $DLOG not created (rotation should overflow the cap)"
+grep -q '^project: myproj2$' "$DLOG" || fail "decisions-log: project: facet missing from log frontmatter"
+[ -f "$WIKI13/wiki/decisions/project-decisions-log.md" ] && fail "decisions-log: global log must NOT be created when the slug is known"
+pass "rotated decisions archive to per-project decisions log with project: facet"
+
 # --- Test: session_goal → deterministic one-line ## State note (replace-style) ---
 PROJ="$TMP/p11.md"; WIKI11="$TMP/wiki11"; mkdir -p "$WIKI11"
 seed_project "$PROJ"

@@ -245,6 +245,30 @@ describe('SP-1 project-scoped serving', () => {
     expect(slugs(r)).toContain('b1');
   });
 
+  it('scoping telemetry: scoped_to + anchors present when scoping is active', async () => {
+    const dir = await scopedWiki();
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    expect(r.scoped_to).toBe('alpha');
+    expect(r.anchors).toBe(2);   // a1 + a2 carry project: alpha
+  });
+
+  it('scoping telemetry fail-loud branch: unknown slug → anchors 0 (scoping inert, visibly)', async () => {
+    // Before this field existed, a wrong/unpopulated slug silently collapsed the tiers.
+    const dir = await scopedWiki();
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'no-such-project', brainDir: dir });
+    expect(r.scoped_to).toBe('no-such-project');
+    expect(r.anchors).toBe(0);
+  });
+
+  it('scoping telemetry absent when scoping is off (no projectSlug / scope:all)', async () => {
+    const dir = await scopedWiki();
+    const unscoped = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
+    expect(unscoped.scoped_to).toBeUndefined();
+    expect(unscoped.anchors).toBeUndefined();
+    const all = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir, scope: 'all' });
+    expect(all.scoped_to).toBeUndefined();
+  });
+
   it('C1: local-docs are tier-1 and a same-basename other-project wiki page never leaks into scope', async () => {
     const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-localdoc-'));
     await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });

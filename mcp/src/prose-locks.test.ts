@@ -197,3 +197,39 @@ describe('session intent spine locks', () => {
     expect(read(scriptsDir + 'stop-extract.sh')).toContain(".verify-gate-agseen-*'");
   });
 });
+
+describe('project-first retrieval stays wired (prose + writer locks)', () => {
+  // The 2026-08-05 audit found the project-first machinery disconnected at both ends:
+  // no writer stamped project:, no skill instructed starting retrieval from the project
+  // node. These locks keep both ends attached.
+  const scriptsDir = repoRoot + 'scripts/';
+  const skillsDir = repoRoot + 'skills/';
+
+  it('retrieval skills instruct the project-first entry point', () => {
+    expect(read(skillsDir + 'using-second-brain/SKILL.md')).toContain('## Project-first rule');
+    expect(read(skillsDir + 'query/SKILL.md')).toContain('Project questions → start from the project node');
+    // The Intent template scaffolded into USER.md carries the project-first step + axis.
+    const setup = read(skillsDir + 'setup/SKILL.md');
+    expect(setup).toContain('Start from the project, not the topic');
+    expect(setup).toContain('plus the project axis');
+  });
+
+  it('write-time project: stamping stays in the extractor merge writer', () => {
+    const merge = read(scriptsDir + 'merge-project-update.sh');
+    // New wiki pages + the per-project decisions log both emit the facet.
+    expect((merge.match(/printf 'project: %s\\n'/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    // Per-update override contract: explicit "project" key (incl. "" = global) wins.
+    expect(merge).toContain(`jq -e 'has("project")'`);
+    // Per-project decisions log (not the one shared global file).
+    expect(merge).toContain('${PROJECT_SLUG}-decisions-log.md');
+  });
+
+  it('session-load seeds the graph brief from the project slug (CLI resolver, no bash twin)', () => {
+    const sl = read(scriptsDir + 'session-load.sh');
+    // The project slug must be the FIRST graph seed; registry→anchor resolution belongs
+    // to the hardened TS resolver inside graph-neighbors-cli, never a jq reimplementation
+    // in this script (one malformed registry line would silently kill later projects).
+    expect(sl).toContain('GRAPH_SEEDS=$(printf \'%s\\n%s\\n\' "$slug" "$CR_SLUGS"');
+    expect(sl).not.toMatch(/jq[^\n]*project-registry\.jsonl/);
+  });
+});

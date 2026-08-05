@@ -1,4 +1,5 @@
 // src/tools/knowledge-neighbors.ts
+import { promises as fs2 } from "fs";
 import { join } from "path";
 
 // src/tools/graph-store.ts
@@ -166,6 +167,24 @@ function validateSlug(slug2) {
 }
 
 // src/tools/knowledge-neighbors.ts
+async function resolveProjectAnchor(knowledgeDir2, slug2) {
+  let text;
+  try {
+    text = await fs2.readFile(join(knowledgeDir2, "graph", "project-registry.jsonl"), "utf-8");
+  } catch {
+    return void 0;
+  }
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r2 = JSON.parse(s);
+      if (r2 && r2.project === slug2 && typeof r2.anchor === "string" && r2.anchor) return r2.anchor;
+    } catch {
+    }
+  }
+  return void 0;
+}
 async function knowledgeNeighbors(args) {
   try {
     validateSlug(args.slug);
@@ -176,13 +195,25 @@ async function knowledgeNeighbors(args) {
   const records = await loadEdges(join(args.knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { slug: args.slug, edges: [] };
   const current = foldToCurrent(records);
-  const edges = neighbors(current, args.slug, {
+  const opts = {
     depth: args.depth,
     direction: args.direction,
     edgeTypes: args.edge_types,
     asOf: args.as_of
-  });
-  return { slug: args.slug, edges };
+  };
+  const edges = neighbors(current, args.slug, opts);
+  if (edges.length > 0) return { slug: args.slug, edges };
+  if (args.as_of) return { slug: args.slug, edges };
+  const anchor = await resolveProjectAnchor(args.knowledgeDir, args.slug);
+  if (!anchor || anchor === args.slug) return { slug: args.slug, edges };
+  try {
+    validateSlug(anchor);
+  } catch {
+    return { slug: args.slug, edges };
+  }
+  const anchorEdges = neighbors(current, anchor, opts);
+  if (anchorEdges.length === 0) return { slug: args.slug, edges };
+  return { slug: args.slug, resolved_anchor: anchor, edges: anchorEdges };
 }
 
 // src/tools/graph-neighbors-cli.ts

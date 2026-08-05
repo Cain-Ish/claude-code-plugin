@@ -52,7 +52,8 @@ export interface KnowledgeSearchResult {
      *  highest-scored RETURNED candidate is exactly 1; under project scoping
      *  (tier-major ordering) that anchor may not be the first listed. */
     score_norm: number;
-    /** SP-1 project-scope tier (1=active project … 4=other project). Present only when scoping is active. */
+    /** SP-1 project-scope tier (1=active project, 2=monorepo family, 3=graph-neighbour,
+     *  4=global/no facet, 5=other project). Present only when scoping is active. */
     tier?: number;
     description: string;
     tokens: number;
@@ -60,6 +61,11 @@ export interface KnowledgeSearchResult {
   }[];
   /** Present when ONNX embeddings were unavailable — ranking fell back to BM25(+graph) only (R2.3). */
   degraded?: 'bm25-only';
+  /** Present when project scoping was active: the slug it keyed on. */
+  scoped_to?: string;
+  /** Present with scoped_to: how many wiki pages carry project:<scoped_to>. 0 means the
+   *  facet is unpopulated for this project — scoping was effectively inert (fail-loud signal). */
+  anchors?: number;
 }
 
 interface AccessCounts { [slug: string]: { count: number; last_accessed: string } }
@@ -317,6 +323,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   // --- SP-1 project-scoped serving (scoped-first, auto-broaden). Pure reorder + filter. ---
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== 'off' && args.scope !== 'all';
+  let anchorCount = 0;
   if (scopeOn) {
     const slug = args.projectSlug!;
     // Family = the monorepo root + siblings + self (reads projects.jsonl truth, not the graph).
@@ -330,6 +337,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       allDocs.filter(d => d.source === 'wiki').map(d => [slugFromPath(d.doc.path), d.doc.project ?? '']));
     const anchors = allDocs.filter(d => d.source === 'wiki' && (d.doc.project ?? '') === slug)
       .map(d => slugFromPath(d.doc.path));
+    anchorCount = anchors.length;
     const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt('SB_SCOPE_HOPS', 2, 0, 4));
     for (const s of scored) {
       if (s.source === 'local-doc') { s.tier = 1; continue; }  // active project's own registry pages
@@ -385,7 +393,13 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   }
   saveAccessCounts(accessCounts).catch(() => {});
 
-  return { candidates, ...(embeddingsActive ? {} : { degraded: 'bm25-only' as const }) };
+  return {
+    candidates,
+    ...(embeddingsActive ? {} : { degraded: 'bm25-only' as const }),
+    // Scoping telemetry (fail-loud): anchors=0 with scoping on means the project: facet
+    // is unpopulated for this slug — tiers silently collapsed, which was invisible before.
+    ...(scopeOn ? { scoped_to: args.projectSlug!, anchors: anchorCount } : {}),
+  };
 }
 
 interface FieldIndex { counts: Map<string, number>; len: number; weight: number }

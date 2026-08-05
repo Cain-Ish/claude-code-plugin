@@ -47,6 +47,13 @@ KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
 # (reuses the TS schema → no bash/TS drift). Resolved relative to this script (plugin root).
 RENDER_CLI="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")"/.. && pwd)}/mcp/dist/tools/ai-block-render-cli.bundle.js"
 [ -f "$PROJECT_MD" ] || { echo "merge-project-update: project file not found: $PROJECT_MD" >&2; exit 2; }
+# Originating project slug = the PROJECT.md parent dir. Stamped as the project: facet on
+# pages this run creates (write-time linkage; the backfill only ever ran retroactively).
+# Validated, NOT sb_sanitize_slug'd: the facet must equal the registry slug EXACTLY for
+# scoped search (sub-project slugs like mono__api carry underscores sanitize would eat).
+# "." / "/" (bare --project-md) or an unsafe dir name ⇒ no stamp, not a bogus facet.
+PROJECT_SLUG=$(basename "$(dirname "$PROJECT_MD")")
+case "$PROJECT_SLUG" in .|/|''|*[!a-zA-Z0-9_-]*) PROJECT_SLUG="" ;; esac
 
 if [ -n "$JSON_FILE" ]; then
   RAW=$(cat "$JSON_FILE")
@@ -82,28 +89,34 @@ trap 'rm -f "$TMP_OUT"' EXIT
 # never written and dedup never fires. The merge writes TMP_OUT back, so this also LF-normalizes.
 tr -d '\r' < "$PROJECT_MD" > "$TMP_OUT"
 
-# Archive a dropped decision bullet to the wiki decisions log.
+# Archive a dropped decision bullet to the wiki decisions log — PER PROJECT, with a
+# project: facet, so rotated decisions stay reachable by project-scoped search instead
+# of piling into one cross-project global file (invisible to tiering).
 archive_dropped_decision() {
   local text="$1"
   text=$(echo "$text" | sed 's/^- //')
   [ -z "$text" ] && return 0
-  local archive_file="$KNOWLEDGE_WIKI/decisions/project-decisions-log.md"
+  local archive_file
+  if [ -n "$PROJECT_SLUG" ]; then
+    archive_file="$KNOWLEDGE_WIKI/decisions/${PROJECT_SLUG}-decisions-log.md"
+  else
+    archive_file="$KNOWLEDGE_WIKI/decisions/project-decisions-log.md"
+  fi
   mkdir -p "$(dirname "$archive_file")"
   if [ ! -f "$archive_file" ]; then
     local ts_now
     ts_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    cat > "$archive_file" <<STUB
----
-title: "Archived Project Decisions"
-type: decisions
-description: "Auto-archived decisions rotated out of PROJECT.md hot tier"
-created: $ts_now
-updated: $ts_now
----
-
-# Archived Project Decisions
-
-STUB
+    {
+      printf '%s\n' "---"
+      printf 'title: "Archived Project Decisions%s"\n' "${PROJECT_SLUG:+ — $PROJECT_SLUG}"
+      printf 'type: decisions\n'
+      printf 'description: "Auto-archived decisions rotated out of PROJECT.md hot tier"\n'
+      printf 'created: %s\n' "$ts_now"
+      printf 'updated: %s\n' "$ts_now"
+      [ -n "$PROJECT_SLUG" ] && printf 'project: %s\n' "$PROJECT_SLUG"
+      printf '%s\n\n' "---"
+      printf '# Archived Project Decisions%s\n\n' "${PROJECT_SLUG:+ — $PROJECT_SLUG}"
+    } > "$archive_file"
   fi
   printf '%s\n' "- $text" >> "$archive_file"
   WIKI_WRITES=1
@@ -531,6 +544,17 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
     slug=$(sb_sanitize_slug "$raw_slug") || continue
     [ -z "$content" ] && continue
 
+    # project: facet for a page created this run. Default = the originating project
+    # (write-time linkage). The extractor may override per update: an explicit
+    # "project" key of "" marks the page deliberately GLOBAL (cross-project learning).
+    if echo "$update" | jq -e 'has("project")' >/dev/null 2>&1; then
+      page_project=$(echo "$update" | jq -r '.project // ""' | tr -d '\r')
+    else
+      page_project="$PROJECT_SLUG"
+    fi
+    # Same exact-match rule as PROJECT_SLUG: validate charset, never rewrite.
+    case "$page_project" in *[!a-zA-Z0-9_-]*) page_project="" ;; esac
+
     # Render the extractor's structured ai_block into the marked region (closed-vocab,
     # schema-ordered). Fail-safe: no block / no node / no CLI ⇒ "" (inject nothing).
     ai_region=""
@@ -629,6 +653,7 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
         [ -n "$description" ] && printf 'description: "%s"\n' "$description"
         printf 'created: %s\n' "$ts_now"
         printf 'updated: %s\n' "$ts_now"
+        [ -n "$page_project" ] && printf 'project: %s\n' "$page_project"
         printf '%s\n\n' "---"
         [ -n "$ai_region" ] && printf '%s\n\n' "$ai_region"   # authored ai-block (shared intermediate)
         printf '# %s\n\n' "${title:-$slug}"
@@ -657,7 +682,7 @@ if [ "$WIKI_WRITES" -eq 1 ]; then
   sb_reindex_wiki "$KNOWLEDGE_DIR"
   # Increment the wiki-writes counter. session-load.sh consumes this at the
   # SB_MAINTAINER_THRESHOLD and auto-dispatches the maintainer subagent.
-  PROJECT_SLUG=$(basename "$(dirname "$PROJECT_MD")")
+  # PROJECT_SLUG derived once near the top (single source).
   [ -n "$PROJECT_SLUG" ] && sb_inc_wiki_writes "$PROJECT_SLUG"
 fi
 
@@ -667,7 +692,8 @@ fi
 RECENT_DREAM=$(find "$BRAIN_DIR/dreams/" -maxdepth 2 -name 'status.json' -mmin -5 2>/dev/null \
   | xargs -I{} jq -r 'select(.status == "completed" or .status == "archived") | .id' {} 2>/dev/null | head -1)
 if [ -n "$RECENT_DREAM" ]; then
-  PROJECT_SLUG=$(basename "$(dirname "$PROJECT_MD")")
+  # PROJECT_SLUG from the guarded top-level derivation — never recompute it raw here
+  # (an unguarded basename would reach the .session-count path sink unvalidated).
   [ -n "$PROJECT_SLUG" ] && sb_reset_session_count "$PROJECT_SLUG"
 fi
 

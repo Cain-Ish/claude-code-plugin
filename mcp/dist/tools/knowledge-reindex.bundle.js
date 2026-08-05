@@ -3291,6 +3291,7 @@ async function knowledgeReindex(knowledgeDir) {
       "type: projects",
       "generated: true",
       "graph: exclude",
+      `project: ${JSON.stringify(proj)}`,
       `description: ${JSON.stringify(`Map of Content for the ${proj} project (auto-generated).`)}`,
       "---",
       ""

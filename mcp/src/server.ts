@@ -94,7 +94,7 @@ function registerJsonTool<Shape extends z.ZodRawShape>(
 
 registerJsonTool(
   "knowledge_search",
-  "Hybrid search across the knowledge base wiki: BM25 (title 3x, description 2x, tags 2x, ai-block 1.5x, body 1x) fused with ONNX embeddings via RRF when available, plus a 90-day recency boost, stub down-ranking, and project-scoped tiering; a capped graph-edge boost is opt-in via SB_GRAPH_RANKING_BOOST=1 (off by default). Returns top 8 candidates with path, raw score, score_norm (0..1, comparable across modes), tier (when project scoping is active), and snippet. Result carries degraded:'bm25-only' when embeddings are unavailable.",
+  "Hybrid search across the knowledge base wiki: BM25 (title 3x, description 2x, tags 2x, ai-block 1.5x, body 1x) fused with ONNX embeddings via RRF when available, plus a 90-day recency boost, stub down-ranking, and project-scoped tiering; a capped graph-edge boost is opt-in via SB_GRAPH_RANKING_BOOST=1 (off by default). Returns top 8 candidates with path, raw score, score_norm (0..1, comparable across modes), tier (when project scoping is active: 1=active project, 2=family, 3=graph-neighbour, 4=global, 5=other project), and snippet. Result carries degraded:'bm25-only' when embeddings are unavailable, plus scoped_to/anchors telemetry when scoping is active (anchors=0 = the project: facet is unpopulated — scoping inert).",
   {
     query: z.string().describe("Search query — tokenized on lowercase alphanumerics, date tokens filtered out, matched via BM25 scoring."),
     scope: z.string().optional().describe("Restrict to a single wiki subdirectory (e.g. 'entities', 'learnings'). Omit to search all."),
@@ -423,7 +423,7 @@ registerJsonTool(
 
 registerJsonTool(
   "knowledge_neighbors",
-  "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval.",
+  "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval. A PROJECT slug (e.g. the active project) also works: when the slug has no edges of its own it resolves via graph/project-registry.jsonl to the project's anchor entity (result carries resolved_anchor) — use this to start traversal FROM the current project.",
   {
     slug: z.string().describe("The page slug to start from."),
     depth: z.number().min(1).max(4).optional().describe("Max hops. Default 2."),

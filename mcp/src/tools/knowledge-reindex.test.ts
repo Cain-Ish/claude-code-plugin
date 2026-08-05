@@ -49,6 +49,9 @@ describe('reindex project MOCs', () => {
     expect(body).toContain('[[kiri-privilege-split]]');
     expect(body).toContain('type: projects');
     expect(body).toContain('graph: exclude');
+    // The hub carries its OWN project: facet — without it the MOC is tier-4 "global"
+    // to project-scoped search (the hub was invisible to its own project's scope).
+    expect(body).toMatch(/^project: "kiri"$/m);
     await expect(fsp.access(join(kd, 'wiki', 'projects', 'cainish-bridge.md'))).rejects.toThrow(); // 2 < 3
   });
 

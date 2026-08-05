@@ -85,7 +85,10 @@ export async function knowledgeReindex(knowledgeDir: string): Promise<ReindexRes
     // readers mask it but the validator's yaml.load detector rejects it.
     // JSON.stringify yields a valid double-quoted scalar (YAML accepts
     // JSON-style quoting + escapes).
+    // project: facet on the MOC itself — without it the project's own hub page is
+    // tier-4 "global" to project-scoped search and never an anchor for tier-3 hops.
     const header = ['---', `title: ${JSON.stringify(proj)}`, 'type: projects', 'generated: true', 'graph: exclude',
+      `project: ${JSON.stringify(proj)}`,
       `description: ${JSON.stringify(`Map of Content for the ${proj} project (auto-generated).`)}`, '---', ''].join('\n');
     await fs.writeFile(join(projDir, `${proj}.md`), header + region + '\n', 'utf-8');
   }

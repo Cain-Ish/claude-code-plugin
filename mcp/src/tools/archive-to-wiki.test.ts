@@ -37,6 +37,23 @@ describe('archive_to_wiki', () => {
     expect(content).toContain('[active] still working on Y');
   });
 
+  it('archived page carries frontmatter with the project: facet (project-first retrieval lock)', async () => {
+    // Without project: the graduated entry is tier-4 "global" to project-scoped
+    // search and invisible to the project MOC — the defect that motivated the fix.
+    const res = await archiveToWiki({
+      slug: 'test-slug', sourceSection: 'blockers',
+      entryText: 'flaky test in module X', targetCategory: 'issues',
+      brainDir, knowledgeDir,
+    });
+    expect(res.ok).toBe(true);
+    const page = readFileSync(res.archived_path, 'utf-8');
+    expect(page.startsWith('---\n')).toBe(true);
+    expect(page).toMatch(/^project: test-slug$/m);
+    expect(page).toMatch(/^type: issues$/m);
+    expect(page).toMatch(/^title: /m);
+    expect(page).toMatch(/^created: /m);
+  });
+
   it('section-scope: same entryText in both sections only archives the requested one', async () => {
     // Replace default fixture with one where both sections carry an identical
     // [resolved] line. Archive from `decisions` and verify the `blockers` line

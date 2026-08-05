@@ -6923,12 +6923,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs20, exportName) {
+    function addFormats(ajv, list, fs21, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs20[f]);
+        ajv.addFormat(f, fs21[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -21149,7 +21149,7 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs19 from "fs";
+import fs20 from "fs";
 import path4 from "path";
 
 // src/tools/graph-store.ts
@@ -21584,12 +21584,24 @@ async function archiveToWiki(args) {
   if (matchIdx < 0) {
     return { ok: false, archived_path: "", reason: `no [resolved] entry matching text in ${sectionHeader}` };
   }
-  const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const ts = (/* @__PURE__ */ new Date()).toISOString();
+  const date3 = ts.slice(0, 10);
   const slugSafe = args.entryText.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
   const archivePath = join3(wikiDir, `${date3}-${slugSafe}.md`);
+  const frontmatter = [
+    "---",
+    `title: ${JSON.stringify(args.entryText.slice(0, 120))}`,
+    `type: ${args.targetCategory}`,
+    `description: ${JSON.stringify(args.entryText.slice(0, 200))}`,
+    `created: ${ts}`,
+    `updated: ${ts}`,
+    `project: ${args.slug}`,
+    "---",
+    ""
+  ].join("\n");
   await fs4.writeFile(
     archivePath,
-    `# ${args.entryText}
+    `${frontmatter}# ${args.entryText}
 
 **Archived:** ${date3}
 **From:** projects/${args.slug}/PROJECT.md (section: ${args.sourceSection})
@@ -26185,8 +26197,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep5, { nocase, childrenCacheSize = 16 * 1024, fs: fs20 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs20);
+  constructor(cwd = process.cwd(), pathImpl, sep5, { nocase, childrenCacheSize = 16 * 1024, fs: fs21 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs21);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -26744,8 +26756,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs20) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs20 });
+  newRoot(fs21) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs21 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -26773,8 +26785,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs20) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs20 });
+  newRoot(fs21) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs21 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -28409,6 +28421,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
   }
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
+  let anchorCount = 0;
   if (scopeOn) {
     const slug = args.projectSlug;
     const family = args.brainDir ? projectFamily(args.brainDir, slug) : /* @__PURE__ */ new Set([slug]);
@@ -28416,6 +28429,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       allDocs.filter((d) => d.source === "wiki").map((d) => [slugFromPath(d.doc.path), d.doc.project ?? ""])
     );
     const anchors = allDocs.filter((d) => d.source === "wiki" && (d.doc.project ?? "") === slug).map((d) => slugFromPath(d.doc.path));
+    anchorCount = anchors.length;
     const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt("SB_SCOPE_HOPS", 2, 0, 4));
     for (const s of scored) {
       if (s.source === "local-doc") {
@@ -28454,7 +28468,13 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   }
   saveAccessCounts(accessCounts).catch(() => {
   });
-  return { candidates, ...embeddingsActive ? {} : { degraded: "bm25-only" } };
+  return {
+    candidates,
+    ...embeddingsActive ? {} : { degraded: "bm25-only" },
+    // Scoping telemetry (fail-loud): anchors=0 with scoping on means the project: facet
+    // is unpopulated for this slug — tiers silently collapsed, which was invisible before.
+    ...scopeOn ? { scoped_to: args.projectSlug, anchors: anchorCount } : {}
+  };
 }
 function toCounts(s) {
   const toks = tokenize(s);
@@ -31587,6 +31607,7 @@ async function knowledgeReindex(knowledgeDir) {
       "type: projects",
       "generated: true",
       "graph: exclude",
+      `project: ${JSON.stringify(proj)}`,
       `description: ${JSON.stringify(`Map of Content for the ${proj} project (auto-generated).`)}`,
       "---",
       ""
@@ -32444,7 +32465,26 @@ async function knowledgeRelate(args) {
 }
 
 // src/tools/knowledge-neighbors.ts
+import { promises as fs18 } from "fs";
 import { join as join20 } from "path";
+async function resolveProjectAnchor(knowledgeDir, slug) {
+  let text;
+  try {
+    text = await fs18.readFile(join20(knowledgeDir, "graph", "project-registry.jsonl"), "utf-8");
+  } catch {
+    return void 0;
+  }
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s);
+      if (r && r.project === slug && typeof r.anchor === "string" && r.anchor) return r.anchor;
+    } catch {
+    }
+  }
+  return void 0;
+}
 async function knowledgeNeighbors(args) {
   try {
     validateSlug(args.slug);
@@ -32455,17 +32495,29 @@ async function knowledgeNeighbors(args) {
   const records = await loadEdges(join20(args.knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { slug: args.slug, edges: [] };
   const current = foldToCurrent(records);
-  const edges = neighbors(current, args.slug, {
+  const opts = {
     depth: args.depth,
     direction: args.direction,
     edgeTypes: args.edge_types,
     asOf: args.as_of
-  });
-  return { slug: args.slug, edges };
+  };
+  const edges = neighbors(current, args.slug, opts);
+  if (edges.length > 0) return { slug: args.slug, edges };
+  if (args.as_of) return { slug: args.slug, edges };
+  const anchor = await resolveProjectAnchor(args.knowledgeDir, args.slug);
+  if (!anchor || anchor === args.slug) return { slug: args.slug, edges };
+  try {
+    validateSlug(anchor);
+  } catch {
+    return { slug: args.slug, edges };
+  }
+  const anchorEdges = neighbors(current, anchor, opts);
+  if (anchorEdges.length === 0) return { slug: args.slug, edges };
+  return { slug: args.slug, resolved_anchor: anchor, edges: anchorEdges };
 }
 
 // src/tools/codemap/store.ts
-import { promises as fs18 } from "fs";
+import { promises as fs19 } from "fs";
 import * as path2 from "path";
 function codemapDir(brainDir2, slug) {
   return path2.join(brainDir2, "projects", slug, "codemap");
@@ -32474,7 +32526,7 @@ async function readGraph(dir) {
   const file = path2.join(dir, "graph.json");
   let raw;
   try {
-    raw = await fs18.readFile(file, "utf-8");
+    raw = await fs19.readFile(file, "utf-8");
   } catch (e) {
     if (e.code === "ENOENT") return null;
     throw e;
@@ -32831,7 +32883,7 @@ function registerJsonTool(name, description, inputSchema, fn, wrap = (h) => h) {
 }
 registerJsonTool(
   "knowledge_search",
-  "Hybrid search across the knowledge base wiki: BM25 (title 3x, description 2x, tags 2x, ai-block 1.5x, body 1x) fused with ONNX embeddings via RRF when available, plus a 90-day recency boost, stub down-ranking, and project-scoped tiering; a capped graph-edge boost is opt-in via SB_GRAPH_RANKING_BOOST=1 (off by default). Returns top 8 candidates with path, raw score, score_norm (0..1, comparable across modes), tier (when project scoping is active), and snippet. Result carries degraded:'bm25-only' when embeddings are unavailable.",
+  "Hybrid search across the knowledge base wiki: BM25 (title 3x, description 2x, tags 2x, ai-block 1.5x, body 1x) fused with ONNX embeddings via RRF when available, plus a 90-day recency boost, stub down-ranking, and project-scoped tiering; a capped graph-edge boost is opt-in via SB_GRAPH_RANKING_BOOST=1 (off by default). Returns top 8 candidates with path, raw score, score_norm (0..1, comparable across modes), tier (when project scoping is active: 1=active project, 2=family, 3=graph-neighbour, 4=global, 5=other project), and snippet. Result carries degraded:'bm25-only' when embeddings are unavailable, plus scoped_to/anchors telemetry when scoping is active (anchors=0 = the project: facet is unpopulated \u2014 scoping inert).",
   {
     query: external_exports.string().describe("Search query \u2014 tokenized on lowercase alphanumerics, date tokens filtered out, matched via BM25 scoring."),
     scope: external_exports.string().optional().describe("Restrict to a single wiki subdirectory (e.g. 'entities', 'learnings'). Omit to search all.")
@@ -32883,7 +32935,7 @@ registerJsonTool(
   {},
   async () => {
     const wikiDir = path4.join(KNOWLEDGE_DIR, "wiki");
-    if (!fs19.existsSync(wikiDir)) {
+    if (!fs20.existsSync(wikiDir)) {
       return [
         `# Knowledge Base Stats`,
         ``,
@@ -32898,7 +32950,7 @@ registerJsonTool(
       const cat = categorizeFile(file);
       let size = 0;
       try {
-        size = fs19.statSync(file).size;
+        size = fs20.statSync(file).size;
       } catch {
         continue;
       }
@@ -33123,7 +33175,7 @@ registerJsonTool(
 );
 registerJsonTool(
   "knowledge_neighbors",
-  "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval.",
+  "Walk the typed relationship graph from a page: multi-hop, time-filtered. direction 'out' = its dependencies (what it requires/affects), 'in' = its blast radius (what breaks if it changes), 'both' = default. Set as_of to a past date to reconstruct the graph as it was then. Returns edges with type, hops, score, and validity interval. A PROJECT slug (e.g. the active project) also works: when the slug has no edges of its own it resolves via graph/project-registry.jsonl to the project's anchor entity (result carries resolved_anchor) \u2014 use this to start traversal FROM the current project.",
   {
     slug: external_exports.string().describe("The page slug to start from."),
     depth: external_exports.number().min(1).max(4).optional().describe("Max hops. Default 2."),

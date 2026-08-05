@@ -21,6 +21,10 @@ Examples that don't trigger:
 - "what's a good way to do X in general?" — no specific name
 - "fix this bash script" — referent is the visible artifact, not a wiki entity
 
+## Project-first rule
+
+When the request is about **the current project itself** — its architecture, decisions, blockers, history, "how do we do X here", "what did we decide about Y" — do NOT start from topic keywords. Start from the project node: one `mcp__plugin_second-brain_knowledge-base__knowledge_neighbors` call on the **active project slug** (a project slug with no edges of its own resolves through the project registry to the project's anchor entity — the result's `resolved_anchor` names it). That returns the project's typed dependency web (decisions, learnings, subsystems); then `knowledge_search` the specific topic. Topic-only search treats the KB as a flat database and misses project-scoped pages whose text doesn't share the query's words — the graph hop is what finds them.
+
 ---
 
 You have a persona core. Before any non-trivial response:

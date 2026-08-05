@@ -71,4 +71,68 @@ describe('knowledgeNeighbors', () => {
     const outward = await knowledgeNeighbors({ slug: 'z', direction: 'out', depth: 2, knowledgeDir: dir });
     expect(outward.edges).toEqual([]);
   });
+
+  // Project-first retrieval: a project key is usually not a graph node — its edges hang
+  // off an anchor entity, mapped by graph/project-registry.jsonl. The resolver makes
+  // "start traversal from the current project" work.
+  it('resolves an edgeless project slug to its registry anchor (resolved_anchor set)', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-anchor-'));
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'learning-1', to: 'my-anchor', type: 'part_of', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await fsp.writeFile(join(dir, 'graph', 'project-registry.jsonl'),
+      '{"anchor":"my-anchor","project":"my-project"}\n', 'utf-8');
+
+    const r = await knowledgeNeighbors({ slug: 'my-project', direction: 'both', knowledgeDir: dir });
+    expect(r.slug).toBe('my-project');
+    expect(r.resolved_anchor).toBe('my-anchor');
+    expect(r.edges.map(e => e.from)).toContain('learning-1');
+  });
+
+  it('a slug with its OWN edges is never anchor-resolved (only-when-empty contract)', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-own-'));
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'my-project', to: 'direct-dep', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await appendEdge(log, { op: 'assert', from: 'learning-1', to: 'my-anchor', type: 'part_of', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await fsp.writeFile(join(dir, 'graph', 'project-registry.jsonl'),
+      '{"anchor":"my-anchor","project":"my-project"}\n', 'utf-8');
+
+    const r = await knowledgeNeighbors({ slug: 'my-project', knowledgeDir: dir });
+    expect(r.resolved_anchor).toBeUndefined();
+    expect(r.edges.map(e => e.to)).toContain('direct-dep');
+    expect(r.edges.map(e => e.from)).not.toContain('learning-1');
+  });
+
+  it('edgeless slug with NO registry (or no matching row) still returns empty, no resolved_anchor', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-noreg-'));
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'a', to: 'b', type: 'requires', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    const r = await knowledgeNeighbors({ slug: 'unmapped-project', knowledgeDir: dir });
+    expect(r.resolved_anchor).toBeUndefined();
+    expect(r.edges).toEqual([]);
+  });
+
+  it('as_of queries NEVER anchor-resolve: zero-at-that-date means zero, not the anchor\'s past', async () => {
+    // A slug can be both a real entity (edges post-dating as_of) and a registry key;
+    // substituting the anchor's history under the queried name would be wrong.
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-asof-anchor-'));
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'my-project', to: 'late-dep', type: 'requires', valid_from: '2026-06-01', recorded_at: '2026-06-01T00:00:00Z' });
+    await appendEdge(log, { op: 'assert', from: 'learning-1', to: 'my-anchor', type: 'part_of', valid_from: '2026-01-01', recorded_at: '2026-01-01T00:00:00Z' });
+    await fsp.writeFile(join(dir, 'graph', 'project-registry.jsonl'),
+      '{"anchor":"my-anchor","project":"my-project"}\n', 'utf-8');
+    const past = await knowledgeNeighbors({ slug: 'my-project', as_of: '2026-03-01', knowledgeDir: dir });
+    expect(past.resolved_anchor).toBeUndefined();
+    expect(past.edges).toEqual([]);
+  });
+
+  it('malformed registry lines are skipped, valid row still resolves', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'kn-mal-'));
+    const log = join(dir, 'graph', 'edges.jsonl');
+    await appendEdge(log, { op: 'assert', from: 'learning-1', to: 'my-anchor', type: 'part_of', valid_from: '2026-05-01', recorded_at: '2026-05-01T00:00:00Z' });
+    await fsp.writeFile(join(dir, 'graph', 'project-registry.jsonl'),
+      'not json\n{"anchor":42,"project":"my-project"}\n{"anchor":"my-anchor","project":"my-project"}\n', 'utf-8');
+    const r = await knowledgeNeighbors({ slug: 'my-project', knowledgeDir: dir });
+    expect(r.resolved_anchor).toBe('my-anchor');
+    expect(r.edges.length).toBeGreaterThan(0);
+  });
 });

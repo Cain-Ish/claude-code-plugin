@@ -6890,6 +6890,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
   }
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
+  let anchorCount = 0;
   if (scopeOn) {
     const slug = args.projectSlug;
     const family = args.brainDir ? projectFamily(args.brainDir, slug) : /* @__PURE__ */ new Set([slug]);
@@ -6897,6 +6898,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       allDocs.filter((d) => d.source === "wiki").map((d) => [slugFromPath(d.doc.path), d.doc.project ?? ""])
     );
     const anchors = allDocs.filter((d) => d.source === "wiki" && (d.doc.project ?? "") === slug).map((d) => slugFromPath(d.doc.path));
+    anchorCount = anchors.length;
     const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt("SB_SCOPE_HOPS", 2, 0, 4));
     for (const s of scored) {
       if (s.source === "local-doc") {
@@ -6935,7 +6937,13 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   }
   saveAccessCounts(accessCounts).catch(() => {
   });
-  return { candidates, ...embeddingsActive ? {} : { degraded: "bm25-only" } };
+  return {
+    candidates,
+    ...embeddingsActive ? {} : { degraded: "bm25-only" },
+    // Scoping telemetry (fail-loud): anchors=0 with scoping on means the project: facet
+    // is unpopulated for this slug — tiers silently collapsed, which was invisible before.
+    ...scopeOn ? { scoped_to: args.projectSlug, anchors: anchorCount } : {}
+  };
 }
 function toCounts(s) {
   const toks = tokenize(s);

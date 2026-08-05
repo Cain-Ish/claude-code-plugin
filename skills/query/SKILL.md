@@ -20,6 +20,10 @@ Find wiki pages relevant to a question. This skill is a thin wrapper around the 
 
 Scope can be any wiki subdirectory name (e.g. `concepts`, `entities`, `learnings`). Omit to search all directories.
 
+### 1a. Project questions → start from the project node
+
+If the question is about **the current project** ("what did we decide about…", "how does this project handle…", "what's blocked here") rather than a general topic, first call `knowledge_neighbors` on the **active project slug** — a project slug with no edges of its own resolves via the project registry to the project's anchor entity (`resolved_anchor` in the result), returning the project's decision/learning/subsystem web. Also consider reading the project hub page `wiki/projects/<slug>.md` (a generated Map of Content of every page carrying that project's facet). Then proceed with the topical search below; the graph hop finds project pages whose text doesn't share the question's words.
+
 ### 1b. Relational questions → also walk the graph
 
 If the question is **relational** rather than topical — "what depends on X", "what does X require", "what breaks if I change X", "blast radius of X", "what's related to X" — also call `knowledge_neighbors` on X's slug alongside the BM25 search:
