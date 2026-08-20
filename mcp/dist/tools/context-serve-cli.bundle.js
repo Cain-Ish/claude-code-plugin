@@ -6635,6 +6635,10 @@ var AVG_DOC_LENGTH = 200;
 var DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
 var MIN_SCORE_RATIO = 0.15;
 var STUB_PENALTY = 0.5;
+var COMMON_TERM_DF_SHARE = (() => {
+  const v = parseFloat(process.env.SB_GROUNDING_DF_SHARE ?? "");
+  return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.5;
+})();
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
@@ -6700,6 +6704,8 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       score: bm25,
       baseScore: bm25,
       // frozen pre-boost BM25 (R2.1): boost math + the floor read THIS, never the mutated score
+      grounded: groundedCount(queryTokens, indexed[i], dfMap, N),
+      // head-field term overlap; see KnowledgeSearchResult.grounded
       related: doc.related,
       description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
       tokens,
@@ -6851,6 +6857,10 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const candidates = returned.map(({ related, baseScore, tier, ...rest }) => ({
     ...rest,
     score_norm: topFinal > 0 ? Math.round(rest.score / topFinal * 1e4) / 1e4 : 0,
+    // baseScore surfaces as `relevance`: callers gating on relevance need the frozen
+    // pre-boost BM25, not the mode-dependent `score` (see the field doc).
+    relevance: Math.round(baseScore * 1e3) / 1e3,
+    query_terms: new Set(queryTokens).size,
     ...scopeOn ? { tier } : {}
   }));
   const accessCounts = await loadAccessCounts();
@@ -6892,6 +6902,20 @@ function indexDoc(doc) {
   const terms = /* @__PURE__ */ new Set();
   for (const f of fields) for (const t of f.counts.keys()) terms.add(t);
   return { fields, terms, strippedBody, bodyLen: fields[4].len };
+}
+function groundedCount(queryTokens, idx, dfMap, N) {
+  const head = idx.fields.slice(0, 3);
+  let n = 0;
+  for (const t of discriminativeTerms(queryTokens, dfMap, N)) {
+    if (head.some((f) => f.counts.has(t))) n++;
+  }
+  return n;
+}
+function discriminativeTerms(queryTokens, dfMap, N) {
+  const distinct = [...new Set(queryTokens)];
+  const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
+  const kept = distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);
+  return kept.length > 0 ? kept : distinct;
 }
 function computeDF(queryTokens, docs) {
   const dfMap = /* @__PURE__ */ new Map();
@@ -7104,12 +7128,15 @@ if (!query) {
 var SEP = "--8<--SB-EPISODIC--8<--";
 var knowledgeDir = resolveKnowledgeDir();
 var minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || "0");
+var minRelevance = parseFloat(process.env.SB_INJECT_MIN_RELEVANCE || "0");
+var minGrounded = parseInt(process.env.SB_INJECT_MIN_GROUNDED || "2", 10);
 var brainDir = resolveBrainDir();
 var projectSlug = process.env.SB_ACTIVE_SLUG?.trim() || void 0;
 var wikiLines = [];
 try {
   const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
-  const top = result.candidates.filter((c) => c.score >= minScore).slice(0, 2);
+  const needGrounded = Math.min(minGrounded, result.candidates[0]?.query_terms ?? minGrounded);
+  const top = result.candidates.filter((c) => c.score >= minScore && c.relevance >= minRelevance && c.grounded >= needGrounded).slice(0, 2);
   for (const c of top) {
     const slug = c.path.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
     wikiLines.push(`### [[${slug}]]${c.description ? " \u2014 " + c.description : ""}`);

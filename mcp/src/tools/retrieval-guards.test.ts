@@ -138,3 +138,53 @@ describe('P8a retrieval guards (deterministic)', () => {
     expect(scoreOf(on, 'related-one')).toBeGreaterThan(scoreOf(off, 'related-one'));
   });
 });
+
+// --- Gate satisfiability (the 0.045 incident, 2026-08-20) ---------------------
+//
+// A relevance gate must be REACHABLE by the scale it gates. `SB_PERSONA_WIKI_MIN_SCORE`
+// defaulted to 0.045 on `score`, but in hybrid mode `score` is RRF: a document ranked #1 by
+// BOTH engines scores 2/(RRF_K+1) = 0.0328, and the only post-fusion multipliers are the stub
+// penalty (x0.5, downward) and recency (x1.3). Ceiling 0.0426 < 0.045 — so the gate discarded
+// 100% of hybrid-mode hits and per-prompt wiki injection was dead for every session with
+// embeddings active. It passed only in bm25-only mode, where scores are raw open-ended BM25 —
+// which is exactly why the whole test suite stayed green: every test that touches this path
+// pins the gate to 0 and/or disables embeddings, so the failing configuration is the ONLY one
+// never exercised. Measured cost before the fix: 0 reads over 83 injected items, 13 sessions.
+//
+// Pure arithmetic + source scan, so it runs in CI with no model and cannot be neutered by an
+// env override the way the behavioural tests were.
+describe('injection gate satisfiability', () => {
+  const RRF_K = 60;
+  const RECENCY_BOOST_MAX = 0.3;
+  /** Best achievable fused score: rank 1 in both rankers, full recency boost. */
+  const RRF_CEILING = (2 / (RRF_K + 1)) * (1 + RECENCY_BOOST_MAX);
+
+  it('no shipped default gates `score` above the RRF ceiling', async () => {
+    const hook = await fs.readFile(
+      join(__dirname, '..', '..', '..', 'scripts', 'persona-context.sh'), 'utf8');
+    const m = hook.match(/SB_PERSONA_WIKI_MIN_SCORE:-([0-9.]+)/);
+    expect(m, 'SB_PERSONA_WIKI_MIN_SCORE default not found in persona-context.sh').toBeTruthy();
+    const shipped = parseFloat(m![1]);
+    // Strictly below, not equal: a gate AT the ceiling passes only the single perfect-rank
+    // page with a same-day timestamp, which is indistinguishable from dead in practice.
+    expect(shipped).toBeLessThan(RRF_CEILING);
+  });
+
+  it('exposes relevance + grounded so gates can use an absolute scale', async () => {
+    const dir = await seedWiki({
+      'tunnel-config': 'wireguard tunnel configuration details repeated tunnel tunnel',
+      'unrelated-page': 'gardening notes about soil and compost',
+    });
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
+    const top = r.candidates[0];
+    // relevance is frozen BM25 — an OPEN scale, so an absolute threshold is meaningful on it.
+    expect(top.relevance).toBeGreaterThan(0);
+    // grounded counts query terms in title/description/tags only; 'tunnel' is in the title.
+    expect(top.grounded).toBeGreaterThanOrEqual(1);
+    expect(top.query_terms).toBe(2);
+    // The off-topic page shares no head-field term — this is the signal an absolute score
+    // cannot give, and the reason the gate is a conjunction.
+    const off = r.candidates.find(c => c.path.includes('unrelated-page'));
+    if (off) expect(off.grounded).toBe(0);
+  });
+});

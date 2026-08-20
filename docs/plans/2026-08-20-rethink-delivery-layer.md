@@ -119,17 +119,32 @@ Each phase ships independently and is gated on the value-loop number, not on com
 
 ### Phase 0 — Stop the bleeding, widen the measurement (no deletions)
 
-- [ ] **0.1 Fix the injection gate (THE root cause).** Gate on the frozen BM25 `baseScore`, not the
-      fused RRF score; RRF keeps ordering only. Requires: expose `baseScore` (or a `relevance`
-      field) on the search result — note this touches `search-output-contract.test.ts`; switch
-      `knowledge-search-cli.ts:24` to gate on it; retire `SB_PERSONA_WIKI_MIN_SCORE` for
-      `SB_PERSONA_WIKI_MIN_BM25` (proposed default ~35, sitting in the measured 28.5→48.6 gap).
-      Regression lock: a nonsense query injects nothing, a genuine query injects its known page,
-      asserted in BOTH hybrid and bm25-only modes (CI runs degraded — a hybrid-only test proves
-      nothing here).
-      *Open calibration risk:* the default is fitted on 11 queries. BM25 is corpus- and
-      query-length dependent; per-term normalization measured WORSE separation (8.1 vs 7.1). Ship
-      the threshold with 0.2's miss-reason telemetry so it is tuned on real traffic, not on n=11.
+- [x] **0.1 Fix the injection gate (THE root cause).** DONE. Gate moved off `score` entirely and
+      onto `grounded` — the count of DISCRIMINATIVE query terms appearing in
+      title/description/tags. `relevance` (frozen BM25) and `query_terms` are exposed alongside
+      it; both CLIs (`knowledge-search-cli`, and `context-serve-cli`, which is the one the hook
+      actually calls) gate on it; `SB_PERSONA_WIKI_MIN_SCORE` now defaults to 0.
+      Result on the live 372-page wiki, shipped defaults, hybrid mode: **7/7 genuine queries
+      inject their correct page, 0/7 nonsense inject anything** (was 0/7 and 0/7).
+
+      Two intermediate designs were measured and rejected, both worth recording:
+      - *Absolute BM25 floor (35).* Separated cleanly on the live wiki (28.5 vs 48.6) but is
+        corpus-size dependent — on a small wiki df→N drives IDF→0 and all scores collapse, so
+        the floor becomes unreachable. That is the SAME bug class being fixed. It surfaced as a
+        real test failure (`test-injection-wrap`, a 1-page fixture), not as a hypothetical.
+        `SB_INJECT_MIN_RELEVANCE` keeps the knob but defaults to 0.
+      - *Raw term overlap (no df filter).* Leaked 3/6 nonsense queries, because `tokenize` has
+        no stopword list and "best"/"way"/"today" ground just as well as "pagerank".
+      `SB_GROUNDING_DF_SHARE` (default 0.5) is a corpus SHARE, not a count, so it is size
+      invariant. Swept: 0.15→4/6 genuine, 0.25→5/6, **0.4–0.7→6/6 genuine + 0/6 nonsense**,
+      1.0→3/6 nonsense leak. 0.5 sits mid-plateau.
+
+      Lock: `retrieval-guards.test.ts` "injection gate satisfiability" — pure arithmetic plus a
+      source scan of `persona-context.sh`, asserting no shipped default gates `score` above the
+      RRF ceiling. Verified to go RED on the old value
+      (`expected 0.045 to be less than 0.042622950819672135`). It needs no model, so it runs in
+      CI's offline/degraded lane, and no env override can neuter it — unlike the behavioural
+      tests, which pinned the gate open and hid this for the feature's entire lifetime.
 - [ ] 0.2 Instrument per-prompt injection: `persona-context.sh` writes to the same session
       manifest (`sb_manifest_add` equivalent), so the denominator is complete. Today only
       SessionStart injections are measured.
@@ -195,9 +210,72 @@ If Phase 0 cannot produce a non-zero read rate, no later phase is worth building
   tier and spends the budget only on retrieval that is proven to be read.
 - **Surface-budget ratchet** — Phase 3 ratchets DOWN, which the gate permits freely.
 
+## Why 918 green tests missed all of this
+
+The suite is not too big. It disables the thing under test.
+
+- The two tests covering per-prompt injection pin the gate open —
+  `tests/test-injection-wrap.sh:34` sets `SB_PERSONA_WIKI_MIN_SCORE=0`,
+  `tests/test-persona-context-combined.sh:50` sets `KNOWLEDGE_MIN_SCORE=0` — i.e. they set the
+  exact constant whose production value is the bug to a value that cannot fail. The comment at
+  :31-33 even names the open P0 it is stepping around.
+- `.github/workflows/ci.yml:42` sets `SECOND_BRAIN_DISABLE_EMBEDDINGS: '1'`, so the hybrid RRF
+  path — the only mode where the ceiling exists — never executes in CI at all.
+- **71 of 163 shell tests (44%) pin at least one `SB_*` override.** `SB_INTERACTIVE_OVERRIDE`
+  (12 uses) forces the drainer's defer verdict, which is why finding 5 also survived.
+
+Every bug in the inventory above lives in the gap between the test configuration and the
+production configuration. So the corrective action is NOT fewer tests — deleting them drops the
+12 documented regression locks (architecture-contract §7) while leaving the blind spot intact.
+It is:
+
+1. **A production-config lane** — the existing suite re-run with no overrides and embeddings on.
+   Blocker: CI is offline and cannot fetch the ~490 MB ONNX model, so this needs either a cached
+   model artifact or a self-hosted/local-only lane. Until then it runs pre-release on a
+   developer machine.
+2. **Prefer arithmetic/source-scan locks over behavioural fixtures** where the invariant allows
+   it. 0.1's lock needs no model, no fixture, and no env — so nothing can pin it open.
+3. **Outcome checks against the real corpus**, not synthetic pages: "this query injects that
+   page", "nonsense injects nothing". Ten of those outrank a hundred fixture tests.
+4. **Make the measurement fail loudly.** `read=0` held for 13 sessions and notified no one; a
+   sustained-zero read rate must raise a banner the way drainer staleness already does.
+
 ## Non-goals
 
 - Porting the wiki to a new schema or store. `~/knowledge` is not touched by any phase.
 - Rebuilding `knowledge_search`'s BM25/RRF/ONNX core. It works; only its *triggering and scoping*
   change.
 - Preserving `auto_accept`, `brain_os`, or the dream lifecycle in any form.
+
+## Known gap opened by 0.1: no stemming
+
+`tokenize` produces raw lowercase alphanumeric runs with no stemmer, so grounding cannot match
+"remove a **page**" against a title reading "archive**s** ... **pages**". Measured cost on the
+12-query eval fixture: 10/12 on-topic queries inject; the 2 misses are both plural/tense
+mismatches, not relevance failures.
+
+Deliberately NOT fixed by weakening the gate — that would re-admit the nonsense injections the
+df-share filter removes. Fix it at the tokenizer (light stemming, or grounding on token prefixes)
+where it also improves BM25, and re-measure both `test-injection-gate.sh` ratios afterwards.
+
+## 0.1 postscript: two more "unsatisfiable gate" edges, found by tests
+
+The same bug class reappeared twice *inside the fix*, which is the strongest argument that the
+class — not the constant — is the thing to guard:
+
+1. **Absolute BM25 floor (35).** Clean on 372 pages, unreachable on a 1-page corpus
+   (df→N ⇒ IDF→0). Caught by `test-injection-wrap`. Resolution: default 0, knob retained.
+2. **df-share filter with no fallback.** On a 4-page corpus where every page contains the query
+   terms, df = N for all of them, every term is "common", grounding zeroes out and nothing can
+   inject. Caught by `test-search-cli-scope` / `test-pipeline-smoke`. Resolution:
+   `discriminativeTerms()` falls back to raw overlap when NO term discriminates — safe, because
+   the nonsense-injection hole requires a common term to ground on *while* rare terms exist, so
+   the fallback cannot trigger in that case.
+
+Also narrowed deliberately: grounding reads title/description/tags and never the body, so a page
+whose head fields do not mention the topic will not inject even if its body does. `description`
+is a required frontmatter field, so real pages are unaffected; two fixtures that omitted it were
+building schema-invalid pages and were corrected rather than the gate loosened.
+Follow-up worth measuring: whether the ai-block (BM25 field 3, the proposition-level summary)
+should also count as a head field — it is aboutness-bearing and would help pages with thin
+descriptions, but it needs the same genuine-vs-nonsense sweep before it ships.
