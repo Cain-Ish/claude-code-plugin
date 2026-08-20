@@ -1337,31 +1337,114 @@ sb_prune_transcripts() {
   local count
   count=$(echo "$files" | grep -c . 2>/dev/null || true)
 
-  while [ "$count" -gt 100 ]; do
+  # EXTRACTED-FIRST EVICTION. The cap used to delete strictly oldest-first, which on a machine
+  # where the drainer is deferring (pure OAuth + an always-on interactive session) silently
+  # destroyed the un-mined backlog: measured live at 100/100 archived with 28 never extracted,
+  # the oldest 27 days old — every new session evicted one un-mined transcript forever. The
+  # archive's whole contract (stop-extract.sh: "the transcript is still archived; the drainer
+  # mines the real knowledge later") cannot hold if the cap outruns the drainer.
+  #
+  # So: evict transcripts that were ALREADY extracted first — their knowledge is in the wiki, the
+  # file is redundant. Un-mined transcripts are evicted only past a hard ceiling, and loudly.
+  # Growth stays bounded either way (never unbounded, never silent).
+  local cap="${SB_TRANSCRIPT_CAP:-100}";       case "$cap"  in ''|*[!0-9]*) cap=100 ;; esac
+  local hard="${SB_TRANSCRIPT_HARD_CAP:-300}"; case "$hard" in ''|*[!0-9]*) hard=300 ;; esac
+  [ "$hard" -lt "$cap" ] && hard="$cap"
+
+  # Done-set read ONCE. sb_extraction_done spawns jq per call; at 100+ files that is 100+ jq
+  # spawns per drain tick (~seconds on Windows) for a function that runs on every Stop hook.
+  local _state="$BRAIN_DIR/.extraction-state.jsonl" _done=""
+  if [ -f "$_state" ] && command -v jq >/dev/null 2>&1; then
+    _done=$(jq -rR 'fromjson? | select(.outcome == "ok" or .outcome == "error") | .basename' \
+      "$_state" 2>/dev/null | tr -d '\r' | sort -u)
+  fi
+  _sb_is_extracted() {   # $1 = full path
+    [ -n "$_done" ] || return 1
+    printf '%s\n' "$_done" | grep -qxF "$(basename "$1")"
+  }
+
+  # Partition oldest-first, preserving order within each class.
+  local _extracted="" _unmined="" _f
+  while IFS= read -r _f; do
+    [ -n "$_f" ] || continue
+    if _sb_is_extracted "$_f"; then _extracted="${_extracted}${_f}"$'\n'
+    else                           _unmined="${_unmined}${_f}"$'\n'; fi
+  done <<EOF
+$files
+EOF
+
+  # 1. Over the cap → drop already-extracted files, oldest first.
+  while [ "$count" -gt "$cap" ] && [ -n "${_extracted//[$'\n']/}" ]; do
     local oldest
-    oldest=$(echo "$files" | head -1)
+    oldest=$(printf '%s' "$_extracted" | head -1)
     [ -n "$oldest" ] && rm -f "$oldest"
-    files=$(echo "$files" | tail -n +2)
+    _extracted=$(printf '%s' "$_extracted" | tail -n +2)
+    files=$(printf '%s\n' "$files" | grep -vxF "$oldest")
     count=$((count - 1))
   done
 
+  # 2. Still over the HARD ceiling → the un-mined backlog itself is unbounded. Evict, but say so:
+  #    this is knowledge being destroyed before it was ever read, and it means the drainer has
+  #    been stalled long enough to matter (see the drain-health banner in session-load.sh).
+  while [ "$count" -gt "$hard" ] && [ -n "${_unmined//[$'\n']/}" ]; do
+    local oldest
+    oldest=$(printf '%s' "$_unmined" | head -1)
+    if [ -n "$oldest" ]; then
+      sb_log_error "lib.sh" "transcript cap: evicting UN-EXTRACTED $(basename "$oldest") — backlog past hard cap ${hard}; the drainer is not keeping up and this session's knowledge is lost" 1
+      rm -f "$oldest"
+    fi
+    _unmined=$(printf '%s' "$_unmined" | tail -n +2)
+    files=$(printf '%s\n' "$files" | grep -vxF "$oldest")
+    count=$((count - 1))
+  done
+  unset -f _sb_is_extracted
+
+  # `for f in $files` word-split on IFS and glob-expanded: archive names embed the project slug
+  # (`${session_id}_${slug}_${date}.txt`), and a slug can legitimately contain a space (a Windows
+  # project folder like "My App"), so one filename split into two bogus words and mis-totalled
+  # the byte accounting that drives eviction below. Read line-oriented, like the partition above.
   local total_bytes=0
-  for f in $files; do
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
     local sz
     sz=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+    case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
     total_bytes=$((total_bytes + sz))
-  done
+  done <<EOF
+$files
+EOF
 
-  while [ "$total_bytes" -gt 5242880 ] && [ -n "$files" ]; do
-    local oldest
-    oldest=$(echo "$files" | head -1)
-    [ -z "$oldest" ] && break
-    local sz
-    sz=$(wc -c < "$oldest" 2>/dev/null | tr -d ' ')
-    rm -f "$oldest"
-    total_bytes=$((total_bytes - sz))
-    files=$(echo "$files" | tail -n +2)
-  done
+  # TWO-TIER, exactly like the count cap above. An earlier revision applied only extracted-first
+  # ORDERING here with no hard-ceiling GATE, which meant that once extracted files ran out the
+  # loop kept deleting un-mined transcripts down to the 5MB line — reproduced in review with ten
+  # never-extracted 600KB sessions (6MB, only 10 FILES, nowhere near either count cap): two were
+  # destroyed. Transcripts are large, so the byte ceiling is reached long before the count one;
+  # protecting un-mined data in the count path only was protection in name.
+  local _byte_cap="${SB_TRANSCRIPT_MAX_BYTES:-5242880}"
+  case "$_byte_cap" in ''|*[!0-9]*) _byte_cap=5242880 ;; esac
+  local _byte_hard="${SB_TRANSCRIPT_MAX_BYTES_HARD:-$((_byte_cap * 3))}"
+  case "$_byte_hard" in ''|*[!0-9]*) _byte_hard=$((_byte_cap * 3)) ;; esac
+  [ "$_byte_hard" -lt "$_byte_cap" ] && _byte_hard="$_byte_cap"
+
+  _sb_evict_bytes() {   # $1 = list, $2 = byte ceiling, $3 = "unmined" to log loudly
+    local _list="$1" _ceiling="$2" _loud="$3" _oldest _sz
+    while [ "$total_bytes" -gt "$_ceiling" ] && [ -n "${_list//[$'\n']/}" ]; do
+      _oldest=$(printf '%s' "$_list" | head -1)
+      [ -z "$_oldest" ] && break
+      _sz=$(wc -c < "$_oldest" 2>/dev/null | tr -d ' ')
+      case "$_sz" in ''|*[!0-9]*) _sz=0 ;; esac
+      [ "$_loud" = unmined ] && sb_log_error "lib.sh" \
+        "transcript cap: evicting UN-EXTRACTED $(basename "$_oldest") — archive past the ${_ceiling}B hard ceiling; the drainer is not keeping up and this session's knowledge is lost" 1
+      rm -f "$_oldest"
+      total_bytes=$((total_bytes - _sz))
+      _list=$(printf '%s' "$_list" | tail -n +2)
+    done
+  }
+  # 1. Reclaim from already-extracted files down to the normal ceiling.
+  _sb_evict_bytes "$_extracted" "$_byte_cap" extracted
+  # 2. Only past the HARD ceiling is un-mined knowledge destroyed — and never quietly.
+  _sb_evict_bytes "$_unmined" "$_byte_hard" unmined
+  unset -f _sb_evict_bytes
 }
 
 # --- Session-cadence + maintenance flags ---------------------------------

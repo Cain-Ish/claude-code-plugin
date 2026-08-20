@@ -61,7 +61,15 @@ hits=0; total=0; bytes=0; misses=""
 while IFS= read -r line; do
   [ -z "$line" ] && continue
   q=$(printf '%s' "$line" | jq -r '.q' | tr -d '\r')
-  out=$(KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EVAL_BRAIN" SB_BRAIN_DIR="$EVAL_BRAIN" SECOND_BRAIN_DISABLE_EMBEDDINGS=1 node "$CLI" "$q" 2>/dev/null) \
+  # SB_INJECT_MIN_GROUNDED=0 disables the INJECTION gate for this measurement. This harness
+  # measures the RANKING ENGINE (see the header: "catches search-ENGINE regressions"); the gate
+  # is a downstream precision policy that deliberately suppresses low-confidence hits, and
+  # leaving it on would fold its precision into a recall number, making both unreadable.
+  # This is scoping, NOT the pin-it-open antipattern that hid the 0.045 gate bug for the
+  # feature's whole lifetime: the gate has its own dedicated coverage in
+  # tests/test-injection-gate.sh (precision + recall) and the arithmetic satisfiability lock in
+  # mcp/src/tools/retrieval-guards.test.ts. Never disable something here that nothing else tests.
+  out=$(KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EVAL_BRAIN" SB_BRAIN_DIR="$EVAL_BRAIN" SECOND_BRAIN_DISABLE_EMBEDDINGS=1 SB_INJECT_MIN_GROUNDED=0 node "$CLI" "$q" 2>/dev/null) \
     || { echo "recall: search errored on query: $q" >&2; exit 2; }
   bytes=$(( bytes + ${#out} ))
   got=$(printf '%s' "$out" | grep -oE '\[\[[^]]+\]\]' | sed -E 's/\[\[|\]\]//g' | head -n "$K")

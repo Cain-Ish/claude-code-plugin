@@ -6708,6 +6708,132 @@ var AVG_DOC_LENGTH = 200;
 var DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
 var MIN_SCORE_RATIO = 0.15;
 var STUB_PENALTY = 0.5;
+var MIN_CORPUS_FOR_DF = 8;
+var GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "but",
+  "if",
+  "then",
+  "than",
+  "that",
+  "this",
+  "these",
+  "those",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "am",
+  "do",
+  "does",
+  "did",
+  "doing",
+  "done",
+  "have",
+  "has",
+  "had",
+  "having",
+  "can",
+  "could",
+  "will",
+  "would",
+  "should",
+  "shall",
+  "may",
+  "might",
+  "must",
+  "i",
+  "you",
+  "we",
+  "they",
+  "he",
+  "she",
+  "it",
+  "me",
+  "my",
+  "our",
+  "your",
+  "their",
+  "its",
+  "to",
+  "of",
+  "in",
+  "on",
+  "at",
+  "by",
+  "for",
+  "with",
+  "from",
+  "into",
+  "onto",
+  "about",
+  "as",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "whom",
+  "why",
+  "how",
+  "not",
+  "no",
+  "yes",
+  "so",
+  "up",
+  "down",
+  "out",
+  "off",
+  "over",
+  "under",
+  "again",
+  "here",
+  "there",
+  "best",
+  "better",
+  "good",
+  "bad",
+  "way",
+  "ways",
+  "thing",
+  "things",
+  "stuff",
+  "get",
+  "got",
+  "make",
+  "made",
+  "use",
+  "used",
+  "using",
+  "need",
+  "want",
+  "like",
+  "please",
+  "help",
+  "some",
+  "any",
+  "all",
+  "more",
+  "most",
+  "much",
+  "many",
+  "very",
+  "just",
+  "only",
+  "also",
+  "now"
+]);
+var COMMON_TERM_DF_SHARE = (() => {
+  const v = parseFloat(process.env.SB_GROUNDING_DF_SHARE ?? "");
+  return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.5;
+})();
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 async function knowledgeSearch(args) {
@@ -6773,6 +6899,8 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       score: bm25,
       baseScore: bm25,
       // frozen pre-boost BM25 (R2.1): boost math + the floor read THIS, never the mutated score
+      grounded: groundedCount(queryTokens, indexed[i], dfMap, N),
+      // head-field term overlap; see KnowledgeSearchResult.grounded
       related: doc.related,
       description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
       tokens,
@@ -6917,13 +7045,25 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   let pool = scored;
   if (scopeOn) {
     const inScope = scored.filter((s) => s.tier <= 4);
-    pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
+    const inScopePassing = inScope.filter(passesFloor);
+    if (inScopePassing.length < clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100)) {
+      pool = scored;
+    } else {
+      const slots = clampEnvInt("SB_SCOPE_CROSS_SLOTS", 1, 0, TOP_K);
+      const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
+      const cross = slots > 0 ? scored.filter((s) => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots) : [];
+      pool = cross.length ? [...cross, ...inScopePassing] : inScope;
+    }
   }
   const returned = pool.filter(passesFloor).slice(0, TOP_K);
   const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);
   const candidates = returned.map(({ related, baseScore, tier, ...rest }) => ({
     ...rest,
     score_norm: topFinal > 0 ? Math.round(rest.score / topFinal * 1e4) / 1e4 : 0,
+    // baseScore surfaces as `relevance`: callers gating on relevance need the frozen
+    // pre-boost BM25, not the mode-dependent `score` (see the field doc).
+    relevance: Math.round(baseScore * 1e3) / 1e3,
+    query_terms: new Set(queryTokens).size,
     ...scopeOn ? { tier } : {}
   }));
   const accessCounts = await loadAccessCounts();
@@ -6965,6 +7105,20 @@ function indexDoc(doc) {
   const terms = /* @__PURE__ */ new Set();
   for (const f of fields) for (const t of f.counts.keys()) terms.add(t);
   return { fields, terms, strippedBody, bodyLen: fields[4].len };
+}
+function groundedCount(queryTokens, idx, dfMap, N) {
+  const head = idx.fields.slice(0, 3);
+  let n = 0;
+  for (const t of discriminativeTerms(queryTokens, dfMap, N)) {
+    if (head.some((f) => f.counts.has(t))) n++;
+  }
+  return n;
+}
+function discriminativeTerms(queryTokens, dfMap, N) {
+  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t));
+  if (N < MIN_CORPUS_FOR_DF) return distinct;
+  const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
+  return distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);
 }
 function computeDF(queryTokens, docs) {
   const dfMap = /* @__PURE__ */ new Map();

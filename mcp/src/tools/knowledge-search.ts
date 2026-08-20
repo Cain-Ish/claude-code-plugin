@@ -50,8 +50,33 @@ export interface KnowledgeSearchResult {
     score: number;
     /** Rank-normalized to (0,1] on ONE scale regardless of mode (R2.3). The
      *  highest-scored RETURNED candidate is exactly 1; under project scoping
-     *  (tier-major ordering) that anchor may not be the first listed. */
+     *  (tier-major ordering) that anchor may not be the first listed.
+     *  NOTE (cross-project reservation): when a tier-5 page is reserved it outscores every
+     *  in-scope candidate BY CONSTRUCTION, so it becomes the 1.0 anchor and every in-scope
+     *  result is normalized below it — including what would otherwise have been the top
+     *  in-scope hit. Consumers using score_norm as an in-scope confidence heuristic must
+     *  account for an anchor that is deliberately OUTSIDE the requested scope. */
     score_norm: number;
+    /** Frozen pre-boost BM25 — the ABSOLUTE relevance signal. RELEVANCE GATES MUST READ
+     *  THIS, NEVER `score`. In hybrid mode `score` is rank-derived RRF: its maximum is
+     *  2/(RRF_K+1) = 0.0328, ×1.3 recency = a 0.0426 ceiling, and it carries no relevance
+     *  information at all because EVERY query has a rank-1 document. Measured on the live
+     *  372-page wiki: nonsense queries reach RRF 0.0371 while genuine queries bottom out
+     *  at 0.0282 (fully overlapping), but the two separate cleanly on this field
+     *  (nonsense ≤28.5, genuine ≥48.6). A gate on `score` at 0.045 sat ABOVE the
+     *  mathematical ceiling and made per-prompt wiki injection dead for every hybrid-mode
+     *  session — measured 0 reads over 83 injected items. */
+    relevance: number;
+    /** How many DISTINCT query terms occur in title/description/tags — the "is this page
+     *  ABOUT the query" signal. Body matches deliberately do NOT count: incidental body
+     *  overlap is exactly what lets an off-topic page score. Pair it with `relevance` as a
+     *  conjunction; each covers the other's blind spot (relevance kills junk that happens
+     *  to share a title word, grounding kills the lexically-adjacent-but-off-topic page). */
+    grounded: number;
+    /** Distinct query terms after tokenization. Callers gating on `grounded` must clamp
+     *  their threshold to this (`min(threshold, query_terms)`), or a one-word query becomes
+     *  unsatisfiable — the same class of bug as gating `score` above its own ceiling. */
+    query_terms?: number;
     /** SP-1 project-scope tier (1=active project, 2=monorepo family, 3=graph-neighbour,
      *  4=global/no facet, 5=other project). Present only when scoping is active. */
     tier?: number;
@@ -106,6 +131,47 @@ const AVG_DOC_LENGTH = 200;
 const DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
 const MIN_SCORE_RATIO = 0.15;
 const STUB_PENALTY = 0.5;
+// A query term occurring in more than this share of the corpus is non-discriminative for
+// GROUNDING only (never for BM25 itself) — the stopword filter `tokenize` does not have.
+// Swept on the live 372-page wiki, 6 genuine vs 6 nonsense queries, no BM25 floor at all:
+//   0.15 → 4/6 genuine, 0/6 nonsense      (over-filters: a single-project wiki uses its own
+//   0.25 → 5/6 genuine, 0/6 nonsense       vocabulary constantly — "guard", "dream", "accept"
+//   0.4  → 6/6 genuine, 0/6 nonsense       are common HERE yet still discriminative)
+//   0.5  → 6/6 genuine, 0/6 nonsense   ← shipped, middle of the plateau
+//   0.7  → 6/6 genuine, 0/6 nonsense
+//   1.0  → 6/6 genuine, 3/6 nonsense      (no filtering — "best way to grill vegetables"
+//                                          grounds on "best"/"way" and injects a random page)
+// A SHARE, not a count, so it is corpus-size invariant: an absolute BM25 floor tested cleanly
+// here but dies on a small wiki, where df→N drives IDF→0 and every score collapses regardless
+// of match quality. That is the same "gate above its own ceiling" bug this whole change fixes,
+// so it must not be reintroduced as the default.
+// Minimum corpus size for a document-frequency SHARE to carry information. Below this the
+// grounding filter is skipped entirely (see discriminativeTerms). Chosen so real wikis (hundreds
+// of pages) always filter, while small fixtures and a first-install wiki never do.
+const MIN_CORPUS_FOR_DF = 8;
+// Words that can never establish that a page is ABOUT something. Used ONLY by grounding
+// (discriminativeTerms) — never by BM25, which keeps scoring them exactly as before, so ranking
+// is unchanged and this cannot resurrect or evict anything. Deliberately small and boring:
+// English function words plus the generic verbs/qualifiers that dominate casual prompts
+// ("what is the best way to do this"). Extending it is safe; it can only make grounding
+// stricter, and a term wrongly listed here just means one fewer way to ground a page.
+const GROUNDING_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'if', 'then', 'than', 'that', 'this', 'these', 'those',
+  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am',
+  'do', 'does', 'did', 'doing', 'done', 'have', 'has', 'had', 'having',
+  'can', 'could', 'will', 'would', 'should', 'shall', 'may', 'might', 'must',
+  'i', 'you', 'we', 'they', 'he', 'she', 'it', 'me', 'my', 'our', 'your', 'their', 'its',
+  'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'into', 'onto', 'about', 'as',
+  'what', 'when', 'where', 'which', 'who', 'whom', 'why', 'how',
+  'not', 'no', 'yes', 'so', 'up', 'down', 'out', 'off', 'over', 'under', 'again', 'here', 'there',
+  'best', 'better', 'good', 'bad', 'way', 'ways', 'thing', 'things', 'stuff',
+  'get', 'got', 'make', 'made', 'use', 'used', 'using', 'need', 'want', 'like', 'please', 'help',
+  'some', 'any', 'all', 'more', 'most', 'much', 'many', 'very', 'just', 'only', 'also', 'now',
+]);
+const COMMON_TERM_DF_SHARE = (() => {
+  const v = parseFloat(process.env.SB_GROUNDING_DF_SHARE ?? '');
+  return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.5;
+})();
 const MIN_SUBSTANTIVE_LENGTH = 100;
 const AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 
@@ -173,6 +239,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       tier: 0,   // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
       score: bm25,
       baseScore: bm25,   // frozen pre-boost BM25 (R2.1): boost math + the floor read THIS, never the mutated score
+      grounded: groundedCount(queryTokens, indexed[i], dfMap, N),   // head-field term overlap; see KnowledgeSearchResult.grounded
       related: doc.related,
       description: (doc.aiBlock && Object.keys(doc.aiBlock).length)
         ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS)   // shared intermediate, budget-capped
@@ -367,8 +434,39 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   let pool = scored;
   if (scopeOn) {
     const inScope = scored.filter(s => s.tier <= 4);
-    // Enough in-scope hits → drop other-project (tier 5). Thin → broaden (keep all; in-scope sorted first).
-    pool = inScope.filter(passesFloor).length >= clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100) ? inScope : scored;
+    const inScopePassing = inScope.filter(passesFloor);
+    if (inScopePassing.length < clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100)) {
+      pool = scored;   // thin in-scope → broaden (keep all; in-scope sorted first)
+    } else {
+      // CROSS-PROJECT RESERVATION. Enough in-scope hits, so tier-5 is dropped — EXCEPT for
+      // pages that outscore EVERY in-scope candidate. Without this, a lesson learned in one
+      // repo is unreachable from another: measured live, "ansible replace regexp double
+      // substitution" returned the correct page at rank 1 unscoped (0.04152) and NOTHING
+      // relevant when scoped to a different project, because the right page was dropped
+      // before ranking. Cross-project transfer is the whole reason this is a *second* brain
+      // rather than a per-repo README.
+      //
+      // Why "outscores everything in scope" and not a margin or a plain slot: it is the
+      // condition that keeps the existing scoping contract intact. The suppression tests
+      // (`C1 local-docs…`, `SP-1 family…`) use fixtures whose other-project page scores
+      // EQUAL to the in-scope pages, so a strict > leaves them dropped exactly as before —
+      // the rule only fires when the outside page is genuinely better than anything local,
+      // which is precisely the case scoping was never meant to hide. A multiplicative margin
+      // was rejected: it is a threshold on a mode-dependent scale, the bug class that killed
+      // the injection gate (see KnowledgeSearchResult.relevance).
+      //
+      // Placed FIRST, not appended: consumers take the top 1-2 candidates (persona-context
+      // injects 2), so a reserved slot at the tail is the same as no slot at all. Ranking it
+      // first is also score-consistent — by construction it beats every in-scope page.
+      // Precision is still enforced downstream: the injection CLIs apply the grounding gate
+      // to every candidate, reserved or not. SB_SCOPE_CROSS_SLOTS=0 restores the old drop.
+      const slots = clampEnvInt('SB_SCOPE_CROSS_SLOTS', 1, 0, TOP_K);
+      const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
+      const cross = slots > 0
+        ? scored.filter(s => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots)
+        : [];
+      pool = cross.length ? [...cross, ...inScopePassing] : inScope;
+    }
   }
 
   const returned = pool.filter(passesFloor).slice(0, TOP_K);
@@ -380,6 +478,10 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     .map(({ related, baseScore, tier, ...rest }) => ({
       ...rest,
       score_norm: topFinal > 0 ? Math.round((rest.score / topFinal) * 10000) / 10000 : 0,
+      // baseScore surfaces as `relevance`: callers gating on relevance need the frozen
+      // pre-boost BM25, not the mode-dependent `score` (see the field doc).
+      relevance: Math.round(baseScore * 1000) / 1000,
+      query_terms: new Set(queryTokens).size,
       ...(scopeOn ? { tier } : {}),
     }));
 
@@ -427,6 +529,59 @@ function indexDoc(doc: ParsedDoc): DocIndex {
   const terms = new Set<string>();
   for (const f of fields) for (const t of f.counts.keys()) terms.add(t);
   return { fields, terms, strippedBody, bodyLen: fields[4].len };
+}
+
+/** Distinct DISCRIMINATIVE query terms present in the HEAD fields (title/description/tags) —
+ *  fields 0-2 of indexDoc's fixed layout.
+ *
+ *  Body and ai-block are excluded on purpose: a page that merely MENTIONS the terms is not a
+ *  page ABOUT them, and that distinction is what an absolute score cannot make.
+ *
+ *  Common terms are excluded too, and that part is load-bearing: `tokenize` has NO stopword
+ *  list, so without this, "best way to grill vegetables" grounds on "best"/"way" and injects a
+ *  random page. Discriminativeness is measured by document frequency — corpus-ADAPTIVE, unlike
+ *  an absolute BM25 floor, which silently dies on a small wiki (with few docs, df→N, IDF→0 and
+ *  every score collapses toward 0 no matter how good the match). The max(2, …) floor keeps
+ *  every term usable on a tiny corpus, where a df/N share carries no information.
+ *
+ *  Cheap: reuses the per-field token counts and the df map the BM25 pass already built. */
+function groundedCount(queryTokens: string[], idx: DocIndex, dfMap: Map<string, number>, N: number): number {
+  const head = idx.fields.slice(0, 3);
+  let n = 0;
+  for (const t of discriminativeTerms(queryTokens, dfMap, N)) {
+    if (head.some(f => f.counts.has(t))) n++;
+  }
+  return n;
+}
+
+/** The query terms worth grounding on: those NOT occurring corpus-wide.
+ *
+ *  Corpus-size gated, and above that gate it fails CLOSED.
+ *
+ *  A df SHARE means nothing on a handful of pages: with N=4 and every page mentioning the query
+ *  terms, df=N for all of them, and filtering them all would ground every page at 0 and inject
+ *  nothing — the same "gate nothing can satisfy" failure this whole change removes, reached from
+ *  the other side. So below MIN_CORPUS_FOR_DF the filter is skipped entirely and grounding falls
+ *  back to raw overlap; on a corpus that small, "this term is everywhere" carries no information.
+ *
+ *  Above the gate there is deliberately NO fallback. An earlier revision returned every term when
+ *  the filter emptied the list, and review proved that reopened the precision hole: on a
+ *  topically-narrow wiki, a casual prompt made ENTIRELY of connector words ("what is the best way
+ *  to…") has every term corpus-common, the fallback handed the filler back, and an off-topic page
+ *  grounded on "the"/"way" in its title and was injected. On a corpus large enough to judge,
+ *  "every term is common" is itself the signal that the query is filler — ground nothing, inject
+ *  nothing. */
+function discriminativeTerms(queryTokens: string[], dfMap: Map<string, number>, N: number): string[] {
+  // Stopwords first, and independently of corpus size. The df filter alone is not enough:
+  // measured on the live 372-page wiki, "what is the best way to do this" still injected an
+  // off-topic page, because "best"/"way" appear in perhaps 50 of 372 pages — common in English
+  // but nowhere near the corpus SHARE. df catches project jargon that has gone generic; only a
+  // stopword list catches words that were never content-bearing to begin with. Grounding only —
+  // BM25 itself is untouched, so these words still contribute to ranking as they always did.
+  const distinct = [...new Set(queryTokens)].filter(t => !GROUNDING_STOPWORDS.has(t));
+  if (N < MIN_CORPUS_FOR_DF) return distinct;
+  const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
+  return distinct.filter(t => (dfMap.get(t) ?? 0) <= maxDf);
 }
 
 function computeDF(queryTokens: string[], docs: DocIndex[]): Map<string, number> {

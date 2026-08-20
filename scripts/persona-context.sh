@@ -176,13 +176,21 @@ KEYWORDS="${KEYWORDS% }"
 # --- Wiki hits via existing bundle ---
 WIKI_HITS=""
 SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
-# Score floor for per-prompt wiki injection. knowledge-search uses RRF fusion
-# of BM25 + ONNX cosine, producing scores in ~0.001–0.07 range. Observed:
-# strong queries land 0.05+, borderline ~0.04, nonsense queries already
-# return empty (knowledgeSearch's MIN_SCORE_RATIO=0.15 trims internally).
-# Default 0.045 keeps strong + moderate hits, drops the long tail that
-# field reports flagged as "noise". Tune via SB_PERSONA_WIKI_MIN_SCORE.
-WIKI_MIN_SCORE="${SB_PERSONA_WIKI_MIN_SCORE:-0.045}"
+# Score floor for per-prompt wiki injection. DEFAULT IS NOW 0 (no `score` gate) — the
+# relevance decision moved into the CLIs, onto `relevance` (frozen BM25) + `grounded`
+# (query terms in title/description/tags), tunable via SB_INJECT_MIN_RELEVANCE /
+# SB_INJECT_MIN_GROUNDED.
+#
+# WHY the old default was wrong, so nobody restores it: the claim above it ("strong queries
+# land 0.05+") is arithmetically impossible. In hybrid mode `score` is RRF — max
+# 1/(60+1)+1/(60+1) = 0.0328, and the only post-fusion multipliers are the stub penalty
+# (×0.5, downward) and recency (×1.3). Ceiling 0.0426. A 0.045 floor is ABOVE it, so this
+# gate discarded 100% of hybrid-mode hits; it passed only in bm25-only (degraded) mode,
+# where scores are raw open-ended BM25. Net effect: wiki injection worked only when search
+# was broken. Measured cost: 0 reads across 83 injected items over 13 sessions
+# (`gate=value-loop` rows in audit-log.jsonl).
+# SB_PERSONA_WIKI_MIN_SCORE still works for callers that pin it (tests pin it to 0).
+WIKI_MIN_SCORE="${SB_PERSONA_WIKI_MIN_SCORE:-0}"
 # SP-1: resolve the active project slug ONCE — shared by the wiki block below AND the episodic
 # hint. Delegate to lib.sh sb_resolve_slug (single source: CLAUDE_PROJECT_DIR > cwd-if-known-project
 # > pin > cwd) so per-prompt scoping matches the hook + MCP resolver and a CONCURRENT session's
