@@ -39,8 +39,9 @@ session.
 Before tagging `vX.Y.Z`:
 
 - [ ] **All tests green.** `make test` (or `bash tests/run-all.sh`) exits 0.
-      That covers shell tests + Vitest. Currently 24 shell + 59 vitest = 83
-      checks. A regression in any one blocks the release.
+      That covers shell tests + Vitest. Read the live counts off the suite
+      output and `.claude-plugin/surface-budget.json` rather than a number
+      frozen here. A regression in any one blocks the release.
 - [ ] **Vector deps importable.** `cd mcp && node --input-type=module -e \
       'await import("@huggingface/transformers")'` exits 0. The upgrade
       skill installs this automatically, but verify before tagging because

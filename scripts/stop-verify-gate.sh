@@ -166,7 +166,7 @@ if [ -n "$VERIFY_CMDS" ] || [ -n "$SKILL_EVIDENCE" ] || [ -n "$SKILL_TOOL" ]; th
       mkdir -p "$BRAIN_DIR" 2>/dev/null
       : > "$OFFER_MARKER" 2>/dev/null
       jq -nc --arg n "$CHANGED_N" '{
-        systemMessage: ("second-brain: " + $n + " source files changed and checks ran — rules verified mechanics, not design. For an independent fresh-context critique, dispatch the quality-reviewer agent (or persona_think) on the diff. Suppress: SB_CRITIC_OFFER=off.")
+        systemMessage: ("second-brain: " + $n + " source files changed and checks ran — rules verified mechanics, not design. For an independent fresh-context critique, run persona_think on the diff. Suppress: SB_CRITIC_OFFER=off.")
       }'
     fi
   fi

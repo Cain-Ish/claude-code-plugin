@@ -273,8 +273,7 @@ Re-check statuses with the Provenance commands before republishing any of this.
    `scripts/validate-plugin.sh` (R8): live counts may not grow without a same-commit,
    git-blameable budget bump; CONSTITUTION.md is the enforced mission artifact. This
    anti-accretion forcing function is unusual in the plugin/agent ecosystem and is safe to
-   present as a governance contribution. (Note when citing: CONSTITUTION.md:4 names a
-   `tests/test-surface-budget.sh` that does not exist; the real gate is validate-plugin.sh R8.)
+   present as a governance contribution. (CONSTITUTION.md cites validate-plugin.sh R8 correctly as of 0.43.0.)
 4. **Evidence-based feature demotion as method.** The P7 story (§1.4): instrument a fashionable
    feature (graph ranking) on the real corpus, publish the numbers, demote to opt-in when it
    measures as a wash. The *method* is defendable and reproducible; present the numbers with

@@ -8,8 +8,22 @@ each session, and consolidation applies them to the knowledge base reversibly �
 where sandboxing permits (Linux); elsewhere changes stage automatically and apply on the next
 `/second-brain:dream` or `/second-brain:maintain` run.
 
-The mission and hard constraints (full autonomy, untrusted-content isolation, cross-platform)
-are fixed in [CONSTITUTION.md](CONSTITUTION.md) and machine-enforced by the test suite.
+## What it remembers
+
+Four content classes, and only four — the things a senior dev carries between sessions and cannot
+recover from a diff:
+
+| Class | Where it lives |
+|---|---|
+| **Decisions** — what was chosen, what was rejected, why | `wiki/decisions/`, `pin_to_project`, `knowledge_relate` (`supersedes`) |
+| **Architecture & high-level design** — why-this-way, invariants, constraints | `wiki/concepts/`, `wiki/entities/`, `wiki/themes/`, the typed graph |
+| **Code map** — what exists, where, what breaks if it changes | `code_map`, `code_neighbors` (PageRank structure + import-graph blast radius) |
+| **Session recap** — what mattered, distilled before the context closes | Stop/PreCompact extraction, `episodic_search`, `sessions-digest.jsonl` |
+
+A surface that does not produce, store, or deliver one of these four is not memory and does not
+belong here — however good a tool it is. The mission, that scope rule, and the hard constraints
+(full autonomy, untrusted-content isolation, cross-platform) are fixed in
+[CONSTITUTION.md](CONSTITUTION.md); the gates that enforce them are named there.
 Design history lives on the `archive/docs` branch.
 
 ## Install
@@ -60,15 +74,14 @@ stage changes for review, forgetting archives rather than deletes.
 | `/second-brain:import-host` | Fold existing `CLAUDE.md`/`AGENTS.md`/`.cursorrules` into the tiers |
 | `/second-brain:think` | Opus advisor brief: intent, enrichment, risks (opt-in, ~$0.11/call) |
 | `/second-brain:doubt` | Adversarial self-audit of the plugin's own layers |
-| `/second-brain:code-review-deep` | Multi-pass PR review with parallel per-unit reviewers and FP-aware scoring |
-| `/second-brain:team` | Run one goal as a team: task DAG, tiered team-worker waves, ledgered reports, judged merge gate |
 
 `/second-brain:capture` is documented for its raw-inbox interface (`--list` to inspect, `--discard <id>` to prune) but is not a slash command — capture itself is automatic.
 
 The other four skills (`query`, `using-second-brain`, `capture`, `improve`) are invoked by the
-model, not as slash commands. Ten agents back the loop: four code-review reviewers/scorers,
-dream-runner, knowledge-maintainer, raw-drainer, quality-reviewer, search-conversations, and
-the team-worker wave executor.
+model, not as slash commands. Four agents back the loop: `dream-runner`,
+`knowledge-maintainer`, `raw-drainer`, and `search-conversations` — consolidation and recall,
+nothing else. (The code-review and team-orchestration skills and their six agents were removed
+in 0.44.0: real tools, but outside the four content classes above.)
 
 ## MCP tools
 
@@ -126,8 +139,10 @@ to pages that already exist apply under an explicit "candidate facts (untrusted)
 
 ## Model-tier routing
 
-Model-tier routing is built in (the team protocol, `skills/team/PROTOCOL.md`); the former
-cost-router plugin was absorbed and removed.
+Model-tier routing is built in: `model-ladder.json` is the single manifest of tiers and pins,
+consumed by extraction, compaction, and consolidation (`stop-extract.sh`, `pre-compact.sh`,
+`maintain-llm-drain.sh`). No model ID is hardcoded anywhere else — `tests/test-model-ladder.sh`
+fails the suite if one appears. The former cost-router plugin was absorbed and removed.
 
 ## License
 

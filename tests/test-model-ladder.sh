@@ -46,14 +46,6 @@ for t in fast mid deep; do
 done
 pass "each tier's first pin env is SB_MODEL_TIER_<TIER>"
 
-# PROTOCOL agreement: the prose tier table names must match protocol_names
-PROTO="$ROOT/skills/team/PROTOCOL.md"
-for t in fast mid deep; do
-  N=$(jq -r --arg t "$t" '.protocol_names[$t]' "$M" | tr -d '\r')
-  grep -q "| $N |" "$PROTO" || fail "PROTOCOL.md has no '| $N |' row for tier $t"
-done
-pass "PROTOCOL.md tier rows agree with protocol_names"
-
 # TS mirror re-exports the manifest (no second copy of the data)
 TS="$ROOT/mcp/src/constants/model-ladder.ts"
 [ -f "$TS" ] || fail "mcp/src/constants/model-ladder.ts missing"

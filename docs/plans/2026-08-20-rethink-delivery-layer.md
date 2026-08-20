@@ -113,6 +113,61 @@ Target shape: **~33k lines → ~5k**, 19 skills → ~5, 23 MCP tools → ~10, 19
 
 ---
 
+## Scope audit — the live surface against the four content classes
+
+Added 2026-08-20 after the maintainer restated the founding intent: *decisions, code map,
+high-level decisions, and session recap so nothing important is missed*. Those four are now the
+scope rule in `CONSTITUTION.md` ("What belongs in memory"). Applying them to the 0.43.0 surface:
+
+**In scope, working.** Classes 1-3. `wiki/decisions` (63 pages), `wiki/concepts` (40),
+`wiki/entities` (119), `wiki/themes` (12), `wiki/learnings` (56), the typed graph, and
+`code_map`/`code_neighbors`. The write path produces genuinely decision-guiding content.
+
+**In scope, broken.** Class 4 — session recap — is the class the founding intent leads with and
+the one that fails: 28 transcripts unextracted (oldest 27 days, finding 5), 35% of the episodic
+index is machine noise (finding 4), and nothing that is captured is ever read (0 of 83, the
+value-loop measurement). Fixing class 4 end-to-end is Phase 0; it is the highest-intent, lowest-
+functioning part of the system.
+
+**Outside all four classes** — real tools, wrong repo. None of these produce, store, or deliver
+decisions, architecture, a code map, or a session recap:
+
+| Surface | Count | Class served |
+|---|---|---|
+| `code-review-deep` skill + `code-review-{history,premise,scorer,unit}-reviewer` + `quality-reviewer` | 1 skill, 5 agents | none — generic code review |
+| `team` skill + `team-worker` agent | 1 skill, 1 agent | none — orchestration / model routing |
+| `think` skill + `persona_think` / `persona_stats` / `persona_dismiss` | 1 skill, 3 MCP tools | none — persona advisory |
+
+**3 of 19 skills, 6 of 10 agents, 3 of 23 MCP tools serve none of the four classes.**
+
+**Executed 2026-08-20 (0.44.0).** The code-review and team rows are DELETED: `skills/code-review-deep`,
+`skills/team`, the 4 `code-review-*` agents, `team-worker`, `quality-reviewer`, `scripts/team-run.sh`,
+and 6 tests — ~2,400 lines. Budget ratcheted 19→17 skills, 10→4 agents, 54→53 scripts, 164→158 tests.
+Rewiring: `subagent-capture.sh` SELF_AGENTS pruned to the three consolidation/recall agents;
+`stop-verify-gate.sh`'s critic offer and `skills/doubt` step 4 now use `persona_think`;
+two dead grant-locks removed from `agent-grants.test.ts`; the `skills/team/PROTOCOL.md`
+agreement block removed from `test-model-ladder.sh`.
+
+Model routing is NOT team-specific and stays: `model-ladder.json` is consumed by `stop-extract.sh`,
+`pre-compact.sh`, `maintain-llm-drain.sh`, `extraction-quality-gate.sh` and `lib.sh` — core class-4
+plumbing. Only `protocol_names` (SCOUT/DO/THINK) is now dead data, kept as one JSON line rather than
+rippling through 4 files; retire it in the Phase 4.3 flag audit.
+
+The `think` + `persona_*` row is DEFERRED, not rejected: `persona-context.sh` is the
+UserPromptSubmit injection hook — the delivery path itself — so unbundling the advisory layer from
+it is its own change.
+
+**Dead schema.** `wiki/security`, `wiki/sources`, `wiki/state`: 0 pages each since creation
+(finding 7). Categories that never attracted content are not classes anyone is writing to.
+
+**Correction to the kill/keep ledger above.** That ledger lists `doubt` and `improve` alongside
+`team` and `code-review-deep` as "real tools, wrong repo". The four-class rule does not agree:
+`improve` proposes pin candidates from the current session (classes 1 and 4) and `doubt`
+adversarially validates the plugin's own layers. Likewise `audit`, `lint`, `review`, `status`,
+`track`, `import-host` all operate on the wiki, hot tier, or guards — they are memory-system
+surfaces, not general engineering tools. Re-decide those against the scope rule rather than the
+original ledger.
+
 ## Phases
 
 Each phase ships independently and is gated on the value-loop number, not on completion.
@@ -150,12 +205,35 @@ Each phase ships independently and is gated on the value-loop number, not on com
       SessionStart injections are measured.
 - [ ] 0.3 Record *miss reasons* per injected item (below gate / injected-not-fetched /
       fetched-unused), so the zero always has a cause attached.
-- [ ] 0.4 Cross-project retrieval — **re-measure before acting.** Tiering drops tier-5 pages
-      (`knowledge-search.ts:371`) and sorts tier-major (:356). Two existing tests (`C1`,
-      `SP-1 family`) assert that drop as correct, so changing it is a SPECIFICATION change needing
-      an explicit decision, not a bug fix. Measured cost is currently masked by 0.1: the correct
-      cross-project page scored 0.04152 vs 0.03672 for the best in-project page — only 1.13×, so a
-      naive margin rule would not have surfaced it either.
+- [x] **0.4 Cross-project retrieval.** DONE — approved as a deliberate specification change.
+      A tier-5 (other-project) page is now RESERVED a slot, ranked first, when it outscores
+      EVERY in-scope candidate; otherwise the drop is unchanged. Knob `SB_SCOPE_CROSS_SLOTS`
+      (default 1, `0` restores the old hard drop).
+
+      Why "outscores everything in scope" rather than a margin or an unconditional slot: it is
+      the condition that leaves the existing scoping contract intact. The two suppression tests
+      (`C1 local-docs…`, `SP-1 family…`) use fixtures whose other-project page scores EQUAL to
+      the in-scope pages, so a strict `>` leaves them dropped and both keep passing unmodified.
+      A multiplicative margin was rejected outright — it is a threshold on a mode-dependent
+      scale, the exact bug class that killed the injection gate. (The measured gap was 1.13×,
+      so a margin rule tuned on that single case would also have been fitted to n=1.)
+
+      Reserved candidates are placed FIRST, not appended: consumers read the top 1–2 candidates
+      (`persona-context` injects 2), so a slot at the tail is the same as no slot. Ranking first
+      is score-consistent by construction. Precision is still enforced downstream — the
+      injection CLIs apply the grounding gate to every candidate, reserved or not.
+
+      Verified end-to-end through the real `persona-context.sh` hook, scoped to
+      `claude-code-plugin`, hybrid embeddings, shipped defaults:
+      `"how do I fix the ansible replace regexp double substitution on a single line file"`
+      → `[[ansible-replace-multiline-dollar-anchor-double-substitution]]` **first** (was
+      `[[yaml-frontmatter-windows-backslash]]`, a wrong in-project page). Four in-project
+      prompts unchanged; two nonsense prompts still inject nothing.
+
+      Lock: `knowledge-search.test.ts` "SP-1 cross-project reservation" — asserts BOTH
+      directions (outscoring page kept and ranked first; tying page still dropped) plus the
+      `SB_SCOPE_CROSS_SLOTS=0` off-switch. Verified RED with the feature disabled:
+      `expected [ 'a1', 'a2', 'a3' ] to include 'b-strong'`.
 - [ ] 0.5 Filter `<task-notification>` / hook-context / system-reminder blocks before episodic
       indexing; re-index. Assert noise share < 5%.
 - [ ] 0.6 Unblock capture: starvation escape must fire under pure OAuth; replace the fixed
