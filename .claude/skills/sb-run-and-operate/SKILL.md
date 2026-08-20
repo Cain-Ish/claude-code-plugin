@@ -291,7 +291,6 @@ Invocation column from each SKILL.md frontmatter: `/` = user slash command
 | `improve` | Retired manual pin flow (replaced by dream + `pin_to_*` MCP tools) | docs |
 | `think` | Opus advisor brief via `persona_think` (~$0.11/call) | / |
 | `doubt` | Adversarial validation of the plugin itself, rotating focus | / |
-| `code-review-deep` | Multi-pass PR review with FP-aware scoring, consults the second brain | / M |
 | `using-second-brain` | Persona-as-collaborator protocol (consult identity/memory before substantive answers) | M |
 
 | Agent | Role (all model-dispatched, not user commands) |
@@ -300,11 +299,11 @@ Invocation column from each SKILL.md frontmatter: `/` = user slash command
 | `knowledge-maintainer` | 7-phase KB caretaker cycle (hygiene→audit→dedup→relate→enrich→ai-blocks→reindex) |
 | `raw-drainer` | One bounded raw-inbox batch → wiki nodes; looped by `/maintain`; resumable |
 | `search-conversations` | Cross-session memory restoration from transcript history |
-| `quality-reviewer` | Deep quality review + fresh-context adversarial critic |
-| `code-review-unit-reviewer` | Deep-reviews one review unit; parallel-dispatched by code-review-deep |
-| `code-review-history-reviewer` | Checks a change against git blame/log for regression-of-a-fix bugs |
-| `code-review-premise-reviewer` | Hunts unproven runtime premises (env/files/process/platform assumptions) |
-| `code-review-scorer` | Scores each finding 0-100 against actual files; suppresses known FP patterns |
+
+> REMOVED in 0.44.0 — `code-review-deep` + `team` skills and six agents (`quality-reviewer`,
+> the four `code-review-*` reviewers, `team-worker`) plus `scripts/team-run.sh`. They served none
+> of CONSTITUTION.md's four content classes. The fresh-context critic role moved to
+> `persona_think` (`skills/doubt` step 4, `stop-verify-gate.sh` critic offer).
 
 ## 9. cost-router subplugin (one-pager)
 

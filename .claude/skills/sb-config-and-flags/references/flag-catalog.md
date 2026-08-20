@@ -102,7 +102,7 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_LOOP_DEAD_BANNER` | `on` | Loop-dead banner: scheduler registered but the drainer stamped nothing in `SB_LOOP_DEAD_HOURS` → one banner (the installed-but-never-ticks case the timeout/dead-letter banners can't see). | KS | session-load.sh (0a-quinquies) | bash |
 | `SB_LOOP_DEAD_HOURS` | `48` | Hours without a drainer stamp before the loop-dead banner fires. | TUNE | session-load.sh (0a-quinquies) | bash |
 | `SB_TELEMETRY` | `on` | P1 loop telemetry master switch: session-load injection manifest + stop-extract value/compound correlation + utilization counts. Observation-only (firewall-locked from ranking). | KS | session-load.sh (sb_manifest_add) + stop-extract.sh | bash |
-| `SB_CRITIC_OFFER` | `on` | P2.2: on a substantive VERIFIED diff, one non-blocking systemMessage per session offering the quality-reviewer/persona_think fresh-context critique. | KS | stop-verify-gate.sh | bash |
+| `SB_CRITIC_OFFER` | `on` | P2.2: on a substantive VERIFIED diff, one non-blocking systemMessage per session offering the `persona_think` fresh-context critique. | KS | stop-verify-gate.sh | bash |
 | `SB_CRITIC_OFFER_MIN_FILES` | `3` | Distinct changed source files before the critic offer fires. | TUNE | stop-verify-gate.sh | bash |
 | `SB_RULES_GAP_BANNER` | `on` | Banner when USER.md is newer than persona-rules JSON (soft-vs-hard rules drift). | KS | session-load.sh:215 | none |
 | `SB_RAW_INBOX` | `on` | Raw-inbox backlog banner. | KS | session-load.sh:584 | bash |

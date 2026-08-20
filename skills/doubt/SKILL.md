@@ -21,7 +21,7 @@ Each layer maps to specific files. Pick layers to doubt based on the selection a
 | `stop-extract` | Stop-hook extraction | `scripts/stop-extract.sh`, `scripts/lib.sh` |
 | `learning` | Learning pipeline | `scripts/merge-persona-signals.sh`, `scripts/extract-prompt.txt` |
 | `mcp` | MCP server | `mcp/src/server.ts` |
-| `quality` | Quality gate | `scripts/quality-gate.sh`, `agents/quality-reviewer.md` |
+| `quality` | Quality gate | `scripts/quality-gate.sh`, `scripts/stop-verify-gate.sh` |
 | `compact` | Compaction handling | `scripts/pre-compact.sh`, `scripts/lib.sh` |
 | `platform` | Cross-platform | All scripts (date, mktemp, find, sed, flock) |
 | `bootstrap` | Setup/upgrade flow | `skills/setup/SKILL.md`, `skills/upgrade/SKILL.md`, `scripts/ensure-dirs.sh` |
@@ -154,16 +154,16 @@ This prevents the pattern where a fix is claimed but never lands, or where a fix
 
 ### 4. Critic validation
 
-For any finding classified as ISSUE or FRAGILE, spawn a single `quality-reviewer` subagent:
+For any finding classified as ISSUE or FRAGILE, run a single fresh-context critic pass via
+`persona_think` (no session context — that is the point):
 
 ```
-Agent(subagent_type: "second-brain:quality-reviewer")
-Prompt: "Validate these doubt findings independently. For each, read the cited file and line, and classify as CONFIRMED (real issue), DISPUTED (doubt session is wrong), or NEEDS-TESTING (can't tell from code). Be specific about why.
+persona_think(prompt: "Validate these doubt findings independently. For each, read the cited file and line, and classify as CONFIRMED (real issue), DISPUTED (doubt session is wrong), or NEEDS-TESTING (can't tell from code). Be specific about why.
 
-Also review the branch log (drilled + abandoned). For each branch labeled `impossible`, verify the citation actually defends against the angle described. Flag any branch where the `impossible` reasoning is hand-wavy or the citation is unrelated — this is where same-context pruning bias hides. Report SYSTEMATIC OVER-PRUNING if more than one abandoned branch has weak justification."
+Also review the branch log (drilled + abandoned). For each branch labeled `impossible`, verify the citation actually defends against the angle described. Flag any branch where the `impossible` reasoning is hand-wavy or the citation is unrelated — this is where same-context pruning bias hides. Report SYSTEMATIC OVER-PRUNING if more than one abandoned branch has weak justification.")
 ```
 
-Include the finding details, file paths, line numbers, AND the branch log from step 3.4. One subagent call total — bundle all findings together. The branch log is what makes the post-hoc critic able to catch ICRH at branch-selection time.
+Include the finding details, file paths, line numbers, AND the branch log from step 3.4. One critic call total — bundle all findings together. The branch log is what makes the post-hoc critic able to catch ICRH at branch-selection time.
 
 ### 5. Report
 
@@ -240,5 +240,5 @@ After the report, offer but do NOT auto-execute:
 
 - **Layer count is flexible** — small layers can be covered quickly, complex ones take more context. Don't force a quota; judge by remaining context budget.
 - **`--full` mode**: 1 question per layer, reads only the primary file. Broad coverage map.
-- **One quality-reviewer subagent call** total, bundling all ISSUE/FRAGILE findings.
+- **One `persona_think` critic call** total, bundling all ISSUE/FRAGILE findings.
 - If the skill is running during a session with high compact pressure, warn the user and suggest running via `/clear` first.

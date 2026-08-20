@@ -273,7 +273,7 @@ process (sb-change-control) — these documents are gated surface.
 | # | Defect | Evidence | Fix shape |
 |---|---|---|---|
 | 1 | Orphaned 0.33.19: no `## 0.33.19` header exists; its bullets (shim-aware timer health, in-session floor path normalization, "See `migrations/0.33.19.md`") sit inside the `## 0.33.20` section | `grep -n "^## 0.33.19" CHANGELOG.md` → empty; bullets end ~`CHANGELOG.md:215-226` | Insert `## 0.33.19` + its thesis above the stranded bullets |
-| 2 | `CONSTITUTION.md:3-4` cites `tests/test-surface-budget.sh` as the surface-budget enforcer — that file does not exist; the actual gate is `scripts/validate-plugin.sh:191-220` | `ls tests/test-surface-budget.sh` → no such file | Point the sentence at validate-plugin.sh (CONSTITUTION edits are extra-sensitive — confirm with the maintainer) |
+| 2 | ~~`CONSTITUTION.md:3-4` cites a phantom `tests/test-surface-budget.sh`~~ **CLOSED 0.43.0** — rewritten to name `scripts/validate-plugin.sh` R8, and the mission section now matches the delivery-layer direction | `grep -n test-surface-budget CONSTITUTION.md` → empty | none |
 | 3 | `README.md:5` is `\| Skill \| Purpose \|# Second Brain — …` — a table-header row glued to the H1 on one line. Looks like an edit artifact; intent UNVERIFIED | `sed -n '5p' README.md` | Confirm intent, then split the line; README changes ride a release ("README matches what ships") |
 | 4 | `RELEASING.md:40-41` claims "Currently 24 shell + 59 vitest = 83 checks" — live is 153 shell tests + ~493 vitest cases | `ls tests/test-*.sh \| wc -l` → 153 | Replace the stale count with a pointer to `.claude-plugin/surface-budget.json` + suite output |
 | 5 | `RELEASING.md:50` says CHANGELOG headers are `## vX.Y.Z`; every actual header is bare `## X.Y.Z` | `grep -c '^## v' CHANGELOG.md` → 0 | Drop the `v` in RELEASING.md |
@@ -296,7 +296,7 @@ Re-verify volatile facts before trusting them:
 | Surface counts (skills/agents/scripts/tests) | `cat .claude-plugin/surface-budget.json` |
 | CHANGELOG entry count / tail ordering | `grep -c '^## ' CHANGELOG.md` (122); `grep -n '^## ' CHANGELOG.md \| tail -12` |
 | Doc defect 1 (0.33.19) still open | `grep -n "^## 0.33.19" CHANGELOG.md` (empty = still open) |
-| Doc defect 2 (stale test ref) still open | `grep -n 'test-surface-budget' CONSTITUTION.md; ls tests/test-surface-budget.sh` |
+| Doc defect 2 (stale test ref) — CLOSED 0.43.0 | `grep -n 'test-surface-budget' CONSTITUTION.md` (empty = still closed) |
 | Doc defect 3 (README line 5) still open | `sed -n '5p' README.md` |
 | Migration file count | `ls skills/upgrade/migrations \| wc -l` (18) |
 | Plan/spec counts | `ls docs/plans \| wc -l` (36); `ls docs/specs \| wc -l` (40); `ls docs/superpowers/plans \| wc -l` (14) |

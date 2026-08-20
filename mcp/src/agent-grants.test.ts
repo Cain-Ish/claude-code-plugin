@@ -91,9 +91,8 @@ describe('agent tool grants (P6a least-privilege, directory-walked)', () => {
 
   // Surface lock: the consolidation agents' unused git grants were dropped (git
   // appeared only in their tools line, never in a protocol step). Keep them out.
-  // Scoped to the three consolidation agents ONLY — the code-review family
-  // (history-reviewer, scorer, unit-reviewer, quality-reviewer, premise) grants
-  // Bash(git *) legitimately (they blame/diff/log the change under review).
+  // (The code-review agent family that DID use Bash(git *) legitimately was removed
+  // in 0.44.0 — out of scope per CONSTITUTION.md "What belongs in memory".)
   it('consolidation agents carry no Bash(git *) grant (unused there)', () => {
     const offenders: string[] = [];
     for (const f of UNTRUSTED_CONSUMERS) {
@@ -102,33 +101,9 @@ describe('agent tool grants (P6a least-privilege, directory-walked)', () => {
     expect(offenders, `consolidation agent has an unused git grant: ${offenders.join(' | ')}`).toEqual([]);
   });
 
-  // The two code-review agents whose LENS uses code
-  // structure — the per-unit reviewer follows cross-file imports (its "highest
-  // value" §3), the quality reviewer judges coupling/architecture — carry the
-  // read-only code_map + code_neighbors grants so they query blast radius instead
-  // of re-deriving structure by hand. Scoped to these two ON PURPOSE: the
-  // history reviewer (git-blame lens) and premise reviewer (runtime-env lens) are
-  // orthogonal to the import graph, and the wiki drainer never reads code — a
-  // code-structure grant there would be an UNUSED grant against P6a least-privilege.
-  const REQUIRED_CODEMAP = ['code-review-unit-reviewer.md', 'quality-reviewer.md'];
-  it('code-structure reviewers grant read-only code_map + code_neighbors', () => {
-    const missing: string[] = [];
-    for (const f of REQUIRED_CODEMAP) {
-      const line = toolsLine(read(f));
-      for (const t of ['code_map', 'code_neighbors']) if (!line.includes(MCP(t))) missing.push(`${f}: ${MCP(t)}`);
-    }
-    expect(missing, `orient-rung reviewer missing a code-map grant: ${missing.join(' | ')}`).toEqual([]);
-  });
-  it('granted reviewers actually USE the code map in their protocol (effect, not presence)', () => {
-    // The grant is worthless if the body never calls it (the 0.33.9/0.33.11
-    // presence-vs-effect audit class). Test the BODY with the frontmatter stripped —
-    // the tools: grant itself contains the substring, so matching the whole file
-    // would be a tautology that can never fail while the parity test passes
-    // (review finding, 0.33.35).
-    const body = (f: string) => stripFrontmatter(read(f));
-    const missing = REQUIRED_CODEMAP.filter(f => !/code_neighbors/.test(body(f)));
-    expect(missing, `agent grants code_neighbors but its protocol never uses it: ${missing.join(', ')}`).toEqual([]);
-  });
+  // NOTE: the code_map/code_neighbors grant locks that lived here covered
+  // code-review-unit-reviewer and quality-reviewer, both removed in 0.44.0. No
+  // surviving agent reads the code map, so there is nothing left to lock.
 
   // No agent may grant a sub-agent DISPATCH tool. Subagents cannot nest (platform
   // dispatch-depth cap = 1) and a reviewer/consolidation agent that could spawn more

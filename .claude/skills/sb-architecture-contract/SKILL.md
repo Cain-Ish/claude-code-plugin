@@ -74,7 +74,7 @@ Re-verify the whole table:
 | Stop | (all) | ⏲45 `stop-extract.sh` | 45 | the capture pipeline (§3.2) |
 | Stop | (all) | `sar-summary.sh` | 5 | Safety-Adherence-Rate banner; kill `SB_SAR_SUMMARY=off` |
 
-> Note (0.35.x): the cost-router plugin was absorbed and removed (its Stop hook `cost-router-capture.sh` is gone; tier routing lives in `skills/team/PROTOCOL.md`). History: wiki `entities/cost-router` + the archive/docs branch. `COST_ROUTER_*` flags are gone.
+> Note (0.35.x): the cost-router plugin was absorbed and removed (its Stop hook `cost-router-capture.sh` is gone; tier routing lives in `model-ladder.json`, consumed by stop-extract/pre-compact/maintain-llm-drain). History: wiki `entities/cost-router` + the archive/docs branch. `COST_ROUTER_*` flags are gone.
 | SubagentStop | `*` | `subagent-capture.sh` | 10 | archives subagent FINAL result; "MUST always exit 0 (a blocking SubagentStop wedges the parent fan-out)" (hooks.json comment) |
 | PreCompact | `.*` | ⏲45 `pre-compact.sh` | 45 | same extraction on the pre-compaction window; shares markers with Stop |
 | PreToolUse | `Bash\|Write\|Edit\|MultiEdit\|Read\|WebFetch\|WebSearch\|Task\|Agent` (`Agent` = CC v2.1.63 rename of Task) | `persona-tool-guard.sh` | 5 | rule-based allow/ask/deny; every verdict → audit-log; kill `SB_PERSONA_GATE=off` |
@@ -322,9 +322,8 @@ above shipped through a green suite to prove it.
 Also machine-enforced governance (details → sb-change-control): the surface-budget ratchet —
 live counts (skills 18 / agents 9 / scripts 52 / tests 157, all at budget exactly as of 0.33.37)
 may not grow past `.claude-plugin/surface-budget.json` without a same-commit bump; enforced by
-`scripts/validate-plugin.sh` R8 (:191-218). NOTE: `CONSTITUTION.md:4` names
-`tests/test-surface-budget.sh` as the gate — **that file does not exist**; R8 in
-validate-plugin.sh is the real enforcement.
+`scripts/validate-plugin.sh` R8 (:191-218). CONSTITUTION.md points at R8 correctly as of 0.43.0 (it
+previously named a phantom `tests/test-surface-budget.sh` — defect closed).
 
 ## 8. Known weak points (stated plainly)
 

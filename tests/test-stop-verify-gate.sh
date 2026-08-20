@@ -254,7 +254,7 @@ add_edit_of "$T" "src/a.ts"; add_edit_of "$T" "src/b.ts"; add_edit_of "$T" "src/
 add_test_run "$T"
 IN=$(mk_input_cwd "$T" "/tmp" "critic-sid-1")
 OUT=$(printf '%s' "$IN" | bash "$GATE" 2>/dev/null || true)
-printf '%s' "$OUT" | jq -e '.systemMessage | test("quality-reviewer")' >/dev/null \
+printf '%s' "$OUT" | jq -e '.systemMessage | test("persona_think")' >/dev/null \
   || { FAIL=$((FAIL + 1)); echo "  FAIL: substantive verified diff should offer the critic (got: $OUT)"; }
 OUT2=$(printf '%s' "$IN" | bash "$GATE" 2>/dev/null || true)
 [ -z "$OUT2" ] || { FAIL=$((FAIL + 1)); echo "  FAIL: critic offer must fire once per session (got: $OUT2)"; }

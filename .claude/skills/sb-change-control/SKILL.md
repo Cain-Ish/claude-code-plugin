@@ -74,9 +74,9 @@ Plan/spec templates and house doc style are owned by sb-docs-and-writing.
 Constitution check: every change is measured against `CONSTITUTION.md` (repo root, 66 lines) —
 mission triad, "If a saved item does not actively guide a future decision, it does not belong,"
 and three hard constraints (fully autonomous, untrusted-content isolation, cross-platform).
-KNOWN STALE POINTER: `CONSTITUTION.md:4` names `tests/test-surface-budget.sh` as the budget
-gate — that file does not exist; the real enforcement is `scripts/validate-plugin.sh` (R8,
-lines 191-220), as CONSTITUTION.md's own Governance section correctly says.
+CLOSED (0.43.0): CONSTITUTION.md used to name a phantom `tests/test-surface-budget.sh` as the
+budget gate; it now points at `scripts/validate-plugin.sh` R8 (lines 190-217), matching its own
+Governance section. Do not re-open.
 
 ## 2. The surface budget — AT CAP (bump-with-justification required)
 
@@ -321,5 +321,5 @@ grep -n '^## ' CHANGELOG.md | head -5                          # heading format 
 grep -c '^## 0.33.19' CHANGELOG.md                             # 0 = the orphaned-heading defect is still open
 grep -n 'TRIGGERS=' tests/test-release-version-bump.sh         # tripwire trigger list
 ls skills/upgrade/migrations/ | wc -l                          # migration-file count (was 18)
-ls tests/test-surface-budget.sh 2>&1                           # still phantom? (was: No such file)
+grep -n 'validate-plugin.sh' CONSTITUTION.md                   # budget gate ref (must NOT say test-surface-budget)
 ```

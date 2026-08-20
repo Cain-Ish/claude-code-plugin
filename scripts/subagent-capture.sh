@@ -37,7 +37,7 @@ CWD=$(echo "$RAW"        | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 
 # --- Self-exclude: never archive the plugin's OWN agents (mining-self = noise
 # feeding itself). Match the bare name and the namespaced plugin:...:name form. ---
-SELF_AGENTS="dream-runner knowledge-maintainer code-review-unit-reviewer code-review-scorer code-review-history-reviewer quality-reviewer search-conversations"
+SELF_AGENTS="dream-runner knowledge-maintainer search-conversations"
 bare_type="${AGENT_TYPE##*:}"   # strip any plugin:second-brain: prefix
 for self in $SELF_AGENTS; do
   [ "$bare_type" = "$self" ] && exit 0
