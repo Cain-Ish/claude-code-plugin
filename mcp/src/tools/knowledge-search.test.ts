@@ -515,3 +515,137 @@ describe('knowledge_search v1', () => {
     expect(res.candidates.every(c => c.source === 'wiki')).toBe(true);
   });
 });
+
+// --- SP-1 cross-project reservation (2026-08-20) ------------------------------
+// Project scoping drops other-project (tier-5) pages once enough in-scope hits exist. That made
+// cross-project transfer impossible: measured live, a query whose correct answer lived in another
+// repo returned that page at rank 1 unscoped and NOTHING relevant when scoped — the page was
+// dropped before ranking. A *second* brain that cannot carry a lesson between repos is a
+// per-repo README.
+//
+// The reservation is deliberately narrow: a tier-5 page is kept only when it outscores EVERY
+// in-scope candidate. Both directions are asserted here, because the boundary IS the contract —
+// the pre-existing suppression tests ('C1 local-docs…', 'SP-1 family…') use fixtures whose
+// other-project page scores EQUAL to the in-scope pages, and they must keep passing unchanged.
+describe('SP-1 cross-project reservation', () => {
+  const mk = (dir: string) => (slug: string, project: string, body: string) =>
+    fsp.writeFile(join(dir, 'wiki', 'learnings', `${slug}.md`),
+      `---\ntitle: ${slug}\ntype: learnings\nproject: ${project}\ndescription: ${slug} page\n---\n\n# ${slug}\n\n${body}\n`);
+
+  it('keeps an other-project page that OUTSCORES every in-scope page, and ranks it first', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-cross-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = mk(dir);
+    // three in-scope hits (>= SB_SCOPE_MIN_HITS) so tier-5 would normally be dropped outright
+    await w('a1', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('a2', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('a3', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    // the beta page is genuinely the better answer — the term dominates a short document
+    await w('b-strong', 'beta', 'wireguard wireguard wireguard wireguard wireguard tunnel setup');
+
+    const r = await knowledgeSearch({ query: 'wireguard', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const slugs = r.candidates.map(c => c.path.replace(/^.*[\/]/, '').replace(/\.md$/, ''));
+    expect(slugs).toContain('b-strong');
+    // First, not appended: consumers read the top 1-2 candidates, so a tail slot is no slot.
+    expect(slugs[0]).toBe('b-strong');
+  });
+
+  it('still drops an other-project page that merely TIES the in-scope pages', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-crosstie-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = mk(dir);
+    const body = `wireguard tunnel keyword ${'detail '.repeat(40)}`;
+    await w('a1', 'alpha', body);
+    await w('a2', 'alpha', body);
+    await w('a3', 'alpha', body);
+    await w('b-tie', 'beta', body);   // byte-identical body ⇒ identical BM25 ⇒ not "better"
+
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const slugs = r.candidates.map(c => c.path.replace(/^.*[\/]/, '').replace(/\.md$/, ''));
+    expect(slugs).not.toContain('b-tie');
+  });
+
+  it('SB_SCOPE_CROSS_SLOTS=0 restores the pre-2026-08-20 hard drop', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-crossoff-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = mk(dir);
+    await w('a1', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('a2', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('a3', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('b-strong', 'beta', 'wireguard wireguard wireguard wireguard wireguard tunnel setup');
+
+    process.env.SB_SCOPE_CROSS_SLOTS = '0';
+    try {
+      const r = await knowledgeSearch({ query: 'wireguard', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+      const slugs = r.candidates.map(c => c.path.replace(/^.*[\/]/, '').replace(/\.md$/, ''));
+      expect(slugs).not.toContain('b-strong');
+    } finally {
+      delete process.env.SB_SCOPE_CROSS_SLOTS;
+    }
+  });
+});
+
+// --- Review follow-ups (2026-08-20): gaps the test-quality pass named explicitly ------------
+describe('cross-project reservation: interactions and knobs', () => {
+  const mk = (dir: string) => (slug: string, project: string, body: string) =>
+    fsp.writeFile(join(dir, 'wiki', 'learnings', `${slug}.md`),
+      `---\ntitle: ${slug}\ntype: learnings\nproject: ${project}\ndescription: ${slug} page\n---\n\n# ${slug}\n\n${body}\n`);
+  const seed = async (prefix: string) => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), prefix));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    return dir;
+  };
+
+  it('score_norm: a reserved out-of-scope page becomes the 1.0 anchor, pushing in-scope below 1', async () => {
+    // The field doc says the anchor can now sit OUTSIDE the requested scope. Documented behaviour
+    // with no test is a promise, not a contract — this is the lock.
+    const dir = await seed('ks-crossnorm-');
+    const w = mk(dir);
+    for (const s of ['a1', 'a2', 'a3']) await w(s, 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('b-strong', 'beta', 'wireguard wireguard wireguard wireguard wireguard tunnel setup');
+
+    const r = await knowledgeSearch({ query: 'wireguard', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const norm = (slug: string) => r.candidates.find(c => c.path.includes(`${slug}.md`))?.score_norm;
+    expect(norm('b-strong'), 'the reserved out-of-scope page anchors the scale').toBe(1);
+    for (const s of ['a1', 'a2', 'a3']) {
+      const n = norm(s);
+      if (n !== undefined) expect(n, `${s} must normalize below the out-of-scope anchor`).toBeLessThan(1);
+    }
+  });
+
+  it('SB_SCOPE_CROSS_SLOTS=2 reserves two, not a hardcoded one', async () => {
+    // Guards a bug that would always reserve exactly 1 regardless of the knob.
+    const dir = await seed('ks-crossslots2-');
+    const w = mk(dir);
+    for (const s of ['a1', 'a2', 'a3']) await w(s, 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('b-one', 'beta', 'wireguard wireguard wireguard wireguard wireguard tunnel setup');
+    await w('b-two', 'gamma', 'wireguard wireguard wireguard wireguard tunnel setup notes');
+
+    process.env.SB_SCOPE_CROSS_SLOTS = '2';
+    try {
+      const r = await knowledgeSearch({ query: 'wireguard', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+      const slugs = r.candidates.map(c => c.path.replace(/^.*[\/]/, '').replace(/\.md$/, ''));
+      expect(slugs).toContain('b-one');
+      expect(slugs).toContain('b-two');
+    } finally {
+      delete process.env.SB_SCOPE_CROSS_SLOTS;
+    }
+  });
+
+  it('a reserved page still has to satisfy the grounding gate (feature composition)', async () => {
+    // knowledge-search.ts claims "precision is still enforced downstream — the injection CLIs
+    // apply the grounding gate to every candidate, reserved or not". Asserted here at the field
+    // level: a reserved page whose head fields do NOT mention the query grounds 0, so the CLI
+    // gate (grounded >= min(2, query_terms)) rejects it even though scoping reserved it.
+    const dir = await seed('ks-crossground-');
+    const w = mk(dir);
+    for (const s of ['a1', 'a2', 'a3']) await w(s, 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    // Title/description carry no query term; the term is body-only.
+    await w('unrelated-beta', 'beta', 'wireguard wireguard wireguard wireguard wireguard tunnel');
+
+    const r = await knowledgeSearch({ query: 'wireguard', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const reserved = r.candidates.find(c => c.path.includes('unrelated-beta.md'));
+    expect(reserved, 'scoping should have reserved it on score').toBeDefined();
+    expect(reserved!.grounded, 'but it is not ABOUT the query, so grounding must reject it').toBe(0);
+  });
+});

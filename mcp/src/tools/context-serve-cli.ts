@@ -21,13 +21,31 @@ const SEP = '--8<--SB-EPISODIC--8<--';
 // honors SB_BRAIN_DIR too.
 const knowledgeDir = resolveKnowledgeDir();
 const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
+// Same relevance gate as knowledge-search-cli.ts — this is the CLI persona-context.sh
+// actually uses per prompt, so a fix applied only there would change nothing in practice.
+// `score` (RRF, ceiling 0.0426) cannot gate relevance; `relevance` (frozen BM25) + `grounded`
+// (query terms in title/description/tags) can. Full rationale in knowledge-search-cli.ts.
+// Validated, not raw parseFloat/parseInt — a malformed override yields NaN, every `>= NaN` is
+// false, and the gate silently matches nothing for the whole session (the unsatisfiable-gate
+// class again); a negative one makes it vacuously true. Same guard as knowledge-search-cli.ts.
+const envNum = (name: string, def: number, lo: number, hi: number): number => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return def;
+  const v = Number(raw);
+  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+};
+const minRelevance = envNum('SB_INJECT_MIN_RELEVANCE', 0, 0, Number.MAX_SAFE_INTEGER);
+const minGrounded = envNum('SB_INJECT_MIN_GROUNDED', 2, 0, 64);
 const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG?.trim() || undefined;
 
 const wikiLines: string[] = [];
 try {
   const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
-  const top = result.candidates.filter(c => c.score >= minScore).slice(0, 2);
+  const needGrounded = Math.min(minGrounded, result.candidates[0]?.query_terms ?? minGrounded);
+  const top = result.candidates
+    .filter(c => c.score >= minScore && c.relevance >= minRelevance && c.grounded >= needGrounded)
+    .slice(0, 2);
   for (const c of top) {
     const slug = c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
     wikiLines.push(`### [[${slug}]]${c.description ? ' — ' + c.description : ''}`);

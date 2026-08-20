@@ -17,10 +17,14 @@ grep -q 'SB_ACTIVE_SLUG=.*node "\$SEARCH_CLI"' "$ROOT/scripts/session-load.sh" \
 pass "session-load.sh scopes the session-start wiki enrichment"
 # functional (skips if node / bundle absent): beta page suppressed under SB_ACTIVE_SLUG=alpha
 command -v node >/dev/null 2>&1 || { echo "SKIP: node"; echo; echo "ALL PASS"; exit 0; }
+# description: is a REQUIRED wiki frontmatter field (REQUIRED_FM_FIELDS) and carries the page's
+# aboutness. The injection gate grounds on title/description/tags only — never the body — so a
+# fixture omitting it builds a schema-INVALID page that no real wiki contains, and would assert
+# behaviour the product never sees. See tests/test-injection-gate.sh.
 [ -f "$CLI" ] || { echo "SKIP: CLI bundle not built — run cd mcp && npm run build"; echo; echo "ALL PASS"; exit 0; }
 TMP=$(mktemp -d); KD="$TMP/knowledge"; mkdir -p "$KD/wiki/learnings"
-for s in a1 a2 a3; do printf '%s\n' '---' "title: $s" 'type: learnings' 'project: alpha' '---' "# $s" "wireguard tunnel keyword $(printf 'd %.0s' $(seq 1 40))" > "$KD/wiki/learnings/$s.md"; done
-printf '%s\n' '---' 'title: b1' 'type: learnings' 'project: beta' '---' '# b1' "wireguard tunnel keyword $(printf 'd %.0s' $(seq 1 40))" > "$KD/wiki/learnings/b1.md"
+for s in a1 a2 a3; do printf '%s\n' '---' "title: $s" 'type: learnings' 'description: wireguard tunnel notes' 'project: alpha' '---' "# $s" "wireguard tunnel keyword $(printf 'd %.0s' $(seq 1 40))" > "$KD/wiki/learnings/$s.md"; done
+printf '%s\n' '---' 'title: b1' 'type: learnings' 'description: wireguard tunnel notes' 'project: beta' '---' '# b1' "wireguard tunnel keyword $(printf 'd %.0s' $(seq 1 40))" > "$KD/wiki/learnings/b1.md"
 OUT=$(KNOWLEDGE_DIR="$KD" BRAIN_DIR="$TMP/.second-brain" SB_ACTIVE_SLUG="alpha" node "$CLI" "wireguard tunnel" 2>/dev/null)
 printf '%s' "$OUT" | grep -q 'b1' && fail "beta page not suppressed under SB_ACTIVE_SLUG=alpha"
 printf '%s' "$OUT" | grep -qE 'a1|a2|a3' || fail "alpha pages missing"
