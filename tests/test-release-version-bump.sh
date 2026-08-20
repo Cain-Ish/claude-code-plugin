@@ -55,8 +55,25 @@ fi
 
 # --- versions: current (working tree) vs base (the release we'd be shipping over) --
 CUR_VER=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null | tr -d '\r')
-BASE_VER=$(git -C "$REPO_ROOT" show "$BASE_REF:.claude-plugin/plugin.json" 2>/dev/null | jq -r '.version // empty' 2>/dev/null | tr -d '\r')
-[ -n "$BASE_VER" ] || BASE_VER="0.0.0"   # plugin.json absent at base (very old) -> any release is a bump
+# MSYS_NO_PATHCONV=1 on the `git show` ONLY: Git-Bash rewrites the `<ref>:<path>` argument into
+# a Windows path ("origin\main;.claude-plugin\plugin.json"), git errors, BASE_VER comes back
+# empty, and the fallback below silently turned it into 0.0.0 — so ANY version compared greater
+# and this tripwire reported PASS on every Windows run since it was written. A release gate that
+# always passes is worse than none: it is exactly how 0.43.0's code shipped unbumped through a
+# fully-green local suite. Scoped to this one call because exporting it script-wide breaks the
+# `rev-parse --verify origin/main` probe above.
+BASE_JSON=$(cd "$REPO_ROOT" && MSYS_NO_PATHCONV=1 git show "$BASE_REF:.claude-plugin/plugin.json" 2>/dev/null)
+if [ -z "$BASE_JSON" ]; then
+  # Distinguish "no plugin.json at base" (legitimate: a very old base, any release is a bump)
+  # from "the read FAILED" (a broken gate). Only the first may default to 0.0.0.
+  if (cd "$REPO_ROOT" && MSYS_NO_PATHCONV=1 git cat-file -e "$BASE_REF:.claude-plugin/plugin.json") 2>/dev/null; then
+    fail "could not read plugin.json at $BASE_REF although it exists there — the version gate cannot compare and must not pass silently"
+  fi
+  BASE_VER="0.0.0"
+else
+  BASE_VER=$(printf '%s' "$BASE_JSON" | jq -r '.version // empty' 2>/dev/null | tr -d '\r')
+  [ -n "$BASE_VER" ] || fail "plugin.json at $BASE_REF has no .version — cannot compare"
+fi
 
 SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
 if ! printf '%s' "$CUR_VER" | grep -qE "$SEMVER_RE"; then
