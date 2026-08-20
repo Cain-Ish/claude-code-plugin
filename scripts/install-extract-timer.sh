@@ -266,10 +266,22 @@ if [ "$OS" != "systemd" ]; then
         # would create the task happily, print "applied", and then silently never run at tick
         # time — a scheduler that reports success and does nothing is the exact failure this
         # repo's fail-loud rule exists to prevent.
+        # …but ONLY on a real Windows host. The windows branch is also reached under
+        # SB_INSTALL_OS_OVERRIDE=windows, which is how Linux/macOS CI exercises this code — and
+        # there cygpath does not exist (nor does schtasks, so nothing could run anyway). Failing
+        # hard on the simulated path broke CI on the merge of #87 while passing locally on
+        # Windows: the author-verified-on-Windows / CI-runs-elsewhere blind spot. Gate the
+        # fail-loud on the ACTUAL platform, so real installs stay protected and the simulation
+        # keeps working.
         VBS_W=$(cygpath -w "$VBS_SHIM" 2>/dev/null) || VBS_W=""
         if [ -z "$VBS_W" ]; then
-          echo "error: cygpath unavailable — cannot convert $VBS_SHIM to a Windows path for schtasks /TR; the task would be created but never run. Install Git-for-Windows/MSYS cygpath, or use SB_DRAIN_VISIBLE_WINDOW=1." >&2
-          exit 1
+          case "$(uname -s 2>/dev/null)" in
+            MINGW*|MSYS*|CYGWIN*)
+              echo "error: cygpath unavailable — cannot convert $VBS_SHIM to a Windows path for schtasks /TR; the task would be created but never run. Install Git-for-Windows/MSYS cygpath, or use SB_DRAIN_VISIBLE_WINDOW=1." >&2
+              exit 1 ;;
+            *)
+              VBS_W="$VBS_SHIM" ;;   # simulated windows on a non-Windows host: keep the path inspectable
+          esac
         fi
         WIN_TR="wscript.exe //B //Nologo \"$VBS_W\""
       fi
