@@ -6850,7 +6850,15 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   let pool = scored;
   if (scopeOn) {
     const inScope = scored.filter((s) => s.tier <= 4);
-    pool = inScope.filter(passesFloor).length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100) ? inScope : scored;
+    const inScopePassing = inScope.filter(passesFloor);
+    if (inScopePassing.length < clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100)) {
+      pool = scored;
+    } else {
+      const slots = clampEnvInt("SB_SCOPE_CROSS_SLOTS", 1, 0, TOP_K);
+      const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
+      const cross = slots > 0 ? scored.filter((s) => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots) : [];
+      pool = cross.length ? [...cross, ...inScopePassing] : inScope;
+    }
   }
   const returned = pool.filter(passesFloor).slice(0, TOP_K);
   const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);

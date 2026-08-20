@@ -406,8 +406,39 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   let pool = scored;
   if (scopeOn) {
     const inScope = scored.filter(s => s.tier <= 4);
-    // Enough in-scope hits → drop other-project (tier 5). Thin → broaden (keep all; in-scope sorted first).
-    pool = inScope.filter(passesFloor).length >= clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100) ? inScope : scored;
+    const inScopePassing = inScope.filter(passesFloor);
+    if (inScopePassing.length < clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100)) {
+      pool = scored;   // thin in-scope → broaden (keep all; in-scope sorted first)
+    } else {
+      // CROSS-PROJECT RESERVATION. Enough in-scope hits, so tier-5 is dropped — EXCEPT for
+      // pages that outscore EVERY in-scope candidate. Without this, a lesson learned in one
+      // repo is unreachable from another: measured live, "ansible replace regexp double
+      // substitution" returned the correct page at rank 1 unscoped (0.04152) and NOTHING
+      // relevant when scoped to a different project, because the right page was dropped
+      // before ranking. Cross-project transfer is the whole reason this is a *second* brain
+      // rather than a per-repo README.
+      //
+      // Why "outscores everything in scope" and not a margin or a plain slot: it is the
+      // condition that keeps the existing scoping contract intact. The suppression tests
+      // (`C1 local-docs…`, `SP-1 family…`) use fixtures whose other-project page scores
+      // EQUAL to the in-scope pages, so a strict > leaves them dropped exactly as before —
+      // the rule only fires when the outside page is genuinely better than anything local,
+      // which is precisely the case scoping was never meant to hide. A multiplicative margin
+      // was rejected: it is a threshold on a mode-dependent scale, the bug class that killed
+      // the injection gate (see KnowledgeSearchResult.relevance).
+      //
+      // Placed FIRST, not appended: consumers take the top 1-2 candidates (persona-context
+      // injects 2), so a reserved slot at the tail is the same as no slot at all. Ranking it
+      // first is also score-consistent — by construction it beats every in-scope page.
+      // Precision is still enforced downstream: the injection CLIs apply the grounding gate
+      // to every candidate, reserved or not. SB_SCOPE_CROSS_SLOTS=0 restores the old drop.
+      const slots = clampEnvInt('SB_SCOPE_CROSS_SLOTS', 1, 0, TOP_K);
+      const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
+      const cross = slots > 0
+        ? scored.filter(s => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots)
+        : [];
+      pool = cross.length ? [...cross, ...inScopePassing] : inScope;
+    }
   }
 
   const returned = pool.filter(passesFloor).slice(0, TOP_K);

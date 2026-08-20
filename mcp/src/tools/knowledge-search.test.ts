@@ -515,3 +515,72 @@ describe('knowledge_search v1', () => {
     expect(res.candidates.every(c => c.source === 'wiki')).toBe(true);
   });
 });
+
+// --- SP-1 cross-project reservation (2026-08-20) ------------------------------
+// Project scoping drops other-project (tier-5) pages once enough in-scope hits exist. That made
+// cross-project transfer impossible: measured live, a query whose correct answer lived in another
+// repo returned that page at rank 1 unscoped and NOTHING relevant when scoped — the page was
+// dropped before ranking. A *second* brain that cannot carry a lesson between repos is a
+// per-repo README.
+//
+// The reservation is deliberately narrow: a tier-5 page is kept only when it outscores EVERY
+// in-scope candidate. Both directions are asserted here, because the boundary IS the contract —
+// the pre-existing suppression tests ('C1 local-docs…', 'SP-1 family…') use fixtures whose
+// other-project page scores EQUAL to the in-scope pages, and they must keep passing unchanged.
+describe('SP-1 cross-project reservation', () => {
+  const mk = (dir: string) => (slug: string, project: string, body: string) =>
+    fsp.writeFile(join(dir, 'wiki', 'learnings', `${slug}.md`),
+      `---\ntitle: ${slug}\ntype: learnings\nproject: ${project}\ndescription: ${slug} page\n---\n\n# ${slug}\n\n${body}\n`);
+
+  it('keeps an other-project page that OUTSCORES every in-scope page, and ranks it first', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-cross-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = mk(dir);
+    // three in-scope hits (>= SB_SCOPE_MIN_HITS) so tier-5 would normally be dropped outright
+    await w('a1', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('a2', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('a3', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    // the beta page is genuinely the better answer — the term dominates a short document
+    await w('b-strong', 'beta', 'wireguard wireguard wireguard wireguard wireguard tunnel setup');
+
+    const r = await knowledgeSearch({ query: 'wireguard', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const slugs = r.candidates.map(c => c.path.replace(/^.*[\/]/, '').replace(/\.md$/, ''));
+    expect(slugs).toContain('b-strong');
+    // First, not appended: consumers read the top 1-2 candidates, so a tail slot is no slot.
+    expect(slugs[0]).toBe('b-strong');
+  });
+
+  it('still drops an other-project page that merely TIES the in-scope pages', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-crosstie-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = mk(dir);
+    const body = `wireguard tunnel keyword ${'detail '.repeat(40)}`;
+    await w('a1', 'alpha', body);
+    await w('a2', 'alpha', body);
+    await w('a3', 'alpha', body);
+    await w('b-tie', 'beta', body);   // byte-identical body ⇒ identical BM25 ⇒ not "better"
+
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const slugs = r.candidates.map(c => c.path.replace(/^.*[\/]/, '').replace(/\.md$/, ''));
+    expect(slugs).not.toContain('b-tie');
+  });
+
+  it('SB_SCOPE_CROSS_SLOTS=0 restores the pre-2026-08-20 hard drop', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-crossoff-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = mk(dir);
+    await w('a1', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('a2', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('a3', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('b-strong', 'beta', 'wireguard wireguard wireguard wireguard wireguard tunnel setup');
+
+    process.env.SB_SCOPE_CROSS_SLOTS = '0';
+    try {
+      const r = await knowledgeSearch({ query: 'wireguard', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+      const slugs = r.candidates.map(c => c.path.replace(/^.*[\/]/, '').replace(/\.md$/, ''));
+      expect(slugs).not.toContain('b-strong');
+    } finally {
+      delete process.env.SB_SCOPE_CROSS_SLOTS;
+    }
+  });
+});
