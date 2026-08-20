@@ -29,8 +29,20 @@ const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 // there — the exact "gate above its own ceiling" bug this change exists to remove. The knob
 // stays for tuning; it must not become a shipped constant again.
 // Grounding is clamped to query_terms so a one- or two-word query stays satisfiable.
-const minRelevance = parseFloat(process.env.SB_INJECT_MIN_RELEVANCE || '0');
-const minGrounded = parseInt(process.env.SB_INJECT_MIN_GROUNDED || '2', 10);
+// Validated, NOT raw parseFloat/parseInt. A malformed override (`SB_INJECT_MIN_GROUNDED=true`,
+// a stray quote, a trailing space) yields NaN; Math.min(NaN, x) is NaN and every `>= NaN`
+// comparison is false, so the gate would match nothing, silently, for the whole session — the
+// exact unsatisfiable-gate failure this file exists to fix, re-entered through an operator typo.
+// A negative override is the mirror image: `grounded >= -1` is vacuously true and the precision
+// gate disappears. Clamp both ends and fall back to the documented default.
+const envNum = (name: string, def: number, lo: number, hi: number): number => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return def;
+  const v = Number(raw);
+  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+};
+const minRelevance = envNum('SB_INJECT_MIN_RELEVANCE', 0, 0, Number.MAX_SAFE_INTEGER);
+const minGrounded = envNum('SB_INJECT_MIN_GROUNDED', 2, 0, 64);
 
 // SP-1: forward project context so the per-prompt persona injection is project-scoped.
 // The calling hook (persona-context.sh / session-load.sh) sets SB_ACTIVE_SLUG.

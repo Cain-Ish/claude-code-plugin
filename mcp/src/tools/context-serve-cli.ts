@@ -25,8 +25,17 @@ const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 // actually uses per prompt, so a fix applied only there would change nothing in practice.
 // `score` (RRF, ceiling 0.0426) cannot gate relevance; `relevance` (frozen BM25) + `grounded`
 // (query terms in title/description/tags) can. Full rationale in knowledge-search-cli.ts.
-const minRelevance = parseFloat(process.env.SB_INJECT_MIN_RELEVANCE || '0');
-const minGrounded = parseInt(process.env.SB_INJECT_MIN_GROUNDED || '2', 10);
+// Validated, not raw parseFloat/parseInt — a malformed override yields NaN, every `>= NaN` is
+// false, and the gate silently matches nothing for the whole session (the unsatisfiable-gate
+// class again); a negative one makes it vacuously true. Same guard as knowledge-search-cli.ts.
+const envNum = (name: string, def: number, lo: number, hi: number): number => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return def;
+  const v = Number(raw);
+  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+};
+const minRelevance = envNum('SB_INJECT_MIN_RELEVANCE', 0, 0, Number.MAX_SAFE_INTEGER);
+const minGrounded = envNum('SB_INJECT_MIN_GROUNDED', 2, 0, 64);
 const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG?.trim() || undefined;
 

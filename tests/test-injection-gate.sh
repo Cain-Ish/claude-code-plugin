@@ -54,6 +54,8 @@ what colour is the sky today
 my cat keeps knocking things off the table
 how do I bake sourdough bread at home
 xyzzy plugh frotz
+what is the best way to do this
+can you help me with this thing
 EOF
 [ "$LEAKS" -eq 0 ] && pass "no off-topic query injects anything (0 leaks)" \
                    || fail "$LEAKS off-topic quer(y|ies) injected a page"

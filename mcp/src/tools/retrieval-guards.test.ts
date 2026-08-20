@@ -173,7 +173,16 @@ describe('injection gate satisfiability', () => {
   it('exposes relevance + grounded so gates can use an absolute scale', async () => {
     const dir = await seedWiki({
       'tunnel-config': 'wireguard tunnel configuration details repeated tunnel tunnel',
-      'unrelated-page': 'gardening notes about soil and compost',
+      // Must share ONE query term in its BODY so it clears the relevance floor and is actually
+      // RETURNED. With no overlap it scored 0, was floor-filtered out, `off` was undefined, and
+      // the conditional assertion below silently never ran — a vacuous test, i.e. the exact
+      // defect class this branch exists to fix, found in this branch's own new test by review.
+      // Short body, repeated query term: enough BM25 weight to clear the relevance floor
+      // (MIN_SCORE_RATIO = 15% of the top score) so it is actually RETURNED. With no overlap it
+      // scored 0, was floor-filtered out, `off` was undefined, and the conditional assertion
+      // below silently never ran — a vacuous test, i.e. the exact defect class this branch
+      // exists to fix, found in this branch's own new test by review.
+      'unrelated-page': 'wireguard wireguard tunnel tunnel tunnel gardening compost soil',
     });
     const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
     const top = r.candidates[0];
@@ -185,6 +194,46 @@ describe('injection gate satisfiability', () => {
     // The off-topic page shares no head-field term — this is the signal an absolute score
     // cannot give, and the reason the gate is a conjunction.
     const off = r.candidates.find(c => c.path.includes('unrelated-page'));
-    if (off) expect(off.grounded).toBe(0);
+    expect(off, 'off-topic page must be RETURNED or this assertion proves nothing').toBeDefined();
+    // It matches 'tunnel' in the BODY so it scores — but the term is absent from its title,
+    // description and tags, so it is not ABOUT the query. That gap is the entire signal.
+    expect(off!.grounded).toBe(0);
+  });
+});
+
+// --- Grounding fails CLOSED on an all-filler query (review finding, 2026-08-20) ------------
+// An earlier revision of discriminativeTerms() fell back to raw overlap whenever the df filter
+// emptied the term list. Review proved that reopened the precision hole it was built to close:
+// on a topically-narrow wiki a casual prompt made ENTIRELY of connector words has every term
+// corpus-common, the fallback handed the filler back, and an off-topic page whose TITLE happens
+// to contain "the"/"way" grounded at 2 and would be injected under the shipped defaults.
+// No test covered the all-terms-common case, which is exactly why it survived. This is it.
+describe('grounding: all-filler query grounds nothing', () => {
+  it('a query whose every term is corpus-common cannot ground an off-topic page', async () => {
+    const pages: Record<string, string> = {};
+    // >= MIN_CORPUS_FOR_DF (8) so the df filter is active at all; every page carries the filler,
+    // so df == N for each filler term and none of them is discriminative.
+    for (let i = 0; i < 10; i++) {
+      pages[`topic-${i}`] = 'what is the way of course general common material';
+    }
+    // The trap: filler words sitting in a TITLE, where grounding looks.
+    pages['the-way-of-gardening'] = 'soil compost and general planting material';
+    const dir = await seedWiki(pages);
+
+    const r = await knowledgeSearch({ query: 'what is the way', knowledgeDir: dir });
+    const bad = r.candidates.filter(c => c.grounded >= 2);
+    expect(bad.map(c => c.path), 'no page may ground on filler terms alone').toHaveLength(0);
+  });
+
+  it('a small corpus still grounds on shared terms (the df filter must not fire below the gate)', async () => {
+    // The mirror case: below MIN_CORPUS_FOR_DF a share carries no information, so the filter is
+    // skipped and genuine queries still work. Without this, protecting the case above would make
+    // every small/first-install wiki un-injectable — the same unsatisfiable-gate failure again.
+    const dir = await seedWiki({
+      'wireguard-tunnel-setup': 'wireguard tunnel configuration for the vpn',
+      'other-note': 'wireguard tunnel mentioned here too',
+    });
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
+    expect(r.candidates[0].grounded, 'small corpus must still ground').toBeGreaterThanOrEqual(2);
   });
 });

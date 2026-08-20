@@ -50,7 +50,12 @@ export interface KnowledgeSearchResult {
     score: number;
     /** Rank-normalized to (0,1] on ONE scale regardless of mode (R2.3). The
      *  highest-scored RETURNED candidate is exactly 1; under project scoping
-     *  (tier-major ordering) that anchor may not be the first listed. */
+     *  (tier-major ordering) that anchor may not be the first listed.
+     *  NOTE (cross-project reservation): when a tier-5 page is reserved it outscores every
+     *  in-scope candidate BY CONSTRUCTION, so it becomes the 1.0 anchor and every in-scope
+     *  result is normalized below it — including what would otherwise have been the top
+     *  in-scope hit. Consumers using score_norm as an in-scope confidence heuristic must
+     *  account for an anchor that is deliberately OUTSIDE the requested scope. */
     score_norm: number;
     /** Frozen pre-boost BM25 — the ABSOLUTE relevance signal. RELEVANCE GATES MUST READ
      *  THIS, NEVER `score`. In hybrid mode `score` is rank-derived RRF: its maximum is
@@ -140,6 +145,29 @@ const STUB_PENALTY = 0.5;
 // here but dies on a small wiki, where df→N drives IDF→0 and every score collapses regardless
 // of match quality. That is the same "gate above its own ceiling" bug this whole change fixes,
 // so it must not be reintroduced as the default.
+// Minimum corpus size for a document-frequency SHARE to carry information. Below this the
+// grounding filter is skipped entirely (see discriminativeTerms). Chosen so real wikis (hundreds
+// of pages) always filter, while small fixtures and a first-install wiki never do.
+const MIN_CORPUS_FOR_DF = 8;
+// Words that can never establish that a page is ABOUT something. Used ONLY by grounding
+// (discriminativeTerms) — never by BM25, which keeps scoring them exactly as before, so ranking
+// is unchanged and this cannot resurrect or evict anything. Deliberately small and boring:
+// English function words plus the generic verbs/qualifiers that dominate casual prompts
+// ("what is the best way to do this"). Extending it is safe; it can only make grounding
+// stricter, and a term wrongly listed here just means one fewer way to ground a page.
+const GROUNDING_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'if', 'then', 'than', 'that', 'this', 'these', 'those',
+  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am',
+  'do', 'does', 'did', 'doing', 'done', 'have', 'has', 'had', 'having',
+  'can', 'could', 'will', 'would', 'should', 'shall', 'may', 'might', 'must',
+  'i', 'you', 'we', 'they', 'he', 'she', 'it', 'me', 'my', 'our', 'your', 'their', 'its',
+  'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'into', 'onto', 'about', 'as',
+  'what', 'when', 'where', 'which', 'who', 'whom', 'why', 'how',
+  'not', 'no', 'yes', 'so', 'up', 'down', 'out', 'off', 'over', 'under', 'again', 'here', 'there',
+  'best', 'better', 'good', 'bad', 'way', 'ways', 'thing', 'things', 'stuff',
+  'get', 'got', 'make', 'made', 'use', 'used', 'using', 'need', 'want', 'like', 'please', 'help',
+  'some', 'any', 'all', 'more', 'most', 'much', 'many', 'very', 'just', 'only', 'also', 'now',
+]);
 const COMMON_TERM_DF_SHARE = (() => {
   const v = parseFloat(process.env.SB_GROUNDING_DF_SHARE ?? '');
   return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.5;
@@ -528,21 +556,32 @@ function groundedCount(queryTokens: string[], idx: DocIndex, dfMap: Map<string, 
 
 /** The query terms worth grounding on: those NOT occurring corpus-wide.
  *
- *  Degrades gracefully instead of to zero. On a small or topically-uniform corpus every query
- *  term can exceed the df share (4 pages all containing "wireguard tunnel" ⇒ df = N for both
- *  terms), and filtering them all would ground every page at 0 and inject nothing — the same
- *  "gate nothing can satisfy" failure this whole change removes, just reached from the other
- *  side. When no term discriminates, none of them is more common than any other, so fall back
- *  to raw overlap.
+ *  Corpus-size gated, and above that gate it fails CLOSED.
  *
- *  This cannot reopen the nonsense-injection hole it exists to close: that hole needs at least
- *  one COMMON term to ground on ("best", "way") while the rare terms miss, and in that case the
- *  rare terms are still discriminative, so the fallback never triggers. */
+ *  A df SHARE means nothing on a handful of pages: with N=4 and every page mentioning the query
+ *  terms, df=N for all of them, and filtering them all would ground every page at 0 and inject
+ *  nothing — the same "gate nothing can satisfy" failure this whole change removes, reached from
+ *  the other side. So below MIN_CORPUS_FOR_DF the filter is skipped entirely and grounding falls
+ *  back to raw overlap; on a corpus that small, "this term is everywhere" carries no information.
+ *
+ *  Above the gate there is deliberately NO fallback. An earlier revision returned every term when
+ *  the filter emptied the list, and review proved that reopened the precision hole: on a
+ *  topically-narrow wiki, a casual prompt made ENTIRELY of connector words ("what is the best way
+ *  to…") has every term corpus-common, the fallback handed the filler back, and an off-topic page
+ *  grounded on "the"/"way" in its title and was injected. On a corpus large enough to judge,
+ *  "every term is common" is itself the signal that the query is filler — ground nothing, inject
+ *  nothing. */
 function discriminativeTerms(queryTokens: string[], dfMap: Map<string, number>, N: number): string[] {
-  const distinct = [...new Set(queryTokens)];
+  // Stopwords first, and independently of corpus size. The df filter alone is not enough:
+  // measured on the live 372-page wiki, "what is the best way to do this" still injected an
+  // off-topic page, because "best"/"way" appear in perhaps 50 of 372 pages — common in English
+  // but nowhere near the corpus SHARE. df catches project jargon that has gone generic; only a
+  // stopword list catches words that were never content-bearing to begin with. Grounding only —
+  // BM25 itself is untouched, so these words still contribute to ranking as they always did.
+  const distinct = [...new Set(queryTokens)].filter(t => !GROUNDING_STOPWORDS.has(t));
+  if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
-  const kept = distinct.filter(t => (dfMap.get(t) ?? 0) <= maxDf);
-  return kept.length > 0 ? kept : distinct;
+  return distinct.filter(t => (dfMap.get(t) ?? 0) <= maxDf);
 }
 
 function computeDF(queryTokens: string[], docs: DocIndex[]): Map<string, number> {

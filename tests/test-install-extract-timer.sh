@@ -161,6 +161,16 @@ fi
 # could catch WSL System32\bash.exe), and the installer wires win_bash for the probe.
 WINTR=$(SB_INSTALL_OS_OVERRIDE=windows bash "$INSTALL" 2>&1)
 printf '%s' "$WINTR" | grep -qiE 'bash\.exe|[Gg]it.[Bb]in.bash' && ok "windows: /TR points at a git-bash bash.exe" || no "windows: /TR has no git-bash bash path"
+# 2026-08-20: the task launches through a hidden wscript shim by default — schtasks runs /TR in
+# the logged-on interactive session, so a direct bash.exe /TR painted a Git Bash console every
+# 30 minutes. Assert the default is hidden AND that the documented escape hatch still works,
+# so neither can regress silently.
+printf '%s' "$WINTR" | grep -q 'wscript.exe //B //Nologo' \
+  && ok "windows: default /TR uses the hidden wscript launcher" || no "windows: /TR is not the hidden launcher"
+WINVIS=$(SB_DRAIN_VISIBLE_WINDOW=1 SB_INSTALL_OS_OVERRIDE=windows bash "$INSTALL" 2>&1)
+printf '%s' "$WINVIS" | grep -q 'wscript.exe' \
+  && no "windows: SB_DRAIN_VISIBLE_WINDOW=1 still uses wscript (escape hatch broken)" \
+  || ok "windows: SB_DRAIN_VISIBLE_WINDOW=1 falls back to a direct bash /TR"
 grep -q 'BASH_W=$(win_bash)' "$INSTALL" && ok "installer: windows uses win_bash (WSL-safe probe)" || no "installer: windows not using win_bash"
 grep -qE 'Git\\+bin\\+bash\.exe' "$INSTALL" && ok "installer: win_bash probes the Git\\bin path list" || no "installer: no git-bash probe list"
 # The OLD sole resolver (bare command -v bash as BASH_W=) must be gone.
@@ -179,7 +189,12 @@ SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR16" bash "$INSTALL" --uninstall >/d
 # schtasks /TR (and the cygpath fallback never runs). Print-mode windows with both vars unset.
 W17=$(env -u PROGRAMFILES -u LOCALAPPDATA SB_INSTALL_OS_OVERRIDE=windows bash "$INSTALL" 2>&1)
 printf '%s' "$W17" | grep -qi 'unbound variable' && no "win_bash: aborts on unset PROGRAMFILES/LOCALAPPDATA" || ok "win_bash: survives unset PROGRAMFILES/LOCALAPPDATA (set -u safe)"
-printf '%s' "$W17" | grep -qE '/TR +"[^"]*bash[^"]*"' && ok "win_bash: /TR keeps a non-empty bash program token when vars unset" || no "win_bash: empty/broken /TR program when vars unset"
+# 2026-08-20: the Windows task now launches through a hidden wscript shim (schtasks runs /TR in
+# the interactive session, so pointing it at bash.exe painted a console window every 30 min).
+# The resolved bash path therefore appears on the `# launcher:` line rather than inside /TR.
+# The ASSERTION IS UNCHANGED IN INTENT — win_bash must still yield a non-empty bash program —
+# only its location moved. Accepts either form so SB_DRAIN_VISIBLE_WINDOW=1 also passes.
+printf '%s' "$W17" | grep -qE '(# launcher:|/TR) +.*bash' && ok "win_bash: keeps a non-empty bash program token when vars unset" || no "win_bash: empty/broken bash program when vars unset"
 
 # Test 18 (review LOW, intent): the hardened systemd DEFAULT is creds-free by contract — its env-file
 # must NOT carry API creds; launchd/windows (no sandbox) and systemd --oauth MUST forward them.

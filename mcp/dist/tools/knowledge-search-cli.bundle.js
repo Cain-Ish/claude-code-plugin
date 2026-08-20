@@ -6635,6 +6635,128 @@ var AVG_DOC_LENGTH = 200;
 var DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
 var MIN_SCORE_RATIO = 0.15;
 var STUB_PENALTY = 0.5;
+var MIN_CORPUS_FOR_DF = 8;
+var GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "but",
+  "if",
+  "then",
+  "than",
+  "that",
+  "this",
+  "these",
+  "those",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "am",
+  "do",
+  "does",
+  "did",
+  "doing",
+  "done",
+  "have",
+  "has",
+  "had",
+  "having",
+  "can",
+  "could",
+  "will",
+  "would",
+  "should",
+  "shall",
+  "may",
+  "might",
+  "must",
+  "i",
+  "you",
+  "we",
+  "they",
+  "he",
+  "she",
+  "it",
+  "me",
+  "my",
+  "our",
+  "your",
+  "their",
+  "its",
+  "to",
+  "of",
+  "in",
+  "on",
+  "at",
+  "by",
+  "for",
+  "with",
+  "from",
+  "into",
+  "onto",
+  "about",
+  "as",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "whom",
+  "why",
+  "how",
+  "not",
+  "no",
+  "yes",
+  "so",
+  "up",
+  "down",
+  "out",
+  "off",
+  "over",
+  "under",
+  "again",
+  "here",
+  "there",
+  "best",
+  "better",
+  "good",
+  "bad",
+  "way",
+  "ways",
+  "thing",
+  "things",
+  "stuff",
+  "get",
+  "got",
+  "make",
+  "made",
+  "use",
+  "used",
+  "using",
+  "need",
+  "want",
+  "like",
+  "please",
+  "help",
+  "some",
+  "any",
+  "all",
+  "more",
+  "most",
+  "much",
+  "many",
+  "very",
+  "just",
+  "only",
+  "also",
+  "now"
+]);
 var COMMON_TERM_DF_SHARE = (() => {
   const v = parseFloat(process.env.SB_GROUNDING_DF_SHARE ?? "");
   return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.5;
@@ -6920,10 +7042,10 @@ function groundedCount(queryTokens, idx, dfMap, N) {
   return n;
 }
 function discriminativeTerms(queryTokens, dfMap, N) {
-  const distinct = [...new Set(queryTokens)];
+  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t));
+  if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
-  const kept = distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);
-  return kept.length > 0 ? kept : distinct;
+  return distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);
 }
 function computeDF(queryTokens, docs) {
   const dfMap = /* @__PURE__ */ new Map();
@@ -6967,8 +7089,14 @@ if (!query) {
   process.exit(0);
 }
 var minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || "0");
-var minRelevance = parseFloat(process.env.SB_INJECT_MIN_RELEVANCE || "0");
-var minGrounded = parseInt(process.env.SB_INJECT_MIN_GROUNDED || "2", 10);
+var envNum = (name, def, lo, hi) => {
+  const raw = process.env[name];
+  if (raw === void 0 || raw === "") return def;
+  const v = Number(raw);
+  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+};
+var minRelevance = envNum("SB_INJECT_MIN_RELEVANCE", 0, 0, Number.MAX_SAFE_INTEGER);
+var minGrounded = envNum("SB_INJECT_MIN_GROUNDED", 2, 0, 64);
 var brainDir = resolveBrainDir();
 var projectSlug = process.env.SB_ACTIVE_SLUG || void 0;
 var result = await knowledgeSearch({ query, brainDir, projectSlug });
