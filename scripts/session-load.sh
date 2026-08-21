@@ -160,8 +160,8 @@ sb_append() {
 sb_increment_session_count "$slug"
 
 # 0a. Cadence + maintenance banners — surface SB system events that would
-# otherwise require the user to remember to run /second-brain:dream or
-# /second-brain:improve. Threshold-gated to avoid banner fatigue.
+# otherwise require the user to remember to run /second-brain:dream.
+# Threshold-gated to avoid banner fatigue.
 SESSION_COUNT=$(sb_get_session_count "$slug")
 DREAM_THRESHOLD="${SB_DREAM_CADENCE:-15}"
 # Legacy session-count nag: only when auto-stage is disabled. When autostage is

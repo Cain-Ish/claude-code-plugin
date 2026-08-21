@@ -78,11 +78,10 @@ stage changes for review, forgetting archives rather than deletes.
 
 `/second-brain:capture` is documented for its raw-inbox interface (`--list` to inspect, `--discard <id>` to prune) but is not a slash command — capture itself is automatic.
 
-The other four skills (`query`, `using-second-brain`, `capture`, `improve`) are invoked by the
+The other three skills (`query`, `using-second-brain`, `capture`) are invoked by the
 model, not as slash commands. Four agents back the loop: `dream-runner`,
 `knowledge-maintainer`, `raw-drainer`, and `search-conversations` — consolidation and recall,
-nothing else. (The code-review and team-orchestration skills and their six agents were removed
-in 0.44.0: real tools, but outside the four content classes above.)
+nothing else.
 
 ## MCP tools
 
@@ -143,7 +142,7 @@ to pages that already exist apply under an explicit "candidate facts (untrusted)
 Model-tier routing is built in: `model-ladder.json` is the single manifest of tiers and pins,
 consumed by extraction, compaction, and consolidation (`stop-extract.sh`, `pre-compact.sh`,
 `maintain-llm-drain.sh`). No model ID is hardcoded anywhere else — `tests/test-model-ladder.sh`
-fails the suite if one appears. The former cost-router plugin was absorbed and removed.
+fails the suite if one appears.
 
 ## License
 

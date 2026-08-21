@@ -19,7 +19,7 @@ if [ -f "$HOOKS" ]; then
     # Code spec — for those, a matcher is not required, and declaring one
     # is misleading (silently ignored at runtime), so we WARN instead.
     NO_MATCHER_EVENTS="UserPromptSubmit Notification SessionEnd Stop PostToolBatch TeammateIdle TaskCreated TaskCompleted WorktreeCreate WorktreeRemove CwdChanged"
-    SESSION_START_MATCHERS="startup|resume|clear|compact"
+    SESSION_START_MATCHERS="startup|resume|clear|compact|fork"
 
     while IFS= read -r event; do
       event="${event%$'\r'}"  # jq on Windows (Git Bash) emits CRLF — strip the CR

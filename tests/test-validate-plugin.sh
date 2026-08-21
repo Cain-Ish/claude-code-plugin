@@ -306,6 +306,25 @@ MD
 run_case "body '---' divider does not leak into frontmatter" 1
 assert_output_contains "setup/SKILL.md missing 'allowed-tools'"
 
+
+# Case 12: the SHIPPED tree must validate with ZERO WARN lines.
+# A WARN that nobody clears is worse than no check: `SESSION_START_MATCHERS` froze at
+# "startup|resume|clear|compact" while hooks.json moved to "startup|resume|clear|fork" in
+# 0.34.0, so validate-plugin warned on EVERY run for ~11 releases and the noise became
+# invisible. `fork` is a real SessionStart source (code.claude.com/docs/en/hooks lists
+# startup, resume, clear, compact, fork); the validator's list was simply stale. This case
+# binds the real tree, not a fixture, so any future drift of this class fails instead of
+# warning forever. ORACLE: the shipped hooks.json + the shipped validator.
+real_out=$(PATH="$STUB_BIN:$PATH" bash "$SCRIPT" "$REPO_ROOT" 2>&1)
+real_ec=$?
+warns=$(printf '%s\n' "$real_out" | grep -c '^WARN:' || true)
+if [ "$real_ec" -eq 0 ] && [ "$warns" -eq 0 ]; then
+  PASS=$((PASS + 1)); echo "PASS: shipped tree validates with no WARN lines"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL: shipped tree — exit $real_ec, $warns WARN line(s); a standing WARN must be fixed, not tolerated"
+  printf '%s\n' "$real_out" | grep -E '^(WARN|FAIL):' | head -5
+fi
 echo "-----------------------"
 echo "PASS: $PASS, FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]

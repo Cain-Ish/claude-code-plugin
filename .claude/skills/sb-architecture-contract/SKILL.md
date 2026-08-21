@@ -230,7 +230,7 @@ wiki = `~/knowledge/wiki`.
 
 ## 5. MCP server — `mcp/src/server.ts`, 23 tools
 
-Re-verify: `grep -n -A1 'registerTool(' mcp/src/server.ts`. Lines as of 0.33.37:
+Re-verify: `grep -n '^registerJsonTool(' mcp/src/server.ts`. Lines as of 0.33.37:
 
 | Line | Tool | One line |
 |---|---|---|
@@ -396,7 +396,7 @@ Volatile facts — re-verify before trusting a stale copy of this skill:
 jq -r .version .claude-plugin/plugin.json                      # plugin version (was 0.33.31)
 jq -r '.hooks | keys | length' hooks/hooks.json                # hook events (was 8)
 jq '[.hooks[][] | .hooks[]] | length' hooks/hooks.json         # hook command entries (was 22)
-grep -c 'registerTool(' mcp/src/server.ts                      # MCP tools (was 23)
+grep -c '^registerJsonTool(' mcp/src/server.ts                      # MCP tools (was 23)
 grep -rn 'function resolveKnowledgeDir' mcp/src --include='*.ts'  # >1 hit = two-wikis split still open
 cat .claude-plugin/surface-budget.json                                    # budget (skills 18/agents 9/scripts 52/tests 157)
 ls tests/test-*.sh | wc -l                                      # live test count (was 157)
