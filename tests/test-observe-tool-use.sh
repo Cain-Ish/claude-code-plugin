@@ -68,7 +68,11 @@ payload "Bash" "sess-err" '{"command":"false"}' '{"stdout":"","stderr":"boom","e
 FE="$OBS_DIR/sess-err.jsonl"
 N=$(jq -s '[.[] | select(.ok==false)] | length' "$FE")
 [ "$N" -eq 3 ] || fail "errors: expected 3 ok:false records, got $N: $(cat "$FE")"
-jq -e 'select(.tool=="Bash" and .ok==false) | select(.err | test("assertion"))' "$FE" >/dev/null 2>&1 \
+# -s + single boolean output on purpose: bare `jq -e 'select(...)'` over a multi-line
+# JSONL file keys its exit status off the LAST input under jq 1.6 (Ubuntu 22.04 /
+# Debian 11 default) — a non-matching final record returns 4 even though an earlier
+# record matched and printed. jq 1.7+ changed this; one slurped output is version-stable.
+jq -se '[.[] | select(.tool=="Bash" and .ok==false) | select(.err | test("assertion"))] | length > 0' "$FE" >/dev/null 2>&1 \
   || fail "errors: err head not captured from is_error shape"
 pass "error shapes (is_error / error field / exitCode!=0) → ok:false with err head"
 

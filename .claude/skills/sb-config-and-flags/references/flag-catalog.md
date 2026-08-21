@@ -3,8 +3,8 @@
 Verified against the 0.33.31 working tree on 2026-07-05 (uncommitted release batch; plugin.json
 already says 0.33.31). Every `file:line` below was confirmed either by reading the file or by the
 bulk extraction greps in SKILL.md §10. Census: ~187 distinct `SB_*` names across
-`scripts tests mcp/src hooks skills agents bin cost-router`, of which 17 are test-infrastructure-only
-(§10 below).
+`scripts tests mcp/src hooks skills agents bin` (plus the since-removed `cost-router`), of
+which 17 are test-infrastructure-only (§10 below).
 
 **Kind legend:**
 
@@ -32,8 +32,8 @@ feedback: test fallback/default branches) says treat "bash" as necessary, not su
 
 | Var | Default | Effect | Kind | Site | Tests |
 |---|---|---|---|---|---|
-| `SB_BRAIN_DIR` | `$HOME/.second-brain` (chain: `SB_BRAIN_DIR` → `BRAIN_DIR` → homedir) | Root of brain state (transcripts, raw, config.json, audit log). TS: `mcp/src/brain-paths.ts:30` (CRLF-stripped via `cleanEnvPath`). Shell: `scripts/cost-router-capture.sh:22` etc. | PATH | brain-paths.ts:27-33 | bash+vitest |
-| `SB_KNOWLEDGE_DIR` | `~/knowledge` | Wiki-root override in the cost-router capture path ONLY (chain there: `SB_KNOWLEDGE_DIR` → `KNOWLEDGE_DIR` → `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` → `$HOME/knowledge`). The main chain elsewhere starts at `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` (SKILL.md §2). | PATH | cost-router-capture.sh:26 | bash |
+| `SB_BRAIN_DIR` | `$HOME/.second-brain` (chain: `SB_BRAIN_DIR` → `BRAIN_DIR` → homedir) | Root of brain state (transcripts, raw, config.json, audit log). TS: `mcp/src/brain-paths.ts` (CRLF-stripped via `cleanEnvPath`). Shell: `scripts/brain-os-run.sh`, `scripts/wiki-recall-check.sh` (its former site `cost-router-capture.sh` was removed 0.35.x). | PATH | brain-paths.ts | bash+vitest |
+| `SB_KNOWLEDGE_DIR` | `~/knowledge` | INERT since 0.35.x — its only consumer was the cost-router capture path, removed with the subplugin; it survives only as a comment note (`lib.sh:83`). The live chain starts at `CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` (SKILL.md §2). | PATH (inert) | lib.sh:83 (comment only) | none |
 | `SB_ACTIVE_SLUG` | (unset) | Cross-process handoff of the resolved active-project slug into node CLI shims so per-process slug resolution can't misroute. Set: `persona-context.sh:205,215,219`, `session-load.sh:575`. Read: `knowledge-search-cli.ts:18`, `raw-capture-cli.ts:12`, `raw-scan-cli.ts:12,23`, `context-serve-cli.ts:25`, `episodic-search-cli.ts:11`. | INT (settable) | persona-context.sh:205 | bash+vitest |
 | `SB_ACTIVE_SLUG_VAL` | `$(sb_resolve_slug)` | Shell-local holder of the resolved slug pre-export. | INT | persona-context.sh:190 | none |
 | `SB_NESTED_SPAWN` | `0` | Set to `1` by every plugin-spawned headless `claude` so hook entrypoints no-op inside nested spawns — 13 scripts under `scripts/` carry the `[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0` early exit (e.g. `ensure-dirs.sh:3`). The 3 SETTERS (lib.sh, maintain-llm-drain.sh, extraction-quality-gate.sh) export `SB_NESTED_SPAWN=1` into spawns and do NOT no-op; a grep of all mentions counts 17 files (13 readers + 3 setters + a comment-only hit in hook-timer.sh:16) — don't audit guard coverage against 17. TS guard: `mcp/src/nested-spawn-guard.ts:16` (`=== '1'`). | INT/guard | nested-spawn-guard.ts:16 | bash+vitest |
@@ -268,9 +268,9 @@ lib.sh:1128). `SB_EPI_INDEX` (episodic index path, session-load.sh). `SB_GATE` (
 accumulator, pre-compact.sh / stop-extract.sh). `SB_SKIP_CLI` (local, lib.sh:1294). `SB_JQ_OK`
 (per-process jq-availability cache, lib.sh:1554). `SB_SCRIPT_NAME` (lib.sh:1247). `SB_BUNDLE` /
 `SB_KDIR` (env-passing into `node -e` reindex/validate shims). `_SB_CTX_SEP` (output separator
-sentinel, persona-context.sh). `SB_REVIEW_SKILL` (shell-local flag inside
-`cost-router/scripts/classify-prompt.sh:108-113`). `SB_FOO` at lib.sh:1709 is a DOCUMENTATION
-EXAMPLE in the precedence comment, not a real flag.
+sentinel, persona-context.sh). `SB_REVIEW_SKILL` (was shell-local to cost-router's
+classify-prompt.sh — gone since cost-router's removal, 0.35.x). `SB_FOO` at lib.sh:1709 is a
+DOCUMENTATION EXAMPLE in the precedence comment, not a real flag.
 
 ## 10. Test-infrastructure vars (defined and consumed only under tests/)
 

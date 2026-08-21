@@ -93,7 +93,7 @@ guard that will actively reject the old shape.
 | 10 | Enforced daily Opus spend cap | tier→model assignments change across releases; no dollar limit keyed to a model name | `d856ccf` (0.24.45) | Spend reported, never enforced; `COST_ROUTER_OPUS_CAP_USD`/`SB_PERSONA_DAILY_BUDGET` inert |
 | 11 | Vendored superpowers skills inside the plugin (2.4.0) | token/surface diet | vendored `18030a3`; de-vendored 0.24.42 `40f0acd` | Removed; `docs/superpowers/` keeps only plans/specs |
 | 12 | "BLOCKING REQUIREMENT — you MUST" maintainer banner + auto-stage auto-dispatch | Anthropic-doctrine conflicts: plugins shouldn't coerce the model or auto-spawn side-effectful subagents | added `e1c907a`; softened 0.21.0 `4837873` | Suggestion banners only; auto-dispatch returned only as gated, consented automation (0.25.0→0.30.0) |
-| 13 | ~9 model-invocable skills in the catalog | per-session metadata + selection ambiguity | trimmed 0.21.0/0.27.0/0.29.0/0.33.24 (`4837873` `2f1a1eb` `5ccdde3` `acfe1ad`) | Model catalog = 3 (query, code-review-deep, using-second-brain); rest slash-command-only |
+| 13 | ~9 model-invocable skills in the catalog | per-session metadata + selection ambiguity | trimmed 0.21.0/0.27.0/0.29.0/0.33.24 (`4837873` `2f1a1eb` `5ccdde3` `acfe1ad`) | Model catalog = 2 since 0.44.0 removed code-review-deep (query, using-second-brain); rest slash-command-only |
 | 14 | Slug precedence `CLAUDE_PROJECT_DIR > pin > cwd` (0.24.29) | var inconsistently set across MCP spawns → stale pin still hijacked; tests were made green by reverting precedence ("green tests over real-env correctness") | `6c43b25` → corrected next day `c08dd6f` (0.24.30) | `CLAUDE_PROJECT_DIR > cwd-if-known-project > pin > cwd`, one shared resolver, verified live |
 | 15 | Claim in `9a03a26` that bare-YAML `related:` lists were migrated | claim was false | `6b1535a` "…CORRECTS false claim in 9a03a26" | Fixed; loud self-correction commits are the house convention |
 | 16 | FORGET score rewarding access-frequency (w=0.30) + recency (w=0.25) | usage-frequency = recsys rich-get-richer hub bias; goal-agnostic recency decay demonstrably hurts | `7638c94` (0.33.25) | Structural-importance-only score; `SB_FORGET_W_ACCESS`/`_W_RECENCY` inert; access survives as `acc=` telemetry |
@@ -119,7 +119,7 @@ guard that will actively reject the old shape.
 - **Deep-dive waves defined in `docs/specs/2026-06-10-plugin-deep-dive-improvements-design.md`
   but never shipped:** R3 (security follow-ups — partially overtaken by P6a/P6b but never
   closed as R3), R5.2 (cost-router 2-week dogfood → keep-or-kill decision — never recorded in
-  this repo), R9 (data-plane integrity & privacy — never started; partially overtaken by
+  this repo, and mooted when cost-router was removed in 0.35.x), R9 (data-plane integrity & privacy — never started; partially overtaken by
   0.33.21 transcript sanitization). R7 shipped only its "a" slice (observability, `918f34a`);
   the served→used retrieval metric has no commits. Treat all as open/candidate, not failed.
 - **Misc residue:** backup tags `sb-backup/pr1-…`/`sb-backup/pr2-…` point at commits already on

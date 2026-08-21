@@ -143,8 +143,9 @@ claiming it works.
 ship on the strength of one reviewer's confirmation.
 
 **Steps:**
-1. Task independent skeptics whose job is to **REFUTE**, not confirm (refute-mode framing:
-   `agents/code-review-scorer.md:57-64`).
+1. Task independent skeptics whose job is to **REFUTE**, not confirm (the refute-mode framing
+   lived in `agents/code-review-scorer.md:57-64`, removed 0.44.0 — readable at any pre-0.44.0
+   ref; today dispatch skeptics via `persona_think`).
 2. Ship only the survivors of the panel's quorum rule. Protocol, quorum rule, and the worked
    examples (the 0.32.0 heartbeat design-stage kill, the 88-confirmed/1-refuted deep audit,
    the 0.31.0 second-review save): **sb-research-methodology Rule 3** — that is the single
@@ -390,8 +391,8 @@ Derived from repo evidence only: CHANGELOG.md (`## 0.24.50`,
 `scripts/wiki-forget-candidates.sh`, `scripts/validate-plugin.sh:191-220`,
 `mcp/src/tools/{graph-cluster.ts,graph-cluster-cli.ts,minhash.ts,minhash.test.ts,raw-inbox.ts,raw-inbox.test.ts,wiki-redundancy-cli.ts}`,
 `tests/test-graph-cluster-shim.sh`, `tests/test-symlink-guard.sh`,
-`agents/code-review-scorer.md`, `skills/code-review-deep/SKILL.md`,
-`docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`, git history (patch-id runs
+`agents/code-review-scorer.md` (removed 0.44.0), `skills/code-review-deep/SKILL.md` (removed 0.44.0),
+`docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` (moved to `archive/docs`), git history (patch-id runs
 executed live), plus the 2026-07-02 deep-audit report (internal audit artifact — quoted
 where no repo file carries the fact; durable echoes in CHANGELOG `## 0.33.31` and the lib.sh
 comment). The REFLECT pre-fix/fixed comparison, the guard probe, the P1c probe, and the
@@ -405,7 +406,7 @@ Volatile facts — re-verify before relying on them:
 | MinHash thresholds + defaults | `grep -rn "SB_CAPTURE_DEDUP_THRESHOLD\|SB_FORGET_REDUNDANCY_THRESHOLD\|SB_REDUNDANCY_THRESHOLD" mcp/src scripts \| grep -v test` |
 | determinism pins + label-prop contract | `cd mcp && npx vitest run src/tools/minhash.test.ts src/tools/graph-cluster.test.ts`; `grep -n maxIter mcp/src/tools/graph-cluster.ts` |
 | guard armed on this box | Recipe 2 probe one-liner (expect `deny`) |
-| refuter-panel rule unchanged | `grep -n "Refute mode" agents/code-review-scorer.md && grep -n "refuter panel" skills/code-review-deep/SKILL.md` |
+| refuter-panel rule (retired — its home surfaces were removed 0.44.0) | none live; protocol history at any pre-0.44.0 ref; fresh-context critique now goes through `persona_think` |
 | surface counts == budget | `bash scripts/validate-plugin.sh` (exit 0) |
 | dead-branch example still exists | `git branch --list fix/home-cwd-relative-brain-dir` (deleting it retires the live demo; the transcript remains the record) |
 | P3a PageRank landed (Phases 1-3; expect pagerank.ts et al.) | `ls mcp/src/tools/codemap 2>/dev/null \|\| echo "not landed"` |

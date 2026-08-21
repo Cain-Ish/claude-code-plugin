@@ -18,11 +18,10 @@ npm ci --prefix mcp            # lockfile-exact deps; REQUIRED or bundle gates s
 ```bash
 # 1a. plugin.json: bump "version" (strictly greater than origin/main's; semver-numeric)
 # 1b. marketplace.json: bump the second-brain entry's "version" to the SAME value
-#     (leave the cost-router entry alone — it versions independently)
-# 1c. CHANGELOG.md: insert a new top section:
-#         ## X.Y.Z            <- bare heading, no date, no "v"
-#     thesis paragraph, then bolded evidence bullets. DIFF-CHECK that the previous
-#     "## <prev>" heading survived your insertion (the 0.33.19 heading was lost this way).
+#     (single entry since cost-router was removed in 0.35.x)
+# 1c. Write the release record INTO THE COMMIT BODY (CHANGELOG.md was removed in 0.34.0 —
+#     do not recreate it): "release: X.Y.Z — thesis" subject, evidence-dense bullets,
+#     gates line. Pre-1.0 history: `git show archive/docs:CHANGELOG.md`.
 # 1d. If counts grew: bump .claude-plugin/surface-budget.json + add a "Surface budget: X n->m" bullet.
 # 1e. If a real user action exists: add skills/upgrade/migrations/X.Y.Z.md
 #     (skills/upgrade/SKILL.md must stay <= 8192 bytes).

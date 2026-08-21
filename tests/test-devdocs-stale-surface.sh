@@ -1,0 +1,82 @@
+#!/bin/bash
+# Dev-doc stale-surface lock. `.claude/skills/` is the model's own orientation layer for
+# THIS repo; a claim there that a removed surface still ships sends every future session
+# hunting files that do not exist. Found live 2026-08-21: `skills/code-review-deep` offered
+# as "the repo's review tooling" (removed 0.44.0), a cost-router one-pager presented as
+# installable (absorbed+removed 0.35.x), and verification one-liners grepping files gone
+# from the tree. A removed surface MAY be cited as history — but the line must say so.
+# ORACLE: the live tree (denylisted names are surfaces deleted in 0.34.0–0.44.0), not any
+# doc's claim about it. Source-scan lock: no fixture, no model, no SB_* override applies.
+set -u
+ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
+FAILED=0
+fail(){ echo "FAIL: $1"; FAILED=1; }
+pass(){ echo "PASS: $1"; }
+
+# Guard the guard: if a denylisted surface is ever RESTORED, its mentions stop being
+# historical and this lock is mis-scoped — fail loudly so it gets re-scoped in the same
+# change (drop the name from DENY below).
+for p in cost-router skills/code-review-deep skills/team scripts/team-run.sh \
+         agents/quality-reviewer.md agents/team-worker.md \
+         agents/code-review-scorer.md agents/code-review-unit-reviewer.md \
+         agents/code-review-history-reviewer.md agents/code-review-premise-reviewer.md; do
+  if [ -e "$ROOT/$p" ]; then
+    fail "denylisted surface '$p' exists in the tree again — re-scope this lock"
+  fi
+done
+
+# Surfaces removed from the tree (cost-router 0.35.x; code-review-*/team family 0.44.0).
+#
+# Scan form: `find -exec grep +`, not `grep -r --include`. BSD grep does support --include,
+# but this file would be the repo's only user of it and a BSD claim cannot be verified from
+# the Windows dev box — the find form is unambiguously portable, so the question never arises.
+#
+# KNOWN GAP — deliberately NOT covered yet, do not read a green run as "no stale surfaces left":
+# the 0.34.0 "pre-1.0 diet" (c65671f) also deleted CHANGELOG.md, docs/specs/ and
+# docs/superpowers/, and .claude/skills still references them on 92 lines across 17 files
+# (measured 2026-08-21: CHANGELOG.md 54, docs/superpowers 33, docs/specs 8). Some are live
+# instructions that would send a releaser at a file that does not exist — e.g. the runsheet's
+# `git add -A` list and `grep -n '^## ' CHANGELOG.md` — and some are legitimate history needing
+# only a marker. Adding them to DENY without triaging each line would just invite
+# marker-sprinkling, which hollows out this lock. Tracked as its own pass; add them to DENY and
+# to the restoration guard above in the SAME change that fixes the 92 lines.
+DENY='cost-router|skills/team|code-review-(deep|scorer|unit-reviewer|history-reviewer|premise-reviewer)|quality-reviewer|team-worker|team-run\.sh'
+# A mention is historical (allowed) when one of these sits on the SAME line or an ADJACENT
+# one — prose wraps mid-sentence, so the removal marker legitimately lands one line away.
+MARKER='[Rr]emoved|REMOVED|[Aa]bsorbed|[Hh]istorical|[Dd]eleted|[Dd]ropped|de-vendored|archive/docs|[Rr]etired|[Rr]emoval|[Gg]one|[Mm]ooted'
+# Pure-history references by charter (every line is about the past; per-line markers would
+# be noise) are exempted BY FILE in the loop below. SKILL.md files are operational surface and
+# are NEVER exempt.
+
+viol=""
+while IFS= read -r hit; do
+  [ -n "$hit" ] || continue
+  f=${hit%%:*}
+  rest=${hit#*:}
+  n=${rest%%:*}
+  # Exemptions apply to the FILE, never the matched text: filtering the whole grep line would
+  # drop a real violation that merely happens to name an exempt path on the same line.
+  case "$f" in
+    *chronicle.md|*worked-transcripts.md|*worked-examples.md) continue ;;
+  esac
+  start=$(( n > 1 ? n - 1 : 1))
+  end=$(( n + 1))
+  if ! sed -n "${start},${end}p" "$f" | grep -qE "$MARKER"; then
+    viol="${viol}${hit}
+"
+  fi
+done <<VIOL_EOF
+$(find "$ROOT/.claude/skills" -name '*.md' -type f -exec grep -nE "$DENY" {} + )
+VIOL_EOF
+
+if [ -n "$viol" ]; then
+  printf '%s' "$viol"
+  n=$(printf '%s' "$viol" | grep -c .)
+  fail "$n line(s) in .claude/skills present a removed surface as current — fix the claim or add a removal marker on (or adjacent to) the line"
+else
+  pass "no removed surface presented as current in .claude/skills"
+fi
+
+[ "$FAILED" = 0 ] || exit 1
+echo
+echo "ALL PASS"

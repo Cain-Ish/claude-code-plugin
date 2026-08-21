@@ -168,7 +168,8 @@ record):**
    switch `SB_CODEMAP_ORIENT` — placed BEFORE the forced USER.md/PROJECT.md after live
    verification caught budget starvation) + read-only `code_map`/`code_neighbors` grants for
    `code-review-unit-reviewer` and `quality-reviewer` (deliberately narrower than the auto-team
-   B0 five-agent slice — least privilege).
+   B0 five-agent slice — least privilege; both agents were later removed in 0.44.0, so those
+   grants are gone with them).
 
 Fenced wrong paths (still binding for Phases 4–5): duplicating `knowledge_neighbors` (the wiki
 graph and code graph are separate stores, separate tools — plan §Separation table); storing

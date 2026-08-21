@@ -41,12 +41,13 @@ access — an `ANTHROPIC_API_KEY` or a Claude subscription; `sb auth doctor` wal
 
 ## What runs automatically
 
-Eight hook events wire the autonomous loop (`hooks/hooks.json`):
+Nine hook events wire the autonomous loop (`hooks/hooks.json`):
 
 - **SessionStart** — ensures dirs, discovers installed plugins and tracked doc sources, loads the hot tier into context, banners pending/suggested dreams.
 - **UserPromptSubmit** — injects persona card, catalog, and relevant wiki hits per prompt (no LLM call).
 - **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, a soft plan-first nudge.
-- **PostToolUse** — quality gate on writes, injection-pattern scan of tool returns (telemetry, never blocks), simplicity nudge on large single changes.
+- **PostToolUse** — quality gate on writes, injection-pattern scan of tool returns (telemetry, never blocks), simplicity nudge on large single changes, observation ledger.
+- **PostToolUseFailure** — the observation ledger's failure side. `PostToolUse` fires only on success, so without this event every FAILED tool call — the error→fix pattern the ledger exists to mine — left no record.
 - **Stop** — verify gate, then the LLM extractor files what mattered into hot tier + wiki; SAR safety-summary banner.
 - **SubagentStop** — archives substantive subagent results into the episodic transcript store.
 - **PreCompact** — same extraction before a context compaction, so nothing is lost to the window.

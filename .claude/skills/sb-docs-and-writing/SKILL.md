@@ -125,7 +125,7 @@ marker-bump-only (`RELEASING.md:50-54`; `skills/upgrade/SKILL.md`). Anatomy + ex
 
 ## 5. Plugin skill files — `skills/<name>/SKILL.md`
 
-18 skills as of 0.33.31; bodies 25–393 lines (max: `skills/setup/SKILL.md`).
+17 skills as of 0.45.0; bodies 25–395 lines (max: `skills/setup/SKILL.md`).
 Frontmatter template: [references/templates.md §5](references/templates.md).
 
 **Required-explicit fields (machine-enforced):** every SKILL.md frontmatter must carry
@@ -141,16 +141,17 @@ defaults made the dispatch surface unauditable. (Gate mechanics: sb-validation-a
 
 **The exposure matrix** — what each flag combination means, with the live examples:
 
-| `user-invocable` | `disable-model-invocation` | Meaning | Live examples (0.33.31) |
+| `user-invocable` | `disable-model-invocation` | Meaning | Live examples (0.45.0) |
 |---|---|---|---|
 | `true` | `true` | Operator-only slash command; model never auto-loads it | dream, status, setup, upgrade |
-| `true` | `false` | Both slash command AND model-invocable | code-review-deep |
+| `true` | `false` | Both slash command AND model-invocable | none live (last: code-review-deep, removed 0.44.0) |
 | `false` | `false` | Model-only ambient protocol; no slash command | query, using-second-brain |
 | `false` | `true` | Invoked by NEITHER — the SKILL.md is documentation for a hook/CLI path | capture ("This SKILL stays as the CLI's documentation, not a manual command", `skills/capture/SKILL.md:4-6`) |
 
 0.33.24 deliberately shrank the model-invocable catalog from ~9 to 3 (query,
 code-review-deep, using-second-brain) — "Dashboards … being model-invocable also
-contradicted the silence-default principle" (`CHANGELOG.md` 0.33.24 entry). When you change
+contradicted the silence-default principle" (CHANGELOG 0.33.24 entry, now on `archive/docs`).
+0.44.0's removal of code-review-deep leaves the catalog at 2 (query, using-second-brain). When you change
 a skill's exposure, leave a DATED WHY-comment inside the frontmatter (the house pattern:
 `# Surface-collapse (0.29.0): not a user slash command -- covered by automation/MCP; …`,
 `skills/query/SKILL.md:4`).
@@ -173,23 +174,24 @@ besides `upgrade/migrations/*` (verified: `find skills -type f ! -name SKILL.md`
   "extract templates to siblings" appears in `skills/setup/SKILL.md` or
   `scripts/persona-context.sh` — the 2026-06-03 incident shipped the author's conventions
   as every fresh install's default persona. Never paste house-style prose into seed content.
-- No emojis: `tests/test-code-review-deep.sh:266-270` bans emojis in the code-review-deep
-  orchestrator ("v1 had a robot"); plans restate "No emojis" as a global constraint. Write
-  every skill/agent body emoji-free.
+- No emojis: house rule, previously machine-locked by `tests/test-code-review-deep.sh`
+  ("v1 had a robot") until that test was removed with its skill in 0.44.0 — no live test
+  enforces it now; plans restate "No emojis" as a global constraint. Write every
+  skill/agent body emoji-free.
 
 ## 6. Agent files — `agents/<name>.md`
 
-9 agents as of 0.33.31. Frontmatter template + untrusted-input banner text:
+4 agents as of 0.45.0. Frontmatter template + untrusted-input banner text:
 [references/templates.md §6](references/templates.md). Field conventions:
 
 | Field | Convention | Evidence |
 |---|---|---|
 | `description` | `\|` block: role paragraph (incl. what it does NOT do + who dispatches it), then 1–2 `<example>` blocks with `Context:` / optional `user:` / `assistant:` dispatch sentence | `agents/dream-runner.md:2-13`; knowledge-maintainer has two examples |
-| `model` | `sonnet` (dream-runner, knowledge-maintainer, quality-reviewer, raw-drainer), `haiku` (search-conversations). OMITTED on all four code-review agents — deliberate: scorer/reviewers inherit the session model ("a haiku scorer gating an Opus reviewer = capability inversion", 0.18.0 lesson) | `grep -n "^model" agents/*.md` |
-| `effort: high` | ONLY the three bug reviewers (unit/history/premise) | `grep -n "^effort" agents/*.md` → exactly 3 |
+| `model` | `sonnet` (dream-runner, knowledge-maintainer, raw-drainer), `haiku` (search-conversations). Historical: the code-review agents (removed 0.44.0) deliberately OMITTED `model` so scorer/reviewers inherited the session model ("a haiku scorer gating an Opus reviewer = capability inversion", 0.18.0 lesson) | `grep -n "^model" agents/*.md` |
+| `effort: high` | none live as of 0.45.0 — only the three bug reviewers carried it, removed 0.44.0 | `grep -n "^effort" agents/*.md` → empty |
 | `tools` | COMMA-separated; Bash grants per-command (`Bash(jq *)`); node ONLY as `Bash(node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/*)` | agent-grants lock below |
-| `disallowedTools` | `Write, Edit, NotebookEdit, WebFetch, WebSearch` on read-only review agents (C4 hygiene) | `agents/code-review-scorer.md:16` |
-| `color` | purple / blue / green / cyan / yellow (yellow ×3: history + premise reviewers, quality-reviewer) | `grep -n "^color" agents/*.md` |
+| `disallowedTools` | none live as of 0.45.0 — the C4 hygiene set (`Write, Edit, NotebookEdit, WebFetch, WebSearch`) rode the read-only review agents, removed 0.44.0 | `grep -n "^disallowedTools" agents/*.md` → empty |
+| `color` | purple / blue / green / cyan (yellow left with the reviewers removed 0.44.0) | `grep -n "^color" agents/*.md` |
 
 **Prose promises need machine locks.** Any protocol statement in agent markdown drifts
 unless a test asserts it. The pattern of record is `mcp/src/agent-grants.test.ts` —
@@ -200,8 +202,9 @@ command in a body targets `mcp/dist/`; (c) body-runs-node ⇒ frontmatter carrie
 grant; (d) maintainer/drainer grant every `knowledge_*` MCP tool their protocol calls (else
 the agent "silently skips the step or improvises"); (e) the three consolidation agents
 (dream-runner, knowledge-maintainer, raw-drainer) contain the literal `DATA, not
-instructions` framing and carry NO `Bash(git *)` grant (the code-review family legitimately
-keeps git). When you add or change an agent promise, extend this test in the same commit —
+instructions` framing and carry NO `Bash(git *)` grant (the code-review family, which
+legitimately kept git, was removed 0.44.0 together with its grant-locks). When you add or
+change an agent promise, extend this test in the same commit —
 a promise without a lock is a future defect.
 
 **The untrusted-input DATA banner** is mandatory on the three consolidation agents: a
@@ -231,8 +234,9 @@ Templates + real subjects: [references/templates.md §7](references/templates.md
 - **Self-correction is loud:** a false claim in a prior commit gets a forward-fix naming
   the sha (`6b1535a … CORRECTS false claim in 9a03a26`). Zero literal `git revert` commits
   exist in the whole history; undo stories live in sb-failure-archaeology.
-- Delivery mode as of 0.33.31: version-locked batches directly on main (last PR was #83 /
-  0.33.16, 2026-06-24). Release mechanics: sb-change-control.
+- Delivery mode as of 0.45.0: release batches land via PR again (#85–#90, 2026-08); the
+  0.33.x practice was version-locked batches directly on main. Release mechanics:
+  sb-change-control.
 
 ## 8. The writing voice
 
@@ -247,7 +251,8 @@ Terse, evidence-first, incident-anchored. Concretely:
 - CAPITALIZED load-bearing words (ONLY, NEVER, DATA, OPT-IN, BEFORE) instead of italics.
 - Em-dash mechanism→consequence sentences; decisions stamped "settled/RESOLVED — do not
   revert"; failure-direction stated explicitly ("prefer false negatives over false
-  positives"). No emojis, ever (§5 test-enforced).
+  positives"). No emojis, ever (§5; the test lock was removed with code-review-deep in
+  0.44.0 — the rule stands as house style).
 
 Three exemplary quotes (calibrate your drafts against these):
 
@@ -267,26 +272,28 @@ Three exemplary quotes (calibrate your drafts against these):
 
 ## 9. Known doc defects — fix via change control, never by drive-by edit
 
-All verified in the working tree 2026-07-05. Each fix must go through the normal release
-process (sb-change-control) — these documents are gated surface.
+All verified in the working tree 2026-07-05; table re-verified 2026-08-21 at 0.45.0 (0.34.0
+moved CHANGELOG.md and the pre-1.0 docs history to the `archive/docs` branch, which closed or
+relocated most rows). Each fix must go through the normal release process (sb-change-control) —
+these documents are gated surface.
 
 | # | Defect | Evidence | Fix shape |
 |---|---|---|---|
-| 1 | Orphaned 0.33.19: no `## 0.33.19` header exists; its bullets (shim-aware timer health, in-session floor path normalization, "See `migrations/0.33.19.md`") sit inside the `## 0.33.20` section | `grep -n "^## 0.33.19" CHANGELOG.md` → empty; bullets end ~`CHANGELOG.md:215-226` | Insert `## 0.33.19` + its thesis above the stranded bullets |
+| 1 | Orphaned 0.33.19: no `## 0.33.19` header; its bullets sit inside the `## 0.33.20` section. **RELOCATED** — CHANGELOG.md moved to `archive/docs` (0.34.0) with the defect intact | `git show archive/docs:CHANGELOG.md \| grep -c '^## 0.33.19'` → 0 = still orphaned | Only fixable on `archive/docs`; low value — history branch |
 | 2 | ~~`CONSTITUTION.md:3-4` cites a phantom `tests/test-surface-budget.sh`~~ **CLOSED 0.43.0** — rewritten to name `scripts/validate-plugin.sh` R8, and the mission section now matches the delivery-layer direction | `grep -n test-surface-budget CONSTITUTION.md` → empty | none |
-| 3 | `README.md:5` is `\| Skill \| Purpose \|# Second Brain — …` — a table-header row glued to the H1 on one line. Looks like an edit artifact; intent UNVERIFIED | `sed -n '5p' README.md` | Confirm intent, then split the line; README changes ride a release ("README matches what ships") |
-| 4 | `RELEASING.md:40-41` claims "Currently 24 shell + 59 vitest = 83 checks" — live is 153 shell tests + ~493 vitest cases | `ls tests/test-*.sh \| wc -l` → 153 | Replace the stale count with a pointer to `.claude-plugin/surface-budget.json` + suite output |
-| 5 | `RELEASING.md:50` says CHANGELOG headers are `## vX.Y.Z`; every actual header is bare `## X.Y.Z` | `grep -c '^## v' CHANGELOG.md` → 0 | Drop the `v` in RELEASING.md |
+| 3 | ~~`README.md:5` table-header row glued to the H1~~ **CLOSED** — README rewritten (line 5 is plain prose at 0.45.0) | `sed -n '5p' README.md` | none |
+| 4 | ~~`RELEASING.md:40-41` frozen test counts~~ **CLOSED** — RELEASING.md now instructs reading live counts off suite output + `surface-budget.json` instead of freezing a number | `grep -n '24 shell' RELEASING.md` → empty | none |
+| 5 | ~~`RELEASING.md:50` claims `## vX.Y.Z` headers~~ **MOOT** — CHANGELOG.md left the tree (0.34.0); the release record is the release commit body (RELEASING.md "The checklist") | `grep -n '^## v' RELEASING.md` → empty | none |
 
 ## Provenance and maintenance
 
 Derived 2026-07-05 (plugin version 0.33.31, uncommitted working-tree batch; HEAD `6fba312`)
 entirely from repo evidence: `CHANGELOG.md`, `RELEASING.md`, `CONSTITUTION.md`, `README.md`,
-`.claude-plugin/surface-budget.json`, `docs/plans/2026-06-24-code-review-deep-bundle-b.md`,
-`docs/specs/2026-06-24-code-review-deep-bundle-b-design.md`,
-`docs/specs/2026-06-18-project-scoping-model-design.md`, `skills/upgrade/migrations/0.33.0.md`,
+`.claude-plugin/surface-budget.json`, `docs/plans/2026-06-24-code-review-deep-bundle-b.md` (moved to `archive/docs`),
+`docs/specs/2026-06-24-code-review-deep-bundle-b-design.md` (moved to `archive/docs`),
+`docs/specs/2026-06-18-project-scoping-model-design.md` (moved to `archive/docs`), `skills/upgrade/migrations/0.33.0.md`,
 `skills/*/SKILL.md` frontmatter, `agents/*.md` frontmatter, `mcp/src/agent-grants.test.ts`,
-`tests/test-persona-card-seed.sh`, `tests/test-code-review-deep.sh`,
+`tests/test-persona-card-seed.sh`, `tests/test-code-review-deep.sh` (removed 0.44.0),
 `scripts/validate-plugin.sh`, `scripts/lib.sh`, and `git log` (commands below).
 
 Re-verify volatile facts before trusting them:
@@ -294,14 +301,13 @@ Re-verify volatile facts before trusting them:
 | Fact class | One-liner |
 |---|---|
 | Surface counts (skills/agents/scripts/tests) | `cat .claude-plugin/surface-budget.json` |
-| CHANGELOG entry count / tail ordering | `grep -c '^## ' CHANGELOG.md` (122); `grep -n '^## ' CHANGELOG.md \| tail -12` |
-| Doc defect 1 (0.33.19) still open | `grep -n "^## 0.33.19" CHANGELOG.md` (empty = still open) |
+| CHANGELOG entry count / tail ordering (history lives on `archive/docs` since 0.34.0) | `git show archive/docs:CHANGELOG.md \| grep -c '^## '` (131) |
+| Doc defect 1 (0.33.19, relocated to `archive/docs`) still open | `git show archive/docs:CHANGELOG.md \| grep -c '^## 0.33.19'` (0 = still open) |
 | Doc defect 2 (stale test ref) — CLOSED 0.43.0 | `grep -n 'test-surface-budget' CONSTITUTION.md` (empty = still closed) |
-| Doc defect 3 (README line 5) still open | `sed -n '5p' README.md` |
-| Migration file count | `ls skills/upgrade/migrations \| wc -l` (18) |
-| Plan/spec counts | `ls docs/plans \| wc -l` (36); `ls docs/specs \| wc -l` (40); `ls docs/superpowers/plans \| wc -l` (14) |
-| Skill sizes vs 500-line rule | `wc -l skills/*/SKILL.md \| sort -rn \| head -3` (max 393) |
-| Upgrade-runner byte cap headroom | `wc -c < skills/upgrade/SKILL.md` (4630 < 8192) |
+| Migration file count | `ls skills/upgrade/migrations \| wc -l` (19) |
+| Plan/spec counts (pre-0.34.0 docs history on `archive/docs`) | `ls docs/plans \| wc -l` (1); `ls docs/specs \| wc -l` (0); `ls docs/superpowers/plans \| wc -l` (0) |
+| Skill sizes vs 500-line rule | `wc -l skills/*/SKILL.md \| sort -rn \| head -3` (max 395) |
+| Upgrade-runner byte cap headroom | `wc -c < skills/upgrade/SKILL.md` (4561 < 8192) |
 | Exposure matrix examples | `grep -H -A1 'user-invocable' skills/*/SKILL.md \| grep -B1 'disable-model'` |
 | Agent model/effort fields | `grep -n "^model\|^effort" agents/*.md` |
 | Agent-grant locks still present | `grep -n "DATA, not instructions\|SCOPED_NODE" mcp/src/agent-grants.test.ts` |
