@@ -12,10 +12,14 @@
 # refreshes the cache, so the plugins tree stays newer than the cache file and the
 # NEXT session re-enters the slow path and is killed again: a permanent starvation
 # loop, tripped by any `/plugin update`, surfacing no error anywhere.
-# This version spawns a FIXED number of processes per PLUGIN (2 jq + 2 find + 2 awk)
-# instead of per file, via one `find -exec awk … {} +` batch per kind. Keep it that
-# way — tests/test-discover-installed.sh test 6 fails the build if 400 files no
-# longer fit inside the timeout hooks.json declares.
+# This version spawns a BOUNDED number of processes per PLUGIN — not per file — via
+# one `find -exec awk … {} +` batch per kind. The exact count is deliberately not
+# written down here: an earlier draft said "2 jq + 2 find + 2 awk" and was already
+# wrong (it omitted the `tr` sanitizer and the dirname/basename pair), and a hard
+# number in a comment drifts silently the moment the loop changes (PR #91 review).
+# What matters is the ORDER: per-plugin, never per-file. The machine-checked version
+# of this claim is tests/test-discover-installed.sh test 6, which fails the build if
+# 400 files no longer fit inside the timeout hooks.json declares.
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
@@ -50,8 +54,11 @@ trap 'rm -f "$TMP_PLUGINS" "$TMP_AGENTS_RAW" "$TMP_SKILLS_RAW" "$TMP_AGENTS" "$T
 
 # Frontmatter reader, batched over MANY .md files in one awk process.
 # Emits one US(\037)-separated record per file: name \037 description \037 plugin.
-# Records with an empty name are dropped downstream by jq (matching the previous
-# `[ -z "$aname" ] && continue`).
+# Records with an empty name are dropped in emit() below (`if (nm != "")`), matching
+# the previous `[ -z "$aname" ] && continue`. The jq stage re-checks the same
+# condition — belt and braces, since jq is what turns a line into a catalog record and
+# should not depend on an upstream guarantee it cannot see (PR #91 review: the earlier
+# wording credited jq alone and obscured where the filtering actually happens).
 #   - The fence regex keeps `[ \t\r]*` because a CRLF-authored .md fence is `---\r`;
 #     a strict /^---$/ would never toggle and the whole block would be invisible.
 #   - Only the FIRST frontmatter block is read (fence==1), so a `---` rule inside
@@ -141,11 +148,20 @@ us2json() {
 # have, rather than swallow. Only fires when raw input existed but conversion
 # produced nothing, so an install base with genuinely zero agents stays quiet.
 convert_or_log() {
-  local raw="$1" out="$2" kind="$3"
-  us2json < "$raw" > "$out" 2>/dev/null
-  if [ -s "$raw" ] && [ ! -s "$out" ]; then
-    printf '{"timestamp":"%s","script":"discover-installed.sh","message":"catalog %s conversion produced 0 records from %s bytes of input — catalog is truncated","exit_code":1}\n' \
-      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$kind" "$(wc -c < "$raw" | tr -d ' ')" \
+  local raw="$1" out="$2" kind="$3" rc=0
+  us2json < "$raw" > "$out" 2>/dev/null || rc=$?
+  # Gate on the EXIT CODE first, not just on an empty result. Checking only
+  # `-s "$out"` misses the partial-truncation case this breadcrumb exists for: jq
+  # emitting some records and then failing still leaves a non-empty file, so the
+  # "fail loud" path stayed silent on the very failure mode it was added to catch
+  # (PR #91 review). Record counts go in the message so a partial loss is
+  # diagnosable from the log alone.
+  local rawn outn
+  rawn=$(grep -c . "$raw" 2>/dev/null | tr -d ' '); rawn=${rawn:-0}
+  outn=$(grep -c . "$out" 2>/dev/null | tr -d ' '); outn=${outn:-0}
+  if [ "$rc" -ne 0 ] || { [ -s "$raw" ] && [ ! -s "$out" ]; }; then
+    printf '{"timestamp":"%s","script":"discover-installed.sh","message":"catalog %s conversion failed (jq rc=%s): %s input record(s) -> %s output record(s) — catalog is truncated","exit_code":1}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$kind" "$rc" "$rawn" "$outn" \
       >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
   fi
 }
