@@ -3,8 +3,8 @@ name: sb-run-and-operate
 description: >
   Operator runbook for the second-brain Claude Code plugin: install, first-run setup, auth
   modes, the out-of-band drainer scheduler, upgrades, data geography, dream operations, and
-  the user-facing skill/agent surface. Load this when installing the plugin or cost-router
-  subplugin, running /second-brain:setup or /second-brain:upgrade, deciding or diagnosing
+  the user-facing skill/agent surface. Load this when installing the plugin,
+  running /second-brain:setup or /second-brain:upgrade, deciding or diagnosing
   auth mode (ANTHROPIC_API_KEY vs OAuth/subscription, "extraction queued" banners,
   sb auth doctor), installing/uninstalling the drainer timer (systemd/launchd/schtasks,
   install-extract-timer.sh), answering "where does this file live / is it safe to delete"
@@ -20,7 +20,8 @@ description: >
 
 Everything here is verified against the working tree at plugin version **0.33.37 (2026-07-13;
 counts, versions, and surface tables re-verified — deeper cites last fully verified at
-0.33.31)**. Commands are bash, run from the repo root unless they use `$CLAUDE_PLUGIN_ROOT`
+0.33.31)**. Surface counts, the tool count, the hook-event list, and the removal notes were
+re-verified 2026-08-21 at 0.45.0. Commands are bash, run from the repo root unless they use `$CLAUDE_PLUGIN_ROOT`
 (the installed plugin's cache dir; inside this repo, the repo root works for both).
 Platform-specific commands are flagged.
 
@@ -45,20 +46,20 @@ Inside Claude Code (`README.md:33-37`):
 /plugin install second-brain@second-brain
 ```
 
-The marketplace (`.claude-plugin/marketplace.json`) carries two plugins: `second-brain` (source
-`./`, v0.33.37) and `cost-router` (source `./cost-router`, v0.2.2 — §9). Installing second-brain
+The marketplace (`.claude-plugin/marketplace.json`) carries one plugin: `second-brain` (source
+`./`; the `cost-router` subplugin was absorbed and removed in 0.35.x — §9). Installing second-brain
 wires, via `.claude-plugin/plugin.json`:
 
 - **One MCP server** — `mcpServers: "./.claude-plugin/mcp.json"` → stdio server `knowledge-base`
   = `node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js`, `alwaysLoad: true`. 23 tools as of
-  0.33.37 (`grep -c 'registerTool(' mcp/src/server.ts` — `code_map`/`code_neighbors` landed
+  0.45.0 (`grep -c '^registerJsonTool(' mcp/src/server.ts` — `code_map`/`code_neighbors` landed
   0.33.33). The bundles under `mcp/dist/` are
   **committed**, so a marketplace install needs no build step (`README.md:204`).
-- **Hooks** — declared in `hooks/hooks.json` (not plugin.json), across 8 events: SessionStart
+- **Hooks** — declared in `hooks/hooks.json` (not plugin.json), across 9 events: SessionStart
   (dir scaffold + discovery + hot-tier load + dream banner), UserPromptSubmit (persona context),
-  Stop (verify gate, extraction, SAR banner, cost-router capture), SubagentStop (result capture),
-  PreCompact (extraction), PreToolUse (safety guards), ConfigChange (audit), PostToolUse
-  (quality/injection/simplicity scans). Full matrix, matchers, and kill switches:
+  Stop (verify gate, extraction, SAR banner), SubagentStop (result capture),
+  PreCompact (extraction), PreToolUse (safety guards), ConfigChange (audit), PostToolUseFailure
+  (tool-failure observation), PostToolUse (quality/injection/simplicity scans). Full matrix, matchers, and kill switches:
   sb-config-and-flags. Design rationale and invariants: sb-architecture-contract.
 - **One userConfig option** — `knowledge_dir` (type directory, default `~/knowledge`).
 
@@ -268,7 +269,7 @@ Live state check: `ls ~/.second-brain/dreams/ && cat ~/.second-brain/dreams/drm_
 
 ## 8. The user-facing surface
 
-As of 0.33.37: **18 skills** (`ls -d skills/*/ | wc -l`) and **9 agents** (`ls agents/*.md`).
+As of 0.45.0: **17 skills** (`ls -d skills/*/ | wc -l`) and **4 agents** (`ls agents/*.md`).
 Invocation column from each SKILL.md frontmatter: `/` = user slash command
 (`user-invocable: true`), `M` = model may auto-invoke (`disable-model-invocation: false`),
 `docs` = neither (retained as documentation after the 0.27.0/0.29.0 surface collapses).
@@ -305,18 +306,14 @@ Invocation column from each SKILL.md frontmatter: `/` = user slash command
 > of CONSTITUTION.md's four content classes. The fresh-context critic role moved to
 > `persona_think` (`skills/doubt` step 4, `stop-verify-gate.sh` critic offer).
 
-## 9. cost-router subplugin (one-pager)
+## 9. cost-router subplugin — REMOVED (0.35.x)
 
-Separately installable from the same marketplace (v0.2.2, as of 0.33.37). Entire job: model-tier
-routing — Opus plans, Sonnet implements, Haiku does mechanical work. Enable = install
-(`/plugin install cost-router@second-brain` + one-time `/cost-router:setup`); disable =
-uninstall. Surface: 2 skills (`setup`, `orchestrate`), 1 command (`model-route`, advisory
-classifier), 3 model-pinned agents (`cr-planner`, `cr-implementer`, `cr-scout`), 2 hooks — a
-SessionStart status banner (suppress `COST_ROUTER_BANNER=off`) and a per-prompt keyword
-classifier, no LLM call (suppress `COST_ROUTER_AUTOROUTE=off`). Integration: second-brain's Stop
-hook `cost-router-capture.sh` aggregates routing events into a `cost-routing-patterns` wiki page;
-it is a pure no-op when cost-router is absent. Its README's Sonnet/Haiku-vs-Opus pricing ratios
-are plugin documentation, not verified against current Anthropic price sheets.
+Absorbed into second-brain and removed entirely: the marketplace entry, the `cost-router/`
+source tree, its `cr-*` agents and skills, all `COST_ROUTER_*` flags, and second-brain's
+`cost-router-capture.sh` Stop hook are gone. Tier routing lives in `model-ladder.json`
+(consumed by stop-extract / pre-compact / maintain-llm-drain / extraction-quality-gate /
+lib.sh). If a cached install still shows cost-router, uninstall it. History: wiki
+`entities/cost-router` + the `archive/docs` branch.
 
 ## When NOT this skill
 
@@ -335,19 +332,19 @@ Derived from repo evidence only: `.claude-plugin/{plugin,marketplace,mcp}.json`,
 `hooks/hooks.json`, `skills/setup/SKILL.md`, `skills/upgrade/SKILL.md` + `migrations/`,
 `skills/dream/SKILL.md`, `scripts/{install-extract-timer,extract-drain,ensure-dirs,dream-accept,
 wiki-restore,session-load,lib}.sh`, `bin/{sb,install-vector-deps.sh}`, `mcp/src/cli/sb.ts`,
-`mcp/src/server.ts`, `cost-router/`. Authored 2026-07-05 against the 0.33.31 working tree
+`mcp/src/server.ts`, `cost-router/` (since removed). Authored 2026-07-05 against the 0.33.31 working tree
 (HEAD 6fba312 + uncommitted release batch); counts/versions re-verified 2026-07-13 at 0.33.37.
 
 Volatile facts — re-verify before trusting counts/versions:
 
 ```bash
-jq -r .version .claude-plugin/plugin.json                      # plugin version (was 0.33.37)
-jq -r '.plugins[].version' .claude-plugin/marketplace.json     # second-brain + cost-router versions
-ls -d skills/*/ | wc -l                                        # skill count (was 18)
-ls agents/*.md | wc -l                                         # agent count (was 9)
-ls skills/upgrade/migrations/                                  # migration files (was 18)
-grep -c 'registerTool(' mcp/src/server.ts                      # MCP tool count (was 23)
-jq -r '.hooks | keys[]' hooks/hooks.json                       # hook events (was 8)
+jq -r .version .claude-plugin/plugin.json                      # plugin version (was 0.45.0)
+jq -r '.plugins[].version' .claude-plugin/marketplace.json     # second-brain version (single entry since cost-router's removal)
+ls -d skills/*/ | wc -l                                        # skill count (was 17)
+ls agents/*.md | wc -l                                         # agent count (was 4)
+ls skills/upgrade/migrations/                                  # migration files (was 19)
+grep -c '^registerJsonTool(' mcp/src/server.ts                 # MCP tool count (was 23)
+jq -r '.hooks | keys[]' hooks/hooks.json                       # hook events (was 9)
 head -6 skills/*/SKILL.md | grep -E 'name:|invocable|invocation'  # skill invocation flags
 sed -n '30,41p' scripts/ensure-dirs.sh                         # config.json defaults
 grep -n 'MINUTE\|StartInterval' scripts/install-extract-timer.sh; grep -n OnUnitActiveSec systemd/sb-extract-drain.timer   # 30-min cadence

@@ -57,7 +57,8 @@ Style checklist per bullet (all observable in entries 0.33.24-0.33.31):
 
 ## 2. Implementation plan — `docs/plans/YYYY-MM-DD-<slug>.md`
 
-Exemplar: `docs/plans/2026-06-24-code-review-deep-bundle-b.md` (header + Task 1 read in full).
+Exemplar: `git show archive/docs:docs/plans/2026-06-24-code-review-deep-bundle-b.md` (header +
+Task 1 read in full; pre-0.34.0 docs history lives on the `archive/docs` branch).
 Constitution-era plans live in `docs/superpowers/plans/` (same naming; add the
 `## Constitution compliance` section — see `2026-06-30-p2-learning-to-guardrail.md`).
 
@@ -71,7 +72,8 @@ Constitution-era plans live in `docs/superpowers/plans/` (same naming; add the
 **Goal:** <one sentence: the deliverable and why>
 
 **Architecture:** <one paragraph — where the logic lives, ownership boundaries, what stays
-pure/testable; e.g. "cost-router RECOGNIZES + POINTS at the skill; it NEVER tiers">
+pure/testable; historical exemplar (cost-router, removed 0.35.x): "cost-router RECOGNIZES +
+POINTS at the skill; it NEVER tiers">
 
 **Tech Stack:** <exact tools; the house line is: "Bash 3.2-safe shell (hooks/tests), `jq`,
 Markdown prompt files (SKILL.md + agent `.md`), GNU/BSD-portable. Tests: `tests/test-*.sh`
@@ -128,14 +130,14 @@ Two verified skeletons; pick by shape. Both share the constants: date + status m
 top, findings cite exact `file.ts:line`, decisions stamped RESOLVED/APPROVED with dates,
 explicit Non-goals, and a handoff section for the plan.
 
-### Skeleton A — feature/bundle design (`docs/specs/2026-06-24-code-review-deep-bundle-b-design.md`)
+### Skeleton A — feature/bundle design (`git show archive/docs:docs/specs/2026-06-24-code-review-deep-bundle-b-design.md`)
 
 ```markdown
 # <Title> — design
 
 - **Date:** YYYY-MM-DD
 - **Status:** approved (brainstorm), pending implementation plan
-- **Plugins touched:** <second-brain | cost-router | both>
+- **Plugins touched:** <second-brain (single plugin since cost-router was removed 0.35.x)>
 - **Supersedes nothing.** Extends: <prior design docs>. Honors <policy pages> ("do not revert").
 
 ## 1. Motivation

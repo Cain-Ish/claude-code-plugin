@@ -257,9 +257,9 @@ restated here). What THIS skill owns is script → switch:
   inside the Stop-hook extraction chain (`lib.sh:165`, `lib.sh:1679`, `stop-extract.sh:221`),
   not hook-wired itself. Setting `SB_QUALITY_GATE=off` to kill the post-write nudge does
   nothing to it and silently disables the extraction filter instead.
-- `cost-router-capture.sh` (Stop) has no switch but self-no-ops when cost-router is absent;
-  `session-load.sh` (SessionStart) has no master switch — only the per-banner switches
-  (catalog §3).
+- `session-load.sh` (SessionStart) has no master switch — only the per-banner switches
+  (catalog §3). (`cost-router-capture.sh` and its Stop wiring were removed with cost-router
+  in 0.35.x.)
 
 ## 8. Status markers — experimental, advisory, deprecated, debug
 
@@ -318,16 +318,16 @@ add a `skills/upgrade/migrations/<version>.md` ONLY if the release needs a real 
 
 ```bash
 # master census: every SB_* name + frequency (catches helper-mediated TS reads too)
-grep -rhoE 'SB_[A-Z0-9_]+' scripts tests mcp/src hooks skills agents bin cost-router 2>/dev/null | sort | uniq -c | sort -rn
+grep -rhoE 'SB_[A-Z0-9_]+' scripts tests mcp/src hooks skills agents bin 2>/dev/null | sort | uniq -c | sort -rn
 # shell defaults with file:line (the flag-catalog's shell ground truth)
-grep -rnoE '\$\{SB_[A-Z0-9_]+:-[^}]*\}' scripts hooks bin cost-router 2>/dev/null | sort -u
+grep -rnoE '\$\{SB_[A-Z0-9_]+:-[^}]*\}' scripts hooks bin 2>/dev/null | sort -u
 # TS env reads — NOTE: misses clampEnvInt/envFloat-mediated flags; grep the bare name for those
 grep -rnoE 'process\.env\.SB_[A-Z0-9_]+' mcp/src --include='*.ts' | grep -v '\.test\.ts' | sort -u
 grep -rn "clampEnvInt('SB_\|envFloat('SB_" mcp/src --include='*.ts'
 # config.json keys consumed in live code
 grep -rn 'sb_config_get\|sb_config_bool' scripts bin 2>/dev/null | grep -v 'lib.sh:17'
 # coverage set-diffs (src-only = untested; tests-only = test infrastructure)
-grep -rhoE 'SB_[A-Z0-9_]+' tests | sort -u > /tmp/t; grep -rhoE 'SB_[A-Z0-9_]+' scripts mcp/src hooks skills agents bin cost-router | sort -u > /tmp/s
+grep -rhoE 'SB_[A-Z0-9_]+' tests | sort -u > /tmp/t; grep -rhoE 'SB_[A-Z0-9_]+' scripts mcp/src hooks skills agents bin | sort -u > /tmp/s
 comm -23 /tmp/s /tmp/t   # in src, not in bash tests
 comm -13 /tmp/s /tmp/t   # test-only vars
 grep -rhoE 'SB_[A-Z0-9_]+' mcp/src --include='*.test.ts' | sort -u   # vitest-covered

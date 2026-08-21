@@ -73,17 +73,17 @@ an assigned opponent. The in-repo machinery:
 
 | Mechanism | Protocol | Evidence |
 |---|---|---|
-| Refuter panel (code-review-deep, Pass 3) | Every critical/high finding is scored by 1 normal scorer + 2 dispatched in REFUTE MODE; final score = median of 3 (== confirmed iff ≥2 of 3 score ≥70). Refuters inherit the session/best model — "a refuter must out-reason the finder; do NOT pin them to a cheaper model." | `skills/code-review-deep/SKILL.md:152-162` |
+| Refuter panel (code-review-deep Pass 3 — skill removed 0.44.0; the protocol remains the house pattern, dispatched via `persona_think` today) | Every critical/high finding is scored by 1 normal scorer + 2 dispatched in REFUTE MODE; final score = median of 3 (== confirmed iff ≥2 of 3 score ≥70). Refuters inherit the session/best model — "a refuter must out-reason the finder; do NOT pin them to a cheaper model." | pre-0.44.0 `skills/code-review-deep/SKILL.md:152-162` |
 | `/second-brain:doubt` | Starts from "this probably does NOT work"; branches 2-3 attack vectors per claim; anti-self-deception rule: a vector may be labeled `impossible` only with a defending file:line citation; a critic subagent audits the full branch log for over-pruning. | `skills/doubt/SKILL.md:123-136,154-165` |
 | Deep audits | The 2026-07-02 deep audit ran 11 area agents with a verification pass; ledger records 88 confirmed AND 1 refuted finding — refutation is a recorded outcome, not a discard. | audit ledger structure per sb-failure-archaeology §disposition |
-| Review-as-pipeline-step | `fix(review): apply deep-review findings` is a named commit stage (18 such commits); features have been killed at this stage pre-ship — 0.32.0's designed "machine heartbeat" was REFUTED during adversarial verification and dropped for a simpler clamp. | `git log --oneline --grep='fix(review)'`; CHANGELOG.md `## 0.32.0` |
+| Review-as-pipeline-step | `fix(review): apply deep-review findings` is a named commit stage (18 such commits); features have been killed at this stage pre-ship — 0.32.0's designed "machine heartbeat" was REFUTED during adversarial verification and dropped for a simpler clamp. | `git log --oneline --grep='fix(review)'`; `git show archive/docs:CHANGELOG.md` `## 0.32.0` |
 
 The stakes are documented: in 0.31.0 the first review *missed* a regression (the un-starve
 escape would have poison-pilled good transcripts — the exact failure commit `ee8a74c`'s
 defer existed to prevent); a second, FP-aware multi-agent review caught it before ship.
 One review is not the bar; an *assigned refuter* is. Default posture on uncertainty is
-refute/hold: code-review-deep's 16-69 band is surfaced as explicitly unconfirmed, never
-promoted (`skills/code-review-deep/SKILL.md:163-170`). (UNVERIFIED — a default-refute
+refute/hold: the (0.44.0-removed) code-review-deep's 16-69 band was surfaced as explicitly
+unconfirmed, never promoted (pre-0.44.0 `skills/code-review-deep/SKILL.md:163-170`; skill since removed). (UNVERIFIED — a default-refute
 filter reportedly cut the 0.33.31 candidate list from 19 to 13 findings before the batch;
 no repo artifact records those counts. Check: `episodic_search "deep audit refute 0.33.31"`.)
 
@@ -214,9 +214,10 @@ House discipline (project direction — practiced, not written in any single rep
   skill should prioritize untested layers more aggressively"
   (`skills/doubt/SKILL.md:215-228`, with per-run calibration counters).
 - **Never leave an idea in limbo.** The one recorded violation is instructive: R5.2's
-  cost-router "dogfood 2 weeks → dated keep-or-kill decision" was never recorded anywhere in
-  the repo (`git log --all -i --grep="keep-or-kill"` → empty) — the decision debt is still
-  open. Undecided ≠ undocumented: stamp a date on the decision you are deferring.
+  cost-router's (removed 0.35.x) "dogfood 2 weeks → dated keep-or-kill decision" was never recorded anywhere in
+  the repo (`git log --all -i --grep="keep-or-kill"` → empty); the debt was finally mooted by
+  removal — cost-router was absorbed and removed in 0.35.x without the decision ever being
+  stamped. Undecided ≠ undocumented: stamp a date on the decision you are deferring.
 
 A documented retirement is a *result*. The undo table (sb-failure-archaeology) is the
 highest-leverage research artifact this repo has: it is what makes Stage 1 cheap.
@@ -235,10 +236,12 @@ highest-leverage research artifact this repo has: it is what makes Stage 1 cheap
 
 ## Provenance and maintenance
 
-Derived from repo evidence only: `CHANGELOG.md` (0.24.29-0.33.31 entries),
+Derived from repo evidence only (paths as of 0.33.31 — CHANGELOG.md and the docs history
+moved to `archive/docs` in 0.34.0; code-review-deep was removed in 0.44.0): `CHANGELOG.md`
+(0.24.29-0.33.31 entries),
 `CONSTITUTION.md`, `docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`,
 `docs/specs/2026-06-18-project-scoping-model-design.md`, the three queued plans under
-`docs/superpowers/plans/2026-06-30-*`, `skills/code-review-deep/SKILL.md`,
+`docs/superpowers/plans/2026-06-30-*`, `skills/code-review-deep/SKILL.md` (removed 0.44.0),
 `skills/doubt/SKILL.md`, `scripts/dream-accept.sh`, `tests/test-knowledge-eval.sh`,
 `mcp/src/tools/retrieval-guards.test.ts`, and read-only `git log` queries run 2026-07-05.
 
@@ -255,7 +258,7 @@ grep -n "SB_DREAM_ACCEPT_MIN_RATIO" scripts/dream-accept.sh   # F1 floor default
 grep -n "SB_EVAL_MIN_RECALL" tests/test-knowledge-eval.sh     # strict gate (was 1.0)
 wc -l < tests/fixtures/eval-queries.jsonl                     # golden queries (was 12)
 grep -n "SB_GRAPH_RANKING_BOOST" mcp/src/tools/retrieval-guards.test.ts  # default-off lock present?
-grep -n "refuter panel" skills/code-review-deep/SKILL.md      # Rule-3 panel protocol intact?
-grep -in "662 B" CHANGELOG.md                                 # P1c measured number
-grep -c '^## ' CHANGELOG.md                                   # release-entry drift (was 122 incl. 0.33.31; note ## 0.33.19 heading is missing)
+# (Rule-3 panel home skills/code-review-deep was removed 0.44.0 — protocol history at any pre-0.44.0 ref)
+git show archive/docs:CHANGELOG.md | grep -i "662 B"          # P1c measured number (history moved to archive/docs, 0.34.0)
+git show archive/docs:CHANGELOG.md | grep -c '^## '           # release-entry archive (131; ## 0.33.19 heading still missing there)
 ```

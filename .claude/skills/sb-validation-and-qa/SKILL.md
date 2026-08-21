@@ -183,7 +183,8 @@ cd .. && bash tests/test-bundle-current.sh && \
 ## The 11 portability static guards ("will CI reject my bash?")
 
 `tests/test-script-portability.sh` statically scans all `*.sh` under
-`scripts/` AND `cost-router/scripts/` (comment-only matches excluded). It runs
+`scripts/` (comment-only matches excluded; it also covered `cost-router/scripts/`
+until that subplugin was removed in 0.35.x). It runs
 in the normal suite AND on real bash 3.2/BSD in the macOS lane. Run it before
 pushing any bash change: `bash tests/test-script-portability.sh`.
 
@@ -368,8 +369,9 @@ The shell lane's analogue is `tests/test-script-portability.sh` (above).
 5. Assert independent oracles + write the regression-lock comment (R5).
 6. Prove the test fails on pre-fix code (R6).
 7. Any `scripts/*.sh` you add alongside MUST pass all 11 portability guards.
-   Caveat: the static guard scans only `scripts/` + `cost-router/scripts/`
-   (`tests/test-script-portability.sh:9-10`) — your TEST file is never
+   Caveat: the static guard scans only `scripts/`
+   (`tests/test-script-portability.sh`; it dropped `cost-router/scripts/` when that
+   subplugin was removed) — your TEST file is never
    scanned, the linux CI lane runs it on bash 5, and the macOS lane runs only
    its four fixed tests. A bash-4-ism in a new test therefore sails through
    CI green and breaks only for macOS contributors running the suite locally

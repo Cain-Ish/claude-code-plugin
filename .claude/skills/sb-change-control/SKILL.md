@@ -59,10 +59,12 @@ Terms used throughout (defined once):
 | New workstream / design decision | YES eventually | — | spec in `docs/specs/` FIRST, then plan, then code | P2/P3a/P6 |
 | Anything touching autonomy, security boundaries, or data layout | YES | — | spec + plan; check CONSTITUTION.md hard constraints | quarantine work |
 
-"Shipped surface" = the tripwire TRIGGERS list (`tests/test-release-version-bump.sh:33`):
-`mcp/src mcp/dist mcp/package.json scripts hooks skills agents bin systemd
-.claude-plugin/plugin.json .claude-plugin/mcp.json`. Deliberately excluded: `tests/`, `docs/`,
-`cost-router/` (own version line), `package-lock.json`, `marketplace.json`.
+"Shipped surface" = the tripwire TRIGGERS list (`tests/test-release-version-bump.sh`):
+`mcp/src mcp/dist mcp/package.json model-ladder.json scripts hooks skills agents bin systemd
+.claude-plugin/plugin.json .claude-plugin/mcp.json` (`model-ladder.json` is behaviour-defining
+data — editing a rung changes shipped behaviour like a `scripts/` edit). Deliberately excluded:
+`tests/`, `docs/`, `.claude/`, `package-lock.json`, `marketplace.json` (its entry mirrors
+plugin.json, which is already a trigger).
 
 The fixed per-feature pipeline (observed across the whole history, e.g. the SP-4 sequence):
 `docs(spec)` → `docs(plan)` → TDD `feat(...)` task commits → `fix(review): apply deep-review
@@ -80,21 +82,21 @@ Governance section. Do not re-open.
 
 ## 2. The surface budget — AT CAP (bump-with-justification required)
 
-As of 0.33.31 (2026-07-05) the budget and the live counts are EQUAL on all four axes:
+As of 0.45.0 (2026-08-21) the budget and the live counts are EQUAL on all four axes:
 
 ```json
-{ "skills": 18, "agents": 9, "scripts": 52, "tests": 153, "upgrade_skill_max_bytes": 8192 }
+{ "skills": 17, "agents": 4, "scripts": 53, "tests": 160, "upgrade_skill_max_bytes": 8192 }
 ```
 
-Verified live: `skills` dirs 18, `agents/*.md` 9, `scripts/*.sh` (top-level) 52,
-`tests/test-*.sh` (top-level) 153, `skills/upgrade/SKILL.md` 4630 B. Consequence: ANY new
+Verified live: `skills` dirs 17, `agents/*.md` 4, `scripts/*.sh` (top-level) 53,
+`tests/test-*.sh` (top-level) 160, `skills/upgrade/SKILL.md` 4561 B. Consequence: ANY new
 top-level file in `skills/`, `agents/`, `scripts/`, or a new `tests/test-*.sh` makes
 `validate-plugin.sh` FAIL ("surface budget exceeded — …") unless `.claude-plugin/surface-budget.json`
 is bumped IN THE SAME COMMIT. That is by design: "Growth must be a deliberate, git-blameable
 choice. Ratchet DOWN freely." (`.claude-plugin/surface-budget.json` `_comment`). House convention: record
-the delta in the CHANGELOG bullet ("Surface budget: tests 151→153", CHANGELOG.md:18).
+the delta in the release-commit body ("Surface budget: tests 158 -> 159", the 0.45.0 release).
 
-Not budgeted: vitest `.test.ts` files (any count), `scripts/` subdirectories, `cost-router/`,
+Not budgeted: vitest `.test.ts` files (any count), `scripts/` subdirectories,
 files under `.claude/` (the counter anchors at repo-root `skills/` etc.). Before adding a file,
 prefer folding into an existing one — the ratchet exists because surface accretion was the
 root cause the Constitution names ("accretion with no forcing function for simplicity").
@@ -110,11 +112,12 @@ real release commit `6fba312` (0.33.30, `git show 6fba312 --stat`):
 
 1. `.claude-plugin/plugin.json` — `"version"` bumped.
 2. `.claude-plugin/marketplace.json` — the `second-brain` plugin entry's `version` bumped to
-   match (the file also carries `cost-router`, which versions independently).
+   match (single entry since cost-router was removed in 0.35.x).
    `validate-plugin.sh` FAILS on any plugin.json↔marketplace.json drift.
-3. `CHANGELOG.md` — new `## X.Y.Z` section at the top. Heading is bare `## 0.33.31` — NO date,
-   NO `v` prefix (RELEASING.md:50 says `## vX.Y.Z`; the file is ground truth — no `v`).
-   One thesis paragraph, then bolded evidence-dense bullets naming files/env-defaults/tests.
+3. **The release commit body is the release record** (until 1.0 — RELEASING.md "The
+   checklist"): `release: X.Y.Z — thesis` subject, evidence-dense bullets naming
+   files/env-defaults/tests, and the gates line. CHANGELOG.md left the tree in 0.34.0;
+   pre-1.0 history lives on `archive/docs` — do NOT recreate the file.
 4. Rebuilt `mcp/dist/*.bundle.js` — if ANY `mcp/src` file changed: `cd mcp && npm run bundle`
    (deps must be lockfile-exact first: `npm ci --prefix mcp`), commit the bundles. NEVER
    hand-edit anything under `mcp/dist/` — the bundle-current gate byte-compares dist against a
@@ -162,7 +165,7 @@ repo root; all commands are git-bash/Linux/macOS-safe:
 | 4 | Shell suite | `bash tests/run-all.sh` (CI-equivalent when vitest already ran: `SB_RUN_ALL_VITEST=0 bash tests/run-all.sh`) | exit 0 + `ALL GREEN` is the release contract; suite mechanics owned by sb-validation-and-qa |
 | 5 | Plugin validator | `bash scripts/validate-plugin.sh` | manifests, hooks.json shape, SKILL.md frontmatter (SKAG-6), version drift, SURFACE BUDGET, mcp.json path form |
 | 6 | Version tripwire | `bash tests/test-release-version-bump.sh` | shipped source changed but version not strictly bumped vs `origin/main` (needs `origin/main` fetched, or set `SB_RELEASE_BASE_REF`) |
-| 7 | Portability guards | `bash tests/test-script-portability.sh` | a bash-4-ism / GNU-only construct in `scripts/` or `cost-router/scripts/` (11 static checks — details owned by sb-validation-and-qa) |
+| 7 | Portability guards | `bash tests/test-script-portability.sh` | a bash-4-ism / GNU-only construct in `scripts/` (11 static checks — details owned by sb-validation-and-qa) |
 
 Wrappers: `make test` = gate 4 incl. vitest; `make release-check` = vector-deps import smoke +
 full suite; `make hook-install` wires `.githooks/pre-push` to re-run the suite on every push.
@@ -226,8 +229,9 @@ PR base branch automatically (`SB_RELEASE_BASE_REF` from `github.base_ref`).
   (adversarial review)`, `177d088 docs+log: scope P6b claims honestly + fix degraded-path log
   (adversarial review)`. Release bodies routinely state "Adversarial review (no critical)
   drove N … must-fixes".
-- The repo ships its own review tooling: `skills/code-review-deep/` (multi-lens PR/deep review;
-  one of only 3 model-invocable skills). Use it for reviewing substantial changes here.
+- The repo's former in-house review tooling, `skills/code-review-deep/`, was removed in 0.44.0
+  as out-of-scope (served none of the four content classes); the fresh-context critic role
+  moved to `persona_think` (`skills/doubt` step 4, `stop-verify-gate.sh` critic offer).
 - Review scope this repo actually enforces, beyond bugs: HONESTY of claims (bullets like
   "scope P6b claims honestly" — overclaiming is a review finding), grants/least-privilege
   (agent frontmatter is product code, test-locked), and "does the gate test the real
@@ -256,7 +260,7 @@ green gates.
 | # | Rule | The incident behind it | Machine enforcement |
 |---|---|---|---|
 | 1 | **Fail LOUD everywhere — EXCEPT PreToolUse guards, which fail SAFE.** Errors route through `sb_log_error` (lib.sh); no `2>/dev/null` silent-exit patterns. But the three PreToolUse guards (`symlink-guard.sh`, `persona-tool-guard.sh`, `wiki-write-guard.sh`) always exit 0, convey verdicts via hookSpecificOutput JSON, and must STAY ARMED (emit deny) even when helpers/lib.sh are missing. No single doc states this split — it is enforced by history. | Swallowed tar stderr "hid this bug for several releases" (0.33.10 dream_accept); conversely a crashing guard would block every session, so guards fail-soft on their own errors but fail-CLOSED on missing tools (0.24.4: symlink-guard denies when `realpath` is absent) | Guard tests assert the inline-fallback deny with lib.sh unsourceable (`tests/test-symlink-guard.sh:249-264`); plans restate "Fail loud, never silent" as a Global Constraint |
-| 2 | **Cross-platform bash: macOS bash 3.2 + BSD coreutils + git-bash/MSYS + Linux.** No `mapfile`, `declare -A`, `${x^^}`, `grep -P`, GNU `date -d` without a BSD fallback, no `case` inside `$(...)`, no GNU regex escapes (`\b \w \s \d`) in sed/grep, no `awk -v` for backslash data. | 0.24.33: a `case` in a comsub was a LOAD-TIME parse error on bash 3.2 — every macOS `dream_accept` broke; parses fine on bash 4+, so it shipped through green Linux CI. 0.28.2: GNU-only escapes silently matched NOTHING on BSD | `tests/test-script-portability.sh` (11 static checks over `scripts/` + `cost-router/scripts/`) + the macOS CI job on real `/bin/bash` 3.2 |
+| 2 | **Cross-platform bash: macOS bash 3.2 + BSD coreutils + git-bash/MSYS + Linux.** No `mapfile`, `declare -A`, `${x^^}`, `grep -P`, GNU `date -d` without a BSD fallback, no `case` inside `$(...)`, no GNU regex escapes (`\b \w \s \d`) in sed/grep, no `awk -v` for backslash data. | 0.24.33: a `case` in a comsub was a LOAD-TIME parse error on bash 3.2 — every macOS `dream_accept` broke; parses fine on bash 4+, so it shipped through green Linux CI. 0.28.2: GNU-only escapes silently matched NOTHING on BSD | `tests/test-script-portability.sh` (11 static checks over `scripts/`) + the macOS CI job on real `/bin/bash` 3.2 |
 | 3 | **No native (node-gyp) dependencies.** Pure-JS default; heavy deps only as an opt-in vetted tier (the vector-deps pattern: staged install, graceful degrade, junction links). | The vector-deps saga: 4.7 GB cache (0.20.0), installer that could destroy a working install (0.20.1); CONSTITUTION.md hard constraint 3; P3a plan explicitly REJECTS node-tree-sitter for this reason | Constitution + plan fences; no automated gate — reviewers block it (flag any new `dependencies` entry in `mcp/package.json`) |
 | 4 | **jq discipline: `-c` for anything line-oriented; `tr -d '\r'` after every `jq -r` capture.** Windows git-bash jq 1.8.1 emits CRLF even on clean LF input and pretty-prints by default. | 0.30.1: 121 CR-contaminated `$(jq -r …)` captures across 29 scripts (config booleans read as `"true\r"`); 0.33.31: `jq` without `-c` pretty-printed projects.jsonl records across ~8 lines → the MCP registry reader went blind EVERY session | `tests/test-jq-crlf-windows.sh` (Windows-jq stub on Linux CI); the projects.jsonl membership test asserts one-compact-object-per-line |
 | 5 | **Never `ln -s` a directory on MSYS; use `fs.symlinkSync(target, link, "junction")` from node.** On git-bash, `ln -s` silently DEEP-COPIES. | 0.33.7: each plugin upgrade "linked" ~490 MB of vector deps by full copy — 3.1 GB cache; the capability-gated test SKIPPED on exactly the platform with the bug | Structural guard against reverting to a deep-copying `ln -s` (0.33.7, T11); junction-mechanism probe in the test |

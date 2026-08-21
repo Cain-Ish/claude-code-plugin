@@ -18,8 +18,8 @@ description: >-
 
 # sb-build-and-env — recreate the dev environment + the build system
 
-Repo: the `second-brain` Claude Code plugin (plus a small `cost-router` sub-plugin) at
-the repo root. All Node work lives under `mcp/` — there is **no root `package.json`**
+Repo: the `second-brain` Claude Code plugin at the repo root (the former `cost-router`
+sub-plugin was absorbed and removed in 0.35.x). All Node work lives under `mcp/` — there is **no root `package.json`**
 and no git submodules. Facts below verified against the working tree, **as of 0.33.31
 (2026-07-05; the 0.33.31 batch is uncommitted on top of HEAD `6fba312` = 0.33.30).**
 
@@ -282,8 +282,8 @@ must be anchored by the bare `${CLAUDE_PLUGIN_ROOT}/` token — Claude Code does
 substitute the shell `${VAR:-default}` form, which collapsed the path to cwd-relative
 and broke the server for every installed user (0.24.5 → fixed 0.24.35).
 
-**T6 — bash 3.2 floor (macOS stock `/bin/bash`).** Banned in `scripts/` (and
-`cost-router/scripts/`): `mapfile`/`readarray`, `declare -A`/`local -A`,
+**T6 — bash 3.2 floor (macOS stock `/bin/bash`).** Banned in `scripts/`:
+`mapfile`/`readarray`, `declare -A`/`local -A`,
 `${x^^}`/`${x,,}`, `grep -P`, and — the nastiest — a `case` statement inside `$(...)`
 command substitution, which is a LOAD-time parse error on 3.2 that `bash -n` on any
 modern host cannot reproduce (broke every macOS `dream_accept`, 0.24.33). GNU
