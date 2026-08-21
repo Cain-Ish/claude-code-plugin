@@ -57,10 +57,11 @@ sb-validation-and-qa.
 
 ```bash
 git add -A   # review the staged set: it must contain plugin.json + marketplace.json +
-             # CHANGELOG.md (+ dist bundles + surface-budget.json + migration file as applicable)
+             # (+ dist bundles + surface-budget.json + migration file as applicable).
+             # No CHANGELOG.md — removed in 0.34.0; the commit body below IS the release record.
 git commit -m "release: X.Y.Z — <thesis>
 
-<bullets mirroring the CHANGELOG entry: failure mode closed, files, env defaults,
+<bullets — this body IS the release record (CHANGELOG.md removed 0.34.0): failure mode closed, files, env defaults,
 which test regression-locks each fix. Note what adversarial review caught.>
 
 Gates green locally: tsc, vitest (<N> pass, offline), bundle-current, run-all bash
@@ -82,13 +83,13 @@ git push                       # .githooks/pre-push re-runs the suite (if make h
 ```
 
 No git tag is created (tag contract: releases bind to the merge/push; nothing tagged since
-v0.22.1). The release record = the version-locked manifest pair + the CHANGELOG entry + green CI.
+v0.22.1). The release record = the version-locked manifest pair + this commit body + green CI.
 
 ## Abort criteria (do not ship)
 
 - Any gate red, and the fix is not a one-liner you can land in the same batch.
-- The staged diff touches shipped surface not described by the CHANGELOG entry.
+- The staged diff touches shipped surface not described by the release-commit body.
 - validate-plugin FAILs on surface budget and you cannot justify the growth in the
-  CHANGELOG bullet (fold the new file into an existing one instead).
+  release-commit bullet (fold the new file into an existing one instead).
 - You are reaching for `SB_SKIP_PREPUSH=1` for the second time in a row — per RELEASING.md,
   "the gate is wrong, not your work. Open an issue, fix the test, then resume."

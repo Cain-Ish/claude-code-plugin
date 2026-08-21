@@ -1,7 +1,7 @@
 # Solution menu — ranked, with theory obligations, effort, and what each does NOT solve
 
 Companion to `../SKILL.md`. The plan
-(`docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`) already chose the ranking; this
+(`archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`) already chose the ranking; this
 table records WHY, so a future author who wants to deviate must first discharge the theory
 obligation and reconfirm with the maintainer (route via **sb-research-methodology**), not silently
 swap approaches.

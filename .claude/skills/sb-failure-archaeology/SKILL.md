@@ -11,10 +11,11 @@ re-shipping known bug classes. The full incident table lives in
 [references/chronicle.md](references/chronicle.md) — SKILL.md is the index, the class map, the
 undo table, and the search recipes.
 
-**Snapshot date:** as of 0.33.31 (2026-07-05). HEAD = `6fba312` (release 0.33.30); the 0.33.31
-batch is UNCOMMITTED in the working tree (`.claude-plugin/plugin.json` already says 0.33.31,
-`git show HEAD:CHANGELOG.md` has no `## 0.33.31`). Any status marked FIXED-WT@0.33.31 means
-"fixed in the working tree, not yet in a released commit" — re-check once 0.33.31 lands.
+**Snapshot date:** as of 0.33.31 (2026-07-05), when HEAD was `6fba312` (release 0.33.30) and the
+0.33.31 batch was still UNCOMMITTED in the working tree. Any status marked FIXED-WT@0.33.31 means
+"fixed in the working tree, not yet in a released commit" — **0.33.31 has since landed as
+`e9dfbd1`**, so a FIXED-WT@0.33.31 status now reads as plain FIXED. (The snapshot originally
+proved this against CHANGELOG.md, removed from main in 0.34.0; it lives on `archive/docs`.)
 
 ## Terms used in the chronicle (defined once)
 
@@ -53,7 +54,7 @@ only) · **MITIGATED** (partial, residual documented) · **OPEN**.
   `|| exit 0` hiding multi-release breakage; the house rule is fail-loud via `sb_log_error`.
 - **The version line is NOT monotonic:** 0.2.x→0.7.0, then 1.0.0→1.9.0, then 2.1.0→2.11.1,
   re-baselined 2.11.1→0.11.1 on 2026-05-24 (commit `88602f7`: "The 2.x numbering was
-  aspirational"), then 0.11.1→0.33.x. CHANGELOG.md covers 0.14.0+ only; earlier history exists
+  aspirational"), then 0.11.1→0.33.x. archive/docs:CHANGELOG.md covers 0.14.0+ only; earlier history exists
   only in git.
 
 ## The 9 cross-cutting failure classes
@@ -112,11 +113,11 @@ guard that will actively reject the old shape.
   fix/home-cwd-relative-brain-dir` → `- ef7a8e7…` (minus = already on main; verified
   2026-07-05). Safe to delete; nothing unique on it.
 - **Plans staged with NO code (as of 0.33.31):**
-  `docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md`,
+  `archive/docs:docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md`,
   `…-p3a-orientation-code-map.md`, `…-p6-quarantine-dual-llm.md` — CHANGELOG 0.33.30: "Plans
   staged (no code)". The P6 quarantine/dual-LLM design is the fix-of-record for the open
   headless credential-exfil residual (chronicle §20) but is UNIMPLEMENTED.
-- **Deep-dive waves defined in `docs/specs/2026-06-10-plugin-deep-dive-improvements-design.md`
+- **Deep-dive waves defined in `archive/docs:docs/specs/2026-06-10-plugin-deep-dive-improvements-design.md`
   but never shipped:** R3 (security follow-ups — partially overtaken by P6a/P6b but never
   closed as R3), R5.2 (cost-router 2-week dogfood → keep-or-kill decision — never recorded in
   this repo, and mooted when cost-router was removed in 0.35.x), R9 (data-plane integrity & privacy — never started; partially overtaken by
@@ -142,16 +143,10 @@ guard that will actively reject the old shape.
 
 ## Known documentation defects (real, verified)
 
-1. **`## 0.33.19` heading missing from CHANGELOG.md** — `grep -c "^## 0.33.19" CHANGELOG.md`
-   → 0 (verified 2026-07-05), but `git show 7180966:CHANGELOG.md | grep -n "^## 0.33.19"` →
-   line 7. Removed by `616bfef` (release 0.33.20), leaving the 0.33.19 bullets orphaned inside
-   the `## 0.33.20` section (~lines 194-226). The migration-row test only checks the CURRENT
-   version's heading, so it cannot self-heal. OPEN. Don't parse CHANGELOG assuming every
-   release has a heading.
-2. **CHANGELOG tail ordering quirk** — newest-first EXCEPT the final block, which ASCENDS
-   0.14.0→0.21.4 after `## 0.22.0` (artifact of the `782861a` migration-table split). Don't
-   assume strict ordering when parsing.
-3. **`knowledge_search` tool description stale** — `mcp/src/server.ts:74` still advertises the
+1. ~~`## 0.33.19` orphaned heading~~ and ~~CHANGELOG tail ordering quirk~~ — **both MOOT**: CHANGELOG.md
+   was removed from main in 0.34.0, so nothing in the tree parses it any more. The file (and both
+   quirks) survive on `archive/docs` if you are reading pre-1.0 history there.
+2. **`knowledge_search` tool description stale** — `mcp/src/server.ts:74` still advertises the
    access-frequency boost removed in 0.33.30 (verified 2026-07-05). OPEN (audit low).
 
 ## How to search the chronicle (and beyond it)
@@ -163,8 +158,10 @@ All commands run from the repo root in bash (git-bash on Windows works).
 grep -in "<keyword>" .claude/skills/sb-failure-archaeology/references/chronicle.md
 
 # Find the release that fixed/introduced something:
-grep -n "^## " CHANGELOG.md | head -40          # version headings (0.14.0+ only)
-grep -n -i "<keyword>" CHANGELOG.md             # full narrative search
+git show archive/docs:CHANGELOG.md | grep -n "^## " | head -40   # version headings (0.14.0+ only)
+git show archive/docs:CHANGELOG.md | grep -n -i "<keyword>"        # full narrative search
+# (CHANGELOG.md was removed from main in 0.34.0 — release records now live in release-commit
+#  bodies, so `git log --grep` above is the primary search for anything 0.34.0 or newer.)
 
 # Find the commit history of a phrase/mechanism (works pre-0.14 too):
 git log --all --oneline -i --grep="<keyword>"   # commit subjects/bodies
@@ -175,8 +172,6 @@ git blame -L <start>,<end> <path>               # who last touched these lines a
 # War-story comments in live code (the codebase narrates its own incidents):
 grep -rn "0\.33\.\|0\.24\.\|regression\|fail-open\|fail-OPEN\|POISON" scripts/*.sh | head -30
 
-# Status of a FIXED-WT@0.33.31 item (is it released yet?):
-git show HEAD:CHANGELOG.md | grep -c "^## 0.33.31"   # 0 = still working-tree-only
 ```
 
 Interpretation rules: a chronicle **OPEN** status was true at the snapshot date — always
@@ -204,7 +199,7 @@ the quoted comment text; anything sourced from "the 2026-07-02 deep audit" refer
 | 14 | Silently-wrong-output wave (awk range collapse, `0\n0`, wc -l, printf '- ') | FIXED@0.29.4 |
 | 15 | Attribution: 88 docs filed into the wrong project; slug hijack prequel | FIXED@0.33.0 |
 | 16 | MCP server failed to start for every installed user (`${CLAUDE_PLUGIN_ROOT:-.}`) | FIXED@0.24.35 |
-| 17 | Release/process: unversioned ship; missing 0.33.19 CHANGELOG heading | FIXED@0.30.2; heading OPEN |
+| 17 | Release/process: unversioned ship; missing 0.33.19 CHANGELOG heading | FIXED@0.30.2; heading MOOT — CHANGELOG.md removed 0.34.0 |
 | 18 | awk/mawk/BSD portability class (6 shipped silent no-ops) | FIXED (per version) |
 | 19 | macOS bash-3.2 class (case-in-comsub parse error; readlink -f) | FIXED@0.24.33 |
 | 20 | Security: staging symlink escape; secret leak; nested-spawn reachability; invisible Unicode; dream-accept data loss; agent grants | Mixed — see chronicle |
@@ -233,11 +228,9 @@ Authored 2026-07-05 against the uncommitted 0.33.31 working tree.
 ```bash
 git log -1 --oneline                                        # HEAD (was 6fba312 / 0.33.30)
 grep -o '"version": *"[^"]*"' .claude-plugin/plugin.json    # was 0.33.31 (working tree)
-git show HEAD:CHANGELOG.md | grep -c "^## 0.33.31"          # 0 = 0.33.31 still unreleased
 git log --oneline | wc -l                                   # commit count (was 780)
-grep -c "^## 0.33.19" CHANGELOG.md                          # 0 = doc defect still open
 git cherry main fix/home-cwd-relative-brain-dir             # "-" = branch still dead/merged
-ls docs/superpowers/plans/ | grep -c "p2-\|p3a-\|p6-quar"   # 3 = plan DOCS present (files persist after landing; P3a Phases 1-3 shipped 0.33.33+, P2 remainder + P6 still code-less — cross-check CHANGELOG)
+git show archive/docs:CHANGELOG.md | grep -c "^## 0.33.3"        # pre-1.0 narrative (removed from main 0.34.0)
 grep -n "access-frequency" mcp/src/server.ts | head -2      # stale tool description still present?
 ls skills/upgrade/migrations/ | wc -l                       # migration files (was 18)
 git log --all --oneline --grep="^Revert" | wc -l            # still 0 true reverts?

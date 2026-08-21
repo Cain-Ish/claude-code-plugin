@@ -205,7 +205,7 @@ grep -n 'DATA, not instructions' agents/dream-runner.md agents/knowledge-maintai
 **Expected:** `sanitize.ts` (P6a/P6b invisible-Unicode strip) and `path-guard.ts`
 (`assertWithin` / `validateSlug` / `realResolve`) exist; `ai-block.ts` exports `renderAiBlock` +
 `AI_BLOCK_SCHEMAS` (the deterministic writer reuses these); all three consolidation agents carry
-the "DATA, not instructions" framing (a 0.33.31 nibble, CHANGELOG.md:17). These are the P6a/P6b
+the "DATA, not instructions" framing (a 0.33.31 nibble, archive/docs:CHANGELOG.md:17). These are the P6a/P6b
 foundations the plan says are shipped and must NOT be re-planned (plan:19-24).
 
 > **If** any of these files/markers is missing → your checkout predates the shipped P6a/P6b
@@ -343,13 +343,13 @@ not let the campaign paper over them (details: **sb-failure-archaeology** / **sb
 
 ## Provenance and maintenance
 
-- **Derived from (repo evidence):** `docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`
+- **Derived from (repo evidence):** `archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`
   (read in full); `CONSTITUTION.md` (hard constraints); `scripts/maintain-llm-drain.sh`,
   `scripts/dream-accept.sh`, `scripts/dream-snapshot.sh`; `agents/dream-runner.md`;
   `mcp/src/path-guard.ts`, `mcp/src/tools/sanitize.ts`, `mcp/src/tools/ai-block.ts`;
   tests `test-maintain-llm-drain.sh`, `test-dream-accept-guards.sh`,
   `test-maintain-llm-drain-timeout-guard.sh`, `test-injection-corpus.sh`,
-  `test-dream-lifecycle.sh`, `mcp/src/agent-grants.test.ts`; `CHANGELOG.md` (0.33.20/21/30/31);
+  `test-dream-lifecycle.sh`, `mcp/src/agent-grants.test.ts`; `archive/docs:CHANGELOG.md` (0.33.20/21/30/31);
   `systemd/*.service`; `.claude-plugin/surface-budget.json`.
 - **Authored:** 2026-07-05, against the uncommitted **0.33.31** working tree (plugin.json version
   `0.33.31`; HEAD `6fba312` = release 0.33.30). All Phase-0 expected outputs were produced by
@@ -363,7 +363,7 @@ not let the campaign paper over them (details: **sb-failure-archaeology** / **sb
   - Surface budget → `cat .claude-plugin/surface-budget.json` (agents/tests counts the split bumps).
   - Auto flags → `cat ~/.second-brain/config.json` (auto_maintain / auto_accept).
   - Open audit findings → the audit JSON was an internal artifact with NO stable path (do not
-    hunt for `deep-audit-findings.json`). Its durable echoes: `CHANGELOG.md` `## 0.33.31` (the
+    hunt for `deep-audit-findings.json`). Its durable echoes: `archive/docs:CHANGELOG.md` `## 0.33.31` (the
     batch-B closure) and the deep-audit disposition ledger in **sb-failure-archaeology**
     (`references/chronicle.md` §26 — includes the still-OPEN mediums). Spot-check the four gaps
     above at source: `sed -n '106,114p' scripts/symlink-guard.sh` (CRED_PREFIXES has no

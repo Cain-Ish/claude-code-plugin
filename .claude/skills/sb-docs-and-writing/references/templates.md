@@ -5,15 +5,18 @@ verified file in this repo (cited per section). Copy the template, then diff you
 against the cited exemplar before committing — the exemplar is ground truth, this file is
 the convenience copy.
 
-All templates verified against the working tree as of 0.33.31 (2026-07-05).
+All templates verified against the working tree as of 0.33.31 (2026-07-05); §1, §2 and §3 re-scoped
+2026-08-21 after the 0.34.0 diet removed CHANGELOG.md and the `docs/specs/` trees.
 
 ---
 
-## 1. CHANGELOG.md entry
+## 1. Release entry — ARCHIVED FORMAT
 
-Location: top of `CHANGELOG.md`, newest first. Header is bare `## X.Y.Z` — no date, no `v`
-prefix. (`RELEASING.md:50` says "`## vX.Y.Z`"; the CHANGELOG file itself is ground truth —
-every one of its 122 headers is bare.)
+CHANGELOG.md was removed from main in 0.34.0. The live format for a release record is the
+release-commit body — see §7. This section is kept only to read pre-1.0 entries on `archive/docs`
+(`git show archive/docs:CHANGELOG.md`), where the header is bare `## X.Y.Z` — no date, no `v`
+prefix. The anatomy below (thesis line, bolded finding-bullets, surface-budget closer) carried
+over to the commit body unchanged.
 
 ### Template
 
@@ -32,7 +35,7 @@ every one of its 122 headers is bare.)
 - Surface budget: tests N→M (`test-<new-one>.sh`).   <- unbolded closer, ONLY when counts changed
 ```
 
-### Real exemplar (working-tree `CHANGELOG.md:7-18`, the 0.33.31 entry; bullets 3-7 elided)
+### Real exemplar (working-tree `archive/docs:CHANGELOG.md:7-18`, the 0.33.31 entry; bullets 3-7 elided)
 
 ```markdown
 ## 0.33.31
@@ -50,7 +53,7 @@ Style checklist per bullet (all observable in entries 0.33.24-0.33.31):
 - [ ] CAPITALIZED emphasis words in prose (`BEFORE`, `ONLY`, `NEVER`, `OPT-IN`) — not italics.
 - [ ] Names the test that locks it ("membership test asserts one-compact-object-per-line").
 - [ ] Research citation inline when a memory op is literature-backed ("Generative Agents
-      2304.03442", `CHANGELOG.md:53`).
+      2304.03442", `archive/docs:CHANGELOG.md:53`).
 - [ ] No emojis.
 
 ---
@@ -84,7 +87,8 @@ run by `make test` (`tests/run-all.sh`). Validator: `scripts/validate-plugin.sh`
 
 ## Global Constraints
 
-- **Spec:** `docs/specs/<matching -design.md>` (every task implements part of it).
+- **Spec:** the wiki `decisions/` note this plan implements (every task implements part of it).
+  Pre-0.34.0 plans cited `docs/specs/<matching -design.md>`, removed from main in 0.34.0.
 - **Branch:** <feature branch name>
 - <hard rules, one per bullet. House staples:
   "**Fail loud, never silent.**"
@@ -124,7 +128,11 @@ are pasted inline (bundle-b plan:59-120), not described.
 
 ---
 
-## 3. Design spec — `docs/specs/YYYY-MM-DD-<slug>-design.md`
+## 3. Design spec — second-brain wiki `decisions/<slug>`
+
+(The repo path `docs/specs/YYYY-MM-DD-<slug>-design.md` was removed in 0.34.0; the skeletons below
+still describe the required shape, which now lives in the wiki. Both archived spec trees are on
+`archive/docs`.)
 
 Two verified skeletons; pick by shape. Both share the constants: date + status metadata at
 top, findings cite exact `file.ts:line`, decisions stamped RESOLVED/APPROVED with dates,
@@ -155,7 +163,8 @@ explicit Non-goals, and a handoff section for the plan.
 ## 10. Out of scope (documented for later)
 ```
 
-### Skeleton B — incident-triggered / decision-heavy design (`docs/specs/2026-06-18-project-scoping-model-design.md`)
+### Skeleton B — incident-triggered / decision-heavy design
+(`git show archive/docs:docs/specs/2026-06-18-project-scoping-model-design.md`)
 
 ```markdown
 # <Title> — Design
@@ -184,9 +193,10 @@ document exists`, `## Keep / Fix / Cut ledger`, `## Success criteria`, `## Non-g
 
 ## 4. Migration note — `skills/upgrade/migrations/<version>.md`
 
-Create ONLY when the release has a real precondition/action (`RELEASING.md:50-54`). A version
-with no file is marker-bump-only; its narrative stays in CHANGELOG.md. Sparse by design:
-18 files for ~200 stamped versions as of 0.33.31. Exemplar: `skills/upgrade/migrations/0.33.0.md`.
+Create ONLY when the release has a real precondition/action (RELEASING.md "The checklist"). A
+version with no file is marker-bump-only; its narrative stays in the release-commit body. Sparse by
+design — read the live count with `ls skills/upgrade/migrations/ | wc -l`. Exemplar:
+`skills/upgrade/migrations/0.33.0.md`.
 
 ```markdown
 # <version> — migration notes (<thesis in parens>)
@@ -217,7 +227,7 @@ Hard rules baked into the runner (`skills/upgrade/SKILL.md`):
   `0.24.9 > 0.24.18`", SKILL.md:32-33) — never write a migration that assumes string order.
 - `skills/upgrade/SKILL.md` itself is capped at 8192 bytes, machine-enforced
   (`.claude-plugin/surface-budget.json` `upgrade_skill_max_bytes`; `scripts/validate-plugin.sh:209-216`:
-  "narrative goes to CHANGELOG.md, actions to migrations/<version>.md").
+  "narrative goes to the release commit body, actions to migrations/<version>.md").
 
 ---
 
@@ -299,7 +309,7 @@ The literal phrase `DATA, not instructions` is machine-required in all three
 ```
 release: X.Y.Z — <thesis, mirrors the CHANGELOG thesis line>
 
-<Dense body mirroring the CHANGELOG bullets: exact env vars with defaults, arrow
+<Dense body mirroring the release bullets: exact env vars with defaults, arrow
 notation "151->153", the failure mode closed. Routinely a paragraph starting
 "Adversarial review (no critical) drove N … must-fixes" naming what review caught.>
 

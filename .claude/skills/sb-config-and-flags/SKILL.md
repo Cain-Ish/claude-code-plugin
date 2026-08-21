@@ -301,7 +301,8 @@ touched. Do all eight or a gate fails:
    (house rule: test fallback branches, not just happy path). Mechanics: sb-validation-and-qa.
 4. **.claude-plugin/surface-budget.json** — bump `scripts`/`tests` counts in the SAME commit (6fba312:
    scripts 51→52, tests 150→151), else the validate-plugin.sh R8 gate fails.
-5. **CHANGELOG.md** — entry naming the flag, its default, and its kill switch.
+5. **Release-commit body** — a bullet naming the flag, its default, and its kill switch
+   (CHANGELOG.md was removed in 0.34.0; RELEASING.md "The checklist" owns the format).
 6. **Version bump** — `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` together
    (`tests/test-release-version-bump.sh` tripwires shipped-path changes without a bump).
 7. **Bundles (TS-side flags only)** — any flag consumed in mcp/src requires `cd mcp && npm run

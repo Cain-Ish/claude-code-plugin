@@ -220,7 +220,7 @@ surface-budget key counts `.test.ts` files. Checklist: sb-validation-and-qa.
 ### B6. The same-commit ship set
 
 `mcp/src` + `mcp/dist` are tripwire trigger paths → version bump; rebuilt bundles committed
-(bundle-current byte-compares); CHANGELOG bullet; update the parent SKILL.md §5 tool table and
+(bundle-current byte-compares); release-commit-body bullet; update the parent SKILL.md §5 tool table and
 its re-verify count (was 21 — `grep -c 'registerTool(' mcp/src/server.ts`); README if
 user-facing ("README matches what ships"). If a consolidation agent's protocol must call the
 new tool, add the MCP grant to that agent's frontmatter AND extend `mcp/src/agent-grants.test.ts`

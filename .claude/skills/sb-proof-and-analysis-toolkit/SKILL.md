@@ -7,7 +7,7 @@ description: First-principles proof recipes for the second-brain plugin repo —
 
 Eight analysis recipes, each proven by a worked example from this repo's own history.
 The doctrine they encode: **a green light is not evidence**. This codebase shipped
-"506 green tests [that] missed 14 bugs" and "53 tautological tests" (CHANGELOG.md
+"506 green tests [that] missed 14 bugs" and "53 tautological tests" (archive/docs:CHANGELOG.md
 `## 0.24.50`), and its three PreToolUse security guards sat silently inert for weeks on
 the maintainer's own dev platform because nobody ever fed them a violation. Every recipe
 below replaces an assumed property with an observed one.
@@ -70,8 +70,8 @@ plausible-looking CRLF hazards were reproduced-against and found already handled
 never entered the findings list. Symmetrically, the guard fail-open class (Recipe 2) entered
 it only *after* a live repro. In-repo precedents of the same rule: the 0.29.4
 silently-wrong-output wave was "found by an adversarial audit" with every finding
-"reproduced by running the script" (CHANGELOG.md `## 0.29.4`), and 0.24.17's three wiring
-defects were "all 3 reproduced before fixing" (CHANGELOG.md `## 0.24.17`).
+"reproduced by running the script" (archive/docs:CHANGELOG.md `## 0.29.4`), and 0.24.17's three wiring
+defects were "all 3 reproduced before fixing" (archive/docs:CHANGELOG.md `## 0.24.17`).
 (The audit report itself is an internal artifact; its durable footprint is the CHANGELOG
 `## 0.33.31` entry and the code comments cited below. The incident ledger lives in
 sb-failure-archaeology.)
@@ -112,7 +112,7 @@ benign payload passes + degraded-tool run still denies. A grep showing the deny 
 *exists* convinces no one (that is the presence-vs-effect anti-pattern; see sb-validation-and-qa).
 
 **Worked example:** `symlink-guard.sh` (credential-dir writes) was born in 0.21.0 to close
-gap G-HOOK-2 (`scripts/symlink-guard.sh:4`; the 0.21.0 CHANGELOG entry names it and
+gap G-HOOK-2 (`scripts/symlink-guard.sh:4`; the 0.21.0 entry in the removed CHANGELOG.md names it and
 `config-change-guard.sh` as the release's new hooks); `persona-tool-guard.sh` (resource/tool
 scope, v2.4.0 `18030a3`) and `wiki-write-guard.sh` (frontmatter contract, v2.6.0 `e75a8a7`)
 predate it and carry no G-HOOK id — and all three were **silently inert on Windows,
@@ -194,7 +194,7 @@ signatures on every OS.
 **Shipped extension:** the P3a code-map's PageRank is held to the same bar — "fixed
 iteration count + sorted accumulation order", identical rank ordering across runs, value
 equality only to fixed tolerance
-(`docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`, Task A3). P3a Phases 1-3
+(`archive/docs:docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`, Task A3). P3a Phases 1-3
 **LANDED** (0.33.33-0.33.35): `mcp/src/tools/codemap/` carries `pagerank.ts` +
 `pagerank.test.ts` (the two-run-identical + shuffled-input-identical-ordering assertions at
 `pagerank.test.ts:28-50`) — confirm with `ls mcp/src/tools/codemap`.
@@ -210,7 +210,7 @@ the consumer's fault.
 
 **When:** you wrote a regression test alongside a fix. A test that has never been RED proves
 nothing — this repo's audit found 53 tautological tests coexisting with 14 missed bugs
-(CHANGELOG.md `## 0.24.50`).
+(archive/docs:CHANGELOG.md `## 0.24.50`).
 
 **Steps (uncommitted fix — the 0.33.31 REFLECT example):**
 ```bash
@@ -257,7 +257,7 @@ signals, repo surface counts. The decision text must cite a number measured on t
 system, with the measuring command recorded.
 
 **Worked example A — the P1c injection measurement (0.33.30).** Claim: the per-turn
-`UserPromptSubmit` injection is ~662 B ≈ ~165 tokens, no wiki body (CHANGELOG.md
+`UserPromptSubmit` injection is ~662 B ≈ ~165 tokens, no wiki body (archive/docs:CHANGELOG.md
 `## 0.33.30`). Method — pipe a synthetic prompt into the real hook, byte-count the emitted
 `additionalContext`:
 ```bash
@@ -273,7 +273,7 @@ the fact of record). To harden: loop a prompt corpus, report p50/p95 bytes.
 **Worked example B — measure, then demote (0.33.22).** Before cutting the graph
 search-ranking boost, it was measured **on the real wiki**, with outcome classes
 (improved/degraded/unchanged gold-page rank) defined before running: the result was a wash,
-and in the harm cases the boost displaced a page's own exact title-match (CHANGELOG.md
+and in the harm cases the boost displaced a page's own exact title-match (archive/docs:CHANGELOG.md
 `## 0.33.22`). Result: demoted to opt-in (`SB_GRAPH_RANKING_BOOST=1`), default off. The same
 measured-hub-bias reasoning later cut the access-frequency boost (0.33.30 P4b). The measured
 numbers (corpus size, the improved/degraded/unchanged split, the ~10,000× compounding
@@ -385,7 +385,7 @@ HEAD `6fba312` = 0.33.30). Revised 2026-07-05: guard birth history corrected aga
 `git log --diff-filter=A` (symlink-guard `4837873`/0.21.0; persona-tool-guard `18030a3`/v2.4.0;
 wiki-write-guard `e75a8a7`/v2.6.0); Recipes 3, 6-B, and 8 deduplicated to their charter
 owners (sb-research-methodology Rule 3; sb-memory-systems-reference §1 and §3).
-Derived from repo evidence only: CHANGELOG.md (`## 0.24.50`,
+Derived from repo evidence only: archive/docs:CHANGELOG.md (`## 0.24.50`,
 `## 0.29.4`, `## 0.31.0`, `## 0.32.0`, `## 0.33.16`, `## 0.33.22`, `## 0.33.25`–`## 0.33.31`),
 `scripts/lib.sh:14-29`, `scripts/graph-cluster.sh`, `scripts/wiki-redundancy.sh`,
 `scripts/wiki-forget-candidates.sh`, `scripts/validate-plugin.sh:191-220`,

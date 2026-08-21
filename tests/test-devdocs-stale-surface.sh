@@ -17,6 +17,7 @@ pass(){ echo "PASS: $1"; }
 # historical and this lock is mis-scoped — fail loudly so it gets re-scoped in the same
 # change (drop the name from DENY below).
 for p in cost-router skills/code-review-deep skills/team scripts/team-run.sh \
+         CHANGELOG.md docs/specs docs/superpowers \
          agents/quality-reviewer.md agents/team-worker.md \
          agents/code-review-scorer.md agents/code-review-unit-reviewer.md \
          agents/code-review-history-reviewer.md agents/code-review-premise-reviewer.md; do
@@ -24,23 +25,22 @@ for p in cost-router skills/code-review-deep skills/team scripts/team-run.sh \
     fail "denylisted surface '$p' exists in the tree again — re-scope this lock"
   fi
 done
-
-# Surfaces removed from the tree (cost-router 0.35.x; code-review-*/team family 0.44.0).
+# Surfaces removed from the tree (cost-router 0.35.x; code-review-*/team family 0.44.0;
+# CHANGELOG.md + docs/specs/ + docs/superpowers/ by the 0.34.0 "pre-1.0 diet", c65671f).
 #
 # Scan form: `find -exec grep +`, not `grep -r --include`. BSD grep does support --include,
 # but this file would be the repo's only user of it and a BSD claim cannot be verified from
 # the Windows dev box — the find form is unambiguously portable, so the question never arises.
 #
-# KNOWN GAP — deliberately NOT covered yet, do not read a green run as "no stale surfaces left":
-# the 0.34.0 "pre-1.0 diet" (c65671f) also deleted CHANGELOG.md, docs/specs/ and
-# docs/superpowers/, and .claude/skills still references them on 92 lines across 17 files
-# (measured 2026-08-21: CHANGELOG.md 54, docs/superpowers 33, docs/specs 8). Some are live
-# instructions that would send a releaser at a file that does not exist — e.g. the runsheet's
-# `git add -A` list and `grep -n '^## ' CHANGELOG.md` — and some are legitimate history needing
-# only a marker. Adding them to DENY without triaging each line would just invite
-# marker-sprinkling, which hollows out this lock. Tracked as its own pass; add them to DENY and
-# to the restoration guard above in the SAME change that fixes the 92 lines.
-DENY='cost-router|skills/team|code-review-(deep|scorer|unit-reviewer|history-reviewer|premise-reviewer)|quality-reviewer|team-worker|team-run\.sh'
+# Why the CHANGELOG pattern is TWO alternatives, not a bare `CHANGELOG`: a bare match pulls in
+# ~70 lines of the form "CHANGELOG 0.33.22", which are citations of a release RECORD, not of a
+# file path — they resolve fine in history and marking them all would be exactly the
+# marker-sprinkling that hollows out this lock. What is actually dangerous is (a) the file PATH
+# `CHANGELOG.md`, which a reader will try to open, and (b) an instruction to write a "CHANGELOG
+# entry/bullet", which sends a releaser to author a file that no longer exists. Those two are
+# denied; the bare-version citation is deliberately OUT of scope. Do not widen this to a bare
+# `CHANGELOG` without re-triaging those ~70 lines.
+DENY='cost-router|skills/team|code-review-(deep|scorer|unit-reviewer|history-reviewer|premise-reviewer)|quality-reviewer|team-worker|team-run\.sh|CHANGELOG\.md|CHANGELOG (entry|entries|bullet|bullets|hunk|heading|headings)|docs/specs|docs/superpowers'
 # A mention is historical (allowed) when one of these sits on the SAME line or an ADJACENT
 # one — prose wraps mid-sentence, so the removal marker legitimately lands one line away.
 MARKER='[Rr]emoved|REMOVED|[Aa]bsorbed|[Hh]istorical|[Dd]eleted|[Dd]ropped|de-vendored|archive/docs|[Rr]etired|[Rr]emoval|[Gg]one|[Mm]ooted'
@@ -77,6 +77,24 @@ else
   pass "no removed surface presented as current in .claude/skills"
 fi
 
+
+# The MARKER above accepts `archive/docs` as proof a citation is historical, so this lock is only
+# as good as that branch being REACHABLE. It was pushed to origin on 2026-08-21 — before that it
+# existed on exactly one machine, and every "history lives on archive/docs" pointer in the repo
+# (README, CONSTITUTION, RELEASING, NOTICE, skills/status, scripts/lib.sh, and 10 dev-skill files)
+# was dead for anyone who cloned. Guard it: a marker that resolves nowhere is not a marker.
+# archive/docs == 94bede5 == c65671f^, an ancestor of main, so the SHA works even if the ref moves.
+ARCHIVE_OK=0
+for r in archive/docs origin/archive/docs 94bede5; do
+  if git -C "$ROOT" cat-file -e "$r:CHANGELOG.md" ; then ARCHIVE_OK=1; break; fi
+done
+if [ "$ARCHIVE_OK" = 1 ]; then
+  pass "archived docs are reachable (archive/docs branch or its commit)"
+elif [ "$(git -C "$ROOT" rev-parse --is-shallow-repository )" = "true" ]; then
+  echo "SKIP: shallow clone — cannot verify archive/docs reachability (fetch-depth 0 required)"
+else
+  fail "no ref resolves the archived docs (tried archive/docs, origin/archive/docs, 94bede5) — every 'history lives on archive/docs' pointer in the repo is dead; re-push the branch"
+fi
 [ "$FAILED" = 0 ] || exit 1
 echo
 echo "ALL PASS"

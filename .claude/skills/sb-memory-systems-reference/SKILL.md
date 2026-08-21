@@ -92,7 +92,7 @@ burned by the multiplicative-boost family three times:
    The floor likewise compares frozen base scores in BM25-only mode (:353-359).
 2. **P7 demote (0.33.22).** Even the capped boost, measured on the real wiki (96 pages / 170
    edges), was a wash: improved a gold page's rank in 6 cases, degraded it in 6, changed nothing
-   in 80 of 92 (CHANGELOG.md `## 0.33.22`). It is now opt-in via `SB_GRAPH_RANKING_BOOST=1`,
+   in 80 of 92 (archive/docs:CHANGELOG.md `## 0.33.22`). It is now opt-in via `SB_GRAPH_RANKING_BOOST=1`,
    default OFF (:194-199), locked by `mcp/src/tools/retrieval-guards.test.ts:114-139`.
 3. **P4b access-frequency boost cut (0.33.30).** The `1 + 0.1·min(count,10)` per-result multiplier
    was removed as the recsys "rich-get-richer" hub bias — the same corruption class (CHANGELOG.md:24;
@@ -220,7 +220,7 @@ reflection via an importance accumulator (~150), which presumes a continuous age
 paper, each deliberate:
 
 - **Cadence:** per-dream, NOT the importance accumulator ("assumes a continuous agent loop we
-  don't have" — CHANGELOG.md:60-62). Idempotence via `member_hash`: an unchanged cluster is never
+  don't have" — archive/docs:CHANGELOG.md:60-62). Idempotence via `member_hash`: an unchanged cluster is never
   re-reflected (checked in BOTH `learnings/` and `concepts/`).
 - **Eligibility before writing:** reflect only when ≥ half the cluster members are actionable
   (learnings/issues/decisions) AND a genuine cross-cutting practice emerges; else write NOTHING.
@@ -246,7 +246,7 @@ regeneration in the drainer (`scripts/extract-drain.sh`, config key `auto_codema
 0.33.34), and SessionStart spine injection (`session-load.sh` §0d, kill switch
 `SB_CODEMAP_ORIENT` — 0.33.35, placed BEFORE the forced USER.md/PROJECT.md sections after live
 verification caught it being budget-starved when placed last). Shaping plan:
-`docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`. Remaining P3a: Phase 4
+`archive/docs:docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`. Remaining P3a: Phase 4
 (layer-5 code↔wiki edges), Phase 5 (opt-in WASM tree-sitter tier).
 
 **Theory.** PageRank ranks graph nodes by stationary visit probability of a random surfer with
@@ -378,7 +378,7 @@ boundary.
 | Network / exfil | NOT cut: the headless run is a `claude -p` with network up and the OAuth credential ro-bound — "token readable + network up ⇒ exfil possible in ANY OAuth-headless run" (documented residual since 0.24.26; re-flagged OPEN by the 2026-07-02 audit). | OPEN |
 
 **The P6-quarantine plan (PLAN-QUEUED, zero code —
-`docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`)** is the CaMeL install: Stage A =
+`archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`)** is the CaMeL install: Stage A =
 quarantined summarizer (`claude -p`, network up, transcripts read-only, emits only
 `candidate-facts.jsonl` with `provenance.trust:"untrusted"`); Stage B = privileged writer as a
 DETERMINISTIC Node CLI under bwrap `--unshare-net` with transcripts NOT mounted at all — the only
@@ -429,8 +429,8 @@ to say so explicitly.
 
 Derived from the working tree at 0.33.31 (uncommitted release batch on top of commit `6fba312` =
 0.33.30), authored 2026-07-05. Every mechanism section was verified by reading the cited source
-files in full; incident facts cross-checked against `CHANGELOG.md`, `CONSTITUTION.md`,
-`docs/plans/2026-06-10-r2-search-serving.md`, and the plan docs under `docs/superpowers/plans/`.
+files in full; incident facts cross-checked against `archive/docs:CHANGELOG.md`, `CONSTITUTION.md`,
+`docs/plans/2026-06-10-r2-search-serving.md`, and the plan docs under `archive/docs:docs/superpowers/plans/`.
 Open-residual claims come from the 2026-07-02 deep audit (88 confirmed findings) — re-verify in
 code before relying on them.
 
