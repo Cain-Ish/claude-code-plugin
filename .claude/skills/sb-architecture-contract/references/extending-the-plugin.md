@@ -221,7 +221,7 @@ surface-budget key counts `.test.ts` files. Checklist: sb-validation-and-qa.
 
 `mcp/src` + `mcp/dist` are tripwire trigger paths → version bump; rebuilt bundles committed
 (bundle-current byte-compares); release-commit-body bullet; update the parent SKILL.md §5 tool table and
-its re-verify count (was 21 — `grep -c 'registerTool(' mcp/src/server.ts`); README if
+its re-verify count (was 23 — `grep -c '^registerJsonTool(' mcp/src/server.ts`); README if
 user-facing ("README matches what ships"). If a consolidation agent's protocol must call the
 new tool, add the MCP grant to that agent's frontmatter AND extend `mcp/src/agent-grants.test.ts`
 in the same commit — a prose promise without a machine lock is a future defect
@@ -239,7 +239,9 @@ entirely from repo evidence: `hooks/hooks.json`, `scripts/validate-plugin.sh:9-6
 `scripts/hook-timer.sh`, `scripts/lib.sh:251-306,1255`, `scripts/ensure-dirs.sh:3`,
 `mcp/src/server.ts` (imports :1-28, resolveKnowledgeDir :29-43, pin_to_user :115-125),
 `mcp/src/brain-paths.test.ts`, `mcp/package.json`. Convention greps run 2026-07-05: zod imports
-→ only server.ts; `export default` in mcp/src → 0; `registerTool(` → 21.
+→ only server.ts; `export default` in mcp/src → 0. Tool count: `^registerJsonTool(` → 23
+(a bare `registerTool(` grep returns 1 — every tool goes through the one helper, locked by
+mcp/src/server-tools-contract.test.ts; the old bare-grep probe answered its own question wrong).
 
 Re-verify before trusting:
 
@@ -248,7 +250,7 @@ jq -r '.hooks | keys[]' hooks/hooks.json                        # events (was 8)
 sed -n '21,22p' scripts/validate-plugin.sh                      # NO_MATCHER_EVENTS + SessionStart matcher set
 grep -rln 'from "zod"' mcp/src --include='*.ts'                 # zod confinement (was: server.ts only)
 grep -rln 'export default' mcp/src --include='*.ts' | wc -l     # named-exports rule (was 0)
-grep -c 'registerTool(' mcp/src/server.ts                       # tool count (was 21)
+grep -c '^registerJsonTool(' mcp/src/server.ts                       # tool count (was 23)
 grep -n 'guardDestructive' mcp/src/server.ts | head -3          # destructive wrap in use
 grep -n 'hook-timer.sh' hooks/hooks.json                        # which hooks are timer-wrapped (was 5)
 ```

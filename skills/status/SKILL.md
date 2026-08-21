@@ -125,7 +125,7 @@ else
 fi
 ```
 
-Graduation is automatic since the `/second-brain:improve` retirement: `merge-persona-signals.sh` (Stop hook) auto-pins count≥2 high-confidence signals to USER.md. If ungraduated signals linger here, offer to pin them explicitly via the `pin_to_user` MCP tool.
+Graduation is automatic: `merge-persona-signals.sh` (Stop hook) auto-pins count≥2 high-confidence signals to USER.md. If ungraduated signals linger here, offer to pin them explicitly via the `pin_to_user` MCP tool.
 
 ### 4d. Dream status
 
