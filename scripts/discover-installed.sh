@@ -3,6 +3,19 @@
 # Usage: discover-installed.sh [plugins-root]
 # Defaults: plugins-root=${CLAUDE_PLUGINS_DIR:-$HOME/.claude/plugins/cache}
 # Writes JSON catalog to ${BRAIN_DIR:-~/.second-brain}/.installed-catalog.json and stdout.
+#
+# PERFORMANCE IS A CORRECTNESS PROPERTY HERE (0.45.0). hooks/hooks.json gives this
+# hook a 10s SessionStart budget. The previous implementation spawned three
+# processes PER FILE (awk for `name`, awk for `description`, jq to assemble) and
+# measured 52.4s against a 964-skill / 320-agent install base — killed at 10s every
+# session. Because the catalog is written only at the END, a killed run never
+# refreshes the cache, so the plugins tree stays newer than the cache file and the
+# NEXT session re-enters the slow path and is killed again: a permanent starvation
+# loop, tripped by any `/plugin update`, surfacing no error anywhere.
+# This version spawns a FIXED number of processes per PLUGIN (2 jq + 2 find + 2 awk)
+# instead of per file, via one `find -exec awk … {} +` batch per kind. Keep it that
+# way — tests/test-discover-installed.sh test 6 fails the build if 400 files no
+# longer fit inside the timeout hooks.json declares.
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
@@ -29,34 +42,70 @@ if [ -f "$OUT_FILE" ] && [ -d "$PLUGINS_ROOT" ]; then
 fi
 
 TMP_PLUGINS=$(mktemp)
+TMP_AGENTS_RAW=$(mktemp)
+TMP_SKILLS_RAW=$(mktemp)
 TMP_AGENTS=$(mktemp)
 TMP_SKILLS=$(mktemp)
-trap 'rm -f "$TMP_PLUGINS" "$TMP_AGENTS" "$TMP_SKILLS"' EXIT
+trap 'rm -f "$TMP_PLUGINS" "$TMP_AGENTS_RAW" "$TMP_SKILLS_RAW" "$TMP_AGENTS" "$TMP_SKILLS"' EXIT
 
-# Extract a YAML frontmatter field value. Reads stdin.
-fm_value() {
-  awk -v key="$1" '
-    /^---[[:space:]]*$/ { f = !f; next }   # [[:space:]]*: a CRLF SKILL/agent .md fence is `---\r`; strict /^---$/ would never toggle
-    f {
-      pattern = "^" key ":"
-      if ($0 ~ pattern) {
-        sub(pattern "[[:space:]]*", "")
-        gsub(/^["'\''[:space:]]+|["'\''[:space:]]+$/, "")
-        print
-        exit
-      }
-    }'
+# Frontmatter reader, batched over MANY .md files in one awk process.
+# Emits one US(\037)-separated record per file: name \037 description \037 plugin.
+# Records with an empty name are dropped downstream by jq (matching the previous
+# `[ -z "$aname" ] && continue`).
+#   - The fence regex keeps `[ \t\r]*` because a CRLF-authored .md fence is `---\r`;
+#     a strict /^---$/ would never toggle and the whole block would be invisible.
+#   - Only the FIRST frontmatter block is read (fence==1), so a `---` rule inside
+#     the body cannot resurrect parsing. The old per-key `exit` made that moot;
+#     batching means we must be explicit.
+#   - \037 is stripped from values so a hostile description cannot forge a field.
+FM_AWK=$(cat <<'AWKEOF'
+function clean(v) {
+  gsub(/\r/, "", v)
+  gsub(/\037/, "", v)
+  gsub(/^["'[:space:]]+/, "", v)
+  gsub(/["'[:space:]]+$/, "", v)
+  return v
 }
+function emit() {
+  if (nm != "") printf "%s\037%s\037%s\n", nm, ds, PLUG
+  nm = ""; ds = ""; fence = 0
+}
+FNR == 1 { emit() }
+/^---[ \t\r]*$/ { fence++; next }
+fence == 1 {
+  if (nm == "" && $0 ~ /^name:/) {
+    v = $0; sub(/^name:[ \t]*/, "", v); nm = clean(v)
+  } else if (ds == "" && $0 ~ /^description:/) {
+    v = $0; sub(/^description:[ \t]*/, "", v); ds = clean(v)
+  }
+}
+END { emit() }
+AWKEOF
+)
 
 if [ -d "$PLUGINS_ROOT" ]; then
   while IFS= read -r pj; do
     [ -f "$pj" ] || continue
-    name=$(jq -r '.name // empty' "$pj" 2>/dev/null) || continue
-    [ -z "$name" ] && continue
-    desc=$(jq -r '.description // ""' "$pj" 2>/dev/null | tr -d '\r')
-    ver=$(jq -r '.version // ""' "$pj" 2>/dev/null | tr -d '\r')
-    jq -nc --arg n "$name" --arg d "$desc" --arg v "$ver" \
-      '{name:$n, description:$d, version:$v}' >> "$TMP_PLUGINS"
+    # One jq builds the plugin record (was three `jq -r` reads plus a `jq -nc`
+    # assemble). gsub("\r";"") replaces the old `tr -d '\r'` without a second process.
+    prec=$(jq -c 'select((.name // "") != "")
+                  | {name: .name,
+                     description: ((.description // "") | gsub("\r"; "")),
+                     version:     ((.version     // "") | gsub("\r"; ""))}' "$pj" 2>/dev/null)
+    [ -n "$prec" ] || continue
+    printf '%s\n' "$prec" >> "$TMP_PLUGINS"
+    # Sanitize the SAME characters clean() strips inside FM_AWK. $name is spliced
+    # into the 0x1f record stream as the third field, so it is untrusted framing
+    # input exactly like a description is — but it arrives from a THIRD-PARTY
+    # plugin.json, not from a line-oriented awk read, so it can carry a literal
+    # NEWLINE. Without \n and \037 stripping, a hostile plugin.json name of the form
+    #   "evil\nFAKE-NAME\037FAKE-DESC\037FAKE-PLUGIN"
+    # appends a genuine extra line to the stream, which `jq -Rc` then parses as a
+    # fully FORGED agent/skill record backed by no file at all (reproduced 2026-08-21
+    # during review of this rewrite; the header's anti-forgery claim covered only
+    # nm/ds and silently did not hold for PLUG). Locked by test 8.
+    name=$(jq -r '.name // empty' "$pj" 2>/dev/null | tr -d '\r\n\037')
+    [ -n "$name" ] || continue
 
     # Resolve the plugin's root dir. plugin.json may live at <root>/plugin.json
     # or <root>/.claude-plugin/plugin.json.
@@ -65,25 +114,43 @@ if [ -d "$PLUGINS_ROOT" ]; then
       plugin_dir=$(dirname "$plugin_dir")
     fi
 
-    while IFS= read -r af; do
-      [ -f "$af" ] || continue
-      aname=$(fm_value name < "$af")
-      adesc=$(fm_value description < "$af")
-      [ -z "$aname" ] && continue
-      jq -nc --arg n "$aname" --arg d "$adesc" --arg p "$name" \
-        '{name:$n, description:$d, plugin:$p}' >> "$TMP_AGENTS"
-    done < <(find "$plugin_dir/agents" -maxdepth 1 -name '*.md' -type f 2>/dev/null)
-
-    while IFS= read -r sf; do
-      [ -f "$sf" ] || continue
-      sname=$(fm_value name < "$sf")
-      sdesc=$(fm_value description < "$sf")
-      [ -z "$sname" ] && continue
-      jq -nc --arg n "$sname" --arg d "$sdesc" --arg p "$name" \
-        '{name:$n, description:$d, plugin:$p}' >> "$TMP_SKILLS"
-    done < <(find "$plugin_dir/skills" -mindepth 2 -maxdepth 2 -name 'SKILL.md' -type f 2>/dev/null)
+    # `-exec … {} +` batches every matching file into ONE awk invocation (a handful
+    # for very large trees), instead of one process per file. POSIX; BSD/macOS-safe.
+    # No match => awk is never invoked at all.
+    [ -d "$plugin_dir/agents" ] && find "$plugin_dir/agents" -maxdepth 1 -name '*.md' -type f \
+      -exec awk -v PLUG="$name" "$FM_AWK" {} + >> "$TMP_AGENTS_RAW" 2>/dev/null
+    [ -d "$plugin_dir/skills" ] && find "$plugin_dir/skills" -mindepth 2 -maxdepth 2 -name 'SKILL.md' -type f \
+      -exec awk -v PLUG="$name" "$FM_AWK" {} + >> "$TMP_SKILLS_RAW" 2>/dev/null
   done < <(find "$PLUGINS_ROOT" -name 'plugin.json' -type f 2>/dev/null | head -200)
 fi
+
+# One jq per kind converts the whole US-separated stream to JSONL. `-R` reads raw
+# lines, so no shell quoting can corrupt a description.
+us2json() {
+  jq -Rc 'select(length > 0)
+          | split(([31] | implode))   # US (0x1f); built from its code point so no
+                                       # backslash escape can be mangled by an editor or sed
+          | select(length >= 3)
+          | select(.[0] != "")
+          | {name: .[0], description: .[1], plugin: .[2]}'
+}
+# FAIL LOUD on a truncated category. A jq failure here would silently yield an
+# EMPTY agents/skills list and a structurally valid catalog — the same
+# silently-truncated-catalog failure this rewrite exists to end. This is a
+# SessionStart hook, so it must not block: breadcrumb and continue with what we
+# have, rather than swallow. Only fires when raw input existed but conversion
+# produced nothing, so an install base with genuinely zero agents stays quiet.
+convert_or_log() {
+  local raw="$1" out="$2" kind="$3"
+  us2json < "$raw" > "$out" 2>/dev/null
+  if [ -s "$raw" ] && [ ! -s "$out" ]; then
+    printf '{"timestamp":"%s","script":"discover-installed.sh","message":"catalog %s conversion produced 0 records from %s bytes of input — catalog is truncated","exit_code":1}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$kind" "$(wc -c < "$raw" | tr -d ' ')" \
+      >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
+  fi
+}
+convert_or_log "$TMP_AGENTS_RAW" "$TMP_AGENTS" agents
+convert_or_log "$TMP_SKILLS_RAW" "$TMP_SKILLS" skills
 
 # Slurp the JSONL streams into a single catalog object.
 CATALOG=$(jq -ns \

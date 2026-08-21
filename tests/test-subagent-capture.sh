@@ -164,4 +164,54 @@ run_hook "$B" "general-purpose" "trail1" "$T" >/dev/null 2>&1
 ls "$B/transcripts/"sub-trail1_*.txt >/dev/null 2>&1 || fail "14: prose result with trailing non-SO tool_use was dropped"
 pass "trailing non-StructuredOutput tool_use: prose result still archived"
 
+# --- Test 15 (0.45.0 regression): EMPTY agent_type must NOT archive ------------
+# LIVE BUG (2026-08-21): SubagentStop payloads arrived with agent_type empty. The
+# self-exclusion loop compares $bare_type against a name list, so an empty value
+# matched nothing and capture PROCEEDED — archiving 50 stub files in 12 minutes,
+# each containing the PARENT session's own assistant text. That violates the
+# "no mining-self" property this hook's header calls load-bearing, and floods the
+# extraction queue. Fail closed: if we cannot identify the agent, we cannot prove
+# it is not self, so we do not archive.
+# Every pre-0.45.0 case in this file supplied a non-empty agent_type, which is
+# exactly why a 15-case green suite never saw the production path.
+B="$TMP/b15"; mkdir -p "$B"; T="$TMP/t15.jsonl"; mk_transcript "$T" 1 "$LONG"
+run_hook "$B" "" "aid15" "$T" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] || fail "15: hook must exit 0 even when skipping"
+[ -z "$(arc "$B")" ] || fail "15: empty agent_type was archived (self-exclusion failed open)"
+pass "empty agent_type: NOT archived (fail closed)"
+
+# --- Test 16 (0.45.0 regression): the PARENT's own transcript must NOT archive --
+# Root cause of the same incident: transcript_path pointed at the parent session's
+# transcript, so the hook captured the main thread's last assistant message as if
+# it were a subagent result. A main-session transcript is named <session_id>.jsonl,
+# so basename-minus-extension == the payload's session_id is a precise, cheap
+# oracle for "this is the parent's transcript, not a subagent's".
+B="$TMP/b16"; mkdir -p "$B"; T="$TMP/sess1.jsonl"; mk_transcript "$T" 1 "$LONG"
+run_hook "$B" "general-purpose" "aid16" "$T" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] || fail "16: hook must exit 0 even when skipping"
+[ -z "$(arc "$B")" ] || fail "16: parent-session transcript was archived as a subagent result"
+pass "parent-session transcript: NOT archived"
+
+# --- Test 16b: the basename strip must handle BOTH path separators ------------
+# SOURCE-SCAN lock, deliberately not a behavioural case. A behavioural test cannot
+# reach this branch: the payload carries a NATIVE path, and a Windows-form path like
+# C:\Users\...\sess1.jsonl does not exist as a file under git-bash, so the hook
+# exits at the earlier `[ -f "$TRANSCRIPT" ]` check and the fixture passes for the
+# WRONG reason (verified 2026-08-21 — the first draft of this test passed even with
+# the backslash strip deleted). A source scan cannot be fooled that way and no env
+# override can neuter it.
+_SC="$ROOT/scripts/subagent-capture.sh"
+if grep -q '_t_base##' "$_SC"; then
+  pass "basename strip covers both / and \ separators (source scan)"
+else
+  fail "16b: subagent-capture.sh no longer strips the BACKSLASH separator when deriving the transcript basename; the parent-transcript guard fails open on Windows path forms"
+fi
+
+# --- Test 17: the Test-15/16 guards must not overreach ------------------------
+# A named agent whose transcript is genuinely its own still archives.
+B="$TMP/b17"; mkdir -p "$B"; T="$TMP/subagent-xyz.jsonl"; mk_transcript "$T" 1 "$LONG"
+run_hook "$B" "general-purpose" "aid17" "$T" >/dev/null 2>&1
+ls "$B/transcripts/"sub-aid17_*.txt >/dev/null 2>&1 || fail "17: legitimate subagent capture was over-blocked"
+pass "named agent with own transcript: still archived"
+
 echo; echo "ALL PASS"

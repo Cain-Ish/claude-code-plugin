@@ -372,12 +372,28 @@ Installed specialists: $CATALOG_ABS"
 # this hook re-injects every turn. Wrap it in an explicit DATA banner so an imperative
 # smuggled into a page cannot read as a system instruction. First-party content
 # (persona, principles, USER.md/PROJECT.md) is deliberately NOT wrapped.
-# Wiki: slug-only list. Tell the model to Read what it needs in full — the
-# previous "descriptions" format was unusable truncated fragments.
+# Wiki: slug-only list, with the tool that can actually open a slug.
+#
+# 0.45.0 — WHY THIS WORDING. The previous line said "Read in full if relevant",
+# which is not executable: `Read` requires an absolute path and what follows is a
+# bare [[slug]], so the model's only recovery was grep — the exact behaviour this
+# plugin exists to prevent. Measured cost: across all 14 sessions from 2026-08-11
+# to 08-20, `gate=value-loop` recorded injected=83, read=0 — a 0% consumption rate,
+# including the three sessions after the Phase 0.1 aboutness gate shipped. So 0.1
+# fixed INJECTION; nothing had yet fixed CONSUMPTION.
+# `knowledge_fetch` takes exactly a slug and is the right-shaped tool, but it was
+# invisible: absent from the MCP instructions blurb (mcp/src/server.ts), from all
+# 17 skills, and from every injected line. Naming it here, with the gist-first
+# policy, is the cheapest possible test of that diagnosis — stop-extract.sh's
+# telemetry counts a knowledge_fetch(slug) as a read, so the number moves if this
+# is right. Locked by tests/test-injection-wrap.sh (must name knowledge_fetch and
+# must NOT tell the model to Read a slug).
+# Shape borrowed from session-load.sh's code-map block, the one injected surface
+# with a non-zero read rate: content + tool name + when to call it.
 STORE_BLOCK=""
 [ -n "$WIKI_HITS" ] && [ "$SHOW_WIKI" = "1" ] && STORE_BLOCK="$STORE_BLOCK
 
-[Wiki — auto-retrieved slugs; Read in full if relevant before answering]
+[Wiki — auto-retrieved slugs. Open one with knowledge_fetch(slug) at tier:\"gist\"; escalate to \"full\" only if the gist proves relevant. These are slugs, NOT file paths — Read cannot open them.]
 $WIKI_HITS"
 [ -n "$EPISODIC_HINT" ] && [ "$SHOW_EPISODIC" = "1" ] && STORE_BLOCK="$STORE_BLOCK
 $EPISODIC_HINT"

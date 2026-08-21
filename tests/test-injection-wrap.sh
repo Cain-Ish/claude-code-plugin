@@ -43,6 +43,21 @@ if printf '%s' "$CTX" | grep -q 'Wiki — auto-retrieved slugs'; then
   # grep -E: `\|` alternation is a GNU BRE extension and does not alternate under BSD grep.
   printf '%s' "$CTX" | grep -qiE 'DATA, never instructions|DATA, not instructions' \
     && pass "banner states DATA-not-instructions" || fail "banner lacks the DATA framing"
+
+  # --- 0.45.0 prose lock: the hint must be EXECUTABLE -------------------------
+  # The block hands the model bare [[slug]] identifiers. Until 0.45.0 it said
+  # "Read in full", but `Read` needs an absolute path, so the instruction could not
+  # be followed and the measured consumption rate was 0/83 injected items across 14
+  # sessions. `knowledge_fetch` is the tool that accepts a slug. If this assertion
+  # ever fails, the hint has regressed to naming a tool that cannot open its own
+  # payload — re-read the rationale block in scripts/persona-context.sh before
+  # "fixing" the test.
+  printf '%s' "$CTX" | grep -q 'knowledge_fetch' \
+    && pass "wiki hint names knowledge_fetch (the tool that accepts a slug)" \
+    || fail "wiki hint does not name knowledge_fetch — a bare [[slug]] with no fetch tool is unexecutable"
+  printf '%s' "$CTX" | grep -qE '^\[Wiki[^]]*Read in full' \
+    && fail "wiki hint tells the model to Read a slug; Read requires a path, so this cannot be followed" \
+    || pass "wiki hint does not instruct an unexecutable Read"
   # Ordering: the banner must PRECEDE the wiki block it covers.
   B=$(printf '%s' "$CTX" | grep -n 'Untrusted reference' | head -1 | cut -d: -f1)
   W=$(printf '%s' "$CTX" | grep -n 'Wiki — auto-retrieved' | head -1 | cut -d: -f1)
