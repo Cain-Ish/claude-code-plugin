@@ -35,6 +35,31 @@ CWD=$(echo "$RAW"        | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
 [ -n "$AGENT_ID" ] || AGENT_ID="unknown"
 
+# --- Fail closed when the agent cannot be identified (0.45.0) -----------------
+# LIVE INCIDENT 2026-08-21: payloads arrived with agent_type EMPTY. The
+# self-exclusion loop below compares $bare_type against a NAME LIST, so an empty
+# value matched nothing and capture PROCEEDED — 50 stubs archived in 12 minutes,
+# every one holding the PARENT session's own assistant text. That is precisely the
+# "mining-self" this file's header calls a load-bearing property, and it floods the
+# extraction queue that the drainer is already starved on. If we cannot name the
+# agent we cannot prove it is not self, so we skip. Covered by test 15.
+[ -n "$AGENT_TYPE" ] || exit 0
+
+# --- Never archive the PARENT session's own transcript (0.45.0) ---------------
+# Root cause of the same incident: transcript_path pointed at the MAIN session's
+# transcript, so the hook captured the main thread's last assistant message as a
+# "subagent result" (session_id in the stub matched the parent, tool_count tracked
+# the parent's). A main-session transcript is named <session_id>.jsonl, so
+# basename-minus-.jsonl == the payload's session_id is a precise, spawn-free oracle
+# for "this is the parent's transcript". Covered by test 16; test 17 locks that
+# neither guard over-blocks a legitimate named subagent.
+# Strip BOTH separators: the payload carries a native path, so on Windows this
+# arrives backslash-separated and a `${x##*/}`-only strip would leave the whole
+# directory attached, silently defeating the guard on the platform where the
+# incident was observed. Parameter expansion only — no basename spawn in a hook.
+_t_base="${TRANSCRIPT##*/}"; _t_base="${_t_base##*\\}"; _t_base="${_t_base%.jsonl}"
+[ -n "$SESSION_ID" ] && [ "$_t_base" = "$SESSION_ID" ] && exit 0
+
 # --- Self-exclude: never archive the plugin's OWN agents (mining-self = noise
 # feeding itself). Match the bare name and the namespaced plugin:...:name form. ---
 SELF_AGENTS="dream-runner knowledge-maintainer search-conversations"

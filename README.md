@@ -57,7 +57,7 @@ stage changes for review, forgetting archives rather than deletes.
 
 ## Commands
 
-15 user-invocable skills:
+13 user-invocable skills:
 
 | Command | Purpose |
 |---|---|

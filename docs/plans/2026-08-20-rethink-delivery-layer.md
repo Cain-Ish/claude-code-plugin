@@ -240,9 +240,41 @@ Each phase ships independently and is gated on the value-loop number, not on com
       100-file cap with an extraction-state-aware cap that cannot evict un-mined transcripts.
 - [ ] 0.7 Purge the 8 junk rows from `projects.jsonl`; add a registration guard for scratch/temp
       roots.
+- [x] **0.8 Make the wiki hint executable (0.45.0).** DONE — the delivery half of `read=0`.
+
+      0.1 fixed INJECTION and the rate stayed at exactly zero, which narrows the cause to
+      CONSUMPTION. Measured over all 14 `gate=value-loop` rows, 2026-08-11 → 08-20:
+      `injected=83, read=0, prior=0, hits=none` — including the three sessions AFTER 0.1
+      shipped. So the gate was never the whole story.
+
+      Root cause: the block handed the model a bare `[[slug]]` under the instruction
+      "Read in full if relevant". `Read` requires an absolute path, so that instruction is
+      literally unexecutable and the only recovery is grep — the behaviour this plugin exists
+      to prevent. `knowledge_fetch` accepts exactly a slug, but it was invisible: absent from
+      the MCP `instructions` blurb (`mcp/src/server.ts`), from all 17 skills, and from every
+      injected line. `stop-extract.sh`'s telemetry counts a hit only on `knowledge_fetch(slug)`
+      or a `Read` of `/slug.md`, so both facts predict exactly the observed 0.
+
+      The hint now names `knowledge_fetch(slug)` with a gist-first policy and states that these
+      are slugs, not paths. Shape copied from `session-load.sh`'s code-map block — the one
+      injected surface with a non-zero read rate: content + tool name + when to call it.
+      Cost: +40 bytes (~10 tokens) per turn on prompts that produce wiki hits.
+
+      Lock: `tests/test-injection-wrap.sh` — asserts the emitted block names `knowledge_fetch`
+      AND does not instruct an unexecutable `Read` of a slug. Verified RED on the old wording
+      (2 failures).
+
+      **This is a hypothesis under test, not a completed fix.** It is cheap and reversible; the
+      measurement decides. If `read` is still 0 after ~5 sessions, the cause is NOT the wording
+      and the next suspects are 0.2/0.3 (the denominator is incomplete, and misses have no
+      recorded reason) — do those before touching ranking again.
 
 **Exit criterion:** a `gate=value-loop` row with `read>0`, sustained over 5 sessions.
 If Phase 0 cannot produce a non-zero read rate, no later phase is worth building.
+
+> Status 2026-08-21: still UNMET (83 injected / 0 read over 14 sessions). 0.1 and 0.8 have both
+> shipped against it; 0.2, 0.3, 0.5, 0.6, 0.7 remain open. Re-read this line before concluding
+> that a later phase is ready to start.
 
 ### Phase 1 — Delegate the hot tier
 
