@@ -2,13 +2,12 @@
 name: sb-docs-and-writing
 description: >-
   Docs of record and house writing style for the second-brain plugin repo. Load this when
-  writing or reviewing a CHANGELOG.md entry, creating a docs/plans/ or docs/specs/ file,
+  writing or reviewing a release-commit body, creating a docs/plans/ file or a wiki design note,
   deciding whether a release needs a skills/upgrade/migrations/<version>.md note, authoring
   or editing a skills/*/SKILL.md or agents/*.md (frontmatter flags, allowed-tools vs tools
   format, the untrusted-input DATA banner, the <500-line rule), composing commit messages
   (release: X.Y.Z — thesis; conventional prefixes; Co-Authored-By trailer), matching the
-  repo's terse evidence-first voice, or fixing known doc drift (orphaned 0.33.19 header,
-  stale CONSTITUTION.md test reference, README line-5 glue). Keywords: changelog entry,
+  repo's terse evidence-first voice, or fixing known doc drift. Keywords: release body,
   plan template, spec template, design doc, migration note, frontmatter, user-invocable,
   disable-model-invocation, commit style, writing voice, war-story comment, doc defect.
   Do NOT load for the release process itself or gate mechanics (sb-change-control), test
@@ -43,41 +42,59 @@ per-project `PROJECT.md`); **dream** = staged background consolidation of the wi
 
 ## 1. Map: which document owns which fact
 
+Counts are NOT frozen here — every one of them rotted between 0.33.31 and 0.45.0. Read them live
+with the probe below.
+
 | Document | Owns | Shape / gate |
 |---|---|---|
-| `CHANGELOG.md` | Release narrative, newest first. "Never context-loaded" by the plugin (`CHANGELOG.md:3-5`) | §2; entry required whenever shipped source changes (version tripwire — sb-change-control) |
-| `docs/plans/YYYY-MM-DD-<slug>.md` | HOW to implement, task-by-task, TDD steps | §3; 36 files. Constitution-era plans: `docs/superpowers/plans/` (14 files) |
-| `docs/specs/YYYY-MM-DD-<slug>-design.md` | WHAT + WHY, settled decisions, non-goals | §3; 40 files (+4 in `docs/superpowers/specs/`) |
-| `skills/upgrade/migrations/<version>.md` | The ONE real user action a release requires | §4; sparse by design — 18 files for ~200 stamped versions |
-| `CONSTITUTION.md` | Frozen north star: mission triad, hard constraints, governance | 66 lines; content owned by sb-architecture-contract |
-| `RELEASING.md` | Binding release checklist, bypass policy, dev loop, storage invariant | 133 lines; process owned by sb-change-control |
-| `README.md` | User-facing surface. Contract: "matches what ships … it can't lag the code" (`RELEASING.md:55-57`) | 337 lines; user surface owned by sb-run-and-operate |
-| `.claude-plugin/surface-budget.json` | Growth ratchet counts (skills 18 / agents 9 / scripts 52 / tests 153 as of 0.33.31) | Mechanics owned by sb-change-control; the doc-side convention (CHANGELOG closer) is §2 |
+| Release-commit body (`release: X.Y.Z — …`) | Release narrative. Replaced `CHANGELOG.md`, which was removed from main in 0.34.0 | §2; required whenever shipped source changes (version tripwire — sb-change-control) |
+| `docs/plans/YYYY-MM-DD-<slug>.md` | HOW to implement, task-by-task, TDD steps | §3. Pre-0.34.0 plans, including the `docs/superpowers/plans/` tree, are on `archive/docs` |
+| second-brain wiki `decisions/` | WHAT + WHY, settled decisions, non-goals. Replaced `docs/specs/`, removed in 0.34.0 | §3; reachable via `knowledge_search`, not a repo path |
+| `skills/upgrade/migrations/<version>.md` | The ONE real user action a release requires | §4; sparse by design — most versions need no file |
+| `CONSTITUTION.md` | Frozen north star: mission triad, hard constraints, governance | content owned by sb-architecture-contract |
+| `RELEASING.md` | Binding release checklist, bypass policy, dev loop, storage invariant | process owned by sb-change-control |
+| `README.md` | User-facing surface. Contract: "matches what ships … it can't lag the code" (`RELEASING.md`, "The checklist") | user surface owned by sb-run-and-operate |
+| `.claude-plugin/surface-budget.json` | Growth ratchet counts | Mechanics owned by sb-change-control; the doc-side convention (release-body closer) is §2 |
+
+```bash
+wc -l README.md RELEASING.md CONSTITUTION.md          # governing-doc sizes
+ls docs/plans/ | wc -l                                # live plans
+ls skills/upgrade/migrations/ | wc -l                 # migration files
+cat .claude-plugin/surface-budget.json                # budget caps
+git ls-tree --name-only archive/docs:docs/superpowers/plans/ | wc -l   # archived plans
+```
 
 There is deliberately NO repo-level `CLAUDE.md` or `CONTRIBUTING.md` (verified 2026-07-05).
 Contributor doctrine lives in RELEASING.md + CONSTITUTION.md + each plan's Global Constraints.
 
-## 2. CHANGELOG.md — the narrative of record
+## 2. The release record — the release-commit body
 
-Entry anatomy (template + real 0.33.31 exemplar: [references/templates.md §1](references/templates.md)):
+CHANGELOG.md was removed from main in 0.34.0; the release record is now the `release: X.Y.Z —
+thesis` commit body (RELEASING.md "The checklist"). The house anatomy below carried over from the
+removed CHANGELOG entry unchanged — only its home moved. Template + real exemplar:
+[references/templates.md §7](references/templates.md).
 
-1. Bare `## X.Y.Z` header — no date, no `v` prefix. (`RELEASING.md:50` says `## vX.Y.Z`;
-   the CHANGELOG's own 122 headers are ground truth — never write the `v`.)
-2. One-line THESIS paragraph naming the roadmap item ("Deep-audit batch B — all 9
-   HIGH-severity findings … closed").
-3. **Bolded finding-bullets**: tracking id in parens, backticked file/env/test names,
+1. Subject: `release: X.Y.Z — <thesis>` — one line naming the roadmap item ("Deep-audit batch B
+   — all 9 HIGH-severity findings … closed"). No date, no `v` prefix on the version.
+2. **Bolded finding-bullets**: tracking id in parens, backticked file/env/test names,
    thresholds with defaults, the failure mode closed, the kill switch, and the regression
    lock ("Regression-locked in `test-graph-cluster-shim.sh`").
-4. Unbolded closer updating the surface budget when counts changed:
-   "Surface budget: tests 151→153 (`test-normalize-path.sh`, …)" (`CHANGELOG.md:18,28`).
+3. Unbolded closer updating the surface budget when counts changed:
+   "Surface budget: tests 151→153 (`test-normalize-path.sh`, …)".
+4. Gates line: what was run and what it returned.
 
 Rules and traps:
 
-- Write the entry in the SAME commit that stamps `plugin.json` + `marketplace.json`
+- Write the body in the SAME commit that stamps `plugin.json` + `marketplace.json`
   (release batching, bump mechanics: sb-change-control).
-- The CHANGELOG is for humans and git archaeology only — the `/second-brain:upgrade`
+- The release record is for humans and git archaeology only — the `/second-brain:upgrade`
   runner reads ONLY migration files (§4). Never move a required user ACTION into a
-  CHANGELOG bullet; it will not fire on upgrade.
+  release-commit bullet; it will not fire on upgrade.
+- Searching pre-1.0 history means searching two places: `git log --grep` for 0.34.0+, and
+  `git show archive/docs:CHANGELOG.md` for 0.14.0–0.33.x.
+
+Traps that apply ONLY when reading the archived `archive/docs:CHANGELOG.md`:
+
 - **Parsing trap** — ordering is newest-first ONLY down to `## 0.22.0` (line 1460); below
   that, headers ASCEND 0.14.0→0.20.1 then DESCEND 0.21.4→0.21.0 (artifact of the `782861a`
   migration-table split). Never parse the file assuming strict order.
@@ -92,20 +109,20 @@ then plan (HOW, checkbox tasks, TDD step order, exact commands + expected output
 test bodies pasted inline). The pipeline is fixed: `docs(spec)` → `docs(plan)` →
 `feat(...)` task commits → `fix(review): apply deep-review findings` → release commit.
 
-- Naming: `docs/plans/YYYY-MM-DD-<slug>.md`, `docs/specs/YYYY-MM-DD-<slug>-design.md`.
-  Two parallel trees exist — `docs/plans|specs/` and `docs/superpowers/plans|specs/`
-  (constitution/diet workstream docs, e.g. `2026-06-30-p2-learning-to-guardrail.md`).
+- Naming: plans are `docs/plans/YYYY-MM-DD-<slug>.md`. The spec half has no repo path any more —
+  `docs/specs/` and `docs/superpowers/specs/` were removed in 0.34.0 and design decisions now go to
+  the second-brain wiki `decisions/`. Both archived trees are on `archive/docs`.
 - Full copy-pasteable skeletons (plan; spec skeletons A and B; the big-spec extras):
   [references/templates.md §2-3](references/templates.md).
 - Load-bearing traits you must not drop: the "For agentic workers" blockquote at the top of
   every plan; `## Global Constraints` restating the portability bans and "Fail loud, never
   silent."; change-IDs in the spec (B1/C1…) that plan tasks reference back; every spec ends
   by handing off scope to the plan (`## Implementation plan scope (for writing-plans)`).
-- `## Constitution compliance` is the newest superpowers exemplar's addition, introduced by
-  the P2 plan (`2026-06-30-p2-learning-to-guardrail.md`), which cites its spec workstream by
-  section ("This plan is spec workstream **P2** … gated by P0"). Add it to NEW
-  constitution-era plans; 13 of the 14 existing superpowers plans predate it and nothing
-  gates it (verified: `grep -L 'Constitution compliance' docs/superpowers/plans/*.md` → 13).
+- `## Constitution compliance` was introduced by the P2 plan, which cites its spec workstream by
+  section ("This plan is spec workstream **P2** … gated by P0"). Add it to EVERY new plan. Nothing
+  gates it — only 1 of the 14 constitution-era plans carried it, and those plans were removed from
+  main in 0.34.0. Exemplar:
+  `git show archive/docs:docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md`.
 
 ## 4. Migration notes — `skills/upgrade/migrations/<version>.md`
 
@@ -223,7 +240,7 @@ registration, ship set) live in sb-architecture-contract references/extending-th
 Templates + real subjects: [references/templates.md §7](references/templates.md). Summary:
 
 - **Release commits:** `release: X.Y.Z — thesis` (em-dash, no `v`); body mirrors the
-  CHANGELOG bullets and ends with the gates line ("Gates green locally: tsc, vitest (493
+  release bullets and ends with the gates line ("Gates green locally: tsc, vitest (493
   pass, offline), bundle-current, run-all bash suite, validate-plugin, release version-bump
   tripwire, portability static guards." — `6fba312`).
 - **Intermediate commits:** conventional prefix + subsystem scope + workstream id:
@@ -283,7 +300,7 @@ these documents are gated surface.
 | 2 | ~~`CONSTITUTION.md:3-4` cites a phantom `tests/test-surface-budget.sh`~~ **CLOSED 0.43.0** — rewritten to name `scripts/validate-plugin.sh` R8, and the mission section now matches the delivery-layer direction | `grep -n test-surface-budget CONSTITUTION.md` → empty | none |
 | 3 | ~~`README.md:5` table-header row glued to the H1~~ **CLOSED** — README rewritten (line 5 is plain prose at 0.45.0) | `sed -n '5p' README.md` | none |
 | 4 | ~~`RELEASING.md:40-41` frozen test counts~~ **CLOSED** — RELEASING.md now instructs reading live counts off suite output + `surface-budget.json` instead of freezing a number | `grep -n '24 shell' RELEASING.md` → empty | none |
-| 5 | ~~`RELEASING.md:50` claims `## vX.Y.Z` headers~~ **MOOT** — CHANGELOG.md left the tree (0.34.0); the release record is the release commit body (RELEASING.md "The checklist") | `grep -n '^## v' RELEASING.md` → empty | none |
+| 5 | ~~`RELEASING.md:50` claims `## vX.Y.Z` headers~~ **MOOT** — CHANGELOG.md was removed from the tree (0.34.0); the release record is the release commit body (RELEASING.md "The checklist") | `grep -n '^## v' RELEASING.md` → empty | none |
 
 ## Provenance and maintenance
 

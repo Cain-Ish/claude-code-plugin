@@ -388,7 +388,7 @@ counts + version stamps re-verified 2026-07-13 at 0.33.37. Sources: `hooks/hooks
 `mcp/src/brain-paths.ts`, `mcp/src/brain-paths.test.ts`, `mcp/src/tools/project-dir.ts`,
 `mcp/src/tools/graph-cluster.ts`, `mcp/src/tools/knowledge-validate.ts`, `mcp/src/tools/dream.ts`,
 `mcp/package.json`, `kb-schema.json`, `.claude-plugin/surface-budget.json`, `tests/test-stop-extract.sh`,
-`tests/test-extract-drain.sh`, `CONSTITUTION.md`, `CHANGELOG.md`, `.github/workflows/ci.yml`.
+`tests/test-extract-drain.sh`, `CONSTITUTION.md`, `archive/docs:CHANGELOG.md`, `.github/workflows/ci.yml`.
 
 Volatile facts — re-verify before trusting a stale copy of this skill:
 
@@ -403,7 +403,7 @@ ls tests/test-*.sh | wc -l                                      # live test coun
 grep -n 'REQUIRED_FM_FIELDS' mcp/src/tools/knowledge-validate.ts  # 7 frontmatter fields
 jq -r '.structured_types, .unstructured_types' kb-schema.json   # wiki categories (6+2)
 grep -n 'SB_DREAM_ACCEPT_MIN_RATIO' scripts/dream-accept.sh     # accept floor default (was 50)
-grep -rn 'dual-LLM' docs/superpowers/plans/ | head -3           # P6 split still plan-queued?
+grep -rni .dual-llm\|quarantine. mcp/src scripts || echo "P6 still plan-queued"  # plan doc: archive/docs
 ```
 
 If any command's output disagrees with this file, trust the repo and update this skill.

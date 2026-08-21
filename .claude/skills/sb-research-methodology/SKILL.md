@@ -32,8 +32,8 @@ repo's history they shipped and the bug survived them.
 
 | Worked example | The negative the mechanism had to explain | Outcome of the partial fix |
 |---|---|---|
-| jq CRLF poisoning (0.30.1) | Why did the LAST record of a JSONL file parse fine while every non-last record failed? (Text-mode stdout converts `\n`→`\r\n`; a final line with no trailing newline gets no CR.) | "Strip CR at the failing call site" would have left 120 other sites broken; the accepted mechanism ("Windows Git-Bash jq emits CRLF in `-r` output even on clean LF input") mandated fixing the leverage point (`sb_config_get`) + all 121 captures across 29 scripts. CHANGELOG.md `## 0.30.1`. |
-| Active-slug hijack (0.24.29 → 0.24.30) | Why did the hijack persist after the 0.24.29 fix, and why were all tests green? (`CLAUDE_PROJECT_DIR` is *inconsistently present* across MCP spawns; every test sandbox set it.) | 0.24.29 shipped green and did not work; 0.24.30's CHANGELOG names the anti-pattern verbatim: "green tests over real-env correctness". CHANGELOG.md `## 0.24.30`. |
+| jq CRLF poisoning (0.30.1) | Why did the LAST record of a JSONL file parse fine while every non-last record failed? (Text-mode stdout converts `\n`→`\r\n`; a final line with no trailing newline gets no CR.) | "Strip CR at the failing call site" would have left 120 other sites broken; the accepted mechanism ("Windows Git-Bash jq emits CRLF in `-r` output even on clean LF input") mandated fixing the leverage point (`sb_config_get`) + all 121 captures across 29 scripts. archive/docs:CHANGELOG.md `## 0.30.1`. |
+| Active-slug hijack (0.24.29 → 0.24.30) | Why did the hijack persist after the 0.24.29 fix, and why were all tests green? (`CLAUDE_PROJECT_DIR` is *inconsistently present* across MCP spawns; every test sandbox set it.) | 0.24.29 shipped green and did not work; 0.24.30's CHANGELOG names the anti-pattern verbatim: "green tests over real-env correctness". archive/docs:CHANGELOG.md `## 0.24.30`. |
 
 Full walkthroughs of both, plus the P7 measured-negative template:
 [references/worked-examples.md](references/worked-examples.md).
@@ -50,7 +50,7 @@ result can falsify it. Verified instances:
 
 - **P1c injection measurement** (as of 0.33.30): the spec criterion "wiki body is not
   injected every turn" was committed first; the measurement then produced ~662 B / ~165
-  tokens per-turn (`persona-context.sh`), confirming it. CHANGELOG.md:26.
+  tokens per-turn (`persona-context.sh`), confirming it. archive/docs:CHANGELOG.md:26.
 - **F1 staging-validity floor**: the prediction "a consolidation merges/archives a FEW
   pages; it never guts the wiki" is encoded as a number — dream-accept refuses when staging
   has fewer than `SB_DREAM_ACCEPT_MIN_RATIO`% (default 50) of live pages, or is empty.
@@ -60,7 +60,7 @@ result can falsify it. Verified instances:
   displaced page while the old 0.8 gate stayed green." `tests/test-knowledge-eval.sh:10-14`.
 - **P7 graph-boost measurement** (0.33.22): outcome classes (improved/degraded/unchanged
   gold-page rank) were defined before running; result 6 / 6 / 80 of 92 = a wash → demote.
-  CHANGELOG.md:162-169.
+  archive/docs:CHANGELOG.md:162-169.
 
 A threshold with no rationale is a phantom knob (a documented failure class here — undo
 table row 20 in sb-failure-archaeology). When you pick a number, write WHY that number in a
@@ -117,8 +117,9 @@ Run from repo root. All read-only.
 ```bash
 # 1. Was it tried? (three lanes: commits, narrative, plans)
 git log --all -i --grep='<term>' --oneline | head -20
-grep -in '<term>' CHANGELOG.md | head -20
-ls docs/plans/ docs/superpowers/plans/          # TWO plan trees — check both
+git show archive/docs:CHANGELOG.md | grep -in .<term>. | head -20  # pre-1.0 narrative only
+ls docs/plans/                                  # live plans
+git ls-tree --name-only archive/docs:docs/superpowers/plans/  # pre-1.0 plans (removed 0.34.0)
 ```
 
 ```
@@ -153,7 +154,7 @@ anything ships, and the negative verdicts shaped the design as much as the adopt
 
 ### 4a. Paper borrows, via the ledger
 
-The spec (`docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`,
+The spec (`archive/docs:docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`,
 references §11 at :301-313) keeps a citation ledger; every borrow entered the §2 lifecycle
 individually. Technique mechanics: sb-memory-systems-reference. Ecosystem/novelty claims:
 sb-external-positioning. What this skill owns is the VETTING pattern, visible in verdicts:
@@ -161,7 +162,7 @@ sb-external-positioning. What this skill owns is the VETTING pattern, visible in
 | Borrow | Verdict | The vetting move |
 |---|---|---|
 | mem0 ADD/UPDATE/NOOP write path | ADOPTED (0.33.29 capture; re-planned for P6 writer) | Scoped smaller than the paper: capture-time NOOP scans only the unprocessed inbox, never the wiki; kill switch `SB_CAPTURE_DEDUP=off`. |
-| Generative Agents reflection | ADOPTED with cadence REJECTED (0.33.28) | Took "the one memory op with ablation support"; rejected the importance-accumulator cadence — "assumes a continuous agent loop we don't have" (CHANGELOG.md:60-63). Adapt to OUR runtime, don't transplant. |
+| Generative Agents reflection | ADOPTED with cadence REJECTED (0.33.28) | Took "the one memory op with ablation support"; rejected the importance-accumulator cadence — "assumes a continuous agent loop we don't have" (archive/docs:CHANGELOG.md:60-63). Adapt to OUR runtime, don't transplant. |
 | Graphiti bi-temporal `supersedes` | ADOPTED; survived the P7 demote | Kept for the mechanism it uniquely fixes (suppressing superseded facts), even while the graph's *ranking* role was cut. |
 | GraphRAG-Bench skepticism | ADOPTED as justify-or-demote (0.33.22) | A skeptical paper triggered a MEASUREMENT, not a rewrite: instrument first, demote on the wash result. |
 | ARC incremental capture | ADOPTED (0.33.18) | Chosen over threshold-triggered capture on the paper's ablation numbers (31% vs 24-27%), then verified by the repo's own criterion (compaction loses no captured decisions). |
@@ -176,7 +177,7 @@ Structured whole-plugin sweeps, each finding independently verified, each batch 
 release: the 2026-06-10 deep-dive spec → repair waves R1-R8 (0.24.37-0.24.50); the 0.29.4
 adversarial audit (4 silently-wrong-output bugs, "EVERY finding reproduced by running the
 script"); the 2026-07-02 deep audit (11 areas, 88 confirmed findings) → the 0.33.31 batch
-closing all 9 HIGHs (CHANGELOG.md:7-18). The open medium/low remainder of that audit is the
+closing all 9 HIGHs (archive/docs:CHANGELOG.md:7-18). The open medium/low remainder of that audit is the
 current improvement backlog (sb-failure-archaeology owns the ledger).
 
 ### 4c. Live incidents
@@ -188,7 +189,7 @@ sb-debugging-playbook.
 
 ### 4d. Negative results — cutting is a first-class result
 
-Design-shaping cuts, each with a measurement or refutation behind it and a CHANGELOG entry
+Design-shaping cuts, each with a measurement or refutation behind it and a release entry
 like any adoption: graph ranking boost demoted after the 6/6/80-of-92 wash (0.33.22);
 access-frequency cut from search ranking (0.33.30 P4b) and from the FORGET score (0.33.25);
 the first graph layer deprecated as "never used in practice" (0.7.0) — and its 0.22.0
@@ -239,7 +240,7 @@ highest-leverage research artifact this repo has: it is what makes Stage 1 cheap
 Derived from repo evidence only (paths as of 0.33.31 — CHANGELOG.md and the docs history
 moved to `archive/docs` in 0.34.0; code-review-deep was removed in 0.44.0): `CHANGELOG.md`
 (0.24.29-0.33.31 entries),
-`CONSTITUTION.md`, `docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`,
+`CONSTITUTION.md`, `archive/docs:docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`,
 `docs/specs/2026-06-18-project-scoping-model-design.md`, the three queued plans under
 `docs/superpowers/plans/2026-06-30-*`, `skills/code-review-deep/SKILL.md` (removed 0.44.0),
 `skills/doubt/SKILL.md`, `scripts/dream-accept.sh`, `tests/test-knowledge-eval.sh`,

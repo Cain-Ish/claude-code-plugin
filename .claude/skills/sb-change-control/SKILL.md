@@ -5,7 +5,7 @@ description: >-
   task involves: cutting or preparing a release; bumping the plugin version; deciding whether a
   change needs a version bump, a plan doc, a design spec, or is a straight fix; a "surface budget
   exceeded" failure from validate-plugin.sh; adding a new script/test/skill/agent file; writing
-  commit messages or CHANGELOG entries for this repo; pre-push gate failures (tsc, vitest,
+  commit messages or release-commit bodies for this repo; pre-push gate failures (tsc, vitest,
   bundle-current, run-all, validate-plugin, version-bump tripwire, portability guards); branch/PR
   policy questions; review-before-release process; or checking a proposed change against the repo's
   non-negotiable rules (fail-loud vs guard-fail-safe, cross-platform bash, no native deps, jq/CRLF
@@ -53,10 +53,10 @@ Terms used throughout (defined once):
 | Change type | Version bump? | Budget bump? | Docs needed | Example |
 |---|---|---|---|---|
 | Test-only or docs-only (`tests/`, `docs/`) | NO (tripwire excludes them) | Only if a new `tests/test-*.sh` file | none | new regression test |
-| Bug fix in shipped surface | YES (patch) | only if new files | CHANGELOG bullet; regression test expected | guard fix |
-| Bug fix requiring user action | YES — as a MINOR, not patch (RELEASING.md:90-93) | — | CHANGELOG + `skills/upgrade/migrations/<ver>.md` | data-layout repair |
-| New feature (multi-task) | YES | usually | plan doc in `docs/plans/` or `docs/superpowers/plans/` | new hook |
-| New workstream / design decision | YES eventually | — | spec in `docs/specs/` FIRST, then plan, then code | P2/P3a/P6 |
+| Bug fix in shipped surface | YES (patch) | only if new files | release-commit-body bullet; regression test expected | guard fix |
+| Bug fix requiring user action | YES — as a MINOR, not patch (RELEASING.md:90-93) | — | release-commit body + `skills/upgrade/migrations/<ver>.md` | data-layout repair |
+| New feature (multi-task) | YES | usually | plan doc in `docs/plans/` | new hook |
+| New workstream / design decision | YES eventually | — | design note in the second-brain wiki (`decisions/`) FIRST, then a plan in `docs/plans/`, then code | P2/P3a/P6 |
 | Anything touching autonomy, security boundaries, or data layout | YES | — | spec + plan; check CONSTITUTION.md hard constraints | quarantine work |
 
 "Shipped surface" = the tripwire TRIGGERS list (`tests/test-release-version-bump.sh`):
@@ -69,8 +69,10 @@ plugin.json, which is already a trigger).
 The fixed per-feature pipeline (observed across the whole history, e.g. the SP-4 sequence):
 `docs(spec)` → `docs(plan)` → TDD `feat(...)` task commits → `fix(review): apply deep-review
 findings` (adversarial review is a NAMED step, see §7) → `release: X.Y.Z — …` batch commit.
-Plans in `docs/superpowers/plans/` open with a "Constitution compliance" section; every plan
-carries Global Constraints restating the portability bans and "Fail loud, never silent."
+Every plan opens with a "Constitution compliance" section and carries Global Constraints restating
+the portability bans and "Fail loud, never silent." The convention was set by the constitution-era
+plans, removed from main in 0.34.0 — exemplar:
+`git show archive/docs:docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md`.
 Plan/spec templates and house doc style are owned by sb-docs-and-writing.
 
 Constitution check: every change is measured against `CONSTITUTION.md` (repo root, 66 lines) —
@@ -126,7 +128,7 @@ real release commit `6fba312` (0.33.30, `git show 6fba312 --stat`):
 6. `skills/upgrade/migrations/X.Y.Z.md` — ONLY when a real user precondition/action exists
    (18 files exist for ~200 releases; sparse by design). `skills/upgrade/SKILL.md` stays a lean
    runner ≤ 8192 bytes (machine-enforced).
-7. Commit subject: `release: X.Y.Z — <thesis>`. Body: bullets mirroring the CHANGELOG entry,
+7. Commit subject: `release: X.Y.Z — <thesis>`. Body: bullets — the body IS the release record,
    then the gates line: `Gates green locally: tsc, vitest (N pass, offline), bundle-current,
    run-all bash suite, validate-plugin, release version-bump tripwire, portability static
    guards.` Then the `Co-Authored-By: Claude <model> <noreply@anthropic.com>` trailer.
@@ -139,14 +141,11 @@ layout or user-visible CLI break. The new version must be STRICTLY greater than
 Queued plan docs may carry stale version targets — recompute at implementation time.
 
 Tag contract: releases bind to the MERGE/push, not git tags — nothing has been tagged since
-v0.22.1. The release record is the version-locked manifest pair + CHANGELOG entry, with the
+v0.22.1. The release record is the version-locked manifest pair + the release-commit body, with the
 local suite green and the `ci` workflow green server-side (RELEASING.md:8-15).
 
-CHANGELOG editing trap (real, still-open defect): the `## 0.33.19` heading was accidentally
-deleted when the 0.33.20 section was inserted — 0.33.19's bullets now sit orphaned inside
-`## 0.33.20` (grep `'^## 0.33.19'` → 0 matches). When adding a new section at the top, diff the
-CHANGELOG hunk and confirm the PREVIOUS heading survived. No gate catches this (the migration-row
-test checks only the current version's heading).
+(The old "CHANGELOG editing trap" warning that stood here is MOOT: CHANGELOG.md was removed from
+main in 0.34.0, so no release edits it. The orphaned `## 0.33.19` heading survives on `archive/docs`.)
 
 The full copy-paste release runsheet is in
 [references/release-runsheet.md](references/release-runsheet.md).
@@ -213,7 +212,7 @@ PR base branch automatically (`SB_RELEASE_BASE_REF` from `github.base_ref`).
   `feat(security): scope consolidation agents' node grant to bundled CLIs + source-scan guard (P6a)`.
   Workstream IDs: P0–P8 (constitution/diet), R1–R9 (deep-dive waves), SP-0–SP-5, task numbers.
 - Release subjects: `release: X.Y.Z — <thesis>` (no `v`, em-dash).
-- Bodies: dense prose mirroring CHANGELOG bullets — exact env vars with defaults, arrow
+- Bodies: dense prose mirroring the release bullets — exact env vars with defaults, arrow
   notation (`51->52`), the failure mode closed, what adversarial review caught, and (releases)
   the "Gates green locally: …" line.
 - Trailer: `Co-Authored-By: Claude <actual model used> <noreply@anthropic.com>` — the
@@ -283,12 +282,12 @@ The doc-defect LEDGER (per-defect evidence + fix shape) has ONE home: sb-docs-an
 Do not restate it here — check that ledger before trusting any governing-doc claim. Release-relevant
 one-liners only:
 
-- RELEASING.md is stale on three points: test counts (:40-41), CHANGELOG heading format
-  (:50 — no `v`, see §3), and the release-via-PR clause (:8-15 — direct-on-main since 0.33.17,
-  see §5; the gate contract still binds).
-- CONSTITUTION.md:4 names a phantom budget gate — the real enforcement is
-  `scripts/validate-plugin.sh` R8 (§1).
-- CHANGELOG's `## 0.33.19` heading is missing — hence the editing trap in §3.
+None outstanding as of 2026-08-21. The three that stood here have all been fixed in the governing
+docs themselves: RELEASING.md now reads live test counts off the suite instead of freezing them,
+carries no `## vX.Y.Z` heading-format claim, and states the release-via-PR contract; CONSTITUTION.md
+names `scripts/validate-plugin.sh` R8 as the real budget gate. The fourth — the orphaned
+`## 0.33.19` CHANGELOG heading — is MOOT since CHANGELOG.md was removed from main in 0.34.0.
+Re-verify by reading those two files before trusting this line.
 
 ## Sibling skills (one home per fact — defer, don't duplicate)
 
@@ -306,7 +305,7 @@ one-liners only:
 
 Derived from repo evidence read/run on 2026-07-05 against the working tree (HEAD `6fba312` =
 0.33.30 + the uncommitted 0.33.31 batch; `plugin.json` already says 0.33.31): RELEASING.md,
-CONSTITUTION.md, CHANGELOG.md (head), `.claude-plugin/surface-budget.json`, `scripts/validate-plugin.sh`,
+CONSTITUTION.md, archive/docs:CHANGELOG.md (head), `.claude-plugin/surface-budget.json`, `scripts/validate-plugin.sh`,
 `tests/test-release-version-bump.sh`, `tests/run-all.sh`, Makefile, `.githooks/pre-push`,
 `scripts/lib.sh` (:1-51), `scripts/symlink-guard.sh` / `scripts/wiki-write-guard.sh` headers,
 `mcp/src/agent-grants.test.ts`, `mcp/package.json`, `.github/workflows/ci.yml`, and git history
@@ -321,8 +320,6 @@ cat .claude-plugin/surface-budget.json                                    # budg
 echo "skills:$(find skills -mindepth 1 -maxdepth 1 -type d|wc -l) agents:$(find agents -maxdepth 1 -name '*.md'|wc -l) scripts:$(find scripts -maxdepth 1 -name '*.sh'|wc -l) tests:$(find tests -maxdepth 1 -name 'test-*.sh'|wc -l)"  # live counts vs caps (were AT CAP)
 git log -1 --format=%B $(git log --format=%h --grep='^release:' -1)  # latest release body = current gates line
 git log --oneline --grep="Merge pull request" -1               # branch policy still direct-on-main? (was #82 last merge-commit; #83 squashed)
-grep -n '^## ' CHANGELOG.md | head -5                          # heading format + latest entries
-grep -c '^## 0.33.19' CHANGELOG.md                             # 0 = the orphaned-heading defect is still open
 grep -n 'TRIGGERS=' tests/test-release-version-bump.sh         # tripwire trigger list
 ls skills/upgrade/migrations/ | wc -l                          # migration-file count (was 18)
 grep -n 'validate-plugin.sh' CONSTITUTION.md                   # budget gate ref (must NOT say test-surface-budget)

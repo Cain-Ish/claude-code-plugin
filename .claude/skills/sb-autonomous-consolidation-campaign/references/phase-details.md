@@ -1,7 +1,7 @@
 # Phase details — per-task commands, red/green, expected files, rollback
 
 Companion to `../SKILL.md`. Each task follows the plan's own red-first TDD steps
-(`docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`). All commands run from repo root
+(`archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`). All commands run from repo root
 (`cd /c/Workplace/Projects/claude-code-plugin`, git-bash on Windows / bash on Linux/macOS). Write
 ONLY the files each task names; everything else is read-only.
 
@@ -297,7 +297,7 @@ Owned mechanically by **sb-change-control**; the P6-specific deltas:
    the count of new test files. `scripts` unchanged (the writer is an `mcp/` CLI, not a `.sh`). SAME
    commit as the additions (R8).
 3. Bump `version` in `.claude-plugin/plugin.json` + the `second-brain` entry of
-   `.claude-plugin/marketplace.json` + a `CHANGELOG.md` entry — one commit. The plan suggests
+   `.claude-plugin/marketplace.json` + a `archive/docs:CHANGELOG.md` entry — one commit. The plan suggests
    `0.34.0` (architectural change) but 0.33.30/31 are now taken; **recompute at implementation time
    and confirm patch-vs-minor with the maintainer**. Scope the CHANGELOG claim precisely: "headless
    consolidation split into a quarantined summarizer + network-severed deterministic writer;

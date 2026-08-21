@@ -286,7 +286,7 @@ Each burned days-to-months. Know the tell; the full post-mortems live in **sb-fa
 ## Provenance and maintenance
 
 Derived from repo evidence at plugin 0.33.31 (working tree, 2026-07-05; HEAD `6fba312` = 0.33.30
-with the 0.33.31 batch uncommitted — since landed as `e9dfbd1`): `CHANGELOG.md` incident entries, `scripts/lib.sh` (normalize
+with the 0.33.31 batch uncommitted — since landed as `e9dfbd1`): `archive/docs:CHANGELOG.md` incident entries, `scripts/lib.sh` (normalize
 funnel :29, log writers :182-306, prune :909, drain counters :1525-1546), `tests/run-all.sh:84-98`,
 `scripts/session-load.sh:707`, `mcp/src/brain-paths.ts`, `mcp/src/server.ts:29-45`,
 `mcp/src/tools/dream.ts:75-84`, `mcp/src/tools/knowledge-search.ts:392`,

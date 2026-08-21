@@ -25,7 +25,7 @@ This skill is the single home for two things:
    which are not yet, and what must be measured before any claim goes external.
 
 Repo: the second-brain Claude Code plugin at this repository root. Design source of record:
-`CONSTITUTION.md` + `docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`
+`CONSTITUTION.md` + `archive/docs:docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`
 (called "the spec" below; its section numbers are cited as §N).
 
 Terms used once here (owning skill in parentheses):
@@ -62,8 +62,8 @@ the primary source. Repo-side landing sites are verified against the working tre
 | Generative Agents (2304.03442) | ADOPTED reflection, REJECTED its cadence | `agents/dream-runner.md:144-176`; CHANGELOG 0.33.28 |
 | LongMemEval (2410.10813) | ACCEPTED as the eval bar; suite NOT built yet | spec §6 P8; `tests/test-knowledge-eval.sh` (smaller regression gate) |
 | ARC incremental capture (2601.12030, preprint) | ADOPTED (per-turn capture > threshold-triggered) | spec §3; CHANGELOG 0.33.18 |
-| CaMeL dual-LLM (2503.18813) | ACCEPTED, PLAN-QUEUED (P6 remainder) | `docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md` |
-| Aider repo-map (tree-sitter + PageRank) | ACCEPTED with modification; P3a Phases 1-3 SHIPPED (PageRank code-map live), Phases 4-5 (code↔wiki edges, tree-sitter tier) still queued | `mcp/src/tools/codemap/`; `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` |
+| CaMeL dual-LLM (2503.18813) | ACCEPTED, PLAN-QUEUED (P6 remainder) | `archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md` |
+| Aider repo-map (tree-sitter + PageRank) | ACCEPTED with modification; P3a Phases 1-3 SHIPPED (PageRank code-map live), Phases 4-5 (code↔wiki edges, tree-sitter tier) still queued | `mcp/src/tools/codemap/`; `archive/docs:docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` |
 | Cross-encoder reranker (Anthropic contextual retrieval) | ACCEPTED in spec (P3b), NOT STARTED — no plan, no code | spec §6 P3; `grep -ril rerank mcp/src scripts` is empty |
 | MinHash near-dup LSH (standard technique; no single paper) | ADOPTED as the P4 redundancy engine | `mcp/src/tools/minhash.ts`; `scripts/wiki-redundancy.sh`; CHANGELOG 0.33.26 |
 | Path-test discipline (vercel-labs/skills, designer-skills deep-scan) | ADOPTED (traversal-vector matrix, 0.33.23) | `mcp/src/path-guard.test.ts`; CHANGELOG 0.33.23 |
@@ -362,8 +362,8 @@ with this skill; when they diverge, this skill's ledger wins and the one-pager i
 ## Provenance and maintenance
 
 Derived from repo evidence only: `CONSTITUTION.md`; the spec
-(`docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`, esp. §3,
-§5, §6, §8–§11); plan docs under `docs/superpowers/plans/2026-06-30-*`; `CHANGELOG.md`
+(`archive/docs:docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md`, esp. §3,
+§5, §6, §8–§11); plan docs under `archive/docs:docs/superpowers/plans/2026-06-30-*`; `archive/docs:CHANGELOG.md`
 0.24.39–0.33.31; `docs/plans/2026-06-10-r2-search-serving.md`; and the cited source files
 (`raw-inbox.ts`, `graph-store.ts`, `retrieval-guards.test.ts`, `dream-runner.md`,
 `persona-tool-guard.sh`, `persona-rules.default.json`, `ci.yml`, `surface-budget.json`,
@@ -384,7 +384,7 @@ ls mcp/src/tools/minhash.ts mcp/src/path-guard.test.ts scripts/wiki-restore.sh  
 grep -ri graphify --exclude-dir=node_modules --exclude-dir=.claude . || echo "graphify still phantom"
 awk 'END{print NR}' tests/fixtures/eval-queries.jsonl          # golden-query count (was 12)
 cat .claude-plugin/surface-budget.json                                    # budget counts (skills/agents/scripts/tests)
-grep -n '## 0.33' CHANGELOG.md | head -5                        # newest release headings
+git log --format=%s --grep=.^release:. -5                      # newest release records (CHANGELOG.md removed 0.34.0)
 grep -rn 'LongMemEval' tests/ mcp/src || echo "P8 suite still missing"
 ```
 

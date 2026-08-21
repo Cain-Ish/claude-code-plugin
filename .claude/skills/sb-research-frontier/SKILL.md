@@ -50,15 +50,15 @@ substrate, milestone not met. `NOT-STARTED` = no plan doc, no code.
 
 | # | Problem | Status (as of 0.33.31) | Plan doc |
 |---|---|---|---|
-| 1 | P2: learning → active guardrail | PLAN-QUEUED (zero code) | `docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md` |
-| 2 | P3a: orientation code-map | SHIPPED 0.33.33–0.33.35 (Phases 1–3; Phases 4–5 open — verified 2026-07-13 at 0.33.37) | `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` |
+| 1 | P2: learning → active guardrail | PLAN-QUEUED (zero code) | `archive/docs:docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md` |
+| 2 | P3a: orientation code-map | SHIPPED 0.33.33–0.33.35 (Phases 1–3; Phases 4–5 open — verified 2026-07-13 at 0.33.37) | `archive/docs:docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md` |
 | 3 | P8: memory eval / silent-failure detection | PARTIAL | spec §6 P8 (no standalone plan doc) |
-| 4 | Safe fully-autonomous consolidation | PLAN-QUEUED + shipped substrate | `docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md` |
+| 4 | Safe fully-autonomous consolidation | PLAN-QUEUED + shipped substrate | `archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md` |
 | 5 | Guard liveness as a continuous property | PARTIAL | none (spec §6 P8 names it) |
 | 6 | Cross-project practice transfer | NOT-STARTED | none |
 
 The governing spec for 1–5 is
-`docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md` (workstreams
+`archive/docs:docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md` (workstreams
 §6, open questions §10, success criteria §8). All frontier work is bound by `CONSTITUTION.md`
 (autonomy, untrusted-content isolation, cross-platform, reversibility, surface budget,
 single-source resolution) — read it before writing any plan.
@@ -80,13 +80,13 @@ halves SOTA lacks, already running autonomously:
 - `scripts/persona-tool-guard.sh` — PreToolUse guard over `Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent`,
   rules from `scripts/persona-rules.default.json`, every verdict audit-logged via
   `sb_log_audit`, kill switch `SB_PERSONA_GATE=off`. Re-armed on Windows path forms in 0.33.31
-  (`sb_normalize_path` funnel — CHANGELOG.md, 0.33.31 entry).
+  (`sb_normalize_path` funnel — archive/docs:CHANGELOG.md, 0.33.31 entry).
 - `scripts/merge-persona-signals.sh` — Stop-hook signal accumulation into
   `BRAIN_DIR/persona-signals.jsonl` with word-overlap dedup; `count>=2` high-confidence signals
   already auto-graduate (today: to USER.md prose via `sb_pin_to_user`, line 99).
 - A proven bi-temporal soft-retire pattern to copy: `scripts/merge-edges.sh`
   (`valid_from`/`valid_to`, conflict log, never hard-delete).
-- A complete, constitution-checked plan: `docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md`.
+- A complete, constitution-checked plan: `archive/docs:docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md`.
 
 **First three steps (from the queued plan — follow it, do not re-design):**
 
@@ -142,12 +142,12 @@ plan §Task 0 decision table; "Aider's repo-map is itself approximate" — plan 
 - The out-of-band drainer (`scripts/extract-drain.sh`, single-flight lock, timer via
   `scripts/install-extract-timer.sh`) — a proven home for regeneration with no in-session cost.
 - JIT injection discipline with a measured baseline: the per-turn injection is ~662 B / ~165
-  tokens with no wiki body (P1c, CHANGELOG.md 0.33.30 entry) — a 2k-token map has a defined
+  tokens with no wiki body (P1c, archive/docs:CHANGELOG.md 0.33.30 entry) — a 2k-token map has a defined
   budget posture to slot into.
 - `mcp/src/tools/graph-store.ts` bi-temporal fold machinery, reusable by import for layer-5
   code↔wiki edges.
 - A complete phased XL plan with the cross-platform generator decision already made:
-  `docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`.
+  `archive/docs:docs/superpowers/plans/2026-06-30-p3a-orientation-code-map.md`.
 
 **What shipped (Phases 0–3, 0.33.33–0.33.35 — the plan executed, kept here as the as-built
 record):**
@@ -262,7 +262,7 @@ appsec" — spec §6 P6). CaMeL (2503.18813) shows the dual-LLM split on paper; 
 a local, cross-platform memory system. This repo's constitution makes autonomy AND isolation
 hard constraints simultaneously — closing both at once is the pass-SOTA move.
 
-**This repo's asset.** The queued P6 plan (`docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`:
+**This repo's asset.** The queued P6 plan (`archive/docs:docs/superpowers/plans/2026-06-30-p6-quarantine-dual-llm.md`:
 quarantined summarizer → **netless deterministic writer**, not two LLMs) plus a shipped safety
 substrate no comparable system has: `mcp/src/tools/sanitize.ts` invisible-char strip,
 `mcp/src/path-guard.ts` `assertWithin`, `mcp/src/agent-grants.test.ts` machine-locked agent
@@ -314,7 +314,7 @@ cross-platform earliest slice. The plan requires a maintainer brainstorm before 
 time. Nothing in the ecosystem continuously proves that the installed guard chain actually
 fires in situ. This repo has the scar that motivates the frontier: all three PreToolUse guards
 sat fail-open on the dev platform (Windows path forms) for months, invisible under a green
-suite, proven only by the 2026-07-02 deep audit and fixed in 0.33.31 (CHANGELOG.md 0.33.31,
+suite, proven only by the 2026-07-02 deep audit and fixed in 0.33.31 (archive/docs:CHANGELOG.md 0.33.31,
 "Windows guard fail-open class"). The spec's phrasing is the thesis: "prove each guard fires by
 injecting the violation it targets (a check that always passes is itself a silent failure)"
 (spec §6 P8).
@@ -437,9 +437,9 @@ sb-memory-systems-reference. What is genuinely novel vs known → sb-external-po
 ## Provenance and maintenance
 
 Derived from repo evidence only: `CONSTITUTION.md`;
-`docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md` (§6, §8, §10);
-plan docs `docs/superpowers/plans/2026-06-30-{p2-learning-to-guardrail,p3a-orientation-code-map,p6-quarantine-dual-llm}.md`;
-`CHANGELOG.md` (0.33.22–0.33.31); and direct reads of the scripts/tests/tools cited inline.
+`archive/docs:docs/superpowers/specs/2026-06-26-second-brain-constitution-and-diet-design.md` (§6, §8, §10);
+plan docs `archive/docs:docs/superpowers/plans/2026-06-30-{p2-learning-to-guardrail,p3a-orientation-code-map,p6-quarantine-dual-llm}.md`;
+`archive/docs:CHANGELOG.md` (0.33.22–0.33.31); and direct reads of the scripts/tests/tools cited inline.
 The "why SOTA fails" framings condense the spec's cited research (mem0 2504.19413, CaMeL
 2503.18813, LongMemEval 2410.10813, Generative Agents 2304.03442, GraphRAG-Bench 2506.05690)
 and accepted project direction; wording discipline for external claims lives in

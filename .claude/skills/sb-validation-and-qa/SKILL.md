@@ -389,7 +389,7 @@ The shell lane's analogue is `tests/test-script-portability.sh` (above).
     .claude-plugin/surface-budget.json in the same commit to grow deliberately)".
     The counter is `find tests -maxdepth 1 -name 'test-*.sh' -type f | wc -l`
     — shell tests only; `.test.ts` files are not budgeted. House convention:
-    record the delta in the CHANGELOG bullet ("Surface budget: tests
+    record the delta in the release-commit bullet ("Surface budget: tests
     151→153").
 12. Version bump: NOT required for a purely `tests/` + `docs/` change; if the
     same commit touches shipped paths, sb-change-control's tripwire rules
@@ -445,7 +445,7 @@ uncommitted 0.33.31 batch, read 2026-07-05: `tests/run-all.sh`,
 `mcp/src/brain-paths.test.ts`, `mcp/src/agent-grants.test.ts`,
 `mcp/vitest.config.ts`, `scripts/validate-plugin.sh` (budget section),
 `.claude-plugin/surface-budget.json`, `Makefile`, `.githooks/pre-push`, `RELEASING.md`,
-and CHANGELOG.md incident entries (0.24.30, 0.24.50, 0.30.2, 0.33.7, 0.33.9,
+and archive/docs:CHANGELOG.md incident entries (0.24.30, 0.24.50, 0.30.2, 0.33.7, 0.33.9,
 0.33.15, 0.33.31). Vitest case count is from a live offline run on
 2026-07-05. Authored 2026-07-05 against version 0.33.31.
 
