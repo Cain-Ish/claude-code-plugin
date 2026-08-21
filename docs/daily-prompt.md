@@ -7,19 +7,42 @@
 > run instead of only the next one.
 >
 > Caveat that bit us on 2026-08-21: a run branches from `main`, so **edits to this file only take
-> effect once merged to `main`.** A correction sitting on an unmerged branch is invisible to
-> tomorrow's run.
+> effect once the PR that carries them is merged to `main`.** A correction sitting on an open PR
+> is invisible to tomorrow's run — that is expected, not a bug. Correct this file anyway; it
+> lands with the same PR as the rest of the day's work.
 
 ## Scheduler entry point
 
 Paste exactly this into the scheduled task; nothing else:
 
 ```
-Read C:\Workplace\Projects\claude-code-plugin\docs\daily-prompt.md and follow it exactly.
-That file is the full instruction set for this run and is the single source of truth —
-do not substitute remembered instructions from a previous run, and do not skip steps it
-marks non-negotiable. If the file cannot be read, STOP and report that; do not improvise
-a pass from memory.
+Daily engineering pass on the second-brain Claude Code plugin.
+
+Repo: C:\Workplace\Projects\claude-code-plugin   (use git-bash / POSIX sh for all scripts)
+
+Do exactly this, in order:
+
+1. Run `git status --short` in the repo. If it is not empty, STOP and report — do not stash,
+   do not commit work in progress.
+2. Run `git switch main` then `git fetch origin --quiet` then `git merge --ff-only origin/main`.
+   If the merge is not a fast-forward, STOP and report — local main has diverged.
+3. Read C:\Workplace\Projects\claude-code-plugin\docs\daily-prompt.md IN FULL, before creating
+   any branch.
+4. Follow that file exactly. It is the complete, authoritative instruction set for this run and
+   the single source of truth. Do not substitute remembered instructions from a previous run,
+   and do not skip anything it marks non-negotiable.
+
+Keep the file's contents in context for the whole run: the pass creates its own branch and the
+file may not exist on the branch you end up on.
+
+The run is expected to measure the live system, research one focus area, hunt for the repo's
+signature bug class, make at most 3 evidence-backed changes on an `audit/YYYY-MM-DD` branch,
+improve docs/daily-prompt.md itself, open a PR against main, and leave the working tree back on
+main. Never push to main. Never merge your own PR.
+
+If docs/daily-prompt.md cannot be read, recover it with:
+  git -C C:/Workplace/Projects/claude-code-plugin show origin/main:docs/daily-prompt.md
+If that also fails, STOP and report it. Do not improvise a pass from memory.
 ```
 
 ---
@@ -60,6 +83,10 @@ In repo-only mode:
   retrieval/ranking, capture/extraction, consolidation, or telemetry — every finding in those
   areas needs live data, and a "finding" without a measurement is exactly what Step 3 forbids.
 - Skip Step 6's append; emit the log entry verbatim in your final message so a human can paste it.
+- Still branch from `main`, still open the PR, still return to `main` (Step 6). If the remote or
+  `gh` is unreachable, leave the branch local, say so explicitly, and paste the exact
+  `git push` + `gh pr create` commands a human should run.
+- Step 7 (improve this prompt) still applies — it needs no live data.
 - Say so in the first line of your report. An unmeasured pass reported as a measured one is worse
   than no pass.
 
@@ -68,12 +95,17 @@ the spine of this job and repo-only mode is a degraded fallback, not the normal 
 
 ## Rules of engagement (non-negotiable)
 
-1. NEVER commit to `main` and NEVER push. Work on a branch named `audit/YYYY-MM-DD`.
-   Leave the branch local; end by summarising what a PR would contain.
+1. **Branch from `main`, deliver as a PR, end on `main`.** Never commit to `main` and never push
+   to `main` directly. Work on `audit/YYYY-MM-DD`, based on `origin/main`. If the run produces
+   changes, push that branch and open a PR (Step 6). Then return the working tree to `main`.
+   Never merge your own PR — a human reviews it.
 2. **Start from a clean tree.** Run `git status --short` first. If it is not empty, STOP and
    report — do not stash, do not commit someone else's work in progress.
 3. A no-op day is a SUCCESS. If you find no evidence-backed defect, say so and stop.
    Do not invent refactors, do not "tidy", do not add features nobody asked for.
+   "No defect found" does not mean "nothing to deliver" — see Step 4's ladder: a measurement
+   that closes an open question, or a lock on an unguarded invariant, is a real deliverable and
+   is how the codebase gets better on days when nothing is broken.
 4. Evidence before every claim. Never report something as fixed without pasting the command
    output that proves it.
 5. Budget: at most 3 distinct changes per run, each independently revertable. Prefer one
@@ -86,29 +118,38 @@ the spine of this job and repo-only mode is a degraded fallback, not the normal 
 ## Step 0 — Continuity and branch base (do this FIRST)
 
 - Read `~/.second-brain/daily-audit-log.md` (create it if absent). It lives OUTSIDE the repo on
-  purpose: your work happens on a throwaway `audit/` branch, so a log committed there would be
-  invisible to tomorrow's run.
+  purpose: your work goes to a PR that may sit in review for days, so a log committed there would
+  be invisible to tomorrow's run — which branches from `main`.
 - Read `docs/plans/2026-08-20-rethink-delivery-layer.md` — the active rethink plan, its phase
   checklist, its Scope audit, and its "known gap" sections.
 - Read the last 10 entries of the audit log. Do NOT re-investigate anything already recorded as
   investigated unless you have a new reason. The log's "Changed:" line is the only record of
   yesterday's work — read it before touching anything, or you will re-fix it.
 
-**Choosing the branch base.** Do not assume `main` is current. Yesterday's fix is often still
-open as an unmerged PR, and branching from `main` means re-discovering and re-fixing it:
+**Create today's branch from `main`.** Always. One run = one branch = one PR, so every run starts
+from the same known base and each day's work is reviewable in isolation:
 
 ```
-git fetch --all --quiet
-gh pr list --state open --json number,headRefName,title,mergeStateStatus
+git status --short                  # must be empty; if not, STOP (Rule 2)
+git fetch origin --quiet
+git switch -c audit/$(date +%F) origin/main
 ```
 
-- If an open PR's branch is GREEN and contains work newer than `main`, base your `audit/` branch
-  on **that branch's tip**, not on `main`.
-- If several are open, prefer the newest green one; if they conflict with each other, base on
-  `main` and say so.
-- **Record which base you used and why** in the log's first line. On 2026-08-21 the run correctly
-  based on an unmerged 0.45.0 tip; the prompt at the time said to branch from `main`, and
-  following it literally would have caused duplicate work.
+**Then read the open PRs before you investigate anything** — yesterday's fix is usually still in
+review, so it is NOT in your tree, and re-finding it wastes the whole run:
+
+```
+gh pr list --state open --json number,headRefName,title,body,updatedAt
+```
+
+- For every open PR whose head is an `audit/*` branch, read its body. It is a description of work
+  already done. Treat everything it fixes as ALREADY FIXED and out of scope for today.
+- `git diff origin/main...origin/<that-branch>` shows exactly what it touched. Do not re-fix, and
+  do not "improve" those same lines — you will conflict with a PR under review.
+- If an open audit PR is stale (red, or superseded), say so in the report so a human can close
+  it. Do not merge it, do not rebase it, do not push to it.
+- **Record in the log** which open PRs you excluded and why. This is the only mechanism that
+  stops N consecutive runs from producing N PRs that all fix the same thing.
 
 ## Step 1 — Measure the live system (never start from the code)
 
@@ -188,6 +229,24 @@ For each candidate: prove it with a measurement against the LIVE data in `~/know
 `~/.second-brain`, not a fixture. A hypothesis without a measurement is not a finding.
 
 ## Step 4 — Fix (code first)
+
+**What to deliver, in priority order.** Take the highest rung you have evidence for; do not climb
+down to a lower rung while a higher one is available, and never climb UP into invention:
+
+1. **A defect fix** — you proved something is broken against live data. Fix it, lock it.
+2. **A lock on an unguarded invariant** — nothing is broken today, but a load-bearing claim has
+   no machine check and could silently rot (a prose count with no source-of-truth comparison, a
+   threshold with no arithmetic guard, a hook timeout nobody times). Prefer the invariants this
+   pass has already had to re-verify by hand: if you checked it manually, that is evidence the
+   check should be automated.
+3. **A measurement that closes an open question** — you cannot fix it today, but you can make the
+   next run start from a fact instead of a hypothesis. Record the number and the command that
+   produced it. This is a legitimate deliverable even with zero code changed.
+4. **Nothing.** Say so plainly. Do not manufacture rung 1 out of rung 4.
+
+Rungs 2 and 3 are how the codebase gets better on days with no defect. They are also the only
+sanctioned way to spend the budget when Step 3 comes up empty — they are not refactors, they add
+no surface the four content classes do not already cover, and each is independently revertable.
 
 - Write the fix, then verify against live data, THEN add the regression lock.
 - Prefer locks that are arithmetic or source-scans over behavioural fixtures — they need no
@@ -275,26 +334,95 @@ your final message instead — see Step -1):
 
 ```
 ## YYYY-MM-DD — <focus area>   [mode: full | repo-only]
-Base:          <branch you based on, and why (main / open PR tip <sha>)>
+Base:          origin/main @ <sha>
+Excluded:      <open audit PRs you treated as already-done, by number>
 Baseline:      <the Step 1 numbers, or LIVE MEASUREMENT UNAVAILABLE — reason>
 Investigated:  <what you read, so tomorrow doesn't repeat it>
 Findings:      <each with its measurement, or "none">
+Rung:          <1 defect fix | 2 lock | 3 measurement | 4 nothing — see Step 4>
 Changed:       <files + why, or "nothing">
+Prompt:        <what you changed in docs/daily-prompt.md and why, or "unchanged">
 Verification:  <exit codes + named FAIL/SKIP lists + bucket for each non-pass>
 After:         <the Step 1 numbers again>
+PR:            <url, or "none — no changes">
 Open / next:   <what you would do tomorrow>
 ```
 
-Commit any code changes on the `audit/YYYY-MM-DD` branch (the log itself is outside the repo).
+The log lives outside the repo, so it is never part of the PR.
 
-**Leave the tree in a known state.** End with the `audit/YYYY-MM-DD` branch checked out and
-`git status --short` empty, and say so. If your environment cannot delete files (some sandboxes
-cannot), do not leave stray git lock files behind: collect anything undeletable into
-`.git/AUDIT-YYYY-MM-DD-DELETE-ME/` and name that single directory in "Open / next" so the host
-can remove it in one step.
+### Deliver the work as a PR
 
-Finish with a short summary: what changed, what it cost, what you would do next. If nothing
-changed, say exactly that — it is a valid and useful outcome.
+**Do Step 7 first** — the prompt edit rides this same PR, so it must be committed before you push.
+
+Only if the run produced changes. Commit them on `audit/YYYY-MM-DD` — conventional-commit
+subject, body stating the evidence — then:
+
+```
+git push -u origin audit/$(date +%F)
+gh pr create --base main --head audit/$(date +%F) \
+  --title "audit(YYYY-MM-DD): <one-line thesis>" --body-file <file>
+```
+
+The PR body must carry, in this order: the Step 1 baseline; each finding WITH the command output
+that proves it; what changed and why; the Step 5 exit codes with the named FAIL/SKIP lists and a
+bucket for every non-pass; and anything you deliberately did not do. A reviewer must be able to
+reject the PR without re-running your investigation — if the evidence is only in the log or only
+in this chat, the PR is incomplete.
+
+**Do not merge it.** Do not enable auto-merge. A human reviews it.
+
+### Return to `main`
+
+Last action of every run, changes or no changes:
+
+```
+git switch main
+git status --short          # must print nothing
+```
+
+Say in your report that you did this and paste the output. If the environment cannot delete
+files (some sandboxes cannot), do not leave stray git lock files behind: collect anything
+undeletable into `.git/AUDIT-YYYY-MM-DD-DELETE-ME/` and name that single directory in
+"Open / next" so the host can remove it in one step.
+
+Finish with a short summary: what changed, the PR link, what it cost, what you would do next. If
+nothing changed, say exactly that — it is a valid and useful outcome.
+
+## Step 7 — Improve this prompt (every run, before you open the PR)
+
+This file is the only part of the system that compounds across runs. A run that fixes a bug but
+leaves the next run to rediscover the same trap has done half the job.
+
+Ask, and answer honestly:
+
+- What cost me time today that a line here would have saved? Add that line.
+- What did this file tell me that turned out to be WRONG, stale, or unexecutable? Fix or delete
+  it. A stale instruction is worse than a missing one — it gets followed.
+- What did I verify by hand that is now a durable, non-derivable fact? Add it to "Known state".
+- What in "Known state" did I just prove is no longer true? Delete it. Do not leave a hedge.
+- Did a step's wording let me drift, hand-wave, or skip evidence? Tighten the wording so the
+  loophole closes.
+
+Rules for editing this file:
+
+- **Never hardcode a count, version, or line number that the tree can produce.** Write the
+  command instead. Hardcoded numbers went stale within one day the last time, which is the exact
+  defect class this pass keeps finding elsewhere. "Known state" is for facts NOT derivable from
+  the tree — deliberate removals, dead-but-retained data, where archived files went.
+- **Additions must earn their place.** This file is read in full at the start of every run; every
+  line costs context. If you add a paragraph, look for one to delete. Prefer replacing a vague
+  instruction with a precise one over appending a caveat to it.
+- **Date every claim you add** (`Measured YYYY-MM-DD: …`) so a future run can tell a fresh
+  measurement from an inherited assumption.
+- Keep the "Scheduler entry point" block in sync with the launcher actually pasted in the
+  scheduler. If you change one, say so in the PR body — the other is edited by a human.
+- The prompt change rides the SAME PR as the day's work. It does not get its own. It takes
+  effect only once that PR is merged, so tomorrow's run may still be running the old text — that
+  is expected.
+
+Record the edit on the log's `Prompt:` line, and give it its own section in the PR body. A prompt
+edit needs no version bump (`docs/` is not a shipped path) but it IS reviewed: it changes how
+every future run behaves.
 
 ## Known state (so you do not rediscover it as a defect)
 
@@ -322,6 +450,10 @@ Durable facts that are NOT derivable from the tree:
   and live on the `archive/docs` branch. Read them with `git show archive/docs:<path>`.
 - `validate-plugin.sh` emits one known WARN about an undocumented `fork` SessionStart matcher.
   Pre-existing, not caused by your change.
+- Known-legitimate SKIPs on Windows without Developer Mode (real symlinks unavailable):
+  `test-dream-lifecycle` (subtests 5b–5i) and `test-symlink-guard` (tests 8, 9, 18). Name them in
+  the Step 5 SKIP list and move on — they are environmental, not defects. Any OTHER skip is
+  unexplained until you explain it.
 
 ### Standing hypothesis for `read=0` — do not re-derive this each day
 
