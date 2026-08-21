@@ -110,8 +110,13 @@ the spine of this job and repo-only mode is a degraded fallback, not the normal 
    Never merge your own PR — a human reviews it.
 2. **Start from a clean tree.** Run `git status --short` first. If it is not empty, STOP and
    report — do not stash, do not commit someone else's work in progress.
-3. A no-op day is a SUCCESS. If you find no evidence-backed defect, say so and stop.
+3. A no-op day is a SUCCESS. If you find no evidence-backed defect, say so — and stop ONLY if
+   you also have no rung-2 lock and no rung-3 measurement to deliver (Step 4).
    Do not invent refactors, do not "tidy", do not add features nobody asked for.
+   **"Tidy" does NOT cover deleting a dead reference.** A line that points at a file, flag,
+   skill, agent or command that no longer exists is a FALSE CLAIM, not untidiness — removing
+   or rewriting it is a rung-1 defect fix and is always in scope. Prove the surface is gone
+   (`ls`, `git log --diff-filter=D -1 -- <path>`) before deleting anything.
    "No defect found" does not mean "nothing to deliver" — see Step 4's ladder: a measurement
    that closes an open question, or a lock on an unguarded invariant, is a real deliverable and
    is how the codebase gets better on days when nothing is broken.
@@ -191,11 +196,39 @@ degraded-search flags, and whether the drainer scheduler actually ran.
 
 Write down the numbers. They are the baseline for today.
 
+### Hot-path latency (measure this EVERY run)
+
+Performance is a first-class requirement, so it gets measured like any other metric — never
+asserted from memory. These scripts run on every tool call / every prompt; regressions here are
+felt by the user immediately and no test will catch them.
+
+```
+PRE='{"session_id":"perf","transcript_path":"/tmp/none.jsonl","cwd":"'"$PWD"'",
+"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"'"$PWD"'/README.md"}}'
+for s in persona-tool-guard wiki-write-guard symlink-guard flow-guard plan-first-nudge; do
+  S=$(date +%s%N); printf '%s' "$PRE" | bash scripts/$s.sh >/dev/null 2>&1; E=$(date +%s%N)
+  printf '%-22s %5dms
+' "$s" $(( (E-S)/1000000 ))
+done
+```
+
+Repeat with a `PostToolUse` payload for `quality-gate`, `tool-return-scanner`, `observe-tool-use`,
+`simplicity-gate`, and a `UserPromptSubmit` payload for `persona-context`.
+
+Rules for reading the result:
+- Run it on an OTHERWISE IDLE box. A measurement taken while the test suite is running is an
+  upper bound, not a number — say which you took, or it is not evidence.
+- Sum the PreToolUse + PostToolUse chains: that total is paid on EVERY tool call. Compare against
+  the previous run's figure in the audit log, not against a number written in this file.
+- Process spawn is the dominant cost on Windows/MSYS (~60ms per `bash`, ~75ms per `jq`, ~130ms per
+  `node`, measured 2026-08-21 under load). A script that shells out in a loop pays that tax per
+  iteration — prefer one `jq`/`awk` pass over N.
+
 ## Step 2 — Research (deep, primary sources only)
 
 Pick ONE focus area, rotating day to day; record which you chose so tomorrow picks a different
 one: retrieval/ranking · capture/extraction · consolidation · hooks/guards · cross-platform
-(Windows/macOS/BSD) · skills+agents quality · telemetry/observability.
+(Windows/macOS/BSD) · skills+agents quality · telemetry/observability · **performance**.
 (In REPO-ONLY MODE, see Step -1 for the restricted set.)
 
 For that area:
@@ -234,6 +267,13 @@ repeatedly: **tests disable the thing under test.** Specifically hunt for:
 - Telemetry that has been reporting a broken value for weeks with nobody alerted.
 - Hooks whose declared `timeout` in `hooks/hooks.json` is lower than their real runtime — they
   are killed every session and the failure is invisible. TIME every hook you touch.
+- **Unbudgeted latency on a hot path.** Performance is a REQUIREMENT here, not a nice-to-have:
+  every `PreToolUse`/`PostToolUse` script runs on EVERY tool call and `UserPromptSubmit` runs on
+  EVERY prompt, so a 300ms script is a 300ms tax on every action the user takes. As of
+  2026-08-21 the suite has NO latency budget at all — `tests/test-hook-latency.sh` only asserts
+  `duration_ms < 60000`, which is a hang check, not a budget — and 9 scripts sit on the
+  per-tool-call path (5 PreToolUse + 4 PostToolUse). A script that got slower is a defect even
+  when every test is green. Measure before and after with the Step 1 recipe.
 - A doc/prose count that no test compares against its source of truth.
 
 For each candidate: prove it with a measurement, not a fixture. A hypothesis without a measurement
@@ -261,6 +301,12 @@ down to a lower rung while a higher one is available, and never climb UP into in
    next run start from a fact instead of a hypothesis. Record the number and the command that
    produced it. This is a legitimate deliverable even with zero code changed.
 4. **Nothing.** Say so plainly. Do not manufacture rung 1 out of rung 4.
+
+**Deleting beats annotating.** When you find a doc or code reference to a removed surface,
+the default fix is to DELETE or rewrite the claim. Only add a "removed/historical" marker when
+the line is genuinely about the past (a chronicle entry, an incident write-up). Sprinkling
+markers to silence a guard hollows the guard out: it goes green while the false claims remain,
+and the next run reads that green as "nothing stale left".
 
 Rungs 2 and 3 are how the codebase gets better on days with no defect. They are also the only
 sanctioned way to spend the budget when Step 3 comes up empty — they are not refactors, they add

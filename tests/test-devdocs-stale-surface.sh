@@ -26,6 +26,20 @@ for p in cost-router skills/code-review-deep skills/team scripts/team-run.sh \
 done
 
 # Surfaces removed from the tree (cost-router 0.35.x; code-review-*/team family 0.44.0).
+#
+# Scan form: `find -exec grep +`, not `grep -r --include`. BSD grep does support --include,
+# but this file would be the repo's only user of it and a BSD claim cannot be verified from
+# the Windows dev box — the find form is unambiguously portable, so the question never arises.
+#
+# KNOWN GAP — deliberately NOT covered yet, do not read a green run as "no stale surfaces left":
+# the 0.34.0 "pre-1.0 diet" (c65671f) also deleted CHANGELOG.md, docs/specs/ and
+# docs/superpowers/, and .claude/skills still references them on 92 lines across 17 files
+# (measured 2026-08-21: CHANGELOG.md 54, docs/superpowers 33, docs/specs 8). Some are live
+# instructions that would send a releaser at a file that does not exist — e.g. the runsheet's
+# `git add -A` list and `grep -n '^## ' CHANGELOG.md` — and some are legitimate history needing
+# only a marker. Adding them to DENY without triaging each line would just invite
+# marker-sprinkling, which hollows out this lock. Tracked as its own pass; add them to DENY and
+# to the restoration guard above in the SAME change that fixes the 92 lines.
 DENY='cost-router|skills/team|code-review-(deep|scorer|unit-reviewer|history-reviewer|premise-reviewer)|quality-reviewer|team-worker|team-run\.sh'
 # A mention is historical (allowed) when one of these sits on the SAME line or an ADJACENT
 # one — prose wraps mid-sentence, so the removal marker legitimately lands one line away.
@@ -52,7 +66,7 @@ while IFS= read -r hit; do
 "
   fi
 done <<VIOL_EOF
-$(grep -rnE "$DENY" "$ROOT/.claude/skills" --include='*.md' 2>/dev/null)
+$(find "$ROOT/.claude/skills" -name '*.md' -type f -exec grep -nE "$DENY" {} + )
 VIOL_EOF
 
 if [ -n "$viol" ]; then
