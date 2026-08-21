@@ -35,7 +35,9 @@ pass "README hook-event count matches hooks.json ($EVENTS)"
 # Every event hooks.json declares must appear by name in the README bullet list. A count
 # that matches while an event is missing is the drift that hid PostToolUseFailure.
 for ev in $(jq -r '.hooks | keys[]' "$ROOT/hooks/hooks.json" 2>/dev/null | tr -d '\r'); do
-  grep -q "\*\*$ev\*\*" "$README" || fail "hooks.json declares '$ev' but README documents no bullet for it"
+  # Anchored to the LIST ITEM, not any bold run: a README could keep "**PostToolUseFailure**"
+  # in prose or a heading while deleting its bullet, and an unanchored match would still pass.
+  grep -qE "^- \*\*$ev\*\*" "$README" || fail "hooks.json declares '$ev' but README documents no bullet for it"
 done
 pass "every hooks.json event is documented in README by name"
 

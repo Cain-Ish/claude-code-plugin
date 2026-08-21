@@ -61,14 +61,23 @@ This pass is built on measuring the LIVE system. Two directories outside the rep
 
 | Path | Needed by |
 |---|---|
-| `~/.second-brain/` | Step 0 (continuity log), Step 1 (all metrics), Step 6 (writing the log) |
-| `~/knowledge/` | Step 1 (wiki counts), Step 3 (proving findings against live data) |
+| `$BRAIN` (default `~/.second-brain/`) | Step 0 (continuity log), Step 1 (all metrics), Step 6 (writing the log) |
+| `$KNOW` (default `~/knowledge/`) | Step 1 (wiki counts), Step 3 (proving findings against live data) |
 
-Check both before starting:
+Both roots are CONFIGURABLE — resolve them before classifying anything. `mcp/src/brain-paths.ts`
+honours `SB_BRAIN_DIR` / `BRAIN_DIR` for the first and
+`CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` / `KNOWLEDGE_DIR` for the second. A healthy install using
+those supported overrides has neither default path, and treating that as "missing" drops you into
+REPO-ONLY MODE and then reads the wrong directories for the rest of the run.
 
 ```
-ls -d ~/.second-brain ~/knowledge 2>&1
+BRAIN=${SB_BRAIN_DIR:-${BRAIN_DIR:-$HOME/.second-brain}}
+KNOW=${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}
+ls -d "$BRAIN" "$KNOW" 2>&1
 ```
+
+Use `$BRAIN` / `$KNOW` — not the literal `~/…` paths — everywhere below, and record which values
+resolved in your report.
 
 **If BOTH are present** — run the full pass as written below.
 
@@ -111,15 +120,17 @@ the spine of this job and repo-only mode is a degraded fallback, not the normal 
 5. Budget: at most 3 distinct changes per run, each independently revertable. Prefer one
    well-verified fix over three plausible ones.
 6. **Never mutate the knowledge base.** Do not run `/second-brain:dream`, `dream_accept`,
-   `/second-brain:maintain`, or any forget/archive operation. You READ `~/knowledge` and
-   `~/.second-brain` as measurement data. Unattended consolidation is an open safety question
+   `/second-brain:maintain`, or any forget/archive operation. You READ `$KNOW` and
+   `$BRAIN` as measurement data. Unattended consolidation is an open safety question
    (P6) and is not this job.
 
 ## Step 0 — Continuity and branch base (do this FIRST)
 
-- Read `~/.second-brain/daily-audit-log.md` (create it if absent). It lives OUTSIDE the repo on
-  purpose: your work goes to a PR that may sit in review for days, so a log committed there would
-  be invisible to tomorrow's run — which branches from `main`.
+- **Full mode only:** read `$BRAIN/daily-audit-log.md` (create it if absent). It lives OUTSIDE the
+  repo on purpose: your work goes to a PR that may sit in review for days, so a log committed there
+  would be invisible to tomorrow's run — which branches from `main`. In REPO-ONLY MODE `$BRAIN`
+  does not exist: do NOT create it — skip this bullet and the "last 10 entries" read below, and say
+  in your report that you ran without continuity history.
 - Read `docs/plans/2026-08-20-rethink-delivery-layer.md` — the active rethink plan, its phase
   checklist, its Scope audit, and its "known gap" sections.
 - Read the last 10 entries of the audit log. Do NOT re-investigate anything already recorded as
@@ -157,7 +168,7 @@ The central metric is the injection→read rate:
 
 ```
 grep -o "gate=value-loop injected=[0-9]* read=[0-9]* prior=[0-9]* hits=[^\"]*" \
-  ~/.second-brain/audit-log.jsonl | sort | uniq -c | sort -rn
+  "$BRAIN"/audit-log.jsonl | sort | uniq -c | sort -rn
 ```
 
 (`audit-log.jsonl`, not `error-log.jsonl`: `sb_log_error` routes `gate=*` breadcrumbs logged with
@@ -225,8 +236,15 @@ repeatedly: **tests disable the thing under test.** Specifically hunt for:
   are killed every session and the failure is invisible. TIME every hook you touch.
 - A doc/prose count that no test compares against its source of truth.
 
-For each candidate: prove it with a measurement against the LIVE data in `~/knowledge` and
-`~/.second-brain`, not a fixture. A hypothesis without a measurement is not a finding.
+For each candidate: prove it with a measurement, not a fixture. A hypothesis without a measurement
+is not a finding.
+
+- **Full mode** — the measurement runs against the LIVE data in `$KNOW` and `$BRAIN`.
+- **REPO-ONLY MODE** — live data is unavailable by definition, so the measurement runs against the
+  repo alone: a command over the working tree whose output you paste (a source scan, a count
+  compared to its source of truth, a test run RED then GREEN). That is a real measurement and a
+  real finding. What is still forbidden is asserting a claim with no command output at all, or
+  presenting a repo-derived number as a live one. Restrict candidates to the areas Step -1 allows.
 
 ## Step 4 — Fix (code first)
 
@@ -283,7 +301,7 @@ no surface the four content classes do not already cover, and each is independen
 Run these from the repo root and record each EXIT CODE, not the last line:
 
 ```
-cd mcp && npx tsc --noEmit
+(cd mcp && npx tsc --noEmit)
 bash tests/run-all.sh            # shell suite + Vitest + bundle-drift + portability
 bash scripts/validate-plugin.sh
 ```
@@ -304,7 +322,8 @@ is a failure you have not looked at — and so is a fail you have not classified
    (14 pass / 0 fail) — both reported `ec=124` in the suite and both pass clean standalone.
    Before calling any `ec=124` a defect, re-run that ONE test isolated:
    ```
-   env "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$(mktemp -d)" timeout 600 bash tests/<name>.sh
+   TO=$(command -v timeout || command -v gtimeout)   # macOS: brew coreutils, else drop the timer
+   env "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$(mktemp -d)" ${TO:+"$TO" 600} bash tests/<name>.sh
    ```
    If it passes, record it as an artifact and move on. Consider `SB_RUN_ALL_TIMEOUT=300` for the
    whole suite. Do NOT spend the 3-change budget chasing this.
@@ -329,7 +348,7 @@ session Stop, so a same-run re-read will usually be identical — that is expect
 
 ## Step 6 — Report and record
 
-Append one entry to `~/.second-brain/daily-audit-log.md` (in REPO-ONLY MODE, emit it verbatim in
+Append one entry to `$BRAIN/daily-audit-log.md` (in REPO-ONLY MODE, emit it verbatim in
 your final message instead — see Step -1):
 
 ```
@@ -450,10 +469,19 @@ Durable facts that are NOT derivable from the tree:
   and live on the `archive/docs` branch. Read them with `git show archive/docs:<path>`.
 - `validate-plugin.sh` emits one known WARN about an undocumented `fork` SessionStart matcher.
   Pre-existing, not caused by your change.
-- Known-legitimate SKIPs on Windows without Developer Mode (real symlinks unavailable):
-  `test-dream-lifecycle` (subtests 5b–5i) and `test-symlink-guard` (tests 8, 9, 18). Name them in
-  the Step 5 SKIP list and move on — they are environmental, not defects. Any OTHER skip is
-  unexplained until you explain it.
+- Known-legitimate SKIPs are declared by the runner itself, per platform — do not keep a second
+  copy here to rot. Read the manifest:
+
+  ```
+  sed -n '/EXPECTED_SKIPS_LIST=/p' tests/run-all.sh
+  ```
+
+  On Windows without Developer Mode (real symlinks unavailable) that manifest currently arms
+  three: `test-dream-accept-guards`, `test-dream-lifecycle` (subtests 5b–5i) and
+  `test-symlink-guard` (tests 8, 9, 18). Linux/Darwin arms are `__unset__` — unmeasured, so on
+  those platforms EVERY skip is unexplained until you explain it. Name each skip in the Step 5
+  SKIP list and move on — an armed skip is environmental, not a defect. Any skip NOT in the
+  manifest is unexplained until you explain it.
 
 ### Standing hypothesis for `read=0` — do not re-derive this each day
 
@@ -475,6 +503,6 @@ before reads move. If `read` is still 0 after that, the wording was not the caus
 Extraction is structurally starved — already tracked as plan item 0.6, do not file it as new.
 `extract-drain.sh:156` calls `sb_drain_escape_safe` FIRST, which requires `ANTHROPIC_API_KEY` or
 `SB_DRAIN_DEFER_PMODE_ONLY=1`; under OAuth-only with a live interactive Claude, every tick defers
-and both escapes are unreachable. Note `~/.second-brain/.extract-timer-env` is 0 bytes, so
+and both escapes are unreachable. Note `$BRAIN/.extract-timer-env` is 0 bytes, so
 exporting the key in a shell will NOT reach the scheduled task — the installer must be re-applied
 with the key present.

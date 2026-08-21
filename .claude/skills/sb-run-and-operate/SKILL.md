@@ -18,10 +18,11 @@ description: >
 
 # sb-run-and-operate — install, run, upgrade, operate
 
-Everything here is verified against the working tree at plugin version **0.33.37 (2026-07-13;
-counts, versions, and surface tables re-verified — deeper cites last fully verified at
-0.33.31)**. Surface counts, the tool count, the hook-event list, and the removal notes were
-re-verified 2026-08-21 at 0.45.0. Commands are bash, run from the repo root unless they use `$CLAUDE_PLUGIN_ROOT`
+Provenance, by section — do not read one date as covering the whole file. Surface counts, the
+tool count, the hook-event list, the migration set, and the removal notes were re-verified
+2026-08-21 at **0.45.0**. EVERYTHING ELSE here dates from **0.33.37 (2026-07-13)**, with deeper
+cites last fully verified at 0.33.31, and may have rotted since — re-measure before relying on
+an unmarked number. Commands are bash, run from the repo root unless they use `$CLAUDE_PLUGIN_ROOT`
 (the installed plugin's cache dir; inside this repo, the repo root works for both).
 Platform-specific commands are flagged.
 
@@ -193,10 +194,10 @@ Mechanism (`skills/upgrade/SKILL.md`):
 2. Compare with `sort -V`, **never** string compare (`0.24.9 > 0.24.18` lexically).
 3. Apply only migration files `skills/upgrade/migrations/<version>.md` where
    `> INSTALLED AND <= CURRENT`. A version with no file is a marker-bump-only release — most
-   releases; the narrative lives in CHANGELOG.md, which is never context-loaded. As of 0.33.37
-   there are 18 migration files: 0.16.0, 0.20.0, 0.20.1, 0.22.0, 0.24.18, 0.24.28, 0.24.41,
-   0.24.42, 0.24.45, 0.24.47, 0.24.48, 0.24.49, 0.24.50, 0.25.0, 0.32.0, 0.33.0, 0.33.18,
-   0.33.19.
+   releases; the narrative lives in the release commit body (CHANGELOG.md was REMOVED from the
+   tree in 0.34.0; pre-1.0 history is on `archive/docs`). Read the live set rather than trusting
+   a count here — it rotted twice already:
+   `ls skills/upgrade/migrations/ | wc -l` (19 at 0.45.0, 2026-08-21).
 4. Each migration: state intent → idempotent check → apply (backup if it touches user data) →
    report. Destructive ones require explicit confirmation.
 5. **Step 4b runs on EVERY upgrade** (not version-gated): smoke-import

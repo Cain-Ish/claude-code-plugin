@@ -17,20 +17,22 @@ pass(){ echo "PASS: $1"; }
 # historical and this lock is mis-scoped — fail loudly so it gets re-scoped in the same
 # change (drop the name from DENY below).
 for p in cost-router skills/code-review-deep skills/team scripts/team-run.sh \
-         agents/quality-reviewer.md agents/team-worker.md; do
+         agents/quality-reviewer.md agents/team-worker.md \
+         agents/code-review-scorer.md agents/code-review-unit-reviewer.md \
+         agents/code-review-history-reviewer.md agents/code-review-premise-reviewer.md; do
   if [ -e "$ROOT/$p" ]; then
     fail "denylisted surface '$p' exists in the tree again — re-scope this lock"
   fi
 done
 
 # Surfaces removed from the tree (cost-router 0.35.x; code-review-*/team family 0.44.0).
-DENY='cost-router|code-review-(deep|scorer|unit-reviewer|history-reviewer|premise-reviewer)|quality-reviewer|team-worker|team-run\.sh'
+DENY='cost-router|skills/team|code-review-(deep|scorer|unit-reviewer|history-reviewer|premise-reviewer)|quality-reviewer|team-worker|team-run\.sh'
 # A mention is historical (allowed) when one of these sits on the SAME line or an ADJACENT
 # one — prose wraps mid-sentence, so the removal marker legitimately lands one line away.
 MARKER='[Rr]emoved|REMOVED|[Aa]bsorbed|[Hh]istorical|[Dd]eleted|[Dd]ropped|de-vendored|archive/docs|[Rr]etired|[Rr]emoval|[Gg]one|[Mm]ooted'
 # Pure-history references by charter (every line is about the past; per-line markers would
-# be noise). SKILL.md files are operational surface and are NEVER exempt.
-EXEMPT='references/chronicle\.md|references/worked-transcripts\.md|references/worked-examples\.md'
+# be noise) are exempted BY FILE in the loop below. SKILL.md files are operational surface and
+# are NEVER exempt.
 
 viol=""
 while IFS= read -r hit; do
@@ -38,6 +40,11 @@ while IFS= read -r hit; do
   f=${hit%%:*}
   rest=${hit#*:}
   n=${rest%%:*}
+  # Exemptions apply to the FILE, never the matched text: filtering the whole grep line would
+  # drop a real violation that merely happens to name an exempt path on the same line.
+  case "$f" in
+    *chronicle.md|*worked-transcripts.md|*worked-examples.md) continue ;;
+  esac
   start=$(( n > 1 ? n - 1 : 1 ))
   end=$(( n + 1 ))
   if ! sed -n "${start},${end}p" "$f" | grep -qE "$MARKER"; then
@@ -45,7 +52,7 @@ while IFS= read -r hit; do
 "
   fi
 done <<VIOL_EOF
-$(grep -rnE "$DENY" "$ROOT/.claude/skills" --include='*.md' 2>/dev/null | grep -vE "$EXEMPT")
+$(grep -rnE "$DENY" "$ROOT/.claude/skills" --include='*.md' 2>/dev/null )
 VIOL_EOF
 
 if [ -n "$viol" ]; then
