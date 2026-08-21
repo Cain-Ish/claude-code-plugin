@@ -45,14 +45,14 @@ while IFS= read -r hit; do
   case "$f" in
     *chronicle.md|*worked-transcripts.md|*worked-examples.md) continue ;;
   esac
-  start=$(( n > 1 ? n - 1 : 1 ))
-  end=$(( n + 1 ))
+  start=$(( n > 1 ? n - 1 : 1))
+  end=$(( n + 1))
   if ! sed -n "${start},${end}p" "$f" | grep -qE "$MARKER"; then
     viol="${viol}${hit}
 "
   fi
 done <<VIOL_EOF
-$(grep -rnE "$DENY" "$ROOT/.claude/skills" --include='*.md' 2>/dev/null )
+$(grep -rnE "$DENY" "$ROOT/.claude/skills" --include='*.md' 2>/dev/null)
 VIOL_EOF
 
 if [ -n "$viol" ]; then
