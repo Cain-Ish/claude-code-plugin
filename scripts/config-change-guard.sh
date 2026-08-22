@@ -29,9 +29,19 @@ RAW=$(cat 2>/dev/null || true)
 printf '%s' "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
-  # Fail-soft no-op: if lib.sh can't be sourced, we can't audit but we
-  # must not block the user. Exit silently.
+if ! source "$PLUGIN_ROOT/scripts/lib.sh" ; then
+  # Fail-soft no-op: if lib.sh can't be sourced we cannot audit, and we must not block.
+  # 0.45.2: but do NOT vanish. This hook exists to close G-HOOK-3 — recording every
+  # ConfigChange so /second-brain:audit can surface a mid-session permission rewrite.
+  # Exiting with no trace meant a corrupted lib.sh turned the audit trail off silently,
+  # which is exactly the adversarial scenario the hook was built to catch. Sibling guards
+  # (persona-tool-guard, symlink-guard, flow-guard, tool-return-scanner) stub sb_log_audit
+  # and keep going; this one is audit-only, so instead it records its OWN blindness
+  # directly, bypassing the lib.sh helpers it just failed to load.
+  _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ  || echo "")
+  _bd="${BRAIN_DIR:-$HOME/.second-brain}"
+  [ -d "$_bd" ] && printf '{"ts":"%s","level":"error","source":"config-change-guard","msg":"lib.sh could not be sourced — ConfigChange auditing is OFF for this session"}\n' \
+    "$_ts" >> "$_bd/error-log.jsonl" 
   exit 0
 fi
 

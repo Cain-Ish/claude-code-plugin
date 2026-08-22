@@ -306,13 +306,23 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
 
   # `--` ends option parsing: rule patterns include learned (transcript-derived)
   # content, and a pattern starting with '-' must be a regex, never a grep flag.
+  #
+  # -i is LOAD-BEARING, not cosmetic. Windows (NTFS) and default macOS (APFS) are
+  # case-INSENSITIVE: `Persona-Rules.json` and `persona-rules.json` are the SAME FILE,
+  # but a case-sensitive regex matches only the second. Without -i, a write steered to a
+  # case-varied path overwrote the guard's own rules file — or any scripts/hooks file —
+  # WITHOUT the `ask` gate firing, removing the human checkpoint that the self-edit rule
+  # itself calls "the classic prompt-injection escalation path". Measured on Windows
+  # before this fix: persona-rules.json -> ask, Persona-Rules.json -> allowed silently.
+  # On case-SENSITIVE Linux -i only widens matching, i.e. it fails toward `ask`, never
+  # toward allow. Regression-locked in tests/test-persona-tool-guard.sh.
   if [ -n "$match_cmd" ]; then
     [ -z "$CMD" ] && continue
-    if ! printf '%s' "$CMD" | grep -qE -- "$match_cmd"; then continue; fi
+    if ! printf '%s' "$CMD" | grep -qiE -- "$match_cmd"; then continue; fi
   fi
   if [ -n "$match_path" ]; then
     [ -z "$PATH_INPUT" ] && continue
-    if ! printf '%s' "$PATH_INPUT" | grep -qE -- "$match_path"; then continue; fi
+    if ! printf '%s' "$PATH_INPUT" | grep -qiE -- "$match_path"; then continue; fi
   fi
 
   target="${PATH_INPUT:-${CMD:0:200}}"

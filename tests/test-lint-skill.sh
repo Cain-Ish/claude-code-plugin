@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for skills/lint/SKILL.md awk blocks. Closes the test-gap finding from
-# the v0.21.4 deep code review (code-review-unit-reviewer Finding 1).
+# the v0.21.4 deep code review (by code-review-unit-reviewer, an agent removed in 0.44.0).
 #
 # The lint skill is a markdown file whose bash code blocks are pasted verbatim
 # into shells when /second-brain:lint runs. The awk inside those blocks must

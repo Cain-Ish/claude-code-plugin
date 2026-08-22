@@ -21626,7 +21626,10 @@ async function atomicWriteJson(filePath, value) {
   try {
     await fs5.writeFile(tmp, JSON.stringify(value));
     await fs5.rename(tmp, filePath);
-  } catch {
+  } catch (err) {
+    console.error(
+      `atomicWriteJson: FAILED to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`
+    );
     try {
       await fs5.unlink(tmp);
     } catch {

@@ -792,7 +792,7 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
   # the single header line because the START line ALSO matches the `^## ` END pattern —
   # so the harvest was ALWAYS empty and the whole wiki-enrichment block below never ran
   # (every session started missing its project's wiki recall). Same trap the comment at
-  # ~line 188 already fixed for the Never-rules block; this one was left unfixed.
+  # ~lines 245-253 already fixed for the Never-rules block; this one was left unfixed.
   PROJ_KW=$(awk '
     /^## (Goal|State|Conventions)$/ { f=1; next }
     /^## Recent decisions$/         { f=2; next }

@@ -132,5 +132,28 @@ echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("ignore-previo
   || fail "multi-pattern: both labels should appear in one warning (got: $out)"
 pass "multi-pattern: combined warning"
 
+# --- Unicode tag-block smuggling (U+E0000-U+E007F) ---------------------------
+# These codepoints render as NOTHING to a human but are real characters to the model —
+# "tag-block smuggling". scanner.sh detects the UTF-8 prefix bytes F3 A0 80 with
+# `LC_ALL=C grep -qF` (literal bytes, because BSD/macOS grep has no PCRE mode and the
+# earlier \x-escape approach silently no-op'd there — a detector that quietly does
+# nothing on half the supported platforms).
+# Added 0.45.2: this was the ONE detection path in the scanner with zero coverage, found
+# by a test-quality audit. The neighbouring pattern loop was rewritten in 0.45.1, so an
+# untested sibling detector is exactly where the next silent regression would land.
+TAGBYTES=$(printf '\xf3\xa0\x80\x81')
+out=$(scan "$(printf '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"},"tool_response":"benign text %s more text","session_id":"s-tag"}' "$TAGBYTES")")
+echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("unicode-tag-block")' >/dev/null \
+  || fail "unicode tag-block bytes must be flagged (got: $out)"
+pass "unicode-tag-block: invisible U+E00xx characters flagged"
+
+# Negative: ordinary multi-byte UTF-8 (emoji, accents, CJK) must NOT trip it. A detector
+# that fires on any non-ASCII would be worse than none — every user with a non-English
+# wiki would learn to ignore the warning.
+out=$(scan '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"},"tool_response":"café 日本語 emoji ok","session_id":"s-tag-neg"}')
+echo "$out" | jq -e '.hookSpecificOutput.additionalContext // "" | test("unicode-tag-block") | not' >/dev/null 2>&1 \
+  || { [ -z "$out" ] || fail "ordinary UTF-8 must not trip the tag-block detector (got: $out)"; }
+pass "unicode-tag-block: ordinary UTF-8 does not false-positive"
+
 echo
 echo "ALL PASS"
