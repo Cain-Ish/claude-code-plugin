@@ -1,7 +1,7 @@
 {
   "name": "second-brain",
   "description": "Self-evolving AI second brain. Automatically learns from sessions, discovers tools, maintains a local knowledge base, and self-critiques code quality — getting smarter with every interaction.",
-  "version": "0.45.2",
+  "version": "0.45.3",
   "author": {
     "name": "second-brain"
   },
