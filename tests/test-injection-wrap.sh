@@ -101,6 +101,23 @@ grep -q 'Untrusted reference' "$ROOT/scripts/persona-context.sh" \
 grep -q 'Untrusted reference' "$ROOT/scripts/session-load.sh" \
   && pass "session-load.sh defines the banner" || fail "session-load.sh lost the banner"
 
+# 0.45.3: BOTH injected wiki surfaces must name knowledge_fetch, not just the one that is
+# easiest to assert. sb_manifest_add is called only from session-load.sh, so ONLY
+# session-load's injections reach the gate=value-loop numerator/denominator. 0.45.0
+# reworded persona-context (unmeasured) and left session-load (measured) alone, which made
+# the plan's own exit criterion — "if read is still 0 after ~5 sessions the wording is not
+# the cause" — unfalsifiable: the reworded surface was never counted. These are source-level
+# (not runtime) checks on purpose: the runtime lane above SKIPs when the environment yields
+# no wiki hits, and that skip is exactly how the gap survived a green suite.
+for f in persona-context.sh session-load.sh; do
+  # Strip comments FIRST. Without this the check is a TAUTOLOGY: the rationale comment
+  # beside each banner mentions knowledge_fetch, so deleting the hint from the EMITTED
+  # string still passed. Caught by test-the-testing this very assertion.
+  grep -v '^[[:space:]]*#' "$ROOT/scripts/$f" | grep -q 'knowledge_fetch' \
+    && pass "$f names knowledge_fetch in its EMITTED wiki hint" \
+    || fail "$f injects wiki slugs without naming the tool that can open them — a bare [[slug]] is unexecutable"
+done
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -106,7 +106,9 @@ Target shape: **~33k lines → ~5k**, 19 skills → ~5, 23 MCP tools → ~10, 19
 |---|---|---|
 | DELETE | `session-load.sh` hot-tier injection, `persona-context.sh` card/charter/signals, `USER.md`, `projects/<slug>/PROJECT.md`, `merge-persona-signals.sh` | Native memory does this, better, at no budget cost (finding 1); ours actively starves retrieval (finding 2) |
 | DELETE | dream (`dream-*.sh`, `dream-runner`, 6 MCP tools), `brain-os-run.sh`, `maintain-llm-drain.sh`, `maintain-deterministic.sh`, FORGET trio | Elaborate consolidation of knowledge nothing reads (finding 8) |
-| DELETE | `team`, `code-review-deep`, `doubt`, `improve` + 5 agents | Real tools, wrong repo — not memory |
+| DELETE (done 0.44.0) | `team`, `code-review-deep` + 5 agents | Real tools, wrong repo — not memory |
+| ~~DELETE~~ **SUPERSEDED** | `doubt` | The scope-audit correction below overrides this row: `doubt` adversarially validates the plugin's own layers, so it IS a memory-system surface. KEPT. |
+| REMOVED 0.45.1 (different reason) | `improve` | NOT deleted on scope grounds. It was unreachable — `user-invocable: false` AND `disable-model-invocation: true` since 0.29.0 — so no user or model could call it while it held a skill slot at cap. The scope question below was never reached. |
 | REWRITE | retrieval: unscoped-by-default hybrid search, evidence-of-need triggering, full read instrumentation | The product; currently converts 0 of 83 |
 | REWRITE | capture: no OAuth deadlock, no fixed 100-file cap, noise filtered pre-index | Currently losing data (findings 4, 5) |
 | KEEP | `~/knowledge` wiki + graph, `knowledge_search`/`knowledge_fetch`, `code_map`/`code_neighbors`, the 6 PreToolUse guards, `bin/sb` | Working, tested, valuable |
@@ -160,10 +162,11 @@ it is its own change.
 **Dead schema.** `wiki/security`, `wiki/sources`, `wiki/state`: 0 pages each since creation
 (finding 7). Categories that never attracted content are not classes anyone is writing to.
 
-**Correction to the kill/keep ledger above.** That ledger lists `doubt` and `improve` alongside
-`team` and `code-review-deep` as "real tools, wrong repo". The four-class rule does not agree:
-`improve` proposes pin candidates from the current session (classes 1 and 4) and `doubt`
-adversarially validates the plugin's own layers. Likewise `audit`, `lint`, `review`, `status`,
+**Correction to the kill/keep ledger above — APPLIED, the ledger rows now reflect it.** The
+ledger originally listed `doubt` and `improve` alongside `team` and `code-review-deep` as "real
+tools, wrong repo". The four-class rule does not agree: `doubt` adversarially validates the
+plugin's own layers, so it is KEPT. (`improve` proposed pin candidates from the current session
+— classes 1 and 4 — but it was removed in 0.45.1 as UNREACHABLE, never on scope grounds.) Likewise `audit`, `lint`, `review`, `status`,
 `track`, `import-host` all operate on the wiki, hot tier, or guards — they are memory-system
 surfaces, not general engineering tools. Re-decide those against the scope rule rather than the
 original ledger.

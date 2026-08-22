@@ -2,7 +2,7 @@
 name: sb-architecture-contract
 description: >-
   The second-brain plugin's load-bearing design contract: the two-tier memory model and why it
-  exists, the full hook wiring (8 events), the capture→drain→wiki→dream→forget data lifecycle with
+  exists, the full hook wiring (9 events), the capture→drain→wiki→dream→forget data lifecycle with
   exact scripts and state files, BRAIN_DIR vs KNOWLEDGE_DIR geography, the 23-tool MCP server and
   why its dist bundles are committed, single-source resolver discipline, the ~12 provable invariants
   with their enforcing tests, and the known weak points. Load this when you need to understand WHY
@@ -25,7 +25,7 @@ run commands from the repo root in bash (git-bash on Windows).
 | Term | Definition |
 |---|---|
 | **BRAIN_DIR** | Private runtime-state dir, default `~/.second-brain`. Bash: `BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"` + one-time MSYS `cygpath -u` normalization (`scripts/lib.sh:5-12`). TS: `resolveBrainDir()` = `SB_BRAIN_DIR` \|\| `BRAIN_DIR` (CR-stripped) \|\| `join(homedir(), '.second-brain')` (`mcp/src/brain-paths.ts`). |
-| **KNOWLEDGE_DIR** | The durable knowledge base, default `~/knowledge`. TS resolution is currently SPLIT across three divergent `resolveKnowledgeDir` copies with conflicting precedence: `brain-paths.ts:35-42` (`CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR` > `KNOWLEDGE_DIR`) vs `server.ts:31` (what the wiki-facing MCP tools actually use) and `dream.ts:75` (both `KNOWLEDGE_DIR` > option) — OPEN audit medium, see §6. Bash pattern: `"${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"`. |
+| **KNOWLEDGE_DIR** | The durable knowledge base, default `~/knowledge`. TS resolution was SPLIT across three divergent `resolveKnowledgeDir` copies; that was CLOSED in 0.33.38 and `mcp/src/brain-paths.ts` is now the single resolver (verify: `grep -rn 'function resolveKnowledgeDir' mcp/src --include='*.ts'` -> exactly 1 hit). Bash pattern: `"${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"`. |
 | **hot tier** | `USER.md` + `projects/<slug>/PROJECT.md` (+ persona Charter) — auto-injected into context at SessionStart under a byte budget. |
 | **cold tier** | The wiki (`$KNOWLEDGE_DIR/wiki/**`) — fetched on demand via MCP tools, never bulk-injected. |
 | **dream** | A background consolidation job: wiki snapshot → agent works on the STAGING copy → guarded accept applies it to live. State in `$BRAIN_DIR/dreams/drm_*/`. |
@@ -53,7 +53,7 @@ summarize-before-evict, cache-stable injection" (`CONSTITUTION.md`, "Token disci
 membership test for ALL stored content: *"If a saved item does not actively guide a future
 decision, it does not belong."*
 
-## 2. Hook wiring — 8 events, 22 command entries (`hooks/hooks.json`)
+## 2. Hook wiring — 9 events, 22 command entries (`hooks/hooks.json`)
 
 All commands are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/<script>`; five are wrapped in
 `scripts/hook-timer.sh <budget_s> <script>` (marked ⏲) — R7 latency TELEMETRY only: `<budget_s>`
@@ -66,10 +66,10 @@ Re-verify the whole table:
 | Event | Matcher | Script | t(s) | Note |
 |---|---|---|---|---|
 | SessionStart | `startup\|resume\|clear` — deliberately EXCLUDES `compact` (upstream anthropics/claude-code#15174: output silently dropped post-compaction) | `ensure-dirs.sh` | 5 | scaffolds dirs, seeds `config.json` once |
-| SessionStart | same | `discover-tools.sh` / `discover-installed.sh` / `discover-doc-sources.sh` | 10 | environment discovery |
+| SessionStart | same | `discover-installed.sh` / `discover-doc-sources.sh` (a third, `discover-tools.sh`, was removed — do not look for it) | 10 | environment discovery |
 | SessionStart | same | ⏲15 `session-load.sh` | 15 | hot-tier injection (§1) |
 | SessionStart | same | ⏲20 `dream-autostage.sh` | 20 | suggest-only banner; NEVER stages/spawns; kill `SB_DREAM_AUTOSTAGE=off` |
-| UserPromptSubmit | (all) | ⏲10 `persona-context.sh` | 10 | no LLM call; `/?` prefix routes to Opus advisor CLI |
+| UserPromptSubmit | (all) | ⏲25 `persona-context.sh` | 10 | no LLM call; `/?` prefix routes to Opus advisor CLI |
 | Stop | (all) | `stop-verify-gate.sh` | 10 | verification nudge |
 | Stop | (all) | ⏲45 `stop-extract.sh` | 45 | the capture pipeline (§3.2) |
 | Stop | (all) | `sar-summary.sh` | 5 | Safety-Adherence-Rate banner; kill `SB_SAR_SUMMARY=off` |
@@ -289,7 +289,7 @@ The discipline, machine-enforced:
 
 | Single source | Owns | Lock |
 |---|---|---|
-| `mcp/src/brain-paths.ts` | BRAIN dir resolution (TS). `os.homedir()` is the only sanctioned primitive; `cleanEnvPath` strips CR/LF from env paths. KNOWLEDGE-dir resolution is NOT yet funneled here: two more `resolveKnowledgeDir` copies live in-tree (`server.ts:29-43`, `dream.ts:75-84`) with precedence OPPOSITE to brain-paths' (env > option vs option > env) and NO scan lock — OPEN audit medium (sb-failure-archaeology chronicle §26; sb-debugging-playbook "two wikis" row) | `mcp/src/brain-paths.test.ts:85-113` — source-scans every non-test `mcp/src/**/*.ts` and FAILS on `process.env.HOME` or a string literal starting `.second-brain`. Catches BRAIN-dir copies only; the two knowledge-dir copies pass green |
+| `mcp/src/brain-paths.ts` | BRAIN dir resolution (TS). `os.homedir()` is the only sanctioned primitive; `cleanEnvPath` strips CR/LF from env paths. KNOWLEDGE-dir resolution IS funneled here as of 0.33.38 — the two extra `resolveKnowledgeDir` copies (`server.ts`, `dream.ts`) were removed and both now import from brain-paths (historical: sb-failure-archaeology chronicle 26; sb-debugging-playbook "two wikis" row) | `mcp/src/brain-paths.test.ts:85-113` — source-scans every non-test `mcp/src/**/*.ts` and FAILS on `process.env.HOME` or a string literal starting `.second-brain`. Catches BRAIN-dir copies only; the two knowledge-dir copies pass green |
 | `mcp/src/tools/project-dir.ts::resolveActiveSlug` | ALL active-slug resolution. Precedence: `CLAUDE_PROJECT_DIR` (registry longest-prefix > remote-identity > basename) > cwd registry-path > cwd remote-identity > cwd-if-known-project > `.active-session-slug` pin > bare cwd basename. Rationale in-file: per-process signals must outrank the shared pin a concurrent session can clobber | vitest unit tests; the precedence itself was a live incident (0.24.29→0.24.30 slug hijack) |
 | bash twins `sb_resolve_slug`, `sb_slug_from_dir` (lib.sh) | mirror the TS precedence and scratch-dir collapsing (`tmp.*` → `scratch`), CR-stripping, so TS and bash never split-brain a project. BOTH bash funnels — `sb_detect_project` (capture/registration) and `sb_resolve_slug` (query) — carry remote-identity resolution with the same precedence: a registered git-remote match (`sb_slug_from_remote`, every override audit-logged as `remote-identity-override`) beats the folder basename, so a re-clone under a new folder name joins its existing project | kept in lockstep by convention + tests (`tests/test-active-slug-resolution.sh`, `tests/test-detect-project.sh`); comments in both files name each other |
 | `sb_normalize_path` (lib.sh:14-51) | THE single path-form funnel for PreToolUse guards on Windows: backslash→slash, `//?/` strip, localhost-UNC rewrite, `C:/`→`/c/` via cygpath. Without it all three write-guards silently fail-OPEN on Windows (they did, for months — fixed as of 0.33.31) | `tests/test-normalize-path.sh` (new, 0.33.31); Windows-form vectors run on Linux/BSD CI via stubbed cygpath/realpath |
