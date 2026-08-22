@@ -40,9 +40,9 @@ pass "single-file edit silent + phase plan->implement"
 
 # 2. Second distinct code file -> Gate A denies ONCE, naming the exact retry path
 OUT=$(printf '%s' "$(evt Write b.ts S1 "$big")" | bash "$SC" 2>/dev/null)
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 \
   || fail "2nd code file should be denied by Gate A (got: $OUT)"
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecisionReason|test("state the plan: goal, files in scope, verify command — then retry")' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecisionReason|test("state the plan: goal, files in scope, verify command — then retry")' >/dev/null 2>&1 \
   || fail "Gate A deny must name the exact retry path (got: $OUT)"
 [ -f "$BRAIN_DIR/.plan-nudge/S1.gate" ] || fail "Gate A deny marker missing"
 pass "Gate A: deny-once with fact-forcing retry instruction"
@@ -98,7 +98,7 @@ printf '%s' "$(evt Write a.ts S6 "$big")" | SB_INTENT_SPINE=off bash "$SC" >/dev
 [ -f "$BRAIN_DIR/.injected/S6.phase" ] && fail "spine off must not write a phase file"
 OUT=$(printf '%s' "$(evt Write b.ts S6 "$big")" | SB_INTENT_SPINE=off bash "$SC" 2>/dev/null)
 printf '%s' "$OUT" | grep -q 'Plan-first' || fail "spine off: 2nd code file should soft-nudge"
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="allow"' >/dev/null 2>&1 || fail "advisory must allow"
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="allow"' >/dev/null 2>&1 || fail "advisory must allow"
 printf '%s' "$OUT" | grep -qiE '"deny"|"ask"' && fail "advisory must never block/ask"
 OUT=$(printf '%s' "$(evt Edit c.ts S6 "$big")" | SB_INTENT_SPINE=off bash "$SC" 2>/dev/null)
 [ -z "$OUT" ] || fail "advisory should fire at most once per session"
@@ -116,11 +116,11 @@ for f in zebra1 zebra2 zebra3; do
   [ -z "$OUT" ] || fail "below drift threshold must be silent ($f got: $OUT)"
 done
 OUT=$(printf '%s' "$(evt Write zebra4.ts S7 "$big")" | bash "$SC" 2>/dev/null)
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext|test("Re-ground")' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext|test("Re-ground")' >/dev/null 2>&1 \
   || fail "4th zero-overlap file should warn (got: $OUT)"
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext|test("widget auth flow because")' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext|test("widget auth flow because")' >/dev/null 2>&1 \
   || fail "drift warn must quote the frozen goal (got: $OUT)"
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput|has("permissionDecision")|not' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput|has("permissionDecision")|not' >/dev/null 2>&1 \
   || fail "drift warn must NOT carry a permissionDecision (got: $OUT)"
 [ -f "$BRAIN_DIR/.plan-nudge/S7.driftwarn" ] || fail "drift warn marker missing"
 for f in zebra5 zebra6 zebra7; do
@@ -128,11 +128,11 @@ for f in zebra5 zebra6 zebra7; do
   [ -z "$OUT" ] || fail "second set below threshold must be silent ($f got: $OUT)"
 done
 OUT=$(printf '%s' "$(evt Write zebra8.ts S7 "$big")" | bash "$SC" 2>/dev/null)
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 \
   || fail "second consecutive zero-overlap set should deny (got: $OUT)"
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecisionReason|test("confirm scope change or return to goal — then retry")' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecisionReason|test("confirm scope change or return to goal — then retry")' >/dev/null 2>&1 \
   || fail "Gate B deny must name the exact retry path (got: $OUT)"
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecisionReason|test("widget auth flow because")' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecisionReason|test("widget auth flow because")' >/dev/null 2>&1 \
   || fail "Gate B deny must quote the frozen goal (got: $OUT)"
 jq -r '.scope_queued // ""' "$BRAIN_DIR/.injected/S7.json" | grep -q 'zebra' \
   || fail "Gate B deny must queue the scope change in the memo"
@@ -172,7 +172,7 @@ OUT=$(printf '%s' "$(evt Write src/auth/login.ts S11 "$big")" | bash "$SC" 2>/de
 [ -z "$OUT" ] || fail "S11 file1 should be silent (got: $OUT)"
 [ -f "$BRAIN_DIR/.plan-nudge/S11.drift" ] && fail "pre-plan file must never enter a drift set"
 OUT=$(printf '%s' "$(evt Write src/api/session-routes.ts S11 "$big")" | bash "$SC" 2>/dev/null)
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 \
   || fail "S11 file2 should hit the real Gate A deny (got: $OUT)"
 OUT=$(printf '%s' "$(evt Write src/api/session-routes.ts S11 "$big")" | bash "$SC" 2>/dev/null)
 [ -z "$OUT" ] || fail "S11 Gate A retry should pass silently (got: $OUT)"
@@ -201,7 +201,7 @@ for f in a b c; do
   [ -z "$OUT" ] || fail "below threshold must be silent (src/utils-legacy/$f.ts got: $OUT)"
 done
 OUT=$(printf '%s' "$(evt Write src/utils-legacy/d.ts S12 "$big")" | bash "$SC" 2>/dev/null)
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext|test("Re-ground")' >/dev/null 2>&1 \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext|test("Re-ground")' >/dev/null 2>&1 \
   || fail "lookalike dir src/utils-legacy must NOT be blessed by scope src/utils (expected warn, got: $OUT)"
 pass "Gate B: segment boundary — src/utils never blesses src/utils-legacy"
 

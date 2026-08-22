@@ -62,9 +62,9 @@ pass "trivial ack silent"
 
 # Test 3: substantive build prompt → emits additionalContext
 out=$(payload "build a login form with rate limiting and oauth" | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.hookEventName == "UserPromptSubmit"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.hookEventName == "UserPromptSubmit"' >/dev/null \
   || fail "substantive: missing hookSpecificOutput envelope (got: $out)"
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("Persona context"; "i")' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("Persona context"; "i")' >/dev/null \
   || fail "substantive: additionalContext missing 'Persona context' header"
 pass "substantive prompt emits persona context"
 
@@ -96,9 +96,9 @@ STUBJS
   THINK_BRAIN=$(mktemp -d)
   out=$(payload "/? what is the best caching strategy" \
     | CLAUDE_PLUGIN_ROOT="$THINK_ROOT" BRAIN_DIR="$THINK_BRAIN" bash "$SCRIPT")
-  echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("SB_THINK_SENTINEL_42")' >/dev/null \
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("SB_THINK_SENTINEL_42")' >/dev/null \
     || fail "/? present-bundle: stubbed brief sentinel did NOT reach additionalContext (got: $out)"
-  echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("\\[Persona deep brief")' >/dev/null \
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("\\[Persona deep brief")' >/dev/null \
     || fail "/? present-bundle: additionalContext missing the '[Persona deep brief' wrapper (got: $out)"
   pass "/? present-bundle: Opus brief sentinel + '[Persona deep brief' wrapper delivered to additionalContext"
   rm -rf "$THINK_ROOT" "$THINK_BRAIN"
@@ -115,14 +115,14 @@ NOBUNDLE_ROOT=$(mktemp -d)        # no mcp/dist/cli/persona-think-cli.bundle.js 
 NOBUNDLE_BRAIN=$(mktemp -d)
 out=$(payload "/? what is the best caching strategy" \
   | CLAUDE_PLUGIN_ROOT="$NOBUNDLE_ROOT" BRAIN_DIR="$NOBUNDLE_BRAIN" bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("persona-think-cli.bundle.js is missing")' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("persona-think-cli.bundle.js is missing")' >/dev/null \
   || fail "/? missing-bundle: fallback hint ('persona-think-cli.bundle.js is missing') did NOT reach additionalContext — a dead /? would be silently empty (got: $out)"
 pass "/? missing-bundle: dead-route fallback hint delivered to additionalContext (never silently empty)"
 rm -rf "$NOBUNDLE_ROOT" "$NOBUNDLE_BRAIN"
 
 # Test 6: short action-verb prompt → still substantive (preserved from intent-gate)
 out=$(payload "fix the bug in auth" | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext' >/dev/null \
   || fail "short action-verb prompt should still be substantive (got: $out)"
 pass "action-verb prompt substantive"
 
@@ -139,7 +139,7 @@ cat > "$BRAIN_DIR_TEST/persona-card.md" <<EOF
 - test-role-marker
 EOF
 out=$(BRAIN_DIR="$BRAIN_DIR_TEST" payload "build a thing with many words to be substantive" | BRAIN_DIR="$BRAIN_DIR_TEST" bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("test-role-marker") | not' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("test-role-marker") | not' >/dev/null \
   || fail "persona-card must NOT be injected per-prompt in 0.32.0 (got: $out)"
 pass "persona-card is NOT injected per-prompt (removed in 0.32.0)"
 rm -rf "$BRAIN_DIR_TEST"
@@ -167,8 +167,8 @@ out_w1=$(KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" \
 out_w2=$(KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" \
   payload_sid "tell me about the widget thing in detail" "wiki-dedup-session" \
   | KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" bash "$SCRIPT")
-if echo "$out_w1" | jq -e '.hookSpecificOutput.additionalContext | test("widget-page")' >/dev/null 2>&1; then
-  echo "$out_w2" | jq -e '.hookSpecificOutput.additionalContext | test("widget-page") | not' >/dev/null \
+if [ -n "$out_w1" ] && echo "$out_w1" | jq -e '.hookSpecificOutput.additionalContext | test("widget-page")' >/dev/null 2>&1; then
+  [ -n "$out_w2" ] && echo "$out_w2" | jq -e '.hookSpecificOutput.additionalContext | test("widget-page") | not' >/dev/null \
     || fail "turn 2: wiki section should be deduped when hits unchanged (got: $out_w2)"
   pass "wiki dedup: unchanged wiki hits suppressed on next turn"
 else

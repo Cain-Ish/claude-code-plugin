@@ -35,15 +35,15 @@ pass "audit-only: no stdout"
 # --- Test 2: audit-log.jsonl record created with correct fields --------
 [ -f "$BRAIN_DIR/audit-log.jsonl" ] || fail "audit-log.jsonl should exist after hook fires"
 LINE=$(tail -n1 "$BRAIN_DIR/audit-log.jsonl")
-echo "$LINE" | jq -e '.hook == "config-change-guard.sh"' >/dev/null \
+[ -n "$LINE" ] && echo "$LINE" | jq -e '.hook == "config-change-guard.sh"' >/dev/null \
   || fail "audit line should name the hook (got: $LINE)"
-echo "$LINE" | jq -e '.verdict == "flag"' >/dev/null \
+[ -n "$LINE" ] && echo "$LINE" | jq -e '.verdict == "flag"' >/dev/null \
   || fail "verdict should be 'flag' for audit-only (got: $LINE)"
-echo "$LINE" | jq -e '.rule | test("config-change:project_settings")' >/dev/null \
+[ -n "$LINE" ] && echo "$LINE" | jq -e '.rule | test("config-change:project_settings")' >/dev/null \
   || fail "rule should include source category (got: $LINE)"
-echo "$LINE" | jq -e '.target | test("\\.claude/settings\\.json")' >/dev/null \
+[ -n "$LINE" ] && echo "$LINE" | jq -e '.target | test("\\.claude/settings\\.json")' >/dev/null \
   || fail "target should be the file_path (got: $LINE)"
-echo "$LINE" | jq -e '.extra.source == "project_settings"' >/dev/null \
+[ -n "$LINE" ] && echo "$LINE" | jq -e '.extra.source == "project_settings"' >/dev/null \
   || fail "extra should preserve original source (got: $LINE)"
 pass "audit-log entry has correct fields"
 

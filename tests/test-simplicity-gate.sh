@@ -11,7 +11,7 @@ EVT=$(jq -nc --arg c "$big" '{tool_name:"Write",tool_input:{content:$c}}')
 OUT=$(printf '%s' "$EVT" | bash "$SC" 2>/dev/null)
 printf '%s' "$OUT" | grep -q 'Simplicity check' || fail "200-line Write should nudge"
 printf '%s' "$OUT" | grep -qiE 'deny|permissionDecision' && fail "must be advisory, never block"
-printf '%s' "$OUT" | jq -e '.hookSpecificOutput.hookEventName=="PostToolUse"' >/dev/null 2>&1 || fail "wrong hookEventName"
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.hookEventName=="PostToolUse"' >/dev/null 2>&1 || fail "wrong hookEventName"
 pass "large Write nudges, advisory PostToolUse only"
 SMALL=$(jq -nc --arg c "$(yes 'x'|head -10)" '{tool_name:"Write",tool_input:{content:$c}}')
 [ -z "$(printf '%s' "$SMALL" | bash "$SC" 2>/dev/null)" ] || fail "small Write should be silent"
