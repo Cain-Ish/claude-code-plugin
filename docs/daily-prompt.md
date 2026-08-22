@@ -292,7 +292,9 @@ repeatedly: **tests disable the thing under test.** Specifically hunt for:
 - Assertions blind to EMPTY output. jq 1.6's `-e` exits 0 when stdin carries no JSON value
   (1.7+ exits 4), so `echo "$out" | jq -e '…=="deny"' || fail` PASSES when the guard silently
   allows — on any jq-1.6 host the lock cannot go red in the one direction it exists for.
-  Found 2026-08-22 (105 assertions, 16 files); locked by `tests/test-jq-e-empty-guard.sh`,
+  Found 2026-08-22; swept 106 assertions across 17 files (count it, do not quote this line:
+  `grep -cE '\[ -n "\$[A-Za-z_][A-Za-z0-9_]*" \] && (echo|printf)[^|]*\| jq -e' tests/test-*.sh`).
+  Locked by `tests/test-jq-e-empty-guard.sh`,
   which requires `[ -n "$out" ] && …` on the same line. The class to keep hunting is OTHER
   assertion shapes whose failure mode is empty output feeding a tool that exits 0 on empty.
 
@@ -371,6 +373,19 @@ Run these from the repo root and record each EXIT CODE, not the last line:
 bash tests/run-all.sh            # shell suite + Vitest + bundle-drift + portability
 bash scripts/validate-plugin.sh
 ```
+
+Capture the suite's OWN exit code, not a trailing command's. `bash tests/run-all.sh > log; echo $?`
+reports the *redirect*; `bash tests/run-all.sh > log 2>&1; rc=$?` then reporting `$rc` is the gate.
+Measured 2026-08-22: a run whose last statement was `tail` reported exit 0 while the suite's summary
+said `fail: 4` — the same swallow this Step is named after, one layer out.
+
+Run the suite in a CLEAN environment, and on a QUIET machine. A variable exported for an unrelated
+reason invalidates the whole run: measured 2026-08-22, `export MSYS_NO_PATHCONV=1` (set so MSYS would
+stop mangling `git show <ref>:<path>`) turned 12 of the first 17 tests RED, including an impossible
+`Could not open file …/mcp/package.json` for a file that existed. `unset MSYS_NO_PATHCONV` on the same
+tree and commit → green. Before treating a red suite as a defect, re-run ONE failing test with a clean
+env; that is cheaper than debugging a phantom. Equally: do not edit the tree, switch branches, or let a
+second session run while the suite is in flight — a run whose tree moved under it is not a gate.
 
 `run-all.sh` globs every `tests/test-*.sh` and then runs Vitest, so it already covers the
 bundle-drift (`test-bundle-current.sh`), portability (`test-script-portability.sh`) and
@@ -535,6 +550,13 @@ Durable facts that are NOT derivable from the tree:
   and live on the `archive/docs` branch. Read them with `git show archive/docs:<path>`.
 - `validate-plugin.sh` emits one known WARN about an undocumented `fork` SessionStart matcher.
   Pre-existing, not caused by your change.
+- Four extraction-lane tests sit close to `PER_TEST_TIMEOUT` (default 120s) and go `ec=124`
+  under any load, with every assertion passing: measured in isolation 2026-08-22 on Windows,
+  `test-stop-extract` 105s, `test-extract-drain` 105s, `test-merge-project-update` 83s,
+  `test-maintain-llm-drain` 68s. An `ec=124` on these is a headroom symptom, not a defect —
+  re-run the test ALONE before filing anything. The underlying cost is the MSYS process-spawn
+  tax (~62ms bash, ~75ms jq, ~130ms node per spawn), so the durable fix is fewer spawns per
+  loop, not a bigger timeout. Raise the bound for one run with `SB_RUN_ALL_TIMEOUT=240`.
 - Known-legitimate SKIPs are declared by the runner itself, per platform — do not keep a second
   copy here to rot. Read the manifest:
 

@@ -22,6 +22,12 @@ nocomment(){ grep -vE ':[0-9]+:[[:space:]]*#'; }
 # ≥2 files always, so grep emits file: prefixes unconditionally.
 ALL_SH=$(find "$ROOT" "$REPO/bin" "$REPO/.claude/skills" \( -name '*.sh' -o -name 'sb' \) -type f 2>/dev/null || true)
 
+# Fail LOUD on an empty list. Every check below expands $ALL_SH unquoted as grep's file
+# arguments; with no files grep falls back to STDIN and the gate HANGS (or, under a
+# redirect, reports a vacuous pass) instead of failing — a scan that silently covers
+# nothing is the exact "guard that cannot go red" class this suite exists to catch.
+[ -n "$ALL_SH" ] || fail "no shell files found to scan" "ROOT=$ROOT REPO=$REPO"
+
 # 1. No bash-4 array builtins (macOS /bin/bash is 3.2). Match actual usage `mapfile -`/`readarray -`,
 #    not prose mentions.
 h=$(grep -nE '(mapfile|readarray)[[:space:]]+-' $ALL_SH 2>/dev/null | nocomment || true)

@@ -9,8 +9,10 @@
 # PASSES when the guard SILENTLY ALLOWS (empty $out) on any jq-1.6 host — the one
 # direction a guard lock exists to catch. Found 2026-08-22: the wiki-write-guard
 # case-bypass produced empty output and 2 of 4 new locks "passed" against the broken
-# guard for exactly this reason; 74 assertions across 8 guard-lane test files shared
-# the shape. Rule: every piped-VARIABLE jq -e assertion in tests/ must require
+# guard for exactly this reason. The shape was not confined to that lane: the sweep
+# covered 106 assertions across 17 files (this gate re-derives that set every run, so
+# do not trust this number — run the gate). Rule: every piped-VARIABLE jq -e assertion
+# in tests/ must require
 # non-empty input on the same line:
 #   [ -n "$out" ] && echo "$out" | jq -e ...
 # (Under jq 1.7+ this changes nothing: empty already exits 4. The guard makes 1.6
