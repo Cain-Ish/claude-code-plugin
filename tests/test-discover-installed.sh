@@ -57,11 +57,11 @@ P1="$TMP/plugins1"; B1="$TMP/b1"; mkdir -p "$P1" "$B1"
 mkplugin "$P1" "alpha" "1.2.3" 2 3
 mkplugin "$P1" "beta"  "0.1.0" 1 1
 OUT=$(env BRAIN_DIR="$B1" bash "$SCRIPT" "$P1" 2>/dev/null) || fail "1: script exited non-zero"
-printf '%s' "$OUT" | jq -e . >/dev/null 2>&1 || fail "1: output is not valid JSON"
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e . >/dev/null 2>&1 || fail "1: output is not valid JSON"
 [ "$(printf '%s' "$OUT" | jq -r '.plugins | length')" = "2" ] || fail "1: expected 2 plugins"
 [ "$(printf '%s' "$OUT" | jq -r '.agents  | length')" = "3" ] || fail "1: expected 3 agents"
 [ "$(printf '%s' "$OUT" | jq -r '.skills  | length')" = "4" ] || fail "1: expected 4 skills"
-printf '%s' "$OUT" | jq -e '.generated_at | type == "string"' >/dev/null || fail "1: missing generated_at"
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.generated_at | type == "string"' >/dev/null || fail "1: missing generated_at"
 [ "$(printf '%s' "$OUT" | jq -r '.plugins[] | select(.name=="alpha") | .version')" = "1.2.3" ] \
   || fail "1: plugin version not carried"
 [ "$(printf '%s' "$OUT" | jq -r '.agents[] | select(.name=="alpha-agent-1") | .plugin')" = "alpha" ] \
@@ -69,7 +69,7 @@ printf '%s' "$OUT" | jq -e '.generated_at | type == "string"' >/dev/null || fail
 [ "$(printf '%s' "$OUT" | jq -r '.skills[] | select(.name=="beta-skill-1") | .description')" = "skill 1 of beta" ] \
   || fail "1: skill description not extracted"
 # every record must carry exactly the documented keys
-printf '%s' "$OUT" | jq -e '.agents[] | has("name") and has("description") and has("plugin")' >/dev/null \
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.agents[] | has("name") and has("description") and has("plugin")' >/dev/null \
   || fail "1: agent record shape changed"
 pass "catalog shape, counts, attribution, version"
 
@@ -84,7 +84,7 @@ P3="$TMP/plugins3"; B3="$TMP/b3"; mkdir -p "$P3" "$B3"
 mkplugin "$P3" "crlfplug" "1.0.0" 2 0 crlf
 OUT3=$(env BRAIN_DIR="$B3" bash "$SCRIPT" "$P3" 2>/dev/null) || fail "3: script exited non-zero"
 [ "$(printf '%s' "$OUT3" | jq -r '.agents | length')" = "2" ] || fail "3: CRLF frontmatter not parsed"
-printf '%s' "$OUT3" | jq -e '.agents[] | select(.description | test("\r"))' >/dev/null 2>&1 \
+[ -n "$OUT3" ] && printf '%s' "$OUT3" | jq -e '.agents[] | select(.description | test("\r"))' >/dev/null 2>&1 \
   && fail "3: CR leaked into a description value"
 pass "CRLF frontmatter parsed, no CR leakage"
 
@@ -147,7 +147,7 @@ printf -- '---\nname: spaced\ndescription: file has spaces\n---\nbody\n'        
 printf -- '---\nname: "quoted-name"\ndescription: "quoted desc"\n---\nbody\n'                                    > "$A7/a7.md"
 
 OUT7=$(env BRAIN_DIR="$B7" bash "$SCRIPT" "$P7" 2>/dev/null) || fail "7: script exited non-zero on hostile input"
-printf '%s' "$OUT7" | jq -e . >/dev/null 2>&1 || fail "7: hostile frontmatter produced invalid JSON"
+[ -n "$OUT7" ] && printf '%s' "$OUT7" | jq -e . >/dev/null 2>&1 || fail "7: hostile frontmatter produced invalid JSON"
 [ "$(printf '%s' "$OUT7" | jq -r '.agents | length')" = "5" ] \
   || fail "7: expected 5 agents (a3 no-frontmatter and a5 no-name are skipped)"
 [ "$(printf '%s' "$OUT7" | jq -r '.agents[] | select(.name=="quoteful") | .description')" \
@@ -188,8 +188,8 @@ jq -e '.name | contains("\n")' "$P8/evil/.claude-plugin/plugin.json" >/dev/null 
   || fail "8: fixture lost the embedded newline in plugin.json name -- test would pass vacuously"
 
 OUT8=$(env BRAIN_DIR="$B8" bash "$SCRIPT" "$P8" 2>/dev/null) || fail "8: script exited non-zero"
-printf '%s' "$OUT8" | jq -e . >/dev/null 2>&1 || fail "8: forged-name fixture produced invalid JSON"
-if printf '%s' "$OUT8" | jq -e '.agents[] | select(.name=="FAKE-NAME")' >/dev/null 2>&1; then
+[ -n "$OUT8" ] && printf '%s' "$OUT8" | jq -e . >/dev/null 2>&1 || fail "8: forged-name fixture produced invalid JSON"
+if [ -n "$OUT8" ] && printf '%s' "$OUT8" | jq -e '.agents[] | select(.name=="FAKE-NAME")' >/dev/null 2>&1; then
   fail "8: a hostile plugin.json name FORGED an agent record backed by no file"
 fi
 [ "$(printf '%s' "$OUT8" | jq -r '.agents | length')" = "1" ] \

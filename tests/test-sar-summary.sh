@@ -41,7 +41,7 @@ log_entry "s1" "allow" "anonymous"
 log_entry "s1" "ask" "warn-rm-rf"
 log_entry "s1" "flag" "injection:system-tag"
 out=$(BRAIN_DIR="$BRAIN" echo '{"session_id":"s1"}' | BRAIN_DIR="$BRAIN" bash "$SCRIPT")
-echo "$out" | jq -e '.systemMessage' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.systemMessage' >/dev/null \
   || fail "should emit systemMessage (got: $out)"
 echo "$out" | jq -r '.systemMessage' | grep -q 'SAR' \
   || fail "systemMessage should contain 'SAR' (got: $out)"
@@ -125,7 +125,7 @@ echo 'this is not json' >> "$BRAIN/audit-log.jsonl"
 echo '{"ts":"x","hook":' >> "$BRAIN/audit-log.jsonl"
 log_entry "s12" "ask" "rule-x"
 out=$(BRAIN_DIR="$BRAIN" echo '{"session_id":"s12"}' | BRAIN_DIR="$BRAIN" bash "$SCRIPT")
-echo "$out" | jq -e '.systemMessage' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.systemMessage' >/dev/null \
   || fail "corrupted audit-log should still produce a banner (got: $out)"
 echo "$out" | jq -r '.systemMessage' | grep -q 'allow=1' \
   || fail "corruption-resilient parse should still see allow=1 (got: $out)"

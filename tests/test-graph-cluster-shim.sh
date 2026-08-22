@@ -24,10 +24,10 @@ page x y z; page y x z; page z x y
 
 # --- default min 4: only the 4-clique qualifies ---
 OUT=$(bash "$SHIM" --knowledge-dir "$KD")
-echo "$OUT" | jq -e . >/dev/null 2>&1 || fail "shim did not emit valid JSON: $OUT"
+[ -n "$OUT" ] && echo "$OUT" | jq -e . >/dev/null 2>&1 || fail "shim did not emit valid JSON: $OUT"
 [ "$(echo "$OUT" | jq 'length')" = 1 ] || fail "expected 1 cluster at min 4, got: $OUT"
 [ "$(echo "$OUT" | jq -c '.[0].members')" = '["a","b","c","d"]' ] || fail "wrong members: $OUT"
-echo "$OUT" | jq -e '.[0].member_hash | length > 0' >/dev/null || fail "missing member_hash"
+[ -n "$OUT" ] && echo "$OUT" | jq -e '.[0].member_hash | length > 0' >/dev/null || fail "missing member_hash"
 pass "min 4 -> one cluster {a,b,c,d}; triangle excluded; member_hash present"
 
 # --- min 3: both qualify, deterministic order (by id) ---

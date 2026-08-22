@@ -8,21 +8,21 @@ pass() { echo "PASS: $1"; }
 
 # Test 1: 2>/dev/null gets stripped
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls foo 2>/dev/null"}}' | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' >/dev/null \
   || fail "strip-silent-fallback: permission should be allow (got: $out)"
-echo "$out" | jq -e '.hookSpecificOutput.updatedInput.command | contains("2>/dev/null") | not' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.updatedInput.command | contains("2>/dev/null") | not' >/dev/null \
   || fail "strip-silent-fallback: updatedInput.command should not contain 2>/dev/null"
 pass "strip-silent-fallback"
 
 # Test 2: force-push to main → ask
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "force-push-main should ask (got: $out)"
 pass "force-push-main asks"
 
 # Test 3: direct write to USER.md → ask
 out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/USER.md","content":"foo"}}' | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "write-USER.md should ask (got: $out)"
 pass "write-USER.md asks"
 
@@ -38,7 +38,7 @@ pass "kill switch honored"
 
 # Test 6: rm -rf → ask
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/foo"}}' | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "rm -rf should ask (got: $out)"
 pass "rm -rf asks"
 
@@ -46,12 +46,12 @@ pass "rm -rf asks"
 # Test 7: Edit to plugin script → ask (defends safety layer from
 # injection-driven self-disable).
 out=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/x/claude-code-plugin/scripts/lib.sh"}}' | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "Edit to plugin script should ask (got: $out)"
 pass "self-protection: plugin script edit asks"
 
 out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/persona-rules.json","content":"{}"}}' | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "Write to persona-rules.json should ask (got: $out)"
 pass "self-protection: persona-rules edit asks"
 
@@ -65,9 +65,9 @@ trap 'rm -rf "$SCOPE_BRAIN" "$TS_BRAIN"' EXIT
 out=$(BRAIN_DIR="$SCOPE_BRAIN" \
   echo '{"tool_name":"Edit","tool_input":{"file_path":"/etc/hosts"},"cwd":"/home/u/proj"}' \
   | BRAIN_DIR="$SCOPE_BRAIN" bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "out-of-scope Edit (/etc/hosts) should ask (got: $out)"
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | test("resource scope|outside the project")' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | test("resource scope|outside the project")' >/dev/null \
   || fail "out-of-scope ask reason should mention resource scope (got: $out)"
 pass "resource-scope: out-of-scope Edit asks"
 
@@ -126,9 +126,9 @@ EOF
 out=$(BRAIN_DIR="$TS_BRAIN" \
   echo '{"tool_name":"WebFetch","tool_input":{"url":"https://x"},"session_id":"ts1"}' \
   | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "out-of-scope WebFetch should ask (got: $out)"
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | test("tool scope|not in the declared|allowlist")' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | test("tool scope|not in the declared|allowlist")' >/dev/null \
   || fail "out-of-scope tool ask reason should mention tool scope (got: $out)"
 pass "tool-scope: out-of-scope WebFetch asks"
 
@@ -221,7 +221,7 @@ cat > "$WINBIN/payload.json" <<'JSON'
 {"tool_name":"Edit","tool_input":{"file_path":"C:\\Users\\attacker\\.aws\\credentials"},"cwd":"C:\\proj","session_id":"win1"}
 JSON
 out=$(BRAIN_DIR="$SCOPE_BRAIN" HOME="/c/Users/victim" PATH="$WINBIN:$PATH" bash "$SCRIPT" < "$WINBIN/payload.json")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "Windows C:\\ out-of-scope Edit should ASK (resource-scope fail-open on Windows): $out"
 pass "resource-scope: Windows C:\\ out-of-scope path asks"
 
@@ -236,7 +236,7 @@ pass "resource-scope: Windows C:\\ out-of-scope path asks"
 NOLIB_BRAIN=$(mktemp -d)
 cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$NOLIB_BRAIN/persona-rules.json"
 out=$(BRAIN_DIR="$NOLIB_BRAIN" HOME="/c/Users/victim" CLAUDE_PLUGIN_ROOT=/nonexistent PATH="$WINBIN:$PATH" bash "$SCRIPT" < "$WINBIN/payload.json")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "lib.sh unsourceable: Windows out-of-scope Edit should still ASK via the inline fallback: $out"
 pass "resource-scope: inline fallback (lib.sh unsourceable) still asks on Windows path"
 rm -rf "$WINBIN" "$NOLIB_BRAIN"
@@ -257,9 +257,9 @@ EOF
 out=$(BRAIN_DIR="$TS_BRAIN" \
   echo '{"tool_name":"Bash","tool_input":{"command":"npm install -g typescript"},"session_id":"w1"}' \
   | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT") || fail "warn rule must exit 0"
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("project-local")' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("project-local")' >/dev/null \
   || fail "learned bash warn should emit its message as additionalContext (got: $out)"
-echo "$out" | jq -e '.hookSpecificOutput | has("permissionDecision") | not' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput | has("permissionDecision") | not' >/dev/null \
   || fail "warn must NOT set permissionDecision — advisory only (got: $out)"
 pass "learned warn: bash rule fires advisory, allows, exits 0"
 
@@ -267,9 +267,9 @@ pass "learned warn: bash rule fires advisory, allows, exits 0"
 out=$(BRAIN_DIR="$TS_BRAIN" \
   echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/u/proj/src/generated/api.ts"},"cwd":"/home/u/proj","session_id":"w2"}' \
   | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT") || fail "file warn rule must exit 0"
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("build output")' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("build output")' >/dev/null \
   || fail "learned file warn should emit advisory on matching Edit path (got: $out)"
-echo "$out" | jq -e '.hookSpecificOutput | has("permissionDecision") | not' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput | has("permissionDecision") | not' >/dev/null \
   || fail "file warn must NOT set permissionDecision (got: $out)"
 # Non-matching input stays silent (advisory never fires spuriously).
 out=$(BRAIN_DIR="$TS_BRAIN" \
@@ -437,14 +437,14 @@ gv() { printf '{"tool_name":"%s","session_id":"caseT","cwd":"%s","tool_input":{"
 
 for variant in "persona-rules.json" "Persona-Rules.json" "PERSONA-RULES.JSON" "PeRsOnA-RuLeS.jSoN"; do
   out=$(gv Write "$variant")
-  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
     || fail "case-varied rules-file write '$variant' must ask (got: $out)"
 done
 pass "case-varied persona-rules writes all ask"
 
 for variant in "scripts/lib.sh" "scripts/LIB.SH" "SCRIPTS/lib.sh" "scripts/Lib.Sh" "hooks/HOOKS.json"; do
   out=$(gv Write "$variant")
-  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
     || fail "case-varied plugin-script write '$variant' must ask (got: $out)"
 done
 pass "case-varied plugin-script writes all ask"
@@ -452,7 +452,7 @@ pass "case-varied plugin-script writes all ask"
 # Command rules run through the same loop.
 for cmd in "git push --force origin main" "git push --FORCE origin MAIN"; do
   out=$(printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$cmd" | bash "$SCRIPT")
-  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
     || fail "case-varied command '$cmd' must ask (got: $out)"
 done
 pass "case-varied force-push asks"

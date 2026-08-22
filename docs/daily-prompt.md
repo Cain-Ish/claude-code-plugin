@@ -92,9 +92,14 @@ In repo-only mode:
   retrieval/ranking, capture/extraction, consolidation, or telemetry — every finding in those
   areas needs live data, and a "finding" without a measurement is exactly what Step 3 forbids.
 - Skip Step 6's append; emit the log entry verbatim in your final message so a human can paste it.
-- Still branch from `main`, still open the PR, still return to `main` (Step 6). If the remote or
-  `gh` is unreachable, leave the branch local, say so explicitly, and paste the exact
-  `git push` + `gh pr create` commands a human should run.
+- Still branch from `main`, still open the PR, still return to `main` (Step 6). "Unreachable"
+  is three separate conditions — test each (measured 2026-08-22): `gh` may be absent; and a
+  SUCCESSFUL `git fetch` does NOT prove `git push` will work — this is a public repo, so
+  fetch succeeds anonymously while push needs credentials the sandbox does not have
+  (no credential.helper; "could not read Username for 'https://github.com'"). If push works,
+  push and paste only `gh pr create`; if push auth fails, leave the branch local and paste
+  both commands, plus `git fetch <sandbox-remote>` guidance if the host can reach the
+  sandbox tree; either way say which condition failed.
 - Step 7 (improve this prompt) still applies — it needs no live data.
 - Say so in the first line of your report. An unmeasured pass reported as a measured one is worse
   than no pass.
@@ -156,6 +161,15 @@ review, so it is NOT in your tree, and re-finding it wastes the whole run:
 
 ```
 gh pr list --state open --json number,headRefName,title,body,updatedAt
+```
+
+No `gh` on this host? The remote itself carries the same information (measured 2026-08-22 —
+sandbox had git but no gh, and this recovered the one open PR):
+
+```
+git ls-remote --heads origin                     # every non-main, non-archive head ≈ an open PR
+git log  origin/main..origin/<branch>            # its commits
+git diff origin/main...origin/<branch>           # exactly what it touched
 ```
 
 - For every open PR whose head is an `audit/*` branch, read its body. It is a description of work
@@ -275,6 +289,14 @@ repeatedly: **tests disable the thing under test.** Specifically hunt for:
   per-tool-call path (5 PreToolUse + 4 PostToolUse). A script that got slower is a defect even
   when every test is green. Measure before and after with the Step 1 recipe.
 - A doc/prose count that no test compares against its source of truth.
+- Assertions blind to EMPTY output. jq 1.6's `-e` exits 0 when stdin carries no JSON value
+  (1.7+ exits 4), so `echo "$out" | jq -e '…=="deny"' || fail` PASSES when the guard silently
+  allows — on any jq-1.6 host the lock cannot go red in the one direction it exists for.
+  Found 2026-08-22; swept 106 assertions across 17 files (count it, do not quote this line:
+  `grep -cE '\[ -n "\$[A-Za-z_][A-Za-z0-9_]*" \] && (echo|printf)[^|]*\| jq -e' tests/test-*.sh`).
+  Locked by `tests/test-jq-e-empty-guard.sh`,
+  which requires `[ -n "$out" ] && …` on the same line. The class to keep hunting is OTHER
+  assertion shapes whose failure mode is empty output feeding a tool that exits 0 on empty.
 
 For each candidate: prove it with a measurement, not a fixture. A hypothesis without a measurement
 is not a finding.
@@ -351,6 +373,19 @@ Run these from the repo root and record each EXIT CODE, not the last line:
 bash tests/run-all.sh            # shell suite + Vitest + bundle-drift + portability
 bash scripts/validate-plugin.sh
 ```
+
+Capture the suite's OWN exit code, not a trailing command's. `bash tests/run-all.sh > log; echo $?`
+reports the *redirect*; `bash tests/run-all.sh > log 2>&1; rc=$?` then reporting `$rc` is the gate.
+Measured 2026-08-22: a run whose last statement was `tail` reported exit 0 while the suite's summary
+said `fail: 4` — the same swallow this Step is named after, one layer out.
+
+Run the suite in a CLEAN environment, and on a QUIET machine. A variable exported for an unrelated
+reason invalidates the whole run: measured 2026-08-22, `export MSYS_NO_PATHCONV=1` (set so MSYS would
+stop mangling `git show <ref>:<path>`) turned 12 of the first 17 tests RED, including an impossible
+`Could not open file …/mcp/package.json` for a file that existed. `unset MSYS_NO_PATHCONV` on the same
+tree and commit → green. Before treating a red suite as a defect, re-run ONE failing test with a clean
+env; that is cheaper than debugging a phantom. Equally: do not edit the tree, switch branches, or let a
+second session run while the suite is in flight — a run whose tree moved under it is not a gate.
 
 `run-all.sh` globs every `tests/test-*.sh` and then runs Vitest, so it already covers the
 bundle-drift (`test-bundle-current.sh`), portability (`test-script-portability.sh`) and
@@ -515,6 +550,13 @@ Durable facts that are NOT derivable from the tree:
   and live on the `archive/docs` branch. Read them with `git show archive/docs:<path>`.
 - `validate-plugin.sh` emits one known WARN about an undocumented `fork` SessionStart matcher.
   Pre-existing, not caused by your change.
+- Four extraction-lane tests sit close to `PER_TEST_TIMEOUT` (default 120s) and go `ec=124`
+  under any load, with every assertion passing: measured in isolation 2026-08-22 on Windows,
+  `test-stop-extract` 105s, `test-extract-drain` 105s, `test-merge-project-update` 83s,
+  `test-maintain-llm-drain` 68s. An `ec=124` on these is a headroom symptom, not a defect —
+  re-run the test ALONE before filing anything. The underlying cost is the MSYS process-spawn
+  tax (~62ms bash, ~75ms jq, ~130ms node per spawn), so the durable fix is fewer spawns per
+  loop, not a bigger timeout. Raise the bound for one run with `SB_RUN_ALL_TIMEOUT=240`.
 - Known-legitimate SKIPs are declared by the runner itself, per platform — do not keep a second
   copy here to rot. Read the manifest:
 

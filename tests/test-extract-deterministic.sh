@@ -21,15 +21,15 @@ EOF
 
 DELTA=$(sb_extract_deterministic "$TX" 1 3)
 
-echo "$DELTA" | jq -e 'type == "object"' >/dev/null 2>&1 || fail "output is not a JSON object: $DELTA"
+[ -n "$DELTA" ] && echo "$DELTA" | jq -e 'type == "object"' >/dev/null 2>&1 || fail "output is not a JSON object: $DELTA"
 pass "emits valid JSON object"
 
-echo "$DELTA" | jq -e '.files_touched | index("src/a.ts")' >/dev/null 2>&1 || fail "files_touched missing src/a.ts: $DELTA"
+[ -n "$DELTA" ] && echo "$DELTA" | jq -e '.files_touched | index("src/a.ts")' >/dev/null 2>&1 || fail "files_touched missing src/a.ts: $DELTA"
 pass "files_touched derived from Write tool_use"
 
 N=$(echo "$DELTA" | jq -r '.recent_decisions | length')
 [ "$N" = "1" ] || fail "expected exactly 1 summary decision, got $N: $DELTA"
-echo "$DELTA" | jq -e '.recent_decisions[0] | test("src/a.ts")' >/dev/null 2>&1 || fail "decision not grounded in files: $DELTA"
+[ -n "$DELTA" ] && echo "$DELTA" | jq -e '.recent_decisions[0] | test("src/a.ts")' >/dev/null 2>&1 || fail "decision not grounded in files: $DELTA"
 pass "single grounded summary decision (no per-message trash)"
 
 # Scratch paths excluded; no real files -> empty delta (not noise).
@@ -50,9 +50,9 @@ cat > "$TX3" <<'EOF'
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"C:\\Work\\proj\\tests\\thing.ts"}}]}}
 EOF
 D3=$(sb_extract_deterministic "$TX3" 1 1)
-echo "$D3" | jq -e '.files_touched | index("C:/Work/proj/tests/thing.ts")' >/dev/null 2>&1 || fail "win path not normalized to forward slashes: $D3"
-echo "$D3" | jq -e '.files_touched[0] | test("\\\\") | not' >/dev/null 2>&1 || fail "raw backslash survived in files_touched: $D3"
-echo "$D3" | jq -e '.recent_decisions[0] | test("C:/Work/proj/tests/thing.ts")' >/dev/null 2>&1 || fail "decision missing normalized win path: $D3"
+[ -n "$D3" ] && echo "$D3" | jq -e '.files_touched | index("C:/Work/proj/tests/thing.ts")' >/dev/null 2>&1 || fail "win path not normalized to forward slashes: $D3"
+[ -n "$D3" ] && echo "$D3" | jq -e '.files_touched[0] | test("\\\\") | not' >/dev/null 2>&1 || fail "raw backslash survived in files_touched: $D3"
+[ -n "$D3" ] && echo "$D3" | jq -e '.recent_decisions[0] | test("C:/Work/proj/tests/thing.ts")' >/dev/null 2>&1 || fail "decision missing normalized win path: $D3"
 pass "Windows backslash paths normalized to forward slashes (in-session twin matches drainer twin)"
 
 echo "ALL PASS"

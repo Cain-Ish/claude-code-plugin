@@ -96,7 +96,7 @@ jq -nc --arg cwd "$MONO/mono/packages/api" \
 unset CLAUDE_PROJECT_DIR
 
 REC=$(jq -c --arg s "mono__api" 'select(.slug==$s)' "$BRAIN_DIR/projects.jsonl" 2>/dev/null | head -1)
-echo "$REC" | jq -e '.parent=="mono" and (.root_path|test("packages/api$"))' >/dev/null \
+[ -n "$REC" ] && echo "$REC" | jq -e '.parent=="mono" and (.root_path|test("packages/api$"))' >/dev/null \
   && pass "record has parent+root_path" || fail "record missing parent/root_path: $REC"
 
 rm -rf "$MONO"
@@ -142,7 +142,7 @@ LINE_BAD=0; LINE_N=0
 while IFS= read -r line; do
   [ -z "$line" ] && continue
   LINE_N=$((LINE_N + 1))
-  printf '%s' "$line" | jq -e 'type == "object" and (.slug | type == "string")' >/dev/null 2>&1 \
+  [ -n "$line" ] && printf '%s' "$line" | jq -e 'type == "object" and (.slug | type == "string")' >/dev/null 2>&1 \
     || LINE_BAD=1
 done < "$BRAIN_DIR/projects.jsonl"
 [ "$LINE_BAD" = "0" ] \

@@ -47,7 +47,7 @@ pass "(b) nonzero exit code propagates"
 # --- (c) latency line lands in audit-log with sane fields -------------------
 LINE=$(grep '"kind":"latency"' "$AUD" | head -1)
 [ -n "$LINE" ] || fail "(c) no latency line in audit-log: $(cat "$AUD" 2>/dev/null)"
-echo "$LINE" | jq -e '.hook == "child.sh" and (.duration_ms | type == "number") and .duration_ms >= 0 and .duration_ms < 60000' >/dev/null \
+[ -n "$LINE" ] && echo "$LINE" | jq -e '.hook == "child.sh" and (.duration_ms | type == "number") and .duration_ms >= 0 and .duration_ms < 60000' >/dev/null \
   || fail "(c) latency line malformed: $LINE"
 pass "(c) latency line: hook + numeric duration_ms"
 
