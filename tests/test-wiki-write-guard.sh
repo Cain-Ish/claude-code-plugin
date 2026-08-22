@@ -24,7 +24,7 @@ mkdir -p "$(dirname "$NON_WIKI_FILE")"
 PAYLOAD=$(jq -nc --arg p "$WIKI_FILE" --arg c "# Just a heading\n\nContent." \
   '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
 out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
   || fail "Write without frontmatter should deny (got: $out)"
 pass "Write without frontmatter denied"
 
@@ -64,7 +64,7 @@ printf -- '# heading\nbody\n' > "$WIKI_FILE"
 PAYLOAD=$(jq -nc --arg p "$WIKI_FILE" \
   '{tool_name:"Edit", tool_input:{file_path:$p, old_string:"body", new_string:"updated body"}}')
 out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
   || fail "Edit on FM-missing file without remedy should deny (got: $out)"
 pass "Edit on FM-missing file denied"
 
@@ -105,7 +105,7 @@ GONE="$TMP/knowledge/wiki/concepts/gone.md"; mkdir -p "$(dirname "$GONE")"
 PAYLOAD=$(jq -nc --arg p "$GONE" --arg c $'---\ntitle: x\n---\nnew' \
   '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
 out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
   || fail "Write to archived slug should deny (got: $out)"
 echo "$out" | grep -qi "restore" || fail "deny reason should mention restore (got: $out)"
 [ -f "$GONE" ] || fail "archived original should be restored to the wiki path"
@@ -129,7 +129,7 @@ cat > "$TMP/win-payload.json" <<'JSON'
 {"tool_name":"Write","tool_input":{"file_path":"C:\\Users\\me\\knowledge\\wiki\\learnings\\new.md","content":"# no frontmatter here\n"}}
 JSON
 out=$(bash "$SCRIPT" < "$TMP/win-payload.json")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
   || fail "Windows C:\\ wiki write without frontmatter should deny (was inert on Windows): $out"
 pass "Windows C:\\ wiki write without frontmatter denied"
 
@@ -144,7 +144,7 @@ LEGACY="$TMP/.second-brain/wiki/learnings/misrouted.md"
 PAYLOAD=$(jq -nc --arg p "$LEGACY" --arg c $'---\ntitle: x\ntype: learnings\n---\nbody' \
   '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
 out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
   || fail "legacy-wiki Write should deny even with frontmatter (got: $out)"
 echo "$out" | grep -q 'knowledge/wiki/learnings/misrouted.md' \
   || fail "deny reason should carry the corrected canonical path (got: $out)"
@@ -154,7 +154,7 @@ pass "legacy .second-brain/wiki Write denied with canonical redirect"
 PAYLOAD=$(jq -nc --arg p "$LEGACY" \
   '{tool_name:"Edit", tool_input:{file_path:$p, old_string:"a", new_string:"---\nb"}}')
 out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
   || fail "legacy-wiki Edit should deny (got: $out)"
 pass "legacy .second-brain/wiki Edit denied"
 
@@ -164,7 +164,7 @@ cat > "$TMP/win-legacy.json" <<'JSON'
 {"tool_name":"Write","tool_input":{"file_path":"C:\\Users\\me\\.second-brain\\wiki\\state\\x.md","content":"---\ntitle: x\n---\nbody\n"}}
 JSON
 out=$(bash "$SCRIPT" < "$TMP/win-legacy.json")
-echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
   || fail "Windows legacy-wiki write should deny (got: $out)"
 pass "Windows C:\\ legacy wiki write denied"
 
@@ -183,6 +183,68 @@ PAYLOAD=$(jq -nc --arg p "$LEGACY" --arg c $'---\ntitle: x\n---\nbody' \
 out=$(printf '%s' "$PAYLOAD" | SB_PERSONA_GATE=off bash "$SCRIPT")
 [ -z "$out" ] || fail "SB_PERSONA_GATE=off should silence the legacy deny (got: $out)"
 pass "kill switch silences the legacy deny"
+
+# --- Case-insensitivity locks (0.45.4 — the 0.45.2 persona-tool-guard class) ---
+# NTFS and default APFS are case-insensitive: …/knowledge/Wiki/Page.md IS
+# …/knowledge/wiki/page.md there, and before the fix every case variant hit the
+# scope gate's `*) exit 0` arm — frontmatter enforcement, tombstone auto-restore
+# and the legacy-misroute deny were ALL silently bypassed by a one-letter case
+# change. Regression lock: drop the FP_LC lowercased-copy matching in
+# wiki-write-guard.sh and tests 18-21 flip to silent allows (FAIL).
+
+# Test 18: case-varied wiki Write without frontmatter → deny.
+CASEY="$TMP/knowledge/Wiki/state/Case-Varied.md"
+PAYLOAD=$(jq -nc --arg p "$CASEY" --arg c "# no frontmatter\n" \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "case-varied wiki Write without frontmatter should deny (got: $out)"
+pass "case-varied wiki Write without frontmatter denied"
+
+# Test 19: Windows backslash + case variance combined (the real-world shape).
+cat > "$TMP/win-case.json" <<'JSON'
+{"tool_name":"Write","tool_input":{"file_path":"C:\\Users\\me\\KNOWLEDGE\\Wiki\\learnings\\New.md","content":"# no frontmatter\n"}}
+JSON
+out=$(bash "$SCRIPT" < "$TMP/win-case.json")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "Windows case-varied wiki write should deny (got: $out)"
+pass "Windows backslash+case-varied wiki write denied"
+
+# Test 20: case-varied LEGACY tree → deny, reason carries the canonical path.
+CLEGACY="$TMP/.Second-Brain/Wiki/learnings/Misrouted.md"
+PAYLOAD=$(jq -nc --arg p "$CLEGACY" --arg c $'---\ntitle: x\ntype: learnings\n---\nbody' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "case-varied legacy-wiki Write should deny (got: $out)"
+echo "$out" | grep -q 'knowledge/wiki/learnings/misrouted.md' \
+  || fail "deny reason should carry the lowercased canonical path (got: $out)"
+pass "case-varied legacy wiki Write denied with canonical redirect"
+
+# Test 21: tombstone fires on a case-varied recreate of a forgotten slug.
+# Canonical slugs are lowercase (sb_sanitize_slug), so Vanished.md on NTFS/APFS
+# recreates the forgotten page vanished.md — the lookup must survive the casing.
+mkdir -p "$TMP/brain/wiki-archive/concepts"
+printf -- '---\ntitle: "Vanished"\ntype: concepts\n---\n# Vanished\noriginal.\n' \
+  > "$TMP/brain/wiki-archive/concepts/vanished.md"
+printf '%s\n' '{"event":"archived","slug":"vanished","category":"concepts","date":"2026-05-26T02:00:00Z"}' \
+  >> "$TMP/brain/wiki-archive-log.jsonl"
+PAYLOAD=$(jq -nc --arg p "$TMP/knowledge/Wiki/concepts/Vanished.md" --arg c $'---\ntitle: x\n---\nnew' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "case-varied Write to archived slug should deny (got: $out)"
+[ -f "$TMP/knowledge/wiki/concepts/vanished.md" ] \
+  || fail "archived original should be restored to the CANONICAL lowercase path"
+pass "case-varied archived-slug Write restores original + denies"
+
+# Test 22: over-blocking control — case-varied NON-wiki path stays silent.
+mkdir -p "$TMP/Scratch"
+PAYLOAD=$(jq -nc --arg p "$TMP/Scratch/Note.md" --arg c "no frontmatter\n" \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -z "$out" ] || fail "case-varied non-wiki write should stay silent (got: $out)"
+pass "case-varied non-wiki write silent (no over-blocking)"
 
 echo
 echo "ALL PASS"
