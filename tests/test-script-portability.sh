@@ -3,7 +3,11 @@
 # (/bin/bash is 3.2; BSD coreutils) and under Git Bash on Windows, not just Linux/GNU.
 # Static checks (no bash 3.2 / BSD host available in CI) for the construct classes that
 # silently break off-Linux. Surfaced by the 2026-06-02 cross-platform audit.
-# Scans root scripts/.
+# Scans ALL shipped shell (0.45.4 — previously only scripts/, while the header claimed
+# "both dirs"): root scripts/, bin/ (including the extensionless `sb` launcher, the
+# user-facing CLI), and the devdocs skills' helper scripts. Deliberately NOT
+# .claude/worktrees/ (untracked agent worktrees would re-introduce deleted files into
+# the scan) and NOT tests/ (host-side, never shipped).
 set -u
 REPO="$(cd "$(dirname "$0")"/.. && pwd)"
 ROOT="$REPO/scripts"
@@ -13,24 +17,26 @@ pass(){ echo "PASS: $1"; }
 # comments that legitimately discuss these constructs.
 nocomment(){ grep -vE ':[0-9]+:[[:space:]]*#'; }
 
-# Collect all .sh files from both dirs for checks that need a file list.
-ALL_SH=$(find "$ROOT" -name '*.sh' 2>/dev/null || true)
+# One file list, shared by every check. Repo file names contain no whitespace (the
+# unquoted expansions below already rely on that, as does the awk xargs at check 8).
+# ≥2 files always, so grep emits file: prefixes unconditionally.
+ALL_SH=$(find "$ROOT" "$REPO/bin" "$REPO/.claude/skills" \( -name '*.sh' -o -name 'sb' \) -type f 2>/dev/null || true)
 
 # 1. No bash-4 array builtins (macOS /bin/bash is 3.2). Match actual usage `mapfile -`/`readarray -`,
 #    not prose mentions.
-h=$(grep -rnE '(mapfile|readarray)[[:space:]]+-' "$ROOT" 2>/dev/null | nocomment || true)
+h=$(grep -nE '(mapfile|readarray)[[:space:]]+-' $ALL_SH 2>/dev/null | nocomment || true)
 [ -z "$h" ] && pass "no mapfile/readarray usage (bash 4+)" || fail "bash-4 mapfile/readarray usage" "$h"
 
 # 2. No other bash-4 isms: associative arrays / case-modification expansions.
-h=$(grep -rnE 'declare[[:space:]]+-A|local[[:space:]]+-A|\$\{[A-Za-z_][A-Za-z0-9_]*(\^\^|,,)' "$ROOT" 2>/dev/null | nocomment || true)
+h=$(grep -nE 'declare[[:space:]]+-A|local[[:space:]]+-A|\$\{[A-Za-z_][A-Za-z0-9_]*(\^\^|,,)' $ALL_SH 2>/dev/null | nocomment || true)
 [ -z "$h" ] && pass "no assoc-arrays / \${x^^}\${x,,} (bash 4+)" || fail "bash-4 expansion" "$h"
 
 # 3. No PCRE `grep -P` (BSD/macOS grep lacks it). Match literal `grep -P`/`grep -qP` usage in code.
-h=$(grep -rnE 'grep[[:space:]]+-[A-Za-z]*P([[:space:]]|$)' "$ROOT" 2>/dev/null | nocomment || true)
+h=$(grep -nE 'grep[[:space:]]+-[A-Za-z]*P([[:space:]]|$)' $ALL_SH 2>/dev/null | nocomment || true)
 [ -z "$h" ] && pass "no grep -P (PCRE; use -F/-E)" || fail "grep -P usage (not on BSD/macOS)" "$h"
 
 # 4. GNU `stat -c` must always have a BSD `stat -f` (or other) fallback on the SAME line.
-h=$(grep -rn 'stat -c' "$ROOT" 2>/dev/null | grep -v 'stat -f' || true)
+h=$(grep -n 'stat -c' $ALL_SH 2>/dev/null | grep -v 'stat -f' || true)
 [ -z "$h" ] && pass "every 'stat -c' is paired with a 'stat -f' fallback" || fail "unpaired GNU stat -c" "$h"
 
 # 5. GNU `date -d` must have a BSD fallback in the same file. Accepted BSD
@@ -39,20 +45,20 @@ h=$(grep -rn 'stat -c' "$ROOT" 2>/dev/null | grep -v 'stat -f' || true)
 #    Detection also covers `date -u -d` (R4: the old regex missed the -u
 #    variant and let unpaired uses slip through unscanned).
 #    Use grep -rnE | nocomment to exclude comment-only mentions.
-for f in $(grep -rnE 'date[[:space:]]+(-u[[:space:]]+)?(-d|--date)' "$ROOT" 2>/dev/null | nocomment | cut -d: -f1 | sort -u || true); do
+for f in $(grep -nE 'date[[:space:]]+(-u[[:space:]]+)?(-d|--date)' $ALL_SH 2>/dev/null | nocomment | cut -d: -f1 | sort -u || true); do
   grep -qE 'date[[:space:]]+(-u[[:space:]]+)?(-v|-r|-j)' "$f" \
     || fail "GNU date -d without a BSD fallback (-v/-r/-j)" "$f"
 done
 pass "every 'date -d' file also has a BSD date fallback (-v/-r/-j)"
 
 # 6. GNU `find -printf` must have a stat-based fallback in the same file.
-for f in $(grep -rlE 'find[^|]*-printf' "$ROOT" 2>/dev/null || true); do
+for f in $(grep -lE 'find[^|]*-printf' $ALL_SH 2>/dev/null || true); do
   grep -qE 'stat (-f|-c)' "$f" || grep -q 'NOT GNU' "$f" || fail "find -printf without a stat fallback" "$f"
 done
 pass "every 'find -printf' file has a stat fallback (or documents avoidance)"
 
 # 7. `timeout` usage must resolve gtimeout too (macOS coreutils-brew), not assume GNU-only.
-h=$(grep -rn 'command -v timeout' "$ROOT" 2>/dev/null | grep -v 'gtimeout' || true)
+h=$(grep -n 'command -v timeout' $ALL_SH 2>/dev/null | grep -v 'gtimeout' || true)
 [ -z "$h" ] && pass "timeout resolution includes gtimeout (macOS)" || fail "timeout without gtimeout fallback" "$h"
 
 # 8. No `case` statement inside a $(...) command substitution. macOS /bin/bash is 3.2, whose
@@ -129,7 +135,7 @@ done
 #     a literal byte in bash ($'\xNN'), use a POSIX class ([[:alnum:]_] /
 #     [[:space:]] / [[:digit:]]), or `grep -w` instead of \b…\b. The leading
 #     boundary keeps "parsed"/"used" from matching the sed/grep word.
-h=$(grep -rnE '(\||;|^|[[:space:]])(sed|grep)[[:space:]]' "$ROOT" 2>/dev/null | nocomment \
+h=$(grep -nE '(\||;|^|[[:space:]])(sed|grep)[[:space:]]' $ALL_SH 2>/dev/null | nocomment \
   | grep -E '\\[bwsdx]' | grep -vF "\$'" | grep -v 'NOT GNU' || true)
 [ -z "$h" ] && pass "no GNU-only regex escapes (\\b \\w \\s \\d \\x) in sed/grep programs" \
   || fail "GNU-only regex escape in a sed/grep program (BSD matches nothing) — use a literal byte / POSIX class / grep -w" "$h"
