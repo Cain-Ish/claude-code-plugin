@@ -92,9 +92,14 @@ In repo-only mode:
   retrieval/ranking, capture/extraction, consolidation, or telemetry — every finding in those
   areas needs live data, and a "finding" without a measurement is exactly what Step 3 forbids.
 - Skip Step 6's append; emit the log entry verbatim in your final message so a human can paste it.
-- Still branch from `main`, still open the PR, still return to `main` (Step 6). If the remote or
-  `gh` is unreachable, leave the branch local, say so explicitly, and paste the exact
-  `git push` + `gh pr create` commands a human should run.
+- Still branch from `main`, still open the PR, still return to `main` (Step 6). "Unreachable"
+  is three separate conditions — test each (measured 2026-08-22): `gh` may be absent; and a
+  SUCCESSFUL `git fetch` does NOT prove `git push` will work — this is a public repo, so
+  fetch succeeds anonymously while push needs credentials the sandbox does not have
+  (no credential.helper; "could not read Username for 'https://github.com'"). If push works,
+  push and paste only `gh pr create`; if push auth fails, leave the branch local and paste
+  both commands, plus `git fetch <sandbox-remote>` guidance if the host can reach the
+  sandbox tree; either way say which condition failed.
 - Step 7 (improve this prompt) still applies — it needs no live data.
 - Say so in the first line of your report. An unmeasured pass reported as a measured one is worse
   than no pass.
@@ -156,6 +161,15 @@ review, so it is NOT in your tree, and re-finding it wastes the whole run:
 
 ```
 gh pr list --state open --json number,headRefName,title,body,updatedAt
+```
+
+No `gh` on this host? The remote itself carries the same information (measured 2026-08-22 —
+sandbox had git but no gh, and this recovered the one open PR):
+
+```
+git ls-remote --heads origin                     # every non-main, non-archive head ≈ an open PR
+git log  origin/main..origin/<branch>            # its commits
+git diff origin/main...origin/<branch>           # exactly what it touched
 ```
 
 - For every open PR whose head is an `audit/*` branch, read its body. It is a description of work
@@ -275,6 +289,12 @@ repeatedly: **tests disable the thing under test.** Specifically hunt for:
   per-tool-call path (5 PreToolUse + 4 PostToolUse). A script that got slower is a defect even
   when every test is green. Measure before and after with the Step 1 recipe.
 - A doc/prose count that no test compares against its source of truth.
+- Assertions blind to EMPTY output. jq 1.6's `-e` exits 0 when stdin carries no JSON value
+  (1.7+ exits 4), so `echo "$out" | jq -e '…=="deny"' || fail` PASSES when the guard silently
+  allows — on any jq-1.6 host the lock cannot go red in the one direction it exists for.
+  Found 2026-08-22 (105 assertions, 16 files); locked by `tests/test-jq-e-empty-guard.sh`,
+  which requires `[ -n "$out" ] && …` on the same line. The class to keep hunting is OTHER
+  assertion shapes whose failure mode is empty output feeding a tool that exits 0 on empty.
 
 For each candidate: prove it with a measurement, not a fixture. A hypothesis without a measurement
 is not a finding.
