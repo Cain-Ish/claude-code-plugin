@@ -93,7 +93,10 @@ async function atomicWriteJson(filePath, value) {
   try {
     await fs.writeFile(tmp, JSON.stringify(value));
     await fs.rename(tmp, filePath);
-  } catch {
+  } catch (err) {
+    console.error(
+      `atomicWriteJson: FAILED to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`
+    );
     try {
       await fs.unlink(tmp);
     } catch {

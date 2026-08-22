@@ -421,5 +421,46 @@ JSON
 pass "spine: verify -> implement revert on file edits (plan untouched)"
 rm -rf "$SPINE_BRAIN"
 
+
+# --- Case-insensitive rule matching (0.45.2 security fix) --------------------
+# Windows (NTFS) and default macOS (APFS) are case-INSENSITIVE: `Persona-Rules.json`
+# and `persona-rules.json` are the SAME FILE. The rule regexes are case-sensitive, so
+# before this fix a write steered to a case-varied path hit the real file while the
+# `ask` gate never fired — removing the human checkpoint on edits to the guard's own
+# rules and to scripts/hooks, the classic prompt-injection escalation path.
+#
+# Paths MUST be inside cwd. An out-of-repo path makes resource_scope answer `ask` on its
+# own, which would make these cases pass against the UNFIXED guard — a tautology. Verified:
+# with the pre-fix guard and out-of-repo paths, these "passed"; in-repo they correctly fail.
+RRT="$(cd "$(dirname "$0")"/.. && pwd)"
+gv() { printf '{"tool_name":"%s","session_id":"caseT","cwd":"%s","tool_input":{"file_path":"%s/%s","content":"y"}}' "$1" "$RRT" "$RRT" "$2" | bash "$SCRIPT"; }
+
+for variant in "persona-rules.json" "Persona-Rules.json" "PERSONA-RULES.JSON" "PeRsOnA-RuLeS.jSoN"; do
+  out=$(gv Write "$variant")
+  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+    || fail "case-varied rules-file write '$variant' must ask (got: $out)"
+done
+pass "case-varied persona-rules writes all ask"
+
+for variant in "scripts/lib.sh" "scripts/LIB.SH" "SCRIPTS/lib.sh" "scripts/Lib.Sh" "hooks/HOOKS.json"; do
+  out=$(gv Write "$variant")
+  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+    || fail "case-varied plugin-script write '$variant' must ask (got: $out)"
+done
+pass "case-varied plugin-script writes all ask"
+
+# Command rules run through the same loop.
+for cmd in "git push --force origin main" "git push --FORCE origin MAIN"; do
+  out=$(printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$cmd" | bash "$SCRIPT")
+  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+    || fail "case-varied command '$cmd' must ask (got: $out)"
+done
+pass "case-varied force-push asks"
+
+# Guard the guard: -i must NOT turn every write into an ask. An in-repo file matching no
+# rule stays silent.
+out=$(gv Write "README.md")
+[ -z "$out" ] || fail "ordinary in-repo write must stay silent after -i (got: $out)"
+pass "-i does not over-block ordinary writes"
 echo
 echo "ALL PASS"
