@@ -214,4 +214,26 @@ run_hook "$B" "general-purpose" "aid17" "$T" >/dev/null 2>&1
 ls "$B/transcripts/"sub-aid17_*.txt >/dev/null 2>&1 || fail "17: legitimate subagent capture was over-blocked"
 pass "named agent with own transcript: still archived"
 
+# --- Test 18: the PRODUCTION payload shape — the one Claude Code actually sends ----------
+# transcript_path = the PARENT session's file; agent_transcript_path = the subagent's own;
+# last_assistant_message = the final text. Every earlier test sent transcript_path pointing at
+# the subagent file (a shape Claude Code never emits), so the hook passed for the wrong reason
+# while in production the parent-guard fired on EVERY SubagentStop and nothing was ever
+# archived (2026-08-23: 97 agent transcripts, 0 archived). This test fails on every prior
+# version of the hook.
+B="$TMP/b18"; mkdir -p "$B"
+PARENT="$TMP/sess18.jsonl"; : > "$PARENT"
+SUB="$TMP/agent-sub18.jsonl"; mk_transcript "$SUB" 1 "holding text"
+MULTI=$'# Final report\n\nParagraph one carries the real findings of this agent.\n\nParagraph two carries the rest. Both must survive intact.'
+jq -nc --arg tp "$PARENT" --arg atp "$SUB" --arg msg "$MULTI" --arg cw "$TMP/repo" \
+  '{hook_event_name:"SubagentStop", session_id:"sess18", agent_type:"general-purpose", agent_id:"aid18",
+    transcript_path:$tp, agent_transcript_path:$atp, last_assistant_message:$msg, cwd:$cw}' \
+  | env BRAIN_DIR="$B" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$SCRIPT" >/dev/null 2>&1
+F18=$(ls "$B/transcripts/"sub-aid18_*.txt 2>/dev/null | head -1)
+[ -n "$F18" ] || fail "18: production-shape SubagentStop (transcript_path=PARENT, agent_transcript_path=SUB) was NOT archived — the hook is reading the wrong field again"
+pass "production payload shape (parent transcript_path + agent_transcript_path) archives"
+# EC-04: a multi-paragraph result must not be truncated to its last physical line.
+[ "$(grep -c 'Paragraph' "$F18")" -eq 2 ] || fail "18b: multi-line last_assistant_message truncated ($(grep -c Paragraph "$F18") of 2 paragraphs kept)"
+pass "multi-line final result archived intact (no tail -1 truncation)"
+
 echo; echo "ALL PASS"

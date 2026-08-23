@@ -6,13 +6,30 @@ SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/persona-tool-guard.sh"
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
 
-# Test 1: 2>/dev/null gets stripped
-out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls foo 2>/dev/null"}}' | bash "$SCRIPT")
-[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' >/dev/null \
-  || fail "strip-silent-fallback: permission should be allow (got: $out)"
-[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.updatedInput.command | contains("2>/dev/null") | not' >/dev/null \
-  || fail "strip-silent-fallback: updatedInput.command should not contain 2>/dev/null"
-pass "strip-silent-fallback"
+# Test 1 (INVERTED 2026-08-23): 2>/dev/null is ADVISORY, never rewritten, never auto-allowed.
+# The old oracle asserted the shipped default REWROTE the command and emitted "allow". That
+# rewrite was a blind sed over the whole string (it turned `grep -rn "2>/dev/null" x` into
+# `grep -rn "" x` and altered heredoc bodies), and because a rewrite must emit "allow", any
+# dangerous command with a trailing 2>/dev/null skipped the ask rules. Now: additionalContext
+# only, no permissionDecision, command untouched.
+T1_BRAIN=$(mktemp -d)
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls foo 2>/dev/null"},"session_id":"t1"}' | BRAIN_DIR="$T1_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("fail loud")' >/dev/null \
+  || fail "strip-silent-fallback: should be an advisory (additionalContext), got: $out"
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == null and .hookSpecificOutput.updatedInput == null' >/dev/null \
+  || fail "strip-silent-fallback: must NOT emit a permissionDecision or rewrite the command (got: $out)"
+pass "strip-silent-fallback is advisory-only (no rewrite, no allow)"
+
+# Test 1b: PRECEDENCE — a dangerous command does not get weaker by appending 2>/dev/null.
+# Before the fix: `rm -rf x 2>/dev/null` -> allow (rewrite rule matched first, loop exited),
+# `rm -rf x` -> ask. Most-restrictive verdict must win regardless of rule order.
+for dangerous in 'rm -rf /home/u/important 2>/dev/null' 'git push --force origin main 2>/dev/null'; do
+  out=$(jq -nc --arg c "$dangerous" '{tool_name:"Bash",tool_input:{command:$c},session_id:"t1b"}' | BRAIN_DIR="$T1_BRAIN" bash "$SCRIPT")
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+    || fail "precedence: '$dangerous' must be ask, got: $out"
+done
+pass "precedence: ask rules win over the 2>/dev/null advisory (no auto-allow via redirect)"
+rm -rf "$T1_BRAIN"
 
 # Test 2: force-push to main → ask
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' | bash "$SCRIPT")

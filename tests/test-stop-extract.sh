@@ -1,5 +1,6 @@
 #!/bin/bash
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
+# run-all-timeout: 480   (18 full Stop-hook invocations by design; each ~13s on MSYS under load — spawn-bound lib.sh, see LC-11)
 # session deltas from the conversation transcript and merges them into
 # PROJECT.md + wiki via merge-project-update.sh.
 #

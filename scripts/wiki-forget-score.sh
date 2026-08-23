@@ -42,7 +42,19 @@ acount(){ local v; v=$( [ -s "$AC" ] && jq -r --arg s "$1" '(.[$s].count // .[$s
 
 find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while read -r f; do
   slug=$(basename "$f" .md); cat=$(basename "$(dirname "$f")")
-  mt=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo "$now")  # GNU || BSD/macOS
+  # Age from the page's OWN `created:` frontmatter, mtime only as a fallback. Aging by mtime
+  # made FORGET structurally inert: shipped maintenance (reindex frontmatter patching, graph
+  # projection, backfills) bulk-touches every page, so ALL pages read as fresh and PROTECT:age
+  # fired on 100% of the corpus — measured live 2026-08-23: 457/457 pages carried that day's
+  # mtime while created: dates spanned 2026-04..2026-08. FORGET had never archived one page.
+  # created: forms seen in the wiki: "2026-04-27" and "2026-08-23T11:09:15Z" — take the date
+  # part; strict-parse both GNU (date -d) and BSD (date -j -f) before trusting it.
+  created=$(sed -n '/^---$/,/^---$/{s/^created:[[:space:]]*"\{0,1\}\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p;}' "$f" | head -1)
+  mt=""
+  if [ -n "$created" ]; then
+    mt=$(date -d "$created" +%s 2>/dev/null || date -j -f '%Y-%m-%d' "$created" +%s 2>/dev/null)
+  fi
+  [ -n "$mt" ] || mt=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo "$now")  # GNU || BSD/macOS
   age=$(( (now - mt) / 86400 ))
   # body byte-count is PROSE-ONLY: strip the authored ai-block so a uniform block can't lift
   # every page over the stub floor (spec §5b). Only strip when a COMPLETE block exists (a

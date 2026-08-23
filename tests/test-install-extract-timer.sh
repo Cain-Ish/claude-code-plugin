@@ -128,14 +128,33 @@ SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR13" bash "$INSTALL" --apply >/dev/n
 SHIM13="$BR13/bin/sb-extract-drain.sh"
 [ -f "$SHIM13" ] && ok "apply: generated the stable shim" || no "apply: shim not generated"
 grep -q 'sort -V' "$SHIM13" 2>/dev/null && ok "shim: uses sort -V latest-version resolution" || no "shim: no sort -V resolution loop"
-# Behavioral: the shim's CACHE_BASE was baked to the repo's parent at apply time. Rewrite that copy's
-# baked base to our two-version fake base and run it under an EMPTY HOME (so the cache-glob branch
-# resolves nothing) — it must exec 0.0.2 (highest semver), never 0.0.1.
-SHIM13C="$SANDBOX/shim13.sh"
-BAKED_BASE=$(grep -oE 'for _base in "[^"]+"' "$SHIM13" | head -1 | sed 's/for _base in "//; s/"$//')
-sed "s#$BAKED_BASE#$CB13#" "$SHIM13" > "$SHIM13C"
-RAN=$(HOME="$SANDBOX/emptyhome" bash "$SHIM13C" 2>/dev/null)
-[ "$RAN" = "RAN 0.0.2" ] && ok "shim: execs the HIGHEST version (0.0.2), not 0.0.1 [got: $RAN]" || no "shim: wrong version resolved [got: $RAN]"
+# Behavioral (EC-06, 2026-08-23): a PRODUCTION apply bakes an EMPTY first base, so the shim
+# resolves ONLY under $HOME/.claude/plugins/cache. The previous version of this test sed-rewrote
+# whatever base was baked — so it passed while the installer baked the dev checkout's parent
+# and the live 30-minute scheduler ran the working tree. Now: point HOME at a fake cache with
+# two versions and assert the shim picks the highest one THROUGH the cache glob.
+BAKED_BASE=$(grep -oE 'for _base in "[^"]*"' "$SHIM13" | head -1 | sed 's/for _base in "//; s/"$//')
+[ -z "$BAKED_BASE" ] && ok "shim (production): baked first base is EMPTY — no repo pin" \
+  || no "shim (production): baked a repo/checkout base '$BAKED_BASE' — the scheduler would run a working tree"
+FAKEHOME="$SANDBOX/home13"; mkdir -p "$FAKEHOME/.claude/plugins/cache/plug"
+ln -s "$CB13" "$FAKEHOME/.claude/plugins/cache/plug/second-brain" 2>/dev/null \
+  || cp -r "$CB13" "$FAKEHOME/.claude/plugins/cache/plug/second-brain"
+RAN=$(HOME="$FAKEHOME" bash "$SHIM13" 2>/dev/null)
+[ "$RAN" = "RAN 0.0.2" ] && ok "shim: resolves the HIGHEST cached version (0.0.2) via the plugin-cache glob [got: $RAN]" \
+  || no "shim: cache-glob resolution wrong [got: '$RAN']"
+# And with NO cache at all, a production shim must fail loud (exit 0 + stderr), not exec a checkout.
+RAN=$(HOME="$SANDBOX/emptyhome" bash "$SHIM13" 2>&1)
+case "$RAN" in *"no extract-drain.sh found"*) ok "shim (production, no cache): refuses loudly instead of falling back to a checkout" ;;
+  *) no "shim (production, no cache): expected the loud refusal, got: '$RAN'" ;; esac
+
+# Test 13b: --dev is the ONLY way to pin a checkout, and it says so.
+BR13D="$SANDBOX/brain13d"
+DEVOUT=$(SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR13D" bash "$INSTALL" --apply --dev 2>&1 >/dev/null)
+SHIM13D="$BR13D/bin/sb-extract-drain.sh"
+DEVBASE=$(grep -oE 'for _base in "[^"]*"' "$SHIM13D" | head -1 | sed 's/for _base in "//; s/"$//')
+[ -n "$DEVBASE" ] && [ -d "$DEVBASE" ] && ok "--dev: bakes the checkout's parent as first base ($DEVBASE)" \
+  || no "--dev: expected a checkout base, got '$DEVBASE'"
+case "$DEVOUT" in *"pinned to checkout"*) ok "--dev: announces the pin on stderr" ;; *) no "--dev: silent pin (no stderr notice)" ;; esac
 
 # Test 14 (gap #2, behavioral): --apply captures the engine env into a mode-600 .extract-timer-env
 # the shim sources — custom KD / local-model / api-key users no longer silently get defaults.

@@ -25,9 +25,19 @@ command -v jq >/dev/null 2>&1 || { echo "backfill: jq required" >&2; exit 0; }
 PO=$(jq -rn 'reduce inputs as $r ({}; .[([$r.from,$r.type,$r.to]|tojson)]=$r) | [.[]]
   | map(select(.type=="part_of" and .valid_to==null)) | .[] | "\(.from)\t\(.to)"' < "$EDGES" 2>/dev/null)
 
+# ONE recursive listing of the wiki, then builtin lookups. set_project used to run a full
+# `find | sort | head` over the whole tree PER SLUG (71 slugs x 456 pages = 285 spawns, 17s on the
+# dev box on every drainer tick via maintain-deterministic — part of why a NO_LLM tick took ~70s).
+# Sorted so the first match per basename wins, matching the old `sort | head -1` selection.
+WIKI_INDEX=$(find "$WIKI" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | sort)
+
 set_project() { # <slug> <project> — insert `project: <p>` before the first frontmatter close
-  local slug="$1" proj="$2" f
-  f=$(find "$WIKI" -name "$slug.md" -type f ! -name 'index.md' 2>/dev/null | sort | head -1)
+  local slug="$1" proj="$2" f="" _l
+  while IFS= read -r _l; do
+    case "$_l" in */"$slug.md") f="$_l"; break ;; esac
+  done <<EOF
+$WIKI_INDEX
+EOF
   [ -n "$f" ] || return 0
   grep -qE '^project:' "$f" && return 0   # idempotent: never overwrite an existing facet
   awk -v p="$proj" '

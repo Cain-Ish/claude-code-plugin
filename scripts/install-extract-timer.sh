@@ -30,7 +30,7 @@ DRAINER="$SDIR/extract-drain.sh"
 SB_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 SHIM="$SB_DIR/bin/sb-extract-drain.sh"
 ENV_FILE="$SB_DIR/.extract-timer-env"
-CACHE_BASE="$(cd "$REPO/.." 2>/dev/null && pwd)"   # plugin base whose subdirs are versions
+# CACHE_BASE is resolved AFTER the arg parser below (it depends on --dev).
 TPL_DIR="$REPO/systemd"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 SVC="sb-extract-drain.service"
@@ -39,15 +39,30 @@ TIMER="sb-extract-drain.timer"
 # Default = hardened local-only unit; --oauth opts into the creds-granting one.
 # Action + variant are parsed from anywhere in the args so `--apply --oauth`,
 # `--oauth --apply`, and bare `--oauth` (print) all work.
-VARIANT_SVC="$SVC"; ACTION=print
+VARIANT_SVC="$SVC"; ACTION=print; DEV_TREE=""
 for a in "$@"; do
   case "$a" in
     --oauth)     VARIANT_SVC="sb-extract-drain-oauth.service" ;;
     --apply)     ACTION=apply ;;
     --ensure)    ACTION=ensure ;;
     --uninstall) ACTION=uninstall ;;
+    --dev)       DEV_TREE="$REPO" ;;
   esac
 done
+# --dev pins the scheduler to THIS checkout instead of the installed plugin cache. Without it
+# the shim resolves ONLY under ~/.claude/plugins/cache. Before 2026-08-23 CACHE_BASE was
+# "$REPO/.." unconditionally and searched FIRST, so an installer run from a dev checkout (which
+# is what `--ensure` on every SessionStart did on the dev box) silently pinned the 30-minute
+# production job to the working tree: whatever branch a concurrent session left checked out,
+# half-edited, a syntax error = every tick failing under a hidden wscript launcher with no log.
+# Live on the dev box: the 09:56 tick's cmdline was /c/Workplace/Projects/claude-code-plugin.
+# A dev pin is a deliberate, visible choice, never a side effect of where you ran a script.
+if [ -n "$DEV_TREE" ]; then
+  CACHE_BASE="$(cd "$DEV_TREE/.." 2>/dev/null && pwd)"   # dev: this checkout's parent dir
+  echo "install-extract-timer: --dev — scheduler pinned to checkout $DEV_TREE (NOT the plugin cache)" >&2
+else
+  CACHE_BASE=""                                           # production: plugin cache only
+fi
 
 # The knowledge dir the out-of-band drainer must read/write. In-session (where --apply is
 # normally run) Claude Code sets CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR for a custom dir; the
@@ -89,8 +104,10 @@ set -u
 ENV_FILE="@ENV_FILE@"
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 _d=""
+# "@CACHE_BASE@" is EMPTY for a production install (plugin cache only) and a checkout's parent
+# only when the installer ran with --dev. An empty first entry is skipped by the -d test.
 for _base in "@CACHE_BASE@" "$HOME"/.claude/plugins/cache/*/second-brain; do
-  [ -d "$_base" ] || continue
+  [ -n "$_base" ] && [ -d "$_base" ] || continue
   for _v in $(ls -1 "$_base" 2>/dev/null | { sort -V 2>/dev/null || sort -t. -k1,1n -k2,2n -k3,3n; }); do
     [ -f "$_base/$_v/scripts/extract-drain.sh" ] && _d="$_base/$_v/scripts/extract-drain.sh"
   done

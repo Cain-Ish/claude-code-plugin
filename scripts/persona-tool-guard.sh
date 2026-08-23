@@ -296,6 +296,7 @@ RULE_STREAM=$(jq -r --arg t "$TOOL" '
 ' "$RULES_FILE" 2>/dev/null | tr -d '\r')
 [ -z "$RULE_STREAM" ] && exit 0
 
+V_RANK=0; V_ACTION=""; V_RULE=""; V_REASON=""; V_TARGET=""; V_MATCH=""; V_REPLACE=""
 while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
       && IFS= read -r match_path && IFS= read -r replace && IFS= read -r reason \
       && IFS= read -r _sentinel; do
@@ -327,70 +328,49 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
 
   target="${PATH_INPUT:-${CMD:0:200}}"
 
+  # ACCUMULATE, do not exit on first match. The previous loop exited on the first matching
+  # rule, so rule ORDER in the JSON decided the verdict. The shipped default listed the
+  # `strip-silent-fallback` REWRITE rule first, and a rewrite must emit permissionDecision
+  # "allow" (updatedInput requires it) — so `rm -rf x ` and `git push --force
+  # origin main ` were AUTO-APPROVED with no prompt, while the same commands
+  # without the redirect hit the ask rules. A guard that gets weaker as the command gets more
+  # dangerous is inverted. Now: most restrictive verdict wins (deny > ask > rewrite > warn); a
+  # rewrite is applied only when no stricter rule matched. Measured 2026-08-23, sandbox probes.
   case "$action" in
-    rewrite)
-      # Use SOH (\x01) as the sed delimiter instead of `|`: a `|` delimiter
-      # errors ("unknown option to s") whenever match_cmd itself contains
-      # a `|` — common for grouped regex alternations — and would silently
-      # zero out NEW_CMD. SOH cannot
-      # appear in a shell command, so it's a safe delimiter. If either
-      # operand somehow contains SOH (the user is doing something exotic)
-      # we skip rewrite and pass the command through unchanged rather
-      # than risk corruption.
-      SOH=$'\x01'
-      case "$match_cmd$replace" in
-        *"$SOH"*) NEW_CMD="$CMD" ;;
-        *) NEW_CMD=$(printf '%s' "$CMD" | sed -E "s${SOH}${match_cmd}${SOH}${replace}${SOH}g") ;;
-      esac
-      sb_log_audit "persona-tool-guard.sh" "rewrite" "$rule_name" "$target" "$reason" "$SESSION_ID"
-      jq -nc --arg c "$NEW_CMD" --arg r "$reason" '{
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "allow",
-          permissionDecisionReason: $r,
-          updatedInput: { command: $c }
-        }
-      }' 2>/dev/null || true
-      exit 0
-      ;;
-    ask)
-      sb_log_audit "persona-tool-guard.sh" "ask" "$rule_name" "$target" "$reason" "$SESSION_ID"
-      jq -nc --arg r "$reason" '{
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "ask",
-          permissionDecisionReason: $r
-        }
-      }' 2>/dev/null || true
-      exit 0
-      ;;
-    warn)
-      # Advisory-only: surface the learned lesson as additionalContext and
-      # let the call proceed untouched. Deliberately NO permissionDecision:
-      # emitting "allow" would auto-approve the call and bypass the user's
-      # own permission prompts — an advisory must never widen permissions,
-      # only inform. Never blocks, never prompts, always exits 0.
-      sb_log_audit "persona-tool-guard.sh" "warn" "$rule_name" "$target" "$reason" "$SESSION_ID"
-      jq -nc --arg r "$reason" '{
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          additionalContext: $r
-        }
-      }' 2>/dev/null || true
-      exit 0
-      ;;
-    deny)
-      sb_log_audit "persona-tool-guard.sh" "deny" "$rule_name" "$target" "$reason" "$SESSION_ID"
-      jq -nc --arg r "$reason" '{
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "deny",
-          permissionDecisionReason: $r
-        }
-      }' 2>/dev/null || true
-      exit 0
-      ;;
+    deny)    [ "$V_RANK" -lt 4 ] && { V_RANK=4; V_ACTION=deny;    V_RULE="$rule_name"; V_REASON="$reason"; V_TARGET="$target"; } ;;
+    ask)     [ "$V_RANK" -lt 3 ] && { V_RANK=3; V_ACTION=ask;     V_RULE="$rule_name"; V_REASON="$reason"; V_TARGET="$target"; } ;;
+    rewrite) [ "$V_RANK" -lt 2 ] && { V_RANK=2; V_ACTION=rewrite; V_RULE="$rule_name"; V_REASON="$reason"; V_TARGET="$target"; V_MATCH="$match_cmd"; V_REPLACE="$replace"; } ;;
+    warn)    [ "$V_RANK" -lt 1 ] && { V_RANK=1; V_ACTION=warn;    V_RULE="$rule_name"; V_REASON="$reason"; V_TARGET="$target"; } ;;
   esac
 done <<< "$RULE_STREAM"
+
+case "$V_ACTION" in
+  deny)
+    sb_log_audit "persona-tool-guard.sh" "deny" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
+    jq -nc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'  || true
+    ;;
+  ask)
+    sb_log_audit "persona-tool-guard.sh" "ask" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
+    jq -nc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$r}}'  || true
+    ;;
+  rewrite)
+    # Only reached when NO deny/ask rule matched. SOH (\x01) as the sed delimiter: `|` would
+    # error on grouped alternations and silently zero NEW_CMD; SOH cannot occur in a command.
+    # If either operand contains SOH, pass the command through unchanged rather than corrupt it.
+    SOH=$'\x01'
+    case "$V_MATCH$V_REPLACE" in
+      *"$SOH"*) NEW_CMD="$CMD" ;;
+      *) NEW_CMD=$(printf '%s' "$CMD" | sed -E "s${SOH}${V_MATCH}${SOH}${V_REPLACE}${SOH}g") ;;
+    esac
+    sb_log_audit "persona-tool-guard.sh" "rewrite" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
+    jq -nc --arg c "$NEW_CMD" --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r,updatedInput:{command:$c}}}'  || true
+    ;;
+  warn)
+    # Advisory-only: additionalContext, deliberately NO permissionDecision — an advisory must
+    # never widen permissions, only inform.
+    sb_log_audit "persona-tool-guard.sh" "warn" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
+    jq -nc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$r}}'  || true
+    ;;
+esac
 
 exit 0

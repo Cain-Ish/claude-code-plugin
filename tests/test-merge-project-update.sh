@@ -1,9 +1,11 @@
 #!/bin/bash
 # Tests for scripts/merge-project-update.sh.
+# run-all-timeout: 360   (27 merger invocations by design; ~5s each on MSYS — spawn-bound lib.sh, see LC-11)
 # Contract: reads JSON delta on stdin (or --json-file), idempotently merges
 # into the target PROJECT.md sections, scaffolds wiki pages for missing
-# [[refs]] in ~/knowledge/wiki/entities/, updates last_updated. Always exits 0
-# unless given an unparseable PROJECT.md or invalid JSON.
+# [[refs]] in ~/knowledge/wiki/entities/, updates last_updated. Exits 0 on success;
+# non-zero on an unparseable PROJECT.md, invalid JSON, or (since 2026-08-23, EC-13) a
+# FAILED PROJECT.md write — so the drainer retries instead of marking the transcript done.
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/merge-project-update.sh"
 TMP=$(mktemp -d)
@@ -417,5 +419,31 @@ jq -nc '{procedures: [{task_verb:"", exact_commands:"x"}, {task_verb:"y", exact_
 NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
 [ "$ORIG_HASH" = "$NEW_HASH" ] || fail "howto-malformed: entry without verb/commands must be skipped"
 pass "procedures: empty + malformed emissions are no-ops"
+
+# --- EC-13 (2026-08-23): a FAILED PROJECT.md write must exit non-zero, never 0. ----------------
+# Before: `mv "$TMP_OUT" "$PROJECT_MD"` unchecked + unconditional `exit 0`. The drainer recorded
+# outcome:ok, the archive cap evicted the transcript FIRST as "already extracted", the health
+# file stayed ok, no log row. Reproduce: make the PROJECT.md path a DIRECTORY so mv cannot
+# replace it (portable across MSYS/Linux/macOS; chmod-based read-only is unreliable on Windows).
+EC13=$(mktemp -d); mkdir -p "$EC13/projects/p"
+printf '# P\n\n## Recent decisions\n' > "$EC13/projects/p/PROJECT.md"   # a REAL file: the -f precondition passes
+EC13_KD="$EC13/knowledge"; mkdir -p "$EC13_KD/wiki"
+# Fault injection, portable on MSYS/Linux/macOS: a `mv` wrapper on PATH that refuses ONLY the
+# final PROJECT.md replacement (every other mv in the script proceeds normally).
+EC13_BIN="$EC13/bin"; mkdir -p "$EC13_BIN"
+cat > "$EC13_BIN/mv" <<'EOF'
+#!/bin/bash
+for a in "$@"; do case "$a" in */PROJECT.md) echo "mv: injected write failure: $a" >&2; exit 1 ;; esac; done
+exec /usr/bin/mv "$@" 2>/dev/null || exec "$(command -v -p mv)" "$@"
+EOF
+chmod +x "$EC13_BIN/mv"
+EC13_RC=0
+printf '{"recent_decisions":["ec13 decision"]}' \
+  | PATH="$EC13_BIN:$PATH" BRAIN_DIR="$EC13" bash "$SCRIPT" --project-md "$EC13/projects/p/PROJECT.md" --knowledge-dir "$EC13_KD" >/dev/null 2>&1 || EC13_RC=$?
+[ "$EC13_RC" -ne 0 ] || fail "EC-13: PROJECT.md write failed (injected mv failure) but merge exited 0 — the drainer would mark the transcript extracted and evict it"
+grep -q 'PROJECT.md write FAILED' "$EC13/error-log.jsonl" 2>/dev/null \
+  || fail "EC-13: failed write left no error-log row (got rc=$EC13_RC but silent)"
+pass "EC-13: failed PROJECT.md write exits $EC13_RC (non-zero) and logs loudly — drainer will retry, not evict"
+rm -rf "$EC13"
 
 echo "ALL PASS"

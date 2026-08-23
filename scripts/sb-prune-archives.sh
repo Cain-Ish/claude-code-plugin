@@ -61,18 +61,25 @@ fi
 if [ "$(sb_config_bool .retention.embeddings_cache_gc on)" = "on" ]; then
   WIKI_CACHE="$(sb_knowledge_dir)/wiki/.embeddings-cache.json"
   if [ -f "$WIKI_CACHE" ] && jq -e '(.entries | type) == "object"' "$WIKI_CACHE" >/dev/null 2>&1; then
-    KEEP='[]'
+    # ONE jq in, ONE jq out. The previous loop spawned jq once PER CACHE KEY to append to KEEP
+    # (486 keys = 486 spawns, and KEEP re-serialized each time = O(N^2)): measured 37s on the
+    # dev box to delete nothing — and this runs on EVERY drainer tick via maintain-deterministic,
+    # so it alone made a NO_LLM tick ~70s and test-extract-drain (31 ticks) un-runnable in 120s.
+    # Existence is checked in bash (builtin -f); survivors are collected as newline-delimited
+    # text and handed to jq once as a set.
+    _keep_tmp="$WIKI_CACHE.keep.$$"; : > "$_keep_tmp"
     while IFS= read -r _k; do
-      [ -n "$_k" ] || continue
-      [ -f "$_k" ] && KEEP=$(printf '%s' "$KEEP" | jq -c --arg k "$_k" '. + [$k]')
+      [ -n "$_k" ] && [ -f "$_k" ] && printf '%s\n' "$_k" >> "$_keep_tmp"
     done < <(jq -r '.entries | keys[]' "$WIKI_CACHE" 2>/dev/null | tr -d '\r')
     _wtmp="$WIKI_CACHE.tmp.$$"
-    if jq -c --argjson keep "$KEEP" \
-         '.entries |= with_entries(select(.key as $k | $keep | index($k) != null))' \
+    if jq -c --rawfile keeptxt "$_keep_tmp" \
+         '($keeptxt | split("\n") | map(select(length > 0)) | map({key: ., value: true}) | from_entries) as $keep
+          | .entries |= with_entries(select($keep[.key] == true))' \
          "$WIKI_CACHE" > "$_wtmp" 2>/dev/null && [ -s "$_wtmp" ]; then
+      rm -f "$_keep_tmp" 2>/dev/null
       mv "$_wtmp" "$WIKI_CACHE" 2>/dev/null || rm -f "$_wtmp" 2>/dev/null
     else
-      rm -f "$_wtmp" 2>/dev/null
+      rm -f "$_wtmp" "$_keep_tmp" 2>/dev/null
     fi
   fi
 fi

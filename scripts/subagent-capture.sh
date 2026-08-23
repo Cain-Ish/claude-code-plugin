@@ -25,7 +25,17 @@ RAW=$(cat 2>/dev/null || true)
 [ -n "$RAW" ] || exit 0
 echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
-TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
+# The SUBAGENT's own transcript is `.agent_transcript_path`. `.transcript_path` on a
+# SubagentStop payload is the PARENT session's file (verified against the Claude Code 2.1.241
+# binary: `transcript_path:UL(e.id), agent_transcript_path:eR(o)`). This hook read
+# `.transcript_path` since it was written, so the parent-guard below always fired and NOT ONE
+# real subagent result was ever archived in production (97 agent transcripts on 2026-08-22/23,
+# 0 archived). The 50 pre-0.45.0 `sub-*` stubs were the parent's own interim text.
+TRANSCRIPT=$(echo "$RAW" | jq -r '.agent_transcript_path // .transcript_path // empty' 2>/dev/null | tr -d '\r')
+# Claude Code also hands us the final text directly ("Avoids the need to read and parse the
+# transcript file" — binary docstring). Prefer it: no jq over a 1-10 MB JSONL, no `tail -1`
+# truncation of multi-line markdown to its last physical line (the previous RESULT extraction).
+LAST_MSG=$(echo "$RAW" | jq -r '.last_assistant_message // empty' 2>/dev/null | tr -d '\r')
 AGENT_TYPE=$(echo "$RAW" | jq -r '.agent_type // empty' 2>/dev/null | tr -d '\r')
 AGENT_ID=$(echo "$RAW"   | jq -r '.agent_id // empty' 2>/dev/null | tr -d '\r')
 SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
@@ -43,7 +53,11 @@ CWD=$(echo "$RAW"        | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 # "mining-self" this file's header calls a load-bearing property, and it floods the
 # extraction queue that the drainer is already starved on. If we cannot name the
 # agent we cannot prove it is not self, so we skip. Covered by test 15.
-[ -n "$AGENT_TYPE" ] || exit 0
+if [ -z "$AGENT_TYPE" ]; then
+  # Loud, not silent: one audit row per skipped untyped agent (fail-loud rule).
+  sb_log_audit "subagent-capture.sh" "flag" "no-agent-type" "${AGENT_ID:-?}" "payload carried no agent_type; cannot prove not-self; skipped" "$SESSION_ID" 2>/dev/null || true
+  exit 0
+fi
 
 # --- Never archive the PARENT session's own transcript (0.45.0) ---------------
 # Root cause of the same incident: transcript_path pointed at the MAIN session's
@@ -93,11 +107,15 @@ if [ "${FINAL_SO:-0}" -ge 1 ] && [ "${FINAL_TEXT_LEN:-0}" -lt "$MIN" ]; then
 fi
 
 # --- Extract the FINAL result = last assistant record's concatenated text blocks. ---
-RESULT=$(jq -rc '
-  select(.type == "assistant")
-  | [.message.content[]? | select(.type == "text") | .text]
-  | select(length > 0) | join("\n")
-' "$TRANSCRIPT" 2>/dev/null | tail -1)
+if [ -n "$LAST_MSG" ]; then
+  RESULT="$LAST_MSG"
+else
+  # Fallback for older payloads without last_assistant_message: the LAST assistant record's
+  # text blocks, selected as one JSON value (-c) BEFORE tail -1 so embedded newlines cannot
+  # split a multi-paragraph result into its last physical line (the previous bug).
+  RESULT=$(jq -c 'select(.type == "assistant") | [.message.content[]? | select(.type == "text") | .text] | select(length > 0)' "$TRANSCRIPT" 2>/dev/null \
+    | tail -1 | jq -r 'join("\n")' 2>/dev/null)
+fi
 
 # --- Substantive gate 2: drop near-empty results (the real 4-byte case). ---
 RLEN=$(printf '%s' "$RESULT" | tr -d '[:space:]' | wc -c | tr -d ' ')

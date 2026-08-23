@@ -377,7 +377,14 @@ if [ "${SB_DRAIN_DEADMAN:-on}" != "off" ]; then
       [ -f "$DM_STATE" ] || DM_NEWER=$(find "$DM_TX_DIR" -maxdepth 1 -name '*.txt' -mmin +$(( DEADMAN_H * 60 )) 2>/dev/null | head -5 | grep -c .)
       if [ "${DM_NEWER:-0}" -gt 0 ]; then
         DM_AGE_H=$(( DM_AGE_S / 3600 ))
-        sb_append "$(printf '## \xe2\x9a\xa0 second-brain — drainer DEAD-MAN: no extraction progress in %sh\nsignal: .extraction-state.jsonl is stale while newer transcripts are queued — the scheduler may be firing and exiting without draining (wedged lock, dead unit).\nimpact: queued sessions age toward the eviction cap and are then LOST un-mined.\nfix: check \x60ls ~/.second-brain/.extract-drain.lock.d\x60 (a stale non-empty lock wedges the run), then \x60bash ~/.second-brain/bin/sb-extract-drain.sh\x60 manually and watch error-log.jsonl.\nSuppress: \x60SB_DRAIN_DEADMAN=off\x60.\n\n' "$DM_AGE_H")" "drain-deadman-banner" 700
+        # Report the DEFER COUNTER, because starvation — not a wedged lock — is the common
+        # cause, and it is the one signal that distinguishes them. The previous banner named
+        # only "wedged lock, dead unit" and told the operator to hand-run the drainer; on the
+        # dev box (2026-08-22) the lock did not exist, the counter stood at 120, and the
+        # hand-run refused in-session while exiting 0 — so the advice read as success.
+        DM_DEFERS=0
+        [ -f "$BRAIN_DIR/.drain-defer-count" ] && DM_DEFERS=$(tr -dc '0-9' < "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)
+        sb_append "$(printf '## \xe2\x9a\xa0 second-brain — drainer DEAD-MAN: no extraction progress in %sh (consecutive defers: %s)\nsignal: .extraction-state.jsonl is stale while newer transcripts are queued.\ncause: a NONZERO defer count means an interactive claude session keeps the drainer deferring — the common case. A stale lock is the other.\nimpact: queued sessions age toward the eviction cap and are then LOST un-mined.\nfix: set \x60ANTHROPIC_API_KEY\x60 (drain becomes lock-immune), OR leave a window with no claude running. Stale-lock check: \x60ls ~/.second-brain/.extract-drain.lock.d\x60.\nnote: running the drainer INSIDE this session cannot drain anything (it exits 3).\nSuppress: \x60SB_DRAIN_DEADMAN=off\x60.\n\n' "$DM_AGE_H" "${DM_DEFERS:-0}")" "drain-deadman-banner" 900
         sb_log_error "session-load.sh" "drain-deadman: state age ${DM_AGE_H}h > ${DEADMAN_H}h with newer queued transcripts" 1
       fi
     fi

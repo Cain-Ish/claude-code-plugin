@@ -682,7 +682,18 @@ if [ "$CHANGED" -eq 1 ]; then
     { print }
   ' "$TMP_OUT" > "$new_tmp"
   mv "$new_tmp" "$TMP_OUT"
-  mv "$TMP_OUT" "$PROJECT_MD"
+  # EXIT 3 ON A FAILED WRITE. This `mv` was unchecked and the script ended `exit 0` regardless,
+  # so an unwritable PROJECT.md (permissions, full disk, a path that stopped existing) returned
+  # success to the drainer, which recorded the transcript `outcome:ok` — and the archive cap
+  # then evicted it FIRST as "already extracted". Knowledge destroyed, health file still `ok`,
+  # no log row. Sandbox-reproduced 2026-08-23 (ledger EC-13). A non-zero here becomes `retry`
+  # in the drainer (error after SB_DRAIN_MAX_FAILS) and the transcript is retained.
+  if ! mv "$TMP_OUT" "$PROJECT_MD"; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md write FAILED for $PROJECT_MD — delta NOT applied; transcript must be retried, not marked extracted" 3
+    rm -f "$TMP_OUT" 2>/dev/null
+    trap - EXIT
+    exit 3
+  fi
   trap - EXIT
 fi
 

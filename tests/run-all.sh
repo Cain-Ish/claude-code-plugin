@@ -79,8 +79,21 @@ run_one_sh() {
     "SB_SUITE_REAL_HOME_PATH=$HOME"
     "HOME=$iso_home"
   )
+  # Per-file budget override: a test may declare `# run-all-timeout: N` in its first 20 lines.
+  # For the few integration tests that run dozens of full drainer ticks by design
+  # (test-extract-drain: 31 ticks x ~3.8s lib.sh-source floor on MSYS = ~118s), the global
+  # default is not a budget but a coin flip — it produced ec=124 on 9-11 tests EVERY local run
+  # for months, which the daily prompt then taught operators to dismiss as "expected Windows
+  # flakiness". That dismissal is how a 3-day dead pipeline hid behind a green-looking suite.
+  # The declaration is in the file, so raising it is a visible, blameable choice — never a
+  # silent env bump. Hard ceiling 900s: past that, a test is hung, not slow.
+  local budget="$PER_TEST_TIMEOUT" declared
+  declared=$(head -20 "$script" | sed -n 's/^#[[:space:]]*run-all-timeout:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+  if [ -n "$declared" ] && [ "$declared" -gt "$budget" ]; then
+    budget="$declared"; [ "$budget" -gt 900 ] && budget=900
+  fi
   if command -v timeout >/dev/null 2>&1; then
-    env "${iso_env[@]}" timeout "$PER_TEST_TIMEOUT" bash "$script" >"$logfile" 2>&1; ec=$?
+    env "${iso_env[@]}" timeout "$budget" bash "$script" >"$logfile" 2>&1; ec=$?
   else
     env "${iso_env[@]}" bash "$script" >"$logfile" 2>&1; ec=$?
   fi

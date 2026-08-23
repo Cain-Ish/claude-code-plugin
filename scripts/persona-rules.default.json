@@ -27,9 +27,8 @@
       "name": "strip-silent-fallback",
       "tool": "Bash",
       "match_command": "2>/dev/null",
-      "action": "rewrite",
-      "replace": "",
-      "reason": "Plugin convention: fail loud, not silent. Stripping 2>/dev/null so errors surface."
+      "action": "warn",
+      "reason": "Plugin convention: fail loud, not silent — prefer surfacing stderr over 2>/dev/null. (Advisory since 2026-08-23: this was a blind `sed` REWRITE over the whole command string, which turned `grep -rn \"2>/dev/null\" scripts/` into `grep -rn \"\" scripts/` and altered heredoc file contents — ~450 silent edits/day with no visible signal.)"
     },
     {
       "name": "warn-force-push-main",

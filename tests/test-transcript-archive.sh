@@ -107,7 +107,9 @@ D="$BRAIN_DIR/transcripts"
 # mtime-vs-lexical question this test exists for is now decided WITHIN the extracted class.
 # An all-un-mined archive is not pruned at the soft cap at all — subtests 6/7 cover that side.
 mark_done() {
-  printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok"}\n' "$(basename "$1")" \
+  # ${1##*/} not $(basename): this fixture ran 325 basename spawns per test — on MSYS that alone
+  # was ~15s of a test that must fit a 120s budget. The fixture must not be slower than the code.
+  printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok"}\n' "${1##*/}" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
 }
 for i in $(seq 1 100); do

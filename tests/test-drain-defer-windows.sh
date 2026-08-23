@@ -67,20 +67,41 @@ case "$(uname -s 2>/dev/null)" in
 esac
 
 echo "=== W4: the Claude DESKTOP app must not pin the drainer into a permanent defer ==="
-# Desktop app path shape: ...\WindowsApps\Claude_1.2.3_x64__xxx\app\resources\cowork-svc.exe
+# The desktop app's MAIN binary is ALSO named claude.exe:
+#   C:\Program Files\WindowsApps\Claude_<ver>_x64__<hash>\app\claude.exe   (9 processes, always on)
+# The previous fixture used `...\app\resources\cowork-svc.exe` — a name the desktop app never
+# spawns — so this test passed while the real desktop claude.exe matched the probe and the
+# drainer deferred on 100% of scheduler ticks (measured 2026-08-23 via `ps -W`).
 STUB=$(mktemp -d); trap 'rm -rf "$STUB"' EXIT
+PROBE_SRC=$(sed -n '/^sb_drain_win_claude_present()/,/^}/p' "$DRAIN")
 cat > "$STUB/ps" <<'EOF'
 #!/bin/sh
-echo "  77636  0  0  12100 ?  0 16:24:30 C:\\Program Files\\WindowsApps\\Claude_1.24012.9.0_x64__pzs8sxrjxfjjc\\app\\resources\\cowork-svc.exe"
+echo "  77636  0  0  12100 ?  0 16:24:30 C:\\Program Files\\WindowsApps\\Claude_1.34493.1.0_x64__pzs8sxrjxfjjc\\app\\claude.exe"
+echo "  77637  0  0  12101 ?  0 16:24:30 C:\\Program Files\\WindowsApps\\Claude_1.34493.1.0_x64__pzs8sxrjxfjjc\\app\\claude.exe"
 EOF
 chmod +x "$STUB/ps"
 if PATH="$STUB:$PATH" sh -c '. /dev/stdin' <<EOF 2>/dev/null
-$(sed -n '/^sb_drain_win_claude_present()/,/^}/p' "$DRAIN")
+$PROBE_SRC
 uname() { echo MINGW64_NT-10.0; }
 sb_drain_win_claude_present
 EOF
-then fail "W4: the desktop app was mistaken for the Claude Code CLI (drainer would defer forever)"
-else pass "W4: desktop-app process ignored (only claude.exe counts)"
+then fail "W4: the desktop app's claude.exe was mistaken for the Claude Code CLI (drainer would defer forever)"
+else pass "W4: desktop-app claude.exe (WindowsApps) ignored"
+fi
+
+echo "=== W5: the real CLI claude.exe MUST still defer (exclusion must not over-reach) ==="
+cat > "$STUB/ps" <<'EOF'
+#!/bin/sh
+echo "  77636  0  0  12100 ?  0 16:24:30 C:\\Program Files\\WindowsApps\\Claude_1.34493.1.0_x64__pzs8sxrjxfjjc\\app\\claude.exe"
+echo "  80001  0  0  12200 ?  0 16:25:00 C:\\Users\\u\\.local\\bin\\claude.exe"
+EOF
+if PATH="$STUB:$PATH" sh -c '. /dev/stdin' <<EOF 2>/dev/null
+$PROBE_SRC
+uname() { echo MINGW64_NT-10.0; }
+sb_drain_win_claude_present
+EOF
+then pass "W5: CLI claude.exe alongside the desktop app still detected (defer)"
+else fail "W5: CLI claude.exe NOT detected — the desktop exclusion over-reached and the OAuth-lock defer is gone"
 fi
 
 echo

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Tests for extract-drain.sh
+# run-all-timeout: 300   (31 full drainer ticks by design; ~3.8s/tick lib.sh-source floor on MSYS — see run-all.sh)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 set -euo pipefail
 
@@ -22,6 +23,13 @@ export SB_INTERACTIVE_OVERRIDE=inactive
 # R1.2: the too-small fast-path would skip these deliberately tiny fixtures —
 # disable it for the legacy cases; the fast-path test re-enables it per-call.
 export SB_DRAIN_MIN_BYTES=0
+# brain-os OFF by default. Every drainer tick also runs brain-os-run.sh (maintain-deterministic:
+# archive prune + project backfill + codemap + wiki-history) — ~13s/tick on the dev box even
+# after the 2026-08-23 spawn fixes (67s before). Only the 4 codemap cases below assert on it;
+# the other 27 ticks paid that cost for nothing, which is the single reason this test could
+# never fit the 120s suite budget on Windows (1290s -> 259s -> 112s). The codemap cases
+# re-enable it per call with SB_BRAIN_OS=on.
+export SB_BRAIN_OS=off
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); echo "  PASS: $1"; }
@@ -377,7 +385,7 @@ printf 'args=%s project_dir=%s\n' "\$*" "\${CLAUDE_PROJECT_DIR:-}" >> "$CM_MARKE
 exit 0
 EOF5
 chmod +x "$NODEDIR/node"
-CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
+SB_BRAIN_OS=on CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
 grep -qF 'code-map-cli.bundle.js' "$CM_MARKER" 2>/dev/null \
   && ok "codemap block invoked the CLI bundle via node" || no "codemap CLI not invoked"
 grep -qF "project_dir=$CMREPO" "$CM_MARKER" 2>/dev/null \
@@ -385,7 +393,7 @@ grep -qF "project_dir=$CMREPO" "$CM_MARKER" 2>/dev/null \
 # Kill switch: auto_codemap:false must gate the whole block off (no CLI spawn).
 rm -f "$CM_MARKER"
 printf '{"auto_improve": false, "auto_maintain": false, "auto_codemap": false}\n' > "$BRAIN_DIR/config.json"
-CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
+SB_BRAIN_OS=on CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
 [ ! -f "$CM_MARKER" ] && ok "auto_codemap:false gates the regen off" || no "codemap ran despite auto_codemap:false"
 printf '{"auto_improve": false, "auto_maintain": false}\n' > "$BRAIN_DIR/config.json"
 
@@ -400,7 +408,7 @@ exit 0
 EOF5
 chmod +x "$NODEDIR/node"
 rm -f "$BRAIN_DIR/error-log.jsonl"
-CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
+SB_BRAIN_OS=on CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
 grep -q 'codemap regen failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
   && ok "fail-soft CLI ERROR marker surfaces as a LOUD error-log line" \
   || no "CLI 'code-map: ERROR' was swallowed (dead-|| regression)"
@@ -417,7 +425,7 @@ chmod +x "$NODEDIR/node"
 rm -f "$CM_MARKER"
 printf 'GARBAGE NOT JSON\n{"slug":"cmproj","root_path":"%s","last_session_iso":"2026-07-01T00:00:00Z"}\n{"slug":"newest-but-unmappable","last_session_iso":"2026-07-02T00:00:00Z"}\n' \
   "$CMREPO" > "$BRAIN_DIR/projects.jsonl"
-CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
+SB_BRAIN_OS=on CLAUDE_PLUGIN_ROOT="$CMROOT" PATH="$NODEDIR:$PATH" bash "$DRAIN" >/dev/null 2>&1 || true
 grep -qF "project_dir=$CMREPO" "$CM_MARKER" 2>/dev/null \
   && ok "garbage line tolerated; newest record WITH root_path targeted" \
   || no "corrupt registry killed the codemap target resolution (got: $(cat "$CM_MARKER" 2>/dev/null))"

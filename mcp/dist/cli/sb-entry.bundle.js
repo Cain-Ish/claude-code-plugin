@@ -7337,7 +7337,9 @@ function scopeAndBroaden(ranked, args) {
 // src/tools/pin-to-user.ts
 import { promises as fs8 } from "fs";
 import { join as join8 } from "path";
-var MAX_LINES = 15;
+var MAX_PINS = 15;
+var PIN_RE = /^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/;
+var PIN_SECTION = "## Pinned";
 async function pinToUser(args) {
   const dir = resolveBrainDir(args.brainDir);
   const file = join8(dir, "USER.md");
@@ -7348,19 +7350,34 @@ async function pinToUser(args) {
   try {
     content = await fs8.readFile(file, "utf-8");
   } catch {
-    content = "# USER preferences\n\n## Pinned\n";
+    content = `# USER preferences
+
+${PIN_SECTION}
+`;
   }
-  const existing = content.split("\n").find((l) => {
-    const m = l.match(/^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/);
-    return m !== null && m[1].trim() === trimmed;
-  });
+  const lines = content.split("\n");
+  const pinLines = lines.filter((l) => PIN_RE.test(l));
+  const existing = pinLines.find((l) => l.match(PIN_RE)[1].trim() === trimmed);
   if (existing !== void 0) {
     return { ok: true, line_added: existing, reason: "already present" };
   }
-  const projected = content + (content.endsWith("\n") ? "" : "\n") + newLine + "\n";
-  if (projected.split("\n").filter(Boolean).length > MAX_LINES) {
-    return { ok: false, line_added: "", reason: `would exceed ${MAX_LINES}-line cap` };
+  if (pinLines.length >= MAX_PINS) {
+    return { ok: false, line_added: "", reason: `would exceed ${MAX_PINS} pinned lines (hand-written sections do not count)` };
   }
+  const out = [...lines];
+  let secIdx = out.findIndex((l) => l.trim() === PIN_SECTION);
+  if (secIdx === -1) {
+    if (out.length && out[out.length - 1] !== "") out.push("");
+    out.push(PIN_SECTION);
+    secIdx = out.length - 1;
+  }
+  let insertAt = secIdx + 1;
+  for (let i = secIdx + 1; i < out.length; i++) {
+    if (/^## /.test(out[i])) break;
+    if (PIN_RE.test(out[i])) insertAt = i + 1;
+  }
+  out.splice(insertAt, 0, newLine);
+  const projected = out.join("\n").replace(/\n*$/, "\n");
   await fs8.mkdir(dir, { recursive: true });
   await fs8.writeFile(file, projected, "utf-8");
   return { ok: true, line_added: newLine };

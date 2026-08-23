@@ -89,12 +89,18 @@ cdrun; A2=$(attempts)
 [ "$A1" -ge "1" ] && pass "T9: first age-escape attempted extraction (A1=$A1)" || fail "T9: first escape didn't attempt (A1=$A1)"
 [ "$A2" = "$A1" ] && pass "T9: next tick rate-limited — no re-escape (attempts stayed $A1)" || fail "T9: re-escaped on next tick ($A1→$A2)"
 
-# T-gate: under pure OAuth (no ANTHROPIC_API_KEY, no pmode) a starved backlog must NOT escape —
-# a forced claude -p would hang on the held OAuth lock and poison-pill good transcripts
-# (regression ee8a74c). The loud drain-health banner is the remedy, not a futile forced drain.
+# T-gate (INVERTED 2026-08-23): under pure OAuth (no ANTHROPIC_API_KEY, no pmode) a starved
+# backlog MUST escape. The previous oracle asserted the opposite — "must NOT escape, a forced
+# claude -p would hang on the held OAuth lock" (ee8a74c, 2026-05-24, Linux/systemd) — and that
+# oracle was the 3-day production outage: 120 consecutive defers, 72/100 transcripts never
+# mined, every tick exiting 0, CI green throughout. The premise no longer holds: measured
+# 2026-08-22/23 on Claude Code 2.1.241 with an interactive session live, 72 real transcripts
+# drained via claude-cli, 0 failed, seconds each. The timeout wrapper bounds the worst case
+# (one `retry`, dead-letter only after SB_DRAIN_MAX_FAILS) — that bound IS the safety story.
+# A test that locks "do not drain" as correct can never go red when memory stops flowing.
 reset; mk_tx a.txt; printf '6' > "$CNT"
 run SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_DEFER_MAX=6   # deliberately NO key, NO pmode
-[ "$(invoked)" = "0" ] && pass "T-gate: starved but no key/pmode → does NOT escape (no OAuth-hang)" || fail "T-gate: escaped under pure OAuth (regression)"
+[ "$(invoked)" -ge "1" ] && pass "T-gate: starved under pure OAuth → escapes (the 3-day-outage oracle is inverted)" || fail "T-gate: starved under pure OAuth did NOT escape — this is the 120-defer outage shape"
 
 # T-interaction: a COUNTER-branch escape must NOT consume the AGE-branch cooldown (review fix).
 # counter at max + stale pending transcript + api key: run 1 escapes via the counter (no age

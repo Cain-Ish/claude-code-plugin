@@ -118,15 +118,19 @@ if [ "${SB_PERSONA_GATE:-on}" = "off" ]; then
   G=1
 else
   run_ptg() { printf '%s' "$1" | HOME="$SBHOME" BRAIN_DIR="$PBRAIN" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/persona-tool-guard.sh" 2>/dev/null; }
+  # ORACLE INVERTED with 0.46.0: strip-silent-fallback is ADVISORY (additionalContext, no
+  # permissionDecision, no rewrite). The old rewrite emitted "allow", so `rm -rf x 2>/dev/null`
+  # skipped the ask rules, and the blind sed corrupted grep patterns / heredocs. This probe
+  # asserted that behaviour — a false NOT-LIVE red on every healthy 0.46.0 install.
   OUT=$(run_ptg '{"session_id":"guard-liveness-probe","tool_name":"Bash","tool_input":{"command":"ls foo 2>/dev/null"}}')
-  check "Bash '... 2>/dev/null' (strip-silent-fallback)" allow "$OUT" || G=$((G+1))
-  if [ -n "$OUT" ]; then
-    if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.updatedInput.command | contains("2>/dev/null") | not' >/dev/null 2>&1; then
-      echo "  ok:   rewrite removed 2>/dev/null from the command"
-    else
-      echo "  FAIL: rewrite did not strip 2>/dev/null"; G=$((G+1))
-    fi
+  if [ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '(.hookSpecificOutput.additionalContext | length > 0) and (.hookSpecificOutput.permissionDecision == null) and (.hookSpecificOutput.updatedInput == null)' >/dev/null 2>&1; then
+    echo "  ok:   Bash '... 2>/dev/null' -> advisory only (no rewrite, no auto-allow)"
+  else
+    echo "  FAIL: 2>/dev/null probe: expected advisory additionalContext with NO permissionDecision/updatedInput, got: ${OUT:-SILENT}"; G=$((G+1))
   fi
+  # Precedence: a dangerous command must not get WEAKER by appending 2>/dev/null (the G1 hole).
+  OUT=$(run_ptg '{"session_id":"guard-liveness-probe","tool_name":"Bash","tool_input":{"command":"rm -rf /home/u/important 2>/dev/null"}}')
+  check "rm -rf ... 2>/dev/null (ask wins over the advisory)" ask "$OUT" || G=$((G+1))
   OUT=$(run_ptg '{"session_id":"guard-liveness-probe","tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}')
   check "Bash force-push to main" ask "$OUT" || G=$((G+1))
   OUT=$(run_ptg '{"session_id":"guard-liveness-probe","tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/guard-liveness-probe"}}')

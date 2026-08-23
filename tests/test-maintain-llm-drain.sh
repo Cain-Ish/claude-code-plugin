@@ -1,5 +1,6 @@
 #!/bin/bash
 # C: the opt-in headless-LLM maintainer. We test the GATING + the QUARANTINE structure and its
+# run-all-timeout: 300   (9 full quarantine-lane runs by design; measured 153s alone on MSYS — spawn-bound lib.sh, see LC-11)
 # runtime attestation with a mock `claude` that emits canned stream-json. A real headless run is
 # operator-verified (it can't run from inside a Claude session — the recursive-claude OAuth lock).
 set -u

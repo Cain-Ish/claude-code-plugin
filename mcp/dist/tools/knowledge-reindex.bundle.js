@@ -3082,6 +3082,27 @@ async function normalizeFrontmatter(filePath) {
     const slugs = extractYamlList(fm, key);
     fm = fm.replace(blockRe, () => `${key}: [${slugs.join(", ")}]`);
   }
+  try {
+    index_vite_proxy_tmp_default.load(fm);
+  } catch {
+    const repaired = fm.split("\n").map((line) => {
+      const m2 = line.match(/^([A-Za-z_][A-Za-z0-9_-]*):[ \t]+(.+)$/);
+      if (!m2) return line;
+      try {
+        index_vite_proxy_tmp_default.load(line);
+        return line;
+      } catch {
+      }
+      let v = m2[2].trim();
+      if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+      return `${m2[1]}: ${JSON.stringify(v)}`;
+    }).join("\n");
+    try {
+      index_vite_proxy_tmp_default.load(repaired);
+      fm = repaired;
+    } catch {
+    }
+  }
   const next = replaceFrontmatter(content, fm);
   if (next === content) return false;
   await fs3.writeFile(filePath, next, "utf-8");

@@ -146,4 +146,40 @@ h=$(grep -nE '(\||;|^|[[:space:]])(sed|grep)[[:space:]]' $ALL_SH 2>/dev/null | n
 [ -z "$h" ] && pass "no GNU-only regex escapes (\\b \\w \\s \\d \\x) in sed/grep programs" \
   || fail "GNU-only regex escape in a sed/grep program (BSD matches nothing) — use a literal byte / POSIX class / grep -w" "$h"
 
+# 12. No `$(basename …)` / `$(dirname …)` inside a `while … read` loop body in a HOT-PATH
+#     script. On MSYS each external process costs ~30-60ms (vs ~1ms on Linux), so a per-item
+#     spawn in a loop over hundreds of files is seconds on the dev platform and invisible on
+#     CI. Measured 2026-08-23: sb_prune_transcripts (runs on EVERY Stop hook) spent ~2 spawns
+#     per archived transcript — test-transcript-archive 258s on Windows vs 8s on Linux, and the
+#     local suite could never go green (ec=124 on 9-11 tests). Both have zero-cost builtins:
+#     "${x##*/}" for basename, "${x%/*}" for dirname. Scoped to the scripts that run per hook
+#     tick or per drainer tick; a one-off setup script may still spawn freely.
+#     Hot path = every script wired into hooks/hooks.json (runs per tool call / per session
+#     event) plus the drainer tick chain. Derived from hooks.json so the list cannot drift,
+#     and so this file never spells out hook-script names as data (test-real-kb-isolation
+#     greps test files for mentions of the capture-hook scripts and would flag this one).
+HOT=$(jq -r '.. | .command? // empty' "$REPO/hooks/hooks.json" 2>/dev/null \
+  | grep -oE 'scripts/[a-z0-9-]+\.sh' | sort -u)
+HOT="$HOT
+scripts/lib.sh
+scripts/extract-drain.sh
+scripts/sb-prune-archives.sh
+scripts/kb-project-backfill.sh
+scripts/maintain-deterministic.sh
+scripts/brain-os-run.sh"
+h=""
+for f in $HOT; do
+  [ -f "$REPO/$f" ] || continue
+  # Track `while … read` nesting with awk: flag a $(basename|dirname …) seen while depth>0.
+  m=$(awk -v F="$f" '
+    /^[[:space:]]*#/ { next }
+    /while[[:space:]].*read[[:space:]]/ { depth++ }
+    depth>0 && /\$\((basename|dirname)[[:space:]]/ { printf "%s:%d:%s\n", F, NR, $0 }
+    depth>0 && /^[[:space:]]*done([[:space:]]|$|<)/ { depth-- }
+  ' "$REPO/$f")
+  [ -n "$m" ] && h="${h}${m}"$'\n'
+done
+[ -z "$h" ] && pass "no \$(basename/dirname) spawn inside a while-read loop in hot-path scripts (MSYS spawn tax)" \
+  || fail "per-item basename/dirname spawn inside a while-read loop in a hot-path script — use \"\${x##*/}\" / \"\${x%/*}\" (each spawn is ~30-60ms on MSYS; this class made the local suite un-runnable)" "$h"
+
 echo; echo "ALL PASS"

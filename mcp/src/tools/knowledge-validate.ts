@@ -501,6 +501,25 @@ async function normalizeFrontmatter(filePath: string): Promise<boolean> {
     const slugs = extractYamlList(fm, key);   // tolerant read of whatever broken shape exists
     fm = fm.replace(blockRe, () => `${key}: [${slugs.join(', ')}]`);
   }
+  // Unquoted scalar with an embedded ": " (e.g. `description: Open in kiri-os: the P0 batch`,
+  // written when sb_append truncated the closing quote) parses as a nested mapping → YAML
+  // throws. The two steps above never touch it, so 9 live pages re-reported malformed on EVERY
+  // validate while autofix claimed to handle them — the self-heal never converged (measured on
+  // the real KB 2026-08-23: 45 issues before autofix, 45 after). If the block still fails to
+  // parse, quote each offending single-line scalar; re-parse to confirm before writing.
+  try { yaml.load(fm); } catch {
+    const repaired = fm.split('\n').map(line => {
+      const m2 = line.match(/^([A-Za-z_][A-Za-z0-9_-]*):[ \t]+(.+)$/);
+      if (!m2) return line;
+      // Repair only a line that itself fails to parse (embedded ": " in an unquoted scalar,
+      // or unescaped inner quotes inside a quoted one — e.g. `head -c "$max"` in a "…" value).
+      try { yaml.load(line); return line; } catch { /* fall through to re-quote */ }
+      let v = m2[2].trim();
+      if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+      return `${m2[1]}: ${JSON.stringify(v)}`;
+    }).join('\n');
+    try { yaml.load(repaired); fm = repaired; } catch { /* still broken — leave for a human */ }
+  }
   const next = replaceFrontmatter(content, fm);
   if (next === content) return false;
   await fs.writeFile(filePath, next, 'utf-8');

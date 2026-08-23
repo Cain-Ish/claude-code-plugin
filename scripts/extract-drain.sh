@@ -7,7 +7,8 @@
 #   SB_DRAIN_MAX_FAILS  retries before giving up on a transcript (default 3)
 #   SB_EXTRACT_STUB     test-only: path to a stub called instead of the real
 #                       extractor, as `$SB_EXTRACT_STUB <txt> <slug>`.
-# Always exits 0 (fail-soft).
+# Exits 0 on every out-of-session path (fail-soft for the scheduler). Exits 3 ONLY when run
+# INSIDE a Claude Code session (CLAUDECODE=1) — that refusal used to exit 0 and read as success.
 set -u
 source "$(dirname "$0")/lib.sh"
 
@@ -35,7 +36,16 @@ sb_drain_proc_args() { ps -p "$1" -o args= 2>/dev/null; }
 sb_drain_win_claude_present() {
   command -v uname >/dev/null 2>&1 || return 1
   case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) : ;; *) return 1 ;; esac
-  ps -W 2>/dev/null | grep -qiE '[/\\]claude\.exe([[:space:]]|$)'
+  # Match ONLY the Claude Code CLI (installed under ~/.local/bin, npm-global bin, or a
+  # node_modules/.bin), never Claude DESKTOP: the desktop app is
+  # `WindowsApps\Claude_<ver>_x64__<hash>\app\claude.exe` and is always running on a desk
+  # where it is installed — the previous pattern `[/\\]claude\.exe` matched its 9 processes,
+  # so this probe returned "interactive CLI present" on 100% of scheduler ticks with NO CLI
+  # session open. Measured 2026-08-23: `ps -W` showed 9 desktop + 2 CLI claude.exe rows; the
+  # drainer deferred on every tick and only ever drained via the every-6th-tick escape.
+  # The test fixture (test-drain-defer-windows.sh W4) used `cowork-svc.exe` — a name the
+  # desktop app never spawns — so the exclusion it "proved" was never exercised.
+  ps -W 2>/dev/null | grep -viE '[/\\]WindowsApps[/\\]' | grep -qiE '[/\\]claude\.exe([[:space:]]|$)'
 }
 
 # Relaxed verdict (opt-in, SB_DRAIN_DEFER_PMODE_ONLY=1): defer ONLY when ANOTHER
@@ -113,6 +123,15 @@ sb_drain_defer_count() {
 sb_drain_defer_bump() { printf '%d' "$(( $(sb_drain_defer_count) + 1 ))" > "$DEFER_COUNT_F" 2>/dev/null || true; }
 sb_drain_defer_reset() { rm -f "$DEFER_COUNT_F" 2>/dev/null || true; }
 
+# EVERY exit of a drainer tick leaves ONE audit row: gate=drain-tick verdict=<why>. Under the
+# scheduler (wscript //B on Windows, systemd/launchd elsewhere) stderr goes nowhere, so the
+# `exit 0` paths below used to leave no trace at all: the 3-day 2026-08 starvation and the
+# 6-day 2026-07 lock wedge (see the mkdir-lock comment) both ran "green" with zero log rows.
+# One verdict row per tick is what lets the next audit answer "did it run, what did it decide".
+sb_drain_tick() {  # $1 = verdict, $2 = detail
+  sb_log_audit "extract-drain.sh" "flag" "drain-tick" "${1:-?}" "${2:-}" "" 2>/dev/null || true
+}
+
 # Age (seconds) of the OLDEST not-yet-done .txt in TX_DIR; 0 if none pending.
 # mtime via stat -c %Y (GNU) || stat -f %m (BSD/macOS); now via date +%s. The
 # oldest-first ls -1tr mirrors the batch loop's own ordering.
@@ -123,7 +142,7 @@ sb_drain_oldest_pending_age() {
   now=$(date +%s)
   while IFS= read -r tf; do
     [ -n "$tf" ] || continue
-    base=$(basename "$tf")
+    base="${tf##*/}"
     sb_extraction_done "$base" "$state" && continue
     mt=$(stat -c %Y "$tf" 2>/dev/null || stat -f %m "$tf" 2>/dev/null || echo "$now")
     case "$mt" in ''|*[!0-9]*) mt="$now" ;; esac
@@ -133,19 +152,31 @@ sb_drain_oldest_pending_age() {
   printf '0'
 }
 
-# The forced escape is only SAFE+USEFUL when the attempt can BYPASS the global OAuth
-# recursive-lock a live interactive session holds: ANTHROPIC_API_KEY (curl/API backstop —
-# self-bounded via --max-time, lock-immune) OR the operator asserting the lock isn't global
-# (SB_DRAIN_DEFER_PMODE_ONLY=1). Under pure OAuth + a held lock a forced `claude -p` hangs to
-# the timeout and POISON-PILLS good transcripts (the regression commit ee8a74c's defer
-# prevents) — so when neither holds we do NOT escape; the loud drain-health banner tells the
-# operator to set a key or free a drain window. On the no-API-key (pmode) path we also require
-# a timeout/gtimeout binary, since without ANTHROPIC_API_KEY sb_call_extractor wraps claude in
-# `timeout` and would otherwise run UNBOUNDED if that binary is absent.
+# The forced escape is SAFE because every attempt is TIME-BOUNDED: with ANTHROPIC_API_KEY the
+# curl backstop self-bounds via --max-time; without it sb_call_extractor wraps `claude -p` in
+# sb_timeout (lib.sh), which refuses loudly rather than run unbounded when no timeout binary
+# exists. A hung attempt therefore costs one timeout and records `retry`; only
+# SB_DRAIN_MAX_FAILS (3) consecutive failures dead-letter a transcript. That bound is the whole
+# safety argument — there is no longer an opt-in flag gating the escape (see the history note
+# inside the function for why the old gate was the 3-day outage).
 sb_drain_escape_safe() {
   [ -n "${ANTHROPIC_API_KEY:-}" ] && return 0
-  [ "${SB_DRAIN_DEFER_PMODE_ONLY:-0}" = "1" ] || return 1
-  command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 || return 1
+  # No API key: the attempt runs through `claude -p`, so it MUST be time-bounded — that bound
+  # is the whole safety story, and it is sufficient. Requiring SB_DRAIN_DEFER_PMODE_ONLY=1 here
+  # (default 0) made the escape UNREACHABLE on the most common setup — subscription auth with an
+  # editor session open — so the drainer deferred forever and the pipeline silently died:
+  # measured 2026-08-22 on the dev box at 120 consecutive defers, 72/100 transcripts never
+  # mined, 3 days since the last successful drain, while the scheduled task ran every 30 min
+  # and exited 0. The premise of that gate ("a forced `claude -p` hangs to the timeout and
+  # poison-pills good transcripts under a held OAuth lock") was tested directly with an
+  # interactive session live: it drained cleanly in seconds, backend claude-cli, 0 failed.
+  # Worst case is bounded anyway — a hang costs one timeout and records `retry`, and only
+  # SB_DRAIN_MAX_FAILS (3) consecutive failures dead-letter a transcript.
+  # To suppress escapes without this gate: raise SB_DRAIN_DEFER_MAX / SB_DRAIN_STALE_MAX.
+  # The former `command -v timeout || gtimeout` requirement is gone too: sb_call_extractor now
+  # bounds claude via sb_timeout (lib.sh), which FAILS LOUD (exit 127 + error-log) when no
+  # timeout binary exists rather than running claude unbounded. So on stock macOS an escape
+  # attempt records `retry` with a logged reason instead of deferring forever in silence.
   return 0
 }
 
@@ -176,8 +207,13 @@ sb_drain_starved() {
 
 # The whole point is to run outside a session — refuse the recursive-lock context.
 if [ "${CLAUDECODE:-}" = "1" ]; then
-  echo "extract-drain: refusing to run inside a Claude Code session" >&2
-  exit 0
+  # Exit 3, NOT 0. A hand-run from inside a session (which is exactly what the dead-man banner
+  # used to tell operators to do) printed this line and exited 0 — indistinguishable from
+  # "drained fine" to any caller or eyeball, so a dead pipeline read as healthy. The scheduler
+  # runs out-of-session and never reaches this branch, so nothing legitimate regresses.
+  echo "extract-drain: refusing to run inside a Claude Code session (nothing was drained)" >&2
+  echo "  run it from a plain shell, or let the scheduled task do it." >&2
+  exit 3
 fi
 
 # Defer (don't fail) while an interactive session is live — UNLESS the backlog
@@ -188,48 +224,18 @@ fi
 # SB_DRAIN_DEFER_PMODE_ONLY=1 additionally relaxes the BASE verdict to defer only
 # on another live `claude -p` (verified-false hang premise; off by default so the
 # empty-output quality guard for plain interactive sessions is preserved).
-if [ "${SB_DRAIN_DEFER_PMODE_ONLY:-0}" = "1" ]; then
-  _sb_defer_verdict() { sb_drain_pmode_present; }
-else
-  _sb_defer_verdict() { sb_drain_should_defer; }
-fi
-if _sb_defer_verdict; then
-  if sb_drain_starved; then
-    sb_drain_defer_reset
-    echo "extract-drain: interactive claude active but backlog starved — forcing ONE escape drain" >&2
-  else
-    sb_drain_defer_bump
-    echo "extract-drain: interactive claude session active — deferring (consecutive=$(sb_drain_defer_count))" >&2
-    # The defer exists for ONE reason: a `claude -p` spawned while a session holds the global
-    # OAuth lock hangs to its timeout. That applies to extraction and to the consolidation
-    # pass — NOT to the engine's four deterministic passes (prune, upkeep, embedding warm,
-    # code-map), which spawn no claude and touch no credential. Skipping those too would mean
-    # an always-on operator gets NO offline processing at all: on Windows the defer now fires
-    # whenever claude.exe is running, and the un-starve escape cannot release it under pure
-    # OAuth. So run the LLM-free half here and defer only what actually needs the lock.
-    SB_BRAIN_OS_NO_LLM=1 bash "$(dirname "$0")/brain-os-run.sh" >/dev/null 2>&1 || \
-      sb_log_error "extract-drain.sh" "brain-os (LLM-free passes, deferred tick) exited nonzero" 1
-    exit 0
-  fi
-else
-  sb_drain_defer_reset
-fi
-
-BATCH="${SB_DRAIN_BATCH:-5}"
-case "$BATCH" in ''|*[!0-9]*) BATCH=5 ;; esac
-MAX_FAILS="${SB_DRAIN_MAX_FAILS:-3}"
-case "$MAX_FAILS" in ''|*[!0-9]*) MAX_FAILS=3 ;; esac
-
+# LOCK FIRST, decide second. The single-flight lock used to sit AFTER the defer/escape block,
+# so a tick that lost the lock had already stamped .last-drain-escape and reset the defer
+# counter — an escape burned with nothing drained (observed live 2026-08-23 09:26:23 while a
+# hand-run held the lock: 24h cooldown consumed, counter reset, tick exited 0, no log row).
 TX_DIR="$BRAIN_DIR/transcripts"
-STATE="$BRAIN_DIR/.extraction-state.jsonl"
-[ -d "$TX_DIR" ] || exit 0
-
+[ -d "$TX_DIR" ] || { sb_drain_tick no-transcripts-dir "$TX_DIR"; exit 0; }
 # Single-flight: a slow run must not overlap the next timer fire. Prefer flock
 # (auto-releases on exit); fall back to an atomic mkdir-lock (stock macOS / Git-Bash
 # have no flock(1)) with a staleness steal so a crashed run can't block forever.
 if [ "${SB_DRAIN_FORCE_MKDIR_LOCK:-0}" != "1" ] && command -v flock >/dev/null 2>&1; then
-  exec 9>"$BRAIN_DIR/.extract-drain.lock" || exit 0
-  flock -n 9 || exit 0
+  exec 9>"$BRAIN_DIR/.extract-drain.lock" || { sb_drain_tick lock-open-failed "$BRAIN_DIR/.extract-drain.lock"; exit 0; }
+  flock -n 9 || { sb_drain_tick lock-held "flock: another run is active"; exit 0; }
 else
   LOCK_DIR="$BRAIN_DIR/.extract-drain.lock.d"
   # 7200s staleness (deep-review): the 120s drainer timeout makes a worst-case
@@ -248,15 +254,53 @@ else
       # after that point leaves the dir NON-EMPTY — rmdir then fails forever, mkdir
       # fails, and every future run exits 0 while the queue ages past the eviction cap
       # (the 2026-07 six-day wedge: scheduler green 48x/day, 17 transcripts lost).
-      rm -rf "$LOCK_DIR" 2>/dev/null; mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+      rm -rf "$LOCK_DIR" 2>/dev/null; mkdir "$LOCK_DIR" 2>/dev/null || { sb_drain_tick lock-steal-failed "mkdir after stale clear"; exit 0; }
       echo "$$" > "$LOCK_DIR/pid" 2>/dev/null
-      [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] || exit 0
+      [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] || { sb_drain_tick lock-steal-lost "another stealer won"; exit 0; }
     else
-      exit 0   # another run is active
+      sb_drain_tick lock-held "mkdir-lock age ${lage}s < stale ${STALE}s"; exit 0
     fi
   fi
   trap 'rm -f "$LOCK_DIR/pid" 2>/dev/null; rmdir "$LOCK_DIR" 2>/dev/null' EXIT
 fi
+
+if [ "${SB_DRAIN_DEFER_PMODE_ONLY:-0}" = "1" ]; then
+  _sb_defer_verdict() { sb_drain_pmode_present; }
+else
+  _sb_defer_verdict() { sb_drain_should_defer; }
+fi
+if _sb_defer_verdict; then
+  if sb_drain_starved; then
+    sb_drain_defer_reset
+    sb_drain_tick escape "interactive claude active, backlog starved — forcing ONE escape drain"
+    echo "extract-drain: interactive claude active but backlog starved — forcing ONE escape drain" >&2
+  else
+    sb_drain_defer_bump
+    sb_drain_tick defer "interactive claude session active (consecutive=$(sb_drain_defer_count))"
+    echo "extract-drain: interactive claude session active — deferring (consecutive=$(sb_drain_defer_count))" >&2
+    # The defer exists for ONE reason: a `claude -p` spawned while a session holds the global
+    # OAuth lock hangs to its timeout. That applies to extraction and to the consolidation
+    # pass — NOT to the engine's four deterministic passes (prune, upkeep, embedding warm,
+    # code-map), which spawn no claude and touch no credential. Skipping those too would mean
+    # an always-on operator gets NO offline processing at all: on Windows the defer now fires
+    # whenever claude.exe is running, and the un-starve escape cannot release it under pure
+    # OAuth. So run the LLM-free half here and defer only what actually needs the lock.
+    SB_BRAIN_OS_NO_LLM=1 bash "$(dirname "$0")/brain-os-run.sh" >/dev/null 2>&1 || \
+      sb_log_error "extract-drain.sh" "brain-os (LLM-free passes, deferred tick) exited nonzero" 1
+    exit 0
+  fi
+else
+  sb_drain_defer_reset
+  sb_drain_tick drain "no interactive claude — normal drain"
+fi
+
+BATCH="${SB_DRAIN_BATCH:-5}"
+case "$BATCH" in ''|*[!0-9]*) BATCH=5 ;; esac
+MAX_FAILS="${SB_DRAIN_MAX_FAILS:-3}"
+case "$MAX_FAILS" in ''|*[!0-9]*) MAX_FAILS=3 ;; esac
+
+STATE="$BRAIN_DIR/.extraction-state.jsonl"   # TX_DIR set + checked (loudly) above the lock
+
 
 do_extract() {  # $1 = txt, $2 = slug ; honors the test stub
   if [ -n "${SB_EXTRACT_STUB:-}" ]; then
@@ -278,7 +322,7 @@ case "$MIN_BODY" in ''|*[!0-9]*) MIN_BODY=1024 ;; esac
 if [ "$MIN_BODY" -gt 0 ]; then
   while IFS= read -r tf; do
     [ -n "$tf" ] || continue
-    base=$(basename "$tf")
+    base="${tf##*/}"
     sb_extraction_done "$base" "$STATE" && continue
     # Header guard (deep-review): on a file with no ^---$ terminator the sed
     # below deletes to EOF and reports 0 bytes — a malformed/foreign archive
@@ -299,7 +343,7 @@ failed=0
 while IFS= read -r tf; do
   [ -n "$tf" ] || continue
   [ "$processed" -ge "$BATCH" ] && break
-  base=$(basename "$tf")
+  base="${tf##*/}"
   sb_extraction_done "$base" "$STATE" && continue
   slug=$(sb_slug_from_archived_transcript "$tf")
   [ -n "$slug" ] || slug="unknown"

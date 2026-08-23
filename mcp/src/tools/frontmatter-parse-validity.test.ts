@@ -168,3 +168,21 @@ describe('frontmatter parse-validity (real YAML oracle, independent of the regex
     await assertAllPagesParse(dir);
   });
 });
+
+// The embedded-colon scalar class (2026-08-23): sb_append truncation left unquoted
+// descriptions containing ": " — invalid YAML that normalizeFrontmatter's related/tags
+// steps never touched, so 9 live pages re-reported malformed on every validate and the
+// self-heal never converged. Autofix must quote the scalar and converge in ONE pass.
+it('autofix repairs an unquoted scalar with an embedded ": " and converges', async () => {
+  const dir = await fsp.mkdtemp(join(tmpdir(), 'fm-colon-'));
+  const wiki = join(dir, 'wiki'); await fsp.mkdir(join(wiki, 'decisions'), { recursive: true });
+  const f = join(wiki, 'decisions', 'p0-batch.md');
+  await fsp.writeFile(f,
+    '---\ntitle: P0 batch\ndescription: Open for decision in kiri-os: the P0 batch of fixes, plus a manual \ntype: decisions\ncreated: 2026-08-10\nupdated: 2026-08-10\ntags: []\nrelated: []\n---\n# P0\nbody\n');
+  const r1 = await knowledgeValidate(dir, { autofix: true });
+  expect(r1.issues.some(i => i.type === 'malformed_frontmatter')).toBe(true);   // detected this pass
+  const r2 = await knowledgeValidate(dir, { autofix: false });
+  expect(r2.issues.filter(i => i.type === 'malformed_frontmatter')).toEqual([]); // converged
+  const out = await fsp.readFile(f, 'utf-8');
+  expect(out).toContain('description: "Open for decision in kiri-os: the P0 batch of fixes, plus a manual"');
+});

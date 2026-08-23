@@ -116,9 +116,11 @@ if [ -d "$PLUGINS_ROOT" ]; then
 
     # Resolve the plugin's root dir. plugin.json may live at <root>/plugin.json
     # or <root>/.claude-plugin/plugin.json.
-    plugin_dir=$(dirname "$pj")
-    if [ "$(basename "$plugin_dir")" = ".claude-plugin" ]; then
-      plugin_dir=$(dirname "$plugin_dir")
+    # Builtins, not $(dirname)/$(basename): this loop runs once per installed plugin on EVERY
+    # SessionStart, and each spawn is ~30-60ms on MSYS (3 spawns x N plugins per start).
+    plugin_dir="${pj%/*}"
+    if [ "${plugin_dir##*/}" = ".claude-plugin" ]; then
+      plugin_dir="${plugin_dir%/*}"
     fi
 
     # `-exec … {} +` batches every matching file into ONE awk invocation (a handful

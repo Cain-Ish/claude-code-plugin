@@ -614,16 +614,21 @@ sb_auto_accept_decision() {
   echo "accept"
 }
 
-# Pin a preference line to USER.md. Adds a dated entry with case-insensitive
-# dedupe and a 2200-byte cap (aligned with hot-tier budget: USER.md + PROJECT.md
-# target ~3200 bytes total). Returns 0 on success, 1 on skip.
+# Pin a preference line to USER.md, under "## Pinned". Cap counts PIN LINES ONLY
+# ("- [YYYY-MM-DD] …", max 15) — NEVER the whole file. The previous 2200-byte whole-file cap
+# counted the operator's hand-written About/Intent prose: the live USER.md was 2716 bytes with
+# ZERO pins, so every pin (and every auto-graduated persona signal from
+# merge-persona-signals.sh) was refused with a bare `return 1`, silently, forever — the signal
+# then re-fired on every extraction (ledger LC-07, 2026-08-23). Mirrors
+# mcp/src/tools/pin-to-user.ts exactly (same regex, same MAX, same section) — change both or
+# neither. Returns 0 on success/dupe-noop, 1 on a REFUSAL, which is now logged, never silent.
 sb_pin_to_user() {
   local text="${1:?sb_pin_to_user: text required}"
   local user_file="$BRAIN_DIR/USER.md"
-  local max_bytes=2200
-  local today
+  local max_pins=15
+  local today new_line
   today=$(date -u +%Y-%m-%d)
-  local new_line="- [$today] $text"
+  new_line="- [$today] $text"
 
   local content=""
   if [ -f "$user_file" ]; then
@@ -635,19 +640,34 @@ sb_pin_to_user() {
 ## Pinned"
   fi
 
-  if echo "$content" | grep -qiF "$text"; then
+  # Dupe → no-op success (matches the TS twin's semantics).
+  if printf '%s\n' "$content" | grep -qiF "$text"; then
+    return 0
+  fi
+
+  local pin_count
+  pin_count=$(printf '%s\n' "$content" | grep -cE '^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] ' || true)
+  case "$pin_count" in ''|*[!0-9]*) pin_count=0 ;; esac
+  if [ "$pin_count" -ge "$max_pins" ]; then
+    sb_log_error "lib.sh" "sb_pin_to_user REFUSED: $max_pins pinned lines already (hand-written sections do not count) — drop a pin before adding: $text" 1
     return 1
   fi
 
-  local projected
-  projected=$(printf '%s\n%s\n' "$content" "$new_line")
-  local byte_count
-  byte_count=$(printf '%s' "$projected" | wc -c | tr -d ' ')
-  if [ "$byte_count" -gt "$max_bytes" ]; then
-    return 1
+  # Insert after the last pin under "## Pinned" (or right under the heading); create the
+  # section at EOF when absent. awk keeps the hand-written sections byte-identical.
+  if ! printf '%s\n' "$content" | grep -q '^## Pinned[[:space:]]*$'; then
+    content=$(printf '%s\n\n## Pinned' "$content")
   fi
-
-  printf '%s\n' "$projected" > "$user_file"
+  printf '%s\n' "$content" | awk -v pin="$new_line" '
+    /^## Pinned[[:space:]]*$/ { print; insec=1; next }
+    insec && /^## /            { if (!done) { print pin; done=1 } ; insec=0 }
+    { print }
+    END { if (insec && !done) print pin }
+  ' > "$user_file.tmp.$$" && mv "$user_file.tmp.$$" "$user_file" || {
+    rm -f "$user_file.tmp.$$" 2>/dev/null
+    sb_log_error "lib.sh" "sb_pin_to_user: USER.md write failed for $user_file" 1
+    return 1
+  }
   return 0
 }
 
@@ -1287,7 +1307,7 @@ sb_write_generated_page() {
     created=$(sed -n 's/^created:[[:space:]]*//p' "$out" | head -1)
     [ -n "$created" ] || created="$today"
   fi
-  mkdir -p "$(dirname "$out")" 2>/dev/null || return 1
+  mkdir -p "${out%/*}" 2>/dev/null || return 1
   tmp="${out}.tmp.$$"
   {
     printf -- '---\n'
@@ -1358,9 +1378,15 @@ sb_prune_transcripts() {
     _done=$(jq -rR 'fromjson? | select(.outcome == "ok" or .outcome == "error") | .basename' \
       "$_state" 2>/dev/null | tr -d '\r' | sort -u)
   fi
+  # Builtins only — no basename/grep spawn per file. On MSYS every external process costs
+  # ~30-60ms; this runs on EVERY Stop hook over up to 300 files and the basename+grep pair was
+  # ~2 spawns/file. Measured: test-transcript-archive.sh 258s on the dev box vs 8s on Linux CI,
+  # so the local suite could never go green (ec=124 on 9-11 tests, every run, for months).
   _sb_is_extracted() {   # $1 = full path
     [ -n "$_done" ] || return 1
-    printf '%s\n' "$_done" | grep -qxF "$(basename "$1")"
+    local _b="${1##*/}"
+    case "$_done" in "$_b"|"$_b"$'\n'*|*$'\n'"$_b"|*$'\n'"$_b"$'\n'*) return 0 ;; esac
+    return 1
   }
 
   # Partition oldest-first, preserving order within each class.
@@ -1376,10 +1402,9 @@ EOF
   # 1. Over the cap → drop already-extracted files, oldest first.
   while [ "$count" -gt "$cap" ] && [ -n "${_extracted//[$'\n']/}" ]; do
     local oldest
-    oldest=$(printf '%s' "$_extracted" | head -1)
+    oldest="${_extracted%%$'\n'*}"                                       # head -1, builtin
     [ -n "$oldest" ] && rm -f "$oldest"
-    _extracted=$(printf '%s' "$_extracted" | tail -n +2)
-    files=$(printf '%s\n' "$files" | grep -vxF "$oldest")
+    case "$_extracted" in *$'\n'*) _extracted="${_extracted#*$'\n'}" ;; *) _extracted="" ;; esac   # tail -n +2
     count=$((count - 1))
   done
 
@@ -1388,13 +1413,12 @@ EOF
   #    been stalled long enough to matter (see the drain-health banner in session-load.sh).
   while [ "$count" -gt "$hard" ] && [ -n "${_unmined//[$'\n']/}" ]; do
     local oldest
-    oldest=$(printf '%s' "$_unmined" | head -1)
+    oldest="${_unmined%%$'\n'*}"
     if [ -n "$oldest" ]; then
-      sb_log_error "lib.sh" "transcript cap: evicting UN-EXTRACTED $(basename "$oldest") — backlog past hard cap ${hard}; the drainer is not keeping up and this session's knowledge is lost" 1
+      sb_log_error "lib.sh" "transcript cap: evicting UN-EXTRACTED ${oldest##*/} — backlog past hard cap ${hard}; the drainer is not keeping up and this session's knowledge is lost" 1
       rm -f "$oldest"
     fi
-    _unmined=$(printf '%s' "$_unmined" | tail -n +2)
-    files=$(printf '%s\n' "$files" | grep -vxF "$oldest")
+    case "$_unmined" in *$'\n'*) _unmined="${_unmined#*$'\n'}" ;; *) _unmined="" ;; esac
     count=$((count - 1))
   done
   unset -f _sb_is_extracted
@@ -1403,16 +1427,18 @@ EOF
   # (`${session_id}_${slug}_${date}.txt`), and a slug can legitimately contain a space (a Windows
   # project folder like "My App"), so one filename split into two bogus words and mis-totalled
   # the byte accounting that drives eviction below. Read line-oriented, like the partition above.
+  # ONE wc over all SURVIVING files (was wc|tr per file = 2 spawns each). wc on a list ends
+  # with a `total` line; awk takes the last line. Names are passed as "$@" so a slug with a
+  # space stays one argument; files evicted by the count pass above are skipped via -f.
   local total_bytes=0
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    local sz
-    sz=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
-    case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
-    total_bytes=$((total_bytes + sz))
-  done <<EOF
+  set --
+  while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && set -- "$@" "$f"; done <<EOF
 $files
 EOF
+  if [ "$#" -gt 0 ]; then
+    total_bytes=$(wc -c "$@" 2>/dev/null | awk 'END{print $1+0}')
+    case "$total_bytes" in ''|*[!0-9]*) total_bytes=0 ;; esac
+  fi
 
   # TWO-TIER, exactly like the count cap above. An earlier revision applied only extracted-first
   # ORDERING here with no hard-ceiling GATE, which meant that once extracted files ran out the
@@ -1429,15 +1455,14 @@ EOF
   _sb_evict_bytes() {   # $1 = list, $2 = byte ceiling, $3 = "unmined" to log loudly
     local _list="$1" _ceiling="$2" _loud="$3" _oldest _sz
     while [ "$total_bytes" -gt "$_ceiling" ] && [ -n "${_list//[$'\n']/}" ]; do
-      _oldest=$(printf '%s' "$_list" | head -1)
+      _oldest="${_list%%$'\n'*}"                                         # head -1, builtin
       [ -z "$_oldest" ] && break
-      _sz=$(wc -c < "$_oldest" 2>/dev/null | tr -d ' ')
-      case "$_sz" in ''|*[!0-9]*) _sz=0 ;; esac
+      _sz=$(wc -c < "$_oldest" 2>/dev/null); _sz="${_sz//[!0-9]/}"; : "${_sz:=0}"
       [ "$_loud" = unmined ] && sb_log_error "lib.sh" \
-        "transcript cap: evicting UN-EXTRACTED $(basename "$_oldest") — archive past the ${_ceiling}B hard ceiling; the drainer is not keeping up and this session's knowledge is lost" 1
+        "transcript cap: evicting UN-EXTRACTED ${_oldest##*/} — archive past the ${_ceiling}B hard ceiling; the drainer is not keeping up and this session's knowledge is lost" 1
       rm -f "$_oldest"
       total_bytes=$((total_bytes - _sz))
-      _list=$(printf '%s' "$_list" | tail -n +2)
+      case "$_list" in *$'\n'*) _list="${_list#*$'\n'}" ;; *) _list="" ;; esac   # tail -n +2
     done
   }
   # 1. Reclaim from already-extracted files down to the normal ceiling.
@@ -1731,6 +1756,25 @@ sb_extractor_local_call() {
   return 1
 }
 
+# Bounded run: `sb_timeout SECS cmd...` = GNU/brew timeout(1), which is a HARD requirement —
+# git-bash and every Linux ship it; stock macOS needs `brew install coreutils` (gtimeout).
+# When neither exists we FAIL LOUD (exit 127 + error-log) instead of running the command
+# unbounded. Rationale: the drainer's un-starve escape used to be gated on this binary because
+# the claude-cli backend ran `claude` UNBOUNDED without it — so on stock macOS the escape could
+# never fire (the 3-day dead-pipeline class, different trigger). A pure-bash watchdog was tried
+# and rejected: on MSYS `kill` cannot reliably terminate a backgrounded child, so the watchdog
+# itself wedged — "works on Linux" shims are exactly what this repo's portability rules forbid.
+# An explicit, logged refusal is the honest cross-platform behaviour.
+sb_timeout() {
+  local secs="$1"; shift
+  local tbin; tbin=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+  if [ -z "$tbin" ]; then
+    sb_log_error "lib.sh" "sb_timeout: no timeout/gtimeout binary — refusing to run '$1' unbounded (macOS: brew install coreutils)" 127
+    return 127
+  fi
+  "$tbin" "$secs" "$@"
+}
+
 sb_call_extractor() {
   local input_file="$1" out_file="$2" model="$3" prompt="$4" timeout_s="${5:-30}"
   local err_file caller_script
@@ -1845,17 +1889,14 @@ sb_call_extractor() {
         # health banner can surface this.
         sb_log_error "lib.sh" "SB_USE_BWRAP=1 but bwrap not found in PATH; falling back to direct invocation" 0
       fi
+      # ALWAYS bounded (sb_timeout falls back to a bash watchdog when timeout(1) is absent).
+      # The old `else` branch ran claude unbounded on hosts without timeout/gtimeout — which is
+      # why the drainer escape had to be gated on that binary, and why it was unreachable on
+      # stock macOS.
       local claude_ec=0
-      local TBIN; TBIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)  # GNU || macOS-brew
-      if [ -n "$TBIN" ]; then
-        ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 "$TBIN" "$timeout_s" ${WRAP_PREFIX[@]+"${WRAP_PREFIX[@]}"} claude "${CLI_ARGS[@]}" \
-          < "$input_file" > "$out_file" 2>"$err_file" )
-        claude_ec=$?
-      else
-        ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 ${WRAP_PREFIX[@]+"${WRAP_PREFIX[@]}"} claude "${CLI_ARGS[@]}" \
-          < "$input_file" > "$out_file" 2>"$err_file" )
-        claude_ec=$?
-      fi
+      ( cd "$scratch_dir" && SB_NESTED_SPAWN=1 sb_timeout "$timeout_s" ${WRAP_PREFIX[@]+"${WRAP_PREFIX[@]}"} claude "${CLI_ARGS[@]}" \
+        < "$input_file" > "$out_file" 2>"$err_file" )
+      claude_ec=$?
 
       # Cheap auth-failure signature check on combined stdout+stderr tail.
       local combined
