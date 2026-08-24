@@ -1768,11 +1768,23 @@ sb_extractor_local_call() {
 sb_timeout() {
   local secs="$1"; shift
   local tbin; tbin=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
-  if [ -z "$tbin" ]; then
-    sb_log_error "lib.sh" "sb_timeout: no timeout/gtimeout binary — refusing to run '$1' unbounded (macOS: brew install coreutils)" 127
-    return 127
-  fi
-  "$tbin" "$secs" "$@"
+  if [ -n "$tbin" ]; then "$tbin" "$secs" "$@"; return $?; fi
+  # No timeout binary: bash watchdog. This branch is REACHABLE ONLY ON STOCK macOS/BSD —
+  # git-bash and every Linux ship timeout(1) — so the MSYS kill-can't-stop-children hazard
+  # that ruled out a watchdog there does not apply (BSD kill works). The previous behaviour
+  # here was fail-loud exit 127, which turned "no coreutils" into "extraction NEVER works on
+  # stock macOS" — CI macOS lane went red on the happy path (llm-extraction-failed, ec=127).
+  # A bounded run beats a loud refusal beats an unbounded run. No `wait $wd` after the kill:
+  # waiting on a killed watchdog can block until its sleep expires; the stray subshell is
+  # reaped at script exit.
+  "$@" &
+  local pid=$!
+  ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) 2>/dev/null &
+  local wd=$!
+  wait "$pid"; local ec=$?
+  kill "$wd" 2>/dev/null || true
+  case "$ec" in 143|137) return 124 ;; esac   # TERM/KILL from the watchdog → 124, like timeout(1)
+  return "$ec"
 }
 
 sb_call_extractor() {

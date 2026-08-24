@@ -72,19 +72,30 @@ echo "=== W4: the Claude DESKTOP app must not pin the drainer into a permanent d
 # The previous fixture used `...\app\resources\cowork-svc.exe` — a name the desktop app never
 # spawns — so this test passed while the real desktop claude.exe matched the probe and the
 # drainer deferred on 100% of scheduler ticks (measured 2026-08-23 via `ps -W`).
+#
+# FILE-BASED probe, not an unquoted heredoc into `sh -c '. /dev/stdin'`: the unquoted heredoc
+# let the OUTER shell expand $(uname -s) at construction time, baking the REAL platform into
+# the probe — on Linux CI that made the probe permanently inert, so W4 "passed" without ever
+# exercising the exclusion and W5 failed (2026-08-23 run 32672478684). The probe source and the
+# uname override are written literally; nothing is expanded by the harness shell.
+# Stub `ps` uses printf '%s' with single-quoted single-backslash paths — dash's builtin echo
+# processes \ escapes, so echo-based stubs emit different bytes on Linux (/bin/sh=dash) than
+# on git-bash (/bin/sh=bash).
 STUB=$(mktemp -d); trap 'rm -rf "$STUB"' EXIT
-PROBE_SRC=$(sed -n '/^sb_drain_win_claude_present()/,/^}/p' "$DRAIN")
-cat > "$STUB/ps" <<'EOF'
-#!/bin/sh
-echo "  77636  0  0  12100 ?  0 16:24:30 C:\\Program Files\\WindowsApps\\Claude_1.34493.1.0_x64__pzs8sxrjxfjjc\\app\\claude.exe"
-echo "  77637  0  0  12101 ?  0 16:24:30 C:\\Program Files\\WindowsApps\\Claude_1.34493.1.0_x64__pzs8sxrjxfjjc\\app\\claude.exe"
-EOF
-chmod +x "$STUB/ps"
-if PATH="$STUB:$PATH" sh -c '. /dev/stdin' <<EOF 2>/dev/null
-$PROBE_SRC
+PROBE="$STUB/probe.sh"
+sed -n '/^sb_drain_win_claude_present()/,/^}/p' "$DRAIN" > "$PROBE"
+cat >> "$PROBE" <<'EOF'
 uname() { echo MINGW64_NT-10.0; }
 sb_drain_win_claude_present
 EOF
+
+cat > "$STUB/ps" <<'EOF'
+#!/bin/sh
+printf '%s\n' '  77636  0  0  12100 ?  0 16:24:30 C:\Program Files\WindowsApps\Claude_1.34493.1.0_x64__pzs8sxrjxfjjc\app\claude.exe'
+printf '%s\n' '  77637  0  0  12101 ?  0 16:24:30 C:\Program Files\WindowsApps\Claude_1.34493.1.0_x64__pzs8sxrjxfjjc\app\claude.exe'
+EOF
+chmod +x "$STUB/ps"
+if PATH="$STUB:$PATH" bash "$PROBE" 
 then fail "W4: the desktop app's claude.exe was mistaken for the Claude Code CLI (drainer would defer forever)"
 else pass "W4: desktop-app claude.exe (WindowsApps) ignored"
 fi
@@ -92,16 +103,23 @@ fi
 echo "=== W5: the real CLI claude.exe MUST still defer (exclusion must not over-reach) ==="
 cat > "$STUB/ps" <<'EOF'
 #!/bin/sh
-echo "  77636  0  0  12100 ?  0 16:24:30 C:\\Program Files\\WindowsApps\\Claude_1.34493.1.0_x64__pzs8sxrjxfjjc\\app\\claude.exe"
-echo "  80001  0  0  12200 ?  0 16:25:00 C:\\Users\\u\\.local\\bin\\claude.exe"
+printf '%s\n' '  77636  0  0  12100 ?  0 16:24:30 C:\Program Files\WindowsApps\Claude_1.34493.1.0_x64__pzs8sxrjxfjjc\app\claude.exe'
+printf '%s\n' '  80001  0  0  12200 ?  0 16:25:00 C:\Users\u\.local\bin\claude.exe'
 EOF
-if PATH="$STUB:$PATH" sh -c '. /dev/stdin' <<EOF 2>/dev/null
-$PROBE_SRC
-uname() { echo MINGW64_NT-10.0; }
-sb_drain_win_claude_present
-EOF
+if PATH="$STUB:$PATH" bash "$PROBE" 
 then pass "W5: CLI claude.exe alongside the desktop app still detected (defer)"
 else fail "W5: CLI claude.exe NOT detected — the desktop exclusion over-reached and the OAuth-lock defer is gone"
+fi
+
+# W6: the probe must actually be CAPABLE of firing in this harness (guards W4 against passing
+# because the probe went inert — the exact false-pass Linux CI had for months).
+cat > "$STUB/ps" <<'EOF'
+#!/bin/sh
+printf '%s\n' '  80001  0  0  12200 ?  0 16:25:00 C:\Users\u\.local\bin\claude.exe'
+EOF
+if PATH="$STUB:$PATH" bash "$PROBE" 
+then pass "W6: probe harness live (CLI-only stub detected)"
+else fail "W6: probe returned false on a CLI-only stub — the harness is inert, W4 is meaningless"
 fi
 
 echo
