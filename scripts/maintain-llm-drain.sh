@@ -353,7 +353,7 @@ else
     # recorded only as "exit 1: no stderr", zero diagnostics, root cause never established.
     # When stderr is empty, capture the stdout tail instead, labeled, plus the byte counts —
     # enough to diagnose from status.json alone without a reproduction.
-    if [ -z "$ERR_TAIL" ]; then
+    if [ -z "${ERR_TAIL//[[:space:]]/}" ]; then
       _out_tail=$(tail -c 300 "$OUT_F" 2>/dev/null | tr '\n' ' ')
       ERR_TAIL="stderr empty; stdout(${_out_tail:+$(wc -c < "$OUT_F" | tr -d ' ')B}): ${_out_tail:-also empty}"
     fi
