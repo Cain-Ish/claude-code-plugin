@@ -33,4 +33,17 @@ if [ "$trc" -eq 0 ]; then
 else
   echo "FAIL: malformed top did not fall back to K (rc=$trc)"; exit 1
 fi
+
+# top:0 is digits-only but would `head -n 0` the results (query can never hit) —
+# must fall back to K like any malformed value (Copilot PR-99 finding).
+TQ=$(mktemp)
+printf '%s\n' '{"q":"how does the recency boost work in search","expect":["bm25-recency-boost"],"top":0}' > "$TQ"
+SB_EVAL_MIN_RECALL=1.0 bash "$ROOT/scripts/wiki-recall-check.sh" --corpus "$CORPUS" --queries "$TQ" --k 2 --gate >/dev/null 2>&1
+trc=$?
+rm -f "$TQ"
+if [ "$trc" -eq 0 ]; then
+  echo "PASS: top:0 falls back to K (never zero-outs a query)"
+else
+  echo "FAIL: top:0 zeroed out the query instead of falling back (rc=$trc)"; exit 1
+fi
 exit 0

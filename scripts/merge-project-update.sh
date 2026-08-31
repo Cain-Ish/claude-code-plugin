@@ -143,9 +143,16 @@ insert_bullet() {
   # Strip date prefix and common markers for dedup comparison
   lower_new=$(printf '%s' "$bullet_text" | sed 's/^\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] //' | sed 's/^\[active\] //;s/^\[resolved\] //;s/^\[stale\] //;s/^\[decision\] //;s/^\[pinned\] //' | tr '[:upper:]' '[:lower:]')
   local existing_lower
+  # [superseded]/[stale] bullets are NOT part of the dedup corpus: grep -qF below is a
+  # SUBSTRING match, so a superseded line containing the original text would silently
+  # block a legitimate flip-flop re-pin AND count as a dedup hit — inflating the
+  # gate=decision-capture pinned counter with matches that are not evidence of
+  # in-session pinning. Mirrors the TS pin-to-project dedup semantics (0.48.0).
   existing_lower=$(awk -v s="$section" '
     $0 == s { flag=1; next }
     /^## / { flag=0 }
+    flag && /^- \[superseded\] / { next }
+    flag && /^- \[stale\] / { next }
     flag && /^- / { gsub(/^- (\[[0-9]{4}-[0-9]{2}-[0-9]{2}\] )?(\[(active|resolved|stale|decision|pinned)\] )?/, "- "); print tolower($0) }
   ' "$TMP_OUT")
   if echo "$existing_lower" | grep -qF -- "$lower_new"; then

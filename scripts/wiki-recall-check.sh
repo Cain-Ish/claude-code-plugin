@@ -76,7 +76,9 @@ while IFS= read -r line; do
   # only the old/new pages ground — recall@2 would be tautologically green there; top:1
   # asserts the CURRENT page actually outranks its superseded twin). Absent field -> K.
   qk=$(printf '%s' "$line" | jq -r '.top // empty' | tr -d '\r')
-  case "$qk" in ''|*[!0-9]*) qk=$K ;; esac
+  # 0 is digits-only but would head -n 0 the results and zero-out recall for the
+  # query — treat it as malformed and fall back to K like any other bad value.
+  case "$qk" in ''|*[!0-9]*|0) qk=$K ;; esac
   got=$(printf '%s' "$out" | grep -oE '\[\[[^]]+\]\]' | sed -E 's/\[\[|\]\]//g' | head -n "$qk")
   total=$(( total + 1 )); hit=0
   while IFS= read -r exp; do

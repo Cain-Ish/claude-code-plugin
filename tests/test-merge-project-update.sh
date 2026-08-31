@@ -526,6 +526,22 @@ jq -nc '{recent_decisions:["picked X over Y","use haiku for extraction because c
 grep -q 'gate=decision-capture pinned=2 stop_only=1' "$BRAIN_DIR/audit-log.jsonl" \
   || fail "capture-metric-asym: expected pinned=2 stop_only=1 (swap-sensitive) — got: $(tail -2 "$BRAIN_DIR/audit-log.jsonl")"
 pass "gate=decision-capture counters are direction-locked (asymmetric 2-dup/1-fresh fixture)"
+
+# --- Copilot PR-99 finding: [superseded]/[stale] bullets must NOT be dedup targets.
+# grep -qF is a substring match, so a superseded line containing the original text
+# silently blocked a legitimate flip-flop re-pin AND inflated the pinned counter.
+export BRAIN_DIR="$TMP/brain23"; mkdir -p "$BRAIN_DIR"
+PROJ="$TMP/p23.md"; WIKI23="$TMP/wiki23"; mkdir -p "$WIKI23"
+seed_project "$PROJ"
+# Plant a superseded bullet carrying the exact text about to be re-pinned.
+awk '{ print } /^## Recent decisions$/ { print "- [superseded] [decision] old cap two hundred" }' "$PROJ" > "$PROJ.t" && mv "$PROJ.t" "$PROJ"
+jq -nc '{recent_decisions:["old cap two hundred"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI23" >/dev/null 2>&1 || fail "flipflop: script exited non-zero"
+N=$(grep -c 'old cap two hundred' "$PROJ" || true)
+[ "$N" -eq 2 ] || fail "flipflop: re-pin of a superseded decision must insert fresh (expected 2 occurrences: superseded + new; got $N)"
+grep -q 'gate=decision-capture pinned=0 stop_only=1' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
+  || fail "flipflop: superseded dedup-hit must not count as pinned (got: $(tail -1 "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null))"
+pass "superseded bullet is not a dedup target: flip-flop re-pin inserts fresh, metric counts stop_only"
 export BRAIN_DIR="$TMP/brain"
 
 echo "ALL PASS"
