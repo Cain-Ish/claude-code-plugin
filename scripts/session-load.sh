@@ -144,15 +144,42 @@ sb_append() {
     text=$(printf '%s' "$text" | head -c "$max")
     size=$max
   fi
-  local projected=$((USED + size))
-  # `force` exempts a priority-1 section (USER.md) from the budget — the human's global Never/Always
-  # rules must always land, even when conditional banners have already spent the budget.
-  if [ -z "$force" ] && [ "$projected" -gt "$BYTE_BUDGET" ]; then
-    sb_log_error "session-load.sh" "gate=byte-budget $label skipped (${size}B would exceed ${BYTE_BUDGET}B cap, used=${USED}B)" 0
-    return 1
+  # ONE accounting (ledger F1). `force` sections' bytes are RESERVED out of BYTE_BUDGET at
+  # derivation time — adding them to USED as well double-counted them, so on any populated
+  # install (USER+PROJECT+charter ≈ 6-9KB) USED exceeded the banner budget by construction the
+  # moment the forced trio emitted, and EVERY later section (index, digest, wiki, graph, dream,
+  # held) was skipped — while their node spawns still ran and their output was discarded.
+  # Sandbox replay 2026-08-23: all 4 enrichment sections skipped with 2.6KB of real headroom.
+  # USED counts BANNER bytes only; forced emits free (its room is the reservation).
+  if [ -z "$force" ]; then
+    local projected=$((USED + size))
+    if [ "$projected" -gt "$BYTE_BUDGET" ]; then
+      sb_log_error "session-load.sh" "gate=byte-budget $label skipped (${size}B would exceed ${BYTE_BUDGET}B cap, used=${USED}B)" 0
+      return 1
+    fi
+    USED=$projected
   fi
   printf '%s' "$text" >> "$OUTPUT_FILE"
-  USED=$projected
+  return 0
+}
+
+# Headroom gate for the EXPENSIVE enrichment sections (wiki search, graph seeds, digest — each
+# a node spawn costing 1-5s). Two conditions, both cheap: byte headroom must fit a useful
+# section, and the hook must not be near its 15s budget (hooks.json) — a killed hook delivers
+# NOTHING, forced sections included (ledger F6: 3 real starts lost the entire hot tier + the
+# dead-man banner). Skips are loud (audit TRACE via the byte-budget gate or the row here).
+SL_START_S=$(date +%s)
+sb_enrich_headroom() {  # $1 = label, $2 = min bytes the section needs to be worth a spawn
+  local need="${2:-200}"
+  if [ $(( BYTE_BUDGET - USED )) -lt "$need" ]; then
+    sb_log_error "session-load.sh" "gate=byte-budget $1 spawn skipped (headroom $((BYTE_BUDGET - USED))B < ${need}B)" 0
+    return 1
+  fi
+  local soft="${SB_SESSION_LOAD_SOFT_S:-9}"; case "$soft" in ''|*[!0-9]*) soft=9 ;; esac
+  if [ $(( $(date +%s) - SL_START_S )) -ge "$soft" ]; then
+    sb_log_error "session-load.sh" "gate=time-budget $1 spawn skipped (elapsed >= ${soft}s of the 15s hook budget — a killed hook delivers nothing)" 0
+    return 1
+  fi
   return 0
 }
 
@@ -428,7 +455,13 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
     case "$(uname -s)" in
       Linux)               systemctl --user is-active sb-extract-drain.timer >/dev/null 2>&1 && CAP_TIMER=yes ;;
       Darwin)              launchctl print "gui/$(id -u)/sb-extract-drain" >/dev/null 2>&1 && CAP_TIMER=yes ;;
-      MINGW*|MSYS*|CYGWIN*) schtasks /Query /TN sb-extract-drain >/dev/null 2>&1 && CAP_TIMER=yes ;;
+      # sb_timer_installed (lib.sh), NOT a bare schtasks: MSYS path-mangles `/Query` into a
+      # filesystem path, so the bare form returned rc=1 on EVERY start → CAP_TIMER=no → the
+      # self-heal re-ran --ensure and printed "scheduler self-installed" every single session
+      # while the task existed and had run for a week (ledger F4; observed live 2026-08-31:
+      # banner fired with \sb-extract-drain Enabled, Last Result 0). lib.sh's probe already
+      # carries the MSYS_NO_PATHCONV=1 fix.
+      MINGW*|MSYS*|CYGWIN*) [ "$(sb_timer_health 2>/dev/null)" = "installed" ] && CAP_TIMER=yes ;;
       *)                   CAP_TIMER=unknown ;;   # unobservable — don't assert "no timer"
     esac
     if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
@@ -493,7 +526,12 @@ if [ "${SB_LOOP_DEAD_BANNER:-on}" != "off" ]; then
     LOOP_DEAD_H="${SB_LOOP_DEAD_HOURS:-48}"; case "$LOOP_DEAD_H" in ''|*[!0-9]*) LOOP_DEAD_H=48 ;; esac
     _ld_now=$(date +%s)
     _ld_newest=0
-    for _ld_f in "$BRAIN_DIR/.extractor-health.json" "$BRAIN_DIR/.extraction-state.jsonl" "$BRAIN_DIR/bin/sb-extract-drain.sh"; do
+    # .extractor-health.json is NOT a progress clock: on OAuth every Stop hook rewrites it to
+    # status=queued whether or not anything drained, so including it kept _ld_newest fresh and
+    # suppressed this banner in EXACTLY the starvation case it exists for (ledger F5 — during
+    # the 3-day outage this banner never fired). Progress = a terminal row in
+    # .extraction-state.jsonl; the shim mtime stays only as the fresh-install fallback clock.
+    for _ld_f in "$BRAIN_DIR/.extraction-state.jsonl" "$BRAIN_DIR/bin/sb-extract-drain.sh"; do
       [ -f "$_ld_f" ] || continue
       _ld_m=$(stat -c %Y "$_ld_f" 2>/dev/null || stat -f %m "$_ld_f" 2>/dev/null) || continue
       case "$_ld_m" in ''|*[!0-9]*) continue ;; esac
@@ -704,9 +742,14 @@ sb_project_hot_render() {
             out=sprintf("%s/%02d-%s", d, n, name) }
     { print >> out }
   ' "$file"
-  # Operational payload first; State/Plan bulk gives way. MUST-LAND sections are
-  # truncated into the remaining budget rather than skipped.
-  local pri="preamble Open-blockers Recent-decisions Conventions Goal How-to State Plan Cross-references"
+  # IDENTITY before inventory (ledger F2): Goal, Recent-decisions and State are what make the
+  # injection a project brief; blockers are the bulk list and go LAST, taking whatever budget
+  # remains. The previous order put Open-blockers FIRST — on the live install that section
+  # alone (3.3KB) exceeded the whole 2,990B cap, so its must-land truncation consumed the
+  # entire budget (`budget=0`), Goal/decisions/State were dropped EVERY session, and the
+  # emitted text ended mid-byte ("relinked from shar"). A must-land section is truncated at a
+  # BULLET boundary, never mid-line.
+  local pri="preamble Goal Recent-decisions State Conventions Open-blockers How-to Plan Cross-references"
   local budget=$cap picked="" dropped="" name f sz
   for name in $pri; do
     f=$(ls "$tmpd"/[0-9][0-9]-"$name" 2>/dev/null | head -1)
@@ -716,8 +759,19 @@ sb_project_hot_render() {
       picked="$picked|$f|"; budget=$(( budget - sz ))
     else
       case "$name" in
-        preamble|Open-blockers|Recent-decisions)
-          head -c "$budget" "$f" > "$f.t" 2>/dev/null && mv "$f.t" "$f"
+        State)
+          # State is identity too, but sits BEFORE the blockers in priority — give it at most
+          # half the remaining budget so an oversized State cannot starve the blocker list.
+          _slice=$(( budget / 2 ))
+          awk -v b="$_slice" 'BEGIN{u=0} { l=length($0)+1; if (u+l > b) exit; print; u+=l }' \
+            "$f" > "$f.t" 2>/dev/null && mv "$f.t" "$f"
+          sz=$(wc -c < "$f" | tr -d ' '); : "${sz:=0}"
+          picked="$picked|$f|"; dropped="$dropped State(tail)"; budget=$(( budget - sz )) ;;
+        preamble|Goal|Recent-decisions|Open-blockers)
+          # Whole lines only, and stop before the first line that would cross the budget —
+          # a heading plus complete bullets, never a severed one.
+          awk -v b="$budget" 'BEGIN{u=0} { l=length($0)+1; if (u+l > b) exit; print; u+=l }' \
+            "$f" > "$f.t" 2>/dev/null && mv "$f.t" "$f"
           picked="$picked|$f|"; dropped="$dropped ${name}(tail)"; budget=0 ;;
         *) dropped="$dropped ${name}(${sz}B)" ;;
       esac
@@ -792,7 +846,7 @@ KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 
-if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 2>&1; then
+if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 2>&1 \n   && sb_enrich_headroom wiki-enrichment 200; then
   STOP_RE='(the|a|an|is|are|was|were|will|be|have|has|had|do|does|did|can|could|should|would|to|of|in|for|on|at|by|with|from|and|but|or|not|no|this|that|auto|scaffolded|describe|active|resolved|stale|decision|pinned|project|goal|state|open|recent|cross|references|conventions)'
 
   # In-section FLAGS, not awk range expressions: a range `/^## X$/,/^## /` collapses to
@@ -874,7 +928,7 @@ fi
 # B,C,D" in the hot tier so a fresh session recalls the dependency web without
 # re-explaining. No-op when the graph CLI or edges.jsonl is absent (back-compat).
 GRAPH_CLI="$PLUGIN_ROOT/mcp/dist/tools/graph-neighbors-cli.bundle.js"
-if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/edges.jsonl" ] && command -v node >/dev/null 2>&1; then
+if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/edges.jsonl" ] && command -v node >/dev/null 2>&1 \n   && sb_enrich_headroom graph-neighbourhood 200; then
   # Up to 4 cross-reference slugs from PROJECT.md as graph entry points.
   CR_SLUGS=$(awk '
     /^## Cross-references$/ { f=1; next }
@@ -986,9 +1040,10 @@ cat "$OUTPUT_FILE"
 rm -f "$OUTPUT_FILE" "${_proj_lf:-}"   # _proj_lf is the CRLF-normalized PROJECT.md copy (only set when a CR was present)
 
 # --- Bookkeeping (no output) ---
-if [ "$USED" -gt "$BYTE_BUDGET" ]; then
-  sb_log_error "session-load.sh" "hot-tier exceeded byte budget: $USED > $BYTE_BUDGET" 0
-fi
+# (The old "hot-tier exceeded byte budget" row is gone: under the double-counting bug it was
+# TRUE BY CONSTRUCTION on every populated install — 169 rows, 14% of the error-log, saying
+# nothing (ledger F3). With single accounting sb_append refuses before USED can exceed the
+# budget, so the condition is structurally unreachable.)
 
 if [ -f "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
   TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)

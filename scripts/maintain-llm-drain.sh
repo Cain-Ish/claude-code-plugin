@@ -348,10 +348,19 @@ else
     # A failure must be VISIBLE — capture stderr and transition to terminal failed atomically so
     # dream_list/status and the autostage scan show it, not a forever-running mystery.
     ERR_TAIL=$(tail -c 300 "$ERR_F" 2>/dev/null | tr '\n' ' ')
+    # A failing `claude -p` frequently reports its error on STDOUT (auth errors, model
+    # errors, partial JSON) with stderr empty — four live dreams (2026-08-24..27) died in ~7s
+    # recorded only as "exit 1: no stderr", zero diagnostics, root cause never established.
+    # When stderr is empty, capture the stdout tail instead, labeled, plus the byte counts —
+    # enough to diagnose from status.json alone without a reproduction.
+    if [ -z "$ERR_TAIL" ]; then
+      _out_tail=$(tail -c 300 "$OUT_F" 2>/dev/null | tr '\n' ' ')
+      ERR_TAIL="stderr empty; stdout(${_out_tail:+$(wc -c < "$OUT_F" | tr -d ' ')B}): ${_out_tail:-also empty}"
+    fi
     [ "$rc" -eq 124 ] && ERR_TAIL="killed by the ${TO}s wall-clock timeout; ${ERR_TAIL:-}"
-    sb_log_error "maintain-llm-drain" "quarantined summarizer exited $rc for $DREAM_ID: ${ERR_TAIL:-no stderr} (status set to failed)" 0
-    _dream_fail "exit $rc: ${ERR_TAIL:-no stderr}"
-    _fail_step "summarizer exit $rc: ${ERR_TAIL:-no stderr}"
+    sb_log_error "maintain-llm-drain" "quarantined summarizer exited $rc for $DREAM_ID: ${ERR_TAIL} (status set to failed)" 0
+    _dream_fail "exit $rc: ${ERR_TAIL}"
+    _fail_step "summarizer exit $rc: ${ERR_TAIL}"
   else
     # RUNTIME ATTESTATION — the machine lock on the quarantine prose. The init event must show
     # no real tools (the synthetic StructuredOutput schema-delivery entry is the ONLY permitted
