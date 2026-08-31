@@ -7387,6 +7387,9 @@ ${PIN_SECTION}
 import { promises as fs9 } from "fs";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
+function bulletCore(line) {
+  return line.replace(/^- /, "").replace(/^\[\d{4}-\d{2}-\d{2}\] /, "").replace(/^\[(active|resolved|stale|decision|pinned|superseded)\] /, "").replace(/ \(why: .*\)$/, "").trim();
+}
 async function pinToProject(args) {
   if (!(args.section in SECTION_HEADER)) {
     return { ok: false, line_added: "", project_slug: args.slug, reason: "unknown section" };
@@ -7411,7 +7414,20 @@ async function pinToProject(args) {
   }
   const content = await fs9.readFile(file, "utf-8");
   const sectionHeader = SECTION_HEADER[args.section];
-  const newEntry = `${ENTRY_PREFIX[args.section]}${args.text.trim()}`;
+  const trimmed = args.text.trim();
+  let newEntry;
+  if (args.section === "decisions") {
+    const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    let suffix = "";
+    const why = args.reasoning?.trim();
+    const rej = args.rejected?.trim();
+    if (why && rej) suffix = ` (why: ${why}; rejected: ${rej})`;
+    else if (why) suffix = ` (why: ${why})`;
+    else if (rej) suffix = ` (why: unstated; rejected: ${rej})`;
+    newEntry = `- [${date}] [decision] ${trimmed}${suffix}`;
+  } else {
+    newEntry = `${ENTRY_PREFIX[args.section]}${trimmed}`;
+  }
   const lines = content.split("\n");
   const idx = lines.findIndex((line) => line.trim() === sectionHeader);
   if (idx < 0) {
@@ -7425,16 +7441,28 @@ async function pinToProject(args) {
     }
   }
   while (endIdx > idx + 1 && lines[endIdx - 1].trim() === "") endIdx--;
-  const trimmed = args.text.trim();
-  const prefix = ENTRY_PREFIX[args.section];
   for (let i = idx + 1; i < endIdx; i++) {
-    if (lines[i].startsWith(prefix) && lines[i].slice(prefix.length).trim() === trimmed) {
+    if (lines[i].startsWith("- ") && bulletCore(lines[i]) === trimmed) {
       return { ok: true, line_added: lines[i], project_slug: args.slug, reason: "already present" };
     }
   }
+  let reason;
+  if (args.section === "decisions" && args.supersedes?.trim()) {
+    const needle = args.supersedes.trim().toLowerCase();
+    let marked = false;
+    for (let i = idx + 1; i < endIdx; i++) {
+      if (!lines[i].startsWith("- ") || lines[i].startsWith("- [superseded] ")) continue;
+      if (lines[i].toLowerCase().includes(needle)) {
+        lines[i] = `- [superseded] ${lines[i].slice(2)}`;
+        marked = true;
+        break;
+      }
+    }
+    if (!marked) reason = "supersedes target not found";
+  }
   lines.splice(endIdx, 0, newEntry);
   await fs9.writeFile(file, lines.join("\n"), "utf-8");
-  return { ok: true, line_added: newEntry, project_slug: args.slug };
+  return reason ? { ok: true, line_added: newEntry, project_slug: args.slug, reason } : { ok: true, line_added: newEntry, project_slug: args.slug };
 }
 
 // src/tools/raw-inbox.ts
