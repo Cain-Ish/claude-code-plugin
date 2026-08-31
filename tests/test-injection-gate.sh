@@ -56,6 +56,11 @@ how do I bake sourdough bread at home
 xyzzy plugh frotz
 what is the best way to do this
 can you help me with this thing
+what did we decide about kubernetes ingress
+did we settle on terraform or pulumi for infrastructure
+what deadline was agreed for the marketing launch
+why was the mobile application rewritten in kotlin
+which cloud region runs the production database
 EOF
 [ "$LEAKS" -eq 0 ] && pass "no off-topic query injects anything (0 leaks)" \
                    || fail "$LEAKS off-topic quer(y|ies) injected a page"

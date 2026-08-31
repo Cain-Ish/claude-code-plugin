@@ -72,7 +72,12 @@ while IFS= read -r line; do
   out=$(KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EVAL_BRAIN" SB_BRAIN_DIR="$EVAL_BRAIN" SECOND_BRAIN_DISABLE_EMBEDDINGS=1 SB_INJECT_MIN_GROUNDED=0 node "$CLI" "$q" 2>/dev/null) \
     || { echo "recall: search errored on query: $q" >&2; exit 2; }
   bytes=$(( bytes + ${#out} ))
-  got=$(printf '%s' "$out" | grep -oE '\[\[[^]]+\]\]' | sed -E 's/\[\[|\]\]//g' | head -n "$K")
+  # Optional per-query "top": tighter k for THIS query (e.g. knowledge-update pairs where
+  # only the old/new pages ground — recall@2 would be tautologically green there; top:1
+  # asserts the CURRENT page actually outranks its superseded twin). Absent field -> K.
+  qk=$(printf '%s' "$line" | jq -r '.top // empty' | tr -d '\r')
+  case "$qk" in ''|*[!0-9]*) qk=$K ;; esac
+  got=$(printf '%s' "$out" | grep -oE '\[\[[^]]+\]\]' | sed -E 's/\[\[|\]\]//g' | head -n "$qk")
   total=$(( total + 1 )); hit=0
   while IFS= read -r exp; do
     [ -z "$exp" ] && continue
