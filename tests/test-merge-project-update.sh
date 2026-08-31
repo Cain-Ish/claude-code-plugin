@@ -518,6 +518,14 @@ grep -q 'gate=decision-capture pinned=1 stop_only=1' "$BRAIN_DIR/audit-log.jsonl
 grep -q 'gate=decision-capture' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
   && fail "capture-metric: TRACE row leaked into error-log.jsonl"
 pass "gate=decision-capture pinned/stop_only TRACE row lands in audit-log"
+# ASYMMETRIC fixture (review finding): 2 dups + 1 fresh — a swapped pinned/stop_only
+# conditional would emit pinned=1 stop_only=2 and fail here; the symmetric 1/1 case
+# above cannot see the swap.
+jq -nc '{recent_decisions:["picked X over Y","use haiku for extraction because cheap","brand new third choice for the asymmetry probe"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI22" >/dev/null 2>&1 || fail "capture-metric-asym: script exited non-zero"
+grep -q 'gate=decision-capture pinned=2 stop_only=1' "$BRAIN_DIR/audit-log.jsonl" \
+  || fail "capture-metric-asym: expected pinned=2 stop_only=1 (swap-sensitive) — got: $(tail -2 "$BRAIN_DIR/audit-log.jsonl")"
+pass "gate=decision-capture counters are direction-locked (asymmetric 2-dup/1-fresh fixture)"
 export BRAIN_DIR="$TMP/brain"
 
 echo "ALL PASS"

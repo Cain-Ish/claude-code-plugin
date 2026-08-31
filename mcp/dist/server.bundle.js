@@ -21493,8 +21493,19 @@ ${PIN_SECTION}
 import { promises as fs3 } from "fs";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
+function flattenField(s, cap) {
+  if (!s) return "";
+  return s.normalize("NFC").replace(/[\r\n`]/g, " ").replace(/\s+/g, " ").trim().slice(0, cap);
+}
+var SUPERSEDES_MIN_NEEDLE = 8;
 function bulletCore(line) {
-  return line.replace(/^- /, "").replace(/^\[\d{4}-\d{2}-\d{2}\] /, "").replace(/^\[(active|resolved|stale|decision|pinned|superseded)\] /, "").replace(/ \(why: .*\)$/, "").trim();
+  let s = line.normalize("NFC").replace(/^- /, "");
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/^\[\d{4}-\d{2}-\d{2}\] /, "").replace(/^\[(active|resolved|stale|decision|pinned|superseded)\] /, "");
+  } while (s !== prev);
+  return s.replace(/ \(why: .*\)$/, "").trim();
 }
 async function pinToProject(args) {
   if (!(args.section in SECTION_HEADER)) {
@@ -21520,13 +21531,16 @@ async function pinToProject(args) {
   }
   const content = await fs3.readFile(file, "utf-8");
   const sectionHeader = SECTION_HEADER[args.section];
-  const trimmed = args.text.trim();
+  const trimmed = flattenField(args.text, 400);
+  if (!trimmed) {
+    return { ok: false, line_added: "", project_slug: args.slug, reason: "empty text after sanitization" };
+  }
   let newEntry;
   if (args.section === "decisions") {
     const date3 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     let suffix = "";
-    const why = args.reasoning?.trim();
-    const rej = args.rejected?.trim();
+    const why = flattenField(args.reasoning, 200);
+    const rej = flattenField(args.rejected, 200);
     if (why && rej) suffix = ` (why: ${why}; rejected: ${rej})`;
     else if (why) suffix = ` (why: ${why})`;
     else if (rej) suffix = ` (why: unstated; rejected: ${rej})`;
@@ -21547,28 +21561,44 @@ async function pinToProject(args) {
     }
   }
   while (endIdx > idx + 1 && lines[endIdx - 1].trim() === "") endIdx--;
-  for (let i = idx + 1; i < endIdx; i++) {
-    if (lines[i].startsWith("- ") && bulletCore(lines[i]) === trimmed) {
-      return { ok: true, line_added: lines[i], project_slug: args.slug, reason: "already present" };
+  const newCore = trimmed.replace(/ \(why: .*\)$/, "").trim();
+  let reason;
+  let marked = false;
+  const supersedesRequested = !!flattenField(args.supersedes, 200);
+  const needle = flattenField(args.supersedes, 200).toLowerCase();
+  if (args.section === "decisions" && needle) {
+    if (needle.length < SUPERSEDES_MIN_NEEDLE) {
+      reason = `supersedes needle too short (<${SUPERSEDES_MIN_NEEDLE} chars) \u2014 nothing marked`;
+    } else {
+      for (let i = idx + 1; i < endIdx; i++) {
+        if (!lines[i].startsWith("- ") || lines[i].startsWith("- [superseded] ")) continue;
+        const core = bulletCore(lines[i]);
+        if (core === newCore) continue;
+        if (core.toLowerCase().includes(needle)) {
+          lines[i] = `- [superseded] ${lines[i].slice(2)}`;
+          marked = true;
+          break;
+        }
+      }
+      if (!marked) reason = "supersedes target not found";
     }
   }
-  let reason;
-  if (args.section === "decisions" && args.supersedes?.trim()) {
-    const needle = args.supersedes.trim().toLowerCase();
-    let marked = false;
-    for (let i = idx + 1; i < endIdx; i++) {
-      if (!lines[i].startsWith("- ") || lines[i].startsWith("- [superseded] ")) continue;
-      if (lines[i].toLowerCase().includes(needle)) {
-        lines[i] = `- [superseded] ${lines[i].slice(2)}`;
-        marked = true;
-        break;
-      }
+  for (let i = idx + 1; i < endIdx; i++) {
+    if (!lines[i].startsWith("- ")) continue;
+    if (lines[i].startsWith("- [superseded] ") || lines[i].startsWith("- [stale] ")) continue;
+    if (bulletCore(lines[i]) === newCore) {
+      if (marked) await fs3.writeFile(file, lines.join("\n"), "utf-8");
+      const dup = { ok: true, line_added: lines[i], project_slug: args.slug, reason: "already present" };
+      if (supersedesRequested) dup.superseded = marked;
+      return dup;
     }
-    if (!marked) reason = "supersedes target not found";
   }
   lines.splice(endIdx, 0, newEntry);
   await fs3.writeFile(file, lines.join("\n"), "utf-8");
-  return reason ? { ok: true, line_added: newEntry, project_slug: args.slug, reason } : { ok: true, line_added: newEntry, project_slug: args.slug };
+  const res = { ok: true, line_added: newEntry, project_slug: args.slug };
+  if (reason) res.reason = reason;
+  if (supersedesRequested) res.superseded = marked;
+  return res;
 }
 
 // src/tools/archive-to-wiki.ts

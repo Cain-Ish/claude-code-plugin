@@ -508,7 +508,11 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
         # this line is the TREND. Zero per-file stats (MSYS spawn tax): we read the
         # row the drainer already computed, one tail+grep over the audit log.
         CAP_PENDING_SFX=""
-        RECON_ROW=$(tail -300 "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | grep 'drain-tick' | grep 'reconcile' | tail -1)
+        # Whole-file grep, not a fixed tail window: per-tool-call hooks can append
+        # 300+ audit rows between 30-min drain ticks, which would push the single
+        # reconcile row out of a tail window and silently render "no backlog".
+        # Bounded cost: audit-log.jsonl is rotation-capped.
+        RECON_ROW=$(grep 'drain-tick' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | grep 'reconcile' | tail -1)
         if [ -n "$RECON_ROW" ]; then
           RECON_PEND=$(printf '%s' "$RECON_ROW" | grep -oE 'pending=[0-9]+' | head -1 | cut -d= -f2)
           RECON_OLDEST=$(printf '%s' "$RECON_ROW" | grep -oE 'oldest_pending_s=[0-9]+' | head -1 | cut -d= -f2)
@@ -757,7 +761,7 @@ sb_hot_decisions_filter() {
     indec && (/^## / || /^<!--/) { flush(); print; indec = 0; next }
     indec {
       if ($0 ~ /^- \[superseded\] /) next
-      if ($0 ~ /^- / && $0 ~ /\[stale\]/) next
+      if ($0 ~ /^- \[stale\] /) next
       if ($0 ~ /^- /) { bullets[++nb] = $0; next }
       if ($0 ~ /^$/) next
       print; next
@@ -794,7 +798,11 @@ sb_project_hot_render() {
   # entire budget (`budget=0`), Goal/decisions/State were dropped EVERY session, and the
   # emitted text ended mid-byte ("relinked from shar"). A must-land section is truncated at a
   # BULLET boundary, never mid-line.
-  local pri="preamble Goal Recent-decisions Handoff State Conventions Open-blockers How-to Plan Cross-references"
+  # Handoff sits BEFORE Recent-decisions: the decisions branch below truncates with
+  # budget=0, so anything ranked after it starves the moment decisions overflow —
+  # exactly the over-cap case Handoff exists for. Handoff is write-time capped at
+  # 600B (merge_handoff), so ranking it first costs decisions at most that much.
+  local pri="preamble Goal Handoff Recent-decisions State Conventions Open-blockers How-to Plan Cross-references"
   local budget=$cap picked="" dropped="" name f sz
   for name in $pri; do
     f=$(ls "$tmpd"/[0-9][0-9]-"$name" 2>/dev/null | head -1)

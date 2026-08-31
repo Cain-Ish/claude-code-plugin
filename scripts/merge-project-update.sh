@@ -381,17 +381,29 @@ merge_howto() {
 merge_handoff() {
   local raw="$1"
   local body
+  # Type-guard every field: one wrong-typed field (handoff as a string, a scalar
+  # failed_approaches) must degrade to "that field is empty", NOT abort the whole jq
+  # expression — an atomic [..] with 2>/dev/null would silently discard VALID sibling
+  # fields and be indistinguishable from "no handoff this session".
+  local jq_err
+  jq_err=$(mktemp)
   body=$(printf '%s' "$raw" | jq -r '
-    .handoff // {} | [
+    (.handoff // {}) | (if type == "object" then . else {} end) | [
       (if ((.in_flight // "") | tostring) != "" then
         "in-flight: " + ((.in_flight | tostring) | gsub("[`\r\n]"; " ") | .[0:160])
        else empty end),
-      ((.failed_approaches // [])[:3][] | select(type == "string" and . != "")
+      ((.failed_approaches // []) | (if type == "array" then . else [] end)
+        | .[:3][] | select(type == "string" and . != "")
         | "- failed: " + (gsub("[`\r\n]"; " ") | .[0:120])),
-      ((.pointers // [])[:5][] | select(type == "string" and . != "")
+      ((.pointers // []) | (if type == "array" then . else [] end)
+        | .[:5][] | select(type == "string" and . != "")
         | "- see: " + (gsub("[`\r\n]"; " ") | .[0:120]))
     ] | join("\n")
-  ' 2>/dev/null | strip_cr)
+  ' 2>"$jq_err" | strip_cr)
+  if [ -s "$jq_err" ]; then
+    sb_log_error "merge-project-update.sh" "handoff jq parse failed — handoff dropped this merge: $(head -c 200 "$jq_err" | tr '\n' ' ')" 0
+  fi
+  rm -f "$jq_err"
   [ -z "$body" ] && return 0
   body=$(printf '%s\n' "$body" | awk '{ n += length($0) + 1; if (n > 600) exit; print }')
   [ -z "$body" ] && return 0

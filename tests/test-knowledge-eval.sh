@@ -18,4 +18,19 @@ SB_EVAL_MAX_TOKENS="${SB_EVAL_MAX_TOKENS:-2000}" \
 bash "$ROOT/scripts/wiki-recall-check.sh" --corpus "$CORPUS" --queries "$Q" --k 2 --gate
 rc=$?
 [ "$rc" -eq 0 ] && echo "PASS: recall+token gate" || echo "FAIL: gate rc=$rc"
-[ "$rc" -eq 0 ]
+[ "$rc" -eq 0 ] || exit 1
+
+# Fallback branch of the per-query "top" override (review finding): a malformed
+# top value must fall back to K, not hang or zero-out results. The query is a
+# known-good golden pair — with top='abc' it must still hit at the K=2 fallback.
+TQ=$(mktemp)
+printf '%s\n' '{"q":"how does the recency boost work in search","expect":["bm25-recency-boost"],"top":"abc"}' > "$TQ"
+SB_EVAL_MIN_RECALL=1.0 bash "$ROOT/scripts/wiki-recall-check.sh" --corpus "$CORPUS" --queries "$TQ" --k 2 --gate >/dev/null 2>&1
+trc=$?
+rm -f "$TQ"
+if [ "$trc" -eq 0 ]; then
+  echo "PASS: malformed per-query top falls back to K"
+else
+  echo "FAIL: malformed top did not fall back to K (rc=$trc)"; exit 1
+fi
+exit 0

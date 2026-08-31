@@ -501,6 +501,20 @@ else
   no "reconcile: oldest_pending_s missing or below backdate gap (got '${ROLD:-none}')"
 fi
 
+# A retry (transient, non-terminal) row must count as PENDING, not observed —
+# the reconcile stanza's terminal filter (ok|error) is the branch under test.
+mk_tx "rt1_poison_2026-05-24.txt" poison
+SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # 1st failure -> retry row
+grep -q '"basename":"rt1_poison_2026-05-24.txt","ts":[^,]*,"outcome":"retry"' "$STATE" 2>/dev/null \
+  || grep -q '"basename":"rt1_poison_2026-05-24.txt"' "$STATE" 2>/dev/null \
+  || no "reconcile-retry: expected a retry row for the poison transcript"
+RROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
+# This tick drains lat2 (ok) and retries rt1 → declared=3 observed=2 pending=1:
+# the retry row must NOT count as observed.
+printf '%s' "$RROW" | grep -q 'observed=2' && printf '%s' "$RROW" | grep -q 'pending=1' \
+  && ok "reconcile: a retry row stays PENDING (not observed)" \
+  || no "reconcile: retry row miscounted — expected observed=2 pending=1, got: $RROW"
+
 echo ""
 echo "Results C2: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

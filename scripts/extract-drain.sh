@@ -345,8 +345,11 @@ failed=0
 sb_drain_latency_s() {
   local mt now
   now=$(date +%s)
-  mt=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo "$now")
-  case "$mt" in ''|*[!0-9]*) mt="$now" ;; esac
+  # A stat failure must NOT report the best-possible value (0s): emit -1 = unmeasured.
+  # The reconcile stats filter to ^[0-9]+$, so -1 rows are excluded from max/p50
+  # instead of biasing the silent-degradation metric toward "everything is fine".
+  mt=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo "")
+  case "$mt" in ''|*[!0-9]*) printf '%d' -1; return ;; esac
   local l=$(( now - mt )); [ "$l" -lt 0 ] && l=0
   printf '%d' "$l"
 }
@@ -430,14 +433,18 @@ RECON_LAT="0 0"
 if [ -s "$STATE" ]; then
   RECON_OBSERVED=$(jq -cR 'fromjson? | select(.outcome == "ok" or .outcome == "error") | .basename' "$STATE" 2>/dev/null | sort -u | wc -l | tr -d ' ')
   case "$RECON_OBSERVED" in ''|*[!0-9]*) RECON_OBSERVED=0 ;; esac
+  # sampled_n distinguishes "0 0" from real all-zero latency: too-small rows and
+  # -1 (unmeasured) sentinels carry no usable latency_s and are excluded here.
   RECON_LAT=$(jq -cR 'fromjson? | select(.outcome == "ok") | .latency_s // empty' "$STATE" 2>/dev/null \
     | grep -E '^[0-9]+$' | sort -n \
-    | awk '{ a[NR] = $1 } END { if (NR == 0) print "0 0"; else print a[NR], a[int((NR + 1) / 2)] }')
-  [ -n "$RECON_LAT" ] || RECON_LAT="0 0"
+    | awk '{ a[NR] = $1 } END { if (NR == 0) print "0 0 0"; else print a[NR], a[int((NR + 1) / 2)], NR }')
+  [ -n "$RECON_LAT" ] || RECON_LAT="0 0 0"
 fi
 RECON_PENDING=$(( RECON_DECLARED - RECON_OBSERVED )); [ "$RECON_PENDING" -lt 0 ] && RECON_PENDING=0
-RECON_MAX=${RECON_LAT%% *}; RECON_P50=${RECON_LAT##* }
-sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pending=$RECON_PENDING oldest_pending_s=$(sb_drain_oldest_pending_age) max_latency_s=$RECON_MAX p50_latency_s=$RECON_P50"
+RECON_MAX=$(printf '%s' "$RECON_LAT" | cut -d' ' -f1)
+RECON_P50=$(printf '%s' "$RECON_LAT" | cut -d' ' -f2)
+RECON_N=$(printf '%s' "$RECON_LAT" | cut -d' ' -f3); : "${RECON_N:=0}"
+sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pending=$RECON_PENDING oldest_pending_s=$(sb_drain_oldest_pending_age) max_latency_s=$RECON_MAX p50_latency_s=$RECON_P50 sampled_n=$RECON_N"
 
 # Don't clobber a real failure marker: only report ok if anything succeeded.
 # A run where every extraction failed must surface status=fail so the

@@ -92,6 +92,45 @@ printf '%s' "$OUT" | grep -q 'OC-DEC-LIVE' || fail "overcap: live decision dropp
 printf '%s' "$OUT" | grep -q 'OC-DEC-DEAD' && fail "overcap: superseded bullet leaked through the priority render"
 pass "over-cap render keeps ## Handoff (priority slot) and still collapses superseded"
 
+# STARVING case (review finding): Recent-decisions ALONE overflows the budget —
+# its truncation branch zeroes the remaining budget, so Handoff must be selected
+# BEFORE it or the "priority slot" is a prose promise. This fixture is the
+# collision the ordering exists to arbitrate.
+init_proj "starve" "sv-proj"
+{
+  printf '# PROJECT: sv-proj\n## Goal\nseeded.\n\n'
+  printf '## Recent decisions\n'
+  i=0; while [ $i -lt 40 ]; do printf -- '- [2026-05-%02d] [decision] SV-DEC %02d chose alpha over beta because gamma (rejected: beta — long reasoning text to inflate bytes well past budget)\n' "$(( (i % 27) + 1 ))" "$i"; i=$((i+1)); done
+  printf '\n## Handoff\n\nin-flight: STARVE-HANDOFF-SENTINEL still lands\n\n<!-- last_updated: 2026-05-01T00:00:00Z -->\n'
+} > "$BRAIN/projects/sv-proj/PROJECT.md"
+SZ=$(wc -c < "$BRAIN/projects/sv-proj/PROJECT.md" | tr -d ' ')
+[ "$SZ" -gt 2990 ] || fail "starve fixture is only ${SZ}B — decisions section must overflow the cap alone"
+OUT=$(run_load)
+printf '%s' "$OUT" | grep -q 'STARVE-HANDOFF-SENTINEL' \
+  || fail "starve: Handoff dropped when Recent-decisions overflowed the budget — priority slot is not real (got: $(printf '%s' "$OUT" | head -c 300))"
+pass "Handoff survives even when Recent-decisions alone overflows the budget"
+
+# ============================================================================
+# 3b. CRLF regression: a Windows-line-ending PROJECT.md must still collapse
+#     superseded bullets (the documented recurring bug class: CRLF defeats
+#     /^## Section$/ awk readers unless normalization runs first — this locks
+#     the normalize-before-render ordering for THIS filter specifically).
+# ============================================================================
+init_proj "crlf" "crlf-proj"
+{
+  printf '# PROJECT: crlf-proj\r\n## Goal\r\nseeded.\r\n\r\n'
+  printf '## Recent decisions\r\n'
+  printf -- '- [2026-05-01] [decision] CRLF-DEC-LIVE survives\r\n'
+  printf -- '- [superseded] [decision] CRLF-DEC-DEAD must not render\r\n'
+} > "$BRAIN/projects/crlf-proj/PROJECT.md"
+od -An -tx1 "$BRAIN/projects/crlf-proj/PROJECT.md" | grep -q ' 0d' \
+  || fail "crlf: fixture has no CR bytes — test would be vacuous"
+OUT=$(run_load)
+printf '%s' "$OUT" | grep -q 'CRLF-DEC-LIVE' || fail "crlf: live bullet dropped on CRLF PROJECT.md"
+printf '%s' "$OUT" | grep -q 'CRLF-DEC-DEAD' \
+  && fail "crlf: superseded bullet leaked — CRLF defeated the collapse filter"
+pass "CRLF PROJECT.md still collapses superseded bullets (normalize-before-render locked)"
+
 # ============================================================================
 # 4. Source-scan: the in-session capture instruction is present in the
 #    persona-context behavioral tail (prose promise -> machine lock).
