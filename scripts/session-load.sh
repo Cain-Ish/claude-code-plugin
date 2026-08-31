@@ -503,7 +503,20 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
         # shellcheck disable=SC2016  # literal $CLAUDE_PLUGIN_ROOT for the user to run
         sb_append "$(printf '## ⚠ second-brain — capture not running (OAuth)\n%s transcript(s) archived, %s extracted; drainer timer: %s. Subscription auth can'\''t extract in-session (recursive-claude lock), so pick one:\n  • `export ANTHROPIC_API_KEY=sk-ant-...`  — instant in-session capture, any OS, no daemon\n  • `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth`  — out-of-band drainer via your Claude login\n  • `export SB_EXTRACTOR_LOCAL_URL=http://localhost:11434`  — a local model (offline)\nSuppress: `SB_CAPTURE_HEALTH_BANNER=off`.\n\n' "$CAP_N" "$CAP_DONE" "$CAP_TIMER")" "capture-health-banner" 700
       else
-        sb_append "$(printf '## ⓘ second-brain capture: %s archived · %s extracted · timer active.\n\n' "$CAP_N" "$CAP_DONE")" "capture-health-line" 200
+        # P8 reconciliation surfacing (0.48.0): when the drainer's last reconcile row
+        # shows a backlog, append the trend — the dead-man banner stays the ALARM,
+        # this line is the TREND. Zero per-file stats (MSYS spawn tax): we read the
+        # row the drainer already computed, one tail+grep over the audit log.
+        CAP_PENDING_SFX=""
+        RECON_ROW=$(tail -300 "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | grep 'drain-tick' | grep 'reconcile' | tail -1)
+        if [ -n "$RECON_ROW" ]; then
+          RECON_PEND=$(printf '%s' "$RECON_ROW" | grep -oE 'pending=[0-9]+' | head -1 | cut -d= -f2)
+          RECON_OLDEST=$(printf '%s' "$RECON_ROW" | grep -oE 'oldest_pending_s=[0-9]+' | head -1 | cut -d= -f2)
+          if [ -n "$RECON_PEND" ] && [ "$RECON_PEND" -gt 0 ] 2>/dev/null; then
+            CAP_PENDING_SFX=$(printf ' · %s pending (oldest %sh)' "$RECON_PEND" "$(( ${RECON_OLDEST:-0} / 3600 ))")
+          fi
+        fi
+        sb_append "$(printf '## ⓘ second-brain capture: %s archived · %s extracted · timer active%s.\n\n' "$CAP_N" "$CAP_DONE" "$CAP_PENDING_SFX")" "capture-health-line" 240
       fi
     fi
   fi

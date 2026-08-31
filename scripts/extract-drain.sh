@@ -338,6 +338,18 @@ fi
 
 processed=0
 failed=0
+# P8 silence-latency (0.48.0): produced-at = archive-file mtime (stamped by
+# sb_archive_transcript), captured-at = the ledger row's ts. The gap is the
+# window a session's knowledge sat captured-but-unextracted — the silent-
+# degradation metric no green/red status can show.
+sb_drain_latency_s() {
+  local mt now
+  now=$(date +%s)
+  mt=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo "$now")
+  case "$mt" in ''|*[!0-9]*) mt="$now" ;; esac
+  local l=$(( now - mt )); [ "$l" -lt 0 ] && l=0
+  printf '%d' "$l"
+}
 # oldest-first by mtime (least-recently-modified). Sufficient for a drainer —
 # everything pending is processed within a few batches regardless of order.
 while IFS= read -r tf; do
@@ -348,7 +360,7 @@ while IFS= read -r tf; do
   slug=$(sb_slug_from_archived_transcript "$tf")
   [ -n "$slug" ] || slug="unknown"
   if do_extract "$tf" "$slug"; then
-    printf '{"basename":%s,"ts":"%s","outcome":"ok"}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" >> "$STATE"
+    printf '{"basename":%s,"ts":"%s","outcome":"ok","latency_s":%s}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" "$(sb_drain_latency_s "$tf")" >> "$STATE"
     processed=$((processed+1))
   else
     fails=$(sb_extraction_fails "$base" "$STATE"); fails=$((fails+1))
@@ -357,7 +369,7 @@ while IFS= read -r tf; do
       # than quarantine this code-changing session with NOTHING captured, write the files-changed
       # baseline (no LLM) and mark it done. Counts as a real capture (processed), so the health
       # banner stays honest. Falls through to 'error' only if even the floor found no file change.
-      printf '{"basename":%s,"ts":"%s","outcome":"ok","reason":"deterministic-floor"}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" >> "$STATE"
+      printf '{"basename":%s,"ts":"%s","outcome":"ok","reason":"deterministic-floor","latency_s":%s}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" "$(sb_drain_latency_s "$tf")" >> "$STATE"
       processed=$((processed+1))
     elif [ "$fails" -ge "$MAX_FAILS" ]; then
       failed=$((failed+1))
@@ -404,6 +416,28 @@ if [ -s "$STATE" ]; then
     rm -f "$STATE_TMP" 2>/dev/null
   fi
 fi
+
+# --- P8 capture reconciliation (0.48.0): one declared-vs-observed row per tick. -----
+# declared = archived transcripts on disk; observed = distinct ledger basenames in a
+# TERMINAL state (ok, or error — error rows are only written at MAX_FAILS); pending =
+# the gap the next ticks must close. Latency stats read the latency_s field the ok
+# rows now carry. The AUDIT row — not the ledger — is the durable metric series: the
+# ledger GC above drops rows with their pruned transcripts. Fail-soft: a stats miss
+# degrades to zeros, never blocks the tick.
+RECON_DECLARED=$(ls -1 "$TX_DIR"/*.txt 2>/dev/null | wc -l | tr -d ' ')
+RECON_OBSERVED=0
+RECON_LAT="0 0"
+if [ -s "$STATE" ]; then
+  RECON_OBSERVED=$(jq -cR 'fromjson? | select(.outcome == "ok" or .outcome == "error") | .basename' "$STATE" 2>/dev/null | sort -u | wc -l | tr -d ' ')
+  case "$RECON_OBSERVED" in ''|*[!0-9]*) RECON_OBSERVED=0 ;; esac
+  RECON_LAT=$(jq -cR 'fromjson? | select(.outcome == "ok") | .latency_s // empty' "$STATE" 2>/dev/null \
+    | grep -E '^[0-9]+$' | sort -n \
+    | awk '{ a[NR] = $1 } END { if (NR == 0) print "0 0"; else print a[NR], a[int((NR + 1) / 2)] }')
+  [ -n "$RECON_LAT" ] || RECON_LAT="0 0"
+fi
+RECON_PENDING=$(( RECON_DECLARED - RECON_OBSERVED )); [ "$RECON_PENDING" -lt 0 ] && RECON_PENDING=0
+RECON_MAX=${RECON_LAT%% *}; RECON_P50=${RECON_LAT##* }
+sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pending=$RECON_PENDING oldest_pending_s=$(sb_drain_oldest_pending_age) max_latency_s=$RECON_MAX p50_latency_s=$RECON_P50"
 
 # Don't clobber a real failure marker: only report ok if anything succeeded.
 # A run where every extraction failed must surface status=fail so the
