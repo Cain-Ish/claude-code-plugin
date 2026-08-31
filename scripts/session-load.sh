@@ -76,6 +76,8 @@ if [ ! -f "$project_file" ]; then
 
 ## Conventions
 
+## Handoff
+
 ## Recent decisions
 
 ## Open blockers

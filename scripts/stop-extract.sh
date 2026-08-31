@@ -83,6 +83,8 @@ if [ ! -f "$PROJECT_MD" ]; then
 
 ## Conventions
 
+## Handoff
+
 ## Recent decisions
 
 ## Open blockers
