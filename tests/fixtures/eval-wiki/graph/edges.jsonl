@@ -6,3 +6,6 @@
 {"op":"assert","from":"hybrid-search","to":"graph-hub","type":"relates","valid_from":"2026-01-01","valid_to":null,"recorded_at":"2026-01-01T00:00:00Z","source":"fixture"}
 {"op":"assert","from":"dream-staging","to":"graph-hub","type":"relates","valid_from":"2026-01-01","valid_to":null,"recorded_at":"2026-01-01T00:00:00Z","source":"fixture"}
 {"op":"assert","from":"forget-archive-move","to":"graph-hub","type":"relates","valid_from":"2026-01-01","valid_to":null,"recorded_at":"2026-01-01T00:00:00Z","source":"fixture"}
+{"op":"assert","from":"drain-timeout-current","to":"drain-timeout-superseded","type":"supersedes","valid_from":"2026-05-01","valid_to":null,"recorded_at":"2026-05-01T00:00:00Z","source":"fixture"}
+{"op":"assert","from":"embed-model-current","to":"embed-model-superseded","type":"supersedes","valid_from":"2026-05-01","valid_to":null,"recorded_at":"2026-05-01T00:00:00Z","source":"fixture"}
+{"op":"assert","from":"wiki-cap-current","to":"wiki-cap-superseded","type":"supersedes","valid_from":"2026-05-01","valid_to":null,"recorded_at":"2026-05-01T00:00:00Z","source":"fixture"}

@@ -68,4 +68,28 @@ echo "$heal_off" | grep -qi 'capture not running' || fail "self-heal opt-out: SB
 echo "$heal_off" | grep -qi 'self-installed' && fail "self-heal opt-out: must not install when opted out" || pass "self-heal: SB_DISABLE_AUTO_TIMER=1 opts out (nag, no install)"
 rm -rf "$PR_OK" "$PR_FAIL"
 
+# --- 6. P8 (0.48.0): healthy line surfaces the drainer's reconcile backlog. ---
+# The suffix is read from the LAST gate=drain-tick verdict=reconcile audit row
+# (whole-file grep — a fixed tail window was rejected in review: busy sessions
+# push the row out). pending>0 → '· N pending (oldest Hh)'; pending=0 → no suffix.
+B3=$(mktemp -d); mkdir -p "$B3/transcripts"; : > "$B3/transcripts/s1.txt"
+printf '{"basename":"s1.txt","ts":"x","outcome":"ok","latency_s":5}\n' > "$B3/.extraction-state.jsonl"
+: > "$B3/USER.md"; touch -t 202001010000 "$B3/USER.md"
+# uname stub → CAP_TIMER=unknown (≠ "no"), so the healthy line renders deterministically
+# on any host without touching the real scheduler probe.
+UN=$(mktemp -d); printf '#!/bin/bash\necho OtherOS\n' > "$UN/uname"; chmod +x "$UN/uname"
+recon_emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' \
+  | env PATH="$UN:$STUB_BIN:$PATH" ANTHROPIC_API_KEY="" BRAIN_DIR="$B3" bash "$SL" 2>/dev/null; }
+printf '{"hook":"extract-drain.sh","rule":"drain-tick","verdict":"reconcile","reason":"declared=5 observed=2 pending=3 oldest_pending_s=7200 max_latency_s=9 p50_latency_s=5 sampled_n=2"}\n' > "$B3/audit-log.jsonl"
+r_out=$(recon_emit)
+echo "$r_out" | grep -q '3 pending (oldest 2h)' \
+  || fail "reconcile suffix: expected '· 3 pending (oldest 2h)' on the healthy line (got: $(echo "$r_out" | grep -i 'second-brain capture' | head -c 200))"
+pass "reconcile backlog surfaces as pending suffix on the capture-health line"
+printf '{"hook":"extract-drain.sh","rule":"drain-tick","verdict":"reconcile","reason":"declared=2 observed=2 pending=0 oldest_pending_s=0 max_latency_s=9 p50_latency_s=5 sampled_n=2"}\n' >> "$B3/audit-log.jsonl"
+r_out=$(recon_emit)
+echo "$r_out" | grep -q 'pending (oldest' \
+  && fail "reconcile suffix: pending=0 must render NO suffix (got: $(echo "$r_out" | grep -i 'second-brain capture' | head -c 200))"
+pass "pending=0 reconcile row renders no suffix (newest row wins)"
+rm -rf "$B3" "$UN"
+
 rm -rf "$B" "$B2"; echo; echo "ALL PASS"

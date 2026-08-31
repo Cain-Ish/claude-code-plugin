@@ -76,6 +76,8 @@ if [ ! -f "$project_file" ]; then
 
 ## Conventions
 
+## Handoff
+
 ## Recent decisions
 
 ## Open blockers
@@ -501,7 +503,24 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
         # shellcheck disable=SC2016  # literal $CLAUDE_PLUGIN_ROOT for the user to run
         sb_append "$(printf '## ⚠ second-brain — capture not running (OAuth)\n%s transcript(s) archived, %s extracted; drainer timer: %s. Subscription auth can'\''t extract in-session (recursive-claude lock), so pick one:\n  • `export ANTHROPIC_API_KEY=sk-ant-...`  — instant in-session capture, any OS, no daemon\n  • `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth`  — out-of-band drainer via your Claude login\n  • `export SB_EXTRACTOR_LOCAL_URL=http://localhost:11434`  — a local model (offline)\nSuppress: `SB_CAPTURE_HEALTH_BANNER=off`.\n\n' "$CAP_N" "$CAP_DONE" "$CAP_TIMER")" "capture-health-banner" 700
       else
-        sb_append "$(printf '## ⓘ second-brain capture: %s archived · %s extracted · timer active.\n\n' "$CAP_N" "$CAP_DONE")" "capture-health-line" 200
+        # P8 reconciliation surfacing (0.48.0): when the drainer's last reconcile row
+        # shows a backlog, append the trend — the dead-man banner stays the ALARM,
+        # this line is the TREND. Zero per-file stats (MSYS spawn tax): we read the
+        # row the drainer already computed, one tail+grep over the audit log.
+        CAP_PENDING_SFX=""
+        # Whole-file grep, not a fixed tail window: per-tool-call hooks can append
+        # 300+ audit rows between 30-min drain ticks, which would push the single
+        # reconcile row out of a tail window and silently render "no backlog".
+        # Bounded cost: audit-log.jsonl is rotation-capped.
+        RECON_ROW=$(grep 'drain-tick' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | grep 'reconcile' | tail -1)
+        if [ -n "$RECON_ROW" ]; then
+          RECON_PEND=$(printf '%s' "$RECON_ROW" | grep -oE 'pending=[0-9]+' | head -1 | cut -d= -f2)
+          RECON_OLDEST=$(printf '%s' "$RECON_ROW" | grep -oE 'oldest_pending_s=[0-9]+' | head -1 | cut -d= -f2)
+          if [ -n "$RECON_PEND" ] && [ "$RECON_PEND" -gt 0 ] 2>/dev/null; then
+            CAP_PENDING_SFX=$(printf ' · %s pending (oldest %sh)' "$RECON_PEND" "$(( ${RECON_OLDEST:-0} / 3600 ))")
+          fi
+        fi
+        sb_append "$(printf '## ⓘ second-brain capture: %s archived · %s extracted · timer active%s.\n\n' "$CAP_N" "$CAP_DONE" "$CAP_PENDING_SFX")" "capture-health-line" 240
       fi
     fi
   fi
@@ -729,10 +748,33 @@ fi
 # operational payload the hot tier exists to deliver. The 2026-07 live file ran ~8KB
 # against the 3000B cap, so blockers never reached the model at ANY SessionStart.
 # Select sections by priority instead, emit in document order, breadcrumb the drops.
+# Decision-ritual (0.48.0): EMIT-time transform of ## Recent decisions — the FILE is
+# never touched (the data survives; rotation still archives to the wiki log). Two moves:
+# (a) drop [superseded]/[stale]-marked bullets — they burn hot-tier bytes to say
+# "ignore me"; (b) reverse bullet order so the NEWEST decision (bottom of section,
+# insert_bullet appends) renders FIRST — recently-active decisions before ancient ones.
+sb_hot_decisions_filter() {
+  awk '
+    function flush(  i) { for (i = nb; i >= 1; i--) print bullets[i]; nb = 0 }
+    BEGIN { indec = 0; nb = 0 }
+    /^## Recent decisions$/ { print; indec = 1; next }
+    indec && (/^## / || /^<!--/) { flush(); print; indec = 0; next }
+    indec {
+      if ($0 ~ /^- \[superseded\] /) next
+      if ($0 ~ /^- \[stale\] /) next
+      if ($0 ~ /^- /) { bullets[++nb] = $0; next }
+      if ($0 ~ /^$/) next
+      print; next
+    }
+    { print }
+    END { if (indec) flush() }
+  '
+}
+
 sb_project_hot_render() {
   local file="$1" cap="$2" tmpd total
   total=$(wc -c < "$file" | tr -d ' '); : "${total:=0}"
-  if [ "$total" -le "$cap" ]; then cat "$file"; return 0; fi
+  if [ "$total" -le "$cap" ]; then sb_hot_decisions_filter < "$file"; return 0; fi
   tmpd=$(mktemp -d 2>/dev/null) || { head -c "$cap" "$file"; return 0; }
   # Split into NN-<name> files in document order; everything before the first ## is
   # 00-preamble (frontmatter + the # PROJECT header).
@@ -742,6 +784,13 @@ sb_project_hot_render() {
             out=sprintf("%s/%02d-%s", d, n, name) }
     { print >> out }
   ' "$file"
+  # Collapse superseded/stale + newest-first BEFORE size accounting, so the freed
+  # bytes go back into the section budget instead of being spent on dead bullets.
+  local _decf
+  _decf=$(ls "$tmpd"/[0-9][0-9]-Recent-decisions 2>/dev/null | head -1)
+  if [ -n "$_decf" ] && [ -f "$_decf" ]; then
+    sb_hot_decisions_filter < "$_decf" > "$_decf.t" && mv "$_decf.t" "$_decf"
+  fi
   # IDENTITY before inventory (ledger F2): Goal, Recent-decisions and State are what make the
   # injection a project brief; blockers are the bulk list and go LAST, taking whatever budget
   # remains. The previous order put Open-blockers FIRST — on the live install that section
@@ -749,7 +798,11 @@ sb_project_hot_render() {
   # entire budget (`budget=0`), Goal/decisions/State were dropped EVERY session, and the
   # emitted text ended mid-byte ("relinked from shar"). A must-land section is truncated at a
   # BULLET boundary, never mid-line.
-  local pri="preamble Goal Recent-decisions State Conventions Open-blockers How-to Plan Cross-references"
+  # Handoff sits BEFORE Recent-decisions: the decisions branch below truncates with
+  # budget=0, so anything ranked after it starves the moment decisions overflow —
+  # exactly the over-cap case Handoff exists for. Handoff is write-time capped at
+  # 600B (merge_handoff), so ranking it first costs decisions at most that much.
+  local pri="preamble Goal Handoff Recent-decisions State Conventions Open-blockers How-to Plan Cross-references"
   local budget=$cap picked="" dropped="" name f sz
   for name in $pri; do
     f=$(ls "$tmpd"/[0-9][0-9]-"$name" 2>/dev/null | head -1)

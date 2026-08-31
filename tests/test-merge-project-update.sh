@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for scripts/merge-project-update.sh.
-# run-all-timeout: 360   (27 merger invocations by design; ~5s each on MSYS — spawn-bound lib.sh, see LC-11)
+# run-all-timeout: 360   (33 merger invocations by design; ~5s each on MSYS — spawn-bound lib.sh, see LC-11)
 # Contract: reads JSON delta on stdin (or --json-file), idempotently merges
 # into the target PROJECT.md sections, scaffolds wiki pages for missing
 # [[refs]] in ~/knowledge/wiki/entities/, updates last_updated. Exits 0 on success;
@@ -445,5 +445,103 @@ grep -q 'PROJECT.md write FAILED' "$EC13/error-log.jsonl" 2>/dev/null \
   || fail "EC-13: failed write left no error-log row (got rc=$EC13_RC but silent)"
 pass "EC-13: failed PROJECT.md write exits $EC13_RC (non-zero) and logs loudly — drainer will retry, not evict"
 rm -rf "$EC13"
+
+# --- Tests (decision-ritual 0.48.0): handoff section --------------------------------
+# Contract: .handoff renders as replace-style ## Handoff (in-flight/failed/see lines),
+# created BEFORE ## Recent decisions, capped at 600B at line boundaries, replaced by
+# the next session's emission, and an empty emission is a byte-identical no-op.
+PROJ="$TMP/p20.md"; WIKI20="$TMP/wiki20"; mkdir -p "$WIKI20"
+seed_project "$PROJ"
+jq -nc '{handoff:{in_flight:"step 3 of decision ritual half-done",
+  failed_approaches:["per-turn hook — MSYS spawn tax","skill-only — no machine lock"],
+  pointers:["scripts/merge-project-update.sh:426 — decisions loop","mcp/src/tools/pin-to-project.ts:60 — supersedes scan"]}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI20" >/dev/null 2>&1 || fail "handoff: script exited non-zero"
+grep -q '^## Handoff$' "$PROJ" || fail "handoff: section not created"
+grep -q '^in-flight: step 3 of decision ritual half-done$' "$PROJ" || fail "handoff: in_flight line missing"
+grep -q '^- failed: per-turn hook — MSYS spawn tax$' "$PROJ" || fail "handoff: failed_approaches line missing"
+grep -q '^- see: scripts/merge-project-update.sh:426 — decisions loop$' "$PROJ" || fail "handoff: pointer line missing"
+HO_LN=$(grep -n '^## Handoff$' "$PROJ" | cut -d: -f1)
+DEC_LN=$(grep -n '^## Recent decisions$' "$PROJ" | cut -d: -f1)
+[ "$HO_LN" -lt "$DEC_LN" ] || fail "handoff: section landed after ## Recent decisions (tail-truncation casualty)"
+pass "handoff: written before decisions with in-flight/failed/see lines"
+
+# Replace, never accumulate: a later session's handoff fully replaces this one.
+jq -nc '{handoff:{in_flight:"now on step 5",failed_approaches:[],pointers:[]}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI20" >/dev/null 2>&1 || fail "handoff-replace: script exited non-zero"
+N=$(grep -c '^in-flight: ' "$PROJ" || true)
+[ "$N" -eq 1 ] || fail "handoff-replace: expected exactly 1 in-flight line, got $N"
+grep -q '^in-flight: now on step 5$' "$PROJ" || fail "handoff-replace: new handoff did not win"
+grep -q 'MSYS spawn tax' "$PROJ" && fail "handoff-replace: old failed_approaches survived the replace"
+pass "handoff: replace-style — next session's handoff wins, nothing accumulates"
+
+# Empty emission is a byte-identical no-op (a degraded session never wipes the handoff).
+ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+jq -nc '{handoff:{in_flight:"",failed_approaches:[],pointers:[]}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI20" >/dev/null 2>&1 || fail "handoff-empty: script exited non-zero"
+NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+[ "$ORIG_HASH" = "$NEW_HASH" ] || fail "handoff-empty: empty handoff mutated PROJECT.md (wiped a real handoff or churned last_updated)"
+pass "handoff: empty emission is a no-op"
+
+# 600B cap, truncated at LINE boundaries (hot-tier byte discipline).
+LONG_PTRS=$(jq -nc '[range(5) | "very/long/path/segment/number/\(.)/deep/file.ts:123 — an intentionally verbose pointer description meant to overflow the byte budget"]')
+jq -nc --argjson p "$LONG_PTRS" '{handoff:{in_flight:"overflow probe with a deliberately long in-flight line that occupies real bytes",failed_approaches:["approach one that failed for verbose reasons — details details details","approach two that failed for verbose reasons — details details details","approach three that failed for verbose reasons — details details details"],pointers:$p}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI20" >/dev/null 2>&1 || fail "handoff-cap: script exited non-zero"
+HO_BYTES=$(awk '/^## Handoff$/{f=1;next} /^## /{f=0} f' "$PROJ" | wc -c | tr -d ' ')
+[ "$HO_BYTES" -le 620 ] || fail "handoff-cap: section body is ${HO_BYTES}B, cap is 600B (+header slack)"
+awk '/^## Handoff$/{f=1;next} /^## /{f=0} f && /^- see: /' "$PROJ" | grep -q ' — an int$' && fail "handoff-cap: truncation cut mid-line, not at a line boundary"
+pass "handoff: 600B cap enforced at line boundaries"
+
+# --- Test (decision-ritual): reversal-phrased decision marks the old bullet superseded.
+# Locks the extract-prompt phrasing contract end-to-end: override language + word overlap
+# (detect_supersede) → old bullet gets '- [superseded] ', new bullet lands unsuperseded.
+PROJ="$TMP/p21.md"; WIKI21="$TMP/wiki21"; mkdir -p "$WIKI21"
+seed_project "$PROJ"
+jq -nc '{recent_decisions:["no longer picked X over Y — reversed because W broke"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI21" >/dev/null 2>&1 || fail "supersede-phrase: script exited non-zero"
+grep -q '^- \[superseded\] \[decision\] picked X over Y$' "$PROJ" \
+  || fail "supersede-phrase: old bullet not marked [superseded] (got: $(awk '/^## Recent decisions$/{f=1;next} /^## /{f=0} f' "$PROJ"))"
+grep -q 'no longer picked X over Y — reversed because W broke' "$PROJ" || fail "supersede-phrase: new reversal decision missing"
+grep -q '^- \[superseded\].*no longer picked' "$PROJ" && fail "supersede-phrase: NEW bullet must not be superseded"
+pass "reversal phrasing marks old decision [superseded], never deletes it"
+
+# --- Test (decision-ritual): gate=decision-capture TRACE row in the audit log.
+# pinned = dedup-hit (decision already in PROJECT.md when Stop extraction found it),
+# stop_only = fresh insert. One row per merge with a non-empty decisions delta.
+export BRAIN_DIR="$TMP/brain22"; mkdir -p "$BRAIN_DIR"
+PROJ="$TMP/p22.md"; WIKI22="$TMP/wiki22"; mkdir -p "$WIKI22"
+seed_project "$PROJ"
+jq -nc '{recent_decisions:["picked X over Y","use haiku for extraction because cheap"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI22" >/dev/null 2>&1 || fail "capture-metric: script exited non-zero"
+grep -q 'gate=decision-capture pinned=1 stop_only=1' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
+  || fail "capture-metric: expected 'gate=decision-capture pinned=1 stop_only=1' in audit-log (got: $(cat "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -3))"
+# Metric is TRACE, not error: the row must NOT land in error-log.jsonl.
+grep -q 'gate=decision-capture' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  && fail "capture-metric: TRACE row leaked into error-log.jsonl"
+pass "gate=decision-capture pinned/stop_only TRACE row lands in audit-log"
+# ASYMMETRIC fixture (review finding): 2 dups + 1 fresh — a swapped pinned/stop_only
+# conditional would emit pinned=1 stop_only=2 and fail here; the symmetric 1/1 case
+# above cannot see the swap.
+jq -nc '{recent_decisions:["picked X over Y","use haiku for extraction because cheap","brand new third choice for the asymmetry probe"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI22" >/dev/null 2>&1 || fail "capture-metric-asym: script exited non-zero"
+grep -q 'gate=decision-capture pinned=2 stop_only=1' "$BRAIN_DIR/audit-log.jsonl" \
+  || fail "capture-metric-asym: expected pinned=2 stop_only=1 (swap-sensitive) — got: $(tail -2 "$BRAIN_DIR/audit-log.jsonl")"
+pass "gate=decision-capture counters are direction-locked (asymmetric 2-dup/1-fresh fixture)"
+
+# --- Copilot PR-99 finding: [superseded]/[stale] bullets must NOT be dedup targets.
+# grep -qF is a substring match, so a superseded line containing the original text
+# silently blocked a legitimate flip-flop re-pin AND inflated the pinned counter.
+export BRAIN_DIR="$TMP/brain23"; mkdir -p "$BRAIN_DIR"
+PROJ="$TMP/p23.md"; WIKI23="$TMP/wiki23"; mkdir -p "$WIKI23"
+seed_project "$PROJ"
+# Plant a superseded bullet carrying the exact text about to be re-pinned.
+awk '{ print } /^## Recent decisions$/ { print "- [superseded] [decision] old cap two hundred" }' "$PROJ" > "$PROJ.t" && mv "$PROJ.t" "$PROJ"
+jq -nc '{recent_decisions:["old cap two hundred"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI23" >/dev/null 2>&1 || fail "flipflop: script exited non-zero"
+N=$(grep -c 'old cap two hundred' "$PROJ" || true)
+[ "$N" -eq 2 ] || fail "flipflop: re-pin of a superseded decision must insert fresh (expected 2 occurrences: superseded + new; got $N)"
+grep -q 'gate=decision-capture pinned=0 stop_only=1' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
+  || fail "flipflop: superseded dedup-hit must not count as pinned (got: $(tail -1 "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null))"
+pass "superseded bullet is not a dedup target: flip-flop re-pin inserts fresh, metric counts stop_only"
+export BRAIN_DIR="$TMP/brain"
 
 echo "ALL PASS"

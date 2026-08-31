@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for extract-drain.sh
-# run-all-timeout: 300   (31 full drainer ticks by design; ~3.8s/tick lib.sh-source floor on MSYS — see run-all.sh)
+# run-all-timeout: 300   (33 full drainer ticks by design; ~3.8s/tick lib.sh-source floor on MSYS — see run-all.sh)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 set -euo pipefail
 
@@ -465,6 +465,55 @@ else
   ok "lock steal: non-empty stale lock cleared, drainer proceeded"
 fi
 rm -rf "$LOCK" 2>/dev/null || true
+
+# --- P8 reconciliation (0.48.0): silence-latency stamp + declared-vs-observed row ---
+# produced-at = archive mtime (backdated via touch -t), captured-at = ledger ts; the
+# ok row must carry latency_s >= the backdate gap, and every tick must leave ONE
+# gate=drain-tick verdict=reconcile audit row with declared/observed/pending fields.
+reset
+rm -f "$BRAIN_DIR/audit-log.jsonl"
+mk_tx "lat1_proj_2026-05-24.txt" proj
+touch -t 202605240000 "$BRAIN_DIR/transcripts/lat1_proj_2026-05-24.txt"
+SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 || true
+LAT=$(grep '"basename":"lat1_proj_2026-05-24.txt"' "$STATE" 2>/dev/null | grep -o '"latency_s":[0-9]*' | cut -d: -f2 | head -1)
+if [ -n "$LAT" ] && [ "$LAT" -ge 7200 ]; then
+  ok "reconcile: ok row carries latency_s from backdated archive mtime ($LAT s)"
+else
+  no "reconcile: latency_s missing or below backdate gap (got '${LAT:-none}')"
+fi
+RROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
+printf '%s' "$RROW" | grep -q 'declared=1' && printf '%s' "$RROW" | grep -q 'observed=1' \
+  && printf '%s' "$RROW" | grep -q 'pending=0' \
+  && ok "reconcile: audit row declared=1 observed=1 pending=0 after full drain" \
+  || no "reconcile: audit row wrong after full drain (got: $RROW)"
+
+# A queued-but-unprocessed transcript must show up as pending with a real oldest age.
+mk_tx "lat2_proj_2026-05-24.txt" proj
+touch -t 202605240000 "$BRAIN_DIR/transcripts/lat2_proj_2026-05-24.txt"
+SB_DRAIN_BATCH=0 bash "$DRAIN" >/dev/null 2>&1 || true
+RROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
+printf '%s' "$RROW" | grep -q 'pending=1' \
+  || no "reconcile: expected pending=1 with a queued transcript (got: $RROW)"
+ROLD=$(printf '%s' "$RROW" | grep -oE 'oldest_pending_s=[0-9]+' | cut -d= -f2)
+if [ -n "$ROLD" ] && [ "$ROLD" -ge 7200 ]; then
+  ok "reconcile: pending=1 with oldest_pending_s from the backdated queue ($ROLD s)"
+else
+  no "reconcile: oldest_pending_s missing or below backdate gap (got '${ROLD:-none}')"
+fi
+
+# A retry (transient, non-terminal) row must count as PENDING, not observed —
+# the reconcile stanza's terminal filter (ok|error) is the branch under test.
+mk_tx "rt1_poison_2026-05-24.txt" poison
+SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # 1st failure -> retry row
+grep -q '"basename":"rt1_poison_2026-05-24.txt","ts":[^,]*,"outcome":"retry"' "$STATE" 2>/dev/null \
+  || grep -q '"basename":"rt1_poison_2026-05-24.txt"' "$STATE" 2>/dev/null \
+  || no "reconcile-retry: expected a retry row for the poison transcript"
+RROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
+# This tick drains lat2 (ok) and retries rt1 → declared=3 observed=2 pending=1:
+# the retry row must NOT count as observed.
+printf '%s' "$RROW" | grep -q 'observed=2' && printf '%s' "$RROW" | grep -q 'pending=1' \
+  && ok "reconcile: a retry row stays PENDING (not observed)" \
+  || no "reconcile: retry row miscounted — expected observed=2 pending=1, got: $RROW"
 
 echo ""
 echo "Results C2: $PASS passed, $FAIL failed"

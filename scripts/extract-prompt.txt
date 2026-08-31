@@ -19,6 +19,11 @@ Schema (all keys required, arrays may be empty):
   "plan":             ["- [ ] next step", "- [x] shipped thing"],
   "session_goal":     "one line, or \"\"",
   "session_outcome":  "done|partial|abandoned: what actually shipped, or \"\"",
+  "handoff":          {
+    "in_flight": "one line of unfinished-task state, or \"\"",
+    "failed_approaches": ["approach — why it failed", "...max 3"],
+    "pointers": ["path/to/file.ts:123 — what's there", "...max 5"]
+  },
   "files_touched":    ["..."],
   "procedures":       [
     {
@@ -68,13 +73,14 @@ Schema (all keys required, arrays may be empty):
 
 Rules:
 - Project affinity: only extract decisions and blockers that are ABOUT the project described in the PROJECT.md "## Goal" section. If the session discussed external tools, plugins, or systems incidentally (e.g. building a plugin while in a different repo's directory), those entries belong to the external project — do NOT record them here. When in doubt, ask: "would someone working on THIS project need to know this?" If no, skip it.
-- Decisions: choices made between alternatives during the session. Format each as a single short sentence ("picked X over Y for reason Z"). Skip decisions already present in PROJECT.md's "## Recent decisions" — same fact, different wording still counts as duplicate. Max 3 entries.
+- Decisions: choices made between alternatives during the session. Format each as a single short sentence carrying the REASONING: "chose X over Y because Z (rejected: Y — <why it lost>)" — the rejected alternative and its why are the least recoverable information, never compress them away when the transcript shows them. When a decision REVERSES an earlier bullet in "## Recent decisions", phrase the reversal with explicit override language ("no longer …", "… instead of …", "supersedes …") so the merge marks the old bullet [superseded]. Skip decisions already present in PROJECT.md's "## Recent decisions" — same fact, different wording still counts as duplicate. Max 3 entries.
 - Open blockers: unresolved questions, deferred items, things explicitly called out as needing follow-up. Prefix each with one of [active], [resolved], [stale]. Skip ones already in "## Open blockers". Max 5 entries.
 - Cross-refs: wiki page slugs (kebab-case, lowercase) that name *concepts* mentioned at least twice and worth keeping a separate page for — not file paths, not generic words. Skip slugs already linked in "## Cross-references". Max 3 entries.
 - Files touched: absolute or repo-relative paths of files modified by Edit/Write/MultiEdit tool calls. Plain strings, no markdown.
 - Plan: the FORWARD-looking checklist of what's next for THIS project — distinct from decisions (past choices). Read the existing "## Plan" section in the PROJECT.md above and emit the UPDATED FULL list: carry unfinished items forward as "- [ ] ...", mark newly-completed ones "- [x] ...", add new next steps, drop finished/irrelevant ones. Max 7 items. NEVER include or rewrite any line marked "[pinned]" — those are human-authored north stars the merge preserves automatically. Emit [] when the session produced no clear forward work (the existing plan is then left untouched, never wiped).
 - Session goal: the session's WHY, persisted so the next session resumes it. If the transcript contains a `[Goal: <text> | phase: <p>]` context line, copy <text> VERBATIM plus the LAST <p> seen, formatted exactly: "<text> (reached: <p>)". Otherwise, if the session had one clear driving objective, state it in <=120 chars with the same "(reached: plan|implement|verify)" suffix — your best judgment of how far it got. Pure Q&A or no clear objective: "".
 - Session outcome: one line "done|partial|abandoned: <what actually shipped>", judged from the transcript's END state — tests/gates shown passing or work committed = done; real progress but unfinished = partial; the approach was dropped or reverted = abandoned. Never claim done without transcript evidence of verification (a passing run, a commit, an explicit confirmation). <=100 chars after the colon. Pure Q&A or no clear objective: "".
+- Handoff: the in-flight state a fresh session cannot recover from the repo. Emit a NON-EMPTY handoff ONLY when session_outcome is "partial" — otherwise emit {"in_flight":"","failed_approaches":[],"pointers":[]}. in_flight = one line of where the unfinished task stands. failed_approaches = approaches tried and ABANDONED this session, each "approach — why it failed" (max 3): this reasoning is the least recoverable information after the session ends. pointers = real file:line locations seen in the transcript with what's there (max 5), format "path:123 — what". Never invent paths or line numbers.
 - Procedures: reusable runbooks — "how X is done HERE". Emit one ONLY when the transcript shows a multi-step (>=3 tool_use) sequence that SUCCEEDED, especially after at least one failed attempt. Filter: would a fresh session re-derive this by trial and error? Routine single commands, one-off fixes, and anything already obvious from the repo's README or scripts do NOT qualify. Prioritize build/test/release/deploy runbooks. "exact_commands" is the literal command sequence that worked, one line, steps joined with " && ", <=200 chars, no backticks. Max 2 procedures per session; [] is the norm.
 - Wiki updates: extract technology patterns, architecture decisions, entity relationships, and reusable concepts into wiki page proposals. Rules:
   - "entities" = specific technologies, libraries, services, repos, or components the project uses

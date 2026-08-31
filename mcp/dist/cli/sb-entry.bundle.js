@@ -7387,6 +7387,20 @@ ${PIN_SECTION}
 import { promises as fs9 } from "fs";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
+function flattenField(s, cap) {
+  if (!s) return "";
+  return s.normalize("NFC").replace(/[\r\n`]/g, " ").replace(/\s+/g, " ").trim().slice(0, cap);
+}
+var SUPERSEDES_MIN_NEEDLE = 8;
+function bulletCore(line) {
+  let s = line.normalize("NFC").replace(/^- /, "");
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/^\[\d{4}-\d{2}-\d{2}\] /, "").replace(/^\[(active|resolved|stale|decision|pinned|superseded)\] /, "");
+  } while (s !== prev);
+  return s.replace(/ \(why: .*\)$/, "").trim();
+}
 async function pinToProject(args) {
   if (!(args.section in SECTION_HEADER)) {
     return { ok: false, line_added: "", project_slug: args.slug, reason: "unknown section" };
@@ -7411,7 +7425,23 @@ async function pinToProject(args) {
   }
   const content = await fs9.readFile(file, "utf-8");
   const sectionHeader = SECTION_HEADER[args.section];
-  const newEntry = `${ENTRY_PREFIX[args.section]}${args.text.trim()}`;
+  const trimmed = flattenField(args.text, 400);
+  if (!trimmed) {
+    return { ok: false, line_added: "", project_slug: args.slug, reason: "empty text after sanitization" };
+  }
+  let newEntry;
+  if (args.section === "decisions") {
+    const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    let suffix = "";
+    const why = flattenField(args.reasoning, 200);
+    const rej = flattenField(args.rejected, 200);
+    if (why && rej) suffix = ` (why: ${why}; rejected: ${rej})`;
+    else if (why) suffix = ` (why: ${why})`;
+    else if (rej) suffix = ` (why: unstated; rejected: ${rej})`;
+    newEntry = `- [${date}] [decision] ${trimmed}${suffix}`;
+  } else {
+    newEntry = `${ENTRY_PREFIX[args.section]}${trimmed}`;
+  }
   const lines = content.split("\n");
   const idx = lines.findIndex((line) => line.trim() === sectionHeader);
   if (idx < 0) {
@@ -7425,16 +7455,44 @@ async function pinToProject(args) {
     }
   }
   while (endIdx > idx + 1 && lines[endIdx - 1].trim() === "") endIdx--;
-  const trimmed = args.text.trim();
-  const prefix = ENTRY_PREFIX[args.section];
+  const newCore = trimmed.replace(/ \(why: .*\)$/, "").trim();
+  let reason;
+  let marked = false;
+  const supersedesRequested = !!flattenField(args.supersedes, 200);
+  const needle = flattenField(args.supersedes, 200).toLowerCase();
+  if (args.section === "decisions" && needle) {
+    if (needle.length < SUPERSEDES_MIN_NEEDLE) {
+      reason = `supersedes needle too short (<${SUPERSEDES_MIN_NEEDLE} chars) \u2014 nothing marked`;
+    } else {
+      for (let i = idx + 1; i < endIdx; i++) {
+        if (!lines[i].startsWith("- ") || lines[i].startsWith("- [superseded] ")) continue;
+        const core = bulletCore(lines[i]);
+        if (core === newCore) continue;
+        if (core.toLowerCase().includes(needle)) {
+          lines[i] = `- [superseded] ${lines[i].slice(2)}`;
+          marked = true;
+          break;
+        }
+      }
+      if (!marked) reason = "supersedes target not found";
+    }
+  }
   for (let i = idx + 1; i < endIdx; i++) {
-    if (lines[i].startsWith(prefix) && lines[i].slice(prefix.length).trim() === trimmed) {
-      return { ok: true, line_added: lines[i], project_slug: args.slug, reason: "already present" };
+    if (!lines[i].startsWith("- ")) continue;
+    if (lines[i].startsWith("- [superseded] ") || lines[i].startsWith("- [stale] ")) continue;
+    if (bulletCore(lines[i]) === newCore) {
+      if (marked) await fs9.writeFile(file, lines.join("\n"), "utf-8");
+      const dup = { ok: true, line_added: lines[i], project_slug: args.slug, reason: "already present" };
+      if (supersedesRequested) dup.superseded = marked;
+      return dup;
     }
   }
   lines.splice(endIdx, 0, newEntry);
   await fs9.writeFile(file, lines.join("\n"), "utf-8");
-  return { ok: true, line_added: newEntry, project_slug: args.slug };
+  const res = { ok: true, line_added: newEntry, project_slug: args.slug };
+  if (reason) res.reason = reason;
+  if (supersedesRequested) res.superseded = marked;
+  return res;
 }
 
 // src/tools/raw-inbox.ts

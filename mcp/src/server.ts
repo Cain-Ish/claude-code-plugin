@@ -122,13 +122,17 @@ registerJsonTool(
 
 registerJsonTool(
   "pin_to_project",
-  "Append an entry to the active project's PROJECT.md. Section must be 'blockers' or 'decisions'.",
+  "Append an entry to the active project's PROJECT.md. Section must be 'blockers' or 'decisions'. Decisions are dated and accept reasoning (why), rejected (the alternative not taken), and supersedes (substring of an earlier decision bullet this one reverses — the old bullet is marked [superseded], never deleted).",
   {
     text: z.string(),
     slug: z.string(),
     section: z.enum(["blockers", "decisions"]),
+    reasoning: z.string().optional(),
+    rejected: z.string().optional(),
+    supersedes: z.string().optional(),
   },
-  ({ text, slug, section }) => pinToProject({ text, slug, section }),
+  ({ text, slug, section, reasoning, rejected, supersedes }) =>
+    pinToProject({ text, slug, section, reasoning, rejected, supersedes }),
   (h) => guardDestructive("pin_to_project", h)
 );
 

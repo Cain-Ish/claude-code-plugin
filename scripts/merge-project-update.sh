@@ -143,12 +143,20 @@ insert_bullet() {
   # Strip date prefix and common markers for dedup comparison
   lower_new=$(printf '%s' "$bullet_text" | sed 's/^\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] //' | sed 's/^\[active\] //;s/^\[resolved\] //;s/^\[stale\] //;s/^\[decision\] //;s/^\[pinned\] //' | tr '[:upper:]' '[:lower:]')
   local existing_lower
+  # [superseded]/[stale] bullets are NOT part of the dedup corpus: grep -qF below is a
+  # SUBSTRING match, so a superseded line containing the original text would silently
+  # block a legitimate flip-flop re-pin AND count as a dedup hit — inflating the
+  # gate=decision-capture pinned counter with matches that are not evidence of
+  # in-session pinning. Mirrors the TS pin-to-project dedup semantics (0.48.0).
   existing_lower=$(awk -v s="$section" '
     $0 == s { flag=1; next }
     /^## / { flag=0 }
+    flag && /^- \[superseded\] / { next }
+    flag && /^- \[stale\] / { next }
     flag && /^- / { gsub(/^- (\[[0-9]{4}-[0-9]{2}-[0-9]{2}\] )?(\[(active|resolved|stale|decision|pinned)\] )?/, "- "); print tolower($0) }
   ' "$TMP_OUT")
   if echo "$existing_lower" | grep -qF -- "$lower_new"; then
+    LAST_INSERT_DUP=1
     return 0
   fi
 
@@ -370,6 +378,69 @@ merge_howto() {
   fi
 }
 
+# Decision-ritual (0.48.0): session handoff — in-flight state, failed approaches,
+# file:line pointers. Replace-style like merge_state: the previous handoff is dropped,
+# the new one written; an empty/absent emission is a NO-OP so a degraded session never
+# wipes a real handoff. Nothing accumulates — next session's handoff replaces this one.
+# Hard 600B cap truncated at LINE boundaries (merge_howto discipline): the section
+# rides the SessionStart 3000B hot-tier cap and must never dominate it. Created
+# BEFORE ## Recent decisions when absent (head-keeping, see merge_howto note above).
+merge_handoff() {
+  local raw="$1"
+  local body
+  # Type-guard every field: one wrong-typed field (handoff as a string, a scalar
+  # failed_approaches) must degrade to "that field is empty", NOT abort the whole jq
+  # expression — an atomic [..] with 2>/dev/null would silently discard VALID sibling
+  # fields and be indistinguishable from "no handoff this session".
+  local jq_err
+  jq_err=$(mktemp)
+  body=$(printf '%s' "$raw" | jq -r '
+    (.handoff // {}) | (if type == "object" then . else {} end) | [
+      (if ((.in_flight // "") | tostring) != "" then
+        "in-flight: " + ((.in_flight | tostring) | gsub("[`\r\n]"; " ") | .[0:160])
+       else empty end),
+      ((.failed_approaches // []) | (if type == "array" then . else [] end)
+        | .[:3][] | select(type == "string" and . != "")
+        | "- failed: " + (gsub("[`\r\n]"; " ") | .[0:120])),
+      ((.pointers // []) | (if type == "array" then . else [] end)
+        | .[:5][] | select(type == "string" and . != "")
+        | "- see: " + (gsub("[`\r\n]"; " ") | .[0:120]))
+    ] | join("\n")
+  ' 2>"$jq_err" | strip_cr)
+  if [ -s "$jq_err" ]; then
+    sb_log_error "merge-project-update.sh" "handoff jq parse failed — handoff dropped this merge: $(head -c 200 "$jq_err" | tr '\n' ' ')" 0
+  fi
+  rm -f "$jq_err"
+  [ -z "$body" ] && return 0
+  body=$(printf '%s\n' "$body" | awk '{ n += length($0) + 1; if (n > 600) exit; print }')
+  [ -z "$body" ] && return 0
+
+  local new_tmp; new_tmp=$(mktemp)
+  if grep -q '^## Handoff$' "$TMP_OUT"; then
+    BODY="$body" awk '
+      BEGIN { body = ENVIRON["BODY"] }
+      $0 == "## Handoff" { print; print ""; if (length(body)) print body; print ""; f=1; next }
+      f && (/^## / || /^<!--/) { f=0; print; next }
+      f { next }
+      { print }
+    ' "$TMP_OUT" > "$new_tmp"
+  else
+    BODY="$body" awk '
+      BEGIN { body = ENVIRON["BODY"]; done = 0 }
+      /^## Recent decisions$/ && !done { print "## Handoff"; print ""; print body; print ""; done=1 }
+      { print }
+      END { if (!done) { print ""; print "## Handoff"; print ""; print body } }
+    ' "$TMP_OUT" > "$new_tmp"
+  fi
+  # No-op contract: an identical re-emission must not churn last_updated.
+  if cmp -s "$new_tmp" "$TMP_OUT"; then
+    rm -f "$new_tmp"
+  else
+    mv "$new_tmp" "$TMP_OUT"
+    CHANGED=1
+  fi
+}
+
 # Detect if a new decision contradicts an existing one. Marks old as [superseded].
 # Requires: negation words in new + >50% word overlap with existing.
 detect_supersede() {
@@ -423,6 +494,13 @@ detect_supersede() {
 }
 
 TODAY=$(date +%Y-%m-%d)
+# Capture-latency metric (decision-ritual 0.48.0): a dedup-hit means the decision was
+# already in PROJECT.md when Stop-extraction found it in the transcript — i.e. it was
+# pinned in-session via pin_to_project (or carried from a prior session, an accepted
+# over-count); a fresh insert means it was captured only at Stop. TRACE row, never a
+# blocker: the ratio pinned/(pinned+stop_only) rising across sessions is the measured
+# contract for the in-session capture instruction in persona-context.sh.
+DEC_PINNED=0; DEC_STOP_ONLY=0; LAST_INSERT_DUP=0
 if [ -n "$DECISIONS" ]; then
   while IFS= read -r line; do
     [ -z "$line" ] && continue
@@ -434,8 +512,12 @@ if [ -n "$DECISIONS" ]; then
       dated_line="[$TODAY] $line"
     fi
     detect_supersede "$dated_line" || true
+    LAST_INSERT_DUP=0
     insert_bullet "## Recent decisions" "$dated_line" 5
+    if [ "$LAST_INSERT_DUP" = "1" ]; then DEC_PINNED=$((DEC_PINNED + 1)); else DEC_STOP_ONLY=$((DEC_STOP_ONLY + 1)); fi
   done <<< "$DECISIONS"
+  # ec=0 gate= trace -> audit-log (same channel as gate=value-loop); one row per merge.
+  sb_log_error "merge-project-update.sh" "gate=decision-capture pinned=$DEC_PINNED stop_only=$DEC_STOP_ONLY" 0
 fi
 
 if [ -n "$BLOCKERS" ]; then
@@ -453,6 +535,9 @@ merge_state "$SESSION_GOAL"
 
 # Procedural runbooks → ## How-to (replace-by-verb, cap 5, no-op on empty).
 merge_howto "$RAW" 5
+
+# Session handoff → ## Handoff (replace-style, 600B cap, no-op on empty).
+merge_handoff "$RAW"
 
 if [ -n "$REFS" ]; then
   while IFS= read -r ref; do
