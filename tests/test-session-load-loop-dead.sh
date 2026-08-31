@@ -26,23 +26,38 @@ run() {
 }
 
 STAMP_OLD=202501010000   # far past any 48h threshold
-mk_health() { printf '{"status":"ok","reason":"drained 0"}\n' > "$BRAIN/.extractor-health.json"; }
+# The progress marker is .extraction-state.jsonl — the drainer's done-set. It was
+# .extractor-health.json until 0.47.0, but on OAuth every Stop hook rewrites that file to
+# status=queued whether or not anything drained, so the old clock was always fresh and this
+# banner was suppressed in EXACTLY the starvation case it exists for (ledger F5: during the
+# 3-day 2026-08 outage it never fired once).
+mk_state() { printf '{"basename":"s1_demo_2026-01-01.txt","ts":"2026-01-01T00:00:00Z","outcome":"ok"}\n' > "$BRAIN/.extraction-state.jsonl"; }
 
-# --- Test 1: timer=yes + stale health marker → banner + loud error-log line ---
-mk_health; touch -t "$STAMP_OLD" "$BRAIN/.extractor-health.json"
+# --- Test 1: timer=yes + stale progress marker → banner + loud error-log line ---
+mk_state; touch -t "$STAMP_OLD" "$BRAIN/.extraction-state.jsonl"
 OUT=$(run CAP_TIMER=yes)
 echo "$OUT" | grep -q 'looks DEAD' || fail "stale marker + timer=yes should fire the loop-dead banner"
 grep -q 'loop-dead:' "$BRAIN/error-log.jsonl" 2>/dev/null || fail "loop-dead TRACE line missing from error-log"
 pass "stale marker + registered timer → loop-dead banner (loud)"
 
 # --- Test 2: fresh marker → silent ---
-mk_health   # fresh mtime (now)
+mk_state   # fresh mtime (now)
 OUT=$(run CAP_TIMER=yes)
 echo "$OUT" | grep -q 'looks DEAD' && fail "fresh marker must not fire the banner"
 pass "fresh marker → no banner"
 
+# --- Test 2b (F5 regression): stale STATE + FRESH health file must STILL fire — the health
+# file is refreshed by every OAuth Stop and must carry zero weight in the clock.
+touch -t "$STAMP_OLD" "$BRAIN/.extraction-state.jsonl"
+printf '{"status":"queued","reason":"in-session OAuth"}
+' > "$BRAIN/.extractor-health.json"   # fresh NOW
+OUT=$(run CAP_TIMER=yes)
+echo "$OUT" | grep -q 'looks DEAD' || fail "F5 regression: a fresh health file must not mask a stale done-set (the 3-day-outage blind spot)"
+pass "stale state + fresh health → banner still fires (health carries no weight)"
+rm -f "$BRAIN/.extractor-health.json"
+
 # --- Test 3: kill switch off + stale → silent ---
-touch -t "$STAMP_OLD" "$BRAIN/.extractor-health.json"
+touch -t "$STAMP_OLD" "$BRAIN/.extraction-state.jsonl"
 OUT=$(run CAP_TIMER=yes SB_LOOP_DEAD_BANNER=off)
 echo "$OUT" | grep -q 'looks DEAD' && fail "SB_LOOP_DEAD_BANNER=off must silence the banner"
 pass "kill switch silences the banner"

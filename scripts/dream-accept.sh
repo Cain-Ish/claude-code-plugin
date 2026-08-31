@@ -444,6 +444,21 @@ NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 tmp=$(mktemp)
 jq --arg t "$NOW" '.archived_at = $t' "$DREAM_DIR/status.json" > "$tmp" && mv "$tmp" "$DREAM_DIR/status.json"
 
+# A dream acceptance IS the consolidation the wiki-writes counter was counting toward — reset
+# it, or the "N wiki writes since the last consolidation" banner nags forever (ledger F8:
+# counter observed at 180 with dreams completing+archiving weekly; the only reset call sat in
+# session-load's unreachable maintainer-reconcile branch). Scoped dream → that slug; unscoped
+# (all-project) dream → every project's counter, since the consolidation covered them all.
+DREAM_SLUG=$(jq -r '.inputs.project_slug // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
+if [ -n "$DREAM_SLUG" ]; then
+  sb_reset_wiki_writes "$DREAM_SLUG"
+else
+  for _wc in "$BRAIN_DIR"/projects/*/.wiki-writes; do
+    [ -f "$_wc" ] || continue
+    _ws="${_wc%/.wiki-writes}"; sb_reset_wiki_writes "${_ws##*/}"
+  done
+fi
+
 # Clean up staging to reclaim disk
 rm -rf "$DREAM_DIR/staging" "$DREAM_DIR/transcripts"
 
