@@ -731,10 +731,33 @@ fi
 # operational payload the hot tier exists to deliver. The 2026-07 live file ran ~8KB
 # against the 3000B cap, so blockers never reached the model at ANY SessionStart.
 # Select sections by priority instead, emit in document order, breadcrumb the drops.
+# Decision-ritual (0.48.0): EMIT-time transform of ## Recent decisions — the FILE is
+# never touched (the data survives; rotation still archives to the wiki log). Two moves:
+# (a) drop [superseded]/[stale]-marked bullets — they burn hot-tier bytes to say
+# "ignore me"; (b) reverse bullet order so the NEWEST decision (bottom of section,
+# insert_bullet appends) renders FIRST — recently-active decisions before ancient ones.
+sb_hot_decisions_filter() {
+  awk '
+    function flush(  i) { for (i = nb; i >= 1; i--) print bullets[i]; nb = 0 }
+    BEGIN { indec = 0; nb = 0 }
+    /^## Recent decisions$/ { print; indec = 1; next }
+    indec && (/^## / || /^<!--/) { flush(); print; indec = 0; next }
+    indec {
+      if ($0 ~ /^- \[superseded\] /) next
+      if ($0 ~ /^- / && $0 ~ /\[stale\]/) next
+      if ($0 ~ /^- /) { bullets[++nb] = $0; next }
+      if ($0 ~ /^$/) next
+      print; next
+    }
+    { print }
+    END { if (indec) flush() }
+  '
+}
+
 sb_project_hot_render() {
   local file="$1" cap="$2" tmpd total
   total=$(wc -c < "$file" | tr -d ' '); : "${total:=0}"
-  if [ "$total" -le "$cap" ]; then cat "$file"; return 0; fi
+  if [ "$total" -le "$cap" ]; then sb_hot_decisions_filter < "$file"; return 0; fi
   tmpd=$(mktemp -d 2>/dev/null) || { head -c "$cap" "$file"; return 0; }
   # Split into NN-<name> files in document order; everything before the first ## is
   # 00-preamble (frontmatter + the # PROJECT header).
@@ -744,6 +767,13 @@ sb_project_hot_render() {
             out=sprintf("%s/%02d-%s", d, n, name) }
     { print >> out }
   ' "$file"
+  # Collapse superseded/stale + newest-first BEFORE size accounting, so the freed
+  # bytes go back into the section budget instead of being spent on dead bullets.
+  local _decf
+  _decf=$(ls "$tmpd"/[0-9][0-9]-Recent-decisions 2>/dev/null | head -1)
+  if [ -n "$_decf" ] && [ -f "$_decf" ]; then
+    sb_hot_decisions_filter < "$_decf" > "$_decf.t" && mv "$_decf.t" "$_decf"
+  fi
   # IDENTITY before inventory (ledger F2): Goal, Recent-decisions and State are what make the
   # injection a project brief; blockers are the bulk list and go LAST, taking whatever budget
   # remains. The previous order put Open-blockers FIRST — on the live install that section
@@ -751,7 +781,7 @@ sb_project_hot_render() {
   # entire budget (`budget=0`), Goal/decisions/State were dropped EVERY session, and the
   # emitted text ended mid-byte ("relinked from shar"). A must-land section is truncated at a
   # BULLET boundary, never mid-line.
-  local pri="preamble Goal Recent-decisions State Conventions Open-blockers How-to Plan Cross-references"
+  local pri="preamble Goal Recent-decisions Handoff State Conventions Open-blockers How-to Plan Cross-references"
   local budget=$cap picked="" dropped="" name f sz
   for name in $pri; do
     f=$(ls "$tmpd"/[0-9][0-9]-"$name" 2>/dev/null | head -1)

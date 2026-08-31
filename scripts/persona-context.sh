@@ -459,9 +459,14 @@ fi
 [ -n "$GOAL_LINE" ] && CTX="$GOAL_LINE
 $CTX"
 
+# Decision-ritual (0.48.0): the in-session capture instruction. ~150B on action
+# prompts only, zero extra spawns. Its effect is MEASURED, not assumed: the
+# gate=decision-capture pinned/stop_only ratio in merge-project-update.sh is the
+# contract; test-decision-capture.sh source-scans this line so it cannot drop out.
 CTX="$CTX
 ---
 If the above is relevant, use it directly. If you need deeper analysis, invoke /second-brain:think or prefix the next prompt with /?.
+When a decision between alternatives lands this turn, record it immediately: pin_to_project(section:decisions) with reasoning, rejected, and supersedes when it reverses an earlier decision.
 Before claiming code is ready to commit: run all applicable verification — tests, lint, type-check — and invoke relevant installed skills (code review, security review, quality checks). No completion claims without evidence."
 
 jq -nc --arg ctx "$CTX" '{
