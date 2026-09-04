@@ -23,5 +23,6 @@
       "description": "Where to store your local knowledge base (wiki pages, embeddings, raw sources). Default: ~/knowledge",
       "default": "~/knowledge"
     }
-  }
+  },
+  "outputStyles": "./output-styles/"
 }

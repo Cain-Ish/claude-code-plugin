@@ -76,6 +76,8 @@ stage changes for review, forgetting archives rather than deletes.
 | `/second-brain:think` | Opus advisor brief: intent, enrichment, risks (opt-in, ~$0.11/call) |
 | `/second-brain:doubt` | Adversarial self-audit of the plugin's own layers |
 
+One output style, `second-brain:dev-focused` (select it under `/config` > Output style, or set `"outputStyle": "second-brain:dev-focused"` in settings). It shapes every reply for a reader who needs to act now: next action first, numbered steps, state restated each turn, no tangents, concrete time estimates, and work routed to the cheapest model tier (SCOUT/DO/THINK) that can do it. Opt-in only; it never overrides your chosen style.
+
 `/second-brain:capture` is documented for its raw-inbox interface (`--list` to inspect, `--discard <id>` to prune) but is not a slash command — capture itself is automatic.
 
 The other three skills (`query`, `using-second-brain`, `capture`) are invoked by the
