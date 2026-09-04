@@ -196,7 +196,8 @@ if [ -f "$BUDGET_JSON" ]; then
   LIVE_AGENTS=$(find "$PLUGIN_ROOT/agents" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
   LIVE_SCRIPTS=$(find "$PLUGIN_ROOT/scripts" -maxdepth 1 -name '*.sh' -type f 2>/dev/null | wc -l | tr -d ' ')
   LIVE_TESTS=$(find "$PLUGIN_ROOT/tests" -maxdepth 1 -name 'test-*.sh' -type f 2>/dev/null | wc -l | tr -d ' ')
-  for pair in "skills:$LIVE_SKILLS" "agents:$LIVE_AGENTS" "scripts:$LIVE_SCRIPTS" "tests:$LIVE_TESTS"; do
+  LIVE_STYLES=$(find "$PLUGIN_ROOT/output-styles" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
+  for pair in "skills:$LIVE_SKILLS" "agents:$LIVE_AGENTS" "scripts:$LIVE_SCRIPTS" "tests:$LIVE_TESTS" "output_styles:$LIVE_STYLES"; do
     key="${pair%%:*}"; live="${pair#*:}"
     cap=$(jq -r --arg k "$key" '.[$k] // empty' "$BUDGET_JSON" 2>/dev/null | tr -d '\r')
     case "$cap" in ''|*[!0-9]*) continue ;; esac
