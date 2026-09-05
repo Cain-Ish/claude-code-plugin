@@ -76,9 +76,12 @@ chmod +x "$STUB/claude"
 
 CLEANBIN="$SB/cleanbin"; mkdir -p "$CLEANBIN"
 # gzip is load-bearing: GNU `tar czf` execs it, and the auto-accept pre-accept backup
-# fails CLOSED without it — the whole accept lane would silently not run.
+# fails CLOSED without it — the whole accept lane would silently not run. env is
+# load-bearing too (D134): Stage B execs via `env -i <allowlist> node ...` so its
+# environment carries no stray credentials/vars — without env on PATH the writer
+# spawn itself fails as "command not found" and the lane looks inert.
 for _t in bash sh jq stat date touch cat find wc head tail ls rm mkdir mv awk sed tr \
-          grep sort cp realpath readlink basename dirname mktemp git node timeout tar gzip rsync; do
+          grep sort cp realpath readlink basename dirname mktemp git node timeout tar gzip rsync env; do
   _r=$(command -v "$_t" 2>/dev/null) || continue
   printf '#!/bin/sh\nexec "%s" "$@"\n' "$_r" > "$CLEANBIN/$_t"; chmod +x "$CLEANBIN/$_t"
 done

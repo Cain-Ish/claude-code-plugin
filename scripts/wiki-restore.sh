@@ -35,6 +35,15 @@ else
 fi
 cat=$(basename "$(dirname "$src")"); dest="$WIKI/$cat/$name.md"
 mkdir -p "$WIKI/$cat" "$BD"                     # $BD so the log append can't fail on a fresh install
+# D193: a live page may have appeared at this slug since the archive move (the drainer/
+# maintainer keep writing). `mv` would silently clobber it AND, since this is a move not a
+# copy, destroy the archived copy too in the same step. dream-accept's _release_holds
+# refuses exactly this race ("NEVER clobber it") — the documented undo for FORGET had no
+# such guard until now. Refuse loud, naming both paths, and leave both files in place.
+if [ -e "$dest" ]; then
+  echo "restore: refusing to overwrite live page at $dest — a live page now exists at that slug (archived copy kept at $src, not applied)" >&2
+  exit 1
+fi
 mv "$src" "$dest"
 if command -v jq >/dev/null 2>&1; then
   printf '{"event":"restored","slug":%s,"category":%s,"date":%s}\n' \

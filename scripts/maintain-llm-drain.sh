@@ -60,13 +60,23 @@ _preflight_ok() {
 # (the autostage banner names it).
 FAILS_F="$BRAIN_DIR/.llm-maintain-fails"
 QUAR_F="$BRAIN_DIR/.llm-maintain-quarantine"
+# D132: the class of the LAST recorded failure (version|other). The preflight probe
+# (_preflight_ok) only ever proves the CLI version floor is met — it says nothing
+# about auth expiry, model retirement, attestation failures, or Stage B being
+# unavailable. Self-clearing on preflight alone made the quarantine vacuous for
+# every non-version failure class: it self-cleared and re-spawned Stage A every
+# tick regardless of why it was actually quarantined.
+FAILCLASS_F="$BRAIN_DIR/.llm-maintain-fail-class"
 RETRY="${SB_MAINTAIN_LLM_RETRY:-86400}"; case "$RETRY" in ''|*[!0-9]*) RETRY=86400 ;; esac
 if [ -f "$QUAR_F" ] && [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ]; then
-  # SELF-CLEARING quarantine: it exists to stop POINTLESS retries. If the cheap
-  # preflight now passes (e.g. the CLI was upgraded past the floor), clear it and
-  # proceed; otherwise stay down silently.
-  if _preflight_ok; then
-    rm -f "$QUAR_F" "$FAILS_F" 2>/dev/null
+  # SELF-CLEARING quarantine: it exists to stop POINTLESS retries, not to hide a
+  # persistent non-version failure behind a re-passing version check. Only clear
+  # when the recorded cause WAS the version floor AND the cheap preflight now
+  # passes (e.g. the CLI was upgraded); any other cause stays down until the
+  # quarantine file is removed by hand (the autostage banner names it).
+  FAILCLASS=$(cat "$FAILCLASS_F" 2>/dev/null | tr -d '\r\n')
+  if [ "$FAILCLASS" = "version" ] && _preflight_ok; then
+    rm -f "$QUAR_F" "$FAILS_F" "$FAILCLASS_F" 2>/dev/null
   else
     exit 0
   fi
@@ -83,12 +93,16 @@ if [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ]; then
   [ "$(( $(date +%s) - ${mt:-0} ))" -ge "$INT" ] || exit 0
 fi
 
-# _fail_step <summary>: count the failure, quarantine at 3 strikes, and re-stamp
-# the throttle to a ~24h retry horizon (mtime = now - INT + RETRY) instead of
-# the full interval. `date -d @` (GNU) || `date -r` (BSD) pairing.
+# _fail_step <summary> [class]: count the failure, quarantine at 3 strikes, and
+# re-stamp the throttle to a ~24h retry horizon (mtime = now - INT + RETRY)
+# instead of the full interval. `date -d @` (GNU) || `date -r` (BSD) pairing.
+# [class] (default "other") is recorded so the self-clearing quarantine gate
+# above can tell a version-floor failure (which the cheap preflight can
+# actually re-verify) from every other failure class (which it cannot).
 _fail_step() {
   local n; n=$(cat "$FAILS_F" 2>/dev/null || echo 0); case "$n" in ''|*[!0-9]*) n=0 ;; esac
   n=$((n + 1)); printf '%s' "$n" > "$FAILS_F"
+  printf '%s' "${2:-other}" > "$FAILCLASS_F"
   if [ "$n" -ge 3 ]; then
     printf '[%s] quarantined after %s consecutive failures: %s\n' "$(date -u +%FT%TZ)" "$n" "$1" > "$QUAR_F"
   fi
@@ -114,7 +128,7 @@ done
 # so fail loud and skip the LLM step entirely (never degrade to an unvalidated run).
 if ! _preflight_ok; then
   sb_log_error "maintain-llm-drain" "claude CLI '${CLI_VER:-unparseable}' is below the schema-enforcement floor $MIN_CLI — --json-schema is not validator-enforced there; skipping the LLM step (upgrade the CLI); no dream staged" 0
-  _fail_step "claude CLI '${CLI_VER:-unparseable}' below schema-enforcement floor $MIN_CLI"
+  _fail_step "claude CLI '${CLI_VER:-unparseable}' below schema-enforcement floor $MIN_CLI" version
   exit 0
 fi
 
@@ -140,7 +154,24 @@ if ! command -v node >/dev/null 2>&1 || [ ! -f "$SDIR/../mcp/dist/tools/consolid
   exit 0
 fi
 
-DREAM_ID=$(bash "$SDIR/dream-snapshot.sh" 2>/dev/null) || exit 0
+# D133: a snapshot refusal (another dream pending/running and not yet stale, a
+# broken wiki snapshot, etc.) must NOT silently burn the full weekly slot — the
+# throttle was already stamped above unconditionally, and this path used to
+# discard stderr and `exit 0` with no log and no strike, so the retry horizon
+# stayed at the full SB_MAINTAIN_LLM_INTERVAL (default 7d) instead of the ~24h
+# _fail_step re-stamp every other failure path in this file gets.
+_snap_err_f=$(mktemp 2>/dev/null)
+DREAM_ID=$(bash "$SDIR/dream-snapshot.sh" 2>"${_snap_err_f:-/dev/null}")
+_snap_rc=$?
+if [ "$_snap_rc" -ne 0 ]; then
+  _snap_err=""
+  [ -n "$_snap_err_f" ] && _snap_err=$(tr -d '\r' < "$_snap_err_f" 2>/dev/null | tail -c 300)
+  rm -f "$_snap_err_f" 2>/dev/null
+  sb_log_error "maintain-llm-drain" "dream-snapshot.sh refused/failed (rc=$_snap_rc): ${_snap_err:-<no stderr>} — not burning the full weekly slot" 0
+  _fail_step "dream-snapshot.sh refused/failed (rc=$_snap_rc): ${_snap_err:-<no stderr>}"
+  exit 0
+fi
+rm -f "$_snap_err_f" 2>/dev/null
 case "$DREAM_ID" in drm_*) : ;; *) exit 0 ;; esac
 DREAM_DIR="$BRAIN_DIR/dreams/$DREAM_ID"
 [ -d "$DREAM_DIR/staging/wiki" ] || exit 0
@@ -302,7 +333,7 @@ elif [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
   # Test-only seam: prove the gate reached the quarantined spawn without invoking claude.
   printf 'DRYRUN dream=%s prompt_bytes=%s tx=%s excluded_self=%s jail=%s quarantine: claude -p --tools "" --strict-mcp-config --setting-sources "" --no-session-persistence --output-format stream-json --verbose --json-schema <kb-schema>\n' \
     "$DREAM_ID" "$(wc -c < "$INPUT_F" | tr -d ' ')" "$TX_N" "$TX_SELF" "$([ "$BWRAP_OK" = "1" ] && echo bwrap || echo none)"
-  printf 'DRYRUN stage-b: node consolidate-writer-cli.bundle.js --dream-dir <dream> netless=%s (transcripts NOT bound)\n' \
+  printf 'DRYRUN stage-b: env -i PATH HOME BRAIN_DIR KNOWLEDGE_DIR SB_* node consolidate-writer-cli.bundle.js --dream-dir <dream> netless=%s jail-masks=transcripts,~/.claude\n' \
     "$([ "$BWRAP_OK" = "1" ] && echo "bwrap --unshare-net" || echo "source-scan-only")"
   # Simulate a successful summarize so the auto-accept gate below is exercised in tests (the
   # gate keys on status=completed). The auto-accept block has its own DRYRUN guard (no real
@@ -381,10 +412,15 @@ else
         printf '%s' "$RESULT" | jq -c '.structured_output' > "$DREAM_DIR/candidate-facts.json" 2>/dev/null
         NFACTS=$(jq -r '.facts | if type == "array" then length else 0 end' "$DREAM_DIR/candidate-facts.json" 2>/dev/null)
         # STAGE B — the privileged deterministic writer (P6 slice 2): re-validates the facts
-        # and applies them to staging/wiki via a local BM25 reconcile. No LLM, no creds in its
-        # env; on Linux additionally jailed NETLESS (--unshare-net) with transcripts NOT bound,
-        # so the writing context can never contain raw transcript. Elsewhere the netless
-        # property is structural (source-scan test) — stated honestly, not pretended kernel.
+        # and applies them to staging/wiki via a local BM25 reconcile. D134: "no creds in its
+        # env" and "transcripts NOT bound" used to be true only by the writer's own source
+        # never reading them, while the bwrap jail ro-bound the WHOLE filesystem (`--ro-bind
+        # / /`) with no mask over $DREAM_DIR/transcripts or ~/.claude — both were readable
+        # inside the jail, and the spawn inherited the full parent environment (creds
+        # included) with no --clearenv/env -i anywhere. Now BOTH are real: transcripts and
+        # ~/.claude are tmpfs-masked inside the jail (Linux), and EVERY platform (jailed or
+        # not) execs Stage B via `env -i` plus an explicit allowlist (PATH, HOME, BRAIN_DIR,
+        # KNOWLEDGE_DIR, SB_*) so no credential or unrelated var reaches the writer's env.
         CW_OK=0
         if ! command -v node >/dev/null 2>&1; then
           sb_log_error "maintain-llm-drain" "no node on PATH — Stage B writer cannot run; dream $DREAM_ID failed (facts kept in candidate-facts.json)" 0
@@ -398,6 +434,10 @@ else
           mkdir -p "$DREAM_DIR/.cw-scratch"
           CW_ERR="$SCRATCH/cw-stderr.txt"; CW_OUT="$SCRATCH/cw-report.json"
           cwrc=0
+          CW_KDIR="$(sb_knowledge_dir)"
+          CW_ENV=( "PATH=${PATH:-/usr/local/bin:/usr/bin:/bin}" "HOME=$HOME"
+                   "BRAIN_DIR=$BRAIN_DIR" "KNOWLEDGE_DIR=$CW_KDIR" )
+          for _sbv in $(compgen -v SB_ 2>/dev/null); do CW_ENV+=("$_sbv=${!_sbv}"); done
           if [ "$BWRAP_OK" = "1" ]; then
             CW_BWRAP=( --ro-bind / /
                        --bind "$DREAM_DIR/staging" "$DREAM_DIR/staging"
@@ -405,11 +445,13 @@ else
                        --ro-bind "$DREAM_DIR/candidate-facts.json" "$DREAM_DIR/candidate-facts.json"
                        --ro-bind "$DREAM_DIR/status.json" "$DREAM_DIR/status.json"
                        --tmpfs /tmp --proc /proc --dev /dev
+                       --tmpfs "$DREAM_DIR/transcripts"
+                       --tmpfs "$HOME/.claude"
                        --unshare-pid --unshare-net --new-session --die-with-parent )
             ${TBIN:+$TBIN "$CW_TO"} bwrap "${CW_BWRAP[@]}" \
-              -- node "$CW_CLI" --dream-dir "$DREAM_DIR" > "$CW_OUT" 2> "$CW_ERR" || cwrc=$?
+              -- env -i "${CW_ENV[@]}" node "$CW_CLI" --dream-dir "$DREAM_DIR" > "$CW_OUT" 2> "$CW_ERR" || cwrc=$?
           else
-            ${TBIN:+$TBIN "$CW_TO"} node "$CW_CLI" --dream-dir "$DREAM_DIR" > "$CW_OUT" 2> "$CW_ERR" || cwrc=$?
+            ${TBIN:+$TBIN "$CW_TO"} env -i "${CW_ENV[@]}" node "$CW_CLI" --dream-dir "$DREAM_DIR" > "$CW_OUT" 2> "$CW_ERR" || cwrc=$?
           fi
           if [ "$cwrc" -ne 0 ]; then
             CW_TAIL=$(tail -c 300 "$CW_ERR" 2>/dev/null | tr '\n' ' ')
@@ -431,7 +473,7 @@ else
         fi
         if [ "$CW_OK" = "1" ]; then
           if _dream_complete "${NFACTS:-0}"; then
-            rm -f "$FAILS_F" "$QUAR_F" 2>/dev/null   # genuine success → reset the failure lifecycle
+            rm -f "$FAILS_F" "$QUAR_F" "$FAILCLASS_F" 2>/dev/null   # genuine success → reset the failure lifecycle
           else
             # status.json missing/corrupt at completion: neither stage writes it (Stage B binds
             # it read-only under the jail), so this is external interference — not a success.
@@ -477,30 +519,25 @@ AA_DECISION=$(sb_auto_accept_decision "$AA_MODE" \
   "$(jq -r '.status // ""' "$ASF" 2>/dev/null)" \
   "$(jq -r '.archived_at // ""' "$ASF" 2>/dev/null)" "$AA_FORGET")
 if [ "$AA_DECISION" = "accept" ]; then
-  AA_KDIR="$(sb_knowledge_dir)"
-  AA_BK=""
-  AA_BACKUP_OK=1
-  if [ -d "$AA_KDIR/wiki" ]; then
-    AA_BK="$BRAIN_DIR/wiki-backup-pre-autoaccept-$(date -u +%Y%m%d%H%M%SZ).tgz"
-    if ! tar czf "$AA_BK" -C "$AA_KDIR" wiki 2>/dev/null; then AA_BK=""; AA_BACKUP_OK=0; fi
-  fi
-  # Never accept UNATTENDED without a backup. A failed backup (disk full) is
-  # exactly the situation that also produces a broken/empty staging — proceeding
-  # would be a correlated, unrecoverable wipe. Abort to manual review instead.
-  if [ "$AA_BACKUP_OK" = "0" ]; then
-    sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: pre-accept backup FAILED for $DREAM_ID — refusing unattended accept (left for manual review)" 0
-  elif [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
-    printf 'DRYRUN auto-accept=%s dream=%s forget=%s backup=%s\n' "$AA_MODE" "$DREAM_ID" "$AA_FORGET" "${AA_BK:-none}"
+  # D131: previously this block took its OWN wiki-ONLY tarball here and told
+  # dream-accept.sh to skip its backup (SB_DREAM_ACCEPT_SKIP_BACKUP=1). Since
+  # Phase 3 an accept also APPENDS to graph/edges.jsonl, so that wiki-only
+  # tarball no longer undid the whole accept — restoring it left injected/
+  # proposed edges live with no undo trail. Reuse dream-accept's OWN backup
+  # (wiki + graph, MSYS path-normalized, and it fails CLOSED — refuses the
+  # accept — if the backup can't be written) instead of duplicating a
+  # narrower one that skipped exactly what an accept can change.
+  if [ "${SB_MAINTAIN_LLM_DRYRUN:-0}" = "1" ]; then
+    printf 'DRYRUN auto-accept=%s dream=%s forget=%s backup=dream-accept-owns-it(wiki+graph)\n' "$AA_MODE" "$DREAM_ID" "$AA_FORGET"
   else
     # Safe mode forbids ANY deletion (not just forget-manifest entries).
     AA_NODELETE=0; [ "$AA_MODE" = "safe" ] && AA_NODELETE=1
-    # We already tarballed via AA_BACKUP above, so tell dream-accept
-    # to SKIP its own backup — one pre-accept tarball, not two.
     AA_CONFIRM=0; [ "$AA_MODE" = "all" ] && AA_CONFIRM=1   # full-autonomy operators confirm untrusted-new; safe never reaches here with any
-    if SB_DREAM_ACCEPT_SKIP_BACKUP=1 SB_DREAM_ACCEPT_NO_DELETE="$AA_NODELETE" SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED="$AA_CONFIRM" bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>&1; then
+    if SB_DREAM_ACCEPT_NO_DELETE="$AA_NODELETE" SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED="$AA_CONFIRM" bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>&1; then
+      AA_BK=$(ls -t "$BRAIN_DIR"/wiki-backup-pre-accept-*.tgz 2>/dev/null | head -1)
       sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: applied dream $DREAM_ID${AA_BK:+ (backup $AA_BK)}" 0
     else
-      sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: dream-accept refused/failed for $DREAM_ID — left for manual review (backup ${AA_BK:-none})" 0
+      sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: dream-accept refused/failed for $DREAM_ID — left for manual review (dream-accept's own pre-accept backup, if any, is under $BRAIN_DIR)" 0
     fi
   fi
 elif [ "$AA_DECISION" = "skip:safe-refuses-forget" ]; then

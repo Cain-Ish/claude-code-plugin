@@ -143,4 +143,60 @@ out6=$(bash "$S" --knowledge-dir "$KD" --brain-dir "$BD" --slug p 2>&1)
 echo "$out6" | grep -q "reconciled 2 item" || fail "multi-ref should report 'reconciled 2 item(s)', got: $out6"
 pass "multi-ref: both idA and idB flip; count line reports reconciled 2"
 
+# --- Test 7: D107 — (raw <id>) is unvalidated DATA; a traversal id must not
+# escape the raw dir and rewrite an unrelated live wiki page's ai-block. ---
+cat > "$KD/wiki/entities/victim.md" <<'EOF'
+---
+title: Victim
+type: entities
+---
+<!-- ai:begin -->
+status: active
+<!-- ai:end -->
+# Victim
+EOF
+VICTIM_BEFORE=$(cat "$KD/wiki/entities/victim.md")
+cat > "$KD/wiki/entities/attacker.md" <<'EOF'
+---
+title: Attacker
+type: entities
+---
+# Attacker
+- captured from x (raw ../../../../knowledge/wiki/entities/victim)
+EOF
+out7=$(bash "$S" --knowledge-dir "$KD" --brain-dir "$BD" --slug p 2>&1)
+VICTIM_AFTER=$(cat "$KD/wiki/entities/victim.md")
+[ "$VICTIM_BEFORE" = "$VICTIM_AFTER" ] || fail "D107: traversal via (raw ../../../../knowledge/wiki/entities/victim) rewrote the victim page"
+echo "$out7" | grep -qi "unsafe" || fail "D107: traversal id was not logged as skipped/unsafe: $out7"
+pass "D107: (raw ../../../../knowledge/wiki/entities/victim) traversal blocked — victim page untouched"
+
+# --- Test 8: D107 — a traversal id must not mark ANOTHER project's raw item
+# processed (bypassing --slug scoping via a relative path). ---
+mkdir -p "$BD/projects/p2/raw"
+cat > "$BD/projects/p2/raw/foreign-item.md" <<EOF
+---
+id: foreign-item
+source: /x
+captured_at: 2026-01-01T00:00:00Z
+captured_by: user
+origin: p2
+content_type: text/plain
+status: unprocessed
+---
+body
+EOF
+FOREIGN_BEFORE=$(cat "$BD/projects/p2/raw/foreign-item.md")
+cat > "$KD/wiki/entities/attacker2.md" <<'EOF'
+---
+title: Attacker2
+type: entities
+---
+# Attacker2
+- captured from x (raw ../../p2/raw/foreign-item)
+EOF
+out8=$(bash "$S" --knowledge-dir "$KD" --brain-dir "$BD" --slug p 2>&1)
+FOREIGN_AFTER=$(cat "$BD/projects/p2/raw/foreign-item.md")
+[ "$FOREIGN_BEFORE" = "$FOREIGN_AFTER" ] || fail "D107: traversal via (raw ../../p2/raw/foreign-item) marked another project's raw item processed"
+pass "D107: (raw ../../p2/raw/foreign-item) traversal blocked — foreign project's raw item untouched"
+
 echo; echo "ALL PASS"

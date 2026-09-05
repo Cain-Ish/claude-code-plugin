@@ -101,6 +101,12 @@ else
   _EV_STAMP="$BRAIN_DIR/.last-ensure-validate"
   _EV_AGE=$(( $(date +%s) - $(sb_mtime "$_EV_STAMP") ))
   if [ ! -f "$_EV_STAMP" ] || [ "$_EV_AGE" -gt 86400 ]; then
+    # D096: this autofix DELETES empty pages and rewrites frontmatter (knowledge-validate.ts
+    # fs.unlink) at SessionStart, unattended — exactly the kind of write config.json's own
+    # wiki_git comment (above) promises a reversibility snapshot for. wiki-history.sh checks
+    # the wiki_git flag itself and fails soft, so this is a no-op when the feature is off.
+    [ -f "$(dirname "$0")/wiki-history.sh" ] && \
+      bash "$(dirname "$0")/wiki-history.sh" snapshot "pre-autofix safety snapshot (ensure-dirs)" >/dev/null 2>&1
     sb_validate_wiki "$KNOWLEDGE_DIR" >/dev/null 2>&1
     : > "$_EV_STAMP"   # stamp AFTER the run so the next 24h window starts here
   fi

@@ -35,4 +35,33 @@ CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN" KNOWLEDGE_DIR="$K" CLAUDE_PLUGIN_O
 grep -qi 'foo-thing\|Foo Thing' "$K/wiki/index.md" || fail "index.md built but does not catalogue the fixture page"
 pass "ensure-dirs.sh reindex builds wiki/index.md"
 rm -rf "$BRAIN" "$K"
+
+# 3. D096: the 24h SessionStart autofix pass (knowledge_validate autofix:true, which
+# fs.unlink's empty pages and rewrites frontmatter) must take a wiki-history snapshot
+# FIRST — the exact reversibility window config.json's own wiki_git comment promises for
+# every unattended write. Force the "existing index.md" branch (skips the fresh-reindex
+# path) so this run hits the validate+autofix branch with no .last-ensure-validate stamp.
+if command -v git >/dev/null 2>&1; then
+  BRAIN2=$(mktemp -d); K2=$(mktemp -d)
+  mkdir -p "$K2/wiki/learnings"
+  cat > "$K2/wiki/learnings/bar-thing.md" <<'EOF'
+---
+title: Bar Thing
+type: learnings
+---
+# Bar Thing
+A learning about bar for the snapshot-before-autofix coverage.
+EOF
+  printf -- '# index\n' > "$K2/wiki/index.md"   # pre-existing index.md -> the validate+autofix branch
+  CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN2" KNOWLEDGE_DIR="$K2" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K2" \
+    timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+  [ -d "$BRAIN2/wiki-history.git" ] || fail "D096: no wiki-history snapshot repo created before the SessionStart autofix"
+  N=$(git --git-dir="$BRAIN2/wiki-history.git" --work-tree="$K2/wiki" log --oneline 2>/dev/null | grep -c .)
+  [ "${N:-0}" -ge 1 ] || fail "D096: wiki-history repo exists but has no snapshot commit"
+  pass "D096: SessionStart autofix takes a wiki-history snapshot first ($N commit(s))"
+  rm -rf "$BRAIN2" "$K2"
+else
+  echo "SKIP: D096 — git absent"
+fi
+
 echo; echo "ALL PASS"
