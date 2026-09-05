@@ -348,4 +348,87 @@ grep -q 'src/early.ts' "$ARCHIVE" || fail "window-full-delta: early content miss
 pass "full delta gated+archived; LLM window cap applies to extractor input only"
 restore_path
 
+# --- Test 12 (D177): the EXIT trap installed later (for the extract temp
+# files) must not REPLACE the gate-logging trap installed at the top of the
+# script — bash keeps only the LAST trap for a given signal. Force a merge
+# failure by pre-creating PROJECT.md as a DIRECTORY (merge-project-update.sh
+# then exits non-zero: "project file not found"); assert (a) a `gate=merge-
+# failed` row lands in the audit/error log and (b) the marker does NOT
+# advance, so the same window is retried on the next Stop.
+init_sandbox "merge-failed-trap"
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":["should not reach PROJECT.md"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+rm -rf "$PROJ"
+mkdir -p "$PROJ"   # PROJECT.md is now a DIRECTORY -> merge-project-update.sh must fail
+MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
+rm -f "$MARKER"
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 0 ] || fail "merge-failed-trap: expected exit 0 (fail-soft), got $rc"
+( grep -q 'gate=merge-failed' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+  || grep -q 'gate=merge-failed' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null ) \
+  || fail "merge-failed-trap: no 'gate=merge-failed' row in audit-log or error-log — the second EXIT trap silenced the first"
+[ ! -f "$MARKER" ] || fail "merge-failed-trap: marker advanced despite a failed merge — window would never be retried"
+pass "D177: merge-failed is logged (chained trap) and the marker does not advance on a failed merge"
+restore_path
+
+# --- Test 13 (D077): SB_EXTRACT=off skips the LLM extraction call entirely
+# (no `claude` spawn) but still archives the transcript window and advances
+# the marker — a deterministic files-touched delta merges instead.
+init_sandbox "extract-off"
+seed_transcript_with_edit
+# A claude stub that would fail the test if actually invoked.
+cat > "$SANDBOX/path-stub/claude" <<'EOF'
+#!/bin/bash
+echo "CLAUDE WAS INVOKED — SB_EXTRACT=off must skip this" >&2
+exit 1
+EOF
+chmod +x "$SANDBOX/path-stub/claude"
+export PATH="$SANDBOX/path-stub:$PATH"
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
+stop_payload | SB_EXTRACT=off "$SCRIPT" >/dev/null 2>&1
+grep -q "CLAUDE WAS INVOKED" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  && fail "extract-off: claude was invoked despite SB_EXTRACT=off"
+grep -q "auto-captured" "$PROJ" || fail "extract-off: deterministic delta not merged into PROJECT.md"
+[ -f "$MARKER" ] || fail "extract-off: marker not advanced"
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "extract-off: transcript window was not archived"
+pass "D077: SB_EXTRACT=off skips the LLM call but still archives + advances the marker"
+restore_path
+
+# --- Test 14 (D179): the background episodic-index node process must not
+# inherit stop-extract.sh's own stdout, and a non-zero exit must be logged
+# loudly via sb_log_error (never silently swallowed by `2>/dev/null &`).
+# Stub `node` to fail fast and deterministically — keeps this test fast and
+# non-flaky regardless of the real indexer bundle's runtime.
+init_sandbox "episodic-index-log"
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":["episodic index log test"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+cat > "$SANDBOX/path-stub/node" <<'EOF'
+#!/bin/bash
+echo "stub node failure on stderr" >&2
+echo "stub node failure on stdout"
+exit 7
+EOF
+chmod +x "$SANDBOX/path-stub/node"
+export PATH="$SANDBOX/path-stub:$PATH"
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+# The backgrounded subshell races the parent's exit; poll briefly for its write.
+for _i in $(seq 1 20); do
+  grep -q 'episodic-index-cli exited' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && break
+  sleep 0.25
+done
+grep -q 'episodic-index-cli exited 7' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  || fail "episodic-index-log: a non-zero episodic-index-cli exit was not logged via sb_log_error"
+[ -f "$SANDBOX/.second-brain/episodic-index.log" ] \
+  || fail "episodic-index-log: episodic-index.log was never created — stdout/stderr not redirected to a log file"
+grep -q 'stub node failure on stdout' "$SANDBOX/.second-brain/episodic-index.log" \
+  || fail "episodic-index-log: node's stdout was not captured in episodic-index.log (still inherits the hook's own stdout?)"
+grep -q 'stub node failure on stderr' "$SANDBOX/.second-brain/episodic-index.log" \
+  || fail "episodic-index-log: node's stderr was not captured in episodic-index.log"
+pass "D179: background episodic-index process redirects stdout+stderr to a log and logs a non-zero exit"
+restore_path
+
 echo "ALL PASS"

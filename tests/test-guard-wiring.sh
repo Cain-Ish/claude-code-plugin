@@ -63,4 +63,21 @@ for t in mcp__example__do_thing Glob Grep NotebookEdit; do
 done
 pass "persona-tool-guard out-of-scope contract holds (mcp__*, Glob, Grep, NotebookEdit intentionally NOT matched)"
 
+# --- PostToolUse output reachability (D158): plain stdout from a PostToolUse
+# hook is only ever shown in transcript mode -- hookSpecificOutput.additionalContext
+# JSON is the only path into model context (the pattern simplicity-gate.sh already
+# uses). quality-gate.sh used to `echo` plain text, which never reached the model.
+# Also locks its D077 kill switch.
+QG="$ROOT/scripts/quality-gate.sh"
+[ -f "$QG" ] || fail "scripts/quality-gate.sh missing"
+QG_OUT=$(bash "$QG" 2>/dev/null)
+printf '%s' "$QG_OUT" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse"' >/dev/null 2>&1 \
+  || fail "quality-gate.sh does not emit a PostToolUse hookSpecificOutput envelope (got: $QG_OUT)"
+printf '%s' "$QG_OUT" | jq -e '(.hookSpecificOutput.additionalContext | length) > 0' >/dev/null 2>&1 \
+  || fail "quality-gate.sh envelope has no additionalContext text (got: $QG_OUT)"
+pass "quality-gate.sh emits hookSpecificOutput.additionalContext (reaches model context)"
+QG_OFF=$(SB_QUALITY_GATE=off bash "$QG" 2>/dev/null)
+[ -z "$QG_OFF" ] || fail "SB_QUALITY_GATE=off must silence quality-gate.sh (got: $QG_OFF)"
+pass "SB_QUALITY_GATE=off kill switch silences quality-gate.sh"
+
 echo; echo "ALL PASS"

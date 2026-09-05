@@ -58,6 +58,29 @@ if [ -z "$CODE_MODIFIED" ]; then
   exit 0
 fi
 
+# D181: verification evidence only counts if it ran AFTER the last code edit —
+# a pre-edit test run or a stray `cat build.log` anywhere in the transcript
+# used to satisfy the gate regardless of order. input_line_number tracks each
+# JSONL record's line since transcripts are strict one-object-per-line.
+LAST_EDIT_LINE=$(jq -r '
+  select(.type == "assistant")
+  | .message.content[]?
+  | select(.type == "tool_use")
+  | select(.name == "Write" or .name == "Edit" or .name == "MultiEdit")
+  | input_line_number
+' "$TRANSCRIPT" 2>/dev/null | tail -1)
+case "$LAST_EDIT_LINE" in ''|*[!0-9]*) LAST_EDIT_LINE=0 ;; esac
+
+# Tool_use ids whose result came back an error — a Bash run that FAILED (tests
+# red, build broke) must not count as verification evidence just because its
+# command text matched the keyword list.
+ERRORED_IDS=$(jq -r '
+  select(.type == "user")
+  | .message.content[]?
+  | select(.type == "tool_result" and ((.is_error // false) == true))
+  | .tool_use_id // empty
+' "$TRANSCRIPT" 2>/dev/null | tr -d '\r')
+
 # Discover the project's EXACT verify command from cheap cwd probes, so the
 # block says "run THIS" instead of a generic nag. NAMING ONLY — auto-running from a
 # Stop hook was review-killed (blocks the turn for minutes; breaks the fail-open
@@ -76,15 +99,32 @@ if [ -n "$CWD_DIR" ] && [ -d "$CWD_DIR" ]; then
 fi
 
 # Code was modified — look for verification evidence.
-# 1. Bash commands that look like test/lint/build/check runs.
-VERIFY_CMDS=$(jq -r '
+# 1. Bash commands that look like test/lint/build/check runs, issued AFTER the
+# last edit (D181), whose result (when the transcript carries one) didn't error.
+# NOID placeholder (never a real tool_use id) instead of an empty first field:
+# bash `read` with tab in IFS strips LEADING IFS whitespace before splitting, so
+# an empty id followed by a real tab silently collapses into a one-field read
+# (v_id got the whole "id<TAB>cmd" string, v_cmd came back empty) — every
+# candidate then failed the command match and the gate blocked despite real
+# verification evidence existing.
+VERIFY_CANDIDATES=$(awk -v s="$LAST_EDIT_LINE" 'NR>s' "$TRANSCRIPT" | jq -r '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use" and .name == "Bash")
-  | .input.command // ""
-' "$TRANSCRIPT" 2>/dev/null \
-  | grep -iwE '(test|vitest|jest|pytest|mocha|lint|eslint|tsc|typecheck|type-check|build|check|prettier|biome)' \
-  | head -1)
+  | (.id // "NOID") + "\t" + (.input.command // "")
+' 2>/dev/null | tr -d '\r')
+VERIFY_CMDS=""
+if [ -n "$VERIFY_CANDIDATES" ]; then
+  while IFS=$'\t' read -r v_id v_cmd; do
+    [ -n "$v_cmd" ] || continue
+    printf '%s' "$v_cmd" | grep -iwE '(test|vitest|jest|pytest|mocha|lint|eslint|tsc|typecheck|type-check|build|check|prettier|biome)' >/dev/null 2>&1 || continue
+    if [ "$v_id" != "NOID" ] && printf '%s\n' "$ERRORED_IDS" | grep -qxF "$v_id"; then
+      continue   # this run's own result reported an error — not verification evidence
+    fi
+    VERIFY_CMDS="$v_cmd"
+    break
+  done <<< "$VERIFY_CANDIDATES"
+fi
 
 # 2. Skill invocations (assistant text referencing review/security skills).
 SKILL_EVIDENCE=$(jq -r '

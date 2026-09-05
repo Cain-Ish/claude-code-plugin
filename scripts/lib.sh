@@ -398,6 +398,45 @@ sb_resolve_model() {
   return 0
 }
 
+# D108: the claude CLI accepts a bare dispatch alias (sonnet/opus/haiku/fable) as
+# --model, but the Anthropic Messages API (Backend 2's curl call) only accepts a
+# real model id -- posting the alias 404s as not_found_error. sb_resolve_model's
+# rung 0 is deliberately an alias (so a new release needs no code change), so any
+# caller that talks to the API directly must demote one more rung: walk this
+# surface's ladders in tier order and return the first entry AFTER the alias that
+# is not itself a dispatch alias. Already-concrete input is returned unchanged.
+sb_alias_to_pinned_id() {
+  local surface="${1:-headless}" model="${2:-}" manifest id
+  [ -n "$model" ] || { printf '\n'; return 0; }
+  manifest=$(sb_model_manifest)
+  if [ ! -f "$manifest" ] || ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "$model"; return 0
+  fi
+  id=$(jq -r --arg s "$surface" --arg a "$model" '
+    . as $root
+    | ($root.dispatch_aliases // []) as $aliases
+    | if ($aliases | index($a)) == null then $a
+      else
+        ($root.tiers // []) as $torder
+        | reduce $torder[] as $t (null;
+            if . != null then .
+            else
+              ($root.ladders[$s][$t] // []) as $arr
+              | ($arr | index($a)) as $i
+              | if $i == null then .
+                else ($arr[($i+1):] | map(select(. as $m | ($aliases|index($m)) == null)) | .[0])
+                end
+            end)
+      end
+    // empty
+  ' "$manifest" 2>/dev/null | tr -d '\r')
+  if [ -z "$id" ]; then
+    sb_log_error "lib.sh" "sb_alias_to_pinned_id: no pinned id found for alias '$model' on surface '$surface'; sending alias as-is" 1
+    printf '%s\n' "$model"; return 0
+  fi
+  printf '%s\n' "$id"
+}
+
 # Exit 0 = "this failure was the MODEL, not the network, not the credentials".
 # PRIMARY signal is the process exit code plus the `is_error` envelope field. The headless JSON
 # reports "subtype":"success" even on a model error, so subtype is never read.
@@ -1667,8 +1706,12 @@ sb_reset_maintainer_fails() { rm -f "$BRAIN_DIR/projects/$1/.maintainer-fail-cou
 sb_append_pin_candidate() {
   local slug="$1" text="$2"
   local f="$BRAIN_DIR/projects/$slug/.pin-candidates.jsonl"
-  mkdir -p "$(dirname "$f")" 2>/dev/null
-  jq -nc --arg t "$(date -u +%FT%TZ)" --arg p "$text" '{at:$t, text:$p}' >> "$f" 2>/dev/null
+  mkdir -p "$(dirname "$f")" || { sb_log_error "lib.sh" "pin-candidate: mkdir failed for $f" 1; return 1; }
+  # D120 class: build the row first, append with ONE printf (a jq child writing straight
+  # to the file tears/loses rows under concurrent hooks on Windows).
+  local row
+  row=$(jq -nc --arg t "$(date -u +%FT%TZ)" --arg p "$text" '{at:$t, text:$p}' | tr -d '\r') || return 1
+  [ -n "$row" ] && printf '%s\n' "$row" >> "$f"
 }
 
 sb_count_pin_candidates() {
@@ -1890,7 +1933,12 @@ sb_timeout() {
   # A bounded run beats a loud refusal beats an unbounded run. No `wait $wd` after the kill:
   # waiting on a killed watchdog can block until its sleep expires; the stray subshell is
   # reaped at script exit.
-  "$@" &
+  # <&0 is required: bash gives a backgrounded (`&`) command /dev/null as stdin
+  # unless it explicitly inherits fd 0, even though the caller redirected stdin
+  # on the sb_timeout invocation itself (D115 — that redirect lives on the call,
+  # not on the async command it wraps, so the transcript sent to `claude -p` was
+  # silently empty on every host that hits this fallback).
+  "$@" <&0 &
   local pid=$!
   ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) 2>/dev/null &
   local wd=$!
@@ -2023,20 +2071,27 @@ sb_call_extractor() {
         < "$input_file" > "$out_file" 2>"$err_file" )
       claude_ec=$?
 
-      # Cheap auth-failure signature check on combined stdout+stderr tail.
+      # Parse JSON FIRST (D122): grepping raw stdout+stderr for the auth
+      # signature before checking whether stdout is a valid JSON object
+      # discarded valid extractions whose delta text legitimately mentioned
+      # "unauthorized"/"invalid api key" (e.g. a decision about fixing a 401
+      # handler). Only treat output as an auth failure when it is NOT a valid
+      # JSON object AND matches the signature.
+      if [ -s "$out_file" ]; then
+        sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
+          && mv "${out_file}.clean" "$out_file"
+      fi
+      if [ -s "$out_file" ] && jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+        sb_write_extractor_health "claude-cli" "ok" ""
+        rm -f "$err_file"
+        return 0
+      fi
       local combined
       combined=$(head -c 400 "$out_file" 2>/dev/null; head -c 400 "$err_file" 2>/dev/null)
       if echo "$combined" | grep -qiE '(not logged in|please run /login|unauthorized|invalid api key)'; then
         sb_write_extractor_health "claude-cli" "fail" \
           "auth: $(printf '%s' "$combined" | tr '\n' ' ' | head -c 120)"
       elif [ -s "$out_file" ]; then
-        sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
-          && mv "${out_file}.clean" "$out_file"
-        if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
-          sb_write_extractor_health "claude-cli" "ok" ""
-          rm -f "$err_file"
-          return 0
-        fi
         sb_write_extractor_health "claude-cli" "fail" \
           "non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
       else
@@ -2127,9 +2182,13 @@ sb_call_extractor() {
 
   # --- Backend 2: ANTHROPIC_API_KEY via curl -------------------------------
   if [ -n "${ANTHROPIC_API_KEY:-}" ] && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    # D108: $model may still be a bare dispatch alias (e.g. "sonnet") here --
+    # the CLI accepts that, the Messages API does not. Demote to a real id.
+    local api_model
+    api_model=$(sb_alias_to_pinned_id headless "$model")
     local payload
     payload=$(jq -n \
-      --arg m "$model" \
+      --arg m "$api_model" \
       --arg s "$prompt" \
       --rawfile u "$input_file" \
       '{model:$m, max_tokens:8192, system:$s, messages:[{role:"user", content:$u}]}' 2>/dev/null)
@@ -2144,7 +2203,12 @@ sb_call_extractor() {
       # — the temp file approach avoids that too since curl never reads stdin.)
       _b2_tmp=$(mktemp) && printf '%s' "$payload" > "$_b2_tmp" || { rm -f "$_b2_tmp" 2>/dev/null; _b2_tmp=""; }
       if [ -z "$_b2_tmp" ]; then resp=""; else
-      resp=$(timeout "$timeout_s" curl -sS "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/messages" \
+      # D102: two independent bounds, neither a bare `timeout` (absent on stock
+      # macOS/BSD) -- sb_timeout (gtimeout/timeout/bash-watchdog) wraps the
+      # process, and --max-time bounds curl itself even if sb_timeout's own
+      # binary lookup somehow found nothing to invoke.
+      resp=$(sb_timeout "$timeout_s" curl -sS --max-time "$timeout_s" \
+        "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/messages" \
         -H "x-api-key: $ANTHROPIC_API_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" \
@@ -2289,18 +2353,62 @@ sb_slug_from_archived_transcript() {
   awk -F': ' '/^project_slug:/ {print $2; exit}' "$txt" 2>/dev/null | tr -d '\r'
 }
 
+# D157: shared by stop-extract.sh, pre-compact.sh and sb_extract_transcript below
+# so every capture path filters an extractor delta and persists its relations[]
+# the SAME way. Before this, pre-compact.sh ran neither stage (silently dropping
+# noise-filtering and every relations[] edge on PreCompact) and the drainer ran
+# the gate but never merge-edges.sh.
+#
+# Split into TWO functions, not one, because the two stages are order-sensitive
+# around the merge-project-update.sh call in between: the gate must run BEFORE
+# merge (it filters what gets written), but merge-edges must run AFTER merge
+# (it resolves relations[] endpoints against wiki stub pages that
+# merge-project-update.sh's cross_refs handling may have JUST scaffolded — an
+# edge whose target doesn't exist yet is quarantined instead of asserted).
+# Bundling both into one call at a single point silently broke that ordering.
+
+# Filters $1 (a delta JSON string) through extraction-quality-gate.sh. Echoes
+# the gated delta, or the ORIGINAL delta unchanged if the gate produced empty/
+# invalid output (fail open — never block a capture on a gate failure).
+sb_gate_extraction_delta() {
+  local delta_json="$1" sdir
+  sdir="$(dirname "${BASH_SOURCE[0]}")"
+  local gated
+  gated=$(printf '%s' "$delta_json" | bash "$sdir/extraction-quality-gate.sh" 2>/dev/null)
+  if [ -n "$gated" ] && printf '%s' "$gated" | jq empty 2>/dev/null; then
+    printf '%s' "$gated"
+  else
+    printf '%s' "$delta_json"
+  fi
+}
+
+# Appends any relations[] $1 proposed to the knowledge graph via merge-edges.sh.
+# Call AFTER the delta has been merged into PROJECT.md. Best-effort: a failure
+# here must never fail the caller.
+sb_merge_extraction_edges() {
+  local delta_json="$1" knowledge_dir="$2" sdir
+  sdir="$(dirname "${BASH_SOURCE[0]}")"
+  printf '%s' "$delta_json" | bash "$sdir/merge-edges.sh" --knowledge-dir "$knowledge_dir" 2>/dev/null || true
+}
+
 # Build the extractor input from a preprocessed archived transcript + PROJECT.md,
 # call the extractor, quality-gate the delta, merge it, route persona signals.
 # Returns 0 only on a successful merge. Used by the out-of-band drainer.
 sb_extract_transcript() {
   local txt="$1" slug="$2"
   [ -f "$txt" ] || return 1
-  # Sanitize the slug before it becomes a filesystem path: the drainer reads it
-  # from the transcript's meta header, which is attacker-influenceable (synced /
-  # restored / foreign-written transcripts dir). Without this, a header like
-  # `project_slug: ../../../tmp/x` would escape BRAIN_DIR. Same control the merge
-  # path already applies to JSON-sourced slugs.
-  slug=$(sb_sanitize_slug "$slug") || slug="unknown"
+  # D121: normalize with the SAME rule the capture funnel used to WRITE this
+  # header (sb_slug_from_dir: CR-strip + basename + tmp/scratch collapse) --
+  # NOT sb_sanitize_slug's lowercase/charset rewrite, which put the drainer on
+  # a DIFFERENT project dir than the one already registered/written for any
+  # slug with uppercase, '_' or '.' (Mono__Api -> mono-api, NetMonGuru ->
+  # netmonguru; merge-project-update.sh explicitly forbids this sanitization).
+  # basename() still collapses a `../../tmp/x`-shaped header down to its last
+  # path segment, so the traversal guard this replaces is preserved; a bare
+  # "." or ".." segment is rejected outright since that would still resolve to
+  # a directory outside projects/.
+  slug=$(sb_slug_from_dir "$slug")
+  case "$slug" in .|..) slug="unknown" ;; esac
   local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
   # Tier intent, not a literal: SB_EXTRACTOR_MODEL is declared as a MID pin in model-ladder.json
   # and is applied by sb_resolve_model as rung 0.
@@ -2388,12 +2496,16 @@ TMPL
   rm -f "$in_f" "$out_f"
   [ -n "$delta" ] || return 1
 
-  local gated; gated=$(printf '%s' "$delta" | bash "$sdir/extraction-quality-gate.sh" 2>/dev/null)
-  if [ -n "$gated" ] && printf '%s' "$gated" | jq empty 2>/dev/null; then delta="$gated"; fi
+  delta=$(sb_gate_extraction_delta "$delta")
 
   printf '%s' "$delta" \
     | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" \
       >/dev/null 2>&1 || return 1
+
+  # D157: merge-edges AFTER the merge above — it resolves relations[] endpoints
+  # against wiki stub pages that merge-project-update.sh's cross_refs handling
+  # may have just scaffolded.
+  sb_merge_extraction_edges "$delta" "$kdir"
 
   # Sessions digest (P0 rec 4): the drainer is the recovery path for sessions
   # the in-session extractor skipped — append their continuity line too. The

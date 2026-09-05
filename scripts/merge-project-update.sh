@@ -81,10 +81,35 @@ WIKI_WRITES=0
 # Strip CR from every line — Windows / Git-Bash jq pipelines can leak \r
 # into values, which silently breaks all our string comparisons below.
 strip_cr() { tr -d '\r'; }
-DECISIONS=$(echo "$RAW" | jq -r '.recent_decisions // [] | .[]?' 2>/dev/null | strip_cr)
-BLOCKERS=$(echo  "$RAW" | jq -r '.open_blockers   // [] | .[]?' 2>/dev/null | strip_cr)
-REFS=$(echo      "$RAW" | jq -r '.cross_refs      // [] | .[]?' 2>/dev/null | strip_cr)
-PLAN=$(echo      "$RAW" | jq -r '.plan            // [] | .[]?' 2>/dev/null | strip_cr)
+
+# D142: guard these four array fields the same way merge_handoff (below) already
+# guards handoff's fields — `jq -r '.[]?'` alone pretty-prints a non-string
+# element across several physical lines and expands any embedded \n in a
+# string, so ONE malformed/multi-line element became SEVERAL independently
+# dated, independently 5/15/3/7-capped bullets (brace/key fragments, injected
+# headings), rotating real decisions off the cap. flatten_field keeps only
+# string elements (dropping anything else, logged once) and collapses embedded
+# CR/LF to a space so exactly one source element becomes exactly one line.
+flatten_field() {
+  local raw="$1" key="$2" out dropped
+  out=$(printf '%s' "$raw" | jq -r --arg k "$key" '
+    (.[$k] // []) | (if type == "array" then . else [] end)
+    | map(select(type == "string" and . != ""))
+    | .[]
+    | gsub("[\r\n]+"; " ")
+  ' 2>/dev/null | strip_cr)
+  dropped=$(printf '%s' "$raw" | jq -r --arg k "$key" '
+    (.[$k] // []) | (if type == "array" then . else [] end) | map(select(type != "string")) | length
+  ' 2>/dev/null)
+  if [ -n "${dropped:-}" ] && [ "$dropped" -gt 0 ] 2>/dev/null; then
+    sb_log_error "merge-project-update.sh" "$key: dropped $dropped non-string element(s)" 0
+  fi
+  printf '%s' "$out"
+}
+DECISIONS=$(flatten_field "$RAW" recent_decisions)
+BLOCKERS=$(flatten_field "$RAW" open_blockers)
+REFS=$(flatten_field "$RAW" cross_refs)
+PLAN=$(flatten_field "$RAW" plan)
 # One line only, bounded, leading markdown-header chars stripped (a '#'-prefixed
 # emission would fork the section structure).
 SESSION_GOAL=$(echo "$RAW" | jq -r '.session_goal // ""' 2>/dev/null | strip_cr | head -1 | sed 's/^#*[[:space:]]*//' | head -c 240)
@@ -721,9 +746,19 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
           ' "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
         fi
       fi
-      # Content-aware dedup: skip if the first 60 chars of new content already appear in the page
-      content_check=$(echo "$content" | head -c 60)
-      if grep -qF "$content_check" "$target_file" 2>/dev/null; then
+      # Content-aware dedup: skip only if the new content's 60-byte prefix
+      # already appears (verbatim, in order) in the page.
+      # D143: grep -F treats an embedded newline as separating MULTIPLE alternate
+      # patterns ("a list of fixed strings, separated by newlines"), so the old
+      # `grep -qF "$content_check" "$target_file"` let ANY ONE line of a
+      # multi-line prefix (a recurring "Symptom: .../"Fix:", or even a blank
+      # line matching everything) mark the WHOLE update a duplicate — dropping
+      # genuinely new later lines that were never actually in the page. Flatten
+      # embedded newlines to spaces on BOTH the pattern and the page it
+      # searches, so the compare is exactly ONE literal pattern against ONE
+      # flattened haystack, never a newline-delimited pattern list.
+      content_check=$(printf '%s' "$content" | head -c 60 | tr '\n' ' ')
+      if [ -n "$content_check" ] && tr '\n' ' ' < "$target_file" 2>/dev/null | grep -qF "$content_check"; then
         continue
       fi
       # Append under History/Updates section with timestamp

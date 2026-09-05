@@ -544,4 +544,58 @@ grep -q 'gate=decision-capture pinned=0 stop_only=1' "$BRAIN_DIR/audit-log.jsonl
 pass "superseded bullet is not a dedup target: flip-flop re-pin inserts fresh, metric counts stop_only"
 export BRAIN_DIR="$TMP/brain"
 
+# --- D142: recent_decisions/open_blockers/plan/cross_refs must drop non-string
+# elements (logged once) and flatten embedded CR/LF to a space, so ONE malformed
+# or multi-line element becomes exactly ONE bullet — never several independently
+# dated/capped fragments (object braces, "why": ... keys, injected headings).
+export BRAIN_DIR="$TMP/brain24"; mkdir -p "$BRAIN_DIR"
+PROJ="$TMP/p24.md"; WIKI24="$TMP/wiki24"; mkdir -p "$WIKI24"
+seed_project "$PROJ"
+jq -nc '{recent_decisions:[{"text":"obj decision here","why":"because reasons apply"},"line one of it\nline two of it"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI24" >/dev/null 2>&1 || fail "D142: script exited non-zero"
+DEC_SECTION=$(awk '/^## Recent decisions$/{f=1;next} /^## /{f=0} f' "$PROJ")
+NEW_BULLETS=$(printf '%s\n' "$DEC_SECTION" | grep -c '^- ')
+[ "$NEW_BULLETS" -eq 2 ] \
+  || fail "D142: expected exactly 2 decision bullets (1 seeded + 1 new flattened), got $NEW_BULLETS: $DEC_SECTION"
+printf '%s\n' "$DEC_SECTION" | grep -qE '^- \[[0-9-]+\] line one of it line two of it$' \
+  || fail "D142: multi-line string element must flatten to ONE bullet, embedded newline collapsed to a space (got: $DEC_SECTION)"
+printf '%s\n' "$DEC_SECTION" | grep -qE '"why"|^\- \[.*\] \}$' \
+  && fail "D142: object element leaked brace/key fragments into PROJECT.md (got: $DEC_SECTION)"
+grep -q 'recent_decisions: dropped 1 non-string element' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "D142: expected one sb_log_error row noting the dropped non-string element"
+pass "D142: non-string decision dropped+logged once, multi-line string flattened to one bullet"
+
+# --- D143: wiki_updates content dedup must treat its 60-byte content_check as
+# ONE literal pattern, not a newline-delimited LIST of alternate patterns
+# (grep -F's documented behavior for a multi-line PATTERN arg). A recurring
+# first line ("Symptom: ...") must not, on its own, drop an update whose later
+# lines are genuinely new.
+export BRAIN_DIR="$TMP/brain25"; mkdir -p "$BRAIN_DIR"
+PROJ="$TMP/p25.md"; WIKI25="$TMP/wiki25"; mkdir -p "$WIKI25/wiki/issues"
+seed_project "$PROJ"
+OLDPAGE="$WIKI25/wiki/issues/old-page.md"
+cat > "$OLDPAGE" <<'EOF'
+---
+title: "old"
+type: issues
+---
+
+# old
+
+Symptom: something
+EOF
+UPDATE_JSON='{"wiki_updates":[{"category":"issues","slug":"old-page","action":"update","content":"Symptom: something\nCause: brand new root cause\nFix: apply the new fix"}]}'
+printf '%s' "$UPDATE_JSON" | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI25" >/dev/null 2>&1 || fail "D143: script exited non-zero"
+grep -q 'brand new root cause' "$OLDPAGE" \
+  || fail "D143: update with a recurring first line ('Symptom: something') was wrongly dropped as a duplicate"
+pass "D143: recurring first line alone does not drop an update with genuinely new later lines"
+# Re-running the SAME update must still be a real no-op (true duplicate, full
+# content already present) — the fix must not turn off dedup entirely.
+BEFORE_LINES=$(wc -l < "$OLDPAGE")
+printf '%s' "$UPDATE_JSON" | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI25" >/dev/null 2>&1 || fail "D143: re-run exited non-zero"
+AFTER_LINES=$(wc -l < "$OLDPAGE")
+[ "$BEFORE_LINES" -eq "$AFTER_LINES" ] \
+  || fail "D143: re-applying the identical update was not deduped (before=$BEFORE_LINES after=$AFTER_LINES)"
+pass "D143: an identical re-applied update is still deduped as a true duplicate"
+
 echo "ALL PASS"

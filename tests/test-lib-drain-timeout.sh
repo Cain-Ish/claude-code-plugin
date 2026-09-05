@@ -40,5 +40,23 @@ SB_DRAIN_EXTRACT_TIMEOUT=99 sb_extract_transcript "$TX" "proj" >/dev/null 2>&1 |
 [ "$(cat "$PROBE" 2>/dev/null)" = "99" ] && pass "A2: SB_DRAIN_EXTRACT_TIMEOUT override honored" || fail "A2: override not honored (got '$(cat "$PROBE" 2>/dev/null)')"
 
 echo ""
+echo "=== sb_timeout stdin passthrough (D115) ==="
+# The bash-watchdog fallback (neither timeout nor gtimeout on PATH -- stock
+# macOS/BSD) backgrounds the wrapped command with `&`; bash gives a
+# backgrounded command /dev/null stdin unless it explicitly inherits fd 0 --
+# the caller's own `< file` redirect sits on the sb_timeout INVOCATION, not on
+# the async command it wraps, so `claude -p` got an empty transcript there.
+IN_FILE="$SANDBOX/timeout-in.txt"
+printf 'TRANSCRIPT-BODY\n' > "$IN_FILE"
+OUT_FILE="$SANDBOX/timeout-out.txt"
+(
+  command() { if [ "$1" = -v ] && { [ "$2" = timeout ] || [ "$2" = gtimeout ]; }; then return 1; fi; builtin command "$@"; }
+  sb_timeout 5 cat < "$IN_FILE" > "$OUT_FILE"
+)
+[ "$(cat "$OUT_FILE" 2>/dev/null)" = "TRANSCRIPT-BODY" ] \
+  && pass "D115: bash-watchdog fallback passes stdin through to the wrapped command" \
+  || fail "D115: watchdog fallback stdin was NOT passed through (got '$(cat "$OUT_FILE" 2>/dev/null)')"
+
+echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

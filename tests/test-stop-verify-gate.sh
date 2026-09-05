@@ -346,6 +346,47 @@ assert_block "spine: no memo → plain block" "$OUT"
 printf '%s' "$OUT" | grep -q 'Session goal' \
   && { FAIL=$((FAIL + 1)); echo "  FAIL: goal quote must not appear without a frozen goal (got: $OUT)"; }
 
+# --- D181: verification evidence must come AFTER the last edit and reflect a
+# real (non-error) result, not just matching command text anywhere in the
+# transcript.
+add_test_run_with_id() {  # file id command
+  local file="$1" id="$2" cmd="$3"
+  jq -nc --arg id "$id" --arg cmd "$cmd" \
+    '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",id:$id,name:"Bash",input:{command:$cmd}}]}}' >> "$file"
+}
+add_bash_result() {  # file id is_error
+  local file="$1" id="$2" err="$3"
+  jq -nc --arg id "$id" --argjson err "$err" \
+    '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:$id,is_error:$err,content:"output"}]}}' >> "$file"
+}
+
+# Test 25: a test run BEFORE the edit must not count — only evidence AFTER the
+# last edit satisfies the gate.
+T=$(mk_transcript)
+add_test_run "$T"    # verification runs FIRST
+add_edit_turn "$T"    # code changes AFTER — nothing verified it
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_block "D181: verification BEFORE the last edit does not count as evidence" "$OUT"
+
+# Test 26: a test run AFTER the edit whose OWN result reports is_error:true
+# must not count as verification evidence (the run failed).
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_test_run_with_id "$T" "tu-fail-1" "npm run test"
+add_bash_result "$T" "tu-fail-1" true
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_block "D181: a FAILED test run (is_error:true) does not count as evidence" "$OUT"
+
+# Test 27 (positive control): a test run AFTER the edit whose result reports
+# is_error:false counts as evidence — the exit-status check does not just
+# always block.
+T=$(mk_transcript)
+add_edit_turn "$T"
+add_test_run_with_id "$T" "tu-ok-1" "npm run test"
+add_bash_result "$T" "tu-ok-1" false
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_approve "D181: a successful test run (is_error:false) still counts as evidence" "$OUT"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

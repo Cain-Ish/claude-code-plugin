@@ -19,6 +19,10 @@
 #                        sb_resolve_model walks the model-ladder.json headless ladder,
 #                        where SB_EXTRACTOR_MODEL is declared as a pin at rung 0)
 #   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 25)
+#   SB_EXTRACT=off      — kill switch: skip the LLM extraction call entirely (no
+#                        API spend). The transcript window is still archived and
+#                        the marker still advances — a deterministic files-touched
+#                        delta merges instead, same as an LLM failure would produce.
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
@@ -38,7 +42,18 @@ fi
 # the next /second-brain:status surface exactly which gate the script tripped.
 SB_GATE=""
 log_gate() { SB_GATE="$1"; }
-trap '[ -n "$SB_GATE" ] && sb_log_error "stop-extract.sh" "gate=$SB_GATE" 0' EXIT
+# D177: ONE cleanup function for the whole script's EXIT trap. bash keeps only the
+# LAST `trap ... EXIT` registered — a second `trap ... EXIT` set later (e.g. the
+# temp-file cleanup once EXTRACT_INPUT/EXTRACT_OUT exist) silently REPLACES this
+# one, so every log_gate() call after that point (merge-failed, persona-merge-
+# failed) would set SB_GATE with nothing left to write it. Anything else this
+# script needs to run at exit must be added to this one function, never a bare
+# `trap ... EXIT` elsewhere.
+_sb_stop_extract_cleanup() {
+  [ -n "$SB_GATE" ] && sb_log_error "stop-extract.sh" "gate=$SB_GATE" 0
+  rm -f "${EXTRACT_INPUT:-}" "${EXTRACT_OUT:-}" 2>/dev/null
+}
+trap _sb_stop_extract_cleanup EXIT
 
 # Tier intent, not a literal: SB_EXTRACTOR_MODEL is declared as a MID pin in model-ladder.json
 # and is applied by sb_resolve_model as rung 0, per attempt, inside sb_call_extractor.
@@ -236,7 +251,8 @@ PROMPT=$(cat "$PROMPT_FILE")
 
 EXTRACT_INPUT=$(mktemp)
 EXTRACT_OUT=$(mktemp)
-trap 'rm -f "$EXTRACT_INPUT" "$EXTRACT_OUT" 2>/dev/null' EXIT
+# Cleanup for these two temp files is folded into _sb_stop_extract_cleanup (D177) —
+# a second `trap ... EXIT` here would silently replace the gate-logging trap.
 {
   echo "=== PROJECT.md ==="
   cat "$PROJECT_MD"
@@ -252,7 +268,9 @@ DELTA_JSON=""
 # sb_call_extractor tries claude CLI then ANTHROPIC_API_KEY fallback, and
 # writes a health marker to .extractor-health.json that session-load.sh
 # reads to surface broken auth to the user on the next SessionStart.
-if sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
+if [ "${SB_EXTRACT:-on}" = "off" ]; then
+  log_gate "extract-off"
+elif sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
   DELTA_JSON=$(cat "$EXTRACT_OUT")
 else
   HEALTH_REASON=$(sb_get_extractor_health | jq -r '.reason // "unknown"' 2>/dev/null | tr -d '\r')
@@ -307,28 +325,29 @@ if [ -z "$DELTA_JSON" ]; then
   fi
 fi
 
-# Layer 4 Quality Gate — filter low-quality extractions before merging into PROJECT.md.
-# On gate failure, pass through unchanged (fail open — never block a session-end extraction).
-GATED_DELTA=$(printf '%s' "$DELTA_JSON" | bash "$(dirname "$0")/extraction-quality-gate.sh" 2>/dev/null)
-if [ -n "$GATED_DELTA" ] && printf '%s' "$GATED_DELTA" | jq empty 2>/dev/null; then
-  DELTA_JSON="$GATED_DELTA"
-fi
+# Layer 4 Quality Gate (D157): shared with pre-compact.sh and the out-of-band
+# drainer (sb_gate_extraction_delta, lib.sh) so every capture path filters
+# low-quality extractions the same way. On gate failure, pass through
+# unchanged (fail open — never block a session-end extraction).
+DELTA_JSON=$(sb_gate_extraction_delta "$DELTA_JSON")
 
 MERGE_ERR=$(mktemp)
+MERGE_FAILED=0
 if ! echo "$DELTA_JSON" \
   | bash "$(dirname "$0")/merge-project-update.sh" \
       --project-md "$PROJECT_MD" --knowledge-dir "$KNOWLEDGE_DIR" >/dev/null 2>"$MERGE_ERR"; then
   ERR_TAIL=$(tr '\n' ' ' < "$MERGE_ERR" | head -c 400)
   log_gate "merge-failed err=$ERR_TAIL"
+  MERGE_FAILED=1
 fi
 rm -f "$MERGE_ERR"
 
-# --- Relationship edges (typed, bi-temporal) ---
-# Append any relations[] the extractor proposed to ~/knowledge/graph/edges.jsonl.
-# Pure-bash + deterministic; best-effort — a failure here must never fail the
-# Stop hook. Uses the same quality-gated $DELTA_JSON (the gate preserves the
-# relations field, only filtering decisions/blockers/cross_refs).
-echo "$DELTA_JSON" | bash "$(dirname "$0")/merge-edges.sh" --knowledge-dir "$KNOWLEDGE_DIR" 2>/dev/null || true
+# --- Relationship edges (typed, bi-temporal), D157 ---
+# Shared with pre-compact.sh and the drainer (sb_merge_extraction_edges,
+# lib.sh). Runs AFTER the merge above so relations[] endpoints can resolve
+# against wiki stub pages merge-project-update.sh's cross_refs handling may
+# have just scaffolded. Best-effort — a failure here must never fail the hook.
+sb_merge_extraction_edges "$DELTA_JSON" "$KNOWLEDGE_DIR"
 
 # --- Persona signal + rule-candidate extraction ---
 # One payload object carries both extractor outputs: the merge script owns
@@ -365,12 +384,25 @@ sb_append_session_digest "$SLUG" "$SESSION_ID" "$DG_GOAL" "$DG_OUT" || true
 sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
 
 # --- Incremental episodic index update ---
+# D179: redirect BOTH stdout and stderr of the backgrounded node process to a log
+# file, never inherit the hook's own stdout. A reader of a pipe only sees EOF once
+# every holder closes it — leaving stdout inherited meant Claude Code's read of
+# this hook's JSON response couldn't close until the (unbounded, embeds-everything)
+# index build finished. Failures are fail-loud via sb_log_error, not swallowed.
 PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
 if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/episodic-index-cli.bundle.js" ]; then
-  BRAIN_DIR="$BRAIN_DIR" node "$PLUGIN_DIST/episodic-index-cli.bundle.js" 2>/dev/null &
+  EIDX_LOG="$BRAIN_DIR/episodic-index.log"
+  ( BRAIN_DIR="$BRAIN_DIR" node "$PLUGIN_DIST/episodic-index-cli.bundle.js" >>"$EIDX_LOG" 2>&1
+    _eidx_ec=$?
+    [ "$_eidx_ec" -ne 0 ] && sb_log_error "stop-extract.sh" "episodic-index-cli exited $_eidx_ec (see $EIDX_LOG)" "$_eidx_ec"
+  ) &
 fi
 
 rm -f "$BRAIN_DIR/.session-baseline-$SLUG.md"
-sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
+# D177: a failed merge means this window's decisions never reached PROJECT.md —
+# leave the marker where it is so the NEXT Stop retries the same window (a
+# transient PROJECT.md issue should self-heal on retry) instead of being
+# silently marked processed and lost forever.
+[ "$MERGE_FAILED" = "1" ] || sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
 
 exit 0
