@@ -76,5 +76,19 @@ printf '%s\n%s\n' \
 sb_harden_projects_jsonl "$R4" >/dev/null 2>&1
 check "distinct remotes stay distinct" "2" "$(grep -c . "$R4")"
 
+# 6. D120/D139: a torn/partial line (a concurrent-append tear) must NOT abandon the
+# other valid records — the old strict `-s` slurp aborted on the bad line and left
+# the WHOLE file untouched (return 1), even though two good records were readable.
+T="$TMP/torn.jsonl"
+printf '%s\n' '{"slug":"tornkeep1","last_session_iso":"2026-01-01T00:00:00Z","hot_byte_count":0}' > "$T"
+printf '{"slug":"partial' >> "$T"   # no trailing newline: genuine crash-mid-write tear
+printf '\n%s\n' '{"slug":"tornkeep2","last_session_iso":"2026-02-01T00:00:00Z","hot_byte_count":0}' >> "$T"
+rm -f "$TMP/error-log.jsonl"
+sb_harden_projects_jsonl "$T" >/dev/null 2>&1
+check "torn line: both good records survive" "2" "$(grep -c . "$T")"
+check "torn line: record before the tear kept" "1" "$(jq -s '[.[] | select(.slug=="tornkeep1")] | length' "$T")"
+check "torn line: record after the tear kept" "1" "$(jq -s '[.[] | select(.slug=="tornkeep2")] | length' "$T")"
+check "torn line: logged once via sb_log_error" "1" "$(grep -c 'torn line' "$TMP/error-log.jsonl" 2>/dev/null | head -1)"
+
 rm -rf "$TMP"
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }

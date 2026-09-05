@@ -275,5 +275,64 @@ assert_deny "lib.sh unsourceable → inline fallback still denies (fallback bran
 OUT=$(win_guard_nolib "Write" '\\?\C:\winhome\.ssh\authorized_keys')
 assert_deny "lib.sh unsourceable + \\\\?\\ form → deny (fallback strips long-path prefix)" "$OUT" "ssh"
 
+# --- Test 24 (D182): \\.\ device-namespace path into ~/.ssh → deny -----------
+# \\.\C:\… is a legal Windows device-namespace path form; before the
+# normalizer stripped it, the drive-letter case never matched (same class as
+# \\?\, test 22) and the guard was blind to it.
+OUT=$(win_guard "Write" '\\.\C:\winhome\.ssh\authorized_keys')
+assert_deny "device-namespace \\\\.\\ credential path → deny (D182)" "$OUT" "ssh"
+
+# --- Test 25 (D182): NTFS 8.3 short-name path components → fail CLOSED (deny) ---
+# "SSH~1" / "TMP~1.MKZ" pass through cygpath/realpath UNEXPANDED (neither tool
+# expands 8.3 aliases back to their long form), so a credential dir reached via
+# its short alias never matched the long-form prefix list. The guard cannot
+# safely resolve these — it must deny outright rather than silently allow.
+OUT=$(run_guard "Write" "$HOME/work/repo/SSH~1/id_rsa")
+assert_deny "8.3 short-name component 'SSH~1' → deny (D182, cannot safely resolve)" "$OUT" "8.3"
+OUT=$(run_guard "Write" "$HOME/work/repo/TMP~1.MKZ/SSH~1/id_rsa")
+assert_deny "8.3 short-name components 'TMP~1.MKZ/SSH~1' → deny (D182)" "$OUT" "8.3"
+# A normal tilde-containing filename with NO digit suffix (not 8.3-shaped) is
+# not over-blocked — only the '~<digits>' alias marker triggers the deny.
+OUT=$(run_guard "Write" "$HOME/work/repo/notes~draft.md")
+assert_allow "'~' without a digit suffix is not 8.3-shaped — not over-blocked" "$OUT"
+
+# --- Test 26 (D183): lexical '..' collapse in the no-realpath fallback -------
+# realpath+greadlink stubbed to exit 127 (the stock-macOS shape test 17 uses).
+# Vector A: a '..' escape through a NOT-YET-CREATED intermediate directory
+# (the common case for a Write that creates new dirs) must still resolve and
+# deny — before this fix `cd` failed on the missing "newdir" and the fallback
+# fell back to the RAW lexical path with '..' still literally in it, which
+# never prefix-matched ~/.ssh and silently allowed.
+OUT=$(gen Write "$HOME/work/repo/newdir/../../../.ssh/id_rsa" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+assert_deny "D183 vector A: '..' through a not-yet-created dir → deny" "$OUT" "ssh"
+
+# Vector B: '..' through an EXISTING parent (control — already worked before
+# the fix; must keep working).
+OUT=$(gen Write "$HOME/work/../work/repo/../../.ssh/id_rsa" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+assert_deny "D183 vector B: '..' through an existing parent → deny" "$OUT" "ssh"
+
+# Vector C: no '..' at all, direct existing-parent path (control).
+OUT=$(gen Write "$HOME/.ssh/id_rsa" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+assert_deny "D183 vector C: direct ~/.ssh path (no realpath) → deny" "$OUT" "ssh"
+
+# Vector E: a symlinked ancestor with a NOT-YET-CREATED child (no '..' at
+# all) — the fallback must dereference the symlinked ancestor via `pwd -P`
+# even though the leaf's immediate parent doesn't exist yet. This defeats
+# G-HOOK-2's stated purpose if missed.
+if supports_symlinks; then
+  ln -sf "$HOME/.ssh" "$HOME/work/repo/link-to-ssh"
+  OUT=$(gen Write "$HOME/work/repo/link-to-ssh/sub/id_rsa" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+  assert_deny "D183 vector E: symlinked ancestor + not-yet-created child → deny" "$OUT" "ssh"
+  rm -f "$HOME/work/repo/link-to-ssh"
+else
+  echo "SKIP: test 26 vector E — requires real symlink support (Windows without Developer Mode)"
+  pass "D183 vector E (skipped — no symlink support)"
+fi
+
+# A normal project write with '..' segments that stay inside the project is
+# NOT over-blocked (the collapse must resolve correctly, not just deny everything).
+OUT=$(gen Write "$HOME/work/repo/sub/../main.py" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+assert_allow "D183: '..' collapsing to an in-project path is not over-blocked" "$OUT"
+
 echo
 echo "ALL PASS"

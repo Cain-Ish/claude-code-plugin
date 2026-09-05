@@ -71,6 +71,13 @@ aeq "C:/Users/me/x" "$got" "no cygpath -> backslash converted, drive kept (fallb
 got=$(sb_normalize_path '\\?\C:\Users\me\.ssh\authorized_keys')
 aeq "/c/Users/me/.ssh/authorized_keys" "$got" "\\\\?\\ extended-length prefix stripped -> /c POSIX"
 
+# 7b (D182): Windows device-namespace prefix \\.\C:\… — the SAME local drive
+# path spelled a different legal way. Before the fix only \\?\ was stripped,
+# so \\.\C:\… never matched the drive-letter case below and every guard's
+# credential/scope prefix compare silently missed it.
+got=$(sb_normalize_path '\\.\C:\Users\me\.ssh\authorized_keys')
+aeq "/c/Users/me/.ssh/authorized_keys" "$got" "\\\\.\\ device-namespace prefix stripped -> /c POSIX (D182)"
+
 # 8. Loopback admin-share UNC — the same local drive in disguise.
 got=$(sb_normalize_path '\\localhost\c$\Users\me\.ssh\id_rsa')
 aeq "/c/Users/me/.ssh/id_rsa" "$got" "\\\\localhost\\c\$ admin share -> /c POSIX"

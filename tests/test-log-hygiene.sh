@@ -82,4 +82,37 @@ grep -q '"r0"' "$AUD" && fail "(e) rotation kept the oldest audit lines"
 grep -q 'gate=post-rotation' "$AUD" || fail "(e) new trace missing after rotation"
 pass "(e) trace path rotates via the audit-log's own 5000-line policy"
 
+# --- (f) D120: concurrent sb_log_audit appends land intact (no loss, no tears) ---
+# On Windows the native jq.exe child writing DIRECTLY to the file via `jq -nc … >>`
+# does not get an O_APPEND handle, so two concurrent writers race at the same offset
+# and one record's head gets overwritten by another — sometimes leaving a malformed
+# fragment line, sometimes (equal-length rows) a CLEAN overwrite with no visible
+# corruption at all, just a silently lost row. Two workers x 150 real sb_log_audit
+# calls each (matches the reproduction that found the bug) must all survive.
+: > "$AUD"
+_concurrent_writer() {
+  # shellcheck source=/dev/null
+  . "$REPO_ROOT/scripts/lib.sh"
+  local n j
+  n="$1"
+  for j in $(seq 1 150); do
+    sb_log_audit "concurrent-writer-$n" ask "rule" "target-$n-$j" "reason $j" "sid"
+  done
+}
+export -f _concurrent_writer
+export REPO_ROOT
+( _concurrent_writer A ) &
+( _concurrent_writer B ) &
+wait
+CONC_LINES=$(wc -l < "$AUD" | tr -d ' ')
+[ "$CONC_LINES" -eq 300 ] || fail "(f) concurrent sb_log_audit lost rows: got $CONC_LINES of 300"
+node -e '
+  const fs = require("fs");
+  const lines = fs.readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean);
+  let bad = 0;
+  for (const l of lines) { try { JSON.parse(l.replace(/\r$/, "")); } catch (e) { bad++; } }
+  if (bad > 0) { console.error("malformed=" + bad); process.exit(1); }
+' "$AUD" || fail "(f) concurrent sb_log_audit produced torn/malformed JSON lines"
+pass "(f) 300 concurrent sb_log_audit appends (2 workers x150) land intact, none lost or torn"
+
 echo "ALL PASS"

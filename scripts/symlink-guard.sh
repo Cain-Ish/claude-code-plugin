@@ -62,6 +62,7 @@ if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
   sb_normalize_path() {
     local p="${1//\\//}"
     p="${p#"//?/"}"   # \\?\C:\… extended-length prefix (minimal mirror of lib.sh's canonical)
+    p="${p#"//./"}"   # \.\C:\... device-namespace prefix (D182, same mirror)
     case "$p" in [A-Za-z]:/*) command -v cygpath >/dev/null 2>&1 && p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p") ;; esac
     printf '%s' "$p"
   }
@@ -78,29 +79,69 @@ FILE_PATH=$(sb_normalize_path "$FILE_PATH")
 RESOLVED=$(realpath -m -- "$FILE_PATH" 2>/dev/null)        # GNU coreutils: follows leaf + parent, missing-tolerant
 [ -z "$RESOLVED" ] && RESOLVED=$(greadlink -f -- "$FILE_PATH" 2>/dev/null)  # macOS Homebrew coreutils
 if [ -z "$RESOLVED" ]; then
-  # Stock BSD/macOS (no GNU realpath/greadlink, or BSD realpath which lacks `-m`): resolve the
-  # PARENT dir's symlinks PORTABLY via `cd … && pwd -P` (bash 3.2 / BSD safe), THEN dereference
-  # the leaf itself if it is a symlink — so a benign-named file that is a symlink INTO a
-  # credential dir is caught, not just a symlinked PARENT. Lexical ~-expansion is the last
-  # resort. Fail CLOSED throughout — never a blind allow.
-  _pd=$(dirname -- "$FILE_PATH"); _pb=$(basename -- "$FILE_PATH")
-  _rpd=$(cd "$_pd" 2>/dev/null && pwd -P)
-  if [ -n "$_rpd" ]; then
-    if [ -L "$_rpd/$_pb" ]; then
-      _tgt=$(readlink -- "$_rpd/$_pb" 2>/dev/null)
-      case "$_tgt" in /*) RESOLVED="$_tgt" ;; *) RESOLVED="$_rpd/$_tgt" ;; esac
+  # Stock BSD/macOS (no GNU realpath/greadlink, or BSD realpath which lacks `-m`).
+  # D183: walk the path component-by-component from the root, resolving symlinks
+  # at each STILL-EXISTING ancestor via `cd … && pwd -P` (bash 3.2 / BSD safe).
+  # Once a component does not exist yet (the common case for a Write that
+  # creates new directories), lexically collapse the REMAINING '.'/'..'
+  # segments against the last resolved ancestor instead of returning the raw
+  # unresolved tail — `cd` failing on ONE missing directory must not
+  # short-circuit into a lexical passthrough that leaves '..' unresolved (a
+  # Write to <repo>/<newdir>/../../../.ssh/id_rsa was silently ALLOWED before
+  # this fix, and a symlinked ancestor with a not-yet-created child, e.g.
+  # <repo>/link-to-.ssh/sub/id_rsa, was too). Fail CLOSED throughout.
+  _rem="$FILE_PATH"
+  case "$_rem" in
+    /*) _res="/" ;;
+    *)  _res="$PWD/" ;;
+  esac
+  while [ -n "$_rem" ]; do
+    _rem="${_rem#/}"
+    _seg="${_rem%%/*}"
+    case "$_rem" in */*) _rem="${_rem#*/}" ;; *) _rem="" ;; esac
+    case "$_seg" in
+      ""|".") continue ;;
+      "..")
+        _res="${_res%/}"; _res="${_res%/*}"; [ -z "$_res" ] && _res="/"
+        continue
+        ;;
+    esac
+    _cand="${_res%/}/$_seg"
+    if _rp=$(cd "$_cand" 2>/dev/null && pwd -P); then
+      _res="$_rp"
+    elif [ -L "$_cand" ]; then
+      _tgt=$(readlink -- "$_cand" 2>/dev/null)
+      case "$_tgt" in /*) _res="$_tgt" ;; *) _res="${_res%/}/$_tgt" ;; esac
     else
-      RESOLVED="$_rpd/$_pb"
+      _res="${_res%/}/$_seg"
     fi
-  else
-    RESOLVED="${FILE_PATH/#\~/$HOME}"
-  fi
+  done
+  RESOLVED="$_res"
 fi
 # Normalize realpath's OUTPUT to the /c/… form so it matches the credential
 # prefixes (see the pre-realpath note above — this is the load-bearing half).
 RESOLVED=$(sb_normalize_path "$RESOLVED")
 
 SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r' || true)
+
+# D182: NTFS 8.3 short-name components ("SSH~1" for .ssh, "TMP~1.MKZ" for a
+# longer temp dir) pass through cygpath/realpath UNEXPANDED — a credential
+# dir reached via its short alias never matches the long-form prefix list
+# below, and this guard has no portable way to expand an 8.3 alias back to
+# its long form. Fail CLOSED: deny outright, before the prefix match, rather
+# than risk a credential-dir alias slipping past unresolved.
+if printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | grep -qE '(^|/)[^/]*~[0-9]+(\.[^/.]*)?(/|$)'; then
+  SHORTNAME_REASON="Write to '$FILE_PATH' (resolved '$RESOLVED') contains an NTFS 8.3 short-name path component (e.g. 'NAME~1'), which cannot be safely expanded back to its long form. Symlink-guard denies rather than risk a credential-dir alias slipping past the prefix check. Suppress: SB_SYMLINK_GUARD=off."
+  sb_log_audit "symlink-guard.sh" "deny" "ntfs-8.3-shortname" "${TOOL}(${FILE_PATH})" "$SHORTNAME_REASON" "$SESSION_ID"
+  jq -nc --arg r "$SHORTNAME_REASON" '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: $r
+    }
+  }' 2>/dev/null || true
+  exit 0
+fi
 
 # Credential-dir prefix check. Each entry is "label:absolute-prefix".
 # Order matters only for which label the user sees first; the deny verdict

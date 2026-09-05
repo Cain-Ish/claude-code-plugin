@@ -115,4 +115,20 @@ printf '%s\n' "$G_OUT" | grep -q 'tunnel-alpha' \
   || fail "G: 1 dismissal (< threshold) must NOT suppress injection, got: $G_OUT"
 pass "G: below the dismissal threshold the injection still fires"
 
+# --- H (D159): a torn line in the dismissals log must not undercount toward 0 ---
+# `jq -s` (slurp) aborts the WHOLE count on one unparseable line; the old
+# `|| echo 0` treated that as "zero dismissals", letting the ambient injection
+# through even with >= SB_PERSONA_DISMISS_MAX genuine dismissals recorded.
+BRAIN_H="$SANDBOX/brain-h"; mkdir -p "$BRAIN_H"
+for i in 1 2 3; do printf '{"at":"%sT12:00:0%dZ","reason":"noise"}\n' "$TODAY" "$i"; done > "$BRAIN_H/.persona-dismissals.jsonl"
+printf '{"at":"broken' >> "$BRAIN_H/.persona-dismissals.jsonl"   # no trailing newline: genuine crash-mid-write tear
+H_OUT=$(printf '{"prompt":"implement the tunnel alpha page feature now","session_id":"h-sess"}' \
+  | CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" KNOWLEDGE_DIR="$KD" BRAIN_DIR="$BRAIN_H" \
+    SECOND_BRAIN_DISABLE_EMBEDDINGS=1 bash "$PC" 2>/dev/null || true)
+[ -z "$H_OUT" ] || fail "H: a torn line must not undercount dismissals toward 0 (injection leaked through), got: $H_OUT"
+pass "H: a torn line in the dismissals log does not defeat the backoff (still suppresses)"
+grep -q 'torn line' "$BRAIN_H/error-log.jsonl" 2>/dev/null \
+  || fail "H: torn dismissals line must be logged via sb_log_error"
+pass "H: torn dismissals line logged once via sb_log_error"
+
 echo "ALL PASS"

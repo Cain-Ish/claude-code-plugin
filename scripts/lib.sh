@@ -48,9 +48,13 @@ sb_normalize_path() {
   local p="$1" u d
   [ -z "$p" ] && return 0
   p="${p//\\//}"
-  # Windows extended-length prefix \\?\C:\… (→ //?/C:/… after slashing): strip
-  # to the plain drive form so it can't sail past the drive-letter case below.
+  # Windows extended-length prefix \\?\C:\… (→ //?/C:/… after slashing) and the
+  # device-namespace prefix \\.\C:\… (→ //./C:/… after slashing) are both legal
+  # ways to spell the same local drive path. D182: only //?/ was stripped, so
+  # //./C:/… never matched the drive-letter case below, cygpath never ran, and
+  # every credential/scope prefix compare silently missed it (fail-open).
   p="${p#"//?/"}"
+  p="${p#"//./"}"
   # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…) is the same
   # local drive in disguise — rewrite to drive form. Other-host UNC paths are
   # not locally resolvable and pass through unchanged (documented limit).
@@ -250,13 +254,22 @@ sb_log_error() {
   fi
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   if command -v jq >/dev/null 2>&1; then
-    jq -nc \
+    # D120: jq writing DIRECTLY to the file via `>>` is NOT atomic on Windows —
+    # the native jq.exe child inherits a plain end-of-file handle rather than an
+    # O_APPEND one, so two concurrent writers race at the same offset and a
+    # shorter record overwrites the head of a longer one, leaving a torn-line
+    # fragment behind. Build the row as a single-line string FIRST (jq -c,
+    # CR-stripped) and append it with bash's own single `printf … >>` write —
+    # a single builtin write() is what survived the concurrency repro where the
+    # jq-child-writes-the-file version did not (40/40 lines vs lines lost/torn).
+    local line
+    line=$(jq -nc \
       --arg t "$ts" \
       --arg s "$script_name" \
       --arg m "$error_msg" \
       --argjson c "$exit_code" \
-      '{timestamp:$t, script:$s, message:$m, exit_code:$c}' \
-      >> "$target" 2>/dev/null
+      '{timestamp:$t, script:$s, message:$m, exit_code:$c}' 2>/dev/null | tr -d '\r')
+    [ -n "$line" ] && printf '%s\n' "$line" >> "$target" 2>/dev/null
   else
     local esc_script esc_msg
     esc_script=$(printf '%s' "$script_name" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -462,12 +475,21 @@ sb_log_audit() {
     if ! echo "$extra_json" | jq -e 'type == "object"' >/dev/null 2>&1; then
       extra_json='{}'
     fi
-    jq -nc \
+    # D120: jq writing DIRECTLY to the file via `>>` is NOT atomic on Windows — the
+    # native jq.exe child inherits a plain end-of-file handle rather than an O_APPEND
+    # one, so parallel PreToolUse guards racing this call land at the same offset and
+    # a shorter record overwrites the head of a longer one (the exact shape of the
+    # torn lines found in the live audit-log). Build the row as a single-line string
+    # FIRST (jq -c, CR-stripped) and append it with bash's own single `printf … >>`
+    # write — the concurrency repro showed 40/40 lines intact for bash-printf-appends
+    # vs lines lost/torn for jq-child-appends at the same concurrency.
+    local line
+    line=$(jq -nc \
       --arg t "$ts" --arg h "$hook" --arg v "$verdict" \
       --arg r "$rule" --arg target "$target" --arg reason "$reason" \
       --arg sid "$session_id" --argjson x "$extra_json" \
-      '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:$x}' \
-      >> "$SB_AUDIT_FILE" 2>/dev/null
+      '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:$x}' 2>/dev/null | tr -d '\r')
+    [ -n "$line" ] && printf '%s\n' "$line" >> "$SB_AUDIT_FILE" 2>/dev/null
   else
     # jq absent — fall back to printf-built JSON, stripping C0 control chars
     # so multi-line reasons cannot fragment a JSONL record into two.
@@ -501,6 +523,26 @@ sb_rotate_audit_log() {
       && mv "$tmp" "$SB_AUDIT_FILE" \
       || rm -f "$tmp" 2>/dev/null
   fi
+}
+
+# D159/D139: counts non-blank lines in FILE that fail to parse as JSON (CRLF-tolerant —
+# jq's own parser skips a trailing \r as insignificant whitespace, verified). Every
+# tolerant JSONL reader below calls this ONCE per read so a torn/partial line (a
+# concurrent-append tear, a crash mid-write) can be logged a single time via
+# sb_log_error instead of once per skipped row, which would flood error-log.jsonl.
+# Always prints a number and returns 0 — an absent file or missing jq is "0 torn",
+# never an error (this is a diagnostic count, not a gate).
+sb_count_torn_lines() {
+  local f="${1:-}"
+  [ -n "$f" ] && [ -f "$f" ] || { printf '0\n'; return 0; }
+  command -v jq >/dev/null 2>&1 || { printf '0\n'; return 0; }
+  local n
+  n=$(jq -nR '
+    [inputs | select(length > 0) | (try (fromjson | 1) catch 0)]
+    | map(select(. == 0)) | length
+  ' "$f" 2>/dev/null | tr -d '\r')
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%s\n' "$n"
 }
 
 # Resolve the plugin root: $CLAUDE_PLUGIN_ROOT when the hook harness sets it, else the lib.sh
@@ -620,13 +662,30 @@ sb_auto_accept_decision() {
 # ZERO pins, so every pin (and every auto-graduated persona signal from
 # merge-persona-signals.sh) was refused with a bare `return 1`, silently, forever — the signal
 # then re-fired on every extraction (ledger LC-07, 2026-08-23). Mirrors
-# mcp/src/tools/pin-to-user.ts exactly (same regex, same MAX, same section) — change both or
+# mcp/src/tools/pin-to-user.ts's structure (same regex, same MAX, same section) — change both or
 # neither. Returns 0 on success/dupe-noop, 1 on a REFUSAL, which is now logged, never silent.
 sb_pin_to_user() {
-  local text="${1:?sb_pin_to_user: text required}"
+  local raw_text="${1:?sb_pin_to_user: text required}"
   local user_file="$BRAIN_DIR/USER.md"
   local max_pins=15
-  local today new_line
+  local flatten_cap=400
+  local today new_line text
+
+  # D109: flatten BEFORE splicing — text here can be transcript-derived (persona
+  # signals graduate through this exact function). USER.md is the priority-1 block
+  # session-load.sh injects into EVERY SessionStart, so an embedded newline/backtick
+  # forges "## Section" headers or fenced directives into that context (the same
+  # memory-poisoning primitive pin-to-project.ts's flattenField closed in 0.48.0).
+  # CR/LF/backtick -> space, collapse whitespace runs, trim, cap length — no NFC
+  # step (bash has none; a JS-only gap the TS twin still normalizes for).
+  text=$(printf '%s' "$raw_text" | tr '\r\n`' '   ' | tr -s '[:space:]' ' ')
+  text="${text#"${text%%[![:space:]]*}"}"
+  text="${text%"${text##*[![:space:]]}"}"
+  text="${text:0:$flatten_cap}"
+  if [ -z "$text" ]; then
+    sb_log_error "lib.sh" "sb_pin_to_user REFUSED: text was empty after flattening (was: ${raw_text:0:80})" 1
+    return 1
+  fi
   today=$(date -u +%Y-%m-%d)
   new_line="- [$today] $text"
 
@@ -640,8 +699,18 @@ sb_pin_to_user() {
 ## Pinned"
   fi
 
-  # Dupe → no-op success (matches the TS twin's semantics).
-  if printf '%s\n' "$content" | grep -qiF "$text"; then
+  # D110: dedupe on the EXACT pin-line text, not a whole-file substring/multi-pattern
+  # grep. `grep -qiF "$text"` treated a multi-line $text as one alternative PATTERN
+  # PER LINE — an embedded blank line was an empty pattern that matched every line
+  # in USER.md (hand-written prose included), so the pin silently no-op'd while the
+  # caller (merge-persona-signals.sh) believed it had graduated. Compare only
+  # "- [DATE] …" pin lines, mirroring the TS twin's PIN_RE test on the captured text.
+  local existing_pin=""
+  while IFS= read -r pin_line; do
+    [ -z "$pin_line" ] && continue
+    if [ "${pin_line#*] }" = "$text" ]; then existing_pin="$pin_line"; break; fi
+  done < <(printf '%s\n' "$content" | grep -E '^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] ')
+  if [ -n "$existing_pin" ]; then
     return 0
   fi
 
@@ -849,8 +918,15 @@ sb_slug_from_remote() {
   # arg would be rewritten to a Windows path and never match the registry. The flag
   # suppresses conversion of EVERY argument, so the registry is fed via stdin
   # redirection (opened by bash, immune to conversion) instead of a path argument.
-  if ! out=$(MSYS_NO_PATHCONV=1 jq -sr --arg want "$want" "$SB_JQ_REMOTE_ID"'
-        [ .[] | select(type=="object")
+  # D120/D159: `-s` (slurp) aborts the WHOLE read on one torn/unparseable line — a
+  # single concurrent-append tear anywhere in projects.jsonl would silently disable
+  # remote-identity lookup for EVERY project, not just the torn record. `-nR … inputs
+  # | fromjson?` parses per-line and skips only the bad one; a torn line is logged
+  # once here (not per row).
+  local torn; torn=$(sb_count_torn_lines "$reg")
+  [ "${torn:-0}" -gt 0 ] && sb_log_error "lib.sh" "sb_slug_from_remote: skipped $torn torn line(s) in $reg" 0
+  if ! out=$(MSYS_NO_PATHCONV=1 jq -nrR --arg want "$want" "$SB_JQ_REMOTE_ID"'
+        [ inputs | fromjson? | select(type=="object")
               | select(((.slug // "") | type) == "string" and (.slug // "") != "")
               | select(((.git_remote // "") | type) == "string" and (.git_remote // "") != "")
               | select((.git_remote | nrm) == $want) ]
@@ -908,22 +984,59 @@ sb_harden_projects_jsonl() {
            | map(if length > 1 then rkeep else .[0] end)) as $withremote
         | $noremote + $withremote | .[]' \
         "$f" 2>/dev/null | tr -d '\r' > "$tmp" || [ ! -s "$tmp" ]; then
-    rm -f "$tmp"
-    echo "harden: could not parse $f — left intact (manual review)" >&2
-    return 1
+    # D120/D139: the strict `-s` slurp above (needed to also accept a pretty-printed
+    # or bare JSON-array file — see the function comment) aborts entirely on ONE
+    # torn/unparseable line, e.g. a concurrent-append tear from sb_slug_from_remote's
+    # writers. Before giving up and leaving the file untouched, retry with a per-line
+    # tolerant read (fromjson? skips only the bad line) — but ONLY when the failure is
+    # actually a torn line; a genuinely unparseable file (binary garbage, truncated
+    # mid-object) still fails loud and leaves $f intact, exactly as before.
+    local torn; torn=$(sb_count_torn_lines "$f")
+    if [ "${torn:-0}" -gt 0 ] && jq -ncR "$SB_JQ_REMOTE_ID"'
+          [inputs | fromjson? | select(type=="object" and (.slug|type=="string") and .slug!="")]
+          | group_by(.slug) | map(max_by(.last_session_iso // ""))
+          | (map(select(((.git_remote // "") | type) != "string" or (.git_remote // "") == ""))) as $noremote
+          | (map(select(((.git_remote // "") | type) == "string" and (.git_remote // "") != ""))
+             | group_by(.git_remote | nrm)
+             | map(if length > 1 then rkeep else .[0] end)) as $withremote
+          | $noremote + $withremote | .[]' \
+          < "$f" 2>/dev/null | tr -d '\r' > "$tmp" && [ -s "$tmp" ]; then
+      sb_log_error "lib.sh" "sb_harden_projects_jsonl: skipped $torn torn line(s) in $f" 0
+    else
+      rm -f "$tmp"
+      echo "harden: could not parse $f — left intact (manual review)" >&2
+      return 1
+    fi
   fi
   if cmp -s "$f" "$tmp"; then rm -f "$tmp"; return 0; fi   # already canonical → no churn, no backup
   # Slugs a remote-identity collapse is about to DROP (computed from the pre-rewrite
   # file so the report names them even after the records are gone). Dropping a slug
   # redirects that project's future sessions — never silent.
-  local dropped
+  local dropped dropped_rc=0
   dropped=$(jq -sr "$SB_JQ_REMOTE_ID"'
       flatten | map(select(type=="object" and (.slug|type=="string") and .slug!=""))
       | group_by(.slug) | map(max_by(.last_session_iso // ""))
       | map(select(((.git_remote // "") | type) == "string" and (.git_remote // "") != ""))
       | group_by(.git_remote | nrm)
       | map(select(length > 1) | (map(.slug) - [rkeep.slug]))
-      | flatten | join(",")' "$f" 2>/dev/null | tr -d '\r')
+      | flatten | join(",")' "$f" 2>/dev/null) || dropped_rc=$?
+  dropped=$(printf '%s' "$dropped" | tr -d '\r')
+  # D120: this list is informational only (feeds the log message below). Gate the
+  # retry on the strict call's OWN exit code, not on "$dropped is empty" — empty is
+  # also the normal, successful "nothing to drop" result and must not trigger a
+  # retry (a pretty-printed file legitimately has no single-line-parseable rows,
+  # which made an earlier version of this fallback misfire on every clean run).
+  if [ "$dropped_rc" -ne 0 ] && [ "$(sb_count_torn_lines "$f")" -gt 0 ]; then
+    dropped=$(jq -nRr "$SB_JQ_REMOTE_ID"'
+        [inputs | fromjson? | select(type=="object" and (.slug|type=="string") and .slug!="")]
+        | group_by(.slug) | map(max_by(.last_session_iso // ""))
+        | map(select(((.git_remote // "") | type) == "string" and (.git_remote // "") != ""))
+        | group_by(.git_remote | nrm)
+        | map(select(length > 1) | (map(.slug) - [rkeep.slug]))
+        | flatten | join(",")' < "$f" 2>/dev/null | tr -d '\r')
+  elif [ "$dropped_rc" -ne 0 ]; then
+    dropped=""
+  fi
   local bak; bak="$f.bak.$(date -u +%Y%m%dT%H%M%SZ)"
   if cp "$f" "$bak" && mv "$tmp" "$f"; then
     echo "harden: canonicalized $f (backup: $bak)"

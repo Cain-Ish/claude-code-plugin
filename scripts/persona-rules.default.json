@@ -54,21 +54,21 @@
     {
       "name": "warn-self-edit-plugin-scripts",
       "tool": "Write",
-      "match_path": "/(claude-code-plugin|second-brain)/(scripts|hooks)/[^/]+\\.(sh|json)$",
+      "match_path": "/(claude-code-plugin|second-brain)/([^/]+/)?(scripts|hooks)/[^/]+\\.(sh|json)$",
       "action": "ask",
       "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
     },
     {
       "name": "warn-self-edit-plugin-scripts-edit",
       "tool": "Edit",
-      "match_path": "/(claude-code-plugin|second-brain)/(scripts|hooks)/[^/]+\\.(sh|json)$",
+      "match_path": "/(claude-code-plugin|second-brain)/([^/]+/)?(scripts|hooks)/[^/]+\\.(sh|json)$",
       "action": "ask",
       "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
     },
     {
       "name": "warn-self-edit-plugin-scripts-multiedit",
       "tool": "MultiEdit",
-      "match_path": "/(claude-code-plugin|second-brain)/(scripts|hooks)/[^/]+\\.(sh|json)$",
+      "match_path": "/(claude-code-plugin|second-brain)/([^/]+/)?(scripts|hooks)/[^/]+\\.(sh|json)$",
       "action": "ask",
       "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
     },

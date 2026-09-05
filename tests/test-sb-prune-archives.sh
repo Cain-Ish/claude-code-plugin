@@ -35,6 +35,18 @@ jq -e '.entries["episodic:keepme"]' "$CACHE" >/dev/null 2>&1 && pass "empty inde
 # restore a populated index for the rest of the run
 printf '{"model":"m","exchanges":[{"id":"live1"},{"id":"live2"}]}\n' > "$B/episodic-index.json"
 
+# D159: a torn/truncated episodic-index.json (present but unparseable — a crash mid-write,
+# not the ordinary "no index yet" case) must NOT cause deletion — the GC must skip and fail
+# LOUD (sb_log_error), not silently look identical to "nothing to prune this run".
+printf '{"model":"m","entries":{"episodic:keepme2":{"hash":"h","vector":[1]}}}\n' > "$CACHE"
+printf '{"model":"m","exchanges":[{"id":"live1"' > "$B/episodic-index.json"   # truncated, no trailing newline
+rm -f "$B/error-log.jsonl"
+bash "$PRUNE" >/dev/null 2>&1 || true
+jq -e '.entries["episodic:keepme2"]' "$CACHE" >/dev/null 2>&1 && pass "torn episodic-index → cache left untouched (no deletion)" || fail "torn episodic-index caused a deletion"
+grep -q 'unparseable' "$B/error-log.jsonl" 2>/dev/null && pass "torn episodic-index logged loudly via sb_log_error" || fail "torn episodic-index was skipped silently (not logged)"
+# restore a populated index for the rest of the run
+printf '{"model":"m","exchanges":[{"id":"live1"},{"id":"live2"}]}\n' > "$B/episodic-index.json"
+
 # --- (b) .bak/.tgz TTL prune: recent kept, ancient pruned
 touch "$B/recent.bak"
 touch -t 202001010000 "$B/old.bak" "$B/old.tgz" "$B/episodic-index.json.pre-rebuild-x"

@@ -93,8 +93,28 @@ TMPL
   # a duplicate registration on the next session that creates PROJECT.md.
   # jq --slurp parses pretty-printed and JSONL identically.
   if [ -f "$INDEX_FILE" ]; then
-    if ! jq -se --arg s "$slug" 'map(select(.slug == $s)) | length > 0' \
+    # D120/D139: `jq -se` exits non-zero for TWO different reasons — "slug not
+    # found" (exit 1, a normal result) and "could not parse the file at all" (a
+    # torn/partial line — a concurrent-append tear, see D120). The old `if !`
+    # treated both the same, so a torn line anywhere in the registry made an
+    # ALREADY-registered project look absent and appended a duplicate row.
+    # Distinguish them: exit 1 IS "not found"; anything else falls back to a
+    # per-line tolerant scan (fromjson? skips only the bad line) before deciding.
+    IS_MEMBER=1
+    if jq -se --arg s "$slug" 'map(select(.slug == $s)) | length > 0' \
         "$INDEX_FILE" >/dev/null 2>&1; then
+      IS_MEMBER=0
+    elif [ "$?" -ne 1 ]; then
+      TORN_IDX=$(sb_count_torn_lines "$INDEX_FILE")
+      if [ "${TORN_IDX:-0}" -gt 0 ]; then
+        sb_log_error "session-load.sh" "projects.jsonl membership check: skipped $TORN_IDX torn line(s) for slug=$slug" 0
+        if jq -nR --arg s "$slug" '[inputs | fromjson? | select(type=="object" and .slug==$s)] | length > 0' \
+             < "$INDEX_FILE" 2>/dev/null | grep -q '^true$'; then
+          IS_MEMBER=0
+        fi
+      fi
+    fi
+    if [ "$IS_MEMBER" -ne 0 ]; then
       jq -nc --arg s "$slug" --arg n "$slug" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
              --arg p "$parent" --arg rp "$root_path" --arg gr "$git_remote" \
         '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}
@@ -711,10 +731,16 @@ if [ -f "$PERSONA_FILE" ] && [ -s "$PERSONA_FILE" ] && command -v jq >/dev/null 
   # score field is stamped by merge-persona-signals.sh; records that predate
   # it fall back to the same count->base map (no decay) so the threshold
   # never fails open on an unstamped file.
-  SIGNALS=$(jq -rs --arg cutoff "$THIRTY_DAYS_AGO" '
+  # D159: `-s` (slurp) aborts the WHOLE read on one torn/unparseable line — a
+  # concurrent-append tear anywhere in persona-signals.jsonl would silently drop
+  # this banner (and every signal in it) for every later session. `-R … fromjson?`
+  # skips just the bad line. Log the tear once (not per skipped row).
+  PERSONA_TORN=$(sb_count_torn_lines "$PERSONA_FILE")
+  [ "${PERSONA_TORN:-0}" -gt 0 ] && sb_log_error "session-load.sh" "persona-signals.jsonl: skipped $PERSONA_TORN torn line(s)" 0
+  SIGNALS=$(jq -rnR --arg cutoff "$THIRTY_DAYS_AGO" '
     def base: if .count >= 11 then 0.85 elif .count >= 6 then 0.7
               elif .count >= 3 then 0.5 else 0.3 end;
-    [.[] | select(
+    [inputs | fromjson? | select(type=="object") | select(
       .last_seen >= $cutoff and
       .graduated == false and
       ((.score // base) >= 0.7)

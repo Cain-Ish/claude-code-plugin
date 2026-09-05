@@ -181,5 +181,29 @@ LINES=$(grep -c . "$BRAIN_DIR/projects.jsonl")
 [ "$LINES" = "3" ] || fail "registry line count changed (expected 3 intact lines, got $LINES)"
 pass "corrupt mid-file line → rewrite skipped, registry left byte-intact (no truncation)"
 
+# --- Phase F (D120/D139): a torn line in projects.jsonl must not fool the
+# membership check into re-registering an ALREADY-registered slug. `jq -se`
+# aborts on the torn line with a parse error (not "not found"); the old code
+# treated any non-zero exit the same way, so a torn line anywhere in the
+# registry made an already-registered project look absent and appended a
+# duplicate row (PROJECT.md is created fresh here, so the registration block
+# actually runs).
+init_sandbox "torn-line-membership"
+printf '%s\n' '{"slug":"test-project","name":"test-project","last_session_iso":"2026-05-01T00:00:00Z","hot_byte_count":0}' \
+  > "$BRAIN_DIR/projects.jsonl"
+printf '{"slug":"partial' >> "$BRAIN_DIR/projects.jsonl"   # no trailing newline: genuine crash-mid-write tear
+run
+# A duplicate append lands on the SAME physical line as the (newline-less) torn
+# line, so both count_entries_for's `jq -se` AND a per-line-tolerant `fromjson?`
+# read would see that merged line as unparseable and silently miss the second
+# registration. Count raw occurrences of the slug key instead — robust to where
+# the duplicate landed.
+COUNT=$(grep -o '"slug":"test-project"' "$BRAIN_DIR/projects.jsonl" | wc -l | tr -d ' ')
+[ "$COUNT" = "1" ] || fail "torn-line registry: expected 1 occurrence of the slug (no duplicate), got $COUNT"
+pass "torn line in projects.jsonl does not cause a duplicate registration"
+grep -q 'torn line' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "torn line must be logged via sb_log_error"
+pass "torn line in projects.jsonl is logged once via sb_log_error"
+
 echo
 echo "ALL PASS"

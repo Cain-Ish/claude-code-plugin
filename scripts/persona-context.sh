@@ -153,7 +153,17 @@ if [ -f "$_DISMISS_F" ]; then
   _DMAX="${SB_PERSONA_DISMISS_MAX:-3}";        case "$_DMAX" in ''|*[!0-9]*) _DMAX=3 ;; esac
   _DWIN="${SB_PERSONA_DISMISS_WINDOW_DAYS:-7}"; case "$_DWIN" in ''|*[!0-9]*) _DWIN=7 ;; esac
   _DCUT=$(date -u -d "-${_DWIN} days" +%Y-%m-%d 2>/dev/null || date -u -v-"${_DWIN}"d +%Y-%m-%d 2>/dev/null || echo "9999-99-99")
-  _DCOUNT=$(jq -s -r --arg c "$_DCUT" '[ .[] | select(((.at // "")[0:10]) >= $c) ] | length' "$_DISMISS_F" 2>/dev/null || echo 0)
+  # D159: `jq -s` (slurp) aborts the WHOLE count on one torn/unparseable line — the
+  # old `|| echo 0` then undercounted toward 0, defeating the backoff exactly when a
+  # busy session (lots of concurrent-append tears, see D120) needs it most. Per-line
+  # tolerant read instead. lib.sh is sourced HERE (not unconditionally at the top of
+  # this file) so the common no-dismissals-file path still skips its cost.
+  source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" 2>/dev/null || true
+  if command -v sb_count_torn_lines >/dev/null 2>&1; then
+    _DTORN=$(sb_count_torn_lines "$_DISMISS_F")
+    [ "${_DTORN:-0}" -gt 0 ] && sb_log_error "persona-context.sh" "dismissals-log: skipped $_DTORN torn line(s)" 0
+  fi
+  _DCOUNT=$(jq -nR -r --arg c "$_DCUT" '[ inputs | fromjson? | select(type=="object") | select(((.at // "")[0:10]) >= $c) ] | length' "$_DISMISS_F" 2>/dev/null)
   case "$_DCOUNT" in ''|*[!0-9]*) _DCOUNT=0 ;; esac
   [ "$_DCOUNT" -ge "$_DMAX" ] && exit 0
 fi

@@ -44,9 +44,11 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 # job) even when audit logging is unavailable.
 if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
   sb_log_audit() { :; }
+  sb_log_error() { :; }
   sb_normalize_path() {
     local p="${1//\\//}"
     p="${p#"//?/"}"   # \\?\C:\… extended-length prefix (minimal mirror of lib.sh's canonical)
+    p="${p#"//./"}"   # \\.\C:\… device-namespace prefix (D182, same mirror)
     case "$p" in [A-Za-z]:/*) command -v cygpath >/dev/null 2>&1 && p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p") ;; esac
     printf '%s' "$p"
   }
@@ -56,7 +58,17 @@ USER_RULES="$BRAIN_DIR/persona-rules.json"
 DEFAULT_RULES="$PLUGIN_ROOT/scripts/persona-rules.default.json"
 RULES_FILE=""
 if [ -f "$USER_RULES" ]; then
-  RULES_FILE="$USER_RULES"
+  # D154: an existing user rules file that is EMPTY or not valid JSON must not
+  # silently disarm every PreToolUse rule (a truncated write from
+  # merge-persona-signals.sh, or a prompt-injected Edit that leaves the file
+  # invalid, both land here). Fall back to the shipped defaults and say so,
+  # loud, once — `-s` guards jq -e against jq 1.6's "empty input exits 0".
+  if [ -s "$USER_RULES" ] && jq -e 'type == "object"' "$USER_RULES" >/dev/null 2>&1; then
+    RULES_FILE="$USER_RULES"
+  elif [ -f "$DEFAULT_RULES" ]; then
+    sb_log_error "persona-tool-guard.sh" "user persona-rules.json at $USER_RULES is empty or not valid JSON — falling back to persona-rules.default.json" 1
+    RULES_FILE="$DEFAULT_RULES"
+  fi
 elif [ -f "$DEFAULT_RULES" ]; then
   RULES_FILE="$DEFAULT_RULES"
 fi
@@ -226,6 +238,27 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ]; then
         ~/*) abs_path="$HOME/${PATH_INPUT#~/}" ;;
         *)   abs_path="$CWD/$PATH_INPUT" ;;
       esac
+      # D155: lexically collapse '.'/'..' BEFORE the allowlist prefix match.
+      # sb_normalize_path only does backslash/drive-letter work, never '..'
+      # collapsing, so "$CWD/../../../etc/shadow" prefix-matched "$CWD" and
+      # silently stayed in scope despite resolving to the same file a
+      # canonicalized path would. Pure lexical (no filesystem access, no
+      # symlink resolution -- this guard does not realpath its targets).
+      case "$abs_path" in
+        /*)
+          _rsg_out="" _rsg_rest="${abs_path#/}"
+          while [ -n "$_rsg_rest" ]; do
+            _rsg_seg="${_rsg_rest%%/*}"
+            case "$_rsg_rest" in */*) _rsg_rest="${_rsg_rest#*/}" ;; *) _rsg_rest="" ;; esac
+            case "$_rsg_seg" in
+              ""|".") : ;;
+              "..") _rsg_out="${_rsg_out%/*}" ;;
+              *) _rsg_out="$_rsg_out/$_rsg_seg" ;;
+            esac
+          done
+          abs_path="${_rsg_out:-/}"
+          ;;
+      esac
       # Walk allowlist (with $CWD / $HOME interpolation) + SB_RESOURCE_SCOPE_EXTRA.
       in_scope=0
       while IFS= read -r prefix; do
@@ -358,12 +391,29 @@ case "$V_ACTION" in
     # error on grouped alternations and silently zero NEW_CMD; SOH cannot occur in a command.
     # If either operand contains SOH, pass the command through unchanged rather than corrupt it.
     SOH=$'\x01'
+    REWRITE_OK=1
     case "$V_MATCH$V_REPLACE" in
       *"$SOH"*) NEW_CMD="$CMD" ;;
-      *) NEW_CMD=$(printf '%s' "$CMD" | sed -E "s${SOH}${V_MATCH}${SOH}${V_REPLACE}${SOH}g") ;;
+      *)
+        NEW_CMD=$(printf '%s' "$CMD" | sed -E "s${SOH}${V_MATCH}${SOH}${V_REPLACE}${SOH}g" 2>/dev/null)
+        SED_RC=$?
+        # D156: only SOH-in-operand was guarded. Any OTHER sed failure
+        # (unterminated s command from a replace ending in backslashes, a bad
+        # backreference, ...) left NEW_CMD empty while this branch still
+        # unconditionally emitted permissionDecision:allow with
+        # updatedInput.command:"" — corrupting the call AND skipping the
+        # user's normal permission prompt. Fail to ask instead.
+        if [ "$SED_RC" -ne 0 ] || { [ -z "$NEW_CMD" ] && [ -n "$CMD" ]; }; then REWRITE_OK=0; fi
+        ;;
     esac
-    sb_log_audit "persona-tool-guard.sh" "rewrite" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
-    jq -nc --arg c "$NEW_CMD" --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r,updatedInput:{command:$c}}}'  || true
+    if [ "$REWRITE_OK" = "0" ]; then
+      FAIL_REASON="Rewrite rule '$V_RULE' produced an invalid replacement (sed could not safely apply match_command/replace) — refusing to auto-allow an unverifiable rewrite. Original reason: $V_REASON"
+      sb_log_audit "persona-tool-guard.sh" "ask" "$V_RULE" "$V_TARGET" "$FAIL_REASON" "$SESSION_ID"
+      jq -nc --arg r "$FAIL_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$r}}'  || true
+    else
+      sb_log_audit "persona-tool-guard.sh" "rewrite" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
+      jq -nc --arg c "$NEW_CMD" --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r,updatedInput:{command:$c}}}'  || true
+    fi
     ;;
   warn)
     # Advisory-only: additionalContext, deliberately NO permissionDecision — an advisory must
