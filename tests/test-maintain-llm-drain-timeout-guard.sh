@@ -84,7 +84,10 @@ _make_wrapper() {
 }
 for _t in bash sh jq stat date touch cat find wc head tail ls rm mkdir mv \
           awk sed tr grep sort cp realpath readlink basename dirname mktemp git \
-          node; do   # node: the Stage B consolidate-writer is a hard harness dependency
+          node env; do   # node: the Stage B consolidate-writer is a hard harness dependency;
+                          # env: D134 execs Stage B via `env -i <allowlist> node ...` so its
+                          # spawn carries no stray credentials/vars — without env on PATH the
+                          # writer itself fails as "command not found" (rc 127), not a jail effect.
   _make_wrapper "$_t"
 done
 unset _t
