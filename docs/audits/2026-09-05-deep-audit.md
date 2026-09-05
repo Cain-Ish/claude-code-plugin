@@ -19,8 +19,8 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 
 | id | title | where | status |
 |---|---|---|---|
-| D017 | Hybrid RRF/embeddings path never executes in CI (ci.yml:42-44 pins embeddings off; 3 real-model vitest blocks skip) — covered only by the local pre-push run and an arithmetic ceiling lock | `.github/workflows/ci.yml:197` | open |
-| D025 | persona-tool-guard's ask/deny is emitted only at script end and 14/2267 live Windows runs exceeded the 5 s hooks.json timeout — nothing in-plugin enforces or detects the overrun | `hooks/hooks.json:88` | open |
+| D017 | Hybrid RRF/embeddings path never executes in CI (ci.yml:42-44 pins embeddings off; 3 real-model vitest blocks skip) — covered only by the local pre-push run and an arithmetic ceiling lock | `.github/workflows/ci.yml:197` | fixed |
+| D025 | persona-tool-guard's ask/deny is emitted only at script end and 14/2267 live Windows runs exceeded the 5 s hooks.json timeout — nothing in-plugin enforces or detects the overrun | `hooks/hooks.json:88` | wontfix(code-side: hooks.json timeout/fail-open needs a script or timeout-value change, not a comment fix; needs the scripts-batch worker) |
 | D037 | Absolute in-repo imports (Python PEP8 style, TS path aliases) are classified external → zero-edge graph, uniform PageRank injected as "highest-connectivity spine" and code_neighbors reports 0 importers, with no degeneracy signal | `mcp/src/tools/codemap/extract.ts:474` | fixed |
 | D039 | codemap accepts any registered root: nogit glob walk of HOME/Temp yields a junk map and re-walks the whole tree on every staleness probe (71 s measured) | `mcp/src/tools/codemap/scan-sources.ts:191` | fixed |
 | D054 | UTF-8 BOM page reported as missing_frontmatter; autofix prepends a second block, permanently losing project:/tags: and re-dating created/updated to today | `mcp/src/tools/frontmatter.ts:13` | fixed |
@@ -40,21 +40,21 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D177 | stop-extract.sh:239 cleanup EXIT trap replaces the :41 gate-logging trap — merge-failed (:322) and persona-merge-failed (:343) are set but never written to any log | `scripts/stop-extract.sh:239` | open |
 | D182 | symlink-guard fails open on Windows for `\\.\` device-namespace paths and NTFS 8.3 short names (shared sb_normalize_path gap, so wiki-write-guard/persona-tool-guard inherit it) | `scripts/symlink-guard.sh:101` | fixed |
 | D183 | symlink-guard's BSD/macOS fallback fails OPEN whenever any intermediate directory is missing — `cd` fails at scripts/symlink-guard.sh:87 and line 96 hands back the raw lexical path, so both `..` traversal AND a symlinked ancestor with a not-yet-created subdir write into ~/.ssh, ~/.aws, /etc undenied | `scripts/symlink-guard.sh:96` | fixed |
-| D201 | Setup consent ladder (skills/setup/SKILL.md:314-316) falsely tells macOS/Windows users the token-spending, OAuth-using auto_maintain lane is a bwrap-gated no-op; bwrap is additive-only and the lane runs on every OS (repeated in sb-run-and-operate:110-111,184) | `skills/setup/SKILL.md:314` | open |
-| D206 | run-all.sh:110 SKIP detection is whole-file + column-0 only: indented partial skips in 8 tests are invisible, and column-0 partial skips discard the file's real passes (forcing manifest pins that mask future skips) | `tests/run-all.sh:110` | open |
+| D201 | Setup consent ladder (skills/setup/SKILL.md:314-316) falsely tells macOS/Windows users the token-spending, OAuth-using auto_maintain lane is a bwrap-gated no-op; bwrap is additive-only and the lane runs on every OS (repeated in sb-run-and-operate:110-111,184) | `skills/setup/SKILL.md:314` | fixed |
+| D206 | run-all.sh:110 SKIP detection is whole-file + column-0 only: indented partial skips in 8 tests are invisible, and column-0 partial skips discard the file's real passes (forcing manifest pins that mask future skips) | `tests/run-all.sh:110` | fixed |
 
 ## medium (64)
 
 | id | title | where | status |
 |---|---|---|---|
-| D005 | sb-change-control SKILL.md §5 wrongly claims current policy is direct-to-main / zero merge commits since f4856e5, contradicting RELEASING.md and 15 actual PR merges through HEAD | `.claude/skills/sb-change-control/SKILL.md:154` | open |
-| D007 | Flag catalog (sb-config-and-flags SKILL.md + flag-catalog.md) omits real, user-facing SB_* kill switches (SB_WIKI_GIT, SB_OBSERVATION_LEDGER, SB_BRAIN_OS_NO_LLM, SB_SCOPE_CROSS_SLOTS, SB_GROUNDING_DF_SHARE, and others) — doc has drifted stale since its 2026-07-05 census | `.claude/skills/sb-config-and-flags/SKILL.md:5` | open |
-| D008 | sb-config-and-flags SKILL.md misattributes auto_codemap's file/line/test to the pre-0.41.0 extract-drain.sh location (now brain-os-run.sh), misstates discover-*.sh count as three (actually two), and flag-catalog.md documents only 1 of 6 SB_CODEMAP_* env vars (SB_CODEMAP_NEIGHBORS_MAX undocumented anywhere) | `.claude/skills/sb-config-and-flags/SKILL.md:116` | open |
-| D011 | sb-run-and-operate §8 (and sb-change-control/sb-validation-and-qa) cite stale skill/test surface counts and list the removed `improve` skill as shipping; the stale-surface DENY regex has no entry for it | `.claude/skills/sb-run-and-operate/SKILL.md:262` | open |
+| D005 | sb-change-control SKILL.md §5 wrongly claims current policy is direct-to-main / zero merge commits since f4856e5, contradicting RELEASING.md and 15 actual PR merges through HEAD | `.claude/skills/sb-change-control/SKILL.md:154` | fixed |
+| D007 | Flag catalog (sb-config-and-flags SKILL.md + flag-catalog.md) omits real, user-facing SB_* kill switches (SB_WIKI_GIT, SB_OBSERVATION_LEDGER, SB_BRAIN_OS_NO_LLM, SB_SCOPE_CROSS_SLOTS, SB_GROUNDING_DF_SHARE, and others) — doc has drifted stale since its 2026-07-05 census | `.claude/skills/sb-config-and-flags/SKILL.md:5` | fixed |
+| D008 | sb-config-and-flags SKILL.md misattributes auto_codemap's file/line/test to the pre-0.41.0 extract-drain.sh location (now brain-os-run.sh), misstates discover-*.sh count as three (actually two), and flag-catalog.md documents only 1 of 6 SB_CODEMAP_* env vars (SB_CODEMAP_NEIGHBORS_MAX undocumented anywhere) | `.claude/skills/sb-config-and-flags/SKILL.md:116` | fixed |
+| D011 | sb-run-and-operate §8 (and sb-change-control/sb-validation-and-qa) cite stale skill/test surface counts and list the removed `improve` skill as shipping; the stale-surface DENY regex has no entry for it | `.claude/skills/sb-run-and-operate/SKILL.md:262` | fixed |
 | D015 | pre-push git hook is not auto-installed; docs describe it as the enforced local release gate but nothing wires core.hooksPath on setup | `.githooks/pre-push:2` | open |
-| D016 | ci.yml:48-50 runs run-all.sh on ubuntu with the expected-skips guard unarmed (run-all.sh:205 Linux arm = __unset__), so whole-file SKIPs are warn-only and the only full-suite lane stays green | `.github/workflows/ci.yml:202` | open |
-| D018 | Dream skill and dream-runner hard-code ~/.second-brain, ignoring the SB_BRAIN_DIR/BRAIN_DIR override the MCP honours | `agents/dream-runner.md:33` | open |
-| D023 | hooks.json comments wrongly assume ordered/sequential hook execution within one event; races in registration-gate (SessionStart) and audit-log rotation (Stop) follow from the same false assumption | `hooks/hooks.json:51` | open |
+| D016 | ci.yml:48-50 runs run-all.sh on ubuntu with the expected-skips guard unarmed (run-all.sh:205 Linux arm = __unset__), so whole-file SKIPs are warn-only and the only full-suite lane stays green | `.github/workflows/ci.yml:202` | fixed |
+| D018 | Dream skill and dream-runner hard-code ~/.second-brain, ignoring the SB_BRAIN_DIR/BRAIN_DIR override the MCP honours | `agents/dream-runner.md:33` | fixed |
+| D023 | hooks.json comments wrongly assume ordered/sequential hook execution within one event; races in registration-gate (SessionStart) and audit-log rotation (Stop) follow from the same false assumption | `hooks/hooks.json:51` | fixed |
 | D029 | sb CLI's access-count telemetry write is raced by process.exit(): 0-byte .tmp litter, counts never persisted | `mcp/src/cli/sb-entry.ts:11` | fixed |
 | D031 | knowledge_reindex tool description omits that it unconditionally runs knowledge_validate with autofix:true (deletes empty pages, rewrites frontmatter), bypassing the Phase 3b safe-default that knowledge_validate itself enforces | `mcp/src/server.ts:207` | fixed |
 | D035 | Fact sanitizer leaves U+2028/U+2029; JS multiline-regex frontmatter parsing and first-match extraction let a forged type:/project:/related: embedded in the title win over the writer's real values, applied unattended under auto_accept=all | `mcp/src/tools/candidate-facts.ts:158` | fixed |
@@ -62,10 +62,10 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D059 | Thin-scope auto-broaden buries a strictly stronger other-project page behind weak in-scope pages, contradicting the 'placed FIRST' reservation contract | `mcp/src/tools/knowledge-search.ts:439` | fixed |
 | D060 | Search snippet fallback for description-less pages slices raw frontmatter-included file content instead of doc.body, injecting YAML into model context | `mcp/src/tools/knowledge-search.ts:248` | fixed |
 | D066 | Empty-page autofix unlinks whitespace-only pages with no re-check, racing non-atomic writers | `mcp/src/tools/knowledge-validate.ts:257` | fixed |
-| D076 | README:7-8 (and sb-memory-systems-reference SKILL.md:377) claim unattended consolidation/auto-accept is Linux-only; bwrap gates nothing and the lane auto-accepts on Windows/macOS at the shipped default | `README.md:7` | open |
-| D077 | README promises every guard/pipeline has an SB_* kill switch; quality-gate PostToolUse nudge, stop-extract/pre-compact LLM extraction, and the always-included PROJECT.md hot-tier injection have none | `README.md:57` | open |
-| D078 | README's "only network calls are Anthropic API calls" is contradicted by the vector-tier HuggingFace model fetch (and npm install in install-vector-deps.sh) | `README.md:110` | open |
-| D079 | README and sb-architecture-contract SKILL.md call plan-first a soft/never-blocking nudge; with SB_INTENT_SPINE defaulting to on, it hard-denies PreToolUse (Gate A and Gate B) | `README.md:46` | open |
+| D076 | README:7-8 (and sb-memory-systems-reference SKILL.md:377) claim unattended consolidation/auto-accept is Linux-only; bwrap gates nothing and the lane auto-accepts on Windows/macOS at the shipped default | `README.md:7` | fixed |
+| D077 | README promises every guard/pipeline has an SB_* kill switch; quality-gate PostToolUse nudge, stop-extract/pre-compact LLM extraction, and the always-included PROJECT.md hot-tier injection have none | `README.md:57` | fixed |
+| D078 | README's "only network calls are Anthropic API calls" is contradicted by the vector-tier HuggingFace model fetch (and npm install in install-vector-deps.sh) | `README.md:110` | fixed |
+| D079 | README and sb-architecture-contract SKILL.md call plan-first a soft/never-blocking nudge; with SB_INTENT_SPINE defaulting to on, it hard-denies PreToolUse (Gate A and Gate B) | `README.md:46` | fixed |
 | D091 | dream-snapshot's cp -rp of the wiki is unchecked; a partial staging copy can pass dream-accept's 50% floor and trigger deletion of missing live pages via rsync --delete | `scripts/dream-snapshot.sh:136` | open |
 | D096 | ensure-dirs.sh runs mutating wiki autofix (deletes empty pages via fs.unlink) at SessionStart without a wiki-history snapshot, contradicting the wiki_git reversibility promise it seeds in config.json | `scripts/ensure-dirs.sh:104` | open |
 | D097 | ensure-dirs.sh comment wrongly claims SB_MAINTAINER_AUTO=off disables the token-spending maintainer; it only silences the suggestion banner (session-load.sh:205/249), while the real spend gates (maintain-llm-drain.sh:27, brain-os-run.sh:76) check only config.json auto_maintain | `scripts/ensure-dirs.sh:21` | open |
@@ -96,17 +96,17 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D179 | Background episodic-index node process (stop-extract.sh:369, pre-compact.sh:213) inherits hook stdout, so Stop/PreCompact can't be confirmed closed until the index build finishes; hook-timer.sh latency telemetry structurally excludes that time | `scripts/stop-extract.sh:370` | open |
 | D181 | stop-verify-gate.sh accepts unordered, exit-code-blind Bash text as verification evidence — a stray `cat build.log` or pre-edit test run silently approves any later unverified edits | `scripts/stop-verify-gate.sh:86` | open |
 | D184 | Unicode tag-block detector's fixed 3-byte prefix (F3 A0 80) misses tag LETTERS U+E0041–U+E007A (3rd byte 0x81); comment at line 136 also cites the wrong byte range | `scripts/tool-return-scanner.sh:142` | fixed |
-| D185 | Surface-budget ratchet silently disabled by a missing or non-numeric budget key | `scripts/validate-plugin.sh:202` | open |
+| D185 | Surface-budget ratchet silently disabled by a missing or non-numeric budget key | `scripts/validate-plugin.sh:202` | fixed |
 | D188 | verify.sh's 66-line hot-tier cap is stale vs session-load.sh's byte-budget design and, combined with .last-verify only advancing on full pass, causes a permanent, worsening FAIL | `scripts/verify.sh:22` | open |
 | D190 | wiki-forget-score.sh's *session* glob strips FORGET category-protection from any protected-category slug containing 'session', not just auto-generated session-narrative noise | `scripts/wiki-forget-score.sh:87` | open |
 | D191 | wiki-history.sh restore ignores pre-restore safety-snapshot failure and proceeds, then falsely claims an undo point exists | `scripts/wiki-history.sh:205` | open |
 | D193 | wiki-restore.sh silently overwrites a live page that now occupies the restored slug (and destroys the archived copy too, since it's a move not a copy) | `scripts/wiki-restore.sh:38` | open |
-| D196 | Inline dream step 2f calls knowledge_reindex (autofix:true) against the LIVE wiki mid-dream, violating the skill's own "never touch live wiki during execution" constraint and breaking dream_discard's rollback guarantee | `skills/dream/SKILL.md:177` | open |
-| D199 | Eight skills invoke external binaries/MCP tools not declared in their own allowed-tools, and the repo's own guard test only spot-checks a subset | `skills/review/SKILL.md:106` | open |
-| D202 | Setup consent ladder mis-describes auto_improve's effect and omits half the seeded automation knobs (shows "three tiers", six are seeded) | `skills/setup/SKILL.md:310` | open |
-| D204 | upgrade/SKILL.md and lint/SKILL.md use bare `sort -V` (BSD/macOS-incompatible) with no fallback, while sibling scripts in the same repo hand-roll BSD-safe alternatives for this exact reason | `skills/upgrade/SKILL.md:33` | open |
-| D207 | run-all.sh sandboxes HOME only: parent BRAIN_DIR/KNOWLEDGE_DIR/SB_*/CLAUDECODE pass through to every test | `tests/run-all.sh:78` | open |
-| D210 | tests/test-bundle-current.sh's sed 's/ && /\n/g' relies on a GNU-only \n-as-newline extension, spuriously failing the bundle-current gate under BSD sed on macOS, and the class is unguarded (macOS CI lane skips this test; portability guard deliberately excludes tests/) | `tests/test-bundle-current.sh:28` | open |
+| D196 | Inline dream step 2f calls knowledge_reindex (autofix:true) against the LIVE wiki mid-dream, violating the skill's own "never touch live wiki during execution" constraint and breaking dream_discard's rollback guarantee | `skills/dream/SKILL.md:177` | fixed |
+| D199 | Eight skills invoke external binaries/MCP tools not declared in their own allowed-tools, and the repo's own guard test only spot-checks a subset | `skills/review/SKILL.md:106` | fixed |
+| D202 | Setup consent ladder mis-describes auto_improve's effect and omits half the seeded automation knobs (shows "three tiers", six are seeded) | `skills/setup/SKILL.md:310` | fixed |
+| D204 | upgrade/SKILL.md and lint/SKILL.md use bare `sort -V` (BSD/macOS-incompatible) with no fallback, while sibling scripts in the same repo hand-roll BSD-safe alternatives for this exact reason | `skills/upgrade/SKILL.md:33` | fixed |
+| D207 | run-all.sh sandboxes HOME only: parent BRAIN_DIR/KNOWLEDGE_DIR/SB_*/CLAUDECODE pass through to every test | `tests/run-all.sh:78` | fixed |
+| D210 | tests/test-bundle-current.sh's sed 's/ && /\n/g' relies on a GNU-only \n-as-newline extension, spuriously failing the bundle-current gate under BSD sed on macOS, and the class is unguarded (macOS CI lane skips this test; portability guard deliberately excludes tests/) | `tests/test-bundle-current.sh:28` | fixed |
 | D212 | SB_FORGET_MIN_AGE_DAYS pinned to 0 in every accept-time FORGET test — no positive-case lock on the 30-day reversibility floor | `tests/test-dream-accept-guards.sh:225` | open |
 | D215 | SB_INTERACTIVE_OVERRIDE pins the interactive-defer decision in every drainer test; the POSIX pgrep branch is never behaviorally exercised | `tests/test-extract-drain.sh:22` | open |
 | D218 | test-persona-tool-guard.sh tests 3, 7, and the persona-rules self-edit check are tautological — they pass via the resource-scope ask, not the hot-tier/self-edit rules they claim to lock | `tests/test-persona-tool-guard.sh:44` | open |
@@ -116,17 +116,17 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 
 | id | title | where | status |
 |---|---|---|---|
-| D001 | sb-architecture-contract hook table stale: fork matcher missing, hook-timer/timeout counts, MCP line numbers wrong | `.claude/skills/sb-architecture-contract/SKILL.md:68` | open |
-| D002 | Stale file:line citations pervasive across CONSTITUTION, daily-prompt, and every sb-* skill | `.claude/skills/sb-architecture-contract/SKILL.md:19` | open |
-| D004 | Architecture contract §7 overstates write-time frontmatter enforcement and carries stale skill/agent/script/test counts | `.claude/skills/sb-architecture-contract/SKILL.md:309` | open |
-| D012 | validation-and-qa/change-control cite portability guard count as 11; actual is 12 | `.claude/skills/sb-validation-and-qa/SKILL.md:203` | open |
-| D013 | validation-and-qa describes macOS CI lane as running 4 tests against an mcp/test tree; actually 5 tests and mcp/test folded into src | `.claude/skills/sb-validation-and-qa/SKILL.md:181` | open |
-| D014 | validation-and-qa claims RELEASING.md still hardcodes a stale check count; that was already fixed | `.claude/skills/sb-validation-and-qa/SKILL.md:62` | open |
-| D019 | Interactive dream-runner finalize/heartbeat can overwrite a concurrent dream_cancel with status=completed (unguarded terminal-state race) | `agents/dream-runner.md:216` | open |
-| D020 | Untrusted-content agents (knowledge-maintainer, raw-drainer) retain unrestricted rm/mv/cp/scripts-glob Bash grants with no test lock | `agents/knowledge-maintainer.md:19` | open |
-| D022 | CONSTITUTION claims hot tier is delegated to native memory/proven-read retrieval; session-load force-injects ~5.7KB every SessionStart regardless | `CONSTITUTION.md:66` | open |
-| D024 | hooks.json symlink-guard comment lists 8 protected prefixes, omitting the actual additional guard on ~/.claude/.credentials.json | `hooks/hooks.json:108` | open |
-| D026 | daily-prompt/plan doc claims validate-plugin.sh emits a known WARN about an undocumented fork matcher; it emits none (fork already included) | `docs/daily-prompt.md:519` | open |
+| D001 | sb-architecture-contract hook table stale: fork matcher missing, hook-timer/timeout counts, MCP line numbers wrong | `.claude/skills/sb-architecture-contract/SKILL.md:68` | fixed |
+| D002 | Stale file:line citations pervasive across CONSTITUTION, daily-prompt, and every sb-* skill | `.claude/skills/sb-architecture-contract/SKILL.md:19` | fixed |
+| D004 | Architecture contract §7 overstates write-time frontmatter enforcement and carries stale skill/agent/script/test counts | `.claude/skills/sb-architecture-contract/SKILL.md:309` | fixed |
+| D012 | validation-and-qa/change-control cite portability guard count as 11; actual is 12 | `.claude/skills/sb-validation-and-qa/SKILL.md:203` | fixed |
+| D013 | validation-and-qa describes macOS CI lane as running 4 tests against an mcp/test tree; actually 5 tests and mcp/test folded into src | `.claude/skills/sb-validation-and-qa/SKILL.md:181` | fixed |
+| D014 | validation-and-qa claims RELEASING.md still hardcodes a stale check count; that was already fixed | `.claude/skills/sb-validation-and-qa/SKILL.md:62` | fixed |
+| D019 | Interactive dream-runner finalize/heartbeat can overwrite a concurrent dream_cancel with status=completed (unguarded terminal-state race) | `agents/dream-runner.md:216` | fixed |
+| D020 | Untrusted-content agents (knowledge-maintainer, raw-drainer) retain unrestricted rm/mv/cp/scripts-glob Bash grants with no test lock | `agents/knowledge-maintainer.md:19` | wontfix(code-side: least-privilege re-scoping of agents/knowledge-maintainer.md's rm/mv/cp/scripts-glob Bash grants is a security decision needing security-reviewer sign-off + a new agent-grants.test.ts lock, not a doc-only fix) |
+| D022 | CONSTITUTION claims hot tier is delegated to native memory/proven-read retrieval; session-load force-injects ~5.7KB every SessionStart regardless | `CONSTITUTION.md:66` | fixed |
+| D024 | hooks.json symlink-guard comment lists 8 protected prefixes, omitting the actual additional guard on ~/.claude/.credentials.json | `hooks/hooks.json:108` | fixed |
+| D026 | daily-prompt/plan doc claims validate-plugin.sh emits a known WARN about an undocumented fork matcher; it emits none (fork already included) | `docs/daily-prompt.md:519` | fixed |
 | D027 | Makefile claims release-check is equivalent to the pre-push gate, but pre-push omits the vector-deps import smoke test | `Makefile:25` | open |
 | D028 | agent-grants.test.ts denylist doesn't forbid network/exfil-capable tool grants (WebFetch/curl/wget) on untrusted-content consolidation agents | `mcp/src/agent-grants.test.ts:24` | open |
 | D030 | sb help documents only BRAIN_DIR/KNOWLEDGE_DIR; resolver actually prioritizes SB_BRAIN_DIR/CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR first | `mcp/src/cli/sb.ts:34` | open |
@@ -145,8 +145,8 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D067 | addFrontmatter vs patchFrontmatter derive related: differently for aliased [[target|alias]] links (knowledge-validate.ts:405) | `mcp/src/tools/knowledge-validate.ts:405` | open |
 | D074 | CONSTITUTION's 'injection-gate satisfiability lock' test asserts a retired constant, not the live grounded-gate default duplicated across two CLIs | `mcp/src/tools/retrieval-guards.test.ts:159` | open |
 | D075 | walk-wiki.ts dot-directory skip is gated per-caller (skipHidden flag), so stats/search/validate/reindex diverge on dot-dirs | `mcp/src/tools/walk-wiki.ts:25` | open |
-| D080 | README data-locations table omits ~/knowledge/graph and irreplaceable ~/.second-brain dirs (wiki-archive, dreams, wiki-history.git, backups) | `README.md:104` | open |
-| D081 | README claims the capture skill is model-invoked; its frontmatter disables both user- and model-invocation | `README.md:79` | open |
+| D080 | README data-locations table omits ~/knowledge/graph and irreplaceable ~/.second-brain dirs (wiki-archive, dreams, wiki-history.git, backups) | `README.md:104` | fixed |
+| D081 | README claims the capture skill is model-invoked; its frontmatter disables both user- and model-invocation | `README.md:79` | fixed |
 | D082 | config-change-guard's fallback error-log write uses a different JSON schema than sb_log_error, invisible to verify.sh's freshness check | `scripts/config-change-guard.sh:43` | open |
 | D086 | dream-accept's edge-count delta on an empty edges.jsonl produces '0\n0', an arithmetic syntax error that silently skips edge accounting | `scripts/dream-accept.sh:426` | open |
 | D087 | dream status.json rewrites via mktemp(/tmp)+mv are non-atomic when TMPDIR is a different filesystem than BRAIN_DIR | `scripts/dream-accept.sh:444` | open |
@@ -188,11 +188,11 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D189 | verify.sh resolves active project via git-toplevel basename instead of sb_resolve_slug, misreporting PROJECT.md as missing | `scripts/verify.sh:23` | open |
 | D192 | wiki-history.sh's reindex-failure log branch is dead code because sb_reindex_wiki always returns 0 | `scripts/wiki-history.sh:233` | open |
 | D194 | wiki-write-guard.sh allows an empty-content Write to create a frontmatter-less wiki page | `scripts/wiki-write-guard.sh:137` | open |
-| D195 | capture/SKILL.md documents an automatic hook capture path (raw-capture CLI) that no caller invokes; dead surface | `skills/capture/SKILL.md:3` | open |
-| D197 | dream/SKILL.md theme-page step instructs the 'related: [[member]]' form that the same file and dream-runner.md call invalid YAML | `skills/dream/SKILL.md:135` | open |
-| D198 | import-host/SKILL.md misstates pin_to_user's cap as a 15-line USER.md file limit; it's a 15-pin-line cap only | `skills/import-host/SKILL.md:323` | open |
-| D200 | review/SKILL.md claims the release checklist runs liveness-check.sh --strict; no release gate actually invokes it | `skills/review/SKILL.md:111` | open |
-| D203 | Multiple stale state artifacts (tool-registry.json, persona-budget.json, .graph, .embeddings) have no writer and mislead readers | `skills/status/SKILL.md:295` | open |
+| D195 | capture/SKILL.md documents an automatic hook capture path (raw-capture CLI) that no caller invokes; dead surface | `skills/capture/SKILL.md:3` | fixed |
+| D197 | dream/SKILL.md theme-page step instructs the 'related: [[member]]' form that the same file and dream-runner.md call invalid YAML | `skills/dream/SKILL.md:135` | fixed |
+| D198 | import-host/SKILL.md misstates pin_to_user's cap as a 15-line USER.md file limit; it's a 15-pin-line cap only | `skills/import-host/SKILL.md:323` | fixed |
+| D200 | review/SKILL.md claims the release checklist runs liveness-check.sh --strict; no release gate actually invokes it | `skills/review/SKILL.md:111` | fixed |
+| D203 | Multiple stale state artifacts (tool-registry.json, persona-budget.json, .graph, .embeddings) have no writer and mislead readers | `skills/status/SKILL.md:295` | fixed |
 | D208 | run-all.sh reports ALL GREEN/exit 0 when the test glob resolves to zero tests | `tests/run-all.sh:236` | open |
 | D209 | run-all.sh exports SB_SUITE_REAL_HOME_PATH but no test consumes it; dead plumbing misleads real-HOME-access audits | `tests/run-all.sh:39` | open |
 | D211 | test-doc-sources-hook.sh isn't hermetic to CLAUDE_PROJECT_DIR and fails only when run inside a Claude Code session | `tests/test-doc-sources-hook.sh:12` | open |

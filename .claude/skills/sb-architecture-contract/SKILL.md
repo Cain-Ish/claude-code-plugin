@@ -16,9 +16,10 @@ description: >-
 
 # sb-architecture-contract — load-bearing design, invariants, weak points
 
-As of 0.33.37 (2026-07-13, working tree — tool table and surface counts re-verified at this
-version; deeper file:line cites last fully verified at 0.33.31). All paths are repo-relative;
-run commands from the repo root in bash (git-bash on Windows).
+As of 0.49.0 (2026-09-05, working tree — hook table, MCP tool count and surface counts
+re-verified at this version via the Volatile facts block; deeper file:line cites last spot-checked
+2026-09-05, still drift with normal editing — locate by grep, not by line). All paths are
+repo-relative; run commands from the repo root in bash (git-bash on Windows).
 
 **Definitions used throughout (definition home — siblings link here):**
 
@@ -55,7 +56,7 @@ decision, it does not belong."*
 
 ## 2. Hook wiring — 9 events, 22 command entries (`hooks/hooks.json`)
 
-All commands are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/<script>`; five are wrapped in
+All commands are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/<script>`; six are wrapped in
 `scripts/hook-timer.sh <budget_s> <script>` (marked ⏲) — R7 latency TELEMETRY only: `<budget_s>`
 mirrors the hooks.json timeout purely as the warn threshold for the
 `{kind:"latency",…,budget_warn}` audit-log record. The wrapper is TRANSPARENT (hook-timer.sh:14-17
@@ -65,11 +66,11 @@ Re-verify the whole table:
 
 | Event | Matcher | Script | t(s) | Note |
 |---|---|---|---|---|
-| SessionStart | `startup\|resume\|clear` — deliberately EXCLUDES `compact` (upstream anthropics/claude-code#15174: output silently dropped post-compaction) | `ensure-dirs.sh` | 5 | scaffolds dirs, seeds `config.json` once |
+| SessionStart | `startup\|resume\|clear\|fork` — deliberately EXCLUDES `compact` (upstream anthropics/claude-code#15174: output silently dropped post-compaction) | `ensure-dirs.sh` | 5 | scaffolds dirs, seeds `config.json` once |
 | SessionStart | same | `discover-installed.sh` / `discover-doc-sources.sh` (a third, `discover-tools.sh`, was removed — do not look for it) | 10 | environment discovery |
 | SessionStart | same | ⏲15 `session-load.sh` | 15 | hot-tier injection (§1) |
 | SessionStart | same | ⏲20 `dream-autostage.sh` | 20 | suggest-only banner; NEVER stages/spawns; kill `SB_DREAM_AUTOSTAGE=off` |
-| UserPromptSubmit | (all) | ⏲25 `persona-context.sh` | 10 | no LLM call; `/?` prefix routes to Opus advisor CLI |
+| UserPromptSubmit | (all) | ⏲25 `persona-context.sh` | 25 | no LLM call; `/?` prefix routes to Opus advisor CLI |
 | Stop | (all) | `stop-verify-gate.sh` | 10 | verification nudge |
 | Stop | (all) | ⏲45 `stop-extract.sh` | 45 | the capture pipeline (§3.2) |
 | Stop | (all) | `sar-summary.sh` | 5 | Safety-Adherence-Rate banner; kill `SB_SAR_SUMMARY=off` |
@@ -112,7 +113,7 @@ wiki ──> dream (7-phase staging) ──> dream-accept (5 guards) ──> liv
 ```
 
 ### 3.1 SessionStart — `scripts/session-load.sh`
-Resolves the project via `sb_detect_project` (monorepo-aware, `scripts/lib.sh:521`); refreshes the
+Resolves the project via `sb_detect_project` (monorepo-aware, `scripts/lib.sh:810`); refreshes the
 shared pin `$BRAIN_DIR/.active-session-slug`; scaffolds `projects/<slug>/PROJECT.md` and registers
 it in `projects.jsonl` using a `jq -se` membership check (never grep — the file may arrive
 pretty-printed); copies PROJECT.md → `.session-baseline-<slug>.md` for the Stop diff; emits the
@@ -120,7 +121,7 @@ hot tier (§1).
 
 ### 3.2 Capture — `scripts/stop-extract.sh` (Stop) / `scripts/pre-compact.sh` (PreCompact)
 Always exits 0 (fail-soft by contract, stop-extract.sh header). Pipeline: resolve slug
-(`sb_resolve_slug`, `lib.sh:656`) → disjoint-window marker `.last-extracted-line-<slug>--<sid>`
+(`sb_resolve_slug`, `lib.sh:1110`) → disjoint-window marker `.last-extracted-line-<slug>--<sid>`
 (line count via `awk 'END{print NR}'`, NOT `wc -l` — missing-final-newline undercount) →
 substantive gate (≥1 `tool_use` in the delta) → LLM extraction (`sb_call_extractor`; backend
 order: local endpoint → `claude` CLI → `ANTHROPIC_API_KEY` API) → on LLM-unavailable, a
@@ -292,8 +293,8 @@ The discipline, machine-enforced:
 | `mcp/src/brain-paths.ts` | BRAIN dir resolution (TS). `os.homedir()` is the only sanctioned primitive; `cleanEnvPath` strips CR/LF from env paths. KNOWLEDGE-dir resolution IS funneled here as of 0.33.38 — the two extra `resolveKnowledgeDir` copies (`server.ts`, `dream.ts`) were removed and both now import from brain-paths (historical: sb-failure-archaeology chronicle 26; sb-debugging-playbook "two wikis" row) | `mcp/src/brain-paths.test.ts:85-113` — source-scans every non-test `mcp/src/**/*.ts` and FAILS on `process.env.HOME` or a string literal starting `.second-brain`. Catches BRAIN-dir copies only; the two knowledge-dir copies pass green |
 | `mcp/src/tools/project-dir.ts::resolveActiveSlug` | ALL active-slug resolution. Precedence: `CLAUDE_PROJECT_DIR` (registry longest-prefix > remote-identity > basename) > cwd registry-path > cwd remote-identity > cwd-if-known-project > `.active-session-slug` pin > bare cwd basename. Rationale in-file: per-process signals must outrank the shared pin a concurrent session can clobber | vitest unit tests; the precedence itself was a live incident (0.24.29→0.24.30 slug hijack) |
 | bash twins `sb_resolve_slug`, `sb_slug_from_dir` (lib.sh) | mirror the TS precedence and scratch-dir collapsing (`tmp.*` → `scratch`), CR-stripping, so TS and bash never split-brain a project. BOTH bash funnels — `sb_detect_project` (capture/registration) and `sb_resolve_slug` (query) — carry remote-identity resolution with the same precedence: a registered git-remote match (`sb_slug_from_remote`, every override audit-logged as `remote-identity-override`) beats the folder basename, so a re-clone under a new folder name joins its existing project | kept in lockstep by convention + tests (`tests/test-active-slug-resolution.sh`, `tests/test-detect-project.sh`); comments in both files name each other |
-| `sb_normalize_path` (lib.sh:14-51) | THE single path-form funnel for PreToolUse guards on Windows: backslash→slash, `//?/` strip, localhost-UNC rewrite, `C:/`→`/c/` via cygpath. Without it all three write-guards silently fail-OPEN on Windows (they did, for months — fixed as of 0.33.31) | `tests/test-normalize-path.sh` (new, 0.33.31); Windows-form vectors run on Linux/BSD CI via stubbed cygpath/realpath |
-| `sb_plugin_root` (lib.sh:311) | the single locator for bundled `mcp/dist` CLIs from bash | project rule: "no per-call-site copy of this resolver" (in-file comment) |
+| `sb_normalize_path` (lib.sh:47-73) | THE single path-form funnel for PreToolUse guards on Windows: backslash→slash, `//?/` strip, localhost-UNC rewrite, `C:/`→`/c/` via cygpath. Without it all three write-guards silently fail-OPEN on Windows (they did, for months — fixed as of 0.33.31) | `tests/test-normalize-path.sh` (new, 0.33.31); Windows-form vectors run on Linux/BSD CI via stubbed cygpath/realpath |
+| `sb_plugin_root` (lib.sh:551) | the single locator for bundled `mcp/dist` CLIs from bash | project rule: "no per-call-site copy of this resolver" (in-file comment) |
 | lib.sh:5-12 BRAIN_DIR block | MSYS-normalizes an inherited Windows-form BRAIN_DIR ONCE at the boundary every script sources (GNU tar/rsync parse `C:\...` as a REMOTE host:path) | `tests/test-lib-brain-dir-msys.sh` |
 
 Rule for any new code: never resolve a brain/knowledge path or a slug yourself. Import/source the
@@ -306,8 +307,8 @@ above shipped through a green suite to prove it.
 
 | # | Invariant | Enforced by | Test |
 |---|---|---|---|
-| 1 | Wiki frontmatter has exactly 7 required fields: `title description type created updated tags related` | `REQUIRED_FM_FIELDS` (`mcp/src/tools/knowledge-validate.ts:11`); write-time by `wiki-write-guard.sh`; generated pages born valid with autofix-identical empty lists (`sb_write_generated_page`) | `tests/test-wiki-write-guard.sh`; vitest knowledge-validate tests |
-| 2 | `projects.jsonl` = one compact JSON object per line, deduped by slug; membership checks are `jq -se`, never grep | `sb_harden_projects_jsonl` (lib.sh:571); `jq -c` at every writer (a bare `jq` pretty-printed it once and blinded the whole registry — fixed as of 0.33.31) | `tests/test-harden-projects-jsonl.sh`, `tests/test-session-load-jsonl-membership.sh` |
+| 1 | Wiki frontmatter has exactly 7 required fields: `title description type created updated tags related` | `REQUIRED_FM_FIELDS` (`mcp/src/tools/knowledge-validate.ts:13`); `wiki-write-guard.sh` only checks write-time that content STARTS WITH a `---` block (`starts_with_frontmatter`), not the 7 fields themselves; the field set is enforced only at validate-time via `knowledge_validate` autofix. Generated pages are born valid with autofix-identical empty lists (`sb_write_generated_page`) | `tests/test-wiki-write-guard.sh` (presence-of-frontmatter only); vitest knowledge-validate tests (the 7-field set) |
+| 2 | `projects.jsonl` = one compact JSON object per line, deduped by slug; membership checks are `jq -se`, never grep | `sb_harden_projects_jsonl` (lib.sh:966); `jq -c` at every writer (a bare `jq` pretty-printed it once and blinded the whole registry — fixed as of 0.33.31) | `tests/test-harden-projects-jsonl.sh`, `tests/test-session-load-jsonl-membership.sh` |
 | 3 | Clustering is fully deterministic (synchronous label propagation, lexicographic order, own-label tie-break, fixed cutoff); `generated: true` pages are EXCLUDED from clustering input (else reflections feed back into their own clusters) | `mcp/src/tools/graph-cluster.ts` header contract; `graph-cluster-cli.ts` generated-page filter | `tests/test-graph-cluster-shim.sh` |
 | 4 | At most one active dream; liveness = status.json mtime heartbeat, stale reclaim at 6 h | `dream-snapshot.sh:44-70`; `sb_dream_is_stale` is the SINGLE staleness policy (four disagreeing ones existed once) | `tests/test-dream-lifecycle.sh` (also runs on macOS bash-3.2 CI) |
 | 5 | A dream cannot gut the live wiki — the 5 accept guards of §3.5 | `dream-accept.sh:48-192` | `tests/test-dream-accept-guards.sh` |
@@ -316,13 +317,13 @@ above shipped through a green suite to prove it.
 | 8 | Capture never blocks the harness: capture/context hooks and the drainer always exit 0; SubagentStop must exit 0 | in-script contracts (stop-extract.sh header; hooks.json SubagentStop comment) | `tests/test-stop-extract.sh` (Tests 4-6: garbage LLM output / missing transcript / malformed stdin each MUST exit 0) + `tests/test-subagent-capture.sh` (every case asserts "must always exit 0") |
 | 9 | FORGET is reversible and fail-safe: recall-guard-down → exit 2 → phase skipped; archive = move + JSONL log; `auto_accept=safe` refuses FORGET dreams; archive TTL defaults to never | `wiki-forget-candidates.sh`; `sb_auto_accept_decision` (lib.sh); `ensure-dirs.sh` seed | `tests/test-dream-accept-guards.sh`; forget-score tests |
 | 10 | Untrusted input is DATA, not instructions — and mechanically backed: transcripts staged as sanitized copies, raw items sanitized write+read, ids/slugs traversal-checked (incl. attacker-influenceable transcript headers) | `sanitize.ts`, `raw-inbox.ts`, `lib.sh` slug sanitizers; agent grant allowlists | `mcp/src/agent-grants.test.ts` (greps the agent markdown — prose promises get machine locks here) |
-| 11 | Two log channels with distinct rotation: `error-log.jsonl` (512 KB → newest 1000) vs `audit-log.jsonl` (5000 lines/5 MiB → oldest half dropped); `gate=*` breadcrumbs route to audit, not error | `sb_log_error`/`sb_log_audit` (lib.sh:171-306) | `tests/test-log-hygiene.sh` (R6b: `gate=`/ec-0 routes to audit-log not error-log; a failing `gate=` line stays an error; error-log rotates at 512 KB keeping the newest tail; the trace path applies the audit-log's own rotation) |
+| 11 | Two log channels with distinct rotation: `error-log.jsonl` (512 KB → newest 1000) vs `audit-log.jsonl` (5000 lines/5 MiB → oldest half dropped); `gate=*` breadcrumbs route to audit, not error | `sb_log_error` (lib.sh:232) / `sb_log_audit` (lib.sh:462) | `tests/test-log-hygiene.sh` (R6b: `gate=`/ec-0 routes to audit-log not error-log; a failing `gate=` line stays an error; error-log rotates at 512 KB keeping the newest tail; the trace path applies the audit-log's own rotation) |
 | 12 | PreToolUse guards compare paths through `sb_normalize_path` — path-form parity on Windows (without it, guards fail-OPEN there) | lib.sh:14-51 funnel + minimal inline fallback in each guard so it stays armed if lib.sh fails to source | `tests/test-normalize-path.sh`, `tests/test-symlink-guard.sh`, `tests/test-persona-tool-guard.sh` |
 
 Also machine-enforced governance (details → sb-change-control): the surface-budget ratchet —
-live counts (skills 18 / agents 9 / scripts 52 / tests 157, all at budget exactly as of 0.33.37)
+live counts (skills 16 / agents 4 / scripts 53 / tests 162, all at budget exactly as of 0.49.0)
 may not grow past `.claude-plugin/surface-budget.json` without a same-commit bump; enforced by
-`scripts/validate-plugin.sh` R8 (:191-218). CONSTITUTION.md points at R8 correctly as of 0.43.0 (it
+`scripts/validate-plugin.sh` R8 (:190-224). CONSTITUTION.md points at R8 correctly as of 0.43.0 (it
 previously named a phantom `tests/test-surface-budget.sh` — defect closed).
 
 ## 8. Known weak points (stated plainly)
@@ -379,8 +380,9 @@ previously named a phantom `tests/test-surface-budget.sh` — defect closed).
 
 ## Provenance and maintenance
 
-Derived from the working tree at 0.33.31 (2026-07-05, HEAD `6fba312`); §5 tool table + surface
-counts + version stamps re-verified 2026-07-13 at 0.33.37. Sources: `hooks/hooks.json`,
+Derived from the working tree at 0.33.31 (2026-07-05, HEAD `6fba312`); §2 hook table, §5 tool
+table, §7 surface counts and the Volatile facts block re-verified 2026-09-05 at 0.49.0. Sources:
+`hooks/hooks.json`,
 `scripts/lib.sh`, `scripts/session-load.sh`, `scripts/stop-extract.sh`, `scripts/extract-drain.sh`,
 `scripts/dream-snapshot.sh`, `scripts/dream-accept.sh`, `scripts/maintain-llm-drain.sh`,
 `scripts/wiki-forget-candidates.sh`, `scripts/ensure-dirs.sh`, `scripts/validate-plugin.sh`,
@@ -393,16 +395,18 @@ counts + version stamps re-verified 2026-07-13 at 0.33.37. Sources: `hooks/hooks
 Volatile facts — re-verify before trusting a stale copy of this skill:
 
 ```bash
-jq -r .version .claude-plugin/plugin.json                      # plugin version (was 0.33.31)
-jq -r '.hooks | keys | length' hooks/hooks.json                # hook events (was 8)
-jq '[.hooks[][] | .hooks[]] | length' hooks/hooks.json         # hook command entries (was 22)
-grep -c '^registerJsonTool(' mcp/src/server.ts                      # MCP tools (was 23)
+jq -r .version .claude-plugin/plugin.json                      # plugin version (re-verified 2026-09-05: 0.49.0)
+jq -r '.hooks | keys | length' hooks/hooks.json                # hook events (re-verified 2026-09-05: 9)
+jq '[.hooks[][] | .hooks[]] | length' hooks/hooks.json         # hook command entries (re-verified 2026-09-05: 22)
+jq -c '.hooks.SessionStart[0].matcher' hooks/hooks.json         # SessionStart matcher (re-verified 2026-09-05: startup|resume|clear|fork)
+grep -c 'hook-timer.sh' hooks/hooks.json                        # hook-timer wraps (re-verified 2026-09-05: 6)
+grep -c '^registerJsonTool(' mcp/src/server.ts                      # MCP tools (re-verified 2026-09-05: 23)
 grep -rn 'function resolveKnowledgeDir' mcp/src --include='*.ts'  # >1 hit = two-wikis split still open
-cat .claude-plugin/surface-budget.json                                    # budget (skills 18/agents 9/scripts 52/tests 157)
-ls tests/test-*.sh | wc -l                                      # live test count (was 157)
+cat .claude-plugin/surface-budget.json                                    # budget (re-verified 2026-09-05: skills 16/agents 4/scripts 53/tests 162)
+ls tests/test-*.sh | wc -l                                      # live test count (re-verified 2026-09-05: 162)
 grep -n 'REQUIRED_FM_FIELDS' mcp/src/tools/knowledge-validate.ts  # 7 frontmatter fields
 jq -r '.structured_types, .unstructured_types' kb-schema.json   # wiki categories (6+2)
-grep -n 'SB_DREAM_ACCEPT_MIN_RATIO' scripts/dream-accept.sh     # accept floor default (was 50)
+grep -n 'SB_DREAM_ACCEPT_MIN_RATIO' scripts/dream-accept.sh     # accept floor default (re-verified 2026-09-05: 50)
 grep -rni .dual-llm\|quarantine. mcp/src scripts || echo "P6 still plan-queued"  # plan doc: archive/docs
 ```
 

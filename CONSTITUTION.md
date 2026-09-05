@@ -66,10 +66,16 @@ identifiers, fetch on demand), **summarize-before-evict** compaction, and **cach
 injection** (volatile context goes LAST so the prompt-cache prefix stays warm). **Good memory IS
 token optimization** — `knowledge_fetch` tiers, BM25 relevance, PreCompact.
 
-The corollary: **an always-injected tier spends budget it has not earned.** The hot tier
-(`PROJECT.md` / `USER.md`) is delegated to Claude Code's native memory, which the harness already
-loads at no cost to us; this plugin spends its budget only on retrieval that is proven to be read.
-Guidance: `wiki/learnings/claude-mechanics-best-practices-2026-06`.
+The corollary: **an always-injected tier spends budget it has not earned.** DIRECTION, not current
+rule (per "Prose promises need machine locks" below — no gate enforces this yet): the goal is to
+delegate the hot tier (`PROJECT.md` / `USER.md`) to Claude Code's native memory, which the harness
+already loads at no cost to us, and spend this plugin's budget only on retrieval that is proven to
+be read. Tracked as Phase 1 of `docs/plans/2026-08-20-rethink-delivery-layer.md` (not started as of
+2026-09-05). What is actually locked TODAY: `session-load.sh` unconditionally force-injects
+`USER.md` (≤6000 B) + `PROJECT.md` (≤3000 B) every SessionStart under `BYTE_BUDGET=8000`/
+`HARD_CAP=9500` — there is no native-memory gate and no `SB_*` kill switch for this tier (tracked:
+`docs/audits/2026-09-05-deep-audit.md` D022/D077). Guidance:
+`wiki/learnings/claude-mechanics-best-practices-2026-06`.
 
 ## What it IS NOT
 

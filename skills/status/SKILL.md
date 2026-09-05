@@ -5,7 +5,7 @@ description: Show second-brain hot-tier and wiki health at a glance. Reports USE
 # (dashboards being model-invocable contradicted the silence-default principle).
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) Bash(printf *) Bash(tr *) mcp__plugin_second-brain_knowledge-base__knowledge_stats mcp__plugin_second-brain_knowledge-base__knowledge_validate mcp__plugin_second-brain_knowledge-base__persona_stats
+allowed-tools: Read Bash(git rev-parse:*) Bash(basename *) Bash(wc *) Bash(cat *) Bash(ls *) Bash(test *) Bash(jq *) Bash(date *) Bash(find *) Bash(grep *) Bash(bash *) Bash(printf *) Bash(tr *) Bash(tail *) Bash(sort *) Bash(awk *) Bash(cut *) mcp__plugin_second-brain_knowledge-base__knowledge_stats mcp__plugin_second-brain_knowledge-base__knowledge_validate mcp__plugin_second-brain_knowledge-base__persona_stats
 ---
 
 # Status
@@ -292,4 +292,4 @@ Format as a clean block. Example:
 - note: two memory systems active; disable via CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 to make second-brain sole writer
 ```
 
-Keep the output terse. No reflection-pipeline metrics — `learnings.md`, `friction-log.jsonl`, `quality-rules.md`, `persona.md`, and `tool-registry.json` no longer exist. `error-log.jsonl` is not dumped here, but `verify.sh` (Step 6) flags new entries since the last successful verify. Deep session reflection is automatic now — Stop-hook extraction plus dream consolidation (`/second-brain:dream`); explicit pins go through the `pin_to_user`/`pin_to_project` MCP tools.
+Keep the output terse. No reflection-pipeline metrics — `learnings.md`, `friction-log.jsonl`, `quality-rules.md`, and `persona.md` no longer exist. `tool-registry.json` (and, from earlier retired pipelines, `persona-budget.json`, `.last-session-meta.json`, `.archived-reflections.jsonl`, and `~/knowledge/.graph`/`.embeddings`) has NO writer left in the current codebase — a copy may still physically sit on disk from before its producer was removed, self-describing as "auto-generated," but it is frozen at whatever it last held and nothing GCs it. Never read one as current; do not treat its presence as a live mechanism. `error-log.jsonl` is not dumped here, but `verify.sh` (Step 6) flags new entries since the last successful verify. Deep session reflection is automatic now — Stop-hook extraction plus dream consolidation (`/second-brain:dream`); explicit pins go through the `pin_to_user`/`pin_to_project` MCP tools.

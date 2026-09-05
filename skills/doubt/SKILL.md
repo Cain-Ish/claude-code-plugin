@@ -3,7 +3,7 @@ name: doubt
 description: Adversarial validation of the second-brain plugin — questions whether each architectural layer actually works, from a position of maximum skepticism. Focus varies between runs, so repeated invocations ask different questions. Use for periodic self-audit, after significant changes (--changed), or to interrogate one layer (--layer <name>).
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Agent Bash(git diff *) Bash(git log *) Bash(git show *) Bash(find *) Bash(grep *) Bash(ls *) Bash(wc *) Bash(cat *) Bash(head *) Bash(tail *) Bash(jq *) Bash(date *) Bash(test *) Bash(sort *) Bash(uniq *)
+allowed-tools: Read Agent Bash(git diff *) Bash(git log *) Bash(git show *) Bash(find *) Bash(grep *) Bash(ls *) Bash(wc *) Bash(cat *) Bash(head *) Bash(tail *) Bash(jq *) Bash(date *) Bash(test *) Bash(sort *) Bash(uniq *) mcp__plugin_second-brain_knowledge-base__persona_think
 argument-hint: "[--layer <name> | --changed | --full | <path-or-topic>]"
 ---
 

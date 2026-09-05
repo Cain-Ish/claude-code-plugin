@@ -5,7 +5,7 @@ description: Health-check the second-brain wiki and PROJECT.md cross-references.
 # (knowledge_validate/reindex cover the automated path; the interactive lint stays explicit).
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(test *) Bash(basename *) Bash(sort *) Bash(comm *) Bash(awk *) Bash(bash *)
+allowed-tools: Read Bash(find *) Bash(grep *) Bash(cat *) Bash(ls *) Bash(test *) Bash(basename *) Bash(sort *) Bash(comm *) Bash(awk *) Bash(bash *) Bash(sed *) Bash(tr *) Bash(wc *)
 ---
 
 # Lint
@@ -202,8 +202,9 @@ means search RANKING is broken for real content (the hub-boost bug class —
 R2.1/R2.2 contracts), not that a page is bad. Read-only; deterministic BM25-only path with a hermetic
 brain dir (never touches live access counts).
 
-If `$CLAUDE_PLUGIN_ROOT` is not set in your Bash environment, resolve it first:
-`PR=$(ls -d ~/.claude/plugins/cache/second-brain/second-brain/*/ | sort -V | tail -1)`
+If `$CLAUDE_PLUGIN_ROOT` is not set in your Bash environment, resolve it first —
+BSD/macOS `sort` has no `-V`, so always fall back:
+`PR=$(ls -d ~/.claude/plugins/cache/second-brain/second-brain/*/ | { sort -V 2>/dev/null || sort -t. -k1,1n -k2,2n -k3,3n; } | tail -1)`
 and use `$PR` in place of `$CLAUDE_PLUGIN_ROOT` below. Note: the full probe
 takes ~1 min per 100 pages on Pi-class hardware; cap with
 `SB_EVAL_TITLE_SAMPLE=40` for a quick spot-check.

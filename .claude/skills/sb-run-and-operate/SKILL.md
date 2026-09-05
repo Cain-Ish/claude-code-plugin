@@ -107,8 +107,9 @@ Idempotent scaffold of the hot tier (`skills/setup/SKILL.md`). Steps, in order:
 
 Defaults since 0.30.0 — automation ON: `auto_improve: true` (free, offline deterministic wiki
 upkeep on the drainer timer), `auto_maintain: true` (headless `claude -p` maintainer —
-**reads your Claude OAuth and spends tokens**; only actually runs where `bwrap` exists, so it is
-a no-op on macOS/Windows/bwrap-less Linux), `auto_accept: "safe"` (auto-apply low-risk dreams
+**reads your Claude OAuth and spends tokens**; runs on EVERY OS wherever `brain_os` is also on —
+bubblewrap, where present, wraps the spawn as ADDITIONAL Linux defense-in-depth only, its absence
+gates nothing on any OS), `auto_accept: "safe"` (auto-apply low-risk dreams
 only: no live-page deletions, FORGET dreams left for manual review). Persist changes with:
 
 ```bash
@@ -181,7 +182,8 @@ Operating facts you will need:
 - **Batch**: 5 transcripts per run (`SB_DRAIN_BATCH`), outcome ledger
   `~/.second-brain/.extraction-state.jsonl`. After each batch, in the same lock: archive
   retention GC always; deterministic wiki maintenance if `auto_improve`; the headless LLM
-  maintainer if `auto_maintain` (Linux + bwrap only).
+  maintainer if `auto_maintain` (every OS wherever `brain_os` is also on; bwrap on Linux is
+  additive sandboxing only, not a gate).
 - **Opt-out**: `SB_DISABLE_AUTO_TIMER=1` makes both setup 4c and the SessionStart self-heal skip
   installation (`session-load.sh:390`); `--uninstall` removes everything the installer created.
 
@@ -270,7 +272,9 @@ Live state check: `ls ~/.second-brain/dreams/ && cat ~/.second-brain/dreams/drm_
 
 ## 8. The user-facing surface
 
-As of 0.45.0: **17 skills** (`ls -d skills/*/ | wc -l`) and **4 agents** (`ls agents/*.md`).
+As of 0.49.0 (re-verified 2026-09-05): **16 skills** (`ls -d skills/*/ | wc -l`) and **4 agents**
+(`ls agents/*.md`) — matches `.claude-plugin/surface-budget.json` exactly; re-verify before
+trusting either number, it drifts every release.
 Invocation column from each SKILL.md frontmatter: `/` = user slash command
 (`user-invocable: true`), `M` = model may auto-invoke (`disable-model-invocation: false`),
 `docs` = neither (retained as documentation after the 0.27.0/0.29.0 surface collapses).
@@ -290,7 +294,6 @@ Invocation column from each SKILL.md frontmatter: `/` = user slash command
 | `review` | Open blockers, stale projects, pending dreams across all projects; read-only | / |
 | `audit` | What the safety layer did this session (reads `audit-log.jsonl`); read-only | / |
 | `lint` | Wiki + PROJECT.md cross-reference health check; read-only by default | / |
-| `improve` | Retired manual pin flow (replaced by dream + `pin_to_*` MCP tools) | docs |
 | `think` | Opus advisor brief via `persona_think` (~$0.11/call) | / |
 | `doubt` | Adversarial validation of the plugin itself, rotating focus | / |
 | `using-second-brain` | Persona-as-collaborator protocol (consult identity/memory before substantive answers) | M |

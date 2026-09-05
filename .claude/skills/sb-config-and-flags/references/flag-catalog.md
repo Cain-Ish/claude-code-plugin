@@ -1,10 +1,12 @@
 # SB_* flag catalog — every environment variable, by subsystem
 
 Verified against the 0.33.31 working tree on 2026-07-05 (uncommitted release batch; plugin.json
-already says 0.33.31). Every `file:line` below was confirmed either by reading the file or by the
-bulk extraction greps in SKILL.md §10. Census: ~187 distinct `SB_*` names across
+already says 0.33.31); the census line was re-run 2026-09-05 against 0.49.0 and had drifted stale
+(counts grow with every new flag — re-verify with SKILL.md §10 rather than trusting either number).
+Every `file:line` below was confirmed either by reading the file or by the bulk extraction greps in
+SKILL.md §10. Census (re-verified 2026-09-05): 249 distinct `SB_*` names across
 `scripts tests mcp/src hooks skills agents bin` (plus the since-removed `cost-router`), of
-which 17 are test-infrastructure-only (§10 below).
+which 34 are test-infrastructure-only (§10 below, `comm -13` diff).
 
 **Kind legend:**
 
@@ -83,6 +85,8 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_SUBAGENT_MIN_RESULT` | `80` | Min result size (bytes) to count as substantive. | TUNE | subagent-capture.sh:56 | none |
 | `SB_SUBAGENT_ARCHIVE_CAP` | `50` | Max `sub-*.txt` archives kept (pruned oldest-first). | TUNE | lib.sh:840 | bash |
 | `SB_PRINCIPLES_INJECT` | `on` | Persona principles block in the UserPromptSubmit ambient context. | KS | persona-context.sh:249 | bash |
+| `SB_OBSERVATION_LEDGER` | `on` | PostToolUse + PostToolUseFailure: append one deterministic JSONL line `{ts,tool,target,ok,err}` per tool use to `~/.second-brain/observations/<session>.jsonl` (mined by the drainer as extraction input; 7-day GC). `off` disables both hook wirings. | KS | observe-tool-use.sh:21 | none |
+| `SB_OBSERVATION_MAX_BYTES` | `1048576` (1 MiB) | Per-session cap on the observation ledger file. | TUNE | observe-tool-use.sh | none |
 
 ## 3. SessionStart banners & auto-dispatch (session-load.sh and friends)
 
@@ -155,6 +159,7 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_EDGE_QUARANTINE_TTL_DAYS` | `30` | Age after which a quarantined graph edge whose endpoints STILL do not resolve is dropped. Bounds `edges-quarantine.jsonl`, which before the re-drain had a writer and no reader. | TUNE | maintain-deterministic.sh | bash |
 | `SB_DREAM_ACCEPT_TIMEOUT_MS` | `600000` (10 min) | Wall clock for `dream-accept.sh` via MCP `dream_accept`. Was 30s, which a whole-wiki FORGET re-score (~105s on a 237-page wiki) blew past AFTER live had been mutated. Floor 30000. | TUNE | mcp/src/tools/dream.ts | vitest |
 | `SB_BRAIN_OS` | `on` | `off` disables the ENTIRE offline engine lane (prune, deterministic upkeep, embedding warm pass, consolidation, code-map). Capture + retrieval keep working. | KS | brain-os-run.sh:33 | bash |
+| `SB_BRAIN_OS_NO_LLM` | `0` | INTERNAL: set to `1` by the drainer on a DEFERRED tick to run every brain-os pass EXCEPT the LLM consolidation lane (`auto_maintain`), so a deferred/starved drain still gets prune/upkeep/embeddings without spawning `claude -p`. | INT | brain-os-run.sh:76; extract-drain.sh:288 | none |
 | `SB_CW_TIMEOUT` | `300` (s) | Stage B (consolidate-writer) wall clock; clamped into the remaining staleness budget so Stage A+B cannot outrun `SB_DREAM_RUN_TIMEOUT`. | TUNE | maintain-llm-drain.sh | bash |
 | `SB_MAINTAIN_INTERVAL` | `3600` (s) | Min interval between deterministic maintenance runs. | TUNE | maintain-deterministic.sh:17 | none |
 | `SB_MAINTAIN_FORCE` | `0` | Bypass the deterministic-maintenance interval. | DEBUG | maintain-deterministic.sh:18 | bash |
@@ -208,6 +213,7 @@ may hardcode a model-ID literal — guarded by the `tests/test-model-ladder.sh` 
 | `SB_REDUNDANCY_MAX_PAIRS` | `50` (NaN→50; explicit small values honoured, min 1) | Max reported pairs. | TUNE | wiki-redundancy-cli.ts:43-44 | none |
 | `SB_CONFLICT_DETECT` | `on` | Edge-merge conflict detection. | KS | merge-edges.sh:93 | bash |
 | `SB_CONFLICT_MULTIPARENT` | `off` | OPT-IN: treat multi-parent `part_of` as a conflict. | KS(opt-in) | merge-edges.sh:68 | bash |
+| `SB_WIKI_GIT` | `on` (config.json `wiki_git: false` also disables) | Snapshots the wiki into a git history (`~/.second-brain/wiki-history.git`) after every unattended write — brain-os engine tick and dream-accept both call `wiki-history.sh snapshot`. This IS the reversibility window for autonomous consolidation; a snapshot failure is fail-soft (never blocks the caller). `off`/`false` disables it. | KS | wiki-history.sh:30 | none |
 
 ## 6. Search / retrieval / MCP server
 
@@ -219,6 +225,8 @@ grep for `process.env.SB_` alone MISSES the helper-mediated ones (grep for the b
 | `SB_PROJECT_SCOPE` | on (`!== 'off'`) | Project-scoped tiering of knowledge_search results (skipped when `scope==='all'`). | KS | knowledge-search.ts:323 | bash+vitest |
 | `SB_SCOPE_HOPS` | `2` (clamped 0–4) | Graph-neighbourhood hops for scoping anchors. | TUNE | knowledge-search.ts:337 | none |
 | `SB_SCOPE_MIN_HITS` | `3` (clamped 0–100) | Min in-scope hits passing the floor before hard-scoping applies; else fall back to unscoped. | TUNE | knowledge-search.ts:365 | vitest |
+| `SB_SCOPE_CROSS_SLOTS` | `1` (clamped 0–TOP_K) | Reserved result slots in a scoped search that a strictly-stronger OTHER-project page may still occupy (fixes the D058-class "anchors=0 buries a stronger cross-project hit" failure). `0` restores the old hard-drop behaviour. | TUNE | knowledge-search.ts:496 | vitest |
+| `SB_GROUNDING_DF_SHARE` | `0.5` (must be a finite number in `(0,1]`, else falls back to default) | Document-frequency share above which a query term is treated as too-common to count as "grounding" a result for the injection-grounding gate. | TUNE | knowledge-search.ts:173 | none |
 | `SB_GRAPH_RANKING_BOOST` | off (`'1'`/`'true'` enables) | DEMOTED off-by-default (P7, 2026-06-28) — measured net-zero on the real corpus (6 improved / 6 degraded / 80 unchanged of 92) while displacing exact title-matches (comment knowledge-search.ts:194-197). Project-scoping neighbourhood + bi-temporal supersedes unaffected. | KS(opt-in), EXPERIMENTAL | knowledge-search.ts:198 | vitest |
 | `SB_EPISODIC_SCOPE_MIN_HITS` | `1` (≥1) | Min in-scope episodic hits before hard-dropping other-project results; below it, broaden to all. | TUNE | episodic-search.ts:502 | none (env branch) |
 | `SB_EGRESS_BUDGET_TOKENS` | constant in egress-budget.ts (env accepted when parseInt > 0) | Token cap on knowledge_fetch full-page egress. | TUNE | egress-budget.ts:21 | none (env branch) |

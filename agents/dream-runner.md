@@ -29,10 +29,18 @@ You are a knowledge base consolidation agent. You have been dispatched to execut
 
 ## Input
 
-Your prompt will contain a `dream_id`. Use it to locate all dream state:
-- Status: `~/.second-brain/dreams/{dream_id}/status.json`
-- Staging wiki: `~/.second-brain/dreams/{dream_id}/staging/wiki/`
-- Transcripts: `~/.second-brain/dreams/{dream_id}/transcripts/`
+Your prompt will contain a `dream_id`. Resolve the runtime-state root ONCE, honoring the same
+`SB_BRAIN_DIR`/`BRAIN_DIR` override the MCP server used to create the dream — never hardcode
+`~/.second-brain` in a command:
+
+```bash
+BRAIN_DIR="${SB_BRAIN_DIR:-${BRAIN_DIR:-$HOME/.second-brain}}"
+```
+
+Use it to locate all dream state:
+- Status: `$BRAIN_DIR/dreams/{dream_id}/status.json`
+- Staging wiki: `$BRAIN_DIR/dreams/{dream_id}/staging/wiki/`
+- Transcripts: `$BRAIN_DIR/dreams/{dream_id}/transcripts/`
 
 ## Execution
 
@@ -41,8 +49,8 @@ Your prompt will contain a `dream_id`. Use it to locate all dream state:
 ```bash
 TMPFILE=$(mktemp)
 jq '.status = "running" | .started_at = "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"' \
-  ~/.second-brain/dreams/{dream_id}/status.json > "$TMPFILE" && \
-  mv "$TMPFILE" ~/.second-brain/dreams/{dream_id}/status.json
+  $BRAIN_DIR/dreams/{dream_id}/status.json > "$TMPFILE" && \
+  mv "$TMPFILE" $BRAIN_DIR/dreams/{dream_id}/status.json
 ```
 
 ### 1. Mine transcripts
@@ -59,7 +67,7 @@ Cross-reference findings with existing staging wiki pages. Track:
 
 ### 2. Consolidate staging wiki (7 phases)
 
-Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
+Phases 1–6 work ONLY on `$BRAIN_DIR/dreams/{dream_id}/staging/wiki/`.
 
 **Phase 1: AUDIT**
 - Fix broken `[[wiki-links]]`, missing frontmatter, empty pages
@@ -70,7 +78,7 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
   offline redundancy signal (MinHash/Jaccard, no embeddings) over the staging wiki:
   ```bash
   DUP=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-redundancy.sh" \
-    --knowledge-dir ~/.second-brain/dreams/{dream_id}/staging)
+    --knowledge-dir $BRAIN_DIR/dreams/{dream_id}/staging)
   ```
   `DUP` = JSON `[{a,b,sim,a_cat,b_cat}]` for page pairs with similarity ≥ `SB_REDUNDANCY_THRESHOLD`
   (default 0.7), sorted by sim desc; `[]` when the signal is off/unavailable (then fall back to
@@ -119,7 +127,7 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
   **staging-local** (reads `related:` + body `[[links]]`, never the live `graph/edges.jsonl`):
   ```bash
   CLUST=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/graph-cluster.sh" \
-    --knowledge-dir ~/.second-brain/dreams/{dream_id}/staging)
+    --knowledge-dir $BRAIN_DIR/dreams/{dream_id}/staging)
   ```
 - `CLUST` = JSON `[{id,members,member_hash}]` for clusters ≥ `SB_SUMMARIZE_MIN_CLUSTER`
   (default 4), capped at `SB_SUMMARIZE_MAX_PAGES` (default 8). Theme pages are slugged
@@ -147,7 +155,7 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
   the one ablation-backed memory op (Generative Agents 2304.03442) — distinct from dedup/relate/enrich/summarize.
   ```bash
   RCLUST=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/graph-cluster.sh" --gate reflect \
-    --knowledge-dir ~/.second-brain/dreams/{dream_id}/staging)
+    --knowledge-dir $BRAIN_DIR/dreams/{dream_id}/staging)
   ```
 - `RCLUST` = the SAME deterministic clusters SUMMARIZE uses (`[{id,members,member_hash}]`, ≥
   `SB_SUMMARIZE_MIN_CLUSTER`, capped at `SB_SUMMARIZE_MAX_PAGES`). For each cluster, **in this order**:
@@ -186,7 +194,7 @@ Phases 1–6 work ONLY on `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
   access counts and recency are telemetry, never scored. Archiving happens
   only on accept — this phase writes nothing to the wiki.
 ```bash
-MAN=~/.second-brain/dreams/{dream_id}/forget-manifest.tsv
+MAN=$BRAIN_DIR/dreams/{dream_id}/forget-manifest.tsv
 if [ "${SB_WIKI_FORGET:-on}" != "off" ]; then
   CAND=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-forget-candidates.sh"); rc=$?
   if [ "$rc" -eq 2 ]; then
@@ -210,12 +218,20 @@ fi
 bash "$CLAUDE_PLUGIN_ROOT/scripts/dream-diff.sh" {dream_id}
 ```
 
-Update status to completed:
+Update status to completed — but re-check first: a concurrent `dream_cancel` may have landed
+while you were generating the diff, and finalize must never clobber that terminal state (the
+headless lane's equivalent, `maintain-llm-drain.sh`'s `_dream_complete`, refuses for the same
+reason):
 ```bash
-TMPFILE=$(mktemp)
-jq '.status = "completed" | .ended_at = "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"' \
-  ~/.second-brain/dreams/{dream_id}/status.json > "$TMPFILE" && \
-  mv "$TMPFILE" ~/.second-brain/dreams/{dream_id}/status.json
+STATUS=$(jq -r '.status' $BRAIN_DIR/dreams/{dream_id}/status.json 2>/dev/null)
+if [ "$STATUS" = "canceled" ]; then
+  echo "dream was canceled during finalize — leaving status=canceled, not overwriting."
+else
+  TMPFILE=$(mktemp)
+  jq '.status = "completed" | .ended_at = "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"' \
+    $BRAIN_DIR/dreams/{dream_id}/status.json > "$TMPFILE" && \
+    mv "$TMPFILE" $BRAIN_DIR/dreams/{dream_id}/status.json
+fi
 ```
 
 ## Cancellation + heartbeat
@@ -223,12 +239,12 @@ jq '.status = "completed" | .ended_at = "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"' \
 Between phases, check `status.json`. If status is `canceled`, stop immediately — do not update status further, just exit. Otherwise **heartbeat**: re-stamp `status.json` so its mtime advances. This is the liveness signal `dream-snapshot.sh` uses to tell a crashed run (frozen mtime) from a healthy long one — without it, a long consolidation could be wrongly reclaimed and a second dream started concurrently.
 
 ```bash
-STATUS=$(jq -r '.status' ~/.second-brain/dreams/{dream_id}/status.json 2>/dev/null)
+STATUS=$(jq -r '.status' $BRAIN_DIR/dreams/{dream_id}/status.json 2>/dev/null)
 [ "$STATUS" = "canceled" ] && exit 0
 # heartbeat: bump mtime (atomic re-write; keeps status=running)
 HB=$(mktemp) && jq --arg t "$(date -u +%FT%TZ)" '.heartbeat_at=$t' \
-  ~/.second-brain/dreams/{dream_id}/status.json > "$HB" \
-  && mv "$HB" ~/.second-brain/dreams/{dream_id}/status.json || rm -f "$HB"
+  $BRAIN_DIR/dreams/{dream_id}/status.json > "$HB" \
+  && mv "$HB" $BRAIN_DIR/dreams/{dream_id}/status.json || rm -f "$HB"
 ```
 
 ## Constraints
@@ -245,6 +261,6 @@ HB=$(mktemp) && jq --arg t "$(date -u +%FT%TZ)" '.heartbeat_at=$t' \
 ```bash
 TMPFILE=$(mktemp)
 jq --arg e "description of error" '.status = "failed" | .ended_at = "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'" | .error = $e' \
-  ~/.second-brain/dreams/{dream_id}/status.json > "$TMPFILE" && \
-  mv "$TMPFILE" ~/.second-brain/dreams/{dream_id}/status.json
+  $BRAIN_DIR/dreams/{dream_id}/status.json > "$TMPFILE" && \
+  mv "$TMPFILE" $BRAIN_DIR/dreams/{dream_id}/status.json
 ```

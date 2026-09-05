@@ -4,7 +4,7 @@ description: >-
   Test-suite mechanics and the evidence bar for the second-brain plugin repo
   (claude-code-plugin). Load this when you are about to run tests, add a shell
   or vitest test, interpret tests/run-all.sh output (PASS/FAIL/SKIP semantics,
-  the false-green trap), answer "will CI reject my bash?" (the 11 bash-3.2/BSD
+  the false-green trap), answer "will CI reject my bash?" (the 13 bash-3.2/BSD
   portability static guards), write a test that exercises Windows-only branches
   on Linux (PATH-stubbed cygpath/realpath), run vitest offline, lock a prose
   promise with a source-scan test, bump the surface budget for a new test, or
@@ -53,17 +53,17 @@ because its absence shipped a bug.
 | 8 | Sandbox green does not prove the real environment. When behavior depends on ambient env (`CLAUDE_PROJECT_DIR`, pins), verify live at least once. | 0.24.30: every test sandbox set the var the real env lacked; a regression was "fixed" by reverting to wrong precedence — "green tests over real-env correctness" (CHANGELOG, ~line 1310). |
 | 9 | Assert independent oracles — filesystem/git facts, never the script's own claims. | `tests/test-dream-accept-guards.sh:1-5`: "ORACLE: the real live-wiki page count on disk BEFORE vs AFTER … not a re-read of the script's own claim". |
 
-## Golden inventory — as of 0.33.31, working tree, 2026-07-05
+## Golden inventory — as of 0.33.31, working tree, 2026-07-05; re-verified 2026-09-05 at 0.49.0
 
-Counts drift with every release. Trust these commands, not stale prose —
-`RELEASING.md` line ~40 still says "24 shell + 59 vitest = 83 checks", which
-is years of releases out of date.
+Counts drift with every release. Trust these commands, not stale prose. `RELEASING.md`'s
+2026-07-24 amendment already dropped the old frozen "24 shell + 59 vitest = 83 checks" line in
+favor of "read the live counts off the suite output" — do not reintroduce a frozen number there.
 
 | Fact | Value | Re-verify (repo root) |
 |------|-------|-----------------------|
-| Shell tests | 153 files | `ls tests/test-*.sh \| wc -l` |
-| Budget cap for tests | 153 | `jq .tests .claude-plugin/surface-budget.json` |
-| Vitest files | 53 (37 in `mcp/src/**`, 16 in `mcp/test/`) | `find mcp/src mcp/test -name '*.test.ts' \| wc -l` |
+| Shell tests | 162 files | `ls tests/test-*.sh \| wc -l` |
+| Budget cap for tests | 162 | `jq .tests .claude-plugin/surface-budget.json` |
+| Vitest files | 66, all under `mcp/src/**` — the old `mcp/test/` tree no longer exists; `vitest.config.ts` `include` is `src/**/*.test.ts` only | `find mcp/src -name '*.test.ts' \| wc -l` |
 | Vitest cases (offline) | 509 total: 496 pass, 13 skipped | `cd mcp && SECOND_BRAIN_DISABLE_EMBEDDINGS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 npx vitest run 2>&1 \| grep -E '^\s*Tests'` |
 | Golden retrieval fixture | 12 queries over `tests/fixtures/eval-wiki`; acceptance: recall@2 = 1.0 (`SB_EVAL_MIN_RECALL`, default 1.0 — a SINGLE missed query fails the release gate; the old 0.8 gate stayed green through the hub-boost bug) | `awk 'END{print NR}' tests/fixtures/eval-queries.jsonl`; `bash tests/test-knowledge-eval.sh` → `PASS: recall+token gate` |
 | Full-suite wall baseline | ~156 s (Pi 5, recorded) | `tests/run-all.sh:157-159` comment; compare your `wall:` summary line |
@@ -78,7 +78,7 @@ subdirectories are invisible) and runs each via `bash "$script"`, so the exec
 bit is not needed at runtime — but it IS enforced in git: `tests/test-exec-bits.sh`
 walks `git ls-files 'tests/test-*.sh'` and fails any file not stored as mode
 100755 (fix: `git update-index --chmod=+x <file>`). If `mcp/package.json`
-exists, one extra suite entry named `vitest (mcp/test)` runs
+exists, one extra suite entry named `vitest (mcp)` runs
 `npx vitest run` in `mcp/` and is counted as a single PASS/FAIL.
 
 **Env knobs** (defaults from `tests/run-all.sh:12-25`):
@@ -158,9 +158,10 @@ path is covered only where the model exists locally.
 
 **Job `macos`** (macos-latest — the bash-3.2/BSD lane). Every step runs under
 `/bin/bash` (Apple bash 3.2.57), NOT the runner default, and it does NOT run
-the full suite — only these four:
+the full suite — only these five (re-verified 2026-09-05, `.github/workflows/ci.yml`
+macOS job):
 `tests/test-dream-lifecycle.sh`, `tests/test-script-portability.sh`,
-`tests/test-stop-extract.sh`, `tests/test-dream-autostage.sh`.
+`tests/test-stop-extract.sh`, `tests/test-dream-autostage.sh`, `tests/test-loop-smoke.sh`.
 
 **There is NO Windows CI lane.** Windows coverage = the PATH-stub tests
 (recipe R3) + your local run. This is why evidence-bar rules 2 and 3 exist.
@@ -180,7 +181,7 @@ cd .. && bash tests/test-bundle-current.sh && \
                                             # first (or SB_RELEASE_BASE_REF) — policy: sb-change-control
 ```
 
-## The 11 portability static guards ("will CI reject my bash?")
+## The 13 portability static guards ("will CI reject my bash?")
 
 `tests/test-script-portability.sh` statically scans all `*.sh` under
 `scripts/` (comment-only matches excluded; it also covered `cost-router/scripts/`
@@ -201,9 +202,12 @@ pushing any bash change: `bash tests/test-script-portability.sh`.
 | 9 | No bare `"${ARR[@]}"`/`"${ARR[*]}"` of an array initialized empty (`NAME=()`) | "unbound variable" under `set -u` on bash < 4.4 | `${ARR[@]+"${ARR[@]}"}` on the line, or a `${#ARR[@]}` length check in the file |
 | 10 | No duplicate top-level function definitions in one script | second def silently shadows the first, last-def-wins (0.24.48 `sb_validate_wiki`: the active def returned nothing, telemetry dead, all tests green) | rename or merge |
 | 11 | No GNU-only regex escapes (`\b \w \s \d`, `\xNN`) inside a sed/grep program | BSD sed/grep treat them as literal chars — the pattern silently matches NOTHING (0.28.2: ANSI never stripped, verify-gates never fired) | `$'\xNN'` literal bytes, POSIX classes (`[[:alnum:]_]`, `[[:space:]]`, `[[:digit:]]`), or `grep -w` |
+| 12 | No `$(basename …)`/`$(dirname …)` inside a `while … read` loop body in a HOT-PATH script (every script wired into `hooks/hooks.json`, derived live from the file, plus the drainer-tick chain) | Each spawn costs ~30-60ms on MSYS vs ~1ms on Linux; per-item spawns in a hot loop made `test-transcript-archive` take 258s on Windows vs 8s on Linux (2026-08-23) | `"${x##*/}"` / `"${x%/*}"` builtins instead |
+| 13 | jq must never append DIRECTLY to a `*.jsonl` file via `>>` (the D120 class) | Native jq.exe on Windows inherits a plain end-of-file handle, not `O_APPEND`; two concurrent writers race at the same offset and tear the JSONL | build the line with `jq -c` into a var, then `printf`/`echo` it with `>>` |
 
-Checks 8 and 9 are documented heuristics (depth/pattern tripwires, not a bash
-parser) — keep command substitutions balanced per line and they stay sound.
+Checks 8, 9, 12 and 13 are documented heuristics (depth/pattern tripwires, not a bash
+parser) — keep command substitutions and loop bodies matching the documented shape and they stay
+sound.
 
 ## House test patterns (recipes, each with a real in-repo example)
 
@@ -368,7 +372,7 @@ The shell lane's analogue is `tests/test-script-portability.sh` (above).
    branches (R4).
 5. Assert independent oracles + write the regression-lock comment (R5).
 6. Prove the test fails on pre-fix code (R6).
-7. Any `scripts/*.sh` you add alongside MUST pass all 11 portability guards.
+7. Any `scripts/*.sh` you add alongside MUST pass all 13 portability guards.
    Caveat: the static guard scans only `scripts/`
    (`tests/test-script-portability.sh`; it dropped `cost-router/scripts/` when that
    subplugin was removed) — your TEST file is never
@@ -400,7 +404,8 @@ The shell lane's analogue is `tests/test-script-portability.sh` (above).
 ## Checklist: add a vitest test
 
 1. Create `<name>.test.ts` in `mcp/src/**` (co-located unit / source-scan
-   tests) or `mcp/test/` (tool-level tests) — both in the `include` of
+   tests — the old separate `mcp/test/` tree was folded into `src/**` and no
+   longer exists), matching the `include: 'src/**/*.test.ts'` in
    `mcp/vitest.config.ts`. Never rely on `dist/` copies: the config excludes
    them because vitest's default glob once picked up stale COMPILED
    `dist/**/*.test.js` and CI ran an old copy of a fixed test.
@@ -454,11 +459,11 @@ Facts that drift, and their one-line re-checks (repo root):
 | Fact class | Re-verify |
 |------------|-----------|
 | Shell-test count + budget | `ls tests/test-*.sh \| wc -l && jq .tests .claude-plugin/surface-budget.json` |
-| Vitest file/case counts | `find mcp/src mcp/test -name '*.test.ts' \| wc -l`; `cd mcp && SECOND_BRAIN_DISABLE_EMBEDDINGS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 npx vitest run 2>&1 \| grep -E '^\s*Tests'` |
+| Vitest file/case counts | `find mcp/src -name '*.test.ts' \| wc -l`; `cd mcp && SECOND_BRAIN_DISABLE_EMBEDDINGS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 npx vitest run 2>&1 \| grep -E '^\s*Tests'` |
 | Golden retrieval fixture count + gate | `awk 'END{print NR}' tests/fixtures/eval-queries.jsonl` (12); `grep -n SB_EVAL_MIN_RECALL tests/test-knowledge-eval.sh` (default 1.0) |
 | run-all env knobs / SKIP semantics | `sed -n '11,25p;84,99p' tests/run-all.sh` |
 | CI steps + lanes | `grep -n 'name:\|run:' .github/workflows/ci.yml` |
-| Portability guard list (currently 11) | `grep -nE '^# [0-9]+\.' tests/test-script-portability.sh` |
+| Portability guard list (currently 13, re-verified 2026-09-05 — drifts every release) | `grep -nE '^# [0-9]+\.' tests/test-script-portability.sh` |
 | Budget counting rules + fail message | `sed -n '190,220p' scripts/validate-plugin.sh` |
 | Vitest offline env vars | `sed -n '32,44p' .github/workflows/ci.yml` |
 | Exec-bit enforcement | `sed -n '1,30p' tests/test-exec-bits.sh` |
