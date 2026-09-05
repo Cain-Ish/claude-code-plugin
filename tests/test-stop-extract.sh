@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_EXTRACT — kill-switch test: asserts =off skips the LLM call but still archives + advances the marker (D077)
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
 # run-all-timeout: 480   (18 full Stop-hook invocations by design; each ~13s on MSYS under load — spawn-bound lib.sh, see LC-11)
 # session deltas from the conversation transcript and merges them into

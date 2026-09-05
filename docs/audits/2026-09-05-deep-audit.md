@@ -30,7 +30,7 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D095 | dream-snapshot.sh:148 selects transcripts by lexical filename sort (session-UUID/`sub-` prefix leads), not date, so the autonomous consolidation lane re-mines the same lexically-highest 50 forever and never consolidates 17 of 19 dates | `scripts/dream-snapshot.sh:148` | fixed |
 | D107 | kb-drain-reconcile.sh:60 joins an unvalidated `(raw <id>)` back-ref into a file path — traversal silently rewrites live wiki ai-blocks and marks other projects' raw items processed | `scripts/kb-drain-reconcile.sh:50` | fixed |
 | D108 | Backend 2 (API-key curl) posts CLI alias 'sonnet' as the Messages API model, and cannot demote — in-session capture in the recommended API-key config fails permanently | `scripts/lib.sh:2019` | fixed |
-| D109 | sb_pin_to_user (lib.sh:631) and its TS twin pin-to-user.ts:22 splice untrusted-derived text into USER.md unflattened — forged markdown headings/directives inject into every SessionStart | `scripts/lib.sh:631` | open |
+| D109 | sb_pin_to_user (lib.sh:631) and its TS twin pin-to-user.ts:22 splice untrusted-derived text into USER.md unflattened — forged markdown headings/directives inject into every SessionStart | `scripts/lib.sh:631` | fixed |
 | D115 | sb_timeout's bash-watchdog fallback backgrounds the command, so bash replaces its stdin with /dev/null — claude -p gets an empty transcript on hosts lacking timeout(1)/gtimeout (stock macOS/BSD drainer path) | `scripts/lib.sh:1780` | fixed |
 | D121 | Drainer sb_sanitize_slug's the project slug every other funnel keeps verbatim — split-brain PROJECT.md + wrong wiki project: facet, counters and session-count for any slug with uppercase, '_' or '.' (incl. the shipped monorepo `root__leaf` form) | `scripts/lib.sh:2190` | fixed |
 | D122 | sb_call_extractor greps its own stdout for auth keywords before the JSON check (lib.sh:1913-1919), discarding valid extractions whose prose contains "unauthorized"/"invalid api key"/"not logged in" and reporting a false auth failure | `scripts/lib.sh:1916` | fixed |
@@ -109,8 +109,8 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D210 | tests/test-bundle-current.sh's sed 's/ && /\n/g' relies on a GNU-only \n-as-newline extension, spuriously failing the bundle-current gate under BSD sed on macOS, and the class is unguarded (macOS CI lane skips this test; portability guard deliberately excludes tests/) | `tests/test-bundle-current.sh:28` | fixed |
 | D212 | SB_FORGET_MIN_AGE_DAYS pinned to 0 in every accept-time FORGET test — no positive-case lock on the 30-day reversibility floor | `tests/test-dream-accept-guards.sh:225` | fixed |
 | D215 | SB_INTERACTIVE_OVERRIDE pins the interactive-defer decision in every drainer test; the POSIX pgrep branch is never behaviorally exercised | `tests/test-extract-drain.sh:22` | fixed |
-| D218 | test-persona-tool-guard.sh tests 3, 7, and the persona-rules self-edit check are tautological — they pass via the resource-scope ask, not the hot-tier/self-edit rules they claim to lock | `tests/test-persona-tool-guard.sh:44` | open |
-| D219 | test-persona-tool-guard.sh Tests 2-7 and the case-variant block pollute the maintainer's live ~/.second-brain/audit-log.jsonl (missing BRAIN_DIR isolation, unlike every other test in the file) | `tests/test-persona-tool-guard.sh:38` | open |
+| D218 | test-persona-tool-guard.sh tests 3, 7, and the persona-rules self-edit check are tautological — they pass via the resource-scope ask, not the hot-tier/self-edit rules they claim to lock | `tests/test-persona-tool-guard.sh:44` | fixed |
+| D219 | test-persona-tool-guard.sh Tests 2-7 and the case-variant block pollute the maintainer's live ~/.second-brain/audit-log.jsonl (missing BRAIN_DIR isolation, unlike every other test in the file) | `tests/test-persona-tool-guard.sh:38` | fixed |
 
 ## low (84)
 

@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_QUALITY_GATE — kill-switch test: asserts =off yields no envelope (D077)
 # Behavioral guard (NOT a presence-grep): each PreToolUse safety guard must actually be REGISTERED
 # in the real hooks/hooks.json with a matcher that COVERS every tool it protects. A guard that is
 # unit-perfect but absent from hooks.json — or whose matcher silently drops a protected tool — is
@@ -71,9 +72,9 @@ pass "persona-tool-guard out-of-scope contract holds (mcp__*, Glob, Grep, Notebo
 QG="$ROOT/scripts/quality-gate.sh"
 [ -f "$QG" ] || fail "scripts/quality-gate.sh missing"
 QG_OUT=$(bash "$QG" 2>/dev/null)
-printf '%s' "$QG_OUT" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse"' >/dev/null 2>&1 \
+[ -n "$QG_OUT" ] && printf '%s' "$QG_OUT" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse"' >/dev/null 2>&1 \
   || fail "quality-gate.sh does not emit a PostToolUse hookSpecificOutput envelope (got: $QG_OUT)"
-printf '%s' "$QG_OUT" | jq -e '(.hookSpecificOutput.additionalContext | length) > 0' >/dev/null 2>&1 \
+[ -n "$QG_OUT" ] && printf '%s' "$QG_OUT" | jq -e '(.hookSpecificOutput.additionalContext | length) > 0' >/dev/null 2>&1 \
   || fail "quality-gate.sh envelope has no additionalContext text (got: $QG_OUT)"
 pass "quality-gate.sh emits hookSpecificOutput.additionalContext (reaches model context)"
 QG_OFF=$(SB_QUALITY_GATE=off bash "$QG" 2>/dev/null)
