@@ -33,4 +33,18 @@ describe('server.ts tool-registration contract', () => {
   it('knowledge_search description no longer advertises the access-frequency boost removed in 0.33.30', () => {
     expect(src).not.toMatch(/access-frequency/);
   });
+
+  // D031: knowledge_reindex unconditionally runs knowledge_validate with autofix:true
+  // (knowledge-reindex.ts calls `knowledgeValidate(knowledgeDir, { autofix: true, ... })`), which
+  // deletes empty pages and rewrites frontmatter — exactly the destructive default
+  // knowledge_validate's OWN description says it flips to report-only "so a casual/unattended
+  // MODEL call must not silently delete empty pages". The reindex description must disclose this
+  // instead of implying a harmless catalog rebuild.
+  it('knowledge_reindex description discloses that it runs validate with autofix (deletes empty pages)', () => {
+    const m = src.match(/registerJsonTool\(\s*"knowledge_reindex",\s*"([^"]*(?:\\.[^"]*)*)"/);
+    expect(m, 'knowledge_reindex registration not found').not.toBeNull();
+    const description = m![1];
+    expect(description).toMatch(/autofix/i);
+    expect(description).toMatch(/delete/i);
+  });
 });

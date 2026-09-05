@@ -12,7 +12,7 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 
 | id | title | where | status |
 |---|---|---|---|
-| D057 | knowledge_search `scope` is unvalidated (knowledge-search.ts:184): traversal yields arbitrary-file read — path enumeration plus the first 200 chars of any .md outside the wiki, bypassing the default-on resource_scope Read guard | `mcp/src/tools/knowledge-search.ts:184` | open |
+| D057 | knowledge_search `scope` is unvalidated (knowledge-search.ts:184): traversal yields arbitrary-file read — path enumeration plus the first 200 chars of any .md outside the wiki, bypassing the default-on resource_scope Read guard | `mcp/src/tools/knowledge-search.ts:184` | fixed |
 | D120 | Concurrent native-jq `>>` appends silently lose and tear audit-log.jsonl rows (scripts/lib.sh:470); every whole-file jq reader then aborts at the first fragment, hiding 98% of guard verdicts — Windows/git-bash | `scripts/lib.sh:469` | open |
 
 ## high (23)
@@ -23,8 +23,8 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D025 | persona-tool-guard's ask/deny is emitted only at script end and 14/2267 live Windows runs exceeded the 5 s hooks.json timeout — nothing in-plugin enforces or detects the overrun | `hooks/hooks.json:88` | open |
 | D037 | Absolute in-repo imports (Python PEP8 style, TS path aliases) are classified external → zero-edge graph, uniform PageRank injected as "highest-connectivity spine" and code_neighbors reports 0 importers, with no degeneracy signal | `mcp/src/tools/codemap/extract.ts:474` | open |
 | D039 | codemap accepts any registered root: nogit glob walk of HOME/Temp yields a junk map and re-walks the whole tree on every staleness probe (71 s measured) | `mcp/src/tools/codemap/scan-sources.ts:191` | open |
-| D054 | UTF-8 BOM page reported as missing_frontmatter; autofix prepends a second block, permanently losing project:/tags: and re-dating created/updated to today | `mcp/src/tools/frontmatter.ts:13` | open |
-| D058 | anchors=0 project scoping is not inert: all project-tagged pages (51% of the live wiki) are ranked below every global page and dropped once 3 globals pass the floor | `mcp/src/tools/knowledge-search.ts:436` | open |
+| D054 | UTF-8 BOM page reported as missing_frontmatter; autofix prepends a second block, permanently losing project:/tags: and re-dating created/updated to today | `mcp/src/tools/frontmatter.ts:13` | fixed |
+| D058 | anchors=0 project scoping is not inert: all project-tagged pages (51% of the live wiki) are ranked below every global page and dropped once 3 globals pass the floor | `mcp/src/tools/knowledge-search.ts:436` | fixed |
 | D084 | dream-accept.sh applies staging with unchecked cp/rsync exit codes, then stamps archived_at, rm -rf's staging and reports "accepted" — a partial apply silently destroys the dream's only copy of its output | `scripts/dream-accept.sh:345` | open |
 | D088 | dream-autostage.sh ignores archived_at: a discarded failed dream re-banners at every SessionStart until retention evicts it (scripts/dream-autostage.sh:108-111,167) | `scripts/dream-autostage.sh:112` | open |
 | D095 | dream-snapshot.sh:148 selects transcripts by lexical filename sort (session-UUID/`sub-` prefix leads), not date, so the autonomous consolidation lane re-mines the same lexically-highest 50 forever and never consolidates 17 of 19 dates | `scripts/dream-snapshot.sh:148` | open |
@@ -55,13 +55,13 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D016 | ci.yml:48-50 runs run-all.sh on ubuntu with the expected-skips guard unarmed (run-all.sh:205 Linux arm = __unset__), so whole-file SKIPs are warn-only and the only full-suite lane stays green | `.github/workflows/ci.yml:202` | open |
 | D018 | Dream skill and dream-runner hard-code ~/.second-brain, ignoring the SB_BRAIN_DIR/BRAIN_DIR override the MCP honours | `agents/dream-runner.md:33` | open |
 | D023 | hooks.json comments wrongly assume ordered/sequential hook execution within one event; races in registration-gate (SessionStart) and audit-log rotation (Stop) follow from the same false assumption | `hooks/hooks.json:51` | open |
-| D029 | sb CLI's access-count telemetry write is raced by process.exit(): 0-byte .tmp litter, counts never persisted | `mcp/src/cli/sb-entry.ts:11` | open |
-| D031 | knowledge_reindex tool description omits that it unconditionally runs knowledge_validate with autofix:true (deletes empty pages, rewrites frontmatter), bypassing the Phase 3b safe-default that knowledge_validate itself enforces | `mcp/src/server.ts:207` | open |
-| D035 | Fact sanitizer leaves U+2028/U+2029; JS multiline-regex frontmatter parsing and first-match extraction let a forged type:/project:/related: embedded in the title win over the writer's real values, applied unattended under auto_accept=all | `mcp/src/tools/candidate-facts.ts:158` | open |
+| D029 | sb CLI's access-count telemetry write is raced by process.exit(): 0-byte .tmp litter, counts never persisted | `mcp/src/cli/sb-entry.ts:11` | fixed |
+| D031 | knowledge_reindex tool description omits that it unconditionally runs knowledge_validate with autofix:true (deletes empty pages, rewrites frontmatter), bypassing the Phase 3b safe-default that knowledge_validate itself enforces | `mcp/src/server.ts:207` | fixed |
+| D035 | Fact sanitizer leaves U+2028/U+2029; JS multiline-regex frontmatter parsing and first-match extraction let a forged type:/project:/related: embedded in the title win over the writer's real values, applied unattended under auto_accept=all | `mcp/src/tools/candidate-facts.ts:158` | fixed |
 | D041 | codemap scanner has no test/spec exclusion — *.test.ts files consume graph nodes and map.md token budget alongside production code | `mcp/src/tools/codemap/scan-sources.ts:129` | open |
-| D059 | Thin-scope auto-broaden buries a strictly stronger other-project page behind weak in-scope pages, contradicting the 'placed FIRST' reservation contract | `mcp/src/tools/knowledge-search.ts:439` | open |
-| D060 | Search snippet fallback for description-less pages slices raw frontmatter-included file content instead of doc.body, injecting YAML into model context | `mcp/src/tools/knowledge-search.ts:248` | open |
-| D066 | Empty-page autofix unlinks whitespace-only pages with no re-check, racing non-atomic writers | `mcp/src/tools/knowledge-validate.ts:257` | open |
+| D059 | Thin-scope auto-broaden buries a strictly stronger other-project page behind weak in-scope pages, contradicting the 'placed FIRST' reservation contract | `mcp/src/tools/knowledge-search.ts:439` | fixed |
+| D060 | Search snippet fallback for description-less pages slices raw frontmatter-included file content instead of doc.body, injecting YAML into model context | `mcp/src/tools/knowledge-search.ts:248` | fixed |
+| D066 | Empty-page autofix unlinks whitespace-only pages with no re-check, racing non-atomic writers | `mcp/src/tools/knowledge-validate.ts:257` | fixed |
 | D076 | README:7-8 (and sb-memory-systems-reference SKILL.md:377) claim unattended consolidation/auto-accept is Linux-only; bwrap gates nothing and the lane auto-accepts on Windows/macOS at the shipped default | `README.md:7` | open |
 | D077 | README promises every guard/pipeline has an SB_* kill switch; quality-gate PostToolUse nudge, stop-extract/pre-compact LLM extraction, and the always-included PROJECT.md hot-tier injection have none | `README.md:57` | open |
 | D078 | README's "only network calls are Anthropic API calls" is contradicted by the vector-tier HuggingFace model fetch (and npm install in install-vector-deps.sh) | `README.md:110` | open |
@@ -136,7 +136,7 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D043 | codemap serialize aborts at first oversized line instead of skipping it, can empty the map at small token budgets | `mcp/src/tools/codemap/serialize.ts:294` | open |
 | D044 | codemap store.ts leaves orphaned graph.json.tmp/map.md.tmp files when the CLI process is killed mid-write | `mcp/src/tools/codemap/store.ts:330` | open |
 | D045 | Stale 'local BM25 reconcile' doc comments and vestigial hermeticity env pins in consolidate-writer-cli/harness/docs | `mcp/src/tools/consolidate-writer-cli.ts:6` | open |
-| D047 | dream_* MCP tools accept an unvalidated dream_id joined into filesystem paths and shell script arguments | `mcp/src/tools/dream.ts:98` | open |
+| D047 | dream_* MCP tools accept an unvalidated dream_id joined into filesystem paths and shell script arguments | `mcp/src/tools/dream.ts:98` | fixed |
 | D048 | Wiki embeddings cache never evicts entries for deleted/renamed pages, growing unboundedly and re-serialized on every hit | `mcp/src/tools/embeddings.ts:116` | open |
 | D055 | frontmatter parseDoc splits file paths on '/' only, breaking type derivation on Windows backslash paths | `mcp/src/tools/frontmatter.ts:127` | open |
 | D061 | aiBlockSnippet yields an empty snippet with no description fallback when a page's ai-block fields mismatch its declared type | `mcp/src/tools/knowledge-search.ts:244` | open |

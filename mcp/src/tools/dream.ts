@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import { existsSync } from "fs";
 import { atomicWriteJson } from './atomic-write.js';
-import { cleanEnvPath } from '../path-guard.js';
+import { cleanEnvPath, assertWithin, validateSlug } from '../path-guard.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { projectFamily } from './project-registry.js';
@@ -94,8 +94,21 @@ interface DreamStatus {
   error: string | null;
 }
 
+// D057-sibling: `dream_id` is a caller-controlled MCP tool argument joined into filesystem paths
+// across every dream_* tool — including a recursive fs.rm in dreamDiscard (below) — with no
+// validation at all. dream_id:"../../outside" could read/overwrite/delete arbitrary directories
+// (readStatus is the single choke point every dream_* tool calls first, so guarding it here closes
+// the traversal for all of them). validateSlug rejects traversal syntax ('..'/separators) at the
+// syntactic layer; assertWithin is defense-in-depth against a symlinked escape, matching the
+// pattern already used by knowledge_fetch/archive_to_wiki.
 async function readStatus(dreamId: string): Promise<DreamStatus | null> {
-  const statusPath = join(dreamsDir(), dreamId, "status.json");
+  let statusPath: string;
+  try {
+    validateSlug(dreamId);
+    statusPath = assertWithin(dreamsDir(), dreamId, "status.json");
+  } catch {
+    return null;
+  }
   try {
     const raw = await fs.readFile(statusPath, "utf-8");
     return JSON.parse(raw);
@@ -108,7 +121,10 @@ async function writeStatus(
   dreamId: string,
   status: DreamStatus
 ): Promise<void> {
-  const statusPath = join(dreamsDir(), dreamId, "status.json");
+  // Defense-in-depth: every caller reaches writeStatus only after readStatus(dreamId) already
+  // succeeded (so dreamId is already known-valid), but never trust a repeated argument twice.
+  validateSlug(dreamId);
+  const statusPath = assertWithin(dreamsDir(), dreamId, "status.json");
   await atomicWriteJson(statusPath, status);
 }
 
@@ -345,7 +361,10 @@ export async function dreamDiscard(
     return { ok: false, reason: `dream ${args.dream_id} already archived` };
   }
 
-  const dreamDir = join(dreamsDir(), args.dream_id);
+  // args.dream_id already passed validateSlug/assertWithin inside readStatus above (status would
+  // be null otherwise); assertWithin again here is defense-in-depth directly at the recursive
+  // fs.rm call site, not a behavior change for a legitimate dream_id.
+  const dreamDir = assertWithin(dreamsDir(), args.dream_id);
   try {
     await fs.rm(join(dreamDir, "staging"), { recursive: true, force: true });
     await fs.rm(join(dreamDir, "transcripts"), {

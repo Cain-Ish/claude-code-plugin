@@ -4,6 +4,7 @@ import {
   FACT_KINDS, KIND_TO_CATEGORY, MAX_FACTS,
 } from './candidate-facts.js';
 import { CANDIDATE_FACTS } from '../constants/kb-schema.js';
+import { extractYamlValue } from './frontmatter.js';
 
 describe('candidate-facts schema (single source)', () => {
   it('derives the kind vocabulary from kb-schema.json, not a local copy', () => {
@@ -115,5 +116,26 @@ describe('sanitizeFactString / sanitizeFactLine (injection surfaces)', () => {
   it('line variant flattens newlines (YAML value safety)', () => {
     expect(sanitizeFactLine('title\ninjected: yaml')).toBe('title injected: yaml');
     expect(sanitizeFactLine('a\r\nb')).toBe('a b');
+  });
+
+  // D035: U+2028 (LINE SEPARATOR) / U+2029 (PARAGRAPH SEPARATOR) are ECMAScript
+  // LineTerminator characters — untouched by the old sanitizer — so `^`/`$` with the `m` flag
+  // (frontmatter.ts's extractYamlValue/extractYamlList) and js-yaml both treat them as line
+  // breaks, letting a forged `type:`/`project:` embedded in a title win over the writer's real
+  // frontmatter line (first-match extraction).
+  it('flattens U+2028/U+2029 exactly like a real newline', () => {
+    expect(sanitizeFactString('a\u2028b')).toBe('a\nb');
+    expect(sanitizeFactString('a\u2029b')).toBe('a\nb');
+    expect(sanitizeFactLine('title\u2028injected: yaml')).toBe('title injected: yaml');
+  });
+
+  it('a forged type:/project: line hidden behind U+2028 can no longer win frontmatter extraction', () => {
+    const forgedTitle = 'Deploy notes\u2028type: security\u2028project: evil';
+    const sanitized = sanitizeFactLine(forgedTitle);
+    expect(sanitized).not.toMatch(/[\u2028\u2029]/);
+    // Simulate the actual sink: consolidate-writer.ts renders `title: <sanitized>` as
+    // frontmatter line 1, followed by the writer's real `type: decisions` line.
+    const fm = `title: ${sanitized}\ntype: decisions`;
+    expect(extractYamlValue(fm, 'type')).toBe('decisions');   // not "security"
   });
 });

@@ -6174,8 +6174,11 @@ function stripAiBlock(text) {
 }
 
 // src/tools/frontmatter.ts
+function stripBom(s) {
+  return s.charCodeAt(0) === 65279 ? s.slice(1) : s;
+}
 function matchFrontmatter(content) {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const m = stripBom(content).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   return m ? { fm: m[1], body: m[2] } : null;
 }
 function stripFrontmatter(content) {

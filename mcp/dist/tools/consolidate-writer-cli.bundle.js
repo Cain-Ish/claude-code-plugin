@@ -206,7 +206,7 @@ __export(candidate_facts_exports, {
   validateCandidateFacts: () => validateCandidateFacts
 });
 function sanitizeFactString(s) {
-  return stripInvisible(s).replace(/\r/g, "").replace(/<!--/g, "(!--").replace(/-->/g, "--)").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, " ");
+  return stripInvisible(s).replace(/\r/g, "").replace(/[\u2028\u2029]/g, "\n").replace(/<!--/g, "(!--").replace(/-->/g, "--)").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, " ");
 }
 function sanitizeFactLine(s) {
   return sanitizeFactString(s).replace(/\n+/g, " ").trim();
@@ -314,8 +314,11 @@ var init_ai_block = __esm({
 });
 
 // src/tools/frontmatter.ts
+function stripBom(s) {
+  return s.charCodeAt(0) === 65279 ? s.slice(1) : s;
+}
 function matchFrontmatter(content) {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const m = stripBom(content).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   return m ? { fm: m[1], body: m[2] } : null;
 }
 var init_frontmatter = __esm({

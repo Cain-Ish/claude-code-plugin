@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchFrontmatter, stripFrontmatter, replaceFrontmatter, FM_OPEN_RE, parseDoc, extractYamlValue, extractYamlList } from './frontmatter.js';
+import { matchFrontmatter, stripFrontmatter, replaceFrontmatter, FM_OPEN_RE, parseDoc, extractYamlValue, extractYamlList, stripBom, hasFrontmatterFence } from './frontmatter.js';
 import * as ks from './knowledge-search.js';
 
 const LF = '---\ntitle: a\ntype: entities\n---\n\n# A\n\nbody line\n';
@@ -27,6 +27,25 @@ describe('frontmatter fence helpers', () => {
     const m = matchFrontmatter('---\ntitle: a\n---')!;
     expect(m.fm).toBe('title: a');
     expect(m.body).toBe('');
+  });
+
+  // D054: a UTF-8 BOM (U+FEFF) shifts the fence to offset 1; the anchored `^---` regexes
+  // silently saw "no frontmatter", and knowledge_validate's autofix prepended a SECOND block on
+  // top of the original (losing project:/tags: and re-dating created/updated to today).
+  it('stripBom removes a leading U+FEFF and is a no-op on clean input', () => {
+    expect(stripBom('﻿' + LF)).toBe(LF);
+    expect(stripBom(LF)).toBe(LF);
+  });
+
+  it('matchFrontmatter parses a BOM-prefixed file the same as its clean equivalent', () => {
+    const m = matchFrontmatter('﻿' + LF)!;
+    expect(m.fm).toBe('title: a\ntype: entities');
+    expect(m.body).toBe('\n# A\n\nbody line\n');
+  });
+
+  it('hasFrontmatterFence is true for a BOM-prefixed fence (FM_OPEN_RE alone is not)', () => {
+    expect(hasFrontmatterFence('﻿' + LF)).toBe(true);
+    expect(FM_OPEN_RE.test('﻿' + LF)).toBe(false);   // documents the raw regex's blind spot
   });
 
   it('stripFrontmatter removes the block; passes non-frontmatter content through unchanged', () => {

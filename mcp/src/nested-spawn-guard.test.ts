@@ -57,6 +57,10 @@ describe('nested-spawn-guard — Part B: filesystem round-trip (load-bearing ora
     await fs.mkdir(wiki, { recursive: true });
     const empty = join(wiki, 'empty.md');
     await fs.writeFile(empty, '   \n');
+    // D066: empty-page autofix now skips anything younger than 2s (a re-check guard against
+    // deleting a page mid-write) — backdate so these guard-focused tests still exercise deletion.
+    const past = new Date(Date.now() - 10_000);
+    await fs.utimes(empty, past, past);
     return { dir, empty };
   }
   const wrappedValidate = (dir: string) =>

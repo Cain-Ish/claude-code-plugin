@@ -49,6 +49,14 @@ const CONFIDENCE: readonly string[] = ITEM_PROPS.confidence.enum;
 export function sanitizeFactString(s: string): string {
   return stripInvisible(s)
     .replace(/\r/g, '')   // CR first — the control-class below would turn it into a stray space
+    // D035: U+2028 (LINE SEPARATOR) / U+2029 (PARAGRAPH SEPARATOR) are ECMAScript
+    // LineTerminator characters — frontmatter.ts's extractYamlValue/extractYamlList (`^key:$`
+    // with the `m` flag) and js-yaml both treat them as line breaks, same as \n. Left unstripped,
+    // a title like "Deploy notes type: security project: evil" survives into
+    // `title: <title>` frontmatter and PARSES as its own `type:`/`project:` line — forging the
+    // page's facets, and winning over the writer's real line via first-match extraction (it comes
+    // first in the file). Fold to \n so the newline handling below neutralizes it identically.
+    .replace(/[\u2028\u2029]/g, '\n')
     .replace(/<!--/g, '(!--').replace(/-->/g, '--)')
     // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' ');

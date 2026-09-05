@@ -12,13 +12,30 @@ import { parseAiBlock, stripAiBlock } from './ai-block.js';
  *  missing_frontmatter check deliberately does NOT require a CLOSED fence. */
 export const FM_OPEN_RE = /^---\r?\n/;
 
+/** Strip a leading UTF-8 BOM (U+FEFF). `fs.readFile(...,'utf-8')` does NOT strip it, so a
+ *  BOM'd page's `---` fence sits at offset 1, not 0 — FM_OPEN_RE/matchFrontmatter anchor at
+ *  offset 0 and silently see "no frontmatter" (title/type/project/dates all lost), and
+ *  knowledge_validate's autofix then PREPENDS A SECOND BLOCK on top of the original, corrupting
+ *  the page permanently (same corruption class as the 0.28.3 CRLF bug this file already guards
+ *  against). PowerShell 5.1's `>`/`Out-File` default to UTF-8-with-BOM, so any page saved or
+ *  re-saved from PowerShell on Windows carries one. No-op on clean input. */
+export function stripBom(s: string): string {
+  return s.charCodeAt(0) === 0xFEFF ? s.slice(1) : s;
+}
+
+/** BOM-tolerant `FM_OPEN_RE.test` — the check every "does this file have a frontmatter fence at
+ *  all?" call site should use instead of testing raw content directly (see stripBom). */
+export function hasFrontmatterFence(content: string): boolean {
+  return FM_OPEN_RE.test(stripBom(content));
+}
+
 export interface Frontmatter { fm: string; body: string }
 
 /** Split content into { fm, body }. `body` excludes the fences and at most ONE
  *  newline after the closing `---`. Returns null when there is no CLOSED
  *  frontmatter block (unterminated fence = no frontmatter). */
 export function matchFrontmatter(content: string): Frontmatter | null {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const m = stripBom(content).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   return m ? { fm: m[1], body: m[2] } : null;
 }
 

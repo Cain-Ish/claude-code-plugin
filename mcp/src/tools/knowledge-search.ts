@@ -10,6 +10,7 @@ import { stripAiBlock, aiBlockSnippet } from './ai-block.js';
 import { projectFamily } from './project-registry.js';
 import { parseDoc, ParsedDoc } from './frontmatter.js';
 import { walkWiki } from './walk-wiki.js';
+import { assertWithin, validateSlug } from '../path-guard.js';
 
 // Frontmatter parsing lives in ./frontmatter.ts (single source); re-exported here for back-compat.
 export { parseDoc, extractYamlValue, extractYamlList } from './frontmatter.js';
@@ -181,7 +182,18 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   let scopeDirs: string[];
   if (args.scope && args.scope !== 'all') {   // 'all' = explicit no-category + no-project scope (search everything)
-    scopeDirs = [join(wikiRoot, args.scope)];
+    // D057: `scope` was joined into wikiRoot with no validation at all — 'scope:../../outside'
+    // walked and read arbitrary files outside the wiki (path traversal / arbitrary-file read,
+    // reachable even under SB_NESTED_SPAWN=1 since this tool is deliberately read-only/unwrapped).
+    // scope names exactly one wiki subdirectory, so validateSlug's charset rejects separators
+    // and leading-dot (".." included) syntactically; assertWithin is defense-in-depth against a
+    // symlinked escape, matching the pattern used by knowledge_fetch's slug handling.
+    try {
+      validateSlug(args.scope);
+    } catch (e) {
+      throw new Error(`invalid scope ${JSON.stringify(args.scope)}: must be a single wiki subdirectory name, no path separators or '..' (${e instanceof Error ? e.message : String(e)})`);
+    }
+    scopeDirs = [assertWithin(wikiRoot, args.scope)];
   } else {
     try {
       const entries = await fs.readdir(wikiRoot, { withFileTypes: true });
@@ -245,7 +257,10 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
         ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS)   // shared intermediate, budget-capped
         : (source === 'local-doc'
           ? doc.description
-          : (doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim())),
+          // D060: was `rawContent.slice(...)` — rawContent is the WHOLE file including
+          // frontmatter, so a description-less page injected its YAML block as the snippet.
+          // doc.body is the frontmatter-stripped field frontmatter.ts already computes.
+          : (doc.description || doc.body.slice(0, SNIPPET_CHARS).replace(/\s+/g, ' ').trim())),
       tokens,
       source,
     };
@@ -393,6 +408,10 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // --- SP-1 project-scoped serving (scoped-first, auto-broaden). Pure reorder + filter. ---
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== 'off' && args.scope !== 'all';
   let anchorCount = 0;
+  // D058: `scopeActive` (tiering/ranking is actually affected) is deliberately NARROWER than
+  // `scopeOn` (the request asked to scope). scoped_to/anchors telemetry always reflects `scopeOn`
+  // so callers can see the anchors=0 case; the sort/pool/tier fields below use `scopeActive`.
+  let scopeActive = false;
   if (scopeOn) {
     const slug = args.projectSlug!;
     // Family = the monorepo root + siblings + self (reads projects.jsonl truth, not the graph).
@@ -407,20 +426,29 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     const anchors = allDocs.filter(d => d.source === 'wiki' && (d.doc.project ?? '') === slug)
       .map(d => slugFromPath(d.doc.path));
     anchorCount = anchors.length;
-    const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt('SB_SCOPE_HOPS', 2, 0, 4));
-    for (const s of scored) {
-      if (s.source === 'local-doc') { s.tier = 1; continue; }  // active project's own registry pages
-      const sl = slugFromPath(s.path);
-      const proj = projBySlug.get(sl) ?? '';
-      s.tier = proj === slug ? 1
-             : (proj !== '' && family.has(proj)) ? 2   // a family-member project's page
-             : neigh.has(sl) ? 3                        // graph-neighbour
-             : proj === '' ? 4                          // global
-             : 5;                                       // other project
+    // With zero direct-facet anchors there is no signal to judge "in scope" by — tiering every
+    // project-tagged page to tier 5 (below every untagged global, then dropped once 3 globals
+    // passed the floor) silently hid the majority of a project-tagged wiki from any project with
+    // an unpopulated/mistyped/new-repo slug. server.ts already promises "anchors=0 ... scoping
+    // inert" — this makes that true by skipping tiering (ranking falls back to pure score, same
+    // as scopeOn=false) instead of only reporting it.
+    scopeActive = anchorCount > 0;
+    if (scopeActive) {
+      const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt('SB_SCOPE_HOPS', 2, 0, 4));
+      for (const s of scored) {
+        if (s.source === 'local-doc') { s.tier = 1; continue; }  // active project's own registry pages
+        const sl = slugFromPath(s.path);
+        const proj = projBySlug.get(sl) ?? '';
+        s.tier = proj === slug ? 1
+               : (proj !== '' && family.has(proj)) ? 2   // a family-member project's page
+               : neigh.has(sl) ? 3                        // graph-neighbour
+               : proj === '' ? 4                          // global
+               : 5;                                       // other project
+      }
     }
   }
 
-  scored.sort((a, b) => (scopeOn ? (a.tier - b.tier) || (b.score - a.score) : b.score - a.score));
+  scored.sort((a, b) => (scopeActive ? (a.tier - b.tier) || (b.score - a.score) : b.score - a.score));
   const topScore = scored.reduce((m, s) => Math.max(m, s.score), 0);
   const topBase = scored.reduce((m, s) => Math.max(m, s.baseScore), 0);
   // R2.1: in BM25-only mode the floor compares FROZEN base scores — the boost
@@ -432,39 +460,48 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     : c.score > 0 && (topBase === 0 || c.baseScore >= topBase * MIN_SCORE_RATIO);
 
   let pool = scored;
-  if (scopeOn) {
+  if (scopeActive) {
     const inScope = scored.filter(s => s.tier <= 4);
     const inScopePassing = inScope.filter(passesFloor);
-    if (inScopePassing.length < clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100)) {
-      pool = scored;   // thin in-scope → broaden (keep all; in-scope sorted first)
+    const enoughInScope = inScopePassing.length >= clampEnvInt('SB_SCOPE_MIN_HITS', 3, 0, 100);
+    // CROSS-PROJECT RESERVATION. Once there are enough in-scope hits, tier-5 is dropped —
+    // EXCEPT for pages that outscore EVERY in-scope candidate. Without this, a lesson learned in
+    // one repo is unreachable from another: measured live, "ansible replace regexp double
+    // substitution" returned the correct page at rank 1 unscoped (0.04152) and NOTHING relevant
+    // when scoped to a different project, because the right page was dropped before ranking.
+    // Cross-project transfer is the whole reason this is a *second* brain rather than a
+    // per-repo README.
+    //
+    // Why "outscores everything in scope" and not a margin or a plain slot: it is the condition
+    // that keeps the existing scoping contract intact. The suppression tests (`C1 local-docs…`,
+    // `SP-1 family…`) use fixtures whose other-project page scores EQUAL to the in-scope pages,
+    // so a strict > leaves them dropped exactly as before — the rule only fires when the
+    // outside page is genuinely better than anything local, which is precisely the case scoping
+    // was never meant to hide. A multiplicative margin was rejected: it is a threshold on a
+    // mode-dependent scale, the bug class that killed the injection gate (see
+    // KnowledgeSearchResult.relevance).
+    //
+    // Placed FIRST, not appended: consumers take the top 1-2 candidates (persona-context
+    // injects 2), so a reserved slot at the tail is the same as no slot at all. Ranking it first
+    // is also score-consistent — by construction it beats every in-scope page. Precision is
+    // still enforced downstream: the injection CLIs apply the grounding gate to every candidate,
+    // reserved or not. SB_SCOPE_CROSS_SLOTS=0 restores the old drop.
+    //
+    // Computed and applied identically in BOTH branches (D059): this used to run only in the
+    // "enough in-scope hits" branch, so the thin/broaden branch below (`pool = scored`, still
+    // tier-major sorted) buried a strictly-stronger other-project page after every in-scope page
+    // regardless of score — exactly the "slot at the tail is no slot" failure the comment above
+    // says must not happen. Small/new projects with 1-2 weak hits are the ones most likely to
+    // need cross-project transfer, so the broaden branch cannot be exempt from the reservation.
+    const slots = clampEnvInt('SB_SCOPE_CROSS_SLOTS', 1, 0, TOP_K);
+    const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
+    const cross = slots > 0
+      ? scored.filter(s => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots)
+      : [];
+    if (!enoughInScope) {
+      const crossSet = new Set(cross);
+      pool = cross.length ? [...cross, ...scored.filter(s => !crossSet.has(s))] : scored;
     } else {
-      // CROSS-PROJECT RESERVATION. Enough in-scope hits, so tier-5 is dropped — EXCEPT for
-      // pages that outscore EVERY in-scope candidate. Without this, a lesson learned in one
-      // repo is unreachable from another: measured live, "ansible replace regexp double
-      // substitution" returned the correct page at rank 1 unscoped (0.04152) and NOTHING
-      // relevant when scoped to a different project, because the right page was dropped
-      // before ranking. Cross-project transfer is the whole reason this is a *second* brain
-      // rather than a per-repo README.
-      //
-      // Why "outscores everything in scope" and not a margin or a plain slot: it is the
-      // condition that keeps the existing scoping contract intact. The suppression tests
-      // (`C1 local-docs…`, `SP-1 family…`) use fixtures whose other-project page scores
-      // EQUAL to the in-scope pages, so a strict > leaves them dropped exactly as before —
-      // the rule only fires when the outside page is genuinely better than anything local,
-      // which is precisely the case scoping was never meant to hide. A multiplicative margin
-      // was rejected: it is a threshold on a mode-dependent scale, the bug class that killed
-      // the injection gate (see KnowledgeSearchResult.relevance).
-      //
-      // Placed FIRST, not appended: consumers take the top 1-2 candidates (persona-context
-      // injects 2), so a reserved slot at the tail is the same as no slot at all. Ranking it
-      // first is also score-consistent — by construction it beats every in-scope page.
-      // Precision is still enforced downstream: the injection CLIs apply the grounding gate
-      // to every candidate, reserved or not. SB_SCOPE_CROSS_SLOTS=0 restores the old drop.
-      const slots = clampEnvInt('SB_SCOPE_CROSS_SLOTS', 1, 0, TOP_K);
-      const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
-      const cross = slots > 0
-        ? scored.filter(s => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots)
-        : [];
       pool = cross.length ? [...cross, ...inScopePassing] : inScope;
     }
   }
@@ -482,7 +519,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
       // pre-boost BM25, not the mode-dependent `score` (see the field doc).
       relevance: Math.round(baseScore * 1000) / 1000,
       query_terms: new Set(queryTokens).size,
-      ...(scopeOn ? { tier } : {}),
+      ...(scopeActive ? { tier } : {}),
     }));
 
   // Record access for returned results (fire-and-forget) — telemetry only (see ACCESS_PRUNE_DAYS).
@@ -495,7 +532,12 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     accessCounts[slug].count++;
     accessCounts[slug].last_accessed = ts;
   }
-  saveAccessCounts(accessCounts).catch(() => {});
+  // D029: this used to be fire-and-forget. A one-shot CLI (sb-entry.ts) calls process.exit()
+  // as soon as runSb()/knowledgeSearch() resolves — Node kills any in-flight fs op at that point,
+  // so the write's fs.rename never completed: a 0-byte `access-counts.json.tmp.<pid>` was left
+  // behind on every CLI invocation and access-counts.json was never actually updated. Awaiting it
+  // here means the write is durable before this function (and therefore any caller) returns.
+  await saveAccessCounts(accessCounts).catch(() => {});
 
   return {
     candidates,

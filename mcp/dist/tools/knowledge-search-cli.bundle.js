@@ -23,16 +23,86 @@ async function atomicWriteJson(filePath, value) {
 import { join as join6 } from "path";
 
 // src/brain-paths.ts
-import { join, isAbsolute } from "path";
+import { join, isAbsolute as isAbsolute2 } from "path";
 import { homedir } from "os";
 
 // src/path-guard.ts
+import { resolve, sep, isAbsolute } from "path";
+import { realpathSync } from "fs";
+var PathGuardError = class extends Error {
+  constructor(message, baseDir, candidate) {
+    super(message);
+    this.baseDir = baseDir;
+    this.candidate = candidate;
+    this.name = "PathGuardError";
+  }
+  baseDir;
+  candidate;
+};
+function realResolve(p) {
+  let current = "";
+  const segments = p.split(sep);
+  let start = 0;
+  if (/^[A-Za-z]:$/.test(segments[0])) {
+    try {
+      current = realpathSync(segments[0] + sep).replace(new RegExp(`\\${sep}+$`), "");
+    } catch {
+      current = segments[0];
+    }
+    start = 1;
+  }
+  for (let i = start; i < segments.length; i++) {
+    const next = current === "" && segments[i] === "" ? sep : current === sep ? sep + segments[i] : /^[A-Za-z]:$/.test(current) ? current + sep + segments[i] : current === "" ? segments[i] : current + sep + segments[i];
+    try {
+      current = realpathSync(next);
+    } catch {
+      const rest = segments.slice(i + 1).join(sep);
+      return rest ? current + sep + segments[i] + sep + rest : current + sep + segments[i];
+    }
+  }
+  return current;
+}
+function assertWithin(baseDir, ...parts) {
+  for (const part of parts) {
+    if (part.indexOf("\0") !== -1) {
+      throw new PathGuardError(`path component contains NUL byte`, baseDir, parts.join("/"));
+    }
+    if (isAbsolute(part)) {
+      throw new PathGuardError(`absolute path component not allowed: ${JSON.stringify(part)}`, baseDir, parts.join("/"));
+    }
+  }
+  const baseResolved = realResolve(resolve(baseDir));
+  const candidate = resolve(baseDir, ...parts);
+  const candidateResolved = realResolve(candidate);
+  if (candidateResolved !== baseResolved && !candidateResolved.startsWith(baseResolved + sep)) {
+    throw new PathGuardError(
+      `path escapes base directory: ${candidateResolved} not within ${baseResolved}`,
+      baseDir,
+      parts.join("/")
+    );
+  }
+  return candidateResolved;
+}
 function cleanEnvPath(s) {
   return (s ?? "").replace(/[\r\n]/g, "");
 }
 function assertSafeSlug(slug) {
   if (!slug || slug.length > 128 || /[\\/\x00-\x1f]|\.\./.test(slug)) {
     throw new Error(`unsafe slug: ${JSON.stringify(slug)}`);
+  }
+}
+function validateSlug(slug) {
+  if (typeof slug !== "string") {
+    throw new PathGuardError("slug must be a string", "", String(slug));
+  }
+  if (slug.length === 0 || slug.length > 128) {
+    throw new PathGuardError(`slug length must be 1..128, got ${slug.length}`, "", slug);
+  }
+  if (slug.startsWith(".")) {
+    throw new PathGuardError(`slug must not start with '.': ${JSON.stringify(slug)}`, "", slug);
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
+    throw new PathGuardError(`slug contains disallowed characters: ${JSON.stringify(slug)}`, "", slug);
   }
 }
 
@@ -166,7 +236,7 @@ function estimateTokens(text) {
 
 // src/tools/doc-sources.ts
 import { promises as fs3 } from "fs";
-import { join as join3, relative, resolve, sep as sep2, isAbsolute as isAbsolute2 } from "path";
+import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -1224,8 +1294,8 @@ var path = {
   win32: { sep: "\\" },
   posix: { sep: "/" }
 };
-var sep = defaultPlatform === "win32" ? path.win32.sep : path.posix.sep;
-minimatch.sep = sep;
+var sep2 = defaultPlatform === "win32" ? path.win32.sep : path.posix.sep;
+minimatch.sep = sep2;
 var GLOBSTAR = /* @__PURE__ */ Symbol("globstar **");
 minimatch.GLOBSTAR = GLOBSTAR;
 var qmark2 = "[^/]";
@@ -3288,10 +3358,10 @@ var Minipass = class extends EventEmitter {
    * Return a void Promise that resolves once the stream ends.
    */
   async promise() {
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       this.on(DESTROYED, () => reject(new Error("stream destroyed")));
       this.on("error", (er) => reject(er));
-      this.on("end", () => resolve2());
+      this.on("end", () => resolve3());
     });
   }
   /**
@@ -3315,7 +3385,7 @@ var Minipass = class extends EventEmitter {
         return Promise.resolve({ done: false, value: res });
       if (this[EOF])
         return stop();
-      let resolve2;
+      let resolve3;
       let reject;
       const onerr = (er) => {
         this.off("data", ondata);
@@ -3329,19 +3399,19 @@ var Minipass = class extends EventEmitter {
         this.off("end", onend);
         this.off(DESTROYED, ondestroy);
         this.pause();
-        resolve2({ value, done: !!this[EOF] });
+        resolve3({ value, done: !!this[EOF] });
       };
       const onend = () => {
         this.off("error", onerr);
         this.off("data", ondata);
         this.off(DESTROYED, ondestroy);
         stop();
-        resolve2({ done: true, value: void 0 });
+        resolve3({ done: true, value: void 0 });
       };
       const ondestroy = () => onerr(new Error("stream destroyed"));
       return new Promise((res2, rej) => {
         reject = rej;
-        resolve2 = res2;
+        resolve3 = res2;
         this.once(DESTROYED, ondestroy);
         this.once("error", onerr);
         this.once("end", onend);
@@ -3442,13 +3512,13 @@ var Minipass = class extends EventEmitter {
 };
 
 // node_modules/path-scurry/dist/esm/index.js
-var realpathSync = rps.native;
+var realpathSync2 = rps.native;
 var defaultFS = {
   lstatSync,
   readdir: readdirCB,
   readdirSync,
   readlinkSync,
-  realpathSync,
+  realpathSync: realpathSync2,
   promises: {
     lstat,
     readdir,
@@ -4317,9 +4387,9 @@ var PathBase = class {
     if (this.#asyncReaddirInFlight) {
       await this.#asyncReaddirInFlight;
     } else {
-      let resolve2 = () => {
+      let resolve3 = () => {
       };
-      this.#asyncReaddirInFlight = new Promise((res) => resolve2 = res);
+      this.#asyncReaddirInFlight = new Promise((res) => resolve3 = res);
       try {
         for (const e of await this.#fs.promises.readdir(fullpath, {
           withFileTypes: true
@@ -4332,7 +4402,7 @@ var PathBase = class {
         children.provisional = 0;
       }
       this.#asyncReaddirInFlight = void 0;
-      resolve2();
+      resolve3();
     }
     return children.slice(0, children.provisional);
   }
@@ -4562,7 +4632,7 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep3, { nocase, childrenCacheSize = 16 * 1024, fs: fs7 = defaultFS } = {}) {
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs7 = defaultFS } = {}) {
     this.#fs = fsFromOption(fs7);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
@@ -4573,7 +4643,7 @@ var PathScurryBase = class {
     this.#resolveCache = new ResolveCache();
     this.#resolvePosixCache = new ResolveCache();
     this.#children = new ChildrenCache(childrenCacheSize);
-    const split = cwdPath.substring(this.rootPath.length).split(sep3);
+    const split = cwdPath.substring(this.rootPath.length).split(sep4);
     if (split.length === 1 && !split[0]) {
       split.pop();
     }
@@ -6345,8 +6415,11 @@ function aiBlockSnippet(type, block) {
 }
 
 // src/tools/frontmatter.ts
+function stripBom(s) {
+  return s.charCodeAt(0) === 65279 ? s.slice(1) : s;
+}
 function matchFrontmatter(content) {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const m = stripBom(content).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   return m ? { fm: m[1], body: m[2] } : null;
 }
 function extractYamlValue(yaml, key) {
@@ -6771,7 +6844,12 @@ async function knowledgeSearch(args) {
   const wikiRoot = join6(knowledgeDir, "wiki");
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
-    scopeDirs = [join6(wikiRoot, args.scope)];
+    try {
+      validateSlug(args.scope);
+    } catch (e) {
+      throw new Error(`invalid scope ${JSON.stringify(args.scope)}: must be a single wiki subdirectory name, no path separators or '..' (${e instanceof Error ? e.message : String(e)})`);
+    }
+    scopeDirs = [assertWithin(wikiRoot, args.scope)];
   } else {
     try {
       const entries = await fs6.readdir(wikiRoot, { withFileTypes: true });
@@ -6832,7 +6910,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       grounded: groundedCount(queryTokens, indexed[i], dfMap, N),
       // head-field term overlap; see KnowledgeSearchResult.grounded
       related: doc.related,
-      description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
+      description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || doc.body.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
       tokens,
       source
     };
@@ -6949,6 +7027,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   }
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
   let anchorCount = 0;
+  let scopeActive = false;
   if (scopeOn) {
     const slug = args.projectSlug;
     const family = args.brainDir ? projectFamily(args.brainDir, slug) : /* @__PURE__ */ new Set([slug]);
@@ -6957,31 +7036,36 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     );
     const anchors = allDocs.filter((d) => d.source === "wiki" && (d.doc.project ?? "") === slug).map((d) => slugFromPath(d.doc.path));
     anchorCount = anchors.length;
-    const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt("SB_SCOPE_HOPS", 2, 0, 4));
-    for (const s of scored) {
-      if (s.source === "local-doc") {
-        s.tier = 1;
-        continue;
+    scopeActive = anchorCount > 0;
+    if (scopeActive) {
+      const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt("SB_SCOPE_HOPS", 2, 0, 4));
+      for (const s of scored) {
+        if (s.source === "local-doc") {
+          s.tier = 1;
+          continue;
+        }
+        const sl = slugFromPath(s.path);
+        const proj = projBySlug.get(sl) ?? "";
+        s.tier = proj === slug ? 1 : proj !== "" && family.has(proj) ? 2 : neigh.has(sl) ? 3 : proj === "" ? 4 : 5;
       }
-      const sl = slugFromPath(s.path);
-      const proj = projBySlug.get(sl) ?? "";
-      s.tier = proj === slug ? 1 : proj !== "" && family.has(proj) ? 2 : neigh.has(sl) ? 3 : proj === "" ? 4 : 5;
     }
   }
-  scored.sort((a, b) => scopeOn ? a.tier - b.tier || b.score - a.score : b.score - a.score);
+  scored.sort((a, b) => scopeActive ? a.tier - b.tier || b.score - a.score : b.score - a.score);
   const topScore = scored.reduce((m, s) => Math.max(m, s.score), 0);
   const topBase = scored.reduce((m, s) => Math.max(m, s.baseScore), 0);
   const passesFloor = (c) => embeddingsActive ? c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO) : c.score > 0 && (topBase === 0 || c.baseScore >= topBase * MIN_SCORE_RATIO);
   let pool = scored;
-  if (scopeOn) {
+  if (scopeActive) {
     const inScope = scored.filter((s) => s.tier <= 4);
     const inScopePassing = inScope.filter(passesFloor);
-    if (inScopePassing.length < clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100)) {
-      pool = scored;
+    const enoughInScope = inScopePassing.length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100);
+    const slots = clampEnvInt("SB_SCOPE_CROSS_SLOTS", 1, 0, TOP_K);
+    const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
+    const cross = slots > 0 ? scored.filter((s) => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots) : [];
+    if (!enoughInScope) {
+      const crossSet = new Set(cross);
+      pool = cross.length ? [...cross, ...scored.filter((s) => !crossSet.has(s))] : scored;
     } else {
-      const slots = clampEnvInt("SB_SCOPE_CROSS_SLOTS", 1, 0, TOP_K);
-      const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
-      const cross = slots > 0 ? scored.filter((s) => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots) : [];
       pool = cross.length ? [...cross, ...inScopePassing] : inScope;
     }
   }
@@ -6994,7 +7078,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     // pre-boost BM25, not the mode-dependent `score` (see the field doc).
     relevance: Math.round(baseScore * 1e3) / 1e3,
     query_terms: new Set(queryTokens).size,
-    ...scopeOn ? { tier } : {}
+    ...scopeActive ? { tier } : {}
   }));
   const accessCounts = await loadAccessCounts();
   const ts = (/* @__PURE__ */ new Date()).toISOString();
@@ -7005,7 +7089,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     accessCounts[slug].count++;
     accessCounts[slug].last_accessed = ts;
   }
-  saveAccessCounts(accessCounts).catch(() => {
+  await saveAccessCounts(accessCounts).catch(() => {
   });
   return {
     candidates,
