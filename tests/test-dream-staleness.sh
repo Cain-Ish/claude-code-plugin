@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_DREAM_RUN_TIMEOUT — lowers the staleness timeout so a fixture dream goes stale within this test's own short runtime, deterministically
 # sb_dream_is_stale — the single staleness policy that replaces four disagreeing
 # definitions (dream-snapshot 6h-mtime / dream-autostage 24h-created_at /
 # verify calendar-day / maintain-llm-drain none).

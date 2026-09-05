@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_DRAIN_DEADMAN — kill-switch test: asserts =off suppresses the deadman banner
+# pins: SB_DRAIN_HEALTH_BANNER — kill-switch test: asserts =off suppresses the health banner
 # Out-of-band DRAINER health banner (Phase 1 task 5, root cause #2: silent failure).
 # ORACLE: crafted error-log.jsonl / .extraction-state.jsonl / quarantine fixtures with
 # KNOWN counts → assert the banner fires/omits and the OS-aware remedy matches uname -s.

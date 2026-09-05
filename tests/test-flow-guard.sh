@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_FLOW_GUARD — kill-switch test: asserts =off bypasses the guard (Test 13)
 # Tests for scripts/flow-guard.sh — v2.10.0 PreToolUse hook
 # (HarnessAudit sar_flow channel: outbound credential exfiltration).
 set -u

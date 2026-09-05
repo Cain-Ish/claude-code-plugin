@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_CODEMAP_ORIENT — kill-switch test: asserts =off suppresses the orientation banner
 # Tests that session-load.sh injects the active project's code-map "architectural
 # spine" (top-ranked SOURCE files from BRAIN_DIR/projects/<slug>/codemap/map.md) into
 # the hot tier, strips symbols to bare paths (spaced paths survive), honors the

@@ -1,4 +1,9 @@
 #!/bin/bash
+# pins: SB_DRAIN_BATCH — fixes the per-tick batch size so the unstarve ordering assertions are deterministic
+# pins: SB_DRAIN_DEFER_MAX — raises the defer ceiling so the fixture's deliberately-starved items aren't force-processed before the unstarve behavior under test fires
+# pins: SB_DRAIN_STALE_MAX — raises the stale ceiling (24h) so the fixture's items aren't force-processed by staleness before the unstarve behavior under test fires
+# pins: SB_EXTRACT_STUB — points extraction at a stub binary so the drain tick runs hermetically without a real Claude spawn
+# pins: SB_INTERACTIVE_OVERRIDE — forces the interactive-session gate open so the drain tick actually runs in this non-interactive test shell
 # extract-drain.sh un-starve (Phase 1 task 3): an always-on interactive operator
 # must not starve the backlog forever. A bounded staleness-escape lets ONE drain
 # through when consecutive defers cross SB_DRAIN_DEFER_MAX or the oldest pending

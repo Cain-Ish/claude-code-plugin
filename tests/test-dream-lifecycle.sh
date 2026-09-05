@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_DREAM_RUN_TIMEOUT — raises the staleness timeout so a freshly-created fixture dream is not misclassified as stale mid-assertion
 # Tests for dream lifecycle: snapshot, diff, accept, and lib.sh helpers.
 set -u
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"

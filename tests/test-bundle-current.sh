@@ -25,7 +25,12 @@ BUNDLE_SCRIPT=$(jq -r '.scripts.bundle' "$MCP/package.json")
 # because the `while` runs in a pipe-subshell — a shell var would not survive it.
 EXPECTED="$TMP/expected.txt"; : > "$EXPECTED"
 
-printf '%s\n' "$BUNDLE_SCRIPT" | sed 's/ && /\n/g' | while IFS= read -r cmd; do
+# D210: split on ' && ' with awk, not `sed 's/ && /\n/g'` — GNU sed interprets
+# \n in the REPLACEMENT text as a literal newline (a GNU extension); BSD/macOS
+# sed does not, so the whole bundle script stayed on one line there and the
+# per-entry loop below silently processed zero commands. awk string literals
+# uniformly support the \n escape (POSIX), so gsub-into-newline is portable.
+printf '%s\n' "$BUNDLE_SCRIPT" | awk '{gsub(/ && /, "\n")}1' | while IFS= read -r cmd; do
   out=$(printf '%s' "$cmd" | grep -oE -- '--outfile=[^ ]+' | cut -d= -f2)
   [ -n "$out" ] || fail "could not parse outfile from: $cmd"
   rel="${out#dist/}"

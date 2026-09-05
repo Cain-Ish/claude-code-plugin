@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_SUBAGENT_CAPTURE — kill-switch test: asserts =off suppresses capture
 # Tests for scripts/subagent-capture.sh — the SubagentStop hook that archives a
 # substantive, non-self subagent's FINAL RESULT into ~/.second-brain/transcripts/.
 # Each case runs with an isolated BRAIN_DIR sandbox; the script must ALWAYS exit 0

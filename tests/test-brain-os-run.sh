@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pins: SB_BRAIN_OS — kill-switch test: asserts =off disables the whole offline lane
+# pins: SB_BRAIN_OS_NO_LLM — forces the no-LLM deterministic path so the run is hermetic (no model spawn)
 # brain-os-run.sh — the OFFLINE ENGINE seam. Asserts the contract that makes it safe to
 # put every out-of-band pass behind one entry point:
 #   - it is OPTIONAL: brain_os:false / SB_BRAIN_OS=off disables the whole offline lane and

@@ -200,7 +200,21 @@ if [ -f "$BUDGET_JSON" ]; then
   for pair in "skills:$LIVE_SKILLS" "agents:$LIVE_AGENTS" "scripts:$LIVE_SCRIPTS" "tests:$LIVE_TESTS" "output_styles:$LIVE_STYLES"; do
     key="${pair%%:*}"; live="${pair#*:}"
     cap=$(jq -r --arg k "$key" '.[$k] // empty' "$BUDGET_JSON" 2>/dev/null | tr -d '\r')
-    case "$cap" in ''|*[!0-9]*) continue ;; esac
+    # D185: a missing or non-numeric cap used to `continue` — silently skipping
+    # the budget check entirely for that surface, so an unbudgeted key (or a
+    # typo'd/corrupted value) grew without limit and the gate never fired. R8's
+    # whole point is a git-blameable ceiling on every tracked surface; a cap
+    # that can't be read is a gap in that ceiling and must FAIL loud, not skip.
+    case "$cap" in
+      '')
+        echo "FAIL: surface-budget.json has no '$key' key (R8 requires an explicit numeric cap for every tracked surface)"
+        ERRORS=$((ERRORS + 1))
+        continue ;;
+      *[!0-9]*)
+        echo "FAIL: surface-budget.json key '$key' is not numeric: '$cap'"
+        ERRORS=$((ERRORS + 1))
+        continue ;;
+    esac
     if [ "$live" -gt "$cap" ]; then
       echo "FAIL: surface budget exceeded — $key=$live > budget $cap (bump .claude-plugin/surface-budget.json in the same commit to grow deliberately)"
       ERRORS=$((ERRORS + 1))

@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_INJECTION_SCAN — kill-switch test: asserts =off disables the scanner (fixture string is a deliberately benign sample, not a real injection)
 # Tests for scripts/tool-return-scanner.sh — v2.9.0 PostToolUse injection
 # scanner. Locks the pattern library against regressions: every named
 # pattern must flag at least one of its archetypal payloads, and clean

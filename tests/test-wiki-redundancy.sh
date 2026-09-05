@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_REDUNDANCY — kill-switch test: asserts =off falls back to prior behavior
 # The redundancy shim (scripts/wiki-redundancy.sh) must: (a) honor the SB_REDUNDANCY=off kill
 # switch and fail-safe to `[]`, and (b) when the bundle + node are present, flag a near-duplicate
 # page pair and NOT flag a distinct page. This is the deterministic, embedding-free redundancy

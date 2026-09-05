@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_WIKI_GIT — kill-switch test: asserts =off means the snapshot must not run
 # wiki-history.sh — the reversibility window that lets unattended consolidation be safe
 # WITHOUT a human gate (CONSTITUTION.md: safety from reversible auto-consolidation).
 # ORACLE: real files and a real git repo on disk.

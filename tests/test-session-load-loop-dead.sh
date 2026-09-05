@@ -1,4 +1,7 @@
 #!/bin/bash
+# pins: SB_CAPTURE_HEALTH_BANNER — silences this unrelated banner so only the loop-dead banner under test appears in captured output
+# pins: SB_DISABLE_AUTO_TIMER — silences this unrelated timer banner so only the loop-dead banner under test appears in captured output
+# pins: SB_LOOP_DEAD_BANNER — kill-switch test: asserts =off suppresses the loop-dead banner
 # Tests the loop-DEAD banner (P1.1, archive/docs branch, docs/plans/2026-07-13-p1-observability.md):
 # scheduler REGISTERED but the drainer has not ticked in SB_LOOP_DEAD_HOURS — the
 # case the timeout/dead-letter banners cannot see (they need attempts to leave

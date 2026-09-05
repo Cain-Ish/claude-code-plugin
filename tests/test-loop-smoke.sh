@@ -56,7 +56,11 @@ pass "stage 2: canonical writer lands a schema'd page in KNOWLEDGE_DIR"
 # --- Stage 3: the page is SEARCH-VISIBLE (BM25, offline) ---
 SEARCH_CLI="$ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 [ -f "$SEARCH_CLI" ] || fail "stage 3: search CLI bundle missing"
-HITS=$(env SECOND_BRAIN_DISABLE_EMBEDDINGS=1 KNOWLEDGE_DIR="$KNOW" BRAIN_DIR="$BRAIN" \
+# D017: `${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}` (unset-only default, not
+# empty-or-unset) keeps this BM25/offline by default but lets `make
+# production-lane` export SECOND_BRAIN_DISABLE_EMBEDDINGS=0 to prove the loop
+# still closes over the real hybrid embeddings path.
+HITS=$(env SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" KNOWLEDGE_DIR="$KNOW" BRAIN_DIR="$BRAIN" \
   node "$SEARCH_CLI" "zanzibar widgets fromboozle" 2>/dev/null)
 printf '%s' "$HITS" | grep -q 'loop-smoke-topic' \
   || fail "stage 3: freshly written page invisible to knowledge_search (hits: ${HITS:-none})"

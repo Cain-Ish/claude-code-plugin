@@ -1,4 +1,8 @@
 #!/bin/bash
+# pins: SB_DREAM_RUN_TIMEOUT — raises this unrelated timeout ceiling so it can't fire while this file tests the SPAWN-PATH timeout guard specifically
+# pins: SB_MAINTAIN_LLM_DRYRUN — the flag itself is the subject of this subtest (dry-run path)
+# pins: SB_MAINTAIN_LLM_FORCE — forces the lane to run regardless of its normal due gate, for a deterministic fixture run
+# pins: SB_MAINTAIN_LLM_TIMEOUT — raises this unrelated timeout ceiling so it can't fire while isolating the SPAWN-PATH timeout guard under test
 # maintain-llm-drain.sh hardening:
 #   B1: refuse the quarantined summarizer when neither timeout nor gtimeout is on
 #       PATH (a bare `${TBIN:+...}` form would run it UNBOUNDED).

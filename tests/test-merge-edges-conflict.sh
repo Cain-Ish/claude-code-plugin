@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_CONFLICT_DETECT — kill-switch test: asserts =off disables conflict detection
+# pins: SB_CONFLICT_MULTIPARENT — exercises the default-off multi-parent mode directly (forces it ON) — not a can't-fail pin
 # Write-time contradiction detector in merge-edges.sh.
 # Spec: archive/docs branch, docs/specs/2026-06-01-write-time-contradiction-flag-design.md
 set -u

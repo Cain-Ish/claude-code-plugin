@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_QUALITY_GATE — kill-switch test: asserts =off bypasses the gate
+# pins: SB_QUALITY_GATE_STRICTNESS — exercises the strictest mode directly (aggressive) — the opposite of a can't-fail value
 # Tests for scripts/extraction-quality-gate.sh — Layer 4 Quality Gate.
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/extraction-quality-gate.sh"

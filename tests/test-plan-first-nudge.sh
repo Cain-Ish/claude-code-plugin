@@ -1,4 +1,7 @@
 #!/bin/bash
+# pins: SB_INTENT_SPINE — the legacy-advisory (=off) path is this subtest's subject
+# pins: SB_PLAN_FIRST_FILES — lowers the file-count threshold so a small fixture diff crosses it deterministically
+# pins: SB_PLAN_FIRST_NUDGE — kill-switch test: asserts =off suppresses the nudge
 # Guard: plan-first-nudge gates and phase tracking.
 #   Spine ON (default): Gate A denies the first multi-file substantive write exactly once
 #   (fact-forcing: names the retry path), the retry auto-passes recording plan_ack +

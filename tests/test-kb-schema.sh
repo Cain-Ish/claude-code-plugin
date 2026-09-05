@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_KB_SCHEMA — points the schema loader at this test's own fixture file instead of the shipped schema — required for a hermetic test
 # Guard: the KB single source of truth. kb-schema.json is valid; the bash loader (kb-schema.sh)
 # exports SB_* lists that match it; and NO script/skill hardcodes a divergent category list — every
 # consumer derives from the manifest. (The TS side is covered by mcp/src/constants/kb-schema.test.ts.)

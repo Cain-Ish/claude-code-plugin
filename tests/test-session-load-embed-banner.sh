@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_EMBED_PENDING_BANNER — kill-switch test: asserts =off suppresses the embed-pending banner
 # Verify the SessionStart episodic-embeddings degradation banner (block 0b in
 # scripts/session-load.sh). The key regression this guards: vector deps go
 # missing on EVERY plugin-cache refresh (cache ships dist/ but not node_modules/),

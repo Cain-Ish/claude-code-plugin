@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pins: SB_LIVENESS_INSTALLED — points the liveness check at this test's own fixture JSON instead of the real installed-plugins registry
+# pins: SB_LIVENESS_MARKETPLACE — points the liveness check at this test's own fixture JSON instead of the real marketplace registry
 # R7 liveness/dormancy gate (deep-dive: several audit findings were ONE
 # missing check): scripts/liveness-check.sh reports, per value artifact,
 # whether the shipped thing is actually DEPLOYED and PRODUCING on this box —

@@ -17,6 +17,18 @@
 #                        ARMS the false-green guard: any UNEXPECTED skip then fails
 #                        the suite. Unset + no per-platform default = warn-only.
 #                        See the expected-skips reconciliation block near the end.
+#
+# D206: a test that PASSES but prints an inner "SKIP: ..." line for one
+# optional subtest is reported as "pass: N (M partial-skip files)" — never
+# silently folded into a plain PASS (that hid the skip) or into the SKIP
+# counter (that hid the pass). Only a test whose very first non-empty output
+# line IS the SKIP (column 0 or indented) counts as a whole-file SKIP.
+#
+# D207: every per-test invocation below also scrubs BRAIN_DIR/KNOWLEDGE_DIR/
+# CLAUDE_PROJECT_DIR/CLAUDECODE and every inherited SB_* var (except this
+# runner's own SB_RUN_ALL_*/SB_EXPECTED_SKIPS knobs) so a developer's real
+# shell config can't leak into a test that believes it's sandboxed by HOME
+# alone.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,6 +52,25 @@ SUITE_T0=$(date +%s)
 SUITE_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/sb-suite-home.XXXXXX")
 trap 'rm -rf "$SUITE_SANDBOX"' EXIT
 
+# D207: sandboxing beyond HOME. A developer's real shell commonly exports
+# BRAIN_DIR/KNOWLEDGE_DIR overrides (or a leftover SB_* debug flag) that would
+# otherwise leak into every "isolated" per-test HOME above and point a test at
+# real data, or silently change its behavior. Scrub the dir-resolution vars plus
+# every SB_* var this run-all process itself inherited, keeping only the two
+# namespaces run-all.sh needs for its own knobs (SB_RUN_ALL_* / SB_EXPECTED_SKIPS)
+# — those must pass through untouched. Computed ONCE from the parent env, not
+# per-test: run-all.sh's own env never changes mid-run (each test runs via a
+# child `env ... bash "$script"`, which cannot mutate this process's environment).
+SB_UNSET_ENV=(-u BRAIN_DIR -u SB_BRAIN_DIR -u KNOWLEDGE_DIR \
+              -u CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR -u CLAUDE_PROJECT_DIR -u CLAUDECODE)
+while IFS= read -r sbvar; do
+  [ -n "$sbvar" ] || continue
+  case "$sbvar" in
+    SB_RUN_ALL_*|SB_EXPECTED_SKIPS) continue ;;
+  esac
+  SB_UNSET_ENV+=(-u "$sbvar")
+done < <(env | grep -oE '^SB_[A-Z0-9_]+' | sort -u)
+
 # Color codes (skipped if not a TTY).
 if [ -t 1 ]; then
   C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BOLD=$'\033[1m'; C_RST=$'\033[0m'
@@ -50,8 +81,10 @@ fi
 PASS=0
 FAIL=0
 SKIP=0
+PARTIAL_SKIP=0
 declare -a FAILED_TESTS=()
 declare -a SKIPPED_TESTS=()
+declare -a PARTIAL_SKIP_TESTS=()
 
 print_header() {
   echo "${C_BOLD}=== second-brain test suite ===${C_RST}"
@@ -93,13 +126,13 @@ run_one_sh() {
     budget="$declared"; [ "$budget" -gt 900 ] && budget=900
   fi
   if command -v timeout >/dev/null 2>&1; then
-    env "${iso_env[@]}" timeout "$budget" bash "$script" >"$logfile" 2>&1; ec=$?
+    env "${SB_UNSET_ENV[@]}" "${iso_env[@]}" timeout "$budget" bash "$script" >"$logfile" 2>&1; ec=$?
   else
-    env "${iso_env[@]}" bash "$script" >"$logfile" 2>&1; ec=$?
+    env "${SB_UNSET_ENV[@]}" "${iso_env[@]}" bash "$script" >"$logfile" 2>&1; ec=$?
   fi
   local elapsed=$(( $(date +%s) - started ))
 
-  # Detect the whole-file SKIP convention used by some existing tests.
+  # D206: whole-file SKIP vs partial-skip vs plain pass.
   # CRITICAL: only honor SKIP when the test also EXITED 0. A test that prints a
   # mid-run "SKIP:" line for one optional subtest and then FAILS a real
   # assertion (exit != 0) must count as FAIL, not SKIP — otherwise a genuine
@@ -107,7 +140,21 @@ run_one_sh() {
   # is silently reclassified as SKIP and the suite reports ALL GREEN. The grep
   # must NOT precede the exit-code gate. ('[: ]', not '[:\s]': in ERE the class
   # [:\s] is the literal set {':','\','s'} — it never matched a space.)
-  if [ "$ec" -eq 0 ] && grep -qE '^SKIP[: ]' "$logfile" 2>/dev/null; then
+  #
+  # Two SKIP shapes exist in the wild: a WHOLE-FILE skip (the test's very first
+  # non-empty output line IS the SKIP — a top-of-file `command -v x || SKIP`
+  # early-exit) versus a PARTIAL skip (the test ran real assertions, printed
+  # real output, and only later skipped ONE optional subtest — e.g. an inner
+  # "SKIP: symlink test unsupported here" a few tests into an otherwise-full
+  # run). The old rule treated ANY SKIP-anywhere-in-output test as a whole-file
+  # skip, which silently hid the real PASSing subtests behind a single "SKIP"
+  # verdict line (nobody could tell 40 tests ran and only 1 was skipped). Also
+  # recognize INDENTED "  SKIP: ..." lines — several tests emit them at a
+  # sub-step's indent level, and the previous column-0-only regex missed them
+  # entirely (an indented partial skip fell through to silent plain PASS).
+  local first_line
+  first_line=$(grep -m1 '.' "$logfile" 2>/dev/null || true)
+  if [ "$ec" -eq 0 ] && printf '%s' "$first_line" | grep -qE '^[[:space:]]*SKIP[: ]'; then
     SKIP=$((SKIP+1))
     SKIPPED_TESTS+=("$name")
     printf '  %sSKIP%s  %-50s %ds\n' "$C_YELLOW" "$C_RST" "$name" "$elapsed"
@@ -118,7 +165,14 @@ run_one_sh() {
 
   if [ "$ec" -eq 0 ]; then
     PASS=$((PASS+1))
-    printf '  %sPASS%s  %-50s %ds\n' "$C_GREEN" "$C_RST" "$name" "$elapsed"
+    if grep -qE '^[[:space:]]*SKIP[: ]' "$logfile" 2>/dev/null; then
+      PARTIAL_SKIP=$((PARTIAL_SKIP+1))
+      PARTIAL_SKIP_TESTS+=("$name")
+      printf '  %sPASS%s  %-50s %ds  %s(partial skip)%s\n' "$C_GREEN" "$C_RST" "$name" "$elapsed" "$C_YELLOW" "$C_RST"
+      [ "$QUIET" = "1" ] || grep -nE '^[[:space:]]*SKIP[: ]' "$logfile" | sed 's/^/           /'
+    else
+      printf '  %sPASS%s  %-50s %ds\n' "$C_GREEN" "$C_RST" "$name" "$elapsed"
+    fi
   else
     FAIL=$((FAIL+1))
     FAILED_TESTS+=("$name")
@@ -148,10 +202,12 @@ if [ "$RUN_VITEST" = "1" ] && [ -d "$MCP_DIR" ] && [ -f "$MCP_DIR/package.json" 
   # resolves os.homedir() in 10+ modules; today's tests are mkdtemp-hermetic,
   # this keeps a future homedir()-touching test from re-opening the leak).
   VITEST_HOME="$SUITE_SANDBOX/vitest-home"; mkdir -p "$VITEST_HOME"
+  # D207: same env scrub as the bash lane — a developer's real BRAIN_DIR/
+  # KNOWLEDGE_DIR/SB_* overrides must not leak into vitest either.
   if command -v timeout >/dev/null 2>&1; then
-    (cd "$MCP_DIR" && env "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" timeout "$PER_TEST_TIMEOUT" npx vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" timeout "$PER_TEST_TIMEOUT" npx vitest run --reporter=default) >"$vitest_log" 2>&1
   else
-    (cd "$MCP_DIR" && env "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" npx vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" npx vitest run --reporter=default) >"$vitest_log" 2>&1
   fi
   vitest_ec=$?
   if [ "$vitest_ec" -eq 0 ]; then
@@ -169,7 +225,11 @@ if [ "$RUN_VITEST" = "1" ] && [ -d "$MCP_DIR" ] && [ -f "$MCP_DIR/package.json" 
 fi
 
 echo "${C_BOLD}--- summary ---${C_RST}"
-echo "  pass: $PASS"
+if [ "$PARTIAL_SKIP" -gt 0 ]; then
+  echo "  pass: $PASS ($PARTIAL_SKIP partial-skip files)"
+else
+  echo "  pass: $PASS"
+fi
 echo "  fail: $FAIL"
 echo "  skip: $SKIP"
 # R8: wall time in the summary (recorded Pi 5 baseline: ~156s full suite) so a
@@ -192,17 +252,28 @@ fi
 # To arm a platform: observe its real skip set, then pin the kebab test names (no
 # .sh) into its case arm. Derive candidates WITHOUT running the full suite:
 #   grep -nE '^[[:space:]]*echo "SKIP[: ]' tests/test-*.sh
-# A whole-file skip prints a COLUMN-0 'SKIP:'/'SKIP ' line and exits 0. Tool-absence
+# A whole-file skip is when the test's first non-empty output line matches
+# SKIP (D206: leading whitespace counts too) and it exits 0. Tool-absence
 # skips (node/jq/python/esbuild/bundles) don't fire on a provisioned box.
 # Windows (MINGW*/MSYS*/CYGWIN*) is ARMED below with its observed skip set
-# (dream lifecycle/accept-guard + real-symlink skips); Linux, Darwin, and the
-# fallback arm remain UNARMED (__unset__) — their skip sets were never measured.
+# (dream lifecycle/accept-guard + real-symlink skips).
+# Linux (D016) is ARMED with an EMPTY expected set: `ubuntu-latest` in
+# .github/workflows/ci.yml runs after `npm ci --prefix mcp` (node/tsc/esbuild
+# present) with jq/python3/git/curl preinstalled on the runner image, and every
+# committed `mcp/dist/**/*.bundle.js` fixture the tests gate on ships in the
+# checkout — so every top-of-file `command -v x || SKIP` / `[ -f bundle ] ||
+# SKIP` guard resolves present. Filesystem-capability skips (real symlinks,
+# GNU `touch -d`, chmod-restricts-writes as non-root) all hold on Linux ext4
+# too, so the symlink/ACL-dependent subtests run for real instead of skipping.
+# Net: no test-*.sh is expected to whole-file-skip on that lane, so ANY skip
+# there is unexpected and must fail CI. Darwin and the fallback arm remain
+# UNARMED (__unset__) — their skip sets were never measured from here.
 EXPECTED_SKIPS_ARMED=0
 if [ "${SB_EXPECTED_SKIPS+set}" = "set" ]; then
   EXPECTED_SKIPS_LIST="$SB_EXPECTED_SKIPS"; EXPECTED_SKIPS_ARMED=1
 else
   case "$(uname -s 2>/dev/null || echo unknown)" in
-    Linux)                EXPECTED_SKIPS_LIST="__unset__" ;;
+    Linux)                EXPECTED_SKIPS_LIST="" ;;
     Darwin)               EXPECTED_SKIPS_LIST="__unset__" ;;
     MINGW*|MSYS*|CYGWIN*) EXPECTED_SKIPS_LIST="test-dream-accept-guards test-dream-lifecycle test-symlink-guard" ;;
     *)                    EXPECTED_SKIPS_LIST="__unset__" ;;
@@ -237,6 +308,14 @@ if [ "$SKIP" -gt 0 ]; then
   echo
   echo "${C_YELLOW}skipped:${C_RST}"
   for t in "${SKIPPED_TESTS[@]}"; do echo "  - $t"; done
+fi
+# D206: partial-skip files PASSED (their real assertions all held) but contained
+# at least one inner "SKIP: ..." line for an optional subtest — list them
+# separately from whole-file skips so neither the pass nor the skip is hidden.
+if [ "$PARTIAL_SKIP" -gt 0 ]; then
+  echo
+  echo "${C_YELLOW}partial-skip (passed; contains an inner SKIP line):${C_RST}"
+  for t in "${PARTIAL_SKIP_TESTS[@]}"; do echo "  - $t"; done
 fi
 echo "${C_GREEN}ALL GREEN${C_RST}"
 exit 0

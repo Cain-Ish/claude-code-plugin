@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_SYMLINK_GUARD — kill-switch test: asserts =off yields no decision (Test 10)
 # Tests for scripts/symlink-guard.sh — PreToolUse credential-dir symlink guard.
 # Closes G-HOOK-2 from wiki/security/plugin-hardening-gap-analysis-2026-05-28.md.
 set -u

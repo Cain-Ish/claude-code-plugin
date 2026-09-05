@@ -195,6 +195,19 @@ mk_transcripts 12
 OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
 assert_contains "threshold banner still fires alongside the failed notice" "$OUT" "dream consolidation ready"
 
+# (g2) D088: a FAILED dream the operator already reviewed (archived_at set by
+# dream_discard/dream_accept) is TERMINAL and must NOT re-banner forever —
+# only the "surface once" promise the header makes. No transcripts here, so
+# a clean run must produce NO banner at all once archived_at is respected.
+reset_brain
+mk_dream_at drm_reviewed failed "2026-06-07T00:00:00Z"
+jq '.error = "exit 1: no stderr" | .archived_at = "2026-08-31T20:37:07.731Z"' \
+  "$BRAIN_DIR/dreams/drm_reviewed/status.json" > "$BRAIN_DIR/dreams/drm_reviewed/status.json.t" \
+  && mv "$BRAIN_DIR/dreams/drm_reviewed/status.json.t" "$BRAIN_DIR/dreams/drm_reviewed/status.json"
+OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_not_contains "archived failed dream does not re-banner its id" "$OUT" "drm_reviewed"
+assert_empty "archived failed dream + no new transcripts -> no banner at all (D088)" "$OUT"
+
 # (h) quarantine file alone (probe failures stage no dream) → surfaced.
 reset_brain
 printf '[2026-06-11T00:00:00Z] quarantined after 3 consecutive failures: bwrap preflight failed\n' > "$BRAIN_DIR/.llm-maintain-quarantine"

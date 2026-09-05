@@ -1,4 +1,10 @@
 #!/bin/bash
+# pins: SB_INTENT_SPINE — kill-switch test: asserts =off leaves the phase alone (Test 29)
+# pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 27)
+# pins: SB_RESOURCE_SCOPE — kill-switch test: asserts =off widens the default resource scope
+# pins: SB_RESOURCE_SCOPE_EXTRA — exercises the extra-scope allowlist directly — the value itself is the subject of that subtest
+# pins: SB_TOOL_SCOPE — kill-switch test: asserts =off (Test 16)
+# pins: SB_TOOL_SCOPE_EXTRA — exercises the extra-tool allowlist directly — the value itself is the subject of that subtest
 # Tests for scripts/persona-tool-guard.sh — Layer 3 PreToolUse hook.
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/persona-tool-guard.sh"

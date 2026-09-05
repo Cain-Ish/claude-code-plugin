@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_DREAM_REFLECT — kill-switch test: asserts =off disables the reflect gate independently
+# pins: SB_DREAM_SUMMARIZE — kill-switch test: asserts =off disables the summarize gate independently
 # scripts/graph-cluster.sh shim -> bundled clustering CLI: clusters a wiki's link graph
 # (deterministic label propagation), gated by SB_SUMMARIZE_MIN_CLUSTER, fail-safe to [].
 # Spec: archive/docs branch, docs/specs/2026-06-01-dream-consolidation-v2-design.md §B1.

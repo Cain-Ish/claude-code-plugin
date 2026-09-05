@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_SAR_SUMMARY — kill-switch test: asserts =off (Test 7)
 # Tests for scripts/sar-summary.sh — Stop hook that aggregates audit-log
 # entries for the current session_id and emits a SAR (Safety Adherence Rate)
 # banner via systemMessage. HarnessAudit-style metric for self-feedback.

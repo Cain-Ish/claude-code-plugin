@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_MAINTAINER_AUTO — kill-switch test: asserts =off suppresses the auto-dispatch banner (Test 4)
+# pins: SB_MAINTAINER_THRESHOLD — lowers the dispatch threshold so a small fixture count crosses it deterministically
 # Tests for maintainer auto-dispatch — counter helpers + session-load.sh
 # state machine. We never invoke `claude` here; session-load.sh writes
 # additionalContext to stdout and we assert on its content + marker files.

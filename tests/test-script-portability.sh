@@ -182,4 +182,28 @@ done
 [ -z "$h" ] && pass "no \$(basename/dirname) spawn inside a while-read loop in hot-path scripts (MSYS spawn tax)" \
   || fail "per-item basename/dirname spawn inside a while-read loop in a hot-path script — use \"\${x##*/}\" / \"\${x%/*}\" (each spawn is ~30-60ms on MSYS; this class made the local suite un-runnable)" "$h"
 
+# 13. jq must never append DIRECTLY to a *.jsonl file via `>>` (the D120 class):
+#     the native jq.exe on Windows inherits a plain end-of-file handle rather than
+#     an O_APPEND one, so two concurrent writers race at the same offset and a
+#     shorter record overwrites the head of a longer one — a torn JSONL line.
+#     Only bash's own `printf`/`echo` of an already-built line may append; a
+#     jq call may still be used to ESCAPE fields, but only as a $(...) argument
+#     to that printf/echo, never as the command whose own stdout is redirected.
+#     Heuristic (not a parser, same doctrine as checks 8-12): collect every
+#     variable in the file assigned a value ending in .jsonl" (handling an
+#     optional `local ` prefix), then flag any line where `jq` itself — not a
+#     $(jq ...) substitution nested inside another command — is redirected with
+#     `>>` into that variable. No literal-jsonl-path form is whitelisted.
+h=""
+for f in $ALL_SH; do
+  for jvar in $(grep -oE '^[[:space:]]*(local[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=.*\.jsonl"' "$f" 2>/dev/null \
+                 | sed -E 's/^[[:space:]]*(local[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/' | sort -u); do
+    bad=$(grep -nE "^[[:space:]]*jq[[:space:]].*>>[[:space:]]*\"?\\\$\{?${jvar}\}?\"?" "$f" 2>/dev/null || true)
+    [ -n "$bad" ] && h="$h
+$f: jq appends DIRECTLY to \$$jvar (a *.jsonl path) via >> — not atomic on Windows: $bad"
+  done
+done
+[ -z "$h" ] && pass "no jq output appended DIRECTLY (>>) to a *.jsonl path (D120 class)" \
+  || fail "jq's own stdout redirected DIRECTLY (>>) into a *.jsonl path — build the line first (jq -c into a var) and append it with printf/echo instead" "$h"
+
 echo; echo "ALL PASS"

@@ -1,4 +1,8 @@
 #!/bin/bash
+# pins: SB_EXTRACTOR_ENGINE — points the extractor at this test's own local HTTP fixture backend instead of a real one — required for a hermetic test
+# pins: SB_EXTRACTOR_LOCAL_MAX_BYTES — sets the payload cap to this test's own fixture size to exercise the cap logic deterministically
+# pins: SB_EXTRACTOR_LOCAL_URL — points the extractor at this test's own local HTTP fixture server instead of a real backend
+# pins: SB_HEALTH_FILE — redirects the extractor health-check file into the test sandbox so it never touches the real BRAIN_DIR
 # Backend 0: local OpenAI-compatible (/v1/chat/completions) extraction.
 # A python one-shot HTTP responder fakes ollama's /v1 — no real model needed.
 set -u

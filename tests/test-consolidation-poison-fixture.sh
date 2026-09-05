@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# pins: SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED — forces past the untrusted-page confirm gate (a different guard) to reach the poison-fixture assertion this file targets
+# pins: SB_DREAM_ACCEPT_MIN_RATIO — opens the unrelated deletion-ratio gate to 0 so accept completes while this file asserts the poison fixture, not the ratio check
+# pins: SB_MAINTAIN_LLM_FORCE — forces the maintain-llm-drain lane to run regardless of its normal due gate, for a deterministic fixture run
 # END-TO-END POISONED-TRANSCRIPT FIXTURE — the P6 milestone gate.
 #
 # Everything upstream of this file tests ONE boundary in isolation (attestation, the

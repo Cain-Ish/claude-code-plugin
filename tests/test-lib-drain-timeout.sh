@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_DRAIN_EXTRACT_TIMEOUT — fixes the per-extraction timeout to a fast, deterministic value for this unit test
 # Phase 1.2 — sb_extract_transcript must pass the drainer-dedicated timeout to the
 # extractor, defaulting to 240s (slow-HW headroom) and honoring SB_DRAIN_EXTRACT_TIMEOUT.
 # ORACLE: override sb_call_extractor with a stub that records the 5th positional arg

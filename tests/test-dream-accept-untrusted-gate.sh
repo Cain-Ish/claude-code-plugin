@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# pins: SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED — the confirm gate itself is this file's subject: asserts =1 is required before an untrusted page is accepted
+# pins: SB_DREAM_ACCEPT_MIN_RATIO — opens the unrelated deletion-ratio gate to 0 so the untrusted-confirm gate can be isolated and tested alone
+# pins: SB_HELD_BANNER — kill-switch test: asserts =off suppresses the held-dream banner
 # P6 held-untrusted confirm gate (arm-gate for unattended consolidation): an
 # untrusted-only NEW page (provenance: untrusted-derived, no live counterpart) must be
 # HELD — moved to $BRAIN_DIR/held-untrusted/<dream>/, never applied, never deleted — unless the

@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_PRINCIPLES_INJECT — kill-switch test: asserts =off suppresses the principles injection
 # Guard: the Four-Principles behavioral protocol exists, is complete, carries an extractable
 # compact block, and is referenced by the using-second-brain skill (standing context).
 set -u

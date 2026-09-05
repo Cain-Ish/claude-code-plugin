@@ -1,4 +1,7 @@
 #!/bin/bash
+# pins: SB_EXTRACT_STUB — stubs the extractor so the deterministic-maintain path runs hermetically
+# pins: SB_INTERACTIVE_OVERRIDE — forces the interactive-session gate to the non-interactive branch under test
+# pins: SB_MAINTAIN_FORCE — forces the maintenance tick to run regardless of its normal due-time gate
 # B2 (SP-B): the deterministic out-of-band consolidation — validate+backfill+reindex,
 # NO LLM, NO creds, self-throttled — plus the extract-drain `auto_improve` gate.
 set -u

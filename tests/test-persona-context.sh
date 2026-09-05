@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_INTENT_SPINE — kill-switch test: asserts =off leaves the legacy advisory path alone
+# pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 4)
 # Tests for scripts/persona-context.sh — UserPromptSubmit hook (Layer 1 + /? route).
 # Replaces scripts/intent-gate.sh in v2.3.0.
 #
