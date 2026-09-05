@@ -6,7 +6,8 @@
  * build-graph (Task A3) relies on.
  */
 import { describe, expect, it } from 'vitest';
-import { candidateIds, extractFile } from './extract.js';
+import { candidateIds, extractFile, resolveAliasBases } from './extract.js';
+import type { TsPathConfig } from './extract.js';
 import type { ExtractResult } from './types.js';
 
 function stubResolver(known: string[]): (spec: string, fromId: string) => string | null {
@@ -252,5 +253,115 @@ describe('extractFile py', () => {
       stubResolver(['src/utils.ts', 'src/utils.py']),
     );
     expect(r.imports).toEqual(['src/utils.py']);
+  });
+});
+
+// D037: absolute in-repo imports (PEP 8 style Python; TS/JS path aliases)
+// must resolve to graph edges instead of falling into externalImports.
+describe('extractFile py: absolute (non-dot) in-repo imports', () => {
+  const known = ['pkg/__init__.py', 'pkg/sub.py'];
+
+  it('"from pkg.sub import x" resolves against a package root with __init__.py', () => {
+    const r = extractFile('pkg/main.py', 'from pkg.sub import helper\n', 'py', stubResolver(known));
+    expect(r.imports).toEqual(['pkg/sub.py']);
+    expect(r.externalImports).toBe(0);
+  });
+
+  it('"import pkg.sub" (bare import statement) resolves the same way', () => {
+    const r = extractFile('pkg/main.py', 'import pkg.sub\n', 'py', stubResolver(known));
+    expect(r.imports).toEqual(['pkg/sub.py']);
+    expect(r.externalImports).toBe(0);
+  });
+
+  it('resolves "pkg" itself to its __init__.py ("import pkg")', () => {
+    const r = extractFile('pkg/main.py', 'import pkg\n', 'py', stubResolver(known));
+    expect(r.imports).toEqual(['pkg/__init__.py']);
+  });
+
+  it('resolves against a src/ layout anchor when the repo-root anchor misses', () => {
+    const r = extractFile(
+      'app.py',
+      'from pkg.sub import helper\n',
+      'py',
+      stubResolver(['src/pkg/__init__.py', 'src/pkg/sub.py']),
+    );
+    expect(r.imports).toEqual(['src/pkg/sub.py']);
+  });
+
+  it('does NOT misresolve a stdlib/third-party name that coincidentally matches a file on disk (no __init__.py gate)', () => {
+    // 'io.py' exists at repo root, but there is no io/__init__.py -- 'io' is
+    // never confirmed as a real in-repo package, so `import io` must stay
+    // external (guards the pre-fix false-positive risk this heuristic adds).
+    const r = extractFile('app.py', 'import io\n', 'py', stubResolver(['io.py']));
+    expect(r.imports).toEqual([]);
+    expect(r.externalImports).toBe(1);
+  });
+
+  it('unrecognized absolute imports (no matching package root) still count as external', () => {
+    const r = extractFile('pkg/main.py', 'import numpy\n', 'py', stubResolver(known));
+    expect(r.imports).toEqual([]);
+    expect(r.externalImports).toBe(1);
+  });
+});
+
+describe('resolveAliasBases (tsconfig paths/baseUrl)', () => {
+  it('expands a "@/*" wildcard key to its target with the captured suffix', () => {
+    const config: TsPathConfig = { paths: { '@/*': ['src/*'] } };
+    expect(resolveAliasBases('@/lib/util', config)).toEqual(['src/lib/util']);
+  });
+
+  it('matches an exact (non-wildcard) key', () => {
+    const config: TsPathConfig = { paths: { '@utils': ['src/utils/index'] } };
+    expect(resolveAliasBases('@utils', config)).toEqual(['src/utils/index']);
+    expect(resolveAliasBases('@utils/x', config)).toEqual([]);
+  });
+
+  it('falls back to a bare baseUrl-relative path when no paths key matches', () => {
+    expect(resolveAliasBases('src/lib/util', { baseUrl: '.' })).toEqual(['src/lib/util']);
+    expect(resolveAliasBases('lib/util', { baseUrl: 'src' })).toEqual(['src/lib/util']);
+  });
+
+  it('returns [] with no config and for a spec matching no key with no baseUrl', () => {
+    expect(resolveAliasBases('@/x', undefined)).toEqual([]);
+    expect(resolveAliasBases('@/x', {})).toEqual([]);
+  });
+});
+
+describe('extractFile ts/js: tsconfig path-alias resolution (D037)', () => {
+  const config: TsPathConfig = { baseUrl: '.', paths: { '@/*': ['src/*'] } };
+
+  it('resolves a "@/*" aliased import to a graph edge instead of external', () => {
+    const r = extractFile(
+      'src/index.ts',
+      "import { util } from '@/util';\n",
+      'ts',
+      stubResolver(['src/util.ts']),
+      config,
+    );
+    expect(r.imports).toEqual(['src/util.ts']);
+    expect(r.externalImports).toBe(0);
+  });
+
+  it('resolves a bare "src/..." import via baseUrl (repo root)', () => {
+    const r = extractFile(
+      'app.ts',
+      "import { util } from 'src/util';\n",
+      'ts',
+      stubResolver(['src/util.ts']),
+      { baseUrl: '.' },
+    );
+    expect(r.imports).toEqual(['src/util.ts']);
+  });
+
+  it('an unresolvable aliased spec still counts as external (no tsConfig at all)', () => {
+    const r = extractFile(
+      'src/index.ts',
+      "import { util } from '@/util';\n",
+      'ts',
+      stubResolver(['src/util.ts']),
+      // no tsConfig passed -- matches the pre-fix / no-config behavior
+    );
+    expect(r.imports).toEqual([]);
+    expect(r.externalImports).toBe(1);
   });
 });

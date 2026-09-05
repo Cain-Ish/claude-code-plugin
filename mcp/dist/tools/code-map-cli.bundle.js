@@ -1,5 +1,5 @@
 // src/tools/codemap/code-map-cli.ts
-import { readFile } from "fs/promises";
+import { readFile as readFile2 } from "fs/promises";
 
 // src/brain-paths.ts
 import { join, isAbsolute } from "path";
@@ -175,8 +175,9 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
 // src/tools/codemap/scan-sources.ts
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { statSync as statSync2 } from "fs";
-import { stat } from "fs/promises";
+import { existsSync as existsSync3, statSync as statSync2 } from "fs";
+import { readFile, stat } from "fs/promises";
+import { homedir as homedir2, tmpdir } from "os";
 import * as path2 from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
@@ -6330,7 +6331,63 @@ async function scanSources(repoRoot, opts = {}) {
     kept.length = maxFiles;
   }
   const files = kept.map(({ id, abs, lang }) => ({ id, abs, lang })).sort((a, b) => byId(a.id, b.id));
-  return { files, truncated };
+  let maxMtimeMs = 0;
+  for (const k of kept) if (k.mtimeMs > maxMtimeMs) maxMtimeMs = k.mtimeMs;
+  return { files, truncated, fingerprint: { fileCount: kept.length, maxMtimeMs } };
+}
+var WORKSPACE_MANIFESTS = ["package.json", "pyproject.toml", "Cargo.toml", "go.mod", ".sb-monorepo.json"];
+function isUnderOrEqual(candidate, base) {
+  const c = path2.resolve(candidate);
+  const b = path2.resolve(base);
+  return c === b || c.startsWith(b + path2.sep);
+}
+function checkProjectRoot(repoRoot, env = {}) {
+  const resolved = path2.resolve(repoRoot);
+  if (!existsSync3(resolved)) {
+    return { ok: false, reason: `repoRoot does not exist: ${repoRoot}` };
+  }
+  const home = env.home ?? homedir2();
+  if (resolved === path2.resolve(home)) {
+    return {
+      ok: false,
+      reason: `repoRoot is $HOME (${repoRoot}) -- refusing to map the user's whole profile`
+    };
+  }
+  const temp = env.temp ?? tmpdir();
+  const underTemp = isUnderOrEqual(resolved, temp) || /[\\/]AppData[\\/]Local[\\/]Temp(?:[\\/]|$)/i.test(resolved);
+  const hasGit = existsSync3(path2.join(resolved, ".git"));
+  const hasManifest = WORKSPACE_MANIFESTS.some((m) => existsSync3(path2.join(resolved, m)));
+  if (underTemp && !hasGit && !hasManifest) {
+    return {
+      ok: false,
+      reason: `repoRoot is under a temp dir (${temp}) with no .git or workspace manifest -- refusing to map scratch space`
+    };
+  }
+  if (!hasGit && !hasManifest) {
+    return {
+      ok: false,
+      reason: `repoRoot has neither .git nor a workspace manifest (${WORKSPACE_MANIFESTS.join(", ")}) -- not a recognizable project`
+    };
+  }
+  return { ok: true };
+}
+async function readTsPathConfig(repoRoot) {
+  for (const name of ["tsconfig.json", "jsconfig.json"]) {
+    let raw;
+    try {
+      raw = await readFile(path2.join(repoRoot, name), "utf-8");
+    } catch {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      const co = parsed.compilerOptions ?? {};
+      return { baseUrl: co.baseUrl, paths: co.paths };
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }
 
 // src/tools/codemap/extract.ts
@@ -6340,6 +6397,9 @@ var ESM_SOURCE_ALIAS = { ".js": ".ts", ".jsx": ".tsx" };
 function candidateIds(spec, fromId, lang) {
   const base = joinPosix(spec, fromId);
   if (base === null) return [];
+  return expandBase(base, lang);
+}
+function expandBase(base, lang) {
   const fileExts = lang === "py" ? [".py"] : lang ? KNOWN_EXTS.filter((e) => e !== ".py") : KNOWN_EXTS;
   const wantIndex = lang !== "py";
   const wantInit = lang !== "ts" && lang !== "js";
@@ -6360,6 +6420,55 @@ function candidateIds(spec, fromId, lang) {
   if (wantInit) out.push(dirPrefix + "__init__.py");
   return out;
 }
+function matchPathKey(spec, key) {
+  const star3 = key.indexOf("*");
+  if (star3 === -1) return spec === key ? "" : null;
+  const prefix = key.slice(0, star3);
+  const suffix = key.slice(star3 + 1);
+  if (!spec.startsWith(prefix) || !spec.endsWith(suffix)) return null;
+  if (spec.length < prefix.length + suffix.length) return null;
+  return spec.slice(prefix.length, spec.length - suffix.length);
+}
+function applyPathTarget(target, captured) {
+  return target.includes("*") ? target.replace("*", captured) : target;
+}
+function resolveAliasBases(spec, config) {
+  if (!config) return [];
+  const bases = [];
+  for (const [key, targets] of Object.entries(config.paths ?? {})) {
+    const captured = matchPathKey(spec, key);
+    if (captured === null) continue;
+    for (const target of targets) bases.push(applyPathTarget(target, captured));
+  }
+  if (bases.length === 0 && config.baseUrl !== void 0) {
+    const baseUrl = config.baseUrl === "." ? "" : config.baseUrl.replace(/\/$/, "");
+    bases.push(baseUrl ? `${baseUrl}/${spec}` : spec);
+  }
+  return bases;
+}
+var PY_ABS_ANCHORS = ["", "src/"];
+function resolveAbsolutePython(module, fromId, resolveId) {
+  const parts = module.split(".").filter((p) => p !== "");
+  if (parts.length === 0) return null;
+  const joined = parts.join("/");
+  for (const anchor of PY_ABS_ANCHORS) {
+    if (resolveId(`${anchor}${parts[0]}/__init__.py`, fromId) === null) continue;
+    for (const candidate of [`${anchor}${joined}.py`, `${anchor}${joined}/__init__.py`]) {
+      const hit = resolveId(candidate, fromId);
+      if (hit !== null) return hit;
+    }
+  }
+  return null;
+}
+function resolveAliasSpec(spec, fromId, lang, resolveId, tsConfig) {
+  for (const base of resolveAliasBases(spec, tsConfig)) {
+    for (const candidate of expandBase(base, lang)) {
+      const hit = resolveId(candidate, fromId);
+      if (hit !== null) return hit;
+    }
+  }
+  return null;
+}
 function joinPosix(spec, fromId) {
   const stack = fromId.split("/").slice(0, -1).filter((s) => s !== "");
   for (const seg of spec.split("/")) {
@@ -6373,7 +6482,7 @@ function joinPosix(spec, fromId) {
   }
   return stack.join("/");
 }
-function extractFile(id, src, lang, resolveId) {
+function extractFile(id, src, lang, resolveId, tsConfig) {
   const parsed = lang === "py" ? parsePython(src) : parseTsJs(src);
   const resolved = /* @__PURE__ */ new Set();
   const external = /* @__PURE__ */ new Set();
@@ -6385,7 +6494,11 @@ function extractFile(id, src, lang, resolveId) {
     }
     if (hit !== null) resolved.add(hit);
   }
-  for (const spec of parsed.externalSpecs) external.add(spec);
+  for (const spec of parsed.externalSpecs) {
+    const hit = lang === "py" ? resolveAbsolutePython(spec, id, resolveId) : resolveAliasSpec(spec, id, lang, resolveId, tsConfig);
+    if (hit !== null) resolved.add(hit);
+    else external.add(spec);
+  }
   return {
     symbols: parsed.symbols,
     imports: Array.from(resolved).sort(),
@@ -6554,6 +6667,11 @@ function pagerank(nodes, edges, opts = {}) {
 function byRankDescIdAsc(rankA, idA, rankB, idB) {
   return rankB - rankA || (idA < idB ? -1 : idA > idB ? 1 : 0);
 }
+var TEST_DIR_RE = /(^|\/)(__tests__|__fixtures__|tests|fixtures|test)\//;
+var TEST_FILE_RE = /\.(test|spec)\.[^/.]+$/;
+function isTestOrFixtureId(id) {
+  return TEST_DIR_RE.test(id) || TEST_FILE_RE.test(id);
+}
 function dedupeSymbols(ex) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
@@ -6566,20 +6684,22 @@ function dedupeSymbols(ex) {
 }
 function buildGraph(scanned, extracted, meta) {
   const sortedScanned = [...scanned].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  const known = /* @__PURE__ */ new Set();
+  const seen = /* @__PURE__ */ new Set();
   for (const f of sortedScanned) {
-    if (known.has(f.id)) {
+    if (seen.has(f.id)) {
       throw new Error(`buildGraph: duplicate scanned id "${f.id}" (scan must emit unique ids)`);
     }
-    known.add(f.id);
-  }
-  const edges = [];
-  const edgeKeys = /* @__PURE__ */ new Set();
-  for (const f of sortedScanned) {
-    const ex = extracted.get(f.id);
-    if (!ex) {
+    seen.add(f.id);
+    if (!extracted.has(f.id)) {
       throw new Error(`buildGraph: no extraction result for "${f.id}" (extract every scanned file)`);
     }
+  }
+  const prodScanned = sortedScanned.filter((f) => !isTestOrFixtureId(f.id));
+  const known = new Set(prodScanned.map((f) => f.id));
+  const edges = [];
+  const edgeKeys = /* @__PURE__ */ new Set();
+  for (const f of prodScanned) {
+    const ex = extracted.get(f.id);
     for (const imp of ex.imports) {
       if (imp === f.id || !known.has(imp)) continue;
       const key = f.id + "\0" + imp;
@@ -6595,7 +6715,7 @@ function buildGraph(scanned, extracted, meta) {
     [...known],
     edges.map((e) => [e.from, e.to])
   );
-  const files = sortedScanned.map((f) => ({
+  const files = prodScanned.map((f) => ({
     id: f.id,
     lang: f.lang,
     rank: ranks.get(f.id),
@@ -6603,7 +6723,7 @@ function buildGraph(scanned, extracted, meta) {
   }));
   files.sort((a, b) => byRankDescIdAsc(a.rank, a.id, b.rank, b.id));
   const symbols = [];
-  for (const f of sortedScanned) {
+  for (const f of prodScanned) {
     const rank = ranks.get(f.id);
     for (const s of dedupeSymbols(extracted.get(f.id))) {
       symbols.push({ id: `${f.id}#${s.name}`, kind: s.kind, file: f.id, rank });
@@ -6619,6 +6739,7 @@ function buildGraph(scanned, extracted, meta) {
     generated_at: meta.generatedAt,
     generator: "regex-v1",
     truncated: meta.truncated,
+    scan_fingerprint: meta.scanFingerprint ? { file_count: meta.scanFingerprint.fileCount, max_mtime_ms: meta.scanFingerprint.maxMtimeMs } : void 0,
     files,
     symbols,
     edges
@@ -6735,6 +6856,16 @@ async function isStale(graph, repoRoot, runGit = defaultRunGit) {
   if (current !== "nogit") return false;
   const generatedAt = Date.parse(graph.generated_at);
   if (!Number.isFinite(generatedAt)) return true;
+  if (graph.scan_fingerprint) {
+    let fresh;
+    try {
+      fresh = await scanSources(repoRoot, { runGit });
+    } catch {
+      return true;
+    }
+    if (fresh.fingerprint.fileCount !== graph.scan_fingerprint.file_count) return true;
+    return fresh.fingerprint.maxMtimeMs > graph.scan_fingerprint.max_mtime_ms;
+  }
   let files;
   try {
     files = (await scanSources(repoRoot, { runGit })).files;
@@ -6759,6 +6890,12 @@ async function main() {
   const force = argv.includes("--force");
   const check = argv.includes("--check");
   const repoRoot = activeProjectDir();
+  const rootCheck = checkProjectRoot(repoRoot);
+  if (!rootCheck.ok) {
+    process.stderr.write(`code-map: ${rootCheck.reason} -- skipped
+`);
+    return;
+  }
   const brainDir = resolveBrainDir();
   const slug = resolveActiveSlug(brainDir);
   if (!slug) {
@@ -6786,15 +6923,16 @@ async function main() {
   const scan = await scanSources(repoRoot);
   const idSet = new Set(scan.files.map((f) => f.id));
   const resolveId = (candidate) => idSet.has(candidate) ? candidate : null;
+  const tsConfig = await readTsPathConfig(repoRoot);
   const extracted = /* @__PURE__ */ new Map();
   for (const f of scan.files) {
     let src;
     try {
-      src = await readFile(f.abs, "utf-8");
+      src = await readFile2(f.abs, "utf-8");
     } catch {
       src = "";
     }
-    extracted.set(f.id, extractFile(f.id, src, f.lang, resolveId));
+    extracted.set(f.id, extractFile(f.id, src, f.lang, resolveId, tsConfig));
   }
   const dirty = await isDirty(repoRoot);
   const graph = buildGraph(scan.files, extracted, {
@@ -6803,7 +6941,8 @@ async function main() {
     gitRev: rev,
     dirty,
     generatedAt,
-    truncated: scan.truncated
+    truncated: scan.truncated,
+    scanFingerprint: { fileCount: scan.fingerprint.fileCount, maxMtimeMs: scan.fingerprint.maxMtimeMs }
   });
   const mapMd = serialize(graph);
   await writeGraph(dir, graph, mapMd);

@@ -8,11 +8,13 @@
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { statSync } from 'fs';
-import { stat } from 'fs/promises';
+import { existsSync, statSync } from 'fs';
+import { readFile, stat } from 'fs/promises';
+import { homedir, tmpdir } from 'os';
 import * as path from 'path';
 import { glob } from 'glob';
 import type { Lang, ScannedFile } from './types.js';
+import type { TsPathConfig } from './extract.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,6 +33,11 @@ export interface ScanOptions {
 export interface ScanResult {
   files: ScannedFile[];
   truncated: boolean;
+  /** cheap staleness proxy (D039): count + newest mtime over the FINAL kept
+   *  list, captured for free from the stat() calls already made for the size
+   *  cap below — lets drift.ts skip a redundant second full stat pass on
+   *  every nogit staleness probe (measured 61s+ before the fix). */
+  fingerprint: { fileCount: number; maxMtimeMs: number };
 }
 
 const DEFAULT_MAX_FILE_BYTES = 524288; // 512 KiB — generated/minified blobs poison a rank heuristic
@@ -168,5 +175,104 @@ export async function scanSources(
   const files: ScannedFile[] = kept
     .map(({ id, abs, lang }) => ({ id, abs, lang }))
     .sort((a, b) => byId(a.id, b.id));
-  return { files, truncated };
+  let maxMtimeMs = 0;
+  for (const k of kept) if (k.mtimeMs > maxMtimeMs) maxMtimeMs = k.mtimeMs;
+  return { files, truncated, fingerprint: { fileCount: kept.length, maxMtimeMs } };
+}
+
+// --- D039: refuse to walk roots that are not a recognizable project --------
+
+const WORKSPACE_MANIFESTS = ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', '.sb-monorepo.json'];
+
+export type ProjectRootCheck = { ok: true } | { ok: false; reason: string };
+
+/** Injectable so unit tests never depend on the REAL machine's HOME/temp dir
+ *  (which would make tests host-dependent) — and so this repo's own e2e
+ *  fixtures, which build tiny throwaway git repos under tmpdir(), keep
+ *  working: those pass because they have a real .git, not because they
+ *  dodge the temp check. */
+export interface RootCheckEnv {
+  home?: string;
+  temp?: string;
+}
+
+function isUnderOrEqual(candidate: string, base: string): boolean {
+  const c = path.resolve(candidate);
+  const b = path.resolve(base);
+  return c === b || c.startsWith(b + path.sep);
+}
+
+/**
+ * Guards codemap generation against roots that are not a project (D039):
+ * evidence showed a registered $HOME and a registered OS temp dir each
+ * produced a junk map (thousands of unrelated files) via the nogit glob
+ * fallback, and re-walked the whole tree on every staleness probe. $HOME is
+ * always refused. A temp root (os.tmpdir(), or the Windows
+ * AppData/Local/Temp segment specifically — some launchers register that
+ * path directly without going through tmpdir()) is refused UNLESS it holds a
+ * real git repo or a workspace manifest. Any other root with neither .git
+ * nor a workspace manifest is refused too. Pure existsSync probes only —
+ * never scanSources — so calling this can never itself be the slow walk.
+ */
+export function checkProjectRoot(repoRoot: string, env: RootCheckEnv = {}): ProjectRootCheck {
+  const resolved = path.resolve(repoRoot);
+  if (!existsSync(resolved)) {
+    return { ok: false, reason: `repoRoot does not exist: ${repoRoot}` };
+  }
+  const home = env.home ?? homedir();
+  if (resolved === path.resolve(home)) {
+    return {
+      ok: false,
+      reason: `repoRoot is $HOME (${repoRoot}) -- refusing to map the user's whole profile`,
+    };
+  }
+  const temp = env.temp ?? tmpdir();
+  const underTemp =
+    isUnderOrEqual(resolved, temp) || /[\\/]AppData[\\/]Local[\\/]Temp(?:[\\/]|$)/i.test(resolved);
+  const hasGit = existsSync(path.join(resolved, '.git'));
+  const hasManifest = WORKSPACE_MANIFESTS.some((m) => existsSync(path.join(resolved, m)));
+  if (underTemp && !hasGit && !hasManifest) {
+    return {
+      ok: false,
+      reason: `repoRoot is under a temp dir (${temp}) with no .git or workspace manifest -- refusing to map scratch space`,
+    };
+  }
+  if (!hasGit && !hasManifest) {
+    return {
+      ok: false,
+      reason: `repoRoot has neither .git nor a workspace manifest (${WORKSPACE_MANIFESTS.join(', ')}) -- not a recognizable project`,
+    };
+  }
+  return { ok: true };
+}
+
+// --- D037: tsconfig/jsconfig path-alias config (read once per scan) --------
+
+/**
+ * Best-effort tsconfig.json/jsconfig.json reader for extract.ts's alias
+ * resolution (D037). A missing or unparseable file yields {} (no aliases)
+ * rather than failing the scan — same "degrade, don't crash" posture as
+ * extract.ts's other unresolvable-stays-external fallbacks. Real-world
+ * tsconfig files sometimes carry comments/trailing commas; a parse failure
+ * there is treated the same as absent, not a fail-loud error.
+ */
+export async function readTsPathConfig(repoRoot: string): Promise<TsPathConfig> {
+  for (const name of ['tsconfig.json', 'jsconfig.json']) {
+    let raw: string;
+    try {
+      raw = await readFile(path.join(repoRoot, name), 'utf-8');
+    } catch {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(raw) as {
+        compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> };
+      };
+      const co = parsed.compilerOptions ?? {};
+      return { baseUrl: co.baseUrl, paths: co.paths };
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }

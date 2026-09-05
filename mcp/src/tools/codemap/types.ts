@@ -58,6 +58,13 @@ export interface CodeEdge {
   type: 'imports';
 }
 
+/** Cheap staleness proxy for nogit roots (D039): file count + newest mtime
+ *  over the scanned list, captured at generation time. */
+export interface ScanFingerprint {
+  file_count: number;
+  max_mtime_ms: number;
+}
+
 export interface CodeGraph {
   schema: 1;
   slug: string;
@@ -70,6 +77,11 @@ export interface CodeGraph {
   generator: 'regex-v1';
   /** set when SB_CODEMAP_MAX_FILES / SB_CODEMAP_MAX_FILE_BYTES dropped files */
   truncated: boolean;
+  /** D039: lets drift.ts answer a nogit staleness probe without a second full
+   *  per-file stat pass. Optional/absent on stores written before this field
+   *  existed (or missing for any other reason) — isStale falls back to the
+   *  legacy full mtime walk in that case, and the next regen fills it in. */
+  scan_fingerprint?: ScanFingerprint;
   files: FileNode[];
   symbols: SymbolNode[];
   edges: CodeEdge[];

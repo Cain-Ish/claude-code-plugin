@@ -138,3 +138,66 @@ describe('buildGraph', () => {
     expect(() => buildGraph(scanned, extracted, META)).toThrow(/duplicate/);
   });
 });
+
+// D041: test/spec files and fixtures never become graph nodes (files/symbols
+// /edges), but are still required to have an extraction result -- exclusion
+// happens AFTER the scan/extraction-completeness checks, not before.
+describe('buildGraph: test/fixture exclusion (D041)', () => {
+  it('excludes *.test.ts and *.spec.ts from files, symbols, and edges', () => {
+    const scanned = [sf('src/a.ts'), sf('src/a.test.ts'), sf('src/b.spec.ts')];
+    const extracted = new Map<string, ExtractResult>([
+      ['src/a.ts', ex([{ name: 'foo', kind: 'function' }], [])],
+      ['src/a.test.ts', ex([{ name: 'suite', kind: 'function' }], ['src/a.ts'])],
+      ['src/b.spec.ts', ex([{ name: 'suite2', kind: 'function' }], ['src/a.ts'])],
+    ]);
+    const g = buildGraph(scanned, extracted, META);
+    expect(g.files.map((f) => f.id)).toEqual(['src/a.ts']);
+    expect(g.symbols.map((s) => s.id)).toEqual(['src/a.ts#foo']);
+    expect(g.edges).toEqual([]); // both edges originated from excluded test files
+  });
+
+  it('excludes __tests__/, tests/, test/, and __fixtures__/ path segments', () => {
+    const scanned = [
+      sf('src/a.ts'),
+      sf('src/__tests__/a.ts'),
+      sf('tests/b.ts'),
+      sf('test/c.ts'),
+      sf('src/__fixtures__/sample.ts'),
+    ];
+    const extracted = new Map<string, ExtractResult>([
+      ['src/a.ts', ex([], [])],
+      ['src/__tests__/a.ts', ex([], [])],
+      ['tests/b.ts', ex([], [])],
+      ['test/c.ts', ex([], [])],
+      ['src/__fixtures__/sample.ts', ex([], [])],
+    ]);
+    const g = buildGraph(scanned, extracted, META);
+    expect(g.files.map((f) => f.id)).toEqual(['src/a.ts']);
+  });
+
+  it('drops an edge FROM a production file TO an excluded test file (target not a node)', () => {
+    const scanned = [sf('src/a.ts'), sf('src/a.test.ts')];
+    const extracted = new Map<string, ExtractResult>([
+      ['src/a.ts', ex([], ['src/a.test.ts'])], // unusual, but must not leak a test-file edge target
+      ['src/a.test.ts', ex([], [])],
+    ]);
+    const g = buildGraph(scanned, extracted, META);
+    expect(g.edges).toEqual([]);
+  });
+
+  it('still requires an extraction result for an excluded test file (fail loud unchanged)', () => {
+    const scanned = [sf('src/a.test.ts')];
+    expect(() => buildGraph(scanned, new Map(), META)).toThrow(/src\/a\.test\.ts/);
+  });
+
+  it('non-uniform PageRank survives exclusion: a real import chain among production files still ranks', () => {
+    const { scanned: chainScanned, extracted: chainExtracted } = chainFixture();
+    const scanned = [...chainScanned, sf('src/a.test.ts')];
+    const extracted = new Map(chainExtracted);
+    extracted.set('src/a.test.ts', ex([], ['src/a.ts', 'src/b.ts', 'src/c.ts']));
+    const g = buildGraph(scanned, extracted, META);
+    expect(g.files.map((f) => f.id)).toEqual(['src/c.ts', 'src/b.ts', 'src/a.ts']);
+    const ranks = new Set(g.files.map((f) => f.rank));
+    expect(ranks.size).toBeGreaterThan(1);
+  });
+});

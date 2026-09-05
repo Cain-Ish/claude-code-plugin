@@ -32889,8 +32889,8 @@ import { stat as stat2 } from "fs/promises";
 // src/tools/codemap/scan-sources.ts
 import { execFile as execFile2 } from "child_process";
 import { promisify as promisify2 } from "util";
-import { statSync as statSync2 } from "fs";
-import { stat } from "fs/promises";
+import { existsSync as existsSync4, statSync as statSync2 } from "fs";
+import { readFile, stat } from "fs/promises";
 import * as path3 from "path";
 var execFileAsync = promisify2(execFile2);
 var DEFAULT_MAX_FILE_BYTES = 524288;
@@ -32981,7 +32981,9 @@ async function scanSources(repoRoot, opts = {}) {
     kept.length = maxFiles;
   }
   const files = kept.map(({ id, abs, lang }) => ({ id, abs, lang })).sort((a, b) => byId(a.id, b.id));
-  return { files, truncated };
+  let maxMtimeMs = 0;
+  for (const k of kept) if (k.mtimeMs > maxMtimeMs) maxMtimeMs = k.mtimeMs;
+  return { files, truncated, fingerprint: { fileCount: kept.length, maxMtimeMs } };
 }
 
 // src/tools/codemap/drift.ts
@@ -33000,6 +33002,16 @@ async function isStale(graph, repoRoot, runGit = defaultRunGit) {
   if (current !== "nogit") return false;
   const generatedAt = Date.parse(graph.generated_at);
   if (!Number.isFinite(generatedAt)) return true;
+  if (graph.scan_fingerprint) {
+    let fresh;
+    try {
+      fresh = await scanSources(repoRoot, { runGit });
+    } catch {
+      return true;
+    }
+    if (fresh.fingerprint.fileCount !== graph.scan_fingerprint.file_count) return true;
+    return fresh.fingerprint.maxMtimeMs > graph.scan_fingerprint.max_mtime_ms;
+  }
   let files;
   try {
     files = (await scanSources(repoRoot, { runGit })).files;

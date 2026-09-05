@@ -34,11 +34,28 @@ export interface GraphMeta {
   dirty: boolean;
   generatedAt: string;
   truncated: boolean;
+  /** D039: passed straight into graph.scan_fingerprint; the CLI computes it
+   *  from scanSources' own ScanResult.fingerprint (camelCase here to match
+   *  this module's other meta fields, snake_case in the persisted schema). */
+  scanFingerprint?: { fileCount: number; maxMtimeMs: number };
 }
 
 /** rank desc, id asc — the stable tie-break code_map's token-capped slice relies on. */
 function byRankDescIdAsc(rankA: number, idA: string, rankB: number, idB: string): number {
   return rankB - rankA || (idA < idB ? -1 : idA > idB ? 1 : 0);
+}
+
+// D041: test/spec files and fixtures never become graph nodes — they export
+// no production symbols and would otherwise crowd the rank-desc/id-asc
+// token-capped map (measured: 46% of this repo's own nodes, 30% of map.md
+// lines were *.test.ts). They are NOT dropped from provenance: scanSources
+// still enumerates and size/count-caps them like any other file; only the
+// constructed graph (files/symbols/edges) excludes them.
+const TEST_DIR_RE = /(^|\/)(__tests__|__fixtures__|tests|fixtures|test)\//;
+const TEST_FILE_RE = /\.(test|spec)\.[^/.]+$/;
+
+function isTestOrFixtureId(id: string): boolean {
+  return TEST_DIR_RE.test(id) || TEST_FILE_RE.test(id);
 }
 
 /** Extraction-order symbol names with duplicates removed (first kind wins) so
@@ -60,21 +77,27 @@ export function buildGraph(
   meta: GraphMeta,
 ): CodeGraph {
   const sortedScanned = [...scanned].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const known = new Set<string>();
+  const seen = new Set<string>();
   for (const f of sortedScanned) {
-    if (known.has(f.id)) {
+    if (seen.has(f.id)) {
       throw new Error(`buildGraph: duplicate scanned id "${f.id}" (scan must emit unique ids)`);
     }
-    known.add(f.id);
+    seen.add(f.id);
+    if (!extracted.has(f.id)) {
+      throw new Error(`buildGraph: no extraction result for "${f.id}" (extract every scanned file)`);
+    }
   }
+
+  // D041: exclusion happens HERE, after the scan/extraction-completeness
+  // checks above (which must still see every scanned file, tests included —
+  // a scanner/extractor bug is a bug regardless of test-exclusion).
+  const prodScanned = sortedScanned.filter((f) => !isTestOrFixtureId(f.id));
+  const known = new Set(prodScanned.map((f) => f.id));
 
   const edges: CodeEdge[] = [];
   const edgeKeys = new Set<string>();
-  for (const f of sortedScanned) {
-    const ex = extracted.get(f.id);
-    if (!ex) {
-      throw new Error(`buildGraph: no extraction result for "${f.id}" (extract every scanned file)`);
-    }
+  for (const f of prodScanned) {
+    const ex = extracted.get(f.id)!;
     for (const imp of ex.imports) {
       if (imp === f.id || !known.has(imp)) continue;
       const key = f.id + '\u0000' + imp; // NUL can't occur in a path id
@@ -92,7 +115,7 @@ export function buildGraph(
     edges.map((e) => [e.from, e.to] as [string, string]),
   );
 
-  const files: FileNode[] = sortedScanned.map((f) => ({
+  const files: FileNode[] = prodScanned.map((f) => ({
     id: f.id,
     lang: f.lang,
     rank: ranks.get(f.id)!,
@@ -101,7 +124,7 @@ export function buildGraph(
   files.sort((a, b) => byRankDescIdAsc(a.rank, a.id, b.rank, b.id));
 
   const symbols: SymbolNode[] = [];
-  for (const f of sortedScanned) {
+  for (const f of prodScanned) {
     const rank = ranks.get(f.id)!;
     for (const s of dedupeSymbols(extracted.get(f.id)!)) {
       symbols.push({ id: `${f.id}#${s.name}`, kind: s.kind, file: f.id, rank });
@@ -118,6 +141,9 @@ export function buildGraph(
     generated_at: meta.generatedAt,
     generator: 'regex-v1',
     truncated: meta.truncated,
+    scan_fingerprint: meta.scanFingerprint
+      ? { file_count: meta.scanFingerprint.fileCount, max_mtime_ms: meta.scanFingerprint.maxMtimeMs }
+      : undefined,
     files,
     symbols,
     edges,
