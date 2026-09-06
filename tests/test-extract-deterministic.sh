@@ -83,7 +83,7 @@ cat > "$ARCHIVED_TXT" <<'EOF'
 EOF
 DA=$(sb_extract_archived_deterministic "$ARCHIVED_TXT")
 [ "$(echo "$DA" | jq -r '.files_touched | length')" = "1" ] || fail "D111 (archived twin): expected only src/real.ts to survive: $DA"
-echo "$DA" | jq -e '.files_touched | index("src/real.ts")' >/dev/null 2>&1 || fail "D111 (archived twin): src/real.ts missing: $DA"
+[ -n "$DA" ] && echo "$DA" | jq -e '.files_touched | index("src/real.ts")' >/dev/null 2>&1 || fail "D111 (archived twin): src/real.ts missing: $DA"
 pass "D111: archived-transcript twin excludes Windows AppData\\Local\\Temp and macOS \$TMPDIR forms too"
 
 echo "ALL PASS"
