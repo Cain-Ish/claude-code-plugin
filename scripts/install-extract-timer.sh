@@ -317,6 +317,32 @@ if [ "$OS" != "systemd" ]; then
               echo "# Launched via wscript so no console window appears; unset with SB_DRAIN_VISIBLE_WINDOW=1."
             fi
             echo "# No sandbox on Windows — the task runs unsandboxed as you (--oauth no-op)."
+            # D105: schtasks' /Create has NO flag for power-management settings, and — unlike
+            # /RU//RP//TR — `schtasks /Change` cannot alter them either (its documented
+            # parameters are /TR /RU /RP /ST /RI /ET /DU /K /ENABLE /DISABLE /Z only). The
+            # task's own defaults are "No Start On Batteries" + "Stop On Battery Mode" (verified
+            # live via `schtasks /Query ... /FO LIST /V`), so a laptop on battery silently never
+            # runs the drainer — no error, no banner, just growing backlog. The ONLY route that
+            # works is a full task-XML round trip: export the task we just created (preserves
+            # its trigger/action verbatim), flip the two power booleans, re-import over itself.
+            # Best-effort: the task above is ALREADY installed and working even if this fails.
+            PWR_XML=$(mktemp 2>/dev/null) && PWR_XML_PATCHED=$(mktemp 2>/dev/null)
+            if [ -n "${PWR_XML:-}" ] && [ -n "${PWR_XML_PATCHED:-}" ] \
+               && MSYS_NO_PATHCONV=1 schtasks /Query /TN "$WIN_TASK" /XML > "$PWR_XML" 2>/dev/null \
+               && sed -e 's#<DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>#<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>#' \
+                      -e 's#<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>#<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>#' \
+                      "$PWR_XML" > "$PWR_XML_PATCHED" \
+               && [ -s "$PWR_XML_PATCHED" ]; then
+              PWR_XML_W=$(cygpath -w "$PWR_XML_PATCHED" 2>/dev/null) || PWR_XML_W=""
+              if [ -n "$PWR_XML_W" ] && MSYS_NO_PATHCONV=1 schtasks /Create /TN "$WIN_TASK" /XML "$PWR_XML_W" /F >/dev/null 2>&1; then
+                echo "# Power: set to run on battery too (DisallowStartIfOnBatteries/StopIfGoingOnBatteries -> false)."
+              else
+                echo "# Power: could not update battery settings — task still runs, but Task Scheduler defaults may skip it on battery (see docs/audits D105)." >&2
+              fi
+            else
+              echo "# Power: could not update battery settings — task still runs, but Task Scheduler defaults may skip it on battery (see docs/audits D105)." >&2
+            fi
+            rm -f "$PWR_XML" "$PWR_XML_PATCHED" 2>/dev/null
           else
             echo "error: schtasks /Create failed — Scheduled Task $WIN_TASK was NOT installed." >&2
             remove_shim; exit 1
@@ -334,7 +360,10 @@ if [ "$OS" != "systemd" ]; then
           # System32\bash.exe (the WSL-shadow bug class win_bash exists to prevent).
           echo "# launcher: wscript -> \"$BASH_W\" -lc \"exec $SHIM\""
           echo "# To install:  bash $0 --apply    |    To remove:  bash $0 --uninstall"
-          echo "# No sandbox on Windows — the task runs unsandboxed as you." ;;
+          echo "# No sandbox on Windows — the task runs unsandboxed as you."
+          echo "# D105: --apply also does a best-effort XML round trip afterward to flip schtasks'"
+          echo "# battery-power defaults (No Start On Batteries / Stop On Battery Mode) to false —"
+          echo "# /Create has no flag for this and /Change cannot alter it after the fact." ;;
       esac ;;
     *)
       echo "# Unsupported OS ($(uname -s)) — no out-of-band drainer scheduler available."

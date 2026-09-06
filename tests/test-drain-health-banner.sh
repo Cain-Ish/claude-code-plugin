@@ -95,7 +95,11 @@ reset; mkdir -p "$B/transcripts"
 printf 'x' > "$B/transcripts/fresh_claude-code-plugin_2026-07-30.txt"
 O=$(emit)
 printf '%s' "$O" | grep -q "$DM" && pass "D1: stale progress + newer queue fires dead-man" || fail "D1: dead-man did not fire"
-grep -q "drain-deadman" "$B/error-log.jsonl" 2>/dev/null && pass "D1b: dead-man logged loud to error-log" || fail "D1b: no error-log entry"
+# D173: this is a trace signal (also user-visible via the banner above), not a hook
+# failure — gate=/ec0 routes it to audit-log, and it must NOT also land in error-log
+# (that channel is reserved for real failures; drain-deadman was 27% of it before D173).
+grep -q "gate=drain-deadman" "$B/audit-log.jsonl" 2>/dev/null && pass "D1b: dead-man logged to audit-log (trace)" || fail "D1b: no audit-log entry"
+grep -q "drain-deadman" "$B/error-log.jsonl" 2>/dev/null && fail "D1b: dead-man trace leaked into error-log" || pass "D1c: dead-man does not pollute error-log"
 
 # D2: stale state, NO newer transcripts (idle machine) → silent (false-positive guard)
 reset; rm -f "$B/transcripts"/*.txt

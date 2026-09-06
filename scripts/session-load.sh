@@ -58,6 +58,18 @@ else
   root_path="${_det_fields[1]:-}"
 fi
 git_remote=$(sb_git_remote "${CLAUDE_PROJECT_DIR:-$PWD}")
+# D118: $HOME and bare temp roots (opened directly, not a real project living
+# under one) are refused registration/code-mapping and fall back to the SAME
+# shared "scratch" slug sb_slug_from_dir already collapses mktemp-style dirs
+# into — one shared bucket instead of a project-per-tmp-dir explosion, and
+# never the whole-home-directory codemap target brain-os-run.sh would otherwise
+# pick up from the registry's most-recently-active root_path.
+_reg_abs="${CLAUDE_PROJECT_DIR:-$PWD}"
+_reg_refused=$(sb_registration_refused_reason "$_reg_abs")
+if [ -n "$_reg_refused" ]; then
+  sb_log_error "session-load.sh" "gate=registration refused $_reg_refused root=$_reg_abs" 0
+  slug="scratch"; parent=""; root_path="$_reg_abs"; git_remote=""
+fi
 # Refresh the pin (legacy fallback for the MCP server / CLIs when no project dir is set).
 echo "$slug" > "$BRAIN_DIR/.active-session-slug"
 project_file="$PROJECTS_DIR/$slug/PROJECT.md"
@@ -87,41 +99,47 @@ if [ ! -f "$project_file" ]; then
 <!-- last_updated: $(date -u +%Y-%m-%dT%H:%M:%SZ) -->
 <!-- last_queried_wiki: -->
 TMPL
-  # Use jq to membership-check, not grep — projects.jsonl may be pretty-
-  # printed (objects split across lines, `"slug": "x"` with whitespace),
-  # which slips past the literal "\"slug\":\"$slug\"" pattern and causes
-  # a duplicate registration on the next session that creates PROJECT.md.
-  # jq --slurp parses pretty-printed and JSONL identically.
-  if [ -f "$INDEX_FILE" ]; then
-    # D120/D139: `jq -se` exits non-zero for TWO different reasons — "slug not
-    # found" (exit 1, a normal result) and "could not parse the file at all" (a
-    # torn/partial line — a concurrent-append tear, see D120). The old `if !`
-    # treated both the same, so a torn line anywhere in the registry made an
-    # ALREADY-registered project look absent and appended a duplicate row.
-    # Distinguish them: exit 1 IS "not found"; anything else falls back to a
-    # per-line tolerant scan (fromjson? skips only the bad line) before deciding.
-    IS_MEMBER=1
-    if jq -se --arg s "$slug" 'map(select(.slug == $s)) | length > 0' \
-        "$INDEX_FILE" >/dev/null 2>&1; then
-      IS_MEMBER=0
-    elif [ "$?" -ne 1 ]; then
-      TORN_IDX=$(sb_count_torn_lines "$INDEX_FILE")
-      if [ "${TORN_IDX:-0}" -gt 0 ]; then
-        sb_log_error "session-load.sh" "projects.jsonl membership check: skipped $TORN_IDX torn line(s) for slug=$slug" 0
-        if jq -nR --arg s "$slug" '[inputs | fromjson? | select(type=="object" and .slug==$s)] | length > 0' \
-             < "$INDEX_FILE" 2>/dev/null | grep -q '^true$'; then
-          IS_MEMBER=0
-        fi
+fi
+# D161: membership-check + register runs UNCONDITIONALLY (not just when PROJECT.md
+# was just scaffolded above). Registration was previously gated on "PROJECT.md
+# didn't exist yet", so a project whose PROJECT.md survives but whose registry row
+# was lost (user resets projects.jsonl, the ensure-dirs/session-load first-run race,
+# a harden collapse) could never be re-registered — search tiering, dream family
+# filters, and resolveSlugByPath all run blind on it forever.
+# Use jq to membership-check, not grep — projects.jsonl may be pretty-
+# printed (objects split across lines, `"slug": "x"` with whitespace),
+# which slips past the literal "\"slug\":\"$slug\"" pattern and causes
+# a duplicate registration on the next session that creates PROJECT.md.
+# jq --slurp parses pretty-printed and JSONL identically.
+if [ -f "$INDEX_FILE" ]; then
+  # D120/D139: `jq -se` exits non-zero for TWO different reasons — "slug not
+  # found" (exit 1, a normal result) and "could not parse the file at all" (a
+  # torn/partial line — a concurrent-append tear, see D120). The old `if !`
+  # treated both the same, so a torn line anywhere in the registry made an
+  # ALREADY-registered project look absent and appended a duplicate row.
+  # Distinguish them: exit 1 IS "not found"; anything else falls back to a
+  # per-line tolerant scan (fromjson? skips only the bad line) before deciding.
+  IS_MEMBER=1
+  if jq -se --arg s "$slug" 'map(select(.slug == $s)) | length > 0' \
+      "$INDEX_FILE" >/dev/null 2>&1; then
+    IS_MEMBER=0
+  elif [ "$?" -ne 1 ]; then
+    TORN_IDX=$(sb_count_torn_lines "$INDEX_FILE")
+    if [ "${TORN_IDX:-0}" -gt 0 ]; then
+      sb_log_error "session-load.sh" "projects.jsonl membership check: skipped $TORN_IDX torn line(s) for slug=$slug" 0
+      if jq -nR --arg s "$slug" '[inputs | fromjson? | select(type=="object" and .slug==$s)] | length > 0' \
+           < "$INDEX_FILE" 2>/dev/null | grep -q '^true$'; then
+        IS_MEMBER=0
       fi
     fi
-    if [ "$IS_MEMBER" -ne 0 ]; then
-      jq -nc --arg s "$slug" --arg n "$slug" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-             --arg p "$parent" --arg rp "$root_path" --arg gr "$git_remote" \
-        '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}
-         + (if $p  != "" then {parent:$p}      else {} end)
-         + (if $rp != "" then {root_path:$rp}  else {} end)
-         + (if $gr != "" then {git_remote:$gr} else {} end)' >> "$INDEX_FILE"
-    fi
+  fi
+  if [ "$IS_MEMBER" -ne 0 ]; then
+    jq -nc --arg s "$slug" --arg n "$slug" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+           --arg p "$parent" --arg rp "$root_path" --arg gr "$git_remote" \
+      '{slug:$s, name:$n, last_session_iso:$t, hot_byte_count:0}
+       + (if $p  != "" then {parent:$p}      else {} end)
+       + (if $rp != "" then {root_path:$rp}  else {} end)
+       + (if $gr != "" then {git_remote:$gr} else {} end)' >> "$INDEX_FILE"
   fi
 fi
 
@@ -241,12 +259,14 @@ elif [ -f "$DISP_FILE" ] && [ ! -f "$ACK_FILE" ]; then
   sb_set_wiki_writes "$slug" "$COUNT_AFTER"
   sb_inc_maintainer_fails "$slug"
   rm -f "$DISP_FILE"
-  sb_log_error "session-load.sh" "maintainer-auto-dispatch-failed slug=$slug" 0
+  # D173: gate=-prefixed at exit_code 0 routes to audit-log (trace), not error-log —
+  # this is an informational reconcile signal, not a hook failure.
+  sb_log_error "session-load.sh" "gate=maintainer-auto-dispatch-failed slug=$slug" 0
   sb_append "$(printf '## ⚠ maintainer auto-dispatch failed last session — see error-log\n\n')" \
     "maintainer-fail-banner" 200
   if [ "$(sb_get_maintainer_fails "$slug")" -ge "$N_MAX_FAILS" ]; then
     touch "$DISABLED_FILE"
-    sb_log_error "session-load.sh" "maintainer-auto-disabled slug=$slug fails=$N_MAX_FAILS" 0
+    sb_log_error "session-load.sh" "gate=maintainer-auto-disabled slug=$slug fails=$N_MAX_FAILS" 0
     sb_reset_maintainer_fails "$slug"
   fi
 fi
@@ -269,7 +289,7 @@ if [ "$AUTO" != "off" ] && [ ! -f "$DISABLED_FILE" ]; then
     BANNER=$(printf '## ⓘ second-brain — wiki maintenance suggested\n\nProject `%s` has accumulated %s wiki writes since the last consolidation.\nConsolidate the wiki with either:\n  • `/second-brain:maintain` — the knowledge-maintainer runs live (audit, dedup,\n    relate, enrich, ai-blocks, raw-inbox drain); bounded by a 50-change cap, reversible.\n  • `/second-brain:dream` — stages the changes for you to review before accepting.\n\nRe-appears next session if not run. Suppress entirely: `SB_MAINTAINER_AUTO=off`.\n\n' \
       "$slug" "$COUNT")
     sb_append "$BANNER" "maintainer-auto-banner" 400
-    sb_log_error "session-load.sh" "maintainer-suggested slug=$slug count=$COUNT" 0
+    sb_log_error "session-load.sh" "gate=maintainer-suggested slug=$slug count=$COUNT" 0
   fi
 fi
 PIN_COUNT=$(sb_count_pin_candidates "$slug")
@@ -398,7 +418,7 @@ if [ "${SB_DRAIN_HEALTH_BANNER:-on}" != "off" ] && [ "${H_STATUS:-}" != "fail" ]
         ;;
     esac
     sb_append "$(printf '## \xe2\x9a\xa0 second-brain — background extraction is failing silently\nsignal: %s\nimpact: session insights are NOT reaching the wiki/learnings — they are lost on exit.\n%s\nSuppress: \x60SB_DRAIN_HEALTH_BANNER=off\x60.\n\n' "$DRAIN_WHY" "$DRAIN_FIX")" "drain-health-banner" 700
-    sb_log_error "session-load.sh" "drain-health: timeouts=${DRAIN_TO_N} dead=${DEAD_N} os=$(uname -s)" 0
+    sb_log_error "session-load.sh" "gate=drain-health timeouts=${DRAIN_TO_N} dead=${DEAD_N} os=$(uname -s)" 0
   fi
 fi
 
@@ -434,7 +454,10 @@ if [ "${SB_DRAIN_DEADMAN:-on}" != "off" ]; then
         DM_DEFERS=0
         [ -f "$BRAIN_DIR/.drain-defer-count" ] && DM_DEFERS=$(tr -dc '0-9' < "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)
         sb_append "$(printf '## \xe2\x9a\xa0 second-brain — drainer DEAD-MAN: no extraction progress in %sh (consecutive defers: %s)\nsignal: .extraction-state.jsonl is stale while newer transcripts are queued.\ncause: a NONZERO defer count means an interactive claude session keeps the drainer deferring — the common case. A stale lock is the other.\nimpact: queued sessions age toward the eviction cap and are then LOST un-mined.\nfix: set \x60ANTHROPIC_API_KEY\x60 (drain becomes lock-immune), OR leave a window with no claude running. Stale-lock check: \x60ls ~/.second-brain/.extract-drain.lock.d\x60.\nnote: running the drainer INSIDE this session cannot drain anything (it exits 3).\nSuppress: \x60SB_DRAIN_DEADMAN=off\x60.\n\n' "$DM_AGE_H" "${DM_DEFERS:-0}")" "drain-deadman-banner" 900
-        sb_log_error "session-load.sh" "drain-deadman: state age ${DM_AGE_H}h > ${DEADMAN_H}h with newer queued transcripts" 1
+        # D173: this is a SessionStart advisory (also surfaced to the user via the
+        # drain-deadman-banner above), not a hook failure — exit_code 1 kept it in
+        # error-log.jsonl despite being trace-flavored. gate=/ec0 routes it to audit-log.
+        sb_log_error "session-load.sh" "gate=drain-deadman state age ${DM_AGE_H}h > ${DEADMAN_H}h with newer queued transcripts" 0
       fi
     fi
   fi
@@ -584,7 +607,7 @@ if [ "${SB_LOOP_DEAD_BANNER:-on}" != "off" ]; then
     if [ "$_ld_newest" -gt 0 ] && [ $(( (_ld_now - _ld_newest) / 3600 )) -ge "$LOOP_DEAD_H" ]; then
       _ld_age_h=$(( (_ld_now - _ld_newest) / 3600 ))
       sb_append "$(printf '## ⚠ second-brain — the scheduled drainer looks DEAD\nregistered, but no run in ~%sh (threshold %sh). Out-of-band extraction is NOT happening.\nprobe: `sb status` (Loop liveness section), or run the drainer once by hand: `bash "$CLAUDE_PLUGIN_ROOT/scripts/extract-drain.sh"`.\nSuppress: `SB_LOOP_DEAD_BANNER=off`.\n\n' "$_ld_age_h" "$LOOP_DEAD_H")" "loop-dead-banner" 450
-      sb_log_error "session-load.sh" "loop-dead: last-tick ${_ld_age_h}h ago (threshold ${LOOP_DEAD_H}h) timer=yes" 0
+      sb_log_error "session-load.sh" "gate=loop-dead last-tick ${_ld_age_h}h ago (threshold ${LOOP_DEAD_H}h) timer=yes" 0
     fi
   fi
 fi
@@ -862,6 +885,22 @@ sb_project_hot_render() {
     case "$picked" in *"|$f|"*) cat "$f"; emitted=1 ;; esac
   done
   [ -n "$emitted" ] || head -c "$cap" "$file"   # defensive: never emit nothing
+  # D162: the loop above only ever recognizes $pri names — a NON-canonical heading
+  # (e.g. "## Architecture", or a canonical name the awk splitter mangled with
+  # trailing whitespace) is never added to `picked` OR `dropped` by that loop, so
+  # it vanished from the render with the breadcrumb claiming only pri-list sections
+  # were trimmed. Sweep every split file NOT already in `picked`: it was silently
+  # dropped (either a pri-list name that lost the budget race above, already named,
+  # or a name the priority list has never heard of) — name it here too, skipping
+  # ones the loop above already recorded so a section isn't double-counted.
+  for f in "$tmpd"/[0-9][0-9]-*; do
+    [ -f "$f" ] || continue
+    case "$picked" in *"|$f|"*) continue ;; esac
+    name=$(basename "$f"); name="${name#[0-9][0-9]-}"
+    case " $dropped " in *" ${name}("*) continue ;; esac
+    sz=$(wc -c < "$f" | tr -d ' ')
+    dropped="$dropped ${name}(${sz}B)"
+  done
   # Breadcrumb to the audit channel (gate= + ec=0), not the error log — this fires
   # every session while the file is over-cap and is trajectory, not failure.
   [ -n "$dropped" ] && sb_log_error "session-load.sh" \
@@ -1124,7 +1163,7 @@ rm -f "$OUTPUT_FILE" "${_proj_lf:-}"   # _proj_lf is the CRLF-normalized PROJECT
 # nothing (ledger F3). With single accounting sb_append refuses before USED can exceed the
 # budget, so the condition is structurally unreachable.)
 
-if [ -f "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
+if [ -f "$INDEX_FILE" ] && [ -s "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
   TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   TMP_IDX=$(mktemp); TMP_RAW=$(mktemp)
   # -c: ONE compact object per line so the MCP registry reader
@@ -1138,8 +1177,11 @@ if [ -f "$INDEX_FILE" ] && command -v jq >/dev/null 2>&1; then
   # tr's, and a corrupt line MID-file makes jq emit the records before it and
   # then die — partial-but-non-empty output that [ -s ] would bless, silently
   # TRUNCATING the registry (records after the bad line are unrecoverable:
-  # registration only re-runs when PROJECT.md is absent). tr -d '\r': jq's
-  # stdout is CRLF on Windows. [ -s ] still backstops the empty-input case.
+  # registration re-runs every session per D161 regardless). tr -d '\r': jq's
+  # stdout is CRLF on Windows. D161: an EMPTY registry is a valid state (fresh,
+  # or intentionally reset), not corruption — the `[ -s "$INDEX_FILE" ]` guard
+  # above skips this whole rewrite for it so `[ -s "$TMP_IDX" ]` below only ever
+  # fires on a genuine parse failure of NON-empty input.
   if jq -c --arg s "$slug" --arg t "$TS" --arg p "$parent" --arg rp "$root_path" --arg gr "$git_remote" '
     if .slug == $s then
       .last_session_iso = $t

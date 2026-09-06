@@ -17,8 +17,22 @@ set -u
 source "$(dirname "$0")/lib.sh"
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-LINE_CAP=66
+# D188: session-load.sh's ACTUAL hot-tier design is byte-budgeted, not line-counted —
+# USER.md is force-emitted up to 6000B, PROJECT.md up to 3000B via section-priority
+# render (D162: over-cap sections are dropped with a breadcrumb, never silently). The
+# old 66-LINE cap summed across BOTH files was a stale contract from before that design:
+# a single realistically-sized, healthy PROJECT.md (~11KB/67 lines) blew through it
+# every time, so .last-verify never advanced past 2026-05-04 and check 5 below grew a
+# permanently worsening "new entries" count. USER_BYTE_CAP mirrors session-load's real
+# emit cap and is a genuine gate (USER.md has no section-priority salvage — an over-cap
+# USER.md is silently head-c'd, losing real pinned content). PROJECT_BYTE_CAP is NOT a
+# hard gate for the same reason it isn't one in session-load: exceeding it is the
+# EXPECTED, gracefully-handled steady state once a project accumulates real history —
+# it is reported for visibility, not failed on.
+USER_BYTE_CAP=6000
+PROJECT_BYTE_CAP=3000
 FAILS=()
+NOTES=()
 
 SLUG=$(basename "$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || echo "$PWD")")
 
@@ -38,14 +52,16 @@ if [ ! -f "$PROJECT_FILE" ]; then
   FAILS+=("verify: FAIL: PROJECT.md — missing for active slug '$SLUG' at $PROJECT_FILE")
 fi
 
-# Check 3: hot tier under line cap
-U_LINES=0
-P_LINES=0
-[ -f "$USER_FILE" ] && U_LINES=$(wc -l < "$USER_FILE" | tr -d ' ')
-[ -f "$PROJECT_FILE" ] && P_LINES=$(wc -l < "$PROJECT_FILE" | tr -d ' ')
-TOTAL=$((U_LINES + P_LINES))
-if [ "$TOTAL" -gt "$LINE_CAP" ]; then
-  FAILS+=("verify: FAIL: hot tier — line count $TOTAL exceeds line cap $LINE_CAP")
+# Check 3: hot tier under BYTE cap (see USER_BYTE_CAP/PROJECT_BYTE_CAP comment above)
+U_BYTES=0
+P_BYTES=0
+[ -f "$USER_FILE" ] && U_BYTES=$(wc -c < "$USER_FILE" | tr -d ' ')
+[ -f "$PROJECT_FILE" ] && P_BYTES=$(wc -c < "$PROJECT_FILE" | tr -d ' ')
+if [ "$U_BYTES" -gt "$USER_BYTE_CAP" ]; then
+  FAILS+=("verify: FAIL: hot tier — USER.md $U_BYTES bytes exceeds byte cap $USER_BYTE_CAP (session-load force-truncates past this, silently losing content)")
+fi
+if [ "$P_BYTES" -gt "$PROJECT_BYTE_CAP" ]; then
+  NOTES+=("verify: note: PROJECT.md $P_BYTES bytes exceeds the $PROJECT_BYTE_CAP-byte render cap (informational — session-load.sh section-priority-renders/truncates this with a breadcrumb, D162 — not a failure)")
 fi
 
 # Check 4: MCP dist artifact exists. The runtime launches the BUNDLE
@@ -121,7 +137,12 @@ if [ -s "$ERR_LOG" ] && [ -f "$LAST_VERIFY" ]; then
       if ! jq -e '.' "$ERR_LOG" >/dev/null; then
         FAILS+=("verify: FAIL: error-log — malformed JSON in $ERR_LOG")
       else
-        NEW_COUNT=$(jq -r --arg t "$LAST_TS" 'select(.timestamp > $t) | .timestamp' "$ERR_LOG" | wc -l | tr -d ' ')
+        # D188: exit_code 0 rows are TRACE (R6b's sb_log_error gate=/ec0 routing sends
+        # most of these to audit-log.jsonl instead — see D173 — but a few legitimate
+        # exit_code-0 informational lines can still land here from paths that don't
+        # write `gate=`). Only exit_code != 0 is an actual failure worth flagging;
+        # counting trace rows is what made this check fail on every healthy install.
+        NEW_COUNT=$(jq -r --arg t "$LAST_TS" 'select(.timestamp > $t and .exit_code != 0) | .timestamp' "$ERR_LOG" | wc -l | tr -d ' ')
         if [ "$NEW_COUNT" -gt 0 ]; then
           FAILS+=("verify: FAIL: error-log — $NEW_COUNT new entries since $LAST_TS")
         fi
@@ -133,6 +154,11 @@ fi
 # Emit results and update .last-verify timestamp on success
 if [ ${#FAILS[@]} -eq 0 ]; then
   echo "verify: ok"
+  if [ ${#NOTES[@]} -gt 0 ]; then
+    for line in "${NOTES[@]}"; do
+      echo "$line"
+    done
+  fi
   mkdir -p "$BRAIN_DIR"
   date -u +"%Y-%m-%dT%H:%M:%SZ" > "$LAST_VERIFY"
   exit 0
@@ -140,5 +166,10 @@ else
   for line in "${FAILS[@]}"; do
     echo "$line"
   done
+  if [ ${#NOTES[@]} -gt 0 ]; then
+    for line in "${NOTES[@]}"; do
+      echo "$line"
+    done
+  fi
   exit 1
 fi

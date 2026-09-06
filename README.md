@@ -158,6 +158,13 @@ consumed by extraction, compaction, and consolidation (`stop-extract.sh`, `pre-c
 `maintain-llm-drain.sh`). No model ID is hardcoded anywhere else — `tests/test-model-ladder.sh`
 fails the suite if one appears.
 
+## Contributing
+
+Run `make hook-install` once after cloning (sets `core.hooksPath=.githooks`) — it wires
+up the pre-push gate that re-runs the test suite before every push. Without it, nothing
+local catches a broken tree before it reaches CI; see [RELEASING.md](RELEASING.md) for
+the full release checklist.
+
 ## License
 
 MIT

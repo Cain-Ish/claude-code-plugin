@@ -1,6 +1,8 @@
 #!/bin/bash
 # pins: SB_INTENT_SPINE — kill-switch test: asserts =off leaves the legacy advisory path alone
 # pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 4)
+# pins: SB_PERSONA_THINK — D145: kill-switch test: asserts =off refuses ONLY the /? paid-advisor
+#   path (distinct from SB_PERSONA_GATE, which disables the whole hook)
 # Tests for scripts/persona-context.sh — UserPromptSubmit hook (Layer 1 + /? route).
 # Replaces scripts/intent-gate.sh in v2.3.0.
 #
@@ -76,7 +78,10 @@ out=$(SB_PERSONA_GATE=off bash -c "$(declare -f payload); payload 'implement a n
 pass "kill switch honored"
 
 # Test 5: /? prefix never crashes (smoke — the real env may or may not have the bundle).
-out=$(payload "/? what's the best approach" | bash "$SCRIPT" 2>&1)
+# D145: when the bundle IS present, this path now also prints a one-line stderr spend
+# notice ("spawning Opus advisor") BEFORE the JSON (or before nothing, if the call
+# itself then fails/emits no brief) — strip it before checking the smoke-test shape.
+out=$(payload "/? what's the best approach" | bash "$SCRIPT" 2>&1 | grep -v 'spawning Opus advisor')
 echo "$out" | grep -qE '^\{' || [ -z "$out" ] || fail "/? prefix should emit either JSON or be silent (got: $out)"
 pass "/? prefix handled cleanly"
 
@@ -103,7 +108,28 @@ STUBJS
   [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("\\[Persona deep brief")' >/dev/null \
     || fail "/? present-bundle: additionalContext missing the '[Persona deep brief' wrapper (got: $out)"
   pass "/? present-bundle: Opus brief sentinel + '[Persona deep brief' wrapper delivered to additionalContext"
-  rm -rf "$THINK_ROOT" "$THINK_BRAIN"
+
+  # Test 5a-ii (D145): the /? path spawns a PAID Opus call with no other user-visible
+  # signal that it happened — additionalContext is documentation-after-the-fact for the
+  # model, not the human. A one-line stderr notice must fire synchronously.
+  ERR=$(payload "/? what is the best caching strategy" \
+    | CLAUDE_PLUGIN_ROOT="$THINK_ROOT" BRAIN_DIR="$THINK_BRAIN" bash "$SCRIPT" 2>&1 >/dev/null)
+  printf '%s' "$ERR" | grep -qi 'spawning Opus advisor' \
+    || fail "D145: no stderr notice when /? spawned the paid advisor (got stderr: $ERR)"
+  pass "D145: /? spawning the paid Opus advisor prints a one-line stderr notice"
+
+  # Test 5a-iii (D145): SB_PERSONA_THINK=off refuses ONLY the /? paid-advisor path —
+  # distinct from SB_PERSONA_GATE, which disables the whole hook (Test 4 below).
+  THINK_BRAIN2=$(mktemp -d)
+  out=$(payload "/? what is the best caching strategy" \
+    | CLAUDE_PLUGIN_ROOT="$THINK_ROOT" BRAIN_DIR="$THINK_BRAIN2" SB_PERSONA_THINK=off bash "$SCRIPT")
+  [ -z "$out" ] || fail "D145: SB_PERSONA_THINK=off should not emit an Opus-brief additionalContext (got: $out)"
+  ERR2=$(payload "/? what is the best caching strategy" \
+    | CLAUDE_PLUGIN_ROOT="$THINK_ROOT" BRAIN_DIR="$THINK_BRAIN2" SB_PERSONA_THINK=off bash "$SCRIPT" 2>&1 >/dev/null)
+  printf '%s' "$ERR2" | grep -qi 'SB_PERSONA_THINK=off' \
+    || fail "D145: SB_PERSONA_THINK=off did not explain why /? was refused (got stderr: $ERR2)"
+  pass "D145: SB_PERSONA_THINK=off refuses the /? paid advisor without disabling the rest of persona-context"
+  rm -rf "$THINK_ROOT" "$THINK_BRAIN" "$THINK_BRAIN2"
 else
   pass "/? present-bundle: skipped (node not on PATH)"
 fi

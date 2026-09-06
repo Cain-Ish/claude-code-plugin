@@ -162,10 +162,12 @@ if [ -z "$DELTA_JSON" ]; then
       ]
       | unique
       | map(select(. != null and . != ""))
-      | map(select(test("^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/") | not))
-      | .[0:5]
     ' 2>/dev/null || echo '[]')
     FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
+    # D111: sb_filter_scratch_paths (lib.sh) catches Windows AppData\Local\Temp and
+    # macOS $TMPDIR (/var/folders/...) forms the old POSIX-only test() missed.
+    FILES_JSON=$(sb_filter_scratch_paths "$FILES_JSON")
+    FILES_JSON=$(printf '%s' "$FILES_JSON" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
     FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null | tr -d '\r')
     if [ -n "$FILES_LIST" ]; then
       NOTE="[degraded] LLM extraction unavailable; session touched: $FILES_LIST"

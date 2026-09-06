@@ -205,5 +205,54 @@ grep -q 'torn line' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
   || fail "torn line must be logged via sb_log_error"
 pass "torn line in projects.jsonl is logged once via sb_log_error"
 
+# --- Phase G (D161): PROJECT.md exists but its slug is MISSING from the
+# registry — must be re-registered at SessionStart, not orphaned forever.
+# Registration used to run ONLY inside "PROJECT.md didn't exist yet"; once
+# PROJECT.md exists (user resets projects.jsonl, first-run race, a harden
+# collapse) the slug could never be added back.
+init_sandbox "reregister-empty-registry"
+mkdir -p "$BRAIN_DIR/projects/test-project"
+printf '# PROJECT: test-project\n' > "$BRAIN_DIR/projects/test-project/PROJECT.md"
+: > "$BRAIN_DIR/projects.jsonl"   # registry lost/reset, but PROJECT.md survives
+run
+COUNT=$(count_entries_for "test-project")
+[ "$COUNT" = "1" ] || fail "D161: PROJECT.md-exists + empty registry: expected re-registration (1), got $COUNT"
+pass "D161: a project whose PROJECT.md exists but is missing from an EMPTY registry gets re-registered"
+# An empty registry is a valid state, not corruption — must not produce a false error row.
+grep -q 'corrupt line' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  && fail "D161: empty registry falsely logged as 'corrupt line?'"
+pass "D161: empty registry does not log a false 'corrupt line?' error"
+
+# --- Phase H (D161): PROJECT.md exists, registry is non-empty but simply
+# doesn't have THIS slug (a different project only) — must also register.
+init_sandbox "reregister-nonmember-registry"
+mkdir -p "$BRAIN_DIR/projects/test-project"
+printf '# PROJECT: test-project\n' > "$BRAIN_DIR/projects/test-project/PROJECT.md"
+printf '%s\n' '{"slug":"other-project","name":"other-project","last_session_iso":"2026-04-01T00:00:00Z","hot_byte_count":0}' \
+  > "$BRAIN_DIR/projects.jsonl"
+run
+COUNT=$(count_entries_for "test-project")
+[ "$COUNT" = "1" ] || fail "D161: PROJECT.md-exists + registry missing slug: expected re-registration (1), got $COUNT"
+count_entries_for "other-project" | grep -q '^1$' || fail "D161: re-registration must not drop the other project's row"
+pass "D161: a project whose PROJECT.md exists but is absent from a non-empty registry gets re-registered"
+
+# --- Phase I (D118): opening a session directly AT $HOME must not register $HOME
+# as a project (brain-os-run.sh would then pick it as the codemap target and crawl
+# the whole home directory). It falls back to the shared "scratch" slug instead.
+init_sandbox "home-not-registered"
+: > "$BRAIN_DIR/projects.jsonl"
+export CLAUDE_PROJECT_DIR="$HOME"
+jq -nc --arg cwd "$HOME" '{session_id:"x", cwd:$cwd, hook_event_name:"SessionStart"}' \
+  | bash "$SCRIPT" >/dev/null 2>&1
+unset CLAUDE_PROJECT_DIR
+HOME_BASENAME=$(basename "$HOME")
+count_entries_for "$HOME_BASENAME" | grep -q '^0$' \
+  || fail "D118: \$HOME was registered as its own project (basename slug)"
+count_entries_for "scratch" | grep -q '^1$' \
+  || fail "D118: \$HOME session did not fall back to the shared scratch slug"
+grep -q 'gate=registration refused home' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
+  || fail "D118: no audit-log breadcrumb for the refused \$HOME registration"
+pass "D118: a session opened directly at \$HOME is refused registration and falls back to scratch"
+
 echo
 echo "ALL PASS"

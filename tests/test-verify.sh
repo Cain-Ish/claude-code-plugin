@@ -56,13 +56,29 @@ OUT=$("$SCRIPT" 2>&1) && fail "empty USER.md should fail"
 echo "$OUT" | grep -q "USER.md" || fail "expected 'USER.md' in output (got: $OUT)"
 pass "USER.md empty: fails"
 
-# --- Subtest 4: hot tier exceeds line cap (66) → exit non-zero
+# --- Subtest 4 (D188): USER.md over its 6000B byte cap → exit non-zero.
+# The cap is BYTE-based now, aligned with session-load.sh's own USER.md force-emit
+# cap (over which content is silently head-c'd, losing real pinned preferences) —
+# not line-based, so the fixture must actually exceed 6000 bytes, not just 66 lines.
 reset_home "oversize"
 seed_clean
-yes "padding line" | head -100 > "$HOME/.second-brain/USER.md"
+yes "padding line with enough characters per line to cross the byte cap, not just a line count" | head -100 > "$HOME/.second-brain/USER.md"
+[ "$(wc -c < "$HOME/.second-brain/USER.md" | tr -d ' ')" -gt 6000 ] || fail "fixture setup: USER.md not actually over 6000B"
 OUT=$("$SCRIPT" 2>&1) && fail "oversize hot tier should fail"
-echo "$OUT" | grep -q "line cap\|hot tier" || fail "expected line-cap message (got: $OUT)"
-pass "hot tier oversize: fails"
+echo "$OUT" | grep -q "byte cap\|hot tier" || fail "expected byte-cap message (got: $OUT)"
+pass "hot tier oversize (USER.md byte cap): fails"
+
+# --- Subtest 4b (D188): PROJECT.md over its 3000B render cap is NOT a hard failure —
+# session-load.sh's section-priority render (D162) handles this gracefully with its
+# own breadcrumb, so a large-but-healthy PROJECT.md must not permanently fail verify
+# (the exact "worsening FAIL since 2026-05-04" bug this ledger item fixes).
+reset_home "big-project-md"
+seed_clean
+yes "recorded decision line with enough bytes to accumulate past the render cap" | head -100 > "$HOME/.second-brain/projects/test-slug/PROJECT.md"
+[ "$(wc -c < "$HOME/.second-brain/projects/test-slug/PROJECT.md" | tr -d ' ')" -gt 3000 ] || fail "fixture setup: PROJECT.md not actually over 3000B"
+OUT=$("$SCRIPT" 2>&1) || fail "a large PROJECT.md alone must not fail verify (got: $OUT)"
+echo "$OUT" | grep -q "verify: ok" || fail "expected verify: ok despite a large PROJECT.md (got: $OUT)"
+pass "large PROJECT.md (over render cap) alone: still ok (D162 handles it, not a verify failure)"
 
 # --- Subtest 5: MCP dist missing → exit non-zero
 reset_home "no-dist"
@@ -92,6 +108,20 @@ printf '{"timestamp":"2020-01-01T00:00:00Z","script":"x","message":"y","exit_cod
 OUT=$("$SCRIPT" 2>&1) || fail "old error-log entry should not fail (got: $OUT)"
 echo "$OUT" | grep -q "verify: ok" || fail "expected ok despite old error (got: $OUT)"
 pass "error-log only old entries: ok"
+
+# --- Subtest 7b (D188): a FRESH exit_code:0 trace row (e.g. a legitimate informational
+# line that isn't `gate=`-prefixed) must NOT count toward "new entries" — only a real
+# failure (exit_code != 0) should. Before D188 this check counted ec=0 trace rows too,
+# which is exactly what made a healthy install (session-load.sh writes several such
+# rows every session) fail this check permanently.
+reset_home "fresh-trace-only"
+seed_clean
+echo "2020-01-01T00:00:00Z" > "$HOME/.second-brain/.last-verify"
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+printf '{"timestamp":"%s","script":"session-load.sh","message":"some-trace-line","exit_code":0}\n' "$NOW" > "$HOME/.second-brain/error-log.jsonl"
+OUT=$("$SCRIPT" 2>&1) || fail "a fresh exit_code:0 trace row alone should not fail verify (got: $OUT)"
+echo "$OUT" | grep -q "verify: ok" || fail "expected ok despite a fresh ec=0 trace row (got: $OUT)"
+pass "error-log: fresh exit_code:0 trace row is ignored, only real failures count"
 
 # --- Subtest 8: first run with existing error-log writes timestamp without flagging
 reset_home "first-run"

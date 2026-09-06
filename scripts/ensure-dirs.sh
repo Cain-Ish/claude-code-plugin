@@ -19,7 +19,10 @@ test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
 #   auto_improve : true  — free + offline: validate + reindex the wiki on the drainer timer.
 #   auto_maintain: true  — runs the headless `claude -p` maintainer on its cadence. NOTE: this
 #                          reads your Claude OAuth + spends tokens. Disable with auto_maintain:false
-#                          (or env SB_MAINTAINER_AUTO=off) if you want a fully-offline/zero-spend box.
+#                          for a fully-offline/zero-spend box. D097: SB_MAINTAINER_AUTO=off does
+#                          NOT do this — it only silences session-load.sh's in-session "wiki
+#                          maintenance suggested" banner; the actual token-spending maintainer
+#                          (maintain-llm-drain.sh, brain-os-run.sh) reads only this config key.
 #   auto_accept  : "safe" — auto-accept only LOW-RISK dream changes; "off" = always manual review,
 #                          "all" = accept everything (not the default — too aggressive).
 #   brain_os     : true  — the OFFLINE ENGINE seam: one entry point for every out-of-band pass
@@ -84,6 +87,39 @@ if [ -d "$BRAIN_DIR/projects" ]; then
   done
 fi
 
+# D118: ONE-TIME migration cleanup — a projects.jsonl row registered before the
+# sb_registration_refused_reason guard existed (session-load.sh) may have root_path=$HOME
+# or a bare temp root. brain-os-run.sh's registry root-picker treats the most-recently-
+# active row as the code-map target, so a leftover row like this would still trigger a
+# whole-home-directory codemap crawl even after the guard stops NEW rows like it from
+# ever being written. Sweep once (marker-gated, not every ensure-dirs run) and NEVER
+# delete silently: purged rows are appended to a dated sidecar first.
+_D118_MARK="$BRAIN_DIR/.ensure-dirs-d118-purge-done"
+if [ ! -f "$_D118_MARK" ] && [ -s "$BRAIN_DIR/projects.jsonl" ] && command -v jq >/dev/null 2>&1; then
+  _D118_PURGED=$(mktemp); _D118_KEPT=$(mktemp)
+  : > "$_D118_PURGED"; : > "$_D118_KEPT"
+  while IFS= read -r _row; do
+    [ -z "$_row" ] && continue
+    _rp=$(printf '%s' "$_row" | jq -r '.root_path // empty' 2>/dev/null | tr -d '\r')
+    if [ -n "$_rp" ] && [ -n "$(sb_registration_refused_reason "$_rp")" ]; then
+      printf '%s\n' "$_row" >> "$_D118_PURGED"
+    else
+      printf '%s\n' "$_row" >> "$_D118_KEPT"
+    fi
+  done < <(tr -d '\r' < "$BRAIN_DIR/projects.jsonl")
+  if [ -s "$_D118_PURGED" ]; then
+    _D118_DEST="$BRAIN_DIR/projects.jsonl.purged-$(date -u +%Y%m%d)"
+    cat "$_D118_PURGED" >> "$_D118_DEST"
+    mv "$_D118_KEPT" "$BRAIN_DIR/projects.jsonl"
+    _D118_N=$(grep -c . "$_D118_PURGED" 2>/dev/null || echo 0)
+    sb_log_error "ensure-dirs.sh" "gate=registration-purge removed $_D118_N HOME/temp-root registry row(s) -> $_D118_DEST" 0
+  else
+    rm -f "$_D118_KEPT"
+  fi
+  rm -f "$_D118_PURGED"
+  : > "$_D118_MARK"
+fi
+
 WIKI_INDEX="$KNOWLEDGE_DIR/wiki/index.md"
 # Build the index on a fresh wiki, else validate+autofix an existing one. Delegated to the
 # canonical lib.sh helpers (dynamic-import + error-logging) — NOT an inline `node -e`, which had
@@ -104,10 +140,20 @@ else
     # D096: this autofix DELETES empty pages and rewrites frontmatter (knowledge-validate.ts
     # fs.unlink) at SessionStart, unattended — exactly the kind of write config.json's own
     # wiki_git comment (above) promises a reversibility snapshot for. wiki-history.sh checks
-    # the wiki_git flag itself and fails soft, so this is a no-op when the feature is off.
-    [ -f "$(dirname "$0")/wiki-history.sh" ] && \
-      bash "$(dirname "$0")/wiki-history.sh" snapshot "pre-autofix safety snapshot (ensure-dirs)" >/dev/null 2>&1
-    sb_validate_wiki "$KNOWLEDGE_DIR" >/dev/null 2>&1
+    # the wiki_git flag itself and fails soft (exit 0, no-op) when the feature is off — a
+    # NONZERO exit therefore only ever means "wiki_git is on but the snapshot itself failed"
+    # (e.g. a pre-commit hook rejecting the commit). The undo point the autofix's own comment
+    # promises would not exist, so — while wiki_git is on — a failed snapshot must SKIP the
+    # deleting autofix, not silently run it anyway (the old `2>/dev/null` swallowed this).
+    _SNAP_RC=0
+    if [ -f "$(dirname "$0")/wiki-history.sh" ]; then
+      bash "$(dirname "$0")/wiki-history.sh" snapshot "pre-autofix safety snapshot (ensure-dirs)" >/dev/null 2>&1 || _SNAP_RC=$?
+    fi
+    if [ "$_SNAP_RC" -ne 0 ]; then
+      sb_log_error "ensure-dirs.sh" "pre-autofix wiki-history snapshot failed (rc=$_SNAP_RC) — autofix skipped this run, no undo point" 1
+    else
+      sb_validate_wiki "$KNOWLEDGE_DIR" >/dev/null 2>&1
+    fi
     : > "$_EV_STAMP"   # stamp AFTER the run so the next 24h window starts here
   fi
 fi

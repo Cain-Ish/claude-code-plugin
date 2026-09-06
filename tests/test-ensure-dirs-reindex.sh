@@ -64,4 +64,87 @@ else
   echo "SKIP: D096 — git absent"
 fi
 
+# 4. D096 follow-up: the snapshot call's exit code used to be discarded (`2>/dev/null`),
+# so a FAILED snapshot (no undo point committed) still let the deleting autofix run —
+# exactly the class of bug the reversibility window exists to prevent. Force `git commit`
+# to fail via a pre-commit hook (tests/test-wiki-history.sh H8's trick: isolates the
+# commit step specifically, unlike a corrupted index which would also break autofix
+# for the wrong reason) and confirm the autofix is skipped, not silently run anyway.
+if command -v git >/dev/null 2>&1; then
+  BRAIN3=$(mktemp -d); K3=$(mktemp -d)
+  mkdir -p "$K3/wiki/learnings"
+  cat > "$K3/wiki/learnings/bar-thing.md" <<'EOF'
+---
+title: Bar Thing
+type: learnings
+---
+# Bar Thing
+A learning about bar for the failed-snapshot-skips-autofix coverage.
+EOF
+  printf -- '# index\n' > "$K3/wiki/index.md"   # pre-existing index.md -> the validate+autofix branch
+  # First run: establishes the wiki-history repo + an initial successful snapshot (nothing
+  # to autofix yet — the empty-page target below is added AFTER this baseline run).
+  CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN3" KNOWLEDGE_DIR="$K3" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K3" \
+    timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+  [ -d "$BRAIN3/wiki-history.git" ] || fail "D096b: setup — wiki-history repo not created on the baseline run"
+  # Poison the snapshot repo so its NEXT commit fails, force the 24h stamp stale so the
+  # autofix branch re-enters, and plant an empty page — the observable autofix deletes.
+  mkdir -p "$BRAIN3/wiki-history.git/hooks"
+  printf '#!/bin/sh\nexit 1\n' > "$BRAIN3/wiki-history.git/hooks/pre-commit"
+  chmod +x "$BRAIN3/wiki-history.git/hooks/pre-commit"
+  rm -f "$BRAIN3/.last-ensure-validate"
+  : > "$K3/wiki/learnings/empty-page.md"
+  rm -f "$BRAIN3/error-log.jsonl"
+  CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN3" KNOWLEDGE_DIR="$K3" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K3" \
+    timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+  grep -q 'pre-autofix wiki-history snapshot failed' "$BRAIN3/error-log.jsonl" 2>/dev/null \
+    || fail "D096b: failed snapshot was not logged loudly"
+  pass "D096b: a failed pre-autofix snapshot is logged loudly"
+  [ -f "$K3/wiki/learnings/empty-page.md" ] \
+    || fail "D096b: autofix ran (deleted the empty page) despite the snapshot's only undo point failing"
+  pass "D096b: autofix is SKIPPED when its pre-autofix snapshot fails (no undo point, no destructive run)"
+  rm -rf "$BRAIN3" "$K3"
+else
+  echo "SKIP: D096b — git absent"
+fi
+
+# 5. D118: one-time migration purges pre-existing projects.jsonl rows whose root_path is
+# $HOME or a bare temp root (registered before the sb_registration_refused_reason guard
+# existed) — never silently: the removed rows must land in a dated .purged sidecar first.
+BRAIN4=$(mktemp -d); K4=$(mktemp -d)
+mkdir -p "$K4/wiki"
+REALPROJ=$(mktemp -d); ( cd "$REALPROJ" && git init -q )
+FAKEHOME=$(mktemp -d)   # stands in for $HOME in this fixture's registry row
+printf '%s\n%s\n%s\n' \
+  '{"slug":"real-project","name":"real-project","last_session_iso":"2026-01-01T00:00:00Z","root_path":"'"$REALPROJ"'"}' \
+  '{"slug":"curst","name":"curst","last_session_iso":"2026-01-02T00:00:00Z","root_path":"'"$FAKEHOME"'"}' \
+  '{"slug":"scratch","name":"scratch","last_session_iso":"2026-01-03T00:00:00Z","root_path":"'"$FAKEHOME"'/AppData/Local/Temp"}' \
+  > "$BRAIN4/projects.jsonl"
+mkdir -p "$FAKEHOME/AppData/Local/Temp"
+CLAUDE_PLUGIN_ROOT="$ROOT" HOME="$FAKEHOME" BRAIN_DIR="$BRAIN4" KNOWLEDGE_DIR="$K4" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K4" \
+  timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+jq -e 'select(.slug=="real-project")' "$BRAIN4/projects.jsonl" >/dev/null 2>&1 \
+  || fail "D118: the real, legitimate project row was wrongly purged"
+pass "D118: a legitimate project's registry row survives the purge"
+jq -e 'select(.slug=="curst")' "$BRAIN4/projects.jsonl" >/dev/null 2>&1 \
+  && fail "D118: the \$HOME registry row was NOT purged" \
+  || pass "D118: the \$HOME registry row was purged from the live registry"
+jq -e 'select(.slug=="scratch")' "$BRAIN4/projects.jsonl" >/dev/null 2>&1 \
+  && fail "D118: the bare temp-root registry row was NOT purged" \
+  || pass "D118: the bare temp-root registry row was purged from the live registry"
+PURGE_FILE=$(ls "$BRAIN4"/projects.jsonl.purged-* 2>/dev/null | head -1)
+[ -n "$PURGE_FILE" ] || fail "D118: no .purged sidecar written — removed rows would be silently lost"
+grep -q '"curst"' "$PURGE_FILE" && grep -q '"scratch"' "$PURGE_FILE" \
+  && pass "D118: both purged rows are preserved in the dated .purged sidecar (never silently deleted)" \
+  || fail "D118: purged sidecar is missing one or both removed rows"
+# Marker-gated: a second run must not re-purge (nothing left to purge) or duplicate the sidecar content.
+PURGE_LINES_BEFORE=$(grep -c . "$PURGE_FILE")
+CLAUDE_PLUGIN_ROOT="$ROOT" HOME="$FAKEHOME" BRAIN_DIR="$BRAIN4" KNOWLEDGE_DIR="$K4" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K4" \
+  timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+PURGE_LINES_AFTER=$(grep -c . "$PURGE_FILE")
+[ "$PURGE_LINES_BEFORE" -eq "$PURGE_LINES_AFTER" ] \
+  && pass "D118: the one-time purge does not re-run or duplicate on a second ensure-dirs pass" \
+  || fail "D118: second run duplicated purge content ($PURGE_LINES_BEFORE -> $PURGE_LINES_AFTER lines)"
+rm -rf "$BRAIN4" "$K4" "$REALPROJ" "$FAKEHOME"
+
 echo; echo "ALL PASS"

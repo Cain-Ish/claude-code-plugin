@@ -36,12 +36,15 @@ STAMP_OLD=202501010000   # far past any 48h threshold
 # 3-day 2026-08 outage it never fired once).
 mk_state() { printf '{"basename":"s1_demo_2026-01-01.txt","ts":"2026-01-01T00:00:00Z","outcome":"ok"}\n' > "$BRAIN/.extraction-state.jsonl"; }
 
-# --- Test 1: timer=yes + stale progress marker → banner + loud error-log line ---
+# --- Test 1: timer=yes + stale progress marker → banner + audit-log trace line ---
+# D173: this is trace (also user-visible via the banner), not a hook failure —
+# gate=/ec0 routes it to audit-log, and it must never pollute error-log.
 mk_state; touch -t "$STAMP_OLD" "$BRAIN/.extraction-state.jsonl"
 OUT=$(run CAP_TIMER=yes)
 echo "$OUT" | grep -q 'looks DEAD' || fail "stale marker + timer=yes should fire the loop-dead banner"
-grep -q 'loop-dead:' "$BRAIN/error-log.jsonl" 2>/dev/null || fail "loop-dead TRACE line missing from error-log"
-pass "stale marker + registered timer → loop-dead banner (loud)"
+grep -q 'gate=loop-dead' "$BRAIN/audit-log.jsonl" 2>/dev/null || fail "loop-dead TRACE line missing from audit-log"
+grep -q 'loop-dead' "$BRAIN/error-log.jsonl" 2>/dev/null && fail "loop-dead trace leaked into error-log"
+pass "stale marker + registered timer → loop-dead banner (audit-log trace, not error-log)"
 
 # --- Test 2: fresh marker → silent ---
 mk_state   # fresh mtime (now)

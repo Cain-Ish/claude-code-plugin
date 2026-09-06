@@ -84,7 +84,11 @@ _snapshot() {
 }
 
 case "${1:-}" in
-  snapshot) shift; _snapshot "${1:-consolidation}" ;;
+  # D096: propagate _snapshot's status explicitly — the trailing `exit 0` at the end of
+  # this case statement otherwise masks every snapshot failure (the caller sees rc=0
+  # unconditionally), which is exactly what let ensure-dirs.sh's autofix run unprotected
+  # when its own pre-autofix snapshot failed to commit.
+  snapshot) shift; _snapshot "${1:-consolidation}"; exit $? ;;
   list)
     [ -d "$GD" ] || { echo "no wiki history yet"; exit 0; }
     _git log --oneline -n "${2:-20}" --date=short --format='%h  %ad  %s' 2>/dev/null

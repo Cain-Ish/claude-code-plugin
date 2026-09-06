@@ -115,6 +115,32 @@ sb_safe_json_array() {
   fi
 }
 
+# D111: shared scratch-path exclusion for the deterministic extraction floor and its
+# archived-transcript twin (also used by stop-extract.sh/pre-compact.sh's degraded-mode
+# fallback). The old inline `test("^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/")` regex was
+# POSIX-anchor-only: a Windows path (C:/Users/<u>/AppData/Local/Temp/...) or macOS $TMPDIR
+# (/var/folders/xx/yy/T/...) never starts with '/tmp/' etc, so ephemeral scratch files on
+# those platforms passed straight through into PROJECT.md as "[auto-captured]" decisions.
+# We run sb_normalize_path (backslash + drive-letter -> POSIX /c/... form) on a COPY of
+# each candidate purely to decide membership, then emit the ORIGINAL string unchanged so
+# kept paths keep their existing forward-slash-but-drive-letter display form (the Windows
+# boundary test above pins "C:/Work/proj/tests/thing.ts", not a cygpath'd "/c/Work/...").
+#   sb_filter_scratch_paths '["a.ts","/tmp/x"]' -> '["a.ts"]'
+sb_filter_scratch_paths() {
+  local arr="${1:-[]}" out="[]" p np
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    np=$(sb_normalize_path "$p")
+    case "$np" in
+      /tmp/*|/var/tmp/*|/proc/*|/dev/*|/run/*) continue ;;
+      */[Aa][Pp][Pp][Dd][Aa][Tt][Aa]/[Ll][Oo][Cc][Aa][Ll]/[Tt][Ee][Mm][Pp]/*) continue ;;
+      /var/folders/*) continue ;;
+    esac
+    out=$(printf '%s' "$out" | jq -c --arg p "$p" '. + [$p]' 2>/dev/null) || out="$out"
+  done < <(printf '%s' "$arr" | jq -r '.[]?' 2>/dev/null | tr -d '\r')
+  printf '%s' "$out"
+}
+
 # Deterministic, no-LLM extraction floor (P1 Task 1). Given a transcript and a line window,
 # emit a VALID delta JSON the merge pipeline accepts — derived purely from the structured
 # transcript, never an LLM. It captures the files this window changed (Edit/Write/MultiEdit,
@@ -135,10 +161,10 @@ sb_extract_deterministic() {
     | unique
     | map(select(. != null and . != ""))
     | map(gsub("\\\\"; "/"))
-    | map(select(test("^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/") | not))
-    | .[0:5]
   ' 2>/dev/null || echo '[]')
   files_json=$(sb_safe_json_array "$files_json")
+  files_json=$(sb_filter_scratch_paths "$files_json")
+  files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
   local decisions='[]'
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list
@@ -164,12 +190,12 @@ sb_extract_archived_deterministic() {
       | grep -E '^[[:space:]]*\[(Edit|Write|MultiEdit)\] ' \
       | sed -E 's/^[[:space:]]*\[(Edit|Write|MultiEdit)\] //' \
       | sed 's#\\#/#g' \
-      | grep -vE '^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/' \
       | awk 'NF && !seen[$0]++' \
-      | head -5 \
       | jq -Rsc 'split("\n") | map(select(. != ""))' 2>/dev/null || echo '[]')
   fi
   files_json=$(sb_safe_json_array "$files_json")
+  files_json=$(sb_filter_scratch_paths "$files_json")
+  files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
   local decisions='[]'
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list; list=$(printf '%s' "$files_json" | jq -r 'join(", ")' 2>/dev/null)
@@ -823,6 +849,51 @@ sb_realpath() {
     _rpd=$(cd "$_pd" 2>/dev/null && pwd -P) || return 1
     printf '%s\n' "$_rpd/$_pb"
   fi
+}
+
+# D118: refuse to register (or code-map) a candidate project root that is $HOME
+# or a temp root — opening `claude` directly at either turns brain-os into a
+# whole-home-directory codemapper (a live 9.6MB graph.json crawled AppData/Local
+# browser-extension bundles as "architectural spine") and, for $HOME, leaks the
+# session's captured content across every other tool that reads that dir. A root
+# that ALSO carries no project marker of its own (no `.git`, no workspace
+# manifest — sb_is_workspace_root) is refused; one that does (e.g. a dotfiles
+# repo deliberately cloned straight into $HOME) is a real project and is let
+# through, so this never refuses an ordinary non-git project fixture that just
+# happens to live under a scratch dir picked by a test or a tool.
+# Echoes a one-word reason ("home"|"temp-root") when refused, empty when OK.
+sb_registration_refused_reason() {
+  local abs="${1:-}" reason="" base home_norm abs_norm t t_norm
+  [ -z "$abs" ] && { printf ''; return 0; }
+  home_norm=$(sb_normalize_path "${HOME:-}")
+  abs_norm=$(sb_normalize_path "$abs")
+  if [ -n "$home_norm" ] && [ "$abs_norm" = "$home_norm" ]; then
+    reason="home"
+  else
+    # A known temp root, EXACTLY — not an arbitrary descendant (a real project
+    # cloned three levels under /tmp is still a real project; only the bare
+    # root itself is the ephemeral scratch dir every OS/shell recycles).
+    for t in "${TMPDIR:-}" "${TMP:-}" "${TEMP:-}" "/tmp" "/var/tmp"; do
+      [ -z "$t" ] && continue
+      t_norm=$(sb_normalize_path "$t")
+      if [ -n "$t_norm" ] && [ "$abs_norm" = "$t_norm" ]; then reason="temp-root"; break; fi
+    done
+    if [ -z "$reason" ]; then
+      # A bare mktemp-style basename (tmp, tmp.XXXX, .tmp.XXXX, tmpfs) — case-
+      # insensitive so Windows' "Temp" (AppData\Local\Temp) matches too; the
+      # basename-only check in sb_slug_from_dir below is exact-case "tmp" ONLY.
+      base=$(basename "$abs")
+      case "$base" in
+        [Tt][Mm][Pp]|[Tt][Mm][Pp].*|.[Tt][Mm][Pp].*|[Tt][Mm][Pp][Ff][Ss]|[Tt][Ee][Mm][Pp]) reason="temp-root" ;;
+      esac
+    fi
+  fi
+  [ -z "$reason" ] && { printf ''; return 0; }
+  if [ -e "$abs/.git" ] || sb_is_workspace_root "$abs"; then
+    printf ''
+    return 0
+  fi
+  printf '%s' "$reason"
 }
 
 # Normalize a project directory path → slug. Collapses tmp/scratch-style dirs
@@ -1948,6 +2019,18 @@ sb_timeout() {
   return "$ec"
 }
 
+# review follow-up: single source of truth for "is this extractor output file a
+# usable single JSON object" — `jq -e 'type=="object"'` WITHOUT `-s` only judges
+# the LAST value in the stream, so a concatenated multi-value blob
+# (`{}{"malicious":1}`) and a bare, contentless `{}` both silently passed as a
+# valid extraction. Slurp (`-s`) and require exactly one element that is a
+# non-empty object.
+sb_extractor_object_ok() {
+  local f="$1"
+  [ -n "$f" ] && [ -s "$f" ] || return 1
+  jq -es 'length==1 and (.[0]|type=="object") and (.[0]|length>0)' "$f" >/dev/null 2>&1
+}
+
 sb_call_extractor() {
   local input_file="$1" out_file="$2" model="$3" prompt="$4" timeout_s="${5:-30}"
   local err_file caller_script
@@ -2081,7 +2164,11 @@ sb_call_extractor() {
         sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
           && mv "${out_file}.clean" "$out_file"
       fi
-      if [ -s "$out_file" ] && jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+      # review follow-up: `jq -e 'type=="object"'` without `-s` only checks the LAST
+      # value in the stream — a concatenated multi-value blob (`{}{"a":1}`) and a
+      # bare, contentless `{}` both passed. Slurp + require exactly one non-empty
+      # object (single source of truth: sb_extractor_object_ok below).
+      if [ -s "$out_file" ] && sb_extractor_object_ok "$out_file"; then
         sb_write_extractor_health "claude-cli" "ok" ""
         rm -f "$err_file"
         return 0
@@ -2137,7 +2224,7 @@ sb_call_extractor() {
               && mv "${out_file}.clean" "$out_file"
             sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
               && mv "${out_file}.clean" "$out_file"
-            if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+            if sb_extractor_object_ok "$out_file"; then
               sb_write_extractor_health "claude-cli" "ok" "pty-retry"
               rm -f "$err_file"
               return 0
@@ -2220,7 +2307,7 @@ sb_call_extractor() {
 
       if [ -n "$text" ]; then
         printf '%s' "$text" | sb_strip_code_fences > "$out_file"
-        if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+        if sb_extractor_object_ok "$out_file"; then
           sb_write_extractor_health "anthropic-api" "ok" ""
           rm -f "$err_file"
           return 0
@@ -2628,12 +2715,31 @@ sb_auto_memory_state() {
     local norm; norm=$(cd "$p" 2>/dev/null && pwd) && printf '%s' "$norm" || printf '%s' "$p"
   }
 
+  # D123: dash a POSIX-form project root into Claude Code's OWN project-key form.
+  # On Windows, CC keys its native ~/.claude/projects/<key>/ store on the WINDOWS-form
+  # path with BOTH ':' and '\' dashed (and the drive letter's ORIGINAL case kept) —
+  # e.g. "C:\Workplace\Projects\x" -> "C--Workplace-Projects-x" (verified against a live
+  # store). The old `sed 's#/#-#g'` ran on the POSIX form ("/c/Workplace/...", lowercased
+  # drive letter, single leading dash), which can never match CC's own key on Windows — the
+  # native store was reported empty (files=0) on every Windows machine. On a POSIX
+  # box (no cygpath) or the simulated-Windows-on-Linux/macOS CI path, cygpath is absent and
+  # this falls back to the previous slash-only dashing (byte-identical to before, since a
+  # POSIX path has no ':' or '\' to differ on anyway).
+  _sb_am_dash_key() {
+    local p="$1" winp
+    if command -v cygpath >/dev/null 2>&1; then
+      winp=$(cygpath -w "$p" 2>/dev/null) && [ -n "$winp" ] \
+        && { printf '%s' "$winp" | sed 's/[:\\]/-/g'; return 0; }
+    fi
+    printf '%s' "$p" | sed 's#/#-#g'
+  }
+
   if [ -z "$path" ]; then
     local project_root dashed
     project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null | tr -d '\r' || true)
     [ -n "$project_root" ] && project_root=$(_sb_am_normpath "$project_root")
     [ -z "$project_root" ] && project_root="$PWD"   # outside a git repo: use cwd
-    dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
+    dashed=$(_sb_am_dash_key "$project_root")
     path="$home/.claude/projects/$dashed/memory"
   fi
 
@@ -2650,7 +2756,7 @@ sb_auto_memory_state() {
       project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null | tr -d '\r' || true)
       [ -n "$project_root" ] && project_root=$(_sb_am_normpath "$project_root")
       [ -z "$project_root" ] && project_root="$PWD"
-      dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
+      dashed=$(_sb_am_dash_key "$project_root")
       path="$home/.claude/projects/$dashed/memory"
       ;;
   esac

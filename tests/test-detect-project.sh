@@ -155,5 +155,40 @@ printf '%s\n' \
 check "bare-path remote registry lookup" "name5" \
   "$(sb_slug_from_remote "$BRAIN_DIR/projects.jsonl" "/srv/git/name5.git")"
 
+# --- D118: sb_registration_refused_reason refuses $HOME and bare temp roots
+# (which brain-os-run.sh's registry root-picker would otherwise code-map as a
+# whole-home-directory project), but lets a REAL project living there through.
+OLD_HOME="$HOME"
+
+# $HOME itself, no .git/manifest → refused
+export HOME="$TMP/home-plain"; mkdir -p "$HOME"
+check "D118: bare \$HOME refused" "home" "$(sb_registration_refused_reason "$HOME")"
+
+# $HOME itself, but it's a REAL git repo (e.g. a dotfiles repo) → let through
+export HOME="$TMP/home-dotfiles"; mkdir -p "$HOME"; ( cd "$HOME" && git init -q )
+check "D118: \$HOME with its own .git is NOT refused" "" "$(sb_registration_refused_reason "$HOME")"
+export HOME="$OLD_HOME"
+
+# A bare temp root by env var, no .git/manifest → refused
+FAKE_TMPDIR="$TMP/tmproot"; mkdir -p "$FAKE_TMPDIR"
+check "D118: \$TMPDIR root refused" "temp-root" \
+  "$(TMPDIR="$FAKE_TMPDIR" sb_registration_refused_reason "$FAKE_TMPDIR")"
+
+# A bare mktemp-style basename, case-insensitively (Windows AppData\Local\Temp
+# basename is "Temp", not "tmp") → refused
+WIN_TEMP="$TMP/winhome/AppData/Local/Temp"; mkdir -p "$WIN_TEMP"
+check "D118: Windows-form 'Temp' basename refused" "temp-root" "$(sb_registration_refused_reason "$WIN_TEMP")"
+
+# An ORDINARY project nested several levels under a temp root (e.g. a test
+# fixture, or a repo cloned for review) is NOT the bare root itself → not refused
+NESTED="$TMP/tmproot2/some/real/project"; mkdir -p "$NESTED"; ( cd "$NESTED" && git init -q )
+check "D118: a real project several levels under a temp root is not refused" "" \
+  "$(sb_registration_refused_reason "$NESTED")"
+
+# An ordinary non-temp, non-home directory with no .git/manifest is NOT refused —
+# this guard only fires for HOME/temp-root candidates, never ordinary projects.
+ORDINARY="$TMP/just-a-folder"; mkdir -p "$ORDINARY"
+check "D118: an ordinary non-git folder elsewhere is not refused" "" "$(sb_registration_refused_reason "$ORDINARY")"
+
 rm -rf "$TMP"
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }

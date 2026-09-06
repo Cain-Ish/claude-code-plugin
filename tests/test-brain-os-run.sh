@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # pins: SB_BRAIN_OS — kill-switch test: asserts =off disables the whole offline lane
 # pins: SB_BRAIN_OS_NO_LLM — forces the no-LLM deterministic path so the run is hermetic (no model spawn)
+# pins: SB_BRAIN_OS_DEADLINE — D116: hands the engine a near-expired budget so the embed-warm
+#   pass's sb_timeout bound is exercised deterministically instead of waiting on a real 7200s window
+# pins: SB_CODEMAP_REPO — D118: points the codemap pass at a refused ($HOME) target directly,
+#   bypassing the registry root-picker so the registration-refusal defense-in-depth is exercised
 # brain-os-run.sh — the OFFLINE ENGINE seam. Asserts the contract that makes it safe to
 # put every out-of-band pass behind one entry point:
 #   - it is OPTIONAL: brain_os:false / SB_BRAIN_OS=off disables the whole offline lane and
@@ -114,6 +118,49 @@ rm -f "$BRAIN_DIR/.last-maintain"; rm -rf "$BRAIN_DIR/dreams"; mkdir -p "$BRAIN_
 SB_BRAIN_OS_NO_LLM=1 bash "$ENGINE" >/dev/null 2>&1
 [ -f "$BRAIN_DIR/.last-maintain" ] && pass "E4c: NO_LLM still ran the deterministic upkeep"   || fail "E4c: NO_LLM skipped the deterministic passes too"
 [ -z "$(ls -A "$BRAIN_DIR/dreams" )" ]   && pass "E4c: NO_LLM skipped the token-spending consolidation lane"   || fail "E4c: NO_LLM still spawned the consolidation lane"
+
+echo "=== E4d (D118): codemap refuses \$HOME/a temp root as its target, even via SB_CODEMAP_REPO ==="
+# Defense-in-depth for the registry-picker AND an operator-set override: this is the
+# actual expensive-walk choke point brain-os-run.sh would otherwise hand a whole-home
+# directory to code-map-cli (the live incident: a 9.6MB graph.json full of AppData
+# browser-extension bundles named as "architectural spine").
+printf '{"brain_os": true, "auto_improve": false, "auto_maintain": false, "auto_codemap": true, "auto_embed": false}\n' > "$BRAIN_DIR/config.json"
+rm -f "$BRAIN_DIR/error-log.jsonl" "$BRAIN_DIR/audit-log.jsonl"
+SB_CODEMAP_REPO="$HOME" bash "$ENGINE" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] || fail "E4d: engine exited $rc for a refused codemap target"
+grep -q 'gate=registration refused home' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
+  && pass "E4d: \$HOME as SB_CODEMAP_REPO is refused (audit-log breadcrumb)" \
+  || fail "E4d: no refusal breadcrumb for \$HOME as the codemap target"
+grep -q 'gate=registration refused' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  && fail "E4d: refusal breadcrumb leaked into error-log (should be audit-log trace)"
+
+echo "=== E4e (D116): embed-warm/codemap passes are bounded by the remaining lock budget ==="
+# Before D116 these were bare, unbounded `node` spawns — a stuck/slow one could run past
+# extract-drain.sh's SB_DRAIN_LOCK_STALE (7200s) steal-threshold. Stub the embed-warm CLI
+# with a node script that never exits, hand brain-os-run.sh a near-expired
+# SB_BRAIN_OS_DEADLINE (as extract-drain.sh's mkdir-lock branch would export), and assert
+# the pass is actually killed within a bounded time — not left running.
+if command -v node >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
+  BUDGETROOT="$SB/budgetroot"; mkdir -p "$BUDGETROOT/mcp/dist/tools"
+  cat > "$BUDGETROOT/mcp/dist/tools/knowledge-search-cli.bundle.js" <<'STUBJS'
+setInterval(function(){}, 1000);   // never exits on its own
+STUBJS
+  printf '{"brain_os": true, "auto_improve": false, "auto_maintain": false, "auto_codemap": false, "auto_embed": true}\n' > "$BRAIN_DIR/config.json"
+  rm -f "$KNOWLEDGE_DIR/wiki/.embeddings-cache.json"
+  START=$(date +%s)
+  SB_BRAIN_OS_DEADLINE=$(( START + 5 )) CLAUDE_PLUGIN_ROOT="$BUDGETROOT" timeout 40 bash "$ENGINE" >/dev/null 2>&1; rc=$?
+  END=$(date +%s)
+  ELAPSED=$(( END - START ))
+  [ "$rc" -eq 0 ] || fail "E4e: engine exited $rc when a bounded pass was killed (lane must still exit 0)"
+  [ "$ELAPSED" -lt 30 ] \
+    && pass "E4e: embed-warm pass was bounded (killed within ${ELAPSED}s, not left running to the outer 40s timeout)" \
+    || fail "E4e: embed-warm pass ran unbounded (${ELAPSED}s — outer timeout had to kill it)"
+  grep -q 'embedding warm pass failed or exceeded' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+    && pass "E4e: the bounded-timeout kill was logged loudly" \
+    || fail "E4e: no log entry for the timed-out embed-warm pass"
+else
+  echo "  SKIP: E4e — node or timeout(1) unavailable"
+fi
 
 echo "=== E5: the drainer delegates to the engine (one seam) ==="
 grep -q 'brain-os-run.sh' "$ROOT/scripts/extract-drain.sh" \

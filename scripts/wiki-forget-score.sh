@@ -81,10 +81,16 @@ find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' | while r
   s_cat=0.2; prot=""
   case " $SB_FORGET_PROTECTED " in *" $cat "*) s_cat=1.0; prot="PROTECT:category";; esac
   [ -z "$prot" ] && case " $SB_FORGET_DISCOUNTED " in *" $cat "*) s_cat=0.5;; esac
-  # auto-generated noise (ULID evolve logs, session-narrative) is forgettable even
-  # inside an otherwise-protected category — clear the category protection (age +
+  # auto-generated noise (ULID evolve logs, session-digest recap pages) is forgettable
+  # even inside an otherwise-protected category — clear the category protection (age +
   # inbound-link protections and the recall probe still guard it).
-  case "$slug" in evolve-01*|*session*) s_cat=0.1; prot="";; esac
+  # D190: `*session*` used to be a bare substring match, so ANY protected-category
+  # slug that merely mentions "session" in its (hand-written or dream-authored) title
+  # lost category protection too — live examples: learnings/session-load-emits-plain-
+  # text-banners-be.md, decisions/p0-batch-pending-next-session.md,
+  # concepts/claude-code-cross-session-messaging.md. Anchor to the actual generated-
+  # page prefix (like evolve-01* above) instead of a free substring.
+  case "$slug" in evolve-01*|session-digest-*) s_cat=0.1; prot="";; esac
   [ "$body" -lt 200 ] && s_cat=$(awk -v x="$s_cat" 'BEGIN{x=x+0; print (x<0.2)?x:0.2}')
   score=$(awk -v wc="$WC" -v wg="$WG" -v sc="$s_con" -v sg="$s_cat" \
     'BEGIN{printf "%.3f", (wc+0)*(sc+0)+(wg+0)*(sg+0)}')

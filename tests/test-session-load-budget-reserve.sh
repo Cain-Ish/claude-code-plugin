@@ -66,4 +66,23 @@ printf '%s' "$OUT" | grep -q 'CONVENTION_MARKER' || fail "over-cap PROJECT.md: c
 printf '%s' "$OUT" | grep -q 'STATE_DEEP_TAIL_MARKER' && fail "over-cap PROJECT.md: State deep tail survived — nothing was trimmed, cap not honored?"
 pass "over-cap PROJECT.md: blockers+decisions+conventions injected; State tail gave way"
 
+# --- D162: a NON-canonical section (outside the fixed $pri list) must be named in
+# the breadcrumb when dropped, not vanish silently. The priority loop only ever
+# tracks $pri names in `dropped`; a "## Architecture" heading was never added to
+# `picked` OR `dropped`, so it disappeared from both the render AND the audit trail.
+{ printf -- '---\ntitle: p\n---\n# PROJECT: x\n\n## Goal\nGoal line here.\n\n## Architecture\n'
+  for i in $(seq 1 80); do printf -- '- arch filler %s with plenty of descriptive padding bytes for volume.\n' "$i"; done
+  printf -- '- ARCH_MARKER\n\n## State\n- STATE_MARKER small.\n\n## Recent decisions\n- [decision] DECISION_MARKER2 chose X.\n\n## Open blockers\n- [active] BLOCKER_MARKER2 fix Y.\n'
+} > "$B/projects/$SLUG/PROJECT.md"
+PSZ2=$(wc -c < "$B/projects/$SLUG/PROJECT.md" | tr -d ' ')
+[ "$PSZ2" -gt 3000 ] || fail "D162 fixture too small ($PSZ2 B) — must exceed the 3000B emit cap"
+: > "$B/audit-log.jsonl"
+OUT=$(printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
+  | env PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$PROJDIR" BRAIN_DIR="$B" ANTHROPIC_API_KEY="" bash "$SL" 2>/dev/null)
+printf '%s' "$OUT" | grep -q 'ARCH_MARKER' && fail "D162: Architecture unexpectedly survived — fixture no longer over-cap?"
+grep -q 'hot-tier-sections' "$B/audit-log.jsonl" 2>/dev/null || fail "D162: no over-cap breadcrumb at all"
+grep -q 'Architecture' "$B/audit-log.jsonl" 2>/dev/null \
+  || fail "D162: breadcrumb dropped the non-canonical 'Architecture' section silently (no mention in audit-log)"
+pass "D162: a dropped non-canonical section is named in the breadcrumb"
+
 rm -rf "$B" "$PROJDIR" "$STUB"; echo; echo "ALL PASS"
