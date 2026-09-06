@@ -335,5 +335,46 @@ fi
 OUT=$(gen Write "$HOME/work/repo/sub/../main.py" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
 assert_allow "D183: '..' collapsing to an in-project path is not over-blocked" "$OUT"
 
+# Vector F (D183 follow-up): a RELATIVE leaf-symlink target that itself
+# contains '..' must have that '..' re-collapsed against the symlink's
+# directory, not spliced in raw. Before the fix, `ln -s ../../.ssh/id_rsa
+# repo/notes.txt` resolved to ".../repo/../../.ssh/id_rsa" verbatim (the
+# unresolved '..' never prefix-matched ~/.ssh) and silently allowed.
+if supports_symlinks; then
+  ln -sf "../../.ssh/id_rsa" "$HOME/work/repo/notes.txt"
+  OUT=$(gen Write "$HOME/work/repo/notes.txt" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+  assert_deny "D183 vector F: relative leaf-symlink target with '..' re-collapses → deny" "$OUT" "ssh"
+  rm -f "$HOME/work/repo/notes.txt"
+else
+  echo "SKIP: test 26 vector F — requires real symlink support (Windows without Developer Mode)"
+  pass "D183 vector F (skipped — no symlink support)"
+fi
+
+# --- Test 27 (D182 follow-up): 8.3 short-name rule must not over-block a
+# real long filename that merely CONTAINS a tilde+digit (nothing to expand).
+mkdir -p "$HOME/work/repo"
+: > "$HOME/work/repo/notes~1.md"
+OUT=$(run_guard "Write" "$HOME/work/repo/notes~1.md")
+assert_allow "8.3 negative control: real 'notes~1.md' in a project dir is not over-blocked" "$OUT"
+rm -f "$HOME/work/repo/notes~1.md"
+
+# When cygpath is available, a REAL 8.3 alias must still resolve to its true
+# long-form target and be denied via the normal credential-prefix match (not
+# the fail-closed branch) — expansion must not become a new bypass.
+if command -v cygpath >/dev/null 2>&1; then
+  SHORT_W=$(cygpath -d "$HOME/.ssh" 2>/dev/null)
+  SHORT_POSIX=$(cygpath -u "$SHORT_W" 2>/dev/null | tr -d '\r')
+  if [ -n "$SHORT_POSIX" ] && printf '%s' "$SHORT_POSIX" | grep -qE '~[0-9]+'; then
+    OUT=$(run_guard "Write" "$SHORT_POSIX/id_rsa")
+    assert_deny "8.3 real alias of ~/.ssh expands and still denies" "$OUT" "ssh"
+  else
+    echo "SKIP: test 27 real-alias case — this filesystem/HOME path has no 8.3 alias to test"
+    pass "8.3 real-alias case (skipped — no short alias produced)"
+  fi
+else
+  echo "SKIP: test 27 real-alias case — cygpath not on PATH"
+  pass "8.3 real-alias case (skipped — no cygpath)"
+fi
+
 echo
 echo "ALL PASS"

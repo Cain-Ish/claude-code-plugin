@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { isAbsolute, join } from 'path';
 import { homedir, tmpdir } from 'os';
 import { promises as fsp, mkdtempSync } from 'fs';
-import { toBashPath, buildSnapshotArgs, resolveBashExePure, brainDir, dreamStatus, dreamDiscard, dreamCancel } from './dream.js';
+import { toBashPath, buildSnapshotArgs, resolveBashExePure, brainDir, dreamStatus, dreamDiscard, dreamCancel, dreamCreate } from './dream.js';
 import { cleanEnvPath } from './../path-guard.js';
 
 describe('toBashPath (Windows -> bash argv path)', () => {
@@ -69,6 +69,25 @@ describe('buildSnapshotArgs — family', () => {
     const fam = new Set(['acme', 'acme__api']);
     expect(buildSnapshotArgs({ transcript_filter: { project_slug: 'all', family: true } }, 'acme__api', fam))
       .toEqual(['--max-count', '50']);
+  });
+});
+
+describe('dreamCreate — transcript_filter.project_slug validation (review follow-up)', () => {
+  // project_slug reaches dream-snapshot.sh's --slug and, before the D182 shell-side fix,
+  // was matched by building it into a regex alternation — a value shaped like a regex
+  // (".*") could act as an unintended wildcard. Reject it at the MCP boundary with the
+  // same validateSlug charset guard every other slug-shaped arg gets, before it is ever
+  // handed to the shell.
+  it('rejects a regex-shaped project_slug (".*") without touching the filesystem', async () => {
+    const result = await dreamCreate({ transcript_filter: { project_slug: '.*' } });
+    expect(result.ok).toBe(false);
+    expect(result.dream).toBeNull();
+    expect(result.reason).toMatch(/invalid transcript_filter\.project_slug/);
+  });
+  it('still accepts the "all" cross-project sentinel (not slug-validated)', () => {
+    // buildSnapshotArgs already covers "all" behavior; this just documents that dreamCreate's
+    // new guard does not reject the one non-slug-shaped value the field is allowed to carry.
+    expect(buildSnapshotArgs({ transcript_filter: { project_slug: 'all' } }, 'proja')).toEqual(['--max-count', '50']);
   });
 });
 

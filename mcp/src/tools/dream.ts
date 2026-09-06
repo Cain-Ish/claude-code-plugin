@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import { existsSync } from "fs";
 import { atomicWriteJson } from './atomic-write.js';
-import { cleanEnvPath, assertWithin, validateSlug } from '../path-guard.js';
+import { cleanEnvPath, assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { projectFamily } from './project-registry.js';
@@ -190,6 +190,22 @@ export async function dreamCreate(
 ): Promise<DreamCreateResult> {
   if (args.instructions && args.instructions.length > 4096) {
     return { ok: false, dream: null, reason: "instructions exceed 4096 char limit" };
+  }
+  // review follow-up: project_slug flows into dream-snapshot.sh's --slug and is matched
+  // there against transcript project fields. "all" is the documented cross-project
+  // sentinel (buildSnapshotArgs strips it before it ever reaches the shell); anything
+  // else must pass the same charset guard every other slug-shaped arg gets, so a value
+  // like ".*" can never reach the shell as a regex/glob-shaped selector.
+  const requestedSlug = args.transcript_filter?.project_slug;
+  if (requestedSlug !== undefined && requestedSlug !== 'all') {
+    try {
+      validateSlug(requestedSlug);
+    } catch (e) {
+      if (e instanceof PathGuardError) {
+        return { ok: false, dream: null, reason: `invalid transcript_filter.project_slug: ${e.message}` };
+      }
+      throw e;
+    }
   }
   const activeSlug = resolveActiveSlug(brainDir());
   const family = activeSlug ? projectFamily(brainDir(), activeSlug) : undefined;

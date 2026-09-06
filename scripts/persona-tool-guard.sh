@@ -58,21 +58,42 @@ USER_RULES="$BRAIN_DIR/persona-rules.json"
 DEFAULT_RULES="$PLUGIN_ROOT/scripts/persona-rules.default.json"
 RULES_FILE=""
 if [ -f "$USER_RULES" ]; then
-  # D154: an existing user rules file that is EMPTY or not valid JSON must not
-  # silently disarm every PreToolUse rule (a truncated write from
+  # D154: an existing user rules file that is EMPTY, not valid JSON, or whose
+  # `.rules` is not an array with SOMETHING to evaluate must not silently
+  # disarm every PreToolUse rule (a truncated write from
   # merge-persona-signals.sh, or a prompt-injected Edit that leaves the file
-  # invalid, both land here). Fall back to the shipped defaults and say so,
-  # loud, once — `-s` guards jq -e against jq 1.6's "empty input exits 0".
-  if [ -s "$USER_RULES" ] && jq -e 'type == "object"' "$USER_RULES" >/dev/null 2>&1; then
+  # invalid, both land here). `{}` and bare `{"rules":[]}` both parse fine but
+  # leave nothing to evaluate — an empty rules array with no learned rules and
+  # no tool_scope/resource_scope config either is never a legitimate "user
+  # disabled every rule" signal (there is no UI for that), so it is treated
+  # the same as corruption. `.rules:[]` alongside a non-empty `.learned[]`, or
+  # alongside a deliberately-configured tool_scope/resource_scope block (even
+  # with enabled:false — that is still an intentional declaration, not
+  # silence), stays valid. Fall back to the shipped defaults and say so, loud,
+  # once — `-s` guards jq -e against jq 1.6's "empty input exits 0".
+  if [ -s "$USER_RULES" ] && jq -e '
+        (.rules | type) == "array"
+        and ((.rules | length) > 0
+             or (((.learned // []) | type) == "array" and ((.learned // []) | length) > 0)
+             or ((.tool_scope | type) == "object")
+             or ((.resource_scope | type) == "object"))
+      ' "$USER_RULES" >/dev/null 2>&1; then
     RULES_FILE="$USER_RULES"
-  elif [ -f "$DEFAULT_RULES" ]; then
-    sb_log_error "persona-tool-guard.sh" "user persona-rules.json at $USER_RULES is empty or not valid JSON — falling back to persona-rules.default.json" 1
-    RULES_FILE="$DEFAULT_RULES"
+  else
+    sb_log_error "persona-tool-guard.sh" "user persona-rules.json at $USER_RULES is empty, not valid JSON, or has no non-empty .rules array — falling back to persona-rules.default.json" 1
+    [ -f "$DEFAULT_RULES" ] && RULES_FILE="$DEFAULT_RULES"
   fi
 elif [ -f "$DEFAULT_RULES" ]; then
   RULES_FILE="$DEFAULT_RULES"
 fi
-[ -z "$RULES_FILE" ] && exit 0
+if [ -z "$RULES_FILE" ]; then
+  # D154: previously a bare `exit 0` — no rules to evaluate silently became an
+  # ALLOW for every tool call. A PreToolUse guard that cannot validate a single
+  # rule has no basis to allow anything through; fail SAFE with a deny instead.
+  sb_log_error "persona-tool-guard.sh" "no usable persona rules (checked $USER_RULES and $DEFAULT_RULES) — denying (fail-safe)" 1
+  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"persona-tool-guard: rules unavailable"}}' || true
+  exit 0
+fi
 
 # command is the one MULTILINE payload field (heredocs) — its own -r spawn keeps
 # real newlines intact, which the rule regexes below match against.

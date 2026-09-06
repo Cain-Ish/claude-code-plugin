@@ -363,8 +363,13 @@ else
       [ -n "$_rel" ] && cp -p "$_stash/$_rel" "$LIVE_WIKI/$_rel"
     done
     echo "Preserved $(printf '%s\n' "$PROTECT" | grep -c .) live page(s) modified after the dream snapshot (restored over staging copies)."
+    rm -rf "$_stash"   # only cleared once its contents are safely restored onto live
   fi
-  [ -n "$_stash" ] && rm -rf "$_stash"
+  # D084 (review follow-up): $_stash is the ONLY copy of every post-snapshot
+  # live page edit. The unconditional `rm -rf` that used to sit here deleted
+  # it even when the cp -r apply above FAILED (APPLY_RC != 0) — destroying the
+  # one thing that could have recovered those edits. Leave it on disk on
+  # failure; the error block below names its path so it can be restored by hand.
   # Honest accounting (not silent): this path applies NO dream deletions —
   # FORGET/DEDUPLICATE removals stay in place until an rsync-equipped accept.
   [ "$APPLY_RC" -eq 0 ] && echo "note: rsync unavailable — staging merged over live; dream deletions were NOT applied."
@@ -373,8 +378,10 @@ fi
 if [ "$APPLY_RC" -ne 0 ]; then
   _bk_msg="no local backup was taken for this accept (SB_DREAM_ACCEPT_SKIP_BACKUP was set) — restore from the caller's own pre-accept backup instead"
   [ -n "${ACCEPT_BK:-}" ] && [ -f "$ACCEPT_BK" ] && _bk_msg="restore the live wiki with: tar xzf \"$ACCEPT_BK\" -C \"$KNOWLEDGE_DIR\""
-  echo "error: apply of dream $DREAM_ID FAILED partway (rc=$APPLY_RC: ${APPLY_ERR:-<no output>}) — staging KEPT (not deleted), archived_at NOT stamped so this can be retried; $_bk_msg" >&2
-  sb_log_error "dream-accept" "apply of $DREAM_ID failed (rc=$APPLY_RC): ${APPLY_ERR:-<no output>}; staging retained, archive skipped; $_bk_msg" "$APPLY_RC"
+  _stash_msg=""
+  [ -n "${_stash:-}" ] && [ -d "$_stash" ] && _stash_msg=" post-snapshot live page edits were stashed at $_stash and were NOT deleted — restore them manually;"
+  echo "error: apply of dream $DREAM_ID FAILED partway (rc=$APPLY_RC: ${APPLY_ERR:-<no output>}) — staging KEPT (not deleted), archived_at NOT stamped so this can be retried;$_stash_msg $_bk_msg" >&2
+  sb_log_error "dream-accept" "apply of $DREAM_ID failed (rc=$APPLY_RC): ${APPLY_ERR:-<no output>}; staging retained, archive skipped;$_stash_msg $_bk_msg" "$APPLY_RC"
   exit 1
 fi
 

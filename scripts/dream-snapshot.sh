@@ -165,9 +165,13 @@ fi
 # Select and symlink transcripts
 TRANSCRIPT_DIR="$BRAIN_DIR/transcripts"
 SELECTED=0
-# Family-slug alternation for transcript matching, computed ONCE (not per-transcript):
-# a transcript matches if its name contains _<slug>_ for ANY requested family member.
-ALT=$(printf '%s' "$FILTER_SLUGS" | tr ' ' '|')
+# review follow-up: a transcript matches if its name contains _<slug>_ for ANY
+# requested family member. This used to build ONE regex alternation
+# ("_(${ALT})_") from the raw --slug values via `tr ' ' '|'` — a slug containing
+# regex metacharacters (e.g. ".*", reachable before the MCP-layer validateSlug
+# fix) turned into an unintended wildcard that could select every transcript.
+# Match each slug as a FIXED STRING (grep -F) instead; no per-slug value is
+# ever interpreted as a pattern.
 
 if [ -d "$TRANSCRIPT_DIR" ]; then
   # D095: names are <session-id>_<slug>_<date>.txt or sub-<hex>_<slug>_<date>.txt — the
@@ -190,9 +194,12 @@ if [ -d "$TRANSCRIPT_DIR" ]; then
     [ "$SELECTED" -ge "$MAX_COUNT" ] && break
 
     if [ -n "$FILTER_SLUGS" ]; then
-      # a transcript matches if its name contains _<slug>_ for ANY family member (ALT hoisted above).
       fname=$(basename "$tf")
-      echo "$fname" | grep -qE "_(${ALT})_" || continue
+      _slug_hit=1
+      for _s in $FILTER_SLUGS; do
+        printf '%s' "$fname" | grep -qF "_${_s}_" && { _slug_hit=0; break; }
+      done
+      [ "$_slug_hit" -eq 0 ] || continue
     fi
 
     if [ -n "$FILTER_SINCE" ]; then

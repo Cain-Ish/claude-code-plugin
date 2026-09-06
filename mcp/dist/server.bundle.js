@@ -32092,6 +32092,17 @@ async function dreamCreate(args) {
   if (args.instructions && args.instructions.length > 4096) {
     return { ok: false, dream: null, reason: "instructions exceed 4096 char limit" };
   }
+  const requestedSlug = args.transcript_filter?.project_slug;
+  if (requestedSlug !== void 0 && requestedSlug !== "all") {
+    try {
+      validateSlug(requestedSlug);
+    } catch (e) {
+      if (e instanceof PathGuardError) {
+        return { ok: false, dream: null, reason: `invalid transcript_filter.project_slug: ${e.message}` };
+      }
+      throw e;
+    }
+  }
   const activeSlug = resolveActiveSlug(brainDir());
   const family = activeSlug ? projectFamily(brainDir(), activeSlug) : void 0;
   const scriptArgs = buildSnapshotArgs(args, activeSlug, family);

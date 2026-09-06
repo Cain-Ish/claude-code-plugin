@@ -294,6 +294,46 @@ else
   rm -rf "$SB"
 fi
 
+# === D084 (review follow-up): the cp-fallback (no-rsync) apply path must not
+# `rm -rf $_stash` on a FAILED apply — $_stash holds the only copy of every
+# post-snapshot live page edit (protected pages, stashed before the merge-copy
+# so the newer live version can be restored after). Deleting it unconditionally
+# destroyed those edits with no way back; the fix keeps it and names its path
+# in the failure message. This is the primary Windows git-bash apply path (no
+# rsync), so it is exercised directly rather than only via a stub.
+if command -v rsync >/dev/null 2>&1; then
+  echo "SKIP: D084 follow-up — rsync present on this host; the no-rsync \$_stash path is not exercised"
+  pass "D084 follow-up: \$_stash-on-failure guard (skipped — rsync present, different apply path)"
+elif supports_chmod_file_restrict; then
+  setup 3 "p1 p2 p3"
+  D="$BRAIN_DIR/dreams/drm_test"
+  # created_at in the past so p2's live edit below is POST-snapshot (-> PROTECT -> stashed).
+  jq -nc '{id:"drm_test",status:"completed",archived_at:null,created_at:"2026-01-01T00:00:00Z"}' > "$D/status.json"
+  touch -t 202512010000 "$KNOWLEDGE_DIR/wiki/entities/p1.md" \
+                        "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
+                        "$KNOWLEDGE_DIR/wiki/entities/p3.md" 2>/dev/null
+  printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"
+  touch "$KNOWLEDGE_DIR/wiki/entities/p2.md"
+  # Staging modifies p1 so the merge-copy actually attempts to overwrite it; chmod 444
+  # forces THAT overwrite to fail (p2's protection/stashing is what we're checking survives).
+  printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nCONSOLIDATED\n' > "$D/staging/wiki/entities/p1.md"
+  chmod 444 "$KNOWLEDGE_DIR/wiki/entities/p1.md"
+  ERR=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1 1>/dev/null); rc=$?
+  chmod 644 "$KNOWLEDGE_DIR/wiki/entities/p1.md" 2>/dev/null
+  [ "$rc" -ne 0 ] || fail "D084 follow-up: cp-fallback apply failure returned rc=0"
+  STASH_PATH=$(printf '%s' "$ERR" | grep -oE 'stashed at [^ ]+' | sed 's/^stashed at //')
+  [ -n "$STASH_PATH" ] || fail "D084 follow-up: failure message did not name the stash path (got: $ERR)"
+  [ -d "$STASH_PATH" ] || fail "D084 follow-up: stash dir $STASH_PATH was deleted despite the failed apply"
+  grep -q 'LIVE EDIT after snapshot' "$STASH_PATH/entities/p2.md" 2>/dev/null \
+    || fail "D084 follow-up: stash did not retain the post-snapshot live edit to p2"
+  pass "D084 follow-up: failed cp-fallback apply keeps \$_stash ($STASH_PATH) instead of deleting it"
+  rm -rf "$STASH_PATH" "$SB"
+else
+  echo "SKIP: D084 follow-up — chmod 444 does not restrict file overwrite on this filesystem"
+  pass "D084 follow-up: \$_stash-on-failure guard (skipped — chmod does not restrict here)"
+  rm -rf "$SB"
+fi
+
 # === D212: the shipped 30-day FORGET age floor is a REAL gate, not just
 # something every test pins to 0. A page younger than SB_FORGET_MIN_AGE_DAYS
 # (default 30) named in the manifest must be PROTECT:age'd and survive.

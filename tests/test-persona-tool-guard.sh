@@ -571,7 +571,67 @@ out=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/u/.aws/credenti
 grep -q 'persona-rules.json' "$D154_BRAIN/error-log.jsonl" 2>/dev/null \
   || fail "D154: empty user persona-rules.json must log an sb_log_error row"
 pass "D154: empty user persona-rules.json falls back to defaults and logs loudly"
+
+# D154 (review follow-up): well-formed JSON but `.rules` absent or an empty
+# array with NO learned rules either is "nothing to evaluate", not a
+# legitimate "user disabled every rule" signal — must also fall back.
+rm -f "$D154_BRAIN/error-log.jsonl"
+printf '{}' > "$D154_BRAIN/persona-rules.json"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf / && git push --force origin main"},"session_id":"d154c"}' \
+  | BRAIN_DIR="$D154_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D154: bare {} user persona-rules.json must fall back and ask (got: $out)"
+grep -q 'persona-rules.json' "$D154_BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "D154: bare {} user persona-rules.json must log an sb_log_error row"
+pass "D154: bare {} falls back to defaults and logs loudly"
+
+rm -f "$D154_BRAIN/error-log.jsonl"
+printf '{"rules":[]}' > "$D154_BRAIN/persona-rules.json"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf / && git push --force origin main"},"session_id":"d154d"}' \
+  | BRAIN_DIR="$D154_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D154: {\"rules\":[]} with no learned rules must fall back and ask (got: $out)"
+grep -q 'persona-rules.json' "$D154_BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "D154: {\"rules\":[]} must log an sb_log_error row"
+pass "D154: {\"rules\":[]} (no learned rules) falls back to defaults and logs loudly"
+
+# Companion case (must NOT regress): rules:[] alongside a NON-empty learned[]
+# is a legitimate sparse config (test 23 below relies on exactly this shape)
+# and must be honored as-is, not treated as invalid.
+rm -f "$D154_BRAIN/error-log.jsonl"
+cat > "$D154_BRAIN/persona-rules.json" <<'EOF'
+{"rules":[],"learned":[{"event":"bash","pattern":"npm install -g","action":"warn","message":"Learned: install project-local, not global."}]}
+EOF
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"npm install -g typescript"},"session_id":"d154e"}' \
+  | BRAIN_DIR="$D154_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("project-local")' >/dev/null \
+  || fail "D154: rules:[] with a non-empty learned[] must still be honored (got: $out)"
+[ -f "$D154_BRAIN/error-log.jsonl" ] && grep -q 'persona-rules.json' "$D154_BRAIN/error-log.jsonl" \
+  && fail "D154: rules:[]+learned[...] is valid — must NOT log a fallback error"
+pass "D154: rules:[] with non-empty learned[] is honored, not treated as invalid"
 rm -rf "$D154_BRAIN"
+
+# D154 (review follow-up): fail-SAFE, not fail-open — when the user file is
+# invalid AND the shipped default is unreachable, the guard must deny rather
+# than silently exit 0 (previously: no rules to evaluate = allow everything).
+# CLAUDE_PLUGIN_ROOT points at a fake root carrying a REAL lib.sh (so
+# sb_log_error keeps working and this isolates exactly "default missing")
+# but no persona-rules.default.json.
+D154F_BRAIN=$(mktemp -d)
+D154F_ROOT=$(mktemp -d)
+mkdir -p "$D154F_ROOT/scripts"
+cp "$(dirname "$SCRIPT")/lib.sh" "$D154F_ROOT/scripts/lib.sh"
+printf '{}' > "$D154F_BRAIN/persona-rules.json"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf / && git push --force origin main"},"session_id":"d154f"}' \
+  | BRAIN_DIR="$D154F_BRAIN" CLAUDE_PLUGIN_ROOT="$D154F_ROOT" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "D154: user invalid + default missing must DENY, not silently allow (got: $out)"
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("rules unavailable")' >/dev/null \
+  || fail "D154: fail-safe deny must explain 'rules unavailable' (got: $out)"
+grep -q 'denying' "$D154F_BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "D154: fail-safe deny must be logged"
+pass "D154: user invalid + default missing -> fail-safe deny (not silent allow)"
+rm -rf "$D154F_BRAIN" "$D154F_ROOT"
 
 # --- D155: resource-scope allowlist must lexically collapse '..' before the
 # prefix match — a Read of "$CWD/../../../etc/shadow" must ASK, not silently

@@ -234,7 +234,7 @@ Line numbers are the readers' citations and drift; verify behaviour, not anchors
 | D119 | audit-log.jsonl has mixed CRLF/LF line endings from native jq's text-mode stdout append mixed with LF-writing bash printf callers | `scripts/lib.sh:469` |
 | D129 | maintain-deterministic.sh carries raw embedded CR bytes in a `tr -d` set — latent CRLF-poisoning risk on re-edit | `scripts/maintain-deterministic.sh:54` |
 | D136 | maintain-llm-drain.sh error-log dominated by 541 stale 'bwrap absent' rows from a removed gating condition | `scripts/maintain-llm-drain.sh:1` |
-| D138 | merge-edges.sh conflict-detection snapshot (`jq -s`) aborts silently on one torn edges.jsonl line, disabling checks forever | `scripts/merge-edges.sh:228` |
+| D138 | merge-edges.sh conflict-detection snapshot (`jq -s`) aborts silently on one torn edges.jsonl line, disabling checks forever | `scripts/merge-edges.sh:228` | fixed |
 | D146 | persona-context.sh `/?` route failures are fully silent — stderr discarded, no error-log row, no user-facing signal | `scripts/persona-context.sh:40` |
 | D147 | persona-context.sh per-prompt injections are never recorded to the manifest, so the injection→read metric can't measure them | `scripts/persona-context.sh:393` |
 | D148 | persona-context.sh relink guard re-spawns install-vector-deps every prompt for bm25-only users, logging false 'relink failed' errors | `scripts/persona-context.sh:217` |

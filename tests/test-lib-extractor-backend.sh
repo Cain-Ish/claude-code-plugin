@@ -250,4 +250,68 @@ echo "$result_g" | grep -q "status=ok" \
   || { echo "FAIL G: expected status=ok for a valid JSON delta (got: $result_g)"; exit 1; }
 echo "PASS G: valid JSON accepted even when prose mentions 'Unauthorized' (D122)"
 
+# --- Case H (review follow-up): a bare, contentless `{}` must be REJECTED as a
+# usable extraction — `jq -e 'type=="object"'` treated it as valid (type IS
+# object) even though it carries no fields at all.
+cat > "$TMP/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '%s' '{}'
+EOF
+chmod +x "$TMP/bin/claude"
+result_h=$(
+  env -u CLAUDECODE -u ANTHROPIC_API_KEY bash -c '
+    set -eu
+    export BRAIN_DIR="'"$BRAIN_DIR"'"
+    export PATH="'"$PATH"'"
+    source "'"$SCRIPT_DIR"'/scripts/lib.sh"
+    rm -f "$BRAIN_DIR/.extractor-health.json"
+    input=$(mktemp); out=$(mktemp)
+    printf "hello" > "$input"
+    rc=0
+    sb_call_extractor "$input" "$out" "claude-sonnet-4-6" "test-system" 5 || rc=$?
+    status=$(jq -r ".status // \"missing\"" "$BRAIN_DIR/.extractor-health.json" 2>/dev/null || echo missing)
+    rm -f "$input" "$out"
+    echo "H rc=$rc status=$status"
+  '
+)
+echo "$result_h"
+echo "$result_h" | grep -q "rc=0" \
+  && { echo "FAIL H: a bare {} must NOT be accepted as a usable extraction (rc=0)"; exit 1; }
+echo "$result_h" | grep -q "status=fail" \
+  || { echo "FAIL H: bare {} must record status=fail (got: $result_h)"; exit 1; }
+echo "PASS H: bare {} rejected (review follow-up: sb_extractor_object_ok requires length>0)"
+
+# --- Case I (review follow-up): a concatenated multi-value JSON stream
+# (`{}{"a":...}`) must be REJECTED. `jq -e 'type=="object"'` WITHOUT `-s`
+# only judges the LAST value in the stream and would have accepted this.
+cat > "$TMP/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '%s' '{}{"recent_decisions":["smuggled second value"]}'
+EOF
+chmod +x "$TMP/bin/claude"
+result_i=$(
+  env -u CLAUDECODE -u ANTHROPIC_API_KEY bash -c '
+    set -eu
+    export BRAIN_DIR="'"$BRAIN_DIR"'"
+    export PATH="'"$PATH"'"
+    source "'"$SCRIPT_DIR"'/scripts/lib.sh"
+    rm -f "$BRAIN_DIR/.extractor-health.json"
+    input=$(mktemp); out=$(mktemp)
+    printf "hello" > "$input"
+    rc=0
+    sb_call_extractor "$input" "$out" "claude-sonnet-4-6" "test-system" 5 || rc=$?
+    status=$(jq -r ".status // \"missing\"" "$BRAIN_DIR/.extractor-health.json" 2>/dev/null || echo missing)
+    rm -f "$input" "$out"
+    echo "I rc=$rc status=$status"
+  '
+)
+echo "$result_i"
+echo "$result_i" | grep -q "rc=0" \
+  && { echo "FAIL I: a concatenated multi-value JSON stream must NOT be accepted (rc=0)"; exit 1; }
+echo "$result_i" | grep -q "status=fail" \
+  || { echo "FAIL I: concatenated stream must record status=fail (got: $result_i)"; exit 1; }
+echo "PASS I: concatenated multi-value JSON stream rejected (review follow-up: jq -es length==1)"
+
 echo "ALL PASS"

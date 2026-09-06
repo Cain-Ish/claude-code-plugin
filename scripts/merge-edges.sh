@@ -101,9 +101,24 @@ DETECT=0
 # torn/corrupt log. recorded_at normalized to seconds, ties broken by file order (later
 # line wins) so a same-second ms-stamped invalidate beats an earlier-line assert.
 if [ "$DETECT" = 1 ] && [ -s "$LOG" ]; then
-  jq -s '[ to_entries[] | .value + {recorded_at: (.value.recorded_at|.[0:19]), _i: .key} ]
+  if ! jq -s '[ to_entries[] | .value + {recorded_at: (.value.recorded_at|.[0:19]), _i: .key} ]
          | group_by([.from,.type,.to]) | map(max_by([.recorded_at, ._i]))' \
-     "$LOG" > "$SNAP" 2>/dev/null || echo '[]' > "$SNAP"
+     "$LOG" > "$SNAP" 2>/dev/null; then
+    # D159: `jq -s` slurps the whole log and aborts entirely at the first torn/
+    # unparseable line (a concurrent-append tear from another merge-edges.sh run),
+    # previously falling open to `[]` SILENTLY — which blinds write-time conflict
+    # detection against every edge already on disk, not just the torn one. Retry
+    # tolerantly (fromjson? skips only the bad line) and log the skip exactly once.
+    torn=$(sb_count_torn_lines "$LOG")
+    if [ "${torn:-0}" -gt 0 ] && jq -nR '[inputs | fromjson? | select(type=="object")]
+           | [ to_entries[] | .value + {recorded_at: (.value.recorded_at|.[0:19]), _i: .key} ]
+           | group_by([.from,.type,.to]) | map(max_by([.recorded_at, ._i]))' \
+       "$LOG" > "$SNAP" 2>/dev/null; then
+      sb_log_error "merge-edges.sh" "skipped $torn torn line(s) in $LOG while building conflict-detection snapshot" 0
+    else
+      echo '[]' > "$SNAP"
+    fi
+  fi
 else
   echo '[]' > "$SNAP"
 fi

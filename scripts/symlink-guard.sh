@@ -111,7 +111,17 @@ if [ -z "$RESOLVED" ]; then
       _res="$_rp"
     elif [ -L "$_cand" ]; then
       _tgt=$(readlink -- "$_cand" 2>/dev/null)
-      case "$_tgt" in /*) _res="$_tgt" ;; *) _res="${_res%/}/$_tgt" ;; esac
+      # D183 (follow-up): splicing the target string directly into $_res left
+      # any '..' INSIDE a relative target unresolved (`ln -s ../../.ssh/id_rsa
+      # repo/notes.txt` produced ".../repo/../../.ssh/id_rsa" verbatim, which
+      # never prefix-matches the real credential dir). Re-enter the walk
+      # instead: push the target's segments back onto $_rem so the SAME '..'
+      # popping logic above collapses them against $_res (relative target) or
+      # against '/' (absolute target), rather than a raw lexical splice.
+      case "$_tgt" in
+        /*) _res="/"; _rem="${_tgt#/}${_rem:+/$_rem}" ;;
+        *)  _rem="$_tgt${_rem:+/$_rem}" ;;
+      esac
     else
       _res="${_res%/}/$_seg"
     fi
@@ -125,22 +135,46 @@ RESOLVED=$(sb_normalize_path "$RESOLVED")
 SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r' || true)
 
 # D182: NTFS 8.3 short-name components ("SSH~1" for .ssh, "TMP~1.MKZ" for a
-# longer temp dir) pass through cygpath/realpath UNEXPANDED — a credential
-# dir reached via its short alias never matches the long-form prefix list
-# below, and this guard has no portable way to expand an 8.3 alias back to
-# its long form. Fail CLOSED: deny outright, before the prefix match, rather
-# than risk a credential-dir alias slipping past unresolved.
+# longer temp dir) pass through realpath UNEXPANDED — a credential dir reached
+# via its short alias never matches the long-form prefix list below. This was
+# originally a blanket deny, but the pattern also matches ordinary long
+# filenames that merely contain a tilde+digit (notes~1.md, a CI runner's
+# RUNNER~1 temp dir) with nothing to expand — over-blocking normal project
+# writes. When `cygpath` is available, ask Windows for the real long-form
+# path and evaluate THAT instead: if the target exists, expand it directly;
+# if only its parent exists (the common Write-a-new-file case), expand the
+# parent and reattach the leaf — `cygpath -l -m` does not expand a leaf that
+# is not itself present on disk. Deny outright, before the prefix match, only
+# when expansion is unavailable (no cygpath, or nothing on the path exists to
+# query) — that is the case this guard genuinely cannot resolve safely.
 if printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | grep -qE '(^|/)[^/]*~[0-9]+(\.[^/.]*)?(/|$)'; then
-  SHORTNAME_REASON="Write to '$FILE_PATH' (resolved '$RESOLVED') contains an NTFS 8.3 short-name path component (e.g. 'NAME~1'), which cannot be safely expanded back to its long form. Symlink-guard denies rather than risk a credential-dir alias slipping past the prefix check. Suppress: SB_SYMLINK_GUARD=off."
-  sb_log_audit "symlink-guard.sh" "deny" "ntfs-8.3-shortname" "${TOOL}(${FILE_PATH})" "$SHORTNAME_REASON" "$SESSION_ID"
-  jq -nc --arg r "$SHORTNAME_REASON" '{
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: $r
-    }
-  }' 2>/dev/null || true
-  exit 0
+  EXPANDED=""
+  if command -v cygpath >/dev/null 2>&1; then
+    if [ -e "$RESOLVED" ]; then
+      EXPANDED=$(cygpath -l -m -- "$RESOLVED" 2>/dev/null | tr -d '\r')
+    else
+      _sn_parent="${RESOLVED%/*}"; _sn_leaf="${RESOLVED##*/}"
+      if [ -n "$_sn_parent" ] && [ -e "$_sn_parent" ]; then
+        _sn_pexp=$(cygpath -l -m -- "$_sn_parent" 2>/dev/null | tr -d '\r')
+        [ -n "$_sn_pexp" ] && EXPANDED="$_sn_pexp/$_sn_leaf"
+      fi
+    fi
+    [ -n "$EXPANDED" ] && EXPANDED=$(sb_normalize_path "$EXPANDED")
+  fi
+  if [ -n "$EXPANDED" ]; then
+    RESOLVED="$EXPANDED"
+  else
+    SHORTNAME_REASON="Write to '$FILE_PATH' (resolved '$RESOLVED') contains an NTFS 8.3 short-name path component (e.g. 'NAME~1') that could not be expanded back to its long form (no cygpath, or nothing on the path exists to query). Symlink-guard denies rather than risk a credential-dir alias slipping past the prefix check. Suppress: SB_SYMLINK_GUARD=off."
+    sb_log_audit "symlink-guard.sh" "deny" "ntfs-8.3-shortname" "${TOOL}(${FILE_PATH})" "$SHORTNAME_REASON" "$SESSION_ID"
+    jq -nc --arg r "$SHORTNAME_REASON" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: $r
+      }
+    }' 2>/dev/null || true
+    exit 0
+  fi
 fi
 
 # Credential-dir prefix check. Each entry is "label:absolute-prefix".

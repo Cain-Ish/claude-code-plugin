@@ -52,4 +52,14 @@ else
   fail "ORIGINAL transcript was modified — sanitizer wrote through to the source"
 fi
 
+# --- (d) security review follow-up: `--slug` is matched as a FIXED STRING per
+# requested slug, not built into one regex alternation (`_(${ALT})_`). A slug
+# of '.*' must select NOTHING, not act as a wildcard over every transcript.
+rm -rf "$BRAIN_DIR/dreams"   # the sanitize dream above is still "pending" — clear it first
+DID=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$SNAP" --slug '.*' --max-count 5 2>/dev/null)
+[ -n "$DID" ] || fail "review follow-up: dream-snapshot.sh --slug '.*' produced no dream id"
+TC=$(jq -r '.inputs.transcript_count' "$BRAIN_DIR/dreams/$DID/status.json" 2>/dev/null)
+[ "$TC" = "0" ] || fail "review follow-up: --slug '.*' matched $TC transcript(s) as a wildcard — must select none (fixed-string match only)"
+pass "review follow-up: --slug '.*' is a fixed-string literal (selects zero transcripts, not a wildcard)"
+
 echo "ALL PASS"
