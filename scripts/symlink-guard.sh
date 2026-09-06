@@ -147,7 +147,14 @@ SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr 
 # is not itself present on disk. Deny outright, before the prefix match, only
 # when expansion is unavailable (no cygpath, or nothing on the path exists to
 # query) — that is the case this guard genuinely cannot resolve safely.
-if printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | grep -qE '(^|/)[^/]*~[0-9]+(\.[^/.]*)?(/|$)'; then
+# 8.3 aliases exist only on Windows filesystems: on Linux/macOS a `NAME~1` component is an
+# ordinary filename, so the rule applies only where cygpath is present (native Windows, or
+# the suite's stubbed-cygpath Windows lane) or the host is MSYS/Cygwin.
+_sn_windows_host=0
+if command -v cygpath >/dev/null 2>&1; then _sn_windows_host=1; else
+  case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) _sn_windows_host=1 ;; esac
+fi
+if [ "$_sn_windows_host" -eq 1 ] && printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | grep -qE '(^|/)[^/]*~[0-9]+(\.[^/.]*)?(/|$)'; then
   EXPANDED=""
   if command -v cygpath >/dev/null 2>&1; then
     if [ -e "$RESOLVED" ]; then

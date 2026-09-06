@@ -333,7 +333,13 @@ if [ "$OS" != "systemd" ]; then
                       -e 's#<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>#<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>#' \
                       "$PWR_XML" > "$PWR_XML_PATCHED" \
                && [ -s "$PWR_XML_PATCHED" ]; then
-              PWR_XML_W=$(cygpath -w "$PWR_XML_PATCHED" 2>/dev/null) || PWR_XML_W=""
+              # schtasks wants a Windows-form path; without cygpath (the suite's stubbed
+              # schtasks on Linux CI) the POSIX path is the only form there is.
+              if command -v cygpath >/dev/null 2>&1; then
+                PWR_XML_W=$(cygpath -w "$PWR_XML_PATCHED" 2>/dev/null) || PWR_XML_W=""
+              else
+                PWR_XML_W="$PWR_XML_PATCHED"
+              fi
               if [ -n "$PWR_XML_W" ] && MSYS_NO_PATHCONV=1 schtasks /Create /TN "$WIN_TASK" /XML "$PWR_XML_W" /F >/dev/null 2>&1; then
                 echo "# Power: set to run on battery too (DisallowStartIfOnBatteries/StopIfGoingOnBatteries -> false)."
               else

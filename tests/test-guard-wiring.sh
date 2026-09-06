@@ -87,16 +87,14 @@ pass "SB_QUALITY_GATE=off kill switch silences quality-gate.sh"
 # other real tools stay intact (a swapped-in standalone bash.exe/symlink loses
 # its sibling DLLs on Windows and fails to launch at all), so `command -v jq`
 # inside the script genuinely fails rather than merely shadowing the binary.
-QG_NOJQ_PATH=""
-_oldifs="$IFS"; IFS=':'
-for _d in $PATH; do
-  [ -n "$_d" ] || continue
-  if [ ! -e "$_d/jq" ] && [ ! -e "$_d/jq.exe" ]; then
-    QG_NOJQ_PATH="${QG_NOJQ_PATH:+$QG_NOJQ_PATH:}$_d"
-  fi
-done
-IFS="$_oldifs"
-QG_NOJQ=$(PATH="$QG_NOJQ_PATH" bash "$QG" 2>/dev/null)
+# Filtering PATH is not portable: on Linux jq shares /usr/bin with bash itself, so the
+# filtered PATH cannot even launch the script. Shadow jq with a failing shim instead —
+# the script's `jq … && exit 0` then falls through to the hand-built envelope exactly as
+# it would on a host whose jq is missing or broken.
+QG_NOJQ_DIR=$(mktemp -d)
+printf '#!/bin/sh\nexit 127\n' > "$QG_NOJQ_DIR/jq"; chmod +x "$QG_NOJQ_DIR/jq"
+QG_NOJQ=$(PATH="$QG_NOJQ_DIR:$PATH" bash "$QG" 2>/dev/null)
+rm -rf "$QG_NOJQ_DIR"
 [ -n "$QG_NOJQ" ] || fail "review follow-up: quality-gate.sh emitted NOTHING on a jq-less host (got empty)"
 printf '%s' "$QG_NOJQ" | grep -q '"hookEventName":"PostToolUse"' \
   || fail "review follow-up: jq-less quality-gate.sh envelope missing hookEventName (got: $QG_NOJQ)"

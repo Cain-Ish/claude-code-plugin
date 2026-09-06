@@ -278,7 +278,12 @@ if supports_chmod_file_restrict; then
   # Staging modifies p1 so the apply actually attempts to overwrite the live file.
   printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nCONSOLIDATED\n' > "$D/staging/wiki/entities/p1.md"
   chmod 444 "$KNOWLEDGE_DIR/wiki/entities/p1.md"
+  # rsync (Linux/macOS CI) replaces files via temp-file+rename, so a read-only FILE does
+  # not fail it — only an unwritable DIRECTORY does. Restrict both: the cp fallback trips
+  # on the file (Windows, where dir modes are inert), rsync trips on the dir.
+  chmod 555 "$KNOWLEDGE_DIR/wiki/entities" 2>/dev/null
   CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>/dev/null; rc=$?
+  chmod 755 "$KNOWLEDGE_DIR/wiki/entities" 2>/dev/null
   chmod 644 "$KNOWLEDGE_DIR/wiki/entities/p1.md" 2>/dev/null
   AFTER_ARCHIVED=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
   [ "$rc" -ne 0 ] || fail "D084: a partial apply failure returned rc=0"
