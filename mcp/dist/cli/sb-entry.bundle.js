@@ -6418,8 +6418,11 @@ function aiBlockSnippet(type, block) {
 }
 
 // src/tools/frontmatter.ts
+function stripBom(s) {
+  return s.charCodeAt(0) === 65279 ? s.slice(1) : s;
+}
 function matchFrontmatter(content) {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const m = stripBom(content).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   return m ? { fm: m[1], body: m[2] } : null;
 }
 function extractYamlValue(yaml, key) {
@@ -6844,7 +6847,12 @@ async function knowledgeSearch(args) {
   const wikiRoot = join6(knowledgeDir2, "wiki");
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
-    scopeDirs = [join6(wikiRoot, args.scope)];
+    try {
+      validateSlug(args.scope);
+    } catch (e) {
+      throw new Error(`invalid scope ${JSON.stringify(args.scope)}: must be a single wiki subdirectory name, no path separators or '..' (${e instanceof Error ? e.message : String(e)})`);
+    }
+    scopeDirs = [assertWithin(wikiRoot, args.scope)];
   } else {
     try {
       const entries = await fs6.readdir(wikiRoot, { withFileTypes: true });
@@ -6905,7 +6913,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
       grounded: groundedCount(queryTokens, indexed[i], dfMap, N),
       // head-field term overlap; see KnowledgeSearchResult.grounded
       related: doc.related,
-      description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || rawContent.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
+      description: doc.aiBlock && Object.keys(doc.aiBlock).length ? aiBlockSnippet(doc.type, doc.aiBlock).slice(0, SNIPPET_CHARS) : source === "local-doc" ? doc.description : doc.description || doc.body.slice(0, SNIPPET_CHARS).replace(/\s+/g, " ").trim(),
       tokens,
       source
     };
@@ -7022,6 +7030,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   }
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
   let anchorCount = 0;
+  let scopeActive = false;
   if (scopeOn) {
     const slug = args.projectSlug;
     const family = args.brainDir ? projectFamily(args.brainDir, slug) : /* @__PURE__ */ new Set([slug]);
@@ -7030,31 +7039,36 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     );
     const anchors = allDocs.filter((d) => d.source === "wiki" && (d.doc.project ?? "") === slug).map((d) => slugFromPath(d.doc.path));
     anchorCount = anchors.length;
-    const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt("SB_SCOPE_HOPS", 2, 0, 4));
-    for (const s of scored) {
-      if (s.source === "local-doc") {
-        s.tier = 1;
-        continue;
+    scopeActive = anchorCount > 0;
+    if (scopeActive) {
+      const neigh = graphNeighbourhood(anchors, graphEdges, clampEnvInt("SB_SCOPE_HOPS", 2, 0, 4));
+      for (const s of scored) {
+        if (s.source === "local-doc") {
+          s.tier = 1;
+          continue;
+        }
+        const sl = slugFromPath(s.path);
+        const proj = projBySlug.get(sl) ?? "";
+        s.tier = proj === slug ? 1 : proj !== "" && family.has(proj) ? 2 : neigh.has(sl) ? 3 : proj === "" ? 4 : 5;
       }
-      const sl = slugFromPath(s.path);
-      const proj = projBySlug.get(sl) ?? "";
-      s.tier = proj === slug ? 1 : proj !== "" && family.has(proj) ? 2 : neigh.has(sl) ? 3 : proj === "" ? 4 : 5;
     }
   }
-  scored.sort((a, b) => scopeOn ? a.tier - b.tier || b.score - a.score : b.score - a.score);
+  scored.sort((a, b) => scopeActive ? a.tier - b.tier || b.score - a.score : b.score - a.score);
   const topScore = scored.reduce((m, s) => Math.max(m, s.score), 0);
   const topBase = scored.reduce((m, s) => Math.max(m, s.baseScore), 0);
   const passesFloor = (c) => embeddingsActive ? c.score > 0 && (topScore === 0 || c.score >= topScore * MIN_SCORE_RATIO) : c.score > 0 && (topBase === 0 || c.baseScore >= topBase * MIN_SCORE_RATIO);
   let pool = scored;
-  if (scopeOn) {
+  if (scopeActive) {
     const inScope = scored.filter((s) => s.tier <= 4);
     const inScopePassing = inScope.filter(passesFloor);
-    if (inScopePassing.length < clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100)) {
-      pool = scored;
+    const enoughInScope = inScopePassing.length >= clampEnvInt("SB_SCOPE_MIN_HITS", 3, 0, 100);
+    const slots = clampEnvInt("SB_SCOPE_CROSS_SLOTS", 1, 0, TOP_K);
+    const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
+    const cross = slots > 0 ? scored.filter((s) => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots) : [];
+    if (!enoughInScope) {
+      const crossSet = new Set(cross);
+      pool = cross.length ? [...cross, ...scored.filter((s) => !crossSet.has(s))] : scored;
     } else {
-      const slots = clampEnvInt("SB_SCOPE_CROSS_SLOTS", 1, 0, TOP_K);
-      const bestInScope = inScopePassing.reduce((m, s) => Math.max(m, s.score), 0);
-      const cross = slots > 0 ? scored.filter((s) => s.tier === 5 && passesFloor(s) && s.score > bestInScope).slice(0, slots) : [];
       pool = cross.length ? [...cross, ...inScopePassing] : inScope;
     }
   }
@@ -7067,7 +7081,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     // pre-boost BM25, not the mode-dependent `score` (see the field doc).
     relevance: Math.round(baseScore * 1e3) / 1e3,
     query_terms: new Set(queryTokens).size,
-    ...scopeOn ? { tier } : {}
+    ...scopeActive ? { tier } : {}
   }));
   const accessCounts = await loadAccessCounts();
   const ts = (/* @__PURE__ */ new Date()).toISOString();
@@ -7078,7 +7092,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     accessCounts[slug].count++;
     accessCounts[slug].last_accessed = ts;
   }
-  saveAccessCounts(accessCounts).catch(() => {
+  await saveAccessCounts(accessCounts).catch(() => {
   });
   return {
     candidates,
@@ -7340,11 +7354,18 @@ import { join as join8 } from "path";
 var MAX_PINS = 15;
 var PIN_RE = /^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/;
 var PIN_SECTION = "## Pinned";
+var PIN_TEXT_CAP = 400;
+function flattenField(s, cap) {
+  return s.normalize("NFC").replace(/[\r\n`]/g, " ").replace(/\s+/g, " ").trim().slice(0, cap);
+}
 async function pinToUser(args) {
   const dir = resolveBrainDir(args.brainDir);
   const file = join8(dir, "USER.md");
   const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const trimmed = args.text.trim();
+  const trimmed = flattenField(args.text, PIN_TEXT_CAP);
+  if (!trimmed) {
+    return { ok: false, line_added: "", reason: "empty text after sanitization" };
+  }
   const newLine = `- [${date}] ${trimmed}`;
   let content = "";
   try {
@@ -7387,7 +7408,7 @@ ${PIN_SECTION}
 import { promises as fs9 } from "fs";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
-function flattenField(s, cap) {
+function flattenField2(s, cap) {
   if (!s) return "";
   return s.normalize("NFC").replace(/[\r\n`]/g, " ").replace(/\s+/g, " ").trim().slice(0, cap);
 }
@@ -7425,7 +7446,7 @@ async function pinToProject(args) {
   }
   const content = await fs9.readFile(file, "utf-8");
   const sectionHeader = SECTION_HEADER[args.section];
-  const trimmed = flattenField(args.text, 400);
+  const trimmed = flattenField2(args.text, 400);
   if (!trimmed) {
     return { ok: false, line_added: "", project_slug: args.slug, reason: "empty text after sanitization" };
   }
@@ -7433,8 +7454,8 @@ async function pinToProject(args) {
   if (args.section === "decisions") {
     const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     let suffix = "";
-    const why = flattenField(args.reasoning, 200);
-    const rej = flattenField(args.rejected, 200);
+    const why = flattenField2(args.reasoning, 200);
+    const rej = flattenField2(args.rejected, 200);
     if (why && rej) suffix = ` (why: ${why}; rejected: ${rej})`;
     else if (why) suffix = ` (why: ${why})`;
     else if (rej) suffix = ` (why: unstated; rejected: ${rej})`;
@@ -7458,8 +7479,8 @@ async function pinToProject(args) {
   const newCore = trimmed.replace(/ \(why: .*\)$/, "").trim();
   let reason;
   let marked = false;
-  const supersedesRequested = !!flattenField(args.supersedes, 200);
-  const needle = flattenField(args.supersedes, 200).toLowerCase();
+  const supersedesRequested = !!flattenField2(args.supersedes, 200);
+  const needle = flattenField2(args.supersedes, 200).toLowerCase();
   if (args.section === "decisions" && needle) {
     if (needle.length < SUPERSEDES_MIN_NEEDLE) {
       reason = `supersedes needle too short (<${SUPERSEDES_MIN_NEEDLE} chars) \u2014 nothing marked`;

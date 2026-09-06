@@ -63,6 +63,26 @@ export async function isStale(
   // a churning node_modules can never fake staleness).
   const generatedAt = Date.parse(graph.generated_at);
   if (!Number.isFinite(generatedAt)) return true; // corrupt provenance -> regen
+
+  if (graph.scan_fingerprint) {
+    // D039: compare the persisted fingerprint (file count + newest mtime,
+    // captured for free during generation) against ONE fresh scanSources
+    // call, instead of ALSO doing a second full per-file stat() pass here —
+    // the old code below called scanSources AND THEN stat()'d every file it
+    // returned again. A count mismatch also catches an added-then-backdated
+    // file the mtime-only comparison would silently miss.
+    let fresh;
+    try {
+      fresh = await scanSources(repoRoot, { runGit });
+    } catch {
+      return true; // repoRoot unreadable/vanished — freshness is unverifiable
+    }
+    if (fresh.fingerprint.fileCount !== graph.scan_fingerprint.file_count) return true;
+    return fresh.fingerprint.maxMtimeMs > graph.scan_fingerprint.max_mtime_ms;
+  }
+
+  // Legacy stores predate the fingerprint field: fall back to the full
+  // per-file mtime walk (self-heals — the next regen fills in the field).
   let files;
   try {
     files = (await scanSources(repoRoot, { runGit })).files;

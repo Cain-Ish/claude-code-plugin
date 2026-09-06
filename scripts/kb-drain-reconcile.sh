@@ -42,6 +42,22 @@ fi
 
 reconciled=0
 
+# D107: validate raw_id with the same safe-id rule as raw-inbox.ts's isSafeId,
+# stricter here: first char alnum, rest alnum/./_/- only (no separators, no
+# leading dot/dash). A raw_id passing this can only ever join to a plain
+# filename directly under $rdir — never outside it.
+_valid_raw_id() {
+  case "$1" in
+    '') return 1 ;;
+    [A-Za-z0-9]*) : ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  return 0
+}
+
 while IFS= read -r node_path; do
   [ -f "$node_path" ] || continue
   node_slug=$(basename "$node_path" .md)
@@ -53,6 +69,11 @@ while IFS= read -r node_path; do
 
   while IFS= read -r raw_id; do
     [ -n "$raw_id" ] || continue
+
+    if ! _valid_raw_id "$raw_id"; then
+      echo "reconcile: skipping unsafe (raw $raw_id) — id fails the safe-id rule" >&2
+      continue
+    fi
 
     # Find the raw item file.
     raw_file=""

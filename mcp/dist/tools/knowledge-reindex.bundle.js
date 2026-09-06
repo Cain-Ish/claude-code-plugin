@@ -145,8 +145,14 @@ function validateAiBlock(type, block) {
 
 // src/tools/frontmatter.ts
 var FM_OPEN_RE = /^---\r?\n/;
+function stripBom(s) {
+  return s.charCodeAt(0) === 65279 ? s.slice(1) : s;
+}
+function hasFrontmatterFence(content) {
+  return FM_OPEN_RE.test(stripBom(content));
+}
 function matchFrontmatter(content) {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const m = stripBom(content).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   return m ? { fm: m[1], body: m[2] } : null;
 }
 function stripFrontmatter(content) {
@@ -2719,6 +2725,7 @@ async function walkWiki(dir, opts = {}, acc = []) {
 // src/tools/knowledge-validate.ts
 var REQUIRED_FM_FIELDS = FRONTMATTER_REQUIRED;
 var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
+var EMPTY_PAGE_MIN_AGE_MS = 2e3;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
   const wikiDir = join2(knowledgeDir, "wiki");
   const issues = [];
@@ -2765,7 +2772,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         autofix: "remove"
       });
     }
-    if (!FM_OPEN_RE.test(content)) {
+    if (!hasFrontmatterFence(content)) {
       issues.push({
         type: "missing_frontmatter",
         severity: "warning",
@@ -2891,6 +2898,10 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     for (const issue of issues) {
       if (issue.autofix === "remove" && issue.type === "empty_page") {
         try {
+          const stat = await fs3.stat(issue.path);
+          if (Date.now() - stat.mtimeMs < EMPTY_PAGE_MIN_AGE_MS) continue;
+          const recheck = await fs3.readFile(issue.path, "utf-8");
+          if (recheck.trim()) continue;
           await fs3.unlink(issue.path);
           fixed++;
         } catch {
@@ -2991,7 +3002,7 @@ ${missing.map(derive).join("\n")}`;
 var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
   const original = await fs3.readFile(filePath, "utf-8");
-  if (FM_OPEN_RE.test(original)) return;
+  if (hasFrontmatterFence(original)) return;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");

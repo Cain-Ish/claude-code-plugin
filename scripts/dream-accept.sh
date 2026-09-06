@@ -309,9 +309,17 @@ fi
 # Apply: rsync staging over live. --delete removes live pages the dream dropped
 # (dedup/forget) EXCEPT the post-snapshot pages protected above. --safe-links
 # drops any out-of-tree symlink as defense-in-depth behind the reject guard.
+# D084: none of these apply commands had their exit status checked — a partial
+# failure (EACCES on one live subdir/file, ENOSPC, an rsync partial-transfer)
+# fell straight through to the FORGET manifest, edge merge, reindex, archived_at
+# stamp and `rm -rf staging/transcripts` below, so the dream's only copy of its
+# output was destroyed and the accept was reported a success. Capture the exit
+# status of every branch into APPLY_RC and check it before any of that runs.
+APPLY_RC=0
+APPLY_ERR=""
 if command -v rsync >/dev/null 2>&1; then
   if [ "$PROTECT_OK" != "1" ]; then
-    rsync -a --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/"    # merge-only (see warn above)
+    APPLY_ERR=$(rsync -a --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/" 2>&1); APPLY_RC=$?    # merge-only (see warn above)
   elif [ -n "$PROTECT" ]; then
     _exf=$(mktemp)
     # while-read (never an unquoted expansion — a page path containing a space
@@ -321,11 +329,11 @@ if command -v rsync >/dev/null 2>&1; then
     printf '%s\n' "$PROTECT" | while IFS= read -r _rel; do
       [ -n "$_rel" ] && printf '/%s\n' "$_rel"
     done > "$_exf"
-    rsync -a --delete --safe-links --exclude-from="$_exf" "$STAGING_WIKI/" "$LIVE_WIKI/"
+    APPLY_ERR=$(rsync -a --delete --safe-links --exclude-from="$_exf" "$STAGING_WIKI/" "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
     rm -f "$_exf"
-    echo "Preserved $(printf '%s\n' "$PROTECT" | grep -c .) live page(s) modified after the dream snapshot (merge-only; not deleted or overwritten)."
+    [ "$APPLY_RC" -eq 0 ] && echo "Preserved $(printf '%s\n' "$PROTECT" | grep -c .) live page(s) modified after the dream snapshot (merge-only; not deleted or overwritten)."
   else
-    rsync -a --delete --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/"
+    APPLY_ERR=$(rsync -a --delete --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
   fi
 else
   # No rsync — the NORMAL apply path on Windows git-bash (the primary dev
@@ -342,17 +350,39 @@ else
       mkdir -p "$_stash/$(dirname "$_rel")" && cp -p "$LIVE_WIKI/$_rel" "$_stash/$_rel"
     done
   fi
-  cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>/dev/null || { mkdir -p "$LIVE_WIKI" && cp -r "$STAGING_WIKI/." "$LIVE_WIKI/"; }
-  if [ -n "$_stash" ]; then
+  # First attempt's stderr is discarded on purpose — it commonly fails only
+  # because $LIVE_WIKI doesn't exist yet, which the mkdir -p fallback fixes;
+  # the SECOND attempt's exit status/stderr is the one that matters.
+  cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>/dev/null
+  APPLY_RC=$?
+  if [ "$APPLY_RC" -ne 0 ]; then
+    APPLY_ERR=$(mkdir -p "$LIVE_WIKI" && cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
+  fi
+  if [ "$APPLY_RC" -eq 0 ] && [ -n "$_stash" ]; then
     (cd "$_stash" 2>/dev/null && find . -type f 2>/dev/null | sed 's#^\./##') | while IFS= read -r _rel; do
       [ -n "$_rel" ] && cp -p "$_stash/$_rel" "$LIVE_WIKI/$_rel"
     done
-    rm -rf "$_stash"
     echo "Preserved $(printf '%s\n' "$PROTECT" | grep -c .) live page(s) modified after the dream snapshot (restored over staging copies)."
+    rm -rf "$_stash"   # only cleared once its contents are safely restored onto live
   fi
+  # D084 (review follow-up): $_stash is the ONLY copy of every post-snapshot
+  # live page edit. The unconditional `rm -rf` that used to sit here deleted
+  # it even when the cp -r apply above FAILED (APPLY_RC != 0) — destroying the
+  # one thing that could have recovered those edits. Leave it on disk on
+  # failure; the error block below names its path so it can be restored by hand.
   # Honest accounting (not silent): this path applies NO dream deletions —
   # FORGET/DEDUPLICATE removals stay in place until an rsync-equipped accept.
-  echo "note: rsync unavailable — staging merged over live; dream deletions were NOT applied."
+  [ "$APPLY_RC" -eq 0 ] && echo "note: rsync unavailable — staging merged over live; dream deletions were NOT applied."
+fi
+
+if [ "$APPLY_RC" -ne 0 ]; then
+  _bk_msg="no local backup was taken for this accept (SB_DREAM_ACCEPT_SKIP_BACKUP was set) — restore from the caller's own pre-accept backup instead"
+  [ -n "${ACCEPT_BK:-}" ] && [ -f "$ACCEPT_BK" ] && _bk_msg="restore the live wiki with: tar xzf \"$ACCEPT_BK\" -C \"$KNOWLEDGE_DIR\""
+  _stash_msg=""
+  [ -n "${_stash:-}" ] && [ -d "$_stash" ] && _stash_msg=" post-snapshot live page edits were stashed at $_stash and were NOT deleted — restore them manually;"
+  echo "error: apply of dream $DREAM_ID FAILED partway (rc=$APPLY_RC: ${APPLY_ERR:-<no output>}) — staging KEPT (not deleted), archived_at NOT stamped so this can be retried;$_stash_msg $_bk_msg" >&2
+  sb_log_error "dream-accept" "apply of $DREAM_ID failed (rc=$APPLY_RC): ${APPLY_ERR:-<no output>}; staging retained, archive skipped;$_stash_msg $_bk_msg" "$APPLY_RC"
+  exit 1
 fi
 
 # FORGET manifest — the machine lock for what was previously dream-skill prose

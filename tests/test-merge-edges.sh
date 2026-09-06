@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_MAINTAIN_FORCE — forces the maintenance tick (which runs merge-edges) regardless of its normal due gate
 # Tests for scripts/merge-edges.sh — the pure-bash edge capture path.
 # Edges proposed by the extractor are appended to ~/knowledge/graph/edges.jsonl
 # (op:assert, source:extractor) IFF both endpoints resolve to real wiki pages;

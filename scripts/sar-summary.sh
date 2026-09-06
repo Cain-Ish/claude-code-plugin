@@ -45,10 +45,21 @@ if source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
   sb_rotate_audit_log 2>/dev/null || true
 fi
 
-# Tally verdicts for this session. One jq pass, one awk grouper.
-counts=$(jq -r --arg sid "$SESSION_ID" '
-  select(type == "object" and .session_id == $sid) | .verdict // empty
+# D159: `jq -r 'select(...)' "$AUDIT"` parses the file as a whitespace-separated
+# JSON STREAM — one torn/partial line anywhere (a concurrent-append tear, see D120)
+# aborts the WHOLE pass, and every verdict past that point is silently lost. `-R`
+# reads each line as a raw string and `fromjson?` skips only the bad one, so good
+# rows on both sides of a tear are still counted (never re-widen the abort surface).
+counts=$(jq -Rr --arg sid "$SESSION_ID" '
+  fromjson? | select(type == "object" and .session_id == $sid) | .verdict // empty
 ' "$AUDIT" 2>/dev/null | sort | uniq -c | awk '{print $2 "=" $1}')
+
+# Log a torn line ONCE per read (not once per skipped row) so a corrupt audit-log
+# is visible in error-log.jsonl instead of silently degrading every SAR banner.
+if command -v sb_count_torn_lines >/dev/null 2>&1; then
+  AUDIT_TORN=$(sb_count_torn_lines "$AUDIT")
+  [ "${AUDIT_TORN:-0}" -gt 0 ] && sb_log_error "sar-summary.sh" "audit-log: skipped $AUDIT_TORN torn line(s) for session=$SESSION_ID" 0
+fi
 
 [ -z "$counts" ] && exit 0
 
@@ -71,9 +82,10 @@ total=$((allow + ask + deny + flag + rewrite))
 hard=$((ask + deny))
 sar=$(awk -v t="$total" -v v="$hard" 'BEGIN { printf "%.2f", 1 - v/t }')
 
-# Top 3 most-tripped rules for this session (informational tail).
-top=$(jq -r --arg sid "$SESSION_ID" '
-  select(type == "object" and .session_id == $sid) | .rule // "anonymous"
+# Top 3 most-tripped rules for this session (informational tail). D159: same
+# torn-line-tolerant `-R … fromjson?` form as the counts pass above.
+top=$(jq -Rr --arg sid "$SESSION_ID" '
+  fromjson? | select(type == "object" and .session_id == $sid) | .rule // "anonymous"
 ' "$AUDIT" 2>/dev/null | sort | uniq -c | sort -rn | head -3 \
   | awk '{ count=$1; $1=""; sub(/^ /,""); printf "  - %s x%s\n", $0, count }')
 

@@ -5,7 +5,7 @@ description: Surface open blockers, stale projects, pending dreams, and ungradua
 # (dashboards being model-invocable contradicted the silence-default principle).
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Bash(jq *) Bash(date *) Bash(find *) Bash(ls *) Bash(test *) Bash(cat *) Bash(wc *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(basename *) Bash(dirname *) Bash(tr *) Bash(head *) mcp__plugin_second-brain_knowledge-base__knowledge_stats
+allowed-tools: Read Bash(jq *) Bash(date *) Bash(find *) Bash(ls *) Bash(test *) Bash(cat *) Bash(wc *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(basename *) Bash(dirname *) Bash(tr *) Bash(head *) Bash(bash *) mcp__plugin_second-brain_knowledge-base__knowledge_stats
 ---
 
 # Review
@@ -108,7 +108,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/liveness-check.sh"
 
 OK lines can be summarized as "liveness: all green"; DRIFT/DORMANT/STALE/
 MISSING lines go into the dashboard as action items (each line says what to
-do). Release checklist uses the same script with `--strict`.
+do). `--strict` exists on the script (exit 1 on any non-OK line) but no
+release gate invokes it today (RELEASING.md, Makefile, `.githooks/pre-push`
+and `tests/run-all.sh` do not call `liveness-check.sh`) — this review is
+currently the only place it runs.
 
 ### 6. Format the output
 

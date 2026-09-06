@@ -31,8 +31,13 @@ fail(){ FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
 
 EB=$(mktemp -d); trap 'rm -rf "$EB"' EXIT
 # NOTE: no SB_INJECT_* overrides anywhere below — shipped defaults are the subject.
+# D017: `${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}` (no colon — unset-only, not
+# empty-or-unset) defaults to the deterministic BM25-only run this file is
+# documented as (CI's offline lane), but lets `make production-lane` export
+# SECOND_BRAIN_DISABLE_EMBEDDINGS=0 to re-run the SAME gate over the real
+# hybrid RRF path — the only place that path is actually exercised.
 inject(){ KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EB" SB_BRAIN_DIR="$EB" \
-  SECOND_BRAIN_DISABLE_EMBEDDINGS=1 node "$CLI" "$1" 2>/dev/null; }
+  SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" node "$CLI" "$1" 2>/dev/null; }
 
 # --- PRECISION: off-topic queries must inject NOTHING -------------------------
 # The corpus is entirely about this plugin, so none of these has a legitimate answer in it.

@@ -20,6 +20,10 @@ async function fixtureWithEmptyPage() {
   await fs.mkdir(wiki, { recursive: true });
   const empty = join(wiki, 'empty.md');
   await fs.writeFile(empty, '   \n');               // whitespace-only → empty_page (autofix: remove)
+  // D066: autofix now skips anything younger than 2s (a re-check guard against deleting a page
+  // mid-write) — backdate so the opt-in deletion test still exercises deletion.
+  const past = new Date(Date.now() - 10_000);
+  await fs.utimes(empty, past, past);
   return { dir, empty };
 }
 

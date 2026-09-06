@@ -48,9 +48,13 @@ sb_normalize_path() {
   local p="$1" u d
   [ -z "$p" ] && return 0
   p="${p//\\//}"
-  # Windows extended-length prefix \\?\C:\… (→ //?/C:/… after slashing): strip
-  # to the plain drive form so it can't sail past the drive-letter case below.
+  # Windows extended-length prefix \\?\C:\… (→ //?/C:/… after slashing) and the
+  # device-namespace prefix \\.\C:\… (→ //./C:/… after slashing) are both legal
+  # ways to spell the same local drive path. D182: only //?/ was stripped, so
+  # //./C:/… never matched the drive-letter case below, cygpath never ran, and
+  # every credential/scope prefix compare silently missed it (fail-open).
   p="${p#"//?/"}"
+  p="${p#"//./"}"
   # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…) is the same
   # local drive in disguise — rewrite to drive form. Other-host UNC paths are
   # not locally resolvable and pass through unchanged (documented limit).
@@ -111,6 +115,32 @@ sb_safe_json_array() {
   fi
 }
 
+# D111: shared scratch-path exclusion for the deterministic extraction floor and its
+# archived-transcript twin (also used by stop-extract.sh/pre-compact.sh's degraded-mode
+# fallback). The old inline `test("^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/")` regex was
+# POSIX-anchor-only: a Windows path (C:/Users/<u>/AppData/Local/Temp/...) or macOS $TMPDIR
+# (/var/folders/xx/yy/T/...) never starts with '/tmp/' etc, so ephemeral scratch files on
+# those platforms passed straight through into PROJECT.md as "[auto-captured]" decisions.
+# We run sb_normalize_path (backslash + drive-letter -> POSIX /c/... form) on a COPY of
+# each candidate purely to decide membership, then emit the ORIGINAL string unchanged so
+# kept paths keep their existing forward-slash-but-drive-letter display form (the Windows
+# boundary test above pins "C:/Work/proj/tests/thing.ts", not a cygpath'd "/c/Work/...").
+#   sb_filter_scratch_paths '["a.ts","/tmp/x"]' -> '["a.ts"]'
+sb_filter_scratch_paths() {
+  local arr="${1:-[]}" out="[]" p np
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    np=$(sb_normalize_path "$p")
+    case "$np" in
+      /tmp/*|/var/tmp/*|/proc/*|/dev/*|/run/*) continue ;;
+      */[Aa][Pp][Pp][Dd][Aa][Tt][Aa]/[Ll][Oo][Cc][Aa][Ll]/[Tt][Ee][Mm][Pp]/*) continue ;;
+      /var/folders/*) continue ;;
+    esac
+    out=$(printf '%s' "$out" | jq -c --arg p "$p" '. + [$p]' 2>/dev/null) || out="$out"
+  done < <(printf '%s' "$arr" | jq -r '.[]?' 2>/dev/null | tr -d '\r')
+  printf '%s' "$out"
+}
+
 # Deterministic, no-LLM extraction floor (P1 Task 1). Given a transcript and a line window,
 # emit a VALID delta JSON the merge pipeline accepts — derived purely from the structured
 # transcript, never an LLM. It captures the files this window changed (Edit/Write/MultiEdit,
@@ -131,10 +161,10 @@ sb_extract_deterministic() {
     | unique
     | map(select(. != null and . != ""))
     | map(gsub("\\\\"; "/"))
-    | map(select(test("^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/") | not))
-    | .[0:5]
   ' 2>/dev/null || echo '[]')
   files_json=$(sb_safe_json_array "$files_json")
+  files_json=$(sb_filter_scratch_paths "$files_json")
+  files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
   local decisions='[]'
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list
@@ -160,12 +190,12 @@ sb_extract_archived_deterministic() {
       | grep -E '^[[:space:]]*\[(Edit|Write|MultiEdit)\] ' \
       | sed -E 's/^[[:space:]]*\[(Edit|Write|MultiEdit)\] //' \
       | sed 's#\\#/#g' \
-      | grep -vE '^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/' \
       | awk 'NF && !seen[$0]++' \
-      | head -5 \
       | jq -Rsc 'split("\n") | map(select(. != ""))' 2>/dev/null || echo '[]')
   fi
   files_json=$(sb_safe_json_array "$files_json")
+  files_json=$(sb_filter_scratch_paths "$files_json")
+  files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
   local decisions='[]'
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list; list=$(printf '%s' "$files_json" | jq -r 'join(", ")' 2>/dev/null)
@@ -250,13 +280,22 @@ sb_log_error() {
   fi
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   if command -v jq >/dev/null 2>&1; then
-    jq -nc \
+    # D120: jq writing DIRECTLY to the file via `>>` is NOT atomic on Windows —
+    # the native jq.exe child inherits a plain end-of-file handle rather than an
+    # O_APPEND one, so two concurrent writers race at the same offset and a
+    # shorter record overwrites the head of a longer one, leaving a torn-line
+    # fragment behind. Build the row as a single-line string FIRST (jq -c,
+    # CR-stripped) and append it with bash's own single `printf … >>` write —
+    # a single builtin write() is what survived the concurrency repro where the
+    # jq-child-writes-the-file version did not (40/40 lines vs lines lost/torn).
+    local line
+    line=$(jq -nc \
       --arg t "$ts" \
       --arg s "$script_name" \
       --arg m "$error_msg" \
       --argjson c "$exit_code" \
-      '{timestamp:$t, script:$s, message:$m, exit_code:$c}' \
-      >> "$target" 2>/dev/null
+      '{timestamp:$t, script:$s, message:$m, exit_code:$c}' 2>/dev/null | tr -d '\r')
+    [ -n "$line" ] && printf '%s\n' "$line" >> "$target" 2>/dev/null
   else
     local esc_script esc_msg
     esc_script=$(printf '%s' "$script_name" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -385,6 +424,45 @@ sb_resolve_model() {
   return 0
 }
 
+# D108: the claude CLI accepts a bare dispatch alias (sonnet/opus/haiku/fable) as
+# --model, but the Anthropic Messages API (Backend 2's curl call) only accepts a
+# real model id -- posting the alias 404s as not_found_error. sb_resolve_model's
+# rung 0 is deliberately an alias (so a new release needs no code change), so any
+# caller that talks to the API directly must demote one more rung: walk this
+# surface's ladders in tier order and return the first entry AFTER the alias that
+# is not itself a dispatch alias. Already-concrete input is returned unchanged.
+sb_alias_to_pinned_id() {
+  local surface="${1:-headless}" model="${2:-}" manifest id
+  [ -n "$model" ] || { printf '\n'; return 0; }
+  manifest=$(sb_model_manifest)
+  if [ ! -f "$manifest" ] || ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "$model"; return 0
+  fi
+  id=$(jq -r --arg s "$surface" --arg a "$model" '
+    . as $root
+    | ($root.dispatch_aliases // []) as $aliases
+    | if ($aliases | index($a)) == null then $a
+      else
+        ($root.tiers // []) as $torder
+        | reduce $torder[] as $t (null;
+            if . != null then .
+            else
+              ($root.ladders[$s][$t] // []) as $arr
+              | ($arr | index($a)) as $i
+              | if $i == null then .
+                else ($arr[($i+1):] | map(select(. as $m | ($aliases|index($m)) == null)) | .[0])
+                end
+            end)
+      end
+    // empty
+  ' "$manifest" 2>/dev/null | tr -d '\r')
+  if [ -z "$id" ]; then
+    sb_log_error "lib.sh" "sb_alias_to_pinned_id: no pinned id found for alias '$model' on surface '$surface'; sending alias as-is" 1
+    printf '%s\n' "$model"; return 0
+  fi
+  printf '%s\n' "$id"
+}
+
 # Exit 0 = "this failure was the MODEL, not the network, not the credentials".
 # PRIMARY signal is the process exit code plus the `is_error` envelope field. The headless JSON
 # reports "subtype":"success" even on a model error, so subtype is never read.
@@ -462,12 +540,21 @@ sb_log_audit() {
     if ! echo "$extra_json" | jq -e 'type == "object"' >/dev/null 2>&1; then
       extra_json='{}'
     fi
-    jq -nc \
+    # D120: jq writing DIRECTLY to the file via `>>` is NOT atomic on Windows — the
+    # native jq.exe child inherits a plain end-of-file handle rather than an O_APPEND
+    # one, so parallel PreToolUse guards racing this call land at the same offset and
+    # a shorter record overwrites the head of a longer one (the exact shape of the
+    # torn lines found in the live audit-log). Build the row as a single-line string
+    # FIRST (jq -c, CR-stripped) and append it with bash's own single `printf … >>`
+    # write — the concurrency repro showed 40/40 lines intact for bash-printf-appends
+    # vs lines lost/torn for jq-child-appends at the same concurrency.
+    local line
+    line=$(jq -nc \
       --arg t "$ts" --arg h "$hook" --arg v "$verdict" \
       --arg r "$rule" --arg target "$target" --arg reason "$reason" \
       --arg sid "$session_id" --argjson x "$extra_json" \
-      '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:$x}' \
-      >> "$SB_AUDIT_FILE" 2>/dev/null
+      '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:$x}' 2>/dev/null | tr -d '\r')
+    [ -n "$line" ] && printf '%s\n' "$line" >> "$SB_AUDIT_FILE" 2>/dev/null
   else
     # jq absent — fall back to printf-built JSON, stripping C0 control chars
     # so multi-line reasons cannot fragment a JSONL record into two.
@@ -501,6 +588,26 @@ sb_rotate_audit_log() {
       && mv "$tmp" "$SB_AUDIT_FILE" \
       || rm -f "$tmp" 2>/dev/null
   fi
+}
+
+# D159/D139: counts non-blank lines in FILE that fail to parse as JSON (CRLF-tolerant —
+# jq's own parser skips a trailing \r as insignificant whitespace, verified). Every
+# tolerant JSONL reader below calls this ONCE per read so a torn/partial line (a
+# concurrent-append tear, a crash mid-write) can be logged a single time via
+# sb_log_error instead of once per skipped row, which would flood error-log.jsonl.
+# Always prints a number and returns 0 — an absent file or missing jq is "0 torn",
+# never an error (this is a diagnostic count, not a gate).
+sb_count_torn_lines() {
+  local f="${1:-}"
+  [ -n "$f" ] && [ -f "$f" ] || { printf '0\n'; return 0; }
+  command -v jq >/dev/null 2>&1 || { printf '0\n'; return 0; }
+  local n
+  n=$(jq -nR '
+    [inputs | select(length > 0) | (try (fromjson | 1) catch 0)]
+    | map(select(. == 0)) | length
+  ' "$f" 2>/dev/null | tr -d '\r')
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%s\n' "$n"
 }
 
 # Resolve the plugin root: $CLAUDE_PLUGIN_ROOT when the hook harness sets it, else the lib.sh
@@ -620,13 +727,30 @@ sb_auto_accept_decision() {
 # ZERO pins, so every pin (and every auto-graduated persona signal from
 # merge-persona-signals.sh) was refused with a bare `return 1`, silently, forever — the signal
 # then re-fired on every extraction (ledger LC-07, 2026-08-23). Mirrors
-# mcp/src/tools/pin-to-user.ts exactly (same regex, same MAX, same section) — change both or
+# mcp/src/tools/pin-to-user.ts's structure (same regex, same MAX, same section) — change both or
 # neither. Returns 0 on success/dupe-noop, 1 on a REFUSAL, which is now logged, never silent.
 sb_pin_to_user() {
-  local text="${1:?sb_pin_to_user: text required}"
+  local raw_text="${1:?sb_pin_to_user: text required}"
   local user_file="$BRAIN_DIR/USER.md"
   local max_pins=15
-  local today new_line
+  local flatten_cap=400
+  local today new_line text
+
+  # D109: flatten BEFORE splicing — text here can be transcript-derived (persona
+  # signals graduate through this exact function). USER.md is the priority-1 block
+  # session-load.sh injects into EVERY SessionStart, so an embedded newline/backtick
+  # forges "## Section" headers or fenced directives into that context (the same
+  # memory-poisoning primitive pin-to-project.ts's flattenField closed in 0.48.0).
+  # CR/LF/backtick -> space, collapse whitespace runs, trim, cap length — no NFC
+  # step (bash has none; a JS-only gap the TS twin still normalizes for).
+  text=$(printf '%s' "$raw_text" | tr '\r\n`' '   ' | tr -s '[:space:]' ' ')
+  text="${text#"${text%%[![:space:]]*}"}"
+  text="${text%"${text##*[![:space:]]}"}"
+  text="${text:0:$flatten_cap}"
+  if [ -z "$text" ]; then
+    sb_log_error "lib.sh" "sb_pin_to_user REFUSED: text was empty after flattening (was: ${raw_text:0:80})" 1
+    return 1
+  fi
   today=$(date -u +%Y-%m-%d)
   new_line="- [$today] $text"
 
@@ -640,8 +764,18 @@ sb_pin_to_user() {
 ## Pinned"
   fi
 
-  # Dupe → no-op success (matches the TS twin's semantics).
-  if printf '%s\n' "$content" | grep -qiF "$text"; then
+  # D110: dedupe on the EXACT pin-line text, not a whole-file substring/multi-pattern
+  # grep. `grep -qiF "$text"` treated a multi-line $text as one alternative PATTERN
+  # PER LINE — an embedded blank line was an empty pattern that matched every line
+  # in USER.md (hand-written prose included), so the pin silently no-op'd while the
+  # caller (merge-persona-signals.sh) believed it had graduated. Compare only
+  # "- [DATE] …" pin lines, mirroring the TS twin's PIN_RE test on the captured text.
+  local existing_pin=""
+  while IFS= read -r pin_line; do
+    [ -z "$pin_line" ] && continue
+    if [ "${pin_line#*] }" = "$text" ]; then existing_pin="$pin_line"; break; fi
+  done < <(printf '%s\n' "$content" | grep -E '^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] ')
+  if [ -n "$existing_pin" ]; then
     return 0
   fi
 
@@ -715,6 +849,51 @@ sb_realpath() {
     _rpd=$(cd "$_pd" 2>/dev/null && pwd -P) || return 1
     printf '%s\n' "$_rpd/$_pb"
   fi
+}
+
+# D118: refuse to register (or code-map) a candidate project root that is $HOME
+# or a temp root — opening `claude` directly at either turns brain-os into a
+# whole-home-directory codemapper (a live 9.6MB graph.json crawled AppData/Local
+# browser-extension bundles as "architectural spine") and, for $HOME, leaks the
+# session's captured content across every other tool that reads that dir. A root
+# that ALSO carries no project marker of its own (no `.git`, no workspace
+# manifest — sb_is_workspace_root) is refused; one that does (e.g. a dotfiles
+# repo deliberately cloned straight into $HOME) is a real project and is let
+# through, so this never refuses an ordinary non-git project fixture that just
+# happens to live under a scratch dir picked by a test or a tool.
+# Echoes a one-word reason ("home"|"temp-root") when refused, empty when OK.
+sb_registration_refused_reason() {
+  local abs="${1:-}" reason="" base home_norm abs_norm t t_norm
+  [ -z "$abs" ] && { printf ''; return 0; }
+  home_norm=$(sb_normalize_path "${HOME:-}")
+  abs_norm=$(sb_normalize_path "$abs")
+  if [ -n "$home_norm" ] && [ "$abs_norm" = "$home_norm" ]; then
+    reason="home"
+  else
+    # A known temp root, EXACTLY — not an arbitrary descendant (a real project
+    # cloned three levels under /tmp is still a real project; only the bare
+    # root itself is the ephemeral scratch dir every OS/shell recycles).
+    for t in "${TMPDIR:-}" "${TMP:-}" "${TEMP:-}" "/tmp" "/var/tmp"; do
+      [ -z "$t" ] && continue
+      t_norm=$(sb_normalize_path "$t")
+      if [ -n "$t_norm" ] && [ "$abs_norm" = "$t_norm" ]; then reason="temp-root"; break; fi
+    done
+    if [ -z "$reason" ]; then
+      # A bare mktemp-style basename (tmp, tmp.XXXX, .tmp.XXXX, tmpfs) — case-
+      # insensitive so Windows' "Temp" (AppData\Local\Temp) matches too; the
+      # basename-only check in sb_slug_from_dir below is exact-case "tmp" ONLY.
+      base=$(basename "$abs")
+      case "$base" in
+        [Tt][Mm][Pp]|[Tt][Mm][Pp].*|.[Tt][Mm][Pp].*|[Tt][Mm][Pp][Ff][Ss]|[Tt][Ee][Mm][Pp]) reason="temp-root" ;;
+      esac
+    fi
+  fi
+  [ -z "$reason" ] && { printf ''; return 0; }
+  if [ -e "$abs/.git" ] || sb_is_workspace_root "$abs"; then
+    printf ''
+    return 0
+  fi
+  printf '%s' "$reason"
 }
 
 # Normalize a project directory path → slug. Collapses tmp/scratch-style dirs
@@ -849,8 +1028,15 @@ sb_slug_from_remote() {
   # arg would be rewritten to a Windows path and never match the registry. The flag
   # suppresses conversion of EVERY argument, so the registry is fed via stdin
   # redirection (opened by bash, immune to conversion) instead of a path argument.
-  if ! out=$(MSYS_NO_PATHCONV=1 jq -sr --arg want "$want" "$SB_JQ_REMOTE_ID"'
-        [ .[] | select(type=="object")
+  # D120/D159: `-s` (slurp) aborts the WHOLE read on one torn/unparseable line — a
+  # single concurrent-append tear anywhere in projects.jsonl would silently disable
+  # remote-identity lookup for EVERY project, not just the torn record. `-nR … inputs
+  # | fromjson?` parses per-line and skips only the bad one; a torn line is logged
+  # once here (not per row).
+  local torn; torn=$(sb_count_torn_lines "$reg")
+  [ "${torn:-0}" -gt 0 ] && sb_log_error "lib.sh" "sb_slug_from_remote: skipped $torn torn line(s) in $reg" 0
+  if ! out=$(MSYS_NO_PATHCONV=1 jq -nrR --arg want "$want" "$SB_JQ_REMOTE_ID"'
+        [ inputs | fromjson? | select(type=="object")
               | select(((.slug // "") | type) == "string" and (.slug // "") != "")
               | select(((.git_remote // "") | type) == "string" and (.git_remote // "") != "")
               | select((.git_remote | nrm) == $want) ]
@@ -908,22 +1094,59 @@ sb_harden_projects_jsonl() {
            | map(if length > 1 then rkeep else .[0] end)) as $withremote
         | $noremote + $withremote | .[]' \
         "$f" 2>/dev/null | tr -d '\r' > "$tmp" || [ ! -s "$tmp" ]; then
-    rm -f "$tmp"
-    echo "harden: could not parse $f — left intact (manual review)" >&2
-    return 1
+    # D120/D139: the strict `-s` slurp above (needed to also accept a pretty-printed
+    # or bare JSON-array file — see the function comment) aborts entirely on ONE
+    # torn/unparseable line, e.g. a concurrent-append tear from sb_slug_from_remote's
+    # writers. Before giving up and leaving the file untouched, retry with a per-line
+    # tolerant read (fromjson? skips only the bad line) — but ONLY when the failure is
+    # actually a torn line; a genuinely unparseable file (binary garbage, truncated
+    # mid-object) still fails loud and leaves $f intact, exactly as before.
+    local torn; torn=$(sb_count_torn_lines "$f")
+    if [ "${torn:-0}" -gt 0 ] && jq -ncR "$SB_JQ_REMOTE_ID"'
+          [inputs | fromjson? | select(type=="object" and (.slug|type=="string") and .slug!="")]
+          | group_by(.slug) | map(max_by(.last_session_iso // ""))
+          | (map(select(((.git_remote // "") | type) != "string" or (.git_remote // "") == ""))) as $noremote
+          | (map(select(((.git_remote // "") | type) == "string" and (.git_remote // "") != ""))
+             | group_by(.git_remote | nrm)
+             | map(if length > 1 then rkeep else .[0] end)) as $withremote
+          | $noremote + $withremote | .[]' \
+          < "$f" 2>/dev/null | tr -d '\r' > "$tmp" && [ -s "$tmp" ]; then
+      sb_log_error "lib.sh" "sb_harden_projects_jsonl: skipped $torn torn line(s) in $f" 0
+    else
+      rm -f "$tmp"
+      echo "harden: could not parse $f — left intact (manual review)" >&2
+      return 1
+    fi
   fi
   if cmp -s "$f" "$tmp"; then rm -f "$tmp"; return 0; fi   # already canonical → no churn, no backup
   # Slugs a remote-identity collapse is about to DROP (computed from the pre-rewrite
   # file so the report names them even after the records are gone). Dropping a slug
   # redirects that project's future sessions — never silent.
-  local dropped
+  local dropped dropped_rc=0
   dropped=$(jq -sr "$SB_JQ_REMOTE_ID"'
       flatten | map(select(type=="object" and (.slug|type=="string") and .slug!=""))
       | group_by(.slug) | map(max_by(.last_session_iso // ""))
       | map(select(((.git_remote // "") | type) == "string" and (.git_remote // "") != ""))
       | group_by(.git_remote | nrm)
       | map(select(length > 1) | (map(.slug) - [rkeep.slug]))
-      | flatten | join(",")' "$f" 2>/dev/null | tr -d '\r')
+      | flatten | join(",")' "$f" 2>/dev/null) || dropped_rc=$?
+  dropped=$(printf '%s' "$dropped" | tr -d '\r')
+  # D120: this list is informational only (feeds the log message below). Gate the
+  # retry on the strict call's OWN exit code, not on "$dropped is empty" — empty is
+  # also the normal, successful "nothing to drop" result and must not trigger a
+  # retry (a pretty-printed file legitimately has no single-line-parseable rows,
+  # which made an earlier version of this fallback misfire on every clean run).
+  if [ "$dropped_rc" -ne 0 ] && [ "$(sb_count_torn_lines "$f")" -gt 0 ]; then
+    dropped=$(jq -nRr "$SB_JQ_REMOTE_ID"'
+        [inputs | fromjson? | select(type=="object" and (.slug|type=="string") and .slug!="")]
+        | group_by(.slug) | map(max_by(.last_session_iso // ""))
+        | map(select(((.git_remote // "") | type) == "string" and (.git_remote // "") != ""))
+        | group_by(.git_remote | nrm)
+        | map(select(length > 1) | (map(.slug) - [rkeep.slug]))
+        | flatten | join(",")' < "$f" 2>/dev/null | tr -d '\r')
+  elif [ "$dropped_rc" -ne 0 ]; then
+    dropped=""
+  fi
   local bak; bak="$f.bak.$(date -u +%Y%m%dT%H%M%SZ)"
   if cp "$f" "$bak" && mv "$tmp" "$f"; then
     echo "harden: canonicalized $f (backup: $bak)"
@@ -1554,8 +1777,12 @@ sb_reset_maintainer_fails() { rm -f "$BRAIN_DIR/projects/$1/.maintainer-fail-cou
 sb_append_pin_candidate() {
   local slug="$1" text="$2"
   local f="$BRAIN_DIR/projects/$slug/.pin-candidates.jsonl"
-  mkdir -p "$(dirname "$f")" 2>/dev/null
-  jq -nc --arg t "$(date -u +%FT%TZ)" --arg p "$text" '{at:$t, text:$p}' >> "$f" 2>/dev/null
+  mkdir -p "$(dirname "$f")" || { sb_log_error "lib.sh" "pin-candidate: mkdir failed for $f" 1; return 1; }
+  # D120 class: build the row first, append with ONE printf (a jq child writing straight
+  # to the file tears/loses rows under concurrent hooks on Windows).
+  local row
+  row=$(jq -nc --arg t "$(date -u +%FT%TZ)" --arg p "$text" '{at:$t, text:$p}' | tr -d '\r') || return 1
+  [ -n "$row" ] && printf '%s\n' "$row" >> "$f"
 }
 
 sb_count_pin_candidates() {
@@ -1777,7 +2004,12 @@ sb_timeout() {
   # A bounded run beats a loud refusal beats an unbounded run. No `wait $wd` after the kill:
   # waiting on a killed watchdog can block until its sleep expires; the stray subshell is
   # reaped at script exit.
-  "$@" &
+  # <&0 is required: bash gives a backgrounded (`&`) command /dev/null as stdin
+  # unless it explicitly inherits fd 0, even though the caller redirected stdin
+  # on the sb_timeout invocation itself (D115 — that redirect lives on the call,
+  # not on the async command it wraps, so the transcript sent to `claude -p` was
+  # silently empty on every host that hits this fallback).
+  "$@" <&0 &
   local pid=$!
   ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) 2>/dev/null &
   local wd=$!
@@ -1785,6 +2017,18 @@ sb_timeout() {
   kill "$wd" 2>/dev/null || true
   case "$ec" in 143|137) return 124 ;; esac   # TERM/KILL from the watchdog → 124, like timeout(1)
   return "$ec"
+}
+
+# review follow-up: single source of truth for "is this extractor output file a
+# usable single JSON object" — `jq -e 'type=="object"'` WITHOUT `-s` only judges
+# the LAST value in the stream, so a concatenated multi-value blob
+# (`{}{"malicious":1}`) and a bare, contentless `{}` both silently passed as a
+# valid extraction. Slurp (`-s`) and require exactly one element that is a
+# non-empty object.
+sb_extractor_object_ok() {
+  local f="$1"
+  [ -n "$f" ] && [ -s "$f" ] || return 1
+  jq -es 'length==1 and (.[0]|type=="object") and (.[0]|length>0)' "$f" >/dev/null 2>&1
 }
 
 sb_call_extractor() {
@@ -1910,20 +2154,31 @@ sb_call_extractor() {
         < "$input_file" > "$out_file" 2>"$err_file" )
       claude_ec=$?
 
-      # Cheap auth-failure signature check on combined stdout+stderr tail.
+      # Parse JSON FIRST (D122): grepping raw stdout+stderr for the auth
+      # signature before checking whether stdout is a valid JSON object
+      # discarded valid extractions whose delta text legitimately mentioned
+      # "unauthorized"/"invalid api key" (e.g. a decision about fixing a 401
+      # handler). Only treat output as an auth failure when it is NOT a valid
+      # JSON object AND matches the signature.
+      if [ -s "$out_file" ]; then
+        sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
+          && mv "${out_file}.clean" "$out_file"
+      fi
+      # review follow-up: `jq -e 'type=="object"'` without `-s` only checks the LAST
+      # value in the stream — a concatenated multi-value blob (`{}{"a":1}`) and a
+      # bare, contentless `{}` both passed. Slurp + require exactly one non-empty
+      # object (single source of truth: sb_extractor_object_ok below).
+      if [ -s "$out_file" ] && sb_extractor_object_ok "$out_file"; then
+        sb_write_extractor_health "claude-cli" "ok" ""
+        rm -f "$err_file"
+        return 0
+      fi
       local combined
       combined=$(head -c 400 "$out_file" 2>/dev/null; head -c 400 "$err_file" 2>/dev/null)
       if echo "$combined" | grep -qiE '(not logged in|please run /login|unauthorized|invalid api key)'; then
         sb_write_extractor_health "claude-cli" "fail" \
           "auth: $(printf '%s' "$combined" | tr '\n' ' ' | head -c 120)"
       elif [ -s "$out_file" ]; then
-        sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
-          && mv "${out_file}.clean" "$out_file"
-        if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
-          sb_write_extractor_health "claude-cli" "ok" ""
-          rm -f "$err_file"
-          return 0
-        fi
         sb_write_extractor_health "claude-cli" "fail" \
           "non-json: $(head -c 100 "$out_file" | tr '\n' ' ')"
       else
@@ -1969,7 +2224,7 @@ sb_call_extractor() {
               && mv "${out_file}.clean" "$out_file"
             sb_strip_code_fences < "$out_file" > "${out_file}.clean" 2>/dev/null \
               && mv "${out_file}.clean" "$out_file"
-            if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+            if sb_extractor_object_ok "$out_file"; then
               sb_write_extractor_health "claude-cli" "ok" "pty-retry"
               rm -f "$err_file"
               return 0
@@ -2014,9 +2269,13 @@ sb_call_extractor() {
 
   # --- Backend 2: ANTHROPIC_API_KEY via curl -------------------------------
   if [ -n "${ANTHROPIC_API_KEY:-}" ] && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    # D108: $model may still be a bare dispatch alias (e.g. "sonnet") here --
+    # the CLI accepts that, the Messages API does not. Demote to a real id.
+    local api_model
+    api_model=$(sb_alias_to_pinned_id headless "$model")
     local payload
     payload=$(jq -n \
-      --arg m "$model" \
+      --arg m "$api_model" \
       --arg s "$prompt" \
       --rawfile u "$input_file" \
       '{model:$m, max_tokens:8192, system:$s, messages:[{role:"user", content:$u}]}' 2>/dev/null)
@@ -2031,7 +2290,12 @@ sb_call_extractor() {
       # — the temp file approach avoids that too since curl never reads stdin.)
       _b2_tmp=$(mktemp) && printf '%s' "$payload" > "$_b2_tmp" || { rm -f "$_b2_tmp" 2>/dev/null; _b2_tmp=""; }
       if [ -z "$_b2_tmp" ]; then resp=""; else
-      resp=$(timeout "$timeout_s" curl -sS "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/messages" \
+      # D102: two independent bounds, neither a bare `timeout` (absent on stock
+      # macOS/BSD) -- sb_timeout (gtimeout/timeout/bash-watchdog) wraps the
+      # process, and --max-time bounds curl itself even if sb_timeout's own
+      # binary lookup somehow found nothing to invoke.
+      resp=$(sb_timeout "$timeout_s" curl -sS --max-time "$timeout_s" \
+        "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/messages" \
         -H "x-api-key: $ANTHROPIC_API_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" \
@@ -2043,7 +2307,7 @@ sb_call_extractor() {
 
       if [ -n "$text" ]; then
         printf '%s' "$text" | sb_strip_code_fences > "$out_file"
-        if jq -e 'type == "object"' "$out_file" >/dev/null 2>&1; then
+        if sb_extractor_object_ok "$out_file"; then
           sb_write_extractor_health "anthropic-api" "ok" ""
           rm -f "$err_file"
           return 0
@@ -2176,18 +2440,62 @@ sb_slug_from_archived_transcript() {
   awk -F': ' '/^project_slug:/ {print $2; exit}' "$txt" 2>/dev/null | tr -d '\r'
 }
 
+# D157: shared by stop-extract.sh, pre-compact.sh and sb_extract_transcript below
+# so every capture path filters an extractor delta and persists its relations[]
+# the SAME way. Before this, pre-compact.sh ran neither stage (silently dropping
+# noise-filtering and every relations[] edge on PreCompact) and the drainer ran
+# the gate but never merge-edges.sh.
+#
+# Split into TWO functions, not one, because the two stages are order-sensitive
+# around the merge-project-update.sh call in between: the gate must run BEFORE
+# merge (it filters what gets written), but merge-edges must run AFTER merge
+# (it resolves relations[] endpoints against wiki stub pages that
+# merge-project-update.sh's cross_refs handling may have JUST scaffolded — an
+# edge whose target doesn't exist yet is quarantined instead of asserted).
+# Bundling both into one call at a single point silently broke that ordering.
+
+# Filters $1 (a delta JSON string) through extraction-quality-gate.sh. Echoes
+# the gated delta, or the ORIGINAL delta unchanged if the gate produced empty/
+# invalid output (fail open — never block a capture on a gate failure).
+sb_gate_extraction_delta() {
+  local delta_json="$1" sdir
+  sdir="$(dirname "${BASH_SOURCE[0]}")"
+  local gated
+  gated=$(printf '%s' "$delta_json" | bash "$sdir/extraction-quality-gate.sh" 2>/dev/null)
+  if [ -n "$gated" ] && printf '%s' "$gated" | jq empty 2>/dev/null; then
+    printf '%s' "$gated"
+  else
+    printf '%s' "$delta_json"
+  fi
+}
+
+# Appends any relations[] $1 proposed to the knowledge graph via merge-edges.sh.
+# Call AFTER the delta has been merged into PROJECT.md. Best-effort: a failure
+# here must never fail the caller.
+sb_merge_extraction_edges() {
+  local delta_json="$1" knowledge_dir="$2" sdir
+  sdir="$(dirname "${BASH_SOURCE[0]}")"
+  printf '%s' "$delta_json" | bash "$sdir/merge-edges.sh" --knowledge-dir "$knowledge_dir" 2>/dev/null || true
+}
+
 # Build the extractor input from a preprocessed archived transcript + PROJECT.md,
 # call the extractor, quality-gate the delta, merge it, route persona signals.
 # Returns 0 only on a successful merge. Used by the out-of-band drainer.
 sb_extract_transcript() {
   local txt="$1" slug="$2"
   [ -f "$txt" ] || return 1
-  # Sanitize the slug before it becomes a filesystem path: the drainer reads it
-  # from the transcript's meta header, which is attacker-influenceable (synced /
-  # restored / foreign-written transcripts dir). Without this, a header like
-  # `project_slug: ../../../tmp/x` would escape BRAIN_DIR. Same control the merge
-  # path already applies to JSON-sourced slugs.
-  slug=$(sb_sanitize_slug "$slug") || slug="unknown"
+  # D121: normalize with the SAME rule the capture funnel used to WRITE this
+  # header (sb_slug_from_dir: CR-strip + basename + tmp/scratch collapse) --
+  # NOT sb_sanitize_slug's lowercase/charset rewrite, which put the drainer on
+  # a DIFFERENT project dir than the one already registered/written for any
+  # slug with uppercase, '_' or '.' (Mono__Api -> mono-api, NetMonGuru ->
+  # netmonguru; merge-project-update.sh explicitly forbids this sanitization).
+  # basename() still collapses a `../../tmp/x`-shaped header down to its last
+  # path segment, so the traversal guard this replaces is preserved; a bare
+  # "." or ".." segment is rejected outright since that would still resolve to
+  # a directory outside projects/.
+  slug=$(sb_slug_from_dir "$slug")
+  case "$slug" in .|..) slug="unknown" ;; esac
   local sdir; sdir="$(dirname "${BASH_SOURCE[0]}")"
   # Tier intent, not a literal: SB_EXTRACTOR_MODEL is declared as a MID pin in model-ladder.json
   # and is applied by sb_resolve_model as rung 0.
@@ -2275,12 +2583,16 @@ TMPL
   rm -f "$in_f" "$out_f"
   [ -n "$delta" ] || return 1
 
-  local gated; gated=$(printf '%s' "$delta" | bash "$sdir/extraction-quality-gate.sh" 2>/dev/null)
-  if [ -n "$gated" ] && printf '%s' "$gated" | jq empty 2>/dev/null; then delta="$gated"; fi
+  delta=$(sb_gate_extraction_delta "$delta")
 
   printf '%s' "$delta" \
     | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" \
       >/dev/null 2>&1 || return 1
+
+  # D157: merge-edges AFTER the merge above — it resolves relations[] endpoints
+  # against wiki stub pages that merge-project-update.sh's cross_refs handling
+  # may have just scaffolded.
+  sb_merge_extraction_edges "$delta" "$kdir"
 
   # Sessions digest (P0 rec 4): the drainer is the recovery path for sessions
   # the in-session extractor skipped — append their continuity line too. The
@@ -2403,12 +2715,31 @@ sb_auto_memory_state() {
     local norm; norm=$(cd "$p" 2>/dev/null && pwd) && printf '%s' "$norm" || printf '%s' "$p"
   }
 
+  # D123: dash a POSIX-form project root into Claude Code's OWN project-key form.
+  # On Windows, CC keys its native ~/.claude/projects/<key>/ store on the WINDOWS-form
+  # path with BOTH ':' and '\' dashed (and the drive letter's ORIGINAL case kept) —
+  # e.g. "C:\Workplace\Projects\x" -> "C--Workplace-Projects-x" (verified against a live
+  # store). The old `sed 's#/#-#g'` ran on the POSIX form ("/c/Workplace/...", lowercased
+  # drive letter, single leading dash), which can never match CC's own key on Windows — the
+  # native store was reported empty (files=0) on every Windows machine. On a POSIX
+  # box (no cygpath) or the simulated-Windows-on-Linux/macOS CI path, cygpath is absent and
+  # this falls back to the previous slash-only dashing (byte-identical to before, since a
+  # POSIX path has no ':' or '\' to differ on anyway).
+  _sb_am_dash_key() {
+    local p="$1" winp
+    if command -v cygpath >/dev/null 2>&1; then
+      winp=$(cygpath -w "$p" 2>/dev/null) && [ -n "$winp" ] \
+        && { printf '%s' "$winp" | sed 's/[:\\]/-/g'; return 0; }
+    fi
+    printf '%s' "$p" | sed 's#/#-#g'
+  }
+
   if [ -z "$path" ]; then
     local project_root dashed
     project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null | tr -d '\r' || true)
     [ -n "$project_root" ] && project_root=$(_sb_am_normpath "$project_root")
     [ -z "$project_root" ] && project_root="$PWD"   # outside a git repo: use cwd
-    dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
+    dashed=$(_sb_am_dash_key "$project_root")
     path="$home/.claude/projects/$dashed/memory"
   fi
 
@@ -2425,7 +2756,7 @@ sb_auto_memory_state() {
       project_root=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null | tr -d '\r' || true)
       [ -n "$project_root" ] && project_root=$(_sb_am_normpath "$project_root")
       [ -z "$project_root" ] && project_root="$PWD"
-      dashed=$(printf '%s' "$project_root" | sed 's#/#-#g')
+      dashed=$(_sb_am_dash_key "$project_root")
       path="$home/.claude/projects/$dashed/memory"
       ;;
   esac

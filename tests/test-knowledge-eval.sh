@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pins: SB_EVAL_MAX_TOKENS — `${VAR:-default}` re-exports the shipped default when unset — not a weakened value
+# pins: SB_EVAL_MIN_RECALL — `${VAR:-1.0}` re-exports the shipped strictest recall floor when unset — the opposite of a can't-fail pin
 # Release gate: knowledge_search recall@2 + token budget over the fixture corpus.
 # Deterministic (BM25-only inside wiki-recall-check). Catches search-ENGINE
 # regressions and any ranking/forgetting change that would degrade retrieval.

@@ -1,4 +1,8 @@
 #!/bin/bash
+# pins: SB_HOOK_PROFILE — quiets the shim's own diagnostic output so stdout assertions aren't polluted by unrelated logging
+# pins: SB_NESTED_SPAWN — quiets the shim's own diagnostic output so stdout assertions aren't polluted by unrelated logging
+# pins: SB_OBSERVATION_LEDGER — kill-switch test: asserts =off disables the ledger
+# pins: SB_OBSERVATION_MAX_BYTES — sets a small cap so the truncation behavior under test actually triggers within the fixture payload size
 # Tests for the deterministic PostToolUse observation ledger (P0 rec 5).
 # Contract under test:
 #   scripts/observe-tool-use.sh appends ONE compact JSONL line per tool use —

@@ -72,8 +72,12 @@ JSON
 exit 0
 SH
 
+  # D185: every tracked surface — including output_styles — needs an explicit
+  # numeric cap; a key missing here now FAILS the validator (see case below),
+  # so the baseline fixture must carry all five even though this skeleton
+  # doesn't use outputStyles at all.
   cat > "$root/.claude-plugin/surface-budget.json" <<'JSON'
-{"skills": 99, "agents": 99, "scripts": 99, "tests": 99, "upgrade_skill_max_bytes": 999999}
+{"skills": 99, "agents": 99, "scripts": 99, "tests": 99, "output_styles": 99, "upgrade_skill_max_bytes": 999999}
 JSON
 
   cat > "$root/skills/setup/SKILL.md" <<'MD'
@@ -306,6 +310,22 @@ MD
 run_case "body '---' divider does not leak into frontmatter" 1
 assert_output_contains "setup/SKILL.md missing 'allowed-tools'"
 
+# Case 11b: a surface-budget.json missing a tracked key (D185) must FAIL, not
+# silently skip that surface's cap entirely — the old `continue`-on-empty
+# behavior let an unbudgeted (or typo'd) key grow without limit forever.
+setup_skeleton
+jq 'del(.tests)' "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json" > "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json.tmp"
+mv "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json.tmp" "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json"
+run_case "surface-budget.json missing a tracked key fails" 1
+assert_output_contains "surface-budget.json has no 'tests' key"
+
+# Case 11c: a non-numeric value for a tracked key (D185) must ALSO FAIL — same
+# silent-skip bug, different corruption shape (typo, string, null-as-string).
+setup_skeleton
+jq '.scripts = "many"' "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json" > "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json.tmp"
+mv "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json.tmp" "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json"
+run_case "surface-budget.json non-numeric value fails" 1
+assert_output_contains "surface-budget.json key 'scripts' is not numeric"
 
 # Case 12: the SHIPPED tree must validate with ZERO WARN lines.
 # A WARN that nobody clears is worse than no check: `SESSION_START_MATCHERS` froze at

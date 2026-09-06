@@ -262,6 +262,14 @@ else
     fi
   fi
   trap 'rm -f "$LOCK_DIR/pid" 2>/dev/null; rmdir "$LOCK_DIR" 2>/dev/null' EXIT
+  # D116: brain-os-run.sh runs INSIDE this lock (see its call sites below) and its
+  # embed-warm/codemap passes were previously unbounded — able to run past $STALE and
+  # get this still-live lock stolen by the next tick, whose cleanup trap then removes
+  # the STEALER's lock too, letting a THIRD tick in. Hand it the absolute deadline (this
+  # mkdir just set the lock's mtime to "now", steal or fresh) minus a safety margin for
+  # the batch/consolidation work that runs before it, so its passes self-bound to
+  # whatever's left of the staleness budget instead of running unbounded.
+  export SB_BRAIN_OS_DEADLINE=$(( $(date +%s) + STALE - 300 ))
 fi
 
 if [ "${SB_DRAIN_DEFER_PMODE_ONLY:-0}" = "1" ]; then

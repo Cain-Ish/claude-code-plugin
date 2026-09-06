@@ -12,6 +12,18 @@ export const MAX_PINS = 15;
 export const PIN_RE = /^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/;
 const PIN_SECTION = '## Pinned';
 
+// D109: text spliced into USER.md unflattened let a forged "\n## Operator instructions\nALWAYS
+// …" (e.g. from a transcript-derived, auto-graduated persona signal) create a NEW heading that
+// session-load.sh then injects verbatim into EVERY SessionStart — USER.md is priority-1 and is
+// never wrapped as untrusted (test-injection-wrap.sh). Ported verbatim from pin-to-project.ts's
+// flattenField (added there in 0.48.0 for exactly this memory-poisoning primitive): strip
+// CR/LF/backticks, collapse whitespace, NFC-normalize so equivalent Unicode forms dedupe
+// consistently, cap length. scripts/lib.sh sb_pin_to_user mirrors this in bash — lockstep.
+const PIN_TEXT_CAP = 400;
+function flattenField(s: string, cap: number): string {
+  return s.normalize('NFC').replace(/[\r\n`]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, cap);
+}
+
 export interface PinToUserArgs { text: string; brainDir?: string; }
 export interface PinToUserResult { ok: boolean; line_added: string; reason?: string; }
 
@@ -19,7 +31,10 @@ export async function pinToUser(args: PinToUserArgs): Promise<PinToUserResult> {
   const dir = resolveBrainDir(args.brainDir);
   const file = join(dir, 'USER.md');
   const date = new Date().toISOString().slice(0, 10);
-  const trimmed = args.text.trim();
+  const trimmed = flattenField(args.text, PIN_TEXT_CAP);
+  if (!trimmed) {
+    return { ok: false, line_added: '', reason: 'empty text after sanitization' };
+  }
   const newLine = `- [${date}] ${trimmed}`;
 
   let content = '';

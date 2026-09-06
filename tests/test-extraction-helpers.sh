@@ -75,6 +75,33 @@ sb_extract_transcript "$TX" "my-proj" && ok "extract returns 0" || no "extract r
 grep -q "drained test decision" "$BRAIN_DIR/projects/my-proj/PROJECT.md" \
   && ok "extract merged the delta into PROJECT.md" || no "extract merged the delta into PROJECT.md"
 
+# --- D121: the drainer must use the archived header slug VERBATIM (same
+# CR-strip/tmp-collapse as sb_slug_from_dir), not sb_sanitize_slug's
+# lowercase/charset rewrite — else it writes a DIFFERENT project dir than the
+# one already registered/written by the capture funnel for any slug with
+# uppercase, '_' or '.' (the shipped monorepo `root__leaf` form included). ---
+sb_call_extractor() {
+  local out="$2"
+  printf '{"recent_decisions":["drainer test decision"],"open_blockers":[],"cross_refs":[],"files_touched":[],"persona_signals":[]}' > "$out"
+  return 0
+}
+sb_extract_transcript "$TX" "Mono__Api" >/dev/null 2>&1
+[ -f "$BRAIN_DIR/projects/Mono__Api/PROJECT.md" ] \
+  && ok "D121: verbatim slug Mono__Api resolves to projects/Mono__Api/" \
+  || no "D121: Mono__Api did not land in projects/Mono__Api/ (sanitized elsewhere?)"
+[ ! -d "$BRAIN_DIR/projects/mono-api" ] \
+  && ok "D121: no split-brain sanitized sibling dir (mono-api) created" \
+  || no "D121: split-brain sanitized sibling dir 'mono-api' was created"
+grep -q "drainer test decision" "$BRAIN_DIR/projects/Mono__Api/PROJECT.md" 2>/dev/null \
+  && ok "D121: delta merged into the verbatim-slug PROJECT.md" \
+  || no "D121: delta not found in projects/Mono__Api/PROJECT.md"
+
+# --- D121 edge: a bare "." or ".." header must not resolve outside projects/ ---
+sb_extract_transcript "$TX" ".." >/dev/null 2>&1 || true
+[ ! -e "$BRAIN_DIR/PROJECT.md" ] \
+  && ok "D121: '..' slug rejected, no escape to BRAIN_DIR/PROJECT.md" \
+  || no "D121: '..' slug escaped to BRAIN_DIR/PROJECT.md"
+
 # --- security: a malicious project_slug must NOT escape BRAIN_DIR (path traversal) ---
 EVIL_TARGET="/tmp/sb-pwned-$$/PROJECT.md"
 rm -rf "/tmp/sb-pwned-$$" 2>/dev/null || true

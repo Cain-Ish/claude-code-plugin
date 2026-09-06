@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { parseFrontmatter, frontmatterParses } from './test-oracle.js';
 import { promises as fs } from 'fs';
 import { join } from 'path';
@@ -333,5 +333,111 @@ describe('CRLF frontmatter tolerance (0.29.2)', () => {
     // IDEMPOTENT: a second pass has nothing left to patch (no oscillation).
     const again = await knowledgeValidate(dir, { autofix: true });
     expect(again.fixed).toBe(0);
+  });
+});
+
+// D054: a UTF-8 BOM (U+FEFF) shifts the `---` fence to offset 1. The anchored missing_frontmatter
+// check (and addFrontmatter's own defensive re-check) silently saw "no frontmatter" and PREPENDED
+// A SECOND BLOCK on top of the original — losing project:/tags: and re-dating created/updated to
+// today (PowerShell 5.1's `>`/Out-File default to UTF-8-with-BOM, so this is reachable on Windows
+// from a routine `Out-File` save). A well-formed BOM page must not be flagged at all, and autofix
+// on it must be a complete no-op.
+describe('UTF-8 BOM frontmatter tolerance (D054)', () => {
+  it('does not flag a well-formed BOM page as missing_frontmatter, and autofix is a no-op', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-bom-'));
+    const wiki = join(dir, 'wiki');
+    await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+    const f = join(wiki, 'learnings', 'bom-page.md');
+    const bom = '﻿';
+    const original = bom + [
+      '---',
+      'title: "BOM page"',
+      'description: "x"',
+      'type: learnings',
+      'project: kiri',
+      'created: 2026-01-01',
+      'updated: 2026-01-01',
+      'tags: []',
+      'related: []',
+      '---',
+      '',
+      '# BOM page',
+      '',
+      'body',
+      '',
+    ].join('\n');
+    await fs.writeFile(f, original);
+
+    const ro = await knowledgeValidate(dir, { autofix: false });
+    expect(ro.issues.some(i => i.type === 'missing_frontmatter' && /bom-page/.test(i.path))).toBe(false);
+
+    const fixedRes = await knowledgeValidate(dir, { autofix: true });
+    expect(fixedRes.fixed).toBe(0);
+    const out = await fs.readFile(f, 'utf-8');
+    expect(out).toBe(original);   // byte-for-byte no-op — no second block, no re-dating
+  });
+});
+
+// D066: empty_page issues are recorded during the initial full-tree scan; autofix unlinks them
+// only after the WHOLE scan finishes, without re-checking. Pages are created non-atomically
+// elsewhere (truncate-then-write, an editor's 0-byte-then-content autosave), and a concurrent
+// session mutating the shared tree is a documented reality here — a page empty at scan time can
+// be fully written by the time the unlink runs.
+describe('empty-page autofix race guard (D066)', () => {
+  it('does not delete a just-created empty page (too young — possibly mid-write)', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-empty-young-'));
+    const wiki = join(dir, 'wiki');
+    await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+    const fresh = join(wiki, 'learnings', 'fresh-empty.md');
+    await fs.writeFile(fresh, '');   // mtime = now
+
+    const res = await knowledgeValidate(dir, { autofix: true });
+    expect(res.issues.some(i => i.type === 'empty_page' && /fresh-empty/.test(i.path))).toBe(true);
+    await expect(fs.stat(fresh)).resolves.toBeDefined();   // NOT deleted
+  });
+
+  it('deletes an empty page old enough to trust', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-empty-old-'));
+    const wiki = join(dir, 'wiki');
+    await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+    const old = join(wiki, 'learnings', 'old-empty.md');
+    await fs.writeFile(old, '');
+    const past = new Date(Date.now() - 10_000);
+    await fs.utimes(old, past, past);
+
+    await knowledgeValidate(dir, { autofix: true });
+    await expect(fs.stat(old)).rejects.toThrow();
+  });
+
+  it('re-checks content right before unlinking: a page populated after the scan is spared', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-empty-race-'));
+    const wiki = join(dir, 'wiki');
+    await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+    const f = join(wiki, 'learnings', 'raced.md');
+    await fs.writeFile(f, '');
+    const past = new Date(Date.now() - 10_000);
+    await fs.utimes(f, past, past);   // old enough to pass the age guard
+
+    // Simulate another writer populating the file between the scan pass (1st readFile of `f`,
+    // must still see it empty so the issue is recorded) and the autofix re-check (2nd readFile,
+    // added by the fix — must see the new content and skip the delete).
+    const realReadFile = fs.readFile.bind(fs);
+    let calls = 0;
+    const spy = vi.spyOn(fs, 'readFile').mockImplementation(async (path: any, ...rest: any[]) => {
+      if (path === f) {
+        calls++;
+        if (calls >= 2) await fs.writeFile(f, '# Now populated\n\nreal content\n');
+        return realReadFile(f, 'utf-8') as any;
+      }
+      return realReadFile(path, ...(rest as [any]));
+    });
+
+    try {
+      await knowledgeValidate(dir, { autofix: true });
+    } finally {
+      spy.mockRestore();
+    }
+    const out = await fs.readFile(f, 'utf-8');
+    expect(out).toContain('real content');   // re-check saw it was no longer empty — not deleted
   });
 });

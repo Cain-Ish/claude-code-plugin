@@ -548,8 +548,10 @@ Durable facts that are NOT derivable from the tree:
   retirement belongs to the Phase 4.3 flag audit.
 - `CHANGELOG.md`, `docs/specs/` and most of `docs/plans/` were removed from the tree in 0.34.0
   and live on the `archive/docs` branch. Read them with `git show archive/docs:<path>`.
-- `validate-plugin.sh` emits one known WARN about an undocumented `fork` SessionStart matcher.
-  Pre-existing, not caused by your change.
+- CLOSED (re-verified 2026-09-05): `fork` is now IN the documented SessionStart matcher list
+  (`hooks/hooks.json`); `HOME=$(mktemp -d) bash scripts/validate-plugin.sh` emits no WARN at all
+  (`OK: all plugin files valid`, exit 0). Do not treat a future WARN as "the known fork WARN" —
+  there is none anymore; investigate it as new.
 - Four extraction-lane tests sit close to `PER_TEST_TIMEOUT` (default 120s) and go `ec=124`
   under any load, with every assertion passing: measured in isolation 2026-08-22 on Windows,
   `test-stop-extract` 105s, `test-extract-drain` 105s, `test-merge-project-update` 83s,

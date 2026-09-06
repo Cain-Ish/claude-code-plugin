@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_MAINTAINER_AUTO — kill-switch test: asserts =off suppresses the auto-dispatch banner (Test 4)
+# pins: SB_MAINTAINER_THRESHOLD — lowers the dispatch threshold so a small fixture count crosses it deterministically
 # Tests for maintainer auto-dispatch — counter helpers + session-load.sh
 # state machine. We never invoke `claude` here; session-load.sh writes
 # additionalContext to stdout and we assert on its content + marker files.
@@ -74,6 +76,11 @@ echo "$OUT" | grep -q "wiki maintenance suggested" || fail "at-threshold: sugges
 echo "$OUT" | grep -q "/second-brain:dream" || fail "at-threshold: explicit-invocation path missing"
 echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "at-threshold: legacy BLOCKING wording must not appear"
 echo "$OUT" | grep -q "you MUST" && fail "at-threshold: legacy 'you MUST' wording must not appear"
+# D173: the trace breadcrumb is gate=-prefixed/ec0 -> audit-log, never error-log.
+grep -q "gate=maintainer-suggested" "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || \
+  fail "at-threshold: audit-log trace entry missing"
+grep -q "maintainer-suggested" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && \
+  fail "at-threshold: trace leaked into error-log"
 [ ! -f "$SANDBOX/.second-brain/projects/test-slug/.maintainer-dispatched" ] || \
   fail "at-threshold: dispatched marker should NOT be created by suggestion banner (C3-B)"
 pass "at threshold (3 >= 3): user-facing suggestion banner; no auto-dispatch marker"
@@ -133,8 +140,12 @@ OUT=$(run_session_load)
 [ "$(sb_get_maintainer_fails "test-slug")" = "1" ] || \
   fail "failure-path: fail-count should be 1, got $(sb_get_maintainer_fails "test-slug")"
 [ ! -f "$PROJ_DIR/.maintainer-dispatched" ] || fail "failure-path: dispatched marker should be removed"
-grep -q "maintainer-auto-dispatch-failed" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || \
-  fail "failure-path: error-log entry missing"
+# D173: gate=-prefixed, exit_code 0 — trace signal (also user-visible below), routes to
+# audit-log, not error-log (error-log is reserved for real failures).
+grep -q "gate=maintainer-auto-dispatch-failed" "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || \
+  fail "failure-path: audit-log entry missing"
+grep -q "maintainer-auto-dispatch-failed" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && \
+  fail "failure-path: trace leaked into error-log"
 echo "$OUT" | grep -q "maintainer auto-dispatch failed" || \
   fail "failure-path: user-visible fail banner missing from output"
 pass "failure path: counter→N-1, fail-count incremented, error logged"
@@ -152,6 +163,10 @@ for _i in 1 2 3; do
 done
 [ -f "$PROJ_DIR/.maintainer-auto-disabled" ] || \
   fail "auto-disable: marker should be created after 3 failures"
+grep -q "gate=maintainer-auto-disabled" "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || \
+  fail "auto-disable: audit-log trace entry missing"
+grep -q "maintainer-auto-disabled" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && \
+  fail "auto-disable: trace leaked into error-log"
 # Now even with high counter, dispatch is suppressed
 sb_set_wiki_writes "test-slug" 99
 OUT=$(run_session_load)

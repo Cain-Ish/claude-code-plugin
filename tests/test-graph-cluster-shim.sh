@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_DREAM_REFLECT — kill-switch test: asserts =off disables the reflect gate independently
+# pins: SB_DREAM_SUMMARIZE — kill-switch test: asserts =off disables the summarize gate independently
 # scripts/graph-cluster.sh shim -> bundled clustering CLI: clusters a wiki's link graph
 # (deterministic label propagation), gated by SB_SUMMARIZE_MIN_CLUSTER, fail-safe to [].
 # Spec: archive/docs branch, docs/specs/2026-06-01-dream-consolidation-v2-design.md §B1.
@@ -101,5 +103,18 @@ OUTR=$(bash "$SHIM" --knowledge-dir "$KD3")
 [ "$(echo "$OUTR" | jq -r '.[0].id')" = "a" ] \
   || fail "cluster id churned (expected 'a'): $OUTR"
 pass "generated (reflection) page excluded from cluster input; id + members stable"
+
+# --- D107-sibling: without --knowledge-dir, precedence must match sb_knowledge_dir()
+# (plugin OPTION first, bare env var second) — a hand-rolled inverted chain here would
+# cluster a DIFFERENT tree than the dream-runner/MCP server use.
+KDA="$TMP/wrongdir"; KDB="$TMP/rightdir"; mkdir -p "$KDA/wiki/entities" "$KDB/wiki/entities"
+page5(){ local kd="$1" slug="$2"; shift 2; local rel=""; for r in "$@"; do rel="${rel}[[${r}]], "; done
+  printf '%s\n' '---' "title: $slug" 'type: entities' "related: ${rel%, }" '---' "# $slug body" \
+    > "$kd/wiki/entities/$slug.md"; }
+page5 "$KDB" a b c d; page5 "$KDB" b a c d; page5 "$KDB" c a b d; page5 "$KDB" d a b c
+OUT6=$(KNOWLEDGE_DIR="$KDA" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KDB" bash "$SHIM")
+[ "$(echo "$OUT6" | jq 'length')" = 1 ] && [ "$(echo "$OUT6" | jq -c '.[0].members')" = '["a","b","c","d"]' ] \
+  || fail "D107-sibling: plugin-option dir (KDB) not honored when --knowledge-dir omitted, got: $OUT6"
+pass "D107-sibling: no --knowledge-dir -> resolves via sb_knowledge_dir() precedence (plugin option wins)"
 
 echo; echo "ALL PASS"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_EVAL_MIN_RECALL — exercises the strictest recall floor (1.0/100%) — the opposite of a can't-fail pin
 # Unit-test scripts/wiki-recall-check.sh against a throwaway corpus.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

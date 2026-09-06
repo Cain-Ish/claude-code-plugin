@@ -3,7 +3,7 @@ name: setup
 description: Scaffold the v1.0 hot tier — USER.md, projects/<slug>/PROJECT.md, projects.jsonl — for the active repo. Idempotent.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date *) Bash(test *) Bash(jq *) Bash(mkdir *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(head *) Bash(cat *) Bash(wc *) Bash(node *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/install-extract-timer.sh*)
+allowed-tools: Read Write Edit Bash(git rev-parse:*) Bash(basename *) Bash(date *) Bash(test *) Bash(jq *) Bash(mkdir *) Bash(grep *) Bash(sed *) Bash(awk *) Bash(head *) Bash(cat *) Bash(wc *) Bash(node *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/install-extract-timer.sh*) Bash(cd *) Bash(ls *)
 ---
 
 # Setup
@@ -304,20 +304,33 @@ the transparency surface: show what's on and let the operator **dial it back or 
 with a single explicit choice instead of hand-editing JSON. It only writes the tiers
 they change.
 
-First show the three tiers verbatim, with their defaults:
+`ensure-dirs.sh` seeds SIX top-level knobs, not three — show all of them so nothing
+runs silently uninformed-consent:
 
 ```
-Automation is ON by default (config.json), three tiers — change any here:
-  auto_improve  : true  — pin session learnings to the hot tier (cheap, reversible, no LLM call)
+Automation is ON by default (config.json), six knobs — change any here:
+  auto_improve  : true  — free + offline: validate + reindex the wiki on the drainer
+                          timer (deterministic, no LLM call, no OAuth spend).
   auto_maintain : true  — run the headless LLM consolidation out-of-band — spawns a
                           background `claude -p` that reads your OAuth creds with the
-                          network up AND spends tokens. THE supply-chain line. It only
-                          runs where `bwrap` exists (airtight sandbox) — a no-op on
-                          macOS/Windows/bwrap-less Linux. Set false for a zero-spend box.
+                          network up AND spends tokens. THE supply-chain line. Runs on
+                          EVERY OS (Linux, macOS, Windows) wherever `brain_os` is also
+                          on — bubblewrap, where present, wraps the spawn as ADDITIONAL
+                          Linux defense-in-depth; its absence gates nothing anywhere.
+                          Set false (or SB_MAINTAINER_AUTO=off for just the banner) for
+                          a zero-spend box.
   auto_accept   : "safe" — apply a completed dream to the LIVE wiki unattended —
                           "off" (manual review) | "safe" (no archives/deletes) | "all".
                           Every auto-accept backs up the wiki first; FORGET is a
                           reversible move, never a delete.
+  brain_os      : true  — the offline-engine master switch: false disables prune,
+                          deterministic upkeep, embedding precompute, consolidation,
+                          and code-map regen all at once; capture + retrieval still work.
+  auto_embed    : true  — free + offline: precompute wiki embeddings on the drainer
+                          timer so the first search of a session doesn't pay to embed.
+  wiki_git      : true  — REVERSIBILITY WINDOW: snapshot the wiki into a git history
+                          (~/.second-brain/wiki-history.git) after every unattended
+                          write, so any consolidation can be inspected and undone.
 To go fully manual: auto_improve=false, auto_maintain=false, auto_accept="off".
 See the wiki: autonomy-consent-ladder.
 ```
@@ -332,11 +345,14 @@ Then:
    If a tier is already non-default, surface that and ask whether to change it
    rather than silently re-prompting.
 
-2. **Ask the operator**, one decision per tier. Be explicit that `auto_maintain`
-   authorises a recurring background process with access to their Claude OAuth
-   credentials (their stated P0). Default every answer to OFF — only an explicit
-   yes enables a tier. If they want everything off and it's already off, skip the
-   write (nothing to do).
+2. **Ask the operator**, one decision per tier — `auto_improve`, `auto_maintain`,
+   `auto_accept` only; `brain_os`, `auto_embed`, and `wiki_git` are shown above for
+   transparency but `set-autonomy.mjs` does not write them — point to the manual
+   `~/.second-brain/config.json` edit if the operator wants one of those off. Be
+   explicit that `auto_maintain` authorises a recurring background process with
+   access to their Claude OAuth credentials (their stated P0). Default every
+   answer to OFF — only an explicit yes enables a tier. If they want everything
+   off and it's already off, skip the write (nothing to do).
 
 3. **Persist their explicit choice** with the dedicated writer (runs under the
    existing `Bash(node *)` grant — it validates values, writes booleans as real

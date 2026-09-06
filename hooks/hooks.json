@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "_comment": "matcher EXCLUDES 'compact' \u2014 upstream anthropics/claude-code#15174: SessionStart hook output is silently dropped after compaction (v2.0.72+), so running session-load.sh on the compact event was pure waste. Removing it stops the post-compact context-bloat loop reported by users on long sessions.",
+        "_comment": "matcher EXCLUDES 'compact' \u2014 upstream anthropics/claude-code#15174: SessionStart hook output is silently dropped after compaction (v2.0.72+), so running session-load.sh on the compact event was pure waste. Removing it stops the post-compact context-bloat loop reported by users on long sessions. NOTE: the four entries below run in PARALLEL, not top-to-bottom \u2014 Claude Code gives no ordering guarantee within one event, so session-load.sh must not assume ensure-dirs.sh's config.json/projects.jsonl scaffolding has already landed.",
         "matcher": "startup|resume|clear|fork",
         "hooks": [
           {
@@ -59,7 +59,7 @@
             "timeout": 45
           },
           {
-            "_comment": "SAR summary \u2014 aggregates this session's audit-log verdicts into a one-line Safety Adherence Rate banner via systemMessage. Read-only; runs last so it can't be preempted by the gate or extractor. Kill switch SB_SAR_SUMMARY=off.",
+            "_comment": "SAR summary \u2014 aggregates this session's audit-log verdicts into a one-line Safety Adherence Rate banner via systemMessage. Read-only. NOTE: Claude Code runs all matching hooks of one event in PARALLEL, not in array order \u2014 this entry is listed last but is NOT guaranteed to execute after stop-verify-gate.sh/stop-extract.sh; its audit-log rotation (sb_rotate_audit_log) can race their concurrent appends to the same file. Kill switch SB_SAR_SUMMARY=off.",
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/sar-summary.sh",
             "timeout": 5
@@ -115,7 +115,7 @@
         ]
       },
       {
-        "_comment": "symlink-guard (G-HOOK-2) \u2014 resolves file_path through symlinks FIRST, then denies writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, or ~/.netrc. Kill switch SB_SYMLINK_GUARD=off.",
+        "_comment": "symlink-guard (G-HOOK-2) \u2014 resolves file_path through symlinks FIRST, then denies writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, ~/.netrc, or ~/.claude/.credentials.json (the OAuth token \u2014 an explicit extra deny, not just a ~/.config/claude prefix match). Kill switch SB_SYMLINK_GUARD=off.",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {

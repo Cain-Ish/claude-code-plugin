@@ -23,7 +23,7 @@
 import { readFile } from 'fs/promises';
 import { resolveBrainDir } from '../../brain-paths.js';
 import { activeProjectDir, resolveActiveSlug } from '../project-dir.js';
-import { scanSources } from './scan-sources.js';
+import { checkProjectRoot, readTsPathConfig, scanSources } from './scan-sources.js';
 import { extractFile } from './extract.js';
 import { buildGraph } from './build-graph.js';
 import { serialize } from './serialize.js';
@@ -37,6 +37,17 @@ async function main(): Promise<void> {
   const check = argv.includes('--check');
 
   const repoRoot = activeProjectDir(); // CLAUDE_PROJECT_DIR || cwd (single-source helper)
+
+  // D039: refuse roots that are not a recognizable project ($HOME, a nogit
+  // temp/scratch dir, or anything with neither .git nor a workspace
+  // manifest) BEFORE any scanSources walk -- these are exactly the roots
+  // that produced a junk map via the nogit glob fallback.
+  const rootCheck = checkProjectRoot(repoRoot);
+  if (!rootCheck.ok) {
+    process.stderr.write(`code-map: ${rootCheck.reason} -- skipped\n`);
+    return;
+  }
+
   const brainDir = resolveBrainDir();
   const slug = resolveActiveSlug(brainDir);
   if (!slug) {
@@ -79,6 +90,9 @@ async function main(): Promise<void> {
   // injected resolver only answers membership over the scanned id set.
   const resolveId = (candidate: string): string | null =>
     idSet.has(candidate) ? candidate : null;
+  // D037: read once per scan (not per file) -- absolute-import/alias
+  // resolution needs the same tsconfig for every TS/JS file in the repo.
+  const tsConfig = await readTsPathConfig(repoRoot);
 
   const extracted = new Map<string, ExtractResult>();
   for (const f of scan.files) {
@@ -90,7 +104,7 @@ async function main(): Promise<void> {
       // extraction keeps the map whole instead of crashing mid-regen.
       src = '';
     }
-    extracted.set(f.id, extractFile(f.id, src, f.lang, resolveId));
+    extracted.set(f.id, extractFile(f.id, src, f.lang, resolveId, tsConfig));
   }
 
   const dirty = await isDirty(repoRoot);
@@ -101,6 +115,7 @@ async function main(): Promise<void> {
     dirty,
     generatedAt,
     truncated: scan.truncated,
+    scanFingerprint: { fileCount: scan.fingerprint.fileCount, maxMtimeMs: scan.fingerprint.maxMtimeMs },
   });
   const mapMd = serialize(graph);
   await writeGraph(dir, graph, mapMd);

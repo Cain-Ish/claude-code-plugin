@@ -1,4 +1,8 @@
 #!/bin/bash
+# pins: SB_MODEL_CACHE_TTL — raises the cache TTL so a fixture read hits cold-cache deterministically without racing wall-clock expiry
+# pins: SB_MODEL_ELASTIC — disables elastic re-selection so the resolved model is deterministic ("sonnet") for the assertion
+# pins: SB_MODEL_LADDER — points the ladder loader at this test's own fixture JSON instead of the shipped model-ladder.json
+# pins: SB_PTY_RETRY — kill-switch test: asserts =off skips the PTY retry path
 # Guard: the model resolution layer. Covers the availability cache (TTL expiry, auth-fingerprint
 # invalidation, absent = unknown), the ladder walk (pin as first rung, blocked rungs skipped,
 # exhaustion), and the blocked-verdict table. Every case runs with NO pin env set unless the case

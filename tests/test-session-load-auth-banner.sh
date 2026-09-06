@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_AUTH_LINE — kill-switch test: asserts =off suppresses the auth banner
 # Verify the SessionStart auth-mode banner block in scripts/session-load.sh
 # emits the right text for each of the three auth modes, and is suppressible
 # via SB_AUTH_LINE=off.

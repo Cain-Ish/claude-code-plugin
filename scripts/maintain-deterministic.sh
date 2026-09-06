@@ -21,11 +21,14 @@ if [ "${SB_MAINTAIN_FORCE:-0}" != "1" ]; then
 fi
 : > "$MARK"
 
-# Resolve the knowledge dir the same way the helpers do. Out-of-band the scheduler has no
-# CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR injection, so install-extract-timer.sh forwards a
-# custom dir into the unit's env (Environment=/plist + the systemd ReadWritePaths grant);
-# absent that, this is the default ~/knowledge — matching the out-of-band extraction path.
-KDIR="${KNOWLEDGE_DIR:-${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}}"
+# D128: resolve the knowledge dir via the SINGLE shared resolver (lib.sh, already sourced
+# above), not a hand-rolled precedence chain. The inline form here had the precedence
+# INVERTED (bare KNOWLEDGE_DIR before the plugin option) vs sb_knowledge_dir() and every
+# other resolver in this repo (brain-paths.ts, the embed warm pass, sb_extract_transcript,
+# sb_floor_transcript, sb-prune-archives) — the exact "two wikis" bug class brain-os-run.sh
+# documents by name: a user with both set gets validate/reindex/graph-requarantine running
+# against a DIFFERENT tree than extraction writes and the MCP server reads.
+KDIR="$(sb_knowledge_dir)"
 
 # 1. validate + autofix (frontmatter, empty pages, broken links) — deterministic
 sb_validate_wiki "$KDIR" >/dev/null 2>&1 || true

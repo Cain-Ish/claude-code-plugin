@@ -1,4 +1,8 @@
 #!/bin/bash
+# pins: SB_TRANSCRIPT_CAP — lowers the soft cap to a small fixture-sized value so pruning triggers deterministically
+# pins: SB_TRANSCRIPT_HARD_CAP — lowers the hard cap to a small fixture-sized value so pruning triggers deterministically
+# pins: SB_TRANSCRIPT_MAX_BYTES — lowers the soft byte cap to a small fixture-sized value so pruning triggers deterministically
+# pins: SB_TRANSCRIPT_MAX_BYTES_HARD — lowers the hard byte cap to a small fixture-sized value so pruning triggers deterministically
 # Tests for transcript archive functions in lib.sh.
 set -u
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"

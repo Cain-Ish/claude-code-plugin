@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fsp } from 'fs';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
@@ -260,6 +260,18 @@ describe('SP-1 project-scoped serving', () => {
     expect(r.anchors).toBe(0);
   });
 
+  // D058: anchors=0 must be INERT (server.ts's own tool description promises this), not a
+  // silent demotion. Before the fix, every project-tagged page (b1) fell to tier 5 — below every
+  // untagged global page (s1/n1) — purely because the active slug happened to have no pages.
+  it('D058: anchors=0 does not demote project-tagged pages — ranking matches unscoped', async () => {
+    const dir = await scopedWiki();
+    const scoped = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, projectSlug: 'no-such-project', brainDir: dir });
+    const unscoped = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
+    expect(slugs(scoped)).toContain('b1');   // beta page must not be demoted/dropped
+    expect(scoped.candidates.every(c => c.tier === undefined)).toBe(true);   // tiering is off, not just unreported
+    expect(slugs(scoped)).toEqual(slugs(unscoped));
+  });
+
   it('scoping telemetry absent when scoping is off (no projectSlug / scope:all)', async () => {
     const dir = await scopedWiki();
     const unscoped = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
@@ -450,6 +462,15 @@ describe('knowledge_search v1', () => {
     expect(res.candidates.every(c => norm(c.path).includes('/concepts/'))).toBe(true);
   });
 
+  // D057: `scope` was joined straight into wikiRoot with no validation, so '../../outside'
+  // walked out of the wiki and returned arbitrary files (path traversal / arbitrary-file read).
+  it('rejects a traversal scope instead of walking outside the wiki', async () => {
+    const outsideDir = await fsp.mkdtemp(join(tmpdir(), 'ks-outside-'));
+    await fsp.writeFile(join(outsideDir, 'secret.md'), '---\ndescription: "XYZZYMARKER private note outside the wiki"\n---\n\nXYZZYMARKER\n');
+    await expect(knowledgeSearch({ query: 'XYZZYMARKER', scope: '../../outside', knowledgeDir })).rejects.toThrow(/invalid scope/);
+    await expect(knowledgeSearch({ query: 'XYZZYMARKER', scope: '../..', knowledgeDir })).rejects.toThrow(/invalid scope/);
+  });
+
   it('returns empty candidates on no match', async () => {
     const res = await knowledgeSearch({ query: 'unrelatedstring1234', knowledgeDir });
     expect(res.candidates).toEqual([]);
@@ -464,6 +485,33 @@ describe('knowledge_search v1', () => {
     }
   });
 
+  // D029: saveAccessCounts used to be fire-and-forget. sb-entry.ts (the one-shot CLI) calls
+  // process.exit() as soon as knowledgeSearch() resolves, which killed the write mid-flight — a
+  // 0-byte access-counts.json.tmp.<pid> was left behind and access-counts.json was never
+  // actually updated. Delaying the underlying rename here reproduces that race deterministically:
+  // a fire-and-forget write loses it (checked immediately after resolution, the file is stale),
+  // an awaited write cannot.
+  it('the access-count write is durable before knowledgeSearch resolves (no CLI process.exit race)', async () => {
+    const brainDir = mkdtempSync(join(tmpdir(), 'ks-acc-brain-'));
+    process.env.SB_BRAIN_DIR = brainDir;
+    const realRename = fsp.rename.bind(fsp);
+    const spy = vi.spyOn(fsp, 'rename').mockImplementation(async (...args: unknown[]) => {
+      await new Promise(r => setTimeout(r, 30));
+      return (realRename as (...a: unknown[]) => Promise<void>)(...args);
+    });
+    try {
+      const res = await knowledgeSearch({ query: 'counting pipeline grep', knowledgeDir });
+      expect(res.candidates.length).toBeGreaterThan(0);
+      const raw = await fsp.readFile(join(brainDir, 'access-counts.json'), 'utf-8');
+      const counts = JSON.parse(raw);
+      const slug = res.candidates[0].path.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
+      expect(counts[slug]?.count).toBeGreaterThanOrEqual(1);
+    } finally {
+      spy.mockRestore();
+      delete process.env.SB_BRAIN_DIR;
+    }
+  });
+
   it('returns the curated description as the gist, not a raw frontmatter chop', async () => {
     writeFileSync(
       join(knowledgeDir, 'wiki', 'concepts', 'gist-page.md'),
@@ -475,6 +523,24 @@ describe('knowledge_search v1', () => {
     expect(hit).toBeDefined();
     expect(hit!.description).toBe('One-line curated gist about widgets');
     expect(hit as any).not.toHaveProperty('first_lines');
+  });
+
+  // D060: a description-less page fell back to `rawContent.slice(...)` — the WHOLE file,
+  // frontmatter first — so the snippet injected into every prompt was a YAML chop like
+  // `--- title: "..." type: themes ---` instead of prose. Must use doc.body (stripped).
+  it('description-less page snippet falls back to body text, not a raw frontmatter chop', async () => {
+    mkdirSync(join(knowledgeDir, 'wiki', 'themes'), { recursive: true });
+    writeFileSync(
+      join(knowledgeDir, 'wiki', 'themes', 'zzq.md'),
+      `---\ntitle: "Theme: zzq"\ntype: themes\n---\n\n# zzq\n\nzzq prose about widgets and gizmos.\n`,
+      'utf-8'
+    );
+    const res = await knowledgeSearch({ query: 'zzq widgets gizmos', knowledgeDir });
+    const hit = res.candidates.find(c => c.path.endsWith('zzq.md'));
+    expect(hit).toBeDefined();
+    expect(hit!.description).not.toMatch(/^---/);
+    expect(hit!.description).not.toMatch(/type:\s*themes/);
+    expect(hit!.description).toContain('zzq prose about widgets');
   });
 
   it('surfaces an active-project local doc as a local-doc candidate', async () => {
@@ -548,6 +614,27 @@ describe('SP-1 cross-project reservation', () => {
     expect(slugs).toContain('b-strong');
     // First, not appended: consumers read the top 1-2 candidates, so a tail slot is no slot.
     expect(slugs[0]).toBe('b-strong');
+  });
+
+  // D059: the reservation used to run ONLY in the "enough in-scope hits" (>=3) branch. With a
+  // THIN in-scope set (<3, the broaden branch), `pool = scored` stayed tier-major sorted, so a
+  // strictly-stronger other-project page was buried after every weak in-scope page — the exact
+  // "slot at the tail is no slot" failure the reservation exists to prevent, and the projects
+  // most likely to hit it (1-2 weak hits) are the small/new ones that most need cross-project
+  // transfer.
+  it('reserves an outscoring other-project page FIRST even when in-scope is thin (<3 hits)', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'ks-crossthin-'));
+    await fsp.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+    const w = mk(dir);
+    // only two in-scope hits — below SB_SCOPE_MIN_HITS(3), so the broaden branch is exercised
+    await w('a1', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('a2', 'alpha', `wireguard mentioned once ${'filler '.repeat(60)}`);
+    await w('b-strong', 'beta', 'wireguard wireguard wireguard wireguard wireguard tunnel setup');
+
+    const r = await knowledgeSearch({ query: 'wireguard', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const slugs = r.candidates.map(c => c.path.replace(/^.*[\/]/, '').replace(/\.md$/, ''));
+    expect(slugs).toContain('b-strong');
+    expect(slugs[0]).toBe('b-strong');   // placed FIRST, not buried after the weak in-scope pages
   });
 
   it('still drops an other-project page that merely TIES the in-scope pages', async () => {

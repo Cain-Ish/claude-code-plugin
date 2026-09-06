@@ -153,5 +153,63 @@ describe('drift', () => {
       const graph = graphFixture({ git_rev: 'nogit', generated_at: 'not-a-date' });
       expect(await isStale(graph, tempRepo(), gitAbsent)).toBe(true);
     });
+
+    describe('scan_fingerprint fast path (D039)', () => {
+      it('stale: file count changed even with a backdated mtime the old mtime-only walk would miss', async () => {
+        const repo = tempRepo();
+        const past = new Date('2020-01-01T00:00:00.000Z');
+        const keptFile = join(repo, 'a.ts');
+        writeFileSync(keptFile, 'export const a = 1;\n');
+        utimesSync(keptFile, past, past);
+        // A file ADDED after generation, but with a backdated mtime (e.g. a
+        // restored/copied file) — the pre-fix mtime-only comparison sees no
+        // mtime past generatedAt and would call this "fresh" (false negative).
+        const addedFile = join(repo, 'b.ts');
+        writeFileSync(addedFile, 'export const b = 2;\n');
+        utimesSync(addedFile, past, past);
+        const graph = graphFixture({
+          git_rev: 'nogit',
+          generated_at: new Date().toISOString(),
+          scan_fingerprint: { file_count: 1, max_mtime_ms: past.getTime() },
+        });
+        expect(await isStale(graph, repo, gitAbsent)).toBe(true);
+      });
+
+      it('fresh: matching file count and max mtime via the fingerprint comparison', async () => {
+        const repo = tempRepo();
+        const past = new Date('2020-01-01T00:00:00.000Z');
+        const file = join(repo, 'a.ts');
+        writeFileSync(file, 'export const a = 1;\n');
+        utimesSync(file, past, past);
+        const graph = graphFixture({
+          git_rev: 'nogit',
+          generated_at: new Date().toISOString(),
+          scan_fingerprint: { file_count: 1, max_mtime_ms: past.getTime() },
+        });
+        expect(await isStale(graph, repo, gitAbsent)).toBe(false);
+      });
+
+      it('stale: a newer max mtime than the stored fingerprint', async () => {
+        const repo = tempRepo();
+        const past = new Date('2020-01-01T00:00:00.000Z');
+        const file = join(repo, 'a.ts');
+        writeFileSync(file, 'export const a = 1;\n'); // mtime = now, past generatedAt-independent check
+        const graph = graphFixture({
+          git_rev: 'nogit',
+          generated_at: new Date().toISOString(),
+          scan_fingerprint: { file_count: 1, max_mtime_ms: past.getTime() },
+        });
+        expect(await isStale(graph, repo, gitAbsent)).toBe(true);
+      });
+
+      it('stale: unreadable repoRoot on the fingerprint path (freshness unverifiable)', async () => {
+        const missing = join(tmpdir(), 'sb-codemap-drift-fingerprint-missing');
+        const graph = graphFixture({
+          git_rev: 'nogit',
+          scan_fingerprint: { file_count: 0, max_mtime_ms: 0 },
+        });
+        expect(await isStale(graph, missing, gitAbsent)).toBe(true);
+      });
+    });
   });
 });

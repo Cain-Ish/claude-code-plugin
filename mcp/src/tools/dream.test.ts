@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { isAbsolute } from 'path';
-import { homedir } from 'os';
-import { toBashPath, buildSnapshotArgs, resolveBashExePure, brainDir } from './dream.js';
+import { isAbsolute, join } from 'path';
+import { homedir, tmpdir } from 'os';
+import { promises as fsp, mkdtempSync } from 'fs';
+import { toBashPath, buildSnapshotArgs, resolveBashExePure, brainDir, dreamStatus, dreamDiscard, dreamCancel, dreamCreate } from './dream.js';
 import { cleanEnvPath } from './../path-guard.js';
 
 describe('toBashPath (Windows -> bash argv path)', () => {
@@ -68,6 +69,25 @@ describe('buildSnapshotArgs — family', () => {
     const fam = new Set(['acme', 'acme__api']);
     expect(buildSnapshotArgs({ transcript_filter: { project_slug: 'all', family: true } }, 'acme__api', fam))
       .toEqual(['--max-count', '50']);
+  });
+});
+
+describe('dreamCreate — transcript_filter.project_slug validation (review follow-up)', () => {
+  // project_slug reaches dream-snapshot.sh's --slug and, before the D182 shell-side fix,
+  // was matched by building it into a regex alternation — a value shaped like a regex
+  // (".*") could act as an unintended wildcard. Reject it at the MCP boundary with the
+  // same validateSlug charset guard every other slug-shaped arg gets, before it is ever
+  // handed to the shell.
+  it('rejects a regex-shaped project_slug (".*") without touching the filesystem', async () => {
+    const result = await dreamCreate({ transcript_filter: { project_slug: '.*' } });
+    expect(result.ok).toBe(false);
+    expect(result.dream).toBeNull();
+    expect(result.reason).toMatch(/invalid transcript_filter\.project_slug/);
+  });
+  it('still accepts the "all" cross-project sentinel (not slug-validated)', () => {
+    // buildSnapshotArgs already covers "all" behavior; this just documents that dreamCreate's
+    // new guard does not reject the one non-slug-shaped value the field is allowed to carry.
+    expect(buildSnapshotArgs({ transcript_filter: { project_slug: 'all' } }, 'proja')).toEqual(['--max-count', '50']);
   });
 });
 
@@ -174,5 +194,61 @@ describe('brainDir() home resolution (Windows HOME-unset regression)', () => {
     process.env['BRAIN_DIR'] = '/custom/brain';
 
     expect(brainDir()).toBe('/custom/brain');
+  });
+});
+
+// D057-sibling: `dream_id` was joined straight into filesystem paths across every dream_* tool
+// (including a recursive fs.rm in dreamDiscard) with no validation — 'dream_id:"../../outside"'
+// could read a status.json outside the dreams dir, or delete an arbitrary directory's
+// staging/transcripts subfolders. readStatus (the shared choke point) now runs
+// validateSlug+assertWithin before ever touching the filesystem.
+describe('dream_id path-traversal guard (D057-sibling)', () => {
+  let brain = '';
+  let outside = '';
+
+  afterEach(async () => {
+    delete process.env.SB_BRAIN_DIR;
+    await fsp.rm(brain, { recursive: true, force: true }).catch(() => {});
+    await fsp.rm(outside, { recursive: true, force: true }).catch(() => {});
+  });
+
+  async function plantOutsideDream(): Promise<{ brainRoot: string; outsideDreamDir: string }> {
+    const root = mkdtempSync(join(tmpdir(), 'dream-guard-'));
+    brain = join(root, 'brain');
+    outside = join(root, 'outside');
+    const outsideDreamDir = join(outside, 'drm_evil');
+    await fsp.mkdir(join(brain, 'dreams'), { recursive: true });
+    await fsp.mkdir(outsideDreamDir, { recursive: true });
+    await fsp.writeFile(
+      join(outsideDreamDir, 'status.json'),
+      JSON.stringify({ id: 'drm_evil', status: 'completed', archived_at: null, outputs: {} })
+    );
+    await fsp.mkdir(join(outsideDreamDir, 'staging'), { recursive: true });
+    await fsp.writeFile(join(outsideDreamDir, 'staging', 'XYZZYMARKER.md'), 'secret outside the dreams dir');
+    process.env.SB_BRAIN_DIR = brain;
+    return { brainRoot: brain, outsideDreamDir };
+  }
+
+  it('dreamStatus rejects a traversal dream_id instead of reading the outside status.json', async () => {
+    await plantOutsideDream();
+    const res = await dreamStatus({ dream_id: '../outside/drm_evil' });
+    expect(res.ok).toBe(false);
+    expect(res.dream).toBeNull();
+  });
+
+  it('dreamCancel rejects a traversal dream_id', async () => {
+    await plantOutsideDream();
+    const res = await dreamCancel({ dream_id: '../outside/drm_evil' });
+    expect(res.ok).toBe(false);
+  });
+
+  it('dreamDiscard rejects a traversal dream_id and never touches the outside directory', async () => {
+    const { outsideDreamDir } = await plantOutsideDream();
+    const res = await dreamDiscard({ dream_id: '../outside/drm_evil' });
+    expect(res.ok).toBe(false);
+    // The outside staging dir (and its secret file) must survive untouched — proof the
+    // recursive fs.rm never ran against it.
+    await expect(fsp.readFile(join(outsideDreamDir, 'staging', 'XYZZYMARKER.md'), 'utf-8'))
+      .resolves.toContain('secret outside the dreams dir');
   });
 });

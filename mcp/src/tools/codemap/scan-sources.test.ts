@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import { tmpdir } from 'os';
 import { dirname, isAbsolute, join } from 'path';
 import { fileURLToPath } from 'url';
-import { scanSources } from './scan-sources.js';
+import { checkProjectRoot, readTsPathConfig, scanSources } from './scan-sources.js';
 import type { GitRunner } from './scan-sources.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -272,5 +272,127 @@ describe('scanSources', () => {
     expect(b).toEqual(a);
     const ids = a.files.map((f) => f.id);
     expect(ids).toEqual([...ids].sort());
+  });
+
+  it('fingerprint reports the kept file count and newest mtime (D039)', async () => {
+    const root = tempDir();
+    const older = join(root, 'old.ts');
+    const newer = join(root, 'new.ts');
+    writeFileSync(older, 'export const o = 1;\n');
+    writeFileSync(newer, 'export const n = 2;\n');
+    const past = new Date('2020-01-01T00:00:00.000Z');
+    const recent = new Date('2024-06-01T00:00:00.000Z');
+    utimesSync(older, past, past);
+    utimesSync(newer, recent, recent);
+    const result = await scanSources(root, { runGit: noGit });
+    expect(result.fingerprint.fileCount).toBe(2);
+    expect(result.fingerprint.maxMtimeMs).toBe(recent.getTime());
+  });
+});
+
+describe('checkProjectRoot (D039)', () => {
+  const tempDirs: string[] = [];
+  afterEach(() => {
+    for (const d of tempDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  function tempDir(prefix: string): string {
+    const d = mkdtempSync(join(tmpdir(), prefix));
+    tempDirs.push(d);
+    return d;
+  }
+
+  it('refuses a nonexistent root', () => {
+    const missing = join(tmpdir(), 'sb-codemap-root-check-missing');
+    const r = checkProjectRoot(missing);
+    expect(r.ok).toBe(false);
+  });
+
+  it('refuses $HOME even when it happens to contain a workspace manifest', () => {
+    const home = tempDir('sb-codemap-root-check-home-');
+    writeFileSync(join(home, 'package.json'), '{}');
+    const r = checkProjectRoot(home, { home });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/\$HOME/);
+  });
+
+  it('refuses a nogit, manifest-less temp root (the observed junk-map scenario)', () => {
+    const scratch = tempDir('sb-codemap-root-check-temp-');
+    writeFileSync(join(scratch, 'notes.ts'), 'export const n = 1;\n');
+    const r = checkProjectRoot(scratch, { temp: tmpdir() });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/temp/i);
+  });
+
+  it('accepts a temp-rooted directory that IS a real git repo (this suite\'s own e2e fixtures)', () => {
+    const repo = tempDir('sb-codemap-root-check-git-');
+    mkdirSync(join(repo, '.git'));
+    const r = checkProjectRoot(repo, { temp: tmpdir() });
+    expect(r.ok).toBe(true);
+  });
+
+  it('accepts a temp-rooted directory with a workspace manifest', () => {
+    const repo = tempDir('sb-codemap-root-check-manifest-');
+    writeFileSync(join(repo, 'pyproject.toml'), '[project]\nname = "x"\n');
+    const r = checkProjectRoot(repo, { temp: tmpdir() });
+    expect(r.ok).toBe(true);
+  });
+
+  it('refuses a non-temp root with neither .git nor a workspace manifest', () => {
+    // mkdtempSync always lives under the REAL OS temp dir (and, on Windows,
+    // under AppData/Local/Temp) regardless of the injected `temp` override --
+    // so a genuinely non-temp root for this test must live outside tmpdir().
+    const other = join(HERE, `.sb-codemap-root-check-other-${process.pid}`);
+    mkdirSync(other);
+    try {
+      const r = checkProjectRoot(other, { temp: join(tmpdir(), 'unrelated-temp-namespace') });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/neither \.git nor/);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('readTsPathConfig (D037)', () => {
+  const tempDirs: string[] = [];
+  afterEach(() => {
+    for (const d of tempDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  function tempDir(): string {
+    const d = mkdtempSync(join(tmpdir(), 'sb-codemap-tsconfig-'));
+    tempDirs.push(d);
+    return d;
+  }
+
+  it('reads compilerOptions.baseUrl and paths from tsconfig.json', async () => {
+    const root = tempDir();
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } } }),
+    );
+    const config = await readTsPathConfig(root);
+    expect(config.baseUrl).toBe('.');
+    expect(config.paths).toEqual({ '@/*': ['src/*'] });
+  });
+
+  it('falls back to jsconfig.json when tsconfig.json is absent', async () => {
+    const root = tempDir();
+    writeFileSync(
+      join(root, 'jsconfig.json'),
+      JSON.stringify({ compilerOptions: { baseUrl: 'src' } }),
+    );
+    const config = await readTsPathConfig(root);
+    expect(config.baseUrl).toBe('src');
+  });
+
+  it('returns {} (no aliases) when neither file exists', async () => {
+    const root = tempDir();
+    expect(await readTsPathConfig(root)).toEqual({});
+  });
+
+  it('returns {} (degrades, does not throw) on unparseable JSON', async () => {
+    const root = tempDir();
+    writeFileSync(join(root, 'tsconfig.json'), '{ not valid json');
+    expect(await readTsPathConfig(root)).toEqual({});
   });
 });

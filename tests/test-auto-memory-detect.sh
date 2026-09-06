@@ -19,6 +19,18 @@ run_detect() {
   ( cd "$cwd" && env -i HOME="$home" PATH="$PATH" "$@" bash -c "source '$LIB'; sb_auto_memory_state" )
 }
 field() { printf '%s\n' "$1" | grep -E "^$2=" | head -1 | cut -d= -f2-; }
+# D123: mirrors lib.sh's _sb_am_dash_key exactly, so expectations stay correct on a
+# git-bash/MSYS box (cygpath present -> Windows-form dashing, matching Claude Code's own
+# ~/.claude/projects/<key>/ store) as well as on Linux/macOS CI (cygpath absent -> plain
+# POSIX slash-dashing, byte-identical to the pre-D123 behavior these tests always assumed).
+expected_dash() {
+  local p="$1" winp
+  if command -v cygpath >/dev/null 2>&1; then
+    winp=$(cygpath -w "$p" 2>/dev/null) && [ -n "$winp" ] \
+      && { printf '%s' "$winp" | sed 's/[:\\]/-/g'; return 0; }
+  fi
+  printf '%s' "$p" | sed 's#/#-#g'
+}
 
 # --- Test 1: default-on (no env, no settings) ---
 H="$TMP/h1"; W="$TMP/w1/repo"; mkdir -p "$H/.claude" "$W"
@@ -75,7 +87,7 @@ pass "custom dir: autoMemoryDirectory ~/my-mem resolves to \$HOME/my-mem"
 # --- Test 7: store size (files + MEMORY.md lines) ---
 H="$TMP/h7"; W="$TMP/w7/proj"; mkdir -p "$H/.claude" "$W"
 # default path = ~/.claude/projects/<dashed-cwd>/memory
-DASH=$(printf '%s' "$W" | sed 's#/#-#g')
+DASH=$(expected_dash "$W")
 STORE="$H/.claude/projects/$DASH/memory"; mkdir -p "$STORE"
 printf 'a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n' > "$STORE/MEMORY.md"   # 10 lines
 echo x > "$STORE/topic1.md"; echo y > "$STORE/topic2.md"        # +2 => 3 .md total
@@ -131,7 +143,7 @@ pass "injection: malicious autoMemoryDirectory neutralized (5 clean lines, no ev
 if command -v git >/dev/null 2>&1; then
   H="$TMP/h11"; REPO="$TMP/gitrepo"; SUB="$REPO/src/deep"; mkdir -p "$H/.claude" "$SUB"
   ( cd "$REPO" && git init -q && git config user.email t@t && git config user.name t )
-  ROOT_DASH=$(printf '%s' "$REPO" | sed 's#/#-#g')
+  ROOT_DASH=$(expected_dash "$REPO")
   EXPECT="$H/.claude/projects/$ROOT_DASH/memory"
   OUT=$(run_detect "$H" "$SUB")
   GOT=$(field "$OUT" path)
@@ -140,13 +152,34 @@ if command -v git >/dev/null 2>&1; then
 
   # --- Test 12: outside any git repo, fall back to cwd (matches CC docs) ---
   H="$TMP/h12"; NOGIT="$TMP/nogit/work"; mkdir -p "$H/.claude" "$NOGIT"
-  NG_DASH=$(printf '%s' "$NOGIT" | sed 's#/#-#g')
+  NG_DASH=$(expected_dash "$NOGIT")
   OUT=$(run_detect "$H" "$NOGIT")
   [ "$(field "$OUT" path)" = "$H/.claude/projects/$NG_DASH/memory" ] \
     || fail "12: outside git, expected cwd-dashed fallback, got: $(field "$OUT" path)"
   pass "cc-parity: outside a git repo, falls back to cwd-dashed path"
 else
   echo "SKIP: tests 11-12 (git not available)"
+fi
+
+# --- Test 13 (D123): on a git-bash/MSYS box, the default path keys on Claude Code's OWN
+# Windows-form project key — drive letter dashed from ':' and every '\' dashed too, original
+# case kept — NOT the POSIX-form ("/c/...") slash-only dashing, which never matches the real
+# store CC creates on Windows (verified live: ~/.claude/projects/C--Workplace-Projects-x/
+# exists; the pre-fix code computed -c-Workplace-Projects-x and always reported files=0).
+if command -v cygpath >/dev/null 2>&1; then
+  H="$TMP/h13"; W="$TMP/w13/proj"; mkdir -p "$H/.claude" "$W"
+  WIN_FORM=$(cygpath -w "$W")
+  HAND_DASHED=$(printf '%s' "$WIN_FORM" | sed 's/[:\\]/-/g')
+  case "$HAND_DASHED" in
+    *:*|*'\'*) fail "13: setup — hand-computed dashed key still carries ':' or '\\': $HAND_DASHED" ;;
+  esac
+  OUT=$(run_detect "$H" "$W")
+  GOT=$(field "$OUT" path)
+  [ "$GOT" = "$H/.claude/projects/$HAND_DASHED/memory" ] \
+    || fail "13: expected Windows-form dashed key ($HAND_DASHED), got path=$GOT"
+  pass "D123: default path keys on the Windows-form dashed project key (matches CC's real store), not POSIX-slash dashing"
+else
+  echo "SKIP: test 13 (no cygpath — not a git-bash/MSYS box)"
 fi
 
 echo; echo "ALL PASS"

@@ -14,7 +14,16 @@ while [ $# -gt 0 ]; do
     *) shift ;;
   esac
 done
-[ -z "$KDIR" ] && KDIR="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
+if [ -z "$KDIR" ]; then
+  # Re-implementing the knowledge-dir precedence inline (bare KNOWLEDGE_DIR before the
+  # plugin option) drifted from sb_knowledge_dir()'s precedence and every other resolver
+  # in the repo — the "two wikis" bug class. Source lib.sh for the single shared resolver
+  # instead; only reached when the caller omitted --knowledge-dir (the dream-runner always
+  # passes it explicitly).
+  # shellcheck source=lib.sh
+  . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+  KDIR="$(sb_knowledge_dir)"
+fi
 KDIR="${KDIR/#\~/$HOME}"
 # Machine-enforce the consumer's kill switch HERE (not just in agent prose): emit the same `[]`
 # sentinel the fail-safe path uses so the dream's SUMMARIZE/REFLECT loop writes zero pages —

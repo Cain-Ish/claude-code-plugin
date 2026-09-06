@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_WIKI_GIT — kill-switch test: asserts =off means the snapshot must not run
 # wiki-history.sh — the reversibility window that lets unattended consolidation be safe
 # WITHOUT a human gate (CONSTITUTION.md: safety from reversible auto-consolidation).
 # ORACLE: real files and a real git repo on disk.
@@ -96,6 +97,32 @@ rm -rf "$SB"
 echo "=== H7: wired into the write paths (engine + accept) ==="
 grep -q 'wiki-history.sh' "$ROOT/scripts/brain-os-run.sh" && pass "H7: engine snapshots after its passes" || fail "H7: engine does not snapshot"
 grep -q 'wiki-history.sh' "$ROOT/scripts/dream-accept.sh" && pass "H7: accept snapshots what it applied" || fail "H7: accept does not snapshot"
+
+echo "=== H8: D191 — restore ABORTS if the pre-restore safety snapshot fails ==="
+# Previously the pre-restore _snapshot's return code was discarded, so a failed safety
+# snapshot (locked index, full disk, bad git state) still let the destructive checkout
+# run, and the final line claimed an undo point that was never actually committed. A
+# pre-commit hook that always fails forces ONLY `git commit` to fail (git add and the
+# later checkout still use a normal, uncorrupted index) — isolating the pre-restore
+# snapshot's commit step specifically, unlike a broken index file which would also break
+# the checkout that follows and give a false pass for the wrong reason.
+setup
+bash "$WH" snapshot "base" >/dev/null 2>&1
+GOOD=$(bash "$WH" list 1 | awk '{print $1}')
+printf -- '---\ntitle: a\ntype: learnings\nrelated: []\n---\n\nCHANGED-FOR-H8\n' > "$KNOWLEDGE_DIR/wiki/learnings/a.md"
+bash "$WH" snapshot "before restore attempt" >/dev/null 2>&1
+mkdir -p "$BRAIN_DIR/wiki-history.git/hooks"
+printf '#!/bin/sh\nexit 1\n' > "$BRAIN_DIR/wiki-history.git/hooks/pre-commit"
+chmod +x "$BRAIN_DIR/wiki-history.git/hooks/pre-commit"
+printf -- '---\ntitle: a\ntype: learnings\nrelated: []\n---\n\nDIRTY-BEFORE-RESTORE\n' > "$KNOWLEDGE_DIR/wiki/learnings/a.md"
+bash "$WH" restore "$GOOD" >/dev/null 2>&1; rc=$?
+[ "$rc" -ne 0 ] && pass "H8: restore aborts (nonzero) when the pre-restore snapshot fails" \
+  || fail "H8: restore proceeded (rc=0) despite a failed pre-restore snapshot"
+grep -q 'DIRTY-BEFORE-RESTORE' "$KNOWLEDGE_DIR/wiki/learnings/a.md" 2>/dev/null \
+  && pass "H8: wiki left untouched (uncommitted dirty state, not checked out) when the pre-restore snapshot fails" \
+  || fail "H8: wiki was mutated despite the failed safety snapshot"
+rm -f "$BRAIN_DIR/wiki-history.git/hooks/pre-commit"
+rm -rf "$SB"
 
 echo
 echo "Results: $PASS passed, $FAIL failed"

@@ -134,24 +134,72 @@ mkdir -p "$DREAM_DIR/staging" "$DREAM_DIR/transcripts"
 # keeps each unchanged page's real mtime; only pages the dream actually edits
 # get a fresh mtime (correct — they WERE modified).
 cp -rp "$WIKI_DIR" "$DREAM_DIR/staging/wiki"
+CP_RC=$?
 SNAPSHOT_BYTES=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')
 WIKI_PAGE_COUNT=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' ! -name 'index.md' 2>/dev/null | wc -l | tr -d ' ')
+
+# D091: `cp -rp` above had no rc check and no post-copy verification — a copy that dies
+# part-way (ENOSPC, transient I/O error, an unreadable subdir) produced a partial staging
+# tree that still passed dream-accept's 50% floor and, on the rsync --delete path, caused
+# every live page absent from the partial snapshot to be deleted. Check the exit status AND
+# compare staged vs live page counts; either mismatch marks the dream failed instead of
+# silently proceeding with pending status.
+LIVE_PAGE_COUNT=$(find "$WIKI_DIR" -type f -name '*.md' ! -name 'index.md' 2>/dev/null | wc -l | tr -d ' ')
+SNAPSHOT_FAIL_REASON=""
+if [ "$CP_RC" -ne 0 ]; then
+  SNAPSHOT_FAIL_REASON="cp -rp of wiki exited $CP_RC (partial snapshot)"
+elif [ "$WIKI_PAGE_COUNT" -ne "$LIVE_PAGE_COUNT" ]; then
+  SNAPSHOT_FAIL_REASON="wiki snapshot incomplete: staged $WIKI_PAGE_COUNT of $LIVE_PAGE_COUNT live pages"
+fi
+if [ -n "$SNAPSHOT_FAIL_REASON" ]; then
+  NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -nc --arg id "$DREAM_ID" --arg now "$NOW" --arg e "$SNAPSHOT_FAIL_REASON" \
+    '{id:$id, status:"failed", created_at:$now, started_at:null, ended_at:$now, archived_at:null,
+      model:null, instructions:"", inputs:{transcript_count:0,wiki_page_count:0,wiki_snapshot_bytes:0,project_slug:"all"},
+      outputs:{pages_added:0,pages_modified:0,pages_removed:0}, error:$e}' > "$DREAM_DIR/status.json"
+  sb_log_error "dream-snapshot.sh" "$SNAPSHOT_FAIL_REASON" 1
+  echo "error: $SNAPSHOT_FAIL_REASON" >&2
+  exit 1
+fi
 
 # Select and symlink transcripts
 TRANSCRIPT_DIR="$BRAIN_DIR/transcripts"
 SELECTED=0
-# Family-slug alternation for transcript matching, computed ONCE (not per-transcript):
-# a transcript matches if its name contains _<slug>_ for ANY requested family member.
-ALT=$(printf '%s' "$FILTER_SLUGS" | tr ' ' '|')
+# review follow-up: a transcript matches if its name contains _<slug>_ for ANY
+# requested family member. This used to build ONE regex alternation
+# ("_(${ALT})_") from the raw --slug values via `tr ' ' '|'` — a slug containing
+# regex metacharacters (e.g. ".*", reachable before the MCP-layer validateSlug
+# fix) turned into an unintended wildcard that could select every transcript.
+# Match each slug as a FIXED STRING (grep -F) instead; no per-slug value is
+# ever interpreted as a pattern.
 
 if [ -d "$TRANSCRIPT_DIR" ]; then
-  for tf in $(ls -1 "$TRANSCRIPT_DIR"/*.txt 2>/dev/null | sort -r); do
+  # D095: names are <session-id>_<slug>_<date>.txt or sub-<hex>_<slug>_<date>.txt — the
+  # leading session-id/`sub-` prefix must NEVER drive selection order (a lexical `sort -r`
+  # puts every sub-* transcript first, since 's' sorts after every hex digit, and is otherwise
+  # date-blind — the same 50 lexically-highest files were re-mined forever). Select by the
+  # DATE embedded in the filename, newest first, tie-broken by mtime (also newest first).
+  TRANSCRIPT_INDEX=""
+  for tf in "$TRANSCRIPT_DIR"/*.txt; do
+    [ -f "$tf" ] || continue
+    fname=$(basename "$tf")
+    idate=$(printf '%s' "$fname" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | tail -1)
+    [ -z "$idate" ] && idate="0000-00-00"
+    imtime=$(sb_mtime "$tf")
+    TRANSCRIPT_INDEX="${TRANSCRIPT_INDEX}${idate} ${imtime} ${tf}
+"
+  done
+  while IFS= read -r tf; do
+    [ -z "$tf" ] && continue
     [ "$SELECTED" -ge "$MAX_COUNT" ] && break
 
     if [ -n "$FILTER_SLUGS" ]; then
-      # a transcript matches if its name contains _<slug>_ for ANY family member (ALT hoisted above).
       fname=$(basename "$tf")
-      echo "$fname" | grep -qE "_(${ALT})_" || continue
+      _slug_hit=1
+      for _s in $FILTER_SLUGS; do
+        printf '%s' "$fname" | grep -qF "_${_s}_" && { _slug_hit=0; break; }
+      done
+      [ "$_slug_hit" -eq 0 ] || continue
     fi
 
     if [ -n "$FILTER_SINCE" ]; then
@@ -166,7 +214,7 @@ if [ -d "$TRANSCRIPT_DIR" ]; then
     _dst="$DREAM_DIR/transcripts/$(basename "$tf")"
     sb_strip_invisible_copy "$tf" "$_dst"
     SELECTED=$((SELECTED + 1))
-  done
+  done < <(printf '%s' "$TRANSCRIPT_INDEX" | sort -k1,1r -k2,2rn | sed 's/^[^ ]* [^ ]* //')
 fi
 
 # Write status.json

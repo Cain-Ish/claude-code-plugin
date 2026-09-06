@@ -10,8 +10,15 @@
  * - TS `interface`/`type` declarations are not captured (SymbolKind has no
  *   such kind in the shared contract); `export type { X }` names are.
  * - Python: parenthesized from-import lists spanning multiple lines are only
- *   parsed on the `from ...` line; absolute (non-dot) module imports are
- *   always treated as external even when the package lives in-repo.
+ *   parsed on the `from ...` line; absolute (non-dot) module imports resolve
+ *   in-repo only when the import's first segment is a real package (has an
+ *   __init__.py) under the repo root or a 'src/' layout (D037) — anything
+ *   else (stdlib, third-party, or a package root this heuristic doesn't try)
+ *   stays external.
+ * - TS/JS bare specifiers resolve in-repo only via tsconfig/jsconfig
+ *   `compilerOptions.paths` or `baseUrl` (D037, read once per scan); a repo
+ *   with neither configured treats every bare specifier as external, same as
+ *   before.
  * - Relative specifiers that resolve to no scanned file (e.g. './x.css') are
  *   dropped: not edges, not counted in externalImports (which by contract
  *   counts bare/package specifiers only).
@@ -49,7 +56,16 @@ const ESM_SOURCE_ALIAS: Record<string, string> = { '.js': '.ts', '.jsx': '.tsx' 
 export function candidateIds(spec: string, fromId: string, lang?: Lang): string[] {
   const base = joinPosix(spec, fromId);
   if (base === null) return [];
+  return expandBase(base, lang);
+}
 
+/**
+ * Extension/index/__init__ expansion shared by relative-specifier resolution
+ * (candidateIds, base = a joinPosix'd path) and absolute/aliased specifier
+ * resolution (base = a repo-root-relative path with no '.'/'..' math) — same
+ * first-match-wins contract, just fed a differently-computed base (D037).
+ */
+function expandBase(base: string, lang?: Lang): string[] {
   const fileExts = lang === 'py' ? ['.py'] : lang ? KNOWN_EXTS.filter((e) => e !== '.py') : KNOWN_EXTS;
   const wantIndex = lang !== 'py';
   const wantInit = lang !== 'ts' && lang !== 'js';
@@ -74,6 +90,97 @@ export function candidateIds(spec: string, fromId: string, lang?: Lang): string[
   return out;
 }
 
+/**
+ * tsconfig.json/jsconfig.json compilerOptions relevant to module resolution
+ * (D037). Read once per scan by scan-sources.ts's readTsPathConfig — extract.ts
+ * stays fs-free per its purity contract; this is a plain data param.
+ */
+export interface TsPathConfig {
+  /** POSIX-relative to repo root; '.' or '' means the repo root itself */
+  baseUrl?: string;
+  /** e.g. { "@/*": ["src/*"] } — wildcard ('*') or exact keys, first match wins */
+  paths?: Record<string, string[]>;
+}
+
+/** '@/*' matched against '@/foo' captures 'foo'; an exact key matches only
+ *  itself (captures ''); anything else is null (no match). */
+function matchPathKey(spec: string, key: string): string | null {
+  const star = key.indexOf('*');
+  if (star === -1) return spec === key ? '' : null;
+  const prefix = key.slice(0, star);
+  const suffix = key.slice(star + 1);
+  if (!spec.startsWith(prefix) || !spec.endsWith(suffix)) return null;
+  if (spec.length < prefix.length + suffix.length) return null;
+  return spec.slice(prefix.length, spec.length - suffix.length);
+}
+
+function applyPathTarget(target: string, captured: string): string {
+  return target.includes('*') ? target.replace('*', captured) : target;
+}
+
+/**
+ * Candidate repo-root-relative base paths (pre-extension-expansion) for a
+ * bare TS/JS specifier, per tsconfig `paths` (checked first — first matching
+ * key wins, all its targets are tried) and then `baseUrl` (bare specifier
+ * resolved directly under baseUrl — covers plain `src/...`-style imports
+ * when baseUrl is the repo root). [] when no config or no match at all.
+ */
+export function resolveAliasBases(spec: string, config?: TsPathConfig): string[] {
+  if (!config) return [];
+  const bases: string[] = [];
+  for (const [key, targets] of Object.entries(config.paths ?? {})) {
+    const captured = matchPathKey(spec, key);
+    if (captured === null) continue;
+    for (const target of targets) bases.push(applyPathTarget(target, captured));
+  }
+  if (bases.length === 0 && config.baseUrl !== undefined) {
+    const baseUrl = config.baseUrl === '.' ? '' : config.baseUrl.replace(/\/$/, '');
+    bases.push(baseUrl ? `${baseUrl}/${spec}` : spec);
+  }
+  return bases;
+}
+
+/** Anchors tried for an absolute (non-dot) Python import, in order: the repo
+ *  root, then a 'src/' layout. Gated on the import's FIRST segment resolving
+ *  to a real in-repo package (an __init__.py present under that anchor) so a
+ *  stdlib/third-party name that coincidentally collides with a repo path
+ *  (e.g. a top-level io.py) is never misclassified as internal (D037). */
+const PY_ABS_ANCHORS = ['', 'src/'];
+
+function resolveAbsolutePython(
+  module: string,
+  fromId: string,
+  resolveId: (spec: string, fromId: string) => string | null,
+): string | null {
+  const parts = module.split('.').filter((p) => p !== '');
+  if (parts.length === 0) return null;
+  const joined = parts.join('/');
+  for (const anchor of PY_ABS_ANCHORS) {
+    if (resolveId(`${anchor}${parts[0]}/__init__.py`, fromId) === null) continue;
+    for (const candidate of [`${anchor}${joined}.py`, `${anchor}${joined}/__init__.py`]) {
+      const hit = resolveId(candidate, fromId);
+      if (hit !== null) return hit;
+    }
+  }
+  return null;
+}
+
+function resolveAliasSpec(
+  spec: string,
+  fromId: string,
+  lang: Lang,
+  resolveId: (spec: string, fromId: string) => string | null,
+  tsConfig?: TsPathConfig,
+): string | null {
+  for (const base of resolveAliasBases(spec, tsConfig)) {
+    for (const candidate of expandBase(base, lang)) {
+      const hit = resolveId(candidate, fromId);
+      if (hit !== null) return hit;
+    }
+  }
+  return null;
+}
+
 /** './a/../b' + 'src/m.ts' -> 'src/b'; null when '..' escapes the root. */
 function joinPosix(spec: string, fromId: string): string | null {
   const stack = fromId.split('/').slice(0, -1).filter((s) => s !== '');
@@ -94,6 +201,7 @@ export function extractFile(
   src: string,
   lang: Lang,
   resolveId: (spec: string, fromId: string) => string | null,
+  tsConfig?: TsPathConfig,
 ): ExtractResult {
   const parsed = lang === 'py' ? parsePython(src) : parseTsJs(src);
 
@@ -108,7 +216,17 @@ export function extractFile(
     if (hit !== null) resolved.add(hit);
     // else: unresolved relative spec — dropped (see header contract)
   }
-  for (const spec of parsed.externalSpecs) external.add(spec);
+  for (const spec of parsed.externalSpecs) {
+    // D037: an absolute in-repo import (Python) or an aliased/baseUrl bare
+    // specifier (TS/JS) is still "external" in shape but may resolve inside
+    // the scanned tree — try before falling back to the external count.
+    const hit =
+      lang === 'py'
+        ? resolveAbsolutePython(spec, id, resolveId)
+        : resolveAliasSpec(spec, id, lang, resolveId, tsConfig);
+    if (hit !== null) resolved.add(hit);
+    else external.add(spec);
+  }
 
   return {
     symbols: parsed.symbols,

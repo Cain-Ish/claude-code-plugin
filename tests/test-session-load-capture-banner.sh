@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_CAPTURE_HEALTH_BANNER — kill-switch test: asserts =off suppresses the capture-health banner
+# pins: SB_DISABLE_AUTO_TIMER — parameterized pass-through so a subtest can assert both the timer-installed and timer-disabled banner states
 # Auth-aware SessionStart capture self-check (U5 0.24.18 + SP-1 0.24.19).
 #  - API key  → extraction runs IN-SESSION at every Stop (Backend 2 curl); the
 #    out-of-band drainer is NOT needed → no "install the bridge" nag.

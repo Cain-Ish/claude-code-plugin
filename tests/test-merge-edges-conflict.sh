@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_CONFLICT_DETECT — kill-switch test: asserts =off disables conflict detection
+# pins: SB_CONFLICT_MULTIPARENT — exercises the default-off multi-parent mode directly (forces it ON) — not a can't-fail pin
 # Write-time contradiction detector in merge-edges.sh.
 # Spec: archive/docs branch, docs/specs/2026-06-01-write-time-contradiction-flag-design.md
 set -u
@@ -87,6 +89,19 @@ printf '%s' '{"op":"assert","from":"page-a","to":"pag' >> "$LOG"   # torn last l
 run '{"relations":[{"from":"page-a","to":"page-c","type":"relates"}]}'; rc=$?
 [ "$rc" -eq 0 ] || fail "merge-edges did not exit 0 on corrupt log"
 pass "fail-open exit 0 on corrupt log"
+
+# --- 10b: D159 — torn line in the log must not blind conflict detection, and the
+# skip must be logged exactly once (not silently fail open to `[]`).
+reset
+seed '{"op":"assert","from":"page-a","to":"page-b","type":"requires","valid_to":null,"recorded_at":"2026-06-01T10:00:00Z","source":"extractor"}'
+seed '{"op":"invalidate","from":"page-a","to":"page-b","type":"requires","valid_to":"2026-06-01","recorded_at":"2026-06-01T10:00:00.123Z","source":"manual"}'
+printf '%s' '{"from":"a"' >> "$LOG"   # torn last line, no trailing newline
+ERRLOG="$HOME/.second-brain/error-log.jsonl"; mkdir -p "$HOME/.second-brain"; rm -f "$ERRLOG"
+run '{"relations":[{"from":"page-a","to":"page-b","type":"requires"}]}'
+[ -f "$CONF" ] || fail "D159: reintroduce conflict lost behind a torn line"
+grep -q '"kind":"reintroduce"' "$CONF" || fail "D159: reintroduce kind lost behind a torn line"
+[ -f "$ERRLOG" ] && grep -q 'torn line' "$ERRLOG" || fail "D159: torn line was not logged via sb_log_error"
+pass "D159: torn line skipped tolerantly, conflict still detected, skip logged"
 
 # --- 11: R3 multi_parent (opt-in) ---
 reset

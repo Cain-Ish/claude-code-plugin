@@ -70,6 +70,16 @@ jobs:
         run: /bin/bash tests/test-dream-lifecycle.sh
       - name: portability static guards
         run: /bin/bash tests/test-script-portability.sh
+      - name: every shipped script PARSES under bash 3.2 (issue #100 class)
+        # `bash -n` is the only direct oracle for 3.2-parser hazards; the static guards
+        # above are heuristics. Hooks that fail to parse exit 2 silently at SessionStart.
+        run: |
+          rc=0
+          for f in scripts/*.sh bin/*.sh hooks/*.sh; do
+            [ -f "$f" ] || continue
+            /bin/bash -n "$f" || { echo "PARSE FAIL under bash 3.2: $f"; rc=1; }
+          done
+          exit $rc
       - name: lib extraction-loop units
         run: |
           /bin/bash tests/test-stop-extract.sh

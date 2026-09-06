@@ -84,7 +84,11 @@ _snapshot() {
 }
 
 case "${1:-}" in
-  snapshot) shift; _snapshot "${1:-consolidation}" ;;
+  # D096: propagate _snapshot's status explicitly — the trailing `exit 0` at the end of
+  # this case statement otherwise masks every snapshot failure (the caller sees rc=0
+  # unconditionally), which is exactly what let ensure-dirs.sh's autofix run unprotected
+  # when its own pre-autofix snapshot failed to commit.
+  snapshot) shift; _snapshot "${1:-consolidation}"; exit $? ;;
   list)
     [ -d "$GD" ] || { echo "no wiki history yet"; exit 0; }
     _git log --oneline -n "${2:-20}" --date=short --format='%h  %ad  %s' 2>/dev/null
@@ -100,8 +104,14 @@ case "${1:-}" in
     _git rev-parse --verify "$REF^{commit}" >/dev/null 2>&1 || {
       echo "error: '$REF' is not a snapshot in the wiki history (see: wiki-history.sh list)" >&2; exit 1; }
     # Snapshot the CURRENT state first — a restore must itself be undoable, or the undo
-    # mechanism becomes a way to lose work.
-    _snapshot "pre-restore safety snapshot" >/dev/null 2>&1
+    # mechanism becomes a way to lose work. D191: the return code used to be discarded, so
+    # a failed pre-restore snapshot (locked index, full disk, bad git state) still let the
+    # destructive checkout below proceed, and the final message claimed an undo point that
+    # was never actually committed. Abort instead — the live wiki is left untouched.
+    if ! _snapshot "pre-restore safety snapshot" >/dev/null 2>&1; then
+      echo "error: pre-restore safety snapshot failed — restore ABORTED (wiki left untouched); see the wiki-history error above" >&2
+      exit 1
+    fi
     # `-- .` is resolved against the CURRENT directory, so running this from inside the wiki
     # would restore only that subtree while reporting a full restore. `:/` pins the pathspec to
     # the work-tree ROOT regardless of cwd.

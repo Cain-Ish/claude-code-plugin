@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_SESSIONS_DIGEST — kill-switch test: asserts =off disables the digest and it never leaks other slugs
 # Tests for the pushed sessions digest (P0 rec 4, capture widening).
 # Contract under test:
 #   1. lib.sh:sb_append_session_digest — one compact JSONL line per SESSION in

@@ -9,6 +9,17 @@
 # The bypass envs exist so you can recover from a genuinely broken test that
 # blocks an urgent fix. Always follow up with a real fix afterward; otherwise
 # the next push regresses again.
+#
+# Opt-in production-config lane (D017 / post-audit improvement 4B):
+#   SB_PREPUSH_PRODUCTION_LANE=1 git push
+# also runs `make production-lane` — the search/episodic vitest files plus
+# test-injection-gate.sh/test-loop-smoke.sh with embeddings ACTUALLY ENABLED
+# (SECOND_BRAIN_DISABLE_EMBEDDINGS=0), the only place the real hybrid BM25+RRF
+# path is exercised. OFF by default: CI has no network to fetch the model, and
+# most developer machines won't have it cached either, so this stays a manual,
+# opt-in developer-machine gate — never a CI dependency and never run by
+# `make test`/`tests/run-all.sh`. Needs the model pre-installed via
+# bin/install-vector-deps.sh; adds ~1-2 minutes.
 set -u
 
 if [ "${SB_SKIP_PREPUSH:-0}" = "1" ]; then
@@ -31,5 +42,19 @@ echo
   exit $rc
 }
 
-echo "pre-push: all tests green; push allowed."
+echo "pre-push: all tests green."
+
+if [ "${SB_PREPUSH_PRODUCTION_LANE:-0}" = "1" ]; then
+  echo
+  echo "pre-push: SB_PREPUSH_PRODUCTION_LANE=1 — running \`make production-lane\` (embeddings ON; developer-machine only)."
+  ( cd "$ROOT" && make production-lane ) || {
+    rc=$?
+    echo
+    echo "pre-push: BLOCKED — production-lane failed (embeddings-ON hybrid path). Fix it, or push without SB_PREPUSH_PRODUCTION_LANE=1 if the model isn't installed here."
+    exit $rc
+  }
+  echo "pre-push: production-lane green too."
+fi
+
+echo "pre-push: push allowed."
 exit 0

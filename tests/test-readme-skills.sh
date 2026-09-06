@@ -41,4 +41,14 @@ for ev in $(jq -r '.hooks | keys[]' "$ROOT/hooks/hooks.json" 2>/dev/null | tr -d
 done
 pass "every hooks.json event is documented in README by name"
 
+
+# D015: a fresh clone wires no local pre-push gate (`git config --get core.hooksPath` is
+# empty until `make hook-install` runs), and RELEASING.md's own mention of it is scoped to
+# an "after tagging" release-manager checklist — a contributor who never releases would
+# never see it. README is the first-contact doc; it must name the one-time setup step.
+grep -qi 'make hook-install' "$README" || fail "README does not mention 'make hook-install' (D015: contributors never learn to wire the pre-push gate)"
+pass "README documents 'make hook-install' as a contributor setup step"
+grep -qi 'make hook-install' "$ROOT/RELEASING.md" || fail "RELEASING.md no longer documents 'make hook-install' (regression)"
+pass "RELEASING.md still documents 'make hook-install'"
+
 echo; echo "ALL PASS"

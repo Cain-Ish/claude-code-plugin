@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_PERSONA_GATE — kill-switch test: asserts =off never blocks, even on bad input (Test 8)
 # Tests for scripts/wiki-write-guard.sh — denies wiki writes without frontmatter.
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/wiki-write-guard.sh"

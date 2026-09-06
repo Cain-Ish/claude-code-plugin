@@ -1,4 +1,8 @@
 #!/bin/bash
+# pins: SB_DREAM_RUN_TIMEOUT — raises this unrelated timeout ceiling so it can't fire while this file tests the SPAWN-PATH timeout guard specifically
+# pins: SB_MAINTAIN_LLM_DRYRUN — the flag itself is the subject of this subtest (dry-run path)
+# pins: SB_MAINTAIN_LLM_FORCE — forces the lane to run regardless of its normal due gate, for a deterministic fixture run
+# pins: SB_MAINTAIN_LLM_TIMEOUT — raises this unrelated timeout ceiling so it can't fire while isolating the SPAWN-PATH timeout guard under test
 # maintain-llm-drain.sh hardening:
 #   B1: refuse the quarantined summarizer when neither timeout nor gtimeout is on
 #       PATH (a bare `${TBIN:+...}` form would run it UNBOUNDED).
@@ -80,7 +84,10 @@ _make_wrapper() {
 }
 for _t in bash sh jq stat date touch cat find wc head tail ls rm mkdir mv \
           awk sed tr grep sort cp realpath readlink basename dirname mktemp git \
-          node; do   # node: the Stage B consolidate-writer is a hard harness dependency
+          node env; do   # node: the Stage B consolidate-writer is a hard harness dependency;
+                          # env: D134 execs Stage B via `env -i <allowlist> node ...` so its
+                          # spawn carries no stray credentials/vars — without env on PATH the
+                          # writer itself fails as "command not found" (rc 127), not a jail effect.
   _make_wrapper "$_t"
 done
 unset _t

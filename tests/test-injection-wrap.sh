@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_PERSONA_WIKI_MIN_SCORE — pins the retrieval floor open (0) so this test measures the wrapping behavior, not the separately-tested score gate
 # P6 injection-resistant injection: content RETRIEVED FROM THE STORE (wiki pages,
 # episodic excerpts, graph relations) is untrusted-derived — it was distilled from
 # transcripts and tool returns — and this plugin re-injects it every turn. Each such

@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_AUTOCONSOLIDATE_NUDGE — kill-switch test: asserts =off suppresses the nudge, the toggle itself is under test
+# pins: SB_NUDGE_RAW_THRESHOLD — lowers the raw-inbox threshold so a small fixture seed count crosses it deterministically
 # B1 (SP-B): the self-install nudge. Fires when auto_improve is OFF and the raw inbox is
 # genuinely piling up (>= SB_NUDGE_RAW_THRESHOLD); mutually exclusive with the plain
 # raw-inbox banner; suppressed when auto_improve is on or the kill switch is set.

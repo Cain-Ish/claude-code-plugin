@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_SAR_SUMMARY — kill-switch test: asserts =off (Test 7)
 # Tests for scripts/sar-summary.sh — Stop hook that aggregates audit-log
 # entries for the current session_id and emits a SAR (Safety Adherence Rate)
 # banner via systemMessage. HarnessAudit-style metric for self-feedback.
@@ -130,6 +131,16 @@ out=$(BRAIN_DIR="$BRAIN" echo '{"session_id":"s12"}' | BRAIN_DIR="$BRAIN" bash "
 echo "$out" | jq -r '.systemMessage' | grep -q 'allow=1' \
   || fail "corruption-resilient parse should still see allow=1 (got: $out)"
 pass "corrupted audit-log lines tolerated"
+
+# D159: the failing case is the row AFTER the corrupt lines — a whole-file jq
+# parse (no `-R … fromjson?`) aborts AT the first torn line and never sees it,
+# so the banner previously reported ask=0 and a falsely-clean sar=1.00 instead
+# of the real allow=1/ask=1/sar=0.50.
+echo "$out" | jq -r '.systemMessage' | grep -q 'ask=1' \
+  || fail "row AFTER the torn lines was dropped — corruption truncated the tail (got: $out)"
+echo "$out" | jq -r '.systemMessage' | grep -q 'sar=0.50' \
+  || fail "sar should reflect BOTH rows (0.50), not report falsely clean 1.00 (got: $out)"
+pass "row after a torn line is still counted (no falsely-clean SAR)"
 
 echo
 echo "ALL PASS"

@@ -106,9 +106,16 @@ for d in "$DREAMS_DIR"/drm_*/; do
       PENDING_SF="$sf"
       ;;
     failed|canceled)
+      # D088: a failed dream the operator already reviewed (dream_discard/dream_accept
+      # stamps archived_at but leaves status="failed") is TERMINAL and reviewed — it
+      # must not re-banner at every SessionStart until retention finally evicts the
+      # dir (days/weeks). Only a failed dream still awaiting review surfaces here.
       if [ "$st" = "failed" ]; then
-        FAILED_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
-        FAILED_ERR=$(jq -r '.error // "unknown error"' "$sf" 2>/dev/null | head -c 160 | tr -d '\r')
+        _ar=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
+        if [ -z "$_ar" ] || [ "$_ar" = "null" ]; then
+          FAILED_ID=$(jq -r '.id // ""' "$sf" 2>/dev/null | tr -d '\r')
+          FAILED_ERR=$(jq -r '.error // "unknown error"' "$sf" 2>/dev/null | head -c 160 | tr -d '\r')
+        fi
       fi
       # Anchor ONLY on the stable create-time transcripts/ dir. Once the prune
       # strips it, status.json's mtime is the FAILURE time — anchoring there

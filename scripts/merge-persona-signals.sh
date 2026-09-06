@@ -36,8 +36,16 @@ if echo "$NEW_SIGNALS" | jq -e 'length == 0' >/dev/null 2>&1 \
   exit 0
 fi
 
-# Load existing signals as JSON array
-EXISTING=$(jq -sc '.' "$SIGNALS_FILE" 2>/dev/null || echo '[]')
+# Load existing signals as JSON array. D139: `jq -s '.'` aborts the WHOLE slurp on
+# one unparseable line (a partial append, a crash mid-write, a concurrent-write
+# tear — see D120) and the `|| echo '[]'` then treats every accumulated signal as
+# absent, so the merge below rebuilds the file from ONLY the new signals — months
+# of graduation counts silently wiped. `-R … fromjson?` skips just the bad line;
+# a torn line is logged once (not per row) via sb_log_error, never per skipped row.
+TORN_SIGNALS=$(sb_count_torn_lines "$SIGNALS_FILE")
+[ "${TORN_SIGNALS:-0}" -gt 0 ] && sb_log_error "merge-persona-signals.sh" "persona-signals.jsonl: skipped $TORN_SIGNALS torn line(s)" 0
+EXISTING=$(jq -Rnc '[inputs | fromjson? | select(type=="object")]' "$SIGNALS_FILE" 2>/dev/null)
+[ -n "$EXISTING" ] || EXISTING='[]'
 
 # Merge new signals into existing using jq
 MERGED=$(jq -nc \

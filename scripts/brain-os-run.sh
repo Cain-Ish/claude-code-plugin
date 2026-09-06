@@ -40,6 +40,36 @@ _pass() {  # _pass <name> <command...> — run a pass, log a nonzero exit, never
   "$@" || sb_log_error "brain-os" "pass '$_name' exited $? (lane continues)" 1
 }
 
+# D116: the extraction batch's own 3600s worst-case budget proof (lib.sh sb_call_extractor,
+# "BUDGET PROOF") only accounts for the batch loop itself — it never accounted for THIS
+# engine, which extract-drain.sh runs INSIDE that same single-flight lock right after the
+# batch (see extract-drain.sh's comment on the call site: "It runs inside this drainer's
+# single-flight lock"). maintain-llm-drain.sh bounds itself (SB_MAINTAIN_LLM_TIMEOUT/
+# SB_CW_TIMEOUT), but the embedding warm pass and codemap regen below were bare `node`
+# spawns with NO timeout — a first-run ONNX embed of a large wiki, or a huge repo walk, can
+# run arbitrarily long, past the 7200s SB_DRAIN_LOCK_STALE steal-threshold; the mkdir-lock
+# fallback (git-bash/macOS, no flock) then judges the still-live run stale, steals it, and
+# a DIFFERENT tick's cleanup trap removes the stealer's lock too — see lib.sh:2203 for the
+# batch half of this budget proof.
+# extract-drain.sh's mkdir-lock branch exports SB_BRAIN_OS_DEADLINE (absolute epoch, already
+# margined) when it acquired the lock; fall back to a fixed conservative per-pass cap when
+# unset (flock path — no steal risk — or a standalone/manual invocation).
+_sb_brainos_pass_budget() {  # _sb_brainos_pass_budget <default_s> — seconds this pass may run
+  local dflt="${1:-600}" now remaining
+  if [ -n "${SB_BRAIN_OS_DEADLINE:-}" ]; then
+    case "$SB_BRAIN_OS_DEADLINE" in
+      *[!0-9]*) : ;;
+      *)
+        now=$(date +%s)
+        remaining=$(( SB_BRAIN_OS_DEADLINE - now ))
+        [ "$remaining" -lt 5 ] && remaining=5   # never hand sb_timeout a non-positive/zero budget
+        [ "$remaining" -lt "$dflt" ] && dflt="$remaining"
+        ;;
+    esac
+  fi
+  printf '%s' "$dflt"
+}
+
 # 1. Deterministic upkeep (content-free, no credentials). Self-throttled internally.
 if [ "$(sb_config_bool .auto_improve on)" = "on" ]; then
   _pass maintain bash "$SDIR/maintain-deterministic.sh" >/dev/null 2>&1
@@ -61,9 +91,12 @@ if [ "$(sb_config_bool .auto_embed on)" = "on" ] && [ "${SECOND_BRAIN_DISABLE_EM
   if [ -d "$_KD/wiki" ] && [ -f "$_SEARCH_CLI" ] && command -v node >/dev/null 2>&1; then
     _EMB_SCRATCH="$BRAIN_DIR/scratch/embed-warm"
     mkdir -p "$_EMB_SCRATCH" 2>/dev/null
+    # D116: bounded — a first-run ONNX embed of a large wiki was previously unbounded,
+    # able to run past the drainer lock's staleness steal-threshold.
+    _EMB_BUDGET=$(_sb_brainos_pass_budget 600)
     _EMB_ERR=$(KNOWLEDGE_DIR="$_KD" SB_BRAIN_DIR="$_EMB_SCRATCH" \
-      node "$_SEARCH_CLI" "warm embedding pass" 2>&1 >/dev/null) || \
-      sb_log_error "brain-os" "embedding warm pass failed: ${_EMB_ERR:0:200}" 1
+      sb_timeout "$_EMB_BUDGET" node "$_SEARCH_CLI" "warm embedding pass" 2>&1 >/dev/null) || \
+      sb_log_error "brain-os" "embedding warm pass failed or exceeded ${_EMB_BUDGET}s: ${_EMB_ERR:0:200}" 1
   fi
 fi
 
@@ -94,7 +127,17 @@ if [ "$(sb_config_bool .auto_codemap on)" = "on" ]; then
     CM_REPO=$(jq -Rrs 'split("\n") | map(fromjson? | select(type=="object") | select(.root_path)) | max_by(.last_session_iso // "") | .root_path // empty' \
       "$BRAIN_DIR/projects.jsonl" 2>/dev/null | tr -d '\r')
   fi
-  if [ -n "$CM_REPO" ] && [ -d "$CM_REPO" ]; then
+  # D118: defense-in-depth — a registry row for $HOME/a bare temp root should never
+  # be written now (session-load.sh refuses it at registration time), but this also
+  # covers a pre-existing registry from before that fix, and an operator-set
+  # SB_CODEMAP_REPO pointed at one by mistake. Refusing here is what stops the
+  # whole-home-directory codemap crawl (a live 9.6MB graph.json full of AppData
+  # browser-extension bundles) at the actual point of the expensive walk.
+  CM_REFUSED=""
+  [ -n "$CM_REPO" ] && CM_REFUSED=$(sb_registration_refused_reason "$CM_REPO")
+  if [ -n "$CM_REFUSED" ]; then
+    sb_log_error "brain-os" "gate=registration refused $CM_REFUSED root=$CM_REPO (codemap target)" 0
+  elif [ -n "$CM_REPO" ] && [ -d "$CM_REPO" ]; then
     # Flat dist path — the bundle lives at dist/tools/ (NOT dist/tools/codemap/).
     CM_CLI="$(sb_plugin_root)/mcp/dist/tools/code-map-cli.bundle.js"
     if [ -f "$CM_CLI" ] && command -v node >/dev/null 2>&1; then
@@ -102,8 +145,11 @@ if [ "$(sb_config_bool .auto_codemap on)" = "on" ]; then
       # 'code-map: ERROR …' on stderr — so `|| log` alone is DEAD CODE for every failure it
       # can actually hit (an unwritable store would silently no-op forever). Capture stderr
       # and match the marker; `||` still covers node-binary/bundle-load crashes.
-      CM_ERR=$(CLAUDE_PROJECT_DIR="$CM_REPO" node "$CM_CLI" 2>&1 >/dev/null) || \
-        sb_log_error "brain-os" "codemap regen crashed for $CM_REPO: ${CM_ERR:0:200}" 1
+      # D116: bounded — a huge repo walk was previously unbounded (comment above even notes
+      # the CLI "always exits" but never bounds the WALK time itself).
+      CM_BUDGET=$(_sb_brainos_pass_budget 600)
+      CM_ERR=$(CLAUDE_PROJECT_DIR="$CM_REPO" sb_timeout "$CM_BUDGET" node "$CM_CLI" 2>&1 >/dev/null) || \
+        sb_log_error "brain-os" "codemap regen crashed or exceeded ${CM_BUDGET}s for $CM_REPO: ${CM_ERR:0:200}" 1
       case "$CM_ERR" in *"code-map: ERROR"*)
         sb_log_error "brain-os" "codemap regen failed for $CM_REPO: ${CM_ERR:0:200}" 1 ;;
       esac

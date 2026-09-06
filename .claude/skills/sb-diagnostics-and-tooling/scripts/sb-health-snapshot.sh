@@ -99,7 +99,13 @@ else
 fi
 AUD="$BRAIN_DIR/audit-log.jsonl"
 if [ -s "$AUD" ]; then
-  VT=$(jq -r 'select(.verdict != null) | .verdict' "$AUD" 2>/dev/null | sort | uniq -c | awk '{printf "%s=%s ", $2, $1}')
+  # D159: `jq -r 'select(...)' "$AUD"` (no `-R`) parses the file as a JSON stream and
+  # aborts at the first torn/unparseable line (a concurrent-append tear, see D120),
+  # under-reporting the verdict mix by up to ~20x. `-R … fromjson?` skips only the bad
+  # line; log the tear once (not per skipped row).
+  AUD_TORN=$(sb_count_torn_lines "$AUD")
+  [ "${AUD_TORN:-0}" -gt 0 ] && sb_log_error "sb-health-snapshot.sh" "audit-log: skipped $AUD_TORN torn line(s)" 0
+  VT=$(jq -Rr 'fromjson? | select(.verdict != null) | .verdict' "$AUD" 2>/dev/null | sort | uniq -c | awk '{printf "%s=%s ", $2, $1}')
   # grep -c prints the count AND exits 1 on zero matches — never `|| echo 0` inside $() (double-print).
   LAT=$(grep -c '"kind":"latency"' "$AUD" 2>/dev/null); case "$LAT" in ''|*[!0-9]*) LAT=0 ;; esac
   BW=$(grep -c '"budget_warn":true' "$AUD" 2>/dev/null); case "$BW" in ''|*[!0-9]*) BW=0 ;; esac

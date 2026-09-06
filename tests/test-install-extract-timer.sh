@@ -244,6 +244,52 @@ if OUT19=$(PATH="$FS:$PATH" SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR19" bas
   || no "windows: --apply masked a schtasks failure (rc=$RC19)"
 printf '%s' "$OUT19" | grep -qi '^applied' && no "windows: printed 'applied' despite schtasks failing" || ok "windows: did NOT print 'applied' on schtasks failure"
 
+# Test 20 (D105): schtasks' own /Create defaults disallow starting on battery and stop the
+# task if power switches to battery mid-run (verified live: `schtasks /Query .../FO LIST /V`
+# shows "Power Management: Stop On Battery Mode, No Start On Batteries"). /Change cannot
+# alter this after the fact, so --apply does a best-effort export -> patch -> re-import XML
+# round trip. A smarter stub (unlike the blanket exit-0 stub above) answers /Query /XML with
+# a minimal real task-export shape so the SUCCESS path (not just the graceful-failure path
+# every earlier test already exercises via the blanket stub) is actually locked here.
+BR20="$SANDBOX/brain20"; SS20="$SANDBOX/smartstub20"; mkdir -p "$SS20" "$BR20"
+cat > "$SS20/schtasks" <<'STUBSH'
+#!/bin/sh
+case " $* " in
+  *" /Query "*)
+    cat <<'XML'
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Settings>
+    <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+  </Settings>
+  <Triggers>
+    <TimeTrigger><Repetition><Interval>PT30M</Interval></Repetition></TimeTrigger>
+  </Triggers>
+</Task>
+XML
+    exit 0 ;;
+  *) exit 0 ;;
+esac
+STUBSH
+chmod +x "$SS20/schtasks"
+OUT20=$(PATH="$SS20:$PATH" SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR20" bash "$INSTALL" --apply 2>&1)
+printf '%s' "$OUT20" | grep -qi 'applied:' || no "D105 setup: --apply did not report success against the smart stub (got: $OUT20)"
+printf '%s' "$OUT20" | grep -qi 'Power:.*battery too' \
+  && ok "D105: a task whose exported XML shows battery restrictions gets them patched to false (reported)" \
+  || no "D105: no confirmation that battery power settings were updated (got: $OUT20)"
+
+# Test 21 (D105): when the export/patch/reimport round trip cannot succeed (e.g. the plain
+# blanket exit-0 stub, which answers /Query with no XML at all), --apply must still succeed
+# overall (the core task is already installed via the flag-based /Create above) and say so
+# rather than silently pretending the power settings were fixed.
+BR21="$SANDBOX/brain21"
+OUT21=$(SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR21" bash "$INSTALL" --apply 2>&1)
+printf '%s' "$OUT21" | grep -qi 'applied:' || no "D105: --apply still failed overall when the power-settings step can't run"
+printf '%s' "$OUT21" | grep -qi 'Power: could not update' \
+  && ok "D105: honestly reports when battery power settings could not be updated (never silently claims success)" \
+  || no "D105: no honest fallback message when the power round trip has nothing to work with"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

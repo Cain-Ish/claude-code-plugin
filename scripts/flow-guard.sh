@@ -81,9 +81,14 @@ esac
 # `http` but the keyword match is bounded — keeping only `httpie` is the
 # conservative choice (the few power-users running httpie can disable the
 # guard or use curl).
+# D103: git/gh/python/node/aws/openssl added — the two most realistic egress
+# shapes this guard missed were `git push` with an embedded token (github-pat
+# pattern already matches; only the gate keyword was missing) and a script
+# runtime (python/node) POSTing a secret. A plain `git status`/`python -m x`
+# never trips the guard — the credential-pattern scan below still has to match.
 if [ "$TOOL" = "Bash" ]; then
   if ! printf '%s' "$HAYSTACK" \
-    | grep -qE '(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp)([^A-Za-z_]|$)'; then
+    | grep -qE '(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl)([^A-Za-z_]|$)'; then
     exit 0
   fi
 fi
@@ -117,6 +122,11 @@ scan "openai-key"     'sk-(proj-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{40,})'
 scan "slack-token"    'xox[abprs]-[A-Za-z0-9-]{10,}'
 scan "pem-private"    'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
 scan "bearer-blob"    '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
+# D103: credential-shaped FILE upload via curl/httpie's `@path` syntax (-d @file,
+# -F field=@file). No secret VALUE appears in the command text here — only a
+# path naming a known credential file — so this needs its own pattern rather
+# than reusing the literal-secret scans above.
+scan "credential-file-upload" '@[^[:space:]]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
 
 [ -z "$MATCHED_LABELS" ] && exit 0
 

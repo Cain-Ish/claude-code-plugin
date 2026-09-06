@@ -204,7 +204,7 @@ registerJsonTool(
 
 registerJsonTool(
   "knowledge_reindex",
-  "Regenerate wiki/index.md — a master catalog of all wiki pages with titles, descriptions, and category counts. Call after wiki writes or when index.md is stale.",
+  "Regenerate wiki/index.md — a master catalog of all wiki pages with titles, descriptions, and category counts. Call after wiki writes or when index.md is stale. Also unconditionally runs knowledge_validate with autofix:true (DELETES empty pages, rewrites/normalizes/patches frontmatter) — there is no opt-out; this bypasses knowledge_validate's own report-only default.",
   {},
   async () => {
     const result = await knowledgeReindex(KNOWLEDGE_DIR);

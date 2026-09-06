@@ -21,6 +21,13 @@ command -v jq >/dev/null 2>&1 || exit 0
 if [ "$(sb_config_bool .retention.embeddings_cache_gc on)" = "on" ]; then
   CACHE="$BRAIN_DIR/transcripts/.embeddings-cache.json"
   IDX="$BRAIN_DIR/episodic-index.json"
+  # D159: log loudly (not just skip) when BOTH files exist but one is unparseable — a
+  # torn/truncated write, not the ordinary "no index/cache yet" case — so a corrupt
+  # episodic-index.json is visible in error-log.jsonl instead of reading identically to
+  # "nothing to prune this run".
+  if [ -f "$CACHE" ] && [ -f "$IDX" ] && { ! jq -e . "$CACHE" >/dev/null 2>&1 || ! jq -e . "$IDX" >/dev/null 2>&1; }; then
+    sb_log_error "sb-prune-archives.sh" "embeddings-cache GC skipped: $CACHE or $IDX is present but unparseable (torn/truncated write) — cache left untouched" 0
+  fi
   if [ -f "$CACHE" ] && [ -f "$IDX" ] && jq -e . "$CACHE" >/dev/null 2>&1 && jq -e . "$IDX" >/dev/null 2>&1; then
     # SAFETY: skip when the index has 0 live exchanges. The index is legitimately empty/
     # partial mid-rebuild (the degraded-embeddings banner tells users to remove + re-index
@@ -29,6 +36,11 @@ if [ "$(sb_config_bool .retention.embeddings_cache_gc on)" = "on" ]; then
     LIVE_N=$(jq -r '(.exchanges // []) | length' "$IDX" 2>/dev/null); case "$LIVE_N" in ''|*[!0-9]*) LIVE_N=0 ;; esac
     if [ "$LIVE_N" -gt 0 ]; then
       _tmp=$(mktemp)
+      # D159: `--slurpfile` re-reads $IDX here (a second read after the `jq -e .` gate
+      # above) — a concurrent rewrite of episodic-index.json in that TOCTOU gap can make
+      # THIS read fail even though the gate passed. A silent failure here already skips
+      # the GC (safe — nothing gets deleted), but silently: log it loudly so a torn index
+      # is visible instead of indistinguishable from "nothing to prune this run".
       if jq --slurpfile idx "$IDX" '
             ($idx[0].exchanges // [] | map({key: ("episodic:" + .id), value: true}) | from_entries) as $live
             | .entries |= with_entries(select((.key | startswith("episodic:") | not) or ($live[.key] == true)))
@@ -36,6 +48,7 @@ if [ "$(sb_config_bool .retention.embeddings_cache_gc on)" = "on" ]; then
         mv "$_tmp" "$CACHE"
       else
         rm -f "$_tmp"
+        sb_log_error "sb-prune-archives.sh" "embeddings-cache GC skipped: --slurpfile could not read $IDX (torn/concurrent rewrite?) — cache left untouched" 0
       fi
     fi
   fi

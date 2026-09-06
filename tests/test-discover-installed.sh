@@ -36,7 +36,7 @@ mkplugin() {
   jq -nc --arg n "$name" --arg v "$ver" \
     '{name:$n, description:("desc for " + $n), version:$v}' > "$d/.claude-plugin/plugin.json"
   local i
-  for i in $(seq 1 "$na"); do
+  for (( i=1; i<=na; i++ )); do   # not `seq 1 "$na"`: BSD seq counts DOWN from 1 to 0 (issue #101)
     if [ -n "$crlf" ]; then
       printf -- '---\r\nname: %s-agent-%s\r\ndescription: agent %s of %s\r\n---\r\n\r\nbody\r\n' \
         "$name" "$i" "$i" "$name" > "$d/agents/a$i.md"
@@ -45,7 +45,7 @@ mkplugin() {
         "$name" "$i" "$i" "$name" > "$d/agents/a$i.md"
     fi
   done
-  for i in $(seq 1 "$ns"); do
+  for (( i=1; i<=ns; i++ )); do
     mkdir -p "$d/skills/s$i"
     printf -- '---\nname: %s-skill-%s\ndescription: skill %s of %s\n---\n\nbody\n' \
       "$name" "$i" "$i" "$name" > "$d/skills/s$i/SKILL.md"

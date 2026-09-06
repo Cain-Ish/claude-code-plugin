@@ -18,7 +18,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { basename, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -28,6 +28,7 @@ const execFileAsync = promisify(execFile);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = join(HERE, '..', '..', '..', 'dist', 'tools', 'code-map-cli.bundle.js');
+const FIXTURES = join(HERE, '__fixtures__');
 
 /** Env vars that would leak the developer's real brain/repo into the run. */
 const ENV_CLEAR = [
@@ -201,5 +202,39 @@ describe('code-map-cli bundle (end to end)', () => {
     expect(stderr.length).toBeGreaterThan(0);
     expect(stderr).toContain('code-map:');
     expect(existsSync(join(brain, 'projects'))).toBe(false);
+  }, 30_000);
+
+  // --- D039: refuse to map a root that is not a recognizable project ---
+
+  it('refuses a nogit temp root with no workspace manifest, exit 0, writes no store', async () => {
+    const repo = tempDir('sb-codemap-cli-repo-');
+    const brain = tempDir('sb-codemap-cli-brain-');
+    writeFileSync(join(repo, 'scratch.ts'), 'export const s = 1;\n'); // no .git, no manifest
+    const { stderr } = await runCli([], cliEnv(repo, brain));
+    expect(stderr).toContain('code-map:');
+    expect(stderr).toMatch(/temp/i);
+    expect(existsSync(storeDir(brain, repo))).toBe(false);
+  }, 30_000);
+
+  // --- D037: absolute in-repo Python imports + tsconfig @/* aliases ---
+
+  it('resolves absolute python imports and tsconfig @/* aliases into graph edges with non-uniform ranks', async () => {
+    const repo = tempDir('sb-codemap-cli-repo-');
+    const brain = tempDir('sb-codemap-cli-brain-');
+    // Merges pkg/ (py-abs-import) and tsconfig.json + src/ (ts-alias) into the
+    // repo root -- tsconfig discovery is root-level only (read once per scan).
+    cpSync(join(FIXTURES, 'py-abs-import'), repo, { recursive: true });
+    cpSync(join(FIXTURES, 'ts-alias'), repo, { recursive: true });
+    git(repo, 'init', '--quiet');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '--quiet', '-m', 'initial');
+    const { stderr } = await runCli([], cliEnv(repo, brain));
+    expect(stderr).not.toContain('ERROR');
+    const graph = readStoredGraph(brain, repo);
+    expect(graph.edges.length).toBeGreaterThan(0);
+    expect(graph.edges).toContainEqual({ from: 'pkg/main.py', to: 'pkg/sub.py', type: 'imports' });
+    expect(graph.edges).toContainEqual({ from: 'src/index.ts', to: 'src/util.ts', type: 'imports' });
+    const ranks = new Set(graph.files.map((f) => f.rank));
+    expect(ranks.size).toBeGreaterThan(1); // pagerank is non-uniform, not the 1/n degenerate case
   }, 30_000);
 });

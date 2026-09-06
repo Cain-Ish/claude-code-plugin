@@ -1,4 +1,10 @@
 #!/bin/bash
+# pins: SB_INTENT_SPINE — kill-switch test: asserts =off leaves the phase alone (Test 29)
+# pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 27)
+# pins: SB_RESOURCE_SCOPE — kill-switch test: asserts =off widens the default resource scope
+# pins: SB_RESOURCE_SCOPE_EXTRA — exercises the extra-scope allowlist directly — the value itself is the subject of that subtest
+# pins: SB_TOOL_SCOPE — kill-switch test: asserts =off (Test 16)
+# pins: SB_TOOL_SCOPE_EXTRA — exercises the extra-tool allowlist directly — the value itself is the subject of that subtest
 # Tests for scripts/persona-tool-guard.sh — Layer 3 PreToolUse hook.
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/persona-tool-guard.sh"
@@ -31,46 +37,82 @@ done
 pass "precedence: ask rules win over the 2>/dev/null advisory (no auto-allow via redirect)"
 rm -rf "$T1_BRAIN"
 
+# D219: tests 2-7 previously ran with no BRAIN_DIR override, so sb_log_audit
+# wrote every verdict to the MAINTAINER'S LIVE ~/.second-brain/audit-log.jsonl.
+# Sandbox them behind their own throwaway BRAIN_DIR like every other block in
+# this file already does.
+T27_BRAIN=$(mktemp -d)
+
 # Test 2: force-push to main → ask
-out=$(echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' | bash "$SCRIPT")
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"},"session_id":"t2"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "force-push-main should ask (got: $out)"
 pass "force-push-main asks"
 
-# Test 3: direct write to USER.md → ask
-out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/USER.md","content":"foo"}}' | bash "$SCRIPT")
+# Test 3: direct write to USER.md → ask. D218: assert the SPECIFIC rule fired
+# (warn-direct-write-hot-tier), not just "some ask rule matched" — a
+# tautological assertion would also pass if e.g. the self-edit rule matched
+# by accident, or if the rule engine picked the wrong verdict for the right
+# reason. Check the audit-log's "rule" field, the machine-readable record of
+# which rule actually decided.
+rm -f "$T27_BRAIN/audit-log.jsonl"
+# SB_RESOURCE_SCOPE=off: /x/... is outside the default resource-scope
+# allowlist ($CWD/$HOME/.second-brain/knowledge/tmp), so without this the
+# resource-scope guard asks FIRST for an unrelated reason and the assertion
+# below would never actually exercise warn-direct-write-hot-tier.
+out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/USER.md","content":"foo"},"session_id":"t3"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "write-USER.md should ask (got: $out)"
-pass "write-USER.md asks"
+grep -q '"rule":"warn-direct-write-hot-tier"' "$T27_BRAIN/audit-log.jsonl" \
+  || fail "write-USER.md should ask via warn-direct-write-hot-tier specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "write-USER.md asks via warn-direct-write-hot-tier"
 
 # Test 4: harmless ls → silent
-out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' | bash "$SCRIPT")
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"t4"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
 [ -z "$out" ] || fail "harmless Bash should be silent (got: $out)"
 pass "harmless Bash silent"
 
 # Test 5: kill switch
-out=$(SB_PERSONA_GATE=off bash -c "echo '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls 2>/dev/null\"}}' | '$SCRIPT'")
+out=$(SB_PERSONA_GATE=off BRAIN_DIR="$T27_BRAIN" bash -c "echo '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls 2>/dev/null\"}}' | '$SCRIPT'")
 [ -z "$out" ] || fail "SB_PERSONA_GATE=off should suppress output"
 pass "kill switch honored"
 
 # Test 6: rm -rf → ask
-out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/foo"}}' | bash "$SCRIPT")
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/foo"},"session_id":"t6"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "rm -rf should ask (got: $out)"
 pass "rm -rf asks"
 
 # --- v2.9.0 Phase 2: hook self-protection ---
 # Test 7: Edit to plugin script → ask (defends safety layer from
-# injection-driven self-disable).
-out=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/x/claude-code-plugin/scripts/lib.sh"}}' | bash "$SCRIPT")
+# injection-driven self-disable). D218: assert the specific self-edit rule,
+# not just any ask.
+# Both targets below are outside the default resource-scope allowlist;
+# SB_RESOURCE_SCOPE=off isolates the self-edit RULE being tested from the
+# (separately-tested) resource-scope guard, which would otherwise ask first.
+rm -f "$T27_BRAIN/audit-log.jsonl"
+out=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/x/claude-code-plugin/scripts/lib.sh"},"session_id":"t7a"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "Edit to plugin script should ask (got: $out)"
-pass "self-protection: plugin script edit asks"
+grep -q '"rule":"warn-self-edit-plugin-scripts-edit"' "$T27_BRAIN/audit-log.jsonl" \
+  || fail "plugin script edit should ask via warn-self-edit-plugin-scripts-edit specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "self-protection: plugin script edit asks via warn-self-edit-plugin-scripts-edit"
 
-out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/persona-rules.json","content":"{}"}}' | bash "$SCRIPT")
+rm -f "$T27_BRAIN/audit-log.jsonl"
+# persona-rules.default.json (not persona-rules.json): the plain filename also
+# matches warn-direct-write-hot-tier, which fires first (same "ask" rank, JSON
+# order wins ties) and would mask whether warn-self-edit-persona-rules itself
+# matched. The .default variant is covered ONLY by the self-edit rule.
+out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/persona-rules.default.json","content":"{}"},"session_id":"t7b"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
-  || fail "Write to persona-rules.json should ask (got: $out)"
-pass "self-protection: persona-rules edit asks"
+  || fail "Write to persona-rules.default.json should ask (got: $out)"
+grep -q '"rule":"warn-self-edit-persona-rules"' "$T27_BRAIN/audit-log.jsonl" \
+  || fail "persona-rules write should ask via warn-self-edit-persona-rules specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "self-protection: persona-rules edit asks via warn-self-edit-persona-rules"
+rm -rf "$T27_BRAIN"
 
 # --- v2.9.0 Phase 3: resource-scope guard ---
 # Set up an isolated brain dir so audit-log lands somewhere we can check.
@@ -479,5 +521,160 @@ pass "case-varied force-push asks"
 out=$(gv Write "README.md")
 [ -z "$out" ] || fail "ordinary in-repo write must stay silent after -i (got: $out)"
 pass "-i does not over-block ordinary writes"
+
+# --- D151: self-edit rule must match the INSTALLED plugin cache layout -------
+# <cache>/second-brain/second-brain/<version>/scripts/... — a version directory
+# sits between the plugin-name segment and scripts/hooks. The old regex
+# required them adjacent and silently missed the layout that actually runs.
+CACHE_BRAIN=$(mktemp -d)
+# SB_RESOURCE_SCOPE=off: the cache path is outside the default resource-scope
+# allowlist, which would ask FIRST for an unrelated reason and mask whether
+# the self-edit RULE regex actually matched — assert the specific rule below.
+out=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/u/.claude/plugins/cache/second-brain/second-brain/0.48.0/hooks/hooks.json"},"session_id":"d151"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$CACHE_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D151: installed cache-layout hooks.json edit should ask (got: $out)"
+grep -q '"rule":"warn-self-edit-plugin-scripts-edit"' "$CACHE_BRAIN/audit-log.jsonl" \
+  || fail "D151: should ask via warn-self-edit-plugin-scripts-edit specifically (audit-log: $(cat "$CACHE_BRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "D151: self-edit rule matches installed cache layout (version dir between plugin name and hooks/)"
+
+rm -f "$CACHE_BRAIN/audit-log.jsonl"
+out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/home/u/.claude/plugins/cache/second-brain/second-brain/0.48.0/scripts/persona-tool-guard.sh","content":"x"},"session_id":"d151b"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$CACHE_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D151: installed cache-layout scripts/*.sh edit should ask (got: $out)"
+grep -q '"rule":"warn-self-edit-plugin-scripts"' "$CACHE_BRAIN/audit-log.jsonl" \
+  || fail "D151: should ask via warn-self-edit-plugin-scripts specifically (audit-log: $(cat "$CACHE_BRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "D151: self-edit rule matches installed cache-layout scripts/ too"
+rm -rf "$CACHE_BRAIN"
+
+# --- D154: missing/empty/unparseable user persona-rules.json falls back to
+# persona-rules.default.json AND logs an sb_log_error row; verdicts still fire.
+D154_BRAIN=$(mktemp -d)
+mkdir -p "$D154_BRAIN"
+printf '{"rules":[' > "$D154_BRAIN/persona-rules.json"   # truncated/unparseable
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf / && git push --force origin main"},"session_id":"d154"}' \
+  | BRAIN_DIR="$D154_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D154: malformed user persona-rules.json must still fall back and ask (got: $out)"
+grep -q 'persona-rules.json' "$D154_BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "D154: malformed user persona-rules.json must log an sb_log_error row (error-log: $(cat "$D154_BRAIN/error-log.jsonl" 2>/dev/null))"
+pass "D154: malformed user persona-rules.json falls back to defaults and logs loudly"
+
+# Empty (0-byte) user file — same contract.
+rm -f "$D154_BRAIN/error-log.jsonl"
+: > "$D154_BRAIN/persona-rules.json"
+out=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/home/u/.aws/credentials"},"cwd":"/home/u/proj","session_id":"d154b"}' \
+  | BRAIN_DIR="$D154_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D154: empty user persona-rules.json must still fall back and ask (got: $out)"
+grep -q 'persona-rules.json' "$D154_BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "D154: empty user persona-rules.json must log an sb_log_error row"
+pass "D154: empty user persona-rules.json falls back to defaults and logs loudly"
+
+# D154 (review follow-up): well-formed JSON but `.rules` absent or an empty
+# array with NO learned rules either is "nothing to evaluate", not a
+# legitimate "user disabled every rule" signal — must also fall back.
+rm -f "$D154_BRAIN/error-log.jsonl"
+printf '{}' > "$D154_BRAIN/persona-rules.json"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf / && git push --force origin main"},"session_id":"d154c"}' \
+  | BRAIN_DIR="$D154_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D154: bare {} user persona-rules.json must fall back and ask (got: $out)"
+grep -q 'persona-rules.json' "$D154_BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "D154: bare {} user persona-rules.json must log an sb_log_error row"
+pass "D154: bare {} falls back to defaults and logs loudly"
+
+rm -f "$D154_BRAIN/error-log.jsonl"
+printf '{"rules":[]}' > "$D154_BRAIN/persona-rules.json"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf / && git push --force origin main"},"session_id":"d154d"}' \
+  | BRAIN_DIR="$D154_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D154: {\"rules\":[]} with no learned rules must fall back and ask (got: $out)"
+grep -q 'persona-rules.json' "$D154_BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "D154: {\"rules\":[]} must log an sb_log_error row"
+pass "D154: {\"rules\":[]} (no learned rules) falls back to defaults and logs loudly"
+
+# Companion case (must NOT regress): rules:[] alongside a NON-empty learned[]
+# is a legitimate sparse config (test 23 below relies on exactly this shape)
+# and must be honored as-is, not treated as invalid.
+rm -f "$D154_BRAIN/error-log.jsonl"
+cat > "$D154_BRAIN/persona-rules.json" <<'EOF'
+{"rules":[],"learned":[{"event":"bash","pattern":"npm install -g","action":"warn","message":"Learned: install project-local, not global."}]}
+EOF
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"npm install -g typescript"},"session_id":"d154e"}' \
+  | BRAIN_DIR="$D154_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("project-local")' >/dev/null \
+  || fail "D154: rules:[] with a non-empty learned[] must still be honored (got: $out)"
+[ -f "$D154_BRAIN/error-log.jsonl" ] && grep -q 'persona-rules.json' "$D154_BRAIN/error-log.jsonl" \
+  && fail "D154: rules:[]+learned[...] is valid — must NOT log a fallback error"
+pass "D154: rules:[] with non-empty learned[] is honored, not treated as invalid"
+rm -rf "$D154_BRAIN"
+
+# D154 (review follow-up): fail-SAFE, not fail-open — when the user file is
+# invalid AND the shipped default is unreachable, the guard must deny rather
+# than silently exit 0 (previously: no rules to evaluate = allow everything).
+# CLAUDE_PLUGIN_ROOT points at a fake root carrying a REAL lib.sh (so
+# sb_log_error keeps working and this isolates exactly "default missing")
+# but no persona-rules.default.json.
+D154F_BRAIN=$(mktemp -d)
+D154F_ROOT=$(mktemp -d)
+mkdir -p "$D154F_ROOT/scripts"
+cp "$(dirname "$SCRIPT")/lib.sh" "$D154F_ROOT/scripts/lib.sh"
+printf '{}' > "$D154F_BRAIN/persona-rules.json"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf / && git push --force origin main"},"session_id":"d154f"}' \
+  | BRAIN_DIR="$D154F_BRAIN" CLAUDE_PLUGIN_ROOT="$D154F_ROOT" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "D154: user invalid + default missing must DENY, not silently allow (got: $out)"
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | contains("rules unavailable")' >/dev/null \
+  || fail "D154: fail-safe deny must explain 'rules unavailable' (got: $out)"
+grep -q 'denying' "$D154F_BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "D154: fail-safe deny must be logged"
+pass "D154: user invalid + default missing -> fail-safe deny (not silent allow)"
+rm -rf "$D154F_BRAIN" "$D154F_ROOT"
+
+# --- D155: resource-scope allowlist must lexically collapse '..' before the
+# prefix match — a Read of "$CWD/../../../etc/shadow" must ASK, not silently
+# stay in scope.
+D155_BRAIN=$(mktemp -d)
+out=$(echo '{"tool_name":"Read","tool_input":{"file_path":"/home/u/proj/../../../etc/shadow"},"cwd":"/home/u/proj","session_id":"d155"}' \
+  | BRAIN_DIR="$D155_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D155: '..' traversal out of \$CWD must ask, not silently stay in scope (got: $out)"
+pass "D155: resource-scope collapses '..' before the prefix match"
+
+# In-scope path with a benign, fully-inside '..' must NOT be over-blocked.
+out=$(echo '{"tool_name":"Read","tool_input":{"file_path":"/home/u/proj/sub/../main.py"},"cwd":"/home/u/proj","session_id":"d155b"}' \
+  | BRAIN_DIR="$D155_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "D155: '..' collapsing to an in-scope path must not be over-blocked (got: $out)"
+pass "D155: '..' collapsing to an in-scope path stays silent"
+rm -rf "$D155_BRAIN"
+
+# --- D156: a rewrite rule whose REPLACEMENT is invalid for sed must fail to
+# ask, never emit permissionDecision:allow with an empty updatedInput.command.
+D156_BRAIN=$(mktemp -d)
+cat > "$D156_BRAIN/persona-rules.json" <<'EOF'
+{
+  "rules": [
+    {
+      "name": "bad-replace-rewrite",
+      "tool": "Bash",
+      "match_command": "foo",
+      "action": "rewrite",
+      "replace": "bar\\",
+      "reason": "test"
+    }
+  ]
+}
+EOF
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"echo foo"},"session_id":"d156"}' \
+  | BRAIN_DIR="$D156_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "D156: invalid sed replacement must fail to ask, not allow (got: $out)"
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.updatedInput == null' >/dev/null \
+  || fail "D156: invalid rewrite must never carry an updatedInput (got: $out)"
+pass "D156: rewrite rule with an unparseable replacement fails to ask, not allow+empty"
+rm -rf "$D156_BRAIN"
+
 echo
 echo "ALL PASS"

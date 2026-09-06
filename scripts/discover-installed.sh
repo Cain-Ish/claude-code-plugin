@@ -65,7 +65,12 @@ trap 'rm -f "$TMP_PLUGINS" "$TMP_AGENTS_RAW" "$TMP_SKILLS_RAW" "$TMP_AGENTS" "$T
 #     the body cannot resurrect parsing. The old per-key `exit` made that moot;
 #     batching means we must be explicit.
 #   - \037 is stripped from values so a hostile description cannot forge a field.
-FM_AWK=$(cat <<'AWKEOF'
+# Issue #100: NOT `FM_AWK=$(cat <<'AWKEOF' … )`. bash 3.2 (macOS /bin/bash) extracts a
+# $(...) body by naive quote scanning that ignores the heredoc boundary, so the lone `'`
+# inside the awk character class below swallowed the closing `)` and the whole script
+# failed to PARSE — the SessionStart hook was dead on every macOS install. `read -d ''`
+# needs no command substitution, so the 3.2 parser never scans the body.
+IFS= read -r -d '' FM_AWK <<'AWKEOF' || true
 function clean(v) {
   gsub(/\r/, "", v)
   gsub(/\037/, "", v)
@@ -88,7 +93,6 @@ fence == 1 {
 }
 END { emit() }
 AWKEOF
-)
 
 if [ -d "$PLUGINS_ROOT" ]; then
   while IFS= read -r pj; do

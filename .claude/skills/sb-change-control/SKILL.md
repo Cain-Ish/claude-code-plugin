@@ -84,14 +84,14 @@ Governance section. Do not re-open.
 
 ## 2. The surface budget — AT CAP (bump-with-justification required)
 
-As of 0.45.0 (2026-08-21) the budget and the live counts are EQUAL on all four axes:
+As of 0.49.0 (re-verified 2026-09-05) the budget and the live counts are EQUAL on all four axes:
 
 ```json
-{ "skills": 17, "agents": 4, "scripts": 53, "tests": 160, "upgrade_skill_max_bytes": 8192 }
+{ "skills": 16, "agents": 4, "scripts": 53, "tests": 162, "upgrade_skill_max_bytes": 8192 }
 ```
 
-Verified live: `skills` dirs 17, `agents/*.md` 4, `scripts/*.sh` (top-level) 53,
-`tests/test-*.sh` (top-level) 160, `skills/upgrade/SKILL.md` 4561 B. Consequence: ANY new
+Verified live: `skills` dirs 16, `agents/*.md` 4, `scripts/*.sh` (top-level) 53,
+`tests/test-*.sh` (top-level) 162, `skills/upgrade/SKILL.md` 4561 B. Consequence: ANY new
 top-level file in `skills/`, `agents/`, `scripts/`, or a new `tests/test-*.sh` makes
 `validate-plugin.sh` FAIL ("surface budget exceeded — …") unless `.claude-plugin/surface-budget.json`
 is bumped IN THE SAME COMMIT. That is by design: "Growth must be a deliberate, git-blameable
@@ -164,7 +164,7 @@ repo root; all commands are git-bash/Linux/macOS-safe:
 | 4 | Shell suite | `bash tests/run-all.sh` (CI-equivalent when vitest already ran: `SB_RUN_ALL_VITEST=0 bash tests/run-all.sh`) | exit 0 + `ALL GREEN` is the release contract; suite mechanics owned by sb-validation-and-qa |
 | 5 | Plugin validator | `bash scripts/validate-plugin.sh` | manifests, hooks.json shape, SKILL.md frontmatter (SKAG-6), version drift, SURFACE BUDGET, mcp.json path form |
 | 6 | Version tripwire | `bash tests/test-release-version-bump.sh` | shipped source changed but version not strictly bumped vs `origin/main` (needs `origin/main` fetched, or set `SB_RELEASE_BASE_REF`) |
-| 7 | Portability guards | `bash tests/test-script-portability.sh` | a bash-4-ism / GNU-only construct in `scripts/` (11 static checks — details owned by sb-validation-and-qa) |
+| 7 | Portability guards | `bash tests/test-script-portability.sh` | a bash-4-ism / GNU-only construct in `scripts/` (13 static checks as of 2026-09-05 — details owned by sb-validation-and-qa) |
 
 Wrappers: `make test` = gate 4 incl. vitest; `make release-check` = vector-deps import smoke +
 full suite; `make hook-install` wires `.githooks/pre-push` to re-run the suite on every push.
@@ -185,21 +185,22 @@ the release done. Subagent verification on Windows alone has missed BSD/Linux CI
 
 ## 5. Branch policy
 
-Three delivery eras (from `git log`):
+Four delivery eras (from `git log`; corrected 2026-09-05 — the "direct-to-main since 0.33.17" era
+below never actually closed out the PR requirement, it just had a lull):
 
 1. 2026-04-24 → 05-25 — direct-to-main with occasional PRs (#1–#5).
 2. 2026-05-26 → 06-24 — PR-per-release era (PRs #6–#83; branch names like
-   `feat/0.29.0-surface-collapse-and-cap`). Last PR: #83, squashed as `f4856e5` (0.33.16,
-   2026-06-24).
-3. Since 0.33.17 (2026-06-26) — releases land DIRECTLY on `main` as version-locked batches.
-   Verified: zero `Merge pull request` commits after `f4856e5`.
+   `feat/0.29.0-surface-collapse-and-cap`). Last PR before the lull: #83, squashed as `f4856e5`
+   (0.33.16, 2026-06-24).
+3. 2026-06-26 → 07-23 — a direct-to-main lull (no merge commits landed in this window).
+4. Since RELEASING.md's 2026-07-24 amendment — **current policy: every release lands via a PR**,
+   gated on `tests/run-all.sh` green locally AND the `ci` workflow green server-side (RELEASING.md
+   "Tag contract amendment"). Verified 2026-09-05: 15 `Merge pull request` commits land between
+   `f4856e5` and HEAD (PRs up to #102), and HEAD itself is typically a merge commit.
 
-Current policy: work directly on `main`; intermediate commits (feat/fix/test/docs) may land
-between releases, but every release commit stamps the lockstep set (§3) and its body attests
-the gates. Feature branches still appear for large staged work — clean up when merged
-(the one stale local branch, `fix/home-cwd-relative-brain-dir`, is patch-identical to main's
-`788f193` and safe to delete). If the repo returns to PRs, CI's tripwire compares against the
-PR base branch automatically (`SB_RELEASE_BASE_REF` from `github.base_ref`).
+Work on a feature/fix branch and open a PR; do not push release commits straight to `main`. CI's
+version-bump tripwire compares against the PR base branch automatically (`SB_RELEASE_BASE_REF`
+from `github.base_ref`).
 
 ## 6. Commit message conventions
 
@@ -259,7 +260,7 @@ green gates.
 | # | Rule | The incident behind it | Machine enforcement |
 |---|---|---|---|
 | 1 | **Fail LOUD everywhere — EXCEPT PreToolUse guards, which fail SAFE.** Errors route through `sb_log_error` (lib.sh); no `2>/dev/null` silent-exit patterns. But the three PreToolUse guards (`symlink-guard.sh`, `persona-tool-guard.sh`, `wiki-write-guard.sh`) always exit 0, convey verdicts via hookSpecificOutput JSON, and must STAY ARMED (emit deny) even when helpers/lib.sh are missing. No single doc states this split — it is enforced by history. | Swallowed tar stderr "hid this bug for several releases" (0.33.10 dream_accept); conversely a crashing guard would block every session, so guards fail-soft on their own errors but fail-CLOSED on missing tools (0.24.4: symlink-guard denies when `realpath` is absent) | Guard tests assert the inline-fallback deny with lib.sh unsourceable (`tests/test-symlink-guard.sh:249-264`); plans restate "Fail loud, never silent" as a Global Constraint |
-| 2 | **Cross-platform bash: macOS bash 3.2 + BSD coreutils + git-bash/MSYS + Linux.** No `mapfile`, `declare -A`, `${x^^}`, `grep -P`, GNU `date -d` without a BSD fallback, no `case` inside `$(...)`, no GNU regex escapes (`\b \w \s \d`) in sed/grep, no `awk -v` for backslash data. | 0.24.33: a `case` in a comsub was a LOAD-TIME parse error on bash 3.2 — every macOS `dream_accept` broke; parses fine on bash 4+, so it shipped through green Linux CI. 0.28.2: GNU-only escapes silently matched NOTHING on BSD | `tests/test-script-portability.sh` (11 static checks over `scripts/`) + the macOS CI job on real `/bin/bash` 3.2 |
+| 2 | **Cross-platform bash: macOS bash 3.2 + BSD coreutils + git-bash/MSYS + Linux.** No `mapfile`, `declare -A`, `${x^^}`, `grep -P`, GNU `date -d` without a BSD fallback, no `case` inside `$(...)`, no GNU regex escapes (`\b \w \s \d`) in sed/grep, no `awk -v` for backslash data. | 0.24.33: a `case` in a comsub was a LOAD-TIME parse error on bash 3.2 — every macOS `dream_accept` broke; parses fine on bash 4+, so it shipped through green Linux CI. 0.28.2: GNU-only escapes silently matched NOTHING on BSD | `tests/test-script-portability.sh` (13 static checks over `scripts/` as of 2026-09-05, count drifts — re-verify with `grep -cE '^# [0-9]+\.' tests/test-script-portability.sh`) + the macOS CI job on real `/bin/bash` 3.2 |
 | 3 | **No native (node-gyp) dependencies.** Pure-JS default; heavy deps only as an opt-in vetted tier (the vector-deps pattern: staged install, graceful degrade, junction links). | The vector-deps saga: 4.7 GB cache (0.20.0), installer that could destroy a working install (0.20.1); CONSTITUTION.md hard constraint 3; P3a plan explicitly REJECTS node-tree-sitter for this reason | Constitution + plan fences; no automated gate — reviewers block it (flag any new `dependencies` entry in `mcp/package.json`) |
 | 4 | **jq discipline: `-c` for anything line-oriented; `tr -d '\r'` after every `jq -r` capture.** Windows git-bash jq 1.8.1 emits CRLF even on clean LF input and pretty-prints by default. | 0.30.1: 121 CR-contaminated `$(jq -r …)` captures across 29 scripts (config booleans read as `"true\r"`); 0.33.31: `jq` without `-c` pretty-printed projects.jsonl records across ~8 lines → the MCP registry reader went blind EVERY session | `tests/test-jq-crlf-windows.sh` (Windows-jq stub on Linux CI); the projects.jsonl membership test asserts one-compact-object-per-line |
 | 5 | **Never `ln -s` a directory on MSYS; use `fs.symlinkSync(target, link, "junction")` from node.** On git-bash, `ln -s` silently DEEP-COPIES. | 0.33.7: each plugin upgrade "linked" ~490 MB of vector deps by full copy — 3.1 GB cache; the capability-gated test SKIPPED on exactly the platform with the bug | Structural guard against reverting to a deep-copying `ln -s` (0.33.7, T11); junction-mechanism probe in the test |
@@ -316,10 +317,10 @@ Volatile facts — re-verify before trusting:
 
 ```bash
 jq -r .version .claude-plugin/plugin.json                      # current version (was 0.33.31)
-cat .claude-plugin/surface-budget.json                                    # budget caps (were 18/9/52/153/8192)
+cat .claude-plugin/surface-budget.json                                    # budget caps (re-verified 2026-09-05: 16/4/53/162/8192)
 echo "skills:$(find skills -mindepth 1 -maxdepth 1 -type d|wc -l) agents:$(find agents -maxdepth 1 -name '*.md'|wc -l) scripts:$(find scripts -maxdepth 1 -name '*.sh'|wc -l) tests:$(find tests -maxdepth 1 -name 'test-*.sh'|wc -l)"  # live counts vs caps (were AT CAP)
 git log -1 --format=%B $(git log --format=%h --grep='^release:' -1)  # latest release body = current gates line
-git log --oneline --grep="Merge pull request" -1               # branch policy still direct-on-main? (was #82 last merge-commit; #83 squashed)
+git log --oneline --grep="Merge pull request" -1               # branch policy is PR-merge-gated since 2026-07-24 (re-verified 2026-09-05: #102 last merge commit)
 grep -n 'TRIGGERS=' tests/test-release-version-bump.sh         # tripwire trigger list
 ls skills/upgrade/migrations/ | wc -l                          # migration-file count (was 18)
 grep -n 'validate-plugin.sh' CONSTITUTION.md                   # budget gate ref (must NOT say test-surface-budget)

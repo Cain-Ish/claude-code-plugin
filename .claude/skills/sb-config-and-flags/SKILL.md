@@ -2,7 +2,8 @@
 name: sb-config-and-flags
 description: >-
   Configuration reference for the second-brain plugin repo: every configuration axis — the
-  SB_* environment variables (~187), ~/.second-brain/config.json keys, plugin.json userConfig,
+  SB_* environment variables (~249, re-verify via §10 — this count drifts every release),
+  ~/.second-brain/config.json keys, plugin.json userConfig,
   persona-rules.json, and the env > config.json > hard-default precedence model. Load it when the
   task involves: disabling/enabling a guard, banner, nudge, or pipeline (kill switches); finding a
   flag's default, definition site, or test coverage; changing where the brain/knowledge dirs live;
@@ -17,7 +18,9 @@ description: >-
 
 Everything configurable in this repo, how precedence resolves, and how to add a flag without
 tripping the gates. Facts verified against the working tree at plugin version 0.33.31
-(uncommitted release batch) on 2026-07-05. Counts are volatile — re-verify with §10.
+(uncommitted release batch) on 2026-07-05; the flag census and the auto_codemap citation were
+re-verified 2026-09-05 at 0.49.0 and had drifted (§3, flag-catalog.md). Counts are volatile —
+re-verify with §10.
 
 Term sheet (defined once, used throughout):
 
@@ -123,17 +126,19 @@ Every key consumed in live code (grep in §10; verified 2026-07-05):
 | `auto_improve` | `true` | brain-os-run.sh (deterministic pass); session-load.sh:600 | Free + offline deterministic upkeep (validate + reindex wiki) on the drainer timer. `false` + raw backlog ≥ threshold → autoconsolidate nudge banner. |
 | `auto_maintain` | `true` (on since 0.30.0) | brain-os-run.sh (consolidate pass); maintain-llm-drain.sh:26 | The consolidation lane: quarantined zero-tool Stage A summarizer → deterministic netless Stage B writer. READS YOUR CLAUDE OAUTH + SPENDS TOKENS (ensure-dirs.sh). **Cross-platform since 0.41.x — bubblewrap is now ADDITIVE Linux defense, no longer a gate, so this lane RUNS on Windows/macOS too** (previously a documented no-op there). Stage B preconditions (node + the writer bundle) are checked before staging. Quarantine marker: `~/.second-brain/.llm-maintain-quarantine`. What reaches the live wiki is governed by `auto_accept` + the held-untrusted gate. |
 | `auto_accept` | `"safe"` | maintain-llm-drain.sh:257 → `sb_auto_accept_decision` (lib.sh:409) | `safe` = auto-accept only LOW-RISK dream changes: sets `SB_DREAM_ACCEPT_NO_DELETE=1` (dream-accept.sh:117 comment) and leaves FORGET-proposing dreams for manual review. `off` = always manual. `"all"` = accept everything (documented in the seed comment as "too aggressive", not the default). |
-| `auto_codemap` | NOT seeded — hard default `on` at the consumer | extract-drain.sh:368 | Out-of-band code-map regen (P3a Task C2) inside the drainer's single-flight lock: runs `mcp/dist/tools/code-map-cli.bundle.js` (source `mcp/src/tools/codemap/`) against `SB_CODEMAP_REPO` or the newest registry `root_path`; the CLI self-gates on git-rev drift. `false` = kill switch. |
+| `auto_codemap` | NOT seeded — hard default `on` at the consumer | brain-os-run.sh:83 (dispatched from extract-drain.sh's brain-os-run.sh call, not read there directly) | Out-of-band code-map regen (P3a Task C2) inside the drainer's single-flight lock: runs `mcp/dist/tools/code-map-cli.bundle.js` (source `mcp/src/tools/codemap/`) against `SB_CODEMAP_REPO` or the newest registry `root_path`; the CLI self-gates on git-rev drift. `false` = kill switch. |
 | `retention.dream_keep_count` | `5` | dream-snapshot.sh:77 (env `SB_DREAM_KEEP_COUNT` wins) | Dream snapshots retained — the ONLY layered knob (§1.1). |
 | `retention.bak_ttl_days` | `14` | sb-prune-archives.sh:46 (validate-or-default) | Backup TTL days. |
 | `retention.embeddings_cache_gc` | `true` | sb-prune-archives.sh:21 | Embeddings-cache GC on/off. |
 | `retention.wiki_archive_ttl_days` | `0` (= NEVER) | seeded + asserted by test-config-reader.sh:47; NO live code consumer found (grep 2026-07-05) | Reserved: TTL for the FORGET archive. 0 keeps the irreversible store off. |
 
 **`auto_codemap` is LIVE** (P3a Task C2, shipped 0.33.33+). Definition site + default:
-`sb_config_bool .auto_codemap on` at `scripts/extract-drain.sh:368` — hard default `on`,
-deliberately NOT seeded into config.json. Consumer: the drainer's code-map regen block
-(extract-drain.sh:363-399), which drives the `mcp/src/tools/codemap/` implementation via the
-committed CLI bundle. Kill switch exercised by `tests/test-extract-drain.sh:385-389`.
+`sb_config_bool .auto_codemap on` at `scripts/brain-os-run.sh:83` — hard default `on`,
+deliberately NOT seeded into config.json. The pass moved off `extract-drain.sh` at the 0.41.0
+engine-seam refactor (§3.8 in sb-architecture-contract); `extract-drain.sh` only dispatches to
+`brain-os-run.sh` (:288,:474), which drives the `mcp/src/tools/codemap/` implementation via the
+committed CLI bundle. Kill switch exercised end-to-end (through that dispatch) by
+`tests/test-extract-drain.sh:393-397`.
 
 Reader tested by `tests/test-config-reader.sh`; the CRLF hazard by `tests/test-jq-crlf-windows.sh`.
 
@@ -337,7 +342,7 @@ jq -r '.. | ._comment? // empty' hooks/hooks.json | grep -oE 'SB_[A-Z0-9_]+' | s
 # userConfig + persona-rules shipped defaults (expect tool_scope=false, resource_scope=true)
 jq .userConfig .claude-plugin/plugin.json
 jq '{tool_scope: .tool_scope.enabled, resource_scope: .resource_scope.enabled}' scripts/persona-rules.default.json
-# config.json seed + auto_codemap liveness (expect: consumer extract-drain.sh:368 + kill-switch test test-extract-drain.sh:385-389)
+# config.json seed + auto_codemap liveness (expect: consumer brain-os-run.sh:83 + kill-switch test test-extract-drain.sh:393-397)
 sed -n '29,41p' scripts/ensure-dirs.sh; grep -rn 'auto_codemap' scripts tests skills agents mcp/src hooks bin
 ```
 

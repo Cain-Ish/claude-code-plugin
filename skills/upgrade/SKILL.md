@@ -3,7 +3,7 @@ name: upgrade
 description: Bring an installed second-brain plugin up to date with the current release. Use after pulling a new plugin version. Safe to run anytime — idempotent, no-op when already at the current version.
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Read Write Edit Bash(cat *) Bash(jq *) Bash(test *) Bash(date *) Bash(grep *) Bash(awk *) Bash(ls *) Bash(cp *) Bash(mv *) Bash(mkdir *) Bash(node *) Bash(cd *) Bash(bash *)
+allowed-tools: Read Write Edit Bash(cat *) Bash(jq *) Bash(test *) Bash(date *) Bash(grep *) Bash(awk *) Bash(ls *) Bash(cp *) Bash(mv *) Bash(mkdir *) Bash(node *) Bash(cd *) Bash(bash *) Bash(sort *) Bash(tail *)
 ---
 
 # Plugin Upgrade
@@ -30,7 +30,8 @@ echo "Installed: $INSTALLED -> Current: $CURRENT"
 ### 2. Decide what to do
 
 Compare versions SEMVER-style, never lexicographically (string compare says
-`0.24.9 > 0.24.18`!) — e.g. `[ "$(printf '%s\n' "$INSTALLED" "$CURRENT" | sort -V | tail -1)" = "$CURRENT" ]`:
+`0.24.9 > 0.24.18`!). BSD/macOS `sort` has no `-V` — always fall back:
+`[ "$(printf '%s\n' "$INSTALLED" "$CURRENT" | { sort -V 2>/dev/null || sort -t. -k1,1n -k2,2n -k3,3n; } | tail -1)" = "$CURRENT" ]`:
 
 - If `$INSTALLED == $CURRENT` -> step 4b (health check) then exit "already up to date"
 - If `$INSTALLED` semver-older than `$CURRENT` -> walk migrations between them (step 3)
@@ -42,10 +43,10 @@ Compare versions SEMVER-style, never lexicographically (string compare says
 
 List `${CLAUDE_PLUGIN_ROOT}/skills/upgrade/migrations/` and Read ONLY the
 files whose `<version>.md` name satisfies `> $INSTALLED AND <= $CURRENT`
-(semver-style comparison, e.g. via `sort -V`):
+(semver-style comparison; BSD/macOS `sort` has no `-V`, so always fall back):
 
 ```bash
-ls "${CLAUDE_PLUGIN_ROOT}/skills/upgrade/migrations/" | sort -V
+ls "${CLAUDE_PLUGIN_ROOT}/skills/upgrade/migrations/" | { sort -V 2>/dev/null || sort -t. -k1,1n -k2,2n -k3,3n; }
 ```
 
 Versions in range with no file need nothing beyond the marker bump.

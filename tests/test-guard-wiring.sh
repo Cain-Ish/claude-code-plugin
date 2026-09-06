@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_QUALITY_GATE — kill-switch test: asserts =off yields no envelope (D077)
 # Behavioral guard (NOT a presence-grep): each PreToolUse safety guard must actually be REGISTERED
 # in the real hooks/hooks.json with a matcher that COVERS every tool it protects. A guard that is
 # unit-perfect but absent from hooks.json — or whose matcher silently drops a protected tool — is
@@ -62,5 +63,43 @@ for t in mcp__example__do_thing Glob Grep NotebookEdit; do
     || fail "persona-tool-guard matcher now MATCHES intentionally-out-of-scope tool '$t' (matcher='$(matcher_for persona-tool-guard.sh)') — out-of-scope contract broken; if intended, update this test + the hooks.json _comment"
 done
 pass "persona-tool-guard out-of-scope contract holds (mcp__*, Glob, Grep, NotebookEdit intentionally NOT matched)"
+
+# --- PostToolUse output reachability (D158): plain stdout from a PostToolUse
+# hook is only ever shown in transcript mode -- hookSpecificOutput.additionalContext
+# JSON is the only path into model context (the pattern simplicity-gate.sh already
+# uses). quality-gate.sh used to `echo` plain text, which never reached the model.
+# Also locks its D077 kill switch.
+QG="$ROOT/scripts/quality-gate.sh"
+[ -f "$QG" ] || fail "scripts/quality-gate.sh missing"
+QG_OUT=$(bash "$QG" 2>/dev/null)
+[ -n "$QG_OUT" ] && printf '%s' "$QG_OUT" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse"' >/dev/null 2>&1 \
+  || fail "quality-gate.sh does not emit a PostToolUse hookSpecificOutput envelope (got: $QG_OUT)"
+[ -n "$QG_OUT" ] && printf '%s' "$QG_OUT" | jq -e '(.hookSpecificOutput.additionalContext | length) > 0' >/dev/null 2>&1 \
+  || fail "quality-gate.sh envelope has no additionalContext text (got: $QG_OUT)"
+pass "quality-gate.sh emits hookSpecificOutput.additionalContext (reaches model context)"
+QG_OFF=$(SB_QUALITY_GATE=off bash "$QG" 2>/dev/null)
+[ -z "$QG_OFF" ] || fail "SB_QUALITY_GATE=off must silence quality-gate.sh (got: $QG_OFF)"
+pass "SB_QUALITY_GATE=off kill switch silences quality-gate.sh"
+
+# review follow-up: a jq-less host must still emit the envelope (printf + a
+# minimal escaper), not fall through `|| true` into silence. Filter every
+# directory that carries a `jq`/`jq.exe` binary out of PATH — bash and the
+# other real tools stay intact (a swapped-in standalone bash.exe/symlink loses
+# its sibling DLLs on Windows and fails to launch at all), so `command -v jq`
+# inside the script genuinely fails rather than merely shadowing the binary.
+# Filtering PATH is not portable: on Linux jq shares /usr/bin with bash itself, so the
+# filtered PATH cannot even launch the script. Shadow jq with a failing shim instead —
+# the script's `jq … && exit 0` then falls through to the hand-built envelope exactly as
+# it would on a host whose jq is missing or broken.
+QG_NOJQ_DIR=$(mktemp -d)
+printf '#!/bin/sh\nexit 127\n' > "$QG_NOJQ_DIR/jq"; chmod +x "$QG_NOJQ_DIR/jq"
+QG_NOJQ=$(PATH="$QG_NOJQ_DIR:$PATH" bash "$QG" 2>/dev/null)
+rm -rf "$QG_NOJQ_DIR"
+[ -n "$QG_NOJQ" ] || fail "review follow-up: quality-gate.sh emitted NOTHING on a jq-less host (got empty)"
+printf '%s' "$QG_NOJQ" | grep -q '"hookEventName":"PostToolUse"' \
+  || fail "review follow-up: jq-less quality-gate.sh envelope missing hookEventName (got: $QG_NOJQ)"
+printf '%s' "$QG_NOJQ" | grep -q '"additionalContext":"QUALITY GATE' \
+  || fail "review follow-up: jq-less quality-gate.sh envelope missing additionalContext text (got: $QG_NOJQ)"
+pass "review follow-up: quality-gate.sh emits the envelope by hand on a jq-less host"
 
 echo; echo "ALL PASS"

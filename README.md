@@ -4,9 +4,12 @@ A local-first memory layer for Claude Code. It gives Claude the mental model a s
 before opening a file — what exists, where it lives, why it's shaped that way — via a small hot
 tier (`USER.md` + per-project `PROJECT.md`) auto-loaded every session and a larger local wiki
 retrieved on demand. It learns on its own: hooks extract decisions, blockers, and learnings from
-each session, and consolidation applies them to the knowledge base reversibly — fully unattended
-where sandboxing permits (Linux); elsewhere changes stage automatically and apply on the next
-`/second-brain:dream` or `/second-brain:maintain` run.
+each session, and consolidation applies them to the knowledge base reversibly and fully
+unattended — on every OS (Linux, macOS, Windows) where `brain_os` and `auto_maintain` are on
+(both default on). On Linux, bubblewrap additionally sandboxes the consolidation spawn as
+defense-in-depth; its absence gates nothing anywhere else. `auto_accept: "safe"` (the default)
+still holds untrusted-only new pages for review rather than applying them unattended — see "The
+offline engine" below.
 
 ## What it remembers
 
@@ -45,7 +48,7 @@ Nine hook events wire the autonomous loop (`hooks/hooks.json`):
 
 - **SessionStart** — ensures dirs, discovers installed plugins and tracked doc sources, loads the hot tier into context, banners pending/suggested dreams.
 - **UserPromptSubmit** — injects persona card, catalog, and relevant wiki hits per prompt (no LLM call).
-- **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, a soft plan-first nudge.
+- **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, and a plan-first gate — with `SB_INTENT_SPINE` on (the default), it hard-denies-once on multi-file code work with no plan on record (Gate A) and again on goal drift (Gate B); `SB_INTENT_SPINE=off` restores the original advisory-only nudge that never blocks.
 - **PostToolUse** — quality gate on writes, injection-pattern scan of tool returns (telemetry, never blocks), simplicity nudge on large single changes, observation ledger.
 - **PostToolUseFailure** — the observation ledger's failure side. `PostToolUse` fires only on success, so without this event every FAILED tool call — the error→fix pattern the ledger exists to mine — left no record.
 - **Stop** — verify gate, then the LLM extractor files what mattered into hot tier + wiki; SAR safety-summary banner.
@@ -53,8 +56,11 @@ Nine hook events wire the autonomous loop (`hooks/hooks.json`):
 - **PreCompact** — same extraction before a context compaction, so nothing is lost to the window.
 - **ConfigChange** — audit-logs every settings/skills change (never blocks).
 
-Every guard and pipeline has an `SB_*` kill switch. Consolidation itself stays reversible: dreams
-stage changes for review, forgetting archives rather than deletes.
+Nearly every guard and pipeline has an `SB_*` kill switch — including the PostToolUse quality
+gate (`SB_QUALITY_GATE=off`) and Stop/PreCompact LLM extraction (`SB_EXTRACT=off`). The one
+committed exception is the always-included `PROJECT.md`/`USER.md` hot-tier injection at
+SessionStart, which has no independent off switch yet. Consolidation itself stays reversible:
+dreams stage changes for review, forgetting archives rather than deletes.
 
 ## Commands
 
@@ -78,12 +84,14 @@ stage changes for review, forgetting archives rather than deletes.
 
 One output style, `second-brain:dev-focused` (select it under `/config` > Output style, or set `"outputStyle": "second-brain:dev-focused"` in settings). It shapes every reply for a reader who needs to act now: next action first, numbered steps, state restated each turn, no tangents, concrete time estimates, and work routed to the cheapest model tier (SCOUT/DO/THINK) that can do it. Opt-in only; it never overrides your chosen style.
 
-`/second-brain:capture` is documented for its raw-inbox interface (`--list` to inspect, `--discard <id>` to prune) but is not a slash command — capture itself is automatic.
+`/second-brain:capture` documents the raw-inbox CLI (`--list` to inspect, `--discard <id>` to
+prune); its frontmatter disables both user AND model invocation, so nothing can invoke it as a
+skill — it exists to document the bundled `raw-capture-cli` for direct/scripted use. The only
+automatic path into the raw inbox is `/second-brain:setup`'s one-time deep-scan.
 
-The other three skills (`query`, `using-second-brain`, `capture`) are invoked by the
-model, not as slash commands. Four agents back the loop: `dream-runner`,
-`knowledge-maintainer`, `raw-drainer`, and `search-conversations` — consolidation and recall,
-nothing else.
+`query` and `using-second-brain` are invoked by the model, not as slash commands. Four agents
+back the loop: `dream-runner`, `knowledge-maintainer`, `raw-drainer`, and `search-conversations`
+— consolidation and recall, nothing else.
 
 ## MCP tools
 
@@ -105,19 +113,23 @@ Two directories under your home, both entirely local:
 
 | Path | Contents |
 |---|---|
-| `~/.second-brain/` | Runtime state: hot tier (`USER.md`, `projects/`), transcripts, config, audit/error logs |
-| `~/knowledge/` | The wiki (standard Markdown + `[[wiki-links]]`, Obsidian-compatible) |
+| `~/.second-brain/` | Runtime state: hot tier (`USER.md`, `projects/`), transcripts, config, audit/error logs, dream working state (`dreams/`), and two IRREPLACEABLE stores worth backing up: `wiki-archive/` (the only copy of pages FORGET has archived) and, when `wiki_git: true`, `wiki-history.git/` (the reversibility window for unattended writes) |
+| `~/knowledge/` | The wiki (standard Markdown + `[[wiki-links]]`, Obsidian-compatible) plus `graph/` (`edges.jsonl`, `project-registry.jsonl` — the typed relationship graph) |
 
 Nothing is synced, pushed, or shared by the plugin — no telemetry, no cloud services, no external
-vector DB. Search and embeddings run on-device. The only network calls are Anthropic API calls
-for LLM steps: the Stop/PreCompact extractor, the opt-in `/second-brain:think` advisor, and the
-optional LLM quality gate. Don't put `~/knowledge/` inside a synced drive.
+vector DB. Search and embeddings run on-device. LLM network calls go to the Anthropic API: the
+Stop/PreCompact extractor, the opt-in `/second-brain:think` advisor, and the optional LLM quality
+gate. Two other network paths exist outside that: the optional vector-search tier fetches its
+~70 MB embedding model from huggingface.co on first use (`bin/install-vector-deps.sh`, then
+`@huggingface/transformers` at runtime) unless you never install vector deps, and that same
+installer runs `npm install` against the npm registry. Don't put `~/knowledge/` inside a synced
+drive.
 
 ## Configuration
 
 - **`knowledge_dir`** (plugin userConfig, via `/plugin manage`) — moves the wiki tree; default `~/knowledge`. Runtime state stays in `~/.second-brain/`.
 - **`~/.second-brain/config.json`** — persistent settings (e.g. `auto_improve`, `brain_os`).
-- **`SB_*` environment variables** — every guard, banner, nudge, and pipeline has a kill switch (`SB_PERSONA_GATE=off`, `SB_SYMLINK_GUARD=off`, `SB_INJECTION_SCAN=off`, …). Precedence: env > config.json > defaults. `sb help` and `sb auth status`/`doctor` are the inspection surface.
+- **`SB_*` environment variables** — nearly every guard, banner, nudge, and pipeline has a kill switch (`SB_PERSONA_GATE=off`, `SB_SYMLINK_GUARD=off`, `SB_INJECTION_SCAN=off`, `SB_QUALITY_GATE=off`, `SB_EXTRACT=off`, …) — the always-included hot-tier injection is the one exception. Precedence: env > config.json > defaults. `sb help` and `sb auth status`/`doctor` are the inspection surface.
 
 ## The offline engine (brain-os)
 
@@ -145,6 +157,13 @@ Model-tier routing is built in: `model-ladder.json` is the single manifest of ti
 consumed by extraction, compaction, and consolidation (`stop-extract.sh`, `pre-compact.sh`,
 `maintain-llm-drain.sh`). No model ID is hardcoded anywhere else — `tests/test-model-ladder.sh`
 fails the suite if one appears.
+
+## Contributing
+
+Run `make hook-install` once after cloning (sets `core.hooksPath=.githooks`) — it wires
+up the pre-push gate that re-runs the test suite before every push. Without it, nothing
+local catches a broken tree before it reaches CI; see [RELEASING.md](RELEASING.md) for
+the full release checklist.
 
 ## License
 

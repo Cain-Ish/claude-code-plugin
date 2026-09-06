@@ -515,6 +515,57 @@ printf '%s' "$RROW" | grep -q 'observed=2' && printf '%s' "$RROW" | grep -q 'pen
   && ok "reconcile: a retry row stays PENDING (not observed)" \
   || no "reconcile: retry row miscounted — expected observed=2 pending=1, got: $RROW"
 
+# --- D215: the real POSIX pgrep interactive-detection branch, unpinned -----
+# Every case above sets SB_INTERACTIVE_OVERRIDE, which short-circuits
+# sb_drain_should_defer BEFORE the `pgrep -u $(id -u) -x claude` loop ever
+# runs — so that loop (and the -p arg-filter inside it) had no behavioral
+# coverage anywhere in the suite. Fake `pgrep`/`ps` binaries ahead of the real
+# ones on PATH exercise it for real, with SB_INTERACTIVE_OVERRIDE unset.
+FAKE_BIN="$SANDBOX/fakebin"; mkdir -p "$FAKE_BIN"
+REAL_PS=$(command -v ps || echo /bin/ps)
+cat > "$FAKE_BIN/pgrep" <<EOF
+#!/bin/bash
+[ -f "$SANDBOX/.fake-pgrep-pids" ] && cat "$SANDBOX/.fake-pgrep-pids"
+exit 0
+EOF
+chmod +x "$FAKE_BIN/pgrep"
+cat > "$FAKE_BIN/ps" <<EOF
+#!/bin/bash
+if [ "\$1" = "-p" ]; then
+  f="$SANDBOX/.fake-ps-args-\$2"
+  [ -f "\$f" ] && cat "\$f"
+  exit 0
+fi
+exec "$REAL_PS" "\$@"
+EOF
+chmod +x "$FAKE_BIN/ps"
+
+# D215a: pgrep reports a live claude PID whose args carry NO "-p" (an
+# interactive session) → the loop's default arm fires → defer, no processing.
+reset; mk_tx "s1_proj_2026-05-24.txt" proj
+echo "4242" > "$SANDBOX/.fake-pgrep-pids"
+echo "claude" > "$SANDBOX/.fake-ps-args-4242"
+( unset SB_INTERACTIVE_OVERRIDE
+  PATH="$FAKE_BIN:$PATH" SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 ) || true
+eq "pgrep: interactive claude (no -p) -> defer, no processing" "$(done_count)" "0"
+
+# D215b: pgrep reports a live claude PID whose args DO carry "-p" (our own /
+# another print-mode extractor) → the loop's "ignore" arm fires for every pid
+# → falls through to `return 1` → no defer, processing proceeds.
+reset; mk_tx "s1_proj_2026-05-24.txt" proj
+echo "4242" > "$SANDBOX/.fake-pgrep-pids"
+echo "claude -p --model sonnet" > "$SANDBOX/.fake-ps-args-4242"
+( unset SB_INTERACTIVE_OVERRIDE
+  PATH="$FAKE_BIN:$PATH" SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 ) || true
+eq "pgrep: print-mode-only claude (-p) -> no defer, processes" "$(done_count)" "1"
+
+# D215c: pgrep finds no claude pid at all -> loop body never runs -> no defer.
+reset; mk_tx "s1_proj_2026-05-24.txt" proj
+rm -f "$SANDBOX/.fake-pgrep-pids"
+( unset SB_INTERACTIVE_OVERRIDE
+  PATH="$FAKE_BIN:$PATH" SB_DRAIN_BATCH=5 bash "$DRAIN" >/dev/null 2>&1 ) || true
+eq "pgrep: no claude process -> no defer, processes" "$(done_count)" "1"
+
 echo ""
 echo "Results C2: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

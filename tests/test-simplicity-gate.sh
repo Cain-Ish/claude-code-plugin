@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_SIMPLICITY_GATE — kill-switch test: asserts =off suppresses the gate
+# pins: SB_SIMPLICITY_GATE_LINES — raises the line threshold to prove a raised ceiling suppresses a 200-line change — the value is the subject of that subtest
 # Guard: simplicity-gate nudges on a large Write/Edit/MultiEdit, stays silent on small ones,
 # is advisory-only (never blocks), honors the kill switch + threshold, ignores non-edit tools,
 # and fail-softs on malformed input.

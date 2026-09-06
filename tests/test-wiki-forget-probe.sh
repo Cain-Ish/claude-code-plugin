@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pins: SB_FORGET_FLOOR — raises the forget floor near-maximum (0.99) — the hardest bar to clear, the opposite of a can't-fail pin
+# pins: SB_REDUNDANCY — kill-switch test: asserts =off falls back to prior recall-probe-only behavior (no regression)
 # FORGET archive selection = recall-probe AND a MinHash redundancy cross-check (0.33.27).
 #   - unique answer            -> protected (recall-probe)
 #   - genuine near-dup pair    -> exactly ONE archived (recall-probe + cross-check + twin guard)

@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { join, basename, dirname, relative } from 'path';
 import yaml from 'js-yaml';
-import { parseDoc, ParsedDoc, extractYamlList, matchFrontmatter, replaceFrontmatter, stripFrontmatter, FM_OPEN_RE } from './frontmatter.js';
+import { parseDoc, ParsedDoc, extractYamlList, matchFrontmatter, replaceFrontmatter, stripFrontmatter, hasFrontmatterFence } from './frontmatter.js';
 import { parseAiBlock, validateAiBlock, stripAiBlock, schemaFor } from './ai-block.js';
 import { ALL_CATEGORIES, FRONTMATTER_REQUIRED } from '../constants/kb-schema.js';
 import { loadEdges, foldToCurrent, validAt, EdgeRecord } from './graph-store.js';
@@ -16,6 +16,14 @@ const REQUIRED_FM_FIELDS = FRONTMATTER_REQUIRED;
 // ai-block is a backfill candidate; shorter pages are legitimate stubs, exempt. Env-overridable
 // in lockstep with kb-ai-block-candidates.sh / lint Check 4 (default 200).
 const AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
+
+// D066: empty_page issues are recorded during the initial full-tree scan, but autofix unlinks
+// them only after that whole scan finishes — a real elapsed window on a large wiki. Pages are
+// created non-atomically here (merge-project-update.sh's `> target_file` truncate-then-write,
+// Obsidian's/Claude's Write tool 0-byte-then-content sequence), and concurrent sessions mutating
+// the shared tree are a documented reality on this machine. A page younger than this is treated
+// as possibly mid-write and left alone even if it re-reads empty.
+const EMPTY_PAGE_MIN_AGE_MS = 2000;
 
 export interface ValidationIssue {
   type: 'orphan_file' | 'broken_link' | 'missing_frontmatter' | 'malformed_frontmatter' | 'incomplete_frontmatter' | 'related_drift' | 'duplicate_slug' | 'stale_page' | 'empty_page' | 'root_orphan' | 'ai_block_incomplete' | 'ai_block_missing';
@@ -102,8 +110,9 @@ export async function knowledgeValidate(
 
     // CRLF-tolerant (0.28.3): an LF-only `^---\n` on a `---\r\n` (Windows/autocrlf)
     // page reports NO frontmatter → the autofix prepended a SECOND block (corruption
-    // on every reindex). FM_OPEN_RE detects both.
-    if (!FM_OPEN_RE.test(content)) {
+    // on every reindex). BOM-tolerant (D054, same corruption class): a leading U+FEFF
+    // shifts the fence to offset 1. hasFrontmatterFence detects both.
+    if (!hasFrontmatterFence(content)) {
       issues.push({
         type: 'missing_frontmatter',
         severity: 'warning',
@@ -256,6 +265,13 @@ export async function knowledgeValidate(
     for (const issue of issues) {
       if (issue.autofix === 'remove' && issue.type === 'empty_page') {
         try {
+          // D066: re-stat + re-read right before unlinking — the issue was recorded during the
+          // scan pass above, which can finish long after this page was observed empty. Skip
+          // anything too young (possibly mid-write) and re-verify it is STILL empty now.
+          const stat = await fs.stat(issue.path);
+          if (Date.now() - stat.mtimeMs < EMPTY_PAGE_MIN_AGE_MS) continue;
+          const recheck = await fs.readFile(issue.path, 'utf-8');
+          if (recheck.trim()) continue;   // populated since the scan — do not delete
           await fs.unlink(issue.path);
           fixed++;
         } catch { /* already gone */ }
@@ -363,7 +379,9 @@ const KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 export async function addFrontmatter(filePath: string, wikiDir: string): Promise<void> {
   const original = await fs.readFile(filePath, 'utf-8');
   // Defensive: if frontmatter snuck in between scan and write, leave it alone.
-  if (FM_OPEN_RE.test(original)) return;
+  // BOM-tolerant (D054): without this, a BOM'd page that already has valid frontmatter
+  // slipped past this guard and got a SECOND block prepended on top of the first.
+  if (hasFrontmatterFence(original)) return;
 
   const slug = basename(filePath, '.md');
 

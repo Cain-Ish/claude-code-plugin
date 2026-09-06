@@ -1,4 +1,7 @@
 #!/bin/bash
+# pins: SB_EXTRACT_STUB — stubs the extractor so the deterministic-maintain path runs hermetically
+# pins: SB_INTERACTIVE_OVERRIDE — forces the interactive-session gate to the non-interactive branch under test
+# pins: SB_MAINTAIN_FORCE — forces the maintenance tick to run regardless of its normal due-time gate
 # B2 (SP-B): the deterministic out-of-band consolidation — validate+backfill+reindex,
 # NO LLM, NO creds, self-throttled — plus the extract-drain `auto_improve` gate.
 set -u
@@ -44,5 +47,26 @@ printf '{"auto_improve": true}\n' > "$G/config.json"; mktx "$G" "b_proj_2026-05-
 ( export BRAIN_DIR="$G" KNOWLEDGE_DIR="$G/knowledge" SB_INTERACTIVE_OVERRIDE=inactive SB_EXTRACT_STUB=1 SB_MAINTAIN_FORCE=1
   bash "$DRAIN" >/dev/null 2>&1 ) || true
 [ -f "$G/.last-maintain" ] && pass "auto_improve on → out-of-band maintain runs" || fail "maintain did not run with auto_improve on"
+
+# --- D128: KNOWLEDGE_DIR precedence must match sb_knowledge_dir() (plugin option
+# FIRST, bare env var second) — a hand-rolled inverted chain here would reindex a
+# DIFFERENT tree than extraction/the MCP server use ("two wikis" bug class).
+if [ "$HAS_NODE" = 1 ]; then
+  P=$(mktemp -d)
+  mkdir -p "$P/A/wiki/learnings" "$P/B/wiki/learnings"
+  for t in A B; do
+    printf -- '---\ntitle: p\ndescription: d\ntype: learnings\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# p\n\nbody\n' > "$P/$t/wiki/learnings/p.md"
+  done
+  ( export BRAIN_DIR="$P/brain" KNOWLEDGE_DIR="$P/A" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$P/B" SB_MAINTAIN_FORCE=1
+    bash "$MD" >/dev/null 2>&1 )
+  if [ -f "$P/B/wiki/index.md" ] && [ ! -f "$P/A/wiki/index.md" ]; then
+    pass "D128: plugin option (B) wins over bare KNOWLEDGE_DIR (A) — matches sb_knowledge_dir()"
+  else
+    fail "D128: precedence wrong (B/index.md exists=$([ -f "$P/B/wiki/index.md" ] && echo yes || echo no), A/index.md exists=$([ -f "$P/A/wiki/index.md" ] && echo yes || echo no))"
+  fi
+  rm -rf "$P"
+else
+  echo "SKIP: D128 precedence check — node/reindex bundle absent"
+fi
 
 rm -rf "$B" "$G"; echo; echo "ALL PASS"

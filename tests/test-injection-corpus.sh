@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_INJECTION_SCAN — kill-switch test: asserts =off disables the scanner (fixture string is a deliberately benign sample, not a real injection)
 # Tests for scripts/tool-return-scanner.sh — v2.9.0 PostToolUse injection
 # scanner. Locks the pattern library against regressions: every named
 # pattern must flag at least one of its archetypal payloads, and clean
@@ -154,6 +155,22 @@ out=$(scan '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"},"tool_respon
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext // "" | test("unicode-tag-block") | not' >/dev/null 2>&1 \
   || { [ -z "$out" ] || fail "ordinary UTF-8 must not trip the tag-block detector (got: $out)"; }
 pass "unicode-tag-block: ordinary UTF-8 does not false-positive"
+
+# D184: tag LETTERS (U+E0041-U+E007A) — the characters actually used to SPELL a
+# smuggled word — encode with THIRD byte 0x81, not 0x80. The fixture above only
+# covers U+E0001 (0x80 range: tag space/digits/punctuation). A payload written
+# entirely in tag letters (no tag space at all) was invisible to the old
+# fixed-3-byte-prefix detector.
+TAGWORD=$(node -e 'const t="hi";process.stdout.write([...t].map(c=>String.fromCodePoint(0xE0000+c.charCodeAt(0))).join(""))' 2>/dev/null)
+if [ -n "$TAGWORD" ]; then
+  out=$(scan "$(node -e 'process.stdout.write(JSON.stringify({tool_name:"Read",tool_input:{file_path:"/tmp/x"},tool_response:"benign "+process.argv[1]+" end",session_id:"s-tag-letters"}))' "$TAGWORD")")
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("unicode-tag-block")' >/dev/null \
+    || fail "D184: all-tag-LETTER payload (0x81 third byte) must be flagged (got: $out)"
+  pass "D184: tag-letter (U+E0041-U+E007A, 0x81 third byte) payload flagged"
+else
+  echo "SKIP: D184 tag-letter test — node unavailable to build the fixture"
+  pass "D184 tag-letter test (skipped — no node)"
+fi
 
 echo
 echo "ALL PASS"

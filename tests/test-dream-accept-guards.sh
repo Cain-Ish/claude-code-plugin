@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# pins: SB_DREAM_ACCEPT_MIN_RATIO — opens the unrelated deletion-ratio gate to 0 to isolate the NO_DELETE/SKIP_BACKUP guards this file actually tests
+# pins: SB_DREAM_ACCEPT_NO_DELETE — the flag itself is the subject of this subtest (dry-run no-delete mode)
+# pins: SB_DREAM_ACCEPT_SKIP_BACKUP — the flag itself is the subject of subtest B3 (skip-backup auto path)
 # Premise-review fixes (0.25.0 autonomy): dream-accept must never let a broken/
 # truncated dream destroy the LIVE wiki, and auto_accept=safe must truly forbid
 # deletions. ORACLE: the real live-wiki page count on disk BEFORE vs AFTER a
@@ -253,6 +256,89 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 SB_FORGET_MIN_AGE_DA
 [ -f "$KNOWLEDGE_DIR/wiki/entities/p3.md" ] || fail "F5c: post-consolidation-linked page was archived (re-score guard broken)"
 [ ! -f "$D/forget-manifest.tsv" ] || fail "F5c: manifest not consumed"
 pass "F5c: re-score guard keeps a page the dream just linked (enrichment race)"
+rm -rf "$SB"
+
+# === D084: a partial apply failure must ABORT loud, not silently "succeed" ===
+# None of the rsync/cp apply commands had their exit status checked; a partial
+# failure (EACCES on one live file) fell through to archived_at + rm -rf
+# staging, destroying the dream's only copy of its output while reporting
+# "accepted". ORACLE: archived_at stays unset, staging survives, rc != 0, and
+# the error names a backup tarball to restore from.
+# Failure injection that trips EVERY apply path on every OS: a read-only file does not
+# stop rsync (temp-file + rename) and a 555 directory is re-chmodded by `rsync -a`, but
+# neither rsync nor `cp -r` can replace a NON-EMPTY DIRECTORY with a regular file
+# (ENOTDIR / "cannot delete non-empty directory") — and Windows dir modes are inert
+# anyway. So: staging ships p1.md as a file, live holds p1.md as a directory with content.
+{
+  setup 3 SAME
+  D="$BRAIN_DIR/dreams/drm_test"
+  # Staging modifies p1 so the apply actually attempts to overwrite the live entry.
+  printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nCONSOLIDATED\n' > "$D/staging/wiki/entities/p1.md"
+  rm -f "$KNOWLEDGE_DIR/wiki/entities/p1.md"
+  mkdir -p "$KNOWLEDGE_DIR/wiki/entities/p1.md" && printf 'keep\n' > "$KNOWLEDGE_DIR/wiki/entities/p1.md/keep.txt"
+  CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>/dev/null; rc=$?
+  AFTER_ARCHIVED=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+  [ "$rc" -ne 0 ] || fail "D084: a partial apply failure returned rc=0"
+  { [ -z "$AFTER_ARCHIVED" ] || [ "$AFTER_ARCHIVED" = "null" ]; } || fail "D084: archived_at was stamped despite a failed apply"
+  [ -d "$D/staging" ] || fail "D084: staging was deleted despite a failed apply"
+  BK=$(ls "$BRAIN_DIR"/wiki-backup-pre-accept-*.tgz 2>/dev/null | head -1)
+  [ -n "$BK" ] || fail "D084: no backup tarball left to restore from"
+  pass "D084: partial apply failure aborts loud — no archived_at, staging kept, backup ($BK) named"
+  rm -rf "$SB"
+}
+
+# === D084 (review follow-up): the cp-fallback (no-rsync) apply path must not
+# `rm -rf $_stash` on a FAILED apply — $_stash holds the only copy of every
+# post-snapshot live page edit (protected pages, stashed before the merge-copy
+# so the newer live version can be restored after). Deleting it unconditionally
+# destroyed those edits with no way back; the fix keeps it and names its path
+# in the failure message. This is the primary Windows git-bash apply path (no
+# rsync), so it is exercised directly rather than only via a stub.
+if command -v rsync >/dev/null 2>&1; then
+  echo "SKIP: D084 follow-up — rsync present on this host; the no-rsync \$_stash path is not exercised"
+  pass "D084 follow-up: \$_stash-on-failure guard (skipped — rsync present, different apply path)"
+elif supports_chmod_file_restrict; then
+  setup 3 "p1 p2 p3"
+  D="$BRAIN_DIR/dreams/drm_test"
+  # created_at in the past so p2's live edit below is POST-snapshot (-> PROTECT -> stashed).
+  jq -nc '{id:"drm_test",status:"completed",archived_at:null,created_at:"2026-01-01T00:00:00Z"}' > "$D/status.json"
+  touch -t 202512010000 "$KNOWLEDGE_DIR/wiki/entities/p1.md" \
+                        "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
+                        "$KNOWLEDGE_DIR/wiki/entities/p3.md" 2>/dev/null
+  printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"
+  touch "$KNOWLEDGE_DIR/wiki/entities/p2.md"
+  # Staging modifies p1 so the merge-copy actually attempts to overwrite it; chmod 444
+  # forces THAT overwrite to fail (p2's protection/stashing is what we're checking survives).
+  printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nCONSOLIDATED\n' > "$D/staging/wiki/entities/p1.md"
+  chmod 444 "$KNOWLEDGE_DIR/wiki/entities/p1.md"
+  ERR=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1 1>/dev/null); rc=$?
+  chmod 644 "$KNOWLEDGE_DIR/wiki/entities/p1.md" 2>/dev/null
+  [ "$rc" -ne 0 ] || fail "D084 follow-up: cp-fallback apply failure returned rc=0"
+  STASH_PATH=$(printf '%s' "$ERR" | grep -oE 'stashed at [^ ]+' | sed 's/^stashed at //')
+  [ -n "$STASH_PATH" ] || fail "D084 follow-up: failure message did not name the stash path (got: $ERR)"
+  [ -d "$STASH_PATH" ] || fail "D084 follow-up: stash dir $STASH_PATH was deleted despite the failed apply"
+  grep -q 'LIVE EDIT after snapshot' "$STASH_PATH/entities/p2.md" 2>/dev/null \
+    || fail "D084 follow-up: stash did not retain the post-snapshot live edit to p2"
+  pass "D084 follow-up: failed cp-fallback apply keeps \$_stash ($STASH_PATH) instead of deleting it"
+  rm -rf "$STASH_PATH" "$SB"
+else
+  echo "SKIP: D084 follow-up — chmod 444 does not restrict file overwrite on this filesystem"
+  pass "D084 follow-up: \$_stash-on-failure guard (skipped — chmod does not restrict here)"
+  rm -rf "$SB"
+fi
+
+# === D212: the shipped 30-day FORGET age floor is a REAL gate, not just
+# something every test pins to 0. A page younger than SB_FORGET_MIN_AGE_DAYS
+# (default 30) named in the manifest must be PROTECT:age'd and survive.
+setup 4 SAME
+D="$BRAIN_DIR/dreams/drm_test"
+touch "$KNOWLEDGE_DIR/wiki/entities/p1.md"     # fresh mtime — age 0 days
+printf 'p1\tentities\n' > "$D/forget-manifest.tsv"
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?   # SB_FORGET_MIN_AGE_DAYS unset -> shipped default (30)
+[ "$rc" -eq 0 ] || fail "D212: accept failed (rc=$rc)"
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p1.md" ] || fail "D212: a page younger than the 30-day floor was archived — the reversibility floor is not enforced at the shipped default"
+[ ! -f "$BRAIN_DIR/wiki-archive/entities/p1.md" ] || fail "D212: young page landed in wiki-archive despite the age floor"
+pass "D212: at the shipped 30-day default, a freshly-written manifest page is PROTECT:age'd and kept live"
 rm -rf "$SB"
 
 echo "ALL PASS"

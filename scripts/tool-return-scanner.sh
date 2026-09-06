@@ -132,15 +132,19 @@ while [ "$i" -lt "$NUM_PATTERNS" ]; do
 done
 
 # Unicode tag block (U+E0000–U+E007F) is invisible to humans; used in
-# steganographic injection ("tag-block smuggling"). Detect via byte
-# sequence E3 80 80–E3 80 BF (UTF-8 encoding range — approximation; the
-# real range needs `iconv` for precision, but the surrogate is good enough
-# to flag suspicious presence).
-# Match the 3-byte UTF-8 prefix (F3 A0 80) of the U+E00xx tag block via fixed-string grep on the
-# literal bytes — portable, since BSD/macOS grep has no PCRE mode (the old approach silently
+# steganographic injection ("tag-block smuggling"). The block's UTF-8
+# encoding is F3 A0 80 80 (U+E0000) through F3 A0 81 BF (U+E007F): the first
+# two bytes are always F3 A0, and the THIRD byte is 0x80 for U+E0000–E003F
+# (tag space/digits/punctuation) or 0x81 for U+E0040–E007F (the tag LETTERS
+# a-z/A-Z actually used to spell smuggled text). D184: matching only the F3 A0
+# 80 prefix let an all-tag-letter payload (no tag space) through undetected.
+# Match both 3-byte prefixes via fixed-string grep on the literal bytes —
+# portable, since BSD/macOS grep has no PCRE mode (the old approach silently
 # no-op'd there).
-TAG_PREFIX=$(printf '\xf3\xa0\x80')
-if printf '%s' "$OUTPUT" | LC_ALL=C grep -qF "$TAG_PREFIX" 2>/dev/null; then
+TAG_PREFIX_LO=$(printf '\xf3\xa0\x80')
+TAG_PREFIX_HI=$(printf '\xf3\xa0\x81')
+if printf '%s' "$OUTPUT" | LC_ALL=C grep -qF "$TAG_PREFIX_LO" 2>/dev/null \
+  || printf '%s' "$OUTPUT" | LC_ALL=C grep -qF "$TAG_PREFIX_HI" 2>/dev/null; then
   MATCHED_LABELS="${MATCHED_LABELS}${MATCHED_LABELS:+,}unicode-tag-block"
   MATCHED_SAMPLES="${MATCHED_SAMPLES}${MATCHED_SAMPLES:+ | }unicode-tag-block=\"<U+E00xx tag characters present>\""
 fi

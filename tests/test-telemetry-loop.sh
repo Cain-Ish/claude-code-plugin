@@ -1,4 +1,8 @@
 #!/bin/bash
+# pins: SB_CAPTURE_HEALTH_BANNER — silences this unrelated banner so only the telemetry manifest under test is asserted
+# pins: SB_DISABLE_AUTO_TIMER — silences this unrelated timer banner so only the telemetry manifest under test is asserted
+# pins: SB_LOOP_DEAD_BANNER — silences this unrelated banner so only the telemetry manifest under test is asserted
+# pins: SB_TELEMETRY — kill-switch test: asserts =off suppresses the manifest write (Test 2)
 # P1.2/P1.3/P1.4 telemetry loop (archive/docs branch, docs/plans/2026-07-13-p1-observability.md Tasks 2-4):
 # session-load WRITES an injection manifest; stop-extract correlates it against the
 # transcript's tool_use records EXACTLY ONCE (manifest deleted), folds Skill/Task

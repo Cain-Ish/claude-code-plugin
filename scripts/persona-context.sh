@@ -6,10 +6,18 @@
 #   - installed plugin catalog summary (factual)
 #   - BM25 wiki hits (existing intent-gate pattern)
 #   - episodic search hint
-# No LLM call. Hard cap on each section. Always exits 0 — must never block a prompt.
+# No LLM call for ordinary prompts. Hard cap on each section. Always exits 0 — must
+# never block a prompt.
+# EXCEPTION — the `/?` prefix: routes to persona-think (Layer 2), which spawns a paid
+# Opus advisor call (skills/think/SKILL.md: ~$0.11/call, no budget gate). D145: this
+# WAS undocumented here (and in README.md's "no LLM call" line) — a prompt beginning
+# with the two characters "/?" (e.g. pasting a shell redirection snippet) silently billed
+# an API call. A one-line stderr notice now fires synchronously when this path spawns the
+# advisor, and SB_PERSONA_THINK=off refuses it (distinct from SB_PERSONA_GATE, which
+# disables ALL of Layer 1 — including the free per-prompt injection this file otherwise does).
 #
-# Kill switch: SB_PERSONA_GATE=off
-# /? prefix is reserved for T6 (think tool); current behavior exits silently so T6 wiring can take over.
+# Kill switches: SB_PERSONA_GATE=off (disables this whole hook) · SB_PERSONA_THINK=off
+# (disables ONLY the /? paid-advisor path below; ordinary no-LLM injection keeps working).
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
@@ -34,9 +42,21 @@ case "$PROMPT" in
     QUERY="${PROMPT#/?}"
     QUERY="${QUERY# }"
     [ -z "$QUERY" ] && exit 0
+    # D145: SB_PERSONA_THINK=off refuses ONLY this paid-advisor path (SB_PERSONA_GATE
+    # above already exited for the "disable everything" case) — a user who wants the
+    # free per-prompt injection but not a surprise Opus bill on any "/?..." prompt.
+    if [ "${SB_PERSONA_THINK:-on}" = "off" ]; then
+      printf 'persona: /? advisor disabled via SB_PERSONA_THINK=off — proceeding without it\n' >&2
+      exit 0
+    fi
     PLUGIN_ROOT_NOW="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
     THINK_CLI="$PLUGIN_ROOT_NOW/mcp/dist/cli/persona-think-cli.bundle.js"
     if [ -f "$THINK_CLI" ]; then
+      # D145: this is a paid Opus API call (skills/think/SKILL.md: ~$0.11/call, no
+      # budget gate) — the injected additionalContext is documentation-after-the-fact
+      # for the model, but the USER gets no synchronous signal that a prompt starting
+      # with "/?" (e.g. a pasted shell redirection) just spent money. One line, now.
+      printf 'persona: /? spawning Opus advisor (paid API call — see skills/think/SKILL.md)\n' >&2
       BRIEF=$(printf '%s' "$QUERY" | node "$THINK_CLI" 2>/dev/null || true)
       if [ -n "$BRIEF" ]; then
         CTX="[Persona deep brief — Opus advisor, treat as structured second opinion]
@@ -153,7 +173,17 @@ if [ -f "$_DISMISS_F" ]; then
   _DMAX="${SB_PERSONA_DISMISS_MAX:-3}";        case "$_DMAX" in ''|*[!0-9]*) _DMAX=3 ;; esac
   _DWIN="${SB_PERSONA_DISMISS_WINDOW_DAYS:-7}"; case "$_DWIN" in ''|*[!0-9]*) _DWIN=7 ;; esac
   _DCUT=$(date -u -d "-${_DWIN} days" +%Y-%m-%d 2>/dev/null || date -u -v-"${_DWIN}"d +%Y-%m-%d 2>/dev/null || echo "9999-99-99")
-  _DCOUNT=$(jq -s -r --arg c "$_DCUT" '[ .[] | select(((.at // "")[0:10]) >= $c) ] | length' "$_DISMISS_F" 2>/dev/null || echo 0)
+  # D159: `jq -s` (slurp) aborts the WHOLE count on one torn/unparseable line — the
+  # old `|| echo 0` then undercounted toward 0, defeating the backoff exactly when a
+  # busy session (lots of concurrent-append tears, see D120) needs it most. Per-line
+  # tolerant read instead. lib.sh is sourced HERE (not unconditionally at the top of
+  # this file) so the common no-dismissals-file path still skips its cost.
+  source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" 2>/dev/null || true
+  if command -v sb_count_torn_lines >/dev/null 2>&1; then
+    _DTORN=$(sb_count_torn_lines "$_DISMISS_F")
+    [ "${_DTORN:-0}" -gt 0 ] && sb_log_error "persona-context.sh" "dismissals-log: skipped $_DTORN torn line(s)" 0
+  fi
+  _DCOUNT=$(jq -nR -r --arg c "$_DCUT" '[ inputs | fromjson? | select(type=="object") | select(((.at // "")[0:10]) >= $c) ] | length' "$_DISMISS_F" 2>/dev/null)
   case "$_DCOUNT" in ''|*[!0-9]*) _DCOUNT=0 ;; esac
   [ "$_DCOUNT" -ge "$_DMAX" ] && exit 0
 fi

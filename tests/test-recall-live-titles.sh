@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_EVAL_TITLE_SAMPLE — caps the live-title sample to a small deterministic count so the probe runs fast against the real wiki corpus
 # tests/test-recall-live-titles.sh — R2.2 live-title probe: every wiki page's own
 # title, used as a query, must return that page's slug in the top-K. This is the
 # invariant the hub-boost bug broke on the real wiki (exact-title page evicted).

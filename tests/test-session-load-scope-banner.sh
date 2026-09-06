@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_SCOPE_BANNER — kill-switch test: asserts =off suppresses the scope banner in output
 # Behavioral tests for session-load.sh SessionStart STDOUT — the parts that pure
 # source-greps (test-project-plan-block.sh §7) can't prove: that the scope banner is
 # actually EMITTED with the CORRECT project slug + EXACT plan/decision/blocker counts,

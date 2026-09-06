@@ -65,5 +65,105 @@ printf '%s\n' "$OUT" | grep -q 'EXIT=0' || fail "plain pass must exit 0: $OUT"
 printf '%s\n' "$OUT" | grep -qE 'pass: *1' || fail "plain pass should count as PASS: $OUT"
 pass "plain pass → counted PASS, suite exits 0"
 
+# --- Case 4: INDENTED partial skip (D206) ----------------------------------
+# The test runs real assertions (prints real output), then skips ONE optional
+# subtest with an INDENTED "  SKIP: ..." line, and exits 0. Must be counted a
+# PASS (its real assertions all held) — but flagged as a partial-skip file, not
+# silently folded into a plain PASS (which would hide the skip) nor into the
+# whole-file SKIP bucket (which would hide the pass).
+D4="$TMP/case4"; mkdir -p "$D4"
+cat > "$D4/test-indented-partial-skip.sh" <<'EOF'
+#!/bin/bash
+echo "step 1: ok"
+echo "  SKIP: optional step 2 unavailable on this host"
+echo "step 3: ok"
+exit 0
+EOF
+OUT=$(run_suite "$D4")
+printf '%s\n' "$OUT" | grep -q 'EXIT=0' \
+  || fail "indented partial skip must keep the suite green: $OUT"
+printf '%s\n' "$OUT" | grep -qE 'pass: *1 \(1 partial-skip files\)' \
+  || fail "indented partial skip must be reported as pass: 1 (1 partial-skip files): $OUT"
+printf '%s\n' "$OUT" | grep -qE 'skip: *0' \
+  || fail "indented partial skip must NOT be counted in the whole-file skip total: $OUT"
+printf '%s\n' "$OUT" | grep -q 'test-indented-partial-skip' \
+  || fail "indented partial skip must be named in the partial-skip listing: $OUT"
+pass "indented partial SKIP mid-run → counted PASS (1 partial-skip file), suite exits 0"
+
+# --- Case 5: column-0 partial skip AFTER passes (D206) ----------------------
+# Same shape as case 4 but the inner SKIP line sits at column 0 (no leading
+# whitespace) and only after other passing output — must NOT be reclassified
+# as a whole-file skip (the old bug: ANY column-0 SKIP anywhere in the output
+# was treated as if the whole file were skipped, hiding the real passes).
+D5="$TMP/case5"; mkdir -p "$D5"
+cat > "$D5/test-col0-partial-skip-after-pass.sh" <<'EOF'
+#!/bin/bash
+echo "PASS: subtest A"
+echo "PASS: subtest B"
+echo "SKIP: subtest C unavailable on this host"
+echo "PASS: subtest D"
+exit 0
+EOF
+OUT=$(run_suite "$D5")
+printf '%s\n' "$OUT" | grep -q 'EXIT=0' \
+  || fail "column-0 partial skip after passes must keep the suite green: $OUT"
+printf '%s\n' "$OUT" | grep -qE 'pass: *1 \(1 partial-skip files\)' \
+  || fail "column-0 partial skip after passes must be reported as pass: 1 (1 partial-skip files): $OUT"
+printf '%s\n' "$OUT" | grep -qE 'skip: *0' \
+  || fail "column-0 partial skip after passes must NOT be counted as a whole-file skip (the old false-hidden-pass bug): $OUT"
+pass "column-0 partial SKIP after passing output → counted PASS (1 partial-skip file), not whole-file SKIP"
+
+# --- Case 6: whole-file skip via an INDENTED first line (D206) --------------
+# The regex gained leading-whitespace tolerance for the partial-skip case
+# above; prove it did NOT break the existing whole-file-skip detection when
+# the SKIP line itself happens to be indented (e.g. printed inside an `if`
+# block with a leading echo indent) and IS the first non-empty output line.
+D6="$TMP/case6"; mkdir -p "$D6"
+cat > "$D6/test-indented-whole-file-skip.sh" <<'EOF'
+#!/bin/bash
+  echo "SKIP: feature unavailable on this platform (indented)"
+exit 0
+EOF
+OUT=$(SB_EXPECTED_SKIPS="test-indented-whole-file-skip" run_suite "$D6")
+printf '%s\n' "$OUT" | grep -q 'EXIT=0' \
+  || fail "indented whole-file skip (exit 0) must keep the suite green: $OUT"
+printf '%s\n' "$OUT" | grep -qE 'skip: *1' \
+  || fail "indented whole-file skip should be counted as SKIP, not partial-skip or plain pass: $OUT"
+printf '%s\n' "$OUT" | grep -qE 'pass: *0($| )' \
+  || fail "indented whole-file skip must not also be counted as a pass: $OUT"
+pass "indented whole-file SKIP (first line) → counted SKIP, suite exits 0"
+
+# --- Case 7: env sandboxing beyond HOME (D207) ------------------------------
+# run-all.sh must scrub BRAIN_DIR/SB_BRAIN_DIR/KNOWLEDGE_DIR/
+# CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR/CLAUDE_PROJECT_DIR/CLAUDECODE and every
+# OTHER inherited SB_* var before invoking each test — a developer's real shell
+# config must not leak into a test that believes HOME-sandboxing is enough.
+# SB_RUN_ALL_* / SB_EXPECTED_SKIPS are the runner's OWN knobs and must still
+# pass through (asserted implicitly: run_suite already relies on
+# SB_RUN_ALL_TESTS_DIR/SB_RUN_ALL_VITEST/SB_RUN_ALL_QUIET reaching run-all.sh).
+D7="$TMP/case7"; mkdir -p "$D7"
+cat > "$D7/test-env-sandbox.sh" <<'EOF'
+#!/bin/bash
+leaked=0
+for v in BRAIN_DIR SB_BRAIN_DIR KNOWLEDGE_DIR CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR CLAUDE_PROJECT_DIR CLAUDECODE SB_MY_RANDOM_OVERRIDE; do
+  val=$(eval "printf '%s' \"\${$v:-}\"")
+  if [ -n "$val" ]; then
+    echo "LEAKED: $v=$val"
+    leaked=1
+  fi
+done
+[ "$leaked" -eq 0 ] && echo "sandbox clean"
+exit "$leaked"
+EOF
+OUT=$(BRAIN_DIR="/leak/brain" SB_BRAIN_DIR="/leak/sb-brain" KNOWLEDGE_DIR="/leak/knowledge" \
+  CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="/leak/opt-knowledge" CLAUDE_PROJECT_DIR="/leak/proj" \
+  CLAUDECODE=1 SB_MY_RANDOM_OVERRIDE="leak-value" \
+  run_suite "$D7")
+printf '%s\n' "$OUT" | grep -q 'EXIT=0' \
+  || fail "run-all must scrub BRAIN_DIR/KNOWLEDGE_DIR/CLAUDE_*/SB_* overrides before invoking a test (D207): $OUT"
+printf '%s\n' "$OUT" | grep -qE 'pass: *1($| )' \
+  || fail "the sandboxed test should PASS once the overrides are scrubbed: $OUT"
+pass "run-all scrubs dir-resolution vars + inherited SB_* overrides (D207)"
+
 echo
 echo "ALL PASS"

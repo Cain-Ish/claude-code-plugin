@@ -6,6 +6,13 @@
 # Works in tandem with stop-extract.sh: both use a shared line-marker file
 # (.last-extracted-line-<slug>--<session_id>) so each processes a disjoint window.
 #
+# Honors env overrides:
+#   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 30)
+#   SB_EXTRACT=off      — kill switch: skip the LLM extraction call entirely (no
+#                        API spend). The transcript window is still archived and
+#                        the marker still advances — a deterministic files-touched
+#                        delta merges instead, same as an LLM failure would produce.
+#
 # Always exits 0 (fail-soft).
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
@@ -124,7 +131,9 @@ DELTA_JSON=""
 
 # sb_call_extractor (lib.sh) tries claude CLI then ANTHROPIC_API_KEY fallback
 # and writes .extractor-health.json so session-load.sh can surface failures.
-if sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
+if [ "${SB_EXTRACT:-on}" = "off" ]; then
+  SB_GATE="extract-off"
+elif sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
   DELTA_JSON=$(cat "$EXTRACT_OUT")
 else
   HEALTH_REASON=$(sb_get_extractor_health | jq -r '.reason // "unknown"' 2>/dev/null | tr -d '\r')
@@ -153,10 +162,12 @@ if [ -z "$DELTA_JSON" ]; then
       ]
       | unique
       | map(select(. != null and . != ""))
-      | map(select(test("^/tmp/|^/var/tmp/|^/proc/|^/dev/|^/run/") | not))
-      | .[0:5]
     ' 2>/dev/null || echo '[]')
     FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
+    # D111: sb_filter_scratch_paths (lib.sh) catches Windows AppData\Local\Temp and
+    # macOS $TMPDIR (/var/folders/...) forms the old POSIX-only test() missed.
+    FILES_JSON=$(sb_filter_scratch_paths "$FILES_JSON")
+    FILES_JSON=$(printf '%s' "$FILES_JSON" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
     FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null | tr -d '\r')
     if [ -n "$FILES_LIST" ]; then
       NOTE="[degraded] LLM extraction unavailable; session touched: $FILES_LIST"
@@ -173,6 +184,12 @@ if [ -z "$DELTA_JSON" ]; then
   fi
 fi
 
+# --- Quality gate (D157) ---
+# Shared with stop-extract.sh and the out-of-band drainer (sb_gate_extraction_
+# delta, lib.sh) so every capture path filters low-quality extractions the
+# same way. Fail-open on gate failure.
+DELTA_JSON=$(sb_gate_extraction_delta "$DELTA_JSON")
+
 # --- Merge delta into PROJECT.md ---
 MERGE_ERR=$(mktemp)
 if ! echo "$DELTA_JSON" \
@@ -182,6 +199,13 @@ if ! echo "$DELTA_JSON" \
   sb_log_error "pre-compact.sh" "merge-failed err=$ERR_TAIL" 0
 fi
 rm -f "$MERGE_ERR"; MERGE_ERR=""
+
+# --- Relationship edges (typed, bi-temporal), D157 ---
+# Shared with stop-extract.sh and the drainer (sb_merge_extraction_edges,
+# lib.sh). Runs AFTER the merge above so relations[] endpoints can resolve
+# against wiki stub pages merge-project-update.sh's cross_refs handling may
+# have just scaffolded. Best-effort — never fails the hook.
+sb_merge_extraction_edges "$DELTA_JSON" "$KNOWLEDGE_DIR"
 
 # --- Persona signal + rule-candidate extraction ---
 PERSONA_PAYLOAD=$(echo "$DELTA_JSON" | jq -c \
@@ -209,9 +233,16 @@ sb_append_session_digest "$SLUG" "$SESSION_ID" "$DG_GOAL" "$DG_OUT" || true
 sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
 
 # --- Incremental episodic index update ---
+# D179: redirect BOTH stdout and stderr of the backgrounded node process to a log
+# file, never inherit the hook's own stdout (a reader of a pipe only sees EOF once
+# every holder closes it). Failures are fail-loud via sb_log_error.
 PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
 if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/episodic-index-cli.bundle.js" ]; then
-  BRAIN_DIR="$BRAIN_DIR" node "$PLUGIN_DIST/episodic-index-cli.bundle.js" 2>/dev/null &
+  EIDX_LOG="$BRAIN_DIR/episodic-index.log"
+  ( BRAIN_DIR="$BRAIN_DIR" node "$PLUGIN_DIST/episodic-index-cli.bundle.js" >>"$EIDX_LOG" 2>&1
+    _eidx_ec=$?
+    [ "$_eidx_ec" -ne 0 ] && sb_log_error "pre-compact.sh" "episodic-index-cli exited $_eidx_ec (see $EIDX_LOG)" "$_eidx_ec"
+  ) &
 fi
 
 # --- Update extraction marker ---

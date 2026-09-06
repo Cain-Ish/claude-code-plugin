@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_CONFIG_CHANGE_AUDIT — kill-switch test: asserts =off bypasses the audit entirely (Test 3)
 # Tests for scripts/config-change-guard.sh — ConfigChange audit-only hook.
 # Closes G-HOOK-3 from wiki/security/plugin-hardening-gap-analysis-2026-05-28.md.
 set -u

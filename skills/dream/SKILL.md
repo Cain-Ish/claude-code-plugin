@@ -9,7 +9,7 @@ description: |
 user-invocable: true
 disable-model-invocation: true
 argument-hint: "[--background] [instructions text]"
-allowed-tools: Read Write Edit Bash(ls *) Bash(cat *) Bash(wc *) Bash(date *) Bash(find *) Bash(grep *) Bash(diff *) Bash(jq *) Bash(bash *) Bash(mktemp *) Bash(mv *) Bash(mkdir *) Bash(rm *) Agent mcp__plugin_second-brain_knowledge-base__dream_create mcp__plugin_second-brain_knowledge-base__dream_status mcp__plugin_second-brain_knowledge-base__dream_list mcp__plugin_second-brain_knowledge-base__dream_accept mcp__plugin_second-brain_knowledge-base__dream_discard mcp__plugin_second-brain_knowledge-base__dream_cancel mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__knowledge_reindex mcp__plugin_second-brain_knowledge-base__knowledge_validate
+allowed-tools: Read Write Edit Bash(ls *) Bash(cat *) Bash(wc *) Bash(date *) Bash(find *) Bash(grep *) Bash(diff *) Bash(jq *) Bash(bash *) Bash(mktemp *) Bash(mv *) Bash(mkdir *) Bash(rm *) Bash(basename *) Bash(dirname *) Agent mcp__plugin_second-brain_knowledge-base__dream_create mcp__plugin_second-brain_knowledge-base__dream_status mcp__plugin_second-brain_knowledge-base__dream_list mcp__plugin_second-brain_knowledge-base__dream_accept mcp__plugin_second-brain_knowledge-base__dream_discard mcp__plugin_second-brain_knowledge-base__dream_cancel mcp__plugin_second-brain_knowledge-base__knowledge_search mcp__plugin_second-brain_knowledge-base__knowledge_reindex mcp__plugin_second-brain_knowledge-base__knowledge_validate
 ---
 
 # Dream — Knowledge Base Consolidation
@@ -41,16 +41,23 @@ On invocation, check current state via `dream_list` and act accordingly:
 
 ## Phase: Execution
 
+Resolve the runtime-state root ONCE, honoring the same `SB_BRAIN_DIR`/`BRAIN_DIR` override the
+MCP server used to create the dream — never hardcode `~/.second-brain` below:
+
+```bash
+BRAIN_DIR="${SB_BRAIN_DIR:-${BRAIN_DIR:-$HOME/.second-brain}}"
+```
+
 Set dream status to `running` via:
 ```bash
 TMPFILE=$(mktemp)
 jq '.status = "running" | .started_at = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' \
-  ~/.second-brain/dreams/{dream_id}/status.json > "$TMPFILE" && mv "$TMPFILE" ~/.second-brain/dreams/{dream_id}/status.json
+  $BRAIN_DIR/dreams/{dream_id}/status.json > "$TMPFILE" && mv "$TMPFILE" $BRAIN_DIR/dreams/{dream_id}/status.json
 ```
 
 ### Step 1: Transcript Mining
 
-Read all transcript files from `~/.second-brain/dreams/{dream_id}/transcripts/`.
+Read all transcript files from `$BRAIN_DIR/dreams/{dream_id}/transcripts/`.
 
 For each transcript, scan the metadata header (session_id, slug, date, tool_count) first. Then read the full content.
 
@@ -67,7 +74,7 @@ Collect findings as a structured list of proposed wiki actions:
 
 ### Step 2: 7-Phase Wiki Consolidation
 
-Work exclusively on the staging wiki at `~/.second-brain/dreams/{dream_id}/staging/wiki/`.
+Work exclusively on the staging wiki at `$BRAIN_DIR/dreams/{dream_id}/staging/wiki/`.
 
 **2a. AUDIT** — Read all pages. Fix:
 - Missing YAML frontmatter → add it
@@ -121,7 +128,7 @@ deterministic and **staging-local** (reads `related:` + body `[[links]]`, never 
 
 ```bash
 CLUST=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/graph-cluster.sh" \
-  --knowledge-dir "$HOME/.second-brain/dreams/{dream_id}/staging")
+  --knowledge-dir "$BRAIN_DIR/dreams/{dream_id}/staging")
 ```
 
 `CLUST` is JSON `[{id, members, member_hash}]` for clusters ≥ `SB_SUMMARIZE_MIN_CLUSTER`
@@ -132,7 +139,8 @@ For each cluster:
 - If `staging/wiki/themes/theme-<id>.md` exists with a **matching `member_hash`**, skip it
   (membership *and* member content unchanged — no LLM call).
 - Else write/overwrite `staging/wiki/themes/theme-<id>.md` with frontmatter `type: themes`,
-  `generated: true`, `related: [[member]]…` (the member slugs), `member_hash: <hash>`,
+  `generated: true`, `related: [members]` (inline list of the member slugs, NOT the
+  `[[a]], [[b]]` form — that is invalid YAML, same rule as 2e′ below), `member_hash: <hash>`,
   `created`/`updated`, and an LLM summary INSIDE the markers
   `<!-- theme:begin (generated — do not hand-edit) -->` … `<!-- theme:end -->` describing
   what the cluster is about and how its members relate. Author only the marked region.
@@ -156,7 +164,7 @@ citing them so a synthesized rule stays traceable + retractable. The one ablatio
 
 ```bash
 RCLUST=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/graph-cluster.sh" --gate reflect \
-  --knowledge-dir "$HOME/.second-brain/dreams/{dream_id}/staging")
+  --knowledge-dir "$BRAIN_DIR/dreams/{dream_id}/staging")
 ```
 
 Same clusters as SUMMARIZE. For each cluster, **in order**: **(1) decide eligibility FIRST** — reflect
@@ -174,7 +182,13 @@ list, NOT the `[[a]], [[b]]` form), `member_hash`, the synthesis inside `<!-- re
 as 2d). Reflection pages are FORGET-protected (learnings/concepts), count against the dream change budget,
 and are staged like any page.
 
-**2f. REINDEX** — Call `knowledge_reindex` MCP tool (pointed at staging dir is not possible via MCP, so manually update staging/wiki/index.md if needed). Run AFTER SUMMARIZE + REFLECT so new theme, project-MOC, and reflection pages are catalogued in the two-tier index.
+**2f. REINDEX** — Do NOT call the `knowledge_reindex` MCP tool here: it always targets the LIVE
+`knowledgeDir` (no staging-path argument exists) and runs `knowledge_validate` with
+`autofix: true` against it, which would mutate the live wiki mid-dream — a direct violation of
+"never touch live wiki during execution" below and of `dream_discard`'s rollback guarantee.
+Instead, regenerate `staging/wiki/index.md` by hand: read every staged page and rebuild the
+catalog yourself. Run AFTER SUMMARIZE + REFLECT so new theme, project-MOC, and reflection pages
+are catalogued in the two-tier index.
 
 **2g. FORGET** — bound cold-tier wiki growth (skip entirely if `SB_WIKI_FORGET=off`).
 Scores the **LIVE** wiki read-only (it copies to a temp to probe; never mutates live —
@@ -183,7 +197,7 @@ selecting low-value, old, unlinked, recall-safe pages, and writes a manifest. Ar
 happens only on accept (Review phase) — the FORGET phase writes nothing to the wiki.
 
 ```bash
-MAN=~/.second-brain/dreams/{dream_id}/forget-manifest.tsv
+MAN=$BRAIN_DIR/dreams/{dream_id}/forget-manifest.tsv
 if [ "${SB_WIKI_FORGET:-on}" != "off" ]; then
   CAND=$(bash "$CLAUDE_PLUGIN_ROOT/scripts/wiki-forget-candidates.sh"); rc=$?
   if [ "$rc" -eq 2 ]; then
@@ -218,14 +232,14 @@ Update status to completed:
 ```bash
 TMPFILE=$(mktemp)
 jq '.status = "completed" | .ended_at = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' \
-  ~/.second-brain/dreams/{dream_id}/status.json > "$TMPFILE" && mv "$TMPFILE" ~/.second-brain/dreams/{dream_id}/status.json
+  $BRAIN_DIR/dreams/{dream_id}/status.json > "$TMPFILE" && mv "$TMPFILE" $BRAIN_DIR/dreams/{dream_id}/status.json
 ```
 
 Proceed to Review phase.
 
 ## Phase: Review
 
-1. Read `~/.second-brain/dreams/{dream_id}/diff.md`
+1. Read `$BRAIN_DIR/dreams/{dream_id}/diff.md`
 2. Present a concise summary:
    - Pages added (count + titles)
    - Pages modified (count + what changed)
@@ -237,7 +251,7 @@ Proceed to Review phase.
      `scripts/dream-accept.sh`): if `forget-manifest.tsv` exists, each listed
      page that is STILL forgettable in the post-accept wiki (re-score guard —
      pages the dream just enriched are kept) is archived to
-     `~/.second-brain/wiki-archive/` (reversible move, never delete — the
+     `$BRAIN_DIR/wiki-archive/` (reversible move, never delete — the
      user's accept IS the confirmation) and logged to `wiki-archive-log.jsonl`.
      The accept output reports `FORGET: archived N page(s)` — relay that count.
 4. Report completion — consolidation changes + N pages archived (restore any with
@@ -245,7 +259,7 @@ Proceed to Review phase.
 
 If the diff shows 0 total changes AND no archive manifest, call `dream_discard` instead
 and report that the wiki was already well-consolidated. On any discard, also
-`rm -f ~/.second-brain/dreams/{dream_id}/forget-manifest.tsv` (archive nothing).
+`rm -f $BRAIN_DIR/dreams/{dream_id}/forget-manifest.tsv` (archive nothing).
 
 ## Constraints
 
