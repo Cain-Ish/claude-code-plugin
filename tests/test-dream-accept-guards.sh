@@ -264,27 +264,19 @@ rm -rf "$SB"
 # staging, destroying the dream's only copy of its output while reporting
 # "accepted". ORACLE: archived_at stays unset, staging survives, rc != 0, and
 # the error names a backup tarball to restore from.
-supports_chmod_file_restrict() {
-  local f; f=$(mktemp)
-  chmod 444 "$f" 2>/dev/null
-  printf x > "$f" 2>/dev/null
-  local write_rc=$?
-  chmod 644 "$f" 2>/dev/null; rm -f "$f"
-  [ "$write_rc" -ne 0 ]
-}
-if supports_chmod_file_restrict; then
+# Failure injection that trips EVERY apply path on every OS: a read-only file does not
+# stop rsync (temp-file + rename) and a 555 directory is re-chmodded by `rsync -a`, but
+# neither rsync nor `cp -r` can replace a NON-EMPTY DIRECTORY with a regular file
+# (ENOTDIR / "cannot delete non-empty directory") — and Windows dir modes are inert
+# anyway. So: staging ships p1.md as a file, live holds p1.md as a directory with content.
+{
   setup 3 SAME
   D="$BRAIN_DIR/dreams/drm_test"
-  # Staging modifies p1 so the apply actually attempts to overwrite the live file.
+  # Staging modifies p1 so the apply actually attempts to overwrite the live entry.
   printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nCONSOLIDATED\n' > "$D/staging/wiki/entities/p1.md"
-  chmod 444 "$KNOWLEDGE_DIR/wiki/entities/p1.md"
-  # rsync (Linux/macOS CI) replaces files via temp-file+rename, so a read-only FILE does
-  # not fail it — only an unwritable DIRECTORY does. Restrict both: the cp fallback trips
-  # on the file (Windows, where dir modes are inert), rsync trips on the dir.
-  chmod 555 "$KNOWLEDGE_DIR/wiki/entities" 2>/dev/null
+  rm -f "$KNOWLEDGE_DIR/wiki/entities/p1.md"
+  mkdir -p "$KNOWLEDGE_DIR/wiki/entities/p1.md" && printf 'keep\n' > "$KNOWLEDGE_DIR/wiki/entities/p1.md/keep.txt"
   CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>/dev/null; rc=$?
-  chmod 755 "$KNOWLEDGE_DIR/wiki/entities" 2>/dev/null
-  chmod 644 "$KNOWLEDGE_DIR/wiki/entities/p1.md" 2>/dev/null
   AFTER_ARCHIVED=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
   [ "$rc" -ne 0 ] || fail "D084: a partial apply failure returned rc=0"
   { [ -z "$AFTER_ARCHIVED" ] || [ "$AFTER_ARCHIVED" = "null" ]; } || fail "D084: archived_at was stamped despite a failed apply"
@@ -293,11 +285,7 @@ if supports_chmod_file_restrict; then
   [ -n "$BK" ] || fail "D084: no backup tarball left to restore from"
   pass "D084: partial apply failure aborts loud — no archived_at, staging kept, backup ($BK) named"
   rm -rf "$SB"
-else
-  echo "SKIP: D084 — chmod 444 does not restrict file overwrite on this filesystem (Windows without ACL support)"
-  pass "D084: apply-failure guard (skipped — chmod does not restrict here)"
-  rm -rf "$SB"
-fi
+}
 
 # === D084 (review follow-up): the cp-fallback (no-rsync) apply path must not
 # `rm -rf $_stash` on a FAILED apply — $_stash holds the only copy of every

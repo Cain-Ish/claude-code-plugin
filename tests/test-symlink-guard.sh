@@ -288,9 +288,11 @@ assert_deny "device-namespace \\\\.\\ credential path → deny (D182)" "$OUT" "s
 # expands 8.3 aliases back to their long form), so a credential dir reached via
 # its short alias never matched the long-form prefix list. The guard cannot
 # safely resolve these — it must deny outright rather than silently allow.
-OUT=$(run_guard "Write" "$HOME/work/repo/SSH~1/id_rsa")
+# 8.3 aliases are a Windows-filesystem concept, so the guard applies the rule only where
+# cygpath exists (or the host is MSYS): run these vectors through the stubbed-cygpath lane.
+OUT=$(PATH="$WINBIN:$PATH" run_guard "Write" "$HOME/work/repo/SSH~1/id_rsa")
 assert_deny "8.3 short-name component 'SSH~1' → deny (D182, cannot safely resolve)" "$OUT" "8.3"
-OUT=$(run_guard "Write" "$HOME/work/repo/TMP~1.MKZ/SSH~1/id_rsa")
+OUT=$(PATH="$WINBIN:$PATH" run_guard "Write" "$HOME/work/repo/TMP~1.MKZ/SSH~1/id_rsa")
 assert_deny "8.3 short-name components 'TMP~1.MKZ/SSH~1' → deny (D182)" "$OUT" "8.3"
 # A normal tilde-containing filename with NO digit suffix (not 8.3-shaped) is
 # not over-blocked — only the '~<digits>' alias marker triggers the deny.
