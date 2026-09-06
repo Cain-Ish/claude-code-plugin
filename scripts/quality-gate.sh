@@ -15,6 +15,9 @@ fi
 # single Write/Edit rather than just this one hook invocation. CTX is a fixed literal (no
 # attacker-controlled bytes reach this script), so escaping backslash/double-quote is
 # sufficient to build the envelope by hand.
-_esc=$(printf '%s' "$CTX" | sed 's/\\/\\\\/g; s/"/\\"/g')
+# Dependency-free (Copilot, PR #103): a host with no jq may have a restricted PATH with
+# no sed either; bash parameter expansion needs nothing outside the shell.
+_esc=${CTX//\\/\\\\}
+_esc=${_esc//\"/\\\"}
 printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_esc"
 exit 0

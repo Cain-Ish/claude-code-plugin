@@ -757,7 +757,11 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
       # embedded newlines to spaces on BOTH the pattern and the page it
       # searches, so the compare is exactly ONE literal pattern against ONE
       # flattened haystack, never a newline-delimited pattern list.
-      content_check=$(printf '%s' "$content" | head -c 60 | tr '\n' ' ')
+      # Copilot (PR #103): trim leading whitespace BEFORE taking the prefix, and require a
+      # non-space byte — an update that starts with blank lines would otherwise yield a
+      # spaces-only pattern that matches every page and silently skips the real update.
+      content_check=$(printf '%s' "$content" | tr '\n' ' ' | sed 's/^[[:space:]]*//' | head -c 60)
+      case "$content_check" in *[![:space:]]*) ;; *) content_check="" ;; esac
       if [ -n "$content_check" ] && tr '\n' ' ' < "$target_file" 2>/dev/null | grep -qF "$content_check"; then
         continue
       fi
