@@ -197,6 +197,15 @@ if [ -f "$BUDGET_JSON" ]; then
   LIVE_SCRIPTS=$(find "$PLUGIN_ROOT/scripts" -maxdepth 1 -name '*.sh' -type f 2>/dev/null | wc -l | tr -d ' ')
   LIVE_TESTS=$(find "$PLUGIN_ROOT/tests" -maxdepth 1 -name 'test-*.sh' -type f 2>/dev/null | wc -l | tr -d ' ')
   LIVE_STYLES=$(find "$PLUGIN_ROOT/output-styles" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')
+  if [ -f "$PLUGIN_JSON" ] && jq -e 'has("outputStyles")' "$PLUGIN_JSON" >/dev/null 2>&1; then
+    if [ ! -d "$PLUGIN_ROOT/output-styles" ]; then
+      echo "FAIL: required directory missing: output-styles"
+      ERRORS=$((ERRORS + 1))
+    elif [ "$LIVE_STYLES" -eq 0 ]; then
+      echo "FAIL: outputStyles declared but no .md files found under output-styles/"1
+      ERRORS=$((ERRORS + 1))
+    fi
+  fi
   for pair in "skills:$LIVE_SKILLS" "agents:$LIVE_AGENTS" "scripts:$LIVE_SCRIPTS" "tests:$LIVE_TESTS" "output_styles:$LIVE_STYLES"; do
     key="${pair%%:*}"; live="${pair#*:}"
     cap=$(jq -r --arg k "$key" '.[$k] // empty' "$BUDGET_JSON" 2>/dev/null | tr -d '\r')
