@@ -206,4 +206,20 @@ done
 [ -z "$h" ] && pass "no jq output appended DIRECTLY (>>) to a *.jsonl path (D120 class)" \
   || fail "jq's own stdout redirected DIRECTLY (>>) into a *.jsonl path — build the line first (jq -c into a var) and append it with printf/echo instead" "$h"
 
+# 14. No heredoc opened INSIDE a $(...) command substitution (issue #100). bash 3.2's
+#     $(...) parser scans the body by naive quote matching and does not honour the
+#     heredoc boundary, so any unbalanced quote in the heredoc body (a `'` inside an
+#     awk character class was the live case) swallows the closing `)` and the script
+#     fails to PARSE on macOS /bin/bash — a SessionStart hook silently dead on every
+#     Mac. `bash -n` on a 4.x/5.x host cannot see it. Use `IFS= read -r -d '' VAR <<'EOF'`
+#     (no comsub) or a function that prints the text instead.
+h=""
+for f in $ALL_SH; do
+  bad=$(grep -nE '\$\([^)]*<<-?[[:space:]]*['"'"'"]?[A-Za-z_]+' "$f" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+  [ -n "$bad" ] && h="$h
+$f: heredoc opened inside \$(...) — unparseable on bash 3.2 when the body has an unbalanced quote: $bad"
+done
+[ -z "$h" ] && pass "no heredoc inside a \$(...) command substitution (bash 3.2 parse hazard, issue #100)" \
+  || fail "heredoc opened inside \$(...) — use IFS= read -r -d '' VAR <<'EOF' instead" "$h"
+
 echo; echo "ALL PASS"
