@@ -222,4 +222,21 @@ done
 [ -z "$h" ] && pass "no heredoc inside a \$(...) command substitution (bash 3.2 parse hazard, issue #100)" \
   || fail "heredoc opened inside \$(...) — use IFS= read -r -d '' VAR <<'EOF' instead" "$h"
 
+# 15. The suite must invoke node tooling through the LOCAL .bin shim, never `npx`.
+# npx is an npm wrapper with its own failure modes ahead of the tool: on npm
+# 11.17.0 / node 24 it dies with "Class extends value undefined is not a
+# constructor or null" before vitest starts, and run-all scores that as
+# `FAIL vitest (mcp)` — an 837-test green suite reported as a red lane, which is
+# worse than no signal because it trains everyone to ignore the lane.
+# $ROOT is scripts/; this guard deliberately reaches into tests/ instead, so the
+# path is spelled from $REPO. A missing file would make the grep vacuously pass,
+# so the file's existence is asserted first.
+RA="$REPO/tests/run-all.sh"
+[ -f "$RA" ] || fail "tests/run-all.sh missing — the npx guard below cannot hold" "$RA"
+# -H so the output carries a file: prefix and nocomment can recognise it — the
+# comment in run-all.sh explaining this very rule must not trip the rule.
+n=$(grep -Hn "npx " "$RA" | nocomment || true)
+[ -z "$n" ] && pass "run-all.sh invokes node tooling via ./node_modules/.bin, not npx" \
+  || fail "run-all.sh calls npx — an npm wrapper failure will read as a test failure; use ./node_modules/.bin/<tool>" "$n"
+
 echo; echo "ALL PASS"
