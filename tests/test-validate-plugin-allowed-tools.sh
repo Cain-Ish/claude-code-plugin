@@ -26,6 +26,11 @@ for _d in skills scripts agents hooks docs output-styles .claude-plugin mcp; do
   cp -r "$REPO_ROOT/$_d" "$TMP/$_d" || fail "repo mirror failed for $_d"
 done
 unset _d
+# marketplace.json's source is ./plugin (the shipped tree); the validator follows it to the
+# manifest there. Mirror just that manifest dir — never the 4.5 MB tree.
+if [ -d "$REPO_ROOT/plugin/.claude-plugin" ]; then
+  mkdir -p "$TMP/plugin" && cp -r "$REPO_ROOT/plugin/.claude-plugin" "$TMP/plugin/.claude-plugin" || fail "repo mirror failed for plugin/.claude-plugin"
+fi
 export CLAUDE_PLUGIN_ROOT="$TMP"
 
 # Sanity: validator passes on an unmutated mirror

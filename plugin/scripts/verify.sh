@@ -1,0 +1,175 @@
+#!/bin/bash
+# Runtime smoke check for second-brain. Complements the static
+# scripts/validate-plugin.sh with live-state assertions.
+# Exit 0 = all checks pass, exit 1 = at least one check failed.
+# Output: 'verify: ok' on success, 'verify: FAIL: <check> — <detail>' lines on failure.
+#
+# First-run note: if .last-verify does not exist, the error-log freshness
+# check is skipped and a fresh timestamp is written on success. Subsequent
+# runs flag only entries newer than the recorded timestamp.
+set -u
+# Note: verify.sh's main path does not call sb_log_error directly — appending
+# to error-log.jsonl would create a feedback loop with check #5 below (which
+# reads that file). The only indirect path is via sb_require_jq when jq is
+# missing, which is a real error worth logging and benign here: with jq
+# missing the freshness check can't run anyway, so the entry surfaces on the
+# next run as a real failure rather than self-flagging noise.
+source "$(dirname "$0")/lib.sh"
+
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# D188: session-load.sh's ACTUAL hot-tier design is byte-budgeted, not line-counted —
+# USER.md is force-emitted up to 6000B, PROJECT.md up to 3000B via section-priority
+# render (D162: over-cap sections are dropped with a breadcrumb, never silently). The
+# old 66-LINE cap summed across BOTH files was a stale contract from before that design:
+# a single realistically-sized, healthy PROJECT.md (~11KB/67 lines) blew through it
+# every time, so .last-verify never advanced past 2026-05-04 and check 5 below grew a
+# permanently worsening "new entries" count. USER_BYTE_CAP mirrors session-load's real
+# emit cap and is a genuine gate (USER.md has no section-priority salvage — an over-cap
+# USER.md is silently head-c'd, losing real pinned content). PROJECT_BYTE_CAP is NOT a
+# hard gate for the same reason it isn't one in session-load: exceeding it is the
+# EXPECTED, gracefully-handled steady state once a project accumulates real history —
+# it is reported for visibility, not failed on.
+USER_BYTE_CAP=6000
+PROJECT_BYTE_CAP=3000
+FAILS=()
+NOTES=()
+
+SLUG=$(basename "$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || echo "$PWD")")
+
+# Check 1: USER.md exists and non-empty
+USER_FILE="$BRAIN_DIR/USER.md"
+if [ ! -f "$USER_FILE" ]; then
+  FAILS+=("verify: FAIL: USER.md — file missing at $USER_FILE")
+elif [ ! -s "$USER_FILE" ]; then
+  FAILS+=("verify: FAIL: USER.md — file empty at $USER_FILE")
+elif ! grep -q '^## Intent$' "$USER_FILE"; then
+  FAILS+=("verify: FAIL: USER.md — missing '## Intent' section (run /second-brain:setup or /second-brain:upgrade)")
+fi
+
+# Check 2: active project's PROJECT.md exists
+PROJECT_FILE="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
+if [ ! -f "$PROJECT_FILE" ]; then
+  FAILS+=("verify: FAIL: PROJECT.md — missing for active slug '$SLUG' at $PROJECT_FILE")
+fi
+
+# Check 3: hot tier under BYTE cap (see USER_BYTE_CAP/PROJECT_BYTE_CAP comment above)
+U_BYTES=0
+P_BYTES=0
+[ -f "$USER_FILE" ] && U_BYTES=$(wc -c < "$USER_FILE" | tr -d ' ')
+[ -f "$PROJECT_FILE" ] && P_BYTES=$(wc -c < "$PROJECT_FILE" | tr -d ' ')
+if [ "$U_BYTES" -gt "$USER_BYTE_CAP" ]; then
+  FAILS+=("verify: FAIL: hot tier — USER.md $U_BYTES bytes exceeds byte cap $USER_BYTE_CAP (session-load force-truncates past this, silently losing content)")
+fi
+if [ "$P_BYTES" -gt "$PROJECT_BYTE_CAP" ]; then
+  NOTES+=("verify: note: PROJECT.md $P_BYTES bytes exceeds the $PROJECT_BYTE_CAP-byte render cap (informational — session-load.sh section-priority-renders/truncates this with a breadcrumb, D162 — not a failure)")
+fi
+
+# Check 4: MCP dist artifact exists. The runtime launches the BUNDLE
+# (mcp.json → dist/server.bundle.js); the per-file tsc output is not what
+# ships, so probe the bundle that actually runs.
+MCP_DIST="$PLUGIN_ROOT/mcp/dist/server.bundle.js"
+if [ ! -f "$MCP_DIST" ]; then
+  FAILS+=("verify: FAIL: mcp — dist/server.bundle.js missing at $MCP_DIST (run /second-brain:setup)")
+fi
+
+# Check 4b: knowledge wiki dir exists.
+KNOWLEDGE_DIR="$(sb_knowledge_dir)"
+WIKI_DIR="$KNOWLEDGE_DIR/wiki"
+if [ ! -d "$WIKI_DIR" ]; then
+  FAILS+=("verify: FAIL: wiki — directory missing at $WIKI_DIR (run /second-brain:setup)")
+fi
+
+# Check 4c: wiki index.md exists.
+WIKI_INDEX="$WIKI_DIR/index.md"
+if [ -d "$WIKI_DIR" ] && [ ! -f "$WIKI_INDEX" ]; then
+  WIKI_COUNT=$(find "$WIKI_DIR" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$WIKI_COUNT" -gt 0 ]; then
+    FAILS+=("verify: FAIL: index.md — missing but $WIKI_COUNT wiki pages exist (run knowledge_reindex MCP tool)")
+  fi
+fi
+
+# Check 5b: stale or unreviewed dreams
+DREAMS_DIR="$BRAIN_DIR/dreams"
+if [ -d "$DREAMS_DIR" ]; then
+  for sf in "$DREAMS_DIR"/drm_*/status.json; do
+    [ -f "$sf" ] || continue
+    DSTATUS=$(jq -r '.status' "$sf" 2>/dev/null | tr -d '\r')
+    DID=$(jq -r '.id' "$sf" 2>/dev/null | tr -d '\r')
+    if sb_dream_is_stale "$sf"; then
+      # Unified staleness policy (sb_dream_is_stale, lib.sh): a pending|running
+      # dream whose status.json mtime has not advanced within SB_DREAM_RUN_TIMEOUT
+      # (6h). Supersedes the old running-only calendar-day check; widening to
+      # pending is intentional (one shared policy across snapshot/autostage/verify).
+      STARTED=$(jq -r '.started_at // ""' "$sf" 2>/dev/null | tr -d '\r')
+      if [ -n "$STARTED" ] && [ "$STARTED" != "null" ]; then
+        FAILS+=("verify: FAIL: dream — $DID $DSTATUS but stale (no status.json progress within SB_DREAM_RUN_TIMEOUT; started $STARTED)")
+      else
+        FAILS+=("verify: FAIL: dream — $DID $DSTATUS but stale (no status.json progress within SB_DREAM_RUN_TIMEOUT)")
+      fi
+    elif [ "$DSTATUS" = "completed" ]; then
+      ENDED=$(jq -r '.ended_at // ""' "$sf" 2>/dev/null)
+      ARCHIVED=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
+      if [ "$ARCHIVED" = "null" ] || [ -z "$ARCHIVED" ]; then
+        FAILS+=("verify: FAIL: dream — $DID completed but not reviewed (ended $ENDED)")
+      fi
+    fi
+  done
+fi
+
+# Check 5: error-log freshness vs .last-verify
+ERR_LOG="$BRAIN_DIR/error-log.jsonl"
+LAST_VERIFY="$BRAIN_DIR/.last-verify"
+# `-s` (size>0) instead of `-f` (exists): an empty file is the normal post-
+# clear state (`: > error-log.jsonl`) and has nothing to validate. The old
+# `-f` + `jq -e '.'` pair tripped `jq` on the empty file and reported a
+# spurious "malformed JSON" — confused users into thinking their cleared
+# log was corrupt. Verified by tests/test-verify.sh subtest 9b.
+if [ -s "$ERR_LOG" ] && [ -f "$LAST_VERIFY" ]; then
+  LAST_TS=$(head -1 "$LAST_VERIFY" | tr -d '[:space:]')
+  if [ -n "$LAST_TS" ]; then
+    if ! sb_require_jq; then
+      FAILS+=("verify: FAIL: error-log — jq required for freshness check")
+    else
+      # Pre-validate the JSONL is parseable. jq's default mode reads
+      # whitespace-separated JSON values; -e flips exit on null/false.
+      # On any malformed line jq exits non-zero and we surface that as a
+      # distinct check failure — never swallow corrupt error-log silently.
+      if ! jq -e '.' "$ERR_LOG" >/dev/null; then
+        FAILS+=("verify: FAIL: error-log — malformed JSON in $ERR_LOG")
+      else
+        # D188: exit_code 0 rows are TRACE (R6b's sb_log_error gate=/ec0 routing sends
+        # most of these to audit-log.jsonl instead — see D173 — but a few legitimate
+        # exit_code-0 informational lines can still land here from paths that don't
+        # write `gate=`). Only exit_code != 0 is an actual failure worth flagging;
+        # counting trace rows is what made this check fail on every healthy install.
+        NEW_COUNT=$(jq -r --arg t "$LAST_TS" 'select(.timestamp > $t and .exit_code != 0) | .timestamp' "$ERR_LOG" | wc -l | tr -d ' ')
+        if [ "$NEW_COUNT" -gt 0 ]; then
+          FAILS+=("verify: FAIL: error-log — $NEW_COUNT new entries since $LAST_TS")
+        fi
+      fi
+    fi
+  fi
+fi
+
+# Emit results and update .last-verify timestamp on success
+if [ ${#FAILS[@]} -eq 0 ]; then
+  echo "verify: ok"
+  if [ ${#NOTES[@]} -gt 0 ]; then
+    for line in "${NOTES[@]}"; do
+      echo "$line"
+    done
+  fi
+  mkdir -p "$BRAIN_DIR"
+  date -u +"%Y-%m-%dT%H:%M:%SZ" > "$LAST_VERIFY"
+  exit 0
+else
+  for line in "${FAILS[@]}"; do
+    echo "$line"
+  done
+  if [ ${#NOTES[@]} -gt 0 ]; then
+    for line in "${NOTES[@]}"; do
+      echo "$line"
+    done
+  fi
+  exit 1
+fi

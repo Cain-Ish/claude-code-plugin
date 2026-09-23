@@ -1,0 +1,10 @@
+[Unit]
+Description=run second-brain extraction drainer periodically
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -43,6 +43,21 @@ for f in "${EXEC_FILES[@]}"; do
   fi
 done
 
+# plugin/ is what installs receive (marketplace source ./plugin), assembled by
+# scripts/build-plugin.sh — but the MODE git records comes from `git add`, and on
+# Windows (core.fileMode=false) every new plugin/ file lands as 644. Each shipped
+# copy must carry its source's mode, or plugin/bin/sb ships non-executable.
+# fix: git update-index --chmod=+x "plugin/<path>"  (or -x to match the source)
+while read -r mode _ _ p; do
+  src="${p#plugin/}"
+  smode=$(git ls-files --stage -- "$src" | awk '{print $1}')
+  [ -z "$smode" ] && continue   # plugin-only artifact (.ship-manifest.lock)
+  if [ "$mode" != "$smode" ]; then
+    echo "FAIL: $p stored as $mode but its source $src is $smode"
+    failed=1
+  fi
+done < <(git ls-files --stage -- plugin)
+
 if [ "$failed" -eq 0 ]; then
   echo "ALL PASS"
 fi

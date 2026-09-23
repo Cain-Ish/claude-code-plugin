@@ -4,6 +4,7 @@
 # Windows — silently breaking comparisons, arithmetic, grep patterns, and path building. We can't run
 # Windows here, so this test STUBS jq to reproduce the exact CRLF behavior on Linux, then runs the real
 # scripts and asserts they survive. ORACLE: real script behavior under the faulty jq, not a re-impl.
+# pins: SB_BUDDY_COLS — width fixture so the buddy renderer draws the sprite row the mood check reads
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
@@ -14,7 +15,7 @@ STUB=$(mktemp -d); trap 'rm -rf "$STUB"' EXIT
 # Faithful Windows-jq stub: append \r to every line of -r/-j (raw) output, like the CRLF build.
 cat > "$STUB/jq" <<EOF
 #!/bin/bash
-for a in "\$@"; do case "\$a" in -r|--raw-output|-j|-rs|-rc) raw=1;; esac; done
+for a in "\$@"; do case "\$a" in -r|--raw-output|-j|-rs|-rc|-rn|-nr) raw=1;; esac; done
 if [ "\${raw:-0}" = 1 ]; then "$REALJQ" "\$@" | sed 's/\$/\r/'; else "$REALJQ" "\$@"; fi
 EOF
 chmod +x "$STUB/jq"
@@ -45,6 +46,17 @@ pass "sb_config_bool reads true→on under Windows jq (config system CR-safe)"
 r=$(RUN bash -c "source '$ROOT/scripts/lib.sh'; printf '{\"auto_accept\":\"safe\"}\n' > '$T/config.json'; BRAIN_DIR='$T' sb_config_get .auto_accept off")
 [ "$r" = "safe" ] || fail "sb_config_get returned '$r' (CR leaked into a string value)"
 pass "sb_config_get returns a clean string under Windows jq"
+rm -rf "$T"
+
+# 3. 0.51.0: the buddy renderer reads 14 US-joined fields from ONE `jq -rn` line; the CR lands in
+#    the last field (mood), so "alert\r" matched no mood case and Windows never showed mood eyes.
+T=$(mktemp -d); mkdir -p "$T/.buddy"
+printf '{"identity":{"species":"dragon","eye":"@","hat":"none"}}\n' > "$T/buddy.json"
+printf '{"ts":%s,"kind":"gate","mood":"alert","line":"Verify gate fired","ttl_s":900}\n' "$(date +%s)" > "$T/.buddy/s1.json"
+out=$(printf '{"session_id":"s1"}' | RUN env BRAIN_DIR="$T" SB_BUDDY_COLS=120 NO_COLOR=1 bash "$ROOT/scripts/buddy-statusline.sh")
+printf '%s' "$out" | grep -q 'Verify gate fired' || fail "buddy renderer lost the event under Windows jq: $out"
+printf '%s' "$out" | grep -q 'ò  ó' || fail "buddy mood eyes lost under Windows jq (CR in the last read field): $out"
+pass "buddy-statusline.sh mood survives Windows jq (last US field CR-stripped)"
 rm -rf "$T"
 
 echo; echo "ALL PASS"

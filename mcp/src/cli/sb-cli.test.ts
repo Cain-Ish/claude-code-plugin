@@ -98,6 +98,21 @@ describe('sb CLI', () => {
     expect(r.stderr).toContain('unknown subcommand');
   });
 
+  it('buddy hatches from --user-id, caches bones in buddy.json, keeps name', async () => {
+    writeFileSync(join(brainDir, 'buddy.json'), '{"name":"Ziutek"}\n', 'utf-8');
+    const r = await runSb(['buddy', '--user-id', '0f7a2d9e-6c1b-4b3e-9a8d-1234567890ab'], { brainDir, knowledgeDir });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Ziutek');
+    expect(r.stdout).toContain('uncommon dragon');
+    expect(r.stdout).toContain('seed: arg');
+    const cfg = JSON.parse(readFileSync(join(brainDir, 'buddy.json'), 'utf-8'));
+    expect(cfg.name).toBe('Ziutek');
+    expect(cfg.identity.species).toBe('dragon');
+    // Second call reads the cache (no --user-id needed) and reports the cached seed source.
+    const r2 = await runSb(['buddy'], { brainDir, knowledgeDir });
+    expect(r2.stdout).toContain('uncommon dragon');
+  });
+
   it('status reports project counts and PROJECT.md size', async () => {
     const r = await runSb(['status'], { brainDir, knowledgeDir });
     expect(r.exitCode).toBe(0);
