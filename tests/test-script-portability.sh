@@ -235,7 +235,7 @@ RA="$REPO/tests/run-all.sh"
 [ -f "$RA" ] || fail "tests/run-all.sh missing — the npx guard below cannot hold" "$RA"
 # -H so the output carries a file: prefix and nocomment can recognise it — the
 # comment in run-all.sh explaining this very rule must not trip the rule.
-n=$(grep -Hn "npx " "$RA" | nocomment || true)
+n=$(grep -HnE '(^|[[:space:]])npx([[:space:]]|$)' "$RA" | nocomment || true)
 [ -z "$n" ] && pass "run-all.sh invokes node tooling via ./node_modules/.bin, not npx" \
   || fail "run-all.sh calls npx — an npm wrapper failure will read as a test failure; use ./node_modules/.bin/<tool>" "$n"
 

@@ -21,7 +21,7 @@ matcher EXCLUDES `compact` — upstream anthropics/claude-code#15174: SessionSta
 hook output is silently dropped after compaction (v2.0.72+), so running
 session-load.sh on the compact event was pure waste. Removing it stops the
 post-compact context-bloat loop reported by users on long sessions. NOTE: the
-four entries below run in PARALLEL, not top-to-bottom — Claude Code gives no
+entries below run in PARALLEL, not top-to-bottom — Claude Code gives no
 ordering guarantee within one event, so session-load.sh must not assume
 ensure-dirs.sh's config.json/projects.jsonl scaffolding has already landed.
 
@@ -52,10 +52,13 @@ paid Opus advisor call; that is the one path where this hook is not free (D145).
 Blocks completion when code was modified but no verification evidence exists,
 returning `{"decision":"block"}` to force Claude to run checks. Safety valve:
 blocks at most twice per session (marker file). Always fails open — parse errors
-or missing data approve. Includes the anti-game sub-check for test-file deletion,
-which suppresses a flagged deletion only on POSITIVE proof the path is absent
-from both HEAD and the index. Kill switches SB_VERIFY_GATE=off,
-SB_VERIFY_ANTIGAME=off.
+or missing data approve. Includes the anti-game sub-check for test-file deletion:
+verification evidence in a transcript window (lines since the last Stop's scan)
+that also ran `rm`/`git rm` on a test-shaped path blocks UNCONDITIONALLY — there is no HEAD/index/transcript suppression (four
+review rounds found a bypass in every such predicate; the full list is the
+HISTORY block in tests/test-stop-verify-gate.sh). A scratch test file the session
+created and deleted is a known, accepted false positive. Kill switches
+SB_VERIFY_GATE=off, SB_VERIFY_ANTIGAME=off.
 
 ### Stop — sar-summary.sh
 
