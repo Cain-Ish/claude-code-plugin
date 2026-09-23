@@ -1,4 +1,4 @@
-.PHONY: test test-quiet hook-install hook-uninstall release-check production-lane
+.PHONY: test test-quiet hook-install hook-uninstall release-check production-lane build-plugin
 
 # Run the full second-brain test suite.
 test:
@@ -20,6 +20,12 @@ hook-install:
 hook-uninstall:
 	@git config --unset core.hooksPath || true
 	@echo "pre-push hook uninstalled"
+
+# Rebuild the shipped plugin tree (plugin/) from .claude-plugin/ship-manifest.txt.
+# marketplace.json points installs at ./plugin, so this must be current on every release
+# commit — tests/test-plugin-dist-current.sh fails otherwise. Run after `npm run bundle`.
+build-plugin:
+	@bash scripts/build-plugin.sh
 
 # What the release gate enforces: tests + smoke-import of the vector deps.
 # Equivalent to the contract `pre-push` enforces, runnable on demand.

@@ -50,6 +50,11 @@ Before tagging `vX.Y.Z`:
       `dist/cli/sb-entry.bundle.js` and friends already committed. (If diff
       shows changes, the source was edited but the bundle was not rebuilt —
       commit the bundle update too.)
+- [ ] **Shipped tree is current.** `make build-plugin` (after the bundle step) leaves
+      `git status` clean under `plugin/`. marketplace.json installs `./plugin`, not the
+      repo root, so a stale `plugin/` ships last release's hooks under this release's
+      version. `tests/test-plugin-dist-current.sh` is the gate; the manifest is
+      `.claude-plugin/ship-manifest.txt`.
 - [ ] **The release commit body is the release record** (until 1.0): a
       `release: X.Y.Z — thesis` subject, narrative bullets, and the gates line.
       (Pre-1.0 CHANGELOG.md history lives on the `archive/docs` branch.) If the

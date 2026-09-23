@@ -32,7 +32,9 @@ fail() { echo "FAIL: $1"; exit 1; }
 # model-ladder.json is behaviour-defining DATA, not config: every model the
 # plugin spawns resolves through its ladders, so editing a rung changes shipped
 # behaviour exactly like a scripts/ edit and must force a bump.
-TRIGGERS="mcp/src mcp/dist mcp/package.json model-ladder.json scripts hooks skills agents bin systemd .claude-plugin/plugin.json .claude-plugin/mcp.json"
+# plugin/ is the tree installs receive (marketplace source ./plugin, 0.51.0): any change to it —
+# including a ship-manifest edit that adds or drops a whole entry — changes what users get.
+TRIGGERS="mcp/src mcp/dist mcp/package.json model-ladder.json scripts hooks skills agents bin systemd plugin .claude-plugin/plugin.json .claude-plugin/mcp.json"
 
 # --- resolve the base (previous release) ref ------------------------------------
 BASE_REF="${SB_RELEASE_BASE_REF:-}"

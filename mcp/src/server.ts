@@ -23,6 +23,7 @@ import { codeMap } from "./tools/codemap/code-map.js";
 import { codeNeighbors } from "./tools/codemap/code-neighbors.js";
 import { resolveActiveSlug as resolveActiveSlugFromDir } from "./tools/project-dir.js";
 import { resolveBrainDir, resolveKnowledgeDir } from "./brain-paths.js";
+import { writeBuddyEvent, type BuddyKind, type BuddyMood } from "./buddy-events.js";
 import { walkWiki } from "./tools/walk-wiki.js";
 import { guardDestructive } from "./nested-spawn-guard.js";
 
@@ -76,6 +77,7 @@ function registerJsonTool<Shape extends z.ZodRawShape>(
   const handler: JsonToolHandler<Shape> = async (args) => {
     try {
       const result = await fn(args);
+      void buddyNote(name, args as Record<string, unknown>, result);
       return { content: [{ type: "text" as const, text: typeof result === "string" ? result : JSON.stringify(result) }] };
     } catch (error) {
       return {
@@ -88,6 +90,36 @@ function registerJsonTool<Shape extends z.ZodRawShape>(
   // TS cannot resolve assignability here; the handler matches its resolved
   // (args, extra) => Promise<CallToolResult> form for every concrete call site.
   server.registerTool(name, { description, inputSchema }, wrap(handler) as unknown as ToolCallback<Shape>);
+}
+
+// --- Buddy: memory READ / WRITE through the tools becomes a visible statusline event ---
+// The buddy is the layer between Claude and the knowledge base; this is where "Claude is using
+// second brain right now" comes from. Fire-and-forget, fail-soft, zero tokens (no tool output
+// changes). Only the tools that read or write memory are mapped; the rest stay silent.
+const str = (v: unknown, n = 60): string => (typeof v === "string" ? (v.length > n ? v.slice(0, n - 1) + "…" : v) : "");
+function buddyNote(tool: string, args: Record<string, unknown>, result: unknown): Promise<void> {
+  const r = (result ?? {}) as Record<string, unknown>;
+  let ev: [BuddyKind, BuddyMood, string] | null = null;
+  switch (tool) {
+    case "knowledge_search": {
+      const n = Array.isArray(r.candidates) ? r.candidates.length : 0;
+      ev = ["read", n ? "focused" : "puzzled", n ? `Searched memory for “${str(args.query, 48)}” — ${n} page${n === 1 ? "" : "s"}` : `Nothing in memory for “${str(args.query, 48)}”`];
+      break;
+    }
+    case "knowledge_fetch": ev = ["read", "focused", `Read [[${str(args.slug, 48)}]] from memory${args.tier ? ` (${str(args.tier, 12)})` : ""}`]; break;
+    case "episodic_search": ev = ["read", "focused", `Searched past sessions for “${str(typeof args.query === "string" ? args.query : JSON.stringify(args.query), 48)}”`]; break;
+    case "episodic_read": ev = ["read", "focused", "Read a past session transcript"]; break;
+    case "knowledge_neighbors": ev = ["read", "focused", `Walked the graph from [[${str(args.slug, 48)}]]`]; break;
+    case "code_map": case "code_neighbors": ev = ["read", "focused", tool === "code_map" ? "Read the code map" : `Read the blast radius of ${str(args.file ?? args.path, 48)}`]; break;
+    case "pin_to_project": ev = ["remembered", "pleased", `Pinned to PROJECT.md ${str(args.section, 12)}: ${str(args.text, 60)}`]; break;
+    case "pin_to_user": ev = ["remembered", "pleased", `Pinned to USER.md: ${str(args.text, 60)}`]; break;
+    case "archive_to_wiki": ev = ["remembered", "pleased", `Archived to the wiki: [[${str(args.slug, 48)}]]`]; break;
+    case "knowledge_relate": ev = ["remembered", "pleased", `Linked [[${str(args.from, 24)}]] —${str(args.type, 14)}→ [[${str(args.to, 24)}]]`]; break;
+    case "dream_create": ev = ["pending", "waiting", "Dream staged — review it with /second-brain:dream"]; break;
+    case "dream_accept": ev = ["remembered", "pleased", "Dream accepted — the wiki grew"]; break;
+    default: return Promise.resolve();
+  }
+  return writeBuddyEvent(BRAIN_DIR, "_global", ev[0], ev[1], ev[2], `mcp:${tool}`, ev[0] === "pending" ? 0 : 900);
 }
 
 // --- Tools ---

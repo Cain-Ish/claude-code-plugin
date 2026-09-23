@@ -102,4 +102,52 @@ printf '%s' "$QG_NOJQ" | grep -q '"additionalContext":"QUALITY GATE' \
   || fail "review follow-up: jq-less quality-gate.sh envelope missing additionalContext text (got: $QG_NOJQ)"
 pass "review follow-up: quality-gate.sh emits the envelope by hand on a jq-less host"
 
+# --- hooks.notes.md coverage (BIDIRECTIONAL) -------------------------------
+# Hook rationale used to live as `_comment` keys inside hooks/hooks.json. Claude
+# Code's hook-config schema rejects unknown keys and warned on all 13 of them, so
+# the prose moved to hooks/hooks.notes.md. Prose that no gate checks rots, and a
+# hook whose "why" is lost gets deleted by the next person who cannot see why it
+# exists — so both directions are enforced here. The anchor is the SCRIPT NAME,
+# never an array index: reordering hooks.json must not silently misalign a note.
+NOTES="$ROOT/hooks/hooks.notes.md"
+[ -f "$NOTES" ] || fail "hooks/hooks.notes.md missing — hook rationale has no home"
+grep -q '"_comment"' "$HJ" \
+  && fail "hooks/hooks.json carries a _comment key again — Claude Code's hook schema rejects unknown keys and drops them with a warning; put the prose in hooks/hooks.notes.md instead"
+
+HN_TMP=$(mktemp -d)
+# "### <Event> — <script.sh>" -> "<Event> <script.sh>". Space-separated on
+# purpose: no event name or script name contains a space, and a literal tab in a
+# sed replacement is not portable to BSD sed.
+sed -n 's/^### \(.*\) — \(.*\)$/\1 \2/p' "$NOTES" > "$HN_TMP/notes.txt"
+[ -s "$HN_TMP/notes.txt" ] \
+  || { rm -rf "$HN_TMP"; fail "hooks.notes.md has no '### <Event> — <script.sh>' headings — the key format is broken, so neither direction below can hold"; }
+
+# Direction 1 — no stale notes: every heading names a script that some hook under
+# that event actually runs.
+while read -r n_ev n_sc; do
+  [ -n "$n_ev" ] && [ -n "$n_sc" ] || continue
+  jq -e --arg ev "$n_ev" --arg sc "$n_sc" \
+     '(.hooks[$ev]? // []) | map(.hooks[]?.command) | any(contains("/" + $sc))' "$HJ" >/dev/null 2>&1 \
+    || { rm -rf "$HN_TMP"; fail "hooks.notes.md documents '$n_ev — $n_sc' but no $n_ev hook in hooks.json runs that script — stale note (hook removed or renamed?)"; }
+done < "$HN_TMP/notes.txt"
+pass "hooks.notes.md: all $(wc -l < "$HN_TMP/notes.txt" | tr -d ' ') headings resolve to live hooks.json commands"
+
+# Direction 2 — no undocumented wiring: every hook GROUP is named by at least one
+# heading. Wrappers (hook-timer.sh) share the command line with the real script;
+# one match anywhere in the group is enough, so wrappers need no note of their own.
+jq -r '.hooks | to_entries[] | .key as $ev | .value | to_entries[]
+       | "\($ev) \(.key) \((.value.hooks // []) | map(.command) | join(" "))"' "$HJ" \
+  | tr -d '\r' > "$HN_TMP/groups.txt"
+while read -r g_ev g_idx g_cmds; do
+  [ -n "$g_ev" ] || continue
+  g_hit=0
+  for g_sc in $(printf '%s' "$g_cmds" | grep -oE '[A-Za-z0-9_-]+\.sh' | sort -u); do
+    grep -Fqx "$g_ev $g_sc" "$HN_TMP/notes.txt" && { g_hit=1; break; }
+  done
+  [ "$g_hit" = "1" ] \
+    || { rm -rf "$HN_TMP"; fail "hooks.json $g_ev[$g_idx] is undocumented — add a '### $g_ev — <script.sh>' section to hooks/hooks.notes.md naming one of its scripts ($g_cmds)"; }
+done < "$HN_TMP/groups.txt"
+pass "hooks.notes.md: all $(wc -l < "$HN_TMP/groups.txt" | tr -d ' ') hooks.json groups are documented"
+rm -rf "$HN_TMP"
+
 echo; echo "ALL PASS"

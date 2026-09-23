@@ -37,8 +37,11 @@ Design history lives on the `archive/docs` branch.
 /second-brain:setup
 ```
 
-The compiled MCP server (`mcp/dist/`) ships in the repo, so a marketplace install works out of
-the box. Optional on-device vector search: `bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"`
+Installs receive only the shipped tree, `plugin/` (marketplace `source: "./plugin"`): hooks, skills,
+agents, scripts, the compiled MCP server, manifests — about 4.5 MB and nothing from `tests/`,
+`docs/` or `mcp/src/`. It is generated from `.claude-plugin/ship-manifest.txt` by `make build-plugin`
+and gated by `tests/test-plugin-dist-current.sh`; edit the source at the repo root, never `plugin/`.
+The compiled MCP server ships in that tree, so a marketplace install works out of the box. Optional on-device vector search: `bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"`
 (search degrades cleanly to BM25/text-only without it). Session extraction needs Anthropic API
 access — an `ANTHROPIC_API_KEY` or a Claude subscription; `sb auth doctor` walks through both.
 
@@ -64,7 +67,7 @@ dreams stage changes for review, forgetting archives rather than deletes.
 
 ## Commands
 
-13 user-invocable skills:
+14 user-invocable skills:
 
 | Command | Purpose |
 |---|---|
@@ -81,6 +84,7 @@ dreams stage changes for review, forgetting archives rather than deletes.
 | `/second-brain:import-host` | Fold existing `CLAUDE.md`/`AGENTS.md`/`.cursorrules` into the tiers |
 | `/second-brain:think` | Opus advisor brief: intent, enrichment, risks (opt-in, ~$0.11/call) |
 | `/second-brain:doubt` | Adversarial self-audit of the plugin's own layers |
+| `/second-brain:buddy` | The statusline companion: card, `why` (explain the last gate), `pending`, `name`, `mute`, `install` |
 
 One output style, `second-brain:dev-focused` (select it under `/config` > Output style, or set `"outputStyle": "second-brain:dev-focused"` in settings). It shapes every reply for a reader who needs to act now: next action first, numbered steps, state restated each turn, no tangents, concrete time estimates, and work routed to the cheapest model tier (SCOUT/DO/THINK) that can do it. Opt-in only; it never overrides your chosen style.
 
@@ -92,6 +96,39 @@ automatic path into the raw inbox is `/second-brain:setup`'s one-time deep-scan.
 `query` and `using-second-brain` are invoked by the model, not as slash commands. Four agents
 back the loop: `dream-runner`, `knowledge-maintainer`, `raw-drainer`, and `search-conversations`
 — consolidation and recall, nothing else.
+
+## Buddy — the visible layer between Claude and the knowledge base
+
+Opt-in. `scripts/buddy-statusline.sh` is a Claude Code `statusLine` renderer that sits directly under
+the input box and shows, live, whether and how second brain is being used: the frozen session goal
+and phase (plan / implement / verify), context usage, and the last memory event — hot tier
+delivered, pages offered for this prompt, a page **read** or a decision **pinned** through the MCP
+tools, extraction filed, a plan/verify gate holding, a credential-flow hold, a dream waiting for
+review. Rules-based, zero tokens on the statusline: it only reads state the hooks and the server
+already keep (`~/.second-brain/.buddy/<sid>.json`, `.buddy/_global.json` for MCP-side events,
+`.injected/<sid>.{json,phase}`). Wide terminals get a speech bubble and a small sprite; under
+~90 columns it collapses to one line.
+
+The buddy also reminds Claude to use memory, once per session and only when it matters: eight or
+more prompts into implementation with nothing saved through the tools, `persona-context.sh` adds
+one ~40-token line asking for the decision to be pinned. `/second-brain:buddy ask <question>`
+answers from the knowledge base directly (BM25 + past-session recall, no LLM); `why` explains
+the last gate; `pending` lists what waits on you.
+
+Install with `/second-brain:buddy install` (or `sb buddy install`): it hatches the identity, writes
+a stable shim at `~/.second-brain/bin/buddy-statusline.sh` that resolves the newest installed
+plugin version at run time, points `~/.claude/settings.json`'s `statusLine` at it (backup written),
+and chains an existing statusline as line 1 — passed as `SB_BUDDY_CHAIN` inside that audited
+command, never read from a data file. `sb buddy uninstall` restores the previous statusline.
+Plugins cannot set `statusLine` themselves, so this step is always explicit.
+
+The sprite (species, eyes, hat, rarity — no stats) is the deterministic roll the native `/buddy`
+used: `accountUuid` from `~/.claude.json` + salt → wyhash (bit-exact with `Bun.hash`, pinned to the
+Zig reference vectors) → mulberry32. `sb buddy` prints it; `sb buddy name <x>` renames;
+`sb buddy --rehatch` recomputes after logging in if it hatched from the hostname fallback.
+Kill switches: `SB_BUDDY=off` (everything, mapped by `SB_HOOK_PROFILE=minimal`), `SB_BUDDY_SPRITE=off`,
+`SB_BUDDY_ASCII=on`, `SB_BUDDY_NUDGE_AFTER=<prompts>` (default 8).
+Design and roadmap: `docs/plans/2026-09-22-buddy-companion.md`.
 
 ## MCP tools
 
@@ -161,7 +198,9 @@ fails the suite if one appears.
 ## Contributing
 
 Run `make hook-install` once after cloning (sets `core.hooksPath=.githooks`) — it wires
-up the pre-push gate that re-runs the test suite before every push. Without it, nothing
+up the pre-push gate that re-runs the test suite before every push. The plugin loads in place from
+the repo root while developing (`.claude/settings.json` → `second-brain@local`); users install the
+generated `plugin/` tree, so run `make build-plugin` before a release commit (the gate fails otherwise). Without it, nothing
 local catches a broken tree before it reaches CI; see [RELEASING.md](RELEASING.md) for
 the full release checklist.
 

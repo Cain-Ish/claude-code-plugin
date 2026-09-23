@@ -204,10 +204,15 @@ if [ "$RUN_VITEST" = "1" ] && [ -d "$MCP_DIR" ] && [ -f "$MCP_DIR/package.json" 
   VITEST_HOME="$SUITE_SANDBOX/vitest-home"; mkdir -p "$VITEST_HOME"
   # D207: same env scrub as the bash lane — a developer's real BRAIN_DIR/
   # KNOWLEDGE_DIR/SB_* overrides must not leak into vitest either.
+  # The LOCAL binary, never `npx`: npx is an npm wrapper that can fail before
+  # vitest ever starts (npm 11.17.0 on node 24 dies with "Class extends value
+  # undefined is not a constructor or null"), and run-all reports that as
+  # `FAIL vitest (mcp)` — a green 837-test suite reading as a red lane. The
+  # .bin shim is what npx would resolve to anyway, minus the wrapper.
   if command -v timeout >/dev/null 2>&1; then
-    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" timeout "$PER_TEST_TIMEOUT" npx vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" timeout "$PER_TEST_TIMEOUT" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
   else
-    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" npx vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
   fi
   vitest_ec=$?
   if [ "$vitest_ec" -eq 0 ]; then
