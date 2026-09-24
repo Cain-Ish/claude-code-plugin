@@ -48,15 +48,16 @@ access — an `ANTHROPIC_API_KEY` or a Claude subscription; `sb auth doctor` wal
 
 ## What runs automatically
 
-Nine hook events wire the autonomous loop (`hooks/hooks.json`):
+Ten hook events wire the autonomous loop (`hooks/hooks.json`):
 
-- **SessionStart** — ensures dirs, discovers installed plugins and tracked doc sources, loads the hot tier into context, banners pending/suggested dreams.
+- **SessionStart** — ensures dirs, discovers installed plugins and tracked doc sources, loads the hot tier into context, banners pending/suggested dreams, delivers the working-agreement protocol card.
 - **UserPromptSubmit** — injects persona card, catalog, and relevant wiki hits per prompt (no LLM call).
-- **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, and a plan-first gate — with `SB_INTENT_SPINE` on (the default), it hard-denies-once on multi-file code work with no plan on record (Gate A) and again on goal drift (Gate B); `SB_INTENT_SPINE=off` restores the original advisory-only nudge that never blocks.
+- **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, a plan-first gate — with `SB_INTENT_SPINE` on (the default), it hard-denies-once on multi-file code work with no plan on record (Gate A) and again on goal drift (Gate B); `SB_INTENT_SPINE=off` restores the original advisory-only nudge that never blocks — and the working-agreement guard (delegation tier checks, path-triggered repo memory, search-before-create), advisory-only.
 - **PostToolUse** — quality gate on writes, injection-pattern scan of tool returns (telemetry, never blocks), simplicity nudge on large single changes, observation ledger.
 - **PostToolUseFailure** — the observation ledger's failure side. `PostToolUse` fires only on success, so without this event every FAILED tool call — the error→fix pattern the ledger exists to mine — left no record.
 - **Stop** — verify gate, then the LLM extractor files what mattered into hot tier + wiki; SAR safety-summary banner.
 - **SubagentStop** — archives substantive subagent results into the episodic transcript store.
+- **SubagentStart** — delivers a role card scoped to the spawned agent's type (working agreement, advisory-only).
 - **PreCompact** — same extraction before a context compaction, so nothing is lost to the window.
 - **ConfigChange** — audit-logs every settings/skills change (never blocks).
 

@@ -34,6 +34,14 @@ invocation only). It also reclaims stale pendings (runner never started >24h)
 into failed, and banners failed dreams + the maintainer quarantine file. Kill
 switch SB_DREAM_AUTOSTAGE=off. Timeout 20s.
 
+### SessionStart — protocol-guard.sh
+
+class-5 working agreement (CONSTITUTION.md, docs/plans/2026-09-24-repo-brain.md)
+— `card` mode prints the protocol card (tier table + behavioral reminders,
+<=1200 B plain stdout, same delivery path as session-load.sh) directly to
+SessionStart. Fail-open: any internal error emits nothing. Kill switches
+SB_PROTOCOL_GUARD=off (all modes) and SB_PROTOCOL_CARD=off (this mode only).
+
 ## UserPromptSubmit
 
 ### UserPromptSubmit — persona-context.sh
@@ -139,6 +147,27 @@ phase flip. Fail-open; every verdict audit-logged. With SB_INTENT_SPINE=off it
 degrades to the original soft once-per-session advisory (allow — never blocks).
 Silent on single-file work and one-line diffs. Kill switches
 SB_PLAN_FIRST_NUDGE=off, SB_INTENT_SPINE=off.
+
+### PreToolUse — protocol-guard.sh
+
+class-5 working agreement — `pre` mode on Task|Agent|Read|Edit|Write|MultiEdit:
+Task/Agent gets a tier-mismatch delegation check (warn-only unless
+SB_DELEGATION_REWRITE=1 rewrites `tool_input.model`); Read/Edit/Write/MultiEdit
+gets path-triggered repo memory (Slice 2) and Write of a new path gets a
+search-before-create nudge (Slice 3). At most one `hookSpecificOutput` envelope
+per call. Never `deny`/`ask`, never blocks. Kill switches SB_PROTOCOL_GUARD=off,
+SB_DELEGATION_CHECK=off, SB_DELEGATION_REWRITE (default off), SB_JIT=off,
+SB_SEARCH_FIRST=off.
+
+## SubagentStart
+
+### SubagentStart — protocol-guard.sh
+
+class-5 working agreement — `subagent` mode delivers a role card (<=900 B)
+scoped to `agent_type`, skipping `second-brain:*` and `Plan` agents (they already
+carry role-appropriate instructions). Fires on SubagentStart, ahead of the
+subagent's first tool call. Fail-open: any internal error emits nothing. Kill
+switches SB_PROTOCOL_GUARD=off, SB_ROLE_CARDS=off.
 
 ## ConfigChange
 

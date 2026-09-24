@@ -64,6 +64,10 @@ if [ -n "$_reg_refused" ]; then
 fi
 # Refresh the pin (legacy fallback for the MCP server / CLIs when no project dir is set).
 echo "$slug" > "$BRAIN_DIR/.active-session-slug"
+# Per-session slug memo (class 5, docs/plans/2026-09-24-repo-brain.md): protocol-guard.sh reads
+# this via sb_session_slug so a concurrent session's shared pin above can never hijack a
+# per-tool-call guard. Best-effort; a missing memo just falls back to sb_resolve_slug.
+[ -n "$SL_SESSION_ID" ] && { mkdir -p "$BRAIN_DIR/.injected" 2>/dev/null && printf '%s' "$slug" > "$BRAIN_DIR/.injected/$SL_SESSION_ID.slug" 2>/dev/null; } || true
 project_file="$PROJECTS_DIR/$slug/PROJECT.md"
 
 if [ ! -f "$project_file" ]; then

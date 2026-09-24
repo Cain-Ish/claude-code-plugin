@@ -73,6 +73,7 @@ scripts/persona-rules.default.json
 scripts/persona-tool-guard.sh
 scripts/plan-first-nudge.sh
 scripts/pre-compact.sh
+scripts/protocol-guard.sh
 scripts/quality-gate.sh
 scripts/sar-summary.sh
 scripts/sb-prune-archives.sh

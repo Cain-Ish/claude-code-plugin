@@ -23,10 +23,10 @@ if [ "${SB_HOOK_PROFILE:-}" = "minimal" ]; then
   : "${SB_SAR_SUMMARY:=off}" "${SB_PLAN_FIRST_NUDGE:=off}" "${SB_DREAM_AUTOSTAGE:=off}" \
     "${SB_CRITIC_OFFER:=off}" "${SB_LOOP_DEAD_BANNER:=off}" "${SB_CODEMAP_ORIENT:=off}" \
     "${SB_INJECTION_SCAN:=off}" "${SB_CONFIG_CHANGE_AUDIT:=off}" "${SB_INTENT_SPINE:=off}" \
-    "${SB_OBSERVATION_LEDGER:=off}" "${SB_BUDDY:=off}"
+    "${SB_OBSERVATION_LEDGER:=off}" "${SB_BUDDY:=off}" "${SB_PROTOCOL_GUARD:=off}"
   export SB_SAR_SUMMARY SB_PLAN_FIRST_NUDGE SB_DREAM_AUTOSTAGE SB_CRITIC_OFFER \
     SB_LOOP_DEAD_BANNER SB_CODEMAP_ORIENT SB_INJECTION_SCAN SB_CONFIG_CHANGE_AUDIT SB_INTENT_SPINE \
-    SB_OBSERVATION_LEDGER SB_BUDDY
+    SB_OBSERVATION_LEDGER SB_BUDDY SB_PROTOCOL_GUARD
 fi
 
 # sb_normalize_path — canonicalize a path STRING to the plugin's POSIX form so
@@ -2913,4 +2913,35 @@ sb_buddy_event() {
       || rm -f "$dir/$sid.log.tmp.$$" 2>/dev/null
   fi
   return 0
+}
+
+# --- Working agreement (class 5) — docs/plans/2026-09-24-repo-brain.md ----------------------
+# sb_session_slug <sid>: the slug session-load.sh memoized for THIS session in
+# $BRAIN_DIR/.injected/<sid>.slug — per-session, so a concurrent session's shared pin can never
+# hijack a per-tool-call guard. Falls back to sb_resolve_slug (git+jq spawns) when the memo is
+# absent (hook fired before SessionStart, or a test harness). Always exits 0.
+sb_session_slug() {
+  local sid="${1:-}" f s=""
+  sid="${sid//[^A-Za-z0-9_-]/}"; sid="${sid:0:64}"
+  f="$BRAIN_DIR/.injected/$sid.slug"
+  if [ -n "$sid" ] && [ -f "$f" ]; then IFS= read -r s < "$f" 2>/dev/null || s=""; s="${s//$'\r'/}"; fi
+  [ -n "$s" ] && { printf '%s\n' "$s"; return 0; }
+  sb_resolve_slug
+}
+# <<< SLICE 3 INSERTS sb_repo_key AND sb_rules_effective BETWEEN THIS LINE AND THE NEXT ANCHOR >>>
+# <<< END SLICE 3 INSERTION >>>
+# sb_rules_hard_lines <slug> <max>: "- <name>: <reason<=120>" lines for HARD (ask|deny) rules of the
+# effective rule set — Slice 3's sb_rules_effective when defined, else the same user-then-default
+# precedence persona-tool-guard.sh applies today. Prints nothing when no file is usable.
+sb_rules_hard_lines() {
+  local slug="${1:-}" max="${2:-5}" f=""
+  case "$max" in ''|*[!0-9]*) max=5 ;; esac
+  if command -v sb_rules_effective >/dev/null 2>&1; then f=$(sb_rules_effective "$slug"); fi
+  if [ -z "$f" ] || [ ! -s "$f" ]; then
+    f="$BRAIN_DIR/persona-rules.json"
+    [ -s "$f" ] || f="$(sb_plugin_root)/scripts/persona-rules.default.json"
+  fi
+  [ -s "$f" ] || return 0
+  jq -r --argjson n "$max" '[.rules[]? | select((.enabled // true) and (.action=="ask" or .action=="deny"))
+      | "- " + (.name // "rule") + ": " + (((.reason // "") | gsub("[\r\n`]"; " "))[0:120])] | .[0:$n] | .[]' "$f" 2>/dev/null | tr -d '\r'
 }

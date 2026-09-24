@@ -4,6 +4,7 @@
 # pins: SB_LOOP_DEAD_BANNER — silences this unrelated banner so only the telemetry manifest under test is asserted
 # pins: SB_TELEMETRY — kill-switch test: asserts =off suppresses the manifest write (Test 2)
 # pins: SB_PERSONA_WIKI_MIN_SCORE — forces a per-prompt wiki hit so persona-context.sh's manifest write is exercised (Test 6)
+# pins: SB_MANIFEST_SESSION_ID — routes one direct sb_manifest_add call at a squatted manifest path so the write-failure branch is exercised (Test 15)
 # P1.2/P1.3/P1.4 telemetry loop (archive/docs branch, docs/plans/2026-07-13-p1-observability.md Tasks 2-4):
 # session-load AND persona-context WRITE to the injection manifest (single-source
 # sb_manifest_add in lib.sh); stop-extract correlates it against the transcript's
