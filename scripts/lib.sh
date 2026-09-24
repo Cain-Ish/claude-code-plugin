@@ -306,6 +306,37 @@ sb_log_error() {
   fi
 }
 
+# --- Injection telemetry manifest (observation only) -----------------------
+# Appends emitted-injection ids to the session's manifest (kind: codemap|wiki|graph|anchor).
+# Single source for BOTH injection-time hooks: session-load.sh (SessionStart) and
+# persona-context.sh (UserPromptSubmit) — each sets SB_MANIFEST_SESSION_ID from its
+# own hook-payload session_id before calling. Consumed once per Stop by
+# stop-extract.sh's value-loop fold (manifest is cumulative — never deleted — so a
+# multi-Stop session's later injections are still counted; see stop-extract.sh).
+# ids are slugs/repo-paths (safe charsets; no JSON escaping needed). Never fails the
+# caller: an unwritable manifest, or SB_TELEMETRY=off, just loses telemetry.
+sb_manifest_add() {
+  [ "${SB_TELEMETRY:-on}" = "off" ] && return 0
+  [ -n "${SB_MANIFEST_SESSION_ID:-}" ] || return 0
+  local kind="$1" ids="$2" line
+  # Fail-soft to the CALLER (never blocks injection on a telemetry write failing),
+  # but a genuine write failure (squatted path, read-only BRAIN_DIR, disk full) is
+  # logged loudly — silently swallowing it made an unwritable manifest
+  # indistinguishable from "nothing was injected this session". NOTE: capture the
+  # exit status into a variable rather than `if ! { group } >> file; then` — bash
+  # does not propagate a brace-group's REDIRECTION-OPEN failure through `!`
+  # negation consistently (reproduced: `if ! { cmd; } >> baddir; then` takes the
+  # else branch even though the redirection failed), so negating the group
+  # directly would silently re-introduce exactly the swallowed failure this fixes.
+  { while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      printf '{"kind":"%s","id":"%s"}\n' "$kind" "$line"
+    done <<< "$ids"; } 2>/dev/null >> "$BRAIN_DIR/.injected-manifest-$SB_MANIFEST_SESSION_ID.jsonl"
+  local _sma_rc=$?
+  [ "$_sma_rc" -ne 0 ] && sb_log_error "lib.sh" "sb_manifest_add: manifest append failed kind=$kind sid=$SB_MANIFEST_SESSION_ID" 1
+  return 0
+}
+
 # --- Model resolution -----------------------------------------------------
 # Every model reference in the plugin is a TIER INTENT resolved here, never a literal. Two
 # surfaces exist and must never share a verdict: `headless` (claude -p spawns, accepts full IDs)

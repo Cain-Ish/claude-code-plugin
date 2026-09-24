@@ -134,22 +134,52 @@ if [ "$NEW_LINES" -lt 1 ]; then
 fi
 
 # --- Loop telemetry (utilization / value / compounding) — OBSERVATION ONLY ---
-# Machine-locked by mcp/src/telemetry-firewall.test.ts: nothing
-# here may ever feed ranking/forgetting. Gated on the session's injection manifest
-# (written by session-load), so it runs EXACTLY ONCE per session (manifest deleted
-# after) and scans only the new-lines window (same disjoint-window discipline as
-# extraction) so a resume can't double-count history. Deterministic jq only — no
-# LLM, transcript is DATA. Fail-soft: a telemetry error must never fail the hook.
+# Machine-locked by mcp/src/telemetry-firewall.test.ts: nothing here may ever feed
+# ranking/forgetting. Gated on the session's injection manifest (written by
+# session-load.sh AND persona-context.sh via lib.sh's single-source sb_manifest_add).
+# The manifest is CUMULATIVE for the whole session — it is never deleted here — so a
+# later Stop's fresh injections (persona-context fires every prompt) are still
+# counted. Each Stop scans ONLY its own new-lines window (same disjoint-window
+# discipline as extraction, via LAST_LINE) and MERGES the window's findings into a
+# per-session state file (.value-loop-state-$MANIFEST_SID.json: cumulative hit-id /
+# ritual-id sets, pulled/agents counters, tiers map, turn count), so a metric that
+# depends on "was this ever read across the whole session" survives across Stops
+# without re-scanning transcript history already covered by an earlier Stop. Emits
+# ONE `gate=value-loop` row PER STOP with the running totals; a reader takes the LAST
+# row per sid as the session total (see docs/daily-prompt.md). Deterministic jq only —
+# no LLM, transcript is DATA. Fail-soft: a telemetry error must never fail the hook.
 if [ "${SB_TELEMETRY:-on}" != "off" ]; then
   MANIFEST_SID=$(printf '%s' "$SESSION_ID" | tr -cd 'A-Za-z0-9_-' | head -c 64)
   MANIFEST="$BRAIN_DIR/.injected-manifest-$MANIFEST_SID.jsonl"
-  if [ -n "$MANIFEST_SID" ] && [ -f "$MANIFEST" ]; then
-    TEL_WINDOW=$(awk -v s="$LAST_LINE" 'NR>s' "$TRANSCRIPT" 2>/dev/null)
-    # utilization: Skill + Task(subagent_type) invocations -> counts store.
+  STATE_FILE="$BRAIN_DIR/.value-loop-state-$MANIFEST_SID.json"
+  if [ -n "$MANIFEST_SID" ]; then
+    # A PRESENT-but-unparseable state file is a torn/corrupt write (crash mid-mv,
+    # killed hook, cross-filesystem copy+unlink), never "no prior state" — silently
+    # resetting it to {} would zero every cumulative counter with nothing logged.
+    # Quarantine loudly and let $old fall back to {} via the now-missing file.
+    if [ -s "$STATE_FILE" ] && ! jq -e 'type=="object"' "$STATE_FILE" >/dev/null 2>&1; then
+      sb_log_error "stop-extract.sh" "telemetry: value-loop state unparseable, quarantined sid=$MANIFEST_SID" 1
+      mv -f "$STATE_FILE" "$STATE_FILE.corrupt" 2>/dev/null
+    fi
+    # Telemetry has its OWN watermark (scanned_to in the state file), independent of
+    # the extraction marker (.last-extracted-line-*). The extraction marker can be
+    # skipped-not-advanced (merge-failed, prompt-file-missing, a killed extractor) or
+    # advanced with no telemetry fold at all (pre-compact.sh); trusting it here
+    # re-scans and double-counts pulled/agents/tiers/turn on the next Stop. Clamp a
+    # stale watermark (transcript shrank / file replaced) back to 0 instead of hanging.
+    TEL_FROM=$(jq -r '.scanned_to // 0' "$STATE_FILE" 2>/dev/null | tr -d '\r')
+    case "$TEL_FROM" in ''|*[!0-9]*) TEL_FROM=0 ;; esac
+    if [ "$TEL_FROM" -gt "$TOTAL_LINES" ]; then TEL_FROM=0; fi
+  if [ "$TEL_FROM" -lt "$TOTAL_LINES" ]; then
+    TEL_WINDOW=$(awk -v s="$TEL_FROM" 'NR>s' "$TRANSCRIPT" 2>/dev/null)
+    # utilization: Skill + Agent/Task(subagent_type) invocations -> counts store.
+    # D-bug 1: the dispatch tool was renamed Task -> Agent; matching only "Task" left
+    # every agent dispatch uncounted here (a separate, session-scoped metric from the
+    # agents=/tiers= fields below, which fold the SAME rename fix into the value-loop row).
     TEL_NAMES=$(printf '%s\n' "$TEL_WINDOW" | jq -r '
       select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
       | if .name=="Skill" then ("skill:" + (.input.skill // "unknown"))
-        elif .name=="Task" then ("agent:" + (.input.subagent_type // "unknown"))
+        elif .name=="Task" or .name=="Agent" then ("agent:" + (.input.subagent_type // "unknown"))
         else empty end
     ' 2>/dev/null | tr -d '\r')
     if [ -n "$TEL_NAMES" ]; then
@@ -172,51 +202,179 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
           || { rm -f "$TEL_TMP"; sb_log_error "stop-extract.sh" "telemetry: utilization fold failed (corrupt store? $UTIL_JSON)" 1; }
       }
     fi
-    # value + compounding: injected ids subsequently used this session.
-    TEL_READS=$(printf '%s\n' "$TEL_WINDOW" | jq -r '
-      select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
-      | select(.name=="Read") | .input.file_path // empty' 2>/dev/null | tr -d '\r' | tr '\\' '/')
-    TEL_FETCH=$(printf '%s\n' "$TEL_WINDOW" | jq -r '
-      select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
-      | select(.name | test("knowledge_fetch|knowledge_neighbors|code_neighbors"))
-      | (.input.slug // .input.node // empty)' 2>/dev/null | tr -d '\r')
-    TEL_INJ=0; TEL_HIT=0; TEL_PRIOR=0; TEL_HITS=""
-    TEL_TODAY=$(date -u +%Y-%m-%d)
-    while IFS= read -r _tel_line; do
-      [ -z "$_tel_line" ] && continue
-      _tel_kind=$(printf '%s' "$_tel_line" | jq -r '.kind // empty' 2>/dev/null | tr -d '\r')
-      _tel_id=$(printf '%s' "$_tel_line" | jq -r '.id // empty' 2>/dev/null | tr -d '\r')
-      [ -n "$_tel_id" ] || continue
-      TEL_INJ=$((TEL_INJ + 1))
-      _tel_hit=0
-      case "$_tel_kind" in
-        codemap)
-          { printf '%s\n' "$TEL_READS" | grep -qF "$_tel_id" || printf '%s\n' "$TEL_FETCH" | grep -qF "$_tel_id"; } && _tel_hit=1 ;;
-        wiki|graph)
-          { printf '%s\n' "$TEL_FETCH" | grep -qxF "$_tel_id" || printf '%s\n' "$TEL_READS" | grep -qF "/$_tel_id.md"; } && _tel_hit=1 ;;
-      esac
-      if [ "$_tel_hit" = 1 ]; then
-        TEL_HIT=$((TEL_HIT + 1)); TEL_HITS="${TEL_HITS:+$TEL_HITS,}$_tel_id"
-        # A hit on a page CREATED before today = prior-session knowledge reused.
-        if [ "$_tel_kind" = "wiki" ] || [ "$_tel_kind" = "graph" ]; then
-          _tel_pf=$(find "$KNOWLEDGE_DIR/wiki" -maxdepth 2 -name "$_tel_id.md" 2>/dev/null | head -1)
+    # --rawfile-safe path: --rawfile errors on a missing file, so a not-yet-created
+    # STATE_FILE (first Stop of the session) must resolve to /dev/null (empty
+    # content), same fallback pattern as buddy-statusline.sh's `_f` helper.
+    _tel_f() { [ -f "$1" ] && printf '%s' "$1" || printf '%s' /dev/null; }
+
+    # ONE jq call, reading the transcript window on stdin and the manifest/prior
+    # state via --rawfile (never --argjson/--arg on their full content): a long
+    # session's manifest (persona-context appends per PROMPT) or a Read-heavy turn's
+    # window can exceed Windows' ~32K CreateProcess argv cap if passed as arguments —
+    # --rawfile and stdin are not subject to that limit. The window, the manifest,
+    # AND the prior state are ALL parsed TOLERANTLY (raw-slurp + per-line try/catch):
+    # a Stop can read the transcript mid-write, so a trailing torn line must not
+    # abort the whole pass (same philosophy as sb_count_torn_lines elsewhere) — a
+    # plain `jq -s` on window text errors out entirely on one bad line, which is
+    # exactly the bug this replaces. reads/fetch are derived from the window HERE
+    # (gsub normalizes backslashes, replacing the old shell `tr '\\' '/'`) instead of
+    # being precomputed and passed in as --arg text, for the same argv-size reason.
+    TEL_BIG=$(printf '%s\n' "$TEL_WINDOW" | jq -c -R -s \
+      --rawfile mraw "$(_tel_f "$MANIFEST")" \
+      --rawfile sraw "$(_tel_f "$STATE_FILE")" \
+      --argjson total "$TOTAL_LINES" '
+      (split("\n") | map(select(length>0)) | map(try fromjson catch null) | map(select(. != null))) as $lines |
+      ($mraw | split("\n") | map(select(length>0)) | map(try fromjson catch null)
+        | map(select(. != null and type=="object" and (.id // "") != "" and (.kind // "") != ""))) as $mf |
+      ($sraw | (try fromjson catch {})) as $old0 |
+      (if ($old0 | type) == "object" then $old0 else {} end) as $old |
+      # An anchor id (the project-ritual seed) must never count as a push metric
+      # under ANY other kind it also happens to be manifested under (real KB: a
+      # project slug can be both the ritual anchor AND a plain wiki page id).
+      ([ $mf[] | select(.kind=="anchor") | .id ] | unique) as $anchors |
+      ([ $mf[] | .id ] | unique) as $all_ids |
+      def nonanchor: select(.id as $i | ($anchors | index($i)) == null);
+      ([ $lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
+         | select(.name=="Read") | (.input.file_path // empty) | gsub("\\\\"; "/") ]) as $reads_arr |
+      ([ $lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
+         | select(.name | test("knowledge_fetch|knowledge_neighbors|code_neighbors"))
+         | (.input.slug // .input.node // empty) ]) as $fetch_arr |
+      # $-parameters (bound VALUES, evaluated once at the call site) — NOT bare
+      # filter parameters. A bare def with an unprefixed parameter re-evaluates that
+      # parameter (re-runs the .id lookup) against whatever the input is at each use
+      # site inside the body (here, a string from reads_arr/fetch_arr) and blows up
+      # with a string-indexing error. dollar-prefixed params bind once, correctly.
+      def codemap_hit($id): ( ($reads_arr | any(. as $r | $r | contains($id))) or ($fetch_arr | any(. as $f | $f | contains($id))) );
+      def wiki_hit($id): ( ($fetch_arr | any(. == $id)) or ($reads_arr | any(. as $r | $r | contains("/" + $id + ".md"))) );
+      {
+        win_hit_ids:    ([ $mf[] | select(.kind != "anchor") | nonanchor | select(if .kind == "codemap" then codemap_hit(.id) else wiki_hit(.id) end) | .id ] | unique),
+        win_ritual_ids: ([ $mf[] | select(.kind == "anchor") | select(wiki_hit(.id)) | .id ] | unique)
+      } as $hits |
+      ([ $lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") ]) as $tu |
+      {
+        # pulled= is "pulls Claude makes on its own initiative", counted apart from
+        # the ritual anchor fetch (ritual=) and from reads of already-injected ids
+        # (read=). knowledge_search/episodic_*/code_map have no target id and always
+        # count; a targeted fetch/neighbors call only counts if its target is NOT
+        # something already manifested (anchor or otherwise) — that fetch is either
+        # the ritual call or a read= hit, never both a pull AND one of those.
+        pulled_win: ([ $tu[] | select(.name | test("knowledge_(search|fetch|neighbors)|episodic_(search|read)|code_(map|neighbors)"))
+                       | select(
+                           (.name | test("knowledge_search|episodic_(search|read)|code_map"))
+                           or (((.input.slug // .input.node // "") as $t | ($t == "" or ($all_ids | index($t)) == null)))
+                         ) ] | length),
+        agents_win: ([ $tu[] | select(.name=="Agent" or .name=="Task") ] | length),
+        tiers_win:  (reduce ( $tu[] | select(.name=="Agent" or .name=="Task") | (.input.model // "unset") ) as $m ({}; .[$m] = ((.[$m] // 0) + 1)))
+      } as $tool |
+      {
+        new_state: {
+          hit_ids:    ((($old.hit_ids // []) + $hits.win_hit_ids) | unique),
+          ritual_ids: ((($old.ritual_ids // []) + $hits.win_ritual_ids) | unique),
+          pulled:     (($old.pulled // 0) + $tool.pulled_win),
+          agents:     (($old.agents // 0) + $tool.agents_win),
+          tiers:      (reduce ($tool.tiers_win | to_entries[]) as $e (($old.tiers // {}); .[$e.key] = ((.[$e.key] // 0) + $e.value))),
+          turn:       (($old.turn // 0) + 1),
+          scanned_to: $total
+        }
+      } as $merged |
+      ($merged.new_state) as $ns |
+      {
+        # injected counts unique (kind,id) PAIRS (a slug injected under two kinds
+        # counts twice); read counts unique IDS only (kind-agnostic) that landed in
+        # the cumulative hit set — deliberate, not a bug: a kind-id double-injection
+        # is still only ever "read" once. nonanchor drops an id that is ALSO
+        # manifested as the anchor, regardless of which other kind carried it here.
+        injected: ([ $mf[] | select(.kind != "anchor") | nonanchor | {kind, id} ] | unique | length),
+        read:     ([ $mf[] | select(.kind != "anchor") | nonanchor | .id ] | unique | map(select(. as $i | $ns.hit_ids | index($i) != null)) | length),
+        hits:     ([ $mf[] | select(.kind != "anchor") | nonanchor | .id ] | unique | map(select(. as $i | $ns.hit_ids | index($i) != null)) | map(gsub(" "; "%20"))),
+        ritual:   ([ $mf[] | select(.kind == "anchor") | .id ] | unique | map(select(. as $i | $ns.ritual_ids | index($i) != null)) | length),
+        prior_candidates: ([ $mf[] | select(.kind != "anchor") | nonanchor | select(.kind=="wiki" or .kind=="graph") | .id ] | unique | map(select(. as $i | $ns.hit_ids | index($i) != null))),
+        agents: $ns.agents, pulled: $ns.pulled, turn: $ns.turn,
+        tiers:  ($ns.tiers | to_entries | map("\(.key):\(.value)") | join(",")),
+        new_state: $ns
+      }
+    ' 2>/dev/null | tr -d '\r')
+
+    if [ -z "$TEL_BIG" ]; then
+      sb_log_error "stop-extract.sh" "telemetry: value-loop jq pipeline failed (corrupt manifest/state?) sid=$MANIFEST_SID" 1
+    else
+      NEW_STATE_JSON=$(printf '%s' "$TEL_BIG" | jq -c '.new_state' 2>/dev/null | tr -d '\r')
+      if [ -n "$NEW_STATE_JSON" ]; then
+        # Temp file NEXT TO the target (same directory => same filesystem => the mv
+        # below is an atomic rename, not $TMPDIR's cross-filesystem copy+unlink that
+        # a killed hook can tear mid-copy (the corrupt-state repro this guards).
+        TEL_STATE_TMP=$(mktemp "$STATE_FILE.XXXXXX" 2>/dev/null) && {
+          printf '%s' "$NEW_STATE_JSON" > "$TEL_STATE_TMP" 2>/dev/null \
+            && mv "$TEL_STATE_TMP" "$STATE_FILE" 2>/dev/null \
+            || { rm -f "$TEL_STATE_TMP"; sb_log_error "stop-extract.sh" "telemetry: state write failed sid=$MANIFEST_SID" 1; }
+        } || sb_log_error "stop-extract.sh" "telemetry: mktemp failed, state not persisted sid=$MANIFEST_SID" 1
+      else
+        sb_log_error "stop-extract.sh" "telemetry: value-loop new_state extraction failed sid=$MANIFEST_SID" 1
+      fi
+
+      # One VALUE per line (not @tsv/IFS=tab-split): tab is an IFS-whitespace
+      # character, so `IFS=$'\t' read` COLLAPSES consecutive tabs — whenever a
+      # field between two others is empty (hits= is empty on the very common
+      # read=0 case), every field after it silently shifts left one slot (hits
+      # gets the tiers value, tiers gets the prior-candidate list, ...). A `read`
+      # per LINE has no such collapsing: an empty line is still exactly one line.
+      TEL_LINES=$(printf '%s' "$TEL_BIG" | jq -r '
+        .injected, .read, .ritual, .agents, .pulled, .turn,
+        (.hits | join(",")), .tiers, (.prior_candidates | join(","))
+      ' 2>/dev/null | tr -d '\r')
+      {
+        IFS= read -r TEL_INJ
+        IFS= read -r TEL_HIT
+        IFS= read -r TEL_RITUAL
+        IFS= read -r TEL_AGENTS
+        IFS= read -r TEL_PULLED
+        IFS= read -r TEL_TURN
+        IFS= read -r TEL_HITS
+        IFS= read -r TEL_TIERS
+        IFS= read -r TEL_PRIOR_CAND
+      } <<< "$TEL_LINES"
+      case "$TEL_INJ" in ''|*[!0-9]*) TEL_INJ=0 ;; esac
+      case "$TEL_HIT" in ''|*[!0-9]*) TEL_HIT=0 ;; esac
+      case "$TEL_RITUAL" in ''|*[!0-9]*) TEL_RITUAL=0 ;; esac
+      case "$TEL_AGENTS" in ''|*[!0-9]*) TEL_AGENTS=0 ;; esac
+      case "$TEL_PULLED" in ''|*[!0-9]*) TEL_PULLED=0 ;; esac
+      case "$TEL_TURN" in ''|*[!0-9]*) TEL_TURN=0 ;; esac
+
+      # prior: a hit on a wiki/graph page CREATED before today = prior-session
+      # knowledge reused. Filesystem lookup (not expressible in jq), bounded to the
+      # small set of ALREADY-hit wiki/graph ids (not the whole manifest/transcript).
+      TEL_PRIOR=0
+      TEL_TODAY=$(date -u +%Y-%m-%d)
+      if [ -n "${TEL_PRIOR_CAND:-}" ]; then
+        _tel_oldifs="$IFS"
+        IFS=','
+        for _tel_pid in $TEL_PRIOR_CAND; do
+          IFS="$_tel_oldifs"
+          [ -z "$_tel_pid" ] && continue
+          _tel_pf=$(find "$KNOWLEDGE_DIR/wiki" -maxdepth 2 -name "$_tel_pid.md" 2>/dev/null | head -1)
           if [ -n "$_tel_pf" ]; then
             _tel_created=$(sed -n 's/^created:[[:space:]]*//p' "$_tel_pf" 2>/dev/null | head -1 | tr -d '\r"')
             [ -n "$_tel_created" ] && [ "$_tel_created" \< "$TEL_TODAY" ] && TEL_PRIOR=$((TEL_PRIOR + 1))
           fi
-        fi
+          IFS=','
+        done
+        IFS="$_tel_oldifs"
       fi
-    done < "$MANIFEST"
-    # ec=0 gate= trace -> audit-log; one row per session.
-    sb_log_error "stop-extract.sh" "gate=value-loop injected=$TEL_INJ read=$TEL_HIT prior=$TEL_PRIOR hits=${TEL_HITS:-none}" 0
-    rm -f "$MANIFEST"
+
+      # ec=0 gate= trace -> audit-log; ONE row per Stop (cumulative for the session).
+      # Field order after hits= must stay APPENDED, never inserted — docs/daily-prompt.md's
+      # extraction grep relies on it, and a reader takes the LAST row per sid as the total.
+      sb_log_error "stop-extract.sh" "gate=value-loop injected=$TEL_INJ read=$TEL_HIT prior=$TEL_PRIOR hits=${TEL_HITS:-none} ritual=$TEL_RITUAL pulled=$TEL_PULLED agents=$TEL_AGENTS tiers=${TEL_TIERS:-none} turn=$TEL_TURN sid=$MANIFEST_SID" 0
+    fi
+  fi
   fi
   # GC stray per-session markers from sessions that never reached a Stop (7d, same
-  # policy as the .injected/ memos). Covers the telemetry manifest AND the three
-  # verify-gate session markers (.verify-gate-blocks-*, .verify-gate-agseen-*,
-  # .critic-offer-*), which are written per-session by stop-verify-gate.sh and were
-  # never swept. One find, -o group. Deliberately quiet: GC of already-lost state.
-  find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.verify-gate-blocks-*' -o -name '.verify-gate-agseen-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
+  # policy as the .injected/ memos). Covers the telemetry manifest + cumulative state
+  # AND the three verify-gate session markers (.verify-gate-blocks-*,
+  # .verify-gate-agseen-*, .critic-offer-*), which are written per-session by
+  # stop-verify-gate.sh and were never swept. One find, -o group. Deliberately quiet:
+  # GC of already-lost state.
+  find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.value-loop-state-*.json' -o -name '.verify-gate-blocks-*' -o -name '.verify-gate-agseen-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
 fi
 
 START_LINE=$((LAST_LINE + 1))

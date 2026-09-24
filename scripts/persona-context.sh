@@ -35,6 +35,10 @@ SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr 
 # Spine state (memo + .phase) is keyed by session id across four hooks — sanitize once
 # here so every writer/reader derives the identical filename (no path separators).
 SESSION_ID="${SESSION_ID//[^A-Za-z0-9_-]/}"; SESSION_ID="${SESSION_ID:0:64}"
+# Names this session's injection manifest for sb_manifest_add (lib.sh, single source
+# shared with session-load.sh). Read by the function, not passed as an argument, so
+# every call site below stays a plain `sb_manifest_add kind ids`.
+SB_MANIFEST_SESSION_ID="$SESSION_ID"
 
 # /? prefix → route to persona-think (Layer 2 Opus brief), bypass Layer 1 silent injection.
 case "$PROMPT" in
@@ -454,6 +458,12 @@ STORE_BLOCK=""
 
 [Wiki — auto-retrieved slugs. Open one with knowledge_fetch(slug) at tier:\"gist\"; escalate to \"full\" only if the gist proves relevant. These are slugs, NOT file paths — Read cannot open them.]
 $WIKI_HITS"
+# D-bug 4: session-load was the ONLY sb_manifest_add caller, so the per-prompt wiki
+# hits injected here (often the bulk of a session's injections) never reached the
+# value-loop denominator. Only when the block actually goes out this turn (SHOW_WIKI
+# gate, same as above) — a hash-deduped repeat isn't a new injection.
+[ -n "$WIKI_HITS" ] && [ "$SHOW_WIKI" = "1" ] \
+  && sb_manifest_add wiki "$(printf '%s\n' "$WIKI_HITS" | tr ' ' '\n' | sed -n 's/^\[\[\(.*\)\]\]$/\1/p')"
 [ -n "$EPISODIC_HINT" ] && [ "$SHOW_EPISODIC" = "1" ] && STORE_BLOCK="$STORE_BLOCK
 $EPISODIC_HINT"
 [ -n "$STORE_BLOCK" ] && CTX="$CTX

@@ -307,7 +307,7 @@ Invocation column from each SKILL.md frontmatter: `/` = user slash command
 
 > REMOVED in 0.44.0 — `code-review-deep` + `team` skills and six agents (`quality-reviewer`,
 > the four `code-review-*` reviewers, `team-worker`) plus `scripts/team-run.sh`. They served none
-> of CONSTITUTION.md's four content classes. The fresh-context critic role moved to
+> of CONSTITUTION.md's content classes. The fresh-context critic role moved to
 > `persona_think` (`skills/doubt` step 4, `stop-verify-gate.sh` critic offer).
 
 ## 9. cost-router subplugin — REMOVED (0.35.x)

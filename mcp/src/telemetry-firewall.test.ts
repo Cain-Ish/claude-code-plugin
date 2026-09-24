@@ -25,6 +25,7 @@ const TELEMETRY_IDS = [
   'utilization-counts',
   '.injected-manifest',
   'value-loop',
+  '.value-loop-state',
   'compound-loop',
 ];
 

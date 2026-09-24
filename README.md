@@ -13,7 +13,7 @@ offline engine" below.
 
 ## What it remembers
 
-Four content classes, and only four — the things a senior dev carries between sessions and cannot
+Five content classes, and only five — the things a senior dev carries between sessions and cannot
 recover from a diff:
 
 | Class | Where it lives |
@@ -22,8 +22,9 @@ recover from a diff:
 | **Architecture & high-level design** — why-this-way, invariants, constraints | `wiki/concepts/`, `wiki/entities/`, `wiki/themes/`, the typed graph |
 | **Code map** — what exists, where, what breaks if it changes | `code_map`, `code_neighbors` (PageRank structure + import-graph blast radius) |
 | **Session recap** — what mattered, distilled before the context closes | Stop/PreCompact extraction, `episodic_search`, `sessions-digest.jsonl` |
+| **Working agreement** — hard rules, soft conventions, the work protocol, which model tier a job class belongs to | `CONSTITUTION.md`, machine-checked gates, skill front matter |
 
-A surface that does not produce, store, or deliver one of these four is not memory and does not
+A surface that does not produce, store, or deliver one of these five is not memory and does not
 belong here — however good a tool it is. The mission, that scope rule, and the hard constraints
 (full autonomy, untrusted-content isolation, cross-platform) are fixed in
 [CONSTITUTION.md](CONSTITUTION.md); the gates that enforce them are named there.
