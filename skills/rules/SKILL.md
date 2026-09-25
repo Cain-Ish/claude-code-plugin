@@ -30,10 +30,18 @@ does, then render that layer (or the merged effective set) as a table: name · a
 source · lock · tool · match.
 
 ```bash
-SLUG=$(bash -c 'source "${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/lib.sh"; sb_session_slug "${CLAUDE_SESSION_ID:-}"' 2>/dev/null)
-EFF=$(bash -c "source \"${CLAUDE_PLUGIN_ROOT:-\$(cd \"\$(dirname \"\$0\")/..\" && pwd)}/scripts/lib.sh\"; sb_rules_effective \"$SLUG\"" 2>/dev/null)
+LIB="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/lib.sh"
+SLUG=$(bash -c 'source "$1"; sb_session_slug "$2"' _ "$LIB" "${CLAUDE_SESSION_ID:-}" 2>/dev/null)
+case "$SLUG" in ''|.|..|*[!A-Za-z0-9._-]*) echo "refusing unsafe slug" >&2; SLUG="";; esac
+EFF=$(bash -c 'source "$1"; sb_rules_effective "$2"' _ "$LIB" "$SLUG" 2>/dev/null)
 [ -n "$EFF" ] && jq -r '.rules[] | [.name, .action, .source, (.lock//false), (.tool//"-"), (.match_command // .match_path // "-")] | @tsv' "$EFF"
 ```
+
+Every `bash -c` below that touches a variable follows the same pattern: the script text
+is a fixed string with no `$VAR` interpolation, and every variable is passed as a
+positional argument (`_ "$ARG1" "$ARG2" ...`) instead — a slug, session id, or any other
+value that could be a raw, attacker-influenced string (a directory basename, for example)
+must never be spliced into the script text itself.
 
 For `--layer plugin`/`user`/`repo`, read that one file directly (`scripts/persona-rules.default.json`,
 `$BRAIN_DIR/persona-rules.json`, `$BRAIN_DIR/projects/<slug>/rules.json`) instead of the merged
