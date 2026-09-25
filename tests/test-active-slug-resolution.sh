@@ -3,6 +3,8 @@
 # (CLAUDE_PROJECT_DIR, else the caller's cwd), NOT from the global, shared
 # .active-session-slug pin — which a CONCURRENT session can clobber. A stale pin
 # must never override the session's real project. (sb_resolve_slug / sb_slug_from_dir)
+# pins: SB_REPO_KEY_COMMON_DIR — kill-switch test: asserts =off restores the pre-Slice-3
+#   basename-of-worktree-dir behavior for sb_resolve_slug's git-worktree tiers
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
@@ -32,9 +34,17 @@ r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT
 [ "$r" = "claude-code-plugin" ] || fail "cwd (known project) should beat the stale pin (got '$r', want claude-code-plugin)"
 pass "cwd that names a known project beats the stale pin (no CLAUDE_PROJECT_DIR)"
 
-# 2b. a SUBDIR cwd (basename not a registered project) falls to the pin (subdir survival)
-r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$ROOT/scripts'; sb_resolve_slug")
-[ "$r" = "cainish" ] || fail "subdir cwd should fall to the pin (got '$r', want cainish)"
+# 2b. a SUBDIR cwd (basename not a registered project) falls to the pin (subdir survival).
+# $ROOT/scripts — a subdirectory, NOT the worktree root — is a deliberate regression fixture: a
+# subdir of a git-worktree checkout must resolve via its OWN basename ("scripts", not registered),
+# never remapped to the worktree's main-repo key (sb_repo_key must only re-key at the worktree
+# ROOT, where `.git` is a FILE — see docs/plans/2026-09-24-repo-brain.md §10 fix). $ROOT here IS a
+# linked `git worktree` of a repo whose main checkout basename ("claude-code-plugin") happens to be
+# registered in this sandbox, so a sb_repo_key bug that re-keys ANY subdir (not just the worktree
+# root) would silently resolve tier 2 to "claude-code-plugin" instead of falling through to the pin.
+SUBDIR2B="$ROOT/scripts"
+r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$SUBDIR2B'; sb_resolve_slug")
+[ "$r" = "cainish" ] || fail "subdir cwd should fall to the pin (got '$r', want cainish) — sb_repo_key re-keyed a worktree SUBDIR, not just its root"
 pass "subdir cwd (not a known project) falls to the pin"
 
 # 3. tmp→scratch normalization is shared (sb_slug_from_dir)
@@ -123,5 +133,25 @@ mkdir -p "$TMP/wd/plain7"
 r=$(BRAIN_DIR="$SB7" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$TMP/wd/plain7'; sb_resolve_slug")
 [ "$r" = "name" ] || fail "non-project cwd should still fall to the pin (got '$r', want name)"
 pass "pin still wins for a non-project, remote-less cwd (precedence preserved)"
+
+# 8. git worktree: sb_resolve_slug's CLAUDE_PROJECT_DIR and cwd tiers both key off the MAIN
+#    repo's slug (sb_repo_key), so a linked worktree shares one brain with its main checkout.
+SB8="$TMP/.sb8"; mkdir -p "$SB8/projects"
+WT_MAIN="$TMP/wd/wt-main-repo"; mkdir -p "$WT_MAIN"
+( cd "$WT_MAIN" && git init -q && git config user.email a@b.c && git config user.name a \
+  && git commit -q --allow-empty -m init \
+  && git worktree add -q "$TMP/wd/wt-linked-repo" -b wtbranch ) 2>/dev/null
+
+r=$(BRAIN_DIR="$SB8" CLAUDE_PROJECT_DIR="$TMP/wd/wt-linked-repo" bash -c "source '$ROOT/scripts/lib.sh'; cd '$TMP'; sb_resolve_slug")
+[ "$r" = "wt-main-repo" ] || fail "CLAUDE_PROJECT_DIR=<linked worktree> should resolve the main repo's slug (got '$r', want wt-main-repo)"
+pass "git worktree: CLAUDE_PROJECT_DIR branch resolves the main repo's slug"
+
+r=$(BRAIN_DIR="$SB8" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$TMP/wd/wt-linked-repo'; sb_resolve_slug")
+[ "$r" = "wt-main-repo" ] || fail "cwd inside a linked worktree should resolve the main repo's slug (got '$r', want wt-main-repo)"
+pass "git worktree: cwd branch resolves the main repo's slug"
+
+r=$(BRAIN_DIR="$SB8" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$TMP/wd/wt-linked-repo'; SB_REPO_KEY_COMMON_DIR=off sb_resolve_slug")
+[ "$r" = "wt-linked-repo" ] || fail "SB_REPO_KEY_COMMON_DIR=off should restore the worktree's own basename (got '$r', want wt-linked-repo)"
+pass "git worktree: SB_REPO_KEY_COMMON_DIR=off restores pre-change basename behavior"
 
 echo; echo "ALL PASS"

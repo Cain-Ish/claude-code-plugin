@@ -399,7 +399,99 @@ $ret_line"
 pg_jit() { :; }
 # --- end pg_jit ---
 # --- pg_search (Slice 3) ---
-pg_search() { :; }
+pg_search() {
+  [ -n "$PG_PATH" ] && [ -n "$PG_SID" ] || return 0
+  # normalize backslashes so MSYS `[ -e 'C:/x' ]` reliably resolves
+  local p="${PG_PATH//\\//}"
+  [ -e "$p" ] && return 0   # only fires for a WRITE of a path that does not yet exist
+
+  # root/rel normalization duplicated inline (Slice 2's pg_jit does its own copy —
+  # no shared state between mode bodies; each slice owns only its own anchor region).
+  # `root` keeps its drive letter (needed by `git -C` below); the compare-only copies
+  # `pn`/`rootn` are what get drive-stripped, mirroring pg_jit's own normalization —
+  # review fix: `root` used to be the RAW $PG_CWD, so a Windows-form (backslash) cwd
+  # never matched the forward-slash-converted $p and `rel` fell back to the full
+  # absolute path in both the audit-log row and the self-exclusion check.
+  local root="${CLAUDE_PROJECT_DIR:-$PG_CWD}" rel="$p"
+  root="${root//\\//}"
+  local pn="$p" rootn="$root"
+  case "$pn" in [A-Za-z]:*) pn="${pn#??}" ;; esac
+  case "$rootn" in [A-Za-z]:*) rootn="${rootn#??}" ;; esac
+  case "$pn" in
+    "$rootn"/*) rel="${pn#"$rootn"/}" ;;
+  esac
+  local base="${p##*/}"
+  [ -n "$base" ] || return 0
+
+  pg_lib || return 0
+  local dir="$BRAIN_DIR/.injected"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  local lsf="$dir/$PG_SID.lsfiles"
+  if [ ! -f "$lsf" ]; then
+    { git -C "$root" ls-files 2>/dev/null | tr -d '\r' > "$lsf.tmp.$$" && mv -f "$lsf.tmp.$$" "$lsf"; } \
+      || { rm -f "$lsf.tmp.$$" 2>/dev/null; : > "$lsf"; }
+  fi
+  local cmf="$dir/$PG_SID.codemap.tsv"
+  if [ ! -f "$cmf" ]; then
+    local slug="" slugf="$dir/$PG_SID.slug"
+    # NOTE: the memo is written with `printf '%s'` (no trailing newline —
+    # session-load.sh:70), so `read` hits EOF instead of a delimiter and returns 1
+    # even though it DID populate the variable — `read ... || slug=""` would clobber
+    # a real value on every read (same bug class as pg_jit's own comment above, and
+    # sb_session_slug's — review fix: this copy still had the clobber).
+    [ -f "$slugf" ] && { IFS= read -r slug < "$slugf" 2>/dev/null; slug="${slug//$'\r'/}"; }
+    local graph="$BRAIN_DIR/projects/$slug/codemap/graph.json"
+    if [ -n "$slug" ] && [ -s "$graph" ]; then
+      jq -r '.files[]?.id // empty' "$graph" 2>/dev/null | tr -d '\r' > "$cmf.tmp.$$" \
+        && mv -f "$cmf.tmp.$$" "$cmf" || { rm -f "$cmf.tmp.$$" 2>/dev/null; : > "$cmf"; }
+    else
+      : > "$cmf"
+    fi
+  fi
+
+  local hits="" n=0 f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ "$n" -ge 5 ] && break
+    case "$f" in
+      "$rel") continue ;;
+      */"$base"|"$base")
+        case ",$hits," in *",$f,"*) continue ;; esac
+        hits="${hits:+$hits,}$f"; n=$((n + 1)) ;;
+    esac
+  done < "$lsf"
+  if [ "$n" -lt 5 ]; then
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      [ "$n" -ge 5 ] && break
+      case "$f" in
+        "$rel") continue ;;
+        */"$base"|"$base")
+          case ",$hits," in *",$f,"*) continue ;; esac
+          hits="${hits:+$hits,}$f"; n=$((n + 1)) ;;
+      esac
+    done < "$cmf"
+  fi
+
+  if [ "$n" -gt 0 ]; then
+    sb_log_audit "protocol-guard.sh" "warn" "search-first" "$rel" "$base already exists at: $hits" "$PG_SID"
+    sb_log_error "protocol-guard.sh" "gate=search-first tool=Write path=$rel matches=$n hits=$hits verdict=warn sid=$PG_SID" 0
+    # Model-context copy only: the audit-log line above keeps the full, uncapped hit
+    # list — this is what reaches the model, so it is sanitized (no brackets/backticks
+    # that could break out of the bracketed advisory) and capped at <=300 bytes total
+    # (review fix — an unbounded hit list from many/long namesakes was going straight
+    # into additionalContext with no cap at all).
+    local chits="${hits//[\`\[\]]/}"
+    if [ "${#chits}" -gt 150 ]; then
+      chits="${chits:0:150}"
+      chits="${chits%,*}"
+    fi
+    local ctx="[Search before creating — $base already exists at: $chits. Check code_neighbors <path> / Grep before adding a duplicate; if this is intentional, proceed.]"
+    pg_ctx_add "${ctx:0:300}"
+  else
+    sb_log_error "protocol-guard.sh" "gate=search-first tool=Write path=$rel matches=0 hits=none verdict=ok sid=$PG_SID" 0
+  fi
+}
 # --- end pg_search ---
 # ---- dispatcher (director-owned; slices do not edit) ----
 case "$MODE" in

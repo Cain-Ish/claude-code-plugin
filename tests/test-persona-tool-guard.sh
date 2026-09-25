@@ -112,6 +112,26 @@ out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/persona-rules.def
 grep -q '"rule":"warn-self-edit-persona-rules"' "$T27_BRAIN/audit-log.jsonl" \
   || fail "persona-rules write should ask via warn-self-edit-persona-rules specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
 pass "self-protection: persona-rules edit asks via warn-self-edit-persona-rules"
+
+# Slice 3 (docs/plans/2026-09-24-repo-brain.md §B): the repo layer's own rules.json is
+# self-edit-protected too — Write asks via warn-self-edit-repo-rules, Edit via the -edit twin.
+rm -f "$T27_BRAIN/audit-log.jsonl"
+out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/projects/demo/rules.json","content":"{}"},"session_id":"t7c"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "Write to repo rules.json should ask (got: $out)"
+grep -q '"rule":"warn-self-edit-repo-rules"' "$T27_BRAIN/audit-log.jsonl" \
+  || fail "repo rules.json write should ask via warn-self-edit-repo-rules specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "self-protection: repo rules.json Write asks via warn-self-edit-repo-rules"
+
+rm -f "$T27_BRAIN/audit-log.jsonl"
+out=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/x/.second-brain/projects/demo/rules.json"},"session_id":"t7d"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "Edit to repo rules.json should ask (got: $out)"
+grep -q '"rule":"warn-self-edit-repo-rules-edit"' "$T27_BRAIN/audit-log.jsonl" \
+  || fail "repo rules.json edit should ask via warn-self-edit-repo-rules-edit specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "self-protection: repo rules.json Edit asks via warn-self-edit-repo-rules-edit"
 rm -rf "$T27_BRAIN"
 
 # --- v2.9.0 Phase 3: resource-scope guard ---

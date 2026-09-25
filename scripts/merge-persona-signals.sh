@@ -9,6 +9,23 @@
 set -u
 source "$(dirname "$0")/lib.sh"
 
+# --slug <slug> (Slice 3, docs/plans/2026-09-24-repo-brain.md §C): arm rule candidates into the
+# REPO layer (projects/<slug>/rules.json) instead of the user layer. Absent, or an unclean slug
+# (anything outside [A-Za-z0-9._-], or "."/".."), falls straight through to today's user-level
+# behavior byte-for-byte. The caller (sb_extract_transcript, lib.sh) passes the project slug it
+# already resolved for this extraction — never args from the transcript itself.
+SLUG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --slug) shift; SLUG="${1:-}"; shift || true ;;
+    *) shift ;;
+  esac
+done
+case "$SLUG" in
+  ''|.|..) SLUG="" ;;
+  *[!A-Za-z0-9._-]*) SLUG="" ;;
+esac
+
 SIGNALS_FILE="$BRAIN_DIR/persona-signals.jsonl"
 mkdir -p "$BRAIN_DIR"
 touch "$SIGNALS_FILE"
@@ -216,9 +233,16 @@ fi
 # unattended arming can never block or prompt. deny/rewrite arming stays a
 # human decision, and the shipped default rules file is never written.
 if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
-  PENDING_FILE="$BRAIN_DIR/persona-rules.pending.json"
+  if [ -n "$SLUG" ]; then
+    PENDING_FILE="$BRAIN_DIR/projects/$SLUG/rules.pending.json"
+    ARM_TARGET="$BRAIN_DIR/projects/$SLUG/rules.json"
+    mkdir -p "$BRAIN_DIR/projects/$SLUG" 2>/dev/null
+  else
+    PENDING_FILE="$BRAIN_DIR/persona-rules.pending.json"
+    ARM_TARGET="$BRAIN_DIR/persona-rules.json"
+  fi
   [ -s "$PENDING_FILE" ] || echo '{}' > "$PENDING_FILE"
-  USER_RULES="$BRAIN_DIR/persona-rules.json"
+  USER_RULES="$ARM_TARGET"
   DEFAULT_RULES="$(dirname "$0")/persona-rules.default.json"
 
   # Pending entries share the signals' PRUNE_DAYS retention: a candidate not
@@ -301,7 +325,11 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
       # half-copied one.
       if [ ! -s "$USER_RULES" ]; then
         TMP_SEED="$USER_RULES.tmp.$$"
-        if [ -s "$DEFAULT_RULES" ]; then
+        if [ -n "$SLUG" ]; then
+          # Repo layer is a DELTA on top of plugin+user — never copy the shipped
+          # defaults in here, or every repo would ship a full duplicate of P.
+          echo '{"schema":2,"rules":[],"learned":[]}' > "$TMP_SEED" && mv "$TMP_SEED" "$USER_RULES"
+        elif [ -s "$DEFAULT_RULES" ]; then
           cp "$DEFAULT_RULES" "$TMP_SEED" && mv "$TMP_SEED" "$USER_RULES"
         else
           echo '{"rules":[]}' > "$TMP_SEED" && mv "$TMP_SEED" "$USER_RULES"
@@ -321,7 +349,12 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
           | .learned |= (if length > 50 then .[length-50:] else . end)
         ' "$USER_RULES" > "$TMP_RULES" 2>/dev/null; then
           mv "$TMP_RULES" "$USER_RULES"
-          sb_log_audit "merge-persona-signals.sh" "arm" "learned-warn-rule" "$ev:$pat" "$msg" "$SESSION_ID"
+          if [ -n "$SLUG" ]; then
+            EXTRA_JSON=$(jq -nc --arg slug "$SLUG" '{layer:"repo", slug:$slug}' 2>/dev/null | tr -d '\r')
+            sb_log_audit "merge-persona-signals.sh" "arm" "learned-warn-rule" "$ev:$pat" "$msg" "$SESSION_ID" "${EXTRA_JSON:-{\}}"
+          else
+            sb_log_audit "merge-persona-signals.sh" "arm" "learned-warn-rule" "$ev:$pat" "$msg" "$SESSION_ID"
+          fi
         else
           rm -f "$TMP_RULES" 2>/dev/null
           sb_log_error "merge-persona-signals.sh" "learned-rule-arm-failed event=$ev pattern=$pat" 0

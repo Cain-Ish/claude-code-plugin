@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pins: SB_REPO_KEY_COMMON_DIR — kill-switch test: asserts =off restores the pre-Slice-3
+#   basename-of-worktree-dir behavior for sb_repo_key/sb_detect_project
 set -u
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 . "$HERE/scripts/lib.sh"
@@ -189,6 +191,42 @@ check "D118: a real project several levels under a temp root is not refused" "" 
 # this guard only fires for HOME/temp-root candidates, never ordinary projects.
 ORDINARY="$TMP/just-a-folder"; mkdir -p "$ORDINARY"
 check "D118: an ordinary non-git folder elsewhere is not refused" "" "$(sb_registration_refused_reason "$ORDINARY")"
+
+# --- Slice 3 (docs/plans/2026-09-24-repo-brain.md §10): git worktree shares its main
+# repo's slug via sb_repo_key, wired into sb_detect_project's standalone (case 4) leaf. ---
+WT_MAIN="$TMP/wt-main"; mkdir -p "$WT_MAIN"
+( cd "$WT_MAIN" && git init -q && git config user.email a@b.c && git config user.name a \
+  && git commit -q --allow-empty -m init \
+  && git worktree add -q "$TMP/wt-linked" -b wtbranch ) 2>/dev/null
+
+OUT=$(cd "$TMP/wt-linked" && sb_detect_project "$PWD")
+check "linked worktree slug is the MAIN repo's basename" "wt-main" "$(printf '%s' "$OUT" | cut -f1)"
+
+check "SB_REPO_KEY_COMMON_DIR=off restores the worktree's own basename" "wt-linked" \
+  "$(cd "$TMP/wt-linked" && SB_REPO_KEY_COMMON_DIR=off sb_detect_project "$PWD" | cut -f1)"
+
+# --- Slice 3 review fix: sb_repo_key must ONLY re-key at a worktree ROOT (where `.git` is a
+# FILE) — a subdirectory of a PLAIN repo, a subdirectory of a linked WORKTREE, and a non-git dir
+# nested under an unrelated git ancestor must all resolve to their OWN basename, never an
+# ancestor's. Regression: the pre-fix implementation spawned `git rev-parse --git-common-dir`
+# for every dir unconditionally, which for a plain-repo subdir resolves (via cd) to that repo's
+# own .git and re-keys to the repo ROOT's basename instead of the subdir's own.
+mkdir -p "$TMP/plainrepo/pkg/api"; ( cd "$TMP/plainrepo" && git init -q )
+check "sb_repo_key: subdir of a PLAIN repo keeps its own basename" "api" \
+  "$(source "$HERE/scripts/lib.sh"; sb_repo_key "$TMP/plainrepo/pkg/api")"
+
+mkdir -p "$TMP/wt-main2/sub"
+( cd "$TMP/wt-main2" && git init -q && git config user.email a@b.c && git config user.name a \
+  && git commit -q --allow-empty -m init && git worktree add -q "$TMP/wt-linked2" -b wtbranch2 ) 2>/dev/null
+mkdir -p "$TMP/wt-linked2/sub"
+check "sb_repo_key: worktree ROOT re-keys to the main repo's basename" "wt-main2" \
+  "$(source "$HERE/scripts/lib.sh"; sb_repo_key "$TMP/wt-linked2")"
+check "sb_repo_key: a SUBDIR of a linked worktree keeps its own basename (no re-key)" "sub" \
+  "$(source "$HERE/scripts/lib.sh"; sb_repo_key "$TMP/wt-linked2/sub")"
+
+mkdir -p "$TMP/home2/Documents/notes"; ( cd "$TMP/home2" && git init -q )
+check "sb_repo_key: a non-git dir nested under an unrelated git ancestor keeps its own basename" "notes" \
+  "$(source "$HERE/scripts/lib.sh"; sb_repo_key "$TMP/home2/Documents/notes")"
 
 rm -rf "$TMP"
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }
