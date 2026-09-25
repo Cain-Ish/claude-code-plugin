@@ -19,7 +19,7 @@ import { resolveBrainDir } from '../brain-paths.js';
 import { parseDoc } from './frontmatter.js';
 import { walkWiki } from './walk-wiki.js';
 import { stripInvisible } from './sanitize.js';
-import { atomicWriteJson } from './atomic-write.js';
+import { atomicWriteJsonStrict } from './atomic-write.js';
 
 export type JitKind = 'lesson' | 'convention' | 'decision' | 'intent';
 
@@ -86,6 +86,10 @@ function sanitizeRaw(s: string | undefined): string {
   let out = stripInvisible(s);
   out = out.replace(CONTROL_RE, ' ');
   out = out.replace(/\\/g, ' ');
+  // Brackets neutralized too: this line is delivered inside protocol-guard.sh's untrusted-
+  // input DATA banner, whose close marker ("[End untrusted reference]") a source page's own
+  // prose could otherwise forge — same defense pg_search already applies to its results.
+  out = out.replace(/\[/g, '(').replace(/\]/g, ')');
   out = out.replace(/\s+/g, ' ').trim();
   return out;
 }
@@ -279,7 +283,11 @@ async function defaultGitRunner(args: string[], cwd: string): Promise<string> {
 function isNoGitError(e: unknown): boolean {
   const err = e as { code?: string | number; stderr?: string | Buffer; message?: string } | undefined;
   if (!err) return false;
-  if (err.code === 'ENOENT' || err.code === 128 || err.code === '128') return true;
+  if (err.code === 'ENOENT') return true;
+  // git's exit code 128 covers EVERY fatal error (dubious ownership, a corrupt index, a
+  // read-only object store, …), not just "no git repo here" — so 128 alone must never be
+  // treated as the fail-soft nogit case. Only a genuine "not a git repository" message
+  // (in stderr or the thrown Error's message) takes that path.
   const stderrText = typeof err.stderr === 'string' ? err.stderr : err.stderr?.toString('utf-8') ?? '';
   const msg = err.message ?? '';
   return /not a git repository/i.test(stderrText) || /not a git repository/i.test(msg);
@@ -342,7 +350,7 @@ export async function rebuildJitIndex(opts: RebuildJitIndexOpts): Promise<JitInd
 
   const outPath = assertWithin(dir, 'projects', opts.slug, 'jit-index.json');
   await fs.mkdir(join(dir, 'projects', opts.slug), { recursive: true });
-  await atomicWriteJson(outPath, index);
+  await atomicWriteJsonStrict(outPath, index);
   return index;
 }
 
