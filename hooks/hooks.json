@@ -28,6 +28,11 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh\" 20 \"${CLAUDE_PLUGIN_ROOT}/scripts/dream-autostage.sh\"",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/protocol-guard.sh\" card",
+            "timeout": 5
           }
         ]
       }
@@ -135,6 +140,28 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/plan-first-nudge.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Task|Agent|Read|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh\" 5 \"${CLAUDE_PLUGIN_ROOT}/scripts/protocol-guard.sh\" pre",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/protocol-guard.sh\" subagent",
             "timeout": 5
           }
         ]

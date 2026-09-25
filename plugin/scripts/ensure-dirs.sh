@@ -63,7 +63,7 @@ JSON
 if [ -d "$BRAIN_DIR/.injected" ]; then
   # *.phase rides the same TTL: the intent-spine phase file is per-session state
   # with the exact lifetime of its sibling memo.
-  find "$BRAIN_DIR/.injected" -maxdepth 1 \( -name '*.json' -o -name '*.phase' \) -type f -mtime +7 -delete 2>/dev/null || true
+  find "$BRAIN_DIR/.injected" -maxdepth 1 \( -name '*.json' -o -name '*.phase' -o -name '*.slug' -o -name '*.tsv' -o -name '*.seen' -o -name '*.lsfiles' \) -type f -mtime +7 -delete 2>/dev/null || true
 fi
 # Buddy per-session state (.buddy/<sid>.json + .log.jsonl) rides the same 7-day TTL.
 if [ -d "$BRAIN_DIR/.buddy" ]; then
