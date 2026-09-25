@@ -7,6 +7,8 @@
 # pins: SB_MODEL_LADDER — points sb_resolve_model at a fixture manifest with real aliases.
 # pins: SB_PERSONA_MODEL, SB_EXTRACTOR_MODEL, SB_MODEL_TIER_FAST — operator pins; asserted
 #   they resolve to a dispatch ALIAS (never leak a full model ID into a card or a rewrite).
+# pins: SB_NESTED_SPAWN — scrubbed in run()'s hermeticity list so a stray value in the
+#   calling shell can't leak into protocol-guard.sh's own re-entrancy guard under test.
 #
 # docs/plans/2026-09-24-repo-brain.md Slice 1: SessionStart protocol card, PreToolUse
 # Agent/Task delegation-tier warn (+ opt-in rewrite), SubagentStart role cards, and the
@@ -172,6 +174,10 @@ OUT_PIN_RW=$(run pre '{"hook_event_name":"PreToolUse","tool_name":"Agent","sessi
 RWM=$(printf '%s' "$OUT_PIN_RW" | jq -r '.hookSpecificOutput.updatedInput.model // "null"' 2>/dev/null)
 [ "$RWM" = "opus" ] && pass "operator pins: rewrite model is the bare alias 'opus', not a pinned full ID" \
   || fail "operator pins: rewrite model=$RWM (expected bare alias 'opus')" "$OUT_PIN_RW"
+RWM_PD=$(printf '%s' "$OUT_PIN_RW" | jq -r '.hookSpecificOutput.permissionDecision // "null"' 2>/dev/null)
+RWM_HEN=$(printf '%s' "$OUT_PIN_RW" | jq -r '.hookSpecificOutput.hookEventName // "null"' 2>/dev/null)
+[ "$RWM_PD" = "allow" ] || fail "operator pins: rewrite must carry permissionDecision=allow (CC ignores updatedInput otherwise), got $RWM_PD" "$OUT_PIN_RW"
+[ "$RWM_HEN" = "PreToolUse" ] || fail "operator pins: rewrite must carry hookEventName=PreToolUse, got $RWM_HEN" "$OUT_PIN_RW"
 case "$OUT_PIN_RW" in
   *"suggested model: opus"*) pass "operator pins: warn text names the same alias as the rewrite" ;;
   *) fail "operator pins: warn text does not say 'suggested model: opus'" "$OUT_PIN_RW" ;;
@@ -264,14 +270,34 @@ reset_audit
 OUT_EXIST=$(run pre '{"hook_event_name":"PreToolUse","tool_name":"Agent","session_id":"s6e","tool_input":{"subagent_type":"helper","model":"opus","prompt":"does a helper for CRLF stripping exist anywhere"}}')
 case "$(audit_tail)" in *'rule=scout-at-think'*) pass "classifier: 'does .* exist' hits the SCOUT regex" ;; *) fail "classifier: 'does .* exist' did not hit SCOUT" "$(audit_tail)" ;; esac
 
+# An Explore-typed agent (agent-declared scout) whose PROMPT happens to mention a THINK
+# keyword ("security") must stay classified scout, never get reclassified think by a
+# text-only match — an agent-declared job outranks a text-only signal.
 reset_audit
-OUT=$(run pre '{"hook_event_name":"PreToolUse","tool_name":"Agent","session_id":"s7","tool_input":{"subagent_type":"Explore","model":"opus","prompt":"find where sb_manifest_add is defined"}}' SB_DELEGATION_REWRITE=1)
+OUT_EXPLORE_SEC=$(run pre '{"hook_event_name":"PreToolUse","tool_name":"Agent","session_id":"s6f","tool_input":{"subagent_type":"Explore","model":"haiku","prompt":"Find where the security token check lives and list the files"}}')
+case "$(audit_tail)" in
+  *'job=scout'*) pass "classifier: Explore + a THINK-keyword prompt stays job=scout" ;;
+  *) fail "classifier: Explore + a THINK-keyword prompt was reclassified" "$(audit_tail)" ;;
+esac
+case "$(audit_tail)" in
+  *'rule=think-at-scout'*) fail "classifier: Explore + a THINK-keyword prompt must not fire think-at-scout" "$(audit_tail)" ;;
+  *) pass "classifier: Explore + a THINK-keyword prompt does not fire think-at-scout" ;;
+esac
+
+reset_audit
+OUT=$(run pre '{"hook_event_name":"PreToolUse","tool_name":"Agent","session_id":"s7","tool_input":{"subagent_type":"Explore","model":"opus","prompt":"find where sb_manifest_add is defined","description":"locate sb_manifest_add"}}' SB_DELEGATION_REWRITE=1)
 RM=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.updatedInput.model // "null"' 2>/dev/null)
 RS=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.updatedInput.subagent_type // "null"' 2>/dev/null)
 RP=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.updatedInput.prompt // "null"' 2>/dev/null)
+RD=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.updatedInput.description // "null"' 2>/dev/null)
+RPD=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecision // "null"' 2>/dev/null)
+RHEN=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.hookEventName // "null"' 2>/dev/null)
 [ "$RM" = "haiku" ] && pass "rewrite opt-in: updatedInput.model=haiku" || fail "rewrite opt-in: updatedInput.model=$RM"
 [ "$RS" = "Explore" ] && pass "rewrite opt-in: updatedInput.subagent_type preserved" || fail "rewrite opt-in: subagent_type=$RS"
 case "$RP" in "find where"*) pass "rewrite opt-in: updatedInput.prompt preserved" ;; *) fail "rewrite opt-in: prompt=$RP" ;; esac
+[ "$RD" = "locate sb_manifest_add" ] && pass "rewrite opt-in: updatedInput.description preserved" || fail "rewrite opt-in: description=$RD"
+[ "$RPD" = "allow" ] || fail "rewrite opt-in: must carry permissionDecision=allow (CC ignores updatedInput otherwise), got $RPD" "$OUT"
+[ "$RHEN" = "PreToolUse" ] || fail "rewrite opt-in: must carry hookEventName=PreToolUse, got $RHEN" "$OUT"
 case "$(audit_tail)" in *'verdict=rewrite'*) pass "rewrite opt-in: row verdict=rewrite" ;; *) fail "rewrite opt-in: row wrong" "$(audit_tail)" ;; esac
 reset_audit
 OUT_NOREWRITE=$(run pre '{"hook_event_name":"PreToolUse","tool_name":"Agent","session_id":"s7b","tool_input":{"subagent_type":"Explore","model":"opus","prompt":"find where sb_manifest_add is defined"}}')
@@ -501,9 +527,13 @@ SELFTEST_HITS2=$(grep -nE "$WRITE_RE" "$POISON2" 2>/dev/null || true)
 
 # review fix: the lock grep now covers the jq-object and quoted-key forms this script's own
 # envelope-building style would actually take, not just the two literal strings it used to.
-LOCK_RE='claude -p|"?decision"?[[:space:]]*:[[:space:]]*"block"|settings\.json|"?permissionDecision"?[[:space:]]*:[[:space:]]*"(deny|ask)"'
-LOCK_HITS=$(grep -nE "$LOCK_RE" "$REPO_ROOT/scripts/protocol-guard.sh" 2>/dev/null || true)
-[ -z "$LOCK_HITS" ] && pass "protocol-guard.sh: no claude -p / decision:block / settings.json / deny|ask verdict" \
+LOCK_RE='claude -p|"?decision"?[[:space:]]*:[[:space:]]*"block"|settings\.json|"?permissionDecision"?[[:space:]]*:[[:space:]]*"(deny|ask)"|"?permissionDecision"?[[:space:]]*:[[:space:]]*"allow"'
+# The ONE legitimate exception is pg_emit_pre's own rewrite envelope — an unconditional allow,
+# but gated entirely behind the opt-in SB_DELEGATION_REWRITE=1 flag (its own
+# permissionDecisionReason text literally names the flag, which doubles as the exclusion key —
+# no other line in this file may say both "permissionDecision":"allow" and that flag name).
+LOCK_HITS=$(grep -nE "$LOCK_RE" "$REPO_ROOT/scripts/protocol-guard.sh" 2>/dev/null | grep -v 'SB_DELEGATION_REWRITE=1' || true)
+[ -z "$LOCK_HITS" ] && pass "protocol-guard.sh: no claude -p / decision:block / settings.json / deny|ask|allow verdict outside the gated rewrite envelope" \
   || fail "protocol-guard.sh: forbidden construct found" "$LOCK_HITS"
 
 POISON3="$SANDBOX/poisoned3-protocol-guard.sh"
@@ -519,6 +549,13 @@ printf '%s\n' 'printf {"permissionDecision":"deny"}' >> "$POISON4"
 SELFTEST_HITS4=$(grep -nE "$LOCK_RE" "$POISON4" 2>/dev/null || true)
 [ -n "$SELFTEST_HITS4" ] && pass "protocol-guard.sh lock: self-test — scanner FAILS on an injected quoted-key deny line" \
   || fail "protocol-guard.sh lock: self-test — scanner missed the injected quoted-key deny line (scanner is broken)"
+
+POISON5="$SANDBOX/poisoned5-protocol-guard.sh"
+cp "$REPO_ROOT/scripts/protocol-guard.sh" "$POISON5"
+printf '%s\n' 'printf {"permissionDecision":"allow"}' >> "$POISON5"
+SELFTEST_HITS5=$(grep -nE "$LOCK_RE" "$POISON5" 2>/dev/null | grep -v 'SB_DELEGATION_REWRITE=1' || true)
+[ -n "$SELFTEST_HITS5" ] && pass "protocol-guard.sh lock: self-test — scanner FAILS on an injected UNGATED allow line" \
+  || fail "protocol-guard.sh lock: self-test — scanner missed the injected ungated allow line (scanner is broken)"
 
 # ===== wiring lock: hooks.json + hooks.notes.md (test-guard-wiring's matcher_for/covers idiom) ====
 

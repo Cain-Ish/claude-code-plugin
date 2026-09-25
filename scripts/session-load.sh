@@ -168,7 +168,18 @@ _usz=$(wc -c < "$USER_FILE" 2>/dev/null || echo 0); [ "${_usz:-0}" -gt 6000 ] &&
 # PROJECT.md's own emit cap is 1800B with the repo card on (default) — the card replaces the
 # full sb_project_hot_render dump below — and 3000B with SB_REPO_CARD=off (legacy render).
 _pcap=3000; [ "${SB_REPO_CARD:-on}" = "off" ] || _pcap=1800
-_psz=$(wc -c < "$project_file" 2>/dev/null || echo 0); [ "${_psz:-0}" -gt "$_pcap" ] && _psz="$_pcap"
+# review fix (P9): with the repo card ON, the card's rendered bytes do NOT track
+# PROJECT.md's own file size at all — the HARD (enforced) rules block comes from
+# persona-rules.json, not PROJECT.md, and the untrusted-reference banner adds more on
+# top. A tiny PROJECT.md under-reserved the card's room by exactly that much, letting
+# conditional banners crowd the card's actual output past HARD_CAP. Reserve the card's
+# FULL fixed cap unconditionally; only the legacy (off) render still scales with the
+# real file size.
+if [ "${SB_REPO_CARD:-on}" = "off" ]; then
+  _psz=$(wc -c < "$project_file" 2>/dev/null || echo 0); [ "${_psz:-0}" -gt "$_pcap" ] && _psz="$_pcap"
+else
+  _psz=$_pcap
+fi
 # The persona Charter is a THIRD force-emitted section (2b below) — extract it NOW and RESERVE its
 # bytes too (capped at its 500B emit cap), so forced USER(≤6000)+PROJECT(≤3000)+Charter(≤500) stay
 # within HARD_CAP and can never push total hook output past the ~10K ceiling (which truncates from
@@ -918,6 +929,11 @@ sb_project_hot_render() {
 # path — no per-item spawns in loops on hook paths, docs/plans/2026-09-24-repo-brain.md §13).
 sb_card_trunc() {
   CARD_LINE="$1"
+  # Neutralize banner-forging tokens FIRST (before the length check, which counts these bytes
+  # either way): an untrusted bullet (Handoff/Decisions/Conventions/Direction/Open-blockers,
+  # all PROJECT.md free text) containing a literal "[End untrusted reference]" — or any other
+  # bracketed text — must never be mistaken for the card's own banner close.
+  CARD_LINE="${CARD_LINE//\[/(}"; CARD_LINE="${CARD_LINE//\]/)}"
   [ "${#CARD_LINE}" -le 160 ] && return 0
   CARD_LINE="${CARD_LINE:0:160}"
   case "$CARD_LINE" in *' '*) CARD_LINE="${CARD_LINE% *}" ;; esac
@@ -964,7 +980,7 @@ $hard"
   local body=""
 
   f=$(ls "$tmpd"/[0-9][0-9]-Direction 2>/dev/null | head -1)
-  local dirraw="" dirout=""
+  local dirraw="" dirout="" first_label=""
   [ -n "$f" ] && [ -f "$f" ] && dirraw=$(awk '!/^## / && NF { print; c++ } c>=3 { exit }' "$f")
   if [ -n "$dirraw" ]; then
     while IFS= read -r l; do
@@ -973,7 +989,24 @@ $hard"
     done <<< "$dirraw"
     body="Direction:
 $dirout"
-  else dropped="$dropped Direction"; fi
+    first_label="Direction"
+  else
+    # No ## Direction (every existing project before this fix, plus any project that has
+    # never run /second-brain:setup) — fall back to ## Goal so the card's first section
+    # is never silently empty for the overwhelming majority of projects.
+    f=$(ls "$tmpd"/[0-9][0-9]-Goal 2>/dev/null | head -1)
+    local goalraw="" goalout=""
+    [ -n "$f" ] && [ -f "$f" ] && goalraw=$(awk '!/^## / && NF { print; c++ } c>=3 { exit }' "$f")
+    if [ -n "$goalraw" ]; then
+      while IFS= read -r l; do
+        sb_card_trunc "$l"
+        goalout="${goalout}${goalout:+$'\n'}$CARD_LINE"
+      done <<< "$goalraw"
+      body="Goal:
+$goalout"
+      first_label="Goal"
+    fi
+  fi
 
   f=$(ls "$tmpd"/[0-9][0-9]-Handoff 2>/dev/null | head -1)
   local hoffraw="" hoffout=""
@@ -985,7 +1018,7 @@ $dirout"
     done <<< "$hoffraw"
     body="$body${body:+$'\n'}Handoff:
 $hoffout"
-  else dropped="$dropped Handoff"; fi
+  fi
 
   f=$(ls "$tmpd"/[0-9][0-9]-Recent-decisions 2>/dev/null | head -1)
   local decraw="" decout=""
@@ -997,7 +1030,7 @@ $hoffout"
     done <<< "$decraw"
     body="$body${body:+$'\n'}Decisions:
 $decout"
-  else dropped="$dropped Decisions"; fi
+  fi
 
   f=$(ls "$tmpd"/[0-9][0-9]-Conventions 2>/dev/null | head -1)
   local convraw="" convout=""
@@ -1009,7 +1042,7 @@ $decout"
     done <<< "$convraw"
     body="$body${body:+$'\n'}Conventions:
 $convout"
-  else dropped="$dropped Conventions"; fi
+  fi
 
   f=$(ls "$tmpd"/[0-9][0-9]-Open-blockers 2>/dev/null | head -1)
   local blkraw="" blkout=""
@@ -1021,7 +1054,7 @@ $convout"
     done <<< "$blkraw"
     body="$body${body:+$'\n'}Open blockers:
 $blkout"
-  else dropped="$dropped Open-blockers"; fi
+  fi
 
   local plan_open plan_total
   plan_open=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- \[ \]/{c++} END{print c+0}' "$file")
@@ -1046,6 +1079,12 @@ $tail"
   # severed bullet); once the body is empty, drop the whole untrusted block (open+close+body)
   # instead of leaving the banner open with nothing inside it. HARD/head and the trailing
   # Plan line are trusted and tiny — never touched by this loop.
+  # LC_ALL=C from here on: the cap and the logged bytes= must count BYTES (multibyte UTF-8
+  # content — e.g. a non-English Direction/Handoff bullet — under a UTF-8 locale would count
+  # CHARACTERS instead, silently letting the rendered card exceed its byte budget). Set only
+  # now, not at function entry: every sb_card_trunc call above already ran (its own per-line
+  # truncation stays character-based, matching a human's sense of "160 chars").
+  local LC_ALL=C
   while [ "${#out}" -gt "$cap" ] && [ -n "$body" ]; do
     case "$body" in
       *$'\n'*) body="${body%$'\n'*}" ;;
@@ -1063,6 +1102,22 @@ $tail"
     fi
   done
 
+  # Recompute `dropped` AFTER truncation, from what actually SURVIVED in $out — not from
+  # which sections had raw source data before the loop ran. The pre-truncation bookkeeping
+  # reported a section as present the instant its source was non-empty, even when the
+  # truncation loop above went on to pop it (or the whole body) off the card entirely; the
+  # breadcrumb then claimed a section was delivered when the actual output no longer carried
+  # it at all.
+  dropped=""
+  if [ -n "$first_label" ]; then
+    case "$out" in *"$first_label:"*) ;; *) dropped="$dropped $first_label" ;; esac
+  else
+    dropped="$dropped Direction"
+  fi
+  [ -n "$hoffraw" ] && case "$out" in *"Handoff:"*) ;; *) dropped="$dropped Handoff" ;; esac
+  [ -n "$decraw" ] && case "$out" in *"Decisions:"*) ;; *) dropped="$dropped Decisions" ;; esac
+  [ -n "$convraw" ] && case "$out" in *"Conventions:"*) ;; *) dropped="$dropped Conventions" ;; esac
+  [ -n "$blkraw" ] && case "$out" in *"Open blockers:"*) ;; *) dropped="$dropped Open-blockers" ;; esac
   dropped="${dropped# }"
   sb_log_error "session-load.sh" "gate=repo-card bytes=${#out} dropped=${dropped:-none}" 0
   printf '%s' "$out"

@@ -511,7 +511,13 @@ rm -rf "$SPINE_BRAIN"
 # Paths MUST be inside cwd. An out-of-repo path makes resource_scope answer `ask` on its
 # own, which would make these cases pass against the UNFIXED guard — a tautology. Verified:
 # with the pre-fix guard and out-of-repo paths, these "passed"; in-repo they correctly fail.
-RRT="$(cd "$(dirname "$0")"/.. && pwd)"
+#
+# Hermetic fixture root (review fix): match_path requires a literal `/claude-code-plugin/` or
+# `/second-brain/` path segment. Using the real checkout root here made this section pass or
+# fail depending on what the checkout DIRECTORY happened to be named (e.g. a worktree checked
+# out as "claude-code-plugin-repo-brain" has no `/claude-code-plugin/` segment at all) — build
+# a throwaway root that is always literally named claude-code-plugin/ instead.
+RRT="$(mktemp -d)/claude-code-plugin"; mkdir -p "$RRT/scripts" "$RRT/hooks"
 gv() { printf '{"tool_name":"%s","session_id":"caseT","cwd":"%s","tool_input":{"file_path":"%s/%s","content":"y"}}' "$1" "$RRT" "$RRT" "$2" | bash "$SCRIPT"; }
 
 for variant in "persona-rules.json" "Persona-Rules.json" "PERSONA-RULES.JSON" "PeRsOnA-RuLeS.jSoN"; do
@@ -541,6 +547,7 @@ pass "case-varied force-push asks"
 out=$(gv Write "README.md")
 [ -z "$out" ] || fail "ordinary in-repo write must stay silent after -i (got: $out)"
 pass "-i does not over-block ordinary writes"
+rm -rf "$(dirname "$RRT")" 2>/dev/null
 
 # --- D151: self-edit rule must match the INSTALLED plugin cache layout -------
 # <cache>/second-brain/second-brain/<version>/scripts/... — a version directory

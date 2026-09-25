@@ -328,12 +328,22 @@ sb_manifest_add() {
   # negation consistently (reproduced: `if ! { cmd; } >> baddir; then` takes the
   # else branch even though the redirection failed), so negating the group
   # directly would silently re-introduce exactly the swallowed failure this fixes.
+  local _sma_rejected=0
   { while IFS= read -r line; do
       [ -z "$line" ] && continue
+      # A raw id containing a quote/backslash/control char would break this row's own
+      # JSON structure — an id like `x","kind":"anchor` re-terminates the string and
+      # adds a SECOND "kind" key, which jq resolves last-key-wins, letting an
+      # ordinary telemetry id forge stop-extract's ritual-anchor fold. Reject it
+      # wholesale rather than escape it (no caller needs anything but a plain slug/id).
+      case "$line" in
+        *[\"\\]*|*[[:cntrl:]]*) _sma_rejected=$((_sma_rejected + 1)); continue ;;
+      esac
       printf '{"kind":"%s","id":"%s"}\n' "$kind" "$line"
     done <<< "$ids"; } 2>/dev/null >> "$BRAIN_DIR/.injected-manifest-$SB_MANIFEST_SESSION_ID.jsonl"
   local _sma_rc=$?
   [ "$_sma_rc" -ne 0 ] && sb_log_error "lib.sh" "sb_manifest_add: manifest append failed kind=$kind sid=$SB_MANIFEST_SESSION_ID" 1
+  [ "$_sma_rejected" -gt 0 ] && sb_log_error "lib.sh" "sb_manifest_add: rejected id(s) ($_sma_rejected) with a quote/backslash/control char kind=$kind sid=$SB_MANIFEST_SESSION_ID" 1
   return 0
 }
 
@@ -439,7 +449,18 @@ sb_resolve_model() {
           if [ "$surface" = "dispatch" ]; then
             case "$aliases" in
               *" $pin_val "*) rungs+=("$pin_val") ;;
-              *) sb_log_error "lib.sh" "dispatch pin $pin_env=$pin_val is not a dispatch alias; ignored" 1 ;;
+              *)
+                # Only a GENUINE dispatch-tier pin (SB_MODEL_TIER_*) is worth an operator
+                # warning here — a headless-only knob (SB_EXTRACTOR_MODEL,
+                # SB_MAINTAIN_LLM_MODEL, SB_PERSONA_MODEL, ...) legitimately holds a full
+                # model ID and was never meant to satisfy the dispatch alias enum; logging
+                # it every dispatch-surface resolve (pg_card, pg_agent memo, role cards)
+                # was pure noise with no action the operator could take.
+                case "$pin_env" in
+                  SB_MODEL_TIER_*) sb_log_error "lib.sh" "dispatch pin $pin_env=$pin_val is not a dispatch alias; ignored" 1 ;;
+                  *) : ;;
+                esac
+                ;;
             esac
           else
             rungs+=("$pin_val")
@@ -2584,6 +2605,9 @@ sb_extract_transcript() {
 ## Goal
 (auto-scaffolded — describe this project's goal)
 
+## Direction
+(goal · non-goals · priorities through YYYY-MM-DD — edit or run /second-brain:setup)
+
 ## State
 
 ## Plan
@@ -2974,6 +2998,7 @@ sb_session_slug() {
 # SB_REPO_KEY_COMMON_DIR=off restores the pre-change basename-of-dir behavior.
 sb_repo_key() {
   local dir="${1:-$PWD}"
+  dir="${dir//$'\r'/}"
   if [ "${SB_REPO_KEY_COMMON_DIR:-on}" = "off" ]; then
     sb_slug_from_dir "$dir"
     return 0
@@ -3013,8 +3038,12 @@ sb_repo_key() {
 # fresh (bash `-nt` against every present layer, no stat spawn). A repo layer can NEVER set
 # lock:true (stripped + violation, whatever else it changes); a P/U lock:true survives unless a
 # higher layer's action rank is >= the locked action's AND it does not disable the rule — losing
-# attempts are dropped and recorded in .violations[]. SB_RULES_LAYERS=off restores today's
-# precedence (user file if usable else plugin, no repo layer, no cache) exactly.
+# attempts are dropped and recorded in .violations[]. The repo layer may only contribute a
+# warn/ask/deny verdict: a repo-authored entry with action "rewrite" (or carrying a `replace`)
+# is rejected wholesale, recorded as an "attempted:rewrite" violation, and any prior rule for
+# that name survives untouched — a repo-committed rules.json can never auto-approve a command
+# by rewriting it. SB_RULES_LAYERS=off restores today's precedence (user file if usable else
+# plugin, no repo layer, no cache) exactly.
 sb_rules_effective() {
   local slug="${1:-}"
   slug="${slug//$'\r'/}"
@@ -3088,7 +3117,8 @@ sb_rules_effective() {
   if [ "$have_u" = "1" ]; then fu="$puser"; else fu=/dev/null; fi
   if [ "$have_r" = "1" ]; then fr="$prepo"; else fr=/dev/null; fi
 
-  local out
+  local out jqerr
+  jqerr=$(mktemp 2>/dev/null) || jqerr="$cache.jqerr.$$"
   out=$(jq -rc -n --rawfile p "$fp" --rawfile u "$fu" --rawfile r "$fr" \
     --arg slug "$slug" --arg hp "$have_p" --arg hu "$have_u" --arg hr "$have_r" \
     'def fld($o; $k; $d): if ($o|type)=="object" and ($o|has($k)) then $o[$k] else $d end;
@@ -3129,16 +3159,23 @@ def richness($v):
 if ($used|length) == 0 then empty else
 (reduce $used[] as $layer (
     {rules:{}, violations:[]};
-    reduce (($layer.doc.rules // [])[]) as $rl (
+    reduce ((($layer.doc.rules // []) | if type=="array" then . else [] end) | to_entries[]) as $re (
       .;
-      ($rl.name // "anonymous") as $rname
+      if ($re.value|type) != "object" then
+        .violations += [{name:("entry-" + ($re.key|tostring)), layer:$layer.name, attempted:"malformed"}]
+      else
+      ($re.value) as $rl
+      | ($rl.name // ("anonymous-" + $layer.name + "-" + ($re.key|tostring))) as $rname
       | .rules[$rname] as $old
       | ($rl | del(.name)) as $new0
       | ($layer.name=="repo" and (fld($new0;"lock";false)==true)) as $lockAttempt
       | (if $lockAttempt then ($new0 | del(.lock)) else $new0 end) as $new
       | (if $lockAttempt then [{name:$rname, layer:"repo", attempted:"lock"}] else [] end) as $lockviol
+      | ($layer.name=="repo" and ((fld($new;"action";"")=="rewrite") or ($new|has("replace")))) as $repoRewrite
       | (
-          if $old == null then
+          if $repoRewrite then
+            {rule: $old, viol: [{name:$rname, layer:"repo", attempted:"rewrite"}]}
+          elif $old == null then
             {rule: ($new + {source:$layer.name}), viol: []}
           elif (fld($old;"lock";false)==true) then
             # $old is locked: a higher layer override may contribute ONLY `action`
@@ -3150,11 +3187,18 @@ if ($used|length) == 0 then empty else
             # override (which can never clear lock — see below), lock can never be
             # cleared by any later layer either, closing the same-layer-duplicate
             # path automatically (an unlock attempt in entry N leaves $old locked for
-            # entry N+1 too).
+            # entry N+1 too). Retargeting a field to the SAME VALUE it already has is
+            # not a retarget attempt at all -- merely HAVING the key is not enough,
+            # since every user persona-rules.json seeded by a full cp of the
+            # defaults restates every field verbatim; only a field whose value
+            # actually differs from the locked rule counts.
             (fld($new;"enabled";true)==false) as $wantDisable
             | (($new|has("lock")) and ($new.lock==false)) as $wantUnlock
-            | (($new|has("tool")) or ($new|has("match_command")) or ($new|has("match_path"))
-               or ($new|has("replace")) or ($new|has("scope"))) as $wantRetarget
+            | ((($new|has("tool")) and ($new.tool != fld($old;"tool";null)))
+               or (($new|has("match_command")) and ($new.match_command != fld($old;"match_command";null)))
+               or (($new|has("match_path")) and ($new.match_path != fld($old;"match_path";null)))
+               or (($new|has("replace")) and ($new.replace != fld($old;"replace";null)))
+               or (($new|has("scope")) and ($new.scope != fld($old;"scope";null)))) as $wantRetarget
             | (fld($new;"action"; fld($old;"action";"warn"))) as $na
             | ($wantDisable or $wantUnlock or $wantRetarget or
                ((rankOf($na)) < (rankOf(fld($old;"action";"warn"))))) as $rejected
@@ -3175,12 +3219,13 @@ if ($used|length) == 0 then empty else
             {rule: (($old + $new) + {source:$layer.name}), viol: []}
           end
         ) as $res
-      | .rules[$rname] = ($res.rule + {name: $rname})
+      | .rules[$rname] = (if $res.rule == null then null else ($res.rule + {name: $rname}) end)
       | .violations += ($lockviol + $res.viol)
+      end
     )
   )
 ) as $rulesacc |
-(reduce $used[] as $layer ([]; . + (($layer.doc.learned // [])[0:50]))
+(reduce $used[] as $layer ([]; . + ((($layer.doc.learned // []) | if type=="array" then map(select(type=="object")) else [] end)[0:50]))
  | unique_by([(.event // ""), (.pattern // "")])
 ) as $learned0 |
 (reduce ("tool_scope","resource_scope") as $sk (
@@ -3238,7 +3283,7 @@ if ($used|length) == 0 then empty else
   schema: 2,
   slug: $slug,
   layers: ($used | map(.name)),
-  rules: ($rulesacc.rules | [ .[] | select(fld(.;"enabled";true) != false) ]),
+  rules: ($rulesacc.rules | [ .[] | select(. != null) | select(fld(.;"enabled";true) != false) ]),
   learned: $learned0,
   violations: ($rulesacc.violations + $scopeacc.viol)
 }
@@ -3253,9 +3298,16 @@ as $effective |
   + " \($effective.violations|length) \(if ($bad|length)==0 then "-" else ($bad|join(",")) end)"
 ),
 $effective
-end' 2>/dev/null | tr -d '\r')
+end' 2>"$jqerr" | tr -d '\r')
 
-  [ -z "$out" ] && return 0
+  if [ -z "$out" ]; then
+    if [ "$have_p$have_u$have_r" != "000" ]; then
+      sb_log_error "lib.sh" "rules-effective merge failed slug=$slug err=$(tail -c 200 "$jqerr" 2>/dev/null | tr -d '\r\n') — repo layer not applied" 1
+    fi
+    rm -f "$jqerr" 2>/dev/null
+    return 0
+  fi
+  rm -f "$jqerr" 2>/dev/null
   local header body
   header="${out%%$'\n'*}"
   body="${out#*$'\n'}"
@@ -3265,6 +3317,7 @@ end' 2>/dev/null | tr -d '\r')
   local tmp="$cache.tmp.$$"
   if ! { printf '%s\n' "$body" > "$tmp" 2>/dev/null && mv -f "$tmp" "$cache" 2>/dev/null; }; then
     rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "rules-effective cache write failed at $cache — repo layer not applied" 1
     return 0
   fi
   # Sidecar signature (see the staleness check above) — best-effort, never fatal to the
@@ -3303,6 +3356,9 @@ end' 2>/dev/null | tr -d '\r')
     | while IFS=$'\t' read -r vname vlayer vattempted; do
         [ -n "$vname" ] || continue
         sb_log_audit "rules-layer" "flag" "rules-lock-violation" "$vname" "$vlayer attempted $vattempted" ""
+        if [ "$vattempted" = "malformed" ]; then
+          sb_log_error "lib.sh" "rules-effective: dropped a malformed (non-object) rules[] entry — layer=$vlayer entry=$vname" 1
+        fi
       done
   fi
 

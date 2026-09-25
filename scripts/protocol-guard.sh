@@ -196,15 +196,15 @@ pg_agent() {
   # think T: leading boundary ONLY (no trailing) so "architecture"/"reviewing"/"designs"
   # still match; "preview" is still excluded by the leading boundary before "review".
   # scout T: carries "which files?" and "does .* exist" (§7; dropped by an earlier pass).
-  local think_hit=0 scout_hit=0
+  local think_hit=0 scout_hit=0 think_src=""
   local think_s_re='(review|critic|architect|adversar|audit|devil|design|security)'
   local think_t_re='(^|[^a-z])(review|architect|adversar|trade-?offs?|security|design|root cause|why does)'
   local scout_s_re='(scout|explore|search|find|lookup|locate|grep)'
   local scout_t_re='(^|[^a-z])(find|locate|list|grep|search|scan|inventory|lookup|where is|which files?|does .* exist)([^a-z]|$)'
   if [[ $Slower =~ $think_s_re ]]; then
-    think_hit=1
+    think_hit=1; think_src="agent"
   elif [[ $T =~ $think_t_re ]]; then
-    think_hit=1
+    think_hit=1; think_src="text"
   fi
   if [ "$S" = "Explore" ]; then
     scout_hit=1; scout_src="agent"
@@ -213,9 +213,13 @@ pg_agent() {
   elif [[ $T =~ $scout_t_re ]]; then
     scout_hit=1; scout_src="text"
   fi
+  # An agent-typed scout signal (S=Explore, or a scout-named subagent_type) is only ever
+  # overridden by think when think ALSO came from the agent type itself — a text-only think
+  # match (a scout's PROMPT happening to mention "security"/"design"/...) must never reclassify
+  # an agent-declared scout job as think (e.g. Explore + "find the security token check").
   if [ "$S" = "Plan" ]; then
     job="plan"
-  elif [ "$think_hit" = "1" ]; then
+  elif [ "$think_hit" = "1" ] && { [ "$think_src" = "agent" ] || [ "$scout_src" != "agent" ]; }; then
     job="think"
   elif [ "$scout_hit" = "1" ]; then
     job="scout"
@@ -437,7 +441,11 @@ pg_jit() {
   [ -s "$idx" ] || return 0
 
   cache="$BRAIN_DIR/.injected/$PG_SID.jit.tsv"
-  if [ ! -f "$cache" ] || [ "$idx" -nt "$cache" ]; then
+  # `-nt` alone treats a rebuild landing in the SAME whole second as the cache build as "not
+  # newer" (bash 3.2 floor: whole-second mtimes) — never rebuilding for the rest of the
+  # session even though the index changed. Equal mtimes count as stale too (same fix class
+  # as sb_rules_effective's own staleness check).
+  if [ ! -f "$cache" ] || [ "$idx" -nt "$cache" ] || ! [ "$cache" -nt "$idx" ]; then
     mkdir -p "$BRAIN_DIR/.injected" 2>/dev/null
     # `(.globs // [])[]` — not `.globs[]` — so ONE malformed item (globs absent/null: a
     # hand-edited or torn index) can't abort the whole cache build; jq errors on `null[]`
@@ -481,6 +489,10 @@ pg_jit() {
     case "$rel" in
       $g)
         l="${l//[$'\r\n\t']/ }"
+        # Neutralize banner-forging tokens: an item line containing a literal
+        # "[End untrusted reference]" (or any other bracketed text) must never be mistaken
+        # for the DATA banner's own close — only the real footer line may say that.
+        l="${l//\[/(}"; l="${l//\]/)}"
         if [ "$k" = "convention" ]; then
           lines="${lines}${lines:+$'\n'}- (convention) $l"
         else
@@ -547,6 +559,7 @@ pg_search() {
   case "$rootn" in [A-Za-z]:*) rootn="${rootn#??}" ;; esac
   case "$pn" in
     "$rootn"/*) rel="${pn#"$rootn"/}" ;;
+    *) return 0 ;;   # outside the session's repo root — never checked
   esac
   local base="${p##*/}"
   [ -n "$base" ] || return 0
@@ -556,8 +569,29 @@ pg_search() {
   mkdir -p "$dir" 2>/dev/null || return 0
   local lsf="$dir/$PG_SID.lsfiles"
   if [ ! -f "$lsf" ]; then
-    { git -C "$root" ls-files 2>/dev/null | tr -d '\r' > "$lsf.tmp.$$" && mv -f "$lsf.tmp.$$" "$lsf"; } \
-      || { rm -f "$lsf.tmp.$$" 2>/dev/null; : > "$lsf"; }
+    # Capture git's OWN exit status separately from tr's — the previous
+    # `git ... | tr ... > tmp && mv` pipeline took tr's (always-0) status, so a git
+    # failure (non-git cwd, detached/corrupt repo) silently cached an EMPTY lsfiles
+    # and every later Write logged matches=0 verdict=ok with no error at all.
+    git -C "$root" ls-files > "$lsf.tmp.$$" 2>/dev/null
+    local grc=$?
+    if [ "$grc" -eq 0 ]; then
+      tr -d '\r' < "$lsf.tmp.$$" > "$lsf" 2>/dev/null
+      rm -f "$lsf.tmp.$$" 2>/dev/null
+    else
+      rm -f "$lsf.tmp.$$" 2>/dev/null
+      printf '#nogit\n' > "$lsf"
+      sb_log_error "protocol-guard.sh" "search-first: git ls-files failed rc=$grc root=$root" 1
+    fi
+  fi
+  # A cached (or just-built) "#nogit" marker means git itself failed for this repo root —
+  # skip loudly (a distinct audit verdict) rather than silently matching against an empty
+  # ls-files forever.
+  local first=""
+  IFS= read -r first < "$lsf" 2>/dev/null
+  if [ "$first" = "#nogit" ]; then
+    sb_log_error "protocol-guard.sh" "gate=search-first tool=$PG_TOOL path=$rel matches=0 hits=none verdict=skip reason=nogit sid=$PG_SID" 0
+    return 0
   fi
   local cmf="$dir/$PG_SID.codemap.tsv"
   if [ ! -f "$cmf" ]; then
@@ -570,8 +604,17 @@ pg_search() {
     [ -f "$slugf" ] && { IFS= read -r slug < "$slugf" 2>/dev/null; slug="${slug//$'\r'/}"; }
     local graph="$BRAIN_DIR/projects/$slug/codemap/graph.json"
     if [ -n "$slug" ] && [ -s "$graph" ]; then
-      jq -r '.files[]?.id // empty' "$graph" 2>/dev/null | tr -d '\r' > "$cmf.tmp.$$" \
-        && mv -f "$cmf.tmp.$$" "$cmf" || { rm -f "$cmf.tmp.$$" 2>/dev/null; : > "$cmf"; }
+      # Same jq-exit-status-vs-tr-exit-status fix as ls-files above.
+      jq -r '.files[]?.id // empty' "$graph" > "$cmf.tmp.$$" 2>/dev/null
+      local cmrc=$?
+      if [ "$cmrc" -eq 0 ]; then
+        tr -d '\r' < "$cmf.tmp.$$" > "$cmf.tmp2.$$" 2>/dev/null && mv -f "$cmf.tmp2.$$" "$cmf" 2>/dev/null
+        rm -f "$cmf.tmp.$$" 2>/dev/null
+      else
+        rm -f "$cmf.tmp.$$" 2>/dev/null
+        : > "$cmf" 2>/dev/null
+        sb_log_error "protocol-guard.sh" "search-first: codemap jq failed graph=$graph sid=$PG_SID" 1
+      fi
     else
       : > "$cmf"
     fi

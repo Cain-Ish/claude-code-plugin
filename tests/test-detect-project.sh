@@ -228,5 +228,7 @@ mkdir -p "$TMP/home2/Documents/notes"; ( cd "$TMP/home2" && git init -q )
 check "sb_repo_key: a non-git dir nested under an unrelated git ancestor keeps its own basename" "notes" \
   "$(source "$HERE/scripts/lib.sh"; sb_repo_key "$TMP/home2/Documents/notes")"
 
+check "sb_repo_key: CR-tainted worktree root still re-keys to main" "wt-main2" "$(source "$HERE/scripts/lib.sh"; sb_repo_key "$TMP/wt-linked2"$'\r')"
+
 rm -rf "$TMP"
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }

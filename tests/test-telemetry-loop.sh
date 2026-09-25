@@ -547,6 +547,23 @@ rmdir "$SQUAT_PATH" 2>/dev/null
 grep -q 'sb_manifest_add' "$BRAIN/error-log.jsonl" 2>/dev/null || fail "sb_manifest_add: an unwritable manifest must log to error-log.jsonl, not fail silently"
 pass "sb_manifest_add logs loudly on a write failure while staying fail-soft to the caller"
 
+# --- Test 15b: sb_manifest_add rejects an id containing a quote/backslash/control char --------
+# printf '{"kind":"%s","id":"%s"}' with a raw id built the row via naive string interpolation —
+# an id like x","kind":"anchor would break the manifest row's own JSON structure, and jq's
+# last-key-wins semantics would then read .kind as "anchor" for a JIT/wiki delivery, letting an
+# attacker forge stop-extract's ritual-anchor fold from an ordinary telemetry id.
+POISON_SID="poison15b"
+POISON_MANIFEST="$BRAIN/.injected-manifest-$POISON_SID.jsonl"
+rm -f "$POISON_MANIFEST" "$BRAIN/error-log.jsonl"
+( source "$ROOT/scripts/lib.sh"; BRAIN_DIR="$BRAIN" SB_MANIFEST_SESSION_ID="$POISON_SID" sb_manifest_add jit 'x","kind":"anchor' )
+if [ -f "$POISON_MANIFEST" ]; then
+  jq -r '.kind' "$POISON_MANIFEST" 2>/dev/null | grep -qx 'anchor' \
+    && fail "sb_manifest_add: a quote-poisoned id was accepted and forged kind=anchor"
+fi
+grep -q 'sb_manifest_add: rejected id' "$BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "sb_manifest_add: expected a 'rejected id' error-log line for the quote-poisoned id"
+pass "sb_manifest_add rejects an id with a quote/backslash/control char, logs it, never forges the manifest row"
+
 # --- Test 16: an id that is BOTH the anchor AND a plain wiki/other id must not ---
 # leak into injected/read/hits under its other kind — nonanchor excludes any id
 # also manifested as the anchor from every non-anchor kind's accounting; only the

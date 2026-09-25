@@ -74,18 +74,24 @@ fi
 # The effective-rules cache (sb_rules_effective's own file) is an attacker-adjacent artifact
 # once layering is on: Write/Edit/MultiEdit to it now asks (warn-self-edit-rules-cache* below),
 # but a cache written before that guard existed, or by a session that bypassed it, could still
-# silently disarm every locked rule. Before trusting EFF, verify every rule the plugin/user
-# layers marked lock:true is STILL present in it, by name, with the SAME
-# tool/match_command/match_path and an action rank at least as strict — all inside the ONE jq
-# spawn the D154 check already pays for (--rawfile, same idiom sb_rules_effective itself uses).
+# silently disarm every locked rule. Before trusting EFF, verify every rule the PLUGIN layer
+# locks (authoritative for a shared name) plus every USER-layer lock whose name the plugin does
+# not also lock, is STILL present in it, by name, with the SAME tool/match_command/match_path
+# and an action rank at least as strict — all inside the ONE jq spawn the D154 check already
+# pays for (--rawfile, same idiom sb_rules_effective itself uses). A disabled locked rule
+# (lock:true, enabled:false) is exempt — sb_rules_effective's own final filter drops disabled
+# rules from the effective set, so such a U rule would fail this invariant forever otherwise.
 # A cache that fails this is discarded and rebuilt exactly once; if the rebuild still fails, the
 # guard falls through to today's user/default selection — fail-SAFE, never fail-open.
 EFF_LOCK_INVARIANT='
 def fld($o;$k;$d): if ($o|type)=="object" and ($o|has($k)) then $o[$k] else $d end;
 def rankOf($a): ({deny:4, ask:3, rewrite:2, warn:1}[$a] // 0);
-def lockedof($raw): (if ($raw|length)==0 then [] else (($raw | try fromjson catch {}) | (.rules // []) | map(select(fld(.;"lock";false)==true))) end);
+def lockedof($raw): (if ($raw|length)==0 then [] else (($raw | try fromjson catch {}) | (.rules // []) | map(select(type=="object" and fld(.;"lock";false)==true and fld(.;"enabled";true)!=false))) end);
 . as $eff
-| (lockedof($p) + lockedof($u)) as $locked
+| lockedof($p) as $lp
+| ($lp | map(.name)) as $pnames
+| (lockedof($u) | map(select(.name as $n | ($pnames | index($n)) == null))) as $lu
+| ($lp + $lu) as $locked
 | ($locked | all(. as $L
     | (($eff.rules // []) | map(select(.name==$L.name)) | first) as $E
     | ($E != null)
@@ -114,6 +120,9 @@ if [ -n "$EFF" ] && [ -s "$EFF" ]; then
       EFF=$(sb_rules_effective "$EFF_SLUG" 2>/dev/null)
       EFF="${EFF//$'\r'/}"
       [ -n "$EFF" ] && [ -s "$EFF" ] && eff_verify "$EFF" && eff_ok=1
+      if [ "$eff_ok" = "0" ]; then
+        sb_log_error "persona-tool-guard.sh" "rules-effective rebuilt cache STILL fails lock invariant — falling back to user/default rules; repo layer NOT applied" 1
+      fi
     fi
   fi
 fi

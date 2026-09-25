@@ -92,6 +92,9 @@ if [ ! -f "$PROJECT_MD" ]; then
 ## Goal
 (auto-scaffolded — describe this project's goal)
 
+## Direction
+(goal · non-goals · priorities through YYYY-MM-DD — edit or run /second-brain:setup)
+
 ## State
 
 ## Plan
@@ -399,7 +402,7 @@ if [ "${SB_JIT:-on}" != "off" ]; then
       if [ -f "$JIT_CLI" ]; then
         JIT_ERR=$(mktemp 2>/dev/null) || JIT_ERR="/dev/null"
         if ! sb_timeout 8 node "$JIT_CLI" "$JIT_SLUG" "${CLAUDE_PROJECT_DIR:-$CWD}" >/dev/null 2>"$JIT_ERR"; then
-          sb_log_error "stop-extract.sh" "gate=jit-index-rebuild failed slug=$JIT_SLUG err=$(tail -c 300 "$JIT_ERR" 2>/dev/null | tr -d '\r\n')" 0
+          sb_log_error "stop-extract.sh" "jit-index-rebuild failed slug=$JIT_SLUG err=$(tail -c 300 "$JIT_ERR" 2>/dev/null | tr -d '\r\n')" 1
         fi
         [ "$JIT_ERR" != "/dev/null" ] && rm -f "$JIT_ERR" 2>/dev/null
       fi

@@ -110,6 +110,26 @@ grep -q 'model demotion' "$BRAIN_DIR/error-log.jsonl" \
   || fail "demoting away from an explicit pin must be logged"
 pass "pin is rung 0, demotable, and demotion is logged"
 
+# --- resolver: a headless-only pin must not error-log on the dispatch surface --------------
+# SB_EXTRACTOR_MODEL is a legitimate headless-only knob (model-ladder.json pins.mid) that may
+# hold a full model ID, never a dispatch alias -- it is not "wrong", just not applicable to the
+# dispatch surface, and must never spam the error-log on every dispatch-surface resolve.
+: > "$BRAIN_DIR/error-log.jsonl"
+OUT_DISPATCH=$(SB_EXTRACTOR_MODEL=claude-sonnet-4-6 sb_resolve_model mid dispatch)
+[ "$OUT_DISPATCH" = "sonnet" ] || fail "a non-alias SB_EXTRACTOR_MODEL must not become rung 0 on dispatch, got '$OUT_DISPATCH'"
+grep -q 'is not a dispatch alias' "$BRAIN_DIR/error-log.jsonl" \
+  && fail "SB_EXTRACTOR_MODEL (a headless-only pin) must not be logged as 'not a dispatch alias'"
+pass "a headless-only pin (SB_EXTRACTOR_MODEL) is silently ignored on the dispatch surface, never error-logged"
+
+# A genuine dispatch-tier operator pin (SB_MODEL_TIER_MID) with a non-alias value IS still
+# logged -- it really is meant to be a dispatch alias and the operator should hear about it.
+: > "$BRAIN_DIR/error-log.jsonl"
+OUT_DISPATCH2=$(SB_MODEL_TIER_MID=claude-sonnet-4-6 sb_resolve_model mid dispatch)
+[ "$OUT_DISPATCH2" = "sonnet" ] || fail "a non-alias SB_MODEL_TIER_MID must not become rung 0 on dispatch, got '$OUT_DISPATCH2'"
+grep -q 'is not a dispatch alias' "$BRAIN_DIR/error-log.jsonl" \
+  || fail "SB_MODEL_TIER_MID (a real dispatch pin) with a non-alias value must still be logged"
+pass "a genuine dispatch-tier pin (SB_MODEL_TIER_MID) with a non-alias value is still logged"
+
 # --- resolver: kill switch -----------------------------------------------
 [ "$(SB_MODEL_ELASTIC=0 sb_resolve_model mid)" = "sonnet" ] \
   || fail "SB_MODEL_ELASTIC=0 must return rung 0 verbatim"
