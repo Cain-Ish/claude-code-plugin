@@ -115,6 +115,7 @@ Three tiers, chosen by job shape:
 - The main conversation stays THINK-grade for judgment. Push volume (reading many files, running searches, grinding a checklist) into subagents.
 - Name the tier when delegating: `model: haiku` for scouts, `model: sonnet` for bounded work, `model: opus` for reviews and design.
 - One reviewer per touched surface, run in parallel, at THINK tier. A single review pass is not enough for anything that ships.
+- Source of truth: `skills/using-second-brain/protocol.md`; the SessionStart card and role cards are rendered from it and `gate=delegation` rows measure adherence.
 
 ### 12. Keep the main context lean
 

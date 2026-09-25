@@ -417,17 +417,37 @@ sb_model_cache_put() {
 # whose admin blocked the model they pinned. Never prints an empty string: a wrong model that
 # errors loudly beats a malformed spawn with no --model value.
 sb_resolve_model() {
-  local tier="${1:-mid}" surface="${2:-headless}" manifest m st pin_env pin_val
+  local tier="${1:-mid}" surface="${2:-headless}" manifest m st pin_env pin_val line
   manifest=$(sb_model_manifest)
   local -a rungs=()
+  # dispatch_aliases, read in the SAME jq call as the pins (one spawn): the Agent tool's
+  # model param is an alias-only enum (model-ladder.json _comment; tests/test-model-ladder.sh
+  # tripwire), so a dispatch-surface pin holding a full model ID would be rejected by the
+  # Agent call it's meant to feed. Non-dispatch surfaces (headless) accept full IDs, unaffected.
+  local aliases=" "
   if [ -f "$manifest" ] && command -v jq >/dev/null 2>&1; then
-    while IFS= read -r pin_env; do
-      [ -n "$pin_env" ] || continue
-      # Indirect expansion, NOT eval: bash 3.2 supports ${!var} and an env value is
-      # attacker-adjacent input that must never reach the parser.
-      pin_val="${!pin_env:-}"
-      [ -n "$pin_val" ] && rungs+=("$pin_val")
-    done < <(jq -r --arg t "$tier" '.pins[$t][]? // empty' "$manifest" 2>/dev/null | tr -d '\r')
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      case "$line" in
+        A:*) aliases="$aliases${line#A:} " ;;
+        P:*)
+          pin_env="${line#P:}"
+          # Indirect expansion, NOT eval: bash 3.2 supports ${!var} and an env value is
+          # attacker-adjacent input that must never reach the parser.
+          pin_val="${!pin_env:-}"
+          [ -n "$pin_val" ] || continue
+          if [ "$surface" = "dispatch" ]; then
+            case "$aliases" in
+              *" $pin_val "*) rungs+=("$pin_val") ;;
+              *) sb_log_error "lib.sh" "dispatch pin $pin_env=$pin_val is not a dispatch alias; ignored" 1 ;;
+            esac
+          else
+            rungs+=("$pin_val")
+          fi
+          ;;
+      esac
+    done < <(jq -r --arg t "$tier" '(.dispatch_aliases[]? | "A:" + .), (.pins[$t][]? | "P:" + .)' \
+               "$manifest" 2>/dev/null | tr -d '\r')
     while IFS= read -r m; do
       [ -n "$m" ] && rungs+=("$m")
     done < <(jq -r --arg s "$surface" --arg t "$tier" \
@@ -995,6 +1015,10 @@ sb_detect_project() {
   # minting a second project. No remote / no registry match / lookup failure all fall
   # open to the basename. (Monorepo cases 1-3 keep basename derivation — same bug
   # class but rarer; noted follow-up in the identity plan.)
+  # Slice 3: the standalone leaf is the git-common-dir key (sb_repo_key), not the raw
+  # basename, so a linked `git worktree` shares its main repo's brain instead of
+  # minting a second project keyed on the worktree's own folder name.
+  leaf=$(sb_repo_key "$abs")
   local rslug; rslug=$(sb_remote_override_slug "$abs" "$leaf")
   [ -n "$rslug" ] && leaf="$rslug"
   printf '%s\t\t%s\n' "$leaf" "${top:-$abs}"
@@ -1252,7 +1276,7 @@ sb_resolve_slug() {
   local cwd="${1:-$PWD}" _s _r
   # 1. CLAUDE_PROJECT_DIR — per-process project root (set by Claude Code when present).
   if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
-    _s=$(sb_slug_from_dir "$CLAUDE_PROJECT_DIR")
+    _s=$(sb_repo_key "$CLAUDE_PROJECT_DIR")
     case "$_s" in /|.|..) ;; *)
       # Remote identity beats the basename (a re-clone under a new folder name must
       # resolve the REGISTERED slug) — same lookup as sb_detect_project, so the
@@ -1265,7 +1289,7 @@ sb_resolve_slug() {
   #    cwd is per-process, so it can't be clobbered by a concurrent session like the shared
   #    pin can — but the known-project gate rejects a subdir cwd (→ falls to the pin below).
   #    Remote identity outranks the known-project gate here too (same rationale as tier 1).
-  _s=$(sb_slug_from_dir "$cwd")
+  _s=$(sb_repo_key "$cwd")
   case "$_s" in /|.|..) _s="" ;; esac
   if [ -n "$_s" ]; then
     _r=$(sb_remote_override_slug "$cwd" "$_s")
@@ -2646,7 +2670,11 @@ TMPL
     '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}' 2>/dev/null)
   if [ -n "$sigs" ] && printf '%s' "$sigs" \
     | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
-    printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
+    if [ -n "$slug" ]; then
+      printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --slug "$slug" 2>/dev/null || true
+    else
+      printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
+    fi
   fi
   return 0
 }
@@ -2924,11 +2952,363 @@ sb_session_slug() {
   local sid="${1:-}" f s=""
   sid="${sid//[^A-Za-z0-9_-]/}"; sid="${sid:0:64}"
   f="$BRAIN_DIR/.injected/$sid.slug"
-  if [ -n "$sid" ] && [ -f "$f" ]; then IFS= read -r s < "$f" 2>/dev/null || s=""; s="${s//$'\r'/}"; fi
+  # Slice 3 bugfix (found wiring the repo layer): `read` returns non-zero on a file with no
+  # trailing newline even though it DID populate $s — and session-load.sh:70 writes this memo
+  # via `printf '%s'` (deliberately no \n). The old `|| s=""` therefore clobbered every valid
+  # memo, so this function ALWAYS fell through to sb_resolve_slug (cwd/pin), silently defeating
+  # the per-session scoping this function exists to provide. Removed; `s` still defaults to ""
+  # from the `local` above if the read truly fails to open the file.
+  if [ -n "$sid" ] && [ -f "$f" ]; then IFS= read -r s < "$f" 2>/dev/null; s="${s//$'\r'/}"; fi
   [ -n "$s" ] && { printf '%s\n' "$s"; return 0; }
   sb_resolve_slug
 }
 # <<< SLICE 3 INSERTS sb_repo_key AND sb_rules_effective BETWEEN THIS LINE AND THE NEXT ANCHOR >>>
+# sb_repo_key <dir>: the per-repo identity key for <dir> — the MAIN worktree's basename when
+# <dir> is inside a linked `git worktree`, else the same basename sb_slug_from_dir already gives.
+# `git rev-parse --git-common-dir` is relative-to-CWD for an ordinary (non-worktree) repo but
+# ABSOLUTE for a linked worktree (verified live on this box); cd-resolving it (builtins, no extra
+# spawn) handles both forms AND a subdirectory invocation uniformly — a bare string-strip of
+# "../.git" would yield the nonsense basename ".." for a subdir of a plain repo. So two worktrees
+# of the same repo, and any subdir cwd inside either, share ONE brain instead of minting a second
+# project per worktree folder name. ONE `git` spawn total, always. Kill switch:
+# SB_REPO_KEY_COMMON_DIR=off restores the pre-change basename-of-dir behavior.
+sb_repo_key() {
+  local dir="${1:-$PWD}"
+  if [ "${SB_REPO_KEY_COMMON_DIR:-on}" = "off" ]; then
+    sb_slug_from_dir "$dir"
+    return 0
+  fi
+  # Slice 3 review fix: only a linked-worktree ROOT (or a submodule root) has `.git` as a FILE
+  # (a gitdir pointer) — a plain repo ROOT has `.git` as a DIRECTORY, and any other dir (a
+  # subdirectory of a plain repo, a subdirectory of a worktree, or a non-git dir nested under an
+  # unrelated git ancestor) has no `.git` entry of its own at all. Mirroring the TS twin's
+  # mainWorktreeDir (mcp/src/tools/project-dir.ts, which already gates on statSync(join(d,'.git'))
+  # exactly this way), gate the git spawn + common-dir resolution on this file check so a
+  # subdirectory is never remapped to some ancestor's key — before this gate, EVERY dir spawned
+  # `git rev-parse --git-common-dir` unconditionally, which cd-resolves for a plain-repo subdir
+  # too and silently re-keyed it to the repo ROOT's basename.
+  if [ ! -f "$dir/.git" ]; then
+    sb_slug_from_dir "$dir"
+    return 0
+  fi
+  local c main=""
+  c=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null | tr -d '\r')
+  if [ -n "$c" ]; then
+    main=$( (cd "$dir" 2>/dev/null && cd "$c" 2>/dev/null && pwd) 2>/dev/null )
+  fi
+  case "$main" in
+    */.git) sb_slug_from_dir "${main%/.git}" ;;
+    *)      sb_slug_from_dir "$dir" ;;
+  esac
+}
+
+# sb_rules_effective <slug>: merges the plugin/user/repo rules layers (§3 of
+# docs/plans/2026-09-24-repo-brain.md) and prints the PATH of the cached merged file — or nothing
+# when no layer is usable at all, in which case the guard keeps its own D154 fail-safe deny.
+# Layers low->high: P ($(sb_plugin_root)/scripts/persona-rules.default.json), U
+# ($BRAIN_DIR/persona-rules.json), R ($BRAIN_DIR/projects/<slug>/rules.json, only for a clean
+# slug — never for "." / ".." / anything outside [A-Za-z0-9._-]). ONE jq spawn on a cache
+# rebuild (all three layers fed via --rawfile, parsed inside jq with try/catch — a missing layer
+# is fed /dev/null, the same _tel_f trick stop-extract.sh uses), ZERO jq spawns when the cache is
+# fresh (bash `-nt` against every present layer, no stat spawn). A repo layer can NEVER set
+# lock:true (stripped + violation, whatever else it changes); a P/U lock:true survives unless a
+# higher layer's action rank is >= the locked action's AND it does not disable the rule — losing
+# attempts are dropped and recorded in .violations[]. SB_RULES_LAYERS=off restores today's
+# precedence (user file if usable else plugin, no repo layer, no cache) exactly.
+sb_rules_effective() {
+  local slug="${1:-}"
+  slug="${slug//$'\r'/}"
+  local proot puser prepo=""
+  proot="$(sb_plugin_root)/scripts/persona-rules.default.json"
+  puser="$BRAIN_DIR/persona-rules.json"
+  local clean=1
+  case "$slug" in
+    ''|.|..) clean=0 ;;
+    *[!A-Za-z0-9._-]*) clean=0 ;;
+  esac
+  [ "$clean" = "1" ] && prepo="$BRAIN_DIR/projects/$slug/rules.json"
+
+  if [ "${SB_RULES_LAYERS:-on}" = "off" ]; then
+    if [ -s "$puser" ] && jq -e 'type=="object"' "$puser" >/dev/null 2>&1; then
+      printf '%s\n' "$puser"
+    elif [ -s "$proot" ]; then
+      printf '%s\n' "$proot"
+    fi
+    return 0
+  fi
+
+  local cache
+  if [ "$clean" = "1" ]; then
+    cache="$BRAIN_DIR/projects/$slug/.rules-effective.json"
+  else
+    cache="$BRAIN_DIR/.rules-effective.json"
+  fi
+
+  local have_p=0 have_u=0 have_r=0
+  [ -f "$proot" ] && have_p=1
+  [ -f "$puser" ] && have_u=1
+  [ -n "$prepo" ] && [ -f "$prepo" ] && have_r=1
+  local proot_dir; proot_dir="$(sb_plugin_root)"
+  local sig="$cache.sig"
+
+  local rebuild=0
+  if [ ! -f "$cache" ]; then
+    rebuild=1
+  else
+    # A present layer strictly newer than the cache forces a rebuild — AND so does one
+    # that is only EQUAL to the cache's mtime: `-nt` alone treats a layer write landing
+    # in the same whole second as the cache build as "not newer", so it would never
+    # rebuild (the sibling test used to paper over this with a `sleep 1`; not needed
+    # once equal counts as stale too).
+    if [ "$have_p" = "1" ]; then { [ "$proot" -nt "$cache" ] || ! [ "$cache" -nt "$proot" ]; } && rebuild=1; fi
+    if [ "$have_u" = "1" ]; then { [ "$puser" -nt "$cache" ] || ! [ "$cache" -nt "$puser" ]; } && rebuild=1; fi
+    if [ "$have_r" = "1" ]; then { [ "$prepo" -nt "$cache" ] || ! [ "$cache" -nt "$prepo" ]; } && rebuild=1; fi
+    # Zero-spawn staleness the mtime checks above cannot see at all: a layer that has
+    # been DELETED since the cache was built (no `-nt` comparison ever fires for a layer
+    # that no longer exists) and a switch to a different CLAUDE_PLUGIN_ROOT (which could
+    # ship a different P). A sidecar signature line, read with a builtin (no `||`
+    # clobber — read returns nonzero on a no-trailing-newline EOF even though it DID
+    # populate the variable, same class as sb_session_slug's fix above), records the
+    # p/u/r presence tuple and the plugin root the cache was built against.
+    if [ "$rebuild" = "0" ]; then
+      local sigline=""
+      IFS= read -r sigline < "$sig" 2>/dev/null
+      sigline="${sigline//$'\r'/}"
+      [ "$sigline" = "p=$have_p u=$have_u r=$have_r root=$proot_dir" ] || rebuild=1
+    fi
+  fi
+
+  if [ "$rebuild" = "0" ]; then
+    printf '%s\n' "$cache"
+    return 0
+  fi
+
+  local fp fu fr
+  if [ "$have_p" = "1" ]; then fp="$proot"; else fp=/dev/null; fi
+  if [ "$have_u" = "1" ]; then fu="$puser"; else fu=/dev/null; fi
+  if [ "$have_r" = "1" ]; then fr="$prepo"; else fr=/dev/null; fi
+
+  local out
+  out=$(jq -rc -n --rawfile p "$fp" --rawfile u "$fu" --rawfile r "$fr" \
+    --arg slug "$slug" --arg hp "$have_p" --arg hu "$have_u" --arg hr "$have_r" \
+    'def fld($o; $k; $d): if ($o|type)=="object" and ($o|has($k)) then $o[$k] else $d end;
+def rankOf($a): ({deny:4, ask:3, rewrite:2, warn:1}[$a] // 0);
+def parselayer(raw):
+  (if (raw|length) == 0 then null
+   else (raw | try fromjson catch null) end) as $v
+  | if ($v != null and ($v|type)=="object") then $v else null end;
+# richness($v): valid JSON object AND it declares SOMETHING to evaluate (mirrors the guard
+# own D154 test, minus the apostrophe). A layer that parses but is vacuous (bare {}, or
+# rules:[] with no learned/scope config either) is still merged (harmless, contributes
+# nothing) but is ALSO flagged for the unreadable-layer diagnostic on P/U, same as a hard
+# parse failure would be, matching persona-tool-guard.sh D154 pre-existing "nothing to
+# evaluate is not a legitimate signal" stance for those two layers. R is EXCLUDED from
+# this richness flag: a freshly `merge-persona-signals.sh --slug`-seeded repo file
+# ({"rules":[],"learned":[]}) is the NORMAL, expected, silent starting state until its
+# first learned rule arms — flagging it would log on every guard call for every repo
+# that has armed none yet.
+def richness($v):
+  ($v != null) and (
+    ((($v.rules // [])|type)=="array" and (($v.rules // [])|length) > 0)
+    or ((($v.learned // [])|type)=="array" and (($v.learned // [])|length) > 0)
+    or (($v.tool_scope|type)=="object")
+    or (($v.resource_scope|type)=="object")
+  );
+(parselayer($p)) as $P0 |
+(parselayer($u)) as $U0 |
+(parselayer($r)) as $R0 |
+($P0 != null) as $pok |
+($U0 != null) as $uok |
+($R0 != null) as $rok |
+([ if ($hp=="1" and ((richness($P0))|not)) then "plugin" else empty end,
+   if ($hu=="1" and ((richness($U0))|not)) then "user" else empty end,
+   if ($hr=="1" and ($R0 == null)) then "repo" else empty end ]) as $bad |
+([ if $pok then {name:"plugin", doc:$P0} else empty end,
+   if $uok then {name:"user", doc:$U0} else empty end,
+   if $rok then {name:"repo", doc:$R0} else empty end ]) as $used |
+if ($used|length) == 0 then empty else
+(reduce $used[] as $layer (
+    {rules:{}, violations:[]};
+    reduce (($layer.doc.rules // [])[]) as $rl (
+      .;
+      ($rl.name // "anonymous") as $rname
+      | .rules[$rname] as $old
+      | ($rl | del(.name)) as $new0
+      | ($layer.name=="repo" and (fld($new0;"lock";false)==true)) as $lockAttempt
+      | (if $lockAttempt then ($new0 | del(.lock)) else $new0 end) as $new
+      | (if $lockAttempt then [{name:$rname, layer:"repo", attempted:"lock"}] else [] end) as $lockviol
+      | (
+          if $old == null then
+            {rule: ($new + {source:$layer.name}), viol: []}
+          elif (fld($old;"lock";false)==true) then
+            # $old is locked: a higher layer override may contribute ONLY `action`
+            # (rank must be >= the locked action) and `reason` — every other field
+            # (tool/match_command/match_path/replace/scope), an enabled:false, or a
+            # lock:false is rejected WHOLESALE (the entire override is dropped, $old
+            # survives verbatim) and recorded, never silently merged in piecemeal via
+            # a blind `$old + $new`. Because $old only ever changes on an ACCEPTED
+            # override (which can never clear lock — see below), lock can never be
+            # cleared by any later layer either, closing the same-layer-duplicate
+            # path automatically (an unlock attempt in entry N leaves $old locked for
+            # entry N+1 too).
+            (fld($new;"enabled";true)==false) as $wantDisable
+            | (($new|has("lock")) and ($new.lock==false)) as $wantUnlock
+            | (($new|has("tool")) or ($new|has("match_command")) or ($new|has("match_path"))
+               or ($new|has("replace")) or ($new|has("scope"))) as $wantRetarget
+            | (fld($new;"action"; fld($old;"action";"warn"))) as $na
+            | ($wantDisable or $wantUnlock or $wantRetarget or
+               ((rankOf($na)) < (rankOf(fld($old;"action";"warn"))))) as $rejected
+            | if ($rejected|not) then
+                {rule: ($old
+                        + (if $new|has("action") then {action:$new.action} else {} end)
+                        + (if $new|has("reason") then {reason:$new.reason} else {} end)
+                        + {source:$layer.name}),
+                 viol: []}
+              else
+                {rule: $old, viol: [{name:$rname, layer:$layer.name,
+                    attempted: (if $wantDisable then "disable"
+                                elif $wantUnlock then "unlock"
+                                elif $wantRetarget then "retarget"
+                                else $na end)}]}
+              end
+          else
+            {rule: (($old + $new) + {source:$layer.name}), viol: []}
+          end
+        ) as $res
+      | .rules[$rname] = ($res.rule + {name: $rname})
+      | .violations += ($lockviol + $res.viol)
+    )
+  )
+) as $rulesacc |
+(reduce $used[] as $layer ([]; . + (($layer.doc.learned // [])[0:50]))
+ | unique_by([(.event // ""), (.pattern // "")])
+) as $learned0 |
+(reduce ("tool_scope","resource_scope") as $sk (
+    {obj:{tool_scope:{}, resource_scope:{}}, viol:[]};
+    . as $acc0
+    | reduce $used[] as $layer ($acc0;
+        ($layer.doc[$sk]) as $nr
+        | if ($nr|type) != "object" then .
+          else
+            ($layer.name=="repo" and (fld($nr;"lock";false)==true)) as $lockAttempt
+            | (if $lockAttempt then ($nr|del(.lock)) else $nr end) as $n
+            | (.obj[$sk]) as $old
+            # allowlist/tools REPLACE (not union) when a higher layer declares them: a tool_scope
+            # or resource_scope allowlist is a security-relevant RESTRICTION, and P ships a wide
+            # default allowlist alongside enabled:false — unioning it into a narrower U/R
+            # allowlist the moment someone opts in would silently defeat the restriction the
+            # instant layering is on (layering defaults to on). Deviation from a literal "union"
+            # reading of design section 3.
+            #
+            # When $old is ALREADY locked (never by a repo layer — $lockAttempt above strips a
+            # repo-authored lock:true before it ever lands in $old), a higher layer override is
+            # constrained instead of blindly merged in: enabled may only go false->true (a
+            # false->... attempt is rejected), allowlist/tools may only TIGHTEN (the new array
+            # must be a subset of the old one — a wider or disjoint array is rejected), and lock
+            # is never overwritten (a lock:false attempt is rejected). Each rejection is recorded
+            # as its own violation instead of silently defeating the restriction.
+            | (fld($old;"lock";false)==true) as $oldLocked
+            | (if ($oldLocked|not) then
+                 { m: ( $old
+                        + (if $n|has("enabled") then {enabled: $n.enabled} else {} end)
+                        + (if $n|has("allowlist") then {allowlist: $n.allowlist} else {} end)
+                        + (if $n|has("tools") then {tools: $n.tools} else {} end)
+                        + (if $lockAttempt then {} elif $n|has("lock") then {lock: $n.lock} else {} end) ),
+                   v: [] }
+               else
+                 (($n|has("enabled")) and ($n.enabled==false)) as $wantDisable
+                 | (($n|has("lock")) and ($n.lock==false)) as $wantUnlock
+                 | (($n|has("allowlist")) and ((($n.allowlist - (fld($old;"allowlist";[])))|length) > 0)) as $widenAllow
+                 | (($n|has("tools")) and ((($n.tools - (fld($old;"tools";[])))|length) > 0)) as $widenTools
+                 | ([ if $wantDisable then "disable" else empty end,
+                      if $wantUnlock then "unlock" else empty end,
+                      if $widenAllow or $widenTools then "widen" else empty end ]) as $bad
+                 | { m: ( $old
+                          + (if ($n|has("enabled")) and ($n.enabled==true) then {enabled:true} else {} end)
+                          + (if ($n|has("allowlist")) and ($widenAllow|not) then {allowlist:$n.allowlist} else {} end)
+                          + (if ($n|has("tools")) and ($widenTools|not) then {tools:$n.tools} else {} end) ),
+                     v: ($bad | map({name:$sk, layer:$layer.name, attempted:.})) }
+               end) as $res
+            | .obj[$sk] = $res.m
+            | .viol += (if $lockAttempt then [{name:$sk, layer:$layer.name, attempted:"lock"}] else [] end) + $res.v
+          end
+      )
+) ) as $scopeacc |
+{
+  schema: 2,
+  slug: $slug,
+  layers: ($used | map(.name)),
+  rules: ($rulesacc.rules | [ .[] | select(fld(.;"enabled";true) != false) ]),
+  learned: $learned0,
+  violations: ($rulesacc.violations + $scopeacc.viol)
+}
+# tool_scope/resource_scope keys are included ONLY when some layer actually declared one —
+# an ALWAYS-present {} would make the guard D154 check ((.tool_scope|type)=="object") pass
+# trivially on this effective envelope even when every layer left it unset, defeating the
+# fail-safe-deny guarantee for the genuinely-nothing-usable case.
++ (if ($scopeacc.obj.tool_scope | length) > 0 then {tool_scope: $scopeacc.obj.tool_scope} else {} end)
++ (if ($scopeacc.obj.resource_scope | length) > 0 then {resource_scope: $scopeacc.obj.resource_scope} else {} end)
+as $effective |
+( "\($effective.rules|length) \($effective.learned|length) \($used|map(.name)|join(","))"
+  + " \($effective.violations|length) \(if ($bad|length)==0 then "-" else ($bad|join(",")) end)"
+),
+$effective
+end' 2>/dev/null | tr -d '\r')
+
+  [ -z "$out" ] && return 0
+  local header body
+  header="${out%%$'\n'*}"
+  body="${out#*$'\n'}"
+  [ -n "$body" ] || return 0
+
+  mkdir -p "$(dirname "$cache")" 2>/dev/null
+  local tmp="$cache.tmp.$$"
+  if ! { printf '%s\n' "$body" > "$tmp" 2>/dev/null && mv -f "$tmp" "$cache" 2>/dev/null; }; then
+    rm -f "$tmp" 2>/dev/null
+    return 0
+  fi
+  # Sidecar signature (see the staleness check above) — best-effort, never fatal to the
+  # rebuild itself: a missing/stale .sig just means the NEXT call also rebuilds.
+  local sigtmp="$sig.tmp.$$"
+  if printf '%s\n' "p=$have_p u=$have_u r=$have_r root=$proot_dir" > "$sigtmp" 2>/dev/null; then
+    mv -f "$sigtmp" "$sig" 2>/dev/null || rm -f "$sigtmp" 2>/dev/null
+  else
+    rm -f "$sigtmp" 2>/dev/null
+  fi
+
+  local rn ln lc vn bl
+  set -- $header
+  rn="${1:-0}"; ln="${2:-0}"; lc="${3:-}"; vn="${4:-0}"; bl="${5:-}"
+
+  if [ -n "$bl" ] && [ "$bl" != "-" ]; then
+    # %s\n (not bare %s): a trailing newline is what makes `read`'s own exit status 0 on the
+    # LAST (here: only, when bl has one entry) line — without it `read` still populates the
+    # var but returns 1 on the no-newline EOF line, and a `while read` loop's condition is
+    # that same exit status, so the loop body would silently never run at all (same bug
+    # class as the sb_session_slug fix above, but fatal here instead of just data loss).
+    printf '%s\n' "$bl" | tr ',' '\n' | while IFS= read -r _bl_item; do
+      [ -n "$_bl_item" ] || continue
+      case "$_bl_item" in
+        plugin) sb_log_error "lib.sh" "rules-layer plugin unreadable at $proot — skipped" 1 ;;
+        user)   sb_log_error "lib.sh" "rules-layer user unreadable at $puser — skipped" 1 ;;
+        repo)   sb_log_error "lib.sh" "rules-layer repo unreadable at $prepo — skipped" 1 ;;
+      esac
+    done
+  fi
+
+  sb_log_error "lib.sh" "gate=rules-effective slug=$slug layers=$lc rules=$rn learned=$ln violations=$vn" 0
+
+  if [ -n "$vn" ] && [ "$vn" != "0" ]; then
+    printf '%s' "$body" | jq -r '.violations[]? | (.name // "") + "\t" + (.layer // "") + "\t" + (.attempted // "")' 2>/dev/null | tr -d '\r' \
+    | while IFS=$'\t' read -r vname vlayer vattempted; do
+        [ -n "$vname" ] || continue
+        sb_log_audit "rules-layer" "flag" "rules-lock-violation" "$vname" "$vlayer attempted $vattempted" ""
+      done
+  fi
+
+  printf '%s\n' "$cache"
+  return 0
+}
 # <<< END SLICE 3 INSERTION >>>
 # sb_rules_hard_lines <slug> <max>: "- <name>: <reason<=120>" lines for HARD (ask|deny) rules of the
 # effective rule set — Slice 3's sb_rules_effective when defined, else the same user-then-default

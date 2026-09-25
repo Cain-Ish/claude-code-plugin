@@ -144,7 +144,7 @@ var init_kb_schema = __esm({
       },
       generated_dirs: ["projects", "themes"],
       edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
-      project_sections: ["blockers", "decisions"],
+      project_sections: ["blockers", "decisions", "conventions"],
       forget_protection: {
         protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
         discounted: ["entities", "sources", "issues"]

@@ -1,6 +1,6 @@
 // src/tools/raw-capture-cli.ts
 import { join as join5 } from "path";
-import { existsSync as existsSync3, readFileSync as readFileSync4, statSync as statSync2 } from "fs";
+import { existsSync as existsSync3, readFileSync as readFileSync4, statSync as statSync3 } from "fs";
 
 // src/tools/raw-inbox.ts
 import { promises as fs } from "fs";
@@ -74,7 +74,7 @@ var kb_schema_default = {
   },
   generated_dirs: ["projects", "themes"],
   edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
-  project_sections: ["blockers", "decisions"],
+  project_sections: ["blockers", "decisions", "conventions"],
   forget_protection: {
     protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
     discounted: ["entities", "sources", "issues"]
@@ -502,8 +502,8 @@ async function captureItem(input) {
 }
 
 // src/tools/project-dir.ts
-import { basename as basename2, join as join4 } from "path";
-import { readFileSync as readFileSync3, existsSync as existsSync2 } from "fs";
+import { basename as basename2, dirname, isAbsolute as isAbsolute2, join as join4 } from "path";
+import { readFileSync as readFileSync3, existsSync as existsSync2, statSync as statSync2 } from "fs";
 
 // src/brain-paths.ts
 import { join as join2, isAbsolute } from "path";
@@ -610,9 +610,28 @@ function resolveSlugByRemote(brainDir, rawRemote) {
 }
 
 // src/tools/project-dir.ts
+function mainWorktreeDir(dir) {
+  try {
+    const d = cleanEnvPath(dir);
+    if (!d) return dir;
+    const gitPath = join4(d, ".git");
+    if (statSync2(gitPath).isDirectory()) return dir;
+    const m = readFileSync3(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!m) return dir;
+    const gd = m[1];
+    const gitdirResolved = isAbsolute2(gd) ? gd : join4(d, gd);
+    if (existsSync2(join4(gitdirResolved, "config"))) return dir;
+    const cd = readFileSync3(join4(gitdirResolved, "commondir"), "utf-8").trim();
+    const commonDir = isAbsolute2(cd) ? cd : join4(gitdirResolved, cd);
+    return dirname(commonDir);
+  } catch {
+    return dir;
+  }
+}
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
-  const base = basename2(cleanEnvPath(dir));
+  const resolved = process.env.SB_REPO_KEY_COMMON_DIR === "off" ? dir : mainWorktreeDir(dir);
+  const base = basename2(cleanEnvPath(resolved));
   if (!base || base === "/" || base === "." || base === "..") return void 0;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;
@@ -747,7 +766,7 @@ async function main() {
       if (/^https?:\/\//i.test(src)) {
         kind = "url";
         content = src;
-      } else if (existsSync3(src) && statSync2(src).isFile()) {
+      } else if (existsSync3(src) && statSync3(src).isFile()) {
         kind = "file";
       } else {
         kind = "paste";

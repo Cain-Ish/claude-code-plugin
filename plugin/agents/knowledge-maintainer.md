@@ -15,6 +15,7 @@ description: |
   assistant: "Let me dispatch the knowledge-maintainer to resolve broken links, merge duplicates, and rebuild the index."
   </example>
 model: sonnet
+effort: medium
 color: blue
 tools: Read, Write, Edit, Glob, Grep, Bash(jq *), Bash(find *), Bash(grep *), Bash(diff *), Bash(cat *), Bash(head *), Bash(tail *), Bash(wc *), Bash(sort *), Bash(uniq *), Bash(sed *), Bash(awk *), Bash(date *), Bash(test *), Bash(ls *), Bash(basename *), Bash(dirname *), Bash(mkdir *), Bash(rm *), Bash(cp *), Bash(mv *), Bash(mktemp *), Bash(stat *), Bash(touch *), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Bash(node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/*), mcp__plugin_second-brain_knowledge-base__knowledge_validate, mcp__plugin_second-brain_knowledge-base__knowledge_search, mcp__plugin_second-brain_knowledge-base__knowledge_relate, mcp__plugin_second-brain_knowledge-base__knowledge_neighbors, mcp__plugin_second-brain_knowledge-base__knowledge_reindex
 ---
