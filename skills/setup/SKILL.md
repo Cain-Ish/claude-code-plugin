@@ -87,13 +87,16 @@ For substantive requests (anything beyond a one-verb-on-one-noun edit), before a
 Check whether `~/.second-brain/projects/$SLUG/PROJECT.md` exists.
 
 - If it exists: leave it alone, report its current byte count.
-- If it does not exist: prompt the user for the `Goal` (≤3 lines) and `Conventions` (≤5 lines) and write the file using this 6-section template (filling in `<name>`, `Goal`, and `Conventions` from the prompt; leave the other sections empty for now — they will be filled in over time by the reflection and archive flows):
+- If it does not exist: prompt the user for the `Goal` (≤3 lines) and `Conventions` (≤5 lines) and write the file using this 7-section template (filling in `<name>`, `Goal`, and `Conventions` from the prompt; leave the other sections empty for now — they will be filled in over time by the reflection and archive flows):
 
 ```markdown
 # PROJECT: <name>
 
 ## Goal
 <≤3 lines>
+
+## Direction
+<goal · non-goals · priorities through YYYY-MM-DD>
 
 ## State
 <≤8 lines>
@@ -114,7 +117,7 @@ Check whether `~/.second-brain/projects/$SLUG/PROJECT.md` exists.
 <!-- last_queried_wiki: YYYY-MM-DD -->
 ```
 
-Set `<!-- last_updated: ... -->` to the current ISO8601 timestamp; leave `last_queried_wiki` blank for now.
+Set `<!-- last_updated: ... -->` to the current ISO8601 timestamp; leave `last_queried_wiki` blank for now. Conventions can also be added later with `pin_to_project(section:"conventions")` — each one is delivered automatically (repo memory) the next time its named path is touched, instead of waiting for the next full session load.
 
 ### 4. Update projects.jsonl
 

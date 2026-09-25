@@ -377,6 +377,36 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
   find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.value-loop-state-*.json' -o -name '.verify-gate-blocks-*' -o -name '.verify-gate-agseen-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
 fi
 
+# Repo-brain JIT index freshness rebuild (Slice 2, docs/plans/2026-09-24-repo-brain.md §F) —
+# placed AFTER the telemetry block above so a failure here can never lose the value-loop row.
+# Independent of SB_TELEMETRY; gated only by SB_JIT (off ⇒ no rebuild — matches pg_jit's own
+# kill switch, so a session with delivery disabled doesn't pay to maintain an index nobody reads).
+# Bounded (sb_timeout) and fully fail-soft: never blocks or fails the Stop hook.
+if [ "${SB_JIT:-on}" != "off" ]; then
+  JIT_SLUG=$(sb_session_slug "$SESSION_ID")
+  if [ -n "$JIT_SLUG" ]; then
+    JIT_IDX="$BRAIN_DIR/projects/$JIT_SLUG/jit-index.json"
+    JIT_STALE=0
+    if [ ! -f "$JIT_IDX" ]; then
+      JIT_STALE=1
+    elif find "$KNOWLEDGE_DIR/wiki" -name '*.md' -newer "$JIT_IDX" 2>/dev/null | head -1 | grep -q .; then
+      JIT_STALE=1
+    elif [ -f "$BRAIN_DIR/projects/$JIT_SLUG/PROJECT.md" ] && [ "$BRAIN_DIR/projects/$JIT_SLUG/PROJECT.md" -nt "$JIT_IDX" ]; then
+      JIT_STALE=1
+    fi
+    if [ "$JIT_STALE" = "1" ] && command -v node >/dev/null 2>&1; then
+      JIT_CLI="$(sb_plugin_root)/mcp/dist/tools/jit-index-cli.bundle.js"
+      if [ -f "$JIT_CLI" ]; then
+        JIT_ERR=$(mktemp 2>/dev/null) || JIT_ERR="/dev/null"
+        if ! sb_timeout 8 node "$JIT_CLI" "$JIT_SLUG" "${CLAUDE_PROJECT_DIR:-$CWD}" >/dev/null 2>"$JIT_ERR"; then
+          sb_log_error "stop-extract.sh" "gate=jit-index-rebuild failed slug=$JIT_SLUG err=$(tail -c 300 "$JIT_ERR" 2>/dev/null | tr -d '\r\n')" 0
+        fi
+        [ "$JIT_ERR" != "/dev/null" ] && rm -f "$JIT_ERR" 2>/dev/null
+      fi
+    fi
+  fi
+fi
+
 START_LINE=$((LAST_LINE + 1))
 # The LLM input is capped at the newest 500 lines, but the substantive gate and
 # the archive must cover the FULL delta — otherwise a >500-line turn silently
