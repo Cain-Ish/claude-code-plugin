@@ -15,6 +15,7 @@ description: |
   assistant: "Let me check if we've discussed auth middleware in previous sessions before starting."
   </example>
 model: haiku
+effort: low
 color: cyan
 tools: Read, mcp__plugin_second-brain_knowledge-base__episodic_search, mcp__plugin_second-brain_knowledge-base__episodic_read
 ---

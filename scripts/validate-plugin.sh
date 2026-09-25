@@ -185,6 +185,10 @@ while IFS= read -r skill_file; do
 done < <(find "$PLUGIN_ROOT/skills" -name "SKILL.md" -type f 2>/dev/null)
 
 # Validate agent definitions
+# model/effort pins (docs/plans/2026-09-24-repo-brain.md Slice 1 §12): allowed model values are
+# read from model-ladder.json's own dispatch_aliases (plus 'inherit') — NEVER a literal alias
+# list here, so test-model-ladder's tripwire stays the one place that enum can change.
+ALLOWED_MODEL_ALIASES=$(jq -r '.dispatch_aliases[]?' "$PLUGIN_ROOT/model-ladder.json" 2>/dev/null | tr -d '\r')
 while IFS= read -r agent_file; do
   if head -1 "$agent_file" | grep -q "^---"; then
     frontmatter=$(awk '/^---$/{n++; next} n==1' "$agent_file")
@@ -192,6 +196,22 @@ while IFS= read -r agent_file; do
       echo "FAIL: $(basename "$agent_file") missing 'name' in frontmatter"
       ERRORS=$((ERRORS + 1))
     fi
+    agent_model=$(echo "$frontmatter" | grep "^model:" | head -1 | sed 's/^model:[[:space:]]*//' | tr -d '\r')
+    if [ -z "$agent_model" ]; then
+      echo "FAIL: $(basename "$agent_file") missing 'model' in frontmatter"
+      ERRORS=$((ERRORS + 1))
+    elif [ "$agent_model" != "inherit" ] && ! printf '%s\n' "$ALLOWED_MODEL_ALIASES" | grep -qxF "$agent_model"; then
+      echo "FAIL: $(basename "$agent_file") 'model' value '$agent_model' is not 'inherit' or a model-ladder.json dispatch_aliases entry"
+      ERRORS=$((ERRORS + 1))
+    fi
+    agent_effort=$(echo "$frontmatter" | grep "^effort:" | head -1 | sed 's/^effort:[[:space:]]*//' | tr -d '\r')
+    case "$agent_effort" in
+      low|medium|high|xhigh|max) : ;;
+      *)
+        echo "FAIL: $(basename "$agent_file") missing or invalid 'effort' in frontmatter (must be low|medium|high|xhigh|max)"
+        ERRORS=$((ERRORS + 1))
+        ;;
+    esac
   fi
 done < <(find "$PLUGIN_ROOT/agents" -name "*.md" -type f 2>/dev/null)
 

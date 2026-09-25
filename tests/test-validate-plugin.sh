@@ -121,8 +121,16 @@ JSON
 ---
 name: foo
 description: Foo
+model: haiku
+effort: low
 ---
 MD
+
+  # Slice 1 §12: model:/effort: pins are checked against model-ladder.json's own
+  # dispatch_aliases — the skeleton needs a real manifest for that lookup to resolve.
+  cat > "$root/model-ladder.json" <<'JSON'
+{"dispatch_aliases": ["haiku", "sonnet", "opus", "fable"]}
+JSON
 
   PLUGIN_FOR_VALIDATOR="$root"
 }
@@ -326,6 +334,31 @@ jq '.scripts = "many"' "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json
 mv "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json.tmp" "$PLUGIN_FOR_VALIDATOR/.claude-plugin/surface-budget.json"
 run_case "surface-budget.json non-numeric value fails" 1
 assert_output_contains "surface-budget.json key 'scripts' is not numeric"
+
+# Case 11d: agent missing 'effort:' in frontmatter → FAIL (Slice 1 §12 pin lock).
+setup_skeleton
+cat > "$PLUGIN_FOR_VALIDATOR/agents/foo.md" <<'MD'
+---
+name: foo
+description: Foo
+model: haiku
+---
+MD
+run_case "agent missing 'effort' fails" 1
+assert_output_contains "foo.md missing or invalid 'effort'"
+
+# Case 11e: agent 'model: gpt-9' (not inherit, not a dispatch alias) → FAIL.
+setup_skeleton
+cat > "$PLUGIN_FOR_VALIDATOR/agents/foo.md" <<'MD'
+---
+name: foo
+description: Foo
+model: gpt-9
+effort: low
+---
+MD
+run_case "agent 'model: gpt-9' fails" 1
+assert_output_contains "foo.md 'model' value 'gpt-9' is not 'inherit'"
 
 # Case 12: the SHIPPED tree must validate with ZERO WARN lines.
 # A WARN that nobody clears is worse than no check: `SESSION_START_MATCHERS` froze at

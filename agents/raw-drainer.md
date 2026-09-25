@@ -12,6 +12,7 @@ description: |
   assistant: "Dispatching second-brain:raw-drainer for the next batch; it will drain up to 5 and report REMAINING."
   </example>
 model: sonnet
+effort: medium
 color: green
 tools: Read, Write, Edit, Glob, Grep, Bash(jq *), Bash(find *), Bash(grep *), Bash(diff *), Bash(cat *), Bash(head *), Bash(tail *), Bash(wc *), Bash(sort *), Bash(uniq *), Bash(sed *), Bash(awk *), Bash(date *), Bash(test *), Bash(ls *), Bash(basename *), Bash(dirname *), Bash(mkdir *), Bash(rm *), Bash(cp *), Bash(mv *), Bash(mktemp *), Bash(stat *), Bash(touch *), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Bash(node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/*), mcp__plugin_second-brain_knowledge-base__knowledge_search, mcp__plugin_second-brain_knowledge-base__knowledge_validate
 ---
