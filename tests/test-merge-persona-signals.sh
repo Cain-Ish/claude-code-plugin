@@ -312,5 +312,37 @@ grep -q 'skipped 1 torn line' "$BRAIN_DIR/err-log" \
   || fail "D139: torn line must be logged via sb_log_error (once, not per row)"
 pass "D139: torn line logged once via sb_log_error"
 
+# --- Slice 3 (docs/plans/2026-09-24-repo-brain.md §C): --slug <slug> arms the REPO layer
+# (projects/<slug>/rules.json), never the user file; seeded fresh (never copied from defaults).
+rm -rf "$BRAIN_DIR/projects" "$BRAIN_DIR/persona-rules.json" "$BRAIN_DIR/persona-rules.pending.json"
+run_merge_slug() { echo "$1" | bash "$STUB_SCRIPT" --slug "$2"; }
+SLUG_CAND='{"persona_signals":[],"rule_candidates":[{"event":"bash","pattern":"terraform apply","action":"warn","message":"Always plan before apply in this repo."}]}'
+CLAUDE_SESSION_ID=sl1 run_merge_slug "$SLUG_CAND" "demo-repo"
+CLAUDE_SESSION_ID=sl2 run_merge_slug "$SLUG_CAND" "demo-repo"
+CLAUDE_SESSION_ID=sl3 run_merge_slug "$SLUG_CAND" "demo-repo"
+
+[ -s "$BRAIN_DIR/projects/demo-repo/rules.json" ] \
+  || fail "--slug: expected \$BRAIN_DIR/projects/demo-repo/rules.json to exist after 3 sightings"
+[ "$(jq -r '.learned[0].pattern' "$BRAIN_DIR/projects/demo-repo/rules.json" 2>/dev/null)" = "terraform apply" ] \
+  || fail "--slug: repo rules.json .learned[0].pattern should be the armed candidate"
+[ "$(jq -r '.learned[0].action' "$BRAIN_DIR/projects/demo-repo/rules.json" 2>/dev/null)" = "warn" ] \
+  || fail "--slug: armed candidate action must be warn (advisory-only)"
+[ ! -e "$BRAIN_DIR/persona-rules.json" ] \
+  || fail "--slug: must NOT arm into the user persona-rules.json"
+[ "$(jq -r '.rules | length' "$BRAIN_DIR/projects/demo-repo/rules.json" 2>/dev/null)" = "0" ] \
+  || fail "--slug: the repo file is a DELTA, never a copy of the shipped defaults (.rules must stay empty)"
+pass "--slug arms the repo layer, seeded fresh (never copies defaults), user file untouched"
+
+# An unclean slug (path traversal attempt) is ignored, falling through to today's behavior.
+rm -rf "$BRAIN_DIR/projects" "$BRAIN_DIR/persona-rules.json" "$BRAIN_DIR/persona-rules.pending.json"
+CLAUDE_SESSION_ID=sl4 run_merge_slug "$SLUG_CAND" "../../evil"
+CLAUDE_SESSION_ID=sl5 run_merge_slug "$SLUG_CAND" "../../evil"
+CLAUDE_SESSION_ID=sl6 run_merge_slug "$SLUG_CAND" "../../evil"
+[ ! -d "$BRAIN_DIR/projects/../../evil" ] \
+  || fail "--slug: an unclean slug must never create a path-traversal project dir"
+[ "$(jq -r '.learned[0].pattern' "$BRAIN_DIR/persona-rules.json" 2>/dev/null)" = "terraform apply" ] \
+  || fail "--slug: an unclean/invalid slug must fall through to the user-level arm (today's behavior)"
+pass "--slug: an unclean slug is rejected and falls through to the user-level arm"
+
 echo
 echo "ALL PASS"

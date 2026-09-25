@@ -57,7 +57,21 @@ fi
 USER_RULES="$BRAIN_DIR/persona-rules.json"
 DEFAULT_RULES="$PLUGIN_ROOT/scripts/persona-rules.default.json"
 RULES_FILE=""
-if [ -f "$USER_RULES" ]; then
+# D154 usability check, reused below for whichever candidate (layered effective file, user file,
+# or — never checked, trusted as shipped — the plugin default) ends up as RULES_FILE.
+D154_CHECK='(.rules | type) == "array" and ((.rules | length) > 0 or (((.learned // []) | type) == "array" and ((.learned // []) | length) > 0) or ((.tool_scope | type) == "object") or ((.resource_scope | type) == "object"))'
+# Slice 3 (docs/plans/2026-09-24-repo-brain.md §3): the layered plugin+user+repo effective rules
+# file, when usable, REPLACES the plain user/default selection below entirely (repo layer, cache,
+# lock enforcement — see sb_rules_effective in lib.sh). SB_RULES_LAYERS=off or an absent/broken
+# sb_rules_effective falls straight through to today's user-then-default behavior, unchanged.
+EFF=""
+if command -v sb_rules_effective >/dev/null 2>&1; then
+  EFF=$(sb_rules_effective "$(sb_session_slug "$SESSION_ID")" 2>/dev/null)
+  EFF="${EFF//$'\r'/}"
+fi
+if [ -n "$EFF" ] && [ -s "$EFF" ] && jq -e "$D154_CHECK" "$EFF" >/dev/null 2>&1; then
+  RULES_FILE="$EFF"
+elif [ -f "$USER_RULES" ]; then
   # D154: an existing user rules file that is EMPTY, not valid JSON, or whose
   # `.rules` is not an array with SOMETHING to evaluate must not silently
   # disarm every PreToolUse rule (a truncated write from
@@ -71,13 +85,7 @@ if [ -f "$USER_RULES" ]; then
   # with enabled:false — that is still an intentional declaration, not
   # silence), stays valid. Fall back to the shipped defaults and say so, loud,
   # once — `-s` guards jq -e against jq 1.6's "empty input exits 0".
-  if [ -s "$USER_RULES" ] && jq -e '
-        (.rules | type) == "array"
-        and ((.rules | length) > 0
-             or (((.learned // []) | type) == "array" and ((.learned // []) | length) > 0)
-             or ((.tool_scope | type) == "object")
-             or ((.resource_scope | type) == "object"))
-      ' "$USER_RULES" >/dev/null 2>&1; then
+  if [ -s "$USER_RULES" ] && jq -e "$D154_CHECK" "$USER_RULES" >/dev/null 2>&1; then
     RULES_FILE="$USER_RULES"
   else
     sb_log_error "persona-tool-guard.sh" "user persona-rules.json at $USER_RULES is empty, not valid JSON, or has no non-empty .rules array — falling back to persona-rules.default.json" 1

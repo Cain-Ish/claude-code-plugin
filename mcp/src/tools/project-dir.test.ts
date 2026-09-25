@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { join, basename } from 'path';
 import { tmpdir } from 'os';
-import { slugFromProjectDir, activeProjectDir, resolveActiveSlug } from './project-dir.js';
+import { execFileSync } from 'child_process';
+import { slugFromProjectDir, activeProjectDir, resolveActiveSlug, mainWorktreeDir } from './project-dir.js';
 
 describe('slugFromProjectDir', () => {
   it('returns the basename of a real path', () => {
@@ -134,6 +135,53 @@ describe('resolveActiveSlug — registry-path (monorepo)', () => {
     const slug = resolveActiveSlug(dir, {} as NodeJS.ProcessEnv, () => '/repos/acme/packages/api/src');
     expect(slug).toBe('acme__api');   // registry-path tier precedes the known-basename tier
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('mainWorktreeDir / slugFromProjectDir / resolveActiveSlug — git worktree (Slice 3, §10)', () => {
+  let work: string;
+  let mainRepo: string;
+  let wt: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    work = mkdtempSync(join(tmpdir(), 'sb-wt-work-'));
+    mainRepo = join(work, 'main-repo');
+    mkdirSync(mainRepo, { recursive: true });
+    const git = (args: string[], cwd = mainRepo) =>
+      execFileSync('git', args, { cwd, stdio: 'pipe' });
+    git(['init', '-q']);
+    git(['config', 'user.email', 'a@b.c']);
+    git(['config', 'user.name', 'a']);
+    git(['commit', '-q', '--allow-empty', '-m', 'init']);
+    wt = join(work, 'wt');
+    git(['worktree', 'add', '-q', wt, '-b', 'wtbranch']);
+    prevEnv = process.env.SB_REPO_KEY_COMMON_DIR;
+  });
+  afterEach(() => {
+    if (prevEnv === undefined) delete process.env.SB_REPO_KEY_COMMON_DIR;
+    else process.env.SB_REPO_KEY_COMMON_DIR = prevEnv;
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  it('mainWorktreeDir(linked worktree) resolves to the main checkout', () => {
+    expect(basename(mainWorktreeDir(wt))).toBe(basename(mainRepo));
+  });
+  it('mainWorktreeDir(main checkout, plain .git DIRECTORY) is unchanged', () => {
+    expect(mainWorktreeDir(mainRepo)).toBe(mainRepo);
+  });
+  it('slugFromProjectDir(linked worktree) === basename of the main repo', () => {
+    expect(slugFromProjectDir(wt)).toBe(basename(mainRepo));
+  });
+  it('resolveActiveSlug with CLAUDE_PROJECT_DIR = worktree path returns the main slug', () => {
+    const brainDir = mkdtempSync(join(tmpdir(), 'sb-wt-brain-'));
+    const slug = resolveActiveSlug(brainDir, { CLAUDE_PROJECT_DIR: wt } as NodeJS.ProcessEnv, () => '/elsewhere');
+    expect(slug).toBe(basename(mainRepo));
+    rmSync(brainDir, { recursive: true, force: true });
+  });
+  it('SB_REPO_KEY_COMMON_DIR=off restores the basename-of-worktree-dir behavior', () => {
+    process.env.SB_REPO_KEY_COMMON_DIR = 'off';
+    expect(slugFromProjectDir(wt)).toBe(basename(wt));
   });
 });
 

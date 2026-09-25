@@ -56,7 +56,74 @@ pg_subagent() { :; }
 pg_jit() { :; }
 # --- end pg_jit ---
 # --- pg_search (Slice 3) ---
-pg_search() { :; }
+pg_search() {
+  [ -n "$PG_PATH" ] || return 0
+  # normalize backslashes so MSYS `[ -e 'C:/x' ]` reliably resolves
+  local p="${PG_PATH//\\//}"
+  [ -e "$p" ] && return 0   # only fires for a WRITE of a path that does not yet exist
+
+  # root/rel normalization duplicated inline (Slice 2's pg_jit does its own copy —
+  # no shared state between mode bodies; each slice owns only its own anchor region).
+  local root="$PG_CWD" rel="$p"
+  case "$p" in
+    "$PG_CWD"/*) rel="${p#"$PG_CWD"/}" ;;
+  esac
+  local base="${p##*/}"
+  [ -n "$base" ] || return 0
+
+  pg_lib || return 0
+  local dir="$BRAIN_DIR/.injected"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  local lsf="$dir/$PG_SID.lsfiles"
+  if [ ! -f "$lsf" ]; then
+    { git -C "$root" ls-files 2>/dev/null | tr -d '\r' > "$lsf.tmp.$$" && mv -f "$lsf.tmp.$$" "$lsf"; } \
+      || { rm -f "$lsf.tmp.$$" 2>/dev/null; : > "$lsf"; }
+  fi
+  local cmf="$dir/$PG_SID.codemap.tsv"
+  if [ ! -f "$cmf" ]; then
+    local slug="" slugf="$dir/$PG_SID.slug"
+    [ -f "$slugf" ] && { IFS= read -r slug < "$slugf" 2>/dev/null || slug=""; slug="${slug//$'\r'/}"; }
+    local graph="$BRAIN_DIR/projects/$slug/codemap/graph.json"
+    if [ -n "$slug" ] && [ -s "$graph" ]; then
+      jq -r '.files[]?.id // empty' "$graph" 2>/dev/null | tr -d '\r' > "$cmf.tmp.$$" \
+        && mv -f "$cmf.tmp.$$" "$cmf" || { rm -f "$cmf.tmp.$$" 2>/dev/null; : > "$cmf"; }
+    else
+      : > "$cmf"
+    fi
+  fi
+
+  local hits="" n=0 f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ "$n" -ge 5 ] && break
+    case "$f" in
+      "$rel") continue ;;
+      */"$base"|"$base")
+        case ",$hits," in *",$f,"*) continue ;; esac
+        hits="${hits:+$hits,}$f"; n=$((n + 1)) ;;
+    esac
+  done < "$lsf"
+  if [ "$n" -lt 5 ]; then
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      [ "$n" -ge 5 ] && break
+      case "$f" in
+        "$rel") continue ;;
+        */"$base"|"$base")
+          case ",$hits," in *",$f,"*) continue ;; esac
+          hits="${hits:+$hits,}$f"; n=$((n + 1)) ;;
+      esac
+    done < "$cmf"
+  fi
+
+  if [ "$n" -gt 0 ]; then
+    pg_ctx_add "[Search before creating — $base already exists at: $hits. Check code_neighbors <path> / Grep before adding a duplicate; if this is intentional, proceed.]"
+    sb_log_audit "protocol-guard.sh" "warn" "search-first" "$rel" "$base already exists at: $hits" "$PG_SID"
+    sb_log_error "protocol-guard.sh" "gate=search-first tool=Write path=$rel matches=$n hits=$hits verdict=warn sid=$PG_SID" 0
+  else
+    sb_log_error "protocol-guard.sh" "gate=search-first tool=Write path=$rel matches=0 hits=none verdict=ok sid=$PG_SID" 0
+  fi
+}
 # --- end pg_search ---
 # ---- dispatcher (director-owned; slices do not edit) ----
 case "$MODE" in

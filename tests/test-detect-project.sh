@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pins: SB_REPO_KEY_COMMON_DIR — kill-switch test: asserts =off restores the pre-Slice-3
+#   basename-of-worktree-dir behavior for sb_repo_key/sb_detect_project
 set -u
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 . "$HERE/scripts/lib.sh"
@@ -189,6 +191,19 @@ check "D118: a real project several levels under a temp root is not refused" "" 
 # this guard only fires for HOME/temp-root candidates, never ordinary projects.
 ORDINARY="$TMP/just-a-folder"; mkdir -p "$ORDINARY"
 check "D118: an ordinary non-git folder elsewhere is not refused" "" "$(sb_registration_refused_reason "$ORDINARY")"
+
+# --- Slice 3 (docs/plans/2026-09-24-repo-brain.md §10): git worktree shares its main
+# repo's slug via sb_repo_key, wired into sb_detect_project's standalone (case 4) leaf. ---
+WT_MAIN="$TMP/wt-main"; mkdir -p "$WT_MAIN"
+( cd "$WT_MAIN" && git init -q && git config user.email a@b.c && git config user.name a \
+  && git commit -q --allow-empty -m init \
+  && git worktree add -q "$TMP/wt-linked" -b wtbranch ) 2>/dev/null
+
+OUT=$(cd "$TMP/wt-linked" && sb_detect_project "$PWD")
+check "linked worktree slug is the MAIN repo's basename" "wt-main" "$(printf '%s' "$OUT" | cut -f1)"
+
+check "SB_REPO_KEY_COMMON_DIR=off restores the worktree's own basename" "wt-linked" \
+  "$(cd "$TMP/wt-linked" && SB_REPO_KEY_COMMON_DIR=off sb_detect_project "$PWD" | cut -f1)"
 
 rm -rf "$TMP"
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }

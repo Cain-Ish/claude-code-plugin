@@ -81,7 +81,7 @@ dreams stage changes for review, forgetting archives rather than deletes.
 | `/second-brain:maintain` | Explicit full consolidation run, incl. draining the raw inbox into wiki nodes |
 | `/second-brain:dream` | Staged consolidation — every change reviewed before accept; `--background` supported |
 | `/second-brain:review` | Read-only cross-project overview: blockers, stale projects, pending dreams |
-| `/second-brain:audit` | What the safety layer did this session (guard verdicts, injection flags) |
+| `/second-brain:rules` | Rules by layer (plugin → user → repo), the audit-log dashboard, distill/promote/demote |
 | `/second-brain:track` | Register local doc folders/globs to auto-index for retrieval |
 | `/second-brain:import-host` | Fold existing `CLAUDE.md`/`AGENTS.md`/`.cursorrules` into the tiers |
 | `/second-brain:think` | Opus advisor brief: intent, enrichment, risks (opt-in, ~$0.11/call) |
