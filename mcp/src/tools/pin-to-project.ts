@@ -3,7 +3,7 @@ import { join } from 'path';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 import { resolveBrainDir } from '../brain-paths.js';
 
-export type PinSection = 'blockers' | 'decisions';
+export type PinSection = 'blockers' | 'decisions' | 'conventions';
 export interface PinToProjectArgs {
   text: string; slug: string; section: PinSection; brainDir?: string;
   /** decisions only: why this was chosen — rendered as "(why: …)" */
@@ -22,8 +22,8 @@ export interface PinToProjectResult {
   superseded?: boolean;
 }
 
-const SECTION_HEADER = { blockers: '## Open blockers', decisions: '## Recent decisions' } as const;
-const ENTRY_PREFIX  = { blockers: '- [active] ',       decisions: '- [decision] ' } as const;
+const SECTION_HEADER = { blockers: '## Open blockers', decisions: '## Recent decisions', conventions: '## Conventions' } as const;
+const ENTRY_PREFIX  = { blockers: '- [active] ',       decisions: '- [decision] ',        conventions: '- ' } as const;
 
 // Flatten model-supplied free text before it is spliced into PROJECT.md — the file is
 // auto-injected into every future SessionStart, so an embedded newline would let a single
@@ -130,7 +130,11 @@ export async function pinToProject(args: PinToProjectArgs): Promise<PinToProject
   let marked = false;
   const supersedesRequested = !!flattenField(args.supersedes, 200);
   const needle = flattenField(args.supersedes, 200).toLowerCase();
-  if (args.section === 'decisions' && needle) {
+  if (supersedesRequested && args.section !== 'decisions') {
+    // supersedes is a decisions-only concept (marking an OLD DECISION superseded) — a
+    // blockers/conventions pin that passes it is a caller mistake, not a section to mark.
+    reason = 'supersedes is decisions-only — ignored for this section';
+  } else if (args.section === 'decisions' && needle) {
     if (needle.length < SUPERSEDES_MIN_NEEDLE) {
       reason = `supersedes needle too short (<${SUPERSEDES_MIN_NEEDLE} chars) — nothing marked`;
     } else {

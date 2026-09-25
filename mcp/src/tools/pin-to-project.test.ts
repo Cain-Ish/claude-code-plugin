@@ -190,6 +190,35 @@ describe('pin_to_project', () => {
     expect(plain.superseded).toBeUndefined();
   });
 
+  // --- Slice 2 (repo-brain): conventions section ---
+
+  it('appends a conventions bullet (undated, "- " prefix)', async () => {
+    const res = await pinToProject({ text: 'Tests declare # pins:', slug: 'test-slug', section: 'conventions', brainDir: dir });
+    expect(res.ok).toBe(true);
+    const content = readFileSync(join(dir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8');
+    expect(content).toMatch(/## Conventions\s*\nnone\n- Tests declare # pins:/);
+  });
+
+  it('dedupes a conventions bullet on repeat', async () => {
+    const r1 = await pinToProject({ text: 'Tests declare # pins:', slug: 'test-slug', section: 'conventions', brainDir: dir });
+    expect(r1.reason).toBeUndefined();
+    const r2 = await pinToProject({ text: 'Tests declare # pins:', slug: 'test-slug', section: 'conventions', brainDir: dir });
+    expect(r2.ok).toBe(true);
+    expect(r2.reason).toBe('already present');
+  });
+
+  it('supersedes passed with conventions is ignored with a reason, nothing marked', async () => {
+    const res = await pinToProject({
+      text: 'a fresh convention', slug: 'test-slug', section: 'conventions', brainDir: dir,
+      supersedes: 'some earlier text',
+    });
+    expect(res.ok).toBe(true);
+    expect(res.reason).toMatch(/decisions-only/);
+    expect(res.superseded).toBe(false);
+    const content = readFileSync(join(dir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8');
+    expect(content).not.toContain('[superseded]');
+  });
+
   it('dedupes within a section: same text twice yields one entry', async () => {
     const r1 = await pinToProject({ text: 'API rate limit', slug: 'test-slug', section: 'blockers', brainDir: dir });
     expect(r1.ok).toBe(true);

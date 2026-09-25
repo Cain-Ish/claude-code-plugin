@@ -21,7 +21,8 @@ import { knowledgeRelate } from "./tools/knowledge-relate.js";
 import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
 import { codeMap } from "./tools/codemap/code-map.js";
 import { codeNeighbors } from "./tools/codemap/code-neighbors.js";
-import { resolveActiveSlug as resolveActiveSlugFromDir } from "./tools/project-dir.js";
+import { resolveActiveSlug as resolveActiveSlugFromDir, activeProjectDir } from "./tools/project-dir.js";
+import { rebuildJitIndex, shouldRebuildAfterPin } from "./tools/jit-index.js";
 import { resolveBrainDir, resolveKnowledgeDir } from "./brain-paths.js";
 import { writeBuddyEvent, type BuddyKind, type BuddyMood } from "./buddy-events.js";
 import { walkWiki } from "./tools/walk-wiki.js";
@@ -154,17 +155,30 @@ registerJsonTool(
 
 registerJsonTool(
   "pin_to_project",
-  "Append an entry to the active project's PROJECT.md. Section must be 'blockers' or 'decisions'. Decisions are dated and accept reasoning (why), rejected (the alternative not taken), and supersedes (substring of an earlier decision bullet this one reverses — the old bullet is marked [superseded], never deleted).",
+  "Append an entry to the active project's PROJECT.md. Section must be 'blockers', 'decisions', or 'conventions' (soft rules delivered when their paths are touched). Decisions are dated and accept reasoning (why), rejected (the alternative not taken), and supersedes (substring of an earlier decision bullet this one reverses — the old bullet is marked [superseded], never deleted; conventions/blockers ignore supersedes).",
   {
     text: z.string(),
     slug: z.string(),
-    section: z.enum(["blockers", "decisions"]),
+    section: z.enum(["blockers", "decisions", "conventions"]),
     reasoning: z.string().optional(),
     rejected: z.string().optional(),
     supersedes: z.string().optional(),
   },
-  ({ text, slug, section, reasoning, rejected, supersedes }) =>
-    pinToProject({ text, slug, section, reasoning, rejected, supersedes }),
+  async ({ text, slug, section, reasoning, rejected, supersedes }) => {
+    const result = await pinToProject({ text, slug, section, reasoning, rejected, supersedes });
+    // Repo-brain (Slice 2): a pin can change what pg_jit should deliver at the next Read/Edit/
+    // Write of a matching path — rebuild the JIT index in the background so it's fresh without
+    // making the pin wait on a wiki/git scan. Fail-soft: never lets a rebuild failure surface as
+    // a pin_to_project error (the pin itself already succeeded or failed on its own terms).
+    // Only when the pinned slug IS this process's own active project: the rebuild always scans
+    // THIS repo's `git ls-files` (activeProjectDir()), so rebuilding a DIFFERENT project's index
+    // against it would clobber that project's globs with the wrong repo's file list.
+    if (shouldRebuildAfterPin(result.ok, slug, resolveActiveSlug())) {
+      void rebuildJitIndex({ brainDir: BRAIN_DIR, knowledgeDir: resolveKnowledgeDir(), slug, repoRoot: activeProjectDir() })
+        .catch(e => console.error(JSON.stringify({ event: "jit-index-rebuild-failed", err: String(e) })));
+    }
+    return result;
+  },
   (h) => guardDestructive("pin_to_project", h)
 );
 
