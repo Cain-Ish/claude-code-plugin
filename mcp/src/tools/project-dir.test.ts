@@ -223,6 +223,25 @@ describe('mainWorktreeDir / slugFromProjectDir / resolveActiveSlug — git workt
     expect(slugFromProjectDir(notes)).toBe('notes');
     expect(bashRepoKey(notes)).toBe('notes');
   });
+
+  // Re-key only applies when git-common-dir's basename is literally `.git` (the standard
+  // non-bare layout). A `myrepo/.bare` layout (`git clone --bare` into a `.bare` dir, worktrees
+  // added as siblings) has a common-dir whose basename is `.bare`, not `.git` — sb_repo_key's
+  // `*/.git` case pattern misses it and falls through to the worktree's OWN basename. Before
+  // this fix, mainWorktreeDir unconditionally returned dirname(commonDir), collapsing every
+  // worktree of a bare-repo layout (and every bare `name.git` clone under one parent) onto the
+  // parent directory's basename instead of the worktree's own.
+  it('a bare-repo (.bare) worktree keeps its own basename (no re-key), parity with sb_repo_key', () => {
+    const bareParent = join(work, 'myrepo');
+    mkdirSync(bareParent, { recursive: true });
+    execFileSync('git', ['clone', '-q', '--bare', mainRepo, join(bareParent, '.bare')], { stdio: 'pipe' });
+    writeFileSync(join(bareParent, '.git'), 'gitdir: ./.bare\n');
+    const feature = join(work, 'feature');
+    execFileSync('git', ['worktree', 'add', '-q', feature, '-b', 'barebranch'], { cwd: bareParent, stdio: 'pipe' });
+    expect(basename(mainWorktreeDir(feature))).toBe('feature');
+    expect(slugFromProjectDir(feature)).toBe('feature');
+    expect(bashRepoKey(feature)).toBe('feature');
+  });
 });
 
 describe('resolveActiveSlug — remote identity beats basename (the re-clone bug)', () => {

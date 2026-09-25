@@ -9,10 +9,17 @@ import { resolveSlugByPath, resolveSlugByRemote } from './project-registry.js';
  *  (no spawn), mirroring originRemote's own layout handling: a plain `.git` DIRECTORY means
  *  <dir> already IS a (non-linked) checkout; a `.git` FILE's `gitdir:` pointer that resolves
  *  to a dir WITH its own `config` is a self-contained repo (submodule) — not a worktree; one
- *  WITHOUT a `config` reads `commondir`, whose parent is the main worktree. Any failure, or
- *  a dir that is not a worktree at all, returns <dir> unchanged (fail-open identity
- *  enhancement, never a guard — same posture as originRemote). Kill switch:
- *  SB_REPO_KEY_COMMON_DIR=off, checked by the caller (slugFromProjectDir), not here. */
+ *  WITHOUT a `config` reads `commondir`, whose parent is the main worktree — but ONLY when
+ *  commondir's basename is literally `.git` (the standard non-bare layout). A `myrepo/.bare`
+ *  layout (`git clone --bare` into a `.bare` dir, worktrees added as siblings) has a
+ *  common-dir whose basename is `.bare`; re-keying to its parent would collapse every
+ *  worktree of that repo (and every bare `name.git` clone under one parent directory) onto
+ *  the parent's basename instead of each worktree's own — so that case returns <dir>
+ *  unchanged, mirroring scripts/lib.sh sb_repo_key's "ends in /.git" case, which misses
+ *  `.bare` the same way and falls through to the worktree's own basename. Any failure, or a dir that is
+ *  not a worktree at all, returns <dir> unchanged (fail-open identity enhancement, never a
+ *  guard — same posture as originRemote). Kill switch: SB_REPO_KEY_COMMON_DIR=off, checked by
+ *  the caller (slugFromProjectDir), not here. */
 export function mainWorktreeDir(dir: string): string {
   try {
     const d = cleanEnvPath(dir);
@@ -26,7 +33,7 @@ export function mainWorktreeDir(dir: string): string {
     if (existsSync(join(gitdirResolved, 'config'))) return dir;   // self-contained (submodule)
     const cd = readFileSync(join(gitdirResolved, 'commondir'), 'utf-8').trim();
     const commonDir = isAbsolute(cd) ? cd : join(gitdirResolved, cd);
-    return dirname(commonDir);
+    return basename(commonDir) === '.git' ? dirname(commonDir) : dir;
   } catch {
     return dir;
   }
