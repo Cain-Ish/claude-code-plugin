@@ -12,7 +12,8 @@
 // DATA banner.
 import { promises as fs } from 'fs';
 import { basename, join } from 'path';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { assertWithin, validateSlug } from '../path-guard.js';
 import { resolveBrainDir } from '../brain-paths.js';
 import { parseDoc } from './frontmatter.js';
@@ -161,8 +162,8 @@ export function buildJitIndex(input: BuildJitIndexInput): JitIndexCore {
         line = buildLine(ab.claim, ab.action);
         break;
       case 'decisions': {
-        const status = page.status ?? ab.status;
-        if (status === 'superseded') continue;
+        const status = (page.status ?? ab.status ?? '').trim();
+        if (/^(superseded|rejected)\b/i.test(status)) continue;
         kind = 'decision';
         line = buildLine(ab.choice, undefined);
         break;
@@ -256,18 +257,49 @@ async function loadProjectPages(knowledgeDir: string): Promise<JitSourcePage[]> 
   return pages;
 }
 
+export type GitRunner = (args: string[], cwd: string) => Promise<string>;
+
+const execFileAsync = promisify(execFile);
+
+/** Default git runner: async (never blocks the MCP server's event loop — the earlier
+ *  `execFileSync` did), 64 MiB maxBuffer (the 1 MiB default throws ENOBUFS on a real repo's
+ *  `ls-files -z` output well before it's unusually large — same trap scan-sources.ts's
+ *  defaultRunGit documents for the identical command), a 5s timeout, windowsHide so no console
+ *  flashes on Windows. */
+async function defaultGitRunner(args: string[], cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, {
+    cwd, maxBuffer: 64 * 1024 * 1024, windowsHide: true, timeout: 5000,
+  });
+  return stdout;
+}
+
+/** True when git is simply absent/unresolvable here — the existing fail-soft "nogit" path
+ *  (empty repoFiles, git_rev:"nogit"). Anything else (ENOBUFS, ETIMEDOUT, killed by signal, a
+ *  permissions error, …) is a REAL failure that must never be swallowed into an empty index. */
+function isNoGitError(e: unknown): boolean {
+  const err = e as { code?: string | number; stderr?: string | Buffer; message?: string } | undefined;
+  if (!err) return false;
+  if (err.code === 'ENOENT' || err.code === 128 || err.code === '128') return true;
+  const stderrText = typeof err.stderr === 'string' ? err.stderr : err.stderr?.toString('utf-8') ?? '';
+  const msg = err.message ?? '';
+  return /not a git repository/i.test(stderrText) || /not a git repository/i.test(msg);
+}
+
 export interface RebuildJitIndexOpts {
   brainDir: string;
   knowledgeDir: string;
   slug: string;
   repoRoot: string;
+  /** Injectable git runner (tests only need this — production always gets the default). */
+  runGit?: GitRunner;
 }
 
 /** Impure orchestrator: loads pages + conventions + the repo file list, runs the pure builder,
- *  and writes the result atomically to $BRAIN_DIR/projects/<slug>/jit-index.json. Never throws
- *  for an unresolvable git repo (git_rev becomes "nogit", items end up empty since no repoFiles
- *  means no globs can resolve) — DOES throw on an invalid slug or a write failure so the CLI can
- *  report a non-zero exit. */
+ *  and writes the result atomically to $BRAIN_DIR/projects/<slug>/jit-index.json. Fails soft
+ *  (git_rev "nogit", empty items) ONLY when git itself is genuinely unresolvable here (missing,
+ *  or repoRoot isn't a git repo) — any OTHER git failure (ENOBUFS, timeout, killed) REJECTS
+ *  before anything is written, so an existing good index is never clobbered with an empty one
+ *  and the CLI reports a non-zero exit. Also throws on an invalid slug or a write failure. */
 export async function rebuildJitIndex(opts: RebuildJitIndexOpts): Promise<JitIndex> {
   validateSlug(opts.slug);
   const dir = resolveBrainDir(opts.brainDir);
@@ -278,21 +310,31 @@ export async function rebuildJitIndex(opts: RebuildJitIndexOpts): Promise<JitInd
     readConventions(projectFile),
   ]);
 
+  const runGit = opts.runGit ?? defaultGitRunner;
   let repoFiles: string[] = [];
   let gitRev = 'nogit';
+  let lsFilesOk = false;
   try {
-    const out = execFileSync('git', ['ls-files', '-z'], { cwd: opts.repoRoot });
-    repoFiles = out.toString('utf-8').split('\0').filter(Boolean);
-    try {
-      gitRev = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: opts.repoRoot, encoding: 'utf-8' }).trim() || 'nogit';
-    } catch {
-      gitRev = 'nogit';
-    }
+    const out = await runGit(['ls-files', '-z'], opts.repoRoot);
+    repoFiles = out.split('\0').filter(Boolean);
+    lsFilesOk = true;
   } catch (e) {
+    if (!isNoGitError(e)) {
+      const code = (e as { code?: string | number } | undefined)?.code ?? 'unknown';
+      throw new Error(`jit-index: git ls-files failed (${code}) — index NOT rewritten`);
+    }
     console.error(JSON.stringify({
       event: 'jit-index-no-git', repoRoot: opts.repoRoot,
       err: e instanceof Error ? e.message : String(e),
     }));
+  }
+  if (lsFilesOk) {
+    try {
+      const out = await runGit(['rev-parse', 'HEAD'], opts.repoRoot);
+      gitRev = out.trim() || 'nogit';
+    } catch {
+      gitRev = 'nogit';
+    }
   }
 
   const core = buildJitIndex({ slug: opts.slug, pages, conventions, repoFiles });
@@ -302,4 +344,14 @@ export async function rebuildJitIndex(opts: RebuildJitIndexOpts): Promise<JitInd
   await fs.mkdir(join(dir, 'projects', opts.slug), { recursive: true });
   await atomicWriteJson(outPath, index);
   return index;
+}
+
+/** server.ts's pin_to_project handler calls this to decide whether a successful pin should
+ *  trigger a background rebuildJitIndex — ONLY when the pinned slug IS the caller's active
+ *  project. server.ts always rebuilds against `activeProjectDir()` (this process's own repo
+ *  root), so pinning a DIFFERENT project's slug (multi-project workflows, or a stale/explicit
+ *  `slug` argument) must never rebuild that project's index against the active repo's file
+ *  list — it would drop every item whose glob names a path the active repo doesn't have. */
+export function shouldRebuildAfterPin(pinOk: boolean, slug: string, activeSlug: string | undefined): boolean {
+  return pinOk && activeSlug !== undefined && slug === activeSlug;
 }

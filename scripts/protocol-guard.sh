@@ -89,16 +89,31 @@ pg_jit() {
   slug="${slug//$'\r'/}"
   [ -n "$slug" ] || return 0
 
-  local idx cache
+  local idx cache jrc
   idx="$BRAIN_DIR/projects/$slug/jit-index.json"
   [ -s "$idx" ] || return 0
 
   cache="$BRAIN_DIR/.injected/$PG_SID.jit.tsv"
   if [ ! -f "$cache" ] || [ "$idx" -nt "$cache" ]; then
     mkdir -p "$BRAIN_DIR/.injected" 2>/dev/null
-    jq -r '.items[] | .id as $i | .kind as $k | .line as $l | .globs[] | [., $i, $k, $l] | @tsv' "$idx" 2>/dev/null \
-      | tr -d '\r' > "$cache.tmp.$$" 2>/dev/null \
-      && mv "$cache.tmp.$$" "$cache" 2>/dev/null || rm -f "$cache.tmp.$$" 2>/dev/null
+    # `(.globs // [])[]` — not `.globs[]` — so ONE malformed item (globs absent/null: a
+    # hand-edited or torn index) can't abort the whole cache build; jq errors on `null[]`
+    # and a bare `&&`/`||` chain (the previous shape) let a later `tr` mask that failure,
+    # silently caching only the items processed before the bad one. Capture jq's OWN exit
+    # status separately from tr's, so a genuine parse failure (truncated JSON) is never
+    # confused with "nothing to deliver" — see the else branch below.
+    jq -r '.items[] | .id as $i | .kind as $k | .line as $l | (.globs // [])[] | [., $i, $k, $l] | @tsv' \
+      "$idx" > "$cache.tmp.$$" 2>/dev/null
+    jrc=$?
+    if [ "$jrc" -eq 0 ]; then
+      tr -d '\r' < "$cache.tmp.$$" > "$cache.tmp2.$$" 2>/dev/null && mv "$cache.tmp2.$$" "$cache" 2>/dev/null
+      rm -f "$cache.tmp.$$" 2>/dev/null
+    else
+      rm -f "$cache.tmp.$$" 2>/dev/null
+      : > "$cache" 2>/dev/null   # cache the failure too — don't re-spawn jq on every call of this session
+      pg_lib && sb_log_error "protocol-guard.sh" "gate=jit cache-build failed idx=$idx sid=$PG_SID" 1
+      return 0
+    fi
   fi
   [ -s "$cache" ] || return 0
 

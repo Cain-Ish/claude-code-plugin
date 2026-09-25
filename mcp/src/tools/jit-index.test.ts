@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildJitIndex, type JitSourcePage } from './jit-index.js';
+import { readFileSync } from 'fs';
+import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { buildJitIndex, rebuildJitIndex, shouldRebuildAfterPin, type JitSourcePage } from './jit-index.js';
 
 const repoFiles = ['scripts/lib.sh', 'mcp/src/tools/a.ts', 'tests/x.sh'];
 
@@ -147,5 +151,84 @@ describe('buildJitIndex — pure builder (repo-brain Slice 2, docs/plans/2026-09
     const p: JitSourcePage[] = [{ slug: 'ent', type: 'entities', project: 'demo', aiBlock: { identity: 'scripts/lib.sh is a thing' } }];
     const idx = buildJitIndex({ slug: 'demo', pages: p, conventions: [], repoFiles });
     expect(idx.items).toHaveLength(0);
+  });
+
+  it('a rejected decision is absent, same as superseded', () => {
+    const p: JitSourcePage[] = [
+      { slug: 'p6', type: 'decisions', project: 'demo', status: 'rejected', aiBlock: {
+        choice: 'use scripts/lib.sh — rejected',
+      } },
+      { slug: 'p7', type: 'decisions', project: 'demo', aiBlock: {
+        status: 'Superseded by p8', choice: 'use scripts/lib.sh — superseded via aiBlock.status',
+      } },
+    ];
+    const idx = buildJitIndex({ slug: 'demo', pages: p, conventions: [], repoFiles });
+    expect(idx.items.find(i => i.id === 'p6')).toBeUndefined();
+    expect(idx.items.find(i => i.id === 'p7')).toBeUndefined();
+  });
+});
+
+describe('rebuildJitIndex git boundary (repo-brain S2 review fix — HIGH)', () => {
+  async function tmpOpts(overrides: Partial<Parameters<typeof rebuildJitIndex>[0]> = {}) {
+    const root = await fs.mkdtemp(join(tmpdir(), 'jit-git-boundary-'));
+    const brainDir = join(root, 'brain');
+    const knowledgeDir = join(root, 'knowledge');
+    await fs.mkdir(join(brainDir, 'projects', 'demo'), { recursive: true });
+    await fs.mkdir(join(knowledgeDir, 'wiki'), { recursive: true });
+    await fs.writeFile(join(brainDir, 'projects', 'demo', 'PROJECT.md'), '# PROJECT: demo\n## Conventions\n');
+    return { brainDir, knowledgeDir, slug: 'demo', repoRoot: root, ...overrides };
+  }
+
+  it('an ENOBUFS (or any non-nogit) git failure REJECTS and never rewrites an existing index', async () => {
+    const opts = await tmpOpts();
+    const idxPath = join(opts.brainDir, 'projects', 'demo', 'jit-index.json');
+    const before = JSON.stringify({ schema: 1, slug: 'demo', generated_at: 'x', git_rev: 'keep-me', items: [
+      { id: 'keep', kind: 'lesson', globs: ['scripts/lib.sh'], line: 'pre-existing item' },
+    ] });
+    await fs.writeFile(idxPath, before, 'utf-8');
+
+    const runGit = async () => { const e: NodeJS.ErrnoException = new Error('spawn git ENOBUFS'); e.code = 'ENOBUFS'; throw e; };
+    await expect(rebuildJitIndex({ ...opts, runGit })).rejects.toThrow(/ENOBUFS/);
+
+    const after = await fs.readFile(idxPath, 'utf-8');
+    expect(after).toBe(before);
+  });
+
+  it('a non-git repoRoot (exit 128, "not a git repository") resolves fail-soft: nogit, no items', async () => {
+    const opts = await tmpOpts();
+    const runGit = async (args: string[]) => {
+      if (args[0] === 'ls-files') {
+        const e: Error & { stderr?: string; code?: number } = Object.assign(
+          new Error('Command failed'), { code: 128, stderr: 'fatal: not a git repository (or any of the parent directories): .git' }
+        );
+        throw e;
+      }
+      throw new Error('rev-parse should not be attempted when ls-files failed nogit');
+    };
+    const idx = await rebuildJitIndex({ ...opts, runGit });
+    expect(idx.git_rev).toBe('nogit');
+    expect(idx.items).toHaveLength(0);
+  });
+
+  it('source lock: an async, bounded git runner — no execFileSync, maxBuffer 64 MiB, windowsHide', () => {
+    const src = readFileSync(new URL('./jit-index.ts', import.meta.url), 'utf-8');
+    expect(src).toMatch(/maxBuffer:\s*64\s*\*\s*1024\s*\*\s*1024/);
+    expect(src).toMatch(/windowsHide:\s*true/);
+    expect(src).not.toMatch(/execFileSync\(/);
+  });
+});
+
+describe('shouldRebuildAfterPin (repo-brain S2 review fix — MEDIUM: cross-project index clobber)', () => {
+  it('a pin to a NON-active slug must not trigger a rebuild against the active repo', () => {
+    expect(shouldRebuildAfterPin(true, 'B', 'A')).toBe(false);
+  });
+  it('a pin to the active slug rebuilds', () => {
+    expect(shouldRebuildAfterPin(true, 'A', 'A')).toBe(true);
+  });
+  it('a failed pin never rebuilds', () => {
+    expect(shouldRebuildAfterPin(false, 'A', 'A')).toBe(false);
+  });
+  it('no resolvable active slug never rebuilds', () => {
+    expect(shouldRebuildAfterPin(true, 'A', undefined)).toBe(false);
   });
 });

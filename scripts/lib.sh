@@ -2924,7 +2924,12 @@ sb_session_slug() {
   local sid="${1:-}" f s=""
   sid="${sid//[^A-Za-z0-9_-]/}"; sid="${sid:0:64}"
   f="$BRAIN_DIR/.injected/$sid.slug"
-  if [ -n "$sid" ] && [ -f "$f" ]; then IFS= read -r s < "$f" 2>/dev/null || s=""; s="${s//$'\r'/}"; fi
+  # NOTE: the memo is written with `printf '%s'` (session-load.sh:70) — no trailing newline —
+  # so `read` hits EOF instead of a delimiter and returns 1 even though it DID populate `s`.
+  # `read ... || s=""` would clobber that real value on every read (every consumer, including
+  # protocol-guard.sh's own inline copy of this same read, silently fell through to
+  # sb_resolve_slug on every call). Don't treat a nonzero read as failure here.
+  if [ -n "$sid" ] && [ -f "$f" ]; then IFS= read -r s < "$f" 2>/dev/null; s="${s//$'\r'/}"; fi
   [ -n "$s" ] && { printf '%s\n' "$s"; return 0; }
   sb_resolve_slug
 }

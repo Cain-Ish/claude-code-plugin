@@ -91,6 +91,23 @@ printf '%s' "$OUT" | grep -q 'CONVENTION_MARKER' || fail "over-cap PROJECT.md: c
 printf '%s' "$OUT" | grep -q 'STATE_DEEP_TAIL_MARKER' && fail "over-cap PROJECT.md: State deep tail survived — nothing was trimmed, cap not honored?"
 pass "over-cap PROJECT.md: blockers+decisions+conventions injected; State tail gave way"
 
+# --- contract acceptance[9] (S2 review fix — MEDIUM, previously untested): sb_project_hot_render
+# keeps ## Direction AHEAD of ## State in its priority list, so an over-cap file with BOTH
+# sections present must land Direction intact while State's tail is what gives way — not the
+# reverse. ---
+{ printf -- '---\ntitle: p\n---\n# PROJECT: x\n\n## Goal\nGoal line here.\n\n'
+  printf -- '## Direction\nDIRECTION_SURVIVES the over-cap render.\n\n## State\n'
+  for i in $(seq 1 80); do printf -- '- state filler %s with plenty of descriptive padding bytes for volume.\n' "$i"; done
+  printf -- '- STATE_DEEP_TAIL_MARKER_2\n'
+} > "$B/projects/$SLUG/PROJECT.md"
+PSZ3=$(wc -c < "$B/projects/$SLUG/PROJECT.md" | tr -d ' ')
+[ "$PSZ3" -gt 3000 ] || fail "Direction-vs-State fixture too small ($PSZ3 B) — must exceed the 3000B emit cap"
+OUT=$(printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
+  | env PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$PROJDIR" BRAIN_DIR="$B" ANTHROPIC_API_KEY="" SB_REPO_CARD=off bash "$SL" 2>/dev/null)
+printf '%s' "$OUT" | grep -q 'DIRECTION_SURVIVES' || fail "over-cap: ## Direction did not survive ahead of ## State"
+printf '%s' "$OUT" | grep -q 'STATE_DEEP_TAIL_MARKER_2' && fail "over-cap: State deep tail survived — Direction should have taken priority instead"
+pass "over-cap PROJECT.md: sb_project_hot_render keeps ## Direction ahead of ## State"
+
 # --- D162: a NON-canonical section (outside the fixed $pri list) must be named in
 # the breadcrumb when dropped, not vanish silently. The priority loop only ever
 # tracks $pri names in `dropped`; a "## Architecture" heading was never added to

@@ -98,6 +98,16 @@ printf '%s' "$OUT" | grep -q 'OC-DEC-LIVE' || fail "overcap: live decision dropp
 printf '%s' "$OUT" | grep -q 'OC-DEC-DEAD' && fail "overcap: superseded bullet leaked through the priority render"
 pass "over-cap render keeps ## Handoff (priority slot) and still collapses superseded"
 
+# S2 review fix (MEDIUM): the DEFAULT path (repo card on) must also carry Handoff — the card
+# replaced sb_project_hot_render as the forced render, and dropping Handoff from it would
+# silently regress the continuity guarantee the two legacy locks above still prove for the
+# SB_REPO_CARD=off path.
+OUT2=$(run_load)
+CARD2=$(printf '%s' "$OUT2" | sed -n '/\[Repo card/,/second-brain: project memory loaded/p')
+printf '%s' "$CARD2" | grep -q 'HANDOFF-SENTINEL' \
+  || fail "overcap default path (repo card on): Handoff did not appear inside [Repo card] (got: $CARD2)"
+pass "default repo-card path also carries ## Handoff"
+
 # STARVING case (review finding): Recent-decisions ALONE overflows the budget —
 # its truncation branch zeroes the remaining budget, so Handoff must be selected
 # BEFORE it or the "priority slot" is a prose promise. This fixture is the
@@ -115,6 +125,13 @@ OUT=$(run_load "SB_REPO_CARD=off")
 printf '%s' "$OUT" | grep -q 'STARVE-HANDOFF-SENTINEL' \
   || fail "starve: Handoff dropped when Recent-decisions overflowed the budget — priority slot is not real (got: $(printf '%s' "$OUT" | head -c 300))"
 pass "Handoff survives even when Recent-decisions alone overflows the budget"
+
+# S2 review fix (MEDIUM): same continuity guarantee on the default (repo card on) path.
+OUT2=$(run_load)
+CARD2=$(printf '%s' "$OUT2" | sed -n '/\[Repo card/,/second-brain: project memory loaded/p')
+printf '%s' "$CARD2" | grep -q 'STARVE-HANDOFF-SENTINEL' \
+  || fail "starve default path (repo card on): Handoff did not appear inside [Repo card] (got: $CARD2)"
+pass "default repo-card path also carries ## Handoff when Recent-decisions alone overflows"
 
 # ============================================================================
 # 3b. CRLF regression: a Windows-line-ending PROJECT.md must still collapse

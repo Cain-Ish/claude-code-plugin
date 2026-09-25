@@ -22,7 +22,7 @@ import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
 import { codeMap } from "./tools/codemap/code-map.js";
 import { codeNeighbors } from "./tools/codemap/code-neighbors.js";
 import { resolveActiveSlug as resolveActiveSlugFromDir, activeProjectDir } from "./tools/project-dir.js";
-import { rebuildJitIndex } from "./tools/jit-index.js";
+import { rebuildJitIndex, shouldRebuildAfterPin } from "./tools/jit-index.js";
 import { resolveBrainDir, resolveKnowledgeDir } from "./brain-paths.js";
 import { writeBuddyEvent, type BuddyKind, type BuddyMood } from "./buddy-events.js";
 import { walkWiki } from "./tools/walk-wiki.js";
@@ -170,7 +170,10 @@ registerJsonTool(
     // Write of a matching path — rebuild the JIT index in the background so it's fresh without
     // making the pin wait on a wiki/git scan. Fail-soft: never lets a rebuild failure surface as
     // a pin_to_project error (the pin itself already succeeded or failed on its own terms).
-    if (result.ok) {
+    // Only when the pinned slug IS this process's own active project: the rebuild always scans
+    // THIS repo's `git ls-files` (activeProjectDir()), so rebuilding a DIFFERENT project's index
+    // against it would clobber that project's globs with the wrong repo's file list.
+    if (shouldRebuildAfterPin(result.ok, slug, resolveActiveSlug())) {
       void rebuildJitIndex({ brainDir: BRAIN_DIR, knowledgeDir: resolveKnowledgeDir(), slug, repoRoot: activeProjectDir() })
         .catch(e => console.error(JSON.stringify({ event: "jit-index-rebuild-failed", err: String(e) })));
     }

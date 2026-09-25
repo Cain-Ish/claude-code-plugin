@@ -47,4 +47,27 @@ describe('server.ts tool-registration contract', () => {
     expect(description).toMatch(/autofix/i);
     expect(description).toMatch(/delete/i);
   });
+
+  // contract acceptance[6] (repo-brain S2, previously missing): the pin_to_project z.enum must
+  // carry "conventions" — a schema/enum lock (kb-schema.test.ts only mirrors kb-schema.json's
+  // OWN project_sections array; nothing previously locked server.ts's registration to it).
+  it('pin_to_project registration z.enum includes "conventions"', () => {
+    const m = src.match(/registerJsonTool\(\s*"pin_to_project"[\s\S]*?z\.enum\(\[([^\]]*)\]/);
+    expect(m, 'pin_to_project section z.enum not found').not.toBeNull();
+    const values = m![1].match(/"([a-z]+)"/g)?.map(s => s.replace(/"/g, '')) ?? [];
+    expect(values).toContain('conventions');
+  });
+
+  // repo-brain Slice 2 review fix (MEDIUM): pin_to_project must gate its post-pin
+  // rebuildJitIndex call through shouldRebuildAfterPin (active-slug check) — a bare
+  // `rebuildJitIndex(...)` call with no gate would silently reintroduce the cross-project
+  // index clobber (a pin to a non-active slug rebuilding against the active repo's files).
+  it('pin_to_project gates its post-pin rebuildJitIndex call through shouldRebuildAfterPin', () => {
+    expect(src).toMatch(/shouldRebuildAfterPin\(/);
+    const idx = src.search(/registerJsonTool\(\s*"pin_to_project"/);
+    expect(idx, 'pin_to_project registration not found').toBeGreaterThan(-1);
+    const block = src.slice(idx, idx + 2500);
+    expect(block).toMatch(/if\s*\(\s*shouldRebuildAfterPin\(/);
+    expect(block).not.toMatch(/if\s*\(\s*result\.ok\s*\)\s*\{\s*void rebuildJitIndex/);
+  });
 });

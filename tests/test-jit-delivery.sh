@@ -5,6 +5,10 @@
 # pins: SB_EXTRACT — set =off on the stop-rebuild subtest calls: this file only exercises the
 #   new JIT freshness-rebuild block, not stop-extract.sh's LLM extraction path (which the
 #   test's fixture transcript has no tool_use for anyway; =off just skips it deterministically)
+# pins: SB_PROTOCOL_GUARD — regression test: asserts =off also suppresses the Stop-time JIT
+#   rebuild (stop-extract.sh must not spawn node to maintain an index pg_jit can't deliver from)
+# pins: SB_REPO_CARD — regression test: asserts =off restores the legacy '## Goal' render and
+#   suppresses the [Repo card] block (repo-card content acceptance test)
 # Exercises the whole class (b)(c)(d)(f)(g) delivery path: the jit-index-cli.bundle.js
 # builder against a real git fixture repo, protocol-guard.sh's pg_jit at the PreToolUse hot
 # path (delivery, once-per-session+item, Windows path form, jq spawn budget), and
@@ -17,6 +21,11 @@ SE="$REPO/scripts/stop-extract.sh"
 CLI_BUNDLE="$REPO/mcp/dist/tools/jit-index-cli.bundle.js"
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
+
+# Regression lock (S2 review fix — MEDIUM): this file must never create/remove
+# mcp/dist/tools/jit-index-cli.bundle.js in the REAL repo tree — every subtest below that needs
+# a CLI stub builds it under $TMP instead. Checked again at the very end.
+PRE_BUNDLE=$([ -e "$CLI_BUNDLE" ] && echo 1 || echo 0)
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"; mkdir -p "$HOME"
@@ -267,13 +276,19 @@ pass "SB_JIT=off: exactly 1 jq call (the field read), no output"
 RBRAIN="$TMP/rbrain"; mkdir -p "$RBRAIN/.injected" "$RBRAIN/projects/demo"
 RREPO="$TMP/rrepo"; mkdir -p "$RREPO"
 RKNOW="$TMP/rknowledge"; mkdir -p "$RKNOW/wiki/issues"
-# NOTE: WITH a trailing newline here (unlike the pg_jit fixtures above), working around a
-# pre-existing bug in lib.sh's sb_session_slug (scaffold-owned, outside Slice 2's files):
-# `IFS= read -r s < "$f" || s=""` clobbers a successfully-read value whenever the memo has NO
-# trailing newline (read returns 1 on EOF-without-delimiter even though it populated $s) —
-# exactly how session-load.sh actually WRITES the memo (`printf '%s'`, no \n). Flagged as a
-# deviation in the slice report; fixing it is out of scope (not an S2-owned file).
-printf 'demo\n' > "$RBRAIN/.injected/S9.slug"
+printf 'demo' > "$RBRAIN/.injected/S9.slug"   # production format (session-load.sh:70 — no trailing newline)
+
+# Regression lock (S2 review fix — MEDIUM): sb_session_slug must resolve this newline-less memo
+# directly, not fall through to sb_resolve_slug (lib.sh's read-clobber bug, fixed alongside this
+# slice's follow-up — `IFS= read -r s < "$f" || s=""` used to clobber a successfully-read value
+# whenever the memo lacked a trailing newline, exactly how the memo is actually written).
+( export BRAIN_DIR="$RBRAIN"; source "$REPO/scripts/lib.sh" >/dev/null 2>&1
+  sb_resolve_slug() { echo WRONG-FALLBACK; }
+  got=$(sb_session_slug S9)
+  [ "$got" = "demo" ]
+) || fail "sb_session_slug ignored the newline-less memo (lib.sh read-clobber regression)"
+pass "sb_session_slug resolves the production-format (newline-less) session memo"
+
 cat > "$RBRAIN/projects/demo/PROJECT.md" <<'EOF'
 # PROJECT: demo
 ## Goal
@@ -303,8 +318,14 @@ printf '%s\n' "\$*" >> "$NODEARGV"
 exit 0
 EOF
 chmod +x "$NODEDIR/node"
-mkdir -p "$REPO/mcp/dist/tools"   # ensure the CLI path exists so stop-extract.sh's -f check passes
-[ -f "$CLI_BUNDLE" ] || : > "$CLI_BUNDLE"
+# Sandbox plugin root (S2 review fix — MEDIUM): stop-extract.sh's sb_plugin_root() honours
+# CLAUDE_PLUGIN_ROOT when it names an existing dir, so the CLI-bundle stub lives entirely under
+# $TMP — never under $REPO (a real checkout of THIS repo, which every second run of this test
+# would otherwise find already stubbed and skip re-stubbing, or leave dirty on first run).
+# stop-extract.sh still sources scripts/lib.sh by its own dirname ("$(dirname "$0")/lib.sh"), so
+# the script itself is unaffected — only the sb_plugin_root() lookup used for JIT_CLI moves.
+PROOT="$TMP/plugin"; mkdir -p "$PROOT/mcp/dist/tools"
+: > "$PROOT/mcp/dist/tools/jit-index-cli.bundle.js"
 
 TRANSCRIPT="$TMP/transcript.jsonl"
 printf '{"type":"user","message":{"role":"user","content":"hi"}}\n' > "$TRANSCRIPT"
@@ -313,33 +334,199 @@ STOP_PAYLOAD=$(jq -nc --arg t "$TRANSCRIPT" --arg c "$RREPO" '{transcript_path:$
 : > "$NODEARGV"
 printf '%s' "$STOP_PAYLOAD" \
   | PATH="$NODEDIR:$PATH" BRAIN_DIR="$RBRAIN" HOME="$HOME" KNOWLEDGE_DIR="$RKNOW" CLAUDE_PROJECT_DIR="$RREPO" \
-    SB_EXTRACT=off bash "$SE" >/dev/null 2>&1
-grep -qF "jit-index-cli.bundle.js demo $RREPO" "$NODEARGV" 2>/dev/null \
+    CLAUDE_PLUGIN_ROOT="$PROOT" SB_EXTRACT=off bash "$SE" >/dev/null 2>&1
+grep -qF "$PROOT/mcp/dist/tools/jit-index-cli.bundle.js demo $RREPO" "$NODEARGV" 2>/dev/null \
   || fail "stale jit-index (wiki page newer) did not invoke jit-index-cli.bundle.js demo $RREPO (argv: $(cat "$NODEARGV" 2>/dev/null))"
 pass "stop rebuild: a stale jit-index (page newer) invokes jit-index-cli.bundle.js"
 
 : > "$NODEARGV"
 printf '%s' "$STOP_PAYLOAD" \
   | PATH="$NODEDIR:$PATH" BRAIN_DIR="$RBRAIN" HOME="$HOME" KNOWLEDGE_DIR="$RKNOW" CLAUDE_PROJECT_DIR="$RREPO" \
-    SB_EXTRACT=off SB_JIT=off bash "$SE" >/dev/null 2>&1
+    CLAUDE_PLUGIN_ROOT="$PROOT" SB_EXTRACT=off SB_JIT=off bash "$SE" >/dev/null 2>&1
 [ -s "$NODEARGV" ] && fail "SB_JIT=off must not invoke the rebuild (argv: $(cat "$NODEARGV" 2>/dev/null))"
 pass "stop rebuild: SB_JIT=off does not invoke jit-index-cli.bundle.js"
+
+# SB_PROTOCOL_GUARD=off (S2 review fix — LOW): the whole class-5 delivery layer is disabled, so
+# the JIT rebuild — which exists only to keep pg_jit's index fresh — must not pay a node spawn
+# either. stop-extract.sh sources lib.sh unconditionally, so SB_HOOK_PROFILE=minimal's
+# SB_PROTOCOL_GUARD:=off mapping is already in effect by the time this block runs.
+: > "$NODEARGV"
+printf '%s' "$STOP_PAYLOAD" \
+  | PATH="$NODEDIR:$PATH" BRAIN_DIR="$RBRAIN" HOME="$HOME" KNOWLEDGE_DIR="$RKNOW" CLAUDE_PROJECT_DIR="$RREPO" \
+    CLAUDE_PLUGIN_ROOT="$PROOT" SB_EXTRACT=off SB_PROTOCOL_GUARD=off bash "$SE" >/dev/null 2>&1
+[ -s "$NODEARGV" ] && fail "SB_PROTOCOL_GUARD=off must not invoke the rebuild (argv: $(cat "$NODEARGV" 2>/dev/null))"
+pass "stop rebuild: SB_PROTOCOL_GUARD=off does not invoke jit-index-cli.bundle.js"
 
 # fresh index (newer than every page and PROJECT.md) -> not rebuilt.
 touch "$RBRAIN/projects/demo/jit-index.json"
 : > "$NODEARGV"
 printf '%s' "$STOP_PAYLOAD" \
   | PATH="$NODEDIR:$PATH" BRAIN_DIR="$RBRAIN" HOME="$HOME" KNOWLEDGE_DIR="$RKNOW" CLAUDE_PROJECT_DIR="$RREPO" \
-    SB_EXTRACT=off bash "$SE" >/dev/null 2>&1
+    CLAUDE_PLUGIN_ROOT="$PROOT" SB_EXTRACT=off bash "$SE" >/dev/null 2>&1
 [ -s "$NODEARGV" ] && fail "a fresh jit-index was rebuilt unnecessarily (argv: $(cat "$NODEARGV" 2>/dev/null))"
 pass "stop rebuild: a fresh jit-index (newer than pages + PROJECT.md) is not rebuilt"
 
 # =============================================================================
-# 5. Value-loop lock (documentation-only — Slice 0's wiki_hit already counts every
-#    non-anchor manifest kind, so a "jit" kind needs no special-casing anywhere).
+# 5. Value-loop lock — behavioral (S2 review fix — LOW): a real Stop, given a
+#    {"kind":"jit","id":"p1"} manifest entry and a transcript that calls
+#    knowledge_fetch(slug:"p1"), must show read=1 in its gate=value-loop row. Replaces a
+#    static grep-for-absence-of-a-literal check, which a differently-worded exclusion (e.g.
+#    filtering kind=="wiki" or kind=="codemap" instead of kind!="anchor") would still pass
+#    while jit ids silently stopped being counted — this proves the real fold still exercises them.
 # =============================================================================
-grep -qE '\.kind\s*==\s*"jit"' "$SE" \
-  && fail "stop-extract.sh must not special-case kind==\"jit\" — the generic kind!=\"anchor\" fold already counts it"
-pass "value-loop lock: stop-extract.sh counts jit ids the same as every other non-anchor manifest kind"
+VBRAIN="$TMP/vbrain"; mkdir -p "$VBRAIN"
+VREPO="$TMP/vrepo"; mkdir -p "$VREPO"
+printf '{"kind":"jit","id":"p1"}\n' > "$VBRAIN/.injected-manifest-S9v.jsonl"
+VTRANSCRIPT="$TMP/v-transcript.jsonl"
+cat > "$VTRANSCRIPT" <<'EOF'
+{"type":"user","message":{"role":"user","content":"hi"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__knowledge_fetch","input":{"slug":"p1"}}]}}
+EOF
+VPAYLOAD=$(jq -nc --arg t "$VTRANSCRIPT" --arg c "$VREPO" '{transcript_path:$t,cwd:$c,session_id:"S9v"}')
+printf '%s' "$VPAYLOAD" \
+  | BRAIN_DIR="$VBRAIN" HOME="$HOME" KNOWLEDGE_DIR="$KNOWLEDGE_DIR" CLAUDE_PROJECT_DIR="$VREPO" \
+    SB_EXTRACT=off SB_JIT=off bash "$SE" >/dev/null 2>&1
+grep -qE 'gate=value-loop .*injected=1 .*read=1' "$VBRAIN/audit-log.jsonl" 2>/dev/null \
+  || fail "a jit-kind manifest id was not counted injected=1/read=1 by a real Stop (audit-log: $(cat "$VBRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "value-loop: a real Stop counts a jit-kind manifest entry as injected=1/read=1 (generic non-anchor fold)"
+
+# =============================================================================
+# 6. pg_jit cache build must tolerate one malformed item (missing globs array), not
+#    silently lose every item after it (S2 review fix — LOW).
+# =============================================================================
+TBRAIN="$TMP/tbrain"; mkdir -p "$TBRAIN/.injected" "$TBRAIN/projects/demo"
+TREPO="$TMP/trepo"; mkdir -p "$TREPO/scripts"
+printf 'demo' > "$TBRAIN/.injected/s1.slug"
+cat > "$TBRAIN/projects/demo/jit-index.json" <<'EOF'
+{"schema":1,"slug":"demo","generated_at":"2026-01-01T00:00:00Z","git_rev":"abc",
+ "items":[
+   {"id":"z1","kind":"lesson","globs":["other.sh"],"line":"z1 line"},
+   {"id":"z2","kind":"lesson","line":"z2 line with no globs field at all"},
+   {"id":"z3","kind":"lesson","globs":["scripts/lib.sh"],"line":"z3 line"}
+ ]}
+EOF
+TPAYLOAD='{"hook_event_name":"PreToolUse","tool_name":"Read","session_id":"s1","cwd":"'"$TREPO"'","tool_input":{"file_path":"'"$TREPO"'/scripts/lib.sh"}}'
+OUTT=$(printf '%s' "$TPAYLOAD" | BRAIN_DIR="$TBRAIN" HOME="$HOME" CLAUDE_PROJECT_DIR="$TREPO" bash "$PG" pre)
+printf '%s' "$OUTT" | grep -qF '[[z3]]' || fail "pg_jit cache build: one item with no globs field must not drop later items (got: $OUTT)"
+pass "pg_jit cache build tolerates a missing globs array on one item without losing later items"
+
+# A TRUNCATED jit-index.json must not silently cache empty forever with no signal.
+TBRAIN2="$TMP/tbrain2"; mkdir -p "$TBRAIN2/.injected" "$TBRAIN2/projects/demo"
+printf 'demo' > "$TBRAIN2/.injected/s1.slug"
+printf '{"schema":1,"items":[{"id":"q1"' > "$TBRAIN2/projects/demo/jit-index.json"
+TPAYLOAD2='{"hook_event_name":"PreToolUse","tool_name":"Read","session_id":"s1","cwd":"'"$TREPO"'","tool_input":{"file_path":"'"$TREPO"'/scripts/lib.sh"}}'
+OUTT2=$(printf '%s' "$TPAYLOAD2" | BRAIN_DIR="$TBRAIN2" HOME="$HOME" CLAUDE_PROJECT_DIR="$TREPO" bash "$PG" pre)
+[ -z "$OUTT2" ] || fail "a truncated jit-index.json unexpectedly delivered something (got: $OUTT2)"
+# exit_code 1 -> lib.sh's sb_log_error routes a "gate=" message with a NONZERO code to
+# error-log.jsonl (a real failure), not audit-log.jsonl (trace-only, exit_code 0 gate= rows).
+grep -qF 'gate=jit cache-build failed' "$TBRAIN2/error-log.jsonl" 2>/dev/null \
+  || fail "a truncated jit-index.json did not log a cache-build-failed row (error-log: $(cat "$TBRAIN2/error-log.jsonl" 2>/dev/null))"
+pass "pg_jit: a truncated jit-index.json is logged (gate=jit cache-build failed), not silently cached empty forever"
+
+# =============================================================================
+# 7. sb_repo_card must not fork a subshell per bullet (S2 review fix — LOW: up to 15
+#    forks/SessionStart on the hook path).
+# =============================================================================
+grep -n '\$(sb_card_trunc' "$REPO/scripts/session-load.sh" \
+  && fail "sb_repo_card must not call sb_card_trunc via a forking \$(...) substitution in a loop"
+pass "sb_card_trunc is not invoked via a forking \$(...) substitution"
+
+# =============================================================================
+# 9. Repo card CONTENT acceptance test (contract §S2.acceptance_tests[7], previously missing).
+#    A real SessionStart against a PROJECT.md carrying Direction/6-decisions(1 superseded)/
+#    3-conventions/2-blockers must render a card with exactly the shape the contract specifies.
+# =============================================================================
+ABRAIN="$TMP/abrain"; mkdir -p "$ABRAIN/projects/acc-proj"
+AWORK="$TMP/acc-proj"; mkdir -p "$AWORK"   # basename must match the slug (sb_detect_project)
+ASTUB="$TMP/astub"; mkdir -p "$ASTUB"; printf '#!/bin/bash\nexit 0\n' > "$ASTUB/claude"; chmod +x "$ASTUB/claude"
+cat > "$ABRAIN/projects/acc-proj/PROJECT.md" <<'EOF'
+# PROJECT: acc-proj
+
+## Goal
+acceptance-test project.
+
+## Direction
+Ship the repo card. Non-goal: rewrite the whole hot tier. DIRECTION_TAIL_MARKER through 2026-12-31.
+
+## State
+
+## Plan
+- [ ] open task one
+- [x] done task
+
+## Conventions
+- convention alpha
+- convention beta
+- convention gamma
+
+## Handoff
+
+## Recent decisions
+- [2026-01-01] [decision] DEC-ONE
+- [2026-01-02] [decision] DEC-TWO
+- [2026-01-03] [decision] DEC-THREE
+- [2026-01-04] [decision] DEC-FOUR
+- [2026-01-05] [decision] DEC-FIVE
+- [superseded] [2026-01-06] [decision] DEC-SUPERSEDED-SIX
+
+## Open blockers
+- [active] blocker one
+- [active] blocker two
+
+## Cross-references
+EOF
+run_accept_load() {
+  printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$AWORK" \
+    | env PATH="$ASTUB:$PATH" HOME="$TMP/ahome" BRAIN_DIR="$ABRAIN" \
+          CLAUDE_PROJECT_DIR="$AWORK" ANTHROPIC_API_KEY="" ${1:-} \
+          bash "$REPO/scripts/session-load.sh" 2>/dev/null
+}
+mkdir -p "$TMP/ahome"
+AOUT=$(run_accept_load)
+printf '%s' "$AOUT" | grep -qF '[Repo card — acc-proj]' || fail "repo-card content: missing [Repo card — acc-proj] header (got: $AOUT)"
+printf '%s' "$AOUT" | grep -qF 'DIRECTION_TAIL_MARKER' || fail "repo-card content: Direction marker missing"
+ACARD=$(printf '%s' "$AOUT" | sed -n '/\[Repo card/,/second-brain: project memory loaded/p')
+ADEC_N=$(printf '%s' "$ACARD" | grep -c '\[decision\]')
+[ "$ADEC_N" = "5" ] || fail "repo-card content: expected exactly 5 decision bullets, got $ADEC_N (card: $ACARD)"
+printf '%s' "$ACARD" | grep -q 'superseded' && fail "repo-card content: a superseded decision leaked into the card"
+printf '%s' "$ACARD" | grep -qF 'Conventions:' || fail "repo-card content: missing Conventions: header"
+printf '%s' "$ACARD" | grep -qF 'Open blockers:' || fail "repo-card content: missing Open blockers: header"
+printf '%s' "$ACARD" | grep -qF 'Plan:' || fail "repo-card content: missing Plan: line"
+ACARD_BODY=$(printf '%s' "$AOUT" | awk '/\[Repo card/{f=1} f{print} /second-brain: project memory loaded/{exit}')
+ACARD_BYTES=$(printf '%s' "$ACARD_BODY" | wc -c | tr -d ' ')
+[ "$ACARD_BYTES" -le 1800 ] || fail "repo-card content: card block is ${ACARD_BYTES}B, expected <=1800B"
+printf '%s' "$AOUT" | grep -qF 'second-brain: project memory loaded' || fail "repo-card content: scope banner missing"
+pass "repo-card content: header/Direction/5-decisions-none-superseded/Conventions/Open-blockers/Plan/<=1800B/scope-banner"
+
+AOUT_OFF=$(run_accept_load "SB_REPO_CARD=off")
+printf '%s' "$AOUT_OFF" | grep -qF '## Goal' || fail "SB_REPO_CARD=off: expected legacy '## Goal' render"
+printf '%s' "$AOUT_OFF" | grep -qF '[Repo card' && fail "SB_REPO_CARD=off: unexpectedly still emitted a [Repo card] block"
+pass "SB_REPO_CARD=off restores the legacy '## Goal' render with no [Repo card] block"
+
+# =============================================================================
+# 10. Scaffold acceptance test (contract §S2.acceptance_tests[9], previously missing): a
+#     fresh session-load in an EMPTY project dir writes ## Direction immediately after ## Goal.
+# =============================================================================
+FBRAIN="$TMP/fbrain"; mkdir -p "$FBRAIN"   # NOTE: no projects/<slug> dir — first-ever session
+FWORK="$TMP/fwork/fresh-proj"; mkdir -p "$FWORK"
+FSTUB="$TMP/fstub"; mkdir -p "$FSTUB"; printf '#!/bin/bash\nexit 0\n' > "$FSTUB/claude"; chmod +x "$FSTUB/claude"
+mkdir -p "$TMP/fhome"
+printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$FWORK" \
+  | env PATH="$FSTUB:$PATH" HOME="$TMP/fhome" BRAIN_DIR="$FBRAIN" CLAUDE_PROJECT_DIR="$FWORK" ANTHROPIC_API_KEY="" \
+    bash "$REPO/scripts/session-load.sh" >/dev/null 2>&1
+FSLUG=$(basename "$FWORK")
+FPROJ="$FBRAIN/projects/$FSLUG/PROJECT.md"
+[ -f "$FPROJ" ] || fail "scaffold: no PROJECT.md was scaffolded at $FPROJ"
+awk '/^## Goal/{g=NR} /^## Direction/{d=NR} END{exit !(d==g+3)}' "$FPROJ" \
+  || fail "scaffold: ## Direction is not immediately after ## Goal (Goal, placeholder, blank, Direction) — got: $(grep -n '^## ' "$FPROJ")"
+pass "scaffold: a fresh session-load writes ## Direction immediately after ## Goal"
+
+# =============================================================================
+# 8. This test file must make no net change to $CLI_BUNDLE in the real repo tree
+#    (S2 review fix — MEDIUM; checked against the PRE_BUNDLE snapshot taken at the top).
+# =============================================================================
+POST_BUNDLE=$([ -e "$CLI_BUNDLE" ] && echo 1 || echo 0)
+[ "$PRE_BUNDLE" = "$POST_BUNDLE" ] || fail "this test file left/removed $CLI_BUNDLE in the real repo tree (pre=$PRE_BUNDLE post=$POST_BUNDLE)"
+pass "this test file made no net change to $CLI_BUNDLE in the real repo tree"
 
 echo; echo "ALL PASS"
