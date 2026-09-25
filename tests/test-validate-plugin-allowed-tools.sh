@@ -26,6 +26,9 @@ for _d in skills scripts agents hooks docs output-styles .claude-plugin mcp; do
   cp -r "$REPO_ROOT/$_d" "$TMP/$_d" || fail "repo mirror failed for $_d"
 done
 unset _d
+# Slice 1 (docs/plans/2026-09-24-repo-brain.md): the agent frontmatter check reads
+# model-ladder.json's dispatch_aliases (never a literal alias list) — the mirror needs it too.
+[ -f "$REPO_ROOT/model-ladder.json" ] && cp "$REPO_ROOT/model-ladder.json" "$TMP/model-ladder.json"
 # marketplace.json's source is ./plugin (the shipped tree); the validator follows it to the
 # manifest there. Mirror just that manifest dir — never the 4.5 MB tree.
 if [ -d "$REPO_ROOT/plugin/.claude-plugin" ]; then

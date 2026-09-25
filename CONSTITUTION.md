@@ -34,7 +34,7 @@ Five content classes, and only five. Each is something a senior dev carries betw
 cannot recover from the diff. All of it is **per repo**, and all of it lives in this plugin's
 knowledge base — the wiki, the graph, and `BRAIN_DIR/projects/<key>/` are its only home. Nothing is
 compiled out into `.claude/rules`, `CLAUDE.md`, or Claude Code's native `MEMORY.md` (decision
-2026-09-24, D2) — DIRECTION until the Protocol lock below lands; not yet machine-enforced.
+2026-09-24, D2) — locked by tests/test-protocol-guard.sh (source scan).
 
 1. **Decisions** — what was chosen, what was rejected, and *why*. The rejected branch is the
    expensive half: without it the next session re-argues a settled question.
@@ -145,9 +145,10 @@ belong in their own repo, however useful they are.
 - **Prose promises need machine locks** — a constraint stated only in a doc is a wish. Anything
   this file asserts must name the gate that enforces it, or be marked as direction rather than
   rule.
-- **Protocol lock (class 5)** — DIRECTION until `tests/test-protocol-guard.sh` lands with Slice 1 of
-  `docs/plans/2026-09-24-repo-brain.md`; the same source scan will lock "the knowledge base is the
-  only home" (no script writes into `.claude/rules`, `CLAUDE.md`, or native `MEMORY.md`).
+- **Protocol lock (class 5)** — Locked by `tests/test-protocol-guard.sh` (source scan + behavioural
+  fixtures), landed with Slice 1 of `docs/plans/2026-09-24-repo-brain.md`; its source scan also
+  locks "the knowledge base is the only home" (no script writes into `.claude/rules`, `CLAUDE.md`,
+  or native `MEMORY.md`).
   Working-agreement surfaces may only inject cards and rules within byte caps, return
   `warn|ask|deny`, and write telemetry. They never dispatch agents, never edit user settings, and
   never add Stop blocks. One opt-in exception: `SB_DELEGATION_REWRITE` (default off) may set the

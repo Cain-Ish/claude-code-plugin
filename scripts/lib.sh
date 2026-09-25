@@ -417,17 +417,37 @@ sb_model_cache_put() {
 # whose admin blocked the model they pinned. Never prints an empty string: a wrong model that
 # errors loudly beats a malformed spawn with no --model value.
 sb_resolve_model() {
-  local tier="${1:-mid}" surface="${2:-headless}" manifest m st pin_env pin_val
+  local tier="${1:-mid}" surface="${2:-headless}" manifest m st pin_env pin_val line
   manifest=$(sb_model_manifest)
   local -a rungs=()
+  # dispatch_aliases, read in the SAME jq call as the pins (one spawn): the Agent tool's
+  # model param is an alias-only enum (model-ladder.json _comment; tests/test-model-ladder.sh
+  # tripwire), so a dispatch-surface pin holding a full model ID would be rejected by the
+  # Agent call it's meant to feed. Non-dispatch surfaces (headless) accept full IDs, unaffected.
+  local aliases=" "
   if [ -f "$manifest" ] && command -v jq >/dev/null 2>&1; then
-    while IFS= read -r pin_env; do
-      [ -n "$pin_env" ] || continue
-      # Indirect expansion, NOT eval: bash 3.2 supports ${!var} and an env value is
-      # attacker-adjacent input that must never reach the parser.
-      pin_val="${!pin_env:-}"
-      [ -n "$pin_val" ] && rungs+=("$pin_val")
-    done < <(jq -r --arg t "$tier" '.pins[$t][]? // empty' "$manifest" 2>/dev/null | tr -d '\r')
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      case "$line" in
+        A:*) aliases="$aliases${line#A:} " ;;
+        P:*)
+          pin_env="${line#P:}"
+          # Indirect expansion, NOT eval: bash 3.2 supports ${!var} and an env value is
+          # attacker-adjacent input that must never reach the parser.
+          pin_val="${!pin_env:-}"
+          [ -n "$pin_val" ] || continue
+          if [ "$surface" = "dispatch" ]; then
+            case "$aliases" in
+              *" $pin_val "*) rungs+=("$pin_val") ;;
+              *) sb_log_error "lib.sh" "dispatch pin $pin_env=$pin_val is not a dispatch alias; ignored" 1 ;;
+            esac
+          else
+            rungs+=("$pin_val")
+          fi
+          ;;
+      esac
+    done < <(jq -r --arg t "$tier" '(.dispatch_aliases[]? | "A:" + .), (.pins[$t][]? | "P:" + .)' \
+               "$manifest" 2>/dev/null | tr -d '\r')
     while IFS= read -r m; do
       [ -n "$m" ] && rungs+=("$m")
     done < <(jq -r --arg s "$surface" --arg t "$tier" \
