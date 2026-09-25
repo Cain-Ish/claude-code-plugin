@@ -3279,7 +3279,7 @@ if ($used|length) == 0 then empty else
           end
       )
 ) ) as $scopeacc |
-{
+( {
   schema: 2,
   slug: $slug,
   layers: ($used | map(.name)),
@@ -3293,7 +3293,7 @@ if ($used|length) == 0 then empty else
 # fail-safe-deny guarantee for the genuinely-nothing-usable case.
 + (if ($scopeacc.obj.tool_scope | length) > 0 then {tool_scope: $scopeacc.obj.tool_scope} else {} end)
 + (if ($scopeacc.obj.resource_scope | length) > 0 then {resource_scope: $scopeacc.obj.resource_scope} else {} end)
-as $effective |
+) as $effective |
 ( "\($effective.rules|length) \($effective.learned|length) \($used|map(.name)|join(","))"
   + " \($effective.violations|length) \(if ($bad|length)==0 then "-" else ($bad|join(",")) end)"
 ),
