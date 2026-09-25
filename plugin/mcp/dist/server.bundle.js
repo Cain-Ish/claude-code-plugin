@@ -21720,6 +21720,20 @@ async function atomicWriteJson(filePath, value) {
     }
   }
 }
+var strictWriteCounter = 0;
+async function atomicWriteJsonStrict(filePath, value) {
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${strictWriteCounter++}`;
+  try {
+    await fs5.writeFile(tmp, JSON.stringify(value));
+    await fs5.rename(tmp, filePath);
+  } catch (err) {
+    try {
+      await fs5.unlink(tmp);
+    } catch {
+    }
+    throw err;
+  }
+}
 
 // src/tools/knowledge-search.ts
 import { join as join8 } from "path";
@@ -31965,7 +31979,7 @@ function mainWorktreeDir(dir) {
     if (existsSync2(join13(gitdirResolved, "config"))) return dir;
     const cd = readFileSync3(join13(gitdirResolved, "commondir"), "utf-8").trim();
     const commonDir = isAbsolute5(cd) ? cd : join13(gitdirResolved, cd);
-    return dirname3(commonDir);
+    return basename3(commonDir) === ".git" ? dirname3(commonDir) : dir;
   } catch {
     return dir;
   }
@@ -33190,6 +33204,7 @@ function sanitizeRaw(s) {
   let out = stripInvisible(s);
   out = out.replace(CONTROL_RE, " ");
   out = out.replace(/\\/g, " ");
+  out = out.replace(/\[/g, "(").replace(/\]/g, ")");
   out = out.replace(/\s+/g, " ").trim();
   return out;
 }
@@ -33347,7 +33362,7 @@ async function defaultGitRunner(args, cwd) {
 function isNoGitError(e) {
   const err = e;
   if (!err) return false;
-  if (err.code === "ENOENT" || err.code === 128 || err.code === "128") return true;
+  if (err.code === "ENOENT") return true;
   const stderrText = typeof err.stderr === "string" ? err.stderr : err.stderr?.toString("utf-8") ?? "";
   const msg = err.message ?? "";
   return /not a git repository/i.test(stderrText) || /not a git repository/i.test(msg);
@@ -33391,7 +33406,7 @@ async function rebuildJitIndex(opts) {
   const index = { ...core, generated_at: (/* @__PURE__ */ new Date()).toISOString(), git_rev: gitRev };
   const outPath = assertWithin(dir, "projects", opts.slug, "jit-index.json");
   await fs20.mkdir(join23(dir, "projects", opts.slug), { recursive: true });
-  await atomicWriteJson(outPath, index);
+  await atomicWriteJsonStrict(outPath, index);
   return index;
 }
 function shouldRebuildAfterPin(pinOk, slug, activeSlug) {

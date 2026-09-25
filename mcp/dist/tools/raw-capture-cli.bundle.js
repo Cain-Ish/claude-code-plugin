@@ -623,7 +623,7 @@ function mainWorktreeDir(dir) {
     if (existsSync2(join4(gitdirResolved, "config"))) return dir;
     const cd = readFileSync3(join4(gitdirResolved, "commondir"), "utf-8").trim();
     const commonDir = isAbsolute2(cd) ? cd : join4(gitdirResolved, cd);
-    return dirname(commonDir);
+    return basename2(commonDir) === ".git" ? dirname(commonDir) : dir;
   } catch {
     return dir;
   }

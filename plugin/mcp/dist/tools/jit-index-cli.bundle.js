@@ -333,19 +333,18 @@ function stripInvisible(s) {
 
 // src/tools/atomic-write.ts
 import { promises as fs2 } from "fs";
-async function atomicWriteJson(filePath, value) {
-  const tmp = `${filePath}.tmp.${process.pid}`;
+var strictWriteCounter = 0;
+async function atomicWriteJsonStrict(filePath, value) {
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${strictWriteCounter++}`;
   try {
     await fs2.writeFile(tmp, JSON.stringify(value));
     await fs2.rename(tmp, filePath);
   } catch (err) {
-    console.error(
-      `atomicWriteJson: FAILED to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`
-    );
     try {
       await fs2.unlink(tmp);
     } catch {
     }
+    throw err;
   }
 }
 
@@ -359,6 +358,7 @@ function sanitizeRaw(s) {
   let out = stripInvisible(s);
   out = out.replace(CONTROL_RE, " ");
   out = out.replace(/\\/g, " ");
+  out = out.replace(/\[/g, "(").replace(/\]/g, ")");
   out = out.replace(/\s+/g, " ").trim();
   return out;
 }
@@ -516,7 +516,7 @@ async function defaultGitRunner(args, cwd) {
 function isNoGitError(e) {
   const err = e;
   if (!err) return false;
-  if (err.code === "ENOENT" || err.code === 128 || err.code === "128") return true;
+  if (err.code === "ENOENT") return true;
   const stderrText = typeof err.stderr === "string" ? err.stderr : err.stderr?.toString("utf-8") ?? "";
   const msg = err.message ?? "";
   return /not a git repository/i.test(stderrText) || /not a git repository/i.test(msg);
@@ -560,14 +560,14 @@ async function rebuildJitIndex(opts) {
   const index = { ...core, generated_at: (/* @__PURE__ */ new Date()).toISOString(), git_rev: gitRev };
   const outPath = assertWithin(dir, "projects", opts.slug, "jit-index.json");
   await fs3.mkdir(join3(dir, "projects", opts.slug), { recursive: true });
-  await atomicWriteJson(outPath, index);
+  await atomicWriteJsonStrict(outPath, index);
   return index;
 }
 
 // src/tools/jit-index-cli.ts
 async function main() {
-  const slug = process.argv[2];
-  const repoRoot = process.argv[3];
+  const slug = cleanEnvPath(process.argv[2]);
+  const repoRoot = cleanEnvPath(process.argv[3]);
   if (!slug || !repoRoot) {
     console.error(JSON.stringify({ event: "jit-index-cli-bad-args", argv: process.argv.slice(2) }));
     process.exitCode = 1;
