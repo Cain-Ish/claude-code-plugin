@@ -94,8 +94,11 @@ grep -q '"rule":"rules-lock-violation".*"reason":"repo attempted lock"' "$B2/aud
 pass "repo lock ignored: a repo-authored lock:true is stripped and logged, not honoured"
 
 # --------------------------------------------------------------------------
-# 3. Cache: a warm second call spawns the SAME total jq count as the first warm
-#    call (zero additional spawns from sb_rules_effective); touching R rebuilds.
+# 3. Cache: a cold rebuild spawns exactly 1 jq from sb_rules_effective, a warm
+#    call spawns exactly 0 — ABSOLUTE counts (review fix: comparing two
+#    same-state warm calls to each other is a tautology that can't fail even
+#    if sb_rules_effective rebuilt every single time); touching R rebuilds
+#    even within the SAME second (equal mtime must count as stale — no sleep).
 # --------------------------------------------------------------------------
 B3="$TMP/b3"; mkdir -p "$B3/projects/demo" "$B3/.injected"
 printf 'demo' > "$B3/.injected/s1.slug"
@@ -103,21 +106,64 @@ cat > "$B3/projects/demo/rules.json" <<'EOF'
 {"schema":2,"rules":[{"name":"repo-only3","tool":"Bash","match_command":"make deploy","action":"warn","reason":"r1"}]}
 EOF
 payload3() { printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"make deploy"}}' "$B3"; }
-# prime the cache (first call may rebuild)
-payload3 | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B3" bash "$GUARD" >/dev/null 2>&1
-n_warm1=$(jq_count "$TMP/jc1" bash -c "payload3() { printf '{\"tool_name\":\"Bash\",\"session_id\":\"s1\",\"cwd\":\"$B3\",\"tool_input\":{\"command\":\"make deploy\"}}'; }; payload3 | SB_RESOURCE_SCOPE=off BRAIN_DIR=\"$B3\" bash \"$GUARD\"")
-n_warm2=$(jq_count "$TMP/jc2" bash -c "payload3() { printf '{\"tool_name\":\"Bash\",\"session_id\":\"s1\",\"cwd\":\"$B3\",\"tool_input\":{\"command\":\"make deploy\"}}'; }; payload3 | SB_RESOURCE_SCOPE=off BRAIN_DIR=\"$B3\" bash \"$GUARD\"")
-[ "$n_warm1" = "$n_warm2" ] || fail "cache: warm-call jq spawn count changed between two unchanged calls ($n_warm1 vs $n_warm2) — sb_rules_effective is re-spawning on a fresh cache"
-pass "cache: two consecutive warm calls spawn the identical jq count ($n_warm1)"
 
-sleep 1
+# Baseline: sourcing lib.sh alone spawns its own jq (kb-schema.sh, unrelated to rules layering)
+# — the delta against THIS baseline is what isolates sb_rules_effective's own spawn count,
+# rather than pinning a magic total that would break the moment some unrelated top-of-file
+# jq call is added or removed.
+n_base=$(jq_count "$TMP/jcbase" bash -c "source '$ROOT/scripts/lib.sh'")
+n_cold=$(jq_count "$TMP/jc0" bash -c "source '$ROOT/scripts/lib.sh'; BRAIN_DIR='$B3' sb_rules_effective demo")
+[ "$n_cold" -gt "$n_base" ] || fail "cache: a cold rebuild should spawn at least one jq beyond baseline sourcing (base=$n_base, cold=$n_cold)"
+n_warm=$(jq_count "$TMP/jc1" bash -c "source '$ROOT/scripts/lib.sh'; BRAIN_DIR='$B3' sb_rules_effective demo")
+[ "$n_warm" = "$n_base" ] || fail "cache: a warm call should spawn ZERO jq beyond baseline sourcing (base=$n_base, warm=$n_warm) — sb_rules_effective is re-spawning on a fresh cache"
+pass "cache: a cold rebuild spawns jq, a warm call spawns exactly zero beyond baseline sourcing (absolute counts, not a same-state comparison)"
+
 cat > "$B3/projects/demo/rules.json" <<'EOF'
 {"schema":2,"rules":[{"name":"repo-only3","tool":"Bash","match_command":"make deploy","action":"deny","reason":"r2"}]}
 EOF
 out=$(payload3 | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B3" bash "$GUARD")
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
-  || fail "cache: touching R and changing the action should rebuild and the new verdict should apply — got: $out"
-pass "cache: touching R triggers a rebuild and the new verdict is honoured"
+  || fail "cache: touching R (even within the same second — no sleep) should rebuild and the new verdict should apply — got: $out"
+pass "cache: touching R triggers a rebuild even within the same second, and the new verdict is honoured"
+
+# --------------------------------------------------------------------------
+# 3b. Cache staleness: a DELETED layer, or a different CLAUDE_PLUGIN_ROOT,
+#     must also force a rebuild — neither is visible to an mtime `-nt` check
+#     against layers that exist NOW.
+# --------------------------------------------------------------------------
+B3b="$TMP/b3b"; mkdir -p "$B3b/projects/demo" "$B3b/.injected"
+printf 'demo' > "$B3b/.injected/s1.slug"
+cat > "$B3b/projects/demo/rules.json" <<'EOF'
+{"schema":2,"rules":[{"name":"deploy-deny","tool":"Bash","match_command":"make deploy","action":"deny","reason":"r"}]}
+EOF
+out=$(printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"make deploy"}}' "$B3b" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B3b" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "cache staleness (deleted layer): make deploy should deny before the repo layer is removed — got: $out"
+rm -f "$B3b/projects/demo/rules.json"
+out=$(printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"make deploy"}}' "$B3b" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B3b" bash "$GUARD")
+[ -z "$out" ] || fail "cache staleness (deleted layer): after removing the repo layer, make deploy should no longer deny — got: $out"
+jq -e '(.layers | index("repo")) == null' "$B3b/projects/demo/.rules-effective.json" >/dev/null \
+  || fail "cache staleness (deleted layer): the rebuilt cache should no longer list 'repo' among .layers"
+pass "cache staleness: removing a layer forces a rebuild (the mtime check alone can't see a deletion)"
+
+B3c="$TMP/b3c"; mkdir -p "$B3c/.injected"
+printf 'demo' > "$B3c/.injected/s1.slug"
+PROOT_A="$TMP/proot-a/scripts"; mkdir -p "$PROOT_A"
+cp "$ROOT/scripts/persona-rules.default.json" "$PROOT_A/persona-rules.default.json"
+out=$(printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"rm -rf /tmp/x"}}' "$B3c" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B3c" CLAUDE_PLUGIN_ROOT="$TMP/proot-a" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "cache staleness (plugin root change): rm -rf under proot-a should ask via the shipped default — got: $out"
+PROOT_B="$TMP/proot-b/scripts"; mkdir -p "$PROOT_B"
+jq '.rules |= map(if .name=="warn-rm-rf" then .action="deny" else . end)' "$ROOT/scripts/persona-rules.default.json" \
+  > "$PROOT_B/persona-rules.default.json"
+out=$(printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"rm -rf /tmp/x"}}' "$B3c" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B3c" CLAUDE_PLUGIN_ROOT="$TMP/proot-b" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "cache staleness (plugin root change): switching CLAUDE_PLUGIN_ROOT to a different P should rebuild and honour its deny — got: $out"
+pass "cache staleness: switching CLAUDE_PLUGIN_ROOT forces a rebuild (a stale cache from a different P is never reused)"
 
 # --------------------------------------------------------------------------
 # 4. Broken repo layer: invalid JSON in R never denies — P+U keep working.
@@ -304,6 +350,208 @@ echo "$PG_BODY" | grep -qE '\.claude/rules|CLAUDE\.md|MEMORY\.md' \
 echo "$PG_BODY" | grep -q 'permissionDecision' \
   && fail "protocol lock: pg_search body must never construct a permissionDecision" \
   || pass "protocol lock: pg_search never emits a permissionDecision (warn-only, via pg_ctx_add)"
+
+# --------------------------------------------------------------------------
+# 12. Search-first codemap: the slug memo is written WITHOUT a trailing newline
+#     (printf '%s', as session-load.sh actually writes it) — `read` on a no-newline
+#     EOF file returns nonzero even though it DID populate the variable, and the
+#     old `|| slug=""` clobbered it, so the codemap cache was always built empty.
+# --------------------------------------------------------------------------
+B12="$TMP/b12"; mkdir -p "$B12/.injected" "$B12/projects/demo12/codemap"
+R12="$TMP/repo12"; mkdir -p "$R12/src"
+( cd "$R12" && git init -q && git config user.email a@b.c && git config user.name a \
+  && printf 'export {}' > src/placeholder.ts && git add -A && git commit -q -m init )
+printf '%s' 'demo12' > "$B12/.injected/s1.slug"   # NO trailing newline — the exact repro shape
+cat > "$B12/projects/demo12/codemap/graph.json" <<'EOF'
+{"files":[{"id":"pkg/core/widget.ts"}]}
+EOF
+out=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Write","session_id":"s1","cwd":"%s","tool_input":{"file_path":"%s"}}' "$R12" "$R12/src/widget.ts" \
+  | BRAIN_DIR="$B12" bash "$PGUARD" pre)
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("pkg/core/widget.ts")' >/dev/null \
+  || fail "codemap slug clobber: Write of widget.ts should warn citing pkg/core/widget.ts from the codemap (got: $out)"
+[ -s "$B12/.injected/s1.codemap.tsv" ] \
+  || fail "codemap slug clobber: .injected/s1.codemap.tsv should be non-empty"
+grep -q 'gate=search-first tool=Write path=src/widget.ts matches=1 hits=pkg/core/widget.ts verdict=warn' "$B12/audit-log.jsonl" \
+  || fail "codemap slug clobber: expected the exact gate=search-first warn row citing the codemap hit"
+pass "codemap slug clobber: a no-trailing-newline slug memo is read correctly, codemap cache populates"
+
+# --------------------------------------------------------------------------
+# 13. Search-first PG_CWD normalization: a Windows-form (backslash) cwd/path must
+#     still resolve to a repo-relative path= in telemetry and still find a namesake.
+# --------------------------------------------------------------------------
+CWD_BS="${R8//\//\\}"
+FP_BS="${CWD_BS}\\src\\util.ts"
+payload13=$(jq -nc --arg cwd "$CWD_BS" --arg fp "$FP_BS" \
+  '{hook_event_name:"PreToolUse",tool_name:"Write",session_id:"s1",cwd:$cwd,tool_input:{file_path:$fp}}')
+out=$(printf '%s' "$payload13" | BRAIN_DIR="$B8" bash "$PGUARD" pre)
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("lib/util.ts")' >/dev/null \
+  || fail "PG_CWD normalization: a backslash-form cwd/path should still find the lib/util.ts namesake (got: $out)"
+grep -q 'gate=search-first tool=Write path=src/util.ts matches=1 hits=lib/util.ts verdict=warn' "$B8/audit-log.jsonl" \
+  || fail "PG_CWD normalization: expected a repo-relative path=src/util.ts in the audit row (raw absolute path means PG_CWD was never normalized)"
+pass "PG_CWD normalization: a Windows-form cwd/path still yields a repo-relative telemetry path and finds the namesake"
+
+# --------------------------------------------------------------------------
+# 14. Search-first context cap (<=300 B) and sessionless calls never touch a
+#     shared cache.
+# --------------------------------------------------------------------------
+B14="$TMP/b14"; mkdir -p "$B14/.injected"
+R14="$TMP/repo14"; mkdir -p "$R14"
+( cd "$R14" && git init -q && git config user.email a@b.c && git config user.name a
+  for i in 1 2 3 4 5; do
+    d="packages/very-long-package-name-number-$i/src/components/deeply/nested/folder/structure"
+    mkdir -p "$d"; printf 'export {}' > "$d/util.ts"
+  done
+  git add -A && git commit -q -m init )
+printf 'demo14' > "$B14/.injected/s1.slug"
+out=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Write","session_id":"s1","cwd":"%s","tool_input":{"file_path":"%s"}}' "$R14" "$R14/src/newmodule/util.ts" \
+  | BRAIN_DIR="$B14" bash "$PGUARD" pre)
+ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
+ctxlen=$(printf '%s' "$ctx" | wc -c | tr -d ' ')
+[ -n "$ctx" ] && [ "$ctxlen" -le 300 ] && printf '%s' "$ctx" | grep -q "Search before creating" \
+  || fail "search-first cap: additionalContext should be non-empty, <=300 bytes and mention the advisory (got $ctxlen bytes: $ctx)"
+pass "search-first cap: additionalContext stays <=300 bytes even with many long namesake hits"
+
+out2=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Write","cwd":"%s","tool_input":{"file_path":"%s"}}' "$R14" "$R14/src/another-new/util.ts" \
+  | BRAIN_DIR="$B14" bash "$PGUARD" pre)
+[ -z "$out2" ] || fail "search-first: a call with no session_id should produce no output (got: $out2)"
+[ ! -e "$B14/.injected/.lsfiles" ] \
+  || fail "search-first: a call with no session_id must never write a shared .lsfiles cache"
+pass "search-first: a sessionless call is silent and never writes a shared cache"
+
+# --------------------------------------------------------------------------
+# 15. Lock bypass: a higher layer cannot retarget/unlock a locked rule, nor
+#     downgrade its action — even across same-layer duplicate entries.
+# --------------------------------------------------------------------------
+B15="$TMP/b15"; mkdir -p "$B15/projects/demo" "$B15/.injected"
+printf 'demo' > "$B15/.injected/s1.slug"
+cat > "$B15/projects/demo/rules.json" <<'EOF'
+{"schema":2,"rules":[{"name":"warn-rm-rf","lock":false},{"name":"warn-rm-rf","action":"warn"},{"name":"warn-force-push-main","match_command":"^never-matches$"}]}
+EOF
+run15() { printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"%s"}}' "$B15" "$1" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B15" bash "$GUARD"; }
+out=$(run15 "rm -rf /tmp/x")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "lock bypass: rm -rf should still ask (unlock/downgrade attempts on locked warn-rm-rf must be rejected) — got: $out"
+out=$(run15 "git push --force origin main")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "lock bypass: force-push should still ask (retargeted match_command on locked rule must be rejected) — got: $out"
+EFF15="$B15/projects/demo/.rules-effective.json"
+[ -s "$EFF15" ] || fail "lock bypass: no .rules-effective.json cache was written"
+jq -e '(.rules[]|select(.name=="warn-rm-rf")) as $r | ($r.action=="ask") and ($r.lock==true)' "$EFF15" >/dev/null \
+  || fail "lock bypass: warn-rm-rf should stay action=ask, lock=true — got: $(jq -c '.rules[]|select(.name=="warn-rm-rf")' "$EFF15" 2>/dev/null)"
+jq -e '(.rules[]|select(.name=="warn-force-push-main")|.match_command) == "git push.*(--force|-f)\\b.*\\b(main|master)\\b"' "$EFF15" >/dev/null \
+  || fail "lock bypass: warn-force-push-main match_command should stay P's, not retargeted"
+jq -e '(.violations|length) == 3' "$EFF15" >/dev/null \
+  || fail "lock bypass: expected exactly 3 violations, got: $(jq -c '.violations' "$EFF15" 2>/dev/null)"
+jq -e '[.violations[].attempted] == ["unlock","warn","retarget"]' "$EFF15" >/dev/null \
+  || fail "lock bypass: expected violation attempted values [unlock,warn,retarget] in order, got: $(jq -c '[.violations[].attempted]' "$EFF15" 2>/dev/null)"
+pass "lock bypass: retarget/unlock/downgrade attempts on a locked rule are all rejected and logged"
+
+B15u="$TMP/b15u"; mkdir -p "$B15u/projects/nolayer" "$B15u/.injected"
+printf 'nolayer' > "$B15u/.injected/s1.slug"
+cat > "$B15u/persona-rules.json" <<'EOF'
+{"schema":2,"rules":[{"name":"warn-rm-rf","tool":"Nope"}]}
+EOF
+out=$(printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"rm -rf /tmp/x"}}' "$B15u" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B15u" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "lock bypass (U-only retarget): rm -rf should still ask (got: $out)"
+EFF15u="$B15u/projects/nolayer/.rules-effective.json"
+jq -e '(.rules[]|select(.name=="warn-rm-rf")|.tool)=="Bash"' "$EFF15u" >/dev/null \
+  || fail "lock bypass (U-only retarget): effective tool should stay Bash, not Nope — got: $(jq -c '.rules[]|select(.name=="warn-rm-rf")' "$EFF15u" 2>/dev/null)"
+jq -e '(.violations|length) == 1 and (.violations[0].attempted=="retarget")' "$EFF15u" >/dev/null \
+  || fail "lock bypass (U-only retarget): expected exactly one retarget violation"
+pass "lock bypass (U-only retarget): a user-layer tool override on a locked rule is rejected"
+
+# --------------------------------------------------------------------------
+# 16. Scope lock: tool_scope/resource_scope also enforce a lower layer's
+#     lock:true — enabled cannot be disabled, allowlist/tools cannot be
+#     widened, lock cannot be cleared; tightening still passes through.
+# --------------------------------------------------------------------------
+B16="$TMP/b16"; mkdir -p "$B16/projects/demo" "$B16/.injected"
+printf 'demo' > "$B16/.injected/s1.slug"
+cat > "$B16/persona-rules.json" <<'EOF'
+{"schema":2,"resource_scope":{"enabled":true,"lock":true,"tools":["Write","Edit"],"allowlist":["/only/here"]}}
+EOF
+cat > "$B16/projects/demo/rules.json" <<'EOF'
+{"schema":2,"resource_scope":{"enabled":false,"lock":false,"allowlist":["/"]}}
+EOF
+EFF16="$B16/projects/demo/.rules-effective.json"
+printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"echo hi"}}' "$B16" \
+  | BRAIN_DIR="$B16" bash "$GUARD" >/dev/null 2>&1
+jq -e '.resource_scope == {"enabled":true,"tools":["Write","Edit"],"allowlist":["/only/here"],"lock":true}' "$EFF16" >/dev/null \
+  || fail "scope lock: resource_scope should stay U's locked object verbatim — got: $(jq -c '.resource_scope' "$EFF16" 2>/dev/null)"
+jq -e '[.violations[]|select(.name=="resource_scope")|.attempted] | (index("disable") != null) and (index("widen") != null)' "$EFF16" >/dev/null \
+  || fail "scope lock: expected resource_scope violations attempted disable and widen — got: $(jq -c '.violations' "$EFF16" 2>/dev/null)"
+pass "scope lock: a locked resource_scope cannot be disabled or widened by a higher layer"
+
+B16b="$TMP/b16b"; mkdir -p "$B16b/projects/demo" "$B16b/.injected"
+printf 'demo' > "$B16b/.injected/s1.slug"
+cp "$B16/persona-rules.json" "$B16b/persona-rules.json"
+cat > "$B16b/projects/demo/rules.json" <<'EOF'
+{"schema":2,"resource_scope":{"allowlist":["/only/here"]}}
+EOF
+printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"echo hi"}}' "$B16b" \
+  | BRAIN_DIR="$B16b" bash "$GUARD" >/dev/null 2>&1
+EFF16b="$B16b/projects/demo/.rules-effective.json"
+jq -e '[.violations[]|select(.name=="resource_scope")] | length == 0' "$EFF16b" >/dev/null \
+  || fail "scope lock: a subset allowlist (tightening) from a higher layer should be accepted with no violation — got: $(jq -c '.violations' "$EFF16b" 2>/dev/null)"
+pass "scope lock: a subset (tightening) allowlist override on a locked resource_scope is accepted"
+
+out=$(printf '{"tool_name":"Write","session_id":"s1","cwd":"%s","tool_input":{"file_path":"%s/elsewhere/x"}}' "$B16" "$TMP" \
+  | BRAIN_DIR="$B16" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "scope lock: Write outside the locked allowlist should still ask (sandbox still enforced) — got: $out"
+pass "scope lock: the locked resource_scope allowlist is still enforced against a real Write"
+
+# --------------------------------------------------------------------------
+# 17. Rules cache self-edit protection: Write/Edit to .rules-effective.json
+#     itself must ask via a locked rule, never silently succeed.
+# --------------------------------------------------------------------------
+B17="$TMP/b17"; mkdir -p "$B17/projects/demo" "$B17/.injected"
+printf 'demo' > "$B17/.injected/s1.slug"
+printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"echo hi"}}' "$B17" \
+  | BRAIN_DIR="$B17" bash "$GUARD" >/dev/null 2>&1
+EFF17="$B17/projects/demo/.rules-effective.json"
+[ -s "$EFF17" ] || fail "cache self-edit: expected a warm .rules-effective.json cache to exist"
+
+out=$(printf '{"tool_name":"Write","session_id":"s1","tool_input":{"file_path":"%s","content":"{}"}}' "$EFF17" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B17" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "cache self-edit: Write to .rules-effective.json should ask (got: $out)"
+grep -q '"rule":"warn-self-edit-rules-cache"' "$B17/audit-log.jsonl" \
+  || fail "cache self-edit: expected rule warn-self-edit-rules-cache in the audit row"
+
+out=$(printf '{"tool_name":"Edit","session_id":"s1","tool_input":{"file_path":"%s","old_string":"a","new_string":"b"}}' "$EFF17" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B17" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "cache self-edit: Edit of .rules-effective.json should ask (got: $out)"
+grep -q '"rule":"warn-self-edit-rules-cache-edit"' "$B17/audit-log.jsonl" \
+  || fail "cache self-edit: expected rule warn-self-edit-rules-cache-edit in the audit row"
+pass "cache self-edit: Write/Edit of .rules-effective.json asks via the locked self-edit rule"
+
+# --------------------------------------------------------------------------
+# 18. Rules cache is bound to its locked layers: a hand-written cache that
+#     drops a locked rule — even though it is now NEWER than every layer, so
+#     the mtime staleness check alone would never rebuild it — is discarded
+#     and rebuilt, never trusted.
+# --------------------------------------------------------------------------
+sleep 1
+printf '%s' '{"schema":2,"rules":[{"name":"noop","tool":"None","action":"warn"}],"learned":[]}' > "$EFF17"
+: > "$B17/error-log.jsonl" 2>/dev/null || true
+out=$(printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"rm -rf /tmp/x"}}' "$B17" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B17" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "cache lock invariant: rm -rf should still ask after a hand-written cache — got: $out"
+out=$(printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"git push --force origin main"}}' "$B17" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B17" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "cache lock invariant: force-push should still ask after a hand-written cache — got: $out"
+grep -q 'failed the lock invariant' "$B17/error-log.jsonl" \
+  || fail "cache lock invariant: expected an error-log line naming the lock-invariant failure"
+jq -e '[.rules[]?.name] | index("warn-rm-rf") != null' "$EFF17" >/dev/null \
+  || fail "cache lock invariant: the cache should have been discarded and rebuilt with warn-rm-rf present"
+pass "cache lock invariant: a hand-written (even newer-than-every-layer) cache dropping a locked rule is discarded, logged, and rebuilt"
 
 if [ "$fail_n" -eq 0 ]; then
   echo; echo "ALL PASS"

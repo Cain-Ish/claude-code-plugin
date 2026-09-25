@@ -110,6 +110,30 @@
       "action": "ask",
       "reason": "projects/<key>/rules.json is the repo layer of the PreToolUse guard — confirm intent; use /second-brain:rules promote|demote",
       "lock": true
+    },
+    {
+      "name": "warn-self-edit-rules-cache",
+      "tool": "Write",
+      "match_path": "/\\.rules-effective\\.json$",
+      "action": "ask",
+      "reason": "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache.",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-rules-cache-edit",
+      "tool": "Edit",
+      "match_path": "/\\.rules-effective\\.json$",
+      "action": "ask",
+      "reason": "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache.",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-rules-cache-multiedit",
+      "tool": "MultiEdit",
+      "match_path": "/\\.rules-effective\\.json$",
+      "action": "ask",
+      "reason": "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache.",
+      "lock": true
     }
   ]
 }

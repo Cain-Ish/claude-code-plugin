@@ -2958,6 +2958,19 @@ sb_repo_key() {
     sb_slug_from_dir "$dir"
     return 0
   fi
+  # Slice 3 review fix: only a linked-worktree ROOT (or a submodule root) has `.git` as a FILE
+  # (a gitdir pointer) — a plain repo ROOT has `.git` as a DIRECTORY, and any other dir (a
+  # subdirectory of a plain repo, a subdirectory of a worktree, or a non-git dir nested under an
+  # unrelated git ancestor) has no `.git` entry of its own at all. Mirroring the TS twin's
+  # mainWorktreeDir (mcp/src/tools/project-dir.ts, which already gates on statSync(join(d,'.git'))
+  # exactly this way), gate the git spawn + common-dir resolution on this file check so a
+  # subdirectory is never remapped to some ancestor's key — before this gate, EVERY dir spawned
+  # `git rev-parse --git-common-dir` unconditionally, which cd-resolves for a plain-repo subdir
+  # too and silently re-keyed it to the repo ROOT's basename.
+  if [ ! -f "$dir/.git" ]; then
+    sb_slug_from_dir "$dir"
+    return 0
+  fi
   local c main=""
   c=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null | tr -d '\r')
   if [ -n "$c" ]; then
@@ -3015,14 +3028,34 @@ sb_rules_effective() {
   [ -f "$proot" ] && have_p=1
   [ -f "$puser" ] && have_u=1
   [ -n "$prepo" ] && [ -f "$prepo" ] && have_r=1
+  local proot_dir; proot_dir="$(sb_plugin_root)"
+  local sig="$cache.sig"
 
   local rebuild=0
   if [ ! -f "$cache" ]; then
     rebuild=1
   else
-    [ "$have_p" = "1" ] && [ "$proot" -nt "$cache" ] && rebuild=1
-    [ "$have_u" = "1" ] && [ "$puser" -nt "$cache" ] && rebuild=1
-    [ "$have_r" = "1" ] && [ "$prepo" -nt "$cache" ] && rebuild=1
+    # A present layer strictly newer than the cache forces a rebuild — AND so does one
+    # that is only EQUAL to the cache's mtime: `-nt` alone treats a layer write landing
+    # in the same whole second as the cache build as "not newer", so it would never
+    # rebuild (the sibling test used to paper over this with a `sleep 1`; not needed
+    # once equal counts as stale too).
+    if [ "$have_p" = "1" ]; then { [ "$proot" -nt "$cache" ] || ! [ "$cache" -nt "$proot" ]; } && rebuild=1; fi
+    if [ "$have_u" = "1" ]; then { [ "$puser" -nt "$cache" ] || ! [ "$cache" -nt "$puser" ]; } && rebuild=1; fi
+    if [ "$have_r" = "1" ]; then { [ "$prepo" -nt "$cache" ] || ! [ "$cache" -nt "$prepo" ]; } && rebuild=1; fi
+    # Zero-spawn staleness the mtime checks above cannot see at all: a layer that has
+    # been DELETED since the cache was built (no `-nt` comparison ever fires for a layer
+    # that no longer exists) and a switch to a different CLAUDE_PLUGIN_ROOT (which could
+    # ship a different P). A sidecar signature line, read with a builtin (no `||`
+    # clobber — read returns nonzero on a no-trailing-newline EOF even though it DID
+    # populate the variable, same class as sb_session_slug's fix above), records the
+    # p/u/r presence tuple and the plugin root the cache was built against.
+    if [ "$rebuild" = "0" ]; then
+      local sigline=""
+      IFS= read -r sigline < "$sig" 2>/dev/null
+      sigline="${sigline//$'\r'/}"
+      [ "$sigline" = "p=$have_p u=$have_u r=$have_r root=$proot_dir" ] || rebuild=1
+    fi
   fi
 
   if [ "$rebuild" = "0" ]; then
@@ -3088,15 +3121,35 @@ if ($used|length) == 0 then empty else
           if $old == null then
             {rule: ($new + {source:$layer.name}), viol: []}
           elif (fld($old;"lock";false)==true) then
-            (fld($new;"action"; fld($old;"action";"warn"))) as $na
-            | ((rankOf($na)) >= (rankOf(fld($old;"action";"warn"))) and (fld($new;"enabled";true) != false)) as $ok
-            | if $ok then
-                {rule: (($old + $new) + {source:$layer.name}), viol: []}
+            # $old is locked: a higher layer override may contribute ONLY `action`
+            # (rank must be >= the locked action) and `reason` — every other field
+            # (tool/match_command/match_path/replace/scope), an enabled:false, or a
+            # lock:false is rejected WHOLESALE (the entire override is dropped, $old
+            # survives verbatim) and recorded, never silently merged in piecemeal via
+            # a blind `$old + $new`. Because $old only ever changes on an ACCEPTED
+            # override (which can never clear lock — see below), lock can never be
+            # cleared by any later layer either, closing the same-layer-duplicate
+            # path automatically (an unlock attempt in entry N leaves $old locked for
+            # entry N+1 too).
+            (fld($new;"enabled";true)==false) as $wantDisable
+            | (($new|has("lock")) and ($new.lock==false)) as $wantUnlock
+            | (($new|has("tool")) or ($new|has("match_command")) or ($new|has("match_path"))
+               or ($new|has("replace")) or ($new|has("scope"))) as $wantRetarget
+            | (fld($new;"action"; fld($old;"action";"warn"))) as $na
+            | ($wantDisable or $wantUnlock or $wantRetarget or
+               ((rankOf($na)) < (rankOf(fld($old;"action";"warn"))))) as $rejected
+            | if ($rejected|not) then
+                {rule: ($old
+                        + (if $new|has("action") then {action:$new.action} else {} end)
+                        + (if $new|has("reason") then {reason:$new.reason} else {} end)
+                        + {source:$layer.name}),
+                 viol: []}
               else
                 {rule: $old, viol: [{name:$rname, layer:$layer.name,
-                    attempted: (if fld($new;"enabled";true)==false then "disable"
-                                elif ($new|has("action")) then $new.action
-                                else "change" end)}]}
+                    attempted: (if $wantDisable then "disable"
+                                elif $wantUnlock then "unlock"
+                                elif $wantRetarget then "retarget"
+                                else $na end)}]}
               end
           else
             {rule: (($old + $new) + {source:$layer.name}), viol: []}
@@ -3126,14 +3179,38 @@ if ($used|length) == 0 then empty else
             # allowlist the moment someone opts in would silently defeat the restriction the
             # instant layering is on (layering defaults to on). Deviation from a literal "union"
             # reading of design section 3.
-            | ( $old
-                + (if $n|has("enabled") then {enabled: $n.enabled} else {} end)
-                + (if $n|has("allowlist") then {allowlist: $n.allowlist} else {} end)
-                + (if $n|has("tools") then {tools: $n.tools} else {} end)
-                + (if $lockAttempt then {} elif $n|has("lock") then {lock: $n.lock} else {} end)
-              ) as $merged
-            | .obj[$sk] = $merged
-            | .viol += (if $lockAttempt then [{name:$sk, layer:$layer.name, attempted:"lock"}] else [] end)
+            #
+            # When $old is ALREADY locked (never by a repo layer — $lockAttempt above strips a
+            # repo-authored lock:true before it ever lands in $old), a higher layer override is
+            # constrained instead of blindly merged in: enabled may only go false->true (a
+            # false->... attempt is rejected), allowlist/tools may only TIGHTEN (the new array
+            # must be a subset of the old one — a wider or disjoint array is rejected), and lock
+            # is never overwritten (a lock:false attempt is rejected). Each rejection is recorded
+            # as its own violation instead of silently defeating the restriction.
+            | (fld($old;"lock";false)==true) as $oldLocked
+            | (if ($oldLocked|not) then
+                 { m: ( $old
+                        + (if $n|has("enabled") then {enabled: $n.enabled} else {} end)
+                        + (if $n|has("allowlist") then {allowlist: $n.allowlist} else {} end)
+                        + (if $n|has("tools") then {tools: $n.tools} else {} end)
+                        + (if $lockAttempt then {} elif $n|has("lock") then {lock: $n.lock} else {} end) ),
+                   v: [] }
+               else
+                 (($n|has("enabled")) and ($n.enabled==false)) as $wantDisable
+                 | (($n|has("lock")) and ($n.lock==false)) as $wantUnlock
+                 | (($n|has("allowlist")) and ((($n.allowlist - (fld($old;"allowlist";[])))|length) > 0)) as $widenAllow
+                 | (($n|has("tools")) and ((($n.tools - (fld($old;"tools";[])))|length) > 0)) as $widenTools
+                 | ([ if $wantDisable then "disable" else empty end,
+                      if $wantUnlock then "unlock" else empty end,
+                      if $widenAllow or $widenTools then "widen" else empty end ]) as $bad
+                 | { m: ( $old
+                          + (if ($n|has("enabled")) and ($n.enabled==true) then {enabled:true} else {} end)
+                          + (if ($n|has("allowlist")) and ($widenAllow|not) then {allowlist:$n.allowlist} else {} end)
+                          + (if ($n|has("tools")) and ($widenTools|not) then {tools:$n.tools} else {} end) ),
+                     v: ($bad | map({name:$sk, layer:$layer.name, attempted:.})) }
+               end) as $res
+            | .obj[$sk] = $res.m
+            | .viol += (if $lockAttempt then [{name:$sk, layer:$layer.name, attempted:"lock"}] else [] end) + $res.v
           end
       )
 ) ) as $scopeacc |
@@ -3169,6 +3246,14 @@ end' 2>/dev/null | tr -d '\r')
   if ! { printf '%s\n' "$body" > "$tmp" 2>/dev/null && mv -f "$tmp" "$cache" 2>/dev/null; }; then
     rm -f "$tmp" 2>/dev/null
     return 0
+  fi
+  # Sidecar signature (see the staleness check above) — best-effort, never fatal to the
+  # rebuild itself: a missing/stale .sig just means the NEXT call also rebuilds.
+  local sigtmp="$sig.tmp.$$"
+  if printf '%s\n' "p=$have_p u=$have_u r=$have_r root=$proot_dir" > "$sigtmp" 2>/dev/null; then
+    mv -f "$sigtmp" "$sig" 2>/dev/null || rm -f "$sigtmp" 2>/dev/null
+  else
+    rm -f "$sigtmp" 2>/dev/null
   fi
 
   local rn ln lc vn bl

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join, basename } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
+import { fileURLToPath } from 'url';
 import { slugFromProjectDir, activeProjectDir, resolveActiveSlug, mainWorktreeDir } from './project-dir.js';
 
 describe('slugFromProjectDir', () => {
@@ -182,6 +183,45 @@ describe('mainWorktreeDir / slugFromProjectDir / resolveActiveSlug — git workt
   it('SB_REPO_KEY_COMMON_DIR=off restores the basename-of-worktree-dir behavior', () => {
     process.env.SB_REPO_KEY_COMMON_DIR = 'off';
     expect(slugFromProjectDir(wt)).toBe(basename(wt));
+  });
+
+  // Slice 3 review fix: a SUBDIRECTORY (of a plain repo, of a worktree, or of a non-git dir
+  // nested under an unrelated git ancestor) must resolve to its OWN basename, never an
+  // ancestor's — only the worktree ROOT itself (where `.git` is a FILE) re-keys. Each case is
+  // asserted against the bash twin (sb_repo_key in scripts/lib.sh) too, locking the two
+  // resolvers together the way tests/test-detect-project.sh already locks the worktree-root case.
+  const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', '..');
+  const bashRepoKey = (dir: string): string =>
+    execFileSync(
+      'bash',
+      ['-c', `source '${join(repoRoot, 'scripts', 'lib.sh').replace(/\\/g, '/')}'; sb_repo_key "$1"`, 'bash', dir],
+      { stdio: 'pipe' },
+    )
+      .toString()
+      .trim();
+
+  it('subdir of a PLAIN repo keeps its own basename (no re-key), parity with sb_repo_key', () => {
+    const plain = join(work, 'plainrepo', 'pkg', 'api');
+    mkdirSync(plain, { recursive: true });
+    execFileSync('git', ['init', '-q'], { cwd: join(work, 'plainrepo'), stdio: 'pipe' });
+    expect(slugFromProjectDir(plain)).toBe('api');
+    expect(bashRepoKey(plain)).toBe('api');
+  });
+
+  it('a SUBDIR of a linked worktree keeps its own basename (no re-key), parity with sb_repo_key', () => {
+    const sub = join(wt, 'sub');
+    mkdirSync(sub, { recursive: true });
+    expect(slugFromProjectDir(sub)).toBe('sub');
+    expect(bashRepoKey(sub)).toBe('sub');
+  });
+
+  it('a non-git dir nested under an unrelated git ancestor keeps its own basename, parity with sb_repo_key', () => {
+    const home = join(work, 'home2');
+    const notes = join(home, 'Documents', 'notes');
+    mkdirSync(notes, { recursive: true });
+    execFileSync('git', ['init', '-q'], { cwd: home, stdio: 'pipe' });
+    expect(slugFromProjectDir(notes)).toBe('notes');
+    expect(bashRepoKey(notes)).toBe('notes');
   });
 });
 

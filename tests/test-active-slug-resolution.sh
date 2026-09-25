@@ -35,14 +35,16 @@ r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT
 pass "cwd that names a known project beats the stale pin (no CLAUDE_PROJECT_DIR)"
 
 # 2b. a SUBDIR cwd (basename not a registered project) falls to the pin (subdir survival).
-# A synthetic NON-git dir under $TMP, not "$ROOT/scripts" — $ROOT is this checkout, which since
-# Slice 3 (sb_repo_key, §10) may itself be a linked `git worktree` of a repo whose MAIN checkout
-# basename happens to be a registered project in THIS sandbox, which would resolve tier 2 instead
-# of falling through (that IS the new, correct worktree behavior — it just does not belong in a
-# fixture that means to test "not a known project").
-SUBDIR2B="$TMP/plain-subdir-2b/nested"; mkdir -p "$SUBDIR2B"
+# $ROOT/scripts — a subdirectory, NOT the worktree root — is a deliberate regression fixture: a
+# subdir of a git-worktree checkout must resolve via its OWN basename ("scripts", not registered),
+# never remapped to the worktree's main-repo key (sb_repo_key must only re-key at the worktree
+# ROOT, where `.git` is a FILE — see docs/plans/2026-09-24-repo-brain.md §10 fix). $ROOT here IS a
+# linked `git worktree` of a repo whose main checkout basename ("claude-code-plugin") happens to be
+# registered in this sandbox, so a sb_repo_key bug that re-keys ANY subdir (not just the worktree
+# root) would silently resolve tier 2 to "claude-code-plugin" instead of falling through to the pin.
+SUBDIR2B="$ROOT/scripts"
 r=$(BRAIN_DIR="$SB" bash -c "source '$ROOT/scripts/lib.sh'; unset CLAUDE_PROJECT_DIR; cd '$SUBDIR2B'; sb_resolve_slug")
-[ "$r" = "cainish" ] || fail "subdir cwd should fall to the pin (got '$r', want cainish)"
+[ "$r" = "cainish" ] || fail "subdir cwd should fall to the pin (got '$r', want cainish) — sb_repo_key re-keyed a worktree SUBDIR, not just its root"
 pass "subdir cwd (not a known project) falls to the pin"
 
 # 3. tmp→scratch normalization is shared (sb_slug_from_dir)
