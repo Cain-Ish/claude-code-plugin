@@ -95,7 +95,8 @@ delegate the hot tier to Claude Code's native memory (Phase 1.1 of
 `docs/plans/2026-08-20-rethink-delivery-layer.md`), is SUPERSEDED by D2 (2026-09-24): the knowledge
 base stays the only home. Tracked in `docs/plans/2026-09-24-repo-brain.md`, Slice 2. What is
 actually locked TODAY: `session-load.sh` unconditionally force-injects
-`USER.md` (≤6000 B) + `PROJECT.md` (≤3000 B) every SessionStart under `BYTE_BUDGET=8000`/
+`USER.md` (≤6000 B) + the PROJECT.md repo card (≤1800 B; `SB_REPO_CARD=off` restores the
+≤3000 B hot render) every SessionStart under `BYTE_BUDGET=8000`/
 `HARD_CAP=9500` — there is no native-memory gate and no `SB_*` kill switch for this tier (tracked:
 `docs/audits/2026-09-05-deep-audit.md` D022/D077). Guidance:
 `wiki/learnings/claude-mechanics-best-practices-2026-06`.
@@ -153,5 +154,7 @@ belong in their own repo, however useful they are.
   `warn|ask|deny`, and write telemetry. They never dispatch agents, never edit user settings, and
   never add Stop blocks. One opt-in exception: `SB_DELEGATION_REWRITE` (default off) may set the
   Agent tool's `model` through PreToolUse `updatedInput` — proven honored live on Claude Code
-  2.1.281 (probe P2, 2026-09-24). A card or rule that moves none of its measured numbers
-  (`gate=delegation`, plan/verify-gate rates, value-loop) within 20 sessions is deleted.
+  2.1.281 (probe P2, 2026-09-24). DIRECTION (no machine gate yet): a card or rule that moves
+  none of its measured numbers (`gate=delegation`, plan/verify-gate rates, value-loop) within
+  20 sessions is a deletion candidate; the gate that enforces this is tracked in
+  `docs/plans/2026-09-24-repo-brain.md`.
