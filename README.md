@@ -22,7 +22,7 @@ recover from a diff:
 | **Architecture & high-level design** — why-this-way, invariants, constraints | `wiki/concepts/`, `wiki/entities/`, `wiki/themes/`, the typed graph |
 | **Code map** — what exists, where, what breaks if it changes | `code_map`, `code_neighbors` (PageRank structure + import-graph blast radius) |
 | **Session recap** — what mattered, distilled before the context closes | Stop/PreCompact extraction, `episodic_search`, `sessions-digest.jsonl` |
-| **Working agreement** — hard rules, soft conventions, the work protocol, which model tier a job class belongs to | `CONSTITUTION.md`, machine-checked gates, skill front matter |
+| **Working agreement** — hard rules, soft conventions, the work protocol, which model tier a job class belongs to | `PROJECT.md` `## Conventions` and `projects/<key>/rules.json` (KB-only home); `CONSTITUTION.md` states the invariants, tests enforce them |
 
 A surface that does not produce, store, or deliver one of these five is not memory and does not
 belong here — however good a tool it is. The mission, that scope rule, and the hard constraints

@@ -2,7 +2,7 @@
 name: sb-architecture-contract
 description: >-
   The second-brain plugin's load-bearing design contract: the two-tier memory model and why it
-  exists, the full hook wiring (9 events), the capture→drain→wiki→dream→forget data lifecycle with
+  exists, the full hook wiring (10 events), the capture→drain→wiki→dream→forget data lifecycle with
   exact scripts and state files, BRAIN_DIR vs KNOWLEDGE_DIR geography, the 23-tool MCP server and
   why its dist bundles are committed, single-source resolver discipline, the ~12 provable invariants
   with their enforcing tests, and the known weak points. Load this when you need to understand WHY
@@ -54,7 +54,7 @@ summarize-before-evict, cache-stable injection" (`CONSTITUTION.md`, "Token disci
 membership test for ALL stored content: *"If a saved item does not actively guide a future
 decision, it does not belong."*
 
-## 2. Hook wiring — 9 events, 22 command entries (`hooks/hooks.json`)
+## 2. Hook wiring — 10 events, 25 command entries (`hooks/hooks.json`)
 
 All commands are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/<script>`; six are wrapped in
 `scripts/hook-timer.sh <budget_s> <script>` (marked ⏲) — R7 latency TELEMETRY only: `<budget_s>`
@@ -70,6 +70,7 @@ Re-verify the whole table:
 | SessionStart | same | `discover-installed.sh` / `discover-doc-sources.sh` (a third, `discover-tools.sh`, was removed — do not look for it) | 10 | environment discovery |
 | SessionStart | same | ⏲15 `session-load.sh` | 15 | hot-tier injection (§1) |
 | SessionStart | same | ⏲20 `dream-autostage.sh` | 20 | suggest-only banner; NEVER stages/spawns; kill `SB_DREAM_AUTOSTAGE=off` |
+| SessionStart | same | `protocol-guard.sh card` | 5 | class-5 working-agreement protocol card, ≤1200 B; kill `SB_PROTOCOL_GUARD=off` / `SB_PROTOCOL_CARD=off` |
 | UserPromptSubmit | (all) | ⏲25 `persona-context.sh` | 25 | no LLM call; `/?` prefix routes to Opus advisor CLI |
 | Stop | (all) | `stop-verify-gate.sh` | 10 | verification nudge |
 | Stop | (all) | ⏲45 `stop-extract.sh` | 45 | the capture pipeline (§3.2) |
@@ -82,10 +83,14 @@ Re-verify the whole table:
 | PreToolUse | `Write\|Edit\|MultiEdit` | `wiki-write-guard.sh` | 5 | denies frontmatter-less writes to `wiki/**/*.md` (index.md exempt) |
 | PreToolUse | `Write\|Edit\|MultiEdit` | `symlink-guard.sh` | 5 | resolve-symlinks-BEFORE-validate; denies writes resolving into ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, ~/.netrc; kill `SB_SYMLINK_GUARD=off` |
 | PreToolUse | `Bash\|WebFetch\|WebSearch` | `flow-guard.sh` | 5 | asks when egress carries credential-shaped content; kill `SB_FLOW_GUARD=off` |
+| PreToolUse | `Task\|Agent\|Read\|Edit\|Write\|MultiEdit` | ⏲5 `protocol-guard.sh pre` | 5 | Agent/Task → delegation tier check (opt-in model rewrite via `SB_DELEGATION_REWRITE`); Read/Edit/Write/MultiEdit → path-triggered JIT memory + search-before-create nudge; kill `SB_PROTOCOL_GUARD=off` / `SB_DELEGATION_CHECK=off` / `SB_JIT=off` / `SB_SEARCH_FIRST=off` |
 | PreToolUse | `Write\|Edit\|MultiEdit` | `plan-first-nudge.sh` | 5 | SOFT, once/session, ≥2 code-file edits; kill `SB_PLAN_FIRST_NUDGE=off` |
+| SubagentStart | `*` | `protocol-guard.sh subagent` | 5 | role card per `agent_type`, ≤900 B; skips `second-brain:*` and Plan; kill `SB_PROTOCOL_GUARD=off` / `SB_ROLE_CARDS=off` |
 | ConfigChange | `user_settings\|project_settings\|local_settings\|policy_settings\|skills` | `config-change-guard.sh` | 5 | AUDIT-ONLY today (weak point §7.4) |
+| PostToolUseFailure | `Bash\|Write\|Edit\|MultiEdit\|Read\|WebFetch\|WebSearch\|Task\|Agent` | `observe-tool-use.sh` | 5 | deterministic observation ledger (ok/error), failed-call branch; kill `SB_OBSERVATION_LEDGER=off` |
 | PostToolUse | `Write\|Edit` | `quality-gate.sh` | 5 | lint/quality advisory |
 | PostToolUse | `Read\|WebFetch\|Bash\|Grep\|Glob` | `tool-return-scanner.sh` | 5 | injection scan — flags via additionalContext, NEVER blocks; it is telemetry, NOT a trust boundary (CONSTITUTION.md) |
+| PostToolUse | `Bash\|Write\|Edit\|MultiEdit\|Read\|WebFetch\|WebSearch\|Task\|Agent` | `observe-tool-use.sh` | 5 | deterministic observation ledger (ok/error), successful-call branch; kill `SB_OBSERVATION_LEDGER=off` |
 | PostToolUse | `Write\|Edit\|MultiEdit` | `simplicity-gate.sh` | 5 | advisory, threshold `SB_SIMPLICITY_GATE_LINES` (150) |
 
 Cross-cutting hook conventions:
