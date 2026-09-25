@@ -34,7 +34,7 @@ Five content classes, and only five. Each is something a senior dev carries betw
 cannot recover from the diff. All of it is **per repo**, and all of it lives in this plugin's
 knowledge base — the wiki, the graph, and `BRAIN_DIR/projects/<key>/` are its only home. Nothing is
 compiled out into `.claude/rules`, `CLAUDE.md`, or Claude Code's native `MEMORY.md` (decision
-2026-09-24, D2) — DIRECTION until the Protocol lock below lands; not yet machine-enforced.
+2026-09-24, D2) — locked by tests/test-protocol-guard.sh (source scan).
 
 1. **Decisions** — what was chosen, what was rejected, and *why*. The rejected branch is the
    expensive half: without it the next session re-argues a settled question.

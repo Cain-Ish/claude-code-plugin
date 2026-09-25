@@ -360,6 +360,20 @@ MD
 run_case "agent 'model: gpt-9' fails" 1
 assert_output_contains "foo.md 'model' value 'gpt-9' is not 'inherit'"
 
+# Case 11f (review fix): missing model-ladder.json entirely → ONE clear FAIL naming the
+# manifest, not one-per-agent misleading "not a dispatch_aliases entry" FAILs.
+setup_skeleton
+rm -f "$PLUGIN_FOR_VALIDATOR/model-ladder.json"
+run_case "missing model-ladder.json fails with one clear message" 1
+assert_output_contains "FAIL: model-ladder.json missing or has no dispatch_aliases"
+DISPATCH_ALIAS_FAILS=$(grep -c "dispatch_aliases entry" "$SANDBOX/out" 2>/dev/null)
+DISPATCH_ALIAS_FAILS="${DISPATCH_ALIAS_FAILS:-0}"
+if [ "${DISPATCH_ALIAS_FAILS:-0}" -eq 0 ]; then
+  PASS=$((PASS + 1)); echo "  PASS  no misleading 'dispatch_aliases entry' FAILs (got 0)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL  misleading 'dispatch_aliases entry' FAILs present (got $DISPATCH_ALIAS_FAILS)"
+fi
+
 # Case 12: the SHIPPED tree must validate with ZERO WARN lines.
 # A WARN that nobody clears is worse than no check: `SESSION_START_MATCHERS` froze at
 # "startup|resume|clear|compact" while hooks.json moved to "startup|resume|clear|fork" in

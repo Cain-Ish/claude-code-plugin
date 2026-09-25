@@ -22,11 +22,19 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 command -v cygpath >/dev/null 2>&1 && BRAIN_DIR=$(cygpath -u "$BRAIN_DIR" 2>/dev/null || printf '%s' "$BRAIN_DIR")
 # ONE jq for every single-line field any mode needs (line-per-field -r protocol, CR-stripped).
+# PG_TEXT/PG_SUB_LOWER/PG_AGENT_LOWER piggyback on this same spawn so pg_agent/pg_subagent
+# never need their own jq+tr just to get a lowercased classification string (review fix:
+# Agent/Task path spawn-cost reduction — was ~1.0s/call, dominated by extra jq+tr pairs here).
 { IFS= read -r PG_EVENT; IFS= read -r PG_TOOL; IFS= read -r PG_SID; IFS= read -r PG_CWD; IFS= read -r PG_PATH
-  IFS= read -r PG_AGENT_TYPE; IFS= read -r PG_SUB_TYPE; IFS= read -r PG_MODEL; } < <(printf '%s' "$RAW" \
+  IFS= read -r PG_AGENT_TYPE; IFS= read -r PG_SUB_TYPE; IFS= read -r PG_MODEL
+  IFS= read -r PG_TEXT; IFS= read -r PG_SUB_LOWER; IFS= read -r PG_AGENT_LOWER; } < <(printf '%s' "$RAW" \
   | jq -r '.hook_event_name // "", .tool_name // "", .session_id // "", .cwd // "", .tool_input.file_path // "",
-           .agent_type // "", .tool_input.subagent_type // "", .tool_input.model // ""' 2>/dev/null | tr -d '\r')
-: "${PG_EVENT:=}" "${PG_TOOL:=}" "${PG_SID:=}" "${PG_CWD:=$PWD}" "${PG_PATH:=}" "${PG_AGENT_TYPE:=}" "${PG_SUB_TYPE:=}" "${PG_MODEL:=}"
+           .agent_type // "", .tool_input.subagent_type // "", .tool_input.model // "",
+           (((.tool_input.description // "") + " " + (.tool_input.prompt // ""))[0:300] | ascii_downcase | gsub("[\r\n]";" ")),
+           (.tool_input.subagent_type // "" | ascii_downcase),
+           (.agent_type // "" | ascii_downcase)' 2>/dev/null | tr -d '\r')
+: "${PG_EVENT:=}" "${PG_TOOL:=}" "${PG_SID:=}" "${PG_CWD:=$PWD}" "${PG_PATH:=}" "${PG_AGENT_TYPE:=}" "${PG_SUB_TYPE:=}" "${PG_MODEL:=}" \
+  "${PG_TEXT:=}" "${PG_SUB_LOWER:=}" "${PG_AGENT_LOWER:=}"
 PG_SID="${PG_SID//[^A-Za-z0-9_-]/}"; PG_SID="${PG_SID:0:64}"
 SB_MANIFEST_SESSION_ID="$PG_SID"
 PG_CTX=""            # accumulated additionalContext for pre mode; empty = emit nothing
@@ -45,6 +53,7 @@ pg_emit_pre() {  # ONE envelope per call. A rewrite carries the FULL original to
 # ---- mode bodies. Each slice replaces ONLY the body between its own anchor comments. ----
 # --- pg_card (Slice 1) ---
 pg_card() {
+  local LC_ALL=C
   pg_lib || return 0
   local pf card a_fast a_mid a_deep bytes
   pf="$PLUGIN_ROOT/skills/using-second-brain/protocol.md"
@@ -82,15 +91,12 @@ $card"
 # --- pg_agent (Slice 1) ---
 pg_agent() {
   pg_lib || return 0
-  local slug T S Slower M E job tier="unknown" rule="" reason="-" verdict="ok"
-  local pinned=0 pinfile="" s_safe hard warn suggest
+  local slug="" T S Slower M E job tier="unknown" rule="" reason="-" verdict="ok"
+  local pinned=0 pinfile="" s_safe hard warn suggest scout_src=""
   local a_fast a_mid a_deep memf line
-  slug=$(sb_session_slug "$PG_SID")
-  T=$(printf '%s' "$RAW" | jq -r \
-    '((.tool_input.description // "") + " " + (.tool_input.prompt // ""))[0:300] | ascii_downcase' \
-    2>/dev/null | tr -d '\r')
+  T="$PG_TEXT"
   S="$PG_SUB_TYPE"
-  Slower=$(printf '%s' "$S" | tr 'A-Z' 'a-z')
+  Slower="$PG_SUB_LOWER"
   M="$PG_MODEL"
   s_safe="${S//[\\\/]/}"
 
@@ -118,7 +124,19 @@ pg_agent() {
           '---') _n=$((_n + 1)); [ "$_n" -ge 2 ] && break; continue ;;
         esac
         case "$line" in
-          model:*) E="${line#model:}"; E="${E# }" ;;
+          model:*)
+            # Normalize past quotes/whitespace/trailing comments (bash 3.2 param
+            # expansion only, no sed spawn): `model: "haiku"`, `model:  opus`,
+            # `model: sonnet  # comment` all resolve to a bare alias.
+            E="${line#model:}"
+            E="${E#"${E%%[![:space:]]*}"}"
+            E="${E%%#*}"
+            E="${E%"${E##*[![:space:]]}"}"
+            case "$E" in
+              \"*\") E="${E#\"}"; E="${E%\"}" ;;
+              \'*\') E="${E#\'}"; E="${E%\'}" ;;
+            esac
+            ;;
         esac
       done < "$pinfile"
     fi
@@ -155,6 +173,9 @@ pg_agent() {
         && mv -f "$memf.tmp.$$" "$memf" 2>/dev/null || rm -f "$memf.tmp.$$" 2>/dev/null
     fi
   fi
+  if [ -z "$a_fast" ]; then
+    sb_log_error "protocol-guard.sh" "model-ladder unreadable at $(sb_model_manifest): tier checks disabled" 1
+  fi
 
   # -- tier of E
   case "$E" in
@@ -171,21 +192,26 @@ pg_agent() {
     *) tier="unknown" ;;
   esac
 
-  # -- job classification (word-boundary-safe ERE: no \b — BSD grep treats it as literal).
+  # -- job classification ([[ =~ ]], no spawn — grep pipelines cost ~150-200ms/call here).
+  # think T: leading boundary ONLY (no trailing) so "architecture"/"reviewing"/"designs"
+  # still match; "preview" is still excluded by the leading boundary before "review".
+  # scout T: carries "which files?" and "does .* exist" (§7; dropped by an earlier pass).
   local think_hit=0 scout_hit=0
-  if printf '%s' "$Slower" | grep -qE -- '(review|critic|architect|adversar|audit|devil|design|security)'; then
+  local think_s_re='(review|critic|architect|adversar|audit|devil|design|security)'
+  local think_t_re='(^|[^a-z])(review|architect|adversar|trade-?offs?|security|design|root cause|why does)'
+  local scout_s_re='(scout|explore|search|find|lookup|locate|grep)'
+  local scout_t_re='(^|[^a-z])(find|locate|list|grep|search|scan|inventory|lookup|where is|which files?|does .* exist)([^a-z]|$)'
+  if [[ $Slower =~ $think_s_re ]]; then
     think_hit=1
-  elif printf '%s' "$T" | grep -qE -- \
-    '(^|[^a-z])(review|architect|adversarial|adversary|trade-?offs?|security|design|root cause|why does)([^a-z]|$)'; then
+  elif [[ $T =~ $think_t_re ]]; then
     think_hit=1
   fi
   if [ "$S" = "Explore" ]; then
-    scout_hit=1
-  elif printf '%s' "$Slower" | grep -qE -- '(scout|explore|search|find|lookup|locate|grep)'; then
-    scout_hit=1
-  elif printf '%s' "$T" | grep -qE -- \
-    '(^|[^a-z])(find|locate|list|grep|search|scan|inventory|lookup|where is|which file)([^a-z]|$)'; then
-    scout_hit=1
+    scout_hit=1; scout_src="agent"
+  elif [[ $Slower =~ $scout_s_re ]]; then
+    scout_hit=1; scout_src="agent"
+  elif [[ $T =~ $scout_t_re ]]; then
+    scout_hit=1; scout_src="text"
   fi
   if [ "$S" = "Plan" ]; then
     job="plan"
@@ -209,7 +235,12 @@ pg_agent() {
     rule="think-at-scout"
   fi
   if [ -z "$rule" ] && [ -z "$M" ] && [ "$pinned" = "0" ]; then
-    case "$S" in Explore|Plan|general-purpose) : ;; *) rule="unpinned-no-model" ;; esac
+    case "$S" in
+      Explore|Plan|general-purpose|"") : ;;          # omitted subagent_type == general-purpose
+      second-brain:*) rule="unpinned-no-model" ;;     # our own agent SHOULD carry a pin
+      *:*) : ;;                                        # foreign-plugin agent: pin location unresolvable, not absent
+      *) rule="unpinned-no-model" ;;
+    esac
   fi
   if [ -z "$rule" ] && [ "$job" = "plan" ]; then
     case "$T" in *"hard rules"*) : ;; *) rule="plan-no-hard-rules" ;; esac
@@ -224,27 +255,31 @@ pg_agent() {
   esac
   [ -n "$rule" ] && verdict="warn"
 
-  # -- opt-in rewrite (rules 1-3 only; each targets the CORRECT tier, never a literal model).
-  if [ "${SB_DELEGATION_REWRITE:-0}" = "1" ]; then
-    case "$rule" in
-      scout-at-think|explore-above-fast) PG_REWRITE_MODEL=$(sb_resolve_model fast dispatch) ;;
-      think-at-scout) PG_REWRITE_MODEL=$(sb_resolve_model deep dispatch) ;;
-    esac
-    [ -n "$PG_REWRITE_MODEL" ] && verdict="rewrite"
+  # -- suggested/rewrite model: ONE source (sb_resolve_model) feeds both the warn text and
+  # the opt-in rewrite, so they can never name different models. scout-at-think may rewrite
+  # ONLY when the scout signal came from the AGENT itself (Explore, or a scout-named
+  # subagent_type) — a text-only prompt match (e.g. "the search indexer") is too weak to
+  # override an explicit model on what may really be a DO task; it still warns (the
+  # classifier stays measured), it just never forces a downgrade.
+  suggest=""
+  case "$rule" in
+    explore-above-fast) suggest=$(sb_resolve_model fast dispatch) ;;
+    scout-at-think) [ "$scout_src" = "agent" ] && suggest=$(sb_resolve_model fast dispatch) ;;
+    think-at-scout) suggest=$(sb_resolve_model deep dispatch) ;;
+  esac
+  if [ "${SB_DELEGATION_REWRITE:-0}" = "1" ] && [ -n "$suggest" ]; then
+    PG_REWRITE_MODEL="$suggest"
+    verdict="rewrite"
   fi
 
   if [ "$verdict" != "ok" ]; then
-    suggest=""
-    case "$rule" in
-      scout-at-think|explore-above-fast) suggest="$a_fast" ;;
-      think-at-scout) suggest="$a_deep" ;;
-    esac
     warn="[Delegation check - $rule] $reason."
     [ -n "$suggest" ] && warn="$warn suggested model: $suggest (SCOUT=$a_fast DO=$a_mid THINK=$a_deep)."
     warn="$warn Advisory; SB_DELEGATION_CHECK=off silences."
     while [ "${#warn}" -gt 300 ]; do warn="${warn%?}"; done
     pg_ctx_add "$warn"
     if [ "$rule" = "plan-no-hard-rules" ]; then
+      slug=$(sb_session_slug "$PG_SID")
       hard=$(sb_rules_hard_lines "$slug" 5)
       [ -n "$hard" ] && pg_ctx_add "HARD rules for this repo - put these in the Plan prompt:
 $hard"
@@ -258,6 +293,7 @@ $hard"
 # --- end pg_agent ---
 # --- pg_subagent (Slice 1) ---
 pg_subagent() {
+  local LC_ALL=C
   local agent_type="$PG_AGENT_TYPE" tier="" card slug hard hardn=0 bytes pf role_block
   local a_fast a_mid a_deep
   if [ -z "$agent_type" ]; then
@@ -282,9 +318,11 @@ pg_subagent() {
     Explore) tier="SCOUT" ;;
     general-purpose) tier="DO" ;;
     *)
-      if printf '%s' "$agent_type" | tr 'A-Z' 'a-z' | grep -qE -- '(review|critic|architect|adversar|audit|devil|design|security)'; then
+      local think_s_re='(review|critic|architect|adversar|audit|devil|design|security)'
+      local scout_s_re='(scout|explore|search|find|lookup|locate|grep)'
+      if [[ $PG_AGENT_LOWER =~ $think_s_re ]]; then
         tier="THINK"
-      elif printf '%s' "$agent_type" | tr 'A-Z' 'a-z' | grep -qE -- '(scout|explore|search|find|lookup|locate|grep)'; then
+      elif [[ $PG_AGENT_LOWER =~ $scout_s_re ]]; then
         tier="SCOUT"
       else
         tier="DO"
@@ -293,6 +331,12 @@ pg_subagent() {
   esac
   pf="$PLUGIN_ROOT/skills/using-second-brain/protocol.md"
   role_block=$(awk "/^<!-- role:${tier}:begin/{f=1;next}/^<!-- role:${tier}:end/{f=0}f" "$pf" 2>/dev/null)
+  if [ ! -f "$pf" ] || [ -z "$role_block" ]; then
+    sb_log_error "protocol-guard.sh" "protocol.md missing role:$tier block" 1
+    sb_log_error "protocol-guard.sh" \
+      "gate=role-card agent=$agent_type tier=$tier bytes=0 hard=0 verdict=skip reason=no-role-block sid=$PG_SID" 0
+    return 0
+  fi
   slug=$(sb_session_slug "$PG_SID")
   a_fast=$(sb_resolve_model fast dispatch)
   a_mid=$(sb_resolve_model mid dispatch)
@@ -301,21 +345,50 @@ pg_subagent() {
   role_block="${role_block//\{DO\}/$a_mid}"
   role_block="${role_block//\{THINK\}/$a_deep}"
   hard=$(sb_rules_hard_lines "$slug" 5)
-  if [ -n "$hard" ]; then
-    hardn=$(printf '%s\n' "$hard" | grep -c '^-')
-  fi
-  card="[Role card - $tier ($agent_type)]
+
+  # Fixed + variable budget (review fix: the old cut-from-the-END truncation dropped the
+  # mandatory Return: line first, and hardn double-counted vs. what actually rendered).
+  # `local LC_ALL=C` above makes every ${#...} here a BYTE count, matching the 900 B cap.
+  local header_line="[Role card - $tier ($agent_type)]"
+  local hard_lbl="HARD (enforced):"
+  local ret_line="Return: findings first, files:lines, <=2k tokens, a Gaps: section."
+  local fixed="$header_line
 $role_block
-HARD (enforced):
-${hard:-(none)}
-Return: findings first, files:lines, <=2k tokens, a Gaps: section."
-  while [ "${#card}" -gt 900 ]; do
-    case "$card" in
-      *$'\n'*) card="${card%$'\n'*}" ;;
-      *) card=""; break ;;
-    esac
-  done
-  [ -n "$card" ] || return 0
+$hard_lbl
+$ret_line"
+  local budget=$(( 900 - ${#fixed} - 1 ))
+  [ "$budget" -lt 0 ] && budget=0
+
+  local hardblock="" hn=0 total_lines=0 cand hline remaining
+  if [ -n "$hard" ]; then
+    total_lines=$(printf '%s\n' "$hard" | grep -c '^- ')
+    while IFS= read -r hline; do
+      [ -n "$hline" ] || continue
+      if [ -z "$hardblock" ]; then cand="$hline"; else cand="$hardblock
+$hline"; fi
+      if [ "${#cand}" -le $(( budget - 13 )) ]; then
+        hardblock="$cand"
+        hn=$((hn + 1))
+      else
+        break
+      fi
+    done <<HARDEOF
+$hard
+HARDEOF
+    if [ "$hn" -lt "$total_lines" ]; then
+      remaining=$((total_lines - hn))
+      if [ -z "$hardblock" ]; then hardblock="(+$remaining more)"; else hardblock="$hardblock
+(+$remaining more)"; fi
+    fi
+  fi
+  [ -n "$hardblock" ] || hardblock="(none)"
+  hardn=$hn
+
+  card="$header_line
+$role_block
+$hard_lbl
+$hardblock
+$ret_line"
   bytes=${#card}
   jq -nc --arg c "$card" '{hookSpecificOutput:{hookEventName:"SubagentStart",additionalContext:$c}}' 2>/dev/null | tr -d '\r'
   sb_log_error "protocol-guard.sh" \
