@@ -86,12 +86,18 @@ describe('nested-spawn-guard — Part C: exactly the destructive tools are wrapp
   const src = readFileSync(new URL('./server.ts', import.meta.url), 'utf-8');
   const DESTRUCTIVE = ['pin_to_user', 'pin_to_project', 'archive_to_wiki', 'knowledge_reindex',
     'knowledge_validate', 'dream_create', 'dream_accept', 'dream_discard', 'dream_cancel',
-    'persona_dismiss', 'knowledge_relate'];
+    'persona_dismiss', 'knowledge_relate', 'buddy_react'];
   const READONLY = ['knowledge_search', 'knowledge_fetch', 'knowledge_stats', 'dream_status',
     'dream_list', 'episodic_search', 'episodic_read', 'persona_think', 'persona_stats',
     'knowledge_neighbors', 'code_map', 'code_neighbors'];
 
-  it('all 11 destructive tools ARE wrapped with guardDestructive', () => {
+  it('every registered tool is classified exactly once (a new tool must be decided, not defaulted)', () => {
+    const registered = [...src.matchAll(/registerJsonTool\(\s*"([a-z_]+)"/g)].map((m) => m[1]).sort();
+    expect(registered.length).toBeGreaterThan(0);
+    expect([...DESTRUCTIVE, ...READONLY].sort()).toEqual(registered);
+  });
+
+  it('all 12 destructive tools ARE wrapped with guardDestructive', () => {
     for (const t of DESTRUCTIVE) {
       expect(src.includes(`guardDestructive("${t}"`), `${t} must be guarded`).toBe(true);
     }

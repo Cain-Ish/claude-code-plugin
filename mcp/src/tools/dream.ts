@@ -185,6 +185,54 @@ export function buildSnapshotArgs(
   return out;
 }
 
+/** A millisecond timeout from env var `name`: a safe integer from 30s up to Node's timer ceiling
+ *  (2^31-1 ms), else `fallback`. A fraction makes execFile throw ERR_OUT_OF_RANGE and a larger
+ *  value overflows the timer to 1 ms — both passed the old `Number.isFinite && >= 30_000` check. */
+function envTimeoutMs(name: string, fallback: number): number {
+  const raw = Number(cleanEnvPath(process.env[name]));
+  return Number.isSafeInteger(raw) && raw >= 30_000 && raw <= 2_147_483_647 ? raw : fallback;
+}
+
+/** "" when env var `name` is unset or valid; else a note that the value was ignored — the timeout
+ *  message tells the user to raise that variable, so a rejected value must not fail silently. */
+export function envTimeoutIgnored(name: string): string {
+  const v = cleanEnvPath(process.env[name]);
+  if (!v || envTimeoutMs(name, -1) !== -1) return "";
+  return ` (${name}=${v.slice(0, 24)} was ignored: it must be whole milliseconds from 30000 to 2147483647)`;
+}
+
+/** Wall-clock for dream-snapshot.sh. Default 5 min: copying a ~950-page wiki plus transcript
+ *  selection overran the old 30s under load on Windows (2026-09-24). Env override:
+ *  SB_DREAM_CREATE_TIMEOUT_MS. */
+export function snapshotTimeoutMs(): number {
+  return envTimeoutMs("SB_DREAM_CREATE_TIMEOUT_MS", 300_000);
+}
+
+/** A timeout kill surfaces from execFile as a bare "Command failed: <cmd>" with empty stderr.
+ *  Name it and say what the kill left behind. On Windows only the Git-Bash launcher dies: the
+ *  snapshot kept running and wrote a pending dream about a minute later (2026-09-24), and
+ *  dream_list cannot see it until status.json exists — so "check dream_list" is no all-clear.
+ *  On POSIX the SIGTERM stops the script and leaves a drm_* folder with no status.json. */
+export function snapshotFailureReason(
+  err: unknown, timeoutMs: number, platform: string = process.platform, dreams: string = dreamsDir(),
+): string {
+  const e = (err ?? {}) as { killed?: unknown; code?: unknown; stderr?: unknown; message?: unknown };
+  if (e.killed && e.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    const left = platform === "win32"
+      ? `On Windows the snapshot can keep running after the kill and still write a pending dream. ` +
+        `dream_list shows it only once its status.json exists, so before retrying wait until the ` +
+        `newest drm_* folder in ${dreams} has one; if that dream then sits pending with no runner, ` +
+        `dream_cancel it — otherwise the retry fails with "already pending".`
+      : `The snapshot was stopped and may have left a drm_* folder without status.json in ${dreams} ` +
+        `(safe to delete).`;
+    return `dream-snapshot.sh timed out after ${Math.round(timeoutMs / 1000)}s. ${left} ` +
+      `Raise SB_DREAM_CREATE_TIMEOUT_MS if this repeats${envTimeoutIgnored("SB_DREAM_CREATE_TIMEOUT_MS")}.`;
+  }
+  if (typeof e.stderr === "string" && e.stderr.trim()) return e.stderr.trim();
+  if (typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
+
 export async function dreamCreate(
   args: DreamCreateArgs
 ): Promise<DreamCreateResult> {
@@ -210,12 +258,13 @@ export async function dreamCreate(
   const activeSlug = resolveActiveSlug(brainDir());
   const family = activeSlug ? projectFamily(brainDir(), activeSlug) : undefined;
   const scriptArgs = buildSnapshotArgs(args, activeSlug, family);
+  const timeoutMs = snapshotTimeoutMs();
 
   try {
     const { stdout, stderr } = await exec(
       resolveBashExe(), // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
       [toBashPath(join(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
-      { timeout: 30_000, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
+      { timeout: timeoutMs, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
     );
     const dreamId = stdout.trim();
     if (!dreamId.startsWith("drm_")) {
@@ -224,11 +273,7 @@ export async function dreamCreate(
     const status = await readStatus(dreamId);
     return { ok: true, dream: status };
   } catch (err: any) {
-    return {
-      ok: false,
-      dream: null,
-      reason: err.stderr?.trim() || err.message || String(err),
-    };
+    return { ok: false, dream: null, reason: snapshotFailureReason(err, timeoutMs) };
   }
 }
 
@@ -322,8 +367,7 @@ export interface DreamAcceptResult {
  *  reindex, history snapshot) scale with wiki size and run after live is already mutated, so a
  *  premature kill is worse than a slow accept. Env override: SB_DREAM_ACCEPT_TIMEOUT_MS. */
 function acceptTimeoutMs(): number {
-  const raw = Number(cleanEnvPath(process.env.SB_DREAM_ACCEPT_TIMEOUT_MS));
-  return Number.isFinite(raw) && raw >= 30_000 ? raw : 600_000;
+  return envTimeoutMs("SB_DREAM_ACCEPT_TIMEOUT_MS", 600_000);
 }
 
 export async function dreamAccept(

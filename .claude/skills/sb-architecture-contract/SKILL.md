@@ -3,7 +3,7 @@ name: sb-architecture-contract
 description: >-
   The second-brain plugin's load-bearing design contract: the two-tier memory model and why it
   exists, the full hook wiring (10 events), the capture→drain→wiki→dream→forget data lifecycle with
-  exact scripts and state files, BRAIN_DIR vs KNOWLEDGE_DIR geography, the 23-tool MCP server and
+  exact scripts and state files, BRAIN_DIR vs KNOWLEDGE_DIR geography, the 24-tool MCP server and
   why its dist bundles are committed, single-source resolver discipline, the ~12 provable invariants
   with their enforcing tests, and the known weak points. Load this when you need to understand WHY
   the system is shaped this way, which invariant a change might break, where a piece of state
@@ -234,7 +234,7 @@ files with purpose + evidence): [references/state-files.md](references/state-fil
 Trap: `~/.second-brain/wiki/` is legacy; pages written there are invisible to search. Canonical
 wiki = `~/knowledge/wiki`.
 
-## 5. MCP server — `mcp/src/server.ts`, 23 tools
+## 5. MCP server — `mcp/src/server.ts`, 24 tools
 
 Re-verify: `grep -n '^registerJsonTool(' mcp/src/server.ts`. Lines as of 0.33.37:
 
@@ -263,6 +263,7 @@ Re-verify: `grep -n '^registerJsonTool(' mcp/src/server.ts`. Lines as of 0.33.37
 | 562 | `knowledge_neighbors` | multi-hop directional graph walk, point-in-time `as_of` |
 | 586 | `code_map` | token-capped PageRank-ranked code-structure map (read-only; `BRAIN_DIR/projects/<slug>/codemap/` store, honest `stale` flag) — shipped 0.33.33 |
 | 614 | `code_neighbors` | import-graph blast-radius BFS (`in` = importers, `out` = dependencies, depth ≤4); CODE graph, distinct from `knowledge_neighbors` — shipped 0.33.33 |
+| — | `buddy_react` | Claude's one line to the user through the statusline capybara (`.buddy/<session>.json`, kind `said`); the session id comes from persona-context's `[buddy: <name>]` line — shipped 0.53.0 |
 
 Destructive tools are wrapped by `guardDestructive` (`nested-spawn-guard.ts`) — refused under
 `SB_NESTED_SPAWN=1`, because a headless spawn over untrusted transcript content once had

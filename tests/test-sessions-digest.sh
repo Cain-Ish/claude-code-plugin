@@ -305,5 +305,33 @@ jq -e '[.[] | select(.pattern=="npm run migrate")] | length == 1' "$PC_PEND" >/d
   || fail "persona-candidate-repo-slug: candidate must NOT arm into the user-level persona-rules.pending.json"
 pass "persona-candidate-repo-slug: pre-compact.sh passes --slug so rule_candidates arm the repo layer, not the user layer"
 
+# 6. pre-compact.sh's tool-count gate ignores the buddy's end-of-turn buddy_react call (chat, not
+#    work) exactly like stop-extract.sh's substantive gate: a window whose only tool call is
+#    buddy_react must not run the extractor.
+{
+  printf '{"type":"user","message":{"role":"user","content":"hi"}}\n'
+  pc_i=1
+  while [ "$pc_i" -le 18 ]; do
+    printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"chat %s"}]}}\n' "$pc_i"
+    pc_i=$((pc_i + 1))
+  done
+  printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__buddy_react","input":{"line":"said hi","session":"s-12345678"}}]}}\n'
+} > "$PC_SANDBOX/transcript/buddy-only.jsonl"
+cat > "$PC_SANDBOX/path-stub/claude" <<EOF
+#!/bin/bash
+: > "$PC_SANDBOX/extractor-ran"
+echo '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+EOF
+chmod +x "$PC_SANDBOX/path-stub/claude"
+rm -f "$PC_SANDBOX/extractor-ran"
+jq -nc --arg tp "$PC_SANDBOX/transcript/buddy-only.jsonl" --arg cwd "$PC_SANDBOX/repo/test-slug" \
+    '{session_id:"buddy-only-session", transcript_path:$tp, cwd:$cwd, hook_event_name:"PreCompact"}' \
+  | env HOME="$PC_SANDBOX" BRAIN_DIR="$PC_SANDBOX/.second-brain" PATH="$PC_SANDBOX/path-stub:$PATH" \
+        ANTHROPIC_API_KEY="" bash "$PLUGIN_ROOT/scripts/pre-compact.sh" >/dev/null 2>&1
+[ ! -e "$PC_SANDBOX/extractor-ran" ] || fail "buddy-react-only: pre-compact ran the extractor for a window whose only tool call is buddy_react"
+grep -q 'tool-count-zero-in-window' "$PC_SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+  || fail "buddy-react-only: expected the tool-count-zero-in-window gate breadcrumb in audit-log.jsonl"
+pass "buddy-react-only: pre-compact.sh gates a buddy_react-only window (chat, not work)"
+
 echo
 echo "ALL PASS"

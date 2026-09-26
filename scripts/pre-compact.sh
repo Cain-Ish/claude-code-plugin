@@ -86,12 +86,14 @@ fi
 
 START_LINE=$((LAST_LINE + 1))
 
-# Gate: at least one tool_use in the window
+# Gate: at least one tool_use in the window. The buddy's end-of-turn buddy_react call is chat,
+# not work (same rule as stop-extract.sh's substantive gate).
 TOOL_COUNT=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use")
   | .name
+  | select((. // "") | endswith("buddy_react") | not)
 ' 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "${TOOL_COUNT:-0}" -lt 1 ]; then

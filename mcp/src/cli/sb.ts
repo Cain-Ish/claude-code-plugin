@@ -7,9 +7,8 @@ import { episodicSearch } from '../tools/episodic-search.js';
 import { pinToUser } from '../tools/pin-to-user.js';
 import { pinToProject, type PinSection } from '../tools/pin-to-project.js';
 import { unprocessedCount } from '../tools/raw-inbox.js';
-import { readCached, resolveSeed, hatch, writeIdentity, readConfig, patchConfig, buddyName, installStatusline, uninstallStatusline } from '../tools/buddy-identity-cli.js';
+import { readConfig, patchConfig, buddyName, validName, renderCard, dropStaleIdentity, installStatusline, uninstallStatusline } from '../tools/buddy-config.js';
 import { fileURLToPath } from 'url';
-import { renderCard } from '../buddy-identity.js';
 
 export interface SbDeps {
   brainDir: string;
@@ -32,7 +31,7 @@ Commands:
                                                Append an entry to a project's PROJECT.md
   status                                       Show hot-tier and wiki sizes
   auth [status|doctor]                         Show or fix the extractor auth mode
-  buddy [--rehatch] [--user-id <id>]           Show the buddy card (bones from your account hash)
+  buddy                                        Show the buddy card (the capybara, its name, mute state)
   buddy name <name> | mute | unmute            Rename (1-14 chars) / silence the bubble
   buddy install | uninstall                    Add / remove the buddy statusLine in settings.json
   help                                         Show this message
@@ -338,18 +337,20 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
   }
 
   if (cmd === 'buddy') {
-    // Bones are a pure function of the seed (docs/plans/2026-09-22-buddy-companion.md §4);
-    // buddy.json only caches them so the statusline never spawns node. --rehatch recomputes.
-    const sub = args[1] && !args[1].startsWith('--') ? args[1] : '';
+    // One fixed capybara — no account roll (docs/plans/2026-09-22-buddy-companion.md, 2026-09-24).
+    if (args[1]?.startsWith('--')) { errpush(`buddy: unknown option ${args[1]} (the account roll and --rehatch are gone)`); return { stdout: '', stderr: err.join('\n'), exitCode: 2 }; }
+    const sub = args[1] ?? '';
     if (sub === 'name') {
       const name = args.slice(2).join(' ').trim();
-      if (!name || name.length > 14) { errpush('buddy name: 1-14 characters'); return { stdout: '', stderr: err.join('\n'), exitCode: 2 }; }
-      await patchConfig(deps.brainDir, { name });
+      if (!validName(name)) { errpush('buddy name: 1-14 printable characters'); return { stdout: '', stderr: err.join('\n'), exitCode: 2 }; }
+      try { await patchConfig(deps.brainDir, { name }); }
+      catch (e) { errpush(`buddy name: ${(e as Error).message}`); return { stdout: '', stderr: err.join('\n'), exitCode: 1 }; }
       push(`buddy is now called ${name}`);
       return { stdout: out.join('\n'), stderr: err.join('\n'), exitCode: 0 };
     }
     if (sub === 'mute' || sub === 'unmute') {
-      await patchConfig(deps.brainDir, { mute: sub === 'mute' });
+      try { await patchConfig(deps.brainDir, { mute: sub === 'mute' }); }
+      catch (e) { errpush(`buddy ${sub}: ${(e as Error).message}`); return { stdout: '', stderr: err.join('\n'), exitCode: 1 }; }
       push(sub === 'mute' ? 'buddy bubble muted (telemetry line stays)' : 'buddy bubble unmuted');
       return { stdout: out.join('\n'), stderr: err.join('\n'), exitCode: 0 };
     }
@@ -359,20 +360,25 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
       const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || join(here, '..', '..', '..', '..');
       try {
         if (sub === 'install') {
-          if (!(await readCached(deps.brainDir))) {           // hatch here, not in a hook
-            const { seed, source } = await resolveSeed(undefined);
-            await writeIdentity(deps.brainDir, hatch(seed, source));
-          }
+          await dropStaleIdentity(deps.brainDir);
           const r = await installStatusline(deps.brainDir, pluginRoot);
-          push(`statusLine set in ${r.settings}`);
-          push(`  command: ${r.command}`);
-          push(`  shim: ${r.shim} (resolves the newest installed plugin version at run time)`);
-          if (r.chained) push(`  previous statusline kept as line 1: ${r.chained}`);
-          if (r.backup) push(`  backup: ${r.backup}`);
-          push('restart Claude Code to see the buddy; undo: sb buddy uninstall');
+          if (!r.changed) {
+            push(`buddy statusLine already installed in ${r.settings} (shim refreshed: ${r.shim})`);
+          } else {
+            push(`statusLine set in ${r.settings} (refreshInterval 1 — the animation tick)`);
+            push(`  command: ${r.command}`);
+            push(`  shim: ${r.shim} (resolves the newest installed plugin version at run time)`);
+            if (r.chained) push(`  previous statusline kept as line 1: ${r.chained}`);
+            if (r.backup) push(`  backup: ${r.backup}`);
+            push('restart Claude Code to see the buddy; undo: sb buddy uninstall');
+          }
+          push('two-way chat on: each prompt carries one [buddy] line and Claude ends the turn with buddy_react');
+          push('  (one extra tool call per turn; if Claude Code asks to allow buddy_react, choose "don\'t ask again";');
+          push('   keep the display without it: SB_BUDDY_REACT=off)');
         } else {
           const r = await uninstallStatusline(deps.brainDir);
-          push(r.restored ? `statusLine restored to: ${r.restored}` : `buddy statusLine removed from ${r.settings}`);
+          if (!r.changed) push(`no buddy statusLine in ${r.settings} — nothing to remove (two-way chat off)`);
+          else push(r.restored ? `statusLine restored to: ${r.restored}` : `buddy statusLine removed from ${r.settings}`);
         }
       } catch (e) {
         errpush(`buddy ${sub}: ${(e as Error).message}`);
@@ -380,17 +386,10 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
       }
       return { stdout: out.join('\n'), stderr: err.join('\n'), exitCode: 0 };
     }
-    const rehatch = args.includes('--rehatch');
-    const ui = args.indexOf('--user-id'); const userId = ui >= 0 ? args[ui + 1] : undefined;
-    let identity = rehatch ? null : await readCached(deps.brainDir);
-    if (!identity) {
-      const { seed, source } = await resolveSeed(userId);
-      identity = hatch(seed, source);
-      await writeIdentity(deps.brainDir, identity);
-    }
+    if (sub) { errpush(`buddy: unknown subcommand ${sub}`); return { stdout: '', stderr: err.join('\n'), exitCode: 2 }; }
+    await dropStaleIdentity(deps.brainDir);
     const cfg = await readConfig(deps.brainDir);
-    push(renderCard(identity, buddyName(cfg, identity)));
-    push(`  seed: ${identity.seed_source}` + (identity.seed_source === 'fallback' ? ' (no Claude login found — log in, then: sb buddy --rehatch)' : ''));
+    push(renderCard(buddyName(cfg)));
     if (cfg.mute === true) push('  bubble: muted (sb buddy unmute)');
     push('  rename: sb buddy name <x>   statusline: sb buddy install');
     return { stdout: out.join('\n'), stderr: err.join('\n'), exitCode: 0 };

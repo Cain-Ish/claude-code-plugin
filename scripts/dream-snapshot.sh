@@ -133,23 +133,78 @@ mkdir -p "$DREAM_DIR/staging" "$DREAM_DIR/transcripts"
 # could ever age into a candidate (silently neutering the recency fix). `cp -rp`
 # keeps each unchanged page's real mtime; only pages the dream actually edits
 # get a fresh mtime (correct — they WERE modified).
-cp -rp "$WIKI_DIR" "$DREAM_DIR/staging/wiki"
-CP_RC=$?
-SNAPSHOT_BYTES=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')
-WIKI_PAGE_COUNT=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' ! -name 'index.md' 2>/dev/null | wc -l | tr -d ' ')
-
-# D091: `cp -rp` above had no rc check and no post-copy verification — a copy that dies
+#
+# D091: `cp -rp` had no rc check and no post-copy verification — a copy that dies
 # part-way (ENOSPC, transient I/O error, an unreadable subdir) produced a partial staging
 # tree that still passed dream-accept's 50% floor and, on the rsync --delete path, caused
 # every live page absent from the partial snapshot to be deleted. Check the exit status AND
-# compare staged vs live page counts; either mismatch marks the dream failed instead of
-# silently proceeding with pending status.
-LIVE_PAGE_COUNT=$(find "$WIKI_DIR" -type f -name '*.md' ! -name 'index.md' 2>/dev/null | wc -l | tr -d ' ')
+# compare the staged vs live page LISTS (a delete+add or a rename keeps the count equal);
+# any mismatch marks the dream failed instead of silently proceeding with pending status.
+#
+# The drainer/maintainer/reindex write the live wiki at any time, so a copy can race a live
+# write with nothing broken (2026-09-24: "staged 933 of 934" during a reindex failed the
+# dream). A copy that came out short or errored while the live page list moved under it is
+# retried into a fresh dir; a find error, or a cp error / mismatch against a live wiki that
+# held still, is a real fault and fails at once.
+#
+# SNAP_AT, taken before the copy, becomes created_at: dream-accept protects live pages
+# newer than created_at, and stamping it after transcript selection (~50s later on a large
+# wiki) let accept overwrite a page edited in that gap with its stale staged copy.
+_page_list() {   # sorted relative page paths under $1; non-zero when find itself fails
+  local _out
+  _out=$(cd "$1" && find . -type f -name '*.md' ! -name 'index.md') || return 1
+  printf '%s\n' "$_out" | LC_ALL=C sort
+}
+SNAPSHOT_ATTEMPTS=3
 SNAPSHOT_FAIL_REASON=""
-if [ "$CP_RC" -ne 0 ]; then
-  SNAPSHOT_FAIL_REASON="cp -rp of wiki exited $CP_RC (partial snapshot)"
-elif [ "$WIKI_PAGE_COUNT" -ne "$LIVE_PAGE_COUNT" ]; then
-  SNAPSHOT_FAIL_REASON="wiki snapshot incomplete: staged $WIKI_PAGE_COUNT of $LIVE_PAGE_COUNT live pages"
+CP_RC=0; LIST_RC=0; LIVE_RC=0; WIKI_PAGE_COUNT=0; LIVE_PAGE_COUNT=0
+_attempt=1; _tries=""; _staged=""; _after=""; _cperr="$DREAM_DIR/.cp-stderr"
+while :; do
+  LIVE_RC=0   # the live listing can fail on a race (BSD find stats an entry renamed away): retried
+  SNAP_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  _before=$(_page_list "$WIKI_DIR") || LIVE_RC=1
+  # A fresh dir plus "src/." cannot nest: cp -r into a leftover staging/wiki would land in
+  # staging/wiki/wiki, which a recursive page count still matches.
+  if ! mkdir "$DREAM_DIR/staging/wiki"; then
+    SNAPSHOT_FAIL_REASON="could not create a fresh staging/wiki on attempt $_attempt (the previous copy was not removed)"
+    break
+  fi
+  LC_ALL=C cp -rp "$WIKI_DIR/." "$DREAM_DIR/staging/wiki/" 2> "$_cperr"   # C locale: the message is matched below
+  CP_RC=$?
+  # A cp error made only of vanished entries (ENOENT) is a race, not a fault: the embeddings cache
+  # and index.md are rewritten through tmp+rename by every search, so their temp file can disappear
+  # between cp's readdir and its copy while the page lists stay identical. Any other error — ENOSPC,
+  # EIO, EACCES, even "cannot stat …: Input/output error" — still fails at once.
+  _vanished=0
+  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] && ! grep -qv ': No such file or directory$' "$_cperr"; then _vanished=1; fi
+  [ -s "$_cperr" ] && cat "$_cperr" >&2   # cp's own diagnostics stay visible
+  rm -f "$_cperr"
+  _staged=$(_page_list "$DREAM_DIR/staging/wiki") || LIST_RC=1
+  _after=$(_page_list "$WIKI_DIR") || LIVE_RC=1
+  WIKI_PAGE_COUNT=$(printf '%s\n' "$_staged" | grep -c .)
+  LIVE_PAGE_COUNT=$(printf '%s\n' "$_after" | grep -c .)
+  _tries="$_tries $WIKI_PAGE_COUNT/$LIVE_PAGE_COUNT"
+  # Retry only on a race: the live list moved (a page unlinked mid-copy by a reindex/autofix also
+  # makes cp exit 1 with "cannot stat"), cp lost only vanished entries, or the live listing failed.
+  _race=0
+  { [ "$_before" != "$_after" ] || [ "$_vanished" = 1 ] || [ "$LIVE_RC" -ne 0 ]; } && _race=1
+  if [ "$LIST_RC" -ne 0 ] || { [ "$CP_RC" -eq 0 ] && [ "$LIVE_RC" -eq 0 ] && [ "$_staged" = "$_after" ]; } \
+     || [ "$_race" = 0 ] || [ "$_attempt" -ge "$SNAPSHOT_ATTEMPTS" ]; then
+    break
+  fi
+  rm -rf "${DREAM_DIR:?}/staging/wiki"   # a failed removal surfaces as the mkdir failure above
+  _attempt=$((_attempt + 1))
+  sleep 2
+done
+SNAPSHOT_BYTES=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')
+if [ -z "$SNAPSHOT_FAIL_REASON" ]; then
+  if [ "$CP_RC" -ne 0 ]; then
+    SNAPSHOT_FAIL_REASON="cp -rp of wiki exited $CP_RC (partial snapshot) on attempt $_attempt/$SNAPSHOT_ATTEMPTS (staged/live per attempt:$_tries)"
+  elif [ "$LIST_RC" -ne 0 ] || [ "$LIVE_RC" -ne 0 ]; then
+    SNAPSHOT_FAIL_REASON="could not list wiki pages to verify the snapshot (find failed)"
+  elif [ "$_staged" != "$_after" ]; then
+    SNAPSHOT_FAIL_REASON="wiki snapshot incomplete: staged $WIKI_PAGE_COUNT of $LIVE_PAGE_COUNT live pages, page lists differ (staged/live per attempt:$_tries)"
+  fi
 fi
 if [ -n "$SNAPSHOT_FAIL_REASON" ]; then
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -217,11 +272,10 @@ if [ -d "$TRANSCRIPT_DIR" ]; then
   done < <(printf '%s' "$TRANSCRIPT_INDEX" | sort -k1,1r -k2,2rn | sed 's/^[^ ]* [^ ]* //')
 fi
 
-# Write status.json
-NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Write status.json. created_at is the pre-copy SNAP_AT, not now (see the snapshot block).
 jq -nc \
   --arg id "$DREAM_ID" \
-  --arg now "$NOW" \
+  --arg snap "$SNAP_AT" \
   --arg model "$MODEL" \
   --arg instr "$INSTRUCTIONS" \
   --arg pslug "$PROJECT_SLUG_RECORD" \
@@ -231,7 +285,7 @@ jq -nc \
   '{
     id: $id,
     status: "pending",
-    created_at: $now,
+    created_at: $snap,
     started_at: null,
     ended_at: null,
     archived_at: null,

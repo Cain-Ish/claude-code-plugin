@@ -48,15 +48,37 @@ r=$(RUN bash -c "source '$ROOT/scripts/lib.sh'; printf '{\"auto_accept\":\"safe\
 pass "sb_config_get returns a clean string under Windows jq"
 rm -rf "$T"
 
-# 3. 0.51.0: the buddy renderer reads 14 US-joined fields from ONE `jq -rn` line; the CR lands in
+# 3. 0.51.0: the buddy renderer reads its US-joined fields from ONE `jq -rn` line; the CR lands in
 #    the last field (mood), so "alert\r" matched no mood case and Windows never showed mood eyes.
 T=$(mktemp -d); mkdir -p "$T/.buddy"
 printf '{"identity":{"species":"dragon","eye":"@","hat":"none"}}\n' > "$T/buddy.json"
 printf '{"ts":%s,"kind":"gate","mood":"alert","line":"Verify gate fired","ttl_s":900}\n' "$(date +%s)" > "$T/.buddy/s1.json"
 out=$(printf '{"session_id":"s1"}' | RUN env BRAIN_DIR="$T" SB_BUDDY_COLS=120 NO_COLOR=1 bash "$ROOT/scripts/buddy-statusline.sh")
 printf '%s' "$out" | grep -q 'Verify gate fired' || fail "buddy renderer lost the event under Windows jq: $out"
-printf '%s' "$out" | grep -q 'ò  ó' || fail "buddy mood eyes lost under Windows jq (CR in the last read field): $out"
+printf '%s' "$out" | grep -qF 'ò    ó' || fail "buddy mood eyes lost under Windows jq (CR in the last read field): $out"
 pass "buddy-statusline.sh mood survives Windows jq (last US field CR-stripped)"
+rm -rf "$T"
+
+# 4. 0.53.0: persona-context's two-way [buddy: ] line is TWO jq -rn output lines (feed cursor, then
+#    the line). A CR left in either would poison the memo cursor (fromjson on "…}\r") or the context.
+T=$(mktemp -d); mkdir -p "$T/.buddy" "$T/.injected"
+printf '{"react":true}' > "$T/buddy.json"; : > "$T/.buddy/s2.seen"
+printf '{"goal":"g","goal_kw":"g","prompts":2,"t0":%s}' "$(( $(date +%s) - 600 ))" > "$T/.injected/s2.json"
+printf '{"ts":%s,"kind":"remembered","mood":"pleased","line":"Filed to memory: crlf probe","source":"stop-extract","ttl_s":900}\n' "$(( $(date +%s) - 5 ))" > "$T/.buddy/s2.log.jsonl"
+raw=$(printf '{"session_id":"s2","prompt":"now implement the crlf probe for the buddy line"}' \
+  | RUN env BRAIN_DIR="$T" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/persona-context.sh" 2>/dev/null)
+ctx=$(printf '%s' "$raw" | "$REALJQ" -r '.hookSpecificOutput.additionalContext // ""')
+printf '%s' "$ctx" | grep -q '^\[buddy: Kapi\]' || fail "buddy line missing under Windows jq: $ctx"
+printf '%s' "$ctx" | grep -qF 'crlf probe' || fail "fed event missing under Windows jq: $ctx"
+# Checked in the JSON itself (a real Windows jq -r would add its own CR on the way out): no byte 13
+# in any line of the buddy block.
+printf '%s' "$raw" | "$REALJQ" -e '.hookSpecificOutput.additionalContext | split("\n")
+  | map(select(startswith("[buddy: ") or startswith("Filed to memory") or startswith("[End untrusted")))
+  | length >= 3 and (map(explode | index(13)) | all(. == null))' >/dev/null \
+  || fail "a CR reached Claude's context from the buddy block"
+"$REALJQ" -e '(.buddy_fed | type) == "number" and (.buddy_fed_k | type) == "array"' "$T/.injected/s2.json" >/dev/null \
+  || fail "feed cursor not recorded under Windows jq (CR in the cursor line?): $(cat "$T/.injected/s2.json")"
+pass "persona-context two-way line + feed cursor survive Windows jq"
 rm -rf "$T"
 
 echo; echo "ALL PASS"

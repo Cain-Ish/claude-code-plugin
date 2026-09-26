@@ -44,3 +44,11 @@ node_modules/
 docs/.amreview.wf.js
 docs/.screview.wf.js
 docs/.wmreview.wf.js
+
+# Internal planning docs stay local (pre-1.0 diet, 2026-07-24; re-applied 2026-09-24).
+docs/audits/
+docs/plans/*
+# ...except the one plan CONSTITUTION.md cites as current direction and as where the protocol
+# lock gate is tracked: it must resolve in a fresh clone (0.53.0 review).
+!docs/plans/2026-09-24-repo-brain.md
+docs/researchs/

@@ -421,12 +421,14 @@ if [ "$NEW_LINES" -gt 500 ]; then
   EXTRACT_START=$((TOTAL_LINES - 500 + 1))
 fi
 
-# Substantive-session gate: count tool_use entries in the FULL delta.
+# Substantive-session gate: count tool_use entries in the FULL delta. The buddy's end-of-turn
+# buddy_react call is chat, not work: counting it would run the whole pipeline on every turn.
 TOOL_COUNT=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use")
   | .name
+  | select((. // "") | endswith("buddy_react") | not)
 ' 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "${TOOL_COUNT:-0}" -lt 1 ]; then

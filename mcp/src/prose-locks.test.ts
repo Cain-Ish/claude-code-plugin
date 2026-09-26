@@ -65,6 +65,7 @@ describe('SB_HOOK_PROFILE reaches every mapped kill switch (shim-or-source order
     ['SB_LOOP_DEAD_BANNER', 'session-load.sh'],
     ['SB_CODEMAP_ORIENT', 'session-load.sh'],
     ['SB_INTENT_SPINE', 'persona-context.sh'],
+    ['SB_BUDDY', 'persona-context.sh'],   // _buddy_exit runs on early exits, before lib.sh is sourced
     ['SB_INTENT_SPINE', 'plan-first-nudge.sh'],
     ['SB_INTENT_SPINE', 'persona-tool-guard.sh'],
     ['SB_INTENT_SPINE', 'stop-verify-gate.sh'],

@@ -17,10 +17,11 @@ const ALL_TOOLS = [
   'persona_think', 'persona_stats', 'persona_dismiss',
   'knowledge_relate', 'knowledge_neighbors',
   'code_map', 'code_neighbors',
+  'buddy_react',
 ];
 
 describe('server.ts tool-registration contract', () => {
-  it('all 23 tools register through registerJsonTool', () => {
+  it('all 24 tools register through registerJsonTool', () => {
     for (const t of ALL_TOOLS) {
       expect(new RegExp(`registerJsonTool\\(\\s*"${t}"`).test(src), `${t} must register via registerJsonTool`).toBe(true);
     }

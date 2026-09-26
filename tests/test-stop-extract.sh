@@ -172,6 +172,26 @@ NEW_HASH=$(content_hash "$PROJ")
 pass "Q&A-only transcript: predicate skips extraction"
 restore_path
 
+# --- Test 2b: a chat turn whose only tool call is the buddy's end-of-turn buddy_react is still
+# Q&A — counting it would run the whole Stop pipeline on every turn (0.53.0 two-way buddy).
+init_sandbox "buddy-react-only"
+cat > "$SANDBOX/transcript/session.jsonl" <<'EOF'
+{"type":"user","message":{"role":"user","content":"hi"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"},{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__buddy_react","input":{"line":"said hello","session":"s-12345678"}}]}}
+EOF
+stub_claude_json '{"recent_decisions":["should-not-merge"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+ORIG_HASH=$(content_hash "$PROJ")
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+NEW_HASH=$(content_hash "$PROJ")
+[ "$ORIG_HASH" = "$NEW_HASH" ] || fail "buddy-react-only: a buddy_react call made a chat turn substantive (PROJECT.md changed)"
+# The hash alone cannot tell: later stages may also decline to merge. The skip must be THIS gate
+# (gate= breadcrumbs with exit 0 are trace rows: sb_log_error routes them to the audit-log).
+grep -q 'gate=tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+  || fail "buddy-react-only: the substantive gate did not skip (no gate=tool-count-zero): $(tail -2 "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null)"
+pass "buddy_react-only turn: predicate skips extraction"
+restore_path
+
 # --- Test 3: claude unavailable + repeated session → [degraded] breadcrumb
 # is recorded exactly ONCE per day, not per session. Locks in the
 # dedup-per-day invariant in stop-extract.sh:157 ("Already recorded today —
