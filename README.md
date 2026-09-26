@@ -48,9 +48,10 @@ access — an `ANTHROPIC_API_KEY` or a Claude subscription; `sb auth doctor` wal
 
 ## What runs automatically
 
-Ten hook events wire the autonomous loop (`hooks/hooks.json`):
+Eleven hook events wire the autonomous loop (`hooks/hooks.json`):
 
-- **SessionStart** — ensures dirs, discovers installed plugins and tracked doc sources, loads the hot tier into context, banners pending/suggested dreams, delivers the working-agreement protocol card.
+- **SessionStart** — ensures dirs, discovers installed plugins and tracked doc sources, loads the hot tier into context, banners pending/suggested dreams, delivers the working-agreement protocol card; on `compact` it re-delivers a lean, ≤1536 B card (Goal/Direction, Handoff + provenance, up to 5 unfinished Plan items) so context is not lost after a compaction.
+- **PostCompact** — captures the compaction summary's Pending Tasks into `## Plan` (add-only, sanitized, injection-gated), so in-flight work survives a compaction even for OAuth-only users.
 - **UserPromptSubmit** — injects persona card, catalog, and relevant wiki hits per prompt (no LLM call).
 - **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, a plan-first gate — with `SB_INTENT_SPINE` on (the default), it hard-denies-once on multi-file code work with no plan on record (Gate A) and again on goal drift (Gate B); `SB_INTENT_SPINE=off` restores the original advisory-only nudge that never blocks — and the working-agreement guard (delegation tier checks, path-triggered repo memory, search-before-create), advisory-only.
 - **PostToolUse** — quality gate on writes, injection-pattern scan of tool returns (telemetry, never blocks), simplicity nudge on large single changes, observation ledger.
