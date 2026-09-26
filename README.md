@@ -106,10 +106,19 @@ the input box and shows, live, whether and how second brain is being used: the f
 and phase (plan / implement / verify), context usage, and the last memory event — hot tier
 delivered, pages offered for this prompt, a page **read** or a decision **pinned** through the MCP
 tools, extraction filed, a plan/verify gate holding, a credential-flow hold, a dream waiting for
-review. Rules-based, zero tokens on the statusline: it only reads state the hooks and the server
-already keep (`~/.second-brain/.buddy/<sid>.json`, `.buddy/_global.json` for MCP-side events,
-`.injected/<sid>.{json,phase}`). Wide terminals get a speech bubble and a small sprite; under
-~90 columns it collapses to one line.
+review — and what Claude itself says to you. Rules-based, zero tokens on the statusline: it only
+reads state the hooks and the server already keep (`~/.second-brain/.buddy/<sid>.json`,
+`.buddy/_global.json` for MCP-side events, `.injected/<sid>.{json,phase}`). Wide terminals get a
+speech bubble and Kapi, a capybara drawn and animated like the native `/buddy` — three frames, the
+15-step idle cycle with a blink, excited for 10 s after a new line (one step per second: the
+statusline's `refreshInterval` floor). Under ~90 columns it collapses to the one-line face `(·oo·)`.
+
+It is two-way, once you install it (installing is the consent) and only in sessions whose
+statusline actually renders. Every prompt, `persona-context.sh` adds one `[buddy: Kapi]` line
+(~80 tokens): the session id, what extraction filed since Claude's last turn, and Claude's own
+last line — the fed text framed as untrusted data. Claude ends the turn with the `buddy_react`
+MCP tool, and that line is what you read in the bubble, as "Claude: …". The cost is real: one extra
+tool call per turn (a model round-trip). `SB_BUDDY_REACT=off` keeps the display and drops it.
 
 The buddy also reminds Claude to use memory, once per session and only when it matters: eight or
 more prompts into implementation with nothing saved through the tools, `persona-context.sh` adds
@@ -117,24 +126,20 @@ one ~40-token line asking for the decision to be pinned. `/second-brain:buddy as
 answers from the knowledge base directly (BM25 + past-session recall, no LLM); `why` explains
 the last gate; `pending` lists what waits on you.
 
-Install with `/second-brain:buddy install` (or `sb buddy install`): it hatches the identity, writes
-a stable shim at `~/.second-brain/bin/buddy-statusline.sh` that resolves the newest installed
-plugin version at run time, points `~/.claude/settings.json`'s `statusLine` at it (backup written),
-and chains an existing statusline as line 1 — passed as `SB_BUDDY_CHAIN` inside that audited
+Install with `/second-brain:buddy install` (or `sb buddy install`): it writes a stable shim at `~/.second-brain/bin/buddy-statusline.sh` that resolves the newest installed
+plugin version at run time, points `~/.claude/settings.json`'s `statusLine` at it with
+`refreshInterval: 1` (the animation tick; backup written), and chains an existing statusline as line 1 — passed as `SB_BUDDY_CHAIN` inside that audited
 command, never read from a data file. `sb buddy uninstall` restores the previous statusline.
 Plugins cannot set `statusLine` themselves, so this step is always explicit.
 
-The sprite (species, eyes, hat, rarity — no stats) is the deterministic roll the native `/buddy`
-used: `accountUuid` from `~/.claude.json` + salt → wyhash (bit-exact with `Bun.hash`, pinned to the
-Zig reference vectors) → mulberry32. `sb buddy` prints it; `sb buddy name <x>` renames;
-`sb buddy --rehatch` recomputes after logging in if it hatched from the hostname fallback.
+`sb buddy` prints the card; `sb buddy name <x>` renames (default: Kapi).
 Kill switches: `SB_BUDDY=off` (everything, mapped by `SB_HOOK_PROFILE=minimal`), `SB_BUDDY_SPRITE=off`,
-`SB_BUDDY_ASCII=on`, `SB_BUDDY_NUDGE_AFTER=<prompts>` (default 8).
+`SB_BUDDY_ASCII=on`, `SB_BUDDY_REACT=off`, `SB_BUDDY_NUDGE_AFTER=<prompts>` (default 8).
 Design and roadmap: `docs/plans/2026-09-22-buddy-companion.md`.
 
 ## MCP tools
 
-The bundled local MCP server exposes 23 tools (`mcp/src/server.ts`):
+The bundled local MCP server exposes 24 tools (`mcp/src/server.ts`):
 
 - **Knowledge search & write** — `knowledge_search` (BM25 + optional ONNX vectors via RRF), `knowledge_fetch` (tiered page reads), `knowledge_stats`, `knowledge_reindex`, `knowledge_validate`, `pin_to_user`, `pin_to_project`, `archive_to_wiki`
 - **Graph** — `knowledge_relate`, `knowledge_neighbors` (typed, bi-temporal relationships; point-in-time walks)
@@ -142,6 +147,7 @@ The bundled local MCP server exposes 23 tools (`mcp/src/server.ts`):
 - **Episodic** — `episodic_search`, `episodic_read` over archived transcripts
 - **Persona** — `persona_think`, `persona_stats`, `persona_dismiss`
 - **Code map** — `code_map` (PageRank-ranked structure map), `code_neighbors` (import-graph blast radius)
+- **Buddy** — `buddy_react` (Claude's one line to you through the statusline capybara)
 
 `bin/sb` is a standalone CLI over the same index — `sb status`, `sb query`, `sb recall`,
 `sb pin`, `sb auth doctor` — no Claude session required.

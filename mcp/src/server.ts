@@ -24,7 +24,7 @@ import { codeNeighbors } from "./tools/codemap/code-neighbors.js";
 import { resolveActiveSlug as resolveActiveSlugFromDir, activeProjectDir } from "./tools/project-dir.js";
 import { shouldRebuildAfterPin, scheduleSerializedRebuild } from "./tools/jit-index.js";
 import { resolveBrainDir, resolveKnowledgeDir } from "./brain-paths.js";
-import { writeBuddyEvent, type BuddyKind, type BuddyMood } from "./buddy-events.js";
+import { writeBuddyEvent, buddyReact, type BuddyKind, type BuddyMood } from "./buddy-events.js";
 import { walkWiki } from "./tools/walk-wiki.js";
 import { guardDestructive } from "./nested-spawn-guard.js";
 
@@ -118,7 +118,7 @@ function buddyNote(tool: string, args: Record<string, unknown>, result: unknown)
     case "episodic_search": ev = ["read", "focused", `Searched past sessions for “${str(typeof args.query === "string" ? args.query : JSON.stringify(args.query), 48)}”`]; break;
     case "episodic_read": ev = ["read", "focused", "Read a past session transcript"]; break;
     case "knowledge_neighbors": ev = ["read", "focused", `Walked the graph from [[${str(args.slug, 48)}]]`]; break;
-    case "code_map": case "code_neighbors": ev = ["read", "focused", tool === "code_map" ? "Read the code map" : `Read the blast radius of ${str(args.file ?? args.path, 48)}`]; break;
+    case "code_map": case "code_neighbors": ev = ["read", "focused", tool === "code_map" ? "Read the code map" : `Read the blast radius of ${str(args.node, 48)}`]; break;
     case "pin_to_project": ev = ["remembered", "pleased", `Pinned to PROJECT.md ${str(args.section, 12)}: ${str(args.text, 60)}`]; break;
     case "pin_to_user": ev = ["remembered", "pleased", `Pinned to USER.md: ${str(args.text, 60)}`]; break;
     case "archive_to_wiki": ev = ["remembered", "pleased", `Archived to the wiki: [[${str(args.slug, 48)}]]`]; break;
@@ -535,6 +535,19 @@ registerJsonTool(
     }
     return result;
   }
+);
+
+// --- Buddy: Claude's half of the two-way layer (the other half is persona-context.sh's [buddy] line) ---
+registerJsonTool(
+  "buddy_react",
+  "Say one short line to the user through the buddy — the statusline capybara between you and second brain. Call it only when a [buddy: …] context line asks for it, once at the end of the turn: what you did or found, in 80 characters or fewer, with the session id quoted in that line.",
+  {
+    line: z.string().max(400).describe("One plain-text line, 80 characters or fewer: what you did or found this turn."),
+    mood: z.enum(["focused", "pleased", "alert", "puzzled", "waiting"]).optional().describe("Sets the buddy's eyes. Default 'focused'."),
+    session: z.string().optional().describe("The session id quoted in the [buddy: …] context line; without it nothing is shown."),
+  },
+  ({ line, mood, session }) => buddyReact(BRAIN_DIR, { line, mood, session }),
+  (h) => guardDestructive("buddy_react", h)
 );
 
 // --- Start ---

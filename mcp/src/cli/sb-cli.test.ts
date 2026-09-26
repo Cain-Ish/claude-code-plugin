@@ -98,19 +98,34 @@ describe('sb CLI', () => {
     expect(r.stderr).toContain('unknown subcommand');
   });
 
-  it('buddy hatches from --user-id, caches bones in buddy.json, keeps name', async () => {
-    writeFileSync(join(brainDir, 'buddy.json'), '{"name":"Ziutek"}\n', 'utf-8');
-    const r = await runSb(['buddy', '--user-id', '0f7a2d9e-6c1b-4b3e-9a8d-1234567890ab'], { brainDir, knowledgeDir });
+  it('buddy is always the capybara: no account roll, stale identity block dropped, name kept', async () => {
+    // A 0.51.0 hatch left rarity/eye/hat/shiny/seed_source here; none of it means anything now.
+    writeFileSync(join(brainDir, 'buddy.json'), JSON.stringify({
+      name: 'Ziutek', chain: 'echo prev',
+      identity: { rarity: 'uncommon', species: 'dragon', eye: '@', hat: 'tophat', shiny: false, seed_source: 'account', default_name: 'Tofu', version: 1 },
+    }) + '\n', 'utf-8');
+    const r = await runSb(['buddy'], { brainDir, knowledgeDir });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain('Ziutek');
-    expect(r.stdout).toContain('uncommon dragon');
-    expect(r.stdout).toContain('seed: arg');
+    expect(r.stdout).toContain('capybara');
+    expect(r.stdout).not.toMatch(/dragon|uncommon|★|seed:|tophat/);
     const cfg = JSON.parse(readFileSync(join(brainDir, 'buddy.json'), 'utf-8'));
+    expect(cfg.identity).toBeUndefined();
     expect(cfg.name).toBe('Ziutek');
-    expect(cfg.identity.species).toBe('dragon');
-    // Second call reads the cache (no --user-id needed) and reports the cached seed source.
+    expect(cfg.chain).toBe('echo prev');
+    // No stored name: the fixed default, never an account-derived one.
+    writeFileSync(join(brainDir, 'buddy.json'), '{}\n', 'utf-8');
     const r2 = await runSb(['buddy'], { brainDir, knowledgeDir });
-    expect(r2.stdout).toContain('uncommon dragon');
+    expect(r2.stdout).toContain('Kapi');
+    // --rehatch / --user-id are gone with the roll.
+    const r3 = await runSb(['buddy', '--rehatch'], { brainDir, knowledgeDir });
+    expect(r3.exitCode).toBe(2);
+    // names are printable: a control sequence would reach the terminal through the statusline
+    const r4 = await runSb(['buddy', 'name', `x${String.fromCodePoint(0x1b)}]0;t`], { brainDir, knowledgeDir });
+    expect(r4.exitCode).toBe(2);
+    const r5 = await runSb(['buddy', 'name', 'Capy', 'Bara'], { brainDir, knowledgeDir });
+    expect(r5.exitCode).toBe(0);
+    expect(JSON.parse(readFileSync(join(brainDir, 'buddy.json'), 'utf-8')).name).toBe('Capy Bara');
   });
 
   it('status reports project counts and PROJECT.md size', async () => {

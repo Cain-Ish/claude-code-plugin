@@ -7608,224 +7608,13 @@ async function unprocessedCount(brainDir2, slug) {
   return items.filter((i) => i.status === "unprocessed" || i.malformed).length;
 }
 
-// src/tools/buddy-identity-cli.ts
+// src/tools/buddy-config.ts
 import { promises as fs11 } from "fs";
 import { join as join10 } from "path";
-import { homedir as homedir2, hostname, userInfo } from "os";
-
-// src/buddy-identity.ts
-var SALT = "friend-2026-401";
-var SPECIES = [
-  "duck",
-  "goose",
-  "blob",
-  "cat",
-  "dragon",
-  "octopus",
-  "owl",
-  "penguin",
-  "turtle",
-  "snail",
-  "ghost",
-  "axolotl",
-  "capybara",
-  "cactus",
-  "robot",
-  "rabbit",
-  "mushroom",
-  "chonk"
-];
-var RARITIES = ["common", "uncommon", "rare", "epic", "legendary"];
-var RARITY_WEIGHTS = { common: 60, uncommon: 25, rare: 10, epic: 4, legendary: 1 };
-var RARITY_STARS = {
-  common: "\u2605",
-  uncommon: "\u2605\u2605",
-  rare: "\u2605\u2605\u2605",
-  epic: "\u2605\u2605\u2605\u2605",
-  legendary: "\u2605\u2605\u2605\u2605\u2605"
-};
-var EYES = ["\xB7", "\u2726", "\xD7", "\u25C9", "@", "\xB0"];
-var HATS = ["none", "crown", "tophat", "propeller", "halo", "wizard", "beanie", "tinyduck"];
-var MASK64 = (1n << 64n) - 1n;
-var SECRET = [0xa0761d6478bd642fn, 0xe7037ed1a0b428dbn, 0x8ebc6af09c88c6e3n, 0x589965cc75374cc3n];
-function mum(a, b) {
-  const x = (a & MASK64) * (b & MASK64);
-  return [x & MASK64, x >> 64n & MASK64];
-}
-function mix(a, b) {
-  const [lo, hi] = mum(a, b);
-  return (lo ^ hi) & MASK64;
-}
-function r8(b, o) {
-  let v = 0n;
-  for (let i = 0; i < 8; i++) v |= BigInt(b[o + i]) << BigInt(i * 8);
-  return v;
-}
-function r4(b, o) {
-  let v = 0n;
-  for (let i = 0; i < 4; i++) v |= BigInt(b[o + i]) << BigInt(i * 8);
-  return v;
-}
-function wyhash64(input, seed = 0n) {
-  const buf = typeof input === "string" ? new TextEncoder().encode(input) : input;
-  const len = buf.length;
-  let s0 = (seed ^ mix((seed ^ SECRET[0]) & MASK64, SECRET[1])) & MASK64;
-  let s1 = s0, s2 = s0;
-  let a, b;
-  if (len <= 16) {
-    if (len >= 4) {
-      const q = len >> 3 << 2;
-      a = (r4(buf, 0) << 32n | r4(buf, q)) & MASK64;
-      b = (r4(buf, len - 4) << 32n | r4(buf, len - 4 - q)) & MASK64;
-    } else if (len > 0) {
-      a = BigInt(buf[0]) << 16n | BigInt(buf[len >> 1]) << 8n | BigInt(buf[len - 1]);
-      b = 0n;
-    } else {
-      a = 0n;
-      b = 0n;
-    }
-  } else {
-    let i = 0;
-    if (len >= 48) {
-      while (i + 48 < len) {
-        s0 = mix((r8(buf, i) ^ SECRET[1]) & MASK64, (r8(buf, i + 8) ^ s0) & MASK64);
-        s1 = mix((r8(buf, i + 16) ^ SECRET[2]) & MASK64, (r8(buf, i + 24) ^ s1) & MASK64);
-        s2 = mix((r8(buf, i + 32) ^ SECRET[3]) & MASK64, (r8(buf, i + 40) ^ s2) & MASK64);
-        i += 48;
-      }
-      s0 = (s0 ^ s1 ^ s2) & MASK64;
-    }
-    while (i + 16 < len) {
-      s0 = mix((r8(buf, i) ^ SECRET[1]) & MASK64, (r8(buf, i + 8) ^ s0) & MASK64);
-      i += 16;
-    }
-    a = r8(buf, len - 16);
-    b = r8(buf, len - 8);
-  }
-  a = (a ^ SECRET[1]) & MASK64;
-  b = (b ^ s0) & MASK64;
-  [a, b] = mum(a, b);
-  return mix((a ^ SECRET[0] ^ BigInt(len)) & MASK64, (b ^ SECRET[1]) & MASK64);
-}
-function hashString(s) {
-  return Number(wyhash64(s) & 0xffffffffn);
-}
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = a + 1831565813 | 0;
-    let t = Math.imul(a ^ a >>> 15, 1 | a);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-function pick(rng, arr) {
-  return arr[Math.floor(rng() * arr.length)];
-}
-function rollRarity(rng) {
-  let roll = rng() * 100;
-  for (const r of RARITIES) {
-    roll -= RARITY_WEIGHTS[r];
-    if (roll < 0) return r;
-  }
-  return "common";
-}
-function generateBones(userId, salt = SALT) {
-  const rng = mulberry32(hashString(userId + salt));
-  const rarity = rollRarity(rng);
-  const species = pick(rng, SPECIES);
-  const eye = pick(rng, EYES);
-  const hat = rarity === "common" ? "none" : pick(rng, HATS);
-  const shiny = rng() < 0.01;
-  return { rarity, species, eye, hat, shiny };
-}
-var NAMES = [
-  "Pip",
-  "Ziutek",
-  "Mochi",
-  "Bolt",
-  "Nimbus",
-  "Tofu",
-  "Widget",
-  "Juniper",
-  "Sprocket",
-  "Pebble",
-  "Fennel",
-  "Byte",
-  "Clover",
-  "Dash",
-  "Ember",
-  "Fig",
-  "Gizmo",
-  "Hazel",
-  "Ivy",
-  "Jinx",
-  "Kelp",
-  "Lumen",
-  "Maple",
-  "Nori",
-  "Olive",
-  "Quill",
-  "Rune",
-  "Sage",
-  "Tinker",
-  "Umber",
-  "Vesper",
-  "Wren",
-  "Yarrow",
-  "Zephyr",
-  "Bramble",
-  "Cinder",
-  "Dot",
-  "Echo",
-  "Flint",
-  "Glim"
-];
-function defaultName(userId) {
-  const rng = mulberry32(hashString(userId + SALT + ":name"));
-  return NAMES[Math.floor(rng() * NAMES.length)];
-}
-function renderCard(bones, name) {
-  return `${name}  \u2014  ${bones.shiny ? "\u2728 " : ""}${bones.rarity} ${bones.species} ${RARITY_STARS[bones.rarity]}` + (bones.hat !== "none" ? `  (hat: ${bones.hat})` : "");
-}
-
-// src/tools/buddy-identity-cli.ts
-async function resolveSeed(userIdArg) {
-  if (userIdArg && userIdArg.trim()) return { seed: userIdArg.trim(), source: "arg" };
-  const cfgDir = cleanEnvPath(process.env.CLAUDE_CONFIG_DIR) || homedir2();
-  for (const f of [join10(cfgDir, ".claude.json"), join10(homedir2(), ".claude.json")]) {
-    try {
-      const j2 = JSON.parse(await fs11.readFile(f, "utf-8"));
-      const id = j2?.oauthAccount?.accountUuid;
-      if (typeof id === "string" && /^[0-9a-f-]{16,64}$/i.test(id)) return { seed: id, source: "account" };
-    } catch {
-    }
-  }
-  let user = "";
-  try {
-    user = userInfo().username;
-  } catch {
-  }
-  return { seed: `sb:${hostname()}:${user}`, source: "fallback" };
-}
-function hatch(seed, source) {
-  return { ...generateBones(seed), seed_source: source, hatched_at: (/* @__PURE__ */ new Date()).toISOString(), default_name: defaultName(seed), version: 1 };
-}
-async function writeIdentity(brainDir2, identity2) {
-  const file = join10(brainDir2, "buddy.json");
-  let cfg = {};
-  try {
-    const j2 = JSON.parse(await fs11.readFile(file, "utf-8"));
-    if (j2 && typeof j2 === "object" && !Array.isArray(j2)) cfg = j2;
-  } catch {
-  }
-  cfg.identity = identity2;
-  await fs11.mkdir(brainDir2, { recursive: true });
-  const tmp = `${file}.tmp.${process.pid}`;
-  await fs11.writeFile(tmp, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-  await fs11.rename(tmp, file);
-  return file;
+import { homedir as homedir2 } from "os";
+var DEFAULT_NAME = "Kapi";
+function renderCard(name) {
+  return ["    n______n", "   ( \xB7    \xB7 )", "   (   oo   )", "    `------\xB4", `   ${name} \u2014 capybara`].join("\n");
 }
 async function readConfig(brainDir2) {
   try {
@@ -7848,143 +7637,141 @@ async function patchConfig(brainDir2, patch) {
   await fs11.rename(tmp, file);
   return cfg;
 }
-function buddyName(cfg, identity2) {
-  if (typeof cfg.name === "string" && cfg.name.trim()) return cfg.name.trim().slice(0, 14);
-  return identity2?.default_name || "buddy";
+var UNPRINTABLE = /[\p{Cc}\p{Cf}\u2028\u2029]/u;
+function validName(name) {
+  return name.length >= 1 && name.length <= 14 && !UNPRINTABLE.test(name);
+}
+function buddyName(cfg) {
+  const n = typeof cfg.name === "string" ? cfg.name.trim().slice(0, 14) : "";
+  return n && validName(n) ? n : DEFAULT_NAME;
+}
+async function dropStaleIdentity(brainDir2) {
+  if (!("identity" in await readConfig(brainDir2))) return false;
+  await patchConfig(brainDir2, { identity: null });
+  return true;
+}
+function claudeConfigDir() {
+  return cleanEnvPath(process.env.CLAUDE_CONFIG_DIR) || join10(homedir2(), ".claude");
 }
 function settingsPath() {
-  const cfgDir = cleanEnvPath(process.env.CLAUDE_CONFIG_DIR) || join10(homedir2(), ".claude");
-  return join10(cfgDir, "settings.json");
+  return join10(claudeConfigDir(), "settings.json");
 }
 var posix2 = (p) => p.replace(/\\/g, "/");
 var shq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+var unshq = (s) => s.replace(/'\\''/g, `'`);
 function shimPath(brainDir2) {
   return join10(brainDir2, "bin", "buddy-statusline.sh");
 }
 function statuslineCommand(brainDir2, chain) {
   const env = chain ? `SB_BUDDY_CHAIN=${shq(chain)} ` : "";
-  return `${env}bash "${posix2(shimPath(brainDir2))}"`;
+  return `${env}bash ${shq(posix2(shimPath(brainDir2)))}`;
 }
-function shimBody(devRoot) {
+function parseOurCommand(command) {
+  const m = /^(?:SB_BUDDY_CHAIN='((?:[^']|'\\'')*)' )?bash (?:"([^"$`\\]*)"|'((?:[^']|'\\'')*)')$/.exec(command);
+  if (!m) return null;
+  const path2 = m[2] ?? unshq(m[3] ?? "");
+  if (!/[\\/]buddy-statusline\.sh$/.test(path2)) return null;
+  return { chain: m[1] !== void 0 ? unshq(m[1]) : null };
+}
+function cacheBaseOf(pluginRoot) {
+  const m = /^(.*[\\/]plugins[\\/]cache[\\/][^\\/]+[\\/]second-brain)[\\/][^\\/]+[\\/]?$/.exec(pluginRoot);
+  return m ? m[1] : null;
+}
+function shimBody(devRoot, cacheBase) {
+  const glob2 = cacheBase ? `${shq(posix2(cacheBase))}/*` : `"$_cfg"/plugins/cache/*/second-brain/*`;
   return `#!/bin/bash
 # buddy-statusline shim \u2014 generated by \`sb buddy install\` (do not hand-edit). Stable path that
 # survives plugin upgrades: resolves the newest installed second-brain version's renderer and
-# execs it with this process's stdin (the statusline JSON) and env (SB_BUDDY_CHAIN, COLUMNS).
+# sources it with this process's stdin (the statusline JSON) and env (SB_BUDDY_CHAIN, COLUMNS).
 set -u
-_r=""
-for _base in ${devRoot ? `"${posix2(devRoot)}"` : '""'} "$HOME"/.claude/plugins/cache/*/second-brain; do
-  [ -n "$_base" ] && [ -d "$_base" ] || continue
-  if [ -f "$_base/scripts/buddy-statusline.sh" ]; then _r="$_base/scripts/buddy-statusline.sh"; break; fi
-  for _v in $(ls -1 "$_base" 2>/dev/null | { sort -V 2>/dev/null || sort -t. -k1,1n -k2,2n -k3,3n; }); do
-    [ -f "$_base/$_v/scripts/buddy-statusline.sh" ] && _r="$_base/$_v/scripts/buddy-statusline.sh"
+_r=""; _rk=-1; _dev=${devRoot ? shq(posix2(devRoot)) : "''"}
+_cfg="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; _cfg="\${_cfg//\\\\//}"   # C:\\x \u2192 C:/x: a backslash path never globs
+if [ -n "$_dev" ] && [ -f "$_dev/scripts/buddy-statusline.sh" ]; then _r="$_dev/scripts/buddy-statusline.sh"
+else
+  for _d in ${glob2}; do
+    [[ "\${_d##*/}" =~ ^([0-9]+)\\.([0-9]+)\\.([0-9]+)$ ]] && [ -f "$_d/scripts/buddy-statusline.sh" ] || continue
+    _k=$(( 10#\${BASH_REMATCH[1]} * 1000000 + 10#\${BASH_REMATCH[2]} * 1000 + 10#\${BASH_REMATCH[3]} ))
+    [ "$_k" -gt "$_rk" ] && { _rk=$_k; _r="$_d/scripts/buddy-statusline.sh"; }
   done
-  [ -n "$_r" ] && break
-done
-[ -n "$_r" ] || exit 0
-exec bash "$_r"
+fi
+# fail loud, not blank: a pruned or renamed marketplace would otherwise just make the buddy vanish
+[ -n "$_r" ] || { printf 'buddy: no second-brain renderer found \u2014 run /second-brain:buddy install\\n'; exit 0; }
+. "$_r"
 `;
 }
-async function installStatusline(brainDir2, pluginRoot) {
-  const file = settingsPath();
-  let settings = {};
+var REFRESH_S = 1;
+var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+async function readSettings(file) {
   let raw = "";
   try {
     raw = await fs11.readFile(file, "utf-8");
   } catch {
+    return { raw: "", settings: {} };
   }
-  if (raw.trim()) {
-    const j2 = JSON.parse(raw);
-    if (!j2 || typeof j2 !== "object" || Array.isArray(j2)) throw new Error(`${file} is not a JSON object`);
-    settings = j2;
-  }
-  const inCache = /[\\/]\.claude[\\/]plugins[\\/]cache[\\/]/.test(pluginRoot);
+  if (!raw.trim()) return { raw, settings: {} };
+  const j2 = JSON.parse(raw);
+  if (!isObj(j2)) throw new Error(`${file} is not a JSON object`);
+  return { raw, settings: j2 };
+}
+async function writeSettings(file, settings) {
+  await fs11.mkdir(join10(file, ".."), { recursive: true });
+  const tmp = `${file}.tmp.${process.pid}`;
+  await fs11.writeFile(tmp, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  await fs11.rename(tmp, file);
+}
+async function installStatusline(brainDir2, pluginRoot) {
+  const file = settingsPath();
+  const { raw, settings } = await readSettings(file);
+  const cacheBase = cacheBaseOf(pluginRoot);
   const shim = shimPath(brainDir2);
   await fs11.mkdir(join10(brainDir2, "bin"), { recursive: true });
-  await fs11.writeFile(shim, shimBody(inCache ? null : pluginRoot), { encoding: "utf-8", mode: 493 });
-  const prev = settings.statusLine;
+  await fs11.writeFile(shim, shimBody(cacheBase ? null : pluginRoot, cacheBase), { encoding: "utf-8", mode: 493 });
+  await patchConfig(brainDir2, { react: true, chain: null, identity: null });
+  const prev = isObj(settings.statusLine) ? settings.statusLine : void 0;
   const prevCmd = prev && prev.type === "command" && typeof prev.command === "string" ? prev.command : "";
-  const ours = prevCmd.includes("buddy-statusline");
-  const cfg = await readConfig(brainDir2);
-  let chained = ours ? typeof cfg.chain === "string" && cfg.chain ? cfg.chain : null : prevCmd || null;
+  const parsed = prevCmd ? parseOurCommand(prevCmd) : null;
+  if (!parsed && prevCmd.includes("buddy-statusline")) {
+    throw new Error(`${file} statusLine runs buddy-statusline but is not the form sb buddy writes (hand-edited?) \u2014 fix or remove it, then re-run`);
+  }
+  const chained = parsed ? parsed.chain : prevCmd || null;
   const command = statuslineCommand(brainDir2, chained);
-  if (prevCmd === command) return { settings: file, backup: null, chained, command, shim };
-  if (chained && !ours) await patchConfig(brainDir2, { chain: chained });
+  const keep = parsed && typeof prev?.refreshInterval === "number" && prev.refreshInterval >= 1;
+  if (parsed && prevCmd === command && keep) return { settings: file, backup: null, chained, command, shim, changed: false };
+  if (!parsed) await patchConfig(brainDir2, { prev_statusline: prev ?? null });
   let backup = null;
   if (raw.trim()) {
     backup = `${file}.bak-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}`;
     await fs11.writeFile(backup, raw, "utf-8");
   }
-  settings.statusLine = { type: "command", command };
-  await fs11.mkdir(join10(file, ".."), { recursive: true });
-  const tmp = `${file}.tmp.${process.pid}`;
-  await fs11.writeFile(tmp, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-  await fs11.rename(tmp, file);
-  return { settings: file, backup, chained, command, shim };
+  settings.statusLine = { ...prev ?? {}, type: "command", command, refreshInterval: keep ? prev.refreshInterval : REFRESH_S };
+  await writeSettings(file, settings);
+  return { settings: file, backup, chained, command, shim, changed: true };
 }
 async function uninstallStatusline(brainDir2) {
   const file = settingsPath();
-  let settings = {};
-  let raw = "";
-  try {
-    raw = await fs11.readFile(file, "utf-8");
-  } catch {
-    return { settings: file, restored: null };
-  }
-  if (raw.trim()) settings = JSON.parse(raw);
-  const cur = settings.statusLine;
-  if (!cur || typeof cur.command !== "string" || !cur.command.includes("buddy-statusline")) return { settings: file, restored: null };
+  const { settings } = await readSettings(file);
+  const cur = isObj(settings.statusLine) ? settings.statusLine : void 0;
+  const parsed = cur && typeof cur.command === "string" ? parseOurCommand(cur.command) : null;
   const cfg = await readConfig(brainDir2);
-  const restored = typeof cfg.chain === "string" && cfg.chain ? cfg.chain : null;
-  if (restored) settings.statusLine = { type: "command", command: restored };
-  else delete settings.statusLine;
-  await patchConfig(brainDir2, { chain: null });
-  const tmp = `${file}.tmp.${process.pid}`;
-  await fs11.writeFile(tmp, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-  await fs11.rename(tmp, file);
+  await patchConfig(brainDir2, { react: null, chain: null, prev_statusline: null });
   try {
     await fs11.unlink(shimPath(brainDir2));
   } catch {
   }
-  return { settings: file, restored };
-}
-async function readCached(brainDir2) {
-  try {
-    const j2 = JSON.parse(await fs11.readFile(join10(brainDir2, "buddy.json"), "utf-8"));
-    return j2?.identity && typeof j2.identity.species === "string" ? j2.identity : null;
-  } catch {
-    return null;
-  }
-}
-async function main(argv) {
-  const flag = (n) => argv.includes(n);
-  const val = (n) => {
-    const i = argv.indexOf(n);
-    return i >= 0 ? argv[i + 1] : void 0;
-  };
-  const brainDir2 = resolveBrainDir(val("--brain-dir"));
-  let identity2 = flag("--rehatch") ? null : await readCached(brainDir2);
-  if (!identity2) {
-    const { seed, source } = await resolveSeed(val("--user-id"));
-    identity2 = hatch(seed, source);
-    if (flag("--write") || flag("--rehatch")) await writeIdentity(brainDir2, identity2);
-  }
-  if (flag("--card")) {
-    const name = buddyName(await readConfig(brainDir2), identity2);
-    process.stdout.write(renderCard(identity2, name) + `
-  seed: ${identity2.seed_source}${identity2.seed_source === "fallback" ? " (no Claude login found \u2014 log in and run: sb buddy --rehatch)" : ""}
-`);
+  if (!parsed) return { settings: file, restored: null, changed: false };
+  const restored = parsed.chain;
+  if (restored) {
+    const rec = isObj(cfg.prev_statusline) ? cfg.prev_statusline : void 0;
+    const next = { type: "command", command: restored };
+    if (rec && rec.command === restored) {
+      for (const k of ["padding", "refreshInterval"]) if (typeof rec[k] === "number") next[k] = rec[k];
+    }
+    settings.statusLine = next;
   } else {
-    process.stdout.write(JSON.stringify(identity2) + "\n");
+    delete settings.statusLine;
   }
-  return 0;
-}
-var invokedDirectly = process.argv[1] && /buddy-identity-cli/.test(process.argv[1]);
-if (invokedDirectly) {
-  main(process.argv.slice(2)).then((c) => process.exit(c)).catch((e) => {
-    process.stderr.write(`buddy-identity: ${e.message}
-`);
-    process.exit(1);
-  });
+  await writeSettings(file, settings);
+  return { settings: file, restored, changed: true };
 }
 
 // src/cli/sb.ts
@@ -7999,7 +7786,7 @@ Commands:
                                                Append an entry to a project's PROJECT.md
   status                                       Show hot-tier and wiki sizes
   auth [status|doctor]                         Show or fix the extractor auth mode
-  buddy [--rehatch] [--user-id <id>]           Show the buddy card (bones from your account hash)
+  buddy                                        Show the buddy card (the capybara, its name, mute state)
   buddy name <name> | mute | unmute            Rename (1-14 chars) / silence the bubble
   buddy install | uninstall                    Add / remove the buddy statusLine in settings.json
   help                                         Show this message
@@ -8287,11 +8074,15 @@ async function runSb(args, deps) {
     return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
   }
   if (cmd === "buddy") {
-    const sub = args[1] && !args[1].startsWith("--") ? args[1] : "";
+    if (args[1]?.startsWith("--")) {
+      errpush(`buddy: unknown option ${args[1]} (the account roll and --rehatch are gone)`);
+      return { stdout: "", stderr: err.join("\n"), exitCode: 2 };
+    }
+    const sub = args[1] ?? "";
     if (sub === "name") {
       const name = args.slice(2).join(" ").trim();
-      if (!name || name.length > 14) {
-        errpush("buddy name: 1-14 characters");
+      if (!validName(name)) {
+        errpush("buddy name: 1-14 printable characters");
         return { stdout: "", stderr: err.join("\n"), exitCode: 2 };
       }
       await patchConfig(deps.brainDir, { name });
@@ -8308,20 +8099,25 @@ async function runSb(args, deps) {
       const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || join11(here, "..", "..", "..", "..");
       try {
         if (sub === "install") {
-          if (!await readCached(deps.brainDir)) {
-            const { seed, source } = await resolveSeed(void 0);
-            await writeIdentity(deps.brainDir, hatch(seed, source));
-          }
+          await dropStaleIdentity(deps.brainDir);
           const r = await installStatusline(deps.brainDir, pluginRoot);
-          push(`statusLine set in ${r.settings}`);
-          push(`  command: ${r.command}`);
-          push(`  shim: ${r.shim} (resolves the newest installed plugin version at run time)`);
-          if (r.chained) push(`  previous statusline kept as line 1: ${r.chained}`);
-          if (r.backup) push(`  backup: ${r.backup}`);
-          push("restart Claude Code to see the buddy; undo: sb buddy uninstall");
+          if (!r.changed) {
+            push(`buddy statusLine already installed in ${r.settings} (shim refreshed: ${r.shim})`);
+          } else {
+            push(`statusLine set in ${r.settings} (refreshInterval 1 \u2014 the animation tick)`);
+            push(`  command: ${r.command}`);
+            push(`  shim: ${r.shim} (resolves the newest installed plugin version at run time)`);
+            if (r.chained) push(`  previous statusline kept as line 1: ${r.chained}`);
+            if (r.backup) push(`  backup: ${r.backup}`);
+            push("restart Claude Code to see the buddy; undo: sb buddy uninstall");
+          }
+          push("two-way chat on: each prompt carries one [buddy] line and Claude ends the turn with buddy_react");
+          push(`  (one extra tool call per turn; if Claude Code asks to allow buddy_react, choose "don't ask again";`);
+          push("   keep the display without it: SB_BUDDY_REACT=off)");
         } else {
           const r = await uninstallStatusline(deps.brainDir);
-          push(r.restored ? `statusLine restored to: ${r.restored}` : `buddy statusLine removed from ${r.settings}`);
+          if (!r.changed) push(`no buddy statusLine in ${r.settings} \u2014 nothing to remove (two-way chat off)`);
+          else push(r.restored ? `statusLine restored to: ${r.restored}` : `buddy statusLine removed from ${r.settings}`);
         }
       } catch (e) {
         errpush(`buddy ${sub}: ${e.message}`);
@@ -8329,18 +8125,13 @@ async function runSb(args, deps) {
       }
       return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
     }
-    const rehatch = args.includes("--rehatch");
-    const ui = args.indexOf("--user-id");
-    const userId = ui >= 0 ? args[ui + 1] : void 0;
-    let identity2 = rehatch ? null : await readCached(deps.brainDir);
-    if (!identity2) {
-      const { seed, source } = await resolveSeed(userId);
-      identity2 = hatch(seed, source);
-      await writeIdentity(deps.brainDir, identity2);
+    if (sub) {
+      errpush(`buddy: unknown subcommand ${sub}`);
+      return { stdout: "", stderr: err.join("\n"), exitCode: 2 };
     }
+    await dropStaleIdentity(deps.brainDir);
     const cfg = await readConfig(deps.brainDir);
-    push(renderCard(identity2, buddyName(cfg, identity2)));
-    push(`  seed: ${identity2.seed_source}` + (identity2.seed_source === "fallback" ? " (no Claude login found \u2014 log in, then: sb buddy --rehatch)" : ""));
+    push(renderCard(buddyName(cfg)));
     if (cfg.mute === true) push("  bubble: muted (sb buddy unmute)");
     push("  rename: sb buddy name <x>   statusline: sb buddy install");
     return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };

@@ -171,7 +171,7 @@ if [ ! -f "$DONE" ] && [ "${COUNT:-0}" -ge "$THRESH" ] 2>/dev/null; then
   else
     # Gate A deny — fires at most once per session (the .gate marker resolves above).
     : > "$STATE/$SID.gate" 2>/dev/null || true
-    REASON="[Plan gate] This session is editing its ${COUNT}th distinct code file with no plan on record. Denied once — state the plan: goal, files in scope, verify command — then retry this exact edit (the retry passes automatically and records the plan). Single-file fixes are exempt. Suppress: SB_INTENT_SPINE=off."
+    REASON="[Plan gate] This edit would make ${COUNT} distinct code files this session with no plan on record. Denied once — state the plan: goal, files in scope, verify command — then retry this exact edit (the retry passes automatically and records the plan). Single-file fixes are exempt. Suppress: SB_INTENT_SPINE=off."
     _audit "deny" "gate-a-plan-first" "$FP" "$REASON"
     command -v sb_buddy_event >/dev/null 2>&1 && sb_buddy_event "$SID" gate alert "Plan gate: ${COUNT} code files, no plan on record — state goal, files in scope, verify command, then retry (it passes)." plan-first-nudge
     jq -nc --arg r "$REASON" '{

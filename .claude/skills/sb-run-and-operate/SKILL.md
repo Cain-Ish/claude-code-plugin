@@ -52,9 +52,9 @@ The marketplace (`.claude-plugin/marketplace.json`) carries one plugin: `second-
 wires, via `.claude-plugin/plugin.json`:
 
 - **One MCP server** — `mcpServers: "./.claude-plugin/mcp.json"` → stdio server `knowledge-base`
-  = `node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js`, `alwaysLoad: true`. 23 tools as of
-  0.45.0 (`grep -c '^registerJsonTool(' mcp/src/server.ts` — `code_map`/`code_neighbors` landed
-  0.33.33). The bundles under `mcp/dist/` are
+  = `node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/server.bundle.js`, `alwaysLoad: true`. 24 tools as of
+  0.52.0 (`grep -c '^registerJsonTool(' mcp/src/server.ts` — `code_map`/`code_neighbors` landed
+  0.33.33, `buddy_react` 0.52.0). The bundles under `mcp/dist/` are
   **committed**, so a marketplace install needs no build step (`README.md:204`).
 - **Hooks** — declared in `hooks/hooks.json` (not plugin.json), across 10 events: SessionStart
   (dir scaffold + discovery + hot-tier load + dream banner + protocol card), UserPromptSubmit

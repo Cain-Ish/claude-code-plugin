@@ -47,6 +47,10 @@ OUT=$(printf '%s' "$(evt Write b.ts S1 "$big")" | bash "$SC" 2>/dev/null)
   || fail "2nd code file should be denied by Gate A (got: $OUT)"
 [ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecisionReason|test("state the plan: goal, files in scope, verify command — then retry")' >/dev/null 2>&1 \
   || fail "Gate A deny must name the exact retry path (got: $OUT)"
+# The count is a cardinal, never a suffixed ordinal ("2th"), and it includes the edit being
+# denied — only one file has actually been edited when the second one is held.
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecisionReason|(test("This edit would make 2 distinct code files") and (test("[0-9]th ")|not))' >/dev/null 2>&1 \
+  || fail "Gate A deny must state the file count as a plain number (got: $OUT)"
 [ -f "$BRAIN_DIR/.plan-nudge/S1.gate" ] || fail "Gate A deny marker missing"
 pass "Gate A: deny-once with fact-forcing retry instruction"
 

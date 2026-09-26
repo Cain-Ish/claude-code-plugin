@@ -2,7 +2,9 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { isAbsolute, join } from 'path';
 import { homedir, tmpdir } from 'os';
 import { promises as fsp, mkdtempSync } from 'fs';
-import { toBashPath, buildSnapshotArgs, resolveBashExePure, brainDir, dreamStatus, dreamDiscard, dreamCancel, dreamCreate } from './dream.js';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { toBashPath, buildSnapshotArgs, resolveBashExePure, brainDir, dreamStatus, dreamDiscard, dreamCancel, dreamCreate, snapshotTimeoutMs, snapshotFailureReason } from './dream.js';
 import { cleanEnvPath } from './../path-guard.js';
 
 describe('toBashPath (Windows -> bash argv path)', () => {
@@ -88,6 +90,78 @@ describe('dreamCreate — transcript_filter.project_slug validation (review foll
     // buildSnapshotArgs already covers "all" behavior; this just documents that dreamCreate's
     // new guard does not reject the one non-slug-shaped value the field is allowed to carry.
     expect(buildSnapshotArgs({ transcript_filter: { project_slug: 'all' } }, 'proja')).toEqual(['--max-count', '50']);
+  });
+});
+
+describe('dreamCreate — snapshot wall clock (2026-09-24)', () => {
+  // A 30s kill on a ~950-page wiki under load returned a bare "Command failed: <cmd>" while
+  // the orphaned script finished anyway and left a pending dream behind.
+  const saved = process.env.SB_DREAM_CREATE_TIMEOUT_MS;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.SB_DREAM_CREATE_TIMEOUT_MS;
+    else process.env.SB_DREAM_CREATE_TIMEOUT_MS = saved;
+  });
+
+  it('defaults to 5 min and honours an override of at least 30s', () => {
+    delete process.env.SB_DREAM_CREATE_TIMEOUT_MS;
+    expect(snapshotTimeoutMs()).toBe(300_000);
+    process.env.SB_DREAM_CREATE_TIMEOUT_MS = '900000';
+    expect(snapshotTimeoutMs()).toBe(900_000);
+    process.env.SB_DREAM_CREATE_TIMEOUT_MS = '5000';   // below the floor: ignored
+    expect(snapshotTimeoutMs()).toBe(300_000);
+    process.env.SB_DREAM_CREATE_TIMEOUT_MS = 'soon';
+    expect(snapshotTimeoutMs()).toBe(300_000);
+    process.env.SB_DREAM_CREATE_TIMEOUT_MS = '45000.5';      // execFile throws ERR_OUT_OF_RANGE
+    expect(snapshotTimeoutMs()).toBe(300_000);
+    process.env.SB_DREAM_CREATE_TIMEOUT_MS = '3000000000';   // past 2^31-1: the timer fires at 1 ms
+    expect(snapshotTimeoutMs()).toBe(300_000);
+    process.env.SB_DREAM_CREATE_TIMEOUT_MS = '30000';        // both bounds are inclusive
+    expect(snapshotTimeoutMs()).toBe(30_000);
+    process.env.SB_DREAM_CREATE_TIMEOUT_MS = '2147483647';
+    expect(snapshotTimeoutMs()).toBe(2_147_483_647);
+  });
+
+  it('classifies the error Node really throws on an execFile timeout', async () => {
+    const real = await promisify(execFile)(process.execPath, ['-e', 'setTimeout(() => {}, 9000)'], { timeout: 200 })
+      .then(() => null, (e: unknown) => e);
+    expect(real).not.toBeNull();
+    expect(snapshotFailureReason(real, 200, 'win32', '/b/dreams')).toMatch(/timed out after 0s/);
+  });
+
+  it('dreamCreate passes the snapshot timeout to exec and routes failures through the helper', async () => {
+    // Source-scan: the pure helpers are covered above; this pins that dreamCreate still uses
+    // them (bug (b) was a hardcoded `timeout: 30_000` plus a pass-through of err.message).
+    const src = await fsp.readFile(join(__dirname, 'dream.ts'), 'utf8');
+    const body = src.slice(src.indexOf('export async function dreamCreate'), src.indexOf('export interface DreamStatusArgs'));
+    expect(body).toMatch(/const timeoutMs = snapshotTimeoutMs\(\)/);
+    expect(body).toMatch(/timeout: timeoutMs/);
+    expect(body).toMatch(/snapshotFailureReason\(err, timeoutMs\)/);
+    expect(body).not.toMatch(/timeout: \d/);
+  });
+
+  const killed = () => Object.assign(new Error('Command failed: bash dream-snapshot.sh --max-count 50'),
+    { killed: true, signal: 'SIGTERM', stderr: '' });
+
+  it('names a timeout kill and, on Windows, warns the snapshot may still be running', () => {
+    const reason = snapshotFailureReason(killed(), 300_000, 'win32', '/b/dreams');
+    expect(reason).toMatch(/timed out after 300s/);
+    expect(reason).toMatch(/status\.json/);
+    expect(reason).toMatch(/\/b\/dreams/);
+    expect(reason).toMatch(/SB_DREAM_CREATE_TIMEOUT_MS/);
+    expect(reason).not.toMatch(/Command failed/);
+  });
+
+  it('on POSIX says the snapshot stopped rather than that it may still finish', () => {
+    const reason = snapshotFailureReason(killed(), 300_000, 'linux', '/b/dreams');
+    expect(reason).toMatch(/timed out after 300s/);
+    expect(reason).toMatch(/stopped/);
+    expect(reason).not.toMatch(/keep running/);
+  });
+
+  it('keeps the script stderr for an ordinary failure', () => {
+    const err = Object.assign(new Error('Command failed'),
+      { killed: false, stderr: 'error: 2 completed dreams are unreviewed\n' });
+    expect(snapshotFailureReason(err, 300_000, 'win32', '/b/dreams')).toBe('error: 2 completed dreams are unreviewed');
   });
 });
 

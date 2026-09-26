@@ -44,3 +44,8 @@ node_modules/
 docs/.amreview.wf.js
 docs/.screview.wf.js
 docs/.wmreview.wf.js
+
+# Internal planning docs stay local (pre-1.0 diet, 2026-07-24; re-applied 2026-09-24).
+docs/audits/
+docs/plans/
+docs/researchs/
