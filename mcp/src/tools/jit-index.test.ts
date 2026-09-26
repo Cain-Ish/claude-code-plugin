@@ -3,7 +3,10 @@ import { readFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { buildJitIndex, rebuildJitIndex, shouldRebuildAfterPin, type JitSourcePage } from './jit-index.js';
+import {
+  buildJitIndex, rebuildJitIndex, shouldRebuildAfterPin, scheduleSerializedRebuild,
+  type JitSourcePage, type GitRunner,
+} from './jit-index.js';
 
 const repoFiles = ['scripts/lib.sh', 'mcp/src/tools/a.ts', 'tests/x.sh'];
 
@@ -280,5 +283,71 @@ describe('shouldRebuildAfterPin (repo-brain S2 review fix — MEDIUM: cross-proj
   });
   it('no resolvable active slug never rebuilds', () => {
     expect(shouldRebuildAfterPin(true, 'A', undefined)).toBe(false);
+  });
+});
+
+describe('scheduleSerializedRebuild — per-slug rebuild ordering (repo-brain S2 review fix)', () => {
+  async function tmpOpts() {
+    const root = await fs.mkdtemp(join(tmpdir(), 'jit-serialize-'));
+    const brainDir = join(root, 'brain');
+    const knowledgeDir = join(root, 'knowledge');
+    await fs.mkdir(join(brainDir, 'projects', 'demo'), { recursive: true });
+    await fs.mkdir(join(knowledgeDir, 'wiki'), { recursive: true });
+    await fs.writeFile(join(brainDir, 'projects', 'demo', 'PROJECT.md'), '# PROJECT: demo\n## Conventions\n');
+    return { brainDir, knowledgeDir, slug: 'demo', repoRoot: root };
+  }
+
+  // The bug this closes: server.ts's pin_to_project handler kicks off a fire-and-forget
+  // `rebuildJitIndex(...)` after every pin. Two pins to the SAME slug in quick succession (a
+  // realistic sequence — e.g. two `pin_to_project` calls back to back) fire two independent
+  // rebuilds. If the FIRST one happens to run slower (bigger wiki scan, slower git), it can
+  // finish AFTER the second and silently overwrite the newer index with stale data. This test
+  // simulates exactly that: pin A is scheduled first but its `git` call is held open behind a
+  // gate; pin B is scheduled right after. Without serialization B (fast) would write first and A
+  // (slow) would clobber it last, leaving the STALE result on disk. With scheduleSerializedRebuild,
+  // B's rebuild must not even START until A's has fully settled, so B always writes last.
+  it('a slower first rebuild can never finish last and overwrite a second, faster rebuild for the same slug', async () => {
+    const opts = await tmpOpts();
+    const idxPath = join(opts.brainDir, 'projects', 'demo', 'jit-index.json');
+
+    let releaseA: () => void = () => {};
+    const gate = new Promise<void>(resolve => { releaseA = resolve; });
+    const slowRunGitA: GitRunner = async (args: string[]) => {
+      if (args[0] === 'ls-files') await gate; // A's git call blocks until the test releases it
+      return args[0] === 'ls-files' ? '' : 'aaaaaaa1\n';
+    };
+    const fastRunGitB: GitRunner = async (args: string[]) => (args[0] === 'ls-files' ? '' : 'bbbbbbb2\n');
+
+    const chains = new Map<string, Promise<void>>();
+    // Pin A: scheduled first, rebuild is slow.
+    const a = scheduleSerializedRebuild(chains, 'demo', { ...opts, runGit: slowRunGitA });
+    // Pin B: scheduled immediately after, rebuild is fast.
+    const b = scheduleSerializedRebuild(chains, 'demo', { ...opts, runGit: fastRunGitB });
+
+    // Let A's git call resolve only now, after B has already been queued behind it — proving
+    // B was serialized behind A rather than racing it.
+    releaseA();
+    await Promise.all([a, b]);
+
+    const finalIndex = JSON.parse(await fs.readFile(idxPath, 'utf-8'));
+    // The LATER pin (B) must be the one reflected on disk, regardless of A's speed.
+    expect(finalIndex.git_rev).toBe('bbbbbbb2');
+  });
+
+  it("a rebuild failure for one pin never blocks a later pin for the same slug from running", async () => {
+    const opts = await tmpOpts();
+    const idxPath = join(opts.brainDir, 'projects', 'demo', 'jit-index.json');
+    const chains = new Map<string, Promise<void>>();
+
+    const failingRunGit = async () => {
+      throw Object.assign(new Error('spawn git ENOBUFS'), { code: 'ENOBUFS' });
+    };
+    const workingRunGit = async (args: string[]) => (args[0] === 'ls-files' ? '' : 'cccccc3\n');
+
+    await scheduleSerializedRebuild(chains, 'demo', { ...opts, runGit: failingRunGit });
+    await scheduleSerializedRebuild(chains, 'demo', { ...opts, runGit: workingRunGit });
+
+    const finalIndex = JSON.parse(await fs.readFile(idxPath, 'utf-8'));
+    expect(finalIndex.git_rev).toBe('cccccc3');
   });
 });

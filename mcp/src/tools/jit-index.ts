@@ -363,3 +363,30 @@ export async function rebuildJitIndex(opts: RebuildJitIndexOpts): Promise<JitInd
 export function shouldRebuildAfterPin(pinOk: boolean, slug: string, activeSlug: string | undefined): boolean {
   return pinOk && activeSlug !== undefined && slug === activeSlug;
 }
+
+/** Chains background JIT-index rebuilds per slug so two rebuilds for the SAME slug can never
+ *  race. Without this, an earlier rebuild (kicked off by an earlier pin) that happens to run
+ *  slower — a bigger wiki scan, a slower `git ls-files` — could finish AFTER a later rebuild
+ *  (kicked off by a newer pin) and silently overwrite the newer, correct index with stale data.
+ *  Chaining onto `chains.get(slug)` means rebuild N+1 only STARTS once rebuild N has fully
+ *  settled for that slug, so writes for one slug are strictly ordered; different slugs still
+ *  rebuild concurrently (separate map entries). `.catch(() => {})` on the prior link is required
+ *  — without it, a failed rebuild N would permanently reject the chain and every later rebuild
+ *  for that slug would silently never run (`.then` never fires downstream of a rejected promise).
+ *  server.ts owns one `chains` Map per process (one entry per slug) and calls this after every
+ *  pin that passes shouldRebuildAfterPin. Exported (rather than kept inline in server.ts) because
+ *  server.ts itself cannot be imported in a test — module load connects the stdio transport. */
+export function scheduleSerializedRebuild(
+  chains: Map<string, Promise<void>>,
+  slug: string,
+  opts: RebuildJitIndexOpts,
+): Promise<void> {
+  const prior = chains.get(slug) ?? Promise.resolve();
+  const next = prior
+    .catch(() => {})
+    .then(() => rebuildJitIndex(opts))
+    .then(() => undefined)
+    .catch(e => console.error(JSON.stringify({ event: 'jit-index-rebuild-failed', err: String(e) })));
+  chains.set(slug, next);
+  return next;
+}

@@ -103,17 +103,21 @@ Context is the reader's working memory extended into the session. Every token th
 
 ### 11. Route each step to the cheapest model tier that can do it
 
-Three tiers, chosen by job shape:
+Three tiers, chosen by job shape and resolved per session — never a hardcoded model name.
+`model-ladder.json` names them `fast`/`mid`/`deep` (protocol names `SCOUT`/`DO`/`THINK`) and
+`sb_resolve_model <tier> dispatch` walks that tier's ladder to whatever alias is live right
+now; today that lands on `haiku`/`sonnet`/`opus` respectively, shown below only as the
+CURRENT example, not a value to hardcode.
 
-| Tier | Alias | Use for |
-|------|-------|---------|
-| SCOUT | `haiku` | Lookups, file location, grep fan-out, "does X exist", log skims, format checks |
-| DO | `sonnet` | Bounded implementation with a clear spec, test writing, mechanical refactors, doc updates |
-| THINK | `opus` (or the best available) | Architecture, design tradeoffs, adversarial review, debugging with an unknown cause, anything where a wrong answer is expensive |
+| Tier | Resolves via (today's alias) | Use for |
+|------|-------------------------------|---------|
+| SCOUT (`fast`) | `sb_resolve_model fast dispatch` — today `haiku` | Lookups, file location, grep fan-out, "does X exist", log skims, format checks |
+| DO (`mid`) | `sb_resolve_model mid dispatch` — today `sonnet` | Bounded implementation with a clear spec, test writing, mechanical refactors, doc updates |
+| THINK (`deep`) | `sb_resolve_model deep dispatch` — today `opus` (or the best available) | Architecture, design tradeoffs, adversarial review, debugging with an unknown cause, anything where a wrong answer is expensive |
 
 - Never spend THINK on a SCOUT job. Never spend SCOUT on a THINK job and then redo it.
 - The main conversation stays THINK-grade for judgment. Push volume (reading many files, running searches, grinding a checklist) into subagents.
-- Name the tier when delegating: `model: haiku` for scouts, `model: sonnet` for bounded work, `model: opus` for reviews and design.
+- Name the tier when delegating, not a literal model: SCOUT/`fast` for scouts, DO/`mid` for bounded work, THINK/`deep` for reviews and design — let the ladder resolve each to the live alias.
 - One reviewer per touched surface, run in parallel, at THINK tier. A single review pass is not enough for anything that ships.
 - Source of truth: `skills/using-second-brain/protocol.md`; the SessionStart card and role cards are rendered from it and `gate=delegation` rows measure adherence.
 

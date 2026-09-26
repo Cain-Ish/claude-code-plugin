@@ -397,8 +397,17 @@ pass "stop rebuild: SB_JIT=off does not invoke jit-index-cli.bundle.js"
 # the JIT rebuild — which exists only to keep pg_jit's index fresh — must not pay a node spawn
 # either. stop-extract.sh sources lib.sh unconditionally, so SB_HOOK_PROFILE=minimal's
 # SB_PROTOCOL_GUARD:=off mapping is already in effect by the time this block runs.
+# A FRESH session_id (S9pg) is required here, not the shared S9 above: S9's extraction marker
+# already advanced to TOTAL_LINES from the very first call in this section, so a THIRD call
+# reusing S9 against the same unchanged transcript would hit stop-extract.sh's own
+# "no-new-lines" gate and exit before ever reaching the JIT block at all — passing this
+# assertion for the wrong reason regardless of whether the SB_PROTOCOL_GUARD check exists.
+printf 'demo' > "$RBRAIN/.injected/S9pg.slug"
+: > "$RBRAIN/projects/demo/jit-index.json"
+touch -t 202001010000 "$RBRAIN/projects/demo/jit-index.json"
+STOP_PAYLOAD_PG=$(jq -nc --arg t "$TRANSCRIPT" --arg c "$RREPO" '{transcript_path:$t,cwd:$c,session_id:"S9pg"}')
 : > "$NODEARGV"
-printf '%s' "$STOP_PAYLOAD" \
+printf '%s' "$STOP_PAYLOAD_PG" \
   | PATH="$NODEDIR:$PATH" BRAIN_DIR="$RBRAIN" HOME="$HOME" KNOWLEDGE_DIR="$RKNOW" CLAUDE_PROJECT_DIR="$RREPO" \
     CLAUDE_PLUGIN_ROOT="$PROOT" SB_EXTRACT=off SB_PROTOCOL_GUARD=off bash "$SE" >/dev/null 2>&1
 [ -s "$NODEARGV" ] && fail "SB_PROTOCOL_GUARD=off must not invoke the rebuild (argv: $(cat "$NODEARGV" 2>/dev/null))"

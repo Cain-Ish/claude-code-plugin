@@ -33412,6 +33412,13 @@ async function rebuildJitIndex(opts) {
 function shouldRebuildAfterPin(pinOk, slug, activeSlug) {
   return pinOk && activeSlug !== void 0 && slug === activeSlug;
 }
+function scheduleSerializedRebuild(chains, slug, opts) {
+  const prior = chains.get(slug) ?? Promise.resolve();
+  const next = prior.catch(() => {
+  }).then(() => rebuildJitIndex(opts)).then(() => void 0).catch((e) => console.error(JSON.stringify({ event: "jit-index-rebuild-failed", err: String(e) })));
+  chains.set(slug, next);
+  return next;
+}
 
 // src/buddy-events.ts
 import { promises as fs21 } from "fs";
@@ -33480,11 +33487,12 @@ var BRAIN_DIR = resolveBrainDir();
 function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
+var jitRebuildChains = /* @__PURE__ */ new Map();
 var server = new McpServer(
   { name: "knowledge-base", version: "2.9.0" },
   {
     capabilities: { logging: {} },
-    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions/conventions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
   }
 );
 function categorizeFile(filePath) {
@@ -33595,7 +33603,12 @@ registerJsonTool(
   async ({ text, slug, section, reasoning, rejected, supersedes }) => {
     const result = await pinToProject({ text, slug, section, reasoning, rejected, supersedes });
     if (shouldRebuildAfterPin(result.ok, slug, resolveActiveSlug2())) {
-      void rebuildJitIndex({ brainDir: BRAIN_DIR, knowledgeDir: resolveKnowledgeDir(), slug, repoRoot: activeProjectDir() }).catch((e) => console.error(JSON.stringify({ event: "jit-index-rebuild-failed", err: String(e) })));
+      void scheduleSerializedRebuild(jitRebuildChains, slug, {
+        brainDir: BRAIN_DIR,
+        knowledgeDir: resolveKnowledgeDir(),
+        slug,
+        repoRoot: activeProjectDir()
+      });
     }
     return result;
   },

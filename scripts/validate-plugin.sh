@@ -193,6 +193,21 @@ if [ -z "$ALLOWED_MODEL_ALIASES" ]; then
   echo "FAIL: model-ladder.json missing or has no dispatch_aliases at $PLUGIN_ROOT/model-ladder.json (needed for the agent model: check)"
   ERRORS=$((ERRORS + 1))
 fi
+# Normalize a raw `key: value` frontmatter scalar the same way protocol-guard.sh's pin-file
+# reader does (its own model:-line parser): strip a trailing `# comment`, trailing whitespace,
+# then one layer of surrounding quotes — so `model: "haiku"`, `model: haiku  # fast`, and
+# `model: 'haiku'` all normalize to the bare alias `haiku` instead of failing validation on
+# a value the guard itself would have accepted at runtime.
+_vp_normalize_scalar() {
+  local v="$1"
+  v="${v%%#*}"
+  v="${v%"${v##*[![:space:]]}"}"
+  case "$v" in
+    \"*\") v="${v#\"}"; v="${v%\"}" ;;
+    \'*\') v="${v#\'}"; v="${v%\'}" ;;
+  esac
+  printf '%s' "$v"
+}
 while IFS= read -r agent_file; do
   if head -1 "$agent_file" | grep -q "^---"; then
     frontmatter=$(awk '/^---$/{n++; next} n==1' "$agent_file")
@@ -201,6 +216,7 @@ while IFS= read -r agent_file; do
       ERRORS=$((ERRORS + 1))
     fi
     agent_model=$(echo "$frontmatter" | grep "^model:" | head -1 | sed 's/^model:[[:space:]]*//' | tr -d '\r')
+    agent_model=$(_vp_normalize_scalar "$agent_model")
     if [ -z "$agent_model" ]; then
       echo "FAIL: $(basename "$agent_file") missing 'model' in frontmatter"
       ERRORS=$((ERRORS + 1))
@@ -209,6 +225,7 @@ while IFS= read -r agent_file; do
       ERRORS=$((ERRORS + 1))
     fi
     agent_effort=$(echo "$frontmatter" | grep "^effort:" | head -1 | sed 's/^effort:[[:space:]]*//' | tr -d '\r')
+    agent_effort=$(_vp_normalize_scalar "$agent_effort")
     case "$agent_effort" in
       low|medium|high|xhigh|max) : ;;
       *)
@@ -216,6 +233,9 @@ while IFS= read -r agent_file; do
         ERRORS=$((ERRORS + 1))
         ;;
     esac
+  else
+    echo "FAIL: $(basename "$agent_file") has no YAML frontmatter (missing leading '---')"
+    ERRORS=$((ERRORS + 1))
   fi
 done < <(find "$PLUGIN_ROOT/agents" -name "*.md" -type f 2>/dev/null)
 

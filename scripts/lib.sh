@@ -3038,7 +3038,10 @@ sb_repo_key() {
 # fresh (bash `-nt` against every present layer, no stat spawn). A repo layer can NEVER set
 # lock:true (stripped + violation, whatever else it changes); a P/U lock:true survives unless a
 # higher layer's action rank is >= the locked action's AND it does not disable the rule — losing
-# attempts are dropped and recorded in .violations[]. The repo layer may only contribute a
+# attempts are dropped and recorded in .violations[]. A repo override of an existing UNLOCKED
+# P/U rule may only add fields or raise the action: enabled:false, a lower rank, or a retarget
+# of tool/match_command/match_path/replace/scope to a different value is likewise dropped and
+# recorded (attempted: disable | <action> | retarget). The repo layer may only contribute a
 # warn/ask/deny verdict: a repo-authored entry with action "rewrite" (or carrying a `replace`)
 # is rejected wholesale, recorded as an "attempted:rewrite" violation, and any prior rule for
 # that name survives untouched — a repo-committed rules.json can never auto-approve a command
@@ -3212,6 +3215,34 @@ if ($used|length) == 0 then empty else
                 {rule: $old, viol: [{name:$rname, layer:$layer.name,
                     attempted: (if $wantDisable then "disable"
                                 elif $wantUnlock then "unlock"
+                                elif $wantRetarget then "retarget"
+                                else $na end)}]}
+              end
+          elif ($layer.name=="repo") then
+            # $old exists, is UNLOCKED, and this is the repo layer overriding it (plugin-
+            # or user-authored). The contract (skills/upgrade/migrations/0.52.0.md): the
+            # repo layer may only ADD to or RAISE an unlocked action (warn->ask->deny),
+            # never disable it or lower its rank — same shape as the locked-rule guard
+            # above, minus unlock (nothing to unlock). Retargeting tool/match_command/
+            # match_path/replace/scope to a DIFFERENT value is rejected too: pointing the
+            # match of an existing rule at `^never-matches$` is a disable in disguise, and
+            # no "add or raise" needs it (a repo that wants a wider match adds its OWN rule).
+            # Restating the same value verbatim is not a retarget (see the locked branch).
+            # NB: this whole program is a single-quoted bash string — no apostrophes here.
+            (fld($new;"enabled";true)==false) as $wantDisable
+            | ((($new|has("tool")) and ($new.tool != fld($old;"tool";null)))
+               or (($new|has("match_command")) and ($new.match_command != fld($old;"match_command";null)))
+               or (($new|has("match_path")) and ($new.match_path != fld($old;"match_path";null)))
+               or (($new|has("replace")) and ($new.replace != fld($old;"replace";null)))
+               or (($new|has("scope")) and ($new.scope != fld($old;"scope";null)))) as $wantRetarget
+            | (fld($new;"action"; fld($old;"action";"warn"))) as $na
+            | ($wantDisable or $wantRetarget or
+               ((rankOf($na)) < (rankOf(fld($old;"action";"warn"))))) as $rejected
+            | if ($rejected|not) then
+                {rule: (($old + $new) + {source:$layer.name}), viol: []}
+              else
+                {rule: $old, viol: [{name:$rname, layer:$layer.name,
+                    attempted: (if $wantDisable then "disable"
                                 elif $wantRetarget then "retarget"
                                 else $na end)}]}
               end

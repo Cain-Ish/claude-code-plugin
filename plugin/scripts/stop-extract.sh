@@ -382,10 +382,12 @@ fi
 
 # Repo-brain JIT index freshness rebuild (Slice 2, docs/plans/2026-09-24-repo-brain.md §F) —
 # placed AFTER the telemetry block above so a failure here can never lose the value-loop row.
-# Independent of SB_TELEMETRY; gated only by SB_JIT (off ⇒ no rebuild — matches pg_jit's own
-# kill switch, so a session with delivery disabled doesn't pay to maintain an index nobody reads).
+# Independent of SB_TELEMETRY; gated by SB_JIT (off ⇒ no rebuild — matches pg_jit's own kill
+# switch, so a session with delivery disabled doesn't pay to maintain an index nobody reads)
+# AND by SB_PROTOCOL_GUARD (off ⇒ protocol-guard.sh's pg_jit reader is itself disabled, so
+# rebuilding the index it alone consumes is pure wasted work every Stop).
 # Bounded (sb_timeout) and fully fail-soft: never blocks or fails the Stop hook.
-if [ "${SB_JIT:-on}" != "off" ]; then
+if [ "${SB_JIT:-on}" != "off" ] && [ "${SB_PROTOCOL_GUARD:-on}" != "off" ]; then
   JIT_SLUG=$(sb_session_slug "$SESSION_ID")
   if [ -n "$JIT_SLUG" ]; then
     JIT_IDX="$BRAIN_DIR/projects/$JIT_SLUG/jit-index.json"
@@ -550,7 +552,7 @@ PERSONA_PAYLOAD=$(echo "$DELTA_JSON" | jq -c \
 if echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
   PERSONA_ERR=$(mktemp)
   if ! echo "$PERSONA_PAYLOAD" \
-    | bash "$(dirname "$0")/merge-persona-signals.sh" 2>"$PERSONA_ERR"; then
+    | bash "$(dirname "$0")/merge-persona-signals.sh" --slug "$SLUG" 2>"$PERSONA_ERR"; then
     ERR_TAIL=$(tr '\n' ' ' < "$PERSONA_ERR" | head -c 200)
     log_gate "persona-merge-failed err=$ERR_TAIL"
   fi

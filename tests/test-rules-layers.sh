@@ -755,6 +755,81 @@ jq -e '[.violations[]|select(.name=="u-lock")] | length == 1' "$EFF25" >/dev/nul
   || fail "lock-tightening accept: expected exactly one violation for u-lock's rejected downgrade, got: $(jq -c '[.violations[]|select(.name=="u-lock")]' "$EFF25" 2>/dev/null)"
 pass "lock-tightening accept: a higher layer may RAISE a locked rule's action rank with zero violations, but never lower it"
 
+# --------------------------------------------------------------------------
+# 26. Unlocked-rule downgrade ban: the repo layer overriding an existing
+#     UNLOCKED rule (here, U-authored) may only ADD to or RAISE the action,
+#     never disable it or lower its rank — same contract as the locked-rule
+#     guard, just without a `lock:true` anywhere in the chain.
+# --------------------------------------------------------------------------
+B26="$TMP/b26"; mkdir -p "$B26/projects/demo" "$B26/.injected"
+printf 'demo' > "$B26/.injected/s1.slug"
+cat > "$B26/persona-rules.json" <<'EOF'
+{"schema":2,"rules":[{"name":"warn-x","tool":"Bash","match_command":"foo","action":"ask","reason":"u-ask"},{"name":"warn-y","tool":"Bash","match_command":"bar","action":"warn","reason":"u-warn"},{"name":"warn-z","tool":"Bash","match_command":"baz","action":"warn","reason":"u-z"},{"name":"warn-w","tool":"Bash","match_command":"qux","action":"warn","reason":"u-w"}]}
+EOF
+# warn-z: a repo RETARGET of an unlocked rule (match_command -> a pattern that can never
+# match) is a disable in disguise and must be rejected the same way; warn-w: a repo entry
+# that RESTATES the same tool/match_command verbatim and RAISES warn->ask is the legitimate
+# "add or raise" path and must be accepted with no violation.
+cat > "$B26/projects/demo/rules.json" <<'EOF'
+{"schema":2,"rules":[{"name":"warn-x","action":"warn"},{"name":"warn-y","enabled":false},{"name":"warn-z","match_command":"^never-matches$"},{"name":"warn-w","tool":"Bash","match_command":"qux","action":"ask","reason":"r-w"}]}
+EOF
+run26() { printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"%s"}}' "$B26" "$1" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B26" bash "$GUARD"; }
+out=$(run26 "foo")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "unlocked downgrade ban: 'foo' should still ask (repo's warn downgrade on unlocked warn-x rejected) — got: $out"
+out=$(run26 "bar")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext == "u-warn"' >/dev/null \
+  || fail "unlocked downgrade ban: 'bar' should still warn with u-warn (repo's enabled:false on unlocked warn-y rejected) — got: $out"
+EFF26="$B26/projects/demo/.rules-effective.json"
+[ -s "$EFF26" ] || fail "unlocked downgrade ban: no .rules-effective.json cache was written"
+jq -e '(.rules[]|select(.name=="warn-x")|.action) == "ask"' "$EFF26" >/dev/null \
+  || fail "unlocked downgrade ban: warn-x should stay action=ask — got: $(jq -c '.rules[]|select(.name=="warn-x")' "$EFF26" 2>/dev/null)"
+jq -e '(.rules[]|select(.name=="warn-y")) != null' "$EFF26" >/dev/null \
+  || fail "unlocked downgrade ban: warn-y should still be present (enabled:false rejected) — got: $(jq -c '.rules' "$EFF26" 2>/dev/null)"
+out=$(run26 "baz")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.additionalContext == "u-z"' >/dev/null \
+  || fail "unlocked downgrade ban: 'baz' should still warn with u-z (repo's retarget of unlocked warn-z to ^never-matches$ rejected) — got: $out"
+jq -e '(.rules[]|select(.name=="warn-z")|.match_command) == "baz"' "$EFF26" >/dev/null \
+  || fail "unlocked downgrade ban: warn-z should keep match_command=baz — got: $(jq -c '.rules[]|select(.name=="warn-z")' "$EFF26" 2>/dev/null)"
+out=$(run26 "qux")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "unlocked downgrade ban: 'qux' should now ask (repo restated warn-w verbatim and raised warn->ask — the legitimate path) — got: $out"
+jq -e '(.rules[]|select(.name=="warn-w")|[.action,.source,.reason]) == ["ask","repo","r-w"]' "$EFF26" >/dev/null \
+  || fail "unlocked downgrade ban: warn-w should be action=ask source=repo reason=r-w — got: $(jq -c '.rules[]|select(.name=="warn-w")' "$EFF26" 2>/dev/null)"
+jq -e '(.violations|length) == 3' "$EFF26" >/dev/null \
+  || fail "unlocked downgrade ban: expected exactly 3 violations, got: $(jq -c '.violations' "$EFF26" 2>/dev/null)"
+jq -e '[.violations[].attempted] == ["warn","disable","retarget"]' "$EFF26" >/dev/null \
+  || fail "unlocked downgrade ban: expected violation attempted values [warn,disable,retarget] in order, got: $(jq -c '[.violations[].attempted]' "$EFF26" 2>/dev/null)"
+pass "unlocked downgrade ban: a repo override on an unlocked rule may only add/raise, never disable, lower or retarget — rejected and logged"
+
+# --------------------------------------------------------------------------
+# 27. Guard lock invariant: a warm cache entry that KEEPS its tool/match_command
+#     /action identical to the locked plugin rule, but has had `lock:true` itself
+#     stripped, must still fail the invariant (lock is part of what the cache
+#     must retain, not just the fields it gates) — discarded, rebuilt, logged.
+# --------------------------------------------------------------------------
+B27="$TMP/b27"; mkdir -p "$B27/projects/demo" "$B27/.injected"
+printf 'demo' > "$B27/.injected/s1.slug"
+printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"echo hi"}}' "$B27" \
+  | BRAIN_DIR="$B27" bash "$GUARD" >/dev/null 2>&1
+EFF27="$B27/projects/demo/.rules-effective.json"
+[ -s "$EFF27" ] || fail "guard lock invariant (lock stripped): expected a warm .rules-effective.json cache to exist"
+sleep 1
+jq '(.rules[] | select(.name=="warn-rm-rf") | .lock) |= empty' "$EFF27" > "$EFF27.tmp" && mv -f "$EFF27.tmp" "$EFF27"
+jq -e '(.rules[]|select(.name=="warn-rm-rf")|has("lock")) == false' "$EFF27" >/dev/null \
+  || fail "guard lock invariant (lock stripped): tampering setup failed — lock still present"
+: > "$B27/error-log.jsonl" 2>/dev/null || true
+out=$(printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"rm -rf /tmp/x"}}' "$B27" \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$B27" bash "$GUARD")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "guard lock invariant (lock stripped): rm -rf should still ask after the tampered cache is discarded — got: $out"
+grep -q 'failed the lock invariant' "$B27/error-log.jsonl" \
+  || fail "guard lock invariant (lock stripped): expected an error-log line naming the lock-invariant failure"
+jq -e '(.rules[]|select(.name=="warn-rm-rf")|.lock) == true' "$EFF27" >/dev/null \
+  || fail "guard lock invariant (lock stripped): the rebuilt cache should have lock:true restored for warn-rm-rf"
+pass "guard lock invariant (lock stripped): a cache entry that lost lock:true (fields/action otherwise intact) is discarded, logged, and rebuilt"
+
 if [ "$fail_n" -eq 0 ]; then
   echo; echo "ALL PASS"
 else

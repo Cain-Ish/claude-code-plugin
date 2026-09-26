@@ -4,7 +4,7 @@ description: Layered PreToolUse rules (plugin → user → repo) and the audit-l
 user-invocable: true
 disable-model-invocation: true
 argument-hint: show|audit|distill|promote|demote
-allowed-tools: Read Write Edit Bash(jq *) Bash(tail *) Bash(wc *) Bash(cat *) Bash(test *) Bash(grep *) Bash(sort *) Bash(uniq *) Bash(head *) Bash(printf *) Bash(date *) Bash(find *) Bash(sed *) Bash(tr *) Bash(bash *) Bash(cut *) Bash(git *)
+allowed-tools: Read Write Edit Bash(jq *) Bash(tail *) Bash(wc *) Bash(cat *) Bash(test *) Bash(grep *) Bash(sort *) Bash(uniq *) Bash(head *) Bash(printf *) Bash(date *) Bash(find *) Bash(sed *) Bash(tr *) Bash(bash *) Bash(cut *) Bash(git *) Bash(mv *) Bash(diff *) Bash(mkdir *)
 ---
 
 # Rules
@@ -60,9 +60,9 @@ Flags: `--session <id>` (default: current session), `--all` (all sessions),
 AUDIT="${BRAIN_DIR:-$HOME/.second-brain}/audit-log.jsonl"
 test -f "$AUDIT" || { echo "No audit-log.jsonl yet — no guard activity recorded."; exit 0; }
 jq -c '.' "$AUDIT" \
-  | { [ -n "$SESSION" ] && jq -c "select(.session_id == \"$SESSION\")" || cat; } \
-  | { [ -n "$VERDICT" ] && jq -c "select(.verdict == \"$VERDICT\")" || cat; } \
-  | { [ -n "$HOOK" ]    && jq -c "select(.hook == \"$HOOK\")"       || cat; } \
+  | { [ -n "$SESSION" ] && jq -c --arg s "$SESSION" 'select(.session_id == $s)' || cat; } \
+  | { [ -n "$VERDICT" ] && jq -c --arg v "$VERDICT" 'select(.verdict == $v)'     || cat; } \
+  | { [ -n "$HOOK" ]    && jq -c --arg h "$HOOK"    'select(.hook == $h)'        || cat; } \
   | tail -n "${LAST:-100}"
 ```
 
@@ -122,7 +122,10 @@ Lower one rank: `deny → ask → warn`, or `enabled:false` for an existing `war
 when the EFFECTIVE rule (from `sb_rules_effective`) has `lock:true` sourced from a layer
 BELOW the one being edited — say which layer holds the lock and that only that layer (or
 higher, never a repo file) can change it. A repo layer can never set `lock` itself, so a
-repo-authored rule is never the one blocking a demote.
+repo-authored rule is never the one blocking a demote. Write the demote into the layer that
+AUTHORS the rule (`source` in `show`): a repo-layer entry can only add to or raise a
+plugin/user rule — `sb_rules_effective` drops a repo `enabled:false`, lower action, or
+retargeted match as a recorded violation, so writing it to `rules.json` would be a silent no-op.
 
 ## Every write
 

@@ -374,6 +374,29 @@ else
   FAIL=$((FAIL + 1)); echo "  FAIL  misleading 'dispatch_aliases entry' FAILs present (got $DISPATCH_ALIAS_FAILS)"
 fi
 
+# Case 11g (Copilot PR-105 review item 5): a quoted model: and effort: scalar — the same
+# shape protocol-guard.sh's own model:-line reader (pin file parsing) already tolerates at
+# runtime — must be ACCEPTED here too, not FAILed on the literal quoted string.
+setup_skeleton
+cat > "$PLUGIN_FOR_VALIDATOR/agents/foo.md" <<'MD'
+---
+name: foo
+description: Foo
+model: "haiku"
+effort: "low"
+---
+MD
+run_case "quoted model:/effort: values are accepted" 0
+assert_output_contains "OK: all plugin files valid"
+
+# Case 11h (Copilot PR-105 review item 5): an agent .md with NO YAML frontmatter at all
+# (no leading '---') must FAIL, not silently skip every frontmatter check for that file —
+# the old code had no `else` branch on the `head -1 | grep -q "^---"` gate.
+setup_skeleton
+echo "no frontmatter at all" > "$PLUGIN_FOR_VALIDATOR/agents/foo.md"
+run_case "agent with no frontmatter at all fails" 1
+assert_output_contains "foo.md has no YAML frontmatter"
+
 # Case 12: the SHIPPED tree must validate with ZERO WARN lines.
 # A WARN that nobody clears is worse than no check: `SESSION_START_MATCHERS` froze at
 # "startup|resume|clear|compact" while hooks.json moved to "startup|resume|clear|fork" in

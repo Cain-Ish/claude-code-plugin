@@ -76,8 +76,10 @@ fi
 # but a cache written before that guard existed, or by a session that bypassed it, could still
 # silently disarm every locked rule. Before trusting EFF, verify every rule the PLUGIN layer
 # locks (authoritative for a shared name) plus every USER-layer lock whose name the plugin does
-# not also lock, is STILL present in it, by name, with the SAME tool/match_command/match_path
-# and an action rank at least as strict — all inside the ONE jq spawn the D154 check already
+# not also lock, is STILL present in it, by name, with the SAME tool/match_command/match_path,
+# an action rank at least as strict, AND still carrying lock:true itself (a cache entry that
+# kept every gated field but dropped the lock would otherwise pass here and let the next
+# layer override it freely) — all inside the ONE jq spawn the D154 check already
 # pays for (--rawfile, same idiom sb_rules_effective itself uses). A disabled locked rule
 # (lock:true, enabled:false) is exempt — sb_rules_effective's own final filter drops disabled
 # rules from the effective set, so such a U rule would fail this invariant forever otherwise.
@@ -99,6 +101,7 @@ def lockedof($raw): (if ($raw|length)==0 then [] else (($raw | try fromjson catc
       and (fld($E;"match_command";null) == fld($L;"match_command";null))
       and (fld($E;"match_path";null) == fld($L;"match_path";null))
       and ((rankOf(fld($E;"action";"warn"))) >= (rankOf(fld($L;"action";"warn"))))
+      and (fld($E;"lock";false)==true)
   ))
 '
 EFF_CHECK="$D154_CHECK"' and ('"$EFF_LOCK_INVARIANT"')'
