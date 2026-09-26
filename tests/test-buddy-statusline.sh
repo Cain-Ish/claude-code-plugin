@@ -7,18 +7,21 @@
 # pins: SB_BUDDY_CHAIN — chained statusline arrives via env, never from a data file
 # pins: SB_BUDDY_LOG_KEEP — a non-numeric value must not abort the producer (guards call it pre-decision)
 # pins: SB_BUDDY_ASCII — ASCII mode must swap the ´ glyph and box characters
-# pins: SB_BUDDY_NOW — pins the renderer clock: frame selection is a pure function of the epoch second
+# pins: SB_BUDDY_NOW — pins the renderer clock: the dot slot/thought cloud are a pure function of the epoch second
 # pins: SB_BUDDY_REACT — kill switch: =off must drop the two-way [buddy: ] line
-# Buddy contract (docs/plans/2026-09-22-buddy-companion.md):
+# Buddy contract (docs/plans/2026-09-22-buddy-companion.md; thought-cloud redesign 2026-09-26):
 #  1. sb_buddy_event writes ONE atomic current-state file + an append-only log; a `gate` line holds
 #     the CURRENT-STATE bubble for 60 s (the log always gets the row); nothing reaches stdout.
 #  2. buddy-statusline.sh renders from state the hooks/server already keep (.injected memo/phase,
-#     .buddy/<sid>.json, .buddy/_global.json) — goal, phase, ctx%, model, event line — and every
-#     row fits the usable width at 60 / 80 / 120 columns; event text is never globbed or executed.
+#     .buddy/<sid>.json, .buddy/_global.json, .buddy/<sid>.busy) — goal, phase, ctx%, model, event
+#     line — and every row fits the usable width at 60 / 80 / 120 columns; event text is never
+#     globbed or executed.
 #  3. Kill switches and modes: SB_BUDDY=off, SB_BUDDY_SPRITE=off, minimal profile, mute, chain.
 #  4. Hot path: no lib.sh, no node, ≤ 2 jq spawns, `set -f`, and a wall-clock ceiling.
-#  5. The capybara (no account roll, no stats): native frames + idle sequence by epoch second, blink,
-#     excited after a fresh line, mood eyes, one-line face when narrow, every frame fits the width.
+#  5. No capybara: nothing live → line 1 alone. A live line hangs a thought cloud below 🧠 — a small
+#     steam dot, a bigger one, then the box, ≤3 word-wrapped rows, warn-tinted steam on gate/guard/
+#     stumble. Narrow terminals collapse it to one ` ○ ` row. A busy marker animates a fixed 3-col
+#     dot slot right after 🧠 while a turn is in flight.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
@@ -123,14 +126,14 @@ for cols in 60 80 120; do
   if [ "$cols" -ge 84 ]; then printf '%s' "$out" | grep -q 'Opus 5' || fail "model missing at $cols cols"
   else printf '%s' "$out" | grep -q 'Opus 5' && fail "model should be dropped at $cols cols to keep the goal readable"; fi
 done
-NOW0=$(date +%s)   # the capybara animates: compare two renders at the SAME second
+NOW0=$(date +%s)   # the animation is a pure function of the second: compare renders at the SAME second
 wide=$(SB_BUDDY_NOW=$NOW0 SB_BUDDY_COLS=120 render)
-printf '%s' "$wide" | grep -q 'Verify gate fired' || fail "event line not rendered in bubble"
-[ "$(printf '%s\n' "$wide" | wc -l | tr -d ' ')" = "7" ] || fail "wide layout should be 7 rows (telemetry + 5-row capybara beside the bubble + name), got: $wide"
+printf '%s' "$wide" | grep -q 'Verify gate fired' || fail "event line not rendered in the thought cloud"
+[ "$(printf '%s\n' "$wide" | wc -l | tr -d ' ')" = "5" ] || fail "wide layout with a one-line event should be 5 rows (telemetry + 2 steam rows + 1 text row + bottom rule), got: $wide"
 narrow=$(SB_BUDDY_COLS=60 render)
-[ "$(printf '%s\n' "$narrow" | wc -l | tr -d ' ')" -le 2 ] || fail "narrow layout must collapse"
-printf '%s' "$narrow" | grep -q '╭' && fail "narrow layout must not draw the bubble"
-printf '%s' "$narrow" | grep -q '(òooó)' || fail "narrow layout shows the native one-line face (alert eyes on a gate): $narrow"
+[ "$(printf '%s\n' "$narrow" | wc -l | tr -d ' ')" = "2" ] || fail "narrow layout must collapse to telemetry + one steam row"
+printf '%s' "$narrow" | grep -q '╭' && fail "narrow layout must not draw the box"
+printf '%s' "$narrow" | grep -qF '○' || fail "narrow layout shows the one-row steam cue: $narrow"
 viaCols=$(payload | SB_BUDDY_NOW=$NOW0 COLUMNS=120 NO_COLOR=1 bash "$R")
 [ "$viaCols" = "$wide" ] || fail "COLUMNS (what Claude Code exports) must drive the width like SB_BUDDY_COLS"
 pass "renderer: goal/phase/ctx/model/event present; rows fit at 60/80/120; COLUMNS honoured; narrow collapses"
@@ -161,7 +164,7 @@ jq -c '.ts = 1' "$BRAIN_DIR/.buddy/_global.json" > "$BRAIN_DIR/.buddy/x" && mv "
 SB_BUDDY_COLS=120 render | grep -q 'Read \[\[later\]\]' && fail "expired event (TTL) still rendered"
 out=$(payload | SB_BUDDY_CHAIN='echo CHAINED-FIRST' SB_BUDDY_COLS=120 NO_COLOR=1 bash "$R")
 [ "$(printf '%s\n' "$out" | head -1)" = "CHAINED-FIRST" ] || fail "chained statusline (env) must be line 1"
-printf '%s' "$out" | grep -q 'Ziutek' || fail "configured name not rendered"
+printf '%s' "$out" | grep -q 'Ziutek' && fail "the configured name must never render in the statusline itself — it only names the buddy in persona-context's [buddy: <name>] line (section 9)"
 printf '{"name":"Ziutek","chain":"echo FROM-FILE"}' > "$BRAIN_DIR/buddy.json"
 SB_BUDDY_COLS=120 render | grep -q 'FROM-FILE' && fail "a chain command in buddy.json must NEVER be executed"
 out=$(SB_BUDDY_SPRITE=off SB_BUDDY_COLS=120 render); [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = "1" ] || fail "SB_BUDDY_SPRITE=off → telemetry only"
@@ -224,79 +227,87 @@ if [ "$t0" != "0" ] && [[ "$t0" =~ ^[0-9]+$ ]]; then
 fi
 pass "renderer: no lib.sh, no node, no tput/stty/tr/awk/sed, one jq, no per-file subshells, within the wall-clock ceiling"
 
-# --- 6. the capybara: frames, idle sequence, blink, excited, moods, face, width ---------------
-# Frame selection is a pure function of the epoch second (SB_BUDDY_NOW): the native idle sequence
-# [0,0,0,0,1,0,0,0,-1,0,0,2,0,0,0], one step per second. B ≡ 0 (mod 15) and (mod 3).
+# --- 6. the thought cloud: no sprite/name ever, steam dots, box wrapping, ASCII, width ----------
+# The dot slot and the cloud's steam are a pure function of the epoch second (SB_BUDDY_NOW).
 B=1789999995
-rm -f "$BRAIN_DIR/.buddy/$SID.json" "$BRAIN_DIR/.buddy/_global.json"
+rm -f "$BRAIN_DIR/.buddy/$SID.json" "$BRAIN_DIR/.buddy/_global.json" "$BRAIN_DIR/.buddy/$SID.busy"
 printf '{"identity":{"species":"dragon","rarity":"uncommon","hat":"tophat","eye":"@"}}' > "$BRAIN_DIR/buddy.json"   # a 0.51.0 leftover
 at(){ payload | SB_BUDDY_NOW=$(( B + $1 )) SB_BUDDY_COLS="${2:-120}" NO_COLOR=1 bash "$R"; }
+# nothing live: exactly line 1 — no empty box, no sprite, no name label, no 0.51.0 identity glyphs
 out=$(at 0)
-printf '%s' "$out" | grep -q 'n______n' || fail "frame 0: capybara ears missing: $out"
-printf '%s' "$out" | grep -qF '( ·    · )' || fail "frame 0: native eyes (·) missing: $out"
-printf '%s' "$out" | grep -qF '(   oo   )' || fail "frame 0: nose missing: $out"
-printf '%s' "$out" | grep -qF '`------´' || fail "frame 0: the native bottom row (U+00B4) missing: $out"
-printf '%s' "$out" | grep -qE 'vvvv|\[___\]|★' && fail "the 0.51.0 identity (dragon, hat, stars) must be ignored: $out"
-printf '%s' "$out" | grep -q 'Kapi' || fail "default name Kapi missing: $out"
-at 4  | grep -qF '(   Oo   )' || fail "idle step 4 is fidget frame 1 (Oo)"
-at 8  | grep -qF '( -    - )' || fail "idle step 8 is the blink (frame 0, eyes -)"
-at 11 | grep -qF '~  ~'       || fail "idle step 11 is fidget frame 2 (~  ~ above the head)"
-at 11 | grep -q 'u______n'    || fail "idle step 11: frame 2 drops the left ear (u)"
-at 12 | grep -qF '~  ~'       && fail "idle step 12 is back to rest (frame 0)"
-# excited: a line under 10 s old cycles every frame (now % 3), no blink
-sb_buddy_event "$SID" said pleased "Tests green, pinned the decision" claude
-jq -c --argjson t $(( B + 8 - 2 )) '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
-out=$(at 8); printf '%s' "$out" | grep -qF '~  ~' || fail "excited at step 8 (B+8 ≡ 2 mod 3) shows frame 2, not the blink: $out"
-printf '%s' "$out" | grep -qF '( ^    ^ )' || fail "pleased mood eyes (^) missing: $out"
-printf '%s' "$out" | grep -q 'Claude: Tests green, pinned the decision' || fail "Claude's buddy_react line must show in the bubble as 'Claude: …' (never mistakable for a gate): $out"
-at 17 | grep -qF '~  ~' && fail "11 s after the line it is idle again (idle step 2 = frame 0; still excited would be 17 % 3 = frame 2)"
-# a fresh said on THIS session key holds the bubble 60 s against a NEWER _global event (as a gate does)
-printf '{"ts":%s,"kind":"said","mood":"pleased","line":"held against global","source":"claude","ttl_s":900}\n' "$B" > "$BRAIN_DIR/.buddy/$SID.json"
-printf '{"ts":%s,"kind":"read","mood":"focused","line":"Read [[newer-global]] from memory","source":"mcp","ttl_s":900}\n' $(( B + 5 )) > "$BRAIN_DIR/.buddy/_global.json"
-out=$(at 20); printf '%s' "$out" | grep -q 'Claude: held against global' || fail "a 20 s old said must hold the bubble against a newer _global read: $out"
-printf '%s' "$out" | grep -qF 'newer-global' && fail "the newer _global read must wait out the said hold: $out"
-at 61 | grep -qF 'Read [[newer-global]] from memory' || fail "after 60 s the said hold ends and the newest live event (_global) must show"
-# nothing live: no bubble box, no filler text — the capybara alone (the native bubble came and went)
-rm -f "$BRAIN_DIR/.buddy/$SID.json" "$BRAIN_DIR/.buddy/_global.json"
-out=$(at 0); printf '%s' "$out" | grep -q '╭' && fail "no live line → no bubble box: $out"
-printf '%s' "$out" | grep -q 'n______n' || fail "no live line → the capybara still renders: $out"
-[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = "7" ] || fail "idle layout keeps its 7 rows (no jumping): $out"
-# waiting eyes are '_' — the blink is '-', and a waiting capybara must still visibly blink
-sb_buddy_event "$SID" pending waiting "Dream ready for review" t
-jq -c --argjson t "$B" '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
-at 20 | grep -qF '( _    _ )' || fail "waiting mood eyes (_) missing"
-at 23 | grep -qF '( -    - )' || fail "a waiting capybara must still blink at step 8"
-# short terminal (LINES < 30) → the one-line face, like a narrow one
-out=$(payload | SB_BUDDY_NOW=$(( B + 20 )) SB_BUDDY_COLS=120 LINES=24 NO_COLOR=1 bash "$R")
-[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -le 2 ] || fail "LINES=24 must collapse to the one-line face: $out"
-printf '%s' "$out" | grep -q '(_oo_)' || fail "short-terminal face missing: $out"
-# a name is data: control sequences in buddy.json never reach the terminal. The fixture holds the
-# JSON ESCAPES (printf %s, so no shell turns \u001b into a raw ESC — raw control bytes are invalid
-# JSON, the name would fall back to Kapi and the scrub would never run)
-printf '%s' '{"name":"x\u001b]0;PWN\u0007y"}' > "$BRAIN_DIR/buddy.json"
-grep -qF '\u001b' "$BRAIN_DIR/buddy.json" || fail "name fixture must hold the literal JSON escape: $(od -c "$BRAIN_DIR/buddy.json" | head -2)"
-out=$(at 0)
-printf '%s' "$out" | grep -q $'\x1b' && fail "an escape sequence in the name reached the terminal"
-printf '%s' "$out" | grep -q $'\x07' && fail "a BEL in the name reached the terminal"
-printf '%s' "$out" | grep -qF 'x ]0;PWN y' || fail "the name must parse and render scrubbed (controls → spaces); a Kapi fallback means the scrub never ran: $out"
-printf '{"identity":{"species":"dragon"}}' > "$BRAIN_DIR/buddy.json"
-# alert mood + ASCII mode
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = "1" ] || fail "nothing live must render exactly 1 line: $out"
+printf '%s' "$out" | grep -q 'Kapi' && fail "no name label anywhere once the sprite is gone: $out"
+printf '%s' "$out" | grep -qE 'n______n|vvvv|\[___\]|★' && fail "no capybara rows (or the 0.51.0 identity) survive the redesign: $out"
+narrowIdle=$(payload | SB_BUDDY_NOW=$B SB_BUDDY_COLS=60 NO_COLOR=1 bash "$R")
+[ "$(printf '%s\n' "$narrowIdle" | wc -l | tr -d ' ')" = "1" ] || fail "narrow + nothing live must also render exactly 1 line: $narrowIdle"
 sb_buddy_event "$SID" gate alert "Plan gate holds" plan-first-nudge
 jq -c --argjson t "$B" '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
-at 20 | grep -qF '( ò    ó )' || fail "alert mood eyes (ò ó) missing"
-payload | SB_BUDDY_NOW=$(( B + 20 )) SB_BUDDY_ASCII=on SB_BUDDY_COLS=120 NO_COLOR=1 bash "$R" | grep -qF "\`------'" || fail "ASCII mode swaps ´ for '"
-# every frame × mood fits the usable width
-# (exact: a bubble 2 columns too wide must fail; a 14-char name must not overhang the row)
-sb_buddy_event "$SID" read focused "a live line so the bubble box is drawn at every width" t
-for nm in "" "Capybara Kapi!"; do
-  if [ -n "$nm" ]; then printf '{"name":"%s"}' "$nm" > "$BRAIN_DIR/buddy.json"; fi
-  for k in 0 4 8 11; do for cols in 90 100 120 160; do
-    out=$(at "$k" "$cols") || fail "renderer failed at step $k / $cols cols"
-    while IFS= read -r row; do
-      w=$(cols_of "$row")
-      [ "$WIDTH_OK" = "0" ] || [ "$w" -le "$(( cols - 14 ))" ] || fail "step $k row exceeds width at $cols cols ($w > $(( cols - 14 )), name '$nm'): $row"
-    done <<< "$out"
-  done; done
+# a live one-line event: the cloud is always 5 rows (telemetry + 2 steam rows + 1 text row + bottom
+# rule) — never a sprite row, never a name row
+out=$(at 20)
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = "5" ] || fail "a one-line event must render 5 rows total: $out"
+printf '%s' "$out" | grep -q 'Plan gate holds' || fail "event line missing from the cloud: $out"
+printf '%s' "$out" | grep -q 'Kapi' && fail "the configured/default name must never render under the redesign: $out"
+printf '%s' "$out" | grep -qE 'n______n|\(.oo.\)' && fail "no capybara glyphs anywhere: $out"
+printf '%s' "$out" | grep -qF ' o' || fail "the small steam dot ('o') must lead the cloud: $out"
+printf '%s' "$out" | grep -qF '○' || fail "the big steam dot ('○') must sit before the box: $out"
+# steam-dot colour: warn-toned for gate/guard/stumble (matches the text), independent of mood
+out2=$(payload | SB_BUDDY_NOW=$(( B + 20 )) SB_BUDDY_COLS=120 bash "$R")
+printf '%s' "$out2" | grep -qF $'\e[38;2;245;158;11m○' || fail "a gate's big steam dot must be warn-coloured: $(printf '%s' "$out2" | cat -v)"
+# 3-row text wrap cap: a long event line wraps to at most 3 text rows inside the box, truncated
+LONG="one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour twentyfive twentysix twentyseven twentyeight twentynine thirty thirtyone thirtytwo"
+sb_buddy_event "$SID" read focused "$LONG" t
+jq -c --argjson t "$B" '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
+out=$(at 20)
+n=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+[ "$n" -le 7 ] || fail "a long event must wrap to at most 3 text rows (telemetry+2 steam+3 text+bottom=7), got $n: $out"
+[ "$n" -ge 6 ] || fail "a long event at cols=120 should wrap past 1 text row: $out"
+printf '%s' "$out" | grep -q '…' || fail "an over-long event must truncate the 3rd wrapped row with an ellipsis: $out"
+# a fresh `said` line (Claude's own buddy_react) is prefixed "Claude: " — never mistakable for a gate
+sb_buddy_event "$SID" said pleased "Tests green, pinned the decision" claude
+jq -c --argjson t "$B" '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
+at 20 | grep -q 'Claude: Tests green, pinned the decision' || fail "Claude's buddy_react line must show as 'Claude: …' in the cloud"
+# a fresh said on THIS session key still holds the cloud 60 s against a NEWER _global event
+printf '{"ts":%s,"kind":"said","mood":"pleased","line":"held against global","source":"claude","ttl_s":900}\n' "$B" > "$BRAIN_DIR/.buddy/$SID.json"
+printf '{"ts":%s,"kind":"read","mood":"focused","line":"Read [[newer-global]] from memory","source":"mcp","ttl_s":900}\n' $(( B + 5 )) > "$BRAIN_DIR/.buddy/_global.json"
+out=$(at 20); printf '%s' "$out" | grep -q 'Claude: held against global' || fail "a 20 s old said must hold the cloud against a newer _global read: $out"
+printf '%s' "$out" | grep -qF 'newer-global' && fail "the newer _global read must wait out the said hold: $out"
+at 61 | grep -qF 'Read [[newer-global]] from memory' || fail "after 60 s the said hold ends and the newest live event (_global) must show"
+rm -f "$BRAIN_DIR/.buddy/$SID.json" "$BRAIN_DIR/.buddy/_global.json"
+# narrow mode: one ` ○ <line>` row, live only; nothing when nothing is live
+sb_buddy_event "$SID" gate alert "narrow cue line" t
+jq -c --argjson t "$B" '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
+narrowLive=$(payload | SB_BUDDY_NOW=$B SB_BUDDY_COLS=60 NO_COLOR=1 bash "$R")
+[ "$(printf '%s\n' "$narrowLive" | wc -l | tr -d ' ')" = "2" ] || fail "narrow + live must render exactly 2 lines: $narrowLive"
+printf '%s\n' "$narrowLive" | tail -1 | grep -qE '^ ○ ' || fail "the narrow row must start with ' ○ ': $(printf '%s\n' "$narrowLive" | tail -1 | cat -A)"
+printf '%s' "$narrowLive" | grep -qF 'narrow cue line' || fail "narrow row must carry the event text: $narrowLive"
+rm -f "$BRAIN_DIR/.buddy/$SID.json"
+# ASCII mode: box glyphs and the big steam dot swap; the small one stays 'o'
+sb_buddy_event "$SID" gate alert "Plan gate holds" plan-first-nudge
+jq -c --argjson t "$B" '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
+out=$(payload | SB_BUDDY_NOW=$(( B + 20 )) SB_BUDDY_ASCII=on SB_BUDDY_COLS=120 NO_COLOR=1 bash "$R")
+printf '%s' "$out" | grep -qF '+--' || fail "ASCII mode must swap the box corners/rule for +/-: $out"
+printf '%s' "$out" | grep -q '○' && fail "ASCII mode must not print the unicode steam dot: $out"
+printf '%s' "$out" | grep -qF 'O ' || fail "ASCII mode's big steam dot is 'O': $out"
+# a name is data: control sequences in buddy.json never reach the terminal, and never render at
+# all now that the sprite/name row is gone (the fixture holds the JSON ESCAPES: printf %s, so no
+# shell turns \u001b into a raw ESC — raw control bytes are invalid JSON)
+printf '%s' '{"name":"x\u001b]0;PWN\u0007y"}' > "$BRAIN_DIR/buddy.json"
+grep -qF '\u001b' "$BRAIN_DIR/buddy.json" || fail "name fixture must hold the literal JSON escape: $(od -c "$BRAIN_DIR/buddy.json" | head -2)"
+out=$(at 20)
+printf '%s' "$out" | grep -q $'\x1b' && fail "an escape sequence in the name reached the terminal"
+printf '%s' "$out" | grep -q $'\x07' && fail "a BEL in the name reached the terminal"
+printf '%s' "$out" | grep -qF 'x ]0;PWN y' && fail "the name must never render now that the sprite/name row is gone: $out"
+printf '{"identity":{"species":"dragon"}}' > "$BRAIN_DIR/buddy.json"
+# every width fits: a bubble too wide must fail, whatever the wrap
+sb_buddy_event "$SID" read focused "a live line so the box is drawn at every width" t
+jq -c --argjson t "$B" '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
+for cols in 90 100 120 160; do
+  out=$(at 20 "$cols") || fail "renderer failed at $cols cols"
+  while IFS= read -r row; do
+    w=$(cols_of "$row")
+    [ "$WIDTH_OK" = "0" ] || [ "$w" -le "$(( cols - 14 ))" ] || fail "row exceeds width at $cols cols ($w > $(( cols - 14 ))): $row"
+  done <<< "$out"
 done
 printf '{"identity":{"species":"dragon"}}' > "$BRAIN_DIR/buddy.json"
 # the chained statusline is cached 5 s per session: the per-second tick must not re-run it
@@ -355,14 +366,46 @@ chain 76 "$bad" >/dev/null; chain_settle 2
 [ "$(ecount)" = "$(( e0 + 1 ))" ] || fail "a failing chain must be logged once per session, not on every refresh (have $(ecount))"
 if command -v node >/dev/null 2>&1 && [ -f "$ROOT/mcp/dist/cli/sb-entry.bundle.js" ]; then
   out=$(node "$ROOT/mcp/dist/cli/sb-entry.bundle.js" buddy 2>&1) || fail "sb buddy failed: $out"
-  printf '%s' "$out" | grep -q 'capybara' || fail "sb buddy card must name the capybara: $out"
+  printf '%s' "$out" | grep -q 'capybara' || fail "sb buddy card (the on-demand CLI card, unrelated to the statusline) must name the capybara: $out"
   printf '%s' "$out" | grep -qE 'DEBUGGING|★|dragon|seed:' && fail "sb buddy must not print stats, stars, or the old roll: $out"
   jq -e 'has("identity") | not' "$BRAIN_DIR/buddy.json" >/dev/null || fail "sb buddy must drop the stale 0.51.0 identity block"
-  pass "capybara: native frames + idle sequence + blink, excited after a fresh line, said holds vs newer _global, moods, scrubbed name, ASCII, width, chain cache + 3-line cap + detached slow refresh + failure logged once, sb buddy card (stale identity dropped)"
+  pass "thought cloud: no sprite/name/identity glyphs ever, 5-row live layout, warn-tinted steam, 3-row wrap cap + ellipsis, said prefix + hold vs newer global, narrow ' ○ ' row, ASCII swap, width fits; chain cache + 3-line cap + detached slow refresh + failure logged once; sb buddy CLI card (unrelated, unaffected) still names the capybara"
 else
   echo "SKIP: node or sb-entry bundle absent — sb buddy card subtest skipped"
-  pass "capybara: native frames + idle sequence + blink, excited after a fresh line, said holds vs newer _global, moods, scrubbed name, ASCII, width, chain cache + 3-line cap + detached slow refresh + failure logged once"
+  pass "thought cloud: no sprite/name/identity glyphs ever, 5-row live layout, warn-tinted steam, 3-row wrap cap + ellipsis, said prefix + hold vs newer global, narrow ' ○ ' row, ASCII swap, width fits; chain cache + 3-line cap + detached slow refresh + failure logged once"
 fi
+
+# --- 6b. thinking animation: busy marker → fixed 3-col dot slot right after 🧠, epoch-second cycle -
+# LC_ALL=C + raw bytes (EMO, DOT) throughout: MSYS grep can miss a 4-byte emoji glued to the next
+# character under a UTF-8 locale (this file exports one above for the width assertions) — byte-exact
+# matching is immune to that.
+rm -f "$BRAIN_DIR/.buddy/$SID.json" "$BRAIN_DIR/.buddy/_global.json" "$BRAIN_DIR/.buddy/$SID.busy"
+printf '{"name":"Kapi"}' > "$BRAIN_DIR/buddy.json"
+busy_at(){ printf '%s' "$1" > "$BRAIN_DIR/.buddy/$SID.busy"; }
+DOT=$(printf '\302\267')
+dots_present(){ LC_ALL=C grep -qF "${EMO}${DOT}"; }
+# B ≡ 0 (mod 3) (see section 6): at(0)/at(1) land on different epoch seconds, so the slot must differ
+busy_at "$B"
+l0=$(at 0 | head -1); l1=$(at 1 | head -1)
+printf '%s' "$l0" | dots_present || fail "a fresh .busy must show the dot slot directly after 🧠 (no space — a phase/ctx separator dot always has one): $l0"
+[ "$l0" != "$l1" ] || fail "the dot slot must change from one epoch second to the next while busy: $l0"
+busy_at $(( B - 700 ))
+at 0 | head -1 | dots_present && fail "a .busy marker older than 600 s must show no dots"
+busy_at "$B"
+sb_buddy_event "$SID" said pleased "done" claude
+jq -c --argjson t $(( B + 5 )) '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
+at 10 | head -1 | dots_present && fail "a said event newer than the .busy marker must stale the dots (the turn it announced already ended)"
+rm -f "$BRAIN_DIR/.buddy/$SID.json"
+printf '{"name":"Kapi","mute":true}' > "$BRAIN_DIR/buddy.json"
+at 0 | head -1 | dots_present && fail "a muted buddy must show no thinking dots"
+printf '{"name":"Kapi","sprite":false}' > "$BRAIN_DIR/buddy.json"
+at 0 | head -1 | dots_present && fail "a sprite:false buddy must show no thinking dots"
+printf '{"name":"Kapi"}' > "$BRAIN_DIR/buddy.json"
+(payload | SB_BUDDY_SPRITE=off SB_BUDDY_NOW=$B SB_BUDDY_COLS=120 NO_COLOR=1 bash "$R" | head -1 | dots_present) \
+  && fail "SB_BUDDY_SPRITE=off must show no thinking dots"
+rm -f "$BRAIN_DIR/.buddy/$SID.busy"
+printf '{"identity":{"species":"dragon"}}' > "$BRAIN_DIR/buddy.json"
+pass "thinking animation: fixed 3-col dot slot right after 🧠 cycles per epoch second, stale after 600 s or a newer said, silent when muted/sprite-off"
 
 # --- 7. producers are wired ------------------------------------------------------------------
 for s in plan-first-nudge persona-tool-guard stop-verify-gate session-load dream-autostage stop-extract persona-context flow-guard; do
@@ -527,5 +570,36 @@ printf '%s' "$out" | grep -q $'\x1b' && fail "an ESC in the name reached Claude'
 printf '%s' "$out" | grep -q $'\x07' && fail "a BEL in the name reached Claude's context"
 printf '{"name":"Ziutek","react":true}' > "$BJ"
 pass "early exits: feed cursor advances, minimal profile / no or non-boolean react / mute / sprite-off drop the line, name scrubbed"
+
+# --- 11. thinking-animation marker: persona-context.sh writes it (even on an early exit), sar-summary.sh clears it on every Stop ---
+BUSYF="$BRAIN_DIR/.buddy/$RS.busy"
+printf '{"name":"Ziutek","react":true}' > "$BJ"
+rm -f "$BUSYF"
+ctx "$RS" yes >/dev/null   # an early-exit (ack) prompt — the busy marker is stamped before it
+[ -f "$BUSYF" ] || fail "persona-context.sh must write .busy even on the ack early-exit path"
+grep -qE '^[0-9]+$' "$BUSYF" || fail ".busy must hold a bare epoch integer: $(cat "$BUSYF")"
+rm -f "$BUSYF"
+ctx "$RS" "now implement the next step of the buddy nudge please" >/dev/null   # the full prompt path
+[ -f "$BUSYF" ] || fail "persona-context.sh must write .busy on the full (non-early-exit) prompt path too"
+rm -f "$BUSYF"
+printf '{"name":"Ziutek","react":true,"mute":true}' > "$BJ"
+ctx "$RS" yes >/dev/null
+[ -f "$BUSYF" ] && fail "a muted buddy must not get a .busy marker"
+printf '{"name":"Ziutek","react":true,"sprite":false}' > "$BJ"
+ctx "$RS" yes >/dev/null
+[ -f "$BUSYF" ] && fail "a sprite:false buddy must not get a .busy marker"
+printf '{"name":"Ziutek","react":true}' > "$BJ"
+SB_HOOK_PROFILE=minimal ctx "$RS" yes >/dev/null
+[ -f "$BUSYF" ] && fail "SB_HOOK_PROFILE=minimal must not write a .busy marker"
+SB_BUDDY=off ctx "$RS" yes >/dev/null
+[ -f "$BUSYF" ] && fail "SB_BUDDY=off must not write a .busy marker"
+# sar-summary.sh clears it on every Stop, unconditionally — even when its OWN kill switches are
+# off (SAR-banner-specific, unrelated to whether the marker gets cleared) or under minimal profile
+for envset in "" "SB_SAR_SUMMARY=off" "SB_HOOK_PROFILE=minimal"; do
+  printf '%s' "$(date +%s)" > "$BUSYF"
+  printf '{"session_id":"%s"}' "$RS" | env $envset bash "$ROOT/scripts/sar-summary.sh" >/dev/null 2>&1
+  [ -f "$BUSYF" ] && fail "sar-summary.sh must clear .busy on Stop (env: '$envset')"
+done
+pass "thinking-animation producer wiring: persona-context.sh writes .busy at the very start (including early exits), respects mute/sprite-off/minimal/SB_BUDDY=off; sar-summary.sh clears it on every Stop regardless of its own kill switches"
 
 echo; echo "ALL PASS"

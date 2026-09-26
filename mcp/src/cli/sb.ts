@@ -31,7 +31,7 @@ Commands:
                                                Append an entry to a project's PROJECT.md
   status                                       Show hot-tier and wiki sizes
   auth [status|doctor]                         Show or fix the extractor auth mode
-  buddy                                        Show the buddy card (the capybara, its name, mute state)
+  buddy                                        Show the buddy card (the on-demand capybara card, its name, mute state)
   buddy name <name> | mute | unmute            Rename (1-14 chars) / silence the bubble
   buddy install | uninstall                    Add / remove the buddy statusLine in settings.json
   help                                         Show this message

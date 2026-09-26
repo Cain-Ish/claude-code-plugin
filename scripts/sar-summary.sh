@@ -19,19 +19,27 @@ set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
+RAW=$(cat 2>/dev/null || true)
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
+
+# --- Thinking-animation busy marker (0.54.0): clear here, BEFORE this hook's own kill switches
+# and the SAR-specific early exits below — Stop fires on every session Stop with no matcher on
+# this hook, so this is the one guaranteed clear point for what persona-context.sh stamped at the
+# start of the turn. rm -f is a no-op when nothing was ever written (a muted / sprite-off /
+# SB_BUDDY=off session never creates the marker); it never blocks or fails this hook.
+BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
+[ -n "$SESSION_ID" ] && rm -f "$BRAIN_DIR/.buddy/$SESSION_ID.busy" 2>/dev/null
+
 [ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_SAR_SUMMARY:=off}" # hook-profile shim: this check runs before lib.sh's mapping (or lib-less)
 [ "${SB_SAR_SUMMARY:-on}" = "off" ] && exit 0
 
-RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
 # Bail if stdin isn't a JSON object (fail-soft on malformed input).
 echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
 [ -z "$SESSION_ID" ] && exit 0
 
-BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 AUDIT="$BRAIN_DIR/audit-log.jsonl"
 [ -f "$AUDIT" ] || exit 0
 

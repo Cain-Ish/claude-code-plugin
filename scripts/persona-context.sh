@@ -40,6 +40,28 @@ SESSION_ID="${SESSION_ID//[^A-Za-z0-9_-]/}"; SESSION_ID="${SESSION_ID:0:64}"
 # every call site below stays a plain `sb_manifest_add kind ids`.
 SB_MANIFEST_SESSION_ID="$SESSION_ID"
 
+# --- Thinking-animation busy marker (0.54.0): stamped as early as possible — before every early
+# exit below, including the ack/short-prompt ones — so the statusline's animated dot slot
+# (buddy-statusline.sh) tracks "Claude is working on this turn" from the moment the prompt lands.
+# Builtins only: `read` slurps buddy.json and the epoch (no jq/date fork) unless this bash lacks
+# the printf '%(%s)T' epoch builtin (bash 3.2 floor) — the same fallback buddy-statusline.sh uses.
+# Cleared by sar-summary.sh on Stop (every turn, unconditionally). Gated exactly like the rest of
+# the buddy code: SB_HOOK_PROFILE=minimal maps to SB_BUDDY=off; SB_BUDDY=off kills it; a muted or
+# sprite-off buddy (buddy.json, read via a builtin — no extra spawn) draws no dots either, so it
+# never gets a marker to draw them from.
+[ "${SB_HOOK_PROFILE:-}" = minimal ] && : "${SB_BUDDY:=off}"
+if [ "${SB_BUDDY:-on}" != "off" ] && [ -n "$SESSION_ID" ]; then
+  _bbd="${BRAIN_DIR:-$HOME/.second-brain}"
+  if [ -d "$_bbd/.buddy" ]; then
+    _bcfg=""
+    if [ -f "$_bbd/buddy.json" ]; then IFS= read -r -d '' _bcfg < "$_bbd/buddy.json" 2>/dev/null || true; fi
+    if ! [[ "$_bcfg" =~ \"mute\"[[:space:]]*:[[:space:]]*true ]] && ! [[ "$_bcfg" =~ \"sprite\"[[:space:]]*:[[:space:]]*false ]]; then
+      if printf -v _bnow '%(%s)T' -1 2>/dev/null && [[ "$_bnow" =~ ^[0-9]+$ ]]; then :; else _bnow=$(date +%s); fi
+      printf '%s' "$_bnow" > "$_bbd/.buddy/$SESSION_ID.busy" 2>/dev/null || true
+    fi
+  fi
+fi
+
 # --- Buddy, two-way (0.53.0): the buddy speaks to Claude, Claude answers through buddy_react ---
 # One line on every ordinary prompt path (acks and short prompts too — the buddy_react ask is per
 # turn; a `/?` prompt is the advisor's own reply and exits before this),

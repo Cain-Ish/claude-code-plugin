@@ -4,7 +4,7 @@
 # Windows — silently breaking comparisons, arithmetic, grep patterns, and path building. We can't run
 # Windows here, so this test STUBS jq to reproduce the exact CRLF behavior on Linux, then runs the real
 # scripts and asserts they survive. ORACLE: real script behavior under the faulty jq, not a re-impl.
-# pins: SB_BUDDY_COLS — width fixture so the buddy renderer draws the sprite row the mood check reads
+# pins: SB_BUDDY_COLS — width fixture so the buddy renderer draws the thought-cloud row the steam-colour check reads
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
@@ -13,10 +13,13 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq absent"; echo; echo "ALL PASS"
 REALJQ=$(command -v jq)
 STUB=$(mktemp -d); trap 'rm -rf "$STUB"' EXIT
 # Faithful Windows-jq stub: append \r to every line of -r/-j (raw) output, like the CRLF build.
+# IDEMPOTENT by construction (strip any trailing CR, then add exactly one back): on the real
+# windows-latest runner jq is already the native CRLF build (F8), so a blind `sed 's/$/\r/'`
+# risks a doubled \r\r that a single ${v%$'\r'}-style strip in production code would not remove.
 cat > "$STUB/jq" <<EOF
 #!/bin/bash
 for a in "\$@"; do case "\$a" in -r|--raw-output|-j|-rs|-rc|-rn|-nr) raw=1;; esac; done
-if [ "\${raw:-0}" = 1 ]; then "$REALJQ" "\$@" | sed 's/\$/\r/'; else "$REALJQ" "\$@"; fi
+if [ "\${raw:-0}" = 1 ]; then "$REALJQ" "\$@" | awk '{sub(/\r\$/,""); printf "%s\r\n", \$0}'; else "$REALJQ" "\$@"; fi
 EOF
 chmod +x "$STUB/jq"
 RUN(){ PATH="$STUB:$PATH" "$@"; }
@@ -48,15 +51,18 @@ r=$(RUN bash -c "source '$ROOT/scripts/lib.sh'; printf '{\"auto_accept\":\"safe\
 pass "sb_config_get returns a clean string under Windows jq"
 rm -rf "$T"
 
-# 3. 0.51.0: the buddy renderer reads its US-joined fields from ONE `jq -rn` line; the CR lands in
-#    the last field (mood), so "alert\r" matched no mood case and Windows never showed mood eyes.
+# 3. 0.51.0 (thought-cloud redesign 2026-09-26): the buddy renderer reads its US-joined fields from
+#    ONE `jq -rn` line; a CR lands in the LAST field (mood — parsed but unused by the redesign) and
+#    used to poison the mood-eyes case match. The steam-dot colour now keys off KIND instead, one
+#    field earlier in the same read: still worth locking under the Windows-CRLF stub, without colour.
 T=$(mktemp -d); mkdir -p "$T/.buddy"
-printf '{"identity":{"species":"dragon","eye":"@","hat":"none"}}\n' > "$T/buddy.json"
+printf '{"name":"probe"}\n' > "$T/buddy.json"
 printf '{"ts":%s,"kind":"gate","mood":"alert","line":"Verify gate fired","ttl_s":900}\n' "$(date +%s)" > "$T/.buddy/s1.json"
-out=$(printf '{"session_id":"s1"}' | RUN env BRAIN_DIR="$T" SB_BUDDY_COLS=120 NO_COLOR=1 bash "$ROOT/scripts/buddy-statusline.sh")
+out=$(printf '{"session_id":"s1"}' | RUN env BRAIN_DIR="$T" SB_BUDDY_COLS=120 bash "$ROOT/scripts/buddy-statusline.sh")
 printf '%s' "$out" | grep -q 'Verify gate fired' || fail "buddy renderer lost the event under Windows jq: $out"
-printf '%s' "$out" | grep -qF 'ò    ó' || fail "buddy mood eyes lost under Windows jq (CR in the last read field): $out"
-pass "buddy-statusline.sh mood survives Windows jq (last US field CR-stripped)"
+printf '%s' "$out" | grep -qF $'\e[38;2;245;158;11m○' || fail "the gate's warn-tinted steam dot was lost under Windows jq (CR contamination in the US-joined read): $out"
+printf '%s' "$out" | grep -q 'probe' && fail "the configured name must never render in the statusline (thought-cloud redesign)"
+pass "buddy-statusline.sh event + steam colour survive Windows jq"
 rm -rf "$T"
 
 # 4. 0.53.0: persona-context's two-way [buddy: ] line is TWO jq -rn output lines (feed cursor, then
