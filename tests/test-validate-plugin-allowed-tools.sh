@@ -30,9 +30,23 @@ unset _d
 # model-ladder.json's dispatch_aliases (never a literal alias list) — the mirror needs it too.
 [ -f "$REPO_ROOT/model-ladder.json" ] && cp "$REPO_ROOT/model-ladder.json" "$TMP/model-ladder.json"
 # marketplace.json's source is ./plugin (the shipped tree); the validator follows it to the
-# manifest there. Mirror just that manifest dir — never the 4.5 MB tree.
+# manifest there. Mirror that manifest dir plus every ./path it references — never the 4.5 MB
+# tree. `claude plugin validate --strict` (CLI 2.1.283+) fails on a referenced path that is
+# absent (outputStyles: ./output-styles/); CI has no claude CLI, so only local runs caught it.
 if [ -d "$REPO_ROOT/plugin/.claude-plugin" ]; then
   mkdir -p "$TMP/plugin" && cp -r "$REPO_ROOT/plugin/.claude-plugin" "$TMP/plugin/.claude-plugin" || fail "repo mirror failed for plugin/.claude-plugin"
+  _refs=$(jq -r '.. | strings | select(startswith("./"))' "$REPO_ROOT/plugin/.claude-plugin/plugin.json") \
+    || fail "jq could not read plugin/.claude-plugin/plugin.json"
+  while IFS= read -r _p; do
+    _p=${_p#./}; _p=${_p%/}
+    case "$_p" in
+      ''|.claude-plugin|.claude-plugin/*) continue ;;
+      *..*) fail "plugin/.claude-plugin/plugin.json path escapes plugin/: $_p" ;;
+    esac
+    [ -e "$REPO_ROOT/plugin/$_p" ] || fail "plugin/.claude-plugin/plugin.json references missing path: plugin/$_p"
+    mkdir -p "$TMP/plugin/$(dirname "$_p")" && cp -r "$REPO_ROOT/plugin/$_p" "$TMP/plugin/$_p" || fail "repo mirror failed for plugin/$_p"
+  done < <(printf '%s\n' "$_refs" | tr -d '\r')
+  unset _p _refs
 fi
 export CLAUDE_PLUGIN_ROOT="$TMP"
 
