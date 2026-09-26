@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -121,6 +121,38 @@ describe('buddy statusLine install / uninstall', () => {
     await installStatusline(brain, cache);
     await uninstallStatusline(brain);
     expect(settings()).toEqual({ theme: 'dark', model: 'opus' });
+  });
+
+  it('a concurrent edit between read and write is refused: the edit survives, nothing is overwritten, no tmp is left', async () => {
+    const fsp = (await import('fs')).promises;
+    const file = join(cfgDir, 'settings.json');
+    put({ statusLine: { type: 'command', command: 'echo prev' } });
+    const real = fsp.readFile.bind(fsp);
+    let settingsReads = 0;
+    const spy = vi.spyOn(fsp, 'readFile').mockImplementation((async (p: unknown, ...rest: unknown[]) => {
+      if (String(p).replace(/\\/g, '/').endsWith('/claude/settings.json') && ++settingsReads === 2) {
+        writeFileSync(file, JSON.stringify({ theme: 'edited-by-claude-code' }));   // lands between read and rename
+      }
+      return (real as (...a: unknown[]) => Promise<unknown>)(p, ...rest);
+    }) as typeof fsp.readFile);
+    try {
+      await expect(installStatusline(brain, cache)).rejects.toThrow(/changed while sb buddy was editing it/);
+    } finally { spy.mockRestore(); }
+    expect(JSON.parse(readFileSync(file, 'utf-8'))).toEqual({ theme: 'edited-by-claude-code' });
+    expect(readdirSync(cfgDir).filter((f) => f.includes('.tmp.'))).toEqual([]);
+    expect(existsSync(join(brain, 'buddy.json')) && buddy().react).toBeFalsy();   // no consent for a failed install
+  });
+
+  it.skipIf(process.platform === 'win32')('a symlinked settings.json (dotfiles) stays a symlink; the target gets the edit', async () => {
+    const { symlinkSync, lstatSync } = await import('fs');
+    const dot = join(root, 'dotfiles'); mkdirSync(dot);
+    writeFileSync(join(dot, 'settings.json'), JSON.stringify({ theme: 'dark' }));
+    symlinkSync(join(dot, 'settings.json'), join(cfgDir, 'settings.json'));
+    await installStatusline(brain, cache);
+    expect(lstatSync(join(cfgDir, 'settings.json')).isSymbolicLink()).toBe(true);
+    const t = JSON.parse(readFileSync(join(dot, 'settings.json'), 'utf-8'));
+    expect(t.theme).toBe('dark');
+    expect(t.statusLine.command).toBe(statuslineCommand(brain, null));
   });
 
   it.skipIf(process.platform === 'win32')('keeps settings.json mode (0600 stays 0600) and writes the backup owner-only', async () => {

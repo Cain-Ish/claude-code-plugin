@@ -169,14 +169,14 @@ while :; do
     SNAPSHOT_FAIL_REASON="could not create a fresh staging/wiki on attempt $_attempt (the previous copy was not removed)"
     break
   fi
-  cp -rp "$WIKI_DIR/." "$DREAM_DIR/staging/wiki/" 2> "$_cperr"
+  LC_ALL=C cp -rp "$WIKI_DIR/." "$DREAM_DIR/staging/wiki/" 2> "$_cperr"   # C locale: the message is matched below
   CP_RC=$?
-  # A cp error made only of vanished entries is a race, not a fault: the embeddings cache and
-  # index.md are rewritten through tmp+rename by every search, so their temp file can disappear
-  # between cp's readdir and its copy while the page lists stay identical. Any other error
-  # (ENOSPC, EIO, a truncated page) still fails at once.
+  # A cp error made only of vanished entries (ENOENT) is a race, not a fault: the embeddings cache
+  # and index.md are rewritten through tmp+rename by every search, so their temp file can disappear
+  # between cp's readdir and its copy while the page lists stay identical. Any other error — ENOSPC,
+  # EIO, EACCES, even "cannot stat …: Input/output error" — still fails at once.
   _vanished=0
-  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] && ! grep -qvE 'No such file or directory|cannot stat' "$_cperr"; then _vanished=1; fi
+  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] && ! grep -qv ': No such file or directory$' "$_cperr"; then _vanished=1; fi
   [ -s "$_cperr" ] && cat "$_cperr" >&2   # cp's own diagnostics stay visible
   rm -f "$_cperr"
   _staged=$(_page_list "$DREAM_DIR/staging/wiki") || LIST_RC=1

@@ -114,8 +114,9 @@ if [ -n "${SB_BUDDY_CHAIN:-}" ]; then
     printf '%s\n%s' "$now" "$_old" > "$CHF.$$" 2>/dev/null && { mv -f "$CHF.$$" "$CHF" 2>/dev/null || rm -f "$CHF.$$" 2>/dev/null; }
     # The refresh runs DETACHED and writes the cache itself: run in the foreground, a chain slower
     # than the 1 s tick (npx … on Windows: 1-3 s) was cancelled every time, never wrote its cache,
-    # and the user's statusline vanished for good. A fast chain still lands on this tick (≤ 0.8 s
-    # wait); a slow one shows its last output now and its fresh output next tick. A failing chain is
+    # and the user's statusline vanished for good. A fast chain still lands on this tick (≤ 5 polls
+    # of 0.1 s — each sleep is its own process on MSYS, so the tick stays under 1 s); a slow one
+    # shows its last output now and its fresh output next tick. A failing chain is
     # logged once per session (quiet on screen, loud in the log).
     (
       _out=$(printf '%s' "$RAW" | bash -c "$SB_BUDDY_CHAIN" 2> "$CHF.err.$$"); _rc=$?
@@ -124,12 +125,13 @@ if [ -n "${SB_BUDDY_CHAIN:-}" ]; then
         : > "$CHF.logged"; _e=""; IFS= read -r _e < "$CHF.err.$$" 2>/dev/null
         _row=$(jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg m "chained statusline exited $_rc: ${_e:0:200}" \
           --argjson rc "$_rc" '{timestamp: $ts, script: "buddy-statusline.sh", message: $m, exit_code: $rc}' 2>/dev/null)
+        _row="${_row//$'\r'/}"   # Windows jq: \r\n
         [ -n "$_row" ] && printf '%s\n' "$_row" >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
       fi
       rm -f "$CHF.err.$$" 2>/dev/null
     ) < /dev/null > /dev/null 2>&1 &
     _pid=$!
-    for _i in 1 2 3 4 5 6 7 8; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.1; done
+    for _i in 1 2 3 4 5; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.1; done
     CH="$_old"
     if ! kill -0 "$_pid" 2>/dev/null; then { IFS= read -r _x; IFS= read -r -d '' CH; } < "$CHF" 2>/dev/null || true; fi
   elif [ "$HIT" = "0" ]; then

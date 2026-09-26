@@ -8142,12 +8142,22 @@ async function runSb(args, deps) {
         errpush("buddy name: 1-14 printable characters");
         return { stdout: "", stderr: err.join("\n"), exitCode: 2 };
       }
-      await patchConfig(deps.brainDir, { name });
+      try {
+        await patchConfig(deps.brainDir, { name });
+      } catch (e) {
+        errpush(`buddy name: ${e.message}`);
+        return { stdout: "", stderr: err.join("\n"), exitCode: 1 };
+      }
       push(`buddy is now called ${name}`);
       return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
     }
     if (sub === "mute" || sub === "unmute") {
-      await patchConfig(deps.brainDir, { mute: sub === "mute" });
+      try {
+        await patchConfig(deps.brainDir, { mute: sub === "mute" });
+      } catch (e) {
+        errpush(`buddy ${sub}: ${e.message}`);
+        return { stdout: "", stderr: err.join("\n"), exitCode: 1 };
+      }
       push(sub === "mute" ? "buddy bubble muted (telemetry line stays)" : "buddy bubble unmuted");
       return { stdout: out.join("\n"), stderr: err.join("\n"), exitCode: 0 };
     }

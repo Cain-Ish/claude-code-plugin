@@ -98,6 +98,16 @@ describe('sb CLI', () => {
     expect(r.stderr).toContain('unknown subcommand');
   });
 
+  it('buddy name / mute on a corrupt buddy.json exit 1 with a clean message and leave the file alone', async () => {
+    writeFileSync(join(brainDir, 'buddy.json'), '{"name":"Mo", "mute": tru', 'utf-8');
+    for (const argv of [['buddy', 'name', 'Zed'], ['buddy', 'mute']]) {
+      const r = await runSb(argv, { brainDir, knowledgeDir });
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toMatch(/not valid JSON — fix or delete it/);
+    }
+    expect(readFileSync(join(brainDir, 'buddy.json'), 'utf-8')).toBe('{"name":"Mo", "mute": tru');
+  });
+
   it('buddy is always the capybara: no account roll, stale identity block dropped, name kept', async () => {
     // A 0.51.0 hatch left rarity/eye/hat/shiny/seed_source here; none of it means anything now.
     writeFileSync(join(brainDir, 'buddy.json'), JSON.stringify({

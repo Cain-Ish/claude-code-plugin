@@ -166,6 +166,7 @@ case "$3:\$n" in
   truncate:*) : > "\${dest%/}/entities/p.md"; rc=28 ;;
   tmpvanish:1) echo "cp: cannot stat '$2/.embeddings-cache.json.tmp.4242': No such file or directory" >&2; rc=1 ;;
   ioerr:*) echo "cp: error reading '$2/entities/p.md': Input/output error" >&2; rc=1 ;;
+  statio:*) echo "cp: cannot stat '$2/entities/p.md': Input/output error" >&2; rc=1 ;;
 esac
 [ "$3" = once ] && sleep 2
 exit \$rc
@@ -287,6 +288,19 @@ if [ "$RC" -ne 0 ] && [ "$ST" = "failed" ] && [ "$ERR_OK" = 1 ] && [ "$CALLS" = 
   pass "a non-vanish cp error (EIO) with matching page lists fails at once, naming the attempt"
 else
   fail "EIO cp error: rc=$RC status='$ST' copies=$CALLS error='$ERR' (expected failed, 'exited 1 … attempt 1/3', 1 copy)"
+fi
+
+# "cannot stat" is not ENOENT by itself: a stat that failed with EIO is a fault, not a race.
+BRAIN_DIR14="$SANDBOX/brain14"; KNOWLEDGE_DIR14="$SANDBOX/knowledge14"
+race_fixture "$BRAIN_DIR14" "$KNOWLEDGE_DIR14"
+make_race_cp "$SANDBOX/fakebin-race-statio" "$KNOWLEDGE_DIR14/wiki" statio
+run_race "$SANDBOX/fakebin-race-statio" "$BRAIN_DIR14" "$KNOWLEDGE_DIR14"; RC=$?
+ST=$(find "$BRAIN_DIR14/dreams" -name status.json -exec jq -r '.status' {} \; | tr -d '\r' | head -1)
+CALLS=$(cat "$SANDBOX/fakebin-race-statio/calls" 2>/dev/null || echo 0)
+if [ "$RC" -ne 0 ] && [ "$ST" = "failed" ] && [ "$CALLS" = 1 ]; then
+  pass "a 'cannot stat …: Input/output error' fails at once (only ENOENT counts as a vanish race)"
+else
+  fail "cannot-stat EIO: rc=$RC status='$ST' copies=$CALLS (expected failed, 1 copy)"
 fi
 
 # A find that cannot list the staged tree leaves the snapshot unverified — fail, never pass.
