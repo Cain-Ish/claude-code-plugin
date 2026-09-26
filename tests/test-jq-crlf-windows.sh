@@ -59,7 +59,7 @@ printf '%s' "$out" | grep -qF 'ò    ó' || fail "buddy mood eyes lost under Win
 pass "buddy-statusline.sh mood survives Windows jq (last US field CR-stripped)"
 rm -rf "$T"
 
-# 4. 0.52.0: persona-context's two-way [buddy: ] line is TWO jq -rn output lines (feed cursor, then
+# 4. 0.53.0: persona-context's two-way [buddy: ] line is TWO jq -rn output lines (feed cursor, then
 #    the line). A CR left in either would poison the memo cursor (fromjson on "…}\r") or the context.
 T=$(mktemp -d); mkdir -p "$T/.buddy" "$T/.injected"
 printf '{"react":true}' > "$T/buddy.json"; : > "$T/.buddy/s2.seen"

@@ -164,6 +164,8 @@ case "$3:\$n" in
   partial:*) rm -f "\${dest%/}/entities/p.md" ;;
   vanish:1) rm -f "$2/entities/p.md"; rc=1 ;;
   truncate:*) : > "\${dest%/}/entities/p.md"; rc=28 ;;
+  tmpvanish:1) echo "cp: cannot stat '$2/.embeddings-cache.json.tmp.4242': No such file or directory" >&2; rc=1 ;;
+  ioerr:*) echo "cp: error reading '$2/entities/p.md': Input/output error" >&2; rc=1 ;;
 esac
 [ "$3" = once ] && sleep 2
 exit \$rc
@@ -254,6 +256,37 @@ if [ "$RC" -ne 0 ] && [ "$ST" = "failed" ] && [ "$ERR_OK" = 1 ] && [ "$CALLS" = 
   pass "a truncating cp error with matching page lists fails the dream (no retry)"
 else
   fail "truncating cp error: rc=$RC status='$ST' copies=$CALLS error='$ERR' (expected failed, 'exited 28', 1 copy)"
+fi
+
+# A temp file renamed away mid-copy (the embeddings cache and index.md are rewritten through
+# tmp+rename by every search) makes cp exit 1 with only "cannot stat … No such file" while the
+# page lists hold still: a race, retried — not a failed dream.
+BRAIN_DIR12="$SANDBOX/brain12"; KNOWLEDGE_DIR12="$SANDBOX/knowledge12"
+race_fixture "$BRAIN_DIR12" "$KNOWLEDGE_DIR12"
+make_race_cp "$SANDBOX/fakebin-race-tmpvanish" "$KNOWLEDGE_DIR12/wiki" tmpvanish
+run_race "$SANDBOX/fakebin-race-tmpvanish" "$BRAIN_DIR12" "$KNOWLEDGE_DIR12"; RC=$?
+ST=$(find "$BRAIN_DIR12/dreams" -name status.json -exec jq -r '.status' {} \; | tr -d '\r' | head -1)
+CALLS=$(cat "$SANDBOX/fakebin-race-tmpvanish/calls" 2>/dev/null || echo 0)
+if [ "$RC" -eq 0 ] && [ "$ST" = "pending" ] && [ "$CALLS" = 2 ]; then
+  pass "a cp error made only of vanished temp files is retried, not failed"
+else
+  fail "vanished temp file, lists unchanged: rc=$RC status='$ST' copies=$CALLS (expected rc=0, pending, 2 copies)"
+fi
+
+# Any other cp error with matching page lists (EIO here) is a fault: fail at once, no retry, and
+# the reason names the attempt.
+BRAIN_DIR13="$SANDBOX/brain13"; KNOWLEDGE_DIR13="$SANDBOX/knowledge13"
+race_fixture "$BRAIN_DIR13" "$KNOWLEDGE_DIR13"
+make_race_cp "$SANDBOX/fakebin-race-ioerr" "$KNOWLEDGE_DIR13/wiki" ioerr
+run_race "$SANDBOX/fakebin-race-ioerr" "$BRAIN_DIR13" "$KNOWLEDGE_DIR13"; RC=$?
+ST=$(find "$BRAIN_DIR13/dreams" -name status.json -exec jq -r '.status' {} \; | tr -d '\r' | head -1)
+ERR=$(find "$BRAIN_DIR13/dreams" -name status.json -exec jq -r '.error' {} \; | tr -d '\r' | head -1)
+CALLS=$(cat "$SANDBOX/fakebin-race-ioerr/calls" 2>/dev/null || echo 0)
+case "$ERR" in *"exited 1"*"attempt 1/3"*) ERR_OK=1 ;; *) ERR_OK=0 ;; esac
+if [ "$RC" -ne 0 ] && [ "$ST" = "failed" ] && [ "$ERR_OK" = 1 ] && [ "$CALLS" = 1 ]; then
+  pass "a non-vanish cp error (EIO) with matching page lists fails at once, naming the attempt"
+else
+  fail "EIO cp error: rc=$RC status='$ST' copies=$CALLS error='$ERR' (expected failed, 'exited 1 … attempt 1/3', 1 copy)"
 fi
 
 # A find that cannot list the staged tree leaves the snapshot unverified — fail, never pass.

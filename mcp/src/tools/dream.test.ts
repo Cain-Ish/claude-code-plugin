@@ -158,6 +158,26 @@ describe('dreamCreate — snapshot wall clock (2026-09-24)', () => {
     expect(reason).not.toMatch(/keep running/);
   });
 
+  it('on Windows names dream_cancel for the orphaned pending dream (a retry would fail "already pending")', () => {
+    expect(snapshotFailureReason(killed(), 300_000, 'win32', '/b/dreams')).toMatch(/dream_cancel it/);
+  });
+
+  it('says when SB_DREAM_CREATE_TIMEOUT_MS was rejected (the message tells the user to raise it); silent when unset or valid', () => {
+    const prev = process.env.SB_DREAM_CREATE_TIMEOUT_MS;
+    try {
+      for (const bad of ['10m', '5000', '3000000000', '60000.5']) {
+        process.env.SB_DREAM_CREATE_TIMEOUT_MS = bad;
+        expect(snapshotFailureReason(killed(), 300_000, 'linux', '/b/dreams')).toMatch(new RegExp(`=${bad.replace('.', '\\.')} was ignored`));
+      }
+      process.env.SB_DREAM_CREATE_TIMEOUT_MS = '600000';
+      expect(snapshotFailureReason(killed(), 600_000, 'linux', '/b/dreams')).not.toMatch(/ignored/);
+      delete process.env.SB_DREAM_CREATE_TIMEOUT_MS;
+      expect(snapshotFailureReason(killed(), 300_000, 'linux', '/b/dreams')).not.toMatch(/ignored/);
+    } finally {
+      if (prev === undefined) delete process.env.SB_DREAM_CREATE_TIMEOUT_MS; else process.env.SB_DREAM_CREATE_TIMEOUT_MS = prev;
+    }
+  });
+
   it('keeps the script stderr for an ordinary failure', () => {
     const err = Object.assign(new Error('Command failed'),
       { killed: false, stderr: 'error: 2 completed dreams are unreviewed\n' });

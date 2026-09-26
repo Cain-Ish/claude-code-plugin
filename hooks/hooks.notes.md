@@ -52,6 +52,11 @@ the installed-plugin catalog summary, BM25 wiki hits, and an episodic search
 hint. Each section is hard-capped. Always exits 0 — must never block a prompt.
 EXCEPTION — the `/?` prefix routes to persona-think (Layer 2), which spawns a
 paid Opus advisor call; that is the one path where this hook is not free (D145).
+BUDDY (0.53.0): once the user consented (`sb buddy install` → buddy.json react:true) and the
+bubble is visible (not muted, sprite on), every ordinary prompt also carries one
+`[buddy: <name>]` line (~80 tokens) asking Claude for ONE `buddy_react` call per turn — a
+standing per-turn cost. `SB_BUDDY_REACT=off` drops the line and the call; `SB_BUDDY=off` or
+`SB_HOOK_PROFILE=minimal` drops the buddy entirely.
 
 ## Stop
 

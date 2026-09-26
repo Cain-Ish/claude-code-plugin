@@ -1399,11 +1399,11 @@ _bd_bytes=$(wc -c < "$OUTPUT_FILE" 2>/dev/null | tr -d ' '); case "$_bd_bytes" i
 if [ "$_bd_bytes" -gt 0 ]; then
   sb_buddy_event "$SL_SESSION_ID" delivered focused "Memory delivered to Claude: hot tier, $(( _bd_bytes / 1024 )) KB. Goal freezes on the first coding prompt." session-load 600
 fi
-# A 0.51.0 buddy install has no refreshInterval (the capybara renders but only moves on events)
+# A buddy install from before 0.53.0 (0.51.0 or 0.52.0) has no refreshInterval (the capybara renders but only moves on events)
 # and no react consent (two-way stays off). One re-install fixes both; the buddy says so itself.
 _bset="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
 if [ -f "$_bset" ] && grep -q 'buddy-statusline' "$_bset" && ! grep -q '"refreshInterval"' "$_bset"; then
-  sb_buddy_event "$SL_SESSION_ID" pending waiting "Buddy is from 0.51.0: run /second-brain:buddy install once to animate it and turn on two-way chat." session-load 1800
+  sb_buddy_event "$SL_SESSION_ID" pending waiting "Buddy predates 0.53.0: run /second-brain:buddy install once to animate it and turn on two-way chat." session-load 1800
 fi
 
 # --- Emit collected output ---

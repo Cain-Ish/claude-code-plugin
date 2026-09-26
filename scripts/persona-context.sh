@@ -40,7 +40,7 @@ SESSION_ID="${SESSION_ID//[^A-Za-z0-9_-]/}"; SESSION_ID="${SESSION_ID:0:64}"
 # every call site below stays a plain `sb_manifest_add kind ids`.
 SB_MANIFEST_SESSION_ID="$SESSION_ID"
 
-# --- Buddy, two-way (0.52.0): the buddy speaks to Claude, Claude answers through buddy_react ---
+# --- Buddy, two-way (0.53.0): the buddy speaks to Claude, Claude answers through buddy_react ---
 # One line on every ordinary prompt path (acks and short prompts too — the buddy_react ask is per
 # turn; a `/?` prompt is the advisor's own reply and exits before this),
 # only when (a) the user consented with `sb buddy install` (buddy.json react:true) and (b) THIS
@@ -55,7 +55,9 @@ SB_MANIFEST_SESSION_ID="$SESSION_ID"
 BUDDY_LINE=""; BUDDY_FED=""
 _buddy_compute() {
   BUDDY_LINE=""; BUDDY_FED=""
-  [ "${SB_BUDDY:-on}" != "off" ] && [ "${SB_BUDDY_REACT:-on}" != "off" ] && [ -n "$SESSION_ID" ] || return 0
+  # Early exits call this before lib.sh (which maps the minimal profile) is sourced.
+  [ "${SB_HOOK_PROFILE:-}" = minimal ] && : "${SB_BUDDY:=off}"
+  [ "${SB_BUDDY:-on}" != "off" ] && [ "${SB_BUDDY_REACT:-on}" != "off" ] && [ "${SB_BUDDY_SPRITE:-on}" != "off" ] && [ -n "$SESSION_ID" ] || return 0
   local bd="${BRAIN_DIR:-$HOME/.second-brain}"
   [ -f "$bd/.buddy/$SESSION_ID.seen" ] && [ -f "$bd/buddy.json" ] || return 0
   local memo="$bd/.injected/$SESSION_ID.json" slog="$bd/.buddy/$SESSION_ID.log.jsonl" glog="$bd/.buddy/_global.log.jsonl" out
@@ -68,7 +70,8 @@ _buddy_compute() {
     def rows($raw; $g): [$raw | split("\n")[] | fromjson? | select(type == "object"
         and ((.ts // null) | type) == "number" and .ts <= $now) | . + {_global: $g}];
     ((try ($c | fromjson) catch {}) // {}) as $c | ((try ($m | fromjson) catch {}) // {}) as $m
-    | select(($c | type) == "object" and $c.react == true)
+    # consent, and a bubble the user can see (a muted or sprite-off buddy shows no line to answer)
+    | select(($c | type) == "object" and $c.react == true and $c.mute != true and $c.sprite != false)   # not `// …`: the jq // operator also replaces false
     # cursor = (second, lines already fed at that second): a row stamped in the cursor second but
     # appended after the read still arrives next prompt, and none arrives twice
     | ($m.buddy_fed // $m.t0 // $now) as $since | ($m.buddy_fed_k // []) as $fk

@@ -173,7 +173,7 @@ pass "Q&A-only transcript: predicate skips extraction"
 restore_path
 
 # --- Test 2b: a chat turn whose only tool call is the buddy's end-of-turn buddy_react is still
-# Q&A — counting it would run the whole Stop pipeline on every turn (0.52.0 two-way buddy).
+# Q&A — counting it would run the whole Stop pipeline on every turn (0.53.0 two-way buddy).
 init_sandbox "buddy-react-only"
 cat > "$SANDBOX/transcript/session.jsonl" <<'EOF'
 {"type":"user","message":{"role":"user","content":"hi"}}

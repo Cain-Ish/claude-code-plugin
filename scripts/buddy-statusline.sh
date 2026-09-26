@@ -14,8 +14,8 @@
 # (·oo·). Like the native bubble, a line is bright for 10 s, then dims; with nothing live the bubble
 # box is not drawn. Claude's own `buddy_react` line (kind `said`, shown as "Claude: …") holds the
 # bubble for 60 s against newer non-gate events, as an active gate does.
-# The renderer also drops .buddy/<sid>.seen once per session: persona-context only asks Claude for
-# buddy_react in a session whose statusline actually renders.
+# The renderer also drops .buddy/<sid>.seen once per session, and only when the bubble is drawn (not
+# muted, sprite on): persona-context only asks Claude for buddy_react in such a session.
 #
 # Install: `sb buddy install` (settings.json statusLine → ~/.second-brain/bin shim → this script,
 # refreshInterval 1, settings backed up, an existing statusline chained). A chained statusline
@@ -53,7 +53,6 @@ SID=""
 _f CFG "$BRAIN_DIR/buddy.json"; _f CUR "$BRAIN_DIR/.buddy/$SID.json"; _f GLB "$BRAIN_DIR/.buddy/_global.json"
 _f MEMO "$BRAIN_DIR/.injected/$SID.json"
 [ -n "$SID" ] || { CUR=/dev/null; MEMO=/dev/null; }
-[ -n "$SID" ] && [ -d "$BRAIN_DIR/.buddy" ] && [ ! -e "$BRAIN_DIR/.buddy/$SID.seen" ] && { : > "$BRAIN_DIR/.buddy/$SID.seen"; } 2>/dev/null
 PHASE=""; [ -n "$SID" ] && [ -f "$BRAIN_DIR/.injected/$SID.phase" ] && { IFS= read -r PHASE < "$BRAIN_DIR/.injected/$SID.phase" 2>/dev/null || true; }
 PHASE="${PHASE//[^a-z]/}"
 
@@ -79,7 +78,7 @@ IFS="$US" read -r MODEL CTX NAME MUTE SPRITE_CFG GOAL LINE KIND ETS MOOD < <(
         (($in.context_window.used_percentage // null) | if . == null then "" else (tostring | split(".")[0]) end),
         ((if ($c.name | type) == "string" then $c.name | scrub | .[0:14] else "" end) | if test("\\S") then . else "Kapi" end),
         (if ($c.mute // false) == true then "1" else "0" end),
-        (if ($c.sprite // true) == false then "off" else "on" end),
+        (if $c.sprite == false then "off" else "on" end),   # not `// true`: the jq // operator also replaces false
         (($m.goal // "") | scrub),
         (($x.line // "") | scrub), ($x.kind // ""), ($x.ts // 0), ($x.mood // "focused") ]
     | map(tostring | gsub("[\n\r\u001f]"; " ")) | join("\u001f")' 2>/dev/null
@@ -108,16 +107,33 @@ if [ -n "${SB_BUDDY_CHAIN:-}" ]; then
     # a hit even when the chained command printed nothing (a broken one must not re-run every tick)
     if [[ "$_cts" =~ ^[0-9]+$ ]] && [ $(( now - _cts )) -ge 0 ] && [ $(( now - _cts )) -lt 5 ]; then HIT=1; else CH=""; fi
   fi
-  if [ "$HIT" = "0" ]; then
+  if [ "$HIT" = "0" ] && [ -n "$CHF" ] && [ -d "$BRAIN_DIR/.buddy" ]; then
     # Stamp first, keeping the old output: Claude Code cancels an in-flight run when the next tick
     # arrives, so a chain slower than a second would otherwise be re-spawned on every tick.
-    _old=""; [ -n "$CHF" ] && [ -f "$CHF" ] && { IFS= read -r _x; IFS= read -r -d '' _old; } < "$CHF" 2>/dev/null
-    [ -n "$CHF" ] && [ -d "$BRAIN_DIR/.buddy" ] && printf '%s\n%s' "$now" "$_old" > "$CHF.$$" 2>/dev/null \
-      && { mv -f "$CHF.$$" "$CHF" 2>/dev/null || rm -f "$CHF.$$" 2>/dev/null; }
-    CH=$(printf '%s' "$RAW" | bash -c "$SB_BUDDY_CHAIN" 2>/dev/null) || true
-    if [ -n "$CHF" ] && [ -d "$BRAIN_DIR/.buddy" ]; then
-      printf '%s\n%s' "$now" "$CH" > "$CHF.$$" 2>/dev/null && mv -f "$CHF.$$" "$CHF" 2>/dev/null || rm -f "$CHF.$$" 2>/dev/null
-    fi
+    _old=""; [ -f "$CHF" ] && { IFS= read -r _x; IFS= read -r -d '' _old; } < "$CHF" 2>/dev/null
+    printf '%s\n%s' "$now" "$_old" > "$CHF.$$" 2>/dev/null && { mv -f "$CHF.$$" "$CHF" 2>/dev/null || rm -f "$CHF.$$" 2>/dev/null; }
+    # The refresh runs DETACHED and writes the cache itself: run in the foreground, a chain slower
+    # than the 1 s tick (npx … on Windows: 1-3 s) was cancelled every time, never wrote its cache,
+    # and the user's statusline vanished for good. A fast chain still lands on this tick (≤ 0.8 s
+    # wait); a slow one shows its last output now and its fresh output next tick. A failing chain is
+    # logged once per session (quiet on screen, loud in the log).
+    (
+      _out=$(printf '%s' "$RAW" | bash -c "$SB_BUDDY_CHAIN" 2> "$CHF.err.$$"); _rc=$?
+      printf '%s\n%s' "$now" "$_out" > "$CHF.$$" 2>/dev/null && { mv -f "$CHF.$$" "$CHF" 2>/dev/null || rm -f "$CHF.$$" 2>/dev/null; }
+      if [ "$_rc" -ne 0 ] && [ ! -e "$CHF.logged" ]; then
+        : > "$CHF.logged"; _e=""; IFS= read -r _e < "$CHF.err.$$" 2>/dev/null
+        _row=$(jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg m "chained statusline exited $_rc: ${_e:0:200}" \
+          --argjson rc "$_rc" '{timestamp: $ts, script: "buddy-statusline.sh", message: $m, exit_code: $rc}' 2>/dev/null)
+        [ -n "$_row" ] && printf '%s\n' "$_row" >> "$BRAIN_DIR/error-log.jsonl" 2>/dev/null
+      fi
+      rm -f "$CHF.err.$$" 2>/dev/null
+    ) < /dev/null > /dev/null 2>&1 &
+    _pid=$!
+    for _i in 1 2 3 4 5 6 7 8; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.1; done
+    CH="$_old"
+    if ! kill -0 "$_pid" 2>/dev/null; then { IFS= read -r _x; IFS= read -r -d '' CH; } < "$CHF" 2>/dev/null || true; fi
+  elif [ "$HIT" = "0" ]; then
+    CH=$(printf '%s' "$RAW" | bash -c "$SB_BUDDY_CHAIN" 2>/dev/null) || true   # no session key: nowhere to cache
   fi
   if [ -n "$CH" ]; then
     _n=0; while IFS= read -r _l && [ "$_n" -lt 3 ]; do printf '%s\n' "$_l"; _n=$(( _n + 1 )); done <<< "$CH"
@@ -141,6 +157,9 @@ printf '%s\n' "$T"
 # --- the capybara (wide) or its one-line face (narrow); mute / sprite-off = telemetry only -----
 [ "$MUTE" = "1" ] && exit 0
 [ "${SB_BUDDY_SPRITE:-$SPRITE_CFG}" = "off" ] && exit 0
+# Only now is the bubble really on screen: .seen tells persona-context to ask Claude for buddy_react.
+# Written before the mute/sprite exits, a muted buddy cost a wasted tool call every turn.
+[ -n "$SID" ] && [ -d "$BRAIN_DIR/.buddy" ] && [ ! -e "$BRAIN_DIR/.buddy/$SID.seen" ] && { : > "$BRAIN_DIR/.buddy/$SID.seen"; } 2>/dev/null
 
 # Eyes: the native default glyph, a mood pair when a gate/guard/wait wants attention.
 EYE='·'; [ "${SB_BUDDY_ASCII:-off}" = "on" ] && EYE='.'

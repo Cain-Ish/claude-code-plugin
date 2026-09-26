@@ -71,9 +71,65 @@ describe('buddy statusLine install / uninstall', () => {
     expect(settings().statusLine.refreshInterval).toBe(5);
   });
 
-  it('refuses a hand-edited command that runs the renderer in a form it cannot parse', async () => {
+  it('refuses a hand-edited command that runs the renderer in a form it cannot parse — with NO side effects (no consent, no shim)', async () => {
     put({ statusLine: { type: 'command', command: 'bash ~/x/buddy-statusline.sh | tee log' } });
     await expect(installStatusline(brain, cache)).rejects.toThrow(/hand-edited/);
+    expect(existsSync(join(brain, 'buddy.json'))).toBe(false);
+    expect(existsSync(shimPath(brain))).toBe(false);
+  });
+
+  it('an unreadable settings.json (any error but ENOENT) is never treated as absent — install and uninstall throw, nothing written', async () => {
+    mkdirSync(join(cfgDir, 'settings.json'));                      // EISDIR: exists, cannot be read as a file
+    await expect(installStatusline(brain, cache)).rejects.toThrow(/cannot read .*nothing changed/);
+    await expect(uninstallStatusline(brain)).rejects.toThrow(/cannot read/);
+    expect(backups()).toHaveLength(0);
+    expect(existsSync(join(brain, 'buddy.json'))).toBe(false);
+    expect(existsSync(shimPath(brain))).toBe(false);
+  });
+
+  it('a broken buddy.json fails install before settings.json is touched, and is never replaced by a patch', async () => {
+    put({ statusLine: { type: 'command', command: 'echo prev' } });
+    const before = readFileSync(join(cfgDir, 'settings.json'), 'utf-8');
+    mkdirSync(brain, { recursive: true });
+    writeFileSync(join(brain, 'buddy.json'), '{"name":"Mo", "mute": tru');
+    await expect(installStatusline(brain, cache)).rejects.toThrow(/buddy\.json is not valid JSON/);
+    expect(readFileSync(join(cfgDir, 'settings.json'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(brain, 'buddy.json'), 'utf-8')).toBe('{"name":"Mo", "mute": tru');
+  });
+
+  it('always pins SB_BUDDY_CHAIN (empty = no chain) so an inherited env value is never run; older forms upgrade in place', async () => {
+    expect(statuslineCommand(brain, null).startsWith("SB_BUDDY_CHAIN='' bash '")).toBe(true);
+    expect(parseOurCommand(statuslineCommand(brain, null))).toEqual({ chain: null });
+    const legacy = `bash '${shimPath(brain).replace(/\\/g, '/')}'`;   // 0.52.0 form: no env at all
+    expect(parseOurCommand(legacy)).toEqual({ chain: null });
+    put({ statusLine: { type: 'command', command: legacy, refreshInterval: 1 } });
+    const r = await installStatusline(brain, cache);
+    expect(r.changed).toBe(true);
+    expect(settings().statusLine.command).toBe(statuslineCommand(brain, null));
+  });
+
+  it('uninstall refuses a hand-edited buddy line with no side effects (shim and consent stay)', async () => {
+    await installStatusline(brain, cache);
+    put({ statusLine: { type: 'command', command: `NO_COLOR=1 bash '${shimPath(brain).replace(/\\/g, '/')}'` } });
+    await expect(uninstallStatusline(brain)).rejects.toThrow(/hand-edited/);
+    expect(existsSync(shimPath(brain))).toBe(true);
+    expect(buddy().react).toBe(true);
+  });
+
+  it('uninstall with no chained line removes statusLine and keeps every other key', async () => {
+    put({ theme: 'dark', model: 'opus' });
+    await installStatusline(brain, cache);
+    await uninstallStatusline(brain);
+    expect(settings()).toEqual({ theme: 'dark', model: 'opus' });
+  });
+
+  it.skipIf(process.platform === 'win32')('keeps settings.json mode (0600 stays 0600) and writes the backup owner-only', async () => {
+    const { chmodSync, statSync } = await import('fs');
+    put({ env: { TOKEN: 'x' } });
+    chmodSync(join(cfgDir, 'settings.json'), 0o600);
+    await installStatusline(brain, cache);
+    expect(statSync(join(cfgDir, 'settings.json')).mode & 0o777).toBe(0o600);
+    expect(statSync(join(cfgDir, backups()[0])).mode & 0o777).toBe(0o600);
   });
 
   it('uninstall restores the chained line with its recorded fields, clears consent, drops the shim', async () => {

@@ -220,5 +220,27 @@ echo "$MB" | grep -q 'hasblock'           && fail "Test 5: page WITH a block was
 echo "$MB" | grep -q 'stub'               && fail "Test 5: stub was flagged"
 pass "Check 4 flags only blockless, substantive, structured pages"
 
+# --- Test 6: every ```bash block in every shipped skill parses (bash -n) --------
+# Skill bash blocks are pasted into a shell verbatim. 0.53.0 review: a `1#` typo for `#` in
+# skills/buddy/SKILL.md made the whole "pending" block a syntax error, so the skill reported
+# "nothing pending" while rule candidates waited.
+SKILLS_ROOT="$(cd "$(dirname "$0")"/.. && pwd)/skills"
+BLOCKS_DIR="$TMP/bash-blocks"; mkdir -p "$BLOCKS_DIR"
+nblk=0
+for f in "$SKILLS_ROOT"/*/SKILL.md; do
+  awk -v dir="$BLOCKS_DIR" -v tag="$(basename "$(dirname "$f")")" '
+    /^```bash[[:space:]]*$/ { b=1; i++; out = dir "/" tag "-" i ".sh"; printf "" > out; next }
+    b && /^```/ { b=0; close(out); next }
+    b { print > out }
+  ' "$f"
+done
+for blk in "$BLOCKS_DIR"/*.sh; do
+  [ -f "$blk" ] || continue
+  nblk=$((nblk + 1))
+  err=$(bash -n "$blk" 2>&1) || fail "Test 6: bash block $(basename "$blk" .sh) in skills/ does not parse: $(printf '%s' "$err" | head -1)"
+done
+[ "$nblk" -ge 20 ] || fail "Test 6: only $nblk bash blocks extracted from skills/ — extractor broken?"
+pass "Test 6: all $nblk bash blocks in shipped skills parse"
+
 echo
 echo "ALL PASS"

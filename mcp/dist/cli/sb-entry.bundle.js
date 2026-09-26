@@ -7610,22 +7610,42 @@ async function unprocessedCount(brainDir2, slug) {
 
 // src/tools/buddy-config.ts
 import { promises as fs11 } from "fs";
-import { join as join10 } from "path";
+import { join as join10, dirname } from "path";
 import { homedir as homedir2 } from "os";
 var DEFAULT_NAME = "Kapi";
+var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var errCode = (e) => e?.code;
 function renderCard(name) {
   return ["    n______n", "   ( \xB7    \xB7 )", "   (   oo   )", "    `------\xB4", `   ${name} \u2014 capybara`].join("\n");
 }
+async function readConfigStrict(brainDir2) {
+  const file = join10(brainDir2, "buddy.json");
+  let raw;
+  try {
+    raw = await fs11.readFile(file, "utf-8");
+  } catch (e) {
+    if (errCode(e) === "ENOENT") return {};
+    throw new Error(`cannot read ${file} (${errCode(e) ?? e})`);
+  }
+  if (!raw.trim()) return {};
+  let j2;
+  try {
+    j2 = JSON.parse(raw);
+  } catch {
+    throw new Error(`${file} is not valid JSON \u2014 fix or delete it, then re-run`);
+  }
+  if (!isObj(j2)) throw new Error(`${file} is not a JSON object \u2014 fix or delete it, then re-run`);
+  return j2;
+}
 async function readConfig(brainDir2) {
   try {
-    const j2 = JSON.parse(await fs11.readFile(join10(brainDir2, "buddy.json"), "utf-8"));
-    if (j2 && typeof j2 === "object" && !Array.isArray(j2)) return j2;
+    return await readConfigStrict(brainDir2);
   } catch {
+    return {};
   }
-  return {};
 }
 async function patchConfig(brainDir2, patch) {
-  const cfg = await readConfig(brainDir2);
+  const cfg = await readConfigStrict(brainDir2);
   for (const [k, v] of Object.entries(patch)) {
     if (v === null) delete cfg[k];
     else cfg[k] = v;
@@ -7633,8 +7653,13 @@ async function patchConfig(brainDir2, patch) {
   await fs11.mkdir(brainDir2, { recursive: true });
   const file = join10(brainDir2, "buddy.json");
   const tmp = `${file}.tmp.${process.pid}`;
-  await fs11.writeFile(tmp, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-  await fs11.rename(tmp, file);
+  try {
+    await fs11.writeFile(tmp, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+    await fs11.rename(tmp, file);
+  } catch (e) {
+    await fs11.rm(tmp, { force: true }).catch(() => void 0);
+    throw e;
+  }
   return cfg;
 }
 var UNPRINTABLE = /[\p{Cc}\p{Cf}\u2028\u2029]/u;
@@ -7663,15 +7688,14 @@ function shimPath(brainDir2) {
   return join10(brainDir2, "bin", "buddy-statusline.sh");
 }
 function statuslineCommand(brainDir2, chain) {
-  const env = chain ? `SB_BUDDY_CHAIN=${shq(chain)} ` : "";
-  return `${env}bash ${shq(posix2(shimPath(brainDir2)))}`;
+  return `SB_BUDDY_CHAIN=${shq(chain ?? "")} bash ${shq(posix2(shimPath(brainDir2)))}`;
 }
 function parseOurCommand(command) {
   const m = /^(?:SB_BUDDY_CHAIN='((?:[^']|'\\'')*)' )?bash (?:"([^"$`\\]*)"|'((?:[^']|'\\'')*)')$/.exec(command);
   if (!m) return null;
   const path2 = m[2] ?? unshq(m[3] ?? "");
   if (!/[\\/]buddy-statusline\.sh$/.test(path2)) return null;
-  return { chain: m[1] !== void 0 ? unshq(m[1]) : null };
+  return { chain: m[1] ? unshq(m[1]) : null };
 }
 function cacheBaseOf(pluginRoot) {
   const m = /^(.*[\\/]plugins[\\/]cache[\\/][^\\/]+[\\/]second-brain)[\\/][^\\/]+[\\/]?$/.exec(pluginRoot);
@@ -7700,78 +7724,111 @@ fi
 `;
 }
 var REFRESH_S = 1;
-var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 async function readSettings(file) {
-  let raw = "";
+  let raw;
   try {
     raw = await fs11.readFile(file, "utf-8");
-  } catch {
-    return { raw: "", settings: {} };
+  } catch (e) {
+    if (errCode(e) === "ENOENT") return { raw: "", settings: {} };
+    throw new Error(`cannot read ${file} (${errCode(e) ?? e}) \u2014 nothing changed`);
   }
   if (!raw.trim()) return { raw, settings: {} };
   const j2 = JSON.parse(raw);
   if (!isObj(j2)) throw new Error(`${file} is not a JSON object`);
   return { raw, settings: j2 };
 }
-async function writeSettings(file, settings) {
-  await fs11.mkdir(join10(file, ".."), { recursive: true });
-  const tmp = `${file}.tmp.${process.pid}`;
-  await fs11.writeFile(tmp, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-  await fs11.rename(tmp, file);
+async function writeSettings(file, settings, expectedRaw) {
+  let target = file;
+  let mode;
+  try {
+    target = await fs11.realpath(file);
+    mode = (await fs11.stat(target)).mode & 511;
+  } catch (e) {
+    if (errCode(e) !== "ENOENT") throw e;
+  }
+  await fs11.mkdir(dirname(target), { recursive: true });
+  const tmp = `${target}.tmp.${process.pid}`;
+  try {
+    await fs11.writeFile(tmp, JSON.stringify(settings, null, 2) + "\n", { encoding: "utf-8", mode: mode ?? 438 });
+    if (mode !== void 0) await fs11.chmod(tmp, mode);
+    let now = "";
+    try {
+      now = await fs11.readFile(target, "utf-8");
+    } catch (e) {
+      if (errCode(e) !== "ENOENT") throw e;
+    }
+    if (now !== expectedRaw) throw new Error(`${file} changed while sb buddy was editing it \u2014 nothing written; re-run`);
+    await fs11.rename(tmp, target);
+  } catch (e) {
+    await fs11.rm(tmp, { force: true }).catch(() => void 0);
+    throw e;
+  }
+}
+async function backupSettings(file, raw) {
+  const backup = `${file}.bak-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}`;
+  await fs11.writeFile(backup, raw, { encoding: "utf-8", mode: 384 });
+  await fs11.chmod(backup, 384);
+  return backup;
 }
 async function installStatusline(brainDir2, pluginRoot) {
   const file = settingsPath();
   const { raw, settings } = await readSettings(file);
-  const cacheBase = cacheBaseOf(pluginRoot);
-  const shim = shimPath(brainDir2);
-  await fs11.mkdir(join10(brainDir2, "bin"), { recursive: true });
-  await fs11.writeFile(shim, shimBody(cacheBase ? null : pluginRoot, cacheBase), { encoding: "utf-8", mode: 493 });
-  await patchConfig(brainDir2, { react: true, chain: null, identity: null });
+  await readConfigStrict(brainDir2);
   const prev = isObj(settings.statusLine) ? settings.statusLine : void 0;
   const prevCmd = prev && prev.type === "command" && typeof prev.command === "string" ? prev.command : "";
   const parsed = prevCmd ? parseOurCommand(prevCmd) : null;
   if (!parsed && prevCmd.includes("buddy-statusline")) {
     throw new Error(`${file} statusLine runs buddy-statusline but is not the form sb buddy writes (hand-edited?) \u2014 fix or remove it, then re-run`);
   }
+  const cacheBase = cacheBaseOf(pluginRoot);
+  const shim = shimPath(brainDir2);
+  await fs11.mkdir(join10(brainDir2, "bin"), { recursive: true });
+  await fs11.writeFile(shim, shimBody(cacheBase ? null : pluginRoot, cacheBase), { encoding: "utf-8", mode: 493 });
   const chained = parsed ? parsed.chain : prevCmd || null;
   const command = statuslineCommand(brainDir2, chained);
   const keep = parsed && typeof prev?.refreshInterval === "number" && prev.refreshInterval >= 1;
-  if (parsed && prevCmd === command && keep) return { settings: file, backup: null, chained, command, shim, changed: false };
-  if (!parsed) await patchConfig(brainDir2, { prev_statusline: prev ?? null });
-  let backup = null;
-  if (raw.trim()) {
-    backup = `${file}.bak-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}`;
-    await fs11.writeFile(backup, raw, "utf-8");
+  const consent = { react: true, chain: null, identity: null };
+  if (parsed && prevCmd === command && keep) {
+    await patchConfig(brainDir2, consent);
+    return { settings: file, backup: null, chained, command, shim, changed: false };
   }
+  const backup = raw.trim() ? await backupSettings(file, raw) : null;
   settings.statusLine = { ...prev ?? {}, type: "command", command, refreshInterval: keep ? prev.refreshInterval : REFRESH_S };
-  await writeSettings(file, settings);
+  await writeSettings(file, settings, raw);
+  await patchConfig(brainDir2, parsed ? consent : { ...consent, prev_statusline: prev ?? null });
   return { settings: file, backup, chained, command, shim, changed: true };
 }
 async function uninstallStatusline(brainDir2) {
   const file = settingsPath();
-  const { settings } = await readSettings(file);
+  const { raw, settings } = await readSettings(file);
+  const cfg = await readConfigStrict(brainDir2);
   const cur = isObj(settings.statusLine) ? settings.statusLine : void 0;
-  const parsed = cur && typeof cur.command === "string" ? parseOurCommand(cur.command) : null;
-  const cfg = await readConfig(brainDir2);
+  const curCmd = cur && typeof cur.command === "string" ? cur.command : "";
+  const parsed = curCmd ? parseOurCommand(curCmd) : null;
+  if (!parsed && curCmd.includes("buddy-statusline")) {
+    throw new Error(`${file} statusLine runs buddy-statusline but is not the form sb buddy writes (hand-edited?) \u2014 remove it by hand; nothing changed`);
+  }
+  const restored = parsed ? parsed.chain : null;
+  if (parsed) {
+    if (restored) {
+      const rec = isObj(cfg.prev_statusline) ? cfg.prev_statusline : void 0;
+      const next = { type: "command", command: restored };
+      if (rec && rec.command === restored) {
+        for (const k of ["padding", "refreshInterval"]) if (typeof rec[k] === "number") next[k] = rec[k];
+      }
+      settings.statusLine = next;
+    } else {
+      delete settings.statusLine;
+    }
+    await writeSettings(file, settings, raw);
+  }
   await patchConfig(brainDir2, { react: null, chain: null, prev_statusline: null });
   try {
     await fs11.unlink(shimPath(brainDir2));
-  } catch {
+  } catch (e) {
+    if (errCode(e) !== "ENOENT") throw e;
   }
-  if (!parsed) return { settings: file, restored: null, changed: false };
-  const restored = parsed.chain;
-  if (restored) {
-    const rec = isObj(cfg.prev_statusline) ? cfg.prev_statusline : void 0;
-    const next = { type: "command", command: restored };
-    if (rec && rec.command === restored) {
-      for (const k of ["padding", "refreshInterval"]) if (typeof rec[k] === "number") next[k] = rec[k];
-    }
-    settings.statusLine = next;
-  } else {
-    delete settings.statusLine;
-  }
-  await writeSettings(file, settings);
-  return { settings: file, restored, changed: true };
+  return { settings: file, restored, changed: !!parsed };
 }
 
 // src/cli/sb.ts

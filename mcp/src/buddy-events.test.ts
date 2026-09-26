@@ -20,10 +20,28 @@ describe('buddyReact (the buddy_react MCP tool)', () => {
     expect(existsSync(join(brain, '.buddy', '_global.json'))).toBe(false);
   });
 
-  it('without a valid session id nothing is written — never _global (every session would show it)', async () => {
-    expect(await buddyReact(brain, { line: 'no session given', mood: 'pleased' })).toMatch(/not shown/);
-    expect(await buddyReact(brain, { line: 'path-shaped id', session: '../../etc/x' })).toMatch(/not shown/);
+  it('without a valid session id nothing is written — never _global — and the call FAILS (isError), not "ok"-shaped text', async () => {
+    await expect(buddyReact(brain, { line: 'no session given', mood: 'pleased' })).rejects.toThrow(/not shown: pass session/);
+    await expect(buddyReact(brain, { line: 'path-shaped id', session: '../../etc/x' })).rejects.toThrow(/not shown/);
     expect(existsSync(join(brain, '.buddy'))).toBe(false);
+  });
+
+  it('a line of only control/format characters is empty after cleaning — rejected, never a blank bubble', async () => {
+    const esc = String.fromCodePoint(0x1b), zw = String.fromCodePoint(0x200b);
+    await expect(buddyReact(brain, { line: `${esc}${zw}${esc}`, session: SID })).rejects.toThrow(/empty/);
+    expect(existsSync(join(brain, '.buddy'))).toBe(false);
+  });
+
+  it('a write that fails is reported (throws), never "ok"', async () => {
+    writeFileSync(join(brain, '.buddy'), 'not a dir');   // mkdir .buddy → EEXIST/ENOTDIR
+    await expect(buddyReact(brain, { line: 'will not land', session: SID })).rejects.toThrow(/could not be written/);
+  });
+
+  it('held behind an active gate → says so instead of "ok"', async () => {
+    const dir = join(brain, '.buddy'); mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${SID}.json`), JSON.stringify({ ts: Math.floor(Date.now() / 1000) - 5, kind: 'gate', mood: 'alert', line: 'Verify gate', source: 'g', ttl_s: 900 }));
+    expect(await buddyReact(brain, { line: 'done', session: SID })).toMatch(/^held:/);
+    expect(cur(SID).kind).toBe('gate');
   });
 
   it('caps at 120 chars; strips control, bidi, zero-width and tag characters; rejects an empty line', async () => {
@@ -55,5 +73,26 @@ describe('buddyReact (the buddy_react MCP tool)', () => {
     writeFileSync(join(dir, `${SID}.json`), JSON.stringify({ ts: now - 61, kind: 'said', mood: 'pleased', line: 'old', source: 'claude', ttl_s: 900 }));
     await writeBuddyEvent(brain, SID, 'read', 'focused', 'Read x', 'mcp');
     expect(cur(SID).kind).toBe('read');                            // expired hold hands over
+  });
+
+  it('a fresh `said` never hides a guard or an alert/puzzled line (which gate is holding you), and reports held/shown', async () => {
+    const dir = join(brain, '.buddy'); mkdirSync(dir, { recursive: true });
+    const said = () => writeFileSync(join(dir, `${SID}.json`), JSON.stringify({ ts: Math.floor(Date.now() / 1000) - 5, kind: 'said', mood: 'pleased', line: 'mine', source: 'claude', ttl_s: 900 }));
+    said(); expect(await writeBuddyEvent(brain, SID, 'guard', 'focused', 'Held for your OK', 'flow-guard')).toEqual({ status: 'shown' });
+    expect(cur(SID).kind).toBe('guard');
+    said(); expect(await writeBuddyEvent(brain, SID, 'stumble', 'puzzled', 'Tool failed', 'observe')).toEqual({ status: 'shown' });
+    said(); expect(await writeBuddyEvent(brain, SID, 'delivered', 'alert', 'Check this', 'x')).toEqual({ status: 'shown' });
+    said(); expect(await writeBuddyEvent(brain, SID, 'read', 'focused', 'Read x', 'mcp')).toEqual({ status: 'held' });
+    expect(cur(SID).line).toBe('mine');
+  });
+
+  it('writeBuddyEvent reports skipped when off and failed (with the code) when the write throws', async () => {
+    process.env.SB_BUDDY = 'off';
+    expect(await writeBuddyEvent(brain, SID, 'read', 'focused', 'x', 'mcp')).toEqual({ status: 'skipped' });
+    clearEnv();
+    writeFileSync(join(brain, '.buddy'), 'not a dir');
+    const w = await writeBuddyEvent(brain, SID, 'read', 'focused', 'x', 'mcp');
+    expect(w.status).toBe('failed');
+    expect(w.error).toMatch(/^E[A-Z]+$/);
   });
 });

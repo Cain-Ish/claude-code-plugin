@@ -263,7 +263,7 @@ Re-verify: `grep -n '^registerJsonTool(' mcp/src/server.ts`. Lines as of 0.33.37
 | 562 | `knowledge_neighbors` | multi-hop directional graph walk, point-in-time `as_of` |
 | 586 | `code_map` | token-capped PageRank-ranked code-structure map (read-only; `BRAIN_DIR/projects/<slug>/codemap/` store, honest `stale` flag) — shipped 0.33.33 |
 | 614 | `code_neighbors` | import-graph blast-radius BFS (`in` = importers, `out` = dependencies, depth ≤4); CODE graph, distinct from `knowledge_neighbors` — shipped 0.33.33 |
-| — | `buddy_react` | Claude's one line to the user through the statusline capybara (`.buddy/<session>.json`, kind `said`); the session id comes from persona-context's `[buddy: <name>]` line — shipped 0.52.0 |
+| — | `buddy_react` | Claude's one line to the user through the statusline capybara (`.buddy/<session>.json`, kind `said`); the session id comes from persona-context's `[buddy: <name>]` line — shipped 0.53.0 |
 
 Destructive tools are wrapped by `guardDestructive` (`nested-spawn-guard.ts`) — refused under
 `SB_NESTED_SPAWN=1`, because a headless spawn over untrusted transcript content once had

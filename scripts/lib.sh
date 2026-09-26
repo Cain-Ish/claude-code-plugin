@@ -2934,11 +2934,13 @@ sb_buddy_event() {
   mkdir -p "$dir" 2>/dev/null || return 0
   now=$(date +%s)
   # Gate lines are the ones the user must act on — a retrieval must not overwrite one mid-read.
-  # Claude's own buddy_react line (kind said) holds the same way against everything but a gate or
-  # a newer said: Stop hooks fire right after it and would otherwise replace it within seconds.
+  # Claude's own buddy_react line (kind said) holds the same way against everything but a gate, a
+  # guard, an alert/puzzled mood or a newer said: Stop hooks fire right after it and would otherwise
+  # replace it within seconds, but "which gate is holding you" must never hide behind a chat line.
+  # Twin: mcp/src/buddy-events.ts writeBuddyEvent.
   if [ "$kind" != "gate" ] && [ -f "$cur" ]; then
     local held
-    held=$(jq -r --arg k "$kind" 'select((.kind=="gate" and .mood!="pleased") or (.kind=="said" and $k!="said")) | .ts' "$cur" 2>/dev/null); held="${held//$'\r'/}"
+    held=$(jq -r --arg k "$kind" --arg m "$mood" 'select((.kind=="gate" and .mood!="pleased") or (.kind=="said" and (($k=="said" or $k=="guard" or $m=="alert" or $m=="puzzled") | not))) | .ts' "$cur" 2>/dev/null); held="${held//$'\r'/}"
     if [[ "$held" =~ ^[0-9]+$ ]] && [ $(( now - held )) -lt 60 ]; then hold=1; fi
   fi
   # C0 + C1 controls and format chars (\p{Cf}: bidi overrides, zero-width, tag characters — text

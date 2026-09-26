@@ -105,8 +105,11 @@ function registerJsonTool<Shape extends z.ZodRawShape>(
 // second brain right now" comes from. Fire-and-forget, fail-soft, zero tokens (no tool output
 // changes). Only the tools that read or write memory are mapped; the rest stay silent.
 const str = (v: unknown, n = 60): string => (typeof v === "string" ? (v.length > n ? v.slice(0, n - 1) + "…" : v) : "");
-function buddyNote(tool: string, args: Record<string, unknown>, result: unknown): Promise<void> {
+function buddyNote(tool: string, args: Record<string, unknown>, result: unknown): Promise<unknown> {
   const r = (result ?? {}) as Record<string, unknown>;
+  // dream_*/pin_* report failure as {ok:false}, not a throw: never show "Dream staged" or
+  // "Pinned" in success colour for a call that did nothing.
+  if (r.ok === false) return Promise.resolve();
   let ev: [BuddyKind, BuddyMood, string] | null = null;
   switch (tool) {
     case "knowledge_search": {

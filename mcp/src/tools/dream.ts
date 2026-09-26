@@ -193,6 +193,14 @@ function envTimeoutMs(name: string, fallback: number): number {
   return Number.isSafeInteger(raw) && raw >= 30_000 && raw <= 2_147_483_647 ? raw : fallback;
 }
 
+/** "" when env var `name` is unset or valid; else a note that the value was ignored — the timeout
+ *  message tells the user to raise that variable, so a rejected value must not fail silently. */
+export function envTimeoutIgnored(name: string): string {
+  const v = cleanEnvPath(process.env[name]);
+  if (!v || envTimeoutMs(name, -1) !== -1) return "";
+  return ` (${name}=${v.slice(0, 24)} was ignored: it must be whole milliseconds from 30000 to 2147483647)`;
+}
+
 /** Wall-clock for dream-snapshot.sh. Default 5 min: copying a ~950-page wiki plus transcript
  *  selection overran the old 30s under load on Windows (2026-09-24). Env override:
  *  SB_DREAM_CREATE_TIMEOUT_MS. */
@@ -213,11 +221,12 @@ export function snapshotFailureReason(
     const left = platform === "win32"
       ? `On Windows the snapshot can keep running after the kill and still write a pending dream. ` +
         `dream_list shows it only once its status.json exists, so before retrying wait until the ` +
-        `newest drm_* folder in ${dreams} has one.`
+        `newest drm_* folder in ${dreams} has one; if that dream then sits pending with no runner, ` +
+        `dream_cancel it — otherwise the retry fails with "already pending".`
       : `The snapshot was stopped and may have left a drm_* folder without status.json in ${dreams} ` +
         `(safe to delete).`;
     return `dream-snapshot.sh timed out after ${Math.round(timeoutMs / 1000)}s. ${left} ` +
-      `Raise SB_DREAM_CREATE_TIMEOUT_MS if this repeats.`;
+      `Raise SB_DREAM_CREATE_TIMEOUT_MS if this repeats${envTimeoutIgnored("SB_DREAM_CREATE_TIMEOUT_MS")}.`;
   }
   if (typeof e.stderr === "string" && e.stderr.trim()) return e.stderr.trim();
   if (typeof e.message === "string" && e.message) return e.message;

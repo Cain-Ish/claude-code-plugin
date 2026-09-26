@@ -157,28 +157,39 @@ _page_list() {   # sorted relative page paths under $1; non-zero when find itsel
 }
 SNAPSHOT_ATTEMPTS=3
 SNAPSHOT_FAIL_REASON=""
-CP_RC=0; LIST_RC=0; WIKI_PAGE_COUNT=0; LIVE_PAGE_COUNT=0
-_attempt=1; _tries=""; _staged=""; _after=""
+CP_RC=0; LIST_RC=0; LIVE_RC=0; WIKI_PAGE_COUNT=0; LIVE_PAGE_COUNT=0
+_attempt=1; _tries=""; _staged=""; _after=""; _cperr="$DREAM_DIR/.cp-stderr"
 while :; do
+  LIVE_RC=0   # the live listing can fail on a race (BSD find stats an entry renamed away): retried
   SNAP_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  _before=$(_page_list "$WIKI_DIR") || LIST_RC=1
+  _before=$(_page_list "$WIKI_DIR") || LIVE_RC=1
   # A fresh dir plus "src/." cannot nest: cp -r into a leftover staging/wiki would land in
   # staging/wiki/wiki, which a recursive page count still matches.
   if ! mkdir "$DREAM_DIR/staging/wiki"; then
     SNAPSHOT_FAIL_REASON="could not create a fresh staging/wiki on attempt $_attempt (the previous copy was not removed)"
     break
   fi
-  cp -rp "$WIKI_DIR/." "$DREAM_DIR/staging/wiki/"
+  cp -rp "$WIKI_DIR/." "$DREAM_DIR/staging/wiki/" 2> "$_cperr"
   CP_RC=$?
+  # A cp error made only of vanished entries is a race, not a fault: the embeddings cache and
+  # index.md are rewritten through tmp+rename by every search, so their temp file can disappear
+  # between cp's readdir and its copy while the page lists stay identical. Any other error
+  # (ENOSPC, EIO, a truncated page) still fails at once.
+  _vanished=0
+  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] && ! grep -qvE 'No such file or directory|cannot stat' "$_cperr"; then _vanished=1; fi
+  [ -s "$_cperr" ] && cat "$_cperr" >&2   # cp's own diagnostics stay visible
+  rm -f "$_cperr"
   _staged=$(_page_list "$DREAM_DIR/staging/wiki") || LIST_RC=1
-  _after=$(_page_list "$WIKI_DIR") || LIST_RC=1
+  _after=$(_page_list "$WIKI_DIR") || LIVE_RC=1
   WIKI_PAGE_COUNT=$(printf '%s\n' "$_staged" | grep -c .)
   LIVE_PAGE_COUNT=$(printf '%s\n' "$_after" | grep -c .)
   _tries="$_tries $WIKI_PAGE_COUNT/$LIVE_PAGE_COUNT"
-  # A cp error counts as a race too when the live list moved: a page unlinked mid-copy by a
-  # reindex/autofix makes cp exit 1 with "cannot stat".
-  if [ "$LIST_RC" -ne 0 ] || { [ "$CP_RC" -eq 0 ] && [ "$_staged" = "$_after" ]; } \
-     || [ "$_before" = "$_after" ] || [ "$_attempt" -ge "$SNAPSHOT_ATTEMPTS" ]; then
+  # Retry only on a race: the live list moved (a page unlinked mid-copy by a reindex/autofix also
+  # makes cp exit 1 with "cannot stat"), cp lost only vanished entries, or the live listing failed.
+  _race=0
+  { [ "$_before" != "$_after" ] || [ "$_vanished" = 1 ] || [ "$LIVE_RC" -ne 0 ]; } && _race=1
+  if [ "$LIST_RC" -ne 0 ] || { [ "$CP_RC" -eq 0 ] && [ "$LIVE_RC" -eq 0 ] && [ "$_staged" = "$_after" ]; } \
+     || [ "$_race" = 0 ] || [ "$_attempt" -ge "$SNAPSHOT_ATTEMPTS" ]; then
     break
   fi
   rm -rf "${DREAM_DIR:?}/staging/wiki"   # a failed removal surfaces as the mkdir failure above
@@ -188,8 +199,8 @@ done
 SNAPSHOT_BYTES=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')
 if [ -z "$SNAPSHOT_FAIL_REASON" ]; then
   if [ "$CP_RC" -ne 0 ]; then
-    SNAPSHOT_FAIL_REASON="cp -rp of wiki exited $CP_RC (partial snapshot)"
-  elif [ "$LIST_RC" -ne 0 ]; then
+    SNAPSHOT_FAIL_REASON="cp -rp of wiki exited $CP_RC (partial snapshot) on attempt $_attempt/$SNAPSHOT_ATTEMPTS (staged/live per attempt:$_tries)"
+  elif [ "$LIST_RC" -ne 0 ] || [ "$LIVE_RC" -ne 0 ]; then
     SNAPSHOT_FAIL_REASON="could not list wiki pages to verify the snapshot (find failed)"
   elif [ "$_staged" != "$_after" ]; then
     SNAPSHOT_FAIL_REASON="wiki snapshot incomplete: staged $WIKI_PAGE_COUNT of $LIVE_PAGE_COUNT live pages, page lists differ (staged/live per attempt:$_tries)"

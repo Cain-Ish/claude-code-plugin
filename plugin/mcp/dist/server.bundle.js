@@ -32130,14 +32130,19 @@ function envTimeoutMs(name, fallback) {
   const raw = Number(cleanEnvPath(process.env[name]));
   return Number.isSafeInteger(raw) && raw >= 3e4 && raw <= 2147483647 ? raw : fallback;
 }
+function envTimeoutIgnored(name) {
+  const v = cleanEnvPath(process.env[name]);
+  if (!v || envTimeoutMs(name, -1) !== -1) return "";
+  return ` (${name}=${v.slice(0, 24)} was ignored: it must be whole milliseconds from 30000 to 2147483647)`;
+}
 function snapshotTimeoutMs() {
   return envTimeoutMs("SB_DREAM_CREATE_TIMEOUT_MS", 3e5);
 }
 function snapshotFailureReason(err, timeoutMs, platform = process.platform, dreams = dreamsDir()) {
   const e = err ?? {};
   if (e.killed && e.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-    const left = platform === "win32" ? `On Windows the snapshot can keep running after the kill and still write a pending dream. dream_list shows it only once its status.json exists, so before retrying wait until the newest drm_* folder in ${dreams} has one.` : `The snapshot was stopped and may have left a drm_* folder without status.json in ${dreams} (safe to delete).`;
-    return `dream-snapshot.sh timed out after ${Math.round(timeoutMs / 1e3)}s. ${left} Raise SB_DREAM_CREATE_TIMEOUT_MS if this repeats.`;
+    const left = platform === "win32" ? `On Windows the snapshot can keep running after the kill and still write a pending dream. dream_list shows it only once its status.json exists, so before retrying wait until the newest drm_* folder in ${dreams} has one; if that dream then sits pending with no runner, dream_cancel it \u2014 otherwise the retry fails with "already pending".` : `The snapshot was stopped and may have left a drm_* folder without status.json in ${dreams} (safe to delete).`;
+    return `dream-snapshot.sh timed out after ${Math.round(timeoutMs / 1e3)}s. ${left} Raise SB_DREAM_CREATE_TIMEOUT_MS if this repeats${envTimeoutIgnored("SB_DREAM_CREATE_TIMEOUT_MS")}.`;
   }
   if (typeof e.stderr === "string" && e.stderr.trim()) return e.stderr.trim();
   if (typeof e.message === "string" && e.message) return e.message;
@@ -33440,9 +33445,9 @@ var LOG_KEEP = 40;
 var seq = 0;
 var clean = (s) => Array.from(s.replace(new RegExp("[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]|\\p{Cf}", "gu"), " ")).slice(0, 200).join("");
 async function writeBuddyEvent(brainDir2, key, kind, mood, line, source, ttl_s = 900) {
-  if (process.env.SB_BUDDY === "off" || process.env.SB_HOOK_PROFILE === "minimal") return;
+  if (process.env.SB_BUDDY === "off" || process.env.SB_HOOK_PROFILE === "minimal") return { status: "skipped" };
   const k = key.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
-  if (!k || !line) return;
+  if (!k || !line) return { status: "skipped" };
   try {
     const dir = join24(brainDir2, ".buddy");
     await fs21.mkdir(dir, { recursive: true });
@@ -33452,7 +33457,8 @@ async function writeBuddyEvent(brainDir2, key, kind, mood, line, source, ttl_s =
     if (kind !== "gate") {
       try {
         const prev = JSON.parse(await fs21.readFile(cur, "utf-8"));
-        const holding = prev.kind === "gate" && prev.mood !== "pleased" || prev.kind === "said" && kind !== "said";
+        const urgent = kind === "said" || kind === "guard" || mood === "alert" || mood === "puzzled";
+        const holding = prev.kind === "gate" && prev.mood !== "pleased" || prev.kind === "said" && !urgent;
         hold = holding && typeof prev.ts === "number" && now - prev.ts < 60;
       } catch {
       }
@@ -33471,17 +33477,21 @@ async function writeBuddyEvent(brainDir2, key, kind, mood, line, source, ttl_s =
       if (lines.length > LOG_KEEP * 2) await fs21.writeFile(log, lines.slice(-LOG_KEEP).join("\n") + "\n", "utf-8");
     } catch {
     }
-  } catch {
+    return { status: hold ? "held" : "shown" };
+  } catch (e) {
+    return { status: "failed", error: e.code ?? String(e) };
   }
 }
 async function buddyReact(brainDir2, a) {
   const line = a.line.trim();
-  if (!line) throw new Error("line is empty");
+  if (!clean(line).trim()) throw new Error("line is empty (or only control/format characters)");
   if (process.env.SB_BUDDY === "off" || process.env.SB_HOOK_PROFILE === "minimal") return "buddy is off (SB_BUDDY=off) \u2014 nothing shown";
   if (!a.session || !/^[A-Za-z0-9_-]{8,64}$/.test(a.session)) {
-    return "not shown: pass session \u2014 the id quoted in the [buddy: \u2026] context line";
+    throw new Error("not shown: pass session \u2014 the id quoted in the [buddy: \u2026] context line");
   }
-  await writeBuddyEvent(brainDir2, a.session, "said", a.mood ?? "focused", Array.from(line).slice(0, 120).join(""), "claude", 900);
+  const w = await writeBuddyEvent(brainDir2, a.session, "said", a.mood ?? "focused", Array.from(line).slice(0, 120).join(""), "claude", 900);
+  if (w.status === "failed") throw new Error(`not shown: the buddy line could not be written (${w.error})`);
+  if (w.status === "held") return "held: an active gate is showing in the bubble \u2014 your line was logged, not shown";
   return "ok";
 }
 
@@ -33542,6 +33552,7 @@ function registerJsonTool(name, description, inputSchema, fn, wrap = (h) => h) {
 var str = (v, n = 60) => typeof v === "string" ? v.length > n ? v.slice(0, n - 1) + "\u2026" : v : "";
 function buddyNote(tool, args, result) {
   const r = result ?? {};
+  if (r.ok === false) return Promise.resolve();
   let ev = null;
   switch (tool) {
     case "knowledge_search": {

@@ -100,8 +100,9 @@ for sf in "$BRAIN"/dreams/*/status.json; do [ -f "$sf" ] || continue
   jq -r 'select(.status=="completed" and (.archived_at // "")=="") | "dream awaiting review: \(.id)  (+\(.outputs.pages_added // 0) pages, ~\(.outputs.pages_modified // 0))"' "$sf"; done
 # held untrusted pages
 test -d "$BRAIN/held-untrusted" && printf 'held untrusted pages: %s\n' "$(ls -1 "$BRAIN"/held-untrusted/*/*.md 2>/dev/null | wc -l | tr -d ' ')"
-1# persona rule candidates (auto-arm at 3 sightings)
-test -f "$BRAIN/persona-rules.pending.json" && jq -r 'to_entries[] | "rule candidate: \(.key) (\(.value.count // .value) sightings)"' "$BRAIN/persona-rules.pending.json" 2>/dev/null
+# persona rule candidates (auto-arm at 3 sightings): user layer + per-repo layers (0.52.0+)
+for pf in "$BRAIN/persona-rules.pending.json" "$BRAIN"/projects/*/rules.pending.json; do [ -f "$pf" ] || continue
+  jq -r 'to_entries[] | "rule candidate: \(.key) (\(.value.count // .value) sightings)"' "$pf" 2>/dev/null; done
 # critic offer this session
 test -f "$BRAIN/.critic-offer-$SID" && echo "critic offer open: run persona_think on the diff for a fresh-context critique"
 ```
