@@ -98,7 +98,14 @@ actually locked TODAY: `session-load.sh` unconditionally force-injects
 `USER.md` (≤6000 B) + the PROJECT.md repo card (≤1800 B; `SB_REPO_CARD=off` restores the
 ≤3000 B hot render) every SessionStart under `BYTE_BUDGET=8000`/
 `HARD_CAP=9500` — there is no native-memory gate and no `SB_*` kill switch for this tier (tracked:
-`docs/audits/2026-09-05-deep-audit.md` D022/D077). Guidance:
+`docs/audits/2026-09-05-deep-audit.md` D022/D077). Also locked TODAY: a compaction-only lean
+re-inject — SessionStart `compact` re-delivers a ≤1536 B card (Goal/Handoff/Plan only, no writes),
+locked by `tests/test-session-load-compact.sh`; kill switch `SB_COMPACT_REINJECT=off`. Open work
+(class 4, session recap — what is in flight, so nothing is lost when the window closes) lives in
+`## Plan` inside PROJECT.md: an unfinished item survives an extractor emission that omits it
+(tagged `[carried]`), ages to `[stale]` after
+`SB_PROJECT_STALE_DAYS`, and a compaction summary's Pending Tasks land there add-only as
+`[untrusted:compact]`, injection-gated — locked by `tests/test-project-plan-block.sh`. Guidance:
 `wiki/learnings/claude-mechanics-best-practices-2026-06`.
 
 ## What it IS NOT
