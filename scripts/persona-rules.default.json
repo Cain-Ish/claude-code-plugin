@@ -1,4 +1,5 @@
 {
+  "schema": 2,
   "tool_scope": {
     "_comment": "HarnessAudit sar_tool channel. Asks when a tool not in 'allowlist' is invoked. Opt-in (disabled by default) — flipping to true with a small allowlist is the cheapest way to detect tool-misuse before it touches files. Per-session extension via SB_TOOL_SCOPE_EXTRA='Tool1:Tool2' (colon-separated). Kill switch: SB_TOOL_SCOPE=off.",
     "enabled": false,
@@ -35,56 +36,120 @@
       "tool": "Bash",
       "match_command": "git push.*(--force|-f)\\b.*\\b(main|master)\\b",
       "action": "ask",
-      "reason": "Force-push to main/master is destructive. Confirm intent."
+      "reason": "Force-push to main/master is destructive. Confirm intent.",
+      "lock": true
     },
     {
       "name": "warn-direct-write-hot-tier",
       "tool": "Write",
       "match_path": "(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
       "action": "ask",
-      "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools."
+      "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools.",
+      "lock": true
     },
     {
       "name": "warn-rm-rf",
       "tool": "Bash",
       "match_command": "\\brm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\\b",
       "action": "ask",
-      "reason": "rm -rf is destructive and irreversible. Confirm target before proceeding."
+      "reason": "rm -rf is destructive and irreversible. Confirm target before proceeding.",
+      "lock": true
     },
     {
       "name": "warn-self-edit-plugin-scripts",
       "tool": "Write",
       "match_path": "/(claude-code-plugin|second-brain)/([^/]+/)?(scripts|hooks)/[^/]+\\.(sh|json)$",
       "action": "ask",
-      "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
+      "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make.",
+      "lock": true
     },
     {
       "name": "warn-self-edit-plugin-scripts-edit",
       "tool": "Edit",
       "match_path": "/(claude-code-plugin|second-brain)/([^/]+/)?(scripts|hooks)/[^/]+\\.(sh|json)$",
       "action": "ask",
-      "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
+      "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make.",
+      "lock": true
     },
     {
       "name": "warn-self-edit-plugin-scripts-multiedit",
       "tool": "MultiEdit",
       "match_path": "/(claude-code-plugin|second-brain)/([^/]+/)?(scripts|hooks)/[^/]+\\.(sh|json)$",
       "action": "ask",
-      "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
+      "reason": "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make.",
+      "lock": true
     },
     {
       "name": "warn-self-edit-persona-rules",
       "tool": "Write",
       "match_path": "persona-rules(\\.default)?\\.json$",
       "action": "ask",
-      "reason": "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path."
+      "reason": "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path.",
+      "lock": true
     },
     {
       "name": "warn-self-edit-persona-rules-edit",
       "tool": "Edit",
       "match_path": "persona-rules(\\.default)?\\.json$",
       "action": "ask",
-      "reason": "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path."
+      "reason": "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path.",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-persona-rules-multiedit",
+      "tool": "MultiEdit",
+      "match_path": "persona-rules(\\.default)?\\.json$",
+      "action": "ask",
+      "reason": "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path.",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-repo-rules",
+      "tool": "Write",
+      "match_path": "/projects/[^/]+/rules(\\.pending)?\\.json$",
+      "action": "ask",
+      "reason": "projects/<key>/rules.json is the repo layer of the PreToolUse guard — confirm intent; use /second-brain:rules promote|demote",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-repo-rules-edit",
+      "tool": "Edit",
+      "match_path": "/projects/[^/]+/rules(\\.pending)?\\.json$",
+      "action": "ask",
+      "reason": "projects/<key>/rules.json is the repo layer of the PreToolUse guard — confirm intent; use /second-brain:rules promote|demote",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-repo-rules-multiedit",
+      "tool": "MultiEdit",
+      "match_path": "/projects/[^/]+/rules(\\.pending)?\\.json$",
+      "action": "ask",
+      "reason": "projects/<key>/rules.json is the repo layer of the PreToolUse guard — confirm intent; use /second-brain:rules promote|demote",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-rules-cache",
+      "tool": "Write",
+      "match_path": "/\\.rules-effective\\.json$",
+      "action": "ask",
+      "reason": "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache.",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-rules-cache-edit",
+      "tool": "Edit",
+      "match_path": "/\\.rules-effective\\.json$",
+      "action": "ask",
+      "reason": "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache.",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-rules-cache-multiedit",
+      "tool": "MultiEdit",
+      "match_path": "/\\.rules-effective\\.json$",
+      "action": "ask",
+      "reason": "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache.",
+      "lock": true
     }
   ]
 }

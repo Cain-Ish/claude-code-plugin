@@ -26,3 +26,23 @@ export async function atomicWriteJson(filePath: string, value: unknown): Promise
     try { await fs.unlink(tmp); } catch { /* already gone */ }
   }
 }
+
+let strictWriteCounter = 0;
+
+// jit-index.ts's rebuildJitIndex needs the OPPOSITE contract from atomicWriteJson above: a
+// failed write must REJECT, not be swallowed to a console.error and a clean exit 0. Its own
+// docstring already promised "throws on a write failure" — atomicWriteJson silently made that
+// false. Same tmp+rename mechanics (atomic replace, tmp cleaned up on failure); the tmp suffix
+// adds a monotonic counter + timestamp (not just pid) so two writes racing within one process
+// (or two processes sharing a pid on a platform that recycles them fast) never collide on the
+// same tmp path.
+export async function atomicWriteJsonStrict(filePath: string, value: unknown): Promise<void> {
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${strictWriteCounter++}`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify(value));
+    await fs.rename(tmp, filePath);   // atomic replace — reader never sees a torn file
+  } catch (err) {
+    try { await fs.unlink(tmp); } catch { /* already gone, or never created */ }
+    throw err;
+  }
+}

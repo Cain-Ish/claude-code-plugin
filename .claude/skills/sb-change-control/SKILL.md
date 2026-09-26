@@ -230,7 +230,7 @@ from `github.base_ref`).
   (adversarial review)`. Release bodies routinely state "Adversarial review (no critical)
   drove N … must-fixes".
 - The repo's former in-house review tooling, `skills/code-review-deep/`, was removed in 0.44.0
-  as out-of-scope (served none of the four content classes); the fresh-context critic role
+  as out-of-scope (served none of the content classes); the fresh-context critic role
   moved to `persona_think` (`skills/doubt` step 4, `stop-verify-gate.sh` critic offer).
 - Review scope this repo actually enforces, beyond bugs: HONESTY of claims (bullets like
   "scope P6b claims honestly" — overclaiming is a review finding), grants/least-privilege

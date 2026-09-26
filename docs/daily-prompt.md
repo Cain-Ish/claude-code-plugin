@@ -52,8 +52,9 @@ You are doing a scheduled daily engineering pass on the second-brain Claude Code
 REPO: `C:\Workplace\Projects\claude-code-plugin` (git-bash / POSIX sh for scripts)
 
 Read `CONSTITUTION.md` first — it is the north star and every change is measured against it. Its
-"What belongs in memory" section defines the four content classes (decisions · architecture ·
-code map · session recap); any surface that serves none of them is out of scope by definition.
+"What belongs in memory" section defines the five content classes (decisions · architecture ·
+code map · session recap · working agreement); any surface that serves none of them is out of
+scope by definition.
 
 ## Step -1 — Environment preflight (do this BEFORE anything else)
 
@@ -186,17 +187,41 @@ git diff origin/main...origin/<branch>           # exactly what it touched
 The central metric is the injection→read rate:
 
 ```
-grep -o "gate=value-loop injected=[0-9]* read=[0-9]* prior=[0-9]* hits=[^\"]*" \
-  "$BRAIN"/audit-log.jsonl | sort | uniq -c | sort -rn
+grep -o "gate=value-loop injected=[0-9]* read=[0-9]* prior=[0-9]* hits=[^ \"]* ritual=[0-9]* pulled=[0-9]* agents=[0-9]* tiers=[^ \"]* turn=[0-9]* sid=[^\"]*" \
+  "$BRAIN"/audit-log.jsonl | awk '{for(i=1;i<=NF;i++) if($i ~ /^sid=/) last[$i]=$0} END{for(k in last) print last[k]}'
 ```
 
+(This keeps FILE ORDER and the LAST row per `sid=` — every row now carries a unique `turn=`, so
+a `sort | uniq -c` pipeline prints every row at count 1 with no usable order; the `awk` form above
+is the only correct extraction. The row with the highest `turn=` for a `sid` is that session's
+total.)
+
 (`audit-log.jsonl`, not `error-log.jsonl`: `sb_log_error` routes `gate=*` breadcrumbs logged with
-exit code 0 to the audit channel — `scripts/lib.sh:238-240`.)
+exit code 0 to the audit channel — `scripts/lib.sh` (search `case "$error_msg" in gate=*`).)
 
-Three things about this metric that will mislead you otherwise:
+Things about this metric that will mislead you otherwise:
 
-- The breadcrumb is emitted by `scripts/stop-extract.sh:194`, ONCE PER SESSION at the Stop hook.
-  It is not per-turn. A day with few sessions moves the number barely at all.
+- The breadcrumb is emitted by `scripts/stop-extract.sh` (search `gate=value-loop`), ONCE PER
+  STOP — not once per session. The manifest is cumulative for the whole session (never deleted
+  mid-session), so EVERY row's numbers are running totals as of that Stop, not a per-turn delta.
+  **Take the LAST row per `sid=` as that session's total** — summing all rows for a sid
+  double(triple, …)-counts it.
+- `hits=[^ \"]*` deliberately stops the `hits=` capture at the first SPACE, not at the closing
+  quote — the appended fields (`ritual=`, `pulled=`, `agents=`, `tiers=`, `turn=`, `sid=`) sit
+  after `hits=` on the same line, and a pattern that swallows to the closing quote would eat them
+  into what you think is just the hits list. Same reasoning for `tiers=[^ \"]*`.
+- `ritual=` is 1 if the session's project-anchor id (`kind:anchor` in the injection manifest) was
+  fetched or neighbour-walked AT LEAST ONCE this session (`knowledge_neighbors`/`knowledge_fetch`/
+  `code_neighbors` on the slug, or a `Read` of `/<slug>.md`), else 0 — not a call count. The
+  using-second-brain skill prescribes that call for project-scoped requests. Excluded from
+  `injected=`/`read=`/`hits=` because it isn't a genuine "the model chose to read this" signal.
+- `pulled=` counts memory-tool calls Claude makes on its OWN INITIATIVE, counted apart from the
+  ritual anchor call (`ritual=`) and from reads of already-injected ids (`read=`):
+  `knowledge_search`/`episodic_search`/`episodic_read`/`code_map` have no target id and always
+  count; a targeted `knowledge_fetch`/`knowledge_neighbors`/`code_neighbors` call counts only when
+  its target is NOT something already manifested this session (anchor or otherwise) — that fetch
+  is either the ritual call or a `read=` hit, never also a `pulled=`.
+  `agents=`/`tiers=` similarly count Agent-or-Task tool_use calls and their `input.model` values.
 - Use ONLY the `grep -o` extraction form above. Do NOT use `grep -c "gate=value-loop"` — the
   measurement pollutes its own channel, because `persona-tool-guard.sh` audit-logs the text of
   your grep command, which itself contains the literal string. On 2026-08-21 `grep -c` returned
@@ -332,7 +357,7 @@ and the next run reads that green as "nothing stale left".
 
 Rungs 2 and 3 are how the codebase gets better on days with no defect. They are also the only
 sanctioned way to spend the budget when Step 3 comes up empty — they are not refactors, they add
-no surface the four content classes do not already cover, and each is independently revertable.
+no surface the five content classes do not already cover, and each is independently revertable.
 
 - Write the fix, then verify against live data, THEN add the regression lock.
 - Prefer locks that are arithmetic or source-scans over behavioural fixtures — they need no
@@ -347,7 +372,7 @@ no surface the four content classes do not already cover, and each is independen
   `ln -s` for directories on MSYS (use a node junction), no native deps.
 - Any change under `mcp/src` REQUIRES `cd mcp && npm run bundle` in the same commit — `mcp/dist`
   is committed because marketplace installs have no build step.
-- **Scope gate:** a new skill/agent/script must serve one of the four content classes. If it does
+- **Scope gate:** a new skill/agent/script must serve one of the five content classes. If it does
   not, do not add it.
 - Surface budget moves in BOTH directions in the same commit: a new skill/agent/script/test file
   requires bumping `.claude-plugin/surface-budget.json` up (or `validate-plugin.sh` R8 fails);
@@ -583,8 +608,9 @@ had yet fixed consumption, and the plan's Phase-0 exit criterion is UNMET.
 Plan item **0.8** shipped in 0.45.0 as the leading fix: the injected wiki hint now names
 `knowledge_fetch(slug)` with a gist-first policy, because the previous wording ("Read in full")
 was unexecutable — `Read` needs an absolute path and the payload is a bare `[[slug]]`, so the
-only recovery was grep. The telemetry counts a hit only on `knowledge_fetch(slug)` or a `Read` of
-`/slug.md` (`stop-extract.sh:161-196`).
+only recovery was grep. The telemetry counts a hit on `knowledge_fetch(slug)`, `knowledge_neighbors`
+or `code_neighbors` on the slug, or a `Read` of `/slug.md` — see `stop-extract.sh` (search
+`def wiki_hit` / `def codemap_hit`).
 
 **0.8 is a hypothesis under test.** It needs ~5 sessions of value-loop data. Do NOT touch ranking
 before reads move. If `read` is still 0 after that, the wording was not the cause and 0.2/0.3

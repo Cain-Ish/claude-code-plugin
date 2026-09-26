@@ -103,13 +103,16 @@ grep -q 'Untrusted reference' "$ROOT/scripts/session-load.sh" \
   && pass "session-load.sh defines the banner" || fail "session-load.sh lost the banner"
 
 # 0.45.3: BOTH injected wiki surfaces must name knowledge_fetch, not just the one that is
-# easiest to assert. sb_manifest_add is called only from session-load.sh, so ONLY
-# session-load's injections reach the gate=value-loop numerator/denominator. 0.45.0
-# reworded persona-context (unmeasured) and left session-load (measured) alone, which made
-# the plan's own exit criterion — "if read is still 0 after ~5 sessions the wording is not
-# the cause" — unfalsifiable: the reworded surface was never counted. These are source-level
-# (not runtime) checks on purpose: the runtime lane above SKIPs when the environment yields
-# no wiki hits, and that skip is exactly how the gap survived a green suite.
+# easiest to assert. Historical note (fixed since): sb_manifest_add was for a long time
+# called ONLY from session-load.sh, so ONLY session-load's injections reached the
+# gate=value-loop numerator/denominator — persona-context's per-prompt wiki hits (often the
+# bulk of a session's injections) were invisible to the metric. 0.45.0 reworded
+# persona-context (unmeasured) and left session-load (measured) alone, which made the plan's
+# own exit criterion — "if read is still 0 after ~5 sessions the wording is not the cause" —
+# unfalsifiable: the reworded surface was never counted. sb_manifest_add now lives in lib.sh
+# (single source) and both hooks call it — see tests/test-telemetry-loop.sh. These are
+# source-level (not runtime) checks on purpose: the runtime lane above SKIPs when the
+# environment yields no wiki hits, and that skip is exactly how the gap survived a green suite.
 for f in persona-context.sh session-load.sh; do
   # Strip comments FIRST. Without this the check is a TAUTOLOGY: the rationale comment
   # beside each banner mentions knowledge_fetch, so deleting the hint from the EMITTED

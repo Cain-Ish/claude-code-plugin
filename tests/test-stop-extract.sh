@@ -432,4 +432,22 @@ grep -q 'stub node failure on stderr' "$SANDBOX/.second-brain/episodic-index.log
 pass "D179: background episodic-index process redirects stdout+stderr to a log and logs a non-zero exit"
 restore_path
 
+# --- Test 15: rule_candidates in the extractor delta must arm the REPO layer's pending
+#     file (projects/<slug>/rules.pending.json) via merge-persona-signals.sh --slug, never
+#     the user-level persona-rules.pending.json (Copilot PR-105 review item 4 —
+#     stop-extract.sh was dropping its already-resolved $SLUG on the floor).
+init_sandbox "persona-candidate-repo-slug"
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[],"rule_candidates":[{"event":"bash","pattern":"npm run migrate","message":"always confirm before migrating"}]}'
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+PEND="$SANDBOX/.second-brain/projects/test-slug/rules.pending.json"
+[ -s "$PEND" ] \
+  || fail "persona-candidate-repo-slug: expected projects/test-slug/rules.pending.json to be created (dir: $(ls "$SANDBOX/.second-brain/projects/test-slug" 2>/dev/null))"
+jq -e '[.[] | select(.pattern=="npm run migrate")] | length == 1' "$PEND" >/dev/null \
+  || fail "persona-candidate-repo-slug: expected the armed candidate's pattern in the per-repo pending file — got: $(cat "$PEND" 2>/dev/null)"
+[ ! -e "$SANDBOX/.second-brain/persona-rules.pending.json" ] \
+  || fail "persona-candidate-repo-slug: candidate must NOT arm into the user-level persona-rules.pending.json"
+pass "persona-candidate-repo-slug: stop-extract.sh passes --slug so rule_candidates arm the repo layer, not the user layer"
+restore_path
+
 echo "ALL PASS"

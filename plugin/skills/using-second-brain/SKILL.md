@@ -71,6 +71,8 @@ Before writing or changing code, apply the Four Principles in
 guidance; the persona hook re-surfaces the compact form just-in-time when coding begins):
 **Think Before Coding · Simplicity First · Surgical Changes · Goal-Driven Execution.**
 
+The work protocol (tiers, plan/search/verify/record) is `${CLAUDE_PLUGIN_ROOT}/skills/using-second-brain/protocol.md` — the SessionStart card is rendered from it.
+
 ## What this skill replaces
 
 This skill replaces "I'll search the codebase first" filler. The persona has already done the search. You read the surfaced context and act on it.

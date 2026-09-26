@@ -57,7 +57,81 @@ fi
 USER_RULES="$BRAIN_DIR/persona-rules.json"
 DEFAULT_RULES="$PLUGIN_ROOT/scripts/persona-rules.default.json"
 RULES_FILE=""
-if [ -f "$USER_RULES" ]; then
+# D154 usability check, reused below for whichever candidate (layered effective file, user file,
+# or — never checked, trusted as shipped — the plugin default) ends up as RULES_FILE.
+D154_CHECK='(.rules | type) == "array" and ((.rules | length) > 0 or (((.learned // []) | type) == "array" and ((.learned // []) | length) > 0) or ((.tool_scope | type) == "object") or ((.resource_scope | type) == "object"))'
+# Slice 3 (docs/plans/2026-09-24-repo-brain.md §3): the layered plugin+user+repo effective rules
+# file, when usable, REPLACES the plain user/default selection below entirely (repo layer, cache,
+# lock enforcement — see sb_rules_effective in lib.sh). SB_RULES_LAYERS=off or an absent/broken
+# sb_rules_effective falls straight through to today's user-then-default behavior, unchanged.
+EFF=""
+EFF_SLUG=""
+if command -v sb_rules_effective >/dev/null 2>&1; then
+  EFF_SLUG="$(sb_session_slug "$SESSION_ID")"
+  EFF=$(sb_rules_effective "$EFF_SLUG" 2>/dev/null)
+  EFF="${EFF//$'\r'/}"
+fi
+# The effective-rules cache (sb_rules_effective's own file) is an attacker-adjacent artifact
+# once layering is on: Write/Edit/MultiEdit to it now asks (warn-self-edit-rules-cache* below),
+# but a cache written before that guard existed, or by a session that bypassed it, could still
+# silently disarm every locked rule. Before trusting EFF, verify every rule the PLUGIN layer
+# locks (authoritative for a shared name) plus every USER-layer lock whose name the plugin does
+# not also lock, is STILL present in it, by name, with the SAME tool/match_command/match_path,
+# an action rank at least as strict, AND still carrying lock:true itself (a cache entry that
+# kept every gated field but dropped the lock would otherwise pass here and let the next
+# layer override it freely) — all inside the ONE jq spawn the D154 check already
+# pays for (--rawfile, same idiom sb_rules_effective itself uses). A disabled locked rule
+# (lock:true, enabled:false) is exempt — sb_rules_effective's own final filter drops disabled
+# rules from the effective set, so such a U rule would fail this invariant forever otherwise.
+# A cache that fails this is discarded and rebuilt exactly once; if the rebuild still fails, the
+# guard falls through to today's user/default selection — fail-SAFE, never fail-open.
+EFF_LOCK_INVARIANT='
+def fld($o;$k;$d): if ($o|type)=="object" and ($o|has($k)) then $o[$k] else $d end;
+def rankOf($a): ({deny:4, ask:3, rewrite:2, warn:1}[$a] // 0);
+def lockedof($raw): (if ($raw|length)==0 then [] else (($raw | try fromjson catch {}) | (.rules // []) | map(select(type=="object" and fld(.;"lock";false)==true and fld(.;"enabled";true)!=false))) end);
+. as $eff
+| lockedof($p) as $lp
+| ($lp | map(.name)) as $pnames
+| (lockedof($u) | map(select(.name as $n | ($pnames | index($n)) == null))) as $lu
+| ($lp + $lu) as $locked
+| ($locked | all(. as $L
+    | (($eff.rules // []) | map(select(.name==$L.name)) | first) as $E
+    | ($E != null)
+      and (fld($E;"tool";null) == fld($L;"tool";null))
+      and (fld($E;"match_command";null) == fld($L;"match_command";null))
+      and (fld($E;"match_path";null) == fld($L;"match_path";null))
+      and ((rankOf(fld($E;"action";"warn"))) >= (rankOf(fld($L;"action";"warn"))))
+      and (fld($E;"lock";false)==true)
+  ))
+'
+EFF_CHECK="$D154_CHECK"' and ('"$EFF_LOCK_INVARIANT"')'
+EFF_PF="$DEFAULT_RULES"; [ -f "$EFF_PF" ] || EFF_PF=/dev/null
+EFF_UF="$USER_RULES"; [ -f "$EFF_UF" ] || EFF_UF=/dev/null
+eff_verify() { jq -e --rawfile p "$EFF_PF" --rawfile u "$EFF_UF" "$EFF_CHECK" "$1" >/dev/null 2>&1; }
+
+eff_ok=0
+if [ -n "$EFF" ] && [ -s "$EFF" ]; then
+  if [ "${SB_RULES_LAYERS:-on}" = "off" ]; then
+    # No cache exists in this mode (sb_rules_effective returns the raw U/P file directly) —
+    # the lock invariant has nothing to protect; keep today's plain D154 check.
+    jq -e "$D154_CHECK" "$EFF" >/dev/null 2>&1 && eff_ok=1
+  else
+    eff_verify "$EFF" && eff_ok=1
+    if [ "$eff_ok" = "0" ]; then
+      sb_log_error "persona-tool-guard.sh" "rules-effective cache at $EFF failed the lock invariant — discarded and rebuilt" 1
+      rm -f "$EFF" 2>/dev/null
+      EFF=$(sb_rules_effective "$EFF_SLUG" 2>/dev/null)
+      EFF="${EFF//$'\r'/}"
+      [ -n "$EFF" ] && [ -s "$EFF" ] && eff_verify "$EFF" && eff_ok=1
+      if [ "$eff_ok" = "0" ]; then
+        sb_log_error "persona-tool-guard.sh" "rules-effective rebuilt cache STILL fails lock invariant — falling back to user/default rules; repo layer NOT applied" 1
+      fi
+    fi
+  fi
+fi
+if [ "$eff_ok" = "1" ]; then
+  RULES_FILE="$EFF"
+elif [ -f "$USER_RULES" ]; then
   # D154: an existing user rules file that is EMPTY, not valid JSON, or whose
   # `.rules` is not an array with SOMETHING to evaluate must not silently
   # disarm every PreToolUse rule (a truncated write from
@@ -71,13 +145,7 @@ if [ -f "$USER_RULES" ]; then
   # with enabled:false — that is still an intentional declaration, not
   # silence), stays valid. Fall back to the shipped defaults and say so, loud,
   # once — `-s` guards jq -e against jq 1.6's "empty input exits 0".
-  if [ -s "$USER_RULES" ] && jq -e '
-        (.rules | type) == "array"
-        and ((.rules | length) > 0
-             or (((.learned // []) | type) == "array" and ((.learned // []) | length) > 0)
-             or ((.tool_scope | type) == "object")
-             or ((.resource_scope | type) == "object"))
-      ' "$USER_RULES" >/dev/null 2>&1; then
+  if [ -s "$USER_RULES" ] && jq -e "$D154_CHECK" "$USER_RULES" >/dev/null 2>&1; then
     RULES_FILE="$USER_RULES"
   else
     sb_log_error "persona-tool-guard.sh" "user persona-rules.json at $USER_RULES is empty, not valid JSON, or has no non-empty .rules array — falling back to persona-rules.default.json" 1

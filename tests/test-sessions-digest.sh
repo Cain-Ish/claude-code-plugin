@@ -245,5 +245,65 @@ awk '/^sb_extract_transcript\(\)/,/^}/' "$PLUGIN_ROOT/scripts/lib.sh" | grep -q 
   || fail "wiring: drainer path (lib.sh sb_extract_transcript) does not call sb_append_session_digest"
 pass "wiring: all three extraction paths call sb_append_session_digest"
 
+# ============================================================================
+# 5. pre-compact.sh caller-path behavior (Copilot PR-105 review item 4):
+#    rule_candidates present in the extractor delta must arm the REPO layer's
+#    pending file (projects/<slug>/rules.pending.json) via merge-persona-signals.sh
+#    --slug, never the user-level persona-rules.pending.json — pre-compact.sh was
+#    the in-session caller that dropped its already-resolved $SLUG on the floor.
+# ============================================================================
+unset CLAUDECODE
+PC_SANDBOX="$TMP/pc-sandbox"
+mkdir -p "$PC_SANDBOX/.second-brain/projects/test-slug" \
+         "$PC_SANDBOX/knowledge/wiki" \
+         "$PC_SANDBOX/repo/test-slug" \
+         "$PC_SANDBOX/path-stub" \
+         "$PC_SANDBOX/transcript"
+cat > "$PC_SANDBOX/.second-brain/projects/test-slug/PROJECT.md" <<'EOF'
+# PROJECT: test-slug
+
+## Goal
+seeded.
+
+## Recent decisions
+
+## Open blockers
+
+## Cross-references
+
+<!-- last_updated: 2026-05-01T00:00:00Z -->
+EOF
+# pre-compact.sh's own window-too-small gate requires NEW_LINES >= 20 (unlike
+# stop-extract.sh's lower substantive-gate bar) plus at least one tool_use in the window.
+{
+  printf '{"type":"user","message":{"role":"user","content":"hi"}}\n'
+  pc_i=1
+  while [ "$pc_i" -le 18 ]; do
+    printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"line %s"}]}}\n' "$pc_i"
+    pc_i=$((pc_i + 1))
+  done
+  printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.ts","old_string":"a","new_string":"b"}}]}}\n'
+} > "$PC_SANDBOX/transcript/session.jsonl"
+cat > "$PC_SANDBOX/path-stub/claude" <<'EOF'
+#!/bin/bash
+cat <<'JSON'
+{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[],"rule_candidates":[{"event":"bash","pattern":"npm run migrate","message":"always confirm before migrating"}]}
+JSON
+EOF
+chmod +x "$PC_SANDBOX/path-stub/claude"
+PC_PAYLOAD=$(jq -nc --arg sid "test-session" --arg tp "$PC_SANDBOX/transcript/session.jsonl" \
+  --arg cwd "$PC_SANDBOX/repo/test-slug" '{session_id:$sid, transcript_path:$tp, cwd:$cwd, hook_event_name:"PreCompact"}')
+printf '%s' "$PC_PAYLOAD" \
+  | env HOME="$PC_SANDBOX" BRAIN_DIR="$PC_SANDBOX/.second-brain" PATH="$PC_SANDBOX/path-stub:$PATH" \
+        ANTHROPIC_API_KEY="" bash "$PLUGIN_ROOT/scripts/pre-compact.sh" >/dev/null 2>&1
+PC_PEND="$PC_SANDBOX/.second-brain/projects/test-slug/rules.pending.json"
+[ -s "$PC_PEND" ] \
+  || fail "persona-candidate-repo-slug: expected projects/test-slug/rules.pending.json to be created (dir: $(ls "$PC_SANDBOX/.second-brain/projects/test-slug" 2>/dev/null))"
+jq -e '[.[] | select(.pattern=="npm run migrate")] | length == 1' "$PC_PEND" >/dev/null \
+  || fail "persona-candidate-repo-slug: expected the armed candidate's pattern in the per-repo pending file — got: $(cat "$PC_PEND" 2>/dev/null)"
+[ ! -e "$PC_SANDBOX/.second-brain/persona-rules.pending.json" ] \
+  || fail "persona-candidate-repo-slug: candidate must NOT arm into the user-level persona-rules.pending.json"
+pass "persona-candidate-repo-slug: pre-compact.sh passes --slug so rule_candidates arm the repo layer, not the user layer"
+
 echo
 echo "ALL PASS"

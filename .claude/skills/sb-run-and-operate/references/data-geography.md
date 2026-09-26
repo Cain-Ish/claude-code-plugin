@@ -42,7 +42,7 @@ or history if removed; **REGEN** = regenerable, safe to delete; **AUTO** = prune
 | `config.json` | autonomy + retention settings | seeded once by `ensure-dirs.sh:30-41` (never clobbered); `scripts/set-autonomy.mjs` | `sb_config_get`/`sb_config_bool` (`lib.sh`) | KEEP (reseeds with defaults, loses your choices) |
 | `.installed-version` | upgrade marker | `/second-brain:upgrade` finish | upgrade step 1 | KEEP (deleting replays all migrations — they are idempotent, but noisy) |
 | `error-log.jsonl` | fail-loud error channel (rotates >512 KB) | `sb_log_error` (`lib.sh:196`) | SessionStart banners; diagnostics | safe |
-| `audit-log.jsonl` | guard-verdict trail (rotates 5000 lines / 5 MiB) | PreToolUse guards, scanners, `hook-timer.sh` | `/second-brain:audit`; `sar-summary.sh` | safe (loses audit history) |
+| `audit-log.jsonl` | guard-verdict trail (rotates 5000 lines / 5 MiB) | PreToolUse guards, scanners, `hook-timer.sh` | `/second-brain:rules` (`audit` subcommand); `sar-summary.sh` | safe (loses audit history) |
 | `.extractor-health.json` | last extractor backend + ok/fail/queued | `sb_write_extractor_health` (`lib.sh`) | `session-load.sh` health banner | REGEN |
 | `.extraction-state.jsonl` | drainer per-transcript ledger (`ok\|retry\|error`) | `extract-drain.sh` | drainer resume; dead-letter banner | KEEP (deleting re-drains everything) |
 | `.rejected-extractions.jsonl` | extraction-quality-gate rejection log | `extraction-quality-gate.sh:24` | operator review | safe (loses reject history) |

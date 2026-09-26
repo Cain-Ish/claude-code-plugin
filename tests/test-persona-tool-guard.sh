@@ -112,6 +112,26 @@ out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/persona-rules.def
 grep -q '"rule":"warn-self-edit-persona-rules"' "$T27_BRAIN/audit-log.jsonl" \
   || fail "persona-rules write should ask via warn-self-edit-persona-rules specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
 pass "self-protection: persona-rules edit asks via warn-self-edit-persona-rules"
+
+# Slice 3 (docs/plans/2026-09-24-repo-brain.md §B): the repo layer's own rules.json is
+# self-edit-protected too — Write asks via warn-self-edit-repo-rules, Edit via the -edit twin.
+rm -f "$T27_BRAIN/audit-log.jsonl"
+out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/projects/demo/rules.json","content":"{}"},"session_id":"t7c"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "Write to repo rules.json should ask (got: $out)"
+grep -q '"rule":"warn-self-edit-repo-rules"' "$T27_BRAIN/audit-log.jsonl" \
+  || fail "repo rules.json write should ask via warn-self-edit-repo-rules specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "self-protection: repo rules.json Write asks via warn-self-edit-repo-rules"
+
+rm -f "$T27_BRAIN/audit-log.jsonl"
+out=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/x/.second-brain/projects/demo/rules.json"},"session_id":"t7d"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "Edit to repo rules.json should ask (got: $out)"
+grep -q '"rule":"warn-self-edit-repo-rules-edit"' "$T27_BRAIN/audit-log.jsonl" \
+  || fail "repo rules.json edit should ask via warn-self-edit-repo-rules-edit specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+pass "self-protection: repo rules.json Edit asks via warn-self-edit-repo-rules-edit"
 rm -rf "$T27_BRAIN"
 
 # --- v2.9.0 Phase 3: resource-scope guard ---
@@ -491,7 +511,13 @@ rm -rf "$SPINE_BRAIN"
 # Paths MUST be inside cwd. An out-of-repo path makes resource_scope answer `ask` on its
 # own, which would make these cases pass against the UNFIXED guard — a tautology. Verified:
 # with the pre-fix guard and out-of-repo paths, these "passed"; in-repo they correctly fail.
-RRT="$(cd "$(dirname "$0")"/.. && pwd)"
+#
+# Hermetic fixture root (review fix): match_path requires a literal `/claude-code-plugin/` or
+# `/second-brain/` path segment. Using the real checkout root here made this section pass or
+# fail depending on what the checkout DIRECTORY happened to be named (e.g. a worktree checked
+# out as "claude-code-plugin-repo-brain" has no `/claude-code-plugin/` segment at all) — build
+# a throwaway root that is always literally named claude-code-plugin/ instead.
+RRT="$(mktemp -d)/claude-code-plugin"; mkdir -p "$RRT/scripts" "$RRT/hooks"
 gv() { printf '{"tool_name":"%s","session_id":"caseT","cwd":"%s","tool_input":{"file_path":"%s/%s","content":"y"}}' "$1" "$RRT" "$RRT" "$2" | bash "$SCRIPT"; }
 
 for variant in "persona-rules.json" "Persona-Rules.json" "PERSONA-RULES.JSON" "PeRsOnA-RuLeS.jSoN"; do
@@ -521,6 +547,7 @@ pass "case-varied force-push asks"
 out=$(gv Write "README.md")
 [ -z "$out" ] || fail "ordinary in-repo write must stay silent after -i (got: $out)"
 pass "-i does not over-block ordinary writes"
+rm -rf "$(dirname "$RRT")" 2>/dev/null
 
 # --- D151: self-edit rule must match the INSTALLED plugin cache layout -------
 # <cache>/second-brain/second-brain/<version>/scripts/... — a version directory

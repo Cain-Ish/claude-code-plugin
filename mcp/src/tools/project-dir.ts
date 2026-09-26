@@ -1,18 +1,58 @@
-import { basename, join } from 'path';
-import { readFileSync, existsSync } from 'fs';
+import { basename, dirname, isAbsolute, join } from 'path';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { cleanEnvPath } from '../path-guard.js';
 import { originRemote } from '../brain-paths.js';
 import { resolveSlugByPath, resolveSlugByRemote } from './project-registry.js';
 
+/** The MAIN worktree directory for <dir> — <dir> itself unless <dir> is inside a linked
+ *  `git worktree`, in which case it is the repo's original checkout. Parses `.git` directly
+ *  (no spawn), mirroring originRemote's own layout handling: a plain `.git` DIRECTORY means
+ *  <dir> already IS a (non-linked) checkout; a `.git` FILE's `gitdir:` pointer that resolves
+ *  to a dir WITH its own `config` is a self-contained repo (submodule) — not a worktree; one
+ *  WITHOUT a `config` reads `commondir`, whose parent is the main worktree — but ONLY when
+ *  commondir's basename is literally `.git` (the standard non-bare layout). A `myrepo/.bare`
+ *  layout (`git clone --bare` into a `.bare` dir, worktrees added as siblings) has a
+ *  common-dir whose basename is `.bare`; re-keying to its parent would collapse every
+ *  worktree of that repo (and every bare `name.git` clone under one parent directory) onto
+ *  the parent's basename instead of each worktree's own — so that case returns <dir>
+ *  unchanged, mirroring scripts/lib.sh sb_repo_key's "ends in /.git" case, which misses
+ *  `.bare` the same way and falls through to the worktree's own basename. Any failure, or a dir that is
+ *  not a worktree at all, returns <dir> unchanged (fail-open identity enhancement, never a
+ *  guard — same posture as originRemote). Kill switch: SB_REPO_KEY_COMMON_DIR=off, checked by
+ *  the caller (slugFromProjectDir), not here. */
+export function mainWorktreeDir(dir: string): string {
+  try {
+    const d = cleanEnvPath(dir);
+    if (!d) return dir;
+    const gitPath = join(d, '.git');
+    if (statSync(gitPath).isDirectory()) return dir;
+    const m = readFileSync(gitPath, 'utf-8').match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!m) return dir;
+    const gd = m[1];
+    const gitdirResolved = isAbsolute(gd) ? gd : join(d, gd);
+    if (existsSync(join(gitdirResolved, 'config'))) return dir;   // self-contained (submodule)
+    const cd = readFileSync(join(gitdirResolved, 'commondir'), 'utf-8').trim();
+    const commonDir = isAbsolute(cd) ? cd : join(gitdirResolved, cd);
+    return basename(commonDir) === '.git' ? dirname(commonDir) : dir;
+  } catch {
+    return dir;
+  }
+}
+
 /** Resolve the active project slug from a project directory path.
  *  Rejects degenerate basenames ('/', '.', '', undefined) → undefined.
  *  Collapses tmp/scratch-style dirs into one shared "scratch" project, matching
- *  scripts/lib.sh sb_slug_from_dir (so the TS and bash resolvers agree). */
+ *  scripts/lib.sh sb_slug_from_dir (so the TS and bash resolvers agree).
+ *  A dir inside a linked `git worktree` resolves against its MAIN checkout first
+ *  (mainWorktreeDir) so every worktree of one repo shares a single project slug —
+ *  matching scripts/lib.sh sb_repo_key. SB_REPO_KEY_COMMON_DIR=off restores the
+ *  pre-change basename-of-dir behavior. */
 export function slugFromProjectDir(dir: string | undefined): string | undefined {
   if (!dir) return undefined;
+  const resolved = process.env.SB_REPO_KEY_COMMON_DIR === 'off' ? dir : mainWorktreeDir(dir);
   // CR-strip for parity with sb_slug_from_dir: a CRLF-tainted CLAUDE_PROJECT_DIR must yield
   // the SAME slug on both sides, else the TS resolver and bash hooks split-brain the project.
-  const base = basename(cleanEnvPath(dir));
+  const base = basename(cleanEnvPath(resolved));
   if (!base || base === '/' || base === '.' || base === '..') return undefined;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return 'scratch';
   return base;

@@ -1,4 +1,10 @@
 #!/bin/bash
+# pins: SB_REPO_CARD — the over-cap sub-tests (§3) set =off: repo-brain Slice 2 replaced the
+#   default forced PROJECT.md render with a small [Repo card] digest that never includes
+#   ## Handoff by design, so those locks (written against sb_project_hot_render's OWN
+#   priority-list behavior) restore the legacy path. Every other sub-test in this file runs
+#   the default repo-card path unmodified — it happens to assert the SAME superseded-collapse
+#   and newest-first ordering the card also implements via sb_hot_decisions_filter.
 # Decision-ritual (0.48.0) locks for the SERVING side of decision capture:
 #   1. EMIT-time collapse: [superseded]/[stale] decision bullets never reach the
 #      SessionStart hot tier (the FILE keeps them — reversibility is untouched).
@@ -28,10 +34,10 @@ init_proj() {
   mkdir -p "$BRAIN/projects/$slug" "$PROJDIR"
 }
 
-run_load() {
+run_load() {  # $1 (optional) = extra env assignments
   printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
     | env PATH="$STUB:$PATH" HOME="$SANDBOX" BRAIN_DIR="$BRAIN" \
-          CLAUDE_PROJECT_DIR="$PROJDIR" ANTHROPIC_API_KEY="" \
+          CLAUDE_PROJECT_DIR="$PROJDIR" ANTHROPIC_API_KEY="" ${1:-} \
           bash "$SCRIPT" 2>/dev/null
 }
 
@@ -68,8 +74,8 @@ grep -q 'DEC-SUPERSEDED' "$BRAIN/projects/dc-proj/PROJECT.md" \
 pass "under-cap render drops [superseded]/[stale], keeps file intact, newest first"
 
 # ============================================================================
-# 3. OVER-CAP path: ## Handoff survives the section-priority render, and the
-#    collapse also applies there (freed bytes return to the budget).
+# 3. OVER-CAP path: ## Handoff survives the section-priority render (SB_REPO_CARD=off —
+#    see the file-header pin note: the default [Repo card] digest never includes ## Handoff).
 # ============================================================================
 init_proj "overcap" "oc-proj"
 {
@@ -85,12 +91,22 @@ init_proj "overcap" "oc-proj"
 } > "$BRAIN/projects/oc-proj/PROJECT.md"
 SZ=$(wc -c < "$BRAIN/projects/oc-proj/PROJECT.md" | tr -d ' ')
 [ "$SZ" -gt 2990 ] || fail "overcap fixture is only ${SZ}B — must exceed the 2990B cap for the priority render to engage"
-OUT=$(run_load)
+OUT=$(run_load "SB_REPO_CARD=off")
 printf '%s' "$OUT" | grep -q 'HANDOFF-SENTINEL' \
   || fail "overcap: ## Handoff content did not survive the priority render (got: $OUT)"
 printf '%s' "$OUT" | grep -q 'OC-DEC-LIVE' || fail "overcap: live decision dropped"
 printf '%s' "$OUT" | grep -q 'OC-DEC-DEAD' && fail "overcap: superseded bullet leaked through the priority render"
 pass "over-cap render keeps ## Handoff (priority slot) and still collapses superseded"
+
+# S2 review fix (MEDIUM): the DEFAULT path (repo card on) must also carry Handoff — the card
+# replaced sb_project_hot_render as the forced render, and dropping Handoff from it would
+# silently regress the continuity guarantee the two legacy locks above still prove for the
+# SB_REPO_CARD=off path.
+OUT2=$(run_load)
+CARD2=$(printf '%s' "$OUT2" | sed -n '/\[Repo card/,/second-brain: project memory loaded/p')
+printf '%s' "$CARD2" | grep -q 'HANDOFF-SENTINEL' \
+  || fail "overcap default path (repo card on): Handoff did not appear inside [Repo card] (got: $CARD2)"
+pass "default repo-card path also carries ## Handoff"
 
 # STARVING case (review finding): Recent-decisions ALONE overflows the budget —
 # its truncation branch zeroes the remaining budget, so Handoff must be selected
@@ -105,10 +121,17 @@ init_proj "starve" "sv-proj"
 } > "$BRAIN/projects/sv-proj/PROJECT.md"
 SZ=$(wc -c < "$BRAIN/projects/sv-proj/PROJECT.md" | tr -d ' ')
 [ "$SZ" -gt 2990 ] || fail "starve fixture is only ${SZ}B — decisions section must overflow the cap alone"
-OUT=$(run_load)
+OUT=$(run_load "SB_REPO_CARD=off")
 printf '%s' "$OUT" | grep -q 'STARVE-HANDOFF-SENTINEL' \
   || fail "starve: Handoff dropped when Recent-decisions overflowed the budget — priority slot is not real (got: $(printf '%s' "$OUT" | head -c 300))"
 pass "Handoff survives even when Recent-decisions alone overflows the budget"
+
+# S2 review fix (MEDIUM): same continuity guarantee on the default (repo card on) path.
+OUT2=$(run_load)
+CARD2=$(printf '%s' "$OUT2" | sed -n '/\[Repo card/,/second-brain: project memory loaded/p')
+printf '%s' "$CARD2" | grep -q 'STARVE-HANDOFF-SENTINEL' \
+  || fail "starve default path (repo card on): Handoff did not appear inside [Repo card] (got: $CARD2)"
+pass "default repo-card path also carries ## Handoff when Recent-decisions alone overflows"
 
 # ============================================================================
 # 3b. CRLF regression: a Windows-line-ending PROJECT.md must still collapse

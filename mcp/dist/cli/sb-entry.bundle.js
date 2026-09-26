@@ -6354,7 +6354,7 @@ var kb_schema_default = {
   },
   generated_dirs: ["projects", "themes"],
   edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
-  project_sections: ["blockers", "decisions"],
+  project_sections: ["blockers", "decisions", "conventions"],
   forget_protection: {
     protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
     discounted: ["entities", "sources", "issues"]
@@ -7406,8 +7406,8 @@ ${PIN_SECTION}
 
 // src/tools/pin-to-project.ts
 import { promises as fs9 } from "fs";
-var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
-var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
+var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions", conventions: "## Conventions" };
+var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] ", conventions: "- " };
 function flattenField2(s, cap) {
   if (!s) return "";
   return s.normalize("NFC").replace(/[\r\n`]/g, " ").replace(/\s+/g, " ").trim().slice(0, cap);
@@ -7481,7 +7481,9 @@ async function pinToProject(args) {
   let marked = false;
   const supersedesRequested = !!flattenField2(args.supersedes, 200);
   const needle = flattenField2(args.supersedes, 200).toLowerCase();
-  if (args.section === "decisions" && needle) {
+  if (supersedesRequested && args.section !== "decisions") {
+    reason = "supersedes is decisions-only \u2014 ignored for this section";
+  } else if (args.section === "decisions" && needle) {
     if (needle.length < SUPERSEDES_MIN_NEEDLE) {
       reason = `supersedes needle too short (<${SUPERSEDES_MIN_NEEDLE} chars) \u2014 nothing marked`;
     } else {

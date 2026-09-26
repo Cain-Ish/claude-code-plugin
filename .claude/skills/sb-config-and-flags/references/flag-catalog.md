@@ -42,6 +42,7 @@ feedback: test fallback/default branches) says treat "bash" as necessary, not su
 | `SB_VECTOR_DEPS_DIR` | `$HOME/.second-brain/vector-deps` | Shared embeddings node_modules location (junction-linked per plugin version; `ln -s` deep-copies on MSYS — fixed 0.33.7). | PATH | bin/install-vector-deps.sh:34 | bash |
 | `SB_KB_SCHEMA` | `<plugin>/kb-schema.json` (computed relative to kb-schema.sh) | Path override for the KB schema JSON. | PATH/TESTDBL | scripts/kb-schema.sh:7 | bash |
 | `SB_DIR` | `${BRAIN_DIR:-$HOME/.second-brain}` | Local var inside the timer installer. | INT | scripts/install-extract-timer.sh | none |
+| `SB_REPO_KEY_COMMON_DIR` | `on` | A linked `git worktree`'s slug resolves against its MAIN checkout (git-common-dir's parent), so every worktree of one repo shares a single project brain. `off` restores the pre-change basename-of-worktree-dir behavior. Bash: `sb_repo_key`. TS twin: `mainWorktreeDir`/`slugFromProjectDir`. | KS | lib.sh:2978; project-dir.ts | bash+vitest |
 
 **kb-schema-derived exports** — all set by `scripts/kb-schema.sh:9-21` from `kb-schema.json`
 (env-first overridable, sourced via lib.sh, guarded by `tests/test-kb-schema.sh`; fail-soft: if jq
@@ -63,6 +64,7 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | Var | Default | Effect | Kind | Site | Tests |
 |---|---|---|---|---|---|
 | `SB_PERSONA_GATE` | `on` | MASTER gate: persona context injection + persona tool guard + wiki write guard all exit early when `off`. | KS | persona-context.sh:18; persona-tool-guard.sh:15; wiki-write-guard.sh:12 | bash |
+| `SB_RULES_LAYERS` | `on` | Layered rule resolution (plugin default → user `persona-rules.json` → repo `projects/<slug>/rules.json`) via `sb_rules_effective`, consumed by `persona-tool-guard.sh`'s lock-aware ask/deny logic and the `/second-brain:rules show` skill. `off` restores the pre-layering precedence (user file if usable, else plugin default). | KS | lib.sh:3036; persona-tool-guard.sh:111 | bash |
 | `SB_TOOL_SCOPE` | `on` | PreToolUse tool-allowlist "ask" guard. Only active when `tool_scope.enabled=true` in persona-rules.json — the SHIPPED default is `false`, so this guard is INERT out of the box (SKILL.md §4). | KS | persona-tool-guard.sh:70 | bash |
 | `SB_TOOL_SCOPE_EXTRA` | empty | Colon-separated extra allowed tools (session-scoped). | TUNE | persona-tool-guard.sh:79 | bash |
 | `SB_RESOURCE_SCOPE` | `on` | PreToolUse path-allowlist "ask" guard for Edit/Write/MultiEdit/Read. `resource_scope.enabled=true` IS the shipped default — LIVE out of the box (SKILL.md §4). | KS | persona-tool-guard.sh:102 | bash |
@@ -88,10 +90,24 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_OBSERVATION_LEDGER` | `on` | PostToolUse + PostToolUseFailure: append one deterministic JSONL line `{ts,tool,target,ok,err}` per tool use to `~/.second-brain/observations/<session>.jsonl` (mined by the drainer as extraction input; 7-day GC). `off` disables both hook wirings. | KS | observe-tool-use.sh:21 | none |
 | `SB_OBSERVATION_MAX_BYTES` | `1048576` (1 MiB) | Per-session cap on the observation ledger file. | TUNE | observe-tool-use.sh | none |
 
+### 2a. Class-5 working agreement (protocol-guard.sh, `hooks/hooks.json` SessionStart/PreToolUse/SubagentStart)
+
+| Var | Default | Effect | Kind | Site | Tests |
+|---|---|---|---|---|---|
+| `SB_PROTOCOL_GUARD` | `on` | MASTER gate for all three protocol-guard.sh modes (card/pre/subagent); `off` no-ops the whole script. `SB_HOOK_PROFILE=minimal` defaults it `off` too (lib.sh:26). | KS | protocol-guard.sh:16 | bash |
+| `SB_PROTOCOL_CARD` | `on` | SessionStart mode `card`: the ≤1200 B class-5 protocol card. | KS | protocol-guard.sh:630 | bash |
+| `SB_ROLE_CARDS` | `on` | SubagentStart mode `subagent`: the ≤900 B per-`agent_type` role card (skips `second-brain:*` and Plan). | KS | protocol-guard.sh:631 | bash |
+| `SB_DELEGATION_CHECK` | `on` | PreToolUse mode `pre`, Agent/Task path: the delegation-tier advisory (`pg_agent`). | KS | protocol-guard.sh:634 | bash |
+| `SB_DELEGATION_REWRITE` | `0` (opt-in; `=1` enables) | When on AND `pg_agent` suggests a tier change, sets the Agent/Task call's `tool_input.model` via PreToolUse `updatedInput` — the one exception to "never rewrites tool input" (CONSTITUTION.md class 5). Proven honored live on Claude Code 2.1.281. | KS(opt-in) | protocol-guard.sh:274 | bash |
+| `SB_JIT` | `on` | PreToolUse mode `pre`, Read/Edit/Write/MultiEdit path: path-triggered JIT memory delivery (`pg_jit`, reads `jit-index.json`). | KS | protocol-guard.sh:636 | bash |
+| `SB_JIT_MAX_ITEMS` | `3` | Max JIT items delivered per matched call. | TUNE | protocol-guard.sh:475 | bash |
+| `SB_SEARCH_FIRST` | `on` | PreToolUse mode `pre`, Write-of-a-new-path: search-before-create nudge (`pg_search`). | KS | protocol-guard.sh:637 | bash |
+
 ## 3. SessionStart banners & auto-dispatch (session-load.sh and friends)
 
 | Var | Default | Effect | Kind | Site | Tests |
 |---|---|---|---|---|---|
+| `SB_REPO_CARD` | `on` | Replaces the full `sb_project_hot_render` PROJECT.md dump with the budgeted repo card (emit cap ≤1800 B) in the hot-tier injection. `off` restores the legacy render verbatim (cap ≤3000 B). | KS | session-load.sh:170,1075 | none |
 | `SB_AUTH_LINE` | `on` | Auth-mode banner (api-key vs OAuth vs none). | KS | session-load.sh:335 | bash |
 | `SB_CAPTURE_HEALTH_BANNER` | `on` | Banner when extraction is failing/queued (offers api-key / drainer / local remedies). | KS | session-load.sh:354 | bash |
 | `SB_DRAIN_HEALTH_BANNER` | `on` | Drainer-health banner. | KS | session-load.sh:295 | bash |

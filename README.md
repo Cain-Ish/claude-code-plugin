@@ -13,7 +13,7 @@ offline engine" below.
 
 ## What it remembers
 
-Four content classes, and only four — the things a senior dev carries between sessions and cannot
+Five content classes, and only five — the things a senior dev carries between sessions and cannot
 recover from a diff:
 
 | Class | Where it lives |
@@ -22,8 +22,9 @@ recover from a diff:
 | **Architecture & high-level design** — why-this-way, invariants, constraints | `wiki/concepts/`, `wiki/entities/`, `wiki/themes/`, the typed graph |
 | **Code map** — what exists, where, what breaks if it changes | `code_map`, `code_neighbors` (PageRank structure + import-graph blast radius) |
 | **Session recap** — what mattered, distilled before the context closes | Stop/PreCompact extraction, `episodic_search`, `sessions-digest.jsonl` |
+| **Working agreement** — hard rules, soft conventions, the work protocol, which model tier a job class belongs to | `PROJECT.md` `## Conventions` and `projects/<key>/rules.json` (KB-only home); `CONSTITUTION.md` states the invariants, tests enforce them |
 
-A surface that does not produce, store, or deliver one of these four is not memory and does not
+A surface that does not produce, store, or deliver one of these five is not memory and does not
 belong here — however good a tool it is. The mission, that scope rule, and the hard constraints
 (full autonomy, untrusted-content isolation, cross-platform) are fixed in
 [CONSTITUTION.md](CONSTITUTION.md); the gates that enforce them are named there.
@@ -47,15 +48,16 @@ access — an `ANTHROPIC_API_KEY` or a Claude subscription; `sb auth doctor` wal
 
 ## What runs automatically
 
-Nine hook events wire the autonomous loop (`hooks/hooks.json`):
+Ten hook events wire the autonomous loop (`hooks/hooks.json`):
 
-- **SessionStart** — ensures dirs, discovers installed plugins and tracked doc sources, loads the hot tier into context, banners pending/suggested dreams.
+- **SessionStart** — ensures dirs, discovers installed plugins and tracked doc sources, loads the hot tier into context, banners pending/suggested dreams, delivers the working-agreement protocol card.
 - **UserPromptSubmit** — injects persona card, catalog, and relevant wiki hits per prompt (no LLM call).
-- **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, and a plan-first gate — with `SB_INTENT_SPINE` on (the default), it hard-denies-once on multi-file code work with no plan on record (Gate A) and again on goal drift (Gate B); `SB_INTENT_SPINE=off` restores the original advisory-only nudge that never blocks.
+- **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, a plan-first gate — with `SB_INTENT_SPINE` on (the default), it hard-denies-once on multi-file code work with no plan on record (Gate A) and again on goal drift (Gate B); `SB_INTENT_SPINE=off` restores the original advisory-only nudge that never blocks — and the working-agreement guard (delegation tier checks, path-triggered repo memory, search-before-create), advisory-only.
 - **PostToolUse** — quality gate on writes, injection-pattern scan of tool returns (telemetry, never blocks), simplicity nudge on large single changes, observation ledger.
 - **PostToolUseFailure** — the observation ledger's failure side. `PostToolUse` fires only on success, so without this event every FAILED tool call — the error→fix pattern the ledger exists to mine — left no record.
 - **Stop** — verify gate, then the LLM extractor files what mattered into hot tier + wiki; SAR safety-summary banner.
 - **SubagentStop** — archives substantive subagent results into the episodic transcript store.
+- **SubagentStart** — delivers a role card scoped to the spawned agent's type (working agreement, advisory-only).
 - **PreCompact** — same extraction before a context compaction, so nothing is lost to the window.
 - **ConfigChange** — audit-logs every settings/skills change (never blocks).
 
@@ -79,7 +81,7 @@ dreams stage changes for review, forgetting archives rather than deletes.
 | `/second-brain:maintain` | Explicit full consolidation run, incl. draining the raw inbox into wiki nodes |
 | `/second-brain:dream` | Staged consolidation — every change reviewed before accept; `--background` supported |
 | `/second-brain:review` | Read-only cross-project overview: blockers, stale projects, pending dreams |
-| `/second-brain:audit` | What the safety layer did this session (guard verdicts, injection flags) |
+| `/second-brain:rules` | Rules by layer (plugin → user → repo), the audit-log dashboard, distill/promote/demote |
 | `/second-brain:track` | Register local doc folders/globs to auto-index for retrieval |
 | `/second-brain:import-host` | Fold existing `CLAUDE.md`/`AGENTS.md`/`.cursorrules` into the tiers |
 | `/second-brain:think` | Opus advisor brief: intent, enrichment, risks (opt-in, ~$0.11/call) |

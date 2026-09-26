@@ -6137,7 +6137,7 @@ var kb_schema_default = {
   },
   generated_dirs: ["projects", "themes"],
   edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
-  project_sections: ["blockers", "decisions"],
+  project_sections: ["blockers", "decisions", "conventions"],
   forget_protection: {
     protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
     discounted: ["entities", "sources", "issues"]
@@ -6566,8 +6566,8 @@ async function runScan(projectRoot, brainDir, slug, opts) {
 }
 
 // src/tools/project-dir.ts
-import { basename as basename2, join as join5 } from "path";
-import { readFileSync as readFileSync3, existsSync as existsSync2 } from "fs";
+import { basename as basename2, dirname, isAbsolute as isAbsolute3, join as join5 } from "path";
+import { readFileSync as readFileSync3, existsSync as existsSync2, statSync as statSync2 } from "fs";
 
 // src/brain-paths.ts
 import { join as join3, isAbsolute as isAbsolute2 } from "path";
@@ -6674,9 +6674,28 @@ function resolveSlugByRemote(brainDir, rawRemote) {
 }
 
 // src/tools/project-dir.ts
+function mainWorktreeDir(dir) {
+  try {
+    const d = cleanEnvPath(dir);
+    if (!d) return dir;
+    const gitPath = join5(d, ".git");
+    if (statSync2(gitPath).isDirectory()) return dir;
+    const m = readFileSync3(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!m) return dir;
+    const gd = m[1];
+    const gitdirResolved = isAbsolute3(gd) ? gd : join5(d, gd);
+    if (existsSync2(join5(gitdirResolved, "config"))) return dir;
+    const cd = readFileSync3(join5(gitdirResolved, "commondir"), "utf-8").trim();
+    const commonDir = isAbsolute3(cd) ? cd : join5(gitdirResolved, cd);
+    return basename2(commonDir) === ".git" ? dirname(commonDir) : dir;
+  } catch {
+    return dir;
+  }
+}
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
-  const base = basename2(cleanEnvPath(dir));
+  const resolved = process.env.SB_REPO_KEY_COMMON_DIR === "off" ? dir : mainWorktreeDir(dir);
+  const base = basename2(cleanEnvPath(resolved));
   if (!base || base === "/" || base === "." || base === "..") return void 0;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;

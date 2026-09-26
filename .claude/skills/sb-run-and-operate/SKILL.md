@@ -56,12 +56,14 @@ wires, via `.claude-plugin/plugin.json`:
   0.45.0 (`grep -c '^registerJsonTool(' mcp/src/server.ts` — `code_map`/`code_neighbors` landed
   0.33.33). The bundles under `mcp/dist/` are
   **committed**, so a marketplace install needs no build step (`README.md:204`).
-- **Hooks** — declared in `hooks/hooks.json` (not plugin.json), across 9 events: SessionStart
-  (dir scaffold + discovery + hot-tier load + dream banner), UserPromptSubmit (persona context),
-  Stop (verify gate, extraction, SAR banner), SubagentStop (result capture),
-  PreCompact (extraction), PreToolUse (safety guards), ConfigChange (audit), PostToolUseFailure
-  (tool-failure observation), PostToolUse (quality/injection/simplicity scans). Full matrix, matchers, and kill switches:
-  sb-config-and-flags. Design rationale and invariants: sb-architecture-contract.
+- **Hooks** — declared in `hooks/hooks.json` (not plugin.json), across 10 events: SessionStart
+  (dir scaffold + discovery + hot-tier load + dream banner + protocol card), UserPromptSubmit
+  (persona context), Stop (verify gate, extraction, SAR banner), SubagentStop (result capture),
+  PreCompact (extraction), PreToolUse (safety guards + protocol-guard delegation/JIT/search-first),
+  SubagentStart (protocol-guard role card), ConfigChange (audit), PostToolUseFailure
+  (tool-failure observation), PostToolUse (quality/injection/simplicity scans + observation
+  ledger). Full matrix, matchers, and kill switches: sb-config-and-flags. Design rationale and
+  invariants: sb-architecture-contract.
 - **One userConfig option** — `knowledge_dir` (type directory, default `~/knowledge`).
 
 ### Prerequisites (`README.md:236-239`, `mcp/package.json`)
@@ -292,7 +294,7 @@ Invocation column from each SKILL.md frontmatter: `/` = user slash command
 | `recall` | Search past transcripts (hybrid vector+text) for decisions/solutions | / |
 | `status` | Hot-tier + wiki health at a glance | / |
 | `review` | Open blockers, stale projects, pending dreams across all projects; read-only | / |
-| `audit` | What the safety layer did this session (reads `audit-log.jsonl`); read-only | / |
+| `rules` | `show\|audit\|distill\|promote\|demote` — layered PreToolUse rule set (plugin/user/repo) + the `audit` subcommand (what the safety layer did this session, reads `audit-log.jsonl`); replaces the old `audit` skill | / |
 | `lint` | Wiki + PROJECT.md cross-reference health check; read-only by default | / |
 | `think` | Opus advisor brief via `persona_think` (~$0.11/call) | / |
 | `doubt` | Adversarial validation of the plugin itself, rotating focus | / |
@@ -307,7 +309,7 @@ Invocation column from each SKILL.md frontmatter: `/` = user slash command
 
 > REMOVED in 0.44.0 — `code-review-deep` + `team` skills and six agents (`quality-reviewer`,
 > the four `code-review-*` reviewers, `team-worker`) plus `scripts/team-run.sh`. They served none
-> of CONSTITUTION.md's four content classes. The fresh-context critic role moved to
+> of CONSTITUTION.md's content classes. The fresh-context critic role moved to
 > `persona_think` (`skills/doubt` step 4, `stop-verify-gate.sh` critic offer).
 
 ## 9. cost-router subplugin — REMOVED (0.35.x)

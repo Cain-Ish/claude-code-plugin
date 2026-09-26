@@ -60,8 +60,8 @@ function originRemote(dir) {
 }
 
 // src/tools/project-dir.ts
-import { basename, join as join3 } from "path";
-import { readFileSync as readFileSync3, existsSync as existsSync2 } from "fs";
+import { basename, dirname, isAbsolute as isAbsolute2, join as join3 } from "path";
+import { readFileSync as readFileSync3, existsSync as existsSync2, statSync as statSync2 } from "fs";
 
 // src/tools/project-registry.ts
 import { readFileSync as readFileSync2 } from "fs";
@@ -117,9 +117,28 @@ function resolveSlugByRemote(brainDir, rawRemote) {
 }
 
 // src/tools/project-dir.ts
+function mainWorktreeDir(dir) {
+  try {
+    const d = cleanEnvPath(dir);
+    if (!d) return dir;
+    const gitPath = join3(d, ".git");
+    if (statSync2(gitPath).isDirectory()) return dir;
+    const m = readFileSync3(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!m) return dir;
+    const gd = m[1];
+    const gitdirResolved = isAbsolute2(gd) ? gd : join3(d, gd);
+    if (existsSync2(join3(gitdirResolved, "config"))) return dir;
+    const cd = readFileSync3(join3(gitdirResolved, "commondir"), "utf-8").trim();
+    const commonDir = isAbsolute2(cd) ? cd : join3(gitdirResolved, cd);
+    return basename(commonDir) === ".git" ? dirname(commonDir) : dir;
+  } catch {
+    return dir;
+  }
+}
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
-  const base = basename(cleanEnvPath(dir));
+  const resolved = process.env.SB_REPO_KEY_COMMON_DIR === "off" ? dir : mainWorktreeDir(dir);
+  const base = basename(cleanEnvPath(resolved));
   if (!base || base === "/" || base === "." || base === "..") return void 0;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;
@@ -175,7 +194,7 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
 // src/tools/codemap/scan-sources.ts
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { existsSync as existsSync3, statSync as statSync2 } from "fs";
+import { existsSync as existsSync3, statSync as statSync3 } from "fs";
 import { readFile, stat } from "fs/promises";
 import { homedir as homedir2, tmpdir } from "os";
 import * as path2 from "path";
@@ -6277,7 +6296,7 @@ function byId(a, b) {
 async function scanSources(repoRoot, opts = {}) {
   let rootStat;
   try {
-    rootStat = statSync2(repoRoot);
+    rootStat = statSync3(repoRoot);
   } catch {
     throw new Error(`scanSources: repoRoot does not exist: ${repoRoot}`);
   }

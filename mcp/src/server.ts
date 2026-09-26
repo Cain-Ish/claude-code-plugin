@@ -21,7 +21,8 @@ import { knowledgeRelate } from "./tools/knowledge-relate.js";
 import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
 import { codeMap } from "./tools/codemap/code-map.js";
 import { codeNeighbors } from "./tools/codemap/code-neighbors.js";
-import { resolveActiveSlug as resolveActiveSlugFromDir } from "./tools/project-dir.js";
+import { resolveActiveSlug as resolveActiveSlugFromDir, activeProjectDir } from "./tools/project-dir.js";
+import { shouldRebuildAfterPin, scheduleSerializedRebuild } from "./tools/jit-index.js";
 import { resolveBrainDir, resolveKnowledgeDir } from "./brain-paths.js";
 import { writeBuddyEvent, type BuddyKind, type BuddyMood } from "./buddy-events.js";
 import { walkWiki } from "./tools/walk-wiki.js";
@@ -42,11 +43,18 @@ function resolveActiveSlug(): string | undefined {
   return resolveActiveSlugFromDir(BRAIN_DIR);
 }
 
+// Repo-brain: two pins to the same slug in quick succession must never race their background
+// JIT-index rebuilds — an earlier rebuild that happens to run slower could finish AFTER a later
+// one and silently clobber the newer index with stale data. scheduleSerializedRebuild (jit-
+// index.ts) chains each slug's rebuilds onto this map so rebuild N+1 only starts once rebuild N
+// has settled for that same slug; different slugs still rebuild concurrently.
+const jitRebuildChains = new Map<string, Promise<void>>();
+
 const server = new McpServer(
   { name: "knowledge-base", version: "2.9.0" },
   {
     capabilities: { logging: {} },
-    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of).",
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions/conventions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of).",
   }
 );
 
@@ -154,17 +162,34 @@ registerJsonTool(
 
 registerJsonTool(
   "pin_to_project",
-  "Append an entry to the active project's PROJECT.md. Section must be 'blockers' or 'decisions'. Decisions are dated and accept reasoning (why), rejected (the alternative not taken), and supersedes (substring of an earlier decision bullet this one reverses — the old bullet is marked [superseded], never deleted).",
+  "Append an entry to the active project's PROJECT.md. Section must be 'blockers', 'decisions', or 'conventions' (soft rules delivered when their paths are touched). Decisions are dated and accept reasoning (why), rejected (the alternative not taken), and supersedes (substring of an earlier decision bullet this one reverses — the old bullet is marked [superseded], never deleted; conventions/blockers ignore supersedes).",
   {
     text: z.string(),
     slug: z.string(),
-    section: z.enum(["blockers", "decisions"]),
+    section: z.enum(["blockers", "decisions", "conventions"]),
     reasoning: z.string().optional(),
     rejected: z.string().optional(),
     supersedes: z.string().optional(),
   },
-  ({ text, slug, section, reasoning, rejected, supersedes }) =>
-    pinToProject({ text, slug, section, reasoning, rejected, supersedes }),
+  async ({ text, slug, section, reasoning, rejected, supersedes }) => {
+    const result = await pinToProject({ text, slug, section, reasoning, rejected, supersedes });
+    // Repo-brain (Slice 2): a pin can change what pg_jit should deliver at the next Read/Edit/
+    // Write of a matching path — rebuild the JIT index in the background so it's fresh without
+    // making the pin wait on a wiki/git scan. Fail-soft: never lets a rebuild failure surface as
+    // a pin_to_project error (the pin itself already succeeded or failed on its own terms).
+    // Only when the pinned slug IS this process's own active project: the rebuild always scans
+    // THIS repo's `git ls-files` (activeProjectDir()), so rebuilding a DIFFERENT project's index
+    // against it would clobber that project's globs with the wrong repo's file list. The rebuild
+    // itself is scheduled through scheduleSerializedRebuild, which chains per-slug so two pins
+    // fired in quick succession can never race and let a slower, earlier rebuild overwrite a
+    // newer index.
+    if (shouldRebuildAfterPin(result.ok, slug, resolveActiveSlug())) {
+      void scheduleSerializedRebuild(jitRebuildChains, slug, {
+        brainDir: BRAIN_DIR, knowledgeDir: resolveKnowledgeDir(), slug, repoRoot: activeProjectDir(),
+      });
+    }
+    return result;
+  },
   (h) => guardDestructive("pin_to_project", h)
 );
 

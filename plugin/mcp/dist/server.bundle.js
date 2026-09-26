@@ -6923,12 +6923,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs22, exportName) {
+    function addFormats(ajv, list, fs23, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs22[f]);
+        ajv.addFormat(f, fs23[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -21149,7 +21149,7 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import fs21 from "fs";
+import fs22 from "fs";
 import path4 from "path";
 
 // src/tools/graph-store.ts
@@ -21498,8 +21498,8 @@ ${PIN_SECTION}
 
 // src/tools/pin-to-project.ts
 import { promises as fs3 } from "fs";
-var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions" };
-var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] " };
+var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions", conventions: "## Conventions" };
+var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] ", conventions: "- " };
 function flattenField2(s, cap) {
   if (!s) return "";
   return s.normalize("NFC").replace(/[\r\n`]/g, " ").replace(/\s+/g, " ").trim().slice(0, cap);
@@ -21573,7 +21573,9 @@ async function pinToProject(args) {
   let marked = false;
   const supersedesRequested = !!flattenField2(args.supersedes, 200);
   const needle = flattenField2(args.supersedes, 200).toLowerCase();
-  if (args.section === "decisions" && needle) {
+  if (supersedesRequested && args.section !== "decisions") {
+    reason = "supersedes is decisions-only \u2014 ignored for this section";
+  } else if (args.section === "decisions" && needle) {
     if (needle.length < SUPERSEDES_MIN_NEEDLE) {
       reason = `supersedes needle too short (<${SUPERSEDES_MIN_NEEDLE} chars) \u2014 nothing marked`;
     } else {
@@ -21716,6 +21718,20 @@ async function atomicWriteJson(filePath, value) {
       await fs5.unlink(tmp);
     } catch {
     }
+  }
+}
+var strictWriteCounter = 0;
+async function atomicWriteJsonStrict(filePath, value) {
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${strictWriteCounter++}`;
+  try {
+    await fs5.writeFile(tmp, JSON.stringify(value));
+    await fs5.rename(tmp, filePath);
+  } catch (err) {
+    try {
+      await fs5.unlink(tmp);
+    } catch {
+    }
+    throw err;
   }
 }
 
@@ -26284,8 +26300,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep5, { nocase, childrenCacheSize = 16 * 1024, fs: fs22 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs22);
+  constructor(cwd = process.cwd(), pathImpl, sep5, { nocase, childrenCacheSize = 16 * 1024, fs: fs23 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs23);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -26843,8 +26859,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs22) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs22 });
+  newRoot(fs23) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs23 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -26872,8 +26888,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs22) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs22 });
+  newRoot(fs23) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs23 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -28003,7 +28019,7 @@ var kb_schema_default = {
   },
   generated_dirs: ["projects", "themes"],
   edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
-  project_sections: ["blockers", "decisions"],
+  project_sections: ["blockers", "decisions", "conventions"],
   forget_protection: {
     protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
     discounted: ["entities", "sources", "issues"]
@@ -31948,14 +31964,36 @@ import { promises as fs14 } from "fs";
 import { existsSync as existsSync3 } from "fs";
 
 // src/tools/project-dir.ts
-import { basename as basename3, join as join13 } from "path";
-import { readFileSync as readFileSync3, existsSync as existsSync2 } from "fs";
+import { basename as basename3, dirname as dirname3, isAbsolute as isAbsolute5, join as join13 } from "path";
+import { readFileSync as readFileSync3, existsSync as existsSync2, statSync as statSync2 } from "fs";
+function mainWorktreeDir(dir) {
+  try {
+    const d = cleanEnvPath(dir);
+    if (!d) return dir;
+    const gitPath = join13(d, ".git");
+    if (statSync2(gitPath).isDirectory()) return dir;
+    const m = readFileSync3(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!m) return dir;
+    const gd = m[1];
+    const gitdirResolved = isAbsolute5(gd) ? gd : join13(d, gd);
+    if (existsSync2(join13(gitdirResolved, "config"))) return dir;
+    const cd = readFileSync3(join13(gitdirResolved, "commondir"), "utf-8").trim();
+    const commonDir = isAbsolute5(cd) ? cd : join13(gitdirResolved, cd);
+    return basename3(commonDir) === ".git" ? dirname3(commonDir) : dir;
+  } catch {
+    return dir;
+  }
+}
 function slugFromProjectDir(dir) {
   if (!dir) return void 0;
-  const base = basename3(cleanEnvPath(dir));
+  const resolved = process.env.SB_REPO_KEY_COMMON_DIR === "off" ? dir : mainWorktreeDir(dir);
+  const base = basename3(cleanEnvPath(resolved));
   if (!base || base === "/" || base === "." || base === "..") return void 0;
   if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
   return base;
+}
+function activeProjectDir(env = process.env, cwd = process.cwd) {
+  return cleanEnvPath(env.CLAUDE_PROJECT_DIR) || cwd();
 }
 function remoteIdentitySlug(brainDir2, dir) {
   const url = originRemote(dir);
@@ -32239,7 +32277,7 @@ async function dreamCancel(args) {
 
 // src/tools/episodic-search.ts
 import { promises as fs15 } from "fs";
-import { join as join15, basename as basename5, relative as relative4, isAbsolute as isAbsolute5 } from "path";
+import { join as join15, basename as basename5, relative as relative4, isAbsolute as isAbsolute6 } from "path";
 
 // src/tools/sanitize.ts
 var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
@@ -32442,7 +32480,7 @@ function scopeAndBroaden(ranked, args) {
 }
 function assertTranscriptPath(brainDir2, filePath) {
   const base = join15(brainDir2, "transcripts");
-  const rel = isAbsolute5(filePath) ? relative4(base, filePath) : filePath;
+  const rel = isAbsolute6(filePath) ? relative4(base, filePath) : filePath;
   return assertWithin(base, rel);
 }
 async function episodicRead(filePath, startLine, endLine) {
@@ -32900,7 +32938,7 @@ import { stat as stat2 } from "fs/promises";
 // src/tools/codemap/scan-sources.ts
 import { execFile as execFile2 } from "child_process";
 import { promisify as promisify2 } from "util";
-import { existsSync as existsSync4, statSync as statSync2 } from "fs";
+import { existsSync as existsSync4, statSync as statSync3 } from "fs";
 import { readFile, stat } from "fs/promises";
 import * as path3 from "path";
 var execFileAsync = promisify2(execFile2);
@@ -32938,7 +32976,7 @@ function byId(a, b) {
 async function scanSources(repoRoot, opts = {}) {
   let rootStat;
   try {
-    rootStat = statSync2(repoRoot);
+    rootStat = statSync3(repoRoot);
   } catch {
     throw new Error(`scanSources: repoRoot does not exist: ${repoRoot}`);
   }
@@ -33152,9 +33190,239 @@ async function codeNeighbors(opts) {
   };
 }
 
-// src/buddy-events.ts
+// src/tools/jit-index.ts
 import { promises as fs20 } from "fs";
-import { join as join23 } from "path";
+import { basename as basename7, join as join23 } from "path";
+import { execFile as execFile3 } from "child_process";
+import { promisify as promisify3 } from "util";
+var MAX_ITEMS = 200;
+var MAX_GLOBS_PER_ITEM = 8;
+var LINE_CAP = 160;
+var CONTROL_RE = /[\u0000-\u001f\u007f-\u009f`\r\n]/g;
+function sanitizeRaw(s) {
+  if (!s) return "";
+  let out = stripInvisible(s);
+  out = out.replace(CONTROL_RE, " ");
+  out = out.replace(/\\/g, " ");
+  out = out.replace(/\[/g, "(").replace(/\]/g, ")");
+  out = out.replace(/\s+/g, " ").trim();
+  return out;
+}
+function buildLine(a, b) {
+  const A = sanitizeRaw(a);
+  const B = sanitizeRaw(b);
+  if (A && B) return `${A} \u2192 ${B}`;
+  if (A) return A;
+  if (B) return B;
+  return null;
+}
+var PATH_TOKEN_RE = /(?:^|[\s("'`,;:])([A-Za-z0-9_][A-Za-z0-9_./-]*(?:\.[A-Za-z0-9]{1,8}|\/))(?=$|[\s)"'`,;:.])/g;
+function extractPathTokens(text) {
+  const out = [];
+  const re = new RegExp(PATH_TOKEN_RE.source, "g");
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    out.push(m[1]);
+    if (m[0].length === 0) re.lastIndex++;
+  }
+  return out;
+}
+function extractGlobs(text, repoSet, repoFiles) {
+  const tokens = extractPathTokens(text);
+  const globs = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const tok of tokens) {
+    let g = null;
+    if (tok.endsWith("/")) {
+      if (repoFiles.some((f) => f.startsWith(tok))) g = `${tok}*`;
+    } else if (repoSet.has(tok)) {
+      g = tok;
+    }
+    if (g && !seen.has(g)) {
+      seen.add(g);
+      globs.push(g);
+      if (globs.length >= MAX_GLOBS_PER_ITEM) break;
+    }
+  }
+  return globs;
+}
+var KIND_PRIORITY = { lesson: 0, convention: 1, decision: 2, intent: 3 };
+function buildJitIndex(input) {
+  const repoSet = new Set(input.repoFiles);
+  const items = [];
+  for (const page of input.pages) {
+    if (page.project !== input.slug) continue;
+    const ab = page.aiBlock || {};
+    let kind;
+    let line;
+    switch (page.type) {
+      case "issues":
+        kind = "lesson";
+        line = buildLine(ab.symptom, ab.fix);
+        break;
+      case "learnings":
+        kind = "lesson";
+        line = buildLine(ab.claim, ab.action);
+        break;
+      case "decisions": {
+        const status = (page.status ?? ab.status ?? "").trim();
+        if (/^(superseded|rejected)\b/i.test(status)) continue;
+        kind = "decision";
+        line = buildLine(ab.choice, void 0);
+        break;
+      }
+      case "concepts":
+        kind = "intent";
+        line = buildLine(ab.problem, void 0);
+        break;
+      default:
+        continue;
+    }
+    if (!line) continue;
+    const globs = extractGlobs(line, repoSet, input.repoFiles);
+    if (globs.length === 0) continue;
+    items.push({ id: page.slug, kind, globs, line: line.slice(0, LINE_CAP) });
+  }
+  input.conventions.forEach((raw, i) => {
+    const text = sanitizeRaw(raw);
+    if (!text) return;
+    const globs = extractGlobs(text, repoSet, input.repoFiles);
+    if (globs.length === 0) return;
+    items.push({ id: `conv:${i + 1}`, kind: "convention", globs, line: text.slice(0, LINE_CAP) });
+  });
+  items.sort((a, b) => {
+    const pa = KIND_PRIORITY[a.kind], pb = KIND_PRIORITY[b.kind];
+    if (pa !== pb) return pa - pb;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return { schema: 1, slug: input.slug, items: items.slice(0, MAX_ITEMS) };
+}
+async function readConventions(projectFile) {
+  let content;
+  try {
+    content = await fs20.readFile(projectFile, "utf-8");
+  } catch {
+    return [];
+  }
+  const lines = content.split("\n");
+  const idx = lines.findIndex((l) => l.trim() === "## Conventions");
+  if (idx < 0) return [];
+  const out = [];
+  for (let i = idx + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.startsWith("## ")) break;
+    const t = l.replace(/\r$/, "").trim();
+    if (t.startsWith("- ")) out.push(t.slice(2));
+  }
+  return out;
+}
+async function loadProjectPages(knowledgeDir) {
+  const wikiRoot = join23(knowledgeDir, "wiki");
+  const pages = [];
+  let entries;
+  try {
+    entries = await fs20.readdir(wikiRoot, { withFileTypes: true });
+  } catch {
+    return pages;
+  }
+  const dirs = entries.filter((d) => d.isDirectory() && d.name !== "projects").map((d) => d.name);
+  for (const dir of dirs) {
+    let files;
+    try {
+      files = await walkWiki(join23(wikiRoot, dir));
+    } catch {
+      continue;
+    }
+    for (const filePath of files) {
+      try {
+        const content = await fs20.readFile(filePath, "utf-8");
+        const doc = parseDoc(content, filePath);
+        pages.push({
+          slug: basename7(filePath).replace(/\.md$/, ""),
+          type: dir,
+          project: doc.project,
+          aiBlock: doc.aiBlock ?? {}
+        });
+      } catch {
+      }
+    }
+  }
+  return pages;
+}
+var execFileAsync2 = promisify3(execFile3);
+async function defaultGitRunner(args, cwd) {
+  const { stdout } = await execFileAsync2("git", args, {
+    cwd,
+    maxBuffer: 64 * 1024 * 1024,
+    windowsHide: true,
+    timeout: 5e3
+  });
+  return stdout;
+}
+function isNoGitError(e) {
+  const err = e;
+  if (!err) return false;
+  if (err.code === "ENOENT") return true;
+  const stderrText = typeof err.stderr === "string" ? err.stderr : err.stderr?.toString("utf-8") ?? "";
+  const msg = err.message ?? "";
+  return /not a git repository/i.test(stderrText) || /not a git repository/i.test(msg);
+}
+async function rebuildJitIndex(opts) {
+  validateSlug(opts.slug);
+  const dir = resolveBrainDir(opts.brainDir);
+  const projectFile = assertWithin(dir, "projects", opts.slug, "PROJECT.md");
+  const [pages, conventions] = await Promise.all([
+    loadProjectPages(opts.knowledgeDir),
+    readConventions(projectFile)
+  ]);
+  const runGit = opts.runGit ?? defaultGitRunner;
+  let repoFiles = [];
+  let gitRev = "nogit";
+  let lsFilesOk = false;
+  try {
+    const out = await runGit(["ls-files", "-z"], opts.repoRoot);
+    repoFiles = out.split("\0").filter(Boolean);
+    lsFilesOk = true;
+  } catch (e) {
+    if (!isNoGitError(e)) {
+      const code = e?.code ?? "unknown";
+      throw new Error(`jit-index: git ls-files failed (${code}) \u2014 index NOT rewritten`);
+    }
+    console.error(JSON.stringify({
+      event: "jit-index-no-git",
+      repoRoot: opts.repoRoot,
+      err: e instanceof Error ? e.message : String(e)
+    }));
+  }
+  if (lsFilesOk) {
+    try {
+      const out = await runGit(["rev-parse", "HEAD"], opts.repoRoot);
+      gitRev = out.trim() || "nogit";
+    } catch {
+      gitRev = "nogit";
+    }
+  }
+  const core = buildJitIndex({ slug: opts.slug, pages, conventions, repoFiles });
+  const index = { ...core, generated_at: (/* @__PURE__ */ new Date()).toISOString(), git_rev: gitRev };
+  const outPath = assertWithin(dir, "projects", opts.slug, "jit-index.json");
+  await fs20.mkdir(join23(dir, "projects", opts.slug), { recursive: true });
+  await atomicWriteJsonStrict(outPath, index);
+  return index;
+}
+function shouldRebuildAfterPin(pinOk, slug, activeSlug) {
+  return pinOk && activeSlug !== void 0 && slug === activeSlug;
+}
+function scheduleSerializedRebuild(chains, slug, opts) {
+  const prior = chains.get(slug) ?? Promise.resolve();
+  const next = prior.catch(() => {
+  }).then(() => rebuildJitIndex(opts)).then(() => void 0).catch((e) => console.error(JSON.stringify({ event: "jit-index-rebuild-failed", err: String(e) })));
+  chains.set(slug, next);
+  return next;
+}
+
+// src/buddy-events.ts
+import { promises as fs21 } from "fs";
+import { join as join24 } from "path";
 var LOG_KEEP = 40;
 var seq = 0;
 var clean = (s) => Array.from(s.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")).slice(0, 200).join("");
@@ -33163,30 +33431,30 @@ async function writeBuddyEvent(brainDir2, key, kind, mood, line, source, ttl_s =
   const k = key.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
   if (!k || !line) return;
   try {
-    const dir = join23(brainDir2, ".buddy");
-    await fs20.mkdir(dir, { recursive: true });
-    const cur = join23(dir, `${k}.json`);
+    const dir = join24(brainDir2, ".buddy");
+    await fs21.mkdir(dir, { recursive: true });
+    const cur = join24(dir, `${k}.json`);
     const now = Math.floor(Date.now() / 1e3);
     let hold = false;
     if (kind !== "gate") {
       try {
-        const prev = JSON.parse(await fs20.readFile(cur, "utf-8"));
+        const prev = JSON.parse(await fs21.readFile(cur, "utf-8"));
         hold = prev.kind === "gate" && prev.mood !== "pleased" && typeof prev.ts === "number" && now - prev.ts < 60;
       } catch {
       }
     }
     const row = { ts: now, kind, mood, line: clean(line), source, ttl_s };
     const text = JSON.stringify(row);
-    const log = join23(dir, `${k}.log.jsonl`);
-    await fs20.appendFile(log, text + "\n", "utf-8");
+    const log = join24(dir, `${k}.log.jsonl`);
+    await fs21.appendFile(log, text + "\n", "utf-8");
     if (!hold) {
       const tmp = `${cur}.tmp.${process.pid}.${++seq}`;
-      await fs20.writeFile(tmp, text + "\n", "utf-8");
-      await fs20.rename(tmp, cur);
+      await fs21.writeFile(tmp, text + "\n", "utf-8");
+      await fs21.rename(tmp, cur);
     }
     try {
-      const lines = (await fs20.readFile(log, "utf-8")).split("\n").filter(Boolean);
-      if (lines.length > LOG_KEEP * 2) await fs20.writeFile(log, lines.slice(-LOG_KEEP).join("\n") + "\n", "utf-8");
+      const lines = (await fs21.readFile(log, "utf-8")).split("\n").filter(Boolean);
+      if (lines.length > LOG_KEEP * 2) await fs21.writeFile(log, lines.slice(-LOG_KEEP).join("\n") + "\n", "utf-8");
     } catch {
     }
   } catch {
@@ -33219,11 +33487,12 @@ var BRAIN_DIR = resolveBrainDir();
 function resolveActiveSlug2() {
   return resolveActiveSlug(BRAIN_DIR);
 }
+var jitRebuildChains = /* @__PURE__ */ new Map();
 var server = new McpServer(
   { name: "knowledge-base", version: "2.9.0" },
   {
     capabilities: { logging: {} },
-    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
+    instructions: "BM25-scored search over the local knowledge base. Use knowledge_search to find relevant wiki pages (searches full content with field-weighted scoring), knowledge_reindex to regenerate the wiki index.md catalog (also runs validation with autofix), knowledge_validate to check wiki health (broken links, orphans, duplicates, session-narrative pages), knowledge_stats for an overview of wiki size and categories, pin_to_user to record a user-level preference, pin_to_project to append blockers/decisions/conventions to a project's PROJECT.md, and archive_to_wiki to graduate a [resolved] entry from a project file into the wiki. Dream tools: dream_create to start a background consolidation job (snapshots wiki + selects transcripts), dream_status to check progress, dream_list to see all dreams, dream_accept to apply a completed dream's changes, dream_discard to reject changes, and dream_cancel to stop a running dream. Episodic memory: episodic_search to search past conversation transcripts (hybrid vector + text, multi-concept AND), episodic_read to read a specific transcript section. Relational graph: knowledge_relate to assert/invalidate a typed bi-temporal relationship (requires|affects|relates|part_of|supersedes) between two pages, and knowledge_neighbors to walk a page's dependency neighbourhood (multi-hop, directional, point-in-time via as_of)."
   }
 );
 function categorizeFile(filePath) {
@@ -33322,16 +33591,27 @@ registerJsonTool(
 );
 registerJsonTool(
   "pin_to_project",
-  "Append an entry to the active project's PROJECT.md. Section must be 'blockers' or 'decisions'. Decisions are dated and accept reasoning (why), rejected (the alternative not taken), and supersedes (substring of an earlier decision bullet this one reverses \u2014 the old bullet is marked [superseded], never deleted).",
+  "Append an entry to the active project's PROJECT.md. Section must be 'blockers', 'decisions', or 'conventions' (soft rules delivered when their paths are touched). Decisions are dated and accept reasoning (why), rejected (the alternative not taken), and supersedes (substring of an earlier decision bullet this one reverses \u2014 the old bullet is marked [superseded], never deleted; conventions/blockers ignore supersedes).",
   {
     text: external_exports.string(),
     slug: external_exports.string(),
-    section: external_exports.enum(["blockers", "decisions"]),
+    section: external_exports.enum(["blockers", "decisions", "conventions"]),
     reasoning: external_exports.string().optional(),
     rejected: external_exports.string().optional(),
     supersedes: external_exports.string().optional()
   },
-  ({ text, slug, section, reasoning, rejected, supersedes }) => pinToProject({ text, slug, section, reasoning, rejected, supersedes }),
+  async ({ text, slug, section, reasoning, rejected, supersedes }) => {
+    const result = await pinToProject({ text, slug, section, reasoning, rejected, supersedes });
+    if (shouldRebuildAfterPin(result.ok, slug, resolveActiveSlug2())) {
+      void scheduleSerializedRebuild(jitRebuildChains, slug, {
+        brainDir: BRAIN_DIR,
+        knowledgeDir: resolveKnowledgeDir(),
+        slug,
+        repoRoot: activeProjectDir()
+      });
+    }
+    return result;
+  },
   (h) => guardDestructive("pin_to_project", h)
 );
 registerJsonTool(
@@ -33352,7 +33632,7 @@ registerJsonTool(
   {},
   async () => {
     const wikiDir = path4.join(KNOWLEDGE_DIR, "wiki");
-    if (!fs21.existsSync(wikiDir)) {
+    if (!fs22.existsSync(wikiDir)) {
       return [
         `# Knowledge Base Stats`,
         ``,
@@ -33367,7 +33647,7 @@ registerJsonTool(
       const cat = categorizeFile(file);
       let size = 0;
       try {
-        size = fs21.statSync(file).size;
+        size = fs22.statSync(file).size;
       } catch {
         continue;
       }
