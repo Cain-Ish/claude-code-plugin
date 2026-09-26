@@ -113,6 +113,80 @@ rm -rf "/tmp/sb-pwned-$$" 2>/dev/null || true
 sb_call_extractor() { : > "$2"; return 1; }
 sb_extract_transcript "$TX" "my-proj" && no "extract fails on empty LLM" || ok "extract fails on empty LLM"
 
+# --- DR-1 (Slice 1 §5.4): the drainer passes --session from the archive header, and a seeded
+# .prov file makes the Handoff stamp reflect the ORIGINAL session's epoch (not drainer merge
+# time) -- a back-dated handoff must not look fresh. ---
+TX_DR1="$BRAIN_DIR/transcripts/sessDRAIN01_dr-proj_2026-05-24.txt"
+cat > "$TX_DR1" <<'EOF'
+--- session-meta ---
+session_id: sessDRAIN01
+project_slug: dr-proj
+date: 2026-05-24
+tool_count: 1
+line_count: 5
+---
+
+USER: hello
+ASSISTANT: hi
+EOF
+mkdir -p "$BRAIN_DIR/.injected"
+printf '1789000000\tabc1234\tmain' > "$BRAIN_DIR/.injected/sessDRAIN01.prov"
+sb_call_extractor() {
+  local out="$2"
+  printf '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[],"handoff":{"in_flight":"dr-1 probe","failed_approaches":[],"pointers":[]}}' > "$out"
+  return 0
+}
+sb_extract_transcript "$TX_DR1" "dr-proj" >/dev/null 2>&1
+PROJ_DR="$BRAIN_DIR/projects/dr-proj/PROJECT.md"
+DR1_STAMP=$(awk '/^## Handoff$/{f=1;next} /^## /{f=0} f && /^written: /{print; exit}' "$PROJ_DR")
+case "$DR1_STAMP" in
+  "written: t=1789000000 session=sessDRAI"*) ok "DR-1: drainer stamp uses the archive's .prov epoch (back-dated, not fresh)" ;;
+  *) no "DR-1: unexpected stamp: $DR1_STAMP" ;;
+esac
+
+# --- DR-2: the drainer's merge call uses the SAME merge_plan carry guard as in-session capture
+# -- an existing unfinished item the stub's plan omits is carried, not dropped. ---
+printf '%s' '{"plan":["[ ] drainer-kept"]}' \
+  | bash "$SCRIPT_DIR/merge-project-update.sh" --project-md "$PROJ_DR" --knowledge-dir "$CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR" >/dev/null 2>&1
+sb_call_extractor() {
+  local out="$2"
+  printf '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[],"plan":["[ ] a fresh drainer item"]}' > "$out"
+  return 0
+}
+sb_extract_transcript "$TX_DR1" "dr-proj" >/dev/null 2>&1
+grep -qE '^- \[ \] \[carried [0-9]{4}-[0-9]{2}-[0-9]{2}\] drainer-kept$' "$PROJ_DR" \
+  && ok "DR-2: the drainer's merge carries an omitted unfinished item (same guard as in-session)" \
+  || no "DR-2: drainer-kept was not carried (got: $(awk '/^## Plan$/{f=1;next} /^## /{f=0} f' "$PROJ_DR"))"
+
+# --- DR-3: a subagent_result: true archive carries the PARENT's session id -- --session must
+# NOT be passed, so the Handoff stamp has no session= token. ---
+TX_DR3="$BRAIN_DIR/transcripts/sub-sessDRAIN01_dr-proj_2026-05-24.txt"
+cat > "$TX_DR3" <<'EOF'
+--- session-meta ---
+session_id: sessDRAIN01
+project_slug: dr-proj
+subagent_result: true
+date: 2026-05-24
+tool_count: 1
+line_count: 5
+---
+
+USER: hello
+ASSISTANT: hi
+EOF
+sb_call_extractor() {
+  local out="$2"
+  printf '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[],"handoff":{"in_flight":"dr-3 probe","failed_approaches":[],"pointers":[]}}' > "$out"
+  return 0
+}
+sb_extract_transcript "$TX_DR3" "dr-proj" >/dev/null 2>&1
+DR3_STAMP=$(awk '/^## Handoff$/{f=1;next} /^## /{f=0} f && /^written: /{print; exit}' "$PROJ_DR")
+case "$DR3_STAMP" in
+  *"session="*) no "DR-3: subagent archive stamp carries a session= token: $DR3_STAMP" ;;
+  "written: t="*) ok "DR-3: subagent archive stamp carries no session= token" ;;
+  *) no "DR-3: unexpected stamp: $DR3_STAMP" ;;
+esac
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

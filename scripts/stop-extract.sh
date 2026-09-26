@@ -440,6 +440,11 @@ if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
   exit 0
 fi
 
+# C4/F3 (Slice 1 §5.1): stamp provenance NOW, right after the substantive gate confirms this
+# window is real -- this is the ONLY in-session capture path for OAuth-only users, so it must
+# never be skipped when the LLM call below fails or times out.
+sb_session_prov_write "$SESSION_ID" "${CLAUDE_PROJECT_DIR:-$CWD}"
+
 PROMPT_FILE="$(dirname "$0")/extract-prompt.txt"
 if [ ! -f "$PROMPT_FILE" ]; then log_gate "prompt-file-missing path=$PROMPT_FILE"; exit 0; fi
 PROMPT=$(cat "$PROMPT_FILE")
@@ -532,7 +537,7 @@ MERGE_ERR=$(mktemp)
 MERGE_FAILED=0
 if ! echo "$DELTA_JSON" \
   | bash "$(dirname "$0")/merge-project-update.sh" \
-      --project-md "$PROJECT_MD" --knowledge-dir "$KNOWLEDGE_DIR" >/dev/null 2>"$MERGE_ERR"; then
+      --project-md "$PROJECT_MD" --knowledge-dir "$KNOWLEDGE_DIR" --session "$SESSION_ID" >/dev/null 2>"$MERGE_ERR"; then
   ERR_TAIL=$(tr '\n' ' ' < "$MERGE_ERR" | head -c 400)
   log_gate "merge-failed err=$ERR_TAIL"
   MERGE_FAILED=1

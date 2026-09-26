@@ -598,4 +598,77 @@ AFTER_LINES=$(wc -l < "$OLDPAGE")
   || fail "D143: re-applying the identical update was not deduped (before=$BEFORE_LINES after=$AFTER_LINES)"
 pass "D143: an identical re-applied update is still deduped as a true duplicate"
 
+# --- Slice 1 §5.4: C4 Handoff provenance stamp (--session + .prov, fixed-cut no-op) ------
+export BRAIN_DIR="$TMP/brainC4"; mkdir -p "$BRAIN_DIR/.injected"
+handoff_stamp_line() {
+  awk '/^## Handoff$/{f=1;next} /^## /{f=0} f && /^written: /{print; exit}' "$1"
+}
+
+# C4-1: t/session/branch/head all come from the .prov file, session id truncated to 8 chars.
+PROJ="$TMP/pc4_1.md"; WIKIC4_1="$TMP/wikic4_1"; mkdir -p "$WIKIC4_1"
+seed_project "$PROJ"
+printf '1789000000\tae3c0f9\tfeat/x' > "$BRAIN_DIR/.injected/abcdef1234.prov"
+jq -nc '{handoff:{in_flight:"c4-1 probe",failed_approaches:[],pointers:[]}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIC4_1" --session abcdef1234 >/dev/null 2>&1 || fail "C4-1: script exited non-zero"
+LINE=$(handoff_stamp_line "$PROJ")
+[ "$LINE" = "written: t=1789000000 session=abcdef12 branch=feat/x head=ae3c0f9" ] || fail "C4-1: unexpected stamp line: $LINE"
+pass "C4-1: stamp reads t/session/branch/head from the .prov file"
+
+# C4-5: no --session -> stamp is "written: t=<digits>" only.
+PROJ="$TMP/pc4_5.md"; WIKIC4_5="$TMP/wikic4_5"; mkdir -p "$WIKIC4_5"
+seed_project "$PROJ"
+jq -nc '{handoff:{in_flight:"c4-5 probe",failed_approaches:[],pointers:[]}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIC4_5" >/dev/null 2>&1 || fail "C4-5: script exited non-zero"
+LINE=$(handoff_stamp_line "$PROJ")
+printf '%s' "$LINE" | grep -qE '^written: t=[0-9]+$' || fail "C4-5: expected 'written: t=<digits>' only, got: $LINE"
+pass "C4-5: no --session -> stamp is t=<digits> only"
+
+# C4-6: --session with NO matching .prov file -> t=now(+-5s), session=<8>, no branch/head.
+PROJ="$TMP/pc4_6.md"; WIKIC4_6="$TMP/wikic4_6"; mkdir -p "$WIKIC4_6"
+seed_project "$PROJ"
+NOW=$(date +%s)
+jq -nc '{handoff:{in_flight:"c4-6 probe",failed_approaches:[],pointers:[]}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIC4_6" --session abcdef9999 >/dev/null 2>&1 || fail "C4-6: script exited non-zero"
+LINE=$(handoff_stamp_line "$PROJ")
+printf '%s' "$LINE" | grep -qE '^written: t=[0-9]+ session=abcdef99$' || fail "C4-6: unexpected stamp: $LINE"
+STAMP_T=$(printf '%s' "$LINE" | sed -E 's/^written: t=([0-9]+).*/\1/')
+DIFF=$(( STAMP_T - NOW )); [ "$DIFF" -lt 0 ] && DIFF=$(( -DIFF ))
+[ "$DIFF" -le 5 ] || fail "C4-6: stamp epoch not close to now (diff=$DIFF)"
+pass "C4-6: --session with no .prov file falls back to t=now, session=<8>, no branch/head"
+
+# C4-7: the widest possible stamp (40-char branch, 12-char head) stays <=112B (MAX_STAMP_BYTES).
+PROJ="$TMP/pc4_7.md"; WIKIC4_7="$TMP/wikic4_7"; mkdir -p "$WIKIC4_7"
+seed_project "$PROJ"
+WIDE_BRANCH=$(printf 'x%.0s' $(seq 1 40))
+printf '9999999999\t0123456789ab\t%s' "$WIDE_BRANCH" > "$BRAIN_DIR/.injected/abcdefwide.prov"
+jq -nc '{handoff:{in_flight:"c4-7 probe",failed_approaches:[],pointers:[]}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIC4_7" --session abcdefwide >/dev/null 2>&1 || fail "C4-7: script exited non-zero"
+LINE=$(handoff_stamp_line "$PROJ")
+LEN=${#LINE}
+[ "$LEN" -le 112 ] || fail "C4-7: widest stamp is ${LEN}B, cap is 112 (line: $LINE)"
+pass "C4-7: the widest stamp (40-char branch, 12-char head) stays <=112B"
+
+# C4-2/C4-3: the pre-existing 600B-cap fixture, now run WITH --session -- the stamp is present,
+# the body stays <=620B, and a content-identical re-emission under a DIFFERENT --session is
+# still a byte-identical no-op (the fixed cut happens BEFORE the compare, so neither run's
+# epoch/session churns the file when the 3 content lines did not change).
+PROJ="$TMP/pc4_23.md"; WIKIC4_23="$TMP/wikic4_23"; mkdir -p "$WIKIC4_23"
+seed_project "$PROJ"
+LONG_PTRS2=$(jq -nc '[range(5) | "very/long/path/segment/number/\(.)/deep/file.ts:123 — an intentionally verbose pointer description meant to overflow the byte budget"]')
+HANDOFF_JSON=$(jq -nc --argjson p "$LONG_PTRS2" '{handoff:{in_flight:"overflow probe with a deliberately long in-flight line that occupies real bytes",failed_approaches:["approach one that failed for verbose reasons — details details details","approach two that failed for verbose reasons — details details details","approach three that failed for verbose reasons — details details details"],pointers:$p}}')
+printf '%s' "$HANDOFF_JSON" | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIC4_23" --session abcdef1234 >/dev/null 2>&1 || fail "C4-2: script exited non-zero"
+LINE=$(handoff_stamp_line "$PROJ")
+[ -n "$LINE" ] || fail "C4-2: stamp line missing"
+HO_BYTES=$(awk '/^## Handoff$/{f=1;next} /^## /{f=0} f' "$PROJ" | wc -c | tr -d ' ')
+[ "$HO_BYTES" -le 620 ] || fail "C4-2: section body is ${HO_BYTES}B with --session, cap is 620"
+pass "C4-2: the 600B case with --session keeps the stamp and stays <=620B"
+
+HASH_BEFORE=$(sha256sum "$PROJ" | awk '{print $1}')
+printf '%s' "$HANDOFF_JSON" | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIC4_23" --session zzzzzz99 >/dev/null 2>&1 || fail "C4-3: script exited non-zero"
+HASH_AFTER=$(sha256sum "$PROJ" | awk '{print $1}')
+[ "$HASH_BEFORE" = "$HASH_AFTER" ] || fail "C4-3: PROJECT.md sha changed on a content-identical re-emission under a different --session"
+pass "C4-3: content-identical handoff under a different --session is still a no-op (old stamp kept)"
+
+export BRAIN_DIR="$TMP/brain"
+
 echo "ALL PASS"
