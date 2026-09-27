@@ -111,11 +111,18 @@ jobs:
           timeout --version | head -1 | grep -q coreutils || { echo "::error::timeout is not GNU coreutils"; exit 1; }
           jq --version
           printf '{"a":"x"}' | jq -r .a | od -An -tx1
+          # Advisory only (F9 CRLF-lane premise): warn, don't fail, if this runner's jq
+          # ever stops emitting CRLF -- the CRLF stub in test-jq-crlf-windows.sh exists
+          # to reproduce that Windows behaviour on non-Windows CI; if the native runner
+          # jq itself stopped doing it, the "real CRLF class, not the stub" claim above
+          # would be false on this image without anyone noticing.
+          printf '{"a":"x"}' | jq -r .a | od -An -tx1 | grep -q '0d 0a' || echo "::warning::runner jq does not emit CRLF — the CRLF lane premise does not hold on this image"
       - name: path, guard, jq-CRLF, exec-bit and continuity classes on real Git-Bash
         run: |
           rc=0
           for t in normalize-path symlink-guard persona-tool-guard wiki-write-guard guard-wiring \
-                   jq-crlf-windows exec-bits session-load-compact merge-project-update; do
+                   jq-crlf-windows exec-bits session-load-compact merge-project-update \
+                   project-plan-block; do
             echo "::group::test-$t"
             if bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi
             echo "::endgroup::"

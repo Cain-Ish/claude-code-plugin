@@ -87,4 +87,64 @@ printf '%s' "$raw" | "$REALJQ" -e '.hookSpecificOutput.additionalContext | split
 pass "persona-context two-way line + feed cursor survive Windows jq"
 rm -rf "$T"
 
+# 5. Slice 1 continuity (0.54.0): session-load.sh --compact under the Windows-jq CRLF stub.
+#    The lean card's own stdin decode + Plan-line awk are jq-adjacent; a CR that survived
+#    the `${v%$'\r'}` idiom would either poison the JSON parse or land inside a rendered
+#    Plan line. The no-CR check stays INSIDE one jq -e (explode/index(13), like case 4's
+#    buddy-block check above) rather than decoding via `jq -r` + od/grep: on the real
+#    windows-latest runner jq is ALREADY the native CRLF build (F8) — `jq -r` itself adds a
+#    trailing \r to every line there, so an od/grep-on-decoded-text oracle would flag a CR
+#    that is native-jq's own -r behaviour, not a session-load.sh regression.
+T=$(mktemp -d); mkdir -p "$T/.injected" "$T/projects/proj5"
+cat > "$T/projects/proj5/PROJECT.md" <<'EOF'
+# PROJECT: proj5
+
+## Goal
+GOAL-5
+
+## Handoff
+written: t=1789000000 session=abcdef12 branch=main head=abc1234
+HANDOFF-5
+
+## Plan
+- [ ] item-one
+- [ ] item-two
+
+## Conventions
+EOF
+printf '%s' "proj5" > "$T/.injected/sid5.slug"
+WORK5="$T/work5"; mkdir -p "$WORK5"
+out=$(printf '{"session_id":"sid5","cwd":"%s","source":"compact"}' "$WORK5" \
+  | RUN env BRAIN_DIR="$T" HOME="$T/home5" bash "$ROOT/scripts/session-load.sh" --compact)
+printf '%s' "$out" | "$REALJQ" -e '.hookSpecificOutput.hookEventName == "SessionStart"' >/dev/null 2>&1 \
+  || fail "case5: --compact output is not valid JSON with hookEventName==SessionStart under Windows jq (got: $out)"
+ctx=$(printf '%s' "$out" | "$REALJQ" -r '.hookSpecificOutput.additionalContext')
+item_n=$(printf '%s' "$ctx" | awk '/^Plan — unfinished/{f=1;next} f&&/^- /{c++} f&&!/^- /{exit} END{print c+0}')
+[ "$item_n" = "2" ] || fail "case5: expected 2 rendered Plan item lines, got $item_n (ctx: $ctx)"
+printf '%s' "$out" | "$REALJQ" -e '.hookSpecificOutput.additionalContext | explode | index(13) == null' >/dev/null 2>&1 \
+  || fail "case5: a CR reached the compact-reinject card's additionalContext"
+plan_field=$(grep -o 'gate=compact-reinject[^"]*plan=[0-9]*' "$T/audit-log.jsonl" 2>/dev/null | grep -o 'plan=[0-9]*' | tail -1 | cut -d= -f2)
+case "${plan_field:-x}" in ''|*[!0-9]*) fail "case5: the audit row's plan= field did not parse as an integer (audit-log: $(cat "$T/audit-log.jsonl" 2>/dev/null))" ;; esac
+pass "session-load.sh --compact renders 2 Plan items with no CR under Windows jq; gate row plan= is an integer"
+rm -rf "$T"
+
+# 6'. compact_pending merged under the Windows-jq CRLF stub: the emitted Plan line is
+#     add-only and PROJECT.md itself carries no \r (v2's open-work case 6 is dropped;
+#     v3 reuses ## Plan -- Slice 1 spec v3 §6).
+T=$(mktemp -d); mkdir -p "$T/projects/proj6" "$T/knowledge/wiki"
+cat > "$T/projects/proj6/PROJECT.md" <<'EOF'
+# PROJECT: proj6
+
+## Plan
+
+## Conventions
+EOF
+PROJ6="$T/projects/proj6/PROJECT.md"
+printf '%s' '{"compact_pending":["x"]}' \
+  | RUN env BRAIN_DIR="$T" bash "$ROOT/scripts/merge-project-update.sh" --project-md "$PROJ6" --knowledge-dir "$T/knowledge" >/dev/null 2>&1
+grep -q '\[untrusted:compact' "$PROJ6" || fail "case6prime: compact_pending item was not merged under Windows jq (proj: $(cat "$PROJ6"))"
+od -An -tx1 "$PROJ6" | grep -q ' 0d' && fail "case6prime: a CR leaked into PROJECT.md under Windows jq"
+pass "compact_pending merge adds a Plan line with no CR in PROJECT.md under Windows jq"
+rm -rf "$T"
+
 echo; echo "ALL PASS"
