@@ -300,11 +300,14 @@ printf '%s' "$CTX10" | grep -q '2 commits since' || fail "T10: label missing '2 
 pass "T10: Handoff drift label carries age(3d)/branch@head/commits-since from a real git repo"
 
 # =============================================================================
-# T11: git stub hangs (exec sleep 5), SB_HANDOFF_DRIFT_TIMEOUT=1 -> HANDOFF-S
-# still present, no 'commits since', row has drift=timeout, wall time <4s.
+# T11: git stub hangs (exec sleep 20), SB_HANDOFF_DRIFT_TIMEOUT=1 -> HANDOFF-S
+# still present, no 'commits since', row has drift=timeout, wall time <10s.
+# sleep 20 (not 5): an unbounded git would take >=20s, so a <10s wall time is
+# unambiguous proof the timeout fired -- 5s left too little margin against
+# MSYS process-startup variance on Windows and flaked.
 # =============================================================================
 STUB11="$TMP/stub11"; mkdir -p "$STUB11"
-printf '#!/bin/bash\nexec sleep 5\n' > "$STUB11/git"; chmod +x "$STUB11/git"
+printf '#!/bin/bash\nexec sleep 20\n' > "$STUB11/git"; chmod +x "$STUB11/git"
 BR11="$TMP/brain11"; mkdir -p "$BR11/projects/proj11" "$BR11/.injected"
 cat > "$BR11/projects/proj11/PROJECT.md" <<EOF
 # PROJECT: proj11
@@ -326,8 +329,8 @@ CTX11=$(printf '%s' "$OUT11" | jq -r '.hookSpecificOutput.additionalContext')
 printf '%s' "$CTX11" | grep -qF 'HANDOFF-S' || fail "T11: HANDOFF-S missing under a hung git stub (ctx: $CTX11)"
 printf '%s' "$CTX11" | grep -q 'commits since' && fail "T11: unexpected 'commits since' under a timed-out drift check (ctx: $CTX11)"
 grep -q 'drift=timeout' "$BR11/audit-log.jsonl" || fail "T11: no drift=timeout row logged (audit-log: $(cat "$BR11/audit-log.jsonl"))"
-[ "$T11_WALL" -lt 4 ] || fail "T11: wall time ${T11_WALL}s >= 4s — the hung git stub was not bounded"
-pass "T11: a hung git stub is bounded by SB_HANDOFF_DRIFT_TIMEOUT (drift=timeout, no commits-since, wall<4s)"
+[ "$T11_WALL" -lt 10 ] || fail "T11: wall time ${T11_WALL}s >= 10s — the hung git stub was not bounded"
+pass "T11: a hung git stub is bounded by SB_HANDOFF_DRIFT_TIMEOUT (drift=timeout, no commits-since, wall<10s)"
 
 # =============================================================================
 # T12: forging defence — head=$(touch PWNED) / head=--output=x never reach git

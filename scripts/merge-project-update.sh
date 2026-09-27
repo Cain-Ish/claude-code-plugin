@@ -506,7 +506,6 @@ merge_plan() {
 # Plan section plus ENVIRON["EMIT"] -- no per-item spawn.
 merge_compact_pending() {
   local raw="$1"
-  grep -q '^## Plan$' "$TMP_OUT" || return 0
   local items
   items=$(flatten_field "$raw" compact_pending)
   [ -z "$items" ] && return 0
@@ -525,15 +524,7 @@ merge_compact_pending() {
   local new_tmp; new_tmp=$(mktemp)
   local countfile; countfile=$(mktemp)
   EMIT="$emit2" TODAY="$TODAY" awk "$PLAN_NORM_AWK"'
-    BEGIN {
-      today = ENVIRON["TODAY"]
-      n = split(ENVIRON["EMIT"], tmp, "\n")
-      cn = 0
-      for (i = 1; i <= n; i++) { if (tmp[i] != "") { cn++; cand[cn]=tmp[i]; ckey[cn]=plan_norm(tmp[i]) } }
-      added=0; dedup=0; refused=0
-    }
-    /^## Plan$/ { print; inplan=1; bn=0; next }
-    inplan && (/^## / || /^<!--/) {
+    function flush_plan(   ek,existing_open,found_stale,insert_at,last_nonblank,b,k,c,dup,newline) {
       ek = 0
       existing_open = 0
       for (b = 1; b <= bn; b++) {
@@ -560,12 +551,33 @@ merge_compact_pending() {
       }
       for (b = 1; b <= bn; b++) print buf[b]
       print (added " " dedup " " refused) > "/dev/stderr"
+    }
+    BEGIN {
+      today = ENVIRON["TODAY"]
+      n = split(ENVIRON["EMIT"], tmp, "\n")
+      cn = 0
+      for (i = 1; i <= n; i++) { if (tmp[i] != "") { cn++; cand[cn]=tmp[i]; ckey[cn]=plan_norm(tmp[i]) } }
+      added=0; dedup=0; refused=0; inplan=0; sawplan=0; bn=0
+    }
+    /^## Plan$/ { print; inplan=1; sawplan=1; bn=0; next }
+    inplan && (/^## / || /^<!--/) {
+      flush_plan()
       inplan = 0
       print
       next
     }
     inplan { bn++; buf[bn]=$0; next }
     { print }
+    END {
+      if (inplan) flush_plan()
+      if (!sawplan) {
+        print ""
+        print "## Plan"
+        print ""
+        bn = 0
+        flush_plan()
+      }
+    }
   ' "$TMP_OUT" > "$new_tmp" 2>"$countfile"
 
   local counts added dedup refused

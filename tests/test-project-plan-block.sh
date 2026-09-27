@@ -379,6 +379,10 @@ grep -q 'gate=compact-pending added=0 dedup=0 refused=1' "$BRAIN_DIR/audit-log.j
 grep -q 'brand new compact item' "$P_P11" && fail "P11: refused item was added anyway"
 pass "P11: compact_pending is refused once non-pinned unfinished lines would reach 15"
 
+# P11b: a Plan-less PROJECT.md gets a ## Plan section SCAFFOLDED at EOF so the
+# compact_pending item is not silently lost (Fix 1 -- this intentionally supersedes
+# the old "no-op when no ## Plan" contract; a no-op there was the same silent-drop
+# bug class the last-section case (P12) hits).
 P_P11B="$TMP/p_p11b.md"
 cat > "$P_P11B" <<'EOF'
 # PROJECT: t
@@ -387,10 +391,38 @@ cat > "$P_P11B" <<'EOF'
 
 <!-- last_updated: 2026-05-01T00:00:00Z -->
 EOF
-HASH_NP=$(sha256sum "$P_P11B" | awk '{print $1}')
-printf '%s' '{"compact_pending":["should be a no-op"]}' | bash "$MERGE" --project-md "$P_P11B" --knowledge-dir "$WIKI" >/dev/null 2>&1 || fail "P11: merge exited non-zero on a Plan-less PROJECT.md"
-HASH_NP2=$(sha256sum "$P_P11B" | awk '{print $1}')
-[ "$HASH_NP" = "$HASH_NP2" ] || fail "P11: compact_pending mutated a PROJECT.md with no ## Plan section"
-pass "P11: compact_pending is a no-op when there is no ## Plan section"
+printf '%s' '{"compact_pending":["do not lose me"]}' | bash "$MERGE" --project-md "$P_P11B" --knowledge-dir "$WIKI" >/dev/null 2>&1 || fail "P11b: merge exited non-zero on a Plan-less PROJECT.md"
+grep -q '^## Plan$' "$P_P11B" || fail "P11b: no ## Plan section was scaffolded for a Plan-less PROJECT.md"
+TODAY_D=$(date +%Y-%m-%d)
+grep -qF -- "- [ ] [untrusted:compact $TODAY_D] do not lose me" "$P_P11B" || fail "P11b: compact_pending item lost on a Plan-less PROJECT.md (## Plan not scaffolded)"
+grep -q 'gate=compact-pending added=1 dedup=0 refused=0' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null || fail "P11b: expected added=1 on the newly scaffolded ## Plan"
+pass "P11b: compact_pending scaffolds a ## Plan section on a Plan-less PROJECT.md instead of silently dropping the item"
+
+# P12: compact_pending flushes when ## Plan is the LAST section of the file -- no
+# trailing heading, no trailing <!-- comment. The buffer-then-flush-on-next-heading
+# awk pattern has no END flush for this case: without the fix the item is silently
+# dropped (existing lines only "survive" because the empty rewrite gets discarded
+# for added=0, not because they were preserved by design).
+P_P12="$TMP/p_p12.md"
+cat > "$P_P12" <<'EOF'
+# PROJECT: t
+
+## Recent decisions
+- [decision] d1
+
+## Open blockers
+
+## Plan
+
+- [ ] existing open item
+- [pinned] north star
+EOF
+printf '%s' '{"compact_pending":["Wire the new hook"]}' | bash "$MERGE" --project-md "$P_P12" --knowledge-dir "$WIKI" >/dev/null 2>&1
+TODAY_D=$(date +%Y-%m-%d)
+grep -qF -- "- [ ] [untrusted:compact $TODAY_D] Wire the new hook" "$P_P12" || fail "P12: compact_pending item lost when ## Plan is the file's last section"
+grep -qF -- "- [ ] existing open item" "$P_P12" || fail "P12: existing open Plan item lost when ## Plan is the last section"
+grep -qF -- "- [pinned] north star" "$P_P12" || fail "P12: pinned Plan line lost when ## Plan is the last section"
+grep -q 'gate=compact-pending added=1 dedup=0 refused=0' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null || fail "P12: expected added=1 dedup=0 refused=0 when ## Plan is the last section"
+pass "P12: compact_pending flushes correctly when ## Plan is the file's last section"
 
 echo; echo "ALL PASS"
