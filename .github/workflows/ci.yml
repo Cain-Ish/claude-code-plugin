@@ -84,6 +84,13 @@ jobs:
         run: |
           /bin/bash tests/test-stop-extract.sh
           /bin/bash tests/test-dream-autostage.sh
+      # Continuity (0.54.0) on bash 3.2 + BSD awk/sed: the Plan reconcile awk (match/RSTART,
+      # /dev/stderr) and the sb_timeout watchdog fallback (no `timeout` on stock macOS)
+      # run nowhere else in CI.
+      - name: continuity units (Plan merge, compact re-inject)
+        run: |
+          /bin/bash tests/test-project-plan-block.sh
+          /bin/bash tests/test-session-load-compact.sh
       # X.1 (loop-eng research): the capture→store→recall pipeline END TO END on real
       # bash 3.2 + BSD coreutils — unit suites stayed green while the loop died
       # per-platform; this is the composition lock. Needs node (present on the runner).
@@ -122,7 +129,7 @@ jobs:
           rc=0
           for t in normalize-path symlink-guard persona-tool-guard wiki-write-guard guard-wiring \
                    jq-crlf-windows exec-bits session-load-compact merge-project-update \
-                   project-plan-block; do
+                   project-plan-block stop-extract; do
             echo "::group::test-$t"
             if bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi
             echo "::endgroup::"
