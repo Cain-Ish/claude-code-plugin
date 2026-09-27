@@ -108,7 +108,7 @@ describe('sb CLI', () => {
     expect(readFileSync(join(brainDir, 'buddy.json'), 'utf-8')).toBe('{"name":"Mo", "mute": tru');
   });
 
-  it('buddy is always the capybara: no account roll, stale identity block dropped, name kept', async () => {
+  it('buddy is always the same fixed buddy: no account roll, stale identity block dropped, name kept', async () => {
     // A 0.51.0 hatch left rarity/eye/hat/shiny/seed_source here; none of it means anything now.
     writeFileSync(join(brainDir, 'buddy.json'), JSON.stringify({
       name: 'Ziutek', chain: 'echo prev',
@@ -117,7 +117,7 @@ describe('sb CLI', () => {
     const r = await runSb(['buddy'], { brainDir, knowledgeDir });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain('Ziutek');
-    expect(r.stdout).toContain('capybara');
+    expect(r.stdout).toContain('🧠');
     expect(r.stdout).not.toMatch(/dragon|uncommon|★|seed:|tophat/);
     const cfg = JSON.parse(readFileSync(join(brainDir, 'buddy.json'), 'utf-8'));
     expect(cfg.identity).toBeUndefined();

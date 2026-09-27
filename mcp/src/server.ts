@@ -543,7 +543,7 @@ registerJsonTool(
 // --- Buddy: Claude's half of the two-way layer (the other half is persona-context.sh's [buddy] line) ---
 registerJsonTool(
   "buddy_react",
-  "Say one short line to the user through the buddy — the statusline capybara between you and second brain. Call it only when a [buddy: …] context line asks for it, once at the end of the turn: what you did or found, in 80 characters or fewer, with the session id quoted in that line.",
+  "Say one short line to the user through the buddy — the statusline brain between you and second brain. Call it only when a [buddy: …] context line asks for it, once at the end of the turn: what you did or found, in 80 characters or fewer, with the session id quoted in that line.",
   {
     line: z.string().max(400).describe("One plain-text line, 80 characters or fewer: what you did or found this turn."),
     mood: z.enum(["focused", "pleased", "alert", "puzzled", "waiting"]).optional().describe("Sets the buddy's eyes. Default 'focused'."),

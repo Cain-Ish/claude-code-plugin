@@ -7616,7 +7616,12 @@ var DEFAULT_NAME = "Kapi";
 var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var errCode = (e) => e?.code;
 function renderCard(name) {
-  return ["    n______n", "   ( \xB7    \xB7 )", "   (   oo   )", "    `------\xB4", `   ${name} \u2014 capybara`].join("\n");
+  const ascii = process.env.SB_BUDDY_ASCII === "on";
+  const dotB = ascii ? "O" : "\u25CB";
+  const TL = ascii ? "+" : "\u256D", TR = ascii ? "+" : "\u256E", BL = ascii ? "+" : "\u2570", BR = ascii ? "+" : "\u256F";
+  const H2 = ascii ? "-" : "\u2500", V = ascii ? "|" : "\u2502";
+  const rule = H2.repeat(name.length + 2);
+  return ["\u{1F9E0}", " o", `  ${dotB} ${TL}${rule}${TR}`, `    ${V} ${name} ${V}`, `    ${BL}${rule}${BR}`].join("\n");
 }
 async function readConfigStrict(brainDir2) {
   const file = join10(brainDir2, "buddy.json");
@@ -7843,7 +7848,7 @@ Commands:
                                                Append an entry to a project's PROJECT.md
   status                                       Show hot-tier and wiki sizes
   auth [status|doctor]                         Show or fix the extractor auth mode
-  buddy                                        Show the buddy card (the on-demand capybara card, its name, mute state)
+  buddy                                        Show the buddy card (the on-demand brain/thought-cloud card, its name, mute state)
   buddy name <name> | mute | unmute            Rename (1-14 chars) / silence the bubble
   buddy install | uninstall                    Add / remove the buddy statusLine in settings.json
   help                                         Show this message

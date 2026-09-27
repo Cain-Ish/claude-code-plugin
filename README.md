@@ -109,10 +109,11 @@ delivered, pages offered for this prompt, a page **read** or a decision **pinned
 tools, extraction filed, a plan/verify gate holding, a credential-flow hold, a dream waiting for
 review — and what Claude itself says to you. Rules-based, zero tokens on the statusline: it only
 reads state the hooks and the server already keep (`~/.second-brain/.buddy/<sid>.json`,
-`.buddy/_global.json` for MCP-side events, `.injected/<sid>.{json,phase}`). Wide terminals get a
-speech bubble and Kapi, a capybara drawn and animated like the native `/buddy` — three frames, the
-15-step idle cycle with a blink, excited for 10 s after a new line (one step per second: the
-statusline's `refreshInterval` floor). Under ~90 columns it collapses to the one-line face `(·oo·)`.
+`.buddy/_global.json` for MCP-side events, `.injected/<sid>.{json,phase}`). The first line
+starts with a 🧠; while Claude works on a turn, `·`/`··`/`···` cycles after it (one step per second:
+the statusline's `refreshInterval` floor). A new line hangs below the brain as a thought cloud,
+bright for 10 s and then dim; with nothing live you see only the first line. Narrow terminals get
+the same line as one ` ○ text…` row.
 
 It is two-way, once you install it (installing is the consent) and only in sessions whose
 statusline actually renders. Every prompt, `persona-context.sh` adds one `[buddy: Kapi]` line
@@ -148,7 +149,7 @@ The bundled local MCP server exposes 24 tools (`mcp/src/server.ts`):
 - **Episodic** — `episodic_search`, `episodic_read` over archived transcripts
 - **Persona** — `persona_think`, `persona_stats`, `persona_dismiss`
 - **Code map** — `code_map` (PageRank-ranked structure map), `code_neighbors` (import-graph blast radius)
-- **Buddy** — `buddy_react` (Claude's one line to you through the statusline capybara)
+- **Buddy** — `buddy_react` (Claude's one line to you through the statusline thought cloud)
 
 `bin/sb` is a standalone CLI over the same index — `sb status`, `sb query`, `sb recall`,
 `sb pin`, `sb auth doctor` — no Claude session required.
