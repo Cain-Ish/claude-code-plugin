@@ -61,9 +61,15 @@ sb_card_trunc() {
   # per-bullet inside every section's render loop (up to ~26 calls/card on the hot SessionStart
   # path), so the scrub is pure bash builtins, same "no per-item spawns" constraint as the
   # rest of this function (see the header comment above sb_hot_decisions_filter).
-  #   - [[:cntrl:]] is a byte-level POSIX class: it only ever matches single ASCII bytes
-  #     (0x00-0x1F, 0x7F), which UTF-8 guarantees never appear as continuation/lead bytes of
-  #     a multi-byte sequence — safe under any locale, covers CR/LF/TAB too (see below).
+  #   - F10 (comment was wrong): [[:cntrl:]] is NOT byte-level in every locale. Under a
+  #     byte-oriented locale (C/POSIX — the common case on this Windows/MSYS box unless the
+  #     operator's own LANG/LC_ALL is UTF-8) it matches only single ASCII control bytes
+  #     (0x00-0x1F, 0x7F). Under a multibyte (UTF-8) locale bash matches [[:cntrl:]] by
+  #     CHARACTER, so it also matches C1 controls (incl. NEL U+0085) as whole 2-byte
+  #     characters there — the explicit \xc2[\x80-\x9f] range on the next line exists for the
+  #     C/POSIX-locale case this line's behavior does NOT cover, not because this line can
+  #     ever tear a multi-byte sequence (a lead/continuation byte is never itself a control
+  #     byte in valid UTF-8, so byte-level matching here is still safe either way).
   #   - C1 controls (U+0080-U+009F, incl. NEL U+0085) are ALWAYS the 2-byte UTF-8 sequence
   #     \xc2 followed by a trail byte in \x80-\x9f — verified as a working bash range-glob on
   #     this box's Git-Bash/MSYS (git-bash 5.2) and on Linux/macOS bash.
@@ -110,6 +116,47 @@ sb_card_trunc() {
   CARD_LINE="${CARD_LINE//$'\xe3\x80\x91'/)}"   # U+3011 RIGHT BLACK LENTICULAR BRACKET 】
   CARD_LINE="${CARD_LINE//$'\xe2\x9f\xa6'/(}"   # U+27E6 MATHEMATICAL LEFT WHITE SQUARE BRACKET ⟦
   CARD_LINE="${CARD_LINE//$'\xe2\x9f\xa7'/)}"   # U+27E7 MATHEMATICAL RIGHT WHITE SQUARE BRACKET ⟧
+  # N7: four more square-bracket lookalike pairs the fold above missed (rr/p6.sh) — same
+  # forge shape as U+FF3B/3010/27E6 above, just different Unicode blocks.
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x9a'/(}"   # U+301A LEFT WHITE SQUARE BRACKET 〚
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x9b'/)}"   # U+301B RIGHT WHITE SQUARE BRACKET 〛
+  CARD_LINE="${CARD_LINE//$'\xe2\x81\x85'/(}"   # U+2045 LEFT SQUARE BRACKET WITH QUILL ⁅
+  CARD_LINE="${CARD_LINE//$'\xe2\x81\x86'/)}"   # U+2046 RIGHT SQUARE BRACKET WITH QUILL ⁆
+  CARD_LINE="${CARD_LINE//$'\xef\xb9\x87'/(}"   # U+FE47 PRESENTATION FORM FOR VERTICAL LEFT SQUARE BRACKET ﹇
+  CARD_LINE="${CARD_LINE//$'\xef\xb9\x88'/)}"   # U+FE48 PRESENTATION FORM FOR VERTICAL RIGHT SQUARE BRACKET ﹈
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x94'/(}"   # U+3014 LEFT TORTOISE SHELL BRACKET 〔
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x95'/)}"   # U+3015 RIGHT TORTOISE SHELL BRACKET 〕
+  # N7: collapse every Unicode space (\p{Zs}, incl. NBSP) to a single ASCII space BEFORE the
+  # phrase check below — "untrusted<NBSP>reference" or "untrusted  reference" (double space)
+  # otherwise reads as distinct from the single-space glob and slips through unneutralized.
+  # Explicit byte substitutions, not a [...] bracket class (a bracket class matches single
+  # BYTES, not whole multi-byte UTF-8 sequences — see the MSYS non-BMP note this codebase
+  # already carries elsewhere; folding a 2-3 byte char inside [...] would instead add its
+  # individual bytes as unrelated single-byte alternatives).
+  CARD_LINE="${CARD_LINE//$'\xc2\xa0'/ }"       # U+00A0 NO-BREAK SPACE
+  CARD_LINE="${CARD_LINE//$'\xe1\x9a\x80'/ }"   # U+1680 OGHAM SPACE MARK
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x80'/ }"   # U+2000 EN QUAD
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x81'/ }"   # U+2001 EM QUAD
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x82'/ }"   # U+2002 EN SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x83'/ }"   # U+2003 EM SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x84'/ }"   # U+2004 THREE-PER-EM SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x85'/ }"   # U+2005 FOUR-PER-EM SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x86'/ }"   # U+2006 SIX-PER-EM SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x87'/ }"   # U+2007 FIGURE SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x88'/ }"   # U+2008 PUNCTUATION SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x89'/ }"   # U+2009 THIN SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x8a'/ }"   # U+200A HAIR SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\xaf'/ }"   # U+202F NARROW NO-BREAK SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x81\x9f'/ }"   # U+205F MEDIUM MATHEMATICAL SPACE
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x80'/ }"   # U+3000 IDEOGRAPHIC SPACE
+  while [[ "$CARD_LINE" == *'  '* ]]; do CARD_LINE="${CARD_LINE//  / }"; done
+  # N7: fold the two Cyrillic letters that look identical to Latin letters used in the
+  # phrase "untrusted reference" ('e' and 'c') — cheap (2 substitutions, whole-line, not a
+  # regex) defense against "untrustеd rеferеnce"-style homoglyph spoofing (rr/p6b.sh).
+  CARD_LINE="${CARD_LINE//$'\xd0\xb5'/e}"       # U+0435 CYRILLIC SMALL LETTER IE -> e
+  CARD_LINE="${CARD_LINE//$'\xd0\x95'/E}"       # U+0415 CYRILLIC CAPITAL LETTER IE -> E
+  CARD_LINE="${CARD_LINE//$'\xd1\x81'/c}"       # U+0441 CYRILLIC SMALL LETTER ES -> c
+  CARD_LINE="${CARD_LINE//$'\xd0\xa1'/C}"       # U+0421 CYRILLIC CAPITAL LETTER ES -> C
   # SEC-M1 defense in depth: neutralize the phrase "untrusted reference" (any case) even with
   # brackets already folded — a bare-text occurrence still reads as confusingly close to the
   # banner's own wording. bash 3.2-portable (no `${var,,}`): a per-position bracket-class glob.
@@ -165,14 +212,25 @@ sb_handoff_label() {
   if [ -n "$head" ]; then
     local dcount dec herrf="" herrtxt=""
     herrf=$(mktemp 2>/dev/null) || true
+    # R2-SF5: force English git error text regardless of the operator's own locale — the
+    # "bad revision|unknown revision|ambiguous argument" match below only ever sees git's
+    # DEFAULT (English) wording; a de/fr/etc.-localized git prints a translated message that
+    # the grep never matches, so a real drift positive silently reads as drift=error:128
+    # instead of the intended "base commit not in this clone" claim. A `VAR=val` PREFIX on
+    # the sb_timeout FUNCTION call (not an `env` wrapper around git) — sb_timeout is a bash
+    # function, so the prefix sets the vars for its whole call with ZERO extra process hops;
+    # an `env LC_ALL=C LANGUAGE=C git ...` wrapper instead put a THIRD process (env) between
+    # the timeout binary/watchdog and git — on this Windows/MSYS box that extra native-exe
+    # hop measurably widened the SIGTERM/SIGKILL race in T11's hung-git-stub timeout test
+    # (wall time crossed its <10s bound). No behavior change for the timeout/kill semantics.
     if [ -n "$herrf" ]; then
-      dcount=$(sb_timeout "${SB_HANDOFF_DRIFT_TIMEOUT:-2}" git -c log.showSignature=false \
+      dcount=$(LC_ALL=C LANGUAGE=C sb_timeout "${SB_HANDOFF_DRIFT_TIMEOUT:-2}" git -c log.showSignature=false \
         -C "${SL_GIT_ROOT:-$PWD}" rev-list --count "$head..HEAD" 2>"$herrf")
       dec=$?
       herrtxt=$(cat "$herrf" 2>/dev/null)
       rm -f "$herrf" 2>/dev/null
     else
-      dcount=$(sb_timeout "${SB_HANDOFF_DRIFT_TIMEOUT:-2}" git -c log.showSignature=false \
+      dcount=$(LC_ALL=C LANGUAGE=C sb_timeout "${SB_HANDOFF_DRIFT_TIMEOUT:-2}" git -c log.showSignature=false \
         -C "${SL_GIT_ROOT:-$PWD}" rev-list --count "$head..HEAD" 2>/dev/null)
       dec=$?
     fi
@@ -238,7 +296,13 @@ sb_repo_card() {
   local file="$1" slug="$2" cap="$3" lean="${4:-}" tmpd
   SL_DRIFT="none"
   tmpd=$(mktemp -d 2>/dev/null) || { printf '[Repo card — %s]\n(card unavailable — mktemp failed)' "$slug"; return 0; }
-  awk -v d="$tmpd" '
+  # F4 (portability review, macOS): BSD/Apple awk in a UTF-8 locale EXITS 2 on any regex
+  # test against a line containing invalid/torn UTF-8 (a truncated old PROJECT.md, e.g. one
+  # cut mid-byte by `head -c`) — every awk below that pattern-matches raw PROJECT.md text
+  # (or a byte-identical split fragment of it) runs LC_ALL=C so it classifies bytes, not
+  # characters, and never aborts on a torn byte; all our patterns are ASCII-anchored
+  # headings/bullets, so byte-mode matching is semantically identical for well-formed input.
+  LC_ALL=C awk -v d="$tmpd" '
     BEGIN{ out=d"/00-preamble" }
     /^## /{ n++; name=$0; sub(/^## +/,"",name); gsub(/[^A-Za-z0-9]+/,"-",name)
             out=sprintf("%s/%02d-%s", d, n, name) }
@@ -268,7 +332,7 @@ $hard"
 
   f=$(ls "$tmpd"/[0-9][0-9]-Direction 2>/dev/null | head -1)
   local dirraw="" dirout="" first_label=""
-  [ -n "$f" ] && [ -f "$f" ] && dirraw=$(awk '!/^## / && NF { print; c++ } c>=3 { exit }' "$f")
+  [ -n "$f" ] && [ -f "$f" ] && dirraw=$(LC_ALL=C awk '!/^## / && NF { print; c++ } c>=3 { exit }' "$f")
   if [ -n "$dirraw" ]; then
     while IFS= read -r l; do
       sb_card_trunc "$l" "$line_cap"
@@ -283,7 +347,7 @@ $dirout"
     # lines (goal_lines) instead of 3, per the compact re-inject's tighter budget.
     f=$(ls "$tmpd"/[0-9][0-9]-Goal 2>/dev/null | head -1)
     local goalraw="" goalout=""
-    [ -n "$f" ] && [ -f "$f" ] && goalraw=$(awk -v n="$goal_lines" '!/^## / && NF { print; c++ } c>=n { exit }' "$f")
+    [ -n "$f" ] && [ -f "$f" ] && goalraw=$(LC_ALL=C awk -v n="$goal_lines" '!/^## / && NF { print; c++ } c>=n { exit }' "$f")
     if [ -n "$goalraw" ]; then
       while IFS= read -r l; do
         sb_card_trunc "$l" "$line_cap"
@@ -297,7 +361,7 @@ $goalout"
 
   f=$(ls "$tmpd"/[0-9][0-9]-Handoff 2>/dev/null | head -1)
   local hoffraw4="" hoffraw="" hoffout="" hlabel=""
-  [ -n "$f" ] && [ -f "$f" ] && hoffraw4=$(awk '!/^## / && NF { print; c++ } c>=4 { exit }' "$f")
+  [ -n "$f" ] && [ -f "$f" ] && hoffraw4=$(LC_ALL=C awk '!/^## / && NF { print; c++ } c>=4 { exit }' "$f")
   if [ -n "$hoffraw4" ]; then
     local hfirst
     hfirst=$(printf '%s\n' "$hoffraw4" | head -1)
@@ -329,8 +393,16 @@ $hoffout"
   # <open>/<total>" line); plan_rendered_n (recomputed post-truncation, CR-L5, below) is how
   # many lines actually SURVIVED into the card, which is what the gate= log's plan= reports.
   local plan_raw plan_counts plan_item_lines plan_open=0 plan_total=0 plan_stale=0
-  plan_raw=$(awk '
-    /^## Plan( |$)/ { f=1; next }
+  # N4/R2-SF2 (controller design decision): latch the FIRST "## Plan..." header only — a
+  # later "## Plan B" / "## Plan history" section is an ORDINARY section (not merged into,
+  # not double-counted against, the real Plan). f=(!seen) CLOSES on every Plan-shaped
+  # heading after the first, same as the general `/^## /` reset rule below would for any
+  # OTHER heading — this rule's own `next` skips that general rule for the SAME line, so a
+  # second "## Plan B" must reset f itself; a blank line between two Plan-shaped sections
+  # would otherwise leave f=1 latched straight through the second header (no `next`-skipped
+  # rule ever ran to close it).
+  plan_raw=$(LC_ALL=C awk '
+    /^## Plan( |$)/ { f = !seen; seen = 1; next }
     /^## /      { f=0 }
     f && /^- \[ \]/     { open++; if (n<5) lines[++n]=$0 }
     f && /^- \[stale\]/ { stale++ }
@@ -388,7 +460,7 @@ $plan_body"
   if [ "$lean" != "lean" ]; then
     f=$(ls "$tmpd"/[0-9][0-9]-Recent-decisions 2>/dev/null | head -1)
     local decout=""
-    [ -n "$f" ] && [ -f "$f" ] && decraw=$(sb_hot_decisions_filter < "$f" | grep '^- ' | head -5)
+    [ -n "$f" ] && [ -f "$f" ] && decraw=$(LC_ALL=C sb_hot_decisions_filter < "$f" | grep '^- ' | head -5)
     if [ -n "$decraw" ]; then
       while IFS= read -r l; do
         sb_card_trunc "$l" "$line_cap"
@@ -420,6 +492,35 @@ $convout"
       done <<< "$blkraw"
       body="$body${body:+$'\n'}Open blockers:
 $blkout"
+    fi
+  fi
+
+  # SEC N3/N9: ONE whole-card Oniguruma pass over the fully assembled untrusted $body —
+  # covers every field (Direction/Goal, Handoff, Plan items, Decisions, Conventions, Open
+  # blockers) with the FULL Unicode categories the per-bullet bash scrub above only
+  # hand-enumerates a subset of: \p{Cc} (except the \n between rendered lines — split first,
+  # scrub each line, rejoin, so the card's own line breaks are never touched), \p{Cf},
+  # \p{Zl}/\p{Zp}, the two variation-selector blocks (FE00-FE0F, E0100-E01EF, emoji-style
+  # smuggling), the Tags block (E0000-E007F — recent_decisions/handoff have no capture-side
+  # gate, rr/p6b.sh), the four Hangul filler code points, and the combining grapheme joiner.
+  # ONE jq spawn per card (not per bullet, not per field) — same hot-path budget as the
+  # existing per-line sb_card_trunc calls above. Fails open to that existing bash scrub
+  # (already applied per-line above) when jq is missing or errors, logging the reduced
+  # coverage loudly rather than silently.
+  if [ -n "$body" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      local _scrub_re _scrubbed _scrub_ec
+      _scrub_re='[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\x{FE00}-\x{FE0F}\x{E0100}-\x{E01EF}\x{E0000}-\x{E007F}\x{115F}\x{1160}\x{3164}\x{FFA0}\x{034F}]'
+      _scrubbed=$(printf '%s' "$body" | jq -Rrs --arg re "$_scrub_re" \
+        'split("\n") | map(gsub($re; " ")) | join("\n")' 2>/dev/null)
+      _scrub_ec=$?
+      if [ "$_scrub_ec" -eq 0 ] && [ -n "$_scrubbed" ]; then
+        body="${_scrubbed//$'\r'/}"   # Windows jq stdout is text-mode: \n -> \r\n
+      else
+        sb_log_error "session-load.sh" "gate=card-scrub jq-scrub-failed ec=$_scrub_ec fallback=bash slug=$slug" 0
+      fi
+    else
+      sb_log_error "session-load.sh" "gate=card-scrub jq-unavailable fallback=bash slug=$slug" 0
     fi
   fi
 
@@ -499,9 +600,15 @@ $tail"
   # pre-truncation render count computed above — under budget pressure the truncation loop
   # pops body lines from the END first, and Plan is the last section in lean mode, so the
   # pre-truncation count would silently over-report what the client actually received.
+  # NEW-L2: stop counting at the NEXT section label too, not only at the banner close — the
+  # full (non-lean) card renders Decisions:/Conventions:/Open blockers: AFTER Plan, and each
+  # of those also emits "- " bullet lines; without this the Plan section's `f` flag stayed
+  # true straight through them, so plan= over-reported (e.g. plan=8 for 2 real Plan items —
+  # the other 6 were decisions/blockers bullets).
   plan_rendered_n=$(printf '%s\n' "$out" | awk '
     /^Plan — unfinished/ { f=1; next }
     f && /^\[End untrusted reference\]/ { exit }
+    f && /^(Decisions:|Conventions:|Open blockers:)$/ { exit }
     f && /^- / { c++ }
     END { print c+0 }
   ')
@@ -1042,7 +1149,11 @@ if [ "${SB_COMPACT_REINJECT:-on}" != "off" ] && [ -f "$SB_AUDIT_FILE" ]; then
     /"message":"gate=postcompact-capture / {
       if (match($0, /sid=[A-Za-z0-9]+/)) { s = substr($0, RSTART+4, RLENGTH-4); postc[s] = 1 }
     }
-    /gate=compact-reinject/ {
+    # N10: same SEC-L1 anchor as the postcompact-capture rule above — unanchored
+    # /gate=compact-reinject/ let a gate=plan-dropped row (which logs the untrusted DROPPED
+    # TEXT verbatim) suppress a real alarm just by having that text CONTAIN the literal
+    # substring "gate=compact-reinject sid=<realsid>" (rr/p16.sh case C).
+    /"message":"gate=compact-reinject / {
       if (match($0, /sid=[A-Za-z0-9]+/)) { s = substr($0, RSTART+4, RLENGTH-4); reinj[s] = 1 }
     }
     END { for (s in postc) if (!(s in reinj)) print s }
@@ -1438,11 +1549,11 @@ fi
 sb_project_hot_render() {
   local file="$1" cap="$2" tmpd total
   total=$(wc -c < "$file" | tr -d ' '); : "${total:=0}"
-  if [ "$total" -le "$cap" ]; then sb_hot_decisions_filter < "$file"; return 0; fi
+  if [ "$total" -le "$cap" ]; then LC_ALL=C sb_hot_decisions_filter < "$file"; return 0; fi
   tmpd=$(mktemp -d 2>/dev/null) || { head -c "$cap" "$file"; return 0; }
   # Split into NN-<name> files in document order; everything before the first ## is
   # 00-preamble (frontmatter + the # PROJECT header).
-  awk -v d="$tmpd" '
+  LC_ALL=C awk -v d="$tmpd" '
     BEGIN{ out=d"/00-preamble" }
     /^## /{ n++; name=$0; sub(/^## +/,"",name); gsub(/[^A-Za-z0-9]+/,"-",name)
             out=sprintf("%s/%02d-%s", d, n, name) }
@@ -1453,7 +1564,7 @@ sb_project_hot_render() {
   local _decf
   _decf=$(ls "$tmpd"/[0-9][0-9]-Recent-decisions 2>/dev/null | head -1)
   if [ -n "$_decf" ] && [ -f "$_decf" ]; then
-    sb_hot_decisions_filter < "$_decf" > "$_decf.t" && mv "$_decf.t" "$_decf"
+    LC_ALL=C sb_hot_decisions_filter < "$_decf" > "$_decf.t" && mv "$_decf.t" "$_decf"
   fi
   # IDENTITY before inventory (ledger F2): Goal, Recent-decisions and State are what make the
   # injection a project brief; blockers are the bulk list and go LAST, taking whatever budget
@@ -1469,7 +1580,18 @@ sb_project_hot_render() {
   local pri="preamble Goal Direction Handoff Recent-decisions State Conventions Open-blockers How-to Plan Cross-references"
   local budget=$cap picked="" dropped="" name f sz
   for name in $pri; do
-    f=$(ls "$tmpd"/[0-9][0-9]-"$name" 2>/dev/null | head -1)
+    # Legacy blocker: a suffixed "## Plan (...)" header splits (above) into
+    # "NN-Plan-<suffix>", not the exact "NN-Plan" this glob alone matches — the exact
+    # heading this list expects most other names to keep, but Plan's own suffix grammar
+    # (0.54.0 continuity batch) means it needs both forms. `sort | head -1` keeps only the
+    # FIRST such file (lowest NN = earliest in document order) — a later "## Plan B" section
+    # is an ordinary (non-priority) section, picked up by the D162 sweep below like any
+    # other non-canonical heading, never merged into this one.
+    if [ "$name" = "Plan" ]; then
+      f=$(ls "$tmpd"/[0-9][0-9]-Plan "$tmpd"/[0-9][0-9]-Plan-* 2>/dev/null | sort | head -1)
+    else
+      f=$(ls "$tmpd"/[0-9][0-9]-"$name" 2>/dev/null | head -1)
+    fi
     [ -n "$f" ] && [ -f "$f" ] || continue
     sz=$(wc -c < "$f" | tr -d ' ')
     if [ "${sz:-0}" -le "$budget" ]; then
@@ -1543,10 +1665,12 @@ if [ -f "$project_file" ]; then
   # the plan's open/total is surfaced so focus is visible. Forced (tiny, priority-1
   # transparency). Kill switch: SB_SCOPE_BANNER=off.
   if [ "${SB_SCOPE_BANNER:-on}" != "off" ]; then
-    PLAN_OPEN=$(awk '/^## Plan( |$)/{f=1;next} /^## /{f=0} f && /^- \[ \]/{c++} END{print c+0}' "$project_file")
-    PLAN_TOTAL=$(awk '/^## Plan( |$)/{f=1;next} /^## /{f=0} f && /^- / && !/\[pinned\]/{c++} END{print c+0}' "$project_file")
-    DEC_N=$(awk '/^## Recent decisions$/{f=1;next} /^## /{f=0} f && /^- /{c++} END{print c+0}' "$project_file")
-    BLK_N=$(awk '/^## Open blockers$/{f=1;next} /^## /{f=0} f && /^- \[active\]/{c++} END{print c+0}' "$project_file")
+    # N4/R2-SF2: same first-header-only latch as sb_repo_card's plan_raw awk above — a
+    # later "## Plan B" section must not be double-counted into this banner's numbers.
+    PLAN_OPEN=$(LC_ALL=C awk '/^## Plan( |$)/{f=!seen;seen=1;next} /^## /{f=0} f && /^- \[ \]/{c++} END{print c+0}' "$project_file")
+    PLAN_TOTAL=$(LC_ALL=C awk '/^## Plan( |$)/{f=!seen;seen=1;next} /^## /{f=0} f && /^- / && !/\[pinned\]/{c++} END{print c+0}' "$project_file")
+    DEC_N=$(LC_ALL=C awk '/^## Recent decisions$/{f=1;next} /^## /{f=0} f && /^- /{c++} END{print c+0}' "$project_file")
+    BLK_N=$(LC_ALL=C awk '/^## Open blockers$/{f=1;next} /^## /{f=0} f && /^- \[active\]/{c++} END{print c+0}' "$project_file")
     sb_append "$(printf '\n✓ second-brain: project memory loaded — %s (plan %s/%s · %s decisions · %s active blockers)\n' \
       "$slug" "$PLAN_OPEN" "$PLAN_TOTAL" "$DEC_N" "$BLK_N")" "scope-banner" 200 force
   fi
@@ -1595,7 +1719,7 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
   # so the harvest was ALWAYS empty and the whole wiki-enrichment block below never ran
   # (every session started missing its project's wiki recall). Same trap the comment at
   # ~lines 245-253 already fixed for the Never-rules block; this one was left unfixed.
-  PROJ_KW=$(awk '
+  PROJ_KW=$(LC_ALL=C awk '
     /^## (Goal|State|Conventions)$/ { f=1; next }
     /^## Recent decisions$/         { f=2; next }
     /^## Open blockers$/            { f=3; next }
@@ -1671,7 +1795,7 @@ fi
 GRAPH_CLI="$PLUGIN_ROOT/mcp/dist/tools/graph-neighbors-cli.bundle.js"
 if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/edges.jsonl" ] && command -v node >/dev/null 2>&1 \n   && sb_enrich_headroom graph-neighbourhood 200; then
   # Up to 4 cross-reference slugs from PROJECT.md as graph entry points.
-  CR_SLUGS=$(awk '
+  CR_SLUGS=$(LC_ALL=C awk '
     /^## Cross-references$/ { f=1; next }
     /^## / { f=0 }
     f && /\[\[/ {

@@ -20,7 +20,26 @@ STUB=$(mktemp -d); trap 'rm -rf "$STUB"' EXIT
 # risks a doubled \r\r that a single ${v%$'\r'}-style strip in production code would not remove.
 cat > "$STUB/jq" <<EOF
 #!/bin/bash
-for a in "\$@"; do case "\$a" in -r|--raw-output|-j|-rs|-rc|-rn|-nr) raw=1;; esac; done
+# NEW-H1: jq bundles single-char short flags into ONE cluster arg (-Rrs, -Rr, -Rsr, -nr,
+# -rc, ...), so a fixed exact-match list (-r|-rs|-rc|-rn|-nr|-j) missed any OTHER ordering
+# or combination containing raw-output's 'r' -- e.g. -Rrs (this batch's own capped-jq call)
+# never matched, so the stub silently emitted clean LF for it and the CRLF regression it
+# exists to catch went untested. A short cluster (single leading '-', not '--') sets raw=1
+# if it contains a lowercase 'r' (raw OUTPUT) or 'j' (--join-output's short form) ANYWHERE
+# in the cluster -- capital -R alone (raw INPUT, a different flag) must NOT match on its own.
+for a in "\$@"; do
+  case "\$a" in
+    --raw-output|--join-output) raw=1 ;;
+    --*) ;;
+    -*) rest="\${a#-}"; case "\$rest" in *[rj]*) raw=1 ;; esac ;;
+  esac
+done
+# Test-only introspection hatch: on THIS dev box the REAL jq binary is itself a native-CRLF
+# Windows build (its stdout is text-mode — \n -> \r\n on EVERY write, regardless of any
+# flag), so a CR-presence check on real output cannot distinguish "the stub's own
+# flag-cluster detection set raw=1" from "the underlying jq CRLF'd it anyway" — every
+# combination would look identical. Report the computed flag directly instead.
+if [ -n "\${SB_STUB_JQ_DEBUG:-}" ]; then echo "raw=\${raw:-0}"; exit 0; fi
 if [ "\${raw:-0}" = 1 ]; then "$REALJQ" "\$@" | awk '{sub(/\r\$/,""); printf "%s\r\n", \$0}'; else "$REALJQ" "\$@"; fi
 EOF
 chmod +x "$STUB/jq"
@@ -32,6 +51,19 @@ RUN(){ PATH="$STUB:$PATH" "$@"; }
 printf '{"a":"x"}' | "$STUB/jq" -r '.a' | od -An -tx1 | grep -q ' 0d' \
   || fail "stub jq does not emit CRLF — test would be vacuous"
 pass "stub reproduces Windows jq CRLF (-r output carries \\r)"
+
+# NEW-H1: every -R* short-cluster ordering the fixed exact-match list used to miss must ALSO
+# be detected as raw output, not just the bare -r case above. Uses the debug hatch (not a
+# CR-presence check on real output): see the stub comment above for why a real-output check
+# is unreliable on this box. -Rn (raw INPUT only, no lowercase r/j anywhere) is the negative
+# control and must stay raw=0 — capital -R alone is a DIFFERENT flag (raw input, not output).
+for combo in -Rrs -Rr -Rsr -rR -nr -rc -cr -j; do
+  got=$(SB_STUB_JQ_DEBUG=1 "$STUB/jq" $combo '.')
+  [ "$got" = "raw=1" ] || fail "stub jq $combo did not compute raw=1 (NEW-H1 flag-cluster gap not fixed; got: $got)"
+done
+got=$(SB_STUB_JQ_DEBUG=1 "$STUB/jq" -Rn '.')
+[ "$got" = "raw=0" ] || fail "stub jq -Rn (raw INPUT only) must not compute raw=1 — false positive (got: $got)"
+pass "stub jq covers every -R*/-j short-flag-cluster ordering (NEW-H1), -Rn stays raw=0"
 
 # 1. The validator's version-drift loop builds cache paths from @tsv jq output — a \r turned
 #    them into "…/\r/.claude-plugin/plugin.json" → spurious FAIL (the user's reported 0.30 error).
