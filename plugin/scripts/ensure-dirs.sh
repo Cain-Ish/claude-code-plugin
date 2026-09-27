@@ -62,8 +62,9 @@ JSON
 # generous: any session older than a week has no useful dedup signal anyway.
 if [ -d "$BRAIN_DIR/.injected" ]; then
   # *.phase rides the same TTL: the intent-spine phase file is per-session state
-  # with the exact lifetime of its sibling memo.
-  find "$BRAIN_DIR/.injected" -maxdepth 1 \( -name '*.json' -o -name '*.phase' -o -name '*.slug' -o -name '*.tsv' -o -name '*.seen' -o -name '*.lsfiles' \) -type f -mtime +7 -delete 2>/dev/null || true
+  # with the exact lifetime of its sibling memo. *.prov (Slice 1 C4, sb_session_prov_write)
+  # rides it too -- a very late drain past this GC just stamps with the drain time (D10).
+  find "$BRAIN_DIR/.injected" -maxdepth 1 \( -name '*.json' -o -name '*.phase' -o -name '*.slug' -o -name '*.tsv' -o -name '*.seen' -o -name '*.lsfiles' -o -name '*.prov' \) -type f -mtime +7 -delete 2>/dev/null || true
 fi
 # Buddy per-session state (.buddy/<sid>.json + .log.jsonl + .chain cache + .seen marker) rides the same 7-day TTL.
 if [ -d "$BRAIN_DIR/.buddy" ]; then

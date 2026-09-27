@@ -1,6 +1,6 @@
 ---
 name: buddy
-description: The second-brain buddy — Kapi, the animated statusline capybara between Claude and the knowledge base, both ways. It shows when memory is delivered, read, or saved, which gate is holding, and what Claude says to the user through buddy_react. This skill is its on-demand side — ask the knowledge base directly (`ask`), explain the last gate (`why`), list what waits on you (`pending`), show the card, rename or mute it, install/remove its statusline. Read-only except the explicit name/mute/install verbs.
+description: The second-brain buddy — Kapi, the animated statusline thought cloud between Claude and the knowledge base, both ways. It shows when memory is delivered, read, or saved, which gate is holding, and what Claude says to the user through buddy_react. This skill is its on-demand side — ask the knowledge base directly (`ask`), explain the last gate (`why`), list what waits on you (`pending`), show the card, rename or mute it, install/remove its statusline. Read-only except the explicit name/mute/install verbs.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read Bash(node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/cli/sb-entry.bundle.js*) Bash(jq *) Bash(tail *) Bash(cat *) Bash(test *) Bash(ls *) Bash(head *) Bash(printf *) Bash(wc *) Bash(grep *) Bash(tr *)

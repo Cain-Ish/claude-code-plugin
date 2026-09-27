@@ -12,8 +12,28 @@
 #     "open_blockers":    ["<text>", ...],   # cap 15
 #     "cross_refs":       ["<slug>", ...],   # cap 3, scaffolds ~/knowledge/wiki/entities/<slug>.md if missing
 #     "files_touched":    ["<path>", ...],   # informational
+#     "plan":             ["<text>", ...],   # forward checklist -- see ## Plan grammar below
+#     "compact_pending":  ["<text>", ...],   # PostCompact Pending-Tasks bullets, add-only, sanitized+scanned
+#                                             # by the caller (pre-compact.sh post) BEFORE they reach here.
+#                                             # Landed as "- [ ] [untrusted:compact TODAY] <text>". Cap 5 used,
+#                                             # refused once non-pinned unfinished lines would reach 15.
 #     "wiki_updates":     [{"category","slug","action","title","description","content"}, ...]
 #   }
+#
+# --session <sid>  (optional flag, not a JSON key): sanitized to [A-Za-z0-9_-]{1,64}. Stamps
+#   ## Handoff's "written: t=... session=... branch=... head=..." line from
+#   $BRAIN_DIR/.injected/<sid>.prov (sb_session_prov_write, lib.sh) when that file exists.
+#
+# ## Plan grammar (the contract every emitter/reader codes against):
+#   - [pinned] <text>                                           human north star -- never touched here
+#   - [ ] <text>                                                current unfinished item (extractor/human)
+#   - [x] <text>                                                done; retired by the next emission that omits it
+#   - [x] <text> (dropped: <why>)                               retired without doing it
+#   - [ ] [untrusted:compact YYYY-MM-DD] <text>                 added by compact_pending (source mark, sticky)
+#   - [ ] [carried YYYY-MM-DD] <text>                           omitted by an emission; kept by the guard
+#   - [ ] [untrusted:compact YYYY-MM-DD] [carried YYYY-MM-DD] <text>   both (source first)
+#   - [stale] [ ] [carried YYYY-MM-DD] <text>                   aged by mark_stale
+#   Bounds: 15 non-pinned unfinished lines (emitted+carried+compact), 5 stale (oldest dropped, logged).
 #
 # Behavior:
 #   - Empty deltas → no-op (PROJECT.md unchanged, no timestamp bump).
@@ -30,14 +50,24 @@ source "$(dirname "$0")/lib.sh"
 PROJECT_MD=""
 JSON_FILE=""
 KNOWLEDGE_DIR=""
+SESSION_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --project-md)    PROJECT_MD="$2";    shift 2 ;;
     --knowledge-dir) KNOWLEDGE_DIR="$2"; shift 2 ;;
     --json-file)     JSON_FILE="$2";     shift 2 ;;
+    --session)       SESSION_ARG="$2";   shift 2 ;;
     *) echo "merge-project-update: unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+# --session is provenance, not a security boundary -- an invalid value just degrades to "no
+# session" (dropped silently: BRAIN_DIR/error-log isn't wired yet at arg-parse time) rather than
+# ever reaching the Handoff stamp or a filesystem path unsanitized (C4, lib.sh sb_session_prov_write
+# writes the .prov file this reads by the SAME sid, so the charset already matches on the write side).
+case "$SESSION_ARG" in
+  *[!A-Za-z0-9_-]*) SESSION_ARG="" ;;
+esac
+SESSION_ARG="${SESSION_ARG:0:64}"
 
 [ -n "$PROJECT_MD" ] || { echo "merge-project-update: --project-md is required" >&2; exit 2; }
 [ -z "$KNOWLEDGE_DIR" ] && KNOWLEDGE_DIR="$(sb_knowledge_dir)"
@@ -81,6 +111,55 @@ WIKI_WRITES=0
 # Strip CR from every line — Windows / Git-Bash jq pipelines can leak \r
 # into values, which silently breaks all our string comparisons below.
 strip_cr() { tr -d '\r'; }
+
+# ## Plan normalization key (Slice 1 §2), shared by merge_plan and merge_compact_pending so a
+# carried/compact-sourced/emitted rendering of the SAME item always dedups to the SAME key.
+# Kept as ONE awk library string (apostrophe-free -- the single-quoted-program trap) prefixed
+# onto both callers' `awk` invocations, per the "single awk, no per-item spawn" rule.
+# ASCII-only tolower (mawk/BSD awk are not locale-aware): a non-ASCII key may differ across
+# platforms, which only ever affects dedup — documented cross-platform trap (§8), not a bug.
+# Steps mirror the spec exactly: 1) lowercase  2) strip a leading bullet  3) repeatedly strip
+# LEADING marker tokens ([ ]/[x]/[pinned]/(pinned)/[stale]/[untrusted:compact D]/[carried D])
+# 4) repeatedly strip TRAILING age/provenance parentheticals  5) collapse whitespace + trim +
+# drop trailing punctuation. A meaningful trailing "(Windows only)" is not one of step 4's
+# patterns, so it survives.
+PLAN_NORM_AWK='
+function plan_norm(raw,  s,t) {
+  s = tolower(raw)
+  sub(/^[ ]*[-*+][ ]+/, "", s)
+  # Every marker token may appear wrapped in EITHER [..] (the stored PROJECT.md form) or (..)
+  # (the card-rendered form -- sb_card_trunc turns [ into ( for display, Set 2). A dedup key
+  # must match a compact_pending item whether the text was copied from the raw file or from
+  # a rendered card, so both wrappings are stripped for every token type. No apostrophes in
+  # this comment block: it lives inside a single-quoted bash string (PLAN_NORM_AWK) and one
+  # would close that quote early -- exactly the jq/awk apostrophe trap this repo has hit before.
+  while (1) {
+    t = s
+    sub(/^\[ \][ ]*/, "", s); sub(/^\( \)[ ]*/, "", s)
+    sub(/^\[x\][ ]*/, "", s); sub(/^\(x\)[ ]*/, "", s)
+    sub(/^\[pinned\][ ]*/, "", s); sub(/^\(pinned\)[ ]*/, "", s)
+    sub(/^\[stale\][ ]*/, "", s); sub(/^\(stale\)[ ]*/, "", s)
+    sub(/^\[untrusted:compact[ 0-9-]*\][ ]*/, "", s); sub(/^\(untrusted:compact[ 0-9-]*\)[ ]*/, "", s)
+    sub(/^\[carried[ 0-9-]*\][ ]*/, "", s); sub(/^\(carried[ 0-9-]*\)[ ]*/, "", s)
+    if (s == t) break
+  }
+  while (1) {
+    t = s
+    sub(/[ ]*\(<1h\)[ ]*$/, "", s)
+    sub(/[ ]*\([0-9]+[mhd]\)[ ]*$/, "", s)
+    sub(/[ ]*\([0-9]+[mhd] ago\)[ ]*$/, "", s)
+    sub(/[ ]*\(carried[^)]*\)[ ]*$/, "", s)
+    sub(/[ ]*\(dropped:[^)]*\)[ ]*$/, "", s)
+    sub(/[ ]*\(stale[^)]*\)[ ]*$/, "", s)
+    if (s == t) break
+  }
+  gsub(/[ ]+/, " ", s)
+  sub(/^ /, "", s)
+  sub(/ $/, "", s)
+  sub(/[.:;,!]+$/, "", s)
+  return s
+}
+'
 
 # D142: guard these four array fields the same way merge_handoff (below) already
 # guards handoff's fields — `jq -r '.[]?'` alone pretty-prints a non-string
@@ -261,6 +340,9 @@ merge_plan() {
   local pinned_lines
   pinned_lines=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- / && /\[pinned\]/' "$TMP_OUT")
 
+  # Build the emitted-item list (checkbox-normalized, D7-neutralized, merge-owned markers
+  # stripped defensively, pinned duplicates excluded, capped). Emitted items are handed to
+  # the reconcile awk WITHOUT a leading "- " -- the awk owns bullet rendering.
   local new_body="" n=0 t bare
   while IFS= read -r it; do
     [ -z "$it" ] && continue
@@ -269,26 +351,142 @@ merge_plan() {
       '[ ]'*|'[x]'*|'[X]'*) ;;                                         # already has a checkbox
       *) t="[ ] $t" ;;                                                 # default to an open box
     esac
+    # D7: a forged "[pinned]" in extractor-emitted text must never become an immortal line --
+    # neutralize the literal token so it renders as plain text, not the human-pinned marker.
+    t=$(printf '%s' "$t" | sed 's/\[pinned\]/(pinned)/g')
+    # Merge-owned markers ([carried D], [stale]) are never the extractor's to write (prompt
+    # says so); strip them defensively so an extractor that echoes one back can't fake sticky
+    # carry/stale state on a brand-new emission.
+    t=$(printf '%s' "$t" | sed -E 's/\[carried[ 0-9-]*\][[:space:]]*//g; s/\[stale\][[:space:]]*//g')
     # never duplicate a [pinned] line — compare BARE text (drop checkbox + pinned prefix), exact match
     if [ -n "$pinned_lines" ]; then
       bare=$(printf '%s' "$t" | sed -E 's/^\[[ xX]\][[:space:]]*//')
       if printf '%s\n' "$pinned_lines" | sed -E 's/^- \[pinned\][[:space:]]*//' | grep -qiFx -- "$bare"; then continue; fi
     fi
-    new_body="${new_body}${new_body:+$'\n'}- $t"
+    new_body="${new_body}${new_body:+$'\n'}$t"
     n=$((n+1)); [ "$n" -ge "$cap" ] && break
   done <<< "$items"
 
-  local body="$pinned_lines"
-  [ -n "$new_body" ] && body="${body}${body:+$'\n'}$new_body"
-
   local new_tmp; new_tmp=$(mktemp)
-  BODY="$body" awk '
-    BEGIN { body=ENVIRON["BODY"] }
-    $0 == "## Plan" { print; print ""; if (length(body)) print body; print ""; f=1; next }
-    f && (/^## / || /^<!--/) { f=0; print; next }   # next heading OR the footer terminates — never swallow the <!-- last_updated --> footer
-    f { next }
+  local dropfile; dropfile=$(mktemp)
+  EMIT="$new_body" TODAY="$TODAY" awk "$PLAN_NORM_AWK"'
+    function findmarker(line) {
+      if (match(line, /\[untrusted:compact 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/)) return substr(line, RSTART, RLENGTH)
+      return ""
+    }
+    BEGIN {
+      today = ENVIRON["TODAY"]
+      # EMIT is bash-built from non-empty items joined by real newlines (never a blank entry),
+      # so a plain split is exact -- no defensive empty-filtering pass needed here.
+      en = split(ENVIRON["EMIT"], etmp, "\n")
+      for (i = 1; i <= en; i++) {
+        eraw[i] = etmp[i]
+        ecb[i] = (eraw[i] ~ /^\[x\]/) ? "x" : " "
+        edisp[i] = eraw[i]
+        sub(/^\[[ xX]\][ ]*/, "", edisp[i])
+        while (1) {
+          tt = edisp[i]
+          sub(/^\[untrusted:compact[ 0-9-]*\][ ]*/, "", edisp[i])
+          sub(/^\[carried[ 0-9-]*\][ ]*/, "", edisp[i])
+          sub(/^\[stale\][ ]*/, "", edisp[i])
+          if (edisp[i] == tt) break
+        }
+        ekey[i] = plan_norm(eraw[i])
+      }
+    }
+    /^## Plan$/ { print; print ""; inplan=1; pn=0; ln=0; sn=0; next }
+    inplan && (/^## / || /^<!--/) { render(); print; inplan=0; next }
+    inplan {
+      if ($0 == "") next
+      if ($0 ~ /^- \[pinned\]/) { pn++; pline[pn]=$0; next }
+      if ($0 ~ /^- \[stale\]/) { sn++; sline[sn]=$0; skey[sn]=plan_norm($0); next }
+      if ($0 ~ /^- \[[ xX]\]/) { ln++; lline[ln]=$0; lkey[ln]=plan_norm($0); next }
+      next
+    }
     { print }
-  ' "$TMP_OUT" > "$new_tmp"
+    END { if (inplan) render() }
+    function render(   i,j,m,marker,carrdate,line,txt,t2,carn,staln,drop,dtxt,overflow,moved,eopen) {
+      for (i = 1; i <= en; i++) {
+        marker = ""
+        for (j = 1; j <= ln; j++) {
+          if (!lused[j] && lkey[j] == ekey[i]) { lused[j]=1; m=findmarker(lline[j]); if (m!="") marker=m }
+        }
+        for (j = 1; j <= sn; j++) {
+          if (!sused[j] && skey[j] == ekey[i]) { sused[j]=1; m=findmarker(sline[j]); if (m!="") marker=m }
+        }
+        emarker[i] = marker
+      }
+      eopen = 0
+      for (i = 1; i <= en; i++) {
+        line = "- [" ecb[i] "]"
+        if (emarker[i] != "") line = line " " emarker[i]
+        line = line " " edisp[i]
+        outline[i] = line
+        if (ecb[i] == " ") eopen++
+      }
+      carn = 0
+      for (j = 1; j <= ln; j++) {
+        if (lused[j]) continue
+        if (lline[j] !~ /^- \[ \]/) continue
+        carrdate = ""
+        if (match(lline[j], /\[carried 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/)) carrdate = substr(lline[j], RSTART+9, 10)
+        if (carrdate == "") carrdate = today
+        m = findmarker(lline[j])
+        txt = lline[j]
+        sub(/^- \[ \][ ]*/, "", txt)
+        while (1) {
+          t2 = txt
+          sub(/^\[untrusted:compact[ 0-9-]*\][ ]*/, "", txt)
+          sub(/^\[carried[ 0-9-]*\][ ]*/, "", txt)
+          if (txt == t2) break
+        }
+        line = "- [ ]"
+        if (m != "") line = line " " m
+        line = line " [carried " carrdate "] " txt
+        carn++; carline[carn] = line
+      }
+      moved = 0
+      if (eopen + carn > 15) {
+        overflow = eopen + carn - 15
+        if (overflow > carn) overflow = carn
+        moved = overflow
+      }
+      staln = 0
+      for (j = 1; j <= sn; j++) {
+        if (sused[j]) continue
+        staln++; staleline[staln] = sline[j]
+      }
+      for (i = carn - moved + 1; i <= carn; i++) {
+        line = carline[i]
+        sub(/^- \[ \]/, "- [stale] [ ]", line)
+        staln++; staleline[staln] = line
+      }
+      carn -= moved
+      if (staln > 5) {
+        drop = staln - 5
+        for (i = 1; i <= drop; i++) {
+          dtxt = staleline[i]
+          sub(/^- \[stale\][ ]*\[[ xX]\][ ]*/, "", dtxt)
+          sub(/^\[untrusted:compact[ 0-9-]*\][ ]*/, "", dtxt)
+          sub(/^\[carried[ 0-9-]*\][ ]*/, "", dtxt)
+          if (length(dtxt) > 80) dtxt = substr(dtxt, 1, 80)
+          print dtxt > "/dev/stderr"
+        }
+        for (i = drop+1; i <= staln; i++) staleline[i-drop] = staleline[i]
+        staln -= drop
+      }
+      for (i = 1; i <= pn; i++) print pline[i]
+      for (i = 1; i <= en; i++) print outline[i]
+      for (i = 1; i <= carn; i++) print carline[i]
+      for (i = 1; i <= staln; i++) print staleline[i]
+      print ""
+    }
+  ' "$TMP_OUT" > "$new_tmp" 2>"$dropfile"
+  while IFS= read -r dropped_text; do
+    [ -z "$dropped_text" ] && continue
+    sb_log_error "merge-project-update.sh" "gate=plan-dropped stale text=$dropped_text" 0
+  done < "$dropfile"
+  rm -f "$dropfile"
   # Preserve the module's no-op contract: only rewrite + mark dirty when the plan
   # actually changed. The extractor re-emits the full list every session, so an
   # unchanged plan must NOT churn last_updated.
@@ -297,6 +495,105 @@ merge_plan() {
   else
     mv "$new_tmp" "$TMP_OUT"
     CHANGED=1
+  fi
+}
+
+# PostCompact Pending-Tasks -> ## Plan, add-only (C2/C3). The caller (pre-compact.sh post) has
+# ALREADY sanitized and injection-scanned the text -- this function only applies the Plan
+# grammar: forging defence (any [ / ] neutralized to ( / ) so a compaction bullet can never fake
+# a merge-owned or human marker), dedup against every existing Plan line by normalized key, and
+# the 15-unfinished bound (refuse, never evict an existing item to make room). ONE awk over the
+# Plan section plus ENVIRON["EMIT"] -- no per-item spawn.
+merge_compact_pending() {
+  local raw="$1"
+  local items
+  items=$(flatten_field "$raw" compact_pending)
+  [ -z "$items" ] && return 0
+  items=$(printf '%s\n' "$items" | head -n 5)
+
+  local emit2="" clean item
+  while IFS= read -r item; do
+    [ -z "$item" ] && continue
+    # Forging defence: [ -> ( and ] -> ) so a compaction bullet can never spell [pinned],
+    # [x], [carried ...] or [stale] -- it can only ever land as a fresh untrusted-marked item.
+    clean=$(printf '%s' "$item" | sed 's/\[/(/g; s/\]/)/g' | sed -E 's/^#+[[:space:]]*//' | cut -c1-120)
+    emit2="${emit2}${emit2:+$'\n'}${clean}"
+  done <<< "$items"
+  [ -z "$emit2" ] && return 0
+
+  local new_tmp; new_tmp=$(mktemp)
+  local countfile; countfile=$(mktemp)
+  EMIT="$emit2" TODAY="$TODAY" awk "$PLAN_NORM_AWK"'
+    function flush_plan(   ek,existing_open,found_stale,insert_at,last_nonblank,b,k,c,dup,newline) {
+      ek = 0
+      existing_open = 0
+      for (b = 1; b <= bn; b++) {
+        if (buf[b] ~ /^- \[ \]/) existing_open++
+        if (buf[b] ~ /^- /) { ek++; ekey[ek]=plan_norm(buf[b]) }
+      }
+      found_stale = 0; insert_at = bn + 1
+      for (b = 1; b <= bn; b++) { if (buf[b] ~ /^- \[stale\]/) { insert_at=b; found_stale=1; break } }
+      if (!found_stale) {
+        last_nonblank = 0
+        for (b = 1; b <= bn; b++) if (buf[b] != "") last_nonblank = b
+        insert_at = last_nonblank + 1
+      }
+      for (c = 1; c <= cn; c++) {
+        dup = 0
+        for (k = 1; k <= ek; k++) { if (ekey[k] == ckey[c]) { dup=1; break } }
+        if (dup) { dedup++; continue }
+        if (existing_open >= 15) { refused++; continue }
+        newline = "- [ ] [untrusted:compact " today "] " cand[c]
+        for (b = bn; b >= insert_at; b--) buf[b+1] = buf[b]
+        buf[insert_at] = newline
+        bn++; insert_at++; added++; existing_open++
+        ek++; ekey[ek] = ckey[c]
+      }
+      for (b = 1; b <= bn; b++) print buf[b]
+      print (added " " dedup " " refused) > "/dev/stderr"
+    }
+    BEGIN {
+      today = ENVIRON["TODAY"]
+      n = split(ENVIRON["EMIT"], tmp, "\n")
+      cn = 0
+      for (i = 1; i <= n; i++) { if (tmp[i] != "") { cn++; cand[cn]=tmp[i]; ckey[cn]=plan_norm(tmp[i]) } }
+      added=0; dedup=0; refused=0; inplan=0; sawplan=0; bn=0
+    }
+    /^## Plan$/ { print; inplan=1; sawplan=1; bn=0; next }
+    inplan && (/^## / || /^<!--/) {
+      flush_plan()
+      inplan = 0
+      print
+      next
+    }
+    inplan { bn++; buf[bn]=$0; next }
+    { print }
+    END {
+      if (inplan) flush_plan()
+      if (!sawplan) {
+        print ""
+        print "## Plan"
+        print ""
+        bn = 0
+        flush_plan()
+      }
+    }
+  ' "$TMP_OUT" > "$new_tmp" 2>"$countfile"
+
+  local counts added dedup refused
+  counts=$(tail -1 "$countfile" 2>/dev/null)
+  rm -f "$countfile"
+  read -r added dedup refused <<< "$counts"
+  case "$added" in ''|*[!0-9]*) added=0 ;; esac
+  case "$dedup" in ''|*[!0-9]*) dedup=0 ;; esac
+  case "$refused" in ''|*[!0-9]*) refused=0 ;; esac
+  sb_log_error "merge-project-update.sh" "gate=compact-pending added=$added dedup=$dedup refused=$refused" 0
+
+  if [ "$added" -gt 0 ]; then
+    mv "$new_tmp" "$TMP_OUT"
+    CHANGED=1
+  else
+    rm -f "$new_tmp"
   fi
 }
 
@@ -437,8 +734,47 @@ merge_handoff() {
   fi
   rm -f "$jq_err"
   [ -z "$body" ] && return 0
-  body=$(printf '%s\n' "$body" | awk '{ n += length($0) + 1; if (n > 600) exit; print }')
+  # C4 (fixed cut before compare): 600 total budget minus the WIDEST possible stamp line
+  # (MAX_STAMP_BYTES=112: "written: t=<11 digits> session=<8> branch=<40> head=<12>" plus
+  # separators), cut FIRST on line boundaries, THEN compare against the existing section
+  # body with its own stamp line stripped -- so a long handoff re-emitted under a DIFFERENT
+  # --session (different epoch/branch/head) still counts as unchanged when its 3 content
+  # lines are unchanged, and the OLD stamp survives (its age reflects the content's age, not
+  # merge time). Validation of the read side lives in session-load.sh (Set 2); this side never
+  # re-validates what it just wrote.
+  local MAX_STAMP_BYTES=112
+  local body_cap=$((600 - MAX_STAMP_BYTES))
+  body=$(printf '%s\n' "$body" | awk -v cap="$body_cap" '{ n += length($0) + 1; if (n > cap) exit; print }')
   [ -z "$body" ] && return 0
+
+  # The rendered section is "<blank> <written: line> <content lines> <blank>" -- strip the
+  # written: line AND the framing blanks (never part of the content jq built) so this compares
+  # like-for-like against $body, which is content lines only, no stamp, no blanks.
+  local existing_body=""
+  if grep -q '^## Handoff$' "$TMP_OUT"; then
+    existing_body=$(awk '/^## Handoff$/{f=1;next} /^## /{f=0} f' "$TMP_OUT" | awk '$0 != "" && $0 !~ /^written: /')
+  fi
+  [ "$existing_body" = "$body" ] && return 0   # unchanged content: keep the OLD stamp, no rewrite
+
+  local stamp_t stamp_sid8="" stamp_branch="" stamp_head="" stamp
+  stamp_t=$(date +%s)
+  if [ -n "$SESSION_ARG" ]; then
+    stamp_sid8="${SESSION_ARG:0:8}"
+    local prov_f="$BRAIN_DIR/.injected/$SESSION_ARG.prov"
+    if [ -f "$prov_f" ]; then
+      local prov_line prov_epoch prov_sha prov_branch
+      prov_line=$(head -1 "$prov_f" 2>/dev/null | tr -d '\r')
+      IFS=$'\t' read -r prov_epoch prov_sha prov_branch <<< "$prov_line"
+      case "$prov_epoch" in ''|*[!0-9]*) ;; *) stamp_t="$prov_epoch" ;; esac
+      [ -n "$prov_sha" ] && stamp_head="$prov_sha"
+      [ -n "$prov_branch" ] && stamp_branch="$prov_branch"
+    fi
+  fi
+  stamp="written: t=$stamp_t"
+  [ -n "$stamp_sid8" ] && stamp="$stamp session=$stamp_sid8"
+  [ -n "$stamp_branch" ] && stamp="$stamp branch=$stamp_branch"
+  [ -n "$stamp_head" ] && stamp="$stamp head=$stamp_head"
+  body="$stamp"$'\n'"$body"
 
   local new_tmp; new_tmp=$(mktemp)
   if grep -q '^## Handoff$' "$TMP_OUT"; then
@@ -555,6 +891,11 @@ fi
 # Forward-looking plan (replace-reconcile; preserves [pinned], never wipes on empty).
 merge_plan "$PLAN" 7
 
+# PostCompact Pending-Tasks -> ## Plan, add-only. Runs AFTER merge_plan (D3: the caller has
+# already sanitized + injection-scanned this text) so a compact_pending item never overwrites
+# an in-session emission's carry/stale decisions for the same key this run.
+merge_compact_pending "$RAW"
+
 # Resumable session WHY (replace-style one-liner; never wipes on empty).
 merge_state "$SESSION_GOAL"
 
@@ -635,6 +976,15 @@ mark_stale() {
       d = $0; sub(/^- \[/, "", d); sub(/\].*/, "", d)
       if (d < cutoff) { sub(/^- /, "- [stale] "); changed=1 }
     }
+    # Plan lines carry their date in a [carried YYYY-MM-DD] token instead of a leading
+    # "- [DATE]" prefix (checkbox comes first) -- derive the age from that token instead.
+    # Decisions/blockers never carry that token, so their branch above is untouched.
+    flag && /^- \[ \]/ && $0 ~ /\[carried 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/ && !/\[stale\]/ {
+      if (match($0, /\[carried 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/)) {
+        d = substr($0, RSTART+9, 10)
+        if (d < cutoff) { sub(/^- /, "- [stale] "); changed=1 }
+      }
+    }
     { print }
     END { exit (changed ? 0 : 1) }
   ' "$TMP_OUT" > "$new_tmp"
@@ -648,6 +998,7 @@ mark_stale() {
 
 mark_stale "## Recent decisions"
 mark_stale "## Open blockers"
+mark_stale "## Plan"
 
 WIKI_UPDATES_COUNT=$(echo "$RAW" | jq '.wiki_updates // [] | length' 2>/dev/null || echo 0)
 if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
