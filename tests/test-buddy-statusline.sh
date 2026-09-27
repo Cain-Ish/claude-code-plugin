@@ -368,7 +368,9 @@ chain 76 "$bad" >/dev/null; chain_settle 2
 [ "$(ecount)" = "$(( e0 + 1 ))" ] || fail "a failing chain must be logged once per session, not on every refresh (have $(ecount))"
 if command -v node >/dev/null 2>&1 && [ -f "$ROOT/mcp/dist/cli/sb-entry.bundle.js" ]; then
   out=$(node "$ROOT/mcp/dist/cli/sb-entry.bundle.js" buddy 2>&1) || fail "sb buddy failed: $out"
-  printf '%s' "$out" | grep -q 'capybara' || fail "sb buddy card (the on-demand CLI card, unrelated to the statusline) must name the capybara: $out"
+  # The card is the brain now (0.54.0). Match ASCII only: MSYS grep misses 4-byte emoji.
+  printf '%s' "$out" | grep -q 'Kapi' || fail "sb buddy card (the on-demand CLI card) must show the buddy name: $out"
+  printf '%s' "$out" | grep -qF 'n______n' && fail "sb buddy card must not draw the old capybara sprite: $out"
   printf '%s' "$out" | grep -qE 'DEBUGGING|★|dragon|seed:' && fail "sb buddy must not print stats, stars, or the old roll: $out"
   jq -e 'has("identity") | not' "$BRAIN_DIR/buddy.json" >/dev/null || fail "sb buddy must drop the stale 0.51.0 identity block"
   pass "thought cloud: no sprite/name/identity glyphs ever, 5-row live layout, warn-tinted steam, 3-row wrap cap + ellipsis, said prefix + hold vs newer global, narrow ' ○ ' row, ASCII swap, width fits; chain cache + 3-line cap + detached slow refresh + failure logged once; sb buddy CLI card (unrelated, unaffected) still names the capybara"

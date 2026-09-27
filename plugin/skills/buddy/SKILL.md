@@ -18,9 +18,10 @@ It is two-way once installed (install is the consent — `buddy.json` `react: tr
 whose statusline renders: each prompt, `persona-context.sh` hands Claude a `[buddy: <name>]` line
 (the session id, what extraction filed since its last turn, its own last line — framed as untrusted
 data) and Claude ends the turn with the `buddy_react` MCP tool — that line lands in the bubble as
-"Claude: …". Cost: ~80 tokens a prompt and one extra tool call a turn; `SB_BUDDY_REACT=off` drops it. The buddy is one capybara,
-drawn and animated like the native `/buddy` (three frames, the 15-step idle cycle with a blink,
-excited for 10 s after a new line). No account roll, no rarity, no stats: it is a memory layer.
+"Claude: …". Cost: ~80 tokens a prompt and one extra tool call a turn; `SB_BUDDY_REACT=off` drops it. The buddy is the 🧠 on the
+statusline's first line: a live line hangs below it as a thought cloud (bright for 10 s, then dim),
+and `·`/`··`/`···` cycles after the brain while a turn runs. No account roll, no rarity, no stats:
+it is a memory layer.
 
 ## Argument parsing
 

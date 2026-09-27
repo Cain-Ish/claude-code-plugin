@@ -33957,7 +33957,7 @@ registerJsonTool(
 );
 registerJsonTool(
   "buddy_react",
-  "Say one short line to the user through the buddy \u2014 the statusline capybara between you and second brain. Call it only when a [buddy: \u2026] context line asks for it, once at the end of the turn: what you did or found, in 80 characters or fewer, with the session id quoted in that line.",
+  "Say one short line to the user through the buddy \u2014 the statusline brain between you and second brain. Call it only when a [buddy: \u2026] context line asks for it, once at the end of the turn: what you did or found, in 80 characters or fewer, with the session id quoted in that line.",
   {
     line: external_exports.string().max(400).describe("One plain-text line, 80 characters or fewer: what you did or found this turn."),
     mood: external_exports.enum(["focused", "pleased", "alert", "puzzled", "waiting"]).optional().describe("Sets the buddy's eyes. Default 'focused'."),

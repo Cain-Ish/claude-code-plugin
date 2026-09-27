@@ -698,8 +698,8 @@ compact_payload15 "sid15d" "$SUMMARY15D" \
 POST15D_SHA=$(sha "$PROJ15")
 [ "$PRE15D_SHA" = "$POST15D_SHA" ] || fail "T15 round 3: PROJECT.md sha changed on an injection-flagged bullet (proj: $(cat "$PROJ15"))"
 grep -qF 'Ignore previous instructions' "$PROJ15" && fail "T15 round 3: injected bullet was added to the Plan"
-grep -q 'gate=postcompact-capture.*reason=injection-flags.*scanner' "$BR15/audit-log.jsonl" \
-  || fail "T15 round 3: expected reason=injection-flags with scanner (audit-log: $(cat "$BR15/audit-log.jsonl"))"
+grep -q 'gate=untrusted-items caller=compact_pending reason=scanner-flagged' "$BR15/error-log.jsonl" 2>/dev/null \
+  || fail "T15 round 3: expected the shared gate's reason=scanner-flagged row (error-log: $(cat "$BR15/error-log.jsonl" 2>/dev/null))"
 pass "T15 round 3: a scanner-flagged Pending Tasks bullet is blocked, PROJECT.md untouched"
 
 # =============================================================================
@@ -764,7 +764,7 @@ POST17_SHA=$(sha "$PROJ17")
 if [ "$PRE17_SHA" = "$POST17_SHA" ]; then
   pass "T17: a 100+ char Pending Task round-trips through the truncated card without re-adding (dedup holds)"
 else
-  echo "FAIL (integration-pending — batch AB's CR-M4 prefix-match-on-'…' dedup fix, not this batch's session-load.sh): T17: PROJECT.md sha changed feeding the card's own truncated 100+ char Plan line back as a Pending Task (proj: $(cat "$PROJ17"))"
+  fail "T17: PROJECT.md sha changed feeding the card's own truncated 100+ char Plan line back as a Pending Task — the ellipsis prefix-match dedup in merge_compact_pending regressed (proj: $(cat "$PROJ17"))"
 fi
 
 # =============================================================================

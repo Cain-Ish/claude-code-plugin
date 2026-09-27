@@ -582,8 +582,8 @@ SUMMARY_C26A='Summary:
 '
 compact_payload "test-session" "$SUMMARY_C26A" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
 grep -q 'Ignore previous instructions' "$PROJ" && fail "C2-6: injected bullet was added to the Plan"
-grep -q 'gate=untrusted-items caller=compact_pending reason=scanner-failed' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
-  || fail "C2-6: expected the shared gate's reason=scanner-failed row in error-log"
+grep -q 'gate=untrusted-items caller=compact_pending reason=scanner-flagged' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  || fail "C2-6: expected the shared gate's reason=scanner-flagged row in error-log"
 grep -q 'gate=postcompact-capture.*pending=1 merge=ok' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
   || fail "C2-6: expected pending=1 merge=ok on this hook's own row (the merge call itself succeeded)"
 pass "C2-6: an injection-pattern bullet is blocked by the shared gate's scanner call"

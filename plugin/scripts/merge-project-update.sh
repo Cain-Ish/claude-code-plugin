@@ -457,10 +457,20 @@ gate_untrusted_items() {
     sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=scanner-failed src=payload-build" 1
     printf ''; return 1
   fi
-  scan_out=$(printf '%s' "$scan_payload" | SB_INJECTION_SCAN=on SB_HOOK_PROFILE= bash "$scanner_path" 2>/dev/null)
+  local scan_err; scan_err=$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/sb-scan-err.$$")
+  scan_out=$(printf '%s' "$scan_payload" | SB_INJECTION_SCAN=on SB_HOOK_PROFILE= bash "$scanner_path" 2>"$scan_err")
   scan_ec=$?
-  if [ "$scan_ec" -ne 0 ] || [ -n "$scan_out" ]; then
-    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=scanner-failed" 1
+  # A crash and a hit both block, but they are different events: a flag is the gate working,
+  # a failure means nothing was scanned. Keep them apart in the log.
+  if [ "$scan_ec" -ne 0 ]; then
+    local scan_msg=""; IFS= read -r scan_msg < "$scan_err" 2>/dev/null
+    rm -f "$scan_err"
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=scanner-failed ec=$scan_ec err=${scan_msg:0:160}" 1
+    printf ''; return 1
+  fi
+  rm -f "$scan_err"
+  if [ -n "$scan_out" ]; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=scanner-flagged" 1
     printf ''; return 1
   fi
 
