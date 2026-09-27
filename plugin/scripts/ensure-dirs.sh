@@ -66,9 +66,13 @@ if [ -d "$BRAIN_DIR/.injected" ]; then
   # rides it too -- a very late drain past this GC just stamps with the drain time (D10).
   find "$BRAIN_DIR/.injected" -maxdepth 1 \( -name '*.json' -o -name '*.phase' -o -name '*.slug' -o -name '*.tsv' -o -name '*.seen' -o -name '*.lsfiles' -o -name '*.prov' \) -type f -mtime +7 -delete 2>/dev/null || true
 fi
-# Buddy per-session state (.buddy/<sid>.json + .log.jsonl + .chain cache + .seen marker) rides the same 7-day TTL.
+# Buddy per-session state (.buddy/<sid>.json + .log.jsonl + .chain cache + .seen marker + .busy
+# thinking-animation marker) rides the same 7-day TTL. CR-L4: *.busy is normally cleared within
+# seconds by sar-summary.sh's Stop-hook rm -f, but Stop does not fire on every exit path (a killed
+# process, a crash) — this GC is the backstop that keeps an orphaned marker from animating dots
+# forever on some future session that reuses the same statusline install.
 if [ -d "$BRAIN_DIR/.buddy" ]; then
-  find "$BRAIN_DIR/.buddy" -maxdepth 1 \( -name '*.json' -o -name '*.jsonl' -o -name '*.chain' -o -name '*.seen' -o -name '*.chain.*' -o -name '*.tmp.*' \) -type f -mtime +7 -delete 2>/dev/null || true
+  find "$BRAIN_DIR/.buddy" -maxdepth 1 \( -name '*.json' -o -name '*.jsonl' -o -name '*.chain' -o -name '*.seen' -o -name '*.busy' -o -name '*.chain.*' -o -name '*.tmp.*' \) -type f -mtime +7 -delete 2>/dev/null || true
 fi
 
 # GC stale ghost projects. session-load.sh used to accept any $PWD basename as

@@ -9,6 +9,8 @@
 # pins: SB_BUDDY_ASCII — ASCII mode must swap the ´ glyph and box characters
 # pins: SB_BUDDY_NOW — pins the renderer clock: the dot slot/thought cloud are a pure function of the epoch second
 # pins: SB_BUDDY_REACT — kill switch: =off must drop the two-way [buddy: ] line
+# pins: SB_SAR_SUMMARY — sar-summary.sh's OWN kill switch, asserted as unrelated to whether it
+#   still clears the .busy marker on Stop (section 11: the clear must fire even when this is off)
 # Buddy contract (docs/plans/2026-09-22-buddy-companion.md; thought-cloud redesign 2026-09-26):
 #  1. sb_buddy_event writes ONE atomic current-state file + an append-only log; a `gate` line holds
 #     the CURRENT-STATE bubble for 60 s (the log always gets the row); nothing reaches stdout.
@@ -601,5 +603,93 @@ for envset in "" "SB_SAR_SUMMARY=off" "SB_HOOK_PROFILE=minimal"; do
   [ -f "$BUSYF" ] && fail "sar-summary.sh must clear .busy on Stop (env: '$envset')"
 done
 pass "thinking-animation producer wiring: persona-context.sh writes .busy at the very start (including early exits), respects mute/sprite-off/minimal/SB_BUDDY=off; sar-summary.sh clears it on every Stop regardless of its own kill switches"
+
+# --- 12. SEC-L2/SF-L7: the .busy marker write (persona-context.sh) and delete (sar-summary.sh)
+# sides must use ONE sanitizer — full-match-or-reject, the exact rule buddy-statusline.sh already
+# applies to SID via regex. An unsanitized RAW session_id must never let sar-summary.sh's `rm -f`
+# escape .buddy/, and persona-context.sh must never strip an unsafe id down to a DIFFERENT
+# safe-looking name that sar-summary.sh (re-validating the RAW id) can then never match — leaking
+# the marker forever. --------------------------------------------------------------------------
+EVIL="$HOME/evil-sentinel.busy"; printf 'sentinel' > "$EVIL"   # ".busy" is appended by the script itself
+printf '{"session_id":"../../evil-sentinel"}' | bash "$ROOT/scripts/sar-summary.sh" >/dev/null 2>&1
+[ -f "$EVIL" ] || fail "SEC-L2: sar-summary.sh deleted a file outside .buddy/ via an unsanitized (path-traversal) session_id"
+rm -f "$EVIL"
+UNSAFE='abc/def'
+find "$BRAIN_DIR/.buddy" -maxdepth 1 -name '*.busy' -delete 2>/dev/null
+ctx "$UNSAFE" "now implement the next thing please" >/dev/null
+find "$BRAIN_DIR/.buddy" -maxdepth 1 -name '*.busy' | grep -q . \
+  && fail "SF-L7: persona-context.sh wrote a .busy marker for an unsafe session_id under a stripped name sar-summary.sh (which validates the RAW id) will never find to clear"
+pass "SEC-L2/SF-L7: an unsafe session_id neither deletes outside .buddy/ nor leaves an uncleared marker"
+
+# --- 13. thinking animation regressions (controller batch D, test-coverage review) --------------
+# 13a. an OLDER `said` event (ETS <= the .busy marker's stamp) must NOT stale the dots — only a
+# NEWER said (the turn the marker announced has already ended) may. Mutant: buddy-statusline.sh:162
+# `[ "$KIND" != "said" ]` alone (dropping the `|| [ "$ETS" -le "$BM" ]` half) hides the dots for the
+# marker's whole life on ANY said event, not just a newer one.
+rm -f "$BRAIN_DIR/.buddy/$SID.json" "$BRAIN_DIR/.buddy/$SID.busy"
+printf '{"name":"Kapi"}' > "$BRAIN_DIR/buddy.json"
+busy_at "$B"
+sb_buddy_event "$SID" said pleased "old said" claude
+jq -c --argjson t $(( B - 10 )) '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"
+at 5 | head -1 | dots_present || fail "a said event OLDER than the .busy marker must still show the dots (buddy-statusline.sh:162)"
+rm -f "$BRAIN_DIR/.buddy/$SID.json"
+
+# 13b. the GW-3 width reservation (buddy-statusline.sh:177) while busy: line 1 must still fit the
+# usable width once the fixed 3-column dot slot is drawn after 🧠. Mutant: dropping
+# `[ -n "$DOTS_SUF" ] && GW=$(( GW - 3 ))` overflows the row by exactly 3 characters whenever a long
+# goal fills the whole budget.
+LONGGOAL=$(printf 'x%.0s' $(seq 1 200))
+jq -c --arg g "$LONGGOAL" '.goal = $g' "$BRAIN_DIR/.injected/$SID.json" > "$BRAIN_DIR/.nq" && mv "$BRAIN_DIR/.nq" "$BRAIN_DIR/.injected/$SID.json"
+row=$(at 0 90 | head -1)
+w=$(cols_of "$row")
+[ "$WIDTH_OK" = "0" ] || [ "$w" -le "$(( 90 - 14 ))" ] \
+  || fail "line 1 exceeds usable width while the dot slot is drawn ($w > $(( 90 - 14 ))): the GW-3 reservation at buddy-statusline.sh:177 must shrink the goal to make room for the dots: $row"
+jq -c --arg g "add buddy statusline renderer to the plugin" '.goal = $g' "$BRAIN_DIR/.injected/$SID.json" > "$BRAIN_DIR/.nq" && mv "$BRAIN_DIR/.nq" "$BRAIN_DIR/.injected/$SID.json"
+rm -f "$BRAIN_DIR/.buddy/$SID.busy"
+pass "thinking animation: an older said keeps the dots live (only a newer said stales them); line 1 stays within width while busy (GW-3 dot-slot reservation)"
+
+# --- 14. CR-L4: ensure-dirs.sh's .buddy GC must also remove STALE *.busy markers (same 7-day TTL
+# as their sibling .json/.jsonl/.chain/.seen files) — a crash or a killed process can leave one
+# behind forever since sar-summary.sh's Stop-hook clear is the only other thing that removes it. --
+STALE_BUSY="$BRAIN_DIR/.buddy/stale-sid.busy"; FRESH_BUSY="$BRAIN_DIR/.buddy/fresh-sid.busy"
+printf '%s' "$(date +%s)" > "$STALE_BUSY"; touch -t 202501010000 "$STALE_BUSY"
+printf '%s' "$(date +%s)" > "$FRESH_BUSY"
+bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+[ -f "$STALE_BUSY" ] && fail "CR-L4: ensure-dirs.sh must GC a .busy marker older than 7 days"
+[ -f "$FRESH_BUSY" ] || fail "ensure-dirs.sh must not GC a fresh .busy marker"
+pass "CR-L4: ensure-dirs.sh's .buddy GC removes stale *.busy markers (7-day TTL), keeps fresh ones"
+
+# --- 15. F4 (portability review): the dot-slot's VISUAL width must not depend on the UTF-8 locale
+# the RENDERER runs under. `·` is 2 bytes in UTF-8, so a byte-counting pad loop
+# (`while [ "${#DOTS_SUF}" -lt 3 ]`) under a C/no locale (common when Claude Code is launched from
+# PowerShell/cmd) counts BYTES, not glyphs — reproduced: 2/2/3 glyphs across the three animation
+# phases instead of a fixed 3, so line 1 shifted width every 3 s. Fixed literals sidestep the
+# byte-vs-glyph counting entirely. Measured here with THIS script's own good UTF-8 locale (cols_of)
+# while the RENDERER subprocess is forced to LANG=/LC_ALL= — byte length legitimately differs
+# between phases (more dots, fewer spaces, and a dot is 2 bytes) even under the fix; visual width
+# must not.
+rm -f "$BRAIN_DIR/.buddy/$SID.json"
+printf '{"name":"Kapi"}' > "$BRAIN_DIR/buddy.json"
+busy_at "$B"
+row0=$(payload | LANG= LC_ALL= SB_BUDDY_NOW=$B       SB_BUDDY_COLS=120 NO_COLOR=1 bash "$R" | head -1)
+row1=$(payload | LANG= LC_ALL= SB_BUDDY_NOW=$((B+1)) SB_BUDDY_COLS=120 NO_COLOR=1 bash "$R" | head -1)
+row2=$(payload | LANG= LC_ALL= SB_BUDDY_NOW=$((B+2)) SB_BUDDY_COLS=120 NO_COLOR=1 bash "$R" | head -1)
+W0=$(cols_of "$row0"); W1=$(cols_of "$row1"); W2=$(cols_of "$row2")
+[ "$WIDTH_OK" = "0" ] || { [ "$W0" = "$W1" ] && [ "$W1" = "$W2" ]; } \
+  || fail "F4: line 1's visual width shifts across the dot-slot animation when the renderer runs under no UTF-8 locale (LANG=/LC_ALL=): $W0 / $W1 / $W2 — $row0 | $row1 | $row2"
+rm -f "$BRAIN_DIR/.buddy/$SID.busy"
+pass "F4: the dot-slot visual width is stable across its animation phases even when the renderer runs under no UTF-8 locale"
+
+# --- 16. F5 (portability review): sar-summary.sh's busy-marker clear and its OWN kill switches
+# must stay fork-free — no cat/jq/tr spawn before either kill switch decides whether this Stop
+# hook does anything at all. Static scan, same doctrine as test-script-portability.sh's checks
+# 8-12 and section 5 above: heuristic, not a parser. --------------------------------------------
+SAR="$ROOT/scripts/sar-summary.sh"
+KS_LINE=$(grep -n 'SB_SAR_SUMMARY:-on.*off.*exit 0' "$SAR" | head -1 | cut -d: -f1)
+[ -n "$KS_LINE" ] || fail "F5 setup: could not locate the SB_SAR_SUMMARY kill-switch line in sar-summary.sh"
+PRE_KS=$(head -n "$KS_LINE" "$SAR")
+_spawn=$(printf '%s\n' "$PRE_KS" | grep -v '^[[:space:]]*#' | grep -En '(^|[^a-zA-Z_])(cat|jq|tr)[[:space:]]')
+[ -z "$_spawn" ] || fail "F5: a cat/jq/tr spawn happens before sar-summary.sh's own kill switches decide whether to run: $_spawn"
+pass "F5: sar-summary.sh's busy-marker clear and its own kill switches are fork-free (no cat/jq/tr spawn before them)"
 
 echo; echo "ALL PASS"

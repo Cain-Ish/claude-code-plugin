@@ -32,6 +32,14 @@ PROMPT=$(printf '%s' "$RAW" | jq -r '.prompt // empty' 2>/dev/null | tr -d '\r' 
 [ -z "$PROMPT" ] && exit 0
 
 SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r' || true)
+# SEC-L2/SF-L7: a SEPARATE strict, full-match-or-reject id for the .busy marker path ONLY — the
+# exact rule buddy-statusline.sh already applies to SID via regex ([A-Za-z0-9_-]{1,64}, the whole
+# value or nothing). sar-summary.sh validates the RAW session_id the same way before its `rm -f`;
+# reusing the STRIPPED $SESSION_ID below (which keeps a safe-looking remainder from an unsafe raw
+# id, e.g. "../../x" -> "x") would let this hook write a marker under a name sar-summary.sh's
+# strict, unstripped check can never match — the marker would never be cleared, leaking forever.
+SID_SAFE=""
+[[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && SID_SAFE="$SESSION_ID"
 # Spine state (memo + .phase) is keyed by session id across four hooks — sanitize once
 # here so every writer/reader derives the identical filename (no path separators).
 SESSION_ID="${SESSION_ID//[^A-Za-z0-9_-]/}"; SESSION_ID="${SESSION_ID:0:64}"
@@ -50,14 +58,14 @@ SB_MANIFEST_SESSION_ID="$SESSION_ID"
 # sprite-off buddy (buddy.json, read via a builtin — no extra spawn) draws no dots either, so it
 # never gets a marker to draw them from.
 [ "${SB_HOOK_PROFILE:-}" = minimal ] && : "${SB_BUDDY:=off}"
-if [ "${SB_BUDDY:-on}" != "off" ] && [ -n "$SESSION_ID" ]; then
+if [ "${SB_BUDDY:-on}" != "off" ] && [ -n "$SID_SAFE" ]; then
   _bbd="${BRAIN_DIR:-$HOME/.second-brain}"
   if [ -d "$_bbd/.buddy" ]; then
     _bcfg=""
     if [ -f "$_bbd/buddy.json" ]; then IFS= read -r -d '' _bcfg < "$_bbd/buddy.json" 2>/dev/null || true; fi
     if ! [[ "$_bcfg" =~ \"mute\"[[:space:]]*:[[:space:]]*true ]] && ! [[ "$_bcfg" =~ \"sprite\"[[:space:]]*:[[:space:]]*false ]]; then
       if printf -v _bnow '%(%s)T' -1 2>/dev/null && [[ "$_bnow" =~ ^[0-9]+$ ]]; then :; else _bnow=$(date +%s); fi
-      printf '%s' "$_bnow" > "$_bbd/.buddy/$SESSION_ID.busy" 2>/dev/null || true
+      printf '%s' "$_bnow" > "$_bbd/.buddy/$SID_SAFE.busy" 2>/dev/null || true
     fi
   fi
 fi

@@ -160,9 +160,13 @@ if [ "$MUTE" != "1" ] && [ "$SPRITE_OFF" != "1" ] && [ -n "$SID" ]; then
   if [ -f "$BUSYF" ]; then
     BM=""; IFS= read -r BM < "$BUSYF" 2>/dev/null || true
     if [[ "$BM" =~ ^[0-9]+$ ]] && [ $(( now - BM )) -lt 600 ] && { [ "$KIND" != "said" ] || [ "$ETS" -le "$BM" ]; }; then
-      _nd=$(( now % 3 + 1 )); DOTS_SUF=""; _j=0
-      while [ "$_j" -lt "$_nd" ]; do DOTS_SUF="$DOTS_SUF·"; _j=$(( _j + 1 )); done
-      while [ "${#DOTS_SUF}" -lt 3 ]; do DOTS_SUF="$DOTS_SUF "; done
+      # F4 (portability): fixed literals, not a byte-counting pad loop — `·` is 2 bytes in UTF-8,
+      # so `${#DOTS_SUF}` counts BYTES (not glyphs) under a C/no locale, common when Claude Code
+      # is launched from PowerShell/cmd. The old `while [ "${#DOTS_SUF}" -lt 3 ]` loop then built
+      # 2/2/3 glyphs across the three phases instead of a fixed 3 (the byte count hit 3 before a
+      # real 3rd glyph was added), so the dot slot — and everything after it on line 1 — shifted
+      # width every 3 s.
+      case $(( now % 3 + 1 )) in 1) DOTS_SUF='·  ' ;; 2) DOTS_SUF='·· ' ;; *) DOTS_SUF='···' ;; esac
     fi
   fi
 fi

@@ -19,16 +19,30 @@ set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
-RAW=$(cat 2>/dev/null || true)
-SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
+# Read stdin ONCE, builtins only (no `cat` spawn) — mirrors buddy-statusline.sh's own hot-path
+# read, and matters here too: F5 (portability review), see below.
+RAW=""
+[ -t 0 ] || IFS= read -r -t 2 -d '' RAW || true
+RAW="${RAW//$'\r'/}"
 
 # --- Thinking-animation busy marker (0.54.0): clear here, BEFORE this hook's own kill switches
 # and the SAR-specific early exits below — Stop fires on every session Stop with no matcher on
 # this hook, so this is the one guaranteed clear point for what persona-context.sh stamped at the
 # start of the turn. rm -f is a no-op when nothing was ever written (a muted / sprite-off /
 # SB_BUDDY=off session never creates the marker); it never blocks or fails this hook.
+# F5 (portability review): this must stay FORK-FREE — the old `cat`+`jq`+`tr` pipeline spawned all
+# three on EVERY Stop, even when SB_SAR_SUMMARY=off or SB_BUDDY=off (this hook's OWN kill switches,
+# unrelated to whether the marker gets cleared). Session-id-by-regex, builtins only — the exact
+# technique buddy-statusline.sh already uses for the same reason on its own hot path.
+# SEC-L2/SF-L7: this regex doubles as the sanitizer — only [A-Za-z0-9_-]{1,64} can ever land in
+# BASH_REMATCH, so a session_id carrying path separators (e.g. "../../x") simply fails to match and
+# this hook deletes nothing. Full-match-or-reject, not strip: the same rule persona-context.sh's
+# write side applies to this identical marker path, so a marker this hook can find is exactly a
+# marker persona-context.sh could have written, and vice versa.
+SID=""
+[[ "$RAW" =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9_-]{1,64})\" ]] && SID="${BASH_REMATCH[1]}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
-[ -n "$SESSION_ID" ] && rm -f "$BRAIN_DIR/.buddy/$SESSION_ID.busy" 2>/dev/null
+[ -n "$SID" ] && rm -f "$BRAIN_DIR/.buddy/$SID.busy" 2>/dev/null
 
 [ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_SAR_SUMMARY:=off}" # hook-profile shim: this check runs before lib.sh's mapping (or lib-less)
 [ "${SB_SAR_SUMMARY:-on}" = "off" ] && exit 0
@@ -38,6 +52,7 @@ BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 # Bail if stdin isn't a JSON object (fail-soft on malformed input).
 echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
+SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
 [ -z "$SESSION_ID" ] && exit 0
 
 AUDIT="$BRAIN_DIR/audit-log.jsonl"
