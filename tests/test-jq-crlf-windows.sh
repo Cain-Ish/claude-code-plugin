@@ -5,6 +5,8 @@
 # Windows here, so this test STUBS jq to reproduce the exact CRLF behavior on Linux, then runs the real
 # scripts and asserts they survive. ORACLE: real script behavior under the faulty jq, not a re-impl.
 # pins: SB_BUDDY_COLS — width fixture so the buddy renderer draws the thought-cloud row the steam-colour check reads
+# run-all-timeout: 180   (validate-plugin.sh + several full session-load.sh/merge invocations
+# under the jq-CRLF stub by design; measured 90s alone on MSYS under load)
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
@@ -127,6 +129,36 @@ plan_field=$(grep -o 'gate=compact-reinject[^"]*plan=[0-9]*' "$T/audit-log.jsonl
 case "${plan_field:-x}" in ''|*[!0-9]*) fail "case5: the audit row's plan= field did not parse as an integer (audit-log: $(cat "$T/audit-log.jsonl" 2>/dev/null))" ;; esac
 pass "session-load.sh --compact renders 2 Plan items with no CR under Windows jq; gate row plan= is an integer"
 rm -rf "$T"
+
+# 5b. Same as case 5, but PROJECT.md itself is CRLF on disk (a Windows-authored or
+# git-autocrlf-checked-out file, not just a Windows-jq artifact) — this is the fixture that
+# actually exercises session-load.sh's own `_ccrlf` normalize-before-parse block (od-detects
+# a 0d byte, tr -d '\r' into a scratch copy). Case 5's LF-only fixture never hits that branch
+# at all, so removing the normalization entirely still passed case 5 — on MSYS, gawk's `##
+# Plan$` line match tolerates a trailing \r anyway (it strips it internally), silently
+# masking exactly the regression this fixture is meant to catch.
+T5B=$(mktemp -d); mkdir -p "$T5B/.injected" "$T5B/projects/proj5b"
+printf '%s\r\n' \
+  '# PROJECT: proj5b' '' '## Goal' 'GOAL-5B' '' '## Handoff' \
+  'written: t=1789000000 session=abcdef12 branch=main head=abc1234' 'HANDOFF-5B' '' \
+  '## Plan' '- [ ] item-one' '- [ ] item-two' '' '## Conventions' \
+  > "$T5B/projects/proj5b/PROJECT.md"
+od -An -tx1 "$T5B/projects/proj5b/PROJECT.md" | grep -q ' 0d' \
+  || fail "case5b: the CRLF fixture itself has no CR byte — test would be vacuous"
+printf '%s' "proj5b" > "$T5B/.injected/sid5b.slug"
+WORK5B="$T5B/work5b"; mkdir -p "$WORK5B"
+out5b=$(printf '{"session_id":"sid5b","cwd":"%s","source":"compact"}' "$WORK5B" \
+  | RUN env BRAIN_DIR="$T5B" HOME="$T5B/home5b" bash "$ROOT/scripts/session-load.sh" --compact)
+[ -n "$out5b" ] && printf '%s' "$out5b" | "$REALJQ" -e '.hookSpecificOutput.hookEventName == "SessionStart"' >/dev/null 2>&1 \
+  || fail "case5b: --compact on a CRLF PROJECT.md produced no/invalid output under Windows jq (got: $out5b)"
+ctx5b=$(printf '%s' "$out5b" | "$REALJQ" -r '.hookSpecificOutput.additionalContext')
+printf '%s' "$ctx5b" | grep -qF 'GOAL-5B' || fail "case5b: CRLF PROJECT.md's GOAL-5B missing from the card (ctx: $ctx5b)"
+item5b_n=$(printf '%s' "$ctx5b" | awk '/^Plan — unfinished/{f=1;next} f&&/^- /{c++} f&&!/^- /{exit} END{print c+0}')
+[ "$item5b_n" = "2" ] || fail "case5b: expected 2 rendered Plan item lines from a CRLF PROJECT.md, got $item5b_n (ctx: $ctx5b)"
+grep -q 'reason=' "$T5B/audit-log.jsonl" "$T5B/error-log.jsonl" 2>/dev/null \
+  && fail "case5b: a reason= (empty/no-project) row fired against a valid CRLF PROJECT.md"
+pass "session-load.sh --compact normalizes a CRLF-on-disk PROJECT.md before parsing (GOAL-5B + 2 Plan items render)"
+rm -rf "$T5B"
 
 # 6'. compact_pending merged under the Windows-jq CRLF stub: the emitted Plan line is
 #     add-only and PROJECT.md itself carries no \r (v2's open-work case 6 is dropped;

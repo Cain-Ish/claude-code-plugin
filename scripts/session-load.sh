@@ -53,6 +53,44 @@ sb_card_trunc() {
   # lacks) keep this portable. CR/LF/TAB flattened too, defense in depth.
   CARD_LINE="${CARD_LINE//$'\xe2\x80\xa8'/ }"   # U+2028 LINE SEPARATOR
   CARD_LINE="${CARD_LINE//$'\xe2\x80\xa9'/ }"   # U+2029 PARAGRAPH SEPARATOR
+
+  # SEC-M1: scrub C0/C1 controls, DEL, and a curated \p{Cf} set BEFORE anything else — the
+  # capture side (sanitize.ts) only strips ZWSP/WJ/BOM/Tags, so ESC/BEL/VT/FF/NEL, bidi
+  # override/isolate controls, ZWJ and SOFT HYPHEN all survive into PROJECT.md untouched and
+  # would otherwise reach this card verbatim. No jq/node spawn here — this function runs
+  # per-bullet inside every section's render loop (up to ~26 calls/card on the hot SessionStart
+  # path), so the scrub is pure bash builtins, same "no per-item spawns" constraint as the
+  # rest of this function (see the header comment above sb_hot_decisions_filter).
+  #   - [[:cntrl:]] is a byte-level POSIX class: it only ever matches single ASCII bytes
+  #     (0x00-0x1F, 0x7F), which UTF-8 guarantees never appear as continuation/lead bytes of
+  #     a multi-byte sequence — safe under any locale, covers CR/LF/TAB too (see below).
+  #   - C1 controls (U+0080-U+009F, incl. NEL U+0085) are ALWAYS the 2-byte UTF-8 sequence
+  #     \xc2 followed by a trail byte in \x80-\x9f — verified as a working bash range-glob on
+  #     this box's Git-Bash/MSYS (git-bash 5.2) and on Linux/macOS bash.
+  #   - The enumerated Cf set below is not the full Unicode General_Category=Format property
+  #     (which needs \p{Cf} — jq/Oniguruma, not bash glob) but the specific characters this
+  #     review flagged and the ones sanitize.ts does NOT already strip: bidi marks/embeds/
+  #     overrides/isolates, ZWJ/ZWNJ/ZWSP, WORD JOINER, and SOFT HYPHEN.
+  CARD_LINE="${CARD_LINE//[[:cntrl:]]/ }"                 # C0 (incl. CR/LF/TAB/ESC/BEL/VT/FF) + DEL
+  CARD_LINE="${CARD_LINE//$'\xc2'[$'\x80'-$'\x9f']/ }"    # C1 controls (incl. NEL U+0085)
+  CARD_LINE="${CARD_LINE//$'\xc2\xad'/ }"                 # U+00AD SOFT HYPHEN
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x8b'/ }"             # U+200B ZERO WIDTH SPACE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x8c'/ }"             # U+200C ZWNJ
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x8d'/ }"             # U+200D ZWJ
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x8e'/ }"             # U+200E LRM
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\x8f'/ }"             # U+200F RLM
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\xaa'/ }"             # U+202A LRE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\xab'/ }"             # U+202B RLE
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\xac'/ }"             # U+202C PDF
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\xad'/ }"             # U+202D LRO
+  CARD_LINE="${CARD_LINE//$'\xe2\x80\xae'/ }"             # U+202E RLO
+  CARD_LINE="${CARD_LINE//$'\xe2\x81\xa0'/ }"             # U+2060 WORD JOINER
+  CARD_LINE="${CARD_LINE//$'\xe2\x81\xa6'/ }"             # U+2066 LRI
+  CARD_LINE="${CARD_LINE//$'\xe2\x81\xa7'/ }"             # U+2067 RLI
+  CARD_LINE="${CARD_LINE//$'\xe2\x81\xa8'/ }"             # U+2068 FSI
+  CARD_LINE="${CARD_LINE//$'\xe2\x81\xa9'/ }"             # U+2069 PDI
+  CARD_LINE="${CARD_LINE//$'\xef\xbb\xbf'/ }"             # U+FEFF BOM / ZERO WIDTH NO-BREAK SPACE
+
   CARD_LINE="${CARD_LINE//$'\r'/ }"
   CARD_LINE="${CARD_LINE//$'\n'/ }"
   CARD_LINE="${CARD_LINE//$'\t'/ }"
@@ -63,6 +101,19 @@ sb_card_trunc() {
   # "[untrusted:compact D]" — must never be mistaken for the card's own banner close; markers
   # render as parentheses instead, e.g. "(untrusted:compact 2026-09-26)".
   CARD_LINE="${CARD_LINE//\[/(}"; CARD_LINE="${CARD_LINE//\]/)}"
+  # SEC-M1: fold non-ASCII bracket lookalikes to the SAME ASCII parens — a fullwidth/CJK/
+  # mathematical bracket visually mimics "[...]" without being the literal ASCII byte the
+  # fold above targets, and would otherwise sail through as "［End untrusted reference］".
+  CARD_LINE="${CARD_LINE//$'\xef\xbc\xbb'/(}"   # U+FF3B FULLWIDTH LEFT SQUARE BRACKET
+  CARD_LINE="${CARD_LINE//$'\xef\xbc\xbd'/)}"   # U+FF3D FULLWIDTH RIGHT SQUARE BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x90'/(}"   # U+3010 LEFT BLACK LENTICULAR BRACKET 【
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x91'/)}"   # U+3011 RIGHT BLACK LENTICULAR BRACKET 】
+  CARD_LINE="${CARD_LINE//$'\xe2\x9f\xa6'/(}"   # U+27E6 MATHEMATICAL LEFT WHITE SQUARE BRACKET ⟦
+  CARD_LINE="${CARD_LINE//$'\xe2\x9f\xa7'/)}"   # U+27E7 MATHEMATICAL RIGHT WHITE SQUARE BRACKET ⟧
+  # SEC-M1 defense in depth: neutralize the phrase "untrusted reference" (any case) even with
+  # brackets already folded — a bare-text occurrence still reads as confusingly close to the
+  # banner's own wording. bash 3.2-portable (no `${var,,}`): a per-position bracket-class glob.
+  CARD_LINE="${CARD_LINE//[Uu][Nn][Tt][Rr][Uu][Ss][Tt][Ee][Dd] [Rr][Ee][Ff][Ee][Rr][Ee][Nn][Cc][Ee]/untrusted-reference}"
   [ "${#CARD_LINE}" -le "$max" ] && return 0
   CARD_LINE="${CARD_LINE:0:$max}"
   case "$CARD_LINE" in *' '*) CARD_LINE="${CARD_LINE% *}" ;; esac
@@ -79,13 +130,23 @@ sb_card_trunc() {
 # convention as sb_card_trunc's $CARD_LINE — because a forking $(...) subshell would also lose
 # the $SL_DRIFT assignment back to the caller.
 sb_handoff_label() {
-  local line="$1" rest tok t="" branch="" head="" segs=""
+  local line="$1" rest tok t="" branch="" head="" sess="" segs=""
   rest="${line#"written: "}"
   for tok in $rest; do
     case "$tok" in
-      t=*)       [[ "${tok#t=}" =~ ^[0-9]{9,11}$ ]]                && t="${tok#t=}" ;;
+      # CR-L2: a leading-zero `t=0999999999` used to pass `^[0-9]{9,11}$` and then blow up
+      # bash arithmetic ("value too great for base") in the age=$((now-t)) below — bash
+      # treats a leading-0 numeric literal as octal, and 9 is not a valid octal digit. No
+      # real epoch stamp this script writes ever has a leading zero (merge-project-
+      # update.sh's `date +%s`), so requiring a nonzero leading digit is a pure hardening,
+      # not a behavior change for legitimate stamps.
+      t=*)       [[ "${tok#t=}" =~ ^[1-9][0-9]{8,10}$ ]]           && t="${tok#t=}" ;;
       branch=*)  [[ "${tok#branch=}" =~ ^[A-Za-z0-9._/-]{1,40}$ ]] && branch="${tok#branch=}" ;;
       head=*)    [[ "${tok#head=}" =~ ^[0-9a-f]{7,12}$ ]]          && head="${tok#head=}" ;;
+      # CR-L3: session= is the writer's stamp_sid8 (merge-project-update.sh:762, first 8
+      # chars of an already-sanitized [A-Za-z0-9_-] session id) — same charset/length as
+      # SL_SESSION_ID's own sanitizer above, validated before ever being compared.
+      session=*) [[ "${tok#session=}" =~ ^[A-Za-z0-9_-]{1,8}$ ]]  && sess="${tok#session=}" ;;
     esac
   done
   SL_DRIFT="none"
@@ -102,21 +163,46 @@ sb_handoff_label() {
     segs="${segs}${segs:+ | }$branch @ $head"
   fi
   if [ -n "$head" ]; then
-    local dcount dec
-    dcount=$(sb_timeout "${SB_HANDOFF_DRIFT_TIMEOUT:-2}" git -c log.showSignature=false \
-      -C "${SL_GIT_ROOT:-$PWD}" rev-list --count "$head..HEAD" 2>/dev/null)
-    dec=$?
+    local dcount dec herrf="" herrtxt=""
+    herrf=$(mktemp 2>/dev/null) || true
+    if [ -n "$herrf" ]; then
+      dcount=$(sb_timeout "${SB_HANDOFF_DRIFT_TIMEOUT:-2}" git -c log.showSignature=false \
+        -C "${SL_GIT_ROOT:-$PWD}" rev-list --count "$head..HEAD" 2>"$herrf")
+      dec=$?
+      herrtxt=$(cat "$herrf" 2>/dev/null)
+      rm -f "$herrf" 2>/dev/null
+    else
+      dcount=$(sb_timeout "${SB_HANDOFF_DRIFT_TIMEOUT:-2}" git -c log.showSignature=false \
+        -C "${SL_GIT_ROOT:-$PWD}" rev-list --count "$head..HEAD" 2>/dev/null)
+      dec=$?
+    fi
     dcount="${dcount%$'\r'}"
     if [ "$dec" -eq 124 ]; then
       SL_DRIFT="timeout"
-    elif [ "$dec" -ne 0 ] || ! [[ "$dcount" =~ ^[0-9]+$ ]]; then
+    elif [ "$dec" -eq 0 ] && [[ "$dcount" =~ ^[0-9]+$ ]]; then
+      SL_DRIFT="$dcount"
+      if [ "$dcount" -gt 0 ]; then
+        segs="${segs}${segs:+ | }$dcount commits since"
+      # CR-L3: "this session" claims THIS session wrote the handoff you're looking at — that
+      # is only true when the stamp's own session= token matches the CURRENT session, not
+      # merely whenever dcount is 0 (a handoff from a stale/replayed session, or a repo with
+      # no new commits since an OLDER session's stamp, would otherwise render the same
+      # misleading "this session" text).
+      elif [ -n "$sess" ] && [ -n "$SL_SESSION_ID" ] && [ "$sess" = "${SL_SESSION_ID:0:8}" ]; then
+        segs="${segs}${segs:+ | }this session"
+      else
+        segs="${segs}${segs:+ | }0 commits since"
+      fi
+    # SF-M4/CR-L5: only claim "base commit not in this clone" when git ITSELF says the
+    # revision is unknown/bad (a real drift-detection positive) — fatal: bad/unknown/
+    # ambiguous revision. Any OTHER git failure (127 git-not-found, 128 not-a-repo, a
+    # dubious-ownership refusal, etc.) is an ENVIRONMENT failure, not evidence of drift, and
+    # must render no drift claim at all — it just logs drift=error:<ec> below.
+    elif printf '%s' "$herrtxt" | grep -qiE 'bad revision|unknown revision|ambiguous argument'; then
       SL_DRIFT="unknown"
       segs="${segs}${segs:+ | }base commit not in this clone"
     else
-      SL_DRIFT="$dcount"
-      if [ "$dcount" -gt 0 ]; then segs="${segs}${segs:+ | }$dcount commits since"
-      else                          segs="${segs}${segs:+ | }this session"
-      fi
+      SL_DRIFT="error:$dec"
     fi
   fi
   if [ -n "$segs" ]; then HLABEL="Handoff ($segs — verify before acting):"
@@ -237,10 +323,11 @@ $hoffout"
   fi
 
   # Plan block (both modes) — one awk over $file for the counts AND the up-to-5 rendered
-  # lines (replaces the old two separate plan_open/plan_total awks below the render call;
-  # net -1 spawn). plan_open/plan_total are the TRUE counts (for the trusted trailing "Plan:
-  # <open>/<total>" line); plan_rendered_n (below) is how many lines actually made the card,
-  # which is what the gate= log's plan= field reports.
+  # lines (replaces the old two separate plan_open/plan_total awks below the render call).
+  # The counts/items split below the awk is fork-free bash parameter expansion (CR-H1), not
+  # a second spawn. plan_open/plan_total are the TRUE counts (for the trusted trailing "Plan:
+  # <open>/<total>" line); plan_rendered_n (recomputed post-truncation, CR-L5, below) is how
+  # many lines actually SURVIVED into the card, which is what the gate= log's plan= reports.
   local plan_raw plan_counts plan_item_lines plan_open=0 plan_total=0 plan_stale=0
   plan_raw=$(awk '
     /^## Plan$/ { f=1; next }
@@ -253,8 +340,27 @@ $hoffout"
       printf "#counts %d %d %d\n", open+0, total+0, stale+0
     }
   ' "$file")
-  plan_counts=$(printf '%s\n' "$plan_raw" | grep '^#counts')
-  plan_item_lines=$(printf '%s\n' "$plan_raw" | grep -v '^#counts')
+  # CR-H1: a torn/invalid UTF-8 byte anywhere in a Plan line made GNU grep's binary-file
+  # heuristic fire on this stdin stream ("Binary file (standard input) matches"), which then
+  # rendered as a bogus Plan item and silently swallowed the real #counts line (also
+  # reproduced on Linux grep 3.11 — every Plan item AFTER the torn line vanished). The #counts
+  # line is always LAST (the awk program above prints it in its END block after every item
+  # line) — bash parameter expansion on the last-newline boundary needs no grep/awk spawn at
+  # all: `##*\n` strips everything up to and including the final newline (the counts line
+  # survives); `%\n*` strips from the final newline onward (only the item lines survive). The
+  # no-items case (plan_raw is the single #counts line, no newline at all) needs its own
+  # branch — plain `%$'\n'*`/`##*$'\n'` are no-ops on a string with no newline, which would
+  # otherwise leave plan_item_lines holding the counts line itself.
+  case "$plan_raw" in
+    *$'\n'*)
+      plan_counts="${plan_raw##*$'\n'}"
+      plan_item_lines="${plan_raw%$'\n'*}"
+      ;;
+    *)
+      plan_counts="$plan_raw"
+      plan_item_lines=""
+      ;;
+  esac
   set -- $plan_counts
   plan_open="${2:-0}"; plan_total="${3:-0}"; plan_stale="${4:-0}"
 
@@ -356,27 +462,55 @@ $tail"
     fi
   done
 
-  # Recompute `dropped` AFTER truncation, from what actually SURVIVED in $out.
+  # Recompute `dropped` AFTER truncation, from what actually SURVIVED in $out. F5 (portability
+  # review): a prior version of this recompute forked printf|grep up to 6 times per card —
+  # every SessionStart — to answer a pure string-containment question bash answers for free.
+  # Restored to fork-free `case` pattern matching (the form the original scope-banner code
+  # used before this recompute was added). `Handoff`/`Plan — unfinished` are checked as
+  # line-START matches (preceded by a literal newline), same anchoring as the old `grep -q
+  # '^...'`; the others were unanchored `grep -qF` substring checks, so a plain `*text*` glob
+  # is equivalent.
   dropped=""
   if [ -n "$first_label" ]; then
-    printf '%s\n' "$out" | grep -qF "$first_label:" || dropped="$dropped $first_label"
+    case "$out" in *"$first_label:"*) ;; *) dropped="$dropped $first_label" ;; esac
   else
     dropped="$dropped Direction"
   fi
-  [ -n "$hoffraw" ]     && { printf '%s\n' "$out" | grep -q '^Handoff'             || dropped="$dropped Handoff"; }
-  [ "$plan_shown" = 1 ] && { printf '%s\n' "$out" | grep -q '^Plan — unfinished'   || dropped="$dropped Plan"; }
+  if [ -n "$hoffraw" ]; then
+    case "$out" in *$'\n'"Handoff"*) ;; *) dropped="$dropped Handoff" ;; esac
+  fi
+  if [ "$plan_shown" = 1 ]; then
+    case "$out" in *$'\n'"Plan — unfinished"*) ;; *) dropped="$dropped Plan" ;; esac
+  fi
   if [ "$lean" != "lean" ]; then
-    [ -n "$decraw" ]  && { printf '%s\n' "$out" | grep -qF 'Decisions:'     || dropped="$dropped Decisions"; }
-    [ -n "$convraw" ] && { printf '%s\n' "$out" | grep -qF 'Conventions:'   || dropped="$dropped Conventions"; }
-    [ -n "$blkraw" ]  && { printf '%s\n' "$out" | grep -qF 'Open blockers:' || dropped="$dropped Open-blockers"; }
+    if [ -n "$decraw" ]; then
+      case "$out" in *"Decisions:"*) ;; *) dropped="$dropped Decisions" ;; esac
+    fi
+    if [ -n "$convraw" ]; then
+      case "$out" in *"Conventions:"*) ;; *) dropped="$dropped Conventions" ;; esac
+    fi
+    if [ -n "$blkraw" ]; then
+      case "$out" in *"Open blockers:"*) ;; *) dropped="$dropped Open-blockers" ;; esac
+    fi
   fi
   dropped="${dropped# }"
+
+  # CR-L5: plan= must count lines that actually SURVIVED whole-card truncation, not the
+  # pre-truncation render count computed above — under budget pressure the truncation loop
+  # pops body lines from the END first, and Plan is the last section in lean mode, so the
+  # pre-truncation count would silently over-report what the client actually received.
+  plan_rendered_n=$(printf '%s\n' "$out" | awk '
+    /^Plan — unfinished/ { f=1; next }
+    f && /^\[End untrusted reference\]/ { exit }
+    f && /^- / { c++ }
+    END { print c+0 }
+  ')
 
   if [ "$lean" = "lean" ]; then
     local goalflag=0 handoffflag=0
     [ -n "$first_label" ] && goalflag=1
     [ -n "$hoffraw" ] && handoffflag=1
-    sb_log_error "session-load.sh" "gate=compact-reinject slug=$slug sid=${SL_SESSION_ID:0:8} bytes=${#out} goal=$goalflag handoff=$handoffflag plan=$plan_rendered_n stale=$plan_stale drift=${SL_DRIFT:-none}" 0
+    sb_log_error "session-load.sh" "gate=compact-reinject slug=$slug sid=${SL_SESSION_ID:0:8} src=${SL_SLUG_SRC:-} bytes=${#out} goal=$goalflag handoff=$handoffflag plan=$plan_rendered_n stale=$plan_stale drift=${SL_DRIFT:-none}" 0
   else
     sb_log_error "session-load.sh" "gate=repo-card bytes=${#out} dropped=${dropped:-none} plan=$plan_rendered_n stale=$plan_stale drift=${SL_DRIFT:-none}" 0
   fi
@@ -419,16 +553,25 @@ if [ "${1:-}" = "--compact" ]; then
   if [ "${SB_COMPACT_REINJECT:-on}" = "off" ]; then
     exit 0
   fi
+  # SF-L5: record whether the slug came from the per-session memo (zero spawns) or the
+  # pin/cwd resolve fallback (sb_session_slug reads the same memo file internally; probe it
+  # here first so the gate= rows below can say which path actually decided the slug).
+  SL_SLUG_SRC="resolve"
+  [ -n "$SL_SESSION_ID" ] && [ -s "$BRAIN_DIR/.injected/$SL_SESSION_ID.slug" ] && SL_SLUG_SRC="memo"
   _cslug=$(sb_session_slug "$SL_SESSION_ID")   # memo, zero spawns; else sb_resolve_slug
   case "$_cslug" in
-    ''|.*|*[!A-Za-z0-9._-]*)
-      sb_log_error "session-load.sh" "gate=compact-reinject sid=${SL_SESSION_ID:0:8} reason=bad-slug" 0
+    '')
+      sb_log_error "session-load.sh" "gate=compact-reinject sid=${SL_SESSION_ID:0:8} src=$SL_SLUG_SRC reason=bad-slug-empty" 0
+      exit 0
+      ;;
+    .*|*[!A-Za-z0-9._-]*)
+      sb_log_error "session-load.sh" "gate=compact-reinject sid=${SL_SESSION_ID:0:8} src=$SL_SLUG_SRC reason=bad-slug-charset" 0
       exit 0
       ;;
   esac
   _cpf="$BRAIN_DIR/projects/$_cslug/PROJECT.md"
   if [ ! -f "$_cpf" ]; then
-    sb_log_error "session-load.sh" "gate=compact-reinject slug=$_cslug sid=${SL_SESSION_ID:0:8} reason=no-project" 0
+    sb_log_error "session-load.sh" "gate=compact-reinject slug=$_cslug sid=${SL_SESSION_ID:0:8} src=$SL_SLUG_SRC reason=no-project" 0
     exit 0
   fi
   # CRLF normalize a Windows/imported PROJECT.md for the read-only awk parsing below (same
@@ -440,11 +583,22 @@ if [ "${1:-}" = "--compact" ]; then
   _ccard=$(sb_repo_card "$_cpf" "$_cslug" 1536 lean)
   rm -f "${_ccrlf:-}" 2>/dev/null
   if [ -z "$_ccard" ]; then
-    sb_log_error "session-load.sh" "gate=compact-reinject slug=$_cslug sid=${SL_SESSION_ID:0:8} reason=empty" 0
+    sb_log_error "session-load.sh" "gate=compact-reinject slug=$_cslug sid=${SL_SESSION_ID:0:8} src=$SL_SLUG_SRC reason=empty" 0
     exit 0
   fi
   if command -v jq >/dev/null 2>&1; then
-    jq -nc --arg c "$_ccard" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$c}}'
+    _cjson=$(jq -nc --arg c "$_ccard" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$c}}' 2>/dev/null)
+    if [ -n "$_cjson" ]; then
+      printf '%s\n' "$_cjson"
+    else
+      # SF-L1: the gate=compact-reinject "success" row (logged inside sb_repo_card, BEFORE
+      # this emit) must not stand alone if the emit itself then fails — jq emitting nothing
+      # (a parse/build failure on $_ccard) would otherwise silently deliver NO context at all
+      # while the audit trail still reads success. Fall back to the raw card text (still
+      # useful to a client that reads plain stdout) and log the emit failure loudly.
+      sb_log_error "session-load.sh" "compact-reinject jq-emit-failed slug=$_cslug sid=${SL_SESSION_ID:0:8}" 1
+      printf '%s\n' "$_ccard"
+    fi
   else
     printf '%s\n' "$_ccard"
   fi
@@ -479,6 +633,13 @@ git_remote=$(sb_git_remote "${CLAUDE_PROJECT_DIR:-$PWD}")
 # never the whole-home-directory codemap target brain-os-run.sh would otherwise
 # pick up from the registry's most-recently-active root_path.
 _reg_abs="${CLAUDE_PROJECT_DIR:-$PWD}"
+# CR-L5/SF-M4: the startup-mode Handoff drift check (sb_handoff_label, above) must run git
+# against the REGISTERED project root, not the hook's raw $PWD — the spec's own git-root
+# (docs/plans/2026-09-24-repo-brain.md §5.3) is _reg_abs. Before this, SL_GIT_ROOT was only
+# ever set on the --compact early-exit path; every startup-mode drift check ran unset,
+# falling back to sb_handoff_label's own `${SL_GIT_ROOT:-$PWD}` — $PWD at hook-invocation
+# time, which is not guaranteed to be the project root Claude Code registered.
+SL_GIT_ROOT="$_reg_abs"
 _reg_refused=$(sb_registration_refused_reason "$_reg_abs")
 if [ -n "$_reg_refused" ]; then
   sb_log_error "session-load.sh" "gate=registration refused $_reg_refused root=$_reg_abs" 0
@@ -862,22 +1023,30 @@ fi
 # gate=postcompact-capture row (pre-compact.sh "post" mode, Set 1) with no matching
 # gate=compact-reinject row for the SAME sid means SessionStart(compact) output may have
 # regressed upstream (anthropics/claude-code#12151) — the delivery mechanism this branch
-# relies on is not officially guaranteed stable. One awk over the audit log (bounded at
-# 5000 lines; no per-item spawns), then a `.injected/<sid8>.compact.seen` dedup file so a
-# real regression is reported once, not every session forever. `.seen` files fall under the
-# existing `.injected` 7-day GC (ensure-dirs.sh). Kill switch SB_COMPACT_REINJECT=off (same
-# switch as the re-inject itself — an operator who turned re-inject off does not want to be
-# told it isn't pairing).
+# relies on is not officially guaranteed stable. ONE awk process over the whole audit log (no
+# tail/tr pipe — awk strips its own \r per line, and the log is already rotation-capped at
+# 5000 lines/5MiB by sb_rotate_audit_log, the same "read the whole capped file" idiom the
+# RECON_ROW reconcile-trend read above uses), then a `.injected/<sid8>.compact.seen` dedup
+# file so a real regression is reported once, not every session forever. `.seen` files fall
+# under the existing `.injected` 7-day GC (ensure-dirs.sh). Kill switch SB_COMPACT_REINJECT=off
+# (same switch as the re-inject itself — an operator who turned re-inject off does not want to
+# be told it isn't pairing).
 if [ "${SB_COMPACT_REINJECT:-on}" != "off" ] && [ -f "$SB_AUDIT_FILE" ]; then
-  _pa_sids=$(tail -n 5000 "$SB_AUDIT_FILE" 2>/dev/null | tr -d '\r' | awk '
-    /gate=postcompact-capture/ {
+  # SEC-L1: anchor the postcompact-capture trigger on the row's OWN message field starting
+  # with the literal gate token — matching /gate=postcompact-capture/ ANYWHERE in the JSON
+  # line let an unrelated row (e.g. merge-project-update.sh's gate=plan-dropped, which logs
+  # untrusted Plan TEXT) forge a false pairing by simply quoting "gate=postcompact-capture
+  # sid=..." inside its own dropped-text payload — that row is not a real capture event.
+  _pa_sids=$(awk '
+    { sub(/\r$/, "") }
+    /"message":"gate=postcompact-capture / {
       if (match($0, /sid=[A-Za-z0-9]+/)) { s = substr($0, RSTART+4, RLENGTH-4); postc[s] = 1 }
     }
     /gate=compact-reinject/ {
       if (match($0, /sid=[A-Za-z0-9]+/)) { s = substr($0, RSTART+4, RLENGTH-4); reinj[s] = 1 }
     }
     END { for (s in postc) if (!(s in reinj)) print s }
-  ')
+  ' "$SB_AUDIT_FILE" 2>/dev/null)
   if [ -n "$_pa_sids" ]; then
     mkdir -p "$BRAIN_DIR/.injected" 2>/dev/null
     while IFS= read -r _pa_sid; do
