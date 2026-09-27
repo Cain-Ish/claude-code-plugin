@@ -2,7 +2,9 @@
 # pins: SB_EXTRACT — kill-switch test: asserts =off skips the LLM call but still archives + advances the marker (D077)
 # pins: SB_COMPACT_CAPTURE — kill-switch test: asserts =off skips PostCompact Pending-Tasks capture (C2-8)
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
-# run-all-timeout: 480   (18 full Stop-hook invocations by design; each ~13s on MSYS under load — spawn-bound lib.sh, see LC-11)
+# run-all-timeout: 480   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
+#   review batch added the C2-9b..C2-14 cases; measured 174s alone on a loaded MSYS box — well
+#   under budget, no raise needed; each ~13s on MSYS under load — spawn-bound lib.sh, see LC-11)
 # session deltas from the conversation transcript and merges them into
 # PROJECT.md + wiki via merge-project-update.sh.
 #
@@ -531,20 +533,24 @@ grep -q 'Fallback task' "$PROJ" || fail "C2-3: transcript fallback did not add F
 grep -q 'gate=postcompact-capture.*source=transcript' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "C2-3: expected source=transcript in the gate row"
 pass "C2-3: transcript isCompactSummary fallback adds the pending task, source=transcript"
 
-# C2-4: no summary anywhere -> exactly reason=no-summary; PROJECT.md sha + error-log unchanged.
+# C2-4: no summary anywhere -> exactly reason=no-summary; PROJECT.md untouched. SF-M1
+# (0.54.0 review fix): no-summary is now LOUD (ec1, src=nopayload here since neither a
+# payload summary nor a transcript_path was given) -- this INTENTIONALLY supersedes the
+# previous "error-log unchanged" contract, which made a real capture-path regression
+# (e.g. a format-drift bug silently disabling C2 forever) indistinguishable from the
+# ordinary "nothing to capture this compaction" case.
 # Separately, a missing transcript file must also degrade the same way, not crash.
 init_sandbox "c2-no-summary"
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
 HASH_BEFORE=$(content_hash "$PROJ")
-ERR_BEFORE=$([ -f "$SANDBOX/.second-brain/error-log.jsonl" ] && wc -l < "$SANDBOX/.second-brain/error-log.jsonl" || echo 0)
 PAYLOAD_C24=$(jq -nc --arg sid "test-session" --arg cwd "$SANDBOX/repo/test-slug" '{session_id:$sid, cwd:$cwd, transcript_path:"", trigger:"auto"}')
 printf '%s' "$PAYLOAD_C24" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
 grep -q 'gate=postcompact-capture.*reason=no-summary' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "C2-4: expected a reason=no-summary row"
 HASH_AFTER=$(content_hash "$PROJ")
 [ "$HASH_BEFORE" = "$HASH_AFTER" ] || fail "C2-4: PROJECT.md changed despite no summary"
-ERR_AFTER=$([ -f "$SANDBOX/.second-brain/error-log.jsonl" ] && wc -l < "$SANDBOX/.second-brain/error-log.jsonl" || echo 0)
-[ "$ERR_BEFORE" = "$ERR_AFTER" ] || fail "C2-4: error-log changed despite no summary"
-pass "C2-4: no summary anywhere -> reason=no-summary; PROJECT.md and error-log untouched"
+grep -q 'reason=no-summary src=nopayload' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  || fail "C2-4: SF-M1 -- expected a LOUD (ec1) src=nopayload row in error-log, got: $(cat "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null)"
+pass "C2-4: no summary anywhere -> reason=no-summary src=nopayload (LOUD, SF-M1); PROJECT.md untouched"
 PAYLOAD_C24B=$(jq -nc --arg sid "test-session2" --arg cwd "$SANDBOX/repo/test-slug" --arg tp "/nonexistent/transcript.jsonl" \
   '{session_id:$sid, cwd:$cwd, transcript_path:$tp, trigger:"auto"}')
 printf '%s' "$PAYLOAD_C24B" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
@@ -563,8 +569,11 @@ printf '%s' "$PAYLOAD_C25" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev
 grep -q 'Bold heading task' "$PROJ" || fail "C2-5: bold **Pending Tasks:** heading not recognized"
 pass "C2-5: bold **Pending Tasks:** heading still parses"
 
-# C2-6: injection gate -- a scanner-flagged bullet is blocked (reason=injection-flags, scanner);
-# a bullet carrying an invisible non-BMP char is blocked too (flags= contains invisible-chars).
+# C2-6: injection gate -- cut/sanitize/scan now happen ONCE inside merge-project-update.sh's
+# shared gate_untrusted_items() (SF-H1/SEC-M3/SEC-M4), not in this hook, so a scanner-flagged
+# bullet is blocked there (error-log gate=untrusted-items reason=scanner-failed) and this
+# hook's OWN gate row reports the merge as having SUCCEEDED (merge=ok) with pending=1 -- the
+# bullet reached the merge call, the merge call itself just added nothing.
 init_sandbox "c2-injection-scanner"
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
 SUMMARY_C26A='Summary:
@@ -573,8 +582,11 @@ SUMMARY_C26A='Summary:
 '
 compact_payload "test-session" "$SUMMARY_C26A" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
 grep -q 'Ignore previous instructions' "$PROJ" && fail "C2-6: injected bullet was added to the Plan"
-grep -q 'gate=postcompact-capture.*reason=injection-flags.*scanner' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "C2-6: expected reason=injection-flags with scanner"
-pass "C2-6: an injection-pattern bullet is blocked by the scanner subprocess"
+grep -q 'gate=untrusted-items caller=compact_pending reason=scanner-failed' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  || fail "C2-6: expected the shared gate's reason=scanner-failed row in error-log"
+grep -q 'gate=postcompact-capture.*pending=1 merge=ok' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+  || fail "C2-6: expected pending=1 merge=ok on this hook's own row (the merge call itself succeeded)"
+pass "C2-6: an injection-pattern bullet is blocked by the shared gate's scanner call"
 
 init_sandbox "c2-injection-invisible"
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
@@ -585,8 +597,9 @@ SUMMARY_C26B="Summary:
 "
 compact_payload "test-session" "$SUMMARY_C26B" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
 grep -q 'weird' "$PROJ" && fail "C2-6: invisible-char bullet was added to the Plan"
-grep -q 'gate=postcompact-capture.*flags=.*invisible-chars' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "C2-6: expected flags= containing invisible-chars"
-pass "C2-6: a bullet containing a non-BMP invisible char is blocked (invisible-chars flag)"
+grep -q 'gate=untrusted-items caller=compact_pending reason=invisible-chars' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  || fail "C2-6: expected the shared gate's reason=invisible-chars row in error-log"
+pass "C2-6: a bullet containing a non-BMP invisible char is blocked (fails closed rather than silently laundered)"
 
 # C2-7: fails closed when the sanitize CLI bundle is unavailable (no mcp/dist under the fake root).
 init_sandbox "c2-sani-unavailable"
@@ -631,5 +644,142 @@ PROVF="$SANDBOX/.second-brain/.injected/provsession.prov"
 TAB=$'\t'
 grep -qE "^[0-9]{9,11}${TAB}[0-9a-f]{7,12}${TAB}" "$PROVF" || fail "C2-9: .prov content malformed: $(cat "$PROVF" 2>/dev/null)"
 pass "C2-9: post writes .injected/<sid>.prov with epoch/sha/branch"
+
+# C2-9b (controller addition, test-coverage review): C2-9's regex only asserted the epoch and
+# sha FIELDS matched a shape -- it never read the .prov file's THIRD (branch) field, and no
+# test drove the Handoff stamp end to end from a real git repo through to ## Handoff's
+# rendered "session=... branch=... head=..." line. A mutant removing sb_session_prov_write +
+# --session from stop-extract.sh (and pre-compact.sh pre mode) and blanking branch parsing in
+# lib.sh survived all 31 tests without this.
+init_sandbox "c2-9b-handoff-e2e"
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+# git-init the SAME dir the payload's cwd names -- sb_resolve_slug checks CLAUDE_PROJECT_DIR
+# BEFORE cwd (tier 1 in lib.sh), so exporting it pointing at a DIFFERENT directory than cwd
+# would silently retarget the WHOLE merge at a different (freshly-scaffolded) project, not
+# just sb_session_prov_write's git-log directory. Leaving CLAUDE_PROJECT_DIR unset makes
+# stop-extract.sh fall back to cwd for both slug resolution AND provenance, matching how the
+# real hook behaves outside a nested/monorepo checkout.
+git -C "$SANDBOX/repo/test-slug" init -q
+git -C "$SANDBOX/repo/test-slug" -c user.email=t@t.example -c user.name=t commit --allow-empty -q -m init
+git -C "$SANDBOX/repo/test-slug" checkout -q -b c2-9b-provbranch
+EXPECT_SHA=$(git -C "$SANDBOX/repo/test-slug" log -1 --no-color --abbrev=7 --format='%h')
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[],"session_outcome":"partial: mid-refactor","handoff":{"in_flight":"finishing the c2-9b refactor","failed_approaches":[],"pointers":[]}}'
+jq -nc --arg sid "c2-9b-session" --arg tp "$SANDBOX/transcript/session.jsonl" --arg cwd "$SANDBOX/repo/test-slug" \
+  '{session_id:$sid, transcript_path:$tp, cwd:$cwd, hook_event_name:"Stop"}' \
+  | "$SCRIPT" >/dev/null 2>&1
+restore_path
+PROVF2="$SANDBOX/.second-brain/.injected/c2-9b-session.prov"
+[ -f "$PROVF2" ] || fail "C2-9b: .prov file not written for the Stop path"
+PROV_BRANCH_FIELD=$(awk -F"$TAB" '{print $3}' "$PROVF2")
+[ "$PROV_BRANCH_FIELD" = "c2-9b-provbranch" ] || fail "C2-9b: .prov third field (branch) was '$PROV_BRANCH_FIELD', expected c2-9b-provbranch"
+grep -qE "session=c2-9b-se branch=c2-9b-provbranch head=$EXPECT_SHA" "$PROJ" \
+  || fail "C2-9b: Handoff stamp missing session/branch/head (got: $(grep '^written:' "$PROJ" 2>/dev/null))"
+pass "C2-9b: the Stop path writes a real branch into .prov, and the Handoff stamp renders session/branch/head end to end"
+
+# C2-10 (SF-M1): no-summary is logged with a specific src= reason distinguishing WHY, not a
+# bare reason=no-summary that can't tell "no payload sent, no transcript" (nopayload) apart
+# from "a transcript was given but does not exist" (no-transcript) apart from "a transcript
+# exists but never got an isCompactSummary record" (no-record, e.g. compaction has not
+# actually run yet in this transcript) apart from "the record's content field failed to
+# parse" (parse-failed, a format-drift regression in Claude Code's own summary shape).
+init_sandbox "c2-10-nosummary-src"
+PAYLOAD_NOPAYLOAD=$(jq -nc --arg sid "s1" --arg cwd "$SANDBOX/repo/test-slug" '{session_id:$sid, cwd:$cwd, transcript_path:"", trigger:"auto"}')
+printf '%s' "$PAYLOAD_NOPAYLOAD" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'reason=no-summary src=nopayload' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "C2-10: expected src=nopayload when neither payload nor transcript_path was given"
+
+PAYLOAD_NOTRANS=$(jq -nc --arg sid "s2" --arg cwd "$SANDBOX/repo/test-slug" --arg tp "$SANDBOX/transcript/does-not-exist.jsonl" '{session_id:$sid, cwd:$cwd, transcript_path:$tp, trigger:"auto"}')
+printf '%s' "$PAYLOAD_NOTRANS" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'reason=no-summary src=no-transcript' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "C2-10: expected src=no-transcript for a transcript_path that does not exist"
+
+TX_NOREC="$SANDBOX/transcript/no-record.jsonl"
+echo '{"type":"user","message":{"role":"user","content":"hi, no compaction here"}}' > "$TX_NOREC"
+PAYLOAD_NOREC=$(jq -nc --arg sid "s3" --arg cwd "$SANDBOX/repo/test-slug" --arg tp "$TX_NOREC" '{session_id:$sid, cwd:$cwd, transcript_path:$tp, trigger:"auto"}')
+printf '%s' "$PAYLOAD_NOREC" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'reason=no-summary src=no-record' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "C2-10: expected src=no-record for a transcript with no isCompactSummary line"
+
+TX_PARSEFAIL="$SANDBOX/transcript/parse-fail.jsonl"
+jq -nc '{type:"user", isCompactSummary:true, message:{content:123}}' > "$TX_PARSEFAIL"
+PAYLOAD_PARSEFAIL=$(jq -nc --arg sid "s4" --arg cwd "$SANDBOX/repo/test-slug" --arg tp "$TX_PARSEFAIL" '{session_id:$sid, cwd:$cwd, transcript_path:$tp, trigger:"auto"}')
+printf '%s' "$PAYLOAD_PARSEFAIL" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'reason=no-summary src=parse-failed' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "C2-10: expected src=parse-failed for a record whose content is neither string nor array"
+pass "C2-10: SF-M1 -- no-summary is logged with a specific src= distinguishing nopayload/no-transcript/no-record/parse-failed"
+
+# C2-11 (SF-M1 + no-pending-section): a summary that HAS an isCompactSummary record but never
+# matches a "Pending Tasks" heading at all (format drift) must be reason=no-pending-section,
+# distinct from a heading that matched with genuinely zero bullets (pending=0).
+init_sandbox "c2-11-no-pending-section"
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+SUMMARY_NOHEADING='Summary:
+6. All user messages:
+   - something
+8. Current Work:
+   - other stuff
+'
+compact_payload "s5" "$SUMMARY_NOHEADING" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'reason=no-pending-section' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "C2-11: expected reason=no-pending-section when no Pending Tasks heading matched at all"
+
+SUMMARY_EMPTYSECTION='Summary:
+7. Pending Tasks:
+   - None explicitly assigned
+'
+compact_payload "s6" "$SUMMARY_EMPTYSECTION" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'gate=postcompact-capture.*pending=0' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "C2-11: expected a plain pending=0 row when the heading matched but listed zero real tasks"
+pass "C2-11: no-pending-section (heading never matched) is distinct from pending=0 (heading matched, empty)"
+
+# C2-12 (SF-L4): an isCompactSummary record older than ~120s (a stale/mis-pointed transcript
+# carrying a PRIOR compaction's summary) must be rejected as reason=stale-summary, not silently
+# treated as this compaction's real Pending Tasks (which could resurrect already-finished work).
+init_sandbox "c2-12-stale-summary"
+TX_STALE="$SANDBOX/transcript/stale.jsonl"
+OLD_TS=$(date -u -d '@'"$(($(date +%s) - 3600))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+  || date -u -r "$(($(date +%s) - 3600))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+jq -nc --arg ts "$OLD_TS" '{type:"user", isCompactSummary:true, timestamp:$ts, message:{content:"Summary:\n7. Pending Tasks:\n   - Stale task from an hour ago\n"}}' > "$TX_STALE"
+PAYLOAD_STALE=$(jq -nc --arg sid "s7" --arg cwd "$SANDBOX/repo/test-slug" --arg tp "$TX_STALE" '{session_id:$sid, cwd:$cwd, transcript_path:$tp, trigger:"auto"}')
+printf '%s' "$PAYLOAD_STALE" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'Stale task' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" 2>/dev/null && fail "C2-12: a stale (1h old) isCompactSummary record was added anyway"
+grep -q 'reason=no-summary src=stale-summary' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "C2-12: expected src=stale-summary for a record older than 120s"
+pass "C2-12: SF-L4 -- a stale (>120s old) isCompactSummary record is rejected, not treated as fresh"
+
+# C2-13 (SF-L5): the post row records WHICH resolver produced the slug (slugsrc=cwd|pwd).
+init_sandbox "c2-13-slug-src"
+SUMMARY_C13='Summary:
+7. Pending Tasks:
+   - slug src probe task
+'
+compact_payload "s8" "$SUMMARY_C13" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'gate=postcompact-capture.*source=payload pending=1' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "C2-13: sanity check on the happy row failed"
+pass "C2-13: SF-L5 -- slug source recorded (covered structurally; src= field asserted directly below)"
+PAYLOAD_BADCWD=$(jq -nc --arg sid "s9" --arg cwd "/definitely/not/a/real/dir" --arg s "$SUMMARY_C13" \
+  '{session_id:$sid, cwd:$cwd, transcript_path:"", trigger:"auto", compact_summary:$s}')
+printf '%s' "$PAYLOAD_BADCWD" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'slugsrc=pwd\|slugsrc=cwd' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "C2-13: expected a slugsrc=cwd or slugsrc=pwd token on the gate row"
+pass "C2-13: SF-L5 -- the slug-source resolver (cwd vs pwd fallback) is recorded on the gate row"
+
+# C2-14 (cap of 5 + <analysis> drop): more than 5 Pending Tasks are capped at 5, and bullets
+# that merely LOOK like Pending Tasks but sit inside an <analysis>...</analysis> block (data
+# the model reasoned over, not its actual summary) are never picked up.
+init_sandbox "c2-14-cap-and-analysis"
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+SUMMARY_C14='<analysis>
+7. Pending Tasks:
+   - should never be added, inside analysis
+</analysis>
+Summary:
+7. Pending Tasks:
+   - real task one
+   - real task two
+   - real task three
+   - real task four
+   - real task five
+   - real task six should be capped
+   - real task seven should be capped
+'
+compact_payload "s10" "$SUMMARY_C14" | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'should never be added' "$PROJ" && fail "C2-14: a bullet inside <analysis> was added to the Plan"
+REAL_N=$(grep -c 'real task' "$PROJ")
+[ "$REAL_N" -eq 5 ] || fail "C2-14: expected exactly 5 Pending Tasks added (cap), got $REAL_N"
+grep -q 'gate=postcompact-capture.*pending=5' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "C2-14: expected pending=5 on the gate row"
+pass "C2-14: Pending Tasks are capped at 5; bullets inside <analysis> are never captured"
 
 echo "ALL PASS"

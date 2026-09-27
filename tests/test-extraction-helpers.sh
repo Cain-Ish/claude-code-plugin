@@ -187,6 +187,44 @@ case "$DR3_STAMP" in
   *) no "DR-3: unexpected stamp: $DR3_STAMP" ;;
 esac
 
+# --- SF-M3: sb_session_prov_write fails LOUD on write-path errors, not silently -----------
+ERRLOG="$BRAIN_DIR/error-log.jsonl"
+: > "$ERRLOG"
+sb_session_prov_write 'bad!sid' "$SANDBOX" || true
+[ -f "$BRAIN_DIR/.injected/bad!sid.prov" ] && no "SF-M3: a bad-charset sid still wrote a .prov file" || ok "SF-M3: a bad-charset sid writes no .prov file"
+grep -q 'sid failed the charset guard' "$ERRLOG" 2>/dev/null && ok "SF-M3: bad-sid charset failure logged loud" || no "SF-M3: bad-sid charset failure was silent"
+
+: > "$ERRLOG"
+rm -rf "$BRAIN_DIR/.injected" 2>/dev/null || true
+touch "$BRAIN_DIR/.injected"   # a FILE at this path -- mkdir -p must fail, not silently no-op
+sb_session_prov_write 'mkdirfailsid' "$SANDBOX" || true
+grep -q 'mkdir .*\.injected failed' "$ERRLOG" 2>/dev/null && ok "SF-M3: mkdir failure logged loud" || no "SF-M3: mkdir failure was silent (got: $(cat "$ERRLOG" 2>/dev/null))"
+rm -f "$BRAIN_DIR/.injected"
+mkdir -p "$BRAIN_DIR/.injected"
+
+: > "$ERRLOG"
+sb_session_prov_write 'goodsid12345' "$SANDBOX" || true
+[ -f "$BRAIN_DIR/.injected/goodsid12345.prov" ] && ok "SF-M3: a valid sid still writes .prov (no regression)" || no "SF-M3: a valid sid failed to write .prov"
+
+# --- F2 (portability): sb_timeout's bash-watchdog fallback must not hold the caller open
+# past the wrapped command's own real runtime. sb_timeout looks up its bounding binary via
+# exactly `command -v timeout` / `command -v gtimeout` -- shadow ONLY that lookup with a
+# function (real PATH untouched, so date/sleep/rm/the EXIT trap all keep working normally;
+# no MSYS ln -s deep-copy risk, no risk of nuking the dir that also holds date/sleep).
+command() {
+  if [ "${1:-}" = "-v" ] && { [ "${2:-}" = "timeout" ] || [ "${2:-}" = "gtimeout" ]; }; then
+    return 1
+  fi
+  builtin command "$@"
+}
+F2_START=$(date +%s)
+echo hi | sb_timeout 2 true >/dev/null 2>&1 || true
+F2_END=$(date +%s)
+unset -f command
+F2_ELAPSED=$((F2_END - F2_START))
+[ "$F2_ELAPSED" -le 1 ] && ok "F2: bash-watchdog fallback returns fast (${F2_ELAPSED}s, not the full 2s+ bound)" \
+  || no "F2: bash-watchdog fallback took ${F2_ELAPSED}s, expected <=1s"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

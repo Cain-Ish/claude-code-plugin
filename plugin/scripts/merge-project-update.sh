@@ -12,9 +12,15 @@
 #     "open_blockers":    ["<text>", ...],   # cap 15
 #     "cross_refs":       ["<slug>", ...],   # cap 3, scaffolds ~/knowledge/wiki/entities/<slug>.md if missing
 #     "files_touched":    ["<path>", ...],   # informational
-#     "plan":             ["<text>", ...],   # forward checklist -- see ## Plan grammar below
-#     "compact_pending":  ["<text>", ...],   # PostCompact Pending-Tasks bullets, add-only, sanitized+scanned
-#                                             # by the caller (pre-compact.sh post) BEFORE they reach here.
+#     "plan":             ["<text>", ...],   # forward checklist -- see ## Plan grammar below. Gated
+#                                             # through gate_untrusted_items() (SEC-M4): the extractor
+#                                             # can echo transcript content (a prior compaction
+#                                             # summary) verbatim into its own emission.
+#     "compact_pending":  ["<text>", ...],   # PostCompact Pending-Tasks bullets, add-only. Cut,
+#                                             # sanitized and injection-scanned RIGHT HERE by the shared
+#                                             # gate_untrusted_items() trust boundary (SF-H1/SEC-M3) --
+#                                             # the caller (pre-compact.sh post) only extracts the
+#                                             # Pending Tasks section and passes the raw text through.
 #                                             # Landed as "- [ ] [untrusted:compact TODAY] <text>". Cap 5 used,
 #                                             # refused once non-pinned unfinished lines would reach 15.
 #     "wiki_updates":     [{"category","slug","action","title","description","content"}, ...]
@@ -61,11 +67,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 # --session is provenance, not a security boundary -- an invalid value just degrades to "no
-# session" (dropped silently: BRAIN_DIR/error-log isn't wired yet at arg-parse time) rather than
-# ever reaching the Handoff stamp or a filesystem path unsanitized (C4, lib.sh sb_session_prov_write
-# writes the .prov file this reads by the SAME sid, so the charset already matches on the write side).
+# session" rather than ever reaching the Handoff stamp or a filesystem path unsanitized (C4,
+# lib.sh sb_session_prov_write writes the .prov file this reads by the SAME sid, so the
+# charset already matches on the write side). SF-L6: lib.sh (and BRAIN_DIR) ARE already
+# sourced by this point -- log the drop at ec0 (trace, not a real failure: a bad --session is
+# an upstream caller bug, not this script's) instead of the old, truly silent no-op.
 case "$SESSION_ARG" in
-  *[!A-Za-z0-9_-]*) SESSION_ARG="" ;;
+  *[!A-Za-z0-9_-]*)
+    sb_log_error "merge-project-update.sh" "gate=session-arg-invalid dropped --session (bad charset)" 0
+    SESSION_ARG=""
+    ;;
 esac
 SESSION_ARG="${SESSION_ARG:0:64}"
 
@@ -159,6 +170,30 @@ function plan_norm(raw,  s,t) {
   sub(/[.:;,!]+$/, "", s)
   return s
 }
+# CR-M4: session-load.sh renders a Plan line into the startup card cut at a display cap,
+# appending an ellipsis when it truncates -- a re-fed compaction Pending Task built from
+# that rendered card echoes back a TRUNCATED prefix of a real item, ending in an ellipsis.
+# An exact-key dedup misses it (the keys differ: full text vs a cut prefix), so the same
+# item would duplicate every compaction cycle. ends_ellipsis/ellipsis_prefix let callers
+# prefix-match a key ending in one of these markers against the other key instead of
+# requiring exact equality. Byte-literal match (mawk has no multibyte awareness) is fine
+# here -- both the UTF-8 bytes of the real ellipsis char and the ASCII three-dot form are
+# matched as literal byte sequences, never as a character class.
+function ends_ellipsis(s) {
+  return (s ~ /(\.\.\.|…)$/)
+}
+function ellipsis_prefix(s,  t) {
+  t = s
+  sub(/\.\.\.$/, "", t)
+  sub(/…$/, "", t)
+  return t
+}
+function dupmatch(a, b,   pa, pb) {
+  if (a == b) return 1
+  if (ends_ellipsis(a)) { pa = ellipsis_prefix(a); if (length(pa) > 0 && index(b, pa) == 1) return 1 }
+  if (ends_ellipsis(b)) { pb = ellipsis_prefix(b); if (length(pb) > 0 && index(a, pb) == 1) return 1 }
+  return 0
+}
 '
 
 # D142: guard these four array fields the same way merge_handoff (below) already
@@ -191,7 +226,15 @@ REFS=$(flatten_field "$RAW" cross_refs)
 PLAN=$(flatten_field "$RAW" plan)
 # One line only, bounded, leading markdown-header chars stripped (a '#'-prefixed
 # emission would fork the section structure).
-SESSION_GOAL=$(echo "$RAW" | jq -r '.session_goal // ""' 2>/dev/null | strip_cr | head -1 | sed 's/^#*[[:space:]]*//' | head -c 240)
+# Codepoint-safe cut (CR-H1 class): `head -c 240` is BYTE-based and can tear a multi-byte
+# UTF-8 character mid-codepoint; jq's `.[0:240]` slices by codepoint. Folded into ONE jq call.
+SESSION_GOAL=$(echo "$RAW" | jq -r '
+  (.session_goal // "")
+  | gsub("\r"; "")
+  | split("\n")[0]
+  | sub("^#*[ \t]*"; "")
+  | .[0:240]
+' 2>/dev/null)
 
 CHANGED=0
 
@@ -322,6 +365,109 @@ insert_bullet() {
   CHANGED=1
 }
 
+# SF-H1 + SF-H2 + SEC-M1(capture side) + SEC-M3 + SEC-M4: the ONE trust boundary for text
+# this script did not itself author -- PostCompact Pending-Tasks bullets AND the
+# extractor's own plan[] emission (which can echo a prior compaction summary or other
+# transcript content verbatim). Runs the WHOLE batch through, never a per-item spawn:
+#   1) codepoint-safe cut to 120 chars/item (CR-H1: jq .[:120], not the byte-based `cut`)
+#   2) sanitize via the canonical sanitize-cli (strips the Tags-block/ZWSP/WJ/BOM channel)
+#   3) a gate-local case-insensitive check for evasions the shared scanner pattern set
+#      (tool-return-scanner.sh, case-sensitive after the first letter) misses -- an
+#      ALL-CAPS "IGNORE ALL PREVIOUS INSTRUCTIONS", a <system-reminder> tag, a bare
+#      "SYSTEM:" line -- plus any \p{Cc}/\p{Cf} control/format character (ESC, BEL, NEL,
+#      RLO/LRI, ...). This check lives HERE, not in tool-return-scanner.sh: it must stay
+#      stricter than that shared/global pattern set without changing it for every caller.
+#   4) the real injection scanner (tool-return-scanner.sh), fed on STDIN via `jq -Rs`
+#      (never `--arg` with the full text -- that blows argv limits on a large blob) as a
+#      synthetic Read return so it reuses the maintained pattern library.
+# Fails CLOSED: any failure at any step rejects the ENTIRE batch (echoes nothing) and logs
+# a specific ec1 reason. Residual (documented, not fixed here): tool-return-scanner.sh
+# itself always exits 0 and prints nothing on both "clean" and several silent-degrade
+# paths (SEC-M3) -- it is out of this file's ownership, so "clean" is approximated here as
+# "the file existed, bash's own exit code was 0, and stdout was empty"; a scanner-owned
+# opt-in clean-sentinel would close that residual gap precisely.
+gate_untrusted_items() {
+  local raw="$1" caller="$2"
+  [ -z "$raw" ] && { printf ''; return 0; }
+
+  local capped
+  capped=$(printf '%s' "$raw" | jq -Rrs '
+    split("\n") | map(select(length>0)) | map(.[0:120]) | join("\n")
+  ' 2>/dev/null)
+  if [ -z "$capped" ]; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=cut-failed" 1
+    printf ''; return 1
+  fi
+
+  local sani_cli; sani_cli="$(sb_plugin_root)/mcp/dist/tools/sanitize-cli.bundle.js"
+  if ! command -v node >/dev/null 2>&1 || [ ! -f "$sani_cli" ]; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=sanitize-unavailable" 1
+    printf ''; return 1
+  fi
+  local sani_out sani_ec
+  sani_out=$(printf '%s' "$capped" | node "$sani_cli" 2>/dev/null); sani_ec=$?
+  if [ "$sani_ec" -ne 0 ] || { [ -n "$capped" ] && [ -z "$sani_out" ]; }; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=sanitize-failed" 1
+    printf ''; return 1
+  fi
+  # Conservative-by-design: sanitize-cli's OWN removal list (ZWSP/WJ/BOM/Tags-block) is a
+  # SMUGGLING signal for this untrusted-capture path even though sanitize.ts's normal job
+  # (dream-snapshot staging) is to launder those chars silently -- fail closed here instead
+  # of passing the laundered text through. Byte length via `wc -c` (locale-independent, so
+  # LC_ALL is irrelevant to it) rather than bash `${#var}` (character count, and this repo has
+  # hit real multi-byte-UTF-8 miscounts across platforms under some locales -- see MSYS non-
+  # BMP UTF-8 notes) or `wc -m` (same locale sensitivity).
+  local cap_len sani_len
+  cap_len=$(printf '%s' "$capped" | LC_ALL=C wc -c | tr -d ' ')
+  sani_len=$(printf '%s' "$sani_out" | LC_ALL=C wc -c | tr -d ' ')
+  if [ "$cap_len" != "$sani_len" ]; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=invisible-chars" 1
+    printf ''; return 1
+  fi
+
+  # The joined blob carries OUR OWN "\n" between items (and callers may carry a "\t" from
+  # upstream normalization) -- both are themselves \p{Cc}, so the control-char test runs
+  # against a copy with those two "normalized whitespace" separators flattened out first;
+  # the phrase tests still run against the untouched text (the "(^|\n)system:" check needs
+  # the real line breaks).
+  if printf '%s' "$sani_out" | jq -Rse '
+      def bad:
+        (gsub("[\n\t]"; " ")) as $flat |
+        ($flat | test("[\\p{Cc}\\p{Cf}]")) or
+        test("ignore\\s+all\\s+previous\\s+instructions";"i") or
+        test("disregard\\s+(all\\s+)?(prior|previous)\\s+instructions";"i") or
+        test("<\\s*system-reminder";"i") or
+        test("(^|\\n)\\s*system\\s*:";"i");
+      bad
+    ' >/dev/null 2>&1; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=gate-flagged" 1
+    printf ''; return 1
+  fi
+
+  local scanner_path; scanner_path="$(dirname "$0")/tool-return-scanner.sh"
+  if [ ! -f "$scanner_path" ]; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=scanner-failed src=missing" 1
+    printf ''; return 1
+  fi
+  local scan_payload scan_out scan_ec
+  scan_payload=$(printf '%s' "$sani_out" | jq -Rs --arg s "gate:$caller" '
+    {tool_name:"Read", session_id:$s, tool_input:{file_path:("gate:untrusted-items:"+$s)}, tool_response:.}
+  ' 2>/dev/null)
+  if [ -z "$scan_payload" ]; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=scanner-failed src=payload-build" 1
+    printf ''; return 1
+  fi
+  scan_out=$(printf '%s' "$scan_payload" | SB_INJECTION_SCAN=on SB_HOOK_PROFILE= bash "$scanner_path" 2>/dev/null)
+  scan_ec=$?
+  if [ "$scan_ec" -ne 0 ] || [ -n "$scan_out" ]; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=scanner-failed" 1
+    printf ''; return 1
+  fi
+
+  printf '%s' "$sani_out"
+  return 0
+}
+
 # Reconcile the ## Plan checklist with the freshly-extracted items. The Plan is
 # FORWARD state (what's next) — distinct from the backward-looking Recent decisions.
 # Strategy: the extractor emits the full current checklist each session; we replace
@@ -337,77 +483,109 @@ merge_plan() {
   # migration backfills older PROJECT.md files). No section → nothing to reconcile.
   grep -q '^## Plan$' "$TMP_OUT" || return 0
 
-  local pinned_lines
-  pinned_lines=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- / && /\[pinned\]/' "$TMP_OUT")
+  # SEC-M4: gate the extractor's OWN plan[] emission through the same trust boundary as
+  # compact_pending -- it can echo transcript content (a prior compaction summary, tool
+  # output) verbatim, reaching the startup card unsanitized/unscanned before this fix. A
+  # rejected batch degrades exactly like an empty emission: no-op, Plan left untouched.
+  local gated_items
+  gated_items=$(gate_untrusted_items "$items" "plan")
+  if [ -z "$gated_items" ]; then
+    sb_log_error "merge-project-update.sh" "gate=plan-dropped reason=gate-rejected" 0
+    return 0
+  fi
+  items="$gated_items"
 
-  # Build the emitted-item list (checkbox-normalized, D7-neutralized, merge-owned markers
-  # stripped defensively, pinned duplicates excluded, capped). Emitted items are handed to
-  # the reconcile awk WITHOUT a leading "- " -- the awk owns bullet rendering.
-  local new_body="" n=0 t bare
-  while IFS= read -r it; do
-    [ -z "$it" ] && continue
-    t=$(printf '%s' "$it" | sed -E 's/^[[:space:]]*[-*+]?[[:space:]]*//')   # strip a leading -, * or + bullet
-    case "$t" in
-      '[ ]'*|'[x]'*|'[X]'*) ;;                                         # already has a checkbox
-      *) t="[ ] $t" ;;                                                 # default to an open box
-    esac
-    # D7: a forged "[pinned]" in extractor-emitted text must never become an immortal line --
-    # neutralize the literal token so it renders as plain text, not the human-pinned marker.
-    t=$(printf '%s' "$t" | sed 's/\[pinned\]/(pinned)/g')
-    # Merge-owned markers ([carried D], [stale]) are never the extractor's to write (prompt
-    # says so); strip them defensively so an extractor that echoes one back can't fake sticky
-    # carry/stale state on a brand-new emission.
-    t=$(printf '%s' "$t" | sed -E 's/\[carried[ 0-9-]*\][[:space:]]*//g; s/\[stale\][[:space:]]*//g')
-    # never duplicate a [pinned] line — compare BARE text (drop checkbox + pinned prefix), exact match
-    if [ -n "$pinned_lines" ]; then
-      bare=$(printf '%s' "$t" | sed -E 's/^\[[ xX]\][[:space:]]*//')
-      if printf '%s\n' "$pinned_lines" | sed -E 's/^- \[pinned\][[:space:]]*//' | grep -qiFx -- "$bare"; then continue; fi
-    fi
-    new_body="${new_body}${new_body:+$'\n'}$t"
-    n=$((n+1)); [ "$n" -ge "$cap" ] && break
-  done <<< "$items"
+  local pinned_lines pinned_bare
+  pinned_lines=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- / && /\[pinned\]/' "$TMP_OUT")
+  # Bare pinned text, lowercased, stripped ONCE outside any loop (was previously re-derived
+  # inside a per-item bash loop -- F3/perf: 3 sed+cut spawns per emitted item, measured as a
+  # real contributor to hook latency on MSYS's spawn-tax platforms).
+  pinned_bare=$(printf '%s\n' "$pinned_lines" | sed -E 's/^- \[pinned\][[:space:]]*//' | tr '[:upper:]' '[:lower:]')
 
   local new_tmp; new_tmp=$(mktemp)
   local dropfile; dropfile=$(mktemp)
-  EMIT="$new_body" TODAY="$TODAY" awk "$PLAN_NORM_AWK"'
+  # F3: every per-item transform (leading-bullet-strip, checkbox default, D7 [pinned]
+  # neutralization, merge-owned-marker strip, pinned-duplicate exclusion) now runs INSIDE this
+  # ONE awk invocation's BEGIN block, over the RAW gated item list -- zero bash subprocess
+  # spawns per item (previously up to 5 sed/grep spawns x cap items).
+  EMIT_RAW="$items" PINNED_BARE="$pinned_bare" CAP="$cap" TODAY="$TODAY" awk "$PLAN_NORM_AWK"'
     function findmarker(line) {
       if (match(line, /\[untrusted:compact 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/)) return substr(line, RSTART, RLENGTH)
       return ""
     }
     BEGIN {
       today = ENVIRON["TODAY"]
-      # EMIT is bash-built from non-empty items joined by real newlines (never a blank entry),
-      # so a plain split is exact -- no defensive empty-filtering pass needed here.
-      en = split(ENVIRON["EMIT"], etmp, "\n")
-      for (i = 1; i <= en; i++) {
-        eraw[i] = etmp[i]
-        ecb[i] = (eraw[i] ~ /^\[x\]/) ? "x" : " "
-        edisp[i] = eraw[i]
-        sub(/^\[[ xX]\][ ]*/, "", edisp[i])
+      cap = ENVIRON["CAP"] + 0
+      pbn = split(ENVIRON["PINNED_BARE"], pbare, "\n")
+      rawn = split(ENVIRON["EMIT_RAW"], rawitem, "\n")
+      en = 0
+      for (i = 1; i <= rawn; i++) {
+        if (rawitem[i] == "") continue
+        if (en >= cap) break
+        t = rawitem[i]
+        sub(/^[ ]*[-*+][ ]+/, "", t)                                  # strip a leading -, * or + bullet
+        if (t !~ /^\[ \]/ && t !~ /^\[x\]/ && t !~ /^\[X\]/) t = "[ ] " t   # default to an open box
+        # D7: a forged "[pinned]" in extractor-emitted text must never become an immortal
+        # line -- neutralize the literal token so it renders as plain text, not the
+        # human-pinned marker. Merge-owned markers ([carried D], [stale]) are never the
+        # extractor own to write; strip them defensively so an echoed one cannot fake
+        # sticky carry/stale state on a brand-new emission.
+        gsub(/\[pinned\]/, "(pinned)", t)
+        gsub(/\[carried[ 0-9-]*\][ ]*/, "", t)
+        gsub(/\[stale\][ ]*/, "", t)
+        gsub(/  +/, " ", t); sub(/^ /, "", t); sub(/ $/, "", t)
+        # never duplicate a [pinned] line -- compare BARE text (drop checkbox), exact match,
+        # case-insensitive (matches the old grep -qiFx semantics).
+        bare = t
+        sub(/^\[[ xX]\][ ]*/, "", bare)
+        barelow = tolower(bare)
+        dup = 0
+        for (j = 1; j <= pbn; j++) { if (pbare[j] != "" && pbare[j] == barelow) { dup=1; break } }
+        if (dup) continue
+        en++
+        eraw[en] = t
+        ecb[en] = (eraw[en] ~ /^\[[xX]\]/) ? "x" : " "
+        edisp[en] = eraw[en]
+        sub(/^\[[ xX]\][ ]*/, "", edisp[en])
         while (1) {
-          tt = edisp[i]
-          sub(/^\[untrusted:compact[ 0-9-]*\][ ]*/, "", edisp[i])
-          sub(/^\[carried[ 0-9-]*\][ ]*/, "", edisp[i])
-          sub(/^\[stale\][ ]*/, "", edisp[i])
-          if (edisp[i] == tt) break
+          tt = edisp[en]
+          sub(/^\[untrusted:compact[ 0-9-]*\][ ]*/, "", edisp[en])
+          sub(/^\[carried[ 0-9-]*\][ ]*/, "", edisp[en])
+          sub(/^\[stale\][ ]*/, "", edisp[en])
+          if (edisp[en] == tt) break
         }
-        ekey[i] = plan_norm(eraw[i])
+        ekey[en] = plan_norm(eraw[en])
       }
     }
-    /^## Plan$/ { print; print ""; inplan=1; pn=0; ln=0; sn=0; next }
+    /^## Plan$/ { print; print ""; inplan=1; pn=0; ln=0; sn=0; un=0; next }
     inplan && (/^## / || /^<!--/) { render(); print; inplan=0; next }
     inplan {
       if ($0 == "") next
-      if ($0 ~ /^- \[pinned\]/) { pn++; pline[pn]=$0; next }
+      # SF-M2: pinned-ness is a property of an EXISTING line carrying the token ANYWHERE
+      # (D7 forging-neutralization to (pinned) is emitted-items-only) -- checking only
+      # ^- \[pinned\] missed "- [x] [pinned] X" (silently deleted, matched the checkbox
+      # bucket below then never re-printed) and "- [ ] [pinned] X" (demoted to an ordinary
+      # carried/rotatable item, its pin silently lost). Must run BEFORE the checkbox test.
+      if ($0 ~ /\[pinned\]/) { pn++; pline[pn]=$0; next }
       if ($0 ~ /^- \[stale\]/) { sn++; sline[sn]=$0; skey[sn]=plan_norm($0); next }
       if ($0 ~ /^- \[[ xX]\]/) { ln++; lline[ln]=$0; lkey[ln]=plan_norm($0); next }
+      # Invariant 14: an unrecognised bullet (no checkbox, e.g. a hand-written "- note" or
+      # a */+ bullet) must never silently vanish -- carry it through verbatim and log once
+      # per line (tagged UNPARSED on the shared stderr channel below) rather than dropping it.
+      if ($0 ~ /^[-*+][ \t]/) { un++; uline[un]=$0; next }
       next
     }
     { print }
     END { if (inplan) render() }
-    function render(   i,j,m,marker,carrdate,line,txt,t2,carn,staln,drop,dtxt,overflow,moved,eopen) {
+    function render(   i,j,k,p,kv,kd,m,marker,carrdate,line,txt,t2,carn,staln,drop,dtxt,overflow,moved,eopen,
+                        carrdate_arr,sord,victim,newcarline,newcarn) {
       for (i = 1; i <= en; i++) {
-        marker = ""
+        # SEC-M2: seed from the EMITTED line itself first -- if the extractor rewords an
+        # item prose but the raw sticky-source token survives in its own output (a
+        # partial echo), that token is authoritative and must not be lost to a failed
+        # key-match below. Marks are ADDED, never REMOVED: an existing-line match can only
+        # ever set marker when it is non-empty, never blank one this seed already found.
+        marker = findmarker(eraw[i])
         for (j = 1; j <= ln; j++) {
           if (!lused[j] && lkey[j] == ekey[i]) { lused[j]=1; m=findmarker(lline[j]); if (m!="") marker=m }
         }
@@ -430,6 +608,12 @@ merge_plan() {
         if (lline[j] !~ /^- \[ \]/) continue
         carrdate = ""
         if (match(lline[j], /\[carried 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/)) carrdate = substr(lline[j], RSTART+9, 10)
+        # CR-M2/CR-M3 symmetry: an item that is [untrusted:compact D] but has never yet
+        # been carried (added this run by merge_compact_pending, no extraction cycle since)
+        # ages from ITS OWN date, not from "today" -- otherwise it looks newest-of-all
+        # forever and is never chosen as an overflow/stale victim.
+        else if (match(lline[j], /\[untrusted:compact 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/))
+          carrdate = substr(lline[j], RSTART+length("[untrusted:compact "), 10)
         if (carrdate == "") carrdate = today
         m = findmarker(lline[j])
         txt = lline[j]
@@ -443,7 +627,7 @@ merge_plan() {
         line = "- [ ]"
         if (m != "") line = line " " m
         line = line " [carried " carrdate "] " txt
-        carn++; carline[carn] = line
+        carn++; carline[carn] = line; carrdate_arr[carn] = carrdate
       }
       moved = 0
       if (eopen + carn > 15) {
@@ -451,17 +635,37 @@ merge_plan() {
         if (overflow > carn) overflow = carn
         moved = overflow
       }
+      # CR-M3: choose overflow victims by AGE (oldest carried/compact date first), not by
+      # their position in carline[] (document-scan order, which is unrelated to age and
+      # let a 26-day-old carried item survive while a today-added one got staled). Stable
+      # ascending insertion sort by carrdate_arr; ties keep original document order
+      # (tiebreak only, per spec) since the shift only happens on a STRICT ">".
+      for (k = 1; k <= carn; k++) sord[k] = k
+      for (k = 2; k <= carn; k++) {
+        kv = sord[k]; kd = carrdate_arr[kv]
+        p = k - 1
+        while (p >= 1 && carrdate_arr[sord[p]] > kd) { sord[p+1] = sord[p]; p-- }
+        sord[p+1] = kv
+      }
+      for (k = 1; k <= moved; k++) victim[sord[k]] = 1
       staln = 0
       for (j = 1; j <= sn; j++) {
         if (sused[j]) continue
         staln++; staleline[staln] = sline[j]
       }
-      for (i = carn - moved + 1; i <= carn; i++) {
+      newcarn = 0
+      for (i = 1; i <= carn; i++) {
+        if (victim[i]) continue
+        newcarn++; newcarline[newcarn] = carline[i]
+      }
+      for (i = 1; i <= carn; i++) {
+        if (!victim[i]) continue
         line = carline[i]
         sub(/^- \[ \]/, "- [stale] [ ]", line)
         staln++; staleline[staln] = line
       }
-      carn -= moved
+      carn = newcarn
+      for (i = 1; i <= carn; i++) carline[i] = newcarline[i]
       if (staln > 5) {
         drop = staln - 5
         for (i = 1; i <= drop; i++) {
@@ -470,22 +674,43 @@ merge_plan() {
           sub(/^\[untrusted:compact[ 0-9-]*\][ ]*/, "", dtxt)
           sub(/^\[carried[ 0-9-]*\][ ]*/, "", dtxt)
           if (length(dtxt) > 80) dtxt = substr(dtxt, 1, 80)
-          print dtxt > "/dev/stderr"
+          print "DROP\t" dtxt > "/dev/stderr"
         }
         for (i = drop+1; i <= staln; i++) staleline[i-drop] = staleline[i]
         staln -= drop
       }
+      for (i = 1; i <= un; i++) {
+        dtxt = uline[i]
+        if (length(dtxt) > 120) dtxt = substr(dtxt, 1, 120)
+        print "UNPARSED\t" dtxt > "/dev/stderr"
+      }
       for (i = 1; i <= pn; i++) print pline[i]
+      for (i = 1; i <= un; i++) print uline[i]
       for (i = 1; i <= en; i++) print outline[i]
       for (i = 1; i <= carn; i++) print carline[i]
       for (i = 1; i <= staln; i++) print staleline[i]
       print ""
     }
   ' "$TMP_OUT" > "$new_tmp" 2>"$dropfile"
-  while IFS= read -r dropped_text; do
-    [ -z "$dropped_text" ] && continue
-    sb_log_error "merge-project-update.sh" "gate=plan-dropped stale text=$dropped_text" 0
+  MP_AWK_EC=$?
+  MP_BAD_STDERR=0
+  while IFS=$'\t' read -r mp_tag mp_text; do
+    [ -z "$mp_tag" ] && continue
+    case "$mp_tag" in
+      DROP)     sb_log_error "merge-project-update.sh" "gate=plan-dropped stale text=$mp_text" 0 ;;
+      UNPARSED) sb_log_error "merge-project-update.sh" "gate=plan-dropped reason=unparsed text=$mp_text" 1 ;;
+      # SF-C1: the ONLY expected stderr shapes from this awk are the two tags above --
+      # anything else (a raw awk runtime-error message, garbage) means the awk did not
+      # run to completion cleanly even if its exit code happens to read 0 on this
+      # platform. Treat it the same as a nonzero exit: fail closed, leave Plan unchanged.
+      *) MP_BAD_STDERR=1 ;;
+    esac
   done < "$dropfile"
+  if [ "$MP_AWK_EC" -ne 0 ] || [ "$MP_BAD_STDERR" -eq 1 ]; then
+    sb_log_error "merge-project-update.sh" "gate=merge-plan-failed reason=awk-error ec=$MP_AWK_EC stderr=$(tr '\n' ' ' < "$dropfile" | head -c 200)" 1
+    rm -f "$new_tmp" "$dropfile"
+    return 1
+  fi
   rm -f "$dropfile"
   # Preserve the module's no-op contract: only rewrite + mark dirty when the plan
   # actually changed. The extractor re-emits the full list every session, so an
@@ -498,12 +723,15 @@ merge_plan() {
   fi
 }
 
-# PostCompact Pending-Tasks -> ## Plan, add-only (C2/C3). The caller (pre-compact.sh post) has
-# ALREADY sanitized and injection-scanned the text -- this function only applies the Plan
-# grammar: forging defence (any [ / ] neutralized to ( / ) so a compaction bullet can never fake
-# a merge-owned or human marker), dedup against every existing Plan line by normalized key, and
-# the 15-unfinished bound (refuse, never evict an existing item to make room). ONE awk over the
-# Plan section plus ENVIRON["EMIT"] -- no per-item spawn.
+# PostCompact Pending-Tasks -> ## Plan, add-only (C2/C3). gate_untrusted_items() (the shared
+# trust boundary above) sanitizes + injection-scans the WHOLE batch before any of it reaches
+# here. This function then applies the Plan grammar: forging defence (any [ / ] neutralized
+# to ( / ) so a compaction bullet can never fake a merge-owned or human marker, in ONE sed
+# pass over the gated blob -- no per-item spawn), dedup against every existing Plan line by
+# normalized key (CR-M4: including a prefix match when either side ends in an ellipsis, so a
+# card-truncated echo of a real item never duplicates it), and the 15-unfinished bound
+# (refuse, never evict an existing item to make room). ONE awk over the Plan section plus
+# ENVIRON["EMIT"].
 merge_compact_pending() {
   local raw="$1"
   local items
@@ -511,14 +739,18 @@ merge_compact_pending() {
   [ -z "$items" ] && return 0
   items=$(printf '%s\n' "$items" | head -n 5)
 
-  local emit2="" clean item
-  while IFS= read -r item; do
-    [ -z "$item" ] && continue
-    # Forging defence: [ -> ( and ] -> ) so a compaction bullet can never spell [pinned],
-    # [x], [carried ...] or [stale] -- it can only ever land as a fresh untrusted-marked item.
-    clean=$(printf '%s' "$item" | sed 's/\[/(/g; s/\]/)/g' | sed -E 's/^#+[[:space:]]*//' | cut -c1-120)
-    emit2="${emit2}${emit2:+$'\n'}${clean}"
-  done <<< "$items"
+  local gated
+  gated=$(gate_untrusted_items "$items" "compact_pending")
+  if [ -z "$gated" ]; then
+    sb_log_error "merge-project-update.sh" "gate=compact-pending added=0 dedup=0 refused=0 reason=gate-rejected" 0
+    return 0
+  fi
+  # Forging defence + leading-#-strip in ONE sed pass (sed is line-oriented by default, so
+  # `^` anchors to the START OF EACH LINE here, not just the start of the whole blob -- this
+  # was already effectively batched semantics; the old per-item while-loop just spawned sed/
+  # cut N times to get it).
+  local emit2
+  emit2=$(printf '%s\n' "$gated" | sed 's/\[/(/g; s/\]/)/g' | sed -E 's/^#+[[:space:]]*//')
   [ -z "$emit2" ] && return 0
 
   local new_tmp; new_tmp=$(mktemp)
@@ -540,7 +772,7 @@ merge_compact_pending() {
       }
       for (c = 1; c <= cn; c++) {
         dup = 0
-        for (k = 1; k <= ek; k++) { if (ekey[k] == ckey[c]) { dup=1; break } }
+        for (k = 1; k <= ek; k++) { if (dupmatch(ekey[k], ckey[c])) { dup=1; break } }
         if (dup) { dedup++; continue }
         if (existing_open >= 15) { refused++; continue }
         newline = "- [ ] [untrusted:compact " today "] " cand[c]
@@ -550,7 +782,7 @@ merge_compact_pending() {
         ek++; ekey[ek] = ckey[c]
       }
       for (b = 1; b <= bn; b++) print buf[b]
-      print (added " " dedup " " refused) > "/dev/stderr"
+      print "COUNTS\t" (added " " dedup " " refused) > "/dev/stderr"
     }
     BEGIN {
       today = ENVIRON["TODAY"]
@@ -579,10 +811,26 @@ merge_compact_pending() {
       }
     }
   ' "$TMP_OUT" > "$new_tmp" 2>"$countfile"
+  MCP_AWK_EC=$?
 
-  local counts added dedup refused
-  counts=$(tail -1 "$countfile" 2>/dev/null)
+  # SF-C1: the ONLY expected stderr line is the single tagged COUNTS row from flush_plan();
+  # anything else (or a nonzero awk exit) means the pass did not run to completion cleanly.
+  # Fail closed -- leave the Plan section (TMP_OUT) exactly as it was.
+  local counts added dedup refused mcp_bad=0 mcp_line mcp_tag mcp_rest mcp_lines=0
+  while IFS=$'\t' read -r mcp_tag mcp_rest; do
+    [ -z "$mcp_tag" ] && [ -z "$mcp_rest" ] && continue
+    if [ "$mcp_tag" = "COUNTS" ]; then
+      counts="$mcp_rest"; mcp_lines=$((mcp_lines + 1))
+    else
+      mcp_bad=1
+    fi
+  done < "$countfile"
   rm -f "$countfile"
+  if [ "$MCP_AWK_EC" -ne 0 ] || [ "$mcp_bad" -eq 1 ] || [ "$mcp_lines" -ne 1 ]; then
+    sb_log_error "merge-project-update.sh" "gate=merge-compact-pending-failed reason=awk-error ec=$MCP_AWK_EC" 1
+    rm -f "$new_tmp"
+    return 1
+  fi
   read -r added dedup refused <<< "$counts"
   case "$added" in ''|*[!0-9]*) added=0 ;; esac
   case "$dedup" in ''|*[!0-9]*) dedup=0 ;; esac
@@ -620,6 +868,13 @@ merge_state() {
       { print }
       END { print ""; print "## State"; print ENVIRON["NOTE"] }
     ' "$TMP_OUT" > "$new_tmp"
+  fi
+  # SF-C1: check the awk exit code -- on failure leave ## State exactly as it was rather
+  # than risking a truncated/empty rewrite reaching TMP_OUT.
+  if [ $? -ne 0 ]; then
+    sb_log_error "merge-project-update.sh" "gate=merge-state-failed reason=awk-error" 1
+    rm -f "$new_tmp"
+    return 1
   fi
   # No-op contract: only rewrite + mark dirty when the note actually changed, so an
   # unchanged goal never churns last_updated.
@@ -690,6 +945,11 @@ merge_howto() {
       END { if (!done) { print ""; print "## How-to"; print ""; print body } }
     ' "$TMP_OUT" > "$new_tmp"
   fi
+  if [ $? -ne 0 ]; then
+    sb_log_error "merge-project-update.sh" "gate=merge-howto-failed reason=awk-error" 1
+    rm -f "$new_tmp"
+    return 1
+  fi
   # No-op contract: only rewrite + mark dirty on a real change (idempotent re-emissions
   # of the same runbooks must not churn last_updated).
   if cmp -s "$new_tmp" "$TMP_OUT"; then
@@ -757,6 +1017,13 @@ merge_handoff() {
   [ "$existing_body" = "$body" ] && return 0   # unchanged content: keep the OLD stamp, no rewrite
 
   local stamp_t stamp_sid8="" stamp_branch="" stamp_head="" stamp
+  # SF-M3: gate=handoff-stamp -- diagnoses WHY a stamp fell back to merge-time-only. src=prov
+  # is the good case (a real .prov epoch was read); no-prov means no --session was passed or
+  # its .prov file does not exist yet (a plain race: pre-compact.sh writes .prov before
+  # calling merge, but a Stop/drainer caller may run with no upstream prov-write at all);
+  # bad-prov means the file existed but its first field failed to parse as an epoch (a
+  # corrupt/torn write) -- distinct from no-prov because it points at a DIFFERENT bug class.
+  local prov_src="no-prov"
   stamp_t=$(date +%s)
   if [ -n "$SESSION_ARG" ]; then
     stamp_sid8="${SESSION_ARG:0:8}"
@@ -765,11 +1032,15 @@ merge_handoff() {
       local prov_line prov_epoch prov_sha prov_branch
       prov_line=$(head -1 "$prov_f" 2>/dev/null | tr -d '\r')
       IFS=$'\t' read -r prov_epoch prov_sha prov_branch <<< "$prov_line"
-      case "$prov_epoch" in ''|*[!0-9]*) ;; *) stamp_t="$prov_epoch" ;; esac
+      case "$prov_epoch" in
+        ''|*[!0-9]*) prov_src="bad-prov" ;;
+        *) stamp_t="$prov_epoch"; prov_src="prov" ;;
+      esac
       [ -n "$prov_sha" ] && stamp_head="$prov_sha"
       [ -n "$prov_branch" ] && stamp_branch="$prov_branch"
     fi
   fi
+  sb_log_error "merge-project-update.sh" "gate=handoff-stamp src=$prov_src session=${stamp_sid8:-none}" 0
   stamp="written: t=$stamp_t"
   [ -n "$stamp_sid8" ] && stamp="$stamp session=$stamp_sid8"
   [ -n "$stamp_branch" ] && stamp="$stamp branch=$stamp_branch"
@@ -792,6 +1063,11 @@ merge_handoff() {
       { print }
       END { if (!done) { print ""; print "## Handoff"; print ""; print body } }
     ' "$TMP_OUT" > "$new_tmp"
+  fi
+  if [ $? -ne 0 ]; then
+    sb_log_error "merge-project-update.sh" "gate=merge-handoff-failed reason=awk-error" 1
+    rm -f "$new_tmp"
+    return 1
   fi
   # No-op contract: an identical re-emission must not churn last_updated.
   if cmp -s "$new_tmp" "$TMP_OUT"; then
@@ -967,8 +1243,9 @@ STALE_CUTOFF=$(date -v-"${STALE_DAYS}"d +%Y-%m-%d 2>/dev/null \
 
 mark_stale() {
   local section="$1"
-  local new_tmp
+  local new_tmp errfile
   new_tmp=$(mktemp)
+  errfile=$(mktemp)
   awk -v s="$section" -v cutoff="$STALE_CUTOFF" '
     $0 == s { flag=1; print; next }
     /^## / { flag=0; print; next }
@@ -976,19 +1253,37 @@ mark_stale() {
       d = $0; sub(/^- \[/, "", d); sub(/\].*/, "", d)
       if (d < cutoff) { sub(/^- /, "- [stale] "); changed=1 }
     }
-    # Plan lines carry their date in a [carried YYYY-MM-DD] token instead of a leading
-    # "- [DATE]" prefix (checkbox comes first) -- derive the age from that token instead.
-    # Decisions/blockers never carry that token, so their branch above is untouched.
-    flag && /^- \[ \]/ && $0 ~ /\[carried 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/ && !/\[stale\]/ {
+    # Plan lines carry their age in a [carried YYYY-MM-DD] token instead of a leading
+    # "- [DATE]" prefix (checkbox comes first). CR-M2: a Plan item that is ONLY
+    # [untrusted:compact D] (added by merge_compact_pending, never yet carried because
+    # no extraction has run since) has no [carried] token at all -- fall back to the
+    # compact-source date so it still ages instead of sitting "newest-looking" forever
+    # and permanently occupying a slot in the 15-unfinished cap.
+    flag && /^- \[ \]/ && !/\[stale\]/ {
+      d = ""
       if (match($0, /\[carried 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/)) {
         d = substr($0, RSTART+9, 10)
-        if (d < cutoff) { sub(/^- /, "- [stale] "); changed=1 }
+      } else if (match($0, /\[untrusted:compact 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/)) {
+        d = substr($0, RSTART+length("[untrusted:compact "), 10)
       }
+      if (d != "" && d < cutoff) { sub(/^- /, "- [stale] "); changed=1 }
     }
     { print }
     END { exit (changed ? 0 : 1) }
-  ' "$TMP_OUT" > "$new_tmp"
-  if [ $? -eq 0 ]; then
+  ' "$TMP_OUT" > "$new_tmp" 2>"$errfile"
+  local awk_ec=$?
+  # SF-C1: this awk's exit code is a DELIBERATE two-state signal (0=changed, 1=no-op),
+  # never "success vs failure" -- a genuine crash can still legitimately exit 1 and look
+  # like an ordinary no-op. It intentionally never writes to stderr, so ANY stderr output
+  # is the real failure signal here; only on that (or an exit code outside {0,1}) do we
+  # log loud and leave the section untouched.
+  if [ -s "$errfile" ] || { [ "$awk_ec" -ne 0 ] && [ "$awk_ec" -ne 1 ]; }; then
+    sb_log_error "merge-project-update.sh" "gate=mark-stale-failed section=$section reason=awk-error ec=$awk_ec stderr=$(tr '\n' ' ' < "$errfile" | head -c 200)" 1
+    rm -f "$new_tmp" "$errfile"
+    return 1
+  fi
+  rm -f "$errfile"
+  if [ "$awk_ec" -eq 0 ]; then
     mv "$new_tmp" "$TMP_OUT"
     CHANGED=1
   else
@@ -1156,7 +1451,23 @@ if [ "$CHANGED" -eq 1 ]; then
     /^<!-- last_updated:/ { print "<!-- last_updated: " ts " -->"; next }
     { print }
   ' "$TMP_OUT" > "$new_tmp"
-  mv "$new_tmp" "$TMP_OUT"
+  if [ $? -eq 0 ] && [ -s "$new_tmp" ]; then
+    mv "$new_tmp" "$TMP_OUT"
+  else
+    sb_log_error "merge-project-update.sh" "gate=merge-timestamp-failed reason=awk-error — last_updated NOT bumped, prior TMP_OUT kept" 1
+    rm -f "$new_tmp"
+  fi
+  # SF-C1 final guard: whatever ran above (any merge_*/mark_stale/insert_bullet/
+  # detect_supersede awk, all rewriting the SAME TMP_OUT staging buffer), TMP_OUT must
+  # still look like a real PROJECT.md before it is ever allowed to replace the real one.
+  # This is the LAST line of defense against every awk call in this script -- a truncated/
+  # emptied TMP_OUT from any of them must never overwrite a good PROJECT.md.
+  if [ ! -s "$TMP_OUT" ] || ! grep -q '^# PROJECT' "$TMP_OUT" 2>/dev/null; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md staging buffer corrupted (empty or missing '# PROJECT' header) for $PROJECT_MD — write REFUSED, delta NOT applied" 3
+    rm -f "$TMP_OUT" 2>/dev/null
+    trap - EXIT
+    exit 3
+  fi
   # EXIT 3 ON A FAILED WRITE. This `mv` was unchecked and the script ended `exit 0` regardless,
   # so an unwritable PROJECT.md (permissions, full disk, a path that stopped existing) returned
   # success to the drainer, which recorded the transcript `outcome:ok` — and the archive cap

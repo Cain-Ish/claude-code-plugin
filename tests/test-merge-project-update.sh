@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tests for scripts/merge-project-update.sh.
-# run-all-timeout: 360   (33 merger invocations by design; ~5s each on MSYS — spawn-bound lib.sh, see LC-11)
+# run-all-timeout: 480   (33+ merger invocations by design; ~5s each on MSYS — spawn-bound lib.sh,
+#   see LC-11; several new cases also spawn node+the injection scanner via gate_untrusted_items)
 # Contract: reads JSON delta on stdin (or --json-file), idempotently merges
 # into the target PROJECT.md sections, scaffolds wiki pages for missing
 # [[refs]] in ~/knowledge/wiki/entities/, updates last_updated. Exits 0 on success;
@@ -13,6 +14,8 @@ trap 'rm -rf "$TMP"' EXIT
 export BRAIN_DIR="$TMP/brain"; mkdir -p "$TMP/brain"  # isolate the main body's sb_inc_wiki_writes from the real ~/.second-brain (T8/T9 below override with their own sandboxes)
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
+# F7 (portability): macOS ships shasum, not sha256sum.
+content_hash() { sha256sum "$1" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$1" | awk '{print $1}'; }
 
 seed_project() {
   local f="$1"
@@ -109,21 +112,21 @@ pass "last_updated: bumped to ISO timestamp"
 # --- Test 5: empty deltas → no-op (no error, last_updated NOT bumped).
 PROJ="$TMP/p5.md"; WIKI="$TMP/wiki5"; mkdir -p "$WIKI"
 seed_project "$PROJ"
-ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+ORIG_HASH=$(content_hash "$PROJ")
 jq -nc '{recent_decisions: [], open_blockers: [], cross_refs: [], files_touched: []}' \
   | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI">/dev/null 2>&1 || fail "empty-delta: script exited non-zero"
-NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+NEW_HASH=$(content_hash "$PROJ")
 [ "$ORIG_HASH" = "$NEW_HASH" ] || fail "empty-delta: PROJECT.md mutated despite empty input"
 pass "empty deltas: idempotent no-op"
 
 # --- Test 6: invalid JSON on stdin → exit non-zero, PROJECT.md untouched.
 PROJ="$TMP/p6.md"; WIKI="$TMP/wiki6"; mkdir -p "$WIKI"
 seed_project "$PROJ"
-ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+ORIG_HASH=$(content_hash "$PROJ")
 printf 'not json' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI">/dev/null 2>&1
 rc=$?
 [ "$rc" -ne 0 ] || fail "invalid-json: expected non-zero exit"
-NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+NEW_HASH=$(content_hash "$PROJ")
 [ "$ORIG_HASH" = "$NEW_HASH" ] || fail "invalid-json: PROJECT.md mutated on bad input"
 pass "invalid JSON: rejects loudly, leaves PROJECT.md untouched"
 
@@ -328,10 +331,10 @@ grep -q 'harden the drift gate (reached: implement)' "$PROJ" || fail "state-note
 pass "session_goal: one-line ## State note, replace-style, preserves other State content"
 
 # --- Test: empty session_goal is a no-op (note survives, nothing churns) ---
-ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+ORIG_HASH=$(content_hash "$PROJ")
 jq -nc '{session_goal:""}' \
   | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI11" >/dev/null 2>&1 || fail "state-empty: script exited non-zero"
-NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+NEW_HASH=$(content_hash "$PROJ")
 [ "$ORIG_HASH" = "$NEW_HASH" ] || fail "state-empty: empty session_goal must be a no-op (file changed)"
 pass "session_goal: empty emission never wipes the note or bumps last_updated"
 
@@ -409,14 +412,14 @@ awk '/^## How-to$/{f=1;next} /^## /{f=0} f' "$PROJ" | grep -q '^- Build:' && fai
 pass "procedures: How-to capped at 5, oldest dropped"
 
 # Empty/absent procedures → byte-identical no-op.
-ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+ORIG_HASH=$(content_hash "$PROJ")
 jq -nc '{procedures: []}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI13" >/dev/null 2>&1 || fail "howto-empty: script exited non-zero"
-NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+NEW_HASH=$(content_hash "$PROJ")
 [ "$ORIG_HASH" = "$NEW_HASH" ] || fail "howto-empty: empty procedures mutated PROJECT.md"
 # Malformed entries (missing verb or commands) are skipped, not rendered.
 jq -nc '{procedures: [{task_verb:"", exact_commands:"x"}, {task_verb:"y", exact_commands:""}]}' \
   | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI13" >/dev/null 2>&1
-NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+NEW_HASH=$(content_hash "$PROJ")
 [ "$ORIG_HASH" = "$NEW_HASH" ] || fail "howto-malformed: entry without verb/commands must be skipped"
 pass "procedures: empty + malformed emissions are no-ops"
 
@@ -426,7 +429,11 @@ pass "procedures: empty + malformed emissions are no-ops"
 # file stayed ok, no log row. Reproduce: make the PROJECT.md path a DIRECTORY so mv cannot
 # replace it (portable across MSYS/Linux/macOS; chmod-based read-only is unreliable on Windows).
 EC13=$(mktemp -d); mkdir -p "$EC13/projects/p"
-printf '# P\n\n## Recent decisions\n' > "$EC13/projects/p/PROJECT.md"   # a REAL file: the -f precondition passes
+# SF-C1 final-guard note: a real header ("# PROJECT: <slug>", matching every actual scaffold
+# template) -- the final guard added by the 0.54.0 review batch requires TMP_OUT to still
+# carry this exact prefix before the last mv, so a minimal "# P" fixture would trip THAT
+# guard first and never reach the injected-mv-failure path this test targets.
+printf '# PROJECT: p\n\n## Recent decisions\n' > "$EC13/projects/p/PROJECT.md"   # a REAL file: the -f precondition passes
 EC13_KD="$EC13/knowledge"; mkdir -p "$EC13_KD/wiki"
 # Fault injection, portable on MSYS/Linux/macOS: a `mv` wrapper on PATH that refuses ONLY the
 # final PROJECT.md replacement (every other mv in the script proceeds normally).
@@ -475,10 +482,10 @@ grep -q 'MSYS spawn tax' "$PROJ" && fail "handoff-replace: old failed_approaches
 pass "handoff: replace-style — next session's handoff wins, nothing accumulates"
 
 # Empty emission is a byte-identical no-op (a degraded session never wipes the handoff).
-ORIG_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+ORIG_HASH=$(content_hash "$PROJ")
 jq -nc '{handoff:{in_flight:"",failed_approaches:[],pointers:[]}}' \
   | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI20" >/dev/null 2>&1 || fail "handoff-empty: script exited non-zero"
-NEW_HASH=$(sha256sum "$PROJ" | awk '{print $1}')
+NEW_HASH=$(content_hash "$PROJ")
 [ "$ORIG_HASH" = "$NEW_HASH" ] || fail "handoff-empty: empty handoff mutated PROJECT.md (wiped a real handoff or churned last_updated)"
 pass "handoff: empty emission is a no-op"
 
@@ -623,17 +630,23 @@ LINE=$(handoff_stamp_line "$PROJ")
 printf '%s' "$LINE" | grep -qE '^written: t=[0-9]+$' || fail "C4-5: expected 'written: t=<digits>' only, got: $LINE"
 pass "C4-5: no --session -> stamp is t=<digits> only"
 
-# C4-6: --session with NO matching .prov file -> t=now(+-5s), session=<8>, no branch/head.
+# C4-6: --session with NO matching .prov file -> t=now, session=<8>, no branch/head.
+# Bracket by BEFORE/AFTER wall-clock (not a fixed +-5s tolerance): a +-5s window measured
+# flaky under load (3-5s lag observed), since the epoch is read `date +%s` OUTSIDE the
+# script while the script's OWN `date +%s` runs some seconds later on a loaded box. The
+# stamp's epoch must fall between the moment we're about to invoke the script and the
+# moment it returns -- true regardless of how long the invocation itself takes.
 PROJ="$TMP/pc4_6.md"; WIKIC4_6="$TMP/wikic4_6"; mkdir -p "$WIKIC4_6"
 seed_project "$PROJ"
-NOW=$(date +%s)
+BEFORE=$(date +%s)
 jq -nc '{handoff:{in_flight:"c4-6 probe",failed_approaches:[],pointers:[]}}' \
   | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIC4_6" --session abcdef9999 >/dev/null 2>&1 || fail "C4-6: script exited non-zero"
+AFTER=$(date +%s)
 LINE=$(handoff_stamp_line "$PROJ")
 printf '%s' "$LINE" | grep -qE '^written: t=[0-9]+ session=abcdef99$' || fail "C4-6: unexpected stamp: $LINE"
 STAMP_T=$(printf '%s' "$LINE" | sed -E 's/^written: t=([0-9]+).*/\1/')
-DIFF=$(( STAMP_T - NOW )); [ "$DIFF" -lt 0 ] && DIFF=$(( -DIFF ))
-[ "$DIFF" -le 5 ] || fail "C4-6: stamp epoch not close to now (diff=$DIFF)"
+[ "$STAMP_T" -ge "$BEFORE" ] && [ "$STAMP_T" -le "$AFTER" ] \
+  || fail "C4-6: stamp epoch $STAMP_T not within [$BEFORE, $AFTER] (script invocation window)"
 pass "C4-6: --session with no .prov file falls back to t=now, session=<8>, no branch/head"
 
 # C4-7: the widest possible stamp (40-char branch, 12-char head) stays <=112B (MAX_STAMP_BYTES).
@@ -663,11 +676,38 @@ HO_BYTES=$(awk '/^## Handoff$/{f=1;next} /^## /{f=0} f' "$PROJ" | wc -c | tr -d 
 [ "$HO_BYTES" -le 620 ] || fail "C4-2: section body is ${HO_BYTES}B with --session, cap is 620"
 pass "C4-2: the 600B case with --session keeps the stamp and stays <=620B"
 
-HASH_BEFORE=$(sha256sum "$PROJ" | awk '{print $1}')
+HASH_BEFORE=$(content_hash "$PROJ")
 printf '%s' "$HANDOFF_JSON" | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIC4_23" --session zzzzzz99 >/dev/null 2>&1 || fail "C4-3: script exited non-zero"
-HASH_AFTER=$(sha256sum "$PROJ" | awk '{print $1}')
+HASH_AFTER=$(content_hash "$PROJ")
 [ "$HASH_BEFORE" = "$HASH_AFTER" ] || fail "C4-3: PROJECT.md sha changed on a content-identical re-emission under a different --session"
 pass "C4-3: content-identical handoff under a different --session is still a no-op (old stamp kept)"
+
+# SF-L6: an invalid --session (bad charset) is dropped but logged loud (ec0 trace, an upstream
+# caller bug, not this script's own failure) -- previously silent (arg-parse ran before
+# BRAIN_DIR/lib.sh were thought to be wired, which was itself stale: they already are).
+PROJ="$TMP/psfl6.md"; WIKISFL6="$TMP/wikisfl6"; mkdir -p "$WIKISFL6"
+seed_project "$PROJ"
+: > "$BRAIN_DIR/audit-log.jsonl"
+jq -nc '{handoff:{in_flight:"sf-l6 probe",failed_approaches:[],pointers:[]}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKISFL6" --session 'bad session!' >/dev/null 2>&1 || fail "SF-L6: script exited non-zero"
+grep -q 'gate=session-arg-invalid' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null || fail "SF-L6: invalid --session was not logged"
+LINE=$(handoff_stamp_line "$PROJ")
+printf '%s' "$LINE" | grep -qE '^written: t=[0-9]+$' || fail "SF-L6: a dropped --session should leave t=<digits> only, got: $LINE"
+pass "SF-L6: an invalid --session is dropped (charset) and logged loud, not silently"
+
+# gate=handoff-stamp src=bad-prov: a .prov file EXISTS for this session but its first
+# (epoch) field fails to parse as digits -- a corrupt/torn write, distinct from no-prov
+# (no file at all). Must still stamp (t=now fallback), just flagged bad-prov, not no-prov.
+PROJ="$TMP/pbadprov.md"; WIKIBP="$TMP/wikibadprov"; mkdir -p "$WIKIBP"
+seed_project "$PROJ"
+mkdir -p "$BRAIN_DIR/.injected"
+printf 'NOTANUMBER\tdeadbee\tmain' > "$BRAIN_DIR/.injected/badprovsid.prov"
+: > "$BRAIN_DIR/error-log.jsonl"
+jq -nc '{handoff:{in_flight:"bad-prov probe",failed_approaches:[],pointers:[]}}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIBP" --session badprovsid >/dev/null 2>&1 || fail "bad-prov: script exited non-zero"
+grep -q 'gate=handoff-stamp src=bad-prov session=badprovs' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
+  || fail "bad-prov: expected gate=handoff-stamp src=bad-prov row, got: $(tail -3 "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null)"
+pass "gate=handoff-stamp distinguishes src=bad-prov (unparseable epoch) from src=no-prov (missing file)"
 
 export BRAIN_DIR="$TMP/brain"
 

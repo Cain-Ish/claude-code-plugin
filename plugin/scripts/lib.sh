@@ -230,8 +230,20 @@ sb_floor_transcript() {
   fi
   local gated; gated=$(printf '%s' "$delta" | bash "$sdir/extraction-quality-gate.sh" 2>/dev/null)
   if [ -n "$gated" ] && printf '%s' "$gated" | jq empty 2>/dev/null; then delta="$gated"; fi
+  # SF-C1: the drainer's floor merge used to discard merge-project-update.sh's stderr
+  # entirely (`2>&1 >/dev/null` folded stderr into the now-redirected stdout, so BOTH
+  # vanished) -- a failed merge here was invisible even though this floor call is the
+  # LAST-RESORT capture path when the LLM backend has already failed MAX_FAILS times.
+  local floor_err ec
+  floor_err=$(mktemp)
   printf '%s' "$delta" \
-    | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" >/dev/null 2>&1
+    | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" >/dev/null 2>"$floor_err"
+  ec=$?
+  if [ "$ec" -ne 0 ]; then
+    sb_log_error "lib.sh" "sb_floor_transcript: merge-project-update.sh exited $ec slug=$slug err=$(tr '\n' ' ' < "$floor_err" | head -c 300)" 1
+  fi
+  rm -f "$floor_err"
+  return "$ec"
 }
 
 # Log an error to error-log.jsonl for session-load.sh to surface.
@@ -2087,7 +2099,13 @@ sb_timeout() {
   # silently empty on every host that hits this fallback).
   "$@" <&0 &
   local pid=$!
-  ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) 2>/dev/null &
+  # F2 (portability review): the watchdog subshell backgrounded with only stderr closed still
+  # inherits the FOREGROUND command's stdout fd -- on `$(sb_timeout ...)`, that fd IS the
+  # command-substitution pipe. bash cannot see EOF on that pipe until every holder of the fd
+  # exits, so `$(...)` blocked for the full secs+2s watchdog lifetime even though the wrapped
+  # command itself returned almost instantly (measured 2004ms vs 5ms on stock macOS, no
+  # timeout/gtimeout). Close BOTH stdout and stderr on the subshell, not just stderr.
+  ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
   local wd=$!
   wait "$pid"; local ec=$?
   kill "$wd" 2>/dev/null || true
@@ -2564,8 +2582,19 @@ sb_merge_extraction_edges() {
 sb_session_prov_write() {
   local sid="$1" dir="${2:-$PWD}"
   [ -n "$sid" ] || return 0
-  case "$sid" in *[!A-Za-z0-9_-]*) return 0 ;; esac
-  mkdir -p "$BRAIN_DIR/.injected" 2>/dev/null || return 0
+  # SF-M3: fail LOUD on every write-path failure -- a silent no-op here was previously
+  # indistinguishable from "no session id was ever passed", so a merge_handoff stamp with a
+  # missing/bad .prov degraded to merge-time-only provenance with zero diagnostic signal.
+  case "$sid" in
+    *[!A-Za-z0-9_-]*)
+      sb_log_error "lib.sh" "sb_session_prov_write: sid failed the charset guard, no .prov written" 1
+      return 1
+      ;;
+  esac
+  if ! mkdir -p "$BRAIN_DIR/.injected" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_session_prov_write: mkdir $BRAIN_DIR/.injected failed sid=${sid:0:8}" 1
+    return 1
+  fi
   local epoch sha="" branch="" out refs
   epoch=$(date +%s)
   if out=$(git -c log.showSignature=false -C "$dir" log -1 --no-color --abbrev=7 --format='%h%x09%D' 2>/dev/null) && [ -n "$out" ]; then
@@ -2583,9 +2612,22 @@ sb_session_prov_write() {
     sha="${sha:0:12}"
   fi
   local tmp
-  tmp=$(mktemp "$BRAIN_DIR/.injected/.provXXXXXX" 2>/dev/null) || return 0
-  printf '%s\t%s\t%s' "$epoch" "$sha" "$branch" > "$tmp"
-  mv "$tmp" "$BRAIN_DIR/.injected/$sid.prov" 2>/dev/null || rm -f "$tmp"
+  tmp=$(mktemp "$BRAIN_DIR/.injected/.provXXXXXX" 2>/dev/null)
+  if [ -z "$tmp" ]; then
+    sb_log_error "lib.sh" "sb_session_prov_write: mktemp failed sid=${sid:0:8}" 1
+    return 1
+  fi
+  if ! printf '%s\t%s\t%s' "$epoch" "$sha" "$branch" > "$tmp" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_session_prov_write: write to tmpfile failed sid=${sid:0:8}" 1
+    rm -f "$tmp" 2>/dev/null
+    return 1
+  fi
+  if ! mv "$tmp" "$BRAIN_DIR/.injected/$sid.prov" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_session_prov_write: mv to .prov failed sid=${sid:0:8}" 1
+    rm -f "$tmp" 2>/dev/null
+    return 1
+  fi
+  return 0
 }
 
 # Build the extractor input from a preprocessed archived transcript + PROJECT.md,
@@ -2710,9 +2752,19 @@ TMPL
   if [ "$is_subagent" -eq 0 ] && [ -n "$sess_id" ]; then
     sess_flag=(--session "$sess_id")
   fi
-  printf '%s' "$delta" \
-    | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
-      >/dev/null 2>&1 || return 1
+  # SF-C1: same fix as sb_floor_transcript above -- capture stderr instead of folding it into
+  # the discarded stdout, so a failed merge on the drainer's REAL (non-floor) extraction path
+  # is diagnosable instead of a bare "return 1" with zero trace of why.
+  local extract_merge_err
+  extract_merge_err=$(mktemp)
+  if ! printf '%s' "$delta" \
+      | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
+        >/dev/null 2>"$extract_merge_err"; then
+    sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed slug=$slug err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
+    rm -f "$extract_merge_err"
+    return 1
+  fi
+  rm -f "$extract_merge_err"
 
   # D157: merge-edges AFTER the merge above — it resolves relations[] endpoints
   # against wiki stub pages that merge-project-update.sh's cross_refs handling
