@@ -491,7 +491,9 @@ merge_plan() {
   [ -z "$items" ] && return 0
   # Only act when a ## Plan section exists (new projects scaffold it; the upgrade
   # migration backfills older PROJECT.md files). No section → nothing to reconcile.
-  grep -q '^## Plan$' "$TMP_OUT" || return 0
+  # A suffixed header ("## Plan (spec v2 — note)") is still the Plan section — only the
+  # bare "## Plan" line or a "## Plan " prefix counts; "## Planning notes" must NOT match.
+  grep -qE '^## Plan( |$)' "$TMP_OUT" || return 0
 
   # SEC-M4: gate the extractor's OWN plan[] emission through the same trust boundary as
   # compact_pending -- it can echo transcript content (a prior compaction summary, tool
@@ -506,7 +508,7 @@ merge_plan() {
   items="$gated_items"
 
   local pinned_lines pinned_bare
-  pinned_lines=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- / && /\[pinned\]/' "$TMP_OUT")
+  pinned_lines=$(awk '/^## Plan( |$)/{f=1;next} /^## /{f=0} f && /^- / && /\[pinned\]/' "$TMP_OUT")
   # Bare pinned text, lowercased, stripped ONCE outside any loop (was previously re-derived
   # inside a per-item bash loop -- F3/perf: 3 sed+cut spawns per emitted item, measured as a
   # real contributor to hook latency on MSYS's spawn-tax platforms).
@@ -567,7 +569,7 @@ merge_plan() {
         ekey[en] = plan_norm(eraw[en])
       }
     }
-    /^## Plan$/ { print; print ""; inplan=1; pn=0; ln=0; sn=0; un=0; next }
+    /^## Plan( |$)/ { print; print ""; inplan=1; pn=0; ln=0; sn=0; un=0; next }
     inplan && (/^## / || /^<!--/) { render(); print; inplan=0; next }
     inplan {
       if ($0 == "") next
@@ -580,8 +582,9 @@ merge_plan() {
       if ($0 ~ /^- \[stale\]/) { sn++; sline[sn]=$0; skey[sn]=plan_norm($0); next }
       if ($0 ~ /^- \[[ xX]\]/) { ln++; lline[ln]=$0; lkey[ln]=plan_norm($0); next }
       # Invariant 14: an unrecognised bullet (no checkbox, e.g. a hand-written "- note" or
-      # a */+ bullet) must never silently vanish -- carry it through verbatim and log once
-      # per line (tagged UNPARSED on the shared stderr channel below) rather than dropping it.
+      # a */+ bullet) must never silently vanish -- it is KEPT verbatim (never dropped), so
+      # this is traced once per MERGE as a count (tagged UNPARSEDCOUNT below), not logged
+      # as a drop and not logged once per line.
       if ($0 ~ /^[-*+][ \t]/) { un++; uline[un]=$0; next }
       next
     }
@@ -689,11 +692,7 @@ merge_plan() {
         for (i = drop+1; i <= staln; i++) staleline[i-drop] = staleline[i]
         staln -= drop
       }
-      for (i = 1; i <= un; i++) {
-        dtxt = uline[i]
-        if (length(dtxt) > 120) dtxt = substr(dtxt, 1, 120)
-        print "UNPARSED\t" dtxt > "/dev/stderr"
-      }
+      if (un > 0) print "UNPARSEDCOUNT\t" un > "/dev/stderr"
       for (i = 1; i <= pn; i++) print pline[i]
       for (i = 1; i <= un; i++) print uline[i]
       for (i = 1; i <= en; i++) print outline[i]
@@ -707,8 +706,11 @@ merge_plan() {
   while IFS=$'\t' read -r mp_tag mp_text; do
     [ -z "$mp_tag" ] && continue
     case "$mp_tag" in
-      DROP)     sb_log_error "merge-project-update.sh" "gate=plan-dropped stale text=$mp_text" 0 ;;
-      UNPARSED) sb_log_error "merge-project-update.sh" "gate=plan-dropped reason=unparsed text=$mp_text" 1 ;;
+      DROP)          sb_log_error "merge-project-update.sh" "gate=plan-dropped stale text=$mp_text" 0 ;;
+      # An unrecognised bullet is KEPT verbatim, never dropped -- this is a trace row (ec 0,
+      # audit-log), not a failure/drop row, and it is ONE row per merge carrying the count
+      # (never one row per line).
+      UNPARSEDCOUNT) sb_log_error "merge-project-update.sh" "gate=plan-unparsed kept=$mp_text" 0 ;;
       # SF-C1: the ONLY expected stderr shapes from this awk are the two tags above --
       # anything else (a raw awk runtime-error message, garbage) means the awk did not
       # run to completion cleanly even if its exit code happens to read 0 on this
@@ -766,6 +768,14 @@ merge_compact_pending() {
   local new_tmp; new_tmp=$(mktemp)
   local countfile; countfile=$(mktemp)
   EMIT="$emit2" TODAY="$TODAY" awk "$PLAN_NORM_AWK"'
+    # Every line this program would otherwise print goes through emit() instead -- buffered
+    # into out[] (or, while scaffmode is set, into scaffout[]) so the whole output can be
+    # reordered once, at END, when a brand-new ## Plan section has to be spliced in BEFORE
+    # the trailing footer comments rather than appended after them (Fix 2).
+    function emit(line) {
+      if (scaffmode) { scaffn++; scaffout[scaffn] = line }
+      else { on++; out[on] = line }
+    }
     function flush_plan(   ek,existing_open,found_stale,insert_at,last_nonblank,b,k,c,dup,newline) {
       ek = 0
       existing_open = 0
@@ -791,7 +801,7 @@ merge_compact_pending() {
         bn++; insert_at++; added++; existing_open++
         ek++; ekey[ek] = ckey[c]
       }
-      for (b = 1; b <= bn; b++) print buf[b]
+      for (b = 1; b <= bn; b++) emit(buf[b])
       print "COUNTS\t" (added " " dedup " " refused) > "/dev/stderr"
     }
     BEGIN {
@@ -799,26 +809,43 @@ merge_compact_pending() {
       n = split(ENVIRON["EMIT"], tmp, "\n")
       cn = 0
       for (i = 1; i <= n; i++) { if (tmp[i] != "") { cn++; cand[cn]=tmp[i]; ckey[cn]=plan_norm(tmp[i]) } }
-      added=0; dedup=0; refused=0; inplan=0; sawplan=0; bn=0
+      added=0; dedup=0; refused=0; inplan=0; sawplan=0; bn=0; on=0; scaffmode=0; footer_at=0
     }
-    /^## Plan$/ { print; inplan=1; sawplan=1; bn=0; next }
+    # Footer detection runs on every line (no `next`, so the normal handling below still
+    # applies) and only latches the FIRST match -- the new section must land before this
+    # line, never after it.
+    footer_at == 0 && /^<!-- (last_updated|last_queried_wiki):/ { footer_at = on + 1 }
+    /^## Plan( |$)/ { emit($0); inplan=1; sawplan=1; bn=0; next }
     inplan && (/^## / || /^<!--/) {
       flush_plan()
       inplan = 0
-      print
+      emit($0)
       next
     }
     inplan { bn++; buf[bn]=$0; next }
-    { print }
+    { emit($0) }
     END {
       if (inplan) flush_plan()
       if (!sawplan) {
-        print ""
-        print "## Plan"
-        print ""
+        # No ## Plan section anywhere in the file -- scaffold one into its OWN buffer
+        # (scaffmode), then splice it in before footer_at (the first last_updated/
+        # last_queried_wiki comment line), or at EOF if the file has no such footer.
+        scaffmode = 1
+        emit("")
+        emit("## Plan")
+        emit("")
         bn = 0
         flush_plan()
+        scaffmode = 0
+        if (footer_at == 0) footer_at = on + 1
+        spliced = 0
+        for (i = 1; i < footer_at; i++) { spliced++; final[spliced] = out[i] }
+        for (i = 1; i <= scaffn; i++) { spliced++; final[spliced] = scaffout[i] }
+        for (i = footer_at; i <= on; i++) { spliced++; final[spliced] = out[i] }
+        on = spliced
+        for (i = 1; i <= on; i++) out[i] = final[i]
       }
+      for (i = 1; i <= on; i++) print out[i]
     }
   ' "$TMP_OUT" > "$new_tmp" 2>"$countfile"
   MCP_AWK_EC=$?
@@ -1257,7 +1284,9 @@ mark_stale() {
   new_tmp=$(mktemp)
   errfile=$(mktemp)
   awk -v s="$section" -v cutoff="$STALE_CUTOFF" '
-    $0 == s { flag=1; print; next }
+    # A suffixed header ("## Plan (spec v2 — note)") is still section s -- match the exact
+    # line OR s followed by a single space (index()==1 anchors the match at column 1).
+    ($0 == s || index($0, s " ") == 1) { flag=1; print; next }
     /^## / { flag=0; print; next }
     flag && /^- \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]/ && !/\[stale\]/ && !/\[superseded\]/ {
       d = $0; sub(/^- \[/, "", d); sub(/\].*/, "", d)

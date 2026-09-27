@@ -136,6 +136,44 @@ printf '%s' "$T3_CTX" | grep -qF '(untrusted:compact 2026-09-26) compact-S' \
 pass "T3b: sticky source mark renders as '(untrusted:compact 2026-09-26) compact-S'"
 
 # =============================================================================
+# T3c (0.54.0 continuity-batch fix): a SUFFIXED "## Plan" header ("spec v2 — MERGED to
+# main; work continues on main directly") -- the exact shape a live-repo PROJECT.md hit --
+# must still render its unfinished items in the --compact card. Pre-fix, sb_repo_card's
+# Plan-block awk bare-matched "/^## Plan$/", so the whole block silently rendered 0 items
+# for a suffixed header.
+# =============================================================================
+mkdir -p "$BRAIN_DIR/projects/proj3c"
+cat > "$BRAIN_DIR/projects/proj3c/PROJECT.md" <<'EOF'
+# PROJECT: proj3c
+
+## Goal
+GOAL-3C
+
+## Plan (spec v2 — MERGED to main; work continues on main directly)
+- [ ] suffixed-item-1
+- [ ] suffixed-item-2
+
+## Conventions
+
+## Recent decisions
+
+## Open blockers
+
+## Cross-references
+EOF
+memo sidT3c proj3c
+WORK3C="$TMP/proj3c"; mkdir -p "$WORK3C"
+T3C_OUT=$(run_compact sidT3c "$WORK3C" bash "$SCRIPT" --compact)
+T3C_CTX=$(printf '%s' "$T3C_OUT" | jq -r '.hookSpecificOutput.additionalContext')
+printf '%s' "$T3C_CTX" | grep -qF 'suffixed-item-1' \
+  || fail "T3c: a suffixed '## Plan' header's unfinished items were not rendered (ctx: $T3C_CTX)"
+printf '%s' "$T3C_CTX" | grep -qF 'suffixed-item-2' \
+  || fail "T3c: a suffixed '## Plan' header's unfinished items were not rendered (ctx: $T3C_CTX)"
+printf '%s' "$T3C_CTX" | grep -qF 'Plan: 2/2' \
+  || fail "T3c: the trusted trailing Plan count did not reflect a suffixed header's items (ctx: $T3C_CTX)"
+pass "T3c: a suffixed '## Plan' header's unfinished items render in the --compact card"
+
+# =============================================================================
 # T4: oversized fixture truncates to <=1536B, last line is 'Plan: ...', banner
 # never left open.
 # =============================================================================

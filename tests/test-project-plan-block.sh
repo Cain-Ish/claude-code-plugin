@@ -547,7 +547,8 @@ pass "P16: SEC-M2 -- an emitted line carrying the raw marker token keeps it even
 
 # P17 (SF-M2): [pinned] anywhere in an EXISTING line stays pinned (not just a leading
 # "- [pinned]"), and an unrecognised bullet ("- plain", no checkbox) is CARRIED verbatim,
-# never silently dropped (invariant 14) -- logged once as reason=unparsed.
+# never silently dropped (invariant 14) -- traced once as gate=plan-unparsed kept=1 at ec 0
+# (an audit-log trace row, not an error-log drop row -- the bullet is KEPT, never dropped).
 P_P17="$TMP/p_p17.md"
 cat > "$P_P17" <<'EOF'
 # PROJECT: t
@@ -566,13 +567,14 @@ cat > "$P_P17" <<'EOF'
 
 <!-- last_updated: 2026-05-01T00:00:00Z -->
 EOF
-: > "$BRAIN_DIR/error-log.jsonl"
+: > "$BRAIN_DIR/error-log.jsonl"; : > "$BRAIN_DIR/audit-log.jsonl"
 printf '%s' '{"plan":["[ ] some unrelated new step"]}' | bash "$MERGE" --project-md "$P_P17" --knowledge-dir "$WIKI" >/dev/null 2>&1
 grep -qF -- '- [x] [pinned] done but pinned' "$P_P17" || fail "P17: SF-M2 -- a done-but-pinned line ([x] [pinned]) was deleted"
 grep -qF -- '- [ ] [pinned] open but pinned' "$P_P17" || fail "P17: SF-M2 -- an open-but-pinned line ([ ] [pinned]) was demoted (lost its pin)"
 grep -qF -- '- plain unrecognised bullet with no checkbox' "$P_P17" || fail "P17: SF-M2 -- an unrecognised bullet vanished silently (invariant 14)"
-grep -q 'reason=unparsed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null || fail "P17: SF-M2 -- no reason=unparsed row logged for the unrecognised bullet"
-pass "P17: SF-M2 -- [pinned] anywhere stays pinned; an unparsed bullet is carried and logged, never dropped"
+grep -q 'gate=plan-unparsed kept=1' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null || fail "P17: SF-M2 -- no gate=plan-unparsed kept=1 trace row logged for the unrecognised bullet"
+grep -q 'plan-dropped' "$BRAIN_DIR/error-log.jsonl" "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null && fail "P17: SF-M2 -- a KEPT unrecognised bullet must never be logged as gate=plan-dropped"
+pass "P17: SF-M2 -- [pinned] anywhere stays pinned; an unparsed bullet is carried and traced (kept=1), never dropped"
 
 # P18: the shared gate rejects a control-character payload in compact_pending -- fails
 # closed, adds NOTHING (not even the benign portion of the batch), logs ec1.
@@ -708,5 +710,143 @@ printf '%s' '{"recent_decisions":["totally unrelated decision, P24"]}' | bash "$
 grep -qE '^- \[stale\] \[ \] \[untrusted:compact 2020-01-01\] ancient compact-only item$' "$P_P24" \
   || fail "P24: CR-M2 -- a Plan item that is ONLY [untrusted:compact D] (no [carried D]) was not aged to [stale] (got: $(awk '/^## Plan$/{f=1;next} /^## /{f=0} f' "$P_P24"))"
 pass "P24: CR-M2 -- mark_stale ages an [untrusted:compact D]-only Plan item by its own date"
+
+# === 0.54.0 continuity-batch fix: a SUFFIXED "## Plan" header ("spec v2 — MERGED to main")
+# is still the Plan section at every reader/writer -- merge_plan/merge_compact_pending/
+# mark_stale must recognize "## Plan " + anything, not just the bare exact line, and
+# "## Planning notes" must NOT be mistaken for it. Test-local helper mirrors the fixed
+# regex for assertions only (not the code under test).
+plan_body() { awk '/^## Plan( |$)/{f=1;next} /^## /{f=0} f' "$1"; }
+
+# P27 (a/c/f): suffixed header + two hand-written prose bullets + checklist items. "beta"
+# is deliberately UNMARKED (no existing [carried D]) so that after the merge it can ONLY
+# read as "- [ ] [carried TODAY] beta" if the reconcile genuinely ran -- a no-op (the
+# pre-fix early-return bug) would leave it as the untouched literal "- [ ] beta" forever,
+# which is NOT the assertion below (a same-shape-either-way assertion would be tautological
+# -- see feedback_test_fallback_branches).
+# (a) merge_plan reconcile with a plan emission that OMITS "beta": header stays verbatim,
+# "beta" is newly carried, prose stays in place (above the checklist, original relative
+# order).
+# (c) mark_stale (separately) ages a PRE-EXISTING [carried 2020-01-01] item found under
+# the suffixed header -- a distinct old-carried-item fixture line, so this assertion is not
+# satisfied merely by the file being left untouched.
+# (f) the two prose bullets are KEPT (never dropped) and logged ONCE as
+# gate=plan-unparsed kept=2 at ec 0 -- never gate=plan-dropped.
+P_P27="$TMP/p_p27.md"
+cat > "$P_P27" <<'EOF'
+# PROJECT: t
+
+## Plan (spec v2 — MERGED to main; work continues on main directly)
+
+- SHIPPED: the old migration
+- QUEUED (owner=x): the next migration
+- [ ] alpha
+- [ ] beta
+- [ ] [carried 2020-01-01] old carried item
+- [pinned] north star
+
+## Recent decisions
+
+## Open blockers
+
+## Cross-references
+
+<!-- last_updated: 2026-05-01T00:00:00Z -->
+<!-- last_queried_wiki: -->
+EOF
+# RED (pre-fix): grep -q '^## Plan$' "$P_P27" is FALSE for this fixture (the header has a
+# suffix) -- merge_plan's own early-return guard used exactly that pattern, so the whole
+# reconcile below was silently skipped and every one of the assertions that follow failed.
+grep -q '^## Plan$' "$P_P27" && fail "P27 setup sanity: fixture header should NOT bare-match ^## Plan\$"
+: > "$BRAIN_DIR/audit-log.jsonl"; : > "$BRAIN_DIR/error-log.jsonl"
+printf '%s' '{"plan":["[ ] alpha"]}' | bash "$MERGE" --project-md "$P_P27" --knowledge-dir "$WIKI" >/dev/null 2>&1
+grep -qF '## Plan (spec v2 — MERGED to main; work continues on main directly)' "$P_P27" \
+  || fail "P27a: suffixed Plan header not kept verbatim after a reconcile"
+grep -qE '^- \[ \] \[carried [0-9]{4}-[0-9]{2}-[0-9]{2}\] beta$' "$P_P27" \
+  || fail "P27a: an omitted unfinished item under a suffixed header was not carried (got: $(plan_body "$P_P27"))"
+grep -qF -- '- [pinned] north star' "$P_P27" || fail "P27a: pinned line lost under a suffixed header"
+SHIPPED_L=$(plan_body "$P_P27" | grep -n 'SHIPPED' | head -1 | cut -d: -f1)
+QUEUED_L=$(plan_body "$P_P27" | grep -n 'QUEUED' | head -1 | cut -d: -f1)
+ALPHA_L=$(plan_body "$P_P27" | grep -n '\- \[ \] alpha$' | head -1 | cut -d: -f1)
+[ -n "$SHIPPED_L" ] && [ -n "$QUEUED_L" ] && [ -n "$ALPHA_L" ] \
+  && [ "$SHIPPED_L" -lt "$QUEUED_L" ] && [ "$QUEUED_L" -lt "$ALPHA_L" ] \
+  || fail "P27a: prose bullets did not stay in their original relative order above the checklist (got: $(plan_body "$P_P27")) SHIPPED_L=$SHIPPED_L QUEUED_L=$QUEUED_L ALPHA_L=$ALPHA_L"
+pass "P27a: suffixed header reconciles -- header kept verbatim, an omitted item is carried, prose stays in place"
+
+grep -qE '^- \[stale\] \[ \] \[carried 2020-01-01\] old carried item$' "$P_P27" \
+  || fail "P27c: mark_stale did not age a pre-existing [carried D] item under a suffixed Plan header (got: $(plan_body "$P_P27"))"
+pass "P27c: mark_stale ages a [carried D] item under a suffixed Plan header"
+
+grep -q 'gate=plan-unparsed kept=2' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
+  || fail "P27f: expected one gate=plan-unparsed kept=2 audit row for the 2 kept prose bullets, got: $(cat "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null)"
+UNPARSED_ROWS=$(grep -c 'gate=plan-unparsed' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null || echo 0)
+[ "$UNPARSED_ROWS" -eq 1 ] || fail "P27f: expected exactly ONE gate=plan-unparsed row (once per merge, not once per line), got $UNPARSED_ROWS"
+grep -q 'plan-dropped' "$BRAIN_DIR/error-log.jsonl" "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
+  && fail "P27f: a kept prose bullet was logged as gate=plan-dropped (it must never be, it is kept)"
+pass "P27f: kept prose bullets log ONE gate=plan-unparsed kept=2 row at ec 0; never gate=plan-dropped"
+
+# P28 (b): compact_pending on the SAME suffixed-header fixture lands INSIDE that section
+# (not a new one), and there is EXACTLY ONE line starting "## Plan" in the file afterward.
+: > "$BRAIN_DIR/audit-log.jsonl"
+printf '%s' '{"compact_pending":["a fresh compaction task"]}' | bash "$MERGE" --project-md "$P_P27" --knowledge-dir "$WIKI" >/dev/null 2>&1
+TODAY_D=$(date +%Y-%m-%d)
+plan_body "$P_P27" | grep -qF -- "[untrusted:compact $TODAY_D] a fresh compaction task" \
+  || fail "P28b: compact_pending item did not land inside the suffixed Plan section (got: $(plan_body "$P_P27"))"
+PLAN_HDR_N=$(grep -c '^## Plan' "$P_P27")
+[ "$PLAN_HDR_N" -eq 1 ] || fail "P28b: expected exactly one '## Plan' header line, got $PLAN_HDR_N (a second section was scaffolded instead of reusing the suffixed one)"
+pass "P28b: compact_pending lands inside a suffixed Plan section; no second '## Plan' header is scaffolded"
+
+# P29 (d): "## Planning notes" must NEVER be mistaken for the Plan section -- merge_plan's
+# early-return guard sees no genuine "## Plan" header, so it is a no-op: the Planning-notes
+# section is left byte-for-byte, and the emitted item is silently NOT written anywhere (no
+# Plan section exists to hold it -- this fixture only exercises merge_plan, which does not
+# scaffold; scaffolding is merge_compact_pending's job, covered by P11b/P28e).
+P_P29="$TMP/p_p29.md"
+cat > "$P_P29" <<'EOF'
+# PROJECT: t
+
+## Planning notes
+- [ ] not a real plan item
+
+## Recent decisions
+
+## Open blockers
+
+## Cross-references
+
+<!-- last_updated: 2026-05-01T00:00:00Z -->
+EOF
+HASH_P29_BEFORE=$(content_hash "$P_P29")
+printf '%s' '{"plan":["[ ] real one"]}' | bash "$MERGE" --project-md "$P_P29" --knowledge-dir "$WIKI" >/dev/null 2>&1
+[ "$(content_hash "$P_P29")" = "$HASH_P29_BEFORE" ] || fail "P29d: '## Planning notes' was mutated as if it were the Plan section"
+grep -q 'real one' "$P_P29" && fail "P29d: 'real one' was written somewhere despite there being no genuine ## Plan section"
+grep -qE '^## Plan( |$)' "$P_P29" && fail "P29d: '## Planning notes' was matched as a genuine Plan header"
+pass "P29d: '## Planning notes' is never mistaken for the Plan section (no match, no mutation)"
+
+# P28e (e): a Plan-less PROJECT.md with the standard TWO-line footer -- merge_compact_pending
+# must scaffold the new ## Plan section BEFORE the footer, never after it (0.54.0 bug: the
+# scaffold used to land at the literal end of the awk stream, i.e. after both footer lines).
+P_P28E="$TMP/p_p28e.md"
+cat > "$P_P28E" <<'EOF'
+# PROJECT: t
+
+## Recent decisions
+
+<!-- last_updated: 2026-05-01T00:00:00Z -->
+<!-- last_queried_wiki: -->
+EOF
+printf '%s' '{"compact_pending":["keep me before the footer"]}' | bash "$MERGE" --project-md "$P_P28E" --knowledge-dir "$WIKI" >/dev/null 2>&1
+PLAN_L=$(grep -n '^## Plan' "$P_P28E" | head -1 | cut -d: -f1)
+FOOTER_L=$(grep -n '^<!-- last_updated:' "$P_P28E" | head -1 | cut -d: -f1)
+[ -n "$PLAN_L" ] && [ -n "$FOOTER_L" ] && [ "$PLAN_L" -lt "$FOOTER_L" ] \
+  || fail "P28e: scaffolded ## Plan section did not land before <!-- last_updated: (PLAN_L=$PLAN_L FOOTER_L=$FOOTER_L; file: $(cat "$P_P28E"))"
+LAST_LINE=$(tail -1 "$P_P28E")
+case "$LAST_LINE" in
+  '<!-- last_queried_wiki: -->') ;;
+  *) fail "P28e: the footer comments are no longer the file's last lines (last line: $LAST_LINE)" ;;
+esac
+PLAN_HDR_N2=$(grep -c '^## Plan' "$P_P28E")
+[ "$PLAN_HDR_N2" -eq 1 ] || fail "P28e: expected exactly one '## Plan' header line, got $PLAN_HDR_N2"
+pass "P28e: no-Plan PROJECT.md with the standard footer -- the scaffolded section lands before the footer, which stays last"
 
 echo; echo "ALL PASS"

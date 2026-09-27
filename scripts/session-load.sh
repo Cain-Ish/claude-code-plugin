@@ -330,7 +330,7 @@ $hoffout"
   # many lines actually SURVIVED into the card, which is what the gate= log's plan= reports.
   local plan_raw plan_counts plan_item_lines plan_open=0 plan_total=0 plan_stale=0
   plan_raw=$(awk '
-    /^## Plan$/ { f=1; next }
+    /^## Plan( |$)/ { f=1; next }
     /^## /      { f=0 }
     f && /^- \[ \]/     { open++; if (n<5) lines[++n]=$0 }
     f && /^- \[stale\]/ { stale++ }
@@ -1543,8 +1543,8 @@ if [ -f "$project_file" ]; then
   # the plan's open/total is surfaced so focus is visible. Forced (tiny, priority-1
   # transparency). Kill switch: SB_SCOPE_BANNER=off.
   if [ "${SB_SCOPE_BANNER:-on}" != "off" ]; then
-    PLAN_OPEN=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- \[ \]/{c++} END{print c+0}' "$project_file")
-    PLAN_TOTAL=$(awk '/^## Plan$/{f=1;next} /^## /{f=0} f && /^- / && !/\[pinned\]/{c++} END{print c+0}' "$project_file")
+    PLAN_OPEN=$(awk '/^## Plan( |$)/{f=1;next} /^## /{f=0} f && /^- \[ \]/{c++} END{print c+0}' "$project_file")
+    PLAN_TOTAL=$(awk '/^## Plan( |$)/{f=1;next} /^## /{f=0} f && /^- / && !/\[pinned\]/{c++} END{print c+0}' "$project_file")
     DEC_N=$(awk '/^## Recent decisions$/{f=1;next} /^## /{f=0} f && /^- /{c++} END{print c+0}' "$project_file")
     BLK_N=$(awk '/^## Open blockers$/{f=1;next} /^## /{f=0} f && /^- \[active\]/{c++} END{print c+0}' "$project_file")
     sb_append "$(printf '\n✓ second-brain: project memory loaded — %s (plan %s/%s · %s decisions · %s active blockers)\n' \
