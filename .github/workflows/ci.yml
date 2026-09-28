@@ -14,6 +14,10 @@ permissions:
 
 jobs:
   linux:
+    # Turned off 2026-09-28 at the user's request (CI time). This was the only lane running
+    # the full run-all and the only one on jq 1.7 (Ubuntu's version); re-enable by removing
+    # the `if:` line. Until then, check jq 1.7 compatibility locally before a release.
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

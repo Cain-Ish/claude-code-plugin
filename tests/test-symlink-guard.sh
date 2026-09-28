@@ -174,6 +174,17 @@ OUT=$(gen Write "$HOME/.ssh/authorized_keys" | PATH="$STUB:$PATH" bash "$SCRIPT"
 assert_deny "realpath absent → fail CLOSED on literal ~/.ssh write" "$OUT" "ssh"
 OUT=$(gen Write "$HOME/work/repo/main.py" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
 assert_allow "realpath absent → normal project write not over-blocked" "$OUT"
+# Test 17b: same, with HOME spelled in Windows form (a GitHub Windows runner sets
+# HOME='D:\a\_temp\…'). The credential prefixes must be built from the normalized HOME, or a
+# ~/.ssh write fails OPEN. Only meaningful where cygpath exists (sb_normalize_path's C: rule).
+if command -v cygpath >/dev/null 2>&1; then
+  for WH in "$(cygpath -m "$HOME")" "$(cygpath -w "$HOME")"; do
+    OUT=$(gen Write "$WH/.ssh/authorized_keys" | HOME="$WH" PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+    assert_deny "realpath absent + Windows-form HOME ($WH) → still denies ~/.ssh write" "$OUT" "ssh"
+  done
+else
+  echo "SKIP: Test 17b (Windows-form HOME) needs cygpath — Windows hosts only"
+fi
 
 # --- Test 18: realpath absent + symlinked PARENT → portable cd/pwd -P resolver still denies ----
 # This is the macOS/BSD path (realpath lacks -m): the guard must resolve the parent dir's

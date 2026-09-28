@@ -187,21 +187,26 @@ fi
 # Credential-dir prefix check. Each entry is "label:absolute-prefix".
 # Order matters only for which label the user sees first; the deny verdict
 # is identical.
+# The prefixes are built from HOME in the SAME normalized form as FILE_PATH/RESOLVED: with
+# HOME spelled 'C:/…' or 'C:\…' (a GitHub Windows runner sets HOME='D:\a\_temp\…'; a shell
+# started from cmd/PowerShell can too) and realpath unavailable, a raw-$HOME prefix never
+# matched the /c/… path and a ~/.ssh write was ALLOWED (fail-open, found by the Windows CI lane).
+_GH=$(sb_normalize_path "$HOME"); _GH="${_GH%/}"
 CRED_PREFIXES=(
-  "ssh:$HOME/.ssh/"
-  "gnupg:$HOME/.gnupg/"
-  "aws:$HOME/.aws/"
-  "claude-config:$HOME/.config/claude/"
-  "gh-config:$HOME/.config/gh/"
-  "passwordstore:$HOME/.password-store/"
+  "ssh:$_GH/.ssh/"
+  "gnupg:$_GH/.gnupg/"
+  "aws:$_GH/.aws/"
+  "claude-config:$_GH/.config/claude/"
+  "gh-config:$_GH/.config/gh/"
+  "passwordstore:$_GH/.password-store/"
   "etc:/etc/"
 )
 # Special case: single credential FILES, not prefix trees. ~/.claude must NOT
 # be a prefix entry — plans/, projects/ (memory), settings.json live there and
 # are legitimate write targets; only the OAuth token file is a credential.
 CRED_FILES=(
-  "netrc:$HOME/.netrc"
-  "claude-oauth:$HOME/.claude/.credentials.json"
+  "netrc:$_GH/.netrc"
+  "claude-oauth:$_GH/.claude/.credentials.json"
 )
 
 MATCHED_LABEL=""

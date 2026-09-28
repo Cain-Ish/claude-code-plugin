@@ -252,9 +252,9 @@ for marker in forged-A forged-B forged-C; do
 done
 N7_REAL_BANNERS=$(printf '%s' "$N7_CTX" | grep -cF '[End untrusted reference]')
 [ "$N7_REAL_BANNERS" = "1" ] || fail "N7: expected exactly 1 real '[End untrusted reference]' banner, got $N7_REAL_BANNERS (ctx: $N7_CTX)"
-printf '%s' "$N7_CTX" | LC_ALL=C od -An -tx1 | grep -qE 'e3 80 9a|e3 80 9b' \
+printf '%s' "$N7_CTX" | LC_ALL=C od -An -tx1 | tr -s ' \n' ' ' | grep -qE 'e3 80 9a|e3 80 9b' \
   && fail "N7: raw 〚/〛 lookalike bracket bytes survived into the card (ctx: $N7_CTX)"
-printf '%s' "$N7_CTX" | LC_ALL=C od -An -tx1 | grep -q 'c2 a0' \
+printf '%s' "$N7_CTX" | LC_ALL=C od -An -tx1 | tr -s ' \n' ' ' | grep -q 'c2 a0' \
   && fail "N7: a raw NBSP byte survived into the card (ctx: $N7_CTX)"
 pass "N7: 〚〛 lookalike brackets + NBSP + double-space banner-forgery all neutralize; exactly one real banner close"
 
@@ -289,7 +289,7 @@ N39_OUT=$(run_compact sidN39 "$WORKN39" bash "$SCRIPT" --compact)
 N39_CTX=$(printf '%s' "$N39_OUT" | jq -r '.hookSpecificOutput.additionalContext')
 printf '%s' "$N39_CTX" | grep -qF 'tagged-handoff' \
   || fail "N3/N9: tagged Handoff line did not render at all (lean card excludes Handoff? ctx: $N39_CTX)"
-printf '%s' "$N39_CTX" | LC_ALL=C od -An -tx1 | grep -qE 'f3 a0 8[0-9a-f]' \
+printf '%s' "$N39_CTX" | LC_ALL=C od -An -tx1 | tr -s ' \n' ' ' | grep -qE 'f3 a0 8[0-9a-f]' \
   && fail "N3/N9: Tags-block (U+E0000-E007F) bytes survived into the --compact card's Handoff line (ctx: $N39_CTX)"
 pass "N3/N9: a Tags-block payload in an ungated Handoff line is scrubbed from the --compact card"
 
@@ -300,7 +300,7 @@ N39B_OUT=$(printf '{"session_id":"sidN39b","cwd":"%s","source":"startup"}' "$WOR
   | CLAUDE_PROJECT_DIR="$WORKN39B" HOME="$TMP/home-n39b" BRAIN_DIR="$BRAIN_DIR" bash "$SCRIPT" 2>/dev/null)
 printf '%s' "$N39B_OUT" | grep -qF 'tagged-decision' \
   || fail "N3/N9: tagged Recent-decisions line did not render at all in the startup card (got: $N39B_OUT)"
-printf '%s' "$N39B_OUT" | LC_ALL=C od -An -tx1 | grep -qE 'f3 a0 8[0-9a-f]' \
+printf '%s' "$N39B_OUT" | LC_ALL=C od -An -tx1 | tr -s ' \n' ' ' | grep -qE 'f3 a0 8[0-9a-f]' \
   && fail "N3/N9: Tags-block bytes survived into the startup card's Decisions line (got: $N39B_OUT)"
 pass "N3/N9: a Tags-block payload in an ungated Decisions line is scrubbed from the startup card too"
 
@@ -375,7 +375,7 @@ pass "legacy sb_project_hot_render (SB_REPO_CARD=off) accepts a suffixed 'NN-Pla
 mkdir -p "$BRAIN_DIR/projects/projch1"
 printf '# PROJECT: projch1\n\n## Goal\nGOAL-CH1\n\n## Plan\n- [ ] clean-before\n- [ ] torn\xc3 item\n- [ ] clean-after\n\n## Conventions\n' \
   > "$BRAIN_DIR/projects/projch1/PROJECT.md"
-LC_ALL=C od -An -tx1 "$BRAIN_DIR/projects/projch1/PROJECT.md" | grep -q ' c3 20' \
+LC_ALL=C od -An -tx1 "$BRAIN_DIR/projects/projch1/PROJECT.md" | tr -s ' \n' ' ' | grep -q ' c3 20' \
   || fail "CH1: fixture has no torn UTF-8 byte (c3 not followed by a continuation byte) — test would be vacuous"
 memo sidCH1 projch1
 WORKCH1="$TMP/projch1"; mkdir -p "$WORKCH1"
@@ -403,13 +403,13 @@ memo sidRS projrs
 WORKRS="$TMP/projrs"; mkdir -p "$WORKRS"
 RS_OUT=$(run_compact sidRS "$WORKRS" bash "$SCRIPT" --compact)
 RS_CTX=$(printf '%s' "$RS_OUT" | jq -r '.hookSpecificOutput.additionalContext')
-printf '%s' "$RS_CTX" | LC_ALL=C od -An -tx1 | grep -qE '1b |c2 85|e2 80 ae|ef bc bb|ef bc bd' \
+printf '%s' "$RS_CTX" | LC_ALL=C od -An -tx1 | tr -s ' \n' ' ' | grep -qE '1b |c2 85|e2 80 ae|ef bc bb|ef bc bd' \
   && fail "RS1/RS2: ESC/NEL/RLO/fullwidth-bracket bytes survived into the --compact card (ctx: $RS_CTX)"
 pass "RS1: ESC/NEL/RLO/fullwidth brackets from a PROJECT.md line are scrubbed from the --compact card"
 RS2_WORK="$TMP/repo/projrs"; mkdir -p "$RS2_WORK"
 RS2_OUT=$(printf '{"session_id":"sidRS2","cwd":"%s","source":"startup"}' "$RS2_WORK" \
   | CLAUDE_PROJECT_DIR="$RS2_WORK" HOME="$TMP/home-rs2" BRAIN_DIR="$BRAIN_DIR" bash "$SCRIPT" 2>/dev/null)
-printf '%s' "$RS2_OUT" | LC_ALL=C od -An -tx1 | grep -qE '1b |c2 85|e2 80 ae|ef bc bb|ef bc bd' \
+printf '%s' "$RS2_OUT" | LC_ALL=C od -An -tx1 | tr -s ' \n' ' ' | grep -qE '1b |c2 85|e2 80 ae|ef bc bb|ef bc bd' \
   && fail "RS2: ESC/NEL/RLO/fullwidth-bracket bytes survived into the startup card (got: $RS2_OUT)"
 pass "RS2: ESC/NEL/RLO/fullwidth brackets from a PROJECT.md line are scrubbed from the startup card too"
 
