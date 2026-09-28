@@ -1,7 +1,8 @@
 #!/bin/bash
 # Tests for scripts/merge-project-update.sh.
-# run-all-timeout: 480   (33+ merger invocations by design; ~5s each on MSYS — spawn-bound lib.sh,
-#   see LC-11; several new cases also spawn node+the injection scanner via gate_untrusted_items)
+# run-all-timeout: 900   (~50 merger invocations by design; ~5s each on MSYS — spawn-bound lib.sh,
+#   see LC-11; several cases also spawn node+the injection scanner via gate_untrusted_items;
+#   measured alone on MSYS: 221s moderately loaded, 776s heavily loaded)
 # Contract: reads JSON delta on stdin (or --json-file), idempotently merges
 # into the target PROJECT.md sections, scaffolds wiki pages for missing
 # [[refs]] in ~/knowledge/wiki/entities/, updates last_updated. Exits 0 on success;
@@ -14,8 +15,12 @@ trap 'rm -rf "$TMP"' EXIT
 export BRAIN_DIR="$TMP/brain"; mkdir -p "$TMP/brain"  # isolate the main body's sb_inc_wiki_writes from the real ~/.second-brain (T8/T9 below override with their own sandboxes)
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
-# F7 (portability): macOS ships shasum, not sha256sum.
-content_hash() { sha256sum "$1" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$1" | awk '{print $1}'; }
+# F7/F8 (portability): macOS ships shasum, not sha256sum. Pick the tool UP FRONT: a
+# `sha256sum … | awk || shasum` chain never falls back (the pipe's status is awk's, always 0),
+# so on a host without sha256sum every "unchanged" hash compared "" to "" and passed vacuously.
+if command -v sha256sum >/dev/null 2>&1; then content_hash() { sha256sum "$1" | awk '{print $1}'; }
+elif command -v shasum >/dev/null 2>&1; then content_hash() { shasum -a 256 "$1" | awk '{print $1}'; }
+else echo "FAIL: neither sha256sum nor shasum is available"; exit 1; fi
 
 seed_project() {
   local f="$1"
@@ -708,6 +713,221 @@ jq -nc '{handoff:{in_flight:"bad-prov probe",failed_approaches:[],pointers:[]}}'
 grep -q 'gate=handoff-stamp src=bad-prov session=badprovs' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
   || fail "bad-prov: expected gate=handoff-stamp src=bad-prov row, got: $(tail -3 "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null)"
 pass "gate=handoff-stamp distinguishes src=bad-prov (unparseable epoch) from src=no-prov (missing file)"
+
+LINE=$(handoff_stamp_line "$PROJ")
+printf '%s' "$LINE" | grep -qE '^written: t=[0-9]+ session=badprovs' \
+  || fail "bad-prov (R1-14b): a corrupt .prov epoch must never reach the stamp -- expected t=<digits>, got: $LINE"
+pass "bad-prov: the stamp falls back to t=<digits> (R1-14b lock), never the corrupt epoch"
+
+# === 0.54.0 fix round 2. Each block FAILED on 84156c2 unless marked "lock" (pins a round-1 fix a
+# mutant survived). Fault injection is a PATH shim that fails ONLY the call whose arguments carry a
+# marker string and passes every other call straight through to the real binary. ===
+export BRAIN_DIR="$TMP/brainR2"; mkdir -p "$BRAIN_DIR"
+TODAY_D=$(date +%Y-%m-%d)
+reset_logs() { : > "$BRAIN_DIR/error-log.jsonl"; : > "$BRAIN_DIR/audit-log.jsonl"; }
+make_shim() {   # $1 dir, $2 tool name, $3 marker, $4 mode (fail|empty|warn), $5 exit code for fail
+  local real; real=$(command -v "$2")
+  mkdir -p "$1"
+  {
+    echo '#!/bin/bash'
+    printf 'NAME=%q\nMARK=%q\nMODE=%q\nFAILEC=%q\nREAL=%q\n' "$2" "$3" "$4" "${5:-2}" "$real"
+    cat <<'EOF'
+for a in "$@"; do
+  case "$a" in
+    *"$MARK"*)
+      case "$MODE" in
+        fail) echo "$NAME: simulated failure" >&2; exit "$FAILEC" ;;
+        empty) exit 0 ;;
+      esac ;;
+  esac
+done
+[ "$MODE" = "warn" ] && echo "$NAME: cmd. line:1: warning: Invalid multibyte data detected (simulated)" >&2
+exec "$REAL" "$@"
+EOF
+  } > "$1/$2"
+  chmod +x "$1/$2"
+}
+plan_of() { awk '/^## Plan( |$)/{f=1;next} /^## /{f=0} f' "$1"; }
+
+# R2-SF7: the final write guard compares against the ORIGINAL file's own first heading, not a
+# hardcoded "# PROJECT" -- a hand-renamed heading used to refuse every merge (exit 3) forever.
+PROJ="$TMP/pr2_sf7.md"; WIKIR2="$TMP/wikir2"; mkdir -p "$WIKIR2"
+printf '# My Renamed Project Notes\n\n## Recent decisions\n\n<!-- last_updated: 2026-05-01T00:00:00Z -->\n' > "$PROJ"
+reset_logs
+SF7_RC=0
+printf '%s' '{"recent_decisions":["sf7 decision lands"]}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1 || SF7_RC=$?
+[ "$SF7_RC" -eq 0 ] || fail "R2-SF7: a hand-renamed first heading made the merge refuse to write (rc=$SF7_RC): $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+grep -q 'sf7 decision lands' "$PROJ" || fail "R2-SF7: the decision was not written"
+grep -qxF '# My Renamed Project Notes' "$PROJ" || fail "R2-SF7: the heading changed"
+pass "R2-SF7: a renamed first heading is the guard reference -- the merge writes"
+
+# A3 lock (SF-C1 final guard): a merge_state awk that prints NOTHING and exits 0 would empty the
+# staging buffer; the guard must refuse the write (exit 3), log it, and leave PROJECT.md intact.
+PROJ="$TMP/pr2_a3.md"; seed_project "$PROJ"
+HASH_A3=$(content_hash "$PROJ")
+make_shim "$TMP/shim_state_empty" awk 'ENVIRON["NOTE"]' empty
+reset_logs
+A3_RC=0
+printf '%s' '{"session_goal":"a3 goal"}' | PATH="$TMP/shim_state_empty:$PATH" "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1 || A3_RC=$?
+[ "$A3_RC" -eq 3 ] || fail "A3: an emptied staging buffer must exit 3 (got $A3_RC)"
+grep -q 'staging buffer corrupted' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null || fail "A3: no corruption row: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+[ "$(content_hash "$PROJ")" = "$HASH_A3" ] || fail "A3: PROJECT.md was overwritten by an empty buffer"
+pass "A3 lock: an emptied staging buffer is refused (exit 3 + corruption row), PROJECT.md intact"
+
+# R2-SF8: failure rows carry the exit code and the stderr head -- merge_state's awk (shimmed to fail)
+# and the compact gate's sanitizer (a fake plugin root whose sanitize-cli exits 7).
+PROJ="$TMP/pr2_sf8.md"; seed_project "$PROJ"
+HASH_SF8=$(content_hash "$PROJ")
+make_shim "$TMP/shim_state_fail" awk 'ENVIRON["NOTE"]' fail 2
+reset_logs
+printf '%s' '{"session_goal":"sf8 goal"}' | PATH="$TMP/shim_state_fail:$PATH" "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+grep -q 'gate=merge-state-failed reason=awk-error ec=2 stderr=awk: simulated failure' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "R2-SF8: merge-state-failed row lacks ec/stderr: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+[ "$(content_hash "$PROJ")" = "$HASH_SF8" ] || fail "R2-SF8: a failed merge_state changed PROJECT.md"
+FAKEROOT="$TMP/fakeroot"; mkdir -p "$FAKEROOT/mcp/dist/tools"
+printf 'process.stderr.write("sanitize exploded\\n"); process.exit(7);\n' > "$FAKEROOT/mcp/dist/tools/sanitize-cli.bundle.js"
+reset_logs
+printf '%s' '{"compact_pending":["benign compact under a crashing sanitizer"]}' \
+  | CLAUDE_PLUGIN_ROOT="$FAKEROOT" "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+grep -q 'gate=untrusted-items caller=compact_pending reason=sanitize-failed ec=7 err=sanitize exploded' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "R2-SF8: sanitize-failed row lacks ec/stderr: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+[ "$(content_hash "$PROJ")" = "$HASH_SF8" ] || fail "R2-SF8: a crashing sanitizer let an item through"
+pass "R2-SF8: merge_state and sanitizer failure rows carry the exit code and stderr head"
+
+# CR-L1: the Handoff no-op reader stops at the footer like the writer does. With ## Handoff as the
+# last section before the footer, an identical re-emission must be a byte-identical no-op.
+PROJ="$TMP/pr2_crl1.md"
+cat > "$PROJ" <<'EOF'
+# PROJECT: t
+
+## Goal
+g
+
+## Handoff
+
+written: t=1789000000
+in-flight: crl1 probe
+
+<!-- last_updated: 2026-05-01T00:00:00Z -->
+<!-- last_queried_wiki: -->
+EOF
+HASH_CRL1=$(content_hash "$PROJ")
+printf '%s' '{"handoff":{"in_flight":"crl1 probe","failed_approaches":[],"pointers":[]}}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+[ "$(content_hash "$PROJ")" = "$HASH_CRL1" ] || fail "CR-L1: an identical handoff before the footer re-stamped (got: $(cat "$PROJ"))"
+pass "CR-L1: the handoff reader stops at the footer -- an identical re-emission is a no-op"
+
+# R2-SF3: a gawk "warning:" on stderr (UTF-8 locale meeting a non-UTF-8 byte) must not fail the
+# Plan passes -- they run LC_ALL=C and tolerate a warning line. Shim: every awk call warns first.
+PROJ="$TMP/pr2_sf3.md"
+printf '# PROJECT: t\n\n## Plan\n\n- [ ] alpha\n- [ ] [carried 2020-01-01] old\n- [ ] caf\351 latin1 byte\n\n## Recent decisions\n\n<!-- last_updated: 2026-05-01T00:00:00Z -->\n' > "$PROJ"
+make_shim "$TMP/shim_warn" awk '__marker_never_present__' warn
+reset_logs
+printf '%s' '{"plan":["[ ] alpha","[ ] beta new"],"compact_pending":["gamma compact"]}' \
+  | PATH="$TMP/shim_warn:$PATH" "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+grep -q 'failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && fail "R2-SF3: a gawk warning was read as a failure: $(cat "$BRAIN_DIR/error-log.jsonl")"
+grep -qxF -- '- [ ] beta new' "$PROJ" || fail "R2-SF3: the Plan reconcile did not run (got: $(plan_of "$PROJ"))"
+grep -qxF -- '- [stale] [ ] [carried 2020-01-01] old' "$PROJ" || fail "R2-SF3: mark_stale did not run"
+grep -qF -- "[untrusted:compact $TODAY_D] gamma compact" "$PROJ" || fail "R2-SF3: compact_pending did not run"
+LC_ALL=C grep -q "caf$(printf '\351') latin1 byte" "$PROJ" || fail "R2-SF3: a non-UTF-8 byte in a Plan line was not kept byte-exact"
+reset_logs
+printf '%s' '{"plan":["[ ] alpha","[ ] beta new"]}' | LC_ALL=C.UTF-8 LANG=C.UTF-8 "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+grep -q 'failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && fail "R2-SF3: a UTF-8 locale + a non-UTF-8 byte failed a Plan pass: $(cat "$BRAIN_DIR/error-log.jsonl")"
+pass "R2-SF3: Plan passes run LC_ALL=C and tolerate an awk warning line"
+
+# N12: no predictable fallback path for the scanner stderr file -- when mktemp fails, the gate
+# fails closed (nothing stored) instead of writing to ${TMPDIR:-/tmp}/sb-scan-err.$$.
+PROJ="$TMP/pr2_n12.md"; seed_project "$PROJ"
+HASH_N12=$(content_hash "$PROJ")
+make_shim "$TMP/shim_mktemp" mktemp 'sb-scan-err' fail 1
+reset_logs
+printf '%s' '{"compact_pending":["benign compact while mktemp is broken"]}' \
+  | PATH="$TMP/shim_mktemp:$PATH" "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+[ "$(content_hash "$PROJ")" = "$HASH_N12" ] || fail "N12: the gate stored an item it could not scan privately"
+grep -q 'gate=untrusted-items caller=compact_pending reason=scanner-failed src=mktemp' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "N12: expected reason=scanner-failed src=mktemp: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+pass "N12: the gate fails closed when its private stderr file cannot be created"
+
+# R2-SF6: the gate verdict fails CLOSED on a jq error -- an erroring class check used to read as
+# "clean" (jq -e exit 5 != 0). A jq shim fails only the verdict program (it defines bad_class).
+PROJ="$TMP/pr2_sf6.md"; seed_project "$PROJ"
+HASH_SF6=$(content_hash "$PROJ")
+make_shim "$TMP/shim_jq" jq 'def bad' fail 5
+reset_logs
+printf '%s' '{"plan":["[ ] benign plan step under a broken gate"]}' \
+  | PATH="$TMP/shim_jq:$PATH" "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+grep -q 'gate=untrusted-items caller=plan reason=gate-error ec=5' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "R2-SF6: plan[] gate error not logged fail-closed: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+printf '%s' '{"compact_pending":["benign compact under a broken gate"]}' \
+  | PATH="$TMP/shim_jq:$PATH" "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+grep -q 'gate=untrusted-items caller=compact_pending reason=gate-error ec=5' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "R2-SF6: compact gate error not logged fail-closed: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+[ "$(content_hash "$PROJ")" = "$HASH_SF6" ] || fail "R2-SF6: a broken gate let an item through (fail-open)"
+pass "R2-SF6: a jq error in the gate verdict fails closed for plan[] and compact_pending"
+
+# F4 (controller, portability re-check): Apple awk EXITS 2 on any regex test of an invalid-UTF-8
+# line under a UTF-8 locale. A PATH awk shim reproduces that on every platform: under a UTF-8
+# locale it refuses any input file holding an invalid byte (0xFF), in byte mode (LC_ALL=C) it runs
+# the real awk. A PROJECT.md with a torn byte in its Goal line must still merge cleanly -- every
+# awk in the script runs byte-mode.
+PROJ="$TMP/pr2_f4.md"
+printf '# PROJECT: t\n\n## Goal\ntorn goal \377 byte\n\n## State\n\n## Plan\n\n- [ ] alpha\n\n## Recent decisions\n\n<!-- last_updated: 2026-05-01T00:00:00Z -->\n' > "$PROJ"
+REAL_AWK_F4=$(command -v awk)
+mkdir -p "$TMP/shim_appleawk"
+{
+  echo '#!/bin/bash'
+  printf 'REAL=%q\n' "$REAL_AWK_F4"
+  cat <<'EOF'
+loc="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+case "$loc" in
+  *UTF-8*|*utf-8*|*UTF8*|*utf8*)
+    for a in "$@"; do
+      if [ -f "$a" ] && LC_ALL=C grep -q "$(printf '\377')" "$a" 2>/dev/null; then
+        echo "awk: towc: multibyte conversion failure on: '$a' (simulated Apple awk)" >&2
+        exit 2
+      fi
+    done ;;
+esac
+exec "$REAL" "$@"
+EOF
+} > "$TMP/shim_appleawk/awk"
+chmod +x "$TMP/shim_appleawk/awk"
+reset_logs
+F4_RC=0
+printf '%s' '{"recent_decisions":["f4 decision lands"],"plan":["[ ] alpha","[ ] beta f4"],"session_goal":"f4 goal"}' \
+  | PATH="$TMP/shim_appleawk:$PATH" LC_ALL=C.UTF-8 "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1 || F4_RC=$?
+[ "$F4_RC" -eq 0 ] || fail "F4: a torn UTF-8 byte made the merge fail under an Apple-awk UTF-8 locale (rc=$F4_RC): $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+grep -q 'failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && fail "F4: a merge step failed on the torn byte: $(cat "$BRAIN_DIR/error-log.jsonl")"
+grep -q 'f4 decision lands' "$PROJ" || fail "F4: the decision was not written"
+grep -qxF -- '- [ ] beta f4' "$PROJ" || fail "F4: the Plan was not reconciled (got: $(plan_of "$PROJ"))"
+grep -qxF 'last session goal: f4 goal' "$PROJ" || fail "F4: the State note was not written"
+grep -q '<!-- last_updated: 2026-05-01' "$PROJ" && fail "F4: last_updated was not bumped"
+LC_ALL=C grep -q "torn goal $(printf '\377') byte" "$PROJ" || fail "F4: the torn byte was not preserved byte-exact"
+pass "F4: every awk runs byte-mode -- a torn UTF-8 byte merges cleanly under an Apple-awk UTF-8 locale"
+
+# F2 (controller): ONE case-folding rule on both sides of the decisions dedup. It lowercased the new
+# text with tr (ASCII-only) but the stored lines with awk tolower (full Unicode under a UTF-8 gawk),
+# so a decision starting with a non-ASCII capital was re-inserted on every merge.
+PROJ="$TMP/pr2_f2.md"; seed_project "$PROJ"
+printf '%s' '{"recent_decisions":["Łódź rollout goes first"]}' | LC_ALL=C.UTF-8 "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+reset_logs
+printf '%s' '{"recent_decisions":["Łódź rollout goes first"]}' | LC_ALL=C.UTF-8 "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+[ "$(grep -c 'Łódź rollout goes first' "$PROJ")" -eq 1 ] || fail "F2: a non-ASCII-capital decision was re-inserted (got: $(awk '/^## Recent decisions$/{f=1;next} /^## /{f=0} f' "$PROJ"))"
+grep -q 'gate=decision-capture pinned=1 stop_only=0' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null || fail "F2: the re-emitted decision was not a dedup hit: $(cat "$BRAIN_DIR/audit-log.jsonl")"
+pass "F2: decisions dedup folds case the same way on both sides (a 'Łódź …' decision is not re-inserted)"
+
+# F7 (controller): an EMPTY dedup key is never a duplicate. PATH shims fail ONLY the lowercase step
+# of the new bullet's key (as a fork failure under load would) -- whichever tool computes it: tr
+# (84156c2) or the lc() awk program (now); the decision must still land, loudly.
+PROJ="$TMP/pr2_f7.md"; seed_project "$PROJ"
+make_shim "$TMP/shim_lc" tr '[:upper:]' fail 1
+make_shim "$TMP/shim_lc" awk '{ print tolower($0) }' fail 1
+reset_logs
+printf '%s' '{"recent_decisions":["f7 decision must survive"]}' | PATH="$TMP/shim_lc:$PATH" "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKIR2" >/dev/null 2>&1
+grep -q 'f7 decision must survive' "$PROJ" || fail "F7: a failed normalization silently dropped the decision as a 'duplicate'"
+grep -q 'gate=insert-bullet-normalize-failed section=## Recent decisions' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "F7: the failed normalization was not logged loud: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+grep -q 'gate=decision-capture pinned=0 stop_only=1' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null || fail "F7: the decision was counted as a dedup hit"
+pass "F7: an empty dedup key fails loud and never counts as a duplicate"
 
 export BRAIN_DIR="$TMP/brain"
 
