@@ -187,15 +187,25 @@ proof that injection fails; S1 answers that with outcomes instead of fetches.
 ## 5. Slices (revised), each with a pre-registered number
 
 **S0 — Integrity (≈1-2 days).** Restore what is shipped and make its failures visible. No new surface.
-- B7 first (it decides whether any push can be measured):
+- B7 first (it decides whether any push can be measured, and it is a safety defect):
+  - **Probe results (2026-09-28, CLI 2.1.283, headless):** a PreToolUse deny hook that answers after its 3 s timeout
+    is reported `outcome:"cancelled"`, `exit_code:1`, and the Write **runs** (control: the same deny answered at once
+    blocks it). All 301 classifiable `hook_cancelled` rows in the 25 newest transcripts sit at or over their configured
+    timeout (0 early cancels), so they are timeout kills: about 217 PreToolUse guard runs failed open in 4 heavy
+    sessions. Quiet-machine cost per Edit: `persona-tool-guard` (via `hook-timer`) 1.5 s, `symlink-guard` 1.6 s, the
+    other three 0.1-0.2 s, so 5 s leaves about 3x headroom. This breaks "PreToolUse guards fail SAFE"
+    (`sb-change-control` §9 rule 1) and is the top fix of S0.
+  - Fix order: (1) a dependency-free fast path first in every deny guard, deciding the dangerous cases (credential
+    and plugin-state targets, symlink escapes) before sourcing `lib.sh` or spawning jq; (2) cut `persona-tool-guard`
+    and `symlink-guard` to < 300 ms on a quiet machine (profile: `lib.sh` sourcing, `realpath`/`cygpath`/jq spawns;
+    cached effective rules); (3) only then consider longer timeouts or merging the five Write/Edit hooks into one
+    process. RED: a guard fixture under an artificial slowdown still denies the dangerous case within 1 s.
   - Ruler: at Stop, count this session's `hook_cancelled` attachments from the transcript already being read and log
     one `gate=hook-cancelled` row per hook (event, script, count, max ms). No new hook.
-  - Probe: does a cancelled or timed-out PreToolUse guard let the tool run? If yes, a deny guard fails open under
-    load, which breaks the "guards fail safe" rule (`sb-change-control` §9 rule 1) and becomes the top fix.
-  - Profile and cut: the worst offenders (`discover-installed.sh` 34 s avg at SessionStart; the five PreToolUse hooks
-    that run on every Edit) move work off the hot path (precompute at SessionStart, cache, one dispatcher instead of
-    five spawns). *Success:* zero SessionStart render cancellations and < 1% guard cancellations over 10 sessions of
-    the user's normal multi-agent load.
+  - SessionStart: move `discover-installed.sh` (34 s avg when cancelled, 10 s timeout) off the startup path and cut the
+    render's cost the same way.
+  - *Success:* zero guard fail-opens in the slowdown fixture; zero SessionStart render cancellations and < 1% guard
+    cancellations over 10 sessions of the user's normal multi-agent load.
 - B1: prefer the last `SubagentHandback` message from the subagent's own transcript (already read); capture a
   workflow agent's `StructuredOutput` input (capped, DATA-bannered) or log `reason=structured-output`; log handback
   and archived lengths on every capture and raise an `sb_log_error` row when a handback exists but the archive is
@@ -443,8 +453,8 @@ vocabulary.
    parallel), 3.6-14.5 s under concurrent-session load, against a 5 s timeout.
 5. Interactive-mode compaction (the §8.8 precondition that 0.54.0 shipped without); now testable on the installed
    0.54.0 runtime.
-6. Does a cancelled or timed-out PreToolUse guard let the tool run (fail-open under load)? Which share of
-   `hook_cancelled` rows are timeouts rather than user interrupts or sibling-tool cancellation?
+6. ~~Does a timed-out PreToolUse guard let the tool run? Which share of cancellations are timeouts?~~ Answered
+   2026-09-28: yes, it fails open (S0 B7 probe results); 301 of 301 classifiable cancellations are timeout kills.
 7. Where the SessionStart render spends 15-159 s under load (spawn tax, lock waits, `discover-installed.sh`).
 
 ---
