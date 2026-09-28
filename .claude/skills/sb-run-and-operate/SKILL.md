@@ -56,10 +56,11 @@ wires, via `.claude-plugin/plugin.json`:
   0.53.0 (`grep -c '^registerJsonTool(' mcp/src/server.ts` — `code_map`/`code_neighbors` landed
   0.33.33, `buddy_react` 0.53.0). The bundles under `mcp/dist/` are
   **committed**, so a marketplace install needs no build step (`README.md:204`).
-- **Hooks** — declared in `hooks/hooks.json` (not plugin.json), across 10 events: SessionStart
-  (dir scaffold + discovery + hot-tier load + dream banner + protocol card), UserPromptSubmit
+- **Hooks** — declared in `hooks/hooks.json` (not plugin.json), across 11 events: SessionStart
+  (dir scaffold + discovery + hot-tier load + dream banner + protocol card; on `compact` only the
+  lean ≤1.5 KB re-inject card), UserPromptSubmit
   (persona context), Stop (verify gate, extraction, SAR banner), SubagentStop (result capture),
-  PreCompact (extraction), PreToolUse (safety guards + protocol-guard delegation/JIT/search-first),
+  PreCompact (extraction), PostCompact (Pending Tasks → `## Plan`, add-only), PreToolUse (safety guards + protocol-guard delegation/JIT/search-first),
   SubagentStart (protocol-guard role card), ConfigChange (audit), PostToolUseFailure
   (tool-failure observation), PostToolUse (quality/injection/simplicity scans + observation
   ledger). Full matrix, matchers, and kill switches: sb-config-and-flags. Design rationale and

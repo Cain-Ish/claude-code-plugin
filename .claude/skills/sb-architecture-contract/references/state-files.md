@@ -13,7 +13,7 @@ Re-verify any row: `grep -rn '<filename>' scripts/ mcp/src/ | head -5`
 | `USER.md` | pinned user preferences (2200-byte cap, dated dedupe); hot tier, force-injected first | `lib.sh` (sb_pin_to_user area), `session-load.sh` |
 | `persona-card.md` | persona identity; its `## Charter` section is force-injected (≤500 B reserve) | `session-load.sh:105-110` |
 | `projects.jsonl` | project registry — ONE compact JSON object per line, deduped by slug | `lib.sh:571` (`sb_harden_projects_jsonl`), `session-load.sh` |
-| `projects/<slug>/PROJECT.md` | per-project hot tier (Goal/State/Plan/Conventions/Recent decisions/Open blockers/Cross-references) | `session-load.sh:40-79` |
+| `projects/<slug>/PROJECT.md` | per-project hot tier (Goal/State/**Plan**/Conventions/Recent decisions/Open blockers/Cross-references) — the `## Plan` section's marker grammar is documented below | `session-load.sh:40-79` |
 | `projects/<slug>/pending-extraction.log` | degraded-capture sidecar when the LLM extractor is unavailable (deduped/day, bounded 50 lines) | `stop-extract.sh:176-212` |
 | `projects/<slug>/raw/` | raw inbox — captured items awaiting the raw-drainer | `mcp/src/tools/raw-inbox.ts:41-43` |
 | `transcripts/<sid>_<slug>_<date>.txt` | preprocessed session archives, dream-minable + episodic-searchable; caps 100 files / 5 MB | `lib.sh` (`sb_archive_transcript`, `sb_prune_transcripts`) |
@@ -34,6 +34,8 @@ Re-verify any row: `grep -rn '<filename>' scripts/ mcp/src/ | head -5`
 | `.drain-defer-count` / `.last-drain-escape` | drainer starvation-escape state (defer counter + escape cooldown stamp) | `extract-drain.sh:86-87, 134-139` |
 | `.extractor-health.json` | extractor backend health, surfaced by the next SessionStart banner | `lib.sh` (extractor area), `extract-drain.sh:311+` |
 | `.injected/` | per-session injection dedup memos; GC 7 days | `ensure-dirs.sh:44-49` |
+| `.injected/<sid>.prov` | `<epoch>\t<sha>\t<branch>` (time-only when `dir` is not a repo) — written by `sb_session_prov_write` (lib.sh) at every Stop, PreCompact and PostCompact so the Handoff stamp (C4) stays honest for OAuth-only users whose in-session extraction always queues (F3); read by `merge_handoff`'s write side and `session-load.sh`'s Handoff-provenance read side. GC 7 days (`ensure-dirs.sh:66`, `-o -name '*.prov'`) | `lib.sh` (`sb_session_prov_write`), `merge-project-update.sh` (`merge_handoff`), `session-load.sh` (read side, §8.8) |
+| `.injected/<sid8>.compact.seen` | dedup marker for the §8.8 pairing alarm — a `gate=postcompact-capture` row with no matching `gate=compact-reinject` row for the same `sid` logs ONE error-log row, then touches this file so a real regression is reported once per session, not every startup forever. GC 7 days (same `.injected` sweep) | `session-load.sh` (startup-mode pairing alarm) |
 | `.llm-maintain-quarantine` / `.llm-maintain-fails` | headless-maintainer 3-strike quarantine (self-clearing); bannered at SessionStart | `maintain-llm-drain.sh:37-74`, `dream-autostage.sh` |
 | `.pin-candidates.jsonl` | high-confidence persona-signal pin suggestions | `stop-extract.sh:253-259` |
 | `bin/sb-extract-drain.sh` + `.extract-timer-env` | upgrade-stable scheduler shim (resolves latest installed plugin version) + captured env (chmod 600) | `install-extract-timer.sh:25-32, 82-122` |
@@ -53,6 +55,37 @@ Re-verify any row: `grep -rn '<filename>' scripts/ mcp/src/ | head -5`
 | `graph/edges.jsonl` | bi-temporal, append-only typed edge log (`requires/affects/relates/part_of/supersedes`) | `scripts/merge-edges.sh`, `mcp/src/tools/graph-store.ts` |
 | `graph/conflicts.jsonl` | open graph conflicts (maintainer-owned drain; dream reads it read-only) | `agents/dream-runner.md:98-100` |
 | `graph/edges-quarantine.jsonl` | edges whose endpoints could not be resolved to wiki pages | `merge-edges.sh:25` |
+
+## `## Plan` marker grammar (slice 1 "Continuity", 0.54.0)
+
+`PROJECT.md`'s `## Plan` section is class-4 memory (the code map — what is in flight) and never
+replace-drops an unfinished item; the grammar every producer/consumer codes against
+(`scripts/merge-project-update.sh` `merge_plan`/`merge_compact_pending`, `scripts/pre-compact.sh
+post`, `scripts/extract-prompt.txt`):
+
+| Line shape | Meaning |
+|---|---|
+| `- [pinned] <text>` | human north star — unchanged behaviour, never touched by merge |
+| `- [ ] <text>` | current unfinished item (extractor- or human-emitted) |
+| `- [x] <text>` / `- [x] <text> (dropped: <why>)` | done, or retired without doing it; removed by the next emission that omits it |
+| `- [ ] [untrusted:compact YYYY-MM-DD] <text>` | added by `merge_compact_pending` from a compaction summary's Pending Tasks (PostCompact `post` mode) |
+| `- [ ] [carried YYYY-MM-DD] <text>` | an item an extractor emission OMITTED; the guard keeps it instead of dropping it (invariant 14) |
+| `- [stale] [ ] [carried YYYY-MM-DD] <text>` | aged by `mark_stale` once its carried date is older than `SB_PROJECT_STALE_DAYS` |
+
+`[untrusted:compact D]` is the STICKY source mark — merge re-applies it to a later emitted item
+whose normalized text matches. `[carried D]` and `[stale]` are MERGE-OWNED: they are stripped from
+emitted items before comparison (an extractor that re-emits a carried/stale item revives it as a
+plain `- [ ]` line), and `extract-prompt.txt` tells the extractor never to write them itself.
+Forging defence: before a compaction-sourced item is written, `[` → `(` and `]` → `)` in its text,
+so it cannot fake `[pinned]`/`[x]`/`[carried]`/`[stale]`; the same neutralization applies to an
+extractor-emitted item containing a literal `[pinned]` (D7 hardening — a pre-existing hole where
+that token alone made a line immortal).
+
+Bounds: 15 non-pinned unfinished lines total (emitted + carried + compact-sourced) — overflow ages
+to `[stale]` rather than being dropped; 5 stale lines — overflow beyond that IS dropped, oldest
+first, each drop logged as `sb_log_error … "gate=plan-dropped stale text=<≤80>" 0`. A
+`merge_compact_pending` item that would push non-pinned unfinished lines past 15 is refused
+(`gate=compact-pending … refused=<n>`), never evicting an existing item to make room.
 
 ## Legacy trap
 

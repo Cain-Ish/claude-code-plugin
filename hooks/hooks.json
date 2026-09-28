@@ -35,6 +35,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh\" 10 \"${CLAUDE_PLUGIN_ROOT}/scripts/session-load.sh\" --compact",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -89,6 +99,18 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh\" 45 \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh\"",
             "timeout": 45
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "manual|auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh\" 30 \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.sh\" post",
+            "timeout": 30
           }
         ]
       }

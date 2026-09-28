@@ -1,6 +1,6 @@
 ---
 name: buddy
-description: The second-brain buddy — Kapi, the animated statusline capybara between Claude and the knowledge base, both ways. It shows when memory is delivered, read, or saved, which gate is holding, and what Claude says to the user through buddy_react. This skill is its on-demand side — ask the knowledge base directly (`ask`), explain the last gate (`why`), list what waits on you (`pending`), show the card, rename or mute it, install/remove its statusline. Read-only except the explicit name/mute/install verbs.
+description: The second-brain buddy — Kapi, the animated statusline thought cloud between Claude and the knowledge base, both ways. It shows when memory is delivered, read, or saved, which gate is holding, and what Claude says to the user through buddy_react. This skill is its on-demand side — ask the knowledge base directly (`ask`), explain the last gate (`why`), list what waits on you (`pending`), show the card, rename or mute it, install/remove its statusline. Read-only except the explicit name/mute/install verbs.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read Bash(node ${CLAUDE_PLUGIN_ROOT}/mcp/dist/cli/sb-entry.bundle.js*) Bash(jq *) Bash(tail *) Bash(cat *) Bash(test *) Bash(ls *) Bash(head *) Bash(printf *) Bash(wc *) Bash(grep *) Bash(tr *)
@@ -18,9 +18,10 @@ It is two-way once installed (install is the consent — `buddy.json` `react: tr
 whose statusline renders: each prompt, `persona-context.sh` hands Claude a `[buddy: <name>]` line
 (the session id, what extraction filed since its last turn, its own last line — framed as untrusted
 data) and Claude ends the turn with the `buddy_react` MCP tool — that line lands in the bubble as
-"Claude: …". Cost: ~80 tokens a prompt and one extra tool call a turn; `SB_BUDDY_REACT=off` drops it. The buddy is one capybara,
-drawn and animated like the native `/buddy` (three frames, the 15-step idle cycle with a blink,
-excited for 10 s after a new line). No account roll, no rarity, no stats: it is a memory layer.
+"Claude: …". Cost: ~80 tokens a prompt and one extra tool call a turn; `SB_BUDDY_REACT=off` drops it. The buddy is the 🧠 on the
+statusline's first line: a live line hangs below it as a thought cloud (bright for 10 s, then dim),
+and `·`/`··`/`···` cycles after the brain while a turn runs. No account roll, no rarity, no stats:
+it is a memory layer.
 
 ## Argument parsing
 

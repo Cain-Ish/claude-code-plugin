@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
 import {
-  installStatusline, uninstallStatusline, shimPath, statuslineCommand, parseOurCommand, cacheBaseOf, validName, buddyName,
+  installStatusline, uninstallStatusline, shimPath, statuslineCommand, parseOurCommand, cacheBaseOf, validName, buddyName, renderCard,
 } from './buddy-config.js';
 
 // `sb buddy install` edits the user's own settings.json — the one file here that is not ours. Its
@@ -198,6 +198,31 @@ describe('buddy statusLine install / uninstall', () => {
     expect(validName('ab\u202ecd')).toBe(false);
     expect(validName('x'.repeat(15))).toBe(false);
     expect(buddyName({ name: 'bad\u001bname' })).toBe('Kapi');
+  });
+
+  // 2026-09-26: the statusline dropped the capybara for a 🧠 with a thought cloud (commit a5dde75);
+  // the on-demand `sb buddy` card must match — same glyph, same SB_BUDDY_ASCII convention as
+  // buddy-statusline.sh (box/dot glyphs swap; the 🧠 itself never does).
+  it('renderCard: a brain with a thought cloud holding the name, no capybara left behind', () => {
+    const card = renderCard('Kapi');
+    expect(card).toContain('🧠');
+    expect(card).toContain('Kapi');
+    expect(card).not.toMatch(/n______n|oo\s*\)|`------´|capybara/);
+  });
+
+  it('renderCard: SB_BUDDY_ASCII=on swaps the cloud/dot glyphs for ASCII, keeps 🧠', () => {
+    try {
+      delete process.env.SB_BUDDY_ASCII;
+      const unicode = renderCard('Kapi');
+      expect(unicode).toMatch(/[○╭╮╰╯─│]/);
+      expect(unicode).not.toMatch(/[+|]|-{2,}/);   // no ascii box glyphs by default
+      process.env.SB_BUDDY_ASCII = 'on';
+      const ascii = renderCard('Kapi');
+      expect(ascii).toContain('🧠');
+      expect(ascii).toContain('Kapi');
+      expect(ascii).not.toMatch(/[○╭╮╰╯─│]/);
+      expect(ascii).toMatch(/[+\-|]/);
+    } finally { delete process.env.SB_BUDDY_ASCII; }
   });
 
   // The shim runs every second: newest version NUMERICALLY (0.52.0 > 0.9.0 > 0.51.0 lexically would

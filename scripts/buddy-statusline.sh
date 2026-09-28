@@ -1,21 +1,19 @@
 #!/bin/bash
 # buddy-statusline.sh — the second-brain buddy: a Claude Code statusLine renderer.
-# Design: docs/plans/2026-09-22-buddy-companion.md. The buddy is the layer between Claude and the
-# knowledge base, both ways: the lines directly under the input box show what memory delivered,
-# what Claude read or saved through the MCP tools, which gate is holding, what waits on the user,
-# and what Claude itself said to the user through `buddy_react`. It only READS: zero tokens, no LLM.
+# Design: docs/plans/2026-09-22-buddy-companion.md (thought-cloud redesign: 2026-09-26). The buddy
+# is the layer between Claude and the knowledge base, both ways: the lines directly under the input
+# box show what memory delivered, what Claude read or saved through the MCP tools, which gate is
+# holding, what waits on the user, and what Claude itself said to the user through `buddy_react`.
+# It only READS: zero tokens, no LLM.
 #
-# The buddy is one capybara, drawn and animated like Claude Code's native /buddy (v2.1.89–2.1.96,
-# src/buddy/sprites.ts + CompanionSprite.tsx): three 5×12 frames, the 15-step idle sequence
-# [0,0,0,0,1,0,0,0,-1,0,0,2,0,0,0] (-1 = blink: frame 0, eyes → '-'), and "excited" — every frame in
-# turn, no blink — while a line is fresh (< 10 s). The native ticked every 500 ms; a statusLine can
-# re-run at most once a second (`refreshInterval: 1`, written by `sb buddy install`), so one step
-# per second: a 15 s cycle. Under 90 columns (or 30 rows) it collapses to the native one-line face
-# (·oo·). Like the native bubble, a line is bright for 10 s, then dims; with nothing live the bubble
-# box is not drawn. Claude's own `buddy_react` line (kind `said`, shown as "Claude: …") holds the
-# bubble for 60 s against newer non-gate events, as an active gate does.
-# The renderer also drops .buddy/<sid>.seen once per session, and only when the bubble is drawn (not
-# muted, sprite on): persona-context only asks Claude for buddy_react in such a session.
+# Layout: line 1 is always the telemetry line (🧠 goal · phase · ctx% · model). While Claude is
+# working on this turn, a fixed 3-column dot slot right after 🧠 animates (·, ··, ···, one step per
+# epoch second) — driven by $BRAIN_DIR/.buddy/<sid>.busy, written by persona-context.sh at the very
+# start of UserPromptSubmit and cleared by sar-summary.sh on every Stop. When a line is LIVE (the
+# same gate-holds-then-said-holds-then-newest-live selection as before), a thought cloud hangs below
+# the brain: a small steam dot, a bigger one, then the box, ≤3 word-wrapped rows. Nothing live →
+# line 1 alone, no empty box. Narrow terminals (< 76 usable cols or < 30 rows) collapse the cloud
+# to one row: ` ○ <line, truncated>` (or nothing, when nothing is live).
 #
 # Install: `sb buddy install` (settings.json statusLine → ~/.second-brain/bin shim → this script,
 # refreshInterval 1, settings backed up, an existing statusline chained). A chained statusline
@@ -25,10 +23,12 @@
 #
 # HOT PATH (runs every second): ONE jq spawn, no other subprocess on a cached tick, bash builtins
 # for all string work. Reads $BRAIN_DIR/buddy.json (name, mute, sprite), .buddy/<sid>.json,
-# .buddy/_global.json, .injected/<sid>.json + .phase. Width: SB_BUDDY_COLS > COLUMNS > 120.
-# Kill: SB_BUDDY=off prints nothing; SB_BUDDY_SPRITE=off / SB_HOOK_PROFILE=minimal → telemetry
-# only; SB_BUDDY_ASCII=on avoids box glyphs; NO_COLOR drops colour. SB_BUDDY_NOW pins the clock
-# (tests: frame selection is a pure function of the epoch second).
+# .buddy/_global.json, .buddy/<sid>.busy, .injected/<sid>.json + .phase. Width: SB_BUDDY_COLS >
+# COLUMNS > 120.
+# Kill: SB_BUDDY=off prints nothing; SB_BUDDY_SPRITE=off / SB_HOOK_PROFILE=minimal → telemetry line
+# only (no cloud, no dots — "sprite" now names the thought cloud, kept for config compatibility);
+# NO_COLOR drops colour. SB_BUDDY_NOW pins the clock (tests: the animation is a pure function of
+# the epoch second).
 set -u
 set -f   # event lines are transcript-derived text: never let `*`/`?`/`[` glob against the cwd
 [ "${SB_BUDDY:-on}" = "off" ] && exit 0
@@ -93,9 +93,9 @@ COLS="${SB_BUDDY_COLS:-${COLUMNS:-}}"
 [[ "$COLS" =~ ^[0-9]+$ ]] || COLS=120
 USABLE=$(( COLS - 14 )); [ "$USABLE" -lt 40 ] && USABLE=40   # ~14 cols of content-box chrome
 
-if [ -n "${NO_COLOR:-}" ]; then DIM=""; ACC=""; WARN=""; OK=""; SAID=""; FUR=""; RST=""
+if [ -n "${NO_COLOR:-}" ]; then DIM=""; ACC=""; WARN=""; OK=""; SAID=""; RST=""
 else DIM=$'\e[2m'; ACC=$'\e[38;2;139;92;246m'; WARN=$'\e[38;2;245;158;11m'; OK=$'\e[38;2;16;185;129m'
-  SAID=$'\e[3;38;2;139;92;246m'; FUR=$'\e[38;2;196;144;98m'; RST=$'\e[0m'; fi
+  SAID=$'\e[3;38;2;139;92;246m'; RST=$'\e[0m'; fi
 
 # --- line 0: chained statusline (from the settings.json command's own environment) -------------
 # Cached per session for 5 s: the animation tick re-runs this script every second, and a chained
@@ -142,6 +142,35 @@ if [ -n "${SB_BUDDY_CHAIN:-}" ]; then
   fi
 fi
 
+# --- effective sprite/mute state, computed ahead of line 1: the thinking-dot slot and the thought
+# cloud both key off it. SB_BUDDY_SPRITE=off / SB_HOOK_PROFILE=minimal (already mapped above) and
+# mute all mean the same "telemetry only" they always did — "sprite" now names the thought cloud
+# rather than a capybara, kept as a config key for compatibility.
+SPRITE_OFF=0; [ "${SB_BUDDY_SPRITE:-$SPRITE_CFG}" = "off" ] && SPRITE_OFF=1
+
+# --- thinking animation: a fixed 3-column dot slot right after 🧠, one step per epoch second,
+# while $BRAIN_DIR/.buddy/<sid>.busy holds the epoch of the last UserPromptSubmit (written by
+# persona-context.sh) and no Stop (sar-summary.sh) has cleared it since. Stale (no dots) when the
+# marker is older than 600 s, or when a fresh `said` event (Claude's own buddy_react, ETS) is newer
+# than the marker — the turn that marker announced has already ended. A muted or sprite-off buddy
+# shows no dots either, same as it shows no bubble. Builtins only: `read` slurps the one-line marker.
+DOTS_SUF=""
+if [ "$MUTE" != "1" ] && [ "$SPRITE_OFF" != "1" ] && [ -n "$SID" ]; then
+  BUSYF="$BRAIN_DIR/.buddy/$SID.busy"
+  if [ -f "$BUSYF" ]; then
+    BM=""; IFS= read -r BM < "$BUSYF" 2>/dev/null || true
+    if [[ "$BM" =~ ^[0-9]+$ ]] && [ $(( now - BM )) -lt 600 ] && { [ "$KIND" != "said" ] || [ "$ETS" -le "$BM" ]; }; then
+      # F4 (portability): fixed literals, not a byte-counting pad loop — `·` is 2 bytes in UTF-8,
+      # so `${#DOTS_SUF}` counts BYTES (not glyphs) under a C/no locale, common when Claude Code
+      # is launched from PowerShell/cmd. The old `while [ "${#DOTS_SUF}" -lt 3 ]` loop then built
+      # 2/2/3 glyphs across the three phases instead of a fixed 3 (the byte count hit 3 before a
+      # real 3rd glyph was added), so the dot slot — and everything after it on line 1 — shifted
+      # width every 3 s.
+      case $(( now % 3 + 1 )) in 1) DOTS_SUF='·  ' ;; 2) DOTS_SUF='·· ' ;; *) DOTS_SUF='···' ;; esac
+    fi
+  fi
+fi
+
 # --- line 1: telemetry — goal · phase · ctx% · model ------------------------------------------
 _trunc() { local s="$2" n="$3"; [ "${#s}" -gt "$n" ] && s="${s:0:$((n-1))}…"; printf -v "$1" '%s' "$s"; }
 _pad()   { local s="$2" n="$3"; while [ "${#s}" -lt "$n" ]; do s="$s "; done; printf -v "$1" '%s' "$s"; }
@@ -149,60 +178,48 @@ SUF=""; SUFP=""
 [ -n "$PHASE" ] && { SUF="$SUF ${DIM}·${RST} ${ACC}${PHASE}${RST}"; SUFP="$SUFP · $PHASE"; }
 if [ -n "$CTX" ]; then c="$OK"; [ "$CTX" -ge 60 ] 2>/dev/null && c="$WARN"; SUF="$SUF ${DIM}·${RST} ctx ${c}${CTX}%${RST}"; SUFP="$SUFP · ctx ${CTX}%"; fi
 if [ -n "$MODEL" ] && [ "$USABLE" -ge 70 ]; then SUF="$SUF ${DIM}· ${MODEL}${RST}"; SUFP="$SUFP · $MODEL"; fi
-GW=$(( USABLE - ${#SUFP} - 3 )); [ "$GW" -gt 48 ] && GW=48
-T="🧠"
+GW=$(( USABLE - ${#SUFP} - 3 )); [ -n "$DOTS_SUF" ] && GW=$(( GW - 3 )); [ "$GW" -gt 48 ] && GW=48
+T="🧠${DOTS_SUF}"
 if [ -n "$GOAL" ] && [ "$GW" -ge 12 ]; then _trunc G "$GOAL" "$GW"; T="$T $G"; fi
 T="$T$SUF"
 [ -z "$GOAL$PHASE" ] && T="$T ${DIM}no goal yet — first coding prompt sets it${RST}"
 printf '%s\n' "$T"
 
-# --- the capybara (wide) or its one-line face (narrow); mute / sprite-off = telemetry only -----
+# --- the thought cloud (wide) or its one-row cue (narrow); mute / sprite-off = telemetry only --
 [ "$MUTE" = "1" ] && exit 0
-[ "${SB_BUDDY_SPRITE:-$SPRITE_CFG}" = "off" ] && exit 0
+[ "$SPRITE_OFF" = "1" ] && exit 0
 # Only now is the bubble really on screen: .seen tells persona-context to ask Claude for buddy_react.
 # Written before the mute/sprite exits, a muted buddy cost a wasted tool call every turn.
 [ -n "$SID" ] && [ -d "$BRAIN_DIR/.buddy" ] && [ ! -e "$BRAIN_DIR/.buddy/$SID.seen" ] && { : > "$BRAIN_DIR/.buddy/$SID.seen"; } 2>/dev/null
 
-# Eyes: the native default glyph, a mood pair when a gate/guard/wait wants attention.
-EYE='·'; [ "${SB_BUDDY_ASCII:-off}" = "on" ] && EYE='.'
-case "$MOOD" in
-  alert)   L='ò'; R='ó' ;;
-  pleased) L='^'; R='^' ;;
-  waiting) L='_'; R='_' ;;
-  puzzled) L="$EYE"; R='ô' ;;
-  *)       L="$EYE"; R="$EYE" ;;
-esac
 FRESH=0; [ "$ETS" -gt 0 ] && [ $(( now - ETS )) -ge 0 ] && [ $(( now - ETS )) -lt 10 ] && FRESH=1
 C="$DIM"; case "$KIND" in gate|guard|stumble) C="$WARN" ;; said) [ "$FRESH" = "1" ] && C="$SAID" ;; remembered|delivered|pending|read|retrieved) [ "$FRESH" = "1" ] && C="$OK" ;; esac
 [ "$KIND" = "said" ] && [ -n "$LINE" ] && LINE="Claude: $LINE"   # never mistakable for a gate or guard line
 
+# Steam-dot colour: warn-toned for a gate/guard/stumble (matches the text's colour), dim otherwise
+# — the richer said/remembered/read palette above is for the TEXT, not the steam.
+DOTC="$DIM"; case "$KIND" in gate|guard|stumble) DOTC="$WARN" ;; esac
+DOT_S='o'; DOT_B='○'; [ "${SB_BUDDY_ASCII:-off}" = "on" ] && DOT_B='O'
+
 ROWS="${LINES:-}"; [[ "$ROWS" =~ ^[0-9]+$ ]] || ROWS=0
-if [ "$USABLE" -lt 76 ] || { [ "$ROWS" -gt 0 ] && [ "$ROWS" -lt 30 ]; }; then   # native narrow mode: `(·oo·)` + name, or the quip
-  FACE="(${L}oo${R})"
-  if [ -n "$LINE" ]; then _trunc Q "$LINE" $(( USABLE - 12 )); printf '  %s%s%s %s%s%s\n' "$FUR" "$FACE" "$RST" "$C" "$Q" "$RST"
-  else printf '  %s%s%s %s%s%s\n' "$FUR" "$FACE" "$RST" "$DIM" "$NAME" "$RST"; fi
+if [ "$USABLE" -lt 76 ] || { [ "$ROWS" -gt 0 ] && [ "$ROWS" -lt 30 ]; }; then   # narrow: one steam-dot row, or nothing
+  if [ -n "$LINE" ]; then
+    _trunc Q "$LINE" $(( USABLE - 4 ))
+    printf ' %s%s%s %s%s%s\n' "$DOTC" "$DOT_B" "$RST" "$C" "$Q" "$RST"
+  fi
   exit 0
 fi
 
-# Frame: a fresh line (< 10 s) makes it excited — every frame in turn, no blink; otherwise the
-# native idle sequence, one step per epoch second.
-SEQ=(0 0 0 0 1 0 0 0 -1 0 0 2 0 0 0)
-if [ "$FRESH" = "1" ]; then FRAME=$(( now % 3 ))
-else FRAME="${SEQ[$(( now % 15 ))]}"; fi
-[ "$FRAME" = "-1" ] && { FRAME=0; L='-'; R='-'; }
-BACK='´'; [ "${SB_BUDDY_ASCII:-off}" = "on" ] && BACK="'"
-S0='            '; S1='  n______n  '; NOSE='oo'
-case "$FRAME" in 1) NOSE='Oo' ;; 2) S0='    ~  ~    '; S1='  u______n  ' ;; esac
-S2=" ( ${L}    ${R} ) "; S3=" (   ${NOSE}   ) "; S4="  \`------${BACK}  "
-
-if [ "${SB_BUDDY_ASCII:-off}" = "on" ]; then TL='+'; TR='+'; BL='+'; BR='+'; H='-'; V='|'; TAIL='--'
-else TL='╭'; TR='╮'; BL='╰'; BR='╯'; H='─'; V='│'; TAIL='──'; fi
-
-# Bubble text: the live event line. Nothing live → no box (the native bubble came and went; a
-# filler line would be neither a delivery, a gate, nor a capture).
+# Bubble text: the live event line. Nothing live → no cloud at all (the native bubble came and
+# went; a filler line would be neither a delivery, a gate, nor a capture) — line 1 stands alone.
 BUBBLE="$LINE"
-# Row = 2 + │ + space + text(BW) + space + │ + 3 (gap or tail) + sprite(12) = BW + 21 ≤ USABLE.
-BW=$(( USABLE - 21 )); [ "$BW" -gt 64 ] && BW=64
+[ -z "$BUBBLE" ] && exit 0
+
+if [ "${SB_BUDDY_ASCII:-off}" = "on" ]; then TL='+'; TR='+'; BL='+'; BR='+'; H='-'; V='|'
+else TL='╭'; TR='╮'; BL='╰'; BR='╯'; H='─'; V='│'; fi
+
+# Row = 4 (indent) + │ + space + text(BW) + space + │ = BW + 8 ≤ USABLE (no sprite column now).
+BW=$(( USABLE - 8 )); [ "$BW" -lt 8 ] && BW=8; [ "$BW" -gt 64 ] && BW=64
 W1=""; W2=""; W3=""
 for w in $BUBBLE; do                                   # set -f above: no globbing here
   if   [ $(( ${#W1} + ${#w} + 1 )) -le "$BW" ] && [ -z "$W2" ]; then W1="${W1:+$W1 }$w"
@@ -210,23 +227,12 @@ for w in $BUBBLE; do                                   # set -f above: no globbi
   elif [ $(( ${#W3} + ${#w} + 1 )) -le "$BW" ]; then W3="${W3:+$W3 }$w"
   else _trunc W3 "$W3 $w" "$BW"; break; fi
 done
-_pad P1 "$W1" "$BW"; _pad P2 "$W2" "$BW"; _pad P3 "$W3" "$BW"
 RULE=""; i=0; while [ "$i" -lt $(( BW + 2 )) ]; do RULE="$RULE$H"; i=$(( i + 1 )); done
-_pad GAP "" $(( BW + 7 ))
-# Name under the sprite: centred on its 12 columns, or ending at its right edge when longer (a
-# 13-14 char name must not overhang the row width).
-if [ "${#NAME}" -le 12 ]; then NL=$(( BW + 7 + (12 - ${#NAME}) / 2 )); else NL=$(( BW + 19 - ${#NAME} )); fi
-_pad NLEAD "" "$NL"
-if [ -z "$BUBBLE" ]; then   # nothing live: the capybara alone, in the same column
-  for S in "$S0" "$S1" "$S2" "$S3" "$S4"; do printf '  %s%s%s%s\n' "$GAP" "$FUR" "$S" "$RST"; done
-  printf '  %s%s%s%s\n' "$NLEAD" "$DIM" "$NAME" "$RST"
-  exit 0
-fi
-# Every sprite row starts at the same column: closing glyph + 3-col gap (the eyes row's gap IS the tail).
-printf '  %s%s%s%s%s   %s%s%s\n'          "$DIM" "$TL" "$RULE" "$TR" "$RST" "$FUR" "$S0" "$RST"
-printf '  %s%s%s %s%s%s %s%s%s   %s%s%s\n' "$DIM" "$V" "$RST" "$C" "$P1" "$RST" "$DIM" "$V" "$RST" "$FUR" "$S1" "$RST"
-printf '  %s%s%s %s%s%s %s%s%s%s %s%s%s\n' "$DIM" "$V" "$RST" "$C" "$P2" "$RST" "$DIM" "$V" "$TAIL" "$RST" "$FUR" "$S2" "$RST"
-printf '  %s%s%s %s%s%s %s%s%s   %s%s%s\n' "$DIM" "$V" "$RST" "$C" "$P3" "$RST" "$DIM" "$V" "$RST" "$FUR" "$S3" "$RST"
-printf '  %s%s%s%s%s   %s%s%s\n'          "$DIM" "$BL" "$RULE" "$BR" "$RST" "$FUR" "$S4" "$RST"
-printf '  %s%s%s%s\n'                     "$NLEAD" "$DIM" "$NAME" "$RST"
+
+printf ' %s%s%s\n'              "$DOTC" "$DOT_S" "$RST"
+printf '  %s%s%s %s%s%s%s%s\n'  "$DOTC" "$DOT_B" "$RST" "$DIM" "$TL" "$RULE" "$TR" "$RST"
+_pad P1 "$W1" "$BW"; printf '    %s%s%s %s%s%s %s%s%s\n' "$DIM" "$V" "$RST" "$C" "$P1" "$RST" "$DIM" "$V" "$RST"
+if [ -n "$W2" ]; then _pad P2 "$W2" "$BW"; printf '    %s%s%s %s%s%s %s%s%s\n' "$DIM" "$V" "$RST" "$C" "$P2" "$RST" "$DIM" "$V" "$RST"; fi
+if [ -n "$W3" ]; then _pad P3 "$W3" "$BW"; printf '    %s%s%s %s%s%s %s%s%s\n' "$DIM" "$V" "$RST" "$C" "$P3" "$RST" "$DIM" "$V" "$RST"; fi
+printf '    %s%s%s%s%s\n' "$DIM" "$BL" "$RULE" "$BR" "$RST"
 exit 0

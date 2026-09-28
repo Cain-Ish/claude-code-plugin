@@ -2,7 +2,7 @@
 name: sb-architecture-contract
 description: >-
   The second-brain plugin's load-bearing design contract: the two-tier memory model and why it
-  exists, the full hook wiring (10 events), the capture→drain→wiki→dream→forget data lifecycle with
+  exists, the full hook wiring (11 events), the capture→drain→wiki→dream→forget data lifecycle with
   exact scripts and state files, BRAIN_DIR vs KNOWLEDGE_DIR geography, the 24-tool MCP server and
   why its dist bundles are committed, single-source resolver discipline, the ~12 provable invariants
   with their enforcing tests, and the known weak points. Load this when you need to understand WHY
@@ -54,9 +54,9 @@ summarize-before-evict, cache-stable injection" (`CONSTITUTION.md`, "Token disci
 membership test for ALL stored content: *"If a saved item does not actively guide a future
 decision, it does not belong."*
 
-## 2. Hook wiring — 10 events, 25 command entries (`hooks/hooks.json`)
+## 2. Hook wiring — 11 events, 27 command entries (`hooks/hooks.json`)
 
-All commands are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/<script>`; six are wrapped in
+All commands are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/<script>`; nine are wrapped in
 `scripts/hook-timer.sh <budget_s> <script>` (marked ⏲) — R7 latency TELEMETRY only: `<budget_s>`
 mirrors the hooks.json timeout purely as the warn threshold for the
 `{kind:"latency",…,budget_warn}` audit-log record. The wrapper is TRANSPARENT (hook-timer.sh:14-17
@@ -66,11 +66,12 @@ Re-verify the whole table:
 
 | Event | Matcher | Script | t(s) | Note |
 |---|---|---|---|---|
-| SessionStart | `startup\|resume\|clear\|fork` — deliberately EXCLUDES `compact` (upstream anthropics/claude-code#15174: output silently dropped post-compaction) | `ensure-dirs.sh` | 5 | scaffolds dirs, seeds `config.json` once |
+| SessionStart | `startup\|resume\|clear\|fork` (EXCLUDES `compact` — its own group below now) | `ensure-dirs.sh` | 5 | scaffolds dirs, seeds `config.json` once |
 | SessionStart | same | `discover-installed.sh` / `discover-doc-sources.sh` (a third, `discover-tools.sh`, was removed — do not look for it) | 10 | environment discovery |
 | SessionStart | same | ⏲15 `session-load.sh` | 15 | hot-tier injection (§1) |
 | SessionStart | same | ⏲20 `dream-autostage.sh` | 20 | suggest-only banner; NEVER stages/spawns; kill `SB_DREAM_AUTOSTAGE=off` |
 | SessionStart | same | `protocol-guard.sh card` | 5 | class-5 working-agreement protocol card, ≤1200 B; kill `SB_PROTOCOL_GUARD=off` / `SB_PROTOCOL_CARD=off` |
+| SessionStart | `compact` (slice 1 "Continuity" C1, 0.54.0) | ⏲10 `session-load.sh --compact` | 10 | lean re-inject, no writes, ≤1536 B (§8.8) |
 | UserPromptSubmit | (all) | ⏲25 `persona-context.sh` | 25 | no LLM call; `/?` prefix routes to Opus advisor CLI |
 | Stop | (all) | `stop-verify-gate.sh` | 10 | verification nudge |
 | Stop | (all) | ⏲45 `stop-extract.sh` | 45 | the capture pipeline (§3.2) |
@@ -79,6 +80,7 @@ Re-verify the whole table:
 > Note (0.35.x): the cost-router plugin was absorbed and removed (its Stop hook `cost-router-capture.sh` is gone; tier routing lives in `model-ladder.json`, consumed by stop-extract/pre-compact/maintain-llm-drain). History: wiki `entities/cost-router` + the archive/docs branch. `COST_ROUTER_*` flags are gone.
 | SubagentStop | `*` | `subagent-capture.sh` | 10 | archives subagent FINAL result; "MUST always exit 0 (a blocking SubagentStop wedges the parent fan-out)" (hooks.json comment) |
 | PreCompact | `.*` | ⏲45 `pre-compact.sh` | 45 | same extraction on the pre-compaction window; shares markers with Stop |
+| PostCompact | `manual\|auto` (slice 1 "Continuity" C2/C3, 0.54.0) | ⏲30 `pre-compact.sh post` | 30 | compaction summary's Pending Tasks → `## Plan`, add-only, sanitized + injection-gated; measured 31-54s on a loaded box (node + scanner spawn) — raised from 15s in 0.54.0; kill `SB_COMPACT_CAPTURE=off` (§3.2, §8.8) |
 | PreToolUse | `Bash\|Write\|Edit\|MultiEdit\|Read\|WebFetch\|WebSearch\|Task\|Agent` (`Agent` = CC v2.1.63 rename of Task) | `persona-tool-guard.sh` | 5 | rule-based allow/ask/deny; every verdict → audit-log; kill `SB_PERSONA_GATE=off` |
 | PreToolUse | `Write\|Edit\|MultiEdit` | `wiki-write-guard.sh` | 5 | denies frontmatter-less writes to `wiki/**/*.md` (index.md exempt) |
 | PreToolUse | `Write\|Edit\|MultiEdit` | `symlink-guard.sh` | 5 | resolve-symlinks-BEFORE-validate; denies writes resolving into ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, ~/.netrc; kill `SB_SYMLINK_GUARD=off` |
@@ -108,10 +110,12 @@ vs nudge), validator rules, timer wrap, and the same-commit ship set:
 ## 3. Data lifecycle end-to-end
 
 ```
-SessionStart ──> session-load.sh (hot-tier inject, pin refresh, PROJECT.md scaffold)
+SessionStart(startup|resume|clear|fork) ──> session-load.sh (hot-tier inject, pin refresh, PROJECT.md scaffold)
+SessionStart(compact) ──> session-load.sh --compact (lean re-inject, read-only, §8.8)
 UserPromptSubmit ──> persona-context.sh (JIT hints)
 Stop / PreCompact ──> stop-extract.sh / pre-compact.sh ──> PROJECT.md merge + edges + transcripts/
     (skipped windows) ──> extract-drain.sh (out-of-band timer) ──> same merge path
+PostCompact ──> pre-compact.sh post (Pending Tasks -> ## Plan, add-only, §8.8)
 /second-brain:capture, setup scan ──> raw inbox ──> raw-drainer agent ──> wiki pages
 wiki ──> dream (7-phase staging) ──> dream-accept (5 guards) ──> live wiki
                                 └──> FORGET manifest ──> reversible wiki-archive/
@@ -122,10 +126,20 @@ Resolves the project via `sb_detect_project` (monorepo-aware, `scripts/lib.sh:81
 shared pin `$BRAIN_DIR/.active-session-slug`; scaffolds `projects/<slug>/PROJECT.md` and registers
 it in `projects.jsonl` using a `jq -se` membership check (never grep — the file may arrive
 pretty-printed); copies PROJECT.md → `.session-baseline-<slug>.md` for the Stop diff; emits the
-hot tier (§1).
+hot tier (§1). On matcher `compact` the SAME script runs in a separate, read-only `--compact`
+branch instead — no scaffolding, no registration, no pin/baseline writes; full contract in §8.8.
 
-### 3.2 Capture — `scripts/stop-extract.sh` (Stop) / `scripts/pre-compact.sh` (PreCompact)
-Always exits 0 (fail-soft by contract, stop-extract.sh header). Pipeline: resolve slug
+### 3.2 Capture — `scripts/stop-extract.sh` (Stop) / `scripts/pre-compact.sh` (PreCompact / PostCompact `post`)
+Always exits 0 (fail-soft by contract, stop-extract.sh header). `pre-compact.sh post` (PostCompact,
+slice 1 "Continuity" C2/C3, 0.54.0) is a separate, narrower pipeline in the SAME file: it reads
+Claude Code's own compaction summary (payload `.compact_summary`, else the transcript's
+`isCompactSummary` record — undocumented upstream), keeps ONLY the "Pending Tasks" section,
+sanitizes it in memory, runs it through `tool-return-scanner.sh` as a subprocess, and merges it
+add-only into PROJECT.md `## Plan` as `[untrusted:compact <date>]` items — nothing raw is ever
+persisted. Full contract, the sticky/carried/stale marker grammar, and the honest residual on
+delivery proof: §8.8. The Stop/PreCompact pipeline below is unchanged:
+
+Pipeline: resolve slug
 (`sb_resolve_slug`, `lib.sh:1110`) → disjoint-window marker `.last-extracted-line-<slug>--<sid>`
 (line count via `awk 'END{print NR}'`, NOT `wc -l` — missing-final-newline undercount) →
 substantive gate (≥1 `tool_use` in the delta) → LLM extraction (`sb_call_extractor`; backend
@@ -263,7 +277,7 @@ Re-verify: `grep -n '^registerJsonTool(' mcp/src/server.ts`. Lines as of 0.33.37
 | 562 | `knowledge_neighbors` | multi-hop directional graph walk, point-in-time `as_of` |
 | 586 | `code_map` | token-capped PageRank-ranked code-structure map (read-only; `BRAIN_DIR/projects/<slug>/codemap/` store, honest `stale` flag) — shipped 0.33.33 |
 | 614 | `code_neighbors` | import-graph blast-radius BFS (`in` = importers, `out` = dependencies, depth ≤4); CODE graph, distinct from `knowledge_neighbors` — shipped 0.33.33 |
-| — | `buddy_react` | Claude's one line to the user through the statusline capybara (`.buddy/<session>.json`, kind `said`); the session id comes from persona-context's `[buddy: <name>]` line — shipped 0.53.0 |
+| — | `buddy_react` | Claude's one line to the user through the statusline thought cloud (`.buddy/<session>.json`, kind `said`); the session id comes from persona-context's `[buddy: <name>]` line — shipped 0.53.0, thought-cloud render 0.54.0 |
 
 Destructive tools are wrapped by `guardDestructive` (`nested-spawn-guard.ts`) — refused under
 `SB_NESTED_SPAWN=1`, because a headless spawn over untrusted transcript content once had
@@ -325,6 +339,8 @@ above shipped through a green suite to prove it.
 | 10 | Untrusted input is DATA, not instructions — and mechanically backed: transcripts staged as sanitized copies, raw items sanitized write+read, ids/slugs traversal-checked (incl. attacker-influenceable transcript headers) | `sanitize.ts`, `raw-inbox.ts`, `lib.sh` slug sanitizers; agent grant allowlists | `mcp/src/agent-grants.test.ts` (greps the agent markdown — prose promises get machine locks here) |
 | 11 | Two log channels with distinct rotation: `error-log.jsonl` (512 KB → newest 1000) vs `audit-log.jsonl` (5000 lines/5 MiB → oldest half dropped); `gate=*` breadcrumbs route to audit, not error | `sb_log_error` (lib.sh:232) / `sb_log_audit` (lib.sh:462) | `tests/test-log-hygiene.sh` (R6b: `gate=`/ec-0 routes to audit-log not error-log; a failing `gate=` line stays an error; error-log rotates at 512 KB keeping the newest tail; the trace path applies the audit-log's own rotation) |
 | 12 | PreToolUse guards compare paths through `sb_normalize_path` — path-form parity on Windows (without it, guards fail-OPEN there) | lib.sh:14-51 funnel + minimal inline fallback in each guard so it stays armed if lib.sh fails to source | `tests/test-normalize-path.sh`, `tests/test-symlink-guard.sh`, `tests/test-persona-tool-guard.sh` |
+| 13 | SessionStart `compact`'s re-inject is LEAN and WRITE-FREE: ≤1536 B, Goal/Handoff/Plan only (no HARD/Decisions/Conventions/Open-blockers), no pin refresh, memo, registration, baseline copy, session count or `projects.jsonl` change — it can only ever render what PROJECT.md already holds (F1, §8.8) | `session-load.sh` early `--compact` branch, placed before `sb_detect_project` | `tests/test-session-load-compact.sh` (byte cap, no-writes sha check, JSON shape) |
+| 14 | An unfinished `## Plan` item is never silently dropped by a new extractor emission: an omitted `- [ ]` line is CARRIED forward (tagged `[carried D]`), ages to `[stale]` after `SB_PROJECT_STALE_DAYS`, and only a stale-overflow item beyond the cap is dropped — and every drop is logged with its text (`gate=plan-dropped`) | `merge-project-update.sh` `merge_plan` guard (carry/sticky-mark/bounds; slice 1 "Continuity" C3, 0.54.0) | `tests/test-project-plan-block.sh` |
 
 Also machine-enforced governance (details → sb-change-control): the surface-budget ratchet —
 live counts (skills 16 / agents 4 / scripts 53 / tests 162, all at budget exactly as of 0.49.0)
@@ -368,8 +384,29 @@ previously named a phantom `tests/test-surface-budget.sh` — defect closed).
    read boundary needs `tr -d '\r'` and line-oriented writes need `-c`. Class guard:
    `tests/test-jq-crlf-windows.sh` (stubbed Windows jq on Linux CI). New jq call sites are the
    most likely place to reintroduce it.
-8. **SessionStart output is dropped after compaction** (upstream anthropics/claude-code#15174) —
-   worked around by excluding `compact` from the matcher; do not "fix" the matcher back.
+8. **§8.8 — SessionStart(compact) IS delivered; the residual is PROVING it, not the wiring.**
+   Upstream #15174 ("SessionStart output dropped after compaction") is STALE: a 2026-09-26 headless
+   probe (`wiki/learnings/sessionstart-compact-reinject-probe-2026-09`) found `SessionStart` fires
+   with matcher `compact` in the same second as `PostCompact` and BEFORE it, and
+   `code.claude.com/docs/en/hooks-guide.md` §"Re-inject context after compaction" now documents the
+   event. Slice 1 "Continuity" (0.54.0) acts on this: a second SessionStart group (matcher `compact`)
+   runs `session-load.sh --compact` — a lean, read-only, ≤1536 B re-inject (Goal/Handoff/Plan only,
+   invariant 13) — and a PostCompact group runs `pre-compact.sh post`, landing the compaction
+   summary's sanitized, injection-gated Pending Tasks into `## Plan` add-only (invariant 14). The
+   FULL hot-tier `startup|resume|clear|fork` group still deliberately EXCLUDES `compact` (F1: it
+   fires after the lean group and would only ever re-render stale content, at the wrong shape and
+   cost) — do not fold `compact` back into that group.
+   - **HONEST RESIDUAL, stated plainly:** the `gate=compact-reinject` audit row, and the §3.2
+     pairing alarm (a `gate=postcompact-capture` row with no matching `gate=compact-reinject` row
+     for the same `sid`), prove only that `session-load.sh --compact` RAN and printed JSON to its
+     own stdout — they are script-side signals, not proof the model ever saw the content. The
+     2026-09-26 probe DID get a model-visible answer, but only in headless print mode (`-p`) with a
+     throwaway probe plugin; interactive mode was never probed (the probe's own "Consequences"
+     section flags this), and the mechanism is not officially guaranteed stable upstream. Delivery
+     for THIS plugin, on the model Claude Code users actually run, is proven ONLY by an interactive
+     post-install probe — compact a real session and ask the model what its SessionStart(compact)
+     context said. That probe has not been run (open item). Re-run it on every Claude Code CLI
+     version bump; a green `gate=compact-reinject` row is a necessary, not sufficient, signal.
 9. **`ln -s` deep-copies on MSYS** (winsymlinks default). Use
    `node fs.symlinkSync(target, link, 'junction')` for directory links; ln-s-gated tests silently
    skip on Windows — the skip once hid ~3 GB of duplication (0.33.7).
@@ -387,7 +424,14 @@ previously named a phantom `tests/test-surface-budget.sh` — defect closed).
 ## Provenance and maintenance
 
 Derived from the working tree at 0.33.31 (2026-07-05, HEAD `6fba312`); §2 hook table, §5 tool
-table, §7 surface counts and the Volatile facts block re-verified 2026-09-05 at 0.49.0. Sources:
+table, §7 surface counts and the Volatile facts block re-verified 2026-09-27 against
+`feat/2026-09-26-continuity` (plugin.json still says 0.53.0; slice 1 "Continuity" adds the
+SessionStart `compact` group + PostCompact event ahead of the controller's 0.54.0 version bump).
+§2/§3/§7/§8.8 additionally verified against: `scripts/session-load.sh` (`--compact` branch, pairing
+alarm), `scripts/pre-compact.sh` (`post` mode), `scripts/merge-project-update.sh` (`merge_plan`
+carry/stale/sticky-mark, `merge_compact_pending`), `hooks/hooks.json`, `hooks/hooks.notes.md`,
+`wiki/learnings/sessionstart-compact-reinject-probe-2026-09`,
+`code.claude.com/docs/en/hooks-guide.md` §"Re-inject context after compaction". Sources:
 `hooks/hooks.json`,
 `scripts/lib.sh`, `scripts/session-load.sh`, `scripts/stop-extract.sh`, `scripts/extract-drain.sh`,
 `scripts/dream-snapshot.sh`, `scripts/dream-accept.sh`, `scripts/maintain-llm-drain.sh`,
@@ -401,19 +445,20 @@ table, §7 surface counts and the Volatile facts block re-verified 2026-09-05 at
 Volatile facts — re-verify before trusting a stale copy of this skill:
 
 ```bash
-jq -r .version .claude-plugin/plugin.json                      # plugin version (re-verified 2026-09-05: 0.49.0)
-jq -r '.hooks | keys | length' hooks/hooks.json                # hook events (re-verified 2026-09-05: 9)
-jq '[.hooks[][] | .hooks[]] | length' hooks/hooks.json         # hook command entries (re-verified 2026-09-05: 22)
-jq -c '.hooks.SessionStart[0].matcher' hooks/hooks.json         # SessionStart matcher (re-verified 2026-09-05: startup|resume|clear|fork)
-grep -c 'hook-timer.sh' hooks/hooks.json                        # hook-timer wraps (re-verified 2026-09-05: 6)
-grep -c '^registerJsonTool(' mcp/src/server.ts                      # MCP tools (re-verified 2026-09-05: 23)
+jq -r .version .claude-plugin/plugin.json                      # plugin version (re-verified 2026-09-27: 0.53.0, pre-controller-bump)
+jq -r '.hooks | keys | length' hooks/hooks.json                # hook events (re-verified 2026-09-27: 11)
+jq '[.hooks[][] | .hooks[]] | length' hooks/hooks.json         # hook command entries (re-verified 2026-09-27: 27)
+jq -c '.hooks.SessionStart[0].matcher, .hooks.SessionStart[1].matcher' hooks/hooks.json  # SessionStart matchers (re-verified 2026-09-27: "startup|resume|clear|fork", "compact")
+grep -c 'hook-timer.sh' hooks/hooks.json                        # hook-timer wraps (re-verified 2026-09-28: 9)
+grep -c '^registerJsonTool(' mcp/src/server.ts                      # MCP tools (re-verified 2026-09-27: 24)
 grep -rn 'function resolveKnowledgeDir' mcp/src --include='*.ts'  # >1 hit = two-wikis split still open
-cat .claude-plugin/surface-budget.json                                    # budget (re-verified 2026-09-05: skills 16/agents 4/scripts 53/tests 162)
-ls tests/test-*.sh | wc -l                                      # live test count (re-verified 2026-09-05: 162)
+cat .claude-plugin/surface-budget.json                                    # budget (re-verified 2026-09-27: skills 17/agents 4/scripts 56/tests 168)
+ls tests/test-*.sh | wc -l                                      # live test count (re-verified 2026-09-27: 168)
 grep -n 'REQUIRED_FM_FIELDS' mcp/src/tools/knowledge-validate.ts  # 7 frontmatter fields
 jq -r '.structured_types, .unstructured_types' kb-schema.json   # wiki categories (6+2)
 grep -n 'SB_DREAM_ACCEPT_MIN_RATIO' scripts/dream-accept.sh     # accept floor default (re-verified 2026-09-05: 50)
 grep -rni .dual-llm\|quarantine. mcp/src scripts || echo "P6 still plan-queued"  # plan doc: archive/docs
+grep -n 'gate=compact-reinject\|gate=postcompact-capture\|gate=plan-dropped' scripts/session-load.sh scripts/pre-compact.sh scripts/merge-project-update.sh  # slice 1 gate rows still present
 ```
 
 If any command's output disagrees with this file, trust the repo and update this skill.

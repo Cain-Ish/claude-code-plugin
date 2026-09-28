@@ -1,6 +1,6 @@
 // buddy-config — ~/.second-brain/buddy.json (name, mute, sprite, react) and the statusLine install.
 //
-// The buddy is one fixed capybara (2026-09-24). The 0.51.0 roll of species/rarity/eye/hat/shiny
+// The buddy is one fixed identity (2026-09-24; drawn as a brain with a thought cloud since 0.54.0). The 0.51.0 roll of species/rarity/eye/hat/shiny
 // from a hash of the Claude account id is gone: the buddy is the visible layer
 // between Claude and the knowledge base, and none of those fields carried memory state. A
 // leftover `identity` block from a 0.51.0 hatch is dropped by `sb buddy` (dropStaleIdentity).
@@ -19,9 +19,17 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
 const errCode = (e: unknown): string | undefined => (e as NodeJS.ErrnoException)?.code;
 
-/** The card `sb buddy` prints: the capybara at rest (native frame 0) and its name; no I/O. */
+/** The card `sb buddy` prints: a 🧠 with a thought cloud holding its name; no I/O. Matches the
+ *  2026-09-26 statusline redesign (commit a5dde75) — same glyphs, same SB_BUDDY_ASCII convention
+ *  as buddy-statusline.sh (dot/box glyphs swap for ASCII; the 🧠 itself never does, same as the
+ *  statusline's own line 1). */
 export function renderCard(name: string): string {
-  return ['    n______n', '   ( ·    · )', '   (   oo   )', '    `------´', `   ${name} — capybara`].join('\n');
+  const ascii = process.env.SB_BUDDY_ASCII === 'on';
+  const dotB = ascii ? 'O' : '○';
+  const TL = ascii ? '+' : '╭', TR = ascii ? '+' : '╮', BL = ascii ? '+' : '╰', BR = ascii ? '+' : '╯';
+  const H = ascii ? '-' : '─', V = ascii ? '|' : '│';
+  const rule = H.repeat(name.length + 2);
+  return ['🧠', ' o', `  ${dotB} ${TL}${rule}${TR}`, `    ${V} ${name} ${V}`, `    ${BL}${rule}${BR}`].join('\n');
 }
 
 /** buddy.json, {} when absent. Present but unreadable, invalid JSON or not an object → throws. */

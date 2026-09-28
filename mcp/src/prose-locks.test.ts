@@ -235,3 +235,26 @@ describe('project-first retrieval stays wired (prose + writer locks)', () => {
     expect(sl).not.toMatch(/jq[^\n]*project-registry\.jsonl/);
   });
 });
+
+describe('Slice 1 "Continuity" (0.54.0): ## Plan marker grammar stays wired (P-1)', () => {
+  // The extractor prompt teaches the model the marker vocabulary it will SEE (source mark,
+  // carried) and the merge writer is what actually EMITS/consumes it plus the PostCompact
+  // capture key -- a rename on either side silently splits the extractor's prose from the
+  // grammar the merge layer enforces, same class of drift the other locks in this file guard.
+  const scriptsDir = repoRoot + 'scripts/';
+  const extractPrompt = () => read(scriptsDir + 'extract-prompt.txt');
+  const merge = () => read(scriptsDir + 'merge-project-update.sh');
+
+  it('extract-prompt.txt carries the source-mark and carried-item tokens', () => {
+    const src = extractPrompt();
+    expect(src).toContain('[untrusted:compact');
+    expect(src).toContain('[carried');
+  });
+
+  it('merge-project-update.sh carries both tokens and handles compact_pending', () => {
+    const src = merge();
+    expect(src).toContain('[untrusted:compact');
+    expect(src).toContain('[carried');
+    expect(src).toContain('compact_pending');
+  });
+});

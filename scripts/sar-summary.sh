@@ -19,10 +19,54 @@ set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
+# Read stdin ONCE, builtins only (no `cat` spawn) — mirrors buddy-statusline.sh's own hot-path
+# read, and matters here too: F5 (portability review), see below.
+# The builtin `read -r -t … -d ''` reads a pipe BYTE BY BYTE (~33us/byte measured on Git-Bash),
+# so a 128 KB Stop payload alone costs ~4s -- the old -t 2 bound truncated it mid-read (and on
+# bash 3.2 a timed-out `read` discards the partial buffer entirely: RAW comes back empty, not
+# partial). Raised to 10s to clear a realistic payload. BRAIN_DIR is resolved here (parameter
+# expansion only, no fork) so a still-empty RAW after a genuine timeout can still be logged.
+BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
+RAW=""
+READ_EC=0
+if [ -t 0 ]; then
+  :
+else
+  IFS= read -r -t 10 -d '' RAW; READ_EC=$?
+fi
+RAW="${RAW//$'\r'/}"
+
+# A read timeout (bash: exit status >128, i.e. 142 for SIGALRM) that STILL leaves RAW empty means
+# the Stop payload was lost, not merely absent -- silently falling through to the `-z "$RAW"`
+# exit below would look identical to "Stop sent nothing" and hide a real truncation. Log ONE
+# fork-free row (printf + redirection are shell builtins; no jq/date subprocess) before any of
+# this hook's own kill switches, so the loss is visible even under SB_SAR_SUMMARY=off.
+if [ "$READ_EC" -gt 128 ] && [ -z "$RAW" ]; then
+  printf '{"hook":"sar-summary.sh","kind":"error","exit_code":0,"reason":"gate=stdin-read-timeout msg=stop-payload-lost-empty-after-10s"}\n' \
+    >> "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null || true
+fi
+
+# --- Thinking-animation busy marker (0.54.0): clear here, BEFORE this hook's own kill switches
+# and the SAR-specific early exits below — Stop fires on every session Stop with no matcher on
+# this hook, so this is the one guaranteed clear point for what persona-context.sh stamped at the
+# start of the turn. rm -f is a no-op when nothing was ever written (a muted / sprite-off /
+# SB_BUDDY=off session never creates the marker); it never blocks or fails this hook.
+# F5 (portability review): this must stay FORK-FREE — the old `cat`+`jq`+`tr` pipeline spawned all
+# three on EVERY Stop, even when SB_SAR_SUMMARY=off or SB_BUDDY=off (this hook's OWN kill switches,
+# unrelated to whether the marker gets cleared). Session-id-by-regex, builtins only — the exact
+# technique buddy-statusline.sh already uses for the same reason on its own hot path.
+# SEC-L2/SF-L7: this regex doubles as the sanitizer — only [A-Za-z0-9_-]{1,64} can ever land in
+# BASH_REMATCH, so a session_id carrying path separators (e.g. "../../x") simply fails to match and
+# this hook deletes nothing. Full-match-or-reject, not strip: the same rule persona-context.sh's
+# write side applies to this identical marker path, so a marker this hook can find is exactly a
+# marker persona-context.sh could have written, and vice versa.
+SID=""
+[[ "$RAW" =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9_-]{1,64})\" ]] && SID="${BASH_REMATCH[1]}"
+[ -n "$SID" ] && rm -f "$BRAIN_DIR/.buddy/$SID.busy" 2>/dev/null
+
 [ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_SAR_SUMMARY:=off}" # hook-profile shim: this check runs before lib.sh's mapping (or lib-less)
 [ "${SB_SAR_SUMMARY:-on}" = "off" ] && exit 0
 
-RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
 # Bail if stdin isn't a JSON object (fail-soft on malformed input).
@@ -31,7 +75,6 @@ echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 SESSION_ID=$(printf '%s' "$RAW" | jq -r '.session_id // empty' 2>/dev/null | tr -d '\r')
 [ -z "$SESSION_ID" ] && exit 0
 
-BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 AUDIT="$BRAIN_DIR/audit-log.jsonl"
 [ -f "$AUDIT" ] || exit 0
 

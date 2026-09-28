@@ -17,13 +17,35 @@ without a note, fails the suite.
 
 ### SessionStart — ensure-dirs.sh
 
-matcher EXCLUDES `compact` — upstream anthropics/claude-code#15174: SessionStart
-hook output is silently dropped after compaction (v2.0.72+), so running
-session-load.sh on the compact event was pure waste. Removing it stops the
-post-compact context-bloat loop reported by users on long sessions. NOTE: the
-entries below run in PARALLEL, not top-to-bottom — Claude Code gives no
-ordering guarantee within one event, so session-load.sh must not assume
-ensure-dirs.sh's config.json/projects.jsonl scaffolding has already landed.
+matcher EXCLUDES `compact` — the FULL hot-tier load (this group) still never
+runs on compaction: the upstream #15174 report that motivated the original
+exclusion is stale (the 2026-09-26 probe found SessionStart(compact) output IS
+delivered — `code.claude.com/docs/en/hooks-guide.md` §"Re-inject context after
+compaction" now documents the event), but the full load is still the wrong
+shape for it — too slow, too much bloat, re-injecting content the model
+already saw. A separate lean `compact` group (below) re-delivers a small
+Repo-card-only digest instead. NOTE: the entries below run in PARALLEL, not
+top-to-bottom — Claude Code gives no ordering guarantee within one event, so
+session-load.sh must not assume ensure-dirs.sh's config.json/projects.jsonl
+scaffolding has already landed.
+
+### SessionStart — session-load.sh
+
+`--compact` mode (C1, slice 1 "Continuity"): a lean, read-only re-inject fired
+only on `matcher:"compact"`. Emits Goal/Direction (capped 2 lines), the
+Handoff line with C4 provenance (age/branch/head/drift), and up to 5
+unfinished `## Plan` items — capped at 1536 B, delivered as
+`hookSpecificOutput.additionalContext` JSON (plain stdout if jq is absent).
+No writes: no pin refresh, memo, registration, baseline copy, session count or
+projects.jsonl change — SessionStart(compact) fires in the same second as
+PostCompact and before it, so it can only ever render what PROJECT.md already
+holds. Wrapped in `hook-timer.sh 10` (A7: heavy hooks are timed) — the
+budget/timeout stay at 10s. Kill switch `SB_COMPACT_REINJECT=off`. A pairing alarm (run once per
+startup, in the `startup|resume|clear|fork` group above) logs an error-log row
+when a `gate=postcompact-capture` row has no matching `gate=compact-reinject`
+row for the same session — signal that SessionStart(compact) output regressed
+upstream (#12151). Re-probe this path on every Claude Code CLI version bump —
+the delivery mechanism is not officially guaranteed stable.
 
 ### SessionStart — dream-autostage.sh
 
@@ -105,6 +127,25 @@ line-marker file so each processes a disjoint window. With SB_EXTRACT=off the
 LLM call is skipped but the window is still archived and the marker still
 advances — a deterministic files-touched delta merges instead, exactly as an LLM
 failure would produce. Timeout 45s.
+
+## PostCompact
+
+### PostCompact — pre-compact.sh
+
+`post` mode (C2/C3, slice 1 "Continuity"): after compaction runs, reads the
+compaction summary (payload `compact_summary`, else the transcript's
+`isCompactSummary` record — `compact_summary` itself is undocumented upstream),
+keeps ONLY the "Pending Tasks" section, sanitizes it in memory (nothing raw is
+ever persisted), runs it through the same injection scanner as
+`tool-return-scanner.sh` (subprocess call, fails closed on any flag or a
+missing sanitizer), and merges it add-only into `## Plan` as
+`[untrusted:compact <date>]` items. Also writes `.injected/<sid>.prov`
+(branch/head/epoch) so a later Handoff stamp stays honest for OAuth-only users
+whose in-session extraction always queues. Never blocks; nothing waits on
+Stop (Stop does not fire on user interrupts). Wrapped in `hook-timer.sh 30`
+(A7: heavy hooks are timed) — timeout raised 15s -> 30s in 0.54.0 (measured
+31-54s on a loaded box: the gate spawns node plus the injection scanner).
+Kill switch `SB_COMPACT_CAPTURE=off`.
 
 ## PreToolUse
 

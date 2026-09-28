@@ -48,10 +48,16 @@ Validator rules (`scripts/validate-plugin.sh:9-68`) — what FAILS vs WARNs:
 | Missing `matcher` on a matcher-honoring event | FAIL |
 | Empty `hooks` array, or an entry missing `command` | FAIL |
 | A `matcher` declared on an event that IGNORES matchers — the set is `UserPromptSubmit Notification SessionEnd Stop PostToolBatch TeammateIdle TaskCreated TaskCompleted WorktreeCreate WorktreeRemove CwdChanged` (validate-plugin.sh:21) | WARN (it would be silently ignored at runtime — remove it) |
-| SessionStart matcher outside `startup\|resume\|clear\|compact` (validate-plugin.sh:22) | WARN |
+| SessionStart matcher outside `startup\|resume\|clear\|compact\|fork` (validate-plugin.sh:22) | WARN |
 
-NEVER re-add `compact` to the live SessionStart matcher — upstream drops SessionStart output
-after compaction (anthropics/claude-code#15174; parent SKILL.md §2 and weak point 8).
+`compact` IS live on SessionStart (slice 1 "Continuity", 0.54.0) — it is its OWN matcher group,
+never folded into `startup|resume|clear|fork`. Rule: an entry matched by `compact` must be a LEAN,
+READ-ONLY re-inject (no writes — no pin refresh, memo, registration, baseline copy, session count
+or `projects.jsonl` change), because SessionStart(compact) fires in the same second as PostCompact
+and BEFORE it (parent SKILL.md §8.8) — it can only ever render what state already holds, and a
+slow/write-heavy entry here has no capture to wait on. Do not add `compact` to the FULL hot-tier
+group; it stays excluded there by design (wrong shape/cost for a compaction re-inject, not a
+delivery bug — parent SKILL.md §2, §8.8).
 
 ### A2. Choose the posture — the fork that decides everything else
 

@@ -1,7 +1,9 @@
 #!/bin/bash
-# PreCompact hook. Runs LLM extraction on the unprocessed transcript
-# window BEFORE compaction discards context. Ensures decisions, patterns, and
-# knowledge from early in long sessions survive compaction cycles.
+# Compaction hooks: PreCompact extraction (default) + PostCompact Pending-Tasks capture (post).
+#
+# Default (no arg, or any arg other than "post") = PreCompact: runs LLM extraction on the
+# unprocessed transcript window BEFORE compaction discards context. Ensures decisions,
+# patterns, and knowledge from early in long sessions survive compaction cycles.
 #
 # Works in tandem with stop-extract.sh: both use a shared line-marker file
 # (.last-extracted-line-<slug>--<session_id>) so each processes a disjoint window.
@@ -12,6 +14,11 @@
 #                        API spend). The transcript window is still archived and
 #                        the marker still advances — a deterministic files-touched
 #                        delta merges instead, same as an LLM failure would produce.
+#
+# `post` = PostCompact: Claude Code's own compaction summary ("Pending Tasks" section only,
+# F2) sanitized in memory and injection-scanned, then added add-only to ## Plan. Nothing raw
+# is ever persisted (C2/C3, Slice 1 §4.3). Honors:
+#   SB_COMPACT_CAPTURE=off — kill switch: no-op, no adds.
 #
 # Always exits 0 (fail-soft).
 set -u
@@ -32,6 +39,173 @@ cleanup() {
   [ -n "$SB_GATE" ] && sb_log_error "pre-compact.sh" "gate=$SB_GATE" 0
 }
 trap cleanup EXIT
+
+# --- PostCompact mode (C2/C3, Slice 1 §4.3): Pending Tasks -> ## Plan, add-only ---------------
+if [ "${1:-}" = "post" ]; then
+  [ "${SB_COMPACT_CAPTURE:-on}" = "off" ] && { SB_GATE="postcompact-capture reason=off"; exit 0; }
+
+  P_RAW=$(cat 2>/dev/null || true)
+  if [ -z "$P_RAW" ] || ! echo "$P_RAW" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    SB_GATE="postcompact-capture reason=bad-stdin"; exit 0
+  fi
+
+  { IFS= read -r P_SID; IFS= read -r P_CWD; IFS= read -r P_TPATH; IFS= read -r P_TRIGGER; } < <(
+    printf '%s' "$P_RAW" | jq -r '.session_id // "", .cwd // "", .transcript_path // "", .trigger // ""' 2>/dev/null | tr -d '\r'
+  )
+  P_SID8="${P_SID:0:8}"
+
+  # Provenance FIRST (F11): survives even if everything below gates out.
+  sb_session_prov_write "$P_SID" "${CLAUDE_PROJECT_DIR:-$P_CWD}"
+
+  # SF-L5: record WHICH resolver actually produced the slug for the diagnostic row.
+  P_SLUG_SRC="cwd"
+  if [ -n "$P_CWD" ] && [ -d "$P_CWD" ]; then
+    P_SLUG=$(sb_resolve_slug "$P_CWD")
+  else
+    P_SLUG=$(sb_resolve_slug "$PWD")
+    P_SLUG_SRC="pwd"
+  fi
+  if [ -z "$P_SLUG" ]; then SB_GATE="postcompact-capture sid=$P_SID8 slugsrc=$P_SLUG_SRC reason=slug-empty"; exit 0; fi
+  P_PROJECT_MD="$BRAIN_DIR/projects/$P_SLUG/PROJECT.md"
+  if [ ! -f "$P_PROJECT_MD" ]; then SB_GATE="postcompact-capture sid=$P_SID8 slug=$P_SLUG slugsrc=$P_SLUG_SRC reason=project-md-missing"; exit 0; fi
+
+  # Summary source: payload .compact_summary, else the transcript's isCompactSummary record
+  # (F4 -- written just after compact_boundary, BEFORE PostCompact fires), else no-summary.
+  # SF-M1: no-summary is logged with WHY (nopayload|no-transcript|no-record|parse-failed) --
+  # a bare reason=no-summary can't distinguish "nothing was ever sent" from a format-drift
+  # regression in the isCompactSummary probe below, which would otherwise silently disable
+  # this whole capture path forever with no signal pointing at the cause.
+  P_SUMMARY="" P_SRC="" P_NOSUM_SRC="nopayload"
+  P_CS=$(printf '%s' "$P_RAW" | jq -r '.compact_summary // empty' 2>/dev/null)
+  if [ -n "$P_CS" ] && [ "$P_CS" != "null" ]; then
+    P_SUMMARY="$P_CS"; P_SRC="payload"
+  elif [ -z "$P_TPATH" ]; then
+    P_NOSUM_SRC="nopayload"
+  elif [ ! -f "$P_TPATH" ]; then
+    P_NOSUM_SRC="no-transcript"
+  else
+    # SEC nit: `--` before a payload-supplied path so a value shaped like an option
+    # (e.g. "-e") can never be reinterpreted as a grep/sed flag.
+    P_LINE=$(grep -n -- '"isCompactSummary":[[:space:]]*true' "$P_TPATH" 2>/dev/null | tail -1 | cut -d: -f1)
+    if [ -z "$P_LINE" ]; then
+      P_NOSUM_SRC="no-record"
+    else
+      P_RECORD=$(sed -n -- "${P_LINE}p" "$P_TPATH" 2>/dev/null | tr -d '\r')
+      P_SUMMARY=$(printf '%s' "$P_RECORD" | jq -r '
+        .message.content
+        | if type=="string" then . elif type=="array" then (map(.text? // "") | join("\n")) else "" end
+      ' 2>/dev/null)
+      if [ -z "$P_SUMMARY" ]; then
+        P_NOSUM_SRC="parse-failed"
+      else
+        # SF-L4: reject a record that is not actually THIS compaction's summary -- a long
+        # session's transcript can carry MULTIPLE prior isCompactSummary records; `tail -1`
+        # takes the last one, but a mis-pointed/stale transcript_path could still resolve to
+        # an old one. Its own `timestamp` field must be within ~120s of now, or the retired
+        # tasks it lists could resurrect work already finished since. Fails OPEN on a parse
+        # failure (unknown timestamp format) -- this is a freshness nicety, not the primary
+        # trust boundary (that is gate_untrusted_items in merge-project-update.sh).
+        P_REC_TS=$(printf '%s' "$P_RECORD" | jq -r '.timestamp // empty' 2>/dev/null)
+        if [ -n "$P_REC_TS" ]; then
+          P_REC_TS_BSD="${P_REC_TS%Z}"; P_REC_TS_BSD="${P_REC_TS_BSD%%.*}"
+          # -u is REQUIRED on the BSD branch too: $P_REC_TS is already UTC (ISO "Z"
+          # timestamp with the trailing Z stripped above), but `date -j -f` without -u
+          # parses its input as LOCAL time -- in any non-UTC zone (e.g. TZ=Asia/Tokyo)
+          # that skews the parsed epoch by the zone offset, so a fresh summary reads as
+          # hours old and gets rejected as stale-summary.
+          P_REC_EPOCH=$(date -u -d "$P_REC_TS" +%s 2>/dev/null \
+            || date -u -j -f "%Y-%m-%dT%H:%M:%S" "$P_REC_TS_BSD" +%s 2>/dev/null \
+            || echo "")
+          case "$P_REC_EPOCH" in ''|*[!0-9]*) P_REC_EPOCH="" ;; esac
+          if [ -n "$P_REC_EPOCH" ]; then
+            P_NOW_EPOCH=$(date -u +%s)
+            P_AGE=$((P_NOW_EPOCH - P_REC_EPOCH))
+            [ "$P_AGE" -lt 0 ] && P_AGE=$((-P_AGE))
+            if [ "$P_AGE" -gt 120 ]; then
+              P_SUMMARY=""
+              P_NOSUM_SRC="stale-summary"
+            fi
+          fi
+        fi
+        [ -n "$P_SUMMARY" ] && P_SRC="transcript"
+      fi
+    fi
+  fi
+  P_SUMMARY=$(printf '%s' "$P_SUMMARY" | tr -d '\r')
+  if [ -z "$P_SUMMARY" ]; then
+    sb_log_error "pre-compact.sh" "gate=postcompact-capture reason=no-summary src=$P_NOSUM_SRC slug=$P_SLUG sid=$P_SID8" 1
+    SB_GATE="postcompact-capture slug=$P_SLUG sid=$P_SID8 slugsrc=$P_SLUG_SRC reason=no-summary src=$P_NOSUM_SRC"; exit 0
+  fi
+
+  # Extract ONLY the Pending Tasks section (F2: no other section is ever kept). Heading is
+  # "N. Name:" (optionally **bold**, asterisks stripped before matching); body runs to the
+  # next heading. <analysis>...</analysis> is dropped first. The awk also reports (via a
+  # tagged stderr line) whether a Pending Tasks heading was ever seen at all -- SF-M1:
+  # "the heading never matched" (a Claude Code format-drift regression) is a DIFFERENT,
+  # much louder failure than "the heading matched and genuinely listed zero tasks".
+  P_SECFLAG=$(mktemp)
+  P_PENDING=$(printf '%s\n' "$P_SUMMARY" | awk '
+    /<analysis>/,/<\/analysis>/ { next }
+    {
+      stripped = $0
+      gsub(/\*/, "", stripped)
+      if (stripped ~ /^[0-9]+\.[ \t]+[^:]+:[ \t]*$/) {
+        name = stripped
+        sub(/^[0-9]+\.[ \t]+/, "", name)
+        sub(/:[ \t]*$/, "", name)
+        insec = (index(tolower(name), "pending tasks") > 0) ? 1 : 0
+        if (insec) sawsec = 1
+        next
+      }
+      if (insec && $0 ~ /^[ \t]*[-*][ \t]+/) {
+        text = $0
+        sub(/^[ \t]*[-*][ \t]+/, "", text)
+        low = tolower(text)
+        if (low ~ /^none/ || low ~ /^no /  || low ~ /^n\/a/ || low ~ /^nothing/ || low ~ /^\(none/) next
+        if (hits < 5) { hits++; print text }
+      }
+    }
+    END { print (sawsec ? 1 : 0) > "/dev/stderr" }
+  ' 2>"$P_SECFLAG")
+  P_SAWSEC=$(cat "$P_SECFLAG" 2>/dev/null); rm -f "$P_SECFLAG"
+  if [ -z "$P_PENDING" ]; then
+    if [ "$P_SAWSEC" = "1" ]; then
+      SB_GATE="postcompact-capture slug=$P_SLUG sid=$P_SID8 slugsrc=$P_SLUG_SRC source=$P_SRC pending=0"; exit 0
+    fi
+    sb_log_error "pre-compact.sh" "gate=postcompact-capture reason=no-pending-section slug=$P_SLUG sid=$P_SID8 source=$P_SRC" 1
+    SB_GATE="postcompact-capture slug=$P_SLUG sid=$P_SID8 slugsrc=$P_SLUG_SRC source=$P_SRC reason=no-pending-section"; exit 0
+  fi
+
+  # SF-H1/SEC-M3/SEC-M4: cut/sanitize/scan now happen ONCE, inside merge-project-update.sh's
+  # shared gate_untrusted_items() -- this hook's job stops at "extract the Pending Tasks
+  # bullets and pass them through" so compact_pending and the extractor's own plan[] share
+  # exactly one trust boundary instead of two independently-maintained ones.
+  P_BULLETS=$(printf '%s' "$P_PENDING" | jq -Rs 'split("\n") | map(select(length>0))' 2>/dev/null)
+  if [ -z "$P_BULLETS" ] || ! printf '%s' "$P_BULLETS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+    # SF-L2: a jq failure building the bullets array must be LOUD, not a silent fallback
+    # to '[]' that looks identical to "the Pending Tasks section genuinely had zero items".
+    sb_log_error "pre-compact.sh" "gate=postcompact-capture reason=bullets-build-failed slug=$P_SLUG sid=$P_SID8" 1
+    P_BULLETS='[]'
+  fi
+  P_KNOWLEDGE_DIR="$(sb_knowledge_dir)"
+  P_MERGE_ERR=$(mktemp)
+  P_MERGE_STATUS="ok"
+  if ! jq -nc --argjson b "$P_BULLETS" '{compact_pending: $b}' \
+      | bash "$(dirname "$0")/merge-project-update.sh" --project-md "$P_PROJECT_MD" \
+          --knowledge-dir "$P_KNOWLEDGE_DIR" --session "$P_SID" >/dev/null 2>"$P_MERGE_ERR"; then
+    P_ERR_TAIL=$(tr '\n' ' ' < "$P_MERGE_ERR" | head -c 300)
+    sb_log_error "pre-compact.sh" "postcompact-capture merge-failed err=$P_ERR_TAIL" 1
+    P_MERGE_STATUS="failed"
+  fi
+  rm -f "$P_MERGE_ERR"
+
+  # SF-L2: the gate row must say whether the merge actually SUCCEEDED -- pending=N alone
+  # looked identical whether those N bullets landed in PROJECT.md or the merge call itself
+  # failed outright.
+  P_COUNT=$(printf '%s' "$P_BULLETS" | jq 'length' 2>/dev/null); case "$P_COUNT" in ''|*[!0-9]*) P_COUNT=0 ;; esac
+  SB_GATE="postcompact-capture slug=$P_SLUG sid=$P_SID8 slugsrc=$P_SLUG_SRC source=$P_SRC pending=$P_COUNT merge=$P_MERGE_STATUS"
+  exit 0
+fi
 
 # Tier intent, not a literal: SB_EXTRACTOR_MODEL is declared as a MID pin in model-ladder.json
 # and is applied by sb_resolve_model as rung 0, per attempt, inside sb_call_extractor.
@@ -88,7 +262,7 @@ START_LINE=$((LAST_LINE + 1))
 
 # Gate: at least one tool_use in the window. The buddy's end-of-turn buddy_react call is chat,
 # not work (same rule as stop-extract.sh's substantive gate).
-TOOL_COUNT=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
+TOOL_COUNT=$(sed -n -- "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use")
@@ -101,6 +275,11 @@ if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
   sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
   exit 0
 fi
+
+# C4/F3 (Slice 1 §5.1): stamp provenance NOW, right after the substantive gate confirms this
+# window is real -- BEFORE the LLM call, so a killed/timed-out extraction still leaves a fresh
+# .prov file for a later Stop/PostCompact's Handoff stamp to read.
+sb_session_prov_write "$SESSION_ID" "${CLAUDE_PROJECT_DIR:-$CWD}"
 
 # --- Build extraction input ---
 PROMPT_FILE="$(dirname "$0")/extract-prompt.txt"
@@ -125,7 +304,7 @@ fi
   echo "---SEPARATOR---"
   echo
   echo "=== TRANSCRIPT (preprocessed) ==="
-  sed -n "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
+  sed -n -- "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
 } > "$EXTRACT_INPUT"
 
 # --- Run LLM extraction ---
@@ -153,7 +332,7 @@ if [ -z "$DELTA_JSON" ]; then
   else
     # Scratch-path filter: /tmp, /var/tmp, /proc, /dev, /run are session-ephemeral
     # and have no value as future-session context — they only bloat the hot tier.
-    FILES_JSON=$(sed -n "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -rcs '
+    FILES_JSON=$(sed -n -- "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -rcs '
       [
         .[]
         | select(.type == "assistant")
@@ -196,7 +375,7 @@ DELTA_JSON=$(sb_gate_extraction_delta "$DELTA_JSON")
 MERGE_ERR=$(mktemp)
 if ! echo "$DELTA_JSON" \
   | bash "$(dirname "$0")/merge-project-update.sh" \
-      --project-md "$PROJECT_MD" --knowledge-dir "$KNOWLEDGE_DIR" >/dev/null 2>"$MERGE_ERR"; then
+      --project-md "$PROJECT_MD" --knowledge-dir "$KNOWLEDGE_DIR" --session "$SESSION_ID" >/dev/null 2>"$MERGE_ERR"; then
   ERR_TAIL=$(tr '\n' ' ' < "$MERGE_ERR" | head -c 400)
   sb_log_error "pre-compact.sh" "merge-failed err=$ERR_TAIL" 0
 fi

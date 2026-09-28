@@ -103,6 +103,14 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_JIT_MAX_ITEMS` | `3` | Max JIT items delivered per matched call. | TUNE | protocol-guard.sh:475 | bash |
 | `SB_SEARCH_FIRST` | `on` | PreToolUse mode `pre`, Write-of-a-new-path: search-before-create nudge (`pg_search`). | KS | protocol-guard.sh:637 | bash |
 
+### 2b. Compaction continuity (slice 1 "Continuity", 0.54.0 — `session-load.sh --compact`, `pre-compact.sh post`)
+
+| Var | Default | Effect | Kind | Site | Tests |
+|---|---|---|---|---|---|
+| `SB_COMPACT_REINJECT` | `on` | `off`: `session-load.sh --compact` (SessionStart matcher `compact`) exits 0 with no output, AND the startup-mode pairing alarm (§8.8 in sb-architecture-contract) is skipped too — an operator who turned re-inject off does not want to be told it isn't pairing. | KS | session-load.sh:419,871 | bash |
+| `SB_COMPACT_CAPTURE` | `on` | `off`: `pre-compact.sh post` (PostCompact) no-ops — no Pending-Tasks read, no sanitize/scan, no `## Plan` add; logs `gate=postcompact-capture reason=off`. | KS | pre-compact.sh:45 | bash |
+| `SB_HANDOFF_DRIFT_TIMEOUT` | `2` (s) | Wall clock for the `git rev-list --count <head>..HEAD` drift probe behind the Handoff line's "N commits since" segment (C4 read side). Timeout → `drift=timeout`; any other non-zero → `drift=unknown`. | TUNE | session-load.sh:106 | bash |
+
 ## 3. SessionStart banners & auto-dispatch (session-load.sh and friends)
 
 | Var | Default | Effect | Kind | Site | Tests |
@@ -177,7 +185,7 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_DREAM_ACCEPT_TIMEOUT_MS` | `600000` (10 min) | Wall clock for `dream-accept.sh` via MCP `dream_accept`. Was 30s, which a whole-wiki FORGET re-score (~105s on a 237-page wiki) blew past AFTER live had been mutated. Integer 30000–2147483647, else the default (a fraction or a larger value broke execFile's timer). | TUNE | mcp/src/tools/dream.ts | vitest |
 | `SB_BUDDY` | `on` | `off` turns the buddy off entirely: no statusline bubble, no `.buddy/` events, no per-prompt `[buddy]` line (buddy_react answers "buddy is off"). Mapped by `SB_HOOK_PROFILE=minimal`. | KS | scripts/buddy-statusline.sh, persona-context.sh, lib.sh sb_buddy_event, mcp/src/buddy-events.ts | bash, vitest |
 | `SB_BUDDY_REACT` | `on` | `off` keeps the bubble but drops the two-way half: no `[buddy: <name>]` prompt line, so no per-turn `buddy_react` call. Two-way also needs buddy.json `react:true` (set by `sb buddy install` — installing is the consent). | KS | persona-context.sh | bash |
-| `SB_BUDDY_SPRITE` | `on` | `off` renders the telemetry line only (no capybara) and, like buddy.json `mute:true`, suppresses the `[buddy]` line — there is no bubble to answer into. | MODE | buddy-statusline.sh, persona-context.sh | bash |
+| `SB_BUDDY_SPRITE` | `on` | `off` (0.54.0: "sprite" now names the thought cloud, kept for config compatibility) renders the 🧠 telemetry line only — no thought-cloud bubble and no thinking dots — and, like buddy.json `mute:true` / `sprite:false` (not `// true`-guarded: `false` must stay `false`), suppresses the `[buddy]` line too — there is no bubble to answer into. | MODE | buddy-statusline.sh, persona-context.sh | bash |
 | `SB_BUDDY_ASCII` | `off` | `on` avoids box-drawing glyphs and the middle-dot eye. | MODE | buddy-statusline.sh | bash |
 | `SB_BUDDY_COLS` | empty | Width override for the renderer (else `COLUMNS`, else 120). | TUNE | buddy-statusline.sh | bash |
 | `SB_BUDDY_CHAIN` | set by the settings.json command | The chained (pre-existing) statusline command, carried ONLY in the audited settings.json command's own env and always pinned there (`SB_BUDDY_CHAIN=''` = none), so an inherited value is never run. Output cached 5 s per session and refreshed in a detached job (a chain slower than the 1 s tick used to vanish); a failing chain is logged once per session. | INT | mcp/src/tools/buddy-config.ts, buddy-statusline.sh | bash, vitest |
@@ -283,7 +291,7 @@ grep for `process.env.SB_` alone MISSES the helper-mediated ones (grep for the b
 | `SB_EVAL_MAX_TOKENS` | `8000` | Token-budget gate in the same. | TUNE | wiki-recall-check.sh:81 | none |
 | `SB_EVAL_TITLE_SAMPLE` | `0` (= all) | Sample cap for live-title recall probes. | TUNE | wiki-recall-check.sh:38 | bash |
 | `SB_SKIP_SUPERSEDE` | `0` | `1` disables decision-supersede detection in project merge. | KS | merge-project-update.sh:247 | none |
-| `SB_PROJECT_STALE_DAYS` | `30` | Age at which decisions/blockers are marked `[stale]`. | TUNE | merge-project-update.sh:376 | none |
+| `SB_PROJECT_STALE_DAYS` | `30` | Age at which decisions/blockers are marked `[stale]`. Widened scope (slice 1 "Continuity", 0.54.0): `mark_stale` now also ages `## Plan` lines carrying a `[carried YYYY-MM-DD]` token — a carried-but-never-retired Plan item goes `[stale]` on the same clock. | TUNE | merge-project-update.sh:376,950 | none |
 | `SB_INSTALL_OS_OVERRIDE` | empty | Force the OS branch in the timer installer (linux/mac/windows). | TESTDBL | install-extract-timer.sh:139 | bash |
 | `SB_LIVENESS_MARKETPLACE` | `$PLUGIN_ROOT/.claude-plugin/marketplace.json` | Liveness-check input override. | TESTDBL/PATH | liveness-check.sh:17 | bash |
 | `SB_LIVENESS_INSTALLED` | `$HOME/.claude/plugins/installed_plugins.json` | Ditto. | TESTDBL/PATH | liveness-check.sh:18 | bash |

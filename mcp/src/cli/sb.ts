@@ -31,7 +31,7 @@ Commands:
                                                Append an entry to a project's PROJECT.md
   status                                       Show hot-tier and wiki sizes
   auth [status|doctor]                         Show or fix the extractor auth mode
-  buddy                                        Show the buddy card (the capybara, its name, mute state)
+  buddy                                        Show the buddy card (the on-demand brain/thought-cloud card, its name, mute state)
   buddy name <name> | mute | unmute            Rename (1-14 chars) / silence the bubble
   buddy install | uninstall                    Add / remove the buddy statusLine in settings.json
   help                                         Show this message
@@ -337,7 +337,7 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
   }
 
   if (cmd === 'buddy') {
-    // One fixed capybara — no account roll (docs/plans/2026-09-22-buddy-companion.md, 2026-09-24).
+    // One fixed buddy — no account roll (docs/plans/2026-09-22-buddy-companion.md, 2026-09-24).
     if (args[1]?.startsWith('--')) { errpush(`buddy: unknown option ${args[1]} (the account roll and --rehatch are gone)`); return { stdout: '', stderr: err.join('\n'), exitCode: 2 }; }
     const sub = args[1] ?? '';
     if (sub === 'name') {
