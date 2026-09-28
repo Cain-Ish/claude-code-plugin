@@ -174,6 +174,14 @@ OUT=$(gen Write "$HOME/.ssh/authorized_keys" | PATH="$STUB:$PATH" bash "$SCRIPT"
 assert_deny "realpath absent → fail CLOSED on literal ~/.ssh write" "$OUT" "ssh"
 OUT=$(gen Write "$HOME/work/repo/main.py" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
 assert_allow "realpath absent → normal project write not over-blocked" "$OUT"
+# Test 17c: the resolver returns an unrelated path for a LITERAL ~/.ssh target (a HOME
+# spelling pwd -P rewrites, a broken realpath): the literal target must still be denied.
+STUBW="$TMP/stubwrong"; mkdir -p "$STUBW"
+printf '#!/bin/sh
+echo /tmp/somewhere/else
+' > "$STUBW/realpath"; chmod +x "$STUBW/realpath"
+OUT=$(gen Write "$HOME/.ssh/authorized_keys" | PATH="$STUBW:$PATH" bash "$SCRIPT" 2>/dev/null)
+assert_deny "resolver disagrees with a literal ~/.ssh target → literal check still denies" "$OUT" "ssh"
 # Test 17b: same, with HOME spelled in Windows form (a GitHub Windows runner sets
 # HOME='D:\a\_temp\…'). The credential prefixes must be built from the normalized HOME, or a
 # ~/.ssh write fails OPEN. Only meaningful where cygpath exists (sb_normalize_path's C: rule).

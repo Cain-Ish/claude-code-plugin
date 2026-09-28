@@ -192,22 +192,30 @@ fi
 # started from cmd/PowerShell can too) and realpath unavailable, a raw-$HOME prefix never
 # matched the /c/… path and a ~/.ssh write was ALLOWED (fail-open, found by the Windows CI lane).
 _GH=$(sb_normalize_path "$HOME"); _GH="${_GH%/}"
-CRED_PREFIXES=(
-  "ssh:$_GH/.ssh/"
-  "gnupg:$_GH/.gnupg/"
-  "aws:$_GH/.aws/"
-  "claude-config:$_GH/.config/claude/"
-  "gh-config:$_GH/.config/gh/"
-  "passwordstore:$_GH/.password-store/"
-  "etc:/etc/"
-)
+# HOME's PHYSICAL spelling too (junction, 8.3 short name, symlinked profile): the resolved
+# target comes out of `pwd -P`/realpath in that spelling, so prefixes are built from both.
+_GHP=$(cd -P -- "$HOME" 2>/dev/null && pwd -P); _GHP=$(sb_normalize_path "$_GHP"); _GHP="${_GHP%/}"
+CRED_PREFIXES=()
+for _h in "$_GH" "$_GHP"; do
+  [ -z "$_h" ] && continue
+  CRED_PREFIXES+=(
+    "ssh:$_h/.ssh/"
+    "gnupg:$_h/.gnupg/"
+    "aws:$_h/.aws/"
+    "claude-config:$_h/.config/claude/"
+    "gh-config:$_h/.config/gh/"
+    "passwordstore:$_h/.password-store/"
+  )
+done
+CRED_PREFIXES+=("etc:/etc/")
 # Special case: single credential FILES, not prefix trees. ~/.claude must NOT
 # be a prefix entry — plans/, projects/ (memory), settings.json live there and
 # are legitimate write targets; only the OAuth token file is a credential.
-CRED_FILES=(
-  "netrc:$_GH/.netrc"
-  "claude-oauth:$_GH/.claude/.credentials.json"
-)
+CRED_FILES=()
+for _h in "$_GH" "$_GHP"; do
+  [ -z "$_h" ] && continue
+  CRED_FILES+=("netrc:$_h/.netrc" "claude-oauth:$_h/.claude/.credentials.json")
+done
 
 MATCHED_LABEL=""
 # Case-INSENSITIVE compare: NTFS and default APFS are case-insensitive, so
@@ -216,24 +224,33 @@ MATCHED_LABEL=""
 # distinct ~/.SSH dir; acceptable — a rare false deny is fail-safe, a missed
 # credential write is not. (tr, not ${x,,}: bash-3.2/BSD portable.)
 RESOLVED_LC=$(printf '%s' "$RESOLVED" | tr '[:upper:]' '[:lower:]')
-for entry in "${CRED_PREFIXES[@]}"; do
-  label="${entry%%:*}"
-  prefix=$(printf '%s' "${entry#*:}" | tr '[:upper:]' '[:lower:]')
-  # Match the directory node itself (no trailing /) as well as anything
-  # under it. Without the equality case, a Write whose path resolves to the
-  # exact dir (e.g. ~/.ssh) would slip past the dir-tree prefix check.
-  case "$RESOLVED_LC" in
-    "$prefix"*)         MATCHED_LABEL="$label"; break ;;
-    "${prefix%/}")      MATCHED_LABEL="$label"; break ;;
-  esac
-done
-if [ -z "$MATCHED_LABEL" ]; then
-  for entry in "${CRED_FILES[@]}"; do
+# Check the LITERAL (normalized, unresolved) target as well as the resolved one: when the
+# resolver degrades (realpath absent, a HOME spelling pwd -P rewrites), a path that names a
+# credential dir outright must still be denied. Resolved-only let a literal ~/.ssh write
+# through on the GitHub Windows runner.
+LITERAL_LC=$(printf '%s' "$FILE_PATH" | tr '[:upper:]' '[:lower:]')
+for cand in "$RESOLVED_LC" "$LITERAL_LC"; do
+  [ -z "$cand" ] && continue
+  for entry in "${CRED_PREFIXES[@]}"; do
     label="${entry%%:*}"
-    f=$(printf '%s' "${entry#*:}" | tr '[:upper:]' '[:lower:]')
-    if [ "$RESOLVED_LC" = "$f" ]; then MATCHED_LABEL="$label"; break; fi
+    prefix=$(printf '%s' "${entry#*:}" | tr '[:upper:]' '[:lower:]')
+    # Match the directory node itself (no trailing /) as well as anything
+    # under it. Without the equality case, a Write whose path resolves to the
+    # exact dir (e.g. ~/.ssh) would slip past the dir-tree prefix check.
+    case "$cand" in
+      "$prefix"*)         MATCHED_LABEL="$label"; break ;;
+      "${prefix%/}")      MATCHED_LABEL="$label"; break ;;
+    esac
   done
-fi
+  if [ -z "$MATCHED_LABEL" ]; then
+    for entry in ${CRED_FILES[@]+"${CRED_FILES[@]}"}; do
+      label="${entry%%:*}"
+      f=$(printf '%s' "${entry#*:}" | tr '[:upper:]' '[:lower:]')
+      if [ "$cand" = "$f" ]; then MATCHED_LABEL="$label"; break; fi
+    done
+  fi
+  [ -n "$MATCHED_LABEL" ] && break
+done
 
 [ -z "$MATCHED_LABEL" ] && exit 0
 
