@@ -1,4 +1,5 @@
 #!/bin/bash
+# run-all-timeout: 300   (measured 83s alone on MSYS, 212s alone under load; exceeded run-all's 120s default inside the full suite, 2026-09-28)
 # pins: SB_RULES_LAYERS — the layering feature's own kill switch; the whole point of this file
 # pins: SB_SEARCH_FIRST — pg_search's kill switch, exercised directly
 # pins: SB_REPO_KEY_COMMON_DIR — sb_repo_key's kill switch, exercised directly
