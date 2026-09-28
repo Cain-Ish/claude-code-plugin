@@ -29,6 +29,28 @@ ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; echo; echo "ALL PASS"; exit 0; }
 
+# Portable "timeout N cmd..." substitute: stock macOS ships neither timeout(1) nor gtimeout
+# (coreutils, brew-only) — a bare `timeout 120 ...` call is just "command not found" there, and
+# the sub-tests below (sl/pc/ctx) silently produced empty output instead of ever running
+# session-load.sh/persona-context.sh. Prefer the real binary; else fall back to the same
+# background+kill bash watchdog lib.sh's own sb_timeout uses, so every host still bounds these
+# long-running child processes instead of hanging the suite.
+TOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then TOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then TOUT_BIN="gtimeout"
+fi
+tbound() {
+  local secs="$1"; shift
+  if [ -n "$TOUT_BIN" ]; then "$TOUT_BIN" "$secs" "$@"; return $?; fi
+  "$@" <&0 &
+  local pid=$!
+  ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local wd=$!
+  wait "$pid"; local ec=$?
+  kill "$wd" 2>/dev/null || true
+  return "$ec"
+}
+
 # Width is measured in CHARACTERS (`wc -m`), which needs a UTF-8 locale; a bare CI runner may have
 # none (LANG unset → C → bytes). Pick one that exists, else skip the width assertions loudly.
 for _loc in "${LC_ALL:-}" "${LANG:-}" C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
@@ -335,17 +357,33 @@ out2=$(chain 52 "$five")
 # a chain slower than the tick runs DETACHED and writes the cache itself: this render neither waits
 # for it nor shows its output; a render inside the 5 s window after it finished does (npx on Windows)
 rm -f "$CHF"; : > "$CNT"
-slow='sleep 2; echo SLOW-LINE'
+SLOW_S=6; SLOW_MS=$(( SLOW_S * 1000 ))
+slow="sleep $SLOW_S; echo SLOW-LINE"
+# Baseline first: a same-shaped render with an INSTANT chain, timed on THIS host under THIS load,
+# right before the slow-chain measurement below. A fixed absolute cutoff (formerly 1700ms) flaked
+# on a loaded box (measured 4164ms of legitimate startup cost, no waiting involved) — comparing
+# against a fresh baseline makes the bound robust to that load while staying discriminating: it is
+# capped at half of SLOW_MS, so a render that genuinely WAITS for the full chain (~SLOW_MS) always
+# still fails, no matter how large the baseline (and therefore the bound) grows.
+rm -f "$CHF"
+BT0=$(date +%s%N 2>/dev/null || echo 0)
+chain 58 ':' >/dev/null
+BT1=$(date +%s%N 2>/dev/null || echo 0)
+rm -f "$CHF"; : > "$CNT"
 t0=$(date +%s%N 2>/dev/null || echo 0)
 out=$(chain 60 "$slow")
 t1=$(date +%s%N 2>/dev/null || echo 0)
 printf '%s' "$out" | grep -q 'SLOW-LINE' && fail "a slow chain must not block the render (its output belongs to a later tick): $out"
 printf '%s\n' "$out" | head -1 | grep -q 'add buddy statusline' || fail "no cached chain output yet → telemetry is line 1: $out"
-if [ "$t0" != "0" ] && [[ "$t0$t1" =~ ^[0-9]+$ ]]; then
+if [ "$t0" != "0" ] && [ "$BT0" != "0" ] && [[ "$t0$t1$BT0$BT1" =~ ^[0-9]+$ ]]; then
   ms=$(( (t1 - t0) / 1000000 ))
-  [ "$ms" -lt 1700 ] || fail "a 2 s chain delayed the render ${ms} ms (the refresh must be detached; the wait is capped at ~0.8 s)"
+  base_ms=$(( (BT1 - BT0) / 1000000 ))
+  half_slow=$(( SLOW_MS / 2 ))
+  bound=$(( base_ms * 3 + 2000 ))
+  [ "$bound" -lt "$half_slow" ] || bound=$half_slow
+  [ "$ms" -lt "$bound" ] || fail "a ${SLOW_S}s chain delayed the render ${ms} ms (baseline ${base_ms} ms, bound ${bound} ms) — the refresh must be detached"
 else echo "  note: no ns clock here — slow-chain wall-clock bound skipped (content assertions still run)"; fi
-i=0; while [ "$i" -lt 50 ] && ! grep -q 'SLOW-LINE' "$CHF" 2>/dev/null; do sleep 0.1; i=$(( i + 1 )); done
+i=0; while [ "$i" -lt 100 ] && ! grep -q 'SLOW-LINE' "$CHF" 2>/dev/null; do sleep 0.1; i=$(( i + 1 )); done
 out=$(chain 63 "$slow")
 printf '%s\n' "$out" | head -1 | grep -q 'SLOW-LINE' || fail "the detached refresh must write the cache: a render inside the 5 s window shows SLOW-LINE: $out"
 [ "$(wc -l < "$CNT" | tr -d ' ')" = "1" ] || fail "the slow chain re-ran inside the cache window ($(wc -l < "$CNT") runs)"
@@ -419,7 +457,7 @@ grep -q 'buddyNote' "$ROOT/mcp/src/server.ts" || fail "server.ts no longer emits
 grep -q '\.buddy' "$ROOT/scripts/ensure-dirs.sh" || fail "ensure-dirs.sh no longer GCs .buddy/"
 grep -rlE 'accountUuid|mulberry32|wyhash' "$ROOT/mcp/src" "$ROOT/scripts" && fail "the account-hash buddy roll is gone (0.52.0): the buddy is one capybara"
 HS="sess-hint-1"; mkdir -p "$CLAUDE_CONFIG_DIR" "$HOME/repo"
-sl(){ jq -nc --arg s "$1" --arg cwd "$HOME/repo" '{session_id:$s, cwd:$cwd, hook_event_name:"SessionStart"}' | (cd "$HOME/repo" && CLAUDE_PLUGIN_ROOT="$ROOT" timeout 120 bash "$ROOT/scripts/session-load.sh") >/dev/null 2>&1; }
+sl(){ jq -nc --arg s "$1" --arg cwd "$HOME/repo" '{session_id:$s, cwd:$cwd, hook_event_name:"SessionStart"}' | (cd "$HOME/repo" && CLAUDE_PLUGIN_ROOT="$ROOT" tbound 120 bash "$ROOT/scripts/session-load.sh") >/dev/null 2>&1; }
 printf '{"statusLine":{"type":"command","command":"bash \\"/x/.second-brain/bin/buddy-statusline.sh\\""}}' > "$CLAUDE_CONFIG_DIR/settings.json"
 # match the actionable part of the hint, not its version wording (reworded 0.51.0 → "predates 0.53.0")
 sl "$HS"; grep -qF '/second-brain:buddy install' "$BRAIN_DIR/.buddy/$HS.log.jsonl" || fail "a buddy statusLine without refreshInterval must get the re-install hint: $(cat "$BRAIN_DIR/.buddy/$HS.log.jsonl" 2>&1)"
@@ -433,7 +471,7 @@ export KNOWLEDGE_DIR="$HOME/knowledge"; mkdir -p "$KNOWLEDGE_DIR/wiki"
 NS="sess-nudge-1"
 printf '{"goal":"implement the buddy nudge","goal_kw":"buddy nudge","prompts":8}' > "$BRAIN_DIR/.injected/$NS.json"
 printf 'implement' > "$BRAIN_DIR/.injected/$NS.phase"
-pc(){ printf '{"session_id":"%s","prompt":"now implement the next step of the buddy nudge please"}' "$1" | CLAUDE_PLUGIN_ROOT="$ROOT" timeout 60 bash "$ROOT/scripts/persona-context.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // ""'; }
+pc(){ printf '{"session_id":"%s","prompt":"now implement the next step of the buddy nudge please"}' "$1" | CLAUDE_PLUGIN_ROOT="$ROOT" tbound 60 bash "$ROOT/scripts/persona-context.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // ""'; }
 out=$(pc "$NS"); printf '%s' "$out" | grep -q '^\[buddy\] 8 prompts' || fail "memory nudge did not fire at the threshold: $out"
 [ "$(printf '%s' "$out" | grep -c '^\[buddy\]')" = "1" ] || fail "nudge must be exactly one line"
 jq -e '.buddy_nudge=="1" and .prompts==9' "$BRAIN_DIR/.injected/$NS.json" >/dev/null || fail "memo must record the nudge and count prompts"
@@ -469,7 +507,7 @@ pass "memory nudge: fires once at the threshold in implement, mirrored as pendin
 RS="sess-react-1"; _n=$(date +%s)
 printf '{"goal":"g","goal_kw":"g","prompts":2,"t0":%s}' $((_n - 600)) > "$BRAIN_DIR/.injected/$RS.json"
 rline(){ pc "$1" | grep '^\[buddy: '; }
-ctx(){ printf '{"session_id":"%s","prompt":"%s"}' "$1" "$2" | CLAUDE_PLUGIN_ROOT="$ROOT" timeout 60 bash "$ROOT/scripts/persona-context.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // ""'; }
+ctx(){ printf '{"session_id":"%s","prompt":"%s"}' "$1" "$2" | CLAUDE_PLUGIN_ROOT="$ROOT" tbound 60 bash "$ROOT/scripts/persona-context.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // ""'; }
 printf '{"name":"Ziutek"}' > "$BRAIN_DIR/buddy.json"; rm -f "$BRAIN_DIR/.buddy/$RS.seen"
 [ -z "$(rline "$RS")" ] || fail "no consent (react) and no rendering statusline → no [buddy: ] line"
 printf '{"name":"Ziutek","react":true}' > "$BRAIN_DIR/buddy.json"

@@ -108,8 +108,13 @@ if [ "${1:-}" = "post" ]; then
         P_REC_TS=$(printf '%s' "$P_RECORD" | jq -r '.timestamp // empty' 2>/dev/null)
         if [ -n "$P_REC_TS" ]; then
           P_REC_TS_BSD="${P_REC_TS%Z}"; P_REC_TS_BSD="${P_REC_TS_BSD%%.*}"
+          # -u is REQUIRED on the BSD branch too: $P_REC_TS is already UTC (ISO "Z"
+          # timestamp with the trailing Z stripped above), but `date -j -f` without -u
+          # parses its input as LOCAL time -- in any non-UTC zone (e.g. TZ=Asia/Tokyo)
+          # that skews the parsed epoch by the zone offset, so a fresh summary reads as
+          # hours old and gets rejected as stale-summary.
           P_REC_EPOCH=$(date -u -d "$P_REC_TS" +%s 2>/dev/null \
-            || date -j -f "%Y-%m-%dT%H:%M:%S" "$P_REC_TS_BSD" +%s 2>/dev/null \
+            || date -u -j -f "%Y-%m-%dT%H:%M:%S" "$P_REC_TS_BSD" +%s 2>/dev/null \
             || echo "")
           case "$P_REC_EPOCH" in ''|*[!0-9]*) P_REC_EPOCH="" ;; esac
           if [ -n "$P_REC_EPOCH" ]; then

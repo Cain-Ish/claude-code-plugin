@@ -217,11 +217,20 @@ command() {
   fi
   builtin command "$@"
 }
+# Non-discriminating before: timing `sb_timeout 2 true` proves the CALLER returns fast, but
+# `true` emits no stdout, so it never exercises the bug this fallback exists to catch (F2:
+# the watchdog subshell inheriting the foreground command's stdout fd, so `$(sb_timeout ...)`
+# blocks on that fd until the watchdog's own sleep expires even though the wrapped command
+# already finished). Capture stdout AND time it: a watchdog that leaves stdout open would
+# make F2_OUT correct (echo already flushed it) but F2_ELAPSED balloon to the full ~2s+
+# watchdog lifetime.
 F2_START=$(date +%s)
-echo hi | sb_timeout 2 true >/dev/null 2>&1 || true
+F2_OUT=$(sb_timeout 2 echo hi)
 F2_END=$(date +%s)
 unset -f command
 F2_ELAPSED=$((F2_END - F2_START))
+[ "$F2_OUT" = "hi" ] && ok "F2: bash-watchdog fallback preserves stdout ('$F2_OUT')" \
+  || no "F2: bash-watchdog fallback stdout was '$F2_OUT', expected 'hi'"
 [ "$F2_ELAPSED" -le 1 ] && ok "F2: bash-watchdog fallback returns fast (${F2_ELAPSED}s, not the full 2s+ bound)" \
   || no "F2: bash-watchdog fallback took ${F2_ELAPSED}s, expected <=1s"
 

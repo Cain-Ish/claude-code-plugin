@@ -8,6 +8,7 @@
 # pins: SB_COMPACT_REINJECT — kill-switch test
 # pins: SB_HANDOFF_DRIFT_TIMEOUT — forces the timeout branch
 # pins: SB_NESTED_SPAWN — lock test: the nested-spawn breaker no-ops --compact too
+# pins: SB_REPO_CARD — off selects the legacy sb_project_hot_render path (suffixed Plan filename test)
 # run-all-timeout: 720   (T15/T17 spawn real `claude`/node sanitize-cli/git subprocesses per
 # round on top of ~50 other full session-load.sh invocations by design (94 assertions after
 # review round 2); measured ~35s alone on an idle MSYS box, 407s alone on a loaded one, and

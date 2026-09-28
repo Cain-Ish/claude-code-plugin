@@ -21,9 +21,30 @@ set -u
 
 # Read stdin ONCE, builtins only (no `cat` spawn) — mirrors buddy-statusline.sh's own hot-path
 # read, and matters here too: F5 (portability review), see below.
+# The builtin `read -r -t … -d ''` reads a pipe BYTE BY BYTE (~33us/byte measured on Git-Bash),
+# so a 128 KB Stop payload alone costs ~4s -- the old -t 2 bound truncated it mid-read (and on
+# bash 3.2 a timed-out `read` discards the partial buffer entirely: RAW comes back empty, not
+# partial). Raised to 10s to clear a realistic payload. BRAIN_DIR is resolved here (parameter
+# expansion only, no fork) so a still-empty RAW after a genuine timeout can still be logged.
+BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 RAW=""
-[ -t 0 ] || IFS= read -r -t 2 -d '' RAW || true
+READ_EC=0
+if [ -t 0 ]; then
+  :
+else
+  IFS= read -r -t 10 -d '' RAW; READ_EC=$?
+fi
 RAW="${RAW//$'\r'/}"
+
+# A read timeout (bash: exit status >128, i.e. 142 for SIGALRM) that STILL leaves RAW empty means
+# the Stop payload was lost, not merely absent -- silently falling through to the `-z "$RAW"`
+# exit below would look identical to "Stop sent nothing" and hide a real truncation. Log ONE
+# fork-free row (printf + redirection are shell builtins; no jq/date subprocess) before any of
+# this hook's own kill switches, so the loss is visible even under SB_SAR_SUMMARY=off.
+if [ "$READ_EC" -gt 128 ] && [ -z "$RAW" ]; then
+  printf '{"hook":"sar-summary.sh","kind":"error","exit_code":0,"reason":"gate=stdin-read-timeout msg=stop-payload-lost-empty-after-10s"}\n' \
+    >> "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null || true
+fi
 
 # --- Thinking-animation busy marker (0.54.0): clear here, BEFORE this hook's own kill switches
 # and the SAR-specific early exits below — Stop fires on every session Stop with no matcher on
@@ -41,7 +62,6 @@ RAW="${RAW//$'\r'/}"
 # marker persona-context.sh could have written, and vice versa.
 SID=""
 [[ "$RAW" =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9_-]{1,64})\" ]] && SID="${BASH_REMATCH[1]}"
-BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 [ -n "$SID" ] && rm -f "$BRAIN_DIR/.buddy/$SID.busy" 2>/dev/null
 
 [ "${SB_HOOK_PROFILE:-}" = "minimal" ] && : "${SB_SAR_SUMMARY:=off}" # hook-profile shim: this check runs before lib.sh's mapping (or lib-less)

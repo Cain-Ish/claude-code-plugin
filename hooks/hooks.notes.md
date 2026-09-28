@@ -39,7 +39,8 @@ unfinished `## Plan` items — capped at 1536 B, delivered as
 No writes: no pin refresh, memo, registration, baseline copy, session count or
 projects.jsonl change — SessionStart(compact) fires in the same second as
 PostCompact and before it, so it can only ever render what PROJECT.md already
-holds. Kill switch `SB_COMPACT_REINJECT=off`. A pairing alarm (run once per
+holds. Wrapped in `hook-timer.sh 10` (A7: heavy hooks are timed) — the
+budget/timeout stay at 10s. Kill switch `SB_COMPACT_REINJECT=off`. A pairing alarm (run once per
 startup, in the `startup|resume|clear|fork` group above) logs an error-log row
 when a `gate=postcompact-capture` row has no matching `gate=compact-reinject`
 row for the same session — signal that SessionStart(compact) output regressed
@@ -141,8 +142,10 @@ missing sanitizer), and merges it add-only into `## Plan` as
 `[untrusted:compact <date>]` items. Also writes `.injected/<sid>.prov`
 (branch/head/epoch) so a later Handoff stamp stays honest for OAuth-only users
 whose in-session extraction always queues. Never blocks; nothing waits on
-Stop (Stop does not fire on user interrupts). Kill switch
-`SB_COMPACT_CAPTURE=off`.
+Stop (Stop does not fire on user interrupts). Wrapped in `hook-timer.sh 30`
+(A7: heavy hooks are timed) — timeout raised 15s -> 30s in 0.54.0 (measured
+31-54s on a loaded box: the gate spawns node plus the injection scanner).
+Kill switch `SB_COMPACT_CAPTURE=off`.
 
 ## PreToolUse
 

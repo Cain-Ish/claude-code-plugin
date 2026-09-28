@@ -34,7 +34,18 @@ pass() { echo "PASS: $1"; }
 # Portable content hash: macOS ships shasum, not sha256sum (macOS CI job).
 # A bare sha256sum would empty-string both sides under set -u and pass the
 # "unchanged" assertions VACUOUSLY (R8 premise review).
-content_hash() { sha256sum "$1"  | awk '{print $1}' || shasum -a 256 "$1" | awk '{print $1}'; }
+# The tool must be picked UP FRONT: `sha256sum "$1" | awk ... || shasum ...`
+# never falls back on a host without sha256sum, because the exit status of a
+# pipeline is the LAST command's (awk), which still exits 0 even when
+# sha256sum itself failed/was "command not found" -- the `||` branch is dead
+# code and content_hash silently returns an empty string on macOS/BSD hosts.
+content_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
 
 init_sandbox() {
   local name="$1"
@@ -84,6 +95,22 @@ seed_transcript_with_edit() {
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.ts","old_string":"a","new_string":"b"}}]}}
 {"type":"user","message":{"role":"user","content":"thanks"}}
 EOF
+}
+
+seed_transcript_long_with_edit() {
+  # pre-compact.sh PRE mode (default, no "post" arg) gates on NEW_LINES >= 20 --
+  # unlike stop-extract.sh's NEW_LINES >= 1 -- so the 3-line seed_transcript_with_edit
+  # fixture never clears its window-too-small gate. 9 filler user/assistant text
+  # turns + 1 Edit tool_use + 1 closing user turn = 20 lines, >=1 tool_use.
+  {
+    local i
+    for i in 1 2 3 4 5 6 7 8 9; do
+      echo '{"type":"user","message":{"role":"user","content":"filler '"$i"'"}}'
+      echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ack '"$i"'"}]}}'
+    done
+    echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.ts","old_string":"a","new_string":"b"}}]}}'
+    echo '{"type":"user","message":{"role":"user","content":"thanks"}}'
+  } > "$SANDBOX/transcript/session.jsonl"
 }
 
 seed_transcript_with_mixed_paths() {
@@ -781,5 +808,59 @@ REAL_N=$(grep -c 'real task' "$PROJ")
 [ "$REAL_N" -eq 5 ] || fail "C2-14: expected exactly 5 Pending Tasks added (cap), got $REAL_N"
 grep -q 'gate=postcompact-capture.*pending=5' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "C2-14: expected pending=5 on the gate row"
 pass "C2-14: Pending Tasks are capped at 5; bullets inside <analysis> are never captured"
+
+# C2-15 (controller item 3): PreCompact PRE-mode provenance was untested -- the DEFAULT (no
+# "post" arg) branch of pre-compact.sh runs the SAME LLM-extraction pipeline as stop-extract.sh
+# but on the PreCompact event, and stamps provenance (sb_session_prov_write, pre-compact.sh:~282)
+# BEFORE the LLM call so a killed/timed-out extraction still leaves a fresh .prov file. Assert: a
+# pre-mode run inside a REAL git repo writes .injected/<sid>.prov with the repo's actual branch,
+# and the merge (which carries --session, pre-compact.sh:~378) renders a full Handoff stamp
+# (session=/branch=/head=) -- mirrors C2-9/C2-9b but for the pre-mode branch, not `post`.
+init_sandbox "c2-15-premode-prov"
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+git -C "$SANDBOX/repo/test-slug" init -q
+git -C "$SANDBOX/repo/test-slug" -c user.email=t@t.example -c user.name=t commit --allow-empty -q -m init
+git -C "$SANDBOX/repo/test-slug" checkout -q -b c2-15-provbranch
+EXPECT_SHA15=$(git -C "$SANDBOX/repo/test-slug" log -1 --no-color --abbrev=7 --format='%h')
+seed_transcript_long_with_edit
+stub_claude_json '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[],"session_outcome":"partial: pre-mode probe","handoff":{"in_flight":"finishing the c2-15 probe","failed_approaches":[],"pointers":[]}}'
+jq -nc --arg sid "c2-15-session" --arg tp "$SANDBOX/transcript/session.jsonl" --arg cwd "$SANDBOX/repo/test-slug" \
+  '{session_id:$sid, transcript_path:$tp, cwd:$cwd, hook_event_name:"PreCompact"}' \
+  | bash "$REPO_ROOT/scripts/pre-compact.sh" >/dev/null 2>&1
+restore_path
+PROVF15="$SANDBOX/.second-brain/.injected/c2-15-session.prov"
+[ -f "$PROVF15" ] || fail "C2-15: PreCompact pre-mode did not write .injected/<sid>.prov"
+PROV_BRANCH15=$(awk -F"$TAB" '{print $3}' "$PROVF15")
+[ "$PROV_BRANCH15" = "c2-15-provbranch" ] || fail "C2-15: .prov third field (branch) was '$PROV_BRANCH15', expected c2-15-provbranch"
+grep -qE "session=c2-15-se branch=c2-15-provbranch head=$EXPECT_SHA15" "$PROJ" \
+  || fail "C2-15: Handoff stamp missing session/branch/head for the PreCompact pre-mode path (got: $(grep '^written:' "$PROJ" 2>/dev/null))"
+pass "C2-15: PreCompact PRE-mode stamps .injected/<sid>.prov with the real branch, and the merge's --session renders a full Handoff stamp"
+
+# C2-16 (controller item 2): the BSD freshness fallback (`date -j -f ...`, pre-compact.sh:~112)
+# parses an already-UTC isCompactSummary `timestamp` as LOCAL time when -u is missing -- in any
+# non-UTC zone (e.g. TZ=Asia/Tokyo, UTC+9) a genuinely fresh record is skewed ~9h and rejected as
+# reason=stale-summary. This box's `date` may not even support `-j` (BSD-only), so this is a
+# best-effort exercise of the GNU `-d` branch under TZ rather than a full BSD reproduction; the
+# static source-scan lock below is what actually pins the `-u -j -f` fix so CI's macOS (UTC) lane
+# can't silently regress it.
+init_sandbox "c2-16-tz-fresh"
+TX_TZFRESH="$SANDBOX/transcript/tz-fresh.jsonl"
+FRESH_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+jq -nc --arg ts "$FRESH_TS" '{type:"user", isCompactSummary:true, timestamp:$ts, message:{content:"Summary:\n7. Pending Tasks:\n   - Fresh task under a non-UTC TZ\n"}}' > "$TX_TZFRESH"
+PAYLOAD_TZFRESH=$(jq -nc --arg sid "s11" --arg cwd "$SANDBOX/repo/test-slug" --arg tp "$TX_TZFRESH" '{session_id:$sid, cwd:$cwd, transcript_path:$tp, trigger:"auto"}')
+printf '%s' "$PAYLOAD_TZFRESH" | TZ=Asia/Tokyo bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+grep -q 'Fresh task under a non-UTC TZ' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" 2>/dev/null \
+  || fail "C2-16: a genuinely fresh isCompactSummary record under TZ=Asia/Tokyo was rejected as stale-summary"
+grep -q 'reason=no-summary src=stale-summary' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  && fail "C2-16: a fresh record under TZ=Asia/Tokyo was logged as stale-summary"
+pass "C2-16: a fresh transcript-fallback record under TZ=Asia/Tokyo is accepted, not rejected as stale"
+
+# C2-17 (static lock): the BSD `date -j -f` freshness fallback MUST carry `-u` -- CI's macOS
+# runner is UTC, so C2-16 above can pass there even with the bug present. Lock the source
+# directly so a future edit that drops `-u` fails loudly regardless of the CI runner's TZ.
+PC_SRC="$REPO_ROOT/scripts/pre-compact.sh"
+grep -q "date -u -j -f" "$PC_SRC" \
+  || fail "C2-17: pre-compact.sh's BSD freshness fallback no longer runs 'date -u -j -f' -- a non-UTC host will reject fresh isCompactSummary records as stale"
+pass "C2-17: static lock -- pre-compact.sh's BSD date fallback carries -u"
 
 echo "ALL PASS"

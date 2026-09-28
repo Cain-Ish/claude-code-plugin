@@ -56,7 +56,7 @@ decision, it does not belong."*
 
 ## 2. Hook wiring — 11 events, 27 command entries (`hooks/hooks.json`)
 
-All commands are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/<script>`; six are wrapped in
+All commands are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/<script>`; nine are wrapped in
 `scripts/hook-timer.sh <budget_s> <script>` (marked ⏲) — R7 latency TELEMETRY only: `<budget_s>`
 mirrors the hooks.json timeout purely as the warn threshold for the
 `{kind:"latency",…,budget_warn}` audit-log record. The wrapper is TRANSPARENT (hook-timer.sh:14-17
@@ -71,7 +71,7 @@ Re-verify the whole table:
 | SessionStart | same | ⏲15 `session-load.sh` | 15 | hot-tier injection (§1) |
 | SessionStart | same | ⏲20 `dream-autostage.sh` | 20 | suggest-only banner; NEVER stages/spawns; kill `SB_DREAM_AUTOSTAGE=off` |
 | SessionStart | same | `protocol-guard.sh card` | 5 | class-5 working-agreement protocol card, ≤1200 B; kill `SB_PROTOCOL_GUARD=off` / `SB_PROTOCOL_CARD=off` |
-| SessionStart | `compact` (slice 1 "Continuity" C1, 0.54.0) | `session-load.sh --compact` | 10 | lean re-inject, no writes, ≤1536 B (§8.8) |
+| SessionStart | `compact` (slice 1 "Continuity" C1, 0.54.0) | ⏲10 `session-load.sh --compact` | 10 | lean re-inject, no writes, ≤1536 B (§8.8) |
 | UserPromptSubmit | (all) | ⏲25 `persona-context.sh` | 25 | no LLM call; `/?` prefix routes to Opus advisor CLI |
 | Stop | (all) | `stop-verify-gate.sh` | 10 | verification nudge |
 | Stop | (all) | ⏲45 `stop-extract.sh` | 45 | the capture pipeline (§3.2) |
@@ -80,7 +80,7 @@ Re-verify the whole table:
 > Note (0.35.x): the cost-router plugin was absorbed and removed (its Stop hook `cost-router-capture.sh` is gone; tier routing lives in `model-ladder.json`, consumed by stop-extract/pre-compact/maintain-llm-drain). History: wiki `entities/cost-router` + the archive/docs branch. `COST_ROUTER_*` flags are gone.
 | SubagentStop | `*` | `subagent-capture.sh` | 10 | archives subagent FINAL result; "MUST always exit 0 (a blocking SubagentStop wedges the parent fan-out)" (hooks.json comment) |
 | PreCompact | `.*` | ⏲45 `pre-compact.sh` | 45 | same extraction on the pre-compaction window; shares markers with Stop |
-| PostCompact | `manual\|auto` (slice 1 "Continuity" C2/C3, 0.54.0) | `pre-compact.sh post` | 15 | compaction summary's Pending Tasks → `## Plan`, add-only, sanitized + injection-gated; kill `SB_COMPACT_CAPTURE=off` (§3.2, §8.8) |
+| PostCompact | `manual\|auto` (slice 1 "Continuity" C2/C3, 0.54.0) | ⏲30 `pre-compact.sh post` | 30 | compaction summary's Pending Tasks → `## Plan`, add-only, sanitized + injection-gated; measured 31-54s on a loaded box (node + scanner spawn) — raised from 15s in 0.54.0; kill `SB_COMPACT_CAPTURE=off` (§3.2, §8.8) |
 | PreToolUse | `Bash\|Write\|Edit\|MultiEdit\|Read\|WebFetch\|WebSearch\|Task\|Agent` (`Agent` = CC v2.1.63 rename of Task) | `persona-tool-guard.sh` | 5 | rule-based allow/ask/deny; every verdict → audit-log; kill `SB_PERSONA_GATE=off` |
 | PreToolUse | `Write\|Edit\|MultiEdit` | `wiki-write-guard.sh` | 5 | denies frontmatter-less writes to `wiki/**/*.md` (index.md exempt) |
 | PreToolUse | `Write\|Edit\|MultiEdit` | `symlink-guard.sh` | 5 | resolve-symlinks-BEFORE-validate; denies writes resolving into ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, ~/.netrc; kill `SB_SYMLINK_GUARD=off` |
@@ -449,7 +449,7 @@ jq -r .version .claude-plugin/plugin.json                      # plugin version 
 jq -r '.hooks | keys | length' hooks/hooks.json                # hook events (re-verified 2026-09-27: 11)
 jq '[.hooks[][] | .hooks[]] | length' hooks/hooks.json         # hook command entries (re-verified 2026-09-27: 27)
 jq -c '.hooks.SessionStart[0].matcher, .hooks.SessionStart[1].matcher' hooks/hooks.json  # SessionStart matchers (re-verified 2026-09-27: "startup|resume|clear|fork", "compact")
-grep -c 'hook-timer.sh' hooks/hooks.json                        # hook-timer wraps (re-verified 2026-09-27: 7)
+grep -c 'hook-timer.sh' hooks/hooks.json                        # hook-timer wraps (re-verified 2026-09-28: 9)
 grep -c '^registerJsonTool(' mcp/src/server.ts                      # MCP tools (re-verified 2026-09-27: 24)
 grep -rn 'function resolveKnowledgeDir' mcp/src --include='*.ts'  # >1 hit = two-wikis split still open
 cat .claude-plugin/surface-budget.json                                    # budget (re-verified 2026-09-27: skills 17/agents 4/scripts 56/tests 168)
