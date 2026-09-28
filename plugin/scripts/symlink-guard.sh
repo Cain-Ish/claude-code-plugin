@@ -231,7 +231,7 @@ RESOLVED_LC=$(printf '%s' "$RESOLVED" | tr '[:upper:]' '[:lower:]')
 LITERAL_LC=$(printf '%s' "$FILE_PATH" | tr '[:upper:]' '[:lower:]')
 for cand in "$RESOLVED_LC" "$LITERAL_LC"; do
   [ -z "$cand" ] && continue
-  for entry in "${CRED_PREFIXES[@]}"; do
+  for entry in ${CRED_PREFIXES[@]+"${CRED_PREFIXES[@]}"}; do
     label="${entry%%:*}"
     prefix=$(printf '%s' "${entry#*:}" | tr '[:upper:]' '[:lower:]')
     # Match the directory node itself (no trailing /) as well as anything
