@@ -8,9 +8,10 @@
 # pins: SB_COMPACT_REINJECT — kill-switch test
 # pins: SB_HANDOFF_DRIFT_TIMEOUT — forces the timeout branch
 # pins: SB_NESTED_SPAWN — lock test: the nested-spawn breaker no-ops --compact too
-# run-all-timeout: 480   (T15/T17 spawn real `claude`/node sanitize-cli/git subprocesses per
-# round on top of ~30 other full session-load.sh invocations by design; measured 139-326s
-# alone on MSYS across repeated runs on a loaded box — over run-all.sh's 120s default)
+# run-all-timeout: 720   (T15/T17 spawn real `claude`/node sanitize-cli/git subprocesses per
+# round on top of ~50 other full session-load.sh invocations by design (94 assertions after
+# review round 2); measured ~35s alone on an idle MSYS box, 407s alone on a loaded one, and
+# one loaded run hit the old 480s limit — over run-all.sh's 120s default)
 set -u
 PLUGIN_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 HOOKS_JSON="$PLUGIN_ROOT/hooks/hooks.json"
