@@ -931,4 +931,48 @@ pass "F7: an empty dedup key fails loud and never counts as a duplicate"
 
 export BRAIN_DIR="$TMP/brain"
 
+# --- BOM + SF-C1 siblings (0.54.0 devils-advocate round 2) ----------------------------------
+DA_WIKI="$TMP/da_wiki"; mkdir -p "$DA_WIKI"
+DA_REAL_AWK=$(command -v awk)
+da_awk_shim() {   # $1 = dir, $2 = program marker: fail (exit 2, stderr) only that awk pass
+  mkdir -p "$1"
+  {
+    echo '#!/bin/bash'
+    printf 'MARK=%q\nREAL=%q\n' "$2" "$DA_REAL_AWK"
+    cat <<'EOF'
+for a in "$@"; do case "$a" in *"$MARK"*) echo "awk: simulated failure" >&2; exit 2 ;; esac; done
+exec "$REAL" "$@"
+EOF
+  } > "$1/awk"
+  chmod +x "$1/awk"
+}
+da_seed() { printf '# PROJECT: da\n\n## Recent decisions\n\n- [2026-01-01] chose redis for the caching layer of the api\n\n## Open blockers\n\n<!-- last_updated: 2026-01-01T00:00:00Z -->\n' > "$1"; }
+
+# DA-1: a UTF-8 BOM on line 1 is stripped at ingest; the merge applies and the title survives.
+P_DA1="$TMP/da1.md"
+printf '\357\273\277# PROJECT: bomt\n\n## Recent decisions\n\n## Open blockers\n\n<!-- last_updated: 2026-01-01T00:00:00Z -->\n' > "$P_DA1"
+printf '%s' '{"recent_decisions":["chose a BOM-safe ingest"]}' | bash "$SCRIPT" --project-md "$P_DA1" --knowledge-dir "$DA_WIKI" >/dev/null 2>&1
+[ "$(head -c 3 "$P_DA1" | od -An -tx1 | tr -d ' \n')" != "efbbbf" ] || fail "DA-1: the BOM survived the merge"
+[ "$(head -n 1 "$P_DA1")" = "# PROJECT: bomt" ] || fail "DA-1: first line is not the title: $(head -n 1 "$P_DA1" | od -c | head -2)"
+grep -qF 'chose a BOM-safe ingest' "$P_DA1" || fail "DA-1: the decision was not applied to a BOM-prefixed PROJECT.md"
+pass "DA-1: a BOM-prefixed PROJECT.md is normalized and merged"
+
+# DA-2: insert_bullet's rewrite failing must not replace the staging buffer, and must say so.
+P_DA2="$TMP/da2.md"; da_seed "$P_DA2"; : > "$BRAIN_DIR/error-log.jsonl"
+da_awk_shim "$TMP/da_shim_ib" 'ENVIRON["BULLET"]'
+printf '%s' '{"recent_decisions":["adopted the shimmed decision"]}' \
+  | PATH="$TMP/da_shim_ib:$PATH" bash "$SCRIPT" --project-md "$P_DA2" --knowledge-dir "$DA_WIKI" >/dev/null 2>&1
+grep -qF 'chose redis for the caching layer' "$P_DA2" || fail "DA-2: an existing decision was lost when insert_bullet failed"
+grep -q 'gate=insert-bullet-failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null || fail "DA-2: no insert-bullet-failed row: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+pass "DA-2: a failed insert_bullet rewrite leaves the section intact and logs ec1"
+
+# DA-3: detect_supersede's rewrite failing marks nothing and says so; the new decision still lands.
+P_DA3="$TMP/da3.md"; da_seed "$P_DA3"; : > "$BRAIN_DIR/error-log.jsonl"
+da_awk_shim "$TMP/da_shim_ds" 'ENVIRON["OLD_LINE"]'
+printf '%s' '{"recent_decisions":["chose memcached instead of redis for the caching layer of the api"]}' \
+  | PATH="$TMP/da_shim_ds:$PATH" bash "$SCRIPT" --project-md "$P_DA3" --knowledge-dir "$DA_WIKI" >/dev/null 2>&1
+grep -qF 'chose redis for the caching layer' "$P_DA3" || fail "DA-3: the older decision was lost when detect_supersede failed"
+grep -q 'gate=supersede-failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null || fail "DA-3: no supersede-failed row: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+pass "DA-3: a failed detect_supersede rewrite marks nothing and logs ec1"
+
 echo "ALL PASS"

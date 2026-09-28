@@ -330,7 +330,9 @@ trap 'rm -f "$TMP_OUT"' EXIT
 # A CRLF PROJECT.md (Windows/imported) otherwise silently no-ops the ENTIRE merge — section
 # headers like `## Recent decisions` never match `/^## .../`, so decisions/blockers/plan are
 # never written and dedup never fires. The merge writes TMP_OUT back, so this also LF-normalizes.
-tr -d '\r' < "$PROJECT_MD" > "$TMP_OUT"
+# A UTF-8 BOM (Notepad, PowerShell 5.1 Set-Content) is stripped too: it hides the first heading
+# from every ^# reader. awk is the byte-mode wrapper defined above.
+tr -d '\r' < "$PROJECT_MD" | awk 'NR==1 { sub(/^\357\273\277/, "") } { print }' > "$TMP_OUT"
 # R2-SF7: the final guard below compares the staged buffer against THIS file's own first
 # heading (whatever the human named it), never a hardcoded "# PROJECT" -- a hand-renamed
 # heading used to make every later merge refuse to write, with a misleading message.
@@ -376,7 +378,7 @@ insert_bullet() {
   local section="$1" bullet_text="$2" cap="$3"
   [ -z "$bullet_text" ] && return 0
 
-  local lower_new ln_ec
+  local lower_new ln_ec ib_ec
   # Strip date prefix and common markers for dedup comparison
   lower_new=$(printf '%s' "$bullet_text" | sed 's/^\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] //' | sed 's/^\[active\] //;s/^\[resolved\] //;s/^\[stale\] //;s/^\[decision\] //;s/^\[pinned\] //' | lc); ln_ec=$?
   # F7: an EMPTY key is never a duplicate -- `grep -qF -- ""` matches every line, so a failed
@@ -442,6 +444,7 @@ insert_bullet() {
         if (flag && !appended) { print new }
       }
     ' "$TMP_OUT" > "$new_tmp"
+    ib_ec=$?
   else
     BULLET="- $bullet_text" awk -v s="$section" '
       BEGIN { flag=0; appended=0; new=ENVIRON["BULLET"] }
@@ -458,6 +461,12 @@ insert_bullet() {
         if (flag && !appended) { print new }
       }
     ' "$TMP_OUT" > "$new_tmp"
+    ib_ec=$?
+  fi
+  # SF-C1 sibling: a failed or empty rewrite must not replace the staging buffer.
+  if [ "${ib_ec:-1}" -ne 0 ] || [ ! -s "$new_tmp" ]; then
+    sb_log_error "merge-project-update.sh" "gate=insert-bullet-failed section=$section ec=${ib_ec:-1} — section unchanged" 1
+    rm -f "$new_tmp"; return 0
   fi
   mv "$new_tmp" "$TMP_OUT"
   CHANGED=1
@@ -1344,6 +1353,11 @@ detect_supersede() {
         !done && $0 == target { sub(/^- /, "- [superseded] "); done = 1 }
         { print }
       ' "$TMP_OUT" > "$new_tmp"
+      local ds_ec=$?
+      if [ "$ds_ec" -ne 0 ] || [ ! -s "$new_tmp" ]; then
+        sb_log_error "merge-project-update.sh" "gate=supersede-failed ec=$ds_ec — nothing marked superseded" 1
+        rm -f "$new_tmp"; return 1
+      fi
       mv "$new_tmp" "$TMP_OUT"
       CHANGED=1
       return 0
