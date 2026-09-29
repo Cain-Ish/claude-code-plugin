@@ -251,4 +251,38 @@ h=$(grep -nE '/dev/(stdin|fd/0)' $ALL_SH 2>/dev/null | nocomment | grep -v 'getl
 [ -z "$h" ] && pass "no stdin read through the /dev/stdin or /dev/fd/0 path (empty under Node-spawned hooks)" \
   || fail "stdin read through the /dev/stdin path — Node's hook pipes (Linux socketpairs, Windows named pipes) cannot be reopened; use IFS= read -r -d '' VAR or \$(cat)" "$h"
 
+# 17. Every remaining `<<<` here-string in a HOOK-ENTRY script (the 4 PreToolUse guards,
+#     protocol-guard.sh, stop-verify-gate.sh, stop-extract.sh, subagent-capture.sh) must be either
+#     inside a size-gated feed helper — recognized by its own local TEXT variable name (_fd_t for
+#     the guards' _fp_feed, _pf_t for protocol-guard's pg_feed; test-guard-wiring.sh's SEC-C1 lock
+#     already exempts the pre-existing _SPINE_TXT/_SPINE_SPANS pair the same way) — or carry an
+#     inline `# <<<-bounded: <why the text is < 8 KiB>` annotation on the SAME line or the one
+#     immediately above. RR-SF1/RR-SF2 (0.55): a bare `<<<` on payload/session/transcript-derived
+#     text hangs for good on MSYS at 65,536..~65,650 bytes — past the hook's timeout, a fail-open,
+#     not just slow. New hook-entry scripts should be added to HOOK_ENTRY as they ship.
+HOOK_ENTRY="persona-tool-guard.sh symlink-guard.sh wiki-write-guard.sh flow-guard.sh protocol-guard.sh stop-verify-gate.sh stop-extract.sh subagent-capture.sh"
+h=""
+for f in $HOOK_ENTRY; do
+  [ -f "$ROOT/$f" ] || { h="$h
+$f: hook-entry script listed in check 17 is missing"; continue; }
+  bad=$(awk '
+    {
+      iscomment = ($0 ~ /^[[:space:]]*#/)
+      annotated_here = ($0 ~ /<<<-bounded:/)
+      if ($0 ~ /<<</ && !iscomment) {
+        exempt = prevbounded || annotated_here \
+          || $0 ~ /_fd_t"/ || $0 ~ /_pf_t"/ || $0 ~ /_SPINE_TXT"/ || $0 ~ /_SPINE_SPANS"/
+        if (!exempt) print FILENAME":"FNR":"$0
+      }
+      # A pure-comment continuation line (wrapped annotation prose) keeps the chain alive
+      # instead of resetting it; any non-comment line always resets to its own same-line state.
+      if (iscomment) { if (annotated_here) prevbounded = 1 } else { prevbounded = annotated_here }
+    }
+  ' "$ROOT/$f" 2>/dev/null)
+  [ -n "$bad" ] && h="$h
+$bad"
+done
+[ -z "$h" ] && pass "every hook-entry <<< here-string is size-gated or annotated <<<-bounded (RR-SF1/RR-SF2: MSYS 64 KiB hang)" \
+  || fail "un-gated <<< here-string in a hook-entry script — MSYS hangs for good at 65,536..~65,650 bytes past the hook timeout; route through the size-gated feed helper or add an inline # <<<-bounded: <why> annotation" "$h"
+
 echo; echo "ALL PASS"

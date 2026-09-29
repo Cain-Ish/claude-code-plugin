@@ -581,7 +581,10 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         IFS= read -r TEL_TIERS
         IFS= read -r TEL_PRIOR_CAND
         IFS= read -r TEL_SUB_READ
-      } <<< "$TEL_LINES"
+      # Process substitution, not `<<<` (RR-SF2): on MSYS a here-string of 65,536..~65,650 bytes
+      # hangs past the reader's start. TEL_LINES' size tracks .prior_candidates (a joined list of
+      # page names) and .hits, so a session with enough candidates could reach that width.
+      } < <(printf '%s\n' "$TEL_LINES")
       case "$TEL_INJ" in ''|*[!0-9]*) TEL_INJ=0 ;; esac
       case "$TEL_HIT" in ''|*[!0-9]*) TEL_HIT=0 ;; esac
       case "$TEL_RITUAL" in ''|*[!0-9]*) TEL_RITUAL=0 ;; esac

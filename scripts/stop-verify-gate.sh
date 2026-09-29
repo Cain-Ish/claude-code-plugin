@@ -300,7 +300,11 @@ if [ -n "$VERIFY_CANDIDATES" ]; then
     fi
     VERIFY_CMDS="$v_cmd"
     break
-  done <<< "$VERIFY_CANDIDATES"
+  # Process substitution, not a `<<<` here-string: on MSYS a here-string of 65,536..~65,650 bytes
+  # hangs past the reader's start (RR-SF2) — a session with enough post-edit Bash commands could
+  # grow VERIFY_CANDIDATES past that width, hanging the Stop hook and forfeiting the gate's
+  # evidence silently instead of just running it.
+  done < <(printf '%s\n' "$VERIFY_CANDIDATES")
 fi
 
 # 2. Skill tool calls issued AFTER the last edit whose name is EXACTLY on
@@ -325,7 +329,10 @@ if [ -n "$SVG_OUT" ]; then
     _svg_errored "$s_id" && continue
     SKILL_TOOL="$s_name"
     break
-  done <<< "$SVG_OUT"
+  # Process substitution, not `<<<` (RR-SF2): same MSYS 65,536..~65,650-byte here-string hang as
+  # VERIFY_CANDIDATES above — a session with enough post-edit Skill calls could grow SVG_OUT past
+  # that width.
+  done < <(printf '%s\n' "$SVG_OUT")
 fi
 
 # Anti-gaming slice: verification evidence is SUSPECT when

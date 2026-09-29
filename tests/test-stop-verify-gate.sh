@@ -792,6 +792,47 @@ else
   PASS=$((PASS + 1)); echo "  PASS: B6: block reason names no /slash token"
 fi
 
+# --- RR-SF2: MSYS here-string hang at 65,536..~65,650 bytes -----------------------------
+# `<<< "$VERIFY_CANDIDATES"` and `<<< "$SVG_OUT"` used a plain here-string: on MSYS a text of
+# that byte width never fits before the reader starts, so the hook hangs past its timeout and
+# APPROVES NOTHING (the gate's evidence is silently forfeited, not just slow — rc=124 measured
+# at 12+ s here). bounded_svg LABEL LIM TRANSCRIPT: background run, kill past LIM s.
+bounded_svg() {
+  local label="$1" lim="$2" t="$3" pid i=0
+  mk_input "$t" | bash "$GATE" > "$SANDBOX/rr_sf2.out" 2>/dev/null & pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$lim" ]; do sleep 1; i=$((i + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null
+    FAIL=$((FAIL + 1)); echo "  FAIL: $label: still running after ${lim}s"
+    return 1
+  fi
+  wait "$pid" || true
+  RR_SF2_OUT=$(cat "$SANDBOX/rr_sf2.out" 2>/dev/null); RR_SF2_EL=$i
+  return 0
+}
+# A Bash tool_use after the last edit whose command is a test-shaped string totalling ~65,600
+# bytes (well inside the hang window; the guard's own filter needs the word "test" somewhere).
+# Built with printf, not add_bash_of's `jq --arg`: a ~65,600-byte argv value overran Windows'
+# CreateProcess argument-length cap ("Argument list too long") before the fixture even ran.
+T=$(mk_transcript)
+add_edit_turn "$T"
+PAD65600=$(printf '%*s' 65585 '' | tr ' ' x)
+printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"npm run test # %s"}}]}}\n' "$PAD65600" >> "$T"
+if bounded_svg "RR-SF2: ~65,600-byte post-edit Bash command (VERIFY_CANDIDATES)" 15 "$T"; then
+  assert_approve "RR-SF2: ~65,600-byte post-edit test command still approves in ${RR_SF2_EL}s" "$RR_SF2_OUT"
+fi
+# The Skill-scan variant (SVG_OUT): many allowlisted Skill calls after the edit, whose joined
+# "id<TAB>name\n" lines land the same blob in the hang window. One jq spawn builds the line;
+# a bash loop of the `printf` builtin (no fork) repeats it 5,467 times.
+T=$(mk_transcript)
+add_edit_turn "$T"
+SKILL_LINE=$(jq -nc '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Skill",input:{skill:"review"}}]}}')
+n=0
+while [ "$n" -lt 5467 ]; do printf '%s\n' "$SKILL_LINE" >> "$T"; n=$((n + 1)); done
+if bounded_svg "RR-SF2: 5,467 post-edit Skill calls (SVG_OUT)" 15 "$T"; then
+  assert_approve "RR-SF2: 5,467 post-edit 'review' Skill calls still approve in ${RR_SF2_EL}s" "$RR_SF2_OUT"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
