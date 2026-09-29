@@ -239,4 +239,16 @@ n=$(grep -HnE '(^|[[:space:]])npx([[:space:]]|$)' "$RA" | nocomment || true)
 [ -z "$n" ] && pass "run-all.sh invokes node tooling via ./node_modules/.bin, not npx" \
   || fail "run-all.sh calls npx — an npm wrapper failure will read as a test failure; use ./node_modules/.bin/<tool>" "$n"
 
+# 16. No read of stdin through the /dev/stdin (or /dev/fd/0) PATH. Opening that path is a fresh
+#     open(2) of whatever fd 0 is, and Claude Code spawns hooks from Node, whose stdio pipes are
+#     socketpairs on Linux (open -> ENXIO "No such device or address") and non-Cygwin named pipes
+#     on native Windows (Git-Bash: "/dev/stdin: No such file or directory"). `RAW=$(</dev/stdin)`
+#     therefore read NOTHING under a real session while every bash-piped test stayed green (P-H3:
+#     protocol-guard.sh card/pre exited silently, SubagentStart logged bad-payload per dispatch).
+#     Read fd 0 itself: `IFS= read -r -d '' VAR` / `read -N` (no spawn) or `$(cat)`. awk's
+#     `getline < "/dev/stdin"` is exempt: gawk, mawk and BSD awk map that name to fd 0 internally.
+h=$(grep -nE '/dev/(stdin|fd/0)' $ALL_SH 2>/dev/null | nocomment | grep -v 'getline' || true)
+[ -z "$h" ] && pass "no stdin read through the /dev/stdin or /dev/fd/0 path (empty under Node-spawned hooks)" \
+  || fail "stdin read through the /dev/stdin path — Node's hook pipes (Linux socketpairs, Windows named pipes) cannot be reopened; use IFS= read -r -d '' VAR or \$(cat)" "$h"
+
 echo; echo "ALL PASS"
