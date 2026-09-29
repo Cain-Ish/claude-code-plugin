@@ -45,47 +45,159 @@ set -u
 # to the guard's full logic. Helper locals carry a per-helper prefix so no caller's VAR name can be
 # shadowed by them (printf -v writes through dynamic scope). Assignments that substitute with a
 # quoted replacement stay unquoted: bash <= 4.2 did not quote-remove it inside "${…}".
+# Every helper is linear in the payload, since a 512 KB Write reaches the full logic too:
+# ${X#*KEY}, ${X%%KEY*} and ${X%"\n"} rescan the string once per position (O(n^2): 20-220 s per
+# guard at 512 KB on MSYS, far past the 5 s timeout), so text is cut by word splitting
+# (_fp_split) and tested with `case` globs and fixed-string substitutions.
 _fp_bs='\' _fp_q='"' _fp_us=$'\037' _fp_nl=$'\n' _fp_cr=$'\r' _fp_tab=$'\t'
-_fp_re='^[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+_fp_re='^[[:space:]]*:[[:space:]]*$' _fp_rebs='(\\+)$'
 _fp_uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ _fp_lc=abcdefghijklmnopqrstuvwxyz
+# bash < 4.3 runs even a one-match ${v//pat/rep} in O(candidates x length^2) (4.3 added the
+# fixed-length match jump): there _fp_at leaves a payload over 16 KiB to jq.
+_fp_ob=0
+{ [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }; } && _fp_ob=1
 # The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
 # MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
 # _fp_raw_all, only for a bigger payload.
-_FP_RAW="" _FP_EOF=0 _FP=""
+_FP_RAW="" _FP_EOF=0 _FP="" _FP_I=0
+_FP_A=()
 IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
 
 # _fp_raw_all: RAW = the whole payload for the full logic (trailing newlines stripped, as the old
 # RAW=$(cat) did); _fp_str reads the whole payload from then on.
 _fp_raw_all() {
   if [ "$_FP_EOF" = 1 ]; then RAW="$_FP_RAW"; else RAW="$_FP_RAW$(cat)"; fi
-  while [ "${RAW%"$_fp_nl"}" != "$RAW" ]; do RAW="${RAW%"$_fp_nl"}"; done
+  while case "$RAW" in *"$_fp_nl") true ;; *) false ;; esac; do RAW="${RAW%"$_fp_nl"}"; done
   _FP_RAW="$RAW" _FP_EOF=1
 }
 
-# _fp_str KEY: _FP = the decoded string value of the ONE "KEY": "…" pair in the payload.
-# 0 = found; 1 = absent (the whole payload was seen); 2 = undecidable — the key occurs twice
-# (nested or duplicated: jq decides which one counts), the value is not a string or runs past the
-# 16 KiB read, or it carries an escape left to jq (\u \b \f). JSON escapes every quote inside a
-# string, so a "KEY" followed by ':' is always a real key, never text inside a value.
-_fp_str() {
-  local _fs_k="\"$1\"" _fs_r _fs_v
-  _FP=""
+# _fp_split SEP TEXT: _FP_A = TEXT cut at every SEP (one character) by word splitting — linear in
+# every bash — with globbing off meanwhile. A trailing SEP adds no empty last field; with SEP a
+# newline (IFS white space) empty lines vanish as well.
+_fp_split() {
+  local IFS="$1" _sp_o="$-"
+  set -f
+  _FP_A=($2)
+  case "$_sp_o" in *f*) ;; *) set +f ;; esac
+}
+
+# _fp_feed TEXT CMD…: run CMD with TEXT and a newline on stdin. `CMD <<< "$TEXT"` only for a short
+# TEXT (8192 characters, at most 32 KiB): bash >= 5.1 writes a here-string into a pipe before it
+# starts the reader, and on MSYS one of 65,536..~65,650 bytes never fits — the guard hangs past its
+# timeout and the tool runs. A longer TEXT goes through a process substitution, whose writer runs
+# alongside the reader.
+_fp_feed() {
+  local _fd_t="$1"; shift
+  if [ "${#_fd_t}" -le 8192 ]; then "$@" <<< "$_fd_t"; else "$@" < <(printf '%s\n' "$_fd_t"); fi
+}
+
+# _fp_at KEY: find the string value of the ONE "KEY": "…" pair in the payload. _FP_A = the payload
+# from KEY on, cut at every '"' (the last field ends in a \037 sentinel, so a value that runs to the
+# end of what was read never looks closed); _FP_I = the field the value starts in. 0 = found;
+# 1 = absent (the whole payload was seen); 2 = undecidable — KEY occurs twice (nested or
+# duplicated: jq decides which one counts), the value is not a string, the payload holds a \037,
+# or KEY may be spelled with a \u escape. JSON escapes every quote inside a string, so a "KEY"
+# followed by ':' is always a real key, never text inside a value.
+_fp_at() {
+  local _fa_f _fa_i=0
   case "$_FP_RAW" in
-    *"$_fs_k"*) ;;
-    *) [ "$_FP_EOF" = 1 ] && return 1; return 2 ;;
+    *"$_fp_q$1$_fp_q"*) ;;
+    *) [ "$_FP_EOF" = 1 ] || return 2
+       case "$_FP_RAW" in *"$_fp_bs"u*) _fp_uesc "$_FP_RAW" && return 2 ;; esac
+       return 1 ;;
   esac
-  _fs_r="${_FP_RAW#*"$_fs_k"}"
-  case "$_fs_r" in *"$_fs_k"*) return 2 ;; esac
-  [[ $_fs_r =~ $_fp_re ]] || return 2
-  _fs_v="${BASH_REMATCH[1]}"
-  case "$_fs_v" in *"$_fp_us"*) return 2 ;; esac
-  _fs_v=${_fs_v//"$_fp_bs$_fp_bs"/"$_fp_us"}
-  case "$_fs_v" in *"$_fp_bs"[ubf]*) return 2 ;; esac
-  _fs_v=${_fs_v//"$_fp_bs$_fp_q"/"$_fp_q"}; _fs_v=${_fs_v//"$_fp_bs/"/"/"}
-  _fs_v=${_fs_v//"$_fp_bs"n/"$_fp_nl"}; _fs_v=${_fs_v//"$_fp_bs"t/"$_fp_tab"}; _fs_v=${_fs_v//"$_fp_bs"r/"$_fp_cr"}
-  case "$_fs_v" in *"$_fp_bs"*) return 2 ;; esac
-  _FP=${_fs_v//"$_fp_us"/"$_fp_bs"}
+  case "$_FP_RAW" in *"$_fp_us"*) return 2 ;; esac
+  if [ "${#_FP_RAW}" -le 16384 ]; then
+    _fp_split "$_fp_q" "$_FP_RAW$_fp_us"
+    _FP_I=-1
+    for _fa_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
+      if [ "$_fa_f" = "$1" ]; then [ "$_FP_I" = -1 ] || return 2; _FP_I=$_fa_i; fi
+      _fa_i=$((_fa_i + 1))
+    done
+    [ "$_FP_I" -ge 1 ] || return 2
+  else
+    [ "$_fp_ob" = 1 ] && return 2
+    _fp_split "$_fp_us" "${_FP_RAW//"$_fp_q$1$_fp_q"/"$_fp_us"}"
+    [ "${#_FP_A[@]}" = 2 ] || return 2
+    _fp_split "$_fp_q" "${_FP_A[1]}$_fp_us"
+    _FP_I=-1
+  fi
+  [[ ${_FP_A[$((_FP_I + 1))]-x} =~ $_fp_re ]] || return 2
+  _FP_I=$((_FP_I + 2))
+  [ "$_FP_I" -lt "${#_FP_A[@]}" ] || return 2
   return 0
+}
+
+# _fp_join VAR FROM TO: VAR = fields FROM..TO of _FP_A joined by the '"' _fp_split cut out.
+_fp_join() {
+  local IFS="$_fp_q"
+  printf -v "$1" '%s' "${_FP_A[*]:$2:$(($3 - $2 + 1))}"
+}
+
+# _fp_str KEY: _FP = the decoded string value of the ONE "KEY": "…" pair in the payload.
+# 0 = found; 1 = absent; 2 = undecidable (_fp_at's cases, a value that runs past the 16 KiB read,
+# or an escape left to jq: \u \b \f). The value ends at the first '"' not escaped: a field that
+# ends in an odd run of backslashes ended at an escaped quote.
+_fp_str() {
+  local _fs_v _fs_f _fs_t _fs_s _fs_n
+  _FP=""
+  _fp_at "$1" || return $?
+  _fs_s=$_FP_I _fs_n=$(( ${#_FP_A[@]} - 1 ))
+  while :; do
+    [ "$_FP_I" -lt "$_fs_n" ] || return 2
+    _fs_f="${_FP_A[$_FP_I]}"
+    case "$_fs_f" in *"$_fp_bs") ;; *) break ;; esac
+    _fs_t="$_fs_f"; [ "${#_fs_t}" -le 65 ] || _fs_t="${_fs_t:${#_fs_t}-65}"
+    [[ $_fs_t =~ $_fp_rebs ]] && [ "${#BASH_REMATCH[1]}" -le 64 ] || return 2
+    [ $(( ${#BASH_REMATCH[1]} % 2 )) = 1 ] || break
+    _FP_I=$((_FP_I + 1))
+  done
+  _fp_join _fs_v "$_fs_s" "$_FP_I"
+  # Nothing escaped: the value is its own decoding.
+  case "$_fs_v" in *"$_fp_bs"*) ;; *) _FP="$_fs_v"; return 0 ;; esac
+  # Decode by cutting at every backslash: each field after the first starts with the escaped
+  # character, except the field after an escaped backslash ("\\" leaves an empty field), which is
+  # plain text. A ${v//"\"n/…} pass per escape costs O(matches x length) instead — every bash in a
+  # multibyte string (117 s for a 512 KB heredoc holding one 'é'), and bash < 4.3 even in ASCII.
+  local -a _fs_o=()
+  local _fs_p=1
+  _fp_split "$_fp_bs" "$_fs_v"
+  for _fs_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    if [ "$_fs_p" = 1 ]; then _fs_o+=("$_fs_f"); _fs_p=0; continue; fi
+    if [ -z "$_fs_f" ]; then _fs_o+=("$_fp_bs"); _fs_p=1; continue; fi
+    _fs_t="${_fs_f:0:1}"
+    case "$_fs_t" in
+      n) _fs_t="$_fp_nl" ;;
+      t) _fs_t="$_fp_tab" ;;
+      r) _fs_t="$_fp_cr" ;;
+      "$_fp_q"|/) ;;
+      *) return 2 ;;
+    esac
+    _fs_o+=("$_fs_t${_fs_f:1}")
+  done
+  printf -v _FP '%s' ${_fs_o[@]+"${_fs_o[@]}"}
+  return 0
+}
+
+# _fp_uesc TEXT: true when TEXT holds a \u escape — a 'u' right after an escaping backslash, not
+# after an escaped one ("\\u" is a backslash and a 'u'). Linear, as _fp_str's decode.
+_fp_uesc() {
+  local _fu_f _fu_p=1
+  _fp_split "$_fp_bs" "$1"
+  for _fu_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    if [ "$_fu_p" = 1 ]; then _fu_p=0; continue; fi
+    if [ -z "$_fu_f" ]; then _fu_p=1; continue; fi
+    case "$_fu_f" in u*) return 0 ;; esac
+  done
+  return 1
+}
+
+# _fp_nocr VAR TEXT: TEXT without its CRs, cut at each CR and rejoined — a ${v//$'\r'/} pass costs
+# O(CRs x length) in a multibyte string (a CRLF heredoc of 512 KB takes minutes).
+_fp_nocr() {
+  case "$2" in *"$_fp_cr"*) ;; *) printf -v "$1" '%s' "$2"; return 0 ;; esac
+  _fp_split "$_fp_cr" "$2"
+  printf -v "$1" '%s' ${_FP_A[@]+"${_FP_A[@]}"}
 }
 
 # _fp_clean VAR…: drop CRs and trailing newlines from each VAR — what the full logic's old
@@ -93,24 +205,43 @@ _fp_str() {
 _fp_clean() {
   local _fc_v _fc_s
   for _fc_v in "$@"; do
-    _fc_s="${!_fc_v}"
-    _fc_s=${_fc_s//"$_fp_cr"/}
-    while [ "${_fc_s%"$_fp_nl"}" != "$_fc_s" ]; do _fc_s="${_fc_s%"$_fp_nl"}"; done
+    _fp_nocr _fc_s "${!_fc_v}"
+    while case "$_fc_s" in *"$_fp_nl") true ;; *) false ;; esac; do _fc_s="${_fc_s%"$_fp_nl"}"; done
     printf -v "$_fc_v" '%s' "$_fc_s"
   done
 }
 
-# _fp_lines ERE TEXT: true when one LINE of TEXT matches (grep's unit). The whole-text test runs
-# first and is a superset for EREs whose only anchors are (^|X) / (X|$) with X matching newline.
+# _fp_lines ERE TEXT: 0 when one LINE of TEXT matches (grep's unit), 1 when none does, 2 when TEXT
+# has over 64 lines (undecidable: every [[ =~ ]] compiles the ERE anew, ~2.6 ms a line on MSYS;
+# the full logic's one grep decides). The whole-text test runs first and is a superset for EREs
+# whose only anchors are (^|X) / (X|$) with X matching newline. Empty lines are skipped: none of
+# the fast-path EREs can match one.
 _fp_lines() {
-  local _fl_re="$1" _fl_rest="$2" _fl_line
-  [[ $_fl_rest =~ $_fl_re ]] || return 1
-  while :; do
-    _fl_line="${_fl_rest%%"$_fp_nl"*}"
-    [[ $_fl_line =~ $_fl_re ]] && return 0
-    [ "$_fl_line" = "$_fl_rest" ] && return 1
-    _fl_rest="${_fl_rest#*"$_fp_nl"}"
+  local _fl_l
+  [[ $2 =~ $1 ]] || return 1
+  case "$2" in *"$_fp_nl"*) ;; *) return 0 ;; esac
+  _fp_split "$_fp_nl" "$2"
+  [ "${#_FP_A[@]}" -le 64 ] || return 2
+  for _fl_l in ${_FP_A[@]+"${_FP_A[@]}"}; do [[ $_fl_l =~ $1 ]] && return 0; done
+  return 1
+}
+
+# _fp_collapse VAR PATH: an absolute PATH with its '.' and '..' segments folded lexically (no
+# filesystem access; '..' at the root stays there); any other PATH unchanged. A segment stack, so
+# linear in the path.
+_fp_collapse() {
+  local _fk_s IFS=/
+  local -a _fk_k=()
+  case "$2" in /*) ;; *) printf -v "$1" '%s' "$2"; return 0 ;; esac
+  _fp_split / "$2"
+  for _fk_s in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    case "$_fk_s" in
+      ''|.) ;;
+      ..) [ "${#_fk_k[@]}" -gt 0 ] && unset '_fk_k[${#_fk_k[@]}-1]' ;;
+      *) _fk_k[${#_fk_k[@]}]="$_fk_s" ;;
+    esac
   done
+  printf -v "$1" '/%s' "${_fk_k[*]-}"
 }
 
 # _fp_lower VAR TEXT: ASCII A-Z to a-z (bash 3.2 has no ${x,,}; explicit letter lists, since a
@@ -256,6 +387,41 @@ _sg_deny() {  # _sg_deny TOOL FILE_PATH RESOLVED LABEL SESSION
   _fp_emit deny "$_sd_r"
 }
 
+# _sg_alias TOOL PATH SESSION (SEC-H2): on a Windows host, PATH can name a local file without its
+# drive path, and neither cygpath nor realpath resolves the spelling, so the credential prefixes
+# never saw it — a UNC path (\\LOCALHOST\C$\…, \\<machine>\C$\…, \\?\UNC\…,
+# \\0--1.ipv6-literal.net\C$\…) or NTFS stream syntax (.ssh::$INDEX_ALLOCATION and
+# .ssh:$I30:$INDEX_ALLOCATION name the directory itself). Stream syntax (a ':' after the drive) is
+# never a plain file: deny. An administrative share (X$) is mapped to its drive: returns 2 with
+# _SG_MAPPED = X:/…, which the caller checks like any other target. Any other UNC target: ask —
+# where a share leads cannot be told. 0 = verdict emitted; 1 = not an alias spelling.
+_SG_MAPPED=""
+_sg_alias() {
+  local _sa_r _sa_p _sa_s _sa_m
+  _SG_MAPPED=""
+  command -v cygpath >/dev/null 2>&1 || [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || return 1
+  _sa_r=${2//"$_fp_bs"/"/"}
+  _fp_path _sa_p "$2"
+  case "${_sa_p#[A-Za-z]:}" in
+    *:*) _sa_m="Write to '$2' uses NTFS stream syntax (a ':' after the drive), which can name another file or a directory itself (.ssh::\$INDEX_ALLOCATION is ~/.ssh). Symlink-guard denies it. Suppress: SB_SYMLINK_GUARD=off."
+         _fp_audit "symlink-guard.sh" "deny" "windows-alias:stream" "$1($2)" "$_sa_m" "$3"
+         _fp_emit deny "$_sa_m"
+         return 0 ;;
+  esac
+  case "$_sa_r" in //*) ;; *) return 1 ;; esac
+  case "$_sa_p" in [A-Za-z]:/*) return 1 ;; esac
+  case "$_sa_r" in //[?.]/[Uu][Nn][Cc]/*) _sa_r="//${_sa_r#//?/???/}" ;; esac
+  _sa_s="${_sa_r#//}"; _sa_s="${_sa_s#*/}"
+  case "$_sa_s" in
+    [A-Za-z]\$)   _SG_MAPPED="${_sa_s%\$}:/"; return 2 ;;
+    [A-Za-z]\$/*) _SG_MAPPED="${_sa_s%%\$*}:${_sa_s#?\$}"; return 2 ;;
+  esac
+  _sa_m="Write to '$2' is a UNC network path: symlink-guard cannot tell whether that share leads to a credential directory on this machine. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
+  _fp_audit "symlink-guard.sh" "ask" "windows-alias:unc" "$1($2)" "$_sa_m" "$3"
+  _fp_emit ask "$_sa_m"
+  return 0
+}
+
 # --- B7 fast path: credential targets decided before any process ------------------------------
 # _sg_phys PATH: _SG_PHYS = PATH with every EXISTING directory component resolved physically
 # (builtin cd -P in this shell, cwd restored: no subshell, no realpath) and the not-yet-created
@@ -266,6 +432,11 @@ _sg_phys() {
   local _sp_p="$1" _sp_d _sp_t="" _sp_l _sp_o="$PWD" _sp_out _sp_rem _sp_seg
   _SG_PHYS="" _SG_LEAF=""
   case "$_sp_p" in /*) ;; *) _sp_p="$PWD/$_sp_p" ;; esac
+  # A '..' segment, or over 64 segments, goes to the full logic's one realpath -m: the walk below
+  # stats and trims once per missing component (an a/../a/.. path of 3.7 KB took 5.8 s, 14 KB 138 s).
+  case "/$_sp_p/" in */../*) return 1 ;; esac
+  _fp_split / "$_sp_p"
+  [ "${#_FP_A[@]}" -le 64 ] || return 1
   _sp_d="${_sp_p%/*}"; _sp_l="${_sp_p##*/}"
   while [ -n "$_sp_d" ] && [ ! -d "$_sp_d" ]; do
     _sp_t="${_sp_d##*/}${_sp_t:+/$_sp_t}"; _sp_d="${_sp_d%/*}"
@@ -304,21 +475,27 @@ _sg_inode() {
   return 1
 }
 _sg_fast() {
-  local tool fp lit sid=""
+  local tool fp lit lex sid=""
   _fp_str tool_name || return 1
   tool="$_FP"
   case "$tool" in Write|Edit|MultiEdit) ;; *) return 1 ;; esac
   _fp_str file_path || return 1
-  fp="${_FP//"$_fp_cr"/}"
+  _fp_nocr fp "$_FP"
   case "$fp" in ''|*"$_fp_nl"*) return 1 ;; esac
   case "$fp" in '~'*) fp="$HOME${fp#\~}" ;; esac
   _fp_str session_id && sid="$_FP"
+  _sg_alias "$tool" "$fp" "$sid"
+  case $? in 0) return 0 ;; 2) fp="$_SG_MAPPED" ;; esac
   _fp_path lit "$fp" lex
   _sg_homes lex
   if _sg_phys "$lit"; then
     _sg_cred_match "$_SG_PHYS" "$lit" && { _sg_deny "$tool" "$lit" "$_SG_PHYS" "$_SG_LABEL" "$sid"; return 0; }
   else
-    _sg_cred_match "$lit" && { _sg_deny "$tool" "$lit" "$lit" "$_SG_LABEL" "$sid"; return 0; }
+    # Unresolved ('..', a deep path, a leaf symlink): the literal target, and its '..' folded
+    # lexically — a path that names a credential dir outright is denied here, as the full logic's
+    # literal match would; anything else goes to realpath there.
+    _fp_collapse lex "$lit"
+    _sg_cred_match "$lit" "$lex" && { _sg_deny "$tool" "$lit" "$lex" "$_SG_LABEL" "$sid"; return 0; }
     [ -n "$_SG_LEAF" ] && _sg_inode "$_SG_LEAF" \
       && { _sg_deny "$tool" "$lit" "$_SG_LEAF (a symlink to a $_SG_LABEL entry)" "$_SG_LABEL" "$sid"; return 0; }
   fi
@@ -349,7 +526,7 @@ if ! _sg_fields; then
   TOOL="" FILE_PATH="" SESSION_ID=""
   {
     IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; IFS= read -r -d '' SESSION_ID
-  } < <(jq -j 'if type == "object" then (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000" else empty end' <<< "$RAW" 2>/dev/null)
+  } < <(_fp_feed "$RAW" jq -j 'if type == "object" then (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000" else empty end' 2>/dev/null)
 fi
 _fp_clean TOOL FILE_PATH SESSION_ID
 
@@ -364,6 +541,17 @@ esac
 case "$FILE_PATH" in
   '~'*) FILE_PATH="$HOME${FILE_PATH#\~}" ;;
 esac
+
+# Windows alias spellings (UNC, stream syntax), as on the fast path: a big payload whose file_path
+# came after 16 KiB of content reaches only this logic.
+_sg_alias "$TOOL" "$FILE_PATH" "$SESSION_ID"
+case $? in 0) exit 0 ;; 2) FILE_PATH="$_SG_MAPPED" ;; esac
+
+# The target as the fast path spells it too — lexical /x/ drive form, '..' folded. cygpath -u maps a
+# drive path under an MSYS mount (%TEMP% is /tmp) to the mount's name, which a HOME spelled /c/…
+# never prefixes; this spelling does.
+_fp_path SG_LEX "$FILE_PATH" lex
+_fp_collapse SG_LEX "$SG_LEX"
 
 # Windows git-bash sends 'C:\…' / 'C:/…'; normalize to the /c/… POSIX form the
 # credential prefixes use BEFORE realpath (so it resolves) and again AFTER (GNU
@@ -449,12 +637,8 @@ _sg_norm RESOLVED "$RESOLVED"
 _sg_has_83() {
   local _s8_s _s8_l _s8_re='(^|/)[^/]*~[0-9]+(\.[^/.]*)?(/|$)'
   for _s8_s in "$@"; do
-    while :; do
-      _s8_l="${_s8_s%%"$_fp_nl"*}"
-      [[ $_s8_l =~ $_s8_re ]] && return 0
-      [ "$_s8_l" = "$_s8_s" ] && break
-      _s8_s="${_s8_s#*"$_fp_nl"}"
-    done
+    _fp_split "$_fp_nl" "$_s8_s"
+    for _s8_l in ${_FP_A[@]+"${_FP_A[@]}"}; do [[ $_s8_l =~ $_s8_re ]] && return 0; done
   done
   return 1
 }
@@ -491,6 +675,9 @@ fi
 # credential dir outright must still be denied. Resolved-only let a literal ~/.ssh write through
 # on the GitHub Windows runner. Label order: resolved first, as before.
 _sg_homes full
-_sg_cred_match "$RESOLVED" "$FILE_PATH" || exit 0
+_SG_HF=(${_SG_H[@]+"${_SG_H[@]}"})
+_sg_homes lex
+_SG_H+=(${_SG_HF[@]+"${_SG_HF[@]}"})
+_sg_cred_match "$RESOLVED" "$FILE_PATH" "$SG_LEX" || exit 0
 _sg_deny "$TOOL" "$FILE_PATH" "$RESOLVED" "$_SG_LABEL" "$SESSION_ID"
 exit 0

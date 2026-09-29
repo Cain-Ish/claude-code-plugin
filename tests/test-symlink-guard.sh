@@ -234,8 +234,8 @@ cat > "$WINBIN/cygpath" <<'EOF'
 #!/bin/sh
 p="$2"; W="$SB_TEST_WINHOME"
 case "$p" in
-  C:/winhome/*) printf '%s/%s\n' "$W" "${p#C:/winhome/}" ;;
-  C:/winhome)   printf '%s\n' "$W" ;;
+  [Cc]:/winhome/*) printf '%s/%s\n' "$W" "${p#?:/winhome/}" ;;
+  [Cc]:/winhome)   printf '%s\n' "$W" ;;
   *) printf '%s\n' "$p" ;;
 esac
 EOF
@@ -301,6 +301,27 @@ assert_deny "lib.sh unsourceable + \\\\?\\ form → deny (fallback strips long-p
 # \\?\, test 22) and the guard was blind to it.
 OUT=$(win_guard "Write" '\\.\C:\winhome\.ssh\authorized_keys')
 assert_deny "device-namespace \\\\.\\ credential path → deny (D182)" "$OUT" "ssh"
+
+# --- Test 24b (SEC-H2): Windows alias spellings of a local credential dir ---------------------
+# Neither cygpath nor realpath resolves these, so before the fix every one was ALLOWED: an
+# administrative share (X$) through any host spelling is mapped to its drive and checked; NTFS
+# stream syntax is denied outright; any other UNC target asks (where a share leads is unknown).
+for sp in '\\LOCALHOST\C$\winhome\.ssh\authorized_keys' '\\LocalHost\c$\winhome\.ssh\authorized_keys' \
+          '\\myhost\C$\winhome\.ssh\authorized_keys' '\\?\UNC\localhost\C$\winhome\.ssh\authorized_keys' \
+          '\\0--1.ipv6-literal.net\C$\winhome\.ssh\authorized_keys'; do
+  OUT=$(win_guard "Write" "$sp")
+  assert_deny "SEC-H2 admin-share alias $sp" "$OUT" "ssh"
+done
+for sp in 'C:\winhome\.ssh::$INDEX_ALLOCATION\authorized_keys' 'C:\winhome\.ssh:$I30:$INDEX_ALLOCATION\authorized_keys'; do
+  OUT=$(win_guard "Edit" "$sp")
+  assert_deny "SEC-H2 NTFS stream alias $sp" "$OUT" "stream"
+done
+OUT=$(win_guard "Write" '\\nas\share\docs\x.md')
+[ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' | tr -d '\r')" = ask ] \
+  && printf '%s' "$OUT" | grep -q 'UNC' || fail "SEC-H2: a plain UNC share target must ask (got: $OUT)"
+pass "SEC-H2: a non-admin UNC share asks"
+OUT=$(win_guard "Write" '\\myhost\C$\winhome\work\repo\main.py')
+assert_allow "SEC-H2: an admin-share path outside the credential dirs is not over-blocked" "$OUT"
 
 # --- Test 25 (D182): NTFS 8.3 short-name path components → fail CLOSED (deny) ---
 # "SSH~1" / "TMP~1.MKZ" pass through cygpath/realpath UNEXPANDED (neither tool
@@ -403,8 +424,12 @@ fi
 # Fixture: a plugin root whose lib.sh sleeps, plus PATH shims that sleep for every external the
 # full logic spawns (jq, realpath, cygpath, tr, grep, …). A credential target must still be
 # denied within B7_BOUND seconds. No GNU `timeout` (absent on macOS): whole-second SECONDS.
-B7_SLEEP=8; B7_BOUND=4
+# Generous bounds (a passing run never sleeps; a stalled one sleeps B7_SLEEP): load cannot flake it.
+B7_SLEEP=20; B7_BOUND=10
 B7="$TMP/b7"; mkdir -p "$B7/root/scripts" "$B7/shims" "$B7/brain"
+# Precondition: the audit dir exists BEFORE the shims go on PATH — _fp_audit would otherwise run the
+# shimmed (sleeping) mkdir and the bound would measure the fixture, not the guard.
+[ -d "$B7/brain" ] || fail "B7 precondition: $B7/brain must exist before the shims are installed"
 printf 'sleep %s\n' "$B7_SLEEP" > "$B7/root/scripts/lib.sh"
 for t in jq cat tr grep sed awk head tail cut wc realpath greadlink readlink cygpath dirname basename mkdir mv uname git; do
   printf '#!/bin/sh\nsleep %s\nexit 127\n' "$B7_SLEEP" > "$B7/shims/$t"; chmod +x "$B7/shims/$t"
@@ -447,6 +472,62 @@ OUT=$(run_guard Write "$HOME/.sshkeys-notes/x.md")
 assert_allow "a sibling ~/.sshkeys-notes dir is not ~/.ssh" "$OUT"
 OUT=$(run_guard Edit "$HOME/work/repo/etc/config.yml")
 assert_allow "a project etc/ dir is not /etc" "$OUT"
+
+# --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
+# bounded LABEL LIMIT PAYLOAD-FILE [VAR=val…]: run the guard on the payload in the background,
+# stdout to a file, and kill it past LIMIT seconds — a hung guard must FAIL the test, not hang it
+# (a timed-out PreToolUse hook is cancelled and the Write RUNS). BD_OUT = stdout, BD_EL = seconds.
+bounded() {
+  local label="$1" lim="$2" pf="$3" pid i=0; shift 3
+  env "$@" bash "$SCRIPT" < "$pf" > "$TMP/bounded.out" 2>/dev/null & pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$lim" ]; do sleep 1; i=$((i + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; fail "$label: still running after ${lim}s"; fi
+  wait "$pid"; BD_OUT=$(cat "$TMP/bounded.out"); BD_EL=$i
+}
+# big_body N: an 'é' then N bytes of 80-column lines, as a JSON string body (\n escapes, no raw
+# newline). The one multibyte character matters: bash then matches in wide characters, where a
+# ${v//pat/rep} pass costs O(matches x length) — the decode of such a value took 117 s.
+big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\n", $0}'; }
+BIG_BOUND=10
+BODY=$(big_body 524288)
+
+# P-H1: a 512 KB Write. The fast path sees only the first 16 KiB, so a file_path AFTER the content
+# is decided by the full logic — which took 144 s (O(n^2) key search and newline strip).
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$HOME/work/repo/big.txt" "$BODY" > "$TMP/big1.json"
+bounded "P-H1 512 KB benign Write" "$BIG_BOUND" "$TMP/big1.json"
+assert_allow "P-H1: 512 KB benign Write answered in ${BD_EL}s" "$BD_OUT"
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"content":"%s","file_path":"%s"}}' "$BODY" "$HOME/.ssh/authorized_keys" > "$TMP/big2.json"
+bounded "P-H1 512 KB Write into ~/.ssh, file_path after the content" "$BIG_BOUND" "$TMP/big2.json"
+assert_deny "P-H1: 512 KB Write into ~/.ssh (file_path last) denied in ${BD_EL}s" "$BD_OUT" ssh
+
+# SEC-C1: a payload whose here-string would be 65,537..~65,690 bytes hung on MSYS for good. The
+# \u in file_path makes the builtin decode undecidable, so the full logic's jq fallback reads RAW.
+sec_c1_payload() {  # sec_c1_payload TOTAL-BYTES OUT PREFIX SUFFIX: PREFIX + x-padding + SUFFIX, TOTAL bytes
+  local pad=$(( $1 - ${#3} - ${#4} ))
+  { printf '%s' "$3"; printf '%*s' "$pad" '' | tr ' ' x; printf '%s' "$4"; } > "$2"
+}
+sec_c1_payload 65600 "$TMP/c1.json" "{\"session_id\":\"t\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.ssh/\\u0061uthorized_keys\",\"content\":\"" '"}}'
+[ "$(wc -c < "$TMP/c1.json" | tr -d ' ')" = 65600 ] || fail "SEC-C1 fixture: payload is not 65,600 bytes"
+bounded "SEC-C1 65,600-byte payload (jq fallback)" 20 "$TMP/c1.json"
+assert_deny "SEC-C1: a 65,600-byte payload through the jq fallback answers (${BD_EL}s)" "$BD_OUT" ssh
+
+# SEC-C2: _sg_phys stat'ed and trimmed once per missing component — quadratic in the path (an
+# a/../a/.. path of 3.7 KB took 5.8 s on the reviewer's box; 14.5 KB 4.2 s here). '..' and deep
+# paths now go to the full logic's one realpath -m (0.2 s). The 14.5 KB path still fits the fast
+# path's 16 KiB read, and this bound is tight on purpose: the old walk lands above it.
+DOTS=$(i=0; while [ $i -lt 2900 ]; do printf 'a/../'; i=$((i + 1)); done)
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s"}}' "$HOME/work/repo/$DOTS../../.ssh/id_rsa" > "$TMP/c2a.json"
+bounded "SEC-C2 14.5 KB a/.. path into ~/.ssh" 30 "$TMP/c2a.json"
+assert_deny "SEC-C2: 14.5 KB a/../ path into ~/.ssh denied in ${BD_EL}s" "$BD_OUT" ssh
+[ "$BD_EL" -le 3 ] || fail "SEC-C2: a 14.5 KB a/../ path took ${BD_EL}s (bound 3 s) — the per-component walk is back"
+DOTS=$(i=0; while [ $i -lt 1600 ]; do printf 'a/../'; i=$((i + 1)); done)
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s"}}' "$HOME/work/repo/${DOTS}x.txt" > "$TMP/c2b.json"
+bounded "SEC-C2 8 KB a/.. path in the project" "$BIG_BOUND" "$TMP/c2b.json"
+assert_allow "SEC-C2: 8 KB a/../ path inside the project answered in ${BD_EL}s" "$BD_OUT"
+DEEP=$(i=0; while [ $i -lt 100 ]; do printf 'd%s/' $i; i=$((i + 1)); done)
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s"}}' "$HOME/.ssh/${DEEP}k" > "$TMP/c2c.json"
+bounded "SEC-C2 100-component path under ~/.ssh" "$BIG_BOUND" "$TMP/c2c.json"
+assert_deny "SEC-C2: a 100-component path under ~/.ssh denied in ${BD_EL}s" "$BD_OUT" ssh
 
 echo
 echo "ALL PASS"

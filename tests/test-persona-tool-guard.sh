@@ -1,5 +1,5 @@
 #!/bin/bash
-# run-all-timeout: 300   (measured 94s alone on MSYS; exceeded run-all's 120s default inside the full suite on a slow box, 2026-09-28)
+# run-all-timeout: 480   (measured 94s alone on MSYS 2026-09-28; 145-195s alone on a loaded MSYS box 2026-09-29 after the T2/L3/parity/512 KB cases)
 # pins: SB_INTENT_SPINE — kill-switch test: asserts =off leaves the phase alone (Test 29)
 # pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 27)
 # pins: SB_RESOURCE_SCOPE — kill-switch test: asserts =off widens the default resource scope
@@ -12,6 +12,11 @@ SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/persona-tool-guard.sh"
 
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
+
+# Every mktemp below lands under one root that the EXIT trap removes, so a failing assertion (fail
+# exits at once) leaves no brain or fixture dir behind.
+PTG_TMP=$(mktemp -d); export TMPDIR="$PTG_TMP"
+trap 'rm -rf "$PTG_TMP"' EXIT
 
 # Test 1 (INVERTED 2026-08-23): 2>/dev/null is ADVISORY, never rewritten, never auto-allowed.
 # The old oracle asserted the shipped default REWROTE the command and emitted "allow". That
@@ -139,7 +144,6 @@ rm -rf "$T27_BRAIN"
 # Set up an isolated brain dir so audit-log lands somewhere we can check.
 SCOPE_BRAIN=$(mktemp -d)
 TS_BRAIN=$(mktemp -d)
-trap 'rm -rf "$SCOPE_BRAIN" "$TS_BRAIN"' EXIT
 
 # Test 8: out-of-scope Edit (path not in CWD/~/.second-brain/~/knowledge/tmp)
 out=$(BRAIN_DIR="$SCOPE_BRAIN" \
@@ -710,9 +714,14 @@ rm -rf "$D156_BRAIN"
 # lib.sh sleeps, plus PATH shims that sleep for every external the full logic spawns. The locked
 # rules must still be answered within B7_BOUND seconds (the shims sleep B7_SLEEP). No GNU
 # `timeout` (absent on macOS): whole-second SECONDS arithmetic. `date` is left unshimmed: bash
-# < 4.2 (macOS /bin/bash) has no builtin clock for the audit row's timestamp.
-B7_SLEEP=8; B7_BOUND=4
+# < 4.2 (macOS /bin/bash) has no builtin clock for the audit row's timestamp. Generous bounds: a
+# passing run never sleeps, a stalled one sleeps B7_SLEEP — machine load cannot flake the verdict.
+# B7_SCOPE=off isolates the rule under test from the (separately tested) resource-scope ask.
+B7_SLEEP=20; B7_BOUND=10; B7_SCOPE=off
 B7=$(mktemp -d); mkdir -p "$B7/root/scripts" "$B7/shims" "$B7/brain"
+# Precondition: the audit dir exists BEFORE the shims go on PATH — _fp_audit would otherwise run the
+# shimmed (sleeping) mkdir and the bound would measure the fixture, not the guard.
+[ -d "$B7/brain" ] || fail "B7 precondition: $B7/brain must exist before the shims are installed"
 printf 'sleep %s\n' "$B7_SLEEP" > "$B7/root/scripts/lib.sh"
 cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$B7/root/scripts/"
 for t in jq cat tr grep sed awk head tail cut wc realpath greadlink readlink cygpath dirname basename mkdir mv uname git; do
@@ -721,7 +730,7 @@ done
 b7() {  # b7 <payload-json> [wrapper…] -> B7_OUT, B7_EL (whole seconds)
   local p="$1" s; shift
   s=$SECONDS
-  B7_OUT=$(printf '%s' "$p" | CLAUDE_PLUGIN_ROOT="$B7/root" BRAIN_DIR="$B7/brain" PATH="$B7/shims:$PATH" bash "$@" "$SCRIPT")
+  B7_OUT=$(printf '%s' "$p" | SB_RESOURCE_SCOPE="$B7_SCOPE" CLAUDE_PLUGIN_ROOT="$B7/root" BRAIN_DIR="$B7/brain" PATH="$B7/shims:$PATH" bash "$@" "$SCRIPT")
   B7_EL=$(( SECONDS - s ))
 }
 b7_ask() {  # b7_ask <label> <rule> <payload-json> [wrapper…]
@@ -732,7 +741,7 @@ b7_ask() {  # b7_ask <label> <rule> <payload-json> [wrapper…]
     || fail "B7 $label: took ${B7_EL}s under a sleeping lib.sh/jq (bound ${B7_BOUND}s) — a loaded machine cancels this hook and the call RUNS"
   [ -n "$B7_OUT" ] && printf '%s' "$B7_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
     || fail "B7 $label: expected ask with every dependency stalled, got: '$B7_OUT'"
-  grep -q "\"rule\":\"$rule\"" "$B7/brain/audit-log.jsonl" 2>/dev/null \
+  grep -q "\"rule\":\"$rule\".*\"fastpath\":true" "$B7/brain/audit-log.jsonl" 2>/dev/null \
     || fail "B7 $label: the fast-path verdict must be audit-logged as rule $rule (audit: $(cat "$B7/brain/audit-log.jsonl" 2>/dev/null))"
   pass "B7 $label: ask via $rule in ${B7_EL}s with lib.sh and every spawn stalled"
 }
@@ -745,6 +754,26 @@ b7_ask "MultiEdit repo rules" warn-self-edit-repo-rules-multiedit '{"tool_name":
 b7_ask "Edit rules cache" warn-self-edit-rules-cache-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/.second-brain/projects/demo/.rules-effective.json","old_string":"a","new_string":"b"},"session_id":"b7g"}'
 # hook-timer.sh wraps this guard in hooks.json: the wrapper must add no dependency either.
 b7_ask "rm -rf through hook-timer" warn-rm-rf '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-x"},"session_id":"b7h"}' "$(dirname "$SCRIPT")/hook-timer.sh" 5
+# T1: the -edit twin of a self-edit rule is decided on the fast path too (a broken _PTG_RE_PRULES
+# made the fast path decline while parity still passed).
+b7_ask "Edit persona-rules.json" warn-self-edit-persona-rules-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/persona-rules.json","old_string":"a","new_string":"b"},"session_id":"b7i"}'
+# SEC-M1: the role-card / slug caches the hooks inject are locked like the rule files.
+b7_ask "Write into .second-brain/.injected" warn-self-edit-injected '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/.injected/s1.rolecard","content":"x"},"session_id":"b7j"}'
+# L3: with resource_scope on (the default), an out-of-scope target gets the full logic's scope ask —
+# on the fast path, still with every dependency stalled.
+B7_SCOPE=on
+b7_ask "out-of-scope Edit of a plugin script (scope on)" resource-scope-out-of-scope '{"tool_name":"Edit","tool_input":{"file_path":"/home/x/claude-code-plugin/scripts/lib.sh","old_string":"a","new_string":"b"},"cwd":"/home/u/proj","session_id":"b7k"}'
+b7_ask "in-scope Edit of a plugin script (scope on)" warn-self-edit-plugin-scripts-edit '{"tool_name":"Edit","tool_input":{"file_path":"/home/u/proj/claude-code-plugin/scripts/lib.sh","old_string":"a","new_string":"b"},"cwd":"/home/u/proj","session_id":"b7l"}'
+B7_SCOPE=off
+# SEC-M3: a layer that cannot move the verdict (the auto-armed learned-only kind) keeps the fast
+# path armed — before, ANY layer file sent every call down the slow path.
+mkdir -p "$B7/brain/.injected" "$B7/brain/projects/armed"
+printf '%s' armed > "$B7/brain/.injected/b7m.slug"
+printf '{"schema":2,"rules":[],"learned":[{"event":"bash","pattern":"foo","action":"warn","message":"m"}]}\n' > "$B7/brain/projects/armed/rules.json"
+b7_ask "learned-only repo layer" warn-rm-rf '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-x"},"session_id":"b7m"}'
+printf '{"rules":[],"learned":[{"event":"bash","pattern":"foo","action":"warn","message":"m"}]}\n' > "$B7/brain/persona-rules.json"
+b7_ask "learned-only user layer" warn-rm-rf '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-x"},"session_id":"b7n"}'
+rm -f "$B7/brain/persona-rules.json" "$B7/brain/projects/armed/rules.json" "$B7/brain/.injected/b7m.slug"
 
 # The fast path may only speak while the effective rules can be nothing but the shipped defaults.
 # A user or repo layer that RAISES a locked rule to deny must still win (full logic, real lib).
@@ -763,6 +792,51 @@ out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-x"},"ses
 pass "B7: the fast path stands down when a user or repo layer exists (a raised deny still wins)"
 rm -rf "$B7L"
 
+# T2: each stand-down branch of _ptg_fast, with the real lib.sh. no_fast <audit-log> <label>: the
+# verdict came from the full logic (a row, none of them marked fastpath).
+no_fast() {
+  [ -s "$1" ] || fail "$2: no audit row at all (audit: $1)"
+  grep -q '"fastpath":true' "$1" && fail "$2: the fast path decided — it must stand down (audit: $(cat "$1"))"
+  return 0
+}
+T2=$(mktemp -d)
+# (a) No slug memo: the fast path cannot tell which repo layer applies, so ANY projects/*/rules.json
+#     that can move a verdict (here: raising warn-rm-rf to deny) sends it to the full logic.
+mkdir -p "$T2/a/brain/projects/demo" "$T2/a/demo"
+jq -nc --arg m "$RMRF_RE" '{rules:[{name:"warn-rm-rf",tool:"Bash",action:"deny",match_command:$m,reason:"repo layer: never rm -rf"}]}' > "$T2/a/brain/projects/demo/rules.json"
+out=$(cd "$T2/a/demo" && echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/t2a"},"session_id":"t2a"}' \
+  | CLAUDE_PROJECT_DIR="$T2/a/demo" BRAIN_DIR="$T2/a/brain" bash "$SCRIPT")
+no_fast "$T2/a/brain/audit-log.jsonl" "T2(a) repo layer without a slug memo"
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "T2(a): the repo layer's deny must win when no slug memo names the repo (got: $out)"
+pass "T2(a): no slug memo + a repo layer that raises a rule → full logic, deny wins"
+# (b) An effective-rules cache written after its .sig is a hand edit: the full logic must see it.
+mkdir -p "$T2/b/brain/.injected" "$T2/b/brain/projects/parb"
+printf '%s' parb > "$T2/b/brain/.injected/t2b.slug"
+printf 'p=1 u=0 r=0 root=x\n' > "$T2/b/brain/projects/parb/.rules-effective.json.sig"
+touch -t 202001010000 "$T2/b/brain/projects/parb/.rules-effective.json.sig"
+cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$T2/b/brain/projects/parb/.rules-effective.json"
+echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/t2b"},"session_id":"t2b"}' | BRAIN_DIR="$T2/b/brain" bash "$SCRIPT" >/dev/null
+no_fast "$T2/b/brain/audit-log.jsonl" "T2(b) cache newer than its .sig"
+pass "T2(b): an effective-rules cache newer than its .sig → full logic"
+# (c) CLAUDE_PLUGIN_ROOT's default differs from the one beside the script (another version, an
+#     edit): the table no longer mirrors P, and P's deny must win.
+mkdir -p "$T2/c/root/scripts" "$T2/c/brain"
+cp "$(dirname "$SCRIPT")/lib.sh" "$(dirname "$SCRIPT")/kb-schema.sh" "$T2/c/root/scripts/"
+jq '(.rules[] | select(.name == "warn-rm-rf") | .action) = "deny"' "$(dirname "$SCRIPT")/persona-rules.default.json" > "$T2/c/root/scripts/persona-rules.default.json"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/t2c"},"session_id":"t2c"}' | CLAUDE_PLUGIN_ROOT="$T2/c/root" BRAIN_DIR="$T2/c/brain" bash "$SCRIPT")
+no_fast "$T2/c/brain/audit-log.jsonl" "T2(c) plugin-root default differs"
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "T2(c): a CLAUDE_PLUGIN_ROOT default raising warn-rm-rf to deny must win (got: $out)"
+pass "T2(c): a CLAUDE_PLUGIN_ROOT default that differs from the sibling → full logic, its deny wins"
+# SEC-M3: a layer that COULD move the verdict still stands the fast path down: a \u-escaped key.
+mkdir -p "$T2/d/brain"
+printf '{"rules":[{"t\\u006fol":"Bash","name":"x","action":"deny","match_command":"rm"}],"learned":[{"event":"bash"}]}\n' > "$T2/d/brain/persona-rules.json"
+echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/t2d"},"session_id":"t2d"}' | BRAIN_DIR="$T2/d/brain" bash "$SCRIPT" >/dev/null
+no_fast "$T2/d/brain/audit-log.jsonl" "SEC-M3 layer with a \\u-spelled key"
+pass "SEC-M3: a layer with a \\u escape stands the fast path down"
+rm -rf "$T2"
+
 # Parity: the fast path must reach exactly the verdict, reason and rule the full rule engine
 # reaches. A user persona-rules.json that is a byte copy of the default forces the full logic
 # (the fast path only runs with no user/repo layer) while yielding the same effective rules.
@@ -780,18 +854,28 @@ par_rule() {  # par_rule <audit-log> -> PR = the first "rule":"…" in it (built
   [[ $a =~ $re ]] && PR="${BASH_REMATCH[1]}"
   return 0
 }
-par() {  # par <tool> <field> <value>   (content carries dangerous-looking TEXT: never a verdict source)
-  local p d1 d2 r1
+par() {  # par <tool> <field> <value> [cwd]   (content carries dangerous-looking TEXT: never a verdict source)
+  local p d1 d2 r1 scope=off
+  # With a cwd, resource_scope runs (L3): the fast path must reach the full logic's scope ask too.
+  [ -n "${4:-}" ] && scope=on
   # MSYS2_ARG_CONV_EXCL: MSYS would rewrite a /x/… argument to C:/Program Files/Git/x/… for jq.exe.
-  p=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg t "$1" --arg f "$2" --arg v "$3" '{tool_name:$t, session_id:"par", tool_input:{($f):$v, content:"rm -rf / ; \"command\":\"rm -rf /\""}}')
+  p=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg t "$1" --arg f "$2" --arg v "$3" --arg c "${4:-}" '{tool_name:$t, session_id:"par", tool_input:{($f):$v, content:"rm -rf / ; \"command\":\"rm -rf /\""}} + (if $c == "" then {} else {cwd:$c} end)')
   PAR_N=$((PAR_N + 1))
   rm -f "$PAR/fast/audit-log.jsonl" "$PAR/full/audit-log.jsonl"
-  d1=$(printf '%s' "$p" | SB_RESOURCE_SCOPE=off BRAIN_DIR="$PAR/fast" bash "$SCRIPT")
-  d2=$(printf '%s' "$p" | SB_RESOURCE_SCOPE=off BRAIN_DIR="$PAR/full" bash "$SCRIPT")
+  d1=$(printf '%s' "$p" | SB_RESOURCE_SCOPE="$scope" BRAIN_DIR="$PAR/fast" bash "$SCRIPT")
+  d2=$(printf '%s' "$p" | SB_RESOURCE_SCOPE="$scope" BRAIN_DIR="$PAR/full" bash "$SCRIPT")
   par_rule "$PAR/fast/audit-log.jsonl"; r1="$PR"; par_rule "$PAR/full/audit-log.jsonl"
   [ "$d1" = "$d2" ] && [ "$r1" = "$PR" ] \
-    || fail "B7 parity: $1 $2='$3' fast=[$d1 $r1] full=[$d2 $PR]"
+    || fail "B7 parity: $1 $2='$3' cwd='${4:-}' fast=[$d1 $r1] full=[$d2 $PR]"
+  # T1: the same verdict must come FROM the fast path — a fast path that declines (a broken
+  # pattern) hands the call to the full logic and parity alone would still pass.
+  if [ -n "$d1" ]; then
+    grep -q '"fastpath":true' "$PAR/fast/audit-log.jsonl" 2>/dev/null \
+      || fail "B7 parity: $1 $2='$3' cwd='${4:-}' — verdict [$d1] did not come from the fast path (no fastpath row)"
+    PAR_FAST=$((PAR_FAST + 1))
+  fi
 }
+PAR_FAST=0
 for c in 'rm -rf /tmp/x' 'rm -fr x' 'sudo rm -Rf x' $'ls\nrm -rf x' $'rm\n-rf x' 'xrm -rf y' 'rm -rf2 x' \
          'git push --force origin main' 'git push -f origin master' 'git push --force-with-lease origin main' \
          'GIT PUSH --FORCE ORIGIN MAIN' 'git push --force origin mainline' $'git push --force origin\nmain' \
@@ -806,7 +890,20 @@ for f in /x/USER.md /x/superuser.md /x/persona-rules.json /x/persona-rules.defau
 done
 for f in /x/USER.md /x/persona-rules.json /b/projects/demo/rules.json /h/claude-code-plugin/hooks/hooks.json; do par Edit file_path "$f"; done
 for f in /x/persona-rules.default.json /b/projects/demo/.rules-effective.json; do par MultiEdit file_path "$f"; done
-pass "B7 parity: fast path == full rule engine (verdict, reason, rule) over $PAR_N payloads"
+# SEC-M1: the .injected caches, all three tools.
+for t in Write Edit MultiEdit; do par "$t" file_path /h/.second-brain/.injected/s1.rolecard; done
+# L3: resource_scope on (a cwd given) — out-of-scope targets get the scope ask on both paths,
+# in-scope ones the rule; '..' folds before the prefix test; a relative path resolves against cwd.
+par Write file_path /x/persona-rules.json /home/u/proj
+par Write file_path /home/u/proj/persona-rules.json /home/u/proj
+par Write file_path persona-rules.json /home/u/proj
+par Edit file_path /home/u/proj/../x/claude-code-plugin/scripts/a.sh /home/u/proj
+par Edit file_path /home/u/proj/sub/../claude-code-plugin/scripts/a.sh /home/u/proj
+par MultiEdit file_path /var/tmp/../etc/persona-rules.json /home/u/proj
+par Write file_path /tmp/x/plugin.json /home/u/proj
+par Write file_path /home/u/proj/README.md /home/u/proj
+[ "$PAR_FAST" -ge 30 ] || fail "B7 parity: only $PAR_FAST of $PAR_N payloads were decided on the fast path"
+pass "B7 parity: fast path == full rule engine (verdict, reason, rule) over $PAR_N payloads, $PAR_FAST decided on the fast path"
 rm -rf "$PAR"
 
 # Structural lock: the fast path's rule table covers exactly the default's LOCKED rules (a new
@@ -817,7 +914,71 @@ have=$(grep -oE '_ptg_set[[:space:]]+[a-z-]+' "$SCRIPT" | awk '{print $2}' | sor
 [ -n "$have" ] && [ "$want" = "$have" ] \
   || fail "B7: fast-path rule table (_ptg_set …) != default's locked rules. want: $(echo $want) | have: $(echo $have)"
 pass "B7: fast-path rule table matches the default's locked rules"
+
+# L3 structural lock: the fast path's scope test assumes the default's scope config — tool_scope
+# off, resource_scope on for Write/Edit/MultiEdit, and _PTG_RS_ALLOW == its allowlist.
+DEF="$(dirname "$SCRIPT")/persona-rules.default.json"
+jq -e '(.tool_scope.enabled // false) == false and .resource_scope.enabled == true
+       and ((.resource_scope.tools // []) | index("Write") != null and index("Edit") != null and index("MultiEdit") != null)' "$DEF" >/dev/null \
+  || fail "L3: the default's scope config changed (tool_scope off, resource_scope on for Write/Edit/MultiEdit) — update _ptg_fast's scope test"
+want_allow=$(jq -r '.resource_scope.allowlist[]' "$DEF" | tr -d '\r')
+have_allow=$(eval "$(grep -E '^_PTG_RS_ALLOW=' "$SCRIPT")"; printf '%s' "$_PTG_RS_ALLOW")
+[ -n "$have_allow" ] && [ "$want_allow" = "$have_allow" ] \
+  || fail "L3: _PTG_RS_ALLOW != the default's resource_scope.allowlist. want: $(echo $want_allow) | have: $(echo $have_allow)"
+pass "L3: the fast path's scope test mirrors the default's resource_scope"
 rm -rf "$B7"
+
+# --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
+# bounded LABEL LIMIT PAYLOAD-FILE [VAR=val…]: run the guard in the background, stdout to a file,
+# and kill it past LIMIT seconds — a hung guard must FAIL the test, not hang it. BD_OUT, BD_EL (s).
+SZ=$(mktemp -d)
+bounded() {
+  local label="$1" lim="$2" pf="$3" pid i=0; shift 3
+  env BRAIN_DIR="$SZ" "$@" bash "$SCRIPT" < "$pf" > "$SZ/bounded.out" 2>/dev/null & pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$lim" ]; do sleep 1; i=$((i + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; fail "$label: still running after ${lim}s"; fi
+  wait "$pid"; BD_OUT=$(cat "$SZ/bounded.out"); BD_EL=$i
+}
+is_ask() { printf '%s' "$1" | grep -q '"permissionDecision":"ask"'; }
+# big_body N: an 'é' (bash then matches in wide characters, the slow case) and N bytes of lines.
+big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\n", $0}'; }
+BIG_BOUND=10
+BODY=$(big_body 524288)
+# P-H1: 512 KB payloads reach the full logic (the fast path reads 16 KiB); before, 146-222 s.
+printf '{"session_id":"big","cwd":"%s","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$SZ" "$SZ/src/big.ts" "$BODY" > "$SZ/big1.json"
+bounded "P-H1 512 KB benign in-scope Write" "$BIG_BOUND" "$SZ/big1.json"
+[ -z "$BD_OUT" ] || fail "P-H1: a 512 KB benign in-scope Write must stay silent (got: $BD_OUT)"
+pass "P-H1: 512 KB benign in-scope Write answered in ${BD_EL}s"
+printf '{"session_id":"big","tool_name":"Bash","tool_input":{"command":"cat <<EOF\\n%sEOF\\nrm -rf /tmp/big-x"}}' "$BODY" > "$SZ/big2.json"
+bounded "P-H1 512 KB heredoc ending in rm -rf" "$BIG_BOUND" "$SZ/big2.json"
+is_ask "$BD_OUT" || fail "P-H1: a 512 KB command ending in rm -rf must ask (got: $BD_OUT)"
+pass "P-H1: 512 KB command ending in rm -rf asks in ${BD_EL}s"
+printf '{"session_id":"big","tool_name":"Write","tool_input":{"content":"%s","file_path":"/x/persona-rules.json"}}' "$BODY" > "$SZ/big3.json"
+rm -f "$SZ/audit-log.jsonl"
+bounded "P-H1 512 KB Write to persona-rules.json, file_path last" "$BIG_BOUND" "$SZ/big3.json" SB_RESOURCE_SCOPE=off
+is_ask "$BD_OUT" && grep -q '"rule":"warn-direct-write-hot-tier"' "$SZ/audit-log.jsonl" \
+  || fail "P-H1: a 512 KB Write to persona-rules.json (file_path last) must ask via warn-direct-write-hot-tier (got: $BD_OUT)"
+pass "P-H1: 512 KB Write to persona-rules.json (file_path last) asks in ${BD_EL}s"
+
+# SEC-H1: 5000 short lines inside the 16 KiB read (13 s in the per-line regex before) defer to grep.
+LINES5K=$(i=0; while [ $i -lt 5000 ]; do printf 'x\\n'; i=$((i + 1)); done)
+printf '{"session_id":"h1","tool_name":"Bash","tool_input":{"command":"%srm -rf /tmp/h1"}}' "$LINES5K" > "$SZ/h1.json"
+rm -f "$SZ/audit-log.jsonl"
+bounded "SEC-H1 5000-line command" "$BIG_BOUND" "$SZ/h1.json"
+is_ask "$BD_OUT" || fail "SEC-H1: a 5000-line command ending in rm -rf must ask (got: $BD_OUT)"
+# Over 64 lines the fast path must not decide (its per-line regex is what cost the time).
+grep -q '"rule":"warn-rm-rf"' "$SZ/audit-log.jsonl" || fail "SEC-H1: the 5000-line ask was not audit-logged"
+grep -q '"fastpath":true' "$SZ/audit-log.jsonl" \
+  && fail "SEC-H1: a 5000-line command must be left to the full logic's grep, not the fast path's per-line regex"
+pass "SEC-H1: 5000-line command asks in ${BD_EL}s, decided by the full logic"
+
+# SEC-C1: a 65,600-character command: the pre-filter grep's here-string (65,601 bytes) hung on MSYS.
+C1_PRE='{"session_id":"c1","tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/c1 # '
+{ printf '%s' "$C1_PRE"; printf '%*s' $(( 65600 - 17 )) '' | tr ' ' x; printf '"}}'; } > "$SZ/c1.json"
+bounded "SEC-C1 65,600-character command" 20 "$SZ/c1.json"
+is_ask "$BD_OUT" || fail "SEC-C1: the 65,600-character rm -rf command must ask (got: $BD_OUT)"
+pass "SEC-C1: a 65,600-character command answers in ${BD_EL}s"
+rm -rf "$SZ"
 
 echo
 echo "ALL PASS"

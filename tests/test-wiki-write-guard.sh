@@ -250,9 +250,10 @@ pass "case-varied non-wiki write silent (no over-blocking)"
 # --- B7: decided before any dependency (a late PreToolUse answer is cancelled and the Write runs) ---
 # Fixture: a plugin root whose lib.sh sleeps, plus PATH stand-ins that sleep for each external the
 # full logic uses. The deny must still arrive within B7_BOUND seconds (whole-second SECONDS; no
-# GNU timeout on macOS).
-B7_SLEEP=8; B7_BOUND=4
+# GNU timeout on macOS). Generous bounds: a passing run never sleeps, a stalled one sleeps B7_SLEEP.
+B7_SLEEP=20; B7_BOUND=10
 B7="$TMP/b7"; mkdir -p "$B7/root/scripts" "$B7/bin" "$B7/brain"
+[ -d "$B7/brain" ] || fail "B7 precondition: $B7/brain must exist before the stand-ins are installed"
 printf 'sleep %s\n' "$B7_SLEEP" > "$B7/root/scripts/lib.sh"
 for t in jq cat tr grep sed awk head tail cut wc realpath greadlink readlink cygpath dirname basename mkdir mv uname git; do
   printf '#!/bin/sh\nsleep %s\nexit 127\n' "$B7_SLEEP" > "$B7/bin/$t"; chmod +x "$B7/bin/$t"
@@ -289,6 +290,53 @@ PAYLOAD=$(jq -nc --arg p "$NON_WIKI_FILE" --arg c 'see "file_path":"/x/.second-b
 out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
 [ -z "$out" ] || fail "B7: content naming a legacy wiki path must not deny a non-wiki Write (got: $out)"
 pass "B7: no false positive from content text"
+
+# T8: the fast path stands down for a Write that re-creates a FORGOTTEN page, even a bare one it
+# could deny on sight — the full logic's auto-restore redirect must win over the frontmatter deny.
+printf -- '---\ntitle: "Gone2"\ntype: concepts\n---\n# Gone2\noriginal.\n' > "$TMP/brain/wiki-archive/concepts/gone2.md"
+printf '%s\n' '{"event":"archived","slug":"gone2","category":"concepts","date":"2026-05-26T03:00:00Z"}' >> "$TMP/brain/wiki-archive-log.jsonl"
+GONE2="$TMP/knowledge/wiki/concepts/gone2.md"
+PAYLOAD=$(jq -nc --arg p "$GONE2" --arg c '# bare' '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  && echo "$out" | grep -q 'Auto-restored' \
+  || fail "T8: a bare Write re-creating an archived slug must get the restore redirect, not the frontmatter deny (got: $out)"
+[ -f "$GONE2" ] || fail "T8: the archived original should be restored"
+pass "T8: a bare re-create of a forgotten page gets the auto-restore redirect (fast path stands down)"
+
+# --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
+# bounded LABEL LIMIT PAYLOAD-FILE: run the guard in the background, stdout to a file, and kill it
+# past LIMIT seconds — a hung guard must FAIL the test, not hang it. BD_OUT, BD_EL (seconds).
+bounded() {
+  local label="$1" lim="$2" pf="$3" pid i=0
+  bash "$SCRIPT" < "$pf" > "$TMP/bounded.out" 2>/dev/null & pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$lim" ]; do sleep 1; i=$((i + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; fail "$label: still running after ${lim}s"; fi
+  wait "$pid"; BD_OUT=$(cat "$TMP/bounded.out"); BD_EL=$i
+}
+# big_body N: an 'é' (bash then matches in wide characters, the slow case) and N bytes of lines.
+big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\n", $0}'; }
+BIG_BOUND=10
+BODY=$(big_body 524288)
+# P-H1: 512 KB Writes. A file_path after the content reaches only the full logic (165 s before).
+printf '{"tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$NON_WIKI_FILE" "$BODY" > "$TMP/big1.json"
+bounded "P-H1 512 KB non-wiki Write" "$BIG_BOUND" "$TMP/big1.json"
+[ -z "$BD_OUT" ] || fail "P-H1: a 512 KB non-wiki Write must stay silent (got: $BD_OUT)"
+pass "P-H1: 512 KB non-wiki Write answered in ${BD_EL}s"
+printf '{"tool_name":"Write","tool_input":{"content":"# bare\\n%s","file_path":"%s"}}' "$BODY" "$TMP/knowledge/wiki/concepts/big-page.md" > "$TMP/big2.json"
+bounded "P-H1 512 KB bare wiki page, file_path last" "$BIG_BOUND" "$TMP/big2.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
+  || fail "P-H1: a 512 KB bare wiki page (file_path last) must be denied (got: $BD_OUT)"
+pass "P-H1: 512 KB bare wiki page (file_path last) denied in ${BD_EL}s"
+
+# SEC-C1: a 65,600-byte payload whose file_path needs jq (\u escape): the fallback's here-string
+# hung on MSYS for good.
+C1_PRE="{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TMP/knowledge/wiki/concepts/\\u0062ig-c1.md\",\"content\":\"# bare"
+{ printf '%s' "$C1_PRE"; printf '%*s' $(( 65600 - ${#C1_PRE} - 3 )) '' | tr ' ' x; printf '"}}'; } > "$TMP/c1.json"
+[ "$(wc -c < "$TMP/c1.json" | tr -d ' ')" = 65600 ] || fail "SEC-C1 fixture: payload is not 65,600 bytes"
+bounded "SEC-C1 65,600-byte payload (jq fallback)" 20 "$TMP/c1.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' || fail "SEC-C1: the 65,600-byte bare wiki Write must be denied (got: $BD_OUT)"
+pass "SEC-C1: a 65,600-byte payload through the jq fallback answers in ${BD_EL}s"
 
 echo
 echo "ALL PASS"

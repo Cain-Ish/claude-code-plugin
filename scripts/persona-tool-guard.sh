@@ -23,47 +23,159 @@ set -u
 # to the guard's full logic. Helper locals carry a per-helper prefix so no caller's VAR name can be
 # shadowed by them (printf -v writes through dynamic scope). Assignments that substitute with a
 # quoted replacement stay unquoted: bash <= 4.2 did not quote-remove it inside "${…}".
+# Every helper is linear in the payload, since a 512 KB Write reaches the full logic too:
+# ${X#*KEY}, ${X%%KEY*} and ${X%"\n"} rescan the string once per position (O(n^2): 20-220 s per
+# guard at 512 KB on MSYS, far past the 5 s timeout), so text is cut by word splitting
+# (_fp_split) and tested with `case` globs and fixed-string substitutions.
 _fp_bs='\' _fp_q='"' _fp_us=$'\037' _fp_nl=$'\n' _fp_cr=$'\r' _fp_tab=$'\t'
-_fp_re='^[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+_fp_re='^[[:space:]]*:[[:space:]]*$' _fp_rebs='(\\+)$'
 _fp_uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ _fp_lc=abcdefghijklmnopqrstuvwxyz
+# bash < 4.3 runs even a one-match ${v//pat/rep} in O(candidates x length^2) (4.3 added the
+# fixed-length match jump): there _fp_at leaves a payload over 16 KiB to jq.
+_fp_ob=0
+{ [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }; } && _fp_ob=1
 # The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
 # MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
 # _fp_raw_all, only for a bigger payload.
-_FP_RAW="" _FP_EOF=0 _FP=""
+_FP_RAW="" _FP_EOF=0 _FP="" _FP_I=0
+_FP_A=()
 IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
 
 # _fp_raw_all: RAW = the whole payload for the full logic (trailing newlines stripped, as the old
 # RAW=$(cat) did); _fp_str reads the whole payload from then on.
 _fp_raw_all() {
   if [ "$_FP_EOF" = 1 ]; then RAW="$_FP_RAW"; else RAW="$_FP_RAW$(cat)"; fi
-  while [ "${RAW%"$_fp_nl"}" != "$RAW" ]; do RAW="${RAW%"$_fp_nl"}"; done
+  while case "$RAW" in *"$_fp_nl") true ;; *) false ;; esac; do RAW="${RAW%"$_fp_nl"}"; done
   _FP_RAW="$RAW" _FP_EOF=1
 }
 
-# _fp_str KEY: _FP = the decoded string value of the ONE "KEY": "…" pair in the payload.
-# 0 = found; 1 = absent (the whole payload was seen); 2 = undecidable — the key occurs twice
-# (nested or duplicated: jq decides which one counts), the value is not a string or runs past the
-# 16 KiB read, or it carries an escape left to jq (\u \b \f). JSON escapes every quote inside a
-# string, so a "KEY" followed by ':' is always a real key, never text inside a value.
-_fp_str() {
-  local _fs_k="\"$1\"" _fs_r _fs_v
-  _FP=""
+# _fp_split SEP TEXT: _FP_A = TEXT cut at every SEP (one character) by word splitting — linear in
+# every bash — with globbing off meanwhile. A trailing SEP adds no empty last field; with SEP a
+# newline (IFS white space) empty lines vanish as well.
+_fp_split() {
+  local IFS="$1" _sp_o="$-"
+  set -f
+  _FP_A=($2)
+  case "$_sp_o" in *f*) ;; *) set +f ;; esac
+}
+
+# _fp_feed TEXT CMD…: run CMD with TEXT and a newline on stdin. `CMD <<< "$TEXT"` only for a short
+# TEXT (8192 characters, at most 32 KiB): bash >= 5.1 writes a here-string into a pipe before it
+# starts the reader, and on MSYS one of 65,536..~65,650 bytes never fits — the guard hangs past its
+# timeout and the tool runs. A longer TEXT goes through a process substitution, whose writer runs
+# alongside the reader.
+_fp_feed() {
+  local _fd_t="$1"; shift
+  if [ "${#_fd_t}" -le 8192 ]; then "$@" <<< "$_fd_t"; else "$@" < <(printf '%s\n' "$_fd_t"); fi
+}
+
+# _fp_at KEY: find the string value of the ONE "KEY": "…" pair in the payload. _FP_A = the payload
+# from KEY on, cut at every '"' (the last field ends in a \037 sentinel, so a value that runs to the
+# end of what was read never looks closed); _FP_I = the field the value starts in. 0 = found;
+# 1 = absent (the whole payload was seen); 2 = undecidable — KEY occurs twice (nested or
+# duplicated: jq decides which one counts), the value is not a string, the payload holds a \037,
+# or KEY may be spelled with a \u escape. JSON escapes every quote inside a string, so a "KEY"
+# followed by ':' is always a real key, never text inside a value.
+_fp_at() {
+  local _fa_f _fa_i=0
   case "$_FP_RAW" in
-    *"$_fs_k"*) ;;
-    *) [ "$_FP_EOF" = 1 ] && return 1; return 2 ;;
+    *"$_fp_q$1$_fp_q"*) ;;
+    *) [ "$_FP_EOF" = 1 ] || return 2
+       case "$_FP_RAW" in *"$_fp_bs"u*) _fp_uesc "$_FP_RAW" && return 2 ;; esac
+       return 1 ;;
   esac
-  _fs_r="${_FP_RAW#*"$_fs_k"}"
-  case "$_fs_r" in *"$_fs_k"*) return 2 ;; esac
-  [[ $_fs_r =~ $_fp_re ]] || return 2
-  _fs_v="${BASH_REMATCH[1]}"
-  case "$_fs_v" in *"$_fp_us"*) return 2 ;; esac
-  _fs_v=${_fs_v//"$_fp_bs$_fp_bs"/"$_fp_us"}
-  case "$_fs_v" in *"$_fp_bs"[ubf]*) return 2 ;; esac
-  _fs_v=${_fs_v//"$_fp_bs$_fp_q"/"$_fp_q"}; _fs_v=${_fs_v//"$_fp_bs/"/"/"}
-  _fs_v=${_fs_v//"$_fp_bs"n/"$_fp_nl"}; _fs_v=${_fs_v//"$_fp_bs"t/"$_fp_tab"}; _fs_v=${_fs_v//"$_fp_bs"r/"$_fp_cr"}
-  case "$_fs_v" in *"$_fp_bs"*) return 2 ;; esac
-  _FP=${_fs_v//"$_fp_us"/"$_fp_bs"}
+  case "$_FP_RAW" in *"$_fp_us"*) return 2 ;; esac
+  if [ "${#_FP_RAW}" -le 16384 ]; then
+    _fp_split "$_fp_q" "$_FP_RAW$_fp_us"
+    _FP_I=-1
+    for _fa_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
+      if [ "$_fa_f" = "$1" ]; then [ "$_FP_I" = -1 ] || return 2; _FP_I=$_fa_i; fi
+      _fa_i=$((_fa_i + 1))
+    done
+    [ "$_FP_I" -ge 1 ] || return 2
+  else
+    [ "$_fp_ob" = 1 ] && return 2
+    _fp_split "$_fp_us" "${_FP_RAW//"$_fp_q$1$_fp_q"/"$_fp_us"}"
+    [ "${#_FP_A[@]}" = 2 ] || return 2
+    _fp_split "$_fp_q" "${_FP_A[1]}$_fp_us"
+    _FP_I=-1
+  fi
+  [[ ${_FP_A[$((_FP_I + 1))]-x} =~ $_fp_re ]] || return 2
+  _FP_I=$((_FP_I + 2))
+  [ "$_FP_I" -lt "${#_FP_A[@]}" ] || return 2
   return 0
+}
+
+# _fp_join VAR FROM TO: VAR = fields FROM..TO of _FP_A joined by the '"' _fp_split cut out.
+_fp_join() {
+  local IFS="$_fp_q"
+  printf -v "$1" '%s' "${_FP_A[*]:$2:$(($3 - $2 + 1))}"
+}
+
+# _fp_str KEY: _FP = the decoded string value of the ONE "KEY": "…" pair in the payload.
+# 0 = found; 1 = absent; 2 = undecidable (_fp_at's cases, a value that runs past the 16 KiB read,
+# or an escape left to jq: \u \b \f). The value ends at the first '"' not escaped: a field that
+# ends in an odd run of backslashes ended at an escaped quote.
+_fp_str() {
+  local _fs_v _fs_f _fs_t _fs_s _fs_n
+  _FP=""
+  _fp_at "$1" || return $?
+  _fs_s=$_FP_I _fs_n=$(( ${#_FP_A[@]} - 1 ))
+  while :; do
+    [ "$_FP_I" -lt "$_fs_n" ] || return 2
+    _fs_f="${_FP_A[$_FP_I]}"
+    case "$_fs_f" in *"$_fp_bs") ;; *) break ;; esac
+    _fs_t="$_fs_f"; [ "${#_fs_t}" -le 65 ] || _fs_t="${_fs_t:${#_fs_t}-65}"
+    [[ $_fs_t =~ $_fp_rebs ]] && [ "${#BASH_REMATCH[1]}" -le 64 ] || return 2
+    [ $(( ${#BASH_REMATCH[1]} % 2 )) = 1 ] || break
+    _FP_I=$((_FP_I + 1))
+  done
+  _fp_join _fs_v "$_fs_s" "$_FP_I"
+  # Nothing escaped: the value is its own decoding.
+  case "$_fs_v" in *"$_fp_bs"*) ;; *) _FP="$_fs_v"; return 0 ;; esac
+  # Decode by cutting at every backslash: each field after the first starts with the escaped
+  # character, except the field after an escaped backslash ("\\" leaves an empty field), which is
+  # plain text. A ${v//"\"n/…} pass per escape costs O(matches x length) instead — every bash in a
+  # multibyte string (117 s for a 512 KB heredoc holding one 'é'), and bash < 4.3 even in ASCII.
+  local -a _fs_o=()
+  local _fs_p=1
+  _fp_split "$_fp_bs" "$_fs_v"
+  for _fs_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    if [ "$_fs_p" = 1 ]; then _fs_o+=("$_fs_f"); _fs_p=0; continue; fi
+    if [ -z "$_fs_f" ]; then _fs_o+=("$_fp_bs"); _fs_p=1; continue; fi
+    _fs_t="${_fs_f:0:1}"
+    case "$_fs_t" in
+      n) _fs_t="$_fp_nl" ;;
+      t) _fs_t="$_fp_tab" ;;
+      r) _fs_t="$_fp_cr" ;;
+      "$_fp_q"|/) ;;
+      *) return 2 ;;
+    esac
+    _fs_o+=("$_fs_t${_fs_f:1}")
+  done
+  printf -v _FP '%s' ${_fs_o[@]+"${_fs_o[@]}"}
+  return 0
+}
+
+# _fp_uesc TEXT: true when TEXT holds a \u escape — a 'u' right after an escaping backslash, not
+# after an escaped one ("\\u" is a backslash and a 'u'). Linear, as _fp_str's decode.
+_fp_uesc() {
+  local _fu_f _fu_p=1
+  _fp_split "$_fp_bs" "$1"
+  for _fu_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    if [ "$_fu_p" = 1 ]; then _fu_p=0; continue; fi
+    if [ -z "$_fu_f" ]; then _fu_p=1; continue; fi
+    case "$_fu_f" in u*) return 0 ;; esac
+  done
+  return 1
+}
+
+# _fp_nocr VAR TEXT: TEXT without its CRs, cut at each CR and rejoined — a ${v//$'\r'/} pass costs
+# O(CRs x length) in a multibyte string (a CRLF heredoc of 512 KB takes minutes).
+_fp_nocr() {
+  case "$2" in *"$_fp_cr"*) ;; *) printf -v "$1" '%s' "$2"; return 0 ;; esac
+  _fp_split "$_fp_cr" "$2"
+  printf -v "$1" '%s' ${_FP_A[@]+"${_FP_A[@]}"}
 }
 
 # _fp_clean VAR…: drop CRs and trailing newlines from each VAR — what the full logic's old
@@ -71,24 +183,43 @@ _fp_str() {
 _fp_clean() {
   local _fc_v _fc_s
   for _fc_v in "$@"; do
-    _fc_s="${!_fc_v}"
-    _fc_s=${_fc_s//"$_fp_cr"/}
-    while [ "${_fc_s%"$_fp_nl"}" != "$_fc_s" ]; do _fc_s="${_fc_s%"$_fp_nl"}"; done
+    _fp_nocr _fc_s "${!_fc_v}"
+    while case "$_fc_s" in *"$_fp_nl") true ;; *) false ;; esac; do _fc_s="${_fc_s%"$_fp_nl"}"; done
     printf -v "$_fc_v" '%s' "$_fc_s"
   done
 }
 
-# _fp_lines ERE TEXT: true when one LINE of TEXT matches (grep's unit). The whole-text test runs
-# first and is a superset for EREs whose only anchors are (^|X) / (X|$) with X matching newline.
+# _fp_lines ERE TEXT: 0 when one LINE of TEXT matches (grep's unit), 1 when none does, 2 when TEXT
+# has over 64 lines (undecidable: every [[ =~ ]] compiles the ERE anew, ~2.6 ms a line on MSYS;
+# the full logic's one grep decides). The whole-text test runs first and is a superset for EREs
+# whose only anchors are (^|X) / (X|$) with X matching newline. Empty lines are skipped: none of
+# the fast-path EREs can match one.
 _fp_lines() {
-  local _fl_re="$1" _fl_rest="$2" _fl_line
-  [[ $_fl_rest =~ $_fl_re ]] || return 1
-  while :; do
-    _fl_line="${_fl_rest%%"$_fp_nl"*}"
-    [[ $_fl_line =~ $_fl_re ]] && return 0
-    [ "$_fl_line" = "$_fl_rest" ] && return 1
-    _fl_rest="${_fl_rest#*"$_fp_nl"}"
+  local _fl_l
+  [[ $2 =~ $1 ]] || return 1
+  case "$2" in *"$_fp_nl"*) ;; *) return 0 ;; esac
+  _fp_split "$_fp_nl" "$2"
+  [ "${#_FP_A[@]}" -le 64 ] || return 2
+  for _fl_l in ${_FP_A[@]+"${_FP_A[@]}"}; do [[ $_fl_l =~ $1 ]] && return 0; done
+  return 1
+}
+
+# _fp_collapse VAR PATH: an absolute PATH with its '.' and '..' segments folded lexically (no
+# filesystem access; '..' at the root stays there); any other PATH unchanged. A segment stack, so
+# linear in the path.
+_fp_collapse() {
+  local _fk_s IFS=/
+  local -a _fk_k=()
+  case "$2" in /*) ;; *) printf -v "$1" '%s' "$2"; return 0 ;; esac
+  _fp_split / "$2"
+  for _fk_s in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    case "$_fk_s" in
+      ''|.) ;;
+      ..) [ "${#_fk_k[@]}" -gt 0 ] && unset '_fk_k[${#_fk_k[@]}-1]' ;;
+      *) _fk_k[${#_fk_k[@]}]="$_fk_s" ;;
+    esac
   done
+  printf -v "$1" '/%s' "${_fk_k[*]-}"
 }
 
 # _fp_lower VAR TEXT: ASCII A-Z to a-z (bash 3.2 has no ${x,,}; explicit letter lists, since a
@@ -181,7 +312,9 @@ _ptg_spine() {
           [ "$_SPINE_CUR" = "verify" ] && { printf 'implement' > "$_SPINE_PHF" 2>/dev/null || true
             command -v sb_buddy_event >/dev/null 2>&1 && sb_buddy_event "$_SPINE_SID" phase focused "Back to implement — an edit landed after verification; re-run the checks before done." persona-tool-guard 600; } ;;
         Bash)
-          if [ "$_SPINE_CUR" = "implement" ] && [ -n "$CMD" ]; then
+          # A command over 8192 characters is not evaluated (degrades toward no flip): the
+          # here-string reads below must stay short — a 64 KiB one hangs on MSYS (see _fp_feed).
+          if [ "$_SPINE_CUR" = "implement" ] && [ -n "$CMD" ] && [ "${#CMD}" -le 8192 ]; then
             # Strip quoted content FIRST (split on the quote char; even-indexed
             # segments are outside quotes) so a separator inside a string literal —
             # a commit message saying "old; npm test" — never forms a span. Accepted
@@ -258,11 +391,38 @@ _ptg_spine() {
   return 0
 }
 
+# _ptg_scope PATH CWD ALLOW: the resource-scope test, shared by the fast path and the full logic.
+# _PTG_ABS = PATH made absolute (against CWD; ~/ from HOME) with '.'/'..' folded lexically (D155:
+# "$CWD/../../etc/shadow" must not prefix-match $CWD); true when it lies inside an ALLOW prefix
+# (newline-separated, $HOME then $CWD substituted — HOME first, so a literal "$CWD" inside HOME is
+# not expanded twice) or an SB_RESOURCE_SCOPE_EXTRA one (colon-separated, like PATH).
+_PTG_ABS=""
+_ptg_scope() {
+  local _ps_x _ps_pre
+  case "$1" in
+    /*)  _PTG_ABS="$1" ;;
+    ~/*) _PTG_ABS="$HOME/${1#~/}" ;;
+    *)   _PTG_ABS="$2/$1" ;;
+  esac
+  _fp_collapse _PTG_ABS "$_PTG_ABS"
+  _ps_x="${SB_RESOURCE_SCOPE_EXTRA:-}"; _ps_x=${_ps_x//:/"$_fp_nl"}
+  _fp_split "$_fp_nl" "$3$_fp_nl$_ps_x"
+  for _ps_pre in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    _ps_pre="${_ps_pre//\$HOME/$HOME}"
+    _ps_pre="${_ps_pre//\$CWD/$2}"
+    case "$_PTG_ABS" in "$_ps_pre"|"$_ps_pre"/*) return 0 ;; esac
+  done
+  return 1
+}
+_ptg_scope_reason() {  # _ptg_scope_reason ABS -> _PTG_SR, the out-of-scope ask's one reason text
+  _PTG_SR="Path '$1' is outside the project resource scope. HarnessAudit shows agents most often violate boundaries by applying reasonable tools to unauthorized resources. Confirm intent or extend scope via SB_RESOURCE_SCOPE_EXTRA."
+}
+
 # --- B7 fast path: the plugin's LOCKED rules, decided before lib.sh / jq ----------------------
 # Certain only while the effective rules can be nothing but the shipped defaults: the default file
-# is present and neither a user layer (persona-rules.json) nor a repo layer (projects/<slug>/
-# rules.json) exists that could add a rule or raise a locked one to deny. Then each rule below is
-# in force at exactly its shipped action (ask), and the full logic would reach the same verdict —
+# is present and no user layer (persona-rules.json) or repo layer (projects/<slug>/rules.json) can
+# move a verdict this table decides (_ptg_layer_ok). Then each rule below is in force at exactly
+# its shipped action (ask), and the full logic would reach the same verdict —
 # tests/test-persona-tool-guard.sh runs both paths over one corpus and requires the same verdict,
 # reason and rule, and pins this table to the default's locked rules. Patterns mirror
 # persona-rules.default.json as the full logic applies them: case-insensitively (grep -i: the path
@@ -275,14 +435,35 @@ _PTG_RE_SCRIPTS='/(claude-code-plugin|second-brain)/([^/]+/)?(scripts|hooks)/[^/
 _PTG_RE_PRULES='persona-rules(\.default)?\.json$'
 _PTG_RE_RRULES='/projects/[^/]+/rules(\.pending)?\.json$'
 _PTG_RE_CACHE='/\.rules-effective\.json$'
+_PTG_RE_INJ='/\.second-brain/\.injected/'
+# The default's resource_scope (enabled; Write/Edit/MultiEdit among its tools), pinned by the test.
+_PTG_RS_ALLOW=$'$CWD\n$HOME/.second-brain\n$HOME/knowledge\n/tmp\n/var/tmp'
 _PTG_RULE="" _PTG_REASON="" _PTG_SFX=""
 _ptg_set() { [ -n "$_PTG_RULE" ] || { _PTG_RULE="$1$_PTG_SFX"; _PTG_REASON="$2"; }; }
 # _ptg_cache_ok CACHE: false when an effective-rules cache was written after its signature (or has
 # none). lib.sh writes the cache, then its .sig; a cache newer than that is a hand edit, and the
 # full logic must see it on THIS call — it re-verifies the lock invariant, logs, and rebuilds.
 _ptg_cache_ok() { [ ! -e "$1" ] || { [ -e "$1.sig" ] && ! [ "$1" -nt "$1.sig" ]; }; }
+# _ptg_layer_ok LAYER user|repo (SEC-M3): true when an existing layer cannot move a verdict this
+# table decides: it holds no rule (a rule only matches through its "tool") and no scope block — at
+# most learned advisories (merge-persona-signals.sh arms warn-only .learned[] entries after 3
+# sightings, seeding a repo layer as {"schema":2,"rules":[],"learned":[]}), which an ask outranks.
+# A deny, a re-declared locked rule, an ask ordered ahead, or a scope ask each need one of those
+# keys. Stand down, too, where the full logic has something to log (D154): a layer that is not one
+# whole {…} object, or a user layer with nothing to evaluate (no learned entry: no "event"). A \u
+# escape (a key spelled around this test), a NUL, over 256 KiB, or an unreadable file: stand down.
+_ptg_layer_ok() {
+  local _pl_t=""
+  [ -f "$1" ] && [ -r "$1" ] || return 1
+  IFS= read -r -d '' -n 262144 _pl_t < "$1" && return 1
+  case "$_pl_t" in '{'*'}'|'{'*'}'"$_fp_nl"|'{'*'}'"$_fp_cr$_fp_nl") ;; *) return 1 ;; esac
+  case "$_pl_t" in *'"tool"'*|*_scope*|*"$_fp_bs"u*) return 1 ;; esac
+  [ "$2" = repo ] && return 0
+  case "$_pl_t" in *'"event"'*) return 0 ;; esac
+  return 1
+}
 _ptg_fast() {
-  local tool sid="" cmd="" path="" lc root me pf a="" b="" bd f slug=""
+  local tool sid="" cmd="" path="" lc root me pf a="" b="" bd f slug="" rc cwd tgt
   _fp_str tool_name || return 1
   tool="$_FP"
   case "$tool" in Bash|Write|Edit|MultiEdit) ;; *) return 1 ;; esac
@@ -298,7 +479,10 @@ _ptg_fast() {
     [ "$a" = "$b" ] || return 1
   fi
   bd="${BRAIN_DIR:-$HOME/.second-brain}"; bd=${bd//"$_fp_bs"/"/"}
-  [ -e "$bd/persona-rules.json" ] && return 1
+  # SB_RULES_LAYERS=off: a user file REPLACES the defaults (no lock carries over) — stand down.
+  if [ -e "$bd/persona-rules.json" ]; then
+    [ "${SB_RULES_LAYERS:-on}" != off ] && _ptg_layer_ok "$bd/persona-rules.json" user || return 1
+  fi
   _fp_str session_id && sid="$_FP"
   f="${sid//[^A-Za-z0-9_-]/}"; f="${f:0:64}"
   if [ -n "$f" ] && [ -f "$bd/.injected/$f.slug" ]; then
@@ -307,24 +491,27 @@ _ptg_fast() {
   if [ -n "$slug" ]; then
     case "$slug" in
       .|..|*[!A-Za-z0-9._-]*) _ptg_cache_ok "$bd/.rules-effective.json" || return 1 ;;
-      *) [ -e "$bd/projects/$slug/rules.json" ] && return 1
+      *) if [ -e "$bd/projects/$slug/rules.json" ]; then _ptg_layer_ok "$bd/projects/$slug/rules.json" repo || return 1; fi
          _ptg_cache_ok "$bd/projects/$slug/.rules-effective.json" || return 1 ;;
     esac
   else
-    for f in "$bd"/projects/*/rules.json; do [ -e "$f" ] && return 1; done
+    for f in "$bd"/projects/*/rules.json; do [ -e "$f" ] || continue; _ptg_layer_ok "$f" repo || return 1; done
     for f in "$bd"/projects/*/.rules-effective.json "$bd/.rules-effective.json"; do _ptg_cache_ok "$f" || return 1; done
   fi
   _PTG_RULE="" _PTG_REASON="" _PTG_SFX=""
   if [ "$tool" = Bash ]; then
     _fp_str command || return 1
-    cmd="${_FP//"$_fp_cr"/}"
-    while [ "${cmd%"$_fp_nl"}" != "$cmd" ]; do cmd="${cmd%"$_fp_nl"}"; done
+    _fp_nocr cmd "$_FP"
+    while case "$cmd" in *"$_fp_nl") true ;; *) false ;; esac; do cmd="${cmd%"$_fp_nl"}"; done
     [ -n "$cmd" ] || return 1
-    _fp_lines "$_PTG_RE_PUSH" "$cmd" && _ptg_set warn-force-push-main "Force-push to main/master is destructive. Confirm intent."
-    _fp_lines "$_PTG_RE_RMRF" "$cmd" && _ptg_set warn-rm-rf "rm -rf is destructive and irreversible. Confirm target before proceeding."
+    # Over 64 lines (_fp_lines 2): the full logic's one grep decides.
+    _fp_lines "$_PTG_RE_PUSH" "$cmd"; rc=$?; [ "$rc" = 2 ] && return 1
+    [ "$rc" = 0 ] && _ptg_set warn-force-push-main "Force-push to main/master is destructive. Confirm intent."
+    _fp_lines "$_PTG_RE_RMRF" "$cmd"; rc=$?; [ "$rc" = 2 ] && return 1
+    [ "$rc" = 0 ] && _ptg_set warn-rm-rf "rm -rf is destructive and irreversible. Confirm target before proceeding."
   else
     _fp_str file_path || return 1
-    _fp_path path "${_FP//"$_fp_cr"/}" lex
+    _fp_nocr path "$_FP"; _fp_path path "$path" lex
     case "$path" in ''|*"$_fp_nl"*) return 1 ;; esac
     _fp_lower lc "$path"
     case "$tool" in Edit) _PTG_SFX=-edit ;; MultiEdit) _PTG_SFX=-multiedit ;; esac
@@ -335,12 +522,30 @@ _ptg_fast() {
     [[ $lc =~ $_PTG_RE_PRULES ]] && _ptg_set warn-self-edit-persona-rules "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path."
     [[ $lc =~ $_PTG_RE_RRULES ]] && _ptg_set warn-self-edit-repo-rules "projects/<key>/rules.json is the repo layer of the PreToolUse guard — confirm intent; use /second-brain:rules promote|demote"
     [[ $lc =~ $_PTG_RE_CACHE ]] && _ptg_set warn-self-edit-rules-cache "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache."
+    [[ $lc =~ $_PTG_RE_INJ ]] && _ptg_set warn-self-edit-injected "~/.second-brain/.injected/ holds the per-session caches the hooks inject into every session and subagent (role cards, slug memos). A direct write there is hook-authority injection — confirm intent."
   fi
   [ -n "$_PTG_RULE" ] || return 1
+  tgt="${path:-${cmd:0:200}}"
+  # L3: the full logic asks for an out-of-scope file target before any rule does (resource_scope);
+  # so does this path, with the same test. The target is spelled as the full logic spells it,
+  # except a drive path, which it spells /x/… without cygpath: a target under an MSYS mount
+  # (%TEMP% is /tmp there) may get the scope reason where the full logic gives the rule's (both ask).
+  if [ "$tool" != Bash ] && [ "${SB_RESOURCE_SCOPE:-on}" != off ]; then
+    _fp_str cwd; rc=$?; [ "$rc" = 2 ] && return 1
+    _fp_nocr cwd "$_FP"
+    while case "$cwd" in *"$_fp_nl") true ;; *) false ;; esac; do cwd="${cwd%"$_fp_nl"}"; done
+    case "$cwd" in *"$_fp_nl"*) return 1 ;; esac
+    [ -n "$cwd" ] || cwd="$PWD"
+    _fp_path cwd "$cwd" lex
+    if ! _ptg_scope "$path" "$cwd" "$_PTG_RS_ALLOW"; then
+      _ptg_scope_reason "$_PTG_ABS"
+      _PTG_RULE=resource-scope-out-of-scope _PTG_REASON="$_PTG_SR" tgt="$_PTG_ABS"
+    fi
+  fi
   local TOOL="$tool" CMD="$cmd" SESSION_ID="$sid" BRAIN_DIR="$bd"
   _ptg_spine
   _fp_emit ask "$_PTG_REASON"
-  _fp_audit persona-tool-guard.sh ask "$_PTG_RULE" "${path:-${cmd:0:200}}" "$_PTG_REASON" "$sid"
+  _fp_audit persona-tool-guard.sh ask "$_PTG_RULE" "$tgt" "$_PTG_REASON" "$sid"
   return 0
 }
 _ptg_fast && exit 0
@@ -370,8 +575,8 @@ if ! _ptg_fields; then
   {
     IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD
     IFS= read -r -d '' PATH_INPUT; IFS= read -r -d '' CMD
-  } < <(jq -j '(.tool_name // ""), "\u0000", (.session_id // ""), "\u0000", (.cwd // ""), "\u0000",
-               (.tool_input.file_path // ""), "\u0000", (.tool_input.command // ""), "\u0000"' <<< "$RAW" 2>/dev/null)
+  } < <(_fp_feed "$RAW" jq -j '(.tool_name // ""), "\u0000", (.session_id // ""), "\u0000", (.cwd // ""), "\u0000",
+               (.tool_input.file_path // ""), "\u0000", (.tool_input.command // ""), "\u0000"' 2>/dev/null)
 fi
 _fp_clean TOOL SESSION_ID CWD PATH_INPUT CMD
 [ -z "${TOOL:-}" ] && exit 0
@@ -394,6 +599,15 @@ if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
     printf '%s' "$p"
   }
 fi
+# _ptg_norm_read: _ptg_norm's cygpath answers on stdin, one line per path, into its VARs in order
+# (reads _ptg_norm's locals through bash's dynamic scope).
+_ptg_norm_read() {
+  while IFS= read -r _pn_p; do
+    [ "$_pn_i" -lt ${#_pn_vars[@]} ] || break
+    [ -n "$_pn_p" ] && printf -v "${_pn_vars[$_pn_i]}" '%s' "$_pn_p"
+    _pn_i=$((_pn_i + 1))
+  done
+}
 # _ptg_norm VAR…: sb_normalize_path for each VAR — its lexical steps as builtins (_fp_path mirrors
 # lib.sh's canonical ones), then ONE cygpath -u for every drive-letter path among them. Each old
 # $(sb_normalize_path …) paid a fork plus its own $(cygpath …): ~20 ms apiece on a quiet MSYS box,
@@ -409,11 +623,7 @@ _ptg_norm() {
   done
   [ ${#_pn_args[@]} -gt 0 ] && command -v cygpath >/dev/null 2>&1 || return 0
   _pn_out=$(cygpath -u ${_pn_args[@]+"${_pn_args[@]}"} 2>/dev/null) || _pn_out=""
-  while IFS= read -r _pn_p; do
-    [ "$_pn_i" -lt ${#_pn_vars[@]} ] || break
-    [ -n "$_pn_p" ] && printf -v "${_pn_vars[$_pn_i]}" '%s' "$_pn_p"
-    _pn_i=$((_pn_i + 1))
-  done <<< "$_pn_out"
+  [ -n "$_pn_out" ] && _fp_feed "$_pn_out" _ptg_norm_read
   # A cygpath that answered fewer lines than it was given paths (failed, or takes one path):
   # the rest one call each, as sb_normalize_path would.
   while [ "$_pn_i" -lt ${#_pn_vars[@]} ]; do
@@ -635,10 +845,10 @@ if [ "${SB_TOOL_SCOPE:-on}" != "off" ]; then
   if [ "${TS_ENABLED:-false}" = "true" ]; then
     in_tool_scope=0
     _ptg_extra="${SB_TOOL_SCOPE_EXTRA:-}"; _ptg_extra=${_ptg_extra//:/"$_fp_nl"}
-    while IFS= read -r allowed_tool; do
-      [ -z "$allowed_tool" ] && continue
+    _fp_split "$_fp_nl" "$TS_ALLOW$_fp_nl$_ptg_extra"
+    for allowed_tool in ${_FP_A[@]+"${_FP_A[@]}"}; do
       if [ "$allowed_tool" = "$TOOL" ]; then in_tool_scope=1; break; fi
-    done <<< "$TS_ALLOW$_fp_nl$_ptg_extra"
+    done
     if [ "$in_tool_scope" = "0" ]; then
       TS_REASON="Tool '$TOOL' is not in the declared tool_scope allowlist. HarnessAudit treats out-of-scope tool use as one of three L1 boundary-violation channels. Confirm intent or extend via SB_TOOL_SCOPE_EXTRA (colon-separated)."
       sb_log_audit "persona-tool-guard.sh" "ask" "tool-scope-out-of-scope" "$TOOL" "$TS_REASON" "$SESSION_ID"
@@ -658,50 +868,12 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ]; then
   if [ "${RS_ENABLED:-false}" = "true" ]; then
     # Is this tool subject to scope checking?
     if [ "$RS_TOOL_IN" = "yes" ]; then
-      # Resolve target to absolute. Hooks generally get absolute paths from
-      # Claude Code, but be defensive: relative -> resolve against $CWD.
-      case "$PATH_INPUT" in
-        /*)  abs_path="$PATH_INPUT" ;;
-        ~/*) abs_path="$HOME/${PATH_INPUT#~/}" ;;
-        *)   abs_path="$CWD/$PATH_INPUT" ;;
-      esac
-      # D155: lexically collapse '.'/'..' BEFORE the allowlist prefix match.
-      # sb_normalize_path only does backslash/drive-letter work, never '..'
-      # collapsing, so "$CWD/../../../etc/shadow" prefix-matched "$CWD" and
-      # silently stayed in scope despite resolving to the same file a
-      # canonicalized path would. Pure lexical (no filesystem access, no
-      # symlink resolution -- this guard does not realpath its targets).
-      case "$abs_path" in
-        /*)
-          _rsg_out="" _rsg_rest="${abs_path#/}"
-          while [ -n "$_rsg_rest" ]; do
-            _rsg_seg="${_rsg_rest%%/*}"
-            case "$_rsg_rest" in */*) _rsg_rest="${_rsg_rest#*/}" ;; *) _rsg_rest="" ;; esac
-            case "$_rsg_seg" in
-              ""|".") : ;;
-              "..") _rsg_out="${_rsg_out%/*}" ;;
-              *) _rsg_out="$_rsg_out/$_rsg_seg" ;;
-            esac
-          done
-          abs_path="${_rsg_out:-/}"
-          ;;
-      esac
-      # Walk allowlist (with $CWD / $HOME interpolation) + SB_RESOURCE_SCOPE_EXTRA
-      # (colon-separated, like $PATH).
-      in_scope=0
-      _ptg_extra="${SB_RESOURCE_SCOPE_EXTRA:-}"; _ptg_extra=${_ptg_extra//:/"$_fp_nl"}
-      while IFS= read -r prefix; do
-        [ -z "$prefix" ] && continue
-        # Variable substitution. Order matters — substitute $HOME before $CWD
-        # so a literal "$CWD" inside $HOME doesn't double-expand.
-        prefix="${prefix//\$HOME/$HOME}"
-        prefix="${prefix//\$CWD/$CWD}"
-        case "$abs_path" in
-          "$prefix"|"$prefix"/*) in_scope=1; break ;;
-        esac
-      done <<< "$RS_ALLOW$_fp_nl$_ptg_extra"
-      if [ "$in_scope" = "0" ]; then
-        SCOPE_REASON="Path '$abs_path' is outside the project resource scope. HarnessAudit shows agents most often violate boundaries by applying reasonable tools to unauthorized resources. Confirm intent or extend scope via SB_RESOURCE_SCOPE_EXTRA."
+      # Relative targets resolve against $CWD; '.'/'..' fold lexically before the prefix match
+      # (D155 — no filesystem access: this guard does not realpath its targets). _ptg_scope is the
+      # fast path's test too.
+      if ! _ptg_scope "$PATH_INPUT" "$CWD" "$RS_ALLOW"; then
+        abs_path="$_PTG_ABS"
+        _ptg_scope_reason "$abs_path"; SCOPE_REASON="$_PTG_SR"
         sb_log_audit "persona-tool-guard.sh" "ask" "resource-scope-out-of-scope" "$abs_path" "$SCOPE_REASON" "$SESSION_ID"
         _fp_emit ask "$SCOPE_REASON"
         exit 0
@@ -717,23 +889,37 @@ fi
 # below then run only when one can — on a benign call, none. Same grep, same -iE, same subject as
 # the per-rule test, so no rule can match there and be skipped here. An error (exit 2, e.g. an
 # invalid learned pattern) counts as a hit: the per-rule loop then decides exactly as before.
+# Both loops read the frames on stdin through _fp_feed, as the greps read CMD/PATH_INPUT: a
+# here-string of payload-sized text can hang on MSYS.
 _ptg_cmd_pats=() _ptg_path_pats=()
+_ptg_collect() {
 while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
       && IFS= read -r match_path && IFS= read -r replace && IFS= read -r reason \
       && IFS= read -r _sentinel; do
   [ "$_sentinel" = "--SB-RULE-END--" ] || break
   [ -n "$match_cmd" ] && _ptg_cmd_pats+=(-e "$match_cmd")
   [ -n "$match_path" ] && _ptg_path_pats+=(-e "$match_path")
-done <<< "$RULE_STREAM"
-CMD_HIT=0 PATH_HIT=0
+done
+}
+_fp_feed "$RULE_STREAM" _ptg_collect
+# A big command keeps only the lines some pattern matched (grep is line-based: a line one rule
+# matches is among them), so each rule's grep below reads those, not the whole command again.
+CMD_HIT=0 PATH_HIT=0 CMD_SCAN="$CMD"
 if [ -n "$CMD" ] && [ ${#_ptg_cmd_pats[@]} -gt 0 ]; then
-  grep -qiE ${_ptg_cmd_pats[@]+"${_ptg_cmd_pats[@]}"} <<< "$CMD"; [ $? -ne 1 ] && CMD_HIT=1
+  if [ "${#CMD}" -le 8192 ]; then
+    _fp_feed "$CMD" grep -qiE ${_ptg_cmd_pats[@]+"${_ptg_cmd_pats[@]}"}; [ $? -ne 1 ] && CMD_HIT=1
+  else
+    CMD_SCAN=$(_fp_feed "$CMD" grep -iE ${_ptg_cmd_pats[@]+"${_ptg_cmd_pats[@]}"}); _ptg_rc=$?
+    [ "$_ptg_rc" -ne 1 ] && CMD_HIT=1
+    [ "$_ptg_rc" -eq 0 ] || CMD_SCAN="$CMD"
+  fi
 fi
 if [ -n "$PATH_INPUT" ] && [ ${#_ptg_path_pats[@]} -gt 0 ]; then
-  grep -qiE ${_ptg_path_pats[@]+"${_ptg_path_pats[@]}"} <<< "$PATH_INPUT"; [ $? -ne 1 ] && PATH_HIT=1
+  _fp_feed "$PATH_INPUT" grep -qiE ${_ptg_path_pats[@]+"${_ptg_path_pats[@]}"}; [ $? -ne 1 ] && PATH_HIT=1
 fi
 
 V_RANK=0; V_ACTION=""; V_RULE=""; V_REASON=""; V_TARGET=""; V_MATCH=""; V_REPLACE=""
+_ptg_match() {
 while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
       && IFS= read -r match_path && IFS= read -r replace && IFS= read -r reason \
       && IFS= read -r _sentinel; do
@@ -757,12 +943,12 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
   if [ -n "$match_cmd" ]; then
     [ -z "$CMD" ] && continue
     [ "$CMD_HIT" = 1 ] || continue
-    grep -qiE -- "$match_cmd" <<< "$CMD" || continue
+    _fp_feed "$CMD_SCAN" grep -qiE -- "$match_cmd" || continue
   fi
   if [ -n "$match_path" ]; then
     [ -z "$PATH_INPUT" ] && continue
     [ "$PATH_HIT" = 1 ] || continue
-    grep -qiE -- "$match_path" <<< "$PATH_INPUT" || continue
+    _fp_feed "$PATH_INPUT" grep -qiE -- "$match_path" || continue
   fi
 
   target="${PATH_INPUT:-${CMD:0:200}}"
@@ -781,7 +967,9 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
     rewrite) [ "$V_RANK" -lt 2 ] && { V_RANK=2; V_ACTION=rewrite; V_RULE="$rule_name"; V_REASON="$reason"; V_TARGET="$target"; V_MATCH="$match_cmd"; V_REPLACE="$replace"; } ;;
     warn)    [ "$V_RANK" -lt 1 ] && { V_RANK=1; V_ACTION=warn;    V_RULE="$rule_name"; V_REASON="$reason"; V_TARGET="$target"; } ;;
   esac
-done <<< "$RULE_STREAM"
+done
+}
+_fp_feed "$RULE_STREAM" _ptg_match
 
 case "$V_ACTION" in
   deny)

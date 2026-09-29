@@ -85,6 +85,132 @@ for g in $FP_GUARDS; do
 done
 pass "B7: sb-guard-fastpath block identical in $FP_GUARDS and ahead of lib.sh/jq in each"
 
+# --- The block's helpers, loaded on their own (the block's one read gets EOF from /dev/null) ------
+FPT=$(mktemp -d); trap 'rm -rf "$FPT"' EXIT
+eval "$FP_REF" < /dev/null
+# Milliseconds since a now_us stamp (bash 5's EPOCHREALTIME, digits only: its radix is locale's).
+# Older bash has no clock builtin: 0, so the bound is only enforced where it can be measured.
+now_us() { local n="${EPOCHREALTIME:-}"; echo "${n//[!0-9]/}"; }
+ms_since() { local n; n=$(now_us); [ -n "$n" ] && [ -n "$1" ] && echo $(( (10#$n - 10#$1) / 1000 )) || echo 0; }
+fpstr() {  # fpstr KEY RAW [EOF=1] -> FPRC, FPV
+  _FP_RAW="$2" _FP_EOF="${3:-1}"; _fp_str "$1"; FPRC=$?; FPV="$_FP"
+}
+want_str() {  # want_str LABEL KEY RAW EXPECTED
+  fpstr "$2" "$3"
+  [ "$FPRC" = 0 ] && [ "$FPV" = "$4" ] || fail "_fp_str $1: rc=$FPRC value=[$FPV] want [$4]"
+}
+want_rc() {  # want_rc LABEL KEY RAW RC [EOF]
+  fpstr "$2" "$3" "${5:-1}"
+  [ "$FPRC" = "$4" ] || fail "_fp_str $1: rc=$FPRC want $4 (value [$FPV])"
+}
+want_str "plain" file_path '{"tool_name":"Write","tool_input":{"file_path":"/a/b.txt","content":"x"}}' /a/b.txt
+want_str "escaped quotes + backslash" content '{"tool_input":{"content":"say \"hi\" \\ back"}}' 'say "hi" \ back'
+want_str "escaped backslash closes it" content '{"tool_input":{"content":"ends \\","k":"v"}}' 'ends \'
+want_str "escaped quote at the end" content '{"tool_input":{"content":"q \"","k":"v"}}' 'q "'
+want_str "odd run of backslashes" content '{"tool_input":{"content":"a \\\" b"}}' 'a \" b'
+want_str "\\n \\t \\r \\/" content '{"tool_input":{"content":"l1\nl2\tt\rr\/s"}}' "l1"$'\n'"l2"$'\t'"t"$'\r'"r/s"
+want_str "empty value" content '{"tool_input":{"content":""}}' ''
+want_str "spaced separator" content '{"tool_input":{"content" :  "v"}}' v
+want_str "leading escaped quote" content '{"tool_input":{"content":"\"x"}}' '"x'
+want_rc "\\u escape left to jq" content '{"tool_input":{"content":"\u00e9"}}' 2
+want_rc "non-string value" content '{"tool_input":{"content":5}}' 2
+want_rc "duplicate key" content '{"tool_input":{"content":"a","content":"b"}}' 2
+want_rc "key text also a value" file_path '{"x":"file_path","tool_input":{"file_path":"/ok"}}' 2
+want_rc "absent" command '{"tool_input":{"file_path":"x"}}' 1
+want_rc "absent, \\\\u is an escaped backslash" command '{"tool_input":{"file_path":"C:\\users\\x"}}' 1
+want_rc "absent, the key may be \\u-spelled (SEC-L1)" file_path '{"tool_input":{"file\u005fpath":"/h/.ssh/x"}}' 2
+want_rc "value runs past the read" content '{"tool_input":{"content":"abc' 2 0
+want_str "value closes right at the read's end" content '{"tool_input":{"content":"abc"' abc
+want_rc "absent, payload not all read" content '{"a":"b"' 2 0
+pass "_fp_str decodes like jq, and returns 2 wherever jq must decide (escapes, duplicates, \\u-spelled keys)"
+
+# P-M2: no ${v//…} pass decodes a value any more — one costs O(matches x length) (bash < 4.3 even
+# in ASCII; every bash in a multibyte string). A value without a backslash returns as it is; an
+# escaped one is cut at its backslashes. On bash < 4.3 (_fp_ob) only the whole-payload key search
+# (a payload over 16 KiB) is left to jq.
+_fp_ob=1
+V16=$(printf '%16000s' '' | tr ' ' a)
+want_str "old bash, 16000 chars, no escape (early return)" content "{\"content\":\"$V16\"}" "$V16"
+ESC3K=$(i=0; while [ $i -lt 3000 ]; do printf 'a\\n'; i=$((i + 1)); done)
+fpstr content "{\"content\":\"$ESC3K\"}"
+[ "$FPRC" = 0 ] && [ "${#FPV}" = 6000 ] && [ "${FPV:0:4}" = "a"$'\n'"a"$'\n' ] \
+  || fail "_fp_str old bash, 3000 escapes: rc=$FPRC length=${#FPV}"
+want_str "old bash, escapes of every kind" content '{"content":"a\nb\\c\"d\/e\tf\\\\ng"}' "a"$'\n'"b\\c\"d/e"$'\t'"f\\\\ng"
+want_rc "old bash, payload over 16 KiB" content "{\"content\":\"x\",\"pad\":\"$V16$V16\"}" 2
+_fp_ob=0
+pass "P-M2: _fp_str returns a backslash-free value as it is, decodes escapes without substitution passes"
+
+# The multibyte shape that took 117 s: a 512 KB multi-line value (~6,500 \n escapes) holding one
+# non-ASCII character, CRLF line ends for _fp_nocr.
+EACUTE=$'\303\251'
+ML=$(printf '%524288s' '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\r\\n", $0}')
+t0=$(now_us)
+fpstr command "{\"tool_input\":{\"command\":\"$EACUTE$ML\"}}"
+[ "$FPRC" = 0 ] && [ "${FPV:0:1}" = "$EACUTE" ] || fail "_fp_str: 512 KB multibyte multi-line value: rc=$FPRC"
+_fp_nocr NOCR "$FPV"
+case "$NOCR" in *$'\r'*) fail "_fp_nocr left a CR" ;; esac
+[ "${#NOCR}" -lt "${#FPV}" ] || fail "_fp_nocr removed nothing"
+el=$(ms_since "$t0")
+[ "$el" -le 5000 ] || fail "P-M2: decoding + CR-stripping a 512 KB multibyte value took ${el} ms (bound 5000)"
+pass "P-M2: a 512 KB multibyte value with ~6,500 escapes decodes and loses its CRs in ${el} ms"
+
+_fp_uesc 'a\u0041' || fail "_fp_uesc: \\u0041 is an escape"
+_fp_uesc 'C:\\users' && fail "_fp_uesc: \\\\u (an escaped backslash, then u) is no escape"
+_fp_uesc 'x\\\u0041' || fail "_fp_uesc: \\\\\\u0041 ends in an escape"
+pass "_fp_uesc tells a \\u escape from an escaped backslash followed by u"
+
+# P-H1: every helper is linear. A key behind 512 KB of content cost 144 s through ${RAW#*"KEY"}.
+BIG=$(printf '%524288s' '' | tr ' ' x)
+t0=$(now_us)
+fpstr file_path "{\"tool_input\":{\"content\":\"$BIG\\\"q\\\\\",\"file_path\":\"/late/p\"}}"
+[ "$FPRC" = 0 ] && [ "$FPV" = /late/p ] || fail "_fp_str: key after 512 KB of content: rc=$FPRC value=[$FPV]"
+fpstr content "{\"tool_input\":{\"content\":\"$BIG\\\"q\\\\\",\"file_path\":\"/late/p\"}}"
+[ "$FPRC" = 0 ] && [ "${#FPV}" = $(( ${#BIG} + 3 )) ] || fail "_fp_str: 512 KB value: rc=$FPRC length=${#FPV}"
+RAW="$BIG"$'\n\n'; _FP_EOF=1 _FP_RAW="$RAW"; _fp_raw_all
+[ "$RAW" = "$BIG" ] || fail "_fp_raw_all must strip trailing newlines"
+el=$(ms_since "$t0")
+[ "$el" -le 5000 ] || fail "P-H1: _fp_str/_fp_raw_all over 512 KB took ${el} ms (bound 5000) — quadratic again?"
+pass "P-H1: _fp_str finds a key behind 512 KB and _fp_raw_all strips newlines in ${el} ms"
+
+# SEC-H1: over 64 lines, _fp_lines answers 2 (undecidable: the full logic's grep decides).
+_fp_lines 'rm -rf' $'ls\nrm -rf x'; [ $? = 0 ] || fail "_fp_lines: a matching second line must return 0"
+L70=$(i=0; while [ $i -lt 70 ]; do printf 'line %s\n' $i; i=$((i+1)); done; printf 'rm -rf x')
+_fp_lines 'rm -rf' "$L70"; [ $? = 2 ] || fail "_fp_lines: 71 lines must return 2 (undecidable)"
+_fp_lines 'zzz' "$L70"; [ $? = 1 ] || fail "_fp_lines: no whole-text match must return 1 at any length"
+_fp_lines 'rm -rf' 'rm -rf x'; [ $? = 0 ] || fail "_fp_lines: a one-line match must return 0"
+pass "SEC-H1: _fp_lines decides up to 64 lines, returns 2 beyond"
+
+_fp_collapse o /a/b/../../../c/./d//e; [ "$o" = /c/d/e ] || fail "_fp_collapse: got [$o]"
+_fp_collapse o /; [ "$o" = / ] || fail "_fp_collapse root: got [$o]"
+_fp_collapse o rel/../x; [ "$o" = rel/../x ] || fail "_fp_collapse must leave a relative path alone: got [$o]"
+pass "_fp_collapse folds '.'/'..' of an absolute path lexically"
+
+# SEC-C1: on MSYS, `cmd <<< "$X"` hangs for good when X+newline is 65,536..~65,690 bytes (bash
+# writes the whole here-string into a pipe before starting the reader). _fp_feed must return for
+# every size in that window. Run the sweep in the background with a watchdog: a hang must fail the
+# test, not hang it (stdout to a file, so an orphaned writer cannot hold a pipe open).
+fp_sweep() {
+  local n x
+  for n in 65530 65535 65536 65537 65544 65560 65584 65600 65616 65632 65648 65664 65680 65696 65712 70000; do
+    x=$(printf "%${n}s" '' | tr ' ' a)
+    _fp_feed "$x" grep -c a > "$FPT/c" || return 1
+    [ "$(tr -d '\r' < "$FPT/c")" = 1 ] || return 1
+  done
+  echo done
+}
+fp_sweep > "$FPT/sweep" 2>&1 & SW=$!
+i=0; while kill -0 "$SW" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
+if kill -0 "$SW" 2>/dev/null; then kill "$SW" 2>/dev/null; fail "SEC-C1: _fp_feed did not return within 60 s for a 65,536..65,712-byte text (MSYS here-string hang)"; fi
+wait "$SW"; [ "$(cat "$FPT/sweep")" = done ] || fail "SEC-C1: _fp_feed fed the wrong text in the 65,536..65,712-byte window ($(cat "$FPT/sweep"))"
+pass "SEC-C1: _fp_feed returns and feeds the text intact across the 65,536..65,712-byte here-string window"
+
+# No here-string of payload data outside _fp_feed in any guard (a static lock beside the behavioral one).
+for g in $FP_GUARDS; do
+  hs=$(grep -n '<<<' "$ROOT/scripts/$g" | grep -v '^[0-9]*:[[:space:]]*#' | grep -vE '_fd_t"|_SPINE_(TXT|SPANS)"' || true)
+  [ -z "$hs" ] || fail "$g: here-string outside _fp_feed (SEC-C1: hangs on MSYS at 64 KiB): $hs"
+done
+pass "SEC-C1: no guard feeds a here-string except through _fp_feed (the spine's are capped at 8192 chars)"
+
 # --- PostToolUse output reachability (D158): plain stdout from a PostToolUse
 # hook is only ever shown in transcript mode -- hookSpecificOutput.additionalContext
 # JSON is the only path into model context (the pattern simplicity-gate.sh already
