@@ -28,7 +28,7 @@ set -u
 # guard at 512 KB on MSYS, far past the 5 s timeout), so text is cut by word splitting
 # (_fp_split) and tested with `case` globs and fixed-string substitutions.
 _fp_bs='\' _fp_q='"' _fp_us=$'\037' _fp_nl=$'\n' _fp_cr=$'\r' _fp_tab=$'\t'
-_fp_re='^[[:space:]]*:[[:space:]]*$' _fp_rebs='(\\+)$'
+_fp_re='^[[:space:]]*:[[:space:]]*$' _fp_rebs='(\\+)$' _fp_renl="($_fp_nl+)\$"
 _fp_uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ _fp_lc=abcdefghijklmnopqrstuvwxyz
 # bash < 4.3 runs even a one-match ${v//pat/rep} in O(candidates x length^2) (4.3 added the
 # fixed-length match jump): there _fp_at leaves a payload over 16 KiB to jq.
@@ -45,7 +45,7 @@ IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
 # RAW=$(cat) did); _fp_str reads the whole payload from then on.
 _fp_raw_all() {
   if [ "$_FP_EOF" = 1 ]; then RAW="$_FP_RAW"; else RAW="$_FP_RAW$(cat)"; fi
-  while case "$RAW" in *"$_fp_nl") true ;; *) false ;; esac; do RAW="${RAW%"$_fp_nl"}"; done
+  _fp_trimnl RAW "$RAW"
   _FP_RAW="$RAW" _FP_EOF=1
 }
 
@@ -178,13 +178,27 @@ _fp_nocr() {
   printf -v "$1" '%s' ${_FP_A[@]+"${_FP_A[@]}"}
 }
 
+# _fp_trimnl VAR TEXT: VAR = TEXT with its run of trailing newlines cut — one regex match plus one
+# slice, O(length) total. The `while … "${v%"$_fp_nl"}"` loop this replaces re-scans the whole
+# string once per trailing newline: O(N x length) for N of them (a command or path ending in
+# 50,000 real newlines took 41-48 s per guard, well past the 5 s hook timeout — a fail-open DoS,
+# not just slow). The regex stays in a variable: bash 3.2 (macOS) treats an inline quoted regex as
+# literal text inside `[[ =~ ]]`, not as a pattern.
+_fp_trimnl() {
+  if [[ $2 =~ $_fp_renl ]]; then
+    printf -v "$1" '%s' "${2:0:$(( ${#2} - ${#BASH_REMATCH[1]} ))}"
+  else
+    printf -v "$1" '%s' "$2"
+  fi
+}
+
 # _fp_clean VAR…: drop CRs and trailing newlines from each VAR — what the full logic's old
 # `$(jq -r … | tr -d '\r')` captures did to every payload field.
 _fp_clean() {
   local _fc_v _fc_s
   for _fc_v in "$@"; do
     _fp_nocr _fc_s "${!_fc_v}"
-    while case "$_fc_s" in *"$_fp_nl") true ;; *) false ;; esac; do _fc_s="${_fc_s%"$_fp_nl"}"; done
+    _fp_trimnl _fc_s "$_fc_s"
     printf -v "$_fc_v" '%s' "$_fc_s"
   done
 }
@@ -444,20 +458,25 @@ _ptg_set() { [ -n "$_PTG_RULE" ] || { _PTG_RULE="$1$_PTG_SFX"; _PTG_REASON="$2";
 # none). lib.sh writes the cache, then its .sig; a cache newer than that is a hand edit, and the
 # full logic must see it on THIS call — it re-verifies the lock invariant, logs, and rebuilds.
 _ptg_cache_ok() { [ ! -e "$1" ] || { [ -e "$1.sig" ] && ! [ "$1" -nt "$1.sig" ]; }; }
-# _ptg_layer_ok LAYER user|repo (SEC-M3): true when an existing layer cannot move a verdict this
-# table decides: it holds no rule (a rule only matches through its "tool") and no scope block — at
-# most learned advisories (merge-persona-signals.sh arms warn-only .learned[] entries after 3
-# sightings, seeding a repo layer as {"schema":2,"rules":[],"learned":[]}), which an ask outranks.
-# A deny, a re-declared locked rule, an ask ordered ahead, or a scope ask each need one of those
-# keys. Stand down, too, where the full logic has something to log (D154): a layer that is not one
-# whole {…} object, or a user layer with nothing to evaluate (no learned entry: no "event"). A \u
-# escape (a key spelled around this test), a NUL, over 256 KiB, or an unreadable file: stand down.
+# _ptg_layer_ok LAYER user|repo (SEC-M3, RR-RL1): true when an existing layer cannot move a
+# verdict this table decides. A rule needs no "tool"/scope key to do that: lib.sh's merge lets a
+# HIGHER layer raise a LOCKED rule's action by "name" alone (a repo layer's bare
+# {"name":"warn-rm-rf","action":"deny"} overrides the shipped ask) — RR-RL1 found this table
+# answering ask while the full logic denied, and the override going unlogged, because the old
+# comment here claimed a re-declared rule needed "tool" or a scope block, which is false. So any
+# quoted "name" key stands the fast path down too: learned advisories (merge-persona-signals.sh
+# arms warn-only .learned[] entries after 3 sightings, seeding a repo layer as
+# {"schema":2,"rules":[],"learned":[]}) carry only event/pattern/action/message, never "name" — a
+# literal quoted "name" cannot occur unescaped inside a JSON string, so this never misfires on an
+# advisory. Stand down, too, where the full logic has something to log (D154): a layer that is not
+# one whole {…} object, or a user layer with nothing to evaluate (no learned entry: no "event"). A
+# \u escape (a key spelled around this test), a NUL, over 256 KiB, or an unreadable file: stand down.
 _ptg_layer_ok() {
   local _pl_t=""
   [ -f "$1" ] && [ -r "$1" ] || return 1
   IFS= read -r -d '' -n 262144 _pl_t < "$1" && return 1
   case "$_pl_t" in '{'*'}'|'{'*'}'"$_fp_nl"|'{'*'}'"$_fp_cr$_fp_nl") ;; *) return 1 ;; esac
-  case "$_pl_t" in *'"tool"'*|*_scope*|*"$_fp_bs"u*) return 1 ;; esac
+  case "$_pl_t" in *'"tool"'*|*_scope*|*'"name"'*|*"$_fp_bs"u*) return 1 ;; esac
   [ "$2" = repo ] && return 0
   case "$_pl_t" in *'"event"'*) return 0 ;; esac
   return 1
@@ -502,7 +521,7 @@ _ptg_fast() {
   if [ "$tool" = Bash ]; then
     _fp_str command || return 1
     _fp_nocr cmd "$_FP"
-    while case "$cmd" in *"$_fp_nl") true ;; *) false ;; esac; do cmd="${cmd%"$_fp_nl"}"; done
+    _fp_trimnl cmd "$cmd"
     [ -n "$cmd" ] || return 1
     # Over 64 lines (_fp_lines 2): the full logic's one grep decides.
     _fp_lines "$_PTG_RE_PUSH" "$cmd"; rc=$?; [ "$rc" = 2 ] && return 1
@@ -533,7 +552,7 @@ _ptg_fast() {
   if [ "$tool" != Bash ] && [ "${SB_RESOURCE_SCOPE:-on}" != off ]; then
     _fp_str cwd; rc=$?; [ "$rc" = 2 ] && return 1
     _fp_nocr cwd "$_FP"
-    while case "$cwd" in *"$_fp_nl") true ;; *) false ;; esac; do cwd="${cwd%"$_fp_nl"}"; done
+    _fp_trimnl cwd "$cwd"
     case "$cwd" in *"$_fp_nl"*) return 1 ;; esac
     [ -n "$cwd" ] || cwd="$PWD"
     _fp_path cwd "$cwd" lex

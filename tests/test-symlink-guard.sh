@@ -529,5 +529,14 @@ printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s"}}' 
 bounded "SEC-C2 100-component path under ~/.ssh" "$BIG_BOUND" "$TMP/c2c.json"
 assert_deny "SEC-C2: a 100-component path under ~/.ssh denied in ${BD_EL}s" "$BD_OUT" ssh
 
+# RR-CR1: a file_path ending in 50,000 CONSECUTIVE trailing newlines (P-H1/SEC-C2 above only cover
+# interspersed text or 'a/../' runs). The full logic's _fp_clean used to strip them one at a time
+# (`${v%"$_fp_nl"}` in a loop): O(N x length) for N trailing newlines, 40 s here past the 5 s
+# timeout (a fail-open DoS). The verdict must be unchanged: Write into ~/.ssh still denies.
+TRAIL50K=$(i=0; while [ $i -lt 50000 ]; do printf '\\n'; i=$((i + 1)); done)
+printf '{"session_id":"cr1","tool_name":"Write","tool_input":{"file_path":"%s/.ssh/id_rsa%s","content":"x"}}' "$HOME" "$TRAIL50K" > "$TMP/cr1.json"
+bounded "RR-CR1 50,000 consecutive trailing newlines, Write into ~/.ssh" "$BIG_BOUND" "$TMP/cr1.json"
+assert_deny "RR-CR1: 50,000 consecutive trailing newlines into ~/.ssh denied in ${BD_EL}s" "$BD_OUT" ssh
+
 echo
 echo "ALL PASS"

@@ -42,7 +42,7 @@ set -u
 # guard at 512 KB on MSYS, far past the 5 s timeout), so text is cut by word splitting
 # (_fp_split) and tested with `case` globs and fixed-string substitutions.
 _fp_bs='\' _fp_q='"' _fp_us=$'\037' _fp_nl=$'\n' _fp_cr=$'\r' _fp_tab=$'\t'
-_fp_re='^[[:space:]]*:[[:space:]]*$' _fp_rebs='(\\+)$'
+_fp_re='^[[:space:]]*:[[:space:]]*$' _fp_rebs='(\\+)$' _fp_renl="($_fp_nl+)\$"
 _fp_uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ _fp_lc=abcdefghijklmnopqrstuvwxyz
 # bash < 4.3 runs even a one-match ${v//pat/rep} in O(candidates x length^2) (4.3 added the
 # fixed-length match jump): there _fp_at leaves a payload over 16 KiB to jq.
@@ -59,7 +59,7 @@ IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
 # RAW=$(cat) did); _fp_str reads the whole payload from then on.
 _fp_raw_all() {
   if [ "$_FP_EOF" = 1 ]; then RAW="$_FP_RAW"; else RAW="$_FP_RAW$(cat)"; fi
-  while case "$RAW" in *"$_fp_nl") true ;; *) false ;; esac; do RAW="${RAW%"$_fp_nl"}"; done
+  _fp_trimnl RAW "$RAW"
   _FP_RAW="$RAW" _FP_EOF=1
 }
 
@@ -192,13 +192,27 @@ _fp_nocr() {
   printf -v "$1" '%s' ${_FP_A[@]+"${_FP_A[@]}"}
 }
 
+# _fp_trimnl VAR TEXT: VAR = TEXT with its run of trailing newlines cut — one regex match plus one
+# slice, O(length) total. The `while … "${v%"$_fp_nl"}"` loop this replaces re-scans the whole
+# string once per trailing newline: O(N x length) for N of them (a command or path ending in
+# 50,000 real newlines took 41-48 s per guard, well past the 5 s hook timeout — a fail-open DoS,
+# not just slow). The regex stays in a variable: bash 3.2 (macOS) treats an inline quoted regex as
+# literal text inside `[[ =~ ]]`, not as a pattern.
+_fp_trimnl() {
+  if [[ $2 =~ $_fp_renl ]]; then
+    printf -v "$1" '%s' "${2:0:$(( ${#2} - ${#BASH_REMATCH[1]} ))}"
+  else
+    printf -v "$1" '%s' "$2"
+  fi
+}
+
 # _fp_clean VAR…: drop CRs and trailing newlines from each VAR — what the full logic's old
 # `$(jq -r … | tr -d '\r')` captures did to every payload field.
 _fp_clean() {
   local _fc_v _fc_s
   for _fc_v in "$@"; do
     _fp_nocr _fc_s "${!_fc_v}"
-    while case "$_fc_s" in *"$_fp_nl") true ;; *) false ;; esac; do _fc_s="${_fc_s%"$_fp_nl"}"; done
+    _fp_trimnl _fc_s "$_fc_s"
     printf -v "$_fc_v" '%s' "$_fc_s"
   done
 }
@@ -337,7 +351,7 @@ _fg_fast() {
     WebSearch) _fp_str query || return 1; _fp_nocr hay "$_FP" ;;
     *) return 1 ;;
   esac
-  while case "$hay" in *"$_fp_nl") true ;; *) false ;; esac; do hay="${hay%"$_fp_nl"}"; done
+  _fp_trimnl hay "$hay"
   [ -n "$hay" ] || return 1
   if [ "$tool" = Bash ]; then _fp_lines "$FG_NET" "$hay" || return 1; fi
   for ((i = 0; i < ${#FG_RES[@]}; i++)); do
@@ -396,7 +410,7 @@ case "$TOOL" in
   *) exit 0 ;;
 esac
 [ "$TOOL" = WebFetch ] || _fp_nocr HAYSTACK "$HAYSTACK"
-while case "$HAYSTACK" in *"$_fp_nl") true ;; *) false ;; esac; do HAYSTACK="${HAYSTACK%"$_fp_nl"}"; done
+_fp_trimnl HAYSTACK "$HAYSTACK"
 [ -z "$HAYSTACK" ] && exit 0
 
 # Bash gate: require a network tool keyword in addition to the credential

@@ -338,5 +338,16 @@ bounded "SEC-C1 65,600-byte payload (jq fallback)" 20 "$TMP/c1.json"
 echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' || fail "SEC-C1: the 65,600-byte bare wiki Write must be denied (got: $BD_OUT)"
 pass "SEC-C1: a 65,600-byte payload through the jq fallback answers in ${BD_EL}s"
 
+# RR-CR1: a file_path ending in 50,000 CONSECUTIVE trailing newlines. The full logic's _fp_clean
+# used to strip them one at a time (`${v%"$_fp_nl"}` in a loop): O(N x length) for N trailing
+# newlines, 40 s here past the 5 s hook timeout (a fail-open DoS). Verdict must be unchanged: a
+# bare wiki page write still denies on frontmatter.
+TRAIL50K=$(i=0; while [ $i -lt 50000 ]; do printf '\\n'; i=$((i + 1)); done)
+printf '{"tool_name":"Write","tool_input":{"content":"# bare","file_path":"%s%s"}}' "$TMP/knowledge/wiki/concepts/cr1.md" "$TRAIL50K" > "$TMP/cr1.json"
+bounded "RR-CR1 50,000 consecutive trailing newlines, bare wiki page" "$BIG_BOUND" "$TMP/cr1.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
+  || fail "RR-CR1: 50,000 trailing newlines must still deny the bare wiki page on frontmatter (got: $BD_OUT)"
+pass "RR-CR1: 50,000 consecutive trailing newlines answered in ${BD_EL}s (bare page still denies)"
+
 echo
 echo "ALL PASS"

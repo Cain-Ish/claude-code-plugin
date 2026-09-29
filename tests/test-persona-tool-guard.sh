@@ -790,6 +790,20 @@ out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-x"},"ses
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("repo layer"))' >/dev/null \
   || fail "B7: a repo layer raising warn-rm-rf to deny must win over the fast path's ask (got: $out)"
 pass "B7: the fast path stands down when a user or repo layer exists (a raised deny still wins)"
+
+# RR-RL1: a NAME-ONLY override needs neither "tool" nor a scope key — lib.sh's merge still lets it
+# RAISE a locked rule's action by "name" alone. Before the fix, _ptg_layer_ok saw no "tool"/_scope
+# key in this repo layer and stayed armed, so the fast path answered ask (its shipped default)
+# while the full logic denied — a silently weakened verdict, and no violation logged.
+mkdir -p "$B7L/.injected" "$B7L/projects/rl1"
+printf '%s' rl1 > "$B7L/.injected/b7rl1.slug"
+printf '{"rules":[{"name":"warn-rm-rf","action":"deny"}]}\n' > "$B7L/projects/rl1/rules.json"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-rl1"},"session_id":"b7rl1"}' | BRAIN_DIR="$B7L" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "RR-RL1: a repo layer's name-only raise of warn-rm-rf to deny must win (got: $out)"
+grep -q '"fastpath":true' "$B7L/audit-log.jsonl" 2>/dev/null \
+  && fail "RR-RL1: a name-only override must stand the fast path down, not answer on it (audit: $(cat "$B7L/audit-log.jsonl"))"
+pass "RR-RL1: repo layer name-only raise of warn-rm-rf to deny → full logic, deny wins, no fastpath row"
 rm -rf "$B7L"
 
 # T2: each stand-down branch of _ptg_fast, with the real lib.sh. no_fast <audit-log> <label>: the
@@ -978,6 +992,18 @@ C1_PRE='{"session_id":"c1","tool_name":"Bash","tool_input":{"command":"rm -rf /t
 bounded "SEC-C1 65,600-character command" 20 "$SZ/c1.json"
 is_ask "$BD_OUT" || fail "SEC-C1: the 65,600-character rm -rf command must ask (got: $BD_OUT)"
 pass "SEC-C1: a 65,600-character command answers in ${BD_EL}s"
+
+# RR-CR1: 50,000 CONSECUTIVE trailing newlines after the command text (SEC-H1/P-H1 above only have
+# newlines INTERSPERSED with other text). The command is well over the fast path's 16 KiB read, so
+# the payload reaches the full logic's _fp_clean — before, its per-newline `${v%"$_fp_nl"}` loop
+# re-scanned the whole string once per trailing newline (O(N x length)): 43-48 s here, past the 5 s
+# hook timeout (a fail-open DoS, not just slow).
+TRAIL50K=$(i=0; while [ $i -lt 50000 ]; do printf '\\n'; i=$((i + 1)); done)
+printf '{"session_id":"cr1","tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/cr1%s"}}' "$TRAIL50K" > "$SZ/cr1.json"
+rm -f "$SZ/audit-log.jsonl"
+bounded "RR-CR1 50,000 consecutive trailing newlines, rm -rf" "$BIG_BOUND" "$SZ/cr1.json"
+is_ask "$BD_OUT" || fail "RR-CR1: rm -rf with 50,000 trailing newlines must still ask (got: $BD_OUT)"
+pass "RR-CR1: 50,000 consecutive trailing newlines answered in ${BD_EL}s (rm -rf still asks)"
 rm -rf "$SZ"
 
 echo
