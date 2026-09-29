@@ -112,6 +112,24 @@ jobs:
         run: |
           /bin/bash tests/test-extraction-helpers.sh
           /bin/bash tests/test-merge-project-update.sh
+      # S0 (0.54.1): the PreToolUse guards' shared fast path has bash < 4.3 branches (the O(n^2)
+      # ${v//pat/rep} fallback, read -N absent before 4.1, CTLESC IFS) that ran on no CI lane --
+      # the devils-advocate pass found them unexercised (chronicle §3 skip class). The tests spawn
+      # hooks as plain `bash`, so a PATH shim pins that to /bin/bash 3.2 even if the image also
+      # ships a newer bash; the step fails if the shim does not take.
+      - name: PreToolUse guards + protocol/stop gates on bash 3.2
+        run: |
+          mkdir -p "$RUNNER_TEMP/bash32" && ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"
+          export PATH="$RUNNER_TEMP/bash32:$PATH"
+          bash -c 'echo "bash $BASH_VERSION"; [ "${BASH_VERSINFO[0]}" -lt 4 ]' || { echo "::error::PATH bash is not 3.2"; exit 1; }
+          rc=0
+          for t in persona-tool-guard symlink-guard flow-guard wiki-write-guard guard-wiring \
+                   protocol-guard stop-verify-gate; do
+            echo "::group::test-$t"
+            if /bin/bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi
+            echo "::endgroup::"
+          done
+          exit $rc
 
   windows:
     # V4 (docs/researchs/2026-09-26-borrow-ledger.md): Windows Git-Bash is the primary dev
