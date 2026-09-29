@@ -34,7 +34,12 @@ if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${
 else
   IFS= read -r -d '' RAW
 fi
-while case "$RAW" in *$'\n') true ;; *) false ;; esac; do RAW="${RAW%$'\n'}"; done
+# One regex match + one slice trims the whole run of trailing newlines at once (O(length)); the
+# per-newline `${RAW%$'\n'}` loop it replaces is O(N x length) for N of them (RR-CR1: 41-48 s on a
+# 50,000-newline payload, past the 5 s hook timeout). The regex stays in a variable: bash 3.2
+# (macOS) treats an inline quoted regex as literal text inside `[[ =~ ]]`, not as a pattern.
+_pg_nl=$'\n' _pg_renl="($_pg_nl+)\$"
+[[ $RAW =~ $_pg_renl ]] && RAW="${RAW:0:$(( ${#RAW} - ${#BASH_REMATCH[1]} ))}"
 [ -z "$RAW" ] && [ "$MODE" != "subagent" ] && exit 0
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
@@ -45,6 +50,17 @@ case "$BRAIN_DIR" in
 esac
 PG_LADDER="${SB_MODEL_LADDER:-$PLUGIN_ROOT/model-ladder.json}"   # same path sb_model_manifest resolves
 pg_lib() { command -v sb_log_error >/dev/null 2>&1 || source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null || return 1; }
+# pg_feed TEXT CMD…: run CMD with TEXT (+ trailing newline) on stdin. A `<<<` here-string only for
+# TEXT <= 8192 characters: on MSYS one of 65,536..~65,650 bytes never fits before the reader
+# starts (bash writes the whole here-string into a pipe first), so the hook hangs past its timeout
+# and answers nothing — a fail-open, not just slow (a 65,600-byte Write payload measured rc=124
+# after 12+ s here; every mode reaches this, not only PreToolUse). A longer TEXT goes through a
+# process substitution, whose writer runs alongside the reader. CMD may be a function name so a
+# `read` loop that must set variables in THIS shell (not a subshell) can be fed the same way.
+pg_feed() {
+  local _pf_t="$1"; shift
+  if [ "${#_pf_t}" -le 8192 ]; then "$@" <<< "$_pf_t"; else "$@" < <(printf '%s\n' "$_pf_t"); fi
+}
 # pg_row <message> [1]: one gate=* row in sb_log_error's exact shape and routing (exit_code 0 ->
 # audit-log trace; 1 -> error-log, a real failure), written with ONE builtin printf append: no
 # lib.sh, and no date/jq/tr spawn on bash >= 4.2 (bash 3.2 falls back to one `date`). The message
@@ -95,7 +111,7 @@ fi
 # (Windows jq writes CRLF) are stripped in bash below: no `tr` spawn.
 PG_BAD=""; PG_FIELDS=""
 if command -v jq >/dev/null 2>&1; then
-  PG_FIELDS=$(jq -r 'def l: tostring | gsub("[\r\n]"; " ");
+  PG_FIELDS=$(pg_feed "$RAW" jq -r 'def l: tostring | gsub("[\r\n]"; " ");
     if type == "object" then
       (.hook_event_name // "" | l), (.tool_name // "" | l), (.session_id // "" | l), (.cwd // "" | l),
       (.tool_input.file_path // "" | l), (.agent_type // "" | l), (.tool_input.subagent_type // "" | l),
@@ -105,14 +121,17 @@ if command -v jq >/dev/null 2>&1; then
       (.agent_type // "" | l | ascii_downcase),
       (.agent_id // "" | l),
       "ok"
-    else empty end' <<<"$RAW" 2>/dev/null)
+    else empty end' 2>/dev/null)
 else
   PG_BAD="no-jq"
 fi
-{ IFS= read -r PG_EVENT; IFS= read -r PG_TOOL; IFS= read -r PG_SID; IFS= read -r PG_CWD; IFS= read -r PG_PATH
+pg_fields_read() {
+  IFS= read -r PG_EVENT; IFS= read -r PG_TOOL; IFS= read -r PG_SID; IFS= read -r PG_CWD; IFS= read -r PG_PATH
   IFS= read -r PG_AGENT_TYPE; IFS= read -r PG_SUB_TYPE; IFS= read -r PG_MODEL
   IFS= read -r PG_TEXT; IFS= read -r PG_SUB_LOWER; IFS= read -r PG_AGENT_LOWER; IFS= read -r PG_AGENT_ID
-  IFS= read -r PG_OK; } <<<"$PG_FIELDS"
+  IFS= read -r PG_OK
+}
+pg_feed "$PG_FIELDS" pg_fields_read
 PG_EVENT="${PG_EVENT%$'\r'}"; PG_TOOL="${PG_TOOL%$'\r'}"; PG_SID="${PG_SID%$'\r'}"; PG_CWD="${PG_CWD%$'\r'}"
 PG_PATH="${PG_PATH%$'\r'}"; PG_AGENT_TYPE="${PG_AGENT_TYPE%$'\r'}"; PG_SUB_TYPE="${PG_SUB_TYPE%$'\r'}"
 PG_MODEL="${PG_MODEL%$'\r'}"; PG_TEXT="${PG_TEXT%$'\r'}"; PG_SUB_LOWER="${PG_SUB_LOWER%$'\r'}"
@@ -444,7 +463,7 @@ pg_rc_build() {
     hard=$(jq -r '[.rules[]? | objects | select(.enabled != false and (.action == "ask" or .action == "deny"))]
       | (map(select(.source == "repo")) + map(select(.source != "repo"))) | .[0:5][]
       | (if .source == "repo" then "R" else "P" end) + "\t- "
-        + ((.name // "rule") | tostring | gsub("[\r\n\t`]"; " ")) + ": "
+        + (((.name // "rule") | tostring | gsub("[\r\n\t`]"; " "))[0:120]) + ": "
         + (((.reason // "") | tostring | gsub("[\r\n\t`]"; " "))[0:120])' "$rf" 2>/dev/null)
     jrc=$?
     if [ "$jrc" -ne 0 ]; then
@@ -454,6 +473,8 @@ pg_rc_build() {
     hard="${hard//$'\r'/}"
   fi
   if [ -n "$hard" ]; then
+    # <<<-bounded: hard is at most 5 lines of "F<TAB>- name[0:120]: reason[0:120]" (~250 B/line,
+    # ~1.3 KB total) — the jq query above caps both name and reason to 120 bytes each.
     while IFS= read -r line; do [ -n "$line" ] && total=$((total + 1)); done <<<"$hard"
   fi
   local ret_line="Return: findings first, files:lines, <=2k tokens, a Gaps: section."
@@ -488,6 +509,7 @@ $body"; fi
 $add"; fi
         [ $(( ${#fixed} + 1 + ${#cand} + 13 )) -le 900 ] || break
         hardblock="$cand"; hn=$((hn + 1)); grp="$src"
+      # <<<-bounded: same $hard as above, ~1.3 KB max (5 lines, name/reason capped at 120 B each).
       done <<<"$hard"
       if [ "$hn" -lt "$total" ]; then
         if [ -z "$hardblock" ]; then hardblock="(+$((total - hn)) more)"; else hardblock="$hardblock
@@ -514,6 +536,8 @@ $ret_line"
     PG_RC_FAIL="build-failed"
     return 1
   fi
+  # <<<-bounded: out is 3 lines, each a tojson envelope of a card capped at 900 B by the loop
+  # above (~1-2 KB per line with JSON escaping) — well under 8 KiB total.
   { IFS= read -r e_s; IFS= read -r e_d; IFS= read -r e_t; } <<<"$out"
   e_s="${e_s%$'\r'}"; e_d="${e_d%$'\r'}"; e_t="${e_t%$'\r'}"
   [ -n "$e_s" ] && [ "$e_s" != "-" ] && { PG_RC_SCOUT="$b_s"$'\t'"$h_s"$'\t'"$e_s"; PG_RC_TIERS=$((PG_RC_TIERS + 1)); }

@@ -1009,6 +1009,50 @@ for h in "### SessionStart — protocol-guard.sh" "### PreToolUse — protocol-g
   grep -qF "$h" "$HN" 2>/dev/null && pass "wiring lock: hooks.notes.md has '$h'" || fail "wiring lock: hooks.notes.md missing '$h'"
 done
 
+# ===== RR-SF1: MSYS here-string hang at 65,536..~65,650 bytes ========================
+# protocol-guard.sh:~103 `jq … <<<"$RAW"` and the PG_FIELDS read `<<<"$PG_FIELDS"` used a plain
+# here-string: on MSYS one of that byte width never fits before the reader starts, so the hook
+# hangs past its timeout and answers NOTHING (rc=124 measured at 12+ s here) — a fail-open, not
+# just slow. Every mode reaches this code before its mode branch, so pre/subagent/card are each
+# swept. bounded LABEL LIM PAYLOAD-FILE MODE: background run, kill past LIM s. RR_OUT/RR_EL.
+bounded_pg() {
+  local label="$1" lim="$2" pf="$3" mode="$4" pid i=0
+  env -u SB_PERSONA_MODEL -u SB_EXTRACTOR_MODEL -u SB_MAINTAIN_LLM_MODEL -u SB_QUALITY_GATE_MODEL \
+    -u SB_MODEL_TIER_FAST -u SB_MODEL_TIER_MID -u SB_MODEL_TIER_DEEP -u SB_MODEL_ELASTIC \
+    -u SB_DELEGATION_REWRITE -u SB_NESTED_SPAWN -u SB_HOOK_PROFILE -u SB_PROTOCOL_GUARD \
+    -u SB_PROTOCOL_CARD -u SB_DELEGATION_CHECK -u SB_ROLE_CARDS -u SB_RULES_LAYERS -u CLAUDE_PROJECT_DIR \
+    HOME="$SB_HOME" BRAIN_DIR="$BRAIN" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_MODEL_LADDER="$LADDER" \
+    bash "$SCRIPT" "$mode" < "$pf" > "$SANDBOX/rr_sf1.out" 2>/dev/null & pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$lim" ]; do sleep 1; i=$((i + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; fail "$label: still running after ${lim}s"; return 1; fi
+  wait "$pid"; RR_OUT=$(cat "$SANDBOX/rr_sf1.out"); RR_EL=$i
+  return 0
+}
+# pg_pad TOTAL PREFIX SUFFIX: PREFIX + x-padding + SUFFIX, exactly TOTAL bytes.
+pg_pad() {
+  local total="$1" pre="$2" suf="$3" pad
+  pad=$(( total - ${#pre} - ${#suf} ))
+  { printf '%s' "$pre"; printf '%*s' "$pad" '' | tr ' ' x; printf '%s' "$suf"; }
+}
+for n in 65536 65590 65650; do
+  PRE_JSON="{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Write\",\"session_id\":\"rrsf1\",\"cwd\":\"$SANDBOX\",\"tool_input\":{\"file_path\":\"$SANDBOX/x.md\",\"content\":\""
+  pg_pad "$n" "$PRE_JSON" '"}}' > "$SANDBOX/rrsf1-pre-$n.json"
+  [ "$(wc -c < "$SANDBOX/rrsf1-pre-$n.json" | tr -d ' ')" = "$n" ] || fail "RR-SF1 fixture: pre payload is not $n bytes"
+  if bounded_pg "RR-SF1 pre mode, $n-byte Write payload" 15 "$SANDBOX/rrsf1-pre-$n.json" pre; then
+    pass "RR-SF1: pre mode answered a $n-byte payload in ${RR_EL}s (no MSYS here-string hang)"
+  fi
+done
+SUB_JSON='{"hook_event_name":"SubagentStart","session_id":"rrsf1","agent_id":"a1","agent_type":"generic","tool_input":{"description":"'
+pg_pad 65600 "$SUB_JSON" '"}}' > "$SANDBOX/rrsf1-subagent.json"
+if bounded_pg "RR-SF1 subagent mode, 65,600-byte payload" 15 "$SANDBOX/rrsf1-subagent.json" subagent; then
+  pass "RR-SF1: subagent mode answered a 65,600-byte payload in ${RR_EL}s (no MSYS here-string hang)"
+fi
+CARD_JSON='{"hook_event_name":"SessionStart","session_id":"rrsf1","source":"'
+pg_pad 65600 "$CARD_JSON" '"}' > "$SANDBOX/rrsf1-card.json"
+if bounded_pg "RR-SF1 card mode, 65,600-byte payload" 15 "$SANDBOX/rrsf1-card.json" card; then
+  pass "RR-SF1: card mode answered a 65,600-byte payload in ${RR_EL}s (no MSYS here-string hang)"
+fi
+
 # ===== CONSTITUTION.md content lock (review fix: stale 'DIRECTION' clause) ============
 CONST="$REPO_ROOT/CONSTITUTION.md"
 if grep -q 'DIRECTION until the Protocol lock' "$CONST" 2>/dev/null; then
