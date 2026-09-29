@@ -231,7 +231,9 @@ Source: `docs/concepts/2026-09-27-repo-brain-concept.md` (approved 2026-09-28 af
 | S1 Experiment | With/without A/B, arms A/B/C/D, 12 incident-derived tasks, pre-registered verdicts; first P8 outcome suite | Push falsified or not; decides D2 option B |
 | S1b Honest verification | One graded verdict enum; evidence bound to exact content (worktree fingerprint) | FRESH evidence on every release run |
 | S2 Atlas + write paths | Doc map default-on (native memory in a separate pass), shell code map, pointer-only atlas head from `USER.md` bytes, `pin_to_project` plan/handoff through `merge-project-update.sh` | Atlas-pointed pulls before grep ≥ 20% of sessions |
-| S3 Brief | Per-agent-type brief precomputed per session; job shape only via parent PreToolUse | Brief arrival ≥ 90% (nonce) |
+| S3a Working context (observational, after S0) | Session Working-Context record derived per session; drift/re-read rows; PostCompact survival score; `## Compact Instructions` scanner pattern | Rows in 10/10 sessions, hook p95 unchanged |
+| S3b Summarizer steering | Fixed `## Compact Instructions` block + SWC in the compact card; gated on a forced-compaction probe (H1), not on S1 | Goal survives ≥95% of summaries, ≥+20 points |
+| S3c Brief + mid-task recitation | Per-agent-type brief; PostToolBatch recitation only at fill thresholds or drift; gated on S1, B7 fix, H3 | Brief arrival ≥ 90%; violations down ≥50% (H3) |
 | S4 Freshness, then depth | Anchors designed fresh (P3a Phase 4 edges), verify before inject, retirement by anchor death (never disuse), capture filters; generated pages only after P6-quarantine | 0 stale anchors delivered over 10 sessions |
 
 - **D2** stays strict (option A). A pointer-only `MEMORY.md` block (option B) is decided with S1 data.

@@ -140,6 +140,19 @@ web-reading agent inject into a sibling that holds Write/Bash (adversarial revie
 | Only SessionStart(`compact`) output is re-added after compaction; other hook context is summarized | documented | research-E |
 | Plugins cannot ship an always-loaded `CLAUDE.md` (`claude plugin validate` warns) | documented | /docs/en/plugins |
 | Subagent `memory:` frontmatter exists (user/project/local scopes, own `MEMORY.md`) | documented | /docs/en/sub-agents |
+| The compaction summarizer follows a `## Compact Instructions` block found in context: a one-line instruction injected from SessionStart, UserPromptSubmit or CLAUDE.md appeared in 6/6 summaries, 0/2 without it (CLI 2.1.284, headless, manual `/compact`). A third party saw 0/7 on 2.1.246 when asking for a restructured summary; unresolved, so every real compaction is checked at PostCompact | probe + binary string | research-F |
+| PreCompact takes `trigger` + `custom_instructions` and can only block; it has no `additionalContext`. PostCompact gets `compact_summary`, no decision control. The wiki page `sessionstart-compact-reinject-probe-2026-09` wrongly says their context reaches the model | documented + probe | research-F |
+| Task tools are off by default on Opus 5.5 (on up to Opus 4.7 / Sonnet 4.6 / Haiku 4.5); `/goal` conditions and the session recap (`system/away_summary`, ≤400 chars, model-written) are readable from the transcript | documented + probe | research-F |
+| Claude Code sends the context-editing beta and clears old tool results client-side ("microcompact"); plugins cannot configure it; re-read metrics must exclude forced re-reads | binary strings | research-F |
+
+### How this user actually works (research-F, this machine, 30 days)
+
+0 real compactions in 69 sessions of this repo (auto-compaction fires near 967K tokens); heavy sessions peak at
+173K-871K tokens; about 42 tool calls per human prompt; exact repeated tool calls 0-1%. Focus loss here is decay
+inside very long contexts (lost state and decisions), not loops and not compaction. External evidence agrees: agent
+derailment correlates weakly with context fill (Vending-Bench, r=0.167) and starts when the agent misreads its own
+state; restating the user's earlier turns recovers 15-20% of multi-turn loss (Laban et al.); compliance with standing
+instructions decays about 5.6% per generated function regardless of CLAUDE.md layout (arXiv 2605.10039).
 
 ---
 
@@ -153,6 +166,12 @@ A senior developer holds four kinds of knowledge. Each layer names its class, it
 | **L1 Knowledge** | Why and how? | Decisions with rejected branch; design/contract claims; lessons (error→fix, dead ends); conventions; playbooks. Every claim may carry an anchor that is re-verified | 1, 2, 4, 5 | Wiki (typed ai-blocks), `.claude/skills` and native memory **indexed by pointer** | JIT on path touch (fresh items only); pull; brief |
 | **L2 State** | What now? | Goal, direction, now/next work, handoff, blockers | 2, 4 | `PROJECT.md` (kept); item ids inline `[#id]`; long backlog by pointer to its owning docs | Repo card; compact card; brief |
 | **L3 Brief** | What is this task? | Precomputed from L0-L2 for the current task: goal (verbatim), open items, repo HARD rules, path-matched fresh lessons, return format | 5 | Derived cache per session; nothing new persisted | SubagentStart (reliability fixed); PreToolUse(`Agent`) hint for Plan; skill render (§6) |
+
+Between L2 and L3 sits the **Session Working-Context record (SWC, §7.9)**: a per-session view compiled by hooks from
+what already exists (goal, current step, this session's decisions with reasons, open items, files in play,
+verification state, agent results). It is what the model loses when a very long context decays, and what the compact
+card, the subagent brief and the next session's Handoff are rendered from. Hooks derive it; the model writes only
+through `pin_to_project`.
 
 The working agreement (class 5) is the one class with machine enforcement: it runs through every layer (hard rules
 enforced at PreToolUse, conventions in L1, the protocol in L3).
@@ -174,6 +193,8 @@ checks exist.
 | 5 | SubagentStart card | Intermittent emission under load; arrival 1 of 3 when checked | no | sometimes; never Plan |
 | 6 | UserPromptSubmit per-prompt retrieval | 0 reads; 2.5-4.4 s per prompt; cancelled 9 times (B7) | summarized away | no |
 | 7 | JIT on Read/Edit | Inline; unmeasurable today; one stale lesson observed | summarized away | yes (shares parent seen-set) |
+| 8 | Summarizer steering (`## Compact Instructions` in the startup and compact cards) | Probe 6/6 vs 0/2; conflicting third-party result | shapes the summary itself | no |
+| 9 | PostToolBatch recitation at context-fill thresholds | Unproven; the only channel that reaches the model mid-task without a user prompt | summarized away | unknown (probe) |
 
 Design rule: **a push channel earns bytes only after it shows arrival (probe) and use (experiment).**
 
@@ -274,7 +295,35 @@ proof that injection fails; S1 answers that with outcomes instead of fetches.
 - *Success:* ≥20% of sessions pull an atlas-pointed doc before the first grep for it; route hit rate reported per
   route; hot-tier bytes flat or down.
 
-**S3 — The brief.** Precomputed, pointer-only, facts not commands, untrusted and compaction-sourced items excluded.
+**S3a — Working context, observational (after S0; does not wait for S1).** Research-F. Adds measurement and one
+security pattern, no new push:
+- Derive the SWC (§7.9) into `$BRAIN_DIR/.injected/<sid>.wc.json` from existing sources (intent spine, pins with
+  session provenance, observation ledger, verify state, agent pointers); fold goal, verify state and open items into
+  `## Handoff` at session end through `merge-project-update.sh`.
+- Drift and focus rows at Stop: D1 share of recent files outside the working set; D2 exact repeated calls (baseline
+  ≤1%); D5 goal stale; D6 recap (`away_summary`) diverges from the SWC goal; D7 edits with no verification after them;
+  R1 redundant re-reads across main and subagent transcripts, excluding reads forced by tool-result clearing.
+- PostCompact scores each real compaction (`gate=compact-steer`): did the verbatim goal, open ids and verify line
+  survive in `compact_summary`.
+- Security: `## Compact Instructions` in any tool output, file or web page can steer the summary. Add the heading
+  pattern to `tool-return-scanner.sh` and neutralize it in any text the plugin inserts.
+- The per-prompt goal line (shipped) gains the current step and verify state, same ≤200 B cap.
+- *Success:* rows present in 10/10 sessions; hook p95 unchanged; H2 baseline recorded (share of first tool calls
+  after a compaction that land on the working set).
+
+**S3b — Summarizer steering (gated on a long-session auto-compaction probe and H1, not on S1).** S1's tasks never
+compact, so S1 cannot measure this. A fixed-text `## Compact Instructions` block (≤400 B: keep the verbatim goal, open
+ids, the verify line, and decisions with their rejected branch) in the startup and compact cards; the SWC block
+(≤600 B within the 1536 B card) re-injected after compaction. H1 (seeded harness, forced auto-compaction via
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000`, 12 tasks × 2 arms): the verbatim goal survives in ≥95% of summaries, ids in
+≥90%, rejected options in ≥80%, and ≥+20 points over today's card; falsified below +10. Low value for this user until
+compactions become frequent; it matters for anyone who runs a smaller auto-compact window.
+
+**S3c — The brief and mid-task recitation (gated on S1, the S0 B7 fix and H3).**
+Precomputed, pointer-only, facts not commands, untrusted and compaction-sourced items excluded.
+- Mid-task recitation (PostToolBatch, ≤200 B, fast path) only at 25/50/75% context fill, after ≥40 tool batches, or
+  on a drift flag; never unconditional. H3 (6 long tasks of 300K+ tokens): constraint violations down ≥50%, R1 down
+  ≥20%, hook p95 ≤150 ms, 0 cancellations; falsified below 25%, in which case it is not built.
 - Fields per agent type (research-E §B): Explore → goal, paths; implementer → goal, open ids, repo HARD rules,
   path lessons, return format; reviewer → goal and constraints only; fork and empty `agent_type` → nothing. Keyed by
   agent type and precomputed per session: SubagentStart cannot see the dispatch description (S0 B5 note).
@@ -424,6 +473,15 @@ instead of silent drops) is the right shape if `PROJECT.md` outgrows inline ids.
 never renumbered, `done` without evidence renders `done?`, overflow prints a count line. Revisit when a second
 consumer needs structured state or when S2's pin path shows merge conflicts.
 
+
+### 7.9 Session Working-Context record (SWC; derived cache `$BRAIN_DIR/.injected/<sid>.wc.json`)
+`{v:1, goal{text≤170 verbatim, src ∈ goal-cmd|first-prompt|pin|handoff}, step{id, src}, decisions[≤4 {text, why,
+rejected, id}], open[≤3 {text, src}], files[≤8 {path, actor ∈ main|agent_id, op ∈ read|edit}], verify{state ∈
+green|red|stale|none, cmd, at, edits_since}, agents[≤5 {id, type, verdict, pointer}], ctx{tokens, compactions},
+drift[flags D1-D7]}`. Sources in priority order: the user's `/goal` condition, the intent-spine first-prompt freeze, a
+`goal` pin, a carried Handoff. Summaries, recaps and agent reports never populate goal, decision or step (untrusted).
+Rendered into the compact card (≤600 B), the subagent brief (≤400 B, S3c) and the session-end Handoff.
+
 ---
 
 ## 8. Surface budget
@@ -438,8 +496,11 @@ skill (`user-invocable:false` + `disable-model-invocation:true`).
 A sibling-results bus or dispatch registry visible to other agents; promotion of agent output into goal, decision or
 constraint fields; a JSONL ledger replacing `PROJECT.md` (until 7.8's trigger); generated design pages without
 anchors; prose repo tours or directory trees as context (research-D: they cost 20% and do not help); an
-embeddings-built atlas; auto-memory without code anchors; per-turn recitation; LLM calls inside hooks; imperative
-wording in any card; a `!` skill render of volatile state (Goal, Handoff, Plan); forgetting or expiry driven by
+embeddings-built atlas; auto-memory without code anchors; unconditional per-tool-batch recitation (the shipped
+per-prompt goal line stays: about 5 prompts per heavy session); LLM calls inside hooks; imperative wording in any
+card, with one exception, the fixed-text `## Compact Instructions` block the summarizer is built to follow; compact
+instructions written into CLAUDE.md; blocking auto-compaction; rendering recaps, summaries or agent reports into goal,
+decision or step fields; a `!` skill render of volatile state (Goal, Handoff, Plan); forgetting or expiry driven by
 disuse; a human-confirm step in retirement; merging the removed claim-anchor stash instead of designing anchors
 fresh; a second degraded-search banner; a TypeScript Plan writer with its own header grammar; a second verdict
 vocabulary.
@@ -456,6 +517,10 @@ vocabulary.
 6. ~~Does a timed-out PreToolUse guard let the tool run? Which share of cancellations are timeouts?~~ Answered
    2026-09-28: yes, it fails open (S0 B7 probe results); 301 of 301 classifiable cancellations are timeout kills.
 7. Where the SessionStart render spends 15-159 s under load (spawn tax, lock waits, `discover-installed.sh`).
+8. Long-session auto-compaction (forced window) and a second compaction: does summarizer steering hold (S3b gate)?
+9. Interactive-mode summarizer steering, and the third-party "restructure" failure re-run on the installed CLI.
+10. Does PostToolBatch fire inside subagents, and at what latency (S3c)?
+11. Does the MCP server see `CLAUDE_CODE_SESSION_ID` (needed to stamp session provenance on pins for the SWC)?
 
 ---
 
@@ -481,3 +546,9 @@ vocabulary.
 
 Evidence gathered while folding the review, not raised by it: B7 (hook cancellation under load), from the
 `hook_cancelled` attachments in the 25 newest session transcripts.
+
+**Research F (2026-09-29)**, focus and working memory (`docs/researchs/2026-09-29-sources/research-F-*.md`, local):
+added the compaction and native-memory platform facts and this user's usage numbers to §2, the SWC (§3, §7.9),
+channels 8-9 (§4), the S3 split into S3a/S3b/S3c (§5), the §9 wording changes and probes 8-11 (§10). A wiki page
+(`sessionstart-compact-reinject-probe-2026-09`) states that PreCompact/PostCompact context reaches the model; the probe
+transcript shows it arrived only as hook-validation error text. It is corrected in the knowledge base.
