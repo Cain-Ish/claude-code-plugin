@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# run-all-timeout: 240
+# (tests 9-12 wait on real detached refreshes; ~50s standalone on a loaded Windows box)
 # Tests for scripts/discover-installed.sh — the SessionStart hook that enumerates
 # installed plugins/agents/skills into $BRAIN_DIR/.installed-catalog.json.
 #
@@ -197,5 +199,117 @@ fi
 [ "$(printf '%s' "$OUT8" | jq -r '.agents[0].name')" = "real-agent" ] \
   || fail "8: the legitimate agent record was lost"
 pass "hostile plugin.json name cannot forge catalog records"
+
+# --- Tests 9-12: a CACHED catalog is served at once; the refresh runs detached ---------
+# B7 (2026-09-28): this hook was cancelled at its 10s timeout in 12 of 25 sessions (avg 34s
+# when cancelled) and the real catalog stayed at its 2026-09-24 copy. Claude Code writes a
+# `.in_use/<pid>` file under every plugin version at each session start, so the
+# `find -newer` check saw a "changed" tree on EVERY start and rebuilt synchronously under
+# load. Contract now: with a cache present the hook prints the cache and returns; freshness
+# check and rebuild run in ONE detached process guarded by an mkdir lock; `.in_use` churn is
+# not a change; a failed refresh logs to error-log.jsonl and never clobbers the cache.
+LOCK_NAME=".installed-catalog.lock"
+SENTINEL='{"generated_at":"sentinel","plugins":[],"agents":[],"skills":[]}'
+REAL_JQ=$(command -v jq)
+# wait_unlocked <brain>: poll until the detached refresh has released its lock (<=60s).
+wait_unlocked() {
+  local i=0
+  while [ -d "$1/$LOCK_NAME" ] && [ "$i" -lt 120 ]; do sleep 0.5; i=$((i + 1)); done
+  [ ! -d "$1/$LOCK_NAME" ]
+}
+# refresh_rows <brain>: count completed-refresh rows the detached child logged.
+refresh_rows() {
+  local n
+  n=$(grep -c 'gate=installed-catalog-refresh' "$1/audit-log.jsonl" 2>/dev/null)
+  printf '%s' "${n:-0}"
+}
+# A jq shim for the DETACHED child only (the serve path must never call jq): the first call
+# marks start, sleeps, then marks done — so "done exists when the hook returned" proves the
+# hook waited on its refresh (inherited stdout pipe, or a synchronous rebuild).
+SHIM="$TMP/shim"; mkdir -p "$SHIM"
+cat > "$SHIM/jq" <<'EOF'
+#!/bin/bash
+if [ -n "${DI_SHIM_MARK:-}" ] && [ ! -f "$DI_SHIM_MARK.start" ]; then
+  : > "$DI_SHIM_MARK.start"; sleep "${DI_SHIM_SLEEP:-4}"; : > "$DI_SHIM_MARK.done"
+fi
+# Test 12: fail only the final catalog assembly (the only --slurpfile call), so sb_log_error's
+# own jq still works and the failure row can land.
+if [ "${DI_SHIM_FAIL_ASSEMBLY:-0}" = "1" ]; then
+  for a in "$@"; do [ "$a" = "--slurpfile" ] && exit 5; done
+fi
+exec "$DI_REAL_JQ" "$@"
+EOF
+chmod +x "$SHIM/jq"
+
+# --- Test 9: stale cache -> served immediately, ONE detached refresh, lock stops a second --
+P9="$TMP/plugins9"; B9="$TMP/b9"; mkdir -p "$P9" "$B9"
+mkplugin "$P9" "alpha" "1.0.0" 1 1
+env BRAIN_DIR="$B9" bash "$SCRIPT" "$P9" >/dev/null 2>&1 || fail "9: initial synchronous build failed"
+printf '%s\n' "$SENTINEL" > "$B9/.installed-catalog.json"
+touch -t 202001010000 "$B9/.installed-catalog.json"          # older than the tree: stale
+mkplugin "$P9" "newplug" "2.0.0" 1 0                          # a real install happened
+MARK9="$TMP/mark9"
+OUT9=$(env BRAIN_DIR="$B9" PATH="$SHIM:$PATH" DI_REAL_JQ="$REAL_JQ" DI_SHIM_MARK="$MARK9" \
+  bash "$SCRIPT" "$P9" 2>/dev/null) || fail "9: hook exited non-zero on a stale cache"
+[ -f "$MARK9.done" ] && fail "9: hook returned only after the refresh finished (it waited on the child)"
+[ "$OUT9" = "$SENTINEL" ] || fail "9: stale cache was not served as-is (got a rebuilt catalog synchronously)"
+[ -d "$B9/$LOCK_NAME" ] || fail "9: no refresh was scheduled (lock dir absent after return)"
+# Second session while the first refresh is still in flight: serve, do not spawn another.
+OUT9B=$(env BRAIN_DIR="$B9" PATH="$SHIM:$PATH" DI_REAL_JQ="$REAL_JQ" DI_SHIM_MARK="$MARK9" \
+  bash "$SCRIPT" "$P9" 2>/dev/null) || fail "9: second hook exited non-zero"
+[ "$OUT9B" = "$SENTINEL" ] || fail "9: second hook did not serve the cache"
+wait_unlocked "$B9" || fail "9: refresh lock never released"
+[ "$(jq -r '.plugins | length' "$B9/.installed-catalog.json")" = "2" ] \
+  || fail "9: detached refresh did not rebuild the catalog with the new plugin"
+[ "$(refresh_rows "$B9")" = "1" ] || fail "9: expected exactly 1 refresh, got $(refresh_rows "$B9")"
+pass "stale cache served immediately; one detached refresh; lock blocks a second"
+
+# --- Test 10: `.in_use/<pid>` churn is not a plugin change ------------------------------
+P10="$TMP/plugins10"; B10="$TMP/b10"; mkdir -p "$P10" "$B10"
+mkplugin "$P10" "alpha" "1.0.0" 1 1
+mkdir -p "$P10/alpha/.in_use"                                  # exists since install
+find "$P10" -exec touch -t 202001010000 {} +
+printf '%s\n' "$SENTINEL" > "$B10/.installed-catalog.json"     # fresh cache (mtime now)
+: > "$P10/alpha/.in_use/4242"; touch -t 203001010000 "$P10/alpha/.in_use/4242"
+OUT10=$(env BRAIN_DIR="$B10" bash "$SCRIPT" "$P10" 2>/dev/null) || fail "10: hook exited non-zero"
+[ "$OUT10" = "$SENTINEL" ] || fail "10: .in_use churn triggered a synchronous rebuild"
+wait_unlocked "$B10" || fail "10: lock never released"
+[ "$(cat "$B10/.installed-catalog.json")" = "$SENTINEL" ] || fail "10: .in_use churn triggered a rebuild"
+[ "$(refresh_rows "$B10")" = "0" ] || fail "10: .in_use churn was counted as a refresh"
+pass ".in_use/<pid> churn does not invalidate the catalog"
+
+# --- Test 11: a lock left by a dead refresh is reclaimed, loudly --------------------------
+P11="$TMP/plugins11"; B11="$TMP/b11"; mkdir -p "$P11" "$B11"
+mkplugin "$P11" "alpha" "1.0.0" 1 1
+printf '%s\n' "$SENTINEL" > "$B11/.installed-catalog.json"
+touch -t 202001010000 "$B11/.installed-catalog.json"
+mkdir "$B11/$LOCK_NAME"; touch -t 202001010000 "$B11/$LOCK_NAME"
+OUT11=$(env BRAIN_DIR="$B11" bash "$SCRIPT" "$P11" 2>/dev/null) || fail "11: hook exited non-zero"
+[ "$OUT11" = "$SENTINEL" ] || fail "11: stale cache not served"
+wait_unlocked "$B11" || fail "11: reclaimed lock never released"
+[ "$(jq -r '.plugins | length' "$B11/.installed-catalog.json")" = "1" ] \
+  || fail "11: stale lock blocked the refresh forever"
+grep -q 'stale refresh lock' "$B11/error-log.jsonl" 2>/dev/null \
+  || fail "11: reclaiming a dead refresh's lock was silent (no error-log row)"
+pass "dead refresh's lock is reclaimed and logged"
+
+# --- Test 12: a failed refresh fails LOUD and keeps the old catalog -----------------------
+P12="$TMP/plugins12"; B12="$TMP/b12"; mkdir -p "$P12" "$B12"
+mkplugin "$P12" "alpha" "1.0.0" 1 1
+printf '%s\n' "$SENTINEL" > "$B12/.installed-catalog.json"
+touch -t 202001010000 "$B12/.installed-catalog.json"
+OUT12=$(env BRAIN_DIR="$B12" PATH="$SHIM:$PATH" DI_REAL_JQ="$REAL_JQ" DI_SHIM_FAIL_ASSEMBLY=1 \
+  bash "$SCRIPT" "$P12" 2>/dev/null) || fail "12: hook exited non-zero"
+[ "$OUT12" = "$SENTINEL" ] || fail "12: stale cache not served"
+wait_unlocked "$B12" || fail "12: lock not released after a failed refresh"
+[ "$(cat "$B12/.installed-catalog.json")" = "$SENTINEL" ] \
+  || fail "12: a failed refresh clobbered the cached catalog"
+grep -q '"script":"discover-installed.sh".*refresh failed' "$B12/error-log.jsonl" 2>/dev/null \
+  || fail "12: a failed refresh left no error-log row"
+pass "failed refresh logs to error-log.jsonl and keeps the old catalog"
+
+# Test 5 left a detached freshness check running in $B1; let it finish before the EXIT trap
+# removes $TMP (Windows cannot delete a directory a live process still holds open).
+wait_unlocked "$B1" || true
 
 echo; echo "ALL PASS"

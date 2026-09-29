@@ -268,6 +268,48 @@ sb_handoff_label() {
   fi
 }
 
+# sb_card_section <dir> <name>: the first NN-<name> split file, in $CARD_SEC ("" if none).
+# A glob loop, not `$(ls … | head -1)`: that fork+2-spawn pair ran once per section on every
+# SessionStart (S0 B7: render cancelled in 8 of 25 sessions). Glob order is ls order (both
+# collate NN- names the same), so the pick is unchanged.
+sb_card_section() {
+  local g
+  CARD_SEC=""
+  for g in "$1"/[0-9][0-9]-"$2"; do
+    [ -f "$g" ] && { CARD_SEC="$g"; return 0; }
+  done
+  return 0
+}
+
+# sb_card_bullets <file> <prefix> <max>: up to <max> lines of <file> starting with <prefix>,
+# newline-joined in $CARD_BULLETS — the fork-free form of `grep '^<prefix>' <file> | head -<max>`
+# (a read loop also cannot hit grep's binary-file heuristic on a torn UTF-8 byte, CR-H1).
+sb_card_bullets() {
+  local l n=0 LC_ALL=C
+  CARD_BULLETS=""
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in "$2"*) ;; *) continue ;; esac
+    CARD_BULLETS="${CARD_BULLETS}${CARD_BULLETS:+$'\n'}$l"
+    n=$((n + 1)); [ "$n" -ge "$3" ] && break
+  done < "$1"
+  return 0
+}
+
+# sb_card_head <file> <max>: the first <max> lines of a split section file that are neither a
+# "## " heading nor blank (space/tab only), in $CARD_HEAD — the fork-free form of
+# `LC_ALL=C awk '!/^## / && NF { print; c++ } c>=max { exit }' <file>`.
+sb_card_head() {
+  local l n=0 LC_ALL=C
+  CARD_HEAD=""
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in "## "*) continue ;; esac
+    case "$l" in *[!$' \t']*) ;; *) continue ;; esac
+    CARD_HEAD="${CARD_HEAD}${CARD_HEAD:+$'\n'}$l"
+    n=$((n + 1)); [ "$n" -ge "$2" ] && break
+  done < "$1"
+  return 0
+}
+
 # sb_repo_card <project_file> <slug> <cap> [lean]: the class (b)(c)(d)(f)(g) repo card
 # (docs/plans/2026-09-24-repo-brain.md §E) — a small, ALWAYS-fits digest of PROJECT.md that
 # replaces the full sb_project_hot_render dump when SB_REPO_CARD is on (default). One awk
@@ -330,9 +372,9 @@ $hard"
   local banner_close="[End untrusted reference]"
   local body=""
 
-  f=$(ls "$tmpd"/[0-9][0-9]-Direction 2>/dev/null | head -1)
+  sb_card_section "$tmpd" Direction; f="$CARD_SEC"
   local dirraw="" dirout="" first_label=""
-  [ -n "$f" ] && [ -f "$f" ] && dirraw=$(LC_ALL=C awk '!/^## / && NF { print; c++ } c>=3 { exit }' "$f")
+  [ -n "$f" ] && { sb_card_head "$f" 3; dirraw="$CARD_HEAD"; }
   if [ -n "$dirraw" ]; then
     while IFS= read -r l; do
       sb_card_trunc "$l" "$line_cap"
@@ -345,9 +387,9 @@ $dirout"
     # No ## Direction — fall back to ## Goal so the card's first section is never
     # silently empty for the overwhelming majority of projects. Lean mode caps this at 2
     # lines (goal_lines) instead of 3, per the compact re-inject's tighter budget.
-    f=$(ls "$tmpd"/[0-9][0-9]-Goal 2>/dev/null | head -1)
+    sb_card_section "$tmpd" Goal; f="$CARD_SEC"
     local goalraw="" goalout=""
-    [ -n "$f" ] && [ -f "$f" ] && goalraw=$(LC_ALL=C awk -v n="$goal_lines" '!/^## / && NF { print; c++ } c>=n { exit }' "$f")
+    [ -n "$f" ] && { sb_card_head "$f" "$goal_lines"; goalraw="$CARD_HEAD"; }
     if [ -n "$goalraw" ]; then
       while IFS= read -r l; do
         sb_card_trunc "$l" "$line_cap"
@@ -359,21 +401,23 @@ $goalout"
     fi
   fi
 
-  f=$(ls "$tmpd"/[0-9][0-9]-Handoff 2>/dev/null | head -1)
+  sb_card_section "$tmpd" Handoff; f="$CARD_SEC"
   local hoffraw4="" hoffraw="" hoffout="" hlabel=""
-  [ -n "$f" ] && [ -f "$f" ] && hoffraw4=$(LC_ALL=C awk '!/^## / && NF { print; c++ } c>=4 { exit }' "$f")
+  [ -n "$f" ] && { sb_card_head "$f" 4; hoffraw4="$CARD_HEAD"; }
   if [ -n "$hoffraw4" ]; then
-    local hfirst
-    hfirst=$(printf '%s\n' "$hoffraw4" | head -1)
+    # hoffraw4 holds at most 4 lines: first line / lines 2-4 / lines 1-3 by parameter
+    # expansion (was a printf|head, printf|tail|head and printf|head spawn chain).
+    local hfirst="${hoffraw4%%$'\n'*}"
     case "$hfirst" in
       "written: "*)
         sb_handoff_label "$hfirst"
         hlabel="$HLABEL"
-        hoffraw=$(printf '%s\n' "$hoffraw4" | tail -n +2 | head -3)
+        case "$hoffraw4" in *$'\n'*) hoffraw="${hoffraw4#*$'\n'}" ;; *) hoffraw="" ;; esac
         ;;
       *)
         hlabel="Handoff:"
-        hoffraw=$(printf '%s\n' "$hoffraw4" | head -3)
+        hoffraw="$hoffraw4"
+        case "$hoffraw4" in *$'\n'*$'\n'*$'\n'*) hoffraw="${hoffraw4%$'\n'*}" ;; esac
         ;;
     esac
   fi
@@ -458,9 +502,12 @@ $plan_body"
 
   local decraw="" convraw="" blkraw=""
   if [ "$lean" != "lean" ]; then
-    f=$(ls "$tmpd"/[0-9][0-9]-Recent-decisions 2>/dev/null | head -1)
+    sb_card_section "$tmpd" Recent-decisions; f="$CARD_SEC"
     local decout=""
-    [ -n "$f" ] && [ -f "$f" ] && decraw=$(LC_ALL=C sb_hot_decisions_filter < "$f" | grep '^- ' | head -5)
+    if [ -n "$f" ]; then
+      LC_ALL=C sb_hot_decisions_filter < "$f" > "$f.dec"
+      sb_card_bullets "$f.dec" "- " 5; decraw="$CARD_BULLETS"
+    fi
     if [ -n "$decraw" ]; then
       while IFS= read -r l; do
         sb_card_trunc "$l" "$line_cap"
@@ -470,9 +517,9 @@ $plan_body"
 $decout"
     fi
 
-    f=$(ls "$tmpd"/[0-9][0-9]-Conventions 2>/dev/null | head -1)
+    sb_card_section "$tmpd" Conventions; f="$CARD_SEC"
     local convout=""
-    [ -n "$f" ] && [ -f "$f" ] && convraw=$(grep '^- ' "$f" 2>/dev/null | head -5)
+    [ -n "$f" ] && { sb_card_bullets "$f" "- " 5; convraw="$CARD_BULLETS"; }
     if [ -n "$convraw" ]; then
       while IFS= read -r l; do
         sb_card_trunc "$l" "$line_cap"
@@ -482,9 +529,9 @@ $decout"
 $convout"
     fi
 
-    f=$(ls "$tmpd"/[0-9][0-9]-Open-blockers 2>/dev/null | head -1)
+    sb_card_section "$tmpd" Open-blockers; f="$CARD_SEC"
     local blkout=""
-    [ -n "$f" ] && [ -f "$f" ] && blkraw=$(grep '^- \[active\]' "$f" 2>/dev/null | head -5)
+    [ -n "$f" ] && { sb_card_bullets "$f" "- [active]" 5; blkraw="$CARD_BULLETS"; }
     if [ -n "$blkraw" ]; then
       while IFS= read -r l; do
         sb_card_trunc "$l" "$line_cap"
@@ -605,13 +652,17 @@ $tail"
   # of those also emits "- " bullet lines; without this the Plan section's `f` flag stayed
   # true straight through them, so plan= over-reported (e.g. plan=8 for 2 real Plan items —
   # the other 6 were decisions/blockers bullets).
-  plan_rendered_n=$(printf '%s\n' "$out" | awk '
-    /^Plan — unfinished/ { f=1; next }
-    f && /^\[End untrusted reference\]/ { exit }
-    f && /^(Decisions:|Conventions:|Open blockers:)$/ { exit }
-    f && /^- / { c++ }
-    END { print c+0 }
-  ')
+  # A read loop over $out (was printf|awk: a fork + spawn per card).
+  local _pf=0 _pl
+  plan_rendered_n=0
+  while IFS= read -r _pl; do
+    case "$_pl" in "Plan — unfinished"*) _pf=1; continue ;; esac
+    [ "$_pf" = 1 ] || continue
+    case "$_pl" in
+      "[End untrusted reference]"*|"Decisions:"|"Conventions:"|"Open blockers:") break ;;
+      "- "*) plan_rendered_n=$((plan_rendered_n + 1)) ;;
+    esac
+  done <<< "$out"
 
   if [ "$lean" = "lean" ]; then
     local goalflag=0 handoffflag=0
@@ -642,7 +693,12 @@ if [ ! -t 0 ]; then
     printf '%s' "$_sl_raw" | jq -r '(.session_id // ""), (.cwd // "")' 2>/dev/null)
   _sl_sid="${_sl_sid%$'\r'}"
   _sl_cwd="${_sl_cwd%$'\r'}"
-  SL_SESSION_ID=$(printf '%s' "$_sl_sid" | tr -cd 'A-Za-z0-9_-' | head -c 64)
+  # Same result as the `tr -cd 'A-Za-z0-9_-' | head -c 64` it replaces (two spawns + a fork).
+  # The class is spelled out, not ranged: bash 3.2 collates a range by locale, a list it does
+  # not. A non-ASCII char is dropped whole (tr dropped each of its bytes), so what survives is
+  # ASCII and ${:0:64} counts bytes. Main shell, so no `local LC_ALL` trick here.
+  _sl_sid="${_sl_sid//[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]/}"
+  SL_SESSION_ID="${_sl_sid:0:64}"
 fi
 
 # sb_manifest_add (kind: codemap|wiki|graph|anchor) is defined once in lib.sh —
@@ -683,7 +739,7 @@ if [ "${1:-}" = "--compact" ]; then
   fi
   # CRLF normalize a Windows/imported PROJECT.md for the read-only awk parsing below (same
   # idiom as the startup path further down) — read-only copy, $_cpf is never written.
-  if od -An -tx1 "$_cpf" 2>/dev/null | grep -q ' 0d'; then
+  if LC_ALL=C grep -q $'\r' "$_cpf"; then   # one spawn (was od|grep over a hex dump)
     _ccrlf=$(mktemp) && tr -d '\r' < "$_cpf" > "$_ccrlf" && _cpf="$_ccrlf"
   fi
   SL_GIT_ROOT="${CLAUDE_PROJECT_DIR:-${_sl_cwd:-$PWD}}"
@@ -839,7 +895,7 @@ cp "$project_file" "$BRAIN_DIR/.session-baseline-$slug.md"
 # scope-banner counters AND empty the PROJ_KW wiki-enrichment harvest. Only triggers when a CR
 # is actually present (the common LF case pays nothing). Safe: every use of $project_file from
 # here on is READ-only (the auto-scaffold write happened earlier, before this baseline copy).
-if od -An -tx1 "$project_file" 2>/dev/null | grep -q ' 0d'; then
+if LC_ALL=C grep -q $'\r' "$project_file"; then   # one spawn (was od|grep over a hex dump)
   _proj_lf=$(mktemp) && tr -d '\r' < "$project_file" > "$_proj_lf" && project_file="$_proj_lf"
 fi
 
@@ -912,6 +968,7 @@ sb_append() {
 # NOTHING, forced sections included (ledger F6: 3 real starts lost the entire hot tier + the
 # dead-man banner). Skips are loud (audit TRACE via the byte-budget gate or the row here).
 SL_START_S=$(date +%s)
+SL_T0_SECONDS=$SECONDS   # elapsed-time base for sb_enrich_headroom: bash's clock, no date spawn
 sb_enrich_headroom() {  # $1 = label, $2 = min bytes the section needs to be worth a spawn
   local need="${2:-200}"
   if [ $(( BYTE_BUDGET - USED )) -lt "$need" ]; then
@@ -919,7 +976,7 @@ sb_enrich_headroom() {  # $1 = label, $2 = min bytes the section needs to be wor
     return 1
   fi
   local soft="${SB_SESSION_LOAD_SOFT_S:-9}"; case "$soft" in ''|*[!0-9]*) soft=9 ;; esac
-  if [ $(( $(date +%s) - SL_START_S )) -ge "$soft" ]; then
+  if [ $(( SECONDS - SL_T0_SECONDS )) -ge "$soft" ]; then
     sb_log_error "session-load.sh" "gate=time-budget $1 spawn skipped (elapsed >= ${soft}s of the 15s hook budget — a killed hook delivers nothing)" 0
     return 1
   fi
@@ -1046,7 +1103,9 @@ if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
   # H_STATUS CR-taint on Windows ("fail\r" != "fail").
   { IFS= read -r H_STATUS; IFS= read -r H_BACKEND; IFS= read -r H_REASON; IFS= read -r H_AT; } < <(
     jq -r '(.status // "unknown"), (.backend // "unknown"), ((.reason // "") | gsub("[\r\n]"; " ")), (.checked_at // "")' \
-      "$SB_HEALTH_FILE" 2>/dev/null | tr -d '\r')
+      "$SB_HEALTH_FILE" 2>/dev/null)
+  # CR strip per field (the Windows jq CRLF), not a `| tr -d '\r'` spawn.
+  H_STATUS="${H_STATUS//$'\r'/}"; H_BACKEND="${H_BACKEND//$'\r'/}"; H_REASON="${H_REASON//$'\r'/}"; H_AT="${H_AT//$'\r'/}"
   if [ "$H_STATUS" = "fail" ]; then
     H_FAILS=$(sb_count_recent_extraction_failures)
     # Mode-aware hint. Previous single-template was telling users to "run
@@ -1184,7 +1243,7 @@ if [ "${SB_DRAIN_DEADMAN:-on}" != "off" ]; then
   DM_TX_DIR="$BRAIN_DIR/transcripts"
   if [ -d "$DM_TX_DIR" ]; then
     DM_STATE_M=$(sb_mtime "$DM_STATE"); DM_STATE_M="${DM_STATE_M:-0}"
-    DM_AGE_S=$(( $(date +%s) - DM_STATE_M ))
+    DM_AGE_S=$(( ${SL_START_S:-$(date +%s)} - DM_STATE_M ))   # run clock: no date spawn per start
     if [ "$DM_AGE_S" -gt $(( DEADMAN_H * 3600 )) ]; then
       # Progress is stale — is there NEWER work the drainer should have taken?
       # grep -c prints its count even on exit 1 (zero matches) — no `|| echo 0`
@@ -1238,7 +1297,9 @@ fi
 # Suppress: SB_CAPTURE_HEALTH_BANNER=off.
 if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
   CAP_STATE="$BRAIN_DIR/.extraction-state.jsonl"
-  CAP_N=$(ls -1 "$BRAIN_DIR/transcripts"/*.txt 2>/dev/null | wc -l | tr -d ' ')
+  # Count by glob (was ls|wc|tr: three spawns + a fork on every start).
+  _cap_txt=( "$BRAIN_DIR/transcripts"/*.txt )
+  CAP_N=0; { [ -e "${_cap_txt[0]}" ] || [ -L "${_cap_txt[0]}" ]; } && CAP_N=${#_cap_txt[@]}
   if [ "${CAP_N:-0}" -gt 0 ]; then
     CAP_DONE=0
     [ -f "$CAP_STATE" ] && CAP_DONE=$(grep -c '"outcome":"ok"' "$CAP_STATE" 2>/dev/null)
@@ -1305,8 +1366,19 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
         # Bounded cost: audit-log.jsonl is rotation-capped.
         RECON_ROW=$(grep 'drain-tick' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | grep 'reconcile' | tail -1)
         if [ -n "$RECON_ROW" ]; then
-          RECON_PEND=$(printf '%s' "$RECON_ROW" | grep -oE 'pending=[0-9]+' | head -1 | cut -d= -f2)
-          RECON_OLDEST=$(printf '%s' "$RECON_ROW" | grep -oE 'oldest_pending_s=[0-9]+' | head -1 | cut -d= -f2)
+          # First "<key><digits>" in the row, by parameter expansion (each was printf|grep -oE|
+          # head|cut: four spawns and a fork per key).
+          sl_kv_first() {   # $1 text, $2 key -> SL_KV = the digits after the first key+digit hit
+            local rest="$1" d
+            SL_KV=""
+            while :; do
+              case "$rest" in *"$2"*) ;; *) return 0 ;; esac
+              rest="${rest#*"$2"}"; d="${rest%%[!0123456789]*}"   # a list, not a locale-collated range
+              [ -n "$d" ] && { SL_KV="$d"; return 0; }
+            done
+          }
+          sl_kv_first "$RECON_ROW" "pending="; RECON_PEND="$SL_KV"
+          sl_kv_first "$RECON_ROW" "oldest_pending_s="; RECON_OLDEST="$SL_KV"
           if [ -n "$RECON_PEND" ] && [ "$RECON_PEND" -gt 0 ] 2>/dev/null; then
             CAP_PENDING_SFX=$(printf ' · %s pending (oldest %sh)' "$RECON_PEND" "$(( ${RECON_OLDEST:-0} / 3600 ))")
           fi
@@ -1334,7 +1406,7 @@ if [ "${SB_LOOP_DEAD_BANNER:-on}" != "off" ]; then
   fi
   if [ "$_ld_timer" = "yes" ]; then
     LOOP_DEAD_H="${SB_LOOP_DEAD_HOURS:-48}"; case "$LOOP_DEAD_H" in ''|*[!0-9]*) LOOP_DEAD_H=48 ;; esac
-    _ld_now=$(date +%s)
+    _ld_now="${SL_START_S:-$(date +%s)}"   # run clock: no date spawn per start
     _ld_newest=0
     # .extractor-health.json is NOT a progress clock: on OAuth every Stop hook rewrites it to
     # status=queued whether or not anything drained, so including it kept _ld_newest fresh and
@@ -1372,13 +1444,28 @@ fi
 #       this because the old index still holds its embeddings, so it would stay
 #       silent until 11+ NEW exchanges rotted with empty embeddings.
 #   (2) pending — >10 already-indexed exchanges have empty embeddings.
+#   (3) import-failure (S0 B4 residual, 2026-09-28) — the package dir EXISTS but will not
+#       import: 171 of 183 embeddings errors were "Cannot find package '…transformers\index.js'"
+#       with the dir present, which (1) cannot see. Fires on a script "embeddings" "model load
+#       failed" row from the last 24h in error-log.jsonl. A row naming a `<root>/mcp/` path
+#       counts only when <root> is THIS plugin root (matched on its last path component, either
+#       separator): an older version's failures (0.53.0 failed at 14:17, 0.54.0 was installed
+#       healthy at 16:18) or a dev checkout's say nothing about the running install.
+#       persona-context.sh's version-less "bm25-only" relink row is NOT a trigger: its only
+#       true-positive case (this root's dir missing) is already (1), and on any other root it
+#       would nag a healthy install for 24h.
+# The wiki search loads the same package (embeddings.ts logs its failure as script "embeddings"),
+# so the same failure drops knowledge_search to BM25-only (degraded:'bm25-only'); (1) and (3)
+# name both surfaces. Every emission logs gate=banner … fired=1 (fired=0 when the byte budget
+# refuses it), so a miss is visible in the audit log.
 SB_EPI_INDEX="${BRAIN_DIR:-$HOME/.second-brain}/episodic-index.json"
 if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
   # ONE jq for the two counts — hot path. Empty (jq parse failure)
   # defaults to 0 below — same fail-soft as the old per-field `|| echo 0`.
   { IFS= read -r EPI_PENDING; IFS= read -r EPI_TOTAL; } < <(
     jq -r '([.exchanges[]? | select((.embedding|length)==0)] | length), (.exchanges | length)' \
-      "$SB_EPI_INDEX" 2>/dev/null | tr -d '\r')
+      "$SB_EPI_INDEX" 2>/dev/null)
+  EPI_PENDING="${EPI_PENDING//$'\r'/}"; EPI_TOTAL="${EPI_TOTAL//$'\r'/}"   # Windows jq CRLF, no tr spawn
   : "${EPI_PENDING:=0}" "${EPI_TOTAL:=0}"
   EPI_XFMR_MISSING=0
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ ! -d "$CLAUDE_PLUGIN_ROOT/mcp/node_modules/@huggingface/transformers" ] && EPI_XFMR_MISSING=1
@@ -1395,16 +1482,63 @@ if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
     EPI_XFMR_MISSING=0; EPI_RELINKED=1
     sb_append "$(printf '## ⓘ second-brain — embeddings auto-relinked\nThis plugin version was missing its shared vector-deps symlink (a cache refresh ships without node_modules); re-linked automatically — no download. Empty embeddings backfill on the next session-end extraction.\n\n')" "episodic-embed-relinked" 300
   fi
+  # (3) import-failure: ONE awk over error-log.jsonl (rotation-capped), only when (1) is not
+  # already firing. The 24h cutoff is an ISO string (rows are "YYYY-MM-DDTHH:MM:SSZ", so a
+  # string compare orders them); GNU date -d, else BSD date -r. The backslash is built from its
+  # code point (sprintf %c 92): JSON doubles every Windows-path backslash, and no escape text
+  # in this source can be mangled on the way to awk.
+  EPI_IMPORT_N=0; EPI_IMPORT_LAST=""
+  _eb_log="$BRAIN_DIR/error-log.jsonl"
   if [ "${SB_EMBED_PENDING_BANNER:-on}" != "off" ] && [ "$EPI_RELINKED" -eq 0 ] \
-     && { [ "$EPI_XFMR_MISSING" -eq 1 ] || { [ "${EPI_PENDING:-0}" -gt 10 ] && [ "${EPI_TOTAL:-0}" -gt 0 ]; }; }; then
-    if [ "$EPI_XFMR_MISSING" -eq 1 ]; then
-      EPI_REASON='`@huggingface/transformers` is not linked in this plugin cache — a version bump creates a fresh dir whose `mcp/node_modules` symlink to the shared deps is not yet created — so every NEW embedding will silently fail.'
+     && [ "$EPI_XFMR_MISSING" -eq 0 ] && [ -s "$_eb_log" ]; then
+    _eb_cut_s=$(( ${SL_START_S:-$(date +%s)} - 86400 ))
+    _eb_cut=$(date -u -d "@$_eb_cut_s" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+      || date -u -r "$_eb_cut_s" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+    # Last path component of this plugin root (a version dir, or a dev checkout's name).
+    _eb_root="${CLAUDE_PLUGIN_ROOT:-}"; _eb_root="${_eb_root%/}"; _eb_root="${_eb_root%\\}"
+    _eb_root="${_eb_root##*/}"; _eb_root="${_eb_root##*\\}"
+    if [ -z "$_eb_cut" ]; then
+      sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner import-failure check skipped: no 24h cutoff (neither GNU nor BSD date)" 1
     else
+      read -r EPI_IMPORT_N EPI_IMPORT_LAST < <(LC_ALL=C awk -v cut="$_eb_cut" -v root="$_eb_root" '
+        BEGIN { bs = sprintf("%c", 92); b2 = bs bs; n = 0; last = "-" }
+        index($0, "\"script\":\"embeddings\"") && index($0, "model load failed") {
+          if (!match($0, /"timestamp":"[^"]*"/)) next
+          ts = substr($0, RSTART + 13, RLENGTH - 14)
+          if (ts < cut) next
+          if (index($0, "/mcp/") || index($0, b2 "mcp" b2)) {
+            if (root == "") next
+            if (!index($0, "/" root "/mcp/") && !index($0, b2 root b2 "mcp" b2)) next
+          }
+          n++; if (ts > last) last = ts
+        }
+        END { print n, last }
+      ' "$_eb_log")
+      case "$EPI_IMPORT_N" in ''|*[!0-9]*) EPI_IMPORT_N=0 ;; esac
+    fi
+  fi
+  if [ "${SB_EMBED_PENDING_BANNER:-on}" != "off" ] && [ "$EPI_RELINKED" -eq 0 ] \
+     && { [ "$EPI_XFMR_MISSING" -eq 1 ] || [ "$EPI_IMPORT_N" -gt 0 ] \
+          || { [ "${EPI_PENDING:-0}" -gt 10 ] && [ "${EPI_TOTAL:-0}" -gt 0 ]; }; }; then
+    EPI_TITLE='vector search degraded — episodic search and wiki knowledge_search run bm25-only'
+    if [ "$EPI_XFMR_MISSING" -eq 1 ]; then
+      EPI_KIND=deps-absent
+      EPI_REASON='`@huggingface/transformers` is not linked in this plugin cache — a version bump creates a fresh dir whose `mcp/node_modules` symlink to the shared deps is not yet created — so every NEW embedding will silently fail.'
+    elif [ "$EPI_IMPORT_N" -gt 0 ]; then
+      EPI_KIND=import-failure
+      EPI_REASON="\`@huggingface/transformers\` is present but failed to load: $EPI_IMPORT_N import failure(s) in error-log.jsonl in the last 24h (latest $EPI_IMPORT_LAST)."
+    else
+      EPI_KIND=pending
+      EPI_TITLE='episodic vector search degraded'
       EPI_REASON="$EPI_PENDING of $EPI_TOTAL indexed exchanges have no embedding (text search works; vector / mode=both will miss them)."
     fi
-    EPI_BANNER=$(printf '## ⓘ second-brain — episodic vector search degraded\n%s\nfix: `bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh` (re-links the shared deps; downloads ~70MB only on the first ever install). To re-embed existing exchanges, back up & remove `%s`, then run the episodic indexer.\nSuppress: `SB_EMBED_PENDING_BANNER=off`.\n\n' \
-      "$EPI_REASON" "$SB_EPI_INDEX")
-    sb_append "$EPI_BANNER" "episodic-embed-pending-banner" 800
+    EPI_BANNER=$(printf '## ⓘ second-brain — %s\n%s\nfix: `bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh` (re-links the shared deps; downloads ~70MB only on the first ever install). To re-embed existing exchanges, back up & remove `%s`, then run the episodic indexer.\nSuppress: `SB_EMBED_PENDING_BANNER=off`.\n\n' \
+      "$EPI_TITLE" "$EPI_REASON" "$SB_EPI_INDEX")
+    if sb_append "$EPI_BANNER" "episodic-embed-pending-banner" 800; then
+      sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner fired=1 reason=$EPI_KIND" 0
+    else
+      sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner fired=0 reason=$EPI_KIND skipped=byte-budget" 0
+    fi
   fi
 fi
 
@@ -1651,7 +1785,10 @@ if [ -f "$project_file" ]; then
   # default — a small always-fits digest instead of a head-cut/priority-trimmed PROJECT.md.
   # SB_REPO_CARD=off restores the legacy sb_project_hot_render path verbatim.
   if [ "${SB_REPO_CARD:-on}" != "off" ]; then
-    PROJ_CONTENT=$(printf '\n%s' "$(sb_repo_card "$project_file" "$slug" 1790)")
+    # One fork, not two: $(…) already strips the card's trailing newlines, so prefixing the
+    # newline here equals the old $(printf '\n%s' "$(…)") wrapper (empty card -> empty, as before).
+    PROJ_CONTENT=$(sb_repo_card "$project_file" "$slug" 1790)
+    [ -n "$PROJ_CONTENT" ] && PROJ_CONTENT=$'\n'"$PROJ_CONTENT"
     sb_append "$PROJ_CONTENT" "PROJECT.md" 1800 force
   else
     # Render to cap-10: the printf wrapper adds a leading newline, and sb_append's own
@@ -1667,10 +1804,21 @@ if [ -f "$project_file" ]; then
   if [ "${SB_SCOPE_BANNER:-on}" != "off" ]; then
     # N4/R2-SF2: same first-header-only latch as sb_repo_card's plan_raw awk above — a
     # later "## Plan B" section must not be double-counted into this banner's numbers.
-    PLAN_OPEN=$(LC_ALL=C awk '/^## Plan( |$)/{f=!seen;seen=1;next} /^## /{f=0} f && /^- \[ \]/{c++} END{print c+0}' "$project_file")
-    PLAN_TOTAL=$(LC_ALL=C awk '/^## Plan( |$)/{f=!seen;seen=1;next} /^## /{f=0} f && /^- / && !/\[pinned\]/{c++} END{print c+0}' "$project_file")
-    DEC_N=$(LC_ALL=C awk '/^## Recent decisions$/{f=1;next} /^## /{f=0} f && /^- /{c++} END{print c+0}' "$project_file")
-    BLK_N=$(LC_ALL=C awk '/^## Open blockers$/{f=1;next} /^## /{f=0} f && /^- \[active\]/{c++} END{print c+0}' "$project_file")
+    # ONE awk for the four counts (was four awk spawns + four forks over the same file); each
+    # count keeps its own section flag with the latch/reset rules of the awk it replaces.
+    read -r PLAN_OPEN PLAN_TOTAL DEC_N BLK_N < <(LC_ALL=C awk '
+      /^## / {
+        if ($0 ~ /^## Plan( |$)/) { fp = !seen; seen = 1 } else fp = 0
+        fd = ($0 ~ /^## Recent decisions$/)
+        fb = ($0 ~ /^## Open blockers$/)
+        next
+      }
+      fp && /^- \[ \]/ { po++ }
+      fp && /^- / && !/\[pinned\]/ { pt++ }
+      fd && /^- / { dn++ }
+      fb && /^- \[active\]/ { bn++ }
+      END { print po+0, pt+0, dn+0, bn+0 }
+    ' "$project_file")
     sb_append "$(printf '\n✓ second-brain: project memory loaded — %s (plan %s/%s · %s decisions · %s active blockers)\n' \
       "$slug" "$PLAN_OPEN" "$PLAN_TOTAL" "$DEC_N" "$BLK_N")" "scope-banner" 200 force
   fi
@@ -1681,7 +1829,11 @@ if [ -f "$INDEX_FILE" ]; then
   # -c so a matched record renders as ONE compact line — jq pretty-prints
   # objects by default even with -r, so `head -1` used to grab a lone "{" and
   # inject it into the hot tier. tr -d '\r' for Windows CRLF stdout.
-  IDX_LINE=$(printf '\n%s' "$(jq -c --arg s "$slug" 'select(.slug == $s)' "$INDEX_FILE" 2>/dev/null | tr -d '\r' | head -1)")
+  # First matching line + CR strip by parameter expansion (was `| tr -d '\r' | head -1` and a
+  # second command-substitution fork around it).
+  IDX_LINE=$(jq -c --arg s "$slug" 'select(.slug == $s)' "$INDEX_FILE" 2>/dev/null)
+  IDX_LINE="${IDX_LINE%%$'\n'*}"; IDX_LINE="${IDX_LINE//$'\r'/}"
+  [ -n "$IDX_LINE" ] && IDX_LINE=$'\n'"$IDX_LINE"
   sb_append "$IDX_LINE" "index-line" 200
 fi
 
@@ -1764,8 +1916,9 @@ if [ "${SB_RAW_INBOX:-on}" != "off" ]; then
   if [ -d "$RAW_DIR_PATH" ]; then
     # "open" = items not yet processed/discarded = unprocessed + malformed, matching the module's
     # unprocessedCount (which counts malformed items as backlog). total - closed; mawk-free.
-    RAW_TOTAL=$(find "$RAW_DIR_PATH" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
-    RAW_CLOSED=$(grep -rlE '^status: (processed|discarded)$' "$RAW_DIR_PATH" 2>/dev/null | wc -l | tr -d ' ')
+    # No `| tr -d ' '` per count: BSD wc's padding is harmless inside $(( )) below.
+    RAW_TOTAL=$(find "$RAW_DIR_PATH" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l)
+    RAW_CLOSED=$(grep -rlE '^status: (processed|discarded)$' "$RAW_DIR_PATH" 2>/dev/null | wc -l)
     RAW_N=$(( ${RAW_TOTAL:-0} - ${RAW_CLOSED:-0} ))
     if [ "${RAW_N:-0}" -gt 0 ]; then
       # B1 (SP-B): when material is genuinely piling up AND auto-consolidation is OFF,
@@ -1811,6 +1964,24 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
   # the hardened per-line TS resolver; deliberately no bash/jq reimplementation here.
   # head -12 bounds a hub anchor's edge list so one seed cannot eat the 600B cap.
   GRAPH_SEEDS=$(printf '%s\n%s\n' "$slug" "$CR_SLUGS" | awk 'NF && !seen[$0]++' | head -5)
+  # sl_graph_fmt <raw>: the first 12 lines of graph-neighbors-cli output (type TAB from TAB to
+  # TAB hops) as "from type to; " each, in $SL_NBR: the bash form of the old per-seed
+  # `| head -12 | awk -F'\t' '{ printf "%s %s %s; ", $2, $1, $3 }'` (two spawns per seed, up to
+  # five seeds per start). Fields split on single tabs, empty fields kept, as awk -F'\t' does.
+  sl_graph_fmt() {
+    local line r f1 f2 f3 n=0
+    SL_NBR=""
+    [ -n "$1" ] || return 0
+    while IFS= read -r line; do
+      n=$((n + 1)); [ "$n" -gt 12 ] && break
+      f1="${line%%$'\t'*}"; f2=""; f3=""
+      if [[ "$line" == *$'\t'* ]]; then
+        r="${line#*$'\t'}"; f2="${r%%$'\t'*}"
+        if [[ "$r" == *$'\t'* ]]; then r="${r#*$'\t'}"; f3="${r%%$'\t'*}"; fi
+      fi
+      SL_NBR="${SL_NBR}$f2 $f1 $f3; "
+    done <<< "$1"
+  }
   GRAPH_OUT=""
   GRAPH_FIRST=1
   # The anchor id (this Stop's "ritual call" — see telemetry, stop-extract.sh) is
@@ -1826,16 +1997,16 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
     if [ "$GRAPH_FIRST" = 1 ]; then
       IS_ANCHOR_SEED=1
       GRAPH_ERR_F=$(mktemp)
-      nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>"$GRAPH_ERR_F" | head -12 \
-        | awk -F'\t' '{ printf "%s %s %s; ", $2, $1, $3 }')
+      nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>"$GRAPH_ERR_F")
+      sl_graph_fmt "$nbr"; nbr="$SL_NBR"
       if [ -s "$GRAPH_ERR_F" ]; then
         sb_log_error "session-load.sh" "graph-neighbors-cli failed for project seed=$s: $(head -c 200 "$GRAPH_ERR_F" | tr '\n' ' ')" 0
       fi
       rm -f "$GRAPH_ERR_F"
       GRAPH_FIRST=0
     else
-      nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>/dev/null | head -12 \
-        | awk -F'\t' '{ printf "%s %s %s; ", $2, $1, $3 }')
+      nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>/dev/null)
+      sl_graph_fmt "$nbr"; nbr="$SL_NBR"
     fi
     if [ -n "$nbr" ]; then
       GRAPH_OUT="${GRAPH_OUT}- ${s}: ${nbr}\n"
@@ -1867,16 +2038,18 @@ fi
 DREAMS_DIR="$BRAIN_DIR/dreams"
 if [ -d "$DREAMS_DIR" ] && command -v jq >/dev/null 2>&1; then
   STALE_DAYS="${SB_DREAM_STALE_DAYS:-7}"; case "$STALE_DAYS" in ''|*[!0-9]*) STALE_DAYS=7 ;; esac
-  NOW_S=$(date +%s)
+  NOW_S="${SL_START_S:-$(date +%s)}"   # this run's clock, set before the banners (no second date spawn)
   PEND_N=0; PEND_ID=""; PEND_A=0; PEND_M=0
   STALE_N=0; STALE_ID=""; STALE_AGE=0; STALE_A=0; STALE_M=0; STALE_OLDEST=""
   for sf in "$DREAMS_DIR"/drm_*/status.json; do
     [ -f "$sf" ] || continue
     # ONE jq for the five status fields — hot path. Line-per-field -r protocol;
-    # all five are single-line.
+    # all five are single-line. CRs (Windows jq) are stripped per field below, not by a
+    # `| tr -d '\r'` spawn per dream.
     { IFS= read -r DSTATUS; IFS= read -r DARCH; IFS= read -r DID; IFS= read -r DA; IFS= read -r DM; } < <(
       jq -r '(.status // ""), (.archived_at // ""), (.id // ""), (.outputs.pages_added // 0), (.outputs.pages_modified // 0)' \
-        "$sf" 2>/dev/null | tr -d '\r')
+        "$sf" 2>/dev/null)
+    DSTATUS="${DSTATUS//$'\r'/}"; DARCH="${DARCH//$'\r'/}"; DID="${DID//$'\r'/}"; DA="${DA//$'\r'/}"; DM="${DM//$'\r'/}"
     [ "$DSTATUS" = "completed" ] || continue
     { [ -n "$DARCH" ] && [ "$DARCH" != "null" ]; } && continue   # terminal (accepted/discarded) → silent
     # mtime: own portable form (fail default is $NOW_S, not sb_mtime's 0 — an
@@ -1927,7 +2100,9 @@ fi
 # A buddy install from before 0.53.0 (0.51.0 or 0.52.0) has no refreshInterval (the capybara renders but only moves on events)
 # and no react consent (two-way stays off). One re-install fixes both; the buddy says so itself.
 _bset="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
-if [ -f "$_bset" ] && grep -q 'buddy-statusline' "$_bset" && ! grep -q '"refreshInterval"' "$_bset"; then
+# One builtin read of settings.json, then substring tests (was two grep spawns every start).
+_bset_txt=""; [ -f "$_bset" ] && IFS= read -r -d '' _bset_txt < "$_bset"
+if [ -n "$_bset_txt" ] && [[ "$_bset_txt" == *buddy-statusline* ]] && [[ "$_bset_txt" != *'"refreshInterval"'* ]]; then
   sb_buddy_event "$SL_SESSION_ID" pending waiting "Buddy predates 0.53.0: run /second-brain:buddy install once to animate it and turn on two-way chat." session-load 1800
 fi
 
@@ -1985,7 +2160,7 @@ fi
 WIKI_INDEX="$(sb_knowledge_dir)/wiki/index.md"
 if [ -f "$WIKI_INDEX" ]; then
   INDEX_MTIME=$(sb_mtime "$WIKI_INDEX")
-  NOW_S=$(date +%s)
+  NOW_S="${SL_START_S:-$(date +%s)}"   # run clock vs a 24h threshold: no date spawn
   INDEX_AGE_S=$((NOW_S - INDEX_MTIME))
   if [ "$INDEX_AGE_S" -gt 86400 ]; then
     (

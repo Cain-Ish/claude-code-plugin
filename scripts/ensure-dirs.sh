@@ -4,15 +4,15 @@
 source "$(dirname "$0")/lib.sh"
 KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 
-mkdir -p "$BRAIN_DIR/projects"
-mkdir -p "$BRAIN_DIR/transcripts"
-mkdir -p "$BRAIN_DIR/dreams"
-mkdir -p "$BRAIN_DIR/wiki-archive"
 # Wiki content-category dirs from the KB source of truth (kb-schema.json, via lib.sh -> kb-schema.sh).
-# Creates ALL content categories.
+# Creates ALL content categories. ONE mkdir for every dir (was 12 spawns, one per dir, on every
+# SessionStart under a 5s timeout; S0 B7: cancelled in 7 of 25 sessions). mkdir -p still creates
+# each operand independently and reports each failure.
+_ed_dirs=( "$BRAIN_DIR/projects" "$BRAIN_DIR/transcripts" "$BRAIN_DIR/dreams" "$BRAIN_DIR/wiki-archive" )
 for _c in ${SB_CONTENT_CATEGORIES:-learnings decisions entities issues concepts security state sources}; do
-  mkdir -p "$KNOWLEDGE_DIR/wiki/$_c"
+  _ed_dirs+=( "$KNOWLEDGE_DIR/wiki/$_c" )
 done
+mkdir -p "${_ed_dirs[@]}"
 test -f "$BRAIN_DIR/projects.jsonl" || : > "$BRAIN_DIR/projects.jsonl"
 # Seed a self-documenting config.json. Automation is ON by default — this is an
 # automation plugin, so a fresh install self-maintains without the user remembering to opt in.

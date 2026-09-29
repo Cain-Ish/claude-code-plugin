@@ -19,8 +19,10 @@ BLOCK=$(awk '
 [ -n "$BLOCK" ] || { echo "FAIL: could not extract block 0b from session-load.sh"; exit 1; }
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+# sb_log_error is stubbed too: block 0b logs every banner emission (gate=banner, S0 B4).
 cat > "$TMP/runner.sh" <<'EOF'
 sb_append() { printf '[%s]\n%s\n' "$2" "$1"; }
+sb_log_error() { printf 'LOG %s ec=%s\n' "$2" "${3:-1}"; }
 EOF
 printf '%s\n' "$BLOCK" >> "$TMP/runner.sh"
 
