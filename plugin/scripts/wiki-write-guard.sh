@@ -11,16 +11,253 @@ set -u
 
 [ "${SB_PERSONA_GATE:-on}" = "off" ] && exit 0
 
-RAW=$(cat 2>/dev/null || true)
+# >>> sb-guard-fastpath (B7) — pasted byte-identical into every deny/ask PreToolUse guard;
+# tests/test-guard-wiring.sh fails on drift. A PreToolUse hook that answers after its timeout is
+# CANCELLED and the tool RUNS (CLI 2.1.283 probe, 2026-09-28; ~217 guard runs failed open in four
+# heavy sessions). So each guard decides its dangerous cases here first, with bash builtins only:
+# no lib.sh, no jq, no process at all (one `date` on bash < 4.2 for an audit timestamp). The fast
+# path asks/denies only when certain and never allows: whatever it cannot decide falls through
+# to the guard's full logic. Helper locals carry a per-helper prefix so no caller's VAR name can be
+# shadowed by them (printf -v writes through dynamic scope). Assignments that substitute with a
+# quoted replacement stay unquoted: bash <= 4.2 did not quote-remove it inside "${…}".
+_fp_bs='\' _fp_q='"' _fp_us=$'\037' _fp_nl=$'\n' _fp_cr=$'\r' _fp_tab=$'\t'
+_fp_re='^[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+_fp_uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ _fp_lc=abcdefghijklmnopqrstuvwxyz
+# The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
+# MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
+# _fp_raw_all, only for a bigger payload.
+_FP_RAW="" _FP_EOF=0 _FP=""
+IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
+
+# _fp_raw_all: RAW = the whole payload for the full logic (trailing newlines stripped, as the old
+# RAW=$(cat) did); _fp_str reads the whole payload from then on.
+_fp_raw_all() {
+  if [ "$_FP_EOF" = 1 ]; then RAW="$_FP_RAW"; else RAW="$_FP_RAW$(cat)"; fi
+  while [ "${RAW%"$_fp_nl"}" != "$RAW" ]; do RAW="${RAW%"$_fp_nl"}"; done
+  _FP_RAW="$RAW" _FP_EOF=1
+}
+
+# _fp_str KEY: _FP = the decoded string value of the ONE "KEY": "…" pair in the payload.
+# 0 = found; 1 = absent (the whole payload was seen); 2 = undecidable — the key occurs twice
+# (nested or duplicated: jq decides which one counts), the value is not a string or runs past the
+# 16 KiB read, or it carries an escape left to jq (\u \b \f). JSON escapes every quote inside a
+# string, so a "KEY" followed by ':' is always a real key, never text inside a value.
+_fp_str() {
+  local _fs_k="\"$1\"" _fs_r _fs_v
+  _FP=""
+  case "$_FP_RAW" in
+    *"$_fs_k"*) ;;
+    *) [ "$_FP_EOF" = 1 ] && return 1; return 2 ;;
+  esac
+  _fs_r="${_FP_RAW#*"$_fs_k"}"
+  case "$_fs_r" in *"$_fs_k"*) return 2 ;; esac
+  [[ $_fs_r =~ $_fp_re ]] || return 2
+  _fs_v="${BASH_REMATCH[1]}"
+  case "$_fs_v" in *"$_fp_us"*) return 2 ;; esac
+  _fs_v=${_fs_v//"$_fp_bs$_fp_bs"/"$_fp_us"}
+  case "$_fs_v" in *"$_fp_bs"[ubf]*) return 2 ;; esac
+  _fs_v=${_fs_v//"$_fp_bs$_fp_q"/"$_fp_q"}; _fs_v=${_fs_v//"$_fp_bs/"/"/"}
+  _fs_v=${_fs_v//"$_fp_bs"n/"$_fp_nl"}; _fs_v=${_fs_v//"$_fp_bs"t/"$_fp_tab"}; _fs_v=${_fs_v//"$_fp_bs"r/"$_fp_cr"}
+  case "$_fs_v" in *"$_fp_bs"*) return 2 ;; esac
+  _FP=${_fs_v//"$_fp_us"/"$_fp_bs"}
+  return 0
+}
+
+# _fp_clean VAR…: drop CRs and trailing newlines from each VAR — what the full logic's old
+# `$(jq -r … | tr -d '\r')` captures did to every payload field.
+_fp_clean() {
+  local _fc_v _fc_s
+  for _fc_v in "$@"; do
+    _fc_s="${!_fc_v}"
+    _fc_s=${_fc_s//"$_fp_cr"/}
+    while [ "${_fc_s%"$_fp_nl"}" != "$_fc_s" ]; do _fc_s="${_fc_s%"$_fp_nl"}"; done
+    printf -v "$_fc_v" '%s' "$_fc_s"
+  done
+}
+
+# _fp_lines ERE TEXT: true when one LINE of TEXT matches (grep's unit). The whole-text test runs
+# first and is a superset for EREs whose only anchors are (^|X) / (X|$) with X matching newline.
+_fp_lines() {
+  local _fl_re="$1" _fl_rest="$2" _fl_line
+  [[ $_fl_rest =~ $_fl_re ]] || return 1
+  while :; do
+    _fl_line="${_fl_rest%%"$_fp_nl"*}"
+    [[ $_fl_line =~ $_fl_re ]] && return 0
+    [ "$_fl_line" = "$_fl_rest" ] && return 1
+    _fl_rest="${_fl_rest#*"$_fp_nl"}"
+  done
+}
+
+# _fp_lower VAR TEXT: ASCII A-Z to a-z (bash 3.2 has no ${x,,}; explicit letter lists, since a
+# [A-Z] range can match lower case under a collating locale).
+_fp_lower() {
+  local _fw_s="$2" _fw_o="" _fw_c _fw_u _fw_i
+  case "$_fw_s" in *[ABCDEFGHIJKLMNOPQRSTUVWXYZ]*) ;; *) printf -v "$1" '%s' "$_fw_s"; return 0 ;; esac
+  for ((_fw_i = 0; _fw_i < ${#_fw_s}; _fw_i++)); do
+    _fw_c="${_fw_s:$_fw_i:1}"
+    case "$_fw_c" in [ABCDEFGHIJKLMNOPQRSTUVWXYZ]) _fw_u="${_fp_uc%%"$_fw_c"*}"; _fw_c="${_fp_lc:${#_fw_u}:1}" ;; esac
+    _fw_o="$_fw_o$_fw_c"
+  done
+  printf -v "$1" '%s' "$_fw_o"
+}
+
+# _fp_path VAR PATH [lex]: lib.sh sb_normalize_path's lexical steps (backslashes to '/', the
+# \\?\ and \\.\ prefixes, the loopback admin share). With "lex", a drive path X:/… is also spelled
+# /x/…, as cygpath -u spells it, on a Windows host (cygpath on PATH, or an MSYS/Cygwin bash).
+_fp_path() {
+  local _fq_p="$2" _fq_d
+  _fq_p=${_fq_p//"$_fp_bs"/"/"}
+  _fq_p="${_fq_p#"//?/"}"; _fq_p="${_fq_p#"//./"}"
+  case "$_fq_p" in
+    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p#//localhost/}";  _fq_d="${_fq_d%%\$*}"; _fq_p="$_fq_d:${_fq_p#//localhost/[A-Za-z]\$}" ;;
+    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p#//127.0.0.1/}";  _fq_d="${_fq_d%%\$*}"; _fq_p="$_fq_d:${_fq_p#//127.0.0.1/[A-Za-z]\$}" ;;
+  esac
+  if [ "${3:-}" = lex ]; then
+    case "$_fq_p" in
+      [A-Za-z]:/*)
+        if command -v cygpath >/dev/null 2>&1 || [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]]; then
+          _fp_lower _fq_d "${_fq_p%%:*}"; _fq_p="/$_fq_d${_fq_p#?:}"
+        fi ;;
+    esac
+  fi
+  printf -v "$1" '%s' "$_fq_p"
+}
+
+# _fp_esc VAR TEXT: TEXT as a JSON string body (\ " \n \r \t escaped, other control chars dropped).
+_fp_esc() {
+  local _fe_s="$2"
+  _fe_s=${_fe_s//"$_fp_bs"/"$_fp_bs$_fp_bs"}; _fe_s=${_fe_s//"$_fp_q"/"$_fp_bs$_fp_q"}
+  _fe_s=${_fe_s//"$_fp_nl"/"${_fp_bs}n"}; _fe_s=${_fe_s//"$_fp_cr"/"${_fp_bs}r"}; _fe_s=${_fe_s//"$_fp_tab"/"${_fp_bs}t"}
+  _fe_s=${_fe_s//[[:cntrl:]]/}
+  printf -v "$1" '%s' "$_fe_s"
+}
+
+# _fp_emit ask|deny REASON: the verdict, in the hookSpecificOutput shape the guards emit.
+_fp_emit() {
+  local _fm_r; _fp_esc _fm_r "$2"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$_fm_r"
+}
+
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks the source), appended by one printf >> (D120).
+_fp_audit() {
+  local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s
+  _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
+  [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    TZ=UTC0 printf -v _fa_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  else
+    _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  fi
+  _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$4"; _fp_esc _fa_e "$5"; _fp_esc _fa_s "$6"
+  printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{"fastpath":true}}\n' \
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" >> "$_fa_bd/audit-log.jsonl"
+}
+# <<< sb-guard-fastpath
+
+DENY_MSG="Wiki pages require YAML frontmatter. Prepend a block like:
+---
+title: \"<page title>\"
+description: \"\"
+type: <concepts|decisions|entities|issues|learnings|security|state|sources>
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+tags: []
+related: []
+---
+
+Then retry the write. See existing pages in ~/knowledge/wiki/ for the schema."
+
+# Legacy-wiki misroute deny, with the corrected canonical path (see the LEGACY branch below).
+# Substituted on the lowercased path so a case-varied ".Second-Brain/Wiki" still yields a
+# corrected path (the lowercase form is valid on the case-insensitive filesystems where case
+# variants can occur at all). Builtin first-match substitution, as the old sed s||| did.
+_wwg_legacy_msg() {  # _wwg_legacy_msg LOWERCASED-PATH -> WWG_MSG
+  local _wl_s
+  _wl_s=${1/".second-brain/wiki"/knowledge/wiki}
+  WWG_MSG="Legacy wiki path — .second-brain/wiki is NOT the wiki. Pages written here are invisible to knowledge_search (the raw-drainer misroute bug class). The canonical wiki is KNOWLEDGE_DIR (~/knowledge/wiki). Write to: $_wl_s"
+}
+
+# --- B7 fast path: wiki direct writes decided before any process -------------------------------
+# The legacy-tree misroute (path only), and a missing frontmatter fence when the first character
+# of the new text settles it: a Write's content or an Edit's new_string that starts with anything
+# but '-' or an escape (an empty new_string too — the full logic denies it). A Write that creates
+# a page is decided here only when no forgotten page by that slug can be auto-restored instead (no
+# archive log, or no archived <slug>.md) — the restore redirect must win then. MultiEdit's
+# frontmatter test (every edits[] entry) stays with the full logic.
+_wwg_first() {  # _wwg_first KEY -> _W1 = first char of the "KEY" string value ('' = empty); 1 = undecidable
+  local _wf_k="\"$1\"" _wf_r _wf_re='^[[:space:]]*:[[:space:]]*"(.)'
+  _W1=""
+  case "$_FP_RAW" in *"$_wf_k"*) ;; *) return 1 ;; esac
+  _wf_r="${_FP_RAW#*"$_wf_k"}"
+  case "$_wf_r" in *"$_wf_k"*) return 1 ;; esac
+  [[ $_wf_r =~ $_wf_re ]] || return 1
+  _W1="${BASH_REMATCH[1]}"
+  [ "$_W1" = "$_fp_q" ] && _W1=""
+  return 0
+}
+_wwg_fast() {
+  local tool fp lc slug bd f top="" legacy=0
+  _fp_str tool_name || return 1
+  tool="$_FP"
+  case "$tool" in Write|Edit|MultiEdit) ;; *) return 1 ;; esac
+  _fp_str file_path || return 1
+  fp="${_FP//"$_fp_cr"/}"
+  [ -n "$fp" ] || return 1
+  fp=${fp//"$_fp_bs"/"/"}
+  _fp_lower lc "$fp"
+  case "$lc" in */.second-brain/wiki/*.md) legacy=1 ;; */knowledge/wiki/*/*.md) ;; *) return 1 ;; esac
+  case "$lc" in */knowledge/wiki/index.md) return 1 ;; esac
+  if [ "$legacy" = 1 ]; then _wwg_legacy_msg "$lc"; _fp_emit deny "$WWG_MSG"; return 0; fi
+  case "$tool" in
+    Write)
+      if [ ! -f "$fp" ]; then
+        bd="${BRAIN_DIR:-$HOME/.second-brain}"; bd=${bd//"$_fp_bs"/"/"}
+        if [ -f "$bd/wiki-archive-log.jsonl" ]; then
+          _fp_lower slug "${fp##*/}"; slug="${slug%.md}"
+          for f in "$bd"/wiki-archive/*/"$slug.md"; do [ -e "$f" ] && return 1; done
+        fi
+      fi
+      _wwg_first content || return 1
+      case "$_W1" in ''|-|"$_fp_bs") return 1 ;; esac
+      _fp_emit deny "$DENY_MSG" ;;
+    Edit)
+      if [ -f "$fp" ]; then
+        IFS= read -r -d '' -n 4 top < "$fp"
+        case "$top" in ---*) return 1 ;; esac
+      fi
+      _wwg_first new_string || return 1
+      case "$_W1" in -|"$_fp_bs") return 1 ;; esac
+      _fp_emit deny "File $fp is missing YAML frontmatter and your edit doesn't add one. $DENY_MSG" ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+_wwg_fast && exit 0
+
+# --- Full logic (the fast path could not decide) -----------------------------------------------
+_fp_raw_all
 [ -z "$RAW" ] && exit 0
 
-TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
+# Tool and target: builtin decode when decidable, else ONE jq (NUL-framed; the old form spent
+# two jq + two tr on every Write/Edit, wiki or not). Garbage stdin → jq fails → TOOL empty → exit 0.
+TOOL="" FILE_PATH=""
+_wwg_fields() {
+  local rc
+  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && return 1; TOOL="$_FP"
+  _fp_str file_path; rc=$?; [ "$rc" = 2 ] && return 1; FILE_PATH="$_FP"
+  return 0
+}
+if ! _wwg_fields; then
+  TOOL="" FILE_PATH=""
+  { IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; } \
+    < <(jq -j '(.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000"' <<< "$RAW" 2>/dev/null)
+fi
+_fp_clean TOOL FILE_PATH
 case "$TOOL" in
   Write|Edit|MultiEdit) ;;
   *) exit 0 ;;
 esac
-
-FILE_PATH=$(printf '%s' "$RAW" | jq -r '.tool_input.file_path // empty' 2>/dev/null | tr -d '\r')
 [ -z "$FILE_PATH" ] && exit 0
 
 # Windows git-bash sends 'C:\…\knowledge\wiki\…\x.md'; the backslash form never
@@ -37,8 +274,8 @@ FILE_PATH="${FILE_PATH//\\//}"
 # persona-tool-guard class, one guard over). Match on a lowercased COPY; $FILE_PATH
 # keeps its casing for every file operation. On case-sensitive Linux this only widens
 # matching — it fails toward deny/enforce, never toward silent allow. (tr, not ${x,,}:
-# bash-3.2/BSD portable — same idiom as symlink-guard's RESOLVED_LC.)
-FP_LC=$(printf '%s' "$FILE_PATH" | tr '[:upper:]' '[:lower:]')
+# bash-3.2/BSD portable; a builtin loop, not a `tr` spawn, since B7.)
+_fp_lower FP_LC "$FILE_PATH"
 
 # Match any wiki page under a knowledge/wiki/<category>/ tree. We don't anchor on
 # $HOME because tests use tmp dirs; matching on the literal "/knowledge/wiki/" segment
@@ -62,42 +299,23 @@ case "$FP_LC" in
 esac
 
 deny() {
-  local reason="$1"
-  jq -nc --arg r "$reason" '{
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: $r
-    }
-  }' 2>/dev/null || true
+  _fp_emit deny "$1"
   exit 0
 }
 
 # Legacy-wiki misroute: deny with the corrected canonical path. Fires for Write, Edit
 # and MultiEdit alike — frontmatter cannot save a page written where search never looks.
 if [ "$LEGACY_WIKI" = "1" ]; then
-  # Substitute on the lowercased copy so a case-varied ".Second-Brain/Wiki" still
-  # yields a corrected path (BSD sed has no s///I flag; the lowercase form is valid
-  # on the case-insensitive filesystems where case variants can occur at all).
-  SUGGEST=$(printf '%s' "$FP_LC" | sed 's|\.second-brain/wiki|knowledge/wiki|')
-  deny "Legacy wiki path — .second-brain/wiki is NOT the wiki. Pages written here are invisible to knowledge_search (the raw-drainer misroute bug class). The canonical wiki is KNOWLEDGE_DIR (~/knowledge/wiki). Write to: $SUGGEST"
+  _wwg_legacy_msg "$FP_LC"
+  deny "$WWG_MSG"
 fi
 
-DENY_MSG="Wiki pages require YAML frontmatter. Prepend a block like:
----
-title: \"<page title>\"
-description: \"\"
-type: <concepts|decisions|entities|issues|learnings|security|state|sources>
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
-tags: []
-related: []
----
-
-Then retry the write. See existing pages in ~/knowledge/wiki/ for the schema."
-
+# True when the text's first 4 bytes hold a line that starts with '---' — exactly what the old
+# `head -c 4 | grep -q '^---'` pipeline answered (the fence at byte 0, or right after a leading
+# newline), without its two processes.
 starts_with_frontmatter() {
-  printf '%s' "$1" | head -c 4 | grep -q '^---' 2>/dev/null
+  case "$1" in ---*|"$_fp_nl"---*) return 0 ;; esac
+  return 1
 }
 
 # Tombstone / auto-restore: a Write that re-creates a FORGOTTEN page revives the
@@ -108,7 +326,7 @@ if [ "$TOOL" = "Write" ] && [ ! -f "$FILE_PATH" ]; then
   # Canonical slugs are lowercase (sb_sanitize_slug), so lowercase the basename:
   # on NTFS/APFS, Vanished.MD recreates the forgotten page vanished.md and the
   # archive lookup must survive the casing.
-  SLUG=$(basename "$FILE_PATH" | tr '[:upper:]' '[:lower:]')
+  _fp_lower SLUG "${FILE_PATH##*/}"
   SLUG="${SLUG%.md}"
   GUARD_BD="${BRAIN_DIR:-$HOME/.second-brain}"
   ARCH=$(BRAIN_DIR="$GUARD_BD" "$(dirname "$0")/wiki-archived-slugs.sh" --path "$SLUG" 2>/dev/null) || ARCH=""

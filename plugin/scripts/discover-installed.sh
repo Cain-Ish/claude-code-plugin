@@ -1,8 +1,21 @@
 #!/bin/bash
 # discover-installed.sh — enumerate installed plugins/agents/skills under a plugins root.
-# Usage: discover-installed.sh [plugins-root]
+# Usage: discover-installed.sh [plugins-root]            (SessionStart hook)
+#        discover-installed.sh --refresh [plugins-root]  (internal: the detached refresh)
 # Defaults: plugins-root=${CLAUDE_PLUGINS_DIR:-$HOME/.claude/plugins/cache}
 # Writes JSON catalog to ${BRAIN_DIR:-~/.second-brain}/.installed-catalog.json and stdout.
+#
+# OFF THE STARTUP PATH (S0 B7, 2026-09-28). With a cached catalog the hook prints it and
+# returns: no tree walk, no jq, no lib.sh. The freshness check and any rebuild run in ONE
+# detached `--refresh` process guarded by an mkdir lock, so the hook cannot be killed at its
+# 10s timeout however loaded the machine is. Measured before this: cancelled in 12 of 25
+# sessions (avg 34s when cancelled), and the live catalog frozen at its 2026-09-24 copy —
+# Claude Code writes `.in_use/<pid>` under every plugin version at each session start, so the
+# old `find -newer` saw a "changed" tree on EVERY start and rebuilt synchronously. `.in_use`
+# (and node_modules/.git) are now pruned from the freshness walk. Only a first run with no
+# cache at all still builds synchronously (nothing to serve; that path is bounded below).
+# The refresh fails LOUD (sb_log_error) and never replaces the cache with a failed build; a
+# lock left by a refresh that died is reclaimed after LOCK_STALE_MIN minutes, loudly.
 #
 # PERFORMANCE IS A CORRECTNESS PROPERTY HERE (0.45.0). hooks/hooks.json gives this
 # hook a 10s SessionStart budget. The previous implementation spawned three
@@ -24,25 +37,98 @@ set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
+MODE=serve
+if [ "${1:-}" = "--refresh" ]; then MODE=refresh; shift; fi
 PLUGINS_ROOT="${1:-${CLAUDE_PLUGINS_DIR:-$HOME/.claude/plugins/cache}}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 OUT_FILE="$BRAIN_DIR/.installed-catalog.json"
+LOCK_DIR="$BRAIN_DIR/.installed-catalog.lock"
+LOCK_STALE_MIN=10          # a live refresh takes seconds; a lock this old belongs to a dead one
+SELF="${BASH_SOURCE[0]:-$0}"
+DI_LIB="${SELF%/*}/lib.sh"
 
 mkdir -p "$BRAIN_DIR"
 
-# Fast-path: reuse cached catalog if nothing under plugins dir has changed.
-# We compare against ANY file in the tree, not just $PLUGINS_ROOT itself —
-# directory mtime only bumps when entries at the immediate level change, so
-# a plugin update inside a subdirectory leaves a root-only check stale
-# indefinitely. `head -n1` closes the pipe on the first hit, short-circuiting find
-# portably — `-quit` is a GNU-only primary that BSD/macOS find rejects (its swallowed
-# error empties the capture and the script then re-discovers on every single run).
-if [ -f "$OUT_FILE" ] && [ -d "$PLUGINS_ROOT" ]; then
-  NEWER=$(find "$PLUGINS_ROOT" -newer "$OUT_FILE" -print 2>/dev/null | head -n1)
-  if [ -z "$NEWER" ]; then
-    cat "$OUT_FILE"
+TMP_PLUGINS=""; TMP_AGENTS_RAW=""; TMP_SKILLS_RAW=""; TMP_AGENTS=""; TMP_SKILLS=""
+di_cleanup() {
+  local f
+  for f in "$TMP_PLUGINS" "$TMP_AGENTS_RAW" "$TMP_SKILLS_RAW" "$TMP_AGENTS" "$TMP_SKILLS" "$OUT_FILE.tmp.$$"; do
+    [ -n "$f" ] && [ -e "$f" ] && rm -f "$f"
+  done
+  # Only the refresh owns the lock (the hook created it for this process before spawning it).
+  if [ "$MODE" = refresh ] && [ -d "$LOCK_DIR" ] && ! rmdir "$LOCK_DIR"; then
+    di_log "could not release the refresh lock $LOCK_DIR — the next refresh waits ${LOCK_STALE_MIN} min to reclaim it" 1
+  fi
+  return 0
+}
+trap di_cleanup EXIT
+
+# di_log <message> [exit_code]: sb_log_error (lib.sh, loaded on first use so the serve path
+# never pays for it; gate= rows at exit 0 land in audit-log.jsonl), else a raw JSON row in
+# error-log.jsonl — a failure must leave a trace even when lib.sh cannot load.
+di_log() {
+  declare -F sb_log_error >/dev/null || source "$DI_LIB"
+  if declare -F sb_log_error >/dev/null; then
+    sb_log_error "discover-installed.sh" "$1" "${2:-1}"
+  else
+    local m="${1//\\/\\\\}"; m="${m//\"/\\\"}"
+    printf '{"timestamp":"%s","script":"discover-installed.sh","message":"%s","exit_code":%s}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$m" "${2:-1}" >> "$BRAIN_DIR/error-log.jsonl"
+  fi
+}
+
+# catalog_is_stale: true when a catalog input changed after the cache was written. ANY file in
+# the tree counts, not just $PLUGINS_ROOT itself — directory mtime only bumps when entries at
+# the immediate level change, so a plugin update inside a subdirectory would leave a root-only
+# check stale indefinitely. Pruned: `.in_use` (Claude Code's per-session pid files — churn, not
+# change), node_modules, .git. `head -n1` closes the pipe on the first hit, short-circuiting
+# find portably — `-quit` is a GNU-only primary that BSD/macOS find rejects (its swallowed error
+# empties the capture and the script then re-discovers on every single run). A missing plugins
+# root is stale too: the rebuild then records an empty catalog, as before.
+catalog_is_stale() {
+  [ -d "$PLUGINS_ROOT" ] || return 0
+  [ -n "$(find "$PLUGINS_ROOT" \( -name .in_use -o -name node_modules -o -name .git \) -prune \
+            -o -newer "$OUT_FILE" -print 2>/dev/null | head -n1)" ]
+}
+
+# schedule_refresh: take the lock, start ONE detached refresh, return at once. The child gets
+# </dev/null >/dev/null 2>&1 — a child holding the hook's stdout keeps Claude Code waiting on
+# the pipe, which is what stretched cancelled runs to 34-67s (a 10s timeout). `trap '' HUP`
+# survives the exec (what nohup does, without assuming nohup exists); `disown` drops it from
+# the job table. Lock held and young: a refresh is already running — serve and leave.
+# Reclaim race: two hooks that both find a dead lock can each start a refresh; both write the
+# catalog atomically (tmp + mv), so the worst case is one redundant rebuild, never a torn file.
+schedule_refresh() {
+  local reclaimed=0
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$LOCK_STALE_MIN" 2>/dev/null)" ] || return 0
+    if ! rmdir "$LOCK_DIR"; then
+      di_log "stale refresh lock $LOCK_DIR could not be removed — no catalog refresh until it is deleted by hand" 1
+      return 0
+    fi
+    mkdir "$LOCK_DIR" 2>/dev/null || return 0   # another hook reclaimed it first: its refresh runs
+    reclaimed=1
+  fi
+  ( trap '' HUP; export SB_DI_RECLAIMED="$reclaimed"; exec bash "$SELF" --refresh "$PLUGINS_ROOT" ) \
+    </dev/null >/dev/null 2>&1 &
+  disown "$!"
+}
+
+if [ "$MODE" = serve ] && [ -s "$OUT_FILE" ]; then
+  cat "$OUT_FILE"
+  schedule_refresh
+  exit 0
+fi
+
+if [ "$MODE" = refresh ]; then
+  [ "${SB_DI_RECLAIMED:-0}" = "1" ] && di_log "reclaimed a stale refresh lock (older than ${LOCK_STALE_MIN} min): the previous background catalog refresh died without releasing it" 1
+  # Valid and fresh: nothing to do. An unparseable cache (an empty or torn write from an older
+  # build) is rebuilt even when the tree is unchanged, or it would be served forever.
+  if [ -s "$OUT_FILE" ] && ! catalog_is_stale \
+     && jq -e 'type == "object" and has("plugins")' "$OUT_FILE" >/dev/null 2>&1; then
     exit 0
   fi
+  DI_T0=$(date +%s)
 fi
 
 TMP_PLUGINS=$(mktemp)
@@ -50,7 +136,6 @@ TMP_AGENTS_RAW=$(mktemp)
 TMP_SKILLS_RAW=$(mktemp)
 TMP_AGENTS=$(mktemp)
 TMP_SKILLS=$(mktemp)
-trap 'rm -f "$TMP_PLUGINS" "$TMP_AGENTS_RAW" "$TMP_SKILLS_RAW" "$TMP_AGENTS" "$TMP_SKILLS"' EXIT
 
 # Frontmatter reader, batched over MANY .md files in one awk process.
 # Emits one US(\037)-separated record per file: name \037 description \037 plugin.
@@ -174,13 +259,28 @@ convert_or_log() {
 convert_or_log "$TMP_AGENTS_RAW" "$TMP_AGENTS" agents
 convert_or_log "$TMP_SKILLS_RAW" "$TMP_SKILLS" skills
 
-# Slurp the JSONL streams into a single catalog object.
+# Slurp the JSONL streams into a single catalog object. A failed assembly must not replace the
+# cache: it used to write an EMPTY file, which then read as fresh and was served every session.
+DI_RC=0
+DI_WHAT="synchronous catalog build"; [ "$MODE" = refresh ] && DI_WHAT="background catalog refresh"
 CATALOG=$(jq -ns \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --slurpfile p "$TMP_PLUGINS" \
   --slurpfile a "$TMP_AGENTS" \
   --slurpfile s "$TMP_SKILLS" \
-  '{generated_at:$ts, plugins:$p, agents:$a, skills:$s}')
+  '{generated_at:$ts, plugins:$p, agents:$a, skills:$s}') || DI_RC=$?
+if [ "$DI_RC" -ne 0 ] || [ -z "$CATALOG" ]; then
+  di_log "$DI_WHAT failed: assembly jq rc=$DI_RC — kept the previous catalog" 1
+  exit 0   # SessionStart must not block; the row above is the signal
+fi
 
-echo "$CATALOG" > "$OUT_FILE"
-echo "$CATALOG"
+# Atomic replace (tmp + mv in the same dir): the hook may `cat` the cache at any moment.
+if ! { echo "$CATALOG" > "$OUT_FILE.tmp.$$" && mv -f "$OUT_FILE.tmp.$$" "$OUT_FILE"; }; then
+  di_log "$DI_WHAT failed: could not write $OUT_FILE — kept the previous catalog" 1
+  exit 0
+fi
+if [ "$MODE" = refresh ]; then
+  di_log "gate=installed-catalog-refresh bytes=${#CATALOG} secs=$(( $(date +%s) - DI_T0 )) reclaimed=${SB_DI_RECLAIMED:-0}" 0
+else
+  echo "$CATALOG"
+fi

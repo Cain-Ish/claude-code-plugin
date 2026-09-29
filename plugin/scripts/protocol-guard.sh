@@ -2,10 +2,13 @@
 # protocol-guard.sh — class-5 working-agreement delivery + checks (docs/plans/2026-09-24-repo-brain.md).
 # Modes (argv[1]): card | pre | subagent — hooks.json wires each to its event.
 #   card      SessionStart : protocol card (<=1200 B, plain stdout)                    — Slice 1
+#                            + precompute of this session's role cards (pg_rc_build)   — S0 B2
 #   pre       PreToolUse   : Agent|Task -> pg_agent (tier warn, opt-in model rewrite)   — Slice 1
 #                            Read|Edit|Write|MultiEdit -> pg_jit (path-triggered memory) — Slice 2
 #                            Write of a NEW path -> pg_search (search-before-create)     — Slice 3
-#   subagent  SubagentStart: role card per agent_type (<=900 B); skips second-brain:* and Plan — Slice 1
+#   subagent  SubagentStart: role card per tier (<=900 B), read from .injected/<sid>.rolecard.tsv that
+#                            card mode precomputes (live build only on a miss); skips second-brain:*
+#                            and Plan; start/end miss markers (see pg_marker)      — Slice 1, S0 B2
 # Protocol lock (CONSTITUTION.md class 5): inject capped text, return warn (additionalContext),
 # write telemetry; opt-in SB_DELEGATION_REWRITE=1 may set updatedInput.model. Never dispatches,
 # never edits settings, never blocks a Stop. Fail-open: any error -> exit 0, no output.
@@ -16,30 +19,106 @@ set -u
 [ "${SB_PROTOCOL_GUARD:-on}" = "off" ] && exit 0
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 MODE="${1:-}"
-RAW=$(cat 2>/dev/null || true)
-[ -z "$RAW" ] && exit 0
+# Bash reads stdin itself: `$(</dev/stdin)` spawns no `cat` (bash emulates /dev/stdin everywhere).
+# An empty payload is a bad payload in subagent mode (logged there); every other mode stays silent.
+RAW=$(</dev/stdin)
+[ -z "$RAW" ] && [ "$MODE" != "subagent" ] && exit 0
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
-command -v cygpath >/dev/null 2>&1 && BRAIN_DIR=$(cygpath -u "$BRAIN_DIR" 2>/dev/null || printf '%s' "$BRAIN_DIR")
-# ONE jq for every single-line field any mode needs (line-per-field -r protocol, CR-stripped).
-# PG_TEXT/PG_SUB_LOWER/PG_AGENT_LOWER piggyback on this same spawn so pg_agent/pg_subagent
-# never need their own jq+tr just to get a lowercased classification string (review fix:
-# Agent/Task path spawn-cost reduction — was ~1.0s/call, dominated by extra jq+tr pairs here).
+# cygpath -u returns an MSYS/POSIX path unchanged, so only a Windows-form value (drive colon or
+# backslash) is worth the spawn.
+case "$BRAIN_DIR" in
+  *:*|*\\*) command -v cygpath >/dev/null 2>&1 && BRAIN_DIR=$(cygpath -u "$BRAIN_DIR" 2>/dev/null || printf '%s' "$BRAIN_DIR") ;;
+esac
+PG_LADDER="${SB_MODEL_LADDER:-$PLUGIN_ROOT/model-ladder.json}"   # same path sb_model_manifest resolves
+pg_lib() { command -v sb_log_error >/dev/null 2>&1 || source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null || return 1; }
+# pg_row <message>: one gate=* trace row in sb_log_error's exact shape (exit_code 0 -> audit-log),
+# written with ONE builtin printf append: no lib.sh, and no date/jq/tr spawn on bash >= 4.2 (bash
+# 3.2 falls back to one `date`). The message must already be JSON-safe: callers pass only fixed
+# tokens, numbers and ids reduced to [A-Za-z0-9:._@-]. The audit-log rotation stays with the
+# sb_log_error writers, which run on nearly every hook.
+pg_row() {
+  local ts=""
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    TZ=UTC0 printf -v ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  else
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  fi
+  printf '{"timestamp":"%s","script":"protocol-guard.sh","message":"%s","exit_code":0}\n' "$ts" "$1" \
+    >> "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
+    || { pg_lib && sb_log_error "protocol-guard.sh" "audit row append failed: $1" 1; }
+}
+# pg_marker start <aid> | end <aid> <verdict> <reason>: one builtin append to the per-session
+# SubagentStart miss-detection file .injected/<sid>.subagent.tsv (S0 B2). Lines, TAB-separated:
+#   start <agent_id>                     written before the first spawn of a subagent-mode run
+#   end   <agent_id> <verdict> <reason>  written after that run's gate=role-card row
+# agent_id is `-` when the payload carries none. A start with no matching end is a counted miss
+# (the hook was killed or crashed mid-run); hook-timer.sh cannot log a kill, this file can.
+PG_MARK_SID=""; PG_MARK_AID=""
+pg_marker() {
+  [ -n "$PG_MARK_SID" ] || return 0
+  local d="$BRAIN_DIR/.injected" line="$1"$'\t'"$2"
+  [ "$1" = "end" ] && line="$line"$'\t'"$3"$'\t'"$4"
+  [ -d "$d" ] || mkdir -p "$d" 2>/dev/null
+  printf '%s\n' "$line" >> "$d/$PG_MARK_SID.subagent.tsv" 2>/dev/null \
+    || { pg_lib && sb_log_error "protocol-guard.sh" "subagent marker append failed at $d/$PG_MARK_SID.subagent.tsv" 1; }
+}
+# Start marker BEFORE the first spawn: a hook killed while jq is still starting (the load case,
+# B2) must still leave its `start` line. Ids come from a bash regex over the raw payload; a
+# payload the regex cannot read gets its start line after the jq parse instead.
+if [ "$MODE" = "subagent" ] && [ "${SB_ROLE_CARDS:-on}" != "off" ]; then
+  _re='"session_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_-]+)"'
+  [[ $RAW =~ $_re ]] && PG_MARK_SID="${BASH_REMATCH[1]:0:64}"
+  _re='"agent_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_-]+)"'
+  [[ $RAW =~ $_re ]] && PG_MARK_AID="${BASH_REMATCH[1]:0:64}"
+  [ -n "$PG_MARK_SID" ] && pg_marker start "${PG_MARK_AID:--}"
+fi
+# ONE jq for every single-line field any mode needs (line-per-field -r protocol). PG_TEXT/
+# PG_SUB_LOWER/PG_AGENT_LOWER piggyback on this same spawn so pg_agent/pg_subagent never need their
+# own jq just to get a lowercased classification string. The trailing "ok" sentinel exists only
+# when the payload parsed as a JSON object, so a malformed payload is named (PG_BAD=bad-payload)
+# instead of surfacing as empty fields (it used to log a misleading reason=no-agent-type). CRs
+# (Windows jq writes CRLF) are stripped in bash below: no `tr` spawn.
+PG_BAD=""; PG_FIELDS=""
+if command -v jq >/dev/null 2>&1; then
+  PG_FIELDS=$(jq -r 'def l: tostring | gsub("[\r\n]"; " ");
+    if type == "object" then
+      (.hook_event_name // "" | l), (.tool_name // "" | l), (.session_id // "" | l), (.cwd // "" | l),
+      (.tool_input.file_path // "" | l), (.agent_type // "" | l), (.tool_input.subagent_type // "" | l),
+      (.tool_input.model // "" | l),
+      ((((.tool_input.description // "") | l) + " " + ((.tool_input.prompt // "") | l))[0:300] | ascii_downcase),
+      (.tool_input.subagent_type // "" | l | ascii_downcase),
+      (.agent_type // "" | l | ascii_downcase),
+      (.agent_id // "" | l),
+      "ok"
+    else empty end' <<<"$RAW" 2>/dev/null)
+else
+  PG_BAD="no-jq"
+fi
 { IFS= read -r PG_EVENT; IFS= read -r PG_TOOL; IFS= read -r PG_SID; IFS= read -r PG_CWD; IFS= read -r PG_PATH
   IFS= read -r PG_AGENT_TYPE; IFS= read -r PG_SUB_TYPE; IFS= read -r PG_MODEL
-  IFS= read -r PG_TEXT; IFS= read -r PG_SUB_LOWER; IFS= read -r PG_AGENT_LOWER; } < <(printf '%s' "$RAW" \
-  | jq -r '.hook_event_name // "", .tool_name // "", .session_id // "", .cwd // "", .tool_input.file_path // "",
-           .agent_type // "", .tool_input.subagent_type // "", .tool_input.model // "",
-           (((.tool_input.description // "") + " " + (.tool_input.prompt // ""))[0:300] | ascii_downcase | gsub("[\r\n]";" ")),
-           (.tool_input.subagent_type // "" | ascii_downcase),
-           (.agent_type // "" | ascii_downcase)' 2>/dev/null | tr -d '\r')
-: "${PG_EVENT:=}" "${PG_TOOL:=}" "${PG_SID:=}" "${PG_CWD:=$PWD}" "${PG_PATH:=}" "${PG_AGENT_TYPE:=}" "${PG_SUB_TYPE:=}" "${PG_MODEL:=}" \
-  "${PG_TEXT:=}" "${PG_SUB_LOWER:=}" "${PG_AGENT_LOWER:=}"
+  IFS= read -r PG_TEXT; IFS= read -r PG_SUB_LOWER; IFS= read -r PG_AGENT_LOWER; IFS= read -r PG_AGENT_ID
+  IFS= read -r PG_OK; } <<<"$PG_FIELDS"
+PG_EVENT="${PG_EVENT%$'\r'}"; PG_TOOL="${PG_TOOL%$'\r'}"; PG_SID="${PG_SID%$'\r'}"; PG_CWD="${PG_CWD%$'\r'}"
+PG_PATH="${PG_PATH%$'\r'}"; PG_AGENT_TYPE="${PG_AGENT_TYPE%$'\r'}"; PG_SUB_TYPE="${PG_SUB_TYPE%$'\r'}"
+PG_MODEL="${PG_MODEL%$'\r'}"; PG_TEXT="${PG_TEXT%$'\r'}"; PG_SUB_LOWER="${PG_SUB_LOWER%$'\r'}"
+PG_AGENT_LOWER="${PG_AGENT_LOWER%$'\r'}"; PG_AGENT_ID="${PG_AGENT_ID%$'\r'}"; PG_OK="${PG_OK%$'\r'}"
+[ -n "$PG_BAD" ] || [ "$PG_OK" = "ok" ] || PG_BAD="bad-payload"
+: "${PG_CWD:=$PWD}"
 PG_SID="${PG_SID//[^A-Za-z0-9_-]/}"; PG_SID="${PG_SID:0:64}"
+# agent_id is present on PreToolUse payloads fired inside a subagent (never on the main thread):
+# it keys pg_jit's seen-set per agent.
+PG_AGENT_ID="${PG_AGENT_ID//[^A-Za-z0-9_-]/}"; PG_AGENT_ID="${PG_AGENT_ID:0:64}"
+if [ "$MODE" = "subagent" ] && [ "${SB_ROLE_CARDS:-on}" != "off" ] && [ -z "$PG_MARK_SID" ] && [ -n "$PG_SID" ]; then
+  PG_MARK_SID="$PG_SID"; PG_MARK_AID="$PG_AGENT_ID"
+  pg_marker start "${PG_MARK_AID:--}"
+fi
 SB_MANIFEST_SESSION_ID="$PG_SID"
 PG_CTX=""            # accumulated additionalContext for pre mode; empty = emit nothing
 PG_REWRITE_MODEL=""  # set ONLY by pg_agent under SB_DELEGATION_REWRITE=1
-pg_lib() { command -v sb_log_error >/dev/null 2>&1 || source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null || return 1; }
+pg_log_bad() {  # card/pre: a malformed payload is logged loudly; the mode then does what it can
+  pg_lib && sb_log_error "protocol-guard.sh" "$PG_BAD: mode=$MODE stdin is not a JSON object (${#RAW} bytes)" 1
+}
 pg_ctx_add() { PG_CTX="${PG_CTX:+$PG_CTX
 
 }$1"; }
@@ -69,6 +148,7 @@ pg_card() {
   a_fast=$(sb_resolve_model fast dispatch)
   a_mid=$(sb_resolve_model mid dispatch)
   a_deep=$(sb_resolve_model deep dispatch)
+  PG_A_FAST="$a_fast"; PG_A_MID="$a_mid"; PG_A_DEEP="$a_deep"   # reused by pg_rc_precompute
   card="${card//\{SCOUT\}/$a_fast}"
   card="${card//\{DO\}/$a_mid}"
   card="${card//\{THINK\}/$a_deep}"
@@ -296,28 +376,234 @@ $hard"
 }
 # --- end pg_agent ---
 # --- pg_subagent (Slice 1) ---
+pg_protocol_blocks() {  # one bash pass over protocol.md (no awk spawn) -> PG_BLK_SCOUT/DO/THINK
+  local pf="$PLUGIN_ROOT/skills/using-second-brain/protocol.md" line cur="" v
+  PG_BLK_SCOUT=""; PG_BLK_DO=""; PG_BLK_THINK=""
+  [ -f "$pf" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      '<!-- role:SCOUT:begin'*) cur="SCOUT"; continue ;;
+      '<!-- role:DO:begin'*) cur="DO"; continue ;;
+      '<!-- role:THINK:begin'*) cur="THINK"; continue ;;
+      '<!-- '*':end'*) cur=""; continue ;;
+    esac
+    case "$cur" in
+      SCOUT) PG_BLK_SCOUT="$PG_BLK_SCOUT$line"$'\n' ;;
+      DO) PG_BLK_DO="$PG_BLK_DO$line"$'\n' ;;
+      THINK) PG_BLK_THINK="$PG_BLK_THINK$line"$'\n' ;;
+    esac
+  done < "$pf"
+  for v in PG_BLK_SCOUT PG_BLK_DO PG_BLK_THINK; do   # $(awk …) semantics: no trailing newlines
+    line="${!v}"
+    while :; do case "$line" in *$'\n') line="${line%$'\n'}" ;; *) break ;; esac; done
+    printf -v "$v" '%s' "$line"
+  done
+  return 0
+}
+# pg_rc_build [fast mid deep]: renders all three role cards — header, the fact-worded role block,
+# the HARD lines (repo rules first, each group labelled), the Return: line; <=900 B each — and
+# writes .injected/<sid>.rolecard.tsv. Sets PG_RC_SCOUT/PG_RC_DO/PG_RC_THINK to
+# "<bytes>\t<hard>\t<envelope-json>" ("0\t0\t-" = role block missing). Needs lib.sh: card mode runs
+# it at SessionStart; subagent mode runs it only when pg_rc_lookup misses.
+# Cache file: line 1 `v1<TAB>plugin-root<TAB>ladder<TAB>slug<TAB>user-layer(0|1)<TAB>repo-layer(0|1)`,
+# then one `<TIER><TAB><bytes><TAB><hard><TAB><envelope|->` line per tier.
+pg_rc_build() {
+  local LC_ALL=C
+  PG_RC_SCOUT="0"$'\t'"0"$'\t'"-"; PG_RC_DO="$PG_RC_SCOUT"; PG_RC_THINK="$PG_RC_SCOUT"; PG_RC_TIERS=0; PG_RC_FAIL=""
+  pg_lib || { PG_RC_FAIL="no-lib"; return 1; }
+  local a_fast="${1:-}" a_mid="${2:-}" a_deep="${3:-}"
+  [ -n "$a_fast" ] || a_fast=$(sb_resolve_model fast dispatch)
+  [ -n "$a_mid" ] || a_mid=$(sb_resolve_model mid dispatch)
+  [ -n "$a_deep" ] || a_deep=$(sb_resolve_model deep dispatch)
+  pg_protocol_blocks || sb_log_error "protocol-guard.sh" "protocol.md missing at $PLUGIN_ROOT/skills/using-second-brain/protocol.md" 1
+  local slug rf="" hard="" jrc=0 total=0 line
+  slug=$(sb_session_slug "$PG_SID"); slug="${slug//$'\r'/}"
+  rf=$(sb_rules_effective "$slug")
+  if [ -z "$rf" ] || [ ! -s "$rf" ]; then
+    rf="$BRAIN_DIR/persona-rules.json"
+    [ -s "$rf" ] || rf="$(sb_plugin_root)/scripts/persona-rules.default.json"
+  fi
+  if [ -s "$rf" ]; then
+    # Repo-layer rules (source=="repo", present only when projects/<slug>/rules.json exists) come
+    # first; `.enabled != false`, not `(.enabled // true)`, which swallows an explicit false.
+    hard=$(jq -r '[.rules[]? | objects | select(.enabled != false and (.action == "ask" or .action == "deny"))]
+      | (map(select(.source == "repo")) + map(select(.source != "repo"))) | .[0:5][]
+      | (if .source == "repo" then "R" else "P" end) + "\t- "
+        + ((.name // "rule") | tostring | gsub("[\r\n\t`]"; " ")) + ": "
+        + (((.reason // "") | tostring | gsub("[\r\n\t`]"; " "))[0:120])' "$rf" 2>/dev/null)
+    jrc=$?
+    if [ "$jrc" -ne 0 ]; then
+      sb_log_error "protocol-guard.sh" "role-card HARD rules unreadable at $rf (jq rc=$jrc); cards carry none" 1
+      hard=""
+    fi
+    hard="${hard//$'\r'/}"
+  fi
+  if [ -n "$hard" ]; then
+    while IFS= read -r line; do [ -n "$line" ] && total=$((total + 1)); done <<<"$hard"
+  fi
+  local ret_line="Return: findings first, files:lines, <=2k tokens, a Gaps: section."
+  local lbl_repo="HARD - this repo (rules.json), enforced by hooks:"
+  local lbl_def="HARD - plugin defaults (all repos), enforced by hooks:"
+  local t block header fixed hardblock hn grp src body add cand card
+  local c_s="" c_d="" c_t="" b_s=0 b_d=0 b_t=0 h_s=0 h_d=0 h_t=0
+  for t in SCOUT DO THINK; do
+    case "$t" in SCOUT) block="$PG_BLK_SCOUT" ;; DO) block="$PG_BLK_DO" ;; *) block="$PG_BLK_THINK" ;; esac
+    if [ -z "$block" ]; then
+      sb_log_error "protocol-guard.sh" "protocol.md missing role:$t block" 1
+      continue
+    fi
+    block="${block//\{SCOUT\}/$a_fast}"; block="${block//\{DO\}/$a_mid}"; block="${block//\{THINK\}/$a_deep}"
+    header="[Role card - $t]"
+    fixed="$header
+$block
+$ret_line"
+    # Fit whole HARD lines under the 900 B cap (`local LC_ALL=C`: ${#…} counts bytes), keeping 13 B
+    # for a "(+N more)" line; a group label is paid for with its group's first line.
+    hardblock=""; hn=0; grp=""
+    if [ -n "$hard" ]; then
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        src="${line%%$'\t'*}"; body="${line#*$'\t'}"; add="$body"
+        if [ "$src" != "$grp" ]; then
+          if [ "$src" = "R" ]; then add="$lbl_repo
+$body"; else add="$lbl_def
+$body"; fi
+        fi
+        if [ -z "$hardblock" ]; then cand="$add"; else cand="$hardblock
+$add"; fi
+        [ $(( ${#fixed} + 1 + ${#cand} + 13 )) -le 900 ] || break
+        hardblock="$cand"; hn=$((hn + 1)); grp="$src"
+      done <<<"$hard"
+      if [ "$hn" -lt "$total" ]; then
+        if [ -z "$hardblock" ]; then hardblock="(+$((total - hn)) more)"; else hardblock="$hardblock
+(+$((total - hn)) more)"; fi
+      fi
+    fi
+    [ -n "$hardblock" ] || hardblock="HARD - no ask/deny rules are active."
+    card="$header
+$block
+$hardblock
+$ret_line"
+    case "$t" in
+      SCOUT) c_s="$card"; b_s=${#card}; h_s=$hn ;;
+      DO) c_d="$card"; b_d=${#card}; h_d=$hn ;;
+      *) c_t="$card"; b_t=${#card}; h_t=$hn ;;
+    esac
+  done
+  local out e_s="" e_d="" e_t=""
+  out=$(jq -nr --arg s "$c_s" --arg d "$c_d" --arg t "$c_t" \
+    '($s, $d, $t) | if . == "" then "-" else ({hookSpecificOutput:{hookEventName:"SubagentStart",additionalContext:.}} | tojson) end' 2>/dev/null)
+  jrc=$?
+  if [ "$jrc" -ne 0 ] || [ -z "$out" ]; then
+    sb_log_error "protocol-guard.sh" "role-card envelope build failed (jq rc=$jrc)" 1
+    PG_RC_FAIL="build-failed"
+    return 1
+  fi
+  { IFS= read -r e_s; IFS= read -r e_d; IFS= read -r e_t; } <<<"$out"
+  e_s="${e_s%$'\r'}"; e_d="${e_d%$'\r'}"; e_t="${e_t%$'\r'}"
+  [ -n "$e_s" ] && [ "$e_s" != "-" ] && { PG_RC_SCOUT="$b_s"$'\t'"$h_s"$'\t'"$e_s"; PG_RC_TIERS=$((PG_RC_TIERS + 1)); }
+  [ -n "$e_d" ] && [ "$e_d" != "-" ] && { PG_RC_DO="$b_d"$'\t'"$h_d"$'\t'"$e_d"; PG_RC_TIERS=$((PG_RC_TIERS + 1)); }
+  [ -n "$e_t" ] && [ "$e_t" != "-" ] && { PG_RC_THINK="$b_t"$'\t'"$h_t"$'\t'"$e_t"; PG_RC_TIERS=$((PG_RC_TIERS + 1)); }
+  [ -n "$PG_SID" ] || return 0   # no session id: nothing to key a cache on
+  local f="$BRAIN_DIR/.injected/$PG_SID.rolecard.tsv" u=0 r=0
+  [ -f "$BRAIN_DIR/persona-rules.json" ] && u=1
+  pg_rc_slug_clean "$slug" && [ -f "$BRAIN_DIR/projects/$slug/rules.json" ] && r=1
+  [ -d "$BRAIN_DIR/.injected" ] || mkdir -p "$BRAIN_DIR/.injected" 2>/dev/null
+  if printf 'v1\t%s\t%s\t%s\t%s\t%s\nSCOUT\t%s\nDO\t%s\nTHINK\t%s\n' "$PLUGIN_ROOT" "$PG_LADDER" "${slug:--}" "$u" "$r" \
+       "$PG_RC_SCOUT" "$PG_RC_DO" "$PG_RC_THINK" > "$f.tmp.$$" 2>/dev/null \
+     && mv -f "$f.tmp.$$" "$f" 2>/dev/null; then
+    :
+  else
+    rm -f "$f.tmp.$$" 2>/dev/null
+    sb_log_error "protocol-guard.sh" "role-card cache write failed at $f (next dispatch builds live)" 1
+  fi
+  return 0
+}
+pg_rc_slug_clean() {  # sb_rules_effective's own slug test: only a clean slug has a repo rules layer
+  case "${1:-}" in ''|-|.|..|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  return 0
+}
+# pg_rc_lookup <tier>: the SubagentStart hot path — zero spawns, no lib.sh. Returns 0 and sets
+# PG_RC_LINE="<bytes>\t<hard>\t<envelope|->" when .injected/<sid>.rolecard.tsv was built for this
+# plugin root, ladder, session slug (the .slug memo, when present) and rules-layer set, and no
+# input is strictly newer than it; 1 otherwise (the caller builds live). Inputs: protocol.md, the
+# ladder, model-availability.json (demotions), and the plugin/user/repo rules layers. The derived
+# .rules-effective.json is deliberately NOT an input: sessions on different plugin roots rebuild
+# it in turn (its sig carries the root), which would keep this cache permanently stale. Equal
+# mtimes count as fresh: bash 3.2 compares whole seconds, and the SessionStart build writes the
+# cache in the same second it may touch an input; a stale card costs advisory text only.
+pg_rc_lookup() {
+  local want="$1" f v root lad slug u r l1="" l2="" l3="" memo="" cu=0 cr=0 x
+  PG_RC_LINE=""
+  [ -n "$PG_SID" ] || return 1
+  f="$BRAIN_DIR/.injected/$PG_SID.rolecard.tsv"
+  [ -f "$f" ] || return 1
+  { IFS=$'\t' read -r v root lad slug u r; IFS= read -r l1; IFS= read -r l2; IFS= read -r l3; } < "$f"
+  [ "$v" = "v1" ] && [ "$root" = "$PLUGIN_ROOT" ] && [ "$lad" = "$PG_LADDER" ] || return 1
+  u="${u%$'\r'}"; r="${r%$'\r'}"
+  if [ -f "$BRAIN_DIR/.injected/$PG_SID.slug" ]; then
+    IFS= read -r memo < "$BRAIN_DIR/.injected/$PG_SID.slug"   # no trailing newline: read returns 1 but fills memo
+    memo="${memo//$'\r'/}"
+    [ -z "$memo" ] || [ "$memo" = "$slug" ] || return 1
+  fi
+  [ -f "$BRAIN_DIR/persona-rules.json" ] && cu=1
+  pg_rc_slug_clean "$slug" && [ -f "$BRAIN_DIR/projects/$slug/rules.json" ] && cr=1
+  [ "$u" = "$cu" ] && [ "$r" = "$cr" ] || return 1
+  for x in "$PLUGIN_ROOT/skills/using-second-brain/protocol.md" "$PG_LADDER" "$BRAIN_DIR/model-availability.json" \
+           "$PLUGIN_ROOT/scripts/persona-rules.default.json" "$BRAIN_DIR/persona-rules.json" \
+           "$BRAIN_DIR/projects/$slug/rules.json"; do
+    [ "$x" -nt "$f" ] && return 1
+  done
+  for x in "$l1" "$l2" "$l3"; do
+    case "$x" in "$want"$'\t'*) PG_RC_LINE="${x#*$'\t'}"; PG_RC_LINE="${PG_RC_LINE%$'\r'}" ;; esac
+  done
+  # Shape check before anything reaches stdout: numeric bytes/hard, and an envelope that is "-" or
+  # a SubagentStart envelope. A torn/corrupt line is a logged miss; the live build rewrites the file.
+  local b="${PG_RC_LINE%%$'\t'*}" rest="${PG_RC_LINE#*$'\t'}" h e
+  h="${rest%%$'\t'*}"; e="${rest#*$'\t'}"
+  case "$b:$h" in
+    [0-9]*:[0-9]*) case "$b$h" in *[!0-9]*) PG_RC_LINE="" ;; esac ;;
+    *) PG_RC_LINE="" ;;
+  esac
+  case "$e" in
+    -|'{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"'*'"}}') : ;;
+    *) PG_RC_LINE="" ;;
+  esac
+  if [ -z "$PG_RC_LINE" ]; then
+    pg_lib && sb_log_error "protocol-guard.sh" "role-card cache line for $want unreadable in $f; rebuilding live" 1
+    return 1
+  fi
+  return 0
+}
+pg_rc_precompute() {  # card mode (SessionStart): build this session's cache ahead of any dispatch
+  [ -n "$PG_SID" ] && [ -z "$PG_BAD" ] || return 0
+  pg_rc_build "${PG_A_FAST:-}" "${PG_A_MID:-}" "${PG_A_DEEP:-}" || return 0
+  pg_row "gate=role-card-cache verdict=ok src=sessionstart tiers=$PG_RC_TIERS sid=$PG_SID"
+}
+pg_sub_row() {  # <agent> <tier> <bytes> <hard> <verdict> <reason> <src>: gate=role-card row, then the end marker
+  pg_row "gate=role-card agent=$1 tier=$2 bytes=$3 hard=$4 verdict=$5 reason=$6 src=$7 aid=${PG_MARK_AID:--} sid=${PG_SID:-${PG_MARK_SID:--}}"
+  pg_marker end "${PG_MARK_AID:--}" "$5" "$6"
+}
 pg_subagent() {
   local LC_ALL=C
-  local agent_type="$PG_AGENT_TYPE" tier="" card slug hard hardn=0 bytes pf role_block
-  local a_fast a_mid a_deep
-  if [ -z "$agent_type" ]; then
+  local agent_type="$PG_AGENT_TYPE" tier="" safe head src="cache" rest bytes hard env
+  safe="${agent_type//[!A-Za-z0-9:._@-]/_}"; safe="${safe:0:80}"
+  if [ -n "$PG_BAD" ]; then
+    head="${RAW:0:60}"; head="${head//[!A-Za-z0-9 _:.,{}\"-]/?}"
+    pg_sub_row - - 0 0 skip "$PG_BAD" -
     pg_lib && sb_log_error "protocol-guard.sh" \
-      "gate=role-card agent=- tier=- bytes=0 hard=0 verdict=skip reason=no-agent-type sid=$PG_SID" 0
+      "$PG_BAD: SubagentStart stdin is not a JSON object (${#RAW} bytes, head: $head) aid=${PG_MARK_AID:--} sid=${PG_MARK_SID:--}" 1
+    return 0
+  fi
+  if [ -z "$agent_type" ]; then
+    pg_sub_row - - 0 0 skip no-agent-type -
     return 0
   fi
   case "$agent_type" in
-    second-brain:*)
-      pg_lib && sb_log_error "protocol-guard.sh" \
-        "gate=role-card agent=$agent_type tier=- bytes=0 hard=0 verdict=skip reason=second-brain-agent sid=$PG_SID" 0
-      return 0
-      ;;
-    Plan)
-      pg_lib && sb_log_error "protocol-guard.sh" \
-        "gate=role-card agent=Plan tier=- bytes=0 hard=0 verdict=skip reason=plan sid=$PG_SID" 0
-      return 0
-      ;;
+    second-brain:*) pg_sub_row "$safe" - 0 0 skip second-brain-agent -; return 0 ;;
+    Plan) pg_sub_row Plan - 0 0 skip plan -; return 0 ;;
   esac
-  pg_lib || return 0
   case "$agent_type" in
     Explore) tier="SCOUT" ;;
     general-purpose) tier="DO" ;;
@@ -333,76 +619,33 @@ pg_subagent() {
       fi
       ;;
   esac
-  pf="$PLUGIN_ROOT/skills/using-second-brain/protocol.md"
-  role_block=$(awk "/^<!-- role:${tier}:begin/{f=1;next}/^<!-- role:${tier}:end/{f=0}f" "$pf" 2>/dev/null)
-  if [ ! -f "$pf" ] || [ -z "$role_block" ]; then
-    sb_log_error "protocol-guard.sh" "protocol.md missing role:$tier block" 1
-    sb_log_error "protocol-guard.sh" \
-      "gate=role-card agent=$agent_type tier=$tier bytes=0 hard=0 verdict=skip reason=no-role-block sid=$PG_SID" 0
+  # Hot path: the card precomputed at SessionStart (zero spawns). The live build (lib.sh, model
+  # resolution, the rules merge) runs only on a missing or stale cache, and rewrites the cache so
+  # the next dispatch is a hit again.
+  if ! pg_rc_lookup "$tier"; then
+    src="live"
+    if ! pg_rc_build; then
+      pg_sub_row "$safe" "$tier" 0 0 skip "${PG_RC_FAIL:-build-failed}" live
+      return 0
+    fi
+    case "$tier" in SCOUT) PG_RC_LINE="$PG_RC_SCOUT" ;; DO) PG_RC_LINE="$PG_RC_DO" ;; *) PG_RC_LINE="$PG_RC_THINK" ;; esac
+  fi
+  bytes="${PG_RC_LINE%%$'\t'*}"; rest="${PG_RC_LINE#*$'\t'}"; hard="${rest%%$'\t'*}"; env="${rest#*$'\t'}"
+  if [ -z "$env" ] || [ "$env" = "-" ]; then
+    # The build already logged the missing block; a cache hit on it logs again (fail loud per call).
+    [ "$src" = "cache" ] && pg_lib && sb_log_error "protocol-guard.sh" "protocol.md missing role:$tier block" 1
+    pg_sub_row "$safe" "$tier" 0 0 skip no-role-block "$src"
     return 0
   fi
-  slug=$(sb_session_slug "$PG_SID")
-  a_fast=$(sb_resolve_model fast dispatch)
-  a_mid=$(sb_resolve_model mid dispatch)
-  a_deep=$(sb_resolve_model deep dispatch)
-  role_block="${role_block//\{SCOUT\}/$a_fast}"
-  role_block="${role_block//\{DO\}/$a_mid}"
-  role_block="${role_block//\{THINK\}/$a_deep}"
-  hard=$(sb_rules_hard_lines "$slug" 5)
-
-  # Fixed + variable budget (review fix: the old cut-from-the-END truncation dropped the
-  # mandatory Return: line first, and hardn double-counted vs. what actually rendered).
-  # `local LC_ALL=C` above makes every ${#...} here a BYTE count, matching the 900 B cap.
-  local header_line="[Role card - $tier ($agent_type)]"
-  local hard_lbl="HARD (enforced):"
-  local ret_line="Return: findings first, files:lines, <=2k tokens, a Gaps: section."
-  local fixed="$header_line
-$role_block
-$hard_lbl
-$ret_line"
-  local budget=$(( 900 - ${#fixed} - 1 ))
-  [ "$budget" -lt 0 ] && budget=0
-
-  local hardblock="" hn=0 total_lines=0 cand hline remaining
-  if [ -n "$hard" ]; then
-    total_lines=$(printf '%s\n' "$hard" | grep -c '^- ')
-    while IFS= read -r hline; do
-      [ -n "$hline" ] || continue
-      if [ -z "$hardblock" ]; then cand="$hline"; else cand="$hardblock
-$hline"; fi
-      if [ "${#cand}" -le $(( budget - 13 )) ]; then
-        hardblock="$cand"
-        hn=$((hn + 1))
-      else
-        break
-      fi
-    done <<HARDEOF
-$hard
-HARDEOF
-    if [ "$hn" -lt "$total_lines" ]; then
-      remaining=$((total_lines - hn))
-      if [ -z "$hardblock" ]; then hardblock="(+$remaining more)"; else hardblock="$hardblock
-(+$remaining more)"; fi
-    fi
-  fi
-  [ -n "$hardblock" ] || hardblock="(none)"
-  hardn=$hn
-
-  card="$header_line
-$role_block
-$hard_lbl
-$hardblock
-$ret_line"
-  bytes=${#card}
-  jq -nc --arg c "$card" '{hookSpecificOutput:{hookEventName:"SubagentStart",additionalContext:$c}}' 2>/dev/null | tr -d '\r'
-  sb_log_error "protocol-guard.sh" \
-    "gate=role-card agent=$agent_type tier=$tier bytes=$bytes hard=$hardn verdict=ok reason=- sid=$PG_SID" 0
+  printf '%s\n' "$env"
+  pg_sub_row "$safe" "$tier" "$bytes" "$hard" ok - "$src"
 }
 # --- end pg_subagent ---
 # --- pg_jit (Slice 2) ---
 # Path-triggered repo memory: on a Read/Edit/Write/MultiEdit of a path the active project's
 # jit-index.json names, deliver its matching lesson/convention/decision/intent lines once per
-# session+item (docs/plans/2026-09-24-repo-brain.md §8/§D). Spawn budget: exactly 1 jq (the
+# reader+item — reader = the subagent (agent_id) or the session's main thread
+# (docs/plans/2026-09-24-repo-brain.md §8/§D). Spawn budget: exactly 1 jq (the
 # top-of-script field read) when nothing is delivered and the per-session .jit.tsv cache already
 # exists; +1 jq only to (re)build that cache. Everything else is pure bash.
 pg_jit() {
@@ -468,8 +711,15 @@ pg_jit() {
   fi
   [ -s "$cache" ] || return 0
 
+  # Seen-set per reader: a subagent's PreToolUse carries agent_id (the main thread's never does),
+  # so each agent — and the main thread — gets an item once, instead of the first reader consuming
+  # it for every sibling (S0 ruler P4).
   local seenf seen=" "
-  seenf="$BRAIN_DIR/.injected/$PG_SID.jit.seen"
+  if [ -n "$PG_AGENT_ID" ]; then
+    seenf="$BRAIN_DIR/.injected/$PG_SID.a-$PG_AGENT_ID.jit.seen"
+  else
+    seenf="$BRAIN_DIR/.injected/$PG_SID.jit.seen"
+  fi
   if [ -f "$seenf" ]; then
     while IFS= read -r _s; do
       [ -n "$_s" ] && seen="$seen$_s "
@@ -666,9 +916,13 @@ pg_search() {
 # --- end pg_search ---
 # ---- dispatcher (director-owned; slices do not edit) ----
 case "$MODE" in
-  card)     [ "${SB_PROTOCOL_CARD:-on}" = "off" ] || pg_card ;;
+  card)
+    [ -n "$PG_BAD" ] && pg_log_bad
+    [ "${SB_PROTOCOL_CARD:-on}" = "off" ] || pg_card
+    [ "${SB_ROLE_CARDS:-on}" = "off" ] || pg_rc_precompute ;;
   subagent) [ "${SB_ROLE_CARDS:-on}" = "off" ] || pg_subagent ;;
   pre)
+    [ -n "$PG_BAD" ] && pg_log_bad
     case "$PG_TOOL" in
       Agent|Task) [ "${SB_DELEGATION_CHECK:-on}" = "off" ] || pg_agent ;;
       Read|Edit|Write|MultiEdit)

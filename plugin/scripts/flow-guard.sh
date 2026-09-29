@@ -28,47 +28,242 @@ set -u
 
 [ "${SB_FLOW_GUARD:-on}" = "off" ] && exit 0
 
-RAW=$(cat 2>/dev/null || true)
+# >>> sb-guard-fastpath (B7) — pasted byte-identical into every deny/ask PreToolUse guard;
+# tests/test-guard-wiring.sh fails on drift. A PreToolUse hook that answers after its timeout is
+# CANCELLED and the tool RUNS (CLI 2.1.283 probe, 2026-09-28; ~217 guard runs failed open in four
+# heavy sessions). So each guard decides its dangerous cases here first, with bash builtins only:
+# no lib.sh, no jq, no process at all (one `date` on bash < 4.2 for an audit timestamp). The fast
+# path asks/denies only when certain and never allows: whatever it cannot decide falls through
+# to the guard's full logic. Helper locals carry a per-helper prefix so no caller's VAR name can be
+# shadowed by them (printf -v writes through dynamic scope). Assignments that substitute with a
+# quoted replacement stay unquoted: bash <= 4.2 did not quote-remove it inside "${…}".
+_fp_bs='\' _fp_q='"' _fp_us=$'\037' _fp_nl=$'\n' _fp_cr=$'\r' _fp_tab=$'\t'
+_fp_re='^[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+_fp_uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ _fp_lc=abcdefghijklmnopqrstuvwxyz
+# The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
+# MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
+# _fp_raw_all, only for a bigger payload.
+_FP_RAW="" _FP_EOF=0 _FP=""
+IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
+
+# _fp_raw_all: RAW = the whole payload for the full logic (trailing newlines stripped, as the old
+# RAW=$(cat) did); _fp_str reads the whole payload from then on.
+_fp_raw_all() {
+  if [ "$_FP_EOF" = 1 ]; then RAW="$_FP_RAW"; else RAW="$_FP_RAW$(cat)"; fi
+  while [ "${RAW%"$_fp_nl"}" != "$RAW" ]; do RAW="${RAW%"$_fp_nl"}"; done
+  _FP_RAW="$RAW" _FP_EOF=1
+}
+
+# _fp_str KEY: _FP = the decoded string value of the ONE "KEY": "…" pair in the payload.
+# 0 = found; 1 = absent (the whole payload was seen); 2 = undecidable — the key occurs twice
+# (nested or duplicated: jq decides which one counts), the value is not a string or runs past the
+# 16 KiB read, or it carries an escape left to jq (\u \b \f). JSON escapes every quote inside a
+# string, so a "KEY" followed by ':' is always a real key, never text inside a value.
+_fp_str() {
+  local _fs_k="\"$1\"" _fs_r _fs_v
+  _FP=""
+  case "$_FP_RAW" in
+    *"$_fs_k"*) ;;
+    *) [ "$_FP_EOF" = 1 ] && return 1; return 2 ;;
+  esac
+  _fs_r="${_FP_RAW#*"$_fs_k"}"
+  case "$_fs_r" in *"$_fs_k"*) return 2 ;; esac
+  [[ $_fs_r =~ $_fp_re ]] || return 2
+  _fs_v="${BASH_REMATCH[1]}"
+  case "$_fs_v" in *"$_fp_us"*) return 2 ;; esac
+  _fs_v=${_fs_v//"$_fp_bs$_fp_bs"/"$_fp_us"}
+  case "$_fs_v" in *"$_fp_bs"[ubf]*) return 2 ;; esac
+  _fs_v=${_fs_v//"$_fp_bs$_fp_q"/"$_fp_q"}; _fs_v=${_fs_v//"$_fp_bs/"/"/"}
+  _fs_v=${_fs_v//"$_fp_bs"n/"$_fp_nl"}; _fs_v=${_fs_v//"$_fp_bs"t/"$_fp_tab"}; _fs_v=${_fs_v//"$_fp_bs"r/"$_fp_cr"}
+  case "$_fs_v" in *"$_fp_bs"*) return 2 ;; esac
+  _FP=${_fs_v//"$_fp_us"/"$_fp_bs"}
+  return 0
+}
+
+# _fp_clean VAR…: drop CRs and trailing newlines from each VAR — what the full logic's old
+# `$(jq -r … | tr -d '\r')` captures did to every payload field.
+_fp_clean() {
+  local _fc_v _fc_s
+  for _fc_v in "$@"; do
+    _fc_s="${!_fc_v}"
+    _fc_s=${_fc_s//"$_fp_cr"/}
+    while [ "${_fc_s%"$_fp_nl"}" != "$_fc_s" ]; do _fc_s="${_fc_s%"$_fp_nl"}"; done
+    printf -v "$_fc_v" '%s' "$_fc_s"
+  done
+}
+
+# _fp_lines ERE TEXT: true when one LINE of TEXT matches (grep's unit). The whole-text test runs
+# first and is a superset for EREs whose only anchors are (^|X) / (X|$) with X matching newline.
+_fp_lines() {
+  local _fl_re="$1" _fl_rest="$2" _fl_line
+  [[ $_fl_rest =~ $_fl_re ]] || return 1
+  while :; do
+    _fl_line="${_fl_rest%%"$_fp_nl"*}"
+    [[ $_fl_line =~ $_fl_re ]] && return 0
+    [ "$_fl_line" = "$_fl_rest" ] && return 1
+    _fl_rest="${_fl_rest#*"$_fp_nl"}"
+  done
+}
+
+# _fp_lower VAR TEXT: ASCII A-Z to a-z (bash 3.2 has no ${x,,}; explicit letter lists, since a
+# [A-Z] range can match lower case under a collating locale).
+_fp_lower() {
+  local _fw_s="$2" _fw_o="" _fw_c _fw_u _fw_i
+  case "$_fw_s" in *[ABCDEFGHIJKLMNOPQRSTUVWXYZ]*) ;; *) printf -v "$1" '%s' "$_fw_s"; return 0 ;; esac
+  for ((_fw_i = 0; _fw_i < ${#_fw_s}; _fw_i++)); do
+    _fw_c="${_fw_s:$_fw_i:1}"
+    case "$_fw_c" in [ABCDEFGHIJKLMNOPQRSTUVWXYZ]) _fw_u="${_fp_uc%%"$_fw_c"*}"; _fw_c="${_fp_lc:${#_fw_u}:1}" ;; esac
+    _fw_o="$_fw_o$_fw_c"
+  done
+  printf -v "$1" '%s' "$_fw_o"
+}
+
+# _fp_path VAR PATH [lex]: lib.sh sb_normalize_path's lexical steps (backslashes to '/', the
+# \\?\ and \\.\ prefixes, the loopback admin share). With "lex", a drive path X:/… is also spelled
+# /x/…, as cygpath -u spells it, on a Windows host (cygpath on PATH, or an MSYS/Cygwin bash).
+_fp_path() {
+  local _fq_p="$2" _fq_d
+  _fq_p=${_fq_p//"$_fp_bs"/"/"}
+  _fq_p="${_fq_p#"//?/"}"; _fq_p="${_fq_p#"//./"}"
+  case "$_fq_p" in
+    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p#//localhost/}";  _fq_d="${_fq_d%%\$*}"; _fq_p="$_fq_d:${_fq_p#//localhost/[A-Za-z]\$}" ;;
+    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p#//127.0.0.1/}";  _fq_d="${_fq_d%%\$*}"; _fq_p="$_fq_d:${_fq_p#//127.0.0.1/[A-Za-z]\$}" ;;
+  esac
+  if [ "${3:-}" = lex ]; then
+    case "$_fq_p" in
+      [A-Za-z]:/*)
+        if command -v cygpath >/dev/null 2>&1 || [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]]; then
+          _fp_lower _fq_d "${_fq_p%%:*}"; _fq_p="/$_fq_d${_fq_p#?:}"
+        fi ;;
+    esac
+  fi
+  printf -v "$1" '%s' "$_fq_p"
+}
+
+# _fp_esc VAR TEXT: TEXT as a JSON string body (\ " \n \r \t escaped, other control chars dropped).
+_fp_esc() {
+  local _fe_s="$2"
+  _fe_s=${_fe_s//"$_fp_bs"/"$_fp_bs$_fp_bs"}; _fe_s=${_fe_s//"$_fp_q"/"$_fp_bs$_fp_q"}
+  _fe_s=${_fe_s//"$_fp_nl"/"${_fp_bs}n"}; _fe_s=${_fe_s//"$_fp_cr"/"${_fp_bs}r"}; _fe_s=${_fe_s//"$_fp_tab"/"${_fp_bs}t"}
+  _fe_s=${_fe_s//[[:cntrl:]]/}
+  printf -v "$1" '%s' "$_fe_s"
+}
+
+# _fp_emit ask|deny REASON: the verdict, in the hookSpecificOutput shape the guards emit.
+_fp_emit() {
+  local _fm_r; _fp_esc _fm_r "$2"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$_fm_r"
+}
+
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks the source), appended by one printf >> (D120).
+_fp_audit() {
+  local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s
+  _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
+  [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    TZ=UTC0 printf -v _fa_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  else
+    _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  fi
+  _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$4"; _fp_esc _fa_e "$5"; _fp_esc _fa_s "$6"
+  printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{"fastpath":true}}\n' \
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" >> "$_fa_bd/audit-log.jsonl"
+}
+# <<< sb-guard-fastpath
+
+# --- B7 fast path: credentialed egress decided before lib.sh / jq / grep ----------------------
+# The same gate and patterns as the full logic below (FG_NET mirrors its keyword grep, FG_RES its
+# scan() patterns), applied with builtins, line by line like grep. Only an ask is decided here;
+# anything else — no match, or a payload field _fp_str cannot decode — falls through to the full
+# logic. A fast-path ask skips sb_buddy_event (lib.sh's): the verdict and its audit row are what
+# must arrive before the hook timeout.
+FG_NET='(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl)([^A-Za-z_]|$)'
+FG_LABELS=(jwt aws-access-key github-pat anthropic-key openai-key slack-token pem-private bearer-blob credential-file-upload)
+FG_RES=(
+  'ey[A-Za-z0-9_-]{10,}\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+  'AKIA[0-9A-Z]{16}'
+  '(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,})'
+  'sk-ant-(api|admin)[0-9]*-[A-Za-z0-9_-]{20,}'
+  'sk-(proj-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{40,})'
+  'xox[abprs]-[A-Za-z0-9-]{10,}'
+  'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
+  '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
+  '@[^[:space:]]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
+)
+_fg_reason() {  # _fg_reason TOOL LABELS -> FG_REASON (the one reason text, fast path and full logic)
+  FG_REASON="Outbound info-flow guard: tool '$1' invocation appears to carry credential-shaped content ($2). HarnessAudit treats credentialed egress as the sar_flow boundary-violation channel. Confirm intent — the agent should not be sending real secrets over the wire. Kill switch: SB_FLOW_GUARD=off."
+}
+_fg_fast() {
+  local tool hay sid="" u="" pr="" rc i labels=""
+  _fp_str tool_name || return 1
+  tool="$_FP"
+  case "$tool" in
+    Bash)      _fp_str command || return 1; hay="${_FP//"$_fp_cr"/}" ;;
+    WebFetch)  _fp_str url; rc=$?; [ "$rc" = 2 ] && return 1; u="$_FP"
+               _fp_str prompt; rc=$?; [ "$rc" = 2 ] && return 1; pr="$_FP"
+               hay="$u $pr" ;;
+    WebSearch) _fp_str query || return 1; hay="${_FP//"$_fp_cr"/}" ;;
+    *) return 1 ;;
+  esac
+  while [ "${hay%"$_fp_nl"}" != "$hay" ]; do hay="${hay%"$_fp_nl"}"; done
+  [ -n "$hay" ] || return 1
+  if [ "$tool" = Bash ]; then _fp_lines "$FG_NET" "$hay" || return 1; fi
+  for ((i = 0; i < ${#FG_RES[@]}; i++)); do
+    _fp_lines "${FG_RES[$i]}" "$hay" && labels="${labels:+$labels,}${FG_LABELS[$i]}"
+  done
+  [ -n "$labels" ] || return 1
+  _fp_str session_id && sid="$_FP"
+  _fg_reason "$tool" "$labels"
+  _fp_audit "flow-guard.sh" "ask" "info-flow:$labels" "$tool:($labels)" "$FG_REASON" "$sid"
+  _fp_emit ask "$FG_REASON"
+  return 0
+}
+_fg_fast && exit 0
+
+# --- Full logic (the fast path could not decide) -----------------------------------------------
+_fp_raw_all
 [ -z "$RAW" ] && exit 0
 
-# ONE jq for the two single-line fields — this PreToolUse guard fires on EVERY
-# Bash/WebFetch/WebSearch call, so it gets exactly one jq spawn on the hot path.
-# Line-per-field -r protocol, NOT @tsv (@tsv would backslash-escape values). If
-# RAW is not a JSON object jq errors → both empty → TOOL empty → exit 0 (fail-soft).
-{
-  IFS= read -r TOOL
-  IFS= read -r SESSION_ID
-} < <(printf '%s' "$RAW" | jq -r '.tool_name // "", .session_id // ""' 2>/dev/null | tr -d '\r')
+# Tool, session and the tool-specific haystack: builtin decode when every field is decidable,
+# else ONE jq, NUL-framed (the old form spent one jq for tool+session and one for the haystack,
+# and sourced lib.sh up front — it is sourced only on the ask path now). If RAW is not a JSON
+# object jq errors → TOOL empty → exit 0 (fail-soft). CRs dropped except in the WebFetch
+# haystack, and trailing newlines trimmed, as the old captures did.
+TOOL="" SESSION_ID="" HAYSTACK=""
+_fg_fields() {
+  local rc u="" pr=""
+  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && return 1; TOOL="$_FP"
+  _fp_str session_id; rc=$?; [ "$rc" = 2 ] && return 1; SESSION_ID="$_FP"
+  case "$TOOL" in
+    Bash)      _fp_str command; rc=$?; [ "$rc" = 2 ] && return 1; HAYSTACK="$_FP" ;;
+    WebFetch)  _fp_str url; rc=$?; [ "$rc" = 2 ] && return 1; u="$_FP"
+               _fp_str prompt; rc=$?; [ "$rc" = 2 ] && return 1; pr="$_FP"
+               HAYSTACK="$u $pr" ;;
+    WebSearch) _fp_str query; rc=$?; [ "$rc" = 2 ] && return 1; HAYSTACK="$_FP" ;;
+  esac
+  return 0
+}
+if ! _fg_fields; then
+  TOOL="" SESSION_ID="" HAYSTACK=""
+  {
+    IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' HAYSTACK
+  } < <(jq -j '(.tool_name // ""), "\u0000", (.session_id // ""), "\u0000",
+               (if .tool_name == "Bash" then (.tool_input.command // "")
+                elif .tool_name == "WebFetch" then ([.tool_input.url // "", .tool_input.prompt // ""] | join(" "))
+                elif .tool_name == "WebSearch" then (.tool_input.query // "")
+                else "" end), "\u0000"' <<< "$RAW" 2>/dev/null)
+fi
+_fp_clean TOOL SESSION_ID
 [ -z "${TOOL:-}" ] && exit 0
-: "${SESSION_ID:=}"
 
 # Only outbound channels concern us.
 case "$TOOL" in
   Bash|WebFetch|WebSearch) ;;
   *) exit 0 ;;
 esac
-
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-
-# Fail-soft on lib.sh source so the guard still emits its decision JSON
-# even if audit logging is unavailable.
-if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
-  sb_log_audit() { :; }
-fi
-
-# Pull the haystack — tool-specific payload.
-case "$TOOL" in
-  Bash)
-    HAYSTACK=$(printf '%s' "$RAW" | jq -r '.tool_input.command // empty' 2>/dev/null | tr -d '\r')
-    ;;
-  WebFetch)
-    HAYSTACK=$(printf '%s' "$RAW" \
-      | jq -r '[.tool_input.url // "", .tool_input.prompt // ""] | join(" ")' 2>/dev/null)
-    ;;
-  WebSearch)
-    HAYSTACK=$(printf '%s' "$RAW" | jq -r '.tool_input.query // empty' 2>/dev/null | tr -d '\r')
-    ;;
-esac
+[ "$TOOL" = WebFetch ] || HAYSTACK=${HAYSTACK//"$_fp_cr"/}
+while [ "${HAYSTACK%"$_fp_nl"}" != "$HAYSTACK" ]; do HAYSTACK="${HAYSTACK%"$_fp_nl"}"; done
 [ -z "$HAYSTACK" ] && exit 0
 
 # Bash gate: require a network tool keyword in addition to the credential
@@ -87,48 +282,41 @@ esac
 # runtime (python/node) POSTing a secret. A plain `git status`/`python -m x`
 # never trips the guard — the credential-pattern scan below still has to match.
 if [ "$TOOL" = "Bash" ]; then
-  if ! printf '%s' "$HAYSTACK" \
-    | grep -qE '(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl)([^A-Za-z_]|$)'; then
-    exit 0
-  fi
+  grep -qE "$FG_NET" <<< "$HAYSTACK" || exit 0
 fi
 
-# Pattern set. Each line: label|extended-regex. Order doesn't matter; we
-# collect all matches and report the labels. Keep the per-pattern egrep
-# narrow so we don't accidentally match readable English text.
-MATCHED_LABELS=""
-
-scan() {
-  local label="$1" pattern="$2"
-  if printf '%s' "$HAYSTACK" | grep -qE "$pattern"; then
-    if [ -z "$MATCHED_LABELS" ]; then
-      MATCHED_LABELS="$label"
-    else
-      MATCHED_LABELS="$MATCHED_LABELS,$label"
-    fi
-  fi
-}
-
-scan "jwt"            'ey[A-Za-z0-9_-]{10,}\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
-scan "aws-access-key" 'AKIA[0-9A-Z]{16}'
-scan "github-pat"     '(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,})'
-scan "anthropic-key"  'sk-ant-(api|admin)[0-9]*-[A-Za-z0-9_-]{20,}'
+# Pattern set: FG_LABELS[i] ↔ FG_RES[i] (defined with the fast path above — one list for both
+# paths). We collect all matches and report the labels. Keep each pattern narrow so we don't
+# accidentally match readable English text.
 # OpenAI: matches both legacy keys (`sk-` + 40+ base62) and the current
 # project-scoped format (`sk-proj-` + body). Hyphens allowed inside the
 # body to accommodate `sk-proj-...`. Anthropic and Slack tokens are
-# matched by their dedicated patterns earlier — duplicate matches just
+# matched by their dedicated patterns too — duplicate matches just
 # add labels, they don't break anything.
-scan "openai-key"     'sk-(proj-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{40,})'
-scan "slack-token"    'xox[abprs]-[A-Za-z0-9-]{10,}'
-scan "pem-private"    'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
-scan "bearer-blob"    '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
 # D103: credential-shaped FILE upload via curl/httpie's `@path` syntax (-d @file,
 # -F field=@file). No secret VALUE appears in the command text here — only a
 # path naming a known credential file — so this needs its own pattern rather
-# than reusing the literal-secret scans above.
-scan "credential-file-upload" '@[^[:space:]]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
+# than reusing the literal-secret scans.
+# ONE grep with every pattern (-e each) says whether ANY can match; only then the per-pattern
+# scan that names them (the old form ran all nine greps on every egress-shaped call). An error
+# (exit 2) counts as a hit, so the per-pattern scan then decides exactly as before.
+FG_ARGS=()
+for _p in "${FG_RES[@]}"; do FG_ARGS+=(-e "$_p"); done
+grep -qE ${FG_ARGS[@]+"${FG_ARGS[@]}"} <<< "$HAYSTACK"; [ $? -eq 1 ] && exit 0
+MATCHED_LABELS=""
+for ((_i = 0; _i < ${#FG_RES[@]}; _i++)); do
+  grep -qE "${FG_RES[$_i]}" <<< "$HAYSTACK" && MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$_i]}"
+done
 
 [ -z "$MATCHED_LABELS" ] && exit 0
+
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+# Fail-soft on lib.sh source so the guard still emits its decision JSON
+# even if audit logging is unavailable.
+if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
+  sb_log_audit() { :; }
+fi
 
 # Decision: ask. The audit-log TARGET intentionally carries only the
 # matched labels — NOT the haystack content — because the haystack
@@ -137,17 +325,11 @@ scan "credential-file-upload" '@[^[:space:]]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|
 # log to be re-recognized by downstream consumers. Labels alone give
 # /second-brain:audit and the SAR summary everything they need.
 TARGET="${TOOL}:(${MATCHED_LABELS})"
-REASON="Outbound info-flow guard: tool '$TOOL' invocation appears to carry credential-shaped content (${MATCHED_LABELS}). HarnessAudit treats credentialed egress as the sar_flow boundary-violation channel. Confirm intent — the agent should not be sending real secrets over the wire. Kill switch: SB_FLOW_GUARD=off."
+_fg_reason "$TOOL" "$MATCHED_LABELS"
 
-sb_log_audit "flow-guard.sh" "ask" "info-flow:${MATCHED_LABELS}" "$TARGET" "$REASON" "$SESSION_ID"
+sb_log_audit "flow-guard.sh" "ask" "info-flow:${MATCHED_LABELS}" "$TARGET" "$FG_REASON" "$SESSION_ID"
 command -v sb_buddy_event >/dev/null 2>&1 && sb_buddy_event "$SESSION_ID" guard alert "Held for your OK: credential-shaped data heading out (${MATCHED_LABELS:0:60})." flow-guard 300
 
-jq -nc --arg r "$REASON" '{
-  hookSpecificOutput: {
-    hookEventName: "PreToolUse",
-    permissionDecision: "ask",
-    permissionDecisionReason: $r
-  }
-}' 2>/dev/null || true
+_fp_emit ask "$FG_REASON"
 
 exit 0

@@ -657,6 +657,18 @@ sb_log_audit() {
 # Rotate audit-log when it exceeds line or byte caps. Drops the oldest 50%
 # of lines (not the newest) so recent decisions remain queryable. Idempotent:
 # safe to call from any hook; no-op when caps not exceeded.
+#
+# S0 (B7 ruler) retention: `gate=value-loop` and `gate=hook-cancelled` rows are the
+# ONLY measured evidence of the delivery loop and the guard-cancellation defect —
+# the plain halving below used to let them age out with everything else, leaving
+# no trend (docs/concepts/2026-09-27-repo-brain-concept.md §2 "the ruler cannot see
+# delivery": ~17h of history was all the cap left). A row of either gate younger
+# than 30 days is now PROTECTED from the trim; plain rows (guard verdicts) and
+# STALE gate rows (30d+) are dropped first. The hard line-count bound still wins
+# even over protected rows in the pathological case where they alone exceed it —
+# a rotation policy that can grow past its own cap on its own evidence channel is
+# not a cap. Single awk pass: the whole file is read once (buffered into arrays,
+# decided in END{}), never re-read or re-scanned line by line.
 sb_rotate_audit_log() {
   [ -f "$SB_AUDIT_FILE" ] || return 0
   local lines bytes
@@ -667,8 +679,48 @@ sb_rotate_audit_log() {
   if [ "$lines" -gt "$SB_AUDIT_MAX_LINES" ] || [ "$bytes" -gt "$SB_AUDIT_MAX_BYTES" ]; then
     local keep=$(( lines / 2 ))
     [ "$keep" -lt 1 ] && keep=1
+    # GNU/BSD date fallback (same pattern used elsewhere for last_used-style cutoffs).
+    local cutoff
+    cutoff=$(date -u -v-30d +%Y-%m-%d 2>/dev/null || date -u -d '30 days ago' +%Y-%m-%d 2>/dev/null || echo '1970-01-01')
     local tmp="$SB_AUDIT_FILE.tmp.$$"
-    tail -n "$keep" "$SB_AUDIT_FILE" > "$tmp" 2>/dev/null \
+    awk -v keep="$keep" -v hardcap="$SB_AUDIT_MAX_LINES" -v cutoff="$cutoff" '
+      {
+        n++
+        text[n] = $0
+        isprot = 0
+        if (index($0, "\"message\":\"gate=value-loop") > 0 || index($0, "\"message\":\"gate=hook-cancelled") > 0) {
+          tsline = $0
+          if (match(tsline, /"timestamp":"[^"]*"/)) {
+            tsval = substr(tsline, RSTART + 13, RLENGTH - 14)
+            if (substr(tsval, 1, 10) >= cutoff) isprot = 1
+          }
+        }
+        prot[n] = isprot
+      }
+      END {
+        total = n
+        # Pass 1 (newest to oldest): keep protected rows first, capped at the hard
+        # bound even if that means dropping the OLDEST protected rows too.
+        protkept = 0
+        for (i = total; i >= 1; i--) {
+          if (prot[i] && protkept < hardcap) { keepline[i] = 1; protkept++ }
+        }
+        want = keep
+        if (protkept > want) want = protkept
+        if (want > hardcap) want = hardcap
+        other_needed = want - protkept
+        if (other_needed < 0) other_needed = 0
+        other_seen = 0
+        # Pass 2 (newest to oldest): fill the remaining budget with the newest
+        # non-protected (or stale-protected) rows — these drop FIRST as the file
+        # grows, never the young gate rows, until the hard bound forces both.
+        for (i = total; i >= 1; i--) {
+          if (keepline[i]) continue
+          if (other_seen < other_needed) { keepline[i] = 1; other_seen++ }
+        }
+        for (i = 1; i <= total; i++) if (keepline[i]) print text[i]
+      }
+    ' "$SB_AUDIT_FILE" > "$tmp" 2>/dev/null \
       && mv "$tmp" "$SB_AUDIT_FILE" \
       || rm -f "$tmp" 2>/dev/null
   fi
