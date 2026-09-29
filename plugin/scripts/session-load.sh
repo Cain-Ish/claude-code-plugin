@@ -739,7 +739,11 @@ if [ "${1:-}" = "--compact" ]; then
   fi
   # CRLF normalize a Windows/imported PROJECT.md for the read-only awk parsing below (same
   # idiom as the startup path further down) — read-only copy, $_cpf is never written.
-  if LC_ALL=C grep -q $'\r' "$_cpf"; then   # one spawn (was od|grep over a hex dump)
+  # L1 (review): `grep -q` opens the file through Git-Bash's text-mode read path, which has
+  # already stripped every CR before the pattern runs -- a real CRLF file reads as a false
+  # negative there and skips the tr normalize below. `-U` (BSD and GNU both accept it) opens
+  # the file untranslated so the CR byte is still present when grep looks for it.
+  if LC_ALL=C grep -qU $'\r' "$_cpf"; then   # one spawn (was od|grep over a hex dump)
     _ccrlf=$(mktemp) && tr -d '\r' < "$_cpf" > "$_ccrlf" && _cpf="$_ccrlf"
   fi
   SL_GIT_ROOT="${CLAUDE_PROJECT_DIR:-${_sl_cwd:-$PWD}}"
@@ -895,7 +899,9 @@ cp "$project_file" "$BRAIN_DIR/.session-baseline-$slug.md"
 # scope-banner counters AND empty the PROJ_KW wiki-enrichment harvest. Only triggers when a CR
 # is actually present (the common LF case pays nothing). Safe: every use of $project_file from
 # here on is READ-only (the auto-scaffold write happened earlier, before this baseline copy).
-if LC_ALL=C grep -q $'\r' "$project_file"; then   # one spawn (was od|grep over a hex dump)
+# L1 (review): see the --compact branch's identical note above -- `-U` is required or a real
+# CRLF PROJECT.md reads as false-negative on Git-Bash's text-mode grep and never gets normalized.
+if LC_ALL=C grep -qU $'\r' "$project_file"; then   # one spawn (was od|grep over a hex dump)
   _proj_lf=$(mktemp) && tr -d '\r' < "$project_file" > "$_proj_lf" && project_file="$_proj_lf"
 fi
 
@@ -1437,8 +1443,13 @@ fi
 # had embedding:[] because @huggingface/transformers was --external in the
 # bundle but never installed under the plugin cache. A plugin cache refresh
 # ships dist/ but NEVER node_modules/, so the dep goes missing on every version
-# bump. Two OR'd triggers (both gated on an index already existing, so brand-new
-# installs with no transcripts aren't nagged):
+# bump. Three OR'd triggers. Only (2) is gated on episodic-index.json existing (it counts
+# already-indexed exchanges, so a brand-new install with zero transcripts has nothing to
+# count); (1) and (3) detect a broken vector-deps install directly and fire even with NO
+# episodic-index.json at all — review fix (T9/L1 group): they used to be nested under the
+# SAME `[ -f episodic-index.json ]` gate as (2), so the very same broken deps that also drop
+# wiki knowledge_search to BM25-only from the FIRST session never bannered until 11+ episodic
+# exchanges had accumulated with empty embeddings.
 #   (1) deps-absent — node_modules/@huggingface/transformers missing. Fires
 #       IMMEDIATELY after a cache refresh; the index-state check (2) can't catch
 #       this because the old index still holds its embeddings, so it would stay
@@ -1459,6 +1470,12 @@ fi
 # name both surfaces. Every emission logs gate=banner … fired=1 (fired=0 when the byte budget
 # refuses it), so a miss is visible in the audit log.
 SB_EPI_INDEX="${BRAIN_DIR:-$HOME/.second-brain}/episodic-index.json"
+# review fix (T9/L1 group): deps-absent (1) and import-failure (3) below used to run ONLY
+# inside `[ -f "$SB_EPI_INDEX" ]` — but both surface a WIKI knowledge_search bm25-only
+# degradation too, which is real from the very first session, before any episodic transcript
+# (and therefore any episodic-index.json) exists at all. Only (2) pending genuinely needs the
+# index (it counts already-indexed exchanges), so only ITS jq read stays gated on the file.
+EPI_PENDING=0; EPI_TOTAL=0
 if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
   # ONE jq for the two counts — hot path. Empty (jq parse failure)
   # defaults to 0 below — same fail-soft as the old per-field `|| echo 0`.
@@ -1467,78 +1484,89 @@ if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
       "$SB_EPI_INDEX" 2>/dev/null)
   EPI_PENDING="${EPI_PENDING//$'\r'/}"; EPI_TOTAL="${EPI_TOTAL//$'\r'/}"   # Windows jq CRLF, no tr spawn
   : "${EPI_PENDING:=0}" "${EPI_TOTAL:=0}"
-  EPI_XFMR_MISSING=0
-  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ ! -d "$CLAUDE_PLUGIN_ROOT/mcp/node_modules/@huggingface/transformers" ] && EPI_XFMR_MISSING=1
-  # R2.4 auto-heal (MCP-DEPS-1): a fresh version dir missing the shared-deps
-  # symlink is a pure LOCAL relink — no download, no consent needed. Try it
-  # before bannering; the manual banner remains for the genuinely-broken cases
-  # (no shared tree / key drift / import failure → installer exits 3). The
-  # pending-count nag is also suppressed for this one session: empty embeddings
-  # backfill on the next session-end indexer run.
-  EPI_RELINKED=0
-  if [ "$EPI_XFMR_MISSING" -eq 1 ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] \
-     && [ -f "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" ] \
-     && bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" --relink-only >/dev/null 2>&1; then
-    EPI_XFMR_MISSING=0; EPI_RELINKED=1
-    sb_append "$(printf '## ⓘ second-brain — embeddings auto-relinked\nThis plugin version was missing its shared vector-deps symlink (a cache refresh ships without node_modules); re-linked automatically — no download. Empty embeddings backfill on the next session-end extraction.\n\n')" "episodic-embed-relinked" 300
-  fi
-  # (3) import-failure: ONE awk over error-log.jsonl (rotation-capped), only when (1) is not
-  # already firing. The 24h cutoff is an ISO string (rows are "YYYY-MM-DDTHH:MM:SSZ", so a
-  # string compare orders them); GNU date -d, else BSD date -r. The backslash is built from its
-  # code point (sprintf %c 92): JSON doubles every Windows-path backslash, and no escape text
-  # in this source can be mangled on the way to awk.
-  EPI_IMPORT_N=0; EPI_IMPORT_LAST=""
-  _eb_log="$BRAIN_DIR/error-log.jsonl"
-  if [ "${SB_EMBED_PENDING_BANNER:-on}" != "off" ] && [ "$EPI_RELINKED" -eq 0 ] \
-     && [ "$EPI_XFMR_MISSING" -eq 0 ] && [ -s "$_eb_log" ]; then
-    _eb_cut_s=$(( ${SL_START_S:-$(date +%s)} - 86400 ))
-    _eb_cut=$(date -u -d "@$_eb_cut_s" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-      || date -u -r "$_eb_cut_s" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
-    # Last path component of this plugin root (a version dir, or a dev checkout's name).
-    _eb_root="${CLAUDE_PLUGIN_ROOT:-}"; _eb_root="${_eb_root%/}"; _eb_root="${_eb_root%\\}"
-    _eb_root="${_eb_root##*/}"; _eb_root="${_eb_root##*\\}"
-    if [ -z "$_eb_cut" ]; then
-      sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner import-failure check skipped: no 24h cutoff (neither GNU nor BSD date)" 1
-    else
-      read -r EPI_IMPORT_N EPI_IMPORT_LAST < <(LC_ALL=C awk -v cut="$_eb_cut" -v root="$_eb_root" '
-        BEGIN { bs = sprintf("%c", 92); b2 = bs bs; n = 0; last = "-" }
-        index($0, "\"script\":\"embeddings\"") && index($0, "model load failed") {
-          if (!match($0, /"timestamp":"[^"]*"/)) next
-          ts = substr($0, RSTART + 13, RLENGTH - 14)
-          if (ts < cut) next
-          if (index($0, "/mcp/") || index($0, b2 "mcp" b2)) {
-            if (root == "") next
-            if (!index($0, "/" root "/mcp/") && !index($0, b2 root b2 "mcp" b2)) next
-          }
-          n++; if (ts > last) last = ts
+fi
+EPI_XFMR_MISSING=0
+[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ ! -d "$CLAUDE_PLUGIN_ROOT/mcp/node_modules/@huggingface/transformers" ] && EPI_XFMR_MISSING=1
+# R2.4 auto-heal (MCP-DEPS-1): a fresh version dir missing the shared-deps
+# symlink is a pure LOCAL relink — no download, no consent needed. Try it
+# before bannering; the manual banner remains for the genuinely-broken cases
+# (no shared tree / key drift / import failure → installer exits 3). The
+# pending-count nag is also suppressed for this one session: empty embeddings
+# backfill on the next session-end indexer run.
+EPI_RELINKED=0
+if [ "$EPI_XFMR_MISSING" -eq 1 ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] \
+   && [ -f "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" ] \
+   && bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" --relink-only >/dev/null 2>&1; then
+  EPI_XFMR_MISSING=0; EPI_RELINKED=1
+  sb_append "$(printf '## ⓘ second-brain — embeddings auto-relinked\nThis plugin version was missing its shared vector-deps symlink (a cache refresh ships without node_modules); re-linked automatically — no download. Empty embeddings backfill on the next session-end extraction.\n\n')" "episodic-embed-relinked" 300
+fi
+# (3) import-failure: ONE awk over error-log.jsonl (rotation-capped), only when (1) is not
+# already firing. The 24h cutoff is an ISO string (rows are "YYYY-MM-DDTHH:MM:SSZ", so a
+# string compare orders them); GNU date -d, else BSD date -r. The backslash is built from its
+# code point (sprintf %c 92): JSON doubles every Windows-path backslash, and no escape text
+# in this source can be mangled on the way to awk.
+EPI_IMPORT_N=0; EPI_IMPORT_LAST=""
+_eb_log="$BRAIN_DIR/error-log.jsonl"
+if [ "${SB_EMBED_PENDING_BANNER:-on}" != "off" ] && [ "$EPI_RELINKED" -eq 0 ] \
+   && [ "$EPI_XFMR_MISSING" -eq 0 ] && [ -s "$_eb_log" ]; then
+  _eb_cut_s=$(( ${SL_START_S:-$(date +%s)} - 86400 ))
+  _eb_cut=$(date -u -d "@$_eb_cut_s" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -r "$_eb_cut_s" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+  # Last path component of this plugin root (a version dir, or a dev checkout's name).
+  _eb_root="${CLAUDE_PLUGIN_ROOT:-}"; _eb_root="${_eb_root%/}"; _eb_root="${_eb_root%\\}"
+  _eb_root="${_eb_root##*/}"; _eb_root="${_eb_root##*\\}"
+  if [ -z "$_eb_cut" ]; then
+    sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner import-failure check skipped: no 24h cutoff (neither GNU nor BSD date)" 1
+  else
+    # review fix (silent-failure): a bad/unreadable error-log.jsonl (torn write, permission
+    # denied, disk full mid-read) used to have its awk failure swallowed by `read < <(...)`
+    # (that construct only ever sees `read`'s own exit status, never the process
+    # substitution's) — EPI_IMPORT_N then silently defaulted to 0, indistinguishable from a
+    # genuinely healthy install. Capture the awk output AND its own exit code first.
+    _eb_awk_out=$(LC_ALL=C awk -v cut="$_eb_cut" -v root="$_eb_root" '
+      BEGIN { bs = sprintf("%c", 92); b2 = bs bs; n = 0; last = "-" }
+      index($0, "\"script\":\"embeddings\"") && index($0, "model load failed") {
+        if (!match($0, /"timestamp":"[^"]*"/)) next
+        ts = substr($0, RSTART + 13, RLENGTH - 14)
+        if (ts < cut) next
+        if (index($0, "/mcp/") || index($0, b2 "mcp" b2)) {
+          if (root == "") next
+          if (!index($0, "/" root "/mcp/") && !index($0, b2 root b2 "mcp" b2)) next
         }
-        END { print n, last }
-      ' "$_eb_log")
+        n++; if (ts > last) last = ts
+      }
+      END { print n, last }
+    ' "$_eb_log")
+    _eb_awk_ec=$?
+    if [ "$_eb_awk_ec" -ne 0 ]; then
+      sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner import-failure awk failed ec=$_eb_awk_ec log=$_eb_log" 1
+    else
+      read -r EPI_IMPORT_N EPI_IMPORT_LAST <<< "$_eb_awk_out"
       case "$EPI_IMPORT_N" in ''|*[!0-9]*) EPI_IMPORT_N=0 ;; esac
     fi
   fi
-  if [ "${SB_EMBED_PENDING_BANNER:-on}" != "off" ] && [ "$EPI_RELINKED" -eq 0 ] \
-     && { [ "$EPI_XFMR_MISSING" -eq 1 ] || [ "$EPI_IMPORT_N" -gt 0 ] \
-          || { [ "${EPI_PENDING:-0}" -gt 10 ] && [ "${EPI_TOTAL:-0}" -gt 0 ]; }; }; then
-    EPI_TITLE='vector search degraded — episodic search and wiki knowledge_search run bm25-only'
-    if [ "$EPI_XFMR_MISSING" -eq 1 ]; then
-      EPI_KIND=deps-absent
-      EPI_REASON='`@huggingface/transformers` is not linked in this plugin cache — a version bump creates a fresh dir whose `mcp/node_modules` symlink to the shared deps is not yet created — so every NEW embedding will silently fail.'
-    elif [ "$EPI_IMPORT_N" -gt 0 ]; then
-      EPI_KIND=import-failure
-      EPI_REASON="\`@huggingface/transformers\` is present but failed to load: $EPI_IMPORT_N import failure(s) in error-log.jsonl in the last 24h (latest $EPI_IMPORT_LAST)."
-    else
-      EPI_KIND=pending
-      EPI_TITLE='episodic vector search degraded'
-      EPI_REASON="$EPI_PENDING of $EPI_TOTAL indexed exchanges have no embedding (text search works; vector / mode=both will miss them)."
-    fi
-    EPI_BANNER=$(printf '## ⓘ second-brain — %s\n%s\nfix: `bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh` (re-links the shared deps; downloads ~70MB only on the first ever install). To re-embed existing exchanges, back up & remove `%s`, then run the episodic indexer.\nSuppress: `SB_EMBED_PENDING_BANNER=off`.\n\n' \
-      "$EPI_TITLE" "$EPI_REASON" "$SB_EPI_INDEX")
-    if sb_append "$EPI_BANNER" "episodic-embed-pending-banner" 800; then
-      sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner fired=1 reason=$EPI_KIND" 0
-    else
-      sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner fired=0 reason=$EPI_KIND skipped=byte-budget" 0
-    fi
+fi
+if [ "${SB_EMBED_PENDING_BANNER:-on}" != "off" ] && [ "$EPI_RELINKED" -eq 0 ] \
+   && { [ "$EPI_XFMR_MISSING" -eq 1 ] || [ "$EPI_IMPORT_N" -gt 0 ] \
+        || { [ "${EPI_PENDING:-0}" -gt 10 ] && [ "${EPI_TOTAL:-0}" -gt 0 ]; }; }; then
+  EPI_TITLE='vector search degraded — episodic search and wiki knowledge_search run bm25-only'
+  if [ "$EPI_XFMR_MISSING" -eq 1 ]; then
+    EPI_KIND=deps-absent
+    EPI_REASON='`@huggingface/transformers` is not linked in this plugin cache — a version bump creates a fresh dir whose `mcp/node_modules` symlink to the shared deps is not yet created — so every NEW embedding will silently fail.'
+  elif [ "$EPI_IMPORT_N" -gt 0 ]; then
+    EPI_KIND=import-failure
+    EPI_REASON="\`@huggingface/transformers\` is present but failed to load: $EPI_IMPORT_N import failure(s) in error-log.jsonl in the last 24h (latest $EPI_IMPORT_LAST)."
+  else
+    EPI_KIND=pending
+    EPI_TITLE='episodic vector search degraded'
+    EPI_REASON="$EPI_PENDING of $EPI_TOTAL indexed exchanges have no embedding (text search works; vector / mode=both will miss them)."
+  fi
+  EPI_BANNER=$(printf '## ⓘ second-brain — %s\n%s\nfix: `bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh` (re-links the shared deps; downloads ~70MB only on the first ever install). To re-embed existing exchanges, back up & remove `%s`, then run the episodic indexer.\nSuppress: `SB_EMBED_PENDING_BANNER=off`.\n\n' \
+    "$EPI_TITLE" "$EPI_REASON" "$SB_EPI_INDEX")
+  if sb_append "$EPI_BANNER" "episodic-embed-pending-banner" 800; then
+    sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner fired=1 reason=$EPI_KIND" 0
+  else
+    sb_log_error "session-load.sh" "gate=banner name=episodic-embed-pending-banner fired=0 reason=$EPI_KIND skipped=byte-budget" 0
   fi
 fi
 

@@ -20,47 +20,159 @@ set -u
 # to the guard's full logic. Helper locals carry a per-helper prefix so no caller's VAR name can be
 # shadowed by them (printf -v writes through dynamic scope). Assignments that substitute with a
 # quoted replacement stay unquoted: bash <= 4.2 did not quote-remove it inside "${…}".
+# Every helper is linear in the payload, since a 512 KB Write reaches the full logic too:
+# ${X#*KEY}, ${X%%KEY*} and ${X%"\n"} rescan the string once per position (O(n^2): 20-220 s per
+# guard at 512 KB on MSYS, far past the 5 s timeout), so text is cut by word splitting
+# (_fp_split) and tested with `case` globs and fixed-string substitutions.
 _fp_bs='\' _fp_q='"' _fp_us=$'\037' _fp_nl=$'\n' _fp_cr=$'\r' _fp_tab=$'\t'
-_fp_re='^[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+_fp_re='^[[:space:]]*:[[:space:]]*$' _fp_rebs='(\\+)$'
 _fp_uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ _fp_lc=abcdefghijklmnopqrstuvwxyz
+# bash < 4.3 runs even a one-match ${v//pat/rep} in O(candidates x length^2) (4.3 added the
+# fixed-length match jump): there _fp_at leaves a payload over 16 KiB to jq.
+_fp_ob=0
+{ [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }; } && _fp_ob=1
 # The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
 # MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
 # _fp_raw_all, only for a bigger payload.
-_FP_RAW="" _FP_EOF=0 _FP=""
+_FP_RAW="" _FP_EOF=0 _FP="" _FP_I=0
+_FP_A=()
 IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
 
 # _fp_raw_all: RAW = the whole payload for the full logic (trailing newlines stripped, as the old
 # RAW=$(cat) did); _fp_str reads the whole payload from then on.
 _fp_raw_all() {
   if [ "$_FP_EOF" = 1 ]; then RAW="$_FP_RAW"; else RAW="$_FP_RAW$(cat)"; fi
-  while [ "${RAW%"$_fp_nl"}" != "$RAW" ]; do RAW="${RAW%"$_fp_nl"}"; done
+  while case "$RAW" in *"$_fp_nl") true ;; *) false ;; esac; do RAW="${RAW%"$_fp_nl"}"; done
   _FP_RAW="$RAW" _FP_EOF=1
 }
 
-# _fp_str KEY: _FP = the decoded string value of the ONE "KEY": "…" pair in the payload.
-# 0 = found; 1 = absent (the whole payload was seen); 2 = undecidable — the key occurs twice
-# (nested or duplicated: jq decides which one counts), the value is not a string or runs past the
-# 16 KiB read, or it carries an escape left to jq (\u \b \f). JSON escapes every quote inside a
-# string, so a "KEY" followed by ':' is always a real key, never text inside a value.
-_fp_str() {
-  local _fs_k="\"$1\"" _fs_r _fs_v
-  _FP=""
+# _fp_split SEP TEXT: _FP_A = TEXT cut at every SEP (one character) by word splitting — linear in
+# every bash — with globbing off meanwhile. A trailing SEP adds no empty last field; with SEP a
+# newline (IFS white space) empty lines vanish as well.
+_fp_split() {
+  local IFS="$1" _sp_o="$-"
+  set -f
+  _FP_A=($2)
+  case "$_sp_o" in *f*) ;; *) set +f ;; esac
+}
+
+# _fp_feed TEXT CMD…: run CMD with TEXT and a newline on stdin. `CMD <<< "$TEXT"` only for a short
+# TEXT (8192 characters, at most 32 KiB): bash >= 5.1 writes a here-string into a pipe before it
+# starts the reader, and on MSYS one of 65,536..~65,650 bytes never fits — the guard hangs past its
+# timeout and the tool runs. A longer TEXT goes through a process substitution, whose writer runs
+# alongside the reader.
+_fp_feed() {
+  local _fd_t="$1"; shift
+  if [ "${#_fd_t}" -le 8192 ]; then "$@" <<< "$_fd_t"; else "$@" < <(printf '%s\n' "$_fd_t"); fi
+}
+
+# _fp_at KEY: find the string value of the ONE "KEY": "…" pair in the payload. _FP_A = the payload
+# from KEY on, cut at every '"' (the last field ends in a \037 sentinel, so a value that runs to the
+# end of what was read never looks closed); _FP_I = the field the value starts in. 0 = found;
+# 1 = absent (the whole payload was seen); 2 = undecidable — KEY occurs twice (nested or
+# duplicated: jq decides which one counts), the value is not a string, the payload holds a \037,
+# or KEY may be spelled with a \u escape. JSON escapes every quote inside a string, so a "KEY"
+# followed by ':' is always a real key, never text inside a value.
+_fp_at() {
+  local _fa_f _fa_i=0
   case "$_FP_RAW" in
-    *"$_fs_k"*) ;;
-    *) [ "$_FP_EOF" = 1 ] && return 1; return 2 ;;
+    *"$_fp_q$1$_fp_q"*) ;;
+    *) [ "$_FP_EOF" = 1 ] || return 2
+       case "$_FP_RAW" in *"$_fp_bs"u*) _fp_uesc "$_FP_RAW" && return 2 ;; esac
+       return 1 ;;
   esac
-  _fs_r="${_FP_RAW#*"$_fs_k"}"
-  case "$_fs_r" in *"$_fs_k"*) return 2 ;; esac
-  [[ $_fs_r =~ $_fp_re ]] || return 2
-  _fs_v="${BASH_REMATCH[1]}"
-  case "$_fs_v" in *"$_fp_us"*) return 2 ;; esac
-  _fs_v=${_fs_v//"$_fp_bs$_fp_bs"/"$_fp_us"}
-  case "$_fs_v" in *"$_fp_bs"[ubf]*) return 2 ;; esac
-  _fs_v=${_fs_v//"$_fp_bs$_fp_q"/"$_fp_q"}; _fs_v=${_fs_v//"$_fp_bs/"/"/"}
-  _fs_v=${_fs_v//"$_fp_bs"n/"$_fp_nl"}; _fs_v=${_fs_v//"$_fp_bs"t/"$_fp_tab"}; _fs_v=${_fs_v//"$_fp_bs"r/"$_fp_cr"}
-  case "$_fs_v" in *"$_fp_bs"*) return 2 ;; esac
-  _FP=${_fs_v//"$_fp_us"/"$_fp_bs"}
+  case "$_FP_RAW" in *"$_fp_us"*) return 2 ;; esac
+  if [ "${#_FP_RAW}" -le 16384 ]; then
+    _fp_split "$_fp_q" "$_FP_RAW$_fp_us"
+    _FP_I=-1
+    for _fa_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
+      if [ "$_fa_f" = "$1" ]; then [ "$_FP_I" = -1 ] || return 2; _FP_I=$_fa_i; fi
+      _fa_i=$((_fa_i + 1))
+    done
+    [ "$_FP_I" -ge 1 ] || return 2
+  else
+    [ "$_fp_ob" = 1 ] && return 2
+    _fp_split "$_fp_us" "${_FP_RAW//"$_fp_q$1$_fp_q"/"$_fp_us"}"
+    [ "${#_FP_A[@]}" = 2 ] || return 2
+    _fp_split "$_fp_q" "${_FP_A[1]}$_fp_us"
+    _FP_I=-1
+  fi
+  [[ ${_FP_A[$((_FP_I + 1))]-x} =~ $_fp_re ]] || return 2
+  _FP_I=$((_FP_I + 2))
+  [ "$_FP_I" -lt "${#_FP_A[@]}" ] || return 2
   return 0
+}
+
+# _fp_join VAR FROM TO: VAR = fields FROM..TO of _FP_A joined by the '"' _fp_split cut out.
+_fp_join() {
+  local IFS="$_fp_q"
+  printf -v "$1" '%s' "${_FP_A[*]:$2:$(($3 - $2 + 1))}"
+}
+
+# _fp_str KEY: _FP = the decoded string value of the ONE "KEY": "…" pair in the payload.
+# 0 = found; 1 = absent; 2 = undecidable (_fp_at's cases, a value that runs past the 16 KiB read,
+# or an escape left to jq: \u \b \f). The value ends at the first '"' not escaped: a field that
+# ends in an odd run of backslashes ended at an escaped quote.
+_fp_str() {
+  local _fs_v _fs_f _fs_t _fs_s _fs_n
+  _FP=""
+  _fp_at "$1" || return $?
+  _fs_s=$_FP_I _fs_n=$(( ${#_FP_A[@]} - 1 ))
+  while :; do
+    [ "$_FP_I" -lt "$_fs_n" ] || return 2
+    _fs_f="${_FP_A[$_FP_I]}"
+    case "$_fs_f" in *"$_fp_bs") ;; *) break ;; esac
+    _fs_t="$_fs_f"; [ "${#_fs_t}" -le 65 ] || _fs_t="${_fs_t:${#_fs_t}-65}"
+    [[ $_fs_t =~ $_fp_rebs ]] && [ "${#BASH_REMATCH[1]}" -le 64 ] || return 2
+    [ $(( ${#BASH_REMATCH[1]} % 2 )) = 1 ] || break
+    _FP_I=$((_FP_I + 1))
+  done
+  _fp_join _fs_v "$_fs_s" "$_FP_I"
+  # Nothing escaped: the value is its own decoding.
+  case "$_fs_v" in *"$_fp_bs"*) ;; *) _FP="$_fs_v"; return 0 ;; esac
+  # Decode by cutting at every backslash: each field after the first starts with the escaped
+  # character, except the field after an escaped backslash ("\\" leaves an empty field), which is
+  # plain text. A ${v//"\"n/…} pass per escape costs O(matches x length) instead — every bash in a
+  # multibyte string (117 s for a 512 KB heredoc holding one 'é'), and bash < 4.3 even in ASCII.
+  local -a _fs_o=()
+  local _fs_p=1
+  _fp_split "$_fp_bs" "$_fs_v"
+  for _fs_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    if [ "$_fs_p" = 1 ]; then _fs_o+=("$_fs_f"); _fs_p=0; continue; fi
+    if [ -z "$_fs_f" ]; then _fs_o+=("$_fp_bs"); _fs_p=1; continue; fi
+    _fs_t="${_fs_f:0:1}"
+    case "$_fs_t" in
+      n) _fs_t="$_fp_nl" ;;
+      t) _fs_t="$_fp_tab" ;;
+      r) _fs_t="$_fp_cr" ;;
+      "$_fp_q"|/) ;;
+      *) return 2 ;;
+    esac
+    _fs_o+=("$_fs_t${_fs_f:1}")
+  done
+  printf -v _FP '%s' ${_fs_o[@]+"${_fs_o[@]}"}
+  return 0
+}
+
+# _fp_uesc TEXT: true when TEXT holds a \u escape — a 'u' right after an escaping backslash, not
+# after an escaped one ("\\u" is a backslash and a 'u'). Linear, as _fp_str's decode.
+_fp_uesc() {
+  local _fu_f _fu_p=1
+  _fp_split "$_fp_bs" "$1"
+  for _fu_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    if [ "$_fu_p" = 1 ]; then _fu_p=0; continue; fi
+    if [ -z "$_fu_f" ]; then _fu_p=1; continue; fi
+    case "$_fu_f" in u*) return 0 ;; esac
+  done
+  return 1
+}
+
+# _fp_nocr VAR TEXT: TEXT without its CRs, cut at each CR and rejoined — a ${v//$'\r'/} pass costs
+# O(CRs x length) in a multibyte string (a CRLF heredoc of 512 KB takes minutes).
+_fp_nocr() {
+  case "$2" in *"$_fp_cr"*) ;; *) printf -v "$1" '%s' "$2"; return 0 ;; esac
+  _fp_split "$_fp_cr" "$2"
+  printf -v "$1" '%s' ${_FP_A[@]+"${_FP_A[@]}"}
 }
 
 # _fp_clean VAR…: drop CRs and trailing newlines from each VAR — what the full logic's old
@@ -68,24 +180,43 @@ _fp_str() {
 _fp_clean() {
   local _fc_v _fc_s
   for _fc_v in "$@"; do
-    _fc_s="${!_fc_v}"
-    _fc_s=${_fc_s//"$_fp_cr"/}
-    while [ "${_fc_s%"$_fp_nl"}" != "$_fc_s" ]; do _fc_s="${_fc_s%"$_fp_nl"}"; done
+    _fp_nocr _fc_s "${!_fc_v}"
+    while case "$_fc_s" in *"$_fp_nl") true ;; *) false ;; esac; do _fc_s="${_fc_s%"$_fp_nl"}"; done
     printf -v "$_fc_v" '%s' "$_fc_s"
   done
 }
 
-# _fp_lines ERE TEXT: true when one LINE of TEXT matches (grep's unit). The whole-text test runs
-# first and is a superset for EREs whose only anchors are (^|X) / (X|$) with X matching newline.
+# _fp_lines ERE TEXT: 0 when one LINE of TEXT matches (grep's unit), 1 when none does, 2 when TEXT
+# has over 64 lines (undecidable: every [[ =~ ]] compiles the ERE anew, ~2.6 ms a line on MSYS;
+# the full logic's one grep decides). The whole-text test runs first and is a superset for EREs
+# whose only anchors are (^|X) / (X|$) with X matching newline. Empty lines are skipped: none of
+# the fast-path EREs can match one.
 _fp_lines() {
-  local _fl_re="$1" _fl_rest="$2" _fl_line
-  [[ $_fl_rest =~ $_fl_re ]] || return 1
-  while :; do
-    _fl_line="${_fl_rest%%"$_fp_nl"*}"
-    [[ $_fl_line =~ $_fl_re ]] && return 0
-    [ "$_fl_line" = "$_fl_rest" ] && return 1
-    _fl_rest="${_fl_rest#*"$_fp_nl"}"
+  local _fl_l
+  [[ $2 =~ $1 ]] || return 1
+  case "$2" in *"$_fp_nl"*) ;; *) return 0 ;; esac
+  _fp_split "$_fp_nl" "$2"
+  [ "${#_FP_A[@]}" -le 64 ] || return 2
+  for _fl_l in ${_FP_A[@]+"${_FP_A[@]}"}; do [[ $_fl_l =~ $1 ]] && return 0; done
+  return 1
+}
+
+# _fp_collapse VAR PATH: an absolute PATH with its '.' and '..' segments folded lexically (no
+# filesystem access; '..' at the root stays there); any other PATH unchanged. A segment stack, so
+# linear in the path.
+_fp_collapse() {
+  local _fk_s IFS=/
+  local -a _fk_k=()
+  case "$2" in /*) ;; *) printf -v "$1" '%s' "$2"; return 0 ;; esac
+  _fp_split / "$2"
+  for _fk_s in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    case "$_fk_s" in
+      ''|.) ;;
+      ..) [ "${#_fk_k[@]}" -gt 0 ] && unset '_fk_k[${#_fk_k[@]}-1]' ;;
+      *) _fk_k[${#_fk_k[@]}]="$_fk_s" ;;
+    esac
   done
+  printf -v "$1" '/%s' "${_fk_k[*]-}"
 }
 
 # _fp_lower VAR TEXT: ASCII A-Z to a-z (bash 3.2 has no ${x,,}; explicit letter lists, since a
@@ -185,15 +316,15 @@ _wwg_legacy_msg() {  # _wwg_legacy_msg LOWERCASED-PATH -> WWG_MSG
 # a page is decided here only when no forgotten page by that slug can be auto-restored instead (no
 # archive log, or no archived <slug>.md) — the restore redirect must win then. MultiEdit's
 # frontmatter test (every edits[] entry) stays with the full logic.
+# The value's first field (_fp_at) holds its first character; an empty field that is not the last one
+# is a closed empty string, and the last field is the read's end (its \037 sentinel is no character).
 _wwg_first() {  # _wwg_first KEY -> _W1 = first char of the "KEY" string value ('' = empty); 1 = undecidable
-  local _wf_k="\"$1\"" _wf_r _wf_re='^[[:space:]]*:[[:space:]]*"(.)'
+  local _wf_f
   _W1=""
-  case "$_FP_RAW" in *"$_wf_k"*) ;; *) return 1 ;; esac
-  _wf_r="${_FP_RAW#*"$_wf_k"}"
-  case "$_wf_r" in *"$_wf_k"*) return 1 ;; esac
-  [[ $_wf_r =~ $_wf_re ]] || return 1
-  _W1="${BASH_REMATCH[1]}"
-  [ "$_W1" = "$_fp_q" ] && _W1=""
+  _fp_at "$1" || return 1
+  _wf_f="${_FP_A[$_FP_I]}"
+  if [ "$_FP_I" -eq $(( ${#_FP_A[@]} - 1 )) ]; then _wf_f="${_wf_f%"$_fp_us"}"; [ -n "$_wf_f" ] || return 1; fi
+  _W1="${_wf_f:0:1}"
   return 0
 }
 _wwg_fast() {
@@ -202,7 +333,7 @@ _wwg_fast() {
   tool="$_FP"
   case "$tool" in Write|Edit|MultiEdit) ;; *) return 1 ;; esac
   _fp_str file_path || return 1
-  fp="${_FP//"$_fp_cr"/}"
+  _fp_nocr fp "$_FP"
   [ -n "$fp" ] || return 1
   fp=${fp//"$_fp_bs"/"/"}
   _fp_lower lc "$fp"
@@ -251,7 +382,7 @@ _wwg_fields() {
 if ! _wwg_fields; then
   TOOL="" FILE_PATH=""
   { IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; } \
-    < <(jq -j '(.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000"' <<< "$RAW" 2>/dev/null)
+    < <(_fp_feed "$RAW" jq -j '(.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000"' 2>/dev/null)
 fi
 _fp_clean TOOL FILE_PATH
 case "$TOOL" in

@@ -43,7 +43,8 @@ PLUGINS_ROOT="${1:-${CLAUDE_PLUGINS_DIR:-$HOME/.claude/plugins/cache}}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 OUT_FILE="$BRAIN_DIR/.installed-catalog.json"
 LOCK_DIR="$BRAIN_DIR/.installed-catalog.lock"
-LOCK_STALE_MIN=10          # a live refresh takes seconds; a lock this old belongs to a dead one
+DI_REFRESH_ERR="$BRAIN_DIR/.installed-catalog-refresh.err"
+LOCK_STALE_MIN=10          # only used when the lock carries no pid to check (SEC-L3 below)
 SELF="${BASH_SOURCE[0]:-$0}"
 DI_LIB="${SELF%/*}/lib.sh"
 
@@ -51,13 +52,37 @@ mkdir -p "$BRAIN_DIR"
 
 TMP_PLUGINS=""; TMP_AGENTS_RAW=""; TMP_SKILLS_RAW=""; TMP_AGENTS=""; TMP_SKILLS=""
 di_cleanup() {
+  # $? must be captured as the VERY FIRST statement — it is this process's own final exit
+  # status (an unbound-variable abort under `set -u`, a signal, or an explicit `exit N`
+  # elsewhere in this script), and every command below would overwrite it. A silently
+  # swallowed non-zero exit here is exactly the failure mode this hook exists to avoid: a
+  # detached background refresh (schedule_refresh) has no other reader of its exit status.
+  local ec=$?
   local f
   for f in "$TMP_PLUGINS" "$TMP_AGENTS_RAW" "$TMP_SKILLS_RAW" "$TMP_AGENTS" "$TMP_SKILLS" "$OUT_FILE.tmp.$$"; do
     [ -n "$f" ] && [ -e "$f" ] && rm -f "$f"
   done
-  # Only the refresh owns the lock (the hook created it for this process before spawning it).
-  if [ "$MODE" = refresh ] && [ -d "$LOCK_DIR" ] && ! rmdir "$LOCK_DIR"; then
-    di_log "could not release the refresh lock $LOCK_DIR — the next refresh waits ${LOCK_STALE_MIN} min to reclaim it" 1
+  if [ "$MODE" = refresh ]; then
+    if [ "$ec" -ne 0 ]; then
+      di_log "background catalog refresh exited non-zero (ec=$ec) — see $DI_REFRESH_ERR for its stderr" "$ec"
+    fi
+    # SEC-L3: only release the lock if it is still OURS. schedule_refresh writes the
+    # detached child's own pid into $LOCK_DIR/pid; a lock with no pid on record predates
+    # this fix (or the write raced with an even-faster reclaim) and is released as before,
+    # but a lock whose recorded pid is SOMEONE ELSE'S means our own lock was reclaimed as
+    # abandoned while we were still (slowly) running — removing it here would delete the
+    # new owner's lock instead of the (already-gone) one we held.
+    if [ -d "$LOCK_DIR" ]; then
+      local owner
+      owner=$(tr -d ' \t\r\n' < "$LOCK_DIR/pid" 2>/dev/null)
+      if [ -z "$owner" ] || [ "$owner" = "$$" ]; then
+        # rmdir requires an EMPTY directory — the pid file schedule_refresh writes inside
+        # $LOCK_DIR must go first, or every release would fail with ENOTEMPTY.
+        rm -f "$LOCK_DIR/pid" 2>/dev/null
+        rmdir "$LOCK_DIR" 2>/dev/null \
+          || di_log "could not release the refresh lock $LOCK_DIR — the next refresh waits ${LOCK_STALE_MIN} min to reclaim it" 1
+      fi
+    fi
   fi
   return 0
 }
@@ -92,26 +117,58 @@ catalog_is_stale() {
 }
 
 # schedule_refresh: take the lock, start ONE detached refresh, return at once. The child gets
-# </dev/null >/dev/null 2>&1 — a child holding the hook's stdout keeps Claude Code waiting on
-# the pipe, which is what stretched cancelled runs to 34-67s (a 10s timeout). `trap '' HUP`
-# survives the exec (what nohup does, without assuming nohup exists); `disown` drops it from
-# the job table. Lock held and young: a refresh is already running — serve and leave.
-# Reclaim race: two hooks that both find a dead lock can each start a refresh; both write the
-# catalog atomically (tmp + mv), so the worst case is one redundant rebuild, never a torn file.
+# </dev/null >/dev/null — a child holding the hook's stdout keeps Claude Code waiting on
+# the pipe, which is what stretched cancelled runs to 34-67s (a 10s timeout); its stderr goes
+# to $DI_REFRESH_ERR (under BRAIN_DIR) instead of /dev/null, so a crash this script's own
+# di_log calls never see (a raw bash abort, a killed subprocess's own diagnostic) still leaves
+# a trace. `trap '' HUP` survives the exec (what nohup does, without assuming nohup exists);
+# `disown` drops it from the job table.
+#
+# SEC-L3: the lock's owner is the pid written to $LOCK_DIR/pid (the detached child's own pid —
+# `$!` on a subshell that immediately `exec`s keeps the SAME pid, so no extra hop). Reclaim
+# decisions are ownership-based, not age-based: a refresh genuinely still running past
+# LOCK_STALE_MIN (a big install base, a loaded box) must NEVER have its lock stolen — a stolen
+# lock's ORIGINAL owner still `rmdir`s it in its own di_cleanup when it eventually finishes,
+# which would then delete the NEW owner's lock instead of the (already-gone) one it held. Age
+# is used only as a fallback when no pid is on record at all (a lock predating this fix, or the
+# tiny window between this process's own mkdir and its pid write racing a concurrent reclaim
+# check) — a lock that young is presumed to still be mid-setup, not abandoned.
+# Reclaim race on a genuinely dead owner: two hooks that both see a dead pid can each reclaim
+# and start a refresh; both write the catalog atomically (tmp + mv), so the worst case is one
+# redundant rebuild, never a torn file.
 schedule_refresh() {
-  local reclaimed=0
+  local reclaimed=0 owner=""
   if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$LOCK_STALE_MIN" 2>/dev/null)" ] || return 0
-    if ! rmdir "$LOCK_DIR"; then
-      di_log "stale refresh lock $LOCK_DIR could not be removed — no catalog refresh until it is deleted by hand" 1
+    if [ ! -d "$LOCK_DIR" ]; then
+      # mkdir failed for a reason OTHER than "already exists as a directory" (permission
+      # denied, a plain file occupying the path, a missing/read-only BRAIN_DIR, ...). The old
+      # code fell straight into the staleness probe below, which found nothing at a
+      # nonexistent path and returned 0 with NO trace at all of a real, actionable failure.
+      di_log "could not create the refresh lock $LOCK_DIR (mkdir failed and no lock directory exists there) — catalog refresh skipped this session" 1
       return 0
     fi
+    owner=$(tr -d ' \t\r\n' < "$LOCK_DIR/pid" 2>/dev/null)
+    if [ -n "$owner" ]; then
+      kill -0 "$owner" 2>/dev/null && return 0   # a live refresh owns the lock: serve and leave
+    else
+      [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$LOCK_STALE_MIN" 2>/dev/null)" ] || return 0
+    fi
+    # rmdir requires an empty directory — a dead owner's own pid file is still inside.
+    rm -f "$LOCK_DIR/pid" 2>/dev/null
+    if ! rmdir "$LOCK_DIR" 2>/dev/null; then
+      di_log "abandoned refresh lock $LOCK_DIR (owner pid ${owner:-unknown}) could not be removed — no catalog refresh until it is deleted by hand" 1
+      return 0
+    fi
+    di_log "reclaimed an abandoned refresh lock $LOCK_DIR (owner pid ${owner:-unknown} not alive)" 1
     mkdir "$LOCK_DIR" 2>/dev/null || return 0   # another hook reclaimed it first: its refresh runs
     reclaimed=1
   fi
+  : > "$DI_REFRESH_ERR" 2>/dev/null
   ( trap '' HUP; export SB_DI_RECLAIMED="$reclaimed"; exec bash "$SELF" --refresh "$PLUGINS_ROOT" ) \
-    </dev/null >/dev/null 2>&1 &
-  disown "$!"
+    </dev/null >/dev/null 2>"$DI_REFRESH_ERR" &
+  local child_pid=$!
+  printf '%s' "$child_pid" > "$LOCK_DIR/pid" 2>/dev/null
+  disown "$child_pid"
 }
 
 if [ "$MODE" = serve ] && [ -s "$OUT_FILE" ]; then

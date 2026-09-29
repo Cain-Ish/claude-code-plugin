@@ -229,10 +229,24 @@ for w in $BUBBLE; do                                   # set -f above: no globbi
 done
 RULE=""; i=0; while [ "$i" -lt $(( BW + 2 )) ]; do RULE="$RULE$H"; i=$(( i + 1 )); done
 
-printf ' %s%s%s\n'              "$DOTC" "$DOT_S" "$RST"
-printf '  %s%s%s %s%s%s%s%s\n'  "$DOTC" "$DOT_B" "$RST" "$DIM" "$TL" "$RULE" "$TR" "$RST"
-_pad P1 "$W1" "$BW"; printf '    %s%s%s %s%s%s %s%s%s\n' "$DIM" "$V" "$RST" "$C" "$P1" "$RST" "$DIM" "$V" "$RST"
-if [ -n "$W2" ]; then _pad P2 "$W2" "$BW"; printf '    %s%s%s %s%s%s %s%s%s\n' "$DIM" "$V" "$RST" "$C" "$P2" "$RST" "$DIM" "$V" "$RST"; fi
-if [ -n "$W3" ]; then _pad P3 "$W3" "$BW"; printf '    %s%s%s %s%s%s %s%s%s\n' "$DIM" "$V" "$RST" "$C" "$P3" "$RST" "$DIM" "$V" "$RST"; fi
-printf '    %s%s%s%s%s\n' "$DIM" "$BL" "$RULE" "$BR" "$RST"
+# Claude Code trims leading whitespace from every statusline row, so ASCII-blank indentation is lost
+# and the top border drifted two columns right of the box body (user report 2026-09-29). Unicode mode
+# indents with U+2800 BRAILLE PATTERN BLANK: one column wide, blank on screen, and not whitespace, so
+# no trim removes it. ASCII mode has no invisible non-blank glyph: it drops the indentation instead —
+# steam dots on their own rows, the box at column 0 — which stays aligned whether or not rows are trimmed.
+if [ "${SB_BUDDY_ASCII:-off}" = "on" ]; then
+  printf '%s%s%s\n' "$DOTC" "$DOT_S" "$RST"
+  printf '%s%s%s\n' "$DOTC" "$DOT_B" "$RST"
+  IND=""; TOPPRE=""
+else
+  printf -v B1 '\342\240\200'   # U+2800 as UTF-8 bytes (bash 3.2 has no $'\u' escape); builtin, no fork
+  IND="$B1$B1$B1$B1"
+  printf '%s%s%s%s\n' "$B1" "$DOTC" "$DOT_S" "$RST"
+  TOPPRE="$B1$B1$DOTC$DOT_B$RST "
+fi
+printf '%s%s%s%s%s%s\n' "$TOPPRE" "$DIM" "$TL" "$RULE" "$TR" "$RST"
+_pad P1 "$W1" "$BW"; printf '%s%s%s%s %s%s%s %s%s%s\n' "$IND" "$DIM" "$V" "$RST" "$C" "$P1" "$RST" "$DIM" "$V" "$RST"
+if [ -n "$W2" ]; then _pad P2 "$W2" "$BW"; printf '%s%s%s%s %s%s%s %s%s%s\n' "$IND" "$DIM" "$V" "$RST" "$C" "$P2" "$RST" "$DIM" "$V" "$RST"; fi
+if [ -n "$W3" ]; then _pad P3 "$W3" "$BW"; printf '%s%s%s%s %s%s%s %s%s%s\n' "$IND" "$DIM" "$V" "$RST" "$C" "$P3" "$RST" "$DIM" "$V" "$RST"; fi
+printf '%s%s%s%s%s%s\n' "$IND" "$DIM" "$BL" "$RULE" "$BR" "$RST"
 exit 0

@@ -2,7 +2,7 @@
 # protocol-guard.sh — class-5 working-agreement delivery + checks (docs/plans/2026-09-24-repo-brain.md).
 # Modes (argv[1]): card | pre | subagent — hooks.json wires each to its event.
 #   card      SessionStart : protocol card (<=1200 B, plain stdout)                    — Slice 1
-#                            + precompute of this session's role cards (pg_rc_build)   — S0 B2
+#                            + detached precompute of this session's role cards       — S0 B2
 #   pre       PreToolUse   : Agent|Task -> pg_agent (tier warn, opt-in model rewrite)   — Slice 1
 #                            Read|Edit|Write|MultiEdit -> pg_jit (path-triggered memory) — Slice 2
 #                            Write of a NEW path -> pg_search (search-before-create)     — Slice 3
@@ -19,9 +19,22 @@ set -u
 [ "${SB_PROTOCOL_GUARD:-on}" = "off" ] && exit 0
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 MODE="${1:-}"
-# Bash reads stdin itself: `$(</dev/stdin)` spawns no `cat` (bash emulates /dev/stdin everywhere).
+# Bash reads fd 0 itself with its `read` builtin (no `cat` spawn), never by reopening the
+# /dev/stdin path: Claude Code spawns hooks from Node, whose stdio pipes are socketpairs on Linux
+# (open -> ENXIO) and non-Cygwin named pipes on native Windows (Git-Bash: ENOENT), so a
+# `$(</dev/stdin)` read an EMPTY payload under a real session (P-H3; tests/test-script-portability.sh
+# check 16). `read -N` (bash >= 4.1) reads in buffered chunks; bash 3.2 (macOS) has only `-d ''`,
+# one byte per syscall (0.1 s per 512 KB measured on Linux; 0.85 s on MSYS, which runs bash 5 and
+# never takes it). Both return 1 at EOF, the normal end here. Trailing newlines are dropped as
+# $(...) did.
 # An empty payload is a bad payload in subagent mode (logged there); every other mode stays silent.
-RAW=$(</dev/stdin)
+RAW=""
+if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 1 ]; }; then
+  IFS= read -r -N 268435456 RAW
+else
+  IFS= read -r -d '' RAW
+fi
+while case "$RAW" in *$'\n') true ;; *) false ;; esac; do RAW="${RAW%$'\n'}"; done
 [ -z "$RAW" ] && [ "$MODE" != "subagent" ] && exit 0
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
@@ -32,21 +45,22 @@ case "$BRAIN_DIR" in
 esac
 PG_LADDER="${SB_MODEL_LADDER:-$PLUGIN_ROOT/model-ladder.json}"   # same path sb_model_manifest resolves
 pg_lib() { command -v sb_log_error >/dev/null 2>&1 || source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null || return 1; }
-# pg_row <message>: one gate=* trace row in sb_log_error's exact shape (exit_code 0 -> audit-log),
-# written with ONE builtin printf append: no lib.sh, and no date/jq/tr spawn on bash >= 4.2 (bash
-# 3.2 falls back to one `date`). The message must already be JSON-safe: callers pass only fixed
-# tokens, numbers and ids reduced to [A-Za-z0-9:._@-]. The audit-log rotation stays with the
-# sb_log_error writers, which run on nearly every hook.
+# pg_row <message> [1]: one gate=* row in sb_log_error's exact shape and routing (exit_code 0 ->
+# audit-log trace; 1 -> error-log, a real failure), written with ONE builtin printf append: no
+# lib.sh, and no date/jq/tr spawn on bash >= 4.2 (bash 3.2 falls back to one `date`). The message
+# must already be JSON-safe: callers pass only fixed tokens, numbers and ids reduced to
+# [A-Za-z0-9:._@-]. Log rotation stays with the sb_log_error writers, which run on nearly every hook.
 pg_row() {
-  local ts=""
+  local ts="" code=0 target="$BRAIN_DIR/audit-log.jsonl"
+  [ "${2:-0}" = "0" ] || { code=1; target="$BRAIN_DIR/error-log.jsonl"; }
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
     TZ=UTC0 printf -v ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
   else
     ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   fi
-  printf '{"timestamp":"%s","script":"protocol-guard.sh","message":"%s","exit_code":0}\n' "$ts" "$1" \
-    >> "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null \
-    || { pg_lib && sb_log_error "protocol-guard.sh" "audit row append failed: $1" 1; }
+  printf '{"timestamp":"%s","script":"protocol-guard.sh","message":"%s","exit_code":%s}\n' "$ts" "$1" "$code" \
+    >> "$target" 2>/dev/null \
+    || { pg_lib && sb_log_error "protocol-guard.sh" "log row append failed at $target: $1" 1; }
 }
 # pg_marker start <aid> | end <aid> <verdict> <reason>: one builtin append to the per-session
 # SubagentStart miss-detection file .injected/<sid>.subagent.tsv (S0 B2). Lines, TAB-separated:
@@ -517,6 +531,7 @@ $ret_line"
   else
     rm -f "$f.tmp.$$" 2>/dev/null
     sb_log_error "protocol-guard.sh" "role-card cache write failed at $f (next dispatch builds live)" 1
+    PG_RC_FAIL="cache-write"   # the cards above are still good to deliver: return 0
   fi
   return 0
 }
@@ -566,10 +581,22 @@ pg_rc_lookup() {
     [0-9]*:[0-9]*) case "$b$h" in *[!0-9]*) PG_RC_LINE="" ;; esac ;;
     *) PG_RC_LINE="" ;;
   esac
-  case "$e" in
-    -|'{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"'*'"}}') : ;;
-    *) PG_RC_LINE="" ;;
-  esac
+  # The envelope must be "-" or EXACTLY {"hookSpecificOutput":{"hookEventName":"SubagentStart",
+  # "additionalContext":"<one JSON string body>"}}. A prefix/suffix glob alone also matched
+  # `..."x"},"systemMessage":"...","continue":false,"z":{"a":"b"}}`: extra top-level keys Claude
+  # Code would honour with hook authority (SEC-M1). The body may hold escaped \\ and \" only: with
+  # both removed (\\ first, as JSON reads escapes left to right) no " may remain, and no lone \ may
+  # end the body (it would escape the closing quote). Builtins only: this is the zero-spawn path.
+  local pre='{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"' suf='"}}' body
+  if [ "$e" != "-" ]; then
+    case "$e" in
+      "$pre"*"$suf")
+        body="${e#"$pre"}"; body="${body%"$suf"}"
+        body="${body//\\\\/}"; body="${body//\\\"/}"
+        case "$body" in *'"'*|*'\') PG_RC_LINE="" ;; esac ;;
+      *) PG_RC_LINE="" ;;
+    esac
+  fi
   if [ -z "$PG_RC_LINE" ]; then
     pg_lib && sb_log_error "protocol-guard.sh" "role-card cache line for $want unreadable in $f; rebuilding live" 1
     return 1
@@ -578,8 +605,31 @@ pg_rc_lookup() {
 }
 pg_rc_precompute() {  # card mode (SessionStart): build this session's cache ahead of any dispatch
   [ -n "$PG_SID" ] && [ -z "$PG_BAD" ] || return 0
-  pg_rc_build "${PG_A_FAST:-}" "${PG_A_MID:-}" "${PG_A_DEEP:-}" || return 0
-  pg_row "gate=role-card-cache verdict=ok src=sessionstart tiers=$PG_RC_TIERS sid=$PG_SID"
+  # Every outcome leaves a row; a failure row goes to the error-log. no-lib is logged nowhere else
+  # (sb_log_error lives in lib.sh); build-failed and cache-write were logged in detail by
+  # pg_rc_build. Any failure leaves the next SubagentStart to build live.
+  if pg_rc_build "${PG_A_FAST:-}" "${PG_A_MID:-}" "${PG_A_DEEP:-}" && [ -z "$PG_RC_FAIL" ]; then
+    pg_row "gate=role-card-cache verdict=ok src=sessionstart tiers=$PG_RC_TIERS sid=$PG_SID"
+  else
+    pg_row "gate=role-card-cache verdict=fail reason=${PG_RC_FAIL:-build-failed} src=sessionstart sid=$PG_SID" 1
+  fi
+}
+# pg_rc_precompute_bg: the body of card mode's detached child (M3). The dispatcher gives it
+# /dev/null for stdin/stdout (a child holding the hook's stdout keeps Claude Code waiting on the
+# pipe). The build runs in a nested subshell with stderr in a per-session file, so what it cannot
+# log itself (a set -u abort, a kill, stray stderr) is still logged, loudly, when it returns.
+pg_rc_precompute_bg() {
+  local ef="$BRAIN_DIR/.injected/$PG_SID.rc-precompute.err" rc=0 line=""
+  [ -d "$BRAIN_DIR/.injected" ] || mkdir -p "$BRAIN_DIR/.injected" 2>/dev/null
+  ( pg_rc_precompute ) 2>"$ef" || rc=$?
+  [ -s "$ef" ] && IFS= read -r line < "$ef"
+  rm -f "$ef" 2>/dev/null
+  [ "$rc" = "0" ] && [ -z "$line" ] && return 0
+  if pg_lib; then
+    sb_log_error "protocol-guard.sh" "role-card precompute rc=$rc stderr: ${line:0:200} sid=$PG_SID (SubagentStart builds live)" 1
+  else
+    pg_row "gate=role-card-cache verdict=fail reason=crashed rc=$rc src=sessionstart sid=$PG_SID" 1
+  fi
 }
 pg_sub_row() {  # <agent> <tier> <bytes> <hard> <verdict> <reason> <src>: gate=role-card row, then the end marker
   pg_row "gate=role-card agent=$1 tier=$2 bytes=$3 hard=$4 verdict=$5 reason=$6 src=$7 aid=${PG_MARK_AID:--} sid=${PG_SID:-${PG_MARK_SID:--}}"
@@ -919,7 +969,14 @@ case "$MODE" in
   card)
     [ -n "$PG_BAD" ] && pg_log_bad
     [ "${SB_PROTOCOL_CARD:-on}" = "off" ] || pg_card
-    [ "${SB_ROLE_CARDS:-on}" = "off" ] || pg_rc_precompute ;;
+    # The role-card precompute runs DETACHED once the card is printed (M3): inline it cost +0.2-1.1 s
+    # of the 5 s SessionStart budget, and a hook cancelled at the budget loses the card it printed.
+    # A dispatch that lands before the cache builds live (pg_subagent). `trap '' HUP` + disown let
+    # the child outlive this hook (discover-installed.sh's schedule_refresh idiom).
+    if [ "${SB_ROLE_CARDS:-on}" != "off" ] && [ -n "$PG_SID" ] && [ -z "$PG_BAD" ]; then
+      ( trap '' HUP; pg_rc_precompute_bg ) </dev/null >/dev/null 2>&1 &
+      disown "$!"
+    fi ;;
   subagent) [ "${SB_ROLE_CARDS:-on}" = "off" ] || pg_subagent ;;
   pre)
     [ -n "$PG_BAD" ] && pg_log_bad
