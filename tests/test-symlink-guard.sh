@@ -397,5 +397,56 @@ else
   pass "8.3 real-alias case (skipped — no cygpath)"
 fi
 
+# --- B7: fail SAFE under load — credential targets decided before any dependency -------------
+# A PreToolUse hook that answers after its timeout is CANCELLED and the Write RUNS (CLI 2.1.283
+# probe, 2026-09-28; this guard was cancelled 50 times in 4 heavy sessions at ~1.5 s per call).
+# Fixture: a plugin root whose lib.sh sleeps, plus PATH shims that sleep for every external the
+# full logic spawns (jq, realpath, cygpath, tr, grep, …). A credential target must still be
+# denied within B7_BOUND seconds. No GNU `timeout` (absent on macOS): whole-second SECONDS.
+B7_SLEEP=8; B7_BOUND=4
+B7="$TMP/b7"; mkdir -p "$B7/root/scripts" "$B7/shims" "$B7/brain"
+printf 'sleep %s\n' "$B7_SLEEP" > "$B7/root/scripts/lib.sh"
+for t in jq cat tr grep sed awk head tail cut wc realpath greadlink readlink cygpath dirname basename mkdir mv uname git; do
+  printf '#!/bin/sh\nsleep %s\nexit 127\n' "$B7_SLEEP" > "$B7/shims/$t"; chmod +x "$B7/shims/$t"
+done
+b7_deny() {  # b7_deny <label> <tool> <file_path> <needle> [HOME override]
+  local label="$1" s out h="${5:-$HOME}"
+  s=$SECONDS
+  out=$(gen "$2" "$3" | HOME="$h" CLAUDE_PLUGIN_ROOT="$B7/root" BRAIN_DIR="$B7/brain" PATH="$B7/shims:$PATH" bash "$SCRIPT" 2>/dev/null)
+  s=$(( SECONDS - s ))
+  [ "$s" -le "$B7_BOUND" ] \
+    || fail "B7 $label: took ${s}s under a sleeping lib.sh/jq/realpath (bound ${B7_BOUND}s) — a loaded machine cancels this hook and the Write RUNS"
+  assert_deny "B7 $label (${s}s, every dependency stalled)" "$out" "$4"
+}
+b7_deny "literal ~/.ssh target"        Write "$HOME/.ssh/authorized_keys" ssh
+b7_deny "tilde form"                   Write "~/.ssh/id_rsa" ssh
+b7_deny "case-varied .SSH"             Edit  "$HOME/.SSH/config" ssh
+b7_deny "~/.aws node itself"           Write "$HOME/.aws" aws
+b7_deny "OAuth token file"             Write "$HOME/.claude/.credentials.json" claude-oauth
+b7_deny "/etc"                         MultiEdit /etc/sudoers.d/x etc
+b7_deny "'..' through a missing dir"   Write "$HOME/work/repo/newdir/../../../.ssh/id_rsa" ssh
+b7_deny "Windows C:\\ payload"         Write 'C:\Users\victim\.ssh\authorized_keys' ssh /c/Users/victim
+b7_deny "\\\\?\\ payload"              Write '\\?\C:\Users\victim\.gnupg\x' gnupg /c/Users/victim
+b7_deny "Windows-form HOME"            Write /c/Users/victim/.aws/credentials aws 'C:\Users\victim'
+if supports_symlinks; then
+  ln -sf "$HOME/.ssh" "$HOME/work/repo/b7-dirlink"
+  b7_deny "symlinked parent dir"       Write "$HOME/work/repo/b7-dirlink/new_key" ssh
+  : > "$HOME/.ssh/authorized_keys"; ln -sf "$HOME/.ssh/authorized_keys" "$HOME/work/repo/b7-innocent.txt"
+  b7_deny "leaf symlink into ~/.ssh"   Write "$HOME/work/repo/b7-innocent.txt" ssh
+  rm -f "$HOME/work/repo/b7-dirlink" "$HOME/work/repo/b7-innocent.txt"
+else
+  echo "SKIP: B7 symlink cases — no real symlink support (Windows without Developer Mode)"
+fi
+
+# No false positives from the fast path: only tool_input.file_path decides — never text in the
+# content, a nested look-alike key, or a sibling directory whose name merely starts with .ssh.
+npj() { printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$1" "$2" | bash "$SCRIPT" 2>/dev/null; }
+OUT=$(npj "$HOME/work/repo/notes.md" 'see ~/.ssh/authorized_keys and \"file_path\":\"~/.ssh/id_rsa\" and /etc/passwd')
+assert_allow "content naming ~/.ssh and a quoted file_path is not a target" "$OUT"
+OUT=$(run_guard Write "$HOME/.sshkeys-notes/x.md")
+assert_allow "a sibling ~/.sshkeys-notes dir is not ~/.ssh" "$OUT"
+OUT=$(run_guard Edit "$HOME/work/repo/etc/config.yml")
+assert_allow "a project etc/ dir is not /etc" "$OUT"
+
 echo
 echo "ALL PASS"

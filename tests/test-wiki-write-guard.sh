@@ -247,5 +247,48 @@ out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
 [ -z "$out" ] || fail "case-varied non-wiki write should stay silent (got: $out)"
 pass "case-varied non-wiki write silent (no over-blocking)"
 
+# --- B7: decided before any dependency (a late PreToolUse answer is cancelled and the Write runs) ---
+# Fixture: a plugin root whose lib.sh sleeps, plus PATH stand-ins that sleep for each external the
+# full logic uses. The deny must still arrive within B7_BOUND seconds (whole-second SECONDS; no
+# GNU timeout on macOS).
+B7_SLEEP=8; B7_BOUND=4
+B7="$TMP/b7"; mkdir -p "$B7/root/scripts" "$B7/bin" "$B7/brain"
+printf 'sleep %s\n' "$B7_SLEEP" > "$B7/root/scripts/lib.sh"
+for t in jq cat tr grep sed awk head tail cut wc realpath greadlink readlink cygpath dirname basename mkdir mv uname git; do
+  printf '#!/bin/sh\nsleep %s\nexit 127\n' "$B7_SLEEP" > "$B7/bin/$t"; chmod +x "$B7/bin/$t"
+done
+b7_deny() {  # b7_deny <label> <needle> <payload-file>
+  local s out
+  s=$SECONDS
+  out=$(CLAUDE_PLUGIN_ROOT="$B7/root" BRAIN_DIR="$B7/brain" PATH="$B7/bin:$PATH" bash "$SCRIPT" < "$3")
+  s=$(( SECONDS - s ))
+  [ "$s" -le "$B7_BOUND" ] || fail "B7 $1: took ${s}s with every dependency slow (bound ${B7_BOUND}s)"
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+    || fail "B7 $1: expected deny, got: '$out'"
+  echo "$out" | grep -q "$2" || fail "B7 $1: deny reason should mention '$2' (got: $out)"
+  pass "B7 $1: deny in ${s}s with every dependency slow"
+}
+mkdir -p "$TMP/knowledge/wiki/issues"
+printf '# no frontmatter\nbody\n' > "$TMP/knowledge/wiki/issues/b7-bare.md"
+jq -nc --arg p "$TMP/.Second-Brain/Wiki/learnings/Misrouted.md" --arg c $'---\ntitle: x\n---\n' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}' > "$B7/p1.json"
+jq -nc --arg p "$TMP/knowledge/wiki/issues/b7-new.md" --arg c $'# heading\nno frontmatter' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}' > "$B7/p2.json"
+jq -nc --arg p "$TMP/knowledge/wiki/issues/b7-bare.md" \
+  '{tool_name:"Edit", tool_input:{file_path:$p, old_string:"body", new_string:"new body"}}' > "$B7/p3.json"
+cat > "$B7/p4.json" <<'JSON'
+{"tool_name":"MultiEdit","tool_input":{"file_path":"C:\\Users\\me\\.second-brain\\wiki\\state\\x.md","edits":[{"old_string":"a","new_string":"b"}]}}
+JSON
+b7_deny "legacy tree (case-varied)" 'knowledge/wiki/learnings/misrouted.md' "$B7/p1.json"
+b7_deny "new page without frontmatter" 'frontmatter' "$B7/p2.json"
+b7_deny "Edit keeps a bare page bare" 'frontmatter' "$B7/p3.json"
+b7_deny "Windows-form legacy MultiEdit" 'knowledge/wiki/state/x.md' "$B7/p4.json"
+
+# No false positives: content that merely NAMES a legacy wiki path stays silent on a non-wiki Write.
+PAYLOAD=$(jq -nc --arg p "$NON_WIKI_FILE" --arg c 'see "file_path":"/x/.second-brain/wiki/y.md"' '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -z "$out" ] || fail "B7: content naming a legacy wiki path must not deny a non-wiki Write (got: $out)"
+pass "B7: no false positive from content text"
+
 echo
 echo "ALL PASS"

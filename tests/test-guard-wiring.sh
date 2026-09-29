@@ -64,6 +64,27 @@ for t in mcp__example__do_thing Glob Grep NotebookEdit; do
 done
 pass "persona-tool-guard out-of-scope contract holds (mcp__*, Glob, Grep, NotebookEdit intentionally NOT matched)"
 
+# --- B7: the dependency-free fast path is the SAME code in every deny/ask guard, and runs first ---
+# A PreToolUse hook that answers after its timeout is cancelled and the tool RUNS (CLI 2.1.283
+# probe, 2026-09-28), so each guard decides its dangerous cases in a shared builtin-only block
+# before lib.sh or any spawn. The block is pasted, not sourced (sourcing is the dependency being
+# avoided): this lock keeps the copies byte-identical, and keeps the block ahead of the first
+# lib.sh source / jq spawn in each guard. Behavioral proof lives in each guard's own test (a
+# sleeping lib.sh + sleeping PATH shims must not delay the dangerous-case verdict).
+FP_GUARDS="persona-tool-guard.sh symlink-guard.sh wiki-write-guard.sh flow-guard.sh"
+fp_block(){ sed -n '/^# >>> sb-guard-fastpath/,/^# <<< sb-guard-fastpath/p' "$ROOT/scripts/$1"; }
+FP_REF=$(fp_block persona-tool-guard.sh)
+[ -n "$FP_REF" ] || fail "persona-tool-guard.sh has no '# >>> sb-guard-fastpath' … '# <<< sb-guard-fastpath' block"
+for g in $FP_GUARDS; do
+  [ "$(fp_block "$g")" = "$FP_REF" ] \
+    || fail "$g: sb-guard-fastpath block drifted from persona-tool-guard.sh's copy (keep the pasted copies byte-identical)"
+  fp_at=$(grep -n '^# >>> sb-guard-fastpath' "$ROOT/scripts/$g" | head -1 | cut -d: -f1)
+  dep_at=$(grep -nE '(source|\.) .*lib\.sh|(^|[^A-Za-z_])jq ' "$ROOT/scripts/$g" | grep -vE '^[0-9]+:[[:space:]]*#' | head -1 | cut -d: -f1)
+  [ -n "$dep_at" ] && [ "$fp_at" -lt "$dep_at" ] \
+    || fail "$g: the fast-path block (line $fp_at) must precede the first lib.sh source / jq spawn (line ${dep_at:-none})"
+done
+pass "B7: sb-guard-fastpath block identical in $FP_GUARDS and ahead of lib.sh/jq in each"
+
 # --- PostToolUse output reachability (D158): plain stdout from a PostToolUse
 # hook is only ever shown in transcript mode -- hookSpecificOutput.additionalContext
 # JSON is the only path into model context (the pattern simplicity-gate.sh already
