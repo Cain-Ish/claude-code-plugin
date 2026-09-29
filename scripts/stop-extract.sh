@@ -155,6 +155,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
   MANIFEST_SID=$(printf '%s' "$SESSION_ID" | tr -cd 'A-Za-z0-9_-' | head -c 64)
   MANIFEST="$BRAIN_DIR/.injected-manifest-$MANIFEST_SID.jsonl"
   STATE_FILE="$BRAIN_DIR/.value-loop-state-$MANIFEST_SID.json"
+  HC_STATE="$BRAIN_DIR/.hook-cancelled-state-$MANIFEST_SID.json"
   if [ -n "$MANIFEST_SID" ]; then
     # A PRESENT-but-unparseable state file is a torn/corrupt write (crash mid-mv,
     # killed hook, cross-filesystem copy+unlink), never "no prior state" — silently
@@ -173,6 +174,58 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
     TEL_FROM=$(jq -r '.scanned_to // 0' "$STATE_FILE" 2>/dev/null | tr -d '\r')
     case "$TEL_FROM" in ''|*[!0-9]*) TEL_FROM=0 ;; esac
     if [ "$TEL_FROM" -gt "$TOTAL_LINES" ]; then TEL_FROM=0; fi
+
+    # Subagent transcripts (S0 B7 ruler extension, docs/concepts/2026-09-27-repo-brain-
+    # concept.md §5 S0): a subagent that reads or fetches a manifested id is real JIT
+    # delivery use the PARENT transcript alone never sees, and a PreToolUse cancellation
+    # INSIDE a subagent is recorded only in the SUBAGENT's own transcript, never the
+    # parent's (verified live on this machine: SubagentStart/PreToolUse hook_cancelled
+    # attachments land in `${TRANSCRIPT%.jsonl}/subagents/agent-*.jsonl`). Hoisted ABOVE
+    # both the value-loop pass and the hook-cancelled ruler below so ONE bash pass over
+    # the glob (no jq spawned per file) serves both:
+    #   SUB_TEXT     — full content of every valid subagent file, for value-loop's
+    #                  read/fetch detection (re-scanned in full each Stop into a
+    #                  `unique`-deduped state set, so re-deriving the same hits later
+    #                  is idempotent, not a double count).
+    #   SUB_HC_NEW   — ONLY the lines added since each file's OWN hook-cancelled
+    #                  watermark (subagent files are append-only per dispatch, same as
+    #                  the parent transcript, so a per-file line watermark — persisted
+    #                  in HC_STATE.sub_scanned by the hook-cancelled block below — is
+    #                  the double-count-safe way to fold in NEW subagent cancellations
+    #                  instead of a full idempotent re-scan).
+    #   HC_SUBWM_NEW — "basename<TAB>current-line-count" pairs the hook-cancelled block
+    #                  persists into HC_STATE.sub_scanned once it commits scanned_to.
+    # A file over the 20MB cap is skipped with a LOUD note rather than risking a huge
+    # --rawfile read or a truncated/garbled scan.
+    SUB_TEXT=""
+    SUB_HC_NEW=""
+    HC_SUBWM_NEW=""
+    SUBAGENTS_DIR="${TRANSCRIPT%.jsonl}/subagents"
+    if [ -d "$SUBAGENTS_DIR" ]; then
+      HC_SUBWM_OLD=$(jq -r '.sub_scanned // {} | to_entries[] | "\(.key)\t\(.value)"' "$HC_STATE" 2>/dev/null | tr -d '\r')
+      for _sub_f in "$SUBAGENTS_DIR"/agent-*.jsonl; do
+        [ -f "$_sub_f" ] || continue
+        _sub_base=$(basename "$_sub_f")
+        _sub_sz=$(wc -c < "$_sub_f" 2>/dev/null | tr -d ' ')
+        case "$_sub_sz" in ''|*[!0-9]*) _sub_sz=0 ;; esac
+        if [ "$_sub_sz" -gt 20971520 ]; then
+          sb_log_error "stop-extract.sh" "value-loop: skipped oversized subagent transcript $_sub_base (${_sub_sz}B > 20MB cap) sid=$MANIFEST_SID" 1
+          continue
+        fi
+        SUB_TEXT="${SUB_TEXT}$(cat "$_sub_f" 2>/dev/null)
+"
+        _sub_lc=$(wc -l < "$_sub_f" 2>/dev/null | tr -d ' ')
+        case "$_sub_lc" in ''|*[!0-9]*) _sub_lc=0 ;; esac
+        _sub_prevwm=$(printf '%s\n' "$HC_SUBWM_OLD" | awk -F'\t' -v b="$_sub_base" '$1==b{print $2; f=1} END{if(!f) print 0}')
+        case "$_sub_prevwm" in ''|*[!0-9]*) _sub_prevwm=0 ;; esac
+        if [ "$_sub_prevwm" -lt "$_sub_lc" ]; then
+          SUB_HC_NEW="${SUB_HC_NEW}$(awk -v s="$_sub_prevwm" 'NR>s' "$_sub_f" 2>/dev/null)
+"
+        fi
+        HC_SUBWM_NEW="${HC_SUBWM_NEW}$(printf '%s\t%s\n' "$_sub_base" "$_sub_lc")"
+      done
+    fi
+
   if [ "$TEL_FROM" -lt "$TOTAL_LINES" ]; then
     TEL_WINDOW=$(awk -v s="$TEL_FROM" 'NR>s' "$TRANSCRIPT" 2>/dev/null)
     # utilization: Skill + Agent/Task(subagent_type) invocations -> counts store.
@@ -210,6 +263,13 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
     # content), same fallback pattern as buddy-statusline.sh's `_f` helper.
     _tel_f() { [ -f "$1" ] && printf '%s' "$1" || printf '%s' /dev/null; }
 
+    # SUB_TEXT was gathered once, above, alongside the hook-cancelled ruler's own
+    # subagent scan (shared file-discovery pass — see the comment there). Written to
+    # a temp file here (not unconditionally above) so the mktemp+write only happens
+    # on a Stop that actually reaches this jq call.
+    SUB_TMP=$(mktemp 2>/dev/null) || SUB_TMP=""
+    [ -n "$SUB_TMP" ] && printf '%s' "$SUB_TEXT" > "$SUB_TMP" 2>/dev/null
+
     # ONE jq call, reading the transcript window on stdin and the manifest/prior
     # state via --rawfile (never --argjson/--arg on their full content): a long
     # session's manifest (persona-context appends per PROMPT) or a Read-heavy turn's
@@ -225,8 +285,10 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
     TEL_BIG=$(printf '%s\n' "$TEL_WINDOW" | jq -c -R -s \
       --rawfile mraw "$(_tel_f "$MANIFEST")" \
       --rawfile sraw "$(_tel_f "$STATE_FILE")" \
+      --rawfile subraw "$(_tel_f "$SUB_TMP")" \
       --argjson total "$TOTAL_LINES" '
       (split("\n") | map(select(length>0)) | map(try fromjson catch null) | map(select(. != null))) as $lines |
+      ($subraw | split("\n") | map(select(length>0)) | map(try fromjson catch null) | map(select(. != null))) as $sub_lines |
       ($mraw | split("\n") | map(select(length>0)) | map(try fromjson catch null)
         | map(select(. != null and type=="object" and (.id // "") != "" and (.kind // "") != ""))) as $mf |
       ($sraw | (try fromjson catch {})) as $old0 |
@@ -242,16 +304,30 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
       ([ $lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
          | select(.name | test("knowledge_fetch|knowledge_neighbors|code_neighbors"))
          | (.input.slug // .input.node // empty) ]) as $fetch_arr |
+      # Subagent counterparts of reads_arr/fetch_arr, extracted from every subagent
+      # transcript own tool_use records (same shape as the parent transcript).
+      ([ $sub_lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
+         | select(.name=="Read") | (.input.file_path // empty) | gsub("\\\\"; "/") ]) as $sub_reads_arr |
+      ([ $sub_lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
+         | select(.name | test("knowledge_fetch|knowledge_neighbors|code_neighbors"))
+         | (.input.slug // .input.node // empty) ]) as $sub_fetch_arr |
       # $-parameters (bound VALUES, evaluated once at the call site) — NOT bare
       # filter parameters. A bare def with an unprefixed parameter re-evaluates that
       # parameter (re-runs the .id lookup) against whatever the input is at each use
       # site inside the body (here, a string from reads_arr/fetch_arr) and blows up
       # with a string-indexing error. dollar-prefixed params bind once, correctly.
-      def codemap_hit($id): ( ($reads_arr | any(. as $r | $r | contains($id))) or ($fetch_arr | any(. as $f | $f | contains($id))) );
-      def wiki_hit($id): ( ($fetch_arr | any(. == $id)) or ($reads_arr | any(. as $r | $r | contains("/" + $id + ".md"))) );
+      def codemap_hit_in($id; $ra; $fa): ( ($ra | any(. as $r | $r | contains($id))) or ($fa | any(. as $f | $f | contains($id))) );
+      def wiki_hit_in($id; $ra; $fa): ( ($fa | any(. == $id)) or ($ra | any(. as $r | $r | contains("/" + $id + ".md"))) );
+      # read= (win_hit_ids) is the UNION of parent-window and subagent evidence; the
+      # *_sub variants below are subagent-ONLY, used for the separate sub_read= count.
+      def codemap_hit($id): codemap_hit_in($id; $reads_arr; $fetch_arr) or codemap_hit_in($id; $sub_reads_arr; $sub_fetch_arr);
+      def wiki_hit($id): wiki_hit_in($id; $reads_arr; $fetch_arr) or wiki_hit_in($id; $sub_reads_arr; $sub_fetch_arr);
+      def codemap_hit_sub($id): codemap_hit_in($id; $sub_reads_arr; $sub_fetch_arr);
+      def wiki_hit_sub($id): wiki_hit_in($id; $sub_reads_arr; $sub_fetch_arr);
       {
-        win_hit_ids:    ([ $mf[] | select(.kind != "anchor") | nonanchor | select(if .kind == "codemap" then codemap_hit(.id) else wiki_hit(.id) end) | .id ] | unique),
-        win_ritual_ids: ([ $mf[] | select(.kind == "anchor") | select(wiki_hit(.id)) | .id ] | unique)
+        win_hit_ids:     ([ $mf[] | select(.kind != "anchor") | nonanchor | select(if .kind == "codemap" then codemap_hit(.id) else wiki_hit(.id) end) | .id ] | unique),
+        win_sub_hit_ids: ([ $mf[] | select(.kind != "anchor") | nonanchor | select(if .kind == "codemap" then codemap_hit_sub(.id) else wiki_hit_sub(.id) end) | .id ] | unique),
+        win_ritual_ids:  ([ $mf[] | select(.kind == "anchor") | select(wiki_hit(.id)) | .id ] | unique)
       } as $hits |
       ([ $lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") ]) as $tu |
       {
@@ -271,7 +347,8 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
       } as $tool |
       {
         new_state: {
-          hit_ids:    ((($old.hit_ids // []) + $hits.win_hit_ids) | unique),
+          hit_ids:     ((($old.hit_ids // []) + $hits.win_hit_ids) | unique),
+          sub_hit_ids: ((($old.sub_hit_ids // []) + $hits.win_sub_hit_ids) | unique),
           ritual_ids: ((($old.ritual_ids // []) + $hits.win_ritual_ids) | unique),
           pulled:     (($old.pulled // 0) + $tool.pulled_win),
           agents:     (($old.agents // 0) + $tool.agents_win),
@@ -294,9 +371,15 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         prior_candidates: ([ $mf[] | select(.kind != "anchor") | nonanchor | select(.kind=="wiki" or .kind=="graph") | .id ] | unique | map(select(. as $i | $ns.hit_ids | index($i) != null))),
         agents: $ns.agents, pulled: $ns.pulled, turn: $ns.turn,
         tiers:  ($ns.tiers | to_entries | map("\(.key):\(.value)") | join(",")),
+        # sub_read= (trailing field, S0 B7 ruler extension): count of manifested,
+        # non-anchor ids ever hit via SUBAGENT evidence specifically — a subset of
+        # read=, reported separately so the ruler can see how much of the union came
+        # from a dispatched agent instead of the parent transcript.
+        sub_read: ([ $mf[] | select(.kind != "anchor") | nonanchor | .id ] | unique | map(select(. as $i | $ns.sub_hit_ids | index($i) != null)) | length),
         new_state: $ns
       }
     ' 2>/dev/null | tr -d '\r')
+    [ -n "$SUB_TMP" ] && rm -f "$SUB_TMP" 2>/dev/null
 
     if [ -z "$TEL_BIG" ]; then
       sb_log_error "stop-extract.sh" "telemetry: value-loop jq pipeline failed (corrupt manifest/state?) sid=$MANIFEST_SID" 1
@@ -323,7 +406,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
       # per LINE has no such collapsing: an empty line is still exactly one line.
       TEL_LINES=$(printf '%s' "$TEL_BIG" | jq -r '
         .injected, .read, .ritual, .agents, .pulled, .turn,
-        (.hits | join(",")), .tiers, (.prior_candidates | join(","))
+        (.hits | join(",")), .tiers, (.prior_candidates | join(",")), .sub_read
       ' 2>/dev/null | tr -d '\r')
       {
         IFS= read -r TEL_INJ
@@ -335,6 +418,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         IFS= read -r TEL_HITS
         IFS= read -r TEL_TIERS
         IFS= read -r TEL_PRIOR_CAND
+        IFS= read -r TEL_SUB_READ
       } <<< "$TEL_LINES"
       case "$TEL_INJ" in ''|*[!0-9]*) TEL_INJ=0 ;; esac
       case "$TEL_HIT" in ''|*[!0-9]*) TEL_HIT=0 ;; esac
@@ -342,6 +426,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
       case "$TEL_AGENTS" in ''|*[!0-9]*) TEL_AGENTS=0 ;; esac
       case "$TEL_PULLED" in ''|*[!0-9]*) TEL_PULLED=0 ;; esac
       case "$TEL_TURN" in ''|*[!0-9]*) TEL_TURN=0 ;; esac
+      case "$TEL_SUB_READ" in ''|*[!0-9]*) TEL_SUB_READ=0 ;; esac
 
       # prior: a hit on a wiki/graph page CREATED before today = prior-session
       # knowledge reused. Filesystem lookup (not expressible in jq), bounded to the
@@ -367,17 +452,131 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
       # ec=0 gate= trace -> audit-log; ONE row per Stop (cumulative for the session).
       # Field order after hits= must stay APPENDED, never inserted — docs/daily-prompt.md's
       # extraction grep relies on it, and a reader takes the LAST row per sid as the total.
-      sb_log_error "stop-extract.sh" "gate=value-loop injected=$TEL_INJ read=$TEL_HIT prior=$TEL_PRIOR hits=${TEL_HITS:-none} ritual=$TEL_RITUAL pulled=$TEL_PULLED agents=$TEL_AGENTS tiers=${TEL_TIERS:-none} turn=$TEL_TURN sid=$MANIFEST_SID" 0
+      # sub_read= is the newest trailing field (S0 B7 ruler ext.) — appended AFTER sid=,
+      # never inserted earlier: sid values never contain whitespace, so a downstream
+      # whitespace-field-split reader still finds "sid=..." as its own token regardless
+      # of what comes after it.
+      sb_log_error "stop-extract.sh" "gate=value-loop injected=$TEL_INJ read=$TEL_HIT prior=$TEL_PRIOR hits=${TEL_HITS:-none} ritual=$TEL_RITUAL pulled=$TEL_PULLED agents=$TEL_AGENTS tiers=${TEL_TIERS:-none} turn=$TEL_TURN sid=$MANIFEST_SID sub_read=$TEL_SUB_READ" 0
     fi
   fi
   fi
+
+  # --- Hook-cancellation ruler (B7, "the ruler cannot see delivery") — OBSERVATION
+  # ONLY. docs/concepts/2026-09-27-repo-brain-concept.md §5 S0: a PreToolUse deny
+  # hook that gets cancelled (timeout or interrupt) lets the tool run unguarded —
+  # this is the ONLY place that number is visible today, and it is a safety defect,
+  # not just a metric. No new hook: this reads `hook_cancelled` attachment records
+  # already sitting in the SAME transcript this Stop already read, PLUS the ones
+  # recorded only in a subagent's own transcript (a PreToolUse cancellation INSIDE a
+  # dispatched agent never appears in the parent) via the shared SUB_HC_NEW/
+  # HC_SUBWM_NEW gathered above. A cumulative per-sid watermark for the parent
+  # (scanned_to) plus a per-file watermark for subagents (sub_scanned) keeps a later
+  # Stop from re-counting the same attachment record from either source.
+  #
+  # Stop is itself a B7 cancellation victim (measured: an unconditional jq pass here
+  # cost +1.4s/+18.5% per Stop even on the common all-empty case) — a cheap `grep -q`
+  # substring precheck over the combined new text decides whether the expensive jq
+  # grouping pass runs at all THIS Stop. ONE jq pass groups+formats every row when it
+  # does run; the bash loop below only calls sb_log_error (no jq spawned per
+  # (hook,script) row).
+  if [ -n "$MANIFEST_SID" ]; then
+    HC_FROM=$(jq -r '.scanned_to // 0' "$HC_STATE" 2>/dev/null | tr -d '\r')
+    case "$HC_FROM" in ''|*[!0-9]*) HC_FROM=0 ;; esac
+    [ "$HC_FROM" -gt "$TOTAL_LINES" ] && HC_FROM=0
+    if [ "$HC_FROM" -lt "$TOTAL_LINES" ] || [ -n "$SUB_HC_NEW" ]; then
+      HC_PARENT_NEW=$(awk -v s="$HC_FROM" 'NR>s' "$TRANSCRIPT" 2>/dev/null)
+      HC_COMBINED_NEW=$(printf '%s\n%s\n' "$HC_PARENT_NEW" "$SUB_HC_NEW")
+      if printf '%s' "$HC_COMBINED_NEW" | grep -q '"hook_cancelled"'; then
+        # \u0001 (SOH) as the field delimiter, not a tab: IFS-whitespace chars
+        # COLLAPSE consecutive delimiters (the exact field-shift bug the value-loop
+        # row's own comment above documents), but a non-whitespace IFS char does not.
+        HC_LINES=$(printf '%s' "$HC_COMBINED_NEW" | jq -R -s -r '
+          (split("\n") | map(select(length>0)) | map(try fromjson catch null) | map(select(. != null))) as $lines |
+          [ $lines[] | select(.type=="attachment" and ((.attachment.type // "")=="hook_cancelled"))
+            | {
+                hook: (.attachment.hookName // "unknown"),
+                script: ((.attachment.command // "") | gsub("\\\\";"/") | sub("\"$";"") | split("/") | last),
+                ms: (.attachment.durationMs // 0)
+              }
+          ] as $hc |
+          ($hc | group_by([.hook,.script])
+            | map({hook: .[0].hook, script: .[0].script, count: length, max_ms: (map(.ms) | max)})
+          ) as $agg |
+          $agg[] | "\(.hook)\u0001\(.script)\u0001\(.count)\u0001\(.max_ms)"
+        ' 2>/dev/null | tr -d '\r')
+        if [ -n "$HC_LINES" ]; then
+          while IFS=$'\x01' read -r HC_HOOK HC_SCRIPT HC_COUNT HC_MAX; do
+            [ -z "$HC_HOOK" ] && continue
+            sb_log_error "stop-extract.sh" "gate=hook-cancelled hook=$HC_HOOK script=$HC_SCRIPT count=$HC_COUNT max_ms=$HC_MAX sid=${MANIFEST_SID:0:8}" 0
+          done <<< "$HC_LINES"
+        fi
+      fi
+      # Watermarks (parent scanned_to + per-file sub_scanned) advance regardless of
+      # the precheck outcome: "nothing new this Stop" must still move them so the
+      # NEXT Stop's precheck looks only at genuinely new lines, never the same
+      # already-clean window (or subagent file prefix) again. Subagent files are
+      # never deleted mid-session, so replacing sub_scanned wholesale with this
+      # Stop's freshly built map (rather than merging old+new) is safe and simpler.
+      HC_TMP=$(mktemp "$HC_STATE.XXXXXX" 2>/dev/null) && {
+        jq -n --argjson total "$TOTAL_LINES" --arg subwm "$HC_SUBWM_NEW" '
+          ($subwm | split("\n") | map(select(length>0)) | map(split("\t"))
+            | map(select(length==2)) | map({key: .[0], value: (.[1] | tonumber)}) | from_entries) as $sw |
+          {scanned_to: $total, sub_scanned: $sw}
+        ' > "$HC_TMP" 2>/dev/null \
+          && mv "$HC_TMP" "$HC_STATE" 2>/dev/null \
+          || { rm -f "$HC_TMP"; sb_log_error "stop-extract.sh" "hook-cancelled: state write failed sid=$MANIFEST_SID" 1; }
+      } || sb_log_error "stop-extract.sh" "hook-cancelled: mktemp failed, state not persisted sid=$MANIFEST_SID" 1
+    fi
+  fi
+
+  # --- Subagent-start-miss ruler (B2 residual) — OBSERVATION ONLY. Reads the
+  # SubagentStart/end markers another implementer's hooks write to
+  # $BRAIN_DIR/.injected/<sid>.subagent.tsv: `start\t<agent_id>` (before any process
+  # starts) and `end\t<agent_id>\t<verdict>\t<reason>` (agent_id is "-" when the
+  # dispatch tool didn't surface one — hook-timer.sh cannot log a kill without a
+  # start marker). A start with no matching end is a counted miss. This file is the
+  # single source of truth and is re-read IN FULL each Stop (never watermarked): the
+  # counts below are recomputed from the file's current cumulative content, not
+  # accumulated by this script, so re-reading it on a later Stop can never double
+  # count — an unchanged file reproduces the same numbers, a grown file reproduces
+  # the new true totals (identical "last row per sid wins" contract as value-loop).
+  # Named agent_ids are tracked in an awk associative array (POSIX awk, not a bash
+  # `declare -A` — unrelated to the bash-portability ban); anonymous ("-") starts/
+  # ends are tracked as plain counters since they cannot be paired by identity.
+  SUBTSV="$BRAIN_DIR/.injected/$SESSION_ID.subagent.tsv"
+  if [ -n "$MANIFEST_SID" ] && [ -f "$SUBTSV" ]; then
+    SSM=$(awk -F'\t' '
+      $1=="start" {
+        starts++
+        id = ($2=="" ? "-" : $2)
+        if (id=="-") dash_start++; else started[id]=1
+      }
+      $1=="end" {
+        id = ($2=="" ? "-" : $2)
+        if (id=="-") dash_end++; else delete started[id]
+      }
+      END {
+        miss=0
+        for (k in started) miss++
+        d = (dash_start+0) - (dash_end+0)
+        if (d>0) miss+=d
+        printf "%d\t%d\n", miss, starts+0
+      }
+    ' "$SUBTSV" 2>/dev/null)
+    SSM_MISS=$(printf '%s' "$SSM" | cut -f1)
+    SSM_STARTS=$(printf '%s' "$SSM" | cut -f2)
+    case "$SSM_MISS" in ''|*[!0-9]*) SSM_MISS=0 ;; esac
+    case "$SSM_STARTS" in ''|*[!0-9]*) SSM_STARTS=0 ;; esac
+    sb_log_error "stop-extract.sh" "gate=subagent-start-miss count=$SSM_MISS starts=$SSM_STARTS sid=${MANIFEST_SID:0:8}" 0
+  fi
+
   # GC stray per-session markers from sessions that never reached a Stop (7d, same
-  # policy as the .injected/ memos). Covers the telemetry manifest + cumulative state
-  # AND the three verify-gate session markers (.verify-gate-blocks-*,
-  # .verify-gate-agseen-*, .critic-offer-*), which are written per-session by
-  # stop-verify-gate.sh and were never swept. One find, -o group. Deliberately quiet:
-  # GC of already-lost state.
-  find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.value-loop-state-*.json' -o -name '.verify-gate-blocks-*' -o -name '.verify-gate-agseen-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
+  # policy as the .injected/ memos). Covers the telemetry manifest + cumulative state,
+  # the hook-cancelled watermark, AND the three verify-gate session markers
+  # (.verify-gate-blocks-*, .verify-gate-agseen-*, .critic-offer-*), which are written
+  # per-session by stop-verify-gate.sh and were never swept. One find, -o group.
+  # Deliberately quiet: GC of already-lost state.
+  find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.value-loop-state-*.json' -o -name '.hook-cancelled-state-*.json' -o -name '.verify-gate-blocks-*' -o -name '.verify-gate-agseen-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
 fi
 
 # Repo-brain JIT index freshness rebuild (Slice 2, docs/plans/2026-09-24-repo-brain.md §F) —

@@ -658,4 +658,71 @@ echo "$ROW17B" | grep -q 'turn=2' || fail "cross-stop merge: Stop-2 turn should 
 [ "$ROW17A" != "$ROW17B" ] || fail "cross-stop merge: Stop-2 row identical to Stop-1 (no new row emitted)"
 pass "cross-Stop merge: Stop-1 read=1/agents=1/turn=1, Stop-2 read=2/hits=a,b/ritual=1/pulled=1/agents=2/tiers=sonnet:1,unset:1/turn=2 (cumulative merge, not a rescan)"
 
+# --- Test 18 (S0 B7 ruler extension): value-loop sees subagents -- a manifested id ---
+# fetched ONLY inside a dispatched subagent's own transcript (never by the parent) still
+# counts toward read= (the union), and the trailing sub_read= field names how many of
+# those hits came specifically from subagent evidence. Layout verified live on this
+# machine: <projdir>/<sid>.jsonl has sibling <projdir>/<sid>/subagents/agent-*.jsonl.
+SID12="telemetry-test-subagent-only"
+WORKDIR12="$TMP/demo12"; mkdir -p "$WORKDIR12"
+mkdir -p "$BRAIN/projects/demo12"
+printf '# PROJECT: demo12\n\n## Goal\nsubagent-only fetch demo\n' > "$BRAIN/projects/demo12/PROJECT.md"
+MANIFEST12="$BRAIN/.injected-manifest-$SID12.jsonl"
+cat > "$MANIFEST12" <<'EOF'
+{"kind":"wiki","id":"sub-only-page"}
+EOF
+T12="$TMP/transcript12.jsonl"
+cat > "$T12" <<EOF
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"dispatching a subagent"}]}}
+EOF
+SUBDIR12="$TMP/transcript12/subagents"
+mkdir -p "$SUBDIR12"
+cat > "$SUBDIR12/agent-sub1.jsonl" <<EOF
+{"parentUuid":null,"isSidechain":true,"agentId":"sub1","type":"user","message":{"role":"user","content":"investigate"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__knowledge_fetch","input":{"slug":"sub-only-page"}}]}}
+EOF
+printf '{"transcript_path":"%s","cwd":"%s","session_id":"%s"}' "$T12" "$WORKDIR12" "$SID12" \
+  | env PATH="$STUB:$PATH" HOME="$TMP" BRAIN_DIR="$BRAIN" \
+        CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW" ANTHROPIC_API_KEY="" \
+        bash "$ROOT/scripts/stop-extract.sh" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "Test 18 (subagent-only fetch) non-zero exit ($RC)"
+ROW18=$(grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID12" | tail -1)
+[ -n "$ROW18" ] || fail "Test 18: value-loop row missing for a subagent-only fetch"
+echo "$ROW18" | grep -q 'read=1' || fail "Test 18: read should be 1 (the union includes the subagent-only hit): $ROW18"
+echo "$ROW18" | grep -q 'sub_read=1' || fail "Test 18: sub_read should be 1 (the hit came from subagent evidence): $ROW18"
+pass "Test 18: a manifested id fetched ONLY inside a subagent transcript counts as read=1 sub_read=1"
+
+# --- Test 19: no subagents/ directory at all (the common case: a session with no ---
+# dispatches) leaves sub_read=0 and every other field exactly as it was before this
+# ruler extension existed -- no regression for the vast majority of sessions.
+SID13="telemetry-test-no-subagents-dir"
+WORKDIR13="$TMP/demo13"; mkdir -p "$WORKDIR13"
+mkdir -p "$BRAIN/projects/demo13"
+printf '# PROJECT: demo13\n\n## Goal\nno subagents dir demo\n' > "$BRAIN/projects/demo13/PROJECT.md"
+MANIFEST13="$BRAIN/.injected-manifest-$SID13.jsonl"
+cat > "$MANIFEST13" <<'EOF'
+{"kind":"wiki","id":"old-learning"}
+EOF
+T13="$TMP/transcript13.jsonl"
+cat > "$T13" <<EOF
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"$KNOW/wiki/learnings/old-learning.md"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}
+EOF
+# No "${T13%.jsonl}/subagents" directory exists at all -- the common path.
+[ -d "${T13%.jsonl}/subagents" ] && fail "Test 19: fixture setup bug -- a subagents dir must NOT exist for this case"
+printf '{"transcript_path":"%s","cwd":"%s","session_id":"%s"}' "$T13" "$WORKDIR13" "$SID13" \
+  | env PATH="$STUB:$PATH" HOME="$TMP" BRAIN_DIR="$BRAIN" \
+        CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW" ANTHROPIC_API_KEY="" \
+        bash "$ROOT/scripts/stop-extract.sh" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "Test 19 (no subagents dir) non-zero exit ($RC)"
+ROW19=$(grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID13" | tail -1)
+[ -n "$ROW19" ] || fail "Test 19: value-loop row missing"
+echo "$ROW19" | grep -q 'read=1' || fail "Test 19: read should still be 1 (parent-only hit, unaffected by the subagent extension): $ROW19"
+echo "$ROW19" | grep -q 'sub_read=0' || fail "Test 19: sub_read should be 0 when no subagents dir exists: $ROW19"
+pass "Test 19: no subagents dir leaves sub_read=0 and every other field unchanged"
+
 echo; echo "ALL PASS"
