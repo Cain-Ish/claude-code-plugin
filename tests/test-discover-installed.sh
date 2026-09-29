@@ -237,6 +237,10 @@ fi
 if [ "${DI_SHIM_FAIL_ASSEMBLY:-0}" = "1" ]; then
   for a in "$@"; do [ "$a" = "--slurpfile" ] && exit 5; done
 fi
+# Test 14: a probe line on stderr, once per shim invocation — proves the detached refresh
+# child's stderr lands in a FILE (not silently /dev/null'd), independent of di_log's own
+# jsonl writes (which go through stdout/append, not stderr).
+[ -n "${DI_SHIM_STDERR_MSG:-}" ] && echo "$DI_SHIM_STDERR_MSG" >&2
 exec "$DI_REAL_JQ" "$@"
 EOF
 chmod +x "$SHIM/jq"
@@ -307,6 +311,128 @@ wait_unlocked "$B12" || fail "12: lock not released after a failed refresh"
 grep -q '"script":"discover-installed.sh".*refresh failed' "$B12/error-log.jsonl" 2>/dev/null \
   || fail "12: a failed refresh left no error-log row"
 pass "failed refresh logs to error-log.jsonl and keeps the old catalog"
+
+# --- Test 13: a lock mkdir failure that is NOT "already exists" logs loudly ---------------
+# review fix: the old code fell straight into the mtime staleness probe on ANY mkdir failure;
+# a probe against a path that isn't even a directory finds nothing and returns 0 silently, so
+# a real failure (permission denied, a plain file occupying the path, a read-only BRAIN_DIR)
+# left no trace at all.
+P13="$TMP/plugins13"; B13="$TMP/b13"; mkdir -p "$P13" "$B13"
+mkplugin "$P13" "alpha" "1.0.0" 1 1
+printf '%s\n' "$SENTINEL" > "$B13/.installed-catalog.json"
+touch -t 202001010000 "$B13/.installed-catalog.json"
+: > "$B13/$LOCK_NAME"     # a PLAIN FILE occupies the lock path -> mkdir fails, not "exists as a dir"
+OUT13=$(env BRAIN_DIR="$B13" bash "$SCRIPT" "$P13" 2>/dev/null) || fail "13: hook exited non-zero"
+[ "$OUT13" = "$SENTINEL" ] || fail "13: stale cache not served"
+grep -q 'could not create the refresh lock' "$B13/error-log.jsonl" 2>/dev/null \
+  || fail "13: a non-EEXIST mkdir failure on the lock path was silent"
+rm -f "$B13/$LOCK_NAME"
+pass "a lock mkdir failure that is not 'already exists' logs loudly"
+
+# --- Test 14: the detached refresh child's stderr is captured to a file under BRAIN_DIR ---
+# review fix: `>/dev/null 2>&1` used to drop a raw bash-level crash or subprocess diagnostic
+# on the floor — the only trace of a broken refresh was whatever di_log itself managed to
+# write, which is nothing if the crash happens before/around a di_log call.
+P14="$TMP/plugins14"; B14="$TMP/b14"; mkdir -p "$P14" "$B14"
+mkplugin "$P14" "alpha" "1.0.0" 1 1
+env BRAIN_DIR="$B14" bash "$SCRIPT" "$P14" >/dev/null 2>&1 || fail "14: initial synchronous build failed"
+printf '%s\n' "$SENTINEL" > "$B14/.installed-catalog.json"
+touch -t 202001010000 "$B14/.installed-catalog.json"
+OUT14=$(env BRAIN_DIR="$B14" PATH="$SHIM:$PATH" DI_REAL_JQ="$REAL_JQ" DI_SHIM_STDERR_MSG="probe-stderr-14" \
+  bash "$SCRIPT" "$P14" 2>/dev/null) || fail "14: hook exited non-zero"
+[ "$OUT14" = "$SENTINEL" ] || fail "14: stale cache not served"
+wait_unlocked "$B14" || fail "14: refresh lock never released"
+grep -q 'probe-stderr-14' "$B14/.installed-catalog-refresh.err" 2>/dev/null \
+  || fail "14: detached child's stderr was not captured to a file under BRAIN_DIR"
+pass "detached refresh child's stderr is captured to a file under BRAIN_DIR"
+
+# --- Test 15: SEC-L3 — a LIVE lock owner is NEVER reclaimed, no matter how old the lock ----
+# Controller addendum: age alone used to decide reclaim, so a refresh genuinely still running
+# past LOCK_STALE_MIN had its lock stolen out from under it — and its own later rmdir (in
+# di_cleanup, once it finally finished) then deleted the NEW owner's lock instead of its own.
+P15="$TMP/plugins15"; B15="$TMP/b15"; mkdir -p "$P15" "$B15"
+mkplugin "$P15" "alpha" "1.0.0" 1 1
+printf '%s\n' "$SENTINEL" > "$B15/.installed-catalog.json"
+touch -t 202001010000 "$B15/.installed-catalog.json"
+mkdir "$B15/$LOCK_NAME"; touch -t 202001010000 "$B15/$LOCK_NAME"   # a very OLD lock dir
+sleep 30 & LIVE_PID15=$!
+printf '%s' "$LIVE_PID15" > "$B15/$LOCK_NAME/pid"
+OUT15=$(env BRAIN_DIR="$B15" bash "$SCRIPT" "$P15" 2>/dev/null); RC15=$?
+sleep 1   # give a WRONGLY-scheduled refresh a moment to have started, if this regressed
+kill "$LIVE_PID15" 2>/dev/null; wait "$LIVE_PID15" 2>/dev/null
+[ "$RC15" -eq 0 ] || fail "15: hook exited non-zero"
+[ "$OUT15" = "$SENTINEL" ] || fail "15: stale cache not served"
+[ -d "$B15/$LOCK_NAME" ] || fail "15: the live owner's lock vanished (reclaimed while its owner was alive)"
+[ "$(refresh_rows "$B15")" = "0" ] || fail "15: a refresh ran despite a live lock owner"
+[ "$(cat "$B15/.installed-catalog.json")" = "$SENTINEL" ] || fail "15: catalog rebuilt despite a live lock owner"
+rm -f "$B15/$LOCK_NAME/pid"; rmdir "$B15/$LOCK_NAME" 2>/dev/null || rm -rf "$B15/$LOCK_NAME"
+pass "a live lock owner is never reclaimed, regardless of lock age"
+
+# --- Test 16: SEC-L3 — a DEAD lock owner is reclaimed IMMEDIATELY, age irrelevant ----------
+P16="$TMP/plugins16"; B16="$TMP/b16"; mkdir -p "$P16" "$B16"
+mkplugin "$P16" "alpha" "1.0.0" 1 1
+printf '%s\n' "$SENTINEL" > "$B16/.installed-catalog.json"
+touch -t 202001010000 "$B16/.installed-catalog.json"
+mkdir "$B16/$LOCK_NAME"    # freshly created just now -> young, no mtime staleness of its own
+( exit 0 ) & DEAD_PID16=$!; wait "$DEAD_PID16" 2>/dev/null   # guaranteed dead by the time we check
+printf '%s' "$DEAD_PID16" > "$B16/$LOCK_NAME/pid"
+OUT16=$(env BRAIN_DIR="$B16" bash "$SCRIPT" "$P16" 2>/dev/null) || fail "16: hook exited non-zero"
+[ "$OUT16" = "$SENTINEL" ] || fail "16: stale cache not served"
+wait_unlocked "$B16" || fail "16: reclaimed lock never released"
+[ "$(jq -r '.plugins | length' "$B16/.installed-catalog.json")" = "1" ] \
+  || fail "16: a dead-owner lock blocked the refresh"
+grep -q 'reclaimed an abandoned refresh lock' "$B16/error-log.jsonl" 2>/dev/null \
+  || fail "16: reclaiming a dead-owner lock was silent (no error-log row)"
+pass "a dead lock owner is reclaimed immediately (lock age irrelevant) and logged"
+
+# --- Test 17: unit test of di_cleanup — logs a non-zero exit; releases only an OWNED lock -
+# Deterministic (no signals, no timing races): extracts di_log/di_cleanup verbatim and drives
+# them directly, the same "extract a block" technique test-session-load-embed-banner.sh uses.
+extract_fn() {   # extract_fn <name> <file> -> the function body, header through the closing
+                 # bare "}" (both di_log and di_cleanup in this script are written that way).
+  awk -v name="$1" '$0 == name"() {" { p = 1 } p { print } p && $0 == "}" { exit }' "$2"
+}
+RUNNER17="$TMP/runner17.sh"
+{
+  echo 'set -u'
+  extract_fn di_log "$SCRIPT"
+  extract_fn di_cleanup "$SCRIPT"
+  cat <<'EOF'
+MODE="refresh"
+LOCK_STALE_MIN=10
+OUT_FILE="$BRAIN_DIR/.installed-catalog.json"
+TMP_PLUGINS=""; TMP_AGENTS_RAW=""; TMP_SKILLS_RAW=""; TMP_AGENTS=""; TMP_SKILLS=""
+mkdir -p "$LOCK_DIR" 2>/dev/null
+if [ "${OWNER_MODE:-self}" = "self" ]; then printf '%s' "$$" > "$LOCK_DIR/pid"
+else printf '%s' "$OWNER_MODE" > "$LOCK_DIR/pid"; fi
+trap di_cleanup EXIT
+exit "${EXIT_CODE:-0}"
+EOF
+} > "$RUNNER17"
+[ -s "$RUNNER17" ] || fail "17: could not build the di_cleanup unit runner"
+
+# 17a: OWNED lock (pid == our own $$) + a non-zero exit -> logs the exit AND releases the lock.
+B17A="$TMP/b17a"; mkdir -p "$B17A"
+LOCK17A="$B17A/.installed-catalog.lock"; ERR17A="$B17A/.installed-catalog-refresh.err"
+env EXIT_CODE=7 OWNER_MODE=self BRAIN_DIR="$B17A" LOCK_DIR="$LOCK17A" DI_REFRESH_ERR="$ERR17A" \
+  DI_LIB="$TMP/no-such-lib.sh" bash "$RUNNER17"
+grep -q 'exited non-zero (ec=7)' "$B17A/error-log.jsonl" 2>/dev/null \
+  || fail "17a: di_cleanup did not log a non-zero exit"
+[ -d "$LOCK17A" ] && fail "17a: di_cleanup did not release a lock it owns"
+pass "17a: di_cleanup logs a non-zero exit and releases a lock it owns"
+
+# 17b: lock owned by ANOTHER pid (reclaimed out from under us) + a clean exit -> no non-zero
+# row, and the lock is left ALONE (removing it would delete the new owner's lock).
+B17B="$TMP/b17b"; mkdir -p "$B17B"
+LOCK17B="$B17B/.installed-catalog.lock"; ERR17B="$B17B/.installed-catalog-refresh.err"
+env EXIT_CODE=0 OWNER_MODE=999999999 BRAIN_DIR="$B17B" LOCK_DIR="$LOCK17B" DI_REFRESH_ERR="$ERR17B" \
+  DI_LIB="$TMP/no-such-lib.sh" bash "$RUNNER17"
+[ -f "$B17B/error-log.jsonl" ] && grep -q 'exited non-zero' "$B17B/error-log.jsonl" \
+  && fail "17b: a clean (ec=0) exit logged a non-zero-exit row"
+[ -d "$LOCK17B" ] || fail "17b: di_cleanup released a lock it does NOT own"
+[ "$(cat "$LOCK17B/pid" 2>/dev/null)" = "999999999" ] \
+  || fail "17b: the other owner's pid file was disturbed"
+pass "17b: di_cleanup never touches a lock owned by a different pid"
 
 # Test 5 left a detached freshness check running in $B1; let it finish before the EXIT trap
 # removes $TMP (Windows cannot delete a directory a live process still holds open).

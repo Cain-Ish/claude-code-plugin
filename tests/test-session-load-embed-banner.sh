@@ -72,12 +72,28 @@ echo "$out" | grep -qi "degraded" \
   && { echo "FAIL D: SB_EMBED_PENDING_BANNER=off did not suppress:"; echo "$out"; exit 1; }
 echo "PASS D: suppressible via SB_EMBED_PENDING_BANNER=off"
 
-# --- Case E: no index file (fresh install) + deps absent -> NOT nagged ---
+# --- Case E: no index file (fresh install) + deps absent -> STILL FIRES (review fix) ---
+# T9/L1 group: (1) deps-absent used to be nested under `[ -f episodic-index.json ]`, so a
+# totally fresh install (zero transcripts, deps broken by the SAME cache refresh) stayed
+# silent even though the identical broken dep also drops wiki knowledge_search to bm25-only
+# from the very first session — a real, present-tense degradation that has nothing to do with
+# whether any episodic transcript has ever been captured. Un-nested: this must fire regardless.
 BDE="$TMP/e"; mkdir -p "$BDE"   # no episodic-index.json
 out=$(run BRAIN_DIR="$BDE" CLAUDE_PLUGIN_ROOT="$CRA")
+echo "$out" | grep -q "not linked in this plugin cache" \
+  || { echo "FAIL E: deps-absent banner did not fire on a fresh install with no index (the un-nest regression):"; echo "$out"; exit 1; }
+echo "$out" | grep -q "bm25-only" \
+  || { echo "FAIL E: fresh-install deps-absent banner does not cover wiki bm25-only:"; echo "$out"; exit 1; }
+echo "PASS E: deps-absent fires on a fresh install with no episodic-index.json (un-nested)"
+
+# --- Case E2: no index file + deps PRESENT -> genuinely healthy fresh install stays silent ---
+CRE2="$TMP/cacheE2"; mkdir -p "$CRE2/mcp/node_modules/@huggingface/transformers"
+BDE2="$TMP/e2"; mkdir -p "$BDE2"   # no episodic-index.json
+: > "$BDE2/error-log.jsonl"
+out=$(run BRAIN_DIR="$BDE2" CLAUDE_PLUGIN_ROOT="$CRE2")
 echo "$out" | grep -qi "degraded" \
-  && { echo "FAIL E: nagged a fresh install with no index:"; echo "$out"; exit 1; }
-echo "PASS E: fresh install (no index) not nagged"
+  && { echo "FAIL E2: nagged a genuinely healthy fresh install (no index, deps present, no import failures):"; echo "$out"; exit 1; }
+echo "PASS E2: fresh install with healthy deps and no index stays silent"
 
 # --- B4 residual (2026-09-28): the package dir EXISTS but will not import --------------
 # 171 of 183 embeddings errors were "Cannot find package '…transformers\index.js'" with the
@@ -177,5 +193,98 @@ echo "$out" | grep -q "bm25-only" \
 echo "$out" | grep -q "gate=banner name=episodic-embed-pending-banner fired=1 reason=deps-absent" \
   || { echo "FAIL K: deps-absent emission not logged:"; echo "$out"; exit 1; }
 echo "PASS K: deps-absent banner covers wiki bm25-only and logs gate=banner"
+
+# --- T9: POSIX-path (macOS/Linux) import-failure fixtures ---------------------------------
+# Cases F/I/L above only ever exercise the Windows-backslash path shape embeddings.ts logs on
+# that platform. The awk match in session-load.sh also has a forward-slash branch
+# (`index($0, "/mcp/")` / `"/" root "/mcp/"`) that was never exercised by a fixture.
+posixpath() {   # posixpath <version> <tail...> -> a POSIX plugin-cache path, as embeddings.ts
+                # logs it on macOS/Linux.
+  local out p
+  out="/Users/u/.claude/plugins/cache/second-brain/second-brain/$1"
+  shift; for p in "$@"; do out="$out/$p"; done; printf '%s' "$out"
+}
+import_msg_posix() {
+  printf "transformers model load failed: Cannot find package '%s' imported from %s — run: bash \$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" \
+    "$(posixpath "$1" mcp node_modules @huggingface transformers index.js)" \
+    "$(posixpath "$1" mcp dist tools context-serve-cli.bundle.js)"
+}
+
+# --- Case M: POSIX-path import failure naming THIS plugin version -> FIRE ---
+BDM="$TMP/m"; mkdir -p "$BDM"; mkidx "$BDM/episodic-index.json" 5 0
+errrow "$(iso_ago 3600)" embeddings "$(import_msg_posix 0.54.0)" > "$BDM/error-log.jsonl"
+out=$(run BRAIN_DIR="$BDM" CLAUDE_PLUGIN_ROOT="$CRV")
+echo "$out" | grep -q "fired=1 reason=import-failure" \
+  || { echo "FAIL M: a POSIX-path import failure for THIS version did not fire:"; echo "$out"; exit 1; }
+echo "PASS M: POSIX-path import failure fires for the matching plugin version"
+
+# --- Case N: POSIX-path import failure naming a DIFFERENT plugin version -> stays silent ---
+BDN="$TMP/n"; mkdir -p "$BDN"; mkidx "$BDN/episodic-index.json" 5 0
+errrow "$(iso_ago 3600)" embeddings "$(import_msg_posix 0.53.0)" > "$BDN/error-log.jsonl"
+out=$(run BRAIN_DIR="$BDN" CLAUDE_PLUGIN_ROOT="$CRV")
+echo "$out" | grep -qiE "degraded|fired=1" \
+  && { echo "FAIL N: a POSIX-path import failure for ANOTHER version fired:"; echo "$out"; exit 1; }
+echo "PASS N: POSIX-path import failure for another version does not fire"
+
+# --- fired=0 skipped=byte-budget: sb_append refusing the banner must still log loudly --------
+run_failappend() {
+  local rf="$TMP/runner-failappend.sh"
+  cat > "$rf" <<'RUNEOF'
+sb_append() { return 1; }
+sb_log_error() { printf 'LOG %s ec=%s\n' "$2" "${3:-1}"; }
+RUNEOF
+  printf '%s\n' "$BLOCK" >> "$rf"
+  env -i HOME="$HOME" PATH="$PATH" "$@" bash "$rf"
+}
+# --- Case O: sb_append fails (byte-budget exhausted) -> fired=0 ... skipped=byte-budget, logged ---
+out=$(run_failappend BRAIN_DIR="$BD" CLAUDE_PLUGIN_ROOT="$CRA")
+echo "$out" | grep -q "gate=banner name=episodic-embed-pending-banner fired=0 reason=deps-absent skipped=byte-budget" \
+  || { echo "FAIL O: a failing sb_append (byte-budget) did not log fired=0 ... skipped=byte-budget:"; echo "$out"; exit 1; }
+echo "PASS O: sb_append refusal (byte-budget) logs fired=0 skipped=byte-budget"
+
+# --- silent-failure fix: an awk failure counting import rows must LOG, not silently read 0 --
+run_awkfail() {
+  local shim="$TMP/awkfail-shim"; mkdir -p "$shim"
+  cat > "$shim/awk" <<'AWKSHIMEOF'
+#!/bin/bash
+echo "awk shim: forced failure" >&2
+exit 2
+AWKSHIMEOF
+  chmod +x "$shim/awk"
+  env -i HOME="$HOME" PATH="$shim:$PATH" "$@" bash "$TMP/runner.sh"
+}
+# --- Case P: the import-failure awk process fails -> logged loudly, banner stays silent -----
+BDP="$TMP/p"; mkdir -p "$BDP"; mkidx "$BDP/episodic-index.json" 5 0
+errrow "$(iso_ago 3600)" embeddings "$(import_msg 0.54.0)" > "$BDP/error-log.jsonl"
+out=$(run_awkfail BRAIN_DIR="$BDP" CLAUDE_PLUGIN_ROOT="$CRV")
+echo "$out" | grep -q "import-failure awk failed" \
+  || { echo "FAIL P: an awk failure counting import failures was not logged:"; echo "$out"; exit 1; }
+echo "$out" | grep -qi "degraded" \
+  && { echo "FAIL P: an awk failure silently produced a banner instead of staying silent+logged:"; echo "$out"; exit 1; }
+echo "PASS P: an awk failure while counting import failures is logged loudly (not silently 0)"
+
+# --- L1 (review): `grep -q $'\r'` is a Git-Bash text-mode no-op (GNU grep 3.0 opens the file
+# already CR-stripped, so the pattern never sees the byte) -- every CR sniff in session-load.sh
+# must use `-U` (BSD and GNU both accept it). Static scan locks the fix so a future edit can't
+# reintroduce the unsafe form; behavioral check proves -U actually sees the CR this box's plain
+# `grep -q` misses.
+CR_PAT='grep -q $'\''\r'\'''
+if grep -Fq "$CR_PAT" "$SOURCE"; then
+  echo "FAIL L1-static: session-load.sh still has an un-U'd CR sniff ($CR_PAT):"
+  grep -Fn "$CR_PAT" "$SOURCE"
+  exit 1
+fi
+echo "PASS L1-static: no un-U'd grep -q \$'\r' CR sniff remains in session-load.sh"
+
+CRLF_FIXTURE="$TMP/crlf-fixture.txt"
+printf 'a\r\nb\r\n' > "$CRLF_FIXTURE"
+if LC_ALL=C grep -q $'\r' "$CRLF_FIXTURE" >/dev/null 2>&1; then
+  echo "NOTE L1-behavioral: this box's plain grep -q already sees the CR directly -- -U is still required for a Git-Bash grep build that DOES text-translate, per review."
+else
+  echo "PASS L1-behavioral: confirmed -- plain grep -q (no -U) misses the CR on this box's Git-Bash (the exact regression -U fixes)"
+fi
+LC_ALL=C grep -qU $'\r' "$CRLF_FIXTURE" \
+  || { echo "FAIL L1-behavioral: grep -qU failed to detect a real CR byte in a CRLF fixture"; exit 1; }
+echo "PASS L1-behavioral: grep -qU correctly detects a real CRLF fixture"
 
 echo "ALL PASS"
