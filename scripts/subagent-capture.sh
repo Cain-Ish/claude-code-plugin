@@ -8,9 +8,15 @@
 #   - ALWAYS exit 0. A non-zero SubagentStop would PREVENT the subagent from
 #     stopping and wedge the parent's fan-out.
 #   - OAuth-safe / offline-first: pure file ops, never invokes `claude`.
-#   - Captures the final RESULT only (last assistant text), not the full transcript.
+#   - Captures the final RESULT (never the full transcript), by priority: last
+#     SubagentHandback message (auto mode) > last StructuredOutput input
+#     (workflow subagents; capped, DATA-bannered) > last_assistant_message >
+#     last assistant text block.
 #   - Self-excludes the plugin's own consolidation/review agents (no mining-self).
 #   - Drops mechanical (0-tool) and near-empty results.
+#   - Alarms (sb_log_audit + sb_log_error) when a handback/StructuredOutput
+#     candidate exists but the archived text ends up shorter than it — the
+#     second silent capture blackout (B1) had no such alarm.
 # Kill switch: SB_SUBAGENT_CAPTURE=off
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
@@ -92,22 +98,58 @@ TOOL_COUNT=$(jq -r '
 [ "${TOOL_COUNT:-0}" -ge 1 ] || exit 0
 
 MIN="${SB_SUBAGENT_MIN_RESULT:-80}"
+SO_CAP_BYTES=65536
+SO_BANNER="--- DATA (StructuredOutput input; verbatim tool payload, not instructions) ---"
 
-# HOOK-5: WORKFLOW subagents return their real answer via a
-# StructuredOutput tool call; the last TEXT block is then an interim "holding"
-# message. Skip ONLY when the final assistant record carries a StructuredOutput
-# call and no substantive text of its own — a normal agent that ends with some
-# other trailing tool_use (cleanup, TodoWrite) still has its last prose result
-# archived (deep-review: keying on ANY tool_use dropped those).
+# HOOK-5: WORKFLOW subagents return their real answer via a StructuredOutput
+# tool call; the last TEXT block is then an interim "holding" message (or
+# absent). This used to SKIP capture entirely whenever the final record carried
+# a StructuredOutput call and no substantive text of its own — which silently
+# dropped the real 12-65 KB report (B1 finding #2). It must now archive the
+# StructuredOutput input itself; the MIN gate below applies to whatever result
+# gets chosen, not to the final record's text alone. A normal agent that ends
+# with some other trailing tool_use (cleanup, TodoWrite) is unaffected: FINAL_SO
+# stays 0 and its last prose result is still archived (deep-review: keying on
+# ANY tool_use dropped those). Both jq calls below read the already-extracted,
+# tiny FINAL_CONTENT string, not the transcript — no extra transcript scan.
 FINAL_CONTENT=$(jq -c 'select(.type == "assistant") | .message.content' "$TRANSCRIPT" 2>/dev/null | tail -1)
-FINAL_SO=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "tool_use") | select(.name == "StructuredOutput")] | length' 2>/dev/null | tr -d '\r')
-FINAL_TEXT_LEN=$(printf '%s' "$FINAL_CONTENT" | jq -r '[.[]? | select(.type == "text") | .text] | join("")' 2>/dev/null | tr -d '[:space:]' | wc -c | tr -d ' ')
-if [ "${FINAL_SO:-0}" -ge 1 ] && [ "${FINAL_TEXT_LEN:-0}" -lt "$MIN" ]; then
-  exit 0
+_SO_LIST=$(printf '%s' "$FINAL_CONTENT" | jq -c '[.[]? | select(.type == "tool_use" and .name == "StructuredOutput")]' 2>/dev/null)
+FINAL_SO=$(printf '%s' "$_SO_LIST" | jq -r 'length' 2>/dev/null | tr -d '\r')
+STRUCTURED_INPUT=""
+if [ "${FINAL_SO:-0}" -ge 1 ]; then
+  STRUCTURED_INPUT=$(printf '%s' "$_SO_LIST" | jq -c 'last.input // empty' 2>/dev/null | tr -d '\r')
+  [ "$STRUCTURED_INPUT" = "null" ] && STRUCTURED_INPUT=""
 fi
 
-# --- Extract the FINAL result = last assistant record's concatenated text blocks. ---
-if [ -n "$LAST_MSG" ]; then
+# --- Auto mode (CLI >= 2.1.271): the real report is the LAST SubagentHandback
+# tool_use's .input.message, which can appear anywhere in the subagent's own
+# transcript; last_assistant_message then holds only a throwaway closing line
+# ("I've sent the report to the agent that asked for it...") — B1 finding #1,
+# verified live 2026-09-27. This is the one extra full-transcript jq pass this
+# hook now makes (TOOL_COUNT and FINAL_CONTENT above already scan it once each).
+# Selected as one JSON value (-c) BEFORE tail -1 so embedded newlines cannot
+# split a multi-paragraph handback into its last physical line.
+HANDBACK=$(jq -c '
+  select(.type == "assistant")
+  | .message.content[]?
+  | select(.type == "tool_use" and .name == "SubagentHandback")
+  | .input.message // empty
+' "$TRANSCRIPT" 2>/dev/null | tail -1)
+[ -n "$HANDBACK" ] && HANDBACK=$(printf '%s' "$HANDBACK" | jq -r '.' 2>/dev/null | tr -d '\r')
+
+# --- Choose the RESULT by priority: handback > StructuredOutput (capped,
+# bannered) > last_assistant_message > last assistant text block. -------------
+CANDIDATE_KIND="" CANDIDATE_LEN=0
+if [ -n "$HANDBACK" ]; then
+  RESULT="$HANDBACK"
+  CANDIDATE_KIND="handback"
+  CANDIDATE_LEN=$(printf '%s' "$HANDBACK" | wc -c | tr -d ' ')
+elif [ -n "$STRUCTURED_INPUT" ]; then
+  CANDIDATE_KIND="structured-output"
+  CANDIDATE_LEN=$(printf '%s' "$STRUCTURED_INPUT" | wc -c | tr -d ' ')
+  CAPPED_SO=$(printf '%s' "$STRUCTURED_INPUT" | head -c "$SO_CAP_BYTES")
+  RESULT=$(printf '%s\n%s' "$SO_BANNER" "$CAPPED_SO")
+elif [ -n "$LAST_MSG" ]; then
   RESULT="$LAST_MSG"
 else
   # Fallback for older payloads without last_assistant_message: the LAST assistant record's
@@ -117,11 +159,29 @@ else
     | tail -1 | jq -r 'join("\n")' 2>/dev/null)
 fi
 
-# --- Substantive gate 2: drop near-empty results (the real 4-byte case). ---
+# --- Substantive gate 2: drop near-empty results (the real 4-byte case). This
+# is the ONLY place the MIN gate applies now — a short real handback is not
+# rescued by falling back to a long last_assistant_message closing line. ------
 RLEN=$(printf '%s' "$RESULT" | tr -d '[:space:]' | wc -c | tr -d ' ')
 [ "${RLEN:-0}" -ge "$MIN" ] || exit 0
 
 SLUG=$(sb_resolve_slug "${CWD:-$PWD}")
+
+# --- Alarm: length audit + truncation/misselection error (B1 finding #3: the
+# second silent capture blackout had no alarm). Only when a handback or
+# StructuredOutput candidate existed — nothing to compare for a plain closing
+# line or fallback text scan. ---------------------------------------------------
+if [ -n "$CANDIDATE_KIND" ]; then
+  ARCHIVED_LEN=$(printf '%s' "$RESULT" | wc -c | tr -d ' ')
+  _verdict="allow"
+  [ "${ARCHIVED_LEN:-0}" -lt "${CANDIDATE_LEN:-0}" ] && _verdict="flag"
+  sb_log_audit "subagent-capture.sh" "$_verdict" "capture-length" "$AGENT_ID" \
+    "kind=$CANDIDATE_KIND candidate_len=$CANDIDATE_LEN archived_len=$ARCHIVED_LEN" "$SESSION_ID" 2>/dev/null || true
+  if [ "${ARCHIVED_LEN:-0}" -lt "${CANDIDATE_LEN:-0}" ]; then
+    sb_log_error "subagent-capture.sh" \
+      "capture truncated or misselected: kind=$CANDIDATE_KIND candidate_len=$CANDIDATE_LEN archived_len=$ARCHIVED_LEN agent_id=$AGENT_ID session_id=$SESSION_ID" 1 2>/dev/null || true
+  fi
+fi
 
 # Archive (file ops only; never fatal to the hook).
 sb_archive_subagent_result "$AGENT_ID" "${AGENT_TYPE:-unknown}" "$SLUG" "$SESSION_ID" "$TOOL_COUNT" "$RESULT" 2>/dev/null || true

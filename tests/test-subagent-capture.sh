@@ -37,6 +37,16 @@ run_hook() {
 }
 arc() { ls "$1/transcripts/"sub-*.txt 2>/dev/null; }
 
+# Invoke the hook with an explicit last_assistant_message (the run_hook helper above
+# never sets one). args: <brain> <agent_type> <agent_id> <transcript_path> <last_assistant_message>
+run_hook_msg() {
+  local brain="$1" atype="$2" aid="$3" tpath="$4" msg="$5"
+  local payload
+  payload=$(jq -nc --arg at "$atype" --arg id "$aid" --arg tp "$tpath" --arg cw "$TMP/repo" --arg sid "sess1" --arg msg "$msg" \
+    '{hook_event_name:"SubagentStop", agent_type:$at, agent_id:$id, transcript_path:$tp, cwd:$cw, session_id:$sid, last_assistant_message:$msg}')
+  printf '%s' "$payload" | env BRAIN_DIR="$brain" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$SCRIPT"
+}
+
 mkdir -p "$TMP/repo"
 LONG="This is a substantial final result from the subagent summarizing real findings worth keeping across sessions, well over the minimum length."
 
@@ -133,19 +143,27 @@ SUBN=$(ls "$B/transcripts/"sub-*.txt 2>/dev/null | wc -l | tr -d ' ')
 [ "$SUBN" -le "$T11_CAP" ] || fail "11: subagent archives exceeded their own cap (got $SUBN, cap $T11_CAP)"
 pass "subagent flood capped separately (got $SUBN sub-files); main-session archive survived"
 
-# --- Test 12 (R1.2, HOOK-5): workflow "holding" stub — the FINAL assistant
-# record is tool_use-only (StructuredOutput carries the real answer) and the
-# last TEXT block is an interim holding message => must NOT archive.
+# --- Test 12 (R1.2, HOOK-5 — updated for B1 finding #2): workflow "holding"
+# stub — the FINAL assistant record is tool_use-only (StructuredOutput carries
+# the real answer) and the last TEXT block is an interim holding message. The
+# pre-B1 gate skipped capture entirely here rather than risk archiving the
+# holding text — which silently dropped the real report. It must now archive
+# the StructuredOutput input itself (bannered), never the holding text, and
+# never silently drop the report.
 B="$TMP/b12"; mkdir -p "$B"; T="$TMP/t12.jsonl"
 : > "$T"
 printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the task"}]}}' >> "$T"
 printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Grep","input":{"pattern":"x"}}]}}' >> "$T"
-printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Holding here until the review returns; this filler comfortably exceeds the eighty-character minimum so the pre-R1 gate would have archived it as a result."}]}}' >> "$T"
+HOLDING12="Holding here until the review returns; this filler comfortably exceeds the eighty-character minimum so the pre-R1 gate would have archived it as a result."
+jq -nc --arg t "$HOLDING12" '{type:"assistant",message:{role:"assistant",content:[{type:"text",text:$t}]}}' >> "$T"
 printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"StructuredOutput","input":{"result":"the real answer went through the tool call"}}]}}' >> "$T"
-run_hook "$B" "general-purpose" "hold1" "$T" >/dev/null 2>&1; RC=$?
+run_hook "$B" "workflow-subagent" "hold1" "$T" >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 0 ] || fail "12: hook must exit 0"
-[ -z "$(arc "$B")" ] || fail "12: holding-message stub was archived"
-pass "workflow holding-message stub: NOT archived"
+F=$(arc "$B"); [ -n "$F" ] || fail "12: workflow subagent's StructuredOutput report was dropped (must not silently drop it)"
+grep -qF "the real answer went through the tool call" "$F" || fail "12: archived body missing the StructuredOutput input"
+grep -qF "Holding here until the review returns" "$F" && fail "12: archived the interim holding text instead of the StructuredOutput input"
+grep -qF "DATA (StructuredOutput input" "$F" || fail "12: archived StructuredOutput report missing the DATA banner"
+pass "workflow StructuredOutput-ending stub: archived using the StructuredOutput input (bannered), not the holding text"
 
 # --- Test 13 (R1.2 regression): a final text-only record (real prose result)
 # after tool activity still archives — the Test-12 skip must not overreach.
@@ -236,5 +254,89 @@ pass "production payload shape (parent transcript_path + agent_transcript_path) 
 # EC-04: a multi-paragraph result must not be truncated to its last physical line.
 [ "$(grep -c 'Paragraph' "$F18")" -eq 2 ] || fail "18b: multi-line last_assistant_message truncated ($(grep -c Paragraph "$F18") of 2 paragraphs kept)"
 pass "multi-line final result archived intact (no tail -1 truncation)"
+
+# --- Test 19 (auto-mode handback, B1 finding #1, verified live 2026-09-27): a
+# subagent that reports via the SubagentHandback tool_use must be archived
+# using the handback's .input.message, NOT the throwaway last_assistant_message
+# closing line ("I've sent the report to the agent that asked for it...").
+B="$TMP/b19"; mkdir -p "$B"; T="$TMP/t19.jsonl"
+: > "$T"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the task"}]}}' >> "$T"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Grep","input":{"pattern":"x"}}]}}' >> "$T"
+HB19="Full report: paragraph one carries the real findings. Paragraph two carries more detail, well over the minimum archive length."
+jq -nc --arg m "$HB19" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}' >> "$T"
+CLOSING19="I've sent the report to the agent that asked for it."
+run_hook_msg "$B" "general-purpose" "aid19" "$T" "$CLOSING19" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] || fail "19: hook must exit 0"
+F=$(arc "$B"); [ -n "$F" ] || fail "19: SubagentHandback result was not archived"
+grep -qF "$HB19" "$F" || fail "19: archived body does not contain the handback message"
+grep -qF "$CLOSING19" "$F" && fail "19: archived body wrongly contains the throwaway closing line instead of the handback"
+pass "SubagentHandback present: archive uses handback body, not the closing line"
+
+# --- Test 20: two SubagentHandback blocks in one transcript => the LAST one wins ---
+B="$TMP/b20"; mkdir -p "$B"; T="$TMP/t20.jsonl"
+: > "$T"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the task"}]}}' >> "$T"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Grep","input":{"pattern":"x"}}]}}' >> "$T"
+FIRST_HB20="First handback attempt with enough padding text to clear the minimum archive length threshold easily."
+SECOND_HB20="Second and FINAL handback attempt; this is the one that must be archived, also comfortably over the minimum length."
+jq -nc --arg m "$FIRST_HB20" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}' >> "$T"
+jq -nc --arg m "$SECOND_HB20" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}' >> "$T"
+run_hook_msg "$B" "general-purpose" "aid20" "$T" "closing line" >/dev/null 2>&1
+F=$(arc "$B"); [ -n "$F" ] || fail "20: two-handback transcript was not archived"
+grep -qF "$SECOND_HB20" "$F" || fail "20: last handback did not win"
+grep -qF "$FIRST_HB20" "$F" && fail "20: first (superseded) handback was archived instead of the last"
+pass "two SubagentHandback blocks: the LAST one wins"
+
+# --- Test 21 (regression): no SubagentHandback => last_assistant_message behaviour
+# unchanged (the pre-existing preference order still applies).
+B="$TMP/b21"; mkdir -p "$B"; T="$TMP/t21.jsonl"; mk_transcript "$T" 1 "ignored tail text, not the real result"
+run_hook_msg "$B" "general-purpose" "aid21" "$T" "$LONG" >/dev/null 2>&1
+F=$(arc "$B"); [ -n "$F" ] || fail "21: no-handback transcript with last_assistant_message was not archived"
+grep -qF "$LONG" "$F" || fail "21: last_assistant_message no longer used when no handback is present"
+pass "no SubagentHandback: last_assistant_message behaviour unchanged"
+
+# --- Test 22: handback body shorter than MIN => not archived, and must NOT fall
+# back to a long last_assistant_message (a short real handback is still the real
+# answer; silently substituting the closing chatter would archive the wrong text).
+B="$TMP/b22"; mkdir -p "$B"; T="$TMP/t22.jsonl"
+: > "$T"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the task"}]}}' >> "$T"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Grep","input":{"pattern":"x"}}]}}' >> "$T"
+SHORT_HB22="ok."
+jq -nc --arg m "$SHORT_HB22" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}' >> "$T"
+run_hook_msg "$B" "general-purpose" "aid22" "$T" "$LONG" >/dev/null 2>&1
+[ -z "$(arc "$B")" ] || fail "22: short handback body should not be archived (must not silently fall back to last_assistant_message)"
+pass "handback body below MIN length: not archived (no fallback to last_assistant_message)"
+
+# --- Test 23 (B1 finding #1, StructuredOutput branch): an oversized StructuredOutput
+# input (well over 64 KB) must still be archived, capped at 64 KB and prefixed with
+# the DATA banner — never dropped, and never archived unbounded.
+# --rawfile, not --arg: a ~71 KB value as a literal jq CLI argument overflows
+# the Windows jq.exe argv length ("Argument list too long") — read it from a file.
+BIGFILE23="$TMP/big23.txt"
+dd if=/dev/zero bs=1024 count=70 2>/dev/null | tr '\0' 'A' > "$BIGFILE23"  # ~71680 bytes, > the 64 KiB cap
+B="$TMP/b23"; mkdir -p "$B"; T="$TMP/t23.jsonl"
+: > "$T"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the task"}]}}' >> "$T"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Grep","input":{"pattern":"x"}}]}}' >> "$T"
+jq -nc --rawfile r "$BIGFILE23" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"StructuredOutput",input:{result:$r}}]}}' >> "$T"
+run_hook "$B" "workflow-subagent" "aid23" "$T" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] || fail "23: hook must exit 0"
+F=$(arc "$B"); [ -n "$F" ] || fail "23: oversized StructuredOutput report was not archived"
+grep -qF "DATA (StructuredOutput input" "$F" || fail "23: archived StructuredOutput report missing the DATA banner"
+ARCH_BYTES23=$(wc -c < "$F" | tr -d ' ')
+[ "$ARCH_BYTES23" -lt 70000 ] || fail "23: archived StructuredOutput report was not capped at 64 KB (got $ARCH_BYTES23 bytes; input was ~71680 bytes)"
+pass "oversized StructuredOutput report: archived capped at 64 KB with the DATA banner (got $ARCH_BYTES23 bytes)"
+
+# --- Test 24 (B1 finding #3, the alarm the first blackout lacked): the same
+# oversized StructuredOutput capture from Test 23 must raise BOTH a flagged
+# capture-length audit row and an sb_log_error truncation/misselection row —
+# the archived text is provably shorter than the candidate that was chosen.
+grep -q '"rule":"capture-length"' "$B/audit-log.jsonl" || fail "24: no capture-length audit row for the oversized StructuredOutput candidate"
+grep -q '"verdict":"flag"' "$B/audit-log.jsonl" || fail "24: audit row did not flag the truncated capture"
+grep -q "capture truncated or misselected" "$B/error-log.jsonl" || fail "24: no sb_log_error row for the truncated/misselected capture"
+grep -q "aid23" "$B/error-log.jsonl" || fail "24: truncation error row missing the agent id"
+pass "mismatch alarm: truncated StructuredOutput capture logs a flagged audit row and an sb_log_error row"
 
 echo; echo "ALL PASS"
