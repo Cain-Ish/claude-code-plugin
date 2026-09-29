@@ -228,6 +228,7 @@ Source: `docs/concepts/2026-09-27-repo-brain-concept.md` (approved 2026-09-28 af
 | Slice | Content | Gate to the next |
 |---|---|---|
 | S0 Integrity | B7 hook cancellation (ruler, fail-open probe, latency cuts); B1 capture (handback + workflow `StructuredOutput`, alarm); B2 SubagentStart reliability; B4 widen the existing degraded-search banner; B6 stop-gate evidence; value-loop counts subagents | Zero SessionStart render cancellations and < 1% guard cancellations over 10 sessions |
+| SB Buddy event layer | Hooks show Claude→brain asks, brain→Claude answers/pushes and persona-skill use; per-prompt buddy_react ask and context feed removed | 0 buddy tokens per prompt, 0 extra round trips |
 | S1 Experiment | With/without A/B, arms A/B/C/D, 12 incident-derived tasks, pre-registered verdicts; first P8 outcome suite | Push falsified or not; decides D2 option B |
 | S1b Honest verification | One graded verdict enum; evidence bound to exact content (worktree fingerprint) | FRESH evidence on every release run |
 | S2 Atlas + write paths | Doc map default-on (native memory in a separate pass), shell code map, pointer-only atlas head from `USER.md` bytes, `pin_to_project` plan/handoff through `merge-project-update.sh` | Atlas-pointed pulls before grep ≥ 20% of sessions |

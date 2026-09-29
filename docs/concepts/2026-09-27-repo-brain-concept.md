@@ -203,6 +203,16 @@ runs, while the same content as a passive index passed 100%: model choice is the
 backstop, not a primary channel. And `read=0` may be a property of the ruler (inline JIT, parent-only scan), not
 proof that injection fails; S1 answers that with outcomes instead of fetches.
 
+### The buddy: the visible two-way channel (user, 2026-09-29)
+
+The buddy is not a summarizer. It shows the user the traffic between Claude and second-brain as it happens:
+Claude's asks (second-brain MCP calls), second-brain's answers and pushes (tool responses, repo card, JIT lessons,
+per-prompt retrieval, role cards), and persona-skill use (`second-brain:*` skills, by Claude or the user). Every event
+is written by a hook or the plugin itself into `.buddy/<sid>.log.jsonl`; the statusline renders it. **Zero model
+tokens:** the per-prompt `buddy_react` ask (~95 input tokens that accumulate, ~55 output tokens and one extra model
+round trip per prompt, measured 2026-09-29) and the event feed into Claude's context are removed; `buddy_react` stays
+as an optional tool that is never requested. Event text is display-only and scrubbed; it never reaches the model.
+
 ---
 
 ## 5. Slices (revised), each with a pre-registered number
@@ -247,6 +257,17 @@ proof that injection fails; S1 answers that with outcomes instead of fetches.
   audit rotation.
 - *Success:* the B7 numbers above; a nonce card arrives in Explore, general-purpose and a plugin agent (headless probe,
   arrival not row count); `sub-*` archives hold the report text for handback and workflow agents.
+
+**SB — Buddy as a hook-driven event layer (after S0; independent of S1).** Events at 0 model tokens:
+- Claude → brain and brain → Claude: PostToolUse on `mcp__plugin_second-brain_*` (added to the existing observation
+  hook's matcher, no new script) writes one event per call: the tool and a short form of the query, and the answer
+  (hit count and top slug, "pinned", "fetched <slug>"). Skills: PostToolUse on `Skill` for `second-brain:*`; a
+  `/second-brain:*` prompt is detected in UserPromptSubmit in-process. SubagentStart: one builtin append when a role
+  card is delivered.
+- Remove the per-prompt ask and the event feed from `persona-context.sh`; `buddy_react`'s description says optional.
+- Renderer: new kinds `asked` / `answered` / `skill` with the existing priority rules (gate alerts first).
+- *Success:* 0 buddy bytes injected per prompt; 0 extra round trips; every second-brain MCP call and persona-skill use
+  produces exactly one event (fixture per tool); hook p95 unchanged.
 
 **S1 — The experiment (≈1 day + runs).** The critic's falsification test, before any new delivery.
 - 12 incident-derived tasks (R8 location, jq 1.7 `as` precedence, exec bits, CRLF, stale bundle, Plan header, …);
