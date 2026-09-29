@@ -257,7 +257,7 @@ h=$(grep -nE '/dev/(stdin|fd/0)' $ALL_SH 2>/dev/null | nocomment | grep -v 'getl
 #     the guards' _fp_feed, _pf_t for protocol-guard's pg_feed; test-guard-wiring.sh's SEC-C1 lock
 #     already exempts the pre-existing _SPINE_TXT/_SPINE_SPANS pair the same way) — or carry an
 #     inline `# <<<-bounded: <why the text is < 8 KiB>` annotation on the SAME line or the one
-#     immediately above. RR-SF1/RR-SF2 (0.55): a bare `<<<` on payload/session/transcript-derived
+#     immediately above. RR-SF1/RR-SF2 (0.54.1): a bare `<<<` on payload/session/transcript-derived
 #     text hangs for good on MSYS at 65,536..~65,650 bytes — past the hook's timeout, a fail-open,
 #     not just slow. New hook-entry scripts should be added to HOOK_ENTRY as they ship.
 HOOK_ENTRY="persona-tool-guard.sh symlink-guard.sh wiki-write-guard.sh flow-guard.sh protocol-guard.sh stop-verify-gate.sh stop-extract.sh subagent-capture.sh"
@@ -284,5 +284,14 @@ $bad"
 done
 [ -z "$h" ] && pass "every hook-entry <<< here-string is size-gated or annotated <<<-bounded (RR-SF1/RR-SF2: MSYS 64 KiB hang)" \
   || fail "un-gated <<< here-string in a hook-entry script — MSYS hangs for good at 65,536..~65,650 bytes past the hook timeout; route through the size-gated feed helper or add an inline # <<<-bounded: <why> annotation" "$h"
+
+# 18. No \001 (CTLESC) or \177 (CTLNUL) in an IFS value. bash 3.2 (macOS /bin/bash, the CI
+#     floor) uses both bytes as internal quoting markers and does not split on them: an
+#     IFS=$'\x01' read put a whole stop-extract.sh gate=hook-cancelled row into its first field
+#     (hook=a\u0001b\u0001..., script= kind= count= empty) on the macOS lane while bash 5 split it
+#     fine. Use a printable delimiter the fields cannot contain, or US ($'\037').
+h=$(grep -nE "IFS=[$]'[^']*[\](x01|001|x7[fF]|177)" $ALL_SH 2>/dev/null | nocomment || true)
+[ -z "$h" ] && pass "no \001 or \177 byte in an IFS value (bash 3.2 never splits on CTLESC/CTLNUL)" \
+  || fail "IFS holds \001 or \177 - bash 3.2 (macOS) never splits on its internal quoting bytes; use a printable delimiter or \$'\037'" "$h"
 
 echo; echo "ALL PASS"

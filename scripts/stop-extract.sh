@@ -663,8 +663,11 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
      && { [ "$HC_FROM" -lt "$TOTAL_LINES" ] || [ -s "$SE_SCR/subwm" ]; }; then
     HC_GROUP_OK=1
     if [ -s "$SE_SCR/hc_in" ]; then
-      # \u0001 (SOH) as the field delimiter, not a tab: IFS-whitespace chars COLLAPSE
-      # consecutive delimiters (the field-shift bug the value-loop row documents).
+      # '|' as the field delimiter: every field is a tok (reduced to [A-Za-z0-9:._-] below), a
+      # kind word, a count or a number/"-", so no field can contain one. Not a tab: IFS-whitespace
+      # chars COLLAPSE consecutive delimiters (the field-shift bug the value-loop row documents).
+      # Not \001 either: bash 3.2 (macOS /bin/bash) uses \001 as its internal CTLESC quoting byte
+      # and never splits on it, so the whole row landed in hook= (CI macOS lane, 0.54.1).
       jq -R -s -r '
         def tok: if type == "string" and length > 0 then gsub("[^A-Za-z0-9:._-]"; "_") else null end;
         [ split("\n")[] | select(length > 0) | (try fromjson catch null)
@@ -679,7 +682,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
               ms: (.durationMs | if type == "number" then . else null end)
             }
         ] | group_by([.hook, .script, .kind]) | .[]
-        | "\(.[0].hook)\u0001\(.[0].script)\u0001\(.[0].kind)\u0001\(length)\u0001\(([.[].ms | numbers] | max) // "-")"
+        | "\(.[0].hook)|\(.[0].script)|\(.[0].kind)|\(length)|\(([.[].ms | numbers] | max) // "-")"
       ' "$SE_SCR/hc_in" > "$SE_SCR/hc_rows" 2> "$SE_SCR/hc.err"
       _se_rc=$?
       if [ "$_se_rc" -ne 0 ]; then
@@ -687,7 +690,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         sb_log_error "stop-extract.sh" "hook-cancelled: grouping jq exited $_se_rc ($(head -c 200 "$SE_SCR/hc.err" 2>/dev/null | tr -d '\r\n')); watermarks NOT advanced, retried next Stop sid=$MANIFEST_SID" 1
       else
         _se_now_ms; HC_EL=$((_SE_MS - SE_T0))
-        while IFS=$'\x01' read -r HC_HOOK HC_SCRIPT HC_KIND HC_COUNT HC_MAX; do
+        while IFS='|' read -r HC_HOOK HC_SCRIPT HC_KIND HC_COUNT HC_MAX; do
           HC_MAX="${HC_MAX%$'\r'}"
           [ -z "$HC_HOOK" ] && continue
           sb_log_error "stop-extract.sh" "gate=hook-cancelled hook=$HC_HOOK script=$HC_SCRIPT kind=$HC_KIND count=$HC_COUNT max_ms=$HC_MAX sid=${MANIFEST_SID:0:8} elapsed_ms=$HC_EL" 0
