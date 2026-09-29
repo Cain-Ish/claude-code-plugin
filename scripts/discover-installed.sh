@@ -45,6 +45,7 @@ OUT_FILE="$BRAIN_DIR/.installed-catalog.json"
 LOCK_DIR="$BRAIN_DIR/.installed-catalog.lock"
 DI_REFRESH_ERR="$BRAIN_DIR/.installed-catalog-refresh.err"
 LOCK_STALE_MIN=10          # only used when the lock carries no pid to check (SEC-L3 below)
+LOCK_MAX_AGE_MIN=$((LOCK_STALE_MIN * 6))   # RR-CR2: hard ceiling even for a lock with a LIVE owner (pid reuse)
 SELF="${BASH_SOURCE[0]:-$0}"
 DI_LIB="${SELF%/*}/lib.sh"
 
@@ -148,18 +149,28 @@ schedule_refresh() {
       return 0
     fi
     owner=$(tr -d ' \t\r\n' < "$LOCK_DIR/pid" 2>/dev/null)
-    if [ -n "$owner" ]; then
-      kill -0 "$owner" 2>/dev/null && return 0   # a live refresh owns the lock: serve and leave
-    else
+    local reclaim_msg=""
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+      # RR-CR2: a live pid normally owns the lock outright (SEC-L3) — but the OS recycles pids,
+      # so a lock this old with a "live" owner is more likely PID REUSE (the original refresh is
+      # long gone; its pid now names an unrelated process) than a refresh genuinely still running
+      # LOCK_MAX_AGE_MIN after it started. Past that much wider bound, reclaim it too — otherwise
+      # a reused pid wedges the catalog refresh forever, with no age fallback ever firing.
+      [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$LOCK_MAX_AGE_MIN" 2>/dev/null)" ] || return 0
+      reclaim_msg="owner pid $owner is alive but the lock is older than ${LOCK_MAX_AGE_MIN} min — reclaiming as likely pid reuse"
+    elif [ -z "$owner" ]; then
       [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$LOCK_STALE_MIN" 2>/dev/null)" ] || return 0
+      reclaim_msg="owner pid unknown, not alive"
+    else
+      reclaim_msg="owner pid $owner not alive"
     fi
     # rmdir requires an empty directory — a dead owner's own pid file is still inside.
     rm -f "$LOCK_DIR/pid" 2>/dev/null
     if ! rmdir "$LOCK_DIR" 2>/dev/null; then
-      di_log "abandoned refresh lock $LOCK_DIR (owner pid ${owner:-unknown}) could not be removed — no catalog refresh until it is deleted by hand" 1
+      di_log "abandoned refresh lock $LOCK_DIR ($reclaim_msg) could not be removed — no catalog refresh until it is deleted by hand" 1
       return 0
     fi
-    di_log "reclaimed an abandoned refresh lock $LOCK_DIR (owner pid ${owner:-unknown} not alive)" 1
+    di_log "reclaimed an abandoned refresh lock $LOCK_DIR ($reclaim_msg)" 1
     mkdir "$LOCK_DIR" 2>/dev/null || return 0   # another hook reclaimed it first: its refresh runs
     reclaimed=1
   fi
@@ -167,7 +178,13 @@ schedule_refresh() {
   ( trap '' HUP; export SB_DI_RECLAIMED="$reclaimed"; exec bash "$SELF" --refresh "$PLUGINS_ROOT" ) \
     </dev/null >/dev/null 2>"$DI_REFRESH_ERR" &
   local child_pid=$!
-  printf '%s' "$child_pid" > "$LOCK_DIR/pid" 2>/dev/null
+  # RR-SF3: an unchecked write here used to fail silently — a full/read-only BRAIN_DIR, or the
+  # lock dir vanishing under a concurrent release, leaves $LOCK_DIR/pid empty or missing. The next
+  # schedule_refresh then reads no owner at all and falls back to the SHORT LOCK_STALE_MIN age
+  # probe on a lock that is really still live, letting it steal (or wait to steal) an active
+  # refresh's lock. Loud, not fatal: the detached refresh itself already started.
+  printf '%s' "$child_pid" > "$LOCK_DIR/pid" 2>/dev/null \
+    || di_log "could not write the refresh lock's pid file $LOCK_DIR/pid (child $child_pid) — the next refresh may misjudge this one as ownerless" 1
   disown "$child_pid"
 }
 

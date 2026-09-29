@@ -346,17 +346,25 @@ grep -q 'probe-stderr-14' "$B14/.installed-catalog-refresh.err" 2>/dev/null \
   || fail "14: detached child's stderr was not captured to a file under BRAIN_DIR"
 pass "detached refresh child's stderr is captured to a file under BRAIN_DIR"
 
-# --- Test 15: SEC-L3 — a LIVE lock owner is NEVER reclaimed, no matter how old the lock ----
+# --- Test 15: SEC-L3 — a LIVE lock owner within LOCK_MAX_AGE_MIN is never reclaimed --------
 # Controller addendum: age alone used to decide reclaim, so a refresh genuinely still running
 # past LOCK_STALE_MIN had its lock stolen out from under it — and its own later rmdir (in
 # di_cleanup, once it finally finished) then deleted the NEW owner's lock instead of its own.
+# RR-CR2 (below, test 15b) adds a much wider hard ceiling on top of this: this case stays well
+# under it (30 min < LOCK_MAX_AGE_MIN=60 min) to prove the ceiling does not fire early.
+# Local time, not -u: touch -t reads its stamp as LOCAL time (a UTC stamp is hours off anywhere
+# east or west of UTC — 2.5 h old at +02:00, past the ceiling; in the future at -05:00).
+AGE30=$(date -v-30M +%Y%m%d%H%M 2>/dev/null || date -d '30 minutes ago' +%Y%m%d%H%M)
 P15="$TMP/plugins15"; B15="$TMP/b15"; mkdir -p "$P15" "$B15"
 mkplugin "$P15" "alpha" "1.0.0" 1 1
 printf '%s\n' "$SENTINEL" > "$B15/.installed-catalog.json"
 touch -t 202001010000 "$B15/.installed-catalog.json"
-mkdir "$B15/$LOCK_NAME"; touch -t 202001010000 "$B15/$LOCK_NAME"   # a very OLD lock dir
+mkdir "$B15/$LOCK_NAME"
 sleep 30 & LIVE_PID15=$!
 printf '%s' "$LIVE_PID15" > "$B15/$LOCK_NAME/pid"
+# Age the lock AFTER writing its pid file: creating a file inside a directory resets the
+# directory's mtime, which is what the age probe reads.
+touch -t "$AGE30" "$B15/$LOCK_NAME"   # 30 min old: past LOCK_STALE_MIN, under the ceiling
 OUT15=$(env BRAIN_DIR="$B15" bash "$SCRIPT" "$P15" 2>/dev/null); RC15=$?
 sleep 1   # give a WRONGLY-scheduled refresh a moment to have started, if this regressed
 kill "$LIVE_PID15" 2>/dev/null; wait "$LIVE_PID15" 2>/dev/null
@@ -366,7 +374,30 @@ kill "$LIVE_PID15" 2>/dev/null; wait "$LIVE_PID15" 2>/dev/null
 [ "$(refresh_rows "$B15")" = "0" ] || fail "15: a refresh ran despite a live lock owner"
 [ "$(cat "$B15/.installed-catalog.json")" = "$SENTINEL" ] || fail "15: catalog rebuilt despite a live lock owner"
 rm -f "$B15/$LOCK_NAME/pid"; rmdir "$B15/$LOCK_NAME" 2>/dev/null || rm -rf "$B15/$LOCK_NAME"
-pass "a live lock owner is never reclaimed, regardless of lock age"
+pass "a live lock owner well under LOCK_MAX_AGE_MIN is never reclaimed"
+
+# --- Test 15b: RR-CR2 — a LIVE owner PAST LOCK_MAX_AGE_MIN IS reclaimed (likely pid reuse) --
+# Without a hard ceiling, a pid the OS recycled to an unrelated live process wedges the catalog
+# refresh forever: kill -0 keeps succeeding, so the dead-owner branch (test 16) never fires and
+# no fallback exists once a pid is on record. Past LOCK_MAX_AGE_MIN the lock is reclaimed anyway,
+# logged distinctly ("likely pid reuse") from the dead-owner case so an operator can tell them apart.
+P15B="$TMP/plugins15b"; B15B="$TMP/b15b"; mkdir -p "$P15B" "$B15B"
+mkplugin "$P15B" "alpha" "1.0.0" 1 1
+printf '%s\n' "$SENTINEL" > "$B15B/.installed-catalog.json"
+touch -t 202001010000 "$B15B/.installed-catalog.json"
+mkdir "$B15B/$LOCK_NAME"
+sleep 30 & LIVE_PID15B=$!
+printf '%s' "$LIVE_PID15B" > "$B15B/$LOCK_NAME/pid"
+touch -t 202001010000 "$B15B/$LOCK_NAME"   # after the pid write (see 15): years old, past any ceiling
+OUT15B=$(env BRAIN_DIR="$B15B" bash "$SCRIPT" "$P15B" 2>/dev/null) || fail "15b: hook exited non-zero"
+[ "$OUT15B" = "$SENTINEL" ] || fail "15b: stale cache not served"
+wait_unlocked "$B15B" || fail "15b: reclaimed lock never released"
+kill "$LIVE_PID15B" 2>/dev/null; wait "$LIVE_PID15B" 2>/dev/null
+[ "$(jq -r '.plugins | length' "$B15B/.installed-catalog.json")" = "1" ] \
+  || fail "15b: a refresh never ran despite the lock exceeding LOCK_MAX_AGE_MIN with a live owner"
+grep -q 'is alive but the lock is older than' "$B15B/error-log.jsonl" 2>/dev/null \
+  || fail "15b: reclaiming a live-but-expired lock was silent or misworded (no distinct log row)"
+pass "a live lock owner past LOCK_MAX_AGE_MIN is reclaimed as likely pid reuse, and logged"
 
 # --- Test 16: SEC-L3 — a DEAD lock owner is reclaimed IMMEDIATELY, age irrelevant ----------
 P16="$TMP/plugins16"; B16="$TMP/b16"; mkdir -p "$P16" "$B16"
@@ -433,6 +464,41 @@ env EXIT_CODE=0 OWNER_MODE=999999999 BRAIN_DIR="$B17B" LOCK_DIR="$LOCK17B" DI_RE
 [ "$(cat "$LOCK17B/pid" 2>/dev/null)" = "999999999" ] \
   || fail "17b: the other owner's pid file was disturbed"
 pass "17b: di_cleanup never touches a lock owned by a different pid"
+
+# --- Test 18: RR-SF3 — a failed pid-file write is logged, not silent ----------------------
+# Deterministic (extract_fn technique, as test 17): drives schedule_refresh directly with a
+# shadowed `printf` builtin that fails ONLY the pid-write's exact 2-arg shape
+# (`printf '%s' "$child_pid"`) — every other printf call (di_log's own fallback row, etc.)
+# still runs for real, so the failure is isolated to the one line under test.
+RUNNER18="$TMP/runner18.sh"
+{
+  echo 'set -u'
+  extract_fn di_log "$SCRIPT"
+  extract_fn schedule_refresh "$SCRIPT"
+  cat <<'EOF'
+MODE="serve"
+SELF="$SCRIPT_PATH"
+LOCK_STALE_MIN=10
+LOCK_MAX_AGE_MIN=60
+OUT_FILE="$BRAIN_DIR/.installed-catalog.json"
+printf() {
+  if [ "$1" = '%s' ] && [ "$#" = 2 ]; then command printf '%s' "$2"; return 1; fi
+  command printf "$@"
+}
+schedule_refresh
+EOF
+} > "$RUNNER18"
+[ -s "$RUNNER18" ] || fail "18: could not build the schedule_refresh unit runner"
+B18="$TMP/b18"; mkdir -p "$B18"
+LOCK18="$B18/.installed-catalog.lock"; ERR18="$B18/.installed-catalog-refresh.err"
+mkdir -p "$TMP/plugins18"
+env BRAIN_DIR="$B18" LOCK_DIR="$LOCK18" DI_REFRESH_ERR="$ERR18" PLUGINS_ROOT="$TMP/plugins18" \
+  SCRIPT_PATH="$SCRIPT" DI_LIB="$TMP/no-such-lib.sh" bash "$RUNNER18"
+sleep 1   # let the detached child (real, unshimmed printf) start and finish quickly
+grep -q 'could not write the refresh lock.*pid file' "$B18/error-log.jsonl" 2>/dev/null \
+  || fail "18: a failed pid-file write was not logged (error-log: $(cat "$B18/error-log.jsonl" 2>/dev/null))"
+wait_unlocked "$B18" || true
+pass "18: RR-SF3 — a failed pid-file write logs loudly instead of failing silently"
 
 # Test 5 left a detached freshness check running in $B1; let it finish before the EXIT trap
 # removes $TMP (Windows cannot delete a directory a live process still holds open).
