@@ -16,15 +16,19 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   readJSON, scoreRun, computeDecisionRules, pairedBootstrapDeltaTasks,
   buildAuditSample, scrubEnv, applyArmEnv, assertEnvScrubbed,
-  computeTouchMetrics, extractToolUseBlocks, buildLeakPatterns, scanTextForLeaks,
+  computeTouchMetrics, extractToolUseBlocks, buildLeakPatterns, buildBrainLeakPatterns, scanTextForLeaks,
+  buildArmBHooks, redactLines, REDACTION_PATTERNS,
 } from './lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TASKS_PATH = join(HERE, 'tasks.json');
+const CONFIG_PATH = join(HERE, 'config.json');
+const REPO_ROOT = resolve(HERE, '..', '..', '..');
 
 function loadTasksDoc() {
   return readJSON(TASKS_PATH);
@@ -245,6 +249,103 @@ function runSelftest() {
     const grepPatternBlocks = extractToolUseBlocks([{ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Grep', input: { path: 'repo', pattern: 'validate-plugin.sh' } }] } }]);
     const grepMetrics = computeTouchMetrics(grepPatternBlocks, ['(^|/)validate-plugin\\.sh$'], runRoot);
     assertEqual(grepMetrics.reached_correct_file, false, 'touch matching: Grep pattern must not count as a touch', failures);
+  }
+
+  // 8. Arm B hook removal against the REAL hooks.json at origin/main (`git
+  //    show origin/main:hooks/hooks.json`, read-only). Proves
+  //    config.json's hook_removal_b actually matches the live file's
+  //    structure — not just a synthetic fixture — and that everything
+  //    outside the removal list survives byte-identical ("guards and MCP
+  //    pull stay", SPEC.md).
+  {
+    cases++;
+    const config = readJSON(CONFIG_PATH);
+    const gitShow = spawnSync('git', ['show', 'origin/main:hooks/hooks.json'], { cwd: REPO_ROOT, encoding: 'utf8' });
+    if (gitShow.status !== 0) {
+      failures.push(`arm-B hook removal: \`git show origin/main:hooks/hooks.json\` failed: ${gitShow.stderr}`);
+    } else {
+      const realHooks = JSON.parse(gitShow.stdout);
+      const bHooks = buildArmBHooks(realHooks, config.hook_removal_b);
+
+      // Removed entirely.
+      for (const event of ['UserPromptSubmit', 'SubagentStart', 'PostCompact']) {
+        if (event in bHooks.hooks) failures.push(`arm-B hook removal: ${event} should be removed entirely, still present`);
+      }
+      // SessionStart "compact" group removed; "startup|resume|clear|fork" group survives minus the two named commands.
+      const sessionStart = bHooks.hooks.SessionStart || [];
+      if (sessionStart.some((g) => g.matcher === 'compact')) failures.push('arm-B hook removal: SessionStart compact group should be removed entirely');
+      const startupGroup = sessionStart.find((g) => g.matcher === 'startup|resume|clear|fork');
+      if (!startupGroup) failures.push('arm-B hook removal: SessionStart startup group should survive');
+      else {
+        const cmds = startupGroup.hooks.map((h) => h.command);
+        if (cmds.some((c) => c.includes('session-load.sh'))) failures.push('arm-B hook removal: session-load.sh should be stripped from the startup group');
+        if (cmds.some((c) => c.includes('protocol-guard.sh" card'))) failures.push('arm-B hook removal: protocol-guard.sh card should be stripped from the startup group');
+        for (const survivor of ['ensure-dirs.sh', 'discover-installed.sh', 'discover-doc-sources.sh', 'dream-autostage.sh']) {
+          if (!cmds.some((c) => c.includes(survivor))) failures.push(`arm-B hook removal: ${survivor} should survive in the startup group ("guards and MCP pull stay")`);
+        }
+      }
+      // Everything else untouched, byte-identical.
+      const originalStart = realHooks.hooks.SessionStart.find((g) => g.matcher === 'startup|resume|clear|fork');
+      const untouchedEvents = Object.keys(realHooks.hooks).filter((e) => !['SessionStart', 'UserPromptSubmit', 'SubagentStart', 'PostCompact'].includes(e));
+      for (const event of untouchedEvents) {
+        if (JSON.stringify(bHooks.hooks[event]) !== JSON.stringify(realHooks.hooks[event])) {
+          failures.push(`arm-B hook removal: ${event} should be byte-identical to A, was rewritten`);
+        }
+      }
+      if (originalStart && startupGroup) {
+        const survivingOriginal = originalStart.hooks.filter((h) => !h.command.includes('session-load.sh') && !h.command.includes('protocol-guard.sh" card'));
+        if (JSON.stringify(startupGroup.hooks) !== JSON.stringify(survivingOriginal)) {
+          failures.push('arm-B hook removal: surviving startup-group hooks should be byte-identical to A minus the two removed commands');
+        }
+      }
+    }
+  }
+
+  // 9. PROJECT.md redaction covers BOTH the line-67 experiment-meta sentence
+  //    AND the line ~96 `[[context-injection-falsification-test]]` wiki-link
+  //    (tests/evals/README.md Gaps — SPEC.md's own redaction list only
+  //    named line 67). Also proves the extended pattern set fails a future
+  //    mention in a <run>/brain-scoped pre-run scan, without false-flagging
+  //    unrelated wiki content on the base (non-brain) pattern set.
+  {
+    cases++;
+    const tasksDoc = loadTasksDoc();
+    const fixture = [
+      '## Decisions',
+      "- [2026-09-27] Proposed a pre-registered A/B/C falsification test (12 known-pitfall tasks x3 runs) with fixed kill criteria to decide whether context-injection layers should be cut.",
+      '- [2026-09-27] An unrelated decision line that must survive untouched.',
+      '## Cross-references',
+      '- [[per-repo-key-fragility]]',
+      '- [[context-injection-falsification-test]]',
+      '- [[repo-overview-docs-dont-help-agents-pointers-do]]',
+    ].join('\n');
+
+    const { text: redacted, hits } = redactLines(fixture, REDACTION_PATTERNS);
+    const hitNames = new Set(hits.map((h) => h.pattern));
+    if (!hitNames.has('experiment-meta-line67')) failures.push('PROJECT.md redaction: line-67 pattern did not fire');
+    if (!hitNames.has('experiment-meta-line96-wikilink')) failures.push('PROJECT.md redaction: line-96 wikilink pattern did not fire');
+    if (redacted.includes('Proposed a pre-registered A/B/C falsification test')) failures.push('PROJECT.md redaction: line-67 text survived redaction');
+    if (redacted.includes('[[context-injection-falsification-test]]')) failures.push('PROJECT.md redaction: line-96 wikilink survived redaction');
+    if (!redacted.includes('An unrelated decision line that must survive untouched.')) failures.push('PROJECT.md redaction: an unrelated line was altered');
+    if (!redacted.includes('[[per-repo-key-fragility]]')) failures.push('PROJECT.md redaction: an unrelated cross-reference was altered');
+
+    // Pre-redaction: the brain-scoped pattern set must catch a future
+    // mention (this is the "pre-run scan" the task asked to extend).
+    const brainHitsBefore = scanTextForLeaks(fixture, buildBrainLeakPatterns(tasksDoc));
+    if (!brainHitsBefore.some((h) => h.pattern === 'experiment-meta-line67')) failures.push('PROJECT.md redaction: brain-scoped pre-run scan missed the un-redacted line-67 text');
+    if (!brainHitsBefore.some((h) => h.pattern === 'experiment-meta-line96-wikilink')) failures.push('PROJECT.md redaction: brain-scoped pre-run scan missed the un-redacted line-96 wikilink');
+
+    // Post-redaction: the same scan must be clean (proves redaction actually removes what the scan looks for).
+    const brainHitsAfter = scanTextForLeaks(redacted, buildBrainLeakPatterns(tasksDoc));
+    if (brainHitsAfter.length > 0) failures.push(`PROJECT.md redaction: brain-scoped scan still flags the redacted text: ${JSON.stringify(brainHitsAfter)}`);
+
+    // The base (non-brain) pattern set — used for <run>/knowledge/wiki — must
+    // NOT flag this content even before redaction: the frozen wiki snapshot
+    // legitimately contains "context-injection-falsification-test" as an
+    // auto-created entity stub name among 377 unrelated entities, and that
+    // must never abort a real run.
+    const baseHits = scanTextForLeaks(fixture, buildLeakPatterns(tasksDoc));
+    if (baseHits.length > 0) failures.push(`PROJECT.md redaction: base (wiki-safe) pattern set false-positived on experiment-meta text: ${JSON.stringify(baseHits)}`);
   }
 
   console.log(failures.length === 0

@@ -35,8 +35,8 @@ concurrent `claude` invocations.
 |---|---|
 | `s1/tasks.json` | Byte-identical copy of the pre-registered 12-task set (t01-t09 + c01-c03): prompts, gold/wrong answers, scoring regexes, the canary string. Generated (and self-tested) by the design session's `gen-tasks.mjs`; this copy is never hand-edited. |
 | `s1/config.json` | Pins: plugin commit (`TBD-after-S0-merge` until S0 merges), task-repo commit, frozen-snapshot manifest hashes, model (`TBD-after-smoke` until the smoke run reports `init.model`), effort, seed, concurrency, retry policy, arm definitions, arm B's hook-removal list, the settings.json allowlist. |
-| `s1/lib.mjs` | Shared, pure-where-possible library: env scrub, leak guards, path normalization + touch matching, scoring (ported from the design session's `gen-tasks.mjs`), decision-rule math, a seeded PRNG/shuffle, the run-plan builder, `claude` argv/`settings.json` builders, a 3-total/2-A-B concurrency scheduler, and the git helpers for the one-time repo template + per-run worktrees. |
-| `s1/prepare.mjs` | One-time `EVAL_ROOT` setup: imports the frozen snapshots (never re-snapshots the live brain), verifies their manifest hashes, leak-scans them before import, redacts `PROJECT.md`'s experiment-meta line, and writes the seeded 144-cell run-plan. `--dry-run` does every read-only check without copying anything or touching the network. |
+| `s1/lib.mjs` | Shared, pure-where-possible library: env scrub, leak guards (base + a brain-only extended set), redaction (`redactLines`/`REDACTION_PATTERNS`), path normalization + touch matching, scoring (ported from the design session's `gen-tasks.mjs`), decision-rule math, a seeded PRNG/shuffle, the run-plan builder, `claude` argv/`settings.json` builders, arm B's `hooks.json` rewriter (`buildArmBHooks`), the `git archive`-based arm A/B plugin-dir builder, a 3-total/2-A-B concurrency scheduler, and the git helpers for the one-time repo template + per-run worktrees. |
+| `s1/prepare.mjs` | One-time `EVAL_ROOT` setup: imports the frozen brain/knowledge-graph/wiki snapshots (never re-snapshots the live brain), verifies their manifest hashes + the wiki's `.md` count, leak-scans them before import, redacts `PROJECT.md`'s two experiment-meta lines, builds `plugins/{a,b}` from `--plugin-commit`/`--repo-source` when given, and writes the seeded 144-cell run-plan. `--dry-run` does every read-only check without copying anything or touching the network. |
 | `s1/run.mjs` | Orchestrator: `--smoke`, `--full`, `--resume`. Builds the per-run sandbox + `settings.json`, scrubs env, spawns `claude` (argv array, no shell), captures the stream-json output, computes touch metrics, runs the leak guards, appends to `runs.jsonl`. Refuses to start (hard guard, not just a convention) while `config.json`'s `plugin_commit` pin is still the placeholder. |
 | `s1/score.mjs` | Scores a `runs.jsonl` against `tasks.json` and applies the pre-registered decision rules. `node score.mjs selftest` is the required self-test (see below). |
 
@@ -115,10 +115,10 @@ to need an explicit reading, written down here rather than picked silently:
 
 ```
 $ node tests/evals/s1/score.mjs selftest
-selftest OK: 45 cases passed
+selftest OK: 47 cases passed
 ```
 
-Exit code 0. The 45 cases: 12 gold answers (one per task) each score
+Exit code 0. The 47 cases: 12 gold answers (one per task) each score
 `correct`; 24 wrong answers (two per task) each fail; 1 case for
 `is_error`/missing-`final_text` forcing `correct=false` with
 `no_answer_line=true`; 5 decision-rule arithmetic cases on synthetic
@@ -129,7 +129,20 @@ tasks), harm, and missing-cells-count-as-failures; 1 env-scrub case proving
 (canary detected in a fixture, no false positive on clean text); 1
 touch-matching case (calls-before-first-correct, censoring at `total+1` when
 nothing touches, and proving a `Grep`/`Glob` `pattern` never counts as a
-touch even when it lexically matches a `correct_files` regex).
+touch even when it lexically matches a `correct_files` regex); 1 arm-B
+hook-removal case against the REAL `hooks.json` at `origin/main` (`git show
+origin/main:hooks/hooks.json`, read-only) — proves `config.json`'s
+`hook_removal_b` matches the live file: `SessionStart`'s `compact` group and
+the `UserPromptSubmit`/`SubagentStart`/`PostCompact` events are gone, the
+`startup|resume|clear|fork` group survives minus exactly `session-load.sh`
+and `protocol-guard.sh" card` (its other four hooks and every other event —
+`PreToolUse` guards included — stay byte-identical); 1 PROJECT.md-redaction
+case proving both the line-67 sentence and the line ~96
+`[[context-injection-falsification-test]]` wiki-link are stripped, that a
+brain-scoped leak scan (`buildBrainLeakPatterns`) both catches the
+un-redacted text and comes back clean after redaction, and that the base
+(wiki-safe) pattern set never flags the same text — see "Wiki entity-stub
+finding" below for why that split exists.
 
 ## Design provenance
 
@@ -140,7 +153,72 @@ of the design session's pre-registered artifact (`gen-tasks.mjs` ->
 dispatch directly against `SPEC.md` (the build spec handed to this dispatch,
 not itself part of this repo).
 
-## Gaps (build order steps 1-5 scope; not run in this dispatch)
+## Wiki entity-stub finding (found while wiring the wiki snapshot)
+
+The frozen wiki snapshot (`frozen-wiki-20260927/`, archived from
+`wiki_history_commit` = `f681200838d4dd7e1cca09389efaff871e7b35ef`, dated
+2026-09-27T19:27:34+02:00, 1104 `.md` files matching `expected_md_count`)
+contains `entities/context-injection-falsification-test.md` — an
+auto-created, empty `"TODO: expand"` stub — plus one mention of the same
+slug in `index.md`'s alphabetical, 377-entry entity list (indistinguishable
+there among hundreds of unrelated names like `afk-journey-*` and
+`witcherrpg-*`). This was found by actually leak-scanning the real archived
+snapshot, not assumed. It's deliberately left un-redacted: unlike the two
+`PROJECT.md` lines (real meta-commentary about the experiment's design), this
+is a content-free stub name with no leak of task content or design details.
+Consequently the redaction-check leak patterns (`REDACTION_PATTERNS` in
+`lib.mjs`) are layered onto `<run>/brain` scans only, via
+`buildBrainLeakPatterns()` — never onto `<run>/knowledge` (which now
+contains the wiki). Applying them there would abort every real run on this
+one false positive. `config.json`'s `snapshots.redactions_note` documents the
+same split. Flagging this for a human call before step 6 rather than
+silently expanding the redaction scope beyond what was asked, or silently
+shipping an entity name that happens to match the experiment's own slug.
+
+## Gaps (build order steps 1-5 scope; steps 6/7 not run in this dispatch)
+
+Done in this dispatch (previously listed here as gaps):
+
+- **`EVAL_ROOT/plugins/{a,b}`** are now built by `prepare.mjs` via
+  `--plugin-commit <sha> --repo-source <dir>`: arm A is a `git archive
+  <sha> plugin/` extraction (argv arrays, no shell; the tar output goes to a
+  temp *file*, not a `spawnSync` `input` buffer, and every path handed to
+  `tar`'s argv is forward-slashed — both worked around real Windows/MSYS
+  failures found while testing this for real, see `lib.mjs`
+  `gitArchiveExtract`'s comments), arm B is a full copy of A with
+  `hooks/hooks.json` rewritten per `config.json`'s `hook_removal_b`
+  (`buildArmBHooks`, moved into `lib.mjs` so both `prepare.mjs` and
+  `score.mjs selftest` can use it). `assertDirsDifferOnlyIn` enforces "a and
+  b differ ONLY in hooks/hooks.json" as a hard runtime check, not just a
+  convention. Verified for real in this dispatch against this repo's actual
+  `plugin/` tree (commit `d6067fd`, HEAD at dispatch time) into a throwaway
+  `EVAL_ROOT`, cross-checked with an independent `diff -rq`, then deleted.
+  `hook_removal_b` itself is also unit-tested against the REAL
+  `hooks/hooks.json` at `origin/main` (`score.mjs selftest` case 8) — not
+  just this manual run.
+- **The wiki snapshot** is archived (`git --git-dir
+  ~/.second-brain/wiki-history.git archive <full hash>`, read-only) into
+  `frozen-wiki-20260927/` alongside the brain/knowledge-graph snapshots
+  (same `SHA256SUMS`/`FROZEN_AT_UTC.txt` convention). The full commit
+  (`f681200838d4dd7e1cca09389efaff871e7b35ef`) is resolved and recorded in
+  `config.json`'s `pins.wiki_history_commit` (was the short hash `f681200`
+  with an "unresolved" note). `prepare.mjs` imports it alongside brain/kg
+  (manifest hash + `.md`-count checks), and `run.mjs`'s `seedSandbox()` now
+  copies it into `<run>/knowledge/wiki` for every arm.
+- **The one-time repo-template clone** (`ensureRepoTemplate` in `lib.mjs`)
+  was run for real in this dispatch: `git clone --no-local` from this repo
+  at `497fe050efb35437a11865f80ce1518484f0caf9` into a throwaway dir, ref
+  pruning, `reflog expire`, `gc --prune=now`, origin set to the GitHub URL —
+  confirmed `rev-list --all --count` (998) equals `rev-list --count
+  497fe05` (998), confirmed zero refs remain, confirmed HEAD is detached,
+  then the throwaway dir was deleted.
+- **`PROJECT.md` redaction** now also strips the line ~96 wiki-link mention
+  (`[[context-injection-falsification-test]]`), content-matched like line
+  67, not a hardcoded line number. `prepare.mjs` fails loud if either
+  redaction pattern never fires anywhere across every imported `PROJECT.md`
+  (a stale-pin signal, same philosophy as the original line-67-only check).
+
+Still open, deferred to whoever runs step 6/7:
 
 - **Steps 6 (smoke) and 7 (full) were not run**, by design: `config.json`
   pins `plugin_commit` to the placeholder `"TBD-after-S0-merge"`, and
@@ -149,46 +227,14 @@ not itself part of this repo).
   for `--full`/`--resume`, while `model` is still `"TBD-after-smoke"`).
   Verified in this dispatch: the guard fires with exactly that message when
   invoked against a real (throwaway) `EVAL_ROOT`.
-- **Building `EVAL_ROOT/plugins/{a,b}` (the copy-of-`plugin/`-minus-hooks
-  step for arm B) is not implemented.** `prepare.mjs` logs a `SKIP` for this
-  step with the reason (`plugin_commit` unpinned). `config.json`'s
-  `hook_removal_b` and `run.mjs`'s `buildArmBHooks()` encode *what* to strip
-  from `hooks/hooks.json` and are unit-testable once a real `hooks.json`
-  is available at the pinned commit, but the actual "copy plugin at commit
-  P, apply the removal, assert A and B differ only in `hooks/hooks.json`"
-  step was out of this dispatch's scope (steps 1-5 only) and is deferred to
-  whoever runs step 6.
-- **The wiki snapshot (`git --git-dir ~/.second-brain/wiki-history.git
-  archive <full hash>`) is not fetched or copied.** `SPEC.md`'s own text
-  truncates the commit hash (`f681200838d4…`); `config.json` records only
-  the short hash `f681200` from `tasks.json`'s `frozen.wiki_commit` field and
-  flags the full hash as unresolved. `run.mjs`'s `seedSandbox()` copies
-  `brain` and `knowledge-graph` but has no wiki step — wiki content will be
-  missing from every run's sandbox until this is filled in.
 - **The C2 optional arm (native `autoMemoryDirectory`) is not implemented.**
   `config.json` documents it as `optional`/`not in the decision`;
   `run.mjs`/`lib.mjs` have no code path for it.
-- **The one-time repo-template clone (`git clone --no-local` + ref
-  stripping + `reflog expire` + `gc --prune=now`) is implemented in
-  `lib.mjs` (`ensureRepoTemplate`) and unit-testably pure argv-array git
-  calls, but was never actually invoked against the network in this
-  dispatch** — it needs a `--repo-source` (the local checkout to clone
-  `--no-local` from) that only makes sense to supply once step 6 is ready to
-  run for real.
-- **A residual, non-canary mention of the experiment adjacent to the
-  redacted `PROJECT.md` line was found but deliberately left alone.** The
-  frozen brain snapshot's `PROJECT.md:96` is a wiki-link title,
-  `[[context-injection-falsification-test]]`, one line after the redacted
-  meta-commentary at line 67. `SPEC.md`'s redaction list only names line 67;
-  this harness's mandatory leak-guard patterns (canary, `tasks.json`,
-  `s1-t0`/`s1-c0` prefixes, task-prompt prefixes) do not match this text
-  either, so it is neither redacted nor caught by the abort-on-hit scan.
-  Flagging it here for a human call before step 6, rather than silently
-  redacting beyond what was pre-registered or silently shipping it.
 - **`run.mjs`'s claude-invocation path (`spawnClaude`, the full per-run
   sandbox/settings/argv wiring) has not been exercised against a real
   `claude` process** — only its pure/offline pieces were: `lib.mjs`'s
-  functions via `score.mjs selftest` (45/45 passing), and `prepare.mjs`'s
-  leak-scan + hash-verify + real snapshot import + `PROJECT.md` redaction
-  against the actual frozen snapshots (run manually during this dispatch,
-  then cleaned up — no artifact from that check was left on disk).
+  functions via `score.mjs selftest` (47/47 passing), and `prepare.mjs`'s
+  leak-scan + hash-verify + real snapshot import + `PROJECT.md` redaction +
+  plugin-dir build against the actual frozen snapshots and this repo's real
+  `plugin/` tree (run manually during this dispatch, then cleaned up — no
+  artifact from those checks was left on disk).

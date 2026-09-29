@@ -11,8 +11,8 @@
 // settings.json builders · a tiny concurrency scheduler · fs helpers.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
-import { join, sep, resolve } from 'node:path';
+import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, writeFileSync, appendFileSync, cpSync, openSync, closeSync, unlinkSync } from 'node:fs';
+import { join, sep, resolve, relative } from 'node:path';
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
@@ -159,6 +159,34 @@ export function assertEnvScrubbed(env) {
 }
 
 // ---------------------------------------------------------------------------
+// Redaction — frozen brain content that must never reach a run's sandbox
+// verbatim (SPEC.md "redactions": PROJECT.md line 67, plus the line ~96
+// wiki-link mention found adjacent to it — tests/evals/README.md documents
+// why line 96 needed its own pattern rather than folding into line 67's).
+// ---------------------------------------------------------------------------
+
+export const REDACTION_PATTERNS = [
+  { name: 'experiment-meta-line67', re: /Proposed a pre-registered A\/B\/C falsification test/i },
+  { name: 'experiment-meta-line96-wikilink', re: /\[\[context-injection-falsification-test\]\]/i },
+];
+
+// Replaces every line matching any pattern in `patterns` with a single
+// redaction marker line. Pure (text in, text out) so it's unit-testable
+// without touching a real PROJECT.md file — prepare.mjs's file-level
+// redactProjectMdFiles() is a thin wrapper around this.
+export function redactLines(text, patterns) {
+  const lines = text.split('\n');
+  const hits = [];
+  const out = lines.map((line, i) => {
+    for (const p of patterns) {
+      if (p.re.test(line)) { hits.push({ line: i + 1, pattern: p.name }); return '- [redacted: experiment meta]'; }
+    }
+    return line;
+  });
+  return { text: out.join('\n'), hits };
+}
+
+// ---------------------------------------------------------------------------
 // Leak guards — mandatory (SPEC.md "Leak guards")
 // ---------------------------------------------------------------------------
 
@@ -183,6 +211,19 @@ export function buildLeakPatterns(tasksDoc) {
     patterns.push({ name: `prompt-prefix:${t.id}`, re: new RegExp(escapeRegex(prefix), 'i') });
   }
   return patterns;
+}
+
+// Extra patterns layered ONLY on top of a run's <run>/brain scan (never
+// <run>/knowledge), catching a future regression where a redacted mention
+// (REDACTION_PATTERNS) reappears un-redacted in the sandbox brain. Deliberately
+// NOT folded into buildLeakPatterns()/knowledge-dir scans: the frozen wiki
+// snapshot legitimately contains the literal slug "context-injection-
+// falsification-test" as one of 377 auto-created entity stub names (an empty
+// "TODO: expand" page plus one line in index.md's entity list) — applying
+// this pattern there would abort every real run on a false positive. See
+// tests/evals/README.md for the verification that found this.
+export function buildBrainLeakPatterns(tasksDoc) {
+  return [...buildLeakPatterns(tasksDoc), ...REDACTION_PATTERNS];
 }
 
 export function scanTextForLeaks(text, patterns) {
@@ -678,6 +719,128 @@ export function runGit(argv, { cwd } = {}) {
     throw new Error(`git ${argv.join(' ')} exited ${res.status}: ${res.stderr || res.stdout}`);
   }
   return res.stdout;
+}
+
+// ---------------------------------------------------------------------------
+// Arm A/B plugin dir builders (SPEC.md "Arms" A/B; config.json hook_removal_b)
+// ---------------------------------------------------------------------------
+
+// Applies config.json's hook_removal_b spec to a parsed hooks.json object
+// (never mutates the input). `remove_entire_event` deletes the whole
+// hooks.hooks[event] key; `remove_entire_group` drops every group under that
+// event whose matcher equals rule.matcher; otherwise the rule strips only the
+// one hook command containing `hook_command_contains` from the matching
+// group, leaving the rest of that group (and every other group/event)
+// untouched — "guards and MCP pull stay" (SPEC.md).
+export function buildArmBHooks(hooksJson, removalSpec) {
+  const hooks = JSON.parse(JSON.stringify(hooksJson));
+  for (const rule of removalSpec.remove) {
+    const groups = hooks.hooks[rule.event];
+    if (!groups) continue;
+    if (rule.remove_entire_event) { delete hooks.hooks[rule.event]; continue; }
+    hooks.hooks[rule.event] = groups.filter((g) => {
+      if (rule.remove_entire_group) return g.matcher !== rule.matcher;
+      if (g.matcher !== rule.matcher) return true;
+      g.hooks = g.hooks.filter((h) => !h.command.includes(rule.hook_command_contains));
+      return true; // keep the group, just with the one command stripped
+    });
+  }
+  return hooks;
+}
+
+// Extracts `subpath` (e.g. "plugin/") from `commit` in `repoDir` via
+// `git archive` (argv array, no shell), piping its tar output straight into
+// `tar -x --strip-components=1` so the extracted tree lands directly under
+// `destDir` with the subpath's own prefix component removed. Never writes
+// outside destDir; caller is responsible for guarding destDir.
+export function gitArchiveExtract({ repoDir, commit, subpath, destDir }) {
+  ensureDir(destDir);
+  // Written to a temp .tar FILE, never piped via spawnSync's `input` buffer:
+  // synchronous stdin writes to a child process are unreliable on Windows for
+  // non-trivial buffer sizes (observed `spawnSync tar EOF`, errno -4095,
+  // extracting this repo's plugin/ tree) — a file + `tar -f` avoids that
+  // platform-specific failure mode entirely.
+  const tmpTar = join(destDir, `.archive-${process.pid}-${Date.now()}.tar`);
+  const fd = openSync(tmpTar, 'w');
+  try {
+    const archive = spawnSync('git', ['archive', '--format=tar', commit, subpath], { cwd: repoDir, stdio: ['ignore', fd, 'pipe'] });
+    closeSync(fd);
+    if (archive.error) throw archive.error;
+    if (archive.status !== 0) {
+      throw new Error(`git archive ${commit} ${subpath} exited ${archive.status}: ${(archive.stderr || Buffer.alloc(0)).toString('utf8')}`);
+    }
+    // Forward-slash both paths before handing them to tar's argv: the
+    // Git-for-Windows tar.exe is an MSYS2 binary whose runtime performs its
+    // own path translation on argv strings it receives even from a
+    // non-shell, non-MSYS parent (Node) — a Windows backslash path with a
+    // drive-letter colon can come out mangled (see wiki
+    // git-bash-msys-path-mangling-version-gate). Forward slashes sidestep it.
+    const tarSafe = (p) => p.split(sep).join('/');
+    const tar = spawnSync('tar', ['-x', '--strip-components=1', '--force-local', '-f', tarSafe(tmpTar), '-C', tarSafe(destDir)]);
+    if (tar.error) throw tar.error;
+    if (tar.status !== 0) {
+      throw new Error(`tar extract into ${destDir} exited ${tar.status}: ${(tar.stderr || Buffer.alloc(0)).toString('utf8')}`);
+    }
+  } finally {
+    try { unlinkSync(tmpTar); } catch { /* best-effort cleanup of the intermediate tar file */ }
+  }
+  return destDir;
+}
+
+// Recursively diffs two directory trees by relative path + sha256 content
+// hash. Returns files present in only one side, and files present in both
+// whose content differs.
+export function diffDirs(dirA, dirB) {
+  const relOf = (root, f) => relative(root, f).split(sep).join('/');
+  const filesA = walkFiles(dirA).map((f) => relOf(dirA, f));
+  const filesB = walkFiles(dirB).map((f) => relOf(dirB, f));
+  const setA = new Set(filesA);
+  const setB = new Set(filesB);
+  const onlyInA = filesA.filter((f) => !setB.has(f));
+  const onlyInB = filesB.filter((f) => !setA.has(f));
+  const differing = [];
+  for (const rel of filesA) {
+    if (!setB.has(rel)) continue;
+    if (sha256File(join(dirA, rel)) !== sha256File(join(dirB, rel))) differing.push(rel);
+  }
+  return { onlyInA, onlyInB, differing };
+}
+
+// Throws unless dirA and dirB contain exactly the same set of relative paths
+// AND differ in content on ONLY `allowedRelPath` (which must itself differ —
+// a no-op removal would be a bug, not a pass). Used to enforce SPEC.md's "a
+// and b differ ONLY in hooks/hooks.json".
+export function assertDirsDifferOnlyIn(dirA, dirB, allowedRelPath) {
+  const { onlyInA, onlyInB, differing } = diffDirs(dirA, dirB);
+  const allowed = allowedRelPath.replace(/\\/g, '/');
+  const problems = [];
+  if (onlyInA.length) problems.push(`only in A: ${onlyInA.join(', ')}`);
+  if (onlyInB.length) problems.push(`only in B: ${onlyInB.join(', ')}`);
+  const unexpected = differing.filter((f) => f !== allowed);
+  if (unexpected.length) problems.push(`unexpected diff(s): ${unexpected.join(', ')}`);
+  if (!differing.includes(allowed)) problems.push(`expected ${allowed} to differ but it did not`);
+  if (problems.length) throw new Error(`plugin dirs a/b diverge unexpectedly: ${problems.join('; ')}`);
+  return true;
+}
+
+// Builds EVAL_ROOT/plugins/{a,b} from a single pinned plugin commit: `a` is
+// an exact `git archive`-extracted copy of `plugin/` at that commit; `b` is a
+// full copy of `a` with hooks/hooks.json rewritten per `hookRemoval`
+// (config.json's hook_removal_b). Asserts a/b differ only in hooks/hooks.json
+// before returning.
+export function buildArmPluginDirs({ repoSource, pluginCommit, pluginsDir, hookRemoval }) {
+  assertNotLiveBrainPath(pluginsDir);
+  const aDir = join(pluginsDir, 'a');
+  const bDir = join(pluginsDir, 'b');
+  gitArchiveExtract({ repoDir: repoSource, commit: pluginCommit, subpath: 'plugin/', destDir: aDir });
+  cpSync(aDir, bDir, { recursive: true, preserveTimestamps: false });
+  const aHooksPath = join(aDir, 'hooks', 'hooks.json');
+  const bHooksPath = join(bDir, 'hooks', 'hooks.json');
+  const aHooks = readJSON(aHooksPath);
+  const bHooks = buildArmBHooks(aHooks, hookRemoval);
+  writeFileSync(bHooksPath, JSON.stringify(bHooks, null, 2) + '\n', 'utf8');
+  assertDirsDifferOnlyIn(aDir, bDir, 'hooks/hooks.json');
+  return { aDir, bDir };
 }
 
 // One-time template setup (SPEC.md "Controls and sandbox"): clone the task

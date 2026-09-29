@@ -2,15 +2,21 @@
 // S1 harness — one-time EVAL_ROOT setup (build order steps 1 and part of 3).
 //
 // Responsibilities:
-//   1. Import the frozen brain/knowledge-graph snapshots into EVAL_ROOT
+//   1. Import the frozen brain/knowledge-graph/wiki snapshots into EVAL_ROOT
 //      (never re-snapshots the live brain — it only ever READS the
-//      --snapshot-src the caller points it at).
-//   2. Verify each snapshot's manifest hash against config.json's pin.
+//      --snapshot-src the caller points it at; the wiki snapshot itself is a
+//      one-time `git --git-dir ~/.second-brain/wiki-history.git archive
+//      <full commit>` extraction done outside this script, per
+//      tests/evals/README.md).
+//   2. Verify each snapshot's manifest hash against config.json's pin, and
+//      the wiki's .md count against expected_md_count.
 //   3. Leak-scan the snapshot BEFORE import; abort on any hit.
-//   4. Redact PROJECT.md's experiment-meta line in the imported copy.
-//   5. Build plugin dirs A and B from the pinned plugin commit (SKIPPED with
-//      a logged reason while config.json's plugin_commit is still the
-//      "TBD-after-S0-merge" placeholder).
+//   4. Redact PROJECT.md's experiment-meta lines (line 67 AND line ~96) in
+//      the imported copy.
+//   5. Build plugin dirs A and B from `--plugin-commit`/`--repo-source` (a
+//      `git archive` of the repo's plugin/ at that commit, plus B's
+//      hooks.json rewritten per config.json's hook_removal_b); SKIPPED with
+//      a logged reason when --plugin-commit isn't given.
 //   6. Generate the pre-registered, seeded run-plan (3 blocks x 48 cells).
 //   7. Write prepare-report.json summarizing what ran vs. what was skipped.
 //
@@ -22,6 +28,7 @@
 //
 // Usage:
 //   node prepare.mjs --snapshot-src <dir> [--eval-root <dir>] [--id <id>] [--dry-run]
+//     [--plugin-commit <sha> --repo-source <dir>]
 
 import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, cpSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -29,7 +36,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import {
   readJSON, ensureDir, sha256File, assertNotLiveBrainPath,
-  buildLeakPatterns, assertNoLeaks, buildRunPlan,
+  buildLeakPatterns, buildBrainLeakPatterns, assertNoLeaks, buildRunPlan,
+  redactLines, REDACTION_PATTERNS, buildArmPluginDirs,
 } from './lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +50,8 @@ function parseArgs(argv) {
     else if (a === '--snapshot-src') args.snapshotSrc = argv[++i];
     else if (a === '--eval-root') args.evalRoot = argv[++i];
     else if (a === '--id') args.id = argv[++i];
+    else if (a === '--plugin-commit') args.pluginCommit = argv[++i];
+    else if (a === '--repo-source') args.repoSource = argv[++i];
     else { console.error(`unknown argument: ${a}`); process.exit(2); }
   }
   return args;
@@ -56,6 +66,18 @@ function defaultEvalRootBase() {
     throw new Error('LOCALAPPDATA is not set and no --eval-root was given; refusing to guess EVAL_ROOT');
   }
   return join(base, 'sb-evals', 's1');
+}
+
+// Counts files with `ext` anywhere under `dir` (recursive). Used to validate
+// the imported wiki snapshot against config.json's expected_md_count.
+function walkFilesCount(dir, ext) {
+  let count = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) count += walkFilesCount(full, ext);
+    else if (entry.isFile() && full.toLowerCase().endsWith(ext)) count += 1;
+  }
+  return count;
 }
 
 function findSha256sums(dir) {
@@ -77,14 +99,15 @@ function verifySnapshotManifest(name, dir, expectedHash) {
   console.log(`OK: ${name} manifest hash verified (${actual.slice(0, 12)}...)`);
 }
 
-// Finds every PROJECT.md under `brainDir` and redacts the line matching the
-// pinned experiment-meta text (SPEC.md "redactions": PROJECT.md line 67).
-// Matches on CONTENT, not a hardcoded line number, so it keeps working if
-// the snapshot is re-taken and the line shifts — but fails loud if a
-// PROJECT.md exists with no matching line, since that means the pin is
-// stale and needs a human look, not a silent no-op.
-const EXPERIMENT_META_RE = /Proposed a pre-registered A\/B\/C falsification test/i;
-
+// Finds every PROJECT.md under `brainDir` and redacts every line matching
+// REDACTION_PATTERNS (lib.mjs): line 67's experiment-meta sentence AND the
+// line ~96 `[[context-injection-falsification-test]]` wiki-link mention one
+// section below it (SPEC.md's own redaction list only names line 67 — see
+// tests/evals/README.md for why line 96 needed adding). Matches on CONTENT,
+// not a hardcoded line number, so this keeps working if the snapshot is
+// re-taken and the lines shift — but fails loud if a PROJECT.md exists with
+// no matching line at all, since that means the pins are stale and need a
+// human look, not a silent no-op.
 function redactProjectMdFiles(brainDir) {
   const redacted = [];
   const projectsDir = join(brainDir, 'projects');
@@ -92,15 +115,10 @@ function redactProjectMdFiles(brainDir) {
   for (const name of readdirSync(projectsDir)) {
     const pmPath = join(projectsDir, name, 'PROJECT.md');
     if (!existsSync(pmPath)) continue;
-    const lines = readFileSync(pmPath, 'utf8').split('\n');
-    let hit = false;
-    const out = lines.map((line) => {
-      if (EXPERIMENT_META_RE.test(line)) { hit = true; return '- [redacted: experiment meta]'; }
-      return line;
-    });
-    if (hit) {
-      writeFileSync(pmPath, out.join('\n'), 'utf8');
-      redacted.push(pmPath);
+    const { text, hits } = redactLines(readFileSync(pmPath, 'utf8'), REDACTION_PATTERNS);
+    if (hits.length > 0) {
+      writeFileSync(pmPath, text, 'utf8');
+      redacted.push({ path: pmPath, hits });
     }
   }
   return redacted;
@@ -126,13 +144,20 @@ function main() {
     const patterns = buildLeakPatterns(tasksDoc);
     const brainSrc = join(src, config.snapshots.brain.dir_name);
     const kgSrc = join(src, config.snapshots.knowledge_graph.dir_name);
-    for (const [name, dir] of [['brain', brainSrc], ['knowledge_graph', kgSrc]]) {
+    const wikiSrc = join(src, config.snapshots.wiki.dir_name);
+    for (const [name, dir] of [['brain', brainSrc], ['knowledge_graph', kgSrc], ['wiki', wikiSrc]]) {
       if (!existsSync(dir)) throw new Error(`snapshot source missing ${name} at ${dir}`);
-      assertNoLeaks(dir, patterns); // throws (aborts) on any hit
+      assertNoLeaks(dir, patterns); // throws (aborts) on any hit — base patterns only (see buildBrainLeakPatterns doc: the wiki legitimately contains the redaction slug as an entity stub name)
       log(`leak-scan:${name}`, 'OK', `${dir} clean`);
     }
     verifySnapshotManifest('brain', brainSrc, config.snapshots.brain.manifest_sha256);
     verifySnapshotManifest('knowledge_graph', kgSrc, config.snapshots.knowledge_graph.manifest_sha256);
+    verifySnapshotManifest('wiki', wikiSrc, config.snapshots.wiki.manifest_sha256);
+    const wikiMdCount = walkFilesCount(wikiSrc, '.md');
+    if (wikiMdCount !== config.snapshots.wiki.expected_md_count) {
+      throw new Error(`wiki snapshot .md count mismatch: expected ${config.snapshots.wiki.expected_md_count}, got ${wikiMdCount} (${wikiSrc})`);
+    }
+    log('wiki-md-count', 'OK', `${wikiMdCount} .md files`);
 
     if (args.dryRun) {
       log('snapshot-import', 'SKIP', 'dry-run: not copying into EVAL_ROOT');
@@ -141,31 +166,53 @@ function main() {
       const frozenDir = join(evalRoot, 'frozen');
       const brainDst = join(frozenDir, 'brain');
       const kgDst = join(frozenDir, 'knowledge-graph');
+      const wikiDst = join(frozenDir, 'wiki');
       assertNotLiveBrainPath(brainDst);
       assertNotLiveBrainPath(kgDst);
+      assertNotLiveBrainPath(wikiDst);
       cpSync(brainSrc, brainDst, { recursive: true, preserveTimestamps: false });
       cpSync(kgSrc, kgDst, { recursive: true, preserveTimestamps: false });
-      log('snapshot-import', 'OK', `copied brain -> ${brainDst}, knowledge-graph -> ${kgDst}`);
+      cpSync(wikiSrc, wikiDst, { recursive: true, preserveTimestamps: false });
+      log('snapshot-import', 'OK', `copied brain -> ${brainDst}, knowledge-graph -> ${kgDst}, wiki -> ${wikiDst}`);
 
       const redacted = redactProjectMdFiles(brainDst);
-      if (redacted.length === 0) {
-        throw new Error('project-md-redaction: no PROJECT.md line matched the pinned experiment-meta text — pin is stale, investigate before continuing');
+      const patternsHit = new Set(redacted.flatMap((r) => r.hits.map((h) => h.pattern)));
+      const missingPatterns = REDACTION_PATTERNS.map((p) => p.name).filter((n) => !patternsHit.has(n));
+      if (redacted.length === 0 || missingPatterns.length > 0) {
+        throw new Error(`project-md-redaction: expected every redaction pattern to fire at least once, missing: ${missingPatterns.join(', ') || '(no PROJECT.md line matched at all)'} — pin is stale, investigate before continuing`);
       }
-      log('project-md-redaction', 'OK', redacted.join(', '));
+      log('project-md-redaction', 'OK', redacted.map((r) => `${r.path} (${r.hits.map((h) => h.pattern).join('+')})`).join(', '));
 
       // Re-scan the imported (and now redacted) copy — belt-and-suspenders,
-      // catches anything the copy step introduced.
-      assertNoLeaks(brainDst, patterns);
+      // catches anything the copy step introduced. Brain gets the extended
+      // (redaction-check-inclusive) pattern set since that's where PROJECT.md
+      // lives; knowledge-graph/wiki keep the base set (see buildBrainLeakPatterns).
+      assertNoLeaks(brainDst, buildBrainLeakPatterns(tasksDoc));
       assertNoLeaks(kgDst, patterns);
+      assertNoLeaks(wikiDst, patterns);
       log('leak-scan:post-import', 'OK', 'imported copies clean');
     }
   }
 
-  // Step: plugin dirs A/B — skipped until the plugin commit is pinned.
-  if (config.pins.plugin_commit === 'TBD-after-S0-merge') {
-    log('build-plugin-dirs', 'SKIP', 'config.json pins.plugin_commit is still the placeholder; run again after S0 merges and the pin is filled in');
+  // Step: plugin dirs A/B — built from --plugin-commit/--repo-source when
+  // both are given (independent of config.json's pins.plugin_commit, which
+  // stays the pre-registration placeholder until S0 merges); otherwise
+  // skipped with a reason.
+  if (args.dryRun) {
+    log('build-plugin-dirs', 'SKIP', 'dry-run: not building plugin dirs');
+  } else if (!args.pluginCommit) {
+    log('build-plugin-dirs', 'SKIP', 'no --plugin-commit given (config.json pins.plugin_commit is still the placeholder until S0 merges)');
+  } else if (!args.repoSource) {
+    throw new Error('--plugin-commit given without --repo-source (the local checkout to `git archive` plugin/ from)');
   } else {
-    log('build-plugin-dirs', 'SKIP', 'not implemented in this dispatch (out of scope: steps 1-5 only); see tests/evals/README.md Gaps');
+    const pluginsDir = join(evalRoot, 'plugins');
+    const { aDir, bDir } = buildArmPluginDirs({
+      repoSource: resolve(args.repoSource),
+      pluginCommit: args.pluginCommit,
+      pluginsDir,
+      hookRemoval: config.hook_removal_b,
+    });
+    log('build-plugin-dirs', 'OK', `a -> ${aDir}, b -> ${bDir} (differ only in hooks/hooks.json, asserted)`);
   }
 
   // Step: repo template clone — needs network; never run automatically here.

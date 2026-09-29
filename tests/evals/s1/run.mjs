@@ -27,7 +27,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
   readJSON, ensureDir, appendJSONLine, assertNotLiveBrainPath,
-  buildRunEnv, buildSettingsJson, buildClaudeArgv, buildLeakPatterns, assertNoLeaks,
+  buildRunEnv, buildSettingsJson, buildClaudeArgv, buildLeakPatterns, buildBrainLeakPatterns, assertNoLeaks,
   computeTouchMetrics, extractToolUseBlocks, postRunLiveLeakCheck, assertSandboxContainsSessionId,
   RunScheduler, shouldRetry, RETRY_DELAY_MS, createRunWorktree, ensureRepoTemplate,
 } from './lib.mjs';
@@ -65,27 +65,10 @@ function readExistingRuns(runsPath) {
 
 function cellKey(c) { return `${c.task_id}\u0000${c.arm}\u0000${c.rep}`; }
 
-// Builds the per-arm block of the SessionStart/UserPromptSubmit/SubagentStart/
-// PostCompact removal for arm B's hooks.json, per config.json hook_removal_b.
-function buildArmBHooks(hooksJson, removalSpec) {
-  const hooks = JSON.parse(JSON.stringify(hooksJson));
-  for (const rule of removalSpec.remove) {
-    const groups = hooks.hooks[rule.event];
-    if (!groups) continue;
-    if (rule.remove_entire_event) { delete hooks.hooks[rule.event]; continue; }
-    hooks.hooks[rule.event] = groups.filter((g) => {
-      if (rule.remove_entire_group) return g.matcher !== rule.matcher;
-      if (g.matcher !== rule.matcher) return true;
-      g.hooks = g.hooks.filter((h) => !h.command.includes(rule.hook_command_contains));
-      return true; // keep the group, just with the one command stripped
-    });
-  }
-  return hooks;
-}
-
-// Copies the frozen snapshot into <run>/brain + <run>/knowledge. Used for
-// every arm (A-D) so C's offline block-render sandbox and the live run see
-// the same starting brain; C/D simply never load a plugin that would read it.
+// Copies the frozen snapshot into <run>/brain + <run>/knowledge (+ its wiki
+// subfolder). Used for every arm (A-D) so C's offline block-render sandbox
+// and the live run see the same starting brain; C/D simply never load a
+// plugin that would read it.
 function seedSandbox(runDir, frozenDir) {
   const brainDst = join(runDir, 'brain');
   const knowledgeDst = join(runDir, 'knowledge');
@@ -95,6 +78,8 @@ function seedSandbox(runDir, frozenDir) {
   ensureDir(knowledgeDst);
   const kgSrc = join(frozenDir, 'knowledge-graph');
   if (existsSync(kgSrc)) cpSync(kgSrc, knowledgeDst, { recursive: true, preserveTimestamps: false });
+  const wikiSrc = join(frozenDir, 'wiki');
+  if (existsSync(wikiSrc)) cpSync(wikiSrc, join(knowledgeDst, 'wiki'), { recursive: true, preserveTimestamps: false });
 }
 
 function pluginDirFor(config, evalRoot, arm) {
@@ -137,9 +122,14 @@ async function executeOneRun({ cell, task, config, evalRoot, templateRepoDir, bl
   const frozenDir = join(evalRoot, 'frozen');
   seedSandbox(runDir, frozenDir);
 
-  const patterns = buildLeakPatterns(readJSON(join(HERE, 'tasks.json')));
-  assertNoLeaks(join(runDir, 'brain'), patterns);
-  assertNoLeaks(join(runDir, 'knowledge'), patterns);
+  const tasksDoc = readJSON(join(HERE, 'tasks.json'));
+  // Brain gets the extended (redaction-check-inclusive) pattern set since
+  // that's where PROJECT.md lives; knowledge (which now includes the wiki)
+  // keeps the base set — the frozen wiki snapshot legitimately contains the
+  // redaction slug as an auto-created entity stub name (see lib.mjs
+  // buildBrainLeakPatterns doc + tests/evals/README.md).
+  assertNoLeaks(join(runDir, 'brain'), buildBrainLeakPatterns(tasksDoc));
+  assertNoLeaks(join(runDir, 'knowledge'), buildLeakPatterns(tasksDoc));
 
   const env = buildRunEnv({ sourceEnv: process.env, runDir, arm: cell.arm });
   const settingsPath = join(runDir, 'settings.json');

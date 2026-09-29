@@ -9,8 +9,8 @@
     "task_repo_commit": "497fe050efb35437a11865f80ce1518484f0caf9",
     "task_repo_origin_url": "https://github.com/Cain-Ish/claude-code-plugin",
     "task_repo_dir_name": "claude-code-plugin",
-    "wiki_history_commit": "f681200",
-    "wiki_history_commit_note": "short hash only, from SPEC.md/frozen.wiki_commit; the full hash was not captured in the design inputs handed to this dispatch — resolve the full hash from ~/.second-brain/wiki-history.git before step 6 (git log --all --grep or rev-parse f681200^{commit})",
+    "wiki_history_commit": "f681200838d4dd7e1cca09389efaff871e7b35ef",
+    "wiki_history_commit_note": "resolved via `git --git-dir ~/.second-brain/wiki-history.git rev-parse f681200838d4^{commit}` (read-only); commit dated 2026-09-27T19:27:34+02:00. The frozen-wiki-20260927 snapshot alongside frozen-brain-20260927/frozen-knowledge-graph-20260927 was archived from this exact commit via `git --git-dir ... archive <full hash> | tar -x`.",
     "model": "TBD-after-smoke",
     "model_note": "SPEC.md Controls: pin from the smoke run's init.model; abort any later run reporting a different model. run.mjs enforces this once set.",
     "effort": "high",
@@ -39,12 +39,16 @@
       "note": "C2 optional arm only (native autoMemoryDirectory), not part of the falsification decision"
     },
     "wiki": {
-      "note": "git --git-dir ~/.second-brain/wiki-history.git archive <wiki_history_commit>, or the frozen copy if one is placed alongside the brain/knowledge-graph snapshots",
+      "dir_name": "frozen-wiki-20260927",
+      "note": "git --git-dir ~/.second-brain/wiki-history.git archive <wiki_history_commit> | tar -x, placed alongside the brain/knowledge-graph snapshots as frozen-wiki-20260927/ (same SHA256SUMS/FROZEN_AT_UTC.txt convention as the other two)",
+      "manifest_sha256": "1b6af35109d12f6c0c4b2b8032f8c54d23a2f7f071941ef341b994e3df008382",
       "expected_md_count": 1104
     },
     "redactions": [
-      "frozen PROJECT.md line 67 (experiment meta: 'Proposed a pre-registered A/B/C falsification test')"
+      "frozen PROJECT.md line 67 (experiment meta: 'Proposed a pre-registered A/B/C falsification test')",
+      "frozen PROJECT.md line ~96 (wiki-link mention: '[[context-injection-falsification-test]]')"
     ],
+    "redactions_note": "the frozen-wiki-20260927 snapshot also contains an auto-created, empty 'TODO: expand' entity stub named context-injection-falsification-test.md plus one mention in index.md's 377-entry entity list — deliberately left un-redacted (indistinguishable among hundreds of unrelated entity names, no real content); the leak-guard pattern for the two PROJECT.md redactions above is scoped to <run>/brain scans only (buildBrainLeakPatterns in lib.mjs) for exactly this reason, not applied to <run>/knowledge (wiki).",
     "omit": ["transcripts/", "episodic index", "vector-deps", "other projects"]
   },
 
