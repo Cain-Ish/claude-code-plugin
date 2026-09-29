@@ -52,6 +52,9 @@ log_gate() { SB_GATE="$1"; }
 _sb_stop_extract_cleanup() {
   [ -n "$SB_GATE" ] && sb_log_error "stop-extract.sh" "gate=$SB_GATE" 0
   rm -f "${EXTRACT_INPUT:-}" "${EXTRACT_OUT:-}" 2>/dev/null
+  # Telemetry scratch dir (subagent/window slices): normally removed at the end of the
+  # telemetry block; this covers a crash inside it.
+  [ -n "${SE_SCR:-}" ] && rm -rf "$SE_SCR" 2>/dev/null
 }
 trap _sb_stop_extract_cleanup EXIT
 
@@ -151,93 +154,254 @@ fi
 # ONE `gate=value-loop` row PER STOP with the running totals; a reader takes the LAST
 # row per sid as the session total (see docs/daily-prompt.md). Deterministic jq only —
 # no LLM, transcript is DATA. Fail-soft: a telemetry error must never fail the hook.
+#
+# Millisecond clock into _SE_MS (same helper as hook-timer.sh): bash 5's $EPOCHREALTIME with
+# no spawn; GNU date %N elsewhere; BSD/macOS date prints a literal N -> whole seconds.
+_se_now_ms() {
+  local n
+  if [ -n "${EPOCHREALTIME:-}" ]; then
+    n="${EPOCHREALTIME//[!0-9]/}"
+    _SE_MS=$(( 10#$n / 1000 ))
+    return 0
+  fi
+  n=$(date +%s%N 2>/dev/null)
+  case "$n" in
+    *N|*n|'') _SE_MS=$(( $(date +%s) * 1000 )) ;;
+    *) _SE_MS=$(( n / 1000000 )) ;;
+  esac
+}
+SE_SCR=""
 if [ "${SB_TELEMETRY:-on}" != "off" ]; then
   MANIFEST_SID=$(printf '%s' "$SESSION_ID" | tr -cd 'A-Za-z0-9_-' | head -c 64)
   MANIFEST="$BRAIN_DIR/.injected-manifest-$MANIFEST_SID.jsonl"
   STATE_FILE="$BRAIN_DIR/.value-loop-state-$MANIFEST_SID.json"
   HC_STATE="$BRAIN_DIR/.hook-cancelled-state-$MANIFEST_SID.json"
+  SUB_MARK="$BRAIN_DIR/.subagent-scan-mark-$MANIFEST_SID"
   if [ -n "$MANIFEST_SID" ]; then
-    # A PRESENT-but-unparseable state file is a torn/corrupt write (crash mid-mv,
-    # killed hook, cross-filesystem copy+unlink), never "no prior state" — silently
-    # resetting it to {} would zero every cumulative counter with nothing logged.
-    # Quarantine loudly and let $old fall back to {} via the now-missing file.
-    if [ -s "$STATE_FILE" ] && ! jq -e 'type=="object"' "$STATE_FILE" >/dev/null 2>&1; then
-      sb_log_error "stop-extract.sh" "telemetry: value-loop state unparseable, quarantined sid=$MANIFEST_SID" 1
-      mv -f "$STATE_FILE" "$STATE_FILE.corrupt" 2>/dev/null
+    _se_now_ms; SE_T0=$_SE_MS
+    # --rawfile-safe path: --rawfile errors on a missing file, so a not-yet-created
+    # state/scratch file must resolve to /dev/null (empty content), same fallback
+    # pattern as buddy-statusline.sh's `_f` helper.
+    _tel_f() { [ -f "$1" ] && printf '%s' "$1" || printf '%s' /dev/null; }
+    # SE_OK=1: the scratch dir, the state read and the slicer below all succeeded, so the
+    # value-loop and hook-cancelled passes may run AND commit their watermarks this Stop.
+    # Any failure is logged loudly and leaves every watermark where it was (the next Stop
+    # retries the same window) — never a silent sub_read=0 / missing-row Stop.
+    SE_OK=1; VL_COMMITTED=0; HC_COMMITTED=0; SUB_CAND=0; SUB_COMPLETE=1
+    SE_SCR=$(mktemp -d 2>/dev/null) || SE_SCR=""
+    if [ -z "$SE_SCR" ] || [ ! -d "$SE_SCR" ]; then
+      SE_SCR=""; SE_OK=0
+      sb_log_error "stop-extract.sh" "telemetry: mktemp -d failed; value-loop, hook-cancelled and subagent scans skipped this Stop (no watermark advanced) sid=$MANIFEST_SID" 1
     fi
-    # Telemetry has its OWN watermark (scanned_to in the state file), independent of
-    # the extraction marker (.last-extracted-line-*). The extraction marker can be
-    # skipped-not-advanced (merge-failed, prompt-file-missing, a killed extractor) or
-    # advanced with no telemetry fold at all (pre-compact.sh); trusting it here
-    # re-scans and double-counts pulled/agents/tiers/turn on the next Stop. Clamp a
-    # stale watermark (transcript shrank / file replaced) back to 0 instead of hanging.
-    TEL_FROM=$(jq -r '.scanned_to // 0' "$STATE_FILE" 2>/dev/null | tr -d '\r')
-    case "$TEL_FROM" in ''|*[!0-9]*) TEL_FROM=0 ;; esac
-    if [ "$TEL_FROM" -gt "$TOTAL_LINES" ]; then TEL_FROM=0; fi
 
     # Subagent transcripts (S0 B7 ruler extension, docs/concepts/2026-09-27-repo-brain-
     # concept.md §5 S0): a subagent that reads or fetches a manifested id is real JIT
     # delivery use the PARENT transcript alone never sees, and a PreToolUse cancellation
     # INSIDE a subagent is recorded only in the SUBAGENT's own transcript, never the
-    # parent's (verified live on this machine: SubagentStart/PreToolUse hook_cancelled
-    # attachments land in `${TRANSCRIPT%.jsonl}/subagents/agent-*.jsonl`). Hoisted ABOVE
-    # both the value-loop pass and the hook-cancelled ruler below so ONE bash pass over
-    # the glob (no jq spawned per file) serves both:
-    #   SUB_TEXT     — full content of every valid subagent file, for value-loop's
-    #                  read/fetch detection (re-scanned in full each Stop into a
-    #                  `unique`-deduped state set, so re-deriving the same hits later
-    #                  is idempotent, not a double count).
-    #   SUB_HC_NEW   — ONLY the lines added since each file's OWN hook-cancelled
-    #                  watermark (subagent files are append-only per dispatch, same as
-    #                  the parent transcript, so a per-file line watermark — persisted
-    #                  in HC_STATE.sub_scanned by the hook-cancelled block below — is
-    #                  the double-count-safe way to fold in NEW subagent cancellations
-    #                  instead of a full idempotent re-scan).
-    #   HC_SUBWM_NEW — "basename<TAB>current-line-count" pairs the hook-cancelled block
-    #                  persists into HC_STATE.sub_scanned once it commits scanned_to.
-    # A file over the 20MB cap is skipped with a LOUD note rather than risking a huge
-    # --rawfile read or a truncated/garbled scan.
-    SUB_TEXT=""
-    SUB_HC_NEW=""
-    HC_SUBWM_NEW=""
+    # parent's (verified live: hook_cancelled attachments land in
+    # `${TRANSCRIPT%.jsonl}/subagents/agent-*.jsonl`). A long session carries dozens of
+    # these files and 100+ MB, so subagent text is NEVER held in a bash variable and an
+    # unchanged file is never re-read (the old per-Stop full re-read + string concat cost
+    # 47-120 s per Stop on 25 files / 42 MB, load-dependent, against a 45 s hook budget):
+    #   1. Candidates: a builtin -nt test against $SUB_MARK, a mark file touched (as .new)
+    #      BEFORE this Stop captures any line count and renamed into place only once both
+    #      passes committed. A file not modified since the last complete scan STARTED is
+    #      skipped with zero spawns; a write racing a scan lands after the mark, so it is
+    #      re-examined next Stop (equal whole-second mtimes count as changed, not skipped).
+    #   2. ONE `xargs wc -lc` over the candidates captures each file's complete-line count
+    #      (newline count: a torn last line is left for the next Stop) and size.
+    #   3. ONE awk (below) reads only lines (watermark, captured count] of each candidate,
+    #      keeping just the `"tool_use"` lines (value-loop) and `"hook_cancelled"` lines
+    #      (hook-cancelled ruler) into scratch files. Per-file line watermarks for BOTH
+    #      passes live in their state files (.sub_scanned: {basename: lines}).
+    #   4. An aggregate byte cap (SB_SUBAGENT_SCAN_MAX_BYTES, default 256 MiB) bounds the
+    #      read: files past it are skipped with a LOUD error row, their watermarks and the
+    #      mark stay put, and the next Stop resumes with them.
     SUBAGENTS_DIR="${TRANSCRIPT%.jsonl}/subagents"
-    if [ -d "$SUBAGENTS_DIR" ]; then
-      HC_SUBWM_OLD=$(jq -r '.sub_scanned // {} | to_entries[] | "\(.key)\t\(.value)"' "$HC_STATE" 2>/dev/null | tr -d '\r')
+    SUB_CAP="${SB_SUBAGENT_SCAN_MAX_BYTES:-268435456}"
+    case "$SUB_CAP" in ''|*[!0-9]*) SUB_CAP=268435456 ;; esac
+    if [ "$SE_OK" = "1" ] && [ -d "$SUBAGENTS_DIR" ]; then
+      if ! : > "$SUB_MARK.new" 2>/dev/null; then
+        SUB_COMPLETE=0
+        sb_log_error "stop-extract.sh" "subagent-scan: cannot write $SUB_MARK.new; changed-file detection falls back to re-counting every subagent file sid=$MANIFEST_SID" 1
+      fi
       for _sub_f in "$SUBAGENTS_DIR"/agent-*.jsonl; do
         [ -f "$_sub_f" ] || continue
-        _sub_base=$(basename "$_sub_f")
-        _sub_sz=$(wc -c < "$_sub_f" 2>/dev/null | tr -d ' ')
-        case "$_sub_sz" in ''|*[!0-9]*) _sub_sz=0 ;; esac
-        if [ "$_sub_sz" -gt 20971520 ]; then
-          sb_log_error "stop-extract.sh" "value-loop: skipped oversized subagent transcript $_sub_base (${_sub_sz}B > 20MB cap) sid=$MANIFEST_SID" 1
-          continue
+        [ -f "$SUB_MARK" ] && [ "$SUB_MARK" -nt "$_sub_f" ] && continue
+        SUB_CAND=$((SUB_CAND + 1))
+        printf '%s\0' "$_sub_f"
+      done > "$SE_SCR/cand"
+      if [ "$SUB_CAND" -gt 0 ]; then
+        xargs -0 wc -lc < "$SE_SCR/cand" > "$SE_SCR/wc" 2> "$SE_SCR/wc.err"
+        _se_rc=$?
+        if [ "$_se_rc" -ne 0 ]; then
+          SUB_COMPLETE=0
+          sb_log_error "stop-extract.sh" "subagent-scan: wc over $SUB_CAND file(s) exited $_se_rc: $(head -c 200 "$SE_SCR/wc.err" 2>/dev/null | tr -d '\r\n') sid=$MANIFEST_SID" 1
         fi
-        SUB_TEXT="${SUB_TEXT}$(cat "$_sub_f" 2>/dev/null)
-"
-        _sub_lc=$(wc -l < "$_sub_f" 2>/dev/null | tr -d ' ')
-        case "$_sub_lc" in ''|*[!0-9]*) _sub_lc=0 ;; esac
-        _sub_prevwm=$(printf '%s\n' "$HC_SUBWM_OLD" | awk -F'\t' -v b="$_sub_base" '$1==b{print $2; f=1} END{if(!f) print 0}')
-        case "$_sub_prevwm" in ''|*[!0-9]*) _sub_prevwm=0 ;; esac
-        if [ "$_sub_prevwm" -lt "$_sub_lc" ]; then
-          SUB_HC_NEW="${SUB_HC_NEW}$(awk -v s="$_sub_prevwm" 'NR>s' "$_sub_f" 2>/dev/null)
-"
-        fi
-        HC_SUBWM_NEW="${HC_SUBWM_NEW}$(printf '%s\t%s\n' "$_sub_base" "$_sub_lc")"
-      done
+      fi
     fi
 
-  if [ "$TEL_FROM" -lt "$TOTAL_LINES" ]; then
-    TEL_WINDOW=$(awk -v s="$TEL_FROM" 'NR>s' "$TRANSCRIPT" 2>/dev/null)
+    # ONE jq reads both per-sid states (tolerant: raw text, try/fromjson) and prints
+    # status + scanned_to for each, then the per-file subagent watermarks as tagged TSV
+    # (V = value-loop, H = hook-cancelled) for the slicer. Telemetry has its OWN
+    # watermarks, independent of the extraction marker (.last-extracted-line-*): that
+    # marker can be skipped-not-advanced (merge-failed, a killed extractor) or advanced
+    # with no telemetry fold at all (pre-compact.sh), and trusting it re-counts.
+    TEL_FROM=0; HC_FROM=0
+    if [ "$SE_OK" = "1" ]; then
+      jq -n -r --rawfile vs "$(_tel_f "$STATE_FILE")" --rawfile hs "$(_tel_f "$HC_STATE")" '
+        def st($raw): if ($raw | length) == 0 then {s: "absent", v: {}}
+          else ((try ($raw | fromjson) catch null) as $p
+            | if ($p | type) == "object" then {s: "ok", v: $p} else {s: "corrupt", v: {}} end) end;
+        def wm: if type == "number" and . >= 0 then floor else 0 end;
+        def subs($tag): (.sub_scanned // {}) | if type == "object" then
+            (to_entries[] | select((.key | test("^[^\t\r\n]+$")) and (.value | type) == "number")
+              | "\($tag)\t\(.key)\t\(.value | wm)")
+          else empty end;
+        (st($vs)) as $v | (st($hs)) as $h |
+        $v.s, ($v.v.scanned_to | wm), $h.s, ($h.v.scanned_to | wm), ($v.v | subs("V")), ($h.v | subs("H"))
+      ' > "$SE_SCR/states" 2> "$SE_SCR/states.err"
+      _se_rc=$?
+      if [ "$_se_rc" -ne 0 ]; then
+        SE_OK=0
+        sb_log_error "stop-extract.sh" "telemetry: state read jq exited $_se_rc ($(head -c 200 "$SE_SCR/states.err" 2>/dev/null | tr -d '\r\n')); value-loop/hook-cancelled skipped, no watermark advanced sid=$MANIFEST_SID" 1
+      fi
+    fi
+    if [ "$SE_OK" = "1" ]; then
+      VL_ST=""; HC_ST=""
+      { IFS= read -r VL_ST; IFS= read -r TEL_FROM; IFS= read -r HC_ST; IFS= read -r HC_FROM; } < "$SE_SCR/states"
+      VL_ST="${VL_ST%$'\r'}"; TEL_FROM="${TEL_FROM%$'\r'}"; HC_ST="${HC_ST%$'\r'}"; HC_FROM="${HC_FROM%$'\r'}"
+      case "$TEL_FROM" in ''|*[!0-9]*) TEL_FROM=0 ;; esac
+      case "$HC_FROM" in ''|*[!0-9]*) HC_FROM=0 ;; esac
+      # A PRESENT-but-unparseable state file is a torn/corrupt write (crash mid-mv, killed
+      # hook, cross-filesystem copy+unlink), never "no prior state" — silently resetting
+      # it to {} would zero every cumulative counter (or re-emit every hook-cancelled row)
+      # with nothing logged. Quarantine loudly; the pass then starts from an empty state.
+      if [ "$VL_ST" = "corrupt" ]; then
+        sb_log_error "stop-extract.sh" "telemetry: value-loop state unparseable, quarantined sid=$MANIFEST_SID" 1
+        mv -f "$STATE_FILE" "$STATE_FILE.corrupt" 2>/dev/null
+        TEL_FROM=0
+      fi
+      if [ "$HC_ST" = "corrupt" ]; then
+        sb_log_error "stop-extract.sh" "hook-cancelled: state unparseable, quarantined (counts restart from line 0) sid=$MANIFEST_SID" 1
+        mv -f "$HC_STATE" "$HC_STATE.corrupt" 2>/dev/null
+        HC_FROM=0
+      fi
+      # Stale watermark (transcript shrank / file replaced): clamp to 0 instead of hanging.
+      [ "$TEL_FROM" -gt "$TOTAL_LINES" ] && TEL_FROM=0
+      [ "$HC_FROM" -gt "$TOTAL_LINES" ] && HC_FROM=0
+
+      # The slicer: ONE awk, ONE bounded pass over the parent (lines min(TEL_FROM,HC_FROM)+1
+      # .. TOTAL_LINES, never past the count captured at the top of this script — a line
+      # appended mid-Stop is left for the next Stop instead of being counted now AND again
+      # then) plus the candidate subagent files (bounded by their wc counts, see above).
+      # Outputs (scratch files): par_vl + sub_vl (tool_use lines), hc_in (hook_cancelled
+      # lines), subwm ("basename<TAB>lines" for every file whose new lines were taken);
+      # stdout: K (byte-cap skip) / X (unreadable) / XP (parent unreadable) rows. Paths come
+      # from ENVIRON and file data, never `awk -v` (Windows backslashes).
+      [ -f "$SE_SCR/wc" ] || : > "$SE_SCR/wc"
+      SE_TX="$TRANSCRIPT" SE_DIR="$SE_SCR" awk -v tf="$TEL_FROM" -v hf="$HC_FROM" -v tot="$TOTAL_LINES" -v cap="$SUB_CAP" '
+        BEGIN {
+          d = ENVIRON["SE_DIR"]
+          parvl = d "/par_vl"; subvl = d "/sub_vl"; hcin = d "/hc_in"; subwm = d "/subwm"
+        }
+        { sub(/\r$/, "") }
+        FILENAME == ARGV[1] {
+          if (split($0, f, "\t") == 3) {
+            if (f[1] == "V") vw[f[2]] = f[3] + 0
+            else if (f[1] == "H") hw[f[2]] = f[3] + 0
+          }
+          next
+        }
+        {
+          if (!match($0, /^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]/)) next
+          p = substr($0, RLENGTH + 1)
+          if (p == "total") next
+          nf++; fp[nf] = p; flc[nf] = $1 + 0; fby[nf] = $2 + 0
+        }
+        END {
+          lo = (tf < hf) ? tf : hf
+          if (lo < tot) {
+            tx = ENVIRON["SE_TX"]; n = 0; r = 1
+            while (n < tot && (r = (getline line < tx)) > 0) {
+              n++
+              if (n <= lo) continue
+              if (n > tf && index(line, "\"tool_use\"")) print line > parvl
+              if (n > hf && index(line, "\"hook_cancelled\"")) print line > hcin
+            }
+            close(tx)
+            if (r < 0) print "XP\tparent\t0"
+          }
+          used = 0
+          for (i = 1; i <= nf; i++) {
+            b = fp[i]; sub(/.*[\/\\]/, "", b)
+            lc = flc[i]
+            v = (b in vw) ? vw[b] : 0
+            h = (b in hw) ? hw[b] : 0
+            if (v > lc) v = 0
+            if (h > lc) h = 0
+            s = (v < h) ? v : h
+            if (s < lc) {
+              if (used + fby[i] > cap) { print "K\t" b "\t" fby[i]; continue }
+              used += fby[i]
+              n = 0; r = 1
+              while (n < lc && (r = (getline line < fp[i])) > 0) {
+                n++
+                if (n <= s) continue
+                if (n > v && index(line, "\"tool_use\"")) print line > subvl
+                if (n > h && index(line, "\"hook_cancelled\"")) print line > hcin
+              }
+              close(fp[i])
+              if (r < 0) { print "X\t" b "\t0"; continue }
+              lc = n
+            }
+            print b "\t" lc > subwm
+          }
+        }
+      ' "$SE_SCR/states" "$SE_SCR/wc" > "$SE_SCR/slice" 2> "$SE_SCR/slice.err"
+      _se_rc=$?
+      if [ "$_se_rc" -ne 0 ]; then
+        SE_OK=0
+        sb_log_error "stop-extract.sh" "telemetry: slicer awk exited $_se_rc ($(head -c 200 "$SE_SCR/slice.err" 2>/dev/null | tr -d '\r\n')); value-loop/hook-cancelled skipped, no watermark advanced sid=$MANIFEST_SID" 1
+      fi
+    fi
+    if [ "$SE_OK" = "1" ] && [ -s "$SE_SCR/slice" ]; then
+      _sk_n=0; _sk_b=0; _sk_1=""; _sx_n=0; _sx_1=""
+      while IFS=$'\t' read -r _se_t _se_b _se_v; do
+        case "$_se_v" in ''|*[!0-9]*) _se_v=0 ;; esac
+        case "$_se_t" in
+          K) _sk_n=$((_sk_n + 1)); _sk_b=$((_sk_b + _se_v)); [ -n "$_sk_1" ] || _sk_1="$_se_b" ;;
+          X) _sx_n=$((_sx_n + 1)); [ -n "$_sx_1" ] || _sx_1="$_se_b" ;;
+          XP) SE_OK=0 ;;
+        esac
+      done < "$SE_SCR/slice"
+      if [ "$SE_OK" != "1" ]; then
+        sb_log_error "stop-extract.sh" "telemetry: parent transcript unreadable mid-scan; value-loop/hook-cancelled skipped, no watermark advanced sid=$MANIFEST_SID" 1
+      fi
+      if [ "$_sk_n" -gt 0 ]; then
+        SUB_COMPLETE=0
+        sb_log_error "stop-extract.sh" "subagent-scan: aggregate byte cap ${SUB_CAP}B reached; skipped $_sk_n subagent transcript(s) (${_sk_b}B, first $_sk_1): not scanned, watermarks kept, retried next Stop sid=$MANIFEST_SID" 1
+      fi
+      if [ "$_sx_n" -gt 0 ]; then
+        SUB_COMPLETE=0
+        sb_log_error "stop-extract.sh" "subagent-scan: $_sx_n subagent transcript(s) unreadable (first $_sx_1): watermarks kept sid=$MANIFEST_SID" 1
+      fi
+    fi
+
+  if [ "$SE_OK" = "1" ] && [ "$TEL_FROM" -lt "$TOTAL_LINES" ]; then
+    # Parent tool_use lines of this window, bounded by TOTAL_LINES (slicer output).
+    TEL_PAR="$(_tel_f "$SE_SCR/par_vl")"
     # utilization: Skill + Agent/Task(subagent_type) invocations -> counts store.
     # D-bug 1: the dispatch tool was renamed Task -> Agent; matching only "Task" left
     # every agent dispatch uncounted here (a separate, session-scoped metric from the
     # agents=/tiers= fields below, which fold the SAME rename fix into the value-loop row).
-    TEL_NAMES=$(printf '%s\n' "$TEL_WINDOW" | jq -r '
-      select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
+    TEL_NAMES=$(jq -R -r '
+      fromjson? | select(type=="object" and .type=="assistant")
+      | (.message | objects | .content | arrays | .[] | objects | select(.type=="tool_use"))
       | if .name=="Skill" then ("skill:" + (.input.skill // "unknown"))
         elif .name=="Task" or .name=="Agent" then ("agent:" + (.input.subagent_type // "unknown"))
         else empty end
-    ' 2>/dev/null | tr -d '\r')
+    ' "$TEL_PAR" 2>/dev/null | tr -d '\r')
     if [ -n "$TEL_NAMES" ]; then
       UTIL_JSON="$BRAIN_DIR/utilization-counts.json"
       # Key aging (state hygiene): the counts store is append-keyed and never shrank —
@@ -247,70 +411,62 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
       # date-only cutoff compares correctly lexicographically (prefix rule).
       UTIL_CUTOFF=$(date -u -v-180d +%Y-%m-%d 2>/dev/null \
         || date -u -d '180 days ago' +%Y-%m-%d 2>/dev/null || echo '1970-01-01')
-      TEL_TMP=$(mktemp 2>/dev/null) && {
-        { [ -s "$UTIL_JSON" ] && cat "$UTIL_JSON" 2>/dev/null || echo '{}'; } \
-          | jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg names "$TEL_NAMES" --arg cutoff "$UTIL_CUTOFF" '
-              . as $base | reduce ($names | split("\n") | map(select(length>0)))[] as $n ($base;
-                .[$n] = {count: ((.[$n].count // 0) + 1), last_used: $now})
-              | with_entries(select(.value.last_used >= $cutoff))
-            ' > "$TEL_TMP" 2>/dev/null \
-          && mv "$TEL_TMP" "$UTIL_JSON" 2>/dev/null \
-          || { rm -f "$TEL_TMP"; sb_log_error "stop-extract.sh" "telemetry: utilization fold failed (corrupt store? $UTIL_JSON)" 1; }
-      }
+      TEL_TMP="$SE_SCR/util.json"
+      { [ -s "$UTIL_JSON" ] && cat "$UTIL_JSON" 2>/dev/null || echo '{}'; } \
+        | jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg names "$TEL_NAMES" --arg cutoff "$UTIL_CUTOFF" '
+            . as $base | reduce ($names | split("\n") | map(select(length>0)))[] as $n ($base;
+              .[$n] = {count: ((.[$n].count // 0) + 1), last_used: $now})
+            | with_entries(select(.value.last_used >= $cutoff))
+          ' > "$TEL_TMP" 2>/dev/null \
+        && mv "$TEL_TMP" "$UTIL_JSON" 2>/dev/null \
+        || { rm -f "$TEL_TMP"; sb_log_error "stop-extract.sh" "telemetry: utilization fold failed (corrupt store? $UTIL_JSON)" 1; }
     fi
-    # --rawfile-safe path: --rawfile errors on a missing file, so a not-yet-created
-    # STATE_FILE (first Stop of the session) must resolve to /dev/null (empty
-    # content), same fallback pattern as buddy-statusline.sh's `_f` helper.
-    _tel_f() { [ -f "$1" ] && printf '%s' "$1" || printf '%s' /dev/null; }
 
-    # SUB_TEXT was gathered once, above, alongside the hook-cancelled ruler's own
-    # subagent scan (shared file-discovery pass — see the comment there). Written to
-    # a temp file here (not unconditionally above) so the mktemp+write only happens
-    # on a Stop that actually reaches this jq call.
-    SUB_TMP=$(mktemp 2>/dev/null) || SUB_TMP=""
-    [ -n "$SUB_TMP" ] && printf '%s' "$SUB_TEXT" > "$SUB_TMP" 2>/dev/null
-
-    # ONE jq call, reading the transcript window on stdin and the manifest/prior
-    # state via --rawfile (never --argjson/--arg on their full content): a long
-    # session's manifest (persona-context appends per PROMPT) or a Read-heavy turn's
-    # window can exceed Windows' ~32K CreateProcess argv cap if passed as arguments —
-    # --rawfile and stdin are not subject to that limit. The window, the manifest,
-    # AND the prior state are ALL parsed TOLERANTLY (raw-slurp + per-line try/catch):
-    # a Stop can read the transcript mid-write, so a trailing torn line must not
-    # abort the whole pass (same philosophy as sb_count_torn_lines elsewhere) — a
-    # plain `jq -s` on window text errors out entirely on one bad line, which is
-    # exactly the bug this replaces. reads/fetch are derived from the window HERE
-    # (gsub normalizes backslashes, replacing the old shell `tr '\\' '/'`) instead of
-    # being precomputed and passed in as --arg text, for the same argv-size reason.
-    TEL_BIG=$(printf '%s\n' "$TEL_WINDOW" | jq -c -R -s \
+    # ONE jq call, reading the parent window's tool_use lines (TEL_PAR) plus the
+    # manifest, prior state, subagent tool_use lines and new subagent watermarks via
+    # --rawfile (never --argjson/--arg on their full content): a long session's manifest
+    # (persona-context appends per PROMPT) or a Read-heavy turn's window can exceed
+    # Windows' ~32K CreateProcess argv cap if passed as arguments. Every input is parsed
+    # TOLERANTLY (raw-slurp + per-line try/catch, objects only): a Stop can read a
+    # transcript mid-write, so one torn or non-object line must not abort the whole
+    # pass (same philosophy as sb_count_torn_lines elsewhere). reads/fetch are derived
+    # HERE (gsub normalizes backslashes) instead of being passed in as --arg text, for
+    # the same argv-size reason.
+    TEL_BIG=$(jq -c -R -s \
       --rawfile mraw "$(_tel_f "$MANIFEST")" \
       --rawfile sraw "$(_tel_f "$STATE_FILE")" \
-      --rawfile subraw "$(_tel_f "$SUB_TMP")" \
+      --rawfile subraw "$(_tel_f "$SE_SCR/sub_vl")" \
+      --rawfile subwm "$(_tel_f "$SE_SCR/subwm")" \
       --argjson total "$TOTAL_LINES" '
-      (split("\n") | map(select(length>0)) | map(try fromjson catch null) | map(select(. != null))) as $lines |
-      ($subraw | split("\n") | map(select(length>0)) | map(try fromjson catch null) | map(select(. != null))) as $sub_lines |
+      def jsonl: split("\n") | map(select(length>0) | (try fromjson catch null) | objects);
+      def tus: .[] | select(.type=="assistant")
+        | (.message | objects | .content | arrays | .[] | objects | select(.type=="tool_use"));
+      (jsonl) as $lines |
+      ($subraw | jsonl) as $sub_lines |
       ($mraw | split("\n") | map(select(length>0)) | map(try fromjson catch null)
         | map(select(. != null and type=="object" and (.id // "") != "" and (.kind // "") != ""))) as $mf |
       ($sraw | (try fromjson catch {})) as $old0 |
       (if ($old0 | type) == "object" then $old0 else {} end) as $old |
+      # Per-file subagent watermarks this Stop advanced ("basename<TAB>lines" rows from the
+      # slicer), merged over the stored map in new_state.sub_scanned below.
+      ($subwm | split("\n") | map(sub("\r$"; "") | select(length>0) | split("\t")
+        | select(length==2 and (.[1] | test("^[0-9]+$"))) | {key: .[0], value: (.[1] | tonumber)})
+        | from_entries) as $sw |
       # An anchor id (the project-ritual seed) must never count as a push metric
       # under ANY other kind it also happens to be manifested under (real KB: a
       # project slug can be both the ritual anchor AND a plain wiki page id).
       ([ $mf[] | select(.kind=="anchor") | .id ] | unique) as $anchors |
       ([ $mf[] | .id ] | unique) as $all_ids |
       def nonanchor: select(.id as $i | ($anchors | index($i)) == null);
-      ([ $lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
-         | select(.name=="Read") | (.input.file_path // empty) | gsub("\\\\"; "/") ]) as $reads_arr |
-      ([ $lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
-         | select(.name | test("knowledge_fetch|knowledge_neighbors|code_neighbors"))
-         | (.input.slug // .input.node // empty) ]) as $fetch_arr |
-      # Subagent counterparts of reads_arr/fetch_arr, extracted from every subagent
-      # transcript own tool_use records (same shape as the parent transcript).
-      ([ $sub_lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
-         | select(.name=="Read") | (.input.file_path // empty) | gsub("\\\\"; "/") ]) as $sub_reads_arr |
-      ([ $sub_lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")
-         | select(.name | test("knowledge_fetch|knowledge_neighbors|code_neighbors"))
-         | (.input.slug // .input.node // empty) ]) as $sub_fetch_arr |
+      ([ $lines | tus | select(.name=="Read") | (.input.file_path // empty) | strings | gsub("\\\\"; "/") ]) as $reads_arr |
+      ([ $lines | tus | select((.name // "") | tostring | test("knowledge_fetch|knowledge_neighbors|code_neighbors"))
+         | (.input.slug // .input.node // empty) | strings ]) as $fetch_arr |
+      # Subagent counterparts of reads_arr/fetch_arr, extracted from the NEW subagent
+      # tool_use lines (per-file watermarks: each line is seen by exactly one Stop; the
+      # hit sets below are cumulative in the state, so nothing already counted is lost).
+      ([ $sub_lines | tus | select(.name=="Read") | (.input.file_path // empty) | strings | gsub("\\\\"; "/") ]) as $sub_reads_arr |
+      ([ $sub_lines | tus | select((.name // "") | tostring | test("knowledge_fetch|knowledge_neighbors|code_neighbors"))
+         | (.input.slug // .input.node // empty) | strings ]) as $sub_fetch_arr |
       # $-parameters (bound VALUES, evaluated once at the call site) — NOT bare
       # filter parameters. A bare def with an unprefixed parameter re-evaluates that
       # parameter (re-runs the .id lookup) against whatever the input is at each use
@@ -329,7 +485,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         win_sub_hit_ids: ([ $mf[] | select(.kind != "anchor") | nonanchor | select(if .kind == "codemap" then codemap_hit_sub(.id) else wiki_hit_sub(.id) end) | .id ] | unique),
         win_ritual_ids:  ([ $mf[] | select(.kind == "anchor") | select(wiki_hit(.id)) | .id ] | unique)
       } as $hits |
-      ([ $lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") ]) as $tu |
+      ([ $lines | tus | select(.name | type == "string") ]) as $tu |
       {
         # pulled= is "pulls Claude makes on its own initiative", counted apart from
         # the ritual anchor fetch (ritual=) and from reads of already-injected ids
@@ -354,7 +510,8 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
           agents:     (($old.agents // 0) + $tool.agents_win),
           tiers:      (reduce ($tool.tiers_win | to_entries[]) as $e (($old.tiers // {}); .[$e.key] = ((.[$e.key] // 0) + $e.value))),
           turn:       (($old.turn // 0) + 1),
-          scanned_to: $total
+          scanned_to: $total,
+          sub_scanned: ((($old.sub_scanned // {}) | if type == "object" then . else {} end) + $sw)
         }
       } as $merged |
       ($merged.new_state) as $ns |
@@ -378,8 +535,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         sub_read: ([ $mf[] | select(.kind != "anchor") | nonanchor | .id ] | unique | map(select(. as $i | $ns.sub_hit_ids | index($i) != null)) | length),
         new_state: $ns
       }
-    ' 2>/dev/null | tr -d '\r')
-    [ -n "$SUB_TMP" ] && rm -f "$SUB_TMP" 2>/dev/null
+    ' "$TEL_PAR" 2>/dev/null | tr -d '\r')
 
     if [ -z "$TEL_BIG" ]; then
       sb_log_error "stop-extract.sh" "telemetry: value-loop jq pipeline failed (corrupt manifest/state?) sid=$MANIFEST_SID" 1
@@ -389,11 +545,17 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         # Temp file NEXT TO the target (same directory => same filesystem => the mv
         # below is an atomic rename, not $TMPDIR's cross-filesystem copy+unlink that
         # a killed hook can tear mid-copy (the corrupt-state repro this guards).
-        TEL_STATE_TMP=$(mktemp "$STATE_FILE.XXXXXX" 2>/dev/null) && {
-          printf '%s' "$NEW_STATE_JSON" > "$TEL_STATE_TMP" 2>/dev/null \
-            && mv "$TEL_STATE_TMP" "$STATE_FILE" 2>/dev/null \
-            || { rm -f "$TEL_STATE_TMP"; sb_log_error "stop-extract.sh" "telemetry: state write failed sid=$MANIFEST_SID" 1; }
-        } || sb_log_error "stop-extract.sh" "telemetry: mktemp failed, state not persisted sid=$MANIFEST_SID" 1
+        if TEL_STATE_TMP=$(mktemp "$STATE_FILE.XXXXXX" 2>/dev/null); then
+          if printf '%s' "$NEW_STATE_JSON" > "$TEL_STATE_TMP" 2>/dev/null \
+            && mv "$TEL_STATE_TMP" "$STATE_FILE" 2>/dev/null; then
+            VL_COMMITTED=1
+          else
+            rm -f "$TEL_STATE_TMP"
+            sb_log_error "stop-extract.sh" "telemetry: state write failed sid=$MANIFEST_SID" 1
+          fi
+        else
+          sb_log_error "stop-extract.sh" "telemetry: mktemp failed, state not persisted sid=$MANIFEST_SID" 1
+        fi
       else
         sb_log_error "stop-extract.sh" "telemetry: value-loop new_state extraction failed sid=$MANIFEST_SID" 1
       fi
@@ -455,8 +617,11 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
       # sub_read= is the newest trailing field (S0 B7 ruler ext.) — appended AFTER sid=,
       # never inserted earlier: sid values never contain whitespace, so a downstream
       # whitespace-field-split reader still finds "sid=..." as its own token regardless
-      # of what comes after it.
-      sb_log_error "stop-extract.sh" "gate=value-loop injected=$TEL_INJ read=$TEL_HIT prior=$TEL_PRIOR hits=${TEL_HITS:-none} ritual=$TEL_RITUAL pulled=$TEL_PULLED agents=$TEL_AGENTS tiers=${TEL_TIERS:-none} turn=$TEL_TURN sid=$MANIFEST_SID sub_read=$TEL_SUB_READ" 0
+      # of what comes after it. elapsed_ms= (appended after sub_read=) is the wall time
+      # of this Stop's telemetry block so far (subagent scan + value-loop pass), so a
+      # slow ruler shows up in the ruler itself before it can cost a killed Stop.
+      _se_now_ms
+      sb_log_error "stop-extract.sh" "gate=value-loop injected=$TEL_INJ read=$TEL_HIT prior=$TEL_PRIOR hits=${TEL_HITS:-none} ritual=$TEL_RITUAL pulled=$TEL_PULLED agents=$TEL_AGENTS tiers=${TEL_TIERS:-none} turn=$TEL_TURN sid=$MANIFEST_SID sub_read=$TEL_SUB_READ elapsed_ms=$((_SE_MS - SE_T0))" 0
     fi
   fi
   fi
@@ -468,66 +633,101 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
   # not just a metric. No new hook: this reads `hook_cancelled` attachment records
   # already sitting in the SAME transcript this Stop already read, PLUS the ones
   # recorded only in a subagent's own transcript (a PreToolUse cancellation INSIDE a
-  # dispatched agent never appears in the parent) via the shared SUB_HC_NEW/
-  # HC_SUBWM_NEW gathered above. A cumulative per-sid watermark for the parent
-  # (scanned_to) plus a per-file watermark for subagents (sub_scanned) keeps a later
-  # Stop from re-counting the same attachment record from either source.
+  # dispatched agent never appears in the parent). The slicer above already put ONLY the
+  # new `"hook_cancelled"` lines of both sources into $SE_SCR/hc_in (the substring filter
+  # is the old grep precheck: the common all-empty Stop spawns no grouping jq at all). A
+  # cumulative per-sid watermark for the parent (scanned_to) plus a per-file watermark for
+  # subagents (sub_scanned, MERGED — files skipped this Stop keep their old entry) keeps a
+  # later Stop from re-counting the same attachment record from either source.
   #
-  # Stop is itself a B7 cancellation victim (measured: an unconditional jq pass here
-  # cost +1.4s/+18.5% per Stop even on the common all-empty case) — a cheap `grep -q`
-  # substring precheck over the combined new text decides whether the expensive jq
-  # grouping pass runs at all THIS Stop. ONE jq pass groups+formats every row when it
-  # does run; the bash loop below only calls sb_log_error (no jq spawned per
-  # (hook,script) row).
-  if [ -n "$MANIFEST_SID" ]; then
-    HC_FROM=$(jq -r '.scanned_to // 0' "$HC_STATE" 2>/dev/null | tr -d '\r')
-    case "$HC_FROM" in ''|*[!0-9]*) HC_FROM=0 ;; esac
-    [ "$HC_FROM" -gt "$TOTAL_LINES" ] && HC_FROM=0
-    if [ "$HC_FROM" -lt "$TOTAL_LINES" ] || [ -n "$SUB_HC_NEW" ]; then
-      HC_PARENT_NEW=$(awk -v s="$HC_FROM" 'NR>s' "$TRANSCRIPT" 2>/dev/null)
-      HC_COMBINED_NEW=$(printf '%s\n%s\n' "$HC_PARENT_NEW" "$SUB_HC_NEW")
-      if printf '%s' "$HC_COMBINED_NEW" | grep -q '"hook_cancelled"'; then
-        # \u0001 (SOH) as the field delimiter, not a tab: IFS-whitespace chars
-        # COLLAPSE consecutive delimiters (the exact field-shift bug the value-loop
-        # row's own comment above documents), but a non-whitespace IFS char does not.
-        HC_LINES=$(printf '%s' "$HC_COMBINED_NEW" | jq -R -s -r '
-          (split("\n") | map(select(length>0)) | map(try fromjson catch null) | map(select(. != null))) as $lines |
-          [ $lines[] | select(.type=="attachment" and ((.attachment.type // "")=="hook_cancelled"))
-            | {
-                hook: (.attachment.hookName // "unknown"),
-                script: ((.attachment.command // "") | gsub("\\\\";"/") | sub("\"$";"") | split("/") | last),
-                ms: (.attachment.durationMs // 0)
-              }
-          ] as $hc |
-          ($hc | group_by([.hook,.script])
-            | map({hook: .[0].hook, script: .[0].script, count: length, max_ms: (map(.ms) | max)})
-          ) as $agg |
-          $agg[] | "\(.hook)\u0001\(.script)\u0001\(.count)\u0001\(.max_ms)"
-        ' 2>/dev/null | tr -d '\r')
-        if [ -n "$HC_LINES" ]; then
-          while IFS=$'\x01' read -r HC_HOOK HC_SCRIPT HC_COUNT HC_MAX; do
-            [ -z "$HC_HOOK" ] && continue
-            sb_log_error "stop-extract.sh" "gate=hook-cancelled hook=$HC_HOOK script=$HC_SCRIPT count=$HC_COUNT max_ms=$HC_MAX sid=${MANIFEST_SID:0:8}" 0
-          done <<< "$HC_LINES"
-        fi
+  # ONE jq groups + formats every row; its exit status is checked directly (no pipe to
+  # mask it) and a failure is logged loudly WITHOUT advancing either watermark, so the
+  # next Stop retries the same records. Per-record parsing is tolerant: a non-object
+  # line, a torn line, a non-object attachment or wrong-typed fields drop or degrade
+  # only that record, never the whole window.
+  #   hook=   hookName (else hookEvent). script= the LAST `name.sh`/`name.js` in the
+  #           command — past hook-timer.sh's wrapper, and without the quote/argument that
+  #           follows (`protocol-guard.sh" pre`). No command at all (real PostToolUse
+  #           cancellations carry only hookName/hookEvent) -> script=- and max_ms=-, keyed
+  #           by the event name alone. Both tokens are then reduced to [A-Za-z0-9:._-] so
+  #           a crafted command/hook name cannot inject its own ` count=0` into the row.
+  #   kind=   timeout when the record says timedOut:true; other for every cancellation
+  #           that does not (the no-command records carry no timedOut field — interrupts
+  #           and aborted tool calls). BOTH are counted: either way the hook's verdict
+  #           never reached the tool call.
+  #   elapsed_ms= wall time of this Stop's telemetry block up to these rows.
+  if [ -n "$MANIFEST_SID" ] && [ "$SE_OK" = "1" ] \
+     && { [ "$HC_FROM" -lt "$TOTAL_LINES" ] || [ -s "$SE_SCR/subwm" ]; }; then
+    HC_GROUP_OK=1
+    if [ -s "$SE_SCR/hc_in" ]; then
+      # \u0001 (SOH) as the field delimiter, not a tab: IFS-whitespace chars COLLAPSE
+      # consecutive delimiters (the field-shift bug the value-loop row documents).
+      jq -R -s -r '
+        def tok: if type == "string" and length > 0 then gsub("[^A-Za-z0-9:._-]"; "_") else null end;
+        [ split("\n")[] | select(length > 0) | (try fromjson catch null)
+          | select(type == "object" and .type == "attachment")
+          | .attachment | select(type == "object" and .type == "hook_cancelled")
+          | ((.command | strings) // "") as $cmd
+          | {
+              hook: ((.hookName | tok) // (.hookEvent | tok) // "unknown"),
+              script: (if $cmd == "" then "-"
+                       else ((([$cmd | scan("[^/\\\\\" ]+\\.(?:sh|js)")] | last) // "unknown") | tok) // "unknown" end),
+              kind: (if .timedOut == true then "timeout" else "other" end),
+              ms: (.durationMs | if type == "number" then . else null end)
+            }
+        ] | group_by([.hook, .script, .kind]) | .[]
+        | "\(.[0].hook)\u0001\(.[0].script)\u0001\(.[0].kind)\u0001\(length)\u0001\(([.[].ms | numbers] | max) // "-")"
+      ' "$SE_SCR/hc_in" > "$SE_SCR/hc_rows" 2> "$SE_SCR/hc.err"
+      _se_rc=$?
+      if [ "$_se_rc" -ne 0 ]; then
+        HC_GROUP_OK=0
+        sb_log_error "stop-extract.sh" "hook-cancelled: grouping jq exited $_se_rc ($(head -c 200 "$SE_SCR/hc.err" 2>/dev/null | tr -d '\r\n')); watermarks NOT advanced, retried next Stop sid=$MANIFEST_SID" 1
+      else
+        _se_now_ms; HC_EL=$((_SE_MS - SE_T0))
+        while IFS=$'\x01' read -r HC_HOOK HC_SCRIPT HC_KIND HC_COUNT HC_MAX; do
+          HC_MAX="${HC_MAX%$'\r'}"
+          [ -z "$HC_HOOK" ] && continue
+          sb_log_error "stop-extract.sh" "gate=hook-cancelled hook=$HC_HOOK script=$HC_SCRIPT kind=$HC_KIND count=$HC_COUNT max_ms=$HC_MAX sid=${MANIFEST_SID:0:8} elapsed_ms=$HC_EL" 0
+        done < "$SE_SCR/hc_rows"
       fi
-      # Watermarks (parent scanned_to + per-file sub_scanned) advance regardless of
-      # the precheck outcome: "nothing new this Stop" must still move them so the
-      # NEXT Stop's precheck looks only at genuinely new lines, never the same
-      # already-clean window (or subagent file prefix) again. Subagent files are
-      # never deleted mid-session, so replacing sub_scanned wholesale with this
-      # Stop's freshly built map (rather than merging old+new) is safe and simpler.
-      HC_TMP=$(mktemp "$HC_STATE.XXXXXX" 2>/dev/null) && {
-        jq -n --argjson total "$TOTAL_LINES" --arg subwm "$HC_SUBWM_NEW" '
-          ($subwm | split("\n") | map(select(length>0)) | map(split("\t"))
-            | map(select(length==2)) | map({key: .[0], value: (.[1] | tonumber)}) | from_entries) as $sw |
-          {scanned_to: $total, sub_scanned: $sw}
-        ' > "$HC_TMP" 2>/dev/null \
-          && mv "$HC_TMP" "$HC_STATE" 2>/dev/null \
-          || { rm -f "$HC_TMP"; sb_log_error "stop-extract.sh" "hook-cancelled: state write failed sid=$MANIFEST_SID" 1; }
-      } || sb_log_error "stop-extract.sh" "hook-cancelled: mktemp failed, state not persisted sid=$MANIFEST_SID" 1
+    fi
+    # Watermarks advance whenever the window was read cleanly, rows or not: "nothing
+    # new this Stop" must still move them so the next Stop reads only genuinely new
+    # lines. Temp file next to the target (same filesystem => atomic rename).
+    if [ "$HC_GROUP_OK" = "1" ]; then
+      if HC_TMP=$(mktemp "$HC_STATE.XXXXXX" 2>/dev/null); then
+        if jq -n --rawfile hs "$(_tel_f "$HC_STATE")" --rawfile sw "$(_tel_f "$SE_SCR/subwm")" --argjson total "$TOTAL_LINES" '
+            ((try ($hs | fromjson) catch {}) | if type == "object" then . else {} end) as $o |
+            ($sw | split("\n") | map(sub("\r$"; "") | select(length>0) | split("\t")
+              | select(length==2 and (.[1] | test("^[0-9]+$"))) | {key: .[0], value: (.[1] | tonumber)})
+              | from_entries) as $new |
+            {scanned_to: $total,
+             sub_scanned: ((($o.sub_scanned // {}) | if type == "object" then . else {} end) + $new)}
+          ' > "$HC_TMP" 2>/dev/null && mv "$HC_TMP" "$HC_STATE" 2>/dev/null; then
+          HC_COMMITTED=1
+        else
+          rm -f "$HC_TMP"
+          sb_log_error "stop-extract.sh" "hook-cancelled: state write failed sid=$MANIFEST_SID" 1
+        fi
+      else
+        sb_log_error "stop-extract.sh" "hook-cancelled: mktemp failed, state not persisted sid=$MANIFEST_SID" 1
+      fi
     fi
   fi
+
+  # The subagent scan mark moves forward only when EVERY candidate was read and BOTH
+  # passes committed their per-file watermarks; otherwise the next Stop re-examines the
+  # same candidates (their watermarks make that a no-double-count retry).
+  if [ -n "$SE_SCR" ] && [ -f "$SUB_MARK.new" ]; then
+    if [ "$SUB_CAND" -gt 0 ] && [ "$SUB_COMPLETE" = "1" ] && [ "$VL_COMMITTED" = "1" ] && [ "$HC_COMMITTED" = "1" ]; then
+      mv -f "$SUB_MARK.new" "$SUB_MARK" 2>/dev/null \
+        || sb_log_error "stop-extract.sh" "subagent-scan: cannot move $SUB_MARK.new into place; unchanged files are re-counted next Stop sid=$MANIFEST_SID" 1
+    else
+      rm -f "$SUB_MARK.new"
+    fi
+  fi
+  [ -n "$SE_SCR" ] && rm -rf "$SE_SCR"
+  SE_SCR=""
 
   # --- Subagent-start-miss ruler (B2 residual) — OBSERVATION ONLY. Reads the
   # SubagentStart/end markers another implementer's hooks write to
@@ -543,7 +743,10 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
   # Named agent_ids are tracked in an awk associative array (POSIX awk, not a bash
   # `declare -A` — unrelated to the bash-portability ban); anonymous ("-") starts/
   # ends are tracked as plain counters since they cannot be paired by identity.
-  SUBTSV="$BRAIN_DIR/.injected/$SESSION_ID.subagent.tsv"
+  # The file is keyed by the SANITIZED sid ([A-Za-z0-9_-], <=64 chars) exactly as
+  # protocol-guard.sh's pg_marker writes it — never the raw payload session_id, which
+  # would miss the file (or walk out of .injected/) for any id outside that charset.
+  SUBTSV="$BRAIN_DIR/.injected/$MANIFEST_SID.subagent.tsv"
   if [ -n "$MANIFEST_SID" ] && [ -f "$SUBTSV" ]; then
     SSM=$(awk -F'\t' '
       $1=="start" {
@@ -572,11 +775,11 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
 
   # GC stray per-session markers from sessions that never reached a Stop (7d, same
   # policy as the .injected/ memos). Covers the telemetry manifest + cumulative state,
-  # the hook-cancelled watermark, AND the three verify-gate session markers
-  # (.verify-gate-blocks-*, .verify-gate-agseen-*, .critic-offer-*), which are written
-  # per-session by stop-verify-gate.sh and were never swept. One find, -o group.
-  # Deliberately quiet: GC of already-lost state.
-  find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.value-loop-state-*.json' -o -name '.hook-cancelled-state-*.json' -o -name '.verify-gate-blocks-*' -o -name '.verify-gate-agseen-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
+  # the hook-cancelled watermark, the subagent scan mark, AND the three verify-gate
+  # session markers (.verify-gate-blocks-*, .verify-gate-agseen-*, .critic-offer-*),
+  # which are written per-session by stop-verify-gate.sh and were never swept. One
+  # find, -o group. Deliberately quiet: GC of already-lost state.
+  find "$BRAIN_DIR" -maxdepth 1 \( -name '.injected-manifest-*.jsonl' -o -name '.value-loop-state-*.json' -o -name '.hook-cancelled-state-*.json' -o -name '.subagent-scan-mark-*' -o -name '.verify-gate-blocks-*' -o -name '.verify-gate-agseen-*' -o -name '.critic-offer-*' \) -mtime +7 -exec rm -f {} + 2>/dev/null || true
 fi
 
 # Repo-brain JIT index freshness rebuild (Slice 2, docs/plans/2026-09-24-repo-brain.md §F) —
@@ -632,7 +835,7 @@ TOOL_COUNT=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
 
 if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
   TS_LINES=$NEW_LINES
-  TS_FIRST_TYPE=$(sed -n "${START_LINE}p" "$TRANSCRIPT" 2>/dev/null | jq -r '.type // "no-type"' 2>/dev/null | tr -d '\n')
+  TS_FIRST_TYPE=$(sed -n "${START_LINE}p" "$TRANSCRIPT" 2>/dev/null | jq -r '.type // "no-type"' 2>/dev/null | tr -d '\r\n')
   log_gate "tool-count-zero lines=$TS_LINES first-type=$TS_FIRST_TYPE marker=$LAST_LINE"
   # Advance past the examined window: re-examining it next Stop can't find tools either.
   sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"

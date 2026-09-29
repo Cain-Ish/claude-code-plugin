@@ -206,6 +206,10 @@ Things about this metric that will mislead you otherwise:
   mid-session), so EVERY row's numbers are running totals as of that Stop, not a per-turn delta.
   **Take the LAST row per `sid=` as that session's total** — summing all rows for a sid
   double(triple, …)-counts it.
+- **`read=` includes subagent reads from S0 (2026-09-29) on.** It is the union of the parent
+  transcript and every dispatched subagent's own transcript; the trailing `sub_read=` field (after
+  `sid=`) is the subagent-only share. Rows without `sub_read=` are parent-only, so a jump in `read=`
+  across that boundary is partly the ruler widening, not a delivery change.
 - `hits=[^ \"]*` deliberately stops the `hits=` capture at the first SPACE, not at the closing
   quote — the appended fields (`ritual=`, `pulled=`, `agents=`, `tiers=`, `turn=`, `sid=`) sit
   after `hits=` on the same line, and a pattern that swallows to the closing quote would eat them

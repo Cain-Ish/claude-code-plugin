@@ -725,4 +725,76 @@ echo "$ROW19" | grep -q 'read=1' || fail "Test 19: read should still be 1 (paren
 echo "$ROW19" | grep -q 'sub_read=0' || fail "Test 19: sub_read should be 0 when no subagents dir exists: $ROW19"
 pass "Test 19: no subagents dir leaves sub_read=0 and every other field unchanged"
 
+# --- Test 20 (H1): value-loop keeps a PER-FILE subagent watermark (state .sub_scanned) ---
+# instead of re-reading every subagent transcript on every Stop: Stop 1 records each of
+# the two files' line counts; a fetch appended later to the SECOND file is picked up by
+# Stop 2 (read/sub_read grow), and both watermarks move to the files' new counts. The row
+# carries elapsed_ms= after sub_read=.
+SID20="telemetry-test-subagent-wm"
+WORKDIR20="$TMP/demo20"; mkdir -p "$WORKDIR20" "$BRAIN/projects/demo20"
+printf '# PROJECT: demo20\n\n## Goal\nsubagent watermark demo\n' > "$BRAIN/projects/demo20/PROJECT.md"
+printf '%s\n' '{"kind":"wiki","id":"sub-a"}' '{"kind":"wiki","id":"sub-b"}' > "$BRAIN/.injected-manifest-$SID20.jsonl"
+T20="$TMP/transcript20.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' > "$T20"
+SUBDIR20="$TMP/transcript20/subagents"; mkdir -p "$SUBDIR20"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"one"}}' \
+  '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__knowledge_fetch","input":{"slug":"sub-a"}}]}}' \
+  > "$SUBDIR20/agent-s1.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"two"}}' > "$SUBDIR20/agent-s2.jsonl"
+run_stop20() {
+  printf '{"transcript_path":"%s","cwd":"%s","session_id":"%s"}' "$T20" "$WORKDIR20" "$SID20" \
+    | env PATH="$STUB:$PATH" HOME="$TMP" BRAIN_DIR="$BRAIN" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW" ANTHROPIC_API_KEY="" \
+          bash "$ROOT/scripts/stop-extract.sh" >/dev/null 2>&1
+}
+STATE20="$BRAIN/.value-loop-state-$SID20.json"
+run_stop20
+ROW20A=$(grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID20" | tail -1)
+echo "$ROW20A" | grep -q 'read=1 ' || fail "Test 20: Stop 1 read should be 1 (sub-a fetched in agent-s1): $ROW20A"
+echo "$ROW20A" | grep -qE 'sub_read=1 elapsed_ms=[0-9]+"' || fail "Test 20: Stop 1 should end sub_read=1 elapsed_ms=<n>: $ROW20A"
+jq -e '.sub_scanned == {"agent-s1.jsonl": 2, "agent-s2.jsonl": 1}' "$STATE20" >/dev/null 2>&1 \
+  || fail "Test 20: value-loop state must carry per-file subagent watermarks for BOTH files: $(jq -c '.sub_scanned' "$STATE20" 2>/dev/null)"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__knowledge_fetch","input":{"slug":"sub-b"}}]}}' \
+  >> "$SUBDIR20/agent-s2.jsonl"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"back"}]}}' >> "$T20"
+run_stop20
+ROW20B=$(grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID20" | tail -1)
+echo "$ROW20B" | grep -q 'read=2 ' || fail "Test 20: Stop 2 read should be 2 (sub-a kept + sub-b newly fetched): $ROW20B"
+echo "$ROW20B" | grep -q 'sub_read=2 ' || fail "Test 20: Stop 2 sub_read should be 2: $ROW20B"
+jq -e '.sub_scanned == {"agent-s1.jsonl": 2, "agent-s2.jsonl": 2}' "$STATE20" >/dev/null 2>&1 \
+  || fail "Test 20: agent-s2's watermark must advance to its new count: $(jq -c '.sub_scanned' "$STATE20" 2>/dev/null)"
+pass "Test 20: value-loop per-file subagent watermarks (two files), new lines picked up on the next Stop, elapsed_ms on the row"
+
+# --- Test 21 (LOW): a scratch-space failure is LOUD, never a silent sub_read=0 row ---
+# With mktemp failing for system-temp files, the old code wrote the value-loop row anyway
+# with sub_read=0 (the subagent evidence silently dropped). The Stop must log the failure
+# and write no misleading row (nor advance any watermark).
+SID21="telemetry-test-mktemp-fail"
+WORKDIR21="$TMP/demo21"; mkdir -p "$WORKDIR21" "$BRAIN/projects/demo21"
+printf '# PROJECT: demo21\n\n## Goal\nmktemp failure demo\n' > "$BRAIN/projects/demo21/PROJECT.md"
+printf '%s\n' '{"kind":"wiki","id":"sub-c"}' > "$BRAIN/.injected-manifest-$SID21.jsonl"
+T21="$TMP/transcript21.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' > "$T21"
+mkdir -p "$TMP/transcript21/subagents"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__knowledge_fetch","input":{"slug":"sub-c"}}]}}' \
+  > "$TMP/transcript21/subagents/agent-m1.jsonl"
+REAL_MKTEMP=$(command -v mktemp)
+MKSTUB="$TMP/mktemp-stub"; mkdir -p "$MKSTUB"
+cat > "$MKSTUB/mktemp" <<EOF
+#!/bin/bash
+# System-temp requests (no template, or -d) fail; templated state temps still work.
+if [ \$# -eq 0 ] || [ "\$1" = "-d" ]; then exit 1; fi
+exec "$REAL_MKTEMP" "\$@"
+EOF
+chmod +x "$MKSTUB/mktemp"
+rm -f "$BRAIN/error-log.jsonl"
+printf '{"transcript_path":"%s","cwd":"%s","session_id":"%s"}' "$T21" "$WORKDIR21" "$SID21" \
+  | env PATH="$MKSTUB:$STUB:$PATH" HOME="$TMP" BRAIN_DIR="$BRAIN" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW" ANTHROPIC_API_KEY="" \
+        bash "$ROOT/scripts/stop-extract.sh" >/dev/null 2>&1
+grep -q 'telemetry: mktemp' "$BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "Test 21: a failed scratch mktemp must be logged loudly: $(cat "$BRAIN/error-log.jsonl" 2>/dev/null)"
+grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID21" | grep -q 'sub_read=0' \
+  && fail "Test 21: a value-loop row claiming sub_read=0 was written although the subagent scan never ran"
+[ -f "$BRAIN/.value-loop-state-$SID21.json" ] && fail "Test 21: the value-loop watermark advanced past a window it never scanned"
+pass "Test 21: a scratch mktemp failure is logged loudly; no silent sub_read=0 row, no watermark advance"
+
 echo; echo "ALL PASS"

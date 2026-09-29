@@ -658,17 +658,21 @@ sb_log_audit() {
 # of lines (not the newest) so recent decisions remain queryable. Idempotent:
 # safe to call from any hook; no-op when caps not exceeded.
 #
-# S0 (B7 ruler) retention: `gate=value-loop` and `gate=hook-cancelled` rows are the
-# ONLY measured evidence of the delivery loop and the guard-cancellation defect —
-# the plain halving below used to let them age out with everything else, leaving
-# no trend (docs/concepts/2026-09-27-repo-brain-concept.md §2 "the ruler cannot see
-# delivery": ~17h of history was all the cap left). A row of either gate younger
-# than 30 days is now PROTECTED from the trim; plain rows (guard verdicts) and
-# STALE gate rows (30d+) are dropped first. The hard line-count bound still wins
-# even over protected rows in the pathological case where they alone exceed it —
-# a rotation policy that can grow past its own cap on its own evidence channel is
-# not a cap. Single awk pass: the whole file is read once (buffered into arrays,
-# decided in END{}), never re-read or re-scanned line by line.
+# S0 (B7 ruler) retention: the delivery/safety ruler rows — `gate=value-loop`,
+# `gate=hook-cancelled`, `gate=subagent-start-miss` and `gate=role-card` — are the ONLY
+# measured evidence of the delivery loop and the guard-cancellation defect; plain
+# halving let them age out with everything else, leaving no trend (docs/concepts/
+# 2026-09-27-repo-brain-concept.md §2 "the ruler cannot see delivery": ~17h of history
+# was all the cap left). One rotation keeps `keep` rows (half the file, never above
+# SB_AUDIT_MAX_LINES) chosen newest-first in three passes:
+#   1. young (<30 days) ruler rows, capped at HALF of `keep`;
+#   2. plain rows (guard verdicts, every other trace, stale ruler rows) fill the rest —
+#      their guaranteed floor, so a ruler-heavy log can never evict every guard verdict
+#      and pin the file at its cap (which made every later write rotate again);
+#   3. budget still left once plain rows run out goes to the older young ruler rows.
+# Each rotation writes ONE `gate=audit-rotation kept_prot= kept_plain= dropped=` row
+# (the log says when and what it dropped); a failed rotation is logged loudly. Single
+# awk pass: the file is read once (buffered, decided in END{}).
 sb_rotate_audit_log() {
   [ -f "$SB_AUDIT_FILE" ] || return 0
   local lines bytes
@@ -679,50 +683,49 @@ sb_rotate_audit_log() {
   if [ "$lines" -gt "$SB_AUDIT_MAX_LINES" ] || [ "$bytes" -gt "$SB_AUDIT_MAX_BYTES" ]; then
     local keep=$(( lines / 2 ))
     [ "$keep" -lt 1 ] && keep=1
+    [ "$keep" -gt "$SB_AUDIT_MAX_LINES" ] && keep=$SB_AUDIT_MAX_LINES
     # GNU/BSD date fallback (same pattern used elsewhere for last_used-style cutoffs).
     local cutoff
     cutoff=$(date -u -v-30d +%Y-%m-%d 2>/dev/null || date -u -d '30 days ago' +%Y-%m-%d 2>/dev/null || echo '1970-01-01')
-    local tmp="$SB_AUDIT_FILE.tmp.$$"
-    awk -v keep="$keep" -v hardcap="$SB_AUDIT_MAX_LINES" -v cutoff="$cutoff" '
+    local tmp="$SB_AUDIT_FILE.tmp.$$" stats="$SB_AUDIT_FILE.rot.$$"
+    if awk -v keep="$keep" -v cutoff="$cutoff" '
       {
         n++
         text[n] = $0
         isprot = 0
-        if (index($0, "\"message\":\"gate=value-loop") > 0 || index($0, "\"message\":\"gate=hook-cancelled") > 0) {
-          tsline = $0
-          if (match(tsline, /"timestamp":"[^"]*"/)) {
-            tsval = substr(tsline, RSTART + 13, RLENGTH - 14)
+        if (index($0, "\"message\":\"gate=value-loop ") || index($0, "\"message\":\"gate=hook-cancelled ") \
+            || index($0, "\"message\":\"gate=subagent-start-miss ") || index($0, "\"message\":\"gate=role-card ")) {
+          if (match($0, /"timestamp":"[^"]*"/)) {
+            tsval = substr($0, RSTART + 13, RLENGTH - 14)
             if (substr(tsval, 1, 10) >= cutoff) isprot = 1
           }
         }
         prot[n] = isprot
       }
       END {
-        total = n
-        # Pass 1 (newest to oldest): keep protected rows first, capped at the hard
-        # bound even if that means dropping the OLDEST protected rows too.
-        protkept = 0
-        for (i = total; i >= 1; i--) {
-          if (prot[i] && protkept < hardcap) { keepline[i] = 1; protkept++ }
-        }
-        want = keep
-        if (protkept > want) want = protkept
-        if (want > hardcap) want = hardcap
-        other_needed = want - protkept
-        if (other_needed < 0) other_needed = 0
-        other_seen = 0
-        # Pass 2 (newest to oldest): fill the remaining budget with the newest
-        # non-protected (or stale-protected) rows — these drop FIRST as the file
-        # grows, never the young gate rows, until the hard bound forces both.
-        for (i = total; i >= 1; i--) {
-          if (keepline[i]) continue
-          if (other_seen < other_needed) { keepline[i] = 1; other_seen++ }
-        }
-        for (i = 1; i <= total; i++) if (keepline[i]) print text[i]
+        protcap = int(keep / 2)
+        kp = 0; kpl = 0
+        for (i = n; i >= 1 && kp < protcap; i--) if (prot[i]) { kl[i] = 1; kp++ }
+        for (i = n; i >= 1 && kp + kpl < keep; i--) if (!prot[i]) { kl[i] = 1; kpl++ }
+        for (i = n; i >= 1 && kp + kpl < keep; i--) if (!kl[i]) { kl[i] = 1; kp++ }
+        for (i = 1; i <= n; i++) if (kl[i]) print text[i]
+        printf "%d %d %d\n", kp, kpl, n - kp - kpl > "/dev/stderr"
       }
-    ' "$SB_AUDIT_FILE" > "$tmp" 2>/dev/null \
-      && mv "$tmp" "$SB_AUDIT_FILE" \
-      || rm -f "$tmp" 2>/dev/null
+    ' "$SB_AUDIT_FILE" > "$tmp" 2> "$stats" && mv "$tmp" "$SB_AUDIT_FILE"; then
+      local kp="" kpl="" dropped="" ts
+      read -r kp kpl dropped < "$stats"
+      rm -f "$stats"
+      case "$kp" in ''|*[!0-9]*) kp="?" ;; esac
+      case "$kpl" in ''|*[!0-9]*) kpl="?" ;; esac
+      case "$dropped" in ''|*[!0-9]*) dropped="?" ;; esac
+      ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      printf '{"timestamp":"%s","script":"lib.sh","message":"gate=audit-rotation kept_prot=%s kept_plain=%s dropped=%s","exit_code":0}\n' \
+        "$ts" "$kp" "$kpl" "$dropped" >> "$SB_AUDIT_FILE" 2>/dev/null
+    else
+      rm -f "$tmp" "$stats" 2>/dev/null
+      # error-log channel (sb_rotate_log), never this function again: no recursion.
+      sb_log_error "lib.sh" "audit-log rotation failed (awk/mv) — $SB_AUDIT_FILE left untrimmed at $lines lines" 1
+    fi
   fi
 }
 
@@ -1526,7 +1529,10 @@ sb_archive_transcript() {
 sb_archive_subagent_result() {
   local agent_id="$1" agent_type="$2" slug="$3" session_id="$4" tool_count="$5" result="$6"
   local archive_dir="$BRAIN_DIR/transcripts"
-  mkdir -p "$archive_dir" 2>/dev/null || return 1
+  if ! mkdir -p "$archive_dir" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: cannot create $archive_dir — subagent result NOT archived (agent_id=$agent_id)" 1
+    return 1
+  fi
   local date_str safe_aid
   date_str=$(date +%Y-%m-%d)
   # sanitize agent_id for use as a filename component (defense in depth — it comes
@@ -1535,7 +1541,12 @@ sb_archive_subagent_result() {
   [ -n "$safe_aid" ] || safe_aid="unknown"
   local archive_file="$archive_dir/sub-${safe_aid}_${slug}_${date_str}.txt"
 
-  {
+  # The write is CHECKED, twice: the redirect's own status (unwritable dir, a directory
+  # squatting on the name) and the written size, which must hold at least the result
+  # text itself (${#result} counts characters, never more than its bytes) — a short
+  # or empty file is a silently lost result, the SF-M3 class. Fail loud, never `|| true`.
+  local written
+  if ! {
     echo "--- session-meta ---"
     echo "session_id: $session_id"
     echo "project_slug: $slug"
@@ -1547,7 +1558,16 @@ sb_archive_subagent_result() {
     echo "---"
     echo ""
     printf 'ASSISTANT:\n%s\n' "$result"
-  } > "$archive_file"
+  } > "$archive_file" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: write failed for $archive_file — subagent result NOT archived (agent_id=$safe_aid)" 1
+    return 1
+  fi
+  written=$(wc -c < "$archive_file" 2>/dev/null | tr -d ' ')
+  case "$written" in ''|*[!0-9]*) written=0 ;; esac
+  if [ "$written" -lt "${#result}" ]; then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: short write ${written}B < ${#result}-char result in $archive_file (agent_id=$safe_aid)" 1
+    return 1
+  fi
 
   # Prune subagent archives under their OWN budget FIRST, so a busy multi-agent
   # session (hundreds of subagents) can never crowd main-session archives out of
@@ -1571,6 +1591,7 @@ sb_archive_subagent_result() {
   fi
 
   sb_prune_transcripts
+  return 0
 }
 
 # --- Observation ledger mining (P0 rec 5, capture widening) -----------------
@@ -3561,6 +3582,8 @@ sb_rules_hard_lines() {
     [ -s "$f" ] || f="$(sb_plugin_root)/scripts/persona-rules.default.json"
   fi
   [ -s "$f" ] || return 0
-  jq -r --argjson n "$max" '[.rules[]? | select((.enabled // true) and (.action=="ask" or .action=="deny"))
+  # `.enabled != false`, never `(.enabled // true)`: `//` treats false as absent, so an
+  # explicitly disabled rule would be listed as enforced (the jq `// true` trap).
+  jq -r --argjson n "$max" '[.rules[]? | select(.enabled != false and (.action=="ask" or .action=="deny"))
       | "- " + (.name // "rule") + ": " + (((.reason // "") | gsub("[\r\n`]"; " "))[0:120])] | .[0:$n] | .[]' "$f" 2>/dev/null | tr -d '\r'
 }
