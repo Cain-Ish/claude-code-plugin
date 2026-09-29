@@ -9,6 +9,8 @@
 #   they resolve to a dispatch ALIAS (never leak a full model ID into a card or a rewrite).
 # pins: SB_NESTED_SPAWN — scrubbed in run()'s hermeticity list so a stray value in the
 #   calling shell can't leak into protocol-guard.sh's own re-entrancy guard under test.
+# run-all-timeout: 300   (~60 protocol-guard.sh runs, several doing the full live role-card
+#   build; 23 s quiet, 76-78 s measured on MSYS under concurrent-suite load, 2026-09-28)
 #
 # docs/plans/2026-09-24-repo-brain.md Slice 1: SessionStart protocol card, PreToolUse
 # Agent/Task delegation-tier warn (+ opt-in rewrite), SubagentStart role cards, and the
@@ -373,13 +375,28 @@ OUT=$(run subagent '{"hook_event_name":"SubagentStart","agent_type":"Explore","a
 HEN=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.hookEventName // "null"' 2>/dev/null)
 [ "$HEN" = "SubagentStart" ] && pass "subagent role card: hookEventName=SubagentStart" || fail "subagent role card: hookEventName=$HEN"
 case "$OUT" in *"Role card"*SCOUT*) pass "subagent role card: contains Role card + SCOUT" ;; *) fail "subagent role card: missing Role card/SCOUT" "$OUT" ;; esac
-case "$OUT" in *"HARD (enforced)"*) pass "subagent role card: contains HARD (enforced)" ;; *) fail "subagent role card: missing HARD (enforced)" "$OUT" ;; esac
+# S0 B5: the HARD lines are labelled for what they are — plugin defaults (no repo rules.json here),
+# enforced by hooks — not presented as this repo's rules.
+case "$OUT" in *"HARD - plugin defaults (all repos), enforced by hooks:"*) pass "subagent role card: HARD block labelled as plugin defaults enforced by hooks" ;; *) fail "subagent role card: missing plugin-defaults HARD label" "$OUT" ;; esac
 RBYTES=$(ctx_bytes "$OUT")
 [ "$RBYTES" -le 900 ] && pass "subagent role card: byte length <=900 (got $RBYTES)" || fail "subagent role card: byte length $RBYTES > 900"
 case "$(audit_tail)" in
   *'gate=role-card agent=Explore tier=SCOUT'*'verdict=ok'*) pass "subagent role card: row matches" ;;
   *) fail "subagent role card: row wrong" "$(audit_tail)" ;;
 esac
+# S0 B2 miss detection: a `start` line lands in the per-session marker file before any work and
+# an `end` line after the row, so a start with no end is a counted miss (a killed hook writes no
+# row at all — hook-timer.sh cannot log a kill).
+MARKF="$BRAIN/.injected/s3.subagent.tsv"
+TAB=$(printf '\t')
+if grep -qxF "start${TAB}a1" "$MARKF" 2>/dev/null; then pass "miss detection: start marker 'start<TAB>a1' written"
+else fail "miss detection: no 'start<TAB>a1' line in $MARKF" "$(cat "$MARKF" 2>/dev/null)"; fi
+if grep -qF "end${TAB}a1${TAB}ok" "$MARKF" 2>/dev/null; then pass "miss detection: end marker 'end<TAB>a1<TAB>ok' written"
+else fail "miss detection: no 'end<TAB>a1<TAB>ok' line in $MARKF" "$(cat "$MARKF" 2>/dev/null)"; fi
+START_LN=$(grep -nF "start${TAB}a1" "$MARKF" 2>/dev/null | head -1 | cut -d: -f1)
+END_LN=$(grep -nF "end${TAB}a1${TAB}" "$MARKF" 2>/dev/null | head -1 | cut -d: -f1)
+[ -n "$START_LN" ] && [ -n "$END_LN" ] && [ "$START_LN" -lt "$END_LN" ] \
+  && pass "miss detection: start precedes end" || fail "miss detection: start/end order wrong (start=$START_LN end=$END_LN)"
 
 # --- review fix (i): the 900 B cap must never drop the mandatory Return: line, and the
 # row's hard= must equal what actually rendered — not the pre-truncation rule count.
@@ -474,6 +491,152 @@ ERRLOG_HITS2=$(grep -c 'missing role:SCOUT' "$BRAIN/error-log.jsonl" 2>/dev/null
 [ "${ERRLOG_HITS2:-0}" -ge 1 ] && pass "silent-failure fix: 'missing role:SCOUT' logged" \
   || fail "silent-failure fix: 'missing role:SCOUT' not logged" "$(cat "$BRAIN/error-log.jsonl" 2>/dev/null)"
 
+# ===== S0 B2: role cards precomputed at SessionStart, read from a per-session cache ==========
+# run_root <plugin-root> <mode> <payload> [ENV=val ...]: run() with a chosen CLAUDE_PLUGIN_ROOT.
+run_root() {
+  local root="$1" mode="$2" payload="$3"; shift 3
+  printf '%s' "$payload" | env $HERMETIC_U "$@" HOME="$SB_HOME" BRAIN_DIR="$BRAIN" \
+    CLAUDE_PLUGIN_ROOT="$root" SB_MODEL_LADDER="$LADDER" bash "$SCRIPT" "$mode"
+}
+CROOT="$SANDBOX/croot"
+rm -rf "$CROOT"; mkdir -p "$CROOT/scripts" "$CROOT/skills/using-second-brain"
+cp "$REPO_ROOT/scripts/lib.sh" "$REPO_ROOT/scripts/kb-schema.sh" "$REPO_ROOT/scripts/persona-rules.default.json" "$CROOT/scripts/"
+cp "$REPO_ROOT/skills/using-second-brain/protocol.md" "$CROOT/skills/using-second-brain/"
+RCF="$BRAIN/.injected/scache.rolecard.tsv"
+rm -f "$RCF"
+reset_audit
+OUT_CC=$(run_root "$CROOT" card '{"hook_event_name":"SessionStart","source":"startup","session_id":"scache"}')
+case "$OUT_CC" in *"Working agreement"*) pass "rolecard cache: card mode still prints the protocol card" ;; *) fail "rolecard cache: card mode lost its card" "$OUT_CC" ;; esac
+if [ -s "$RCF" ]; then pass "rolecard cache: card mode wrote $RCF"; else fail "rolecard cache: card mode wrote no per-session cache"; fi
+RC_TIERS=$(grep -cE "^(SCOUT|DO|THINK)${TAB}" "$RCF" 2>/dev/null); RC_TIERS="${RC_TIERS:-0}"
+[ "$RC_TIERS" = "3" ] && pass "rolecard cache: all three tiers precomputed" || fail "rolecard cache: $RC_TIERS/3 tiers in cache" "$(cat "$RCF" 2>/dev/null)"
+
+# Structural proof of the cache-hit path: with lib.sh GONE from the plugin root, the live build
+# (which sources lib.sh, resolves models, merges rules) cannot run at all — so a card that still
+# arrives came from the cache. The PATH shims additionally prove no awk/git/mkdir/mv spawns and
+# at most one jq (the payload parse); `date` is allowed once for bash < 4.2 (macOS 3.2).
+mv "$CROOT/scripts/lib.sh" "$CROOT/scripts/lib.sh.off"
+SPAWN_LOG_RC="$SANDBOX/spawns-rc"; : > "$SPAWN_LOG_RC"
+reset_audit
+OUT_HIT=$(run_root "$CROOT" subagent '{"hook_event_name":"SubagentStart","agent_type":"general-purpose","agent_id":"ac1","session_id":"scache"}' \
+  PATH="$SPAWN_BIN:$PATH" SB_SPAWN_LOG="$SPAWN_LOG_RC")
+HEN_HIT=$(printf '%s' "$OUT_HIT" | jq -r '.hookSpecificOutput.hookEventName // "null"' 2>/dev/null | tr -d '\r')
+[ "$HEN_HIT" = "SubagentStart" ] && pass "rolecard cache hit: card emitted with lib.sh absent (live build impossible)" \
+  || fail "rolecard cache hit: no card without lib.sh — the hot path still needs the live build" "$OUT_HIT"
+case "$OUT_HIT" in *"Role card - DO"*"Return: findings first"*) pass "rolecard cache hit: DO card with its Return: line" ;; *) fail "rolecard cache hit: wrong card" "$OUT_HIT" ;; esac
+case "$(audit_tail)" in
+  *'gate=role-card agent=general-purpose tier=DO'*'verdict=ok'*'src=cache'*'aid=ac1'*'sid=scache'*) pass "rolecard cache hit: row verdict=ok src=cache aid=ac1" ;;
+  *) fail "rolecard cache hit: row wrong" "$(audit_tail)" ;;
+esac
+RC_JQ=$(grep -cx 'jq' "$SPAWN_LOG_RC" 2>/dev/null); RC_JQ="${RC_JQ:-0}"
+RC_ALL=$(grep -cv '^date$' "$SPAWN_LOG_RC" 2>/dev/null); RC_ALL="${RC_ALL:-0}"
+RC_DATE=$(grep -cx 'date' "$SPAWN_LOG_RC" 2>/dev/null); RC_DATE="${RC_DATE:-0}"
+[ "$RC_JQ" -le 1 ] && [ "$RC_ALL" -le 1 ] && [ "$RC_DATE" -le 1 ] \
+  && pass "rolecard cache hit: spawns = ${RC_JQ} jq + ${RC_DATE} date, nothing else" \
+  || fail "rolecard cache hit: hot path spawned more than one jq (+date)" "$(cat "$SPAWN_LOG_RC" 2>/dev/null)"
+mv "$CROOT/scripts/lib.sh.off" "$CROOT/scripts/lib.sh"
+
+# Stale cache -> live build fallback, which also refreshes the cache for the next dispatch.
+touch -t 200001010000 "$RCF"
+touch -t 200001010000 "$SANDBOX/ref-old"
+reset_audit
+OUT_LIVE=$(run_root "$CROOT" subagent '{"hook_event_name":"SubagentStart","agent_type":"Explore","agent_id":"ac2","session_id":"scache"}')
+case "$OUT_LIVE" in *"Role card - SCOUT"*) pass "rolecard stale cache: live build still emits the card" ;; *) fail "rolecard stale cache: no card" "$OUT_LIVE" ;; esac
+case "$(audit_tail)" in *'verdict=ok'*'src=live'*) pass "rolecard stale cache: row src=live" ;; *) fail "rolecard stale cache: row not src=live" "$(audit_tail)" ;; esac
+[ "$RCF" -nt "$SANDBOX/ref-old" ] && pass "rolecard stale cache: live build rewrote the cache" || fail "rolecard stale cache: cache not refreshed"
+reset_audit
+run_root "$CROOT" subagent '{"hook_event_name":"SubagentStart","agent_type":"Explore","agent_id":"ac3","session_id":"scache"}' >/dev/null
+case "$(audit_tail)" in *'src=cache'*) pass "rolecard stale cache: next dispatch is a cache hit again" ;; *) fail "rolecard stale cache: next dispatch not a hit" "$(audit_tail)" ;; esac
+# A session slug memo that disagrees with the slug the cache was built for forces a rebuild.
+printf 'someotherrepo' > "$BRAIN/.injected/scache.slug"
+reset_audit
+run_root "$CROOT" subagent '{"hook_event_name":"SubagentStart","agent_type":"Explore","agent_id":"ac4","session_id":"scache"}' >/dev/null
+case "$(audit_tail)" in *'src=live'*) pass "rolecard cache: slug memo mismatch forces a live rebuild" ;; *) fail "rolecard cache: slug mismatch served a stale card" "$(audit_tail)" ;; esac
+rm -f "$BRAIN/.injected/scache.slug"
+# A torn/corrupt tier line is never emitted verbatim: it is a logged miss, rebuilt live.
+run_root "$CROOT" card '{"hook_event_name":"SessionStart","source":"startup","session_id":"scache"}' >/dev/null
+# The rewritten file is the newest input, so only the corrupt line (not staleness) can force a rebuild.
+{ head -1 "$RCF"; printf 'SCOUT\t12\t0\tnot-an-envelope\n'; grep -E "^(DO|THINK)${TAB}" "$RCF"; } > "$RCF.x" && mv "$RCF.x" "$RCF"
+: > "$BRAIN/error-log.jsonl"
+reset_audit
+OUT_TORN=$(run_root "$CROOT" subagent '{"hook_event_name":"SubagentStart","agent_type":"Explore","agent_id":"ac5","session_id":"scache"}')
+case "$OUT_TORN" in *'not-an-envelope'*) fail "rolecard cache: corrupt line was emitted verbatim" "$OUT_TORN" ;; *"Role card - SCOUT"*) pass "rolecard cache: corrupt tier line -> live card, never the raw line" ;; *) fail "rolecard cache: corrupt line -> no card" "$OUT_TORN" ;; esac
+case "$(audit_tail)" in *'src=live'*) pass "rolecard cache: corrupt line row src=live" ;; *) fail "rolecard cache: corrupt line row wrong" "$(audit_tail)" ;; esac
+grep -q 'role-card cache line for SCOUT unreadable' "$BRAIN/error-log.jsonl" 2>/dev/null && pass "rolecard cache: corrupt line logged (fail loud)" \
+  || fail "rolecard cache: corrupt line not logged" "$(cat "$BRAIN/error-log.jsonl" 2>/dev/null)"
+
+# ===== S0 B2: a malformed payload is named as such, not as a missing agent_type ==============
+: > "$BRAIN/error-log.jsonl"
+reset_audit
+OUT_BAD=$(run subagent '{"hook_event_name":"SubagentStart","agent_type":"Explore","agent_id":"abad","session_id":"sbad"')
+BAD_RC=$?
+[ "$BAD_RC" -eq 0 ] && pass "bad payload: exit 0" || fail "bad payload: exit $BAD_RC"
+[ -z "$OUT_BAD" ] && pass "bad payload: emits nothing" || fail "bad payload: emitted output" "$OUT_BAD"
+case "$(audit_tail)" in *'gate=role-card'*'verdict=skip reason=bad-payload'*) pass "bad payload: row verdict=skip reason=bad-payload" ;; *) fail "bad payload: row wrong" "$(audit_tail)" ;; esac
+case "$(audit_all)" in *'reason=no-agent-type'*) fail "bad payload: still logged the misleading reason=no-agent-type" "$(audit_all)" ;; *) pass "bad payload: no misleading no-agent-type row" ;; esac
+grep -q 'bad-payload' "$BRAIN/error-log.jsonl" 2>/dev/null && pass "bad payload: error-log entry written (fail loud)" \
+  || fail "bad payload: no error-log entry" "$(cat "$BRAIN/error-log.jsonl" 2>/dev/null)"
+grep -qF "end${TAB}abad${TAB}skip${TAB}bad-payload" "$BRAIN/.injected/sbad.subagent.tsv" 2>/dev/null \
+  && pass "bad payload: start/end markers still pair (end ... skip bad-payload)" \
+  || fail "bad payload: marker file lacks the end line" "$(cat "$BRAIN/.injected/sbad.subagent.tsv" 2>/dev/null)"
+reset_audit
+OUT_BAD2=$(run subagent 'this is not json')
+[ -z "$OUT_BAD2" ] && pass "bad payload (not JSON): emits nothing" || fail "bad payload (not JSON): emitted output" "$OUT_BAD2"
+case "$(audit_tail)" in *'verdict=skip reason=bad-payload'*) pass "bad payload (not JSON): reason=bad-payload" ;; *) fail "bad payload (not JSON): row wrong" "$(audit_tail)" ;; esac
+reset_audit
+OUT_BAD3=$(run subagent '["SubagentStart"]')
+case "$(audit_tail)" in *'verdict=skip reason=bad-payload'*) pass "bad payload (JSON, not an object): reason=bad-payload" ;; *) fail "bad payload (JSON array): row wrong" "$(audit_tail)" ;; esac
+
+# ===== S0 B5: repo rules come first, under their own label ===================================
+mkdir -p "$BRAIN/projects/demo"
+printf 'demo' > "$BRAIN/.injected/srepo.slug"
+cat > "$BRAIN/projects/demo/rules.json" <<'JSON'
+{"rules":[{"name":"repo-no-force","tool":"Bash","action":"ask","match_command":"git push --force","reason":"This repo forbids force pushes to shared branches."}]}
+JSON
+reset_audit
+OUT_REPO=$(run subagent '{"hook_event_name":"SubagentStart","agent_type":"general-purpose","agent_id":"arepo","session_id":"srepo"}')
+CTX_REPO=$(printf '%s' "$OUT_REPO" | jq -j '.hookSpecificOutput.additionalContext' 2>/dev/null | tr -d '\r')
+case "$CTX_REPO" in
+  *"HARD - this repo (rules.json), enforced by hooks:"*"- repo-no-force:"*"HARD - plugin defaults (all repos), enforced by hooks:"*)
+    pass "repo rules: repo label + rule precede the plugin-defaults label" ;;
+  *) fail "repo rules: repo rule not first / labels wrong" "$CTX_REPO" ;;
+esac
+FIRST_HARD=$(printf '%s\n' "$CTX_REPO" | grep '^- ' | head -1)
+case "$FIRST_HARD" in "- repo-no-force:"*) pass "repo rules: first HARD line is the repo rule" ;; *) fail "repo rules: first HARD line is '$FIRST_HARD'" "$CTX_REPO" ;; esac
+REPO_BYTES=$(ctx_bytes "$OUT_REPO")
+[ "$REPO_BYTES" -le 900 ] && pass "repo rules: card still <=900 B (got $REPO_BYTES)" || fail "repo rules: card $REPO_BYTES > 900"
+case "$CTX_REPO" in *"Return: findings first, files:lines, <=2k tokens, a Gaps: section."*) pass "repo rules: Return: line kept" ;; *) fail "repo rules: Return: line lost" "$CTX_REPO" ;; esac
+REPO_ROW_HARD=$(audit_tail); REPO_ROW_HARD="${REPO_ROW_HARD#*hard=}"; REPO_ROW_HARD="${REPO_ROW_HARD%% *}"
+REPO_OUT_HARD=$(printf '%s\n' "$CTX_REPO" | grep -c '^- ')
+[ "$REPO_ROW_HARD" = "$REPO_OUT_HARD" ] && pass "repo rules: row hard=$REPO_ROW_HARD matches rendered lines" \
+  || fail "repo rules: row hard=$REPO_ROW_HARD != rendered $REPO_OUT_HARD" "$(audit_tail)"
+rm -rf "$BRAIN/projects/demo"
+
+# ===== S0 ruler P4: the JIT seen-set is per agent, not per session ===========================
+JB="$SANDBOX/jitbrain"; JREPO="$SANDBOX/jrepo"
+mkdir -p "$JB/.injected" "$JB/projects/demo" "$JREPO/scripts"
+printf 'demo' > "$JB/.injected/sj.slug"
+cat > "$JB/projects/demo/jit-index.json" <<'JSON'
+{"schema":1,"slug":"demo","generated_at":"2026-01-01T00:00:00Z","git_rev":"abc",
+ "items":[{"id":"p1","kind":"lesson","globs":["scripts/lib.sh"],"line":"CRLF breaks readers of scripts/lib.sh"}]}
+JSON
+jit_read() {  # $1 = agent_id ("" = main thread: PreToolUse from the parent carries no agent_id)
+  local extra=""
+  [ -n "$1" ] && extra=',"agent_id":"'"$1"'","agent_type":"general-purpose"'
+  printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Read","session_id":"sj","cwd":"'"$JREPO"'","tool_input":{"file_path":"'"$JREPO"'/scripts/lib.sh"}'"$extra"'}' \
+    | env $HERMETIC_U HOME="$SB_HOME" BRAIN_DIR="$JB" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+      SB_MODEL_LADDER="$LADDER" CLAUDE_PROJECT_DIR="$JREPO" bash "$SCRIPT" pre
+}
+J1=$(jit_read agA); J2=$(jit_read agB); J3=$(jit_read agA); J4=$(jit_read ""); J5=$(jit_read "")
+case "$J1" in *'[[p1]]'*) pass "jit per-agent: agent A gets p1" ;; *) fail "jit per-agent: agent A did not get p1" "$J1" ;; esac
+case "$J2" in *'[[p1]]'*) pass "jit per-agent: sibling agent B also gets p1 (A did not consume it)" ;; *) fail "jit per-agent: sibling B starved by A's delivery" "$J2" ;; esac
+[ -z "$J3" ] && pass "jit per-agent: agent A's repeat Read is silent (once per agent+item)" || fail "jit per-agent: agent A got p1 twice" "$J3"
+case "$J4" in *'[[p1]]'*) pass "jit per-agent: main thread keeps its own seen-set (gets p1)" ;; *) fail "jit per-agent: main thread starved by subagents" "$J4" ;; esac
+[ -z "$J5" ] && pass "jit per-agent: main thread repeat is silent" || fail "jit per-agent: main thread got p1 twice" "$J5"
+J_MAN=$(grep -cxF '{"kind":"jit","id":"p1"}' "$JB/.injected-manifest-sj.jsonl" 2>/dev/null); J_MAN="${J_MAN:-0}"
+[ "$J_MAN" = "3" ] && pass "jit per-agent: manifest format unchanged, one {kind:jit,id:p1} line per delivery (3)" \
+  || fail "jit per-agent: manifest has $J_MAN p1 lines (want 3)" "$(cat "$JB/.injected-manifest-sj.jsonl" 2>/dev/null)"
+
 # RED (paste in PR): against the scaffold's stub `pg_subagent() { :; }`, every case in
 # this section prints nothing and every audit-row assertion fails — RED on all of it.
 
@@ -487,6 +650,40 @@ if [ -f "$PMD" ]; then
   for r in SCOUT DO THINK; do
     RB=$(awk "/^<!-- role:${r}:begin/{f=1;next}/^<!-- role:${r}:end/{f=0}f" "$PMD")
     [ -n "$RB" ] && pass "protocol.md: role:$r block present" || fail "protocol.md: role:$r block missing/empty"
+  done
+  # S0 B5: role blocks state facts, not commands (Claude Code's hook docs: injected context is
+  # read as information about the situation; the old imperatives told a research dispatch to
+  # "write the test first"). Lock: no second-person address, and no sentence (block start, or
+  # after . : ; ! ? or a standalone " - ") opens with an imperative verb. All-caps tokens are tier
+  # names or format tokens (SCOUT, DO, THINK, READY), never verbs — DO is not "do".
+  IMPERATIVE_WORDS='you|write|end|return|locate|refute|name|assume|budget|run|use|do|don.t|never|always|make|check|keep|follow|report|search|verify|record|think|state|put|include|avoid|prefer|read|list|find|confirm|stop|begin|start|give|provide|ensure|add|fix|edit|change|implement|review|look|go|try|be|let|note|remember|cite|show|answer|reply|finish|close'
+  for r in SCOUT DO THINK; do
+    RB=$(awk "/^<!-- role:${r}:begin/{f=1;next}/^<!-- role:${r}:end/{f=0}f" "$PMD" | tr -d '\r' | tr '\n' ' ')
+    if printf '%s' "$RB" | grep -Eiq '(^|[^[:alpha:]])you([^[:alpha:]]|$)'; then
+      fail "protocol.md: role:$r addresses the reader as 'you' (state facts instead)" "$RB"
+    else
+      pass "protocol.md: role:$r has no second-person address"
+    fi
+    starts=""; prev="."
+    set -f
+    for w in $RB; do
+      case "$prev" in
+        *[.:\;!?]|-)
+          w2="${w#"${w%%[[:alpha:]]*}"}"; w2="${w2%%[!\'[:alpha:]]*}"
+          case "$w2" in
+            '') : ;;
+            *[[:lower:]]*|?) starts="$starts$w2
+" ;;
+            *) : ;;   # all caps: a tier name or format token
+          esac
+          ;;
+      esac
+      prev="$w"
+    done
+    set +f
+    bad=$(printf '%s' "$starts" | grep -Eix "$IMPERATIVE_WORDS" | tr '\n' ' ')
+    [ -z "$bad" ] && pass "protocol.md: role:$r has no sentence opening with an imperative verb" \
+      || fail "protocol.md: role:$r sentences open with imperative verbs: $bad" "$RB"
   done
 fi
 SKILL_MD="$REPO_ROOT/skills/using-second-brain/SKILL.md"
