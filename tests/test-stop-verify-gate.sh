@@ -499,6 +499,119 @@ OUT=$(mk_input_cwd "$T" "$AGR2" | bash "$GATE" 2>/dev/null || true)
 assert_approve "anti-game: innocent chain (rm's own argument is not a test) not flagged" "$OUT"
 rm -rf "$AGR2"
 
+# --- B6 (borrow-ledger V1): evidence is a TOOL CALL after the last edit ---------
+# Prose is never evidence (it can name any skill), Skill calls count only when their
+# name is EXACTLY on the verification allowlist and they ran after the last edit, and
+# an in-place edit made through Bash moves the "last edit" point like Edit/Write do.
+add_text_of() {  # file text
+  jq -nc --arg t "$2" '{type:"assistant",message:{role:"assistant",content:[{type:"text",text:$t}]}}' >> "$1"
+}
+add_skill_of() {  # file skill-name
+  jq -nc --arg s "$2" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Skill",input:{skill:$s}}]}}' >> "$1"
+}
+b6_case() {  # expect(block|approve) label turn-fn...  (each turn fn gets the transcript path)
+  local expect="$1" label="$2"; shift 2
+  local t; t=$(mk_transcript)
+  local fn; for fn in "$@"; do "$fn" "$t"; done
+  local out; out=$(mk_input "$t" | bash "$GATE" 2>/dev/null || true)
+  if [ "$expect" = "block" ]; then assert_block "B6: $label" "$out"; else assert_approve "B6: $label" "$out"; fi
+}
+
+# Prose after the edit: every one of these satisfied the old SKILL_EVIDENCE grep.
+_p_review()   { add_text_of "$1" "Done. Run /review before merging."; }
+_p_urls()     { add_text_of "$1" "See https://github.com/o/r/pull/107/reviews and docs/qa/notes for context."; }
+_p_parrot()   { add_text_of "$1" "I will invoke relevant review skills (/review, /security-review, /simplify)."; }
+b6_case block "prose naming /review after the edit"               add_edit_turn _p_review
+b6_case block "prose with review/qa URL fragments after the edit" add_edit_turn _p_urls
+b6_case block "prose parroting the gate's own block reason"       add_edit_turn _p_parrot
+
+# Skill names that only SUBSTRING-match a verification word.
+_s_qa()       { add_skill_of "$1" "sb-validation-and-qa"; }
+_s_scan()     { add_skill_of "$1" "ecc:security-scan"; }
+_s_dash()     { add_skill_of "$1" "second-brain:review"; }
+_s_cr()       { add_skill_of "$1" "code-review"; }
+_s_loop()     { add_skill_of "$1" "ecc:verification-loop"; }
+b6_case block   "substring skill sb-validation-and-qa is not verification" add_edit_turn _s_qa
+b6_case block   "substring skill ecc:security-scan is not verification"    add_edit_turn _s_scan
+b6_case block   "second-brain:review (a dashboard) is not verification"    add_edit_turn _s_dash
+b6_case approve "allowlisted Skill code-review after the edit"             add_edit_turn _s_cr
+b6_case approve "allowlisted Skill ecc:verification-loop after the edit"   add_edit_turn _s_loop
+b6_case block   "allowlisted Skill BEFORE the edit does not count"         _s_cr add_edit_turn
+
+# Edits made through Bash after the tests leave the tests stale.
+_b_sed()      { add_bash_of "$1" "sed -i 's/a/b/' src/foo.ts"; }
+_b_perl()     { add_bash_of "$1" "perl -pi -e 's/a/b/' scripts/x.sh"; }
+_b_heredoc()  { add_bash_of "$1" "cat > scripts/new.sh <<'EOF'
+echo hi
+EOF"; }
+_b_tee()      { add_bash_of "$1" 'printf x | tee -a src/a.ts'; }
+_b_append()   { add_bash_of "$1" 'echo x >> "$ROOT/src/b.py"'; }
+_b_xargs()    { add_bash_of "$1" "grep -rl foo src | xargs sed -i 's/a/b/'"; }
+_b_tmpl()     { add_bash_of "$1" 'echo x > src/templates/y.ts'; }
+b6_case block "Edit -> tests -> sed -i on a source file"          add_edit_turn add_test_run _b_sed
+b6_case block "Edit -> tests -> perl -pi on a source file"        add_edit_turn add_test_run _b_perl
+b6_case block "Edit -> tests -> heredoc redirect into a script"   add_edit_turn add_test_run _b_heredoc
+b6_case block "Edit -> tests -> tee -a into a source file"        add_edit_turn add_test_run _b_tee
+b6_case block "Edit -> tests -> >> append into a source file"     add_edit_turn add_test_run _b_append
+b6_case block "Edit -> tests -> xargs sed -i (file list hidden)"  add_edit_turn add_test_run _b_xargs
+b6_case block "Edit -> tests -> redirect into src/templates (not a tmp dir)" add_edit_turn add_test_run _b_tmpl
+
+# Controls: shell commands after the tests that do NOT edit a source file.
+_c_md()       { add_bash_of "$1" "sed -i 's/a/b/' docs/notes.md"; }
+_c_tmp()      { add_bash_of "$1" 'echo ok > "$TMPDIR/marker.sh"'; }
+_c_awk()      { add_bash_of "$1" "awk '{ if (\$1 > 0) print }' src/a.ts > /dev/null"; }
+_c_log()      { add_bash_of "$1" 'npm test 2>&1 | tee test.log'; }
+_c_grepi()    { add_bash_of "$1" 'grep -i foo src/a.ts'; }
+b6_case approve "Edit -> sed -i -> tests (edit then verify)"   add_edit_turn _b_sed add_test_run
+b6_case approve "sed -i on a doc after the tests"              add_edit_turn add_test_run _c_md
+b6_case approve "redirect into TMPDIR after the tests"         add_edit_turn add_test_run _c_tmp
+b6_case approve "'>' inside a quoted awk program"              add_edit_turn add_test_run _c_awk
+b6_case approve "test output tee'd to a log"                   add_edit_turn add_test_run _c_log
+b6_case approve "grep -i is not an in-place edit"              add_edit_turn add_test_run _c_grepi
+
+# Doc edits through Write/Edit after the tests do not make the tests stale (same doc
+# filter as the changed-file set and the Bash-edit path).
+_d_changelog() { add_write_path "$1" "CHANGELOG.md"; }
+_d_readme()    { add_edit_of "$1" "README.md"; }
+_d_docs()      { add_write_path "$1" "docs/guide/setup.txt"; }
+b6_case approve "Edit -> tests -> Write CHANGELOG.md"          add_edit_turn add_test_run _d_changelog
+b6_case approve "Edit -> tests -> Edit README.md"              add_edit_turn add_test_run _d_readme
+b6_case approve "Edit -> tests -> Write under docs/"           add_edit_turn add_test_run _d_docs
+b6_case block   "Edit -> tests -> Edit of another source file" add_edit_turn add_test_run add_write_turn
+
+# Allowlist extensions resolve by EXACT name (spot-check both ends of the list).
+_s_qg()       { add_skill_of "$1" "ecc:quality-gate"; }
+_s_fastapi()  { add_skill_of "$1" "ecc:fastapi-review"; }
+_s_eng()      { add_skill_of "$1" "engineering:code-review"; }
+_s_near()     { add_skill_of "$1" "ecc:python-review-extra"; }
+b6_case approve "allowlisted Skill ecc:quality-gate after the edit"        add_edit_turn _s_qg
+b6_case approve "allowlisted Skill ecc:fastapi-review after the edit"      add_edit_turn _s_fastapi
+b6_case approve "allowlisted Skill engineering:code-review after the edit" add_edit_turn _s_eng
+b6_case block   "near-miss name ecc:python-review-extra (superset of an entry)" add_edit_turn _s_near
+
+# A jq failure in the transcript scans is logged loudly, not swallowed.
+T=$(mk_transcript)
+add_edit_turn "$T"
+echo '{"type":"assistant", broken' >> "$T"
+: > "$BRAIN_DIR/error-log.jsonl"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+if grep -q 'gate=verify-edit-scan' "$BRAIN_DIR/error-log.jsonl"; then
+  PASS=$((PASS + 1)); echo "  PASS: B6: malformed transcript line leaves an error-log row"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL: B6: malformed transcript line was swallowed (no gate=verify-edit-scan row)"
+fi
+
+# The block reason must not name a token that prose alone could satisfy.
+T=$(mk_transcript)
+add_edit_turn "$T"
+OUT=$(mk_input "$T" | bash "$GATE" 2>/dev/null || true)
+assert_block "B6: plain block" "$OUT"
+if printf '%s' "$OUT" | jq -r '.reason // ""' | grep -qE '/(review|security-review|simplify|qa)'; then
+  FAIL=$((FAIL + 1)); echo "  FAIL: B6: block reason still names a /slash token (got: $OUT)"
+else
+  PASS=$((PASS + 1)); echo "  PASS: B6: block reason names no /slash token"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

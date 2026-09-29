@@ -5,8 +5,27 @@
 #
 # Kill switch: SB_VERIFY_GATE=off
 # Safety valve: blocks at most 2 times per session (marker file).
-# Always fails open — parse errors or missing data → approve.
+# Fails open on missing data (no stdin/transcript → approve); a jq failure while
+# scanning the transcript is logged via sb_log_error, never swallowed.
+# Evidence is a TOOL CALL issued after the last edit (B6): a passing check command
+# run through Bash, or a Skill call named on VERIFY_SKILLS_JSON. Assistant prose is
+# never evidence — it can name any skill without running it.
 set -u
+
+# Verification skills (B6): the ONLY Skill tool_use names that count as evidence,
+# compared EXACTLY against input.skill (full string, plugin namespace included).
+# No substring or namespace-stripped matching: `sb-validation-and-qa` is a reference
+# skill, `ecc:security-scan` audits agent config, `second-brain:review` is a blocker
+# dashboard — none of them checks a code change. Extend this list (and the B6 cases
+# in tests/test-stop-verify-gate.sh) when a new verification skill ships.
+VERIFY_SKILLS_JSON='[
+  "review","security-review","code-review","simplify","verification-loop","devils-advocate",
+  "engineering:code-review",
+  "ecc:code-review","ecc:security-review","ecc:verification-loop","ecc:verify",
+  "ecc:quality-gate","ecc:review-pr","ecc:orch-review",
+  "ecc:python-review","ecc:go-review","ecc:rust-review","ecc:kotlin-review","ecc:cpp-review",
+  "ecc:flutter-review","ecc:react-review","ecc:vue-review","ecc:fastapi-review"
+]'
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
@@ -58,17 +77,70 @@ if [ -z "$CODE_MODIFIED" ]; then
   exit 0
 fi
 
+# Loud failure for transcript scans: a jq error (bad regex on an older jq, a
+# malformed record) must leave a row, not silently weaken the gate.
+_svg_scan_error() {  # message exit-code
+  if ! command -v sb_log_error >/dev/null 2>&1; then
+    if ! source "$(dirname "$0")/lib.sh" 2>/dev/null; then
+      printf 'stop-verify-gate.sh: %s (rc=%s)\n' "$1" "$2" >&2
+      return 0
+    fi
+  fi
+  sb_log_error "stop-verify-gate.sh" "$1" "$2"
+}
+
 # D181: verification evidence only counts if it ran AFTER the last code edit —
 # a pre-edit test run or a stray `cat build.log` anywhere in the transcript
 # used to satisfy the gate regardless of order. input_line_number tracks each
 # JSONL record's line since transcripts are strict one-object-per-line.
-LAST_EDIT_LINE=$(jq -r '
+#
+# B6 Bash-edit HEURISTIC: Write/Edit/MultiEdit are not the only way to change a
+# file — Edit → tests → `sed -i` used to pass on stale tests. A Bash command also
+# moves LAST_EDIT_LINE when one of its spans (split on && || ; | and newlines,
+# after single-quoted text is blanked so sed/awk/jq programs cannot fake a match)
+#   - runs sed/gsed/perl with -i/--in-place and names a source path, or is fed a
+#     hidden file list (xargs, find -exec);
+#   - redirects with > or >> into a source path; or
+#   - is a tee into a source path.
+# Source path = a code extension below, outside docs/ and outside tmp/temp/
+# scratch/sandbox locations. NOT detected: data files (json/yaml/toml), mv/cp,
+# git checkout/apply, patch — the worktree fingerprint (S1b) replaces this
+# heuristic. A command that edits and then tests on one line counts as an edit
+# whose own test does not count (conservative: one block). Bash edits only move
+# LAST_EDIT_LINE; they never arm the gate on their own (CHANGED_FILES above).
+EDIT_SCAN_JQ='
+  def sq: [39] | implode;
+  def srcpath:
+    explode | map(select(. != 34 and . != 39)) | implode
+    | test("[.](sh|bash|zsh|ps1|js|mjs|cjs|ts|mts|cts|tsx|jsx|py|rb|go|rs|java|kt|kts|swift|c|h|cc|cpp|hpp|cs|php|pl|pm|lua|sql|css|scss|html|vue|svelte)$")
+      and (test("(^|/)docs/") | not)
+      and (test("(^|[/${])(tmp|temp|tmpdir|scratch|scratchpad|sandbox)([^[:alnum:]]|$)"; "i") | not);
+  def span_edits:
+    ( test("(^|[[:space:]])(g?sed|perl)[[:space:]]")
+      and test("[[:space:]](-[Enrszuplaw0]*i|--in-place)")
+      and ( test("(^|[[:space:]])xargs[[:space:]]|[[:space:]]-exec[[:space:]]")
+            or any(splits("[[:space:]]+"); srcpath) ) )
+    or any(match("(^|[^=<>-])>>?[[:space:]]*([^[:space:]<>()&]+)"; "g") | .captures[1].string; srcpath)
+    or ( test("^tee([[:space:]]|$)")
+         and any(splits("[[:space:]]+") | select(. != "tee" and (test("^-") | not)); srcpath) );
+  def bash_edits:
+    gsub(sq + "[^" + sq + "]*" + sq; " ")
+    | any(splits("&&|[|][|]|[;|" + ([10, 13] | implode) + "]")
+          | sub("^[[:space:]]*[({]?[[:space:]]*"; "") | sub("^sudo[[:space:]]+"; "");
+          span_edits);
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use")
-  | select(.name == "Write" or .name == "Edit" or .name == "MultiEdit")
+  | select(((.name == "Write" or .name == "Edit" or .name == "MultiEdit")
+            and ((.input.file_path // "") | (endswith(".md") or endswith(".markdown") or endswith(".txt") or test("(^|/)docs/")) | not))
+           or (.name == "Bash" and ((.input.command // "") | if type == "string" then bash_edits else false end)))
   | input_line_number
-' "$TRANSCRIPT" 2>/dev/null | tail -1)
+'
+EDIT_LINES=$(jq -r "$EDIT_SCAN_JQ" "$TRANSCRIPT" 2>/dev/null)
+EDIT_RC=$?
+[ "$EDIT_RC" -eq 0 ] || _svg_scan_error "gate=verify-edit-scan jq failed; last-edit point may be early" "$EDIT_RC"
+EDIT_LINES=${EDIT_LINES//$'\r'/}
+LAST_EDIT_LINE=${EDIT_LINES##*$'\n'}
 case "$LAST_EDIT_LINE" in ''|*[!0-9]*) LAST_EDIT_LINE=0 ;; esac
 
 # Tool_use ids whose result came back an error — a Bash run that FAILED (tests
@@ -126,25 +198,21 @@ if [ -n "$VERIFY_CANDIDATES" ]; then
   done <<< "$VERIFY_CANDIDATES"
 fi
 
-# 2. Skill invocations (assistant text referencing review/security skills).
-SKILL_EVIDENCE=$(jq -r '
-  select(.type == "assistant")
-  | .message.content[]?
-  | select(.type == "text")
-  | .text // ""
-' "$TRANSCRIPT" 2>/dev/null \
-  | grep -iE '/(review|security-review|simplify|qa|second-brain:verification)' \
-  | head -1)
-
-# 3. Skill tool invocations via the Skill tool.
-SKILL_TOOL=$(jq -r '
+# 2. Skill tool calls issued AFTER the last edit whose name is EXACTLY on
+# VERIFY_SKILLS_JSON (B6). Assistant text is deliberately not read: prose such as
+# "run /review before merging" or a URL ending in /reviews is not a review.
+SKILL_OUT=$(awk -v s="$LAST_EDIT_LINE" 'NR>s' "$TRANSCRIPT" | jq -r --argjson allow "$VERIFY_SKILLS_JSON" '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use" and .name == "Skill")
-  | .input.skill // ""
-' "$TRANSCRIPT" 2>/dev/null \
-  | grep -iE 'review|security|simplify|qa|verification' \
-  | head -1)
+  | (.input.skill // "") as $s
+  | select(any($allow[]; . == $s))
+  | $s
+' 2>/dev/null)
+SKILL_RC=$?
+[ "$SKILL_RC" -eq 0 ] || _svg_scan_error "gate=verify-skill-scan jq failed; Skill evidence ignored" "$SKILL_RC"
+SKILL_OUT=${SKILL_OUT//$'\r'/}
+SKILL_TOOL=${SKILL_OUT%%$'\n'*}
 
 # Anti-gaming slice: verification evidence is SUSPECT when
 # the same session DELETED a test file — the cheapest reward-hack in the catalog
@@ -181,7 +249,7 @@ if [ "${SB_VERIFY_ANTIGAME:-on}" != "off" ]; then
   ' 2>/dev/null | head -1)
 fi
 
-if [ -n "$VERIFY_CMDS" ] || [ -n "$SKILL_EVIDENCE" ] || [ -n "$SKILL_TOOL" ]; then
+if [ -n "$VERIFY_CMDS" ] || [ -n "$SKILL_TOOL" ]; then
   # Buddy: a verify gate that blocked earlier this session is now satisfied — clear its line.
   if [ -f "$MARKER" ] && [ "${SB_BUDDY:-on}" != "off" ]; then
     { command -v sb_buddy_event >/dev/null 2>&1 || source "$(dirname "$0")/lib.sh" 2>/dev/null; } || true
@@ -253,5 +321,5 @@ sb_log_audit "stop-verify-gate.sh" "deny" "gate-c-verify-block" "$FILES_PREVIEW"
 command -v sb_buddy_event >/dev/null 2>&1 && sb_buddy_event "$SESSION_ID" gate alert "Verify gate: ${CHANGED_N} file(s) changed, no checks ran — ${CMD_LINE} before claiming done." stop-verify-gate
 jq -nc --arg n "$CHANGED_N" --arg files "$FILES_PREVIEW" --arg cmd "$CMD_LINE" --arg note "$SPINE_NOTE" '{
   decision: "block",
-  reason: ("Code was modified (" + $n + " file(s): " + $files + "…) but no verification ran. Before completing: " + $cmd + ", then invoke relevant review skills (/review, /security-review, /simplify). Evidence before assertions." + $note)
+  reason: ("Code was modified (" + $n + " file(s): " + $files + "…) but nothing verified it after the last edit. Before completing: " + $cmd + " after your final edit (a sed -i or > redirect into a source file counts as an edit), or call a verification skill through the Skill tool. Only tool calls count as evidence; naming a check in text does not. Evidence before assertions." + $note)
 }'
