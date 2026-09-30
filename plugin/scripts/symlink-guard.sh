@@ -83,6 +83,20 @@ _fp_raw_all() {
   _FP_RAW="$RAW" _FP_EOF=1
 }
 
+# _fp_rest VAR: VAR = the rest of stdin — the last, unframed field of a guard's NUL-framed jq read.
+# `read -N` (bash >= 4.1) reads a pipe in buffered chunks; `read -d ''` takes one byte per syscall:
+# 0.85 s for a 450 KB command from jq on MSYS inside the guard, 3.4 s from a bash writer (F8 item 20:
+# the 150k-line command answered in 4.5 s on the Windows CI lane). NUL bytes are dropped, where the
+# framed read split at them.
+_fp_rest() {
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 1 ]; }; then
+    IFS= read -r -N 268435456 "$1"
+  else
+    IFS= read -r -d '' "$1"
+  fi
+  return 0
+}
+
 # _fp_split SEP TEXT: _FP_A = TEXT cut at every SEP (one character) by word splitting — linear in
 # every bash — with globbing off meanwhile. A trailing SEP adds no empty last field; with SEP a
 # newline (IFS white space) empty lines vanish as well.
@@ -130,6 +144,10 @@ _fp_at() {
     done
     [ "$_FP_I" -ge 1 ] || return 2
   else
+    # Past 65,536 characters jq decides (one spawn, ~0.1 s even at 1 MB): here every key costs a
+    # cut of the whole payload, and five of them over a 1 MB Write of 333k escaped quotes took
+    # 1.2 s on MSYS (F8 item 20) — for a payload that size the spawn is the cheap path.
+    [ "${#_FP_RAW}" -le 65536 ] || return 2
     _fp_split "$_fp_us" "${_FP_RAW//"$_fp_q$1$_fp_q"/"$_fp_us"}"
     [ "${#_FP_A[@]}" = 2 ] || return 2
     _fp_split "$_fp_q" "${_FP_A[1]}$_fp_us"
@@ -297,17 +315,31 @@ _fp_collapse() {
   printf -v "$1" '/%s' "${_fk_k[*]-}"
 }
 
-# _fp_lower VAR TEXT: ASCII A-Z to a-z (bash 3.2 has no ${x,,}; explicit letter lists, since a
-# [A-Z] range can match lower case under a collating locale).
+# _fp_lower VAR TEXT: ASCII A-Z to a-z, byte for byte what `LC_ALL=C tr A-Z a-z` does (bash 3.2
+# has no ${x,,}; explicit letter lists, since a [A-Z] range can match lower case under a collating
+# locale). For each capital TEXT holds, TEXT is cut at it by word splitting and rejoined around its
+# lower case by one printf: 26 linear passes at most, no process. The per-character loop this
+# replaces copied the growing result once per character and indexed ${s:i:1} (O(i) in a UTF-8
+# locale): O(n^2) — a 16 KB Write path took 1.8 s on MSYS (25 s on bash 3.2) and wiki-write-guard's
+# full logic, which lowers any file_path, never answered a 50,000-character one (F8 item 18: rc=124
+# past 60 s, a fail-open). ${s//X/x} per letter is no better on bash < 4.3 (4.4 s at 16 KB of
+# capitals on 3.2). LC_ALL=C (set and restored as in _fp_trimnl) keeps the cut byte-exact. Like
+# every _fp_split user, it overwrites _FP_A.
 _fp_lower() {
-  local _fw_s="$2" _fw_o="" _fw_c _fw_u _fw_i
+  local _fw_s="$2" _fw_u _fw_l _fw_i=0 _fw_ls="${LC_ALL+x}" _fw_lv="${LC_ALL-}"
   case "$_fw_s" in *[ABCDEFGHIJKLMNOPQRSTUVWXYZ]*) ;; *) printf -v "$1" '%s' "$_fw_s"; return 0 ;; esac
-  for ((_fw_i = 0; _fw_i < ${#_fw_s}; _fw_i++)); do
-    _fw_c="${_fw_s:$_fw_i:1}"
-    case "$_fw_c" in [ABCDEFGHIJKLMNOPQRSTUVWXYZ]) _fw_u="${_fp_uc%%"$_fw_c"*}"; _fw_c="${_fp_lc:${#_fw_u}:1}" ;; esac
-    _fw_o="$_fw_o$_fw_c"
+  LC_ALL=C
+  while [ "$_fw_i" -lt 26 ]; do
+    _fw_u="${_fp_uc:_fw_i:1}" _fw_l="${_fp_lc:_fw_i:1}"; _fw_i=$((_fw_i + 1))
+    case "$_fw_s" in *"$_fw_u"*) ;; *) continue ;; esac
+    # The '.' sentinel keeps a trailing capital's empty last field, which word splitting drops;
+    # printf repeats "%s<lower>" per field, so the extra lower case and the sentinel come off after.
+    _fp_split "$_fw_u" "$_fw_s."
+    printf -v _fw_s "%s$_fw_l" ${_FP_A[@]+"${_FP_A[@]}"}
+    _fw_s="${_fw_s%?}"; _fw_s="${_fw_s%.}"
   done
-  printf -v "$1" '%s' "$_fw_o"
+  printf -v "$1" '%s' "$_fw_s"
+  if [ -n "$_fw_ls" ]; then LC_ALL="$_fw_lv"; else unset LC_ALL; fi
 }
 
 # _fp_path VAR PATH [lex]: lib.sh sb_normalize_path's lexical steps (backslashes to '/', the
@@ -615,13 +647,9 @@ case $? in 0) exit 0 ;; 2) FILE_PATH="$_SG_MAPPED" ;; esac
 # drive path under an MSYS mount (%TEMP% is /tmp) to the mount's name, which a HOME spelled /c/…
 # never prefixes; this spelling does.
 _fp_path SG_LEX "$FILE_PATH" lex
+# Its size before '..' folds (what realpath -m will walk), for the cap below.
+SG_LEN=${#SG_LEX}; _fp_split / "$SG_LEX"; SG_SEGS=${#_FP_A[@]}
 _fp_collapse SG_LEX "$SG_LEX"
-
-# Windows git-bash sends 'C:\…' / 'C:/…'; normalize to the /c/… POSIX form the
-# credential prefixes use BEFORE realpath (so it resolves) and again AFTER (GNU
-# realpath re-emits C:/ form on Windows — normalizing its OUTPUT is the G-HOOK-2
-# fix: without it the credential-dir prefixes never match and the guard is inert).
-_sg_norm FILE_PATH "$FILE_PATH"
 
 # The HOME spellings every credential match below compares against: HOME normalized, its physical
 # spelling, and their lexical /x/ forms (the fast path's spelling of SG_LEX).
@@ -636,17 +664,30 @@ _SG_H+=(${_SG_HF[@]+"${_SG_HF[@]}"})
 # 5 s timeout and ran. So the literal and lexical targets are matched first, and a path too long to
 # resolve in time — over 256 components or 4096 characters — is asked about, not resolved: as
 # written it names no credential dir, but a symlinked ancestor could still lead into one. The cost:
-# a legitimate Windows long path that deep asks once instead of passing silently.
+# a legitimate Windows long path that deep asks once instead of passing silently. Both come before
+# _sg_norm too (F8 item 18): cygpath -u is ~35 ms for a C:\ path of any length, but seconds once it
+# holds newlines (4,096 of them: 0.4 s; 16,384: 5 s) — so past the cap it runs only on a path
+# without one, for the spelling of an MSYS mount (%TEMP% is /tmp) the lexical form cannot give.
 _sg_cred_match "$FILE_PATH" "$SG_LEX" \
   && { _sg_deny "$TOOL" "$FILE_PATH" "$SG_LEX" "$_SG_LABEL" "$SESSION_ID"; exit 0; }
-_fp_split / "$FILE_PATH"
-if [ "${#FILE_PATH}" -gt 4096 ] || [ "${#_FP_A[@]}" -gt 256 ]; then
+if [ "$SG_LEN" -gt 4096 ] || [ "$SG_SEGS" -gt 256 ]; then
+  case "$FILE_PATH" in
+    *"$_fp_nl"*) ;;
+    *) _sg_norm _sg_np "$FILE_PATH"
+       _sg_cred_match "$_sg_np" && { _sg_deny "$TOOL" "$FILE_PATH" "$_sg_np" "$_SG_LABEL" "$SESSION_ID"; exit 0; } ;;
+  esac
   _sg_short _sg_sp "$FILE_PATH"
-  _sg_lr="Write to '$_sg_sp' is too long to resolve through its symlinks inside the hook's time budget (${#FILE_PATH} characters, ${#_FP_A[@]} components; the limits are 4096 and 256), so symlink-guard cannot tell whether it leads into a credential directory. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
+  _sg_lr="Write to '$_sg_sp' is too long to resolve through its symlinks inside the hook's time budget ($SG_LEN characters, $SG_SEGS components; the limits are 4096 and 256), so symlink-guard cannot tell whether it leads into a credential directory. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
   _fp_audit "symlink-guard.sh" "ask" "path-too-long" "$TOOL($_sg_sp)" "$_sg_lr" "$SESSION_ID"
   _fp_emit ask "$_sg_lr"
   exit 0
 fi
+
+# Windows git-bash sends 'C:\…' / 'C:/…'; normalize to the /c/… POSIX form the
+# credential prefixes use BEFORE realpath (so it resolves) and again AFTER (GNU
+# realpath re-emits C:/ form on Windows — normalizing its OUTPUT is the G-HOOK-2
+# fix: without it the credential-dir prefixes never match and the guard is inert).
+_sg_norm FILE_PATH "$FILE_PATH"
 
 # Resolve through symlinks. -m: missing-component-tolerant (Write targets the
 # file may not exist yet); we still resolve the parent's symlinks.
