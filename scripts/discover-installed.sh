@@ -137,8 +137,26 @@ catalog_is_stale() {
 # Reclaim race on a genuinely dead owner: two hooks that both see a dead pid can each reclaim
 # and start a refresh; both write the catalog atomically (tmp + mv), so the worst case is one
 # redundant rebuild, never a torn file.
+# lock_older_than MIN: 0 when $LOCK_DIR was last modified more than MIN minutes ago. A find that
+# FAILS (the lock vanished under a concurrent release, a find without -mmin) used to look exactly
+# like a young lock — no output — and so, silently, like a held one forever: it is logged, and still
+# read as held (never reclaim on a probe that did not run). Only find's own output line — the path —
+# counts as "old": a warning on stderr cannot pass for it.
+lock_older_than() {
+  local out rc
+  out=$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$1" 2>&1); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    out="${out//$'\n'/ }"; out="${out//$'\r'/}"
+    di_log "could not age the refresh lock $LOCK_DIR (find -mmin +$1 exited $rc: ${out:0:200}) — treating it as held this session" 1
+    return 1
+  fi
+  case "$out" in "$LOCK_DIR"|*"
+$LOCK_DIR") return 0 ;; esac
+  return 1
+}
+
 schedule_refresh() {
-  local reclaimed=0 owner=""
+  local reclaimed=0 owner="" reclaim_msg=""
   if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     if [ ! -d "$LOCK_DIR" ]; then
       # mkdir failed for a reason OTHER than "already exists as a directory" (permission
@@ -149,18 +167,17 @@ schedule_refresh() {
       return 0
     fi
     owner=$(tr -d ' \t\r\n' < "$LOCK_DIR/pid" 2>/dev/null)
-    local reclaim_msg=""
     if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
       # RR-CR2: a live pid normally owns the lock outright (SEC-L3) — but the OS recycles pids,
       # so a lock this old with a "live" owner is more likely PID REUSE (the original refresh is
       # long gone; its pid now names an unrelated process) than a refresh genuinely still running
       # LOCK_MAX_AGE_MIN after it started. Past that much wider bound, reclaim it too — otherwise
       # a reused pid wedges the catalog refresh forever, with no age fallback ever firing.
-      [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$LOCK_MAX_AGE_MIN" 2>/dev/null)" ] || return 0
+      lock_older_than "$LOCK_MAX_AGE_MIN" || return 0
       reclaim_msg="owner pid $owner is alive but the lock is older than ${LOCK_MAX_AGE_MIN} min — reclaiming as likely pid reuse"
     elif [ -z "$owner" ]; then
-      [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$LOCK_STALE_MIN" 2>/dev/null)" ] || return 0
-      reclaim_msg="owner pid unknown, not alive"
+      lock_older_than "$LOCK_STALE_MIN" || return 0
+      reclaim_msg="no owner pid recorded, and the lock is older than ${LOCK_STALE_MIN} min"
     else
       reclaim_msg="owner pid $owner not alive"
     fi
@@ -175,7 +192,7 @@ schedule_refresh() {
     reclaimed=1
   fi
   : > "$DI_REFRESH_ERR" 2>/dev/null
-  ( trap '' HUP; export SB_DI_RECLAIMED="$reclaimed"; exec bash "$SELF" --refresh "$PLUGINS_ROOT" ) \
+  ( trap '' HUP; export SB_DI_RECLAIMED="$reclaimed" SB_DI_RECLAIM_WHY="$reclaim_msg"; exec bash "$SELF" --refresh "$PLUGINS_ROOT" ) \
     </dev/null >/dev/null 2>"$DI_REFRESH_ERR" &
   local child_pid=$!
   # RR-SF3: an unchecked write here used to fail silently — a full/read-only BRAIN_DIR, or the
@@ -195,7 +212,9 @@ if [ "$MODE" = serve ] && [ -s "$OUT_FILE" ]; then
 fi
 
 if [ "$MODE" = refresh ]; then
-  [ "${SB_DI_RECLAIMED:-0}" = "1" ] && di_log "reclaimed a stale refresh lock (older than ${LOCK_STALE_MIN} min): the previous background catalog refresh died without releasing it" 1
+  # The reclaiming hook passes its own reason — a dead owner, no pid on record, or a live pid past
+  # LOCK_MAX_AGE_MIN (likely reuse): a fixed "older than 10 min … died" here contradicted the last.
+  [ "${SB_DI_RECLAIMED:-0}" = "1" ] && di_log "refresh started on a reclaimed lock (${SB_DI_RECLAIM_WHY:-no reason passed})" 1
   # Valid and fresh: nothing to do. An unparseable cache (an empty or torn write from an older
   # build) is rebuilt even when the tree is unchanged, or it would be served forever.
   if [ -s "$OUT_FILE" ] && ! catalog_is_stale \

@@ -293,8 +293,12 @@ OUT11=$(env BRAIN_DIR="$B11" bash "$SCRIPT" "$P11" 2>/dev/null) || fail "11: hoo
 wait_unlocked "$B11" || fail "11: reclaimed lock never released"
 [ "$(jq -r '.plugins | length' "$B11/.installed-catalog.json")" = "1" ] \
   || fail "11: stale lock blocked the refresh forever"
-grep -q 'stale refresh lock' "$B11/error-log.jsonl" 2>/dev/null \
-  || fail "11: reclaiming a dead refresh's lock was silent (no error-log row)"
+grep -q 'reclaimed an abandoned refresh lock .*(no owner pid recorded, and the lock is older than' "$B11/error-log.jsonl" 2>/dev/null \
+  || fail "11: reclaiming a dead refresh's lock was silent or misworded (no 'no owner pid recorded' reclaim row)"
+# F8: the child names the same reason ("owner pid unknown, not alive" claimed a liveness check
+# that never ran — no pid was on record to check).
+grep -q 'refresh started on a reclaimed lock (no owner pid recorded' "$B11/error-log.jsonl" 2>/dev/null \
+  || fail "11: the refresh child's row must carry the reclaim reason ($(grep 'reclaimed lock' "$B11/error-log.jsonl" | head -1))"
 pass "dead refresh's lock is reclaimed and logged"
 
 # --- Test 12: a failed refresh fails LOUD and keeps the old catalog -----------------------
@@ -355,6 +359,8 @@ pass "detached refresh child's stderr is captured to a file under BRAIN_DIR"
 # Local time, not -u: touch -t reads its stamp as LOCAL time (a UTC stamp is hours off anywhere
 # east or west of UTC — 2.5 h old at +02:00, past the ceiling; in the future at -05:00).
 AGE30=$(date -v-30M +%Y%m%d%H%M 2>/dev/null || date -d '30 minutes ago' +%Y%m%d%H%M)
+# An empty stamp or a failed touch would leave the lock brand new, and 15 would pass vacuously.
+case "$AGE30" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;; *) fail "15: no 30-minutes-ago stamp from date -v/-d (got '$AGE30')" ;; esac
 P15="$TMP/plugins15"; B15="$TMP/b15"; mkdir -p "$P15" "$B15"
 mkplugin "$P15" "alpha" "1.0.0" 1 1
 printf '%s\n' "$SENTINEL" > "$B15/.installed-catalog.json"
@@ -364,13 +370,19 @@ sleep 30 & LIVE_PID15=$!
 printf '%s' "$LIVE_PID15" > "$B15/$LOCK_NAME/pid"
 # Age the lock AFTER writing its pid file: creating a file inside a directory resets the
 # directory's mtime, which is what the age probe reads.
-touch -t "$AGE30" "$B15/$LOCK_NAME"   # 30 min old: past LOCK_STALE_MIN, under the ceiling
+touch -t "$AGE30" "$B15/$LOCK_NAME" || fail "15: touch -t $AGE30 failed — the lock is not 30 min old, the case would prove nothing"   # 30 min old: past LOCK_STALE_MIN, under the ceiling
+[ -n "$(find "$B15/$LOCK_NAME" -maxdepth 0 -mmin +20)" ] || fail "15: the lock is not aged past LOCK_STALE_MIN after touch -t $AGE30"
 OUT15=$(env BRAIN_DIR="$B15" bash "$SCRIPT" "$P15" 2>/dev/null); RC15=$?
 sleep 1   # give a WRONGLY-scheduled refresh a moment to have started, if this regressed
+# The owner is still the live one, and nothing reclaimed: an early ceiling (LOCK_MAX_AGE_MIN at
+# LOCK_STALE_MIN) reclaims this lock and hands it to a new refresh — caught here, not only by timing.
+PID15_NOW=$(cat "$B15/$LOCK_NAME/pid" 2>/dev/null)
 kill "$LIVE_PID15" 2>/dev/null; wait "$LIVE_PID15" 2>/dev/null
 [ "$RC15" -eq 0 ] || fail "15: hook exited non-zero"
 [ "$OUT15" = "$SENTINEL" ] || fail "15: stale cache not served"
 [ -d "$B15/$LOCK_NAME" ] || fail "15: the live owner's lock vanished (reclaimed while its owner was alive)"
+[ "$PID15_NOW" = "$LIVE_PID15" ] || fail "15: the lock's owner changed from the live pid $LIVE_PID15 to '$PID15_NOW' (reclaimed under the ceiling)"
+grep -q reclaim "$B15/error-log.jsonl" 2>/dev/null && fail "15: a reclaim was logged for a live owner under LOCK_MAX_AGE_MIN: $(grep reclaim "$B15/error-log.jsonl" | head -2)"
 [ "$(refresh_rows "$B15")" = "0" ] || fail "15: a refresh ran despite a live lock owner"
 [ "$(cat "$B15/.installed-catalog.json")" = "$SENTINEL" ] || fail "15: catalog rebuilt despite a live lock owner"
 rm -f "$B15/$LOCK_NAME/pid"; rmdir "$B15/$LOCK_NAME" 2>/dev/null || rm -rf "$B15/$LOCK_NAME"
@@ -397,7 +409,31 @@ kill "$LIVE_PID15B" 2>/dev/null; wait "$LIVE_PID15B" 2>/dev/null
   || fail "15b: a refresh never ran despite the lock exceeding LOCK_MAX_AGE_MIN with a live owner"
 grep -q 'is alive but the lock is older than' "$B15B/error-log.jsonl" 2>/dev/null \
   || fail "15b: reclaiming a live-but-expired lock was silent or misworded (no distinct log row)"
+# The child's row carries the reclaiming hook's reason, not a fixed "died" story (F8).
+grep -q 'refresh started on a reclaimed lock (owner pid [0-9]* is alive but' "$B15B/error-log.jsonl" 2>/dev/null \
+  || fail "15b: the refresh child's row must carry the live-owner reason ($(grep 'reclaimed lock' "$B15B/error-log.jsonl" | head -1))"
 pass "a live lock owner past LOCK_MAX_AGE_MIN is reclaimed as likely pid reuse, and logged"
+
+# --- Test 15c: a FAILING age probe is logged, and the lock is treated as held -----------------
+# F8: `find … -mmin … 2>/dev/null` that fails printed nothing — the same as a young lock — so the
+# refresh was skipped silently every session. A find that fails only on -mmin (the age probe),
+# with a lock whose owner recorded no pid (the LOCK_STALE_MIN probe path).
+P15C="$TMP/plugins15c"; B15C="$TMP/b15c"; FSHIM="$TMP/findshim"; mkdir -p "$P15C" "$B15C" "$FSHIM"
+mkplugin "$P15C" "alpha" "1.0.0" 1 1
+printf '%s\n' "$SENTINEL" > "$B15C/.installed-catalog.json"
+touch -t 202001010000 "$B15C/.installed-catalog.json"
+mkdir "$B15C/$LOCK_NAME"
+REAL_FIND=$(command -v find)
+printf '#!/bin/sh\ncase "$*" in *-mmin*) echo "find: simulated -mmin failure" >&2; exit 2 ;; esac\nexec "%s" "$@"\n' "$REAL_FIND" > "$FSHIM/find"
+chmod +x "$FSHIM/find"
+OUT15C=$(env BRAIN_DIR="$B15C" PATH="$FSHIM:$PATH" bash "$SCRIPT" "$P15C" 2>/dev/null) || fail "15c: hook exited non-zero"
+[ "$OUT15C" = "$SENTINEL" ] || fail "15c: stale cache not served"
+grep -q 'could not age the refresh lock .*exited 2' "$B15C/error-log.jsonl" 2>/dev/null \
+  || fail "15c: a failing find -mmin age probe was silent (no 'could not age the refresh lock' row)"
+[ -d "$B15C/$LOCK_NAME" ] || fail "15c: a lock whose age could not be probed was removed"
+grep -q reclaim "$B15C/error-log.jsonl" 2>/dev/null && fail "15c: a lock whose age could not be probed was reclaimed"
+rmdir "$B15C/$LOCK_NAME"
+pass "a failing lock-age probe is logged and the lock is treated as held (never reclaimed on no evidence)"
 
 # --- Test 16: SEC-L3 — a DEAD lock owner is reclaimed IMMEDIATELY, age irrelevant ----------
 P16="$TMP/plugins16"; B16="$TMP/b16"; mkdir -p "$P16" "$B16"
