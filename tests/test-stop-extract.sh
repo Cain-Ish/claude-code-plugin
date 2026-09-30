@@ -1381,6 +1381,50 @@ grep 'gate=subagent-start-miss' "$SANDBOX/.second-brain/audit-log.jsonl" | grep 
   || fail "R13: stop-extract must read the marker file under the sanitized sid: $(grep 'gate=subagent-start-miss' "$SANDBOX/.second-brain/audit-log.jsonl")"
 pass "R13: real protocol-guard.sh markers -> gate=subagent-start-miss count=1 starts=3 (one killed hook); sanitized sid keys the file"
 
+# R14 (DA #4): Workflow subagents write to subagents/workflows/wf_<id>/agent-*.jsonl, one level
+# below the flat files the scan globbed — a PreToolUse guard cancelled inside a workflow agent
+# (a real one: flow-guard timedOut after 6137 ms) was never counted. Here a nested file and a
+# flat one, each with one cancellation, and a flat mark left by a scan from BEFORE the nested
+# layer was read (newer than the nested file): the nested file must still be read, both counted
+# once, keyed by the path relative to subagents/ (the flat one keeps its basename key), and a
+# second Stop re-counts neither; a real append to the nested file is counted once more.
+init_sandbox "r14-workflow-subagents"
+T_R14="$SANDBOX/transcript/session.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' > "$T_R14"
+SUBDIR_R14="${T_R14%.jsonl}/subagents"
+WF_R14="$SUBDIR_R14/workflows/wf_9452ac71-8b2"
+mkdir -p "$WF_R14"
+{ printf '%s\n' '{"type":"user","message":{"role":"user","content":"w"}}'
+  hc_rec "PreToolUse:Bash" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/flow-guard.sh"' 6137 true; } > "$WF_R14/agent-a023fdf935f7b9191.jsonl"
+{ printf '%s\n' '{"type":"user","message":{"role":"user","content":"f"}}'
+  hc_rec "PreToolUse:Edit" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/symlink-guard.sh"' 5200 true; } > "$SUBDIR_R14/agent-flat.jsonl"
+# A pre-F8 mark (2021): newer than the nested file (2020), older than the flat one (now).
+touch -t 202001010000 "$WF_R14/agent-a023fdf935f7b9191.jsonl"
+: > "$SANDBOX/.second-brain/.subagent-scan-mark-r14-session"
+touch -t 202101010000 "$SANDBOX/.second-brain/.subagent-scan-mark-r14-session"
+stop_payload "r14-session" | "$SCRIPT" >/dev/null 2>&1
+hc_row 'hook=PreToolUse:Bash script=flow-guard.sh kind=timeout count=1 max_ms=6137 ' >/dev/null \
+  || fail "R14: the workflow subagent's cancellation must be counted despite an older flat mark: $(cat "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null)"
+HCS_R14="$SANDBOX/.second-brain/.hook-cancelled-state-r14-session.json"
+jq -e '.sub_scanned["workflows/wf_9452ac71-8b2/agent-a023fdf935f7b9191.jsonl"] == 2' "$HCS_R14" >/dev/null 2>&1 \
+  || fail "R14: the nested file's watermark must be keyed by its path relative to subagents/: $(jq -c .sub_scanned "$HCS_R14" 2>/dev/null)"
+[ -f "$SANDBOX/.second-brain/.subagent-scan-mark-wf-r14-session" ] || fail "R14: a complete scan must stamp the workflows/ mark"
+# The flat file is newer than its mark, so it was read too, under its basename key.
+jq -e '.sub_scanned["agent-flat.jsonl"] == 2' "$HCS_R14" >/dev/null 2>&1 \
+  || fail "R14: the flat file must keep its basename key: $(jq -c .sub_scanned "$HCS_R14" 2>/dev/null)"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}' >> "$T_R14"
+stop_payload "r14-session" | "$SCRIPT" >/dev/null 2>&1
+[ "$(hc_row 'script=flow-guard.sh' | wc -l | tr -d ' ')" -eq 1 ] || fail "R14: a second Stop re-counted the workflow cancellation: $(hc_row flow-guard)"
+[ "$(hc_row 'script=symlink-guard.sh' | wc -l | tr -d ' ')" -eq 1 ] || fail "R14: a second Stop re-counted the flat cancellation: $(hc_row symlink-guard)"
+hc_rec "PreToolUse:Bash" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/flow-guard.sh"' 7000 true >> "$WF_R14/agent-a023fdf935f7b9191.jsonl"
+touch "$WF_R14/agent-a023fdf935f7b9191.jsonl"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"y"}]}}' >> "$T_R14"
+stop_payload "r14-session" | "$SCRIPT" >/dev/null 2>&1
+hc_row 'script=flow-guard.sh kind=timeout count=1 max_ms=7000 ' >/dev/null \
+  || fail "R14: a new cancellation appended to the workflow file must be counted once: $(hc_row flow-guard)"
+[ "$(hc_row 'script=flow-guard.sh' | wc -l | tr -d ' ')" -eq 2 ] || fail "R14: expected exactly 2 flow-guard rows after the append: $(hc_row flow-guard)"
+pass "R14: workflows/*/agent-*.jsonl cancellations are counted once, keyed relative to subagents/, past a pre-F8 flat mark"
+
 # L2: sb_rules_hard_lines must honor enabled:false. `(.enabled // true)` treats false as
 # absent and listed a disabled ask rule as enforced. Exercised on BOTH raw-file branches:
 # SB_RULES_LAYERS=off and the fallback when sb_rules_effective is not defined.

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Tests for stop-verify-gate.sh
+# run-all-timeout: 240   (93 s alone on a loaded MSYS box 2026-09-30, after F8 added two ~65 KB block controls to RR-SF2)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
@@ -796,18 +797,25 @@ fi
 # `<<< "$VERIFY_CANDIDATES"` and `<<< "$SVG_OUT"` used a plain here-string: on MSYS a text of
 # that byte width never fits before the reader starts, so the hook hangs past its timeout and
 # APPROVES NOTHING (the gate's evidence is silently forfeited, not just slow — rc=124 measured
-# at 12+ s here). bounded_svg LABEL LIM TRANSCRIPT: background run, kill past LIM s.
+# at 12+ s here). bounded_svg LABEL LIM TRANSCRIPT: background run, kill past LIM s. The gate must
+# also EXIT 0: an empty output reads as approve to assert_approve, so a crash used to pass as one
+# (F8) — and each approve case below has a control that must BLOCK through the same large path,
+# so an early size-gated exit cannot pass either.
 bounded_svg() {
-  local label="$1" lim="$2" t="$3" pid i=0
-  mk_input "$t" | bash "$GATE" > "$SANDBOX/rr_sf2.out" 2>/dev/null & pid=$!
+  local label="$1" lim="$2" t="$3" pid i=0 rc=0
+  mk_input "$t" | bash "$GATE" > "$SANDBOX/rr_sf2.out" 2> "$SANDBOX/rr_sf2.err" & pid=$!
   while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$lim" ]; do sleep 1; i=$((i + 1)); done
   if kill -0 "$pid" 2>/dev/null; then
     kill "$pid" 2>/dev/null
     FAIL=$((FAIL + 1)); echo "  FAIL: $label: still running after ${lim}s"
     return 1
   fi
-  wait "$pid" || true
+  wait "$pid" || rc=$?
   RR_SF2_OUT=$(cat "$SANDBOX/rr_sf2.out" 2>/dev/null); RR_SF2_EL=$i
+  if [ "$rc" -ne 0 ]; then
+    FAIL=$((FAIL + 1)); echo "  FAIL: $label: the gate exited $rc — a crash is not an approve ($(head -c 300 "$SANDBOX/rr_sf2.err"))"
+    return 1
+  fi
   return 0
 }
 # A Bash tool_use after the last edit whose command is a test-shaped string totalling ~65,600
@@ -821,6 +829,13 @@ printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"to
 if bounded_svg "RR-SF2: ~65,600-byte post-edit Bash command (VERIFY_CANDIDATES)" 15 "$T"; then
   assert_approve "RR-SF2: ~65,600-byte post-edit test command still approves in ${RR_SF2_EL}s" "$RR_SF2_OUT"
 fi
+# Control: the same ~65,600-byte candidate blob, but the command is no test run — it must BLOCK.
+T=$(mk_transcript)
+add_edit_turn "$T"
+printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"echo done # %s"}}]}}\n' "$PAD65600" >> "$T"
+if bounded_svg "RR-SF2 control: ~65,600-byte post-edit non-test command" 15 "$T"; then
+  assert_block "RR-SF2 control: a ~65,600-byte post-edit command that is no test run still blocks in ${RR_SF2_EL}s" "$RR_SF2_OUT"
+fi
 # The Skill-scan variant (SVG_OUT): many allowlisted Skill calls after the edit, whose joined
 # "id<TAB>name\n" lines land the same blob in the hang window. One jq spawn builds the line;
 # a bash loop of the `printf` builtin (no fork) repeats it 5,467 times.
@@ -831,6 +846,15 @@ n=0
 while [ "$n" -lt 5467 ]; do printf '%s\n' "$SKILL_LINE" >> "$T"; n=$((n + 1)); done
 if bounded_svg "RR-SF2: 5,467 post-edit Skill calls (SVG_OUT)" 15 "$T"; then
   assert_approve "RR-SF2: 5,467 post-edit 'review' Skill calls still approve in ${RR_SF2_EL}s" "$RR_SF2_OUT"
+fi
+# Control: 5,467 calls to a skill NOT on the allowlist are no evidence — it must BLOCK.
+T=$(mk_transcript)
+add_edit_turn "$T"
+SKILL_LINE=$(jq -nc '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Skill",input:{skill:"brainstorm"}}]}}')
+n=0
+while [ "$n" -lt 5467 ]; do printf '%s\n' "$SKILL_LINE" >> "$T"; n=$((n + 1)); done
+if bounded_svg "RR-SF2 control: 5,467 post-edit non-allowlisted Skill calls" 15 "$T"; then
+  assert_block "RR-SF2 control: 5,467 calls to a skill off the allowlist still block in ${RR_SF2_EL}s" "$RR_SF2_OUT"
 fi
 
 echo ""

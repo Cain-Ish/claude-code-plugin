@@ -177,6 +177,7 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
   STATE_FILE="$BRAIN_DIR/.value-loop-state-$MANIFEST_SID.json"
   HC_STATE="$BRAIN_DIR/.hook-cancelled-state-$MANIFEST_SID.json"
   SUB_MARK="$BRAIN_DIR/.subagent-scan-mark-$MANIFEST_SID"
+  SUB_MARK_WF="$BRAIN_DIR/.subagent-scan-mark-wf-$MANIFEST_SID"   # the workflows/ layer's own mark
   if [ -n "$MANIFEST_SID" ]; then
     _se_now_ms; SE_T0=$_SE_MS
     # --rawfile-safe path: --rawfile errors on a missing file, so a not-yet-created
@@ -217,6 +218,13 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
     #   4. An aggregate byte cap (SB_SUBAGENT_SCAN_MAX_BYTES, default 256 MiB) bounds the
     #      read: files past it are skipped with a LOUD error row, their watermarks and the
     #      mark stay put, and the next Stop resumes with them.
+    #   5. Workflow subagents write one level deeper, subagents/workflows/wf_<id>/agent-*.jsonl
+    #      (DA #4, 0.54.1: 6,711 of this box's hook_cancelled records sat there, 3,354 of them
+    #      PreToolUse — none ever counted: a `*` never crosses '/'). Watermark keys are the path
+    #      RELATIVE to subagents/, so a flat file keeps its old basename key (no re-count) and
+    #      two workflows' agent-X.jsonl cannot collide. The deeper layer has its own mark,
+    #      written only by a scan that included it: an older mark predates every deep file this
+    #      code never read, and would have skipped them for good.
     SUBAGENTS_DIR="${TRANSCRIPT%.jsonl}/subagents"
     SUB_CAP="${SB_SUBAGENT_SCAN_MAX_BYTES:-268435456}"
     case "$SUB_CAP" in ''|*[!0-9]*) SUB_CAP=268435456 ;; esac
@@ -225,9 +233,13 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         SUB_COMPLETE=0
         sb_log_error "stop-extract.sh" "subagent-scan: cannot write $SUB_MARK.new; changed-file detection falls back to re-counting every subagent file sid=$MANIFEST_SID" 1
       fi
-      for _sub_f in "$SUBAGENTS_DIR"/agent-*.jsonl; do
+      for _sub_f in "$SUBAGENTS_DIR"/agent-*.jsonl "$SUBAGENTS_DIR"/workflows/*/agent-*.jsonl; do
         [ -f "$_sub_f" ] || continue
-        [ -f "$SUB_MARK" ] && [ "$SUB_MARK" -nt "$_sub_f" ] && continue
+        case "$_sub_f" in
+          "$SUBAGENTS_DIR"/workflows/*) _sub_m="$SUB_MARK_WF" ;;
+          *) _sub_m="$SUB_MARK" ;;
+        esac
+        [ -f "$_sub_m" ] && [ "$_sub_m" -nt "$_sub_f" ] && continue
         SUB_CAND=$((SUB_CAND + 1))
         printf '%s\0' "$_sub_f"
       done > "$SE_SCR/cand"
@@ -296,14 +308,16 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
       # appended mid-Stop is left for the next Stop instead of being counted now AND again
       # then) plus the candidate subagent files (bounded by their wc counts, see above).
       # Outputs (scratch files): par_vl + sub_vl (tool_use lines), hc_in (hook_cancelled
-      # lines), subwm ("basename<TAB>lines" for every file whose new lines were taken);
+      # lines), subwm ("key<TAB>lines" for every file whose new lines were taken; key = the
+      # path relative to subagents/, which for a flat file is its basename);
       # stdout: K (byte-cap skip) / X (unreadable) / XP (parent unreadable) rows. Paths come
       # from ENVIRON and file data, never `awk -v` (Windows backslashes).
       [ -f "$SE_SCR/wc" ] || : > "$SE_SCR/wc"
-      SE_TX="$TRANSCRIPT" SE_DIR="$SE_SCR" awk -v tf="$TEL_FROM" -v hf="$HC_FROM" -v tot="$TOTAL_LINES" -v cap="$SUB_CAP" '
+      SE_TX="$TRANSCRIPT" SE_DIR="$SE_SCR" SE_SUBDIR="$SUBAGENTS_DIR" awk -v tf="$TEL_FROM" -v hf="$HC_FROM" -v tot="$TOTAL_LINES" -v cap="$SUB_CAP" '
         BEGIN {
           d = ENVIRON["SE_DIR"]
           parvl = d "/par_vl"; subvl = d "/sub_vl"; hcin = d "/hc_in"; subwm = d "/subwm"
+          sd = ENVIRON["SE_SUBDIR"] "/"
         }
         { sub(/\r$/, "") }
         FILENAME == ARGV[1] {
@@ -334,7 +348,8 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
           }
           used = 0
           for (i = 1; i <= nf; i++) {
-            b = fp[i]; sub(/.*[\/\\]/, "", b)
+            b = fp[i]
+            if (substr(b, 1, length(sd)) == sd) b = substr(b, length(sd) + 1); else sub(/.*[\/\\]/, "", b)
             lc = flc[i]
             v = (b in vw) ? vw[b] : 0
             h = (b in hw) ? hw[b] : 0
@@ -570,6 +585,10 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
         .injected, .read, .ritual, .agents, .pulled, .turn,
         (.hits | join(",")), .tiers, (.prior_candidates | join(",")), .sub_read
       ' 2>/dev/null | tr -d '\r')
+      # Every field starts empty: a process substitution that fails to open never runs the reads,
+      # and an unset TEL_HITS/TEL_TIERS below would abort the rest of the Stop under set -u.
+      TEL_INJ="" TEL_HIT="" TEL_RITUAL="" TEL_AGENTS="" TEL_PULLED="" TEL_TURN=""
+      TEL_HITS="" TEL_TIERS="" TEL_PRIOR_CAND="" TEL_SUB_READ=""
       {
         IFS= read -r TEL_INJ
         IFS= read -r TEL_HIT
@@ -726,8 +745,9 @@ if [ "${SB_TELEMETRY:-on}" != "off" ]; then
   # same candidates (their watermarks make that a no-double-count retry).
   if [ -n "$SE_SCR" ] && [ -f "$SUB_MARK.new" ]; then
     if [ "$SUB_CAND" -gt 0 ] && [ "$SUB_COMPLETE" = "1" ] && [ "$VL_COMMITTED" = "1" ] && [ "$HC_COMMITTED" = "1" ]; then
-      mv -f "$SUB_MARK.new" "$SUB_MARK" 2>/dev/null \
-        || sb_log_error "stop-extract.sh" "subagent-scan: cannot move $SUB_MARK.new into place; unchanged files are re-counted next Stop sid=$MANIFEST_SID" 1
+      # The workflows/ mark takes the same instant: this scan read that layer too.
+      { mv -f "$SUB_MARK.new" "$SUB_MARK" && touch -r "$SUB_MARK" "$SUB_MARK_WF"; } 2>/dev/null \
+        || sb_log_error "stop-extract.sh" "subagent-scan: cannot move $SUB_MARK.new into place (or stamp $SUB_MARK_WF); unchanged files are re-counted next Stop sid=$MANIFEST_SID" 1
     else
       rm -f "$SUB_MARK.new"
     fi
