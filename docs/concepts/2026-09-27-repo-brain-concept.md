@@ -241,6 +241,13 @@ as an optional tool that is never requested. Event text is display-only and scru
   workflow agent's `StructuredOutput` input (capped, DATA-bannered) or log `reason=structured-output`; log handback
   and archived lengths on every capture and raise an `sb_log_error` row when a handback exists but the archive is
   shorter (the alarm the first blackout lacked); keep a per-session retention floor under the global cap.
+  *As shipped in 0.54.1:* the capture logs payload length and the archive write's `archive_rc`, and archived payload
+  lines are quoted `> ` so a forged `USER:` line cannot be indexed as a user message. The shorter-archive alarm and
+  the retention floor are **deferred to S2**: S0's first alarm compared the selection with itself and was deleted
+  (devils-advocate, 2026-09-30). The real alarm needs `sb_archive_subagent_result` to return the bytes it wrote. The
+  floor needs a session-keyed eviction order in both the sub-prune and `sb_prune_transcripts` (extracted first, then
+  other sessions' unmined files, then the archiving session's beyond K, with a loud hard ceiling). About 40 lines and
+  2 spawns per SubagentStop.
 - B2: reliability only. Precompute the per-tier card at SessionStart so SubagentStart does one file read; write a
   start marker before work and pair it with the end row, so a start without an end is a counted miss (`hook-timer.sh`
   cannot log a kill); a malformed payload logs `reason=bad-payload`. Target < 1 s at 6 parallel under load.
@@ -471,7 +478,8 @@ excludes `held-untrusted`, `[untrusted:compact]` and harness-flagged items.
 ### 7.5 Agent report pointer (captured; class 4)
 `{agent_id, agent_type, description, verdict, gaps[≤3], report_path, trust ∈ {ok, flagged}}`; `verdict` uses the
 single V3 enum defined in `protocol.md` (S1b), with `unknown` when no grade is parseable; flagged entries keep the
-pointer only. `report_path` is kept under a per-session retention floor, not only the global 50-file cap.
+pointer only. `report_path` is kept under a per-session retention floor, not only the global 50-file cap (floor
+deferred to S2, see §5 B1; until then only the global cap applies).
 
 ### 7.6 L1 ai-block envelope (every type; extends `kb-schema.json`)
 `anchors[≤5]` (`path[:L1-L2]`, `path#symbol`, `test:`, `cmd:`, `wiki:`, `mem:`) · `verify` (`grep:<re>@path`,
