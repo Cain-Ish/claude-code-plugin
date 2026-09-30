@@ -564,6 +564,27 @@ grep -q 'sb_manifest_add: rejected id' "$BRAIN/error-log.jsonl" 2>/dev/null \
   || fail "sb_manifest_add: expected a 'rejected id' error-log line for the quote-poisoned id"
 pass "sb_manifest_add rejects an id with a quote/backslash/control char, logs it, never forges the manifest row"
 
+# --- Test 15c: a long id list must not hang the hook that passes it. sb_manifest_add read its
+# ids through `done <<< "$ids"`, and an MSYS here-string of 65,537..~65,650 bytes blocks for good
+# — session-load (SessionStart), persona-context (every prompt) and protocol-guard (PreToolUse)
+# all call it. 3,279 ids of 19 chars put the text at 65,579 B. The subshell writing the
+# here-string is itself the blocked process, so the poll-then-KILL watchdog reaches it; never
+# `wait` on a kill (a process blocked on that pipe write ignores TERM). RED on MSYS only.
+BIG_SID="big15c"; BIG_MANIFEST="$BRAIN/.injected-manifest-$BIG_SID.jsonl"
+rm -f "$BIG_MANIFEST"
+BIG_IDS=$(awk 'BEGIN { for (i = 1; i <= 3279; i++) printf "wiki-page-%09d\n", i }')
+( source "$ROOT/scripts/lib.sh"; BRAIN_DIR="$BRAIN" SB_MANIFEST_SESSION_ID="$BIG_SID" sb_manifest_add wiki "$BIG_IDS" ) &
+WD15C=$!; i=0
+while kill -0 "$WD15C" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
+if kill -0 "$WD15C" 2>/dev/null; then
+  kill -KILL "$WD15C" 2>/dev/null
+  fail "sb_manifest_add hung on a ${#BIG_IDS}-byte id list (MSYS here-string window) — killed after 60 s"
+fi
+wait "$WD15C"
+[ "$(wc -l < "$BIG_MANIFEST" | tr -d ' ')" -eq 3279 ] || fail "sb_manifest_add: expected 3279 rows for 3279 ids, got $(wc -l < "$BIG_MANIFEST" | tr -d ' ')"
+jq -e 'select(.kind != "wiki")' "$BIG_MANIFEST" >/dev/null 2>&1 && fail "sb_manifest_add: a long id list produced a non-wiki row"
+pass "a ${#BIG_IDS}-byte id list: no hang, one wiki row per id"
+
 # --- Test 16: an id that is BOTH the anchor AND a plain wiki/other id must not ---
 # leak into injected/read/hits under its other kind — nonanchor excludes any id
 # also manifested as the anchor from every non-anchor kind's accounting; only the
