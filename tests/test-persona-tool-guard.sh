@@ -717,6 +717,11 @@ rm -rf "$D156_BRAIN"
 # < 4.2 (macOS /bin/bash) has no builtin clock for the audit row's timestamp. Generous bounds: a
 # passing run never sleeps, a stalled one sleeps B7_SLEEP — machine load cannot flake the verdict.
 # B7_SCOPE=off isolates the rule under test from the (separately tested) resource-scope ask.
+# Item 17: on bash < 4.3 (the macOS lane's /bin/bash 3.2) the guards' builtin payload reader steps
+# aside and jq decides every call, as on main — a stalled jq can then hold the verdict, so these
+# stalled-dependency cases cannot hold there by design and are skipped (loudly) on such a bash.
+FP_OFF=0
+bash -c '[ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }' && FP_OFF=1
 B7_SLEEP=20; B7_BOUND=10; B7_SCOPE=off
 B7=$(mktemp -d); mkdir -p "$B7/root/scripts" "$B7/shims" "$B7/brain"
 # Precondition: the audit dir exists BEFORE the shims go on PATH — _fp_audit would otherwise run the
@@ -734,6 +739,7 @@ b7() {  # b7 <payload-json> [wrapper…] -> B7_OUT, B7_EL (whole seconds)
   B7_EL=$(( SECONDS - s ))
 }
 b7_ask() {  # b7_ask <label> <rule> <payload-json> [wrapper…]
+  if [ "$FP_OFF" = 1 ]; then echo "SKIP: B7 $1 — the fast path is off on bash < 4.3 (item 17: jq decides, as on main)"; return 0; fi
   local label="$1" rule="$2" p="$3"; shift 3
   rm -f "$B7/brain/audit-log.jsonl"
   b7 "$p" "$@"
@@ -804,6 +810,17 @@ out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-rl1"},"s
 grep -q '"fastpath":true' "$B7L/audit-log.jsonl" 2>/dev/null \
   && fail "RR-RL1: a name-only override must stand the fast path down, not answer on it (audit: $(cat "$B7L/audit-log.jsonl"))"
 pass "RR-RL1: repo layer name-only raise of warn-rm-rf to deny → full logic, deny wins, no fastpath row"
+# The same name-only raise in the USER layer, beside a learned entry (the auto-armed kind that alone
+# keeps the fast path armed — SEC-M3 above): the name-only rule must still stand it down.
+rm -f "$B7L/projects/rl1/rules.json" "$B7L/.injected/b7rl1.slug"; : > "$B7L/audit-log.jsonl"
+printf '{"rules":[{"name":"warn-rm-rf","action":"deny"}],"learned":[{"event":"bash","pattern":"foo","action":"warn","message":"m"}]}\n' > "$B7L/persona-rules.json"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-rl1u"},"session_id":"b7rl1u"}' | BRAIN_DIR="$B7L" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "RR-RL1: a user layer's name-only raise of warn-rm-rf to deny (beside a learned entry) must win (got: $out)"
+grep -q '"rule":"warn-rm-rf"' "$B7L/audit-log.jsonl" || fail "RR-RL1: the user-layer deny was not audit-logged"
+grep -q '"fastpath":true' "$B7L/audit-log.jsonl" \
+  && fail "RR-RL1: a user-layer name-only override must stand the fast path down (audit: $(cat "$B7L/audit-log.jsonl"))"
+pass "RR-RL1: user layer name-only raise beside a learned entry → full logic, deny wins, no fastpath row"
 rm -rf "$B7L"
 
 # T2: each stand-down branch of _ptg_fast, with the real lib.sh. no_fast <audit-log> <label>: the
@@ -883,7 +900,7 @@ par() {  # par <tool> <field> <value> [cwd]   (content carries dangerous-looking
     || fail "B7 parity: $1 $2='$3' cwd='${4:-}' fast=[$d1 $r1] full=[$d2 $PR]"
   # T1: the same verdict must come FROM the fast path — a fast path that declines (a broken
   # pattern) hands the call to the full logic and parity alone would still pass.
-  if [ -n "$d1" ]; then
+  if [ -n "$d1" ] && [ "$FP_OFF" = 0 ]; then
     grep -q '"fastpath":true' "$PAR/fast/audit-log.jsonl" 2>/dev/null \
       || fail "B7 parity: $1 $2='$3' cwd='${4:-}' — verdict [$d1] did not come from the fast path (no fastpath row)"
     PAR_FAST=$((PAR_FAST + 1))
@@ -916,7 +933,8 @@ par Edit file_path /home/u/proj/sub/../claude-code-plugin/scripts/a.sh /home/u/p
 par MultiEdit file_path /var/tmp/../etc/persona-rules.json /home/u/proj
 par Write file_path /tmp/x/plugin.json /home/u/proj
 par Write file_path /home/u/proj/README.md /home/u/proj
-[ "$PAR_FAST" -ge 30 ] || fail "B7 parity: only $PAR_FAST of $PAR_N payloads were decided on the fast path"
+# On bash < 4.3 (item 17) no verdict comes from the fast path: parity still holds, the count is 0.
+[ "$FP_OFF" = 1 ] || [ "$PAR_FAST" -ge 30 ] || fail "B7 parity: only $PAR_FAST of $PAR_N payloads were decided on the fast path"
 pass "B7 parity: fast path == full rule engine (verdict, reason, rule) over $PAR_N payloads, $PAR_FAST decided on the fast path"
 rm -rf "$PAR"
 
@@ -944,15 +962,39 @@ rm -rf "$B7"
 
 # --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
 # bounded LABEL LIMIT PAYLOAD-FILE [VAR=val…]: run the guard in the background, stdout to a file,
-# and kill it past LIMIT seconds — a hung guard must FAIL the test, not hang it. BD_OUT, BD_EL (s).
+# a watchdog killing it past LIMIT seconds — a hung guard must FAIL the test, not hang it. BD_OUT;
+# BD_MS = elapsed ms (EPOCHREALTIME on bash 5; whole seconds from `date` on older bash, the macOS
+# lane); BD_EL = whole seconds. The guard must exit 0 (a crash is not a verdict). LIMIT is only the
+# kill; every run must also answer within HOOK_BOUND_MS. Runs use a UTF-8 locale when there is one
+# (DA #3: the multibyte payloads exist to hit bash's wide-character slow paths, which the C locale a
+# bare CI shell starts in never takes).
 SZ=$(mktemp -d)
+UTF8_LOC=""
+for l in C.UTF-8 en_US.UTF-8 C.utf8 en_US.utf8; do
+  [ "$( (LC_ALL=$l; s=$'\303\251'; printf %s "${#s}") 2>/dev/null)" = 1 ] && { UTF8_LOC=$l; break; }
+done
+[ -n "$UTF8_LOC" ] || echo "SKIP: no UTF-8 locale — the size cases below run in the C locale, off the wide-character paths"
+now_ms() { local n="${EPOCHREALTIME:-}"; n="${n//[!0-9]/}"; if [ -n "$n" ]; then echo $((10#$n / 1000)); else echo $(( $(date +%s) * 1000 )); fi; }
 bounded() {
-  local label="$1" lim="$2" pf="$3" pid i=0; shift 3
-  env BRAIN_DIR="$SZ" "$@" bash "$SCRIPT" < "$pf" > "$SZ/bounded.out" 2>/dev/null & pid=$!
-  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$lim" ]; do sleep 1; i=$((i + 1)); done
-  if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; fail "$label: still running after ${lim}s"; fi
-  wait "$pid"; BD_OUT=$(cat "$SZ/bounded.out"); BD_EL=$i
+  local label="$1" lim="$2" pf="$3" pid wd rc t0; shift 3
+  t0=$(now_ms)
+  env BRAIN_DIR="$SZ" ${UTF8_LOC:+LC_ALL=$UTF8_LOC} "$@" bash "$SCRIPT" < "$pf" > "$SZ/bounded.out" 2> "$SZ/bounded.err" & pid=$!
+  ( sleep "$lim"; kill "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
+  wait "$pid"; rc=$?
+  BD_MS=$(( $(now_ms) - t0 )); BD_EL=$((BD_MS / 1000))
+  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  [ "$BD_MS" -lt $((lim * 1000)) ] || fail "$label: still running after ${lim}s (killed)"
+  [ "$rc" = 0 ] || fail "$label: the guard exited $rc ($(head -c 300 "$SZ/bounded.err"))"
+  # Every size case must answer inside the hook budget (item F8/DA #6: the old 10 s lock let a
+  # 9 s answer pass while production cancelled it at 5 s).
+  [ "$BD_MS" -le "$HOOK_BOUND_MS" ] || fail "$label: answered in ${BD_MS} ms, bound $HOOK_BOUND_MS ms — past it the hook is cancelled and the tool RUNS"
+  BD_OUT=$(cat "$SZ/bounded.out")
 }
+# within LABEL MS: the last bounded run answered inside MS milliseconds.
+within() { [ "$BD_MS" -le "$2" ] || fail "$1: answered in ${BD_MS} ms, bound $2 ms — past it the hook is cancelled and the tool RUNS"; }
+# The hook timeout is 5 s; hook-timer.sh, bash's start and the spawn under a loaded box take the
+# rest: a case that must answer in time is bound at 4 s. BIG_BOUND stays the kill limit.
+HOOK_BOUND_MS=4000
 is_ask() { printf '%s' "$1" | grep -q '"permissionDecision":"ask"'; }
 # big_body N: an 'é' (bash then matches in wide characters, the slow case) and N bytes of lines.
 big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\n", $0}'; }
@@ -1003,7 +1045,45 @@ printf '{"session_id":"cr1","tool_name":"Bash","tool_input":{"command":"rm -rf /
 rm -f "$SZ/audit-log.jsonl"
 bounded "RR-CR1 50,000 consecutive trailing newlines, rm -rf" "$BIG_BOUND" "$SZ/cr1.json"
 is_ask "$BD_OUT" || fail "RR-CR1: rm -rf with 50,000 trailing newlines must still ask (got: $BD_OUT)"
-pass "RR-CR1: 50,000 consecutive trailing newlines answered in ${BD_EL}s (rm -rf still asks)"
+within "RR-CR1 50,000 trailing newlines" "$HOOK_BOUND_MS"
+# The command is past the 16 KiB read, so the ask must be the full logic's.
+grep -q '"rule":"warn-rm-rf"' "$SZ/audit-log.jsonl" || fail "RR-CR1: the ask was not audit-logged"
+grep -q '"fastpath":true' "$SZ/audit-log.jsonl" \
+  && fail "RR-CR1: a command past the 16 KiB read cannot be the fast path's to answer (audit: $(head -c 400 "$SZ/audit-log.jsonl"))"
+pass "RR-CR1: 50,000 consecutive trailing newlines answered in ${BD_MS} ms (rm -rf still asks, full logic)"
+
+# F8 #1: the same run INSIDE the command, text after it. The `($_fp_nl+)$` regex the trim used
+# was O(run^2) on glibc for this shape: 24 s for this payload on Debian (MSYS: linear, 1.3 s).
+printf '{"session_id":"cr1i","tool_name":"Bash","tool_input":{"command":"rm -rf ~/proj%s#"}}' "$TRAIL50K" > "$SZ/cr1i.json"
+rm -f "$SZ/audit-log.jsonl"
+bounded "F8 50,000 interior newlines, rm -rf" "$BIG_BOUND" "$SZ/cr1i.json"
+is_ask "$BD_OUT" || fail "F8: rm -rf with 50,000 interior newlines must still ask (got: $BD_OUT)"
+within "F8 50,000 interior newlines" "$HOOK_BOUND_MS"
+pass "F8: 50,000 newlines inside the command answered in ${BD_MS} ms (rm -rf still asks)"
+
+# DA #1: escape-dense values. _fp_str walked one bash iteration per escaped quote / escape
+# (~110-120 us each on MSYS): 100k \" took 10.8 s, 150k 'a\n' lines 6.5 s, past the timeout. Past
+# _fp_emax escapes the value is jq's now.
+QD=$(printf '%100000s' '' | sed 's/ /\\"a/g')
+printf '{"session_id":"da1","tool_name":"Bash","tool_input":{"command":"echo %s; rm -rf /tmp/da1"}}' "$QD" > "$SZ/da1q.json"
+bounded "DA #1 300 KB quote-dense command" "$BIG_BOUND" "$SZ/da1q.json"
+is_ask "$BD_OUT" || fail "DA #1: a 300 KB \\\"-dense command ending in rm -rf must ask (got: $BD_OUT)"
+within "DA #1 300 KB quote-dense command" "$HOOK_BOUND_MS"
+pass "DA #1: a 300 KB command of 100k escaped quotes asks in ${BD_MS} ms"
+NLD=$(printf '%150000s' '' | sed 's/ /a\\n/g')
+printf '{"session_id":"da1","tool_name":"Bash","tool_input":{"command":"echo %s; rm -rf /tmp/da1"}}' "$NLD" > "$SZ/da1n.json"
+bounded "DA #1 150k-line command" "$BIG_BOUND" "$SZ/da1n.json"
+is_ask "$BD_OUT" || fail "DA #1: a 150k-line command ending in rm -rf must ask (got: $BD_OUT)"
+within "DA #1 150k-line command" "$HOOK_BOUND_MS"
+pass "DA #1: a 450 KB command of 150k 'a\\n' lines asks in ${BD_MS} ms"
+QD1M=$(printf '%333333s' '' | sed 's/ /\\"a/g')
+printf '{"session_id":"da1","tool_name":"Write","tool_input":{"content":"%s","file_path":"/x/persona-rules.json"}}' "$QD1M" > "$SZ/da1w.json"
+rm -f "$SZ/audit-log.jsonl"
+bounded "DA #1 1 MB quote-dense Write" "$BIG_BOUND" "$SZ/da1w.json" SB_RESOURCE_SCOPE=off
+is_ask "$BD_OUT" && grep -q '"rule":"warn-direct-write-hot-tier"' "$SZ/audit-log.jsonl" \
+  || fail "DA #1: a 1 MB quote-dense Write to persona-rules.json must ask via warn-direct-write-hot-tier (got: $BD_OUT)"
+within "DA #1 1 MB quote-dense Write" "$HOOK_BOUND_MS"
+pass "DA #1: a 1 MB Write of 333k escaped quotes to persona-rules.json asks in ${BD_MS} ms"
 rm -rf "$SZ"
 
 echo

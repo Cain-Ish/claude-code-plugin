@@ -28,10 +28,22 @@ set -u
 # guard at 512 KB on MSYS, far past the 5 s timeout), so text is cut by word splitting
 # (_fp_split) and tested with `case` globs and fixed-string substitutions.
 _fp_bs='\' _fp_q='"' _fp_us=$'\037' _fp_nl=$'\n' _fp_cr=$'\r' _fp_tab=$'\t'
-_fp_re='^[[:space:]]*:[[:space:]]*$' _fp_rebs='(\\+)$' _fp_renl="($_fp_nl+)\$"
+_fp_re='^[[:space:]]*:[[:space:]]*$'
+_fp_rebs='(\\+)$'   # =~-bounded: matched only against _fp_str's tail slice of <= 65 characters
 _fp_uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ _fp_lc=abcdefghijklmnopqrstuvwxyz
-# bash < 4.3 runs even a one-match ${v//pat/rep} in O(candidates x length^2) (4.3 added the
-# fixed-length match jump): there _fp_at leaves a payload over 16 KiB to jq.
+# _fp_str walks one bash iteration per escaped quote and per escape (~110-120 us each on MSYS): a
+# value with more than _fp_emax of either is left to jq (one spawn, ~0.1 s for any size). DA #1
+# (0.54.1): 100k \" in a 300 KB command took 10.8 s per guard, past the 5 s timeout — a fail-open.
+# Measured at the cap on a loaded MSYS box: 2000 added ~0.4 s to a persona-tool-guard call (it
+# decodes on the fast path, then again in the full logic) and ~0.8 s to a flow-guard WebFetch with
+# url and prompt both at the cap; 1000 adds ~0.17 s / ~0.38 s, about what the jq fallback costs.
+_fp_emax=1000
+# bash < 4.3 (macOS /bin/bash is 3.2) steps the builtin payload reader aside altogether: _fp_at,
+# and so _fp_str, return 2 and jq decides — main's behaviour there. That bash runs even a
+# one-match ${v//pat/rep} in O(candidates x length^2) (4.3 added the fixed-length match jump) and
+# mangles bytes the reader leans on (its CTLESC/CTLNUL quoting: an empty field of a joined slice
+# came back as \177 on the macOS lane, 0.54.1 F8); a jq spawn is cheap on a native fork, and the
+# spawn tax this fast path exists for is an MSYS one.
 _fp_ob=0
 { [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }; } && _fp_ob=1
 # The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
@@ -74,10 +86,12 @@ _fp_feed() {
 # end of what was read never looks closed); _FP_I = the field the value starts in. 0 = found;
 # 1 = absent (the whole payload was seen); 2 = undecidable — KEY occurs twice (nested or
 # duplicated: jq decides which one counts), the value is not a string, the payload holds a \037,
-# or KEY may be spelled with a \u escape. JSON escapes every quote inside a string, so a "KEY"
-# followed by ':' is always a real key, never text inside a value.
+# or KEY may be spelled with a \u escape, or bash is older than 4.3 (_fp_ob, see above). JSON
+# escapes every quote inside a string, so a "KEY" followed by ':' is always a real key, never text
+# inside a value.
 _fp_at() {
   local _fa_f _fa_i=0
+  [ "$_fp_ob" = 1 ] && return 2
   case "$_FP_RAW" in
     *"$_fp_q$1$_fp_q"*) ;;
     *) [ "$_FP_EOF" = 1 ] || return 2
@@ -94,7 +108,6 @@ _fp_at() {
     done
     [ "$_FP_I" -ge 1 ] || return 2
   else
-    [ "$_fp_ob" = 1 ] && return 2
     _fp_split "$_fp_us" "${_FP_RAW//"$_fp_q$1$_fp_q"/"$_fp_us"}"
     [ "${#_FP_A[@]}" = 2 ] || return 2
     _fp_split "$_fp_q" "${_FP_A[1]}$_fp_us"
@@ -106,16 +119,23 @@ _fp_at() {
   return 0
 }
 
-# _fp_join VAR FROM TO: VAR = fields FROM..TO of _FP_A joined by the '"' _fp_split cut out.
+# _fp_join VAR FROM TO: VAR = fields FROM..TO of _FP_A joined by the '"' _fp_split cut out. The
+# slice is copied out first, then joined whole under the local IFS: bash 3.2 (macOS) turns each
+# EMPTY element of a "${a[*]:from:len}" slice into its internal \177 (CTLNUL) byte — a decoded
+# `q \"` came back `q "` + \177 on the macOS lane (F8) — and joins with spaces instead when the
+# copy is made after `local IFS`. The _fp_ob gate keeps bash < 4.3 out of here now; the join stays
+# byte-safe there all the same.
 _fp_join() {
+  _FP_J=("${_FP_A[@]:$2:$(($3 - $2 + 1))}")
   local IFS="$_fp_q"
-  printf -v "$1" '%s' "${_FP_A[*]:$2:$(($3 - $2 + 1))}"
+  printf -v "$1" '%s' ${_FP_J[*]+"${_FP_J[*]}"}
 }
 
 # _fp_str KEY: _FP = the decoded string value of the ONE "KEY": "…" pair in the payload.
 # 0 = found; 1 = absent; 2 = undecidable (_fp_at's cases, a value that runs past the 16 KiB read,
-# or an escape left to jq: \u \b \f). The value ends at the first '"' not escaped: a field that
-# ends in an odd run of backslashes ended at an escaped quote.
+# an escape left to jq: \u \b \f, or more than _fp_emax escaped quotes or escapes). The value ends
+# at the first '"' not escaped: a field that ends in an odd run of backslashes ended at an escaped
+# quote.
 _fp_str() {
   local _fs_v _fs_f _fs_t _fs_s _fs_n
   _FP=""
@@ -125,6 +145,7 @@ _fp_str() {
     [ "$_FP_I" -lt "$_fs_n" ] || return 2
     _fs_f="${_FP_A[$_FP_I]}"
     case "$_fs_f" in *"$_fp_bs") ;; *) break ;; esac
+    [ $((_FP_I - _fs_s)) -lt "$_fp_emax" ] || return 2
     _fs_t="$_fs_f"; [ "${#_fs_t}" -le 65 ] || _fs_t="${_fs_t:${#_fs_t}-65}"
     [[ $_fs_t =~ $_fp_rebs ]] && [ "${#BASH_REMATCH[1]}" -le 64 ] || return 2
     [ $(( ${#BASH_REMATCH[1]} % 2 )) = 1 ] || break
@@ -140,6 +161,7 @@ _fp_str() {
   local -a _fs_o=()
   local _fs_p=1
   _fp_split "$_fp_bs" "$_fs_v"
+  [ "${#_FP_A[@]}" -le $((_fp_emax + 1)) ] || return 2
   for _fs_f in ${_FP_A[@]+"${_FP_A[@]}"}; do
     if [ "$_fs_p" = 1 ]; then _fs_o+=("$_fs_f"); _fs_p=0; continue; fi
     if [ -z "$_fs_f" ]; then _fs_o+=("$_fp_bs"); _fs_p=1; continue; fi
@@ -178,18 +200,35 @@ _fp_nocr() {
   printf -v "$1" '%s' ${_FP_A[@]+"${_FP_A[@]}"}
 }
 
-# _fp_trimnl VAR TEXT: VAR = TEXT with its run of trailing newlines cut — one regex match plus one
-# slice, O(length) total. The `while … "${v%"$_fp_nl"}"` loop this replaces re-scans the whole
-# string once per trailing newline: O(N x length) for N of them (a command or path ending in
-# 50,000 real newlines took 41-48 s per guard, well past the 5 s hook timeout — a fail-open DoS,
-# not just slow). The regex stays in a variable: bash 3.2 (macOS) treats an inline quoted regex as
-# literal text inside `[[ =~ ]]`, not as a pattern.
+# _fp_trimnl VAR TEXT: VAR = TEXT with its run of trailing newlines cut, measured without a regex:
+# a tail slice doubles until it holds a non-newline, then a binary search closes on the run's
+# length — O(log run) slices, each tested by one `case` glob. Both earlier trims failed open: the
+# `while … "${v%"$_fp_nl"}"` loop re-scanned the whole string once per trailing newline (a command
+# ending in 50,000 real newlines: 41-48 s per guard, past the 5 s hook timeout), and the regex
+# `($_fp_nl+)$` that replaced it is O(run^2) on glibc when the run is followed by any other text —
+# glibc retries the match from every newline (`rm -rf ~/proj`, 50,000 newlines, `#`: 22-39 s per
+# guard on Debian; MSYS's engine is linear there, so no Windows run saw it). The search runs under
+# LC_ALL=C, where lengths and slices count bytes (a newline byte never occurs inside a UTF-8
+# sequence, and an old bash's multibyte length can stop counting at an invalid byte); LC_ALL is set
+# and restored explicitly rather than by `local`, whose restore an old bash might not re-apply.
 _fp_trimnl() {
-  if [[ $2 =~ $_fp_renl ]]; then
-    printf -v "$1" '%s' "${2:0:$(( ${#2} - ${#BASH_REMATCH[1]} ))}"
-  else
-    printf -v "$1" '%s' "$2"
-  fi
+  local _ft_n _ft_lo=1 _ft_hi=1 _ft_m _ft_t _ft_ls="${LC_ALL+x}" _ft_lv="${LC_ALL-}"
+  case "$2" in *"$_fp_nl") ;; *) printf -v "$1" '%s' "$2"; return 0 ;; esac
+  LC_ALL=C
+  _ft_n=${#2}
+  # The last _ft_lo bytes are all newlines; the last _ft_hi are not (or _ft_hi = _ft_lo = _ft_n).
+  while [ "$_ft_hi" -lt "$_ft_n" ]; do
+    _ft_m=$((_ft_hi * 2)); [ "$_ft_m" -le "$_ft_n" ] || _ft_m=$_ft_n
+    _ft_t="${2:_ft_n-_ft_m}"
+    case "$_ft_t" in *[!"$_fp_nl"]*) _ft_hi=$_ft_m; break ;; esac
+    _ft_lo=$_ft_m _ft_hi=$_ft_m
+  done
+  while [ $((_ft_hi - _ft_lo)) -gt 1 ]; do
+    _ft_m=$(((_ft_lo + _ft_hi) / 2)); _ft_t="${2:_ft_n-_ft_m}"
+    case "$_ft_t" in *[!"$_fp_nl"]*) _ft_hi=$_ft_m ;; *) _ft_lo=$_ft_m ;; esac
+  done
+  printf -v "$1" '%s' "${2:0:_ft_n-_ft_lo}"
+  if [ -n "$_ft_ls" ]; then LC_ALL="$_ft_lv"; else unset LC_ALL; fi
 }
 
 # _fp_clean VAR…: drop CRs and trailing newlines from each VAR — what the full logic's old
