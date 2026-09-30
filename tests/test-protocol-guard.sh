@@ -1080,6 +1080,11 @@ if bounded_pg "RR-SF1 pre mode, ~65,600-byte fields blob (file_path)" 15 "$SANDB
   if [ "$RR_MS" -le 4000 ]; then pass "RR-SF1: a ~65,600-byte fields blob went through pg_feed's long branch in ${RR_MS} ms"
   else fail "RR-SF1: the ~65,600-byte fields blob took ${RR_MS} ms, bound 4000 ms — past the 5 s budget the hook is cancelled"; fi
   rr_nobad "RR-SF1 fields blob"
+  # F8 item 19: past 4096 characters the path advisories are skipped, loudly (their ${p##*/}-style
+  # expansions cost 6 s on the macOS lane's bash 3.2 for this path).
+  if audit_all | grep -q 'gate=path-advice tool=Write verdict=skip reason=path-too-long chars=[0-9]* sid=rrsf1'; then
+    pass "item 19: a ~65,600-character file_path skips the path advisories with a gate=path-advice row"
+  else fail "item 19: no gate=path-advice … reason=path-too-long … sid=rrsf1 row for the ~65,600-character file_path" "$(audit_all | tail -3)"; fi
 fi
 SUB_JSON='{"hook_event_name":"SubagentStart","session_id":"rrsf1","agent_id":"a1","agent_type":"generic","tool_input":{"description":"'
 pg_pad 65600 "$SUB_JSON" '"}}' > "$SANDBOX/rrsf1-subagent.json"

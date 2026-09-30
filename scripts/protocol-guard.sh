@@ -1035,8 +1035,16 @@ case "$MODE" in
     case "$PG_TOOL" in
       Agent|Task) [ "${SB_DELEGATION_CHECK:-on}" = "off" ] || pg_agent ;;
       Read|Edit|Write|MultiEdit)
-        [ "${SB_JIT:-on}" = "off" ] || pg_jit
-        if [ "$PG_TOOL" = "Write" ] && [ "${SB_SEARCH_FIRST:-on}" != "off" ]; then pg_search; fi ;;
+        # F8 item 19: the path advisories trim and match the path with expansions like ${p##*/},
+        # O(n^2) on bash < 4.3 — a ~65,600-character file_path took 6 s on the macOS lane, past the
+        # 5 s budget. No usable path is that long (PATH_MAX is 4096 on Linux, 1024 on macOS), and
+        # both only advise: past 4096 characters they are skipped, with one row saying so.
+        if [ "${#PG_PATH}" -gt 4096 ]; then
+          pg_row "gate=path-advice tool=$PG_TOOL verdict=skip reason=path-too-long chars=${#PG_PATH} sid=${PG_SID:--}"
+        else
+          [ "${SB_JIT:-on}" = "off" ] || pg_jit
+          if [ "$PG_TOOL" = "Write" ] && [ "${SB_SEARCH_FIRST:-on}" != "off" ]; then pg_search; fi
+        fi ;;
     esac
     pg_emit_pre ;;
 esac
