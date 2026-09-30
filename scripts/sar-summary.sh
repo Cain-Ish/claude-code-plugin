@@ -93,8 +93,13 @@ fi
 # aborts the WHOLE pass, and every verdict past that point is silently lost. `-R`
 # reads each line as a raw string and `fromjson?` skips only the bad one, so good
 # rows on both sides of a tear are still counted (never re-widen the abort surface).
+# Only the five verdicts the loop below counts pass the filter, so $counts is at most five
+# short "verdict=N" lines. Before, every DISTINCT verdict string in the session's rows (any
+# writer, any length) became a line, and the list is read back through a `<<<` here-string,
+# which blocks Git-Bash for good at 65,537..~65,650 bytes — past this Stop hook's timeout.
 counts=$(jq -Rr --arg sid "$SESSION_ID" '
   fromjson? | select(type == "object" and .session_id == $sid) | .verdict // empty
+  | select(. == "allow" or . == "ask" or . == "deny" or . == "flag" or . == "rewrite")
 ' "$AUDIT" 2>/dev/null | sort | uniq -c | awk '{print $2 "=" $1}')
 
 # Log a torn line ONCE per read (not once per skipped row) so a corrupt audit-log
@@ -116,7 +121,7 @@ while IFS='=' read -r v n; do
     flag)    flag=$n ;;
     rewrite) rewrite=$n ;;
   esac
-done <<<"$counts"
+done <<<"$counts"   # <<<-bounded: <= 5 lines "verdict=N" (the jq filter above keeps 5 verdicts)
 
 total=$((allow + ask + deny + flag + rewrite))
 [ "$total" -eq 0 ] && exit 0

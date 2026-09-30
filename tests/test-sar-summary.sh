@@ -142,5 +142,34 @@ echo "$out" | jq -r '.systemMessage' | grep -q 'sar=0.50' \
   || fail "sar should reflect BOTH rows (0.50), not report falsely clean 1.00 (got: $out)"
 pass "row after a torn line is still counted (no falsely-clean SAR)"
 
+# Test 13: a session whose rows carry thousands of DISTINCT junk verdict strings must not hang
+# the Stop hook. $counts (one "verdict=N" line per distinct verdict) was read back through a
+# `<<<` here-string, and Git-Bash blocks for good once that text is 65,537..~65,650 bytes. 3,123
+# junk verdicts of 18 chars ("junk-verdict-00001=1" = 21 B a line) plus the allow and deny rows
+# put it at 65,598 B. Watchdog: the script is exec'd in the background so the polled pid is the
+# hook itself; on overrun TERM then KILL, never `wait` (a process blocked on that pipe write
+# ignores TERM). RED reproduces on MSYS only; everywhere it also checks the counts stay right.
+echo '' > "$BRAIN/audit-log.jsonl"
+awk 'BEGIN { for (i = 1; i <= 3123; i++)
+  printf "{\"ts\":\"2026-05-21T00:00:00Z\",\"hook\":\"x\",\"verdict\":\"junk-verdict-%05d\",\"rule\":\"r\",\"target\":\"t\",\"reason\":\"r\",\"session_id\":\"s13\",\"extra\":{}}\n", i }' \
+  >> "$BRAIN/audit-log.jsonl"
+log_entry "s13" "allow" "ok"
+log_entry "s13" "deny" "bad"
+echo '{"session_id":"s13"}' > "$BRAIN/s13.json"
+( exec env BRAIN_DIR="$BRAIN" bash "$SCRIPT" ) < "$BRAIN/s13.json" > "$BRAIN/s13.out" 2>&1 &
+wd=$!; i=0
+while kill -0 "$wd" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
+if kill -0 "$wd" 2>/dev/null; then
+  kill -TERM "$wd" 2>/dev/null; sleep 1; kill -KILL "$wd" 2>/dev/null
+  fail "sar-summary hung on a session with 3,123 distinct junk verdicts (MSYS here-string window) — killed after 60 s"
+fi
+wait "$wd"
+out=$(cat "$BRAIN/s13.out")
+echo "$out" | jq -r '.systemMessage' | grep -q 'allow=1' \
+  && echo "$out" | jq -r '.systemMessage' | grep -q 'deny=1' \
+  && echo "$out" | jq -r '.systemMessage' | grep -q 'sar=0.50' \
+  || fail "junk verdicts must not disturb the real counts (want allow=1 deny=1 sar=0.50, got: $out)"
+pass "3,123 distinct junk verdicts: no hang, real counts intact"
+
 echo
 echo "ALL PASS"
