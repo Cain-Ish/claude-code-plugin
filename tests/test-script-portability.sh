@@ -253,32 +253,98 @@ h=$(grep -nE '/dev/(stdin|fd/0)' $ALL_SH 2>/dev/null | nocomment | grep -v 'getl
 
 # 17. Every remaining `<<<` here-string in a HOOK-ENTRY script (the 4 PreToolUse guards,
 #     protocol-guard.sh, stop-verify-gate.sh, stop-extract.sh, subagent-capture.sh) must be either
-#     inside a size-gated feed helper — recognized by its own local TEXT variable name (_fd_t for
-#     the guards' _fp_feed, _pf_t for protocol-guard's pg_feed; test-guard-wiring.sh's SEC-C1 lock
-#     already exempts the pre-existing _SPINE_TXT/_SPINE_SPANS pair the same way) — or carry an
-#     inline `# <<<-bounded: <why the text is < 8 KiB>` annotation on the SAME line or the one
-#     immediately above. RR-SF1/RR-SF2 (0.54.1): a bare `<<<` on payload/session/transcript-derived
-#     text hangs for good on MSYS at 65,536..~65,650 bytes — past the hook's timeout, a fail-open,
-#     not just slow. New hook-entry scripts should be added to HOOK_ENTRY as they ship.
-HOOK_ENTRY="persona-tool-guard.sh symlink-guard.sh wiki-write-guard.sh flow-guard.sh protocol-guard.sh stop-verify-gate.sh stop-extract.sh subagent-capture.sh"
+#     one of the size-gated feed helpers' own lines — matched as the WHOLE line, listed below (the
+#     guards' _fp_feed, protocol-guard's pg_feed, and the pre-existing _SPINE_TXT/_SPINE_SPANS
+#     reads test-guard-wiring.sh's SEC-C1 lock caps at 8192 chars) — or carry an inline
+#     `# <<<-bounded: <why the text is < 8 KiB>` annotation on the SAME line, or in the comment
+#     immediately above it (wrapped over at most two more comment lines). RR-SF1/RR-SF2 (0.54.1): a
+#     bare `<<<` on payload/session/transcript-derived text hangs for good on MSYS at
+#     65,536..~65,650 bytes — past the hook's timeout, a fail-open, not just slow. F8: the
+#     exemption used to be a token ANYWHERE on the line (`x <<< "$BIG"; : "$_pf_t"` passed), an
+#     annotation on any code line exempted the next line too, and one annotation carried through
+#     any number of comment lines; awk's errors went to /dev/null with its status unread (a scan
+#     that cannot run passed); and the scripts were a hand-kept list that had missed
+#     session-load.sh's 13 bare here-strings. HOOK_ENTRY is now every script a hooks/hooks.json
+#     command runs, plus what those scripts `source` (lib.sh, and kb-schema.sh through it).
+#     Not scanned yet (known, out of scope for 0.54.1): merge-project-update.sh (15 bare `<<<`) and
+#     merge-persona-signals.sh (1) — children of stop-extract.sh/pre-compact.sh, not hooks.json
+#     entries; and expanded heredocs (`<<EOF` with $vars), which hang in the same
+#     65,537..65,651-byte window on MSYS.
+C17T=$(mktemp -d) || fail "check 17: mktemp -d failed" ""
+trap 'rm -rf "$C17T"' EXIT
+HJ_FILE="$REPO/hooks/hooks.json"
+[ -f "$HJ_FILE" ] || fail "check 17: hooks/hooks.json missing — the hook-entry list cannot be derived" "$HJ_FILE"
+HOOK_ENTRY=$(grep -oE 'scripts/[A-Za-z0-9_.-]+\.sh' "$HJ_FILE" | sed 's|^scripts/||' | sort -u)
+# One level of `source`/`.` per round, twice: hook script -> lib.sh -> kb-schema.sh.
+for _c17_round in 1 2; do
+  for f in $HOOK_ENTRY; do
+    [ -f "$ROOT/$f" ] || continue
+    grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$ROOT/$f" | grep -oE '[A-Za-z0-9_.-]+\.sh' || true
+  done > "$C17T/sourced" 2>/dev/null
+  HOOK_ENTRY=$( { printf '%s\n' $HOOK_ENTRY; cat "$C17T/sourced"; } | while IFS= read -r f; do [ -f "$ROOT/$f" ] && printf '%s\n' "$f"; done | sort -u)
+done
+for f in persona-tool-guard.sh protocol-guard.sh stop-extract.sh stop-verify-gate.sh session-load.sh lib.sh; do
+  case " $(echo $HOOK_ENTRY) " in *" $f "*) ;; *) fail "check 17: the hook-entry list derived from hooks/hooks.json lacks $f — the derivation broke" "$(echo $HOOK_ENTRY)" ;; esac
+done
+cat > "$C17T/exempt" <<'EOF'
+if [ "${#_fd_t}" -le 8192 ]; then "$@" <<< "$_fd_t"; else "$@" < <(printf '%s\n' "$_fd_t"); fi
+if [ "${#_pf_t}" -le 8192 ]; then "$@" <<< "$_pf_t"; else "$@" < <(printf '%s\n' "$_pf_t"); fi
+IFS='"' read -ra _SPINE_QSEG <<< "$_SPINE_TXT"
+IFS="'" read -ra _SPINE_QSEG <<< "$_SPINE_TXT"
+done <<< "$_SPINE_SPANS"
+EOF
+# c17_scan FILE: print FILE:LINE:text for every un-gated here-string. POSIX awk only (the macOS
+# lane runs the BSD one-true-awk). A pure-comment line holding the annotation arms it; up to two
+# more comment lines may continue it; the first code line consumes it, here-string or not.
+c17_scan() {
+  awk -v exf="$C17T/exempt" '
+    BEGIN { while ((getline l < exf) > 0) ex[l] = 1; close(exf); pending = 0; gap = 0 }
+    {
+      iscomment = ($0 ~ /^[[:space:]]*#/)
+      annotated = ($0 ~ /<<<-bounded:/)
+      if (iscomment) {
+        if (annotated) { pending = 1; gap = 0 }
+        else if (pending) { gap++; if (gap > 2) pending = 0 }
+        next
+      }
+      if ($0 ~ /<<</) {
+        s = $0; sub(/^[[:space:]]+/, "", s)
+        if (!(annotated || pending || (s in ex))) print FILENAME ":" FNR ":" $0
+      }
+      pending = 0
+    }
+  ' "$1"
+}
+# Self-test: the scan must flag exactly the bare and the spoofed lines of this canary.
+cat > "$C17T/canary.sh" <<'EOF'
+jq . <<< "$BIG"
+jq . <<< "$SMALL"   # <<<-bounded: canary, same line
+# <<<-bounded: canary, line above
+jq . <<< "$SMALL"
+# <<<-bounded: canary, wrapped over
+# a second comment line
+jq . <<< "$SMALL"
+jq . <<< "$BIG"; : "$_pf_t"
+x=1   # <<<-bounded: canary, on a code line that is not a here-string
+jq . <<< "$BIG"
+# <<<-bounded: canary, too far above
+# one
+# two
+# three
+jq . <<< "$BIG"
+  if [ "${#_pf_t}" -le 8192 ]; then "$@" <<< "$_pf_t"; else "$@" < <(printf '%s\n' "$_pf_t"); fi
+EOF
+c17_scan "$C17T/canary.sh" > "$C17T/canary.out" 2> "$C17T/err"; c17_rc=$?
+[ "$c17_rc" -eq 0 ] || fail "check 17 self-test: awk exited $c17_rc" "$(cat "$C17T/err")"
+c17_got=$(cut -d: -f2 "$C17T/canary.out" | tr '\n' ' ')
+[ "$c17_got" = "1 8 10 15 " ] \
+  || fail "check 17 self-test: the scan must flag exactly canary lines 1 8 10 15 (bare, spoofed token, annotation on a non-here-string line, annotation 4 lines up)" "got: [$c17_got]"
 h=""
 for f in $HOOK_ENTRY; do
   [ -f "$ROOT/$f" ] || { h="$h
 $f: hook-entry script listed in check 17 is missing"; continue; }
-  bad=$(awk '
-    {
-      iscomment = ($0 ~ /^[[:space:]]*#/)
-      annotated_here = ($0 ~ /<<<-bounded:/)
-      if ($0 ~ /<<</ && !iscomment) {
-        exempt = prevbounded || annotated_here \
-          || $0 ~ /_fd_t"/ || $0 ~ /_pf_t"/ || $0 ~ /_SPINE_TXT"/ || $0 ~ /_SPINE_SPANS"/
-        if (!exempt) print FILENAME":"FNR":"$0
-      }
-      # A pure-comment continuation line (wrapped annotation prose) keeps the chain alive
-      # instead of resetting it; any non-comment line always resets to its own same-line state.
-      if (iscomment) { if (annotated_here) prevbounded = 1 } else { prevbounded = annotated_here }
-    }
-  ' "$ROOT/$f" 2>/dev/null)
+  bad=$(c17_scan "$ROOT/$f" 2> "$C17T/err"); rc=$?
+  [ "$rc" -eq 0 ] || fail "check 17: awk failed (rc=$rc) scanning $f — a scan that cannot run must not pass" "$(cat "$C17T/err")"
   [ -n "$bad" ] && h="$h
 $bad"
 done
@@ -293,5 +359,73 @@ done
 h=$(grep -nE "IFS=[$]'[^']*[\](x01|001|x7[fF]|177)" $ALL_SH 2>/dev/null | nocomment || true)
 [ -z "$h" ] && pass "no \001 or \177 byte in an IFS value (bash 3.2 never splits on CTLESC/CTLNUL)" \
   || fail "IFS holds \001 or \177 - bash 3.2 (macOS) never splits on its internal quoting bytes; use a printable delimiter or \$'\037'" "$h"
+
+# 19. No `=~` against an UNANCHORED trailing-run regex — `(X+)$`, `X*$`, `(X*)\$` with no leading
+#     `^`, inline or through a variable. glibc's regexec retries the match from every start
+#     position, so a run of N X's followed by any other text costs O(N^2): the guards' trim regex
+#     `($_fp_nl+)$` took 22-39 s per guard on Debian for `rm -rf ~/proj` + 50,000 newlines + `#`
+#     (F8, 0.54.1) — past the 5 s hook timeout, a fail-open. MSYS's engine is linear there, so no
+#     Windows run could see it. Trim runs without a regex (the guards' _fp_trimnl). A regex only
+#     ever matched against a short bounded slice may stay, with an inline `# =~-bounded: <why>` on
+#     its definition line (same line only).
+# c19_scan FILE…: print FILE:LINE: token for every such regex. Names are the variables used as
+# `=~ $NAME` anywhere in FILE…; a definition is NAME='…', NAME="…" or a bare NAME=word. POSIX awk.
+c19_scan() {
+  local names
+  names=$(grep -ohE '=~[[:space:]]*"?[$][{]?[A-Za-z_][A-Za-z0-9_]*' "$@" | sed -E 's/.*[$][{]?//' | sort -u | tr '\n' ' ')
+  awk -v names="$names" '
+    function run(t) { return (t !~ /^\^/ && t ~ /[+*][)]?\\?[$]$/) }
+    BEGIN { n = split(names, nm, " "); q = sprintf("%c", 39) }
+    /^[[:space:]]*#/ { next }
+    /# =~-bounded:/ { next }
+    {
+      s = $0
+      while (match(s, /=~[[:space:]]*[^[:space:]$"]/)) {
+        r = substr(s, RSTART + RLENGTH - 1)
+        if (substr(r, 1, 1) == q) { s = substr(s, RSTART + RLENGTH); continue }
+        match(r, /^[^[:space:]]*/); t = substr(r, 1, RLENGTH)
+        if (run(t)) print FILENAME ":" FNR ": =~ " t
+        s = substr(r, RLENGTH + 1)
+      }
+      for (i = 1; i <= n; i++) {
+        s = $0
+        while (match(s, nm[i] "=")) {
+          pre = (RSTART > 1) ? substr(s, RSTART - 1, 1) : ""
+          r = substr(s, RSTART + RLENGTH); s = r
+          if (pre ~ /[A-Za-z0-9_]/) continue
+          c = substr(r, 1, 1)
+          if (c == q) { if (!match(r, "^" q "[^" q "]*" q)) continue; t = substr(r, 2, RLENGTH - 2) }
+          else if (c == "\"") { if (!match(r, /^"[^"]*"/)) continue; t = substr(r, 2, RLENGTH - 2) }
+          else { match(r, /^[^[:space:];]*/); t = substr(r, 1, RLENGTH) }
+          if (run(t)) print FILENAME ":" FNR ": " nm[i] "=" t
+        }
+      }
+    }
+  ' "$@"
+}
+# Self-test: exactly the unanchored trailing-run regexes of this canary, nothing else.
+cat > "$C17T/c19.sh" <<'EOF'
+_c19_a="($_c19_nl+)\$"
+[[ $x =~ $_c19_a ]]
+_c19_b='(\\+)$'   # =~-bounded: canary, a bounded slice
+[[ $x =~ $_c19_b ]]
+[[ $x =~ ([a-z]+)$ ]]
+[[ $x =~ ^[0-9]+$ ]]
+_c19_c='^[[:space:]]*:[[:space:]]*$'
+[[ $x =~ $_c19_c ]]
+_c19_d='x+$'
+# _c19_a="(y+)$"
+local _c19_e='(a*)$'
+[[ $x =~ ${_c19_e} ]]
+EOF
+c19_scan "$C17T/c19.sh" > "$C17T/c19.out" 2> "$C17T/err"; c19_rc=$?
+[ "$c19_rc" -eq 0 ] || fail "check 19 self-test: awk exited $c19_rc" "$(cat "$C17T/err")"
+c19_got=$(cut -d: -f2 "$C17T/c19.out" | tr '\n' ' ')
+[ "$c19_got" = "1 5 11 " ] \
+  || fail "check 19 self-test: the scan must flag exactly canary lines 1 5 11 (a variable, an inline and a local regex of the trailing-run shape)" "got: [$c19_got] $(cat "$C17T/c19.out")"
+h=$(c19_scan $ALL_SH 2> "$C17T/err"); rc=$?
+[ "$rc" -eq 0 ] || fail "check 19: the scan failed (rc=$rc) — a scan that cannot run must not pass" "$(cat "$C17T/err")"
+[ -z "$h" ] && pass "no =~ against an unanchored trailing-run regex like (X+)\$ (glibc O(run^2): F8 fail-open)" \
+  || fail "=~ against an unanchored trailing-run regex — O(run^2) on glibc for a run followed by other text; trim/measure without a regex, or annotate a bounded slice with # =~-bounded: <why>" "$h"
 
 echo; echo "ALL PASS"

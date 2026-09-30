@@ -17,10 +17,24 @@ ROOT="$(cd "$(dirname "$0")"/.. && pwd)"; T="$ROOT/tests"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 self="$(basename "${BASH_SOURCE[0]:-$0}")"
 
+# Static source scanners read these scripts' TEXT and never run them: test-script-portability.sh
+# names stop-extract.sh in its hook-entry list (check 17 greps each for `<<<`) and in a comment,
+# which tripped this guard in run-all (F8). Exempt by name — and only while the file still never
+# RUNS one: no non-comment line that executes (bash/sh/source/exec …NAME.sh), assigns a path
+# ending in one to a variable (the `SCRIPT=…; bash "$SCRIPT"` idiom), or calls sb_inc_wiki_writes.
+STATIC_SCANNERS="test-script-portability.sh"
+RUN_RE='(^|[^A-Za-z0-9_./-])(bash|sh|source|exec)[[:space:]]+[^[:space:];|&]*(merge-project-update|stop-extract|pre-compact)\.sh|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*(merge-project-update|stop-extract|pre-compact)\.sh|sb_inc_wiki_writes'
 bad=""; checked=0
 for f in "$T"/test-*.sh; do
   b=$(basename "$f"); [ "$b" = "$self" ] && continue
   grep -qE 'merge-project-update\.sh|stop-extract\.sh|pre-compact\.sh|sb_inc_wiki_writes' "$f" || continue
+  case " $STATIC_SCANNERS " in
+    *" $b "*)
+      if grep -vE '^[[:space:]]*#' "$f" | grep -qE "$RUN_RE"; then
+        bad="$bad $b(listed-as-static-scanner-but-runs-a-projects-writer)"
+      fi
+      continue ;;
+  esac
   checked=$((checked+1))
   has_braindir=$(grep -cE '(^|[; ])(export +)?BRAIN_DIR=' "$f")
   real_braindir=$(grep -cE 'BRAIN_DIR="?\$\{?HOME\}?/\.second-brain' "$f")
