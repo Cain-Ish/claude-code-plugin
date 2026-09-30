@@ -138,7 +138,9 @@ jobs:
     # `shell: bash` here = Git for Windows bash (-eo pipefail); jq on this image is the native
     # Windows build (1.8.1, CRLF stdout) — the real CRLF class, not the stub.
     runs-on: windows-latest
-    timeout-minutes: 25
+    # Raised 25 -> 40 (0.54.1): the lane ran 19m48s and 21m36s before the S0 fix rounds added
+    # 300 KB / 1 MB / 50k-newline guard cases; a timeout would read as a hang, not a real failure.
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
