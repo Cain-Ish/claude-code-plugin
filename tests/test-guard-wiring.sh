@@ -223,22 +223,27 @@ _fp_uesc 'x\\\u0041' || fail "_fp_uesc: \\\\\\u0041 ends in an escape"
 pass "_fp_uesc tells a \\u escape from an escaped backslash followed by u"
 
 # P-H1: every helper is linear. A key behind 512 KB of content cost 144 s through ${RAW#*"KEY"}.
+# F8 item 20: past 64 KiB the payload is jq's (rc 2) — every key cut the whole payload, five of
+# them 1.2 s over a 1 MB Write of escaped quotes; a key behind ~60 KB is still read in place.
 BIG=$(printf '%524288s' '' | tr ' ' x)
+B60=${BIG:0:61440}
 t0=$(now_us)
 fpstr file_path "{\"tool_input\":{\"content\":\"$BIG\\\"q\\\\\",\"file_path\":\"/late/p\"}}"
+[ "$FPRC" = 2 ] || fail "_fp_str: a payload past 64 KiB must be left to jq (rc=$FPRC, want 2)"
+fpstr file_path "{\"tool_input\":{\"content\":\"$B60\\\"q\\\\\",\"file_path\":\"/late/p\"}}"
 if [ "$_fp_ob" = 1 ]; then
-  # bash < 4.3 (the macOS lane's 3.2): a payload over 16 KiB is jq's by design (see _fp_at).
-  [ "$FPRC" = 2 ] || fail "_fp_str on bash < 4.3: a key after 512 KB must be left to jq (rc=$FPRC, want 2)"
+  # bash < 4.3 (the macOS lane's 3.2): every key is jq's by design (item 17, see _fp_at).
+  [ "$FPRC" = 2 ] || fail "_fp_str on bash < 4.3: a key after 60 KB must be left to jq (rc=$FPRC, want 2)"
 else
-  [ "$FPRC" = 0 ] && [ "$FPV" = /late/p ] || fail "_fp_str: key after 512 KB of content: rc=$FPRC value=[$FPV]"
-  fpstr content "{\"tool_input\":{\"content\":\"$BIG\\\"q\\\\\",\"file_path\":\"/late/p\"}}"
-  [ "$FPRC" = 0 ] && [ "${#FPV}" = $(( ${#BIG} + 3 )) ] || fail "_fp_str: 512 KB value: rc=$FPRC length=${#FPV}"
+  [ "$FPRC" = 0 ] && [ "$FPV" = /late/p ] || fail "_fp_str: key after 60 KB of content: rc=$FPRC value=[$FPV]"
+  fpstr content "{\"tool_input\":{\"content\":\"$B60\\\"q\\\\\",\"file_path\":\"/late/p\"}}"
+  [ "$FPRC" = 0 ] && [ "${#FPV}" = $(( ${#B60} + 3 )) ] || fail "_fp_str: 60 KB value: rc=$FPRC length=${#FPV}"
 fi
 RAW="$BIG"$'\n\n'; _FP_EOF=1 _FP_RAW="$RAW"; _fp_raw_all
 [ "$RAW" = "$BIG" ] || fail "_fp_raw_all must strip trailing newlines"
 el=$(ms_since "$t0")
 [ "$el" -le 5000 ] || fail "P-H1: _fp_str/_fp_raw_all over 512 KB took ${el} ms (bound 5000) — quadratic again?"
-pass "P-H1: _fp_str finds a key behind 512 KB and _fp_raw_all strips newlines in ${el} ms"
+pass "P-H1: _fp_str finds a key behind 60 KB, leaves a 512 KB payload to jq, and _fp_raw_all strips newlines in ${el} ms"
 
 # RR-CR1 / F8 #1: the trailing-newline trims — the guards' _fp_trimnl and protocol-guard's
 # pg_trimnl (extracted verbatim) — against the per-newline loop they replaced (O(N x length), but
@@ -303,6 +308,41 @@ done
 el=$(ms_since "$t0")
 [ "$el" -le 3000 ] || fail "RR-CR1: six 50,000-newline trims took ${el} ms (bound 3000) — a per-newline or O(run^2) trim is back?"
 pass "RR-CR1: 50,000-newline interior/trailing/both runs trimmed by both functions in ${el} ms"
+
+# F8 item 18: _fp_lower, byte for byte against `LC_ALL=C tr` over explicit A-Z/a-z lists (only ASCII
+# capitals change; É, invalid UTF-8 and every other byte pass through), in the UTF-8 locale and in C,
+# the caller's LC_ALL left as it was — and linear: its per-character loop took 1.8 s at 16 KB on
+# MSYS and never finished wiki-write-guard's 50,000-character file_path (a fail-open).
+ref_lower() { local t; t=$(printf '%s.' "$2" | LC_ALL=C tr ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz); printf -v "$1" '%s' "${t%.}"; }
+lower_case() {  # lower_case LABEL TEXT: _fp_lower == ref_lower, and LC_ALL survives
+  local want got before="${LC_ALL-unset}"
+  ref_lower want "$2"; _fp_lower got "$2"
+  [ "$want" = "$got" ] \
+    || fail "_fp_lower [$1]: got $(printf '%s' "$got" | od -An -tx1 | tr -d ' \n' | cut -c1-80) want $(printf '%s' "$want" | od -An -tx1 | tr -d ' \n' | cut -c1-80)"
+  [ "${LC_ALL-unset}" = "$before" ] || fail "_fp_lower [$1] changed the caller's LC_ALL ($before -> ${LC_ALL-unset})"
+}
+LSWEEP_FMT=""; for ((i = 1; i < 256; i++)); do printf -v o '\\%03o' "$i"; LSWEEP_FMT="$LSWEEP_FMT$o"; done
+printf -v LSWEEP "$LSWEEP_FMT"
+for loc in C ${UTF8_LOC:+"$UTF8_LOC"}; do
+  LC_ALL=$loc
+  for f in '' 'abc' 'ABC' 'Persona-Rules.JSON' 'C:/Users/Me/Project/X.md' 'aB' 'Ab' 'AA' 'A.' 'aB.' '.' \
+           '\303\211A' '\303\251B\303\251' '\377A\342\202B' '%sA\\x%%' '*?[A]' 'a\nB\n' 'A B\tC' 'ZzYyXx'; do
+    s=""; printf -v s "$f"; lower_case "$loc $f" "$s"   # bash 3.2 assigns nothing for an empty format
+  done
+  lower_case "$loc byte sweep 0x01-0xFF" "$LSWEEP"
+done
+export LC_ALL="${UTF8_LOC:-C}"; [ -n "$UTF8_LOC" ] || unset LC_ALL
+nl_run r 50000
+L50P="/X/Users/Me/knowledge/wiki/concepts/CR1${r}.MD"
+L50U=$(printf '%50000s' '' | tr ' ' Q)
+L50M=$(printf '%25000s' '' | sed 's/ /aZ/g')
+t0=$(now_us)
+_fp_lower o1 "$L50P"; _fp_lower o2 "$L50U"; _fp_lower o3 "$EACUTE$L50M"
+el=$(ms_since "$t0")
+ref_lower w1 "$L50P"; ref_lower w2 "$L50U"; ref_lower w3 "$EACUTE$L50M"
+[ "$o1" = "$w1" ] && [ "$o2" = "$w2" ] && [ "$o3" = "$w3" ] || fail "_fp_lower: a 50,000-character text differs from tr's lowering"
+[ "$el" -le 3000 ] || fail "item 18: _fp_lower over three 50,000-character texts took ${el} ms (bound 3000) — quadratic again?"
+pass "item 18: _fp_lower == LC_ALL=C tr over 20 edge shapes and a 0x01-0xFF sweep (C and UTF-8); three 50,000-character texts in ${el} ms"
 
 # SEC-H1: over 64 lines, _fp_lines answers 2 (undecidable: the full logic's grep decides).
 _fp_lines 'rm -rf' $'ls\nrm -rf x'; [ $? = 0 ] || fail "_fp_lines: a matching second line must return 0"

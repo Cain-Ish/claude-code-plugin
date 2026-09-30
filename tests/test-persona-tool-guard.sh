@@ -1084,6 +1084,41 @@ is_ask "$BD_OUT" && grep -q '"rule":"warn-direct-write-hot-tier"' "$SZ/audit-log
   || fail "DA #1: a 1 MB quote-dense Write to persona-rules.json must ask via warn-direct-write-hot-tier (got: $BD_OUT)"
 within "DA #1 1 MB quote-dense Write" "$HOOK_BOUND_MS"
 pass "DA #1: a 1 MB Write of 333k escaped quotes to persona-rules.json asks in ${BD_MS} ms"
+
+# F8 item 18: long Write paths with capitals (a Windows long path reaches 32,767 characters). The fast
+# path lowers the path it matches rules on; its per-character _fp_lower took 1.8 s at 16 KB on MSYS
+# (25 s on bash 3.2). 16 KB still fits the fast path's read; 32 KB goes to the full logic.
+for n in 16000 32000; do
+  PAD=$(printf '%*s' "$n" '' | tr ' ' A)
+  printf '{"session_id":"i18","tool_name":"Write","tool_input":{"file_path":"/X/Users/Me/%s/persona-rules.json","content":"x"}}' "$PAD" > "$SZ/i18-$n.json"
+  rm -f "$SZ/audit-log.jsonl"
+  bounded "item 18: $n-character Write path" "$BIG_BOUND" "$SZ/i18-$n.json" SB_RESOURCE_SCOPE=off
+  is_ask "$BD_OUT" && grep -q '"rule":"warn-direct-write-hot-tier"' "$SZ/audit-log.jsonl" \
+    || fail "item 18: a $n-character Write path to persona-rules.json must ask via warn-direct-write-hot-tier (got: $BD_OUT)"
+  pass "item 18: a $n-character Write path of capitals asks in ${BD_MS} ms"
+done
+# The drive form (C:/…) of the 32 KB path also goes through _ptg_norm's one cygpath -u on Windows.
+printf '{"session_id":"i18d","tool_name":"Write","tool_input":{"file_path":"C:/Users/Me/%s/persona-rules.json","content":"x"}}' "$PAD" > "$SZ/i18-drive.json"
+rm -f "$SZ/audit-log.jsonl"
+bounded "item 18: 32,000-character drive-form Write path" "$BIG_BOUND" "$SZ/i18-drive.json" SB_RESOURCE_SCOPE=off
+is_ask "$BD_OUT" && grep -q '"rule":"warn-direct-write-hot-tier"' "$SZ/audit-log.jsonl" \
+  || fail "item 18: a 32,000-character C:/ Write path to persona-rules.json must ask via warn-direct-write-hot-tier (got: $BD_OUT)"
+pass "item 18: a 32,000-character C:/ Write path asks in ${BD_MS} ms"
+
+# F8 item 18 (spine): with an "implement" phase, an 8,185-character command of ';' goes through the
+# intent spine's ${v//pat/rep} passes — 2.4 s on bash 3.2 (O(matches x length^2) below 4.3). There
+# the spine now stops at 1,024 characters (no flip, the degraded direction); newer bash still reads
+# 8,192 and flips on the vitest run.
+SEMIS=$(printf '%8170s' '' | tr ' ' ';')
+printf '{"session_id":"i18s","tool_name":"Bash","tool_input":{"command":"vitest run %s"}}' "$SEMIS" > "$SZ/i18s.json"
+mkdir -p "$SZ/.injected"; printf 'implement' > "$SZ/.injected/i18s.phase"
+bounded "item 18: 8,181-character command through the intent spine" "$BIG_BOUND" "$SZ/i18s.json"
+if bash -c '[ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }'; then
+  [ "$(cat "$SZ/.injected/i18s.phase")" = implement ] || fail "item 18: bash < 4.3 must not evaluate an 8,181-character command in the spine"
+else
+  [ "$(cat "$SZ/.injected/i18s.phase")" = verify ] || fail "item 18: an 8,181-character vitest run must still flip the phase on bash >= 4.3"
+fi
+pass "item 18: an 8,181-character ';' command through the intent spine answered in ${BD_MS} ms"
 rm -rf "$SZ"
 
 echo

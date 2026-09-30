@@ -61,6 +61,20 @@ _fp_raw_all() {
   _FP_RAW="$RAW" _FP_EOF=1
 }
 
+# _fp_rest VAR: VAR = the rest of stdin — the last, unframed field of a guard's NUL-framed jq read.
+# `read -N` (bash >= 4.1) reads a pipe in buffered chunks; `read -d ''` takes one byte per syscall:
+# 0.85 s for a 450 KB command from jq on MSYS inside the guard, 3.4 s from a bash writer (F8 item 20:
+# the 150k-line command answered in 4.5 s on the Windows CI lane). NUL bytes are dropped, where the
+# framed read split at them.
+_fp_rest() {
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 1 ]; }; then
+    IFS= read -r -N 268435456 "$1"
+  else
+    IFS= read -r -d '' "$1"
+  fi
+  return 0
+}
+
 # _fp_split SEP TEXT: _FP_A = TEXT cut at every SEP (one character) by word splitting — linear in
 # every bash — with globbing off meanwhile. A trailing SEP adds no empty last field; with SEP a
 # newline (IFS white space) empty lines vanish as well.
@@ -108,6 +122,10 @@ _fp_at() {
     done
     [ "$_FP_I" -ge 1 ] || return 2
   else
+    # Past 65,536 characters jq decides (one spawn, ~0.1 s even at 1 MB): here every key costs a
+    # cut of the whole payload, and five of them over a 1 MB Write of 333k escaped quotes took
+    # 1.2 s on MSYS (F8 item 20) — for a payload that size the spawn is the cheap path.
+    [ "${#_FP_RAW}" -le 65536 ] || return 2
     _fp_split "$_fp_us" "${_FP_RAW//"$_fp_q$1$_fp_q"/"$_fp_us"}"
     [ "${#_FP_A[@]}" = 2 ] || return 2
     _fp_split "$_fp_q" "${_FP_A[1]}$_fp_us"
@@ -275,17 +293,31 @@ _fp_collapse() {
   printf -v "$1" '/%s' "${_fk_k[*]-}"
 }
 
-# _fp_lower VAR TEXT: ASCII A-Z to a-z (bash 3.2 has no ${x,,}; explicit letter lists, since a
-# [A-Z] range can match lower case under a collating locale).
+# _fp_lower VAR TEXT: ASCII A-Z to a-z, byte for byte what `LC_ALL=C tr A-Z a-z` does (bash 3.2
+# has no ${x,,}; explicit letter lists, since a [A-Z] range can match lower case under a collating
+# locale). For each capital TEXT holds, TEXT is cut at it by word splitting and rejoined around its
+# lower case by one printf: 26 linear passes at most, no process. The per-character loop this
+# replaces copied the growing result once per character and indexed ${s:i:1} (O(i) in a UTF-8
+# locale): O(n^2) — a 16 KB Write path took 1.8 s on MSYS (25 s on bash 3.2) and wiki-write-guard's
+# full logic, which lowers any file_path, never answered a 50,000-character one (F8 item 18: rc=124
+# past 60 s, a fail-open). ${s//X/x} per letter is no better on bash < 4.3 (4.4 s at 16 KB of
+# capitals on 3.2). LC_ALL=C (set and restored as in _fp_trimnl) keeps the cut byte-exact. Like
+# every _fp_split user, it overwrites _FP_A.
 _fp_lower() {
-  local _fw_s="$2" _fw_o="" _fw_c _fw_u _fw_i
+  local _fw_s="$2" _fw_u _fw_l _fw_i=0 _fw_ls="${LC_ALL+x}" _fw_lv="${LC_ALL-}"
   case "$_fw_s" in *[ABCDEFGHIJKLMNOPQRSTUVWXYZ]*) ;; *) printf -v "$1" '%s' "$_fw_s"; return 0 ;; esac
-  for ((_fw_i = 0; _fw_i < ${#_fw_s}; _fw_i++)); do
-    _fw_c="${_fw_s:$_fw_i:1}"
-    case "$_fw_c" in [ABCDEFGHIJKLMNOPQRSTUVWXYZ]) _fw_u="${_fp_uc%%"$_fw_c"*}"; _fw_c="${_fp_lc:${#_fw_u}:1}" ;; esac
-    _fw_o="$_fw_o$_fw_c"
+  LC_ALL=C
+  while [ "$_fw_i" -lt 26 ]; do
+    _fw_u="${_fp_uc:_fw_i:1}" _fw_l="${_fp_lc:_fw_i:1}"; _fw_i=$((_fw_i + 1))
+    case "$_fw_s" in *"$_fw_u"*) ;; *) continue ;; esac
+    # The '.' sentinel keeps a trailing capital's empty last field, which word splitting drops;
+    # printf repeats "%s<lower>" per field, so the extra lower case and the sentinel come off after.
+    _fp_split "$_fw_u" "$_fw_s."
+    printf -v _fw_s "%s$_fw_l" ${_FP_A[@]+"${_FP_A[@]}"}
+    _fw_s="${_fw_s%?}"; _fw_s="${_fw_s%.}"
   done
-  printf -v "$1" '%s' "$_fw_o"
+  printf -v "$1" '%s' "$_fw_s"
+  if [ -n "$_fw_ls" ]; then LC_ALL="$_fw_lv"; else unset LC_ALL; fi
 }
 
 # _fp_path VAR PATH [lex]: lib.sh sb_normalize_path's lexical steps (backslashes to '/', the
@@ -367,7 +399,11 @@ _ptg_spine() {
         Bash)
           # A command over 8192 characters is not evaluated (degrades toward no flip): the
           # here-string reads below must stay short — a 64 KiB one hangs on MSYS (see _fp_feed).
-          if [ "$_SPINE_CUR" = "implement" ] && [ -n "$CMD" ] && [ "${#CMD}" -le 8192 ]; then
+          # Below bash 4.3 (_fp_ob) the limit is 1024: the ${v//pat/rep} passes below cost
+          # O(matches x length^2) there — 2.4 s for 8,185 ';' on bash 3.2 (F8 item 18 probe), 13 ms
+          # at 1,000.
+          _SPINE_MAX=8192; [ "$_fp_ob" = 1 ] && _SPINE_MAX=1024
+          if [ "$_SPINE_CUR" = "implement" ] && [ -n "$CMD" ] && [ "${#CMD}" -le "$_SPINE_MAX" ]; then
             # Strip quoted content FIRST (split on the quote char; even-indexed
             # segments are outside quotes) so a separator inside a string literal —
             # a commit message saying "old; npm test" — never forms a span. Accepted
@@ -630,13 +666,19 @@ _ptg_fields() {
 }
 if ! _ptg_fields; then
   TOOL="" SESSION_ID="" CWD="" PATH_INPUT="" CMD=""
+  # The command comes last and unframed, read whole by _fp_rest (buffered, not byte by byte); the
+  # CRs go in the same stream (`tr`, one spawn) rather than by _fp_nocr, which cut a 150k-line
+  # command from Windows jq (CRLF output) into 150k fields: ~0.4 s on MSYS (F8 item 20).
   {
     IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD
-    IFS= read -r -d '' PATH_INPUT; IFS= read -r -d '' CMD
+    IFS= read -r -d '' PATH_INPUT; _fp_rest CMD
   } < <(_fp_feed "$RAW" jq -j '(.tool_name // ""), "\u0000", (.session_id // ""), "\u0000", (.cwd // ""), "\u0000",
-               (.tool_input.file_path // ""), "\u0000", (.tool_input.command // ""), "\u0000"' 2>/dev/null)
+               (.tool_input.file_path // ""), "\u0000", (.tool_input.command // "")' 2>/dev/null | tr -d '\r')
 fi
 _fp_clean TOOL SESSION_ID CWD PATH_INPUT CMD
+# The payload is not read again: freeing it (and the last split) keeps every later fork cheap — MSYS
+# copies the whole heap per fork, ~0.25 s more over this path's forks with a 450 KB payload held.
+RAW="" _FP_RAW="" _FP_A=()
 [ -z "${TOOL:-}" ] && exit 0
 [ -z "${CWD:-}" ] && CWD="$PWD"
 

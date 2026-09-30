@@ -380,11 +380,18 @@ echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep 
 within "RR-CR1 50,000 trailing newlines" "$HOOK_BOUND_MS"
 pass "RR-CR1: 50,000 consecutive trailing newlines answered in ${BD_MS} ms (bare page still denies)"
 
+# F8 item 18: the file_path itself carries the 50,000 newlines, text after them. Every file_path goes
+# through _fp_lower (case-insensitive scope match), whose per-character loop was O(n^2): this payload
+# never answered on MSYS (rc=124 past 60 s, before and after the trim fix) — a fail-open.
+printf '{"tool_name":"Write","tool_input":{"content":"# bare","file_path":"%s/knowledge/wiki/concepts/CR1%s.md"}}' "$TMP" "$TRAIL50K" > "$TMP/cr1p.json"
+bounded "item 18: 50,000 newlines inside a wiki file_path" "$BIG_BOUND" "$TMP/cr1p.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
+  || fail "item 18: a bare page whose file_path holds 50,000 newlines must still deny on frontmatter (got: $BD_OUT)"
+pass "item 18: 50,000 newlines inside a wiki file_path answered in ${BD_MS} ms (bare page still denies)"
+
 # F8 #1: 50,000 REAL newlines inside the payload itself — JSON whitespace between two keys, text
 # after them — so the whole-payload trim (_fp_raw_all) sees a run followed by other text. The
-# `($_fp_nl+)$` regex it used was O(run^2) on glibc for that shape. (Not in file_path: a 50,000-
-# character path here goes through _fp_lower, one bash iteration and one string copy per character
-# — quadratic on its own, >60 s on MSYS; reported separately, not what this case locks.)
+# `($_fp_nl+)$` regex it used was O(run^2) on glibc for that shape.
 { printf '{"tool_name":"Write",'; printf '%50000s' '' | tr ' ' '\n'
   printf '"tool_input":{"content":"# bare","file_path":"%s"}}' "$TMP/knowledge/wiki/concepts/cr1ws.md"; } > "$TMP/cr1ws.json"
 bounded "F8 50,000 newlines of JSON whitespace, bare wiki page" "$BIG_BOUND" "$TMP/cr1ws.json"

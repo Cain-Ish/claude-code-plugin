@@ -620,6 +620,25 @@ printf '%s' "$BD_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask" a
   || fail "DA #2: a 1,500-component path outside the credential dirs must ask (too long to resolve), got: $BD_OUT"
 grep -q '"rule":"path-too-long"' "$HOME/.second-brain/audit-log.jsonl" || fail "DA #2: the path-too-long ask was not audit-logged"
 pass "DA #2: a 1,500-component path outside the credential dirs asks in ${BD_MS} ms"
+# F8 item 18: the same shapes in Windows drive form (C:\…), which the full logic hands to cygpath -u
+# — a spawn whose argument conversion took 5.1 s for a 50,000-newline path on MSYS. The literal
+# match and the cap now come before it. Windows hosts only (a C:\ path names nothing under HOME
+# elsewhere).
+if command -v cygpath >/dev/null 2>&1; then
+  WHE=$(cygpath -w "$HOME"); WHE=${WHE//\\/\\\\}
+  WSEG=$(i=0; while [ $i -lt 1500 ]; do printf 'e12345678\\\\'; i=$((i + 1)); done)
+  printf '{"session_id":"i18a","tool_name":"Write","tool_input":{"file_path":"%s\\\\.ssh\\\\%sk","content":"x"}}' "$WHE" "$WSEG" > "$TMP/i18a.json"
+  bounded "item 18: 1,500-component drive-form path under ~/.ssh" "$BIG_BOUND" "$TMP/i18a.json"
+  assert_deny "item 18: a C:\\ path of 1,500 components under ~/.ssh denied in ${BD_MS} ms" "$BD_OUT" ssh
+  # With newlines in it the path never reaches cygpath past the cap (seconds of argument conversion),
+  # so the credential match is the lexical one: HOME is given in the drive form a real profile has
+  # (this sandbox's /tmp is an MSYS mount whose C:\ spelling no lexical rule can map).
+  printf '{"session_id":"i18b","tool_name":"Write","tool_input":{"file_path":"%s\\\\.ssh\\\\id_rsa%s#","content":"x"}}' "$WHE" "$TRAIL50K" > "$TMP/i18b.json"
+  bounded "item 18: drive-form ~/.ssh path with 50,000 newlines" "$BIG_BOUND" "$TMP/i18b.json" HOME="$(cygpath -w "$HOME")"
+  assert_deny "item 18: a C:\\ ~/.ssh path holding 50,000 newlines denied in ${BD_MS} ms" "$BD_OUT" ssh
+else
+  echo "SKIP: item 18 drive-form long paths — cygpath not on PATH (Windows hosts only)"
+fi
 # Under both limits a deep project path still resolves and passes (the cap is not a blanket ask).
 D200=$(i=0; while [ $i -lt 200 ]; do printf 'd%s/' $i; i=$((i + 1)); done)
 printf '{"session_id":"da2d","tool_name":"Write","tool_input":{"file_path":"%s/work/repo/%sk","content":"x"}}' "$HOME" "$D200" > "$TMP/da2d.json"
