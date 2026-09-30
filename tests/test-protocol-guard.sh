@@ -1029,7 +1029,9 @@ bounded_pg() {
     -u SB_PROTOCOL_CARD -u SB_DELEGATION_CHECK -u SB_ROLE_CARDS -u SB_RULES_LAYERS -u CLAUDE_PROJECT_DIR \
     HOME="$SB_HOME" BRAIN_DIR="$BRAIN" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_MODEL_LADDER="$LADDER" \
     bash "$SCRIPT" "$mode" < "$pf" > "$SANDBOX/rr_sf1.out" 2> "$SANDBOX/rr_sf1.err" & pid=$!
-  ( sleep "$lim"; kill "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
+  # TERM, then KILL 2 s later: a guard blocked writing a pipe on MSYS ignores TERM, and `wait` on it
+  # never returned — the test hung until run-all's timeout with no message (final review, 0.54.1).
+  ( sleep "$lim"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
   wait "$pid"; RR_RC=$?
   RR_MS=$(( $(pg_now_ms) - t0 ))
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null

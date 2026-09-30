@@ -72,7 +72,11 @@ _fp_rest() {
   else
     IFS= read -r -d '' "$1"
   fi
-  return 0
+  # 1 is the normal end of input (fewer than N characters, or no closing NUL); anything above it is a
+  # failed read, passed on so the caller can refuse to decide on a field it may have only part of.
+  local _fr_rc=$?
+  [ "$_fr_rc" -le 1 ] && return 0
+  return "$_fr_rc"
 }
 
 # _fp_split SEP TEXT: _FP_A = TEXT cut at every SEP (one character) by word splitting — linear in
@@ -321,25 +325,44 @@ _fp_lower() {
 }
 
 # _fp_path VAR PATH [lex]: lib.sh sb_normalize_path's lexical steps (backslashes to '/', the
-# \\?\ and \\.\ prefixes, the loopback admin share). With "lex", a drive path X:/… is also spelled
-# /x/…, as cygpath -u spells it, on a Windows host (cygpath on PATH, or an MSYS/Cygwin bash).
+# \?\ and \.\ prefixes, the loopback admin share). With "lex", a drive path X:/… is also spelled
+# as cygpath -u would (/x/…, drive lowered) — on a Windows host only: elsewhere 'C:' is just a
+# relative name. Linear in the path: the backslashes are cut out by word splitting and rejoined with
+# '/' (a trailing one re-added — splitting drops it), and each prefix is sliced off only after a
+# `case` saw it. The `${p//\//}` and `${p#"//?/"}` forms this replaces are O(n^2) whenever they
+# scan a long path — a missing prefix is the common case — so a 100 KB target took 2.7 s per call
+# on MSYS, and symlink-guard's deny (three calls deep) came after the 5 s hook timeout (final
+# review, 0.54.1).
 _fp_path() {
-  local _fq_p="$2" _fq_d
-  _fq_p=${_fq_p//"$_fp_bs"/"/"}
-  _fq_p="${_fq_p#"//?/"}"; _fq_p="${_fq_p#"//./"}"
+  local _fq_p="$2" _fq_d _fq_t=""
   case "$_fq_p" in
-    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p#//localhost/}";  _fq_d="${_fq_d%%\$*}"; _fq_p="$_fq_d:${_fq_p#//localhost/[A-Za-z]\$}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p#//127.0.0.1/}";  _fq_d="${_fq_d%%\$*}"; _fq_p="$_fq_d:${_fq_p#//127.0.0.1/[A-Za-z]\$}" ;;
+    *"$_fp_bs"*)
+      case "$_fq_p" in *"$_fp_bs") _fq_t=/ ;; esac
+      _fp_split "$_fp_bs" "$_fq_p"
+      _fp_joinsl _fq_p
+      _fq_p="$_fq_p$_fq_t" ;;
+  esac
+  case "$_fq_p" in "//?/"*) _fq_p=${_fq_p:4} ;; esac
+  case "$_fq_p" in "//./"*) _fq_p=${_fq_p:4} ;; esac
+  case "$_fq_p" in
+    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
+    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
   esac
   if [ "${3:-}" = lex ]; then
     case "$_fq_p" in
       [A-Za-z]:/*)
         if command -v cygpath >/dev/null 2>&1 || [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]]; then
-          _fp_lower _fq_d "${_fq_p%%:*}"; _fq_p="/$_fq_d${_fq_p#?:}"
+          _fp_lower _fq_d "${_fq_p:0:1}"; _fq_p="/$_fq_d${_fq_p:2}"
         fi ;;
     esac
   fi
   printf -v "$1" '%s' "$_fq_p"
+}
+
+# _fp_joinsl VAR: VAR = the _FP_A fields joined by '/' (the inverse of _fp_split / on a path).
+_fp_joinsl() {
+  local IFS=/
+  printf -v "$1" '%s' "${_FP_A[*]-}"
 }
 
 # _fp_esc VAR TEXT: TEXT as a JSON string body (\ " \n \r \t escaped, other control chars dropped).
@@ -353,7 +376,7 @@ _fp_esc() {
 
 # _fp_emit ask|deny REASON: the verdict, in the hookSpecificOutput shape the guards emit.
 _fp_emit() {
-  local _fm_r; _fp_esc _fm_r "$2"
+  local _fm_r; _fp_cap _fm_r "$2" 2048; _fp_esc _fm_r "$_fm_r"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$_fm_r"
 }
 
@@ -368,9 +391,46 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
-  _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$4"; _fp_esc _fa_e "$5"; _fp_esc _fa_s "$6"
+  _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
+  _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
   printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{"fastpath":true}}\n' \
     "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" >> "$_fa_bd/audit-log.jsonl"
+}
+# _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
+# reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
+# seconds, and a row of that size was lost outright where it reached a native jq.exe (no command
+# line past ~32 KB).
+_fp_cap() {
+  if [ "${#2}" -le "$3" ]; then printf -v "$1" '%s' "$2"; return 0; fi
+  printf -v "$1" '%s…(+%s chars)' "${2:0:$3}" "$(( ${#2} - $3 ))"
+}
+
+# _fp_err HOOK MESSAGE: one error-log.jsonl row in lib.sh sb_log_error's shape (exit_code 1),
+# appended by one printf >> (the guards run without lib.sh, B7).
+_fp_err() {
+  local _fr_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fr_ts _fr_h _fr_m
+  _fr_bd=${_fr_bd//"$_fp_bs"/"/"}
+  [ -d "$_fr_bd" ] || mkdir -p "$_fr_bd" || return 0
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    TZ=UTC0 printf -v _fr_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  else
+    _fr_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  fi
+  _fp_esc _fr_h "$1"; _fp_cap _fr_m "$2" 1024; _fp_esc _fr_m "$_fr_m"
+  printf '{"timestamp":"%s","script":"%s","message":"%s","exit_code":1}\n' "$_fr_ts" "$_fr_h" "$_fr_m" >> "$_fr_bd/error-log.jsonl"
+}
+
+# _fp_jqfail HOOK CHARS: the jq fallback read no tool name from a payload of CHARS characters that
+# names one. Loud either way. 0 when jq is on PATH (it ran and failed: the caller asks, since a guard
+# that cannot read a call must not pass it silently); 1 when jq is missing (main's behaviour: the
+# call passes, and SessionStart's banner reports the missing jq).
+_fp_jqfail() {
+  if command -v jq >/dev/null 2>&1; then
+    _fp_err "$1" "the jq fallback read no tool name from a $2-char payload that names one (jq failed); asked instead of passing the call"
+    return 0
+  fi
+  _fp_err "$1" "jq is not on PATH: a $2-char payload could not be read and the call passed unchecked"
+  return 1
 }
 # <<< sb-guard-fastpath
 
@@ -665,15 +725,27 @@ _ptg_fields() {
   return 0
 }
 if ! _ptg_fields; then
-  TOOL="" SESSION_ID="" CWD="" PATH_INPUT="" CMD=""
+  TOOL="" SESSION_ID="" CWD="" PATH_INPUT="" CMD="" _FP_JST=""
   # The command comes last and unframed, read whole by _fp_rest (buffered, not byte by byte); the
   # CRs go in the same stream (`tr`, one spawn) rather than by _fp_nocr, which cut a 150k-line
   # command from Windows jq (CRLF output) into 150k fields: ~0.4 s on MSYS (F8 item 20).
   {
-    IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD
+    IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD
     IFS= read -r -d '' PATH_INPUT; _fp_rest CMD
-  } < <(_fp_feed "$RAW" jq -j '(.tool_name // ""), "\u0000", (.session_id // ""), "\u0000", (.cwd // ""), "\u0000",
+  } < <(_fp_feed "$RAW" jq -j '(if ([.tool_name, .session_id, .cwd, .tool_input.file_path, .tool_input.command] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.session_id // ""), "\u0000", (.cwd // ""), "\u0000",
                (.tool_input.file_path // ""), "\u0000", (.tool_input.command // "")' 2>/dev/null | tr -d '\r')
+  _FP_RRC=$?
+  [ "$_FP_RRC" -gt 1 ] && _FP_JST=nul   # a failed read of the last field: undecidable, like a NUL
+  if [ "$_FP_JST" = nul ]; then
+    _fp_audit "persona-tool-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+    _fp_emit ask "second-brain persona-tool-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
+    exit 0
+  fi
+  if [ -z "$TOOL" ]; then
+    case "$RAW" in *'"tool_name"'*)
+      _fp_jqfail "persona-tool-guard.sh" "${#RAW}" && { _fp_emit ask "second-brain persona-tool-guard.sh could not read this call (jq failed on the payload; details in error-log.jsonl), so it cannot check it. Confirm the call."; exit 0; } ;;
+    esac
+  fi
 fi
 _fp_clean TOOL SESSION_ID CWD PATH_INPUT CMD
 # The payload is not read again: freeing it (and the last split) keeps every later fork cheap — MSYS
@@ -692,9 +764,9 @@ if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
   sb_log_audit() { :; }
   sb_log_error() { :; }
   sb_normalize_path() {
-    local p="${1//\\//}"
-    p="${p#"//?/"}"   # \\?\C:\… extended-length prefix (minimal mirror of lib.sh's canonical)
-    p="${p#"//./"}"   # \\.\C:\… device-namespace prefix (D182, same mirror)
+    # _fp_path's lexical steps (backslashes, the \\?\ and \\.\ prefixes, D182): linear, where the
+    # ${1//\\//} and ${p#"//?/"} forms were O(n^2) on a long path (final review, 0.54.1).
+    local p; _fp_path p "$1"
     case "$p" in [A-Za-z]:/*) command -v cygpath >/dev/null 2>&1 && p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p") ;; esac
     printf '%s' "$p"
   }
@@ -1105,8 +1177,20 @@ case "$V_ACTION" in
       sb_log_audit "persona-tool-guard.sh" "ask" "$V_RULE" "$V_TARGET" "$FAIL_REASON" "$SESSION_ID"
       _fp_emit ask "$FAIL_REASON"
     else
-      sb_log_audit "persona-tool-guard.sh" "rewrite" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
-      jq -nc --arg c "$NEW_CMD" --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r,updatedInput:{command:$c}}}'  || true
+      # The rewritten command reaches jq on stdin, not as an --arg: a native jq.exe on Windows gets
+      # no command line past ~32 KB and prints nothing, which left the tool to run UNrewritten with
+      # no row saying so. A jq that still yields nothing now logs and asks instead.
+      _ptg_rw=$(printf '%s' "$NEW_CMD" | jq -Rsc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r,updatedInput:{command:.}}}' 2>/dev/null)
+      if [ -n "$_ptg_rw" ]; then
+        sb_log_audit "persona-tool-guard.sh" "rewrite" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
+        printf '%s
+' "$_ptg_rw"
+      else
+        FAIL_REASON="Rewrite rule '$V_RULE' matched, but the rewritten command could not be emitted (jq produced no output, ${#NEW_CMD} chars) — refusing to run it unrewritten without confirmation. Original reason: $V_REASON"
+        sb_log_error "persona-tool-guard.sh" "rewrite rule $V_RULE: jq produced no output for a ${#NEW_CMD}-char rewritten command; asked instead" 1
+        sb_log_audit "persona-tool-guard.sh" "ask" "$V_RULE" "$V_TARGET" "$FAIL_REASON" "$SESSION_ID"
+        _fp_emit ask "$FAIL_REASON"
+      fi
     fi
     ;;
   warn)

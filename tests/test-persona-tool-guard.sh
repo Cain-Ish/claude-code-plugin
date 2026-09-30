@@ -284,6 +284,17 @@ echo "$new_cmd" | grep -q 'baz' \
   || fail "rewrite with pipe-in-pattern did not substitute (got: $new_cmd)"
 pass "rewrite: match_command with | is handled correctly (M3 regression)"
 
+# Test 20b (final review, 0.54.1): the rewritten command reached jq as an --arg, and a native
+# jq.exe on Windows gets no command line past ~32 KB — it printed nothing, so a matched rewrite
+# rule let the ORIGINAL command run with no row. It now goes through stdin; if jq still yields
+# nothing the guard asks. Same alt-pipe-rewrite rule as Test 20, on a ~40 KB command.
+_rw_pad=$(printf '%40000s' '' | tr ' ' x)
+out=$(printf '{"tool_name":"Bash","tool_input":{"command":"echo foo %s"},"session_id":"rw40k"}' "$_rw_pad"   | BRAIN_DIR="$TS_BRAIN" bash "$SCRIPT")
+new_cmd=$([ -n "$out" ] && printf '%s' "$out" | jq -r '.hookSpecificOutput.updatedInput.command // empty' 2>/dev/null)
+[ "${#new_cmd}" -eq $(( 9 + 40000 )) ]   || fail "20b: a ~40 KB command under a rewrite rule must come back rewritten in full (got ${#new_cmd} chars; out head: ${out:0:160})"
+case "$new_cmd" in "echo baz "*) ;; *) fail "20b: the rewrite was not applied (head: ${new_cmd:0:40})" ;; esac
+pass "rewrite: a ~40 KB command is rewritten and emitted in full (no argv-size drop)"
+
 # Test 21 (Windows form): C:\ out-of-scope path ASKS (resource-scope) ------
 # Before the fix a 'C:\…' path matched neither /* nor ~/* so persona-tool-guard
 # treated it as CWD-relative and it trivially prefix-matched the "$CWD"
@@ -979,7 +990,9 @@ bounded() {
   local label="$1" lim="$2" pf="$3" pid wd rc t0; shift 3
   t0=$(now_ms)
   env BRAIN_DIR="$SZ" ${UTF8_LOC:+LC_ALL=$UTF8_LOC} "$@" bash "$SCRIPT" < "$pf" > "$SZ/bounded.out" 2> "$SZ/bounded.err" & pid=$!
-  ( sleep "$lim"; kill "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
+  # TERM, then KILL 2 s later: a guard blocked writing a pipe on MSYS ignores TERM, and `wait` on it
+  # never returned — the test hung until run-all's timeout with no message (final review, 0.54.1).
+  ( sleep "$lim"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
   wait "$pid"; rc=$?
   BD_MS=$(( $(now_ms) - t0 )); BD_EL=$((BD_MS / 1000))
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null

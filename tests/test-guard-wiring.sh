@@ -469,4 +469,51 @@ done < "$HN_TMP/groups.txt"
 pass "hooks.notes.md: all $(wc -l < "$HN_TMP/groups.txt" | tr -d ' ') hooks.json groups are documented"
 rm -rf "$HN_TMP"
 
+# --- jq fallback failure and NUL-bearing fields (final review, 0.54.1) ------------------------
+# When the builtin fast path leaves a payload to jq (here: a \u escape in the key field) and jq
+# then fails, every guard used to exit with no verdict and no row: the call ran unchecked, in
+# silence. Now a jq that is present but fails -> ask + an error-log row; no jq at all -> the call
+# passes as on main, but with an error-log row (SessionStart's banner reports the missing jq); and
+# a field holding a NUL (which bash cannot represent) -> ask.
+G7T=$(mktemp -d) || fail "G7: mktemp -d failed"
+mkdir -p "$G7T/failjq" "$G7T/brain"
+printf '#!/bin/sh\nexit 3\n' > "$G7T/failjq/jq"; chmod +x "$G7T/failjq/jq"
+G7_NOJQ=""
+for _g7d in /usr/bin /bin /mingw64/bin /usr/local/bin /opt/homebrew/bin; do
+  [ -d "$_g7d" ] || continue
+  { [ -e "$_g7d/jq" ] || [ -e "$_g7d/jq.exe" ]; } && continue
+  G7_NOJQ="${G7_NOJQ:+$G7_NOJQ:}$_g7d"
+done
+G7BS=$(printf '\\')
+g7_bash() { printf '{"tool_name":"Bash","tool_input":{"command":"echo %su0041 ls"},"session_id":"g7"}' "$G7BS"; }
+g7_write() { printf '{"tool_name":"Write","tool_input":{"file_path":"%s/x%su0041.txt","content":"hi"},"session_id":"g7"}' "$G7T" "$G7BS"; }
+g7_nulb() { printf '{"tool_name":"Bash","tool_input":{"command":"echo a%su0000b"},"session_id":"g7"}' "$G7BS"; }
+g7_nulw() { printf '{"tool_name":"Write","tool_input":{"file_path":"%s/a%su0000b.txt","content":"hi"},"session_id":"g7"}' "$G7T" "$G7BS"; }
+g7_run() { # GUARD PAYLOADFN PATH -> G7_DEC (ask|deny|""), G7_ERR (jq rows in error-log)
+  : > "$G7T/brain/error-log.jsonl"
+  G7_OUT=$($2 | env BRAIN_DIR="$G7T/brain" PATH="$3" bash "$ROOT/scripts/$1" 2>/dev/null)
+  G7_DEC=$(printf '%s' "$G7_OUT" | grep -o '"permissionDecision":"[a-z]*"' | cut -d'"' -f4)
+  G7_ERR=$(grep -c 'jq' "$G7T/brain/error-log.jsonl")
+}
+for _g7 in persona-tool-guard.sh:g7_bash:g7_nulb flow-guard.sh:g7_bash:g7_nulb \
+           symlink-guard.sh:g7_write:g7_nulw wiki-write-guard.sh:g7_write:g7_nulw; do
+  _g7g=${_g7%%:*}; _g7r=${_g7#*:}; _g7p=${_g7r%%:*}; _g7n=${_g7r#*:}
+  g7_run "$_g7g" "$_g7p" "$G7T/failjq:$PATH"
+  [ "$G7_DEC" = ask ] && [ "$G7_ERR" -ge 1 ] \
+    || fail "G7 $_g7g: a jq that fails must ask and log (decision='$G7_DEC' error rows=$G7_ERR)"
+  if [ -n "$G7_NOJQ" ] && ! PATH="$G7_NOJQ" command -v jq >/dev/null 2>&1 \
+     && PATH="$G7_NOJQ" command -v bash >/dev/null 2>&1 && PATH="$G7_NOJQ" command -v cat >/dev/null 2>&1 \
+     && PATH="$G7_NOJQ" command -v mkdir >/dev/null 2>&1 && PATH="$G7_NOJQ" command -v tr >/dev/null 2>&1; then
+    g7_run "$_g7g" "$_g7p" "$G7_NOJQ"
+    [ -z "$G7_DEC" ] && [ "$G7_ERR" -ge 1 ] \
+      || fail "G7 $_g7g: with no jq the call passes as on main but must log (decision='$G7_DEC' error rows=$G7_ERR)"
+  else
+    echo "SKIP: G7 $_g7g no-jq case: no jq-free PATH could be built on this host"
+  fi
+  g7_run "$_g7g" "$_g7n" "$PATH"
+  [ "$G7_DEC" = ask ] || fail "G7 $_g7g: a field holding a NUL must ask (decision='$G7_DEC')"
+done
+rm -rf "$G7T"
+pass "G7: a failing jq asks and logs, a missing jq logs, a NUL-bearing field asks — all four guards"
+
 echo; echo "ALL PASS"

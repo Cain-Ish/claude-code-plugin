@@ -514,7 +514,9 @@ bounded() {
   local label="$1" lim="$2" pf="$3" pid wd rc t0; shift 3
   t0=$(now_ms)
   env ${UTF8_LOC:+LC_ALL=$UTF8_LOC} "$@" bash "$SCRIPT" < "$pf" > "$TMP/bounded.out" 2> "$TMP/bounded.err" & pid=$!
-  ( sleep "$lim"; kill "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
+  # TERM, then KILL 2 s later: a guard blocked writing a pipe on MSYS ignores TERM, and `wait` on it
+  # never returned — the test hung until run-all's timeout with no message (final review, 0.54.1).
+  ( sleep "$lim"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
   wait "$pid"; rc=$?
   BD_MS=$(( $(now_ms) - t0 )); BD_EL=$((BD_MS / 1000))
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null

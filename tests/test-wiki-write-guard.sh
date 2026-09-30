@@ -328,7 +328,9 @@ bounded() {
   local label="$1" lim="$2" pf="$3" pid wd rc t0
   t0=$(now_ms)
   env ${UTF8_LOC:+LC_ALL=$UTF8_LOC} bash "$SCRIPT" < "$pf" > "$TMP/bounded.out" 2> "$TMP/bounded.err" & pid=$!
-  ( sleep "$lim"; kill "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
+  # TERM, then KILL 2 s later: a guard blocked writing a pipe on MSYS ignores TERM, and `wait` on it
+  # never returned — the test hung until run-all's timeout with no message (final review, 0.54.1).
+  ( sleep "$lim"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
   wait "$pid"; rc=$?
   BD_MS=$(( $(now_ms) - t0 )); BD_EL=$((BD_MS / 1000))
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
@@ -387,7 +389,21 @@ printf '{"tool_name":"Write","tool_input":{"content":"# bare","file_path":"%s/kn
 bounded "item 18: 50,000 newlines inside a wiki file_path" "$BIG_BOUND" "$TMP/cr1p.json"
 echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
   || fail "item 18: a bare page whose file_path holds 50,000 newlines must still deny on frontmatter (got: $BD_OUT)"
+T50K_MS=$BD_MS
 pass "item 18: 50,000 newlines inside a wiki file_path answered in ${BD_MS} ms (bare page still denies)"
+
+# Final review (0.54.1): one size could not tell linear from quadratic — the tombstone lookup's
+# ${FILE_PATH##*/} costs basename x length and took 6-8 s at 150,000 newlines. Three times the size,
+# same bound: the tombstone block now skips a path it cannot be about (newline or over 4096 chars).
+TRAIL150K=$(printf '%150000s' '' | sed 's/ /\\n/g')
+printf '{"tool_name":"Write","tool_input":{"content":"# bare","file_path":"%s/knowledge/wiki/concepts/CR3%s.md"}}' "$TMP" "$TRAIL150K" > "$TMP/cr3p.json"
+bounded "150,000 newlines inside a wiki file_path" "$BIG_BOUND" "$TMP/cr3p.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
+  || fail "150k: a bare page whose file_path holds 150,000 newlines must still deny on frontmatter (got: ${BD_OUT:0:200})"
+# Linearity, not a wall-clock bound: the same shape at 3x the size must cost at most ~4x (a
+# quadratic step costs ~9x), which holds on any runner speed; BIG_BOUND above still catches a hang.
+[ "$BD_MS" -le $(( T50K_MS * 4 + 500 )) ]   || fail "150k: 3x the newlines cost ${BD_MS} ms vs ${T50K_MS} ms at 50k (over 4x: super-linear)"
+pass "150,000 newlines inside a wiki file_path answered in ${BD_MS} ms (bare page still denies)"
 
 # F8 #1: 50,000 REAL newlines inside the payload itself — JSON whitespace between two keys, text
 # after them — so the whole-payload trim (_fp_raw_all) sees a run followed by other text. The

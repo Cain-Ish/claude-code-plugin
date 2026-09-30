@@ -806,7 +806,8 @@ bounded_svg() {
   mk_input "$t" | bash "$GATE" > "$SANDBOX/rr_sf2.out" 2> "$SANDBOX/rr_sf2.err" & pid=$!
   while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$lim" ]; do sleep 1; i=$((i + 1)); done
   if kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null
+    # TERM, then KILL: a gate blocked writing a pipe on MSYS ignores TERM and would outlive the test.
+    kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null
     FAIL=$((FAIL + 1)); echo "  FAIL: $label: still running after ${lim}s"
     return 1
   fi
