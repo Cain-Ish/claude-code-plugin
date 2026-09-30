@@ -616,7 +616,7 @@ printf '{"session_id":"da2c","tool_name":"Write","tool_input":{"file_path":"%s/w
 rm -f "$HOME/.second-brain/audit-log.jsonl"
 bounded "DA #2 1,500-component path in the project" "$BIG_BOUND" "$TMP/da2c.json"
 within "DA #2 1,500-component path in the project" "$HOOK_BOUND_MS"
-printf '%s' "$BD_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and (.hookSpecificOutput.permissionDecisionReason | test("too long to resolve"))' >/dev/null \
+[ -n "$BD_OUT" ] && printf '%s' "$BD_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and (.hookSpecificOutput.permissionDecisionReason | test("too long to resolve"))' >/dev/null \
   || fail "DA #2: a 1,500-component path outside the credential dirs must ask (too long to resolve), got: $BD_OUT"
 grep -q '"rule":"path-too-long"' "$HOME/.second-brain/audit-log.jsonl" || fail "DA #2: the path-too-long ask was not audit-logged"
 pass "DA #2: a 1,500-component path outside the credential dirs asks in ${BD_MS} ms"
