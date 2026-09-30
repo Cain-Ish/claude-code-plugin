@@ -435,6 +435,27 @@ grep -q reclaim "$B15C/error-log.jsonl" 2>/dev/null && fail "15c: a lock whose a
 rmdir "$B15C/$LOCK_NAME"
 pass "a failing lock-age probe is logged and the lock is treated as held (never reclaimed on no evidence)"
 
+# --- Test 15d (O6): a lock that VANISHES between the check and the age probe is a benign release
+# race (its owner finished and released it), not an error. The probe's find then fails with "No
+# such file" and lock_older_than logged an error-severity "could not age the refresh lock" row for
+# a perfectly healthy session. The shim removes the lock the instant the -mmin probe runs, then
+# fails the way find does on a missing path. Expect: no error row, the hook still exits 0 and
+# serves the cache; the lock stays gone (this session does not race to recreate it).
+P15D="$TMP/plugins15d"; B15D="$TMP/b15d"; DSHIM="$TMP/findshim-d"; mkdir -p "$P15D" "$B15D" "$DSHIM"
+mkplugin "$P15D" "alpha" "1.0.0" 1 1
+printf '%s\n' "$SENTINEL" > "$B15D/.installed-catalog.json"
+touch -t 202001010000 "$B15D/.installed-catalog.json"
+mkdir "$B15D/$LOCK_NAME"
+printf '#!/bin/sh\ncase "$*" in *-mmin*) rmdir "%s"; echo "find: No such file or directory" >&2; exit 1 ;; esac\nexec "%s" "$@"\n' \
+  "$B15D/$LOCK_NAME" "$REAL_FIND" > "$DSHIM/find"
+chmod +x "$DSHIM/find"
+OUT15D=$(env BRAIN_DIR="$B15D" PATH="$DSHIM:$PATH" bash "$SCRIPT" "$P15D" 2>/dev/null) || fail "15d: hook exited non-zero"
+[ "$OUT15D" = "$SENTINEL" ] || fail "15d: stale cache not served"
+[ ! -d "$B15D/$LOCK_NAME" ] || fail "15d: the shim did not simulate the vanished lock (case proves nothing)"
+grep -q 'could not age the refresh lock' "$B15D/error-log.jsonl" 2>/dev/null \
+  && fail "15d: a lock that vanished in a benign release race was logged as an error-severity row"
+pass "a lock that vanished between the check and the age probe is not an error (O6)"
+
 # --- Test 16: SEC-L3 — a DEAD lock owner is reclaimed IMMEDIATELY, age irrelevant ----------
 P16="$TMP/plugins16"; B16="$TMP/b16"; mkdir -p "$P16" "$B16"
 mkplugin "$P16" "alpha" "1.0.0" 1 1
@@ -463,6 +484,7 @@ RUNNER17="$TMP/runner17.sh"
 {
   echo 'set -u'
   extract_fn di_log "$SCRIPT"
+  extract_fn lock_drop "$SCRIPT"
   extract_fn di_cleanup "$SCRIPT"
   cat <<'EOF'
 MODE="refresh"
@@ -503,13 +525,16 @@ pass "17b: di_cleanup never touches a lock owned by a different pid"
 
 # --- Test 18: RR-SF3 — a failed pid-file write is logged, not silent ----------------------
 # Deterministic (extract_fn technique, as test 17): drives schedule_refresh directly with a
-# shadowed `printf` builtin that fails ONLY the pid-write's exact 2-arg shape
-# (`printf '%s' "$child_pid"`) — every other printf call (di_log's own fallback row, etc.)
-# still runs for real, so the failure is isolated to the one line under test.
+# shadowed `printf` builtin that fails ONLY the pid-write's exact 2-arg shape and value
+# (`printf '%-10s' "$child_pid"`; the lock's placeholder write has the same shape but carries this
+# process's own pid, `$$`, so it is let through) — every other printf call (di_log's own fallback
+# row, etc.) still runs for real, so the failure is isolated to the one line under test.
 RUNNER18="$TMP/runner18.sh"
 {
   echo 'set -u'
   extract_fn di_log "$SCRIPT"
+  extract_fn lock_create "$SCRIPT"
+  extract_fn lock_drop "$SCRIPT"
   extract_fn schedule_refresh "$SCRIPT"
   cat <<'EOF'
 MODE="serve"
@@ -518,7 +543,7 @@ LOCK_STALE_MIN=10
 LOCK_MAX_AGE_MIN=60
 OUT_FILE="$BRAIN_DIR/.installed-catalog.json"
 printf() {
-  if [ "$1" = '%s' ] && [ "$#" = 2 ]; then command printf '%s' "$2"; return 1; fi
+  if [ "$1" = '%-10s' ] && [ "$#" = 2 ] && [ "$2" != "$$" ]; then return 1; fi
   command printf "$@"
 }
 schedule_refresh
@@ -535,6 +560,53 @@ grep -q 'could not write the refresh lock.*pid file' "$B18/error-log.jsonl" 2>/d
   || fail "18: a failed pid-file write was not logged (error-log: $(cat "$B18/error-log.jsonl" 2>/dev/null))"
 wait_unlocked "$B18" || true
 pass "18: RR-SF3 — a failed pid-file write logs loudly instead of failing silently"
+
+# --- Test 19 (O13): the refresh lock is never observable WITHOUT its owner pid. The lock was a
+# bare `mkdir` with the pid written only after the detached child was spawned (tens of ms on
+# MSYS), so a concurrent hook that probed in that gap saw a pidless lock and took the age-fallback
+# path on a lock that was live. The lock is now built in a temp dir that already holds a pid and
+# renamed into place; release renames it away before emptying it. A tight watcher polls for the
+# bad state (lock present, pid missing/empty) from before the hook starts until the refresh has
+# released, over several parallel hooks (the loser of the rename must leave nothing behind).
+P19="$TMP/plugins19"; B19="$TMP/b19"; mkdir -p "$P19" "$B19"
+mkplugin "$P19" "alpha" "1.0.0" 1 1
+printf '%s\n' "$SENTINEL" > "$B19/.installed-catalog.json"
+touch -t 202001010000 "$B19/.installed-catalog.json"
+W19_STOP="$TMP/w19.stop"; W19_BAD="$TMP/w19.bad"; W19_SEEN="$TMP/w19.seen"; rm -f "$W19_STOP" "$W19_BAD" "$W19_SEEN"
+(
+  L="$B19/$LOCK_NAME"
+  while [ ! -e "$W19_STOP" ]; do
+    if [ -d "$L" ]; then
+      : > "$W19_SEEN"
+      # (the diagnostic is the lock's listing at the moment of the miss)
+      [ -s "$L/pid" ] || { [ -d "$L" ] && echo "$(ls -la "$L" 2>&1 | tr '\n' '|')" >> "$W19_BAD"; }
+    fi
+  done
+) &
+W19_PID=$!
+H19=""
+for n in 1 2 3 4 5 6; do
+  env BRAIN_DIR="$B19" bash "$SCRIPT" "$P19" >/dev/null 2>&1 &
+  H19="$H19 $!"
+done
+# Every hook has returned (each holds or lost the lock) before the release is awaited, and the lock
+# has been seen at least once — else wait_unlocked would pass on a lock nobody had made yet.
+# shellcheck disable=SC2086
+wait $H19
+i=0; while [ ! -e "$W19_SEEN" ] && [ "$i" -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
+wait_unlocked "$B19" || fail "19: refresh lock never released (lock: $(ls -A "$B19/$LOCK_NAME" 2>&1 | tr '\n' ' ') pid=[$(cat "$B19/$LOCK_NAME/pid" 2>&1)]; siblings: $(ls -A "$B19" | tr '\n' ' '); audit tail: $(tail -n 3 "$B19/audit-log.jsonl" 2>&1 | cut -c1-240 | tr '\n' '|'); errors: $(cut -c1-240 "$B19/error-log.jsonl" 2>&1 | tr '\n' '|'); refresh stderr: $(head -c 300 "$B19/.installed-catalog-refresh.err" 2>&1 | tr '\n' '|'))"
+: > "$W19_STOP"; wait "$W19_PID" 2>/dev/null
+[ -e "$W19_SEEN" ] || fail "19: the watcher never saw a lock (case proves nothing)"
+[ ! -e "$W19_BAD" ] || fail "19: the lock was observable without its owner pid: $(head -c 600 "$W19_BAD")"
+# The lock path is free the instant the release renames it away; emptying the carcass follows.
+i=0; while [ "$i" -lt 40 ] && [ -n "$(find "$B19" -maxdepth 1 -name '.installed-catalog.lock*')" ]; do sleep 0.25; i=$((i + 1)); done
+LEFT19=$(find "$B19" -maxdepth 1 -name '.installed-catalog.lock*' | wc -l | tr -d ' ')
+[ "$LEFT19" -eq 0 ] || fail "19: lock scaffolding left behind after the refresh ($(find "$B19" -maxdepth 1 -name '.installed-catalog.lock*'))"
+# Contention between live hooks is not an error and never reclaims a live lock (the placeholder pid
+# lock_create leaves is replaced by the child's a few ms later; a hook that read the old one and
+# probed it after its writer exited used to reclaim a RUNNING refresh's lock).
+[ ! -s "$B19/error-log.jsonl" ] || fail "19: parallel hooks logged errors: $(cut -c1-300 "$B19/error-log.jsonl")"
+pass "the refresh lock is never observable without its owner pid; parallel hooks leave no scaffolding (O13)"
 
 # Test 5 left a detached freshness check running in $B1; let it finish before the EXIT trap
 # removes $TMP (Windows cannot delete a directory a live process still holds open).

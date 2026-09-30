@@ -242,4 +242,31 @@ HD_LEFT=$(find "$HD_DIR" -name '*.txt' -type f | wc -l | tr -d ' ')
 [ "$HD_LEFT" -eq $((HD_N + 1)) ] || fail "hd-window prune evicted files under lifted caps: $HD_LEFT of $((HD_N + 1)) left"
 pass "prune: a 65,590-byte archive list ($((HD_N + 1)) files) does not hang, and evicts nothing under lifted caps"
 
+# --- Subtest (O4): a listing pass that yields NO rows while the archive is over the cap must
+# leave a row. The partition loop reads `< <(printf '%s\n' "$files")`; a process substitution
+# that cannot fork (EAGAIN — routine on a loaded Windows box) feeds the loop nothing, so both
+# eviction queues stay empty and the cap is silently not enforced. Simulated by shadowing the
+# `printf` builtin so ONLY the list-feeding call (the one whose text holds the archive paths)
+# fails; sb_log_error's own printf carries no archive path and still runs for real.
+setup "nopartition"
+NP_DIR="$BRAIN_DIR/transcripts"
+for i in 1 2 3 4 5; do : > "$NP_DIR/np-$i.txt"; done
+: > "$BRAIN_DIR/error-log.jsonl"
+(
+  printf() {
+    if [ "$1" = '%s\n' ]; then case "${2:-}" in *"/transcripts/"*) return 1 ;; esac; fi
+    builtin printf "$@"
+  }
+  SB_TRANSCRIPT_CAP=2 SB_TRANSCRIPT_HARD_CAP=300 sb_prune_transcripts
+)
+grep -q 'sb_prune_transcripts' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "O4: an over-cap archive whose listing pass yielded no rows left no error row (nothing pruned, silently)"
+[ "$(find "$NP_DIR" -name '*.txt' -type f | wc -l | tr -d ' ')" -eq 5 ] || fail "O4: files were evicted although the listing pass yielded nothing"
+# and a healthy over-cap prune must NOT emit that row
+setup "partition-ok"
+for i in 1 2 3 4 5; do : > "$BRAIN_DIR/transcripts/ok-$i.txt"; done
+SB_TRANSCRIPT_CAP=2 SB_TRANSCRIPT_HARD_CAP=300 sb_prune_transcripts
+grep -q 'listing pass' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && fail "O4: a normal over-cap prune logged the no-rows error"
+pass "prune: an over-cap archive with an empty listing pass logs a row; a normal prune stays quiet (O4)"
+
 echo "ALL PASS"
