@@ -1014,19 +1014,41 @@ done
 # here-string: on MSYS one of that byte width never fits before the reader starts, so the hook
 # hangs past its timeout and answers NOTHING (rc=124 measured at 12+ s here) — a fail-open, not
 # just slow. Every mode reaches this code before its mode branch, so pre/subagent/card are each
-# swept. bounded LABEL LIM PAYLOAD-FILE MODE: background run, kill past LIM s. RR_OUT/RR_EL.
+# swept. bounded_pg LABEL LIM PAYLOAD-FILE MODE: background run, a watchdog killing it past LIM s;
+# RR_OUT, RR_RC, RR_MS (EPOCHREALTIME ms on bash 5, whole seconds from `date` before). Finishing
+# in time is not enough (F8): each case also proves the mode DID its work — a mutant that pipes
+# pg_feed's long branch (the reader's variables die in the subshell: bad-payload), exits early on
+# size, or crashes, all finish in time.
+pg_now_ms() { local n="${EPOCHREALTIME:-}"; n="${n//[!0-9]/}"; if [ -n "$n" ]; then echo $((10#$n / 1000)); else echo $(( $(date +%s) * 1000 )); fi; }
 bounded_pg() {
-  local label="$1" lim="$2" pf="$3" mode="$4" pid i=0
+  local label="$1" lim="$2" pf="$3" mode="$4" pid wd t0
+  t0=$(pg_now_ms)
   env -u SB_PERSONA_MODEL -u SB_EXTRACTOR_MODEL -u SB_MAINTAIN_LLM_MODEL -u SB_QUALITY_GATE_MODEL \
     -u SB_MODEL_TIER_FAST -u SB_MODEL_TIER_MID -u SB_MODEL_TIER_DEEP -u SB_MODEL_ELASTIC \
     -u SB_DELEGATION_REWRITE -u SB_NESTED_SPAWN -u SB_HOOK_PROFILE -u SB_PROTOCOL_GUARD \
     -u SB_PROTOCOL_CARD -u SB_DELEGATION_CHECK -u SB_ROLE_CARDS -u SB_RULES_LAYERS -u CLAUDE_PROJECT_DIR \
     HOME="$SB_HOME" BRAIN_DIR="$BRAIN" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_MODEL_LADDER="$LADDER" \
-    bash "$SCRIPT" "$mode" < "$pf" > "$SANDBOX/rr_sf1.out" 2>/dev/null & pid=$!
-  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$lim" ]; do sleep 1; i=$((i + 1)); done
-  if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; fail "$label: still running after ${lim}s"; return 1; fi
-  wait "$pid"; RR_OUT=$(cat "$SANDBOX/rr_sf1.out"); RR_EL=$i
+    bash "$SCRIPT" "$mode" < "$pf" > "$SANDBOX/rr_sf1.out" 2> "$SANDBOX/rr_sf1.err" & pid=$!
+  ( sleep "$lim"; kill "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
+  wait "$pid"; RR_RC=$?
+  RR_MS=$(( $(pg_now_ms) - t0 ))
+  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  RR_OUT=$(cat "$SANDBOX/rr_sf1.out")
+  if [ "$RR_MS" -ge $((lim * 1000)) ]; then fail "$label: still running after ${lim}s (killed)"; return 1; fi
+  if [ "$RR_RC" -ne 0 ]; then fail "$label: exited $RR_RC (a crash is not an answer)" "$(head -c 400 "$SANDBOX/rr_sf1.err")"; return 1; fi
   return 0
+}
+rr_reset() { : > "$BRAIN/audit-log.jsonl"; : > "$BRAIN/error-log.jsonl"; }
+# rr_nobad LABEL: the payload's fields were read — no bad-payload row for this run.
+rr_nobad() {
+  if grep -q 'bad-payload' "$BRAIN/error-log.jsonl" 2>/dev/null; then
+    fail "$1: logged bad-payload — the fields never reached this shell" "$(grep 'bad-payload' "$BRAIN/error-log.jsonl" | head -2)"
+  else pass "$1: fields read, no bad-payload"; fi
+}
+# rr_search LABEL: pre mode's Write reached pg_search (its gate row names this session).
+rr_search() {
+  if audit_all | grep -q 'gate=search-first tool=Write [^"]*sid=rrsf1'; then pass "$1: pg_search ran (gate=search-first row)"
+  else fail "$1: no gate=search-first tool=Write … sid=rrsf1 row — pre mode never reached pg_search" "$(audit_all | tail -3)"; fi
 }
 # pg_pad TOTAL PREFIX SUFFIX: PREFIX + x-padding + SUFFIX, exactly TOTAL bytes.
 pg_pad() {
@@ -1034,24 +1056,72 @@ pg_pad() {
   pad=$(( total - ${#pre} - ${#suf} ))
   { printf '%s' "$pre"; printf '%*s' "$pad" '' | tr ' ' x; printf '%s' "$suf"; }
 }
+PRE_JSON="{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Write\",\"session_id\":\"rrsf1\",\"cwd\":\"$SANDBOX\",\"tool_input\":{\"file_path\":\"$SANDBOX/x.md\",\"content\":\""
 for n in 65536 65590 65650; do
-  PRE_JSON="{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Write\",\"session_id\":\"rrsf1\",\"cwd\":\"$SANDBOX\",\"tool_input\":{\"file_path\":\"$SANDBOX/x.md\",\"content\":\""
   pg_pad "$n" "$PRE_JSON" '"}}' > "$SANDBOX/rrsf1-pre-$n.json"
   [ "$(wc -c < "$SANDBOX/rrsf1-pre-$n.json" | tr -d ' ')" = "$n" ] || fail "RR-SF1 fixture: pre payload is not $n bytes"
+  rr_reset
   if bounded_pg "RR-SF1 pre mode, $n-byte Write payload" 15 "$SANDBOX/rrsf1-pre-$n.json" pre; then
-    pass "RR-SF1: pre mode answered a $n-byte payload in ${RR_EL}s (no MSYS here-string hang)"
+    pass "RR-SF1: pre mode answered a $n-byte payload in ${RR_MS} ms (no MSYS here-string hang)"
+    rr_search "RR-SF1 pre $n"; rr_nobad "RR-SF1 pre $n"
   fi
 done
+# PG_FIELDS itself in the hang window: a ~65,600-byte file_path makes the fields blob that
+# pg_feed hands to pg_fields_read — a FUNCTION, whose reads must land in this shell — long enough
+# for the process-substitution branch. (The gate=search-first row is not asserted here: it carries
+# the 65 KB path, and sb_log_error passes it to jq as one argv string, which Windows' 32 K
+# CreateProcess limit refuses — the row is dropped there, a lib.sh finding reported with F8.)
+PLEN=$(( 65548 - 2 * ${#SANDBOX} ))   # fields blob + its newline: 65,590 B (65,602 with Windows jq's CRLF)
+LONG_P="$SANDBOX/$(printf '%*s' "$PLEN" '' | tr ' ' x).md"
+printf '{"hook_event_name":"PreToolUse","tool_name":"Write","session_id":"rrsf1","cwd":"%s","tool_input":{"file_path":"%s","content":"x"}}' \
+  "$SANDBOX" "$LONG_P" > "$SANDBOX/rrsf1-fields.json"
+rr_reset
+if bounded_pg "RR-SF1 pre mode, ~65,600-byte fields blob (file_path)" 15 "$SANDBOX/rrsf1-fields.json" pre; then
+  if [ "$RR_MS" -le 4000 ]; then pass "RR-SF1: a ~65,600-byte fields blob went through pg_feed's long branch in ${RR_MS} ms"
+  else fail "RR-SF1: the ~65,600-byte fields blob took ${RR_MS} ms, bound 4000 ms — past the 5 s budget the hook is cancelled"; fi
+  rr_nobad "RR-SF1 fields blob"
+fi
 SUB_JSON='{"hook_event_name":"SubagentStart","session_id":"rrsf1","agent_id":"a1","agent_type":"generic","tool_input":{"description":"'
 pg_pad 65600 "$SUB_JSON" '"}}' > "$SANDBOX/rrsf1-subagent.json"
+rr_reset
 if bounded_pg "RR-SF1 subagent mode, 65,600-byte payload" 15 "$SANDBOX/rrsf1-subagent.json" subagent; then
-  pass "RR-SF1: subagent mode answered a 65,600-byte payload in ${RR_EL}s (no MSYS here-string hang)"
+  pass "RR-SF1: subagent mode answered a 65,600-byte payload in ${RR_MS} ms (no MSYS here-string hang)"
+  case "$RR_OUT" in
+    *'"additionalContext"'*) pass "RR-SF1 subagent: the role card was delivered (additionalContext)" ;;
+    *) fail "RR-SF1 subagent: no additionalContext in the output" "$RR_OUT" ;;
+  esac
+  if audit_all | grep -q 'gate=role-card agent=generic tier=DO [^"]*verdict=ok[^"]*sid=rrsf1'; then pass "RR-SF1 subagent: gate=role-card verdict=ok row"
+  else fail "RR-SF1 subagent: no gate=role-card agent=generic tier=DO … verdict=ok … sid=rrsf1 row" "$(audit_all | tail -3)"; fi
+  rr_nobad "RR-SF1 subagent"
 fi
 CARD_JSON='{"hook_event_name":"SessionStart","session_id":"rrsf1","source":"'
 pg_pad 65600 "$CARD_JSON" '"}' > "$SANDBOX/rrsf1-card.json"
+rr_reset
 if bounded_pg "RR-SF1 card mode, 65,600-byte payload" 15 "$SANDBOX/rrsf1-card.json" card; then
-  pass "RR-SF1: card mode answered a 65,600-byte payload in ${RR_EL}s (no MSYS here-string hang)"
+  pass "RR-SF1: card mode answered a 65,600-byte payload in ${RR_MS} ms (no MSYS here-string hang)"
+  case "$RR_OUT" in
+    *"Working agreement"*) pass "RR-SF1 card: the protocol card was printed" ;;
+    *) fail "RR-SF1 card: 'Working agreement' missing from the output" "$RR_OUT" ;;
+  esac
+  rr_nobad "RR-SF1 card"
 fi
+# The card run starts the detached role-card precompute: wait for it, so it neither lands a row in
+# a later case nor outlives the sandbox (see wait_rc).
+wait_rc rrsf1 || fail "RR-SF1 card: the rrsf1 role-card precompute never finished (no gate=role-card-cache row)"
+# RAW's own newline runs (RR-CR1 / F8 #1): 50,000 real newlines AFTER the payload (the trailing
+# trim), and 50,000 as JSON whitespace between two keys (a run followed by other text — the shape
+# the `($_pg_nl+)$` regex took O(run^2) on glibc for). Both must answer inside the hook's budget.
+SMALL_PRE="{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Write\",\"session_id\":\"rrsf1\",\"cwd\":\"$SANDBOX\",\"tool_input\":{\"file_path\":\"$SANDBOX/y.md\",\"content\":\"x\"}}"
+{ printf '%s' "$SMALL_PRE"; printf '%50000s' '' | tr ' ' '\n'; } > "$SANDBOX/rrcr1-trail.json"
+{ printf '{'; printf '%50000s' '' | tr ' ' '\n'; printf '%s' "${SMALL_PRE#\{}"; } > "$SANDBOX/rrcr1-ws.json"
+for shape in trail ws; do
+  rr_reset
+  if bounded_pg "RR-CR1 pre mode, 50,000 RAW newlines ($shape)" 15 "$SANDBOX/rrcr1-$shape.json" pre; then
+    if [ "$RR_MS" -le 4000 ]; then pass "RR-CR1: pre mode trimmed 50,000 RAW newlines ($shape) in ${RR_MS} ms"
+    else fail "RR-CR1: pre mode took ${RR_MS} ms on 50,000 RAW newlines ($shape), bound 4000 ms — past the 5 s budget the hook is cancelled"; fi
+    rr_search "RR-CR1 pre $shape"; rr_nobad "RR-CR1 pre $shape"
+  fi
+done
 
 # ===== CONSTITUTION.md content lock (review fix: stale 'DIRECTION' clause) ============
 CONST="$REPO_ROOT/CONSTITUTION.md"
