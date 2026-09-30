@@ -327,10 +327,30 @@ sb_log_error() {
 # multi-Stop session's later injections are still counted; see stop-extract.sh).
 # ids are slugs/repo-paths (safe charsets; no JSON escaping needed). Never fails the
 # caller: an unwritable manifest, or SB_TELEMETRY=off, just loses telemetry.
+#
+# _sb_manifest_rows: sb_manifest_add's row writer, one {"kind","id"} row per stdin line.
+# It reads the CALLER's $kind and bumps its $_sma_rejected through bash's dynamic scope
+# (it only ever runs inside sb_manifest_add), so the size-gated feed there can hand it
+# the id list either way without a second copy of the loop.
+_sb_manifest_rows() {
+  local line
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    # A raw id containing a quote/backslash/control char would break this row's own
+    # JSON structure — an id like `x","kind":"anchor` re-terminates the string and
+    # adds a SECOND "kind" key, which jq resolves last-key-wins, letting an
+    # ordinary telemetry id forge stop-extract's ritual-anchor fold. Reject it
+    # wholesale rather than escape it (no caller needs anything but a plain slug/id).
+    case "$line" in
+      *[\"\\]*|*[[:cntrl:]]*) _sma_rejected=$((_sma_rejected + 1)); continue ;;
+    esac
+    printf '{"kind":"%s","id":"%s"}\n' "$kind" "$line"
+  done
+}
 sb_manifest_add() {
   [ "${SB_TELEMETRY:-on}" = "off" ] && return 0
   [ -n "${SB_MANIFEST_SESSION_ID:-}" ] || return 0
-  local kind="$1" ids="$2" line
+  local kind="$1" ids="$2"
   # Fail-soft to the CALLER (never blocks injection on a telemetry write failing),
   # but a genuine write failure (squatted path, read-only BRAIN_DIR, disk full) is
   # logged loudly — silently swallowing it made an unwritable manifest
@@ -340,19 +360,15 @@ sb_manifest_add() {
   # negation consistently (reproduced: `if ! { cmd; } >> baddir; then` takes the
   # else branch even though the redirection failed), so negating the group
   # directly would silently re-introduce exactly the swallowed failure this fixes.
+  # Size-gated feed: a here-string (no fork) only for a short id list. An MSYS
+  # here-string of 65,537..~65,650 bytes blocks for good, and this runs inside
+  # SessionStart, UserPromptSubmit and PreToolUse hooks; a longer list goes through a pipe.
   local _sma_rejected=0
-  { while IFS= read -r line; do
-      [ -z "$line" ] && continue
-      # A raw id containing a quote/backslash/control char would break this row's own
-      # JSON structure — an id like `x","kind":"anchor` re-terminates the string and
-      # adds a SECOND "kind" key, which jq resolves last-key-wins, letting an
-      # ordinary telemetry id forge stop-extract's ritual-anchor fold. Reject it
-      # wholesale rather than escape it (no caller needs anything but a plain slug/id).
-      case "$line" in
-        *[\"\\]*|*[[:cntrl:]]*) _sma_rejected=$((_sma_rejected + 1)); continue ;;
-      esac
-      printf '{"kind":"%s","id":"%s"}\n' "$kind" "$line"
-    done <<< "$ids"; } 2>/dev/null >> "$BRAIN_DIR/.injected-manifest-$SB_MANIFEST_SESSION_ID.jsonl"
+  { if [ "${#ids}" -le 8192 ]; then
+      _sb_manifest_rows <<< "$ids"   # <<<-bounded: only when ${#ids} <= 8,192 (gate on the line above)
+    else
+      _sb_manifest_rows < <(printf '%s\n' "$ids")
+    fi; } 2>/dev/null >> "$BRAIN_DIR/.injected-manifest-$SB_MANIFEST_SESSION_ID.jsonl"
   local _sma_rc=$?
   [ "$_sma_rc" -ne 0 ] && sb_log_error "lib.sh" "sb_manifest_add: manifest append failed kind=$kind sid=$SB_MANIFEST_SESSION_ID" 1
   [ "$_sma_rejected" -gt 0 ] && sb_log_error "lib.sh" "sb_manifest_add: rejected id(s) ($_sma_rejected) with a quote/backslash/control char kind=$kind sid=$SB_MANIFEST_SESSION_ID" 1
@@ -1774,14 +1790,18 @@ sb_prune_transcripts() {
   }
 
   # Partition oldest-first, preserving order within each class.
+  # Both $files loops read through a pipe, not a `<<EOF` heredoc: an expanded heredoc hangs
+  # Git-Bash in the SAME 65,537..~65,650-byte window as a `<<<` here-string (measured on this
+  # branch, bash 5.2.26 MSYS), and $files is every archive path, one per line — ~600-700
+  # files at 90-110 B a line reach it (705 in test-transcript-archive's case). The hard cap is
+  # 300 by default, but SB_TRANSCRIPT_HARD_CAP raises it and a long BRAIN_DIR lengthens every
+  # line. This runs inside the Stop and SubagentStop hooks.
   local _extracted="" _unmined="" _f
   while IFS= read -r _f; do
     [ -n "$_f" ] || continue
     if _sb_is_extracted "$_f"; then _extracted="${_extracted}${_f}"$'\n'
     else                           _unmined="${_unmined}${_f}"$'\n'; fi
-  done <<EOF
-$files
-EOF
+  done < <(printf '%s\n' "$files")
 
   # 1. Over the cap → drop already-extracted files, oldest first.
   while [ "$count" -gt "$cap" ] && [ -n "${_extracted//[$'\n']/}" ]; do
@@ -1816,9 +1836,7 @@ EOF
   # space stays one argument; files evicted by the count pass above are skipped via -f.
   local total_bytes=0
   set --
-  while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && set -- "$@" "$f"; done <<EOF
-$files
-EOF
+  while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && set -- "$@" "$f"; done < <(printf '%s\n' "$files")
   if [ "$#" -gt 0 ]; then
     total_bytes=$(wc -c "$@" 2>/dev/null | awk 'END{print $1+0}')
     case "$total_bytes" in ''|*[!0-9]*) total_bytes=0 ;; esac

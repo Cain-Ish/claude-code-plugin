@@ -34,12 +34,31 @@ if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${
 else
   IFS= read -r -d '' RAW
 fi
-# One regex match + one slice trims the whole run of trailing newlines at once (O(length)); the
-# per-newline `${RAW%$'\n'}` loop it replaces is O(N x length) for N of them (RR-CR1: 41-48 s on a
-# 50,000-newline payload, past the 5 s hook timeout). The regex stays in a variable: bash 3.2
-# (macOS) treats an inline quoted regex as literal text inside `[[ =~ ]]`, not as a pattern.
-_pg_nl=$'\n' _pg_renl="($_pg_nl+)\$"
-[[ $RAW =~ $_pg_renl ]] && RAW="${RAW:0:$(( ${#RAW} - ${#BASH_REMATCH[1]} ))}"
+# pg_trimnl VAR TEXT: the guards' _fp_trimnl (see its comment there), under this script's prefix;
+# tests/test-guard-wiring.sh runs the same byte-exact battery on both. The per-newline
+# `${RAW%$'\n'}` loop it replaces is O(N x length) for N trailing newlines (RR-CR1: 41-48 s on a
+# 50,000-newline payload, past the 5 s hook timeout); the `($_pg_nl+)$` regex after it is O(run^2)
+# on glibc for a newline run followed by other text (F8: JSON whitespace between two keys).
+_pg_nl=$'\n'
+pg_trimnl() {
+  local _pt_n _pt_lo=1 _pt_hi=1 _pt_m _pt_t _pt_ls="${LC_ALL+x}" _pt_lv="${LC_ALL-}"
+  case "$2" in *"$_pg_nl") ;; *) printf -v "$1" '%s' "$2"; return 0 ;; esac
+  LC_ALL=C
+  _pt_n=${#2}
+  while [ "$_pt_hi" -lt "$_pt_n" ]; do
+    _pt_m=$((_pt_hi * 2)); [ "$_pt_m" -le "$_pt_n" ] || _pt_m=$_pt_n
+    _pt_t="${2:_pt_n-_pt_m}"
+    case "$_pt_t" in *[!"$_pg_nl"]*) _pt_hi=$_pt_m; break ;; esac
+    _pt_lo=$_pt_m _pt_hi=$_pt_m
+  done
+  while [ $((_pt_hi - _pt_lo)) -gt 1 ]; do
+    _pt_m=$(((_pt_lo + _pt_hi) / 2)); _pt_t="${2:_pt_n-_pt_m}"
+    case "$_pt_t" in *[!"$_pg_nl"]*) _pt_hi=$_pt_m ;; *) _pt_lo=$_pt_m ;; esac
+  done
+  printf -v "$1" '%s' "${2:0:_pt_n-_pt_lo}"
+  if [ -n "$_pt_ls" ]; then LC_ALL="$_pt_lv"; else unset LC_ALL; fi
+}
+pg_trimnl RAW "$RAW"
 [ -z "$RAW" ] && [ "$MODE" != "subagent" ] && exit 0
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
@@ -125,6 +144,11 @@ if command -v jq >/dev/null 2>&1; then
 else
   PG_BAD="no-jq"
 fi
+# Every field starts empty: if the feed cannot run at all (a process substitution that fails to
+# open), `read` never assigns them, and the first `${PG_EVENT%…}` below would abort the hook under
+# set -u instead of naming the payload bad.
+PG_EVENT="" PG_TOOL="" PG_SID="" PG_CWD="" PG_PATH="" PG_AGENT_TYPE="" PG_SUB_TYPE="" PG_MODEL=""
+PG_TEXT="" PG_SUB_LOWER="" PG_AGENT_LOWER="" PG_AGENT_ID="" PG_OK=""
 pg_fields_read() {
   IFS= read -r PG_EVENT; IFS= read -r PG_TOOL; IFS= read -r PG_SID; IFS= read -r PG_CWD; IFS= read -r PG_PATH
   IFS= read -r PG_AGENT_TYPE; IFS= read -r PG_SUB_TYPE; IFS= read -r PG_MODEL
@@ -441,6 +465,9 @@ pg_protocol_blocks() {  # one bash pass over protocol.md (no awk spawn) -> PG_BL
 # it at SessionStart; subagent mode runs it only when pg_rc_lookup misses.
 # Cache file: line 1 `v1<TAB>plugin-root<TAB>ladder<TAB>slug<TAB>user-layer(0|1)<TAB>repo-layer(0|1)`,
 # then one `<TIER><TAB><bytes><TAB><hard><TAB><envelope|->` line per tier.
+# pg_rc_env_read: pg_rc_build's reader for its 3 envelope lines, fed by pg_feed; it runs in this
+# shell, so the reads land in pg_rc_build's locals e_s/e_d/e_t (dynamic scope).
+pg_rc_env_read() { IFS= read -r e_s; IFS= read -r e_d; IFS= read -r e_t; }
 pg_rc_build() {
   local LC_ALL=C
   PG_RC_SCOUT="0"$'\t'"0"$'\t'"-"; PG_RC_DO="$PG_RC_SCOUT"; PG_RC_THINK="$PG_RC_SCOUT"; PG_RC_TIERS=0; PG_RC_FAIL=""
@@ -473,8 +500,8 @@ pg_rc_build() {
     hard="${hard//$'\r'/}"
   fi
   if [ -n "$hard" ]; then
-    # <<<-bounded: hard is at most 5 lines of "F<TAB>- name[0:120]: reason[0:120]" (~250 B/line,
-    # ~1.3 KB total) — the jq query above caps both name and reason to 120 bytes each.
+    # <<<-bounded: hard is at most 5 lines of "F<TAB>- name[0:120]: reason[0:120]" — jq's [0:120]
+    # counts codepoints, so up to 480 B per field and ~4.8 KB in all, well under 8 KiB.
     while IFS= read -r line; do [ -n "$line" ] && total=$((total + 1)); done <<<"$hard"
   fi
   local ret_line="Return: findings first, files:lines, <=2k tokens, a Gaps: section."
@@ -509,7 +536,7 @@ $body"; fi
 $add"; fi
         [ $(( ${#fixed} + 1 + ${#cand} + 13 )) -le 900 ] || break
         hardblock="$cand"; hn=$((hn + 1)); grp="$src"
-      # <<<-bounded: same $hard as above, ~1.3 KB max (5 lines, name/reason capped at 120 B each).
+      # <<<-bounded: same $hard as above, ~4.8 KB max (5 lines, name/reason at most 120 codepoints).
       done <<<"$hard"
       if [ "$hn" -lt "$total" ]; then
         if [ -z "$hardblock" ]; then hardblock="(+$((total - hn)) more)"; else hardblock="$hardblock
@@ -536,9 +563,10 @@ $ret_line"
     PG_RC_FAIL="build-failed"
     return 1
   fi
-  # <<<-bounded: out is 3 lines, each a tojson envelope of a card capped at 900 B by the loop
-  # above (~1-2 KB per line with JSON escaping) — well under 8 KiB total.
-  { IFS= read -r e_s; IFS= read -r e_d; IFS= read -r e_t; } <<<"$out"
+  # Through pg_feed, not a bare here-string: out is 3 tojson envelopes of cards capped at 900
+  # characters, but a character can be 4 bytes, a control character 6 as an escape, and the fixed
+  # text is not capped at all — no size bound holds in the worst case (~11 KB and up).
+  pg_feed "$out" pg_rc_env_read
   e_s="${e_s%$'\r'}"; e_d="${e_d%$'\r'}"; e_t="${e_t%$'\r'}"
   [ -n "$e_s" ] && [ "$e_s" != "-" ] && { PG_RC_SCOUT="$b_s"$'\t'"$h_s"$'\t'"$e_s"; PG_RC_TIERS=$((PG_RC_TIERS + 1)); }
   [ -n "$e_d" ] && [ "$e_d" != "-" ] && { PG_RC_DO="$b_d"$'\t'"$h_d"$'\t'"$e_d"; PG_RC_TIERS=$((PG_RC_TIERS + 1)); }
