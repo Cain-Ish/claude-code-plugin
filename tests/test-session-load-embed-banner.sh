@@ -287,4 +287,51 @@ LC_ALL=C grep -qU $'\r' "$CRLF_FIXTURE" \
   || { echo "FAIL L1-behavioral: grep -qU failed to detect a real CR byte in a CRLF fixture"; exit 1; }
 echo "PASS L1-behavioral: grep -qU correctly detects a real CRLF fixture"
 
+# --- G7b: the jq-missing banner (block 0c2, between 0c and 0d) --------------------------------
+# Every PreToolUse guard parses its rules and the tool payload with jq and falls back to weaker
+# checks without it -- silently, so a box that lost jq runs a thinner safety layer and nothing
+# says so. Same harness as above: extract the block, stub sb_append/sb_log_error, and simulate
+# "no jq" with a PATH that holds nothing (the block only runs `command -v jq`; bash is invoked by
+# absolute path). Lives in this file, not its own, because a new test file costs one surface-budget
+# slot (.claude-plugin/surface-budget.json) for what is another banner-block case.
+JQBLOCK=$(awk '
+  /^# 0c2\./ {p=1}
+  p && /^# 0d\./ {exit}
+  p {print}
+' "$SOURCE")
+[ -n "$JQBLOCK" ] || { echo "FAIL G7b: could not extract block 0c2 (the jq-missing banner) from session-load.sh"; exit 1; }
+mkdir -p "$TMP/nopath"
+cat > "$TMP/jq-runner.sh" <<'EOF'
+sb_append() { printf '[%s]\n%s\n' "$2" "$1"; }
+sb_log_error() { printf 'LOG %s ec=%s\n' "$2" "${3:-1}"; }
+EOF
+printf '%s\n' "$JQBLOCK" >> "$TMP/jq-runner.sh"
+BASH_BIN=$(command -v bash)
+command -v jq >/dev/null 2>&1 || { echo "FAIL G7b: this test needs jq on PATH for its own 'jq present' case"; exit 1; }
+
+out=$(env -i HOME="$HOME" PATH="$TMP/nopath" "$BASH_BIN" "$TMP/jq-runner.sh")
+n=$(printf '%s\n' "$out" | grep -c '^\[jq-missing-banner\]$' || true)
+[ "$n" = "1" ] || { echo "FAIL G7b-A: expected exactly one jq-missing banner, got $n:"; echo "$out"; exit 1; }
+echo "$out" | grep -q 'jq' && echo "$out" | grep -q 'PreToolUse' && echo "$out" | grep -qi 'weaker' \
+  || { echo "FAIL G7b-A: banner must name jq, the PreToolUse guards and the weaker fallback:"; echo "$out"; exit 1; }
+echo "$out" | grep -q 'LOG gate=banner name=jq-missing-banner fired=1 .*ec=0' \
+  || { echo "FAIL G7b-A: the emission must leave a gate=banner fired=1 audit row:"; echo "$out"; exit 1; }
+lines=$(printf '%s\n' "$out" | awk '/^\[jq-missing-banner\]$/ {f=1; next} /^LOG / {f=0} f && NF {c++} END {print c+0}')
+[ "$lines" = "1" ] || { echo "FAIL G7b-A: the banner must be ONE short line, got $lines non-empty lines:"; echo "$out"; exit 1; }
+echo "PASS G7b-A: no jq on PATH -> one visible banner + a gate=banner audit row"
+
+out=$(env -i HOME="$HOME" PATH="$PATH" "$BASH_BIN" "$TMP/jq-runner.sh")
+[ -z "$out" ] || { echo "FAIL G7b-B: banner fired although jq is on PATH:"; echo "$out"; exit 1; }
+echo "PASS G7b-B: jq on PATH -> silent"
+
+cat > "$TMP/jq-runner-full.sh" <<'EOF'
+sb_append() { return 1; }
+sb_log_error() { printf 'LOG %s ec=%s\n' "$2" "${3:-1}"; }
+EOF
+printf '%s\n' "$JQBLOCK" >> "$TMP/jq-runner-full.sh"
+out=$(env -i HOME="$HOME" PATH="$TMP/nopath" "$BASH_BIN" "$TMP/jq-runner-full.sh")
+echo "$out" | grep -q 'fired=0 .*skipped=byte-budget' \
+  || { echo "FAIL G7b-C: a budget-refused banner must log fired=0 skipped=byte-budget:"; echo "$out"; exit 1; }
+echo "PASS G7b-C: budget-refused banner is logged (fired=0), never silent"
+
 echo "ALL PASS"

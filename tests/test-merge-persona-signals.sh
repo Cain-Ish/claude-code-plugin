@@ -344,5 +344,36 @@ CLAUDE_SESSION_ID=sl6 run_merge_slug "$SLUG_CAND" "../../evil"
   || fail "--slug: an unclean/invalid slug must fall through to the user-level arm (today's behavior)"
 pass "--slug: an unclean slug is rejected and falls through to the user-level arm"
 
+# --- Test: a >40 KB signals file AND a >40 KB new batch still merge ---------------------------
+# Windows-native jq.exe silently drops a command line over ~32 KB. The script used to pass the
+# whole signals file (--argjson existing) and the whole new batch (--argjson new_sigs) as
+# arguments, so on a grown file the merge produced nothing. Both now travel as --slurpfile temp
+# files; this proves a merge over inputs well past 32 KB still happens and leaves no temp files.
+rm -f "$BRAIN_DIR/persona-signals.jsonl"
+CLAUDE_SESSION_ID=seed run_merge '[{"category":"workflow","signal":"seed row shape probe alpha","evidence":"e","confidence":"low"}]'
+SEED_ROW=$(head -1 "$BRAIN_DIR/persona-signals.jsonl" | tr -d '\r')
+# 80 existing rows (long padding) with pairwise-distinct vocabulary; the file caps at 100 rows, so
+# 80 + 15 new stays under it and every new row must survive.
+jq -nc --argjson row "$SEED_ROW" '
+  range(0; 80) as $i
+  | $row | .signal = ("distinctive" + ($i|tostring) + " vocabulary" + ($i|tostring) + " phrase" + ($i|tostring) + " marker" + ($i|tostring) + " padding " + ("x" * 500))' \
+  | tr -d '\r' > "$BRAIN_DIR/persona-signals.jsonl"
+SZ=$(wc -c < "$BRAIN_DIR/persona-signals.jsonl" | tr -d ' ')
+[ "$SZ" -gt 40000 ] || fail "big-file fixture too small to prove anything (${SZ} B)"
+# Letters only: the dedup tokenizer drops digits, so "novel3"/"novel4" would be one word and the
+# 15 signals would merge into each other instead of staying 15 rows.
+BIG_NEW=$(jq -nc '[range(0; 15) as $i | ($i | tostring | explode | map(. + 49) | implode) as $w | {category:"workflow", signal:("novel" + $w + " topic" + $w + " subject" + $w + " theme" + $w + " " + ("y" * 3000)), evidence:"e", confidence:"low"}]' | tr -d '\r')
+[ "${#BIG_NEW}" -gt 40000 ] || fail "big-batch fixture too small to prove anything (${#BIG_NEW} B)"
+TMPD_BEFORE=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | grep -c '^mps-' || true)
+CLAUDE_SESSION_ID=big run_merge "$BIG_NEW"
+N=$(count_signals)
+[ "$N" = "95" ] || fail ">40 KB merge: expected 95 rows (80 existing + 15 new), got $N"
+NOVEL=$(grep -c "\"signal\":\"novel" "$BRAIN_DIR/persona-signals.jsonl" || true)
+[ "$NOVEL" = "15" ] || fail ">40 KB merge: the 15 new signals must all be stored, found $NOVEL"
+pass ">40 KB signals file + >40 KB new batch both merge (80 + 15 = 95 rows)"
+TMPD_AFTER=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | grep -c '^mps-' || true)
+[ "$TMPD_AFTER" = "$TMPD_BEFORE" ] || fail "merge-persona-signals.sh left its --slurpfile temp files behind ($TMPD_BEFORE -> $TMPD_AFTER)"
+pass "the --slurpfile temp files are cleaned up"
+
 echo
 echo "ALL PASS"

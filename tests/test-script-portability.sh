@@ -266,10 +266,13 @@ h=$(grep -nE '/dev/(stdin|fd/0)' $ALL_SH 2>/dev/null | nocomment | grep -v 'getl
 #     that cannot run passed); and the scripts were a hand-kept list that had missed
 #     session-load.sh's 13 bare here-strings. HOOK_ENTRY is now every script a hooks/hooks.json
 #     command runs, plus what those scripts `source` (lib.sh, and kb-schema.sh through it).
-#     Not scanned yet (known, out of scope for 0.54.1): merge-project-update.sh (15 bare `<<<`) and
-#     merge-persona-signals.sh (1) — children of stop-extract.sh/pre-compact.sh, not hooks.json
-#     entries; and expanded heredocs (`<<EOF` with $vars), which hang in the same
-#     65,537..65,651-byte window on MSYS.
+#     Round 2: the scan now ALSO covers (a) merge-project-update.sh and
+#     merge-persona-signals.sh — children of stop-extract.sh/pre-compact.sh, not hooks.json
+#     entries, so the derivation above cannot see them (C17_CHILDREN below) — and (b) EXPANDED
+#     heredocs (`<<WORD` / `<<-WORD`, unquoted, so the body expands variables), which block in the
+#     same 65,537..65,651-byte window on MSYS. `<<'WORD'`, `<<"WORD"` and `<<\WORD` bodies never
+#     expand, so they are exempt. An expanded heredoc carries the SAME `# <<<-bounded: <why>`
+#     annotation (same line or the comment above) naming the real cap on what it expands.
 C17T=$(mktemp -d) || fail "check 17: mktemp -d failed" ""
 trap 'rm -rf "$C17T"' EXIT
 HJ_FILE="$REPO/hooks/hooks.json"
@@ -283,6 +286,13 @@ for _c17_round in 1 2; do
   done > "$C17T/sourced" 2>/dev/null
   HOOK_ENTRY=$( { printf '%s\n' $HOOK_ENTRY; cat "$C17T/sourced"; } | while IFS= read -r f; do [ -f "$ROOT/$f" ] && printf '%s\n' "$f"; done | sort -u)
 done
+# Children spawned by hook-entry scripts (stop-extract.sh / pre-compact.sh run them with session
+# text on stdin), so they sit in the same timeout and get the same scan. A missing one is a loud
+# failure below (the scan loop reports a listed-but-absent file), not a silent skip.
+# (Stems, `.sh` added here: tests/test-real-kb-isolation.sh greps this file's non-comment lines for
+# `VAR=...<script>.sh` and would read a full-name assignment as a script RUN.)
+C17_CHILDREN="merge-project-update merge-persona-signals"
+HOOK_ENTRY=$( { printf '%s\n' $HOOK_ENTRY; printf '%s.sh\n' $C17_CHILDREN; } | sort -u)
 for f in persona-tool-guard.sh protocol-guard.sh stop-extract.sh stop-verify-gate.sh session-load.sh lib.sh; do
   case " $(echo $HOOK_ENTRY) " in *" $f "*) ;; *) fail "check 17: the hook-entry list derived from hooks/hooks.json lacks $f — the derivation broke" "$(echo $HOOK_ENTRY)" ;; esac
 done
@@ -310,6 +320,9 @@ c17_scan() {
       if ($0 ~ /<<</) {
         s = $0; sub(/^[[:space:]]+/, "", s)
         if (!(annotated || pending || (s in ex))) print FILENAME ":" FNR ":" $0
+      } else if ($0 ~ /(^|[^<])<<-?[[:space:]]*[A-Za-z_]/) {
+        # An unquoted heredoc word: the body expands variables (quoted or backslashed words never match).
+        if (!(annotated || pending)) print FILENAME ":" FNR ":" $0
       }
       pending = 0
     }
@@ -333,12 +346,22 @@ jq . <<< "$BIG"
 # three
 jq . <<< "$BIG"
   if [ "${#_pf_t}" -le 8192 ]; then "$@" <<< "$_pf_t"; else "$@" < <(printf '%s\n' "$_pf_t"); fi
+cat > "$f" <<TMPL
+cat > "$f" <<'TMPL'
+cat > "$f" <<"TMPL"
+cat <<-EOF
+cat > "$f" <<TMPL   # <<<-bounded: canary, heredoc annotated on the same line
+cat <<\EOF
+x=$((1<<2))
+  done <<EOF_X
+# <<<-bounded: canary, heredoc annotated on the line above
+cat > "$f" <<TMPL
 EOF
 c17_scan "$C17T/canary.sh" > "$C17T/canary.out" 2> "$C17T/err"; c17_rc=$?
 [ "$c17_rc" -eq 0 ] || fail "check 17 self-test: awk exited $c17_rc" "$(cat "$C17T/err")"
 c17_got=$(cut -d: -f2 "$C17T/canary.out" | tr '\n' ' ')
-[ "$c17_got" = "1 8 10 15 " ] \
-  || fail "check 17 self-test: the scan must flag exactly canary lines 1 8 10 15 (bare, spoofed token, annotation on a non-here-string line, annotation 4 lines up)" "got: [$c17_got]"
+[ "$c17_got" = "1 8 10 15 17 20 24 " ] \
+  || fail "check 17 self-test: the scan must flag exactly canary lines 1 8 10 15 17 20 24 (bare, spoofed token, annotation on a non-here-string line, annotation 4 lines up, bare expanded heredocs <<W / <<-W / done <<W; quoted/backslashed/annotated heredocs and 1<<2 pass)" "got: [$c17_got]"
 h=""
 for f in $HOOK_ENTRY; do
   [ -f "$ROOT/$f" ] || { h="$h
@@ -349,14 +372,90 @@ $f: hook-entry script listed in check 17 is missing"; continue; }
 $bad"
 done
 [ -z "$h" ] && pass "every hook-entry <<< here-string is size-gated or annotated <<<-bounded (RR-SF1/RR-SF2: MSYS 64 KiB hang)" \
-  || fail "un-gated <<< here-string in a hook-entry script — MSYS hangs for good at 65,536..~65,650 bytes past the hook timeout; route through the size-gated feed helper or add an inline # <<<-bounded: <why> annotation" "$h"
+  || fail "un-gated <<< here-string OR expanded heredoc (<<WORD whose body expands variables) in a hook-entry script — MSYS blocks for good at 65,536..~65,650 bytes past the hook timeout; route through the size-gated feed helper or < <(printf '%s\\n' \"\$X\"), cap the text, or add an inline # <<<-bounded: <why> annotation" "$h"
+
+# 17b. A `jq --arg NAME "$X"` / `--argjson NAME "$X"` whose value is a PAYLOAD-derived variable (the
+#     hook's stdin JSON, the prompt, the command, a transcript/assistant message) must be
+#     length-capped in place (`"${X:0:N}"`) or carry `# arg-bounded: <why it is short or cannot be
+#     cut>` on the same line or the comment above. Windows-native programs (jq.exe) take their
+#     arguments through a ~32 KB command line and SILENTLY drop what does not fit: measured on
+#     this Windows Git-Bash box, a jq called with a larger --arg produces no output and no error
+#     text, which a `|| true` hook then reads as "nothing to say" — a fail-open on exactly the
+#     big-payload input an attacker controls. Payload text that can be big goes in through stdin,
+#     `--rawfile`, or a cap. Scope: the same scripts check 17 scans. The name list is a
+#     heuristic, not a taint analysis: extend it when a hook starts reading a new payload field.
+C17B_NAMES='RAW|RAW_INPUT|INPUT|PAYLOAD|PROMPT|USER_PROMPT|TOOL_INPUT|TOOL_RESPONSE|CMD|COMMAND|NEW_CMD|LAST_MSG|LAST_MESSAGE|LAST_ASSISTANT|ASSISTANT_MSG|TRANSCRIPT_TEXT|MSG|TEXT|BODY|CONTENT|EXISTING|NEW_SIGNALS|NEW_CANDIDATES'
+c17b_scan() {
+  awk -v names="$C17B_NAMES" '
+    BEGIN { re = "--arg(json)?[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]+\"[$]\\{?(" names ")\\}?\""; pending = 0; gap = 0 }
+    {
+      iscomment = ($0 ~ /^[[:space:]]*#/)
+      annotated = ($0 ~ /arg-bounded:/)
+      if (iscomment) {
+        if (annotated) { pending = 1; gap = 0 }
+        else if (pending) { gap++; if (gap > 2) pending = 0 }
+        next
+      }
+      if ($0 ~ re && !(annotated || pending)) print FILENAME ":" FNR ":" $0
+      pending = 0
+    }
+  ' "$1"
+}
+cat > "$C17T/canary17b.sh" <<'EOF'
+jq -nc --arg p "$PROMPT" '.'
+jq -nc --arg p "${PROMPT:0:4000}" '.'
+jq -nc --arg p "$PROMPT" '.'   # arg-bounded: canary, same line
+# arg-bounded: canary, line above
+  --argjson r "$RAW" \
+jq -nc --arg id "$SESSION_ID" '.'
+x=1   # arg-bounded: canary, on a code line that is not an --arg line
+jq -nc --arg c "$NEW_CMD" '.'
+jq -nc --arg c "${NEW_CMD}" '.'
+jq -nc --argjson existing "$EXISTING" --argjson new_sigs "$NEW_SIGNALS" '.'
+jq -nc --slurpfile existing "$TMP_E" '.'
+EOF
+c17b_scan "$C17T/canary17b.sh" > "$C17T/c17b.out" 2> "$C17T/err"; c17b_rc=$?
+[ "$c17b_rc" -eq 0 ] || fail "check 17b self-test: awk exited $c17b_rc" "$(cat "$C17T/err")"
+c17b_got=$(cut -d: -f2 "$C17T/c17b.out" | tr '\n' ' ')
+[ "$c17b_got" = "1 8 9 10 " ] \
+  || fail "check 17b self-test: the scan must flag exactly canary lines 1 8 9 10 (bare payload --arg, annotation consumed by a non-arg code line, braced bare name); capped, annotated and non-payload names pass" "got: [$c17b_got]"
+h=""
+for f in $HOOK_ENTRY; do
+  [ -f "$ROOT/$f" ] || continue
+  bad=$(c17b_scan "$ROOT/$f" 2> "$C17T/err"); rc=$?
+  [ "$rc" -eq 0 ] || fail "check 17b: awk failed (rc=$rc) scanning $f — a scan that cannot run must not pass" "$(cat "$C17T/err")"
+  [ -n "$bad" ] && h="$h
+$bad"
+done
+[ -z "$h" ] && pass "no hook-entry jq --arg/--argjson takes an uncapped payload-derived variable (jq.exe drops a >32 KB command line silently)" \
+  || fail "uncapped payload-derived jq --arg in a hook-entry script — cap it (\"\${X:0:N}\"), pass it by stdin/--rawfile, or add an inline # arg-bounded: <why> annotation" "$h"
 
 # 18. No \001 (CTLESC) or \177 (CTLNUL) in an IFS value. bash 3.2 (macOS /bin/bash, the CI
 #     floor) uses both bytes as internal quoting markers and does not split on them: an
 #     IFS=$'\x01' read put a whole stop-extract.sh gate=hook-cancelled row into its first field
 #     (hook=a\u0001b\u0001..., script= kind= count= empty) on the macOS lane while bash 5 split it
 #     fine. Use a printable delimiter the fields cannot contain, or US ($'\037').
-h=$(grep -nE "IFS=[$]'[^']*[\](x01|001|x7[fF]|177)" $ALL_SH 2>/dev/null | nocomment || true)
+#     T4: the scan used to be `grep … 2>/dev/null | nocomment || true`, so a grep that
+#     ERRORED (rc 2: unreadable file, bad regex) looked exactly like a clean scan, and it missed
+#     the command-substitution spelling `IFS=$(printf '\001')` (and `IFS="$(printf '\x7f')"`).
+#     grep's status is now read (0 = hits, 1 = none, anything else fails loud) and the canary
+#     below proves both spellings are caught.
+C18_RE="IFS=(\\\$'[^']*[\\\\](x01|001|x7[fF]|177)|\"?\\\$\\(printf[[:space:]]+[^)]*[\\\\](x01|001|x7[fF]|177))"
+printf '%s\n' \
+  "IFS=\$'\\001' read -r a b <<< \"\$x\"" \
+  "IFS=\$'\\x7f' read -r a b" \
+  "IFS=\$(printf '\\001') read -r a b" \
+  "IFS=\"\$(printf '\\x01')\" read -r a b" \
+  "IFS=\$'\\037' read -r a b" \
+  "IFS=\$(printf '\\037') read -r a b" > "$C17T/c18.canary"
+grep -nE "$C18_RE" "$C17T/c18.canary" > "$C17T/c18.out" 2> "$C17T/err"; c18_rc=$?
+[ "$c18_rc" -eq 0 ] || fail "check 18 self-test: grep exited $c18_rc (0 expected: the canary holds hits)" "$(cat "$C17T/err")"
+c18_got=$(cut -d: -f1 "$C17T/c18.out" | tr '\n' ' ')
+[ "$c18_got" = "1 2 3 4 " ] \
+  || fail "check 18 self-test: must flag exactly canary lines 1 2 3 4 (\$'\\001', \$'\\x7f', \$(printf '\\001'), \"\$(printf '\\x01')\"); \\037 must pass" "got: [$c18_got]"
+h=$(grep -nE "$C18_RE" $ALL_SH 2> "$C17T/err"); c18_rc=$?
+[ "$c18_rc" -le 1 ] || fail "check 18: grep failed (rc=$c18_rc) — a scan that cannot run must not pass" "$(cat "$C17T/err")"
+h=$(printf '%s\n' "$h" | nocomment || true)
 [ -z "$h" ] && pass "no \001 or \177 byte in an IFS value (bash 3.2 never splits on CTLESC/CTLNUL)" \
   || fail "IFS holds \001 or \177 - bash 3.2 (macOS) never splits on its internal quoting bytes; use a printable delimiter or \$'\037'" "$h"
 

@@ -559,7 +559,11 @@ gate_untrusted_items() {
       | gate_row($v)
     ' 2>"$gerr"); v_ec=$?
   verdict="${verdict//$'\r'/}"
-  read -r v_tag v_n v_idx v_cls <<< "$verdict"
+  # The gate row lists EVERY flagged item index (idx=1,2,3,...): unbounded on a big batch, and a
+  # `<<<` of ~65,537..65,651 B blocks for good on MSYS (past the hook timeout). Only tag + count
+  # (the first ~12 B) are parsed; idx/class are log-only, so cap the row first.
+  verdict="${verdict:0:4096}"
+  read -r v_tag v_n v_idx v_cls <<< "$verdict"  # <<<-bounded: verdict capped to 4096 chars on the line above
   case "$v_n" in ''|*[!0-9]*) v_tag="" ;; esac
   if [ "$v_ec" -ne 0 ] || [ "$v_tag" != "GATE" ]; then
     sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=gate-error ec=$v_ec err=$(err_head "$(cat "$gerr")")" 1
@@ -599,7 +603,10 @@ gate_plan_items() {
   out=$(printf '%s' "$raw" | jq -r "$prog" 2>/dev/null); ec=$?
   out="${out//$'\r'/}"
   hdr="${out%%$'\n'*}"
-  read -r tag n idx cls nonstr <<< "$hdr"
+  # No cap here: nonstr is the LAST field, after the unbounded idx/class lists, so a cut row would
+  # lose it and fail closed on a big batch. Feed by process substitution, not a here-string (MSYS
+  # blocks a ~65,537..65,651 B here-string past the hook timeout).
+  read -r tag n idx cls nonstr < <(printf '%s\n' "$hdr")
   case "$n" in ''|*[!0-9]*) tag="" ;; esac
   case "$nonstr" in ''|*[!0-9]*) tag="" ;; esac
   if [ "$ec" -ne 0 ] || [ "$tag" != "GATE" ]; then
@@ -638,7 +645,7 @@ scaffold_plan_section() {
   ' "$src" 2>&1 >"$dst"); sc_ec=$?
   while IFS= read -r line; do
     case "$line" in ''|*warning:*) ;; DONE) sc_done=1 ;; *) sc_bad=1 ;; esac
-  done <<< "$sc_out"
+  done < <(printf '%s\n' "$sc_out")
   if [ "$sc_ec" -ne 0 ] || [ "$sc_done" -ne 1 ] || [ "$sc_bad" -eq 1 ]; then
     sb_log_error "merge-project-update.sh" "gate=plan-scaffold-failed reason=awk-error ec=$sc_ec stderr=$(err_head "$sc_out")" 1
     return 1
@@ -853,7 +860,7 @@ merge_plan() {
       *warning:*) ;;
       *) mp_bad=1 ;;
     esac
-  done <<< "$mp_out"
+  done < <(printf '%s\n' "$mp_out")
   case "$mp_unparsed" in *[!0-9]*) mp_bad=1 ;; esac
   if [ "$mp_ec" -ne 0 ] || [ "$mp_bad" -eq 1 ] || [ "$mp_done" -ne 1 ]; then
     sb_log_error "merge-project-update.sh" "gate=merge-plan-failed reason=awk-error ec=$mp_ec stderr=$(err_head "$mp_out")" 1
@@ -965,9 +972,9 @@ merge_compact_pending() {
       *warning:*) ;;
       *) dd_bad=1 ;;
     esac
-  done <<< "$dd_out"
+  done < <(printf '%s\n' "$dd_out")
   local dedup="" refused=""
-  read -r dedup refused <<< "$counts"
+  read -r dedup refused <<< "$counts"  # <<<-bounded: counts is the awk COUNTS row, "<n> <n>" (two integers), one row enforced by nc -eq 1
   case "$dedup" in ''|*[!0-9]*) dd_bad=1 ;; esac
   case "$refused" in ''|*[!0-9]*) dd_bad=1 ;; esac
   if [ "$dd_ec" -ne 0 ] || [ "$dd_bad" -eq 1 ] || [ "$dd_done" -ne 1 ] || [ "$nc" -ne 1 ]; then
@@ -1046,7 +1053,7 @@ merge_compact_pending() {
       *warning:*) ;;
       *) ins_bad=1 ;;
     esac
-  done <<< "$ins_out"
+  done < <(printf '%s\n' "$ins_out")
   case "$added" in ''|*[!0-9]*) ins_bad=1 ;; esac
   if [ "$ins_ec" -ne 0 ] || [ "$ins_bad" -eq 1 ] || [ "$ins_done" -ne 1 ]; then
     sb_log_error "merge-project-update.sh" "gate=merge-compact-pending-failed reason=awk-error ec=$ins_ec stderr=$(err_head "$ins_out")" 1
@@ -1148,7 +1155,7 @@ merge_howto() {
       { if (index(tolower($0), v) == 1) next; print }')
     body="${body}${body:+
 }$entry"
-  done <<< "$new_entries"
+  done < <(printf '%s\n' "$new_entries")
   # Cap: newest entries live at the BOTTOM; keep the last $cap lines.
   body=$(printf '%s\n' "$body" | grep -v '^$' | tail -n "$cap")
   [ -z "$body" ] && return 0
@@ -1261,7 +1268,8 @@ merge_handoff() {
     if [ -f "$prov_f" ]; then
       local prov_line prov_epoch prov_sha prov_branch
       prov_line=$(head -1 "$prov_f" 2>/dev/null | tr -d '\r')
-      IFS=$'\t' read -r prov_epoch prov_sha prov_branch <<< "$prov_line"
+      prov_line="${prov_line:0:1024}"  # one epoch/sha/branch row; cap so the here-string below stays tiny
+      IFS=$'\t' read -r prov_epoch prov_sha prov_branch <<< "$prov_line"  # <<<-bounded: prov_line capped to 1024 chars on the line above
       case "$prov_epoch" in
         ''|*[!0-9]*) prov_src="bad-prov" ;;
         *) stamp_t="$prov_epoch"; prov_src="prov" ;;
@@ -1362,7 +1370,7 @@ detect_supersede() {
       CHANGED=1
       return 0
     fi
-  done <<< "$existing"
+  done < <(printf '%s\n' "$existing")
   return 1
 }
 
@@ -1388,7 +1396,7 @@ if [ -n "$DECISIONS" ]; then
     LAST_INSERT_DUP=0
     insert_bullet "## Recent decisions" "$dated_line" 5
     if [ "$LAST_INSERT_DUP" = "1" ]; then DEC_PINNED=$((DEC_PINNED + 1)); else DEC_STOP_ONLY=$((DEC_STOP_ONLY + 1)); fi
-  done <<< "$DECISIONS"
+  done < <(printf '%s\n' "$DECISIONS")
   # ec=0 gate= trace -> audit-log (same channel as gate=value-loop); one row per merge.
   sb_log_error "merge-project-update.sh" "gate=decision-capture pinned=$DEC_PINNED stop_only=$DEC_STOP_ONLY" 0
 fi
@@ -1397,7 +1405,7 @@ if [ -n "$BLOCKERS" ]; then
   while IFS= read -r line; do
     [ -z "$line" ] && continue
     insert_bullet "## Open blockers" "$line" 15
-  done <<< "$BLOCKERS"
+  done < <(printf '%s\n' "$BLOCKERS")
 fi
 
 # --- Auto-staleness: mark decisions/blockers/Plan items older than N days as [stale] ---
@@ -1493,7 +1501,7 @@ mark_stale() {
       *warning:*) ;;
       *) ms_bad=1 ;;
     esac
-  done <<< "$ms_out"
+  done < <(printf '%s\n' "$ms_out")
   if [ "$ms_bad" -eq 1 ] || [ "$ms_done" -ne 1 ] || { [ "$awk_ec" -ne 0 ] && [ "$awk_ec" -ne 1 ]; }; then
     sb_log_error "merge-project-update.sh" "gate=mark-stale-failed section=$section reason=awk-error ec=$awk_ec stderr=$(err_head "$ms_out")" 1
     rm -f "$new_tmp"
@@ -1502,7 +1510,7 @@ mark_stale() {
   if [ -n "$ms_drops" ]; then
     while IFS= read -r line; do
       sb_log_error "merge-project-update.sh" "gate=plan-dropped stale text=${line:0:80}" 0
-    done <<< "$ms_drops"
+    done < <(printf '%s\n' "$ms_drops")
   fi
   if [ "$awk_ec" -eq 0 ]; then
     mv "$new_tmp" "$TMP_OUT"
@@ -1580,7 +1588,7 @@ if [ -n "$REFS" ]; then
         CHANGED=1
       fi
     fi
-  done <<< "$REFS"
+  done < <(printf '%s\n' "$REFS")
 fi
 
 # Decisions/blockers age at the end, after every writer (the Plan already aged, above).
