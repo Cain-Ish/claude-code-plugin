@@ -23,21 +23,30 @@ SCRIPT="${1:-}"; shift || true
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 
-# Millisecond clock, portable: GNU date has %N; BSD/macOS date renders a
-# literal 'N' — fall back to whole seconds there (coarse but honest).
+# Millisecond clock into _MS, with no process where bash can tell the time itself: bash 5's
+# $EPOCHREALTIME (seconds.micro; the radix char is locale-dependent, so digits only). The old
+# form spent two `date` spawns plus `basename` and `date -u` below on every wrapped call (~55 ms
+# on MSYS, and far more under load: this wrapper sits on the PreToolUse hot path, where a hook
+# that answers late is cancelled and the tool runs). Elsewhere: GNU date %N; BSD/macOS date
+# renders a literal 'N' — fall back to whole seconds there (coarse but honest).
 _now_ms() {
   local n
+  if [ -n "${EPOCHREALTIME:-}" ]; then
+    n="${EPOCHREALTIME//[!0-9]/}"
+    _MS=$(( 10#$n / 1000 ))
+    return 0
+  fi
   n=$(date +%s%N 2>/dev/null)
   case "$n" in
-    *N|*n|'') echo $(( $(date +%s) * 1000 )) ;;
-    *) echo $(( n / 1000000 )) ;;
+    *N|*n|'') _MS=$(( $(date +%s) * 1000 )) ;;
+    *) _MS=$(( n / 1000000 )) ;;
   esac
 }
 
-T0=$(_now_ms)
+_now_ms; T0=$_MS
 bash "$SCRIPT" "$@"
 EC=$?
-T1=$(_now_ms)
+_now_ms; T1=$_MS
 
 {
   DUR=$(( T1 - T0 )); [ "$DUR" -lt 0 ] && DUR=0
@@ -52,8 +61,12 @@ T1=$(_now_ms)
       fi
       ;;
   esac
-  HOOK=$(basename "$SCRIPT")
-  TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  HOOK="${SCRIPT##*/}"
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    TZ=UTC0 printf -v TS '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  else
+    TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  fi
   printf '{"ts":"%s","kind":"latency","hook":"%s","duration_ms":%s,"exit_code":%s%s}\n' \
     "$TS" "$HOOK" "$DUR" "$EC" "$WARN" >> "$BRAIN_DIR/audit-log.jsonl"
 } 2>/dev/null || true

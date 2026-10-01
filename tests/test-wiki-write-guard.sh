@@ -247,5 +247,180 @@ out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
 [ -z "$out" ] || fail "case-varied non-wiki write should stay silent (got: $out)"
 pass "case-varied non-wiki write silent (no over-blocking)"
 
+# --- B7: decided before any dependency (a late PreToolUse answer is cancelled and the Write runs) ---
+# Fixture: a plugin root whose lib.sh sleeps, plus PATH stand-ins that sleep for each external the
+# full logic uses. The deny must still arrive within B7_BOUND seconds (whole-second SECONDS; no
+# GNU timeout on macOS). Generous bounds: a passing run never sleeps, a stalled one sleeps B7_SLEEP.
+# Item 17: on bash < 4.3 (the macOS lane's /bin/bash 3.2) the guards' builtin payload reader steps
+# aside and jq decides every call, as on main — a stalled jq can then hold the verdict, so these
+# stalled-dependency cases cannot hold there by design and are skipped (loudly) on such a bash.
+FP_OFF=0
+bash -c '[ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }' && FP_OFF=1
+B7_SLEEP=20; B7_BOUND=10
+B7="$TMP/b7"; mkdir -p "$B7/root/scripts" "$B7/bin" "$B7/brain"
+[ -d "$B7/brain" ] || fail "B7 precondition: $B7/brain must exist before the stand-ins are installed"
+printf 'sleep %s\n' "$B7_SLEEP" > "$B7/root/scripts/lib.sh"
+for t in jq cat tr grep sed awk head tail cut wc realpath greadlink readlink cygpath dirname basename mkdir mv uname git; do
+  printf '#!/bin/sh\nsleep %s\nexit 127\n' "$B7_SLEEP" > "$B7/bin/$t"; chmod +x "$B7/bin/$t"
+done
+b7_deny() {  # b7_deny <label> <needle> <payload-file>
+  if [ "$FP_OFF" = 1 ]; then echo "SKIP: B7 $1 — the fast path is off on bash < 4.3 (item 17: jq decides, as on main)"; return 0; fi
+  local s out
+  s=$SECONDS
+  out=$(CLAUDE_PLUGIN_ROOT="$B7/root" BRAIN_DIR="$B7/brain" PATH="$B7/bin:$PATH" bash "$SCRIPT" < "$3")
+  s=$(( SECONDS - s ))
+  [ "$s" -le "$B7_BOUND" ] || fail "B7 $1: took ${s}s with every dependency slow (bound ${B7_BOUND}s)"
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+    || fail "B7 $1: expected deny, got: '$out'"
+  echo "$out" | grep -q "$2" || fail "B7 $1: deny reason should mention '$2' (got: $out)"
+  pass "B7 $1: deny in ${s}s with every dependency slow"
+}
+mkdir -p "$TMP/knowledge/wiki/issues"
+printf '# no frontmatter\nbody\n' > "$TMP/knowledge/wiki/issues/b7-bare.md"
+jq -nc --arg p "$TMP/.Second-Brain/Wiki/learnings/Misrouted.md" --arg c $'---\ntitle: x\n---\n' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}' > "$B7/p1.json"
+jq -nc --arg p "$TMP/knowledge/wiki/issues/b7-new.md" --arg c $'# heading\nno frontmatter' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}' > "$B7/p2.json"
+jq -nc --arg p "$TMP/knowledge/wiki/issues/b7-bare.md" \
+  '{tool_name:"Edit", tool_input:{file_path:$p, old_string:"body", new_string:"new body"}}' > "$B7/p3.json"
+cat > "$B7/p4.json" <<'JSON'
+{"tool_name":"MultiEdit","tool_input":{"file_path":"C:\\Users\\me\\.second-brain\\wiki\\state\\x.md","edits":[{"old_string":"a","new_string":"b"}]}}
+JSON
+b7_deny "legacy tree (case-varied)" 'knowledge/wiki/learnings/misrouted.md' "$B7/p1.json"
+b7_deny "new page without frontmatter" 'frontmatter' "$B7/p2.json"
+b7_deny "Edit keeps a bare page bare" 'frontmatter' "$B7/p3.json"
+b7_deny "Windows-form legacy MultiEdit" 'knowledge/wiki/state/x.md' "$B7/p4.json"
+
+# No false positives: content that merely NAMES a legacy wiki path stays silent on a non-wiki Write.
+PAYLOAD=$(jq -nc --arg p "$NON_WIKI_FILE" --arg c 'see "file_path":"/x/.second-brain/wiki/y.md"' '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -z "$out" ] || fail "B7: content naming a legacy wiki path must not deny a non-wiki Write (got: $out)"
+pass "B7: no false positive from content text"
+
+# T8: the fast path stands down for a Write that re-creates a FORGOTTEN page, even a bare one it
+# could deny on sight — the full logic's auto-restore redirect must win over the frontmatter deny.
+printf -- '---\ntitle: "Gone2"\ntype: concepts\n---\n# Gone2\noriginal.\n' > "$TMP/brain/wiki-archive/concepts/gone2.md"
+printf '%s\n' '{"event":"archived","slug":"gone2","category":"concepts","date":"2026-05-26T03:00:00Z"}' >> "$TMP/brain/wiki-archive-log.jsonl"
+GONE2="$TMP/knowledge/wiki/concepts/gone2.md"
+PAYLOAD=$(jq -nc --arg p "$GONE2" --arg c '# bare' '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
+out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  && echo "$out" | grep -q 'Auto-restored' \
+  || fail "T8: a bare Write re-creating an archived slug must get the restore redirect, not the frontmatter deny (got: $out)"
+[ -f "$GONE2" ] || fail "T8: the archived original should be restored"
+pass "T8: a bare re-create of a forgotten page gets the auto-restore redirect (fast path stands down)"
+
+# --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
+# bounded LABEL LIMIT PAYLOAD-FILE: run the guard in the background, stdout to a file, a watchdog
+# killing it past LIMIT seconds — a hung guard must FAIL the test, not hang it. BD_OUT; BD_MS =
+# elapsed ms (EPOCHREALTIME on bash 5; whole seconds from `date` on older bash, the macOS lane);
+# BD_EL = whole seconds. The guard must exit 0. LIMIT is only the kill; every run must also
+# answer within HOOK_BOUND_MS.
+# Runs use a UTF-8 locale when there is one (DA #3: the multibyte payloads exist to hit bash's
+# wide-character slow paths, which the C locale a bare CI shell starts in never takes).
+UTF8_LOC=""
+for l in C.UTF-8 en_US.UTF-8 C.utf8 en_US.utf8; do
+  [ "$( (LC_ALL=$l; s=$'\303\251'; printf %s "${#s}") 2>/dev/null)" = 1 ] && { UTF8_LOC=$l; break; }
+done
+[ -n "$UTF8_LOC" ] || echo "SKIP: no UTF-8 locale — the size cases below run in the C locale, off the wide-character paths"
+now_ms() { local n="${EPOCHREALTIME:-}"; n="${n//[!0-9]/}"; if [ -n "$n" ]; then echo $((10#$n / 1000)); else echo $(( $(date +%s) * 1000 )); fi; }
+bounded() {
+  local label="$1" lim="$2" pf="$3" pid wd rc t0
+  t0=$(now_ms)
+  env ${UTF8_LOC:+LC_ALL=$UTF8_LOC} bash "$SCRIPT" < "$pf" > "$TMP/bounded.out" 2> "$TMP/bounded.err" & pid=$!
+  # TERM, then KILL 2 s later: a guard blocked writing a pipe on MSYS ignores TERM, and `wait` on it
+  # never returned — the test hung until run-all's timeout with no message (final review, 0.54.1).
+  ( sleep "$lim"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
+  wait "$pid"; rc=$?
+  BD_MS=$(( $(now_ms) - t0 )); BD_EL=$((BD_MS / 1000))
+  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  [ "$BD_MS" -lt $((lim * 1000)) ] || fail "$label: still running after ${lim}s (killed)"
+  [ "$rc" = 0 ] || fail "$label: the guard exited $rc ($(head -c 300 "$TMP/bounded.err"))"
+  # Every size case must answer inside the hook budget (item F8/DA #6: the old 10 s lock let a
+  # 9 s answer pass while production cancelled it at 5 s).
+  [ "$BD_MS" -le "$HOOK_BOUND_MS" ] || fail "$label: answered in ${BD_MS} ms, bound $HOOK_BOUND_MS ms — past it the hook is cancelled and the tool RUNS"
+  BD_OUT=$(cat "$TMP/bounded.out")
+}
+# within LABEL MS: the last bounded run answered inside MS milliseconds.
+within() { [ "$BD_MS" -le "$2" ] || fail "$1: answered in ${BD_MS} ms, bound $2 ms — past it the hook is cancelled and the Write RUNS"; }
+# The hook timeout is 5 s; hook-timer.sh, bash's start and the spawn under a loaded box take the
+# rest: a case that must answer in time is bound at 4 s. BIG_BOUND stays the kill limit.
+HOOK_BOUND_MS=4000
+# big_body N: an 'é' (bash then matches in wide characters, the slow case) and N bytes of lines.
+big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\n", $0}'; }
+BIG_BOUND=10
+BODY=$(big_body 524288)
+# P-H1: 512 KB Writes. A file_path after the content reaches only the full logic (165 s before).
+printf '{"tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$NON_WIKI_FILE" "$BODY" > "$TMP/big1.json"
+bounded "P-H1 512 KB non-wiki Write" "$BIG_BOUND" "$TMP/big1.json"
+[ -z "$BD_OUT" ] || fail "P-H1: a 512 KB non-wiki Write must stay silent (got: $BD_OUT)"
+pass "P-H1: 512 KB non-wiki Write answered in ${BD_EL}s"
+printf '{"tool_name":"Write","tool_input":{"content":"# bare\\n%s","file_path":"%s"}}' "$BODY" "$TMP/knowledge/wiki/concepts/big-page.md" > "$TMP/big2.json"
+bounded "P-H1 512 KB bare wiki page, file_path last" "$BIG_BOUND" "$TMP/big2.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
+  || fail "P-H1: a 512 KB bare wiki page (file_path last) must be denied (got: $BD_OUT)"
+pass "P-H1: 512 KB bare wiki page (file_path last) denied in ${BD_EL}s"
+
+# SEC-C1: a 65,600-byte payload whose file_path needs jq (\u escape): the fallback's here-string
+# hung on MSYS for good.
+C1_PRE="{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TMP/knowledge/wiki/concepts/\\u0062ig-c1.md\",\"content\":\"# bare"
+{ printf '%s' "$C1_PRE"; printf '%*s' $(( 65600 - ${#C1_PRE} - 3 )) '' | tr ' ' x; printf '"}}'; } > "$TMP/c1.json"
+[ "$(wc -c < "$TMP/c1.json" | tr -d ' ')" = 65600 ] || fail "SEC-C1 fixture: payload is not 65,600 bytes"
+bounded "SEC-C1 65,600-byte payload (jq fallback)" 20 "$TMP/c1.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' || fail "SEC-C1: the 65,600-byte bare wiki Write must be denied (got: $BD_OUT)"
+pass "SEC-C1: a 65,600-byte payload through the jq fallback answers in ${BD_EL}s"
+
+# RR-CR1: a file_path ending in 50,000 CONSECUTIVE trailing newlines. The full logic's _fp_clean
+# used to strip them one at a time (`${v%"$_fp_nl"}` in a loop): O(N x length) for N trailing
+# newlines, 40 s here past the 5 s hook timeout (a fail-open DoS). Verdict must be unchanged: a
+# bare wiki page write still denies on frontmatter.
+TRAIL50K=$(i=0; while [ $i -lt 50000 ]; do printf '\\n'; i=$((i + 1)); done)
+printf '{"tool_name":"Write","tool_input":{"content":"# bare","file_path":"%s%s"}}' "$TMP/knowledge/wiki/concepts/cr1.md" "$TRAIL50K" > "$TMP/cr1.json"
+bounded "RR-CR1 50,000 consecutive trailing newlines, bare wiki page" "$BIG_BOUND" "$TMP/cr1.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
+  || fail "RR-CR1: 50,000 trailing newlines must still deny the bare wiki page on frontmatter (got: $BD_OUT)"
+within "RR-CR1 50,000 trailing newlines" "$HOOK_BOUND_MS"
+pass "RR-CR1: 50,000 consecutive trailing newlines answered in ${BD_MS} ms (bare page still denies)"
+
+# F8 item 18: the file_path itself carries the 50,000 newlines, text after them. Every file_path goes
+# through _fp_lower (case-insensitive scope match), whose per-character loop was O(n^2): this payload
+# never answered on MSYS (rc=124 past 60 s, before and after the trim fix) — a fail-open.
+printf '{"tool_name":"Write","tool_input":{"content":"# bare","file_path":"%s/knowledge/wiki/concepts/CR1%s.md"}}' "$TMP" "$TRAIL50K" > "$TMP/cr1p.json"
+bounded "item 18: 50,000 newlines inside a wiki file_path" "$BIG_BOUND" "$TMP/cr1p.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
+  || fail "item 18: a bare page whose file_path holds 50,000 newlines must still deny on frontmatter (got: $BD_OUT)"
+T50K_MS=$BD_MS
+pass "item 18: 50,000 newlines inside a wiki file_path answered in ${BD_MS} ms (bare page still denies)"
+
+# Final review (0.54.1): one size could not tell linear from quadratic — the tombstone lookup's
+# ${FILE_PATH##*/} costs basename x length and took 6-8 s at 150,000 newlines. Three times the size,
+# same bound: the tombstone block now skips a path it cannot be about (newline or over 4096 chars).
+TRAIL150K=$(printf '%150000s' '' | sed 's/ /\\n/g')
+printf '{"tool_name":"Write","tool_input":{"content":"# bare","file_path":"%s/knowledge/wiki/concepts/CR3%s.md"}}' "$TMP" "$TRAIL150K" > "$TMP/cr3p.json"
+bounded "150,000 newlines inside a wiki file_path" "$BIG_BOUND" "$TMP/cr3p.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
+  || fail "150k: a bare page whose file_path holds 150,000 newlines must still deny on frontmatter (got: ${BD_OUT:0:200})"
+# Linearity, not a wall-clock bound: the same shape at 3x the size must cost at most ~4x (a
+# quadratic step costs ~9x), which holds on any runner speed; BIG_BOUND above still catches a hang.
+# The ratio needs sub-second timing: without EPOCHREALTIME (bash < 5, the macOS/bash-3.2 lane) now_ms
+# is whole seconds, so a sub-second 50k baseline reads 0 ms and the 150k run reads 1000 ms — an
+# unmeasurable, always-failing ratio. Assert it only where the clock can see it; the deny above and
+# the BIG_BOUND hang guard still run everywhere.
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  [ "$BD_MS" -le $(( T50K_MS * 4 + 500 )) ] || fail "150k: 3x the newlines cost ${BD_MS} ms vs ${T50K_MS} ms at 50k (over 4x: super-linear)"
+fi
+pass "150,000 newlines inside a wiki file_path answered in ${BD_MS} ms (bare page still denies)"
+
+# F8 #1: 50,000 REAL newlines inside the payload itself — JSON whitespace between two keys, text
+# after them — so the whole-payload trim (_fp_raw_all) sees a run followed by other text. The
+# `($_fp_nl+)$` regex it used was O(run^2) on glibc for that shape.
+{ printf '{"tool_name":"Write",'; printf '%50000s' '' | tr ' ' '\n'
+  printf '"tool_input":{"content":"# bare","file_path":"%s"}}' "$TMP/knowledge/wiki/concepts/cr1ws.md"; } > "$TMP/cr1ws.json"
+bounded "F8 50,000 newlines of JSON whitespace, bare wiki page" "$BIG_BOUND" "$TMP/cr1ws.json"
+echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep -q frontmatter \
+  || fail "F8: 50,000 newlines of JSON whitespace must still deny the bare wiki page on frontmatter (got: $BD_OUT)"
+within "F8 50,000 newlines of JSON whitespace" "$HOOK_BOUND_MS"
+pass "F8: 50,000 real newlines between two payload keys answered in ${BD_MS} ms (bare page still denies)"
+
 echo
 echo "ALL PASS"

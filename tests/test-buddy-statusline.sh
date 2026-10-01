@@ -162,6 +162,31 @@ viaCols=$(payload | SB_BUDDY_NOW=$NOW0 COLUMNS=120 NO_COLOR=1 bash "$R")
 [ "$viaCols" = "$wide" ] || fail "COLUMNS (what Claude Code exports) must drive the width like SB_BUDDY_COLS"
 pass "renderer: goal/phase/ctx/model/event present; rows fit at 60/80/120; COLUMNS honoured; narrow collapses"
 
+# Claude Code trims leading whitespace from every statusline row (user report 2026-09-29: the top
+# border drifted two columns right of the box body). After that per-row trim, the top-left corner,
+# every body edge and the bottom-left corner must share one column, in both glyph modes.
+_host_trim(){ local l="$1"; printf '%s' "${l#"${l%%[![:blank:]]*}"}"; }
+_col_of(){ local l pre; l=$(_host_trim "$1"); pre="${l%%"$2"*}"; [ "$pre" = "$l" ] && { printf -- '-1'; return; }; printf '%s' "${#pre}"; }
+for _mode in unicode ascii; do
+  if [ "$_mode" = ascii ]; then _v='|'; _corners='+'; _o=$(SB_BUDDY_ASCII=on SB_BUDDY_NOW=$NOW0 SB_BUDDY_COLS=120 render)
+  else [ "$WIDTH_OK" = "0" ] && continue; _v='│'; _corners='╭ ╰'; _o="$wide"; fi
+  _cols=""
+  while IFS= read -r _row; do
+    case "$_row" in
+      *"$_v"*) _cols="$_cols $(_col_of "$_row" "$_v")" ;;
+      *) for _ch in $_corners; do
+           case "$_row" in *"$_ch"*) _cols="$_cols $(_col_of "$_row" "$_ch")" ;; esac
+         done ;;
+    esac
+  done <<< "$_o"
+  _first=${_cols# }; _first=${_first%% *}
+  [ -n "$_first" ] || fail "no box rows found in the $_mode render: $_o"
+  for _c in $_cols; do
+    { [ "$_c" = "$_first" ] && [ "$_c" != "-1" ]; } || fail "bubble misaligned after the host trims leading blanks ($_mode): box columns$_cols in: $_o"
+  done
+done
+pass "bubble: top border, body edges and bottom border share one column after the host's per-line trim (unicode + ascii)"
+
 # --- 3. event text is data: no globbing, no execution; session gate beats newer global ------
 jq -c '.ts = (.ts - 61)' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.buddy/x" && mv "$BRAIN_DIR/.buddy/x" "$BRAIN_DIR/.buddy/$SID.json"   # release the gate hold
 sb_buddy_event "$SID" read focused 'fixed *.sh and [a-z]* handling; $(touch PWNED) `id`' t
@@ -273,7 +298,9 @@ out=$(at 20)
 printf '%s' "$out" | grep -q 'Plan gate holds' || fail "event line missing from the cloud: $out"
 printf '%s' "$out" | grep -q 'Kapi' && fail "the configured/default name must never render under the redesign: $out"
 printf '%s' "$out" | grep -qE 'n______n|\(.oo.\)' && fail "no capybara glyphs anywhere: $out"
-printf '%s' "$out" | grep -qF ' o' || fail "the small steam dot ('o') must lead the cloud: $out"
+_brl=$'\342\240\200'   # U+2800 BRAILLE PATTERN BLANK, as UTF-8 bytes (bash 3.2 has no \u escape)
+_row2=$(printf '%s\n' "$out" | sed -n 2p)
+{ [ "$_row2" = "${_brl}o" ] || [ "$_row2" = "o" ]; } || fail "the small steam dot ('o') must lead the cloud on its own row, U+2800-indented (never ASCII blanks, which the host trims): $out"
 printf '%s' "$out" | grep -qF '○' || fail "the big steam dot ('○') must sit before the box: $out"
 # steam-dot colour: warn-toned for gate/guard/stumble (matches the text), independent of mood
 out2=$(payload | SB_BUDDY_NOW=$(( B + 20 )) SB_BUDDY_COLS=120 bash "$R")
@@ -312,7 +339,7 @@ jq -c --argjson t "$B" '.ts = $t' "$BRAIN_DIR/.buddy/$SID.json" > "$BRAIN_DIR/.b
 out=$(payload | SB_BUDDY_NOW=$(( B + 20 )) SB_BUDDY_ASCII=on SB_BUDDY_COLS=120 NO_COLOR=1 bash "$R")
 printf '%s' "$out" | grep -qF '+--' || fail "ASCII mode must swap the box corners/rule for +/-: $out"
 printf '%s' "$out" | grep -q '○' && fail "ASCII mode must not print the unicode steam dot: $out"
-printf '%s' "$out" | grep -qF 'O ' || fail "ASCII mode's big steam dot is 'O': $out"
+printf '%s\n' "$out" | grep -qx 'O' || fail "ASCII mode's big steam dot is 'O' on its own row (column-0 layout): $out"
 # a name is data: control sequences in buddy.json never reach the terminal, and never render at
 # all now that the sprite/name row is gone (the fixture holds the JSON ESCAPES: printf %s, so no
 # shell turns \u001b into a raw ESC — raw control bytes are invalid JSON)

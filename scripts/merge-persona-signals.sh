@@ -65,9 +65,21 @@ EXISTING=$(jq -Rnc '[inputs | fromjson? | select(type=="object")]' "$SIGNALS_FIL
 [ -n "$EXISTING" ] || EXISTING='[]'
 
 # Merge new signals into existing using jq
+# The signals file and the new batch go in by --slurpfile, never --argjson: Windows-native jq.exe
+# silently drops a command line over ~32 KB (and Linux fails with "Argument list too long"), so a
+# grown signals file made this merge produce nothing. A slurpfile wraps the single JSON value in
+# an array, hence $existing[0] / $new_sigs[0] below. Temp files are removed by the EXIT trap.
+_MPS_TMP_E=$(mktemp "${TMPDIR:-/tmp}/mps-existing.XXXXXX") && _MPS_TMP_N=$(mktemp "${TMPDIR:-/tmp}/mps-new.XXXXXX") || {
+  sb_log_error "merge-persona-signals.sh" "mktemp failed for the --slurpfile inputs (TMPDIR=${TMPDIR:-/tmp}); merge skipped" 1
+  rm -f "${_MPS_TMP_E:-}"
+  exit 1
+}
+trap 'rm -f "$_MPS_TMP_E" "$_MPS_TMP_N"' EXIT
+printf '%s' "$EXISTING" > "$_MPS_TMP_E"
+printf '%s' "$NEW_SIGNALS" > "$_MPS_TMP_N"
 MERGED=$(jq -nc \
-  --argjson existing "$EXISTING" \
-  --argjson new_sigs "$NEW_SIGNALS" \
+  --slurpfile existing "$_MPS_TMP_E" \
+  --slurpfile new_sigs "$_MPS_TMP_N" \
   --arg today "$TODAY" \
   --arg session "$SESSION_ID" \
   '
@@ -91,7 +103,7 @@ MERGED=$(jq -nc \
       ([$a[] | select(. as $w | $b | index($w))] | length) * 100 / $denom
     end;
 
-  reduce ($new_sigs[]) as $sig ($existing;
+  reduce ($new_sigs[0][]) as $sig ($existing[0];
     ($sig.signal | content_words) as $new_words |
     (to_entries | map(
       (.value.signal | content_words) as $old_words |
@@ -361,7 +373,7 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
         fi
       fi
     fi
-  done <<< "$CAND_LIST"
+  done < <(printf '%s\n' "$CAND_LIST")  # no here-string here: MSYS blocks one of ~65,537..65,651 B past the hook timeout
 fi
 
 exit 0

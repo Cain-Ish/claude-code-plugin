@@ -1,8 +1,21 @@
 #!/bin/bash
 # discover-installed.sh — enumerate installed plugins/agents/skills under a plugins root.
-# Usage: discover-installed.sh [plugins-root]
+# Usage: discover-installed.sh [plugins-root]            (SessionStart hook)
+#        discover-installed.sh --refresh [plugins-root]  (internal: the detached refresh)
 # Defaults: plugins-root=${CLAUDE_PLUGINS_DIR:-$HOME/.claude/plugins/cache}
 # Writes JSON catalog to ${BRAIN_DIR:-~/.second-brain}/.installed-catalog.json and stdout.
+#
+# OFF THE STARTUP PATH (S0 B7, 2026-09-28). With a cached catalog the hook prints it and
+# returns: no tree walk, no jq, no lib.sh. The freshness check and any rebuild run in ONE
+# detached `--refresh` process guarded by an mkdir lock, so the hook cannot be killed at its
+# 10s timeout however loaded the machine is. Measured before this: cancelled in 12 of 25
+# sessions (avg 34s when cancelled), and the live catalog frozen at its 2026-09-24 copy —
+# Claude Code writes `.in_use/<pid>` under every plugin version at each session start, so the
+# old `find -newer` saw a "changed" tree on EVERY start and rebuilt synchronously. `.in_use`
+# (and node_modules/.git) are now pruned from the freshness walk. Only a first run with no
+# cache at all still builds synchronously (nothing to serve; that path is bounded below).
+# The refresh fails LOUD (sb_log_error) and never replaces the cache with a failed build; a
+# lock left by a refresh that died is reclaimed after LOCK_STALE_MIN minutes, loudly.
 #
 # PERFORMANCE IS A CORRECTNESS PROPERTY HERE (0.45.0). hooks/hooks.json gives this
 # hook a 10s SessionStart budget. The previous implementation spawned three
@@ -24,25 +37,297 @@ set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 
+MODE=serve
+if [ "${1:-}" = "--refresh" ]; then MODE=refresh; shift; fi
 PLUGINS_ROOT="${1:-${CLAUDE_PLUGINS_DIR:-$HOME/.claude/plugins/cache}}"
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 OUT_FILE="$BRAIN_DIR/.installed-catalog.json"
+LOCK_DIR="$BRAIN_DIR/.installed-catalog.lock"
+DI_REFRESH_ERR="$BRAIN_DIR/.installed-catalog-refresh.err"
+LOCK_STALE_MIN=10          # only used when the lock carries no pid to check (SEC-L3 below)
+LOCK_MAX_AGE_MIN=$((LOCK_STALE_MIN * 6))   # RR-CR2: hard ceiling even for a lock with a LIVE owner (pid reuse)
+SELF="${BASH_SOURCE[0]:-$0}"
+DI_LIB="${SELF%/*}/lib.sh"
 
 mkdir -p "$BRAIN_DIR"
 
-# Fast-path: reuse cached catalog if nothing under plugins dir has changed.
-# We compare against ANY file in the tree, not just $PLUGINS_ROOT itself —
-# directory mtime only bumps when entries at the immediate level change, so
-# a plugin update inside a subdirectory leaves a root-only check stale
-# indefinitely. `head -n1` closes the pipe on the first hit, short-circuiting find
-# portably — `-quit` is a GNU-only primary that BSD/macOS find rejects (its swallowed
-# error empties the capture and the script then re-discovers on every single run).
-if [ -f "$OUT_FILE" ] && [ -d "$PLUGINS_ROOT" ]; then
-  NEWER=$(find "$PLUGINS_ROOT" -newer "$OUT_FILE" -print 2>/dev/null | head -n1)
-  if [ -z "$NEWER" ]; then
-    cat "$OUT_FILE"
+TMP_PLUGINS=""; TMP_AGENTS_RAW=""; TMP_SKILLS_RAW=""; TMP_AGENTS=""; TMP_SKILLS=""
+di_cleanup() {
+  # $? must be captured as the VERY FIRST statement — it is this process's own final exit
+  # status (an unbound-variable abort under `set -u`, a signal, or an explicit `exit N`
+  # elsewhere in this script), and every command below would overwrite it. A silently
+  # swallowed non-zero exit here is exactly the failure mode this hook exists to avoid: a
+  # detached background refresh (schedule_refresh) has no other reader of its exit status.
+  local ec=$?
+  local f
+  for f in "$TMP_PLUGINS" "$TMP_AGENTS_RAW" "$TMP_SKILLS_RAW" "$TMP_AGENTS" "$TMP_SKILLS" "$OUT_FILE.tmp.$$"; do
+    [ -n "$f" ] && [ -e "$f" ] && rm -f "$f"
+  done
+  if [ "$MODE" = refresh ]; then
+    if [ "$ec" -ne 0 ]; then
+      di_log "background catalog refresh exited non-zero (ec=$ec) — see $DI_REFRESH_ERR for its stderr" "$ec"
+    fi
+    # SEC-L3: only release the lock if it is still OURS. schedule_refresh writes the
+    # detached child's own pid into $LOCK_DIR/pid; a lock with no pid on record predates
+    # this fix (or the write raced with an even-faster reclaim) and is released as before,
+    # but a lock whose recorded pid is SOMEONE ELSE'S means our own lock was reclaimed as
+    # abandoned while we were still (slowly) running — removing it here would delete the
+    # new owner's lock instead of the (already-gone) one we held.
+    if [ -d "$LOCK_DIR" ]; then
+      local owner
+      owner=$(tr -d ' \t\r\n' < "$LOCK_DIR/pid" 2>/dev/null)
+      # $PPID: until schedule_refresh swaps in this child's pid the lock names the SCHEDULING hook
+      # (lock_create's placeholder) — this child's parent. A refresh that finishes before the swap
+      # (a small tree: measured, 1 run in 3 with six parallel hooks) must still release its own lock,
+      # or the lock outlives it and waits for the next session to reclaim it as dead.
+      if [ -z "$owner" ] || [ "$owner" = "$$" ] || [ "$owner" = "$PPID" ]; then
+        # lock_drop renames the lock away BEFORE emptying it: rm-ing the pid file inside the live
+        # lock first left a lock with no owner pid for a moment (see lock_create, O13).
+        lock_drop \
+          || di_log "could not release the refresh lock $LOCK_DIR — the next refresh waits ${LOCK_STALE_MIN} min to reclaim it" 1
+      fi
+    fi
+  fi
+  return 0
+}
+trap di_cleanup EXIT
+
+# di_log <message> [exit_code]: sb_log_error (lib.sh, loaded on first use so the serve path
+# never pays for it; gate= rows at exit 0 land in audit-log.jsonl), else a raw JSON row in
+# error-log.jsonl — a failure must leave a trace even when lib.sh cannot load.
+di_log() {
+  declare -F sb_log_error >/dev/null || source "$DI_LIB"
+  if declare -F sb_log_error >/dev/null; then
+    sb_log_error "discover-installed.sh" "$1" "${2:-1}"
+  else
+    local m="${1//\\/\\\\}"; m="${m//\"/\\\"}"
+    printf '{"timestamp":"%s","script":"discover-installed.sh","message":"%s","exit_code":%s}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$m" "${2:-1}" >> "$BRAIN_DIR/error-log.jsonl"
+  fi
+}
+
+# lock_create: 0 when THIS process now owns $LOCK_DIR, 1 when it lost (or never had) the lock, 2 when
+# the lock could not be built at all. O13: the lock used to be a bare `mkdir` with the owner pid
+# written only after the detached child was spawned (tens of ms on MSYS) — in that gap a concurrent
+# hook read a lock with NO owner and took the age-fallback path on a lock that was live. So it is
+# built in a staging dir that already holds a pid (this process's own, alive until the child's pid
+# replaces it in schedule_refresh) and renamed into place: the lock never exists without an owner.
+# A plain `mv` onto an EXISTING directory does not fail — it moves the source INTO it (and `mv -T`,
+# which refuses, is GNU-only: BSD/macOS has no such flag, so one portable path is used everywhere).
+# Measured with six parallel hooks: a loser's staging dir landed inside the winner's lock, and when
+# the winner released before the loser looked, a "no staging dir inside the lock" test called the
+# loser the owner. So ownership is decided by the one thing a loser can never forge: after the rename
+# the lock's pid file must be OUR placeholder pid. Anything else = we lost; the staging dir is then
+# cleaned out of the winner's lock — or out of the carcass if the winner has already released it.
+lock_create() {
+  [ -e "$LOCK_DIR" ] && return 1
+  local stage name
+  stage=$(mktemp -d "$LOCK_DIR.new.XXXXXX") || return 2
+  name="${stage##*/}"
+  printf '%-10s' "$$" > "$stage/pid" || { rm -f "$stage/pid"; rmdir "$stage" 2>/dev/null; return 2; }
+  if ! mv "$stage" "$LOCK_DIR" 2>/dev/null; then
+    rm -f "$stage/pid"; rmdir "$stage" 2>/dev/null
+    return 2   # the rename itself failed (permissions, a read-only BRAIN_DIR): a real error
+  fi
+  if [ "$(tr -d ' \t\r\n' < "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] && [ ! -d "$LOCK_DIR/$name" ]; then
+    return 0
+  fi
+  local d
+  for d in "$LOCK_DIR/$name" "$LOCK_DIR".gone.*/"$name"; do
+    [ -d "$d" ] && { rm -f "$d/pid"; rmdir "$d" 2>/dev/null; }
+  done
+  return 1
+}
+
+# lock_drop: release $LOCK_DIR by renaming it away first (the lock is gone in ONE step, never
+# present-but-ownerless), then emptying the carcass. 1 only when the lock could not be released at
+# all (it is not there, or neither the rename nor the in-place fallback worked).
+# Windows refuses to rename a directory while any process holds a handle inside it (a concurrent
+# hook reading the pid file, a watcher's stat): measured, a finished refresh then "could not
+# release" its lock and it outlived its owner (1 full-suite run in ~5). So the rename is retried,
+# and only if it keeps failing is the lock emptied in place — a brief pidless lock beats one that
+# is never released.
+lock_drop() {
+  local gone="$LOCK_DIR.gone.$$.$RANDOM" tries=0
+  while ! mv "$LOCK_DIR" "$gone" 2>/dev/null; do
+    [ -d "$LOCK_DIR" ] || return 1   # already gone: released or reclaimed by someone else
+    tries=$((tries + 1))
+    if [ "$tries" -ge 8 ]; then
+      rm -f "$LOCK_DIR/pid" "$LOCK_DIR/pid.new" 2>/dev/null
+      rmdir "$LOCK_DIR" 2>/dev/null && return 0
+      return 1
+    fi
+    sleep 0.1
+  done
+  rm -f "$gone/pid" "$gone/pid.new" 2>/dev/null
+  # A losing hook's staging dir can sit inside the lock we just renamed (lock_create); it would
+  # make the rmdir below fail and read as an undeletable lock.
+  local d
+  for d in "$gone"/.*.lock.new.*; do
+    [ -d "$d" ] && { rm -f "$d/pid"; rmdir "$d" 2>/dev/null; }
+  done
+  # Windows refuses the delete while a concurrent hook still has the pid file open for reading
+  # (measured: 1 run in 8 with six parallel hooks); one short retry, then say so.
+  rmdir "$gone" 2>/dev/null \
+    || { sleep 0.3; rm -f "$gone/pid" "$gone/pid.new" 2>/dev/null; rmdir "$gone" 2>/dev/null; } \
+    || di_log "released the refresh lock $LOCK_DIR but could not delete its remains $gone" 1
+  return 0
+}
+
+# catalog_is_stale: true when a catalog input changed after the cache was written. ANY file in
+# the tree counts, not just $PLUGINS_ROOT itself — directory mtime only bumps when entries at
+# the immediate level change, so a plugin update inside a subdirectory would leave a root-only
+# check stale indefinitely. Pruned: `.in_use` (Claude Code's per-session pid files — churn, not
+# change), node_modules, .git. `head -n1` closes the pipe on the first hit, short-circuiting
+# find portably — `-quit` is a GNU-only primary that BSD/macOS find rejects (its swallowed error
+# empties the capture and the script then re-discovers on every single run). A missing plugins
+# root is stale too: the rebuild then records an empty catalog, as before.
+catalog_is_stale() {
+  [ -d "$PLUGINS_ROOT" ] || return 0
+  [ -n "$(find "$PLUGINS_ROOT" \( -name .in_use -o -name node_modules -o -name .git \) -prune \
+            -o -newer "$OUT_FILE" -print 2>/dev/null | head -n1)" ]
+}
+
+# schedule_refresh: take the lock, start ONE detached refresh, return at once. The child gets
+# </dev/null >/dev/null — a child holding the hook's stdout keeps Claude Code waiting on
+# the pipe, which is what stretched cancelled runs to 34-67s (a 10s timeout); its stderr goes
+# to $DI_REFRESH_ERR (under BRAIN_DIR) instead of /dev/null, so a crash this script's own
+# di_log calls never see (a raw bash abort, a killed subprocess's own diagnostic) still leaves
+# a trace. `trap '' HUP` survives the exec (what nohup does, without assuming nohup exists);
+# `disown` drops it from the job table.
+#
+# SEC-L3: the lock's owner is the pid written to $LOCK_DIR/pid (the detached child's own pid —
+# `$!` on a subshell that immediately `exec`s keeps the SAME pid, so no extra hop). Reclaim
+# decisions are ownership-based, not age-based: a refresh genuinely still running past
+# LOCK_STALE_MIN (a big install base, a loaded box) must NEVER have its lock stolen — a stolen
+# lock's ORIGINAL owner still `rmdir`s it in its own di_cleanup when it eventually finishes,
+# which would then delete the NEW owner's lock instead of the (already-gone) one it held. Age
+# is used only as a fallback when no pid is on record at all (a lock predating this fix, or the
+# tiny window between this process's own mkdir and its pid write racing a concurrent reclaim
+# check) — a lock that young is presumed to still be mid-setup, not abandoned.
+# Reclaim race on a genuinely dead owner: two hooks that both see a dead pid can each reclaim
+# and start a refresh; both write the catalog atomically (tmp + mv), so the worst case is one
+# redundant rebuild, never a torn file.
+# lock_older_than MIN: 0 when $LOCK_DIR was last modified more than MIN minutes ago. A find that
+# FAILS (the lock vanished under a concurrent release, a find without -mmin) used to look exactly
+# like a young lock — no output — and so, silently, like a held one forever: it is logged, and still
+# read as held (never reclaim on a probe that did not run). Only find's own output line — the path —
+# counts as "old": a warning on stderr cannot pass for it.
+lock_older_than() {
+  local out rc
+  out=$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$1" 2>&1); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # A lock that is GONE by now was released between the caller's check and this probe — its
+    # owner finished: a benign race, not a failure (it logged an error-severity row for a healthy
+    # session). Trace at exit 0 (a gate= row goes to audit-log.jsonl, not the error log); still
+    # "not old" — never reclaim on a probe that did not run; the next session creates the lock.
+    if [ ! -e "$LOCK_DIR" ]; then
+      di_log "gate=installed-catalog-lock-vanished (find -mmin +$1 exited $rc: the lock was released between the check and the probe)" 0
+      return 1
+    fi
+    out="${out//$'\n'/ }"; out="${out//$'\r'/}"
+    di_log "could not age the refresh lock $LOCK_DIR (find -mmin +$1 exited $rc: ${out:0:200}) — treating it as held this session" 1
+    return 1
+  fi
+  case "$out" in "$LOCK_DIR"|*"
+$LOCK_DIR") return 0 ;; esac
+  return 1
+}
+
+schedule_refresh() {
+  local reclaimed=0 owner="" reclaim_msg="" create_rc
+  lock_create; create_rc=$?
+  if [ "$create_rc" -ne 0 ]; then
+    if [ "$create_rc" -eq 1 ] && [ ! -e "$LOCK_DIR" ]; then
+      return 0   # lost the creation race to a hook whose refresh already finished and released: nothing to do
+    fi
+    if [ ! -d "$LOCK_DIR" ]; then
+      # creating the lock failed for a reason OTHER than "already exists as a directory" (permission
+      # denied, a plain file occupying the path, a missing/read-only BRAIN_DIR, ...). The old
+      # code fell straight into the staleness probe below, which found nothing at a
+      # nonexistent path and returned 0 with NO trace at all of a real, actionable failure.
+      di_log "could not create the refresh lock $LOCK_DIR (creation failed, rc=$create_rc, and no lock directory exists there) — catalog refresh skipped this session" 1
+      return 0
+    fi
+    owner=$(tr -d ' \t\r\n' < "$LOCK_DIR/pid" 2>/dev/null)
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+      # RR-CR2: a live pid normally owns the lock outright (SEC-L3) — but the OS recycles pids,
+      # so a lock this old with a "live" owner is more likely PID REUSE (the original refresh is
+      # long gone; its pid now names an unrelated process) than a refresh genuinely still running
+      # LOCK_MAX_AGE_MIN after it started. Past that much wider bound, reclaim it too — otherwise
+      # a reused pid wedges the catalog refresh forever, with no age fallback ever firing.
+      lock_older_than "$LOCK_MAX_AGE_MIN" || return 0
+      reclaim_msg="owner pid $owner is alive but the lock is older than ${LOCK_MAX_AGE_MIN} min — reclaiming as likely pid reuse"
+    elif [ -z "$owner" ]; then
+      lock_older_than "$LOCK_STALE_MIN" || return 0
+      reclaim_msg="no owner pid recorded, and the lock is older than ${LOCK_STALE_MIN} min"
+    else
+      # The pid we read may be the PLACEHOLDER lock_create leaves (the scheduling hook's own pid,
+      # replaced by the refresh child's pid a few ms later, after which that hook exits): reading it
+      # just before the swap and probing just after the exit made a live lock look dead (measured:
+      # 4 of 6 runs with six parallel hooks reclaimed a running refresh's lock). Re-read; a pid file
+      # that changed under us means the lock is live and someone else's.
+      [ "$(tr -d ' \t\r\n' < "$LOCK_DIR/pid" 2>/dev/null)" = "$owner" ] || return 0
+      reclaim_msg="owner pid $owner not alive"
+    fi
+    # Renamed away, not emptied in place (lock_drop): a dead owner's pid file is still inside, and
+    # emptying the live path would show other hooks an ownerless lock for a moment.
+    if ! lock_drop; then
+      [ -d "$LOCK_DIR" ] || return 0   # another hook reclaimed it first: its refresh runs
+      di_log "abandoned refresh lock $LOCK_DIR ($reclaim_msg) could not be removed — no catalog refresh until it is deleted by hand" 1
+      return 0
+    fi
+    di_log "reclaimed an abandoned refresh lock $LOCK_DIR ($reclaim_msg)" 1
+    lock_create || return 0   # another hook reclaimed it first: its refresh runs
+    reclaimed=1
+  fi
+  : > "$DI_REFRESH_ERR" 2>/dev/null
+  ( trap '' HUP; export SB_DI_RECLAIMED="$reclaimed" SB_DI_RECLAIM_WHY="$reclaim_msg"; exec bash "$SELF" --refresh "$PLUGINS_ROOT" ) \
+    </dev/null >/dev/null 2>"$DI_REFRESH_ERR" &
+  local child_pid=$!
+  # RR-SF3: an unchecked write here used to fail silently — a full/read-only BRAIN_DIR, or the
+  # lock dir vanishing under a concurrent release, leaves $LOCK_DIR/pid empty or missing. The next
+  # schedule_refresh then reads no owner at all and falls back to the SHORT LOCK_STALE_MIN age
+  # probe on a lock that is really still live, letting it steal (or wait to steal) an active
+  # refresh's lock. Loud, not fatal: the detached refresh itself already started.
+  #
+  # The lock already holds THIS process's pid (lock_create), space-padded to 10 bytes, and the
+  # child's pid goes over it IN PLACE at the same width: one same-length write to an open (not
+  # truncated) file, so a reader sees the old pid or the new one and never an empty file. A rename
+  # over it (pid.new -> pid) was tried first and measured NOT atomic on Git-Bash — mv -f leaves the
+  # file missing for a moment (39 empty reads in 34,000 against a 300-rename loop) — so a watcher,
+  # or a hook reading the owner, saw a pidless lock again. Readers strip spaces (tr -d ' …').
+  # If the lock no longer names us, the child already finished and released it (a small tree ends
+  # before this line runs) and another hook may even hold a new lock: there is nothing to record,
+  # and writing would overwrite that hook's pid. A failed write drops the pid (an ownerless lock
+  # falls back to the age probe) instead of leaving this short-lived process's pid there, which
+  # reads as a dead owner and would be reclaimed at once.
+  if [ "$(tr -d ' \t\r\n' < "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ]; then
+    { exec 3<> "$LOCK_DIR/pid" && printf '%-10s' "$child_pid" >&3; } 2>/dev/null \
+      || { rm -f "$LOCK_DIR/pid" 2>/dev/null
+           di_log "could not write the refresh lock's pid file $LOCK_DIR/pid (child $child_pid) — the next refresh may misjudge this one as ownerless" 1; }
+    exec 3>&-
+  fi
+  disown "$child_pid"
+}
+
+if [ "$MODE" = serve ] && [ -s "$OUT_FILE" ]; then
+  cat "$OUT_FILE"
+  schedule_refresh
+  exit 0
+fi
+
+if [ "$MODE" = refresh ]; then
+  # The reclaiming hook passes its own reason — a dead owner, no pid on record, or a live pid past
+  # LOCK_MAX_AGE_MIN (likely reuse): a fixed "older than 10 min … died" here contradicted the last.
+  [ "${SB_DI_RECLAIMED:-0}" = "1" ] && di_log "refresh started on a reclaimed lock (${SB_DI_RECLAIM_WHY:-no reason passed})" 1
+  # Valid and fresh: nothing to do. An unparseable cache (an empty or torn write from an older
+  # build) is rebuilt even when the tree is unchanged, or it would be served forever.
+  if [ -s "$OUT_FILE" ] && ! catalog_is_stale \
+     && jq -e 'type == "object" and has("plugins")' "$OUT_FILE" >/dev/null 2>&1; then
     exit 0
   fi
+  DI_T0=$(date +%s)
 fi
 
 TMP_PLUGINS=$(mktemp)
@@ -50,7 +335,6 @@ TMP_AGENTS_RAW=$(mktemp)
 TMP_SKILLS_RAW=$(mktemp)
 TMP_AGENTS=$(mktemp)
 TMP_SKILLS=$(mktemp)
-trap 'rm -f "$TMP_PLUGINS" "$TMP_AGENTS_RAW" "$TMP_SKILLS_RAW" "$TMP_AGENTS" "$TMP_SKILLS"' EXIT
 
 # Frontmatter reader, batched over MANY .md files in one awk process.
 # Emits one US(\037)-separated record per file: name \037 description \037 plugin.
@@ -174,13 +458,28 @@ convert_or_log() {
 convert_or_log "$TMP_AGENTS_RAW" "$TMP_AGENTS" agents
 convert_or_log "$TMP_SKILLS_RAW" "$TMP_SKILLS" skills
 
-# Slurp the JSONL streams into a single catalog object.
+# Slurp the JSONL streams into a single catalog object. A failed assembly must not replace the
+# cache: it used to write an EMPTY file, which then read as fresh and was served every session.
+DI_RC=0
+DI_WHAT="synchronous catalog build"; [ "$MODE" = refresh ] && DI_WHAT="background catalog refresh"
 CATALOG=$(jq -ns \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --slurpfile p "$TMP_PLUGINS" \
   --slurpfile a "$TMP_AGENTS" \
   --slurpfile s "$TMP_SKILLS" \
-  '{generated_at:$ts, plugins:$p, agents:$a, skills:$s}')
+  '{generated_at:$ts, plugins:$p, agents:$a, skills:$s}') || DI_RC=$?
+if [ "$DI_RC" -ne 0 ] || [ -z "$CATALOG" ]; then
+  di_log "$DI_WHAT failed: assembly jq rc=$DI_RC — kept the previous catalog" 1
+  exit 0   # SessionStart must not block; the row above is the signal
+fi
 
-echo "$CATALOG" > "$OUT_FILE"
-echo "$CATALOG"
+# Atomic replace (tmp + mv in the same dir): the hook may `cat` the cache at any moment.
+if ! { echo "$CATALOG" > "$OUT_FILE.tmp.$$" && mv -f "$OUT_FILE.tmp.$$" "$OUT_FILE"; }; then
+  di_log "$DI_WHAT failed: could not write $OUT_FILE — kept the previous catalog" 1
+  exit 0
+fi
+if [ "$MODE" = refresh ]; then
+  di_log "gate=installed-catalog-refresh bytes=${#CATALOG} secs=$(( $(date +%s) - DI_T0 )) reclaimed=${SB_DI_RECLAIMED:-0}" 0
+else
+  echo "$CATALOG"
+fi

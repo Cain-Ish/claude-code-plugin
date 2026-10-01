@@ -150,6 +150,30 @@
       "action": "ask",
       "reason": "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache.",
       "lock": true
+    },
+    {
+      "name": "warn-self-edit-injected",
+      "tool": "Write",
+      "match_path": "/\\.second-brain/\\.injected/",
+      "action": "ask",
+      "reason": "~/.second-brain/.injected/ holds the per-session caches the hooks inject into every session and subagent (role cards, slug memos). A direct write there is hook-authority injection — confirm intent.",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-injected-edit",
+      "tool": "Edit",
+      "match_path": "/\\.second-brain/\\.injected/",
+      "action": "ask",
+      "reason": "~/.second-brain/.injected/ holds the per-session caches the hooks inject into every session and subagent (role cards, slug memos). A direct write there is hook-authority injection — confirm intent.",
+      "lock": true
+    },
+    {
+      "name": "warn-self-edit-injected-multiedit",
+      "tool": "MultiEdit",
+      "match_path": "/\\.second-brain/\\.injected/",
+      "action": "ask",
+      "reason": "~/.second-brain/.injected/ holds the per-session caches the hooks inject into every session and subagent (role cards, slug memos). A direct write there is hook-authority injection — confirm intent.",
+      "lock": true
     }
   ]
 }

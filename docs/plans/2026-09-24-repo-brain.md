@@ -1,6 +1,8 @@
 # Repo Brain — the per-repo working agreement, delivered from the knowledge base
 
-**Status: APPROVED (2026-09-24).** Slice 0 in progress on `feat/2026-09-24-repo-brain`.
+**Status: APPROVED (2026-09-24); AMENDED 2026-09-28** by `docs/concepts/2026-09-27-repo-brain-concept.md`
+(concept v2). Slices 0-3 below shipped in 0.52.0-0.54.0; the remaining work is re-cut as S0-S4 (see "Amendment
+2026-09-28" at the end). Where this plan and the concept disagree, the concept wins.
 Decisions D1/D2 pinned to PROJECT.md the same day. Builds on
 `docs/plans/2026-08-20-rethink-delivery-layer.md` and supersedes its Phase 1.1.
 
@@ -208,3 +210,35 @@ off.
 - Each slice boundary: `devils-advocate` plus every applicable reviewer in parallel.
 - Live: 5-10 real sessions per slice, read `gate=value-loop|delegation|jit` rows from
   `~/.second-brain/audit-log.jsonl` against the numbers above.
+
+## Amendment 2026-09-28 — concept v2
+
+Source: `docs/concepts/2026-09-27-repo-brain-concept.md` (approved 2026-09-28 after a `devils-advocate` review,
+21 findings folded). What changed and why, in one place:
+
+- **Status of the slices above.** Slice 0 (ruler), Slice 1 (`protocol-guard.sh`, protocol card, role cards),
+  Slice 2 (repo card, `jit-index`) and Slice 3 (layered `rules.json`) shipped in 0.52.0-0.54.0. Slice 4
+  (`repo-scout`, buddy `routed|used|rule`) was not built and is superseded by S3 below.
+- **Why the order changed.** Measured on `main` d6067fd: hooks are cancelled under the user's multi-agent load (the
+  SessionStart render in 8 of 25 sessions; PreToolUse guards 20-58 times each), auto-mode and workflow subagent
+  reports never reach capture, the SubagentStart card misses its 5 s timeout under load, and the stop gate accepts
+  non-verification evidence. Push cannot be judged until it arrives and is counted.
+- **New order** (each slice carries a pre-registered number in the concept, §5):
+
+| Slice | Content | Gate to the next |
+|---|---|---|
+| S0 Integrity | B7 hook cancellation (ruler, fail-open probe, latency cuts); B1 capture (handback + workflow `StructuredOutput`, alarm); B2 SubagentStart reliability; B4 widen the existing degraded-search banner; B6 stop-gate evidence; value-loop counts subagents | Zero SessionStart render cancellations and < 1% guard cancellations over 10 sessions |
+| SB Buddy event layer | Hooks show Claude→brain asks, brain→Claude answers/pushes and persona-skill use; per-prompt buddy_react ask and context feed removed | 0 buddy tokens per prompt, 0 extra round trips |
+| S1 Experiment | With/without A/B, arms A/B/C/D, 12 incident-derived tasks, pre-registered verdicts; first P8 outcome suite | Push falsified or not; decides D2 option B |
+| S1b Honest verification | One graded verdict enum; evidence bound to exact content (worktree fingerprint) | FRESH evidence on every release run |
+| S2 Atlas + write paths | Doc map default-on (native memory in a separate pass), shell code map, pointer-only atlas head from `USER.md` bytes, `pin_to_project` plan/handoff through `merge-project-update.sh` | Atlas-pointed pulls before grep ≥ 20% of sessions |
+| S3a Working context (observational, after S0) | Session Working-Context record derived per session; drift/re-read rows; PostCompact survival score; `## Compact Instructions` scanner pattern | Rows in 10/10 sessions, hook p95 unchanged |
+| S3b Summarizer steering | Fixed `## Compact Instructions` block + SWC in the compact card; gated on a forced-compaction probe (H1), not on S1 | Goal survives ≥95% of summaries, ≥+20 points |
+| S3c Brief + mid-task recitation | Per-agent-type brief; PostToolBatch recitation only at fill thresholds or drift; gated on S1, B7 fix, H3 | Brief arrival ≥ 90%; violations down ≥50% (H3) |
+| S4 Freshness, then depth | Anchors designed fresh (P3a Phase 4 edges), verify before inject, retirement by anchor death (never disuse), capture filters; generated pages only after P6-quarantine | 0 stale anchors delivered over 10 sessions |
+
+- **D2** stays strict (option A). A pointer-only `MEMORY.md` block (option B) is decided with S1 data.
+- **Added to "Do not build":** a `!` skill render of volatile state; disuse-driven expiry; a human-confirm retirement
+  step; merging the removed claim-anchor stash; a second degraded-search banner; a TypeScript Plan writer with its
+  own header grammar; a second verdict vocabulary; a sibling-results agent bus; a JSONL ledger replacing
+  `PROJECT.md`.

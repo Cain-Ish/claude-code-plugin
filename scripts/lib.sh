@@ -136,6 +136,7 @@ sb_filter_scratch_paths() {
       */[Aa][Pp][Pp][Dd][Aa][Tt][Aa]/[Ll][Oo][Cc][Aa][Ll]/[Tt][Ee][Mm][Pp]/*) continue ;;
       /var/folders/*) continue ;;
     esac
+    sb_cap_arg p 4096   # jq.exe drops a >~32 KB argv whole; no real path is this long
     out=$(printf '%s' "$out" | jq -c --arg p "$p" '. + [$p]' 2>/dev/null) || out="$out"
   done < <(printf '%s' "$arr" | jq -r '.[]?' 2>/dev/null | tr -d '\r')
   printf '%s' "$out"
@@ -169,6 +170,7 @@ sb_extract_deterministic() {
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list
     list=$(printf '%s' "$files_json" | jq -r 'join(", ")' 2>/dev/null)
+    sb_cap_arg list 2000   # at most 5 paths; a >~32 KB argv is dropped whole by jq.exe on Windows
     decisions=$(jq -cn --arg t "[auto-captured] Session changed: ${list} (LLM extraction unavailable; full context in the archived transcript)" '[$t]')
   fi
   jq -cn --argjson d "$decisions" --argjson f "$files_json" \
@@ -199,6 +201,7 @@ sb_extract_archived_deterministic() {
   local decisions='[]'
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list; list=$(printf '%s' "$files_json" | jq -r 'join(", ")' 2>/dev/null)
+    sb_cap_arg list 2000   # at most 5 paths; a >~32 KB argv is dropped whole by jq.exe on Windows
     decisions=$(jq -cn --arg t "[auto-captured] Session changed: ${list} (LLM extraction unavailable; full context in the archived transcript)" '[$t]')
   fi
   jq -cn --argjson d "$decisions" --argjson f "$files_json" \
@@ -267,11 +270,25 @@ sb_rotate_log() {
     && mv "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
 }
 
+# sb_cap_arg VAR MAX: shorten the string in VAR to MAX chars plus a visible "…(+N chars)" marker
+# (the marker is on top of MAX). A native jq.exe cannot receive a command line over ~32 KB on
+# Windows: a longer --arg value is DROPPED and jq writes nothing at all, so an audit/error row
+# carrying a 40 KB command or message vanished without a trace (the row builders' `[ -n "$line" ]`
+# guard swallowed the empty result). Capping BEFORE the value becomes a jq argument keeps the row.
+# Builtins only (indirect expansion + printf -v, bash 3.2-safe) — no spawn per call.
+sb_cap_arg() {
+  local _v="${!1}" _max="$2"
+  [ "${#_v}" -gt "$_max" ] || return 0
+  printf -v "$1" '%s…(+%d chars)' "${_v:0:$_max}" "$(( ${#_v} - _max ))"
+}
+
 sb_log_error() {
   local script_name="${1:-unknown}"
   local error_msg="${2:-}"
   local exit_code="${3:-1}"
   local ts target="$BRAIN_DIR/error-log.jsonl"
+  sb_cap_arg script_name 256
+  sb_cap_arg error_msg 4096
   # R6b (HOOK-9): gate=* breadcrumbs logged with exit_code 0 are TRACE, not
   # errors — they were 41% of error-log lines and polluted every "tail the
   # error log" diagnosis plus verify.sh's freshness check. Route them to the
@@ -307,7 +324,15 @@ sb_log_error() {
       --arg m "$error_msg" \
       --argjson c "$exit_code" \
       '{timestamp:$t, script:$s, message:$m, exit_code:$c}' 2>/dev/null | tr -d '\r')
-    [ -n "$line" ] && printf '%s\n' "$line" >> "$target" 2>/dev/null
+    # An empty row is never dropped silently: a jq that failed (or lost an argument) leaves a
+    # hand-built row that says so. Built without jq — the thing that just failed — from fixed
+    # text plus the already-capped script name with control chars, backslashes and quotes removed.
+    if [ -z "$line" ]; then
+      local _sn="${script_name//[[:cntrl:]\\\"]/}"
+      line=$(printf '{"timestamp":"%s","script":"lib.sh","message":"sb_log_error: the jq row for script %s came out empty (message %s chars) — error row lost, see the producer","exit_code":1}' \
+        "$ts" "$_sn" "${#error_msg}")
+    fi
+    printf '%s\n' "$line" >> "$target" 2>/dev/null
   else
     local esc_script esc_msg
     esc_script=$(printf '%s' "$script_name" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -327,10 +352,30 @@ sb_log_error() {
 # multi-Stop session's later injections are still counted; see stop-extract.sh).
 # ids are slugs/repo-paths (safe charsets; no JSON escaping needed). Never fails the
 # caller: an unwritable manifest, or SB_TELEMETRY=off, just loses telemetry.
+#
+# _sb_manifest_rows: sb_manifest_add's row writer, one {"kind","id"} row per stdin line.
+# It reads the CALLER's $kind and bumps its $_sma_rejected through bash's dynamic scope
+# (it only ever runs inside sb_manifest_add), so the size-gated feed there can hand it
+# the id list either way without a second copy of the loop.
+_sb_manifest_rows() {
+  local line
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    # A raw id containing a quote/backslash/control char would break this row's own
+    # JSON structure — an id like `x","kind":"anchor` re-terminates the string and
+    # adds a SECOND "kind" key, which jq resolves last-key-wins, letting an
+    # ordinary telemetry id forge stop-extract's ritual-anchor fold. Reject it
+    # wholesale rather than escape it (no caller needs anything but a plain slug/id).
+    case "$line" in
+      *[\"\\]*|*[[:cntrl:]]*) _sma_rejected=$((_sma_rejected + 1)); continue ;;
+    esac
+    printf '{"kind":"%s","id":"%s"}\n' "$kind" "$line"
+  done
+}
 sb_manifest_add() {
   [ "${SB_TELEMETRY:-on}" = "off" ] && return 0
   [ -n "${SB_MANIFEST_SESSION_ID:-}" ] || return 0
-  local kind="$1" ids="$2" line
+  local kind="$1" ids="$2"
   # Fail-soft to the CALLER (never blocks injection on a telemetry write failing),
   # but a genuine write failure (squatted path, read-only BRAIN_DIR, disk full) is
   # logged loudly — silently swallowing it made an unwritable manifest
@@ -340,19 +385,15 @@ sb_manifest_add() {
   # negation consistently (reproduced: `if ! { cmd; } >> baddir; then` takes the
   # else branch even though the redirection failed), so negating the group
   # directly would silently re-introduce exactly the swallowed failure this fixes.
+  # Size-gated feed: a here-string (no fork) only for a short id list. An MSYS
+  # here-string of 65,537..~65,650 bytes blocks for good, and this runs inside
+  # SessionStart, UserPromptSubmit and PreToolUse hooks; a longer list goes through a pipe.
   local _sma_rejected=0
-  { while IFS= read -r line; do
-      [ -z "$line" ] && continue
-      # A raw id containing a quote/backslash/control char would break this row's own
-      # JSON structure — an id like `x","kind":"anchor` re-terminates the string and
-      # adds a SECOND "kind" key, which jq resolves last-key-wins, letting an
-      # ordinary telemetry id forge stop-extract's ritual-anchor fold. Reject it
-      # wholesale rather than escape it (no caller needs anything but a plain slug/id).
-      case "$line" in
-        *[\"\\]*|*[[:cntrl:]]*) _sma_rejected=$((_sma_rejected + 1)); continue ;;
-      esac
-      printf '{"kind":"%s","id":"%s"}\n' "$kind" "$line"
-    done <<< "$ids"; } 2>/dev/null >> "$BRAIN_DIR/.injected-manifest-$SB_MANIFEST_SESSION_ID.jsonl"
+  { if [ "${#ids}" -le 8192 ]; then
+      _sb_manifest_rows <<< "$ids"   # <<<-bounded: only when ${#ids} <= 8,192 (gate on the line above)
+    else
+      _sb_manifest_rows < <(printf '%s\n' "$ids")
+    fi; } 2>/dev/null >> "$BRAIN_DIR/.injected-manifest-$SB_MANIFEST_SESSION_ID.jsonl"
   local _sma_rc=$?
   [ "$_sma_rc" -ne 0 ] && sb_log_error "lib.sh" "sb_manifest_add: manifest append failed kind=$kind sid=$SB_MANIFEST_SESSION_ID" 1
   [ "$_sma_rejected" -gt 0 ] && sb_log_error "lib.sh" "sb_manifest_add: rejected id(s) ($_sma_rejected) with a quote/backslash/control char kind=$kind sid=$SB_MANIFEST_SESSION_ID" 1
@@ -619,6 +660,10 @@ sb_log_audit() {
   local ts
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   mkdir -p "$BRAIN_DIR" 2>/dev/null || return 0
+  # Cap the free-text args before they reach jq (see sb_cap_arg): a 40 KB target/reason is
+  # dropped whole by a native jq.exe on Windows. Callers already trim targets to ~200 chars.
+  sb_cap_arg target 256
+  sb_cap_arg reason 4096
 
   if command -v jq >/dev/null 2>&1; then
     if ! echo "$extra_json" | jq -e 'type == "object"' >/dev/null 2>&1; then
@@ -638,7 +683,12 @@ sb_log_audit() {
       --arg r "$rule" --arg target "$target" --arg reason "$reason" \
       --arg sid "$session_id" --argjson x "$extra_json" \
       '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:$x}' 2>/dev/null | tr -d '\r')
-    [ -n "$line" ] && printf '%s\n' "$line" >> "$SB_AUDIT_FILE" 2>/dev/null
+    if [ -n "$line" ]; then
+      printf '%s\n' "$line" >> "$SB_AUDIT_FILE" 2>/dev/null
+    else
+      # The row came out empty (jq failed or lost an argument): say so, never drop it silently.
+      sb_log_error "lib.sh" "sb_log_audit: the audit row came out empty (hook=${hook:0:64} verdict=${verdict:0:16} rule=${rule:0:64}; target ${#target} chars, reason ${#reason} chars, extra ${#extra_json} chars) — audit row lost" 1
+    fi
   else
     # jq absent — fall back to printf-built JSON, stripping C0 control chars
     # so multi-line reasons cannot fragment a JSONL record into two.
@@ -657,6 +707,22 @@ sb_log_audit() {
 # Rotate audit-log when it exceeds line or byte caps. Drops the oldest 50%
 # of lines (not the newest) so recent decisions remain queryable. Idempotent:
 # safe to call from any hook; no-op when caps not exceeded.
+#
+# S0 (B7 ruler) retention: the delivery/safety ruler rows — `gate=value-loop`,
+# `gate=hook-cancelled`, `gate=subagent-start-miss` and `gate=role-card` — are the ONLY
+# measured evidence of the delivery loop and the guard-cancellation defect; plain
+# halving let them age out with everything else, leaving no trend (docs/concepts/
+# 2026-09-27-repo-brain-concept.md §2 "the ruler cannot see delivery": ~17h of history
+# was all the cap left). One rotation keeps `keep` rows (half the file, never above
+# SB_AUDIT_MAX_LINES) chosen newest-first in three passes:
+#   1. young (<30 days) ruler rows, capped at HALF of `keep`;
+#   2. plain rows (guard verdicts, every other trace, stale ruler rows) fill the rest —
+#      their guaranteed floor, so a ruler-heavy log can never evict every guard verdict
+#      and pin the file at its cap (which made every later write rotate again);
+#   3. budget still left once plain rows run out goes to the older young ruler rows.
+# Each rotation writes ONE `gate=audit-rotation kept_prot= kept_plain= dropped=` row
+# (the log says when and what it dropped); a failed rotation is logged loudly. Single
+# awk pass: the file is read once (buffered, decided in END{}).
 sb_rotate_audit_log() {
   [ -f "$SB_AUDIT_FILE" ] || return 0
   local lines bytes
@@ -667,10 +733,49 @@ sb_rotate_audit_log() {
   if [ "$lines" -gt "$SB_AUDIT_MAX_LINES" ] || [ "$bytes" -gt "$SB_AUDIT_MAX_BYTES" ]; then
     local keep=$(( lines / 2 ))
     [ "$keep" -lt 1 ] && keep=1
-    local tmp="$SB_AUDIT_FILE.tmp.$$"
-    tail -n "$keep" "$SB_AUDIT_FILE" > "$tmp" 2>/dev/null \
-      && mv "$tmp" "$SB_AUDIT_FILE" \
-      || rm -f "$tmp" 2>/dev/null
+    [ "$keep" -gt "$SB_AUDIT_MAX_LINES" ] && keep=$SB_AUDIT_MAX_LINES
+    # GNU/BSD date fallback (same pattern used elsewhere for last_used-style cutoffs).
+    local cutoff
+    cutoff=$(date -u -v-30d +%Y-%m-%d 2>/dev/null || date -u -d '30 days ago' +%Y-%m-%d 2>/dev/null || echo '1970-01-01')
+    local tmp="$SB_AUDIT_FILE.tmp.$$" stats="$SB_AUDIT_FILE.rot.$$"
+    if awk -v keep="$keep" -v cutoff="$cutoff" '
+      {
+        n++
+        text[n] = $0
+        isprot = 0
+        if (index($0, "\"message\":\"gate=value-loop ") || index($0, "\"message\":\"gate=hook-cancelled ") \
+            || index($0, "\"message\":\"gate=subagent-start-miss ") || index($0, "\"message\":\"gate=role-card ")) {
+          if (match($0, /"timestamp":"[^"]*"/)) {
+            tsval = substr($0, RSTART + 13, RLENGTH - 14)
+            if (substr(tsval, 1, 10) >= cutoff) isprot = 1
+          }
+        }
+        prot[n] = isprot
+      }
+      END {
+        protcap = int(keep / 2)
+        kp = 0; kpl = 0
+        for (i = n; i >= 1 && kp < protcap; i--) if (prot[i]) { kl[i] = 1; kp++ }
+        for (i = n; i >= 1 && kp + kpl < keep; i--) if (!prot[i]) { kl[i] = 1; kpl++ }
+        for (i = n; i >= 1 && kp + kpl < keep; i--) if (!kl[i]) { kl[i] = 1; kp++ }
+        for (i = 1; i <= n; i++) if (kl[i]) print text[i]
+        printf "%d %d %d\n", kp, kpl, n - kp - kpl > "/dev/stderr"
+      }
+    ' "$SB_AUDIT_FILE" > "$tmp" 2> "$stats" && mv "$tmp" "$SB_AUDIT_FILE"; then
+      local kp="" kpl="" dropped="" ts
+      read -r kp kpl dropped < "$stats"
+      rm -f "$stats"
+      case "$kp" in ''|*[!0-9]*) kp="?" ;; esac
+      case "$kpl" in ''|*[!0-9]*) kpl="?" ;; esac
+      case "$dropped" in ''|*[!0-9]*) dropped="?" ;; esac
+      ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      printf '{"timestamp":"%s","script":"lib.sh","message":"gate=audit-rotation kept_prot=%s kept_plain=%s dropped=%s","exit_code":0}\n' \
+        "$ts" "$kp" "$kpl" "$dropped" >> "$SB_AUDIT_FILE" 2>/dev/null
+    else
+      rm -f "$tmp" "$stats" 2>/dev/null
+      # error-log channel (sb_rotate_log), never this function again: no recursion.
+      sb_log_error "lib.sh" "audit-log rotation failed (awk/mv) — $SB_AUDIT_FILE left untrimmed at $lines lines" 1
+    fi
   fi
 }
 
@@ -1474,7 +1579,10 @@ sb_archive_transcript() {
 sb_archive_subagent_result() {
   local agent_id="$1" agent_type="$2" slug="$3" session_id="$4" tool_count="$5" result="$6"
   local archive_dir="$BRAIN_DIR/transcripts"
-  mkdir -p "$archive_dir" 2>/dev/null || return 1
+  if ! mkdir -p "$archive_dir" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: cannot create $archive_dir — subagent result NOT archived (agent_id=$agent_id)" 1
+    return 1
+  fi
   local date_str safe_aid
   date_str=$(date +%Y-%m-%d)
   # sanitize agent_id for use as a filename component (defense in depth — it comes
@@ -1483,7 +1591,22 @@ sb_archive_subagent_result() {
   [ -n "$safe_aid" ] || safe_aid="unknown"
   local archive_file="$archive_dir/sub-${safe_aid}_${slug}_${date_str}.txt"
 
-  {
+  # Every header value below is payload-derived (agent_type, session_id) or path-derived (slug)
+  # and is written at COLUMN 0: a newline in one put its tail on a fresh line of the file, and
+  # episodic-search's parseExchanges opens a new exchange at ANY line starting `USER:` (the same
+  # forgery the quoted body closes, SEC-L5). Drop every control char (CR/LF/ESC/DEL…) so a header
+  # value can never start a line. Builtin expansion, no tr spawn (MSYS costs ~30-60 ms each).
+  agent_type="${agent_type//[[:cntrl:]]/}"
+  session_id="${session_id//[[:cntrl:]]/}"
+  slug="${slug//[[:cntrl:]]/}"
+  tool_count="${tool_count//[[:cntrl:]]/}"
+
+  # The write is CHECKED, twice: the redirect's own status (unwritable dir, a directory
+  # squatting on the name) and the written size, which must hold at least the result
+  # text itself (${#result} counts characters, never more than its bytes) — a short
+  # or empty file is a silently lost result, the SF-M3 class. Fail loud, never `|| true`.
+  local written
+  if ! {
     echo "--- session-meta ---"
     echo "session_id: $session_id"
     echo "project_slug: $slug"
@@ -1495,7 +1618,16 @@ sb_archive_subagent_result() {
     echo "---"
     echo ""
     printf 'ASSISTANT:\n%s\n' "$result"
-  } > "$archive_file"
+  } > "$archive_file" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: write failed for $archive_file — subagent result NOT archived (agent_id=$safe_aid)" 1
+    return 1
+  fi
+  written=$(wc -c < "$archive_file" 2>/dev/null | tr -d ' ')
+  case "$written" in ''|*[!0-9]*) written=0 ;; esac
+  if [ "$written" -lt "${#result}" ]; then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: short write ${written}B < ${#result}-char result in $archive_file (agent_id=$safe_aid)" 1
+    return 1
+  fi
 
   # Prune subagent archives under their OWN budget FIRST, so a busy multi-agent
   # session (hundreds of subagents) can never crowd main-session archives out of
@@ -1519,6 +1651,7 @@ sb_archive_subagent_result() {
   fi
 
   sb_prune_transcripts
+  return 0
 }
 
 # --- Observation ledger mining (P0 rec 5, capture widening) -----------------
@@ -1570,6 +1703,10 @@ sb_append_session_digest() {
   # next Stop (adversarial review: accepted, documented).
   local tmp="$f.tmp.$$"
   : > "$tmp" 2>/dev/null || return 0
+  # The jq program keeps only the first 200 chars of each (CR/LF -> space, length-preserving), so
+  # capping at 1000 first changes nothing in the row and keeps a huge value off jq's command line
+  # (jq.exe on Windows drops a >~32 KB argv whole and the row would come out empty).
+  goal="${goal:0:1000}"; outcome="${outcome:0:1000}"
   # One jq pass over (existing records + the new one, appended LAST): drop
   # older records with the new record's session_id, then apply the per-slug
   # cap keeping the newest. tr -d '\r' both sides — jq stdout is CRLF on
@@ -1701,14 +1838,24 @@ sb_prune_transcripts() {
   }
 
   # Partition oldest-first, preserving order within each class.
+  # Both $files loops read through a pipe, not a `<<EOF` heredoc: an expanded heredoc hangs
+  # Git-Bash in the SAME 65,537..~65,650-byte window as a `<<<` here-string (measured on this
+  # branch, bash 5.2.26 MSYS), and $files is every archive path, one per line — ~600-700
+  # files at 90-110 B a line reach it (705 in test-transcript-archive's case). The hard cap is
+  # 300 by default, but SB_TRANSCRIPT_HARD_CAP raises it and a long BRAIN_DIR lengthens every
+  # line. This runs inside the Stop and SubagentStop hooks.
   local _extracted="" _unmined="" _f
   while IFS= read -r _f; do
     [ -n "$_f" ] || continue
     if _sb_is_extracted "$_f"; then _extracted="${_extracted}${_f}"$'\n'
     else                           _unmined="${_unmined}${_f}"$'\n'; fi
-  done <<EOF
-$files
-EOF
+  done < <(printf '%s\n' "$files")
+  # A process substitution that could not start (fork EAGAIN on a loaded Windows box) feeds the
+  # loop NOTHING: both queues stay empty and every eviction pass below is a silent no-op while
+  # the archive sits over its cap. One row, so "nothing was pruned" is never invisible.
+  if [ "$count" -gt "$cap" ] && [ -z "${_extracted//[$'\n']/}${_unmined//[$'\n']/}" ]; then
+    sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives are over the ${cap} cap but the listing pass yielded no rows — nothing was pruned this run" 1
+  fi
 
   # 1. Over the cap → drop already-extracted files, oldest first.
   while [ "$count" -gt "$cap" ] && [ -n "${_extracted//[$'\n']/}" ]; do
@@ -1743,9 +1890,7 @@ EOF
   # space stays one argument; files evicted by the count pass above are skipped via -f.
   local total_bytes=0
   set --
-  while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && set -- "$@" "$f"; done <<EOF
-$files
-EOF
+  while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && set -- "$@" "$f"; done < <(printf '%s\n' "$files")
   if [ "$#" -gt 0 ]; then
     total_bytes=$(wc -c "$@" 2>/dev/null | awk 'END{print $1+0}')
     case "$total_bytes" in ''|*[!0-9]*) total_bytes=0 ;; esac
@@ -1869,8 +2014,13 @@ sb_append_pin_candidate() {
   # D120 class: build the row first, append with ONE printf (a jq child writing straight
   # to the file tears/loses rows under concurrent hooks on Windows).
   local row
+  sb_cap_arg text 4096   # a >~32 KB argv is dropped whole by jq.exe on Windows (empty row, silently lost)
   row=$(jq -nc --arg t "$(date -u +%FT%TZ)" --arg p "$text" '{at:$t, text:$p}' | tr -d '\r') || return 1
-  [ -n "$row" ] && printf '%s\n' "$row" >> "$f"
+  if [ -z "$row" ]; then
+    sb_log_error "lib.sh" "sb_append_pin_candidate: the jq row came out empty (text ${#text} chars) — pin candidate for $slug lost" 1
+    return 1
+  fi
+  printf '%s\n' "$row" >> "$f"
 }
 
 sb_count_pin_candidates() {
@@ -2040,9 +2190,13 @@ sb_extractor_local_call() {
   if [ "$maxb" -gt 0 ] && [ "$(wc -c < "$input_file" 2>/dev/null || echo 0)" -gt "$maxb" ]; then
     capped=$(mktemp) && tail -c "$maxb" "$input_file" > "$capped" && src="$capped"
   fi
-  local payload
-  payload=$(jq -n --arg m "$model" --arg s "$prompt" --rawfile u "$src" \
-    '{model:$m, stream:false, messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null) || { [ -n "$capped" ] && rm -f "$capped"; return 1; }
+  local payload _sysf
+  # The system prompt goes in by --rawfile, not --arg: it is caller-supplied text of no fixed size,
+  # and a >~32 KB argument is dropped whole by a native jq.exe on Windows (no payload, silently).
+  _sysf=$(mktemp) && printf '%s' "$prompt" > "$_sysf" || { rm -f "$_sysf"; [ -n "$capped" ] && rm -f "$capped"; return 1; }
+  payload=$(jq -n --arg m "$model" --rawfile s "$_sysf" --rawfile u "$src" \
+    '{model:$m, stream:false, messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null) || { rm -f "$_sysf"; [ -n "$capped" ] && rm -f "$capped"; return 1; }
+  rm -f "$_sysf"
   [ -n "$capped" ] && rm -f "$capped"
   [ -n "$payload" ] || return 1
   local TBIN resp _payload_tmp
@@ -2367,12 +2521,19 @@ sb_call_extractor() {
     # the CLI accepts that, the Messages API does not. Demote to a real id.
     local api_model
     api_model=$(sb_alias_to_pinned_id headless "$model")
-    local payload
-    payload=$(jq -n \
-      --arg m "$api_model" \
-      --arg s "$prompt" \
-      --rawfile u "$input_file" \
-      '{model:$m, max_tokens:8192, system:$s, messages:[{role:"user", content:$u}]}' 2>/dev/null)
+    local payload _b2_sysf
+    # System prompt by --rawfile, not --arg (a >~32 KB argument is dropped whole by jq.exe on Windows).
+    _b2_sysf=$(mktemp) && printf '%s' "$prompt" > "$_b2_sysf" || { rm -f "$_b2_sysf"; _b2_sysf=""; }
+    if [ -n "$_b2_sysf" ]; then
+      payload=$(jq -n \
+        --arg m "$api_model" \
+        --rawfile s "$_b2_sysf" \
+        --rawfile u "$input_file" \
+        '{model:$m, max_tokens:8192, system:$s, messages:[{role:"user", content:$u}]}' 2>/dev/null)
+      rm -f "$_b2_sysf"
+    else
+      payload=""
+    fi
 
     if [ -n "$payload" ]; then
       local resp _b2_tmp
@@ -2683,8 +2844,8 @@ sb_extract_transcript() {
   local project_md="$BRAIN_DIR/projects/$slug/PROJECT.md"
   if [ ! -f "$project_md" ]; then
     mkdir -p "$(dirname "$project_md")"
-    cat > "$project_md" <<TMPL
-# PROJECT: $slug
+    cat > "$project_md" <<TMPL   # <<<-bounded: fixed ~650 B template; the only expansions are the slug (capped to 255 chars in the template) and a 20 B timestamp, so the heredoc is < 1 KiB against the MSYS ~65,537..65,651 B hang window
+# PROJECT: ${slug:0:255}
 
 ## Goal
 (auto-scaffolded — describe this project's goal)
@@ -3509,6 +3670,8 @@ sb_rules_hard_lines() {
     [ -s "$f" ] || f="$(sb_plugin_root)/scripts/persona-rules.default.json"
   fi
   [ -s "$f" ] || return 0
-  jq -r --argjson n "$max" '[.rules[]? | select((.enabled // true) and (.action=="ask" or .action=="deny"))
+  # `.enabled != false`, never `(.enabled // true)`: `//` treats false as absent, so an
+  # explicitly disabled rule would be listed as enforced (the jq `// true` trap).
+  jq -r --argjson n "$max" '[.rules[]? | select(.enabled != false and (.action=="ask" or .action=="deny"))
       | "- " + (.name // "rule") + ": " + (((.reason // "") | gsub("[\r\n`]"; " "))[0:120])] | .[0:$n] | .[]' "$f" 2>/dev/null | tr -d '\r'
 }

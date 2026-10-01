@@ -24,6 +24,21 @@ supports_symlinks() {
   local ok=1; [ -L "$d/l.txt" ] && ok=0
   rm -rf "$d"; return $ok
 }
+# dir_link TARGET LINK: a DIRECTORY link — `ln -s` where it makes a real one, else an NTFS junction
+# through node (DA #8, chronicle §3: Git-Bash without Developer Mode deep-COPIES on `ln -s`, so every
+# symlinked-directory case skipped on the dev box and the Windows lane). Junctions link directories
+# only: the leaf-FILE symlink cases still need real symlinks and still skip there. 0 = link made.
+dir_link() {
+  if supports_symlinks; then ln -sf "$1" "$2"; return; fi
+  command -v node >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1 || return 1
+  node -e 'require("fs").symlinkSync(process.argv[1], process.argv[2], "junction")' "$(cygpath -w "$1")" "$(cygpath -w "$2")" \
+    && [ -L "$2" ] && [ -d "$2" ]
+}
+# dir_unlink LINK: remove the link itself, never what it points at (`rm -rf` of a junction can walk
+# into the target): rmdir through node for a junction, rm -f for a symlink.
+dir_unlink() {
+  if [ -L "$1" ] && ! supports_symlinks; then node -e 'require("fs").rmdirSync(process.argv[1])' "$(cygpath -w "$1")"; else rm -f "$1"; fi
+}
 
 # Helper: build a tool_input JSON and pipe to symlink-guard.sh; print stdout.
 # Uses printf (not jq --arg) to avoid Windows/Git-Bash jq translating POSIX paths
@@ -111,11 +126,10 @@ fi
 
 # --- Test 9: symlinked parent dir → deny (resolves through parent symlink)
 # project/foo is a symlink to ~/.ssh; project/foo/key is what Claude tries.
-if supports_symlinks; then
-  ln -sf "$HOME/.ssh" "$HOME/work/repo/foo"
+if dir_link "$HOME/.ssh" "$HOME/work/repo/foo"; then
   OUT=$(run_guard "Write" "$HOME/work/repo/foo/new_key")
   assert_deny "write through symlinked parent dir into ~/.ssh" "$OUT" "ssh"
-  rm -f "$HOME/work/repo/foo"
+  dir_unlink "$HOME/work/repo/foo"
 else
   echo "SKIP: test 9 — symlinked-parent escape requires real symlink support (Windows without Developer Mode)"
   pass "write through symlinked parent dir (skipped — no symlink support)"
@@ -197,11 +211,10 @@ fi
 # --- Test 18: realpath absent + symlinked PARENT → portable cd/pwd -P resolver still denies ----
 # This is the macOS/BSD path (realpath lacks -m): the guard must resolve the parent dir's
 # symlinks via `cd … && pwd -P` and still catch a symlinked-parent escape into ~/.ssh.
-if supports_symlinks; then
-  ln -sf "$HOME/.ssh" "$HOME/work/repo/foo2"
+if dir_link "$HOME/.ssh" "$HOME/work/repo/foo2"; then
   OUT=$(gen Write "$HOME/work/repo/foo2/new_key" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
   assert_deny "realpath absent + symlinked parent → cd/pwd -P fallback denies (macOS path)" "$OUT" "ssh"
-  rm -f "$HOME/work/repo/foo2"
+  dir_unlink "$HOME/work/repo/foo2"
 else
   echo "SKIP: test 18 — symlinked-parent escape requires real symlink support (Windows without Developer Mode)"
   pass "realpath absent + symlinked parent (skipped — no symlink support)"
@@ -234,8 +247,8 @@ cat > "$WINBIN/cygpath" <<'EOF'
 #!/bin/sh
 p="$2"; W="$SB_TEST_WINHOME"
 case "$p" in
-  C:/winhome/*) printf '%s/%s\n' "$W" "${p#C:/winhome/}" ;;
-  C:/winhome)   printf '%s\n' "$W" ;;
+  [Cc]:/winhome/*) printf '%s/%s\n' "$W" "${p#?:/winhome/}" ;;
+  [Cc]:/winhome)   printf '%s\n' "$W" ;;
   *) printf '%s\n' "$p" ;;
 esac
 EOF
@@ -302,6 +315,27 @@ assert_deny "lib.sh unsourceable + \\\\?\\ form → deny (fallback strips long-p
 OUT=$(win_guard "Write" '\\.\C:\winhome\.ssh\authorized_keys')
 assert_deny "device-namespace \\\\.\\ credential path → deny (D182)" "$OUT" "ssh"
 
+# --- Test 24b (SEC-H2): Windows alias spellings of a local credential dir ---------------------
+# Neither cygpath nor realpath resolves these, so before the fix every one was ALLOWED: an
+# administrative share (X$) through any host spelling is mapped to its drive and checked; NTFS
+# stream syntax is denied outright; any other UNC target asks (where a share leads is unknown).
+for sp in '\\LOCALHOST\C$\winhome\.ssh\authorized_keys' '\\LocalHost\c$\winhome\.ssh\authorized_keys' \
+          '\\myhost\C$\winhome\.ssh\authorized_keys' '\\?\UNC\localhost\C$\winhome\.ssh\authorized_keys' \
+          '\\0--1.ipv6-literal.net\C$\winhome\.ssh\authorized_keys'; do
+  OUT=$(win_guard "Write" "$sp")
+  assert_deny "SEC-H2 admin-share alias $sp" "$OUT" "ssh"
+done
+for sp in 'C:\winhome\.ssh::$INDEX_ALLOCATION\authorized_keys' 'C:\winhome\.ssh:$I30:$INDEX_ALLOCATION\authorized_keys'; do
+  OUT=$(win_guard "Edit" "$sp")
+  assert_deny "SEC-H2 NTFS stream alias $sp" "$OUT" "stream"
+done
+OUT=$(win_guard "Write" '\\nas\share\docs\x.md')
+[ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' | tr -d '\r')" = ask ] \
+  && printf '%s' "$OUT" | grep -q 'UNC' || fail "SEC-H2: a plain UNC share target must ask (got: $OUT)"
+pass "SEC-H2: a non-admin UNC share asks"
+OUT=$(win_guard "Write" '\\myhost\C$\winhome\work\repo\main.py')
+assert_allow "SEC-H2: an admin-share path outside the credential dirs is not over-blocked" "$OUT"
+
 # --- Test 25 (D182): NTFS 8.3 short-name path components → fail CLOSED (deny) ---
 # "SSH~1" / "TMP~1.MKZ" pass through cygpath/realpath UNEXPANDED (neither tool
 # expands 8.3 aliases back to their long form), so a credential dir reached via
@@ -341,11 +375,10 @@ assert_deny "D183 vector C: direct ~/.ssh path (no realpath) → deny" "$OUT" "s
 # all) — the fallback must dereference the symlinked ancestor via `pwd -P`
 # even though the leaf's immediate parent doesn't exist yet. This defeats
 # G-HOOK-2's stated purpose if missed.
-if supports_symlinks; then
-  ln -sf "$HOME/.ssh" "$HOME/work/repo/link-to-ssh"
+if dir_link "$HOME/.ssh" "$HOME/work/repo/link-to-ssh"; then
   OUT=$(gen Write "$HOME/work/repo/link-to-ssh/sub/id_rsa" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
   assert_deny "D183 vector E: symlinked ancestor + not-yet-created child → deny" "$OUT" "ssh"
-  rm -f "$HOME/work/repo/link-to-ssh"
+  dir_unlink "$HOME/work/repo/link-to-ssh"
 else
   echo "SKIP: test 26 vector E — requires real symlink support (Windows without Developer Mode)"
   pass "D183 vector E (skipped — no symlink support)"
@@ -396,6 +429,337 @@ else
   echo "SKIP: test 27 real-alias case — cygpath not on PATH"
   pass "8.3 real-alias case (skipped — no cygpath)"
 fi
+
+# --- B7: fail SAFE under load — credential targets decided before any dependency -------------
+# A PreToolUse hook that answers after its timeout is CANCELLED and the Write RUNS (CLI 2.1.283
+# probe, 2026-09-28; this guard was cancelled 50 times in 4 heavy sessions at ~1.5 s per call).
+# Fixture: a plugin root whose lib.sh sleeps, plus PATH shims that sleep for every external the
+# full logic spawns (jq, realpath, cygpath, tr, grep, …). A credential target must still be
+# denied within B7_BOUND seconds. No GNU `timeout` (absent on macOS): whole-second SECONDS.
+# Generous bounds (a passing run never sleeps; a stalled one sleeps B7_SLEEP): load cannot flake it.
+# Item 17: on bash < 4.3 (the macOS lane's /bin/bash 3.2) the guards' builtin payload reader steps
+# aside and jq decides every call, as on main — a stalled jq can then hold the verdict, so these
+# stalled-dependency cases cannot hold there by design and are skipped (loudly) on such a bash.
+FP_OFF=0
+bash -c '[ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }' && FP_OFF=1
+B7_SLEEP=20; B7_BOUND=10
+B7="$TMP/b7"; mkdir -p "$B7/root/scripts" "$B7/shims" "$B7/brain"
+# Precondition: the audit dir exists BEFORE the shims go on PATH — _fp_audit would otherwise run the
+# shimmed (sleeping) mkdir and the bound would measure the fixture, not the guard.
+[ -d "$B7/brain" ] || fail "B7 precondition: $B7/brain must exist before the shims are installed"
+printf 'sleep %s\n' "$B7_SLEEP" > "$B7/root/scripts/lib.sh"
+for t in jq cat tr grep sed awk head tail cut wc realpath greadlink readlink cygpath dirname basename mkdir mv uname git; do
+  printf '#!/bin/sh\nsleep %s\nexit 127\n' "$B7_SLEEP" > "$B7/shims/$t"; chmod +x "$B7/shims/$t"
+done
+b7_deny() {  # b7_deny <label> <tool> <file_path> <needle> [HOME override]
+  if [ "$FP_OFF" = 1 ]; then echo "SKIP: B7 $1 — the fast path is off on bash < 4.3 (item 17: jq decides, as on main)"; return 0; fi
+  local label="$1" s out h="${5:-$HOME}"
+  s=$SECONDS
+  out=$(gen "$2" "$3" | HOME="$h" CLAUDE_PLUGIN_ROOT="$B7/root" BRAIN_DIR="$B7/brain" PATH="$B7/shims:$PATH" bash "$SCRIPT" 2>/dev/null)
+  s=$(( SECONDS - s ))
+  [ "$s" -le "$B7_BOUND" ] \
+    || fail "B7 $label: took ${s}s under a sleeping lib.sh/jq/realpath (bound ${B7_BOUND}s) — a loaded machine cancels this hook and the Write RUNS"
+  assert_deny "B7 $label (${s}s, every dependency stalled)" "$out" "$4"
+}
+b7_deny "literal ~/.ssh target"        Write "$HOME/.ssh/authorized_keys" ssh
+b7_deny "tilde form"                   Write "~/.ssh/id_rsa" ssh
+b7_deny "case-varied .SSH"             Edit  "$HOME/.SSH/config" ssh
+b7_deny "~/.aws node itself"           Write "$HOME/.aws" aws
+b7_deny "OAuth token file"             Write "$HOME/.claude/.credentials.json" claude-oauth
+b7_deny "/etc"                         MultiEdit /etc/sudoers.d/x etc
+b7_deny "'..' through a missing dir"   Write "$HOME/work/repo/newdir/../../../.ssh/id_rsa" ssh
+b7_deny "Windows C:\\ payload"         Write 'C:\Users\victim\.ssh\authorized_keys' ssh /c/Users/victim
+b7_deny "\\\\?\\ payload"              Write '\\?\C:\Users\victim\.gnupg\x' gnupg /c/Users/victim
+b7_deny "Windows-form HOME"            Write /c/Users/victim/.aws/credentials aws 'C:\Users\victim'
+if dir_link "$HOME/.ssh" "$HOME/work/repo/b7-dirlink"; then
+  b7_deny "symlinked parent dir"       Write "$HOME/work/repo/b7-dirlink/new_key" ssh
+  dir_unlink "$HOME/work/repo/b7-dirlink"
+else
+  echo "SKIP: B7 symlinked-parent case — no real symlink and no junction (node/cygpath) support"
+fi
+if supports_symlinks; then
+  : > "$HOME/.ssh/authorized_keys"; ln -sf "$HOME/.ssh/authorized_keys" "$HOME/work/repo/b7-innocent.txt"
+  b7_deny "leaf symlink into ~/.ssh"   Write "$HOME/work/repo/b7-innocent.txt" ssh
+  rm -f "$HOME/work/repo/b7-innocent.txt"
+else
+  echo "SKIP: B7 leaf-symlink case — no real symlink support (a junction links directories only)"
+fi
+
+# No false positives from the fast path: only tool_input.file_path decides — never text in the
+# content, a nested look-alike key, or a sibling directory whose name merely starts with .ssh.
+npj() { printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$1" "$2" | bash "$SCRIPT" 2>/dev/null; }
+OUT=$(npj "$HOME/work/repo/notes.md" 'see ~/.ssh/authorized_keys and \"file_path\":\"~/.ssh/id_rsa\" and /etc/passwd')
+assert_allow "content naming ~/.ssh and a quoted file_path is not a target" "$OUT"
+OUT=$(run_guard Write "$HOME/.sshkeys-notes/x.md")
+assert_allow "a sibling ~/.sshkeys-notes dir is not ~/.ssh" "$OUT"
+OUT=$(run_guard Edit "$HOME/work/repo/etc/config.yml")
+assert_allow "a project etc/ dir is not /etc" "$OUT"
+
+# --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
+# bounded LABEL LIMIT PAYLOAD-FILE [VAR=val…]: run the guard on the payload in the background,
+# stdout to a file, a watchdog killing it past LIMIT seconds — a hung guard must FAIL the test, not
+# hang it (a timed-out PreToolUse hook is cancelled and the Write RUNS). BD_OUT = stdout; BD_MS =
+# elapsed ms (EPOCHREALTIME on bash 5; whole seconds from `date` on older bash, the macOS lane);
+# BD_EL = whole seconds. The guard must exit 0. LIMIT is only the kill; every run must also
+# answer within HOOK_BOUND_MS.
+# Runs use a UTF-8 locale when there is one (DA #3: the multibyte payloads exist to hit bash's
+# wide-character slow paths, which the C locale a bare CI shell starts in never takes).
+UTF8_LOC=""
+for l in C.UTF-8 en_US.UTF-8 C.utf8 en_US.utf8; do
+  [ "$( (LC_ALL=$l; s=$'\303\251'; printf %s "${#s}") 2>/dev/null)" = 1 ] && { UTF8_LOC=$l; break; }
+done
+[ -n "$UTF8_LOC" ] || echo "SKIP: no UTF-8 locale — the size cases below run in the C locale, off the wide-character paths"
+now_ms() { local n="${EPOCHREALTIME:-}"; n="${n//[!0-9]/}"; if [ -n "$n" ]; then echo $((10#$n / 1000)); else echo $(( $(date +%s) * 1000 )); fi; }
+bounded() {
+  local label="$1" lim="$2" pf="$3" pid wd rc t0; shift 3
+  t0=$(now_ms)
+  env ${UTF8_LOC:+LC_ALL=$UTF8_LOC} "$@" bash "$SCRIPT" < "$pf" > "$TMP/bounded.out" 2> "$TMP/bounded.err" & pid=$!
+  # TERM, then KILL 2 s later: a guard blocked writing a pipe on MSYS ignores TERM, and `wait` on it
+  # never returned — the test hung until run-all's timeout with no message (final review, 0.54.1).
+  ( sleep "$lim"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
+  wait "$pid"; rc=$?
+  BD_MS=$(( $(now_ms) - t0 )); BD_EL=$((BD_MS / 1000))
+  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  [ "$BD_MS" -lt $((lim * 1000)) ] || fail "$label: still running after ${lim}s (killed)"
+  [ "$rc" = 0 ] || fail "$label: the guard exited $rc ($(head -c 300 "$TMP/bounded.err"))"
+  # Every size case must answer inside the hook budget (item F8/DA #6: the old 10 s lock let a
+  # 9 s answer pass while production cancelled it at 5 s).
+  [ "$BD_MS" -le "$HOOK_BOUND_MS" ] || fail "$label: answered in ${BD_MS} ms, bound $HOOK_BOUND_MS ms — past it the hook is cancelled and the tool RUNS"
+  BD_OUT=$(cat "$TMP/bounded.out")
+}
+# within LABEL MS: the last bounded run answered inside MS milliseconds.
+within() { [ "$BD_MS" -le "$2" ] || fail "$1: answered in ${BD_MS} ms, bound $2 ms — past it the hook is cancelled and the Write RUNS"; }
+# The hook timeout is 5 s; hook-timer.sh, bash's start and the spawn under a loaded box take the
+# rest: a case that must answer in time is bound at 4 s. BIG_BOUND stays the kill limit.
+HOOK_BOUND_MS=4000
+# big_body N: an 'é' then N bytes of 80-column lines, as a JSON string body (\n escapes, no raw
+# newline). The one multibyte character matters: bash then matches in wide characters, where a
+# ${v//pat/rep} pass costs O(matches x length) — the decode of such a value took 117 s.
+big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\n", $0}'; }
+BIG_BOUND=10
+BODY=$(big_body 524288)
+
+# P-H1: a 512 KB Write. The fast path sees only the first 16 KiB, so a file_path AFTER the content
+# is decided by the full logic — which took 144 s (O(n^2) key search and newline strip).
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$HOME/work/repo/big.txt" "$BODY" > "$TMP/big1.json"
+bounded "P-H1 512 KB benign Write" "$BIG_BOUND" "$TMP/big1.json"
+assert_allow "P-H1: 512 KB benign Write answered in ${BD_EL}s" "$BD_OUT"
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"content":"%s","file_path":"%s"}}' "$BODY" "$HOME/.ssh/authorized_keys" > "$TMP/big2.json"
+bounded "P-H1 512 KB Write into ~/.ssh, file_path after the content" "$BIG_BOUND" "$TMP/big2.json"
+assert_deny "P-H1: 512 KB Write into ~/.ssh (file_path last) denied in ${BD_EL}s" "$BD_OUT" ssh
+
+# SEC-C1: a payload whose here-string would be 65,537..~65,690 bytes hung on MSYS for good. The
+# \u in file_path makes the builtin decode undecidable, so the full logic's jq fallback reads RAW.
+sec_c1_payload() {  # sec_c1_payload TOTAL-BYTES OUT PREFIX SUFFIX: PREFIX + x-padding + SUFFIX, TOTAL bytes
+  local pad=$(( $1 - ${#3} - ${#4} ))
+  { printf '%s' "$3"; printf '%*s' "$pad" '' | tr ' ' x; printf '%s' "$4"; } > "$2"
+}
+sec_c1_payload 65600 "$TMP/c1.json" "{\"session_id\":\"t\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.ssh/\\u0061uthorized_keys\",\"content\":\"" '"}}'
+[ "$(wc -c < "$TMP/c1.json" | tr -d ' ')" = 65600 ] || fail "SEC-C1 fixture: payload is not 65,600 bytes"
+bounded "SEC-C1 65,600-byte payload (jq fallback)" 20 "$TMP/c1.json"
+assert_deny "SEC-C1: a 65,600-byte payload through the jq fallback answers (${BD_EL}s)" "$BD_OUT" ssh
+
+# SEC-C2: _sg_phys stat'ed and trimmed once per missing component — quadratic in the path (an
+# a/../a/.. path of 3.7 KB took 5.8 s on the reviewer's box; 14.5 KB 4.2 s here). '..' and deep
+# paths now go to the full logic's one realpath -m (0.2 s). The 14.5 KB path still fits the fast
+# path's 16 KiB read, and this bound is tight on purpose: the old walk lands above it.
+DOTS=$(i=0; while [ $i -lt 2900 ]; do printf 'a/../'; i=$((i + 1)); done)
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s"}}' "$HOME/work/repo/$DOTS../../.ssh/id_rsa" > "$TMP/c2a.json"
+bounded "SEC-C2 14.5 KB a/.. path into ~/.ssh" 30 "$TMP/c2a.json"
+assert_deny "SEC-C2: 14.5 KB a/../ path into ~/.ssh denied in ${BD_EL}s" "$BD_OUT" ssh
+[ "$BD_EL" -le 3 ] || fail "SEC-C2: a 14.5 KB a/../ path took ${BD_EL}s (bound 3 s) — the per-component walk is back"
+DOTS=$(i=0; while [ $i -lt 1600 ]; do printf 'a/../'; i=$((i + 1)); done)
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s"}}' "$HOME/work/repo/${DOTS}x.txt" > "$TMP/c2b.json"
+bounded "SEC-C2 8 KB a/.. path in the project" "$BIG_BOUND" "$TMP/c2b.json"
+# 3,201 components: past DA #2's 256-component cap, so the answer is an ask (too long to resolve),
+# never a deny — this project path names no credential dir.
+assert_allow "SEC-C2: 8 KB a/../ path inside the project answered in ${BD_MS} ms" "$BD_OUT"
+printf '%s' "$BD_OUT" | grep -q 'too long to resolve' || fail "SEC-C2: an 8 KB a/../ path of 3,201 components must get DA #2's ask (got: $BD_OUT)"
+DEEP=$(i=0; while [ $i -lt 100 ]; do printf 'd%s/' $i; i=$((i + 1)); done)
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s"}}' "$HOME/.ssh/${DEEP}k" > "$TMP/c2c.json"
+bounded "SEC-C2 100-component path under ~/.ssh" "$BIG_BOUND" "$TMP/c2c.json"
+assert_deny "SEC-C2: a 100-component path under ~/.ssh denied in ${BD_EL}s" "$BD_OUT" ssh
+
+# RR-CR1: a file_path ending in 50,000 CONSECUTIVE trailing newlines (P-H1/SEC-C2 above only cover
+# interspersed text or 'a/../' runs). The full logic's _fp_clean used to strip them one at a time
+# (`${v%"$_fp_nl"}` in a loop): O(N x length) for N trailing newlines, 40 s here past the 5 s
+# timeout (a fail-open DoS). The verdict must be unchanged: Write into ~/.ssh still denies.
+TRAIL50K=$(i=0; while [ $i -lt 50000 ]; do printf '\\n'; i=$((i + 1)); done)
+printf '{"session_id":"cr1","tool_name":"Write","tool_input":{"file_path":"%s/.ssh/id_rsa%s","content":"x"}}' "$HOME" "$TRAIL50K" > "$TMP/cr1.json"
+bounded "RR-CR1 50,000 consecutive trailing newlines, Write into ~/.ssh" "$BIG_BOUND" "$TMP/cr1.json"
+within "RR-CR1 50,000 trailing newlines" "$HOOK_BOUND_MS"
+assert_deny "RR-CR1: 50,000 consecutive trailing newlines into ~/.ssh denied in ${BD_MS} ms" "$BD_OUT" ssh
+
+# F8 #1: the same run INSIDE the file_path, text after it. The `($_fp_nl+)$` regex the trim used
+# was O(run^2) on glibc for this shape (39 s for this payload on Debian); on MSYS the path then
+# went through realpath -m and three _fp_esc passes of 50,000 newlines (17 s) before DA #2.
+printf '{"session_id":"cr1i","tool_name":"Write","tool_input":{"file_path":"%s/.ssh/id_rsa%s#","content":"x"}}' "$HOME" "$TRAIL50K" > "$TMP/cr1i.json"
+bounded "F8 50,000 interior newlines, Write into ~/.ssh" "$BIG_BOUND" "$TMP/cr1i.json"
+within "F8 50,000 interior newlines" "$HOOK_BOUND_MS"
+assert_deny "F8: 50,000 newlines inside a ~/.ssh file_path denied in ${BD_MS} ms" "$BD_OUT" ssh
+
+# DA #2: a file_path past the fast path's 16 KiB read reaches the full logic, which ran realpath -m
+# before any credential match — quadratic in the components on MSYS (1,500: no answer in 100 s),
+# so the Write into ~/.ssh got no verdict in time and RAN. The literal and lexical targets are
+# matched first now; a path too long to resolve in time and naming no credential dir is asked about.
+SEGS=$(i=0; while [ $i -lt 1500 ]; do printf '\303\25112345678/'; i=$((i + 1)); done)
+printf '{"session_id":"da2a","tool_name":"Write","tool_input":{"file_path":"%s/.ssh/%sk","content":"x"}}' "$HOME" "$SEGS" > "$TMP/da2a.json"
+bounded "DA #2 1,500-component path under ~/.ssh" "$BIG_BOUND" "$TMP/da2a.json"
+within "DA #2 1,500-component path under ~/.ssh" "$HOOK_BOUND_MS"
+assert_deny "DA #2: a 16 KB+ path of 1,500 components under ~/.ssh denied in ${BD_MS} ms" "$BD_OUT" ssh
+UPS=$(i=0; while [ $i -lt 3500 ]; do printf 'a/'; i=$((i + 1)); done)
+DNS=$(i=0; while [ $i -lt 3500 ]; do printf '../'; i=$((i + 1)); done)
+printf '{"session_id":"da2b","tool_name":"Write","tool_input":{"file_path":"%s/.ssh/%s%sauthorized_keys","content":"x"}}' "$HOME" "$UPS" "$DNS" > "$TMP/da2b.json"
+bounded "DA #2 ~/.ssh/(a/)^3500(../)^3500/authorized_keys" "$BIG_BOUND" "$TMP/da2b.json"
+within "DA #2 (a/)^3500(../)^3500 under ~/.ssh" "$HOOK_BOUND_MS"
+assert_deny "DA #2: ~/.ssh/(a/)^3500(../)^3500/authorized_keys (17.5 KB) denied in ${BD_MS} ms" "$BD_OUT" ssh
+# Outside every credential dir, a path too long to resolve asks (its ancestors could be links).
+printf '{"session_id":"da2c","tool_name":"Write","tool_input":{"file_path":"%s/work/repo/%sk","content":"x"}}' "$HOME" "$SEGS" > "$TMP/da2c.json"
+rm -f "$HOME/.second-brain/audit-log.jsonl"
+bounded "DA #2 1,500-component path in the project" "$BIG_BOUND" "$TMP/da2c.json"
+within "DA #2 1,500-component path in the project" "$HOOK_BOUND_MS"
+[ -n "$BD_OUT" ] && printf '%s' "$BD_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and (.hookSpecificOutput.permissionDecisionReason | test("too long to resolve"))' >/dev/null \
+  || fail "DA #2: a 1,500-component path outside the credential dirs must ask (too long to resolve), got: $BD_OUT"
+grep -q '"rule":"path-too-long"' "$HOME/.second-brain/audit-log.jsonl" || fail "DA #2: the path-too-long ask was not audit-logged"
+pass "DA #2: a 1,500-component path outside the credential dirs asks in ${BD_MS} ms"
+# F8 item 18: the same shapes in Windows drive form (C:\…), which the full logic hands to cygpath -u
+# — a spawn whose argument conversion took 5.1 s for a 50,000-newline path on MSYS. The literal
+# match and the cap now come before it. Windows hosts only (a C:\ path names nothing under HOME
+# elsewhere).
+if command -v cygpath >/dev/null 2>&1; then
+  WHE=$(cygpath -w "$HOME"); WHE=${WHE//\\/\\\\}
+  WSEG=$(i=0; while [ $i -lt 1500 ]; do printf 'e12345678\\\\'; i=$((i + 1)); done)
+  printf '{"session_id":"i18a","tool_name":"Write","tool_input":{"file_path":"%s\\\\.ssh\\\\%sk","content":"x"}}' "$WHE" "$WSEG" > "$TMP/i18a.json"
+  bounded "item 18: 1,500-component drive-form path under ~/.ssh" "$BIG_BOUND" "$TMP/i18a.json"
+  assert_deny "item 18: a C:\\ path of 1,500 components under ~/.ssh denied in ${BD_MS} ms" "$BD_OUT" ssh
+  # With newlines in it the path never reaches cygpath past the cap (seconds of argument conversion),
+  # so the credential match is the lexical one: HOME is given in the drive form a real profile has
+  # (this sandbox's /tmp is an MSYS mount whose C:\ spelling no lexical rule can map).
+  printf '{"session_id":"i18b","tool_name":"Write","tool_input":{"file_path":"%s\\\\.ssh\\\\id_rsa%s#","content":"x"}}' "$WHE" "$TRAIL50K" > "$TMP/i18b.json"
+  bounded "item 18: drive-form ~/.ssh path with 50,000 newlines" "$BIG_BOUND" "$TMP/i18b.json" HOME="$(cygpath -w "$HOME")"
+  assert_deny "item 18: a C:\\ ~/.ssh path holding 50,000 newlines denied in ${BD_MS} ms" "$BD_OUT" ssh
+else
+  echo "SKIP: item 18 drive-form long paths — cygpath not on PATH (Windows hosts only)"
+fi
+# Under both limits a deep project path still resolves and passes (the cap is not a blanket ask).
+D200=$(i=0; while [ $i -lt 200 ]; do printf 'd%s/' $i; i=$((i + 1)); done)
+printf '{"session_id":"da2d","tool_name":"Write","tool_input":{"file_path":"%s/work/repo/%sk","content":"x"}}' "$HOME" "$D200" > "$TMP/da2d.json"
+bounded "DA #2 200-component project path" "$BIG_BOUND" "$TMP/da2d.json"
+within "DA #2 200-component project path" "$HOOK_BOUND_MS"
+assert_allow "DA #2: a 200-component project path is still resolved and allowed (${BD_MS} ms)" "$BD_OUT"
+
+g1_rep() { local i=0; while [ $i -lt "$2" ]; do printf '%s' "$1"; i=$((i + 1)); done; }
+# T2 (final review): each half of the cap asks on its own — a project path of 300 real components in
+# ~700 characters, and one of 20 components in ~5,000. Either half could be deleted with every
+# other case still green.
+for t2 in "a:$(g1_rep a/ 300)" "b:$(g1_rep "$(g1_rep b 250)/" 20)"; do
+  printf '{"session_id":"t2","tool_name":"Write","tool_input":{"file_path":"%s/work/repo/%sk","content":"x"}}' "$HOME" "${t2#?:}" > "$TMP/t2.json"
+  rm -f "$HOME/.second-brain/audit-log.jsonl"
+  bounded "T2 cap half ${t2%%:*}" "$BIG_BOUND" "$TMP/t2.json"
+  [ -n "$BD_OUT" ] && printf '%s' "$BD_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and (.hookSpecificOutput.permissionDecisionReason | test("too long to resolve"))' >/dev/null \
+    && grep -q '"rule":"path-too-long"' "$HOME/.second-brain/audit-log.jsonl" \
+    || fail "T2: cap half ${t2%%:*} (a: 300 components, b: 5,000 characters) must ask, too long to resolve, with a path-too-long row (got: $BD_OUT)"
+done
+pass "T2: each half of the cap asks on its own (300 real components; 5,000 characters)"
+
+# G1 (0.54.1 final review, HIGH regression): DA #2's 256-component cap counted empty and '.' fields,
+# which cost realpath -m nothing (2,048 of them: ~60 ms on MSYS, against ~2 s for 256 real ones), so
+# a Write through a link into ~/.ssh spelled with a run of './' or '//' went over the cap and got an
+# ask where it had been denied. Only real components count now, and past either limit the guard still
+# resolves the lexically folded path when that one is under both: a long './' or 'a/../' run through
+# the link is denied too. A wrapper logs every argument realpath, greadlink, readlink and cygpath get:
+# none may pass 4096 characters (a payload-sized one costs seconds; cygpath cuts its answer at 32,767).
+if dir_link "$HOME/.ssh" "$HOME/work/repo/keys"; then
+  G1BIN=$(mktemp -d); : > "$G1BIN/args.log"
+  cat > "$G1BIN/wrap" <<'EOF'
+#!/bin/sh
+for a in "$@"; do printf '%s\n' "${#a}" >> "$G1_LOG"; done
+PATH=$G1_PATH; export PATH
+exec "${0##*/}" "$@"
+EOF
+  for t in realpath greadlink readlink cygpath; do
+    command -v "$t" >/dev/null 2>&1 && cp "$G1BIN/wrap" "$G1BIN/$t" && chmod +x "$G1BIN/$t"
+  done
+  g1() {  # g1 NAME PATH: a Write to PATH, every resolver argument logged
+    printf '{"session_id":"g1","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"}}' "$2" > "$TMP/g1-$1.json"
+    bounded "G1 $1" "$BIG_BOUND" "$TMP/g1-$1.json" PATH="$G1BIN:$PATH" G1_PATH="$PATH" G1_LOG="$G1BIN/args.log"
+  }
+  g1 dots "$HOME/work/repo/keys/$(g1_rep ./ 300)id_rsa"
+  assert_deny "G1: a link into ~/.ssh spelled with 300 './' denied in ${BD_MS} ms" "$BD_OUT" ssh
+  g1 slashes "$HOME/work/repo/keys$(g1_rep / 300)id_rsa"
+  assert_deny "G1: a link into ~/.ssh spelled with 300 '/' denied in ${BD_MS} ms" "$BD_OUT" ssh
+  g1 updown "$HOME/work/repo/keys/$(g1_rep a/../ 600)id_rsa"
+  assert_deny "G1: a link into ~/.ssh behind 600 'a/../' (over by components) denied in ${BD_MS} ms" "$BD_OUT" ssh
+  g1 longdots "$HOME/work/repo/keys/$(g1_rep ./ 3000)id_rsa"
+  assert_deny "G1: a link into ~/.ssh behind 3,000 './' (over by length) denied in ${BD_MS} ms" "$BD_OUT" ssh
+  # Isolate the real-component count from the fold-and-resolve path (test-review gap 2): with the '.'
+  # run BEFORE the link and a '..' AFTER it, realpath follows keys -> ~/.ssh and only THEN applies '..'
+  # (-> ~/.ssh is the parent's child again); the lexical fold instead cancels keys/.. first and loses
+  # the link. So this denies only when the path stays OUT of the over-cap branch — i.e. only when '.'
+  # fields are not counted. Counting them (the regression) sends it over the cap and the fold asks.
+  g1 linkup "$HOME/work/repo/$(g1_rep ./ 300)keys/../.ssh/id_rsa"
+  assert_deny "G1: './'-run then keys/../.ssh resolves through the link and denies in ${BD_MS} ms" "$BD_OUT" ssh
+  # The matching benign case: a './'-padded project path must still ALLOW (counting '.' would push it
+  # over the cap and ask "too long").
+  g1 benign "$HOME/work/repo/$(g1_rep ./ 300)x.txt"
+  assert_allow "G1: a './'-padded project path is resolved and allowed in ${BD_MS} ms" "$BD_OUT"
+  printf '%s' "$BD_OUT" | grep -q 'too long' && fail "G1: a './'-padded project path must not hit the path-too-long ask (got: $BD_OUT)"
+  # G4 class (test-review gap 3): a drive-form target past the cap must reach cygpath only through the
+  # SHORT folded spelling, never raw. 3,000 './' in C:\ form is > 4096 chars (over by length); the fold
+  # collapses to a short path that resolves through the link and denies. Windows only (needs cygpath).
+  if command -v cygpath >/dev/null 2>&1; then
+    g1 drivedots "$(cygpath -m "$HOME")/work/repo/keys/$(g1_rep ./ 3000)id_rsa"
+    assert_deny "G1: a drive-form link path of 3,000 './' denied in ${BD_MS} ms" "$BD_OUT" ssh
+    # Finding C: a '..' at the drive root folds the drive component out of the collapsed lex form, so
+    # the drive-form fold must reattach the whole collapsed path, not slice off its (missing) drive. A
+    # C:/../<HOME-under-C:>/.ssh link path (Windows clamps C:\.. to C:\) must still deny.
+    HREL=$(cygpath -m "$HOME" | cut -c3-)
+    g1 driveroot "C:/..${HREL}/work/repo/keys/$(g1_rep ./ 3000)id_rsa"
+    assert_deny "G1: a drive-root '..' link path denied in ${BD_MS} ms" "$BD_OUT" ssh
+    # Mutation k / F-D: a target under an MSYS mount (/etc is the Git root's etc) past the cap must be
+    # mapped by cygpath -u on the SHORT folded spelling and denied — HEAD mapped it by running cygpath
+    # on the raw target, which this guard no longer does. 300 real components (> 256) so the resolve is
+    # skipped; only the mapped-fold credential match catches it.
+    g1 etcroot "$(cygpath -m /)/etc/$(g1_rep a/ 300)k"
+    assert_deny "G1: an /etc path under the MSYS root past the cap denied in ${BD_MS} ms" "$BD_OUT" etc
+    # F-E: HOME spelled in its /c/ drive form while it lies UNDER the /tmp mount. realpath returns the
+    # /tmp spelling of the resolved target, which no /c/ HOME prefix matches; _sg_homes (full) must add
+    # HOME's mount spelling via the cygpath round trip. Without the fix this ALLOWS a write through the
+    # link into ~/.ssh. HC is HOME's drive-letter POSIX form (/c/…/Temp/…), not the /tmp alias.
+    HC=$(cygpath -m "$HOME"); HC="/$(printf '%s' "${HC:0:1}" | tr 'A-Z' 'a-z')${HC:2}"
+    printf '{"session_id":"g1fe","tool_name":"Write","tool_input":{"file_path":"%s/work/repo/keys/id_rsa","content":"x"}}' "$HC" > "$TMP/g1fe.json"
+    FEOUT=$(env HOME="$HC" BRAIN_DIR="$TMP/feb" bash "$SCRIPT" < "$TMP/g1fe.json" 2>/dev/null)
+    assert_deny "G1/F-E: a link into ~/.ssh with HOME in /c drive form under the mount denies" "$FEOUT" ssh
+  fi
+  # Mutation j: the fold's own `${#_sg_fp} <= 4096` bound. A ~5 KB path of real components (no './' to
+  # collapse away) stays over 4096 after folding; with the bound it is asked about without touching a
+  # resolver, so no resolver argument exceeds 4096. Dropping the bound hands realpath the 5 KB path.
+  g1 foldbound "$HOME/work/repo/$(g1_rep "$(g1_rep b 250)/" 20)k"
+  printf '%s' "$BD_OUT" | grep -q 'too long to resolve' || fail "G1: a 5 KB real-component path must ask (too long to resolve), got: $BD_OUT"
+  [ -s "$G1BIN/args.log" ] || fail "G1: the wrappers logged nothing — the resolution these cases need never ran"
+  G1_MAX=$(sort -n "$G1BIN/args.log" | tail -1)
+  [ "$G1_MAX" -le 4096 ] || fail "G1: a resolver was handed a ${G1_MAX}-character argument — every one must stay within 4096"
+  pass "G1: no resolver argument past 4096 characters (longest: $G1_MAX)"
+  # Finding A / F-A+F-B time lock (test-review gap 6): a ~300 KB './' run through the link into ~/.ssh
+  # must DENY inside the hook budget. On HEAD and the pre-fix diff this answered at 7–8 s (past the 5 s
+  # timeout → the Write ran); the fix denies in ~2–3 s. bounded() fails the test if it exceeds
+  # HOOK_BOUND_MS, so this is the regression lock for the whole over-cap path, at a real payload size.
+  printf '{"session_id":"g1big","tool_name":"Write","tool_input":{"file_path":"%s/work/repo/keys/%sid_rsa","content":"x"}}' "$HOME" "$(g1_rep ./ 150000)" > "$TMP/g1big.json"
+  bounded "G1: 300 KB './' run through the link into ~/.ssh" "$BIG_BOUND" "$TMP/g1big.json"
+  assert_deny "G1: a 300 KB './' link path denied inside the hook budget (${BD_MS} ms)" "$BD_OUT" ssh
+  dir_unlink "$HOME/work/repo/keys"
+  rm -rf "$G1BIN"
+else
+  echo "SKIP: G1 — no directory link can be made here (no real symlinks, no node junction)"
+fi
+
+# Mutation i (source-scan): the `_sg_segs SG_SEGS` count must stay gated by the length cap. Without the
+# gate, a 300 KB run of '/' spends ~1.6 s splitting into ~300k fields for a count that is moot past the
+# character cap. The whole guard still answers over the 4 s bound on that input with or without the
+# gate, so no time-bound test can see it — this is the only pin.
+grep -Eq '\[ *"\$SG_LEN" *-le *4096 *\] *&& *_sg_segs SG_SEGS' "$SCRIPT" \
+  || fail "source-scan: _sg_segs SG_SEGS must stay gated by [ \"\$SG_LEN\" -le 4096 ] (mutation i)"
+pass "source-scan: the SG_SEGS count is gated by the 4096-character cap"
 
 echo
 echo "ALL PASS"

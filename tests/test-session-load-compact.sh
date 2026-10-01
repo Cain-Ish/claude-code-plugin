@@ -1317,5 +1317,44 @@ printf '%s' "$F4_CTX" | grep -qF 'clean-after' || fail "F4: Plan item AFTER the 
 printf '%s' "$F4_CTX" | grep -qF 'Plan: 3/3' || fail "F4: trusted Plan: 3/3 count missing (ctx: $F4_CTX)"
 pass "F4: Plan and Handoff still render against a torn-byte PROJECT.md under a simulated Apple-awk UTF-8-locale crash"
 
+# =============================================================================
+# F9 (here-string window): one 65,600-byte PROJECT.md line must not hang the card. sb_repo_card
+# read each section's raw lines back through `done <<< "$goalraw"` (and the Handoff/Plan/...
+# siblings); a PROJECT.md line has no length limit of its own, and an MSYS here-string of
+# 65,537..~65,650 bytes blocks for good — the compact re-inject (and the startup card) then dies
+# at its hook timeout and delivers nothing. The Goal line alone is 65,600 B (65,601 with the
+# here-string's newline); Handoff and Plan carry one each too. Watchdog: the hook runs in its own
+# process group (set -m) and an overrun kills the whole GROUP — the card renders inside a forked
+# `$(sb_repo_card ...)`, so the blocked writer is a child, and killing only the hook orphaned it
+# for good. TERM then KILL, never `wait` on a kill (a process blocked on that pipe write ignores
+# TERM). RED on MSYS only; everywhere it checks the render.
+# =============================================================================
+mkdir -p "$BRAIN_DIR/projects/projf9"
+F9_BIG=$(head -c 65591 /dev/zero | tr '\0' g)
+{ printf '# PROJECT: projf9\n\n## Goal\nGOAL-BIG %s\n\n' "$F9_BIG"
+  printf '## Handoff\nHANDOFF-BIG %s\n\n' "$F9_BIG"
+  printf '## Plan\n- [ ] PLAN-BIG %s\n' "$F9_BIG"
+} > "$BRAIN_DIR/projects/projf9/PROJECT.md"
+memo sidF9 projf9
+WORKF9="$TMP/projf9"; mkdir -p "$WORKF9"
+printf '{"session_id":"sidF9","cwd":"%s","source":"compact"}' "$WORKF9" > "$TMP/f9.json"
+set -m
+( CLAUDE_PROJECT_DIR="$WORKF9" exec bash "$SCRIPT" --compact ) < "$TMP/f9.json" > "$TMP/f9.out" 2> "$TMP/f9.err" &
+F9_PID=$!; i=0
+set +m
+while kill -0 "$F9_PID" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
+if kill -0 "$F9_PID" 2>/dev/null; then
+  kill -TERM -- -"$F9_PID" 2>/dev/null; sleep 1; kill -KILL -- -"$F9_PID" 2>/dev/null
+  fail "F9: session-load --compact hung on a 65,600-byte PROJECT.md line (MSYS here-string window) — killed after 60 s"
+fi
+wait "$F9_PID"
+F9_CTX=$(jq -r '.hookSpecificOutput.additionalContext' "$TMP/f9.out" 2>/dev/null)
+for want in 'Goal:' 'GOAL-BIG' 'HANDOFF-BIG' 'PLAN-BIG' 'Plan: 1/1'; do
+  printf '%s' "$F9_CTX" | grep -qF "$want" || fail "F9: card missing '$want' (ctx: $(printf '%s' "$F9_CTX" | head -c 600))"
+done
+F9_LONGEST=$(printf '%s\n' "$F9_CTX" | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')
+[ "$F9_LONGEST" -le 130 ] || fail "F9: a rendered card line is $F9_LONGEST chars — the 120-char lean cap did not hold"
+pass "F9: 65,600-byte Goal/Handoff/Plan lines render truncated, no here-string hang"
+
 echo
 echo "ALL PASS"

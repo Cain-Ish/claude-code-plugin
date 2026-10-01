@@ -115,4 +115,95 @@ node -e '
 ' "$AUD" || fail "(f) concurrent sb_log_audit produced torn/malformed JSON lines"
 pass "(f) 300 concurrent sb_log_audit appends (2 workers x150) land intact, none lost or torn"
 
+# --- (g) O2: a huge target / message must still produce exactly ONE well-formed row -------
+# A native jq.exe cannot receive a command line over ~32 KB on Windows: a longer --arg value is
+# DROPPED and jq writes nothing, so the row was silently lost (the `[ -n "$line" ] &&` guard
+# swallowed the empty result). Both writers now cap the free-text args BEFORE they reach jq, with
+# a visible marker, and report an empty row instead of dropping it.
+BIG=$(head -c 40000 /dev/zero | tr '\0' 'A')
+[ "${#BIG}" -eq 40000 ] || fail "(g) could not build the 40 KB fixture"
+MARK_RE='[(][+][0-9]+ chars[)]$'
+: > "$AUD"; : > "$ERR"
+sb_log_audit "big-hook" deny "rule" "$BIG" "short reason" "sid"
+[ "$(wc -l < "$AUD" | tr -d ' ')" -eq 1 ] || fail "(g) a 40 KB audit target did not produce exactly one row (got $(wc -l < "$AUD" | tr -d ' '))"
+jq -e --arg re "$MARK_RE" '.hook == "big-hook" and (.target | length) <= 300 and (.target | test($re))' "$AUD" >/dev/null \
+  || fail "(g) the capped audit target is missing, over 300 chars, or lacks the (+N chars) marker"
+: > "$AUD"
+sb_log_audit "big-hook" deny "rule" "t" "$BIG" "sid"
+[ "$(wc -l < "$AUD" | tr -d ' ')" -eq 1 ] || fail "(g) a 40 KB audit reason did not produce exactly one row"
+jq -e --arg re "$MARK_RE" '(.reason | length) <= 5000 and (.reason | test($re))' "$AUD" >/dev/null \
+  || fail "(g) the capped audit reason is over 5000 chars or lacks the marker"
+sb_log_error "big.sh" "$BIG" 1
+[ "$(wc -l < "$ERR" | tr -d ' ')" -eq 1 ] || fail "(g) a 40 KB error message did not produce exactly one row (got $(wc -l < "$ERR" | tr -d ' '))"
+jq -e --arg re "$MARK_RE" '.script == "big.sh" and (.message | length) <= 5000 and (.message | test($re))' "$ERR" >/dev/null \
+  || fail "(g) the capped error message is over 5000 chars or lacks the marker"
+: > "$AUD"
+sb_log_audit "small-hook" allow "rule" "short-target" "short reason" "sid"
+jq -e '.target == "short-target" and .reason == "short reason"' "$AUD" >/dev/null \
+  || fail "(g) a short target/reason was altered by the cap"
+pass "(g) 40 KB audit target, audit reason and error message each yield one capped, well-formed row"
+
+# --- (h) O2: a row that still comes out EMPTY is reported, never dropped silently ---------
+REAL_JQ_H=$(command -v jq)
+SHIM_H="$SANDBOX/jqshim-h"; mkdir -p "$SHIM_H"
+cat > "$SHIM_H/jq" <<SHEOF
+#!/bin/bash
+case "\$*" in
+  *'session_id:\$sid'*) [ "\${SHIM_H_FAIL:-}" = audit ] && exit 3 ;;   # the audit row builder: write nothing
+  *'exit_code:\$c'*)    [ "\${SHIM_H_FAIL:-}" = error ] && exit 3 ;;   # the error row builder: write nothing
+esac
+exec "$REAL_JQ_H" "\$@"
+SHEOF
+chmod +x "$SHIM_H/jq"
+: > "$AUD"; : > "$ERR"
+( PATH="$SHIM_H:$PATH"; SHIM_H_FAIL=audit; export SHIM_H_FAIL; sb_log_audit "shim-hook" deny "rule" "t" "r" "sid" )
+grep -q 'audit row' "$ERR" || fail "(h) an empty audit row left no error row"
+: > "$ERR"
+( PATH="$SHIM_H:$PATH"; SHIM_H_FAIL=error; export SHIM_H_FAIL; sb_log_error "shim.sh" "lost message" 1 )
+[ "$(wc -l < "$ERR" | tr -d ' ')" -eq 1 ] || fail "(h) an empty error row left no fallback row"
+jq -e '.script == "lib.sh" and (.message | test("empty"))' "$ERR" >/dev/null \
+  || fail "(h) the fallback row is not well-formed JSON saying the row came out empty: $(cat "$ERR")"
+pass "(h) a row jq failed to build is reported as an error row, not dropped"
+
+# --- (i) the other lib.sh sites that hand caller text to jq as an argument -------------------
+# Same Windows limit as (g), emulated here on every OS: a jq shim that writes NOTHING and exits 3
+# when its whole argv is over 30,000 bytes (what a native jq.exe does past ~32 KB). Each site must
+# still produce its result from 40 KB of input — capped with a marker, or passed by --rawfile.
+REAL_JQ_I=$(command -v jq)
+SHIM_I="$SANDBOX/jqshim-i"; mkdir -p "$SHIM_I"
+cat > "$SHIM_I/jq" <<SHEOF
+#!/bin/bash
+n=0; for a in "\$@"; do n=\$((n + \${#a})); done
+[ "\$n" -gt 30000 ] && exit 3
+exec "$REAL_JQ_I" "\$@"
+SHEOF
+chmod +x "$SHIM_I/jq"
+BIG40=$(head -c 40000 /dev/zero | tr '\0' 'P')
+
+# pin candidate: one capped row, not a silently empty one
+PCF="$BRAIN_DIR/projects/pcslug/.pin-candidates.jsonl"; rm -f "$PCF"
+( PATH="$SHIM_I:$PATH"; sb_append_pin_candidate pcslug "$BIG40" ) || fail "(i) sb_append_pin_candidate returned non-zero on a 40 KB text"
+[ "$(wc -l < "$PCF" | tr -d ' ')" -eq 1 ] || fail "(i) a 40 KB pin candidate did not land as exactly one row"
+jq -e --arg re "$MARK_RE" '(.text | length) <= 5000 and (.text | test($re))' "$PCF" >/dev/null \
+  || fail "(i) the capped pin-candidate text is over 5000 chars or lacks the (+N chars) marker"
+
+# sessions digest: a 40 KB goal/outcome still lands (the row keeps its first 200 chars)
+rm -f "$BRAIN_DIR/sessions-digest.jsonl"
+( PATH="$SHIM_I:$PATH"; sb_append_session_digest dgslug sid-1 "$BIG40" "$BIG40" )
+jq -e '.slug == "dgslug" and (.goal | length) == 200 and (.outcome | length) == 200' "$BRAIN_DIR/sessions-digest.jsonl" >/dev/null \
+  || fail "(i) a 40 KB goal/outcome lost the sessions-digest row: $(head -c 200 "$BRAIN_DIR/sessions-digest.jsonl" 2>&1)"
+
+# local extractor call: a 40 KB system prompt goes in by --rawfile; curl is a stub returning an object
+CURL_I="$SANDBOX/curlshim-i"; mkdir -p "$CURL_I"
+cat > "$CURL_I/curl" <<'SHEOF'
+#!/bin/bash
+printf '%s' '{"choices":[{"message":{"content":"{\"decisions\":[\"ok\"]}"}}]}'
+SHEOF
+chmod +x "$CURL_I/curl"
+printf 'some transcript text\n' > "$SANDBOX/local-in.txt"; OUT_I="$SANDBOX/local-out.json"; rm -f "$OUT_I"
+( PATH="$CURL_I:$SHIM_I:$PATH"; sb_extractor_local_call "http://stub.invalid" "m" "$BIG40" "$SANDBOX/local-in.txt" "$OUT_I" 20 ) \
+  || fail "(i) sb_extractor_local_call failed with a 40 KB system prompt (the jq --arg was dropped whole)"
+jq -e '.decisions[0] == "ok"' "$OUT_I" >/dev/null || fail "(i) local call produced no output object"
+pass "(i) a 40 KB pin candidate / session-digest goal / local-call system prompt each still produce their result under a 30 KB-argv jq"
+
 echo "ALL PASS"

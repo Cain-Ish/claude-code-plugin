@@ -1,10 +1,13 @@
 #!/bin/bash
 # pins: SB_EXTRACT — kill-switch test: asserts =off skips the LLM call but still archives + advances the marker (D077)
 # pins: SB_COMPACT_CAPTURE — kill-switch test: asserts =off skips PostCompact Pending-Tasks capture (C2-8)
+# pins: SB_SUBAGENT_SCAN_MAX_BYTES — R7 lowers the subagent-scan byte cap to exercise the loud skip + resume path
+# pins: SB_RULES_LAYERS — L2 exercises sb_rules_hard_lines' raw-file branch (layers off), not a gate bypass
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
-# run-all-timeout: 480   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
-#   review batch added the C2-9b..C2-14 cases; measured 174s alone on a loaded MSYS box — well
-#   under budget, no raise needed; each ~13s on MSYS under load — spawn-bound lib.sh, see LC-11)
+# run-all-timeout: 900   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
+#   review batch added the C2-9b..C2-14 cases; measured 174s alone on a loaded MSYS box; the S0
+#   F1 ruler cases (R5b-R13: ~20 more Stops + a 33 MB subagent volume fixture) measured 649s
+#   under heavy load (~70 concurrent bash) — raised from 480; each ~13s on MSYS under load)
 # session deltas from the conversation transcript and merges them into
 # PROJECT.md + wiki via merge-project-update.sh.
 #
@@ -862,5 +865,605 @@ PC_SRC="$REPO_ROOT/scripts/pre-compact.sh"
 grep -q "date -u -j -f" "$PC_SRC" \
   || fail "C2-17: pre-compact.sh's BSD freshness fallback no longer runs 'date -u -j -f' -- a non-UTC host will reject fresh isCompactSummary records as stale"
 pass "C2-17: static lock -- pre-compact.sh's BSD date fallback carries -u"
+
+# R1 (S0 B7 ruler, docs/concepts/2026-09-27-repo-brain-concept.md sec 5 S0): a
+# hook_cancelled attachment already sitting in the transcript this Stop reads is
+# counted and logged as gate=hook-cancelled, one row per (hookName, script), with
+# count and max duration -- no new hook, no live signal beyond the transcript.
+init_sandbox "r1-hook-cancelled"
+T_R1="$SANDBOX/transcript/session.jsonl"
+cat > "$T_R1" <<'EOF'
+{"type":"user","message":{"role":"user","content":"hi"}}
+{"attachment":{"type":"hook_cancelled","hookName":"PreToolUse:Write","command":"bash \"C:/plugin/scripts/symlink-guard.sh\"","durationMs":5297,"timedOut":true,"timeoutMs":3000},"type":"attachment"}
+{"attachment":{"type":"hook_cancelled","hookName":"PreToolUse:Write","command":"bash \"C:/plugin/scripts/symlink-guard.sh\"","durationMs":8000,"timedOut":true,"timeoutMs":3000},"type":"attachment"}
+{"attachment":{"type":"hook_cancelled","hookName":"PreToolUse:Edit","command":"bash \"${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh\"","durationMs":1500,"timedOut":true,"timeoutMs":1500},"type":"attachment"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}
+EOF
+rm -f "$SANDBOX/.second-brain/audit-log.jsonl"
+stop_payload "r1-session" | "$SCRIPT" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "R1: stop-extract non-zero exit on a hook_cancelled fixture ($RC)"
+ROW_WRITE=$(grep 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl" | grep 'hook=PreToolUse:Write' | grep 'script=symlink-guard.sh')
+[ -n "$ROW_WRITE" ] || fail "R1: no gate=hook-cancelled row for PreToolUse:Write/symlink-guard.sh: $(cat "$SANDBOX/.second-brain/audit-log.jsonl")"
+echo "$ROW_WRITE" | grep -q 'count=2' || fail "R1: symlink-guard.sh count should be 2 (two cancellations): $ROW_WRITE"
+echo "$ROW_WRITE" | grep -q 'max_ms=8000' || fail "R1: symlink-guard.sh max_ms should be 8000 (the larger of 5297/8000): $ROW_WRITE"
+ROW_EDIT=$(grep 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl" | grep 'hook=PreToolUse:Edit' | grep 'script=persona-tool-guard.sh')
+[ -n "$ROW_EDIT" ] || fail "R1: no gate=hook-cancelled row for PreToolUse:Edit/persona-tool-guard.sh: $(cat "$SANDBOX/.second-brain/audit-log.jsonl")"
+echo "$ROW_EDIT" | grep -q 'count=1' || fail "R1: persona-tool-guard.sh count should be 1: $ROW_EDIT"
+echo "$ROW_EDIT" | grep -q 'max_ms=1500' || fail "R1: persona-tool-guard.sh max_ms should be 1500: $ROW_EDIT"
+printf '%s' "$ROW_EDIT" | grep -qF 'sid=r1-sessi ' || fail "R1: expected the 8-char sid= abbreviation r1-sessi (from session_id r1-session), not the full id: $ROW_EDIT"
+echo "$ROW_EDIT" | grep -q 'kind=timeout' || fail "R1: a timedOut:true record must carry kind=timeout: $ROW_EDIT"
+echo "$ROW_EDIT" | grep -qE 'elapsed_ms=[0-9]+"' || fail "R1: the row must end with a numeric elapsed_ms= field: $ROW_EDIT"
+pass "R1: hook_cancelled attachments are counted per (hookName, script) with count, max_ms, kind and elapsed_ms"
+
+# R2: a SECOND Stop in the SAME session must not re-count hook_cancelled rows already
+# seen (a cumulative per-sid watermark, same discipline as value-loop's scanned_to).
+HC_ROWS_AFTER_R1=$(grep -c 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl")
+cat >> "$T_R1" <<'EOF'
+{"type":"user","message":{"role":"user","content":"more, no new cancellations"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"still done"}]}}
+EOF
+stop_payload "r1-session" | "$SCRIPT" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "R2: second Stop non-zero exit ($RC)"
+HC_ROWS_AFTER_R2=$(grep -c 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl")
+[ "$HC_ROWS_AFTER_R2" -eq "$HC_ROWS_AFTER_R1" ] || fail "R2: a second Stop with no NEW hook_cancelled attachments must not emit more gate=hook-cancelled rows (got $HC_ROWS_AFTER_R1 -> $HC_ROWS_AFTER_R2 -- double count)"
+pass "R2: a second Stop in the same session does not re-count already-seen hook_cancelled attachments"
+
+# R3 (sb_rotate_audit_log retention, T3/M4): the ruler rows (gate=value-loop /
+# hook-cancelled / subagent-start-miss / role-card) younger than 30 days survive a trim
+# even when they are the OLDEST rows in the file — they sit FIRST here, before 9000
+# plain rows, so plain newest-half halving (origin/main) drops every one of them — while
+# 90-day-old ruler rows are NOT protected and drop like plain rows. One
+# gate=audit-rotation row records what the rotation kept and dropped.
+rot_rows() {  # <count> <ts> <script> <message-prefix>: gate rows in sb_log_error's shape
+  awk -v n="$1" -v ts="$2" -v sc="$3" -v m="$4" 'BEGIN{for(i=0;i<n;i++) printf "{\"timestamp\":\"%s\",\"script\":\"%s\",\"message\":\"%s-%d\",\"exit_code\":0}\n", ts, sc, m, i}'
+}
+plain_rows() {  # <count> <tag>: sb_log_audit-shaped guard verdicts (never protected)
+  awk -v n="$1" -v tag="$2" 'BEGIN{for(i=0;i<n;i++) printf "{\"ts\":\"2026-01-01T00:00:00Z\",\"hook\":\"x\",\"verdict\":\"allow\",\"rule\":\"r\",\"target\":\"t\",\"reason\":\"%s-%d\",\"session_id\":\"s\",\"extra\":{}}\n", tag, i}'
+}
+init_sandbox "r3-rotation"
+AUDIT_R3="$SANDBOX/.second-brain/audit-log.jsonl"
+NEW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+OLD_TS=$(date -u -d '90 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-90d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+{
+  rot_rows 50 "$OLD_TS" stop-extract.sh "gate=value-loop injected=1 read=1 sid=stale"
+  rot_rows 50 "$NEW_TS" stop-extract.sh "gate=hook-cancelled hook=PreToolUse:Edit script=symlink-guard.sh kind=timeout count=1 max_ms=100 sid=young-hc"
+  rot_rows 50 "$NEW_TS" stop-extract.sh "gate=value-loop injected=1 read=1 sid=young-vl"
+  rot_rows 25 "$NEW_TS" stop-extract.sh "gate=subagent-start-miss count=1 starts=2 sid=young-ssm"
+  rot_rows 25 "$NEW_TS" protocol-guard.sh "gate=role-card agent=x tier=DO bytes=1 hard=0 verdict=ok reason=- src=cache aid=a sid=young-rc"
+  plain_rows 9000 plain
+} > "$AUDIT_R3"
+R3_LINES_BEFORE=$(wc -l < "$AUDIT_R3" | tr -d ' ')
+[ "$R3_LINES_BEFORE" -eq 9200 ] || fail "R3: fixture setup should hold 9200 rows, got $R3_LINES_BEFORE"
+( export BRAIN_DIR="$SANDBOX/.second-brain"; source "$REPO_ROOT/scripts/lib.sh"; sb_rotate_audit_log )
+R3_LINES_AFTER=$(wc -l < "$AUDIT_R3" | tr -d ' ')
+[ "$R3_LINES_AFTER" -le 5000 ] || fail "R3: hard line-count bound violated after rotation: $R3_LINES_AFTER lines"
+[ "$(grep -c 'sid=young-' "$AUDIT_R3")" -eq 150 ] || fail "R3: all 150 young ruler rows (value-loop, hook-cancelled, subagent-start-miss, role-card) must survive even as the OLDEST rows: $(grep -c 'sid=young-' "$AUDIT_R3") kept"
+[ "$(grep -c 'sid=young-ssm' "$AUDIT_R3")" -eq 25 ] || fail "R3: young gate=subagent-start-miss rows must be protected"
+[ "$(grep -c 'sid=young-rc' "$AUDIT_R3")" -eq 25 ] || fail "R3: young gate=role-card rows must be protected"
+[ "$(grep -c 'sid=stale-' "$AUDIT_R3")" -eq 0 ] || fail "R3: 90-day-old ruler rows are not protected and must drop: $(grep -c 'sid=stale-' "$AUDIT_R3") kept"
+R3_PLAIN=$(grep -c '"reason":"plain-' "$AUDIT_R3")
+[ "$R3_PLAIN" -lt 9000 ] && [ "$R3_PLAIN" -gt 0 ] || fail "R3: plain rows should be trimmed but not wiped: $R3_PLAIN/9000 kept"
+ROT_R3=$(grep 'gate=audit-rotation' "$AUDIT_R3")
+[ "$(printf '%s\n' "$ROT_R3" | grep -c .)" -eq 1 ] || fail "R3: exactly one gate=audit-rotation row per rotation, got: $ROT_R3"
+echo "$ROT_R3" | grep -q "kept_prot=150 kept_plain=$R3_PLAIN dropped=$((9200 - 150 - R3_PLAIN))" || fail "R3: gate=audit-rotation row must report kept_prot=150 kept_plain=$R3_PLAIN dropped=$((9200 - 150 - R3_PLAIN)): $ROT_R3"
+pass "R3: rotation keeps young ruler rows (all four gates) even when oldest, drops 90-day ruler rows and old plain rows, logs one gate=audit-rotation row"
+
+# R3b (SF-M4): protected rows must not crowd out every plain row. 6000 young ruler rows
+# FIRST, then 3000 plain guard verdicts: the old S0 rotation kept 5000 protected + 0 plain
+# (every guard verdict evicted, file pinned at its cap -> a rotation on every later write).
+# Now protected rows take at most half the kept set, plain rows the rest (their floor),
+# and the file ends well under the cap.
+init_sandbox "r3b-floor"
+AUDIT_R3B="$SANDBOX/.second-brain/audit-log.jsonl"
+NEW_TS_B=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+{
+  rot_rows 6000 "$NEW_TS_B" stop-extract.sh "gate=value-loop injected=1 read=1 sid=young-vl"
+  plain_rows 3000 plain
+} > "$AUDIT_R3B"
+( export BRAIN_DIR="$SANDBOX/.second-brain"; source "$REPO_ROOT/scripts/lib.sh"; sb_rotate_audit_log )
+R3B_LINES_AFTER=$(wc -l < "$AUDIT_R3B" | tr -d ' ')
+R3B_PLAIN=$(grep -c '"reason":"plain-' "$AUDIT_R3B")
+R3B_PROT=$(grep -c 'sid=young-vl' "$AUDIT_R3B")
+[ "$R3B_LINES_AFTER" -le 4501 ] || fail "R3b: rotation must leave headroom under the 5000-line cap (keep half + the rotation row), got $R3B_LINES_AFTER lines"
+[ "$R3B_PLAIN" -ge 2250 ] || fail "R3b: plain rows need a floor (>= half of the 4500 kept), got $R3B_PLAIN plain / $R3B_PROT protected"
+[ "$R3B_PROT" -ge 2250 ] || fail "R3b: young ruler rows keep their half of the kept set, got $R3B_PROT protected / $R3B_PLAIN plain"
+grep -q 'sid=young-vl-5999"' "$AUDIT_R3B" || fail "R3b: the NEWEST protected row must survive"
+grep -q 'gate=audit-rotation kept_prot=2250 kept_plain=2250 dropped=4500' "$AUDIT_R3B" || fail "R3b: gate=audit-rotation row wrong or missing: $(grep 'gate=audit-rotation' "$AUDIT_R3B")"
+pass "R3b: a ruler-heavy log keeps a plain-row floor (2250/2250 split), ends under the cap, logs the rotation"
+
+# R3c: the hard bound wins even when EVERY row is a young (protected) gate row — with no
+# plain rows to take their half, the unused budget goes to the older protected rows.
+init_sandbox "r3c-hardcap"
+AUDIT_R3C="$SANDBOX/.second-brain/audit-log.jsonl"
+rot_rows 6000 "$(date -u +%Y-%m-%dT%H:%M:%SZ)" stop-extract.sh "gate=value-loop injected=1 read=1 sid=young-vl" > "$AUDIT_R3C"
+( export BRAIN_DIR="$SANDBOX/.second-brain"; source "$REPO_ROOT/scripts/lib.sh"; sb_rotate_audit_log )
+R3C_LINES_AFTER=$(wc -l < "$AUDIT_R3C" | tr -d ' ')
+[ "$R3C_LINES_AFTER" -le 5000 ] || fail "R3c: hard bound must win even when every row is a young gate row: $R3C_LINES_AFTER lines kept"
+grep -q 'sid=young-vl-5999"' "$AUDIT_R3C" || fail "R3c: the NEWEST protected row should survive the hard-bound trim"
+[ "$(grep -c 'sid=young-vl' "$AUDIT_R3C")" -eq 3000 ] || fail "R3c: with no plain rows the whole kept half (3000) goes to protected rows, got $(grep -c 'sid=young-vl' "$AUDIT_R3C")"
+pass "R3c: the hard line-count bound applies even when every row is a young protected gate row"
+
+# R4 (controller follow-up item 2): a hook_cancelled attachment recorded ONLY inside a
+# dispatched SUBAGENT's own transcript (never the parent) is still counted -- a
+# PreToolUse cancellation inside a subagent never appears in the parent transcript.
+init_sandbox "r4-subagent-hookcancel"
+T_R4="$SANDBOX/transcript/session.jsonl"
+cat > "$T_R4" <<'EOF'
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"dispatching"}]}}
+EOF
+SUBDIR_R4="${T_R4%.jsonl}/subagents"
+mkdir -p "$SUBDIR_R4"
+cat > "$SUBDIR_R4/agent-a1.jsonl" <<'EOF'
+{"parentUuid":null,"isSidechain":true,"agentId":"a1","type":"user","message":{"role":"user","content":"work"}}
+{"attachment":{"type":"hook_cancelled","hookName":"PreToolUse:Edit","command":"bash \"C:/plugin/scripts/symlink-guard.sh\"","durationMs":4200,"timedOut":true,"timeoutMs":3000},"type":"attachment"}
+EOF
+rm -f "$SANDBOX/.second-brain/audit-log.jsonl"
+stop_payload "r4-session" | "$SCRIPT" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "R4: stop-extract non-zero exit ($RC)"
+ROW_R4=$(grep 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl" | grep 'script=symlink-guard.sh')
+[ -n "$ROW_R4" ] || fail "R4: a hook_cancelled attachment recorded only in a SUBAGENT transcript was not counted: $(cat "$SANDBOX/.second-brain/audit-log.jsonl")"
+echo "$ROW_R4" | grep -q 'count=1' || fail "R4: expected count=1: $ROW_R4"
+pass "R4: a hook_cancelled attachment recorded only inside a subagent transcript is counted"
+
+# R5: an UNCHANGED subagent file is not re-counted on a later Stop (per-file watermark
+# holds, no double count), but a subagent file that GROWS with a genuinely new
+# cancellation IS counted on the Stop after it grows (the watermark advances forward,
+# not "never again").
+HC_ROWS_AFTER_R4=$(grep -c 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl")
+cat >> "$T_R4" <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"still no new cancellations"}]}}
+EOF
+stop_payload "r4-session" | "$SCRIPT" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "R5: second Stop non-zero exit ($RC)"
+HC_ROWS_AFTER_R5A=$(grep -c 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl")
+[ "$HC_ROWS_AFTER_R5A" -eq "$HC_ROWS_AFTER_R4" ] || fail "R5: an unchanged subagent file was re-counted on a later Stop ($HC_ROWS_AFTER_R4 -> $HC_ROWS_AFTER_R5A -- double count)"
+cat >> "$SUBDIR_R4/agent-a1.jsonl" <<'EOF'
+{"attachment":{"type":"hook_cancelled","hookName":"PreToolUse:Write","command":"bash \"C:/plugin/scripts/persona-tool-guard.sh\"","durationMs":1600,"timedOut":true,"timeoutMs":1500},"type":"attachment"}
+EOF
+cat >> "$T_R4" <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"even more"}]}}
+EOF
+stop_payload "r4-session" | "$SCRIPT" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "R5: third Stop non-zero exit ($RC)"
+ROW_R5=$(grep 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl" | grep 'script=persona-tool-guard.sh')
+[ -n "$ROW_R5" ] || fail "R5: a NEW cancellation appended to an already-seen subagent file was never counted: $(cat "$SANDBOX/.second-brain/audit-log.jsonl")"
+pass "R5: an unchanged subagent file is not re-counted (per-file watermark), but new lines appended later are"
+
+# R5b (H2): TWO subagent files. The old per-file pairs were built with $(printf ...), which
+# strips the trailing newline, so the pairs fused into one garbage line, sub_scanned came
+# back {} and the next Stop re-logged the same cancellation. Both files must be recorded,
+# and a second Stop must not re-count.
+init_sandbox "r5b-two-subagents"
+T_R5B="$SANDBOX/transcript/session.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' > "$T_R5B"
+SUBDIR_R5B="${T_R5B%.jsonl}/subagents"
+mkdir -p "$SUBDIR_R5B"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"w"}}' \
+  '{"attachment":{"type":"hook_cancelled","hookName":"PreToolUse:Edit","command":"bash \"C:/p/scripts/symlink-guard.sh\"","durationMs":4200,"timedOut":true,"timeoutMs":3000},"type":"attachment"}' \
+  > "$SUBDIR_R5B/agent-a1.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"w2"}}' > "$SUBDIR_R5B/agent-b2.jsonl"
+stop_payload "r5b-session" | "$SCRIPT" >/dev/null 2>&1
+HCS_R5B="$SANDBOX/.second-brain/.hook-cancelled-state-r5b-session.json"
+jq -e '.sub_scanned == {"agent-a1.jsonl": 2, "agent-b2.jsonl": 1}' "$HCS_R5B" >/dev/null 2>&1 \
+  || fail "R5b: sub_scanned must record BOTH subagent files with their line counts: $(cat "$HCS_R5B" 2>/dev/null)"
+R5B_ROWS1=$(grep -c 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl")
+[ "$R5B_ROWS1" -eq 1 ] || fail "R5b: expected 1 hook-cancelled row after Stop 1, got $R5B_ROWS1"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}' >> "$T_R5B"
+stop_payload "r5b-session" | "$SCRIPT" >/dev/null 2>&1
+R5B_ROWS2=$(grep -c 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl")
+[ "$R5B_ROWS2" -eq 1 ] || fail "R5b: a second Stop re-logged an already-counted subagent cancellation ($R5B_ROWS1 -> $R5B_ROWS2 rows)"
+pass "R5b: two subagent files both get per-file watermarks; a second Stop does not re-count"
+
+# R6 (controller follow-up item 3): $BRAIN_DIR/.injected/<sid>.subagent.tsv miss markers
+# -- a start with no matching end is a counted miss; re-reading an UNCHANGED tsv on a
+# later Stop reproduces the SAME numbers (idempotent, recomputed fresh, never accumulated).
+init_sandbox "r6-subagent-start-miss"
+T_R6="$SANDBOX/transcript/session.jsonl"
+cat > "$T_R6" <<'EOF'
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}
+EOF
+mkdir -p "$SANDBOX/.second-brain/.injected"
+SUBTSV_R6="$SANDBOX/.second-brain/.injected/r6-session.subagent.tsv"
+{
+  printf 'start\tagentA\n'
+  printf 'end\tagentA\tok\tdone\n'
+  printf 'start\tagentB\n'
+  printf 'start\t-\n'
+  printf 'start\t-\n'
+  printf 'end\t-\tok\tone-of-two-dash-starts-ended\n'
+} > "$SUBTSV_R6"
+stop_payload "r6-session" | "$SCRIPT" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "R6: Stop non-zero exit ($RC)"
+ROW_R6=$(grep 'gate=subagent-start-miss' "$SANDBOX/.second-brain/audit-log.jsonl" | tail -1)
+[ -n "$ROW_R6" ] || fail "R6: no gate=subagent-start-miss row: $(cat "$SANDBOX/.second-brain/audit-log.jsonl")"
+# agentA started+ended (matched, not a miss). agentB started, never ended (miss=1). Two
+# "-" starts, one "-" end -> 1 unmatched anonymous start (miss+=1). miss=2, starts=4.
+echo "$ROW_R6" | grep -q 'count=2' || fail "R6: expected count=2 (agentB miss + 1 unmatched anonymous start): $ROW_R6"
+echo "$ROW_R6" | grep -q 'starts=4' || fail "R6: expected starts=4: $ROW_R6"
+pass "R6: subagent-start-miss counts a named miss plus an unmatched anonymous start"
+stop_payload "r6-session" | "$SCRIPT" >/dev/null 2>&1
+ROW_R6B=$(grep 'gate=subagent-start-miss' "$SANDBOX/.second-brain/audit-log.jsonl" | tail -1)
+echo "$ROW_R6B" | grep -q 'count=2' || fail "R6: re-reading an UNCHANGED subagent.tsv should still show count=2 (not accumulated): $ROW_R6B"
+echo "$ROW_R6B" | grep -q 'starts=4' || fail "R6: re-reading an UNCHANGED subagent.tsv should still show starts=4 (not doubled): $ROW_R6B"
+pass "R6: re-reading an unchanged subagent.tsv on a later Stop reproduces the same numbers (idempotent, no double count)"
+
+# R7 (H1 aggregate byte cap): the subagent scan reads at most SB_SUBAGENT_SCAN_MAX_BYTES
+# per Stop. A file past the cap is skipped WHOLE (never truncated-and-scanned) with a loud
+# error-log row, while a later file that still fits is scanned; the skipped file keeps
+# its watermark and the scan mark does not advance, so the next Stop (cap lifted) counts
+# its record exactly once and does not re-count the file already scanned.
+init_sandbox "r7-byte-cap"
+T_R7="$SANDBOX/transcript/session.jsonl"
+cat > "$T_R7" <<'EOF'
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"dispatch"}]}}
+EOF
+SUBDIR_R7="${T_R7%.jsonl}/subagents"
+mkdir -p "$SUBDIR_R7"
+{
+  printf '%s\n' '{"attachment":{"type":"hook_cancelled","hookName":"PreToolUse:Edit","command":"bash \"C:/plugin/scripts/big-guard.sh\"","durationMs":9999,"timedOut":true,"timeoutMs":3000},"type":"attachment"}'
+  awk 'BEGIN{p="x"; while (length(p) < 6000) p = p p; printf "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"%s\"}}\n", p}'
+} > "$SUBDIR_R7/agent-big.jsonl"
+printf '%s\n' '{"attachment":{"type":"hook_cancelled","hookName":"PreToolUse:Edit","command":"bash \"C:/plugin/scripts/small-guard.sh\"","durationMs":10,"timedOut":true,"timeoutMs":3000},"type":"attachment"}' \
+  > "$SUBDIR_R7/agent-small.jsonl"
+rm -f "$SANDBOX/.second-brain/error-log.jsonl" "$SANDBOX/.second-brain/audit-log.jsonl"
+stop_payload "r7-session" | SB_SUBAGENT_SCAN_MAX_BYTES=4000 "$SCRIPT" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "R7: stop-extract must stay fail-soft (exit 0) when the byte cap trips, got $RC"
+grep -q 'aggregate byte cap 4000B reached; skipped 1 subagent transcript(s)' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  || fail "R7: no loud error-log row for the byte-cap skip: $(cat "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null)"
+grep -q 'first agent-big.jsonl' "$SANDBOX/.second-brain/error-log.jsonl" || fail "R7: the skip row must name the skipped file"
+grep -q 'script=big-guard.sh' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+  && fail "R7: the capped file's hook_cancelled record was scanned anyway (cap not enforced)"
+grep -q 'script=small-guard.sh' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+  || fail "R7: a file that still fits under the cap must be scanned: $(cat "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null)"
+ls "$SANDBOX/.second-brain"/.subagent-scan-mark-r7-session* >/dev/null 2>&1 \
+  && fail "R7: the scan mark must not advance (or linger as .new) after a capped Stop"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"next"}]}}' >> "$T_R7"
+stop_payload "r7-session" | "$SCRIPT" >/dev/null 2>&1
+[ "$(grep -c 'script=big-guard.sh' "$SANDBOX/.second-brain/audit-log.jsonl")" -eq 1 ] \
+  || fail "R7: once the cap is lifted the skipped file's record must be counted exactly once"
+[ "$(grep -c 'script=small-guard.sh' "$SANDBOX/.second-brain/audit-log.jsonl")" -eq 1 ] \
+  || fail "R7: the file scanned under the cap must not be re-counted on the next Stop"
+pass "R7: the aggregate byte cap skips whole files loudly, keeps their watermarks, and the next Stop resumes exactly once"
+
+# ---- helpers for the hook_cancelled record tests below (real attachment shape, copied
+# from ~/.claude/projects/*/*.jsonl: type/hookName/toolUseID/hookEvent/command/durationMs/
+# timedOut/timeoutMs; real PostToolUse cancellations carry ONLY type/hookName/toolUseID/
+# hookEvent — no command, no duration, no timedOut) ----
+hc_rec() {  # <hookName> <command|""> <durationMs> <timedOut>: one attachment line via jq (no hand escaping)
+  jq -nc --arg h "$1" --arg c "$2" --argjson d "$3" --argjson t "$4" \
+    '{type:"attachment", attachment:({type:"hook_cancelled", hookName:$h, toolUseID:"toolu_01X", hookEvent:($h | split(":")[0])}
+      + (if $c == "" then {} else {command:$c, durationMs:$d, timedOut:$t, timeoutMs:5000} end))}'
+}
+hc_row() { grep 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null | grep -F "$1"; }
+
+# R8 (M2 + T5 + SEC-L4): script= is the LAST name.sh/name.js in the command (past the
+# hook-timer.sh wrapper; no trailing quote/argument); a record with no command is
+# script=- max_ms=- keyed by its event name; kind= separates timedOut:true from every
+# other cancellation (both counted); hook=/script= are reduced to [A-Za-z0-9:._-] so a
+# crafted hookName/command cannot inject its own ` count=` token into the row.
+init_sandbox "r8-real-shapes"
+T_R8="$SANDBOX/transcript/session.jsonl"
+{
+  printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}'
+  hc_rec "PreToolUse:Edit" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/symlink-guard.sh"' 6715 true
+  hc_rec "PreToolUse:Edit" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/symlink-guard.sh"' 5100 true
+  hc_rec "Stop" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh" 45 "${CLAUDE_PLUGIN_ROOT}/scripts/stop-extract.sh"' 97493 true
+  hc_rec "PreToolUse:Agent" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/protocol-guard.sh" pre' 3500 true
+  hc_rec "SessionStart:startup" 'bash ${CLAUDE_PLUGIN_ROOT}/scripts/discover-installed.sh' 226689 true
+  hc_rec "PreToolUse:Write" 'bash "C:\Users\me\plugin\scripts\win-guard.sh"' 3100 true
+  hc_rec "PreToolUse:Read" 'node "${CLAUDE_PLUGIN_ROOT}/mcp/dist/read-hook.js" --fast' 2000 true
+  hc_rec "PreToolUse:Bash" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh"' 300 false
+  hc_rec "PostToolUse:Bash" "" 0 null
+  hc_rec "PostToolUse:Bash" "" 0 null
+  hc_rec "PreToolUse:Edit count=999 sid=spoof" 'bash "/x/count=999.sh"' 10 true
+  printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}'
+} > "$T_R8"
+stop_payload "r8-session" | "$SCRIPT" >/dev/null 2>&1
+hc_row 'hook=PreToolUse:Edit script=symlink-guard.sh kind=timeout count=2 max_ms=6715 ' >/dev/null || fail "R8: symlink-guard row wrong: $(hc_row symlink-guard)"
+hc_row 'hook=Stop script=stop-extract.sh kind=timeout count=1 max_ms=97493 ' >/dev/null || fail "R8: the hook-timer.sh wrapper must resolve to the wrapped script: $(hc_row 'hook=Stop')"
+hc_row 'hook=PreToolUse:Agent script=protocol-guard.sh kind=timeout count=1 ' >/dev/null || fail "R8: 'protocol-guard.sh\" pre' must label as script=protocol-guard.sh: $(hc_row 'PreToolUse:Agent')"
+hc_row 'hook=SessionStart:startup script=discover-installed.sh kind=timeout count=1 max_ms=226689 ' >/dev/null || fail "R8: unquoted command row wrong: $(hc_row SessionStart)"
+hc_row 'hook=PreToolUse:Write script=win-guard.sh ' >/dev/null || fail "R8: a Windows backslash path must resolve to its file name: $(hc_row 'PreToolUse:Write')"
+hc_row 'hook=PreToolUse:Read script=read-hook.js ' >/dev/null || fail "R8: a node .js hook must label as script=read-hook.js: $(hc_row 'PreToolUse:Read')"
+hc_row 'hook=PreToolUse:Bash script=persona-tool-guard.sh kind=other count=1 max_ms=300 ' >/dev/null || fail "R8: a timedOut:false cancellation must be COUNTED as kind=other: $(hc_row 'PreToolUse:Bash')"
+hc_row 'hook=PostToolUse:Bash script=- kind=other count=2 max_ms=- ' >/dev/null || fail "R8: no-command records must group by event as script=- max_ms=-: $(hc_row 'PostToolUse:Bash')"
+hc_row 'script=null' >/dev/null && fail "R8: script=null leaked into a row: $(hc_row 'script=null')"
+SPOOF_R8=$(hc_row 'spoof')
+[ -n "$SPOOF_R8" ] || fail "R8: the crafted record must still be counted (sanitized), not dropped"
+[ "$(printf '%s' "$SPOOF_R8" | grep -o ' count=' | wc -l | tr -d ' ')" -eq 1 ] || fail "R8: a hookName/command carrying ' count=' injected a second count token: $SPOOF_R8"
+echo "$SPOOF_R8" | grep -q 'hook=PreToolUse:Edit_count_999_sid_spoof script=count_999.sh kind=timeout count=1 ' || fail "R8: hook=/script= must be reduced to [A-Za-z0-9:._-]: $SPOOF_R8"
+pass "R8: real-shaped hook_cancelled records: last-script labels, script=- for no-command, kind=timeout|other, sanitized hook=/script= tokens"
+
+# R9 (H2/SF-H2): tolerant per-record parsing — a non-object line, a non-object attachment,
+# wrong-typed fields and a torn line among valid records must not blank the window: the
+# valid records still produce their rows.
+init_sandbox "r9-bad-records"
+T_R9="$SANDBOX/transcript/session.jsonl"
+{
+  printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}'
+  hc_rec "PreToolUse:Edit" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/symlink-guard.sh"' 6000 true
+  printf '%s\n' '["hook_cancelled"]'
+  printf '%s\n' '"hook_cancelled"'
+  printf '%s\n' '{"type":"attachment","attachment":"hook_cancelled"}'
+  printf '%s\n' '{"type":"attachment","attachment":{"type":"hook_cancelled","hookName":7,"command":5,"durationMs":"slow"}}'
+  printf '%s\n' '{"type":"attachment","attachment":{"type":"hook_cancelled","hookName":"PreToolUse:Edit","comm'
+  hc_rec "PreToolUse:Write" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/persona-tool-guard.sh"' 1600 true
+  printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}'
+} > "$T_R9"
+rm -f "$SANDBOX/.second-brain/error-log.jsonl"
+stop_payload "r9-session" | "$SCRIPT" >/dev/null 2>&1
+hc_row 'script=symlink-guard.sh kind=timeout count=1 max_ms=6000 ' >/dev/null || fail "R9: a valid record before the bad ones lost its row: $(cat "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null)"
+hc_row 'script=persona-tool-guard.sh kind=timeout count=1 max_ms=1600 ' >/dev/null || fail "R9: a valid record after the bad ones lost its row"
+hc_row 'hook=unknown script=- kind=other count=1 max_ms=- ' >/dev/null || fail "R9: a wrong-typed hook_cancelled record should degrade to hook=unknown script=- (counted, not crash the window): $(hc_row unknown)"
+grep -q 'grouping jq exited' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && fail "R9: bad records must not fail the grouping pass"
+pass "R9: non-object/torn/wrong-typed records degrade per record; the valid rows survive"
+
+# R10 (SF-H2): when the grouping jq FAILS, the failure is logged loudly and neither
+# watermark advances — the next (healthy) Stop counts the same records exactly once.
+init_sandbox "r10-jq-fail"
+T_R10="$SANDBOX/transcript/session.jsonl"
+{
+  printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}'
+  hc_rec "PreToolUse:Edit" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/retry-guard.sh"' 6000 true
+} > "$T_R10"
+REAL_JQ=$(command -v jq)
+mkdir -p "$SANDBOX/jqfail-stub"
+cat > "$SANDBOX/jqfail-stub/jq" <<EOF
+#!/bin/bash
+# Fails ONLY the hook_cancelled grouping program; every other jq call runs for real.
+case "\$*" in *group_by*hook_cancelled*|*hook_cancelled*group_by*) echo "stub: forced failure" >&2; exit 5 ;; esac
+exec "$REAL_JQ" "\$@"
+EOF
+chmod +x "$SANDBOX/jqfail-stub/jq"
+rm -f "$SANDBOX/.second-brain/error-log.jsonl"
+stop_payload "r10-session" | PATH="$SANDBOX/jqfail-stub:$PATH" "$SCRIPT" >/dev/null 2>&1
+grep -q 'hook-cancelled: grouping jq exited 5' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  || fail "R10: a failed grouping jq must be logged loudly with its exit code: $(cat "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null)"
+hc_row 'retry-guard.sh' >/dev/null && fail "R10: no row can come out of a failed grouping pass"
+jq -e '.scanned_to' "$SANDBOX/.second-brain/.hook-cancelled-state-r10-session.json" >/dev/null 2>&1 \
+  && fail "R10: the hook-cancelled watermark advanced past a window whose grouping FAILED: $(cat "$SANDBOX/.second-brain/.hook-cancelled-state-r10-session.json")"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"retry"}]}}' >> "$T_R10"
+stop_payload "r10-session" | "$SCRIPT" >/dev/null 2>&1
+[ "$(hc_row 'retry-guard.sh' | grep -c 'count=1 ')" -eq 1 ] || fail "R10: the healthy retry must count the record exactly once: $(hc_row retry-guard.sh)"
+pass "R10: a failed grouping jq is loud, advances no watermark, and the retry counts the record once"
+
+# R11 (M1): a line appended BETWEEN the line-count capture and the scan is counted once
+# across two Stops, for the parent AND a subagent file. A jq stub fires once, on the first
+# jq call that reads the telemetry state (its program names scanned_to) — after the
+# parent's TOTAL_LINES capture and after the subagent wc capture, before either scan —
+# and appends one hook_cancelled line to each file. The slices must stop at the captured
+# counts, so Stop 1 counts neither line and Stop 2 counts each exactly once.
+init_sandbox "r11-capture-race"
+T_R11="$SANDBOX/transcript/session.jsonl"
+SUBDIR_R11="${T_R11%.jsonl}/subagents"
+mkdir -p "$SUBDIR_R11"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}' > "$T_R11"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"w"}}' > "$SUBDIR_R11/agent-r1.jsonl"
+hc_rec "PreToolUse:Edit" 'bash "/p/scripts/race-parent.sh"' 100 true > "$SANDBOX/race-parent.line"
+hc_rec "PreToolUse:Edit" 'bash "/p/scripts/race-sub.sh"' 100 true > "$SANDBOX/race-sub.line"
+: > "$SANDBOX/race.flag"
+mkdir -p "$SANDBOX/race-stub"
+cat > "$SANDBOX/race-stub/jq" <<EOF
+#!/bin/bash
+if [ -f "$SANDBOX/race.flag" ]; then
+  case "\$*" in *scanned_to*)
+    rm -f "$SANDBOX/race.flag"
+    cat "$SANDBOX/race-parent.line" >> "$T_R11"
+    cat "$SANDBOX/race-sub.line" >> "$SUBDIR_R11/agent-r1.jsonl" ;;
+  esac
+fi
+exec "$REAL_JQ" "\$@"
+EOF
+chmod +x "$SANDBOX/race-stub/jq"
+stop_payload "r11-session" | PATH="$SANDBOX/race-stub:$PATH" "$SCRIPT" >/dev/null 2>&1
+[ -f "$SANDBOX/race.flag" ] && fail "R11: fixture bug — the race stub never fired"
+hc_row 'race-' >/dev/null && fail "R11: Stop 1 counted a line appended after its line-count capture: $(hc_row 'race-')"
+stop_payload "r11-session" | "$SCRIPT" >/dev/null 2>&1
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"y"}]}}' >> "$T_R11"
+stop_payload "r11-session" | "$SCRIPT" >/dev/null 2>&1
+[ "$(hc_row 'script=race-parent.sh' | grep -c 'count=1 ')" -eq 1 ] || fail "R11: the parent line appended mid-Stop must be counted exactly once across Stops: $(hc_row race-parent)"
+[ "$(hc_row 'script=race-sub.sh' | grep -c 'count=1 ')" -eq 1 ] || fail "R11: the subagent line appended mid-Stop must be counted exactly once across Stops: $(hc_row race-sub)"
+pass "R11: lines appended between capture and scan are counted once across Stops (parent and subagent slices are bounded)"
+
+# R12 (H1 volume): 20 subagent files, >=30 MB. Stop 1 scans them once and records every
+# file's full line count in BOTH per-file watermark maps. Structural no-re-read proof for
+# Stop 2: after Stop 1 a probe hook_cancelled line is appended to one file and its mtime
+# set back to 2020 (older than the scan mark) — a Stop that re-reads unchanged files would
+# count it; a Stop that skips them cannot. Stop 3 (file touched to now) then counts the
+# probe exactly once, proving the probe was countable. Plus a generous wall bound.
+init_sandbox "r12-volume"
+T_R12="$SANDBOX/transcript/session.jsonl"
+SUBDIR_R12="${T_R12%.jsonl}/subagents"
+mkdir -p "$SUBDIR_R12"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"dispatching"}]}}' > "$T_R12"
+printf '{"kind":"wiki","id":"vol-page-%d"}\n' 1 2 3 4 5 > "$SANDBOX/.second-brain/.injected-manifest-r12-session.jsonl"
+R12_N=20
+for n in $(seq 1 "$R12_N"); do
+  awk -v n="$n" 'BEGIN{
+    pad = "x"; while (length(pad) < 16000) pad = pad pad
+    printf "{\"parentUuid\":null,\"isSidechain\":true,\"agentId\":\"v%d\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"work\"}}\n", n
+    for (i = 1; i <= 100; i++) {
+      printf "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t%d\",\"name\":\"Read\",\"input\":{\"file_path\":\"C:/repo/src/f%d.ts\"}}]}}\n", i, i
+      printf "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t%d\",\"content\":\"%s\"}]}}\n", i, pad
+    }
+    printf "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"name\":\"mcp__plugin_second-brain_knowledge-base__knowledge_fetch\",\"input\":{\"slug\":\"vol-page-%d\"}}]}}\n", (n % 5) + 1
+    printf "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_cancelled\",\"hookName\":\"PreToolUse:Read\",\"toolUseID\":\"t1\",\"hookEvent\":\"PreToolUse\",\"command\":\"bash \\\"/p/scripts/vol-guard.sh\\\"\",\"durationMs\":6000,\"timedOut\":true,\"timeoutMs\":5000}}\n"
+  }' > "$SUBDIR_R12/agent-v$n.jsonl"
+done
+touch -t 202001010000 "$SUBDIR_R12"/agent-v*.jsonl
+R12_BYTES=$(cat "$SUBDIR_R12"/agent-v*.jsonl | wc -c | tr -d ' ')
+[ "$R12_BYTES" -ge 31457280 ] || fail "R12: fixture must total >= 30 MB, got $R12_BYTES bytes"
+R12_LC=$(wc -l < "$SUBDIR_R12/agent-v1.jsonl" | tr -d ' ')
+stop_payload "r12-session" | "$SCRIPT" >/dev/null 2>&1
+hc_row "script=vol-guard.sh kind=timeout count=$R12_N " >/dev/null || fail "R12: Stop 1 should count one cancellation per file ($R12_N): $(hc_row vol-guard)"
+grep 'gate=value-loop' "$SANDBOX/.second-brain/audit-log.jsonl" | grep 'sid=r12-session' | tail -1 | grep -q 'read=5 .*sub_read=5 elapsed_ms=[0-9]' \
+  || fail "R12: Stop 1 value-loop row should show read=5 sub_read=5 and elapsed_ms: $(grep 'gate=value-loop' "$SANDBOX/.second-brain/audit-log.jsonl" | tail -1)"
+for R12_ST in ".value-loop-state-r12-session.json" ".hook-cancelled-state-r12-session.json"; do
+  jq -e --argjson n "$R12_N" --argjson lc "$R12_LC" '(.sub_scanned | length) == $n and ([.sub_scanned[]] | all(. == $lc))' \
+    "$SANDBOX/.second-brain/$R12_ST" >/dev/null 2>&1 \
+    || fail "R12: $R12_ST must hold all $R12_N files at their full line count $R12_LC: $(jq -c .sub_scanned "$SANDBOX/.second-brain/$R12_ST" 2>/dev/null)"
+done
+[ -f "$SANDBOX/.second-brain/.subagent-scan-mark-r12-session" ] || fail "R12: the scan mark must advance after a complete scan"
+: > "$SANDBOX/r12.ref"; touch -t 202001010000 "$SANDBOX/r12.ref"
+hc_rec "PreToolUse:Read" 'bash "/p/scripts/probe-guard.sh"' 50 true >> "$SUBDIR_R12/agent-v7.jsonl"
+touch -r "$SANDBOX/r12.ref" "$SUBDIR_R12/agent-v7.jsonl"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"turn 2"}]}}' >> "$T_R12"
+R12_T0=$(date +%s)
+stop_payload "r12-session" | "$SCRIPT" >/dev/null 2>&1
+R12_WALL=$(( $(date +%s) - R12_T0 ))
+hc_row 'probe-guard.sh' >/dev/null && fail "R12: Stop 2 re-read an unchanged (older-than-mark) subagent file"
+[ "$(grep 'gate=hook-cancelled' "$SANDBOX/.second-brain/audit-log.jsonl" | grep -c 'vol-guard.sh')" -eq 1 ] || fail "R12: Stop 2 re-counted the Stop-1 cancellations"
+[ "$R12_WALL" -lt 45 ] || fail "R12: Stop 2 over unchanged subagent files took ${R12_WALL}s (>= the 45 s hook budget)"
+touch "$SUBDIR_R12/agent-v7.jsonl"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"turn 3"}]}}' >> "$T_R12"
+stop_payload "r12-session" | "$SCRIPT" >/dev/null 2>&1
+[ "$(hc_row 'script=probe-guard.sh' | grep -c 'count=1 ')" -eq 1 ] || fail "R12: once the file is really modified its new line must be counted exactly once: $(hc_row probe-guard)"
+jq -e --argjson lc "$R12_LC" '.sub_scanned["agent-v7.jsonl"] == ($lc + 1)' "$SANDBOX/.second-brain/.hook-cancelled-state-r12-session.json" >/dev/null 2>&1 \
+  || fail "R12: agent-v7.jsonl's watermark must advance by exactly the one new line"
+pass "R12: ${R12_N} files / ${R12_BYTES} B — Stop 1 records full per-file counts, Stop 2 re-reads nothing (${R12_WALL}s), Stop 3 counts the new line once"
+
+# R13 (T11 e2e + SEC-L4): the REAL protocol-guard.sh subagent mode writes the start/end
+# markers and stop-extract reads them. Agents A and B run to completion (start+end); agent
+# C's hook is killed while jq is still starting (the B2 load case: its start marker is
+# written before the first spawn, the end never comes) — one miss out of three starts.
+init_sandbox "r13-e2e-markers"
+T_R13="$SANDBOX/transcript/session.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}' > "$T_R13"
+R13_SID="1d7c6b1a-3f0e-4c2b-9d1e-e2e000000013"
+pg_sub() {  # <session_id> <agent_id> <agent_type>
+  jq -nc --arg s "$1" --arg a "$2" --arg t "$3" '{hook_event_name:"SubagentStart", session_id:$s, agent_id:$a, agent_type:$t, cwd:"/"}' \
+    | HOME="$SANDBOX" BRAIN_DIR="$SANDBOX/.second-brain" bash "$REPO_ROOT/scripts/protocol-guard.sh" subagent >/dev/null 2>&1
+}
+pg_sub "$R13_SID" agentA second-brain:raw-drainer
+pg_sub "$R13_SID" agentB Plan
+mkdir -p "$SANDBOX/hang-stub"
+cat > "$SANDBOX/hang-stub/jq" <<EOF
+#!/bin/bash
+echo \$\$ > "$SANDBOX/hang-stub/jq.pid"
+exec sleep 30
+EOF
+chmod +x "$SANDBOX/hang-stub/jq"
+jq -nc --arg s "$R13_SID" '{hook_event_name:"SubagentStart", session_id:$s, agent_id:"agentC", agent_type:"general-purpose", cwd:"/"}' \
+  > "$SANDBOX/r13-c.json"
+( cd / && PATH="$SANDBOX/hang-stub:$PATH" HOME="$SANDBOX" BRAIN_DIR="$SANDBOX/.second-brain" \
+    exec bash "$REPO_ROOT/scripts/protocol-guard.sh" subagent < "$SANDBOX/r13-c.json" >/dev/null 2>&1 ) &
+R13_PID=$!
+R13_TSV="$SANDBOX/.second-brain/.injected/$R13_SID.subagent.tsv"
+for _i in $(seq 1 100); do
+  grep -q "^start${TAB}agentC\$" "$R13_TSV" 2>/dev/null && [ -f "$SANDBOX/hang-stub/jq.pid" ] && break
+  sleep 0.1
+done
+kill -9 "$R13_PID" 2>/dev/null; wait "$R13_PID" 2>/dev/null
+[ -f "$SANDBOX/hang-stub/jq.pid" ] && kill -9 "$(cat "$SANDBOX/hang-stub/jq.pid")" 2>/dev/null
+grep -q "^start${TAB}agentC\$" "$R13_TSV" || fail "R13: fixture — the killed hook never wrote its start marker: $(cat "$R13_TSV" 2>/dev/null)"
+grep -q "^end${TAB}agentA${TAB}" "$R13_TSV" && grep -q "^end${TAB}agentB${TAB}" "$R13_TSV" \
+  || fail "R13: fixture — protocol-guard.sh did not write end markers for the completed agents: $(cat "$R13_TSV")"
+stop_payload "$R13_SID" | "$SCRIPT" >/dev/null 2>&1
+ROW_R13=$(grep 'gate=subagent-start-miss' "$SANDBOX/.second-brain/audit-log.jsonl" | tail -1)
+echo "$ROW_R13" | grep -q 'count=1 starts=3 ' || fail "R13: expected count=1 starts=3 from the real markers: $ROW_R13 (tsv: $(cat "$R13_TSV"))"
+# SEC-L4: a session_id outside [A-Za-z0-9_-] — the writer keys the file by the SANITIZED
+# sid, so the reader must too (the raw id would look for a file that never exists).
+R13_DOTSID="r13.dotted-sid"
+pg_sub "$R13_DOTSID" agentD Plan
+[ -f "$SANDBOX/.second-brain/.injected/r13dotted-sid.subagent.tsv" ] || fail "R13: fixture — protocol-guard.sh should key the marker file by the sanitized sid"
+stop_payload "$R13_DOTSID" | "$SCRIPT" >/dev/null 2>&1
+grep 'gate=subagent-start-miss' "$SANDBOX/.second-brain/audit-log.jsonl" | grep -q 'count=0 starts=1 sid=r13dotte' \
+  || fail "R13: stop-extract must read the marker file under the sanitized sid: $(grep 'gate=subagent-start-miss' "$SANDBOX/.second-brain/audit-log.jsonl")"
+pass "R13: real protocol-guard.sh markers -> gate=subagent-start-miss count=1 starts=3 (one killed hook); sanitized sid keys the file"
+
+# R14 (DA #4): Workflow subagents write to subagents/workflows/wf_<id>/agent-*.jsonl, one level
+# below the flat files the scan globbed — a PreToolUse guard cancelled inside a workflow agent
+# (a real one: flow-guard timedOut after 6137 ms) was never counted. Here a nested file and a
+# flat one, each with one cancellation, and a flat mark left by a scan from BEFORE the nested
+# layer was read (newer than the nested file): the nested file must still be read, both counted
+# once, keyed by the path relative to subagents/ (the flat one keeps its basename key), and a
+# second Stop re-counts neither; a real append to the nested file is counted once more.
+init_sandbox "r14-workflow-subagents"
+T_R14="$SANDBOX/transcript/session.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' > "$T_R14"
+SUBDIR_R14="${T_R14%.jsonl}/subagents"
+WF_R14="$SUBDIR_R14/workflows/wf_9452ac71-8b2"
+mkdir -p "$WF_R14"
+{ printf '%s\n' '{"type":"user","message":{"role":"user","content":"w"}}'
+  hc_rec "PreToolUse:Bash" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/flow-guard.sh"' 6137 true; } > "$WF_R14/agent-a023fdf935f7b9191.jsonl"
+{ printf '%s\n' '{"type":"user","message":{"role":"user","content":"f"}}'
+  hc_rec "PreToolUse:Edit" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/symlink-guard.sh"' 5200 true; } > "$SUBDIR_R14/agent-flat.jsonl"
+# A pre-F8 mark (2021): newer than the nested file (2020), older than the flat one (now).
+touch -t 202001010000 "$WF_R14/agent-a023fdf935f7b9191.jsonl"
+: > "$SANDBOX/.second-brain/.subagent-scan-mark-r14-session"
+touch -t 202101010000 "$SANDBOX/.second-brain/.subagent-scan-mark-r14-session"
+stop_payload "r14-session" | "$SCRIPT" >/dev/null 2>&1
+hc_row 'hook=PreToolUse:Bash script=flow-guard.sh kind=timeout count=1 max_ms=6137 ' >/dev/null \
+  || fail "R14: the workflow subagent's cancellation must be counted despite an older flat mark: $(cat "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null)"
+HCS_R14="$SANDBOX/.second-brain/.hook-cancelled-state-r14-session.json"
+jq -e '.sub_scanned["workflows/wf_9452ac71-8b2/agent-a023fdf935f7b9191.jsonl"] == 2' "$HCS_R14" >/dev/null 2>&1 \
+  || fail "R14: the nested file's watermark must be keyed by its path relative to subagents/: $(jq -c .sub_scanned "$HCS_R14" 2>/dev/null)"
+[ -f "$SANDBOX/.second-brain/.subagent-scan-mark-wf-r14-session" ] || fail "R14: a complete scan must stamp the workflows/ mark"
+# The flat file is newer than its mark, so it was read too, under its basename key.
+jq -e '.sub_scanned["agent-flat.jsonl"] == 2' "$HCS_R14" >/dev/null 2>&1 \
+  || fail "R14: the flat file must keep its basename key: $(jq -c .sub_scanned "$HCS_R14" 2>/dev/null)"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}' >> "$T_R14"
+stop_payload "r14-session" | "$SCRIPT" >/dev/null 2>&1
+[ "$(hc_row 'script=flow-guard.sh' | wc -l | tr -d ' ')" -eq 1 ] || fail "R14: a second Stop re-counted the workflow cancellation: $(hc_row flow-guard)"
+[ "$(hc_row 'script=symlink-guard.sh' | wc -l | tr -d ' ')" -eq 1 ] || fail "R14: a second Stop re-counted the flat cancellation: $(hc_row symlink-guard)"
+hc_rec "PreToolUse:Bash" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/flow-guard.sh"' 7000 true >> "$WF_R14/agent-a023fdf935f7b9191.jsonl"
+touch "$WF_R14/agent-a023fdf935f7b9191.jsonl"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"y"}]}}' >> "$T_R14"
+stop_payload "r14-session" | "$SCRIPT" >/dev/null 2>&1
+hc_row 'script=flow-guard.sh kind=timeout count=1 max_ms=7000 ' >/dev/null \
+  || fail "R14: a new cancellation appended to the workflow file must be counted once: $(hc_row flow-guard)"
+[ "$(hc_row 'script=flow-guard.sh' | wc -l | tr -d ' ')" -eq 2 ] || fail "R14: expected exactly 2 flow-guard rows after the append: $(hc_row flow-guard)"
+pass "R14: workflows/*/agent-*.jsonl cancellations are counted once, keyed relative to subagents/, past a pre-F8 flat mark"
+
+# L2: sb_rules_hard_lines must honor enabled:false. `(.enabled // true)` treats false as
+# absent and listed a disabled ask rule as enforced. Exercised on BOTH raw-file branches:
+# SB_RULES_LAYERS=off and the fallback when sb_rules_effective is not defined.
+init_sandbox "l2-enabled-false"
+cat > "$SANDBOX/.second-brain/persona-rules.json" <<'EOF'
+{"rules":[
+  {"name":"on-ask","action":"ask","reason":"stays"},
+  {"name":"off-ask","action":"ask","enabled":false,"reason":"disabled"},
+  {"name":"null-deny","action":"deny","enabled":null,"reason":"null means default-on"}
+]}
+EOF
+L2_OFF=$(export BRAIN_DIR="$SANDBOX/.second-brain" SB_RULES_LAYERS=off; source "$REPO_ROOT/scripts/lib.sh"; sb_rules_hard_lines "" 5)
+L2_FB=$(export BRAIN_DIR="$SANDBOX/.second-brain"; source "$REPO_ROOT/scripts/lib.sh"; unset -f sb_rules_effective; sb_rules_hard_lines "" 5)
+for L2_OUT in "$L2_OFF" "$L2_FB"; do
+  printf '%s\n' "$L2_OUT" | grep -q '^- on-ask: stays' || fail "L2: an enabled ask rule must be listed: $L2_OUT"
+  printf '%s\n' "$L2_OUT" | grep -q 'off-ask' && fail "L2: an enabled:false ask rule was listed as a hard rule: $L2_OUT"
+  printf '%s\n' "$L2_OUT" | grep -q '^- null-deny:' || fail "L2: enabled:null is default-on and must be listed: $L2_OUT"
+done
+pass "L2: sb_rules_hard_lines drops enabled:false rules (layers off and no-sb_rules_effective fallback)"
+
+# SF-M3: sb_archive_subagent_result checks its own write. A directory squatting on the
+# archive file name makes the redirect fail: the function must log loudly and return
+# nonzero instead of reporting success for a result it never wrote.
+init_sandbox "sfm3-archive-write"
+SFM3_F="$SANDBOX/.second-brain/transcripts/sub-aid1_test-slug_$(date +%Y-%m-%d).txt"
+mkdir -p "$SFM3_F"
+rm -f "$SANDBOX/.second-brain/error-log.jsonl"
+( export BRAIN_DIR="$SANDBOX/.second-brain"; source "$REPO_ROOT/scripts/lib.sh"
+  sb_archive_subagent_result aid1 general-purpose test-slug sess1 3 "the final answer" ) 2>/dev/null
+SFM3_RC=$?
+[ "$SFM3_RC" -ne 0 ] || fail "SF-M3: a failed archive write must return nonzero"
+# (Git-Bash can let the redirect onto the directory "succeed"; the size check catches that.)
+grep -qE 'sb_archive_subagent_result: (write failed|short write)' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null \
+  || fail "SF-M3: a failed archive write must be logged loudly: $(cat "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null)"
+rmdir "$SFM3_F"
+( export BRAIN_DIR="$SANDBOX/.second-brain"; source "$REPO_ROOT/scripts/lib.sh"
+  sb_archive_subagent_result aid1 general-purpose test-slug sess1 3 "the final answer" ) \
+  || fail "SF-M3: a good write must return 0"
+grep -q '^the final answer$' "$SFM3_F" || fail "SF-M3: the good write must hold the result"
+pass "SF-M3: sb_archive_subagent_result fails loud on a failed write and succeeds on a good one"
 
 echo "ALL PASS"

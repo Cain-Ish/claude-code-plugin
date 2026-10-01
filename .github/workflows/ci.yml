@@ -62,6 +62,50 @@ jobs:
         env:
           SB_RELEASE_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
 
+  linux-guards:
+    # 0.54.1: the full linux lane above stays off (CI time), but with it off the mcp gates (tsc,
+    # vitest, bundle-current) ran on NO lane, and two glibc-only guard slowdowns (an O(n^2) regex
+    # trim; a quadratic path strip) reached review because Linux ran nothing. This job restores the
+    # mcp gates plus the guard tests and the tests no other lane runs: a few minutes, not the
+    # ~20-minute full run-all.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Install mcp deps (lockfile-exact)
+        run: npm ci --prefix mcp
+      - name: Typecheck
+        run: cd mcp && npx tsc --noEmit
+      - name: Vitest
+        run: cd mcp && npm test
+        env:
+          SECOND_BRAIN_DISABLE_EMBEDDINGS: '1'
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'
+      - name: Bundle-current gate
+        run: bash tests/test-bundle-current.sh
+      - name: Guard, hook and no-other-lane tests on glibc bash
+        run: |
+          rc=0
+          for t in persona-tool-guard symlink-guard flow-guard wiki-write-guard guard-wiring \
+                   protocol-guard stop-verify-gate script-portability \
+                   discover-installed subagent-capture session-load-graph sar-summary \
+                   telemetry-loop transcript-archive real-kb-isolation jq-e-empty-guard; do
+            echo "::group::test-$t"
+            if bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi
+            echo "::endgroup::"
+          done
+          exit $rc
+      - name: Release version-bump tripwire
+        run: bash tests/test-release-version-bump.sh
+        env:
+          SB_RELEASE_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
+
   macos:
     # Closes the standing "run dream-lifecycle on real macOS" PROJECT.md item
     # without buying hardware: bash 3.2 + BSD userland are the actual targets
@@ -112,6 +156,24 @@ jobs:
         run: |
           /bin/bash tests/test-extraction-helpers.sh
           /bin/bash tests/test-merge-project-update.sh
+      # S0 (0.54.1): the PreToolUse guards' shared fast path has bash < 4.3 branches (the O(n^2)
+      # ${v//pat/rep} fallback, read -N absent before 4.1, CTLESC IFS) that ran on no CI lane --
+      # the devils-advocate pass found them unexercised (chronicle §3 skip class). The tests spawn
+      # hooks as plain `bash`, so a PATH shim pins that to /bin/bash 3.2 even if the image also
+      # ships a newer bash; the step fails if the shim does not take.
+      - name: PreToolUse guards + protocol/stop gates on bash 3.2
+        run: |
+          mkdir -p "$RUNNER_TEMP/bash32" && ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"
+          export PATH="$RUNNER_TEMP/bash32:$PATH"
+          bash -c 'echo "bash $BASH_VERSION"; [ "${BASH_VERSINFO[0]}" -lt 4 ]' || { echo "::error::PATH bash is not 3.2"; exit 1; }
+          rc=0
+          for t in persona-tool-guard symlink-guard flow-guard wiki-write-guard guard-wiring \
+                   protocol-guard stop-verify-gate; do
+            echo "::group::test-$t"
+            if /bin/bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi
+            echo "::endgroup::"
+          done
+          exit $rc
 
   windows:
     # V4 (docs/researchs/2026-09-26-borrow-ledger.md): Windows Git-Bash is the primary dev
@@ -120,7 +182,9 @@ jobs:
     # `shell: bash` here = Git for Windows bash (-eo pipefail); jq on this image is the native
     # Windows build (1.8.1, CRLF stdout) — the real CRLF class, not the stub.
     runs-on: windows-latest
-    timeout-minutes: 25
+    # Raised 25 -> 40 (0.54.1): the lane ran 19m48s and 21m36s before the S0 fix rounds added
+    # 300 KB / 1 MB / 50k-newline guard cases; a timeout would read as a hang, not a real failure.
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
@@ -143,8 +207,8 @@ jobs:
       - name: path, guard, jq-CRLF, exec-bit and continuity classes on real Git-Bash
         run: |
           rc=0
-          for t in normalize-path symlink-guard persona-tool-guard wiki-write-guard guard-wiring \
-                   jq-crlf-windows exec-bits session-load-compact merge-project-update \
+          for t in normalize-path symlink-guard persona-tool-guard wiki-write-guard flow-guard guard-wiring \
+                   protocol-guard jq-crlf-windows exec-bits session-load-compact merge-project-update \
                    project-plan-block stop-extract extraction-helpers; do
             echo "::group::test-$t"
             if bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi

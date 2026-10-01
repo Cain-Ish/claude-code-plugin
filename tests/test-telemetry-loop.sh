@@ -564,6 +564,27 @@ grep -q 'sb_manifest_add: rejected id' "$BRAIN/error-log.jsonl" 2>/dev/null \
   || fail "sb_manifest_add: expected a 'rejected id' error-log line for the quote-poisoned id"
 pass "sb_manifest_add rejects an id with a quote/backslash/control char, logs it, never forges the manifest row"
 
+# --- Test 15c: a long id list must not hang the hook that passes it. sb_manifest_add read its
+# ids through `done <<< "$ids"`, and an MSYS here-string of 65,537..~65,650 bytes blocks for good
+# — session-load (SessionStart), persona-context (every prompt) and protocol-guard (PreToolUse)
+# all call it. 3,279 ids of 19 chars put the text at 65,579 B. The subshell writing the
+# here-string is itself the blocked process, so the poll-then-KILL watchdog reaches it; never
+# `wait` on a kill (a process blocked on that pipe write ignores TERM). RED on MSYS only.
+BIG_SID="big15c"; BIG_MANIFEST="$BRAIN/.injected-manifest-$BIG_SID.jsonl"
+rm -f "$BIG_MANIFEST"
+BIG_IDS=$(awk 'BEGIN { for (i = 1; i <= 3279; i++) printf "wiki-page-%09d\n", i }')
+( source "$ROOT/scripts/lib.sh"; BRAIN_DIR="$BRAIN" SB_MANIFEST_SESSION_ID="$BIG_SID" sb_manifest_add wiki "$BIG_IDS" ) &
+WD15C=$!; i=0
+while kill -0 "$WD15C" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
+if kill -0 "$WD15C" 2>/dev/null; then
+  kill -KILL "$WD15C" 2>/dev/null
+  fail "sb_manifest_add hung on a ${#BIG_IDS}-byte id list (MSYS here-string window) — killed after 60 s"
+fi
+wait "$WD15C"
+[ "$(wc -l < "$BIG_MANIFEST" | tr -d ' ')" -eq 3279 ] || fail "sb_manifest_add: expected 3279 rows for 3279 ids, got $(wc -l < "$BIG_MANIFEST" | tr -d ' ')"
+jq -e 'select(.kind != "wiki")' "$BIG_MANIFEST" >/dev/null 2>&1 && fail "sb_manifest_add: a long id list produced a non-wiki row"
+pass "a ${#BIG_IDS}-byte id list: no hang, one wiki row per id"
+
 # --- Test 16: an id that is BOTH the anchor AND a plain wiki/other id must not ---
 # leak into injected/read/hits under its other kind — nonanchor excludes any id
 # also manifested as the anchor from every non-anchor kind's accounting; only the
@@ -657,5 +678,144 @@ echo "$ROW17B" | grep -qE 'tiers=[^ ]*unset:1' || fail "cross-stop merge: Stop-2
 echo "$ROW17B" | grep -q 'turn=2' || fail "cross-stop merge: Stop-2 turn should be 2: $ROW17B"
 [ "$ROW17A" != "$ROW17B" ] || fail "cross-stop merge: Stop-2 row identical to Stop-1 (no new row emitted)"
 pass "cross-Stop merge: Stop-1 read=1/agents=1/turn=1, Stop-2 read=2/hits=a,b/ritual=1/pulled=1/agents=2/tiers=sonnet:1,unset:1/turn=2 (cumulative merge, not a rescan)"
+
+# --- Test 18 (S0 B7 ruler extension): value-loop sees subagents -- a manifested id ---
+# fetched ONLY inside a dispatched subagent's own transcript (never by the parent) still
+# counts toward read= (the union), and the trailing sub_read= field names how many of
+# those hits came specifically from subagent evidence. Layout verified live on this
+# machine: <projdir>/<sid>.jsonl has sibling <projdir>/<sid>/subagents/agent-*.jsonl.
+SID12="telemetry-test-subagent-only"
+WORKDIR12="$TMP/demo12"; mkdir -p "$WORKDIR12"
+mkdir -p "$BRAIN/projects/demo12"
+printf '# PROJECT: demo12\n\n## Goal\nsubagent-only fetch demo\n' > "$BRAIN/projects/demo12/PROJECT.md"
+MANIFEST12="$BRAIN/.injected-manifest-$SID12.jsonl"
+cat > "$MANIFEST12" <<'EOF'
+{"kind":"wiki","id":"sub-only-page"}
+EOF
+T12="$TMP/transcript12.jsonl"
+cat > "$T12" <<EOF
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"dispatching a subagent"}]}}
+EOF
+SUBDIR12="$TMP/transcript12/subagents"
+mkdir -p "$SUBDIR12"
+cat > "$SUBDIR12/agent-sub1.jsonl" <<EOF
+{"parentUuid":null,"isSidechain":true,"agentId":"sub1","type":"user","message":{"role":"user","content":"investigate"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__knowledge_fetch","input":{"slug":"sub-only-page"}}]}}
+EOF
+printf '{"transcript_path":"%s","cwd":"%s","session_id":"%s"}' "$T12" "$WORKDIR12" "$SID12" \
+  | env PATH="$STUB:$PATH" HOME="$TMP" BRAIN_DIR="$BRAIN" \
+        CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW" ANTHROPIC_API_KEY="" \
+        bash "$ROOT/scripts/stop-extract.sh" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "Test 18 (subagent-only fetch) non-zero exit ($RC)"
+ROW18=$(grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID12" | tail -1)
+[ -n "$ROW18" ] || fail "Test 18: value-loop row missing for a subagent-only fetch"
+echo "$ROW18" | grep -q 'read=1' || fail "Test 18: read should be 1 (the union includes the subagent-only hit): $ROW18"
+echo "$ROW18" | grep -q 'sub_read=1' || fail "Test 18: sub_read should be 1 (the hit came from subagent evidence): $ROW18"
+pass "Test 18: a manifested id fetched ONLY inside a subagent transcript counts as read=1 sub_read=1"
+
+# --- Test 19: no subagents/ directory at all (the common case: a session with no ---
+# dispatches) leaves sub_read=0 and every other field exactly as it was before this
+# ruler extension existed -- no regression for the vast majority of sessions.
+SID13="telemetry-test-no-subagents-dir"
+WORKDIR13="$TMP/demo13"; mkdir -p "$WORKDIR13"
+mkdir -p "$BRAIN/projects/demo13"
+printf '# PROJECT: demo13\n\n## Goal\nno subagents dir demo\n' > "$BRAIN/projects/demo13/PROJECT.md"
+MANIFEST13="$BRAIN/.injected-manifest-$SID13.jsonl"
+cat > "$MANIFEST13" <<'EOF'
+{"kind":"wiki","id":"old-learning"}
+EOF
+T13="$TMP/transcript13.jsonl"
+cat > "$T13" <<EOF
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"$KNOW/wiki/learnings/old-learning.md"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}
+EOF
+# No "${T13%.jsonl}/subagents" directory exists at all -- the common path.
+[ -d "${T13%.jsonl}/subagents" ] && fail "Test 19: fixture setup bug -- a subagents dir must NOT exist for this case"
+printf '{"transcript_path":"%s","cwd":"%s","session_id":"%s"}' "$T13" "$WORKDIR13" "$SID13" \
+  | env PATH="$STUB:$PATH" HOME="$TMP" BRAIN_DIR="$BRAIN" \
+        CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW" ANTHROPIC_API_KEY="" \
+        bash "$ROOT/scripts/stop-extract.sh" >/dev/null 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || fail "Test 19 (no subagents dir) non-zero exit ($RC)"
+ROW19=$(grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID13" | tail -1)
+[ -n "$ROW19" ] || fail "Test 19: value-loop row missing"
+echo "$ROW19" | grep -q 'read=1' || fail "Test 19: read should still be 1 (parent-only hit, unaffected by the subagent extension): $ROW19"
+echo "$ROW19" | grep -q 'sub_read=0' || fail "Test 19: sub_read should be 0 when no subagents dir exists: $ROW19"
+pass "Test 19: no subagents dir leaves sub_read=0 and every other field unchanged"
+
+# --- Test 20 (H1): value-loop keeps a PER-FILE subagent watermark (state .sub_scanned) ---
+# instead of re-reading every subagent transcript on every Stop: Stop 1 records each of
+# the two files' line counts; a fetch appended later to the SECOND file is picked up by
+# Stop 2 (read/sub_read grow), and both watermarks move to the files' new counts. The row
+# carries elapsed_ms= after sub_read=.
+SID20="telemetry-test-subagent-wm"
+WORKDIR20="$TMP/demo20"; mkdir -p "$WORKDIR20" "$BRAIN/projects/demo20"
+printf '# PROJECT: demo20\n\n## Goal\nsubagent watermark demo\n' > "$BRAIN/projects/demo20/PROJECT.md"
+printf '%s\n' '{"kind":"wiki","id":"sub-a"}' '{"kind":"wiki","id":"sub-b"}' > "$BRAIN/.injected-manifest-$SID20.jsonl"
+T20="$TMP/transcript20.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' > "$T20"
+SUBDIR20="$TMP/transcript20/subagents"; mkdir -p "$SUBDIR20"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"one"}}' \
+  '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__knowledge_fetch","input":{"slug":"sub-a"}}]}}' \
+  > "$SUBDIR20/agent-s1.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"two"}}' > "$SUBDIR20/agent-s2.jsonl"
+run_stop20() {
+  printf '{"transcript_path":"%s","cwd":"%s","session_id":"%s"}' "$T20" "$WORKDIR20" "$SID20" \
+    | env PATH="$STUB:$PATH" HOME="$TMP" BRAIN_DIR="$BRAIN" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW" ANTHROPIC_API_KEY="" \
+          bash "$ROOT/scripts/stop-extract.sh" >/dev/null 2>&1
+}
+STATE20="$BRAIN/.value-loop-state-$SID20.json"
+run_stop20
+ROW20A=$(grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID20" | tail -1)
+echo "$ROW20A" | grep -q 'read=1 ' || fail "Test 20: Stop 1 read should be 1 (sub-a fetched in agent-s1): $ROW20A"
+echo "$ROW20A" | grep -qE 'sub_read=1 elapsed_ms=[0-9]+"' || fail "Test 20: Stop 1 should end sub_read=1 elapsed_ms=<n>: $ROW20A"
+jq -e '.sub_scanned == {"agent-s1.jsonl": 2, "agent-s2.jsonl": 1}' "$STATE20" >/dev/null 2>&1 \
+  || fail "Test 20: value-loop state must carry per-file subagent watermarks for BOTH files: $(jq -c '.sub_scanned' "$STATE20" 2>/dev/null)"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__knowledge_fetch","input":{"slug":"sub-b"}}]}}' \
+  >> "$SUBDIR20/agent-s2.jsonl"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"back"}]}}' >> "$T20"
+run_stop20
+ROW20B=$(grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID20" | tail -1)
+echo "$ROW20B" | grep -q 'read=2 ' || fail "Test 20: Stop 2 read should be 2 (sub-a kept + sub-b newly fetched): $ROW20B"
+echo "$ROW20B" | grep -q 'sub_read=2 ' || fail "Test 20: Stop 2 sub_read should be 2: $ROW20B"
+jq -e '.sub_scanned == {"agent-s1.jsonl": 2, "agent-s2.jsonl": 2}' "$STATE20" >/dev/null 2>&1 \
+  || fail "Test 20: agent-s2's watermark must advance to its new count: $(jq -c '.sub_scanned' "$STATE20" 2>/dev/null)"
+pass "Test 20: value-loop per-file subagent watermarks (two files), new lines picked up on the next Stop, elapsed_ms on the row"
+
+# --- Test 21 (LOW): a scratch-space failure is LOUD, never a silent sub_read=0 row ---
+# With mktemp failing for system-temp files, the old code wrote the value-loop row anyway
+# with sub_read=0 (the subagent evidence silently dropped). The Stop must log the failure
+# and write no misleading row (nor advance any watermark).
+SID21="telemetry-test-mktemp-fail"
+WORKDIR21="$TMP/demo21"; mkdir -p "$WORKDIR21" "$BRAIN/projects/demo21"
+printf '# PROJECT: demo21\n\n## Goal\nmktemp failure demo\n' > "$BRAIN/projects/demo21/PROJECT.md"
+printf '%s\n' '{"kind":"wiki","id":"sub-c"}' > "$BRAIN/.injected-manifest-$SID21.jsonl"
+T21="$TMP/transcript21.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"go"}}' > "$T21"
+mkdir -p "$TMP/transcript21/subagents"
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__plugin_second-brain_knowledge-base__knowledge_fetch","input":{"slug":"sub-c"}}]}}' \
+  > "$TMP/transcript21/subagents/agent-m1.jsonl"
+REAL_MKTEMP=$(command -v mktemp)
+MKSTUB="$TMP/mktemp-stub"; mkdir -p "$MKSTUB"
+cat > "$MKSTUB/mktemp" <<EOF
+#!/bin/bash
+# System-temp requests (no template, or -d) fail; templated state temps still work.
+if [ \$# -eq 0 ] || [ "\$1" = "-d" ]; then exit 1; fi
+exec "$REAL_MKTEMP" "\$@"
+EOF
+chmod +x "$MKSTUB/mktemp"
+rm -f "$BRAIN/error-log.jsonl"
+printf '{"transcript_path":"%s","cwd":"%s","session_id":"%s"}' "$T21" "$WORKDIR21" "$SID21" \
+  | env PATH="$MKSTUB:$STUB:$PATH" HOME="$TMP" BRAIN_DIR="$BRAIN" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW" ANTHROPIC_API_KEY="" \
+        bash "$ROOT/scripts/stop-extract.sh" >/dev/null 2>&1
+grep -q 'telemetry: mktemp' "$BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "Test 21: a failed scratch mktemp must be logged loudly: $(cat "$BRAIN/error-log.jsonl" 2>/dev/null)"
+grep 'gate=value-loop' "$BRAIN/audit-log.jsonl" 2>/dev/null | grep "sid=$SID21" | grep -q 'sub_read=0' \
+  && fail "Test 21: a value-loop row claiming sub_read=0 was written although the subagent scan never ran"
+[ -f "$BRAIN/.value-loop-state-$SID21.json" ] && fail "Test 21: the value-loop watermark advanced past a window it never scanned"
+pass "Test 21: a scratch mktemp failure is logged loudly; no silent sub_read=0 row, no watermark advance"
 
 echo; echo "ALL PASS"

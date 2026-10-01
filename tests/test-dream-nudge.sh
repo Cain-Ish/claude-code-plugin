@@ -13,7 +13,17 @@ mkdrm(){ local d="$B/dreams/$1"; mkdir -p "$d"; local arch="null"; [ -n "$3" ] &
   printf '{"id":"%s","status":"%s","archived_at":%s,"ended_at":"2026-05-17T15:37:23Z","outputs":{"pages_added":%s,"pages_modified":%s}}\n' \
     "$1" "$2" "$arch" "$4" "$5" > "$d/status.json"
   [ -n "$6" ] && touch -t "$6" "$d/status.json"; }
-emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' | env BRAIN_DIR="$B" bash "$SL" 2>/dev/null; }
+# T10: the hook also reads the machine's real wiki (KNOWLEDGE_DIR, default ~/knowledge) and ~/.claude
+# settings through HOME. Pin ALL of it under the sandbox, so the nudge result cannot depend on what
+# the dev box happens to have installed (a real wiki once changed which banners appeared).
+mkdir -p "$B/kb" "$B/home"
+EMIT_ENV=(BRAIN_DIR="$B" KNOWLEDGE_DIR="$B/kb" HOME="$B/home")
+emit_env_resolved(){ env -u CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR "${EMIT_ENV[@]}" bash -c '. "$1/scripts/lib.sh"; printf "%s|%s" "$(sb_knowledge_dir)" "$HOME"' _ "$ROOT"; }
+RES=$(emit_env_resolved)
+case "${RES%%|*}" in "$B"/*) ;; *) fail "emit KNOWLEDGE_DIR is not isolated from the real KB (knowledge|home = $RES)" ;; esac
+case "${RES#*|}" in "$B"/*) ;; *) fail "emit HOME is not isolated from the real home (knowledge|home = $RES)" ;; esac
+pass "emit env pins KNOWLEDGE_DIR and HOME under the sandbox"
+emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' | env -u CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR "${EMIT_ENV[@]}" bash "$SL" 2>/dev/null; }
 ago(){ date -d "$1" +%Y%m%d%H%M 2>/dev/null || date -v-"$2" +%Y%m%d%H%M; }   # GNU || BSD
 
 # 1. ARCHIVED completed dream → SILENT (the reported bug: was re-nagging forever)

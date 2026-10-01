@@ -237,6 +237,10 @@ CAP_EPISODIC=300
 PCARD_FILE="$BRAIN_DIR/persona-card.md"
 if [ ! -f "$PCARD_FILE" ]; then
   ROLE=$(grep -E '^- ' "$BRAIN_DIR/USER.md" 2>/dev/null | head -1 | sed -E 's/^- *(\[[0-9-]+\][[:space:]]*)?//')
+  # ROLE is one line of USER.md, so cap it: an expanded heredoc of ~65,537..65,651 B blocks for good
+  # on MSYS (past the hook timeout), and USER.md is user-edited text.
+  ROLE="${ROLE:0:300}"
+  # <<<-bounded: ROLE is capped to 300 chars on the line above; the rest is a ~1.2 KB fixed template
   cat > "$PCARD_FILE" <<SEED
 # Persona
 
