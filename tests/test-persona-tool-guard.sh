@@ -1008,6 +1008,22 @@ within() { [ "$BD_MS" -le "$2" ] || fail "$1: answered in ${BD_MS} ms, bound $2 
 # The hook timeout is 5 s; hook-timer.sh, bash's start and the spawn under a loaded box take the
 # rest: a case that must answer in time is bound at 4 s. BIG_BOUND stays the kill limit.
 HOOK_BOUND_MS=4000
+# run_v PAYLOAD [VAR=val…]: a VERDICT/argument-log run — the guard on PAYLOAD, BD_OUT set, killed at
+# BIG_BOUND, with NO 4 s hook-budget assertion. For the G3 danger-window cases, which lock the verdict
+# (a bound raised past 32,767 re-opens the fail-open) and the "cygpath never over 4096" invariant, not
+# timing: a long path's hook budget is already covered by the item-18 16/32 KB `bounded` cases, and a
+# 35 KB path answers in ~1.5 s but has thin margin at the tail of a loaded suite.
+run_v() {
+  local pf="$1" pid wd; shift
+  # Background + watchdog kill, NOT the `timeout` binary: macOS has no `timeout` (only gtimeout), so a
+  # `timeout …` here errored on the macos bash-3.2 lane and left BD_OUT empty. Mirrors bounded() minus
+  # the 4 s hook-budget assertion — these cases lock the verdict and the cygpath argument bound.
+  env BRAIN_DIR="$SZ" ${UTF8_LOC:+LC_ALL=$UTF8_LOC} "$@" bash "$SCRIPT" < "$pf" > "$SZ/rv.out" 2>/dev/null & pid=$!
+  ( sleep "$BIG_BOUND"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 & wd=$!
+  wait "$pid" 2>/dev/null
+  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  BD_OUT=$(cat "$SZ/rv.out")
+}
 is_ask() { printf '%s' "$1" | grep -q '"permissionDecision":"ask"'; }
 # big_body N: an 'é' (bash then matches in wide characters, the slow case) and N bytes of lines.
 big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\n", $0}'; }
@@ -1132,6 +1148,81 @@ else
   [ "$(cat "$SZ/.injected/i18s.phase")" = verify ] || fail "item 18: an 8,181-character vitest run must still flip the phase on bash >= 4.3"
 fi
 pass "item 18: an 8,181-character ';' command through the intent spine answered in ${BD_MS} ms"
+
+# G3 (0.54.1 final review, CRITICAL): the full logic handed a drive path of any length to cygpath -u,
+# which truncates a path longer than 32,767 characters at its input and still exits 0 (MSYS2, 2026-10-01) — the
+# file name at the end of a 40,000-character path was gone before any rule saw it, and the Write
+# passed. Past 4096 characters a target keeps its lexical spelling (no cygpath), every rule still
+# applies, and a call no rule asks about is asked about anyway (path-too-long). The stub behaves as
+# the real tool does, so this runs on every lane; its argument log locks the bound itself.
+CUTBIN=$(mktemp -d); : > "$CUTBIN/args.log"
+cat > "$CUTBIN/cygpath" <<'EOF'
+#!/bin/sh
+[ "$1" = -u ] && shift
+for p in "$@"; do
+  printf '%s\n' "${#p}" >> "$CYG_LOG"
+  case "$p" in
+    [A-Za-z]:/*) d=$(printf '%s' "$p" | cut -c1 | tr 'A-Z' 'a-z'); p="/$d$(printf '%s' "$p" | cut -c3-)" ;;
+  esac
+  printf '%s\n' "$p" | cut -c1-32767
+done
+EOF
+chmod +x "$CUTBIN/cygpath"
+P40K=$(printf '%40000s' '' | tr ' ' a)
+P4K=$(printf '%4000s' '' | tr ' ' a)
+printf '{"session_id":"g3a","tool_name":"Write","tool_input":{"file_path":"C:/Users/Me/%s/persona-rules.json","content":"x"}}' "$P40K" > "$SZ/g3a.json"
+printf '{"session_id":"g3b","tool_name":"Write","tool_input":{"file_path":"C:/Users/Me/%s/notes.txt","content":"x"}}' "$P40K" > "$SZ/g3b.json"
+printf '{"session_id":"g3c","tool_name":"Write","tool_input":{"file_path":"C:/Users/Me/%s/notes.txt","content":"x"}}' "$P4K" > "$SZ/g3c.json"
+rm -f "$SZ/audit-log.jsonl"
+run_v "$SZ/g3a.json" SB_RESOURCE_SCOPE=off PATH="$CUTBIN:$PATH" CYG_LOG="$CUTBIN/args.log"
+is_ask "$BD_OUT" && grep -q '"rule":"warn-direct-write-hot-tier"' "$SZ/audit-log.jsonl" \
+  || fail "G3: a 40,000-character C:/ Write path to persona-rules.json must ask via warn-direct-write-hot-tier — the rules saw a cut path (got: $BD_OUT)"
+pass "G3: a 40,000-character C:/ path keeps its file name for the rules"
+rm -f "$SZ/audit-log.jsonl"
+run_v "$SZ/g3b.json" SB_RESOURCE_SCOPE=off PATH="$CUTBIN:$PATH" CYG_LOG="$CUTBIN/args.log"
+is_ask "$BD_OUT" && grep -q '"rule":"path-too-long"' "$SZ/audit-log.jsonl" \
+  || fail "G3: a 40,000-character C:/ Write path no rule matches must still ask (path-too-long), got: $BD_OUT"
+pass "G3: a 40,000-character benign C:/ path asks (path-too-long)"
+G3_MAX=$(sort -n "$CUTBIN/args.log" | tail -1)
+[ "${G3_MAX:-0}" -le 4096 ] || fail "G3: cygpath was handed a ${G3_MAX}-character argument — past 4096 a path must keep its lexical spelling"
+pass "G3: no cygpath argument past 4096 characters (longest: ${G3_MAX:-none})"
+: > "$CUTBIN/args.log"
+run_v "$SZ/g3c.json" SB_RESOURCE_SCOPE=off PATH="$CUTBIN:$PATH" CYG_LOG="$CUTBIN/args.log"
+[ -z "$BD_OUT" ] || fail "G3: a 4,022-character benign C:/ path is under the bound and must pass (got: $BD_OUT)"
+G3_MAX=$(sort -n "$CUTBIN/args.log" | tail -1)
+[ "${G3_MAX:-0}" -ge 4000 ] || fail "G3: under the bound a C:/ target must still go through cygpath (longest argument: ${G3_MAX:-none})"
+pass "G3: under 4096 characters a C:/ path still goes through cygpath and passes"
+# G3 danger window (test-review gap 1): the two cases above only pin the bound at 4,022 and 40,000, so
+# ANY bound in between — including one above 32,767 that re-opens the exact fail-open — would pass. Pin
+# the edges and one value inside the cygpath-cut zone. P4096 is exactly 4096 chars (12 prefix + 4074 +
+# 10 "/notes.txt"); P4097 one more; P35K a 35,000-char Write to persona-rules.json (> 32,767, so a bound
+# raised that far would hand cygpath the cut path and the rule would miss the file name).
+PAD4074=$(printf '%4074s' '' | tr ' ' a)
+printf '{"session_id":"g3e","tool_name":"Write","tool_input":{"file_path":"C:/Users/Me/%s/notes.txt","content":"x"}}' "$PAD4074" > "$SZ/g3e.json"
+printf '{"session_id":"g3f","tool_name":"Write","tool_input":{"file_path":"C:/Users/Me/%sa/notes.txt","content":"x"}}' "$PAD4074" > "$SZ/g3f.json"
+PAD34969=$(printf '%34969s' '' | tr ' ' a)
+printf '{"session_id":"g3g","tool_name":"Write","tool_input":{"file_path":"C:/Users/Me/%s/persona-rules.json","content":"x"}}' "$PAD34969" > "$SZ/g3g.json"
+: > "$CUTBIN/args.log"
+run_v "$SZ/g3e.json" SB_RESOURCE_SCOPE=off PATH="$CUTBIN:$PATH" CYG_LOG="$CUTBIN/args.log"
+[ -z "$BD_OUT" ] || fail "G3: a 4096-character path is NOT over the bound and must pass silently — a lowered bound would ask (got: $BD_OUT)"
+G3_MAX=$(sort -n "$CUTBIN/args.log" | tail -1)
+[ "${G3_MAX:-0}" -ge 4096 ] || fail "G3: a 4096-character path must still reach cygpath (bound lowered? longest arg: ${G3_MAX:-none})"
+pass "G3: a path at exactly the 4096 bound still goes through cygpath and passes"
+rm -f "$SZ/audit-log.jsonl"; : > "$CUTBIN/args.log"
+run_v "$SZ/g3f.json" SB_RESOURCE_SCOPE=off PATH="$CUTBIN:$PATH" CYG_LOG="$CUTBIN/args.log"
+is_ask "$BD_OUT" && grep -q '"rule":"path-too-long"' "$SZ/audit-log.jsonl" \
+  || fail "G3: a 4097-character path is one over the bound and must ask (path-too-long), got: $BD_OUT"
+G3_MAX=$(sort -n "$CUTBIN/args.log" | tail -1)
+[ "${G3_MAX:-0}" -le 4096 ] || fail "G3: a 4097-character path must NOT reach cygpath (got arg ${G3_MAX})"
+pass "G3: one character over the bound asks and never reaches cygpath"
+rm -f "$SZ/audit-log.jsonl"; : > "$CUTBIN/args.log"
+run_v "$SZ/g3g.json" SB_RESOURCE_SCOPE=off PATH="$CUTBIN:$PATH" CYG_LOG="$CUTBIN/args.log"
+is_ask "$BD_OUT" && grep -q '"rule":"warn-direct-write-hot-tier"' "$SZ/audit-log.jsonl" \
+  || fail "G3: a 35,000-character C:/ Write to persona-rules.json must ask via warn-direct-write-hot-tier — a bound above 32,767 would feed cygpath a cut path and miss the file name (got: $BD_OUT)"
+G3_MAX=$(sort -n "$CUTBIN/args.log" | tail -1)
+[ "${G3_MAX:-0}" -le 4096 ] || fail "G3: a 35,000-character path must keep its lexical spelling, not reach cygpath (got arg ${G3_MAX})"
+pass "G3: a 35,000-character path (inside the cygpath-cut zone) asks via its rule, never reaching cygpath"
+rm -rf "$CUTBIN"
 rm -rf "$SZ"
 
 echo

@@ -648,5 +648,118 @@ bounded "DA #2 200-component project path" "$BIG_BOUND" "$TMP/da2d.json"
 within "DA #2 200-component project path" "$HOOK_BOUND_MS"
 assert_allow "DA #2: a 200-component project path is still resolved and allowed (${BD_MS} ms)" "$BD_OUT"
 
+g1_rep() { local i=0; while [ $i -lt "$2" ]; do printf '%s' "$1"; i=$((i + 1)); done; }
+# T2 (final review): each half of the cap asks on its own — a project path of 300 real components in
+# ~700 characters, and one of 20 components in ~5,000. Either half could be deleted with every
+# other case still green.
+for t2 in "a:$(g1_rep a/ 300)" "b:$(g1_rep "$(g1_rep b 250)/" 20)"; do
+  printf '{"session_id":"t2","tool_name":"Write","tool_input":{"file_path":"%s/work/repo/%sk","content":"x"}}' "$HOME" "${t2#?:}" > "$TMP/t2.json"
+  rm -f "$HOME/.second-brain/audit-log.jsonl"
+  bounded "T2 cap half ${t2%%:*}" "$BIG_BOUND" "$TMP/t2.json"
+  [ -n "$BD_OUT" ] && printf '%s' "$BD_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and (.hookSpecificOutput.permissionDecisionReason | test("too long to resolve"))' >/dev/null \
+    && grep -q '"rule":"path-too-long"' "$HOME/.second-brain/audit-log.jsonl" \
+    || fail "T2: cap half ${t2%%:*} (a: 300 components, b: 5,000 characters) must ask, too long to resolve, with a path-too-long row (got: $BD_OUT)"
+done
+pass "T2: each half of the cap asks on its own (300 real components; 5,000 characters)"
+
+# G1 (0.54.1 final review, HIGH regression): DA #2's 256-component cap counted empty and '.' fields,
+# which cost realpath -m nothing (2,048 of them: ~60 ms on MSYS, against ~2 s for 256 real ones), so
+# a Write through a link into ~/.ssh spelled with a run of './' or '//' went over the cap and got an
+# ask where it had been denied. Only real components count now, and past either limit the guard still
+# resolves the lexically folded path when that one is under both: a long './' or 'a/../' run through
+# the link is denied too. A wrapper logs every argument realpath, greadlink, readlink and cygpath get:
+# none may pass 4096 characters (a payload-sized one costs seconds; cygpath cuts its answer at 32,767).
+if dir_link "$HOME/.ssh" "$HOME/work/repo/keys"; then
+  G1BIN=$(mktemp -d); : > "$G1BIN/args.log"
+  cat > "$G1BIN/wrap" <<'EOF'
+#!/bin/sh
+for a in "$@"; do printf '%s\n' "${#a}" >> "$G1_LOG"; done
+PATH=$G1_PATH; export PATH
+exec "${0##*/}" "$@"
+EOF
+  for t in realpath greadlink readlink cygpath; do
+    command -v "$t" >/dev/null 2>&1 && cp "$G1BIN/wrap" "$G1BIN/$t" && chmod +x "$G1BIN/$t"
+  done
+  g1() {  # g1 NAME PATH: a Write to PATH, every resolver argument logged
+    printf '{"session_id":"g1","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"}}' "$2" > "$TMP/g1-$1.json"
+    bounded "G1 $1" "$BIG_BOUND" "$TMP/g1-$1.json" PATH="$G1BIN:$PATH" G1_PATH="$PATH" G1_LOG="$G1BIN/args.log"
+  }
+  g1 dots "$HOME/work/repo/keys/$(g1_rep ./ 300)id_rsa"
+  assert_deny "G1: a link into ~/.ssh spelled with 300 './' denied in ${BD_MS} ms" "$BD_OUT" ssh
+  g1 slashes "$HOME/work/repo/keys$(g1_rep / 300)id_rsa"
+  assert_deny "G1: a link into ~/.ssh spelled with 300 '/' denied in ${BD_MS} ms" "$BD_OUT" ssh
+  g1 updown "$HOME/work/repo/keys/$(g1_rep a/../ 600)id_rsa"
+  assert_deny "G1: a link into ~/.ssh behind 600 'a/../' (over by components) denied in ${BD_MS} ms" "$BD_OUT" ssh
+  g1 longdots "$HOME/work/repo/keys/$(g1_rep ./ 3000)id_rsa"
+  assert_deny "G1: a link into ~/.ssh behind 3,000 './' (over by length) denied in ${BD_MS} ms" "$BD_OUT" ssh
+  # Isolate the real-component count from the fold-and-resolve path (test-review gap 2): with the '.'
+  # run BEFORE the link and a '..' AFTER it, realpath follows keys -> ~/.ssh and only THEN applies '..'
+  # (-> ~/.ssh is the parent's child again); the lexical fold instead cancels keys/.. first and loses
+  # the link. So this denies only when the path stays OUT of the over-cap branch — i.e. only when '.'
+  # fields are not counted. Counting them (the regression) sends it over the cap and the fold asks.
+  g1 linkup "$HOME/work/repo/$(g1_rep ./ 300)keys/../.ssh/id_rsa"
+  assert_deny "G1: './'-run then keys/../.ssh resolves through the link and denies in ${BD_MS} ms" "$BD_OUT" ssh
+  # The matching benign case: a './'-padded project path must still ALLOW (counting '.' would push it
+  # over the cap and ask "too long").
+  g1 benign "$HOME/work/repo/$(g1_rep ./ 300)x.txt"
+  assert_allow "G1: a './'-padded project path is resolved and allowed in ${BD_MS} ms" "$BD_OUT"
+  printf '%s' "$BD_OUT" | grep -q 'too long' && fail "G1: a './'-padded project path must not hit the path-too-long ask (got: $BD_OUT)"
+  # G4 class (test-review gap 3): a drive-form target past the cap must reach cygpath only through the
+  # SHORT folded spelling, never raw. 3,000 './' in C:\ form is > 4096 chars (over by length); the fold
+  # collapses to a short path that resolves through the link and denies. Windows only (needs cygpath).
+  if command -v cygpath >/dev/null 2>&1; then
+    g1 drivedots "$(cygpath -m "$HOME")/work/repo/keys/$(g1_rep ./ 3000)id_rsa"
+    assert_deny "G1: a drive-form link path of 3,000 './' denied in ${BD_MS} ms" "$BD_OUT" ssh
+    # Finding C: a '..' at the drive root folds the drive component out of the collapsed lex form, so
+    # the drive-form fold must reattach the whole collapsed path, not slice off its (missing) drive. A
+    # C:/../<HOME-under-C:>/.ssh link path (Windows clamps C:\.. to C:\) must still deny.
+    HREL=$(cygpath -m "$HOME" | cut -c3-)
+    g1 driveroot "C:/..${HREL}/work/repo/keys/$(g1_rep ./ 3000)id_rsa"
+    assert_deny "G1: a drive-root '..' link path denied in ${BD_MS} ms" "$BD_OUT" ssh
+    # Mutation k / F-D: a target under an MSYS mount (/etc is the Git root's etc) past the cap must be
+    # mapped by cygpath -u on the SHORT folded spelling and denied — HEAD mapped it by running cygpath
+    # on the raw target, which this guard no longer does. 300 real components (> 256) so the resolve is
+    # skipped; only the mapped-fold credential match catches it.
+    g1 etcroot "$(cygpath -m /)/etc/$(g1_rep a/ 300)k"
+    assert_deny "G1: an /etc path under the MSYS root past the cap denied in ${BD_MS} ms" "$BD_OUT" etc
+    # F-E: HOME spelled in its /c/ drive form while it lies UNDER the /tmp mount. realpath returns the
+    # /tmp spelling of the resolved target, which no /c/ HOME prefix matches; _sg_homes (full) must add
+    # HOME's mount spelling via the cygpath round trip. Without the fix this ALLOWS a write through the
+    # link into ~/.ssh. HC is HOME's drive-letter POSIX form (/c/…/Temp/…), not the /tmp alias.
+    HC=$(cygpath -m "$HOME"); HC="/$(printf '%s' "${HC:0:1}" | tr 'A-Z' 'a-z')${HC:2}"
+    printf '{"session_id":"g1fe","tool_name":"Write","tool_input":{"file_path":"%s/work/repo/keys/id_rsa","content":"x"}}' "$HC" > "$TMP/g1fe.json"
+    FEOUT=$(env HOME="$HC" BRAIN_DIR="$TMP/feb" bash "$SCRIPT" < "$TMP/g1fe.json" 2>/dev/null)
+    assert_deny "G1/F-E: a link into ~/.ssh with HOME in /c drive form under the mount denies" "$FEOUT" ssh
+  fi
+  # Mutation j: the fold's own `${#_sg_fp} <= 4096` bound. A ~5 KB path of real components (no './' to
+  # collapse away) stays over 4096 after folding; with the bound it is asked about without touching a
+  # resolver, so no resolver argument exceeds 4096. Dropping the bound hands realpath the 5 KB path.
+  g1 foldbound "$HOME/work/repo/$(g1_rep "$(g1_rep b 250)/" 20)k"
+  printf '%s' "$BD_OUT" | grep -q 'too long to resolve' || fail "G1: a 5 KB real-component path must ask (too long to resolve), got: $BD_OUT"
+  [ -s "$G1BIN/args.log" ] || fail "G1: the wrappers logged nothing — the resolution these cases need never ran"
+  G1_MAX=$(sort -n "$G1BIN/args.log" | tail -1)
+  [ "$G1_MAX" -le 4096 ] || fail "G1: a resolver was handed a ${G1_MAX}-character argument — every one must stay within 4096"
+  pass "G1: no resolver argument past 4096 characters (longest: $G1_MAX)"
+  # Finding A / F-A+F-B time lock (test-review gap 6): a ~300 KB './' run through the link into ~/.ssh
+  # must DENY inside the hook budget. On HEAD and the pre-fix diff this answered at 7–8 s (past the 5 s
+  # timeout → the Write ran); the fix denies in ~2–3 s. bounded() fails the test if it exceeds
+  # HOOK_BOUND_MS, so this is the regression lock for the whole over-cap path, at a real payload size.
+  printf '{"session_id":"g1big","tool_name":"Write","tool_input":{"file_path":"%s/work/repo/keys/%sid_rsa","content":"x"}}' "$HOME" "$(g1_rep ./ 150000)" > "$TMP/g1big.json"
+  bounded "G1: 300 KB './' run through the link into ~/.ssh" "$BIG_BOUND" "$TMP/g1big.json"
+  assert_deny "G1: a 300 KB './' link path denied inside the hook budget (${BD_MS} ms)" "$BD_OUT" ssh
+  dir_unlink "$HOME/work/repo/keys"
+  rm -rf "$G1BIN"
+else
+  echo "SKIP: G1 — no directory link can be made here (no real symlinks, no node junction)"
+fi
+
+# Mutation i (source-scan): the `_sg_segs SG_SEGS` count must stay gated by the length cap. Without the
+# gate, a 300 KB run of '/' spends ~1.6 s splitting into ~300k fields for a count that is moot past the
+# character cap. The whole guard still answers over the 4 s bound on that input with or without the
+# gate, so no time-bound test can see it — this is the only pin.
+grep -Eq '\[ *"\$SG_LEN" *-le *4096 *\] *&& *_sg_segs SG_SEGS' "$SCRIPT" \
+  || fail "source-scan: _sg_segs SG_SEGS must stay gated by [ \"\$SG_LEN\" -le 4096 ] (mutation i)"
+pass "source-scan: the SG_SEGS count is gated by the 4096-character cap"
+
 echo
 echo "ALL PASS"

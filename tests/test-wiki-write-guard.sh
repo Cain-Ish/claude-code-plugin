@@ -402,7 +402,13 @@ echo "$BD_OUT" | grep -q '"permissionDecision":"deny"' && echo "$BD_OUT" | grep 
   || fail "150k: a bare page whose file_path holds 150,000 newlines must still deny on frontmatter (got: ${BD_OUT:0:200})"
 # Linearity, not a wall-clock bound: the same shape at 3x the size must cost at most ~4x (a
 # quadratic step costs ~9x), which holds on any runner speed; BIG_BOUND above still catches a hang.
-[ "$BD_MS" -le $(( T50K_MS * 4 + 500 )) ]   || fail "150k: 3x the newlines cost ${BD_MS} ms vs ${T50K_MS} ms at 50k (over 4x: super-linear)"
+# The ratio needs sub-second timing: without EPOCHREALTIME (bash < 5, the macOS/bash-3.2 lane) now_ms
+# is whole seconds, so a sub-second 50k baseline reads 0 ms and the 150k run reads 1000 ms — an
+# unmeasurable, always-failing ratio. Assert it only where the clock can see it; the deny above and
+# the BIG_BOUND hang guard still run everywhere.
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  [ "$BD_MS" -le $(( T50K_MS * 4 + 500 )) ] || fail "150k: 3x the newlines cost ${BD_MS} ms vs ${T50K_MS} ms at 50k (over 4x: super-linear)"
+fi
 pass "150,000 newlines inside a wiki file_path answered in ${BD_MS} ms (bare page still denies)"
 
 # F8 #1: 50,000 REAL newlines inside the payload itself — JSON whitespace between two keys, text

@@ -136,6 +136,7 @@ sb_filter_scratch_paths() {
       */[Aa][Pp][Pp][Dd][Aa][Tt][Aa]/[Ll][Oo][Cc][Aa][Ll]/[Tt][Ee][Mm][Pp]/*) continue ;;
       /var/folders/*) continue ;;
     esac
+    sb_cap_arg p 4096   # jq.exe drops a >~32 KB argv whole; no real path is this long
     out=$(printf '%s' "$out" | jq -c --arg p "$p" '. + [$p]' 2>/dev/null) || out="$out"
   done < <(printf '%s' "$arr" | jq -r '.[]?' 2>/dev/null | tr -d '\r')
   printf '%s' "$out"
@@ -169,6 +170,7 @@ sb_extract_deterministic() {
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list
     list=$(printf '%s' "$files_json" | jq -r 'join(", ")' 2>/dev/null)
+    sb_cap_arg list 2000   # at most 5 paths; a >~32 KB argv is dropped whole by jq.exe on Windows
     decisions=$(jq -cn --arg t "[auto-captured] Session changed: ${list} (LLM extraction unavailable; full context in the archived transcript)" '[$t]')
   fi
   jq -cn --argjson d "$decisions" --argjson f "$files_json" \
@@ -199,6 +201,7 @@ sb_extract_archived_deterministic() {
   local decisions='[]'
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list; list=$(printf '%s' "$files_json" | jq -r 'join(", ")' 2>/dev/null)
+    sb_cap_arg list 2000   # at most 5 paths; a >~32 KB argv is dropped whole by jq.exe on Windows
     decisions=$(jq -cn --arg t "[auto-captured] Session changed: ${list} (LLM extraction unavailable; full context in the archived transcript)" '[$t]')
   fi
   jq -cn --argjson d "$decisions" --argjson f "$files_json" \
@@ -267,11 +270,25 @@ sb_rotate_log() {
     && mv "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
 }
 
+# sb_cap_arg VAR MAX: shorten the string in VAR to MAX chars plus a visible "…(+N chars)" marker
+# (the marker is on top of MAX). A native jq.exe cannot receive a command line over ~32 KB on
+# Windows: a longer --arg value is DROPPED and jq writes nothing at all, so an audit/error row
+# carrying a 40 KB command or message vanished without a trace (the row builders' `[ -n "$line" ]`
+# guard swallowed the empty result). Capping BEFORE the value becomes a jq argument keeps the row.
+# Builtins only (indirect expansion + printf -v, bash 3.2-safe) — no spawn per call.
+sb_cap_arg() {
+  local _v="${!1}" _max="$2"
+  [ "${#_v}" -gt "$_max" ] || return 0
+  printf -v "$1" '%s…(+%d chars)' "${_v:0:$_max}" "$(( ${#_v} - _max ))"
+}
+
 sb_log_error() {
   local script_name="${1:-unknown}"
   local error_msg="${2:-}"
   local exit_code="${3:-1}"
   local ts target="$BRAIN_DIR/error-log.jsonl"
+  sb_cap_arg script_name 256
+  sb_cap_arg error_msg 4096
   # R6b (HOOK-9): gate=* breadcrumbs logged with exit_code 0 are TRACE, not
   # errors — they were 41% of error-log lines and polluted every "tail the
   # error log" diagnosis plus verify.sh's freshness check. Route them to the
@@ -307,7 +324,15 @@ sb_log_error() {
       --arg m "$error_msg" \
       --argjson c "$exit_code" \
       '{timestamp:$t, script:$s, message:$m, exit_code:$c}' 2>/dev/null | tr -d '\r')
-    [ -n "$line" ] && printf '%s\n' "$line" >> "$target" 2>/dev/null
+    # An empty row is never dropped silently: a jq that failed (or lost an argument) leaves a
+    # hand-built row that says so. Built without jq — the thing that just failed — from fixed
+    # text plus the already-capped script name with control chars, backslashes and quotes removed.
+    if [ -z "$line" ]; then
+      local _sn="${script_name//[[:cntrl:]\\\"]/}"
+      line=$(printf '{"timestamp":"%s","script":"lib.sh","message":"sb_log_error: the jq row for script %s came out empty (message %s chars) — error row lost, see the producer","exit_code":1}' \
+        "$ts" "$_sn" "${#error_msg}")
+    fi
+    printf '%s\n' "$line" >> "$target" 2>/dev/null
   else
     local esc_script esc_msg
     esc_script=$(printf '%s' "$script_name" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -635,6 +660,10 @@ sb_log_audit() {
   local ts
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   mkdir -p "$BRAIN_DIR" 2>/dev/null || return 0
+  # Cap the free-text args before they reach jq (see sb_cap_arg): a 40 KB target/reason is
+  # dropped whole by a native jq.exe on Windows. Callers already trim targets to ~200 chars.
+  sb_cap_arg target 256
+  sb_cap_arg reason 4096
 
   if command -v jq >/dev/null 2>&1; then
     if ! echo "$extra_json" | jq -e 'type == "object"' >/dev/null 2>&1; then
@@ -654,7 +683,12 @@ sb_log_audit() {
       --arg r "$rule" --arg target "$target" --arg reason "$reason" \
       --arg sid "$session_id" --argjson x "$extra_json" \
       '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:$x}' 2>/dev/null | tr -d '\r')
-    [ -n "$line" ] && printf '%s\n' "$line" >> "$SB_AUDIT_FILE" 2>/dev/null
+    if [ -n "$line" ]; then
+      printf '%s\n' "$line" >> "$SB_AUDIT_FILE" 2>/dev/null
+    else
+      # The row came out empty (jq failed or lost an argument): say so, never drop it silently.
+      sb_log_error "lib.sh" "sb_log_audit: the audit row came out empty (hook=${hook:0:64} verdict=${verdict:0:16} rule=${rule:0:64}; target ${#target} chars, reason ${#reason} chars, extra ${#extra_json} chars) — audit row lost" 1
+    fi
   else
     # jq absent — fall back to printf-built JSON, stripping C0 control chars
     # so multi-line reasons cannot fragment a JSONL record into two.
@@ -1557,6 +1591,16 @@ sb_archive_subagent_result() {
   [ -n "$safe_aid" ] || safe_aid="unknown"
   local archive_file="$archive_dir/sub-${safe_aid}_${slug}_${date_str}.txt"
 
+  # Every header value below is payload-derived (agent_type, session_id) or path-derived (slug)
+  # and is written at COLUMN 0: a newline in one put its tail on a fresh line of the file, and
+  # episodic-search's parseExchanges opens a new exchange at ANY line starting `USER:` (the same
+  # forgery the quoted body closes, SEC-L5). Drop every control char (CR/LF/ESC/DEL…) so a header
+  # value can never start a line. Builtin expansion, no tr spawn (MSYS costs ~30-60 ms each).
+  agent_type="${agent_type//[[:cntrl:]]/}"
+  session_id="${session_id//[[:cntrl:]]/}"
+  slug="${slug//[[:cntrl:]]/}"
+  tool_count="${tool_count//[[:cntrl:]]/}"
+
   # The write is CHECKED, twice: the redirect's own status (unwritable dir, a directory
   # squatting on the name) and the written size, which must hold at least the result
   # text itself (${#result} counts characters, never more than its bytes) — a short
@@ -1659,6 +1703,10 @@ sb_append_session_digest() {
   # next Stop (adversarial review: accepted, documented).
   local tmp="$f.tmp.$$"
   : > "$tmp" 2>/dev/null || return 0
+  # The jq program keeps only the first 200 chars of each (CR/LF -> space, length-preserving), so
+  # capping at 1000 first changes nothing in the row and keeps a huge value off jq's command line
+  # (jq.exe on Windows drops a >~32 KB argv whole and the row would come out empty).
+  goal="${goal:0:1000}"; outcome="${outcome:0:1000}"
   # One jq pass over (existing records + the new one, appended LAST): drop
   # older records with the new record's session_id, then apply the per-slug
   # cap keeping the newest. tr -d '\r' both sides — jq stdout is CRLF on
@@ -1802,6 +1850,12 @@ sb_prune_transcripts() {
     if _sb_is_extracted "$_f"; then _extracted="${_extracted}${_f}"$'\n'
     else                           _unmined="${_unmined}${_f}"$'\n'; fi
   done < <(printf '%s\n' "$files")
+  # A process substitution that could not start (fork EAGAIN on a loaded Windows box) feeds the
+  # loop NOTHING: both queues stay empty and every eviction pass below is a silent no-op while
+  # the archive sits over its cap. One row, so "nothing was pruned" is never invisible.
+  if [ "$count" -gt "$cap" ] && [ -z "${_extracted//[$'\n']/}${_unmined//[$'\n']/}" ]; then
+    sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives are over the ${cap} cap but the listing pass yielded no rows — nothing was pruned this run" 1
+  fi
 
   # 1. Over the cap → drop already-extracted files, oldest first.
   while [ "$count" -gt "$cap" ] && [ -n "${_extracted//[$'\n']/}" ]; do
@@ -1960,8 +2014,13 @@ sb_append_pin_candidate() {
   # D120 class: build the row first, append with ONE printf (a jq child writing straight
   # to the file tears/loses rows under concurrent hooks on Windows).
   local row
+  sb_cap_arg text 4096   # a >~32 KB argv is dropped whole by jq.exe on Windows (empty row, silently lost)
   row=$(jq -nc --arg t "$(date -u +%FT%TZ)" --arg p "$text" '{at:$t, text:$p}' | tr -d '\r') || return 1
-  [ -n "$row" ] && printf '%s\n' "$row" >> "$f"
+  if [ -z "$row" ]; then
+    sb_log_error "lib.sh" "sb_append_pin_candidate: the jq row came out empty (text ${#text} chars) — pin candidate for $slug lost" 1
+    return 1
+  fi
+  printf '%s\n' "$row" >> "$f"
 }
 
 sb_count_pin_candidates() {
@@ -2131,9 +2190,13 @@ sb_extractor_local_call() {
   if [ "$maxb" -gt 0 ] && [ "$(wc -c < "$input_file" 2>/dev/null || echo 0)" -gt "$maxb" ]; then
     capped=$(mktemp) && tail -c "$maxb" "$input_file" > "$capped" && src="$capped"
   fi
-  local payload
-  payload=$(jq -n --arg m "$model" --arg s "$prompt" --rawfile u "$src" \
-    '{model:$m, stream:false, messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null) || { [ -n "$capped" ] && rm -f "$capped"; return 1; }
+  local payload _sysf
+  # The system prompt goes in by --rawfile, not --arg: it is caller-supplied text of no fixed size,
+  # and a >~32 KB argument is dropped whole by a native jq.exe on Windows (no payload, silently).
+  _sysf=$(mktemp) && printf '%s' "$prompt" > "$_sysf" || { rm -f "$_sysf"; [ -n "$capped" ] && rm -f "$capped"; return 1; }
+  payload=$(jq -n --arg m "$model" --rawfile s "$_sysf" --rawfile u "$src" \
+    '{model:$m, stream:false, messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null) || { rm -f "$_sysf"; [ -n "$capped" ] && rm -f "$capped"; return 1; }
+  rm -f "$_sysf"
   [ -n "$capped" ] && rm -f "$capped"
   [ -n "$payload" ] || return 1
   local TBIN resp _payload_tmp
@@ -2458,12 +2521,19 @@ sb_call_extractor() {
     # the CLI accepts that, the Messages API does not. Demote to a real id.
     local api_model
     api_model=$(sb_alias_to_pinned_id headless "$model")
-    local payload
-    payload=$(jq -n \
-      --arg m "$api_model" \
-      --arg s "$prompt" \
-      --rawfile u "$input_file" \
-      '{model:$m, max_tokens:8192, system:$s, messages:[{role:"user", content:$u}]}' 2>/dev/null)
+    local payload _b2_sysf
+    # System prompt by --rawfile, not --arg (a >~32 KB argument is dropped whole by jq.exe on Windows).
+    _b2_sysf=$(mktemp) && printf '%s' "$prompt" > "$_b2_sysf" || { rm -f "$_b2_sysf"; _b2_sysf=""; }
+    if [ -n "$_b2_sysf" ]; then
+      payload=$(jq -n \
+        --arg m "$api_model" \
+        --rawfile s "$_b2_sysf" \
+        --rawfile u "$input_file" \
+        '{model:$m, max_tokens:8192, system:$s, messages:[{role:"user", content:$u}]}' 2>/dev/null)
+      rm -f "$_b2_sysf"
+    else
+      payload=""
+    fi
 
     if [ -n "$payload" ]; then
       local resp _b2_tmp
@@ -2774,8 +2844,8 @@ sb_extract_transcript() {
   local project_md="$BRAIN_DIR/projects/$slug/PROJECT.md"
   if [ ! -f "$project_md" ]; then
     mkdir -p "$(dirname "$project_md")"
-    cat > "$project_md" <<TMPL
-# PROJECT: $slug
+    cat > "$project_md" <<TMPL   # <<<-bounded: fixed ~650 B template; the only expansions are the slug (capped to 255 chars in the template) and a 20 B timestamp, so the heredoc is < 1 KiB against the MSYS ~65,537..65,651 B hang window
+# PROJECT: ${slug:0:255}
 
 ## Goal
 (auto-scaffolded — describe this project's goal)

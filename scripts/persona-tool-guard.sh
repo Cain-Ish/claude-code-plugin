@@ -784,12 +784,19 @@ _ptg_norm_read() {
 # lib.sh's canonical ones), then ONE cygpath -u for every drive-letter path among them. Each old
 # $(sb_normalize_path …) paid a fork plus its own $(cygpath …): ~20 ms apiece on a quiet MSYS box,
 # ~55 under load, twice per Edit. A value holding a newline keeps the one-call-per-path form.
+# G3 (0.54.1 final review): a value past 4096 characters keeps its lexical spelling (/x/… for a
+# drive path, as the fast path spells it) and reaches no cygpath, which truncates a path longer than
+# 32,767 characters at its input while still exiting 0 (MSYS2, measured 2026-10-01) — the file name at
+# the end of a 40,000-character path was gone before any rule saw it. The full logic asks about such a
+# target at least.
 _ptg_norm() {
   local _pn_v _pn_p _pn_out _pn_i=0
   local -a _pn_vars=() _pn_args=()
   for _pn_v in "$@"; do
-    case "${!_pn_v}" in *"$_fp_nl"*) printf -v "$_pn_v" '%s' "$(sb_normalize_path "${!_pn_v}")"; continue ;; esac
-    _fp_path _pn_p "${!_pn_v}"
+    _pn_p="${!_pn_v}"
+    if [ "${#_pn_p}" -gt 4096 ]; then _fp_path _pn_p "$_pn_p" lex; printf -v "$_pn_v" '%s' "$_pn_p"; continue; fi
+    case "$_pn_p" in *"$_fp_nl"*) printf -v "$_pn_v" '%s' "$(sb_normalize_path "$_pn_p")"; continue ;; esac
+    _fp_path _pn_p "$_pn_p"
     printf -v "$_pn_v" '%s' "$_pn_p"
     case "$_pn_p" in [A-Za-z]:/*) _pn_vars+=("$_pn_v"); _pn_args+=("$_pn_p") ;; esac
   done
@@ -1001,6 +1008,8 @@ RULE_STREAM="$_RDR"
 # case and then trivially prefix-match $CWD — the resource-scope fail-open).
 # Normalize the target to the /c/… POSIX form first, and the working dir with it in the same
 # cygpath call when there is a target (only the resource-scope check reads CWD, and only for one).
+# _PTG_LONG: the target is past _ptg_norm's 4096-character bound (G3) — the floor below the rules.
+_PTG_LONG=0; [ "${#PATH_INPUT}" -gt 4096 ] && _PTG_LONG=1
 [ -n "$PATH_INPUT" ] && _ptg_norm PATH_INPUT CWD
 
 _ptg_spine
@@ -1036,7 +1045,11 @@ fi
 # unauthorized RESOURCES — this is the dominant boundary-violation mode.
 # Run BEFORE rule iteration so an out-of-scope path is gated even when no
 # named rule matches it. Kill switch: SB_RESOURCE_SCOPE=off.
-if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ]; then
+# F-C (0.54.1 final review): _ptg_scope lexically collapses the WHOLE target, which is quadratic on a
+# payload-sized path — above ~400 KB the scope ask arrived past the 5 s hook timeout (fail-open). A
+# target over 4096 characters (_PTG_LONG) is left to the path-too-long floor below: it also asks (and
+# a deny rule stays reachable), so skipping the scope collapse here loses no verdict and no time.
+if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
   if [ "${RS_ENABLED:-false}" = "true" ]; then
     # Is this tool subject to scope checking?
     if [ "$RS_TOOL_IN" = "yes" ]; then
@@ -1054,7 +1067,7 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ]; then
   fi
 fi
 
-[ -z "$RULE_STREAM" ] && exit 0
+[ -z "$RULE_STREAM" ] && [ "$_PTG_LONG" = 0 ] && exit 0
 
 # Pre-filter: ONE grep per field says whether ANY rule pattern can match (grep -E with every
 # pattern as a -e argument is true exactly when one of them matches a line); the per-rule greps
@@ -1142,6 +1155,15 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
 done
 }
 _fp_feed "$RULE_STREAM" _ptg_match
+
+# G3: a target past 4096 characters was matched in its lexical spelling only (_ptg_norm) — every rule
+# saw all of it, but not cygpath's spelling (an MSYS mount name such as /tmp). A call no rule asked
+# about or denied is asked about; a verdict a rule gave stands, under that rule's name.
+if [ "$_PTG_LONG" = 1 ] && [ "$V_RANK" -lt 3 ]; then
+  _fp_cap _ptg_lp "$PATH_INPUT" 256
+  V_RANK=3 V_ACTION=ask V_RULE=path-too-long V_TARGET="$PATH_INPUT"
+  V_REASON="$TOOL target '$_ptg_lp' is ${#PATH_INPUT} characters long. Past 4096, persona-tool-guard matches it in its lexical spelling only (a longer path cannot be safely normalized inside the hook's time budget — on Windows cygpath truncates it), so it asks rather than pass it unchecked. Confirm the target."
+fi
 
 case "$V_ACTION" in
   deny)

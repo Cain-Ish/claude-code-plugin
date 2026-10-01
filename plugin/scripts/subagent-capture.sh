@@ -242,7 +242,15 @@ fi
 sbc_quote() {
   printf '%s\n' "$1" | LC_ALL=C awk '{ gsub(/\r/, ""); print "> " $0 }'
 }
-RESULT=$(sbc_quote "$PAYLOAD")
+RESULT=$(sbc_quote "$PAYLOAD"); QUOTE_RC=$?
+# The quote's own status was never read: an awk that died or wrote nothing left RESULT empty, and
+# sb_archive_subagent_result's size check compares against that SAME empty result — so a header-only
+# archive was filed as a real capture. PAYLOAD already cleared MIN above, so an empty quoted body
+# is always a failure here, never "nothing to say". Fail loud, archive nothing.
+if [ "$QUOTE_RC" -ne 0 ] || [ -z "$RESULT" ]; then
+  sb_log_error "subagent-capture.sh" "quoting step failed (awk exit $QUOTE_RC, quoted body $([ -z "$RESULT" ] && echo empty || echo non-empty), payload ${#PAYLOAD} chars) — subagent result NOT archived (agent_id=$AGENT_ID)" 1
+  exit 0
+fi
 [ -n "$BANNER" ] && RESULT=$(printf '%s\n%s' "$BANNER" "$RESULT")
 
 # --- Archive, then the deliberate-cap alarm (T4/SF-M3/L5). The pre-T4 check

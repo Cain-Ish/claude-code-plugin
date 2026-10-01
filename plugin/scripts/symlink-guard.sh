@@ -94,7 +94,11 @@ _fp_rest() {
   else
     IFS= read -r -d '' "$1"
   fi
-  return 0
+  # 1 is the normal end of input (fewer than N characters, or no closing NUL); anything above it is a
+  # failed read, passed on so the caller can refuse to decide on a field it may have only part of.
+  local _fr_rc=$?
+  [ "$_fr_rc" -le 1 ] && return 0
+  return "$_fr_rc"
 }
 
 # _fp_split SEP TEXT: _FP_A = TEXT cut at every SEP (one character) by word splitting — linear in
@@ -343,25 +347,44 @@ _fp_lower() {
 }
 
 # _fp_path VAR PATH [lex]: lib.sh sb_normalize_path's lexical steps (backslashes to '/', the
-# \\?\ and \\.\ prefixes, the loopback admin share). With "lex", a drive path X:/… is also spelled
-# /x/…, as cygpath -u spells it, on a Windows host (cygpath on PATH, or an MSYS/Cygwin bash).
+# \?\ and \.\ prefixes, the loopback admin share). With "lex", a drive path X:/… is also spelled
+# as cygpath -u would (/x/…, drive lowered) — on a Windows host only: elsewhere 'C:' is just a
+# relative name. Linear in the path: the backslashes are cut out by word splitting and rejoined with
+# '/' (a trailing one re-added — splitting drops it), and each prefix is sliced off only after a
+# `case` saw it. The `${p//\//}` and `${p#"//?/"}` forms this replaces are O(n^2) whenever they
+# scan a long path — a missing prefix is the common case — so a 100 KB target took 2.7 s per call
+# on MSYS, and symlink-guard's deny (three calls deep) came after the 5 s hook timeout (final
+# review, 0.54.1).
 _fp_path() {
-  local _fq_p="$2" _fq_d
-  _fq_p=${_fq_p//"$_fp_bs"/"/"}
-  _fq_p="${_fq_p#"//?/"}"; _fq_p="${_fq_p#"//./"}"
+  local _fq_p="$2" _fq_d _fq_t=""
   case "$_fq_p" in
-    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p#//localhost/}";  _fq_d="${_fq_d%%\$*}"; _fq_p="$_fq_d:${_fq_p#//localhost/[A-Za-z]\$}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p#//127.0.0.1/}";  _fq_d="${_fq_d%%\$*}"; _fq_p="$_fq_d:${_fq_p#//127.0.0.1/[A-Za-z]\$}" ;;
+    *"$_fp_bs"*)
+      case "$_fq_p" in *"$_fp_bs") _fq_t=/ ;; esac
+      _fp_split "$_fp_bs" "$_fq_p"
+      _fp_joinsl _fq_p
+      _fq_p="$_fq_p$_fq_t" ;;
+  esac
+  case "$_fq_p" in "//?/"*) _fq_p=${_fq_p:4} ;; esac
+  case "$_fq_p" in "//./"*) _fq_p=${_fq_p:4} ;; esac
+  case "$_fq_p" in
+    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
+    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
   esac
   if [ "${3:-}" = lex ]; then
     case "$_fq_p" in
       [A-Za-z]:/*)
         if command -v cygpath >/dev/null 2>&1 || [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]]; then
-          _fp_lower _fq_d "${_fq_p%%:*}"; _fq_p="/$_fq_d${_fq_p#?:}"
+          _fp_lower _fq_d "${_fq_p:0:1}"; _fq_p="/$_fq_d${_fq_p:2}"
         fi ;;
     esac
   fi
   printf -v "$1" '%s' "$_fq_p"
+}
+
+# _fp_joinsl VAR: VAR = the _FP_A fields joined by '/' (the inverse of _fp_split / on a path).
+_fp_joinsl() {
+  local IFS=/
+  printf -v "$1" '%s' "${_FP_A[*]-}"
 }
 
 # _fp_esc VAR TEXT: TEXT as a JSON string body (\ " \n \r \t escaped, other control chars dropped).
@@ -375,7 +398,7 @@ _fp_esc() {
 
 # _fp_emit ask|deny REASON: the verdict, in the hookSpecificOutput shape the guards emit.
 _fp_emit() {
-  local _fm_r; _fp_esc _fm_r "$2"
+  local _fm_r; _fp_cap _fm_r "$2" 2048; _fp_esc _fm_r "$_fm_r"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$_fm_r"
 }
 
@@ -390,9 +413,46 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
-  _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$4"; _fp_esc _fa_e "$5"; _fp_esc _fa_s "$6"
+  _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
+  _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
   printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{"fastpath":true}}\n' \
     "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" >> "$_fa_bd/audit-log.jsonl"
+}
+# _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
+# reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
+# seconds, and a row of that size was lost outright where it reached a native jq.exe (no command
+# line past ~32 KB).
+_fp_cap() {
+  if [ "${#2}" -le "$3" ]; then printf -v "$1" '%s' "$2"; return 0; fi
+  printf -v "$1" '%s…(+%s chars)' "${2:0:$3}" "$(( ${#2} - $3 ))"
+}
+
+# _fp_err HOOK MESSAGE: one error-log.jsonl row in lib.sh sb_log_error's shape (exit_code 1),
+# appended by one printf >> (the guards run without lib.sh, B7).
+_fp_err() {
+  local _fr_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fr_ts _fr_h _fr_m
+  _fr_bd=${_fr_bd//"$_fp_bs"/"/"}
+  [ -d "$_fr_bd" ] || mkdir -p "$_fr_bd" || return 0
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    TZ=UTC0 printf -v _fr_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  else
+    _fr_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  fi
+  _fp_esc _fr_h "$1"; _fp_cap _fr_m "$2" 1024; _fp_esc _fr_m "$_fr_m"
+  printf '{"timestamp":"%s","script":"%s","message":"%s","exit_code":1}\n' "$_fr_ts" "$_fr_h" "$_fr_m" >> "$_fr_bd/error-log.jsonl"
+}
+
+# _fp_jqfail HOOK CHARS: the jq fallback read no tool name from a payload of CHARS characters that
+# names one. Loud either way. 0 when jq is on PATH (it ran and failed: the caller asks, since a guard
+# that cannot read a call must not pass it silently); 1 when jq is missing (main's behaviour: the
+# call passes, and SessionStart's banner reports the missing jq).
+_fp_jqfail() {
+  if command -v jq >/dev/null 2>&1; then
+    _fp_err "$1" "the jq fallback read no tool name from a $2-char payload that names one (jq failed); asked instead of passing the call"
+    return 0
+  fi
+  _fp_err "$1" "jq is not on PATH: a $2-char payload could not be read and the call passed unchecked"
+  return 1
 }
 # <<< sb-guard-fastpath
 
@@ -429,6 +489,24 @@ _sg_homes() {
   _SG_H=()
   [ -n "$_sh_h" ] && _SG_H+=("$_sh_h")
   [ -n "$_sh_p" ] && [ "$_sh_p" != "$_sh_h" ] && _SG_H+=("$_sh_p")
+  # F-E: a HOME spelled in a drive form that lies UNDER an MSYS mount (e.g. /c/…/AppData/Local/Temp =
+  # /tmp) has no /c/… spelling that the resolved target matches — realpath/pwd -P return the mount name
+  # (/tmp/…), which no prefix above does. Add HOME's mount spelling via the cygpath round trip (-m to
+  # the drive form, -u to the mount name), in the `full` mode whose output the RESOLVED match uses.
+  # A normal HOME (C:\Users\name) round-trips back to its own /c/… form and is deduped out, so this
+  # costs real users nothing beyond the probe. Windows only.
+  if [ "$1" = full ] && command -v cygpath >/dev/null 2>&1 && [ ${#_SG_H[@]} -gt 0 ]; then
+    local _sh_e _sh_x _sh_m _sh_u _sh_dup
+    local -a _sh_base=(${_SG_H[@]+"${_SG_H[@]}"})
+    for _sh_e in ${_sh_base[@]+"${_sh_base[@]}"}; do
+      _sh_m=$(cygpath -m -- "$_sh_e" 2>/dev/null) && [ -n "$_sh_m" ] || continue
+      _sh_u=$(cygpath -u -- "$_sh_m" 2>/dev/null) && [ -n "$_sh_u" ] || continue
+      _sh_u="${_sh_u%/}"
+      _sh_dup=0
+      for _sh_x in ${_SG_H[@]+"${_SG_H[@]}"}; do [ "$_sh_x" = "$_sh_u" ] && { _sh_dup=1; break; }; done
+      [ "$_sh_dup" = 0 ] && _SG_H+=("$_sh_u")
+    done
+  fi
   return 0
 }
 
@@ -474,6 +552,92 @@ _sg_short() {
   if [ "${#2}" -le 256 ]; then printf -v "$1" '%s' "$2"; else printf -v "$1" '%s' "${2:0:256}… (${#2} characters)"; fi
 }
 
+# _sg_segs VAR PATH: how many of PATH's components realpath -m has to walk. Empty and '.' fields cost
+# it nothing (2,048 of them: ~60 ms on MSYS, against ~2 s for 256 real ones), so they do not count
+# (G1, 0.54.1 final review: counting them sent a './'-padded link into ~/.ssh to an ask, not a deny).
+_sg_segs() {
+  local _sz_s _sz_n=0
+  _fp_split / "$2"
+  for _sz_s in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    case "$_sz_s" in ''|.) ;; *) _sz_n=$((_sz_n + 1)) ;; esac
+  done
+  printf -v "$1" '%s' "$_sz_n"
+}
+
+# _sg_drive_homes: on a Windows host, _SG_H gains every HOME spelling's drive form, spelled /x/… as
+# the lexical target is — one cygpath -m of the short HOME paths. A HOME under an MSYS mount (/tmp is
+# %TEMP%) has no /c/… spelling of its own, and a target past the cap never reaches cygpath to be
+# spelled the mount's way instead.
+_sg_drive_homes() {
+  local _sd_o _sd_l
+  command -v cygpath >/dev/null 2>&1 && [ ${#_SG_H[@]} -gt 0 ] || return 0
+  _sd_o=$(cygpath -m ${_SG_H[@]+"${_SG_H[@]}"} 2>/dev/null) || return 0
+  _fp_split "$_fp_nl" "${_sd_o//"$_fp_cr"/}"
+  for _sd_l in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    _fp_path _sd_l "$_sd_l" lex
+    _SG_H+=("${_sd_l%/}")
+  done
+}
+
+# _sg_resolve VAR PATH: PATH through its symlinks, missing components tolerated (a Write may create
+# them): GNU realpath -m, then Homebrew greadlink -f, then a walk for stock BSD/macOS.
+_sg_resolve() {
+  local _sr_r _sr_rem _sr_res _sr_seg _sr_cand _sr_rp _sr_tgt
+  _sr_r=$(realpath -m -- "$2" 2>/dev/null)        # GNU coreutils: follows leaf + parent, missing-tolerant
+  [ -z "$_sr_r" ] && _sr_r=$(greadlink -f -- "$2" 2>/dev/null)  # macOS Homebrew coreutils
+  if [ -z "$_sr_r" ]; then
+    # Stock BSD/macOS (no GNU realpath/greadlink, or BSD realpath which lacks `-m`).
+    # D183: walk the path component-by-component from the root, resolving symlinks
+    # at each STILL-EXISTING ancestor via `cd … && pwd -P` (bash 3.2 / BSD safe).
+    # Once a component does not exist yet (the common case for a Write that
+    # creates new directories), lexically collapse the REMAINING '.'/'..'
+    # segments against the last resolved ancestor instead of returning the raw
+    # unresolved tail — `cd` failing on ONE missing directory must not
+    # short-circuit into a lexical passthrough that leaves '..' unresolved (a
+    # Write to <repo>/<newdir>/../../../.ssh/id_rsa was silently ALLOWED before
+    # this fix, and a symlinked ancestor with a not-yet-created child, e.g.
+    # <repo>/link-to-.ssh/sub/id_rsa, was too). Fail CLOSED throughout.
+    _sr_rem="$2"
+    case "$_sr_rem" in
+      /*) _sr_res="/" ;;
+      *)  _sr_res="$PWD/" ;;
+    esac
+    while [ -n "$_sr_rem" ]; do
+      _sr_rem="${_sr_rem#/}"
+      _sr_seg="${_sr_rem%%/*}"
+      case "$_sr_rem" in */*) _sr_rem="${_sr_rem#*/}" ;; *) _sr_rem="" ;; esac
+      case "$_sr_seg" in
+        ""|".") continue ;;
+        "..")
+          _sr_res="${_sr_res%/}"; _sr_res="${_sr_res%/*}"; [ -z "$_sr_res" ] && _sr_res="/"
+          continue
+          ;;
+      esac
+      _sr_cand="${_sr_res%/}/$_sr_seg"
+      if _sr_rp=$(cd "$_sr_cand" 2>/dev/null && pwd -P); then
+        _sr_res="$_sr_rp"
+      elif [ -L "$_sr_cand" ]; then
+        _sr_tgt=$(readlink -- "$_sr_cand" 2>/dev/null)
+        # D183 (follow-up): splicing the target string directly into $_sr_res left
+        # any '..' INSIDE a relative target unresolved (`ln -s ../../.ssh/id_rsa
+        # repo/notes.txt` produced ".../repo/../../.ssh/id_rsa" verbatim, which
+        # never prefix-matches the real credential dir). Re-enter the walk
+        # instead: push the target's segments back onto $_sr_rem so the SAME '..'
+        # popping logic above collapses them against $_sr_res (relative target) or
+        # against '/' (absolute target), rather than a raw lexical splice.
+        case "$_sr_tgt" in
+          /*) _sr_res="/"; _sr_rem="${_sr_tgt#/}${_sr_rem:+/$_sr_rem}" ;;
+          *)  _sr_rem="$_sr_tgt${_sr_rem:+/$_sr_rem}" ;;
+        esac
+      else
+        _sr_res="${_sr_res%/}/$_sr_seg"
+      fi
+    done
+    _sr_r="$_sr_res"
+  fi
+  printf -v "$1" '%s' "$_sr_r"
+}
+
 _sg_deny() {  # _sg_deny TOOL FILE_PATH RESOLVED LABEL SESSION
   local _sd_p _sd_x _sd_r
   _sg_short _sd_p "$2"; _sg_short _sd_x "$3"
@@ -492,13 +656,23 @@ _sg_deny() {  # _sg_deny TOOL FILE_PATH RESOLVED LABEL SESSION
 # where a share leads cannot be told. 0 = verdict emitted; 1 = not an alias spelling.
 _SG_MAPPED=""
 _sg_alias() {
-  local _sa_r _sa_p _sa_s _sa_m _sa_d
+  local _sa_r _sa_p _sa_s _sa_m _sa_d _sa_t=""
   _SG_MAPPED=""
   command -v cygpath >/dev/null 2>&1 || [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || return 1
   _sg_short _sa_d "$2"
-  _sa_r=${2//"$_fp_bs"/"/"}
+  # F-B (0.54.1 final review): `${2//\\//}` and `${_sa_p#[A-Za-z]:}` were both O(n^2) on MSYS, and
+  # _sg_alias runs before the literal credential match — a 200 KB backslash path denied past the 5 s
+  # timeout (the Write then ran). Backslash->slash goes through the linear split/join _fp_path uses
+  # (trailing separator re-added, as there); the drive strip is an O(1) offset.
+  case "$2" in
+    *"$_fp_bs"*)
+      case "$2" in *"$_fp_bs") _sa_t=/ ;; esac
+      _fp_split "$_fp_bs" "$2"; _fp_joinsl _sa_r; _sa_r="$_sa_r$_sa_t" ;;
+    *) _sa_r="$2" ;;
+  esac
   _fp_path _sa_p "$2"
-  case "${_sa_p#[A-Za-z]:}" in
+  case "$_sa_p" in [A-Za-z]:*) _sa_t=${_sa_p:2} ;; *) _sa_t=$_sa_p ;; esac
+  case "$_sa_t" in
     *:*) _sa_m="Write to '$_sa_d' uses NTFS stream syntax (a ':' after the drive), which can name another file or a directory itself (.ssh::\$INDEX_ALLOCATION is ~/.ssh). Symlink-guard denies it. Suppress: SB_SYMLINK_GUARD=off."
          _fp_audit "symlink-guard.sh" "deny" "windows-alias:stream" "$1($_sa_d)" "$_sa_m" "$3"
          _fp_emit deny "$_sa_m"
@@ -619,10 +793,20 @@ _sg_fields() {
   return 0
 }
 if ! _sg_fields; then
-  TOOL="" FILE_PATH="" SESSION_ID=""
+  TOOL="" FILE_PATH="" SESSION_ID="" _FP_JST=""
   {
-    IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; IFS= read -r -d '' SESSION_ID
-  } < <(_fp_feed "$RAW" jq -j 'if type == "object" then (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000" else empty end' 2>/dev/null)
+    IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; IFS= read -r -d '' SESSION_ID
+  } < <(_fp_feed "$RAW" jq -j 'if type == "object" then (if ([.tool_name, .tool_input.file_path, .session_id] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000" else empty end' 2>/dev/null)
+  if [ "$_FP_JST" = nul ]; then
+    _fp_audit "symlink-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+    _fp_emit ask "second-brain symlink-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
+    exit 0
+  fi
+  if [ -z "$TOOL" ]; then
+    case "$RAW" in *'"tool_name"'*)
+      _fp_jqfail "symlink-guard.sh" "${#RAW}" && { _fp_emit ask "second-brain symlink-guard.sh could not read this call (jq failed on the payload; details in error-log.jsonl), so it cannot check it. Confirm the call."; exit 0; } ;;
+    esac
+  fi
 fi
 _fp_clean TOOL FILE_PATH SESSION_ID
 
@@ -647,8 +831,11 @@ case $? in 0) exit 0 ;; 2) FILE_PATH="$_SG_MAPPED" ;; esac
 # drive path under an MSYS mount (%TEMP% is /tmp) to the mount's name, which a HOME spelled /c/…
 # never prefixes; this spelling does.
 _fp_path SG_LEX "$FILE_PATH" lex
-# Its size before '..' folds (what realpath -m will walk), for the cap below.
-SG_LEN=${#SG_LEX}; _fp_split / "$SG_LEX"; SG_SEGS=${#_FP_A[@]}
+# Its size before '..' folds (what realpath -m will walk), for the cap below: its characters and,
+# under 4096 of them, its real components (_sg_segs; past 4096 the count is moot, and its loop over a
+# 300 KB run of '/' would cost more than the answer is worth).
+SG_LEN=${#SG_LEX} SG_SEGS=0
+[ "$SG_LEN" -le 4096 ] && _sg_segs SG_SEGS "$SG_LEX"
 _fp_collapse SG_LEX "$SG_LEX"
 
 # The HOME spellings every credential match below compares against: HOME normalized, its physical
@@ -658,26 +845,67 @@ _SG_HF=(${_SG_H[@]+"${_SG_H[@]}"})
 _sg_homes lex
 _SG_H+=(${_SG_HF[@]+"${_SG_HF[@]}"})
 
-# DA #2 (0.54.1): realpath -m is quadratic in the path's components on MSYS (256 of them: 0.6 s;
-# 512: 2.7 s; 1,024: 15 s; 1,500: no answer in 100 s), and a file_path past the fast path's 16 KiB
-# read reached it before any credential match — a Write under ~/.ssh then got no verdict inside the
-# 5 s timeout and ran. So the literal and lexical targets are matched first, and a path too long to
-# resolve in time — over 256 components or 4096 characters — is asked about, not resolved: as
-# written it names no credential dir, but a symlinked ancestor could still lead into one. The cost:
-# a legitimate Windows long path that deep asks once instead of passing silently. Both come before
-# _sg_norm too (F8 item 18): cygpath -u is ~35 ms for a C:\ path of any length, but seconds once it
-# holds newlines (4,096 of them: 0.4 s; 16,384: 5 s) — so past the cap it runs only on a path
-# without one, for the spelling of an MSYS mount (%TEMP% is /tmp) the lexical form cannot give.
+# DA #2 (0.54.1): realpath -m is quadratic in the path's REAL components on MSYS (256 of them: ~2 s;
+# 512: ~11 s; 2,048: no answer in 30 s), and a file_path past the fast path's 16 KiB read reached it
+# before any credential match — a Write under ~/.ssh then got no verdict inside the 5 s timeout and
+# ran. So the literal and lexical targets are matched first, and a path too long to resolve in time —
+# over 256 REAL components (G1: '' and '.' fields cost realpath nothing, so they do not count) or
+# 4096 characters — is handled by the block below without the quadratic resolve: the lexically folded
+# target is matched and, when it is itself short enough, resolved. Both come before _sg_norm too
+# (F8 item 18): cygpath -u takes seconds once a path holds newlines (4,096 of them: 0.4 s; 16,384:
+# 5 s) and truncates a path longer than 32,767 characters at its input while still exiting 0 — so past
+# the cap the raw target never reaches it, only the short spellings G1 uses below.
 _sg_cred_match "$FILE_PATH" "$SG_LEX" \
   && { _sg_deny "$TOOL" "$FILE_PATH" "$SG_LEX" "$_SG_LABEL" "$SESSION_ID"; exit 0; }
 if [ "$SG_LEN" -gt 4096 ] || [ "$SG_SEGS" -gt 256 ]; then
-  case "$FILE_PATH" in
-    *"$_fp_nl"*) ;;
-    *) _sg_norm _sg_np "$FILE_PATH"
-       _sg_cred_match "$_sg_np" && { _sg_deny "$TOOL" "$FILE_PATH" "$_sg_np" "$_SG_LABEL" "$SESSION_ID"; exit 0; } ;;
+  # G1 (0.54.1 final review): past the cap the target itself reaches no resolver — cygpath truncates a
+  # path over 32,767 characters at its input, realpath -m is quadratic in real components. Two spellings stand
+  # in for it: HOME's drive form, for a HOME under an MSYS mount the lexical target cannot match
+  # otherwise; and the target folded (SG_LEX, already collapsed at the top of this block), when that
+  # is under both limits — resolved, it denies a './' or 'a/../' run through a link into a credential
+  # dir. Neither one can allow: no match still asks.
+  # Free SG_LEX's split (up to ~300k fields for a run of '/') before the cygpath forks below: MSYS
+  # copies the whole heap per fork.
+  _FP_A=()
+  _sg_drive_homes
+  _sg_cred_match "$SG_LEX" && { _sg_deny "$TOOL" "$FILE_PATH" "$SG_LEX" "$_SG_LABEL" "$SESSION_ID"; exit 0; }
+  # The drive-kept fold, from SG_LEX (collapsed) in constant time — not a second full-path collapse
+  # (DA: that pass cost as much again and pushed the deny past the 5 s timeout). _sg_norm's cygpath -u
+  # maps an MSYS mount only from the drive form (C:/…/Temp → /tmp), so the drive letter is taken from
+  # FILE_PATH's own spelling (one linear _fp_path, no collapse) and the collapsed tail from SG_LEX.
+  _fp_path _sg_fp "$FILE_PATH"
+  case "$_sg_fp" in
+    [A-Za-z]:/*)
+      # SG_LEX is the collapsed lex form (/c/…). It keeps a leading "/<drive>/" EXCEPT when a '..' at
+      # the drive root folds the drive component away (lex /c/../x collapses to /x). Windows clamps
+      # '..' at the drive root, so there the fold is the drive plus SG_LEX whole; otherwise it is the
+      # drive plus SG_LEX's tail. Cheap either way — one lowercase of the drive letter, no re-collapse
+      # (Finding C: "${SG_LEX:2}" alone produced "C:sers/…" when the drive had been popped).
+      _fp_lower _sg_dl "${_sg_fp:0:1}"
+      case "$SG_LEX" in
+        /"$_sg_dl"/*|"/$_sg_dl") _sg_fp="${_sg_fp:0:2}${SG_LEX:2}" ;;
+        *) _sg_fp="${_sg_fp:0:2}$SG_LEX" ;;
+      esac ;;
+    *) _sg_fp="$SG_LEX" ;;
   esac
+  # When the fold is itself short enough to hand a tool (<= 4096), run cygpath -u on it: that is one
+  # cheap spawn (~35 ms at any length) and it maps an MSYS mount the lexical form cannot — /etc under
+  # the Git root, a HOME under %TEMP% (F-D/F-E: HEAD mapped these by running cygpath -u on the raw
+  # target past the cap, which this guard no longer does). The literal match on that mapped form runs
+  # regardless of component count. The realpath resolve, quadratic in REAL components, stays behind the
+  # 256 gate.
+  if [ "${#_sg_fp}" -le 4096 ]; then
+    _sg_norm _sg_fp "$_sg_fp"
+    _sg_cred_match "$_sg_fp" && { _sg_deny "$TOOL" "$FILE_PATH" "$_sg_fp" "$_SG_LABEL" "$SESSION_ID"; exit 0; }
+    _sg_segs _sg_fs "$_sg_fp"
+    if [ "$_sg_fs" -le 256 ]; then
+      _sg_resolve _sg_fr "$_sg_fp"; _sg_norm _sg_fr "$_sg_fr"
+      _sg_cred_match "$_sg_fr" && { _sg_deny "$TOOL" "$FILE_PATH" "$_sg_fr" "$_SG_LABEL" "$SESSION_ID"; exit 0; }
+    fi
+  fi
   _sg_short _sg_sp "$FILE_PATH"
-  _sg_lr="Write to '$_sg_sp' is too long to resolve through its symlinks inside the hook's time budget ($SG_LEN characters, $SG_SEGS components; the limits are 4096 and 256), so symlink-guard cannot tell whether it leads into a credential directory. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
+  if [ "$SG_LEN" -gt 4096 ]; then _sg_why="$SG_LEN characters"; else _sg_why="$SG_SEGS components"; fi
+  _sg_lr="Write to '$_sg_sp' is too long to resolve through its symlinks inside the hook's time budget ($_sg_why; the limits are 4096 characters and 256 components), so symlink-guard cannot tell whether it leads into a credential directory. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
   _fp_audit "symlink-guard.sh" "ask" "path-too-long" "$TOOL($_sg_sp)" "$_sg_lr" "$SESSION_ID"
   _fp_emit ask "$_sg_lr"
   exit 0
@@ -689,60 +917,9 @@ fi
 # fix: without it the credential-dir prefixes never match and the guard is inert).
 _sg_norm FILE_PATH "$FILE_PATH"
 
-# Resolve through symlinks. -m: missing-component-tolerant (Write targets the
-# file may not exist yet); we still resolve the parent's symlinks.
-RESOLVED=$(realpath -m -- "$FILE_PATH" 2>/dev/null)        # GNU coreutils: follows leaf + parent, missing-tolerant
-[ -z "$RESOLVED" ] && RESOLVED=$(greadlink -f -- "$FILE_PATH" 2>/dev/null)  # macOS Homebrew coreutils
-if [ -z "$RESOLVED" ]; then
-  # Stock BSD/macOS (no GNU realpath/greadlink, or BSD realpath which lacks `-m`).
-  # D183: walk the path component-by-component from the root, resolving symlinks
-  # at each STILL-EXISTING ancestor via `cd … && pwd -P` (bash 3.2 / BSD safe).
-  # Once a component does not exist yet (the common case for a Write that
-  # creates new directories), lexically collapse the REMAINING '.'/'..'
-  # segments against the last resolved ancestor instead of returning the raw
-  # unresolved tail — `cd` failing on ONE missing directory must not
-  # short-circuit into a lexical passthrough that leaves '..' unresolved (a
-  # Write to <repo>/<newdir>/../../../.ssh/id_rsa was silently ALLOWED before
-  # this fix, and a symlinked ancestor with a not-yet-created child, e.g.
-  # <repo>/link-to-.ssh/sub/id_rsa, was too). Fail CLOSED throughout.
-  _rem="$FILE_PATH"
-  case "$_rem" in
-    /*) _res="/" ;;
-    *)  _res="$PWD/" ;;
-  esac
-  while [ -n "$_rem" ]; do
-    _rem="${_rem#/}"
-    _seg="${_rem%%/*}"
-    case "$_rem" in */*) _rem="${_rem#*/}" ;; *) _rem="" ;; esac
-    case "$_seg" in
-      ""|".") continue ;;
-      "..")
-        _res="${_res%/}"; _res="${_res%/*}"; [ -z "$_res" ] && _res="/"
-        continue
-        ;;
-    esac
-    _cand="${_res%/}/$_seg"
-    if _rp=$(cd "$_cand" 2>/dev/null && pwd -P); then
-      _res="$_rp"
-    elif [ -L "$_cand" ]; then
-      _tgt=$(readlink -- "$_cand" 2>/dev/null)
-      # D183 (follow-up): splicing the target string directly into $_res left
-      # any '..' INSIDE a relative target unresolved (`ln -s ../../.ssh/id_rsa
-      # repo/notes.txt` produced ".../repo/../../.ssh/id_rsa" verbatim, which
-      # never prefix-matches the real credential dir). Re-enter the walk
-      # instead: push the target's segments back onto $_rem so the SAME '..'
-      # popping logic above collapses them against $_res (relative target) or
-      # against '/' (absolute target), rather than a raw lexical splice.
-      case "$_tgt" in
-        /*) _res="/"; _rem="${_tgt#/}${_rem:+/$_rem}" ;;
-        *)  _rem="$_tgt${_rem:+/$_rem}" ;;
-      esac
-    else
-      _res="${_res%/}/$_seg"
-    fi
-  done
-  RESOLVED="$_res"
-fi
+# Resolve through symlinks (_sg_resolve). Missing-component-tolerant: the file a
+# Write targets may not exist yet; its parents' symlinks are still resolved.
+_sg_resolve RESOLVED "$FILE_PATH"
 # Normalize realpath's OUTPUT to the /c/… form so it matches the credential
 # prefixes (see the pre-realpath note above — this is the load-bearing half).
 _sg_norm RESOLVED "$RESOLVED"

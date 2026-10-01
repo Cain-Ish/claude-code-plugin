@@ -843,6 +843,7 @@ project_file="$PROJECTS_DIR/$slug/PROJECT.md"
 
 if [ ! -f "$project_file" ]; then
   mkdir -p "$(dirname "$project_file")"
+  # <<<-bounded: the only expansions are the slug (a directory name the mkdir above just made, so <= 255 B) and a timestamp over a ~650 B fixed template; an expanded heredoc of ~65,537..65,651 B blocks for good on MSYS
   cat > "$project_file" <<TMPL
 # PROJECT: $slug
 
@@ -1604,6 +1605,20 @@ CONFLICT_N=$(sb_conflicts_open_count "$SL_KDIR")
 if [ "${CONFLICT_N:-0}" -gt 0 ]; then
   sb_append "$(printf '## ⚠ second-brain — %s graph conflict(s) pending\nStructural edge contradictions were detected at write time. Resolve via the knowledge-maintainer (Phase 3 RELATE) or `knowledge_relate`.\n\n' "$CONFLICT_N")" \
     "graph-conflicts-banner" 250
+fi
+
+# 0c2. jq-missing banner (G7b). Every PreToolUse guard parses its rules and the tool payload with
+# jq; with no jq on PATH they degrade to weaker pattern checks and say nothing, so a box that lost
+# jq (fresh machine, a PATH change, a container) runs a thinner safety layer invisibly. One line,
+# early region (budget-checked like its neighbours), audit row either way. Not suppressible: the
+# fix is installing jq, and a missing jq also blinds most of this script's other readers.
+if ! command -v jq >/dev/null 2>&1; then
+  if sb_append "$(printf '## ⚠ second-brain — jq not found on PATH: the PreToolUse guards need jq and fall back to weaker checks without it\n\n')" \
+    "jq-missing-banner" 250; then
+    sb_log_error "session-load.sh" "gate=banner name=jq-missing-banner fired=1 reason=jq-absent" 0
+  else
+    sb_log_error "session-load.sh" "gate=banner name=jq-missing-banner fired=0 reason=jq-absent skipped=byte-budget" 0
+  fi
 fi
 
 # 0d. Code-map orientation (P3a orient rung) — inject the architectural spine (top

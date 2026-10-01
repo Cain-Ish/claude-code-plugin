@@ -89,6 +89,7 @@ PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
 KNOWLEDGE_DIR="$(sb_knowledge_dir)"
 if [ ! -f "$PROJECT_MD" ]; then
   mkdir -p "$(dirname "$PROJECT_MD")"
+  # <<<-bounded: the only expansions are the slug (a directory name the mkdir above just made, so <= 255 B) and a timestamp over a ~650 B fixed template; an expanded heredoc of ~65,537..65,651 B blocks for good on MSYS
   cat > "$PROJECT_MD" <<TMPL
 # PROJECT: $SLUG
 

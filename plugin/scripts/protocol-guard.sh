@@ -157,7 +157,10 @@ pg_fields_read() {
 }
 pg_feed "$PG_FIELDS" pg_fields_read
 PG_EVENT="${PG_EVENT%$'\r'}"; PG_TOOL="${PG_TOOL%$'\r'}"; PG_SID="${PG_SID%$'\r'}"; PG_CWD="${PG_CWD%$'\r'}"
-PG_PATH="${PG_PATH%$'\r'}"; PG_AGENT_TYPE="${PG_AGENT_TYPE%$'\r'}"; PG_SUB_TYPE="${PG_SUB_TYPE%$'\r'}"
+# PG_PATH is payload-sized: a non-matching ${v%x} scans it O(n^2) (a 150 KB path took 1.4 s on
+# MSYS), so its CR is cut by a slice only when it is there (final review, 0.54.1).
+case "$PG_PATH" in *$'\r') PG_PATH="${PG_PATH:0:${#PG_PATH}-1}" ;; esac
+PG_AGENT_TYPE="${PG_AGENT_TYPE%$'\r'}"; PG_SUB_TYPE="${PG_SUB_TYPE%$'\r'}"
 PG_MODEL="${PG_MODEL%$'\r'}"; PG_TEXT="${PG_TEXT%$'\r'}"; PG_SUB_LOWER="${PG_SUB_LOWER%$'\r'}"
 PG_AGENT_LOWER="${PG_AGENT_LOWER%$'\r'}"; PG_AGENT_ID="${PG_AGENT_ID%$'\r'}"; PG_OK="${PG_OK%$'\r'}"
 [ -n "$PG_BAD" ] || [ "$PG_OK" = "ok" ] || PG_BAD="bad-payload"
@@ -571,6 +574,9 @@ $ret_line"
   [ -n "$e_s" ] && [ "$e_s" != "-" ] && { PG_RC_SCOUT="$b_s"$'\t'"$h_s"$'\t'"$e_s"; PG_RC_TIERS=$((PG_RC_TIERS + 1)); }
   [ -n "$e_d" ] && [ "$e_d" != "-" ] && { PG_RC_DO="$b_d"$'\t'"$h_d"$'\t'"$e_d"; PG_RC_TIERS=$((PG_RC_TIERS + 1)); }
   [ -n "$e_t" ] && [ "$e_t" != "-" ] && { PG_RC_THINK="$b_t"$'\t'"$h_t"$'\t'"$e_t"; PG_RC_TIERS=$((PG_RC_TIERS + 1)); }
+  # Envelopes came back but none was read (a failed feed leaves e_s/e_d/e_t empty): a build
+  # failure, not an empty card set, so it is reported as one rather than as verdict=ok tiers=0.
+  case "$out" in *hookSpecificOutput*) [ "$PG_RC_TIERS" -gt 0 ] || { PG_RC_FAIL="envelope-read"; return 1; } ;; esac
   [ -n "$PG_SID" ] || return 0   # no session id: nothing to key a cache on
   local f="$BRAIN_DIR/.injected/$PG_SID.rolecard.tsv" u=0 r=0
   [ -f "$BRAIN_DIR/persona-rules.json" ] && u=1
