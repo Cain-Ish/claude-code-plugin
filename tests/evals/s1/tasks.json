@@ -1,0 +1,573 @@
+{
+  "schema": 1,
+  "experiment": "S1: does second-brain pushed memory change agent outcomes (A full, B push-off, C static block, D floor)",
+  "canary": "S1CANARY-7f3e2a91-do-not-ingest",
+  "frozen": {
+    "wiki_commit": "f681200 in ~/.second-brain/wiki-history.git (2026-09-27 19:27:34 +0200; tree equals live wiki, 1104 md)",
+    "brain_snapshot": "scratchpad s1/frozen-brain-20260927 (2026-09-27T17:28:52Z; SHA256SUMS inside)",
+    "redactions": [
+      "frozen PROJECT.md line 67 (experiment meta: Proposed a pre-registered A/B/C falsification test)"
+    ]
+  },
+  "task_repo": {
+    "source": "C:/Workplace/Projects/claude-code-plugin",
+    "commit": "497fe050efb35437a11865f80ce1518484f0caf9",
+    "origin_url": "https://github.com/Cain-Ish/claude-code-plugin",
+    "dir_name": "claude-code-plugin",
+    "history": "ancestors of commit only; all refs deleted"
+  },
+  "scoring": {
+    "regex_flags": "i",
+    "answer_line": "^\\W*ANSWER\\b",
+    "final_text": "result.result of the stream-json result event; is_error or missing => incorrect",
+    "answer_text": "from the LAST line matching answer_line to the end of final_text; if none, answer_text = final_text and flag no_answer_line",
+    "correct": "every required_all matches final_text AND every required_any group has >=1 match in final_text AND no forbidden_answer_line matches answer_text",
+    "flags": "each flags regex tested on final_text; reported only, never scored",
+    "touch": "normalize backslashes to / and strip the run worktree prefix, then match correct_files against: Read/Edit/Write/MultiEdit input.file_path; Grep/Glob input.path; each whitespace token of Bash input.command; MCP input.path|file|file_path. Grep/Glob patterns never count.",
+    "calls_before_first_correct": "tool_use blocks (main + subagent, stream order) before the first touching block; none touches => censored at total+1, reached=false"
+  },
+  "tasks": [
+    {
+      "id": "s1-t01",
+      "kind": "code+memory",
+      "title": "Where the surface-budget ratchet (R8) is enforced",
+      "prompt": "I am going to split scripts/protocol-guard.sh into two new top-level scripts, scripts/protocol-card.sh and scripts/protocol-jit.sh, and keep protocol-guard.sh as a thin dispatcher. Before I start: which repo check will fail because of this change, where exactly is it enforced, and what do I need to change in the same commit to keep it green? Don't edit any files. End with one line that starts with ANSWER: and gives the enforcing file and the file and key I must change.",
+      "required_all": [
+        "validate-plugin\\.sh",
+        "surface-budget\\.json"
+      ],
+      "required_any": [
+        [
+          "\\b5[678]\\b",
+          "\"scripts\"\\s*:",
+          "scripts[^\\n]{0,20}(key|cap|budget|count|limit)",
+          "(key|cap|budget|count|limit)[^\\n]{0,20}scripts"
+        ]
+      ],
+      "forbidden_answer_line": [
+        "test-surface-budget\\.sh"
+      ],
+      "flags": {
+        "stale_jit_line_range": "\\b190\\s*[-–]\\s*217\\b",
+        "cites_r8": "\\bR8\\b"
+      },
+      "correct_files": [
+        "(^|/)scripts/validate-plugin\\.sh$",
+        "(^|/)\\.claude-plugin/surface-budget\\.json$"
+      ],
+      "truth": [
+        "scripts/validate-plugin.sh:242-300@497fe05 (R8 block; FAIL line :280)",
+        ".claude-plugin/surface-budget.json:5 \"scripts\": 56; scripts/*.sh count at 497fe05 = 56, so +2 = 58 > 56"
+      ],
+      "surfaces": {
+        "wiki": [
+          "concepts/plugin-surface-budget-gate",
+          "issues/stale-test-surface-budget-reference"
+        ],
+        "project_md": [],
+        "jit": [
+          "stale-test-surface-budget-reference (glob scripts/validate-plugin.sh; cites STALE lines 190-217)"
+        ],
+        "native": [
+          "feedback_run_ci_gates_before_push.md"
+        ],
+        "repo_skills": true,
+        "code": true
+      },
+      "answer_in_repo": "yes",
+      "gold_answer": "R8 in scripts/validate-plugin.sh counts scripts/*.sh (56 today) against .claude-plugin/surface-budget.json. Adding two scripts makes 58 > 56.\nANSWER: enforced by scripts/validate-plugin.sh (R8); bump \"scripts\": 56 -> 58 in .claude-plugin/surface-budget.json in the same commit.",
+      "wrong_answers": [
+        "ANSWER: tests/test-surface-budget.sh enforces it; bump the scripts cap in .claude-plugin/surface-budget.json and run validate-plugin.sh",
+        "ANSWER: nothing fails; shellcheck only."
+      ]
+    },
+    {
+      "id": "s1-t02",
+      "kind": "memory",
+      "title": "jq `A + B as $x |` precedence differs on CI jq 1.7.1",
+      "prompt": "I am adding a helper to scripts/lib.sh that runs: jq -n --argjson base \"$B\" --argjson over \"$O\" '$base + $over as $m | $m.rules | length'. All tests pass on my Windows machine. Is there anything about this jq program that can break in our CI, and how should I check it before pushing? Don't edit any files. End with one line that starts with ANSWER: and gives the corrected jq program and how to verify it.",
+      "required_all": [
+        "1\\.7"
+      ],
+      "required_any": [
+        [
+          "\\(\\s*\\$base\\s*\\+\\s*\\$over\\s*\\)\\s*as",
+          "parenthes"
+        ]
+      ],
+      "forbidden_answer_line": [],
+      "flags": {
+        "mentions_shim": "shim|jq-1\\.7\\.1|jq 1\\.7\\.1 binary"
+      },
+      "correct_files": [
+        "(^|/)\\.github/workflows/[^/]+\\.ya?ml$"
+      ],
+      "truth": [
+        "native project_jq18_vs_ci_jq17_as_precedence.md (PR #105: 45 test-rules-layers failures on ubuntu jq 1.7.1)",
+        "code shows only the fixed shape: scripts/lib.sh:3427@497fe05 \") as $effective |\", no rationale"
+      ],
+      "surfaces": {
+        "wiki": [
+          "entities/jq-version-compat",
+          "decisions/claude-code-plugin-decisions-log"
+        ],
+        "project_md": [
+          "How-to line 30 (shim a jq 1.7.1 binary)"
+        ],
+        "jit": [],
+        "native": [
+          "project_jq18_vs_ci_jq17_as_precedence.md"
+        ],
+        "repo_skills": false,
+        "code": "pattern only"
+      },
+      "answer_in_repo": "partial",
+      "gold_answer": "CI (ubuntu-latest) runs jq 1.7.1, which binds as to the term on its left: $base + ($over as $m | ...), so it adds an object to a number and errors. Local jq 1.8.1 hides it.\nANSWER: use ($base + $over) as $m | $m.rules | length and run the touched tests with a jq 1.7.1 binary shimmed first on PATH.",
+      "wrong_answers": [
+        "ANSWER: the program is fine; nothing to change.",
+        "ANSWER: use --arg instead of --argjson; jq 1.6 on CI lacks --argjson."
+      ]
+    },
+    {
+      "id": "s1-t03",
+      "kind": "code+memory",
+      "title": "New tests need the git exec bit (100755)",
+      "prompt": "I am about to add a new shell test, tests/test-plan-suffix.sh, written on this Windows machine. Apart from writing the test itself, what do I have to do so that it is actually executed and passes the repo gates on Linux CI? Don't edit any files. End with one line that starts with ANSWER: and gives the exact git or config steps.",
+      "required_all": [],
+      "required_any": [
+        [
+          "update-index\\s+(--add\\s+)?--chmod=\\+x",
+          "git\\s+add\\s+--chmod=\\+x"
+        ]
+      ],
+      "forbidden_answer_line": [],
+      "flags": {
+        "mentions_tests_budget": "surface-budget|\"tests\"\\s*:\\s*16[89]|\\b16[89]\\b",
+        "mentions_100755": "100755"
+      },
+      "correct_files": [
+        "(^|/)tests/test-exec-bits\\.sh$"
+      ],
+      "truth": [
+        "tests/test-exec-bits.sh:20-23,37-39@497fe05 (every tests/test-*.sh must be 100755; fix line: git update-index --chmod=+x)",
+        "side fact: surface-budget.json \"tests\": 168 with 168 tests at 497fe05 (R8)"
+      ],
+      "surfaces": {
+        "wiki": [
+          "entities/exec-bit-drift-plugin-mirror"
+        ],
+        "project_md": [
+          "Conventions line 23 (Exec bit: verify git ls-files --stage tests/ shows 100755)"
+        ],
+        "jit": [
+          "conv:6 (glob tests/*)"
+        ],
+        "native": [
+          "project_sdd_orchestration_lessons.md"
+        ],
+        "repo_skills": true,
+        "code": true
+      },
+      "answer_in_repo": "yes",
+      "gold_answer": "Windows files land as 100644; tests/test-exec-bits.sh fails CI and run-all does not chmod at runtime.\nANSWER: git add --chmod=+x tests/test-plan-suffix.sh (or git update-index --chmod=+x), confirm 100755 with git ls-files --stage, and bump \"tests\" in .claude-plugin/surface-budget.json.",
+      "wrong_answers": [
+        "ANSWER: chmod +x tests/test-plan-suffix.sh and commit.",
+        "ANSWER: add it to the tests/run-all.sh list."
+      ]
+    },
+    {
+      "id": "s1-t04",
+      "kind": "code+memory",
+      "title": "Windows jq emits CRLF on stdout",
+      "prompt": "I am writing a new check under scripts/ that does: while IFS=$'\\t' read -r name src; do [ -d \"$src\" ] || echo \"missing $src\"; done < <(jq -r '.plugins[] | [.name, .source] | @tsv' .claude-plugin/marketplace.json). On my Windows Git-Bash machine it reports every entry except the last one as missing even though all the directories exist; on Linux it is fine. What is the cause, and what is the fix this repo uses for it? Don't edit any files. End with one line that starts with ANSWER: and gives the cause and the corrected pipeline.",
+      "required_all": [
+        "tr\\s+-d"
+      ],
+      "required_any": [
+        [
+          "CRLF",
+          "carriage[\\s-]*return",
+          "\\\\r",
+          "\\bCR\\b"
+        ]
+      ],
+      "forbidden_answer_line": [],
+      "flags": {
+        "mentions_binary_flag": "--binary|\\bjq\\s+-b\\b"
+      },
+      "correct_files": [
+        "(^|/)scripts/validate-plugin\\.sh$",
+        "(^|/)tests/test-jq-crlf-windows\\.sh$"
+      ],
+      "truth": [
+        "scripts/validate-plugin.sh:99-103@497fe05 (comment + jq ... | tr -d CR)",
+        "native project_jq_windows_crlf_stdout.md"
+      ],
+      "surfaces": {
+        "wiki": [
+          "learnings/jq-windows-crlf-stdout"
+        ],
+        "project_md": [],
+        "jit": [],
+        "native": [
+          "project_jq_windows_crlf_stdout.md"
+        ],
+        "repo_skills": true,
+        "code": true
+      },
+      "answer_in_repo": "yes",
+      "gold_answer": "Windows jq writes stdout in text mode, so every record ends in CRLF; the last field of each non-last record keeps a trailing \\r.\nANSWER: cause = jq CRLF output on Windows; fix = jq -r ... marketplace.json | tr -d CR-char (\\r) before the while-read loop.",
+      "wrong_answers": [
+        "ANSWER: the directories are relative; cd to the repo root first.",
+        "ANSWER: use IFS=, instead of a tab."
+      ]
+    },
+    {
+      "id": "s1-t05",
+      "kind": "memory",
+      "title": "Stale-bundle check, and the linked node_modules trap",
+      "prompt": "I changed mcp/src/tools/code-map.ts in a second git worktree. To save disk space I made that worktree's mcp/node_modules a directory link to the main checkout's mcp/node_modules. How do I prove the committed mcp/dist bundle is current before I push? Give me the exact commands in order. Don't edit any files. End with one line that starts with ANSWER: and gives the command sequence.",
+      "required_all": [
+        "test-bundle-current",
+        "npm\\s+ci"
+      ],
+      "required_any": [],
+      "forbidden_answer_line": [
+        "rm\\s+-(r|rf|fr|Rf)\\s+[^\\n;&|]*node_modules"
+      ],
+      "flags": {
+        "names_esbuild_paths": "esbuild[^\\n]{0,80}(path|resolv)|(path|resolv)[^\\n]{0,80}esbuild",
+        "mentions_skip": "\\bSKIP\\b"
+      },
+      "correct_files": [
+        "(^|/)tests/test-bundle-current\\.sh$",
+        "(^|/)mcp/package\\.json$"
+      ],
+      "truth": [
+        "tests/test-bundle-current.sh:1-16@497fe05 (rebuilds each bundle entry, byte-compares; SKIPs when mcp/node_modules/.bin/esbuild is missing)",
+        "native project_worktree_node_modules_junction_bundle_drift.md + wiki entities/esbuild-bundle-drift-from-node-modules-junction: a linked node_modules makes esbuild embed resolved sibling-tree paths so the gate fails falsely; remove the link (never rm -rf) and run a real npm ci"
+      ],
+      "surfaces": {
+        "wiki": [
+          "entities/esbuild-bundle-drift-from-node-modules-junction"
+        ],
+        "project_md": [
+          "How-to lines 27, 31 (npm run bundle && tests/test-bundle-current.sh)"
+        ],
+        "jit": [],
+        "native": [
+          "project_worktree_node_modules_junction_bundle_drift.md"
+        ],
+        "repo_skills": "gate yes; link trap: 1 mention",
+        "code": "gate yes; trap no"
+      },
+      "answer_in_repo": "partial",
+      "gold_answer": "A linked node_modules makes esbuild embed resolved paths from the other tree, so the bundle differs byte-for-byte.\nANSWER: remove only the link with node fs.unlinkSync on mcp/node_modules (never rm -rf), cd mcp && npm ci && npm run bundle, commit mcp/dist, then bash tests/test-bundle-current.sh.",
+      "wrong_answers": [
+        "ANSWER: cd mcp && npm run bundle && cd .. && bash tests/test-bundle-current.sh",
+        "ANSWER: rm -rf mcp/node_modules && cd mcp && npm ci && npm run bundle && bash ../tests/test-bundle-current.sh"
+      ]
+    },
+    {
+      "id": "s1-t06",
+      "kind": "code+memory",
+      "title": "The ## Plan header grammar",
+      "prompt": "In my project brain PROJECT.md the plan section is headed \"## Plan (spec v2 — merged to main)\" and holds checklist items, but the SessionStart repo card never lists any plan items and the extractor never updates them. Is the problem in my file or in the plugin code, and what exactly does the code expect? Don't edit any files. End with one line that starts with ANSWER: and gives the heading the code accepts and the file:line that enforces it.",
+      "required_all": [
+        "merge-project-update\\.sh"
+      ],
+      "required_any": [
+        [
+          "\\^## Plan\\$",
+          "exact(ly)?[^\\n]{0,40}## Plan",
+          "## Plan[^\\n]{0,10}(alone|only|with no|without|nothing after)",
+          "no (suffix|trailing)"
+        ]
+      ],
+      "forbidden_answer_line": [],
+      "flags": {
+        "cites_line_484": ":484\\b|line 484"
+      },
+      "correct_files": [
+        "(^|/)scripts/merge-project-update\\.sh$",
+        "(^|/)scripts/session-load\\.sh$"
+      ],
+      "truth": [
+        "scripts/merge-project-update.sh:484,499,560,794@497fe05 (grep -q ^## Plan$ and awk /^## Plan$/)",
+        "scripts/session-load.sh:333,1546-1547@497fe05 (renderer uses /^## Plan$/)"
+      ],
+      "surfaces": {
+        "wiki": [
+          "entities/plan-heading-mismatch-breaks-plan-merge (created 2026-09-27)"
+        ],
+        "project_md": [
+          "Open blockers line 84 (non-canonical ## Plan heading breaks Plan handling)"
+        ],
+        "jit": [],
+        "native": [],
+        "repo_skills": false,
+        "code": true
+      },
+      "answer_in_repo": "yes",
+      "gold_answer": "Both merge_plan and the repo card match the heading exactly.\nANSWER: rename it to exactly \"## Plan\" (regex ^## Plan$), enforced at scripts/merge-project-update.sh:484 and scripts/session-load.sh:333.",
+      "wrong_answers": [
+        "ANSWER: any heading starting with ## Plan works; the extractor is just disabled.",
+        "ANSWER: use ### Plan instead."
+      ]
+    },
+    {
+      "id": "s1-t07",
+      "kind": "code+memory",
+      "title": "Where brain/knowledge dir resolution must live",
+      "prompt": "I am adding a new MCP tool under mcp/src/tools/ that writes files into the user knowledge directory. How should it work out that directory so it behaves the same on Windows as on Linux and macOS, and what must I avoid? Don't edit any files. End with one line that starts with ANSWER: and gives the helper to call and the file it lives in.",
+      "required_all": [
+        "resolveKnowledgeDir"
+      ],
+      "required_any": [
+        [
+          "brain-paths"
+        ]
+      ],
+      "forbidden_answer_line": [
+        "join\\(\\s*process\\.env\\.HOME",
+        "process\\.env\\.HOME\\s*(\\?\\?|\\|\\|)"
+      ],
+      "flags": {
+        "mentions_homedir": "homedir\\(\\)",
+        "mentions_scan_test": "brain-paths\\.test"
+      },
+      "correct_files": [
+        "(^|/)mcp/src/brain-paths\\.ts$"
+      ],
+      "truth": [
+        "mcp/src/brain-paths.ts:1-49@497fe05 (resolveKnowledgeDir: plugin option > KNOWLEDGE_DIR > homedir()/knowledge; never process.env.HOME)",
+        "mcp/src/brain-paths.test.ts:44@497fe05"
+      ],
+      "surfaces": {
+        "wiki": [
+          "decisions/project-identity-git-remote",
+          "issues/graph-cluster-sh-inline-resolver-divergence"
+        ],
+        "project_md": [],
+        "jit": [
+          "graph-cluster-sh-inline-resolver-divergence (glob scripts/*; bash twin)"
+        ],
+        "native": [
+          "project_home_cwd_relative_bug_class.md"
+        ],
+        "repo_skills": true,
+        "code": true
+      },
+      "answer_in_repo": "yes",
+      "gold_answer": "Node on Windows does not inherit HOME, so a HOME-based join becomes cwd-relative.\nANSWER: call resolveKnowledgeDir() from mcp/src/brain-paths.ts (it uses os.homedir()); never read process.env.HOME.",
+      "wrong_answers": [
+        "ANSWER: path.join(process.env.HOME || \"\", \"knowledge\") in the tool file.",
+        "ANSWER: read KNOWLEDGE_DIR directly in the tool."
+      ]
+    },
+    {
+      "id": "s1-t08",
+      "kind": "code+memory",
+      "title": "Do not use ln -s for directory links on MSYS",
+      "prompt": "I need a new install step that points each plugin version's mcp/node_modules at one shared dependencies directory through a directory link, and it must work on Windows Git-Bash as well as on Linux and macOS. How should the script create that link? Don't edit any files. End with one line that starts with ANSWER: and gives the command to use on each platform.",
+      "required_all": [
+        "junction"
+      ],
+      "required_any": [
+        [
+          "symlinkSync",
+          "mklink\\s+/J"
+        ]
+      ],
+      "forbidden_answer_line": [],
+      "flags": {
+        "mentions_winsymlinks": "winsymlinks",
+        "mentions_deep_copy": "deep[\\s-]*cop|copies the (target|directory)"
+      },
+      "correct_files": [
+        "(^|/)bin/install-vector-deps\\.sh$"
+      ],
+      "truth": [
+        "bin/install-vector-deps.sh:82-90@497fe05 (MINGW/MSYS: node fs.symlinkSync(target, link, junction); else ln -s)",
+        "native project_lnstar_windows_deepcopy.md (ln -s silently deep-copies on MSYS)"
+      ],
+      "surfaces": {
+        "wiki": [
+          "decisions/shared-vector-deps"
+        ],
+        "project_md": [],
+        "jit": [
+          "shared-vector-deps (glob mcp/package.json)"
+        ],
+        "native": [
+          "project_lnstar_windows_deepcopy.md"
+        ],
+        "repo_skills": true,
+        "code": true
+      },
+      "answer_in_repo": "yes",
+      "gold_answer": "On Git-Bash ln -s silently deep-copies the directory.\nANSWER: MINGW/MSYS: node fs.symlinkSync(target, link, \"junction\") with cygpath -w paths; Linux/macOS: ln -s target link.",
+      "wrong_answers": [
+        "ANSWER: ln -s \"$SHARED\" mcp/node_modules on all platforms.",
+        "ANSWER: export MSYS=winsymlinks:nativestrict and use ln -s everywhere."
+      ]
+    },
+    {
+      "id": "s1-t09",
+      "kind": "memory",
+      "title": "MSYS_NO_PATHCONV contaminates tests/run-all.sh",
+      "prompt": "On my Windows Git-Bash machine, bash tests/run-all.sh suddenly shows about a dozen red tests, several of them claiming a file does not exist when it clearly does. CI on the same commit is green and I have not changed any code since my last green local run. What is the most likely cause in my shell environment, and what should I do before re-running? Don't edit any files. End with one line that starts with ANSWER: and gives the cause and the command to run first.",
+      "required_all": [
+        "MSYS_NO_PATHCONV"
+      ],
+      "required_any": [],
+      "forbidden_answer_line": [],
+      "flags": {
+        "says_unset": "unset\\s+MSYS_NO_PATHCONV|env\\s+-u\\s+MSYS_NO_PATHCONV"
+      },
+      "correct_files": [
+        "(^|/)docs/daily-prompt\\.md$"
+      ],
+      "truth": [
+        "docs/daily-prompt.md:405-412@497fe05 (export MSYS_NO_PATHCONV=1 turned 12 of 17 tests red; unset -> green)"
+      ],
+      "surfaces": {
+        "wiki": [
+          "issues/msys-no-pathconv-contaminates-test-suite",
+          "entities/second-brain-plugin"
+        ],
+        "project_md": [],
+        "jit": [
+          "msys-no-pathconv-contaminates-test-suite (glob tests/run-all.sh)"
+        ],
+        "native": [],
+        "repo_skills": "one chronicle mention of a different incident",
+        "code": "buried in a long doc"
+      },
+      "answer_in_repo": "buried",
+      "gold_answer": "An exported MSYS_NO_PATHCONV=1 stops Git-Bash path conversion, so tests hand POSIX paths to Windows tools that cannot open them.\nANSWER: cause = MSYS_NO_PATHCONV exported in the shell; run unset MSYS_NO_PATHCONV, then re-run one failing test before the suite.",
+      "wrong_answers": [
+        "ANSWER: CRLF line endings from core.autocrlf; run git add --renormalize .",
+        "ANSWER: flaky timeouts; re-run the suite."
+      ]
+    },
+    {
+      "id": "s1-c01",
+      "kind": "control",
+      "title": "Kill switch for path-triggered JIT lines",
+      "prompt": "When Claude reads or edits a file in this repo, second-brain sometimes injects a bracketed \"Repo memory for <path>\" block. I want to switch off only that behaviour and keep the rest of the protocol guard (session card, subagent role cards, delegation check). Which setting does that, and where is it read? Don't edit any files. End with one line that starts with ANSWER: and gives the setting and the file that reads it.",
+      "required_all": [
+        "\\bSB_JIT\\b",
+        "protocol-guard\\.sh"
+      ],
+      "required_any": [],
+      "forbidden_answer_line": [
+        "SB_PROTOCOL_GUARD\\s*=\\s*off",
+        "SB_HOOK_PROFILE"
+      ],
+      "flags": {
+        "cites_line_675": ":675\\b|line 675"
+      },
+      "correct_files": [
+        "(^|/)scripts/protocol-guard\\.sh$"
+      ],
+      "truth": [
+        "scripts/protocol-guard.sh:12-13,675@497fe05 (SB_JIT off skips pg_jit)"
+      ],
+      "surfaces": {
+        "wiki": [],
+        "project_md": [],
+        "jit": [],
+        "native": [],
+        "repo_skills": "flag catalog mention",
+        "code": true
+      },
+      "answer_in_repo": "yes",
+      "gold_answer": "ANSWER: SB_JIT=off, read by scripts/protocol-guard.sh (dispatcher, pre mode).",
+      "wrong_answers": [
+        "ANSWER: SB_PROTOCOL_GUARD=off in scripts/protocol-guard.sh",
+        "ANSWER: SB_REPO_CARD=off in scripts/session-load.sh"
+      ]
+    },
+    {
+      "id": "s1-c02",
+      "kind": "control",
+      "title": "sb_normalize_path and the device-namespace prefix",
+      "prompt": "A PreToolUse guard in this repo receives a Windows path in device-namespace form, for example \\\\.\\C:\\Users\\me\\.ssh\\id_rsa. Does the repo's shared path normaliser handle that form, and what exact string does it produce for that example on Git-Bash before the guard compares it with $HOME-derived prefixes? Don't edit any files. End with one line that starts with ANSWER: and gives the function, its file, and the normalised string.",
+      "required_all": [
+        "sb_normalize_path",
+        "lib\\.sh"
+      ],
+      "required_any": [
+        [
+          "/c/Users/me/\\.ssh/id_rsa"
+        ]
+      ],
+      "forbidden_answer_line": [
+        "//\\./C:/Users/me"
+      ],
+      "flags": {},
+      "correct_files": [
+        "(^|/)scripts/lib\\.sh$"
+      ],
+      "truth": [
+        "scripts/lib.sh:47-73@497fe05 (backslash to slash, strip //./ (D182), drive form -> cygpath -u)"
+      ],
+      "surfaces": {
+        "wiki": [],
+        "project_md": [],
+        "jit": [],
+        "native": [
+          "project_deep_audit_2026_09.md names D182 only"
+        ],
+        "repo_skills": "function named, not this case",
+        "code": true
+      },
+      "answer_in_repo": "yes",
+      "gold_answer": "Yes: it slashes, strips //./ and runs cygpath -u.\nANSWER: sb_normalize_path in scripts/lib.sh turns it into /c/Users/me/.ssh/id_rsa",
+      "wrong_answers": [
+        "ANSWER: sb_normalize_path in scripts/lib.sh leaves it as //./C:/Users/me/.ssh/id_rsa (not handled).",
+        "ANSWER: cleanEnvPath in mcp/src/path-guard.ts returns C:/Users/me/.ssh/id_rsa"
+      ]
+    },
+    {
+      "id": "s1-c03",
+      "kind": "control",
+      "title": "Search-before-create note: source and switch",
+      "prompt": "When Claude writes a brand-new file whose file name already exists somewhere else in the repo, second-brain adds a \"Search before creating\" note. Which script emits it, which sources does it check for files with the same name, and how do I turn it off? Don't edit any files. End with one line that starts with ANSWER: and gives the script, the sources it checks, and the switch.",
+      "required_all": [
+        "SB_SEARCH_FIRST",
+        "protocol-guard\\.sh",
+        "ls-files"
+      ],
+      "required_any": [
+        [
+          "graph\\.json",
+          "code[\\s-]?map"
+        ]
+      ],
+      "forbidden_answer_line": [],
+      "flags": {},
+      "correct_files": [
+        "(^|/)scripts/protocol-guard\\.sh$"
+      ],
+      "truth": [
+        "scripts/protocol-guard.sh:541-665 (pg_search: git ls-files at :576, codemap graph.json at :605) and :676 (SB_SEARCH_FIRST)@497fe05"
+      ],
+      "surfaces": {
+        "wiki": [],
+        "project_md": [],
+        "jit": [],
+        "native": [],
+        "repo_skills": "flag catalog mention",
+        "code": true
+      },
+      "answer_in_repo": "yes",
+      "gold_answer": "ANSWER: scripts/protocol-guard.sh (pg_search, PreToolUse Write of a new path) checks git ls-files and the project code map graph.json; disable with SB_SEARCH_FIRST=off.",
+      "wrong_answers": [
+        "ANSWER: scripts/plan-first-nudge.sh checks the wiki; SB_PLAN_FIRST_NUDGE=off.",
+        "ANSWER: protocol-guard.sh checks knowledge_search; SB_JIT=off"
+      ]
+    }
+  ]
+}

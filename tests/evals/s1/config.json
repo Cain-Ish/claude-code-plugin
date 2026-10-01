@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "experiment": "S1: does second-brain pushed memory change agent outcomes (A full, B push-off, C static block, D floor)",
+  "status": "pre-registered; plugin_commit pinned as TBD-after-S0-merge until S0 lands — do NOT run --smoke/--full until it is filled in",
+  "canary": "S1CANARY-7f3e2a91-do-not-ingest",
+
+  "pins": {
+    "plugin_commit": "TBD-after-S0-merge",
+    "task_repo_commit": "497fe050efb35437a11865f80ce1518484f0caf9",
+    "task_repo_origin_url": "https://github.com/Cain-Ish/claude-code-plugin",
+    "task_repo_dir_name": "claude-code-plugin",
+    "wiki_history_commit": "f681200838d4dd7e1cca09389efaff871e7b35ef",
+    "wiki_history_commit_note": "resolved via `git --git-dir ~/.second-brain/wiki-history.git rev-parse f681200838d4^{commit}` (read-only); commit dated 2026-09-27T19:27:34+02:00. The frozen-wiki-20260927 snapshot alongside frozen-brain-20260927/frozen-knowledge-graph-20260927 was archived from this exact commit via `git --git-dir ... archive <full hash> | tar -x`.",
+    "model": "TBD-after-smoke",
+    "model_note": "SPEC.md Controls: pin from the smoke run's init.model; abort any later run reporting a different model. run.mjs enforces this once set.",
+    "effort": "high",
+    "seed": 20260927,
+    "reps": 3,
+    "concurrency": { "max_total": 3, "max_ab": 2 },
+    "retry": { "max_retries": 1, "on": ["429", "is_error"], "delay_ms": 60000 },
+    "max_turns": 60,
+    "max_budget_usd": 3
+  },
+
+  "snapshots": {
+    "brain": {
+      "dir_name": "frozen-brain-20260927",
+      "frozen_at_utc": "2026-09-27T17:28:52Z",
+      "manifest_sha256": "de5cc25cb1914616ebe64c175a1c69e2419e17e3d3e65035e016181eec904069",
+      "manifest_note": "sha256 of the snapshot's own SHA256SUMS file (which lists a hash per file inside it); prepare.mjs recomputes both layers before any run"
+    },
+    "knowledge_graph": {
+      "dir_name": "frozen-knowledge-graph-20260927",
+      "manifest_sha256": "f648cd95506aa0d286a713e6425c0e31e7c8e212a4d50ceabb98e1e2069337cc"
+    },
+    "native_memory": {
+      "dir_name": "frozen-native-memory-20260927",
+      "manifest_sha256": null,
+      "note": "C2 optional arm only (native autoMemoryDirectory), not part of the falsification decision"
+    },
+    "wiki": {
+      "dir_name": "frozen-wiki-20260927",
+      "note": "git --git-dir ~/.second-brain/wiki-history.git archive <wiki_history_commit> | tar -x, placed alongside the brain/knowledge-graph snapshots as frozen-wiki-20260927/ (same SHA256SUMS/FROZEN_AT_UTC.txt convention as the other two)",
+      "manifest_sha256": "1b6af35109d12f6c0c4b2b8032f8c54d23a2f7f071941ef341b994e3df008382",
+      "expected_md_count": 1104
+    },
+    "redactions": [
+      "frozen PROJECT.md line 67 (experiment meta: 'Proposed a pre-registered A/B/C falsification test')",
+      "frozen PROJECT.md line ~96 (wiki-link mention: '[[context-injection-falsification-test]]')"
+    ],
+    "redactions_note": "the frozen-wiki-20260927 snapshot also contains an auto-created, empty 'TODO: expand' entity stub named context-injection-falsification-test.md plus one mention in index.md's 377-entry entity list — deliberately left un-redacted (indistinguishable among hundreds of unrelated entity names, no real content); the leak-guard pattern for the two PROJECT.md redactions above is scoped to <run>/brain scans only (buildBrainLeakPatterns in lib.mjs) for exactly this reason, not applied to <run>/knowledge (wiki).",
+    "omit": ["transcripts/", "episodic index", "vector-deps", "other projects"]
+  },
+
+  "arms": {
+    "A": {
+      "description": "full plugin — copy of plugin/ at the pinned plugin commit",
+      "plugin_dir": true,
+      "append_system_prompt_file": false
+    },
+    "B": {
+      "description": "push-off — copy of A with hooks/hooks.json missing the push hooks listed in hook_removal_b; guards and MCP pull stay",
+      "plugin_dir": true,
+      "append_system_prompt_file": false,
+      "env": { "SB_JIT": "off", "SB_SEARCH_FIRST": "off", "SB_ROLE_CARDS": "off", "SB_PROTOCOL_CARD": "off", "SB_COMPACT_REINJECT": "off" }
+    },
+    "C": {
+      "description": "no plugin; --append-system-prompt-file blocks/<task>.md rendered OFFLINE by the plugin's own scripts (session-load.sh startup + protocol-guard.sh card + persona-context.sh with the task prompt + every jit-index item) in a throwaway sandbox with arm A's env; hookSpecificOutput.additionalContext taken where JSON. Never hand-written.",
+      "plugin_dir": false,
+      "append_system_prompt_file": true
+    },
+    "D": {
+      "description": "floor — no plugin, no block",
+      "plugin_dir": false,
+      "append_system_prompt_file": false
+    },
+    "C2": {
+      "description": "optional, not in the decision — real native memory via --settings {\"autoMemoryDirectory\": <run>/native} from the frozen native-memory copy",
+      "optional": true
+    }
+  },
+
+  "side_effect_guards_ab": ["SB_DISABLE_AUTO_TIMER=1", "SB_DREAM_AUTOSTAGE=off", "SB_EXTRACT=off", "SB_PERSONA_THINK=off"],
+
+  "hook_removal_b": {
+    "note": "Applied to a byte-identical copy of A's hooks/hooks.json; A and B must differ ONLY in hooks/hooks.json (asserted by prepare.mjs).",
+    "remove": [
+      { "event": "SessionStart", "matcher": "startup|resume|clear|fork", "hook_command_contains": "session-load.sh" },
+      { "event": "SessionStart", "matcher": "startup|resume|clear|fork", "hook_command_contains": "protocol-guard.sh\" card" },
+      { "event": "SessionStart", "matcher": "compact", "remove_entire_group": true },
+      { "event": "UserPromptSubmit", "remove_entire_event": true },
+      { "event": "SubagentStart", "remove_entire_event": true },
+      { "event": "PostCompact", "remove_entire_event": true }
+    ],
+    "keep": "everything else, including PreToolUse protocol-guard.sh pre (guard) and all MCP pull tools"
+  },
+
+  "every_run": {
+    "claude_argv_template": [
+      "-p", "<prompt>", "--model", "<pinned full id>", "--effort", "high",
+      "--setting-sources", "project", "--settings", "<run>/settings.json",
+      "--output-format", "stream-json", "--verbose", "--include-hook-events",
+      "--no-session-persistence", "--permission-prompts", "none",
+      "--session-id", "<uuid>", "--max-turns", "60", "--max-budget-usd", "3"
+    ],
+    "cwd": "the run's own worktree",
+    "env_scrub_delete": ["CLAUDE*", "SB_*", "ANTHROPIC_*", "BRAIN_DIR", "KNOWLEDGE_DIR", "MSYS_NO_PATHCONV"],
+    "env_scrub_set": {
+      "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+      "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+      "BRAIN_DIR": "<run>/brain",
+      "SB_BRAIN_DIR": "<run>/brain",
+      "KNOWLEDGE_DIR": "<run>/knowledge",
+      "SB_KNOWLEDGE_DIR": "<run>/knowledge"
+    }
+  },
+
+  "settings_allowlist": {
+    "allow_fixed": [
+      "Read", "Grep", "Glob", "Agent", "TodoWrite",
+      "Bash(git log|show|grep|ls-files|diff|blame|status|rev-parse *)",
+      "Bash(grep|rg|ls|cat|head|tail|wc|jq|od *)",
+      "Bash(sed -n *)"
+    ],
+    "mcp_read_tools": [],
+    "mcp_read_tools_note": "populate with the exact read-only MCP tool names from the smoke run's init.tools before step 6/7; run.mjs warns loudly if this stays empty",
+    "deny_fixed": [
+      "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch",
+      "Read(~/.second-brain/**)", "Read(~/knowledge/**)", "Read(~/.claude/**)"
+    ]
+  },
+
+  "repo_template": {
+    "clone_flags": ["--no-local"],
+    "commit": "497fe050efb35437a11865f80ce1518484f0caf9",
+    "post_clone": ["detach HEAD", "delete all refs", "reflog expire --expire=now --all", "gc --prune=now"],
+    "origin_url": "https://github.com/Cain-Ish/claude-code-plugin",
+    "dir_name": "claude-code-plugin",
+    "assert": "rev-list --all count == rev-list --count 497fe05",
+    "per_run": "git worktree add --detach"
+  },
+
+  "eval_root_default": "%LOCALAPPDATA%/sb-evals/s1/<id>"
+}
