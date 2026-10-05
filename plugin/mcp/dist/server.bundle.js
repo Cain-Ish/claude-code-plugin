@@ -21777,19 +21777,24 @@ async function logLoadError(message, brainDir2) {
   }
   if (lastLoadError.loggedTo.has(brainDir2)) return;
   lastLoadError.loggedTo.add(brainDir2);
+  await appendErrorLog(brainDir2, "embeddings", message, 0);
+}
+async function appendErrorLog(brainDir2, script, message, exitCode = 1) {
   const entry = {
     timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
-    script: "embeddings",
+    script,
     message,
-    exit_code: 0
+    exit_code: exitCode
   };
+  let note = "";
   try {
     await fs6.mkdir(brainDir2, { recursive: true });
     await fs6.appendFile(join4(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
-  } catch {
+  } catch (e) {
+    note = ` (error-log.jsonl write failed: ${e instanceof Error ? e.message : String(e)})`;
   }
   try {
-    process.stderr.write(`[embeddings] ${message}
+    process.stderr.write(`[${script}] ${message}${note}
 `);
   } catch {
   }
@@ -28346,20 +28351,20 @@ function accessCountsFile(brainDir2) {
   return join8(resolveBrainDir(brainDir2), "access-counts.json");
 }
 var ACCESS_PRUNE_DAYS = 90;
-async function loadAccessCounts(brainDir2) {
+async function loadAccessCounts(file) {
   try {
-    return JSON.parse(await fs9.readFile(accessCountsFile(brainDir2), "utf-8"));
+    return JSON.parse(await fs9.readFile(file, "utf-8"));
   } catch {
     return {};
   }
 }
-async function saveAccessCounts(counts, brainDir2) {
+async function saveAccessCounts(counts, file) {
   const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 864e5).toISOString();
   const pruned = {};
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await atomicWriteJson(accessCountsFile(brainDir2), pruned);
+  await atomicWriteJson(file, pruned);
 }
 var TOP_K = 8;
 var SNIPPET_CHARS = 200;
@@ -28529,9 +28534,11 @@ var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 var STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
 var SINGLE_LETTER_RE = /^[a-z]$/;
+var PURE_DIGITS_RE = /^[0-9]+$/;
 async function knowledgeSearch(args) {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join8(knowledgeDir, "wiki");
+  const accessFile = accessCountsFile(args.brainDir);
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
     try {
@@ -28776,7 +28783,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     ...isCross ? { cross_project: true } : {},
     ...scopeActive ? { tier } : {}
   }));
-  const accessCounts = await loadAccessCounts(args.brainDir);
+  const accessCounts = await loadAccessCounts(accessFile);
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;
@@ -28785,7 +28792,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     accessCounts[slug].count++;
     accessCounts[slug].last_accessed = ts;
   }
-  await saveAccessCounts(accessCounts, args.brainDir).catch(() => {
+  await saveAccessCounts(accessCounts, accessFile).catch(() => {
   });
   return {
     candidates,
@@ -28825,7 +28832,7 @@ function groundedCount(queryTokens, idx, dfMap, N) {
   return n;
 }
 function discriminativeTerms(queryTokens, dfMap, N) {
-  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t));
+  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);
@@ -32366,9 +32373,98 @@ function stripInvisible(s) {
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
-function displaySnippet(r, max) {
-  const text = r.userSnippet.trim() ? r.userSnippet : `[machine turn]${r.assistantSnippet ? " " + r.assistantSnippet : ""}`;
-  return max === void 0 ? text : text.slice(0, max);
+var PEER_PREFIX = "Another Claude session sent a message:";
+var MACHINE_TAG_PREFIXES = [
+  "<task-notification>",
+  "<system-reminder>",
+  "<agent-message",
+  "<cross-session-message",
+  "<command-",
+  // command-name, command-message, command-args
+  "<local-command-",
+  // local-command-stdout, local-command-caveat, …
+  "<bash-"
+  // bash-input, bash-stdout, bash-stderr (the ! shell mode)
+];
+var MACHINE_TURN_PREFIXES = [
+  ...MACHINE_TAG_PREFIXES,
+  PEER_PREFIX,
+  "Stop hook feedback:",
+  "This session is being continued from a previous conversation",
+  // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
+  "Base directory for this skill:",
+  "Caveat: The messages below were generated"
+];
+var MACHINE_LINE_PREFIXES = ["[Image: source:", "[Image: original", "[Request interrupted by user"];
+function stripLead(text) {
+  return text.replace(/^[\s﻿]+/, "");
+}
+function isMachineTurnText(text) {
+  const t = stripLead(text);
+  return MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p)) || MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p));
+}
+var SUBAGENT_REPORT_MARK = "(subagent report) ";
+var PEER_MESSAGE_MARK = "(peer message) ";
+function peerReportBody(rest) {
+  const lines = rest.split("\n");
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  const open = lines[i]?.trim().match(/^<([a-z]+(?:-[a-z]+)+)\b[^>]*>(.*)$/);
+  let body;
+  if (open) {
+    const close = `</${open[1]}>`;
+    body = [open[2], ...lines.slice(i + 1)];
+    const end = body.findIndex((l) => l.trim().startsWith(close));
+    if (end >= 0) body = body.slice(0, end);
+  } else {
+    body = lines.slice(i);
+  }
+  const flags = [];
+  let j2 = 0;
+  for (; j2 < body.length; j2++) {
+    const l = body[j2].trim();
+    if (!l || l.startsWith("[Subagent hand-back]")) continue;
+    if (l.startsWith("[harness:")) {
+      flags.push(foldServedSnippet(l));
+      continue;
+    }
+    break;
+  }
+  const report = body.slice(j2).join("\n").trim();
+  if (!report) return "";
+  const mark = open?.[1] === "agent-message" ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
+  return mark + [report, ...flags].join("\n");
+}
+var FOLD_TO_SPACE = /* @__PURE__ */ new Set([9, 10, 11, 12, 13, 133, 8232, 8233]);
+var FOLD_TO_OPEN = /* @__PURE__ */ new Set([91, 65339, 12304, 10214, 12314, 8261, 65095, 12308]);
+var FOLD_TO_CLOSE = /* @__PURE__ */ new Set([93, 65341, 12305, 10215, 12315, 8262, 65096, 12309]);
+function foldServedSnippet(text) {
+  let out = "";
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    out += FOLD_TO_SPACE.has(c) ? " " : FOLD_TO_OPEN.has(c) ? "(" : FOLD_TO_CLOSE.has(c) ? ")" : ch;
+  }
+  return out;
+}
+function episodeUserLine(userSnippet) {
+  const u3 = cleanUserText(userSnippet).trim();
+  if (!u3) return "[machine turn]";
+  if (u3.startsWith(SUBAGENT_REPORT_MARK)) return `**Subagent report**: ${foldServedSnippet(u3.slice(SUBAGENT_REPORT_MARK.length))}`;
+  if (u3.startsWith(PEER_MESSAGE_MARK)) return `**Peer message**: ${foldServedSnippet(u3.slice(PEER_MESSAGE_MARK.length))}`;
+  return `**User**: ${foldServedSnippet(u3)}`;
+}
+function cleanUserText(text) {
+  if (!isMachineTurnText(text)) return text;
+  const t = stripLead(text);
+  if (MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p))) {
+    const lines = t.split("\n");
+    let i = 0;
+    while (i < lines.length && (!lines[i].trim() || MACHINE_LINE_PREFIXES.some((p) => stripLead(lines[i]).startsWith(p)))) i++;
+    const rest = lines.slice(i).join("\n").trim();
+    return rest ? cleanUserText(rest) : "";
+  }
+  if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
+  return "";
 }
 function parseSessionMeta(lines) {
   const meta = { sessionId: "", project: "", date: "" };
@@ -32389,14 +32485,47 @@ function parseSessionMeta(lines) {
   }
   return { meta, bodyStart: i };
 }
+var emptyIndex = () => ({ model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] });
 async function loadIndex(brainDir2) {
   const indexPath = join15(brainDir2, INDEX_FILE);
+  let data;
   try {
-    const data = await fs15.readFile(indexPath, "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };
+    data = await fs15.readFile(indexPath, "utf-8");
+  } catch (e) {
+    if (e.code === "ENOENT") return emptyIndex();
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`
+    );
+    return emptyIndex();
   }
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch (e) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`
+    );
+    return emptyIndex();
+  }
+  const o = parsed;
+  if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.exchanges)) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} has no exchanges array`
+    );
+    return emptyIndex();
+  }
+  const files = o.indexed_files;
+  return {
+    model: typeof o.model === "string" ? o.model : emptyIndex().model,
+    indexed_files: files && typeof files === "object" && !Array.isArray(files) ? files : {},
+    exchanges: o.exchanges
+  };
 }
 async function episodicSearch(args, brainDir2) {
   const index = await loadIndex(brainDir2);
@@ -32435,7 +32564,7 @@ async function episodicSearch(args, brainDir2) {
   }
   merged.sort((a, b) => b.similarity - a.similarity);
   return {
-    results: scopeAndBroaden(merged, args).slice(0, limit).map((r) => ({
+    results: scopeAndBroaden(aboveFloor(merged, args), args).slice(0, limit).map((r) => ({
       sessionId: r.sessionId,
       project: r.project,
       date: r.date,
@@ -32510,7 +32639,7 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   });
   const threshold = 0.2;
   const ranked = scopeAndBroaden(
-    scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity),
+    aboveFloor(scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity), filters),
     filters
   );
   return {
@@ -32539,7 +32668,18 @@ function applyFilters(exchanges, filters) {
   if (filters.before) {
     result = result.filter((e) => e.date <= filters.before);
   }
+  if (filters.excludeSessionId) {
+    const sid = filters.excludeSessionId;
+    result = result.filter((e) => e.sessionId !== sid);
+  }
+  if (filters.requireUserText) {
+    result = result.filter((e) => cleanUserText(e.userSnippet).trim() !== "");
+  }
   return result;
+}
+function aboveFloor(ranked, filters) {
+  const floor = filters.minSimilarity;
+  return floor === void 0 ? ranked : ranked.filter((r) => r.similarity >= floor);
 }
 function withActiveScope(args, activeSlug) {
   if (args.project) {
@@ -33896,9 +34036,9 @@ registerJsonTool(
     const render = (r) => {
       const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : "";
       return [
-        `### ${r.project} \u2014 ${r.date}${sim}`,
-        `**User**: ${displaySnippet({ userSnippet: r.userSnippet })}`,
-        `**Assistant**: ${r.assistantSnippet}`,
+        `### ${foldServedSnippet(r.project)} \u2014 ${foldServedSnippet(r.date)}${sim}`,
+        episodeUserLine(r.userSnippet),
+        `**Assistant**: ${foldServedSnippet(r.assistantSnippet)}`,
         `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`
       ].join("\n");
     };

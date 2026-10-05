@@ -78,19 +78,24 @@ async function logLoadError(message, brainDir2) {
   }
   if (lastLoadError.loggedTo.has(brainDir2)) return;
   lastLoadError.loggedTo.add(brainDir2);
+  await appendErrorLog(brainDir2, "embeddings", message, 0);
+}
+async function appendErrorLog(brainDir2, script, message, exitCode = 1) {
   const entry = {
     timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
-    script: "embeddings",
+    script,
     message,
-    exit_code: 0
+    exit_code: exitCode
   };
+  let note = "";
   try {
     await fs2.mkdir(brainDir2, { recursive: true });
     await fs2.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
-  } catch {
+  } catch (e) {
+    note = ` (error-log.jsonl write failed: ${e instanceof Error ? e.message : String(e)})`;
   }
   try {
-    process.stderr.write(`[embeddings] ${message}
+    process.stderr.write(`[${script}] ${message}${note}
 `);
   } catch {
   }
@@ -171,47 +176,88 @@ var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
 var PEER_PREFIX = "Another Claude session sent a message:";
-var MACHINE_TURN_PREFIXES = [
+var MACHINE_TAG_PREFIXES = [
   "<task-notification>",
+  "<system-reminder>",
+  "<agent-message",
+  "<cross-session-message",
+  "<command-",
+  // command-name, command-message, command-args
+  "<local-command-",
+  // local-command-stdout, local-command-caveat, …
+  "<bash-"
+  // bash-input, bash-stdout, bash-stderr (the ! shell mode)
+];
+var MACHINE_TURN_PREFIXES = [
+  ...MACHINE_TAG_PREFIXES,
   PEER_PREFIX,
   "Stop hook feedback:",
   "This session is being continued from a previous conversation",
   // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
   "Base directory for this skill:",
-  "Caveat: The messages below were generated",
-  "[Image: source:",
-  "[Image: original",
-  "[Request interrupted by user"
+  "Caveat: The messages below were generated"
 ];
-var HYPHEN_TAG_RE = /^<[a-z]+-/;
+var MACHINE_LINE_PREFIXES = ["[Image: source:", "[Image: original", "[Request interrupted by user"];
 function stripLead(text) {
   return text.replace(/^[\s﻿]+/, "");
 }
 function isMachineTurnText(text) {
   const t = stripLead(text);
-  return HYPHEN_TAG_RE.test(t) || MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p));
+  return MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p)) || MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p));
 }
+var SUBAGENT_REPORT_MARK = "(subagent report) ";
+var PEER_MESSAGE_MARK = "(peer message) ";
 function peerReportBody(rest) {
-  const lines = rest.split("\n");
+  const lines2 = rest.split("\n");
   let i = 0;
-  while (i < lines.length && !lines[i].trim()) i++;
-  const open = lines[i]?.trim().match(/^<([a-z]+(?:-[a-z]+)+)\b[^>]*>(.*)$/);
+  while (i < lines2.length && !lines2[i].trim()) i++;
+  const open = lines2[i]?.trim().match(/^<([a-z]+(?:-[a-z]+)+)\b[^>]*>(.*)$/);
   let body;
   if (open) {
     const close = `</${open[1]}>`;
-    body = [open[2], ...lines.slice(i + 1)];
+    body = [open[2], ...lines2.slice(i + 1)];
     const end = body.findIndex((l) => l.trim().startsWith(close));
     if (end >= 0) body = body.slice(0, end);
   } else {
-    body = lines.slice(i);
+    body = lines2.slice(i);
   }
+  const flags = [];
   let j = 0;
-  while (j < body.length && (!body[j].trim() || /^\s*\[(Subagent hand-back\]|harness:)/.test(body[j]))) j++;
-  return body.slice(j).join("\n").trim();
+  for (; j < body.length; j++) {
+    const l = body[j].trim();
+    if (!l || l.startsWith("[Subagent hand-back]")) continue;
+    if (l.startsWith("[harness:")) {
+      flags.push(foldServedSnippet(l));
+      continue;
+    }
+    break;
+  }
+  const report = body.slice(j).join("\n").trim();
+  if (!report) return "";
+  const mark = open?.[1] === "agent-message" ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
+  return mark + [report, ...flags].join("\n");
+}
+var FOLD_TO_SPACE = /* @__PURE__ */ new Set([9, 10, 11, 12, 13, 133, 8232, 8233]);
+var FOLD_TO_OPEN = /* @__PURE__ */ new Set([91, 65339, 12304, 10214, 12314, 8261, 65095, 12308]);
+var FOLD_TO_CLOSE = /* @__PURE__ */ new Set([93, 65341, 12305, 10215, 12315, 8262, 65096, 12309]);
+function foldServedSnippet(text) {
+  let out = "";
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    out += FOLD_TO_SPACE.has(c) ? " " : FOLD_TO_OPEN.has(c) ? "(" : FOLD_TO_CLOSE.has(c) ? ")" : ch;
+  }
+  return out;
 }
 function cleanUserText(text) {
   if (!isMachineTurnText(text)) return text;
   const t = stripLead(text);
+  if (MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p))) {
+    const lines2 = t.split("\n");
+    let i = 0;
+    while (i < lines2.length && (!lines2[i].trim() || MACHINE_LINE_PREFIXES.some((p) => stripLead(lines2[i]).startsWith(p)))) i++;
+    const rest = lines2.slice(i).join("\n").trim();
+    return rest ? cleanUserText(rest) : "";
+  }
   if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
   return "";
 }
@@ -230,14 +276,71 @@ function servableEpisodes(rows, o) {
   }
   return out;
 }
+var EPISODIC_SERVE_HEADER = "[Past sessions \u2014 use episodic_search for full context]";
+var SERVE_MIN_SIMILARITY = 0.15;
+var SERVE_POOL = 10;
+var SERVE_MAX = 2;
+async function serveEpisodicLines(query2, brainDir2, o) {
+  const result = await episodicSearch({
+    query: query2,
+    limit: SERVE_POOL,
+    mode: "both",
+    activeProject: o.activeProject,
+    excludeSessionId: o.sessionId || void 0,
+    requireUserText: true,
+    minSimilarity: SERVE_MIN_SIMILARITY
+  }, brainDir2);
+  const served = servableEpisodes(
+    result.results,
+    { sessionId: o.sessionId, minSimilarity: SERVE_MIN_SIMILARITY, max: SERVE_MAX }
+  );
+  if (served.length === 0) return [];
+  return [EPISODIC_SERVE_HEADER, ...served.map((r) => {
+    const sim = Math.round(r.similarity * 100);
+    return `- "${foldServedSnippet(r.userSnippet).slice(0, 80)}..." (${foldServedSnippet(r.project)}, ${foldServedSnippet(r.date)}, ${sim}%)`;
+  })];
+}
+var emptyIndex = () => ({ model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] });
 async function loadIndex(brainDir2) {
   const indexPath = join3(brainDir2, INDEX_FILE);
+  let data;
   try {
-    const data = await fs3.readFile(indexPath, "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };
+    data = await fs3.readFile(indexPath, "utf-8");
+  } catch (e) {
+    if (e.code === "ENOENT") return emptyIndex();
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`
+    );
+    return emptyIndex();
   }
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch (e) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`
+    );
+    return emptyIndex();
+  }
+  const o = parsed;
+  if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.exchanges)) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} has no exchanges array`
+    );
+    return emptyIndex();
+  }
+  const files = o.indexed_files;
+  return {
+    model: typeof o.model === "string" ? o.model : emptyIndex().model,
+    indexed_files: files && typeof files === "object" && !Array.isArray(files) ? files : {},
+    exchanges: o.exchanges
+  };
 }
 async function episodicSearch(args, brainDir2) {
   const index = await loadIndex(brainDir2);
@@ -276,7 +379,7 @@ async function episodicSearch(args, brainDir2) {
   }
   merged.sort((a, b) => b.similarity - a.similarity);
   return {
-    results: scopeAndBroaden(merged, args).slice(0, limit).map((r) => ({
+    results: scopeAndBroaden(aboveFloor(merged, args), args).slice(0, limit).map((r) => ({
       sessionId: r.sessionId,
       project: r.project,
       date: r.date,
@@ -351,7 +454,7 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   });
   const threshold = 0.2;
   const ranked = scopeAndBroaden(
-    scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity),
+    aboveFloor(scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity), filters),
     filters
   );
   return {
@@ -369,18 +472,29 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   };
 }
 function applyFilters(exchanges, filters) {
-  let result2 = exchanges;
+  let result = exchanges;
   if (filters.project) {
     const p = filters.project.toLowerCase();
-    result2 = result2.filter((e) => e.project.toLowerCase() === p);
+    result = result.filter((e) => e.project.toLowerCase() === p);
   }
   if (filters.after) {
-    result2 = result2.filter((e) => e.date >= filters.after);
+    result = result.filter((e) => e.date >= filters.after);
   }
   if (filters.before) {
-    result2 = result2.filter((e) => e.date <= filters.before);
+    result = result.filter((e) => e.date <= filters.before);
   }
-  return result2;
+  if (filters.excludeSessionId) {
+    const sid = filters.excludeSessionId;
+    result = result.filter((e) => e.sessionId !== sid);
+  }
+  if (filters.requireUserText) {
+    result = result.filter((e) => cleanUserText(e.userSnippet).trim() !== "");
+  }
+  return result;
+}
+function aboveFloor(ranked, filters) {
+  const floor = filters.minSimilarity;
+  return floor === void 0 ? ranked : ranked.filter((r) => r.similarity >= floor);
 }
 function scopeAndBroaden(ranked, args) {
   if (!args.activeProject || args.project) return ranked;
@@ -399,13 +513,5 @@ if (!query) {
 var brainDir = resolveBrainDir();
 var activeProject = process.env.SB_ACTIVE_SLUG?.trim() || void 0;
 var sessionId = process.env.SB_SESSION_ID?.trim() || "";
-var result = await episodicSearch({ query, limit: 10, mode: "both", activeProject }, brainDir);
-var served = servableEpisodes(result.results, { sessionId, minSimilarity: 0.15, max: 2 });
-if (served.length === 0) {
-  process.exit(0);
-}
-console.log("[Past sessions \u2014 use episodic_search for full context]");
-for (const r of served) {
-  const sim = Math.round(r.similarity * 100);
-  console.log(`- "${r.userSnippet.slice(0, 80)}..." (${r.project}, ${r.date}, ${sim}%)`);
-}
+var lines = await serveEpisodicLines(query, brainDir, { sessionId, activeProject });
+for (const l of lines) console.log(l);

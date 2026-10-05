@@ -23,10 +23,11 @@
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
-# Foreign headless child (`claude -p` / SDK-cli, nobody attending; R1#2): no memory, no state writes.
-# Inline copy of lib.sh sb_is_headless_child, because this hook sources lib.sh late and only on the
-# retrieval path. The condition is locked byte-identical to lib.sh by tests/test-persona-context.sh.
-[ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; } && exit 0  # sb-headless-inline
+# Foreign headless child (`claude -p` / SDK-cli, nobody attending; R1#2): no memory and no state but
+# one gate=headless-child audit row. Inline copy of lib.sh sb_is_headless_child, because this hook
+# sources lib.sh late and only on the retrieval path; lib.sh is sourced on the skip branch alone, for
+# sb_headless_trace. Locked byte-identical to lib.sh by tests/test-persona-context.sh.
+[ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; } && { source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" && sb_headless_trace persona-context; exit 0; }  # sb-headless-inline
 
 # Kill switch
 [ "${SB_PERSONA_GATE:-on}" = "off" ] && exit 0
@@ -79,16 +80,20 @@ fi
 # --- Machine-turn skip (R1#1, 0.55.0): a turn no human typed gets NO memory ---------------------
 # The 2026-10-05 audit: 68% of per-prompt injections landed on turns the harness or a peer wrote —
 # task notifications, peer-session messages, Stop-hook feedback, the continuation summary, wrapped
-# tags (<system-reminder>, <agent-message, <command-name>, <local-command-…>, <cross-session-message).
-# The payload has no origin field (probed), so the prompt's own prefix is the signal. Such a turn
-# exits right here, AFTER the busy marker above (the statusline still shows the turn running): no
-# retrieval, no [buddy: line, no .prompts bump, no goal freeze, no additionalContext. A human paste
-# is `<pasted_content …>` (underscore), which the hyphenated-tag rule never matches.
+# harness tags (<system-reminder>, <agent-message, <command-name>, <command-message>, <command-args>,
+# <local-command-…>, <bash-…>, <cross-session-message). The payload has no origin field (probed), so the
+# prompt's own prefix is the signal. Such a turn exits right here, AFTER the busy marker above (the
+# statusline still shows the turn running): no retrieval, no [buddy: line, no .prompts bump, no goal
+# freeze, no additionalContext.
+# The tags are an ALLOWLIST of the harness's own wrappers, never "any hyphenated tag": a human asking
+# about `<my-component> doesn't render`, `<x-modal>`, `<v-btn …>` or `<router-view/>` is a real
+# question and must reach retrieval (the broad `<[a-z]+-` rule swallowed them). Across 400 real
+# transcripts every leading hyphenated tag was on this list, so it loses no machine turn. A human paste, `<pasted_content …>`, matches nothing.
 # Classification sees the first 4 KB of the prompt with leading whitespace and a leading UTF-8 BOM
 # stripped (builtins only). The block between the machine-turn markers is parsed by the archive-side
 # parity test (mcp episodic hygiene): every case alternative holding a quote or a backslash is read as
-# a machine prefix, so the block holds only the four single-quoted literal prefixes and the escaped
-# tag arm, and no human-exclusion branch (locked in tests/test-persona-context.sh).
+# a machine prefix, so the block holds only single-quoted literal prefixes and no human-exclusion
+# branch (locked in tests/test-persona-context.sh). The TS side (isMachineTurnText) mirrors the list.
 # One cheap TRACE per skip: a gate=machine-turn row in sb_log_error's gate-row shape on the audit
 # channel, appended by one builtin printf (no lib.sh source, no jq; the next sb_log_error caller
 # rotates the file). Kill switch: SB_MACHINE_TURN_SKIP=off, which also turns off the exact-repeat
@@ -124,21 +129,32 @@ if [ "${SB_MACHINE_TURN_SKIP:-on}" != "off" ]; then
     'Another Claude session sent a message:'*) _MT_KIND=peer ;;
     'Stop hook feedback:'*) _MT_KIND=stop-feedback ;;
     'This session is being continued from a previous conversation'*) _MT_KIND=continuation ;;
-    \<[a-z]*-*)
-      # Hyphenated lowercase tag: one or more lowercase ASCII letters right after the angle
-      # bracket, then a hyphen. The glob above is only a pre-filter, since its star also spans a
-      # space or an underscore (a pasted_content tag with a hyphen later on). The exact rule is
-      # below, with the letters enumerated instead of a range so no locale can widen them.
-      _mt_tag="${_MT_P#?}"; _mt_lead="${_mt_tag%%[!abcdefghijklmnopqrstuvwxyz]*}"
-      if [ -n "$_mt_lead" ]; then
-        case "${_mt_tag#"$_mt_lead"}" in -*) _MT_KIND=tag ;; esac
-      fi
-      ;;
+    '<system-reminder>'*|'<command-name>'*|'<command-message>'*|'<command-args>'*) _MT_KIND=tag ;;
+    '<local-command-'*|'<bash-'*|'<agent-message'*|'<cross-session-message'*) _MT_KIND=tag ;;
   esac
   # machine-turn:end
   if [ -n "$_MT_KIND" ]; then
     _mt_log "gate=machine-turn kind=$_MT_KIND sid=$SID_SAFE" 0
     exit 0
+  fi
+fi
+
+# Exact-repeat signature (R1#1): taken for EVERY human turn, here, before any exit path, and
+# recorded as memo.last_prompt by every exit that follows (the /? route, the ack / short-prompt /
+# nothing-surfaced _buddy_exit, the full rewrite at the end). The repeat CHECK runs later, after the
+# ack triage. Recording on every path is what makes "previous prompt" mean the previous human turn:
+# when only the full rewrite recorded, A, B, A with a quiet B skipped the second A as a "repeat".
+# Signature = `cksum` (CRC + byte length, POSIX, one spawn, fed by a pipe: a here-string hangs on
+# MSYS past ~64 KB). A malformed signature fails open (no skip, no record) and is logged.
+# SB_MACHINE_TURN_SKIP=off disables this too.
+_MT_SIG=""
+if [ "${SB_MACHINE_TURN_SKIP:-on}" != "off" ] && [ -n "$SESSION_ID" ]; then
+  _mt_out=$(printf '%s' "$PROMPT" | cksum)
+  _mt_re='^([0-9]+)[[:space:]]+([0-9]+)'
+  if [[ "$_mt_out" =~ $_mt_re ]]; then
+    _MT_SIG="${BASH_REMATCH[1]}:${BASH_REMATCH[2]}"
+  else
+    _mt_log "machine-turn: cksum gave no CRC/length signature (got ${#_mt_out} chars) - exact-repeat skip off for this prompt" 1
   fi
 fi
 
@@ -198,16 +214,32 @@ _buddy_compute() {
   case "$out" in *$'\n'*) BUDDY_FED="${out%%$'\n'*}"; BUDDY_LINE="${out#*$'\n'}" ;; *) return 0 ;; esac
   case "$BUDDY_FED" in '{"f":'*) ;; *) BUDDY_FED="" ;; esac
 }
-# Early exits skip the main memo rewrite: record the feed here (only into an existing memo — the
-# main path creates it), then emit the buddy line alone and leave.
+# _mt_record_memo: the early exits skip the main memo rewrite, so they record their state here, in
+# one jq merge: last_prompt (this turn's signature, above) and the buddy feed cursor. The feed goes
+# only into an existing memo (the main path creates it with t0); an absent memo is created holding
+# last_prompt alone. A present memo that does not parse is never replaced (the main rewrite's rule),
+# and any failed write leaves an error-log row instead of a silently stale last_prompt.
+_mt_record_memo() {
+  local memo="${BRAIN_DIR:-$HOME/.second-brain}/.injected/$SESSION_ID.json" bf="$BUDDY_FED" ok=0
+  local prog='. + (if $lp != "" then {last_prompt: $lp} else {} end) + (if $bf != "" then ($bf | fromjson | {buddy_fed: .f, buddy_fed_k: .k}) else {} end)'
+  [ -n "$SESSION_ID" ] || return 0
+  if [ -s "$memo" ]; then
+    [ -n "$_MT_SIG" ] || [ -n "$bf" ] || return 0
+    jq -c --arg lp "$_MT_SIG" --arg bf "$bf" "$prog" "$memo" > "$memo.tmp.$$" 2>/dev/null && ok=1
+  else
+    [ -n "$_MT_SIG" ] || return 0
+    mkdir -p "${memo%/*}" 2>/dev/null
+    jq -nc --arg lp "$_MT_SIG" --arg bf "" "{} | $prog" > "$memo.tmp.$$" 2>/dev/null && ok=1
+  fi
+  [ "$ok" = 1 ] && mv -f "$memo.tmp.$$" "$memo" 2>/dev/null && return 0
+  rm -f "$memo.tmp.$$" 2>/dev/null
+  _mt_log "persona-context: memo write failed (last_prompt / buddy feed not recorded) sid=$SID_SAFE" 1
+}
+# Early exits: record this turn (above), then emit the buddy line alone and leave.
 _buddy_exit() {
   _buddy_compute
+  _mt_record_memo
   if [ -n "$BUDDY_LINE" ]; then
-    local memo="${BRAIN_DIR:-$HOME/.second-brain}/.injected/$SESSION_ID.json"
-    if [ -n "$BUDDY_FED" ] && [ -s "$memo" ]; then
-      jq -c --argjson bf "$BUDDY_FED" '. + {buddy_fed: $bf.f, buddy_fed_k: $bf.k}' "$memo" > "$memo.tmp.$$" 2>/dev/null \
-        && mv -f "$memo.tmp.$$" "$memo" 2>/dev/null || rm -f "$memo.tmp.$$" 2>/dev/null
-    fi
     jq -nc --arg ctx "$BUDDY_LINE" '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $ctx}}' 2>/dev/null || true
   fi
   exit 0
@@ -216,6 +248,7 @@ _buddy_exit() {
 # /? prefix → route to persona-think (Layer 2 Opus brief), bypass Layer 1 silent injection.
 case "$PROMPT" in
   '/?'*)
+    _mt_record_memo   # a /? turn is a human turn: it becomes "the previous prompt" (never repeat-skipped itself)
     QUERY="${PROMPT#/?}"
     QUERY="${QUERY# }"
     [ -z "$QUERY" ] && exit 0
@@ -301,22 +334,13 @@ fi
 # a re-fired loop prompt) gets the machine-turn treatment: the memo dedup below would suppress the
 # same hits anyway, so the retrieval spawn, the goal line and the [buddy: ask are pure repeat noise.
 # It runs after the /? route (a repeated /? is a deliberate paid request) and after the ack triage
-# (acks never pay for the signature). "Previous" = the last prompt that reached the memo rewrite at
-# the end of this hook: machine turns, acks and nothing-surfaced turns never record one.
-# Signature = `cksum` (CRC + byte length, POSIX, one spawn, fed by a pipe: a here-string hangs on
-# MSYS past ~64 KB); the memo is read with the builtin `read`, no jq. A malformed signature fails
-# open (no skip, no record) and is logged. SB_MACHINE_TURN_SKIP=off disables this too.
-_MT_SIG=""
-if [ "${SB_MACHINE_TURN_SKIP:-on}" != "off" ] && [ -n "$SESSION_ID" ]; then
-  _mt_out=$(printf '%s' "$PROMPT" | cksum)
-  _mt_re='^([0-9]+)[[:space:]]+([0-9]+)'
-  if [[ "$_mt_out" =~ $_mt_re ]]; then
-    _MT_SIG="${BASH_REMATCH[1]}:${BASH_REMATCH[2]}"
-  else
-    _mt_log "machine-turn: cksum gave no CRC/length signature (got ${#_mt_out} chars) - exact-repeat skip off for this prompt" 1
-  fi
+# (a repeated ack is never skipped: it is how the user answers, and its exit is cheap anyway).
+# "Previous" = the last HUMAN turn, whichever exit it took: every exit records its signature
+# (_MT_SIG, taken right after the machine-turn block); machine turns never record one. The memo is
+# read with the builtin `read`, no jq. SB_MACHINE_TURN_SKIP=off disables this too.
+if [ -n "$_MT_SIG" ]; then
   _mt_memo="${BRAIN_DIR:-$HOME/.second-brain}/.injected/$SESSION_ID.json"
-  if [ -n "$_MT_SIG" ] && [ -f "$_mt_memo" ]; then
+  if [ -f "$_mt_memo" ]; then
     _mt_txt=""; IFS= read -r -d '' _mt_txt < "$_mt_memo" || true
     _mt_re='"last_prompt"[[:space:]]*:[[:space:]]*"([0-9]+:[0-9]+)"'
     if [[ "$_mt_txt" =~ $_mt_re ]] && [ "${BASH_REMATCH[1]}" = "$_MT_SIG" ]; then
@@ -480,8 +504,10 @@ fi
 if [ "$_CTX_OK" -eq 0 ]; then
   if [ -n "$KEYWORDS" ] && [ -f "$SEARCH_CLI" ]; then
     # SP-1: scope the per-prompt wiki injection to the active project (the slug session-load pinned).
+    # SB_INJECT_GATE=1 (R1#4): this result is injected per prompt like the combined CLI's, so it takes
+    # the same per-prompt gate (no stubs, the cross-project rule), never the bare recall/FORGET filter.
     WIKI_RAW=$(KNOWLEDGE_DIR="$KD" KNOWLEDGE_MIN_SCORE="$WIKI_MIN_SCORE" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" \
-      SB_SESSION_ID="$SESSION_ID" node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
+      SB_SESSION_ID="$SESSION_ID" SB_INJECT_GATE=1 node "$SEARCH_CLI" "$KEYWORDS" 2>/dev/null || true)
   fi
   if [ -n "$KEYWORDS" ] && [ -f "$EPISODIC_CLI" ]; then
     EPISODIC_HINT=$(BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$SB_ACTIVE_SLUG_VAL" SB_SESSION_ID="$SESSION_ID" \

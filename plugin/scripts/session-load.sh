@@ -7,8 +7,9 @@
 # Priority: USER.md > PROJECT.md > persona signals > wiki enrichment.
 source "$(dirname "$0")/lib.sh"
 # Foreign headless child (`claude -p` / SDK-cli, nobody attending; R1#2): no SessionStart memory and
-# no state writes (registration, pins, counters). SB_HEADLESS_CONTEXT=on opts a run back in.
-sb_is_headless_child && exit 0
+# no state writes (registration, pins, counters) but one gate=headless-child audit row.
+# SB_HEADLESS_CONTEXT=on opts a run back in.
+sb_is_headless_child && { sb_headless_trace session-load; exit 0; }
 
 # --- Repo-card helpers (moved here, verbatim + a lean-mode extension, so the --compact
 # early-exit branch below can use them without pulling in the full hot-tier side-effect

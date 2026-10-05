@@ -160,19 +160,24 @@ async function logLoadError(message, brainDir2) {
   }
   if (lastLoadError.loggedTo.has(brainDir2)) return;
   lastLoadError.loggedTo.add(brainDir2);
+  await appendErrorLog(brainDir2, "embeddings", message, 0);
+}
+async function appendErrorLog(brainDir2, script, message, exitCode = 1) {
   const entry = {
     timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
-    script: "embeddings",
+    script,
     message,
-    exit_code: 0
+    exit_code: exitCode
   };
+  let note = "";
   try {
     await fs2.mkdir(brainDir2, { recursive: true });
     await fs2.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
-  } catch {
+  } catch (e) {
+    note = ` (error-log.jsonl write failed: ${e instanceof Error ? e.message : String(e)})`;
   }
   try {
-    process.stderr.write(`[embeddings] ${message}
+    process.stderr.write(`[${script}] ${message}${note}
 `);
   } catch {
   }
@@ -6709,20 +6714,20 @@ function accessCountsFile(brainDir2) {
   return join6(resolveBrainDir(brainDir2), "access-counts.json");
 }
 var ACCESS_PRUNE_DAYS = 90;
-async function loadAccessCounts(brainDir2) {
+async function loadAccessCounts(file) {
   try {
-    return JSON.parse(await fs6.readFile(accessCountsFile(brainDir2), "utf-8"));
+    return JSON.parse(await fs6.readFile(file, "utf-8"));
   } catch {
     return {};
   }
 }
-async function saveAccessCounts(counts, brainDir2) {
+async function saveAccessCounts(counts, file) {
   const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 864e5).toISOString();
   const pruned = {};
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await atomicWriteJson(accessCountsFile(brainDir2), pruned);
+  await atomicWriteJson(file, pruned);
 }
 var TOP_K = 8;
 var SNIPPET_CHARS = 200;
@@ -6892,9 +6897,11 @@ var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 var STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
 var SINGLE_LETTER_RE = /^[a-z]$/;
+var PURE_DIGITS_RE = /^[0-9]+$/;
 async function knowledgeSearch(args) {
   const knowledgeDir2 = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join6(knowledgeDir2, "wiki");
+  const accessFile = accessCountsFile(args.brainDir);
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
     try {
@@ -7139,7 +7146,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     ...isCross ? { cross_project: true } : {},
     ...scopeActive ? { tier } : {}
   }));
-  const accessCounts = await loadAccessCounts(args.brainDir);
+  const accessCounts = await loadAccessCounts(accessFile);
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;
@@ -7148,7 +7155,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     accessCounts[slug].count++;
     accessCounts[slug].last_accessed = ts;
   }
-  await saveAccessCounts(accessCounts, args.brainDir).catch(() => {
+  await saveAccessCounts(accessCounts, accessFile).catch(() => {
   });
   return {
     candidates,
@@ -7159,7 +7166,8 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   };
 }
 function injectionGroundingNeed(minGrounded2, discriminative, crossProject) {
-  const base = minGrounded2 <= 0 ? 0 : Math.max(1, Math.min(minGrounded2, discriminative));
+  if (minGrounded2 <= 0) return 0;
+  const base = Math.max(1, Math.min(minGrounded2, discriminative));
   return crossProject ? Math.max(base, Math.min(base + 1, discriminative)) : base;
 }
 function injectableWiki(candidates, o) {
@@ -7195,7 +7203,7 @@ function groundedCount(queryTokens, idx, dfMap, N) {
   return n;
 }
 function discriminativeTerms(queryTokens, dfMap, N) {
-  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t));
+  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);
@@ -7243,26 +7251,37 @@ var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
 var PEER_PREFIX = "Another Claude session sent a message:";
-var MACHINE_TURN_PREFIXES = [
+var MACHINE_TAG_PREFIXES = [
   "<task-notification>",
+  "<system-reminder>",
+  "<agent-message",
+  "<cross-session-message",
+  "<command-",
+  // command-name, command-message, command-args
+  "<local-command-",
+  // local-command-stdout, local-command-caveat, …
+  "<bash-"
+  // bash-input, bash-stdout, bash-stderr (the ! shell mode)
+];
+var MACHINE_TURN_PREFIXES = [
+  ...MACHINE_TAG_PREFIXES,
   PEER_PREFIX,
   "Stop hook feedback:",
   "This session is being continued from a previous conversation",
   // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
   "Base directory for this skill:",
-  "Caveat: The messages below were generated",
-  "[Image: source:",
-  "[Image: original",
-  "[Request interrupted by user"
+  "Caveat: The messages below were generated"
 ];
-var HYPHEN_TAG_RE = /^<[a-z]+-/;
+var MACHINE_LINE_PREFIXES = ["[Image: source:", "[Image: original", "[Request interrupted by user"];
 function stripLead(text) {
   return text.replace(/^[\s﻿]+/, "");
 }
 function isMachineTurnText(text) {
   const t = stripLead(text);
-  return HYPHEN_TAG_RE.test(t) || MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p));
+  return MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p)) || MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p));
 }
+var SUBAGENT_REPORT_MARK = "(subagent report) ";
+var PEER_MESSAGE_MARK = "(peer message) ";
 function peerReportBody(rest) {
   const lines = rest.split("\n");
   let i = 0;
@@ -7277,13 +7296,43 @@ function peerReportBody(rest) {
   } else {
     body = lines.slice(i);
   }
+  const flags = [];
   let j2 = 0;
-  while (j2 < body.length && (!body[j2].trim() || /^\s*\[(Subagent hand-back\]|harness:)/.test(body[j2]))) j2++;
-  return body.slice(j2).join("\n").trim();
+  for (; j2 < body.length; j2++) {
+    const l = body[j2].trim();
+    if (!l || l.startsWith("[Subagent hand-back]")) continue;
+    if (l.startsWith("[harness:")) {
+      flags.push(foldServedSnippet(l));
+      continue;
+    }
+    break;
+  }
+  const report = body.slice(j2).join("\n").trim();
+  if (!report) return "";
+  const mark = open?.[1] === "agent-message" ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
+  return mark + [report, ...flags].join("\n");
+}
+var FOLD_TO_SPACE = /* @__PURE__ */ new Set([9, 10, 11, 12, 13, 133, 8232, 8233]);
+var FOLD_TO_OPEN = /* @__PURE__ */ new Set([91, 65339, 12304, 10214, 12314, 8261, 65095, 12308]);
+var FOLD_TO_CLOSE = /* @__PURE__ */ new Set([93, 65341, 12305, 10215, 12315, 8262, 65096, 12309]);
+function foldServedSnippet(text) {
+  let out = "";
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    out += FOLD_TO_SPACE.has(c) ? " " : FOLD_TO_OPEN.has(c) ? "(" : FOLD_TO_CLOSE.has(c) ? ")" : ch;
+  }
+  return out;
 }
 function cleanUserText(text) {
   if (!isMachineTurnText(text)) return text;
   const t = stripLead(text);
+  if (MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p))) {
+    const lines = t.split("\n");
+    let i = 0;
+    while (i < lines.length && (!lines[i].trim() || MACHINE_LINE_PREFIXES.some((p) => stripLead(lines[i]).startsWith(p)))) i++;
+    const rest = lines.slice(i).join("\n").trim();
+    return rest ? cleanUserText(rest) : "";
+  }
   if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
   return "";
 }
@@ -7302,14 +7351,71 @@ function servableEpisodes(rows, o) {
   }
   return out;
 }
+var EPISODIC_SERVE_HEADER = "[Past sessions \u2014 use episodic_search for full context]";
+var SERVE_MIN_SIMILARITY = 0.15;
+var SERVE_POOL = 10;
+var SERVE_MAX = 2;
+async function serveEpisodicLines(query2, brainDir2, o) {
+  const result = await episodicSearch({
+    query: query2,
+    limit: SERVE_POOL,
+    mode: "both",
+    activeProject: o.activeProject,
+    excludeSessionId: o.sessionId || void 0,
+    requireUserText: true,
+    minSimilarity: SERVE_MIN_SIMILARITY
+  }, brainDir2);
+  const served = servableEpisodes(
+    result.results,
+    { sessionId: o.sessionId, minSimilarity: SERVE_MIN_SIMILARITY, max: SERVE_MAX }
+  );
+  if (served.length === 0) return [];
+  return [EPISODIC_SERVE_HEADER, ...served.map((r) => {
+    const sim = Math.round(r.similarity * 100);
+    return `- "${foldServedSnippet(r.userSnippet).slice(0, 80)}..." (${foldServedSnippet(r.project)}, ${foldServedSnippet(r.date)}, ${sim}%)`;
+  })];
+}
+var emptyIndex = () => ({ model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] });
 async function loadIndex(brainDir2) {
   const indexPath = join7(brainDir2, INDEX_FILE);
+  let data;
   try {
-    const data = await fs7.readFile(indexPath, "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };
+    data = await fs7.readFile(indexPath, "utf-8");
+  } catch (e) {
+    if (e.code === "ENOENT") return emptyIndex();
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`
+    );
+    return emptyIndex();
   }
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch (e) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`
+    );
+    return emptyIndex();
+  }
+  const o = parsed;
+  if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.exchanges)) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} has no exchanges array`
+    );
+    return emptyIndex();
+  }
+  const files = o.indexed_files;
+  return {
+    model: typeof o.model === "string" ? o.model : emptyIndex().model,
+    indexed_files: files && typeof files === "object" && !Array.isArray(files) ? files : {},
+    exchanges: o.exchanges
+  };
 }
 async function episodicSearch(args, brainDir2) {
   const index = await loadIndex(brainDir2);
@@ -7348,7 +7454,7 @@ async function episodicSearch(args, brainDir2) {
   }
   merged.sort((a, b) => b.similarity - a.similarity);
   return {
-    results: scopeAndBroaden(merged, args).slice(0, limit).map((r) => ({
+    results: scopeAndBroaden(aboveFloor(merged, args), args).slice(0, limit).map((r) => ({
       sessionId: r.sessionId,
       project: r.project,
       date: r.date,
@@ -7423,7 +7529,7 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   });
   const threshold = 0.2;
   const ranked = scopeAndBroaden(
-    scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity),
+    aboveFloor(scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity), filters),
     filters
   );
   return {
@@ -7452,7 +7558,18 @@ function applyFilters(exchanges, filters) {
   if (filters.before) {
     result = result.filter((e) => e.date <= filters.before);
   }
+  if (filters.excludeSessionId) {
+    const sid = filters.excludeSessionId;
+    result = result.filter((e) => e.sessionId !== sid);
+  }
+  if (filters.requireUserText) {
+    result = result.filter((e) => cleanUserText(e.userSnippet).trim() !== "");
+  }
   return result;
+}
+function aboveFloor(ranked, filters) {
+  const floor = filters.minSimilarity;
+  return floor === void 0 ? ranked : ranked.filter((r) => r.similarity >= floor);
 }
 function scopeAndBroaden(ranked, args) {
   if (!args.activeProject || args.project) return ranked;
@@ -7495,18 +7612,7 @@ var sessionId = process.env.SB_SESSION_ID?.trim() || "";
 var epiLines = [];
 try {
   if (!brainDir) throw new Error("no brain dir resolvable");
-  const result = await episodicSearch(
-    { query, limit: 10, mode: "both", activeProject: projectSlug },
-    brainDir
-  );
-  const deduped = servableEpisodes(result.results, { sessionId, minSimilarity: 0.15, max: 2 });
-  if (deduped.length > 0) {
-    epiLines.push("[Past sessions \u2014 use episodic_search for full context]");
-    for (const r of deduped) {
-      const sim = Math.round(r.similarity * 100);
-      epiLines.push(`- "${r.userSnippet.slice(0, 80)}..." (${r.project}, ${r.date}, ${sim}%)`);
-    }
-  }
+  epiLines = await serveEpisodicLines(query, brainDir, { sessionId, activeProject: projectSlug });
 } catch {
 }
 if (wikiLines.length === 0 && epiLines.length === 0) {

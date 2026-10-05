@@ -160,19 +160,24 @@ async function logLoadError(message, brainDir2) {
   }
   if (lastLoadError.loggedTo.has(brainDir2)) return;
   lastLoadError.loggedTo.add(brainDir2);
+  await appendErrorLog(brainDir2, "embeddings", message, 0);
+}
+async function appendErrorLog(brainDir2, script, message, exitCode = 1) {
   const entry = {
     timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
-    script: "embeddings",
+    script,
     message,
-    exit_code: 0
+    exit_code: exitCode
   };
+  let note = "";
   try {
     await fs2.mkdir(brainDir2, { recursive: true });
     await fs2.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
-  } catch {
+  } catch (e) {
+    note = ` (error-log.jsonl write failed: ${e instanceof Error ? e.message : String(e)})`;
   }
   try {
-    process.stderr.write(`[embeddings] ${message}
+    process.stderr.write(`[${script}] ${message}${note}
 `);
   } catch {
   }
@@ -6709,20 +6714,20 @@ function accessCountsFile(brainDir2) {
   return join6(resolveBrainDir(brainDir2), "access-counts.json");
 }
 var ACCESS_PRUNE_DAYS = 90;
-async function loadAccessCounts(brainDir2) {
+async function loadAccessCounts(file) {
   try {
-    return JSON.parse(await fs6.readFile(accessCountsFile(brainDir2), "utf-8"));
+    return JSON.parse(await fs6.readFile(file, "utf-8"));
   } catch {
     return {};
   }
 }
-async function saveAccessCounts(counts, brainDir2) {
+async function saveAccessCounts(counts, file) {
   const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 864e5).toISOString();
   const pruned = {};
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await atomicWriteJson(accessCountsFile(brainDir2), pruned);
+  await atomicWriteJson(file, pruned);
 }
 var TOP_K = 8;
 var SNIPPET_CHARS = 200;
@@ -6892,9 +6897,11 @@ var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 var STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
 var SINGLE_LETTER_RE = /^[a-z]$/;
+var PURE_DIGITS_RE = /^[0-9]+$/;
 async function knowledgeSearch(args) {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join6(knowledgeDir, "wiki");
+  const accessFile = accessCountsFile(args.brainDir);
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
     try {
@@ -7139,7 +7146,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     ...isCross ? { cross_project: true } : {},
     ...scopeActive ? { tier } : {}
   }));
-  const accessCounts = await loadAccessCounts(args.brainDir);
+  const accessCounts = await loadAccessCounts(accessFile);
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;
@@ -7148,7 +7155,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     accessCounts[slug].count++;
     accessCounts[slug].last_accessed = ts;
   }
-  await saveAccessCounts(accessCounts, args.brainDir).catch(() => {
+  await saveAccessCounts(accessCounts, accessFile).catch(() => {
   });
   return {
     candidates,
@@ -7159,8 +7166,19 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   };
 }
 function injectionGroundingNeed(minGrounded2, discriminative, crossProject) {
-  const base = minGrounded2 <= 0 ? 0 : Math.max(1, Math.min(minGrounded2, discriminative));
+  if (minGrounded2 <= 0) return 0;
+  const base = Math.max(1, Math.min(minGrounded2, discriminative));
   return crossProject ? Math.max(base, Math.min(base + 1, discriminative)) : base;
+}
+var GATE_ON = /* @__PURE__ */ new Set(["1", "on", "true", "yes"]);
+var GATE_OFF = /* @__PURE__ */ new Set(["0", "off", "false", "no"]);
+function parseInjectGate(raw, warn) {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (GATE_ON.has(v)) return true;
+  if (v && !GATE_OFF.has(v)) {
+    warn(`SB_INJECT_GATE=${JSON.stringify(raw)} is not recognised (use 1/on/true/yes); using the legacy filter`);
+  }
+  return false;
 }
 function injectableWiki(candidates, o) {
   return candidates.filter((c) => !c.stub && c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
@@ -7195,7 +7213,7 @@ function groundedCount(queryTokens, idx, dfMap, N) {
   return n;
 }
 function discriminativeTerms(queryTokens, dfMap, N) {
-  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t));
+  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);
@@ -7253,8 +7271,15 @@ var minGrounded = envNum("SB_INJECT_MIN_GROUNDED", 2, 0, 64);
 var brainDir = resolveBrainDir();
 var projectSlug = process.env.SB_ACTIVE_SLUG || void 0;
 var result = await knowledgeSearch({ query, brainDir, projectSlug });
+var injectGate = parseInjectGate(
+  process.env.SB_INJECT_GATE,
+  (msg) => {
+    process.stderr.write(`knowledge-search-cli: ${msg}
+`);
+  }
+);
 var needGrounded = Math.min(minGrounded, result.candidates[0]?.query_terms ?? minGrounded);
-var top = (process.env.SB_INJECT_GATE === "1" ? injectableWiki(result.candidates, { minScore, minRelevance, minGrounded }) : result.candidates.filter((c) => c.score >= minScore && c.relevance >= minRelevance && c.grounded >= needGrounded)).slice(0, 2);
+var top = (injectGate ? injectableWiki(result.candidates, { minScore, minRelevance, minGrounded }) : result.candidates.filter((c) => c.score >= minScore && c.relevance >= minRelevance && c.grounded >= needGrounded)).slice(0, 2);
 if (top.length === 0) {
   process.exit(0);
 }

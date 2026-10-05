@@ -78,22 +78,30 @@ async function logLoadError(message, brainDir2) {
   }
   if (lastLoadError.loggedTo.has(brainDir2)) return;
   lastLoadError.loggedTo.add(brainDir2);
+  await appendErrorLog(brainDir2, "embeddings", message, 0);
+}
+async function appendErrorLog(brainDir2, script, message, exitCode = 1) {
   const entry = {
     timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
-    script: "embeddings",
+    script,
     message,
-    exit_code: 0
+    exit_code: exitCode
   };
+  let note = "";
   try {
     await fs2.mkdir(brainDir2, { recursive: true });
     await fs2.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
-  } catch {
+  } catch (e) {
+    note = ` (error-log.jsonl write failed: ${e instanceof Error ? e.message : String(e)})`;
   }
   try {
-    process.stderr.write(`[embeddings] ${message}
+    process.stderr.write(`[${script}] ${message}${note}
 `);
   } catch {
   }
+}
+function embeddingsOptedOut() {
+  return process.env[DISABLE_ENV] === "1";
 }
 async function getPipeline() {
   const brainDir2 = brainDirFromEnv();
@@ -171,31 +179,42 @@ function stripInvisible(s) {
 var INDEX_FILE = "episodic-index.json";
 var SNIPPET_LEN = 200;
 var EMBEDDING_TEXT_CAP = 512;
-var EPISODIC_PARSER_VERSION = 2;
+var EPISODIC_PARSER_VERSION = 3;
 function isCurrentEntry(entry, hash) {
   return typeof entry === "object" && entry !== null && entry.hash === hash && entry.parser >= EPISODIC_PARSER_VERSION;
 }
 var PEER_PREFIX = "Another Claude session sent a message:";
-var MACHINE_TURN_PREFIXES = [
+var MACHINE_TAG_PREFIXES = [
   "<task-notification>",
+  "<system-reminder>",
+  "<agent-message",
+  "<cross-session-message",
+  "<command-",
+  // command-name, command-message, command-args
+  "<local-command-",
+  // local-command-stdout, local-command-caveat, …
+  "<bash-"
+  // bash-input, bash-stdout, bash-stderr (the ! shell mode)
+];
+var MACHINE_TURN_PREFIXES = [
+  ...MACHINE_TAG_PREFIXES,
   PEER_PREFIX,
   "Stop hook feedback:",
   "This session is being continued from a previous conversation",
   // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
   "Base directory for this skill:",
-  "Caveat: The messages below were generated",
-  "[Image: source:",
-  "[Image: original",
-  "[Request interrupted by user"
+  "Caveat: The messages below were generated"
 ];
-var HYPHEN_TAG_RE = /^<[a-z]+-/;
+var MACHINE_LINE_PREFIXES = ["[Image: source:", "[Image: original", "[Request interrupted by user"];
 function stripLead(text) {
   return text.replace(/^[\s﻿]+/, "");
 }
 function isMachineTurnText(text) {
   const t = stripLead(text);
-  return HYPHEN_TAG_RE.test(t) || MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p));
+  return MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p)) || MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p));
 }
+var SUBAGENT_REPORT_MARK = "(subagent report) ";
+var PEER_MESSAGE_MARK = "(peer message) ";
 function peerReportBody(rest) {
   const lines = rest.split("\n");
   let i = 0;
@@ -210,13 +229,43 @@ function peerReportBody(rest) {
   } else {
     body = lines.slice(i);
   }
+  const flags = [];
   let j = 0;
-  while (j < body.length && (!body[j].trim() || /^\s*\[(Subagent hand-back\]|harness:)/.test(body[j]))) j++;
-  return body.slice(j).join("\n").trim();
+  for (; j < body.length; j++) {
+    const l = body[j].trim();
+    if (!l || l.startsWith("[Subagent hand-back]")) continue;
+    if (l.startsWith("[harness:")) {
+      flags.push(foldServedSnippet(l));
+      continue;
+    }
+    break;
+  }
+  const report = body.slice(j).join("\n").trim();
+  if (!report) return "";
+  const mark = open?.[1] === "agent-message" ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
+  return mark + [report, ...flags].join("\n");
+}
+var FOLD_TO_SPACE = /* @__PURE__ */ new Set([9, 10, 11, 12, 13, 133, 8232, 8233]);
+var FOLD_TO_OPEN = /* @__PURE__ */ new Set([91, 65339, 12304, 10214, 12314, 8261, 65095, 12308]);
+var FOLD_TO_CLOSE = /* @__PURE__ */ new Set([93, 65341, 12305, 10215, 12315, 8262, 65096, 12309]);
+function foldServedSnippet(text) {
+  let out = "";
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    out += FOLD_TO_SPACE.has(c) ? " " : FOLD_TO_OPEN.has(c) ? "(" : FOLD_TO_CLOSE.has(c) ? ")" : ch;
+  }
+  return out;
 }
 function cleanUserText(text) {
   if (!isMachineTurnText(text)) return text;
   const t = stripLead(text);
+  if (MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p))) {
+    const lines = t.split("\n");
+    let i = 0;
+    while (i < lines.length && (!lines[i].trim() || MACHINE_LINE_PREFIXES.some((p) => stripLead(lines[i]).startsWith(p)))) i++;
+    const rest = lines.slice(i).join("\n").trim();
+    return rest ? cleanUserText(rest) : "";
+  }
   if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
   return "";
 }
@@ -301,14 +350,47 @@ function parseExchanges(lines, bodyStart, meta, archivePath) {
   flush(lines.length - 1);
   return exchanges;
 }
+var emptyIndex = () => ({ model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] });
 async function loadIndex(brainDir2) {
   const indexPath = join3(brainDir2, INDEX_FILE);
+  let data;
   try {
-    const data = await fs3.readFile(indexPath, "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return { model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] };
+    data = await fs3.readFile(indexPath, "utf-8");
+  } catch (e) {
+    if (e.code === "ENOENT") return emptyIndex();
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`
+    );
+    return emptyIndex();
   }
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch (e) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`
+    );
+    return emptyIndex();
+  }
+  const o = parsed;
+  if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.exchanges)) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} has no exchanges array`
+    );
+    return emptyIndex();
+  }
+  const files = o.indexed_files;
+  return {
+    model: typeof o.model === "string" ? o.model : emptyIndex().model,
+    indexed_files: files && typeof files === "object" && !Array.isArray(files) ? files : {},
+    exchanges: o.exchanges
+  };
 }
 async function saveIndex(brainDir2, index) {
   await atomicWriteJson(join3(brainDir2, INDEX_FILE), index);
@@ -325,12 +407,14 @@ async function buildEpisodicIndex(brainDir2) {
   const index = await loadIndex(brainDir2);
   const newExchanges = [];
   const reparsed = {};
+  const previous = /* @__PURE__ */ new Map();
   for (const filePath of files) {
     const content = stripInvisible(await fs3.readFile(filePath, "utf-8"));
     const hash = simpleHash2(content);
     const fname = basename(filePath);
     if (isCurrentEntry(index.indexed_files[fname], hash)) continue;
     reparsed[fname] = hash;
+    for (const e of index.exchanges) if (basename(e.archivePath) === fname) previous.set(e.id, e);
     index.exchanges = index.exchanges.filter((e) => basename(e.archivePath) !== fname);
     const lines = content.split("\n");
     const { meta, bodyStart } = parseSessionMeta(lines);
@@ -339,17 +423,21 @@ async function buildEpisodicIndex(brainDir2) {
   const validFiles = new Set(files.map((f) => basename(f)));
   index.exchanges = index.exchanges.filter((e) => validFiles.has(basename(e.archivePath)));
   for (const e of newExchanges) {
+    const userSnippet = e.userMessage.slice(0, SNIPPET_LEN);
+    const assistantSnippet = e.assistantMessage.slice(0, SNIPPET_LEN);
+    const old = previous.get(e.id);
+    const carried = old && old.userSnippet === userSnippet && old.assistantSnippet === assistantSnippet && Array.isArray(old.embedding) && old.embedding.length > 0 ? old.embedding : [];
     index.exchanges.push({
       id: e.id,
       sessionId: e.sessionId,
       project: e.project,
       date: e.date,
-      userSnippet: e.userMessage.slice(0, SNIPPET_LEN),
-      assistantSnippet: e.assistantMessage.slice(0, SNIPPET_LEN),
+      userSnippet,
+      assistantSnippet,
       archivePath: e.archivePath,
       lineStart: e.lineStart,
       lineEnd: e.lineEnd,
-      embedding: []
+      embedding: carried
     });
   }
   const needsEmbed = index.exchanges.filter((e) => !e.embedding || e.embedding.length === 0);
@@ -376,6 +464,13 @@ ${r.assistantSnippet}`.slice(0, EMBEDDING_TEXT_CAP));
   }
   await saveIndex(brainDir2, index);
   const pending = index.exchanges.filter((e) => !e.embedding || e.embedding.length === 0).length;
+  if (pending > 0 && !embeddingsOptedOut()) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `${pending} of ${index.exchanges.length} rows have no embedding after the repair pass: vector recall misses them until a build can embed them (check the embedding model / vector deps)`
+    );
+  }
   return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending };
 }
 
