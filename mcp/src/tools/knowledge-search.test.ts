@@ -754,3 +754,27 @@ describe('cross-project reservation: interactions and knobs', () => {
     expect(reserved!.grounded, 'but it is not ABOUT the query, so grounding must reject it').toBe(0);
   });
 });
+
+// G3 suite guard (R1 review): the access-counts path used to be resolved inside the load's
+// try/catch and the save's .catch(() => {}), so the guard's throw was swallowed and the search
+// "succeeded" against the real brain dir. It is resolved once, up front, so the throw propagates.
+describe('suite guard reaches knowledgeSearch callers', () => {
+  it('a brain dir resolving to <real home>/.second-brain rejects the search', async () => {
+    const dir = await wiki();
+    const fakeHome = mkdtempSync(join(tmpdir(), 'ks-fake-home-'));
+    process.env.SB_SUITE_REAL_HOME_PATH = fakeHome;
+    await expect(knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, brainDir: join(fakeHome, '.second-brain') }))
+      .rejects.toThrow(/suite guard/);
+    delete process.env.BRAIN_DIR;
+    process.env.SB_BRAIN_DIR = join(fakeHome, '.second-brain');
+    await expect(knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir })).rejects.toThrow(/suite guard/);
+  });
+
+  it('a sandboxed brain dir under the same fake home still searches', async () => {
+    const dir = await wiki();
+    const fakeHome = mkdtempSync(join(tmpdir(), 'ks-fake-home-'));
+    process.env.SB_SUITE_REAL_HOME_PATH = fakeHome;
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, brainDir: join(fakeHome, 'sandbox-brain') });
+    expect(slugs(r)).toContain('alpha');
+  });
+});

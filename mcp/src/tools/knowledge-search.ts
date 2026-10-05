@@ -125,18 +125,20 @@ function accessCountsFile(brainDir?: string): string {
 // as `acc=` telemetry in wiki-forget-score.sh (recorded below, never folded into ranking).
 const ACCESS_PRUNE_DAYS = 90;
 
-async function loadAccessCounts(brainDir?: string): Promise<AccessCounts> {
-  try { return JSON.parse(await fs.readFile(accessCountsFile(brainDir), 'utf-8')); }
+// Both take the RESOLVED path (knowledgeSearch resolves it once, up front): resolving inside the
+// load's catch or the save's .catch() swallowed the G3 suite guard's throw (R1 review).
+async function loadAccessCounts(file: string): Promise<AccessCounts> {
+  try { return JSON.parse(await fs.readFile(file, 'utf-8')); }
   catch { return {}; }
 }
 
-async function saveAccessCounts(counts: AccessCounts, brainDir?: string): Promise<void> {
+async function saveAccessCounts(counts: AccessCounts, file: string): Promise<void> {
   const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 86400000).toISOString();
   const pruned: AccessCounts = {};
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await atomicWriteJson(accessCountsFile(brainDir), pruned);
+  await atomicWriteJson(file, pruned);
 }
 
 const TOP_K = 8;
@@ -208,6 +210,9 @@ const SINGLE_LETTER_RE = /^[a-z]$/;
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join(knowledgeDir, 'wiki');
+  // Resolved here, outside the access-count handlers that swallow their own failures, so the G3
+  // suite guard (brain-paths.ts) reaches the caller instead of being caught as telemetry noise.
+  const accessFile = accessCountsFile(args.brainDir);
 
   let scopeDirs: string[];
   if (args.scope && args.scope !== 'all') {   // 'all' = explicit no-category + no-project scope (search everything)
@@ -561,7 +566,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     }));
 
   // Record access for returned results (fire-and-forget) — telemetry only (see ACCESS_PRUNE_DAYS).
-  const accessCounts = await loadAccessCounts(args.brainDir);
+  const accessCounts = await loadAccessCounts(accessFile);
   const ts = new Date().toISOString();
   for (const c of candidates) {
     if (c.source === 'local-doc') continue;
@@ -575,7 +580,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // so the write's fs.rename never completed: a 0-byte `access-counts.json.tmp.<pid>` was left
   // behind on every CLI invocation and access-counts.json was never actually updated. Awaiting it
   // here means the write is durable before this function (and therefore any caller) returns.
-  await saveAccessCounts(accessCounts, args.brainDir).catch(() => {});
+  await saveAccessCounts(accessCounts, accessFile).catch(() => {});
 
   return {
     candidates,
