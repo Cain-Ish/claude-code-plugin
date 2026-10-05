@@ -21799,6 +21799,25 @@ async function appendErrorLog(brainDir2, script, message, exitCode = 1) {
   } catch {
   }
 }
+async function appendGateTrace(brainDir2, script, message) {
+  const entry = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    script,
+    message,
+    exit_code: 0
+  };
+  try {
+    await fs6.mkdir(brainDir2, { recursive: true });
+    await fs6.appendFile(join4(brainDir2, "audit-log.jsonl"), JSON.stringify(entry) + "\n");
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    try {
+      process.stderr.write(`[${script}] ${message} (audit-log.jsonl write failed: ${why})
+`);
+    } catch {
+    }
+  }
+}
 async function getPipeline() {
   const brainDir2 = brainDirFromEnv();
   if (process.env[DISABLE_ENV] === "1") {
@@ -28806,21 +28825,29 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     ...scopeOn ? { scoped_to: args.projectSlug, anchors: anchorCount } : {}
   };
 }
+var GATE_ON = /* @__PURE__ */ new Set(["1", "on", "true", "yes"]);
+var GATE_OFF = /* @__PURE__ */ new Set(["0", "off", "false", "no"]);
 function parseInjectPrecision(raw, warn) {
   const v = (raw ?? "").trim().toLowerCase();
-  if (v === "off") return false;
-  if (v !== "" && v !== "on") {
-    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use on/off); keeping the precision gate`);
+  if (GATE_OFF.has(v)) return false;
+  if (v !== "" && !GATE_ON.has(v)) {
+    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use off/0/false/no or on/1/true/yes); keeping the precision gate`);
   }
   return true;
 }
-var INJECT_PRECISION = parseInjectPrecision(
-  process.env.SB_INJECT_PRECISION,
-  (msg) => {
-    process.stderr.write(`second-brain knowledge-search: ${msg}
+var injectPrecisionWarning;
+var INJECT_PRECISION = parseInjectPrecision(process.env.SB_INJECT_PRECISION, (msg) => {
+  injectPrecisionWarning = msg;
+  process.stderr.write(`second-brain knowledge-search: ${msg}
 `);
-  }
-);
+});
+function injectPrecisionStatus() {
+  return { mode: INJECT_PRECISION ? "r1" : "off", ...injectPrecisionWarning ? { warning: injectPrecisionWarning } : {} };
+}
+async function reportInjectPrecision(brainDir2, script, status = injectPrecisionStatus()) {
+  if (status.warning) await appendErrorLog(brainDir2, script, status.warning, 1);
+  if (status.mode === "off") await appendGateTrace(brainDir2, script, "gate=inject-precision mode=off");
+}
 function toCounts(s) {
   const toks = tokenize(s);
   const counts = /* @__PURE__ */ new Map();
@@ -34195,6 +34222,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Knowledge MCP server running on stdio");
+  await reportInjectPrecision(BRAIN_DIR, "mcp-server");
 }
 main().catch((error2) => {
   console.error("Fatal error:", error2);

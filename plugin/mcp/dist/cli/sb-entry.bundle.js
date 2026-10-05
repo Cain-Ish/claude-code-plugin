@@ -7172,21 +7172,22 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     ...scopeOn ? { scoped_to: args.projectSlug, anchors: anchorCount } : {}
   };
 }
+var GATE_ON = /* @__PURE__ */ new Set(["1", "on", "true", "yes"]);
+var GATE_OFF = /* @__PURE__ */ new Set(["0", "off", "false", "no"]);
 function parseInjectPrecision(raw, warn) {
   const v = (raw ?? "").trim().toLowerCase();
-  if (v === "off") return false;
-  if (v !== "" && v !== "on") {
-    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use on/off); keeping the precision gate`);
+  if (GATE_OFF.has(v)) return false;
+  if (v !== "" && !GATE_ON.has(v)) {
+    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use off/0/false/no or on/1/true/yes); keeping the precision gate`);
   }
   return true;
 }
-var INJECT_PRECISION = parseInjectPrecision(
-  process.env.SB_INJECT_PRECISION,
-  (msg) => {
-    process.stderr.write(`second-brain knowledge-search: ${msg}
+var injectPrecisionWarning;
+var INJECT_PRECISION = parseInjectPrecision(process.env.SB_INJECT_PRECISION, (msg) => {
+  injectPrecisionWarning = msg;
+  process.stderr.write(`second-brain knowledge-search: ${msg}
 `);
-  }
-);
+});
 function toCounts(s) {
   const toks = tokenize(s);
   const counts = /* @__PURE__ */ new Map();

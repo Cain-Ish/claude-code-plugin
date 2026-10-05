@@ -182,6 +182,25 @@ async function appendErrorLog(brainDir2, script, message, exitCode = 1) {
   } catch {
   }
 }
+async function appendGateTrace(brainDir2, script, message) {
+  const entry = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    script,
+    message,
+    exit_code: 0
+  };
+  try {
+    await fs2.mkdir(brainDir2, { recursive: true });
+    await fs2.appendFile(join2(brainDir2, "audit-log.jsonl"), JSON.stringify(entry) + "\n");
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    try {
+      process.stderr.write(`[${script}] ${message} (audit-log.jsonl write failed: ${why})
+`);
+    } catch {
+    }
+  }
+}
 async function getPipeline() {
   const brainDir2 = brainDirFromEnv();
   if (process.env[DISABLE_ENV] === "1") {
@@ -7186,19 +7205,25 @@ function parseInjectGate(raw, warn) {
 }
 function parseInjectPrecision(raw, warn) {
   const v = (raw ?? "").trim().toLowerCase();
-  if (v === "off") return false;
-  if (v !== "" && v !== "on") {
-    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use on/off); keeping the precision gate`);
+  if (GATE_OFF.has(v)) return false;
+  if (v !== "" && !GATE_ON.has(v)) {
+    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use off/0/false/no or on/1/true/yes); keeping the precision gate`);
   }
   return true;
 }
-var INJECT_PRECISION = parseInjectPrecision(
-  process.env.SB_INJECT_PRECISION,
-  (msg) => {
-    process.stderr.write(`second-brain knowledge-search: ${msg}
+var injectPrecisionWarning;
+var INJECT_PRECISION = parseInjectPrecision(process.env.SB_INJECT_PRECISION, (msg) => {
+  injectPrecisionWarning = msg;
+  process.stderr.write(`second-brain knowledge-search: ${msg}
 `);
-  }
-);
+});
+function injectPrecisionStatus() {
+  return { mode: INJECT_PRECISION ? "r1" : "off", ...injectPrecisionWarning ? { warning: injectPrecisionWarning } : {} };
+}
+async function reportInjectPrecision(brainDir2, script, status = injectPrecisionStatus()) {
+  if (status.warning) await appendErrorLog(brainDir2, script, status.warning, 1);
+  if (status.mode === "off") await appendGateTrace(brainDir2, script, "gate=inject-precision mode=off");
+}
 function legacyWikiFilter(candidates, o) {
   const needGrounded = Math.min(o.minGrounded, candidates[0]?.query_terms ?? o.minGrounded);
   return candidates.filter((c) => c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= needGrounded);
@@ -7294,6 +7319,7 @@ var minRelevance = envNum("SB_INJECT_MIN_RELEVANCE", 0, 0, Number.MAX_SAFE_INTEG
 var minGrounded = envNum("SB_INJECT_MIN_GROUNDED", 2, 0, 64);
 var brainDir = resolveBrainDir();
 var projectSlug = process.env.SB_ACTIVE_SLUG || void 0;
+await reportInjectPrecision(brainDir, "knowledge-search-cli");
 var result = await knowledgeSearch({ query, brainDir, projectSlug });
 var injectGate = parseInjectGate(
   process.env.SB_INJECT_GATE,
