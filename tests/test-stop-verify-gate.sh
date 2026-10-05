@@ -837,6 +837,20 @@ g1_case block "a .. hop back into the repo arms" "$SANDBOX/g1/other/../repo/src/
 # when the fixture hands the path to jq, so the fixture itself would name another file.)
 g1_case block "repeated slashes into the repo arm" "$(printf '%s' "$G1_REPO" | sed 's#/#//#g; s#^//#/#')//src//a.ts"
 g1_case block "a ./ segment into the repo arms" "$G1_REPO/./src/./a.ts"
+# Bash-edit heuristic follows the SAME outside-root rule as Edit/Write: an in-repo edit, the tests,
+# then `sed -i` on a file that is NOT in the repo. Outside-root source used to be ignored here, so
+# the tests stayed "fresh" while an Edit to the same path would have armed the gate.
+g1_bash_case() {  # block|approve label command
+  local want="$1" label="$2" cmd="$3" T OUT
+  T=$(mk_transcript); add_edit_turn "$T"; add_test_run "$T"; add_bash_of "$T" "$cmd"
+  OUT=$(mk_input_cwd "$T" "$G1_REPO" | bash "$GATE" 2>/dev/null || true)
+  if [ "$want" = block ]; then assert_block "G1-bash: $label" "$OUT"; else assert_approve "G1-bash: $label" "$OUT"; fi
+}
+g1_bash_case block   "sed -i on an outside-root source file moves the last edit" "sed -i 's/a/b/' /other/repo/src/x.ts"
+g1_bash_case approve "sed -i on an outside-root temp-segment path stays exempt"  "sed -i 's/a/b/' /var/tmp/scratchpad/x.ts"
+g1_bash_case block   "sed -i on an in-repo source file still moves the last edit" "sed -i 's/a/b/' src/foo.ts"
+g1_bash_case approve "sed -i on an in-repo doc stays exempt"                      "sed -i 's/a/b/' docs/x.ts"
+g1_bash_case approve "redirect into \$TMPDIR stays exempt"                        'echo ok > "$TMPDIR/marker.sh"'
 if command -v cygpath >/dev/null 2>&1; then
   G1_WIN=$(cygpath -w "$G1_REPO")
   g1_case block "\\\\?\\ extended-length Windows path into the repo arms" "\\\\?\\$G1_WIN\\src\\a.ts" "$G1_WIN"
