@@ -793,6 +793,31 @@ else
   PASS=$((PASS + 1)); echo "  PASS: B6: block reason names no /slash token"
 fi
 
+# --- G1: path exemptions are root-relative and separator-agnostic -------------------
+# Windows tool paths use a backslash: scratchpad files OUTSIDE the repo used to count as
+# source edits (the exemption only matched "/"-separated segments) and demanded the suite.
+G1_REPO="$SANDBOX/g1/repo"; mkdir -p "$G1_REPO/src"
+g1_case() { # block|approve label path
+  local want="$1" label="$2" path="$3" T OUT
+  T=$(mk_transcript); add_edit_of "$T" "$path"
+  OUT=$(mk_input_cwd "$T" "$G1_REPO" | bash "$GATE" 2>/dev/null || true)
+  if [ "$want" = block ]; then assert_block "G1: $label" "$OUT"; else assert_approve "G1: $label" "$OUT"; fi
+}
+g1_case approve "Windows-form scratchpad .js outside the repo" 'C:''\''Users''\''x''\''AppData''\''Local''\''Temp''\''claude''\''scratchpad''\''probe.js'
+g1_case approve "forward-slash scratch .js outside the repo" "/var/tmp/scratchpad/probe.js"
+g1_case approve "plain non-scratch path outside the repo is no repo edit" "/elsewhere/project/src/x.js"
+g1_case approve "docs backslash-relative .js inside the repo" 'docs''\''x.js'
+g1_case approve "docs backslash-relative .md inside the repo" 'docs''\''x.md'
+g1_case approve "tmp/ relative .js inside the repo" "tmp/probe.js"
+g1_case block "src .sh inside the repo (absolute)" "$G1_REPO/src/a.sh"
+G1_TMPREPO="$SANDBOX/g1/Temp/sandbox/repo"; mkdir -p "$G1_TMPREPO/src"
+T=$(mk_transcript); add_edit_of "$T" "$G1_TMPREPO/src/a.sh"
+OUT=$(mk_input_cwd "$T" "$G1_TMPREPO" | bash "$GATE" 2>/dev/null || true)
+assert_block "G1: src .sh in a repo checked out under /Temp/sandbox/ still arms" "$OUT"
+T=$(mk_transcript); add_edit_of "$T" "$G1_TMPREPO/src/a.sh"
+OUT=$(mk_input_cwd "$T" "$G1_TMPREPO/src" | bash "$GATE" 2>/dev/null || true)
+assert_block "G1: same, with cwd in a subdirectory of that repo" "$OUT"
+
 # --- RR-SF2: MSYS here-string hang at 65,536..~65,650 bytes -----------------------------
 # `<<< "$VERIFY_CANDIDATES"` and `<<< "$SVG_OUT"` used a plain here-string: on MSYS a text of
 # that byte width never fits before the reader starts, so the hook hangs past its timeout and
