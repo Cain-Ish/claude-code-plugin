@@ -51,6 +51,27 @@ export async function appendErrorLog(brainDir: string, script: string, message: 
   try { process.stderr.write(`[${script}] ${message}${note}\n`); } catch { /* stderr gone: nothing left to tell */ }
 }
 
+/** The TS twin of sb_log_error's REROUTED row: a `gate=*` message at exit_code 0 is a TRACE, not an
+ *  error, so it goes to `<brainDir>/audit-log.jsonl` in the same `{timestamp, script, message,
+ *  exit_code}` shape, as one compact line in a single append. Silent on success (a TRACE is not
+ *  news); a failed write is echoed to stderr and never thrown. No rotation here: the next bash
+ *  sb_log_error caller rotates the file (sb_rotate_audit_log), as with persona-context's _mt_log. */
+export async function appendGateTrace(brainDir: string, script: string, message: string): Promise<void> {
+  const entry = {
+    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    script,
+    message,
+    exit_code: 0,
+  };
+  try {
+    await fs.mkdir(brainDir, { recursive: true });
+    await fs.appendFile(join(brainDir, 'audit-log.jsonl'), JSON.stringify(entry) + '\n');
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    try { process.stderr.write(`[${script}] ${message} (audit-log.jsonl write failed: ${why})\n`); } catch { /* stderr gone */ }
+  }
+}
+
 /** The explicit opt-out: an acknowledged choice, not a degradation, so callers stay quiet about it. */
 export function embeddingsOptedOut(): boolean {
   return process.env[DISABLE_ENV] === '1';

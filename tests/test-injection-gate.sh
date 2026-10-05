@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
+# run-all-timeout: 300   (measured 59-81s alone on MSYS 2026-10-05 with the SB_INJECT_PRECISION hook rows: 4 persona-context.sh + 2 session-load.sh runs; 18s before them; the 120s default is a coin flip under run-all load)
 # pins: SB_INJECT_GATE — enrich() sets =1 because SessionStart enrichment's gated path is the subject
+# pins: SB_INJECT_PRECISION — the rollback-switch rows set off / 0 / bogus through the real hooks: the switch is the subject
+# pins: SB_ACTIVE_SLUG — serve()/enrich() set the session's project, because the cross-project rule is the subject
+# pins: SB_BRAIN_DIR — every CLI helper sandboxes the brain dir to a scratch dir (never the real one)
+# pins: SB_SESSION_ID — serve() passes a session id the way the hook does (the sandbox holds no episodes; only the wiki section is read)
 # Injection gate: PRECISION + RECALL of what actually reaches the model per prompt.
 #
 # WHY THIS FILE EXISTS. The per-prompt wiki injection gate was dead for the entire life of the
@@ -21,7 +26,14 @@
 # first sections exercise. context-serve-cli (serve) is what the hook ACTUALLY injects per prompt;
 # since R1#4 (2026-10) it also refuses stubs, asks cross-project pages for one more grounded term,
 # and clamps the need to the discriminative-term count. The R1 sections below hold that ratchet.
+# The last section drives the real hooks (persona-context.sh, session-load.sh) with the
+# SB_INJECT_PRECISION rollback switch set, and reads what lands in the sandboxed brain dir's logs.
 set -u
+# Shipped defaults are the subject of every section but the last, which sets the switch itself; the
+# hooks' headless-child gate keys on the CLAUDE_CODE_* pair, so a suite launched from `claude -p` (or
+# a session whose values leak in) would turn every hook row into a no-op.
+unset SB_INJECT_PRECISION CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED CLAUDE_PROJECT_DIR \
+      SB_HEADLESS_CONTEXT SB_MACHINE_TURN_SKIP SB_NESTED_SPAWN SB_PERSONA_GATE
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CORPUS="$ROOT/tests/fixtures/eval-wiki"
 CLI="$ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
@@ -51,7 +63,10 @@ cli_crashed(){
 }
 pass(){ if cli_crashed; then FAIL=$((FAIL+1)); echo "  FAIL: $1 (but a CLI exited non-zero in this section, so it proves nothing)"; else PASS=$((PASS+1)); echo "  PASS: $1"; fi; }
 fail(){ cli_crashed; FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
-# NOTE: no SB_INJECT_* overrides anywhere below — shipped defaults are the subject.
+# NOTE: the gate knobs (SB_INJECT_MIN_GROUNDED / _MIN_RELEVANCE, KNOWLEDGE_MIN_SCORE) are never
+# overridden — shipped defaults are the subject. The only SB_INJECT_* this file sets are the gate
+# SELECTORS: SB_INJECT_GATE=1 in enrich() (the path session-load.sh takes) and SB_INJECT_PRECISION
+# in the last section, where the rollback switch itself is under test.
 # D017: `${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}` (no colon — unset-only, not
 # empty-or-unset) defaults to the deterministic BM25-only run this file is
 # documented as (CI's offline lane), but lets `make production-lane` export
@@ -251,6 +266,109 @@ does the arena feed an enemy list to scoring|enemy-team-data-flow
 arena level normalization for artifacts|arena-mode-normalization
 EOF
 [ "$R2_MISS" -eq 0 ] && pass "graded-R2 paraphrases are served per prompt" || fail "$R2_MISS R2 paraphrase(s) not served"
+
+# --- SB_INJECT_PRECISION through the REAL hooks (the R1 rollback switch) ----------------------
+# The hooks run the CLIs with stderr discarded, so a warning printed there never reaches anyone.
+# These rows drive scripts/persona-context.sh (per prompt: context-serve-cli) and
+# scripts/session-load.sh (SessionStart enrichment: knowledge-search-cli with SB_INJECT_GATE=1)
+# over the same fixture corpus and the rebuilt bundle, each against its own sandboxed brain dir,
+# and read that dir's logs:
+#   off / 0  -> the stub the R1 gate refuses is injected, plus ONE gate=inject-precision TRACE row
+#               in audit-log.jsonl, in sb_log_error's rerouted gate-row shape;
+#   bogus    -> the R1 gate holds, plus an error row in error-log.jsonl naming the CLI;
+#   unset    -> the R1 gate holds, and the switch writes nothing at all.
+# The hooks write rows of their own into the same files, so every count below is filtered to the
+# switch's rows. The hooks also fail open (a dead CLI = no context, exit 0), so cli_rc cannot see a
+# crash here: the off row is this section's liveness control, and the "R1 holds" rows count only
+# when it injected.
+STUB_SLUG=quokka-relay-checkpoint
+HOOK_PROMPT="explain the quokka relay checkpoint"   # >= 4 words: shorter prompts exit before retrieval
+# hook_prompt MODE BRAIN: the additionalContext persona-context.sh emits for $HOOK_PROMPT with
+# SB_INJECT_PRECISION=MODE ("" = unset), its brain dir sandboxed to BRAIN (fresh session id).
+hook_prompt(){
+  ( [ -n "$1" ] && export SB_INJECT_PRECISION="$1"
+    printf '{"prompt":"%s","session_id":"prec-%s","cwd":"%s"}' "$HOOK_PROMPT" "${1:-unset}" "$2" \
+      | BRAIN_DIR="$2" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$CORPUS" KNOWLEDGE_DIR="$CORPUS" \
+        SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" \
+        bash "$ROOT/scripts/persona-context.sh" 2>"$2/hook-stderr.log" ) \
+    | jq -r '.hookSpecificOutput.additionalContext // ""' | tr -d '\r'
+}
+# hook_session MODE BRAIN: the SessionStart output of session-load.sh for a registered project
+# whose PROJECT.md goal is the stub's title, so the enrichment queries "checkpoint quokka relay".
+hook_session(){
+  local pd="$2/quokka-demo"
+  mkdir -p "$pd" "$2/projects/quokka-demo" "$2/transcripts"
+  printf '# PROJECT: quokka-demo\n## Goal\nQuokka relay checkpoint\n' > "$2/projects/quokka-demo/PROJECT.md"
+  printf '{"slug":"quokka-demo","path":"%s","plan_done":0,"plan_total":0}\n' "$pd" > "$2/projects.jsonl"
+  ( [ -n "$1" ] && export SB_INJECT_PRECISION="$1"
+    printf '{"hook_event_name":"SessionStart","session_id":"prec-sl-%s","cwd":"%s"}' "${1:-unset}" "$pd" \
+      | CLAUDE_PROJECT_DIR="$pd" BRAIN_DIR="$2" KNOWLEDGE_DIR="$CORPUS" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$CORPUS" \
+        SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" ANTHROPIC_API_KEY="" \
+        bash "$ROOT/scripts/session-load.sh" 2>"$2/hook-stderr.log" ) | tr -d '\r'
+}
+# prec_rows FILE SCRIPT: rows the switch wrote for SCRIPT (any shape) — the "writes nothing" probe.
+prec_rows(){ [ -f "$1" ] || { echo 0; return; }; grep -F "\"script\":\"$2\"" "$1" | grep -cE 'inject-precision|SB_INJECT_PRECISION' | tr -d ' \r'; }
+# trace_rows FILE SCRIPT: audit rows in EXACTLY the shape bash sb_log_error gives a rerouted gate row.
+trace_rows(){
+  [ -f "$1" ] || { echo 0; return; }
+  grep -cE '^\{"timestamp":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z","script":"'"$2"'","message":"gate=inject-precision mode=off","exit_code":0\}$' "$1" | tr -d ' \r'
+}
+# bogus_rows FILE SCRIPT: error rows naming the unrecognised value, exit_code 1.
+bogus_rows(){ [ -f "$1" ] || { echo 0; return; }; grep -F "\"script\":\"$2\"" "$1" | grep -F 'SB_INJECT_PRECISION=\"bogus\" is not recognised' | grep -cF '"exit_code":1}' | tr -d ' \r'; }
+
+PB_OFF="$EB/prec-off"; PB_ZERO="$EB/prec-zero"; PB_BOGUS="$EB/prec-bogus"; PB_UNSET="$EB/prec-unset"
+mkdir -p "$PB_OFF" "$PB_ZERO" "$PB_BOGUS" "$PB_UNSET"
+CTX_OFF=$(hook_prompt off "$PB_OFF")
+if has "$CTX_OFF" "$STUB_SLUG"; then
+  pass "persona-context.sh, SB_INJECT_PRECISION=off: the per-prompt hook injects the stub the R1 gate refuses"
+  [ "$(trace_rows "$PB_OFF/audit-log.jsonl" context-serve-cli)" = 1 ] \
+    && pass "off: exactly one gate=inject-precision TRACE row from context-serve-cli in audit-log.jsonl (sb_log_error gate-row shape)" \
+    || fail "off: expected one '{timestamp,script:context-serve-cli,message:gate=inject-precision mode=off,exit_code:0}' row in audit-log.jsonl, got $(trace_rows "$PB_OFF/audit-log.jsonl" context-serve-cli): $(grep -F inject-precision "$PB_OFF/audit-log.jsonl" 2>/dev/null | head -2 | tr '\n' ';')"
+  [ "$(prec_rows "$PB_OFF/error-log.jsonl" context-serve-cli)" = 0 ] \
+    && pass "off: a recognised value leaves no error row" \
+    || fail "off: a recognised value wrote an SB_INJECT_PRECISION error row"
+  has "$(hook_prompt 0 "$PB_ZERO")" "$STUB_SLUG" && [ "$(trace_rows "$PB_ZERO/audit-log.jsonl" context-serve-cli)" = 1 ] \
+    && pass "persona-context.sh, SB_INJECT_PRECISION=0: the rollback too (SB_INJECT_GATE's vocabulary), with its TRACE row" \
+    || fail "SB_INJECT_PRECISION=0 did not roll the per-prompt gate back (or wrote no TRACE row) — the vocabulary differs from SB_INJECT_GATE's"
+  if has "$(hook_prompt bogus "$PB_BOGUS")" "$STUB_SLUG"; then
+    fail "persona-context.sh, SB_INJECT_PRECISION=bogus: the stub was injected — an unrecognised value rolled the gate back"
+  else
+    pass "persona-context.sh, SB_INJECT_PRECISION=bogus: the R1 gate holds"
+  fi
+  [ "$(bogus_rows "$PB_BOGUS/error-log.jsonl" context-serve-cli)" = 1 ] \
+    && pass "bogus: exactly one error row from context-serve-cli in error-log.jsonl (the hook discards stderr)" \
+    || fail "bogus: expected one context-serve-cli error row for SB_INJECT_PRECISION=\"bogus\" in error-log.jsonl, got $(bogus_rows "$PB_BOGUS/error-log.jsonl" context-serve-cli)"
+  [ "$(trace_rows "$PB_BOGUS/audit-log.jsonl" context-serve-cli)" = 0 ] \
+    && pass "bogus: no TRACE row (the R1 gate is in force)" || fail "bogus: a gate=inject-precision TRACE row was written although the R1 gate is in force"
+  if has "$(hook_prompt "" "$PB_UNSET")" "$STUB_SLUG"; then
+    fail "persona-context.sh, SB_INJECT_PRECISION unset: the stub was injected"
+  elif [ "$(prec_rows "$PB_UNSET/audit-log.jsonl" context-serve-cli)" != 0 ] || [ "$(prec_rows "$PB_UNSET/error-log.jsonl" context-serve-cli)" != 0 ]; then
+    fail "SB_INJECT_PRECISION unset: the switch wrote a row on the default path (per-prompt cost)"
+  else
+    pass "persona-context.sh, SB_INJECT_PRECISION unset: the R1 gate holds and the switch writes nothing"
+  fi
+else
+  fail "persona-context.sh, SB_INJECT_PRECISION=off: the stub was not injected — the rollback does not reach the per-prompt hook (or the hook served nothing; stderr: $(head -c 300 "$PB_OFF/hook-stderr.log" 2>/dev/null | tr '\n' ' '))"
+fi
+
+# SessionStart enrichment: the same switch through session-load.sh -> knowledge-search-cli.
+SL_OFF="$EB/prec-sl-off"; SL_BOG="$EB/prec-sl-bogus"; mkdir -p "$SL_OFF" "$SL_BOG"
+if has "$(hook_session off "$SL_OFF")" "$STUB_SLUG"; then
+  pass "session-load.sh, SB_INJECT_PRECISION=off: SessionStart enrichment injects the stub the R1 gate refuses"
+  [ "$(trace_rows "$SL_OFF/audit-log.jsonl" knowledge-search-cli)" -ge 1 ] \
+    && pass "off: session-load's knowledge-search-cli run leaves a gate=inject-precision TRACE row" \
+    || fail "off: no gate=inject-precision TRACE row from knowledge-search-cli in audit-log.jsonl"
+  if has "$(hook_session bogus "$SL_BOG")" "$STUB_SLUG"; then
+    fail "session-load.sh, SB_INJECT_PRECISION=bogus: SessionStart enrichment injected the stub"
+  else
+    pass "session-load.sh, SB_INJECT_PRECISION=bogus: the R1 gate holds at SessionStart"
+  fi
+  [ "$(bogus_rows "$SL_BOG/error-log.jsonl" knowledge-search-cli)" -ge 1 ] \
+    && pass "bogus: session-load's knowledge-search-cli run leaves an error row in error-log.jsonl" \
+    || fail "bogus: no knowledge-search-cli error row for SB_INJECT_PRECISION=\"bogus\" in error-log.jsonl"
+else
+  fail "session-load.sh, SB_INJECT_PRECISION=off: the stub was not enriched — the rollback does not reach SessionStart (or the enrichment never ran; stderr: $(head -c 300 "$SL_OFF/hook-stderr.log" 2>/dev/null | tr '\n' ' '))"
+fi
 
 # Nothing may slip between the last verdict and the summary.
 cli_crashed && { FAIL=$((FAIL+1)); echo "  FAIL: a CLI exited non-zero after the last verdict"; }

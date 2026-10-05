@@ -1,4 +1,4 @@
-import { knowledgeSearch, injectableWiki } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki, reportInjectPrecision } from './knowledge-search.js';
 import { serveEpisodicLines } from './episodic-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
@@ -35,7 +35,9 @@ const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 // (query terms in title/description/tags) can. Full rationale in knowledge-search-cli.ts.
 // retrieval-guards.test.ts locks the arithmetic against the default below.
 // SB_INJECT_PRECISION=off (read once by the engine, not here) makes injectableWiki the 0.54.1
-// filter again; see knowledge-search.ts.
+// filter again; see knowledge-search.ts. The hook discards this CLI's stderr, so the switch is
+// reported below (reportInjectPrecision): an unrecognised value leaves an error-log.jsonl row, off
+// a gate=inject-precision TRACE row in audit-log.jsonl, the default writes nothing.
 // Validated, not raw parseFloat/parseInt — a malformed override yields NaN, every `>= NaN` is
 // false, and the gate silently matches nothing for the whole session (the unsatisfiable-gate
 // class again); a negative one makes it vacuously true. Same guard as knowledge-search-cli.ts.
@@ -49,6 +51,7 @@ const minRelevance = envNum('SB_INJECT_MIN_RELEVANCE', 0, 0, Number.MAX_SAFE_INT
 const minGrounded = envNum('SB_INJECT_MIN_GROUNDED', 2, 0, 64);
 const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG?.trim() || undefined;
+await reportInjectPrecision(brainDir, 'context-serve-cli');
 
 const wikiLines: string[] = [];
 try {
