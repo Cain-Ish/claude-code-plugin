@@ -5,6 +5,8 @@
 // and were then dropped, so a long session served nothing at all.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -124,5 +126,48 @@ describe('serveEpisodicLines — sub-floor vector hits never fill the scope (vec
     expect(r.pending).toBe(0);
     const out = await serveEpisodicLines('zebra migration', brainDir, { sessionId: 'live', activeProject: 'alpha' });
     expect(bullets(out)).toEqual(['how did the zebra migration go last time']);
+  });
+});
+
+// End to end through the COMMITTED bundle, which is what persona-context.sh spawns (rebuild with
+// `npm run bundle` after editing the CLI; tests/test-bundle-current.sh keeps dist fresh in CI).
+// The child runs text-only (SECOND_BRAIN_DISABLE_EMBEDDINGS=1), where every text hit scores at
+// least 0.25, so the sub-floor case is covered in-process above (vector mode); here the active
+// project holds a machine row, a same-session row and a non-matching row, and the only human
+// match lives in another project.
+describe('context-serve-cli bundle (end to end)', () => {
+  const BUNDLE = join(__dirname, '..', '..', 'dist', 'tools', 'context-serve-cli.bundle.js');
+  const SEP = '--8<--SB-EPISODIC--8<--';
+
+  it('serves only the human row from another project when the active project has only unservable rows', async () => {
+    process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
+    const brainDir = freshBrain();
+    writeArchive(brainDir, 'bg', 'alpha', [
+      ['<task-notification>\n<task-id>b1</task-id>\n</task-notification>', 'The zebra migration batch finished green.'],
+      ['what is the weather like for the walk', 'Sunny.'],
+    ]);
+    writeArchive(brainDir, 'live', 'alpha', [['zebra migration plan for the cursor work', 'Planned it.']]);
+    writeArchive(brainDir, 'old', 'beta', [['how did the zebra migration go last time', 'It went fine.']]);
+    await buildEpisodicIndex(brainDir);
+
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const k of ['SB_BRAIN_DIR', 'BRAIN_DIR', 'KNOWLEDGE_DIR', 'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR',
+      'SB_ACTIVE_SLUG', 'SB_SESSION_ID', 'SB_EPISODIC_SCOPE_MIN_HITS']) delete env[k];
+    Object.assign(env, {
+      SB_BRAIN_DIR: brainDir,
+      KNOWLEDGE_DIR: mkdtempSync(join(tmpdir(), 'epi-serve-kd-')),
+      SB_ACTIVE_SLUG: 'alpha',
+      SB_SESSION_ID: 'live',
+      SECOND_BRAIN_DISABLE_EMBEDDINGS: '1',
+    });
+    const { stdout } = await promisify(execFile)(process.execPath, [BUNDLE, 'zebra migration'],
+      { env, windowsHide: true, timeout: 60_000 });
+    const lines = stdout.replace(/\r/g, '').split('\n').filter(l => l !== '');
+    const at = lines.indexOf(SEP);
+    expect(at, `no separator in:\n${stdout}`).toBeGreaterThanOrEqual(0);
+    const episodic = lines.slice(at + 1);
+    expect(episodic[0]).toBe(EPISODIC_SERVE_HEADER);
+    expect(bullets(episodic)).toEqual(['how did the zebra migration go last time']);
+    expect(episodic[1]).toMatch(/\(beta, 2026-10-01, \d+%\)$/);
   });
 });

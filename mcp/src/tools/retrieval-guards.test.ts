@@ -248,8 +248,10 @@ describe('grounding: all-filler query grounds nothing', () => {
 async function shippedMinGrounded(): Promise<number> {
   const src = await fs.readFile(join(__dirname, 'context-serve-cli.ts'), 'utf8');
   const m = src.match(/envNum\('SB_INJECT_MIN_GROUNDED',\s*(\d+)/);
-  expect(m, 'SB_INJECT_MIN_GROUNDED default not found in context-serve-cli.ts').toBeTruthy();
-  return Number(m![1]);
+  // A throw, not an expect: callers outside an assertion context (a helper, a loop bound) must
+  // never get NaN back and run their locks against it vacuously.
+  if (!m) throw new Error('SB_INJECT_MIN_GROUNDED default not found in context-serve-cli.ts: the satisfiability locks have nothing to check');
+  return Number(m[1]);
 }
 
 interface Page { slug: string; title: string; description: string; project?: string; body?: string }
