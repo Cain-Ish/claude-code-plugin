@@ -168,6 +168,30 @@ export function cleanUserText(text: string): string {
   return '';
 }
 
+export interface ServeOpts { sessionId: string; minSimilarity: number; max: number }
+
+/** Rows the per-prompt hook may show (context-serve-cli), in ranked order: the user side is
+ *  re-cleaned (rows from an older parser still carry raw boilerplate until their file is
+ *  re-parsed); rows with no human words, rows from the live session (already in context, so an
+ *  echo) and rows under the similarity floor are dropped; duplicate openings collapse; capped. */
+export function servableEpisodes<R extends { sessionId: string; userSnippet: string; similarity: number }>(
+  rows: R[], o: ServeOpts,
+): R[] {
+  const seen = new Set<string>();
+  const out: R[] = [];
+  for (const r of rows) {
+    const userSnippet = cleanUserText(r.userSnippet);
+    if (r.similarity < o.minSimilarity || !userSnippet.trim()) continue;
+    if (o.sessionId && r.sessionId === o.sessionId) continue;
+    const key = userSnippet.slice(0, 60);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...r, userSnippet });
+    if (out.length >= o.max) break;
+  }
+  return out;
+}
+
 function simpleHash(s: string): string {
   let h = 0;
   for (let i = 0; i < s.length; i++) {

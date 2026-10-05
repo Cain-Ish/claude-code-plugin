@@ -187,7 +187,8 @@ created: 2026-01-01
 updated: 2026-01-01
 ---
 
-Widget is a thing for widget processing.
+Widget is a thing for widget processing. This body stays over 100 characters so the
+per-prompt CLI does not treat the page as a stub and skip it (R1#4, 2026-10).
 EOF
 out_w1=$(KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" \
   payload_sid "tell me about the widget thing in detail" "wiki-dedup-session" \
@@ -223,7 +224,8 @@ tags: [$slug]
 created: 2026-01-01
 updated: 2026-01-01
 ---
-$body — $slug reference page.
+$body — $slug reference page. The body stays over 100 characters so the per-prompt
+CLI does not treat the page as a stub and skip it (R1#4, 2026-10).
 EOF
 done
 hy_hit() { KNOWLEDGE_DIR="$KNOW_DIR_HY" BRAIN_DIR="$BRAIN_DIR_HY" payload_sid "$1" "$2" \

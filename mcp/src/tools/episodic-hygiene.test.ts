@@ -6,7 +6,7 @@ import { promises as fs, mkdtempSync, writeFileSync, mkdirSync, readFileSync } f
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
-  isMachineTurnText, cleanUserText, buildEpisodicIndex, EPISODIC_PARSER_VERSION,
+  isMachineTurnText, cleanUserText, buildEpisodicIndex, EPISODIC_PARSER_VERSION, servableEpisodes,
 } from './episodic-search.js';
 
 describe('isMachineTurnText — the shared machine-turn contract', () => {
@@ -305,5 +305,41 @@ describe('episodic parse: rows kept, user side cleaned, ids stable', () => {
     const r = await buildEpisodicIndex(brainDir);
     expect(r.indexed).toBe(0);
     expect(readIndex(brainDir).exchanges[0].userSnippet).toBe('sentinel: untouched because the file is current');
+  });
+});
+
+// --- Serve-time filter (context-serve-cli) -----------------------------------------------------
+describe('servableEpisodes — what the per-prompt hook may show', () => {
+  const row = (sessionId: string, userSnippet: string, similarity = 0.4) =>
+    ({ sessionId, userSnippet, similarity, project: 'p', date: '2026-10-01' });
+
+  it('drops machine rows, same-session rows and sub-floor rows; cleans legacy snippets; caps', () => {
+    const out = servableEpisodes([
+      row('live', 'what did we decide about the drain cursor'),                 // same session: echo
+      row('old1', '<task-notification>\n<task-id>x</task-id>'),               // legacy raw boilerplate
+      row('old2', ''),                                                        // cleaned machine row
+      row('old3', 'why does the archive skip Q&A windows', 0.1),              // below the floor
+      row('old4', 'Another Claude session sent a message:\n<agent-message from="a">\nWrote 427 rows'),
+      row('old5', 'how should the cold tier be sized'),
+      row('old6', 'one more that the cap must cut'),
+    ], { sessionId: 'live', minSimilarity: 0.15, max: 2 });
+    expect(out.map(r => [r.sessionId, r.userSnippet])).toEqual([
+      ['old4', 'Wrote 427 rows'],
+      ['old5', 'how should the cold tier be sized'],
+    ]);
+  });
+
+  it('without a session id nothing is dropped as an echo; duplicate openings collapse', () => {
+    const out = servableEpisodes([
+      row('a', 'same opening words repeated across two sessions here'),
+      row('b', 'same opening words repeated across two sessions here'),
+    ], { sessionId: '', minSimilarity: 0.15, max: 2 });
+    expect(out.map(r => r.sessionId)).toEqual(['a']);
+  });
+
+  it('context-serve-cli serves episodes through servableEpisodes with SB_SESSION_ID (source lock)', async () => {
+    const src = await fs.readFile(join(__dirname, 'context-serve-cli.ts'), 'utf8');
+    expect(src).toMatch(/servableEpisodes\(/);
+    expect(src).toMatch(/process\.env\.SB_SESSION_ID/);
   });
 });

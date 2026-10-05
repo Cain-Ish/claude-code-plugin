@@ -78,6 +78,19 @@ export interface KnowledgeSearchResult {
      *  their threshold to this (`min(threshold, query_terms)`), or a one-word query becomes
      *  unsatisfiable — the same class of bug as gating `score` above its own ceiling. */
     query_terms?: number;
+    /** Distinct DISCRIMINATIVE query terms (what `grounded` can count at most): query terms minus
+     *  grounding stopwords, single letters and corpus-common terms. The per-prompt injection gate
+     *  clamps its need to THIS, not to query_terms — with one real term among filler, a
+     *  query_terms clamp asks for more grounded terms than can exist. */
+    discriminative_terms?: number;
+    /** Present (true) on a stub: description `Auto-created stub…`, an auto-extracted skeleton, or
+     *  a stripped body under 100 chars. Ranking is unchanged (the short-body penalty predates
+     *  this flag); the per-prompt CLI never injects a stub. */
+    stub?: true;
+    /** Present (true) when a projectSlug was given and the page's `project:` facet is set and
+     *  differs from it case-insensitively. Independent of scoping: set with anchors=0 and with
+     *  SB_PROJECT_SCOPE=off too. The per-prompt CLI asks such a page for one more grounded term. */
+    cross_project?: true;
     /** SP-1 project-scope tier (1=active project, 2=monorepo family, 3=graph-neighbour,
      *  4=global/no facet, 5=other project). Present only when scoping is active. */
     tier?: number;
@@ -177,6 +190,11 @@ const COMMON_TERM_DF_SHARE = (() => {
 })();
 const MIN_SUBSTANTIVE_LENGTH = 100;
 const AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
+const STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
+// A lone letter never establishes aboutness: "I'm" tokenizes to "i" + "m", and "m" grounded the
+// "everything-claude-code-ecc" page (author "affaan-m") on an unrelated prompt. Digits stay —
+// "season 8" must ground on "8".
+const SINGLE_LETTER_RE = /^[a-z]$/;
 
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
@@ -246,9 +264,19 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, indexed);
 
+  // Short-body / auto-extracted stubs: penalized in ranking below (unchanged) AND flagged.
+  const shortStub = allDocs.map(({ rawContent, source }, i) => source !== 'local-doc'
+    && (AUTO_EXTRACTED_RE.test(rawContent) || indexed[i].strippedBody.trim().length < MIN_SUBSTANTIVE_LENGTH));
+  const activeSlug = args.projectSlug?.trim().toLowerCase() || '';
+  const discCount = discriminativeTerms(queryTokens, dfMap, N).length;
+
   const scored = allDocs.map(({ doc, rawContent, source, tokens }, i) => {
     const bm25 = scoreBM25(queryTokens, indexed[i], avgDL, N, dfMap);
+    const project = (doc.project ?? '').trim().toLowerCase();
     return {
+      // Flags for the per-prompt injection gate; never read by ranking. Emitted sparsely below.
+      isStub: shortStub[i] || (source === 'wiki' && STUB_DESCRIPTION_RE.test(doc.description ?? '')),
+      isCross: source === 'wiki' && activeSlug !== '' && project !== '' && project !== activeSlug,
       path: doc.path,
       tier: 0,   // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
       score: bm25,
@@ -386,11 +414,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   // Stub penalty: auto-extracted skeletons and very short pages rank below real content
   for (let i = 0; i < scored.length; i++) {
-    if (allDocs[i].source === 'local-doc') continue;
-    const { rawContent } = allDocs[i];
-    if (AUTO_EXTRACTED_RE.test(rawContent) || indexed[i].strippedBody.trim().length < MIN_SUBSTANTIVE_LENGTH) {
-      scored[i].score *= STUB_PENALTY;
-    }
+    if (shortStub[i]) scored[i].score *= STUB_PENALTY;
   }
 
   // Recency boost: recently-updated pages get a linear-decay bonus
@@ -514,13 +538,16 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // anchor may not be the first listed.
   const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);
   const candidates = returned
-    .map(({ related, baseScore, tier, ...rest }) => ({
+    .map(({ related, baseScore, tier, isStub, isCross, ...rest }) => ({
       ...rest,
       score_norm: topFinal > 0 ? Math.round((rest.score / topFinal) * 10000) / 10000 : 0,
       // baseScore surfaces as `relevance`: callers gating on relevance need the frozen
       // pre-boost BM25, not the mode-dependent `score` (see the field doc).
       relevance: Math.round(baseScore * 1000) / 1000,
       query_terms: new Set(queryTokens).size,
+      discriminative_terms: discCount,
+      ...(isStub ? { stub: true as const } : {}),
+      ...(isCross ? { cross_project: true as const } : {}),
       ...(scopeActive ? { tier } : {}),
     }));
 
@@ -548,6 +575,33 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     // for this slug (see the interface doc for what that can mean).
     ...(scopeOn ? { scoped_to: args.projectSlug!, anchors: anchorCount } : {}),
   };
+}
+
+/** Grounded head-field terms the PER-PROMPT injection gate requires (context-serve-cli; the
+ *  recall CLI keeps its own min(threshold, query_terms) clamp, on purpose — the recall harness
+ *  and the FORGET probe depend on it).
+ *
+ *  - Clamped to the DISCRIMINATIVE term count, so a query with one real term among filler stays
+ *    injectable (the raw-token clamp could ask for 2 when only 1 term can ground — the
+ *    unsatisfiable-gate class, 291768b).
+ *  - Floored at 1 while grounding is on: with 0 discriminative terms (an all-filler query) the
+ *    clamp would otherwise reach 0 and pass every page.
+ *  - A cross-project page needs one MORE term, clamped to the same count, so a cross-project
+ *    page that grounds on every discriminative term is still injectable.
+ *  retrieval-guards.test.ts holds the arithmetic locks. minGrounded 0 = grounding off. */
+export function injectionGroundingNeed(minGrounded: number, discriminative: number, crossProject: boolean): number {
+  const base = minGrounded <= 0 ? 0 : Math.max(1, Math.min(minGrounded, discriminative));
+  return crossProject ? Math.max(base, Math.min(base + 1, discriminative)) : base;
+}
+
+export interface InjectGateOpts { minScore: number; minRelevance: number; minGrounded: number }
+
+/** The per-prompt wiki gate: never a stub; score/relevance floors; grounding per
+ *  injectionGroundingNeed. Filters only — order (and so ranking) is the engine's. */
+export function injectableWiki<C extends KnowledgeSearchResult['candidates'][number]>(candidates: C[], o: InjectGateOpts): C[] {
+  return candidates.filter(c => !c.stub
+    && c.score >= o.minScore && c.relevance >= o.minRelevance
+    && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
 }
 
 interface FieldIndex { counts: Map<string, number>; len: number; weight: number }
@@ -622,7 +676,7 @@ function discriminativeTerms(queryTokens: string[], dfMap: Map<string, number>, 
   // but nowhere near the corpus SHARE. df catches project jargon that has gone generic; only a
   // stopword list catches words that were never content-bearing to begin with. Grounding only —
   // BM25 itself is untouched, so these words still contribute to ranking as they always did.
-  const distinct = [...new Set(queryTokens)].filter(t => !GROUNDING_STOPWORDS.has(t));
+  const distinct = [...new Set(queryTokens)].filter(t => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter(t => (dfMap.get(t) ?? 0) <= maxDf);

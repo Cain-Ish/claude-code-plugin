@@ -27,6 +27,10 @@ grep -q 'context-serve-cli' "$REPO_ROOT/mcp/package.json" \
 pass "A: combined CLI wired with two-CLI fallback"
 
 # --- B: runtime — wiki-section parity with knowledge-search-cli --------------
+# Parity holds for a NON-STUB, in-project page only: since R1#4 (2026-10) the
+# per-prompt CLI also refuses stubs (body under 100 chars, `Auto-created stub`
+# description) and asks cross-project pages for one more grounded term, which
+# the recall CLI deliberately does not. Keep this page's body over 100 chars.
 command -v node >/dev/null 2>&1 || { echo "SKIP: node not available"; exit 0; }
 [ -f "$COMBINED" ] || fail "B: dist/tools/context-serve-cli.bundle.js not built (npm run bundle)"
 
@@ -43,7 +47,8 @@ type: concepts
 
 # tunnel alpha page
 
-tunnel content here for matching tunnel tunnel
+tunnel content here for matching tunnel tunnel. This body is long enough to
+clear the short-body stub test, so both CLIs judge it on grounding alone.
 EOF
 printf '{"version":1,"exchanges":[]}\n' > "$BRAIN/episodic-index.json"
 
