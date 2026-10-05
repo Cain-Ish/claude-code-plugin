@@ -2,6 +2,8 @@
 # pins: SB_MAINTAIN_LLM_DRYRUN — the flag itself is the subject of this subtest (dry-run path)
 # pins: SB_MAINTAIN_LLM_FORCE — forces the lane to run regardless of its normal due gate, for a deterministic fixture run
 # pins: SB_MAINTAIN_LLM_TIMEOUT — lowers the timeout so the timeout-guard subtest actually times out within the test's runtime
+# pins: SB_NESTED_SPAWN — never set here: the census reads the `SB_NESTED_SPAWN=1` grep pattern that
+#   asserts both spawn sites export it (lib.sh's sb_is_headless_child reads the variable since R1#2)
 # C: the opt-in headless-LLM maintainer. We test the GATING + the QUARANTINE structure and its
 # run-all-timeout: 300   (9 full quarantine-lane runs by design; measured 153s alone on MSYS — spawn-bound lib.sh, see LC-11)
 # runtime attestation with a mock `claude` that emits canned stream-json. A real headless run is

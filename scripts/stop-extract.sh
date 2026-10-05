@@ -37,6 +37,10 @@ if ! source "$LIB" 2>/dev/null; then
     "$(date -u +%FT%TZ)" "$LIB" >> "$HOME/.second-brain/error-log.jsonl" 2>/dev/null
   exit 0
 fi
+# Foreign headless child (`claude -p` / SDK-cli, nobody attending; R1#2): its transcript is neither
+# archived nor extracted, and no gate row is written. Before the EXIT trap and the stdin read below.
+# SB_HEADLESS_CONTEXT=on opts a run back in.
+sb_is_headless_child && exit 0
 
 # Hook trace tag — set by each gate before exit, written by EXIT trap. Lets
 # the next /second-brain:status surface exactly which gate the script tripped.

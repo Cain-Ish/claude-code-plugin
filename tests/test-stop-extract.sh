@@ -3,6 +3,7 @@
 # pins: SB_COMPACT_CAPTURE — kill-switch test: asserts =off skips PostCompact Pending-Tasks capture (C2-8)
 # pins: SB_SUBAGENT_SCAN_MAX_BYTES — R7 lowers the subagent-scan byte cap to exercise the loud skip + resume path
 # pins: SB_RULES_LAYERS — L2 exercises sb_rules_hard_lines' raw-file branch (layers off), not a gate bypass
+# pins: SB_HEADLESS_CONTEXT — opt-in test (H0): asserts =on restores extraction for a headless child
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
 # run-all-timeout: 900   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
 #   review batch added the C2-9b..C2-14 cases; measured 174s alone on a loaded MSYS box; the S0
@@ -19,6 +20,8 @@
 # it so the test exercises the production "out of session" / "stubbed CLI"
 # path. (Pre-push hook + CI also typically have CLAUDECODE unset.)
 unset CLAUDECODE
+# The headless-child gate (R1#2) keys on these: inherited values must not no-op every case below.
+unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED SB_HEADLESS_CONTEXT
 set -u
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$REPO_ROOT/scripts/stop-extract.sh"
@@ -166,6 +169,41 @@ stop_payload() {
 
 ORIG_PATH="$PATH"
 restore_path() { export PATH="$ORIG_PATH"; }
+
+# --- Test H0 (R1#2): a foreign headless child (`claude -p`: ATTENDED=0 or ENTRYPOINT=sdk-cli) is
+# neither archived nor extracted: no output, no `claude` spawn, and no file under the sandbox HOME
+# changes (content and file list). SB_HEADLESS_CONTEXT=on opts back in (the merge then fires).
+stub_claude_spawn_sentinel() {
+  cat > "$SANDBOX/path-stub/claude" <<EOF
+#!/bin/bash
+echo spawned >> "$SANDBOX/claude-spawned"
+echo '{"recent_decisions":["headless opt-in decision"],"open_blockers":[],"cross_refs":[],"files_touched":["src/foo.ts"]}'
+EOF
+  chmod +x "$SANDBOX/path-stub/claude"
+  export PATH="$SANDBOX/path-stub:$PATH"
+}
+sandbox_state() { find "$SANDBOX" -type f -exec cksum {} + | LC_ALL=C sort; }
+for hl in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
+  init_sandbox "headless-${hl%%=*}"
+  seed_transcript_with_edit
+  stub_claude_spawn_sentinel
+  STATE_BEFORE=$(sandbox_state)
+  OUT=$(stop_payload | env "$hl" "$SCRIPT" 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || fail "H0 ($hl): stop-extract exited $rc for a headless child"
+  [ -z "$OUT" ] || fail "H0 ($hl): stop-extract printed output for a headless child: $OUT"
+  [ ! -e "$SANDBOX/claude-spawned" ] || fail "H0 ($hl): a headless child's Stop spawned the extractor"
+  [ "$(sandbox_state)" = "$STATE_BEFORE" ] || fail "H0 ($hl): a headless child's Stop wrote state:
+$(diff <(printf '%s\n' "$STATE_BEFORE") <(sandbox_state) | head -10)"
+  restore_path
+done
+init_sandbox "headless-opt-in"
+seed_transcript_with_edit
+stub_claude_spawn_sentinel
+stop_payload | env SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0 "$SCRIPT" >/dev/null 2>&1
+grep -q "headless opt-in decision" "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" \
+  || fail "H0: SB_HEADLESS_CONTEXT=on must restore extraction for a headless child"
+pass "H0: a headless child's Stop is not archived/extracted and writes nothing; SB_HEADLESS_CONTEXT=on opts back in"
+restore_path
 
 # --- Test 1: substantive transcript + claude returns valid JSON → merge fires.
 init_sandbox "happy"
