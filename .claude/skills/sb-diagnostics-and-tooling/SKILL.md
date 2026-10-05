@@ -438,9 +438,9 @@ bash .claude/skills/sb-diagnostics-and-tooling/scripts/guard-liveness.sh      # 
 node .claude/skills/sb-diagnostics-and-tooling/scripts/usage-audit.mjs --since 2026-10-05   # injections vs reads, per turn
 ```
 
-**1-week post-release check (0.55.0).** Seven days after release run `usage-audit.mjs --since <release-day>` and, for the baseline, `--since <release−7d> --until <release−1d>` (pre-release, 2026-09-28..10-05: 83 human turns, 77% of injections on machine turns, 1/98 offers fetched, 0.12 KB reads per human turn).
+**1-week post-release check (0.55.0).** Seven days after release run `usage-audit.mjs --since <release-day>` and, for the baseline, `--since <release−7d> --until <release−1d>` (pre-release, `--since 2026-09-28 --until 2026-10-05`: 94 human turns, 77% of injections on machine turns, 1/102 offers fetched, 0.11 KB reads per human turn).
 Pass: machine-turn injections ≈ 0 with `gate=machine-turn` rows present, headless persona injections 0 with `gate=headless-child` rows present, boilerplate past-session snippets falling (after the episodic reindex).
-Read the `turnOrigin cross-check` line before trusting "human": origin `scheduled` there is a cron prompt the prefix rule passes as human, and `tag` with origin `human` is a typed slash command.
+Read the `turnOrigin cross-check` line before trusting "human": origin `scheduled` there is a cron prompt the prefix rule passes as human (only an exact repeat is skipped). Slash commands are judged as the hook sees them, `/name args` rebuilt from the transcript's expanded tags (probed, CLI 2.1.289), so they count as human; `<local-command-…>` records are not turns.
 
 Note `scripts/verify.sh` (§3) is NOT side-effect-free (stamps `.last-verify`);
 the snapshot deliberately does not run it.

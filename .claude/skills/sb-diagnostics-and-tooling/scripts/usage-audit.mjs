@@ -52,9 +52,11 @@ Definitions
   turn       a turn-opening user record plus the attachments and assistant records after it, up
              to the next opener. Openers: when the file carries turnOrigin (CLI >= 2.1.278), only
              records with turnOrigin; before that, every non-tool-result non-meta user record
-             (except a bare "[Request interrupted by user]") plus meta records with the peer prefix.
+             (except a bare "[Request interrupted by user]" and a <command-name>-led local builtin)
+             plus meta records with the peer prefix. <local-command-…> records are never turns.
   human      a turn the hook's rule lets through: no machine-turn prefix and not an exact repeat
-             of the session's previous human prompt (after the ack triage, like the hook).
+             of the session's previous human prompt (after the ack triage, like the hook). A slash
+             command is judged as the hook saw it: "/name args", rebuilt from the expanded tags.
   machine    kind = the block's kind, or "repeat". Cross-checked against turnOrigin, reported.
   injection  a hook_additional_context attachment containing "${PERSONA_MARK}".
   offered    distinct [[slug]] in an injection outside its [Past sessions] section.
@@ -187,6 +189,28 @@ export function isBoilerplateSnippet(snippet, rule) {
   return false;
 }
 
+/** A slash command reaches the hook RAW ("/name args"; probed on CLI 2.1.289), but the transcript
+ *  stores it expanded: <command-message>, <command-name>, <command-args> tags and nothing else.
+ *  Returns the prompt the hook saw, or null when the text is not purely that expanded form (a
+ *  hand-typed "<command-message>… more text" stays a tag). A hand-typed prompt that reproduces the
+ *  expanded form exactly cannot be told apart and is treated as the command. */
+export function expandedCommandPrompt(text) {
+  let rest = hookView(text).trimEnd();
+  if (!/^<command-(?:message|name)>/.test(rest)) return null;
+  const parts = {};
+  const tag = /^<(command-message|command-name|command-args)>([\s\S]*?)<\/\1>\s*/;
+  while (rest) {
+    const m = tag.exec(rest);
+    if (!m || m[1] in parts) return null;
+    parts[m[1]] = m[2];
+    rest = rest.slice(m[0].length);
+  }
+  const name = (parts['command-name'] || '').trim().replace(/^\/+/, '');
+  if (!name) return null;
+  const args = (parts['command-args'] || '').trim();
+  return args ? `/${name} ${args}` : `/${name}`;
+}
+
 function contentText(c) {
   if (typeof c === 'string') return c;
   if (Array.isArray(c)) return c.map(x => (typeof x === 'string' ? x : (x && x.type === 'text' && typeof x.text === 'string') ? x.text : '')).filter(Boolean).join('\n');
@@ -252,14 +276,21 @@ async function scanMainFile(fp, rule, seenUuids) {
     if (r.type === 'user' && r.message) {
       if (typeof r.turnOrigin === 'string') hasOrigin = true;
       const text = contentText(r.message.content);
+      const view = hookView(text);
+      // Local-command output/caveat (/reload-plugins, /compact, …) never reaches the model as a prompt.
+      if (view.startsWith('<local-command-')) continue;
+      const command = expandedCommandPrompt(text);
       let opens;
       if (hasOrigin) opens = typeof r.turnOrigin === 'string';
-      else if (r.isMeta) opens = hookView(text).startsWith(rule.peerPrefix);
-      else opens = !/^\[Request interrupted by user[^\n]*$/.test(hookView(text).trim());
+      // Legacy: a <command-name>-led record is a local builtin (no UserPromptSubmit in 70 of 72 probed).
+      else if (command !== null) opens = view.startsWith('<command-message>');
+      else if (r.isMeta) opens = view.startsWith(rule.peerPrefix);
+      else opens = !/^\[Request interrupted by user[^\n]*$/.test(view.trim());
       if (!opens) continue;
-      let kind = classifyMachine(text, rule);
+      const prompt = command !== null ? command : text;
+      let kind = classifyMachine(prompt, rule);
       if (!kind) {
-        const p = text.replace(/\r/g, '');
+        const p = prompt.replace(/\r/g, '');
         if (p.startsWith('/?') || !passesTriage(p, rule.triage)) { if (p) lastHuman = p; }
         else if (lastHuman !== null && p === lastHuman) kind = 'repeat';
         else if (p) lastHuman = p;
@@ -571,6 +602,7 @@ function buildFixture(dir) {
   const t = (d, hms) => `2026-${d}T${hms}Z`;
   const A = ['sess-a', 'cli']; const H = { turnOrigin: 'human' };
   const REPEAT = 'please explain how the search ranking works here';
+  const SKILL_ARGS = '<command-message>sb-probe</command-message>\n<command-name>/sb-probe</command-name>\n<command-args>hello world nonce7733</command-args>';
   write('projects/C--proj-alpha/sess-a.jsonl', [
     cancelled(...A, t('09-01', '09:59:00'), timer('session-load.sh')),
     user(...A, t('09-01', '10:00:00'), 'set up the fixture baseline before the window', H),
@@ -595,7 +627,11 @@ function buildFixture(dir) {
     user(...A, t('10-02', '10:05:00'), 'ok', H), // T6 ack again: human, never a repeat
     user(...A, t('10-02', '10:06:00'), 'Supervision check-in: check the agents now', { isMeta: true, turnOrigin: 'scheduled' }), // T7
     ctx(...A, t('10-02', '10:06:01'), persona(['beta-one'], ['Base directory for this skill: C:/x/skills/foo'])),
-    user(...A, t('10-02', '10:07:00'), '<command-message>foo</command-message>\n<command-name>/foo</command-name>', H), // T8 tag
+    // Slash commands: the transcript stores the expanded form, the hook got the raw `/name args`.
+    user(...A, t('10-02', '10:07:00'), '<command-message>foo</command-message>\n<command-name>/foo</command-name>', H), // T8 human (/foo)
+    user(...A, t('10-02', '10:07:10'), SKILL_ARGS, H), // T8a human (/sb-probe hello world nonce7733)
+    user(...A, t('10-02', '10:07:20'), SKILL_ARGS, H), // T8b exact repeat of the reconstructed prompt
+    user(...A, t('10-02', '10:07:30'), '<command-message>why</command-message> does this tag break my parser', H), // T8c hand-typed tag: machine
     user(...A, t('10-02', '10:08:00'), 'what does the fetch window boundary look like', H), // T9
     ctx(...A, t('10-02', '10:08:01'), persona(['gamma'])),
     tools(...A, t('10-02', '10:08:02'), [['knowledge_neighbors', { slug: 'gamma' }]]),
@@ -616,6 +652,11 @@ function buildFixture(dir) {
     user(...B, t('10-03', '10:03:02'), '[Request interrupted by user]'),
     user(...B, t('10-03', '10:04:00'), '<bash-input>ls</bash-input>'),
     { ...user(...B, t('10-03', '10:05:00'), 'a sidechain prompt that is not a main turn'), isSidechain: true },
+    // A local builtin (/reload-plugins) never reaches the model: caveat, command-name-led record, stdout.
+    user(...B, t('10-03', '10:06:00'), '<local-command-caveat>Caveat: The messages below were generated by the user while running local commands.</local-command-caveat>', { isMeta: true }),
+    user(...B, t('10-03', '10:06:01'), '<command-name>/reload-plugins</command-name>\n<command-message>reload-plugins</command-message>\n<command-args></command-args>'),
+    user(...B, t('10-03', '10:06:02'), '<local-command-stdout>Reloaded 3 plugins</local-command-stdout>'),
+    user(...B, t('10-03', '10:07:00'), '<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>the parser change please</command-args>'), // legacy skill command: human
   ]);
   const C = ['sess-c', 'sdk-cli'];
   write('projects/C--proj-beta/sess-c.jsonl', [
@@ -690,6 +731,13 @@ async function selfTest() {
   eq('triage: action verb', passesTriage('fix it', rule.triage), true);
   eq('triage: 3 words', passesTriage('how is it', rule.triage), false);
   eq('triage: 4 words', passesTriage('how is it going', rule.triage), true);
+  eq('command form: skill with args', expandedCommandPrompt('<command-message>sb-probe</command-message>\n<command-name>/sb-probe</command-name>\n<command-args> hello world nonce7733 </command-args>'), '/sb-probe hello world nonce7733');
+  eq('command form: no args', expandedCommandPrompt('<command-message>foo</command-message>\n<command-name>/foo</command-name>'), '/foo');
+  eq('command form: empty args, name-led', expandedCommandPrompt('<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>'), '/clear');
+  eq('command form: text outside the tags is not the expanded form', expandedCommandPrompt('<command-message>why</command-message> does this tag break my parser'), null);
+  eq('command form: no command-name', expandedCommandPrompt('<command-message>x</command-message>'), null);
+  eq('command form: text after a full command block', expandedCommandPrompt('<command-message>x</command-message><command-name>/x</command-name> and also look at the parser'), null);
+  eq('command form: duplicated tag', expandedCommandPrompt('<command-name>/x</command-name><command-name>/y</command-name>'), null);
   eq('archive extras guarded', { guarded: rule.extras.guarded, missing: rule.extras.missing }, { guarded: true, missing: [] });
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-audit-'));
@@ -699,16 +747,16 @@ async function selfTest() {
     const res = await runAudit(base);
     const o = res.interactive.overall;
     eq('sessions', o.sessions, 3);
-    eq('human turns', o.humanTurns, 7);
-    eq('machine turns', o.machineTurns, { total: 11, byKind: { notification: 4, peer: 2, repeat: 1, tag: 2, 'stop-feedback': 1, continuation: 1 } });
+    eq('human turns', o.humanTurns, 10);
+    eq('machine turns', o.machineTurns, { total: 12, byKind: { notification: 4, peer: 2, repeat: 2, tag: 2, 'stop-feedback': 1, continuation: 1 } });
     eq('injections', [o.injections.onHumanTurns, o.injections.onMachineTurns, o.injections.humanTurnsInjected, o.injections.machineTurnsInjected], [5, 2, 5, 2]);
-    eq('slugs offered', o.wikiSlugsOffered, { onHumanTurns: 8, perHumanTurn: 1.143 });
+    eq('slugs offered', o.wikiSlugsOffered, { onHumanTurns: 8, perHumanTurn: 0.8 });
     eq('offered->fetched', o.offeredFetched, { lookaheadTurns: 2, offers: 8, fetched: 4, rate: 0.5 });
-    eq('kb reads', o.kbReads, { onHumanTurns: 6, perHumanTurn: 0.857, onMachineTurns: 3, byToolOnHumanTurns: { knowledge_fetch: 3, knowledge_search: 1, knowledge_neighbors: 1, episodic_read: 1 } });
+    eq('kb reads', o.kbReads, { onHumanTurns: 6, perHumanTurn: 0.6, onMachineTurns: 3, byToolOnHumanTurns: { knowledge_fetch: 3, knowledge_search: 1, knowledge_neighbors: 1, episodic_read: 1 } });
     eq('past sessions', o.pastSessions, { snippets: 6, machineBoilerplate: 4, onHumanTurns: { snippets: 5, machineBoilerplate: 3 } });
     eq('hook_cancelled interactive', o.hookCancelled, { 'session-load.sh': 1, 'persona-context.sh': 2, 'PostToolUse:Read': 1 });
-    eq('origin cross-check', [o.originCrossCheck.ruleHumanOriginOther, o.originCrossCheck.ruleMachineOriginHuman], [{ scheduled: 1 }, { repeat: 1, tag: 1 }]);
-    eq('by project', Object.fromEntries(Object.entries(res.interactive.byProject).map(([k, v]) => [k, [v.sessions, v.humanTurns, v.machineTurns.total]])), { 'C--proj-alpha': [2, 6, 11], 'C--proj-beta': [1, 1, 0] });
+    eq('origin cross-check', [o.originCrossCheck.ruleHumanOriginOther, o.originCrossCheck.ruleMachineOriginHuman], [{ scheduled: 1 }, { repeat: 2, tag: 1 }]);
+    eq('by project', Object.fromEntries(Object.entries(res.interactive.byProject).map(([k, v]) => [k, [v.sessions, v.humanTurns, v.machineTurns.total]])), { 'C--proj-alpha': [2, 9, 12], 'C--proj-beta': [1, 1, 0] });
     eq('headless', [res.headless.sessions, res.headless.humanTurns, res.headless.injections, res.headless.kbReads, res.headless.hookCancelled], [1, 1, 1, 1, { 'session-load.sh': 1 }]);
     eq('subagents', [res.subagents.files, res.subagents.kbReads, res.subagents.injections, res.subagents.hookCancelled], [1, 2, 0, { 'guard.sh': 1 }]);
     eq('audit machine-turn', res.audit.machineTurn, { total: 3, byKind: { notification: 1, peer: 1, repeat: 1 }, forScannedSessions: 3 });
@@ -718,7 +766,7 @@ async function selfTest() {
     const beta = await runAudit({ ...base, project: 'BETA' });
     eq('project filter', [beta.interactive.overall.sessions, beta.interactive.overall.humanTurns, beta.headless.sessions, beta.subagents.files, beta.audit.machineTurn.forScannedSessions], [1, 1, 1, 0, 0]);
     const text = renderText(res);
-    checks++; if (!/^ALL\s+3\s+7\s+11\s+5\/2\s/m.test(text)) fails.push(`text table ALL row malformed:\n${text}`);
+    checks++; if (!/^ALL\s+3\s+10\s+12\s+5\/2\s/m.test(text)) fails.push(`text table ALL row malformed:\n${text}`);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
