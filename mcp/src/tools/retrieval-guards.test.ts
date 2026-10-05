@@ -293,6 +293,17 @@ describe('per-prompt injection gate satisfiability (context-serve-cli)', () => {
     expect(injectionGroundingNeed(minG, 0, true)).toBeGreaterThanOrEqual(1);
   });
 
+  it('arithmetic: grounding off (SB_INJECT_MIN_GROUNDED=0) asks nothing of cross-project pages either', () => {
+    // R1 review: the cross-project "+1" ran after the off check, so with grounding off a
+    // cross-project page still needed a grounded term.
+    for (const minG of [0, -1]) {
+      for (let disc = 0; disc <= 6; disc++) {
+        expect(injectionGroundingNeed(minG, disc, false), `in-project, min=${minG} disc=${disc}`).toBe(0);
+        expect(injectionGroundingNeed(minG, disc, true), `cross-project, min=${minG} disc=${disc}`).toBe(0);
+      }
+    }
+  });
+
   it('a 1-discriminative-term query injects an in-project page at shipped defaults', async () => {
     const dir = await seedPages([
       ...filler(9),

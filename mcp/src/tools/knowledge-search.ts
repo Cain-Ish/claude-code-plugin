@@ -602,9 +602,11 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
  *    clamp would otherwise reach 0 and pass every page.
  *  - A cross-project page needs one MORE term, clamped to the same count, so a cross-project
  *    page that grounds on every discriminative term is still injectable.
- *  retrieval-guards.test.ts holds the arithmetic locks. minGrounded 0 = grounding off. */
+ *  retrieval-guards.test.ts holds the arithmetic locks. minGrounded <= 0 = grounding off, for
+ *  every page: it returns before the cross-project term is added. */
 export function injectionGroundingNeed(minGrounded: number, discriminative: number, crossProject: boolean): number {
-  const base = minGrounded <= 0 ? 0 : Math.max(1, Math.min(minGrounded, discriminative));
+  if (minGrounded <= 0) return 0;
+  const base = Math.max(1, Math.min(minGrounded, discriminative));
   return crossProject ? Math.max(base, Math.min(base + 1, discriminative)) : base;
 }
 
