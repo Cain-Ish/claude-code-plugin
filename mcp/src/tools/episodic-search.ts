@@ -86,10 +86,86 @@ interface IndexedExchange {
   embedding: number[];
 }
 
+/** Per-file index state. A bare string is the pre-version format (parser 1): re-parsed. */
+type IndexedFileEntry = string | { hash: string; parser: number };
+
 interface EpisodicIndex {
   model: string;
-  indexed_files: Record<string, string>;
+  indexed_files: Record<string, IndexedFileEntry>;
   exchanges: IndexedExchange[];
+}
+
+/** Bumped whenever parseExchanges changes what it stores for the same archive. Every file
+ *  indexed by an older (or unversioned) parser is re-parsed once on the next build. Row ids
+ *  derive from archivePath + line range, so a re-parse keeps ids as long as exchange
+ *  boundaries do not move — the hygiene tests pin them.
+ *  2 = machine-turn user text cleaned (R1#3, 2026-10). */
+export const EPISODIC_PARSER_VERSION = 2;
+
+function isCurrentEntry(entry: IndexedFileEntry | undefined, hash: string): boolean {
+  return typeof entry === 'object' && entry !== null
+    && entry.hash === hash && entry.parser >= EPISODIC_PARSER_VERSION;
+}
+
+// --- Machine-turn text (shared contract with scripts/persona-context.sh) --------------------
+// The hook skips retrieval on these prompts (`# machine-turn:begin/end` block); the archive side
+// cleans them out of the episodic user text. episodic-hygiene.test.ts locks the parity: every
+// quoted prefix in the hook block must satisfy isMachineTurnText.
+const PEER_PREFIX = 'Another Claude session sent a message:';
+const MACHINE_TURN_PREFIXES = [
+  '<task-notification>',
+  PEER_PREFIX,
+  'Stop hook feedback:',
+  'This session is being continued from a previous conversation',
+  // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
+  'Base directory for this skill:',
+  'Caveat: The messages below were generated',
+  '[Image: source:',
+  '[Image: original',
+  '[Request interrupted by user',
+];
+// Any leading hyphenated lowercase tag: <agent-message, <system-reminder>, <command-name>,
+// <local-command-…>, <cross-session-message. Human pastes use <pasted_content (underscore).
+const HYPHEN_TAG_RE = /^<[a-z]+-/;
+
+function stripLead(text: string): string {
+  return text.replace(/^[\s﻿]+/, '');
+}
+
+export function isMachineTurnText(text: string): boolean {
+  const t = stripLead(text);
+  return HYPHEN_TAG_RE.test(t) || MACHINE_TURN_PREFIXES.some(p => t.startsWith(p));
+}
+
+/** Peer message (subagent hand-back or cross-session): drop the header, the wrapper tag pair,
+ *  the leading frame lines and anything after the closing tag; keep the report body. */
+function peerReportBody(rest: string): string {
+  const lines = rest.split('\n');
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  const open = lines[i]?.trim().match(/^<([a-z]+(?:-[a-z]+)+)\b[^>]*>(.*)$/);
+  let body: string[];
+  if (open) {
+    const close = `</${open[1]}>`;
+    body = [open[2], ...lines.slice(i + 1)];
+    const end = body.findIndex(l => l.trim().startsWith(close));
+    if (end >= 0) body = body.slice(0, end);
+  } else {
+    body = lines.slice(i);
+  }
+  let j = 0;
+  while (j < body.length && (!body[j].trim() || /^\s*\[(Subagent hand-back\]|harness:)/.test(body[j]))) j++;
+  return body.slice(j).join('\n').trim();
+}
+
+/** The user side of an exchange as the episodic index stores it. Human text is returned
+ *  unchanged; machine boilerplate becomes ''; a peer message keeps only its report body,
+ *  which is real content. The assistant side is never passed through here. */
+export function cleanUserText(text: string): string {
+  if (!isMachineTurnText(text)) return text;
+  const t = stripLead(text);
+  if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
+  return '';
 }
 
 function simpleHash(s: string): string {
@@ -132,14 +208,15 @@ function parseExchanges(lines: string[], bodyStart: number, meta: SessionMeta, a
     if (userMsg.trim() || assistantMsg.trim()) {
       const user = userMsg.trim();
       const assistant = assistantMsg.trim();
-      // Skip trivial exchanges (tool-only assistant responses with no user text)
+      // Skip trivial exchanges (tool-only assistant responses with no user text). Judged on the
+      // RAW text, before cleaning, so parser 2 keeps exactly the rows (and ids) parser 1 kept.
       if (user.length > 10 || assistant.length > 20) {
         exchanges.push({
           id: simpleHash(`${archivePath}:${exchangeStart}-${endLine}`),
           sessionId: meta.sessionId,
           project: meta.project,
           date: meta.date,
-          userMessage: user,
+          userMessage: cleanUserText(user),
           assistantMessage: assistant,
           archivePath,
           lineStart: exchangeStart + 1, // 1-indexed for Read tool
@@ -205,7 +282,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
 
   const index = await loadIndex(brainDir);
   const newExchanges: Exchange[] = [];
-  const fileHashes: Record<string, string> = {};
+  const reparsed: Record<string, string> = {};
 
   for (const filePath of files) {
     // Sanitize untrusted transcript text before indexing it (P6b — invisible/Tags-block
@@ -213,9 +290,11 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     const content = stripInvisible(await fs.readFile(filePath, 'utf-8'));
     const hash = simpleHash(content);
     const fname = basename(filePath);
-    fileHashes[fname] = hash;
 
-    if (index.indexed_files[fname] === hash) continue;
+    // Unchanged AND parsed by the current parser: skip. A changed file, a bare-string entry
+    // (pre-version writer) or an older parser version is re-parsed from scratch.
+    if (isCurrentEntry(index.indexed_files[fname], hash)) continue;
+    reparsed[fname] = hash;
 
     index.exchanges = index.exchanges.filter(e => basename(e.archivePath) !== fname);
     const lines = content.split('\n');
@@ -246,6 +325,10 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
 
   // Repair pass: every exchange with an empty embedding gets re-embedded on every run.
   // This is the core fix — the production bug was that empty rows persisted forever.
+  // A re-parsed row's text goes through the embedding cache, keyed `episodic:<id>` AND checked
+  // against a hash of the exact text: an unchanged row is served from the cache (no model call),
+  // a row whose text changed (e.g. cleaned by a parser bump) misses and re-embeds once.
+  // episodic-reembed.test.ts locks both halves.
   const needsEmbed = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0);
   let repaired = 0;
   if (needsEmbed.length > 0) {
@@ -263,9 +346,11 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   }
 
   // Always mark files as structurally indexed. They are text-searchable; vector
-  // search will work for rows whose embeddings got filled in.
-  for (const [fname, hash] of Object.entries(fileHashes)) {
-    index.indexed_files[fname] = hash;
+  // search will work for rows whose embeddings got filled in. The parser version is recorded
+  // per file, in the SAME atomic index write as the re-parsed rows, so a crash can never leave
+  // a file marked current while it still holds rows from the older parser.
+  for (const [fname, hash] of Object.entries(reparsed)) {
+    index.indexed_files[fname] = { hash, parser: EPISODIC_PARSER_VERSION };
   }
   for (const fname of Object.keys(index.indexed_files)) {
     if (!validFiles.has(fname)) delete index.indexed_files[fname];

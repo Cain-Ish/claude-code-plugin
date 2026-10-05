@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { buildEpisodicIndex, episodicSearch } from './episodic-search.js';
+import { buildEpisodicIndex, episodicSearch, EPISODIC_PARSER_VERSION } from './episodic-search.js';
 
 function writeTranscript(brainDir: string, filename: string, sessionId: string, project: string, date: string, body: string) {
   const path = join(brainDir, 'transcripts', filename);
@@ -135,7 +135,9 @@ describe.skipIf(EMBEDDINGS_OFFLINE)('buildEpisodicIndex — happy path (real mod
 
     const seed = {
       model: 'Xenova/all-MiniLM-L6-v2',
-      indexed_files: { 'sess1_proj_2026-05-22.txt': fileHash },
+      // Current-parser entry: the file must be SKIPPED by the re-parse so the repair pass is
+      // what fills the stale row (a bare-string entry would be re-parsed as a pre-version file).
+      indexed_files: { 'sess1_proj_2026-05-22.txt': { hash: fileHash, parser: EPISODIC_PARSER_VERSION } },
       exchanges: [
         {
           id: 'stale-row',
