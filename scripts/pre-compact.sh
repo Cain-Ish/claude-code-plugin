@@ -24,6 +24,10 @@
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
+# Foreign headless child (`claude -p` / SDK-cli, nobody attending; R1 review): its window is neither
+# archived nor extracted, and its Pending Tasks are not captured (both modes). One gate=headless-child
+# audit row. Inline copy of lib.sh sb_is_headless_child (locked by tests/test-persona-context.sh).
+[ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; } && { source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" && sb_headless_trace pre-compact; exit 0; }  # sb-headless-inline
 
 LIB="$(dirname "$0")/lib.sh"
 if ! source "$LIB" 2>/dev/null; then

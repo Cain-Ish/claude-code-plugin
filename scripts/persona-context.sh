@@ -23,10 +23,11 @@
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
-# Foreign headless child (`claude -p` / SDK-cli, nobody attending; R1#2): no memory, no state writes.
-# Inline copy of lib.sh sb_is_headless_child, because this hook sources lib.sh late and only on the
-# retrieval path. The condition is locked byte-identical to lib.sh by tests/test-persona-context.sh.
-[ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; } && exit 0  # sb-headless-inline
+# Foreign headless child (`claude -p` / SDK-cli, nobody attending; R1#2): no memory and no state but
+# one gate=headless-child audit row. Inline copy of lib.sh sb_is_headless_child, because this hook
+# sources lib.sh late and only on the retrieval path; lib.sh is sourced on the skip branch alone, for
+# sb_headless_trace. Locked byte-identical to lib.sh by tests/test-persona-context.sh.
+[ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; } && { source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" && sb_headless_trace persona-context; exit 0; }  # sb-headless-inline
 
 # Kill switch
 [ "${SB_PERSONA_GATE:-on}" = "off" ] && exit 0

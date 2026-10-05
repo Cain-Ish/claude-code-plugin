@@ -4,6 +4,8 @@
 # pins: SB_SUBAGENT_SCAN_MAX_BYTES — R7 lowers the subagent-scan byte cap to exercise the loud skip + resume path
 # pins: SB_RULES_LAYERS — L2 exercises sb_rules_hard_lines' raw-file branch (layers off), not a gate bypass
 # pins: SB_HEADLESS_CONTEXT — opt-in test (H0): asserts =on restores extraction for a headless child
+# pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
+#   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
 # run-all-timeout: 900   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
 #   review batch added the C2-9b..C2-14 cases; measured 174s alone on a loaded MSYS box; the S0
@@ -185,8 +187,15 @@ EOF
   chmod +x "$SANDBOX/path-stub/claude"
   export PATH="$SANDBOX/path-stub:$PATH"
 }
-sandbox_state() { find "$SANDBOX" -type f -exec cksum {} + | LC_ALL=C sort; }
+# The one write a skip makes is its own audit row (gate=headless-child hook=<hook>), checked apart.
+sandbox_state() { find "$SANDBOX" -type f ! -name audit-log.jsonl -exec cksum {} + | LC_ALL=C sort; }
+# hl_row_count HOOK WANT: matching gate=headless-child rows in the sandbox audit log.
+hl_row_count() {
+  jq -c --arg h "$1.sh" --arg w "gate=headless-child hook=$1 $2" 'select(.script == $h and .exit_code == 0 and .message == $w)' \
+    "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null | tr -d '\r' | grep -c .
+}
 for hl in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
+  case "$hl" in *ATTENDED*) want="entrypoint= attended=0" ;; *) want="entrypoint=sdk-cli attended=" ;; esac
   init_sandbox "headless-${hl%%=*}"
   seed_transcript_with_edit
   stub_claude_spawn_sentinel
@@ -197,15 +206,36 @@ for hl in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
   [ ! -e "$SANDBOX/claude-spawned" ] || fail "H0 ($hl): a headless child's Stop spawned the extractor"
   [ "$(sandbox_state)" = "$STATE_BEFORE" ] || fail "H0 ($hl): a headless child's Stop wrote state:
 $(diff <(printf '%s\n' "$STATE_BEFORE") <(sandbox_state) | head -10)"
+  [ "$(hl_row_count stop-extract "$want")" = 1 ] || fail "H0 ($hl): want exactly one 'gate=headless-child hook=stop-extract $want' audit row"
+  # PreCompact archives + extracts the window too (both modes): a headless child gets neither.
+  seed_transcript_long_with_edit
+  STATE_BEFORE=$(sandbox_state)
+  OUT=$(stop_payload | env "$hl" bash "$REPO_ROOT/scripts/pre-compact.sh" 2>&1); rc=$?
+  OUT2=$(stop_payload | env "$hl" bash "$REPO_ROOT/scripts/pre-compact.sh" post 2>&1); rc2=$?
+  [ "$rc" -eq 0 ] && [ "$rc2" -eq 0 ] || fail "H0 ($hl): pre-compact exited $rc / $rc2 (post) for a headless child"
+  [ -z "$OUT$OUT2" ] || fail "H0 ($hl): pre-compact printed output for a headless child: $OUT$OUT2"
+  [ ! -e "$SANDBOX/claude-spawned" ] || fail "H0 ($hl): a headless child's PreCompact spawned the extractor"
+  [ "$(sandbox_state)" = "$STATE_BEFORE" ] || fail "H0 ($hl): a headless child's PreCompact archived or wrote state:
+$(diff <(printf '%s\n' "$STATE_BEFORE") <(sandbox_state) | head -10)"
+  [ "$(hl_row_count pre-compact "$want")" = 2 ] || fail "H0 ($hl): want one 'gate=headless-child hook=pre-compact $want' row per PreCompact call (2)"
   restore_path
 done
+# Control for the PreCompact half: the same long window, opted back in, IS archived (so the
+# unchanged-state assertion above is not vacuous).
+init_sandbox "headless-precompact-opt-in"
+seed_transcript_long_with_edit
+stub_claude_spawn_sentinel
+STATE_BEFORE=$(sandbox_state)
+stop_payload | env SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0 bash "$REPO_ROOT/scripts/pre-compact.sh" >/dev/null 2>&1
+[ "$(sandbox_state)" != "$STATE_BEFORE" ] || fail "H0 control: an opted-in PreCompact over a 20-line window wrote nothing — the headless no-write check proves nothing"
+restore_path
 init_sandbox "headless-opt-in"
 seed_transcript_with_edit
 stub_claude_spawn_sentinel
 stop_payload | env SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0 "$SCRIPT" >/dev/null 2>&1
 grep -q "headless opt-in decision" "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" \
   || fail "H0: SB_HEADLESS_CONTEXT=on must restore extraction for a headless child"
-pass "H0: a headless child's Stop is not archived/extracted and writes nothing; SB_HEADLESS_CONTEXT=on opts back in"
+pass "H0: a headless child's Stop and PreCompact are not archived/extracted and write only their gate=headless-child row; SB_HEADLESS_CONTEXT=on opts back in"
 restore_path
 
 # --- Test 1: substantive transcript + claude returns valid JSON → merge fires.

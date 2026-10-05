@@ -3712,11 +3712,35 @@ sb_rules_hard_lines() {
 # prompt and 79 given SessionStart memory nobody asked for. Exact `sdk-cli`, never `sdk-*`: SDK hosts
 # can be interactive. SB_NESTED_SPAWN=1 marks the plugin's OWN spawns, not foreign ones (every gated
 # hook already no-ops on it first). SB_HEADLESS_CONTEXT=on opts a run back in (the S1 eval's plugin
-# arms set it). Gates persona-context.sh, session-load.sh, stop-extract.sh and discover-installed.sh;
+# arms set it). Gates the seven hooks that serve memory or capture a session: persona-context.sh,
+# session-load.sh, stop-extract.sh, discover-installed.sh, pre-compact.sh (its archive + extraction),
+# subagent-capture.sh (a foreign child's subagent results) and dream-autostage.sh (its banner).
 # NEVER a PreToolUse guard (guards fail safe and must run for every host, attended or not).
+# Every gate exits through sb_headless_trace, so a skipped child leaves one audit row.
 # Hooks that act before sourcing lib.sh carry an inline copy of the one-line body below, tagged
 # with the sb-headless-inline marker; tests/test-persona-context.sh asserts each copy is
-# byte-identical to it (single source by lock). Keep the body on ONE line.
+# byte-identical to it and names its own hook (single source by lock). Keep the body on ONE line.
 sb_is_headless_child() {
   [ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; }
+}
+
+# sb_headless_trace HOOK: the one audit row a headless-gated hook writes as it exits,
+#   gate=headless-child hook=<HOOK> entrypoint=<CLAUDE_CODE_ENTRYPOINT> attended=<..._ATTENDED>
+# at exit_code 0, i.e. a TRACE on the audit channel (sb_log_error's gate-row routing), so "why did
+# this child get no memory" is answerable from the log. One builtin printf append, the pattern of
+# persona-context.sh's machine-turn trace: fork-free on bash >= 4.2 (printf %()T), one `date` below
+# that; the next sb_log_error caller rotates the file. The two env values come from the host, so
+# they are cut to [A-Za-z0-9._-] and capped BEFORE they enter the row (no JSON escaping needed, no
+# injected fields). No brain dir means the plugin is not set up: no row, and nothing is created.
+sb_headless_trace() {
+  local ts bd="${BRAIN_DIR:-$HOME/.second-brain}" h="${1:-unknown}" ep="${CLAUDE_CODE_ENTRYPOINT:-}" at="${CLAUDE_CODE_SESSION_ATTENDED:-}"
+  [ -d "$bd" ] || return 0
+  h="${h//[!A-Za-z0-9._-]/}"; ep="${ep//[!A-Za-z0-9._-]/}"; at="${at//[!A-Za-z0-9._-]/}"
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    TZ=UTC0 printf -v ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  else
+    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  fi
+  printf '{"timestamp":"%s","script":"%s.sh","message":"gate=headless-child hook=%s entrypoint=%s attended=%s","exit_code":0}\n' \
+    "$ts" "${h:0:40}" "${h:0:40}" "${ep:0:32}" "${at:0:8}" >> "$bd/audit-log.jsonl" 2>/dev/null || true
 }

@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_SUITE_REAL_HOME_PATH — the G3 suite guard is the subject: set to a fake home to prove it trips (and is inert unset)
 # lib.sh MSYS-normalizes an inherited BRAIN_DIR so GNU tar/rsync/ln (which mis-handle a leading Windows
 # drive letter — the dream_accept bug class, 0.33.10) always see a /c/... path. cygpath exists only on
 # git-bash/Cygwin; on POSIX the normalize is a no-op, so an already-MSYS/POSIX path MUST pass through

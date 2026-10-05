@@ -6,6 +6,8 @@
 # pins: SB_MACHINE_TURN_SKIP — kill-switch test (MT5): asserts =off sends a machine-shaped prompt
 #   back to retrieval
 # pins: SB_HEADLESS_CONTEXT — opt-in test (HL3): asserts =on restores memory for a headless child
+# pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
+#   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # Tests for scripts/persona-context.sh — UserPromptSubmit hook (Layer 1 + /? route).
 # Replaces scripts/intent-gate.sh in v2.3.0.
 #
@@ -610,19 +612,29 @@ STUBJS
   pass "FB1: the knowledge-search-cli fallback runs with SB_INJECT_GATE=1"
 
   # HL1-HL4: foreign headless children (`claude -p`: ATTENDED=0, ENTRYPOINT=sdk-cli) get nothing and
-  # write nothing; SB_HEADLESS_CONTEXT=on opts back in; interactive IDE hosts are not headless.
-  # mt_assert_headless <label> <sid> [VAR=value ...]
+  # write nothing but ONE audit row (gate=headless-child, so the skip is visible in the log);
+  # SB_HEADLESS_CONTEXT=on opts back in; interactive IDE hosts are not headless.
+  # mt_assert_headless <label> <sid> <want-row-suffix> [VAR=value ...]
   mt_assert_headless() {
-    local label="$1" sid="$2" out; shift 2
+    local label="$1" sid="$2" want="$3" out before after; shift 3
     rm -f "$MT_SENT"
+    before=$(grep -c 'gate=headless-child' "$MT_BRAIN/audit-log.jsonl" 2>/dev/null | tr -d ' \r'); before=${before:-0}
     out=$(mt_run "$sid" "explain how the retry backoff works in this repo" ${1+"$@"})
     [ -z "$out" ] || fail "$label: a headless child must get no output (got: $out)"
     [ ! -f "$MT_SENT" ] || fail "$label: a headless child reached retrieval"
     [ ! -e "$MT_BRAIN/.injected/$sid.json" ] || fail "$label: a headless child wrote a session memo"
     [ ! -e "$MT_BRAIN/.buddy/$sid.busy" ] || fail "$label: a headless child stamped a busy marker"
+    after=$(grep -c 'gate=headless-child' "$MT_BRAIN/audit-log.jsonl" 2>/dev/null | tr -d ' \r'); after=${after:-0}
+    [ "$after" = $((before + 1)) ] || fail "$label: want exactly one gate=headless-child audit row, got $((after - before))"
+    tail -1 "$MT_BRAIN/audit-log.jsonl" | tr -d '\r' | jq -e --arg w "gate=headless-child hook=persona-context $want" \
+        '.script == "persona-context.sh" and .exit_code == 0 and .message == $w' >/dev/null \
+      || fail "$label: the headless trace row is not '$want' in sb_log_error gate-row shape (got: $(tail -1 "$MT_BRAIN/audit-log.jsonl"))"
   }
-  mt_assert_headless "HL1 ATTENDED=0" hl1 CLAUDE_CODE_SESSION_ATTENDED=0
-  mt_assert_headless "HL2 ENTRYPOINT=sdk-cli" hl2 CLAUDE_CODE_ENTRYPOINT=sdk-cli
+  mt_assert_headless "HL1 ATTENDED=0" hl1 "entrypoint= attended=0" CLAUDE_CODE_SESSION_ATTENDED=0
+  mt_assert_headless "HL2 ENTRYPOINT=sdk-cli" hl2 "entrypoint=sdk-cli attended=" CLAUDE_CODE_ENTRYPOINT=sdk-cli
+  # The two values come from the host: a hostile ENTRYPOINT cannot break the row or add fields.
+  mt_assert_headless "HL2b hostile ENTRYPOINT" hl2b 'entrypoint=xexit_code9 attended=0' 'CLAUDE_CODE_ENTRYPOINT=x"},"exit_code":9 \
+' CLAUDE_CODE_SESSION_ATTENDED=0
   mt_assert_human "HL3 SB_HEADLESS_CONTEXT=on + ATTENDED=0" hl3 "explain how the retry backoff works in this repo" SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0
   mt_assert_human "HL4 ENTRYPOINT=claude-vscode + ATTENDED=1" hl4 "explain how the retry backoff works in this repo" CLAUDE_CODE_ENTRYPOINT=claude-vscode CLAUDE_CODE_SESSION_ATTENDED=1
   mt_assert_human "HL4b ENTRYPOINT=sdk-ts (exact match only)" hl4b "explain how the retry backoff works in this repo" CLAUDE_CODE_ENTRYPOINT=sdk-ts CLAUDE_CODE_SESSION_ATTENDED=1
@@ -655,38 +667,53 @@ printf '%s\n' "$MT_BLOCK" | grep -qF '\<' && fail "lock: the machine-turn block 
 printf '%s\n' "$MT_BLOCK" | grep -q '\[a-z\]' && fail "lock: the machine-turn block carries an [a-z] glob again (the broad hyphenated-tag rule is retired)"
 pass "lock: machine-turn block = four text prefixes + eight allowlisted harness tags, no broad tag arm"
 
-# Headless predicate — single source by lock. lib.sh's sb_is_headless_child body is ONE line; every
-# hook that cannot afford to source lib.sh first carries an inline copy tagged `# sb-headless-inline`
-# whose condition must be byte-identical to it.
+# Headless predicate — single source by lock. lib.sh's sb_is_headless_child body is ONE line. Seven
+# hooks are gated, and each exits through sb_headless_trace naming ITSELF (the audit row says which
+# hook skipped the child). Hooks that act before sourcing lib.sh carry an inline copy tagged
+# `# sb-headless-inline`, whose condition must be byte-identical to lib.sh's and whose tail sources
+# lib.sh only on that branch; the two that source lib.sh first call the function.
 HL_COND=$(awk '/^sb_is_headless_child\(\) \{/{getline; sub(/^[[:space:]]+/, ""); print; exit}' "$SCRIPTS_DIR/lib.sh")
 [ -n "$HL_COND" ] || fail "lock: sb_is_headless_child() not found in scripts/lib.sh"
 HL_REPORT=$(cd "$SCRIPTS_DIR" && HL_COND="$HL_COND" awk '
+  { name = FILENAME; sub(/^\.\//, "", name); sub(/\.sh$/, "", name) }
   /# sb-headless-inline$/ && $0 !~ /^[[:space:]]*#/ {
-    n++; line = $0; sub(/^[[:space:]]+/, "", line)
-    if (!sub(/ && exit 0  # sb-headless-inline$/, "", line) || line != ENVIRON["HL_COND"]) print "DRIFT " FILENAME ": " $0
-    else print "COPY " FILENAME
+    line = $0; sub(/^[[:space:]]+/, "", line)
+    tail = " && { source \"$(dirname \"${BASH_SOURCE[0]:-$0}\")/lib.sh\" && sb_headless_trace " name "; exit 0; }  # sb-headless-inline"
+    k = length(line) - length(tail)
+    if (k > 0 && substr(line, k + 1) == tail && substr(line, 1, k) == ENVIRON["HL_COND"]) print "COPY " name " " FNR
+    else print "DRIFT " FILENAME ": " $0
+    next
   }
-  END { print "COUNT " n + 0 }' ./*.sh)
-printf '%s\n' "$HL_REPORT" | grep -q '^DRIFT' && fail "lock: an inline headless-child copy drifted from lib.sh:
+  /^[[:space:]]*sb_is_headless_child([[:space:]]|$)/ {
+    line = $0; sub(/^[[:space:]]+/, "", line)
+    if (line == "sb_is_headless_child && { sb_headless_trace " name "; exit 0; }") print "CALL " name " " FNR
+    else print "DRIFT " FILENAME ": " $0
+  }' ./*.sh)
+printf '%s\n' "$HL_REPORT" | grep -q '^DRIFT' && fail "lock: a headless-child gate drifted from lib.sh or names the wrong hook:
 $(printf '%s\n' "$HL_REPORT" | grep '^DRIFT')
 lib.sh: $HL_COND"
-for f in persona-context.sh discover-installed.sh; do
-  printf '%s\n' "$HL_REPORT" | grep -qx "COPY ./$f" || fail "lock: $f carries no inline headless-child copy"
+HL_GATED=$(printf '%s\n' "$HL_REPORT" | awk '$1 == "COPY" || $1 == "CALL" { print $1 " " $2 }' | LC_ALL=C sort | tr '\n' ' ')
+HL_WANT="CALL session-load CALL stop-extract COPY discover-installed COPY dream-autostage COPY persona-context COPY pre-compact COPY subagent-capture "
+[ "$HL_GATED" = "$HL_WANT" ] || fail "lock: the gated hook set drifted (got: $HL_GATED want: $HL_WANT)"
+# Every gate runs before the hook reads stdin; the three hooks gated in the R1 review gate on the
+# first statement after their SB_NESTED_SPAWN line (before any archive, scan or banner work).
+for f in session-load stop-extract discover-installed dream-autostage persona-context pre-compact subagent-capture; do
+  gl=$(printf '%s\n' "$HL_REPORT" | awk -v n="$f" '$2 == n { print $3; exit }')
+  rl=$(grep -nE '\$\(cat( |\))' "$SCRIPTS_DIR/$f.sh" | head -1 | cut -d: -f1)
+  [ -z "$rl" ] || [ "$gl" -lt "$rl" ] || fail "lock: $f.sh gates on headless children at line $gl, after reading stdin at line $rl"
 done
-[ "$(printf '%s\n' "$HL_REPORT" | grep -c '^COPY ')" -ge 2 ] || fail "lock: fewer than 2 inline copies found (vacuous)"
-# The two hooks that source lib.sh first call the function itself, before they read stdin.
-for f in session-load.sh stop-extract.sh; do
-  gl=$(grep -n '^sb_is_headless_child && exit 0$' "$SCRIPTS_DIR/$f" | head -1 | cut -d: -f1)
-  [ -n "$gl" ] || fail "lock: $f does not gate on sb_is_headless_child"
-  rl=$(grep -nE '\$\(cat( |\))' "$SCRIPTS_DIR/$f" | head -1 | cut -d: -f1)
-  [ -n "$rl" ] && [ "$gl" -lt "$rl" ] || fail "lock: $f gates on sb_is_headless_child at line $gl, after reading stdin at line ${rl:-?}"
+for f in pre-compact subagent-capture dream-autostage; do
+  nl=$(grep -n 'SB_NESTED_SPAWN:-0}" = "1" ] && exit 0' "$SCRIPTS_DIR/$f.sh" | head -1 | cut -d: -f1)
+  first=$(awk -v s="$nl" 'NR > s && $0 !~ /^[[:space:]]*(#|$)/ { print NR; exit }' "$SCRIPTS_DIR/$f.sh")
+  gl=$(printf '%s\n' "$HL_REPORT" | awk -v n="$f" '$2 == n { print $3; exit }')
+  [ -n "$nl" ] && [ "$first" = "$gl" ] || fail "lock: $f.sh's headless gate (line $gl) is not the first statement after its SB_NESTED_SPAWN line ($nl)"
 done
 # NEVER a PreToolUse guard: they fail safe and must run for every host, attended or not.
 for g in symlink-guard persona-tool-guard wiki-write-guard flow-guard protocol-guard; do
   grep -qE 'sb_is_headless_child|sb-headless-inline|SB_HEADLESS_CONTEXT' "$SCRIPTS_DIR/$g.sh" \
     && fail "lock: PreToolUse guard $g.sh is gated on headless children — guards must never be"
 done
-pass "lock: every inline headless-child copy is byte-identical to lib.sh; session-load/stop-extract gate before stdin; no guard is gated"
+pass "lock: seven hooks gate on headless children (inline copies byte-identical to lib.sh), each traces itself before stdin; no guard is gated"
 
 [ ! -e "$CLAUDE_SPAWNED" ] || fail "G2: a case in this file spawned \`claude\`: $(cat "$CLAUDE_SPAWNED")"
 pass "G2: no case in this file spawned the real claude"

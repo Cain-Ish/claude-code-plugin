@@ -1,9 +1,14 @@
 #!/bin/bash
+# pins: SB_HEADLESS_CONTEXT — opt-in test (2b): asserts =on restores the banner for a foreign headless child
+# pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
+#   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # Tests for dream-autostage.sh
 # After C5-A: never stages a dream, never spawns subagent. Banner suggests
 # /second-brain:dream for explicit invocation. See
 # wiki/decisions/2026-05-28-plugin-architecture-rethink.md.
 set -euo pipefail
+# The headless-child gate (R1 review) keys on these: inherited values must not no-op every case below.
+unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED SB_HEADLESS_CONTEXT
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
 AUTOSTAGE="$SCRIPT_DIR/dream-autostage.sh"
@@ -76,6 +81,24 @@ assert_banner "no dream + 12 transcripts → suggestion banner" "$OUT"
 assert_eq "threshold trip stages no new dream" "$BEFORE" "$AFTER"
 assert_not_contains "banner does not instruct subagent spawn" "$OUT" "Spawn"
 assert_not_contains "banner does not instruct subagent spawn (lowercase)" "$OUT" "run_in_background"
+
+# Test 2b (R1 review): a foreign headless child (`claude -p`: ATTENDED=0 or ENTRYPOINT=sdk-cli) has
+# no user to read a banner. Same 12 transcripts as Test 2: no banner, and the skip's only write is
+# its gate=headless-child audit row. SB_HEADLESS_CONTEXT=on gets the banner back.
+for hl in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
+  case "$hl" in *ATTENDED*) want="entrypoint= attended=0" ;; *) want="entrypoint=sdk-cli attended=" ;; esac
+  reset_brain; mk_transcripts 12; rm -f "$BRAIN_DIR/audit-log.jsonl"
+  STATE0=$(cd "$BRAIN_DIR" && find . -type f ! -name audit-log.jsonl | LC_ALL=C sort | tr '\n' ' ')
+  OUT=$(env "$hl" SB_DREAM_NEW_THRESHOLD=10 bash "$AUTOSTAGE" 2>&1 || true)
+  assert_empty "headless child ($hl) gets no dream banner" "$OUT"
+  assert_eq "headless child ($hl) writes no state" "$(cd "$BRAIN_DIR" && find . -type f ! -name audit-log.jsonl | LC_ALL=C sort | tr '\n' ' ')" "$STATE0"
+  ROW=$(jq -c --arg w "gate=headless-child hook=dream-autostage $want" \
+    'select(.script == "dream-autostage.sh" and .exit_code == 0 and .message == $w)' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tr -d '\r' | grep -c . || true)
+  assert_eq "headless child ($hl) leaves one gate=headless-child row" "$ROW" "1"
+done
+reset_brain; mk_transcripts 12
+OUT=$(env SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0 SB_DREAM_NEW_THRESHOLD=10 bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_banner "SB_HEADLESS_CONTEXT=on restores the banner for a headless child" "$OUT"
 
 # Test 3: below threshold → no banner
 reset_brain; mk_transcripts 3
