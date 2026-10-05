@@ -117,6 +117,12 @@ export function scrubEnv(sourceEnv, runDir) {
 // guards; B additionally gets the push-off flags. C and D get neither (no
 // plugin is loaded for them, so the flags would be no-ops, but we keep the
 // overlay arm-gated to match the pre-registered arm definitions exactly).
+// SB_HEADLESS_CONTEXT=on (R1#2, 0.55.0): every run goes through `claude -p`,
+// whose hooks see CLAUDE_CODE_SESSION_ATTENDED=0 / CLAUDE_CODE_ENTRYPOINT=sdk-cli
+// and, by default, treat the run as a foreign headless child with no memory
+// (no SessionStart load, no per-prompt context, no catalog, no Stop capture).
+// Both plugin arms opt back in, so they keep the hooks they were pre-registered
+// with and still differ ONLY in hooks/hooks.json.
 export function applyArmEnv(env, arm) {
   const out = { ...env };
   if (arm === 'A' || arm === 'B') {
@@ -124,6 +130,7 @@ export function applyArmEnv(env, arm) {
     out.SB_DREAM_AUTOSTAGE = 'off';
     out.SB_EXTRACT = 'off';
     out.SB_PERSONA_THINK = 'off';
+    out.SB_HEADLESS_CONTEXT = 'on';
   }
   if (arm === 'B') {
     out.SB_JIT = 'off';
@@ -147,7 +154,7 @@ export function assertEnvScrubbed(env) {
   const allowedReintroduced = new Set([
     'CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'SB_BRAIN_DIR', 'SB_KNOWLEDGE_DIR',
     'SB_DISABLE_AUTO_TIMER', 'SB_DREAM_AUTOSTAGE', 'SB_EXTRACT', 'SB_PERSONA_THINK',
-    'SB_JIT', 'SB_SEARCH_FIRST', 'SB_ROLE_CARDS', 'SB_PROTOCOL_CARD', 'SB_COMPACT_REINJECT',
+    'SB_HEADLESS_CONTEXT', 'SB_JIT', 'SB_SEARCH_FIRST', 'SB_ROLE_CARDS', 'SB_PROTOCOL_CARD', 'SB_COMPACT_REINJECT',
   ]);
   const bad = Object.keys(env).filter((k) => {
     if (SCRUB_EXACT.includes(k) && k !== 'BRAIN_DIR' && k !== 'KNOWLEDGE_DIR') return true;

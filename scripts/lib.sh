@@ -3704,3 +3704,19 @@ sb_rules_hard_lines() {
   jq -r --argjson n "$max" '[.rules[]? | select(.enabled != false and (.action=="ask" or .action=="deny"))
       | "- " + (.name // "rule") + ": " + (((.reason // "") | gsub("[\r\n`]"; " "))[0:120])] | .[0:$n] | .[]' "$f" 2>/dev/null | tr -d '\r'
 }
+
+# sb_is_headless_child: 0 when this hook runs inside a FOREIGN headless child, i.e. a `claude -p` or
+# SDK-cli run nobody attends: CLAUDE_CODE_SESSION_ATTENDED=0, or CLAUDE_CODE_ENTRYPOINT exactly
+# sdk-cli. Probed 2026-10-05: interactive sessions carry ATTENDED=1 / ENTRYPOINT=cli, `claude -p`
+# carries ATTENDED=0 / sdk-cli. The 2026-10-05 audit found 122 of 124 such children injected per
+# prompt and 79 given SessionStart memory nobody asked for. Exact `sdk-cli`, never `sdk-*`: SDK hosts
+# can be interactive. SB_NESTED_SPAWN=1 marks the plugin's OWN spawns, not foreign ones (every gated
+# hook already no-ops on it first). SB_HEADLESS_CONTEXT=on opts a run back in (the S1 eval's plugin
+# arms set it). Gates persona-context.sh, session-load.sh, stop-extract.sh and discover-installed.sh;
+# NEVER a PreToolUse guard (guards fail safe and must run for every host, attended or not).
+# Hooks that act before sourcing lib.sh carry an inline copy of the one-line body below, tagged
+# with the sb-headless-inline marker; tests/test-persona-context.sh asserts each copy is
+# byte-identical to it (single source by lock). Keep the body on ONE line.
+sb_is_headless_child() {
+  [ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; }
+}

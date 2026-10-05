@@ -215,6 +215,17 @@ function runSelftest() {
     if (leaks.length > 0) failures.push(`env scrub: assertEnvScrubbed found leaks ${JSON.stringify(leaks)}`);
     const withArmB = applyArmEnv(scrubbed, 'B');
     assertEqual(withArmB.SB_JIT, 'off', 'env scrub: arm B SB_JIT', failures);
+    // R1#2: the plugin arms run under `claude -p` (ATTENDED=0 / ENTRYPOINT=sdk-cli), which the
+    // plugin's hooks now treat as a foreign headless child and leave memory-less. Both plugin arms
+    // opt back in, so A and B still differ ONLY in hooks/hooks.json; the no-plugin arms never do.
+    const withArmA = applyArmEnv(scrubbed, 'A');
+    assertEqual(withArmA.SB_HEADLESS_CONTEXT, 'on', 'env overlay: arm A SB_HEADLESS_CONTEXT', failures);
+    assertEqual(withArmB.SB_HEADLESS_CONTEXT, 'on', 'env overlay: arm B SB_HEADLESS_CONTEXT', failures);
+    for (const arm of ['C', 'D']) {
+      if ('SB_HEADLESS_CONTEXT' in applyArmEnv(scrubbed, arm)) failures.push(`env overlay: arm ${arm} must not carry SB_HEADLESS_CONTEXT`);
+    }
+    const armALeaks = assertEnvScrubbed(withArmA);
+    if (armALeaks.length > 0) failures.push(`env overlay: arm A's overlay reads as a scrub leak ${JSON.stringify(armALeaks)}`);
   }
 
   // 6. Leak guard: canary text in a fixture is caught.
