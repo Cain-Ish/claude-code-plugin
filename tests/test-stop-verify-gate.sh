@@ -2,6 +2,9 @@
 # Tests for stop-verify-gate.sh
 # run-all-timeout: 240   (93 s alone on a loaded MSYS box 2026-09-30, after F8 added two ~65 KB block controls to RR-SF2)
 set -euo pipefail
+# The gate takes its repo root from CLAUDE_PROJECT_DIR first (G1): an inherited value would move
+# every case's root. The G1 cases set it explicitly where it is the subject.
+unset CLAUDE_PROJECT_DIR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
 GATE="$SCRIPT_DIR/stop-verify-gate.sh"
@@ -796,20 +799,56 @@ fi
 # --- G1: path exemptions are root-relative and separator-agnostic -------------------
 # Windows tool paths use a backslash: scratchpad files OUTSIDE the repo used to count as
 # source edits (the exemption only matched "/"-separated segments) and demanded the suite.
+# Rules (R1 review): the repo root is CLAUDE_PROJECT_DIR, else the git toplevel of the payload cwd
+# (matched in its raw, resolved and logical spellings). INSIDE it only docs/ and the TOP-LEVEL tmp/
+# or scratch/ dirs are exempt, so a file whose name merely contains sandbox/temp/tmp/scratch arms.
+# OUTSIDE it (or with no root at all) an edit ARMS unless the path has an anchored temp segment
+# (tmp, temp, scratch, scratchpad, sandbox), which keeps a Windows AppData/Local/Temp scratchpad
+# exempt. Paths are canonicalized first: \ -> /, the //?/ and //./ prefixes, . and .. and repeated
+# slashes, case-insensitive on MSYS/Cygwin/macOS and for drive-letter paths.
+# The sandbox lives under a temp dir on Linux and MSYS (/tmp/...), so a canonicalization that fails
+# to see an in-repo path falls through to "outside, temp segment, exempt" and the block assertion
+# catches it.
 G1_REPO="$SANDBOX/g1/repo"; mkdir -p "$G1_REPO/src"
-g1_case() { # block|approve label path
-  local want="$1" label="$2" path="$3" T OUT
+# g1_case block|approve label path [cwd]
+g1_case() {
+  local want="$1" label="$2" path="$3" cwd="${4:-$G1_REPO}" T OUT
   T=$(mk_transcript); add_edit_of "$T" "$path"
-  OUT=$(mk_input_cwd "$T" "$G1_REPO" | bash "$GATE" 2>/dev/null || true)
+  OUT=$(mk_input_cwd "$T" "$cwd" | bash "$GATE" 2>/dev/null || true)
   if [ "$want" = block ]; then assert_block "G1: $label" "$OUT"; else assert_approve "G1: $label" "$OUT"; fi
 }
 g1_case approve "Windows-form scratchpad .js outside the repo" 'C:''\''Users''\''x''\''AppData''\''Local''\''Temp''\''claude''\''scratchpad''\''probe.js'
 g1_case approve "forward-slash scratch .js outside the repo" "/var/tmp/scratchpad/probe.js"
-g1_case approve "plain non-scratch path outside the repo is no repo edit" "/elsewhere/project/src/x.js"
+g1_case block "plain source path outside the repo arms (outside-root edits are not exempt)" "/elsewhere/project/src/x.js"
 g1_case approve "docs backslash-relative .js inside the repo" 'docs''\''x.js'
 g1_case approve "docs backslash-relative .md inside the repo" 'docs''\''x.md'
+g1_case approve "docs/ absolute .md inside the repo" "$G1_REPO/docs/x.md"
 g1_case approve "tmp/ relative .js inside the repo" "tmp/probe.js"
+g1_case approve "top-level scratch/ absolute .ts inside the repo" "$G1_REPO/scratch/a.ts"
 g1_case block "src .sh inside the repo (absolute)" "$G1_REPO/src/a.sh"
+# In-repo source files whose NAME merely contains sandbox/temp/tmp/scratch must arm (the R1 G1 regression).
+for f in src/components/Sandbox.tsx packages/sandbox/index.ts src/tmp_parser.py src/temp-sensor.c \
+         src/sandbox.ts src/temp_parser.ts tmp-tools/a.ts src/scratch/x.ts; do
+  g1_case block "in-repo $f arms" "$G1_REPO/$f"
+done
+# Canonicalization: every spelling of an in-repo path is in the repo.
+g1_case block "a .. hop back into the repo arms" "$SANDBOX/g1/other/../repo/src/a.ts"
+# (The first slash stays single: a leading // is a UNC prefix, which Git-Bash will not translate
+# when the fixture hands the path to jq, so the fixture itself would name another file.)
+g1_case block "repeated slashes into the repo arm" "$(printf '%s' "$G1_REPO" | sed 's#/#//#g; s#^//#/#')//src//a.ts"
+g1_case block "a ./ segment into the repo arms" "$G1_REPO/./src/./a.ts"
+if command -v cygpath >/dev/null 2>&1; then
+  G1_WIN=$(cygpath -w "$G1_REPO")
+  g1_case block "\\\\?\\ extended-length Windows path into the repo arms" "\\\\?\\$G1_WIN\\src\\a.ts" "$G1_WIN"
+  g1_case block "\\\\.\\ device-namespace Windows path into the repo arms" "\\\\.\\$G1_WIN\\src\\a.ts" "$G1_WIN"
+  g1_case block "forward-slash drive path with doubled slashes arms" "$(cygpath -m "$G1_REPO" | sed 's#/#//#g')//src//a.ts" "$G1_WIN"
+fi
+case "${OSTYPE:-}" in
+  msys*|cygwin*|darwin*)
+    g1_case block "a case-variant spelling of the root arms (case-insensitive file system)" \
+      "$(printf '%s' "$G1_REPO" | tr 'a-z' 'A-Z')/src/a.ts" ;;
+  *) echo "  note: case-variant root case not run on a case-sensitive file system ($OSTYPE)" ;;
+esac
 G1_TMPREPO="$SANDBOX/g1/Temp/sandbox/repo"; mkdir -p "$G1_TMPREPO/src"
 T=$(mk_transcript); add_edit_of "$T" "$G1_TMPREPO/src/a.sh"
 OUT=$(mk_input_cwd "$T" "$G1_TMPREPO" | bash "$GATE" 2>/dev/null || true)
@@ -817,6 +856,58 @@ assert_block "G1: src .sh in a repo checked out under /Temp/sandbox/ still arms"
 T=$(mk_transcript); add_edit_of "$T" "$G1_TMPREPO/src/a.sh"
 OUT=$(mk_input_cwd "$T" "$G1_TMPREPO/src" | bash "$GATE" 2>/dev/null || true)
 assert_block "G1: same, with cwd in a subdirectory of that repo" "$OUT"
+
+# The payload cwd moves during a session (one real transcript: 3785 lines in one worktree, 210 in
+# main, 191 in another). CLAUDE_PROJECT_DIR is the root first, so an edit to the main checkout made
+# while cwd sits in a worktree (its own git toplevel) or in a non-git dir still arms.
+if command -v git >/dev/null 2>&1; then
+  G1_MAIN="$SANDBOX/g1/main"; G1_WT="$G1_MAIN/.claude/worktrees/wt"; G1_NOGIT="$SANDBOX/g1/nogit"
+  mkdir -p "$G1_MAIN/mcp/src/tools" "$G1_WT/src" "$G1_NOGIT"
+  git -C "$G1_MAIN" init -q && git -C "$G1_WT" init -q
+  g1_pd_case() { # label path cwd
+    local T OUT
+    T=$(mk_transcript); add_edit_of "$T" "$2"
+    OUT=$(mk_input_cwd "$T" "$3" | CLAUDE_PROJECT_DIR="$G1_MAIN" bash "$GATE" 2>/dev/null || true)
+    assert_block "G1: $1" "$OUT"
+  }
+  g1_pd_case "cwd in a worktree, edit to a main-checkout src file arms" "$G1_MAIN/mcp/src/tools/episodic-search.ts" "$G1_WT"
+  g1_pd_case "cwd in a worktree, edit to the worktree's own src file arms" "$G1_WT/src/a.ts" "$G1_WT"
+  g1_pd_case "cwd in a non-git dir, in-repo src edit arms" "$G1_MAIN/mcp/src/tools/x.ts" "$G1_NOGIT"
+  T=$(mk_transcript); add_edit_of "$T" 'C:''\''Users''\''x''\''AppData''\''Local''\''Temp''\''claude''\''scratchpad''\''probe.js'
+  OUT=$(mk_input_cwd "$T" "$G1_WT" | CLAUDE_PROJECT_DIR="$G1_MAIN" bash "$GATE" 2>/dev/null || true)
+  assert_approve "G1: with CLAUDE_PROJECT_DIR set, a Windows scratchpad path outside stays exempt" "$OUT"
+  # An outside-root classification is never silent: one gate=verify-outside-root audit row.
+  rm -f "$BRAIN_DIR/audit-log.jsonl"
+  T=$(mk_transcript); add_edit_of "$T" "/elsewhere/project/src/x.js"
+  mk_input_cwd "$T" "$G1_MAIN" | CLAUDE_PROJECT_DIR="$G1_MAIN" bash "$GATE" >/dev/null 2>&1 || true
+  if jq -c 'select(.script == "stop-verify-gate.sh" and .exit_code == 0 and ((.message // "") | startswith("gate=verify-outside-root armed=1 exempt=0")))' \
+      "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q .; then
+    PASS=$((PASS + 1)); echo "  PASS: G1: an outside-root edit writes a gate=verify-outside-root audit row"
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL: G1: no gate=verify-outside-root armed=1 row for an outside-root edit ($(tail -2 "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null))"
+  fi
+  # A symlinked checkout: git reports the resolved toplevel, the payload cwd and tool paths the link.
+  # Both spellings are the repo. ln -s deep-copies on MSYS, so Windows gets a junction from node
+  # (Git-Bash reports it as a link).
+  G1_LINK="$SANDBOX/g1/link-main"
+  ln -s "$G1_MAIN" "$G1_LINK" 2>/dev/null || true
+  if [ ! -L "$G1_LINK" ] && command -v cygpath >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+    [ -d "$G1_LINK" ] && mv "$G1_LINK" "$SANDBOX/g1/link-copy"   # ln -s left a deep copy behind
+    node -e "require('fs').symlinkSync(process.argv[1], process.argv[2], 'junction')" "$(cygpath -w "$G1_MAIN")" "$(cygpath -w "$G1_LINK")" || true
+  fi
+  if [ -L "$G1_LINK" ]; then
+    T=$(mk_transcript); add_edit_of "$T" "$G1_LINK/mcp/src/tools/x.ts"
+    OUT=$(mk_input_cwd "$T" "$G1_LINK/mcp" | bash "$GATE" 2>/dev/null || true)
+    assert_block "G1: symlinked root, link-spelled in-repo path arms" "$OUT"
+    T=$(mk_transcript); add_edit_of "$T" "$G1_LINK/tmp/probe.js"
+    OUT=$(mk_input_cwd "$T" "$G1_LINK/mcp" | bash "$GATE" 2>/dev/null || true)
+    assert_approve "G1: symlinked root, link-spelled top-level tmp/ stays exempt" "$OUT"
+  else
+    echo "  note: symlinked-root cases not run (ln -s makes no real link on this host)"
+  fi
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL: G1: git not on PATH — the worktree/project-dir cases cannot run"
+fi
 
 # --- RR-SF2: MSYS here-string hang at 65,536..~65,650 bytes -----------------------------
 # `<<< "$VERIFY_CANDIDATES"` and `<<< "$SVG_OUT"` used a plain here-string: on MSYS a text of
