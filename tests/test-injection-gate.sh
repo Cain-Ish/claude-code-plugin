@@ -151,6 +151,18 @@ for s in quokka-relay-checkpoint marmot-quill-compaction pangolin-burrow-sweep; 
 done
 [ "$STUB_BAD" -eq 0 ] && pass "stubs are never injected per prompt" || fail "$STUB_BAD stub check(s) failed"
 
+# SessionStart wiki enrichment (session-load.sh) reads knowledge-search-cli with SB_INJECT_GATE=1:
+# it injects into the session just like the per-prompt hook, so the same stubs must stay out,
+# while the legacy (recall/FORGET) path above still retrieves them.
+enrich(){ KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EB" SB_BRAIN_DIR="$EB" SB_INJECT_GATE=1 \
+  SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" node "$CLI" "$1" 2>/dev/null; }
+ENRICH_BAD=0
+for s in quokka-relay-checkpoint marmot-quill-compaction pangolin-burrow-sweep; do
+  q=$(printf '%s' "$s" | tr '-' ' ')
+  has "$(enrich "$q")" "$s" && { ENRICH_BAD=$((ENRICH_BAD + 1)); echo "    stub $s injected by SessionStart enrichment"; }
+done
+[ "$ENRICH_BAD" -eq 0 ] && pass "SessionStart enrichment (SB_INJECT_GATE=1) refuses stubs" || fail "$ENRICH_BAD stub(s) injected at SessionStart"
+
 # Digits ground: "rotation" is a discriminative term no page carries, so the need is 2 and only
 # the "8" can supply the second grounded term ("season 8" in the graded R2 prompt #27).
 has "$(serve "season 8 rotation" gamehelper)" season-8-artifact-swap \
