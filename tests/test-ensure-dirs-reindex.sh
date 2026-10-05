@@ -8,6 +8,24 @@
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
+# tbound SECS CMD...: a time bound on every host. macOS ships no `timeout` (the bash-3.2 lane failed on
+# `timeout 40` with "command not found"); gtimeout when coreutils is installed, else the background
+# + kill watchdog lib.sh's own sb_timeout uses.
+TOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then TOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then TOUT_BIN="gtimeout"
+fi
+tbound() {
+  local secs="$1"; shift
+  if [ -n "$TOUT_BIN" ]; then "$TOUT_BIN" "$secs" "$@"; return $?; fi
+  "$@" <&0 &
+  local pid=$!
+  ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local wd=$!
+  wait "$pid"; local ec=$?
+  kill "$wd" 2>/dev/null || true
+  return "$ec"
+}
 command -v node >/dev/null 2>&1 || { echo "SKIP: node absent"; exit 0; }
 [ -f "$ROOT/mcp/dist/tools/knowledge-reindex.bundle.js" ] || { echo "SKIP: reindex bundle absent"; exit 0; }
 
@@ -30,7 +48,7 @@ A learning about foo bar baz for reindex coverage.
 EOF
 [ -f "$K/wiki/index.md" ] && fail "fixture should start with NO index.md"
 CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN" KNOWLEDGE_DIR="$K" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K" \
-  timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+  tbound 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
 [ -s "$K/wiki/index.md" ] || fail "ensure-dirs.sh did NOT build wiki/index.md (reindex wire dead)"
 grep -qi 'foo-thing\|Foo Thing' "$K/wiki/index.md" || fail "index.md built but does not catalogue the fixture page"
 pass "ensure-dirs.sh reindex builds wiki/index.md"
@@ -54,7 +72,7 @@ A learning about bar for the snapshot-before-autofix coverage.
 EOF
   printf -- '# index\n' > "$K2/wiki/index.md"   # pre-existing index.md -> the validate+autofix branch
   CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN2" KNOWLEDGE_DIR="$K2" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K2" \
-    timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+    tbound 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
   [ -d "$BRAIN2/wiki-history.git" ] || fail "D096: no wiki-history snapshot repo created before the SessionStart autofix"
   N=$(git --git-dir="$BRAIN2/wiki-history.git" --work-tree="$K2/wiki" log --oneline 2>/dev/null | grep -c .)
   [ "${N:-0}" -ge 1 ] || fail "D096: wiki-history repo exists but has no snapshot commit"
@@ -85,7 +103,7 @@ EOF
   # First run: establishes the wiki-history repo + an initial successful snapshot (nothing
   # to autofix yet — the empty-page target below is added AFTER this baseline run).
   CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN3" KNOWLEDGE_DIR="$K3" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K3" \
-    timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+    tbound 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
   [ -d "$BRAIN3/wiki-history.git" ] || fail "D096b: setup — wiki-history repo not created on the baseline run"
   # Poison the snapshot repo so its NEXT commit fails, force the 24h stamp stale so the
   # autofix branch re-enters, and plant an empty page — the observable autofix deletes.
@@ -96,7 +114,7 @@ EOF
   : > "$K3/wiki/learnings/empty-page.md"
   rm -f "$BRAIN3/error-log.jsonl"
   CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN3" KNOWLEDGE_DIR="$K3" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K3" \
-    timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+    tbound 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
   grep -q 'pre-autofix wiki-history snapshot failed' "$BRAIN3/error-log.jsonl" 2>/dev/null \
     || fail "D096b: failed snapshot was not logged loudly"
   pass "D096b: a failed pre-autofix snapshot is logged loudly"
@@ -122,7 +140,7 @@ printf '%s\n%s\n%s\n' \
   > "$BRAIN4/projects.jsonl"
 mkdir -p "$FAKEHOME/AppData/Local/Temp"
 CLAUDE_PLUGIN_ROOT="$ROOT" HOME="$FAKEHOME" BRAIN_DIR="$BRAIN4" KNOWLEDGE_DIR="$K4" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K4" \
-  timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+  tbound 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
 jq -e 'select(.slug=="real-project")' "$BRAIN4/projects.jsonl" >/dev/null 2>&1 \
   || fail "D118: the real, legitimate project row was wrongly purged"
 pass "D118: a legitimate project's registry row survives the purge"
@@ -140,11 +158,74 @@ grep -q '"curst"' "$PURGE_FILE" && grep -q '"scratch"' "$PURGE_FILE" \
 # Marker-gated: a second run must not re-purge (nothing left to purge) or duplicate the sidecar content.
 PURGE_LINES_BEFORE=$(grep -c . "$PURGE_FILE")
 CLAUDE_PLUGIN_ROOT="$ROOT" HOME="$FAKEHOME" BRAIN_DIR="$BRAIN4" KNOWLEDGE_DIR="$K4" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K4" \
-  timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+  tbound 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
 PURGE_LINES_AFTER=$(grep -c . "$PURGE_FILE")
 [ "$PURGE_LINES_BEFORE" -eq "$PURGE_LINES_AFTER" ] \
   && pass "D118: the one-time purge does not re-run or duplicate on a second ensure-dirs pass" \
   || fail "D118: second run duplicated purge content ($PURGE_LINES_BEFORE -> $PURGE_LINES_AFTER lines)"
 rm -rf "$BRAIN4" "$K4" "$REALPROJ" "$FAKEHOME"
 
+
+# 5. G4: SessionStart prunes orphaned atomic-write debris (*.tmp.* / *.rot.*) older than a day from
+# the BRAIN_DIR root only: live state held 15 access-counts.json.tmp.* and a 568 KB
+# audit-log.jsonl.tmp.5543 from killed writers. Newer debris, real state files, subdirs, a debris-named
+# DIRECTORY and a debris-named SYMLINK (never followed) stay. The logged count is what was actually
+# deleted (4 here), not what find listed.
+BRAIN5=$(mktemp -d); K5=$(mktemp -d); OUT5=$(mktemp -d); mkdir -p "$K5/wiki/learnings" "$BRAIN5/sub" "$BRAIN5/old.tmp.dir"
+for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7 sub/deep.tmp.1; do
+  : > "$BRAIN5/$f"; touch -t 202001010000 "$BRAIN5/$f"
+done
+touch -t 202001010000 "$BRAIN5/old.tmp.dir"
+: > "$BRAIN5/access-counts.json"; touch -t 202001010000 "$BRAIN5/access-counts.json"
+: > "$BRAIN5/access-counts.json.tmp.fresh"
+echo keep > "$OUT5/target"; touch -t 202001010000 "$OUT5/target"
+G4_LINK=0
+if ln -s "$OUT5/target" "$BRAIN5/link.tmp.9" 2>/dev/null && [ -L "$BRAIN5/link.tmp.9" ]; then G4_LINK=1; else rm -f "$BRAIN5/link.tmp.9"; fi
+CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN5" KNOWLEDGE_DIR="$K5" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K5" \
+  tbound 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7; do
+  [ -e "$BRAIN5/$f" ] && fail "G4: stale debris $f was not pruned"
+done
+pass "G4: >1-day-old *.tmp.* / *.rot.* files in the BRAIN_DIR root are pruned"
+[ -e "$BRAIN5/access-counts.json.tmp.fresh" ] || fail "G4: a fresh *.tmp.* (a live writer's file) was deleted"
+[ -e "$BRAIN5/access-counts.json" ] || fail "G4: the real (non-debris) state file was deleted"
+[ -e "$BRAIN5/sub/deep.tmp.1" ] || fail "G4: pruning recursed below the BRAIN_DIR root (maxdepth 1 violated)"
+[ -d "$BRAIN5/old.tmp.dir" ] || fail "G4: a debris-named directory was pruned (only regular files may go)"
+if [ "$G4_LINK" = 1 ]; then
+  [ -L "$BRAIN5/link.tmp.9" ] || fail "G4: a debris-named symlink was removed (symlinks are never pruned)"
+  [ "$(cat "$OUT5/target")" = keep ] || fail "G4: the prune followed a symlink and touched its target"
+else
+  echo "  note: debris-named symlink case not run (ln -s makes no real link on this host)"
+fi
+pass "G4: fresh debris, real state files, subdirectory contents, a debris-named dir and symlink are untouched"
+G4_ROW=$(jq -c 'select((.rule // .gate // "") == "tmp-debris-gc")' "$BRAIN5/audit-log.jsonl" 2>/dev/null | tr -d '\r')
+[ -n "$G4_ROW" ] || fail "G4: the pruned count was not logged"
+printf '%s' "$G4_ROW" | grep -q 'pruned 4 stale' || fail "G4: logged count is not the 4 files actually deleted: $G4_ROW"
+pass "G4: the logged count is the number of files actually deleted (4)"
+
+# 5b. G4, find fails on the delete pass: a find that LISTS the debris but cannot delete it (exit 1)
+# must not be audited as a prune, and its failure must reach the error log.
+BRAIN5B=$(mktemp -d); SHIM5=$(mktemp -d); REAL_FIND=$(command -v find)
+for f in a.json.tmp.1 b.jsonl.rot.2; do : > "$BRAIN5B/$f"; touch -t 202001010000 "$BRAIN5B/$f"; done
+cat > "$SHIM5/find" <<EOF
+#!/bin/bash
+case " \$* " in
+  *" -delete "*)
+    args=(); for a in "\$@"; do [ "\$a" = "-delete" ] || args+=("\$a"); done
+    "$REAL_FIND" "\${args[@]}"
+    echo "find: cannot delete: Permission denied" >&2
+    exit 1 ;;
+esac
+exec "$REAL_FIND" "\$@"
+EOF
+chmod +x "$SHIM5/find"
+CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN5B" KNOWLEDGE_DIR="$K5" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K5" PATH="$SHIM5:$PATH" \
+  tbound 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+[ -e "$BRAIN5B/a.json.tmp.1" ] && [ -e "$BRAIN5B/b.jsonl.rot.2" ] || fail "G4 5b: the shimmed find was supposed to delete nothing"
+jq -c 'select((.rule // .gate // "") == "tmp-debris-gc")' "$BRAIN5B/audit-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q 'pruned [1-9]' \
+  && fail "G4 5b: a failed delete pass was audited as a prune (find's listing counted, not the deletions)"
+jq -c 'select(.script == "ensure-dirs.sh" and .exit_code != 0 and ((.message // "") | test("tmp-debris")))' "$BRAIN5B/error-log.jsonl" 2>/dev/null \
+  | tr -d '\r' | grep -q . || fail "G4 5b: find's non-zero exit on the delete pass left no error-log row ($(tail -2 "$BRAIN5B/error-log.jsonl" 2>/dev/null))"
+pass "G4: a failing delete pass is logged through sb_log_error and not counted as pruned"
+rm -rf "$BRAIN5" "$K5" "$OUT5" "$BRAIN5B" "$SHIM5"
 echo; echo "ALL PASS"

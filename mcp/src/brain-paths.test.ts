@@ -18,6 +18,7 @@ const ENV_KEYS = [
   'BRAIN_DIR',
   'KNOWLEDGE_DIR',
   'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR',
+  'SB_SUITE_REAL_HOME_PATH',
 ];
 
 describe('brain-paths resolvers', () => {
@@ -97,6 +98,58 @@ describe('brain-paths resolvers', () => {
   it('resolveKnowledgeDir skips a whitespace-only candidate', () => {
     process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR = '   ';
     expect(resolveKnowledgeDir()).toBe(join(homedir(), 'knowledge'));
+  });
+});
+
+describe('suite guard (SB_SUITE_REAL_HOME_PATH)', () => {
+  const saved: Record<string, string | undefined> = {};
+  const bs = String.fromCharCode(92);
+  beforeEach(() => {
+    for (const k of ENV_KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('throws when the brain dir is exactly <real home>/.second-brain, across path forms', () => {
+    process.env.SB_SUITE_REAL_HOME_PATH = `C:${bs}Users${bs}Mallory`;
+    for (const form of ['C:/Users/Mallory/.second-brain', '/c/users/mallory/.second-brain/', `C:${bs}Users${bs}Mallory${bs}.second-brain`]) {
+      process.env.BRAIN_DIR = form;
+      expect(() => resolveBrainDir(), form).toThrow(/suite guard/);
+    }
+    expect(() => resolveBrainDir('/c/Users/Mallory/.second-brain')).toThrow(/suite guard/);
+  });
+
+  it('throws when the knowledge dir is exactly <real home>/knowledge, via env, option and override', () => {
+    process.env.SB_SUITE_REAL_HOME_PATH = '/c/Users/Mallory';
+    process.env.KNOWLEDGE_DIR = 'C:/Users/Mallory/knowledge';
+    expect(() => resolveKnowledgeDir()).toThrow(/suite guard/);
+    delete process.env.KNOWLEDGE_DIR;
+    process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR = 'c:/users/mallory/knowledge/';
+    expect(() => resolveKnowledgeDir()).toThrow(/suite guard/);
+    expect(() => resolveKnowledgeDir('/c/Users/Mallory/knowledge')).toThrow(/suite guard/);
+  });
+
+  it('throws on the homedir() fallback when HOME resolves to the real home', () => {
+    process.env.SB_SUITE_REAL_HOME_PATH = homedir();
+    expect(() => resolveBrainDir()).toThrow(/suite guard/);
+    expect(() => resolveKnowledgeDir()).toThrow(/suite guard/);
+  });
+
+  it('allows anything else under the real home (the Windows TMPDIR lives there) and everything when unset', () => {
+    process.env.SB_SUITE_REAL_HOME_PATH = 'C:/Users/Mallory';
+    process.env.BRAIN_DIR = 'C:/Users/Mallory/AppData/Local/Temp/sb-x';
+    expect(resolveBrainDir()).toBe('C:/Users/Mallory/AppData/Local/Temp/sb-x');
+    process.env.BRAIN_DIR = 'C:/Users/Mallory/.second-brain-other';
+    expect(resolveBrainDir()).toBe('C:/Users/Mallory/.second-brain-other');
+    process.env.KNOWLEDGE_DIR = 'C:/Users/Mallory/knowledge/sub';
+    expect(resolveKnowledgeDir()).toBe('C:/Users/Mallory/knowledge/sub');
+    delete process.env.SB_SUITE_REAL_HOME_PATH;
+    process.env.BRAIN_DIR = 'C:/Users/Mallory/.second-brain';
+    expect(resolveBrainDir()).toBe('C:/Users/Mallory/.second-brain');
   });
 });
 

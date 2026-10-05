@@ -1,4 +1,6 @@
 #!/bin/bash
+# pins: SB_NESTED_SPAWN — the nested-spawn circuit breaker is the subject under test (lib.sh's
+#   sb_is_headless_child reads it too: a nested spawn is never a foreign headless child)
 # tests/test-nested-spawn-guard.sh — R1.1 nested-spawn circuit breaker.
 # Headless `claude -p` children spawned by the drainer/maintainer inherit
 # SB_NESTED_SPAWN=1; every capture/context hook must then no-op instantly

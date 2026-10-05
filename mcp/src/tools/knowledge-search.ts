@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import { atomicWriteJson } from './atomic-write.js';
 import { join } from 'path';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
-import { embedTexts, cosineSimilarity } from './embeddings.js';
+import { embedTexts, cosineSimilarity, appendErrorLog, appendGateTrace } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge } from './graph-store.js';
@@ -78,6 +78,19 @@ export interface KnowledgeSearchResult {
      *  their threshold to this (`min(threshold, query_terms)`), or a one-word query becomes
      *  unsatisfiable — the same class of bug as gating `score` above its own ceiling. */
     query_terms?: number;
+    /** Distinct DISCRIMINATIVE query terms (what `grounded` can count at most): query terms minus
+     *  grounding stopwords, single letters and corpus-common terms. The per-prompt injection gate
+     *  clamps its need to THIS, not to query_terms — with one real term among filler, a
+     *  query_terms clamp asks for more grounded terms than can exist. */
+    discriminative_terms?: number;
+    /** Present (true) on a stub: description `Auto-created stub…`, an auto-extracted skeleton, or
+     *  a stripped body under 100 chars. Ranking is unchanged (the short-body penalty predates
+     *  this flag); the per-prompt CLI never injects a stub. */
+    stub?: true;
+    /** Present (true) when a projectSlug was given and the page's `project:` facet is set and
+     *  differs from it case-insensitively. Independent of scoping: set with anchors=0 and with
+     *  SB_PROJECT_SCOPE=off too. The per-prompt CLI asks such a page for one more grounded term. */
+    cross_project?: true;
     /** SP-1 project-scope tier (1=active project, 2=monorepo family, 3=graph-neighbour,
      *  4=global/no facet, 5=other project). Present only when scoping is active. */
     tier?: number;
@@ -101,27 +114,31 @@ interface AccessCounts { [slug: string]: { count: number; last_accessed: string 
 // server + embeddings conventions), NOT hardcoded to $HOME — eval/test runs were
 // reading the LIVE access counts into their rankings AND writing fixture slugs
 // back into the user's real state, making the "deterministic" recall gate
-// flip-flop run-to-run.
-function accessCountsFile(): string {
-  return join(resolveBrainDir(), 'access-counts.json');
+// flip-flop run-to-run. G3 (2026-10): a brainDir the CALLER passes wins over the env/home
+// resolution — sb.ts and tests pass a sandbox, and ignoring it wrote fixture slugs into the
+// real ~/.second-brain/access-counts.json.
+function accessCountsFile(brainDir?: string): string {
+  return join(resolveBrainDir(brainDir), 'access-counts.json');
 }
 // P4b (spec 2026-06-26 §6): the access-frequency SEARCH BOOST was cut — it is the recsys
 // "rich-get-richer" hub bias (the ~10,000x corruption class). Access counts now survive ONLY
 // as `acc=` telemetry in wiki-forget-score.sh (recorded below, never folded into ranking).
 const ACCESS_PRUNE_DAYS = 90;
 
-async function loadAccessCounts(): Promise<AccessCounts> {
-  try { return JSON.parse(await fs.readFile(accessCountsFile(), 'utf-8')); }
+// Both take the RESOLVED path (knowledgeSearch resolves it once, up front): resolving inside the
+// load's catch or the save's .catch() swallowed the G3 suite guard's throw (R1 review).
+async function loadAccessCounts(file: string): Promise<AccessCounts> {
+  try { return JSON.parse(await fs.readFile(file, 'utf-8')); }
   catch { return {}; }
 }
 
-async function saveAccessCounts(counts: AccessCounts): Promise<void> {
+async function saveAccessCounts(counts: AccessCounts, file: string): Promise<void> {
   const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 86400000).toISOString();
   const pruned: AccessCounts = {};
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await atomicWriteJson(accessCountsFile(), pruned);
+  await atomicWriteJson(file, pruned);
 }
 
 const TOP_K = 8;
@@ -156,7 +173,7 @@ const MIN_CORPUS_FOR_DF = 8;
 // English function words plus the generic verbs/qualifiers that dominate casual prompts
 // ("what is the best way to do this"). Extending it is safe; it can only make grounding
 // stricter, and a term wrongly listed here just means one fewer way to ground a page.
-const GROUNDING_STOPWORDS = new Set([
+const LEGACY_GROUNDING_STOPWORDS = new Set([   // the 0.54 list; SB_INJECT_PRECISION=off grounds on it alone
   'the', 'a', 'an', 'and', 'or', 'but', 'if', 'then', 'than', 'that', 'this', 'these', 'those',
   'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am',
   'do', 'does', 'did', 'doing', 'done', 'have', 'has', 'had', 'having',
@@ -169,16 +186,39 @@ const GROUNDING_STOPWORDS = new Set([
   'get', 'got', 'make', 'made', 'use', 'used', 'using', 'need', 'want', 'like', 'please', 'help',
   'some', 'any', 'all', 'more', 'most', 'much', 'many', 'very', 'just', 'only', 'also', 'now',
 ]);
+const GROUNDING_STOPWORDS = new Set([...LEGACY_GROUNDING_STOPWORDS,
+  // Generic prompt verbs/qualifiers, added 2026-10 (R1#4) only after re-grading: on the 40 graded
+  // prompts over the real wiki, none of these pushes a grader-identified R2 page below the gate,
+  // and together they cut injections on noise-graded prompts 16 -> 10 (scratchpad
+  // review/stopword-validation.md). Deliberately NOT here: "new" (grounds R2 #27, "season 8 ...
+  // new artifacts") and "changes" (grounds R2 #38's version-bump tripwire page) — locked in
+  // retrieval-guards.test.ts.
+  'check', 'checks', 'checked', 'one', 'old', 'add', 'added', 'change', 'changed',
+  'relevant', 'correct', 'valid', 'everything', 'update', 'updated', 'missing', 'still', 'final',
+  'ready', 'sure', 'let', 'see', 'try', 'continue',
+]);
 const COMMON_TERM_DF_SHARE = (() => {
   const v = parseFloat(process.env.SB_GROUNDING_DF_SHARE ?? '');
   return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.5;
 })();
 const MIN_SUBSTANTIVE_LENGTH = 100;
 const AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
+const STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
+// A lone letter never establishes aboutness: "I'm" tokenizes to "i" + "m", and "m" grounded the
+// "everything-claude-code-ecc" page (author "affaan-m") on an unrelated prompt.
+const SINGLE_LETTER_RE = /^[a-z]$/;
+// Neither does a bare number: "fix items 3 8 review" grounded [[8-3-short-filename-alias-…]] on
+// "3" + "8" (R1 review). Re-graded on the 37 evaluated prompts over the real wiki: no R2 page
+// lost, no injection changed; R2 #27 ("season 8 … new") grounds on "season" + "new". Mixed
+// alphanumerics (d154, v2, 627m) still ground. Grounding only; BM25 still scores digits.
+const PURE_DIGITS_RE = /^[0-9]+$/;
 
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join(knowledgeDir, 'wiki');
+  // Resolved here, outside the access-count handlers that swallow their own failures, so the G3
+  // suite guard (brain-paths.ts) reaches the caller instead of being caught as telemetry noise.
+  const accessFile = accessCountsFile(args.brainDir);
 
   let scopeDirs: string[];
   if (args.scope && args.scope !== 'all') {   // 'all' = explicit no-category + no-project scope (search everything)
@@ -244,9 +284,19 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, indexed);
 
+  // Short-body / auto-extracted stubs: penalized in ranking below (unchanged) AND flagged.
+  const shortStub = allDocs.map(({ rawContent, source }, i) => source !== 'local-doc'
+    && (AUTO_EXTRACTED_RE.test(rawContent) || indexed[i].strippedBody.trim().length < MIN_SUBSTANTIVE_LENGTH));
+  const activeSlug = args.projectSlug?.trim().toLowerCase() || '';
+  const discCount = discriminativeTerms(queryTokens, dfMap, N).length;
+
   const scored = allDocs.map(({ doc, rawContent, source, tokens }, i) => {
     const bm25 = scoreBM25(queryTokens, indexed[i], avgDL, N, dfMap);
+    const project = (doc.project ?? '').trim().toLowerCase();
     return {
+      // Flags for the per-prompt injection gate; never read by ranking. Emitted sparsely below.
+      isStub: shortStub[i] || (source === 'wiki' && STUB_DESCRIPTION_RE.test(doc.description ?? '')),
+      isCross: source === 'wiki' && activeSlug !== '' && project !== '' && project !== activeSlug,
       path: doc.path,
       tier: 0,   // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
       score: bm25,
@@ -384,11 +434,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   // Stub penalty: auto-extracted skeletons and very short pages rank below real content
   for (let i = 0; i < scored.length; i++) {
-    if (allDocs[i].source === 'local-doc') continue;
-    const { rawContent } = allDocs[i];
-    if (AUTO_EXTRACTED_RE.test(rawContent) || indexed[i].strippedBody.trim().length < MIN_SUBSTANTIVE_LENGTH) {
-      scored[i].score *= STUB_PENALTY;
-    }
+    if (shortStub[i]) scored[i].score *= STUB_PENALTY;
   }
 
   // Recency boost: recently-updated pages get a linear-decay bonus
@@ -512,18 +558,21 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // anchor may not be the first listed.
   const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);
   const candidates = returned
-    .map(({ related, baseScore, tier, ...rest }) => ({
+    .map(({ related, baseScore, tier, isStub, isCross, ...rest }) => ({
       ...rest,
       score_norm: topFinal > 0 ? Math.round((rest.score / topFinal) * 10000) / 10000 : 0,
       // baseScore surfaces as `relevance`: callers gating on relevance need the frozen
       // pre-boost BM25, not the mode-dependent `score` (see the field doc).
       relevance: Math.round(baseScore * 1000) / 1000,
       query_terms: new Set(queryTokens).size,
+      discriminative_terms: discCount,
+      ...(isStub ? { stub: true as const } : {}),
+      ...(isCross ? { cross_project: true as const } : {}),
       ...(scopeActive ? { tier } : {}),
     }));
 
   // Record access for returned results (fire-and-forget) — telemetry only (see ACCESS_PRUNE_DAYS).
-  const accessCounts = await loadAccessCounts();
+  const accessCounts = await loadAccessCounts(accessFile);
   const ts = new Date().toISOString();
   for (const c of candidates) {
     if (c.source === 'local-doc') continue;
@@ -537,7 +586,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // so the write's fs.rename never completed: a 0-byte `access-counts.json.tmp.<pid>` was left
   // behind on every CLI invocation and access-counts.json was never actually updated. Awaiting it
   // here means the write is durable before this function (and therefore any caller) returns.
-  await saveAccessCounts(accessCounts).catch(() => {});
+  await saveAccessCounts(accessCounts, accessFile).catch(() => {});
 
   return {
     candidates,
@@ -546,6 +595,116 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     // for this slug (see the interface doc for what that can mean).
     ...(scopeOn ? { scoped_to: args.projectSlug!, anchors: anchorCount } : {}),
   };
+}
+
+/** Grounded head-field terms the PER-PROMPT injection gate requires (context-serve-cli; the
+ *  recall CLI keeps its own min(threshold, query_terms) clamp, on purpose — the recall harness
+ *  and the FORGET probe depend on it).
+ *
+ *  - Clamped to the DISCRIMINATIVE term count, so a query with one real term among filler stays
+ *    injectable (the raw-token clamp could ask for 2 when only 1 term can ground — the
+ *    unsatisfiable-gate class, 291768b).
+ *  - Floored at 1 while grounding is on: with 0 discriminative terms (an all-filler query) the
+ *    clamp would otherwise reach 0 and pass every page.
+ *  - A cross-project page needs one MORE term, clamped to the same count, so a cross-project
+ *    page that grounds on every discriminative term is still injectable.
+ *  retrieval-guards.test.ts holds the arithmetic locks. minGrounded <= 0 = grounding off, for
+ *  every page: it returns before the cross-project term is added. */
+export function injectionGroundingNeed(minGrounded: number, discriminative: number, crossProject: boolean): number {
+  if (minGrounded <= 0) return 0;
+  const base = Math.max(1, Math.min(minGrounded, discriminative));
+  return crossProject ? Math.max(base, Math.min(base + 1, discriminative)) : base;
+}
+
+const GATE_ON = new Set(['1', 'on', 'true', 'yes']);
+const GATE_OFF = new Set(['0', 'off', 'false', 'no']);
+
+/** knowledge-search-cli's SB_INJECT_GATE: 1/on/true/yes (any case) turn the per-prompt gate on.
+ *  Unset, empty and an explicit 0/off/false/no keep the legacy filter. Any other value also
+ *  keeps the legacy filter, but `warn` is called once, so a typo cannot silently disable the gate
+ *  the caller asked for. */
+export function parseInjectGate(raw: string | undefined, warn: (msg: string) => void): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (GATE_ON.has(v)) return true;
+  if (v && !GATE_OFF.has(v)) {
+    warn(`SB_INJECT_GATE=${JSON.stringify(raw)} is not recognised (use 1/on/true/yes); using the legacy filter`);
+  }
+  return false;
+}
+
+/** SB_INJECT_PRECISION, in SB_INJECT_GATE's vocabulary (trimmed, any case): off/0/false/no restore
+ *  the 0.54.1 gate; on/1/true/yes, empty and unset keep the R1 gate. Any other value keeps the R1
+ *  gate and calls `warn` once, so a typo can neither roll the gate back nor silently fail to. */
+export function parseInjectPrecision(raw: string | undefined, warn: (msg: string) => void): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (GATE_OFF.has(v)) return false;
+  if (v !== '' && !GATE_ON.has(v)) {
+    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use off/0/false/no or on/1/true/yes); keeping the precision gate`);
+  }
+  return true;
+}
+
+// SB_INJECT_PRECISION — the R1 rollback switch (default on). Read once per process, here at module
+// load, so a long-lived MCP server needs a restart to pick up a change. off/0/false/no (any case)
+// restore the 0.54.1 per-prompt injection gate everywhere this engine runs: discriminativeTerms
+// grounds on the 0.54 stopword list alone and lets single letters and pure digits ground again, so
+// `grounded` and `discriminative_terms` are 0.54's for every caller (the recall CLI's default filter
+// and the MCP tool included); and injectableWiki becomes legacyWikiFilter — stubs injectable, no
+// extra term for a cross-project page, need = min(minGrounded, query_terms). That covers
+// context-serve-cli, knowledge-search-cli's SB_INJECT_GATE path and the SessionStart enrichment
+// that runs through it; no CLI reads the variable itself. Ranking is untouched in both modes, and
+// the `stub` / `cross_project` flags are still emitted when off (nothing reads them then).
+// on/1/true/yes, unset or empty keep the R1 gate; any other value warns once on stderr and keeps it.
+// The hooks discard CLI stderr, so the outcome is also exported (injectPrecisionStatus) and
+// reportInjectPrecision makes it durable: context-serve-cli and knowledge-search-cli call it per
+// invocation, the MCP server once at start. retrieval-guards.test.ts locks both modes row by row,
+// and the satisfiability arithmetic in each.
+let injectPrecisionWarning: string | undefined;
+const INJECT_PRECISION = parseInjectPrecision(process.env.SB_INJECT_PRECISION, (msg) => {
+  injectPrecisionWarning = msg;
+  process.stderr.write(`second-brain knowledge-search: ${msg}` + '\n');
+});
+
+/** The switch's parse outcome for this process: `r1` (the default gate) or `off` (the 0.54.1
+ *  rollback); `warning` is set only for an unrecognised value, which keeps `r1`. */
+export interface InjectPrecisionStatus { mode: 'r1' | 'off'; warning?: string }
+export function injectPrecisionStatus(): InjectPrecisionStatus {
+  return { mode: INJECT_PRECISION ? 'r1' : 'off', ...(injectPrecisionWarning ? { warning: injectPrecisionWarning } : {}) };
+}
+
+/** Makes the switch's outcome durable where stderr is discarded (the hook path). An unrecognised
+ *  value -> one error-log.jsonl row (appendErrorLog, exit_code 1). `off` -> one TRACE row in
+ *  audit-log.jsonl, the shape bash sb_log_error gives a rerouted gate row:
+ *  {"timestamp","script","message":"gate=inject-precision mode=off","exit_code":0}. The default R1
+ *  mode with a recognised value does no I/O at all (no per-prompt cost). Never throws: a failed
+ *  write is echoed to stderr. `script` names the caller (the CLI, or mcp-server). */
+export async function reportInjectPrecision(brainDir: string, script: string,
+  status: InjectPrecisionStatus = injectPrecisionStatus()): Promise<void> {
+  if (status.warning) await appendErrorLog(brainDir, script, status.warning, 1);
+  if (status.mode === 'off') await appendGateTrace(brainDir, script, 'gate=inject-precision mode=off');
+}
+
+export interface InjectGateOpts { minScore: number; minRelevance: number; minGrounded: number }
+
+/** The 0.54.1 wiki filter, verbatim: knowledge-search-cli's default (recall) branch — the recall
+ *  harness and the FORGET probe pin it — and, with SB_INJECT_PRECISION=off, the per-prompt gate.
+ *  The need is clamped to the RAW query-term count read off candidates[0] (minGrounded when the
+ *  list is empty or its head carries none), so pass the engine's full candidate list, never a
+ *  pre-filtered or reassembled one: whatever sits first sets the clamp for every candidate
+ *  (knowledge-search.test.ts locks this with handcrafted lists). */
+export function legacyWikiFilter<C extends KnowledgeSearchResult['candidates'][number]>(candidates: C[], o: InjectGateOpts): C[] {
+  const needGrounded = Math.min(o.minGrounded, candidates[0]?.query_terms ?? o.minGrounded);
+  return candidates.filter(c => c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= needGrounded);
+}
+
+/** The per-prompt wiki gate: never a stub; score/relevance floors; grounding per
+ *  injectionGroundingNeed. Filters only — order (and so ranking) is the engine's.
+ *  SB_INJECT_PRECISION=off: legacyWikiFilter instead (see the switch above). */
+export function injectableWiki<C extends KnowledgeSearchResult['candidates'][number]>(candidates: C[], o: InjectGateOpts): C[] {
+  if (!INJECT_PRECISION) return legacyWikiFilter(candidates, o);
+  return candidates.filter(c => !c.stub
+    && c.score >= o.minScore && c.relevance >= o.minRelevance
+    && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
 }
 
 interface FieldIndex { counts: Map<string, number>; len: number; weight: number }
@@ -620,7 +779,9 @@ function discriminativeTerms(queryTokens: string[], dfMap: Map<string, number>, 
   // but nowhere near the corpus SHARE. df catches project jargon that has gone generic; only a
   // stopword list catches words that were never content-bearing to begin with. Grounding only —
   // BM25 itself is untouched, so these words still contribute to ranking as they always did.
-  const distinct = [...new Set(queryTokens)].filter(t => !GROUNDING_STOPWORDS.has(t));
+  const distinct = [...new Set(queryTokens)].filter(INJECT_PRECISION
+    ? t => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t)
+    : t => !LEGACY_GROUNDING_STOPWORDS.has(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter(t => (dfMap.get(t) ?? 0) <= maxDf);

@@ -75,6 +75,33 @@ if [ -d "$BRAIN_DIR/.buddy" ]; then
   find "$BRAIN_DIR/.buddy" -maxdepth 1 \( -name '*.json' -o -name '*.jsonl' -o -name '*.chain' -o -name '*.seen' -o -name '*.busy' -o -name '*.chain.*' -o -name '*.tmp.*' \) -type f -mtime +7 -delete 2>/dev/null || true
 fi
 
+# G4: orphaned atomic-write debris. A killed writer leaves <file>.tmp.<pid> / <file>.rot.<n> in the
+# BRAIN_DIR root (live state held 15 access-counts.json.tmp.* and a 568 KB audit-log.jsonl.tmp.5543).
+# Root only (maxdepth 1), regular files only (-type f without -L: a symlink is never followed or
+# removed, a directory never pruned), older than a day (-mtime +0), so a live writer's fresh temp
+# file is never touched. The audited count is what was actually DELETED: a count, the -delete pass,
+# a recount (the old `-print -delete | wc -l` counted what find listed, deleted or not). A find
+# that exits non-zero is logged through sb_log_error. The common case (no debris) costs one find.
+_ed_debris() { find "$BRAIN_DIR" -maxdepth 1 -type f \( -name '*.tmp.*' -o -name '*.rot.*' \) -mtime +0 "$@"; }
+_ed_debris_count() {
+  local l rc
+  l=$(_ed_debris -print 2>/dev/null); rc=$?
+  [ "$rc" -eq 0 ] || sb_log_error "ensure-dirs.sh" "tmp-debris-gc: find (count) exited $rc in $BRAIN_DIR" "$rc"
+  if [ -n "$l" ]; then printf '%s\n' "$l" | grep -c .; else echo 0; fi
+}
+_ED_BEFORE=$(_ed_debris_count)
+if [ "${_ED_BEFORE:-0}" -gt 0 ]; then
+  _ed_err=$(_ed_debris -delete 2>&1 >/dev/null); _ed_rc=$?
+  _ED_AFTER=$(_ed_debris_count)
+  _ED_PRUNED=$(( _ED_BEFORE - ${_ED_AFTER:-0} )); [ "$_ED_PRUNED" -ge 0 ] || _ED_PRUNED=0
+  if [ "$_ed_rc" -ne 0 ]; then
+    sb_log_error "ensure-dirs.sh" "tmp-debris-gc: find -delete exited $_ed_rc in $BRAIN_DIR (${_ED_AFTER:-?} of $_ED_BEFORE stale file(s) left): ${_ed_err:0:300}" "$_ed_rc"
+  fi
+  if [ "$_ED_PRUNED" -gt 0 ]; then
+    sb_log_audit "ensure-dirs.sh" "allow" "tmp-debris-gc" "$BRAIN_DIR" "pruned $_ED_PRUNED stale *.tmp.*/*.rot.* file(s)"
+  fi
+fi
+
 # GC stale ghost projects. session-load.sh used to accept any $PWD basename as
 # a project slug, so mktemp dirs like tmp.xK3p9q became permanent project
 # directories with empty PROJECT.md. The session-load.sh slug guard prevents

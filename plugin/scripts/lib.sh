@@ -72,6 +72,85 @@ sb_normalize_path() {
   printf '%s' "$p"
 }
 
+# sb_suite_guard KIND PATH — G3 suite guard, the bash twin of suiteGuard() in
+# mcp/src/brain-paths.ts. tests/run-all.sh exports SB_SUITE_REAL_HOME_PATH (the developer's
+# REAL home) and sandboxes HOME/USERPROFILE; a script that still resolves KIND=brain to
+# <real home>/.second-brain, or KIND=knowledge to <real home>/knowledge, leaked past the
+# sandbox. Compares ONLY those two exact dirs (never "anything under the real home": the
+# Windows TMPDIR lives there), after normalizing both sides (backslash, drive letter ->
+# MSYS form, trailing slash, case on cygpath platforms). No-op when the var is unset.
+# A trip NEVER exits and never yields an empty path. An `exit 1` here killed every script
+# that sourced lib.sh, PreToolUse guards included (rc 1, no verdict, and a non-zero
+# PreToolUse exit does not block the tool: fail-open); an empty sb_knowledge_dir sent
+# callers to `mkdir -p /wiki/...` and `rsync --delete` into /wiki. On a trip instead:
+#   1. one loud stderr line;
+#   2. a line appended to the file named by SB_SUITE_GUARD_MARKER (tests/run-all.sh points
+#      it into its sandbox and FAILS the whole run when it exists at the end);
+#   3. SB_SUITE_GUARD_PATH = a quarantine dir next to the marker (created), which the caller
+#      uses instead, so nothing touches the real dir. Without a marker variable (a test run
+#      by hand with SB_SUITE_REAL_HOME_PATH set) the quarantine sits under TMPDIR.
+# Returns 1 on a trip, 0 otherwise (SB_SUITE_GUARD_PATH = the path unchanged). It deliberately
+# does NOT sb_log_error: that would write into the real dir.
+# _sb_sg_canon PATH -> _SB_SG_C: the suite guard's spawn-free canonical form. \ -> /, the //?/ and
+# //./ prefixes dropped, X:/ -> /x/ (drive letter lowered by an index lookup, bash 3.2-safe),
+# trailing slashes dropped. Enough to equate the MSYS, C:\ and C:/ spellings of one directory.
+_sb_sg_canon() {
+  local p="${1//\\//}" d rest i lc=abcdefghijklmnopqrstuvwxyz uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+  p="${p#"//?/"}"; p="${p#"//./"}"
+  case "$p" in
+    [A-Za-z]:/*|[A-Za-z]:)
+      d="${p%%:*}"; rest="${p#?:}"
+      case "$uc" in *"$d"*) i="${uc%%"$d"*}"; d="${lc:${#i}:1}" ;; esac
+      p="/$d$rest" ;;
+  esac
+  while [ "$p" != "/" ] && [ "${p%/}" != "$p" ]; do p="${p%/}"; done
+  _SB_SG_C="$p"
+}
+# _sb_sg_resolve PATH -> _SB_SG_C: _sb_sg_canon, plus `cygpath -u` for a DRIVE-form path on
+# MSYS/Cygwin — only cygpath knows the mounts (C:\…\AppData\Local\Temp\x is /tmp/x there). Cached
+# per input, so a drive-form SB_SUITE_REAL_HOME_PATH costs one spawn per process; run-all exports
+# the MSYS form, so the suite's hooks spawn nothing here.
+_SB_SG_RIN="" _SB_SG_ROUT=""
+_sb_sg_resolve() {
+  case "$1" in
+    [A-Za-z]:[\\/]*|[\\/][\\/][?.][\\/]*)
+      if [ "$1" = "$_SB_SG_RIN" ]; then _SB_SG_C="$_SB_SG_ROUT"; return 0; fi
+      if command -v cygpath >/dev/null 2>&1; then
+        local u; u=$(cygpath -u "$1" 2>/dev/null) || u=""
+        if [ -n "$u" ]; then _sb_sg_canon "$u"; _SB_SG_RIN="$1"; _SB_SG_ROUT="$_SB_SG_C"; return 0; fi
+      fi ;;
+  esac
+  _sb_sg_canon "$1"
+}
+sb_suite_guard() {
+  SB_SUITE_GUARD_PATH="$2"
+  [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ] || return 0
+  local want got q
+  case "$1" in brain) want=".second-brain" ;; knowledge) want="knowledge" ;; *) return 0 ;; esac
+  # Builtins only: lib.sh is sourced by every hook, so a guard that spawns (cygpath, tr) pays on
+  # every guard call under the suite and blew protocol-guard's warm spawn budget (13 > 11).
+  _sb_sg_resolve "${SB_SUITE_REAL_HOME_PATH%/}/$want"; want="$_SB_SG_C"
+  _sb_sg_resolve "$2"; got="$_SB_SG_C"
+  [ -n "$got" ] || return 0
+  # Case-insensitive on Windows (cygpath present) and macOS — the same filesystems the TS guard folds.
+  local _sg_nc=1 _sg_hit=1
+  shopt -q nocasematch || _sg_nc=0
+  if command -v cygpath >/dev/null 2>&1; then shopt -s nocasematch; else case "${OSTYPE:-}" in darwin*) shopt -s nocasematch ;; esac; fi
+  [[ "$got" == "$want" ]] && _sg_hit=0
+  [ "$_sg_nc" = 1 ] || shopt -u nocasematch
+  [ "$_sg_hit" = 0 ] || return 0
+  q="${SB_SUITE_GUARD_MARKER:-${TMPDIR:-/tmp}/sb-suite-guard}.quarantine/$1"
+  printf 'lib.sh: suite guard: %s dir resolved to the REAL %s while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; point BRAIN_DIR/KNOWLEDGE_DIR at a temp dir). Using quarantine %s; run-all fails the run.\n' "$1" "$2" "$q" >&2
+  if [ -n "${SB_SUITE_GUARD_MARKER:-}" ]; then
+    printf '%s dir %s -> %s (pid %s, %s)\n' "$1" "$2" "$q" "$$" "${0##*/}" >> "$SB_SUITE_GUARD_MARKER" \
+      || printf 'lib.sh: suite guard: could not write the marker %s\n' "$SB_SUITE_GUARD_MARKER" >&2
+  fi
+  mkdir -p "$q" || printf 'lib.sh: suite guard: could not create the quarantine %s\n' "$q" >&2
+  SB_SUITE_GUARD_PATH="$q"
+  return 1
+}
+if ! sb_suite_guard brain "$BRAIN_DIR"; then BRAIN_DIR="$SB_SUITE_GUARD_PATH"; export BRAIN_DIR; fi
+
 # sb_mtime — portable file mtime as epoch seconds via `stat -c %Y` || `stat -f %m`
 # || 0. THE single funnel for the ~17 copy-pasted GNU/BSD stat sites (portability
 # floor: any line using the GNU form needs its BSD twin, which this one-liner has).
@@ -87,8 +166,23 @@ sb_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 
 # --knowledge-dir arg, or honor an extra alias (SB_KNOWLEDGE_DIR) keep their own form.
 sb_knowledge_dir() {
   local d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
-  printf '%s' "${d/#\~/$HOME}"
+  d="${d/#\~/$HOME}"
+  sb_suite_guard knowledge "$d" || d="$SB_SUITE_GUARD_PATH"
+  printf '%s' "$d"
 }
+# The knowledge-dir guard also runs at SOURCE time, like the brain-dir one above: inside a
+# caller's $(sb_knowledge_dir) the trip is invisible, and scripts that read the two variables
+# directly never call the resolver. A trip points both variables (exported, so node children see
+# it too) at the quarantine; sb_knowledge_dir then resolves to it. Builtins only when the suite
+# variable is unset (production).
+if [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ]; then
+  _sb_kd="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
+  if ! sb_suite_guard knowledge "${_sb_kd/#\~/$HOME}"; then
+    CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SB_SUITE_GUARD_PATH"; KNOWLEDGE_DIR="$SB_SUITE_GUARD_PATH"
+    export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR KNOWLEDGE_DIR
+  fi
+  unset _sb_kd
+fi
 
 # KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
 # / SB_GENERATED_DIRS / SB_EDGE_TYPES / SB_FORGET_PROTECTED / SB_FORGET_DISCOUNTED from kb-schema.json.
@@ -3674,4 +3768,44 @@ sb_rules_hard_lines() {
   # explicitly disabled rule would be listed as enforced (the jq `// true` trap).
   jq -r --argjson n "$max" '[.rules[]? | select(.enabled != false and (.action=="ask" or .action=="deny"))
       | "- " + (.name // "rule") + ": " + (((.reason // "") | gsub("[\r\n`]"; " "))[0:120])] | .[0:$n] | .[]' "$f" 2>/dev/null | tr -d '\r'
+}
+
+# sb_is_headless_child: 0 when this hook runs inside a FOREIGN headless child, i.e. a `claude -p` or
+# SDK-cli run nobody attends: CLAUDE_CODE_SESSION_ATTENDED=0, or CLAUDE_CODE_ENTRYPOINT exactly
+# sdk-cli. Probed 2026-10-05: interactive sessions carry ATTENDED=1 / ENTRYPOINT=cli, `claude -p`
+# carries ATTENDED=0 / sdk-cli. The 2026-10-05 audit found 122 of 124 such children injected per
+# prompt and 79 given SessionStart memory nobody asked for. Exact `sdk-cli`, never `sdk-*`: SDK hosts
+# can be interactive. SB_NESTED_SPAWN=1 marks the plugin's OWN spawns, not foreign ones (every gated
+# hook already no-ops on it first). SB_HEADLESS_CONTEXT=on opts a run back in (the S1 eval's plugin
+# arms set it). Gates the seven hooks that serve memory or capture a session: persona-context.sh,
+# session-load.sh, stop-extract.sh, discover-installed.sh, pre-compact.sh (its archive + extraction),
+# subagent-capture.sh (a foreign child's subagent results) and dream-autostage.sh (its banner).
+# NEVER a PreToolUse guard (guards fail safe and must run for every host, attended or not).
+# Every gate exits through sb_headless_trace, so a skipped child leaves one audit row.
+# Hooks that act before sourcing lib.sh carry an inline copy of the one-line body below, tagged
+# with the sb-headless-inline marker; tests/test-persona-context.sh asserts each copy is
+# byte-identical to it and names its own hook (single source by lock). Keep the body on ONE line.
+sb_is_headless_child() {
+  [ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; }
+}
+
+# sb_headless_trace HOOK: the one audit row a headless-gated hook writes as it exits,
+#   gate=headless-child hook=<HOOK> entrypoint=<CLAUDE_CODE_ENTRYPOINT> attended=<..._ATTENDED>
+# at exit_code 0, i.e. a TRACE on the audit channel (sb_log_error's gate-row routing), so "why did
+# this child get no memory" is answerable from the log. One builtin printf append, the pattern of
+# persona-context.sh's machine-turn trace: fork-free on bash >= 4.2 (printf %()T), one `date` below
+# that; the next sb_log_error caller rotates the file. The two env values come from the host, so
+# they are cut to [A-Za-z0-9._-] and capped BEFORE they enter the row (no JSON escaping needed, no
+# injected fields). No brain dir means the plugin is not set up: no row, and nothing is created.
+sb_headless_trace() {
+  local ts bd="${BRAIN_DIR:-$HOME/.second-brain}" h="${1:-unknown}" ep="${CLAUDE_CODE_ENTRYPOINT:-}" at="${CLAUDE_CODE_SESSION_ATTENDED:-}"
+  [ -d "$bd" ] || return 0
+  h="${h//[!A-Za-z0-9._-]/}"; ep="${ep//[!A-Za-z0-9._-]/}"; at="${at//[!A-Za-z0-9._-]/}"
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+    TZ=UTC0 printf -v ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  else
+    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  fi
+  printf '{"timestamp":"%s","script":"%s.sh","message":"gate=headless-child hook=%s entrypoint=%s attended=%s","exit_code":0}\n' \
+    "$ts" "${h:0:40}" "${h:0:40}" "${ep:0:32}" "${at:0:8}" >> "$bd/audit-log.jsonl" 2>/dev/null || true
 }

@@ -38,6 +38,11 @@ Be terse. Default silent on questions/specialists/risks — only populate when t
 Output ONLY the JSON object, no prose around it.`;
 
 function defaultRunner(system: string, user: string, model: string): Promise<string> {
+  // G2: a test that forgets to inject a runner must not spawn a REAL `claude -p` (account
+  // usage + a nondeterministic suite). Vitest sets VITEST; fail loud instead of spawning.
+  if (process.env.VITEST) {
+    return Promise.reject(new Error('persona-think defaultRunner: refusing to spawn a real claude under VITEST; inject deps.runner'));
+  }
   return new Promise((resolve, reject) => {
     const p = spawn('claude', ['-p', '--bare', '--model', model, '--system-prompt', system], {
       stdio: ['pipe', 'pipe', 'pipe'],

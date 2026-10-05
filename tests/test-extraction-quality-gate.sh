@@ -1,6 +1,8 @@
 #!/bin/bash
 # pins: SB_QUALITY_GATE — kill-switch test: asserts =off bypasses the gate
 # pins: SB_QUALITY_GATE_STRICTNESS — exercises the strictest mode directly (aggressive) — the opposite of a can't-fail value
+# pins: SB_QUALITY_GATE_LLM — G2: forces LLM mode on to prove the in-suite refusal fires before any spawn (the refusal is the subject)
+# pins: SB_SUITE_REAL_HOME_PATH — G2: stands in for run-all's suite marker so the in-suite LLM refusal is exercised
 # Tests for scripts/extraction-quality-gate.sh — Layer 4 Quality Gate.
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/extraction-quality-gate.sh"
@@ -88,6 +90,22 @@ out=$(echo '{"recent_decisions":["files this session: noise.ts"],"wiki_updates":
 [ -n "$out" ] && echo "$out" | jq -e '(.recent_decisions|length)==0' >/dev/null \
   || fail "preserve-payload: the 'files this session' noise should still be filtered (got: $out)"
 pass "gate preserves wiki_updates + relations while filtering decision noise"
+
+# G2: inside the suite (SB_SUITE_REAL_HOME_PATH set) LLM mode must refuse before any
+# real claude spawn: non-zero exit, a stderr message, an error-log row, claude never run.
+FAKE_BIN="$BD/fakebin"; mkdir -p "$FAKE_BIN"
+printf '#!/bin/bash
+echo spawned >> "%s/claude-spawned"
+echo ACCEPT
+' "$BD" > "$FAKE_BIN/claude"
+chmod +x "$FAKE_BIN/claude"
+rc=0
+err=$(echo '{"recent_decisions":["decided to use BM25+ONNX hybrid for wiki search"]}'   | PATH="$FAKE_BIN:$PATH" SB_QUALITY_GATE_LLM=on SB_SUITE_REAL_HOME_PATH=/real/home bash "$SCRIPT" 2>&1 >/dev/null) || rc=$?
+[ "$rc" -ne 0 ] || fail "suite guard: LLM mode inside the suite should exit non-zero"
+echo "$err" | grep -q "real claude inside the test suite" || fail "suite guard: no loud stderr message (got: $err)"
+[ ! -e "$BD/claude-spawned" ] || fail "suite guard: a claude process was spawned"
+grep -q "real claude inside the test suite" "$BD/error-log.jsonl" || fail "suite guard: no error-log row"
+pass "LLM mode refuses to spawn a real claude inside the test suite"
 
 echo
 echo "ALL PASS"

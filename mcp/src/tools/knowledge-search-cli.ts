@@ -1,4 +1,4 @@
-import { knowledgeSearch } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate, reportInjectPrecision } from './knowledge-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 const query = process.argv[2] || '';
@@ -50,11 +50,25 @@ const minGrounded = envNum('SB_INJECT_MIN_GROUNDED', 2, 0, 64);
 // a split here would send scoping and access-counts to different trees (R2 review).
 const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG || undefined;
+// SB_INJECT_PRECISION, made durable: the hooks (session-load.sh, persona-context.sh's fallback)
+// discard this CLI's stderr. An unrecognised value -> error-log.jsonl; off -> one
+// gate=inject-precision TRACE row in audit-log.jsonl; the default writes nothing.
+await reportInjectPrecision(brainDir, 'knowledge-search-cli');
 const result = await knowledgeSearch({ query, brainDir, projectSlug });
 
-const needGrounded = Math.min(minGrounded, result.candidates[0]?.query_terms ?? minGrounded);
-const top = result.candidates
-  .filter(c => c.score >= minScore && c.relevance >= minRelevance && c.grounded >= needGrounded)
+// SB_INJECT_GATE=1 (or on/true/yes): the caller injects the result into a session (session-load.sh's
+// SessionStart wiki enrichment), so it gets the same per-prompt gate as context-serve-cli — no
+// stubs, discriminative-term grounding, one extra term for cross-project pages (R1#4). Unset: the
+// legacy filter, unchanged, because the recall harness (wiki-recall-check.sh) and the FORGET
+// probe read this CLI and pin its behaviour. An unrecognised value warns once on stderr.
+// SB_INJECT_PRECISION=off (read by the engine, not here) turns the gated path back into the legacy
+// filter and restores 0.54 grounding on both paths; see knowledge-search.ts.
+const injectGate = parseInjectGate(process.env.SB_INJECT_GATE,
+  (msg) => { process.stderr.write(`knowledge-search-cli: ${msg}\n`); });
+const gateOpts = { minScore, minRelevance, minGrounded };
+const top = (injectGate
+  ? injectableWiki(result.candidates, gateOpts)
+  : legacyWikiFilter(result.candidates, gateOpts))
   .slice(0, 2);
 if (top.length === 0) { process.exit(0); }
 

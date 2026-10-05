@@ -9,6 +9,9 @@
 # harvest produced keywords. With the range-collapse bug the gate is never taken, node is
 # never called, and the sentinel is absent — so this test is discriminating.
 set -u
+# A headless parent (claude -p) would make session-load's headless-child gate exit silently and
+# turn every absence/presence check below into a vacuous pass or a false fail.
+unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"; SL="$ROOT/scripts/session-load.sh"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 . "$ROOT/scripts/lib.sh" >/dev/null 2>&1
@@ -27,7 +30,7 @@ cat > "$STUB/node" <<'NODE'
 case "$*" in
   *knowledge-search-cli*)
     q="${!#}"
-    [ -n "${q// /}" ] && printf 'demo-note :: WIKIENRICH_SENTINEL'
+    [ -n "${q// /}" ] && printf 'demo-note :: WIKIENRICH_SENTINEL gate=%s' "${SB_INJECT_GATE:-unset}"
     ;;
 esac
 exit 0
@@ -62,6 +65,12 @@ OUT=$(printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
 printf '%s' "$OUT" | grep -q 'WIKIENRICH_SENTINEL' \
   || fail "wiki-enrichment did not fire — PROJ_KW harvest is empty (awk range-collapse?); session starts without project wiki recall"
 pass "PROJECT.md harvest is non-empty → wiki-enrichment invokes the search CLI (sentinel present)"
+
+# 0.55.0 (R1#4): SessionStart enrichment injects into the session, so it must ask the CLI for the
+# per-prompt injection gate (no stubs, discriminative grounding, +1 term cross-project).
+printf '%s' "$OUT" | grep -q 'WIKIENRICH_SENTINEL gate=1' \
+  || fail "wiki-enrichment called the search CLI without SB_INJECT_GATE=1 — stubs/cross-project noise reach the session card"
+pass "wiki-enrichment asks the search CLI for the injection gate (SB_INJECT_GATE=1)"
 
 # 0.30.0 cross-OS: a CRLF PROJECT.md (Windows / imported) must NOT defeat the harvest. Every
 # `/^## Section$/` awk reader fails on `## Section\r`, so without the CR-normalization the harvest

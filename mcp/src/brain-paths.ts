@@ -4,6 +4,36 @@ import { readFileSync, statSync, existsSync } from 'fs';
 import { cleanEnvPath } from './path-guard.js';
 
 /**
+ * Suite guard (G3). tests/run-all.sh exports SB_SUITE_REAL_HOME_PATH (the developer's REAL
+ * home) and sandboxes HOME/USERPROFILE. A test that still resolves to the real
+ * `<real home>/.second-brain` or `<real home>/knowledge` has leaked past the sandbox (a
+ * fixture slug "foo" reached the real access-counts.json this way), so fail loud instead of
+ * polluting. ONLY those two exact dirs are compared — never "anything under the real home":
+ * the Windows TMPDIR lives under it. Both sides are normalized across \ vs /, MSYS /c/x vs
+ * C:/x, trailing slashes, and drive-letter case.
+ */
+function normForCompare(p: string): string {
+  let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join('/');
+  const m = s.match(/^[/]([A-Za-z])([/].*)?$/);
+  if (m) s = `${m[1]}:${m[2] ?? '/'}`;
+  s = s.replace(/[/]+$/, '');
+  return /^[A-Za-z]:/.test(s) ? s.toLowerCase() : s;
+}
+
+function suiteGuard(kind: 'brain' | 'knowledge', resolved: string): string {
+  const real = cleanEnvPath(process.env.SB_SUITE_REAL_HOME_PATH);
+  if (!real.trim()) return resolved;
+  const forbidden = normForCompare(`${real}/${kind === 'brain' ? '.second-brain' : 'knowledge'}`);
+  if (normForCompare(resolved) === forbidden) {
+    throw new Error(
+      `suite guard: ${kind} dir resolved to the REAL ${resolved} while SB_SUITE_REAL_HOME_PATH is set ` +
+        '(a test leaked past the run-all sandbox; set BRAIN_DIR/KNOWLEDGE_DIR to a temp dir in that test)'
+    );
+  }
+  return resolved;
+}
+
+/**
  * Canonical resolvers for the second-brain home dir and the knowledge dir.
  *
  * THE BUG CLASS THIS CLOSES (0.33.x): ~14 tools each hand-rolled their own
@@ -26,15 +56,16 @@ import { cleanEnvPath } from './path-guard.js';
  * file/registry/wrapper does not produce a phantom `"x\r"` path.
  */
 export function resolveBrainDir(override?: string): string {
-  if (override) return override;
-  return (
+  if (override) return suiteGuard('brain', override);
+  return suiteGuard(
+    'brain',
     cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) ||
-    join(homedir(), '.second-brain')
+      join(homedir(), '.second-brain')
   );
 }
 
 export function resolveKnowledgeDir(override?: string): string {
-  if (override) return override;
+  if (override) return suiteGuard('knowledge', override);
   // THE SINGLE knowledge-dir resolver (server.ts and dream.ts once carried local
   // copies with the OPPOSITE precedence — env over option). Canonical precedence:
   // plugin option > env > ~/knowledge. Per-candidate guards absorbed from those
@@ -45,9 +76,9 @@ export function resolveKnowledgeDir(override?: string): string {
   for (const raw of [process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR, process.env.KNOWLEDGE_DIR]) {
     const c = cleanEnvPath(raw);
     if (!c.trim() || c.includes('${')) continue;
-    return c.startsWith('~') ? join(homedir(), c.slice(1)) : c;
+    return suiteGuard('knowledge', c.startsWith('~') ? join(homedir(), c.slice(1)) : c);
   }
-  return join(homedir(), 'knowledge');
+  return suiteGuard('knowledge', join(homedir(), 'knowledge'));
 }
 
 /**

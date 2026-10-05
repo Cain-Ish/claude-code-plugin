@@ -7,12 +7,12 @@ import { EDGE_TYPES, type EdgeType } from "./tools/graph-store.js";
 import { pinToUser } from "./tools/pin-to-user.js";
 import { pinToProject } from "./tools/pin-to-project.js";
 import { archiveToWiki } from "./tools/archive-to-wiki.js";
-import { knowledgeSearch } from "./tools/knowledge-search.js";
+import { knowledgeSearch, reportInjectPrecision } from "./tools/knowledge-search.js";
 import { knowledgeFetch } from "./tools/knowledge-fetch.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
 import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
-import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope } from "./tools/episodic-search.js";
+import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope, episodeUserLine, foldServedSnippet } from "./tools/episodic-search.js";
 import { personaThink } from "./tools/persona-think.js";
 import { personaStats } from "./tools/persona-stats.js";
 import { personaDismiss } from "./tools/persona-dismiss.js";
@@ -400,12 +400,15 @@ registerJsonTool(
     if (result.results.length === 0) {
       return "No matching conversations found.";
     }
+    // Archive text is untrusted: every snippet is folded to one bracket-free line, and a row with
+    // no human words is labelled by its provenance (subagent report, peer message, machine turn),
+    // never with the user label (security review, R1).
     const render = (r: typeof result.results[number]) => {
       const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : '';
       return [
-        `### ${r.project} — ${r.date}${sim}`,
-        `**User**: ${r.userSnippet}`,
-        `**Assistant**: ${r.assistantSnippet}`,
+        `### ${foldServedSnippet(r.project)} — ${foldServedSnippet(r.date)}${sim}`,
+        episodeUserLine(r.userSnippet),
+        `**Assistant**: ${foldServedSnippet(r.assistantSnippet)}`,
         `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`,
       ].join('\n');
     };
@@ -559,6 +562,9 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Knowledge MCP server running on stdio");
+  // SB_INJECT_PRECISION is read once, at engine load: record an unrecognised value (error-log.jsonl)
+  // or an active rollback (a gate=inject-precision TRACE in audit-log.jsonl) once per server start.
+  await reportInjectPrecision(BRAIN_DIR, 'mcp-server');
 }
 
 main().catch((error) => {

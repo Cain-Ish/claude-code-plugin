@@ -498,7 +498,13 @@ export KNOWLEDGE_DIR="$HOME/knowledge"; mkdir -p "$KNOWLEDGE_DIR/wiki"
 NS="sess-nudge-1"
 printf '{"goal":"implement the buddy nudge","goal_kw":"buddy nudge","prompts":8}' > "$BRAIN_DIR/.injected/$NS.json"
 printf 'implement' > "$BRAIN_DIR/.injected/$NS.phase"
-pc(){ printf '{"session_id":"%s","prompt":"now implement the next step of the buddy nudge please"}' "$1" | CLAUDE_PLUGIN_ROOT="$ROOT" tbound 60 bash "$ROOT/scripts/persona-context.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // ""'; }
+# Every pc call sends a NEW prompt with the same content: an identical prompt twice in one session
+# is an exact-repeat skip (persona-context R1#1), so a fixed prompt turned every "next turn" below into
+# a skipped turn (no line at all) and made the "fires once" checks pass on turns that never ran. The
+# counter lives in a file: pc runs inside $(...) subshells.
+PC_N="$HOME/.pc-turn"; echo 0 > "$PC_N"
+pc(){ local n; n=$(( $(cat "$PC_N") + 1 )); echo "$n" > "$PC_N"
+  printf '{"session_id":"%s","prompt":"now implement the next step of the buddy nudge please (turn %s)"}' "$1" "$n" | CLAUDE_PLUGIN_ROOT="$ROOT" tbound 60 bash "$ROOT/scripts/persona-context.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // ""'; }
 out=$(pc "$NS"); printf '%s' "$out" | grep -q '^\[buddy\] 8 prompts' || fail "memory nudge did not fire at the threshold: $out"
 [ "$(printf '%s' "$out" | grep -c '^\[buddy\]')" = "1" ] || fail "nudge must be exactly one line"
 jq -e '.buddy_nudge=="1" and .prompts==9' "$BRAIN_DIR/.injected/$NS.json" >/dev/null || fail "memo must record the nudge and count prompts"
@@ -523,7 +529,7 @@ out=$(pc "$NS4"); printf '%s' "$out" | grep -q '^\[buddy\]' && fail "nudge fired
 rm -f "$BRAIN_DIR/.buddy/_global.log.jsonl"
 NS5="sess-nudge-5"; printf 'implement' > "$BRAIN_DIR/.injected/$NS5.phase"
 printf '{"goal":"implement the buddy nudge","goal_kw":"buddy nudge","prompts":5}' > "$BRAIN_DIR/.injected/$NS5.json"
-pc "$NS5" >/dev/null; pc "$NS5" >/dev/null   # second identical turn: everything deduped
+pc "$NS5" >/dev/null; pc "$NS5" >/dev/null   # second turn: a different prompt, the same (deduped) content
 jq -c '.prompts=8' "$BRAIN_DIR/.injected/$NS5.json" > "$BRAIN_DIR/.nq" && mv "$BRAIN_DIR/.nq" "$BRAIN_DIR/.injected/$NS5.json"
 out=$(pc "$NS5"); printf '%s' "$out" | grep -q '^\[buddy\] 8 prompts' || fail "nudge recorded but not shown on a quiet turn: $out"
 pass "memory nudge: fires once at the threshold in implement, mirrored as pending, silent after a save or in plan"

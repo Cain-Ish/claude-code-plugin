@@ -421,19 +421,27 @@ counts) are sb-change-control territory.
 
 ## 10. Shipped scripts (in this skill dir)
 
-Both are read-only/side-effect-free, bash-3.2-safe, self-locate the plugin root
-(env `CLAUDE_PLUGIN_ROOT` → `$1` → walk-up from script location), and were tested
-live on Windows git-bash at authoring time.
+All are read-only/side-effect-free and were tested live on Windows git-bash at
+authoring time. The `.sh` scripts are bash-3.2-safe and self-locate the plugin root
+(env `CLAUDE_PLUGIN_ROOT` → `$1` → walk-up); `usage-audit.mjs` is node ≥ 18, no deps,
+and reads its turn rule from this repo's `scripts/persona-context.sh` (`--hook` overrides).
 
 | Script | What it does | Exit |
 |---|---|---|
 | [scripts/guard-liveness.sh](scripts/guard-liveness.sh) | injects synthetic payloads into all three PreToolUse guards (sandboxed HOME+BRAIN_DIR) and prints ARMED / NOT LIVE / DISABLED per guard, incl. a Windows-form probe when cygpath exists and an audit-wiring check | 0 = all armed; 1 = any not live; 2 = prereqs missing |
 | [scripts/sb-health-snapshot.sh](scripts/sb-health-snapshot.sh) | one screen: auth mode, scheduler timer, extractor health + last-drain + backlog, drain counters, error/audit tails, wiki counts + legacy-misroute, embeddings state + episodic coverage, unreviewed dreams | 0 (informational); 2 = root/lib unusable |
+| [scripts/usage-audit.mjs](scripts/usage-audit.mjs) | per-TURN audit of the per-prompt injection over `--since/--until/--project` (UTC days; `--json`): human vs machine turns by kind (the hook's own `machine-turn` block + exact-repeat triage, parsed at runtime), injections on each, slugs offered and offered→fetched (same turn + next 2), KB reads per human turn, boilerplate past-session snippets, `gate=machine-turn`/`headless-child` audit rows, `gate=inject-precision mode=off` rows as "precision rollback active: N rows", hook_cancelled by script, a `turnOrigin` cross-check; headless (`sdk-cli`) and subagents reported apart; possible undercounts print as `WARNING` lines first (`warnings` array in `--json`); `--self-test` | 0 ok (read any WARNING first); 1 self-test failed; 2 bad args or impossible date, missing input (transcripts root, hook, an explicit `--audit`, a `--project` matching nothing), transcript format drift (no user record parsed, no dated turn), or the hook rule no longer parses |
 
 ```bash
 bash .claude/skills/sb-diagnostics-and-tooling/scripts/sb-health-snapshot.sh   # start here
 bash .claude/skills/sb-diagnostics-and-tooling/scripts/guard-liveness.sh      # then prove the guards
+node .claude/skills/sb-diagnostics-and-tooling/scripts/usage-audit.mjs --since 2026-10-05   # injections vs reads, per turn
 ```
+
+**1-week post-release check (0.55.0).** Seven days after release run `usage-audit.mjs --since <release-day>` and, for the baseline, `--since <release−7d> --until <release−1d>` (pre-release, `--since 2026-09-28 --until 2026-10-05`: 94 human turns, 77% of injections on machine turns, 1/102 offers fetched, 0.11 KB reads per human turn).
+Pass: machine-turn injections ≈ 0 with `gate=machine-turn` rows present, headless persona injections 0 with `gate=headless-child` rows present, boilerplate past-session snippets falling (after the episodic reindex).
+`WARNING audit-no-gate-rows` means no such rows at all: the installed plugin predates 0.55.0, or the row shape changed; not a pass. `precision rollback active: N rows` > 0 means `SB_INJECT_PRECISION=off` (the 0.54.1 gate) served some injections in the window.
+Read the `turnOrigin cross-check` line before trusting "human": origin `scheduled` there is a cron prompt the prefix rule passes as human (only an exact repeat is skipped). Slash commands are judged as the hook sees them, `/name args` rebuilt from the transcript's expanded tags (probed, CLI 2.1.289), so they count as human; `<local-command-…>` records are not turns.
 
 Note `scripts/verify.sh` (§3) is NOT side-effect-free (stamps `.last-verify`);
 the snapshot deliberately does not run it.
@@ -481,4 +489,5 @@ bash tests/test-persona-tool-guard.sh   # probe shapes (Test 22 lib.sh-fallback 
 #   2026-07-05: rules now supplied via a user persona-rules.json in BRAIN_DIR — green at 0.33.31)
 ls mcp/dist/tools/ mcp/dist/cli/                                            # bundle inventory (no standalone knowledge-search bundle)
 bash .claude/skills/sb-diagnostics-and-tooling/scripts/guard-liveness.sh    # the probes themselves still pass
+node .claude/skills/sb-diagnostics-and-tooling/scripts/usage-audit.mjs --self-test   # hook turn rule still parses
 ```

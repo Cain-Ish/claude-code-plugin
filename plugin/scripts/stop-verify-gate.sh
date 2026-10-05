@@ -141,15 +141,142 @@ _svg_fail_closed() {
   exit 0
 }
 
+# --- Repo root and path classification (G1, R1 review) -----------------------------------------
+# The root is CLAUDE_PROJECT_DIR first (the same precedence as sb_resolve_slug): the payload cwd
+# MOVES during a session (one real transcript spent 3785 lines in one worktree, 210 in main and 191
+# in another), and an Edit to the main checkout made while cwd sat in a worktree, another repo or a
+# non-git dir used to read as "outside the root" and approve silently. Without it, the root is the
+# git toplevel of the payload cwd, else the cwd itself. Each root is matched in every spelling a
+# junction or symlink can produce: as given, its `pwd -P` form, git's resolved toplevel, and the
+# logical toplevel (the cwd minus git's --show-prefix). Each spelling is its own --arg: MSYS turns
+# a POSIX-looking argument into the Windows form native jq needs to match Windows tool paths.
+CWD_DIR=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
+G1_ROOTS=()
+_svg_root() { [ -n "$1" ] && G1_ROOTS+=("$1"); return 0; }
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+  _svg_root "$CLAUDE_PROJECT_DIR"
+  if [ -d "$CLAUDE_PROJECT_DIR" ]; then
+    _svg_root "$(cd "$CLAUDE_PROJECT_DIR" 2>/dev/null && pwd -P)"
+    _svg_root "$(git -C "$CLAUDE_PROJECT_DIR" rev-parse --show-toplevel 2>/dev/null | tr -d '\r')"
+  fi
+elif [ -n "$CWD_DIR" ] && [ -d "$CWD_DIR" ]; then
+  _svg_gt=$(git -C "$CWD_DIR" rev-parse --show-toplevel --show-prefix 2>/dev/null | tr -d '\r')
+  _svg_top=${_svg_gt%%$'\n'*}
+  if [ -n "$_svg_top" ]; then
+    _svg_root "$_svg_top"
+    _svg_pre=""; case "$_svg_gt" in *$'\n'*) _svg_pre=${_svg_gt#*$'\n'}; _svg_pre=${_svg_pre%/} ;; esac
+    _svg_log="${CWD_DIR//\\//}"; _svg_log=${_svg_log%/}
+    if [ -n "$_svg_pre" ]; then
+      case "$_svg_log" in *"/$_svg_pre") _svg_log=${_svg_log%"/$_svg_pre"} ;; *) _svg_log="" ;; esac
+    fi
+    _svg_root "$_svg_log"
+  else
+    _svg_root "$CWD_DIR"
+    _svg_root "$(cd "$CWD_DIR" 2>/dev/null && pwd -P)"
+  fi
+fi
+REPO_ROOT="${G1_ROOTS[0]:-}"
+# Case-insensitive file systems (Git-Bash/MSYS, Cygwin, macOS): builtin $OSTYPE, no uname fork.
+# Drive-letter paths compare case-insensitively everywhere.
+case "${OSTYPE:-}" in msys*|cygwin*|darwin*) G1_CI=true ;; *) G1_CI=false ;; esac
+# The hook's own temp dirs, one --arg each like the roots: MSYS rewrites a POSIX value (/tmp,
+# /c/Users/...) into the drive form native jq compares against Windows tool paths, so no cygpath call
+# is needed; canon handles backslashes and /c/x. Empty, relative and drive-relative values are dropped
+# in jq (g1_tmps).
+G1_JQ_ARGS=(--arg root "$REPO_ROOT" --argjson ci "$G1_CI"
+  --arg r0 "${G1_ROOTS[0]:-}" --arg r1 "${G1_ROOTS[1]:-}" --arg r2 "${G1_ROOTS[2]:-}"
+  --arg t0 "${TMPDIR:-}" --arg t1 "${TMP:-}" --arg t2 "${TEMP:-}")
+
+# Two path tests share these defs.
+#  - Write/Edit/MultiEdit (counts_as_src, G1): the path is canonicalized (\ -> /, the //?/ and //./
+#    prefixes, MSYS /c/x -> c:/x, . and .. and repeated slashes collapsed), then placed against the
+#    root spellings. INSIDE the root only docs/ (any depth) and the TOP-LEVEL tmp/ or scratch/ dirs
+#    are exempt, so src/components/Sandbox.tsx, packages/sandbox/, src/tmp_parser.py and
+#    src/temp-sensor.c all arm. OUTSIDE the root, or with no root at all, an edit ARMS unless the
+#    path is temp (g1_temp): under one of the hook's own $TMPDIR/$TMP/$TEMP (same case rules as the
+#    roots), an anchored temp segment (tmp, temp, tmpdir, scratch, scratchpad, sandbox; any case) or
+#    a mktemp-style tmp.<alnum> DIRECTORY (a file named tmp.c still arms), or under the macOS
+#    per-user temp root /var/folders/<a>/<b>/T/ (macOS TMPDIR carries no temp word). That keeps a
+#    Windows AppData/Local/Temp/.../scratchpad file exempt. A relative path is repo-relative.
+#  - The Bash-edit heuristic (bash_counts_as_src) applies the same outside-root rule to absolute
+#    paths (a `sed -i` on another repo's source counts, a temp path does not), and keeps the
+#    broader scratch match for in-root and relative/variable paths: a shell redirect into
+#    "$TMPDIR/x.sh" names no root at all. That detector only moves the last-edit line, it never
+#    arms the gate.
+SRC_PATH_DEFS='
+  def gnorm: explode | map(if . == 92 then 47 else . end) | implode
+    | if test("^/[A-Za-z]/") then .[1:2] + ":" + .[2:] else . end;
+  def repo_rel($root):
+    gnorm as $p
+    | if ($root == "" or ($p | test("^([A-Za-z]:)?/") | not)) then $p
+      else ($root | gnorm | sub("/+$"; "")) as $r
+        | (if ($r | test("^[A-Za-z]:"))
+           then ($p | ascii_downcase | startswith(($r | ascii_downcase) + "/"))
+           else ($p | startswith($r + "/")) end) as $in
+        | if $in then $p[($r | length) + 1:] else null end
+      end;
+  def scratchy: test("(^|/)docs/")
+    or test("(^|[/${])(tmp|temp|tmpdir|scratch|scratchpad|sandbox)([^[:alnum:]]|$)"; "i");
+  def canon:
+    explode | map(if . == 92 then 47 else . end) | implode
+    | sub("^//[?.]/"; "")
+    | if test("^/[A-Za-z](/|$)") then .[1:2] + ":" + .[2:] else . end
+    | (if test("^[A-Za-z]:") then .[0:2] else "" end) as $drv
+    | .[($drv | length):]
+    | test("^/") as $abs
+    | reduce (split("/")[] | select(. != "" and . != ".")) as $s ([];
+        if $s != ".." then . + [$s]
+        elif length > 0 and .[-1] != ".." then .[:-1]
+        elif $abs or $drv != "" then .
+        else . + [$s] end)
+    | $drv + (if $abs then "/" else "" end) + join("/");
+  def g1_roots: [$r0, $r1, $r2] | map(select(. != "") | canon | select(test("^([A-Za-z]:)?/?$") | not));
+  def root_rel:
+    canon as $p
+    | if ($p | test("^([A-Za-z]:)?/") | not) then $p
+      else ($ci or ($p | test("^[A-Za-z]:"))) as $fold
+        | (if $fold then ($p | ascii_downcase) else $p end) as $pp
+        | first(g1_roots[] as $r
+                | (if $fold then ($r | ascii_downcase) else $r end) as $rr
+                | select($pp == $rr or ($pp | startswith($rr + "/")))
+                | $p[($r | length) + 1:]) // null
+      end;
+  # Absolute temp dirs only: canon(".") is "" and canon("C:") is "C:", and either plus "/" would
+  # prefix-match every path on that side.
+  def g1_tmps: [$t0, $t1, $t2] | map(select(. != "") | canon | select(test("^([A-Za-z]:)?/[^/]")));
+  def g1_temp:
+    canon as $p
+    | ($ci or ($p | test("^[A-Za-z]:"))) as $fold
+    | (if $fold then ($p | ascii_downcase) else $p end) as $pp
+    | ($p | test("(^|/)(tmp|temp|tmpdir|scratch|scratchpad|sandbox)(/|$)|(^|/)tmp[.][A-Za-z0-9]+/"; "i"))
+      or (if $ci then ($p | test("^/(private/)?var/folders/[^/]+/[^/]+/T(/|$)"; "i"))
+          else ($p | test("^/(private/)?var/folders/[^/]+/[^/]+/T(/|$)")) end)
+      or any(g1_tmps[]; (if $fold then ascii_downcase else . end) as $dd
+                         | ($pp == $dd) or ($pp | startswith($dd + "/")));
+  def g1_class:
+    root_rel as $rel
+    | if $rel != null then {src: (($rel | test("(^|/)docs/") or test("^(tmp|scratch)/")) | not), outside: false}
+      else {src: (g1_temp | not), outside: true} end;
+  def counts_as_src: g1_class | .src;
+  # Bash-edit heuristic: same outside-root rule as counts_as_src (an absolute path outside every root
+  # arms unless it has a temp segment); inside the root, or relative/variable paths, keep the broader
+  # scratchy match.
+  def bash_counts_as_src:
+    root_rel as $rel
+    | if $rel == null then g1_class | .src else $rel | scratchy | not end;
+'
+
 # Check if code was modified (Write, Edit, or MultiEdit tool calls). Keep the
 # FULL distinct changed-file set, not just the first hit — the block reason names
 # what actually changed, and the critic offer keys on its size. This full pass also
-# counts the lines every scan skips (blank lines excluded): output line 1 is that
-# count, the rest are the sorted distinct paths.
+# counts the lines every scan skips (blank lines excluded) and the edits placed OUTSIDE
+# the root (G1). Output: line 1 skipped count, line 2 outside-root edits that arm, line 3
+# outside-root edits exempt by a temp segment, line 4 the first outside-root path (or
+# empty), then the sorted distinct changed paths.
 CHANGED_SCAN_JQ='
   ([13] | implode) as $cr
   | reduce (inputs | select(length > 0 and . != $cr) | [fromjson? | objects]) as $r
-      ({skipped: 0, files: {}};
+      ({skipped: 0, files: {}, out_armed: {}, out_exempt: {}};
        if $r == [] then .skipped += 1
        else reduce ($r[0]
                     | select(.type == "assistant")
@@ -158,16 +285,30 @@ CHANGED_SCAN_JQ='
                     | select(.name == "Write" or .name == "Edit" or .name == "MultiEdit")
                     | .input.file_path? | strings
                     | select(. != "")
-                    | select((endswith(".md") or endswith(".markdown") or endswith(".txt") or test("(^|/)docs/")) | not)) as $p
-              (.; .files[$p] = true)
+                    | select((endswith(".md") or endswith(".markdown") or endswith(".txt")) | not)
+                    | {p: ., c: g1_class}) as $e
+              (.; (if $e.c.outside then (if $e.c.src then .out_armed[$e.p] = true else .out_exempt[$e.p] = true end) else . end)
+                  | if $e.c.src then .files[$e.p] = true else . end)
        end)
-  | (.skipped | tostring), (.files | keys[])
+  | (.skipped | tostring), (.out_armed | length | tostring), (.out_exempt | length | tostring),
+    ((((.out_armed | keys) + (.out_exempt | keys)) | first) // ""), (.files | keys[])
 '
-_svg_scan changed "$CHANGED_SCAN_JQ"
-SKIPPED=${SVG_OUT%%$'\n'*}
-case "$SKIPPED" in ''|*[!0-9]*) SKIPPED=0 ;; esac
+_svg_scan changed "$SRC_PATH_DEFS$CHANGED_SCAN_JQ" "${G1_JQ_ARGS[@]}"
+SKIPPED=${SVG_OUT%%$'\n'*}; _svg_rest=""
+case "$SVG_OUT" in *$'\n'*) _svg_rest=${SVG_OUT#*$'\n'} ;; esac
+OUT_ARMED=${_svg_rest%%$'\n'*}; case "$_svg_rest" in *$'\n'*) _svg_rest=${_svg_rest#*$'\n'} ;; *) _svg_rest="" ;; esac
+OUT_EXEMPT=${_svg_rest%%$'\n'*}; case "$_svg_rest" in *$'\n'*) _svg_rest=${_svg_rest#*$'\n'} ;; *) _svg_rest="" ;; esac
+OUT_FIRST=${_svg_rest%%$'\n'*}
 CHANGED_FILES=""
-case "$SVG_OUT" in *$'\n'*) CHANGED_FILES=${SVG_OUT#*$'\n'} ;; esac
+case "$_svg_rest" in *$'\n'*) CHANGED_FILES=${_svg_rest#*$'\n'} ;; esac
+case "$SKIPPED" in ''|*[!0-9]*) SKIPPED=0 ;; esac
+case "$OUT_ARMED" in ''|*[!0-9]*) OUT_ARMED=0 ;; esac
+case "$OUT_EXEMPT" in ''|*[!0-9]*) OUT_EXEMPT=0 ;; esac
+# An outside-root classification is never silent (R1 review): one TRACE row on the audit channel
+# per Stop that sees one, naming the counts, the root and the first such path.
+if [ $((OUT_ARMED + OUT_EXEMPT)) -gt 0 ]; then
+  _svg_scan_error "gate=verify-outside-root armed=$OUT_ARMED exempt=$OUT_EXEMPT root=${REPO_ROOT:-none} first=$OUT_FIRST" 0
+fi
 # A torn line is not an error of this hook, but it is data the gate could not see.
 # Non-gate message + rc 0 keeps the row in the error-log (lib.sh torn-line precedent).
 [ "$SKIPPED" -gt 0 ] && _svg_scan_error "verify-scan: skipped $SKIPPED unparseable or non-object transcript line(s) in $TRANSCRIPT; every scan ignores them and the verdict uses the rest" 0
@@ -197,8 +338,11 @@ fi
 #     hidden file list (xargs, find -exec);
 #   - redirects with > or >> into a source path; or
 #   - is a tee into a source path.
-# Source path = a code extension below, outside docs/ and outside tmp/temp/
-# scratch/sandbox locations. NOT detected: data files (json/yaml/toml), mv/cp,
+# Source path = a code extension below, not exempt by bash_counts_as_src (docs/ and
+# temp words in the root or on a relative path; g1_temp outside the root).
+# KNOWN GAP: only single-quoted spans are blanked; double-quoted strings and heredoc
+# bodies are scanned, so `echo "x > /abs/other.ts"` counts as an edit.
+# NOT detected: data files (json/yaml/toml), mv/cp,
 # git checkout/apply, patch — the worktree fingerprint (S1b) replaces this
 # heuristic. A command that edits and then tests on one line counts as an edit
 # whose own test does not count (conservative: one block). Bash edits only move
@@ -208,8 +352,7 @@ EDIT_SCAN_JQ='
   def srcpath:
     explode | map(select(. != 34 and . != 39)) | implode
     | test("[.](sh|bash|zsh|ps1|js|mjs|cjs|ts|mts|cts|tsx|jsx|py|rb|go|rs|java|kt|kts|swift|c|h|cc|cpp|hpp|cs|php|pl|pm|lua|sql|css|scss|html|vue|svelte)$")
-      and (test("(^|/)docs/") | not)
-      and (test("(^|[/${])(tmp|temp|tmpdir|scratch|scratchpad|sandbox)([^[:alnum:]]|$)"; "i") | not);
+      and bash_counts_as_src;
   def span_edits:
     ( test("(^|[[:space:]])(g?sed|perl)[[:space:]]")
       and test("[[:space:]](-[Enrszuplaw0]*i|--in-place)")
@@ -228,11 +371,11 @@ EDIT_SCAN_JQ='
     | .message.content?[]? | objects
     | select(.type == "tool_use")
     | select(((.name == "Write" or .name == "Edit" or .name == "MultiEdit")
-              and ((.input.file_path? | strings) // "" | (endswith(".md") or endswith(".markdown") or endswith(".txt") or test("(^|/)docs/")) | not))
+              and ((.input.file_path? | strings) // "" | (endswith(".md") or endswith(".markdown") or endswith(".txt") or (counts_as_src | not)) | not))
              or (.name == "Bash" and ((.input.command? | strings) // "" | bash_edits)));
   reduce (foreach inputs as $line (0; . + 1; . as $n | $line | fromjson? | objects | is_edit | $n)) as $n (0; $n)
 '
-_svg_scan edit "$EDIT_SCAN_JQ"
+_svg_scan edit "$SRC_PATH_DEFS$EDIT_SCAN_JQ" "${G1_JQ_ARGS[@]}"
 LAST_EDIT_LINE=$SVG_OUT
 case "$LAST_EDIT_LINE" in ''|*[!0-9]*) LAST_EDIT_LINE=0 ;; esac
 
@@ -261,7 +404,6 @@ _svg_errored() {
 # invariant). If/when the auto-team pinned-command resolver lands, reuse it here —
 # do NOT grow these probes into a second resolver (single-source discipline).
 VERIFY_CMD=""
-CWD_DIR=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 if [ -n "$CWD_DIR" ] && [ -d "$CWD_DIR" ]; then
   if [ -f "$CWD_DIR/tests/run-all.sh" ]; then
     VERIFY_CMD="bash tests/run-all.sh"

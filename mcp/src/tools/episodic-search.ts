@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { atomicWriteJson } from './atomic-write.js';
 import { join, basename, relative, isAbsolute } from 'path';
-import { embedTexts, cosineSimilarity } from './embeddings.js';
+import { embedTexts, cosineSimilarity, appendErrorLog, embeddingsOptedOut } from './embeddings.js';
 import { assertWithin } from '../path-guard.js';
 import { stripInvisible } from './sanitize.js';
 
@@ -27,6 +27,15 @@ export interface EpisodicSearchArgs {
   activeProject?: string;
   after?: string;
   before?: string;
+  /** Drop this session's own rows (the per-prompt hook: they are already in context). Applied
+   *  with the other filters, BEFORE ranking, scoping and the limit slice. */
+  excludeSessionId?: string;
+  /** Drop rows with no human words on the user side (cleaned machine turns, and parser-1 rows
+   *  still holding raw boilerplate). Same placement as excludeSessionId. */
+  requireUserText?: boolean;
+  /** Drop ranked hits under this similarity BEFORE project scoping and the limit slice, so a
+   *  sub-floor in-scope vector hit cannot stand in for a real one and block broadening. */
+  minSimilarity?: number;
 }
 
 export interface EpisodicSearchResult {
@@ -86,10 +95,217 @@ interface IndexedExchange {
   embedding: number[];
 }
 
+/** Per-file index state. A bare string is the pre-version format (parser 1): re-parsed. */
+type IndexedFileEntry = string | { hash: string; parser: number };
+
 interface EpisodicIndex {
   model: string;
-  indexed_files: Record<string, string>;
+  indexed_files: Record<string, IndexedFileEntry>;
   exchanges: IndexedExchange[];
+}
+
+/** Bumped whenever parseExchanges changes what it stores for the same archive. Every file
+ *  indexed by an older (or unversioned) parser is re-parsed once on the next build. Row ids
+ *  derive from archivePath + line range, so a re-parse keeps ids as long as exchange
+ *  boundaries do not move — the hygiene tests pin them.
+ *  2 = machine-turn user text cleaned (R1#3, 2026-10).
+ *  3 = harness tags are an allowlist (no generic <x-… rule), image/interrupt prefix lines are
+ *      stripped with the human text after them kept, and a peer body keeps its provenance
+ *      marker and harness flag line (R1 review, 2026-10). */
+export const EPISODIC_PARSER_VERSION = 3;
+
+function isCurrentEntry(entry: IndexedFileEntry | undefined, hash: string): boolean {
+  return typeof entry === 'object' && entry !== null
+    && entry.hash === hash && entry.parser >= EPISODIC_PARSER_VERSION;
+}
+
+// --- Machine-turn text (shared contract with scripts/persona-context.sh) --------------------
+// The hook skips retrieval on these prompts (`# machine-turn:begin/end` block); the archive side
+// cleans them out of the episodic user text. episodic-hygiene.test.ts locks the parity: every
+// quoted prefix in the hook block must satisfy isMachineTurnText.
+const PEER_PREFIX = 'Another Claude session sent a message:';
+/** The harness tags a machine-written turn opens with: an ALLOWLIST, the same one the hook's
+ *  `case` carries. Never "any leading <x-…" tag: that blanked human prompts such as
+ *  "<my-component> doesn't render", "<v-btn …>", "<router-view/>" (R1 review). Over 400 real
+ *  transcripts every leading hyphenated tag was one of these families. Human pastes use
+ *  <pasted_content (underscore). */
+export const MACHINE_TAG_PREFIXES: readonly string[] = [
+  '<task-notification>',
+  '<system-reminder>',
+  '<agent-message',
+  '<cross-session-message',
+  '<command-',          // command-name, command-message, command-args
+  '<local-command-',    // local-command-stdout, local-command-caveat, …
+  '<bash-',             // bash-input, bash-stdout, bash-stderr (the ! shell mode)
+];
+const MACHINE_TURN_PREFIXES = [
+  ...MACHINE_TAG_PREFIXES,
+  PEER_PREFIX,
+  'Stop hook feedback:',
+  'This session is being continued from a previous conversation',
+  // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
+  'Base directory for this skill:',
+  'Caveat: The messages below were generated',
+];
+// Archive-only LINE prefixes the harness puts in front of a human prompt (a pasted image, an
+// interrupt). Only these lines are machine; the human text after them is kept.
+const MACHINE_LINE_PREFIXES = ['[Image: source:', '[Image: original', '[Request interrupted by user'];
+
+function stripLead(text: string): string {
+  return text.replace(/^[\s﻿]+/, '');
+}
+
+export function isMachineTurnText(text: string): boolean {
+  const t = stripLead(text);
+  return MACHINE_TURN_PREFIXES.some(p => t.startsWith(p)) || MACHINE_LINE_PREFIXES.some(p => t.startsWith(p));
+}
+
+/** Provenance markers a cleaned peer body is stored with (security review): the body is never
+ *  the user's words, so it must never read as them once its wrapper is gone. */
+export const SUBAGENT_REPORT_MARK = '(subagent report) ';
+export const PEER_MESSAGE_MARK = '(peer message) ';
+
+/** Peer message (subagent hand-back or cross-session): drop the header, the wrapper tag pair,
+ *  the hand-back preamble and anything after the closing tag; keep the report body, prefixed with
+ *  its provenance marker, plus any `[harness: …]` flag line (folded, so it opens no frame). */
+function peerReportBody(rest: string): string {
+  const lines = rest.split('\n');
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  const open = lines[i]?.trim().match(/^<([a-z]+(?:-[a-z]+)+)\b[^>]*>(.*)$/);
+  let body: string[];
+  if (open) {
+    const close = `</${open[1]}>`;
+    body = [open[2], ...lines.slice(i + 1)];
+    const end = body.findIndex(l => l.trim().startsWith(close));
+    if (end >= 0) body = body.slice(0, end);
+  } else {
+    body = lines.slice(i);
+  }
+  const flags: string[] = [];
+  let j = 0;
+  for (; j < body.length; j++) {
+    const l = body[j].trim();
+    if (!l || l.startsWith('[Subagent hand-back]')) continue;
+    if (l.startsWith('[harness:')) { flags.push(foldServedSnippet(l)); continue; }
+    break;
+  }
+  const report = body.slice(j).join('\n').trim();
+  if (!report) return '';
+  const mark = open?.[1] === 'agent-message' ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
+  // Report first, flag after: the served bullet (80 chars) and the dedup key (60) read the start,
+  // so a leading flag made every flagged report the same boilerplate line. The 200-char snippet
+  // can cut the flag off a long report; the marker in front is what carries the provenance.
+  return mark + [report, ...flags].join('\n');
+}
+
+// Serve-time fold, the TS twin of session-load.sh's card fold and protocol-guard.sh's item fold:
+// any line break becomes a space and every square bracket (ASCII or a lookalike) a parenthesis,
+// so a stored snippet can never close the hook's "[End untrusted reference]" frame or start a
+// line that reads as a new turn. Code points, not escapes, so no tool or editor can decode them.
+const FOLD_TO_SPACE = new Set([0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x85, 0x2028, 0x2029]);
+const FOLD_TO_OPEN = new Set([0x5b, 0xff3b, 0x3010, 0x27e6, 0x301a, 0x2045, 0xfe47, 0x3014]);
+const FOLD_TO_CLOSE = new Set([0x5d, 0xff3d, 0x3011, 0x27e7, 0x301b, 0x2046, 0xfe48, 0x3015]);
+
+export function foldServedSnippet(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    out += FOLD_TO_SPACE.has(c) ? ' ' : FOLD_TO_OPEN.has(c) ? '(' : FOLD_TO_CLOSE.has(c) ? ')' : ch;
+  }
+  return out;
+}
+
+/** The user line of an episodic_search MCP result. A row with no human words is never shown as
+ *  **User**: a peer body is labelled by its marker, a cleaned machine row is `[machine turn]`.
+ *  Legacy rows (an older parser's raw text) are re-cleaned first. */
+export function episodeUserLine(userSnippet: string): string {
+  const u = cleanUserText(userSnippet).trim();
+  if (!u) return '[machine turn]';
+  if (u.startsWith(SUBAGENT_REPORT_MARK)) return `**Subagent report**: ${foldServedSnippet(u.slice(SUBAGENT_REPORT_MARK.length))}`;
+  if (u.startsWith(PEER_MESSAGE_MARK)) return `**Peer message**: ${foldServedSnippet(u.slice(PEER_MESSAGE_MARK.length))}`;
+  return `**User**: ${foldServedSnippet(u)}`;
+}
+
+/** The user side of an exchange as the episodic index stores it. Human text is returned
+ *  unchanged; machine boilerplate becomes ''; a peer message keeps only its report body,
+ *  which is real content. The assistant side is never passed through here. */
+export function cleanUserText(text: string): string {
+  if (!isMachineTurnText(text)) return text;
+  const t = stripLead(text);
+  if (MACHINE_LINE_PREFIXES.some(p => t.startsWith(p))) {
+    // Drop the leading image/interrupt lines, then clean what follows in turn (it may itself be
+    // boilerplate). The remainder is strictly shorter, so this terminates.
+    const lines = t.split('\n');
+    let i = 0;
+    while (i < lines.length && (!lines[i].trim() || MACHINE_LINE_PREFIXES.some(p => stripLead(lines[i]).startsWith(p)))) i++;
+    const rest = lines.slice(i).join('\n').trim();
+    return rest ? cleanUserText(rest) : '';
+  }
+  if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
+  return '';
+}
+
+export interface ServeOpts { sessionId: string; minSimilarity: number; max: number }
+
+/** Rows the per-prompt hook may show (context-serve-cli), in ranked order: the user side is
+ *  re-cleaned (rows from an older parser still carry raw boilerplate until their file is
+ *  re-parsed); rows with no human words, rows from the live session (already in context, so an
+ *  echo) and rows under the similarity floor are dropped; duplicate openings collapse; capped. */
+export function servableEpisodes<R extends { sessionId: string; userSnippet: string; similarity: number }>(
+  rows: R[], o: ServeOpts,
+): R[] {
+  const seen = new Set<string>();
+  const out: R[] = [];
+  for (const r of rows) {
+    const userSnippet = cleanUserText(r.userSnippet);
+    if (r.similarity < o.minSimilarity || !userSnippet.trim()) continue;
+    if (o.sessionId && r.sessionId === o.sessionId) continue;
+    const key = userSnippet.slice(0, 60);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...r, userSnippet });
+    if (out.length >= o.max) break;
+  }
+  return out;
+}
+
+export interface EpisodicServeOpts { sessionId: string; activeProject?: string }
+
+export const EPISODIC_SERVE_HEADER = '[Past sessions — use episodic_search for full context]';
+// The hardcoded per-engine similarity floor (no knob, R1#3), the pool and the served cap.
+const SERVE_MIN_SIMILARITY = 0.15;
+const SERVE_POOL = 10;
+const SERVE_MAX = 2;
+
+/** The per-prompt "[Past sessions]" section, as lines (empty = serve nothing). ONE step for both
+ *  per-prompt CLIs: context-serve-cli and its fallback episodic-search-cli must serve the same
+ *  rows, or the fallback re-opens the noise R1 closed. */
+export async function serveEpisodicLines(query: string, brainDir: string, o: EpisodicServeOpts): Promise<string[]> {
+  // Unservable rows are filtered INSIDE the search, before scoping and the pool slice. Filtered
+  // only afterwards, this session's rows and machine rows filled the in-scope pool and were then
+  // dropped, so a long session served nothing. servableEpisodes below stays as the second net.
+  const result = await episodicSearch({
+    query, limit: SERVE_POOL, mode: 'both', activeProject: o.activeProject,
+    excludeSessionId: o.sessionId || undefined, requireUserText: true, minSimilarity: SERVE_MIN_SIMILARITY,
+  }, brainDir);
+  const served = servableEpisodes(result.results,
+    { sessionId: o.sessionId, minSimilarity: SERVE_MIN_SIMILARITY, max: SERVE_MAX });
+  if (served.length === 0) return [];
+  // Every field that came from an archive is folded: one line, no square bracket.
+  return [EPISODIC_SERVE_HEADER, ...served.map(r => {
+    const sim = Math.round(r.similarity * 100);
+    return `- "${foldServedSnippet(r.userSnippet).slice(0, 80)}..." (${foldServedSnippet(r.project)}, ${foldServedSnippet(r.date)}, ${sim}%)`;
+  })];
+}
+
+// A cleaned machine row has an empty user side (cleanUserText). Human-facing renderers show the
+// assistant side under a label instead of a blank line; `max`, when given, caps the result.
+export function displaySnippet(r: { userSnippet: string; assistantSnippet?: string }, max?: number): string {
+  const text = r.userSnippet.trim()
+    ? r.userSnippet
+    : `[machine turn]${r.assistantSnippet ? ' ' + r.assistantSnippet : ''}`;
+  return max === undefined ? text : text.slice(0, max);
 }
 
 function simpleHash(s: string): string {
@@ -132,14 +348,15 @@ function parseExchanges(lines: string[], bodyStart: number, meta: SessionMeta, a
     if (userMsg.trim() || assistantMsg.trim()) {
       const user = userMsg.trim();
       const assistant = assistantMsg.trim();
-      // Skip trivial exchanges (tool-only assistant responses with no user text)
+      // Skip trivial exchanges (tool-only assistant responses with no user text). Judged on the
+      // RAW text, before cleaning, so parser 2 keeps exactly the rows (and ids) parser 1 kept.
       if (user.length > 10 || assistant.length > 20) {
         exchanges.push({
           id: simpleHash(`${archivePath}:${exchangeStart}-${endLine}`),
           sessionId: meta.sessionId,
           project: meta.project,
           date: meta.date,
-          userMessage: user,
+          userMessage: cleanUserText(user),
           assistantMessage: assistant,
           archivePath,
           lineStart: exchangeStart + 1, // 1-indexed for Read tool
@@ -179,14 +396,43 @@ function parseExchanges(lines: string[], bodyStart: number, meta: SessionMeta, a
   return exchanges;
 }
 
+const emptyIndex = (): EpisodicIndex => ({ model: 'Xenova/all-MiniLM-L6-v2', indexed_files: {}, exchanges: [] });
+
+/** A missing index is the normal first run. Anything else that cannot be used (unreadable,
+ *  unparseable, or without an exchanges array) is reset to empty AND logged: the next build
+ *  re-indexes every archive, and the reset must not pass for a healthy empty index. A missing or
+ *  malformed `indexed_files` only means "re-parse every file", so it is normalized to {}. */
 async function loadIndex(brainDir: string): Promise<EpisodicIndex> {
   const indexPath = join(brainDir, INDEX_FILE);
+  let data: string;
   try {
-    const data = await fs.readFile(indexPath, 'utf-8');
-    return JSON.parse(data);
-  } catch {
-    return { model: 'Xenova/all-MiniLM-L6-v2', indexed_files: {}, exchanges: [] };
+    data = await fs.readFile(indexPath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return emptyIndex();
+    await appendErrorLog(brainDir, 'episodic-index',
+      `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`);
+    return emptyIndex();
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch (e) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`);
+    return emptyIndex();
+  }
+  const o = parsed as Partial<EpisodicIndex> | null;
+  if (!o || typeof o !== 'object' || Array.isArray(o) || !Array.isArray(o.exchanges)) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `corrupt episodic index reset: ${indexPath} has no exchanges array`);
+    return emptyIndex();
+  }
+  const files = o.indexed_files;
+  return {
+    model: typeof o.model === 'string' ? o.model : emptyIndex().model,
+    indexed_files: files && typeof files === 'object' && !Array.isArray(files) ? files : {},
+    exchanges: o.exchanges,
+  };
 }
 
 async function saveIndex(brainDir: string, index: EpisodicIndex): Promise<void> {
@@ -205,7 +451,11 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
 
   const index = await loadIndex(brainDir);
   const newExchanges: Exchange[] = [];
-  const fileHashes: Record<string, string> = {};
+  const reparsed: Record<string, string> = {};
+  // Rows of re-parsed files, by id, captured before they are dropped: a row whose stored text
+  // comes out of the re-parse unchanged carries its vector over (no model call, and no loss when
+  // the model or the embedding cache is unavailable).
+  const previous = new Map<string, IndexedExchange>();
 
   for (const filePath of files) {
     // Sanitize untrusted transcript text before indexing it (P6b — invisible/Tags-block
@@ -213,10 +463,13 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     const content = stripInvisible(await fs.readFile(filePath, 'utf-8'));
     const hash = simpleHash(content);
     const fname = basename(filePath);
-    fileHashes[fname] = hash;
 
-    if (index.indexed_files[fname] === hash) continue;
+    // Unchanged AND parsed by the current parser: skip. A changed file, a bare-string entry
+    // (pre-version writer) or an older parser version is re-parsed from scratch.
+    if (isCurrentEntry(index.indexed_files[fname], hash)) continue;
+    reparsed[fname] = hash;
 
+    for (const e of index.exchanges) if (basename(e.archivePath) === fname) previous.set(e.id, e);
     index.exchanges = index.exchanges.filter(e => basename(e.archivePath) !== fname);
     const lines = content.split('\n');
     const { meta, bodyStart } = parseSessionMeta(lines);
@@ -230,22 +483,32 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   // Persist new exchanges immediately (text-searchable). Embeddings may be empty
   // and will be filled in by the repair pass below or on a future run.
   for (const e of newExchanges) {
+    const userSnippet = e.userMessage.slice(0, SNIPPET_LEN);
+    const assistantSnippet = e.assistantMessage.slice(0, SNIPPET_LEN);
+    // The vector embeds exactly these two snippets, so equal text means the old vector is valid.
+    const old = previous.get(e.id);
+    const carried = old && old.userSnippet === userSnippet && old.assistantSnippet === assistantSnippet
+      && Array.isArray(old.embedding) && old.embedding.length > 0 ? old.embedding : [];
     index.exchanges.push({
       id: e.id,
       sessionId: e.sessionId,
       project: e.project,
       date: e.date,
-      userSnippet: e.userMessage.slice(0, SNIPPET_LEN),
-      assistantSnippet: e.assistantMessage.slice(0, SNIPPET_LEN),
+      userSnippet,
+      assistantSnippet,
       archivePath: e.archivePath,
       lineStart: e.lineStart,
       lineEnd: e.lineEnd,
-      embedding: [],
+      embedding: carried,
     });
   }
 
   // Repair pass: every exchange with an empty embedding gets re-embedded on every run.
   // This is the core fix — the production bug was that empty rows persisted forever.
+  // A re-parsed row's text goes through the embedding cache, keyed `episodic:<id>` AND checked
+  // against a hash of the exact text: an unchanged row is served from the cache (no model call),
+  // a row whose text changed (e.g. cleaned by a parser bump) misses and re-embeds once.
+  // episodic-reembed.test.ts locks both halves.
   const needsEmbed = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0);
   let repaired = 0;
   if (needsEmbed.length > 0) {
@@ -263,9 +526,11 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   }
 
   // Always mark files as structurally indexed. They are text-searchable; vector
-  // search will work for rows whose embeddings got filled in.
-  for (const [fname, hash] of Object.entries(fileHashes)) {
-    index.indexed_files[fname] = hash;
+  // search will work for rows whose embeddings got filled in. The parser version is recorded
+  // per file, in the SAME atomic index write as the re-parsed rows, so a crash can never leave
+  // a file marked current while it still holds rows from the older parser.
+  for (const [fname, hash] of Object.entries(reparsed)) {
+    index.indexed_files[fname] = { hash, parser: EPISODIC_PARSER_VERSION };
   }
   for (const fname of Object.keys(index.indexed_files)) {
     if (!validFiles.has(fname)) delete index.indexed_files[fname];
@@ -273,6 +538,13 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
 
   await saveIndex(brainDir, index);
   const pending = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0).length;
+  // Rows without a vector are invisible to vector recall; say so, unless the user opted out of
+  // embeddings (an acknowledged choice, which episodic-index.test.ts keeps out of the error log).
+  if (pending > 0 && !embeddingsOptedOut()) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `${pending} of ${index.exchanges.length} rows have no embedding after the repair pass: vector recall `
+      + 'misses them until a build can embed them (check the embedding model / vector deps)');
+  }
   return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending };
 }
 
@@ -321,7 +593,7 @@ export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string)
   merged.sort((a, b) => b.similarity - a.similarity);
 
   return {
-    results: scopeAndBroaden(merged, args).slice(0, limit).map(r => ({
+    results: scopeAndBroaden(aboveFloor(merged, args), args).slice(0, limit).map(r => ({
       sessionId: r.sessionId,
       project: r.project,
       date: r.date,
@@ -430,7 +702,7 @@ async function multiConceptSearch(
   // Only return exchanges that have reasonable match to ALL concepts
   const threshold = 0.2;
   const ranked = scopeAndBroaden(
-    scored.filter(s => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity),
+    aboveFloor(scored.filter(s => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity), filters),
     filters
   );
   return {
@@ -462,7 +734,19 @@ function applyFilters(exchanges: IndexedExchange[], filters: EpisodicSearchArgs)
   if (filters.before) {
     result = result.filter(e => e.date <= filters.before!);
   }
+  if (filters.excludeSessionId) {
+    const sid = filters.excludeSessionId;
+    result = result.filter(e => e.sessionId !== sid);
+  }
+  if (filters.requireUserText) {
+    result = result.filter(e => cleanUserText(e.userSnippet).trim() !== '');
+  }
   return result;
+}
+
+function aboveFloor<T extends { similarity: number }>(ranked: T[], filters: EpisodicSearchArgs): T[] {
+  const floor = filters.minSimilarity;
+  return floor === undefined ? ranked : ranked.filter(r => r.similarity >= floor);
 }
 
 /**

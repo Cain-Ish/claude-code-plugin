@@ -1,7 +1,13 @@
 #!/bin/bash
 # Tests for stop-verify-gate.sh
-# run-all-timeout: 240   (93 s alone on a loaded MSYS box 2026-09-30, after F8 added two ~65 KB block controls to RR-SF2)
+# run-all-timeout: 600   (alone on this MSYS box 2026-10-05 after the G1 temp-dir rows: 207, 354, 430, 444 s; was 240 at 93 s)
 set -euo pipefail
+# pins: TMPDIR, TMP, TEMP — not SB_* (the override census ignores them). The G1 temp-dir cases
+#   (g1_env_case) set one per gate call to a dir with no temp word, so the "under the hook's own
+#   temp dirs" branch is the only exemption that can fire; hostile values (C:, .) go in TMP/TEMP.
+# The gate takes its repo root from CLAUDE_PROJECT_DIR first (G1): an inherited value would move
+# every case's root. The G1 cases set it explicitly where it is the subject.
+unset CLAUDE_PROJECT_DIR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
 GATE="$SCRIPT_DIR/stop-verify-gate.sh"
@@ -791,6 +797,236 @@ if printf '%s' "$OUT" | jq -r '.reason // ""' | grep -qE '/(review|security-revi
   FAIL=$((FAIL + 1)); echo "  FAIL: B6: block reason still names a /slash token (got: $OUT)"
 else
   PASS=$((PASS + 1)); echo "  PASS: B6: block reason names no /slash token"
+fi
+
+# --- G1: path exemptions are root-relative and separator-agnostic -------------------
+# Windows tool paths use a backslash: scratchpad files OUTSIDE the repo used to count as
+# source edits (the exemption only matched "/"-separated segments) and demanded the suite.
+# Rules (R1 review): the repo root is CLAUDE_PROJECT_DIR, else the git toplevel of the payload cwd
+# (matched in its raw, resolved and logical spellings). INSIDE it only docs/ and the TOP-LEVEL tmp/
+# or scratch/ dirs are exempt, so a file whose name merely contains sandbox/temp/tmp/scratch arms.
+# OUTSIDE it (or with no root at all) an edit ARMS unless the path is temp: under the hook's own
+# $TMPDIR/$TMP/$TEMP, an anchored temp segment (tmp, temp, tmpdir, scratch, scratchpad, sandbox, a
+# mktemp-style tmp.<alnum> dir), or the macOS /var/folders/<a>/<b>/T/ root; that keeps a Windows
+# AppData/Local/Temp scratchpad exempt. Paths are canonicalized first: \ -> /, the //?/ and //./
+# prefixes, . and .. and repeated slashes, case-insensitive on MSYS/Cygwin/macOS and for drive-letter
+# paths.
+# The sandbox lives under a temp dir on every platform (/tmp/..., macOS /var/folders/.../T/...), so a
+# canonicalization that fails to see an in-repo path falls through to "outside, temp, exempt" and the
+# block assertion catches it.
+G1_REPO="$SANDBOX/g1/repo"; mkdir -p "$G1_REPO/src"
+# g1_case block|approve label path [cwd]
+g1_case() {
+  local want="$1" label="$2" path="$3" cwd="${4:-$G1_REPO}" T OUT
+  T=$(mk_transcript); add_edit_of "$T" "$path"
+  OUT=$(mk_input_cwd "$T" "$cwd" | bash "$GATE" 2>/dev/null || true)
+  if [ "$want" = block ]; then assert_block "G1: $label" "$OUT"; else assert_approve "G1: $label" "$OUT"; fi
+}
+g1_case approve "Windows-form scratchpad .js outside the repo" 'C:''\''Users''\''x''\''AppData''\''Local''\''Temp''\''claude''\''scratchpad''\''probe.js'
+g1_case approve "forward-slash scratch .js outside the repo" "/var/tmp/scratchpad/probe.js"
+g1_case block "plain source path outside the repo arms (outside-root edits are not exempt)" "/elsewhere/project/src/x.js"
+g1_case approve "docs backslash-relative .js inside the repo" 'docs''\''x.js'
+g1_case approve "docs backslash-relative .md inside the repo" 'docs''\''x.md'
+g1_case approve "docs/ absolute .md inside the repo" "$G1_REPO/docs/x.md"
+g1_case approve "tmp/ relative .js inside the repo" "tmp/probe.js"
+g1_case approve "top-level scratch/ absolute .ts inside the repo" "$G1_REPO/scratch/a.ts"
+g1_case block "src .sh inside the repo (absolute)" "$G1_REPO/src/a.sh"
+# In-repo source files whose NAME merely contains sandbox/temp/tmp/scratch must arm (the R1 G1 regression).
+for f in src/components/Sandbox.tsx packages/sandbox/index.ts src/tmp_parser.py src/temp-sensor.c \
+         src/sandbox.ts src/temp_parser.ts tmp-tools/a.ts src/scratch/x.ts; do
+  g1_case block "in-repo $f arms" "$G1_REPO/$f"
+done
+# Canonicalization: every spelling of an in-repo path is in the repo.
+g1_case block "a .. hop back into the repo arms" "$SANDBOX/g1/other/../repo/src/a.ts"
+# (The first slash stays single: a leading // is a UNC prefix, which Git-Bash will not translate
+# when the fixture hands the path to jq, so the fixture itself would name another file.)
+g1_case block "repeated slashes into the repo arm" "$(printf '%s' "$G1_REPO" | sed 's#/#//#g; s#^//#/#')//src//a.ts"
+g1_case block "a ./ segment into the repo arms" "$G1_REPO/./src/./a.ts"
+# Bash-edit heuristic follows the SAME outside-root rule as Edit/Write: an in-repo edit, the tests,
+# then `sed -i` on a file that is NOT in the repo. Outside-root source used to be ignored here, so
+# the tests stayed "fresh" while an Edit to the same path would have armed the gate.
+g1_bash_case() {  # block|approve label command [cwd] [project_dir]
+  local want="$1" label="$2" cmd="$3" cwd="${4:-$G1_REPO}" pd="${5:-}" T OUT
+  T=$(mk_transcript); add_edit_turn "$T"; add_test_run "$T"; add_bash_of "$T" "$cmd"
+  if [ -n "$pd" ]; then
+    OUT=$(mk_input_cwd "$T" "$cwd" | CLAUDE_PROJECT_DIR="$pd" bash "$GATE" 2>/dev/null || true)
+  else
+    OUT=$(mk_input_cwd "$T" "$cwd" | bash "$GATE" 2>/dev/null || true)
+  fi
+  if [ "$want" = block ]; then assert_block "G1-bash: $label" "$OUT"; else assert_approve "G1-bash: $label" "$OUT"; fi
+}
+g1_bash_case block   "sed -i on an outside-root source file moves the last edit" "sed -i 's/a/b/' /other/repo/src/x.ts"
+g1_bash_case approve "sed -i on an outside-root temp-segment path stays exempt"  "sed -i 's/a/b/' /var/tmp/scratchpad/x.ts"
+g1_bash_case block   "sed -i on an in-repo source file still moves the last edit" "sed -i 's/a/b/' src/foo.ts"
+g1_bash_case approve "sed -i on an in-repo doc stays exempt"                      "sed -i 's/a/b/' docs/x.ts"
+g1_bash_case approve "redirect into \$TMPDIR stays exempt"                        'echo ok > "$TMPDIR/marker.sh"'
+
+# --- G1 temp detection (R1 fix round 2) ---------------------------------------------------------
+# Outside the root a path is temp when it lies under one of the hook's own temp dirs ($TMPDIR, $TMP,
+# $TEMP), has an anchored temp segment (tmp, temp, tmpdir, scratch, scratchpad, sandbox, or a
+# mktemp-style tmp.<alnum> DIRECTORY), or sits under a macOS per-user temp root
+# /var/folders/<a>/<b>/T/. macOS expands TMPDIR to /var/folders/zz/ab12/T/ and mktemp names look like
+# tmp.Ab1XyZ: neither carried a temp word, so every agent scratch file there armed the gate.
+# Each row names the wrong implementation it catches. Paths go through add_edit_raw (no MSYS argv
+# conversion) so a POSIX-only spelling such as /var/folders/... reaches the gate as written.
+add_edit_raw() { # file path
+  MSYS_NO_PATHCONV=1 jq -nc --arg p "$2" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Edit",input:{file_path:$p,old_string:"a",new_string:"b"}}]}}' >> "$1"
+}
+# The native spelling of a POSIX path: what Claude Code on Windows hands a tool, and what MSYS turns
+# the gate's own --arg into. Identity off MSYS.
+g1_native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+g1_raw_case() { # block|approve label path [cwd]
+  local want="$1" label="$2" path="$3" cwd="${4:-$G1_REPO}" T OUT
+  T=$(mk_transcript); add_edit_raw "$T" "$path"
+  OUT=$(mk_input_cwd "$T" "$cwd" | bash "$GATE" 2>/dev/null || true)
+  if [ "$want" = block ]; then assert_block "G1: $label" "$OUT"; else assert_approve "G1: $label" "$OUT"; fi
+}
+# g1_env_case block|approve label edit|bash path-or-command VAR=value... : the gate runs under
+# `env VAR=value...`, so the hook's temp-dir variables are the subject.
+g1_env_case() {
+  local want="$1" label="$2" kind="$3" arg="$4" T OUT
+  shift 4
+  T=$(mk_transcript)
+  if [ "$kind" = edit ]; then add_edit_raw "$T" "$arg"
+  else add_edit_turn "$T"; add_test_run "$T"; add_bash_of "$T" "$arg"; fi
+  OUT=$(mk_input_cwd "$T" "$G1_REPO" | env "$@" bash "$GATE" 2>/dev/null || true)
+  if [ "$want" = block ]; then assert_block "G1-env: $label" "$OUT"; else assert_approve "G1-env: $label" "$OUT"; fi
+}
+G1_REAL_TMP="${TMPDIR:-/tmp}"
+# Write/Edit. Mutations caught: no macOS branch (1); the macOS branch without (private/)? (2);
+# a bare ^/var/folders/ match (3); no tmp.<alnum> branch (4); tmp.<alnum> anchored as a FINAL
+# segment, exempting a source file named tmp.c (5); tmpdir missing from the segment list (6);
+# macOS only: the reported bug, the real $TMPDIR read as source (7).
+g1_raw_case approve "macOS expanded TMPDIR /var/folders/<a>/<b>/T/ outside the repo is exempt" "/var/folders/zz/ab12cd34/T/probe/x.sh"
+g1_raw_case approve "macOS /private/var/folders/<a>/<b>/T/ spelling is exempt"                  "/private/var/folders/zz/ab12cd34/T/x.ts"
+g1_raw_case block   "macOS /var/folders/<a>/<b>/C/ (cache, not temp) arms"                      "/var/folders/zz/ab12cd34/C/x.sh"
+g1_raw_case approve "a mktemp-style tmp.Ab1XyZ dir outside the repo is exempt"                  "/other/tmp.Ab1XyZ/x.sh"
+g1_raw_case block   "a source file named tmp.c outside the repo arms (tmp.<alnum> is a dir rule)" "/other/src/tmp.c"
+g1_raw_case approve "a tmpdir segment outside the repo is exempt"                               "/other/tmpdir/x.sh"
+g1_case     approve "a path under the test process's real \$TMPDIR is exempt"                   "$G1_REAL_TMP/g1-probe/x.sh"
+# Bash. Same mutations, through bash_counts_as_src (B1-B4).
+g1_bash_case approve "sed -i under a macOS expanded TMPDIR is exempt"   "sed -i 's/a/b/' /var/folders/zz/ab12cd34/T/probe/x.sh"
+g1_bash_case approve "> into a mktemp-style tmp.Ab1XyZ dir is exempt"   "echo x > /other/tmp.Ab1XyZ/x.sh"
+g1_bash_case approve "sed -i under the test process's real \$TMPDIR is exempt" "sed -i 's/a/b/' $G1_REAL_TMP/g1-probe/x.sh"
+g1_bash_case approve "sed -i in a tmpdir segment is exempt"             "sed -i 's/a/b/' /other/tmpdir/x.sh"
+# Root resolution for Bash edits. No root at all (no CLAUDE_PROJECT_DIR, cwd gone): an outside source
+# edit still counts (mutation: no roots -> Bash edits ignored), a temp one does not (mutation: no
+# roots -> the temp test skipped). Root = cwd (non-git dir): an in-root source edit counts (mutation:
+# the cwd-fallback branch dropped; the path then reads outside, under the temp sandbox, exempt).
+G1_NOGIT_B="$SANDBOX/g1/nogit-bash"; mkdir -p "$G1_NOGIT_B/src"
+g1_bash_case block   "no root resolvable: sed -i on an outside source file counts" "sed -i 's/a/b/' /other/repo/src/x.ts" "$SANDBOX/g1/no-such-dir"
+g1_bash_case approve "no root resolvable: sed -i in a tmp.XXXX dir is exempt"      "sed -i 's/a/b/' /other/tmp.Ab1XyZ/x.ts" "$SANDBOX/g1/no-such-dir"
+g1_bash_case block   "root = cwd (non-git): sed -i on its src file counts"          "sed -i 's/a/b/' $(g1_native "$G1_NOGIT_B")/src/x.ts" "$G1_NOGIT_B"
+# Temp spellings (mutations: case-sensitive segment match; backslashes not canonicalized; sandbox or
+# scratch missing from the segment list).
+g1_bash_case approve "/x/Temp/ segment is exempt (any case)"            "sed -i 's/a/b/' /x/Temp/y.ts"
+g1_bash_case approve "/x/TMP/ segment is exempt (any case)"             "sed -i 's/a/b/' /x/TMP/y.ts"
+g1_bash_case approve "backslash AppData\\Local\\Temp path is exempt"    'sed -i '"'s/a/b/'"' C:\Users\u\AppData\Local\Temp\y.ts'
+g1_bash_case approve "/x/sandbox/ segment is exempt"                    "sed -i 's/a/b/' /x/sandbox/y.ts"
+g1_bash_case approve "/x/scratch/ segment is exempt"                    "sed -i 's/a/b/' /x/scratch/y.ts"
+# Arming outside the root (mutations: an unanchored temp match, i.e. scratchy's boundary, applied to
+# outside paths (tmp_parser, temp-sensor); the docs/ exemption applied outside the root).
+g1_bash_case block   "/other/src/tmp_parser.py counts (temp-like name, not a segment)" "sed -i 's/a/b/' /other/src/tmp_parser.py"
+g1_bash_case block   "/other/src/temp-sensor.c counts (temp-like name, not a segment)" "sed -i 's/a/b/' /other/src/temp-sensor.c"
+g1_bash_case block   "/other/docs/x.ts counts (docs/ is exempt only inside the root)"  "sed -i 's/a/b/' /other/docs/x.ts"
+# Redirect and tee targets outside the root (mutations: the extension filter skipped for outside
+# paths (notes.md, out.json); redirect/tee targets outside the root ignored, the pre-G1 behavior).
+g1_bash_case approve "> /other/repo/notes.md stays exempt (not code)"  "echo x > /other/repo/notes.md"
+g1_bash_case approve "> /other/out.json stays exempt (not code)"       "echo x > /other/out.json"
+g1_bash_case block   "> /other/repo/src/x.ts counts"                   "echo x > /other/repo/src/x.ts"
+g1_bash_case block   "tee /other/repo/src/x.ts counts"                 "printf x | tee /other/repo/src/x.ts"
+# The hook's own temp dirs, each set to a dir with no temp word (mutations: branch (a) missing;
+# only TMPDIR read, not TMP/TEMP; a prefix match without the / boundary; no case fold on drive paths).
+g1_env_case approve "TMPDIR=/opt/ci/xdg-cache: an Edit under it (native spelling) is exempt" edit "$(g1_native /opt/ci/xdg-cache)/src/a.ts" TMPDIR=/opt/ci/xdg-cache
+g1_env_case approve "TMPDIR=C:\\ci\\xdg-cache: > under it is exempt" bash "echo x > C:/ci/xdg-cache/src/a.ts" 'TMPDIR=C:\ci\xdg-cache'
+g1_env_case approve "TMP=C:\\ci\\xdg-tmp: sed -i under it is exempt" bash "sed -i 's/a/b/' C:/ci/xdg-tmp/src/a.ts" 'TMP=C:\ci\xdg-tmp'
+g1_env_case approve "TEMP=C:/ci/xdg-temp: an Edit under it (/c/ spelling) is exempt" edit "/c/ci/xdg-temp/src/a.ts" 'TEMP=C:/ci/xdg-temp'
+g1_env_case block   "TMP=C:\\ci\\xdg-cache: the sibling xdg-cache2 still counts" bash "sed -i 's/a/b/' C:/ci/xdg-cache2/src/a.ts" 'TMP=C:\ci\xdg-cache'
+g1_env_case approve "TMP=C:\\CI\\Xdg-Cache: a drive path folds case" edit "c:/ci/xdg-cache/src/a.ts" 'TMP=C:\CI\Xdg-Cache'
+# A temp variable that is not an absolute dir must exempt nothing: canon("C:") is "C:" and
+# canon(".") is "", and either plus "/" prefix-matches every path on that side (mutation: the
+# temp-dir list not filtered to absolute dirs). These double as the Windows-drive Bash rows.
+g1_env_case block   "TMP=C: drive-relative, Edit C:\\other\\src\\x.ts arms" edit 'C:\other\src\x.ts' 'TMP=C:'
+g1_env_case block   "TMP=C: drive-relative, sed -i C:\\other\\src\\x.ts counts"      bash 'sed -i '"'s/a/b/'"' C:\other\src\x.ts' 'TMP=C:'
+g1_env_case block   "TMP=C: drive-relative, sed -i C:/other/src/x.ts counts"        bash "sed -i 's/a/b/' C:/other/src/x.ts" 'TMP=C:'
+g1_env_case block   "TMP=C: drive-relative, > /c/other/src/x.ts counts"             bash "echo x > /c/other/src/x.ts" 'TMP=C:'
+g1_env_case block   "TMP=C: drive-relative, sed -i //?/C:/other/src/x.ts counts"    bash "sed -i 's/a/b/' //?/C:/other/src/x.ts" 'TMP=C:'
+g1_env_case block   "TEMP=. relative, sed -i /other/src/x.ts counts"          bash "sed -i 's/a/b/' /other/src/x.ts" 'TEMP=.'
+if command -v cygpath >/dev/null 2>&1; then
+  G1_WIN=$(cygpath -w "$G1_REPO")
+  g1_case block "\\\\?\\ extended-length Windows path into the repo arms" "\\\\?\\$G1_WIN\\src\\a.ts" "$G1_WIN"
+  g1_case block "\\\\.\\ device-namespace Windows path into the repo arms" "\\\\.\\$G1_WIN\\src\\a.ts" "$G1_WIN"
+  g1_case block "forward-slash drive path with doubled slashes arms" "$(cygpath -m "$G1_REPO" | sed 's#/#//#g')//src//a.ts" "$G1_WIN"
+fi
+case "${OSTYPE:-}" in
+  msys*|cygwin*|darwin*)
+    g1_case block "a case-variant spelling of the root arms (case-insensitive file system)" \
+      "$(printf '%s' "$G1_REPO" | tr 'a-z' 'A-Z')/src/a.ts" ;;
+  *) echo "  note: case-variant root case not run on a case-sensitive file system ($OSTYPE)" ;;
+esac
+G1_TMPREPO="$SANDBOX/g1/Temp/sandbox/repo"; mkdir -p "$G1_TMPREPO/src"
+T=$(mk_transcript); add_edit_of "$T" "$G1_TMPREPO/src/a.sh"
+OUT=$(mk_input_cwd "$T" "$G1_TMPREPO" | bash "$GATE" 2>/dev/null || true)
+assert_block "G1: src .sh in a repo checked out under /Temp/sandbox/ still arms" "$OUT"
+T=$(mk_transcript); add_edit_of "$T" "$G1_TMPREPO/src/a.sh"
+OUT=$(mk_input_cwd "$T" "$G1_TMPREPO/src" | bash "$GATE" 2>/dev/null || true)
+assert_block "G1: same, with cwd in a subdirectory of that repo" "$OUT"
+
+# The payload cwd moves during a session (one real transcript: 3785 lines in one worktree, 210 in
+# main, 191 in another). CLAUDE_PROJECT_DIR is the root first, so an edit to the main checkout made
+# while cwd sits in a worktree (its own git toplevel) or in a non-git dir still arms.
+if command -v git >/dev/null 2>&1; then
+  G1_MAIN="$SANDBOX/g1/main"; G1_WT="$G1_MAIN/.claude/worktrees/wt"; G1_NOGIT="$SANDBOX/g1/nogit"
+  mkdir -p "$G1_MAIN/mcp/src/tools" "$G1_WT/src" "$G1_NOGIT"
+  git -C "$G1_MAIN" init -q && git -C "$G1_WT" init -q
+  g1_pd_case() { # label path cwd
+    local T OUT
+    T=$(mk_transcript); add_edit_of "$T" "$2"
+    OUT=$(mk_input_cwd "$T" "$3" | CLAUDE_PROJECT_DIR="$G1_MAIN" bash "$GATE" 2>/dev/null || true)
+    assert_block "G1: $1" "$OUT"
+  }
+  g1_pd_case "cwd in a worktree, edit to a main-checkout src file arms" "$G1_MAIN/mcp/src/tools/episodic-search.ts" "$G1_WT"
+  g1_pd_case "cwd in a worktree, edit to the worktree's own src file arms" "$G1_WT/src/a.ts" "$G1_WT"
+  g1_pd_case "cwd in a non-git dir, in-repo src edit arms" "$G1_MAIN/mcp/src/tools/x.ts" "$G1_NOGIT"
+  # Bash, root from CLAUDE_PROJECT_DIR (the first branch): cwd sits in a worktree with its own git
+  # toplevel. Mutation caught: the CLAUDE_PROJECT_DIR branch dropped, so the root is the worktree and
+  # the main-checkout path reads outside, under the temp sandbox, exempt.
+  g1_bash_case block "CLAUDE_PROJECT_DIR set, cwd in a worktree: sed -i on a main-checkout src file counts" \
+    "sed -i 's/a/b/' $(g1_native "$G1_MAIN")/mcp/src/x.ts" "$G1_WT" "$G1_MAIN"
+  T=$(mk_transcript); add_edit_of "$T" 'C:''\''Users''\''x''\''AppData''\''Local''\''Temp''\''claude''\''scratchpad''\''probe.js'
+  OUT=$(mk_input_cwd "$T" "$G1_WT" | CLAUDE_PROJECT_DIR="$G1_MAIN" bash "$GATE" 2>/dev/null || true)
+  assert_approve "G1: with CLAUDE_PROJECT_DIR set, a Windows scratchpad path outside stays exempt" "$OUT"
+  # An outside-root classification is never silent: one gate=verify-outside-root audit row.
+  rm -f "$BRAIN_DIR/audit-log.jsonl"
+  T=$(mk_transcript); add_edit_of "$T" "/elsewhere/project/src/x.js"
+  mk_input_cwd "$T" "$G1_MAIN" | CLAUDE_PROJECT_DIR="$G1_MAIN" bash "$GATE" >/dev/null 2>&1 || true
+  if jq -c 'select(.script == "stop-verify-gate.sh" and .exit_code == 0 and ((.message // "") | startswith("gate=verify-outside-root armed=1 exempt=0")))' \
+      "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q .; then
+    PASS=$((PASS + 1)); echo "  PASS: G1: an outside-root edit writes a gate=verify-outside-root audit row"
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL: G1: no gate=verify-outside-root armed=1 row for an outside-root edit ($(tail -2 "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null))"
+  fi
+  # A symlinked checkout: git reports the resolved toplevel, the payload cwd and tool paths the link.
+  # Both spellings are the repo. ln -s deep-copies on MSYS, so Windows gets a junction from node
+  # (Git-Bash reports it as a link).
+  G1_LINK="$SANDBOX/g1/link-main"
+  ln -s "$G1_MAIN" "$G1_LINK" 2>/dev/null || true
+  if [ ! -L "$G1_LINK" ] && command -v cygpath >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+    [ -d "$G1_LINK" ] && mv "$G1_LINK" "$SANDBOX/g1/link-copy"   # ln -s left a deep copy behind
+    node -e "require('fs').symlinkSync(process.argv[1], process.argv[2], 'junction')" "$(cygpath -w "$G1_MAIN")" "$(cygpath -w "$G1_LINK")" || true
+  fi
+  if [ -L "$G1_LINK" ]; then
+    T=$(mk_transcript); add_edit_of "$T" "$G1_LINK/mcp/src/tools/x.ts"
+    OUT=$(mk_input_cwd "$T" "$G1_LINK/mcp" | bash "$GATE" 2>/dev/null || true)
+    assert_block "G1: symlinked root, link-spelled in-repo path arms" "$OUT"
+    T=$(mk_transcript); add_edit_of "$T" "$G1_LINK/tmp/probe.js"
+    OUT=$(mk_input_cwd "$T" "$G1_LINK/mcp" | bash "$GATE" 2>/dev/null || true)
+    assert_approve "G1: symlinked root, link-spelled top-level tmp/ stays exempt" "$OUT"
+  else
+    echo "  note: symlinked-root cases not run (ln -s makes no real link on this host)"
+  fi
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL: G1: git not on PATH — the worktree/project-dir cases cannot run"
 fi
 
 # --- RR-SF2: MSYS here-string hang at 65,536..~65,650 bytes -----------------------------

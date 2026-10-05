@@ -107,18 +107,39 @@ function validateSlug(slug) {
 }
 
 // src/brain-paths.ts
+function normForCompare(p) {
+  let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join("/");
+  const m = s.match(/^[/]([A-Za-z])([/].*)?$/);
+  if (m) s = `${m[1]}:${m[2] ?? "/"}`;
+  s = s.replace(/[/]+$/, "");
+  return /^[A-Za-z]:/.test(s) ? s.toLowerCase() : s;
+}
+function suiteGuard(kind, resolved) {
+  const real = cleanEnvPath(process.env.SB_SUITE_REAL_HOME_PATH);
+  if (!real.trim()) return resolved;
+  const forbidden = normForCompare(`${real}/${kind === "brain" ? ".second-brain" : "knowledge"}`);
+  if (normForCompare(resolved) === forbidden) {
+    throw new Error(
+      `suite guard: ${kind} dir resolved to the REAL ${resolved} while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; set BRAIN_DIR/KNOWLEDGE_DIR to a temp dir in that test)`
+    );
+  }
+  return resolved;
+}
 function resolveBrainDir(override) {
-  if (override) return override;
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+  if (override) return suiteGuard("brain", override);
+  return suiteGuard(
+    "brain",
+    cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain")
+  );
 }
 function resolveKnowledgeDir(override) {
-  if (override) return override;
+  if (override) return suiteGuard("knowledge", override);
   for (const raw of [process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR, process.env.KNOWLEDGE_DIR]) {
     const c = cleanEnvPath(raw);
     if (!c.trim() || c.includes("${")) continue;
-    return c.startsWith("~") ? join(homedir(), c.slice(1)) : c;
+    return suiteGuard("knowledge", c.startsWith("~") ? join(homedir(), c.slice(1)) : c);
   }
-  return join(homedir(), "knowledge");
+  return suiteGuard("knowledge", join(homedir(), "knowledge"));
 }
 
 // src/tools/embeddings.ts
@@ -139,21 +160,45 @@ async function logLoadError(message, brainDir2) {
   }
   if (lastLoadError.loggedTo.has(brainDir2)) return;
   lastLoadError.loggedTo.add(brainDir2);
+  await appendErrorLog(brainDir2, "embeddings", message, 0);
+}
+async function appendErrorLog(brainDir2, script, message, exitCode = 1) {
   const entry = {
     timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
-    script: "embeddings",
+    script,
+    message,
+    exit_code: exitCode
+  };
+  let note = "";
+  try {
+    await fs2.mkdir(brainDir2, { recursive: true });
+    await fs2.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
+  } catch (e) {
+    note = ` (error-log.jsonl write failed: ${e instanceof Error ? e.message : String(e)})`;
+  }
+  try {
+    process.stderr.write(`[${script}] ${message}${note}
+`);
+  } catch {
+  }
+}
+async function appendGateTrace(brainDir2, script, message) {
+  const entry = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    script,
     message,
     exit_code: 0
   };
   try {
     await fs2.mkdir(brainDir2, { recursive: true });
-    await fs2.appendFile(join2(brainDir2, "error-log.jsonl"), JSON.stringify(entry) + "\n");
-  } catch {
-  }
-  try {
-    process.stderr.write(`[embeddings] ${message}
+    await fs2.appendFile(join2(brainDir2, "audit-log.jsonl"), JSON.stringify(entry) + "\n");
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    try {
+      process.stderr.write(`[${script}] ${message} (audit-log.jsonl write failed: ${why})
 `);
-  } catch {
+    } catch {
+    }
   }
 }
 async function getPipeline() {
@@ -6684,24 +6729,24 @@ function graphNeighbourhood(seeds, edges, hops) {
   }
   return reached;
 }
-function accessCountsFile() {
-  return join6(resolveBrainDir(), "access-counts.json");
+function accessCountsFile(brainDir2) {
+  return join6(resolveBrainDir(brainDir2), "access-counts.json");
 }
 var ACCESS_PRUNE_DAYS = 90;
-async function loadAccessCounts() {
+async function loadAccessCounts(file) {
   try {
-    return JSON.parse(await fs6.readFile(accessCountsFile(), "utf-8"));
+    return JSON.parse(await fs6.readFile(file, "utf-8"));
   } catch {
     return {};
   }
 }
-async function saveAccessCounts(counts) {
+async function saveAccessCounts(counts, file) {
   const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 864e5).toISOString();
   const pruned = {};
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await atomicWriteJson(accessCountsFile(), pruned);
+  await atomicWriteJson(file, pruned);
 }
 var TOP_K = 8;
 var SNIPPET_CHARS = 200;
@@ -6712,7 +6757,8 @@ var DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
 var MIN_SCORE_RATIO = 0.15;
 var STUB_PENALTY = 0.5;
 var MIN_CORPUS_FOR_DF = 8;
-var GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
+var LEGACY_GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
+  // the 0.54 list; SB_INJECT_PRECISION=off grounds on it alone
   "the",
   "a",
   "an",
@@ -6833,15 +6879,52 @@ var GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
   "also",
   "now"
 ]);
+var GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
+  ...LEGACY_GROUNDING_STOPWORDS,
+  // Generic prompt verbs/qualifiers, added 2026-10 (R1#4) only after re-grading: on the 40 graded
+  // prompts over the real wiki, none of these pushes a grader-identified R2 page below the gate,
+  // and together they cut injections on noise-graded prompts 16 -> 10 (scratchpad
+  // review/stopword-validation.md). Deliberately NOT here: "new" (grounds R2 #27, "season 8 ...
+  // new artifacts") and "changes" (grounds R2 #38's version-bump tripwire page) — locked in
+  // retrieval-guards.test.ts.
+  "check",
+  "checks",
+  "checked",
+  "one",
+  "old",
+  "add",
+  "added",
+  "change",
+  "changed",
+  "relevant",
+  "correct",
+  "valid",
+  "everything",
+  "update",
+  "updated",
+  "missing",
+  "still",
+  "final",
+  "ready",
+  "sure",
+  "let",
+  "see",
+  "try",
+  "continue"
+]);
 var COMMON_TERM_DF_SHARE = (() => {
   const v = parseFloat(process.env.SB_GROUNDING_DF_SHARE ?? "");
   return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.5;
 })();
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
+var STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
+var SINGLE_LETTER_RE = /^[a-z]$/;
+var PURE_DIGITS_RE = /^[0-9]+$/;
 async function knowledgeSearch(args) {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join6(knowledgeDir, "wiki");
+  const accessFile = accessCountsFile(args.brainDir);
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
     try {
@@ -6898,9 +6981,16 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const avgDL = indexed.reduce((sum, d) => sum + d.bodyLen, 0) / allDocs.length || AVG_DOC_LENGTH;
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, indexed);
+  const shortStub = allDocs.map(({ rawContent, source }, i) => source !== "local-doc" && (AUTO_EXTRACTED_RE.test(rawContent) || indexed[i].strippedBody.trim().length < MIN_SUBSTANTIVE_LENGTH));
+  const activeSlug = args.projectSlug?.trim().toLowerCase() || "";
+  const discCount = discriminativeTerms(queryTokens, dfMap, N).length;
   const scored = allDocs.map(({ doc, rawContent, source, tokens }, i) => {
     const bm25 = scoreBM25(queryTokens, indexed[i], avgDL, N, dfMap);
+    const project = (doc.project ?? "").trim().toLowerCase();
     return {
+      // Flags for the per-prompt injection gate; never read by ranking. Emitted sparsely below.
+      isStub: shortStub[i] || source === "wiki" && STUB_DESCRIPTION_RE.test(doc.description ?? ""),
+      isCross: source === "wiki" && activeSlug !== "" && project !== "" && project !== activeSlug,
       path: doc.path,
       tier: 0,
       // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
@@ -7007,11 +7097,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   } catch {
   }
   for (let i = 0; i < scored.length; i++) {
-    if (allDocs[i].source === "local-doc") continue;
-    const { rawContent } = allDocs[i];
-    if (AUTO_EXTRACTED_RE.test(rawContent) || indexed[i].strippedBody.trim().length < MIN_SUBSTANTIVE_LENGTH) {
-      scored[i].score *= STUB_PENALTY;
-    }
+    if (shortStub[i]) scored[i].score *= STUB_PENALTY;
   }
   const RECENCY_BOOST_MAX = 0.3;
   const RECENCY_WINDOW_DAYS = 90;
@@ -7071,16 +7157,19 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   }
   const returned = pool.filter(passesFloor).slice(0, TOP_K);
   const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);
-  const candidates = returned.map(({ related, baseScore, tier, ...rest }) => ({
+  const candidates = returned.map(({ related, baseScore, tier, isStub, isCross, ...rest }) => ({
     ...rest,
     score_norm: topFinal > 0 ? Math.round(rest.score / topFinal * 1e4) / 1e4 : 0,
     // baseScore surfaces as `relevance`: callers gating on relevance need the frozen
     // pre-boost BM25, not the mode-dependent `score` (see the field doc).
     relevance: Math.round(baseScore * 1e3) / 1e3,
     query_terms: new Set(queryTokens).size,
+    discriminative_terms: discCount,
+    ...isStub ? { stub: true } : {},
+    ...isCross ? { cross_project: true } : {},
     ...scopeActive ? { tier } : {}
   }));
-  const accessCounts = await loadAccessCounts();
+  const accessCounts = await loadAccessCounts(accessFile);
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;
@@ -7089,7 +7178,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     accessCounts[slug].count++;
     accessCounts[slug].last_accessed = ts;
   }
-  await saveAccessCounts(accessCounts).catch(() => {
+  await saveAccessCounts(accessCounts, accessFile).catch(() => {
   });
   return {
     candidates,
@@ -7098,6 +7187,50 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     // for this slug (see the interface doc for what that can mean).
     ...scopeOn ? { scoped_to: args.projectSlug, anchors: anchorCount } : {}
   };
+}
+function injectionGroundingNeed(minGrounded2, discriminative, crossProject) {
+  if (minGrounded2 <= 0) return 0;
+  const base = Math.max(1, Math.min(minGrounded2, discriminative));
+  return crossProject ? Math.max(base, Math.min(base + 1, discriminative)) : base;
+}
+var GATE_ON = /* @__PURE__ */ new Set(["1", "on", "true", "yes"]);
+var GATE_OFF = /* @__PURE__ */ new Set(["0", "off", "false", "no"]);
+function parseInjectGate(raw, warn) {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (GATE_ON.has(v)) return true;
+  if (v && !GATE_OFF.has(v)) {
+    warn(`SB_INJECT_GATE=${JSON.stringify(raw)} is not recognised (use 1/on/true/yes); using the legacy filter`);
+  }
+  return false;
+}
+function parseInjectPrecision(raw, warn) {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (GATE_OFF.has(v)) return false;
+  if (v !== "" && !GATE_ON.has(v)) {
+    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use off/0/false/no or on/1/true/yes); keeping the precision gate`);
+  }
+  return true;
+}
+var injectPrecisionWarning;
+var INJECT_PRECISION = parseInjectPrecision(process.env.SB_INJECT_PRECISION, (msg) => {
+  injectPrecisionWarning = msg;
+  process.stderr.write(`second-brain knowledge-search: ${msg}
+`);
+});
+function injectPrecisionStatus() {
+  return { mode: INJECT_PRECISION ? "r1" : "off", ...injectPrecisionWarning ? { warning: injectPrecisionWarning } : {} };
+}
+async function reportInjectPrecision(brainDir2, script, status = injectPrecisionStatus()) {
+  if (status.warning) await appendErrorLog(brainDir2, script, status.warning, 1);
+  if (status.mode === "off") await appendGateTrace(brainDir2, script, "gate=inject-precision mode=off");
+}
+function legacyWikiFilter(candidates, o) {
+  const needGrounded = Math.min(o.minGrounded, candidates[0]?.query_terms ?? o.minGrounded);
+  return candidates.filter((c) => c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= needGrounded);
+}
+function injectableWiki(candidates, o) {
+  if (!INJECT_PRECISION) return legacyWikiFilter(candidates, o);
+  return candidates.filter((c) => !c.stub && c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
 }
 function toCounts(s) {
   const toks = tokenize(s);
@@ -7129,7 +7262,7 @@ function groundedCount(queryTokens, idx, dfMap, N) {
   return n;
 }
 function discriminativeTerms(queryTokens, dfMap, N) {
-  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t));
+  const distinct = [...new Set(queryTokens)].filter(INJECT_PRECISION ? (t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t) : (t) => !LEGACY_GROUNDING_STOPWORDS.has(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);
@@ -7186,9 +7319,17 @@ var minRelevance = envNum("SB_INJECT_MIN_RELEVANCE", 0, 0, Number.MAX_SAFE_INTEG
 var minGrounded = envNum("SB_INJECT_MIN_GROUNDED", 2, 0, 64);
 var brainDir = resolveBrainDir();
 var projectSlug = process.env.SB_ACTIVE_SLUG || void 0;
+await reportInjectPrecision(brainDir, "knowledge-search-cli");
 var result = await knowledgeSearch({ query, brainDir, projectSlug });
-var needGrounded = Math.min(minGrounded, result.candidates[0]?.query_terms ?? minGrounded);
-var top = result.candidates.filter((c) => c.score >= minScore && c.relevance >= minRelevance && c.grounded >= needGrounded).slice(0, 2);
+var injectGate = parseInjectGate(
+  process.env.SB_INJECT_GATE,
+  (msg) => {
+    process.stderr.write(`knowledge-search-cli: ${msg}
+`);
+  }
+);
+var gateOpts = { minScore, minRelevance, minGrounded };
+var top = (injectGate ? injectableWiki(result.candidates, gateOpts) : legacyWikiFilter(result.candidates, gateOpts)).slice(0, 2);
 if (top.length === 0) {
   process.exit(0);
 }

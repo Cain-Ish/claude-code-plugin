@@ -28,18 +28,53 @@ async function logLoadError(message: string, brainDir: string): Promise<void> {
   }
   if (lastLoadError.loggedTo.has(brainDir)) return;
   lastLoadError.loggedTo.add(brainDir);
+  await appendErrorLog(brainDir, 'embeddings', message, 0);
+}
 
+/** The TS twin of lib.sh's sb_log_error: one `{timestamp, script, message, exit_code}` row in
+ *  `<brainDir>/error-log.jsonl`, echoed to stderr. If the row cannot be written, the stderr line
+ *  says so: the failure is never silent, and logging never throws into its caller. */
+export async function appendErrorLog(brainDir: string, script: string, message: string, exitCode = 1): Promise<void> {
   const entry = {
     timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    script: 'embeddings',
+    script,
+    message,
+    exit_code: exitCode,
+  };
+  let note = '';
+  try {
+    await fs.mkdir(brainDir, { recursive: true });
+    await fs.appendFile(join(brainDir, 'error-log.jsonl'), JSON.stringify(entry) + '\n');
+  } catch (e) {
+    note = ` (error-log.jsonl write failed: ${e instanceof Error ? e.message : String(e)})`;
+  }
+  try { process.stderr.write(`[${script}] ${message}${note}\n`); } catch { /* stderr gone: nothing left to tell */ }
+}
+
+/** The TS twin of sb_log_error's REROUTED row: a `gate=*` message at exit_code 0 is a TRACE, not an
+ *  error, so it goes to `<brainDir>/audit-log.jsonl` in the same `{timestamp, script, message,
+ *  exit_code}` shape, as one compact line in a single append. Silent on success (a TRACE is not
+ *  news); a failed write is echoed to stderr and never thrown. No rotation here: the next bash
+ *  sb_log_error caller rotates the file (sb_rotate_audit_log), as with persona-context's _mt_log. */
+export async function appendGateTrace(brainDir: string, script: string, message: string): Promise<void> {
+  const entry = {
+    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    script,
     message,
     exit_code: 0,
   };
   try {
     await fs.mkdir(brainDir, { recursive: true });
-    await fs.appendFile(join(brainDir, 'error-log.jsonl'), JSON.stringify(entry) + '\n');
-  } catch { /* logging is best-effort */ }
-  try { process.stderr.write(`[embeddings] ${message}\n`); } catch { /* ignore */ }
+    await fs.appendFile(join(brainDir, 'audit-log.jsonl'), JSON.stringify(entry) + '\n');
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    try { process.stderr.write(`[${script}] ${message} (audit-log.jsonl write failed: ${why})\n`); } catch { /* stderr gone */ }
+  }
+}
+
+/** The explicit opt-out: an acknowledged choice, not a degradation, so callers stay quiet about it. */
+export function embeddingsOptedOut(): boolean {
+  return process.env[DISABLE_ENV] === '1';
 }
 
 async function getPipeline(): Promise<any> {

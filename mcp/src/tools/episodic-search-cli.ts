@@ -1,6 +1,10 @@
-import { episodicSearch } from './episodic-search.js';
+import { serveEpisodicLines } from './episodic-search.js';
 import { resolveBrainDir } from '../brain-paths.js';
 
+// Fallback for the per-prompt "[Past sessions]" hint: persona-context.sh runs this CLI only when
+// context-serve-cli is missing. It must serve exactly what context-serve-cli serves, so both call
+// the one serveEpisodicLines step (no empty/machine user side, no echo of the current session, no
+// duplicate openings, the same floor and pool) — or the fallback re-opens the noise R1 closed.
 const query = process.argv[2] || '';
 if (!query) { process.exit(0); }
 
@@ -9,22 +13,6 @@ const brainDir = resolveBrainDir();
 // noise, broaden only when this project has no in-scope hit). The slug is forwarded by
 // persona-context.sh, mirroring the knowledge-search CLI.
 const activeProject = process.env.SB_ACTIVE_SLUG?.trim() || undefined;
-const result = await episodicSearch({ query, limit: 2, mode: 'both', activeProject }, brainDir);
-
-const top = result.results.filter(r => r.similarity >= 0.15);
-if (top.length === 0) { process.exit(0); }
-
-const seen = new Set<string>();
-const deduped = top.filter(r => {
-  const key = r.userSnippet.slice(0, 60);
-  if (seen.has(key)) return false;
-  seen.add(key);
-  return true;
-});
-if (deduped.length === 0) { process.exit(0); }
-
-console.log('[Past sessions — use episodic_search for full context]');
-for (const r of deduped) {
-  const sim = Math.round(r.similarity * 100);
-  console.log(`- "${r.userSnippet.slice(0, 80)}..." (${r.project}, ${r.date}, ${sim}%)`);
-}
+const sessionId = process.env.SB_SESSION_ID?.trim() || '';
+const lines = await serveEpisodicLines(query, brainDir, { sessionId, activeProject });
+for (const l of lines) console.log(l);

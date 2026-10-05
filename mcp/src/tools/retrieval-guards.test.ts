@@ -3,11 +3,11 @@
 // the episodic search→read round-trip flips one of these RED. Embeddings are disabled so every
 // assertion is BM25 / text-mode deterministic. Covers episodic recall (search→read round-trip)
 // and protects the episodic sanitization guarantee.
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { promises as fs, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { knowledgeSearch } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki } from './knowledge-search.js';
 import { buildEpisodicIndex, episodicSearch, episodicRead } from './episodic-search.js';
 
 beforeAll(() => {
@@ -235,5 +235,353 @@ describe('grounding: all-filler query grounds nothing', () => {
     });
     const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
     expect(r.candidates[0].grounded, 'small corpus must still ground').toBeGreaterThanOrEqual(2);
+  });
+});
+
+// --- Per-prompt injection gate (context-serve-cli, R1#4 of the 2026-10 design) ---------------
+// The per-prompt CLI gates on grounding with three additions the recall CLI does not have:
+// stubs are never injected, a cross-project page needs one more grounded term, and the need is
+// clamped to the DISCRIMINATIVE term count rather than the raw token count. The raw-count clamp
+// was unsatisfiable for any query with one real term among filler ("what is the pagerank
+// thing": 5 tokens, 1 discriminative, need min(2,5)=2, grounded can be at most 1). These locks
+// read the shipped default from the CLI source, so an edit there cannot dodge them.
+async function shippedMinGrounded(): Promise<number> {
+  const src = await fs.readFile(join(__dirname, 'context-serve-cli.ts'), 'utf8');
+  const m = src.match(/envNum\('SB_INJECT_MIN_GROUNDED',\s*(\d+)/);
+  // A throw, not an expect: callers outside an assertion context (a helper, a loop bound) must
+  // never get NaN back and run their locks against it vacuously.
+  if (!m) throw new Error('SB_INJECT_MIN_GROUNDED default not found in context-serve-cli.ts: the satisfiability locks have nothing to check');
+  return Number(m[1]);
+}
+
+type Engine = typeof import('./knowledge-search.js');
+/** A FRESH engine module loaded under SB_INJECT_PRECISION=value (undefined = unset). The switch is
+ *  read once per process, at module load, so each mode needs its own module instance (the static
+ *  import above is the unset/on one). Gate candidates only with the instance that produced them:
+ *  mixing instances gates one mode's grounding with the other mode's filter and proves nothing. */
+async function engineWith(value: string | undefined): Promise<Engine> {
+  if (value === undefined) delete process.env.SB_INJECT_PRECISION;
+  else process.env.SB_INJECT_PRECISION = value;
+  vi.resetModules();
+  return await import('./knowledge-search.js') as Engine;
+}
+
+interface Page { slug: string; title: string; description: string; project?: string; body?: string }
+async function seedPages(pages: Page[]): Promise<string> {
+  const dir = await fs.mkdtemp(join(tmpdir(), 'rg-gate-'));
+  await fs.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+  const long = 'This page carries enough prose to clear the short-body stub test, so only the gate decides. ';
+  for (const p of pages) {
+    await fs.writeFile(join(dir, 'wiki', 'learnings', `${p.slug}.md`),
+      `---\ntitle: "${p.title}"\ndescription: "${p.description}"\ntype: learnings\n`
+      + (p.project ? `project: ${p.project}\n` : '') + `---\n\n${p.body ?? long.repeat(2)}\n`);
+  }
+  return dir;
+}
+/** >= MIN_CORPUS_FOR_DF filler pages so the df filter is live, none sharing the query terms. */
+const filler = (n: number): Page[] => Array.from({ length: n }, (_, i) => ({
+  slug: `filler-${i}`, title: `unrelated filler note ${i}`, description: 'gardening compost soil',
+}));
+const slugOf = (p: string) => p.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
+
+// The arithmetic locks run against a fresh engine in BOTH SB_INJECT_PRECISION modes: the switch
+// must never be the thing that makes the R1 need unsatisfiable or lets an all-filler query through.
+describe.each([['on'], ['off']])('per-prompt injection gate arithmetic (SB_INJECT_PRECISION=%s)', (mode) => {
+  it('arithmetic: the need is at least 1 and never above the discriminative-term count', async () => {
+    const ks = await engineWith(mode);
+    const minG = await shippedMinGrounded();
+    for (let disc = 1; disc <= 12; disc++) {
+      const inP = ks.injectionGroundingNeed(minG, disc, false);
+      const cross = ks.injectionGroundingNeed(minG, disc, true);
+      expect(inP, `in-project need at disc=${disc}`).toBeGreaterThanOrEqual(1);
+      expect(inP, `in-project need at disc=${disc} is unsatisfiable`).toBeLessThanOrEqual(disc);
+      expect(cross, `cross-project need at disc=${disc} is unsatisfiable`).toBeLessThanOrEqual(disc);
+      // one more than in-project wherever the query has room for it, clamped otherwise
+      expect(cross, `cross-project need at disc=${disc}`).toBe(Math.min(inP + 1, disc));
+    }
+    expect(ks.injectionGroundingNeed(minG, 1, false)).toBe(1);
+    expect(ks.injectionGroundingNeed(minG, 1, true)).toBe(1);
+  });
+
+  it('arithmetic: an all-filler query (0 discriminative terms) still needs a grounded term, so it injects nothing', async () => {
+    const ks = await engineWith(mode);
+    const minG = await shippedMinGrounded();
+    // grounded <= discriminative terms = 0, so any need >= 1 rejects every page.
+    expect(ks.injectionGroundingNeed(minG, 0, false)).toBeGreaterThanOrEqual(1);
+    expect(ks.injectionGroundingNeed(minG, 0, true)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('arithmetic: grounding off (SB_INJECT_MIN_GROUNDED=0) asks nothing of cross-project pages either', async () => {
+    const ks = await engineWith(mode);
+    // R1 review: the cross-project "+1" ran after the off check, so with grounding off a
+    // cross-project page still needed a grounded term.
+    for (const minG of [0, -1]) {
+      for (let disc = 0; disc <= 6; disc++) {
+        expect(ks.injectionGroundingNeed(minG, disc, false), `in-project, min=${minG} disc=${disc}`).toBe(0);
+        expect(ks.injectionGroundingNeed(minG, disc, true), `cross-project, min=${minG} disc=${disc}`).toBe(0);
+      }
+    }
+  });
+});
+
+describe('per-prompt injection gate satisfiability (context-serve-cli)', () => {
+  it('a 1-discriminative-term query injects an in-project page at shipped defaults', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'pagerank-code-map', title: 'zzqpagerank code map', description: 'ranked code structure', project: 'alpha' },
+    ]);
+    const r = await knowledgeSearch({ query: 'what is the zzqpagerank thing', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === 'pagerank-code-map');
+    expect(hit, 'the page must be retrieved at all').toBeDefined();
+    expect(hit!.query_terms).toBe(5);
+    expect(hit!.discriminative_terms).toBe(1);
+    const inj = injectableWiki(r.candidates, { minScore: 0, minRelevance: 0, minGrounded: await shippedMinGrounded() });
+    expect(inj.map(c => slugOf(c.path))).toContain('pagerank-code-map');
+  });
+
+  it('a cross-project page is injectable when it grounds on all discriminative terms, and not on fewer', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'beta-both', title: 'zzqwidget zzqgadget pairing', description: 'beta notes', project: 'Beta' },
+      { slug: 'beta-one', title: 'zzqwidget only', description: 'beta notes', project: 'beta' },
+      { slug: 'alpha-one', title: 'zzqwidget alone', description: 'alpha notes', project: 'ALPHA' },
+    ]);
+    const minG = await shippedMinGrounded();
+    for (const env of [{}, { SB_PROJECT_SCOPE: 'off' }]) {
+      Object.assign(process.env, env);
+      try {
+        // `ALPHA` equals `alpha` for the cross flag (case-insensitive) but not for the
+        // case-sensitive tier-1 anchor count, so the first pass also runs the anchors=0 path;
+        // the second runs with scoping switched off entirely.
+        const r = await knowledgeSearch({ query: 'zzqwidget zzqgadget', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+        if (!('SB_PROJECT_SCOPE' in env)) expect(r.anchors).toBe(0);
+        const by = new Map(r.candidates.map(c => [slugOf(c.path), c]));
+        expect(by.get('beta-both')?.cross_project).toBe(true);
+        expect(by.get('beta-one')?.cross_project).toBe(true);
+        expect(by.get('alpha-one')?.cross_project, 'project match is case-insensitive').toBeUndefined();
+        const inj = injectableWiki(r.candidates, { minScore: 0, minRelevance: 0, minGrounded: minG }).map(c => slugOf(c.path));
+        expect(inj, JSON.stringify(env)).toContain('beta-both');
+        expect(inj, JSON.stringify(env)).not.toContain('beta-one');
+      } finally {
+        delete process.env.SB_PROJECT_SCOPE;
+      }
+    }
+  });
+
+  it('stub pages are flagged and never injectable', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'zzqcache-stub', title: 'zzqcache eviction', description: 'Auto-created stub — needs expansion' },
+      { slug: 'zzqcache-short', title: 'zzqcache warmup', description: 'cache warmup', body: 'tiny body' },
+      { slug: 'zzqcache-real', title: 'zzqcache sizing', description: 'cache sizing rules' },
+    ]);
+    const r = await knowledgeSearch({ query: 'zzqcache', knowledgeDir: dir });
+    const by = new Map(r.candidates.map(c => [slugOf(c.path), c]));
+    expect(by.get('zzqcache-stub')?.stub).toBe(true);
+    expect(by.get('zzqcache-short')?.stub).toBe(true);
+    expect(by.get('zzqcache-real')?.stub).toBeUndefined();
+    const inj = injectableWiki(r.candidates, { minScore: 0, minRelevance: 0, minGrounded: await shippedMinGrounded() });
+    expect(inj.map(c => slugOf(c.path))).toEqual(['zzqcache-real']);
+  });
+
+  it('context-serve-cli gates its wiki section through injectableWiki (source lock)', async () => {
+    const src = await fs.readFile(join(__dirname, 'context-serve-cli.ts'), 'utf8');
+    expect(src).toMatch(/injectableWiki\(\s*result\.candidates/);
+  });
+});
+
+// Pure-digit tokens stopped grounding in the R1 review: "fix items 3 8 review" injected
+// [[8-3-short-filename-alias-…]] on "3" + "8". Re-graded on the 37 evaluated prompts over the
+// real wiki (1203 pages, BM25-only): R2 injected 9/14 and R2 passing the gate 13/14 either way,
+// R0 injections 10 either way, no prompt's injections changed. R2 #27 ("season 8 … new") still
+// grounds on "season" + "new". Mixed alphanumerics (d154, v2) still ground.
+describe('grounding: single letters and pure digits never ground, mixed alphanumerics do', () => {
+  it('"m" (from "I\'m") cannot ground a page, and neither can "8" in "season 8"', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'affaan-m-ecc', title: 'affaan m plugin reference', description: 'reference notes' },
+      { slug: 'season-8-modes', title: 'zzqseason 8 modes', description: 'mode status' },
+    ]);
+    const m = await knowledgeSearch({ query: 'm affaan', knowledgeDir: dir });
+    expect(m.candidates.find(c => slugOf(c.path) === 'affaan-m-ecc')?.grounded).toBe(1);
+    const s = await knowledgeSearch({ query: 'zzqseason 8', knowledgeDir: dir });
+    const hit = s.candidates.find(c => slugOf(c.path) === 'season-8-modes');
+    expect(hit?.grounded).toBe(1);
+    expect(hit?.discriminative_terms).toBe(1);
+  });
+
+  it('a page titled with the digits of a numbered list is not injected on them', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: '8-3-short-filename-alias', title: '8 3 short filename alias', description: 'deny list bypass' },
+    ]);
+    const r = await knowledgeSearch({ query: 'fix items 3 8 review', knowledgeDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === '8-3-short-filename-alias');
+    expect(hit, 'BM25 still ranks the page; only grounding ignores the digits').toBeDefined();
+    expect(hit!.grounded).toBe(0);
+    expect(injectableWiki(r.candidates, { minScore: 0, minRelevance: 0, minGrounded: await shippedMinGrounded() })
+      .map(c => slugOf(c.path))).not.toContain('8-3-short-filename-alias');
+  });
+
+  it('mixed alphanumerics (d154, v2) still ground', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'd154-v2-notes', title: 'zzqd154 v2 migration notes', description: 'notes' },
+    ]);
+    const r = await knowledgeSearch({ query: 'zzqd154 v2', knowledgeDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === 'd154-v2-notes');
+    expect(hit?.grounded).toBe(2);
+    expect(hit?.discriminative_terms).toBe(2);
+  });
+});
+
+// --- Data-validated grounding stopwords (R1#4, 2026-10) -----------------------------------------
+// Each word below was re-graded against the 40-prompt relevance sample on the real wiki
+// (scratchpad review/stopword-validation.md): adding it pushes no grader-identified R2 page
+// below the gate. Two words were tested and must keep grounding: "new" grounds R2 #27 ("season 8
+// artifacts ... new") and "changes" grounds R2 #38's version-bump tripwire page.
+describe('grounding: generic prompt verbs never ground, validated content words still do', () => {
+  const GENERIC = ['check', 'checks', 'checked', 'one', 'old', 'add', 'added', 'change', 'changed',
+    'relevant', 'correct', 'valid', 'everything', 'update', 'updated', 'missing', 'still', 'final',
+    'ready', 'sure', 'let', 'see', 'try', 'continue'];
+
+  it('a page titled with every generic word grounds only on its real term', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'generic-title', title: `zzqanchor ${GENERIC.join(' ')}`, description: 'notes' },
+    ]);
+    const r = await knowledgeSearch({ query: `zzqanchor ${GENERIC.join(' ')}`, knowledgeDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === 'generic-title');
+    expect(hit?.discriminative_terms).toBe(1);
+    expect(hit?.grounded).toBe(1);
+  });
+
+  it('"new" and "changes" stay grounding terms (R2 #27 and #38 depend on them)', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'season-changes', title: 'zzqseason new changes', description: 'notes' },
+    ]);
+    const r = await knowledgeSearch({ query: 'zzqseason new changes', knowledgeDir: dir });
+    expect(r.candidates.find(c => slugOf(c.path) === 'season-changes')?.grounded).toBe(3);
+  });
+});
+
+// --- SB_INJECT_PRECISION kill switch (R1 rollback) -----------------------------------------------
+// off restores the 0.54.1 per-prompt gate: the 0.54 stopword list, single letters and digits ground,
+// stubs are injectable, cross-project pages need no extra term, and the need is clamped to the RAW
+// query-term count. on / unset / empty keep the R1 gate. Every row below flips between the modes,
+// so each one proves the switch reaches that specific part of the gate.
+describe('SB_INJECT_PRECISION kill switch', () => {
+  let dir = '';
+  beforeAll(async () => {
+    dir = await seedPages([
+      ...filler(9),   // titles carry the digits 3 and 8 too (df 2, well under the df cap)
+      { slug: '8-3-short-filename-alias', title: '8 3 short filename alias', description: 'deny list bypass' },
+      { slug: 'affaan-m-ecc', title: 'affaan m plugin reference', description: 'reference notes' },
+      { slug: 'zzqcache-stub', title: 'zzqcache eviction', description: 'Auto-created stub — needs expansion' },
+      { slug: 'zzqcache-short', title: 'zzqcache warmup', description: 'cache warmup', body: 'tiny body' },
+      { slug: 'zzqcache-real', title: 'zzqcache sizing', description: 'cache sizing rules' },
+      { slug: 'beta-pair', title: 'zzqwidget zzqgadget pairing', description: 'beta notes', project: 'beta' },
+      { slug: 'check-update-flow', title: 'check update flow', description: 'release notes' },
+      { slug: 'pagerank-code-map', title: 'zzqpagerank code map', description: 'ranked code structure' },
+    ]);
+  });
+
+  interface Outcome {
+    digits: { grounded?: number; injected: boolean; recall: boolean };
+    letterGrounded?: number;
+    stubs: string[];
+    cross: { flagged?: boolean; grounded?: number; injected: boolean };
+    generic: { injected: string[]; recall: string[] };
+    clamp: boolean;
+  }
+  /** Runs every row through ONE engine instance, gating at the shipped per-prompt defaults. */
+  async function outcomes(ks: Engine): Promise<Outcome> {
+    const o = { minScore: 0, minRelevance: 0, minGrounded: await shippedMinGrounded() };
+    const run = async (query: string, projectSlug?: string) => {
+      const r = await ks.knowledgeSearch({ query, knowledgeDir: dir, brainDir: dir, projectSlug });
+      return {
+        hit: (slug: string) => r.candidates.find(c => slugOf(c.path) === slug),
+        inj: ks.injectableWiki(r.candidates, o).map(c => slugOf(c.path)),
+        recall: ks.legacyWikiFilter(r.candidates, o).map(c => slugOf(c.path)),
+      };
+    };
+    const digits = await run('fix items 3 8 review');
+    const letter = await run('m affaan');
+    const stubs = await run('zzqcache');
+    const cross = await run('zzqwidget zzqgadget zzqgizmo', 'alpha');
+    const generic = await run('check update');
+    const clamp = await run('what is the zzqpagerank thing');
+    expect(digits.hit('8-3-short-filename-alias'), 'BM25 must retrieve the digits page in both modes').toBeDefined();
+    expect(cross.hit('beta-pair'), 'the cross-project page must be retrieved in both modes').toBeDefined();
+    expect(clamp.hit('pagerank-code-map'), 'the clamp page must be retrieved in both modes').toBeDefined();
+    return {
+      digits: {
+        grounded: digits.hit('8-3-short-filename-alias')?.grounded,
+        injected: digits.inj.includes('8-3-short-filename-alias'),
+        recall: digits.recall.includes('8-3-short-filename-alias'),
+      },
+      letterGrounded: letter.hit('affaan-m-ecc')?.grounded,
+      stubs: stubs.inj.filter(s => s.startsWith('zzqcache-')).sort(),
+      cross: {
+        flagged: cross.hit('beta-pair')?.cross_project,
+        grounded: cross.hit('beta-pair')?.grounded,
+        injected: cross.inj.includes('beta-pair'),
+      },
+      generic: { injected: generic.inj, recall: generic.recall },
+      clamp: clamp.inj.includes('pagerank-code-map'),
+    };
+  }
+
+  const R1: Outcome = {
+    digits: { grounded: 0, injected: false, recall: false },          // digits never ground
+    letterGrounded: 1,                                                  // nor does "m"
+    stubs: ['zzqcache-real'],                                           // never a stub
+    cross: { flagged: true, grounded: 2, injected: false },            // 2 of 3 is short of the cross need (3)
+    generic: { injected: [], recall: [] },                              // "check"/"update" are stopwords
+    clamp: true,                                                        // need clamped to 1 discriminative term
+  };
+  const V054: Outcome = {
+    digits: { grounded: 2, injected: true, recall: true },             // "3" + "8" ground, need min(2, 5) = 2
+    letterGrounded: 2,                                                  // "m" grounds
+    stubs: ['zzqcache-real', 'zzqcache-short', 'zzqcache-stub'],        // stubs injectable, need min(2, 1) = 1
+    cross: { flagged: true, grounded: 2, injected: true },             // no extra term: need min(2, 3) = 2
+    generic: { injected: ['check-update-flow'], recall: ['check-update-flow'] },
+    clamp: false,                                                       // need min(2, 5) = 2 > grounded 1
+  };
+
+  it.each([['on'], ['ON'], [''], [undefined]])('SB_INJECT_PRECISION=%j keeps the R1 outcomes', async (value) => {
+    expect(await outcomes(await engineWith(value))).toEqual(R1);
+  });
+
+  it.each([['off'], ['OFF'], ['Off']])('SB_INJECT_PRECISION=%j restores the 0.54.1 outcomes', async (value) => {
+    expect(await outcomes(await engineWith(value))).toEqual(V054);
+  });
+
+  it('off: injectableWiki is exactly the 0.54.1 filter (the recall CLI\'s), row for row', async () => {
+    const ks = await engineWith('off');
+    const o = { minScore: 0, minRelevance: 0, minGrounded: await shippedMinGrounded() };
+    for (const q of ['fix items 3 8 review', 'zzqcache', 'check update', 'what is the zzqpagerank thing', 'm affaan']) {
+      const r = await ks.knowledgeSearch({ query: q, knowledgeDir: dir, brainDir: dir, projectSlug: 'alpha' });
+      expect(ks.injectableWiki(r.candidates, o), q).toEqual(ks.legacyWikiFilter(r.candidates, o));
+    }
+  });
+
+  it('a malformed value warns once on stderr and keeps the R1 gate', async () => {
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      const ks = await engineWith('bogus');
+      const warned = () => writes.filter(w => /SB_INJECT_PRECISION/.test(w));
+      expect(warned()).toHaveLength(1);
+      expect(warned()[0]).toMatch(/"bogus"/);
+      expect(await outcomes(ks)).toEqual(R1);
+      expect(warned(), 'read once per process: searching again must not warn again').toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

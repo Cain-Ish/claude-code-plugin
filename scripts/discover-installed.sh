@@ -36,6 +36,11 @@
 set -u
 # Nested-spawn circuit breaker (R1.1): inside a plugin-spawned headless session, capture/context hooks no-op.
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
+# Foreign headless child (`claude -p` / SDK-cli, nobody attending; R1#2): no catalog, and no state
+# writes but one gate=headless-child audit row (this runs before the mkdir below; no brain dir, no
+# row). Inline copy of lib.sh sb_is_headless_child, because the serve path never sources lib.sh (the
+# skip branch sources it for sb_headless_trace); locked byte-identical by tests/test-persona-context.sh.
+[ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; } && { source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" && sb_headless_trace discover-installed; exit 0; }  # sb-headless-inline
 
 MODE=serve
 if [ "${1:-}" = "--refresh" ]; then MODE=refresh; shift; fi

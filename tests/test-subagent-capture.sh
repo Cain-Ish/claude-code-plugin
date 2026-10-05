@@ -1,11 +1,16 @@
 #!/bin/bash
 # pins: SB_SUBAGENT_CAPTURE — kill-switch test: asserts =off suppresses capture
+# pins: SB_HEADLESS_CONTEXT — opt-in test (36): asserts =on restores capture for a foreign headless child
+# pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
+#   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # run-all-timeout: 240   (~40 hook runs plus two real episodic-indexer runs; 48-52 s alone on an idle MSYS box, over half of run-all's 120 s default)
 # Tests for scripts/subagent-capture.sh — the SubagentStop hook that archives a
 # substantive, non-self subagent's FINAL RESULT into ~/.second-brain/transcripts/.
 # Each case runs with an isolated BRAIN_DIR sandbox; the script must ALWAYS exit 0
 # (a blocking SubagentStop would wedge the parent's fan-out).
 set -u
+# The headless-child gate (R1 review) keys on these: inherited values must not no-op every case below.
+unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED SB_HEADLESS_CONTEXT
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$ROOT/scripts/subagent-capture.sh"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
@@ -627,5 +632,25 @@ grep -qE '^(USER|ASSISTANT): (forged|forged reply)' "$F" && fail "35: a newline 
 grep -q $'\r' "$F" && fail "35: a CR survived in the archive"
 grep -q '^agent_type: evil' "$F" || fail "35: the sanitised agent_type header lost its value"
 pass "agent_type with newline/CR/control chars cannot start a line in the archive header (O12)"
+
+# --- Test 36 (R1 review): a FOREIGN headless child (`claude -p`: ATTENDED=0 or ENTRYPOINT=sdk-cli)
+# is not this user's session, so its subagents' results are not archived. The skip's one write is a
+# gate=headless-child audit row; SB_HEADLESS_CONTEXT=on opts back in (and proves the case is live).
+for hl in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
+  case "$hl" in *ATTENDED*) want="entrypoint= attended=0" ;; *) want="entrypoint=sdk-cli attended=" ;; esac
+  B="$TMP/b36-${hl%%=*}"; mkdir -p "$B"; T="$TMP/t36.jsonl"; mk_transcript "$T" 1 "$LONG"
+  OUT36=$(run_hook "$B" "general-purpose" "aid36" "$T" "$hl" 2>&1); RC=$?
+  [ "$RC" -eq 0 ] || fail "36 ($hl): hook exited non-zero ($RC)"
+  [ -z "$OUT36" ] || fail "36 ($hl): headless child printed output: $OUT36"
+  [ -z "$(arc "$B")" ] || fail "36 ($hl): a foreign headless child's subagent result was archived ($(arc "$B"))"
+  [ "$(cd "$B" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" = "./audit-log.jsonl " ] \
+    || fail "36 ($hl): the skip wrote more than its audit row: $(cd "$B" && find . -type f | tr '\n' ' ')"
+  jq -e --arg w "gate=headless-child hook=subagent-capture $want" '.script == "subagent-capture.sh" and .exit_code == 0 and .message == $w' \
+      "$B/audit-log.jsonl" >/dev/null || fail "36 ($hl): wrong headless trace row: $(cat "$B/audit-log.jsonl")"
+done
+B="$TMP/b36-optin"; mkdir -p "$B"; T="$TMP/t36.jsonl"; mk_transcript "$T" 1 "$LONG"
+run_hook "$B" "general-purpose" "aid36o" "$T" SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0 >/dev/null 2>&1
+[ -n "$(arc "$B")" ] || fail "36: SB_HEADLESS_CONTEXT=on did not restore capture for a headless child"
+pass "foreign headless child: subagent result not archived, one gate=headless-child row; SB_HEADLESS_CONTEXT=on opts back in"
 
 echo; echo "ALL PASS"

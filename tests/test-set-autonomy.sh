@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pins: SB_NESTED_SPAWN — T5 asserts the writer refuses to mutate config.json inside a nested spawn
+#   (lib.sh's sb_is_headless_child reads it too: a nested spawn is never a foreign headless child)
 # tests/test-set-autonomy.sh — the autonomy consent WRITER (scripts/set-autonomy.mjs)
 # that /second-brain:setup calls after the operator picks their tiers.
 #
