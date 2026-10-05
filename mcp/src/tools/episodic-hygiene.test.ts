@@ -338,18 +338,22 @@ describe('servableEpisodes — what the per-prompt hook may show', () => {
     expect(out.map(r => r.sessionId)).toEqual(['a']);
   });
 
-  it('context-serve-cli serves episodes through servableEpisodes with SB_SESSION_ID (source lock)', async () => {
-    const src = await fs.readFile(join(__dirname, 'context-serve-cli.ts'), 'utf8');
-    expect(src).toMatch(/servableEpisodes\(/);
-    expect(src).toMatch(/process\.env\.SB_SESSION_ID/);
-  });
+  // Both per-prompt CLIs serve through the ONE step (serveEpisodicLines), which applies
+  // servableEpisodes as its last net. The fallback (persona-context.sh runs it when
+  // context-serve-cli is missing) must not re-open the "[Past sessions]" noise the per-prompt CLI
+  // closed: same step, same session id.
+  it.each(['context-serve-cli.ts', 'episodic-search-cli.ts'])(
+    '%s serves episodes through serveEpisodicLines with SB_SESSION_ID (source lock)', async (cli) => {
+      const src = await fs.readFile(join(__dirname, cli), 'utf8');
+      expect(src).toMatch(/serveEpisodicLines\(/);
+      expect(src).toMatch(/process\.env\.SB_SESSION_ID/);
+      expect(src, 'a CLI calling episodicSearch directly bypasses the shared serve step').not.toMatch(/episodicSearch\(/);
+    });
 
-  // The two-CLI fallback (persona-context.sh runs it when context-serve-cli is missing) must not
-  // re-open the "[Past sessions]" noise the per-prompt CLI closed: same filter, same session id.
-  it('the fallback episodic-search-cli serves through servableEpisodes with SB_SESSION_ID (source lock)', async () => {
-    const src = await fs.readFile(join(__dirname, 'episodic-search-cli.ts'), 'utf8');
-    expect(src).toMatch(/servableEpisodes\(/);
-    expect(src).toMatch(/process\.env\.SB_SESSION_ID/);
+  it('serveEpisodicLines keeps servableEpisodes as its last net (source lock)', async () => {
+    const src = await fs.readFile(join(__dirname, 'episodic-search.ts'), 'utf8');
+    const body = src.slice(src.indexOf('export async function serveEpisodicLines'));
+    expect(body.slice(0, body.indexOf('\n}\n'))).toMatch(/servableEpisodes\(/);
   });
 });
 

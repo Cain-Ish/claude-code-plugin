@@ -192,6 +192,29 @@ export function servableEpisodes<R extends { sessionId: string; userSnippet: str
   return out;
 }
 
+export interface EpisodicServeOpts { sessionId: string; activeProject?: string }
+
+export const EPISODIC_SERVE_HEADER = '[Past sessions — use episodic_search for full context]';
+// The hardcoded per-engine similarity floor (no knob, R1#3), the pool and the served cap.
+const SERVE_MIN_SIMILARITY = 0.15;
+const SERVE_POOL = 10;
+const SERVE_MAX = 2;
+
+/** The per-prompt "[Past sessions]" section, as lines (empty = serve nothing). ONE step for both
+ *  per-prompt CLIs: context-serve-cli and its fallback episodic-search-cli must serve the same
+ *  rows, or the fallback re-opens the noise R1 closed. */
+export async function serveEpisodicLines(query: string, brainDir: string, o: EpisodicServeOpts): Promise<string[]> {
+  const result = await episodicSearch(
+    { query, limit: SERVE_POOL, mode: 'both', activeProject: o.activeProject }, brainDir);
+  const served = servableEpisodes(result.results,
+    { sessionId: o.sessionId, minSimilarity: SERVE_MIN_SIMILARITY, max: SERVE_MAX });
+  if (served.length === 0) return [];
+  return [EPISODIC_SERVE_HEADER, ...served.map(r => {
+    const sim = Math.round(r.similarity * 100);
+    return `- "${r.userSnippet.slice(0, 80)}..." (${r.project}, ${r.date}, ${sim}%)`;
+  })];
+}
+
 // A cleaned machine row has an empty user side (cleanUserText). Human-facing renderers show the
 // assistant side under a label instead of a blank line; `max`, when given, caps the result.
 export function displaySnippet(r: { userSnippet: string; assistantSnippet?: string }, max?: number): string {

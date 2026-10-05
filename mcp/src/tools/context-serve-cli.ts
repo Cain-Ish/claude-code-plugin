@@ -1,5 +1,5 @@
 import { knowledgeSearch, injectableWiki } from './knowledge-search.js';
-import { episodicSearch, servableEpisodes } from './episodic-search.js';
+import { serveEpisodicLines } from './episodic-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 // R6b (HOOK-7): the per-prompt UserPromptSubmit hook paid TWO node cold-starts
@@ -61,22 +61,12 @@ try {
 // The hook passes the live session id: its own exchanges are already in context, so serving
 // them back is an echo (9 of 76 graded snippet lines were the user's own earlier prompt).
 const sessionId = process.env.SB_SESSION_ID?.trim() || '';
-const epiLines: string[] = [];
+let epiLines: string[] = [];
 try {
   if (!brainDir) throw new Error('no brain dir resolvable');
-  // A wider pool than the 2 served, so dropped rows (machine turns, same-session echoes) are
-  // backfilled instead of leaving the section short. The similarity floor stays the hardcoded
-  // 0.15 (no knob, R1#3).
-  const result = await episodicSearch(
-    { query, limit: 10, mode: 'both', activeProject: projectSlug }, brainDir);
-  const deduped = servableEpisodes(result.results, { sessionId, minSimilarity: 0.15, max: 2 });
-  if (deduped.length > 0) {
-    epiLines.push('[Past sessions — use episodic_search for full context]');
-    for (const r of deduped) {
-      const sim = Math.round(r.similarity * 100);
-      epiLines.push(`- "${r.userSnippet.slice(0, 80)}..." (${r.project}, ${r.date}, ${sim}%)`);
-    }
-  }
+  // serveEpisodicLines is the one serve step shared with the fallback episodic-search-cli: the
+  // pool, the hardcoded 0.15 floor (no knob, R1#3) and the servableEpisodes filter live there.
+  epiLines = await serveEpisodicLines(query, brainDir, { sessionId, activeProject: projectSlug });
 } catch { /* fail-open: empty episodic section */ }
 
 if (wikiLines.length === 0 && epiLines.length === 0) { process.exit(0); }
