@@ -21386,18 +21386,39 @@ function validateSlug(slug) {
 }
 
 // src/brain-paths.ts
+function normForCompare(p) {
+  let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join("/");
+  const m = s.match(/^[/]([A-Za-z])([/].*)?$/);
+  if (m) s = `${m[1]}:${m[2] ?? "/"}`;
+  s = s.replace(/[/]+$/, "");
+  return /^[A-Za-z]:/.test(s) ? s.toLowerCase() : s;
+}
+function suiteGuard(kind, resolved) {
+  const real = cleanEnvPath(process.env.SB_SUITE_REAL_HOME_PATH);
+  if (!real.trim()) return resolved;
+  const forbidden = normForCompare(`${real}/${kind === "brain" ? ".second-brain" : "knowledge"}`);
+  if (normForCompare(resolved) === forbidden) {
+    throw new Error(
+      `suite guard: ${kind} dir resolved to the REAL ${resolved} while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; set BRAIN_DIR/KNOWLEDGE_DIR to a temp dir in that test)`
+    );
+  }
+  return resolved;
+}
 function resolveBrainDir(override) {
-  if (override) return override;
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+  if (override) return suiteGuard("brain", override);
+  return suiteGuard(
+    "brain",
+    cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain")
+  );
 }
 function resolveKnowledgeDir(override) {
-  if (override) return override;
+  if (override) return suiteGuard("knowledge", override);
   for (const raw of [process.env.CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR, process.env.KNOWLEDGE_DIR]) {
     const c = cleanEnvPath(raw);
     if (!c.trim() || c.includes("${")) continue;
-    return c.startsWith("~") ? join(homedir(), c.slice(1)) : c;
+    return suiteGuard("knowledge", c.startsWith("~") ? join(homedir(), c.slice(1)) : c);
   }
-  return join(homedir(), "knowledge");
+  return suiteGuard("knowledge", join(homedir(), "knowledge"));
 }
 function normalizeRemote(url) {
   let s = (url ?? "").replace(/\r/g, "").replace(/[A-Z]/g, (c) => c.toLowerCase()).trim();
@@ -28321,24 +28342,24 @@ function graphNeighbourhood(seeds, edges, hops) {
   }
   return reached;
 }
-function accessCountsFile() {
-  return join8(resolveBrainDir(), "access-counts.json");
+function accessCountsFile(brainDir2) {
+  return join8(resolveBrainDir(brainDir2), "access-counts.json");
 }
 var ACCESS_PRUNE_DAYS = 90;
-async function loadAccessCounts() {
+async function loadAccessCounts(brainDir2) {
   try {
-    return JSON.parse(await fs9.readFile(accessCountsFile(), "utf-8"));
+    return JSON.parse(await fs9.readFile(accessCountsFile(brainDir2), "utf-8"));
   } catch {
     return {};
   }
 }
-async function saveAccessCounts(counts) {
+async function saveAccessCounts(counts, brainDir2) {
   const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 864e5).toISOString();
   const pruned = {};
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await atomicWriteJson(accessCountsFile(), pruned);
+  await atomicWriteJson(accessCountsFile(brainDir2), pruned);
 }
 var TOP_K = 8;
 var SNIPPET_CHARS = 200;
@@ -28468,7 +28489,37 @@ var GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
   "just",
   "only",
   "also",
-  "now"
+  "now",
+  // Generic prompt verbs/qualifiers, added 2026-10 (R1#4) only after re-grading: on the 40 graded
+  // prompts over the real wiki, none of these pushes a grader-identified R2 page below the gate,
+  // and together they cut injections on noise-graded prompts 16 -> 10 (scratchpad
+  // review/stopword-validation.md). Deliberately NOT here: "new" (grounds R2 #27, "season 8 ...
+  // new artifacts") and "changes" (grounds R2 #38's version-bump tripwire page) — locked in
+  // retrieval-guards.test.ts.
+  "check",
+  "checks",
+  "checked",
+  "one",
+  "old",
+  "add",
+  "added",
+  "change",
+  "changed",
+  "relevant",
+  "correct",
+  "valid",
+  "everything",
+  "update",
+  "updated",
+  "missing",
+  "still",
+  "final",
+  "ready",
+  "sure",
+  "let",
+  "see",
+  "try",
+  "continue"
 ]);
 var COMMON_TERM_DF_SHARE = (() => {
   const v = parseFloat(process.env.SB_GROUNDING_DF_SHARE ?? "");
@@ -28476,6 +28527,8 @@ var COMMON_TERM_DF_SHARE = (() => {
 })();
 var MIN_SUBSTANTIVE_LENGTH = 100;
 var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
+var STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
+var SINGLE_LETTER_RE = /^[a-z]$/;
 async function knowledgeSearch(args) {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join8(knowledgeDir, "wiki");
@@ -28535,9 +28588,16 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   const avgDL = indexed.reduce((sum, d) => sum + d.bodyLen, 0) / allDocs.length || AVG_DOC_LENGTH;
   const N = allDocs.length;
   const dfMap = computeDF(queryTokens, indexed);
+  const shortStub = allDocs.map(({ rawContent, source }, i) => source !== "local-doc" && (AUTO_EXTRACTED_RE.test(rawContent) || indexed[i].strippedBody.trim().length < MIN_SUBSTANTIVE_LENGTH));
+  const activeSlug = args.projectSlug?.trim().toLowerCase() || "";
+  const discCount = discriminativeTerms(queryTokens, dfMap, N).length;
   const scored = allDocs.map(({ doc, rawContent, source, tokens }, i) => {
     const bm25 = scoreBM25(queryTokens, indexed[i], avgDL, N, dfMap);
+    const project = (doc.project ?? "").trim().toLowerCase();
     return {
+      // Flags for the per-prompt injection gate; never read by ranking. Emitted sparsely below.
+      isStub: shortStub[i] || source === "wiki" && STUB_DESCRIPTION_RE.test(doc.description ?? ""),
+      isCross: source === "wiki" && activeSlug !== "" && project !== "" && project !== activeSlug,
       path: doc.path,
       tier: 0,
       // SP-1 project-scope tier (0 = scoping inactive); set below, stripped before return
@@ -28644,11 +28704,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   } catch {
   }
   for (let i = 0; i < scored.length; i++) {
-    if (allDocs[i].source === "local-doc") continue;
-    const { rawContent } = allDocs[i];
-    if (AUTO_EXTRACTED_RE.test(rawContent) || indexed[i].strippedBody.trim().length < MIN_SUBSTANTIVE_LENGTH) {
-      scored[i].score *= STUB_PENALTY;
-    }
+    if (shortStub[i]) scored[i].score *= STUB_PENALTY;
   }
   const RECENCY_BOOST_MAX = 0.3;
   const RECENCY_WINDOW_DAYS = 90;
@@ -28708,16 +28764,19 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   }
   const returned = pool.filter(passesFloor).slice(0, TOP_K);
   const topFinal = returned.reduce((m, s) => Math.max(m, s.score), 0);
-  const candidates = returned.map(({ related, baseScore, tier, ...rest }) => ({
+  const candidates = returned.map(({ related, baseScore, tier, isStub, isCross, ...rest }) => ({
     ...rest,
     score_norm: topFinal > 0 ? Math.round(rest.score / topFinal * 1e4) / 1e4 : 0,
     // baseScore surfaces as `relevance`: callers gating on relevance need the frozen
     // pre-boost BM25, not the mode-dependent `score` (see the field doc).
     relevance: Math.round(baseScore * 1e3) / 1e3,
     query_terms: new Set(queryTokens).size,
+    discriminative_terms: discCount,
+    ...isStub ? { stub: true } : {},
+    ...isCross ? { cross_project: true } : {},
     ...scopeActive ? { tier } : {}
   }));
-  const accessCounts = await loadAccessCounts();
+  const accessCounts = await loadAccessCounts(args.brainDir);
   const ts = (/* @__PURE__ */ new Date()).toISOString();
   for (const c of candidates) {
     if (c.source === "local-doc") continue;
@@ -28726,7 +28785,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     accessCounts[slug].count++;
     accessCounts[slug].last_accessed = ts;
   }
-  await saveAccessCounts(accessCounts).catch(() => {
+  await saveAccessCounts(accessCounts, args.brainDir).catch(() => {
   });
   return {
     candidates,
@@ -28766,7 +28825,7 @@ function groundedCount(queryTokens, idx, dfMap, N) {
   return n;
 }
 function discriminativeTerms(queryTokens, dfMap, N) {
-  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t));
+  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);
@@ -32307,6 +32366,10 @@ function stripInvisible(s) {
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
+function displaySnippet(r, max) {
+  const text = r.userSnippet.trim() ? r.userSnippet : `[machine turn]${r.assistantSnippet ? " " + r.assistantSnippet : ""}`;
+  return max === void 0 ? text : text.slice(0, max);
+}
 function parseSessionMeta(lines) {
   const meta = { sessionId: "", project: "", date: "" };
   let i = 0;
@@ -32603,6 +32666,9 @@ Given the user's prompt plus optional context hints, return ONLY a JSON object w
 Be terse. Default silent on questions/specialists/risks \u2014 only populate when the value is concrete.
 Output ONLY the JSON object, no prose around it.`;
 function defaultRunner(system, user, model) {
+  if (process.env.VITEST) {
+    return Promise.reject(new Error("persona-think defaultRunner: refusing to spawn a real claude under VITEST; inject deps.runner"));
+  }
   return new Promise((resolve4, reject) => {
     const p = spawn("claude", ["-p", "--bare", "--model", model, "--system-prompt", system], {
       stdio: ["pipe", "pipe", "pipe"]
@@ -33831,7 +33897,7 @@ registerJsonTool(
       const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : "";
       return [
         `### ${r.project} \u2014 ${r.date}${sim}`,
-        `**User**: ${r.userSnippet}`,
+        `**User**: ${displaySnippet({ userSnippet: r.userSnippet })}`,
         `**Assistant**: ${r.assistantSnippet}`,
         `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`
       ].join("\n");

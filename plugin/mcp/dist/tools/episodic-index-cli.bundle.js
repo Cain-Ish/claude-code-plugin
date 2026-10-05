@@ -36,9 +36,30 @@ function cleanEnvPath(s) {
 }
 
 // src/brain-paths.ts
+function normForCompare(p) {
+  let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join("/");
+  const m = s.match(/^[/]([A-Za-z])([/].*)?$/);
+  if (m) s = `${m[1]}:${m[2] ?? "/"}`;
+  s = s.replace(/[/]+$/, "");
+  return /^[A-Za-z]:/.test(s) ? s.toLowerCase() : s;
+}
+function suiteGuard(kind, resolved) {
+  const real = cleanEnvPath(process.env.SB_SUITE_REAL_HOME_PATH);
+  if (!real.trim()) return resolved;
+  const forbidden = normForCompare(`${real}/${kind === "brain" ? ".second-brain" : "knowledge"}`);
+  if (normForCompare(resolved) === forbidden) {
+    throw new Error(
+      `suite guard: ${kind} dir resolved to the REAL ${resolved} while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; set BRAIN_DIR/KNOWLEDGE_DIR to a temp dir in that test)`
+    );
+  }
+  return resolved;
+}
 function resolveBrainDir(override) {
-  if (override) return override;
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+  if (override) return suiteGuard("brain", override);
+  return suiteGuard(
+    "brain",
+    cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain")
+  );
 }
 
 // src/tools/embeddings.ts
@@ -150,6 +171,55 @@ function stripInvisible(s) {
 var INDEX_FILE = "episodic-index.json";
 var SNIPPET_LEN = 200;
 var EMBEDDING_TEXT_CAP = 512;
+var EPISODIC_PARSER_VERSION = 2;
+function isCurrentEntry(entry, hash) {
+  return typeof entry === "object" && entry !== null && entry.hash === hash && entry.parser >= EPISODIC_PARSER_VERSION;
+}
+var PEER_PREFIX = "Another Claude session sent a message:";
+var MACHINE_TURN_PREFIXES = [
+  "<task-notification>",
+  PEER_PREFIX,
+  "Stop hook feedback:",
+  "This session is being continued from a previous conversation",
+  // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
+  "Base directory for this skill:",
+  "Caveat: The messages below were generated",
+  "[Image: source:",
+  "[Image: original",
+  "[Request interrupted by user"
+];
+var HYPHEN_TAG_RE = /^<[a-z]+-/;
+function stripLead(text) {
+  return text.replace(/^[\s﻿]+/, "");
+}
+function isMachineTurnText(text) {
+  const t = stripLead(text);
+  return HYPHEN_TAG_RE.test(t) || MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p));
+}
+function peerReportBody(rest) {
+  const lines = rest.split("\n");
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  const open = lines[i]?.trim().match(/^<([a-z]+(?:-[a-z]+)+)\b[^>]*>(.*)$/);
+  let body;
+  if (open) {
+    const close = `</${open[1]}>`;
+    body = [open[2], ...lines.slice(i + 1)];
+    const end = body.findIndex((l) => l.trim().startsWith(close));
+    if (end >= 0) body = body.slice(0, end);
+  } else {
+    body = lines.slice(i);
+  }
+  let j = 0;
+  while (j < body.length && (!body[j].trim() || /^\s*\[(Subagent hand-back\]|harness:)/.test(body[j]))) j++;
+  return body.slice(j).join("\n").trim();
+}
+function cleanUserText(text) {
+  if (!isMachineTurnText(text)) return text;
+  const t = stripLead(text);
+  if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
+  return "";
+}
 function simpleHash2(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) {
@@ -193,7 +263,7 @@ function parseExchanges(lines, bodyStart, meta, archivePath) {
           sessionId: meta.sessionId,
           project: meta.project,
           date: meta.date,
-          userMessage: user,
+          userMessage: cleanUserText(user),
           assistantMessage: assistant,
           archivePath,
           lineStart: exchangeStart + 1,
@@ -254,13 +324,13 @@ async function buildEpisodicIndex(brainDir2) {
   }
   const index = await loadIndex(brainDir2);
   const newExchanges = [];
-  const fileHashes = {};
+  const reparsed = {};
   for (const filePath of files) {
     const content = stripInvisible(await fs3.readFile(filePath, "utf-8"));
     const hash = simpleHash2(content);
     const fname = basename(filePath);
-    fileHashes[fname] = hash;
-    if (index.indexed_files[fname] === hash) continue;
+    if (isCurrentEntry(index.indexed_files[fname], hash)) continue;
+    reparsed[fname] = hash;
     index.exchanges = index.exchanges.filter((e) => basename(e.archivePath) !== fname);
     const lines = content.split("\n");
     const { meta, bodyStart } = parseSessionMeta(lines);
@@ -298,8 +368,8 @@ ${r.assistantSnippet}`.slice(0, EMBEDDING_TEXT_CAP));
       }
     }
   }
-  for (const [fname, hash] of Object.entries(fileHashes)) {
-    index.indexed_files[fname] = hash;
+  for (const [fname, hash] of Object.entries(reparsed)) {
+    index.indexed_files[fname] = { hash, parser: EPISODIC_PARSER_VERSION };
   }
   for (const fname of Object.keys(index.indexed_files)) {
     if (!validFiles.has(fname)) delete index.indexed_files[fname];

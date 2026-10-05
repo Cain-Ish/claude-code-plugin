@@ -6,6 +6,9 @@
 # capped at BYTE_BUDGET to avoid overflowing Claude's context window.
 # Priority: USER.md > PROJECT.md > persona signals > wiki enrichment.
 source "$(dirname "$0")/lib.sh"
+# Foreign headless child (`claude -p` / SDK-cli, nobody attending; R1#2): no SessionStart memory and
+# no state writes (registration, pins, counters). SB_HEADLESS_CONTEXT=on opts a run back in.
+sb_is_headless_child && exit 0
 
 # --- Repo-card helpers (moved here, verbatim + a lean-mode extension, so the --compact
 # early-exit branch below can use them without pulling in the full hot-tier side-effect
@@ -1955,7 +1958,10 @@ if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 
   if [ -n "${PROJ_KW// /}" ]; then
     # SP-1: scope the session-start wiki enrichment to the active project, same as the
     # per-prompt path (persona-context.sh) — one chokepoint, consistent scoping both surfaces.
-    WIKI_HITS=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$slug" node "$SEARCH_CLI" "$PROJ_KW" 2>/dev/null || true)
+    # SB_INJECT_GATE=1 (0.55.0, R1#4): this injects into the session, so it takes the per-prompt
+    # injection gate (no stubs, discriminative grounding, +1 term cross-project), not the legacy
+    # filter the recall harness pins.
+    WIKI_HITS=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" BRAIN_DIR="$BRAIN_DIR" SB_ACTIVE_SLUG="$slug" SB_INJECT_GATE=1 node "$SEARCH_CLI" "$PROJ_KW" 2>/dev/null || true)
     if [ -n "$WIKI_HITS" ]; then
       # Store-derived → wrapped as untrusted reference (P6): wiki pages are distilled
       # from transcripts, so an imperative inside one must not read as an instruction.

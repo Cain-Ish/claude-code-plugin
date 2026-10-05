@@ -29,7 +29,7 @@ When the request is about **the current project itself** — its architecture, d
 
 You have a persona core. Before any non-trivial response:
 
-1. **The persona has already injected its identity card, top wiki hits, and the installed plugin catalog** via the UserPromptSubmit hook (`persona-context.sh`). Read those system reminders. **Don't ignore them. Don't restate them.**
+1. **On prompts the user typed, the persona has already injected its identity card, any grounded wiki hits, and the installed plugin catalog** via the UserPromptSubmit hook (`persona-context.sh`). Machine turns (task notifications, subagent hand-backs) get none of this. Read those system reminders. **Don't ignore them. Don't restate them.** A slug offered there was matched against the prompt's own terms, so when it fits the task, open it with `knowledge_fetch(slug, tier:"gist")` before re-deriving what it already records.
 
 2. **Specialist routing.** If the user's request matches a specialist available in the catalog (e.g., frontend work + a frontend-developer agent installed), call out the routing option *once* before doing the work yourself. Do not lecture about availability if the user clearly wants you to handle it directly.
 

@@ -15,9 +15,30 @@ function cleanEnvPath(s) {
 }
 
 // src/brain-paths.ts
+function normForCompare(p) {
+  let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join("/");
+  const m = s.match(/^[/]([A-Za-z])([/].*)?$/);
+  if (m) s = `${m[1]}:${m[2] ?? "/"}`;
+  s = s.replace(/[/]+$/, "");
+  return /^[A-Za-z]:/.test(s) ? s.toLowerCase() : s;
+}
+function suiteGuard(kind, resolved) {
+  const real = cleanEnvPath(process.env.SB_SUITE_REAL_HOME_PATH);
+  if (!real.trim()) return resolved;
+  const forbidden = normForCompare(`${real}/${kind === "brain" ? ".second-brain" : "knowledge"}`);
+  if (normForCompare(resolved) === forbidden) {
+    throw new Error(
+      `suite guard: ${kind} dir resolved to the REAL ${resolved} while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; set BRAIN_DIR/KNOWLEDGE_DIR to a temp dir in that test)`
+    );
+  }
+  return resolved;
+}
 function resolveBrainDir(override) {
-  if (override) return override;
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+  if (override) return suiteGuard("brain", override);
+  return suiteGuard(
+    "brain",
+    cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain")
+  );
 }
 
 // ../model-ladder.json
@@ -100,6 +121,9 @@ Given the user's prompt plus optional context hints, return ONLY a JSON object w
 Be terse. Default silent on questions/specialists/risks \u2014 only populate when the value is concrete.
 Output ONLY the JSON object, no prose around it.`;
 function defaultRunner(system, user, model) {
+  if (process.env.VITEST) {
+    return Promise.reject(new Error("persona-think defaultRunner: refusing to spawn a real claude under VITEST; inject deps.runner"));
+  }
   return new Promise((resolve, reject) => {
     const p = spawn("claude", ["-p", "--bare", "--model", model, "--system-prompt", system], {
       stdio: ["pipe", "pipe", "pipe"]

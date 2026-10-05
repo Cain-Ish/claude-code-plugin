@@ -36,9 +36,30 @@ function cleanEnvPath(s) {
 }
 
 // src/brain-paths.ts
+function normForCompare(p) {
+  let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join("/");
+  const m = s.match(/^[/]([A-Za-z])([/].*)?$/);
+  if (m) s = `${m[1]}:${m[2] ?? "/"}`;
+  s = s.replace(/[/]+$/, "");
+  return /^[A-Za-z]:/.test(s) ? s.toLowerCase() : s;
+}
+function suiteGuard(kind, resolved) {
+  const real = cleanEnvPath(process.env.SB_SUITE_REAL_HOME_PATH);
+  if (!real.trim()) return resolved;
+  const forbidden = normForCompare(`${real}/${kind === "brain" ? ".second-brain" : "knowledge"}`);
+  if (normForCompare(resolved) === forbidden) {
+    throw new Error(
+      `suite guard: ${kind} dir resolved to the REAL ${resolved} while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; set BRAIN_DIR/KNOWLEDGE_DIR to a temp dir in that test)`
+    );
+  }
+  return resolved;
+}
 function resolveBrainDir(override) {
-  if (override) return override;
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain");
+  if (override) return suiteGuard("brain", override);
+  return suiteGuard(
+    "brain",
+    cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain")
+  );
 }
 
 // src/tools/embeddings.ts
@@ -149,6 +170,66 @@ function cosineSimilarity(a, b) {
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
+var PEER_PREFIX = "Another Claude session sent a message:";
+var MACHINE_TURN_PREFIXES = [
+  "<task-notification>",
+  PEER_PREFIX,
+  "Stop hook feedback:",
+  "This session is being continued from a previous conversation",
+  // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
+  "Base directory for this skill:",
+  "Caveat: The messages below were generated",
+  "[Image: source:",
+  "[Image: original",
+  "[Request interrupted by user"
+];
+var HYPHEN_TAG_RE = /^<[a-z]+-/;
+function stripLead(text) {
+  return text.replace(/^[\s﻿]+/, "");
+}
+function isMachineTurnText(text) {
+  const t = stripLead(text);
+  return HYPHEN_TAG_RE.test(t) || MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p));
+}
+function peerReportBody(rest) {
+  const lines = rest.split("\n");
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  const open = lines[i]?.trim().match(/^<([a-z]+(?:-[a-z]+)+)\b[^>]*>(.*)$/);
+  let body;
+  if (open) {
+    const close = `</${open[1]}>`;
+    body = [open[2], ...lines.slice(i + 1)];
+    const end = body.findIndex((l) => l.trim().startsWith(close));
+    if (end >= 0) body = body.slice(0, end);
+  } else {
+    body = lines.slice(i);
+  }
+  let j = 0;
+  while (j < body.length && (!body[j].trim() || /^\s*\[(Subagent hand-back\]|harness:)/.test(body[j]))) j++;
+  return body.slice(j).join("\n").trim();
+}
+function cleanUserText(text) {
+  if (!isMachineTurnText(text)) return text;
+  const t = stripLead(text);
+  if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
+  return "";
+}
+function servableEpisodes(rows, o) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const r of rows) {
+    const userSnippet = cleanUserText(r.userSnippet);
+    if (r.similarity < o.minSimilarity || !userSnippet.trim()) continue;
+    if (o.sessionId && r.sessionId === o.sessionId) continue;
+    const key = userSnippet.slice(0, 60);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...r, userSnippet });
+    if (out.length >= o.max) break;
+  }
+  return out;
+}
 async function loadIndex(brainDir2) {
   const indexPath = join3(brainDir2, INDEX_FILE);
   try {
@@ -179,17 +260,17 @@ async function episodicSearch(args, brainDir2) {
   if (mode === "text" || mode === "both") {
     textResults = textSearch(query2, index, candLimit, args);
   }
-  const seen2 = /* @__PURE__ */ new Set();
+  const seen = /* @__PURE__ */ new Set();
   const merged = [];
   for (const r of vectorResults) {
-    if (!seen2.has(r.id)) {
-      seen2.add(r.id);
+    if (!seen.has(r.id)) {
+      seen.add(r.id);
       merged.push(r);
     }
   }
   for (const r of textResults) {
-    if (!seen2.has(r.id)) {
-      seen2.add(r.id);
+    if (!seen.has(r.id)) {
+      seen.add(r.id);
       merged.push(r);
     }
   }
@@ -317,23 +398,14 @@ if (!query) {
 }
 var brainDir = resolveBrainDir();
 var activeProject = process.env.SB_ACTIVE_SLUG?.trim() || void 0;
-var result = await episodicSearch({ query, limit: 2, mode: "both", activeProject }, brainDir);
-var top = result.results.filter((r) => r.similarity >= 0.15);
-if (top.length === 0) {
-  process.exit(0);
-}
-var seen = /* @__PURE__ */ new Set();
-var deduped = top.filter((r) => {
-  const key = r.userSnippet.slice(0, 60);
-  if (seen.has(key)) return false;
-  seen.add(key);
-  return true;
-});
-if (deduped.length === 0) {
+var sessionId = process.env.SB_SESSION_ID?.trim() || "";
+var result = await episodicSearch({ query, limit: 10, mode: "both", activeProject }, brainDir);
+var served = servableEpisodes(result.results, { sessionId, minSimilarity: 0.15, max: 2 });
+if (served.length === 0) {
   process.exit(0);
 }
 console.log("[Past sessions \u2014 use episodic_search for full context]");
-for (const r of deduped) {
+for (const r of served) {
   const sim = Math.round(r.similarity * 100);
   console.log(`- "${r.userSnippet.slice(0, 80)}..." (${r.project}, ${r.date}, ${sim}%)`);
 }

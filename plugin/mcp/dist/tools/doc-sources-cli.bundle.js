@@ -6275,9 +6275,30 @@ async function buildRegistry(projectRoot, brainDir, slug) {
 // src/brain-paths.ts
 import { join as join2, isAbsolute as isAbsolute2 } from "path";
 import { homedir } from "os";
+function normForCompare(p) {
+  let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join("/");
+  const m = s.match(/^[/]([A-Za-z])([/].*)?$/);
+  if (m) s = `${m[1]}:${m[2] ?? "/"}`;
+  s = s.replace(/[/]+$/, "");
+  return /^[A-Za-z]:/.test(s) ? s.toLowerCase() : s;
+}
+function suiteGuard(kind, resolved) {
+  const real = cleanEnvPath(process.env.SB_SUITE_REAL_HOME_PATH);
+  if (!real.trim()) return resolved;
+  const forbidden = normForCompare(`${real}/${kind === "brain" ? ".second-brain" : "knowledge"}`);
+  if (normForCompare(resolved) === forbidden) {
+    throw new Error(
+      `suite guard: ${kind} dir resolved to the REAL ${resolved} while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; set BRAIN_DIR/KNOWLEDGE_DIR to a temp dir in that test)`
+    );
+  }
+  return resolved;
+}
 function resolveBrainDir(override) {
-  if (override) return override;
-  return cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join2(homedir(), ".second-brain");
+  if (override) return suiteGuard("brain", override);
+  return suiteGuard(
+    "brain",
+    cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join2(homedir(), ".second-brain")
+  );
 }
 
 // src/tools/doc-sources-cli.ts

@@ -72,6 +72,33 @@ sb_normalize_path() {
   printf '%s' "$p"
 }
 
+# sb_suite_guard KIND PATH — G3 suite guard, the bash twin of suiteGuard() in
+# mcp/src/brain-paths.ts. tests/run-all.sh exports SB_SUITE_REAL_HOME_PATH (the developer's
+# REAL home) and sandboxes HOME/USERPROFILE; a script that still resolves KIND=brain to
+# <real home>/.second-brain, or KIND=knowledge to <real home>/knowledge, leaked past the
+# sandbox. Compares ONLY those two exact dirs (never "anything under the real home": the
+# Windows TMPDIR lives there), after normalizing both sides (backslash, drive letter ->
+# MSYS form, trailing slash, case on cygpath platforms). No-op when the var is unset.
+# Fails loud on stderr and `return 1`; the top-level BRAIN_DIR call exits the sourcing
+# script. It deliberately does NOT sb_log_error: that would write into the real dir.
+sb_suite_guard() {
+  [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ] || return 0
+  local want got
+  case "$1" in brain) want=".second-brain" ;; knowledge) want="knowledge" ;; *) return 0 ;; esac
+  want=$(sb_normalize_path "${SB_SUITE_REAL_HOME_PATH%/}/$want")
+  got=$(sb_normalize_path "$2")
+  want="${want%/}"; got="${got%/}"
+  if command -v cygpath >/dev/null 2>&1; then
+    want=$(printf '%s' "$want" | tr 'A-Z' 'a-z'); got=$(printf '%s' "$got" | tr 'A-Z' 'a-z')
+  fi
+  if [ -n "$got" ] && [ "$got" = "$want" ]; then
+    printf 'lib.sh: suite guard: %s dir resolved to the REAL %s while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; point BRAIN_DIR/KNOWLEDGE_DIR at a temp dir)\n' "$1" "$2" >&2
+    return 1
+  fi
+  return 0
+}
+sb_suite_guard brain "$BRAIN_DIR" || exit 1
+
 # sb_mtime — portable file mtime as epoch seconds via `stat -c %Y` || `stat -f %m`
 # || 0. THE single funnel for the ~17 copy-pasted GNU/BSD stat sites (portability
 # floor: any line using the GNU form needs its BSD twin, which this one-liner has).
@@ -87,7 +114,9 @@ sb_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 
 # --knowledge-dir arg, or honor an extra alias (SB_KNOWLEDGE_DIR) keep their own form.
 sb_knowledge_dir() {
   local d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
-  printf '%s' "${d/#\~/$HOME}"
+  d="${d/#\~/$HOME}"
+  sb_suite_guard knowledge "$d" || return 1
+  printf '%s' "$d"
 }
 
 # KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
@@ -3674,4 +3703,20 @@ sb_rules_hard_lines() {
   # explicitly disabled rule would be listed as enforced (the jq `// true` trap).
   jq -r --argjson n "$max" '[.rules[]? | select(.enabled != false and (.action=="ask" or .action=="deny"))
       | "- " + (.name // "rule") + ": " + (((.reason // "") | gsub("[\r\n`]"; " "))[0:120])] | .[0:$n] | .[]' "$f" 2>/dev/null | tr -d '\r'
+}
+
+# sb_is_headless_child: 0 when this hook runs inside a FOREIGN headless child, i.e. a `claude -p` or
+# SDK-cli run nobody attends: CLAUDE_CODE_SESSION_ATTENDED=0, or CLAUDE_CODE_ENTRYPOINT exactly
+# sdk-cli. Probed 2026-10-05: interactive sessions carry ATTENDED=1 / ENTRYPOINT=cli, `claude -p`
+# carries ATTENDED=0 / sdk-cli. The 2026-10-05 audit found 122 of 124 such children injected per
+# prompt and 79 given SessionStart memory nobody asked for. Exact `sdk-cli`, never `sdk-*`: SDK hosts
+# can be interactive. SB_NESTED_SPAWN=1 marks the plugin's OWN spawns, not foreign ones (every gated
+# hook already no-ops on it first). SB_HEADLESS_CONTEXT=on opts a run back in (the S1 eval's plugin
+# arms set it). Gates persona-context.sh, session-load.sh, stop-extract.sh and discover-installed.sh;
+# NEVER a PreToolUse guard (guards fail safe and must run for every host, attended or not).
+# Hooks that act before sourcing lib.sh carry an inline copy of the one-line body below, tagged
+# with the sb-headless-inline marker; tests/test-persona-context.sh asserts each copy is
+# byte-identical to it (single source by lock). Keep the body on ONE line.
+sb_is_headless_child() {
+  [ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; }
 }
