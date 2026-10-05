@@ -179,8 +179,13 @@ REPO_ROOT="${G1_ROOTS[0]:-}"
 # Case-insensitive file systems (Git-Bash/MSYS, Cygwin, macOS): builtin $OSTYPE, no uname fork.
 # Drive-letter paths compare case-insensitively everywhere.
 case "${OSTYPE:-}" in msys*|cygwin*|darwin*) G1_CI=true ;; *) G1_CI=false ;; esac
+# The hook's own temp dirs, one --arg each like the roots: MSYS rewrites a POSIX value (/tmp,
+# /c/Users/...) into the drive form native jq compares against Windows tool paths, so no cygpath call
+# is needed; canon handles backslashes and /c/x. Empty, relative and drive-relative values are dropped
+# in jq (g1_tmps).
 G1_JQ_ARGS=(--arg root "$REPO_ROOT" --argjson ci "$G1_CI"
-  --arg r0 "${G1_ROOTS[0]:-}" --arg r1 "${G1_ROOTS[1]:-}" --arg r2 "${G1_ROOTS[2]:-}")
+  --arg r0 "${G1_ROOTS[0]:-}" --arg r1 "${G1_ROOTS[1]:-}" --arg r2 "${G1_ROOTS[2]:-}"
+  --arg t0 "${TMPDIR:-}" --arg t1 "${TMP:-}" --arg t2 "${TEMP:-}")
 
 # Two path tests share these defs.
 #  - Write/Edit/MultiEdit (counts_as_src, G1): the path is canonicalized (\ -> /, the //?/ and //./
@@ -188,10 +193,13 @@ G1_JQ_ARGS=(--arg root "$REPO_ROOT" --argjson ci "$G1_CI"
 #    root spellings. INSIDE the root only docs/ (any depth) and the TOP-LEVEL tmp/ or scratch/ dirs
 #    are exempt, so src/components/Sandbox.tsx, packages/sandbox/, src/tmp_parser.py and
 #    src/temp-sensor.c all arm. OUTSIDE the root, or with no root at all, an edit ARMS unless the
-#    path has an anchored temp segment (tmp, temp, scratch, scratchpad, sandbox; any case), which
-#    keeps a Windows AppData/Local/Temp/.../scratchpad file exempt. A relative path is repo-relative.
+#    path is temp (g1_temp): under one of the hook's own $TMPDIR/$TMP/$TEMP (same case rules as the
+#    roots), an anchored temp segment (tmp, temp, tmpdir, scratch, scratchpad, sandbox; any case) or
+#    a mktemp-style tmp.<alnum> DIRECTORY (a file named tmp.c still arms), or under the macOS
+#    per-user temp root /var/folders/<a>/<b>/T/ (macOS TMPDIR carries no temp word). That keeps a
+#    Windows AppData/Local/Temp/.../scratchpad file exempt. A relative path is repo-relative.
 #  - The Bash-edit heuristic (bash_counts_as_src) applies the same outside-root rule to absolute
-#    paths (a `sed -i` on another repo's source counts, a temp-segment path does not), and keeps the
+#    paths (a `sed -i` on another repo's source counts, a temp path does not), and keeps the
 #    broader scratch match for in-root and relative/variable paths: a shell redirect into
 #    "$TMPDIR/x.sh" names no root at all. That detector only moves the last-edit line, it never
 #    arms the gate.
@@ -233,10 +241,22 @@ SRC_PATH_DEFS='
                 | select($pp == $rr or ($pp | startswith($rr + "/")))
                 | $p[($r | length) + 1:]) // null
       end;
+  # Absolute temp dirs only: canon(".") is "" and canon("C:") is "C:", and either plus "/" would
+  # prefix-match every path on that side.
+  def g1_tmps: [$t0, $t1, $t2] | map(select(. != "") | canon | select(test("^([A-Za-z]:)?/[^/]")));
+  def g1_temp:
+    canon as $p
+    | ($ci or ($p | test("^[A-Za-z]:"))) as $fold
+    | (if $fold then ($p | ascii_downcase) else $p end) as $pp
+    | ($p | test("(^|/)(tmp|temp|tmpdir|scratch|scratchpad|sandbox)(/|$)|(^|/)tmp[.][A-Za-z0-9]+/"; "i"))
+      or (if $ci then ($p | test("^/(private/)?var/folders/[^/]+/[^/]+/T(/|$)"; "i"))
+          else ($p | test("^/(private/)?var/folders/[^/]+/[^/]+/T(/|$)")) end)
+      or any(g1_tmps[]; (if $fold then ascii_downcase else . end) as $dd
+                         | ($pp == $dd) or ($pp | startswith($dd + "/")));
   def g1_class:
     root_rel as $rel
     | if $rel != null then {src: (($rel | test("(^|/)docs/") or test("^(tmp|scratch)/")) | not), outside: false}
-      else {src: (canon | test("(^|/)(tmp|temp|scratch|scratchpad|sandbox)(/|$)"; "i") | not), outside: true} end;
+      else {src: (g1_temp | not), outside: true} end;
   def counts_as_src: g1_class | .src;
   # Bash-edit heuristic: same outside-root rule as counts_as_src (an absolute path outside every root
   # arms unless it has a temp segment); inside the root, or relative/variable paths, keep the broader
@@ -318,8 +338,11 @@ fi
 #     hidden file list (xargs, find -exec);
 #   - redirects with > or >> into a source path; or
 #   - is a tee into a source path.
-# Source path = a code extension below, outside docs/ and outside tmp/temp/
-# scratch/sandbox locations. NOT detected: data files (json/yaml/toml), mv/cp,
+# Source path = a code extension below, not exempt by bash_counts_as_src (docs/ and
+# temp words in the root or on a relative path; g1_temp outside the root).
+# KNOWN GAP: only single-quoted spans are blanked; double-quoted strings and heredoc
+# bodies are scanned, so `echo "x > /abs/other.ts"` counts as an edit.
+# NOT detected: data files (json/yaml/toml), mv/cp,
 # git checkout/apply, patch — the worktree fingerprint (S1b) replaces this
 # heuristic. A command that edits and then tests on one line counts as an edit
 # whose own test does not count (conservative: one block). Bash edits only move
