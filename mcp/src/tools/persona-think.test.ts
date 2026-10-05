@@ -67,4 +67,10 @@ describe('persona_think', () => {
     expect(userArg).toContain('stack: react');
     expect(userArg).toContain('build it');
   });
+
+  it('refuses to spawn a real claude under VITEST when no runner is injected', async () => {
+    expect(process.env.VITEST).toBeTruthy();
+    const r = await personaThink({ prompt: 'build a login form' });
+    expect(r.error).toMatch(/refusing to spawn a real claude under VITEST/);
+  });
 });
