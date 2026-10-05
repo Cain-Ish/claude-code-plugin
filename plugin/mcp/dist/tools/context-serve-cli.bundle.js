@@ -6738,7 +6738,8 @@ var DATE_TOKEN_RE = /^\d{4}$|^\d{2}$/;
 var MIN_SCORE_RATIO = 0.15;
 var STUB_PENALTY = 0.5;
 var MIN_CORPUS_FOR_DF = 8;
-var GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
+var LEGACY_GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
+  // the 0.54 list; SB_INJECT_PRECISION=off grounds on it alone
   "the",
   "a",
   "an",
@@ -6857,7 +6858,10 @@ var GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
   "just",
   "only",
   "also",
-  "now",
+  "now"
+]);
+var GROUNDING_STOPWORDS = /* @__PURE__ */ new Set([
+  ...LEGACY_GROUNDING_STOPWORDS,
   // Generic prompt verbs/qualifiers, added 2026-10 (R1#4) only after re-grading: on the 40 graded
   // prompts over the real wiki, none of these pushes a grader-identified R2 page below the gate,
   // and together they cut injections on noise-graded prompts 16 -> 10 (scratchpad
@@ -7170,7 +7174,27 @@ function injectionGroundingNeed(minGrounded2, discriminative, crossProject) {
   const base = Math.max(1, Math.min(minGrounded2, discriminative));
   return crossProject ? Math.max(base, Math.min(base + 1, discriminative)) : base;
 }
+function parseInjectPrecision(raw, warn) {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "off") return false;
+  if (v !== "" && v !== "on") {
+    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use on/off); keeping the precision gate`);
+  }
+  return true;
+}
+var INJECT_PRECISION = parseInjectPrecision(
+  process.env.SB_INJECT_PRECISION,
+  (msg) => {
+    process.stderr.write(`second-brain knowledge-search: ${msg}
+`);
+  }
+);
+function legacyWikiFilter(candidates, o) {
+  const needGrounded = Math.min(o.minGrounded, candidates[0]?.query_terms ?? o.minGrounded);
+  return candidates.filter((c) => c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= needGrounded);
+}
 function injectableWiki(candidates, o) {
+  if (!INJECT_PRECISION) return legacyWikiFilter(candidates, o);
   return candidates.filter((c) => !c.stub && c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
 }
 function toCounts(s) {
@@ -7203,7 +7227,7 @@ function groundedCount(queryTokens, idx, dfMap, N) {
   return n;
 }
 function discriminativeTerms(queryTokens, dfMap, N) {
-  const distinct = [...new Set(queryTokens)].filter((t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t));
+  const distinct = [...new Set(queryTokens)].filter(INJECT_PRECISION ? (t) => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t) : (t) => !LEGACY_GROUNDING_STOPWORDS.has(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter((t) => (dfMap.get(t) ?? 0) <= maxDf);

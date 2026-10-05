@@ -190,9 +190,11 @@ G1_JQ_ARGS=(--arg root "$REPO_ROOT" --argjson ci "$G1_CI"
 #    src/temp-sensor.c all arm. OUTSIDE the root, or with no root at all, an edit ARMS unless the
 #    path has an anchored temp segment (tmp, temp, scratch, scratchpad, sandbox; any case), which
 #    keeps a Windows AppData/Local/Temp/.../scratchpad file exempt. A relative path is repo-relative.
-#  - The Bash-edit heuristic (bash_counts_as_src) keeps the broader scratch match below: a shell
-#    redirect into "$TMPDIR/x.sh" names no root at all, and that detector only moves the
-#    last-edit line, it never arms the gate.
+#  - The Bash-edit heuristic (bash_counts_as_src) applies the same outside-root rule to absolute
+#    paths (a `sed -i` on another repo's source counts, a temp-segment path does not), and keeps the
+#    broader scratch match for in-root and relative/variable paths: a shell redirect into
+#    "$TMPDIR/x.sh" names no root at all. That detector only moves the last-edit line, it never
+#    arms the gate.
 SRC_PATH_DEFS='
   def gnorm: explode | map(if . == 92 then 47 else . end) | implode
     | if test("^/[A-Za-z]/") then .[1:2] + ":" + .[2:] else . end;
@@ -207,7 +209,6 @@ SRC_PATH_DEFS='
       end;
   def scratchy: test("(^|/)docs/")
     or test("(^|[/${])(tmp|temp|tmpdir|scratch|scratchpad|sandbox)([^[:alnum:]]|$)"; "i");
-  def bash_counts_as_src: repo_rel($root) | . != null and (scratchy | not);
   def canon:
     explode | map(if . == 92 then 47 else . end) | implode
     | sub("^//[?.]/"; "")
@@ -237,6 +238,12 @@ SRC_PATH_DEFS='
     | if $rel != null then {src: (($rel | test("(^|/)docs/") or test("^(tmp|scratch)/")) | not), outside: false}
       else {src: (canon | test("(^|/)(tmp|temp|scratch|scratchpad|sandbox)(/|$)"; "i") | not), outside: true} end;
   def counts_as_src: g1_class | .src;
+  # Bash-edit heuristic: same outside-root rule as counts_as_src (an absolute path outside every root
+  # arms unless it has a temp segment); inside the root, or relative/variable paths, keep the broader
+  # scratchy match.
+  def bash_counts_as_src:
+    root_rel as $rel
+    | if $rel == null then g1_class | .src else $rel | scratchy | not end;
 '
 
 # Check if code was modified (Write, Edit, or MultiEdit tool calls). Keep the
