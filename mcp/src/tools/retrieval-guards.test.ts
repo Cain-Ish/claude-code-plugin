@@ -371,8 +371,13 @@ describe('per-prompt injection gate satisfiability (context-serve-cli)', () => {
   });
 });
 
-describe('grounding: single letters never ground, digits do', () => {
-  it('"m" (from "I\'m") cannot ground a page, "8" in "season 8" can', async () => {
+// Pure-digit tokens stopped grounding in the R1 review: "fix items 3 8 review" injected
+// [[8-3-short-filename-alias-…]] on "3" + "8". Re-graded on the 37 evaluated prompts over the
+// real wiki (1203 pages, BM25-only): R2 injected 9/14 and R2 passing the gate 13/14 either way,
+// R0 injections 10 either way, no prompt's injections changed. R2 #27 ("season 8 … new") still
+// grounds on "season" + "new". Mixed alphanumerics (d154, v2) still ground.
+describe('grounding: single letters and pure digits never ground, mixed alphanumerics do', () => {
+  it('"m" (from "I\'m") cannot ground a page, and neither can "8" in "season 8"', async () => {
     const dir = await seedPages([
       ...filler(9),
       { slug: 'affaan-m-ecc', title: 'affaan m plugin reference', description: 'reference notes' },
@@ -382,6 +387,30 @@ describe('grounding: single letters never ground, digits do', () => {
     expect(m.candidates.find(c => slugOf(c.path) === 'affaan-m-ecc')?.grounded).toBe(1);
     const s = await knowledgeSearch({ query: 'zzqseason 8', knowledgeDir: dir });
     const hit = s.candidates.find(c => slugOf(c.path) === 'season-8-modes');
+    expect(hit?.grounded).toBe(1);
+    expect(hit?.discriminative_terms).toBe(1);
+  });
+
+  it('a page titled with the digits of a numbered list is not injected on them', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: '8-3-short-filename-alias', title: '8 3 short filename alias', description: 'deny list bypass' },
+    ]);
+    const r = await knowledgeSearch({ query: 'fix items 3 8 review', knowledgeDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === '8-3-short-filename-alias');
+    expect(hit, 'BM25 still ranks the page; only grounding ignores the digits').toBeDefined();
+    expect(hit!.grounded).toBe(0);
+    expect(injectableWiki(r.candidates, { minScore: 0, minRelevance: 0, minGrounded: await shippedMinGrounded() })
+      .map(c => slugOf(c.path))).not.toContain('8-3-short-filename-alias');
+  });
+
+  it('mixed alphanumerics (d154, v2) still ground', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'd154-v2-notes', title: 'zzqd154 v2 migration notes', description: 'notes' },
+    ]);
+    const r = await knowledgeSearch({ query: 'zzqd154 v2', knowledgeDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === 'd154-v2-notes');
     expect(hit?.grounded).toBe(2);
     expect(hit?.discriminative_terms).toBe(2);
   });

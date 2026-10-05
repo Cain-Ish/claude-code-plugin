@@ -203,9 +203,13 @@ const MIN_SUBSTANTIVE_LENGTH = 100;
 const AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 const STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
 // A lone letter never establishes aboutness: "I'm" tokenizes to "i" + "m", and "m" grounded the
-// "everything-claude-code-ecc" page (author "affaan-m") on an unrelated prompt. Digits stay —
-// "season 8" must ground on "8".
+// "everything-claude-code-ecc" page (author "affaan-m") on an unrelated prompt.
 const SINGLE_LETTER_RE = /^[a-z]$/;
+// Neither does a bare number: "fix items 3 8 review" grounded [[8-3-short-filename-alias-…]] on
+// "3" + "8" (R1 review). Re-graded on the 37 evaluated prompts over the real wiki: no R2 page
+// lost, no injection changed; R2 #27 ("season 8 … new") grounds on "season" + "new". Mixed
+// alphanumerics (d154, v2, 627m) still ground. Grounding only; BM25 still scores digits.
+const PURE_DIGITS_RE = /^[0-9]+$/;
 
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
@@ -708,7 +712,8 @@ function discriminativeTerms(queryTokens: string[], dfMap: Map<string, number>, 
   // but nowhere near the corpus SHARE. df catches project jargon that has gone generic; only a
   // stopword list catches words that were never content-bearing to begin with. Grounding only —
   // BM25 itself is untouched, so these words still contribute to ranking as they always did.
-  const distinct = [...new Set(queryTokens)].filter(t => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t));
+  const distinct = [...new Set(queryTokens)]
+    .filter(t => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter(t => (dfMap.get(t) ?? 0) <= maxDf);
