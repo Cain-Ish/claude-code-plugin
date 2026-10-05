@@ -38,6 +38,14 @@ mkdir -p "$BRAIN_DIR"
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
 
+# Runtime cases need node (the retrieval CLIs are node bundles). On a dev box without it
+# they report a skip; under CI node is provisioned, so a missing node is a broken lane, not a skip.
+need_node() {
+  command -v node >/dev/null 2>&1 && return 0
+  [ -n "${CI:-}" ] && fail "$1: node is not on PATH under CI (the lane provisions it) — refusing to skip"
+  return 1
+}
+
 # Default to a unique session_id per case so the memo doesn't bleed across
 # semantic-content cases. payload() runs inside command substitution
 # subshells, so the counter has to live in a file — variables don't survive
@@ -105,7 +113,7 @@ pass "kill switch honored"
 # '[Persona deep brief' wrapper reach additionalContext. The pre-existing Test 5 passed on
 # EMPTY output — so a /? route that silently delivered nothing (bundle path typo, node
 # swallow) would have shipped green. This asserts the actual effect.
-if command -v node >/dev/null 2>&1; then
+if need_node "/? (Test 5 + present-bundle 5a)"; then
   THINK_ROOT=$(mktemp -d)
   mkdir -p "$THINK_ROOT/mcp/dist/cli"
   cat > "$THINK_ROOT/mcp/dist/cli/persona-think-cli.bundle.js" <<'STUBJS'
@@ -116,7 +124,7 @@ STUBJS
   T5_BRAIN=$(mktemp -d)
   out=$(payload "/? what's the best approach" \
     | CLAUDE_PLUGIN_ROOT="$THINK_ROOT" BRAIN_DIR="$T5_BRAIN" bash "$SCRIPT" 2>/dev/null)
-  printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | test("SB_THINK_SENTINEL_42 query=what.s the best approach")' >/dev/null \
+  [ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | test("SB_THINK_SENTINEL_42 query=what.s the best approach")' >/dev/null \
     || fail "G2: /? did not deliver the STUB bundle's reply — the hermetic stub did not run (got: $out)"
   [ ! -e "$CLAUDE_SPAWNED" ] || fail "G2: the /? path spawned \`claude\` ($(cat "$CLAUDE_SPAWNED")) — Test 5 must never start a real advisor run"
   pass "G2: /? routes to the stubbed persona-think bundle and spawns no real claude"
@@ -153,7 +161,7 @@ STUBJS
   pass "D145: SB_PERSONA_THINK=off refuses the /? paid advisor without disabling the rest of persona-context"
   rm -rf "$THINK_ROOT" "$THINK_BRAIN" "$THINK_BRAIN2"
 else
-  pass "/? (Test 5 + present-bundle 5a): skipped (node not on PATH)"
+  echo "SKIP: /? (Test 5 + present-bundle 5a): node not on PATH"
 fi
 
 # Test 5b (0.32.x /? dead-route guard): with the bundle MISSING, a '/?' prompt must NOT be
@@ -196,6 +204,9 @@ rm -rf "$BRAIN_DIR_TEST"
 
 # Test 8b: wiki section dedups when wiki hits are unchanged across turns. UNAFFECTED by the
 # persona cut — wiki/episodic injection + the per-session memo dedup are unchanged.
+# Two DIFFERENT prompts that retrieve the same page: an identical second prompt is an exact repeat
+# (R1#1) and never reaches the dedup at all. Deterministic fixture, so no hit is a failure: the
+# page grounds on two head terms (widget, gizmo), which the per-prompt gate needs.
 BRAIN_DIR_WDEDUP=$(mktemp -d)
 KNOW_DIR_WDEDUP=$(mktemp -d)
 mkdir -p "$KNOW_DIR_WDEDUP/wiki/entities"
@@ -206,27 +217,31 @@ cat > "$KNOW_DIR_WDEDUP/wiki/entities/widget-page.md" <<EOF
 ---
 title: "Widget page"
 type: entities
-description: "documentation about the widget thing"
-tags: [widget]
+description: "documentation about the widget gizmo"
+tags: [widget, gizmo]
 created: 2026-01-01
 updated: 2026-01-01
 ---
 
-Widget is a thing for widget processing. This body stays over 100 characters so the
+Widget is a gizmo for widget processing. This body stays over 100 characters so the
 per-prompt CLI does not treat the page as a stub and skip it (R1#4, 2026-10).
 EOF
-out_w1=$(KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" \
-  payload_sid "tell me about the widget thing in detail" "wiki-dedup-session" \
-  | KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" bash "$SCRIPT")
-out_w2=$(KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" \
-  payload_sid "tell me about the widget thing in detail" "wiki-dedup-session" \
-  | KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP" BRAIN_DIR="$BRAIN_DIR_WDEDUP" bash "$SCRIPT")
-if [ -n "$out_w1" ] && echo "$out_w1" | jq -e '.hookSpecificOutput.additionalContext | test("widget-page")' >/dev/null 2>&1; then
-  [ -n "$out_w2" ] && echo "$out_w2" | jq -e '.hookSpecificOutput.additionalContext | test("widget-page") | not' >/dev/null \
-    || fail "turn 2: wiki section should be deduped when hits unchanged (got: $out_w2)"
+if need_node "wiki dedup (Test 8b)"; then
+  out_w1=$(payload_sid "tell me about the widget gizmo in detail" "wiki-dedup-session" \
+    | BRAIN_DIR="$BRAIN_DIR_WDEDUP" bash "$SCRIPT")
+  out_w2=$(payload_sid "explain the widget gizmo internals once more" "wiki-dedup-session" \
+    | BRAIN_DIR="$BRAIN_DIR_WDEDUP" bash "$SCRIPT")
+  [ -n "$out_w1" ] && echo "$out_w1" | jq -e '.hookSpecificOutput.additionalContext | test("widget-page")' >/dev/null \
+    || fail "wiki dedup: turn 1 did not inject widget-page from the deterministic fixture (got: $out_w1)"
+  # Everything deduped and nothing else to say = no output at all, so "no widget-page" alone would
+  # also pass for a turn that never ran. .prompts == 2 proves turn 2 went through retrieval and the
+  # memo rewrite (a repeat or early exit never bumps it).
+  case "$out_w2" in *widget-page*) fail "turn 2: wiki section should be deduped when hits unchanged (got: $out_w2)" ;; esac
+  [ "$(jq -r '.prompts // 0' "$BRAIN_DIR_WDEDUP/.injected/wiki-dedup-session.json" 2>/dev/null | tr -d '\r')" = 2 ] \
+    || fail "wiki dedup: turn 2 did not run the full retrieval path (memo .prompts != 2), so the dedup was never exercised"
   pass "wiki dedup: unchanged wiki hits suppressed on next turn"
 else
-  pass "wiki dedup: skipped (knowledge_search returned no hits in this env)"
+  echo "SKIP: wiki dedup (Test 8b): node not on PATH"
 fi
 rm -rf "$BRAIN_DIR_WDEDUP" "$KNOW_DIR_WDEDUP"
 unset CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
@@ -258,14 +273,17 @@ done
 hy_hit() { KNOWLEDGE_DIR="$KNOW_DIR_HY" BRAIN_DIR="$BRAIN_DIR_HY" payload_sid "$1" "$2" \
   | KNOWLEDGE_DIR="$KNOW_DIR_HY" BRAIN_DIR="$BRAIN_DIR_HY" bash "$SCRIPT" \
   | jq -r '.hookSpecificOutput.additionalContext // ""'; }
-ctl=$(hy_hit "tell me about widgetcontrol gadget in detail please" "hy-ctl")
-if echo "$ctl" | grep -q 'widgetcontrol'; then
+if need_node "keyword-hyphen (Test 11)"; then
+  # Deterministic fixture: the control page MUST be retrieved, or the hyphen assertion proves nothing.
+  ctl=$(hy_hit "tell me about widgetcontrol gadget in detail please" "hy-ctl")
+  echo "$ctl" | grep -q 'widgetcontrol' \
+    || fail "keyword-hyphen control: the plain-keyword page widgetcontrol was not retrieved from the deterministic fixture (got: $ctl)"
   hy=$(hy_hit "explain the node-is-modules dependency resolution order in detail" "hy-test")
   echo "$hy" | grep -q 'node-is-modules' \
     || fail "hyphenated id 'node-is-modules' dropped by the stopword filter (grep -vwF word-match) — its wiki page was not retrieved"
   pass "hyphenated identifiers survive the keyword stopword filter (grep -vxF whole-line)"
 else
-  pass "keyword-hyphen test skipped (knowledge_search returned no hits in this env)"
+  echo "SKIP: keyword-hyphen (Test 11): node not on PATH"
 fi
 rm -rf "$BRAIN_DIR_HY" "$KNOW_DIR_HY"
 unset CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
@@ -403,7 +421,7 @@ rm -rf "$RL_ROOT" "$RL_BRAIN"
 # from the real scripts dir (the hook sources it relative to itself). The brain dir carries buddy
 # consent (buddy.json react:true + .buddy/<sid>.seen), so a human turn provably emits `[buddy:` and
 # the busy marker — the assertions that a machine turn emits neither are therefore not vacuous.
-if command -v node >/dev/null 2>&1; then
+if need_node "machine-turn / headless runtime cases"; then
   MT_ROOT="$TMP/mt-root"; MT_BRAIN="$TMP/mt-brain"; MT_SENT="$TMP/mt-sentinel"
   mkdir -p "$MT_ROOT/mcp/dist/tools" "$MT_BRAIN/.buddy"
   # Dynamic import: valid whether node treats the scratch dir's .js as CommonJS or as an ES module.
@@ -411,6 +429,8 @@ if command -v node >/dev/null 2>&1; then
 import('node:fs').then(({ appendFileSync }) => {
   const s = process.env.MT_SENTINEL;
   if (s) appendFileSync(s, 'sid=' + (process.env.SB_SESSION_ID || '') + ' kw=' + process.argv.slice(2).join(' ') + '\n');
+  // "quietcase" in the keywords = nothing found (the hook's nothing-surfaced exit, MT7).
+  if (process.argv.slice(2).join(' ').includes('quietcase')) return;
   // A slug unique per call: the hook hash-dedups an unchanged wiki block within a session, and
   // every human turn below must show its own hit.
   process.stdout.write('### [[mt-stub-' + process.pid + ']] - stub hit for the machine-turn tests\n');
@@ -494,9 +514,11 @@ STUBJS
   mt_assert_machine "MT3 command-name" mt-seq $'<command-name>/second-brain:query</command-name>\n<command-message>second-brain:query</command-message>\n<command-args>how does the drainer work</command-args>'
   mt_assert_machine "MT3 local-command-stdout" mt-seq $'<local-command-stdout>Set model to opus and effort to high for the rest of this session</local-command-stdout>'
   mt_assert_machine "MT3 cross-session-message" mt-seq $'<cross-session-message from="peer-7">\nplease rebase onto main before pushing the branch again\n</cross-session-message>'
-  mt_assert_machine "MT3 one-letter hyphen tag" mt-seq $'<a-x> a one letter tag name still counts as a hyphenated machine tag here'
+  mt_assert_machine "MT3 command-message first" mt-seq $'<command-message>second-brain:query</command-message>\n<command-name>/second-brain:query</command-name>'
+  mt_assert_machine "MT3 command-args first" mt-seq $'<command-args>how does the drainer work</command-args>\n<command-name>/second-brain:query</command-name>'
+  mt_assert_machine "MT3 local-command-stderr" mt-seq $'<local-command-stderr>Error: unknown model name given to the set model command</local-command-stderr>'
   [ "$(mt_prompts mt-seq)" = 1 ] || fail "MT3: .prompts moved on Stop-feedback / tag turns"
-  pass "MT3: Stop-hook feedback, the continuation summary and hyphenated tags (<system-reminder>, <agent-message, <command-name>, <local-command-, <cross-session-message, <a-x) all skip"
+  pass "MT3: Stop-hook feedback, the continuation summary and the allowlisted harness tags (<system-reminder>, <agent-message, <command-name/-message/-args>, <local-command-, <cross-session-message) all skip"
 
   # MT4: human shapes that must still reach retrieval. <pasted_content uses an underscore, so it is
   # not a hyphenated tag even when a hyphen appears later in the same line; a plain HTML tag is not
@@ -506,7 +528,13 @@ STUBJS
   mt_assert_human "MT4 BOM + whitespace human prompt" mt4-c $'\xef\xbb\xbf  \n\t  explain how the retry backoff works in this repo'
   mt_assert_human "MT4 plain html tag" mt4-d '<div>review the markup of this landing page please</div>'
   mt_assert_human "MT4 uppercase tag" mt4-e '<README-NOTES> summarize the release notes for the next version please'
-  pass "MT4: <pasted_content>, plain/uppercase tags and a whitespace/BOM-led human prompt still reach retrieval"
+  # A human asking about their own hyphenated component or custom element is not a harness tag:
+  # only the allowlisted tags are machine-written (the broad hyphenated-tag rule swallowed these).
+  mt_assert_human "MT4 hyphenated component" mt4-f "<my-component> doesn't render after the props change, why"
+  mt_assert_human "MT4 custom element" mt4-g '<x-modal> closes on every outside click, how do I keep it open'
+  mt_assert_human "MT4 one-letter hyphen tag" mt4-h '<a-x> a one letter tag name the user typed about their markup'
+  mt_assert_human "MT4 near-miss of an allowlisted tag" mt4-i '<system-reminders> is the name of my new notification component, review it'
+  pass "MT4: <pasted_content>, plain/uppercase/hyphenated user tags and a whitespace/BOM-led human prompt still reach retrieval"
 
   # MT5: kill switch — SB_MACHINE_TURN_SKIP=off restores today's behaviour (a notification is retrieved).
   mt_assert_human "MT5 SB_MACHINE_TURN_SKIP=off" mt5 $'<task-notification>\n<task-id>c9d8e7</task-id>\n<status>completed</status>\n<summary>retry backoff agent finished</summary>\n</task-notification>' SB_MACHINE_TURN_SKIP=off
@@ -529,12 +557,51 @@ STUBJS
   [ "$(mt_prompts mt6-a)" = 3 ] || fail "MT6: the human prompts after the repeats did not count (got $(mt_prompts mt6-a), want 3)"
   pass "MT6: an exact repeat in the same session is skipped (traced kind=repeat); SB_MACHINE_TURN_SKIP=off, a new session or a new prompt is not"
 
+  # MT7: "the previous prompt" is the previous HUMAN turn, whichever exit it took. A turn that
+  # surfaced nothing (B), an ack and a /? turn each record their own signature, so A, B, A runs
+  # retrieval for the second A: before the fix only the full-context exit recorded one, and the
+  # second A was skipped as a "repeat" of a prompt two turns back.
+  mt_last() { jq -r '.last_prompt // ""' "$MT_BRAIN/.injected/$1.json" 2>/dev/null | tr -d '\r'; }
+  mt_assert_human "MT7 A" mt7 "$CRON_P"
+  MT7_A=$(mt_last mt7); [ -n "$MT7_A" ] || fail "MT7: turn A recorded no last_prompt"
+  rm -f "$MT_SENT"
+  out=$(mt_run mt7 "quietcase status of the overnight batch please")
+  [ "$(mt_calls)" = 1 ] || fail "MT7: turn B must reach retrieval (calls=$(mt_calls))"
+  case "$out" in *'[Wiki'*) fail "MT7: turn B was meant to surface nothing (got: $out)" ;; esac
+  [ -n "$(mt_last mt7)" ] && [ "$(mt_last mt7)" != "$MT7_A" ] || fail "MT7: the nothing-surfaced turn B did not record its own last_prompt (still $(mt_last mt7))"
+  mt_assert_human "MT7 A after B" mt7 "$CRON_P"
+  mt_run mt7 "continue" >/dev/null
+  [ "$(mt_last mt7)" != "$MT7_A" ] || fail "MT7: the ack turn did not record its own last_prompt"
+  mt_assert_human "MT7 A after an ack" mt7 "$CRON_P"
+  # A memo that is present but unparseable is never clobbered by the record; the failure is logged.
+  printf 'not json' > "$MT_BRAIN/.injected/mt7b.json"
+  mt_run mt7b "continue" >/dev/null
+  [ "$(cat "$MT_BRAIN/.injected/mt7b.json")" = "not json" ] || fail "MT7: an unparseable memo was overwritten by the last_prompt record"
+  jq -c 'select(.script == "persona-context.sh" and .exit_code != 0 and ((.message // "") | test("memo write failed.*sid=mt7b")))' \
+      "$MT_BRAIN/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+    || fail "MT7: a failed last_prompt write left no error-log breadcrumb ($(tail -2 "$MT_BRAIN/error-log.jsonl" 2>/dev/null))"
+  pass "MT7: nothing-surfaced and ack turns record last_prompt, so A, B, A and A, ack, A both retrieve the second A; a bad memo is logged, not clobbered"
+
   # SID1: the context-serve CLI is handed the payload's session_id as SB_SESSION_ID (it drops
   # same-session episodic rows with it).
   SID1="0f8e9c2a-1b2c-4d5e-8f90-a1b2c3d4e5f6"
   mt_assert_human "SID1" "$SID1" "explain how the retry backoff works in this repo"
   grep -q "^sid=$SID1 kw=" "$MT_SENT" || fail "SID1: the stub CLI did not receive SB_SESSION_ID $SID1 (got: $(cat "$MT_SENT"))"
   pass "SID1: context-serve-cli receives SB_SESSION_ID equal to the payload session_id"
+
+  # FB1 (R1#4): with no combined bundle the hook falls back to knowledge-search-cli, and that call
+  # injects per prompt too, so it must ask for the per-prompt gate (SB_INJECT_GATE=1).
+  FB_ROOT="$TMP/fb-root"; FB_SENT="$TMP/fb-sentinel"; mkdir -p "$FB_ROOT/mcp/dist/tools"
+  cat > "$FB_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js" <<'STUBJS'
+import('node:fs').then(({ appendFileSync }) => {
+  appendFileSync(process.env.FB_SENTINEL, 'gate=' + (process.env.SB_INJECT_GATE || '') + '\n');
+});
+STUBJS
+  payload_sid "explain how the retry backoff works in this repo" fb1 \
+    | env CLAUDE_PLUGIN_ROOT="$FB_ROOT" BRAIN_DIR="$MT_BRAIN" FB_SENTINEL="$FB_SENT" bash "$SCRIPT" >/dev/null 2>&1
+  [ -f "$FB_SENT" ] || fail "FB1: the knowledge-search-cli fallback never ran"
+  [ "$(tr -d '\r' < "$FB_SENT")" = "gate=1" ] || fail "FB1: the fallback wiki call did not set SB_INJECT_GATE=1 (got: $(cat "$FB_SENT"))"
+  pass "FB1: the knowledge-search-cli fallback runs with SB_INJECT_GATE=1"
 
   # HL1-HL4: foreign headless children (`claude -p`: ATTENDED=0, ENTRYPOINT=sdk-cli) get nothing and
   # write nothing; SB_HEADLESS_CONTEXT=on opts back in; interactive IDE hosts are not headless.
@@ -555,7 +622,7 @@ STUBJS
   mt_assert_human "HL4b ENTRYPOINT=sdk-ts (exact match only)" hl4b "explain how the retry backoff works in this repo" CLAUDE_CODE_ENTRYPOINT=sdk-ts CLAUDE_CODE_SESSION_ATTENDED=1
   pass "HL1-HL4: ATTENDED=0 / ENTRYPOINT=sdk-cli are silent with no state writes; SB_HEADLESS_CONTEXT=on opts in; claude-vscode and sdk-ts are not headless"
 else
-  pass "machine-turn / headless runtime cases: skipped (node not on PATH)"
+  echo "SKIP: machine-turn / headless runtime cases: node not on PATH"
 fi
 
 # --- Static locks (R1#1/R1#2) -------------------------------------------------------------------
@@ -563,20 +630,24 @@ SCRIPTS_DIR="${SCRIPT%/persona-context.sh}"
 
 # The machine-turn block is parsed by the archive-side parity test (mcp episodic hygiene, R1#3): every
 # case alternative in it that holds a quote or a backslash is read as a machine prefix. So its
-# single-quoted strings must be exactly the four literal prefixes (each a `'…'*` pattern), and the
-# hyphenated-tag rule is the escaped `\<[a-z]*-*` arm. Any other quoted string inside the markers (an
-# apostrophe in a comment, a quoted `<` arm = the rejected bare-`<` rule, a human-exclusion branch)
-# would be read as one more machine prefix.
+# single-quoted strings must be exactly the four text prefixes plus the eight allowlisted harness
+# tags (each a `'…'*` pattern), and nothing else: an apostrophe in a comment, a quoted `<` arm (the
+# rejected bare-`<` rule) or a human-exclusion branch would be read as one more machine prefix. The
+# broad hyphenated-tag arm (`\<[a-z]*-*`) is gone for good: it swallowed a human's own
+# `<my-component>` or `<x-modal>` question (MT4), so a lock keeps it from coming back.
 MT_BLOCK=$(awk '/^[[:space:]]*# machine-turn:begin/{f=1;next} /^[[:space:]]*# machine-turn:end/{f=0} f' "$SCRIPT")
 [ -n "$MT_BLOCK" ] || fail "lock: no '# machine-turn:begin' / '# machine-turn:end' block in persona-context.sh"
 MT_QUOTED=$(printf '%s\n' "$MT_BLOCK" | grep -oE "'[^']*'\\*" | LC_ALL=C sort | tr '\n' '|')
 MT_WANT=$(printf '%s\n' "'<task-notification>'*" "'Another Claude session sent a message:'*" \
-  "'Stop hook feedback:'*" "'This session is being continued from a previous conversation'*" | LC_ALL=C sort | tr '\n' '|')
+  "'Stop hook feedback:'*" "'This session is being continued from a previous conversation'*" \
+  "'<system-reminder>'*" "'<command-name>'*" "'<command-message>'*" "'<command-args>'*" \
+  "'<local-command-'*" "'<agent-message'*" "'<cross-session-message'*" | LC_ALL=C sort | tr '\n' '|')
 [ "$MT_QUOTED" = "$MT_WANT" ] || fail "lock: machine-turn block prefixes drifted (got: $MT_QUOTED want: $MT_WANT)"
 MT_APOS=$(printf '%s' "$MT_BLOCK" | tr -cd "'" | wc -c | tr -d ' ')
-[ "$MT_APOS" = 8 ] || fail "lock: the machine-turn block holds $MT_APOS single quotes, want exactly 8 (four quoted prefixes, nothing else)"
-printf '%s\n' "$MT_BLOCK" | grep -qF '\<[a-z]*-*)' || fail "lock: the machine-turn block lost its \\<[a-z]*-* hyphenated-tag arm"
-pass "lock: machine-turn block = the four single-quoted literal prefixes + the \\<[a-z]*-* tag arm"
+[ "$MT_APOS" = 22 ] || fail "lock: the machine-turn block holds $MT_APOS single quotes, want exactly 22 (eleven quoted prefixes, nothing else)"
+printf '%s\n' "$MT_BLOCK" | grep -qF '\<' && fail "lock: the machine-turn block carries an escaped-< arm again (the broad hyphenated-tag rule is retired)"
+printf '%s\n' "$MT_BLOCK" | grep -q '\[a-z\]' && fail "lock: the machine-turn block carries an [a-z] glob again (the broad hyphenated-tag rule is retired)"
+pass "lock: machine-turn block = four text prefixes + seven allowlisted harness tags, no broad tag arm"
 
 # Headless predicate — single source by lock. lib.sh's sb_is_headless_child body is ONE line; every
 # hook that cannot afford to source lib.sh first carries an inline copy tagged `# sb-headless-inline`
