@@ -173,7 +173,7 @@ const MIN_CORPUS_FOR_DF = 8;
 // English function words plus the generic verbs/qualifiers that dominate casual prompts
 // ("what is the best way to do this"). Extending it is safe; it can only make grounding
 // stricter, and a term wrongly listed here just means one fewer way to ground a page.
-const GROUNDING_STOPWORDS = new Set([
+const LEGACY_GROUNDING_STOPWORDS = new Set([   // the 0.54 list; SB_INJECT_PRECISION=off grounds on it alone
   'the', 'a', 'an', 'and', 'or', 'but', 'if', 'then', 'than', 'that', 'this', 'these', 'those',
   'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am',
   'do', 'does', 'did', 'doing', 'done', 'have', 'has', 'had', 'having',
@@ -185,6 +185,8 @@ const GROUNDING_STOPWORDS = new Set([
   'best', 'better', 'good', 'bad', 'way', 'ways', 'thing', 'things', 'stuff',
   'get', 'got', 'make', 'made', 'use', 'used', 'using', 'need', 'want', 'like', 'please', 'help',
   'some', 'any', 'all', 'more', 'most', 'much', 'many', 'very', 'just', 'only', 'also', 'now',
+]);
+const GROUNDING_STOPWORDS = new Set([...LEGACY_GROUNDING_STOPWORDS,
   // Generic prompt verbs/qualifiers, added 2026-10 (R1#4) only after re-grading: on the 40 graded
   // prompts over the real wiki, none of these pushes a grader-identified R2 page below the gate,
   // and together they cut injections on noise-graded prompts 16 -> 10 (scratchpad
@@ -630,11 +632,49 @@ export function parseInjectGate(raw: string | undefined, warn: (msg: string) => 
   return false;
 }
 
+/** SB_INJECT_PRECISION: on, unset and empty (any case, trimmed) keep the R1 gate; off restores the
+ *  0.54.1 gate. Any other value keeps the R1 gate and calls `warn` once, so a typo can neither
+ *  roll the gate back nor silently fail to. */
+export function parseInjectPrecision(raw: string | undefined, warn: (msg: string) => void): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'off') return false;
+  if (v !== '' && v !== 'on') {
+    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use on/off); keeping the precision gate`);
+  }
+  return true;
+}
+
+// SB_INJECT_PRECISION — the R1 rollback switch (default on). Read once per process, here at module
+// load, so a long-lived MCP server needs a restart to pick up a change. `off` (any case) restores the
+// 0.54.1 per-prompt injection gate everywhere this engine runs: discriminativeTerms grounds on the
+// 0.54 stopword list alone and lets single letters and pure digits ground again, so `grounded` and
+// `discriminative_terms` are 0.54's for every caller (the recall CLI's default filter and the MCP
+// tool included); and injectableWiki becomes legacyWikiFilter — stubs injectable, no extra term
+// for a cross-project page, need = min(minGrounded, query_terms). That covers context-serve-cli,
+// knowledge-search-cli's SB_INJECT_GATE path and the SessionStart enrichment that runs through it;
+// no CLI reads the variable itself. Ranking is untouched in both modes, and the `stub` /
+// `cross_project` flags are still emitted when off (nothing reads them then). on, unset or empty
+// keep the R1 gate; any other value warns once on stderr and keeps it. retrieval-guards.test.ts
+// locks both modes row by row, and the satisfiability arithmetic in each.
+const INJECT_PRECISION = parseInjectPrecision(process.env.SB_INJECT_PRECISION,
+  (msg) => { process.stderr.write(`second-brain knowledge-search: ${msg}` + '\n'); });
+
 export interface InjectGateOpts { minScore: number; minRelevance: number; minGrounded: number }
 
+/** The 0.54.1 wiki filter, verbatim: knowledge-search-cli's default (recall) branch — the recall
+ *  harness and the FORGET probe pin it — and, with SB_INJECT_PRECISION=off, the per-prompt gate.
+ *  The need is clamped to the RAW query-term count read off candidates[0], so pass the engine's
+ *  full candidate list, never a pre-filtered one. */
+export function legacyWikiFilter<C extends KnowledgeSearchResult['candidates'][number]>(candidates: C[], o: InjectGateOpts): C[] {
+  const needGrounded = Math.min(o.minGrounded, candidates[0]?.query_terms ?? o.minGrounded);
+  return candidates.filter(c => c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= needGrounded);
+}
+
 /** The per-prompt wiki gate: never a stub; score/relevance floors; grounding per
- *  injectionGroundingNeed. Filters only — order (and so ranking) is the engine's. */
+ *  injectionGroundingNeed. Filters only — order (and so ranking) is the engine's.
+ *  SB_INJECT_PRECISION=off: legacyWikiFilter instead (see the switch above). */
 export function injectableWiki<C extends KnowledgeSearchResult['candidates'][number]>(candidates: C[], o: InjectGateOpts): C[] {
+  if (!INJECT_PRECISION) return legacyWikiFilter(candidates, o);
   return candidates.filter(c => !c.stub
     && c.score >= o.minScore && c.relevance >= o.minRelevance
     && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
@@ -712,8 +752,9 @@ function discriminativeTerms(queryTokens: string[], dfMap: Map<string, number>, 
   // but nowhere near the corpus SHARE. df catches project jargon that has gone generic; only a
   // stopword list catches words that were never content-bearing to begin with. Grounding only —
   // BM25 itself is untouched, so these words still contribute to ranking as they always did.
-  const distinct = [...new Set(queryTokens)]
-    .filter(t => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t));
+  const distinct = [...new Set(queryTokens)].filter(INJECT_PRECISION
+    ? t => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t)
+    : t => !LEGACY_GROUNDING_STOPWORDS.has(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter(t => (dfMap.get(t) ?? 0) <= maxDf);

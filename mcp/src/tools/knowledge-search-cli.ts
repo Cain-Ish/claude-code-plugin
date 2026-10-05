@@ -1,4 +1,4 @@
-import { knowledgeSearch, injectableWiki, parseInjectGate } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate } from './knowledge-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 const query = process.argv[2] || '';
@@ -57,12 +57,14 @@ const result = await knowledgeSearch({ query, brainDir, projectSlug });
 // stubs, discriminative-term grounding, one extra term for cross-project pages (R1#4). Unset: the
 // legacy filter, unchanged, because the recall harness (wiki-recall-check.sh) and the FORGET
 // probe read this CLI and pin its behaviour. An unrecognised value warns once on stderr.
+// SB_INJECT_PRECISION=off (read by the engine, not here) turns the gated path back into the legacy
+// filter and restores 0.54 grounding on both paths; see knowledge-search.ts.
 const injectGate = parseInjectGate(process.env.SB_INJECT_GATE,
   (msg) => { process.stderr.write(`knowledge-search-cli: ${msg}\n`); });
-const needGrounded = Math.min(minGrounded, result.candidates[0]?.query_terms ?? minGrounded);
+const gateOpts = { minScore, minRelevance, minGrounded };
 const top = (injectGate
-  ? injectableWiki(result.candidates, { minScore, minRelevance, minGrounded })
-  : result.candidates.filter(c => c.score >= minScore && c.relevance >= minRelevance && c.grounded >= needGrounded))
+  ? injectableWiki(result.candidates, gateOpts)
+  : legacyWikiFilter(result.candidates, gateOpts))
   .slice(0, 2);
 if (top.length === 0) { process.exit(0); }
 

@@ -34,6 +34,8 @@ const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 // `score` (RRF, ceiling 0.0426) cannot gate relevance; `relevance` (frozen BM25) + `grounded`
 // (query terms in title/description/tags) can. Full rationale in knowledge-search-cli.ts.
 // retrieval-guards.test.ts locks the arithmetic against the default below.
+// SB_INJECT_PRECISION=off (read once by the engine, not here) makes injectableWiki the 0.54.1
+// filter again; see knowledge-search.ts.
 // Validated, not raw parseFloat/parseInt — a malformed override yields NaN, every `>= NaN` is
 // false, and the gate silently matches nothing for the whole session (the unsatisfiable-gate
 // class again); a negative one makes it vacuously true. Same guard as knowledge-search-cli.ts.
