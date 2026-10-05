@@ -80,13 +80,14 @@ fi
 # The 2026-10-05 audit: 68% of per-prompt injections landed on turns the harness or a peer wrote —
 # task notifications, peer-session messages, Stop-hook feedback, the continuation summary, wrapped
 # harness tags (<system-reminder>, <agent-message, <command-name>, <command-message>, <command-args>,
-# <local-command-…>, <cross-session-message). The payload has no origin field (probed), so the
+# <local-command-…>, <bash-…>, <cross-session-message). The payload has no origin field (probed), so the
 # prompt's own prefix is the signal. Such a turn exits right here, AFTER the busy marker above (the
 # statusline still shows the turn running): no retrieval, no [buddy: line, no .prompts bump, no goal
 # freeze, no additionalContext.
 # The tags are an ALLOWLIST of the harness's own wrappers, never "any hyphenated tag": a human asking
-# about `<my-component> doesn't render` or `<x-modal>` is a real question and must reach retrieval
-# (the broad `<[a-z]+-` rule swallowed both). A human paste, `<pasted_content …>`, matches nothing.
+# about `<my-component> doesn't render`, `<x-modal>`, `<v-btn …>` or `<router-view/>` is a real
+# question and must reach retrieval (the broad `<[a-z]+-` rule swallowed them). Across 400 real
+# transcripts every leading hyphenated tag was on this list, so it loses no machine turn. A human paste, `<pasted_content …>`, matches nothing.
 # Classification sees the first 4 KB of the prompt with leading whitespace and a leading UTF-8 BOM
 # stripped (builtins only). The block between the machine-turn markers is parsed by the archive-side
 # parity test (mcp episodic hygiene): every case alternative holding a quote or a backslash is read as
@@ -128,7 +129,7 @@ if [ "${SB_MACHINE_TURN_SKIP:-on}" != "off" ]; then
     'Stop hook feedback:'*) _MT_KIND=stop-feedback ;;
     'This session is being continued from a previous conversation'*) _MT_KIND=continuation ;;
     '<system-reminder>'*|'<command-name>'*|'<command-message>'*|'<command-args>'*) _MT_KIND=tag ;;
-    '<local-command-'*|'<agent-message'*|'<cross-session-message'*) _MT_KIND=tag ;;
+    '<local-command-'*|'<bash-'*|'<agent-message'*|'<cross-session-message'*) _MT_KIND=tag ;;
   esac
   # machine-turn:end
   if [ -n "$_MT_KIND" ]; then
