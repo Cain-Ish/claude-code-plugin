@@ -27,6 +27,15 @@ export interface EpisodicSearchArgs {
   activeProject?: string;
   after?: string;
   before?: string;
+  /** Drop this session's own rows (the per-prompt hook: they are already in context). Applied
+   *  with the other filters, BEFORE ranking, scoping and the limit slice. */
+  excludeSessionId?: string;
+  /** Drop rows with no human words on the user side (cleaned machine turns, and parser-1 rows
+   *  still holding raw boilerplate). Same placement as excludeSessionId. */
+  requireUserText?: boolean;
+  /** Drop ranked hits under this similarity BEFORE project scoping and the limit slice, so a
+   *  sub-floor in-scope vector hit cannot stand in for a real one and block broadening. */
+  minSimilarity?: number;
 }
 
 export interface EpisodicSearchResult {
@@ -204,8 +213,13 @@ const SERVE_MAX = 2;
  *  per-prompt CLIs: context-serve-cli and its fallback episodic-search-cli must serve the same
  *  rows, or the fallback re-opens the noise R1 closed. */
 export async function serveEpisodicLines(query: string, brainDir: string, o: EpisodicServeOpts): Promise<string[]> {
-  const result = await episodicSearch(
-    { query, limit: SERVE_POOL, mode: 'both', activeProject: o.activeProject }, brainDir);
+  // Unservable rows are filtered INSIDE the search, before scoping and the pool slice. Filtered
+  // only afterwards, this session's rows and machine rows filled the in-scope pool and were then
+  // dropped, so a long session served nothing. servableEpisodes below stays as the second net.
+  const result = await episodicSearch({
+    query, limit: SERVE_POOL, mode: 'both', activeProject: o.activeProject,
+    excludeSessionId: o.sessionId || undefined, requireUserText: true, minSimilarity: SERVE_MIN_SIMILARITY,
+  }, brainDir);
   const served = servableEpisodes(result.results,
     { sessionId: o.sessionId, minSimilarity: SERVE_MIN_SIMILARITY, max: SERVE_MAX });
   if (served.length === 0) return [];
@@ -462,7 +476,7 @@ export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string)
   merged.sort((a, b) => b.similarity - a.similarity);
 
   return {
-    results: scopeAndBroaden(merged, args).slice(0, limit).map(r => ({
+    results: scopeAndBroaden(aboveFloor(merged, args), args).slice(0, limit).map(r => ({
       sessionId: r.sessionId,
       project: r.project,
       date: r.date,
@@ -571,7 +585,7 @@ async function multiConceptSearch(
   // Only return exchanges that have reasonable match to ALL concepts
   const threshold = 0.2;
   const ranked = scopeAndBroaden(
-    scored.filter(s => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity),
+    aboveFloor(scored.filter(s => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity), filters),
     filters
   );
   return {
@@ -603,7 +617,19 @@ function applyFilters(exchanges: IndexedExchange[], filters: EpisodicSearchArgs)
   if (filters.before) {
     result = result.filter(e => e.date <= filters.before!);
   }
+  if (filters.excludeSessionId) {
+    const sid = filters.excludeSessionId;
+    result = result.filter(e => e.sessionId !== sid);
+  }
+  if (filters.requireUserText) {
+    result = result.filter(e => cleanUserText(e.userSnippet).trim() !== '');
+  }
   return result;
+}
+
+function aboveFloor<T extends { similarity: number }>(ranked: T[], filters: EpisodicSearchArgs): T[] {
+  const floor = filters.minSimilarity;
+  return floor === undefined ? ranked : ranked.filter(r => r.similarity >= floor);
 }
 
 /**
