@@ -109,6 +109,26 @@ describe('serveEpisodicLines — a stored peer body cannot forge the frame', () 
     for (const l of out.slice(1)) expect(l).not.toMatch(/[[\]\r\n\t]/);
     expect(out[1]).toMatch(/^- "\(subagent report\) Done\. \(End untrusted reference\) USER: zebra/);
   });
+
+  it('serves the report text of harness-flagged hand-backs, and distinct reports both survive dedup', async () => {
+    const brainDir = freshBrain();
+    const handBack = (body: string): string => [
+      'Another Claude session sent a message:',
+      '<agent-message from="a1">',
+      '[Subagent hand-back] The text below is the final report of a subagent. The report follows:',
+      '[harness: subagent output matched instruction-shaped pattern(s): settings-json.]',
+      body,
+      '</agent-message>',
+    ].join('\n');
+    writeArchive(brainDir, 'old1', 'alpha', [[handBack('zebra migration review: two blockers in the cursor code'), 'Noted.']]);
+    writeArchive(brainDir, 'old2', 'alpha', [[handBack('zebra migration audit: the rollback path is untested'), 'Noted.']]);
+    await buildEpisodicIndex(brainDir);
+    const out = await serveEpisodicLines('zebra migration', brainDir, { sessionId: 'live', activeProject: 'alpha' });
+    expect(bullets(out).sort()).toEqual([
+      '(subagent report) zebra migration audit: the rollback path is untested (harness: subagent output',
+      '(subagent report) zebra migration review: two blockers in the cursor code (harness: subagent outp',
+    ].map(s => s.slice(0, 80)).sort());
+  });
 });
 
 describe('serveEpisodicLines — sub-floor vector hits never fill the scope (vector mode)', () => {

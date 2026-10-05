@@ -91,9 +91,10 @@ describe('cleanUserText — blank boilerplate, keep peer report bodies', () => {
       '**Verdict: ship-with-fixes.**',
       '</agent-message>',
     ].join('\n');
-    // The preamble goes; the provenance stays: a fixed marker, and the harness flag line folded.
-    expect(cleanUserText(t)).toBe('(subagent report) (harness: subagent output matched instruction-shaped pattern(s): settings-json.)\n'
-      + '## Premise review: buddy vs main\n**Verdict: ship-with-fixes.**');
+    // The preamble goes; the provenance stays: the marker in front, and the harness flag line
+    // (folded) AFTER the report, so the served opening is report text.
+    expect(cleanUserText(t)).toBe('(subagent report) ## Premise review: buddy vs main\n**Verdict: ship-with-fixes.**\n'
+      + '(harness: subagent output matched instruction-shaped pattern(s): settings-json.)');
   });
 
   it('strips the cross-session wrapper and its trailing frame, keeping the message', () => {

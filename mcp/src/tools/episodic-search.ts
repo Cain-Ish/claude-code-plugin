@@ -193,7 +193,10 @@ function peerReportBody(rest: string): string {
   const report = body.slice(j).join('\n').trim();
   if (!report) return '';
   const mark = open?.[1] === 'agent-message' ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
-  return mark + [...flags, report].join('\n');
+  // Report first, flag after: the served bullet (80 chars) and the dedup key (60) read the start,
+  // so a leading flag made every flagged report the same boilerplate line. The 200-char snippet
+  // can cut the flag off a long report; the marker in front is what carries the provenance.
+  return mark + [report, ...flags].join('\n');
 }
 
 // Serve-time fold, the TS twin of session-load.sh's card fold and protocol-guard.sh's item fold:
