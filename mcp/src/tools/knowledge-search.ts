@@ -610,6 +610,22 @@ export function injectionGroundingNeed(minGrounded: number, discriminative: numb
   return crossProject ? Math.max(base, Math.min(base + 1, discriminative)) : base;
 }
 
+const GATE_ON = new Set(['1', 'on', 'true', 'yes']);
+const GATE_OFF = new Set(['0', 'off', 'false', 'no']);
+
+/** knowledge-search-cli's SB_INJECT_GATE: 1/on/true/yes (any case) turn the per-prompt gate on.
+ *  Unset, empty and an explicit 0/off/false/no keep the legacy filter. Any other value also
+ *  keeps the legacy filter, but `warn` is called once, so a typo cannot silently disable the gate
+ *  the caller asked for. */
+export function parseInjectGate(raw: string | undefined, warn: (msg: string) => void): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (GATE_ON.has(v)) return true;
+  if (v && !GATE_OFF.has(v)) {
+    warn(`SB_INJECT_GATE=${JSON.stringify(raw)} is not recognised (use 1/on/true/yes); using the legacy filter`);
+  }
+  return false;
+}
+
 export interface InjectGateOpts { minScore: number; minRelevance: number; minGrounded: number }
 
 /** The per-prompt wiki gate: never a stub; score/relevance floors; grounding per

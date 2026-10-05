@@ -3,7 +3,7 @@ import { promises as fsp } from 'fs';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { knowledgeSearch, parseDoc } from './knowledge-search.js';
+import { knowledgeSearch, parseDoc, parseInjectGate } from './knowledge-search.js';
 import { appendEdge } from './graph-store.js';
 
 // Hermetic access-counts (R2.2): without this, every knowledgeSearch call here
@@ -776,5 +776,35 @@ describe('suite guard reaches knowledgeSearch callers', () => {
     process.env.SB_SUITE_REAL_HOME_PATH = fakeHome;
     const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, brainDir: join(fakeHome, 'sandbox-brain') });
     expect(slugs(r)).toContain('alpha');
+  });
+});
+
+// SB_INJECT_GATE (R1 review): only the literal "1" turned the gate on, so "true"/"on"/"yes"
+// silently fell back to the legacy filter. parseInjectGate is what knowledge-search-cli reads.
+describe('parseInjectGate (knowledge-search-cli SB_INJECT_GATE)', () => {
+  it.each(['1', 'on', 'true', 'yes', 'ON', 'True', 'YES', ' on '])('%j turns the gate on, silently', (raw) => {
+    const warn = vi.fn();
+    expect(parseInjectGate(raw, warn)).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, '', '0', 'off', 'false', 'no', 'OFF', 'No'])('%j is the legacy filter, silently', (raw) => {
+    const warn = vi.fn();
+    expect(parseInjectGate(raw, warn)).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(['2', 'enabled', 'y', 'tru'])('%j is not recognised: legacy filter plus exactly one warning', (raw) => {
+    const warn = vi.fn();
+    expect(parseInjectGate(raw, warn)).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/SB_INJECT_GATE/);
+  });
+
+  it('knowledge-search-cli reads the knob through it, warning on stderr (source lock)', async () => {
+    const src = await fsp.readFile(join(__dirname, 'knowledge-search-cli.ts'), 'utf8');
+    expect(src).toMatch(/parseInjectGate\(process\.env\.SB_INJECT_GATE,/);
+    expect(src).toMatch(/process\.stderr\.write/);
+    expect(src).not.toMatch(/SB_INJECT_GATE\s*===/);
   });
 });
