@@ -30,5 +30,26 @@ if command -v cygpath >/dev/null 2>&1; then
 else
   pass "Windows-form normalization (skipped — no cygpath; the no-op path is verified above)"
 fi
+
+# (3) G3 suite guard: with SB_SUITE_REAL_HOME_PATH set, sourcing lib.sh with BRAIN_DIR resolving to
+# EXACTLY <real home>/.second-brain must fail loud (exit 1, message on stderr); any other dir -- even
+# one under the real home -- and the var unset must pass.
+fakehome=$(mktemp -d)
+guarded(){ BRAIN_DIR="$1" SB_SUITE_REAL_HOME_PATH="$2" bash -c 'source "'"$ROOT"'/scripts/lib.sh"; echo SOURCED' 2>&1; }
+out=$(guarded "$fakehome/.second-brain" "$fakehome"); rc=$?
+case "$out" in *"suite guard"*) ;; *) fail "suite guard did not fire for the real <home>/.second-brain ($out)" ;; esac
+case "$out" in *SOURCED*) fail "lib.sh kept sourcing after the suite guard fired" ;; esac
+pass "suite guard fires for the exact real brain dir"
+if command -v cygpath >/dev/null 2>&1; then
+  out=$(guarded "$fakehome/.second-brain/" "$(cygpath -w "$fakehome")")
+  case "$out" in *"suite guard"*) pass "suite guard matches across Windows-form real home + trailing slash" ;; *) fail "suite guard missed a Windows-form real home ($out)" ;; esac
+fi
+out=$(guarded "$fakehome/sandbox/.second-brain" "$fakehome")
+case "$out" in *SOURCED*) pass "suite guard leaves other dirs under the real home alone" ;; *) fail "suite guard tripped on a non-exact dir ($out)" ;; esac
+out=$(guarded "$fakehome/.second-brain" "")
+case "$out" in *SOURCED*) pass "suite guard is inert when SB_SUITE_REAL_HOME_PATH is unset/empty" ;; *) fail "suite guard fired with the var empty ($out)" ;; esac
+out=$(KNOWLEDGE_DIR="$fakehome/knowledge" BRAIN_DIR="$tmp" SB_SUITE_REAL_HOME_PATH="$fakehome" bash -c 'source "'"$ROOT"'/scripts/lib.sh"; sb_knowledge_dir; echo "rc=$?"' 2>&1)
+case "$out" in *"suite guard"*"rc=1"*) pass "sb_knowledge_dir fails loud for the real <home>/knowledge" ;; *) fail "sb_knowledge_dir did not guard ($out)" ;; esac
+rm -rf "$fakehome"
 rm -rf "$tmp"
 echo; echo "ALL PASS"

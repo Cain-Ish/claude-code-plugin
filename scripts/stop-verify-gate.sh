@@ -141,6 +141,39 @@ _svg_fail_closed() {
   exit 0
 }
 
+# Repo root for the path tests below: git toplevel of the payload cwd, else the cwd
+# itself; empty when the payload names no usable cwd.
+CWD_DIR=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
+REPO_ROOT=""
+if [ -n "$CWD_DIR" ] && [ -d "$CWD_DIR" ]; then
+  REPO_ROOT=$(git -C "$CWD_DIR" rev-parse --show-toplevel 2>/dev/null | tr -d '\r')
+  [ -n "$REPO_ROOT" ] || REPO_ROOT=$CWD_DIR
+fi
+
+# One path test for the arming scan, the Bash-edit heuristic and is_edit (G1). A tool
+# path is first normalized (backslash -> slash, MSYS /c/x -> C:/x: a Windows tool path
+# used to dodge every "/"-segmented exemption), then made RELATIVE to the repo root
+# ($root, from the Stop payload's cwd): the docs/tmp/scratch exemption reads only the
+# part below the root, so a checkout under a parent named temp or sandbox still arms.
+# An absolute path OUTSIDE the root is not a repo edit at all (repo_rel -> null).
+# $root empty (no cwd known) keeps the whole-path behaviour.
+SRC_PATH_DEFS='
+  def gnorm: explode | map(if . == 92 then 47 else . end) | implode
+    | if test("^/[A-Za-z]/") then .[1:2] + ":" + .[2:] else . end;
+  def repo_rel($root):
+    gnorm as $p
+    | if ($root == "" or ($p | test("^([A-Za-z]:)?/") | not)) then $p
+      else ($root | gnorm | sub("/+$"; "")) as $r
+        | (if ($r | test("^[A-Za-z]:"))
+           then ($p | ascii_downcase | startswith(($r | ascii_downcase) + "/"))
+           else ($p | startswith($r + "/")) end) as $in
+        | if $in then $p[($r | length) + 1:] else null end
+      end;
+  def scratchy: test("(^|/)docs/")
+    or test("(^|[/${])(tmp|temp|tmpdir|scratch|scratchpad|sandbox)([^[:alnum:]]|$)"; "i");
+  def counts_as_src: repo_rel($root) | . != null and (scratchy | not);
+'
+
 # Check if code was modified (Write, Edit, or MultiEdit tool calls). Keep the
 # FULL distinct changed-file set, not just the first hit — the block reason names
 # what actually changed, and the critic offer keys on its size. This full pass also
@@ -158,12 +191,12 @@ CHANGED_SCAN_JQ='
                     | select(.name == "Write" or .name == "Edit" or .name == "MultiEdit")
                     | .input.file_path? | strings
                     | select(. != "")
-                    | select((endswith(".md") or endswith(".markdown") or endswith(".txt") or test("(^|/)docs/")) | not)) as $p
+                    | select((endswith(".md") or endswith(".markdown") or endswith(".txt") or (counts_as_src | not)) | not)) as $p
               (.; .files[$p] = true)
        end)
   | (.skipped | tostring), (.files | keys[])
 '
-_svg_scan changed "$CHANGED_SCAN_JQ"
+_svg_scan changed "$SRC_PATH_DEFS$CHANGED_SCAN_JQ" --arg root "$REPO_ROOT"
 SKIPPED=${SVG_OUT%%$'\n'*}
 case "$SKIPPED" in ''|*[!0-9]*) SKIPPED=0 ;; esac
 CHANGED_FILES=""
@@ -208,8 +241,7 @@ EDIT_SCAN_JQ='
   def srcpath:
     explode | map(select(. != 34 and . != 39)) | implode
     | test("[.](sh|bash|zsh|ps1|js|mjs|cjs|ts|mts|cts|tsx|jsx|py|rb|go|rs|java|kt|kts|swift|c|h|cc|cpp|hpp|cs|php|pl|pm|lua|sql|css|scss|html|vue|svelte)$")
-      and (test("(^|/)docs/") | not)
-      and (test("(^|[/${])(tmp|temp|tmpdir|scratch|scratchpad|sandbox)([^[:alnum:]]|$)"; "i") | not);
+      and counts_as_src;
   def span_edits:
     ( test("(^|[[:space:]])(g?sed|perl)[[:space:]]")
       and test("[[:space:]](-[Enrszuplaw0]*i|--in-place)")
@@ -228,11 +260,11 @@ EDIT_SCAN_JQ='
     | .message.content?[]? | objects
     | select(.type == "tool_use")
     | select(((.name == "Write" or .name == "Edit" or .name == "MultiEdit")
-              and ((.input.file_path? | strings) // "" | (endswith(".md") or endswith(".markdown") or endswith(".txt") or test("(^|/)docs/")) | not))
+              and ((.input.file_path? | strings) // "" | (endswith(".md") or endswith(".markdown") or endswith(".txt") or (counts_as_src | not)) | not))
              or (.name == "Bash" and ((.input.command? | strings) // "" | bash_edits)));
   reduce (foreach inputs as $line (0; . + 1; . as $n | $line | fromjson? | objects | is_edit | $n)) as $n (0; $n)
 '
-_svg_scan edit "$EDIT_SCAN_JQ"
+_svg_scan edit "$SRC_PATH_DEFS$EDIT_SCAN_JQ" --arg root "$REPO_ROOT"
 LAST_EDIT_LINE=$SVG_OUT
 case "$LAST_EDIT_LINE" in ''|*[!0-9]*) LAST_EDIT_LINE=0 ;; esac
 
@@ -261,7 +293,6 @@ _svg_errored() {
 # invariant). If/when the auto-team pinned-command resolver lands, reuse it here —
 # do NOT grow these probes into a second resolver (single-source discipline).
 VERIFY_CMD=""
-CWD_DIR=$(printf '%s' "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 if [ -n "$CWD_DIR" ] && [ -d "$CWD_DIR" ]; then
   if [ -f "$CWD_DIR/tests/run-all.sh" ]; then
     VERIFY_CMD="bash tests/run-all.sh"

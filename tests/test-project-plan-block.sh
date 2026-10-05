@@ -14,6 +14,10 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 export BRAIN_DIR="$TMP/brain"; mkdir -p "$TMP/brain"  # isolate sb_inc_wiki_writes from the real ~/.second-brain
 WIKI="$TMP/wiki"; mkdir -p "$WIKI"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
+# days_ago N -> YYYY-MM-DD, N days before today. GNU `date -d` first, BSD `date -v` fallback (macOS).
+# Fixture dates feeding the 30-day stale window must be relative: a hard-coded one is a time bomb
+# (P1's [carried 2026-09-01] expired 2026-10-01 and the merge correctly marked it [stale]).
+days_ago(){ date -d "$1 days ago" +%F 2>/dev/null || date -v-"$1"d +%F; }
 # F7 (portability): macOS ships shasum, not sha256sum -- a bare sha256sum call would empty
 # both sides of an "unchanged" comparison under `set -u` and pass VACUOUSLY on a host
 # without it. Same fallback pattern as tests/test-stop-extract.sh's content_hash().
@@ -181,14 +185,14 @@ pass "plan normalization tolerates */+ bullets and leading whitespace"
 
 # P1: a carried date is sticky; a re-affirmed unrelated line and the whole file stay
 # byte-identical (no last_updated churn) when nothing actually changed.
-P_P1="$TMP/p_p1.md"
+P_P1="$TMP/p_p1.md"; P1_DATE=$(days_ago 2)
 cat > "$P_P1" <<'EOF'
 # PROJECT: t
 
 ## Plan
 
 - [ ] alpha
-- [ ] [carried 2026-09-01] beta
+- [ ] [carried @P1DATE@] beta
 
 ## Recent decisions
 
@@ -198,9 +202,10 @@ cat > "$P_P1" <<'EOF'
 
 <!-- last_updated: 2026-05-01T00:00:00Z -->
 EOF
+sed "s/@P1DATE@/$P1_DATE/" "$P_P1" > "$P_P1.x" && mv "$P_P1.x" "$P_P1"
 HASH_BEFORE=$(content_hash "$P_P1")
 printf '%s' '{"plan":["[ ] alpha"]}' | bash "$MERGE" --project-md "$P_P1" --knowledge-dir "$WIKI" >/dev/null 2>&1
-grep -qE '^- \[ \] \[carried 2026-09-01\] beta$' "$P_P1" || fail "P1: carried date not sticky (beta line changed)"
+grep -qxF -- "- [ ] [carried $P1_DATE] beta" "$P_P1" || fail "P1: carried date not sticky (beta line changed)"
 HASH_AFTER=$(content_hash "$P_P1")
 [ "$HASH_BEFORE" = "$HASH_AFTER" ] || fail "P1: PROJECT.md sha changed on a re-affirming emission"
 pass "P1: a carried date is sticky; an unaffected re-affirmed line leaves the file byte-identical"
@@ -477,13 +482,13 @@ P_P14="$TMP/p_p14.md"
 {
   echo "# PROJECT: t"; echo; echo "## Plan"; echo
   echo "- [ ] [carried 2020-01-01] c1"
-  for i in $(seq 2 15); do printf -- '- [ ] [carried 2026-09-%02d] c%d\n' "$((i % 28 + 1))" "$i"; done
+  for i in $(seq 2 15); do printf -- '- [ ] [carried %s] c%d\n' "$(days_ago $((29 - i)))" "$i"; done
   echo; echo "## Recent decisions"; echo; echo "## Open blockers"; echo; echo "## Cross-references"; echo
   echo "<!-- last_updated: 2026-05-01T00:00:00Z -->"
 } > "$P_P14"
 printf '%s' '{"plan":["[ ] fresh n1"]}' | bash "$MERGE" --project-md "$P_P14" --knowledge-dir "$WIKI" >/dev/null 2>&1
 grep -qE '^- \[stale\] \[ \] \[carried 2020-01-01\] c1$' "$P_P14" || fail "P14: CR-M3 -- the OLDEST carried item (2020, positioned FIRST) was not the overflow victim (got: $(awk '/^## Plan\$/{f=1;next} /^## /{f=0} f' "$P_P14")))"
-grep -qE '^- \[ \] \[carried 2026-09-[0-9]{2}\] c2$' "$P_P14" || fail "P14: CR-M3 -- a newer carried item was wrongly evicted instead of staying carried"
+grep -qE '^- \[ \] \[carried [0-9]{4}-[0-9]{2}-[0-9]{2}\] c2$' "$P_P14" || fail "P14: CR-M3 -- a newer carried item was wrongly evicted instead of staying carried"
 pass "P14: CR-M3 -- overflow victims are chosen by oldest date, not by document position"
 
 # P15 (CR-M4): a compaction Pending Task built from a CARD-TRUNCATED echo of a real item

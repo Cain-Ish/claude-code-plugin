@@ -29,6 +29,14 @@ fi
 source "$(dirname "$0")/lib.sh"
 STRICTNESS="${SB_QUALITY_GATE_STRICTNESS:-conservative}"
 LLM_MODE="${SB_QUALITY_GATE_LLM:-off}"
+# G2: inside the test suite (run-all sets SB_SUITE_REAL_HOME_PATH) haiku_check would spawn a
+# REAL `claude -p` against the developer's account. Refuse loudly up front instead.
+if [ "$LLM_MODE" = "on" ] && [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ]; then
+  _qg_msg="SB_QUALITY_GATE_LLM=on would spawn a real claude inside the test suite (SB_SUITE_REAL_HOME_PATH is set); refusing"
+  sb_log_error "extraction-quality-gate.sh" "$_qg_msg" 1
+  echo "extraction-quality-gate.sh: $_qg_msg" >&2
+  exit 1
+fi
 # Resolved once per gate invocation, not pinned: SB_QUALITY_GATE_MODEL is declared as a FAST pin
 # in model-ladder.json, so an operator override still lands at rung 0 of the walked ladder.
 HAIKU_MODEL="$(sb_resolve_model fast headless)"

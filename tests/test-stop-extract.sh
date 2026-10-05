@@ -60,6 +60,9 @@ init_sandbox() {
            "$SANDBOX/path-stub" \
            "$SANDBOX/transcript"
   export HOME="$SANDBOX"
+  # G3: native-Windows node reads USERPROFILE (not HOME) for os.homedir(); sandbox it too, or the
+  # jit-index CLI stop-extract spawns writes ~/.second-brain/projects/test-slug on the REAL home.
+  if command -v cygpath >/dev/null 2>&1; then export USERPROFILE="$(cygpath -w "$SANDBOX")"; else export USERPROFILE="$SANDBOX"; fi
   # Wiki lives under $HOME/knowledge/wiki since v1.0 (matches stop-extract.sh
   # default of CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge). The old
   # .second-brain/wiki path is legacy and only the projects/ subdir of

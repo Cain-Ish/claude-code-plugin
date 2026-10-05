@@ -147,4 +147,27 @@ PURGE_LINES_AFTER=$(grep -c . "$PURGE_FILE")
   || fail "D118: second run duplicated purge content ($PURGE_LINES_BEFORE -> $PURGE_LINES_AFTER lines)"
 rm -rf "$BRAIN4" "$K4" "$REALPROJ" "$FAKEHOME"
 
+
+# 5. G4: SessionStart prunes orphaned atomic-write debris (*.tmp.* / *.rot.*) older than a day from
+# the BRAIN_DIR root only: live state held 15 access-counts.json.tmp.* and a 568 KB
+# audit-log.jsonl.tmp.5543 from killed writers. Newer debris, real state files and subdirs stay.
+BRAIN5=$(mktemp -d); K5=$(mktemp -d); mkdir -p "$K5/wiki/learnings" "$BRAIN5/sub"
+for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7 sub/deep.tmp.1; do
+  : > "$BRAIN5/$f"; touch -t 202001010000 "$BRAIN5/$f"
+done
+: > "$BRAIN5/access-counts.json"; touch -t 202001010000 "$BRAIN5/access-counts.json"
+: > "$BRAIN5/access-counts.json.tmp.fresh"
+CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN5" KNOWLEDGE_DIR="$K5" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K5" \
+  timeout 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7; do
+  [ -e "$BRAIN5/$f" ] && fail "G4: stale debris $f was not pruned"
+done
+pass "G4: >1-day-old *.tmp.* / *.rot.* files in the BRAIN_DIR root are pruned"
+[ -e "$BRAIN5/access-counts.json.tmp.fresh" ] || fail "G4: a fresh *.tmp.* (a live writer's file) was deleted"
+[ -e "$BRAIN5/access-counts.json" ] || fail "G4: the real (non-debris) state file was deleted"
+[ -e "$BRAIN5/sub/deep.tmp.1" ] || fail "G4: pruning recursed below the BRAIN_DIR root (maxdepth 1 violated)"
+pass "G4: fresh debris, real state files and subdirectory contents are untouched"
+grep -q 'tmp-debris' "$BRAIN5/audit-log.jsonl" 2>/dev/null || fail "G4: the pruned count was not logged"
+pass "G4: the pruned count is logged"
+rm -rf "$BRAIN5" "$K5"
 echo; echo "ALL PASS"
