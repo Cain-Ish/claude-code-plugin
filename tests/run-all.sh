@@ -62,7 +62,8 @@ trap 'rm -rf "$SUITE_SANDBOX"' EXIT
 # per-test: run-all.sh's own env never changes mid-run (each test runs via a
 # child `env ... bash "$script"`, which cannot mutate this process's environment).
 SB_UNSET_ENV=(-u BRAIN_DIR -u SB_BRAIN_DIR -u KNOWLEDGE_DIR \
-              -u CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR -u CLAUDE_PROJECT_DIR -u CLAUDECODE)
+              -u CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR -u CLAUDE_PROJECT_DIR -u CLAUDECODE \
+              -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED)
 while IFS= read -r sbvar; do
   [ -n "$sbvar" ] || continue
   case "$sbvar" in
@@ -93,6 +94,11 @@ print_header() {
   echo
 }
 
+# G3: native Windows Node reads USERPROFILE (not HOME) for os.homedir(), so a HOME-only
+# sandbox let tests leak into the real ~/.second-brain. USERPROFILE gets the same sandbox,
+# in Windows form where cygpath exists (a native process cannot read an MSYS path).
+sb_suite_winpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+
 run_one_sh() {
   local script="$1"
   local name; name=$(basename "$script" .sh)
@@ -111,6 +117,7 @@ run_one_sh() {
   local -a iso_env=(
     "SB_SUITE_REAL_HOME_PATH=$HOME"
     "HOME=$iso_home"
+    "USERPROFILE=$(sb_suite_winpath "$iso_home")"
   )
   # Per-file budget override: a test may declare `# run-all-timeout: N` in its first 20 lines.
   # For the few integration tests that run dozens of full drainer ticks by design
@@ -210,9 +217,9 @@ if [ "$RUN_VITEST" = "1" ] && [ -d "$MCP_DIR" ] && [ -f "$MCP_DIR/package.json" 
   # `FAIL vitest (mcp)` — a green 837-test suite reading as a red lane. The
   # .bin shim is what npx would resolve to anyway, minus the wrapper.
   if command -v timeout >/dev/null 2>&1; then
-    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" timeout "$PER_TEST_TIMEOUT" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" "USERPROFILE=$(sb_suite_winpath "$VITEST_HOME")" timeout "$PER_TEST_TIMEOUT" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
   else
-    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" "USERPROFILE=$(sb_suite_winpath "$VITEST_HOME")" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
   fi
   vitest_ec=$?
   if [ "$vitest_ec" -eq 0 ]; then

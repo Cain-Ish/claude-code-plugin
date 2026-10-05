@@ -72,6 +72,33 @@ sb_normalize_path() {
   printf '%s' "$p"
 }
 
+# sb_suite_guard KIND PATH — G3 suite guard, the bash twin of suiteGuard() in
+# mcp/src/brain-paths.ts. tests/run-all.sh exports SB_SUITE_REAL_HOME_PATH (the developer's
+# REAL home) and sandboxes HOME/USERPROFILE; a script that still resolves KIND=brain to
+# <real home>/.second-brain, or KIND=knowledge to <real home>/knowledge, leaked past the
+# sandbox. Compares ONLY those two exact dirs (never "anything under the real home": the
+# Windows TMPDIR lives there), after normalizing both sides (backslash, drive letter ->
+# MSYS form, trailing slash, case on cygpath platforms). No-op when the var is unset.
+# Fails loud on stderr and `return 1`; the top-level BRAIN_DIR call exits the sourcing
+# script. It deliberately does NOT sb_log_error: that would write into the real dir.
+sb_suite_guard() {
+  [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ] || return 0
+  local want got
+  case "$1" in brain) want=".second-brain" ;; knowledge) want="knowledge" ;; *) return 0 ;; esac
+  want=$(sb_normalize_path "${SB_SUITE_REAL_HOME_PATH%/}/$want")
+  got=$(sb_normalize_path "$2")
+  want="${want%/}"; got="${got%/}"
+  if command -v cygpath >/dev/null 2>&1; then
+    want=$(printf '%s' "$want" | tr 'A-Z' 'a-z'); got=$(printf '%s' "$got" | tr 'A-Z' 'a-z')
+  fi
+  if [ -n "$got" ] && [ "$got" = "$want" ]; then
+    printf 'lib.sh: suite guard: %s dir resolved to the REAL %s while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; point BRAIN_DIR/KNOWLEDGE_DIR at a temp dir)\n' "$1" "$2" >&2
+    return 1
+  fi
+  return 0
+}
+sb_suite_guard brain "$BRAIN_DIR" || exit 1
+
 # sb_mtime — portable file mtime as epoch seconds via `stat -c %Y` || `stat -f %m`
 # || 0. THE single funnel for the ~17 copy-pasted GNU/BSD stat sites (portability
 # floor: any line using the GNU form needs its BSD twin, which this one-liner has).
@@ -87,7 +114,9 @@ sb_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 
 # --knowledge-dir arg, or honor an extra alias (SB_KNOWLEDGE_DIR) keep their own form.
 sb_knowledge_dir() {
   local d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
-  printf '%s' "${d/#\~/$HOME}"
+  d="${d/#\~/$HOME}"
+  sb_suite_guard knowledge "$d" || return 1
+  printf '%s' "$d"
 }
 
 # KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
