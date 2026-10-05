@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_INJECT_GATE — enrich() sets =1 because SessionStart enrichment's gated path is the subject
 # Injection gate: PRECISION + RECALL of what actually reaches the model per prompt.
 #
 # WHY THIS FILE EXISTS. The per-prompt wiki injection gate was dead for the entire life of the
@@ -33,25 +34,51 @@ command -v jq   >/dev/null 2>&1 || { echo "SKIP: jq absent"; exit 0; }
 [ -f "$CTX_CLI" ] || { echo "FAIL: context-serve CLI missing ($CTX_CLI) — run npm run bundle"; exit 1; }
 
 PASS=0; FAIL=0
-pass(){ PASS=$((PASS+1)); echo "  PASS: $1"; }
-fail(){ FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
-
 EB=$(mktemp -d); trap 'rm -rf "$EB"' EXIT
+
+# A CLI that crashes prints nothing, and "injects nothing" is exactly what the precision sections
+# assert, so a dead bundle used to pass them. Every helper below records a non-zero exit in
+# $CLI_FAILS (a file: the helpers run inside $(...) subshells), and every verdict checks it: a
+# section in which any CLI call exited non-zero FAILS, whatever its own assertion said.
+CLI_FAILS="$EB/cli-failures"; : > "$CLI_FAILS"; CLI_SEEN=0
+cli_rc(){ [ "$2" -eq 0 ] || printf '%s rc=%s q=%s\n' "$1" "$2" "$3" >> "$CLI_FAILS"; return "$2"; }
+cli_crashed(){
+  local n; n=$(grep -c . "$CLI_FAILS" 2>/dev/null | tr -d ' \r'); n=${n:-0}
+  [ "$n" -gt "$CLI_SEEN" ] || return 1
+  echo "    CLI exited non-zero: $(tail -n $((n - CLI_SEEN)) "$CLI_FAILS" | head -3 | tr '\n' ';')"
+  CLI_SEEN=$n
+  return 0
+}
+pass(){ if cli_crashed; then FAIL=$((FAIL+1)); echo "  FAIL: $1 (but a CLI exited non-zero in this section, so it proves nothing)"; else PASS=$((PASS+1)); echo "  PASS: $1"; fi; }
+fail(){ cli_crashed; FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
 # NOTE: no SB_INJECT_* overrides anywhere below — shipped defaults are the subject.
 # D017: `${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}` (no colon — unset-only, not
 # empty-or-unset) defaults to the deterministic BM25-only run this file is
 # documented as (CI's offline lane), but lets `make production-lane` export
 # SECOND_BRAIN_DISABLE_EMBEDDINGS=0 to re-run the SAME gate over the real
 # hybrid RRF path — the only place that path is actually exercised.
-inject(){ KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EB" SB_BRAIN_DIR="$EB" \
-  SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" node "$CLI" "$1" 2>/dev/null; }
+inject(){ local o rc; o=$(KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EB" SB_BRAIN_DIR="$EB" \
+  SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" node "$CLI" "$1" 2>/dev/null); rc=$?
+  [ -z "$o" ] || printf '%s\n' "$o"; cli_rc inject "$rc" "$1"; }
 # serve QUERY [ACTIVE_SLUG]: the wiki section the per-prompt hook would inject (the lines before
 # the episodic separator). The empty brain dir has no episodic index, so that section is empty.
-serve(){ KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EB" SB_BRAIN_DIR="$EB" SB_ACTIVE_SLUG="${2:-}" \
+# The CLI's own exit status is captured BEFORE the awk split (a pipe would report awk's).
+serve(){ local o rc; o=$(KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EB" SB_BRAIN_DIR="$EB" SB_ACTIVE_SLUG="${2:-}" \
   SB_SESSION_ID=injection-gate-test \
-  SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" node "$CTX_CLI" "$1" 2>/dev/null \
-  | awk '$0=="--8<--SB-EPISODIC--8<--"{exit}{print}'; }
+  SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" node "$CTX_CLI" "$1" 2>/dev/null); rc=$?
+  [ -z "$o" ] || printf '%s\n' "$o" | awk '$0=="--8<--SB-EPISODIC--8<--"{exit}{print}'; cli_rc serve "$rc" "$1"; }
+# enrich QUERY [ACTIVE_SLUG]: SessionStart wiki enrichment (session-load.sh) reads knowledge-search-cli
+# with SB_INJECT_GATE=1: it injects into the session like the per-prompt hook, so it takes the same gate.
+enrich(){ local o rc; o=$(KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EB" SB_BRAIN_DIR="$EB" SB_INJECT_GATE=1 SB_ACTIVE_SLUG="${2:-}" \
+  SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" node "$CLI" "$1" 2>/dev/null); rc=$?
+  [ -z "$o" ] || printf '%s\n' "$o"; cli_rc enrich "$rc" "$1"; }
 has(){ printf '%s\n' "$1" | grep -qF "[[$2]]"; }
+
+# Harness self-check: a crashed CLI (here: a bundle path that does not exist) must turn the next
+# verdict into a FAIL. Probed in this shell, then consumed, so it cannot leak into a real section.
+_ctx_cli="$CTX_CLI"; CTX_CLI="$EB/no-such-bundle.js"; serve "harness self check" >/dev/null; CTX_CLI="$_ctx_cli"
+if cli_crashed; then PASS=$((PASS+1)); echo "  PASS: a crashed CLI is recorded and fails its section (exit status propagates through serve)"
+else FAIL=$((FAIL+1)); echo "  FAIL: a crashed CLI went unnoticed — 'injects nothing' sections could pass on a dead bundle"; fi
 
 # --- PRECISION: off-topic queries must inject NOTHING -------------------------
 # The corpus is entirely about this plugin, so none of these has a legitimate answer in it.
@@ -109,6 +136,15 @@ echo "    on-topic injected: $HITS/$TOTAL (floor $MIN)"
                   || fail "GATE IS DEAD: zero on-topic queries injected at shipped defaults"
 
 # --- R1 ratchet (2026-10 memory-usage design, rows #4/#5) ------------------------------------
+# Positive controls, one per CLI: each MUST inject its page. Every "injects nothing" row below is
+# only meaningful if the same CLI demonstrably injects something on this corpus.
+CTL_BAD=0
+has "$(inject "version bump tripwire")" version-bump-tripwire || { CTL_BAD=$((CTL_BAD + 1)); echo "    inject control: version-bump-tripwire not injected"; }
+has "$(serve "supreme arena defense squads" gamehelper)" supreme-arena-squads || { CTL_BAD=$((CTL_BAD + 1)); echo "    serve control: supreme-arena-squads not served"; }
+has "$(enrich "version bump tripwire" brainplug)" version-bump-tripwire || { CTL_BAD=$((CTL_BAD + 1)); echo "    enrich control: version-bump-tripwire not enriched"; }
+[ "$CTL_BAD" -eq 0 ] && pass "positive controls: inject, serve and enrich each inject their page" \
+                     || fail "$CTL_BAD positive control(s) injected nothing — the precision rows below would prove nothing"
+
 # Forbid rows: the 12 generic-word R0 prompts of the 2026-10 relevance grading, paraphrased into
 # the fixture domain. The trap pages (merge-gate-checklist, results-file-blocks-rebuilds,
 # pool-sync-over-cancels-jobs, everything-skills-reference) share only GENERIC words with them
@@ -151,11 +187,8 @@ for s in quokka-relay-checkpoint marmot-quill-compaction pangolin-burrow-sweep; 
 done
 [ "$STUB_BAD" -eq 0 ] && pass "stubs are never injected per prompt" || fail "$STUB_BAD stub check(s) failed"
 
-# SessionStart wiki enrichment (session-load.sh) reads knowledge-search-cli with SB_INJECT_GATE=1:
-# it injects into the session just like the per-prompt hook, so the same stubs must stay out,
-# while the legacy (recall/FORGET) path above still retrieves them.
-enrich(){ KNOWLEDGE_DIR="$CORPUS" BRAIN_DIR="$EB" SB_BRAIN_DIR="$EB" SB_INJECT_GATE=1 \
-  SECOND_BRAIN_DISABLE_EMBEDDINGS="${SECOND_BRAIN_DISABLE_EMBEDDINGS-1}" node "$CLI" "$1" 2>/dev/null; }
+# SessionStart enrichment (enrich, SB_INJECT_GATE=1) keeps the same stubs out, while the legacy
+# (recall/FORGET) path above still retrieves them.
 ENRICH_BAD=0
 for s in quokka-relay-checkpoint marmot-quill-compaction pangolin-burrow-sweep; do
   q=$(printf '%s' "$s" | tr '-' ' ')
@@ -163,10 +196,20 @@ for s in quokka-relay-checkpoint marmot-quill-compaction pangolin-burrow-sweep; 
 done
 [ "$ENRICH_BAD" -eq 0 ] && pass "SessionStart enrichment (SB_INJECT_GATE=1) refuses stubs" || fail "$ENRICH_BAD stub(s) injected at SessionStart"
 
-# Digits ground: "rotation" is a discriminative term no page carries, so the need is 2 and only
-# the "8" can supply the second grounded term ("season 8" in the graded R2 prompt #27).
-has "$(serve "season 8 rotation" gamehelper)" season-8-artifact-swap \
-  && pass "a digit grounds (season 8)" || fail "season 8 did not ground on the digit"
+# Digits never ground a page on their own (TS engine, R1 review): "fix items 3 8 review" shares
+# only the digits 3 and 8 with phase-8-3-cutover's head, which once made 2 grounded terms and served
+# the page (the real-wiki "8-3" hole). A digit still counts toward ranking, and a real second term
+# still serves: "new season 8 artifacts" (graded R2 prompt #27's topic) grounds on season + artifacts.
+if has "$(serve "fix items 3 8 review" gamehelper)" phase-8-3-cutover; then
+  fail "a digits-only overlap (3, 8) served phase-8-3-cutover per prompt"
+elif ! has "$(serve "phase 8-3 cutover of the quarry shards" gamehelper)" phase-8-3-cutover; then
+  fail "phase-8-3-cutover is not served even for its own topic — the digits-only check proves nothing"
+else
+  pass "a digits-only overlap does not ground a page"
+fi
+has "$(serve "new season 8 artifacts" gamehelper)" season-8-artifact-swap \
+  && pass "season 8 plus a real second term still serves (season, artifacts)" \
+  || fail "\"new season 8 artifacts\" did not serve season-8-artifact-swap"
 
 # One discriminative term among filler injects an in-project page. The old clamp,
 # min(2, query_terms=5), asked for 2 grounded terms when only 1 could exist.
@@ -187,6 +230,15 @@ elif ! has "$(inject "version bump cadence")" version-bump-tripwire; then
 else
   pass "cross-project page needs one more grounded term"
 fi
+# The same rule for SessionStart enrichment (SB_INJECT_GATE=1): a cross-project page grounding only
+# on the base need (2 of 3 terms) is not enriched; grounding on every term is.
+if has "$(enrich "version bump cadence" gamehelper)" version-bump-tripwire; then
+  fail "enrich (SB_INJECT_GATE=1) served a cross-project page grounding only on the base need (2 of 3 terms)"
+elif ! has "$(enrich "version bump tripwire" gamehelper)" version-bump-tripwire; then
+  fail "enrich no longer serves a cross-project page grounding on every term — the cross-project check proves nothing"
+else
+  pass "enrich (SB_INJECT_GATE=1) asks a cross-project page for one more grounded term"
+fi
 
 # In-project paraphrases of graded R2 topics are still served.
 R2_MISS=0
@@ -200,5 +252,7 @@ arena level normalization for artifacts|arena-mode-normalization
 EOF
 [ "$R2_MISS" -eq 0 ] && pass "graded-R2 paraphrases are served per prompt" || fail "$R2_MISS R2 paraphrase(s) not served"
 
+# Nothing may slip between the last verdict and the summary.
+cli_crashed && { FAIL=$((FAIL+1)); echo "  FAIL: a CLI exited non-zero after the last verdict"; }
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

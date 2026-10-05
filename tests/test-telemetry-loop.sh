@@ -286,12 +286,13 @@ pass "control: a Stop without the flag advances turn and emits a new row (fixtur
 PBRAIN="$TMP/.second-brain-pc"
 PKNOW="$TMP/knowledge-pc"
 mkdir -p "$PBRAIN" "$PKNOW/wiki/learnings"
-printf -- '---\ntitle: widget calibration\ndescription: how to calibrate the widget\ntype: learnings\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# widget calibration\n\nbody\n' \
+# Bodies stay over 100 characters: the per-prompt gate (R1#4) never injects a shorter (stub) page.
+printf -- '---\ntitle: widget calibration\ndescription: how to calibrate the widget\ntype: learnings\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# widget calibration\n\nThe widget calibration procedure sets the zero point first, then the span, and records both readings in the log.\n' \
   > "$PKNOW/wiki/learnings/widget-calibration.md"
 # A SECOND matching page. A regression to session-load.sh's greedy single-slug-
 # per-line extraction form (`.*\[\[\([^]]*\)\]\].*`) would drop every hit but one
 # per prompt — one page alone can't distinguish that from the correct per-token form.
-printf -- '---\ntitle: widget calibration history\ndescription: widget calibration record\ntype: learnings\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# widget calibration history\n\nbody\n' \
+printf -- '---\ntitle: widget calibration history\ndescription: widget calibration record\ntype: learnings\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags: []\nrelated: []\n---\n\n# widget calibration history\n\nEvery widget calibration run so far, with its zero point and span readings and who signed off the result.\n' \
   > "$PKNOW/wiki/learnings/widget-calibration-history.md"
 PSID="persona-manifest-test"
 PMANIFEST="$PBRAIN/.injected-manifest-$PSID.jsonl"

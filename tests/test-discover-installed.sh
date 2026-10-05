@@ -2,6 +2,8 @@
 # run-all-timeout: 240
 # (tests 9-12 wait on real detached refreshes; ~50s standalone on a loaded Windows box)
 # pins: SB_HEADLESS_CONTEXT - opt-in test (5b): asserts =on restores the catalog for a headless child
+# pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
+#   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # Tests for scripts/discover-installed.sh — the SessionStart hook that enumerates
 # installed plugins/agents/skills into $BRAIN_DIR/.installed-catalog.json.
 #
@@ -115,9 +117,17 @@ for hl in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
   [ -z "$OUTHL" ] || fail "5b ($hl): headless child printed output: $OUTHL"
   [ ! -e "$BHL" ] || fail "5b ($hl): headless child wrote state: $(find "$BHL" | head -5 | tr '\n' ' ')"
 done
+# With a brain dir present, the skip's only write is its own audit row (gate=headless-child).
+BHL2="$TMP/b-headless-present"; mkdir -p "$BHL2"
+OUTHL=$(env BRAIN_DIR="$BHL2" CLAUDE_CODE_ENTRYPOINT=sdk-cli bash "$SCRIPT" "$P1" 2>&1); rc=$?
+[ "$rc" -eq 0 ] && [ -z "$OUTHL" ] || fail "5b (brain dir present): headless child exited $rc / printed: $OUTHL"
+[ "$(cd "$BHL2" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" = "./audit-log.jsonl " ] \
+  || fail "5b (brain dir present): headless child wrote more than its audit row: $(cd "$BHL2" && find . | tr '\n' ' ')"
+jq -e '.script == "discover-installed.sh" and .exit_code == 0 and .message == "gate=headless-child hook=discover-installed entrypoint=sdk-cli attended="' \
+    "$BHL2/audit-log.jsonl" >/dev/null || fail "5b: the headless trace row is wrong: $(cat "$BHL2/audit-log.jsonl")"
 OUTHL=$(env BRAIN_DIR="$B1" SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0 bash "$SCRIPT" "$P1" 2>/dev/null)
 [ "$OUTHL" = "$OUT" ] || fail "5b: SB_HEADLESS_CONTEXT=on did not restore the catalog for a headless child"
-pass "headless child: no output, no state; SB_HEADLESS_CONTEXT=on serves the catalog"
+pass "headless child: no output, no state but its gate=headless-child row; SB_HEADLESS_CONTEXT=on serves the catalog"
 
 # --- Test 6: PERF LOCK — must finish inside its own hooks.json timeout --------
 # Read the declared budget rather than hardcoding it, so retuning hooks.json

@@ -1,6 +1,8 @@
 #!/bin/bash
 # pins: SB_QUALITY_GATE — kill-switch test: asserts =off bypasses the gate
 # pins: SB_QUALITY_GATE_STRICTNESS — exercises the strictest mode directly (aggressive) — the opposite of a can't-fail value
+# pins: SB_QUALITY_GATE_LLM — G2: forces LLM mode on to prove the in-suite refusal fires before any spawn (the refusal is the subject)
+# pins: SB_SUITE_REAL_HOME_PATH — G2: stands in for run-all's suite marker so the in-suite LLM refusal is exercised
 # Tests for scripts/extraction-quality-gate.sh — Layer 4 Quality Gate.
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/extraction-quality-gate.sh"

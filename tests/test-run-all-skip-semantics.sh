@@ -165,5 +165,41 @@ printf '%s\n' "$OUT" | grep -qE 'pass: *1($| )' \
   || fail "the sandboxed test should PASS once the overrides are scrubbed: $OUT"
 pass "run-all scrubs dir-resolution vars + inherited SB_* overrides (D207)"
 
+# --- Case 8: a tripped G3 suite guard fails the WHOLE run (R1 review) ------------------------
+# lib.sh's suite guard no longer exits the sourcing script (that killed PreToolUse guards with no
+# verdict): it quarantines the dir and writes the marker run-all hands every test in
+# SB_SUITE_GUARD_MARKER. A test that otherwise PASSES must still turn the run red when the marker
+# exists at the end, and the summary must say so. The inner run gets a scratch HOME, so the "real
+# home" run-all passes on (SB_SUITE_REAL_HOME_PATH) is a scratch dir too.
+D8="$TMP/case8"; mkdir -p "$D8" "$TMP/fakehome8"
+cat > "$D8/test-plants-marker.sh" <<'EOF'
+#!/bin/bash
+[ -n "${SB_SUITE_GUARD_MARKER:-}" ] || { echo "no SB_SUITE_GUARD_MARKER from run-all"; exit 1; }
+: > "$SB_SUITE_GUARD_MARKER"
+echo "PASS: everything this test checks"
+exit 0
+EOF
+OUT=$(HOME="$TMP/fakehome8" run_suite "$D8")
+printf '%s\n' "$OUT" | grep -q 'EXIT=1' \
+  || fail "a planted suite-guard marker must fail the whole run although every test passed: $OUT"
+printf '%s\n' "$OUT" | grep -qi 'suite guard' \
+  || fail "the summary must name the tripped suite guard: $OUT"
+# End to end: a test that sources lib.sh with BRAIN_DIR = <real home>/.second-brain gets the
+# quarantine (sourcing continues, the real dir is never created) and the run fails on the marker.
+D8B="$TMP/case8b"; mkdir -p "$D8B" "$TMP/fakehome8b"
+cat > "$D8B/test-leaks-real-brain.sh" <<EOF
+#!/bin/bash
+export BRAIN_DIR="\$SB_SUITE_REAL_HOME_PATH/.second-brain"
+source "$(cd "$(dirname "$0")/.." && pwd)/scripts/lib.sh"
+echo "BRAIN_DIR=\$BRAIN_DIR"
+case "\$BRAIN_DIR" in "\$SB_SUITE_REAL_HOME_PATH"*) echo "FAIL: lib.sh kept the real brain dir"; exit 1 ;; esac
+exit 0
+EOF
+OUT=$(HOME="$TMP/fakehome8b" run_suite "$D8B")
+printf '%s\n' "$OUT" | grep -q 'EXIT=1' && printf '%s\n' "$OUT" | grep -qi 'suite guard' \
+  || fail "a test that sourced lib.sh with the real brain dir did not fail the run through the marker: $OUT"
+[ ! -e "$TMP/fakehome8b/.second-brain" ] || fail "the quarantined run still created <real home>/.second-brain"
+pass "a tripped suite guard (planted marker, or lib.sh quarantining a real brain dir) fails the whole run"
+
 echo
 echo "ALL PASS"

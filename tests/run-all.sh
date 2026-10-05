@@ -51,6 +51,19 @@ SUITE_T0=$(date +%s)
 # that need the real HOME read SB_SUITE_REAL_HOME_PATH.
 SUITE_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/sb-suite-home.XXXXXX")
 trap 'rm -rf "$SUITE_SANDBOX"' EXIT
+# G3 suite-guard marker (R1 review). lib.sh's guard no longer exits a script whose BRAIN_DIR or
+# knowledge dir resolves to the REAL one (that killed PreToolUse guards with no verdict): it
+# quarantines the dir and appends a line to this file. Every test (and vitest) gets the path; the
+# run FAILS at the end when the file exists, naming the test(s) after which it grew.
+SUITE_GUARD_MARKER="$SUITE_SANDBOX/suite-guard-tripped"
+SUITE_GUARD_SEEN=0
+declare -a SUITE_GUARD_TESTS=()
+# suite_guard_note NAME: attribute new marker lines to the test that just ran.
+suite_guard_note() {
+  [ -s "$SUITE_GUARD_MARKER" ] || return 0
+  local n; n=$(grep -c . "$SUITE_GUARD_MARKER" | tr -d ' \r')
+  if [ "${n:-0}" -gt "$SUITE_GUARD_SEEN" ]; then SUITE_GUARD_TESTS+=("$1"); SUITE_GUARD_SEEN=$n; fi
+}
 
 # D207: sandboxing beyond HOME. A developer's real shell commonly exports
 # BRAIN_DIR/KNOWLEDGE_DIR overrides (or a leftover SB_* debug flag) that would
@@ -116,6 +129,7 @@ run_one_sh() {
   mkdir -p "$iso_home"
   local -a iso_env=(
     "SB_SUITE_REAL_HOME_PATH=$HOME"
+    "SB_SUITE_GUARD_MARKER=$SUITE_GUARD_MARKER"
     "HOME=$iso_home"
     "USERPROFILE=$(sb_suite_winpath "$iso_home")"
   )
@@ -138,6 +152,8 @@ run_one_sh() {
     env "${SB_UNSET_ENV[@]}" "${iso_env[@]}" bash "$script" >"$logfile" 2>&1; ec=$?
   fi
   local elapsed=$(( $(date +%s) - started ))
+  # A guard trip is attributed even when the test itself passed (the marker fails the run below).
+  suite_guard_note "$name"
 
   # D206: whole-file SKIP vs partial-skip vs plain pass.
   # CRITICAL: only honor SKIP when the test also EXITED 0. A test that prints a
@@ -217,11 +233,12 @@ if [ "$RUN_VITEST" = "1" ] && [ -d "$MCP_DIR" ] && [ -f "$MCP_DIR/package.json" 
   # `FAIL vitest (mcp)` — a green 837-test suite reading as a red lane. The
   # .bin shim is what npx would resolve to anyway, minus the wrapper.
   if command -v timeout >/dev/null 2>&1; then
-    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" "USERPROFILE=$(sb_suite_winpath "$VITEST_HOME")" timeout "$PER_TEST_TIMEOUT" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "SB_SUITE_GUARD_MARKER=$(sb_suite_winpath "$SUITE_GUARD_MARKER")" "HOME=$VITEST_HOME" "USERPROFILE=$(sb_suite_winpath "$VITEST_HOME")" timeout "$PER_TEST_TIMEOUT" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
   else
-    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "HOME=$VITEST_HOME" "USERPROFILE=$(sb_suite_winpath "$VITEST_HOME")" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
+    (cd "$MCP_DIR" && env "${SB_UNSET_ENV[@]}" "SB_SUITE_REAL_HOME_PATH=$HOME" "SB_SUITE_GUARD_MARKER=$(sb_suite_winpath "$SUITE_GUARD_MARKER")" "HOME=$VITEST_HOME" "USERPROFILE=$(sb_suite_winpath "$VITEST_HOME")" ./node_modules/.bin/vitest run --reporter=default) >"$vitest_log" 2>&1
   fi
   vitest_ec=$?
+  suite_guard_note "vitest (mcp)"
   if [ "$vitest_ec" -eq 0 ]; then
     PASS=$((PASS+1))
     tests_line=$(grep -E '^\s*Tests' "$vitest_log" | tail -1)
@@ -233,6 +250,16 @@ if [ "$RUN_VITEST" = "1" ] && [ -d "$MCP_DIR" ] && [ -f "$MCP_DIR/package.json" 
     tail -50 "$vitest_log" | sed 's/^/         /'
   fi
   rm -f "$vitest_log"
+  echo
+fi
+
+# G3: a tripped suite guard fails the whole run, even when every test passed: some test resolved the
+# developer's REAL brain or knowledge dir (lib.sh quarantined it, so nothing was written there).
+if [ -e "$SUITE_GUARD_MARKER" ]; then
+  FAIL=$((FAIL+1))
+  FAILED_TESTS+=("suite guard (real brain/knowledge dir resolved; after: ${SUITE_GUARD_TESTS[*]:-unknown})")
+  echo "${C_RED}SUITE GUARD TRIPPED${C_RST}: a test resolved the REAL brain or knowledge dir (quarantined, nothing written there):"
+  sed 's/^/         /' "$SUITE_GUARD_MARKER" | head -20
   echo
 fi
 
