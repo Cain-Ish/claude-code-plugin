@@ -136,7 +136,8 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
   if (cmd === 'query') {
     const q = args.slice(1).join(' ').trim();
     if (!q) { errpush('query: missing search text'); return { stdout: '', stderr: err.join('\n'), exitCode: 2 }; }
-    const r = await knowledgeSearch({ query: q, knowledgeDir: deps.knowledgeDir });
+    // brainDir threaded (G3): access-count telemetry lands in deps.brainDir, not the env/home tree.
+    const r = await knowledgeSearch({ query: q, knowledgeDir: deps.knowledgeDir, brainDir: deps.brainDir });
     if (r.candidates.length === 0) { push('(no results)'); }
     for (const c of r.candidates.slice(0, 5)) {
       const slug = c.path.replace(/.*[\\/]/, '').replace(/\.md$/, '');

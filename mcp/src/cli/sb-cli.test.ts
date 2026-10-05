@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, chmodSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, chmodSync, existsSync } from 'fs';
 import { join, delimiter as pathDelimiter } from 'path';
 import { tmpdir } from 'os';
 import { runSb } from './sb.js';
@@ -7,9 +7,14 @@ import { runSb } from './sb.js';
 describe('sb CLI', () => {
   let brainDir: string;
   let knowledgeDir: string;
+  let envBrainDir: string;
 
   beforeEach(() => {
     brainDir = mkdtempSync(join(tmpdir(), 'sb-cli-brain-'));
+    // G3 sandbox: the env-resolved brain dir is a throwaway too, so even a regression that
+    // ignores deps.brainDir cannot write fixture slugs into the real ~/.second-brain.
+    envBrainDir = mkdtempSync(join(tmpdir(), 'sb-cli-envbrain-'));
+    process.env.SB_BRAIN_DIR = envBrainDir;
     knowledgeDir = mkdtempSync(join(tmpdir(), 'sb-cli-know-'));
     mkdirSync(join(knowledgeDir, 'wiki', 'entities'), { recursive: true });
     writeFileSync(join(knowledgeDir, 'wiki', 'entities', 'foo.md'),
@@ -25,6 +30,7 @@ describe('sb CLI', () => {
   afterEach(() => {
     rmSync(brainDir, { recursive: true, force: true });
     rmSync(knowledgeDir, { recursive: true, force: true });
+    rmSync(envBrainDir, { recursive: true, force: true });
   });
 
   it('shows help with no args', async () => {
@@ -56,6 +62,13 @@ describe('sb CLI', () => {
     const r = await runSb(['query', 'foo widget'], { brainDir, knowledgeDir });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain('About foo widget');
+  });
+
+  it('query records access counts in deps.brainDir, never the env/home brain dir (G3)', async () => {
+    const r = await runSb(['query', 'foo widget'], { brainDir, knowledgeDir });
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(readFileSync(join(brainDir, 'access-counts.json'), 'utf-8'))).toHaveProperty('foo');
+    expect(existsSync(join(envBrainDir, 'access-counts.json'))).toBe(false);
   });
 
   it('query with no text errors', async () => {

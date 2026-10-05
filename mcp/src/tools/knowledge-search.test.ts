@@ -512,6 +512,24 @@ describe('knowledge_search v1', () => {
     }
   });
 
+  // G3 (2026-10): accessCountsFile() read only the env/home resolver, so a caller that passed
+  // its own brainDir (sb.ts, tests) still wrote fixture slugs into the env-resolved tree, which on
+  // a developer box is the real ~/.second-brain. The caller's override must win.
+  it('writes access counts to the brainDir the caller passes, not the env-resolved one', async () => {
+    const envDir = mkdtempSync(join(tmpdir(), 'ks-acc-env-'));
+    const argDir = mkdtempSync(join(tmpdir(), 'ks-acc-arg-'));
+    process.env.SB_BRAIN_DIR = envDir;
+    try {
+      const res = await knowledgeSearch({ query: 'counting pipeline grep', knowledgeDir, brainDir: argDir });
+      expect(res.candidates.length).toBeGreaterThan(0);
+      const counts = JSON.parse(await fsp.readFile(join(argDir, 'access-counts.json'), 'utf-8'));
+      expect(Object.keys(counts).length).toBeGreaterThan(0);
+      await expect(fsp.access(join(envDir, 'access-counts.json'))).rejects.toThrow();
+    } finally {
+      delete process.env.SB_BRAIN_DIR;
+    }
+  });
+
   it('returns the curated description as the gist, not a raw frontmatter chop', async () => {
     writeFileSync(
       join(knowledgeDir, 'wiki', 'concepts', 'gist-page.md'),

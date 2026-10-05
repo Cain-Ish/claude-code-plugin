@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { promises as fs, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { knowledgeSearch } from './knowledge-search.js';
+import { knowledgeSearch, injectionGroundingNeed, injectableWiki } from './knowledge-search.js';
 import { buildEpisodicIndex, episodicSearch, episodicRead } from './episodic-search.js';
 
 beforeAll(() => {
@@ -235,5 +235,172 @@ describe('grounding: all-filler query grounds nothing', () => {
     });
     const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir });
     expect(r.candidates[0].grounded, 'small corpus must still ground').toBeGreaterThanOrEqual(2);
+  });
+});
+
+// --- Per-prompt injection gate (context-serve-cli, R1#4 of the 2026-10 design) ---------------
+// The per-prompt CLI gates on grounding with three additions the recall CLI does not have:
+// stubs are never injected, a cross-project page needs one more grounded term, and the need is
+// clamped to the DISCRIMINATIVE term count rather than the raw token count. The raw-count clamp
+// was unsatisfiable for any query with one real term among filler ("what is the pagerank
+// thing": 5 tokens, 1 discriminative, need min(2,5)=2, grounded can be at most 1). These locks
+// read the shipped default from the CLI source, so an edit there cannot dodge them.
+async function shippedMinGrounded(): Promise<number> {
+  const src = await fs.readFile(join(__dirname, 'context-serve-cli.ts'), 'utf8');
+  const m = src.match(/envNum\('SB_INJECT_MIN_GROUNDED',\s*(\d+)/);
+  expect(m, 'SB_INJECT_MIN_GROUNDED default not found in context-serve-cli.ts').toBeTruthy();
+  return Number(m![1]);
+}
+
+interface Page { slug: string; title: string; description: string; project?: string; body?: string }
+async function seedPages(pages: Page[]): Promise<string> {
+  const dir = await fs.mkdtemp(join(tmpdir(), 'rg-gate-'));
+  await fs.mkdir(join(dir, 'wiki', 'learnings'), { recursive: true });
+  const long = 'This page carries enough prose to clear the short-body stub test, so only the gate decides. ';
+  for (const p of pages) {
+    await fs.writeFile(join(dir, 'wiki', 'learnings', `${p.slug}.md`),
+      `---\ntitle: "${p.title}"\ndescription: "${p.description}"\ntype: learnings\n`
+      + (p.project ? `project: ${p.project}\n` : '') + `---\n\n${p.body ?? long.repeat(2)}\n`);
+  }
+  return dir;
+}
+/** >= MIN_CORPUS_FOR_DF filler pages so the df filter is live, none sharing the query terms. */
+const filler = (n: number): Page[] => Array.from({ length: n }, (_, i) => ({
+  slug: `filler-${i}`, title: `unrelated filler note ${i}`, description: 'gardening compost soil',
+}));
+const slugOf = (p: string) => p.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
+
+describe('per-prompt injection gate satisfiability (context-serve-cli)', () => {
+  it('arithmetic: the need is at least 1 and never above the discriminative-term count', async () => {
+    const minG = await shippedMinGrounded();
+    for (let disc = 1; disc <= 12; disc++) {
+      const inP = injectionGroundingNeed(minG, disc, false);
+      const cross = injectionGroundingNeed(minG, disc, true);
+      expect(inP, `in-project need at disc=${disc}`).toBeGreaterThanOrEqual(1);
+      expect(inP, `in-project need at disc=${disc} is unsatisfiable`).toBeLessThanOrEqual(disc);
+      expect(cross, `cross-project need at disc=${disc} is unsatisfiable`).toBeLessThanOrEqual(disc);
+      // one more than in-project wherever the query has room for it, clamped otherwise
+      expect(cross, `cross-project need at disc=${disc}`).toBe(Math.min(inP + 1, disc));
+    }
+    expect(injectionGroundingNeed(minG, 1, false)).toBe(1);
+    expect(injectionGroundingNeed(minG, 1, true)).toBe(1);
+  });
+
+  it('arithmetic: an all-filler query (0 discriminative terms) still needs a grounded term, so it injects nothing', async () => {
+    const minG = await shippedMinGrounded();
+    // grounded <= discriminative terms = 0, so any need >= 1 rejects every page.
+    expect(injectionGroundingNeed(minG, 0, false)).toBeGreaterThanOrEqual(1);
+    expect(injectionGroundingNeed(minG, 0, true)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('a 1-discriminative-term query injects an in-project page at shipped defaults', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'pagerank-code-map', title: 'zzqpagerank code map', description: 'ranked code structure', project: 'alpha' },
+    ]);
+    const r = await knowledgeSearch({ query: 'what is the zzqpagerank thing', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === 'pagerank-code-map');
+    expect(hit, 'the page must be retrieved at all').toBeDefined();
+    expect(hit!.query_terms).toBe(5);
+    expect(hit!.discriminative_terms).toBe(1);
+    const inj = injectableWiki(r.candidates, { minScore: 0, minRelevance: 0, minGrounded: await shippedMinGrounded() });
+    expect(inj.map(c => slugOf(c.path))).toContain('pagerank-code-map');
+  });
+
+  it('a cross-project page is injectable when it grounds on all discriminative terms, and not on fewer', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'beta-both', title: 'zzqwidget zzqgadget pairing', description: 'beta notes', project: 'Beta' },
+      { slug: 'beta-one', title: 'zzqwidget only', description: 'beta notes', project: 'beta' },
+      { slug: 'alpha-one', title: 'zzqwidget alone', description: 'alpha notes', project: 'ALPHA' },
+    ]);
+    const minG = await shippedMinGrounded();
+    for (const env of [{}, { SB_PROJECT_SCOPE: 'off' }]) {
+      Object.assign(process.env, env);
+      try {
+        // `ALPHA` equals `alpha` for the cross flag (case-insensitive) but not for the
+        // case-sensitive tier-1 anchor count, so the first pass also runs the anchors=0 path;
+        // the second runs with scoping switched off entirely.
+        const r = await knowledgeSearch({ query: 'zzqwidget zzqgadget', knowledgeDir: dir, projectSlug: 'alpha', brainDir: dir });
+        if (!('SB_PROJECT_SCOPE' in env)) expect(r.anchors).toBe(0);
+        const by = new Map(r.candidates.map(c => [slugOf(c.path), c]));
+        expect(by.get('beta-both')?.cross_project).toBe(true);
+        expect(by.get('beta-one')?.cross_project).toBe(true);
+        expect(by.get('alpha-one')?.cross_project, 'project match is case-insensitive').toBeUndefined();
+        const inj = injectableWiki(r.candidates, { minScore: 0, minRelevance: 0, minGrounded: minG }).map(c => slugOf(c.path));
+        expect(inj, JSON.stringify(env)).toContain('beta-both');
+        expect(inj, JSON.stringify(env)).not.toContain('beta-one');
+      } finally {
+        delete process.env.SB_PROJECT_SCOPE;
+      }
+    }
+  });
+
+  it('stub pages are flagged and never injectable', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'zzqcache-stub', title: 'zzqcache eviction', description: 'Auto-created stub — needs expansion' },
+      { slug: 'zzqcache-short', title: 'zzqcache warmup', description: 'cache warmup', body: 'tiny body' },
+      { slug: 'zzqcache-real', title: 'zzqcache sizing', description: 'cache sizing rules' },
+    ]);
+    const r = await knowledgeSearch({ query: 'zzqcache', knowledgeDir: dir });
+    const by = new Map(r.candidates.map(c => [slugOf(c.path), c]));
+    expect(by.get('zzqcache-stub')?.stub).toBe(true);
+    expect(by.get('zzqcache-short')?.stub).toBe(true);
+    expect(by.get('zzqcache-real')?.stub).toBeUndefined();
+    const inj = injectableWiki(r.candidates, { minScore: 0, minRelevance: 0, minGrounded: await shippedMinGrounded() });
+    expect(inj.map(c => slugOf(c.path))).toEqual(['zzqcache-real']);
+  });
+
+  it('context-serve-cli gates its wiki section through injectableWiki (source lock)', async () => {
+    const src = await fs.readFile(join(__dirname, 'context-serve-cli.ts'), 'utf8');
+    expect(src).toMatch(/injectableWiki\(\s*result\.candidates/);
+  });
+});
+
+describe('grounding: single letters never ground, digits do', () => {
+  it('"m" (from "I\'m") cannot ground a page, "8" in "season 8" can', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'affaan-m-ecc', title: 'affaan m plugin reference', description: 'reference notes' },
+      { slug: 'season-8-modes', title: 'zzqseason 8 modes', description: 'mode status' },
+    ]);
+    const m = await knowledgeSearch({ query: 'm affaan', knowledgeDir: dir });
+    expect(m.candidates.find(c => slugOf(c.path) === 'affaan-m-ecc')?.grounded).toBe(1);
+    const s = await knowledgeSearch({ query: 'zzqseason 8', knowledgeDir: dir });
+    const hit = s.candidates.find(c => slugOf(c.path) === 'season-8-modes');
+    expect(hit?.grounded).toBe(2);
+    expect(hit?.discriminative_terms).toBe(2);
+  });
+});
+
+// --- Data-validated grounding stopwords (R1#4, 2026-10) -----------------------------------------
+// Each word below was re-graded against the 40-prompt relevance sample on the real wiki
+// (scratchpad review/stopword-validation.md): adding it pushes no grader-identified R2 page
+// below the gate. Two words were tested and must keep grounding: "new" grounds R2 #27 ("season 8
+// artifacts ... new") and "changes" grounds R2 #38's version-bump tripwire page.
+describe('grounding: generic prompt verbs never ground, validated content words still do', () => {
+  const GENERIC = ['check', 'checks', 'checked', 'one', 'old', 'add', 'added', 'change', 'changed',
+    'relevant', 'correct', 'valid', 'everything', 'update', 'updated', 'missing', 'still', 'final',
+    'ready', 'sure', 'let', 'see', 'try', 'continue'];
+
+  it('a page titled with every generic word grounds only on its real term', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'generic-title', title: `zzqanchor ${GENERIC.join(' ')}`, description: 'notes' },
+    ]);
+    const r = await knowledgeSearch({ query: `zzqanchor ${GENERIC.join(' ')}`, knowledgeDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === 'generic-title');
+    expect(hit?.discriminative_terms).toBe(1);
+    expect(hit?.grounded).toBe(1);
+  });
+
+  it('"new" and "changes" stay grounding terms (R2 #27 and #38 depend on them)', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'season-changes', title: 'zzqseason new changes', description: 'notes' },
+    ]);
+    const r = await knowledgeSearch({ query: 'zzqseason new changes', knowledgeDir: dir });
+    expect(r.candidates.find(c => slugOf(c.path) === 'season-changes')?.grounded).toBe(3);
   });
 });
