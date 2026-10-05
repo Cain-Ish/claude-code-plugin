@@ -91,18 +91,54 @@ sb_normalize_path() {
 #      by hand with SB_SUITE_REAL_HOME_PATH set) the quarantine sits under TMPDIR.
 # Returns 1 on a trip, 0 otherwise (SB_SUITE_GUARD_PATH = the path unchanged). It deliberately
 # does NOT sb_log_error: that would write into the real dir.
+# _sb_sg_canon PATH -> _SB_SG_C: the suite guard's spawn-free canonical form. \ -> /, the //?/ and
+# //./ prefixes dropped, X:/ -> /x/ (drive letter lowered by an index lookup, bash 3.2-safe),
+# trailing slashes dropped. Enough to equate the MSYS, C:\ and C:/ spellings of one directory.
+_sb_sg_canon() {
+  local p="${1//\\//}" d rest i lc=abcdefghijklmnopqrstuvwxyz uc=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+  p="${p#"//?/"}"; p="${p#"//./"}"
+  case "$p" in
+    [A-Za-z]:/*|[A-Za-z]:)
+      d="${p%%:*}"; rest="${p#?:}"
+      case "$uc" in *"$d"*) i="${uc%%"$d"*}"; d="${lc:${#i}:1}" ;; esac
+      p="/$d$rest" ;;
+  esac
+  while [ "$p" != "/" ] && [ "${p%/}" != "$p" ]; do p="${p%/}"; done
+  _SB_SG_C="$p"
+}
+# _sb_sg_resolve PATH -> _SB_SG_C: _sb_sg_canon, plus `cygpath -u` for a DRIVE-form path on
+# MSYS/Cygwin — only cygpath knows the mounts (C:\…\AppData\Local\Temp\x is /tmp/x there). Cached
+# per input, so a drive-form SB_SUITE_REAL_HOME_PATH costs one spawn per process; run-all exports
+# the MSYS form, so the suite's hooks spawn nothing here.
+_SB_SG_RIN="" _SB_SG_ROUT=""
+_sb_sg_resolve() {
+  case "$1" in
+    [A-Za-z]:[\\/]*|[\\/][\\/][?.][\\/]*)
+      if [ "$1" = "$_SB_SG_RIN" ]; then _SB_SG_C="$_SB_SG_ROUT"; return 0; fi
+      if command -v cygpath >/dev/null 2>&1; then
+        local u; u=$(cygpath -u "$1" 2>/dev/null) || u=""
+        if [ -n "$u" ]; then _sb_sg_canon "$u"; _SB_SG_RIN="$1"; _SB_SG_ROUT="$_SB_SG_C"; return 0; fi
+      fi ;;
+  esac
+  _sb_sg_canon "$1"
+}
 sb_suite_guard() {
   SB_SUITE_GUARD_PATH="$2"
   [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ] || return 0
   local want got q
   case "$1" in brain) want=".second-brain" ;; knowledge) want="knowledge" ;; *) return 0 ;; esac
-  want=$(sb_normalize_path "${SB_SUITE_REAL_HOME_PATH%/}/$want")
-  got=$(sb_normalize_path "$2")
-  want="${want%/}"; got="${got%/}"
-  if command -v cygpath >/dev/null 2>&1; then
-    want=$(printf '%s' "$want" | tr 'A-Z' 'a-z'); got=$(printf '%s' "$got" | tr 'A-Z' 'a-z')
-  fi
-  [ -n "$got" ] && [ "$got" = "$want" ] || return 0
+  # Builtins only: lib.sh is sourced by every hook, so a guard that spawns (cygpath, tr) pays on
+  # every guard call under the suite and blew protocol-guard's warm spawn budget (13 > 11).
+  _sb_sg_resolve "${SB_SUITE_REAL_HOME_PATH%/}/$want"; want="$_SB_SG_C"
+  _sb_sg_resolve "$2"; got="$_SB_SG_C"
+  [ -n "$got" ] || return 0
+  # Case-insensitive on Windows (cygpath present) and macOS — the same filesystems the TS guard folds.
+  local _sg_nc=1 _sg_hit=1
+  shopt -q nocasematch || _sg_nc=0
+  if command -v cygpath >/dev/null 2>&1; then shopt -s nocasematch; else case "${OSTYPE:-}" in darwin*) shopt -s nocasematch ;; esac; fi
+  [[ "$got" == "$want" ]] && _sg_hit=0
+  [ "$_sg_nc" = 1 ] || shopt -u nocasematch
+  [ "$_sg_hit" = 0 ] || return 0
   q="${SB_SUITE_GUARD_MARKER:-${TMPDIR:-/tmp}/sb-suite-guard}.quarantine/$1"
   printf 'lib.sh: suite guard: %s dir resolved to the REAL %s while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; point BRAIN_DIR/KNOWLEDGE_DIR at a temp dir). Using quarantine %s; run-all fails the run.\n' "$1" "$2" "$q" >&2
   if [ -n "${SB_SUITE_GUARD_MARKER:-}" ]; then
