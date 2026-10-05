@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for stop-verify-gate.sh
-# run-all-timeout: 480   (207 s alone, 430 s on a loaded MSYS box 2026-10-05, after the G1 temp-dir rows; was 240 at 93 s)
+# run-all-timeout: 600   (alone on this MSYS box 2026-10-05 after the G1 temp-dir rows: 207, 354, 430, 444 s; was 240 at 93 s)
 set -euo pipefail
 # pins: TMPDIR, TMP, TEMP — not SB_* (the override census ignores them). The G1 temp-dir cases
 #   (g1_env_case) set one per gate call to a dir with no temp word, so the "under the hook's own
