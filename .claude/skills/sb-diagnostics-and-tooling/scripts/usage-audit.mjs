@@ -10,18 +10,29 @@
 //     whether a prompt ever reaches the exact-repeat check;
 //   * the archive-only boilerplate prefixes (used only to grade "past sessions" snippets) are a
 //     copy, guarded: each literal must appear in mcp/src/tools/episodic-search.ts.
-// A block or arm that no longer parses is exit 2 (fail loud), never a silent fallback.
+// A block or arm that no longer parses is exit 2 (fail loud), never a silent fallback; so is a
+// transcript format the scan cannot read (no user record, no turn timestamp), since that would print
+// plausible zeros. Anything that may make a count quietly low is a WARNING (top-level "warnings").
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
-import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT_GUESS = path.resolve(SCRIPT_DIR, '..', '..', '..', '..');
 const KB_READ_TOOLS = ['knowledge_fetch', 'knowledge_search', 'knowledge_neighbors', 'episodic_search', 'episodic_read'];
 const KB_TOOL_RE = new RegExp(`^mcp__.+__(${KB_READ_TOOLS.join('|')})$`);
 const KB_LINE_RE = new RegExp(`__(?:${KB_READ_TOOLS.join('|')})"`);
+// Line prefilter, a speed-up only: it may drop a line only when parsing would drop it too. The type
+// tests allow whitespace around the colon (a spaced schema); the compact tool_result literal is the
+// common skip, and a tool result in any other spelling is parsed and dropped by a structural check.
+const RE_TYPE = { user: /"type"\s*:\s*"user"/, attachment: /"type"\s*:\s*"attachment"/, assistant: /"type"\s*:\s*"assistant"/ };
+const RE_HOOK_ATT = /"hook_(?:additional_context|cancelled)"/;
+const mayMatter = line => !line.includes('"type":"tool_result"')
+  && (RE_TYPE.user.test(line) || (RE_HOOK_ATT.test(line) && RE_TYPE.attachment.test(line)) || (KB_LINE_RE.test(line) && RE_TYPE.assistant.test(line)));
+const isToolResult = msg => Array.isArray(msg.content) && msg.content.some(x => x && x.type === 'tool_result');
 const PERSONA_MARK = '[Persona context';
 const FETCH_LOOKAHEAD = 2; // an offer counts as fetched in its own turn or the next 2 turns (any kind)
 const HEADLESS_ENTRYPOINT = 'sdk-cli'; // the hook's own test: CLAUDE_CODE_ENTRYPOINT = sdk-cli
@@ -43,8 +54,8 @@ Options
   --until D      last UTC day counted, inclusive (default: open)
   --project S    only ~/.claude/projects/<dir> whose dir name contains S (case-insensitive)
   --json         machine-readable object instead of the text table
-  --root DIR     transcripts root (default ~/.claude/projects)
-  --audit FILE   audit log (default $BRAIN_DIR or ~/.second-brain, /audit-log.jsonl)
+  --root DIR     transcripts root (default $CLAUDE_CONFIG_DIR/projects, else ~/.claude/projects)
+  --audit FILE   audit log (default $BRAIN_DIR or ~/.second-brain, /audit-log.jsonl); FILE must exist
   --hook FILE    persona-context.sh to read the rule from (default: this repo's scripts/)
   --self-test    run the embedded fixture, assert exact counts
 
@@ -66,9 +77,16 @@ Definitions
   subagents  <proj>/<sid>/subagents/**/*.jsonl, counted separately.
   window     a turn is in the window when its opener's timestamp is; attachments and subagent
              records by their own timestamp. Dates are UTC days.
+  rollback   audit rows "gate=inject-precision mode=off" (SB_INJECT_PRECISION=off): the 0.54.1
+             gate served those injections; reported as "precision rollback active: N rows".
+  warnings   counts that may be quietly wrong, printed first (--json: top-level "warnings"): bad
+             transcript lines (over 1% or 20), undated turns or audit rows, a missing default audit
+             log, audit rows but no gate row of the current hook, unguarded archive extras.
 
-Exit: 0 ok (self-test: all assertions passed); 1 self-test failure; 2 usage error, missing input,
-or the hook's rule no longer parses.`;
+Exit: 0 ok (self-test: all assertions passed); 1 self-test failure; 2 usage error, missing input
+(transcripts root, hook, an explicit --audit, a --project matching no directory), transcript format
+drift (main transcripts scanned but no user record parsed, or no turn with a timestamp), or the
+hook's rule no longer parses.`;
 
 // ---------- rule: read from persona-context.sh ----------
 
@@ -119,10 +137,20 @@ export function parseTriage(src) {
   return { acks: new Set(acks.map(t => t.lit)), thanks: thanks.map(t => t.lit), verbs: verbs.map(t => t.lit) };
 }
 
+/** An env path as node on win32 can open it: the MSYS/Cygwin drive form (/c/Users/…, /cygdrive/c/…)
+ *  becomes C:/Users/…; any other path, and every path off win32, is kept. Unset or empty -> null. */
+export function normalizeEnvPath(p, platform = process.platform) {
+  if (typeof p !== 'string' || !p) return null;
+  if (platform !== 'win32') return p;
+  const m = /^\/(?:cygdrive\/)?([A-Za-z])(?:\/([\s\S]*))?$/.exec(p);
+  return m ? `${m[1].toUpperCase()}:/${m[2] || ''}` : p;
+}
+
 function resolveHook(opt) {
+  const pluginRoot = normalizeEnvPath(process.env.CLAUDE_PLUGIN_ROOT);
   const cands = opt ? [opt] : [
     path.join(REPO_ROOT_GUESS, 'scripts', 'persona-context.sh'),
-    process.env.CLAUDE_PLUGIN_ROOT ? path.join(process.env.CLAUDE_PLUGIN_ROOT, 'scripts', 'persona-context.sh') : null,
+    pluginRoot ? path.join(pluginRoot, 'scripts', 'persona-context.sh') : null,
   ].filter(Boolean);
   for (const c of cands) if (fs.existsSync(c)) return c;
   throw new UsageError(`persona-context.sh not found (tried: ${cands.join(', ')}); pass --hook`);
@@ -258,22 +286,23 @@ function newTurn(r, kind) {
 }
 
 async function scanMainFile(fp, rule, seenUuids) {
-  const s = { entrypoint: null, sid: null, turns: [], hookCancelled: [], badLines: 0, orphanInjections: 0 };
+  const s = { entrypoint: null, sid: null, turns: [], hookCancelled: [], lines: 0, userRecords: 0, badLines: 0, orphanInjections: 0 };
   let hasOrigin = false; let cur = null; let lastHuman = null;
   const rl = readline.createInterface({ input: fs.createReadStream(fp, { encoding: 'utf8' }), crlfDelay: Infinity });
   for await (const line of rl) {
-    if (!line || line.includes('"type":"tool_result"')) continue;
-    const maybe = line.includes('"type":"user"')
-      || (line.includes('"type":"attachment"') && (line.includes('"hook_additional_context"') || line.includes('"hook_cancelled"')))
-      || (line.includes('"type":"assistant"') && KB_LINE_RE.test(line));
-    if (!maybe) continue;
+    if (!line) continue;
+    s.lines++;
+    if (!mayMatter(line)) continue;
     let r;
     try { r = JSON.parse(line); } catch { s.badLines++; continue; }
     if (!r || typeof r !== 'object') { s.badLines++; continue; }
     if (!s.entrypoint && typeof r.entrypoint === 'string') s.entrypoint = r.entrypoint;
     if (!s.sid && typeof r.sessionId === 'string') s.sid = r.sessionId;
+    const isUser = r.type === 'user' && r.message && typeof r.message === 'object';
+    if (isUser) s.userRecords++;
     if (r.isSidechain === true) continue;
-    if (r.type === 'user' && r.message) {
+    if (isUser) {
+      if (isToolResult(r.message)) continue;
       if (typeof r.turnOrigin === 'string') hasOrigin = true;
       const text = contentText(r.message.content);
       const view = hookView(text);
@@ -332,14 +361,12 @@ async function scanSubagentFile(fp, inWin, agg) {
   let any = false;
   const rl = readline.createInterface({ input: fs.createReadStream(fp, { encoding: 'utf8' }), crlfDelay: Infinity });
   for await (const line of rl) {
-    if (!line || line.includes('"type":"tool_result"')) continue;
-    const isAtt = line.includes('"type":"attachment"') && (line.includes('"hook_additional_context"') || line.includes('"hook_cancelled"'));
-    const isAsst = line.includes('"type":"assistant"') && KB_LINE_RE.test(line);
-    const isUser = line.includes('"type":"user"');
-    if (!isAtt && !isAsst && !isUser) continue;
+    if (!line) continue;
+    agg.lines++;
+    if (!mayMatter(line)) continue;
     let r;
     try { r = JSON.parse(line); } catch { agg.badLines++; continue; }
-    if (!r || !inWin(Date.parse(r.timestamp || ''))) continue;
+    if (!r || typeof r !== 'object' || !inWin(Date.parse(r.timestamp || ''))) continue;
     any = true;
     if (r.type === 'assistant' && r.message && Array.isArray(r.message.content)) {
       for (const b of r.message.content) {
@@ -423,8 +450,9 @@ function finalizeScope(sc) {
 }
 
 function readAudit(file, inWin, scannedSids) {
-  const out = { file, missing: false, rows: 0, badLines: 0, coverageFrom: null,
-    machineTurn: { total: 0, byKind: {}, forScannedSessions: 0 }, headlessChild: { total: 0, byHook: {} } };
+  const out = { file, missing: false, rows: 0, windowRows: 0, badLines: 0, noTimestamp: 0, coverageFrom: null,
+    machineTurn: { total: 0, byKind: {}, forScannedSessions: 0 }, headlessChild: { total: 0, byHook: {} },
+    injectPrecision: { total: 0, byMode: {}, byScript: {} } };
   if (!fs.existsSync(file)) { out.missing = true; return out; }
   let min = Infinity;
   for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
@@ -434,12 +462,19 @@ function readAudit(file, inWin, scannedSids) {
     if (!r || typeof r !== 'object') { out.badLines++; continue; }
     out.rows++;
     const ts = Date.parse(r.timestamp || r.ts || '');
+    if (!Number.isFinite(ts)) { out.noTimestamp++; continue; }
     if (ts < min) min = ts;
+    if (!inWin(ts)) continue;
+    out.windowRows++;
     // Gate rows are sb_log_error-shaped: match the MESSAGE field's head, never a substring of the
     // line (guard rows quote commands that mention gate=... in their "target").
     const msg = typeof r.message === 'string' ? r.message : '';
-    if (!inWin(ts)) continue;
-    if (msg.startsWith('gate=machine-turn ')) {
+    if (msg.startsWith('gate=inject-precision ')) {
+      // SB_INJECT_PRECISION=off: the 0.54.1 gate served these injections, not the R1 one.
+      out.injectPrecision.total++;
+      inc(out.injectPrecision.byMode, (/\bmode=(\S+)/.exec(msg) || [])[1] || '(none)');
+      inc(out.injectPrecision.byScript, typeof r.script === 'string' && r.script ? r.script : '(none)');
+    } else if (msg.startsWith('gate=machine-turn ')) {
       out.machineTurn.total++;
       inc(out.machineTurn.byKind, (/\bkind=(\S+)/.exec(msg) || [])[1] || '(none)');
       const sid = (/\bsid=(\S*)/.exec(msg) || [])[1];
@@ -454,27 +489,55 @@ function readAudit(file, inWin, scannedSids) {
 }
 
 function parseDay(s, flag) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '') || Number.isNaN(Date.parse(`${s}T00:00:00Z`))) throw new UsageError(`${flag} needs YYYY-MM-DD, got: ${s}`);
-  return Date.parse(`${s}T00:00:00Z`);
+  const ms = /^\d{4}-\d{2}-\d{2}$/.test(s || '') ? Date.parse(`${s}T00:00:00Z`) : NaN;
+  // Date.parse rolls an impossible day over (2026-02-31 -> 03-03): the round trip refuses it.
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== s) throw new UsageError(`${flag} needs YYYY-MM-DD, got: ${s}`);
+  return ms;
+}
+
+const tooManyBad = (bad, total) => bad > 20 || (total > 0 && bad / total > 0.01);
+
+/** Counts that may be quietly wrong, each "<code>: <text>"; printed first and kept in --json. */
+function collectWarnings(scan, audit, rule, ctx) {
+  const w = [];
+  if (!scan.mainFiles) w.push(`no-transcripts: no main transcript under ${scan.root}${ctx.project ? ` matching ~${ctx.project}` : ''} changed since ${ctx.since || 'the start'}: every count below is empty, not measured`);
+  if (tooManyBad(scan.badLines, scan.lines)) w.push(`bad-lines: ${scan.badLines} of ${scan.lines} transcript lines did not parse (over 1% or 20): truncated writes or a format change; counts may be low`);
+  if (scan.turnsNoTimestamp) w.push(`no-timestamp: ${scan.turnsNoTimestamp} of ${scan.turns} turns have no parseable timestamp and are left out of every count`);
+  if (audit.missing) w.push(`audit-missing: ${audit.file} not found (the default; --audit overrides): gate rows not measured`);
+  else {
+    if (tooManyBad(audit.badLines, audit.rows + audit.badLines)) w.push(`audit-bad-lines: ${audit.badLines} of ${audit.rows + audit.badLines} audit-log lines did not parse`);
+    if (audit.noTimestamp) w.push(`audit-no-timestamp: ${audit.noTimestamp} audit row(s) have no parseable timestamp and are left out of every count`);
+    if (audit.rows && !audit.machineTurn.total && !audit.headlessChild.total) {
+      w.push(`audit-no-gate-rows: ${audit.rows} rows (${audit.windowRows} in the window) but no gate=machine-turn or gate=headless-child row in the window. Either the installed plugin predates 0.55.0 (the hook that writes them is not live: check the installed version) or the row shape changed (message field or gate name renamed) and these gate counts are blind`);
+    }
+  }
+  if (!rule.extras.guarded) w.push(`archive-extras-unguarded: ${rule.extras.source} not found, so the archive-only boilerplate prefixes are unchecked`);
+  else if (rule.extras.missing.length) w.push(`archive-extras-missing: not quoted in ${rule.extras.source}: ${rule.extras.missing.join(' | ')}`);
+  return w;
 }
 
 export async function runAudit(opts) {
+  const env = opts.env || process.env;
   const rule = opts.rule || loadRule(resolveHook(opts.hook));
-  const root = opts.root || path.join(os.homedir(), '.claude', 'projects');
-  if (!fs.existsSync(root)) throw new UsageError(`transcripts root not found: ${root}`);
   const sinceMs = opts.since ? parseDay(opts.since, '--since') : -Infinity;
   const untilMs = opts.until ? parseDay(opts.until, '--until') + DAY_MS : Infinity;
   if (untilMs <= sinceMs) throw new UsageError('--until is before --since');
+  if (opts.audit && !fs.existsSync(opts.audit)) throw new UsageError(`--audit file not found: ${opts.audit}`);
+  const configDir = normalizeEnvPath(env.CLAUDE_CONFIG_DIR);
+  const root = opts.root || (configDir ? path.join(configDir, 'projects') : path.join(os.homedir(), '.claude', 'projects'));
+  if (!fs.existsSync(root)) throw new UsageError(`transcripts root not found: ${root}`);
   const inWin = t => Number.isFinite(t) && t >= sinceMs && t < untilMs;
   const filt = opts.project ? String(opts.project).toLowerCase() : null;
+  const projects = fs.readdirSync(root, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort();
+  if (filt && !projects.some(p => p.toLowerCase().includes(filt))) throw new UsageError(`--project ${opts.project} matches no directory under ${root}`);
 
   const overall = newScope(); const byProject = {};
   const headless = newScope(); const headlessByProject = {};
-  const sub = { files: 0, kbReads: 0, kbReadsByTool: {}, injections: 0, hookCancelled: {}, byProject: {}, badLines: 0 };
-  const scan = { root, mainFiles: 0, subagentFiles: 0, skippedByMtime: 0, badLines: 0, duplicateTurns: 0, orphanInjections: 0, entrypoints: {} };
+  const sub = { files: 0, kbReads: 0, kbReadsByTool: {}, injections: 0, hookCancelled: {}, byProject: {}, lines: 0, badLines: 0 };
+  const scan = { root, mainFiles: 0, subagentFiles: 0, skippedByMtime: 0, lines: 0, userRecords: 0, badLines: 0, turns: 0,
+    turnsNoTimestamp: 0, duplicateTurns: 0, orphanInjections: 0, entrypoints: {} };
   const seenUuids = new Set(); const scannedSids = new Set();
 
-  const projects = fs.readdirSync(root, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort();
   for (const proj of projects) {
     if (filt && !proj.toLowerCase().includes(filt)) continue;
     const pdir = path.join(root, proj);
@@ -485,8 +548,13 @@ export async function runAudit(opts) {
       if (st.mtimeMs < sinceMs) { scan.skippedByMtime++; continue; }
       scan.mainFiles++;
       const sess = await scanMainFile(f, rule, seenUuids);
+      scan.lines += sess.lines; scan.userRecords += sess.userRecords;
       scan.badLines += sess.badLines; scan.orphanInjections += sess.orphanInjections;
-      scan.duplicateTurns += sess.turns.filter(t => t.dup).length;
+      for (const t of sess.turns) {
+        if (t.dup) { scan.duplicateTurns++; continue; }
+        scan.turns++;
+        if (!Number.isFinite(t.ts)) scan.turnsNoTimestamp++;
+      }
       inc(scan.entrypoints, sess.entrypoint || '(none)');
       if (sess.sid) scannedSids.add(sess.sid);
       if (sess.entrypoint === HEADLESS_ENTRYPOINT) {
@@ -509,13 +577,23 @@ export async function runAudit(opts) {
       }
     }
   }
-  scan.badLines += sub.badLines;
-  const auditFile = opts.audit || path.join(process.env.BRAIN_DIR || path.join(os.homedir(), '.second-brain'), 'audit-log.jsonl');
+  scan.lines += sub.lines; scan.badLines += sub.badLines;
+  // Format drift gates: a renamed record type, message or timestamp field turns every count into a
+  // plausible zero. Refuse to print those.
+  if (scan.mainFiles && !scan.userRecords) {
+    throw new UsageError(`${scan.mainFiles} main transcript(s) under ${root} scanned but no user record parsed (a "type": "user" line with a "message" object): the transcript format changed; refusing to report zeros`);
+  }
+  if (scan.turns && scan.turnsNoTimestamp === scan.turns) {
+    throw new UsageError(`all ${scan.turns} turns in ${scan.mainFiles} main transcript(s) have no parseable timestamp: the transcript format changed; refusing to report zeros`);
+  }
+  const auditFile = opts.audit || path.join(normalizeEnvPath(env.BRAIN_DIR) || path.join(os.homedir(), '.second-brain'), 'audit-log.jsonl');
+  const audit = readAudit(auditFile, inWin, scannedSids);
   const projOut = {};
   for (const [p, sc] of Object.entries(byProject)) if (sc.sessions) projOut[p] = finalizeScope(sc);
   const h = finalizeScope(headless);
   return {
     tool: 'usage-audit', version: 1, generatedAt: new Date().toISOString(),
+    warnings: collectWarnings(scan, audit, rule, opts),
     window: { since: opts.since || null, until: opts.until || null, project: opts.project || null, timezone: 'UTC' },
     rule: { hook: rule.hookPath, prefixes: rule.rules.length, kinds: [...new Set(rule.rules.map(r => r.kind)), 'repeat'],
       triage: { acks: rule.triage.acks.size, thanksPrefixes: rule.triage.thanks.length, actionVerbs: rule.triage.verbs.length },
@@ -524,7 +602,7 @@ export async function runAudit(opts) {
     headless: { sessions: h.sessions, humanTurns: h.humanTurns, machineTurns: h.machineTurns, injections: h.injections.onHumanTurns + h.injections.onMachineTurns,
       kbReads: h.kbReads.onHumanTurns + h.kbReads.onMachineTurns, hookCancelled: h.hookCancelled, byProject: headlessByProject },
     subagents: { files: sub.files, kbReads: sub.kbReads, kbReadsByTool: sub.kbReadsByTool, injections: sub.injections, hookCancelled: sub.hookCancelled, byProject: sub.byProject },
-    audit: readAudit(auditFile, inWin, scannedSids),
+    audit,
     scan,
   };
 }
@@ -545,6 +623,7 @@ export function renderText(res) {
   const w = res.window;
   L.push(`usage-audit  window ${w.since || '(start)'}..${w.until || '(open)'} UTC${w.project ? `  project~${w.project}` : ''}`);
   L.push(`rule: ${res.rule.hook} (${res.rule.prefixes} prefixes; kinds ${res.rule.kinds.join(', ')})`);
+  for (const wn of res.warnings) L.push(`WARNING ${wn}`);
   const names = Object.keys(res.interactive.byProject);
   let cp = names.length > 1 ? names.reduce((a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return a.slice(0, i); }) : '';
   cp = cp.slice(0, cp.lastIndexOf('-') + 1);
@@ -571,19 +650,88 @@ export function renderText(res) {
   L.push(`SUBAGENTS: files ${sb.files}, kb reads ${sb.kbReads} (${fmtObj(sb.kbReadsByTool)}), persona injections ${sb.injections}`);
   const a = res.audit;
   if (a.missing) L.push(`AUDIT: ${a.file} missing`);
-  else L.push(`AUDIT (${a.file}, rows from ${a.coverageFrom || '-'}): gate=machine-turn ${a.machineTurn.total} (${fmtObj(a.machineTurn.byKind)}; ${a.machineTurn.forScannedSessions} in scanned sessions), gate=headless-child ${a.headlessChild.total} (${fmtObj(a.headlessChild.byHook)})`);
+  else {
+    L.push(`AUDIT (${a.file}, ${a.rows} rows from ${a.coverageFrom || '-'}, ${a.windowRows} in the window): gate=machine-turn ${a.machineTurn.total} (${fmtObj(a.machineTurn.byKind)}; ${a.machineTurn.forScannedSessions} in scanned sessions), gate=headless-child ${a.headlessChild.total} (${fmtObj(a.headlessChild.byHook)})`);
+    const ip = a.injectPrecision; const other = { ...ip.byMode }; delete other.off;
+    L.push(`      precision rollback active: ${ip.byMode.off || 0} rows (gate=inject-precision mode=off${ip.total ? `; ${fmtObj(ip.byScript)}` : ''})${Object.keys(other).length ? `; other modes: ${fmtObj(other)}` : ''}`);
+  }
   L.push(`HOOK_CANCELLED interactive: ${fmtObj(o.hookCancelled, 8)}`);
   L.push(`               headless: ${fmtObj(hd.hookCancelled, 6)}; subagents: ${fmtObj(sb.hookCancelled, 6)}`);
   const s = res.scan;
-  L.push(`scan: ${s.mainFiles} main + ${s.subagentFiles} subagent files, ${s.skippedByMtime} skipped (mtime < since), bad lines ${s.badLines}, duplicate turns ${s.duplicateTurns}, orphan injections ${s.orphanInjections}`);
-  if (res.rule.archiveExtras.missing.length) L.push(`WARNING archive extras not found in ${res.rule.archiveExtras.source}: ${res.rule.archiveExtras.missing.join(' | ')}`);
-  if (!res.rule.archiveExtras.guarded) L.push(`WARNING archive extras unguarded: ${res.rule.archiveExtras.source} missing`);
+  L.push(`scan: ${s.mainFiles} main + ${s.subagentFiles} subagent files (${s.lines} lines, ${s.userRecords} user records), ${s.skippedByMtime} skipped (mtime < since), bad lines ${s.badLines}, undated turns ${s.turnsNoTimestamp}, duplicate turns ${s.duplicateTurns}, orphan injections ${s.orphanInjections}`);
   return L.join('\n');
 }
 
 // ---------- self-test ----------
 
 const SB = 'mcp__plugin_second-brain_knowledge-base__';
+
+// The parts of scripts/persona-context.sh this tool parses, in the live hook's shape (machine-turn
+// block, trivial-skip triage arms verbatim). Parsing rows and fixture counts run against THIS text so
+// an edit to the live hook cannot silently move the expected numbers; the "live hook" rows still load
+// the real hook to catch drift. String.raw keeps the bash line continuations.
+const FIXTURE_HOOK = String.raw`#!/usr/bin/env bash
+# usage-audit self-test fixture: what usage-audit.mjs reads out of scripts/persona-context.sh
+  # machine-turn:begin
+  case "$_MT_P" in
+    '<task-notification>'*) _MT_KIND=notification ;;
+    'Another Claude session sent a message:'*) _MT_KIND=peer ;;
+    'Stop hook feedback:'*) _MT_KIND=stop-feedback ;;
+    'This session is being continued from a previous conversation'*) _MT_KIND=continuation ;;
+    '<system-reminder>'*|'<command-name>'*|'<command-message>'*|'<command-args>'*) _MT_KIND=tag ;;
+    '<local-command-'*|'<bash-'*|'<agent-message'*|'<cross-session-message'*) _MT_KIND=tag ;;
+  esac
+  # machine-turn:end
+
+# --- Trivial-skip triage (preserved from intent-gate.sh) ---
+case "$P_TRIM" in
+  yes|y|ok|okay|k|kk|sure|no|n|nope|done|good|great|nice|cool|right|correct|\
+go|"go ahead"|"go for it"|"do it"|"let's go"|continue|next|proceed|\
+lgtm|"ship it"|merge|approved|"sounds good"|"works for me"|wfm|fine|\
+thanks|thx|ty|"thank you")
+    _buddy_exit ;;
+esac
+
+case "$P_TRIM" in
+  thanks*|thx*|"thank you"*|"thats "*|"that's "*|"that "*|perfect*|"works."*|"works,"*)
+    [ "$W_COUNT" -le 8 ] && _buddy_exit ;;
+esac
+
+ACTION=0
+case "$P_TRIM" in
+  "implement "*|"build "*|"add "*|"fix "*|"refactor "*|"design "*|"create "*|\
+"write "*|"plan "*|"debug "*|"investigate "*|"update "*|"migrate "*|\
+"integrate "*|"review "*|"audit "*|"port "*|"rewrite "*|"extract "*|"split "*)
+    ACTION=1 ;;
+esac
+
+if [ "$ACTION" -eq 0 ] && [ "$W_COUNT" -lt 4 ]; then
+  _buddy_exit
+fi
+
+# --- Exact-repeat skip (R1#1) ---
+`;
+
+/** <dir>/scripts/persona-context.sh (FIXTURE_HOOK) plus, per `ts`, the sibling episodic-search.ts
+ *  quoting every archive literal ('full'), all but the last ('partial'), or no such file ('none'). */
+function writeHookTree(dir, ts) {
+  const hook = path.join(dir, 'scripts', 'persona-context.sh');
+  fs.mkdirSync(path.dirname(hook), { recursive: true });
+  fs.writeFileSync(hook, FIXTURE_HOOK);
+  if (ts !== 'none') {
+    const lits = [...ARCHIVE_TURN_PREFIXES, ...ARCHIVE_LINE_PREFIXES];
+    const tsFile = path.join(dir, 'mcp', 'src', 'tools', 'episodic-search.ts');
+    fs.mkdirSync(path.dirname(tsFile), { recursive: true });
+    fs.writeFileSync(tsFile, (ts === 'partial' ? lits.slice(0, -1) : lits).map(p => `  '${p}',`).join('\n') + '\n');
+  }
+  return hook;
+}
+
+/** JSON with a space after every ':' and ',': the same records in a schema the compact-literal
+ *  prefilter never matched. */
+const spacedJson = v => (Array.isArray(v) ? `[${v.map(spacedJson).join(', ')}]`
+  : v && typeof v === 'object' ? `{${Object.entries(v).map(([k, x]) => `${JSON.stringify(k)}: ${spacedJson(x)}`).join(', ')}}`
+    : JSON.stringify(v));
 
 function buildFixture(dir) {
   let n = 0;
@@ -598,7 +746,7 @@ function buildFixture(dir) {
   const tools = (sid, ep, ts, calls) => rec(sid, ep, ts, { type: 'assistant', message: { role: 'assistant', content: calls.map(([name, input], i) => ({ type: 'tool_use', id: `toolu_${n}_${i}`, name: name === 'Bash' ? name : SB + name, input })) } });
   const cancelled = (sid, ep, ts, command, hookName = 'SessionStart:startup') => rec(sid, ep, ts, { type: 'attachment', attachment: { type: 'hook_cancelled', hookName, hookEvent: hookName.split(':')[0], ...(command ? { command, durationMs: 1, timedOut: true } : {}) } });
   const timer = s => `bash "\${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh" ${s.replace('.sh', '')} "\${CLAUDE_PLUGIN_ROOT}/scripts/${s}"`;
-  const write = (rel, recs) => { const f = path.join(dir, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, recs.map(x => (typeof x === 'string' ? x : JSON.stringify(x))).join('\n') + '\n'); };
+  const write = (rel, recs, ser = JSON.stringify) => { const f = path.join(dir, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, recs.map(x => (typeof x === 'string' ? x : ser(x))).join('\n') + '\n'); };
   const t = (d, hms) => `2026-${d}T${hms}Z`;
   const A = ['sess-a', 'cli']; const H = { turnOrigin: 'human' };
   const REPEAT = 'please explain how the search ranking works here';
@@ -632,6 +780,13 @@ function buildFixture(dir) {
     user(...A, t('10-02', '10:07:10'), SKILL_ARGS, H), // T8a human (/sb-probe hello world nonce7733)
     user(...A, t('10-02', '10:07:20'), SKILL_ARGS, H), // T8b exact repeat of the reconstructed prompt
     user(...A, t('10-02', '10:07:30'), '<command-message>why</command-message> does this tag break my parser', H), // T8c hand-typed tag: machine
+    // Builtins in a turnOrigin file (probed on CLI 2.1.289): a local one (/compact, /clear, /context,
+    // /usage) carries no turnOrigin and fires no UserPromptSubmit, so it is no turn; /goal carries
+    // turnOrigin AND the hook got the raw "/goal <condition>", so it is a turn like a skill command.
+    user(...A, t('10-02', '10:07:40'), '<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>'),
+    user(...A, t('10-02', '10:07:41'), '<local-command-stdout>Compacted</local-command-stdout>'),
+    user(...A, t('10-02', '10:07:50'), '<command-name>/goal</command-name>\n            <command-message>goal</command-message>\n            <command-args>reply contains the word OSPREY-DONE</command-args>', H), // T8d human (/goal …)
+    user(...A, t('10-02', '10:07:51'), 'A session-scoped Stop hook is now active with condition: "reply contains the word OSPREY-DONE".', { isMeta: true }),
     user(...A, t('10-02', '10:08:00'), 'what does the fetch window boundary look like', H), // T9
     ctx(...A, t('10-02', '10:08:01'), persona(['gamma'])),
     tools(...A, t('10-02', '10:08:02'), [['knowledge_neighbors', { slug: 'gamma' }]]),
@@ -657,6 +812,7 @@ function buildFixture(dir) {
     user(...B, t('10-03', '10:06:01'), '<command-name>/reload-plugins</command-name>\n<command-message>reload-plugins</command-message>\n<command-args></command-args>'),
     user(...B, t('10-03', '10:06:02'), '<local-command-stdout>Reloaded 3 plugins</local-command-stdout>'),
     user(...B, t('10-03', '10:07:00'), '<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>the parser change please</command-args>'), // legacy skill command: human
+    { ...user(...B, t('10-03', '10:08:00'), 'a prompt whose record lost its timestamp field'), timestamp: undefined }, // counted as dropped, not silently
   ]);
   const C = ['sess-c', 'sdk-cli'];
   write('projects/C--proj-beta/sess-c.jsonl', [
@@ -687,7 +843,7 @@ function buildFixture(dir) {
   write('projects/C--proj-alpha/sess-a/subagents/agent-x.meta.json', ['{"agentType":"x"}']);
   write('projects/C--proj-alpha/sess-a/tool-results/never-scanned.jsonl', [ctx(...A, t('10-02', '10:00:00'), persona(['tool-result-slug']))]);
   write('projects/stray.txt', ['not a project']);
-  const gate = (ts, message, exit = 0) => ({ timestamp: ts, script: 'persona-context.sh', message, exit_code: exit });
+  const gate = (ts, message, exit = 0, script = 'persona-context.sh') => ({ timestamp: ts, script, message, exit_code: exit });
   write('audit-log.jsonl', [
     gate('2026-09-01T00:00:00Z', 'gate=machine-turn kind=tag sid=sess-a'),
     gate('2026-10-02T10:00:01Z', 'gate=machine-turn kind=notification sid=sess-a'),
@@ -697,7 +853,28 @@ function buildFixture(dir) {
     { ts: '2026-10-02T10:00:05Z', hook: 'persona-tool-guard.sh', verdict: 'warn', rule: 'strip-silent-fallback', target: 'grep "gate=machine-turn kind=peer" audit-log.jsonl; grep gate=headless-child hook=x', session_id: 'sess-a' },
     gate('2026-10-02T10:00:06Z', 'machine-turn: cksum gave no CRC/length signature (got 0 chars)', 1),
     'not json',
+    gate('2026-10-02T10:00:07Z', 'gate=inject-precision mode=off', 0, 'context-serve-cli.js'),
+    gate('2026-10-02T10:00:08Z', 'gate=inject-precision mode=off', 0, 'knowledge-search-cli.js'),
+    gate('2026-09-01T00:00:01Z', 'gate=inject-precision mode=off', 0, 'context-serve-cli.js'), // before the window
+    gate('not-a-time', 'gate=machine-turn kind=tag sid=sess-a'), // counted as undated, never in a window
   ]);
+  // The same gate-less log a pre-0.55 install writes: rows in the window, none from the current hook.
+  write('audit-nogate.jsonl', [
+    { ts: '2026-10-02T10:00:00Z', kind: 'latency', hook: 'persona-tool-guard.sh', duration_ms: 5, exit_code: 0 },
+    gate('2026-10-02T10:00:01Z', 'gate=value-loop injected=1 read=0', 0, 'stop-extract.sh'),
+  ]);
+  // Schema drift, 1 transcript each: spaced JSON (must parse, never zeros) and a renamed type field.
+  const P = ['sess-s', 'cli'];
+  const spaced = [
+    user(...P, t('10-02', '11:00:00'), 'investigate the spaced schema transcript path'),
+    ctx(...P, t('10-02', '11:00:01'), persona(['sp-one'])),
+    tools(...P, t('10-02', '11:00:02'), [['knowledge_fetch', { slug: 'sp-one' }]]),
+    toolResult(...P, t('10-02', '11:00:03')), // legacy file: only a structural check keeps this out
+    user(...P, t('10-02', '11:01:00'), '<task-notification>\n<task-id>s1</task-id>'),
+  ];
+  write('spaced/projects/C--proj-spaced/sess-s.jsonl', spaced, spacedJson);
+  write('renamed/projects/C--proj-renamed/sess-r.jsonl', spaced.map(r => { const { type, ...rest } = r; return { kind: type, ...rest }; }));
+  write('undated/projects/C--proj-undated/sess-u.jsonl', spaced.map(r => { const { timestamp, ...rest } = r; return { ...rest, time: timestamp }; }));
 }
 
 function canon(v) {
@@ -706,6 +883,8 @@ function canon(v) {
   return v;
 }
 
+const warnCodes = ws => (Array.isArray(ws) ? ws.map(w => String(w).slice(0, String(w).indexOf(':'))).sort() : ws);
+
 async function selfTest() {
   const fails = []; let checks = 0;
   const eq = (name, actual, expected) => {
@@ -713,65 +892,147 @@ async function selfTest() {
     const a = JSON.stringify(canon(actual)); const e = JSON.stringify(canon(expected));
     if (a !== e) fails.push(`${name}: expected ${e}, got ${a}`);
   };
-  const throwsUsage = (name, fn) => { checks++; try { fn(); fails.push(`${name}: did not throw`); } catch (e) { if (!(e instanceof UsageError)) fails.push(`${name}: threw ${e}`); } };
+  const usageCheck = (name, e, re) => {
+    if (!(e instanceof UsageError)) fails.push(`${name}: threw ${e}`);
+    else if (re && !re.test(e.message)) fails.push(`${name}: message ${JSON.stringify(e.message)} does not match ${re}`);
+  };
+  const throwsUsage = (name, fn, re) => { checks++; try { fn(); fails.push(`${name}: did not throw`); } catch (e) { usageCheck(name, e, re); } };
+  const rejectsUsage = async (name, fn, re) => { checks++; try { await fn(); fails.push(`${name}: did not throw`); } catch (e) { usageCheck(name, e, re); } };
+  // A group of rows that may throw before its asserts run (a missing export, a crash): one failure.
+  const group = async (name, fn) => { try { await fn(); } catch (e) { checks++; fails.push(`${name}: threw ${e && e.stack || e}`); } };
+  const SCRIPT = fileURLToPath(import.meta.url);
+  const runCli = args => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', timeout: 120000 });
 
-  const rule = loadRule(resolveHook(null));
-  eq('rule: <task-notification> is notification', classifyMachine('<task-notification>x', rule), 'notification');
-  eq('rule: peer prefix is peer', classifyMachine(`${rule.peerPrefix}\n<agent-message>`, rule), 'peer');
-  eq('rule: whitespace + BOM stripped', classifyMachine('\n  \uFEFF <task-notification>x', rule), 'notification');
-  eq('rule: a human <my-component> question is human', classifyMachine('<my-component> does not render', rule), null);
-  eq('rule: kinds', [...new Set(rule.rules.map(r => r.kind))].sort(), ['continuation', 'notification', 'peer', 'stop-feedback', 'tag']);
-  throwsUsage('parse: no block', () => parseMachineTurnBlock('echo hi\n'));
-  throwsUsage('parse: non-literal alternative', () => parseMachineTurnBlock("# machine-turn:begin\ncase \"$x\" in\n  \"$y\"*) _MT_KIND=x ;;\nesac\n# machine-turn:end\n"));
-  throwsUsage('parse: unknown line', () => parseMachineTurnBlock("# machine-turn:begin\n_MT_KIND=x\n# machine-turn:end\n"));
-  eq('parse: ordered arms', parseMachineTurnBlock("# machine-turn:begin\ncase \"$x\" in\n  'a'*|'b'*) _MT_KIND=one ;;\n  'c'*) _MT_KIND=two ;;\nesac\n# machine-turn:end\n"),
-    [{ prefix: 'a', kind: 'one' }, { prefix: 'b', kind: 'one' }, { prefix: 'c', kind: 'two' }]);
-  eq('triage: ack', passesTriage('ok', rule.triage), false);
-  eq('triage: thanks-prefix <= 8 words', passesTriage('thanks a lot for that', rule.triage), false);
-  eq('triage: action verb', passesTriage('fix it', rule.triage), true);
-  eq('triage: 3 words', passesTriage('how is it', rule.triage), false);
-  eq('triage: 4 words', passesTriage('how is it going', rule.triage), true);
-  eq('command form: skill with args', expandedCommandPrompt('<command-message>sb-probe</command-message>\n<command-name>/sb-probe</command-name>\n<command-args> hello world nonce7733 </command-args>'), '/sb-probe hello world nonce7733');
-  eq('command form: no args', expandedCommandPrompt('<command-message>foo</command-message>\n<command-name>/foo</command-name>'), '/foo');
-  eq('command form: empty args, name-led', expandedCommandPrompt('<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>'), '/clear');
-  eq('command form: text outside the tags is not the expanded form', expandedCommandPrompt('<command-message>why</command-message> does this tag break my parser'), null);
-  eq('command form: no command-name', expandedCommandPrompt('<command-message>x</command-message>'), null);
-  eq('command form: text after a full command block', expandedCommandPrompt('<command-message>x</command-message><command-name>/x</command-name> and also look at the parser'), null);
-  eq('command form: duplicated tag', expandedCommandPrompt('<command-name>/x</command-name><command-name>/y</command-name>'), null);
-  eq('archive extras guarded', { guarded: rule.extras.guarded, missing: rule.extras.missing }, { guarded: true, missing: [] });
+  // Drift: the LIVE hook still parses and still carries what the fixture relies on.
+  const live = loadRule(resolveHook(null));
+  eq('live hook: kinds', [...new Set(live.rules.map(r => r.kind))].sort(), ['continuation', 'notification', 'peer', 'stop-feedback', 'tag']);
+  eq('live hook: archive extras guarded', { guarded: live.extras.guarded, missing: live.extras.missing }, { guarded: true, missing: [] });
+  eq('live hook: triage arms non-empty', [live.triage.acks.size > 0, live.triage.thanks.length > 0, live.triage.verbs.length > 0], [true, true, true]);
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-audit-'));
   try {
+    const hookFile = writeHookTree(path.join(tmp, 'hook'), 'full');
+    const rule = loadRule(hookFile);
+    eq('rule: <task-notification> is notification', classifyMachine('<task-notification>x', rule), 'notification');
+    eq('rule: peer prefix is peer', classifyMachine(`${rule.peerPrefix}\n<agent-message>`, rule), 'peer');
+    eq('rule: whitespace + BOM stripped', classifyMachine('\n  \uFEFF <task-notification>x', rule), 'notification');
+    eq('rule: a human <my-component> question is human', classifyMachine('<my-component> does not render', rule), null);
+    eq('rule: kinds', [...new Set(rule.rules.map(r => r.kind))].sort(), ['continuation', 'notification', 'peer', 'stop-feedback', 'tag']);
+    throwsUsage('parse: no block', () => parseMachineTurnBlock('echo hi\n'), /no "# machine-turn:begin"/);
+    throwsUsage('parse: non-literal alternative', () => parseMachineTurnBlock("# machine-turn:begin\ncase \"$x\" in\n  \"$y\"*) _MT_KIND=x ;;\nesac\n# machine-turn:end\n"), /not a '<literal>'\* prefix/);
+    throwsUsage('parse: unknown line', () => parseMachineTurnBlock("# machine-turn:begin\n_MT_KIND=x\n# machine-turn:end\n"), /unparseable line/);
+    throwsUsage('parse: block with zero prefixes', () => parseMachineTurnBlock("# machine-turn:begin\ncase \"$x\" in\nesac\n# machine-turn:end\n"), /zero prefixes/);
+    eq('parse: ordered arms', parseMachineTurnBlock("# machine-turn:begin\ncase \"$x\" in\n  'a'*|'b'*) _MT_KIND=one ;;\n  'c'*) _MT_KIND=two ;;\nesac\n# machine-turn:end\n"),
+      [{ prefix: 'a', kind: 'one' }, { prefix: 'b', kind: 'one' }, { prefix: 'c', kind: 'two' }]);
+    throwsUsage('triage: region markers missing', () => parseTriage('echo hi\n'), /region markers/);
+    throwsUsage('triage: ack arm missing', () => parseTriage(FIXTURE_HOOK.replace(')\n    _buddy_exit ;;', ')\n    true ;;')), /ack arm not found/);
+    throwsUsage('triage: glob in the ack arm', () => parseTriage(FIXTURE_HOOK.replace('yes|y|ok|', 'yes*|y|ok|')), /arm shape changed/);
+    throwsUsage('triage: ACTION && W_COUNT<4 rule changed', () => parseTriage(FIXTURE_HOOK.replace('"$W_COUNT" -lt 4', '"$W_COUNT" -lt 5')), /W_COUNT<4/);
+    throwsUsage('hook: --hook path not found', () => resolveHook(path.join(tmp, 'nope.sh')), /persona-context\.sh not found/);
+    eq('triage: ack', passesTriage('ok', rule.triage), false);
+    eq('triage: thanks-prefix <= 8 words', passesTriage('thanks a lot for that', rule.triage), false);
+    eq('triage: action verb', passesTriage('fix it', rule.triage), true);
+    eq('triage: 3 words', passesTriage('how is it', rule.triage), false);
+    eq('triage: 4 words', passesTriage('how is it going', rule.triage), true);
+    eq('command form: skill with args', expandedCommandPrompt('<command-message>sb-probe</command-message>\n<command-name>/sb-probe</command-name>\n<command-args> hello world nonce7733 </command-args>'), '/sb-probe hello world nonce7733');
+    eq('command form: no args', expandedCommandPrompt('<command-message>foo</command-message>\n<command-name>/foo</command-name>'), '/foo');
+    eq('command form: empty args, name-led', expandedCommandPrompt('<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>'), '/clear');
+    eq('command form: text outside the tags is not the expanded form', expandedCommandPrompt('<command-message>why</command-message> does this tag break my parser'), null);
+    eq('command form: no command-name', expandedCommandPrompt('<command-message>x</command-message>'), null);
+    eq('command form: text after a full command block', expandedCommandPrompt('<command-message>x</command-message><command-name>/x</command-name> and also look at the parser'), null);
+    eq('command form: duplicated tag', expandedCommandPrompt('<command-name>/x</command-name><command-name>/y</command-name>'), null);
+    throwsUsage('day: 2026-02-31 does not roll over', () => parseDay('2026-02-31', '--since'), /--since needs YYYY-MM-DD/);
+    throwsUsage('day: 2026-10-1', () => parseDay('2026-10-1', '--until'), /--until needs YYYY-MM-DD/);
+    await group('env paths', () => {
+      eq('env path: MSYS drive form on win32', normalizeEnvPath('/c/Users/x/.second-brain', 'win32'), 'C:/Users/x/.second-brain');
+      eq('env path: cygdrive form on win32', normalizeEnvPath('/cygdrive/d/brain', 'win32'), 'D:/brain');
+      eq('env path: bare drive on win32', normalizeEnvPath('/c', 'win32'), 'C:/');
+      eq('env path: POSIX path kept off win32', normalizeEnvPath('/c/Users/x', 'linux'), '/c/Users/x');
+      eq('env path: Windows path and a rootless POSIX path kept', [normalizeEnvPath('C:\\Users\\x', 'win32'), normalizeEnvPath('/tmp/x', 'win32')], ['C:\\Users\\x', '/tmp/x']);
+      eq('env path: unset or empty', [normalizeEnvPath(undefined, 'win32'), normalizeEnvPath('', 'win32')], [null, null]);
+    });
+
     buildFixture(tmp);
     const base = { rule, root: path.join(tmp, 'projects'), audit: path.join(tmp, 'audit-log.jsonl'), since: '2026-10-01', until: '2026-10-31' };
-    const res = await runAudit(base);
-    const o = res.interactive.overall;
-    eq('sessions', o.sessions, 3);
-    eq('human turns', o.humanTurns, 10);
-    eq('machine turns', o.machineTurns, { total: 12, byKind: { notification: 4, peer: 2, repeat: 2, tag: 2, 'stop-feedback': 1, continuation: 1 } });
-    eq('injections', [o.injections.onHumanTurns, o.injections.onMachineTurns, o.injections.humanTurnsInjected, o.injections.machineTurnsInjected], [5, 2, 5, 2]);
-    eq('slugs offered', o.wikiSlugsOffered, { onHumanTurns: 8, perHumanTurn: 0.8 });
-    eq('offered->fetched', o.offeredFetched, { lookaheadTurns: 2, offers: 8, fetched: 4, rate: 0.5 });
-    eq('kb reads', o.kbReads, { onHumanTurns: 6, perHumanTurn: 0.6, onMachineTurns: 3, byToolOnHumanTurns: { knowledge_fetch: 3, knowledge_search: 1, knowledge_neighbors: 1, episodic_read: 1 } });
-    eq('past sessions', o.pastSessions, { snippets: 6, machineBoilerplate: 4, onHumanTurns: { snippets: 5, machineBoilerplate: 3 } });
-    eq('hook_cancelled interactive', o.hookCancelled, { 'session-load.sh': 1, 'persona-context.sh': 2, 'PostToolUse:Read': 1 });
-    eq('origin cross-check', [o.originCrossCheck.ruleHumanOriginOther, o.originCrossCheck.ruleMachineOriginHuman], [{ scheduled: 1 }, { repeat: 2, tag: 1 }]);
-    eq('by project', Object.fromEntries(Object.entries(res.interactive.byProject).map(([k, v]) => [k, [v.sessions, v.humanTurns, v.machineTurns.total]])), { 'C--proj-alpha': [2, 9, 12], 'C--proj-beta': [1, 1, 0] });
-    eq('headless', [res.headless.sessions, res.headless.humanTurns, res.headless.injections, res.headless.kbReads, res.headless.hookCancelled], [1, 1, 1, 1, { 'session-load.sh': 1 }]);
-    eq('subagents', [res.subagents.files, res.subagents.kbReads, res.subagents.injections, res.subagents.hookCancelled], [1, 2, 0, { 'guard.sh': 1 }]);
-    eq('audit machine-turn', res.audit.machineTurn, { total: 3, byKind: { notification: 1, peer: 1, repeat: 1 }, forScannedSessions: 3 });
-    eq('audit headless-child', res.audit.headlessChild, { total: 1, byHook: { 'persona-context': 1 } });
-    eq('audit coverage + bad lines', [res.audit.coverageFrom, res.audit.badLines], ['2026-09-01T00:00:00Z', 1]);
-    eq('scan', [res.scan.mainFiles, res.scan.subagentFiles, res.scan.badLines, res.scan.duplicateTurns], [4, 1, 1, 0]);
-    const beta = await runAudit({ ...base, project: 'BETA' });
-    eq('project filter', [beta.interactive.overall.sessions, beta.interactive.overall.humanTurns, beta.headless.sessions, beta.subagents.files, beta.audit.machineTurn.forScannedSessions], [1, 1, 1, 0, 0]);
-    const text = renderText(res);
-    checks++; if (!/^ALL\s+3\s+10\s+12\s+5\/2\s/m.test(text)) fails.push(`text table ALL row malformed:\n${text}`);
+    await group('main fixture', async () => {
+      const res = await runAudit(base);
+      const o = res.interactive.overall;
+      eq('sessions', o.sessions, 3);
+      eq('human turns', o.humanTurns, 11);
+      eq('machine turns', o.machineTurns, { total: 12, byKind: { notification: 4, peer: 2, repeat: 2, tag: 2, 'stop-feedback': 1, continuation: 1 } });
+      eq('injections', [o.injections.onHumanTurns, o.injections.onMachineTurns, o.injections.humanTurnsInjected, o.injections.machineTurnsInjected], [5, 2, 5, 2]);
+      eq('slugs offered', o.wikiSlugsOffered, { onHumanTurns: 8, perHumanTurn: 0.727 });
+      eq('offered->fetched', o.offeredFetched, { lookaheadTurns: 2, offers: 8, fetched: 4, rate: 0.5 });
+      eq('kb reads', o.kbReads, { onHumanTurns: 6, perHumanTurn: 0.545, onMachineTurns: 3, byToolOnHumanTurns: { knowledge_fetch: 3, knowledge_search: 1, knowledge_neighbors: 1, episodic_read: 1 } });
+      eq('past sessions', o.pastSessions, { snippets: 6, machineBoilerplate: 4, onHumanTurns: { snippets: 5, machineBoilerplate: 3 } });
+      eq('hook_cancelled interactive', o.hookCancelled, { 'session-load.sh': 1, 'persona-context.sh': 2, 'PostToolUse:Read': 1 });
+      eq('origin cross-check', [o.originCrossCheck.ruleHumanOriginOther, o.originCrossCheck.ruleMachineOriginHuman], [{ scheduled: 1 }, { repeat: 2, tag: 1 }]);
+      eq('by project', Object.fromEntries(Object.entries(res.interactive.byProject).map(([k, v]) => [k, [v.sessions, v.humanTurns, v.machineTurns.total]])), { 'C--proj-alpha': [2, 10, 12], 'C--proj-beta': [1, 1, 0] });
+      eq('headless', [res.headless.sessions, res.headless.humanTurns, res.headless.injections, res.headless.kbReads, res.headless.hookCancelled], [1, 1, 1, 1, { 'session-load.sh': 1 }]);
+      eq('subagents', [res.subagents.files, res.subagents.kbReads, res.subagents.injections, res.subagents.hookCancelled], [1, 2, 0, { 'guard.sh': 1 }]);
+      eq('audit machine-turn', res.audit.machineTurn, { total: 3, byKind: { notification: 1, peer: 1, repeat: 1 }, forScannedSessions: 3 });
+      eq('audit headless-child', res.audit.headlessChild, { total: 1, byHook: { 'persona-context': 1 } });
+      eq('audit inject-precision', res.audit.injectPrecision, { total: 2, byMode: { off: 2 }, byScript: { 'context-serve-cli.js': 1, 'knowledge-search-cli.js': 1 } });
+      eq('audit rows, window rows, undated, bad lines, coverage', [res.audit.rows, res.audit.windowRows, res.audit.noTimestamp, res.audit.badLines, res.audit.coverageFrom], [11, 8, 1, 1, '2026-09-01T00:00:00Z']);
+      eq('scan', [res.scan.mainFiles, res.scan.subagentFiles, res.scan.badLines, res.scan.duplicateTurns, res.scan.turnsNoTimestamp], [4, 1, 1, 0, 1]);
+      eq('scan: lines and user records', [res.scan.lines, res.scan.userRecords], [70, 37]);
+      eq('warnings (top level)', warnCodes(res.warnings), ['audit-bad-lines', 'audit-no-timestamp', 'bad-lines', 'no-timestamp']);
+      const beta = await runAudit({ ...base, project: 'BETA' });
+      eq('project filter', [beta.interactive.overall.sessions, beta.interactive.overall.humanTurns, beta.headless.sessions, beta.subagents.files, beta.audit.machineTurn.forScannedSessions], [1, 1, 1, 0, 0]);
+      const text = renderText(res);
+      checks++; if (!/^ALL\s+3\s+11\s+12\s+5\/2\s/m.test(text)) fails.push(`text table ALL row malformed:\n${text}`);
+      checks++; if (!/precision rollback active: 2 rows/.test(text)) fails.push(`text: no "precision rollback active: 2 rows":\n${text}`);
+      checks++; if (!/^WARNING bad-lines: /m.test(text) || text.indexOf('WARNING') > text.indexOf('INTERACTIVE')) fails.push(`text: warnings missing or below the table:\n${text}`);
+    });
+    await group('paths and gates', async () => {
+      const cfg = await runAudit({ ...base, root: undefined, env: { CLAUDE_CONFIG_DIR: tmp } });
+      eq('--root default: $CLAUDE_CONFIG_DIR/projects', [cfg.scan.root, cfg.interactive.overall.humanTurns], [path.join(tmp, 'projects'), 11]);
+      const msys = p => (process.platform === 'win32' ? p.replace(/^([A-Za-z]):[\\/]/, (_, d) => `/${d.toLowerCase()}/`).replace(/\\/g, '/') : p);
+      const brain = await runAudit({ ...base, audit: undefined, env: { BRAIN_DIR: msys(tmp) } });
+      eq('audit default: $BRAIN_DIR, MSYS form normalised', [brain.audit.missing, brain.audit.machineTurn.total], [false, 3]);
+      const noBrain = await runAudit({ ...base, audit: undefined, env: { BRAIN_DIR: path.join(tmp, 'no-brain') } });
+      eq('audit default missing: a warning, not exit 2', [noBrain.audit.missing, warnCodes(noBrain.warnings).includes('audit-missing')], [true, true]);
+      const ng = await runAudit({ ...base, audit: path.join(tmp, 'audit-nogate.jsonl') });
+      const ngw = (ng.warnings || []).find(w => w.startsWith('audit-no-gate-rows:')) || '';
+      eq('audit: rows but no current-hook gate row -> warning naming both readings', [/predates 0\.55/.test(ngw), /renamed/.test(ngw)], [true, true]);
+      const noTs = await runAudit({ ...base, rule: loadRule(writeHookTree(path.join(tmp, 'hook-nots'), 'none')) });
+      eq('archive extras: no episodic-search.ts -> top-level warning', warnCodes(noTs.warnings).includes('archive-extras-unguarded'), true);
+      const partial = await runAudit({ ...base, rule: loadRule(writeHookTree(path.join(tmp, 'hook-partial'), 'partial')) });
+      eq('archive extras: a literal missing -> top-level warning', warnCodes(partial.warnings).includes('archive-extras-missing'), true);
+      const future = await runAudit({ ...base, since: '2099-01-01', until: '2099-01-31' });
+      eq('no transcript in range -> warning, not silent zeros', [future.scan.mainFiles, warnCodes(future.warnings).includes('no-transcripts')], [0, true]);
+      const sp = await runAudit({ ...base, root: path.join(tmp, 'spaced', 'projects') });
+      const so = sp.interactive.overall;
+      eq('spaced schema: parsed, never zeros', [so.humanTurns, so.machineTurns.total, so.injections.onHumanTurns, so.offeredFetched.fetched, so.kbReads.onHumanTurns, sp.scan.userRecords], [1, 1, 1, 1, 1, 3]);
+    });
+    await rejectsUsage('gate: malformed --since', () => runAudit({ ...base, since: '2026-02-31' }), /--since needs YYYY-MM-DD/);
+    await rejectsUsage('gate: --until before --since', () => runAudit({ ...base, since: '2026-10-05', until: '2026-10-04' }), /--until is before --since/);
+    await rejectsUsage('gate: transcripts root missing', () => runAudit({ ...base, root: path.join(tmp, 'no-root') }), /transcripts root not found/);
+    await rejectsUsage('gate: --project matches no directory', () => runAudit({ ...base, project: 'no-such-project' }), /--project .* matches no/);
+    await rejectsUsage('gate: explicit --audit missing', () => runAudit({ ...base, audit: path.join(tmp, 'no-audit.jsonl') }), /--audit file not found/);
+    await rejectsUsage('gate: renamed type field -> no user record parsed', () => runAudit({ ...base, root: path.join(tmp, 'renamed', 'projects') }), /no user record parsed/);
+    await rejectsUsage('gate: every turn undated', () => runAudit({ ...base, root: path.join(tmp, 'undated', 'projects') }), /no parseable timestamp/);
+
+    // Exit codes as the CLI maps them (a child process on this node; never the real transcripts).
+    const fx = ['--hook', hookFile, '--audit', base.audit, '--since', '2026-10-01'];
+    let p = runCli(['--bogus']);
+    eq('exit: unknown argument -> 2', [p.status, /unknown argument: --bogus/.test(p.stderr)], [2, true]);
+    p = runCli(['--hook', path.join(tmp, 'nope.sh'), '--root', base.root, '--audit', base.audit, '--since', '2026-10-01']);
+    eq('exit: hook not found -> 2', [p.status, /persona-context\.sh not found/.test(p.stderr)], [2, true]);
+    p = runCli([...fx, '--root', path.join(tmp, 'renamed', 'projects')]);
+    eq('exit: renamed schema -> 2', [p.status, /no user record parsed/.test(p.stderr)], [2, true]);
+    p = runCli([...fx, '--root', path.join(tmp, 'spaced', 'projects'), '--json']);
+    let j = null; try { j = JSON.parse(p.stdout); } catch { /* reported by the row below */ }
+    eq('exit: spaced schema -> 0, counts not zero, warnings array', [p.status, j && j.interactive.overall.humanTurns, j && Array.isArray(j.warnings)], [0, 1, true]);
+    // Importing the module must not run main(): argv[1] is not this file, and an unguarded main()
+    // would parse "--bogus" and exit 2 with the usage text on stderr.
+    p = spawnSync(process.execPath, ['--input-type=module', '-e', `import(${JSON.stringify(pathToFileURL(SCRIPT).href)}).then(m => process.stdout.write(typeof m.runAudit))`, 'x', '--bogus'], { encoding: 'utf8', timeout: 60000 });
+    eq('import: main() does not run', [p.status, p.stdout, p.stderr], [0, 'function', '']);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
   for (const f of fails) process.stdout.write(`FAIL ${f}\n`);
-  process.stdout.write(`usage-audit self-test: ${checks - fails.length}/${checks} passed (rule: ${rule.hookPath})\n`);
+  process.stdout.write(`usage-audit self-test: ${checks - fails.length}/${checks} passed (live rule: ${live.hookPath})\n`);
   return fails.length ? 1 : 0;
 }
 
@@ -812,4 +1073,17 @@ async function main() {
   }
 }
 
-main().then(code => { process.exitCode = code; }, e => { process.stderr.write(`usage-audit: ${e && e.stack || e}\n`); process.exitCode = 2; });
+/** True when node was started on this file (not when a test imports it). */
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  const canon = p => {
+    let r;
+    try { r = fs.realpathSync(p); } catch { r = path.resolve(p); }
+    return process.platform === 'win32' ? r.toLowerCase() : r;
+  };
+  return canon(path.resolve(process.argv[1])) === canon(fileURLToPath(import.meta.url));
+}
+
+if (isMainModule()) {
+  main().then(code => { process.exitCode = code; }, e => { process.stderr.write(`usage-audit: ${e && e.stack || e}\n`); process.exitCode = 2; });
+}
