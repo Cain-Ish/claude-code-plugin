@@ -95,7 +95,10 @@ exists, one extra suite entry named `vitest (mcp)` runs
 (`tests/run-all.sh:28-36,71-76,129-137`), so a test that forgets its own
 sandbox cannot touch the real knowledge base (the 0.24.32 leak class: 4 tests
 polluted the real `~/.second-brain` on every suite run). The real HOME passes
-through as `SB_SUITE_REAL_HOME_PATH`. BRAIN_DIR/KNOWLEDGE_DIR are deliberately
+through as `SB_SUITE_REAL_HOME_PATH`, which arms lib.sh's G3 suite guard: a script whose brain or
+knowledge dir still resolves to the real one gets a quarantine dir instead (it never exits: that
+killed PreToolUse guards), the trip is appended to `SB_SUITE_GUARD_MARKER`, and run-all fails the
+whole run when that marker exists. BRAIN_DIR/KNOWLEDGE_DIR are deliberately
 NOT preset — they derive from `$HOME`, and presetting them broke 5 tests that
 sandbox HOME and rely on the derivation (comment at `tests/run-all.sh:28-34`).
 

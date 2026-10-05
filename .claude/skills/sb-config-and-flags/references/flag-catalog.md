@@ -321,7 +321,9 @@ DOCUMENTATION EXAMPLE in the precedence comment, not a real flag.
 Verified test-only by set-diff on 2026-07-05 (17 names): `SB_RUN_ALL_TESTS_DIR` (run-all.sh:21,
 overrides the shell-test dir), `SB_RUN_ALL_QUIET` (default 0), `SB_RUN_ALL_VITEST` (default 1;
 `0` skips the vitest lane), `SB_RUN_ALL_TIMEOUT` (default 120s/test), `SB_SUITE_REAL_HOME_PATH`
-(the real HOME handed into the HOME-sandboxed suite), `SB_RELEASE_BASE_REF` (base ref for the
+(the real HOME handed into the HOME-sandboxed suite; arms lib.sh's G3 suite guard),
+`SB_SUITE_GUARD_MARKER` (run-all's trip marker: a guard trip quarantines the dir, appends here, and
+run-all fails the run when the file exists), `SB_RELEASE_BASE_REF` (base ref for the
 version-bump tripwire; falls back to `origin/main`, else SKIP), `SB_SCHTASKS_STATE` (fake Windows
 scheduled-task marker), `SB_THINK_SENTINEL_42` (CLI-shim invocation sentinel), and stub doubles
 `SB_TEST_PROBE_RC`, `SB_TEST_RUN_RC`, `SB_TEST_RUN_STDERR`, `SB_TEST_RELINK_RC`,

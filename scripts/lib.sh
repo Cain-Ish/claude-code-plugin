@@ -79,11 +79,22 @@ sb_normalize_path() {
 # sandbox. Compares ONLY those two exact dirs (never "anything under the real home": the
 # Windows TMPDIR lives there), after normalizing both sides (backslash, drive letter ->
 # MSYS form, trailing slash, case on cygpath platforms). No-op when the var is unset.
-# Fails loud on stderr and `return 1`; the top-level BRAIN_DIR call exits the sourcing
-# script. It deliberately does NOT sb_log_error: that would write into the real dir.
+# A trip NEVER exits and never yields an empty path. An `exit 1` here killed every script
+# that sourced lib.sh, PreToolUse guards included (rc 1, no verdict, and a non-zero
+# PreToolUse exit does not block the tool: fail-open); an empty sb_knowledge_dir sent
+# callers to `mkdir -p /wiki/...` and `rsync --delete` into /wiki. On a trip instead:
+#   1. one loud stderr line;
+#   2. a line appended to the file named by SB_SUITE_GUARD_MARKER (tests/run-all.sh points
+#      it into its sandbox and FAILS the whole run when it exists at the end);
+#   3. SB_SUITE_GUARD_PATH = a quarantine dir next to the marker (created), which the caller
+#      uses instead, so nothing touches the real dir. Without a marker variable (a test run
+#      by hand with SB_SUITE_REAL_HOME_PATH set) the quarantine sits under TMPDIR.
+# Returns 1 on a trip, 0 otherwise (SB_SUITE_GUARD_PATH = the path unchanged). It deliberately
+# does NOT sb_log_error: that would write into the real dir.
 sb_suite_guard() {
+  SB_SUITE_GUARD_PATH="$2"
   [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ] || return 0
-  local want got
+  local want got q
   case "$1" in brain) want=".second-brain" ;; knowledge) want="knowledge" ;; *) return 0 ;; esac
   want=$(sb_normalize_path "${SB_SUITE_REAL_HOME_PATH%/}/$want")
   got=$(sb_normalize_path "$2")
@@ -91,13 +102,18 @@ sb_suite_guard() {
   if command -v cygpath >/dev/null 2>&1; then
     want=$(printf '%s' "$want" | tr 'A-Z' 'a-z'); got=$(printf '%s' "$got" | tr 'A-Z' 'a-z')
   fi
-  if [ -n "$got" ] && [ "$got" = "$want" ]; then
-    printf 'lib.sh: suite guard: %s dir resolved to the REAL %s while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; point BRAIN_DIR/KNOWLEDGE_DIR at a temp dir)\n' "$1" "$2" >&2
-    return 1
+  [ -n "$got" ] && [ "$got" = "$want" ] || return 0
+  q="${SB_SUITE_GUARD_MARKER:-${TMPDIR:-/tmp}/sb-suite-guard}.quarantine/$1"
+  printf 'lib.sh: suite guard: %s dir resolved to the REAL %s while SB_SUITE_REAL_HOME_PATH is set (a test leaked past the run-all sandbox; point BRAIN_DIR/KNOWLEDGE_DIR at a temp dir). Using quarantine %s; run-all fails the run.\n' "$1" "$2" "$q" >&2
+  if [ -n "${SB_SUITE_GUARD_MARKER:-}" ]; then
+    printf '%s dir %s -> %s (pid %s, %s)\n' "$1" "$2" "$q" "$$" "${0##*/}" >> "$SB_SUITE_GUARD_MARKER" \
+      || printf 'lib.sh: suite guard: could not write the marker %s\n' "$SB_SUITE_GUARD_MARKER" >&2
   fi
-  return 0
+  mkdir -p "$q" || printf 'lib.sh: suite guard: could not create the quarantine %s\n' "$q" >&2
+  SB_SUITE_GUARD_PATH="$q"
+  return 1
 }
-sb_suite_guard brain "$BRAIN_DIR" || exit 1
+if ! sb_suite_guard brain "$BRAIN_DIR"; then BRAIN_DIR="$SB_SUITE_GUARD_PATH"; export BRAIN_DIR; fi
 
 # sb_mtime — portable file mtime as epoch seconds via `stat -c %Y` || `stat -f %m`
 # || 0. THE single funnel for the ~17 copy-pasted GNU/BSD stat sites (portability
@@ -115,9 +131,22 @@ sb_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 
 sb_knowledge_dir() {
   local d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
   d="${d/#\~/$HOME}"
-  sb_suite_guard knowledge "$d" || return 1
+  sb_suite_guard knowledge "$d" || d="$SB_SUITE_GUARD_PATH"
   printf '%s' "$d"
 }
+# The knowledge-dir guard also runs at SOURCE time, like the brain-dir one above: inside a
+# caller's $(sb_knowledge_dir) the trip is invisible, and scripts that read the two variables
+# directly never call the resolver. A trip points both variables (exported, so node children see
+# it too) at the quarantine; sb_knowledge_dir then resolves to it. Builtins only when the suite
+# variable is unset (production).
+if [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ]; then
+  _sb_kd="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
+  if ! sb_suite_guard knowledge "${_sb_kd/#\~/$HOME}"; then
+    CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SB_SUITE_GUARD_PATH"; KNOWLEDGE_DIR="$SB_SUITE_GUARD_PATH"
+    export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR KNOWLEDGE_DIR
+  fi
+  unset _sb_kd
+fi
 
 # KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
 # / SB_GENERATED_DIRS / SB_EDGE_TYPES / SB_FORGET_PROTECTED / SB_FORGET_DISCOUNTED from kb-schema.json.
