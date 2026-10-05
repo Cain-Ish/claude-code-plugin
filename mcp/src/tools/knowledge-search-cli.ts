@@ -1,4 +1,4 @@
-import { knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate, reportInjectPrecision } from './knowledge-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 const query = process.argv[2] || '';
@@ -50,6 +50,10 @@ const minGrounded = envNum('SB_INJECT_MIN_GROUNDED', 2, 0, 64);
 // a split here would send scoping and access-counts to different trees (R2 review).
 const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG || undefined;
+// SB_INJECT_PRECISION, made durable: the hooks (session-load.sh, persona-context.sh's fallback)
+// discard this CLI's stderr. An unrecognised value -> error-log.jsonl; off -> one
+// gate=inject-precision TRACE row in audit-log.jsonl; the default writes nothing.
+await reportInjectPrecision(brainDir, 'knowledge-search-cli');
 const result = await knowledgeSearch({ query, brainDir, projectSlug });
 
 // SB_INJECT_GATE=1 (or on/true/yes): the caller injects the result into a session (session-load.sh's

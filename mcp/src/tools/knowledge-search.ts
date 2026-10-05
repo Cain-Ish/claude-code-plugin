@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import { atomicWriteJson } from './atomic-write.js';
 import { join } from 'path';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
-import { embedTexts, cosineSimilarity } from './embeddings.js';
+import { embedTexts, cosineSimilarity, appendErrorLog, appendGateTrace } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
 import { loadRegistry } from './doc-sources.js';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge } from './graph-store.js';
@@ -632,39 +632,66 @@ export function parseInjectGate(raw: string | undefined, warn: (msg: string) => 
   return false;
 }
 
-/** SB_INJECT_PRECISION: on, unset and empty (any case, trimmed) keep the R1 gate; off restores the
- *  0.54.1 gate. Any other value keeps the R1 gate and calls `warn` once, so a typo can neither
- *  roll the gate back nor silently fail to. */
+/** SB_INJECT_PRECISION, in SB_INJECT_GATE's vocabulary (trimmed, any case): off/0/false/no restore
+ *  the 0.54.1 gate; on/1/true/yes, empty and unset keep the R1 gate. Any other value keeps the R1
+ *  gate and calls `warn` once, so a typo can neither roll the gate back nor silently fail to. */
 export function parseInjectPrecision(raw: string | undefined, warn: (msg: string) => void): boolean {
   const v = (raw ?? '').trim().toLowerCase();
-  if (v === 'off') return false;
-  if (v !== '' && v !== 'on') {
-    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use on/off); keeping the precision gate`);
+  if (GATE_OFF.has(v)) return false;
+  if (v !== '' && !GATE_ON.has(v)) {
+    warn(`SB_INJECT_PRECISION=${JSON.stringify(raw)} is not recognised (use off/0/false/no or on/1/true/yes); keeping the precision gate`);
   }
   return true;
 }
 
 // SB_INJECT_PRECISION — the R1 rollback switch (default on). Read once per process, here at module
-// load, so a long-lived MCP server needs a restart to pick up a change. `off` (any case) restores the
-// 0.54.1 per-prompt injection gate everywhere this engine runs: discriminativeTerms grounds on the
-// 0.54 stopword list alone and lets single letters and pure digits ground again, so `grounded` and
-// `discriminative_terms` are 0.54's for every caller (the recall CLI's default filter and the MCP
-// tool included); and injectableWiki becomes legacyWikiFilter — stubs injectable, no extra term
-// for a cross-project page, need = min(minGrounded, query_terms). That covers context-serve-cli,
-// knowledge-search-cli's SB_INJECT_GATE path and the SessionStart enrichment that runs through it;
-// no CLI reads the variable itself. Ranking is untouched in both modes, and the `stub` /
-// `cross_project` flags are still emitted when off (nothing reads them then). on, unset or empty
-// keep the R1 gate; any other value warns once on stderr and keeps it. retrieval-guards.test.ts
-// locks both modes row by row, and the satisfiability arithmetic in each.
-const INJECT_PRECISION = parseInjectPrecision(process.env.SB_INJECT_PRECISION,
-  (msg) => { process.stderr.write(`second-brain knowledge-search: ${msg}` + '\n'); });
+// load, so a long-lived MCP server needs a restart to pick up a change. off/0/false/no (any case)
+// restore the 0.54.1 per-prompt injection gate everywhere this engine runs: discriminativeTerms
+// grounds on the 0.54 stopword list alone and lets single letters and pure digits ground again, so
+// `grounded` and `discriminative_terms` are 0.54's for every caller (the recall CLI's default filter
+// and the MCP tool included); and injectableWiki becomes legacyWikiFilter — stubs injectable, no
+// extra term for a cross-project page, need = min(minGrounded, query_terms). That covers
+// context-serve-cli, knowledge-search-cli's SB_INJECT_GATE path and the SessionStart enrichment
+// that runs through it; no CLI reads the variable itself. Ranking is untouched in both modes, and
+// the `stub` / `cross_project` flags are still emitted when off (nothing reads them then).
+// on/1/true/yes, unset or empty keep the R1 gate; any other value warns once on stderr and keeps it.
+// The hooks discard CLI stderr, so the outcome is also exported (injectPrecisionStatus) and
+// reportInjectPrecision makes it durable: context-serve-cli and knowledge-search-cli call it per
+// invocation, the MCP server once at start. retrieval-guards.test.ts locks both modes row by row,
+// and the satisfiability arithmetic in each.
+let injectPrecisionWarning: string | undefined;
+const INJECT_PRECISION = parseInjectPrecision(process.env.SB_INJECT_PRECISION, (msg) => {
+  injectPrecisionWarning = msg;
+  process.stderr.write(`second-brain knowledge-search: ${msg}` + '\n');
+});
+
+/** The switch's parse outcome for this process: `r1` (the default gate) or `off` (the 0.54.1
+ *  rollback); `warning` is set only for an unrecognised value, which keeps `r1`. */
+export interface InjectPrecisionStatus { mode: 'r1' | 'off'; warning?: string }
+export function injectPrecisionStatus(): InjectPrecisionStatus {
+  return { mode: INJECT_PRECISION ? 'r1' : 'off', ...(injectPrecisionWarning ? { warning: injectPrecisionWarning } : {}) };
+}
+
+/** Makes the switch's outcome durable where stderr is discarded (the hook path). An unrecognised
+ *  value -> one error-log.jsonl row (appendErrorLog, exit_code 1). `off` -> one TRACE row in
+ *  audit-log.jsonl, the shape bash sb_log_error gives a rerouted gate row:
+ *  {"timestamp","script","message":"gate=inject-precision mode=off","exit_code":0}. The default R1
+ *  mode with a recognised value does no I/O at all (no per-prompt cost). Never throws: a failed
+ *  write is echoed to stderr. `script` names the caller (the CLI, or mcp-server). */
+export async function reportInjectPrecision(brainDir: string, script: string,
+  status: InjectPrecisionStatus = injectPrecisionStatus()): Promise<void> {
+  if (status.warning) await appendErrorLog(brainDir, script, status.warning, 1);
+  if (status.mode === 'off') await appendGateTrace(brainDir, script, 'gate=inject-precision mode=off');
+}
 
 export interface InjectGateOpts { minScore: number; minRelevance: number; minGrounded: number }
 
 /** The 0.54.1 wiki filter, verbatim: knowledge-search-cli's default (recall) branch — the recall
  *  harness and the FORGET probe pin it — and, with SB_INJECT_PRECISION=off, the per-prompt gate.
- *  The need is clamped to the RAW query-term count read off candidates[0], so pass the engine's
- *  full candidate list, never a pre-filtered one. */
+ *  The need is clamped to the RAW query-term count read off candidates[0] (minGrounded when the
+ *  list is empty or its head carries none), so pass the engine's full candidate list, never a
+ *  pre-filtered or reassembled one: whatever sits first sets the clamp for every candidate
+ *  (knowledge-search.test.ts locks this with handcrafted lists). */
 export function legacyWikiFilter<C extends KnowledgeSearchResult['candidates'][number]>(candidates: C[], o: InjectGateOpts): C[] {
   const needGrounded = Math.min(o.minGrounded, candidates[0]?.query_terms ?? o.minGrounded);
   return candidates.filter(c => c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= needGrounded);

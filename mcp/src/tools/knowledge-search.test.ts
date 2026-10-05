@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fsp } from 'fs';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { knowledgeSearch, parseDoc, parseInjectGate, parseInjectPrecision } from './knowledge-search.js';
+import { knowledgeSearch, parseDoc, parseInjectGate, parseInjectPrecision, legacyWikiFilter, type KnowledgeSearchResult } from './knowledge-search.js';
 import { appendEdge } from './graph-store.js';
 
 // Hermetic access-counts (R2.2): without this, every knowledgeSearch call here
@@ -809,27 +809,42 @@ describe('parseInjectGate (knowledge-search-cli SB_INJECT_GATE)', () => {
   });
 });
 
-// SB_INJECT_PRECISION (R1 rollback switch): on, unset and empty keep the R1 per-prompt gate; off
-// (any case) restores the 0.54.1 gate. Anything else keeps the R1 gate and warns exactly once, so
-// a typo can neither silently roll the gate back nor silently fail to.
+// SB_INJECT_PRECISION (R1 rollback switch): the same words as SB_INJECT_GATE (trimmed, any case).
+// off/0/false/no restore the 0.54.1 gate; on/1/true/yes, empty and unset keep the R1 gate. Anything
+// else keeps the R1 gate and warns exactly once, so a typo can neither silently roll the gate back
+// nor silently fail to.
 describe('parseInjectPrecision (SB_INJECT_PRECISION kill switch)', () => {
-  it.each([undefined, '', 'on', 'ON', 'On', ' on ', '  '])('%j keeps the R1 gate, silently', (raw) => {
+  it.each([undefined, '', 'on', 'ON', 'On', ' on ', '  ', '1', 'true', 'TRUE', 'yes', ' Yes '])('%j keeps the R1 gate, silently', (raw) => {
     const warn = vi.fn();
     expect(parseInjectPrecision(raw, warn)).toBe(true);
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it.each(['off', 'OFF', 'Off', ' off '])('%j restores the 0.54.1 gate, silently', (raw) => {
+  it.each(['off', 'OFF', 'Off', ' off ', '0', 'false', 'FALSE', 'no', ' No '])('%j restores the 0.54.1 gate, silently', (raw) => {
     const warn = vi.fn();
     expect(parseInjectPrecision(raw, warn)).toBe(false);
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it.each(['0', 'false', 'no', '1', 'legacy', 'of', 'offf'])('%j is not recognised: R1 gate plus exactly one warning', (raw) => {
+  it.each(['legacy', 'of', 'offf', '2', 'n', 'disabled', 'o ff'])('%j is not recognised: R1 gate plus exactly one warning', (raw) => {
     const warn = vi.fn();
     expect(parseInjectPrecision(raw, warn)).toBe(true);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/SB_INJECT_PRECISION/);
+    expect(warn.mock.calls[0][0]).toContain(JSON.stringify(raw));
+  });
+
+  it('accepts exactly the words parseInjectGate accepts (one vocabulary for both switches)', () => {
+    for (const raw of ['1', 'on', 'true', 'yes', '0', 'off', 'false', 'no', '', 'bogus']) {
+      const gateWarn = vi.fn(), precWarn = vi.fn();
+      parseInjectGate(raw, gateWarn);
+      parseInjectPrecision(raw, precWarn);
+      expect(precWarn.mock.calls.length, raw).toBe(gateWarn.mock.calls.length);
+      // Same word, same polarity: a word that turns SB_INJECT_GATE on keeps the precision gate on.
+      if (gateWarn.mock.calls.length === 0 && raw !== '') {
+        expect(parseInjectPrecision(raw, () => {}), raw).toBe(parseInjectGate(raw, () => {}));
+      }
+    }
   });
 
   it('the engine reads the switch once, at module load, and no CLI reads it on its own (source lock)', async () => {
@@ -846,5 +861,169 @@ describe('parseInjectPrecision (SB_INJECT_PRECISION kill switch)', () => {
     const src = await fsp.readFile(join(__dirname, 'knowledge-search-cli.ts'), 'utf8');
     expect(src).toMatch(/legacyWikiFilter\(\s*result\.candidates/);
     expect(src).not.toMatch(/query_terms\s*\?\?/);
+  });
+});
+
+// The hooks run context-serve-cli and knowledge-search-cli with stderr discarded, so the switch's
+// stderr warning alone left an operator's mistyped rollback silently doing nothing. The parse
+// outcome is exported (injectPrecisionStatus) and reportInjectPrecision turns it into durable rows:
+// an unrecognised value -> error-log.jsonl (appendErrorLog, exit_code 1); `off` -> one TRACE row in
+// audit-log.jsonl in sb_log_error's rerouted gate-row shape; the default R1 mode -> no I/O at all.
+type Engine = typeof import('./knowledge-search.js');
+/** A fresh engine loaded under SB_INJECT_PRECISION=value (undefined = unset), stderr captured. */
+async function engineWith(value: string | undefined): Promise<{ ks: Engine; stderr: string[] }> {
+  const stderr: string[] = [];
+  const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => { stderr.push(String(chunk)); return true; });
+  try {
+    if (value === undefined) delete process.env.SB_INJECT_PRECISION;
+    else process.env.SB_INJECT_PRECISION = value;
+    vi.resetModules();
+    return { ks: await import('./knowledge-search.js') as Engine, stderr };
+  } finally {
+    spy.mockRestore();
+  }
+}
+const TRACE_ROW = (script: string) => new RegExp(
+  `^\\{"timestamp":"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z","script":"${script}","message":"gate=inject-precision mode=off","exit_code":0\\}\\n$`);
+
+describe('injectPrecisionStatus (the switch\'s parse outcome, for the CLIs and the MCP server)', () => {
+  it.each([[undefined], [''], ['on'], ['YES'], ['1'], [' true ']])('SB_INJECT_PRECISION=%j: mode r1, no warning', async (value) => {
+    const { ks } = await engineWith(value);
+    expect(ks.injectPrecisionStatus()).toEqual({ mode: 'r1' });
+  });
+
+  it.each([['off'], ['0'], ['false'], [' No ']])('SB_INJECT_PRECISION=%j: mode off, no warning', async (value) => {
+    const { ks } = await engineWith(value);
+    expect(ks.injectPrecisionStatus()).toEqual({ mode: 'off' });
+  });
+
+  it('an unrecognised value: mode r1 plus the warning, and the stderr line is still written once', async () => {
+    const { ks, stderr } = await engineWith('bogus');
+    const st = ks.injectPrecisionStatus();
+    expect(st.mode).toBe('r1');
+    expect(st.warning).toMatch(/^SB_INJECT_PRECISION="bogus" is not recognised/);
+    expect(stderr.filter(w => w.includes('SB_INJECT_PRECISION="bogus"'))).toHaveLength(1);
+  });
+
+  it('the default argument is the module\'s own status (off -> a TRACE row)', async () => {
+    const { ks } = await engineWith('off');
+    const dir = mkdtempSync(join(tmpdir(), 'ks-prec-'));
+    await ks.reportInjectPrecision(dir, 'context-serve-cli');
+    expect(await fsp.readFile(join(dir, 'audit-log.jsonl'), 'utf8')).toMatch(TRACE_ROW('context-serve-cli'));
+  });
+});
+
+describe('reportInjectPrecision (durable rows on the hook path)', () => {
+  let stderr: string[] = [];
+  beforeEach(() => {
+    stderr = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => { stderr.push(String(chunk)); return true; });
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('R1 with a recognised value does no I/O at all (not even creating the brain dir)', async () => {
+    const { reportInjectPrecision } = await import('./knowledge-search.js');
+    const dir = join(mkdtempSync(join(tmpdir(), 'ks-prec-')), 'never-created');
+    await reportInjectPrecision(dir, 'context-serve-cli', { mode: 'r1' });
+    expect(existsSync(dir)).toBe(false);
+    expect(stderr).toEqual([]);
+  });
+
+  it('off: exactly one TRACE row in audit-log.jsonl, in sb_log_error\'s gate-row shape, and no error row', async () => {
+    const { reportInjectPrecision } = await import('./knowledge-search.js');
+    const dir = mkdtempSync(join(tmpdir(), 'ks-prec-'));
+    await reportInjectPrecision(dir, 'knowledge-search-cli', { mode: 'off' });
+    expect(await fsp.readFile(join(dir, 'audit-log.jsonl'), 'utf8')).toMatch(TRACE_ROW('knowledge-search-cli'));
+    expect(existsSync(join(dir, 'error-log.jsonl'))).toBe(false);
+    expect(stderr, 'a successful TRACE is silent').toEqual([]);
+  });
+
+  it('per invocation: each call appends its own row (a CLI process is one invocation)', async () => {
+    const { reportInjectPrecision } = await import('./knowledge-search.js');
+    const dir = mkdtempSync(join(tmpdir(), 'ks-prec-'));
+    await reportInjectPrecision(dir, 'context-serve-cli', { mode: 'off' });
+    await reportInjectPrecision(dir, 'context-serve-cli', { mode: 'off' });
+    const lines = (await fsp.readFile(join(dir, 'audit-log.jsonl'), 'utf8')).split('\n').filter(Boolean);
+    expect(lines).toHaveLength(2);
+    for (const l of lines) expect(l + '\n').toMatch(TRACE_ROW('context-serve-cli'));
+  });
+
+  it('an unrecognised value: one error-log.jsonl row naming the CLI (exit_code 1), echoed to stderr, no TRACE', async () => {
+    const { reportInjectPrecision } = await import('./knowledge-search.js');
+    const dir = mkdtempSync(join(tmpdir(), 'ks-prec-'));
+    const warning = 'SB_INJECT_PRECISION="bogus" is not recognised (test)';
+    await reportInjectPrecision(dir, 'context-serve-cli', { mode: 'r1', warning });
+    const rows = (await fsp.readFile(join(dir, 'error-log.jsonl'), 'utf8')).split('\n').filter(Boolean);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatch(/^\{"timestamp":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z","script":"context-serve-cli",/);
+    expect(JSON.parse(rows[0])).toMatchObject({ script: 'context-serve-cli', message: warning, exit_code: 1 });
+    expect(existsSync(join(dir, 'audit-log.jsonl'))).toBe(false);
+    expect(stderr.join('')).toContain('[context-serve-cli] SB_INJECT_PRECISION="bogus"');
+  });
+
+  it('a write failure never throws into the CLI: it is echoed to stderr', async () => {
+    const { reportInjectPrecision } = await import('./knowledge-search.js');
+    const notADir = join(mkdtempSync(join(tmpdir(), 'ks-prec-')), 'a-file');
+    writeFileSync(notADir, 'x');
+    await expect(reportInjectPrecision(notADir, 'context-serve-cli', { mode: 'off' })).resolves.toBeUndefined();
+    expect(stderr.join('')).toMatch(/\[context-serve-cli\] gate=inject-precision mode=off \(audit-log\.jsonl write failed: /);
+  });
+
+  it.each([
+    ['context-serve-cli.ts', /await reportInjectPrecision\(brainDir, 'context-serve-cli'\);/],
+    ['knowledge-search-cli.ts', /await reportInjectPrecision\(brainDir, 'knowledge-search-cli'\);/],
+    [join('..', 'server.ts'), /await reportInjectPrecision\(BRAIN_DIR, 'mcp-server'\);/],
+  ])('%s reports the switch (source lock)', async (file, re) => {
+    const src = await fsp.readFile(join(__dirname, file), 'utf8');
+    expect(src.match(new RegExp(re.source, 'g')) ?? [], file).toHaveLength(1);
+  });
+});
+
+// legacyWikiFilter, against HANDCRAFTED candidates (not engine output): the 0.54.1 filter is
+// score >= minScore, relevance >= minRelevance, grounded >= min(minGrounded, candidates[0].query_terms
+// ?? minGrounded). Every expectation below is a literal worked out by hand from that rule.
+describe('legacyWikiFilter (the 0.54.1 filter, independent literals)', () => {
+  type Cand = KnowledgeSearchResult['candidates'][number];
+  const cand = (slug: string, grounded: number, extra: Partial<Cand> = {}): Cand => ({
+    path: `/w/${slug}.md`, score: 1, score_norm: 1, relevance: 10, grounded,
+    description: '', tokens: 10, source: 'wiki', ...extra,
+  });
+  const slugs = (cs: Cand[]) => cs.map(c => c.path.replace(/^.*\//, '').replace(/\.md$/, ''));
+  const o = { minScore: 0, minRelevance: 0, minGrounded: 2 };
+
+  it('empty candidates: nothing to filter, no throw (the need falls back to minGrounded)', () => {
+    expect(legacyWikiFilter([], o)).toEqual([]);
+  });
+
+  it('undefined query_terms on candidates[0]: the need is minGrounded itself (2)', () => {
+    // b's query_terms (1) is never consulted: only candidates[0]'s is, and it is missing.
+    const list = [cand('a', 1), cand('b', 1, { query_terms: 1 }), cand('c', 2, { query_terms: 1 })];
+    expect(slugs(legacyWikiFilter(list, o))).toEqual(['c']);
+  });
+
+  it('minGrounded 0: the need is 0, so grounded 0 passes, but the score and relevance floors still apply', () => {
+    const list = [
+      cand('a', 0, { query_terms: 3 }),
+      cand('b', 0, { query_terms: 3, score: 0.1 }),
+      cand('c', 0, { query_terms: 3, relevance: 1 }),
+    ];
+    expect(slugs(legacyWikiFilter(list, { minScore: 0.5, minRelevance: 5, minGrounded: 0 }))).toEqual(['a']);
+  });
+
+  it('the clamp reads candidates[0].query_terms RAW: not each candidate\'s own, not discriminative_terms', () => {
+    // head query_terms 1 -> need min(2, 1) = 1: both pass, although b's own query_terms (5) would ask for 2.
+    expect(slugs(legacyWikiFilter([cand('a', 1, { query_terms: 1 }), cand('b', 1, { query_terms: 5 })], o))).toEqual(['a', 'b']);
+    // Same two pages, head swapped: need min(2, 5) = 2, neither passes.
+    expect(slugs(legacyWikiFilter([cand('b', 1, { query_terms: 5 }), cand('a', 1, { query_terms: 1 })], o))).toEqual([]);
+    // discriminative_terms 1 is ignored: the need stays min(2, query_terms 5) = 2.
+    expect(slugs(legacyWikiFilter([cand('d', 1, { query_terms: 5, discriminative_terms: 1 })], o))).toEqual([]);
+  });
+
+  it('pre-filtering the list changes the clamp (why the docstring says: pass the engine\'s own list)', () => {
+    // Gated whole, the head (query_terms 1) sets need 1 and b (grounded 1) passes. Drop the head
+    // first (a caller's score floor, say) and b becomes the head: need min(2, 5) = 2, b is lost.
+    const full = [cand('a', 1, { query_terms: 1, score: 0.01 }), cand('b', 1, { query_terms: 5 })];
+    expect(slugs(legacyWikiFilter(full, o))).toEqual(['a', 'b']);
+    expect(slugs(legacyWikiFilter(full.filter(c => c.score >= 0.5), o))).toEqual([]);
   });
 });

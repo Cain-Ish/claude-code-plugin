@@ -7,7 +7,7 @@ import { EDGE_TYPES, type EdgeType } from "./tools/graph-store.js";
 import { pinToUser } from "./tools/pin-to-user.js";
 import { pinToProject } from "./tools/pin-to-project.js";
 import { archiveToWiki } from "./tools/archive-to-wiki.js";
-import { knowledgeSearch } from "./tools/knowledge-search.js";
+import { knowledgeSearch, reportInjectPrecision } from "./tools/knowledge-search.js";
 import { knowledgeFetch } from "./tools/knowledge-fetch.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
@@ -562,6 +562,9 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Knowledge MCP server running on stdio");
+  // SB_INJECT_PRECISION is read once, at engine load: record an unrecognised value (error-log.jsonl)
+  // or an active rollback (a gate=inject-precision TRACE in audit-log.jsonl) once per server start.
+  await reportInjectPrecision(BRAIN_DIR, 'mcp-server');
 }
 
 main().catch((error) => {
