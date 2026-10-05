@@ -4,7 +4,7 @@
 // embedding path to actually run, which SECOND_BRAIN_DISABLE_EMBEDDINGS=1 short-circuits before
 // the cache is ever read — so the model is replaced by a counting fake instead.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -76,5 +76,45 @@ describe('episodic re-embed on a parser bump', () => {
     expect(after.exchanges.map((e: any) => e.id)).toEqual([human.id, machine.id]);
     expect(after.exchanges[1].userSnippet).toBe('');
     expect(after.exchanges.every((e: any) => e.embedding.length === 384)).toBe(true);
+  });
+
+  // R1 review: the re-parse used to drop every row's vector and lean on the embedding cache to
+  // get them back. With the cache gone (pruned, torn, another box) every row re-embedded; with no
+  // model at all, the migration left the whole archive vectorless. An unchanged row now carries
+  // its vector over from the old index row.
+  function simulateParser1(): { human: any; machine: any } {
+    const idx = readIndex();
+    const [human, machine] = idx.exchanges;
+    machine.userSnippet = RAW_TN;
+    idx.indexed_files[FILE] = idx.indexed_files[FILE].hash;
+    writeFileSync(join(brainDir, 'episodic-index.json'), JSON.stringify(idx), 'utf-8');
+    rmSync(join(brainDir, 'transcripts', '.embeddings-cache.json'), { force: true });
+    return { human, machine };
+  }
+
+  it('an unchanged row keeps its vector through the re-parse without a model call', async () => {
+    await buildEpisodicIndex(brainDir);
+    const { human, machine } = simulateParser1();
+    calls.length = 0;
+
+    await buildEpisodicIndex(brainDir);
+
+    expect(calls).toEqual([`\n${machine.assistantSnippet}`]);
+    const after = readIndex();
+    expect(after.exchanges[0].id).toBe(human.id);
+    expect(after.exchanges[0].embedding).toEqual(human.embedding);
+  });
+
+  it('with no model during the re-parse, unchanged rows still keep their vectors', async () => {
+    await buildEpisodicIndex(brainDir);
+    const { human } = simulateParser1();
+    process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
+
+    const r = await buildEpisodicIndex(brainDir);
+
+    const after = readIndex();
+    expect(after.exchanges[0].embedding).toEqual(human.embedding);
+    expect(after.exchanges[1].embedding).toEqual([]);   // its text changed: it waits for a model
+    expect(r.pending).toBe(1);
   });
 });

@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { atomicWriteJson } from './atomic-write.js';
 import { join, basename, relative, isAbsolute } from 'path';
-import { embedTexts, cosineSimilarity } from './embeddings.js';
+import { embedTexts, cosineSimilarity, appendErrorLog, embeddingsOptedOut } from './embeddings.js';
 import { assertWithin } from '../path-guard.js';
 import { stripInvisible } from './sanitize.js';
 
@@ -392,14 +392,43 @@ function parseExchanges(lines: string[], bodyStart: number, meta: SessionMeta, a
   return exchanges;
 }
 
+const emptyIndex = (): EpisodicIndex => ({ model: 'Xenova/all-MiniLM-L6-v2', indexed_files: {}, exchanges: [] });
+
+/** A missing index is the normal first run. Anything else that cannot be used (unreadable,
+ *  unparseable, or without an exchanges array) is reset to empty AND logged: the next build
+ *  re-indexes every archive, and the reset must not pass for a healthy empty index. A missing or
+ *  malformed `indexed_files` only means "re-parse every file", so it is normalized to {}. */
 async function loadIndex(brainDir: string): Promise<EpisodicIndex> {
   const indexPath = join(brainDir, INDEX_FILE);
+  let data: string;
   try {
-    const data = await fs.readFile(indexPath, 'utf-8');
-    return JSON.parse(data);
-  } catch {
-    return { model: 'Xenova/all-MiniLM-L6-v2', indexed_files: {}, exchanges: [] };
+    data = await fs.readFile(indexPath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return emptyIndex();
+    await appendErrorLog(brainDir, 'episodic-index',
+      `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`);
+    return emptyIndex();
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch (e) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`);
+    return emptyIndex();
+  }
+  const o = parsed as Partial<EpisodicIndex> | null;
+  if (!o || typeof o !== 'object' || Array.isArray(o) || !Array.isArray(o.exchanges)) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `corrupt episodic index reset: ${indexPath} has no exchanges array`);
+    return emptyIndex();
+  }
+  const files = o.indexed_files;
+  return {
+    model: typeof o.model === 'string' ? o.model : emptyIndex().model,
+    indexed_files: files && typeof files === 'object' && !Array.isArray(files) ? files : {},
+    exchanges: o.exchanges,
+  };
 }
 
 async function saveIndex(brainDir: string, index: EpisodicIndex): Promise<void> {
@@ -419,6 +448,10 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   const index = await loadIndex(brainDir);
   const newExchanges: Exchange[] = [];
   const reparsed: Record<string, string> = {};
+  // Rows of re-parsed files, by id, captured before they are dropped: a row whose stored text
+  // comes out of the re-parse unchanged carries its vector over (no model call, and no loss when
+  // the model or the embedding cache is unavailable).
+  const previous = new Map<string, IndexedExchange>();
 
   for (const filePath of files) {
     // Sanitize untrusted transcript text before indexing it (P6b — invisible/Tags-block
@@ -432,6 +465,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     if (isCurrentEntry(index.indexed_files[fname], hash)) continue;
     reparsed[fname] = hash;
 
+    for (const e of index.exchanges) if (basename(e.archivePath) === fname) previous.set(e.id, e);
     index.exchanges = index.exchanges.filter(e => basename(e.archivePath) !== fname);
     const lines = content.split('\n');
     const { meta, bodyStart } = parseSessionMeta(lines);
@@ -445,17 +479,23 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   // Persist new exchanges immediately (text-searchable). Embeddings may be empty
   // and will be filled in by the repair pass below or on a future run.
   for (const e of newExchanges) {
+    const userSnippet = e.userMessage.slice(0, SNIPPET_LEN);
+    const assistantSnippet = e.assistantMessage.slice(0, SNIPPET_LEN);
+    // The vector embeds exactly these two snippets, so equal text means the old vector is valid.
+    const old = previous.get(e.id);
+    const carried = old && old.userSnippet === userSnippet && old.assistantSnippet === assistantSnippet
+      && Array.isArray(old.embedding) && old.embedding.length > 0 ? old.embedding : [];
     index.exchanges.push({
       id: e.id,
       sessionId: e.sessionId,
       project: e.project,
       date: e.date,
-      userSnippet: e.userMessage.slice(0, SNIPPET_LEN),
-      assistantSnippet: e.assistantMessage.slice(0, SNIPPET_LEN),
+      userSnippet,
+      assistantSnippet,
       archivePath: e.archivePath,
       lineStart: e.lineStart,
       lineEnd: e.lineEnd,
-      embedding: [],
+      embedding: carried,
     });
   }
 
@@ -494,6 +534,13 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
 
   await saveIndex(brainDir, index);
   const pending = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0).length;
+  // Rows without a vector are invisible to vector recall; say so, unless the user opted out of
+  // embeddings (an acknowledged choice, which episodic-index.test.ts keeps out of the error log).
+  if (pending > 0 && !embeddingsOptedOut()) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `${pending} of ${index.exchanges.length} rows have no embedding after the repair pass: vector recall `
+      + 'misses them until a build can embed them (check the embedding model / vector deps)');
+  }
   return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending };
 }
 
