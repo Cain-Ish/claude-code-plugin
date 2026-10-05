@@ -101,27 +101,29 @@ interface AccessCounts { [slug: string]: { count: number; last_accessed: string 
 // server + embeddings conventions), NOT hardcoded to $HOME — eval/test runs were
 // reading the LIVE access counts into their rankings AND writing fixture slugs
 // back into the user's real state, making the "deterministic" recall gate
-// flip-flop run-to-run.
-function accessCountsFile(): string {
-  return join(resolveBrainDir(), 'access-counts.json');
+// flip-flop run-to-run. G3 (2026-10): a brainDir the CALLER passes wins over the env/home
+// resolution — sb.ts and tests pass a sandbox, and ignoring it wrote fixture slugs into the
+// real ~/.second-brain/access-counts.json.
+function accessCountsFile(brainDir?: string): string {
+  return join(resolveBrainDir(brainDir), 'access-counts.json');
 }
 // P4b (spec 2026-06-26 §6): the access-frequency SEARCH BOOST was cut — it is the recsys
 // "rich-get-richer" hub bias (the ~10,000x corruption class). Access counts now survive ONLY
 // as `acc=` telemetry in wiki-forget-score.sh (recorded below, never folded into ranking).
 const ACCESS_PRUNE_DAYS = 90;
 
-async function loadAccessCounts(): Promise<AccessCounts> {
-  try { return JSON.parse(await fs.readFile(accessCountsFile(), 'utf-8')); }
+async function loadAccessCounts(brainDir?: string): Promise<AccessCounts> {
+  try { return JSON.parse(await fs.readFile(accessCountsFile(brainDir), 'utf-8')); }
   catch { return {}; }
 }
 
-async function saveAccessCounts(counts: AccessCounts): Promise<void> {
+async function saveAccessCounts(counts: AccessCounts, brainDir?: string): Promise<void> {
   const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 86400000).toISOString();
   const pruned: AccessCounts = {};
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await atomicWriteJson(accessCountsFile(), pruned);
+  await atomicWriteJson(accessCountsFile(brainDir), pruned);
 }
 
 const TOP_K = 8;
@@ -523,7 +525,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     }));
 
   // Record access for returned results (fire-and-forget) — telemetry only (see ACCESS_PRUNE_DAYS).
-  const accessCounts = await loadAccessCounts();
+  const accessCounts = await loadAccessCounts(args.brainDir);
   const ts = new Date().toISOString();
   for (const c of candidates) {
     if (c.source === 'local-doc') continue;
@@ -537,7 +539,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // so the write's fs.rename never completed: a 0-byte `access-counts.json.tmp.<pid>` was left
   // behind on every CLI invocation and access-counts.json was never actually updated. Awaiting it
   // here means the write is durable before this function (and therefore any caller) returns.
-  await saveAccessCounts(accessCounts).catch(() => {});
+  await saveAccessCounts(accessCounts, args.brainDir).catch(() => {});
 
   return {
     candidates,
