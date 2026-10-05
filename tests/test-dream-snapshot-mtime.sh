@@ -14,7 +14,7 @@ unset CLAUDECODE ANTHROPIC_API_KEY SB_EXTRACTOR_LOCAL_URL 2>/dev/null || true
 
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SNAP="$REPO_ROOT/scripts/dream-snapshot.sh"
-fail() { echo "FAIL: $1"; exit 1; }
+fail() { echo "FAIL: $1"; [ -n "${RACE_BIN:-}" ] && race_diag; exit 1; }
 pass() { echo "PASS: $1"; }
 
 SANDBOX=$(mktemp -d); trap 'rm -rf "$SANDBOX"' EXIT
@@ -174,9 +174,20 @@ EOF
   chmod +x "$1/cp"
 }
 run_race() {  # $1 bin dir, $2 brain dir, $3 knowledge dir
+  RACE_BIN="$1"; RACE_BRAIN="$2"; RACE_KNOW="$3"
   PATH="$1:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" BRAIN_DIR="$2" \
     CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$3" KNOWLEDGE_DIR="$3" \
-    bash "$SNAP" --max-count 5 >/dev/null 2>&1
+    bash "$SNAP" --max-count 5 >"$1/snap.out" 2>"$1/snap.err"
+}
+# A failing race case prints what the snapshot itself saw. On 2026-10-05 one suite run failed the
+# concurrent-writer case (rc=1, no brain4/dreams, live=2) and left no evidence, because the
+# snapshot's stderr went to /dev/null. It did not reproduce in 13 later runs.
+race_diag() {
+  echo "  diag: snapshot stderr:"; sed 's/^/    /' "$RACE_BIN/snap.err" 2>&1 | tail -20
+  echo "  diag: wiki copies=$(cat "$RACE_BIN/calls" 2>/dev/null || echo 0) started: $(tr '\n' ' ' < "$RACE_BIN/starts" 2>/dev/null)"
+  echo "  diag: brain tree:"; find "$RACE_BRAIN" -maxdepth 4 2>&1 | sed 's/^/    /' | head -30
+  echo "  diag: live wiki:"; find "$RACE_KNOW/wiki" 2>&1 | sed 's/^/    /' | head -20
+  echo "  diag: brain error-log tail:"; tail -3 "$RACE_BRAIN/error-log.jsonl" 2>&1 | sed 's/^/    /'
 }
 
 BRAIN_DIR4="$SANDBOX/brain4"; KNOWLEDGE_DIR4="$SANDBOX/knowledge4"
