@@ -373,3 +373,34 @@ describe('grounding: single letters never ground, digits do', () => {
     expect(hit?.discriminative_terms).toBe(2);
   });
 });
+
+// --- Data-validated grounding stopwords (R1#4, 2026-10) -----------------------------------------
+// Each word below was re-graded against the 40-prompt relevance sample on the real wiki
+// (scratchpad review/stopword-validation.md): adding it pushes no grader-identified R2 page
+// below the gate. Two words were tested and must keep grounding: "new" grounds R2 #27 ("season 8
+// artifacts ... new") and "changes" grounds R2 #38's version-bump tripwire page.
+describe('grounding: generic prompt verbs never ground, validated content words still do', () => {
+  const GENERIC = ['check', 'checks', 'checked', 'one', 'old', 'add', 'added', 'change', 'changed',
+    'relevant', 'correct', 'valid', 'everything', 'update', 'updated', 'missing', 'still', 'final',
+    'ready', 'sure', 'let', 'see', 'try', 'continue'];
+
+  it('a page titled with every generic word grounds only on its real term', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'generic-title', title: `zzqanchor ${GENERIC.join(' ')}`, description: 'notes' },
+    ]);
+    const r = await knowledgeSearch({ query: `zzqanchor ${GENERIC.join(' ')}`, knowledgeDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === 'generic-title');
+    expect(hit?.discriminative_terms).toBe(1);
+    expect(hit?.grounded).toBe(1);
+  });
+
+  it('"new" and "changes" stay grounding terms (R2 #27 and #38 depend on them)', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'season-changes', title: 'zzqseason new changes', description: 'notes' },
+    ]);
+    const r = await knowledgeSearch({ query: 'zzqseason new changes', knowledgeDir: dir });
+    expect(r.candidates.find(c => slugOf(c.path) === 'season-changes')?.grounded).toBe(3);
+  });
+});

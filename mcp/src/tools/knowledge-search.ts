@@ -183,6 +183,15 @@ const GROUNDING_STOPWORDS = new Set([
   'best', 'better', 'good', 'bad', 'way', 'ways', 'thing', 'things', 'stuff',
   'get', 'got', 'make', 'made', 'use', 'used', 'using', 'need', 'want', 'like', 'please', 'help',
   'some', 'any', 'all', 'more', 'most', 'much', 'many', 'very', 'just', 'only', 'also', 'now',
+  // Generic prompt verbs/qualifiers, added 2026-10 (R1#4) only after re-grading: on the 40 graded
+  // prompts over the real wiki, none of these pushes a grader-identified R2 page below the gate,
+  // and together they cut injections on noise-graded prompts 16 -> 10 (scratchpad
+  // review/stopword-validation.md). Deliberately NOT here: "new" (grounds R2 #27, "season 8 ...
+  // new artifacts") and "changes" (grounds R2 #38's version-bump tripwire page) — locked in
+  // retrieval-guards.test.ts.
+  'check', 'checks', 'checked', 'one', 'old', 'add', 'added', 'change', 'changed',
+  'relevant', 'correct', 'valid', 'everything', 'update', 'updated', 'missing', 'still', 'final',
+  'ready', 'sure', 'let', 'see', 'try', 'continue',
 ]);
 const COMMON_TERM_DF_SHARE = (() => {
   const v = parseFloat(process.env.SB_GROUNDING_DF_SHARE ?? '');
