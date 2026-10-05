@@ -126,16 +126,17 @@ function isCurrentEntry(entry: IndexedFileEntry | undefined, hash: string): bool
 const PEER_PREFIX = 'Another Claude session sent a message:';
 /** The harness tags a machine-written turn opens with: an ALLOWLIST, the same one the hook's
  *  `case` carries. Never "any leading <x-…" tag: that blanked human prompts such as
- *  "<my-component> doesn't render" (R1 review). Human pastes use <pasted_content (underscore). */
+ *  "<my-component> doesn't render", "<v-btn …>", "<router-view/>" (R1 review). Over 400 real
+ *  transcripts every leading hyphenated tag was one of these families. Human pastes use
+ *  <pasted_content (underscore). */
 export const MACHINE_TAG_PREFIXES: readonly string[] = [
   '<task-notification>',
   '<system-reminder>',
-  '<command-name>',
-  '<command-message>',
-  '<command-args>',
-  '<local-command-',
   '<agent-message',
   '<cross-session-message',
+  '<command-',          // command-name, command-message, command-args
+  '<local-command-',    // local-command-stdout, local-command-caveat, …
+  '<bash-',             // bash-input, bash-stdout, bash-stderr (the ! shell mode)
 ];
 const MACHINE_TURN_PREFIXES = [
   ...MACHINE_TAG_PREFIXES,
