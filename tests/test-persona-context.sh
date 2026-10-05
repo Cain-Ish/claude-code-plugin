@@ -10,9 +10,21 @@
 # bit (hooks.json invokes it as `bash <script>`), so all test invocations here
 # go through `bash "$SCRIPT"` rather than `"$SCRIPT"` directly.
 set -u
+# The hook's headless-child gate keys on these (R1#2): a suite launched from `claude -p`, or from a
+# session whose values leak in, must not silently turn every case below into a no-op.
+unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED SB_HEADLESS_CONTEXT SB_MACHINE_TURN_SKIP SB_NESTED_SPAWN
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/persona-context.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+
+# G2: no case in this file may spawn the real `claude` (a /? prompt against a built bundle used to
+# start a real, paid Opus advisor run on every suite pass). A fake `claude` first on PATH drops a
+# sentinel if anything reaches it; the sentinel is asserted absent after Test 5 and at the end.
+CLAUDE_SPAWNED="$TMP/claude-spawned"
+mkdir -p "$TMP/fake-bin"
+printf '#!/bin/bash\necho "spawned $*" >> "%s"\nexit 1\n' "$CLAUDE_SPAWNED" > "$TMP/fake-bin/claude"
+chmod +x "$TMP/fake-bin/claude"
+export PATH="$TMP/fake-bin:$PATH"
 
 # Isolate from the user's real ~/.second-brain. Without this, the per-session
 # injection memo persists between test cases (same session_id => deduped output)
@@ -77,14 +89,12 @@ out=$(SB_PERSONA_GATE=off bash -c "$(declare -f payload); payload 'implement a n
 [ -z "$out" ] || fail "SB_PERSONA_GATE=off should suppress output (got: $out)"
 pass "kill switch honored"
 
-# Test 5: /? prefix never crashes (smoke — the real env may or may not have the bundle).
-# D145: when the bundle IS present, this path now also prints a one-line stderr spend
-# notice ("spawning Opus advisor") BEFORE the JSON (or before nothing, if the call
-# itself then fails/emits no brief) — strip it before checking the smoke-test shape.
-out=$(payload "/? what's the best approach" | bash "$SCRIPT" 2>&1 | grep -v 'spawning Opus advisor')
-echo "$out" | grep -qE '^\{' || [ -z "$out" ] || fail "/? prefix should emit either JSON or be silent (got: $out)"
-pass "/? prefix handled cleanly"
-
+# Test 5 (G2 — hermetic): a /? prompt goes to the persona-think bundle and never further. This case
+# used to run against the REAL plugin root, so wherever the bundle was built it started a real, paid
+# Opus advisor run on every suite pass, and it passed on empty output too. Now it runs against a
+# scratch CLAUDE_PLUGIN_ROOT whose persona-think-cli bundle is a stub (shared with Test 5a), asserts
+# the stub's reply is what reaches additionalContext, and asserts the fake `claude` installed first
+# on PATH above was never spawned.
 # Test 5a (0.32.x /? delivery): with a PRESENT persona-think-cli bundle on the resolved
 # THINK_CLI path, a '/? <query>' prompt must deliver the Opus brief to additionalContext.
 # We stub the bundle (the script resolves it to $CLAUDE_PLUGIN_ROOT/mcp/dist/cli/
@@ -100,6 +110,15 @@ let d='';process.stdin.on('data',c=>{d+=c;});process.stdin.on('end',()=>{
   process.stdout.write('SB_THINK_SENTINEL_42 query=' + d.trim());
 });
 STUBJS
+  T5_BRAIN=$(mktemp -d)
+  out=$(payload "/? what's the best approach" \
+    | CLAUDE_PLUGIN_ROOT="$THINK_ROOT" BRAIN_DIR="$T5_BRAIN" bash "$SCRIPT" 2>/dev/null)
+  printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | test("SB_THINK_SENTINEL_42 query=what.s the best approach")' >/dev/null \
+    || fail "G2: /? did not deliver the STUB bundle's reply — the hermetic stub did not run (got: $out)"
+  [ ! -e "$CLAUDE_SPAWNED" ] || fail "G2: the /? path spawned \`claude\` ($(cat "$CLAUDE_SPAWNED")) — Test 5 must never start a real advisor run"
+  pass "G2: /? routes to the stubbed persona-think bundle and spawns no real claude"
+  rm -rf "$T5_BRAIN"
+
   THINK_BRAIN=$(mktemp -d)
   out=$(payload "/? what is the best caching strategy" \
     | CLAUDE_PLUGIN_ROOT="$THINK_ROOT" BRAIN_DIR="$THINK_BRAIN" bash "$SCRIPT")
@@ -131,7 +150,7 @@ STUBJS
   pass "D145: SB_PERSONA_THINK=off refuses the /? paid advisor without disabling the rest of persona-context"
   rm -rf "$THINK_ROOT" "$THINK_BRAIN" "$THINK_BRAIN2"
 else
-  pass "/? present-bundle: skipped (node not on PATH)"
+  pass "/? (Test 5 + present-bundle 5a): skipped (node not on PATH)"
 fi
 
 # Test 5b (0.32.x /? dead-route guard): with the bundle MISSING, a '/?' prompt must NOT be
@@ -177,6 +196,9 @@ rm -rf "$BRAIN_DIR_TEST"
 BRAIN_DIR_WDEDUP=$(mktemp -d)
 KNOW_DIR_WDEDUP=$(mktemp -d)
 mkdir -p "$KNOW_DIR_WDEDUP/wiki/entities"
+# The hook reads its wiki from CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR (else $HOME/knowledge), never from
+# KNOWLEDGE_DIR — without this the case searched the real wiki, found nothing and always "skipped".
+export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW_DIR_WDEDUP"
 cat > "$KNOW_DIR_WDEDUP/wiki/entities/widget-page.md" <<EOF
 ---
 title: "Widget page"
@@ -203,6 +225,7 @@ else
   pass "wiki dedup: skipped (knowledge_search returned no hits in this env)"
 fi
 rm -rf "$BRAIN_DIR_WDEDUP" "$KNOW_DIR_WDEDUP"
+unset CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
 
 # Test 11 (0.29.4): the keyword stopword filter must whole-LINE match (grep -vxF), not
 # word-match (grep -vwF). The tokenizer deliberately preserves hyphens so technical ids
@@ -212,6 +235,7 @@ rm -rf "$BRAIN_DIR_WDEDUP" "$KNOW_DIR_WDEDUP"
 # when the search bundle actually retrieves the plain-keyword control page in this env.
 BRAIN_DIR_HY=$(mktemp -d); KNOW_DIR_HY=$(mktemp -d)
 mkdir -p "$KNOW_DIR_HY/wiki/entities"
+export CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KNOW_DIR_HY"   # the hook's wiki dir (see Test 8b)
 for pg in "widgetcontrol::widgetcontrol gadget" "node-is-modules::node-is-modules dependency"; do
   slug=${pg%%::*}; body=${pg##*::}
   cat > "$KNOW_DIR_HY/wiki/entities/$slug.md" <<EOF
@@ -239,6 +263,7 @@ else
   pass "keyword-hyphen test skipped (knowledge_search returned no hits in this env)"
 fi
 rm -rf "$BRAIN_DIR_HY" "$KNOW_DIR_HY"
+unset CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR
 
 # --- Session Intent Spine: goal anchor + always-emit goal line ---
 SP_BRAIN=$(mktemp -d); SP_KNOW=$(mktemp -d); mkdir -p "$SP_KNOW/wiki"
