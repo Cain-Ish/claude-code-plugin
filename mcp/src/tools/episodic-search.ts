@@ -109,8 +109,9 @@ interface EpisodicIndex {
  *  derive from archivePath + line range, so a re-parse keeps ids as long as exchange
  *  boundaries do not move — the hygiene tests pin them.
  *  2 = machine-turn user text cleaned (R1#3, 2026-10).
- *  3 = harness tags are an allowlist (no generic <x-… rule) and image/interrupt prefix lines are
- *      stripped with the human text after them kept (R1 review, 2026-10). */
+ *  3 = harness tags are an allowlist (no generic <x-… rule), image/interrupt prefix lines are
+ *      stripped with the human text after them kept, and a peer body keeps its provenance
+ *      marker and harness flag line (R1 review, 2026-10). */
 export const EPISODIC_PARSER_VERSION = 3;
 
 function isCurrentEntry(entry: IndexedFileEntry | undefined, hash: string): boolean {
@@ -158,8 +159,14 @@ export function isMachineTurnText(text: string): boolean {
   return MACHINE_TURN_PREFIXES.some(p => t.startsWith(p)) || MACHINE_LINE_PREFIXES.some(p => t.startsWith(p));
 }
 
+/** Provenance markers a cleaned peer body is stored with (security review): the body is never
+ *  the user's words, so it must never read as them once its wrapper is gone. */
+export const SUBAGENT_REPORT_MARK = '(subagent report) ';
+export const PEER_MESSAGE_MARK = '(peer message) ';
+
 /** Peer message (subagent hand-back or cross-session): drop the header, the wrapper tag pair,
- *  the leading frame lines and anything after the closing tag; keep the report body. */
+ *  the hand-back preamble and anything after the closing tag; keep the report body, prefixed with
+ *  its provenance marker, plus any `[harness: …]` flag line (folded, so it opens no frame). */
 function peerReportBody(rest: string): string {
   const lines = rest.split('\n');
   let i = 0;
@@ -174,9 +181,46 @@ function peerReportBody(rest: string): string {
   } else {
     body = lines.slice(i);
   }
+  const flags: string[] = [];
   let j = 0;
-  while (j < body.length && (!body[j].trim() || /^\s*\[(Subagent hand-back\]|harness:)/.test(body[j]))) j++;
-  return body.slice(j).join('\n').trim();
+  for (; j < body.length; j++) {
+    const l = body[j].trim();
+    if (!l || l.startsWith('[Subagent hand-back]')) continue;
+    if (l.startsWith('[harness:')) { flags.push(foldServedSnippet(l)); continue; }
+    break;
+  }
+  const report = body.slice(j).join('\n').trim();
+  if (!report) return '';
+  const mark = open?.[1] === 'agent-message' ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
+  return mark + [...flags, report].join('\n');
+}
+
+// Serve-time fold, the TS twin of session-load.sh's card fold and protocol-guard.sh's item fold:
+// any line break becomes a space and every square bracket (ASCII or a lookalike) a parenthesis,
+// so a stored snippet can never close the hook's "[End untrusted reference]" frame or start a
+// line that reads as a new turn. Code points, not escapes, so no tool or editor can decode them.
+const FOLD_TO_SPACE = new Set([0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x85, 0x2028, 0x2029]);
+const FOLD_TO_OPEN = new Set([0x5b, 0xff3b, 0x3010, 0x27e6, 0x301a, 0x2045, 0xfe47, 0x3014]);
+const FOLD_TO_CLOSE = new Set([0x5d, 0xff3d, 0x3011, 0x27e7, 0x301b, 0x2046, 0xfe48, 0x3015]);
+
+export function foldServedSnippet(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    out += FOLD_TO_SPACE.has(c) ? ' ' : FOLD_TO_OPEN.has(c) ? '(' : FOLD_TO_CLOSE.has(c) ? ')' : ch;
+  }
+  return out;
+}
+
+/** The user line of an episodic_search MCP result. A row with no human words is never shown as
+ *  **User**: a peer body is labelled by its marker, a cleaned machine row is `[machine turn]`.
+ *  Legacy rows (an older parser's raw text) are re-cleaned first. */
+export function episodeUserLine(userSnippet: string): string {
+  const u = cleanUserText(userSnippet).trim();
+  if (!u) return '[machine turn]';
+  if (u.startsWith(SUBAGENT_REPORT_MARK)) return `**Subagent report**: ${foldServedSnippet(u.slice(SUBAGENT_REPORT_MARK.length))}`;
+  if (u.startsWith(PEER_MESSAGE_MARK)) return `**Peer message**: ${foldServedSnippet(u.slice(PEER_MESSAGE_MARK.length))}`;
+  return `**User**: ${foldServedSnippet(u)}`;
 }
 
 /** The user side of an exchange as the episodic index stores it. Human text is returned
@@ -244,9 +288,10 @@ export async function serveEpisodicLines(query: string, brainDir: string, o: Epi
   const served = servableEpisodes(result.results,
     { sessionId: o.sessionId, minSimilarity: SERVE_MIN_SIMILARITY, max: SERVE_MAX });
   if (served.length === 0) return [];
+  // Every field that came from an archive is folded: one line, no square bracket.
   return [EPISODIC_SERVE_HEADER, ...served.map(r => {
     const sim = Math.round(r.similarity * 100);
-    return `- "${r.userSnippet.slice(0, 80)}..." (${r.project}, ${r.date}, ${sim}%)`;
+    return `- "${foldServedSnippet(r.userSnippet).slice(0, 80)}..." (${foldServedSnippet(r.project)}, ${foldServedSnippet(r.date)}, ${sim}%)`;
   })];
 }
 

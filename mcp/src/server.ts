@@ -12,7 +12,7 @@ import { knowledgeFetch } from "./tools/knowledge-fetch.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
 import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
-import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope, displaySnippet } from "./tools/episodic-search.js";
+import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope, episodeUserLine, foldServedSnippet } from "./tools/episodic-search.js";
 import { personaThink } from "./tools/persona-think.js";
 import { personaStats } from "./tools/persona-stats.js";
 import { personaDismiss } from "./tools/persona-dismiss.js";
@@ -400,12 +400,15 @@ registerJsonTool(
     if (result.results.length === 0) {
       return "No matching conversations found.";
     }
+    // Archive text is untrusted: every snippet is folded to one bracket-free line, and a row with
+    // no human words is labelled by its provenance (subagent report, peer message, machine turn),
+    // never with the user label (security review, R1).
     const render = (r: typeof result.results[number]) => {
       const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : '';
       return [
-        `### ${r.project} — ${r.date}${sim}`,
-        `**User**: ${displaySnippet({ userSnippet: r.userSnippet })}`,
-        `**Assistant**: ${r.assistantSnippet}`,
+        `### ${foldServedSnippet(r.project)} — ${foldServedSnippet(r.date)}${sim}`,
+        episodeUserLine(r.userSnippet),
+        `**Assistant**: ${foldServedSnippet(r.assistantSnippet)}`,
         `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`,
       ].join('\n');
     };
