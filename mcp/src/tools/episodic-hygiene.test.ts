@@ -7,7 +7,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import {
   isMachineTurnText, cleanUserText, buildEpisodicIndex, EPISODIC_PARSER_VERSION, servableEpisodes,
-  displaySnippet,
+  displaySnippet, MACHINE_TAG_PREFIXES,
 } from './episodic-search.js';
 
 describe('isMachineTurnText — the shared machine-turn contract', () => {
@@ -45,6 +45,11 @@ describe('isMachineTurnText — the shared machine-turn contract', () => {
     'please check the <task-notification> handling',            // marker not at the start
     'continue',
     '',
+    // Human prompts that open with a hyphenated custom-element tag: the harness tags are an
+    // allowlist, never "any <x-…" (R1 review: the generic rule blanked these rows).
+    "<my-component> doesn't render after the props change",
+    '<x-modal> closes on blur, why?',
+    '<date-picker value="x"> loses focus',
   ])('human: %s', (t) => {
     expect(isMachineTurnText(t)).toBe(false);
   });
@@ -103,6 +108,27 @@ describe('cleanUserText — blank boilerplate, keep peer report bodies', () => {
     expect(cleanUserText(t)).toBe('');
   });
 
+  it.each([
+    "<my-component> doesn't render after the props change",
+    '<x-modal> closes on blur, why?',
+  ])('keeps a human prompt that opens with a custom-element tag: %s', (t) => {
+    expect(cleanUserText(t)).toBe(t);
+  });
+
+  it('strips only the image / interrupt prefix lines and keeps the human text after them', () => {
+    expect(cleanUserText('[Image: source: C:\\Users\\x\\shot.png]\nwhy is the button misaligned here?'))
+      .toBe('why is the button misaligned here?');
+    expect(cleanUserText('[Image: original 1689x2133, displayed at 1584x2000.]\n[Image: source: C:\\x.png]\n\nthe header overlaps the nav'))
+      .toBe('the header overlaps the nav');
+    expect(cleanUserText('[Request interrupted by user for tool use]\nno, edit the other file'))
+      .toBe('no, edit the other file');
+    // A lone prefix line has no human text left.
+    expect(cleanUserText('[Image: source: C:\\x.png]')).toBe('');
+    expect(cleanUserText('[Request interrupted by user]')).toBe('');
+    // What follows the prefix is cleaned in turn: boilerplate after an image line is still blanked.
+    expect(cleanUserText('[Image: source: C:\\x.png]\n<system-reminder>x</system-reminder>')).toBe('');
+  });
+
   it('is idempotent on its own output', () => {
     const peer = 'Another Claude session sent a message:\n<agent-message from="a">\n## Report\nbody\n</agent-message>';
     const once = cleanUserText(peer);
@@ -115,8 +141,9 @@ describe('cleanUserText — blank boilerplate, keep peer report bodies', () => {
 // `# machine-turn:begin` and `# machine-turn:end`. Contract this test enforces: every case-pattern
 // alternative in that block that contains a single-quoted literal (or an escaped character) must,
 // expanded to its shortest matching string, satisfy isMachineTurnText — so the archive side never
-// keeps boilerplate the hook already treats as machine. The block must also cover the four shared
-// literal prefixes. Patterns are expanded, not regex-converted: quotes are unwrapped, `\c` -> c,
+// keeps boilerplate the hook already treats as machine. The block must also cover the three shared
+// text prefixes and every allowlisted harness tag (MACHINE_TAG_PREFIXES). Patterns are expanded,
+// not regex-converted: quotes are unwrapped, a backslash escape -> the escaped character,
 // `[class]` -> its first character, `*` -> '', `?` -> 'x'. A NEGATIVE branch in the block (e.g. a
 // `'<pasted_content'*)` that exits early as human) would be read as a machine prefix and fail here;
 // keep such branches outside the markers.
@@ -189,18 +216,55 @@ describe('machine-turn parity: persona-context.sh block <-> isMachineTurnText', 
   it('every quoted prefix in the block is machine text on the archive side too', async () => {
     const block = machineTurnBlock(await fs.readFile(HOOK, 'utf8'));
     expect(block, 'machine-turn marker block missing in scripts/persona-context.sh').not.toBeNull();
-    const alts = caseAlternatives(block!);
-    expect(alts.length, 'no quoted case-pattern alternatives found inside the marker block').toBeGreaterThan(0);
-    const bad = alts.filter(a => { const s = expandGlob(a); return s === null || !isMachineTurnText(s); });
-    expect(bad, 'hook-side machine prefixes the archive side would keep as human text').toEqual([]);
-    const samples = alts.map(expandGlob).filter((s): s is string => s !== null);
-    for (const must of ['<task-notification>', 'Another Claude session sent a message:',
-      'Stop hook feedback:', 'This session is being continued from a previous conversation']) {
-      expect(samples.some(s => s.startsWith(must)), `hook block lacks the shared prefix ${must}`).toBe(true);
-    }
-    expect(samples.some(s => /^<[a-z]+-/.test(s)), 'hook block lacks the hyphenated-tag rule').toBe(true);
+    expect(parityProblems(block!)).toEqual([]);
+  });
+
+  // The checker itself, against fixed blocks: the allowlist shape both sides share passes, and a
+  // generic "any hyphenated tag" glob (the rule the R1 review removed) is caught.
+  it('passes the shared tag allowlist shape', () => {
+    const block = [
+      '# machine-turn:begin',
+      'case "$_MT_P" in',
+      "  '<task-notification>'*) _MT_KIND=notification ;;",
+      "  'Another Claude session sent a message:'*) _MT_KIND=peer ;;",
+      "  'Stop hook feedback:'*) _MT_KIND=stop-feedback ;;",
+      "  'This session is being continued from a previous conversation'*) _MT_KIND=continuation ;;",
+      "  '<system-reminder>'*|'<command-name>'*|'<command-message>'*|'<command-args>'*|\\",
+      "  '<local-command-'*|'<agent-message'*|'<cross-session-message'*) _MT_KIND=tag ;;",
+      'esac',
+    ].join('\n');
+    expect(parityProblems(block)).toEqual([]);
+  });
+
+  it('catches a generic hyphenated-tag glob, and a block missing an allowlisted tag', () => {
+    const generic = "case x in\n  '<task-notification>'*) k=n ;;\n  \\<[a-z]*-*) k=tag ;;\nesac";
+    expect(parityProblems(generic).join('\n')).toMatch(/archive side would keep as human text/);
+    const short = "case x in\n  '<task-notification>'*|'<system-reminder>'*) k=n ;;\nesac";
+    expect(parityProblems(short).join('\n')).toMatch(/lacks the tag <agent-message/);
   });
 });
+
+/** Every way a hook block can disagree with the archive side (empty = parity holds). The hook may
+ *  not treat as machine anything the archive keeps as human, and it must cover every shared text
+ *  prefix and every allowlisted harness tag. */
+function parityProblems(block: string): string[] {
+  const problems: string[] = [];
+  const alts = caseAlternatives(block);
+  if (alts.length === 0) return ['no quoted case-pattern alternatives found inside the marker block'];
+  for (const a of alts) {
+    const s = expandGlob(a);
+    if (s === null || !isMachineTurnText(s)) problems.push(`hook-side machine prefix the archive side would keep as human text: ${a}`);
+  }
+  const samples = alts.map(expandGlob).filter((s): s is string => s !== null);
+  for (const must of ['Another Claude session sent a message:', 'Stop hook feedback:',
+    'This session is being continued from a previous conversation']) {
+    if (!samples.some(s => s.startsWith(must))) problems.push(`hook block lacks the shared prefix ${must}`);
+  }
+  for (const tag of MACHINE_TAG_PREFIXES) {
+    if (!samples.some(s => s.startsWith(tag))) problems.push(`hook block lacks the tag ${tag}`);
+  }
+  return problems;
+}
 
 // --- Parse-time cleaning keeps every row and every id ----------------------------------------
 function idOf(archivePath: string, start0: number, end0: number): string {
@@ -270,13 +334,14 @@ describe('episodic parse: rows kept, user side cleaned, ids stable', () => {
     const { brainDir } = await seedArchive();
     await buildEpisodicIndex(brainDir);
     const entry = readIndex(brainDir).indexed_files['s1_proj_2026-10-01.txt'];
-    expect(EPISODIC_PARSER_VERSION).toBe(2);
+    expect(EPISODIC_PARSER_VERSION).toBe(3);
     expect(entry).toEqual({ hash: expect.any(String), parser: EPISODIC_PARSER_VERSION });
   });
 
   it.each([
     ['a bare hash string (pre-version writer)', (h: string) => h],
     ['parser: 1', (h: string) => ({ hash: h, parser: 1 })],
+    ['parser: 2 (before the tag allowlist and the image-prefix strip)', (h: string) => ({ hash: h, parser: 2 })],
   ])('re-parses a file indexed with %s and keeps every id', async (_label, legacy) => {
     process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
     const { brainDir } = await seedArchive();

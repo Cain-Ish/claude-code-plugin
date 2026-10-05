@@ -108,8 +108,10 @@ interface EpisodicIndex {
  *  indexed by an older (or unversioned) parser is re-parsed once on the next build. Row ids
  *  derive from archivePath + line range, so a re-parse keeps ids as long as exchange
  *  boundaries do not move — the hygiene tests pin them.
- *  2 = machine-turn user text cleaned (R1#3, 2026-10). */
-export const EPISODIC_PARSER_VERSION = 2;
+ *  2 = machine-turn user text cleaned (R1#3, 2026-10).
+ *  3 = harness tags are an allowlist (no generic <x-… rule) and image/interrupt prefix lines are
+ *      stripped with the human text after them kept (R1 review, 2026-10). */
+export const EPISODIC_PARSER_VERSION = 3;
 
 function isCurrentEntry(entry: IndexedFileEntry | undefined, hash: string): boolean {
   return typeof entry === 'object' && entry !== null
@@ -121,21 +123,31 @@ function isCurrentEntry(entry: IndexedFileEntry | undefined, hash: string): bool
 // cleans them out of the episodic user text. episodic-hygiene.test.ts locks the parity: every
 // quoted prefix in the hook block must satisfy isMachineTurnText.
 const PEER_PREFIX = 'Another Claude session sent a message:';
-const MACHINE_TURN_PREFIXES = [
+/** The harness tags a machine-written turn opens with: an ALLOWLIST, the same one the hook's
+ *  `case` carries. Never "any leading <x-…" tag: that blanked human prompts such as
+ *  "<my-component> doesn't render" (R1 review). Human pastes use <pasted_content (underscore). */
+export const MACHINE_TAG_PREFIXES: readonly string[] = [
   '<task-notification>',
+  '<system-reminder>',
+  '<command-name>',
+  '<command-message>',
+  '<command-args>',
+  '<local-command-',
+  '<agent-message',
+  '<cross-session-message',
+];
+const MACHINE_TURN_PREFIXES = [
+  ...MACHINE_TAG_PREFIXES,
   PEER_PREFIX,
   'Stop hook feedback:',
   'This session is being continued from a previous conversation',
   // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
   'Base directory for this skill:',
   'Caveat: The messages below were generated',
-  '[Image: source:',
-  '[Image: original',
-  '[Request interrupted by user',
 ];
-// Any leading hyphenated lowercase tag: <agent-message, <system-reminder>, <command-name>,
-// <local-command-…>, <cross-session-message. Human pastes use <pasted_content (underscore).
-const HYPHEN_TAG_RE = /^<[a-z]+-/;
+// Archive-only LINE prefixes the harness puts in front of a human prompt (a pasted image, an
+// interrupt). Only these lines are machine; the human text after them is kept.
+const MACHINE_LINE_PREFIXES = ['[Image: source:', '[Image: original', '[Request interrupted by user'];
 
 function stripLead(text: string): string {
   return text.replace(/^[\s﻿]+/, '');
@@ -143,7 +155,7 @@ function stripLead(text: string): string {
 
 export function isMachineTurnText(text: string): boolean {
   const t = stripLead(text);
-  return HYPHEN_TAG_RE.test(t) || MACHINE_TURN_PREFIXES.some(p => t.startsWith(p));
+  return MACHINE_TURN_PREFIXES.some(p => t.startsWith(p)) || MACHINE_LINE_PREFIXES.some(p => t.startsWith(p));
 }
 
 /** Peer message (subagent hand-back or cross-session): drop the header, the wrapper tag pair,
@@ -173,6 +185,15 @@ function peerReportBody(rest: string): string {
 export function cleanUserText(text: string): string {
   if (!isMachineTurnText(text)) return text;
   const t = stripLead(text);
+  if (MACHINE_LINE_PREFIXES.some(p => t.startsWith(p))) {
+    // Drop the leading image/interrupt lines, then clean what follows in turn (it may itself be
+    // boilerplate). The remainder is strictly shorter, so this terminates.
+    const lines = t.split('\n');
+    let i = 0;
+    while (i < lines.length && (!lines[i].trim() || MACHINE_LINE_PREFIXES.some(p => stripLead(lines[i]).startsWith(p)))) i++;
+    const rest = lines.slice(i).join('\n').trim();
+    return rest ? cleanUserText(rest) : '';
+  }
   if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
   return '';
 }
