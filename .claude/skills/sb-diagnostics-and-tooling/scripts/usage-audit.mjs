@@ -999,6 +999,8 @@ async function selfTest() {
       eq('archive extras: no episodic-search.ts -> top-level warning', warnCodes(noTs.warnings).includes('archive-extras-unguarded'), true);
       const partial = await runAudit({ ...base, rule: loadRule(writeHookTree(path.join(tmp, 'hook-partial'), 'partial')) });
       eq('archive extras: a literal missing -> top-level warning', warnCodes(partial.warnings).includes('archive-extras-missing'), true);
+      const future = await runAudit({ ...base, since: '2099-01-01', until: '2099-01-31' });
+      eq('no transcript in range -> warning, not silent zeros', [future.scan.mainFiles, warnCodes(future.warnings).includes('no-transcripts')], [0, true]);
       const sp = await runAudit({ ...base, root: path.join(tmp, 'spaced', 'projects') });
       const so = sp.interactive.overall;
       eq('spaced schema: parsed, never zeros', [so.humanTurns, so.machineTurns.total, so.injections.onHumanTurns, so.offeredFetched.fetched, so.kbReads.onHumanTurns, sp.scan.userRecords], [1, 1, 1, 1, 1, 3]);
