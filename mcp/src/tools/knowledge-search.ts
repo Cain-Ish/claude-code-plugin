@@ -125,18 +125,20 @@ function accessCountsFile(brainDir?: string): string {
 // as `acc=` telemetry in wiki-forget-score.sh (recorded below, never folded into ranking).
 const ACCESS_PRUNE_DAYS = 90;
 
-async function loadAccessCounts(brainDir?: string): Promise<AccessCounts> {
-  try { return JSON.parse(await fs.readFile(accessCountsFile(brainDir), 'utf-8')); }
+// Both take the RESOLVED path (knowledgeSearch resolves it once, up front): resolving inside the
+// load's catch or the save's .catch() swallowed the G3 suite guard's throw (R1 review).
+async function loadAccessCounts(file: string): Promise<AccessCounts> {
+  try { return JSON.parse(await fs.readFile(file, 'utf-8')); }
   catch { return {}; }
 }
 
-async function saveAccessCounts(counts: AccessCounts, brainDir?: string): Promise<void> {
+async function saveAccessCounts(counts: AccessCounts, file: string): Promise<void> {
   const cutoff = new Date(Date.now() - ACCESS_PRUNE_DAYS * 86400000).toISOString();
   const pruned: AccessCounts = {};
   for (const [k, v] of Object.entries(counts)) {
     if (v.last_accessed >= cutoff) pruned[k] = v;
   }
-  await atomicWriteJson(accessCountsFile(brainDir), pruned);
+  await atomicWriteJson(file, pruned);
 }
 
 const TOP_K = 8;
@@ -201,13 +203,20 @@ const MIN_SUBSTANTIVE_LENGTH = 100;
 const AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 const STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
 // A lone letter never establishes aboutness: "I'm" tokenizes to "i" + "m", and "m" grounded the
-// "everything-claude-code-ecc" page (author "affaan-m") on an unrelated prompt. Digits stay —
-// "season 8" must ground on "8".
+// "everything-claude-code-ecc" page (author "affaan-m") on an unrelated prompt.
 const SINGLE_LETTER_RE = /^[a-z]$/;
+// Neither does a bare number: "fix items 3 8 review" grounded [[8-3-short-filename-alias-…]] on
+// "3" + "8" (R1 review). Re-graded on the 37 evaluated prompts over the real wiki: no R2 page
+// lost, no injection changed; R2 #27 ("season 8 … new") grounds on "season" + "new". Mixed
+// alphanumerics (d154, v2, 627m) still ground. Grounding only; BM25 still scores digits.
+const PURE_DIGITS_RE = /^[0-9]+$/;
 
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join(knowledgeDir, 'wiki');
+  // Resolved here, outside the access-count handlers that swallow their own failures, so the G3
+  // suite guard (brain-paths.ts) reaches the caller instead of being caught as telemetry noise.
+  const accessFile = accessCountsFile(args.brainDir);
 
   let scopeDirs: string[];
   if (args.scope && args.scope !== 'all') {   // 'all' = explicit no-category + no-project scope (search everything)
@@ -561,7 +570,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     }));
 
   // Record access for returned results (fire-and-forget) — telemetry only (see ACCESS_PRUNE_DAYS).
-  const accessCounts = await loadAccessCounts(args.brainDir);
+  const accessCounts = await loadAccessCounts(accessFile);
   const ts = new Date().toISOString();
   for (const c of candidates) {
     if (c.source === 'local-doc') continue;
@@ -575,7 +584,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
   // so the write's fs.rename never completed: a 0-byte `access-counts.json.tmp.<pid>` was left
   // behind on every CLI invocation and access-counts.json was never actually updated. Awaiting it
   // here means the write is durable before this function (and therefore any caller) returns.
-  await saveAccessCounts(accessCounts, args.brainDir).catch(() => {});
+  await saveAccessCounts(accessCounts, accessFile).catch(() => {});
 
   return {
     candidates,
@@ -597,10 +606,28 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
  *    clamp would otherwise reach 0 and pass every page.
  *  - A cross-project page needs one MORE term, clamped to the same count, so a cross-project
  *    page that grounds on every discriminative term is still injectable.
- *  retrieval-guards.test.ts holds the arithmetic locks. minGrounded 0 = grounding off. */
+ *  retrieval-guards.test.ts holds the arithmetic locks. minGrounded <= 0 = grounding off, for
+ *  every page: it returns before the cross-project term is added. */
 export function injectionGroundingNeed(minGrounded: number, discriminative: number, crossProject: boolean): number {
-  const base = minGrounded <= 0 ? 0 : Math.max(1, Math.min(minGrounded, discriminative));
+  if (minGrounded <= 0) return 0;
+  const base = Math.max(1, Math.min(minGrounded, discriminative));
   return crossProject ? Math.max(base, Math.min(base + 1, discriminative)) : base;
+}
+
+const GATE_ON = new Set(['1', 'on', 'true', 'yes']);
+const GATE_OFF = new Set(['0', 'off', 'false', 'no']);
+
+/** knowledge-search-cli's SB_INJECT_GATE: 1/on/true/yes (any case) turn the per-prompt gate on.
+ *  Unset, empty and an explicit 0/off/false/no keep the legacy filter. Any other value also
+ *  keeps the legacy filter, but `warn` is called once, so a typo cannot silently disable the gate
+ *  the caller asked for. */
+export function parseInjectGate(raw: string | undefined, warn: (msg: string) => void): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (GATE_ON.has(v)) return true;
+  if (v && !GATE_OFF.has(v)) {
+    warn(`SB_INJECT_GATE=${JSON.stringify(raw)} is not recognised (use 1/on/true/yes); using the legacy filter`);
+  }
+  return false;
 }
 
 export interface InjectGateOpts { minScore: number; minRelevance: number; minGrounded: number }
@@ -685,7 +712,8 @@ function discriminativeTerms(queryTokens: string[], dfMap: Map<string, number>, 
   // but nowhere near the corpus SHARE. df catches project jargon that has gone generic; only a
   // stopword list catches words that were never content-bearing to begin with. Grounding only —
   // BM25 itself is untouched, so these words still contribute to ranking as they always did.
-  const distinct = [...new Set(queryTokens)].filter(t => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t));
+  const distinct = [...new Set(queryTokens)]
+    .filter(t => !GROUNDING_STOPWORDS.has(t) && !SINGLE_LETTER_RE.test(t) && !PURE_DIGITS_RE.test(t));
   if (N < MIN_CORPUS_FOR_DF) return distinct;
   const maxDf = Math.max(2, N * COMMON_TERM_DF_SHARE);
   return distinct.filter(t => (dfMap.get(t) ?? 0) <= maxDf);

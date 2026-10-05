@@ -3,7 +3,7 @@ import { promises as fsp } from 'fs';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { knowledgeSearch, parseDoc } from './knowledge-search.js';
+import { knowledgeSearch, parseDoc, parseInjectGate } from './knowledge-search.js';
 import { appendEdge } from './graph-store.js';
 
 // Hermetic access-counts (R2.2): without this, every knowledgeSearch call here
@@ -752,5 +752,59 @@ describe('cross-project reservation: interactions and knobs', () => {
     const reserved = r.candidates.find(c => c.path.includes('unrelated-beta.md'));
     expect(reserved, 'scoping should have reserved it on score').toBeDefined();
     expect(reserved!.grounded, 'but it is not ABOUT the query, so grounding must reject it').toBe(0);
+  });
+});
+
+// G3 suite guard (R1 review): the access-counts path used to be resolved inside the load's
+// try/catch and the save's .catch(() => {}), so the guard's throw was swallowed and the search
+// "succeeded" against the real brain dir. It is resolved once, up front, so the throw propagates.
+describe('suite guard reaches knowledgeSearch callers', () => {
+  it('a brain dir resolving to <real home>/.second-brain rejects the search', async () => {
+    const dir = await wiki();
+    const fakeHome = mkdtempSync(join(tmpdir(), 'ks-fake-home-'));
+    process.env.SB_SUITE_REAL_HOME_PATH = fakeHome;
+    await expect(knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, brainDir: join(fakeHome, '.second-brain') }))
+      .rejects.toThrow(/suite guard/);
+    delete process.env.BRAIN_DIR;
+    process.env.SB_BRAIN_DIR = join(fakeHome, '.second-brain');
+    await expect(knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir })).rejects.toThrow(/suite guard/);
+  });
+
+  it('a sandboxed brain dir under the same fake home still searches', async () => {
+    const dir = await wiki();
+    const fakeHome = mkdtempSync(join(tmpdir(), 'ks-fake-home-'));
+    process.env.SB_SUITE_REAL_HOME_PATH = fakeHome;
+    const r = await knowledgeSearch({ query: 'wireguard tunnel', knowledgeDir: dir, brainDir: join(fakeHome, 'sandbox-brain') });
+    expect(slugs(r)).toContain('alpha');
+  });
+});
+
+// SB_INJECT_GATE (R1 review): only the literal "1" turned the gate on, so "true"/"on"/"yes"
+// silently fell back to the legacy filter. parseInjectGate is what knowledge-search-cli reads.
+describe('parseInjectGate (knowledge-search-cli SB_INJECT_GATE)', () => {
+  it.each(['1', 'on', 'true', 'yes', 'ON', 'True', 'YES', ' on '])('%j turns the gate on, silently', (raw) => {
+    const warn = vi.fn();
+    expect(parseInjectGate(raw, warn)).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, '', '0', 'off', 'false', 'no', 'OFF', 'No'])('%j is the legacy filter, silently', (raw) => {
+    const warn = vi.fn();
+    expect(parseInjectGate(raw, warn)).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(['2', 'enabled', 'y', 'tru'])('%j is not recognised: legacy filter plus exactly one warning', (raw) => {
+    const warn = vi.fn();
+    expect(parseInjectGate(raw, warn)).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/SB_INJECT_GATE/);
+  });
+
+  it('knowledge-search-cli reads the knob through it, warning on stderr (source lock)', async () => {
+    const src = await fsp.readFile(join(__dirname, 'knowledge-search-cli.ts'), 'utf8');
+    expect(src).toMatch(/parseInjectGate\(process\.env\.SB_INJECT_GATE,/);
+    expect(src).toMatch(/process\.stderr\.write/);
+    expect(src).not.toMatch(/SB_INJECT_GATE\s*===/);
   });
 });

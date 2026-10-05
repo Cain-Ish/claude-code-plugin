@@ -248,8 +248,10 @@ describe('grounding: all-filler query grounds nothing', () => {
 async function shippedMinGrounded(): Promise<number> {
   const src = await fs.readFile(join(__dirname, 'context-serve-cli.ts'), 'utf8');
   const m = src.match(/envNum\('SB_INJECT_MIN_GROUNDED',\s*(\d+)/);
-  expect(m, 'SB_INJECT_MIN_GROUNDED default not found in context-serve-cli.ts').toBeTruthy();
-  return Number(m![1]);
+  // A throw, not an expect: callers outside an assertion context (a helper, a loop bound) must
+  // never get NaN back and run their locks against it vacuously.
+  if (!m) throw new Error('SB_INJECT_MIN_GROUNDED default not found in context-serve-cli.ts: the satisfiability locks have nothing to check');
+  return Number(m[1]);
 }
 
 interface Page { slug: string; title: string; description: string; project?: string; body?: string }
@@ -291,6 +293,17 @@ describe('per-prompt injection gate satisfiability (context-serve-cli)', () => {
     // grounded <= discriminative terms = 0, so any need >= 1 rejects every page.
     expect(injectionGroundingNeed(minG, 0, false)).toBeGreaterThanOrEqual(1);
     expect(injectionGroundingNeed(minG, 0, true)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('arithmetic: grounding off (SB_INJECT_MIN_GROUNDED=0) asks nothing of cross-project pages either', () => {
+    // R1 review: the cross-project "+1" ran after the off check, so with grounding off a
+    // cross-project page still needed a grounded term.
+    for (const minG of [0, -1]) {
+      for (let disc = 0; disc <= 6; disc++) {
+        expect(injectionGroundingNeed(minG, disc, false), `in-project, min=${minG} disc=${disc}`).toBe(0);
+        expect(injectionGroundingNeed(minG, disc, true), `cross-project, min=${minG} disc=${disc}`).toBe(0);
+      }
+    }
   });
 
   it('a 1-discriminative-term query injects an in-project page at shipped defaults', async () => {
@@ -358,8 +371,13 @@ describe('per-prompt injection gate satisfiability (context-serve-cli)', () => {
   });
 });
 
-describe('grounding: single letters never ground, digits do', () => {
-  it('"m" (from "I\'m") cannot ground a page, "8" in "season 8" can', async () => {
+// Pure-digit tokens stopped grounding in the R1 review: "fix items 3 8 review" injected
+// [[8-3-short-filename-alias-…]] on "3" + "8". Re-graded on the 37 evaluated prompts over the
+// real wiki (1203 pages, BM25-only): R2 injected 9/14 and R2 passing the gate 13/14 either way,
+// R0 injections 10 either way, no prompt's injections changed. R2 #27 ("season 8 … new") still
+// grounds on "season" + "new". Mixed alphanumerics (d154, v2) still ground.
+describe('grounding: single letters and pure digits never ground, mixed alphanumerics do', () => {
+  it('"m" (from "I\'m") cannot ground a page, and neither can "8" in "season 8"', async () => {
     const dir = await seedPages([
       ...filler(9),
       { slug: 'affaan-m-ecc', title: 'affaan m plugin reference', description: 'reference notes' },
@@ -369,6 +387,30 @@ describe('grounding: single letters never ground, digits do', () => {
     expect(m.candidates.find(c => slugOf(c.path) === 'affaan-m-ecc')?.grounded).toBe(1);
     const s = await knowledgeSearch({ query: 'zzqseason 8', knowledgeDir: dir });
     const hit = s.candidates.find(c => slugOf(c.path) === 'season-8-modes');
+    expect(hit?.grounded).toBe(1);
+    expect(hit?.discriminative_terms).toBe(1);
+  });
+
+  it('a page titled with the digits of a numbered list is not injected on them', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: '8-3-short-filename-alias', title: '8 3 short filename alias', description: 'deny list bypass' },
+    ]);
+    const r = await knowledgeSearch({ query: 'fix items 3 8 review', knowledgeDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === '8-3-short-filename-alias');
+    expect(hit, 'BM25 still ranks the page; only grounding ignores the digits').toBeDefined();
+    expect(hit!.grounded).toBe(0);
+    expect(injectableWiki(r.candidates, { minScore: 0, minRelevance: 0, minGrounded: await shippedMinGrounded() })
+      .map(c => slugOf(c.path))).not.toContain('8-3-short-filename-alias');
+  });
+
+  it('mixed alphanumerics (d154, v2) still ground', async () => {
+    const dir = await seedPages([
+      ...filler(9),
+      { slug: 'd154-v2-notes', title: 'zzqd154 v2 migration notes', description: 'notes' },
+    ]);
+    const r = await knowledgeSearch({ query: 'zzqd154 v2', knowledgeDir: dir });
+    const hit = r.candidates.find(c => slugOf(c.path) === 'd154-v2-notes');
     expect(hit?.grounded).toBe(2);
     expect(hit?.discriminative_terms).toBe(2);
   });

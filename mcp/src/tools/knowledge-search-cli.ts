@@ -1,4 +1,4 @@
-import { knowledgeSearch, injectableWiki } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki, parseInjectGate } from './knowledge-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 const query = process.argv[2] || '';
@@ -52,13 +52,15 @@ const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG || undefined;
 const result = await knowledgeSearch({ query, brainDir, projectSlug });
 
-// SB_INJECT_GATE=1: the caller injects the result into a session (session-load.sh's SessionStart
-// wiki enrichment), so it gets the same per-prompt gate as context-serve-cli — no stubs,
-// discriminative-term grounding, one extra term for cross-project pages (R1#4). Unset: the
+// SB_INJECT_GATE=1 (or on/true/yes): the caller injects the result into a session (session-load.sh's
+// SessionStart wiki enrichment), so it gets the same per-prompt gate as context-serve-cli — no
+// stubs, discriminative-term grounding, one extra term for cross-project pages (R1#4). Unset: the
 // legacy filter, unchanged, because the recall harness (wiki-recall-check.sh) and the FORGET
-// probe read this CLI and pin its behaviour.
+// probe read this CLI and pin its behaviour. An unrecognised value warns once on stderr.
+const injectGate = parseInjectGate(process.env.SB_INJECT_GATE,
+  (msg) => { process.stderr.write(`knowledge-search-cli: ${msg}\n`); });
 const needGrounded = Math.min(minGrounded, result.candidates[0]?.query_terms ?? minGrounded);
-const top = (process.env.SB_INJECT_GATE === '1'
+const top = (injectGate
   ? injectableWiki(result.candidates, { minScore, minRelevance, minGrounded })
   : result.candidates.filter(c => c.score >= minScore && c.relevance >= minRelevance && c.grounded >= needGrounded))
   .slice(0, 2);
