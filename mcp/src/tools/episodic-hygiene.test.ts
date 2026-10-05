@@ -455,6 +455,9 @@ describe('displaySnippet — readable text for machine rows', () => {
     const sb = await fs.readFile(join(__dirname, '..', 'cli', 'sb.ts'), 'utf8');
     const server = await fs.readFile(join(__dirname, '..', 'server.ts'), 'utf8');
     expect(sb).toMatch(/displaySnippet\(/);
+    // `sb recall` output reaches the model through the buddy skill's `ask`, so it is served text too:
+    // folded like every other serve site, or a stored "]\nUSER: ..." line forges structure there.
+    expect(sb).toMatch(/foldServedSnippet\(displaySnippet\(/);
     expect(server).toMatch(/episodeUserLine\(r\.userSnippet\)/);
     expect(server).toMatch(/\*\*Assistant\*\*: \$\{foldServedSnippet\(r\.assistantSnippet\)\}/);
     expect(server, 'the MCP renderer must not hand-label rows as User').not.toMatch(/\*\*User\*\*/);

@@ -3,7 +3,7 @@ import { join, delimiter as pathDelimiter } from 'path';
 import { execFile } from 'child_process';
 import { cleanEnvPath } from '../path-guard.js';
 import { knowledgeSearch } from '../tools/knowledge-search.js';
-import { episodicSearch, displaySnippet } from '../tools/episodic-search.js';
+import { episodicSearch, displaySnippet, foldServedSnippet } from '../tools/episodic-search.js';
 import { pinToUser } from '../tools/pin-to-user.js';
 import { pinToProject, type PinSection } from '../tools/pin-to-project.js';
 import { unprocessedCount } from '../tools/raw-inbox.js';
@@ -155,7 +155,7 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
     if (r.results.length === 0) { push('(no results — only sessions with substantive tool use are archived)'); }
     for (const x of r.results) {
       const sim = Math.round(x.similarity * 100);
-      push(`${String(sim).padStart(3)}%  [${x.date} ${x.project}]  ${displaySnippet(x, 100)}`);
+      push(`${String(sim).padStart(3)}%  [${x.date} ${x.project}]  ${foldServedSnippet(displaySnippet(x, 100))}`);
       push(`       ${x.archivePath}:${x.lineStart}-${x.lineEnd}`);
     }
     return { stdout: out.join('\n'), stderr: err.join('\n'), exitCode: 0 };
