@@ -12,7 +12,7 @@ import { knowledgeFetch } from "./tools/knowledge-fetch.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
 import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
-import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope } from "./tools/episodic-search.js";
+import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope, displaySnippet } from "./tools/episodic-search.js";
 import { personaThink } from "./tools/persona-think.js";
 import { personaStats } from "./tools/persona-stats.js";
 import { personaDismiss } from "./tools/persona-dismiss.js";
@@ -404,7 +404,7 @@ registerJsonTool(
       const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : '';
       return [
         `### ${r.project} — ${r.date}${sim}`,
-        `**User**: ${r.userSnippet}`,
+        `**User**: ${displaySnippet({ userSnippet: r.userSnippet })}`,
         `**Assistant**: ${r.assistantSnippet}`,
         `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`,
       ].join('\n');

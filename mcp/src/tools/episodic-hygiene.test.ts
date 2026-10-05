@@ -7,6 +7,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import {
   isMachineTurnText, cleanUserText, buildEpisodicIndex, EPISODIC_PARSER_VERSION, servableEpisodes,
+  displaySnippet,
 } from './episodic-search.js';
 
 describe('isMachineTurnText — the shared machine-turn contract', () => {
@@ -341,5 +342,36 @@ describe('servableEpisodes — what the per-prompt hook may show', () => {
     const src = await fs.readFile(join(__dirname, 'context-serve-cli.ts'), 'utf8');
     expect(src).toMatch(/servableEpisodes\(/);
     expect(src).toMatch(/process\.env\.SB_SESSION_ID/);
+  });
+
+  // The two-CLI fallback (persona-context.sh runs it when context-serve-cli is missing) must not
+  // re-open the "[Past sessions]" noise the per-prompt CLI closed: same filter, same session id.
+  it('the fallback episodic-search-cli serves through servableEpisodes with SB_SESSION_ID (source lock)', async () => {
+    const src = await fs.readFile(join(__dirname, 'episodic-search-cli.ts'), 'utf8');
+    expect(src).toMatch(/servableEpisodes\(/);
+    expect(src).toMatch(/process\.env\.SB_SESSION_ID/);
+  });
+});
+
+// Machine rows keep an EMPTY user side after cleaning; every human-facing renderer (sb recall,
+// the episodic_search MCP tool) must show something readable instead of a blank line.
+describe('displaySnippet — readable text for machine rows', () => {
+  it('returns the user text when there is one', () => {
+    expect(displaySnippet({ userSnippet: 'how do we archive', assistantSnippet: 'like this' }, 100))
+      .toBe('how do we archive');
+  });
+  it('labels a cleaned machine row and shows the assistant side', () => {
+    expect(displaySnippet({ userSnippet: '', assistantSnippet: 'Review came back BLOCK' }, 100))
+      .toBe('[machine turn] Review came back BLOCK');
+  });
+  it('treats whitespace-only user text as empty and honours the cap', () => {
+    expect(displaySnippet({ userSnippet: '  \n', assistantSnippet: 'abcdefghij' }, 18))
+      .toBe('[machine turn] abc');
+  });
+  it('sb recall and the episodic_search MCP renderer use it (source lock)', async () => {
+    const sb = await fs.readFile(join(__dirname, '..', 'cli', 'sb.ts'), 'utf8');
+    const server = await fs.readFile(join(__dirname, '..', 'server.ts'), 'utf8');
+    expect(sb).toMatch(/displaySnippet\(/);
+    expect(server).toMatch(/displaySnippet\(/);
   });
 });

@@ -192,6 +192,15 @@ export function servableEpisodes<R extends { sessionId: string; userSnippet: str
   return out;
 }
 
+// A cleaned machine row has an empty user side (cleanUserText). Human-facing renderers show the
+// assistant side under a label instead of a blank line; `max`, when given, caps the result.
+export function displaySnippet(r: { userSnippet: string; assistantSnippet?: string }, max?: number): string {
+  const text = r.userSnippet.trim()
+    ? r.userSnippet
+    : `[machine turn]${r.assistantSnippet ? ' ' + r.assistantSnippet : ''}`;
+  return max === undefined ? text : text.slice(0, max);
+}
+
 function simpleHash(s: string): string {
   let h = 0;
   for (let i = 0; i < s.length; i++) {
