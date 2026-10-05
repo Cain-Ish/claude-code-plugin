@@ -10,6 +10,12 @@
 // env into the next one, so per-file re-assertions are no longer needed.
 import { beforeEach, afterEach } from 'vitest';
 
+// SB_INJECT_PRECISION is read once, when knowledge-search.ts loads, before any beforeEach runs. An
+// operator's rollback (`off` exported in the shell or the settings env) would flip every statically
+// imported engine to the 0.54.1 gate and fail the R1 locks. Tests that need a mode set it and load
+// a fresh engine (engineWith in retrieval-guards.test.ts).
+delete process.env.SB_INJECT_PRECISION;
+
 let snapshot: Record<string, string | undefined>;
 
 beforeEach(() => {

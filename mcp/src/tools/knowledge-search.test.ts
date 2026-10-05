@@ -3,7 +3,7 @@ import { promises as fsp } from 'fs';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { knowledgeSearch, parseDoc, parseInjectGate } from './knowledge-search.js';
+import { knowledgeSearch, parseDoc, parseInjectGate, parseInjectPrecision } from './knowledge-search.js';
 import { appendEdge } from './graph-store.js';
 
 // Hermetic access-counts (R2.2): without this, every knowledgeSearch call here
@@ -806,5 +806,45 @@ describe('parseInjectGate (knowledge-search-cli SB_INJECT_GATE)', () => {
     expect(src).toMatch(/parseInjectGate\(process\.env\.SB_INJECT_GATE,/);
     expect(src).toMatch(/process\.stderr\.write/);
     expect(src).not.toMatch(/SB_INJECT_GATE\s*===/);
+  });
+});
+
+// SB_INJECT_PRECISION (R1 rollback switch): on, unset and empty keep the R1 per-prompt gate; off
+// (any case) restores the 0.54.1 gate. Anything else keeps the R1 gate and warns exactly once, so
+// a typo can neither silently roll the gate back nor silently fail to.
+describe('parseInjectPrecision (SB_INJECT_PRECISION kill switch)', () => {
+  it.each([undefined, '', 'on', 'ON', 'On', ' on ', '  '])('%j keeps the R1 gate, silently', (raw) => {
+    const warn = vi.fn();
+    expect(parseInjectPrecision(raw, warn)).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(['off', 'OFF', 'Off', ' off '])('%j restores the 0.54.1 gate, silently', (raw) => {
+    const warn = vi.fn();
+    expect(parseInjectPrecision(raw, warn)).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(['0', 'false', 'no', '1', 'legacy', 'of', 'offf'])('%j is not recognised: R1 gate plus exactly one warning', (raw) => {
+    const warn = vi.fn();
+    expect(parseInjectPrecision(raw, warn)).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/SB_INJECT_PRECISION/);
+  });
+
+  it('the engine reads the switch once, at module load, and no CLI reads it on its own (source lock)', async () => {
+    const engine = await fsp.readFile(join(__dirname, 'knowledge-search.ts'), 'utf8');
+    expect(engine.match(/process\.env\.SB_INJECT_PRECISION/g) ?? []).toHaveLength(1);
+    expect(engine).toMatch(/^const INJECT_PRECISION = parseInjectPrecision\(process\.env\.SB_INJECT_PRECISION,/m);
+    for (const cli of ['context-serve-cli.ts', 'knowledge-search-cli.ts']) {
+      const src = await fsp.readFile(join(__dirname, cli), 'utf8');
+      expect(src, cli).not.toMatch(/process\.env\.SB_INJECT_PRECISION/);
+    }
+  });
+
+  it('knowledge-search-cli\'s default (recall) branch is the shared 0.54 filter (source lock)', async () => {
+    const src = await fsp.readFile(join(__dirname, 'knowledge-search-cli.ts'), 'utf8');
+    expect(src).toMatch(/legacyWikiFilter\(\s*result\.candidates/);
+    expect(src).not.toMatch(/query_terms\s*\?\?/);
   });
 });
