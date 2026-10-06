@@ -6,7 +6,9 @@
 # patterns, and knowledge from early in long sessions survive compaction cycles.
 #
 # Works in tandem with stop-extract.sh: both use a shared line-marker file
-# (.last-extracted-line-<slug>--<session_id>) so each processes a disjoint window.
+# (.last-extracted-line-<slug>--<session_id>) so each processes a disjoint window, and a shared
+# archive cursor (.last-archived-line-<slug>--<session_id>, sb_archive_raw_window) so each
+# appends a disjoint window to the archive, archive-first.
 #
 # Honors env overrides:
 #   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 30)
@@ -242,7 +244,6 @@ MARKER_KEY=$(sb_extraction_marker_key "$SLUG" "$SESSION_ID")
 
 PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
 KNOWLEDGE_DIR="$(sb_knowledge_dir)"
-if [ ! -f "$PROJECT_MD" ]; then SB_GATE="project-md-missing slug=$SLUG"; exit 0; fi
 
 # --- Determine unprocessed window ---
 LAST_LINE=$(sb_get_extraction_marker "$MARKER_KEY")
@@ -255,6 +256,15 @@ TOTAL_LINES=$(awk 'END{print NR}' "$TRANSCRIPT" 2>/dev/null)
 if [ "$LAST_LINE" -gt "$TOTAL_LINES" ]; then
   LAST_LINE=0
 fi
+
+# --- Archive-first (0.56.0, R2#2) ---
+# Append the raw window (raw_line cursor, TOTAL_LINES] to the session archive before every
+# extraction gate (PROJECT.md present, >= 20 new lines, a tool_use) and before the merge:
+# archiving needs none of them, and a window the gates skip is still captured. Same helper and
+# cursor (.last-archived-line-*) as stop-extract.sh, so the two hooks append disjoint windows.
+sb_archive_raw_window "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$TOTAL_LINES" "$MARKER_KEY" || true
+
+if [ ! -f "$PROJECT_MD" ]; then SB_GATE="project-md-missing slug=$SLUG"; exit 0; fi
 NEW_LINES=$((TOTAL_LINES - LAST_LINE))
 
 if [ "$NEW_LINES" -lt 20 ]; then
@@ -412,10 +422,7 @@ DG_GOAL=$(echo "$DELTA_JSON" | jq -r '.session_goal // ""' 2>/dev/null | tr -d '
 DG_OUT=$(echo "$DELTA_JSON" | jq -r '.session_outcome // ""' 2>/dev/null | tr -d '\r')
 sb_append_session_digest "$SLUG" "$SESSION_ID" "$DG_GOAL" "$DG_OUT" || true
 
-# --- Archive preprocessed transcript for dream mining ---
-# Archive the FULL delta (not the LLM-capped window) so dream-mining never
-# loses the middle of a >1000-line delta (deep-review).
-sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
+# (The FULL raw window, not the LLM-capped one, was archived above: archive-first.)
 
 # --- Incremental episodic index update ---
 # D179: redirect BOTH stdout and stderr of the backgrounded node process to a log

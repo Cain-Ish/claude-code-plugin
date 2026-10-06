@@ -4,6 +4,9 @@
 # pins: SB_TRANSCRIPT_MAX_BYTES — lowers the soft byte cap to a small fixture-sized value so pruning triggers deterministically
 # pins: SB_TRANSCRIPT_MAX_BYTES_HARD — lowers the hard byte cap to a small fixture-sized value so pruning triggers deterministically
 # Tests for transcript archive functions in lib.sh.
+# run-all-timeout: 300   (0.56.0 R2 locks the raised default caps with full-size fixtures: 405
+#   and 1205 files, 27.5 MB; measured 109 s alone on a loaded MSYS box, of which the pre-existing
+#   65,590-byte heredoc-window case is ~34 s — past the 120 s default under any extra load)
 set -u
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 TMP=$(mktemp -d)
@@ -63,41 +66,65 @@ LINE_COUNT=$(wc -l < "$BRAIN_DIR/transcripts/$ARCHIVE" | tr -d ' ')
 [ "$LINE_COUNT" -gt 10 ] || fail "second call should have appended content (got $LINE_COUNT lines)"
 pass "dedup: same session appends, no duplicate file"
 
-# --- Subtest 3: pruning enforces 100-file cap
+# --- Subtest 3: pruning enforces the 400-file DEFAULT cap (R2#6, 0.56.0: was 100)
 # Fixture marks the transcripts EXTRACTED (2026-08-20): the cap is now extracted-first, so the
-# 100-file ceiling applies to files whose knowledge is already in the wiki. This is the steady
+# soft ceiling applies to files whose knowledge is already in the wiki. This is the steady
 # state the cap was written for — the drainer keeping up. An all-un-mined archive is the
 # drainer-stalled state and is deliberately allowed past the soft cap; subtests 6 and 7 cover
-# that side (it stays bounded by the hard cap, and eviction is logged).
+# that side (it stays bounded by the hard cap, and eviction is logged). No cap override: this
+# locks the default. Builtins only in the fixture loop (printf -v, ${f##*/}): 405 spawns of
+# basename/$(printf) cost ~20 s on MSYS.
 setup "prune-count"
-for i in $(seq 1 105); do
-  f="$BRAIN_DIR/transcripts/sess_$(printf '%03d' "$i")_proj_2026-05-01.txt"
+i=1; while [ "$i" -le 405 ]; do
+  printf -v n '%03d' "$i"; f="$BRAIN_DIR/transcripts/sess_${n}_proj_2026-05-01.txt"
   printf "test content %d\n" "$i" > "$f"
-  printf '{"basename":"%s","ts":"2026-05-01T00:00:00Z","outcome":"ok"}\n' "$(basename "$f")" \
+  printf '{"basename":"%s","ts":"2026-05-01T00:00:00Z","outcome":"ok"}\n' "${f##*/}" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
+  i=$((i + 1))
 done
 sb_prune_transcripts
 COUNT=$(ls "$BRAIN_DIR/transcripts/" | wc -l | tr -d ' ')
-[ "$COUNT" -le 100 ] || fail "pruning should enforce 100-file cap (got $COUNT)"
-pass "prune: enforces 100-file cap"
+[ "$COUNT" -eq 400 ] || fail "pruning should enforce the 400-file default cap, evicting extracted files down to it (got $COUNT)"
+pass "prune: enforces the 400-file default cap"
 
-# --- Subtest 4: pruning enforces 5MB cap
+# --- Subtest 4: pruning enforces the 25 MB DEFAULT byte cap (R2#6, 0.56.0: was 5 MB)
 # Fixture marks the transcripts EXTRACTED (2026-08-20), for the same reason as subtests 3 and 5:
 # byte eviction is now two-tier as well, so an all-un-mined archive is protected up to the HARD
 # byte ceiling and this soft-cap assertion would no longer be exercised. Subtests 8 and 9 cover
-# the un-mined side of the byte cap.
+# the un-mined side of the byte cap. 11 x 2.5 MB = 27.5 MB: the default must trim to <= 25 MB
+# and NOT down to the old 5 MB line.
 setup "prune-size"
-for i in $(seq 1 10); do
-  f="$BRAIN_DIR/transcripts/sess_$(printf '%03d' "$i")_proj_2026-05-01.txt"
-  dd if=/dev/zero bs=1024 count=600 2>/dev/null | tr '\0' 'x' > "$f"
-  printf '{"basename":"%s","ts":"2026-05-01T00:00:00Z","outcome":"ok"}\n' "$(basename "$f")" \
+dd if=/dev/zero bs=1024 count=2560 2>/dev/null | tr '\0' 'x' > "$TMP/prune-size/blob"
+i=1; while [ "$i" -le 11 ]; do
+  printf -v n '%03d' "$i"; f="$BRAIN_DIR/transcripts/sess_${n}_proj_2026-05-01.txt"
+  cat "$TMP/prune-size/blob" > "$f"
+  printf '{"basename":"%s","ts":"2026-05-01T00:00:00Z","outcome":"ok"}\n' "${f##*/}" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
+  i=$((i + 1))
 done
-BEFORE_SIZE=$(du -sk "$BRAIN_DIR/transcripts" | cut -f1)
 sb_prune_transcripts
 AFTER_SIZE=$(find "$BRAIN_DIR/transcripts" -type f -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')
-[ "$AFTER_SIZE" -le 5242880 ] || fail "pruning should enforce 5MB cap (got $AFTER_SIZE bytes)"
-pass "prune: enforces 5MB cap"
+[ "$AFTER_SIZE" -le 26214400 ] || fail "pruning should enforce the 25 MB default byte cap (got $AFTER_SIZE bytes)"
+[ "$AFTER_SIZE" -gt 5242880 ] || fail "pruning trimmed to the OLD 5 MB line, not the 25 MB default (got $AFTER_SIZE bytes)"
+pass "prune: enforces the 25 MB default byte cap"
+
+# --- Subtest 4b: the un-mined HARD count ceiling defaults to 3x the soft cap (1200), and the
+# subagent sub-cap scales with it (200 of 400, was 50 of 100). Empty files, so only the count
+# caps can fire. RED on the old defaults (300 / 50).
+setup "prune-hard-default"
+D="$BRAIN_DIR/transcripts"
+i=1; while [ "$i" -le 1205 ]; do printf -v n '%04d' "$i"; : > "$D/dddddddd-unmined-${n}_proj_2026-07-02.txt"; i=$((i + 1)); done
+sb_prune_transcripts
+COUNT=$(find "$D" -name '*.txt' -type f | wc -l | tr -d ' ')
+[ "$COUNT" -eq 1200 ] || fail "the un-mined hard ceiling should default to 1200 (3 x the 400 soft cap), got $COUNT"
+grep -q "UN-EXTRACTED" "$BRAIN_DIR/error-log.jsonl" || fail "default hard-cap eviction of un-mined transcripts was silent"
+setup "subagent-subcap-default"
+D="$BRAIN_DIR/transcripts"
+i=1; while [ "$i" -le 205 ]; do printf -v n '%03d' "$i"; printf 'r\n' > "$D/sub-agent${n}_proj_2026-07-02.txt"; i=$((i + 1)); done
+sb_archive_subagent_result agentnew general-purpose proj sess 1 "final answer" || fail "subagent archive write failed"
+SUBS=$(find "$D" -name 'sub-*.txt' -type f | wc -l | tr -d ' ')
+[ "$SUBS" -eq 200 ] || fail "the subagent sub-cap should default to 200 (proportional to the 400 cap), got $SUBS"
+pass "prune: hard count ceiling defaults to 1200 and the subagent sub-cap to 200"
 
 # --- Subtest 5: prune drops the MTIME-oldest, not the filename-lexical-oldest.
 # Regression lock for the UUID-leading-filename bug: archives are named
@@ -124,7 +151,8 @@ OLD="$D/ffffffff-oldest_proj_2026-01-01.txt"
 printf 'OLD — should prune first\n' > "$OLD"; mark_done "$OLD"
 # Make OLD genuinely the oldest by mtime (POSIX `touch -t CCYYMMDDhhmm`, GNU+BSD).
 touch -t 202601010000 "$OLD" 2>/dev/null || fail "touch -t unavailable — cannot set mtime for test"
-sb_prune_transcripts
+# The ordering question needs the cap at the fixture size (101 files); the default is 400.
+SB_TRANSCRIPT_CAP=100 sb_prune_transcripts
 [ ! -f "$OLD" ] \
   || fail "prune dropped by FILENAME order: the mtime-oldest (ffff… prefix) survived"
 [ -f "$D/00000000-newer-001_proj_2026-07-02.txt" ] \
@@ -153,7 +181,7 @@ for i in $(seq 1 100); do
   printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok"}\n' "$(basename "$f")" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
 done
-sb_prune_transcripts
+SB_TRANSCRIPT_CAP=100 sb_prune_transcripts   # fixture-sized cap (101 files); the default is 400
 [ -f "$UNMINED" ] || fail "cap evicted the UN-EXTRACTED transcript while extracted ones remained"
 COUNT=$(ls "$D" | wc -l | tr -d ' ')
 [ "$COUNT" -le 100 ] || fail "cap not enforced after extracted-first eviction (got $COUNT)"
@@ -192,7 +220,7 @@ for i in $(seq 1 9); do
   printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok"}\n' "$(basename "$f")" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
 done
-sb_prune_transcripts
+SB_TRANSCRIPT_MAX_BYTES=5242880 sb_prune_transcripts   # fixture-sized byte cap (6 MB); the default is 25 MB
 [ -f "$UNMINED" ] || fail "byte cap evicted the UN-EXTRACTED transcript while extracted ones remained"
 AFTER=$(find "$D" -type f -exec cat {} +  | wc -c | tr -d ' ')
 [ "$AFTER" -le 5242880 ] || fail "byte cap not enforced via extracted eviction (got $AFTER)"
@@ -268,5 +296,222 @@ for i in 1 2 3 4 5; do : > "$BRAIN_DIR/transcripts/ok-$i.txt"; done
 SB_TRANSCRIPT_CAP=2 SB_TRANSCRIPT_HARD_CAP=300 sb_prune_transcripts
 grep -q 'listing pass' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && fail "O4: a normal over-cap prune logged the no-rows error"
 pass "prune: an over-cap archive with an empty listing pass logs a row; a normal prune stays quiet (O4)"
+
+# === R2 (0.56.0) secret scrub: sb_scrub_secrets, sb_preprocess_transcript, sb_scrub_archive_file ===
+# Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.
+rep() { local s="" k=0; while [ "$k" -lt "$2" ]; do s="$s$1"; k=$((k + 1)); done; printf '%s' "$s"; }
+K_ANT="sk-ant-api03-$(rep aB3_ 12)-$(rep Zq9 6)AA"
+K_OAI="sk-$(rep aB3 8)"
+K_GHP="ghp_$(rep a1B2 9)"
+K_GPAT="github_pat_$(rep 11A_b 5)"
+K_AWS="AKIA$(rep Q7 8)"
+K_SLK="xoxb-$(rep 12 6)-$(rep ab 4)"
+K_BEAR="$(rep Zz.9 6)"
+PEM_B="-----BEGIN RSA PRIV""ATE KEY-----"; PEM_E="-----END RSA PRIV""ATE KEY-----"
+PEM_OB="-----BEGIN OPENSSH PRIV""ATE KEY-----"
+
+setup "scrub"
+SD="$TMP/scrub/fx"; mkdir -p "$SD"
+# one of every kind, LF
+printf '%s\n' "USER: my key is $K_ANT ok" "  export OPENAI_API_KEY=$K_OAI" "  token $K_GHP and $K_GPAT" \
+  "aws=$K_AWS;" "slack:$K_SLK" "curl -H \"Authorization: Bearer $K_BEAR\" x" > "$SD/kinds.in"
+printf '%s\n' "USER: my key is [redacted:anthropic] ok" "  export OPENAI_API_KEY=[redacted:openai]" \
+  "  token [redacted:github] and [redacted:github]" "aws=[redacted:aws];" "slack:[redacted:slack]" \
+  "curl -H \"Authorization: [redacted:bearer]\" x" > "$SD/kinds.want"
+# CRLF: the \r is kept, including right after a token
+printf '%s\r\n' "k=$K_ANT" "  ASSISTANT text $K_AWS" "plain" > "$SD/crlf.in"
+printf '%s\r\n' "k=[redacted:anthropic]" "  ASSISTANT text [redacted:aws]" "plain" > "$SD/crlf.want"
+# multi-line PEM: the BEGIN line keeps its prefix (a `USER:` line opens an exchange in the episodic
+# parser), each body line and the END line become a marker, the END line keeps its tail, a blank
+# line inside the block stays blank
+printf '%s\n' "USER: deploy with $PEM_B" "MIIEowIBAAKCAQEA$(rep Ab 20)" "$(rep xY 30)+/=" "" "$PEM_E thanks" \
+  "ASSISTANT:" "  noted" > "$SD/pem.in"
+printf '%s\n' "USER: deploy with [redacted:private-key]" "[redacted:private-key]" "[redacted:private-key]" "" \
+  "[redacted:private-key] thanks" "ASSISTANT:" "  noted" > "$SD/pem.want"
+# a key cut short (Bash commands are cut at 120 chars, thinking at 100), CRLF: the block ends at the
+# first line that is not key material, so it never swallows the rest of the window
+printf '%s\r\n' "  (thinking: $PEM_OB" "b3BlbnNzaC1rZXktdjEAAAAA$(rep Qw 10)" "USER: next question" "MIIEow$(rep Ab 10)" > "$SD/pemcut.in"
+printf '%s\r\n' "  (thinking: [redacted:private-key]" "[redacted:private-key]" "USER: next question" "MIIEow$(rep Ab 10)" > "$SD/pemcut.want"
+# a one-line block (a JSON string with literal \n escapes)
+printf '%s\n' "  key=\"$PEM_B\\nMIIE$(rep Ab 10)\\n$PEM_E\" done" > "$SD/pem1.in"
+printf '%s\n' "  key=\"[redacted:private-key]\" done" > "$SD/pem1.want"
+# adjacent secrets, and an OpenAI key glued to an Anthropic one: the Anthropic form must run
+# first, or the generic sk- run stops at "-ant-" and leaves the rest of the key in clear
+printf '%s\n' "$K_ANT $K_OAI,$K_GHP;$K_AWS $K_SLK" "$K_OAI$K_ANT" > "$SD/adjacent.in"
+printf '%s\n' "[redacted:anthropic] [redacted:openai],[redacted:github];[redacted:aws] [redacted:slack]" \
+  "[redacted:openai][redacted:anthropic]" > "$SD/adjacent.want"
+# NOT matched, by design: OTP-like short codes, short sk- strings, an sk- run inside a longer
+# identifier (task-/disk- ids), a short ghp_, a short Bearer value
+printf '%s\n' "your code is 123456" "sk-short1234" "task-$(rep 0a1B 6)" "ghp_tooshort" "Bearer abc" > "$SD/clean.in"
+cp "$SD/clean.in" "$SD/clean.want"
+# no trailing newline: the last line stays unterminated
+printf 'first\nlast %s' "$K_OAI" > "$SD/nonl.in"
+printf 'first\nlast [redacted:openai]' > "$SD/nonl.want"
+: > "$SD/empty.in"; : > "$SD/empty.want"
+for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty; do
+  sb_scrub_secrets < "$SD/$fx.in" > "$SD/$fx.out" || fail "scrub[$fx]: sb_scrub_secrets exited non-zero"
+  cmp -s "$SD/$fx.out" "$SD/$fx.want" || fail "scrub[$fx]: output differs from the expected redaction:
+$(od -c "$SD/$fx.out" | head -12)"
+  [ "$(wc -l < "$SD/$fx.in")" -eq "$(wc -l < "$SD/$fx.out")" ] \
+    || fail "scrub[$fx]: line count changed ($(wc -l < "$SD/$fx.in") -> $(wc -l < "$SD/$fx.out")): the archive_line cursor counts lines"
+  sb_scrub_secrets < "$SD/$fx.out" > "$SD/$fx.again" && cmp -s "$SD/$fx.again" "$SD/$fx.out" \
+    || fail "scrub[$fx]: a second pass changed the output (not idempotent)"
+done
+pass "scrub: every format redacted to [redacted:<kind>], PEM per line, CRLF kept, line count invariant, idempotent"
+
+# sb_preprocess_transcript runs the scrub on every window it renders (archive AND extractor input)
+PJ="$TMP/scrub/pp.jsonl"
+{ jq -nc --arg t "please use $K_ANT now" '{type:"user",message:{content:$t}}'
+  jq -nc --arg t "$PEM_B
+MIIE$(rep Ab 12)
+$PEM_E" '{type:"assistant",message:{content:[{type:"text",text:$t}]}}'
+} > "$PJ"
+PP=$(sb_preprocess_transcript < "$PJ" | tr -d '\r')
+case "$PP" in *sk-ant-*|*MIIE*) fail "preprocess: a credential survived sb_preprocess_transcript: $PP" ;; esac
+case "$PP" in *"USER: please use [redacted:anthropic] now"*) ;; *) fail "preprocess: the Anthropic key was not redacted in place: $PP" ;; esac
+[ "$(printf '%s\n' "$PP" | grep -cF '[redacted:private-key]')" -eq 3 ] \
+  || fail "preprocess: the PEM block was not redacted line by line: $PP"
+pass "preprocess: sb_preprocess_transcript output is scrubbed"
+
+# sb_scrub_archive_file: in place, atomic, mtime kept, line count kept, idempotent, loud
+setup "scrub-file"
+SA="$BRAIN_DIR/transcripts/s1_proj_2026-01-01.txt"
+printf -- '--- session-meta ---\nsession_id: s1\n---\n\nUSER: key %s\n%s\nMIIE%s\n%s\nASSISTANT:\n  done %s' \
+  "$K_ANT" "$PEM_B" "$(rep Ab 12)" "$PEM_E" "$K_GHP" > "$SA"   # unterminated last line on purpose
+touch -t 202601010000 "$SA" || fail "touch -t unavailable"
+SA_MT=$(sb_mtime "$SA"); SA_LC=$(wc -l < "$SA")
+sb_scrub_archive_file "$SA" || fail "scrub-file: a good scrub returned non-zero"
+grep -qE 'sk-ant-|ghp_|MIIE|PRIVATE KEY' "$SA" && fail "scrub-file: a credential survived the in-place scrub"
+grep -q '^USER: key \[redacted:anthropic\]$' "$SA" || fail "scrub-file: the Anthropic key was not redacted in place"
+[ "$(sb_mtime "$SA")" = "$SA_MT" ] || fail "scrub-file: mtime changed ($SA_MT -> $(sb_mtime "$SA")): the drainer's quiet-1-h rule reads it"
+[ "$(wc -l < "$SA")" -eq "$SA_LC" ] || fail "scrub-file: line count changed ($SA_LC -> $(wc -l < "$SA"))"
+[ -n "$(tail -c 1 "$SA")" ] || fail "scrub-file: the unterminated last line gained a newline"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '*.part')" ] || fail "scrub-file: a scratch copy was left behind"
+cp "$SA" "$TMP/scrub-file/once"
+sb_scrub_archive_file "$SA" || fail "scrub-file: a re-run returned non-zero"
+cmp -s "$SA" "$TMP/scrub-file/once" || fail "scrub-file: a re-run changed the file (not idempotent)"
+[ "$(sb_mtime "$SA")" = "$SA_MT" ] || fail "scrub-file: a re-run touched the mtime"
+# a file with nothing to redact is not rewritten (the mtime of a fresh file would move on a rewrite)
+SC="$BRAIN_DIR/transcripts/s2_proj_2026-01-01.txt"; printf 'USER: hello\n' > "$SC"; touch -t 202601010000 "$SC"
+SC_MT=$(sb_mtime "$SC"); sb_scrub_archive_file "$SC" || fail "scrub-file: a clean file returned non-zero"
+[ "$(sb_mtime "$SC")" = "$SC_MT" ] || fail "scrub-file: a clean file was rewritten"
+# a file that passes the literal prefilter but has nothing to redact (a task- id, a short sk-) is
+# not renamed over either: same inode (a rewrite would also churn the episodic re-derivation)
+SN="$BRAIN_DIR/transcripts/s4_proj_2026-01-01.txt"; printf 'USER: task-%s and sk-short\n' "$(rep 0a1B 6)" > "$SN"
+SN_INO=$(ls -i "$SN" | awk '{print $1}')
+sb_scrub_archive_file "$SN" || fail "scrub-file: a nothing-to-redact file returned non-zero"
+[ "$(ls -i "$SN" | awk '{print $1}')" = "$SN_INO" ] || fail "scrub-file: a file with nothing to redact was rewritten (inode changed)"
+# failure paths: a missing file, a scrub that fails, and a file that grows mid-scrub (Stop hooks
+# append without the drain lock) — each is loud, returns non-zero and leaves the original intact
+: > "$BRAIN_DIR/error-log.jsonl"
+( sb_scrub_archive_file "$BRAIN_DIR/transcripts/absent.txt" ) && fail "scrub-file: a missing file returned 0"
+grep -q 'sb_scrub_archive_file' "$BRAIN_DIR/error-log.jsonl" || fail "scrub-file: a missing file was not logged"
+SF="$BRAIN_DIR/transcripts/s3_proj_2026-01-01.txt"; printf 'USER: %s\n' "$K_AWS" > "$SF"; cp "$SF" "$TMP/scrub-file/s3.orig"
+: > "$BRAIN_DIR/error-log.jsonl"
+( awk() { return 3; }; sb_scrub_archive_file "$SF" ) && fail "scrub-file: a failing scrub returned 0"
+cmp -s "$SF" "$TMP/scrub-file/s3.orig" || fail "scrub-file: a failing scrub changed the original"
+grep -q 'sb_scrub_archive_file' "$BRAIN_DIR/error-log.jsonl" || fail "scrub-file: a failing scrub was not logged"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '*.part')" ] || fail "scrub-file: a failing scrub left its scratch copy"
+: > "$BRAIN_DIR/error-log.jsonl"
+( eval "$(declare -f sb_scrub_secrets | sed '1s/sb_scrub_secrets/_sb_real_scrub/')"
+  sb_scrub_secrets() { _sb_real_scrub; printf 'USER: late append\n' >> "$SF"; }
+  sb_scrub_archive_file "$SF" ) && fail "scrub-file: a file that grew mid-scrub was replaced (the append is lost)"
+grep -q '^USER: late append$' "$SF" || fail "scrub-file: the concurrent append was lost"
+grep -q 'sb_scrub_archive_file' "$BRAIN_DIR/error-log.jsonl" || fail "scrub-file: the concurrent-append abort was not logged"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '*.part')" ] || fail "scrub-file: the aborted scrub left its scratch copy"
+# a scrub whose output would change the line count is refused (the archive_line cursor counts lines)
+cp "$SF" "$TMP/scrub-file/s3.grown"; : > "$BRAIN_DIR/error-log.jsonl"
+( eval "$(declare -f sb_scrub_secrets | sed '1s/sb_scrub_secrets/_sb_real_scrub/')"
+  sb_scrub_secrets() { _sb_real_scrub; printf 'extra line\n'; }
+  sb_scrub_archive_file "$SF" ) && fail "scrub-file: a scrub that adds a line was accepted"
+cmp -s "$SF" "$TMP/scrub-file/s3.grown" || fail "scrub-file: a line-count-changing scrub modified the original"
+grep -q 'line count' "$BRAIN_DIR/error-log.jsonl" || fail "scrub-file: the line-count refusal was not logged"
+pass "scrub-file: in place, mtime + line count kept, idempotent, clean files untouched, failures loud and lossless"
+
+# === R2 (0.56.0) archive-first: sb_archive_transcript (checked) + sb_archive_raw_window (cursor) ===
+setup "archive-checked"
+T="$TMP/archive-checked/t.jsonl"
+jq -nc --arg t "key $K_ANT" '{type:"user",message:{content:$t}}' > "$T"
+A="$BRAIN_DIR/transcripts/sx_proj_$(date +%Y-%m-%d).txt"
+printf -- '--- session-meta ---\nsession_id: sx\n---\n\ntorn-tail' > "$A"
+sb_archive_transcript "$T" proj sx 1 1 0 || fail "archive-checked: a good append returned non-zero"
+grep -q 'sk-ant-' "$A" && fail "archive-checked: the archive holds the raw Anthropic key"
+grep -q '^USER: key \[redacted:anthropic\]' "$A" || fail "archive-checked: the window was not archived scrubbed"
+grep -qx 'torn-tail' "$A" || fail "archive-checked: the append glued onto a torn last line"
+[ -z "$(tail -c 1 "$A")" ] || fail "archive-checked: the archive does not end in a newline"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '*.part')" ] || fail "archive-checked: the stage file was left behind"
+mkdir -p "$BRAIN_DIR/transcripts/sf_proj_$(date +%Y-%m-%d).txt"   # a directory squats on the archive name
+: > "$BRAIN_DIR/error-log.jsonl"
+( sb_archive_transcript "$T" proj sf 1 1 0 ) && fail "archive-checked: a failed append returned 0"
+# the HEADER write is the one that fails here (bash does not negate a { group } whose redirection
+# fails, so `if ! { ... } > file` would wave it through to the append)
+grep -q 'sb_archive_transcript: cannot write' "$BRAIN_DIR/error-log.jsonl" || fail "archive-checked: the failed header write was not caught and logged"
+pass "archive: append is scrubbed, checked and newline-terminated; a failure is loud and non-zero"
+
+# Archive lines rendered by jq carry a CR on hosts whose jq writes CRLF (jq 1.8 on Windows): count CR-blind.
+acount() { tr -d '\r' < "$1" | grep -c -- "$2"; }
+setup "raw-window"
+T="$TMP/raw-window/t.jsonl"; make_transcript "$T" 10
+TN=$(sb_normalize_path "$T")
+A="$BRAIN_DIR/transcripts/s1_proj_$(date +%Y-%m-%d).txt"
+CUR="$BRAIN_DIR/.last-archived-line-proj--s1"
+# The first call passes the Windows form of the path where one exists: the cursor stores the
+# normalized path, so the POSIX form later is the SAME transcript (no reset, no duplicate).
+T_FIRST="$T"; command -v cygpath >/dev/null 2>&1 && T_FIRST=$(cygpath -w "$T")
+sb_archive_raw_window "$T_FIRST" proj s1 10 proj--s1 || fail "raw-window: the first window returned non-zero"
+[ "$(cat "$CUR")" = "$(printf '10\t%s' "$TN")" ] || fail "raw-window: cursor should be '10<TAB>$TN', got '$(cat "$CUR")'"
+[ "$(grep -c '^USER: question' "$A")" -eq 3 ] || fail "raw-window: lines 1-10 not archived once (questions: $(grep -c '^USER: question' "$A"))"
+A_SUM=$(cksum < "$A")
+sb_archive_raw_window "$T" proj s1 10 proj--s1 || fail "raw-window: an empty window returned non-zero"
+[ "$(cksum < "$A")" = "$A_SUM" ] || fail "raw-window: an unchanged transcript (or the other path form) re-archived its window"
+make_transcript "$T" 15
+sb_archive_raw_window "$T" proj s1 15 proj--s1
+[ "$(grep -c '^USER: question' "$A")" -eq 5 ] || fail "raw-window: only lines 11-15 should be appended (questions: $(grep -c '^USER: question' "$A"))"
+[ "$(cut -f1 "$CUR")" = 15 ] || fail "raw-window: cursor did not advance to 15"
+# a different transcript under the same key (path change) -> cursor 0
+T2="$TMP/raw-window/other.jsonl"; make_transcript "$T2" 20
+sb_archive_raw_window "$T2" proj s1 20 proj--s1
+[ "$(acount "$A" '^USER: question 1$')" -eq 2 ] || fail "raw-window: a new transcript path did not restart the window at 0"
+# the transcript shrank below the cursor (replaced) -> cursor 0
+make_transcript "$T2" 5
+sb_archive_raw_window "$T2" proj s1 5 proj--s1
+[ "$(acount "$A" '^USER: question 1$')" -eq 3 ] || fail "raw-window: a cursor past the transcript end did not reset to 0"
+pass "raw-window: cursor <raw_line TAB normalized path>, appends only (cursor, TOTAL], resets on path change and shrink"
+
+setup "raw-legacy"
+T="$TMP/raw-legacy/t.jsonl"; make_transcript "$T" 10
+A="$BRAIN_DIR/transcripts/s2_proj_$(date +%Y-%m-%d).txt"
+printf '6\n' > "$BRAIN_DIR/.last-extracted-line-proj--s2"
+sb_archive_raw_window "$T" proj s2 10 proj--s2
+[ "$(acount "$A" '^USER: question 1$')" -eq 0 ] || fail "raw-legacy: an absent cursor must start from the legacy extraction marker (6), not 0"
+[ "$(acount "$A" '^USER: question 7$')" -eq 1 ] || fail "raw-legacy: lines 7-10 were not archived"
+pass "raw-window: an absent cursor is initialised from the legacy .last-extracted-line marker"
+
+setup "raw-edge"
+T="$TMP/raw-edge/t.jsonl"; : > "$T"
+sb_archive_raw_window "$T" proj s3 0 proj--s3 || fail "raw-edge: an empty transcript returned non-zero"
+[ ! -e "$BRAIN_DIR/.last-archived-line-proj--s3" ] || fail "raw-edge: an empty window wrote a cursor"
+printf '%s\n' '{"type":"system","content":"x"}' '{"type":"attachment"}' > "$T"
+sb_archive_raw_window "$T" proj s3 2 proj--s3 || fail "raw-edge: a window that renders nothing returned non-zero"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name 's3_*')" ] || fail "raw-edge: a window that renders nothing created a header-only archive"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--s3")" = 2 ] || fail "raw-edge: the cursor did not advance past a window that renders nothing"
+make_transcript "$T" 4
+mkdir -p "$BRAIN_DIR/transcripts/s4_proj_$(date +%Y-%m-%d).txt"   # the append will fail
+: > "$BRAIN_DIR/error-log.jsonl"
+( sb_archive_raw_window "$T" proj s4 4 proj--s4 ) && fail "raw-edge: a failed append returned 0"
+[ ! -e "$BRAIN_DIR/.last-archived-line-proj--s4" ] || fail "raw-edge: the cursor advanced after a failed append (the window would be lost)"
+grep -q 'sb_archive_transcript' "$BRAIN_DIR/error-log.jsonl" || fail "raw-edge: the failed append was not logged"
+# the append itself (not the header write) fails: an existing, read-only archive
+A5="$BRAIN_DIR/transcripts/s5_proj_$(date +%Y-%m-%d).txt"; printf 'USER: earlier\n' > "$A5"; chmod a-w "$A5"
+if [ -w "$A5" ]; then
+  echo "NOTE: raw-edge read-only append case skipped (running as a user that ignores the write bit)"
+else
+  : > "$BRAIN_DIR/error-log.jsonl"
+  ( sb_archive_raw_window "$T" proj s5 4 proj--s5 ) && fail "raw-edge: an append onto a read-only archive returned 0"
+  [ ! -e "$BRAIN_DIR/.last-archived-line-proj--s5" ] || fail "raw-edge: the cursor advanced after a failed append onto an existing archive"
+  grep -q 'append to' "$BRAIN_DIR/error-log.jsonl" || fail "raw-edge: the failed append onto an existing archive was not logged"
+fi
+chmod u+w "$A5"
+pass "raw-window: empty window is a no-op, a render-nothing window advances without a file, a failed append keeps the cursor"
 
 echo "ALL PASS"
