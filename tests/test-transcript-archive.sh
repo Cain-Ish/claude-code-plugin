@@ -78,7 +78,7 @@ setup "prune-count"
 i=1; while [ "$i" -le 405 ]; do
   printf -v n '%03d' "$i"; f="$BRAIN_DIR/transcripts/sess_${n}_proj_2026-05-01.txt"
   printf "test content %d\n" "$i" > "$f"
-  printf '{"basename":"%s","ts":"2026-05-01T00:00:00Z","outcome":"ok"}\n' "${f##*/}" \
+  printf '{"basename":"%s","ts":"2026-05-01T00:00:00Z","outcome":"ok","from":0,"lines":1}\n' "${f##*/}" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
   i=$((i + 1))
 done
@@ -98,7 +98,7 @@ dd if=/dev/zero bs=1024 count=2560 2>/dev/null | tr '\0' 'x' > "$TMP/prune-size/
 i=1; while [ "$i" -le 11 ]; do
   printf -v n '%03d' "$i"; f="$BRAIN_DIR/transcripts/sess_${n}_proj_2026-05-01.txt"
   cat "$TMP/prune-size/blob" > "$f"
-  printf '{"basename":"%s","ts":"2026-05-01T00:00:00Z","outcome":"ok"}\n' "${f##*/}" \
+  printf '{"basename":"%s","ts":"2026-05-01T00:00:00Z","outcome":"ok","from":0,"lines":0}\n' "${f##*/}" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
   i=$((i + 1))
 done
@@ -109,11 +109,12 @@ AFTER_SIZE=$(find "$BRAIN_DIR/transcripts" -type f -exec cat {} + 2>/dev/null | 
 pass "prune: enforces the 25 MB default byte cap"
 
 # --- Subtest 4b: the un-mined HARD count ceiling defaults to 3x the soft cap (1200), and the
-# subagent sub-cap scales with it (200 of 400, was 50 of 100). Empty files, so only the count
+# subagent sub-cap scales with it (200 of 400, was 50 of 100). One-line files with no done-set row
+# (un-mined; an EMPTY file has no line to extract and reads as done), tiny, so only the count
 # caps can fire. RED on the old defaults (300 / 50).
 setup "prune-hard-default"
 D="$BRAIN_DIR/transcripts"
-i=1; while [ "$i" -le 1205 ]; do printf -v n '%04d' "$i"; : > "$D/dddddddd-unmined-${n}_proj_2026-07-02.txt"; i=$((i + 1)); done
+i=1; while [ "$i" -le 1205 ]; do printf -v n '%04d' "$i"; printf 'u\n' > "$D/dddddddd-unmined-${n}_proj_2026-07-02.txt"; i=$((i + 1)); done
 sb_prune_transcripts
 COUNT=$(find "$D" -name '*.txt' -type f | wc -l | tr -d ' ')
 [ "$COUNT" -eq 1200 ] || fail "the un-mined hard ceiling should default to 1200 (3 x the 400 soft cap), got $COUNT"
@@ -140,7 +141,7 @@ D="$BRAIN_DIR/transcripts"
 mark_done() {
   # ${1##*/} not $(basename): this fixture ran 325 basename spawns per test — on MSYS that alone
   # was ~15s of a test that must fit a 120s budget. The fixture must not be slower than the code.
-  printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok"}\n' "${1##*/}" \
+  printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok","from":0,"lines":1}\n' "${1##*/}" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
 }
 for i in $(seq 1 100); do
@@ -178,7 +179,7 @@ touch -t 202601010000 "$UNMINED"  || fail "touch -t unavailable"
 for i in $(seq 1 100); do
   f="$D/bbbbbbbb-done-$(printf '%03d' "$i")_proj_2026-07-02.txt"
   printf 'extracted %d\n' "$i" > "$f"
-  printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok"}\n' "$(basename "$f")" \
+  printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok","from":0,"lines":1}\n' "$(basename "$f")" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
 done
 SB_TRANSCRIPT_CAP=100 sb_prune_transcripts   # fixture-sized cap (101 files); the default is 400
@@ -212,12 +213,12 @@ pass "prune: un-mined stays bounded by the hard cap, and eviction is logged loud
 setup "prune-bytes-prefers-extracted"
 D="$BRAIN_DIR/transcripts"
 UNMINED="$D/aaaaaaaa-unmined_proj_2026-01-01.txt"
-dd if=/dev/zero bs=1024 count=600  | tr '\0' 'x' > "$UNMINED"
+{ dd if=/dev/zero bs=1024 count=600  | tr '\0' 'x'; echo; } > "$UNMINED"   # one long line, never extracted
 touch -t 202601010000 "$UNMINED"  || fail "touch -t unavailable"
 for i in $(seq 1 9); do
   f="$D/bbbbbbbb-done-$(printf '%03d' "$i")_proj_2026-07-02.txt"
-  dd if=/dev/zero bs=1024 count=600  | tr '\0' 'x' > "$f"
-  printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok"}\n' "$(basename "$f")" \
+  { dd if=/dev/zero bs=1024 count=600  | tr '\0' 'x'; echo; } > "$f"
+  printf '{"basename":"%s","ts":"2026-07-02T00:00:00Z","outcome":"ok","from":0,"lines":1}\n' "$(basename "$f")" \
     >> "$BRAIN_DIR/.extraction-state.jsonl"
 done
 SB_TRANSCRIPT_MAX_BYTES=5242880 sb_prune_transcripts   # fixture-sized byte cap (6 MB); the default is 25 MB
@@ -230,7 +231,7 @@ pass "prune: byte cap evicts extracted before un-mined"
 setup "prune-bytes-hard-ceiling"
 D="$BRAIN_DIR/transcripts"
 for i in $(seq 1 6); do
-  dd if=/dev/zero bs=1024 count=600  | tr '\0' 'x' > "$D/cccccccc-unmined-$(printf '%03d' "$i")_proj_2026-07-02.txt"
+  { dd if=/dev/zero bs=1024 count=600  | tr '\0' 'x'; echo; } > "$D/cccccccc-unmined-$(printf '%03d' "$i")_proj_2026-07-02.txt"
 done
 # 6 x 600KB = ~3.6MB. Soft ceiling 1MB, hard 2MB: un-mined must survive the soft cap but be
 # trimmed to the hard one — never below it, and never silently.
@@ -245,10 +246,13 @@ pass "prune: un-mined bytes bounded by the hard ceiling, eviction logged loudly"
 # --- Subtest: a file list inside the MSYS heredoc hang window must not hang the prune.
 # sb_prune_transcripts fed $files (every archive path, one per line) to its two read loops
 # through `<<EOF` heredocs, and an expanded heredoc blocks Git-Bash for good at
-# 65,537..~65,650 bytes, exactly like a `<<<` here-string. Empty files, caps lifted, so nothing
-# is evicted: the list is sized to 65,590 bytes (path lines + newlines, the heredoc's own
-# trailing newline included) by one pad-length name. Watchdog: the backgrounded subshell is the
-# blocked writer itself; poll, then KILL, never `wait` on it. RED reproduces on MSYS only.
+# 65,537..~65,650 bytes, exactly like a `<<<` here-string. The path list is sized to 65,590 bytes
+# (path lines + newlines, the heredoc's own trailing newline included) by one pad-length name.
+# R2-F: the prune now classifies through the cursor map and decides in one awk fed by a pipe; the
+# count cap sits BELOW the file count so that full path runs (the cheap gate would skip it), and
+# every file is un-mined (one line, no done-set row) under a lifted hard cap, so nothing is
+# evicted. Watchdog: the backgrounded subshell is the blocked writer itself; poll, then KILL,
+# never `wait` on it. RED reproduces on MSYS only.
 setup "hdwin"
 HD_DIR="$BRAIN_DIR/transcripts"
 HD_D=$(( ${#HD_DIR} + 2 ))            # "/" before the name + the newline after it
@@ -256,9 +260,9 @@ HD_L=40                               # name length of the bulk files
 HD_N=$(( (65590 - HD_D - 20) / (HD_D + HD_L) ))
 HD_PAD=$(( 65590 - HD_N * (HD_D + HD_L) - HD_D ))
 [ "$HD_PAD" -ge 12 ] && [ "$HD_PAD" -le 200 ] || fail "hd-window fixture: pad name length $HD_PAD out of range (dir ${#HD_DIR} B)"
-i=1; while [ "$i" -le "$HD_N" ]; do : > "$HD_DIR/$(printf 'hdw-%0*d.txt' $((HD_L - 8)) "$i")"; i=$((i + 1)); done
-: > "$HD_DIR/$(printf 'pad-%0*d.txt' $((HD_PAD - 8)) 0)"
-( SB_TRANSCRIPT_CAP=100000 SB_TRANSCRIPT_HARD_CAP=100000 sb_prune_transcripts ) &
+i=1; while [ "$i" -le "$HD_N" ]; do printf -v HD_F 'hdw-%0*d.txt' $((HD_L - 8)) "$i"; printf 'u\n' > "$HD_DIR/$HD_F"; i=$((i + 1)); done
+printf -v HD_F 'pad-%0*d.txt' $((HD_PAD - 8)) 0; printf 'u\n' > "$HD_DIR/$HD_F"
+( SB_TRANSCRIPT_CAP=1 SB_TRANSCRIPT_HARD_CAP=100000 sb_prune_transcripts ) &
 HD_WD=$!; i=0
 while kill -0 "$HD_WD" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
 if kill -0 "$HD_WD" 2>/dev/null; then
@@ -267,35 +271,86 @@ if kill -0 "$HD_WD" 2>/dev/null; then
 fi
 wait "$HD_WD"
 HD_LEFT=$(find "$HD_DIR" -name '*.txt' -type f | wc -l | tr -d ' ')
-[ "$HD_LEFT" -eq $((HD_N + 1)) ] || fail "hd-window prune evicted files under lifted caps: $HD_LEFT of $((HD_N + 1)) left"
-pass "prune: a 65,590-byte archive list ($((HD_N + 1)) files) does not hang, and evicts nothing under lifted caps"
+[ "$HD_LEFT" -eq $((HD_N + 1)) ] || fail "hd-window prune evicted un-mined files under a lifted hard cap: $HD_LEFT of $((HD_N + 1)) left"
+pass "prune: a 65,590-byte archive list ($((HD_N + 1)) files) does not hang, and evicts nothing un-mined under a lifted hard cap"
 
 # --- Subtest (O4): a listing pass that yields NO rows while the archive is over the cap must
-# leave a row. The partition loop reads `< <(printf '%s\n' "$files")`; a process substitution
-# that cannot fork (EAGAIN — routine on a loaded Windows box) feeds the loop nothing, so both
-# eviction queues stay empty and the cap is silently not enforced. Simulated by shadowing the
-# `printf` builtin so ONLY the list-feeding call (the one whose text holds the archive paths)
-# fails; sb_log_error's own printf carries no archive path and still runs for real.
+# leave a row. A pass that cannot fork (EAGAIN — routine on a loaded Windows box) yields nothing,
+# so the cap is silently not enforced. R2-F: the listing is sb_drain_cursor_map (it classifies
+# too); an empty map degrades to a stat listing in which every archive counts as un-mined (only
+# the hard ceilings apply, never a soft-cap eviction of unknown state), and says so. A decision
+# pass that yields no verdict evicts nothing and says so too.
 setup "nopartition"
 NP_DIR="$BRAIN_DIR/transcripts"
-for i in 1 2 3 4 5; do : > "$NP_DIR/np-$i.txt"; done
+for i in 1 2 3 4 5; do printf 'np\n' > "$NP_DIR/np-$i.txt"; printf '{"basename":"np-%s.txt","ts":"2026-07-02T00:00:00Z","outcome":"ok","from":0,"lines":1}\n' "$i" >> "$BRAIN_DIR/.extraction-state.jsonl"; done
 : > "$BRAIN_DIR/error-log.jsonl"
-(
-  printf() {
-    if [ "$1" = '%s\n' ]; then case "${2:-}" in *"/transcripts/"*) return 1 ;; esac; fi
-    builtin printf "$@"
-  }
-  SB_TRANSCRIPT_CAP=2 SB_TRANSCRIPT_HARD_CAP=300 sb_prune_transcripts
-)
-grep -q 'sb_prune_transcripts' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+( sb_drain_cursor_map() { return 0; }
+  SB_TRANSCRIPT_CAP=2 SB_TRANSCRIPT_HARD_CAP=300 sb_prune_transcripts )
+grep -q 'sb_prune_transcripts.*listing pass' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
   || fail "O4: an over-cap archive whose listing pass yielded no rows left no error row (nothing pruned, silently)"
-[ "$(find "$NP_DIR" -name '*.txt' -type f | wc -l | tr -d ' ')" -eq 5 ] || fail "O4: files were evicted although the listing pass yielded nothing"
-# and a healthy over-cap prune must NOT emit that row
+[ "$(find "$NP_DIR" -name '*.txt' -type f | wc -l | tr -d ' ')" -eq 5 ] || fail "O4: files were evicted at the soft cap although their state was unknown"
+( sb_drain_cursor_map() { return 0; }
+  SB_TRANSCRIPT_CAP=2 SB_TRANSCRIPT_HARD_CAP=3 sb_prune_transcripts )
+[ "$(find "$NP_DIR" -name '*.txt' -type f | wc -l | tr -d ' ')" -eq 3 ] || fail "O4: with no classification the hard ceiling was not enforced (growth unbounded)"
+: > "$BRAIN_DIR/error-log.jsonl"
+( awk() { return 1; }; SB_TRANSCRIPT_CAP=1 sb_prune_transcripts )
+grep -q 'sb_prune_transcripts.*no verdict' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  || fail "O4: a decision pass that yielded no verdict left no error row"
+[ "$(find "$NP_DIR" -name '*.txt' -type f | wc -l | tr -d ' ')" -eq 3 ] || fail "O4: files were evicted although the decision pass yielded nothing"
+# and a healthy over-cap prune must NOT emit those rows
 setup "partition-ok"
 for i in 1 2 3 4 5; do : > "$BRAIN_DIR/transcripts/ok-$i.txt"; done
 SB_TRANSCRIPT_CAP=2 SB_TRANSCRIPT_HARD_CAP=300 sb_prune_transcripts
-grep -q 'listing pass' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && fail "O4: a normal over-cap prune logged the no-rows error"
-pass "prune: an over-cap archive with an empty listing pass logs a row; a normal prune stays quiet (O4)"
+grep -qE 'listing pass|no verdict' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null && fail "O4: a normal over-cap prune logged the no-rows error"
+[ "$(find "$BRAIN_DIR/transcripts" -name '*.txt' -type f | wc -l | tr -d ' ')" -eq 2 ] || fail "O4: a normal over-cap prune did not evict the (empty, so done) archives to the cap"
+pass "prune: an over-cap archive with an empty listing or decision pass logs a row and keeps un-mined data; a normal prune stays quiet (O4)"
+
+# --- R2-F#1: eviction reads sb_drain_cursor_map and protects ONLY state == pending. The old
+# reader called any basename with an ok|error row extracted, so an archive that GREW after its last
+# extraction (cursor < lines) was evicted with its new lines never read. Protecting every
+# `cursor < lines` archive instead would keep each dead-lettered one forever: dead is evictable.
+setup "prune-state"
+D="$BRAIN_DIR/transcripts"
+ps_mk() {  # $1 = name, $2 = lines, $3 = touch stamp
+  local k=1; : > "$D/$1"; while [ "$k" -le "$2" ]; do printf 'USER: %s %d\n' "$1" "$k" >> "$D/$1"; k=$((k + 1)); done
+  touch -t "$3" "$D/$1" || fail "touch -t unavailable"
+}
+ps_mk grown_proj.txt 12 202601010000     # oldest: extracted to 8, grew to 12 -> pending
+ps_mk dead_proj.txt 12 202601020000      # extracted to 8, (8,12] dead-lettered -> dead
+ps_mk done_proj.txt 12 202601030000      # extracted to 12 -> done
+ps_mk unmined_proj.txt 3 202601040000    # no row -> pending
+ps_mk done2_proj.txt 12 202601050000     # newest, done
+{
+  printf '%s\n' '{"basename":"grown_proj.txt","ts":"2026-01-01T00:00:00Z","outcome":"ok","from":0,"lines":8}'
+  printf '%s\n' '{"basename":"dead_proj.txt","ts":"2026-01-02T00:00:00Z","outcome":"ok","from":0,"lines":8}'
+  printf '%s\n' '{"basename":"dead_proj.txt","ts":"2026-01-02T00:00:00Z","outcome":"error","from":8,"lines":12,"fails":3}'
+  printf '%s\n' '{"basename":"done_proj.txt","ts":"2026-01-03T00:00:00Z","outcome":"ok","from":0,"lines":12}'
+  printf '%s\n' '{"basename":"done2_proj.txt","ts":"2026-01-05T00:00:00Z","outcome":"ok","from":0,"lines":12}'
+} > "$BRAIN_DIR/.extraction-state.jsonl"
+SB_TRANSCRIPT_CAP=2 sb_prune_transcripts
+[ -f "$D/grown_proj.txt" ] || fail "prune-state: the oldest archive GREW past its cursor (pending) and was evicted with its new lines unread"
+[ -f "$D/unmined_proj.txt" ] || fail "prune-state: a never-extracted archive was evicted at the soft cap"
+[ ! -f "$D/dead_proj.txt" ] || fail "prune-state: a dead-lettered archive was protected (it would be kept forever)"
+[ ! -f "$D/done_proj.txt" ] && [ ! -f "$D/done2_proj.txt" ] || fail "prune-state: done archives were not evicted to the cap"
+pass "prune: evicts done and dead archives, protects only pending ones (cursor map state)"
+
+# --- R2-F#2: the prune runs on every Stop append. Under every cap it must cost a builtin count and
+# one wc -c (no done-set parse); over a cap the cursors come from ONE map per prune, not per file.
+setup "prune-gate"
+D="$BRAIN_DIR/transcripts"
+for i in 1 2 3 4 5; do printf 'x\n' > "$D/g$i.txt"; done
+PG_LOG="$TMP/prune-gate/map.calls"; : > "$PG_LOG"
+eval "$(declare -f sb_drain_cursor_map | sed '1s/sb_drain_cursor_map/_pg_real_map/')"
+( sb_drain_cursor_map() { echo call >> "$PG_LOG"; _pg_real_map "$@"; }
+  SB_TRANSCRIPT_CAP=5 sb_prune_transcripts )
+[ "$(grep -c . "$PG_LOG")" -eq 0 ] || fail "prune-gate: a prune under every cap computed the cursor map"
+( sb_drain_cursor_map() { echo call >> "$PG_LOG"; _pg_real_map "$@"; }
+  SB_TRANSCRIPT_CAP=2 sb_prune_transcripts )
+[ "$(grep -c . "$PG_LOG")" -eq 1 ] || fail "prune-gate: an over-cap prune must compute the cursor map exactly once (got $(grep -c . "$PG_LOG"))"
+( sb_drain_cursor_map() { echo call >> "$PG_LOG"; _pg_real_map "$@"; }
+  SB_TRANSCRIPT_MAX_BYTES=4 sb_prune_transcripts )
+[ "$(grep -c . "$PG_LOG")" -eq 2 ] || fail "prune-gate: a prune over the BYTE cap (count under) must classify too"
+pass "prune: the cheap gate skips the map under every cap; over a cap it is computed once"
 
 # === R2 (0.56.0) secret scrub: sb_scrub_secrets, sb_preprocess_transcript, sb_scrub_archive_file ===
 # Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.
@@ -348,7 +403,18 @@ cp "$SD/clean.in" "$SD/clean.want"
 printf 'first\nlast %s' "$K_OAI" > "$SD/nonl.in"
 printf 'first\nlast [redacted:openai]' > "$SD/nonl.want"
 : > "$SD/empty.in"; : > "$SD/empty.want"
-for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty; do
+# current OpenAI keys (R2-F#6): sk-proj- / sk-svcacct- / sk-admin- + [A-Za-z0-9_-]{20,}; the generic
+# sk- form stops at their second dash. Same left boundary (glued to an identifier: not matched),
+# too short: not matched, CRLF kept
+K_PROJ="sk-proj-$(rep aB3_- 8)$(rep Zz9 4)"; K_SVC="sk-svcacct-$(rep Q1_x 6)"; K_ADM="sk-admin-$(rep 9aB- 6)"
+K_AD20="sk-admin-$(rep 9aB-_ 4)"; K_SV19="sk-svcacct-$(rep Q1_ 6)x"   # exactly 20 / 19 after the prefix
+printf '%s\n' "OPENAI_API_KEY=$K_PROJ" "  svc $K_SVC, admin $K_ADM" "glued x$K_PROJ" "sk-proj-short_1" \
+  "min $K_AD20 ok" "under $K_SV19 ok" > "$SD/oaiproj.in"
+printf '%s\r\n' "  key=\"$K_PROJ\"" >> "$SD/oaiproj.in"
+printf '%s\n' "OPENAI_API_KEY=[redacted:openai]" "  svc [redacted:openai], admin [redacted:openai]" "glued x$K_PROJ" "sk-proj-short_1" \
+  "min [redacted:openai] ok" "under $K_SV19 ok" > "$SD/oaiproj.want"
+printf '%s\r\n' "  key=\"[redacted:openai]\"" >> "$SD/oaiproj.want"
+for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj; do
   sb_scrub_secrets < "$SD/$fx.in" > "$SD/$fx.out" || fail "scrub[$fx]: sb_scrub_secrets exited non-zero"
   cmp -s "$SD/$fx.out" "$SD/$fx.want" || fail "scrub[$fx]: output differs from the expected redaction:
 $(od -c "$SD/$fx.out" | head -12)"
@@ -428,6 +494,73 @@ cmp -s "$SF" "$TMP/scrub-file/s3.grown" || fail "scrub-file: a line-count-changi
 grep -q 'line count' "$BRAIN_DIR/error-log.jsonl" || fail "scrub-file: the line-count refusal was not logged"
 pass "scrub-file: in place, mtime + line count kept, idempotent, clean files untouched, failures loud and lossless"
 
+# === R2-F#3 (0.56.0): the Stop/PreCompact append and the in-place scrub share a per-archive lock ===
+# Without it, a Stop append that landed between the scrub's size re-check and its rename was
+# renamed away: lost. The lock is transcripts/.<basename>.lock (no *.txt reader sees it).
+setup "archive-lock"
+T="$TMP/archive-lock/t.jsonl"; make_transcript "$T" 4
+AL="$BRAIN_DIR/transcripts/lk_proj_$(date +%Y-%m-%d).txt"
+LK="$BRAIN_DIR/transcripts/.${AL##*/}.lock"
+printf -- '--- session-meta ---\nsession_id: lk\n---\n\nUSER: key %s\n' "$K_AWS" > "$AL"
+# each writer holds the lock at its critical step: the append's `cat` of the stage file, the
+# scrub's rename (shadowed commands record whether the lock file exists at that moment)
+LKLOG="$TMP/archive-lock/held.log"; : > "$LKLOG"
+( cat() { case "${1:-}" in *.stage-*) if [ -e "$LK" ]; then echo append-held; else echo append-free; fi >> "$LKLOG" ;; esac; command cat "$@"; }
+  sb_archive_transcript "$T" proj lk 1 4 0 ) || fail "lock: a good append returned non-zero"
+( mv() { if [ -e "$LK" ]; then echo scrub-held; else echo scrub-free; fi >> "$LKLOG"; command mv "$@"; }
+  sb_scrub_archive_file "$AL" ) || fail "lock: a good scrub returned non-zero"
+grep -qx append-held "$LKLOG" || fail "lock: the Stop append ran without the archive lock ($(tr '\n' ' ' < "$LKLOG"))"
+grep -qx scrub-held "$LKLOG" || fail "lock: the scrub renamed without the archive lock ($(tr '\n' ' ' < "$LKLOG"))"
+[ ! -e "$LK" ] || fail "lock: the lock was not released after the append and the scrub"
+# the release thesis: a Stop append arriving while a scrub sits between its size re-check and its
+# rename is NOT lost — it waits for the lock and lands in the renamed (scrubbed) file
+printf 'USER: second key %s\n' "$K_GHP" >> "$AL"
+REACHED="$TMP/archive-lock/reached"; rm -f "$REACHED"
+( mv() { : > "$REACHED"; sleep 2; command mv "$@"; }; sb_scrub_archive_file "$AL" ) &
+LK_BG=$!; i=0
+while [ ! -e "$REACHED" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+[ -e "$REACHED" ] || { kill "$LK_BG" 2>/dev/null; fail "lock: the background scrub never reached its rename"; }
+make_transcript "$T" 8
+sb_archive_transcript "$T" proj lk 5 8 0 || fail "lock: the append that waited for the scrub returned non-zero"
+wait "$LK_BG" || fail "lock: the background scrub returned non-zero"
+grep -q '^USER: question 7$' "$AL" || fail "lock: the Stop append that arrived during the scrub's rename window was LOST"
+grep -qF '[redacted:github]' "$AL" || fail "lock: the scrub's rename did not land"
+grep -q 'ghp_' "$AL" && fail "lock: the second key survived the scrub"
+# a live holder: the append waits (bounded), then fails loud; the archive and the raw cursor stay
+printf '99999\n' > "$LK"
+A_SUM=$(cksum < "$AL"); : > "$BRAIN_DIR/error-log.jsonl"
+make_transcript "$T" 10
+( sb_archive_raw_window "$T" proj lk 10 proj--lk ) && fail "lock: an append under a held lock returned 0"
+[ "$(cksum < "$AL")" = "$A_SUM" ] || fail "lock: an append under a held lock changed the archive"
+[ ! -e "$BRAIN_DIR/.last-archived-line-proj--lk" ] || fail "lock: the raw cursor advanced although the append was refused"
+grep -q 'sb_archive_transcript.*lock' "$BRAIN_DIR/error-log.jsonl" || fail "lock: the refused append was not logged"
+# ... and the scrub under a held lock refuses too, leaving the file as it is
+printf 'USER: third key %s\n' "$K_ANT" >> "$AL"; A_SUM=$(cksum < "$AL"); : > "$BRAIN_DIR/error-log.jsonl"
+( sb_scrub_archive_file "$AL" ) && fail "lock: a scrub under a held lock returned 0"
+[ "$(cksum < "$AL")" = "$A_SUM" ] || fail "lock: a scrub under a held lock changed the archive"
+grep -q 'sb_scrub_archive_file.*lock' "$BRAIN_DIR/error-log.jsonl" || fail "lock: the refused scrub was not logged"
+[ -e "$LK" ] || fail "lock: a refused writer removed the holder's lock"
+# a holder that lets go during the wait: the writer waits for it instead of failing fast
+( sleep 1; rm -f "$LK" ) &
+sb_scrub_archive_file "$AL" || fail "lock: the scrub did not wait for a lock released after 1 s"
+wait
+grep -q 'sk-ant-' "$AL" && fail "lock: the third key survived the scrub that waited"
+# the steal logs a row: that must run with the caller's noclobber setting (off), never the lock's
+# own (log rotation rewrites files with `>`, which noclobber refuses); nor may it leak to the caller
+printf '99999\n' > "$LK"; touch -t 202601010000 "$LK" || fail "touch -t unavailable"
+NC_LOG="$TMP/archive-lock/nc.log"; : > "$NC_LOG"
+( sb_log_error() { case "$-" in *C*) echo on ;; *) echo off ;; esac >> "$NC_LOG"; }
+  sb_archive_transcript "$T" proj lk 1 10 0 ) || fail "lock: the append after a stale steal returned non-zero"
+grep -qx off "$NC_LOG" && ! grep -qx on "$NC_LOG" || fail "lock: the steal's log row ran under noclobber ($(tr '\n' ' ' < "$NC_LOG"))"
+sb_archive_transcript "$T" proj lk 1 2 0 || fail "lock: a plain append returned non-zero"
+case "$-" in *C*) fail "lock: noclobber leaked to the caller" ;; esac
+# a stale lock (its holder died mid-write) is stolen
+printf '99999\n' > "$LK"; touch -t 202601010000 "$LK" || fail "touch -t unavailable"
+sb_archive_raw_window "$T" proj lk 10 proj--lk || fail "lock: a stale lock was not stolen"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--lk")" = 10 ] || fail "lock: the append after a stale steal did not advance the cursor"
+[ ! -e "$LK" ] || fail "lock: the stolen lock was not released"
+pass "lock: append and scrub share the per-archive lock; a concurrent append is never lost; held = bounded wait then loud; stale = stolen"
+
 # === R2 (0.56.0) archive-first: sb_archive_transcript (checked) + sb_archive_raw_window (cursor) ===
 setup "archive-checked"
 T="$TMP/archive-checked/t.jsonl"
@@ -447,6 +580,32 @@ mkdir -p "$BRAIN_DIR/transcripts/sf_proj_$(date +%Y-%m-%d).txt"   # a directory 
 # fails, so `if ! { ... } > file` would wave it through to the append)
 grep -q 'sb_archive_transcript: cannot write' "$BRAIN_DIR/error-log.jsonl" || fail "archive-checked: the failed header write was not caught and logged"
 pass "archive: append is scrubbed, checked and newline-terminated; a failure is loud and non-zero"
+
+# R2-F#8: sb_archive_subagent_result had the same `if ! { ... } > file` shape. A directory squatting
+# on the name fails the group's redirect, bash does not negate that, and the success branch ran:
+# an empty result then returned 0 with nothing written, a non-empty one was misreported as a
+# short write by the size check below it.
+D_SUB="$BRAIN_DIR/transcripts/sub-agdir_proj_$(date +%Y-%m-%d).txt"; mkdir -p "$D_SUB"
+: > "$BRAIN_DIR/error-log.jsonl"
+( sb_archive_subagent_result agdir general-purpose proj sess 1 "" ) && fail "subagent-write: a failed write of an empty result returned 0"
+( sb_archive_subagent_result agdir general-purpose proj sess 1 "final answer" ) && fail "subagent-write: a failed write returned 0"
+[ "$(grep -c 'sb_archive_subagent_result: write failed' "$BRAIN_DIR/error-log.jsonl")" -eq 2 ] \
+  || fail "subagent-write: the failed writes were not caught as write failures: $(cat "$BRAIN_DIR/error-log.jsonl")"
+grep -q 'short write' "$BRAIN_DIR/error-log.jsonl" && fail "subagent-write: a failed write was misreported as a short write"
+pass "subagent archive: a failed write is caught at the write, loud and non-zero"
+
+# A subagent's final result is archived as sub-*.txt, which the drainer extracts like any archive
+# and which the one-time migration scrub never revisits: it must be scrubbed on the way in, and the
+# size check must measure the scrubbed text (a redaction is shorter than the key).
+: > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_subagent_result agkey general-purpose proj sess 1 "use $K_ANT and $K_PROJ
+then done" || fail "subagent-scrub: archiving a result that holds keys returned non-zero"
+S_SUB="$BRAIN_DIR/transcripts/sub-agkey_proj_$(date +%Y-%m-%d).txt"
+grep -qE 'sk-ant-|sk-proj-' "$S_SUB" && fail "subagent-scrub: a key reached the subagent archive in clear"
+grep -q '^use \[redacted:anthropic\] and \[redacted:openai\]$' "$S_SUB" || fail "subagent-scrub: the result was not redacted in place: $(cat "$S_SUB")"
+grep -q '^then done$' "$S_SUB" || fail "subagent-scrub: the rest of the result was lost"
+[ ! -s "$BRAIN_DIR/error-log.jsonl" ] || fail "subagent-scrub: a clean scrubbed write logged an error: $(cat "$BRAIN_DIR/error-log.jsonl")"
+pass "subagent archive: the result is secret-scrubbed before it is written"
 
 # Archive lines rendered by jq carry a CR on hosts whose jq writes CRLF (jq 1.8 on Windows): count CR-blind.
 acount() { tr -d '\r' < "$1" | grep -c -- "$2"; }
