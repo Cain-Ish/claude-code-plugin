@@ -617,6 +617,14 @@ SN="$BRAIN_DIR/transcripts/s4_proj_2026-01-01.txt"; printf 'USER: task-%s and sk
 SN_INO=$(ls -i "$SN" | awk '{print $1}')
 sb_scrub_archive_file "$SN" || fail "scrub-file: a nothing-to-redact file returned non-zero"
 [ "$(ls -i "$SN" | awk '{print $1}')" = "$SN_INO" ] || fail "scrub-file: a file with nothing to redact was rewritten (inode changed)"
+# a mixed-case `BeArEr <token>` (the scrub redacts any case) must pass the fast path too: the bare
+# literals spelled lower/Title/UPPER only, so such an archive left the migration's list in clear
+SM="$BRAIN_DIR/transcripts/s5_proj_2026-01-01.txt"; printf 'USER: auth BeArEr %s\n' "$(rep aB3d 6)" > "$SM"
+sb_scrub_archive_file "$SM" || fail "scrub-file: a mixed-case bearer archive returned non-zero"
+grep -q 'redacted:' "$SM" || fail "scrub-file: a mixed-case BeArEr token survived (the fast path skipped the file)"
+sb_has_scrub_literal "auth BeArEr x" || fail "sb_has_scrub_literal: a mixed-case bearer was not flagged (observations would skip the scrub)"
+sb_has_scrub_literal "plain text only" && fail "sb_has_scrub_literal: clean text was flagged"
+shopt -q nocasematch && fail "sb_has_scrub_literal: left nocasematch on for its caller"
 # failure paths: a missing file, a scrub that fails, and a file that grows mid-scrub (Stop hooks
 # append without the drain lock) — each is loud, returns non-zero and leaves the original intact
 : > "$BRAIN_DIR/error-log.jsonl"

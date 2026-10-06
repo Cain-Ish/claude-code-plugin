@@ -273,12 +273,13 @@ if [ -d "$TRANSCRIPT_DIR" ]; then
 
   # Secret scrub of the staged copies (0.56.0, security review: pre-migration exposure). The
   # dream-runner LLM reads them, and an archive written before 0.56.0 (until the drainer's one-time
-  # migration reaches it), or appended by a 0.55 hook after it, holds keys in clear. ONE literal
-  # grep (_SB_SCRUB_LITERALS) over the copies, then sb_scrub_archive_file on each hit (atomic, mtime
-  # kept: the autostage watermark reads it). Fail closed: a copy that cannot be scrubbed, or a
-  # grep that cannot read the copies, removes them from the dream, loudly.
+  # migration reaches it), or appended by a 0.55 hook after it, holds keys in clear. ONE grep
+  # (_SB_SCRUB_ERE: exactly what the scrub changes, any-case words included) over the copies, then
+  # sb_scrub_archive_file on each hit (atomic, mtime kept: the autostage watermark reads it). Fail
+  # closed: a copy that cannot be scrubbed, or a grep that cannot read the copies, removes them
+  # from the dream, loudly.
   if [ "$SELECTED" -gt 0 ]; then
-    _hits=$(cd "$DREAM_DIR/transcripts" && LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- *.txt 2>/dev/null); _grc=$?
+    _hits=$(cd "$DREAM_DIR/transcripts" && LC_ALL=C grep -lE "${_SB_SCRUB_ERE[@]}" -- *.txt 2>/dev/null); _grc=$?
     if [ "$_grc" -gt 1 ]; then
       sb_log_error "dream-snapshot.sh" "secret check of the staged transcripts failed (grep rc=$_grc); none are staged for dream $DREAM_ID" 1
       rm -f "$DREAM_DIR/transcripts"/*.txt 2>/dev/null

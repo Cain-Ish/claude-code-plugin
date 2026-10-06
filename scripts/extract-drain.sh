@@ -608,11 +608,12 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
     continue   # a live archive with a small new tail: wait for more lines, or for it to settle
   fi
   # X2 S6: the one-time migration scrubbed the archives that existed then, but a session still
-  # running 0.55 hooks (no scrub) can append keys in clear after the marker. ONE literal grep per
-  # archive about to be extracted; on a hit it is scrubbed in place first (sb_scrub_archive_file:
-  # atomic, mtime and line count kept, under its archive lock) and the window recomputed (line
-  # lengths changed). A failed scrub, or an archive the grep cannot read, is skipped this tick.
-  LC_ALL=C grep -qF "${_SB_SCRUB_LITERALS[@]}" -- "$tf" 2>/dev/null; src=$?
+  # running 0.55 hooks (no scrub) can append keys in clear after the marker. ONE grep per archive
+  # about to be extracted (_SB_SCRUB_ERE: exactly what the scrub changes, any-case words included);
+  # on a hit it is scrubbed in place first (sb_scrub_archive_file: atomic, mtime and line count
+  # kept, under its archive lock) and the window recomputed (line lengths changed). A failed scrub,
+  # or an archive the grep cannot read, is skipped this tick.
+  LC_ALL=C grep -qE "${_SB_SCRUB_ERE[@]}" -- "$tf" 2>/dev/null; src=$?
   if [ "$src" -eq 0 ]; then
     sb_scrub_archive_file "$tf" || continue   # logged by the scrub
     win=$(sb_archive_window "$tf" "$next" "$lines" "$MAXB") || continue

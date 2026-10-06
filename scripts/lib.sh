@@ -1939,8 +1939,10 @@ sb_scrub_archive_file() {
     sb_log_error "lib.sh" "sb_scrub_archive_file: not a regular file: $f" 1
     return 1
   fi
-  # Fast path: no credential literal anywhere means nothing the scrub could change.
-  LC_ALL=C grep -qF "${_SB_SCRUB_LITERALS[@]}" "$f" 2>/dev/null
+  # Fast path: nothing the scrub could change (_SB_SCRUB_ERE matches exactly that, parity-tested).
+  # Not the bare literals: their any-case words miss a mixed-case `BeArEr <token>`, which the
+  # scrub itself redacts, so such an archive left the migration's list in clear.
+  LC_ALL=C grep -qE "${_SB_SCRUB_ERE[@]}" "$f" 2>/dev/null
   rc=$?
   [ "$rc" -eq 1 ] && return 0
   if [ "$rc" -ne 0 ]; then
@@ -2362,12 +2364,17 @@ sb_archive_subagent_result() {
 # cheap pre-check that keeps the scrub's awk spawn off a hot path that almost never carries a key
 # (observe-tool-use.sh runs on every tool call, X2 S3). A hit only means "run the scrub".
 sb_has_scrub_literal() {
-  local l
+  # Case-insensitive (nocasematch, bash >= 3.1): the scrub redacts `bearer`/`authorization` in any
+  # case, and a literal list cannot spell every mixing (BeArEr). Extra hits only cost one awk run.
+  local l nc=0 hit=1
+  shopt -q nocasematch && nc=1
+  shopt -s nocasematch
   for l in "${_SB_SCRUB_LITERALS[@]}"; do
     [ "$l" = "-e" ] && continue
-    case "$1" in *"$l"*) return 0 ;; esac
+    case "$1" in *"$l"*) hit=0; break ;; esac
   done
-  return 1
+  [ "$nc" = 1 ] || shopt -u nocasematch
+  return "$hit"
 }
 
 # --- Observation ledger mining (P0 rec 5, capture widening) -----------------
