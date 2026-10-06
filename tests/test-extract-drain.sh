@@ -480,6 +480,16 @@ rows_for rc1_proj_2026-05-24.txt | grep -q '"lines":50' && no "recreate: the sta
 mk_lines "rc1_proj_2026-05-24.txt" 50                      # 60 lines: past the old cursor
 rdrain
 eq "recreate: growth past the old cursor is extracted, not skipped" "$(rlast)" "rc1_proj_2026-05-24.txt 10 60"
+# D6b (X2#9): the purge is jq | tr -d '\r' (Windows jq writes CRLF); a jq that fails must not pass
+# for success through the pipe: the ledger stays as it was, the purge is logged, nothing extracted.
+reset; rm -f "$RLOG"; : > "$BRAIN_DIR/error-log.jsonl"
+mk_lines "rc2_proj_2026-05-24.txt" 3
+printf '{"basename":"rc2_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":50}\n' > "$STATE"
+PSHIM="$SANDBOX/purgeshim"; mkdir -p "$PSHIM"
+printf '#!/bin/bash\ncase "$*" in *"--argjson drop"*) exit 5 ;; esac\nexec "%s" "$@"\n' "$(command -v jq)" > "$PSHIM/jq"; chmod +x "$PSHIM/jq"
+PATH="$PSHIM:$PATH" rdrain
+grep -q 'recreate purge failed' "$BRAIN_DIR/error-log.jsonl" && ok "recreate: a failed purge is logged" || no "recreate: a failed purge was silent"
+eq "recreate: a failed purge skips the archive this tick" "$(rcalls)" "0"
 
 # D7: eligibility — >= SB_DRAIN_DELTA_MIN_BYTES new, or quiet >= SB_DRAIN_QUIET_S; a settled tiny
 # tail gets an ok/too-small row WITH lines (so it is done) and no LLM call.
@@ -777,9 +787,18 @@ rm -rf "$BRAIN_DIR/dreams"
 reset
 printf '1\n' > "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock"; touch -t 202601010000 "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock"
 printf '1\n' > "$BRAIN_DIR/transcripts/.dl2_proj.txt.lock"
+# X2#4: *.part scratch files of a hook killed mid-append (.stage-<sid>-<pid>.part) or mid-scrub
+# (<archive>.txt.scrub-<pid>.part) sat outside every cap; X2 S2: a stale eviction tombstone
+OLDF="$BRAIN_DIR/transcripts/.stage-sid1-123.part $BRAIN_DIR/transcripts/a1_proj.txt.scrub-9.part $BRAIN_DIR/transcripts/.ev9_proj.txt.evicted"
+for f in $OLDF; do printf 'x' > "$f"; touch -t 202601010000 "$f"; done
+printf 'x' > "$BRAIN_DIR/transcripts/.stage-sid2-456.part"; : > "$BRAIN_DIR/transcripts/.ev8_proj.txt.evicted"
 rdrain
 [ ! -e "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock" ] && ok "lock sweep: a day-old archive lock is removed" || no "lock sweep: a day-old archive lock survived"
 [ -e "$BRAIN_DIR/transcripts/.dl2_proj.txt.lock" ] && ok "lock sweep: a fresh archive lock is kept" || no "lock sweep: a live archive lock was removed"
+LEFT=""; for f in $OLDF; do [ -e "$f" ] && LEFT="$LEFT ${f##*/}"; done
+[ -z "$LEFT" ] && ok "part sweep: stale *.part scratch files and tombstones are removed" || no "part sweep: left behind:$LEFT"
+[ -e "$BRAIN_DIR/transcripts/.stage-sid2-456.part" ] && [ -e "$BRAIN_DIR/transcripts/.ev8_proj.txt.evicted" ] \
+  && ok "part sweep: a live writer's fresh scratch file and a fresh tombstone are kept" || no "part sweep: a fresh scratch file or tombstone was removed"
 
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.

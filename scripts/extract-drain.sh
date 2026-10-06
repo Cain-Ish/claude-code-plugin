@@ -462,8 +462,11 @@ sb_drain_migrate() {
   [ -n "$rows$drop" ] || return 1
   if [ -n "$drop" ]; then
     tmp="$STATE.tmp.$$"
-    if jq -cR --argjson drop "[$drop]" 'fromjson? | select((.basename as $b | $drop | index($b)) == null)' \
-         "$STATE" > "$tmp" && mv "$tmp" "$STATE"; then
+    # tr -d '\r': Windows jq writes CRLF. Gated on the whole pipe (X2#9): through the pipe a jq
+    # failure would otherwise pass for success and replace the ledger with nothing.
+    jq -cR --argjson drop "[$drop]" 'fromjson? | select((.basename as $b | $drop | index($b)) == null)' \
+      "$STATE" 2>/dev/null | tr -d '\r' > "$tmp"
+    if [ "${PIPESTATUS[*]}" = "0 0" ] && mv "$tmp" "$STATE"; then
       sb_drain_tick recreated "purged the done-set rows of $ndrop archive(s) whose line count fell below their cursor"
     else
       rm -f "$tmp" 2>/dev/null
@@ -631,8 +634,16 @@ done < <(printf '%s\n' "$DRAIN_MAP")
 # R2: the raw_line cursors (.last-archived-line-<slug>--<sid>, archive-first) age out the same way.
 find "$BRAIN_DIR" -maxdepth 1 \( -name '.last-extracted-line-*' -o -name '.last-archived-line-*' \) -mtime +30 -delete 2>/dev/null || true
 # Per-archive locks (sb_archive_lock, R2-F#3) left by a writer that died: the next writer steals
-# one after 60 s, but an archive nobody writes again keeps its lock file. Swept after a day.
-find "$TX_DIR" -maxdepth 1 -name '.*.txt.lock' -type f -mtime +1 -delete 2>/dev/null || true
+# one after 60 s, but an archive nobody writes again keeps its lock file. Eviction tombstones
+# (.<name>.evicted, X2 S2) protect only a same-day re-creation and are consumed by the compaction
+# below; a stale one (an empty ledger skips the compaction) goes too. Both after two days
+# (-mtime +1). Scratch files of a hook killed mid-append (.stage-<sid>-<pid>.part) or mid-scrub
+# (<archive>.txt.scrub-<pid>.part) sit outside every cap (X2#4): after a day (-mtime +0), well
+# past any live writer. ONE find; a failing one is logged.
+if ! find "$TX_DIR" -maxdepth 1 -type f \( \( \( -name '.*.txt.lock' -o -name '.*.txt.evicted' \) -mtime +1 \) \
+       -o \( -name '*.part' -mtime +0 \) \) -delete 2>/dev/null; then
+  sb_log_error "extract-drain.sh" "GC: the lock / tombstone / *.part sweep (find -delete) failed in $TX_DIR" 1
+fi
 # Observation ledgers (P0 rec 5): one file per session; after 7 days the
 # session's transcript has been drained (or pruned past recovery) — sweep.
 find "$BRAIN_DIR/observations" -maxdepth 1 -name '*.jsonl' -mtime +7 -delete 2>/dev/null || true
