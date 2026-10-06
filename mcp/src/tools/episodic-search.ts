@@ -460,21 +460,42 @@ function parseExchanges(lines: string[], bodyStart: number, meta: SessionMeta, a
 
 const emptyIndex = (): EpisodicIndex => ({ model: 'Xenova/all-MiniLM-L6-v2', indexed_files: {}, exchanges: [] });
 
+/** The row fields every writer stores as strings and the readers dereference (basename,
+ *  toLowerCase, the snippet clean and fold): without them a row throws in search and build alike. */
+const ROW_STRING_FIELDS = ['id', 'sessionId', 'project', 'date', 'userSnippet', 'assistantSnippet', 'archivePath'] as const;
+
+function isStoredRow(v: unknown): v is StoredExchange {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  return ROW_STRING_FIELDS.every(k => typeof o[k] === 'string');
+}
+
+interface LoadedIndex {
+  index: EpisodicIndex;
+  /** Rows whose stored vector was unusable (kept, without a vector: they re-embed). */
+  dropped: number;
+  /** Elements of `exchanges` that are not a row at all (null, a primitive, a row without its
+   *  string fields): skipped. The archive one still names has lost its file entry, so the next
+   *  build re-parses it and no real row is lost. */
+  malformed: number;
+}
+
 /** A missing index is the normal first run. Anything else that cannot be used (unreadable,
  *  unparseable, or without an exchanges array) is reset to empty AND logged: the next build
  *  re-indexes every archive, and the reset must not pass for a healthy empty index. A missing or
  *  malformed `indexed_files` only means "re-parse every file", so it is normalized to {}.
- *  Rows come back in the current shape (currentRow); `dropped` counts unusable stored vectors. */
-async function loadIndex(brainDir: string): Promise<{ index: EpisodicIndex; dropped: number }> {
+ *  Rows come back in the current shape (currentRow). */
+async function loadIndex(brainDir: string): Promise<LoadedIndex> {
   const indexPath = join(brainDir, INDEX_FILE);
+  const reset = { index: emptyIndex(), dropped: 0, malformed: 0 };
   let data: string;
   try {
     data = await fs.readFile(indexPath, 'utf-8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { index: emptyIndex(), dropped: 0 };
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return reset;
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`);
-    return { index: emptyIndex(), dropped: 0 };
+    return reset;
   }
   let parsed: unknown;
   try {
@@ -482,28 +503,39 @@ async function loadIndex(brainDir: string): Promise<{ index: EpisodicIndex; drop
   } catch (e) {
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`);
-    return { index: emptyIndex(), dropped: 0 };
+    return reset;
   }
   const o = parsed as { model?: unknown; indexed_files?: unknown; exchanges?: unknown } | null;
   if (!o || typeof o !== 'object' || Array.isArray(o) || !Array.isArray(o.exchanges)) {
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} has no exchanges array`);
-    return { index: emptyIndex(), dropped: 0 };
+    return reset;
   }
   const files = o.indexed_files;
+  const indexedFiles: EpisodicIndex['indexed_files'] =
+    files && typeof files === 'object' && !Array.isArray(files) ? files as EpisodicIndex['indexed_files'] : {};
   let dropped = 0;
-  const exchanges = (o.exchanges as StoredExchange[]).map(stored => {
+  let malformed = 0;
+  const exchanges: IndexedExchange[] = [];
+  for (const stored of o.exchanges as unknown[]) {
+    if (!isStoredRow(stored)) {
+      malformed++;
+      const archivePath = (stored as { archivePath?: unknown } | null)?.archivePath;
+      if (typeof archivePath === 'string') delete indexedFiles[basename(archivePath)];
+      continue;
+    }
     const r = currentRow(stored);
     if (r.dropped) dropped++;
-    return r.row;
-  });
+    exchanges.push(r.row);
+  }
   return {
     index: {
       model: typeof o.model === 'string' ? o.model : emptyIndex().model,
-      indexed_files: files && typeof files === 'object' && !Array.isArray(files) ? files as EpisodicIndex['indexed_files'] : {},
+      indexed_files: indexedFiles,
       exchanges,
     },
     dropped,
+    malformed,
   };
 }
 
@@ -570,7 +602,12 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
 
   const scrubPending = await scrubPendingArchives(brainDir);
   let held = 0;
-  const { index, dropped } = await loadIndex(brainDir);
+  const { index, dropped, malformed } = await loadIndex(brainDir);
+  if (malformed > 0) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `${malformed} malformed row(s) (not an object with the row's string fields) were dropped from the episodic `
+      + 'index; an archive such a row names is re-parsed');
+  }
   if (dropped > 0) {
     await appendErrorLog(brainDir, 'episodic-index',
       `${dropped} stored vector(s) not ${EMBEDDING_DIM} components were dropped from the episodic index; those rows re-embed`);
