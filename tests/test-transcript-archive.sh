@@ -572,6 +572,19 @@ mkdir -p "$BRAIN_DIR/transcripts/sf_proj_$(date +%Y-%m-%d).txt"   # a directory 
 grep -q 'sb_archive_transcript: cannot write' "$BRAIN_DIR/error-log.jsonl" || fail "archive-checked: the failed header write was not caught and logged"
 pass "archive: append is scrubbed, checked and newline-terminated; a failure is loud and non-zero"
 
+# R2-F#8: sb_archive_subagent_result had the same `if ! { ... } > file` shape. A directory squatting
+# on the name fails the group's redirect, bash does not negate that, and the success branch ran:
+# an empty result then returned 0 with nothing written, a non-empty one was misreported as a
+# short write by the size check below it.
+D_SUB="$BRAIN_DIR/transcripts/sub-agdir_proj_$(date +%Y-%m-%d).txt"; mkdir -p "$D_SUB"
+: > "$BRAIN_DIR/error-log.jsonl"
+( sb_archive_subagent_result agdir general-purpose proj sess 1 "" ) && fail "subagent-write: a failed write of an empty result returned 0"
+( sb_archive_subagent_result agdir general-purpose proj sess 1 "final answer" ) && fail "subagent-write: a failed write returned 0"
+[ "$(grep -c 'sb_archive_subagent_result: write failed' "$BRAIN_DIR/error-log.jsonl")" -eq 2 ] \
+  || fail "subagent-write: the failed writes were not caught as write failures: $(cat "$BRAIN_DIR/error-log.jsonl")"
+grep -q 'short write' "$BRAIN_DIR/error-log.jsonl" && fail "subagent-write: a failed write was misreported as a short write"
+pass "subagent archive: a failed write is caught at the write, loud and non-zero"
+
 # Archive lines rendered by jq carry a CR on hosts whose jq writes CRLF (jq 1.8 on Windows): count CR-blind.
 acount() { tr -d '\r' < "$1" | grep -c -- "$2"; }
 setup "raw-window"

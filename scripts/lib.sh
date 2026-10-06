@@ -2024,8 +2024,10 @@ sb_archive_subagent_result() {
   # squatting on the name) and the written size, which must hold at least the result
   # text itself (${#result} counts characters, never more than its bytes) — a short
   # or empty file is a silently lost result, the SF-M3 class. Fail loud, never `|| true`.
+  # The positive form on purpose (as in sb_archive_transcript, 9ee624d): bash does not apply `!`
+  # to a { group } whose own redirection fails, so `if ! { ...; } > file` took the success branch.
   local written
-  if ! {
+  if {
     echo "--- session-meta ---"
     echo "session_id: $session_id"
     echo "project_slug: $slug"
@@ -2037,7 +2039,9 @@ sb_archive_subagent_result() {
     echo "---"
     echo ""
     printf 'ASSISTANT:\n%s\n' "$result"
-  } > "$archive_file" 2>/dev/null; then
+  } 2>/dev/null > "$archive_file"; then
+    :
+  else
     sb_log_error "lib.sh" "sb_archive_subagent_result: write failed for $archive_file — subagent result NOT archived (agent_id=$safe_aid)" 1
     return 1
   fi
