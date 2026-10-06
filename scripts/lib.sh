@@ -2922,7 +2922,7 @@ sb_archive_window() {
     FNR <= s { next }
     FNR > to { exit }
     {
-      l = $0; sub(/$/, "", l); b = length(l) + 1; total += b
+      l = $0; sub(/\r$/, "", l); b = length(l) + 1; total += b
       if (!full) { if (cend == s || acc + b <= max) { acc += b; cend = FNR } else full = 1 }
     }
     END {
