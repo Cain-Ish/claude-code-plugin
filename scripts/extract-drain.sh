@@ -10,6 +10,9 @@
 #   SB_DRAIN_DELTA_MIN_BYTES  a LIVE archive is extracted once this much is new (default 4096)
 #   SB_DRAIN_MIN_BYTES  a settled, never-extracted archive smaller than this is marked done without an LLM call
 #                       (too-small, default 1024)
+#   SB_SCRUB_MIGRATE_MAX_FILES  one-time archive scrub: files per run (default 50)
+#   SB_SCRUB_MIGRATE_MAX_S      one-time archive scrub: no new scrub starts past this many seconds of a
+#                               run (default 20; one scrub always runs)
 #   SB_EXTRACT_STUB     test-only: path to a stub called instead of the real extractor, as
 #                       `$SB_EXTRACT_STUB <txt> <slug> <from> <to>` (archive lines (from, to]).
 # Exits 0 on every out-of-session path (fail-soft for the scheduler). Exits 3 ONLY when run
@@ -302,9 +305,12 @@ drain_row() {
 # Archives written before 0.56.0 hold secrets in clear (the appender scrubs every window since), and
 # so do the transcript copies already staged in dream dirs (the dream-runner reads them). The first
 # ticks scrub each one in place with sb_scrub_archive_file (atomic, mtime and line count kept,
-# under the per-archive lock the Stop appender takes too), at most SB_DRAIN_BATCH per tick, then
-# .archive-scrub-v1 marks the migration done for good. LLM-free: it runs from sb_drain_migrate,
-# under the drain lock, before the defer gate.
+# under the per-archive lock the Stop appender takes too), then .archive-scrub-v1 marks the
+# migration done for good. LLM-free: it runs from sb_drain_migrate, under the drain lock, before
+# the defer gate. A scrub is cheap (no LLM call), so a run is bounded by its own budget, not by
+# SB_DRAIN_BATCH: at most SB_SCRUB_MIGRATE_MAX_FILES (50) files, and no scrub starts once the run
+# has taken SB_SCRUB_MIGRATE_MAX_S (20 s, counted from the routine's start, the listing grep
+# included); one scrub always runs, so every run makes progress.
 # The to-do list .archive-scrub-v1.todo is a snapshot, taken by ONE grep -lE over every archive and
 # every dream copy, of those holding text sb_scrub_secrets would change (_SB_SCRUB_ERE, lib.sh: the
 # real formats). Not the bare literals (_SB_SCRUB_LITERALS): `sk-` alone hits every task-/disk- id,
@@ -315,20 +321,24 @@ drain_row() {
 # still to scrub (the episodic indexer reads it to skip those archives):
 #   <path relative to BRAIN_DIR>\t<failed scrub attempts>
 #   path: transcripts/<name>.txt | dreams/<id>/transcripts/<name>.txt
-# Each tick picks SB_DRAIN_BATCH entries, fewest failed attempts first (a scrub that keeps failing
-# rotates to the back instead of blocking the rest), then archives with lines still to extract,
-# then list order; drops the scrubbed and vanished ones; counts a failed attempt (the scrub logs
-# why). Holds are per archive: until a transcripts/ entry leaves the list the batch loop does not
-# extract that archive (DRAIN_SCRUB_TODO), and nothing else is held. A list that cannot be read is
-# rebuilt; an archive the listing grep cannot read is listed (held, retried); a listing error that
-# names no file keeps the list in memory for this tick only, so nothing unseen is marked scrubbed.
+# Each run picks up to the cap, fewest failed attempts first (a scrub that keeps failing rotates to
+# the back instead of blocking the rest), then archives with lines still to extract, then list
+# order; drops the scrubbed and vanished ones; counts a failed attempt (the scrub logs why); an
+# entry the time bound left unattempted keeps its count. Holds are per archive: until a
+# transcripts/ entry leaves the list the batch loop does not extract that archive
+# (DRAIN_SCRUB_TODO), and nothing else is held. A list that cannot be read is rebuilt; an archive
+# the listing grep cannot read is listed (held, retried); a listing error that names no file keeps
+# the list in memory for this run only, so nothing unseen is marked scrubbed.
 SCRUB_MARK="$BRAIN_DIR/.archive-scrub-v1"
 SCRUB_TODO="$SCRUB_MARK.todo"
 DRAIN_SCRUB_TODO=""   # transcripts/ basenames still to scrub, one per line: held from extraction
 drain_scrub_migrate() {
   [ -f "$SCRUB_MARK" ] && return 0
-  local todo="" raw="" rebuild="" persist=1 batch="${SB_DRAIN_BATCH:-5}" p fc l
-  case "$batch" in ''|*[!0-9]*) batch=5 ;; esac
+  local t0="$SECONDS" todo="" raw="" rebuild="" persist=1 p fc l
+  local cap="${SB_SCRUB_MIGRATE_MAX_FILES:-50}" max_s="${SB_SCRUB_MIGRATE_MAX_S:-20}"
+  case "$cap" in ''|*[!0-9]*) cap=50 ;; esac
+  [ "$cap" -ge 1 ] || cap=1
+  case "$max_s" in ''|*[!0-9]*) max_s=20 ;; esac
   if [ -f "$SCRUB_TODO" ]; then
     if ! raw=$(cat "$SCRUB_TODO" 2>/dev/null); then
       sb_log_error "extract-drain.sh" "archive scrub: cannot read $SCRUB_TODO; rebuilt from the archives (attempt counts restart)" 1
@@ -377,12 +387,12 @@ drain_scrub_migrate() {
     rm -f "$SCRUB_TODO.tmp.$$" 2>/dev/null
     sb_log_error "extract-drain.sh" "archive scrub: cannot write $SCRUB_TODO; the list is kept for this tick and rebuilt next tick" 1
   fi
-  # This tick's pick: fewest failed attempts, then archives with lines to extract (map order:
-  # oldest first), then list order; BATCH entries. A selection over a fixed-width key (awk has no
-  # portable sort): BATCH passes over the list.
+  # This run's pick: fewest failed attempts, then archives with lines to extract (map order:
+  # oldest first), then list order; up to the cap. A selection over a fixed-width key (awk has no
+  # portable sort): one pass over the list per pick.
   local pick
   pick=$({ printf '%s\n' "$DRAIN_MAP"; printf '%s\n' '--todo--'; printf '%s' "$todo"; } \
-    | LC_ALL=C awk -F'\t' -v n="$batch" '
+    | LC_ALL=C awk -F'\t' -v n="$cap" '
         sec == 0 && $0 == "--todo--" { sec = 1; next }
         sec == 0 { if ($1 != "" && $4 == "pending") pq["transcripts/" $1] = ++np; next }
         $1 != "" {
@@ -397,9 +407,13 @@ drain_scrub_migrate() {
             used[b] = 1; print t[b]
           }
         }')
-  local scrubbed="" failed=""
+  local scrubbed="" failed="" tried=0
   while IFS= read -r p; do
     [ -n "$p" ] || continue
+    # The time bound: one scrub always runs (progress), none starts past MAX_S. An entry not
+    # attempted stays listed with its attempt count unchanged.
+    [ "$tried" -gt 0 ] && [ $((SECONDS - t0)) -ge "$max_s" ] && break
+    tried=$((tried + 1))
     if [ ! -f "$BRAIN_DIR/$p" ] || sb_scrub_archive_file "$BRAIN_DIR/$p"; then scrubbed="$scrubbed$p"$'\n'
     else failed="$failed$p"$'\n'; fi
   done < <(printf '%s\n' "$pick")

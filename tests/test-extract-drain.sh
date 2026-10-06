@@ -9,6 +9,8 @@
 # pins: SB_DRAIN_FLOOR — D2 turns the deterministic floor off so MAX_FAILS yields the error row under test
 # pins: SB_DRAIN_MAX_FAILS — D2 fixes the dead-letter threshold the retry/error rows are asserted against
 # pins: SB_DRAIN_MIN_BYTES — 0 for the tiny legacy fixtures; D7 and D16 set 1024 to test the too-small gate itself
+# pins: SB_SCRUB_MIGRATE_MAX_FILES — D11c/D17a/D18/D19 size the per-run scrub cap that is under test (1 = one scrub per tick)
+# pins: SB_SCRUB_MIGRATE_MAX_S — D19 sets 0 to test the per-run time bound itself (one scrub, then stop)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
@@ -549,7 +551,8 @@ eq "compact: a done archive makes no extractor call" "$(rcalls)" "0"
 
 # D11 (R2-F#4/#5): archives written before 0.56.0 hold secrets in clear. The first ticks scrub
 # them in place (sb_scrub_archive_file), under the drain lock and before the defer gate, pending
-# archives first, SB_DRAIN_BATCH per tick, then write .archive-scrub-v1. No archive is extracted
+# archives first, bounded per tick by a file cap and a time bound (D19, not SB_DRAIN_BATCH: a scrub
+# makes no LLM call), then write .archive-scrub-v1. No archive is extracted
 # before its scrub: the extractor never receives a key. The stub records the window it receives.
 SSTUB="$SANDBOX/sstub.sh"; SCAP="$SANDBOX/sstub.cap"
 cat > "$SSTUB" <<EOF7
@@ -595,18 +598,18 @@ SB_DRAIN_BATCH=3 sdrain
 grep -q '^=== sg1_proj' "$SCAP" 2>/dev/null && ok "scrub-migrate: extracted once scrubbed (next tick)" || no "scrub-migrate: never extracted after its scrub"
 grep -qF 'sk-ant-' "$SCAP" 2>/dev/null && no "scrub-migrate: key leaked after the retry" || ok "scrub-migrate: no key after the retry either"
 [ -f "$SMARK" ] && ok "scrub-migrate: marker once the list is empty" || no "scrub-migrate: no marker after the last scrub"
-# D11c: SB_DRAIN_BATCH scrubs per tick, PENDING archives first (a done archive can wait; the
-# extractor cannot): with a batch of 1, the pending archive is scrubbed and extracted on tick 1
+# D11c: PENDING archives are scrubbed first (a done archive can wait; the extractor cannot): with a
+# scrub cap of 1, the pending archive is scrubbed and extracted on tick 1
 reset; rm -f "$SCAP" "$SMARK" "$STODO"
 mk_key "so0_proj_2026-05-24.txt" 202605230000              # done, oldest, first in name order
 mk_key "so1_proj_2026-05-24.txt" 202605240000              # pending
 printf '{"basename":"so0_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":%d}\n' \
   "$(wc -l < "$BRAIN_DIR/transcripts/so0_proj_2026-05-24.txt")" > "$STATE"
-SB_DRAIN_BATCH=1 sdrain
+SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
 grep -q '^=== so1_proj' "$SCAP" 2>/dev/null && ok "scrub-migrate: the pending archive is scrubbed first and extracted on tick 1" \
   || no "scrub-migrate: the pending archive waited behind a done one"
-grep -qx "$(printf 'transcripts/so0_proj_2026-05-24.txt\t0')" "$STODO" 2>/dev/null && ok "scrub-migrate: batch-bounded (the done archive waits for tick 2)" || no "scrub-migrate: not batch-bounded"
-SB_DRAIN_BATCH=1 sdrain
+grep -qx "$(printf 'transcripts/so0_proj_2026-05-24.txt\t0')" "$STODO" 2>/dev/null && ok "scrub-migrate: cap-bounded (the done archive waits for tick 2)" || no "scrub-migrate: not cap-bounded"
+SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/so0_proj_2026-05-24.txt" && no "scrub-migrate: the done archive was never scrubbed" || ok "scrub-migrate: resumed on tick 2 (done archive scrubbed)"
 [ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub-migrate: complete after tick 2" || no "scrub-migrate: not complete after tick 2"
 # D11d: the migration is LLM-free, so it also runs on a DEFERRED tick
@@ -615,6 +618,23 @@ mk_key "sd1_proj_2026-05-24.txt" 202605240000
 SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=999999999 sdrain
 eq "scrub-migrate: the tick really deferred" "$(cat "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)" "1"
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sd1_proj_2026-05-24.txt" && no "scrub-migrate: a deferred tick skipped the scrub" || ok "scrub-migrate: runs on a deferred tick"
+# D19 (0.56.0 integration, item 2): a scrub is cheap (no LLM call), so a run is bounded by its own
+# file cap (SB_SCRUB_MIGRATE_MAX_FILES, 50) and time bound (SB_SCRUB_MIGRATE_MAX_S, 20 s: no scrub
+# starts past it, one always does), not by SB_DRAIN_BATCH; it stays resumable, and an entry not
+# attempted keeps its attempt count.
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+for i in 1 2 3 4 5 6; do mk_key "tb${i}_proj_2026-05-24.txt" "20260524000$i"; done
+tcount() { if [ -f "$STODO" ]; then grep -c . "$STODO" || true; else echo 0; fi; }
+SB_SCRUB_MIGRATE_MAX_S=0 sdrain
+eq "scrub bound: past the time bound no scrub starts, one always does (5 of 6 left)" "$(tcount)" "5"
+eq "scrub bound: the entries not attempted keep 0 attempts" "$(grep -c "$(printf '\t0$')" "$STODO" 2>/dev/null || true)" "5"
+SB_DRAIN_BATCH=1 SB_SCRUB_MIGRATE_MAX_FILES=3 sdrain
+eq "scrub bound: the file cap, not SB_DRAIN_BATCH, sizes a run (3 scrubbed with a batch of 1)" "$(tcount)" "2"
+SB_DRAIN_BATCH=1 sdrain
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub bound: the default cap finishes the rest in one run, past a batch of 1" \
+  || no "scrub bound: the default run did not finish the list (left: $(tcount))"
+grep -lF 'sk-ant-' "$BRAIN_DIR"/transcripts/tb*_proj_2026-05-24.txt >/dev/null 2>&1 && no "scrub bound: a key survived the bounded runs" \
+  || ok "scrub bound: every key is scrubbed across the bounded runs"
 
 # D14 (X2 S2): the cap evicted an extracted archive (tombstone .<name>.evicted) and the same
 # session re-created the basename the same day, growing it past the old cursor, before this tick.
@@ -721,10 +741,10 @@ reset; rm -f "$SCAP" "$SMARK" "$STODO"
 mk_key "sr1_proj_2026-05-24.txt" 202605240000              # oldest pending: the first pick
 mk_key "sr2_proj_2026-05-24.txt" 202605240001
 printf '1\n' > "$BRAIN_DIR/transcripts/.sr1_proj_2026-05-24.txt.lock"   # a live writer: its scrub fails
-SB_DRAIN_BATCH=1 sdrain
+SB_DRAIN_BATCH=1 SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
 grep -qx "$(printf 'transcripts/sr1_proj_2026-05-24.txt\t1')" "$STODO" 2>/dev/null \
   && ok "scrub rotation: a failed scrub counts its attempt" || no "scrub rotation: no attempt count (got: $(cat "$STODO" 2>/dev/null))"
-SB_DRAIN_BATCH=1 sdrain
+SB_DRAIN_BATCH=1 SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
 grep -q '^=== sr2_proj' "$SCAP" 2>/dev/null && ok "scrub rotation: the failing archive goes last, the next one is scrubbed and extracted" \
   || no "scrub rotation: the failing archive is re-picked first and blocks the others"
 grep -q '^=== sr1_proj' "$SCAP" 2>/dev/null && no "scrub rotation: an unscrubbed archive was extracted" || ok "scrub rotation: the unscrubbed archive stays held"
@@ -801,12 +821,16 @@ mk_fx "rf5_proj_2026-05-24.txt" "key sk-ab$(printf '\342\200\213')$(r4 cD3) end"
 # shellcheck disable=SC2016  # $1 expands inside the child shell
 NM_LIT=$(BRAIN_DIR="$BRAIN_DIR" bash -c '. "$1/lib.sh"; cd "$BRAIN_DIR" && LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- transcripts/nm*.txt' _ "$SCRIPT_DIR" | grep -c .)
 eq "scrub list: each near-miss archive holds a bare literal (the old listing named it)" "$NM_LIT" "3"
-SB_DRAIN_BATCH=1 sdrain
+SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
 eq "scrub list: no near-miss archive is listed" "$(grep -c '^transcripts/nm' "$STODO" 2>/dev/null || true)" "0"
 eq "scrub list: every real-format archive but the one scrubbed this tick is listed" \
   "$(grep -c '^transcripts/rf[2-5]_' "$STODO" 2>/dev/null || true)" "4"
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/rf1_proj_2026-05-24.txt" && no "scrub list: the first real-format archive was not scrubbed" \
   || ok "scrub list: the tick's scrub took a real-format archive"
+sdrain
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub list: the next run completes the migration" || no "scrub list: the migration did not complete (left: $(cat "$STODO" 2>/dev/null))"
+eq "scrub list: every real-format archive is redacted" \
+  "$( { grep -L '\[redacted:' "$BRAIN_DIR"/transcripts/rf*_proj_2026-05-24.txt 2>/dev/null || true; } | grep -c . || true)" "0"
 
 # D12 (R2-F#3): a per-archive lock left by a writer that died is swept after a day; a live one stays
 reset
