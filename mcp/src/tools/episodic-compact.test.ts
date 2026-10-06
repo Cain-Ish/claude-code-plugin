@@ -284,6 +284,72 @@ describe('re-derivation after an in-place archive scrub', () => {
     expect(r.pending).toBe(0);
     expect(readFileSync(indexPath(), 'utf-8')).not.toContain('sk-ant-');
   });
+
+  // Security review (R2 fix round): until the one-time 0.56.0 scrub migration reaches an archive,
+  // that archive still holds secrets in clear. extract-drain.sh keeps the migration's to-do list
+  // in BRAIN_DIR/.archive-scrub-v1.todo (one basename per line) and writes .archive-scrub-v1 when
+  // it is done. Every archive on the list was written before 0.56.0, so a 0.55 build has usually
+  // indexed it already: the build holds it OUT of the index (rows dropped, file entry forgotten,
+  // nothing parsed) and re-derives it on the first build after it leaves the list.
+  describe('an archive the scrub migration has not reached is held out of the index', () => {
+    const todoPath = () => join(brainDir, '.archive-scrub-v1.todo');
+    const rowsOf = (sid: string) => readIndex().exchanges.filter((x: any) => x.sessionId === sid);
+
+    it('a listed archive loses its rows and file entry; once delisted the next build re-derives it', async () => {
+      writeFileSync(join(brainDir, 'transcripts', SFILE), SECRET_ARCHIVE, 'utf-8');
+      await buildEpisodicIndex(brainDir);                     // the 0.55-era index: secrets inside
+      const before = rowsOf('s2');
+      expect(before).toHaveLength(2);
+      const keptIds = rowsOf('s1').map((x: any) => x.id);
+      expect(keptIds).toHaveLength(2);
+
+      writeFileSync(todoPath(), `gone_proj_2026-09-30.txt\r\n${SFILE}\r\n`, 'utf-8');   // CRLF: Windows tools
+      const held = await buildEpisodicIndex(brainDir);
+
+      expect(held.held).toBe(1);
+      expect(rowsOf('s2')).toEqual([]);
+      expect(readIndex().indexed_files).not.toHaveProperty(SFILE);
+      expect(rowsOf('s1').map((x: any) => x.id)).toEqual(keptIds);
+      expect(readFileSync(indexPath(), 'utf-8')).not.toContain('sk-ant-');
+      expect(errorRows().filter(e => e.script === 'episodic-index')).toEqual([]);   // a hold is not an error
+      const found = await episodicSearch({ query: 'deploy failed key rotate', mode: 'text' }, brainDir);
+      expect(found.results.filter(x => x.sessionId === 's2')).toEqual([]);
+
+      // Delisted with the content unchanged (nothing to redact after all): the forgotten file entry
+      // is what makes the next build re-derive it, not a hash change.
+      writeFileSync(todoPath(), 'gone_proj_2026-09-30.txt\n', 'utf-8');
+      const back = await buildEpisodicIndex(brainDir);
+
+      expect(back.held).toBe(0);
+      expect(rowsOf('s2').map((x: any) => x.id)).toEqual(before.map((x: any) => x.id));
+      expect(readIndex().indexed_files).toHaveProperty(SFILE);
+    });
+
+    it('the completion marker wins over a to-do list left behind: nothing is held', async () => {
+      writeFileSync(join(brainDir, 'transcripts', SFILE), SECRET_ARCHIVE, 'utf-8');
+      writeFileSync(todoPath(), `${SFILE}\n`, 'utf-8');
+      writeFileSync(join(brainDir, '.archive-scrub-v1'), '', 'utf-8');
+
+      const r = await buildEpisodicIndex(brainDir);
+
+      expect(r.held).toBe(0);
+      expect(rowsOf('s2')).toHaveLength(2);
+    });
+
+    it('a to-do list that cannot be read holds nothing and is logged', async () => {
+      writeFileSync(join(brainDir, 'transcripts', SFILE), SECRET_ARCHIVE, 'utf-8');
+      mkdirSync(todoPath());                                   // readFile -> EISDIR, on every OS
+
+      const r = await buildEpisodicIndex(brainDir);
+
+      expect(r.held).toBe(0);
+      expect(rowsOf('s2')).toHaveLength(2);
+      const rows = errorRows().filter(e => e.script === 'episodic-index');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].message).toMatch(/archive-scrub-v1\.todo/);
+      expect(rows[0].message).toMatch(/nothing is held/);
+    });
+  });
 });
 
 // Recall parity on a fixed, seeded 700-row fixture (the live index holds ~707 rows): int8 ranks

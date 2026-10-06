@@ -522,16 +522,53 @@ async function saveIndex(brainDir: string, index: EpisodicIndex): Promise<void> 
   }
 }
 
-export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: number; total: number; repaired: number; pending: number }> {
+/** The one-time 0.56.0 archive scrub (scripts/extract-drain.sh drain_scrub_migrate). Its to-do
+ *  list names, one basename per line, the archives written before 0.56.0 that still hold a
+ *  credential literal; the marker means the migration is done, so a list left behind is stale. */
+const SCRUB_MARK = '.archive-scrub-v1';
+const SCRUB_TODO = `${SCRUB_MARK}.todo`;
+
+/** The archives a build holds out of the index while the scrub migration is pending: their text
+ *  is still in clear. No list holds nothing (no migration, or its first tick has not run). A list
+ *  that cannot be read holds nothing too, so recall does not go dark on a read error, and that is
+ *  logged. One read per build. */
+async function scrubPendingArchives(brainDir: string): Promise<Set<string>> {
+  const pending = new Set<string>();
+  try {
+    await fs.stat(join(brainDir, SCRUB_MARK));
+    return pending;
+  } catch { /* not done yet: the list decides */ }
+  const todoPath = join(brainDir, SCRUB_TODO);
+  let text: string;
+  try {
+    text = await fs.readFile(todoPath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      await appendErrorLog(brainDir, 'episodic-index',
+        `cannot read the archive-scrub to-do list ${todoPath} (${e instanceof Error ? e.message : String(e)}); `
+        + 'nothing is held out of the episodic index, so archives the scrub has not reached yet are indexed in clear');
+    }
+    return pending;
+  }
+  for (const line of text.split('\n')) {
+    const name = line.replace(/\r$/, '');
+    if (name) pending.add(name);
+  }
+  return pending;
+}
+
+export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: number; total: number; repaired: number; pending: number; held: number }> {
   const archiveDir = join(brainDir, 'transcripts');
   let files: string[];
   try {
     const entries = await fs.readdir(archiveDir);
     files = entries.filter(f => f.endsWith('.txt')).map(f => join(archiveDir, f));
   } catch {
-    return { indexed: 0, total: 0, repaired: 0, pending: 0 };
+    return { indexed: 0, total: 0, repaired: 0, pending: 0, held: 0 };
   }
 
+  const scrubPending = await scrubPendingArchives(brainDir);
+  let held = 0;
   const { index, dropped } = await loadIndex(brainDir);
   if (dropped > 0) {
     await appendErrorLog(brainDir, 'episodic-index',
@@ -545,11 +582,19 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   const previous = new Map<string, IndexedExchange>();
 
   for (const filePath of files) {
+    const fname = basename(filePath);
+    // Held while the scrub has not reached it: not read, its rows dropped below, its file entry
+    // forgotten. The forgotten entry is what re-derives it on the first build after it leaves the
+    // list, whether the scrub changed its text or found nothing to redact.
+    if (scrubPending.has(fname)) {
+      delete index.indexed_files[fname];
+      held++;
+      continue;
+    }
     // Sanitize untrusted transcript text before indexing it (P6b — invisible/Tags-block
     // smuggling defense). Hash the cleaned content so a previously-dirty file re-indexes once.
     const content = stripInvisible(await fs.readFile(filePath, 'utf-8'));
     const hash = simpleHash(content);
-    const fname = basename(filePath);
 
     // Unchanged AND parsed by the current parser: skip. A changed file, a bare-string entry
     // (pre-version writer) or an older parser version is re-parsed from scratch.
@@ -563,9 +608,12 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     newExchanges.push(...parseExchanges(lines, bodyStart, meta, filePath));
   }
 
-  // Drop exchanges from deleted transcripts.
+  // Drop exchanges from deleted transcripts and from held ones.
   const validFiles = new Set(files.map(f => basename(f)));
-  index.exchanges = index.exchanges.filter(e => validFiles.has(basename(e.archivePath)));
+  index.exchanges = index.exchanges.filter(e => {
+    const fname = basename(e.archivePath);
+    return validFiles.has(fname) && !scrubPending.has(fname);
+  });
 
   // Persist new exchanges immediately (text-searchable). Embeddings may be empty
   // and will be filled in by the repair pass below or on a future run.
@@ -634,7 +682,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
       `${pending} of ${index.exchanges.length} rows have no embedding after the repair pass: vector recall `
       + 'misses them until a build can embed them (check the embedding model / vector deps)');
   }
-  return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending };
+  return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending, held };
 }
 
 export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string): Promise<EpisodicSearchResult> {
