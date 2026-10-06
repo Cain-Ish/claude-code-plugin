@@ -101,7 +101,7 @@ bash "${CLAUDE_PLUGIN_ROOT:-.}/bin/sb" help
 | `sb recall <text>` | episodic transcript search, limit 5 | `NN%  [date project]  snippet` + `archivePath:lineStart-lineEnd` |
 | `sb pin user <text>` | append preference to USER.md | `+ <line>` or exit 1 + stderr reason |
 | `sb pin project <slug> <blockers\|decisions> <text>` | append to PROJECT.md | `+ <line>  (slug/section)` |
-| `sb status` | hot-tier + wiki sizes, drainer recency, transcript backlog | USER.md bytes, project count, per-project PROJECT.md bytes, wiki counts, `transcript backlog:  N of M archived (K dead-lettered)` (N = `pending` rows of `sb_drain_cursor_map`) |
+| `sb status` | hot-tier + wiki sizes, drainer recency, transcript backlog | USER.md bytes, project count, per-project PROJECT.md bytes, wiki counts, `transcript backlog:  N of M archived (K dead-lettered); dead windows: W in A archives, L lines` (N = `pending` rows of `sb_drain_cursor_map`; the dead suffix only when some window is dead-lettered), `archive scrub:` (`done` / `N to scrub (K with failed attempts >= 3)`) |
 | `sb auth status` | extractor auth mode (authoritative) | see table below |
 | `sb auth doctor` | prints the two supported auth setups + verify step | text |
 

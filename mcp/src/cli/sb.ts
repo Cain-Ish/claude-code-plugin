@@ -3,7 +3,9 @@ import { join, delimiter as pathDelimiter } from 'path';
 import { execFile, type ExecFileException } from 'child_process';
 import { cleanEnvPath } from '../path-guard.js';
 import { knowledgeSearch } from '../tools/knowledge-search.js';
-import { episodicSearch, displaySnippet, foldServedSnippet } from '../tools/episodic-search.js';
+import {
+  episodicSearch, displaySnippet, foldServedSnippet, parseScrubTodo, SCRUB_MARK, SCRUB_TODO,
+} from '../tools/episodic-search.js';
 import { pinToUser } from '../tools/pin-to-user.js';
 import { pinToProject, type PinSection } from '../tools/pin-to-project.js';
 import { unprocessedCount } from '../tools/raw-inbox.js';
@@ -321,9 +323,40 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
       } else {
         const pending = map.filter(r => r[3] === 'pending').length;
         const dead = map.filter(r => r[3] === 'dead').length;
-        push(`  transcript backlog:  ${pending} of ${map.length} archived${dead ? ` (${dead} dead-lettered)` : ''}`);
+        // Columns 8/9 (dead_windows, dead_lines): every dead-lettered window whatever the
+        // archive's state, so a pending or done archive can carry some too. A row without them
+        // counts as none.
+        const count = (v: string | undefined) => (v && /^[0-9]+$/.test(v) ? Number(v) : 0);
+        let deadArchives = 0, deadWindows = 0, deadLines = 0;
+        for (const r of map) {
+          const dw = count(r[8]);
+          if (dw === 0) continue;
+          deadArchives++;
+          deadWindows += dw;
+          deadLines += count(r[9]);
+        }
+        const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+        push(`  transcript backlog:  ${pending} of ${map.length} archived${dead ? ` (${dead} dead-lettered)` : ''}`
+          + (deadArchives ? `; dead windows: ${deadWindows} in ${plural(deadArchives, 'archive')}, ${plural(deadLines, 'line')}` : ''));
       }
     } catch { push('  transcript backlog:  no transcripts dir'); }
+    // The one-time 0.56.0 archive scrub (extract-drain.sh drain_scrub_migrate): the marker means
+    // done; until then the to-do list names every file still to scrub, archives and dream copies
+    // alike, with its failed attempts (an archive on it is held from extraction and recall).
+    try {
+      await fs.stat(join(deps.brainDir, SCRUB_MARK));
+      push('  archive scrub:       done');
+    } catch {
+      try {
+        const todo = parseScrubTodo(await fs.readFile(join(deps.brainDir, SCRUB_TODO), 'utf-8'));
+        const stuck = todo.filter(e => e.fails >= 3).length;
+        push(`  archive scrub:       ${todo.length} to scrub (${stuck} with failed attempts >= 3)`);
+      } catch (e) {
+        push((e as NodeJS.ErrnoException).code === 'ENOENT'
+          ? `  archive scrub:       no to-do list yet (no ${SCRUB_TODO}, no ${SCRUB_MARK} marker)`
+          : `  archive scrub:       unknown (cannot read ${SCRUB_TODO}: ${sanitizeReason((e as Error).message ?? String(e))})`);
+      }
+    }
     // Scheduler shim — the universal registration signal (the per-OS timer check
     // lives in bash lib.sh; a missing shim means every fire fails silently).
     try {

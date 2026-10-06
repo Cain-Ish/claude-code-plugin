@@ -556,10 +556,29 @@ async function saveIndex(brainDir: string, index: EpisodicIndex): Promise<void> 
 }
 
 /** The one-time 0.56.0 archive scrub (scripts/extract-drain.sh drain_scrub_migrate). Its to-do
- *  list names, one basename per line, the archives written before 0.56.0 that still hold a
- *  credential literal; the marker means the migration is done, so a list left behind is stale. */
-const SCRUB_MARK = '.archive-scrub-v1';
-const SCRUB_TODO = `${SCRUB_MARK}.todo`;
+ *  list names the files written before 0.56.0 that still hold a credential literal, one
+ *  `<path relative to BRAIN_DIR>\t<failed scrub attempts>` per line, the path
+ *  `transcripts/<b>.txt` or `dreams/<id>/transcripts/<b>.txt`. The marker means the migration is
+ *  done, so a list left behind is stale. */
+export const SCRUB_MARK = '.archive-scrub-v1';
+export const SCRUB_TODO = `${SCRUB_MARK}.todo`;
+
+export interface ScrubTodoEntry { path: string; fails: number }
+
+/** The to-do list's entries, read the way drain_scrub_migrate normalizes them: a trailing CR is
+ *  dropped, the path is the field before the first tab, a path with no `/` (a bare basename from
+ *  a 0.56 pre-release list) is a transcripts/ entry, and an attempt count that is not a plain
+ *  integer is 0. Empty lines are skipped. */
+export function parseScrubTodo(text: string): ScrubTodoEntry[] {
+  const entries: ScrubTodoEntry[] = [];
+  for (const raw of text.split('\n')) {
+    const [first, fc = ''] = raw.replace(/\r$/, '').split('\t');
+    if (!first) continue;
+    const path = first.includes('/') ? first : `transcripts/${first}`;
+    entries.push({ path, fails: /^[0-9]+$/.test(fc) ? Number(fc) : 0 });
+  }
+  return entries;
+}
 
 /** The archives a build holds out of the index while the scrub migration is pending: their text
  *  is still in clear. No list holds nothing (no migration, or its first tick has not run). A list
@@ -583,9 +602,10 @@ async function scrubPendingArchives(brainDir: string): Promise<Set<string>> {
     }
     return pending;
   }
-  for (const line of text.split('\n')) {
-    const name = line.replace(/\r$/, '');
-    if (name) pending.add(name);
+  // Only a transcripts/<b> entry holds archive <b>: a dream copy of the same name is never indexed.
+  for (const { path } of parseScrubTodo(text)) {
+    const m = /^transcripts\/([^/]+)$/.exec(path);
+    if (m) pending.add(m[1]);
   }
   return pending;
 }

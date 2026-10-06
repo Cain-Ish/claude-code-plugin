@@ -35,6 +35,7 @@ describe('sb status — Loop liveness (P1.1)', { timeout: 30_000 }, () => {
     expect(out).toContain('scheduler shim:      ABSENT');
     expect(out).toContain('newest dream:        none');
     expect(out).toContain('raw-inbox depth:     0 unprocessed');
+    expect(out).toContain('archive scrub:       no to-do list yet (no .archive-scrub-v1.todo, no .archive-scrub-v1 marker)');
   });
 
   it('stamped state renders ages, status, backlog and depth', async () => {
@@ -80,7 +81,75 @@ describe('sb status — Loop liveness (P1.1)', { timeout: 30_000 }, () => {
       JSON.stringify({ basename: 'done.txt', ts: '2026-07-12T10:00:00Z', outcome: 'ok', from: 0, lines: 2 }),
     ].join('\n') + '\n');
     const out = await status();
-    expect(out).toContain('transcript backlog:  1 of 2 archived');
+    // Anchored: no dead window anywhere, so no dead suffix either.
+    expect(out).toMatch(/^ {2}transcript backlog: {2}1 of 2 archived$/m);
+  });
+
+  // The cursor map's 0-based columns 8 and 9 are dead_windows and dead_lines (lib.sh
+  // sb_drain_cursor_map): every dead-lettered window whatever the archive's state, so a pending or
+  // done archive can carry some. A stub map stands in for the real one (pluginRoot).
+  describe('dead-lettered windows from the cursor map', () => {
+    let stubRoot: string;
+    beforeEach(() => {
+      mkdirSync(join(brain, 'transcripts'));
+      writeFileSync(join(brain, 'transcripts', 'a.txt'), 'l1\n');
+      stubRoot = mkdtempSync(join(tmpdir(), 'sb-deadroot-'));
+      mkdirSync(join(stubRoot, 'scripts'));
+    });
+    afterEach(() => rmSync(stubRoot, { recursive: true, force: true }));
+    const mapOf = (rows: string[]) => writeFileSync(join(stubRoot, 'scripts', 'lib.sh'),
+      `sb_drain_cursor_map() {\n${rows.map(r => `  printf '%s\\n' '${r}'`).join('\n')}\n}\n`);
+    const backlog = async () => (await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: stubRoot }))
+      .stdout.split('\n').find(l => l.includes('transcript backlog:'));
+
+    it('appends the archives with dead windows, the windows and the lines to the backlog line', async () => {
+      mapOf([
+        'a.txt\t10\t50\tpending\t30\t0\t1000\t-\t2\t20',   // pending, two dead windows behind it
+        'b.txt\t40\t40\tdone\t40\t0\t1001\t-\t0\t0',
+        'c.txt\t0\t30\tdead\t30\t3\t1002\tlegacy-dead\t1\t30',
+      ]);
+      expect(await backlog()).toBe('  transcript backlog:  1 of 3 archived (1 dead-lettered); dead windows: 3 in 2 archives, 50 lines');
+    });
+
+    it('one dead window reads in the singular', async () => {
+      mapOf(['a.txt\t2\t9\tpending\t5\t0\t1000\t-\t1\t1']);
+      expect(await backlog()).toBe('  transcript backlog:  1 of 1 archived; dead windows: 1 in 1 archive, 1 line');
+    });
+
+    it('a row without the dead columns counts as none (never NaN)', async () => {
+      mapOf(['a.txt\t2\t9\tpending\t2\t0\t1000\t-']);
+      expect(await backlog()).toBe('  transcript backlog:  1 of 1 archived');
+    });
+  });
+
+  // The one-time 0.56.0 archive scrub (extract-drain.sh drain_scrub_migrate): the marker
+  // .archive-scrub-v1 means done; until then .archive-scrub-v1.todo lists `<path>\t<failed attempts>`
+  // per file still to scrub (archives and dream copies alike; a bare name is a transcripts/ entry).
+  describe('archive scrub line', () => {
+    const scrubLine = (out: string) => out.split('\n').find(l => l.includes('archive scrub:'));
+
+    it('done when the marker exists, even with a to-do list left behind', async () => {
+      writeFileSync(join(brain, '.archive-scrub-v1'), '');
+      writeFileSync(join(brain, '.archive-scrub-v1.todo'), 'transcripts/a.txt\t4\n');
+      expect(scrubLine(await status())).toBe('  archive scrub:       done');
+    });
+
+    it('counts the files to scrub and those that failed 3+ times (CRLF, bare and dream lines)', async () => {
+      writeFileSync(join(brain, '.archive-scrub-v1.todo'), [
+        'transcripts/a.txt\t0',
+        'transcripts/b.txt\t3\r',
+        'dreams/drm_20261001T000000Z/transcripts/a.txt\t7',
+        'c.txt',                       // a 0.56 pre-release bare name: no attempts yet
+        'transcripts/d.txt\t3x',       // a garbled count reads as 0 (as in lib.sh), not as 3
+        '',
+      ].join('\n'));
+      expect(scrubLine(await status())).toBe('  archive scrub:       5 to scrub (2 with failed attempts >= 3)');
+    });
+
+    it('an unreadable to-do list says so', async () => {
+      mkdirSync(join(brain, '.archive-scrub-v1.todo'));     // readFile -> EISDIR, on every OS
+      expect(scrubLine(await status())).toMatch(/^ {2}archive scrub: {7}unknown \(cannot read \.archive-scrub-v1\.todo: EISDIR\b.*\)$/);
+    });
   });
 
   it('transcript backlog fails loud when the cursor map cannot run', async () => {
