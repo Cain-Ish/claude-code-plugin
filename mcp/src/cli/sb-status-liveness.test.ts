@@ -23,7 +23,10 @@ afterEach(() => {
 
 const status = async () => (await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge })).stdout;
 
-describe('sb status — Loop liveness (P1.1)', () => {
+// A row with transcripts spawns bash for lib.sh sb_drain_cursor_map: 1.5-2.5 s alone on Git-Bash,
+// past vitest's 5 s default when the whole suite (or a peer bash run) loads the box. The bound
+// sits above the map's own 20 s SIGKILL so a slow map reports as itself, not as a test timeout.
+describe('sb status — Loop liveness (P1.1)', { timeout: 30_000 }, () => {
   it('cold brain: every liveness row renders loud absence, exit 0', async () => {
     const out = await status();
     expect(out).toContain('Loop liveness:');
