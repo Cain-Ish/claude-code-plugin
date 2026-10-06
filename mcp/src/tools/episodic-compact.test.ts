@@ -235,6 +235,57 @@ describe('episodic index format', () => {
   });
 });
 
+// Item 3: R2-A's sb_scrub_archive_file rewrites an archive in place: same line count, different
+// size, ORIGINAL mtime restored with `touch -r`. The indexer decides what to re-parse from a hash
+// of the file's (invisible-stripped) CONTENT, never mtime or size, so the scrubbed file is
+// re-derived. Row ids come from path + line range, so they hold; the vector carry-over keeps
+// every row whose snippet text is unchanged, and the cache key's text hash re-embeds the rest.
+describe('re-derivation after an in-place archive scrub', () => {
+  const KEY = 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_xyz';
+  const SECRET_ARCHIVE = [
+    '--- session-meta ---', 'session_id: s2', 'project_slug: proj', 'date: 2026-10-02', '---', '',
+    `USER: the deploy failed, here is the key ${KEY} please rotate it today`,
+    'ASSISTANT:',
+    '  Rotated. The old key is revoked in the console and the deploy is green.',
+    'USER: how do we archive the transcripts safely before telemetry runs',
+    'ASSISTANT:',
+    '  We copy them with a checked append and advance the cursor after.',
+    '',
+  ].join('\n');
+  const SFILE = 's2_proj_2026-10-02.txt';
+  const ORIGINAL_MTIME = new Date('2026-10-02T08:00:00Z');
+
+  it('a same-line-count rewrite with the original mtime is re-derived; only the changed row re-embeds', async () => {
+    const sp = join(brainDir, 'transcripts', SFILE);
+    writeFileSync(sp, SECRET_ARCHIVE, 'utf-8');
+    utimesSync(sp, ORIGINAL_MTIME, ORIGINAL_MTIME);
+    await buildEpisodicIndex(brainDir);
+    const before = readIndex().exchanges.filter((r: any) => r.sessionId === 's2');
+    expect(before).toHaveLength(2);
+    expect(before[0].userSnippet).toContain(KEY);
+
+    // The scrub: same lines, a different size, the original mtime.
+    const scrubbed = SECRET_ARCHIVE.replace(KEY, '[redacted:anthropic]');
+    writeFileSync(sp, scrubbed, 'utf-8');
+    utimesSync(sp, ORIGINAL_MTIME, ORIGINAL_MTIME);
+    expect(scrubbed.split('\n')).toHaveLength(SECRET_ARCHIVE.split('\n').length);
+    expect(scrubbed.length).not.toBe(SECRET_ARCHIVE.length);
+    expect(statSync(sp).mtimeMs).toBe(ORIGINAL_MTIME.getTime());
+    h.calls.length = 0;
+
+    const r = await buildEpisodicIndex(brainDir);
+
+    const after = readIndex().exchanges.filter((x: any) => x.sessionId === 's2');
+    expect(after.map((x: any) => x.id)).toEqual(before.map((x: any) => x.id));
+    expect(after[0].userSnippet).toBe('the deploy failed, here is the key [redacted:anthropic] please rotate it today');
+    expect(h.calls).toEqual([embedText(after[0])]);               // the changed row, once
+    expect(vecOf(after[1])).toEqual(vecOf(before[1]));            // the unchanged row kept its vector
+    expect(vecOf(after[0]).length).toBe(384);
+    expect(r.pending).toBe(0);
+    expect(readFileSync(indexPath(), 'utf-8')).not.toContain('sk-ant-');
+  });
+});
+
 // Recall parity on a fixed, seeded 700-row fixture (the live index holds ~707 rows): int8 ranks
 // the same top 10 as float for >= 99% of the slots, and the stored rows are >= 5x smaller.
 describe('recall parity and size, int8 vs float', () => {
