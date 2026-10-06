@@ -736,7 +736,7 @@ mk_key "su1_proj_2026-05-24.txt" 202605240000
 GSHIM="$SANDBOX/grepshim"; mkdir -p "$GSHIM"; RGREP=$(command -v grep)
 cat > "$GSHIM/grep" <<EOF9
 #!/bin/bash
-case " \$* " in *" -lF "*)
+case " \$* " in *" -lE "*)
   "$RGREP" "\$@" | "$RGREP" -v 'su1_proj'; echo "grep: transcripts/su1_proj_2026-05-24.txt: Permission denied" >&2; exit 2 ;;
 esac
 exec "$RGREP" "\$@"
@@ -752,7 +752,7 @@ reset; rm -f "$SCAP" "$SMARK" "$STODO"
 mk_lines "sn1_proj_2026-05-24.txt" 3
 cat > "$GSHIM/grep" <<EOF10
 #!/bin/bash
-case " \$* " in *" -lF "*) "$RGREP" "\$@"; echo "grep: (standard input): read error" >&2; exit 2 ;; esac
+case " \$* " in *" -lE "*) "$RGREP" "\$@"; echo "grep: (standard input): read error" >&2; exit 2 ;; esac
 exec "$RGREP" "\$@"
 EOF10
 PATH="$GSHIM:$PATH" sdrain
@@ -779,6 +779,34 @@ grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sc1_proj_2026-05-24.txt" && no "scrub
 grep -qF 'sk-ant-' "$BRAIN_DIR/dreams/dr1/transcripts/x1_proj_2026-05-24.txt" && no "scrub-migrate: a dream dir's transcript copy still holds a key" \
   || ok "scrub-migrate: a dream dir's transcript copy is scrubbed before the marker is written"
 rm -rf "$BRAIN_DIR/dreams"
+
+# D18 (0.56.0 integration, item 1): the to-do list names only archives the scrub would change. The
+# bare literals (_SB_SCRUB_LITERALS) also hit every task-/disk- id, so the list named most archives,
+# and each listed one is held out of extraction and recall until its turn. Near-miss archives each
+# hold a bare literal (the old listing named them) and nothing the scrub changes; they are the
+# newest, so the tick's one scrub takes a real-format archive and the list shows what was listed.
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_fx() {  # $1 = archive, $2 = line, $3 = touch stamp
+  mk_lines "$1" 2; printf '%s\n' "$2" >> "$BRAIN_DIR/transcripts/$1"; touch -t "$3" "$BRAIN_DIR/transcripts/$1"
+}
+r4() { printf "$1%.0s" 1 2 3 4 5 6 7 8; }
+mk_fx "nm1_proj_2026-05-24.txt" "USER: run task-123 on disk-0, then task-$(r4 0a1B) and disk-$(r4 0a1B)" 202605250001
+mk_fx "nm2_proj_2026-05-24.txt" "USER: sk-short1234, Bearer abc, ghp_tooshort, AKIA12, glpat-short, xapp-short" 202605250002
+mk_fx "nm3_proj_2026-05-24.txt" "USER: the PRIV""ATE KEY file; eyJson; xoxo; Authorization: header docs; npm_config; hf_hub" 202605250003
+mk_fx "rf1_proj_2026-05-24.txt" "USER: my key is $KANT" 202605240001
+mk_fx "rf2_proj_2026-05-24.txt" "  export OPENAI_API_KEY=sk-$(r4 aB3)" 202605240002
+mk_fx "rf3_proj_2026-05-24.txt" "USER: -----BEGIN RSA PRIV""ATE KEY-----" 202605240003
+mk_fx "rf4_proj_2026-05-24.txt" "  -H \"authorization: bearer $(r4 Zz.9)\"" 202605240004
+mk_fx "rf5_proj_2026-05-24.txt" "key sk-ab$(printf '\342\200\213')$(r4 cD3) end" 202605240005
+# shellcheck disable=SC2016  # $1 expands inside the child shell
+NM_LIT=$(BRAIN_DIR="$BRAIN_DIR" bash -c '. "$1/lib.sh"; cd "$BRAIN_DIR" && LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- transcripts/nm*.txt' _ "$SCRIPT_DIR" | grep -c .)
+eq "scrub list: each near-miss archive holds a bare literal (the old listing named it)" "$NM_LIT" "3"
+SB_DRAIN_BATCH=1 sdrain
+eq "scrub list: no near-miss archive is listed" "$(grep -c '^transcripts/nm' "$STODO" 2>/dev/null || true)" "0"
+eq "scrub list: every real-format archive but the one scrubbed this tick is listed" \
+  "$(grep -c '^transcripts/rf[2-5]_' "$STODO" 2>/dev/null || true)" "4"
+grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/rf1_proj_2026-05-24.txt" && no "scrub list: the first real-format archive was not scrubbed" \
+  || ok "scrub list: the tick's scrub took a real-format archive"
 
 # D12 (R2-F#3): a per-archive lock left by a writer that died is swept after a day; a live one stays
 reset

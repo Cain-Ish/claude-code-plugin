@@ -305,11 +305,14 @@ drain_row() {
 # under the per-archive lock the Stop appender takes too), at most SB_DRAIN_BATCH per tick, then
 # .archive-scrub-v1 marks the migration done for good. LLM-free: it runs from sb_drain_migrate,
 # under the drain lock, before the defer gate.
-# The to-do list .archive-scrub-v1.todo is a snapshot, taken by ONE grep over every archive and
-# every dream copy, of those holding a credential literal (_SB_SCRUB_LITERALS, lib.sh); archives
-# created later are scrubbed by the appender, and the drainer scrubs any archive whose literal grep
-# hits right before extracting it (X2 S6). Format, one line per file still to scrub (the episodic
-# indexer reads it to skip those archives):
+# The to-do list .archive-scrub-v1.todo is a snapshot, taken by ONE grep -lE over every archive and
+# every dream copy, of those holding text sb_scrub_secrets would change (_SB_SCRUB_ERE, lib.sh: the
+# real formats). Not the bare literals (_SB_SCRUB_LITERALS): `sk-` alone hits every task-/disk- id,
+# so that list named most archives, and a listed archive is held out of extraction and of recall
+# (the episodic indexer skips it) until its scrub. The literals stay where a hit only costs a
+# scrub call. Archives created later are scrubbed by the appender, and the drainer scrubs any
+# archive whose literal grep hits right before extracting it (X2 S6). Format, one line per file
+# still to scrub (the episodic indexer reads it to skip those archives):
 #   <path relative to BRAIN_DIR>\t<failed scrub attempts>
 #   path: transcripts/<name>.txt | dreams/<id>/transcripts/<name>.txt
 # Each tick picks SB_DRAIN_BATCH entries, fewest failed attempts first (a scrub that keeps failing
@@ -342,7 +345,7 @@ drain_scrub_migrate() {
     done
     raw=""
     if [ "${#cand[@]}" -gt 0 ]; then
-      out=$(cd "$BRAIN_DIR" && LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- "${cand[@]}" 2>"$errf"); rc=$?
+      out=$(cd "$BRAIN_DIR" && LC_ALL=C grep -lE "${_SB_SCRUB_ERE[@]}" -- "${cand[@]}" 2>"$errf"); rc=$?
       if [ "$rc" -gt 1 ]; then
         # grep lists every match among the files it could read and names each one it could not
         # (`grep: <path>: <reason>`, GNU/BSD/MSYS alike): those are listed too. Only a name that

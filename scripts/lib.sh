@@ -1902,6 +1902,26 @@ _SB_SCRUB_LITERALS=(-e 'sk-' -e 'k_live_' -e 'github_pat_' -e 'ghp_' -e 'gho_' -
   -e '_secret_access_key' -e '_SECRET_ACCESS_KEY' -e 'PRIVATE KEY'
   -e $'\xe2\x80\x8b' -e $'\xe2\x80\x8c' -e $'\xe2\x80\x8d' -e $'\xe2\x81\xa0' -e $'\xef\xbb\xbf')
 
+# grep -E arguments matching exactly the text sb_scrub_secrets changes: each format's own pattern
+# (POSIX ERE; grep -E has the {n,} intervals mawk lacks), the PEM/PGP BEGIN line (a block body is
+# redacted only after it) and the zero-width bytes the scrub deletes. A file matching none of them
+# comes out of the scrub unchanged. For where precision matters: the one-time migration's to-do
+# list (extract-drain.sh), which holds every listed archive out of extraction and the episodic
+# index until its scrub; the bare literals above also hit every task-/disk- id. Run with LC_ALL=C.
+# No -i (GNU grep 3.0 aborts on -i with several -e): any-case words are spelled as classes. No $
+# anchor: a CRLF archive ends its lines in \r. Kept in step with sb_scrub_secrets by a parity test
+# over every scrub fixture, both ways (tests/test-transcript-archive.sh, scrub-ere).
+_SB_SCRUB_ERE=(-e 'sk-(ant|or-v1|proj|svcacct|admin)-[A-Za-z0-9_-]{20,}' -e '[sr]k_live_[A-Za-z0-9]{24,}'
+  -e 'github_pat_[A-Za-z0-9_]{22,}' -e 'gh[opsur]_[A-Za-z0-9]{36,}' -e 'A[KS]IA[0-9A-Z]{16}'
+  -e 'AIza[0-9A-Za-z_-]{35}' -e 'npm_[A-Za-z0-9]{36}' -e 'glpat-[A-Za-z0-9_-]{20,}' -e 'hf_[A-Za-z0-9]{34}'
+  -e 'xox[abpr]-[A-Za-z0-9-]{10,}' -e 'xapp-[A-Za-z0-9-]{10,}'
+  -e 'eyJ[A-Za-z0-9_-]{10,}[.]eyJ[A-Za-z0-9_-]{10,}[.][A-Za-z0-9_-]{10,}'
+  -e '[Bb][Ee][Aa][Rr][Ee][Rr] [A-Za-z0-9._~+/-]{20,}'
+  -e '[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:[[:blank:]]{0,3}[Bb][Aa][Ss][Ii][Cc][[:blank:]]{1,3}[A-Za-z0-9+/=]{8,}'
+  -e "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[\"']?[[:blank:]]{0,3}[=:][[:blank:]]{0,3}[\"']?[A-Za-z0-9/+=]{40,}"
+  -e '(^|[^A-Za-z0-9]|\\[A-Za-z])sk-[A-Za-z0-9]{20,}' -e '-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----'
+  -e $'\xe2\x80\x8b' -e $'\xe2\x80\x8c' -e $'\xe2\x80\x8d' -e $'\xe2\x81\xa0' -e $'\xef\xbb\xbf')
+
 # sb_scrub_archive_file FILE: scrub an EXISTING archive in place (the one-time 0.56.0 migration,
 # drain_scrub_migrate in extract-drain.sh, under the drain lock). The scrubbed copy is written next to FILE
 # (*.part: invisible to every *.txt reader) and renamed over it, so a reader sees the old or the
