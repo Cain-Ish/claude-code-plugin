@@ -35,9 +35,13 @@ trap 'rm -rf "$TMP"' EXIT
 fail() {
   echo "FAIL: $1"
   # Diagnostics for remote-CI failures (macOS job has no shell access):
-  echo "── error-log:"; tail -5 "$SANDBOX/.second-brain/error-log.jsonl" 
-  echo "── extractor-health:"; cat "$SANDBOX/.second-brain/extractor-health.json" 
-  echo "── PROJECT.md:"; head -20 "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" 
+  echo "── error-log:"; tail -5 "$SANDBOX/.second-brain/error-log.jsonl"
+  echo "── audit-log:"; tail -5 "$SANDBOX/.second-brain/audit-log.jsonl"
+  echo "── extractor-health:"; cat "$SANDBOX/.second-brain/.extractor-health.json"
+  # A case that keeps the hook's stderr writes it here (marker-clamp failed once under load in
+  # 0.56.0 review with no evidence because stderr went to /dev/null).
+  [ -s "$SANDBOX/hook.err" ] && { echo "── hook stderr:"; tail -20 "$SANDBOX/hook.err"; }
+  echo "── PROJECT.md:"; head -20 "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
   exit 1
 }
 pass() { echo "PASS: $1"; }
@@ -454,7 +458,7 @@ init_sandbox "marker-clamp"
 seed_transcript_with_edit
 stub_claude_json '{"recent_decisions":["use clamp semantics for stale extraction markers"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
 echo "5000" > "$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
-stop_payload | "$SCRIPT" >/dev/null 2>&1
+stop_payload | "$SCRIPT" >/dev/null 2>"$SANDBOX/hook.err"
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
 grep -q "use clamp semantics for stale extraction markers" "$PROJ" || fail "marker-clamp: stale marker > EOF still gated extraction"
 [ "$(cat "$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session")" = "3" ] \
