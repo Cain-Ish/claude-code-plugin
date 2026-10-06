@@ -1147,7 +1147,12 @@ if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
     #   - "empty after pty-retry..." / ec=124 timeouts → claude CLI hanging,
     #     usually recursive-claude conflict; fix is ANTHROPIC_API_KEY backstop
     #   - "api:..." → ANTHROPIC_API_KEY call failed (rate limit / billing)
+    #   - "cursor map unavailable..." → the drainer's accounting failed (extract-drain.sh writes
+    #     it when sb_drain_cursor_map fails): jq / lib.sh trouble, never login or a key
     case "$H_REASON" in
+      "cursor map unavailable"*)
+        H_HINT="cause: the drainer's accounting failed, not the extractor or your login: sb_drain_cursor_map (scripts/lib.sh) could not read the archives or the done-set. fix: check that \`jq --version\` runs in the drainer's environment (jq on the scheduler's PATH), then tail \`~/.second-brain/error-log.jsonl\` for the lib.sh sb_drain_cursor_map row naming the failing step."
+        ;;
       auth:*|*unauthorized*|*"not logged in"*|*"please run /login"*|*"invalid api key"*)
         H_HINT="fix: run \`claude /login\` (OAuth) or \`export ANTHROPIC_API_KEY=sk-ant-...\` (API key)."
         ;;

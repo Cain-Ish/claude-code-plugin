@@ -169,6 +169,21 @@ SO=$(env PATH="$JQS:$SB2/sbin:$PATH" BRAIN_DIR="$SB2" KNOWLEDGE_DIR="$SB2/k" bas
 printf '%s' "$SO" | grep -q 'backlog: ? (cursor map failed' \
   && pass "M4: the snapshot backlog says the cursor map failed" \
   || fail "M4: snapshot backlog hid the map failure (got: $(printf '%s' "$SO" | grep 'backlog:'))"
+# M5: the drainer records a map failure as extractor status=fail, reason "cursor map unavailable".
+# That is jq / lib.sh trouble, not auth: the FAILED banner's hint must point there, never at
+# /login or an API key (the default hint did).
+reset
+printf '%s\n' '{"status":"fail","backend":"claude-cli","checked_at":"2026-10-06T00:00:00Z","reason":"cursor map unavailable: drain accounting failed (drained 0, 0 failed this run; see error-log.jsonl)"}' > "$B/.extractor-health.json"
+O=$(emit)
+M5H=$(printf '%s\n' "$O" | grep -A5 'extractor: FAILED' | grep -E '^(fix|cause):' | head -1)
+case "$M5H" in *jq*) M5J=1 ;; *) M5J="" ;; esac
+case "$M5H" in *lib.sh*) M5L=1 ;; *) M5L="" ;; esac
+case "$M5H" in *error-log*) M5E=1 ;; *) M5E="" ;; esac
+case "$M5H" in *"/login"*|*ANTHROPIC_API_KEY*) M5A=1 ;; *) M5A="" ;; esac
+if [ -n "$M5A" ]; then fail "M5: the cursor-map hint still sends the user to /login or an API key (got: $M5H)"
+elif [ -n "$M5J" ] && [ -n "$M5L" ] && [ -n "$M5E" ]; then pass "M5: the cursor-map FAILED hint names jq, lib.sh and the error log, not /login"
+else fail "M5: the cursor-map FAILED hint does not name jq / lib.sh / error-log (got: ${M5H:-no hint line})"; fi
+rm -f "$B/.extractor-health.json"
 
 echo "=== archive scrub hold (X2#3) ==="
 # The one-time secret-scrub migration holds an archive from extraction until it is scrubbed. One
