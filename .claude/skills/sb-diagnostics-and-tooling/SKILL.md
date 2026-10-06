@@ -217,8 +217,8 @@ State files (all under `~/.second-brain`; full map owned by sb-architecture-cont
 | `.last-extracted-line-<slug>--<session_id>` | per-session extraction marker (bare integer, raw transcript lines); swept after 30 d idle |
 | `.extractor-health.json` | `{checked_at, backend, status, reason}`; `status ∈ ok\|fail\|queued` — `queued` is NORMAL on subscription auth (in-session OAuth deferral) |
 | `.extraction-state.jsonl` | drainer done-set: `{basename, ts, outcome: ok\|baseline\|retry\|error, reason?, latency_s?, fails?, from, lines}`; `from`/`lines` = the archive-line window extracted; a cursor = max `lines` over `ok`/`baseline` rows; `error` = that window dead-lettered after `SB_DRAIN_MAX_FAILS` (3), lines stay un-extracted |
-| `transcripts/*.txt` | archived session windows, credential formats redacted (OpenAI `sk-proj-`/`sk-svcacct-`/`sk-admin-`, Anthropic, GitHub, AWS, Slack, Bearer, PEM); caps 400 files / 25 MB soft, 1200 files / 75 MB hard, only `pending` archives protected from eviction; subagent `sub-*` sub-cap 200 |
-| `transcripts/.<archive>.lock`, `.archive-scrub-v1`, `.archive-scrub-v1.todo` | per-archive write lock (5 s wait, stolen after 60 s); one-time scrub marker and to-do list |
+| `transcripts/*.txt` | archived session windows, credential formats redacted by `sb_scrub_secrets` (kinds and what is not matched: `references/archive-and-backlog.md`); caps 400 files / 25 MB soft, 1200 files / 75 MB hard, only `pending` archives protected from eviction; subagent `sub-*` sub-cap 200 |
+| `transcripts/.<archive>.lock`, `.archive-scrub-v1`, `.archive-scrub-v1.todo` | per-archive write lock (`<pid>.<nonce>`, 5 s wait, stolen from a dead holder after 60 s or any holder after 600 s); one-time scrub marker and to-do list |
 | `.drain-defer-count` / `.last-drain-escape` | drainer starvation-escape state |
 | `.project-update-pending-<slug>` | queued reflection work flag |
 
@@ -243,8 +243,7 @@ source "$P/scripts/lib.sh"; sb_timer_health    # installed | absent
 "0a-quater"; there is NO `drain-health*.sh` script): banner fires when
 `sb_count_drain_timeouts 40` (count of `extractor-diag .*ec=124` in the last 40
 error-log lines) ≥ `SB_DRAIN_TIMEOUT_BANNER_THRESHOLD` (3), OR
-`sb_count_drain_dead_letters` (archives in state `dead` of the cursor map: an `error` row
-covers every line the cursor has not reached; recovery or later growth clears it) ≥ `SB_DRAIN_DEADLETTER_THRESHOLD` (5). Suppressed when the
+`sb_count_drain_dead_letters` (archives holding a dead-lettered window, whatever their state, even one mid-archive: a window that failed `SB_DRAIN_MAX_FAILS` times; map columns 8/9 give the window and line totals the banner shows) ≥ `SB_DRAIN_DEADLETTER_THRESHOLD` (5). Suppressed when the
 extractor-FAILED banner already fired (`.extractor-health.json` status `fail`);
 kill switch `SB_DRAIN_HEALTH_BANNER=off`. Replicate both counters:
 
@@ -258,7 +257,7 @@ Context for interpreting a non-draining backlog: the drainer refuses in-session
 `.extract-drain.lock` (7200 s staleness steal), makes up to 5 extractor calls per tick, per-attempt timeout 240 s.
 A live archive is extracted once `SB_DRAIN_DELTA_MIN_BYTES` (4096) of new lines exist or it has been quiet
 `SB_DRAIN_QUIET_S` (3600 s), so a small growing archive legitimately reads `pending`. Archive lock, eviction rules, the one-time scrub migration
-(an archive awaiting its scrub is not extracted) and done-set compaction: `references/archive-and-backlog.md`.
+(an archive awaiting its scrub is neither extracted nor indexed for recall), dead-window totals and done-set compaction: `references/archive-and-backlog.md`.
 A large backlog with `mode: subscription` + an always-open interactive session is
 the known starvation shape, not a bug — see sb-debugging-playbook for the triage.
 

@@ -57,7 +57,7 @@ Eleven hook events wire the autonomous loop (`hooks/hooks.json`):
 - **PostToolUse** — quality gate on writes, injection-pattern scan of tool returns (telemetry, never blocks), simplicity nudge on large single changes, observation ledger.
 - **PostToolUseFailure** — the observation ledger's failure side. `PostToolUse` fires only on success, so without this event every FAILED tool call — the error→fix pattern the ledger exists to mine — left no record.
 - **Stop** — verify gate, then the raw window is archived first (credential-shaped strings redacted as `[redacted:<kind>]`, tool-free windows included) and the LLM extractor files what mattered into hot tier + wiki; SAR safety-summary banner.
-- **SubagentStop** — archives substantive subagent results into the episodic transcript store.
+- **SubagentStop** — archives substantive subagent results (credential-scrubbed before they are quoted) into the episodic transcript store.
 - **SubagentStart** — delivers a role card scoped to the spawned agent's type (working agreement, advisory-only).
 - **PreCompact** — same archive-then-extract before a context compaction, so nothing is lost to the window.
 - **ConfigChange** — audit-logs every settings/skills change (never blocks).
