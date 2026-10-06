@@ -270,6 +270,30 @@ if [ -d "$TRANSCRIPT_DIR" ]; then
     sb_strip_invisible_copy "$tf" "$_dst"
     SELECTED=$((SELECTED + 1))
   done < <(printf '%s' "$TRANSCRIPT_INDEX" | sort -k1,1r -k2,2rn | sed 's/^[^ ]* [^ ]* //')
+
+  # Secret scrub of the staged copies (0.56.0, security review: pre-migration exposure). The
+  # dream-runner LLM reads them, and an archive written before 0.56.0 (until the drainer's one-time
+  # migration reaches it), or appended by a 0.55 hook after it, holds keys in clear. ONE literal
+  # grep (_SB_SCRUB_LITERALS) over the copies, then sb_scrub_archive_file on each hit (atomic, mtime
+  # kept: the autostage watermark reads it). Fail closed: a copy that cannot be scrubbed, or a
+  # grep that cannot read the copies, removes them from the dream, loudly.
+  if [ "$SELECTED" -gt 0 ]; then
+    _hits=$(cd "$DREAM_DIR/transcripts" && LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- *.txt 2>/dev/null); _grc=$?
+    if [ "$_grc" -gt 1 ]; then
+      sb_log_error "dream-snapshot.sh" "secret check of the staged transcripts failed (grep rc=$_grc); none are staged for dream $DREAM_ID" 1
+      rm -f "$DREAM_DIR/transcripts"/*.txt 2>/dev/null
+      SELECTED=0
+    elif [ -n "$_hits" ]; then
+      while IFS= read -r _h; do
+        _h="${_h%$'\r'}"; [ -n "$_h" ] || continue
+        if ! sb_scrub_archive_file "$DREAM_DIR/transcripts/$_h"; then
+          rm -f "$DREAM_DIR/transcripts/$_h" 2>/dev/null
+          SELECTED=$((SELECTED - 1))
+          sb_log_error "dream-snapshot.sh" "cannot secret-scrub the staged copy of $_h; left out of dream $DREAM_ID" 1
+        fi
+      done < <(printf '%s\n' "$_hits")
+    fi
+  fi
 fi
 
 # Write status.json. created_at is the pre-copy SNAP_AT, not now (see the snapshot block).
