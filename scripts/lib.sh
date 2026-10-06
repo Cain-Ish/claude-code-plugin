@@ -1611,11 +1611,21 @@ sb_sanitize_slug() {
 # waiters, and the drain lock accepts the same residue.
 _SB_ARCHIVE_LOCK_WAIT_S=5
 _SB_ARCHIVE_LOCK_STALE_S=60
-sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
-  local lf="${1%/*}/.${1##*/}.lock" who="${2:-lib.sh}" noclob="" tries=0 nofile=0 end="" mt now
-  case "$-" in *C*) noclob=1 ;; esac
+# One noclobber create attempt; noclobber is on for this redirect only (a caller's own setting is
+# restored, and nothing else runs under it: log rotation rewrites files with `>`).
+_sb_archive_lock_try() {  # $1 = lock path
+  local r had=""
+  case "$-" in *C*) had=1 ;; esac
   set -C
-  until { printf '%s\n' "$$" > "$lf"; } 2>/dev/null; do
+  { printf '%s\n' "$$" > "$1"; } 2>/dev/null; r=$?
+  [ -n "$had" ] || set +C
+  return "$r"
+}
+sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
+  local f="$1" who="${2:-lib.sh}" lf tries=0 nofile=0 end="" mt now
+  case "$f" in */*) ;; *) f="./$f" ;; esac
+  lf="${f%/*}/.${f##*/}.lock"
+  until _sb_archive_lock_try "$lf"; do
     tries=$((tries + 1))
     [ -n "$end" ] || end=$((SECONDS + _SB_ARCHIVE_LOCK_WAIT_S))
     if [ -e "$lf" ]; then
@@ -1624,27 +1634,28 @@ sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
         mt=$(sb_mtime "$lf"); now=$(date +%s)
         case "$mt" in ''|0|*[!0-9]*) continue ;; esac   # released meanwhile: just retry
         if [ $((now - mt)) -gt "$_SB_ARCHIVE_LOCK_STALE_S" ]; then
-          sb_log_error "lib.sh" "$who: stealing a stale archive lock ($((now - mt)) s old, holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')) on ${1##*/}" 1
+          sb_log_error "lib.sh" "$who: stealing a stale archive lock ($((now - mt)) s old, holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')) on ${f##*/}" 1
           rm -f "$lf" 2>/dev/null
           continue
         fi
       fi
     elif [ "$((nofile += 1))" -ge 3 ]; then   # the create keeps failing with no lock there
-      [ -n "$noclob" ] || set +C
-      sb_log_error "lib.sh" "$who: cannot create the archive lock $lf (directory unwritable?); ${1##*/} left as it is" 1
+      sb_log_error "lib.sh" "$who: cannot create the archive lock $lf (directory unwritable?); ${f##*/} left as it is" 1
       return 1
     fi
     if [ "$SECONDS" -ge "$end" ]; then
-      [ -n "$noclob" ] || set +C
-      sb_log_error "lib.sh" "$who: archive lock on ${1##*/} still held after ${_SB_ARCHIVE_LOCK_WAIT_S} s (holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')); not written, retried later" 1
+      sb_log_error "lib.sh" "$who: archive lock on ${f##*/} still held after ${_SB_ARCHIVE_LOCK_WAIT_S} s (holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')); not written, retried later" 1
       return 1
     fi
     [ -e "$lf" ] && sleep 0.1
   done
-  [ -n "$noclob" ] || set +C
   return 0
 }
-sb_archive_unlock() { rm -f "${1%/*}/.${1##*/}.lock" 2>/dev/null; }
+sb_archive_unlock() {
+  local f="$1"
+  case "$f" in */*) ;; *) f="./$f" ;; esac
+  rm -f "${f%/*}/.${f##*/}.lock" 2>/dev/null
+}
 
 # --- Secret scrub (0.56.0, R2#3) ---
 # sb_scrub_secrets: stdin -> stdout filter. Redacts high-precision credential formats to

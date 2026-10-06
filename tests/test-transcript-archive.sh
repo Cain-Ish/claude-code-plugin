@@ -545,6 +545,15 @@ grep -q 'sb_scrub_archive_file.*lock' "$BRAIN_DIR/error-log.jsonl" || fail "lock
 sb_scrub_archive_file "$AL" || fail "lock: the scrub did not wait for a lock released after 1 s"
 wait
 grep -q 'sk-ant-' "$AL" && fail "lock: the third key survived the scrub that waited"
+# the steal logs a row: that must run with the caller's noclobber setting (off), never the lock's
+# own (log rotation rewrites files with `>`, which noclobber refuses); nor may it leak to the caller
+printf '99999\n' > "$LK"; touch -t 202601010000 "$LK" || fail "touch -t unavailable"
+NC_LOG="$TMP/archive-lock/nc.log"; : > "$NC_LOG"
+( sb_log_error() { case "$-" in *C*) echo on ;; *) echo off ;; esac >> "$NC_LOG"; }
+  sb_archive_transcript "$T" proj lk 1 10 0 ) || fail "lock: the append after a stale steal returned non-zero"
+grep -qx off "$NC_LOG" && ! grep -qx on "$NC_LOG" || fail "lock: the steal's log row ran under noclobber ($(tr '\n' ' ' < "$NC_LOG"))"
+sb_archive_transcript "$T" proj lk 1 2 0 || fail "lock: a plain append returned non-zero"
+case "$-" in *C*) fail "lock: noclobber leaked to the caller" ;; esac
 # a stale lock (its holder died mid-write) is stolen
 printf '99999\n' > "$LK"; touch -t 202601010000 "$LK" || fail "touch -t unavailable"
 sb_archive_raw_window "$T" proj lk 10 proj--lk || fail "lock: a stale lock was not stolen"
