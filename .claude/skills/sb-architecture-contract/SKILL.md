@@ -140,12 +140,12 @@ persisted. Full contract, the sticky/carried/stale marker grammar, and the hones
 delivery proof: §8.8. The Stop/PreCompact pipeline below is unchanged:
 
 Pipeline: resolve slug
-(`sb_resolve_slug`, `lib.sh:1110`) → ARCHIVE FIRST (0.56.0): `sb_archive_raw_window` (`lib.sh:1876`)
+(`sb_resolve_slug`, `lib.sh:1110`) → ARCHIVE FIRST (0.56.0): `sb_archive_raw_window` (`lib.sh:1974`)
 appends the raw window to `$BRAIN_DIR/transcripts/<sid>_<slug>_<date>.txt` BEFORE the tool-count
 gate, telemetry, JIT or the merge (`stop-extract.sh:148`, `pre-compact.sh:265`), so tool-count-zero
 windows are archived too. Its cursor is `.last-archived-line-<slug>--<sid>` (`<raw_line>\t<path>`);
-`sb_scrub_secrets` (`lib.sh:1626`) redacts credential formats to `[redacted:<kind>]` on every
-archived window without changing its line count. Caps 400 files/25 MB soft, 1200 files/75 MB hard.
+`sb_scrub_secrets` (`lib.sh:1688`) redacts credential formats (Anthropic, OpenAI incl. `sk-proj-`/`sk-svcacct-`/`sk-admin-`, GitHub, AWS, Slack, Bearer, PEM) to `[redacted:<kind>]` on every
+archived window, and `sb_archive_subagent_result` (`lib.sh:2009`) scrubs subagent results too, without changing a line count. Appends and the in-place scrub share a per-archive noclobber lock (`sb_archive_lock`, `lib.sh:1624`). Caps 400 files/25 MB soft, 1200 files/75 MB hard.
 → disjoint-window marker `.last-extracted-line-<slug>--<sid>` (raw transcript lines; line count
 via `awk 'END{print NR}'`, NOT `wc -l` — missing-final-newline undercount) →
 substantive gate (≥1 `tool_use` in the delta) → LLM extraction (`sb_call_extractor`; backend

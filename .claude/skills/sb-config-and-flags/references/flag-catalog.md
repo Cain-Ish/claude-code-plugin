@@ -87,11 +87,11 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_SAR_SUMMARY` | `on` | Stop-hook Safety-Adherence-Rate one-line banner from audit-log verdicts. | KS | sar-summary.sh:22 | bash |
 | `SB_SUBAGENT_CAPTURE` | `on` | SubagentStop: archive substantive, non-self subagent FINAL results into `~/.second-brain/transcripts/`. | KS | subagent-capture.sh:22 | bash |
 | `SB_SUBAGENT_MIN_RESULT` | `80` | Min result size (bytes) to count as substantive. | TUNE | subagent-capture.sh:56 | none |
-| `SB_SUBAGENT_ARCHIVE_CAP` | `200` (was 50 before 0.56.0) | Max `sub-*.txt` archives kept (pruned oldest-first, before the shared cap). | TUNE | lib.sh:1968 | bash |
-| `SB_TRANSCRIPT_CAP` | `400` (was 100 before 0.56.0) | Soft cap on archive FILES in `transcripts/`; over it, already-extracted archives are evicted oldest-first. | TUNE | lib.sh:2152 | bash |
-| `SB_TRANSCRIPT_HARD_CAP` | `1200` (was 300 before 0.56.0) | File-count ceiling past which un-extracted archives are evicted too, each logged loudly. Clamped up to `SB_TRANSCRIPT_CAP`. | TUNE | lib.sh:2153 | bash |
-| `SB_TRANSCRIPT_MAX_BYTES` | `26214400` (25 MB; was 5 MB before 0.56.0) | Soft byte cap on `transcripts/*.txt`; reclaimed from already-extracted archives first. | TUNE | lib.sh:2239 | bash |
-| `SB_TRANSCRIPT_MAX_BYTES_HARD` | `3 x SB_TRANSCRIPT_MAX_BYTES` (75 MB) | Byte ceiling past which un-extracted archives are evicted, each logged loudly. Clamped up to the soft cap. | TUNE | lib.sh:2241 | bash |
+| `SB_SUBAGENT_ARCHIVE_CAP` | `200` (was 50 before 0.56.0) | Max `sub-*.txt` archives kept (pruned oldest-first, before the shared cap). | TUNE | lib.sh:2080 | bash |
+| `SB_TRANSCRIPT_CAP` | `400` (was 100 before 0.56.0) | Soft cap on archive FILES in `transcripts/`; over it, archives whose cursor-map state is `done` or `dead` are evicted oldest-first (a `pending` archive is protected until the hard ceiling). | TUNE | lib.sh:2250 | bash |
+| `SB_TRANSCRIPT_HARD_CAP` | `1200` (was 300 before 0.56.0) | File-count ceiling past which un-extracted archives are evicted too, each logged loudly. Clamped up to `SB_TRANSCRIPT_CAP`. | TUNE | lib.sh:2251 | bash |
+| `SB_TRANSCRIPT_MAX_BYTES` | `26214400` (25 MB; was 5 MB before 0.56.0) | Soft byte cap on `transcripts/*.txt`; reclaimed from already-extracted archives first. | TUNE | lib.sh:2253 | bash |
+| `SB_TRANSCRIPT_MAX_BYTES_HARD` | `3 x SB_TRANSCRIPT_MAX_BYTES` (75 MB) | Byte ceiling past which un-extracted archives are evicted, each logged loudly. Clamped up to the soft cap. | TUNE | lib.sh:2255 | bash |
 | `SB_PRINCIPLES_INJECT` | `on` | Persona principles block in the UserPromptSubmit ambient context. | KS | persona-context.sh:249 | bash |
 | `SB_OBSERVATION_LEDGER` | `on` | PostToolUse + PostToolUseFailure: append one deterministic JSONL line `{ts,tool,target,ok,err}` per tool use to `~/.second-brain/observations/<session>.jsonl` (mined by the drainer as extraction input; 7-day GC). `off` disables both hook wirings. | KS | observe-tool-use.sh:21 | none |
 | `SB_OBSERVATION_MAX_BYTES` | `1048576` (1 MiB) | Per-session cap on the observation ledger file. | TUNE | observe-tool-use.sh | none |
@@ -163,7 +163,7 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_EXTRACTOR_LOCAL_MAX_BYTES` | `6000` | Input cap for local extraction. | TUNE | lib.sh:1207 | bash |
 | `SB_EXTRACTOR_MODEL` | unset | MID-tier pin (rung 0) for extraction. Was a hard default of `claude-sonnet-4-6`; now declared in `model-ladder.json` `.pins.mid`. | TUNE | model-ladder.json | bash |
 | `SB_EXTRACT_TIMEOUT` | `25` (stop-extract.sh:42) / `30` (pre-compact.sh:32) s | IN-HOOK extraction timeouts (inside 45s hook budgets). Deliberately NOT shared with the drainer (next row). | TUNE | stop-extract.sh:42 | none |
-| `SB_DRAIN_EXTRACT_TIMEOUT` | `240` (s) | Drainer per-attempt extraction budget. BUDGET PROOF (comment lib.sh:1612-1625): worst case 5 (BATCH) × 3 (retry paths) × 240 = 3600s = HALF of the 7200s lock steal-threshold — "do NOT raise further without also raising SB_DRAIN_LOCK_STALE". | TUNE | lib.sh:1625 | bash |
+| `SB_DRAIN_EXTRACT_TIMEOUT` | `240` (s) | Drainer per-attempt extraction budget. BUDGET PROOF (comment lib.sh:3455-3465): worst case 5 (BATCH) × 3 (retry paths) × 240 = 3600s = HALF of the 7200s lock steal-threshold — "do NOT raise further without also raising SB_DRAIN_LOCK_STALE". | TUNE | lib.sh:3465 | bash |
 | `SB_EXTRACT_MAX_BYTES` | `200000` | Transcript tail cap fed to the extractor. | TUNE | lib.sh:1669 | bash |
 | `SB_QUALITY_GATE` | `on` | Extraction quality filter `extraction-quality-gate.sh` (passthrough `cat` when off). Invoked from the extraction pipeline (lib.sh:165, lib.sh:1679, stop-extract.sh:221) — NOT hooks.json-wired, and NOT the PostToolUse `quality-gate.sh` nudge, which has no switch (§2 note). | KS | extraction-quality-gate.sh:18 | bash |
 | `SB_QUALITY_GATE_STRICTNESS` | `conservative` | Strictness mode of the extraction quality filter. | MODE | extraction-quality-gate.sh:25 | bash |

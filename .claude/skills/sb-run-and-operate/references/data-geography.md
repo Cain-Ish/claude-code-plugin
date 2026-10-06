@@ -51,7 +51,7 @@ or history if removed; **REGEN** = regenerable, safe to delete; **AUTO** = prune
 | `bin/sb-extract-drain.sh` + `.extract-timer-env` (chmod 600) | upgrade-stable scheduler shim + captured env | `install-extract-timer.sh` | the scheduled job each tick | via `--uninstall` only |
 | `.active-session-slug` | last-session project pin (lowest-precedence slug input) | `session-load.sh:37` | `project-dir.ts` / `sb_resolve_slug` | REGEN |
 | `.session-baseline-<slug>.md` | Stop-diff baseline | `session-load.sh` | `stop-extract.sh` (deletes on use) | REGEN |
-| `.last-archived-line-<slug>--<sid>` | archive-first cursor: raw transcript lines already archived | `sb_archive_raw_window` (`lib.sh:1876`) | Stop/PreCompact hooks | AUTO (GC `-mtime +30`) |
+| `.last-archived-line-<slug>--<sid>` | archive-first cursor: raw transcript lines already archived | `sb_archive_raw_window` (`lib.sh:1974`) | Stop/PreCompact hooks | AUTO (GC `-mtime +30`) |
 | `.last-extracted-line-<slug>--<sid>` | disjoint extraction-window markers | `lib.sh` | Stop/PreCompact extractors | AUTO (GC `-mtime +30`) |
 | `episodic-index.json` | episodic vector/text index | `episodic-index-cli.bundle.js` | `episodic_search` | REGEN (`node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/episodic-index-cli.bundle.js"`) |
 | `access-counts.json` | wiki access telemetry — recorded, **never folded into ranking** (the P4b 0.33.30 cut removed the search boost; `knowledge-search.ts:83-85`, `:380`) | `knowledge_search` fire-and-forget record | `scripts/wiki-forget-score.sh` `acc=` display field only | safe (loses `acc=` display telemetry; zero ranking effect) |
