@@ -4,6 +4,10 @@
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # pins: SB_DRAIN_QUIET_S — =0 treats the tiny fresh fixtures as settled; D7 + the too-small case set 3600 to test the gate itself
 # pins: SB_EXTRACT_MAX_BYTES — D8 shrinks the chunk cap so a 37-line fixture spans several forward chunks
+# pins: SB_DRAIN_STALE_MAX — D3 raises it so the deferred-tick migration case cannot take the age escape
+# pins: SB_DRAIN_BATCH — D8/D8b/D9 size the per-tick extractor-call budget that is under test
+# pins: SB_DRAIN_FLOOR — D2 turns the deterministic floor off so MAX_FAILS yields the error row under test
+# pins: SB_DRAIN_MAX_FAILS — D2 fixes the dead-letter threshold the retry/error rows are asserted against
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
@@ -427,7 +431,10 @@ rows_for lr1_proj_2026-05-24.txt | grep -q '"outcome":"ok","reason":"legacy-regr
 reset; rm -f "$RLOG"
 mk_lines "ld1_proj_2026-05-24.txt" 3; touch -t 202601010000 "$BRAIN_DIR/transcripts/ld1_proj_2026-05-24.txt"
 printf '%s\n' '{"basename":"ld1_proj_2026-05-24.txt","ts":"2026-01-03T00:00:00Z","outcome":"ok"}' > "$STATE"
-SB_INTERACTIVE_OVERRIDE=active rdrain
+rm -f "$BRAIN_DIR/.drain-defer-count"
+# STALE_MAX huge: the backdated archive must not trigger the age escape — this tick has to DEFER.
+SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=999999999 rdrain
+eq "migration: the tick really deferred" "$(cat "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)" "1"
 grep -q '"basename":"ld1_proj_2026-05-24.txt".*"outcome":"baseline"' "$STATE" \
   && ok "migration: baseline written on a deferred tick" || no "migration: deferred tick skipped the LLM-free migration"
 eq "migration: a deferred tick makes no extractor call" "$(rcalls)" "0"
