@@ -37,6 +37,8 @@ make_transcript() {
     fi
   done > "$path"
 }
+# Archive lines rendered by jq carry a CR on hosts whose jq writes CRLF (jq 1.8 on Windows): count CR-blind.
+acount() { tr -d '\r' < "$1" | grep -c -- "$2"; }
 
 # --- Subtest 1: basic archive creates file with metadata header
 setup "basic"
@@ -806,8 +808,6 @@ grep -q '^then done$' "$S_SUB" || fail "subagent-scrub: the rest of the result w
 [ ! -s "$BRAIN_DIR/error-log.jsonl" ] || fail "subagent-scrub: a clean scrubbed write logged an error: $(cat "$BRAIN_DIR/error-log.jsonl")"
 pass "subagent archive: the result is secret-scrubbed before it is written"
 
-# Archive lines rendered by jq carry a CR on hosts whose jq writes CRLF (jq 1.8 on Windows): count CR-blind.
-acount() { tr -d '\r' < "$1" | grep -c -- "$2"; }
 setup "raw-window"
 T="$TMP/raw-window/t.jsonl"; make_transcript "$T" 10
 TN=$(sb_normalize_path "$T")
