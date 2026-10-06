@@ -630,7 +630,8 @@ eq "evicted+recreated: done after the tick" "$(cmap ev1_proj_2026-05-24.txt 2) $
 FAKEBIN="$SANDBOX/fakebin"; FCAP="$SANDBOX/fake-claude.in"; mkdir -p "$FAKEBIN" "$SANDBOX/fakehome" "$SANDBOX/fake-knowledge/wiki"
 cat > "$FAKEBIN/claude" <<EOF8
 #!/bin/bash
-{ cat; printf '\n=== END CALL ===\n'; } >> "$FCAP"
+in=\$(cat); printf '%s\n=== END CALL ===\n' "\$in" >> "$FCAP"
+case "\$in" in *FAILCHUNK*) exit 1 ;; esac   # item 11: an input carrying this marker fails
 printf '%s\n' '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
 EOF8
 chmod +x "$FAKEBIN/claude"
@@ -647,7 +648,12 @@ jq -nc --arg t "ANTHROPIC_API_KEY=$KANT claude -p hi" --arg e "Error: invalid x-
 # X2 S6 (p4): a 0.55 hook (no scrub) appended a key to the archive AFTER the migration marker
 KGHP="gh""p_$(printf 'Ab1%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
 printf 'USER: deploy with %s\n' "$KGHP" >> "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt"
-realdrain
+# Item 11: a multi-chunk archive (37 lines at a 320 B chunk cap) whose SECOND chunk the extractor
+# fails. The drainer hands one forward chunk per call, so the merged chunk gets its own ok row
+# ending where it ended (not at the archive end) and only the failed chunk is retried.
+mk_lines "rx2_proj_2026-05-24.txt" 30
+sed -i.bak '22s/$/ FAILCHUNK/' "$BRAIN_DIR/transcripts/rx2_proj_2026-05-24.txt" && rm -f "$BRAIN_DIR/transcripts/rx2_proj_2026-05-24.txt.bak"
+realdrain SB_EXTRACT_MAX_BYTES=320 SB_DRAIN_MAX_FAILS=3
 grep -q '=== OBSERVATIONS' "$FCAP" 2>/dev/null && ok "real path: the extractor received the observations section" \
   || no "real path: no extractor input recorded (got: $(head -c 300 "$FCAP" 2>/dev/null))"
 grep -qF 'ant-api03-' "$FCAP" 2>/dev/null && no "real path: the extractor RECEIVED a key from the observation ledger" \
@@ -658,6 +664,20 @@ grep -qF "$KGHP" "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt" && no "real pa
   || ok "real path: the archive at rest is scrubbed too"
 rows_for rx1_proj_2026-05-24.txt | grep -q '"outcome":"ok","from":0,"lines":11' \
   && ok "real path: ok row (0,11]" || no "real path: ledger row (got: $(rows_for rx1_proj_2026-05-24.txt))"
+RX2_ROWS=$(rows_for rx2_proj_2026-05-24.txt)
+RX2_OK=$(printf '%s\n' "$RX2_ROWS" | jq -r 'select(.outcome == "ok") | "\(.from) \(.lines)"' 2>/dev/null | tr -d '\r')
+RX2_C1="${RX2_OK#* }"
+case "$RX2_OK" in
+  "0 "*) [ "$RX2_C1" -gt 7 ] && [ "$RX2_C1" -lt 22 ] \
+           && ok "partial: the merged first chunk's ok row ends at that chunk (0,$RX2_C1], not at the archive end" \
+           || no "partial: ok row bounds wrong (got: $RX2_OK)" ;;
+  *) no "partial: no single ok row from 0 for the merged chunk (got: $RX2_ROWS)" ;;
+esac
+printf '%s\n' "$RX2_ROWS" | jq -e --argjson c "${RX2_C1:-0}" 'select(.outcome == "retry" and .from == $c and .lines > $c)' >/dev/null 2>&1 \
+  && ok "partial: the failed chunk is a retry row starting where the merged one ended" \
+  || no "partial: retry row missing or misplaced (got: $RX2_ROWS)"
+eq "partial: the next tick resumes at the end of the merged chunk (cursor next state)" \
+  "$(cmap rx2_proj_2026-05-24.txt 2) $(cmap rx2_proj_2026-05-24.txt 5) $(cmap rx2_proj_2026-05-24.txt 4)" "$RX2_C1 $RX2_C1 pending"
 rm -f "$SMARK"
 
 # D16 (X2 S5, p3): too-small is for a never-extracted archive only (cursor 0). A short final turn
