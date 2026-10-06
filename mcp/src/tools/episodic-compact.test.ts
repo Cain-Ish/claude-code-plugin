@@ -322,7 +322,8 @@ describe('re-derivation after an in-place archive scrub', () => {
 
   // Security review (R2 fix round): until the one-time 0.56.0 scrub migration reaches an archive,
   // that archive still holds secrets in clear. extract-drain.sh keeps the migration's to-do list
-  // in BRAIN_DIR/.archive-scrub-v1.todo (one basename per line) and writes .archive-scrub-v1 when
+  // in BRAIN_DIR/.archive-scrub-v1.todo (`<path>\t<failed attempts>` per line; a bare basename from
+  // a 0.56 pre-release list is a transcripts/ entry) and writes .archive-scrub-v1 when
   // it is done. Every archive on the list was written before 0.56.0, so a 0.55 build has usually
   // indexed it already: the build holds it OUT of the index (rows dropped, file entry forgotten,
   // nothing parsed) and re-derives it on the first build after it leaves the list.
@@ -358,6 +359,47 @@ describe('re-derivation after an in-place archive scrub', () => {
       expect(back.held).toBe(0);
       expect(rowsOf('s2').map((x: any) => x.id)).toEqual(before.map((x: any) => x.id));
       expect(readIndex().indexed_files).toHaveProperty(SFILE);
+    });
+
+    // 0.56.0 contract (extract-drain.sh drain_scrub_migrate): `<path relative to BRAIN_DIR>\t<failed
+    // attempts>` per line, path transcripts/<b>.txt or dreams/<id>/transcripts/<b>.txt. Only a
+    // transcripts/ entry holds an archive; the attempt count never matters to the hold.
+    it('the tab form holds the archive its transcripts/ path names, whatever the attempt count', async () => {
+      writeFileSync(join(brainDir, 'transcripts', SFILE), SECRET_ARCHIVE, 'utf-8');
+      await buildEpisodicIndex(brainDir);
+      expect(rowsOf('s2')).toHaveLength(2);
+      const keptIds = rowsOf('s1').map((x: any) => x.id);
+
+      writeFileSync(todoPath(), `transcripts/gone_proj_2026-09-30.txt\t0\ntranscripts/${SFILE}\t5\n`, 'utf-8');
+      const r = await buildEpisodicIndex(brainDir);
+
+      expect(r.held).toBe(1);
+      expect(rowsOf('s2')).toEqual([]);
+      expect(readIndex().indexed_files).not.toHaveProperty(SFILE);
+      expect(rowsOf('s1').map((x: any) => x.id)).toEqual(keptIds);
+      expect(readFileSync(indexPath(), 'utf-8')).not.toContain('sk-ant-');
+    });
+
+    it('a dream copy on the list does not hold the same-named archive (dream copies are not indexed)', async () => {
+      writeFileSync(join(brainDir, 'transcripts', SFILE), SECRET_ARCHIVE, 'utf-8');
+      writeFileSync(todoPath(), `dreams/drm_20261001T000000Z/transcripts/${SFILE}\t0\n`, 'utf-8');
+
+      const r = await buildEpisodicIndex(brainDir);
+
+      expect(r.held).toBe(0);
+      expect(rowsOf('s2')).toHaveLength(2);
+      expect(readIndex().indexed_files).toHaveProperty(SFILE);
+    });
+
+    it('a trailing CR is stripped from a path line (Windows tools write CRLF)', async () => {
+      writeFileSync(join(brainDir, 'transcripts', SFILE), SECRET_ARCHIVE, 'utf-8');
+      // No tab: the CR lands on the path itself, so only the strip makes it match.
+      writeFileSync(todoPath(), `transcripts/${SFILE}\r\n`, 'utf-8');
+
+      const r = await buildEpisodicIndex(brainDir);
+
+      expect(r.held).toBe(1);
+      expect(rowsOf('s2')).toEqual([]);
     });
 
     it('the completion marker wins over a to-do list left behind: nothing is held', async () => {
