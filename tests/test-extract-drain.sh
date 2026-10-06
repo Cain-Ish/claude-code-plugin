@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for extract-drain.sh
-# run-all-timeout: 600   (~58 full drainer ticks by design since R2-B's delta-drain cases; measured 263-302s on the MSYS dev box — see run-all.sh)
+# run-all-timeout: 600   (~66 full drainer ticks by design since the R2-B delta-drain and R2-F scrub-migration cases; measured 233-302s on the MSYS dev box — see run-all.sh)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # pins: SB_DRAIN_QUIET_S — =0 treats the tiny fresh fixtures as settled; D7 + the too-small case set 3600 to test the gate itself
 # pins: SB_EXTRACT_MAX_BYTES — D8 shrinks the chunk cap so a 37-line fixture spans several forward chunks
@@ -530,6 +530,75 @@ SB_DRAIN_BATCH=0 rdrain
 eq "compact: the tick's GC keeps one row for the done archive" "$(rows_for cp1_proj_2026-05-24.txt | grep -c . || true)" "1"
 eq "compact: cursor and state unchanged by the compaction" "$(cmap cp1_proj_2026-05-24.txt 2) $(cmap cp1_proj_2026-05-24.txt 4)" "$CP_BEFORE"
 eq "compact: a done archive makes no extractor call" "$(rcalls)" "0"
+
+# D11 (R2-F#4/#5): archives written before 0.56.0 hold secrets in clear. The first ticks scrub
+# them in place (sb_scrub_archive_file), under the drain lock and before the defer gate, pending
+# archives first, SB_DRAIN_BATCH per tick, then write .archive-scrub-v1. No archive is extracted
+# before its scrub: the extractor never receives a key. The stub records the window it receives.
+SSTUB="$SANDBOX/sstub.sh"; SCAP="$SANDBOX/sstub.cap"
+cat > "$SSTUB" <<EOF7
+#!/bin/bash
+printf '=== %s %s %s\n' "\${1##*/}" "\$3" "\$4" >> "$SCAP"
+sed -n "\$((\$3 + 1)),\$4p" "\$1" >> "$SCAP"
+exit 0
+EOF7
+chmod +x "$SSTUB"
+sdrain() { SB_EXTRACT_STUB="$SSTUB" bash "$DRAIN" >/dev/null 2>&1 || true; }
+SMARK="$BRAIN_DIR/.archive-scrub-v1"; STODO="$BRAIN_DIR/.archive-scrub-v1.todo"
+KANT="sk-""ant-api03-$(printf 'Zq9x%.0s' 1 2 3 4 5 6 7 8)"   # built at run time: no key-shaped literal in the repo
+mk_key() {  # $1 = archive, $2 = touch stamp: an archive written before 0.56.0, a key in clear
+  mk_lines "$1" 3; printf 'USER: my key is %s\n' "$KANT" >> "$BRAIN_DIR/transcripts/$1"; mk_lines "$1" 2
+  touch -t "$2" "$BRAIN_DIR/transcripts/$1"
+}
+smt() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+# D11a: a legacy archive (legacy ok row, grown since: re-mined) goes through migration then extraction
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_key "sk1_proj_2026-05-24.txt" 202605240000
+SK1="$BRAIN_DIR/transcripts/sk1_proj_2026-05-24.txt"; SK1_LC=$(wc -l < "$SK1"); SK1_MT=$(smt "$SK1")
+printf '%s\n' '{"basename":"sk1_proj_2026-05-24.txt","ts":"2026-01-01T00:00:00Z","outcome":"ok"}' > "$STATE"
+sdrain
+grep -q '^=== sk1_proj_2026-05-24.txt 0 ' "$SCAP" 2>/dev/null && ok "scrub-migrate: the legacy archive was extracted" \
+  || no "scrub-migrate: the legacy archive was not extracted (got: $(cat "$SCAP" 2>/dev/null))"
+grep -qF 'sk-ant-' "$SCAP" 2>/dev/null && no "scrub-migrate: the extractor RECEIVED the key" || ok "scrub-migrate: the extractor never received the key"
+grep -qF '[redacted:anthropic]' "$SCAP" 2>/dev/null && ok "scrub-migrate: the extractor received the redaction" || no "scrub-migrate: no redaction in the extractor input"
+grep -qF 'sk-ant-' "$SK1" && no "scrub-migrate: the archive at rest still holds the key" || ok "scrub-migrate: the archive at rest is scrubbed"
+eq "scrub-migrate: line count unchanged" "$(wc -l < "$SK1")" "$SK1_LC"
+eq "scrub-migrate: mtime unchanged (the quiet rule reads it)" "$(smt "$SK1")" "$SK1_MT"
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub-migrate: done in one tick -> marker, no to-do list" || no "scrub-migrate: marker/to-do state wrong"
+# D11b: an archive whose scrub fails this tick (its lock is held) is NOT extracted, even with free slots
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_key "sg1_proj_2026-05-24.txt" 202605240000
+printf '1\n' > "$BRAIN_DIR/transcripts/.sg1_proj_2026-05-24.txt.lock"
+SB_DRAIN_BATCH=3 sdrain
+grep -q '^=== sg1_proj' "$SCAP" 2>/dev/null && no "scrub-migrate: an archive still awaiting its scrub was extracted" \
+  || ok "scrub-migrate: an archive awaiting its scrub is not extracted"
+grep -qx 'sg1_proj_2026-05-24.txt' "$STODO" 2>/dev/null && ok "scrub-migrate: the failed scrub stays on the to-do list" || no "scrub-migrate: the failed scrub left the to-do list"
+[ ! -f "$SMARK" ] && ok "scrub-migrate: no marker while an archive awaits its scrub" || no "scrub-migrate: marker written early"
+rm -f "$BRAIN_DIR/transcripts/.sg1_proj_2026-05-24.txt.lock"
+SB_DRAIN_BATCH=3 sdrain
+grep -q '^=== sg1_proj' "$SCAP" 2>/dev/null && ok "scrub-migrate: extracted once scrubbed (next tick)" || no "scrub-migrate: never extracted after its scrub"
+grep -qF 'sk-ant-' "$SCAP" 2>/dev/null && no "scrub-migrate: key leaked after the retry" || ok "scrub-migrate: no key after the retry either"
+[ -f "$SMARK" ] && ok "scrub-migrate: marker once the list is empty" || no "scrub-migrate: no marker after the last scrub"
+# D11c: SB_DRAIN_BATCH scrubs per tick, PENDING archives first (a done archive can wait; the
+# extractor cannot): with a batch of 1, the pending archive is scrubbed and extracted on tick 1
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_key "so0_proj_2026-05-24.txt" 202605230000              # done, oldest, first in name order
+mk_key "so1_proj_2026-05-24.txt" 202605240000              # pending
+printf '{"basename":"so0_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":%d}\n' \
+  "$(wc -l < "$BRAIN_DIR/transcripts/so0_proj_2026-05-24.txt")" > "$STATE"
+SB_DRAIN_BATCH=1 sdrain
+grep -q '^=== so1_proj' "$SCAP" 2>/dev/null && ok "scrub-migrate: the pending archive is scrubbed first and extracted on tick 1" \
+  || no "scrub-migrate: the pending archive waited behind a done one"
+grep -qx 'so0_proj_2026-05-24.txt' "$STODO" 2>/dev/null && ok "scrub-migrate: batch-bounded (the done archive waits for tick 2)" || no "scrub-migrate: not batch-bounded"
+SB_DRAIN_BATCH=1 sdrain
+grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/so0_proj_2026-05-24.txt" && no "scrub-migrate: the done archive was never scrubbed" || ok "scrub-migrate: resumed on tick 2 (done archive scrubbed)"
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub-migrate: complete after tick 2" || no "scrub-migrate: not complete after tick 2"
+# D11d: the migration is LLM-free, so it also runs on a DEFERRED tick
+reset; rm -f "$SCAP" "$SMARK" "$STODO" "$BRAIN_DIR/.drain-defer-count"
+mk_key "sd1_proj_2026-05-24.txt" 202605240000
+SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=999999999 sdrain
+eq "scrub-migrate: the tick really deferred" "$(cat "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)" "1"
+grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sd1_proj_2026-05-24.txt" && no "scrub-migrate: a deferred tick skipped the scrub" || ok "scrub-migrate: runs on a deferred tick"
 
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.

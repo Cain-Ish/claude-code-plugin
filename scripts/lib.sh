@@ -1726,8 +1726,14 @@ sb_scrub_secrets() {
   [ "$ps" = "0 0" ]
 }
 
-# sb_scrub_archive_file FILE: scrub an EXISTING archive in place (the one-time 0.56.0 migration;
-# the controller wires the call under the drain lock). The scrubbed copy is written next to FILE
+# grep -F arguments matching every text sb_scrub_secrets can change: each format above starts with
+# one of these literals, and a PEM body is only redacted after its BEGIN line. A file matching none
+# of them is already clean. Shared by sb_scrub_archive_file's fast path and the drainer's one-time
+# migration snapshot (extract-drain.sh), so the two can never drift apart.
+_SB_SCRUB_LITERALS=(-e 'sk-' -e 'ghp_' -e 'github_pat_' -e 'AKIA' -e 'xox' -e 'Bearer ' -e 'PRIVATE KEY-----')
+
+# sb_scrub_archive_file FILE: scrub an EXISTING archive in place (the one-time 0.56.0 migration,
+# drain_scrub_migrate in extract-drain.sh, under the drain lock). The scrubbed copy is written next to FILE
 # (*.part: invisible to every *.txt reader) and renamed over it, so a reader sees the old or the
 # new file, never a partial one. The mtime is preserved with touch -r (the drainer's quiet-1-h
 # rule reads it) and the line count is checked unchanged. Idempotent: a file with nothing to
@@ -1743,9 +1749,8 @@ sb_scrub_archive_file() {
     sb_log_error "lib.sh" "sb_scrub_archive_file: not a regular file: $f" 1
     return 1
   fi
-  # Fast path: no credential literal anywhere means nothing the scrub could change (every format
-  # above starts with one of these, and a PEM body is only redacted after its BEGIN line).
-  LC_ALL=C grep -qF -e 'sk-' -e 'ghp_' -e 'github_pat_' -e 'AKIA' -e 'xox' -e 'Bearer ' -e 'PRIVATE KEY-----' "$f" 2>/dev/null
+  # Fast path: no credential literal anywhere means nothing the scrub could change.
+  LC_ALL=C grep -qF "${_SB_SCRUB_LITERALS[@]}" "$f" 2>/dev/null
   rc=$?
   [ "$rc" -eq 1 ] && return 0
   if [ "$rc" -ne 0 ]; then
