@@ -37,6 +37,8 @@ make_transcript() {
     fi
   done > "$path"
 }
+# Archive lines rendered by jq carry a CR on hosts whose jq writes CRLF (jq 1.8 on Windows): count CR-blind.
+acount() { tr -d '\r' < "$1" | grep -c -- "$2"; }
 
 # --- Subtest 1: basic archive creates file with metadata header
 setup "basic"
@@ -404,17 +406,75 @@ printf 'first\nlast %s' "$K_OAI" > "$SD/nonl.in"
 printf 'first\nlast [redacted:openai]' > "$SD/nonl.want"
 : > "$SD/empty.in"; : > "$SD/empty.want"
 # current OpenAI keys (R2-F#6): sk-proj- / sk-svcacct- / sk-admin- + [A-Za-z0-9_-]{20,}; the generic
-# sk- form stops at their second dash. Same left boundary (glued to an identifier: not matched),
-# too short: not matched, CRLF kept
+# sk- form stops at their second dash. These prefixes are distinctive: matched even glued to an
+# identifier (fix round D); too short: not matched, CRLF kept
 K_PROJ="sk-proj-$(rep aB3_- 8)$(rep Zz9 4)"; K_SVC="sk-svcacct-$(rep Q1_x 6)"; K_ADM="sk-admin-$(rep 9aB- 6)"
 K_AD20="sk-admin-$(rep 9aB-_ 4)"; K_SV19="sk-svcacct-$(rep Q1_ 6)x"   # exactly 20 / 19 after the prefix
 printf '%s\n' "OPENAI_API_KEY=$K_PROJ" "  svc $K_SVC, admin $K_ADM" "glued x$K_PROJ" "sk-proj-short_1" \
   "min $K_AD20 ok" "under $K_SV19 ok" > "$SD/oaiproj.in"
 printf '%s\r\n' "  key=\"$K_PROJ\"" >> "$SD/oaiproj.in"
-printf '%s\n' "OPENAI_API_KEY=[redacted:openai]" "  svc [redacted:openai], admin [redacted:openai]" "glued x$K_PROJ" "sk-proj-short_1" \
+printf '%s\n' "OPENAI_API_KEY=[redacted:openai]" "  svc [redacted:openai], admin [redacted:openai]" "glued x[redacted:openai]" "sk-proj-short_1" \
   "min [redacted:openai] ok" "under $K_SV19 ok" > "$SD/oaiproj.want"
 printf '%s\r\n' "  key=\"[redacted:openai]\"" >> "$SD/oaiproj.want"
-for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj; do
+# Fix round formats (items 5/C, saboteur S9), one row each, assembled at run time: GitHub gh[opsur]_
+# (36 or more), AWS ASIA, Google AIza, Stripe sk_live_/rk_live_, JWT, OpenRouter, npm, GitLab,
+# Hugging Face, Slack app-level, lowercase bearer, HTTP Basic (keyword-gated), AWS secret access
+# key (keyword-gated: the value only, the keyword and its separator stay)
+K_S40="$(rep wJal 9)/K+="   # a 40-char [A-Za-z0-9/+=] AWS secret
+printf '%s\n' "a gho_$(rep a1B2 9) b" "ghu_$(rep a1B2 9),ghs_$(rep a1B2 9);ghr_$(rep a1B2 9)" "long ghp_$(rep a1B2 10) end" \
+  "sts ASIA$(rep Q7 8) x" "key=AIza$(rep Sy_- 8)abc" "stripe sk_live_$(rep aB3 8) rk_live_$(rep Zq9 9)" \
+  "jwt eyJ$(rep hbGc 4).eyJ$(rep zdWI 4).$(rep SflK 4)_x." "or sk-or-v1-$(rep 0f 32) ok" \
+  "//registry.npmjs.org/:_authToken=npm_$(rep n1N 12)" "gl glpat-$(rep g_1- 5) x" "hf hf_$(rep h1H 11)h x" \
+  "app xapp-1-$(rep A9 15) x" "  -H \"authorization: bearer $(rep Zz.9 6)\"" "Authorization: Basic $(rep QmFz 7)= x" \
+  "AUTHORIZATION:basic $(rep dXNl 3)" "aws_secret_access_key = $K_S40" "export AWS_SECRET_ACCESS_KEY=$K_S40" \
+  "  \"aws_secret_access_key\": \"$K_S40\"," > "$SD/formats.in"
+printf '%s\n' "a [redacted:github] b" "[redacted:github],[redacted:github];[redacted:github]" "long [redacted:github] end" \
+  "sts [redacted:aws] x" "key=[redacted:google]" "stripe [redacted:stripe] [redacted:stripe]" \
+  "jwt [redacted:jwt]." "or [redacted:openrouter] ok" \
+  "//registry.npmjs.org/:_authToken=[redacted:npm]" "gl [redacted:gitlab] x" "hf [redacted:huggingface] x" \
+  "app [redacted:slack] x" "  -H \"authorization: [redacted:bearer]\"" "Authorization: Basic [redacted:basic-auth] x" \
+  "AUTHORIZATION:basic [redacted:basic-auth]" "aws_secret_access_key = [redacted:aws]" "export AWS_SECRET_ACCESS_KEY=[redacted:aws]" \
+  "  \"aws_secret_access_key\": \"[redacted:aws]\"," > "$SD/formats.want"
+# PGP armored private keys (C): like PEM, line by line, armor headers and the checksum line included
+printf '%s\n' "USER: my key -----BEGIN PGP PRIV""ATE KEY BLOCK-----" "Version: GnuPG v2" "" "lQOYBF$(rep Ab 20)" \
+  "=Ab12" "-----END PGP PRIV""ATE KEY BLOCK-----" "ASSISTANT:" > "$SD/pgp.in"
+printf '%s\n' "USER: my key [redacted:private-key]" "[redacted:private-key]" "" "[redacted:private-key]" \
+  "[redacted:private-key]" "[redacted:private-key]" "ASSISTANT:" > "$SD/pgp.want"
+# Generic sk- left boundary (D): a key after a literal backslash escape (a command string), after
+# `_` or `-` is matched; one glued to letters/digits (task-/disk- ids) is not
+K_G="sk-$(rep aB3 8)"
+printf '%s\n' 'echo "a\n'"$K_G"'"' "printf 'x\\t$K_G'" "KEY_$K_G" "x-$K_G" "task-$(rep 0a1B 6)" "disk-$(rep 0a1B 6)" \
+  "risk$K_G" > "$SD/dbound.in"
+printf '%s\n' 'echo "a\n[redacted:openai]"' "printf 'x\\t[redacted:openai]'" "KEY_[redacted:openai]" "x-[redacted:openai]" \
+  "task-$(rep 0a1B 6)" "disk-$(rep 0a1B 6)" "risk$K_G" > "$SD/dbound.want"
+# Zero-width characters (F) are stripped before redaction (they split a key the indexer rejoins)
+ZW1=$(printf '\342\200\213'); ZW2=$(printf '\342\200\214'); ZW3=$(printf '\342\200\215'); ZW4=$(printf '\342\201\240'); ZW5=$(printf '\357\273\277')
+printf '%s\n' "key sk-ab${ZW1}$(rep cD3 8) end" "${ZW5}ghp_$(rep a1B2 4)${ZW2}$(rep a1B2 5)" "AK${ZW3}IA$(rep Q7 8)${ZW4}" \
+  "zero${ZW1}width" > "$SD/zw.in"
+printf '%s\n' "key [redacted:openai] end" "[redacted:github]" "[redacted:aws]" "zerowidth" > "$SD/zw.want"
+# NOT matched, by design (each row stays as it is): OTP-like short codes, generic hex/base64 blobs
+# without a known prefix, a password in prose, a bare 40-char AWS secret without its keyword (too
+# ambiguous), "Basic" without the Authorization keyword, short hf_/npm_/glpat- strings
+printf '%s\n' "your code is 123456" "otp 84920133 expires" "hash $(rep deadbeef 8)" "blob $(rep QUJD 12)==" \
+  "my password is hunter2-Secret!" "bare $K_S40" "Basic usage of the API is documented" "hf_short npm_short glpat-short" \
+  > "$SD/notmatched.in"
+cp "$SD/notmatched.in" "$SD/notmatched.want"
+# A line that ends with the old in-band EOF sentinel (\034sb-eof\034) must not be taken for the end
+# of the input: it was, and joined the next line onto it (line count shifted, prompt-injectable).
+printf 'USER: ends with \034sb-eof\034\nASSISTANT:\n  next %s\n' "$K_AWS" > "$SD/sentinel.in"
+printf 'USER: ends with \034sb-eof\034\nASSISTANT:\n  next [redacted:aws]\n' > "$SD/sentinel.want"
+# A key quoted or commented line by line (fix round A: subagent results are "> "-quoted, and keys
+# sit in commented config): every line of the block is redacted, the quote/comment prefix is kept
+# (a "> " quote must stay at column 0 of a subagent archive), a quoted blank line stays as it is.
+printf '%s\n' "> $PEM_B" "> MIIE$(rep Ab 20)" ">  $(rep xY 30)+/=" "> " "> $PEM_E" "> after the key" \
+  "# $PEM_OB" "# b3BlbnNzaC1r$(rep Qw 10)" "#" "# -----END OPENSSH PRIV""ATE KEY-----" \
+  "// $PEM_B" "// MIIE$(rep Ab 8)" "// $PEM_E" " * $PEM_B" " * MIIE$(rep Ab 8)" " * $PEM_E done" \
+  "	$PEM_B" "	MIIE$(rep Ab 8)" "	$PEM_E" "> > $PEM_B" "> > MIIE$(rep Ab 8)" "> > $PEM_E" > "$SD/pemq.in"
+printf '%s\n' "> [redacted:private-key]" "> [redacted:private-key]" ">  [redacted:private-key]" "> " "> [redacted:private-key]" "> after the key" \
+  "# [redacted:private-key]" "# [redacted:private-key]" "#" "# [redacted:private-key]" \
+  "// [redacted:private-key]" "// [redacted:private-key]" "// [redacted:private-key]" " * [redacted:private-key]" " * [redacted:private-key]" " * [redacted:private-key] done" \
+  "	[redacted:private-key]" "	[redacted:private-key]" "	[redacted:private-key]" "> > [redacted:private-key]" "> > [redacted:private-key]" "> > [redacted:private-key]" > "$SD/pemq.want"
+for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj sentinel pemq formats pgp dbound zw notmatched; do
   sb_scrub_secrets < "$SD/$fx.in" > "$SD/$fx.out" || fail "scrub[$fx]: sb_scrub_secrets exited non-zero"
   cmp -s "$SD/$fx.out" "$SD/$fx.want" || fail "scrub[$fx]: output differs from the expected redaction:
 $(od -c "$SD/$fx.out" | head -12)"
@@ -423,7 +483,48 @@ $(od -c "$SD/$fx.out" | head -12)"
   sb_scrub_secrets < "$SD/$fx.out" > "$SD/$fx.again" && cmp -s "$SD/$fx.again" "$SD/$fx.out" \
     || fail "scrub[$fx]: a second pass changed the output (not idempotent)"
 done
+# The fast-path literal list (_SB_SCRUB_LITERALS: sb_scrub_archive_file and the drainer's one-time
+# migration skip a file holding none) covers every format: no line the scrub changes escapes it.
+LIT_MISS=$(LC_ALL=C grep -hvF "${_SB_SCRUB_LITERALS[@]}" "$SD/kinds.in" "$SD/formats.in" "$SD/zw.in" "$SD/adjacent.in")
+[ -z "$LIT_MISS" ] || fail "scrub: a redactable line holds none of the _SB_SCRUB_LITERALS (the migration would skip it): $LIT_MISS"
 pass "scrub: every format redacted to [redacted:<kind>], PEM per line, CRLF kept, line count invariant, idempotent"
+
+# A read error on stdin is the scrub's failure, never an empty "clean" output: `{ cat; printf
+# sentinel; }` reported the printf status, so a cat that failed returned 0.
+mkdir -p "$TMP/scrub/adir"
+( sb_scrub_secrets < "$TMP/scrub/adir" > /dev/null 2>&1 ) && fail "scrub: a read error on stdin (a directory) returned 0"
+pass "scrub: a read error on stdin is a non-zero return"
+
+# The scrub is LINEAR on one long line (fix round, 0.56.0). A 2 MB single-line tool output with
+# 22,727 generic sk- keys took 122 s: every match re-copied the rest of the line and re-grew the
+# output (x4.5 per doubling), past the Stop hook's 45 s budget, so that session was never
+# archived. Three 2 MB lines, each built by one awk: every key redacted; every key glued to an
+# identifier (all kept: the boundary path); no credential literal at all. Each must finish in
+# under 5 s (whole seconds via SECONDS: a diff <= 4 is < 5 s), with the right output.
+LL="$TMP/scrub/long"; mkdir -p "$LL"
+for kind in keys glued plain; do
+  case "$kind" in
+    keys)  seg="padding text here and more padding words ok $K_OAI " ;;
+    glued) seg="padding text here and more padding words ok x$K_OAI " ;;
+    plain) seg="padding text here and more padding words ok and no key at all " ;;
+  esac
+  LC_ALL=C awk -v seg="$seg" 'BEGIN { while (n < 2000000) { printf "%s", seg; n += length(seg) } print "" }' > "$LL/$kind.in"
+  ll_ms0=$(date +%s%N 2>/dev/null); ll_s0=$SECONDS
+  sb_scrub_secrets < "$LL/$kind.in" > "$LL/$kind.out" || fail "scrub-long[$kind]: sb_scrub_secrets exited non-zero"
+  ll_el=$((SECONDS - ll_s0)); ll_ms1=$(date +%s%N 2>/dev/null)
+  case "$ll_ms0$ll_ms1" in *[!0-9]*|'') ll_ms="?" ;; *) ll_ms=$(( (ll_ms1 - ll_ms0) / 1000000 )) ;; esac
+  echo "  scrub-long[$kind]: $(wc -c < "$LL/$kind.in" | tr -d ' ') bytes in ${ll_ms} ms"
+  [ "$ll_el" -le 4 ] || fail "scrub-long[$kind]: a 2 MB line took ${ll_el} s (>= 5 s): the scrub is not linear"
+  [ "$(wc -l < "$LL/$kind.out")" -eq 1 ] || fail "scrub-long[$kind]: the line count changed"
+done
+LL_N=$(grep -o 'padding words ok' "$LL/keys.in" | wc -l | tr -d ' ')
+[ "$LL_N" -ge 20000 ] || fail "scrub-long: the fixture holds only $LL_N keys (the case needs >= 20k)"
+[ "$(grep -o '\[redacted:openai\]' "$LL/keys.out" | wc -l | tr -d ' ')" -eq "$LL_N" ] \
+  || fail "scrub-long[keys]: not every one of the $LL_N keys was redacted"
+grep -q 'sk-aB3' "$LL/keys.out" && fail "scrub-long[keys]: a key survived"
+cmp -s "$LL/glued.in" "$LL/glued.out" || fail "scrub-long[glued]: a key glued to an identifier was changed"
+cmp -s "$LL/plain.in" "$LL/plain.out" || fail "scrub-long[plain]: a line with no credential was changed"
+pass "scrub: linear on a 2 MB single line ($LL_N keys redacted, glued keys kept, plain text untouched; each < 5 s)"
 
 # sb_preprocess_transcript runs the scrub on every window it renders (archive AND extractor input)
 PJ="$TMP/scrub/pp.jsonl"
@@ -438,6 +539,25 @@ case "$PP" in *"USER: please use [redacted:anthropic] now"*) ;; *) fail "preproc
 [ "$(printf '%s\n' "$PP" | grep -cF '[redacted:private-key]')" -eq 3 ] \
   || fail "preprocess: the PEM block was not redacted line by line: $PP"
 pass "preprocess: sb_preprocess_transcript output is scrubbed"
+
+# Fix round E: the render cuts a Bash command at 120 chars and thinking at 100 BEFORE the scrub, so a
+# key straddling the cut left a prefix shorter than the format minimum, which the scrub cannot see.
+# A cut that ends inside a credential-like token drops that token; a cut ending in a plain word
+# keeps it (a long path or word is not cut back).
+PAD100=$(rep x 100)
+TJ="$TMP/scrub/cut.jsonl"
+{ jq -nc --arg c "echo $PAD100 $K_ANT" '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:$c}}]}}'
+  jq -nc --arg c "curl -H \"X: $(rep y 70)\" -H \"Authorization: Bearer $(rep Zz9 30)\" https://x" '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:$c}}]}}'
+  jq -nc --arg t "$(rep z 85) ghp_$(rep a1B2 9) more" '{type:"assistant",message:{content:[{type:"thinking",thinking:$t}]}}'
+  jq -nc --arg c "ls /very/long/$(rep d 120)" '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:$c}}]}}'
+} > "$TJ"
+CUT=$(sb_preprocess_transcript < "$TJ" | tr -d '\r')
+case "$CUT" in *sk-ant*|*aB3_*) fail "preprocess-cut: a key cut at 120 chars left its prefix in the render: $CUT" ;; esac
+case "$CUT" in *Zz9*) fail "preprocess-cut: a bearer token cut at 120 chars left its prefix in the render: $CUT" ;; esac
+case "$CUT" in *ghp_*|*a1B2*) fail "preprocess-cut: a key cut at 100 chars of thinking left its prefix in the render: $CUT" ;; esac
+case "$CUT" in *"[Bash] echo $PAD100 "*) ;; *) fail "preprocess-cut: the text before the cut key was lost: $CUT" ;; esac
+case "$CUT" in *"[Bash] ls /very/long/ddd"*) ;; *) fail "preprocess-cut: a cut plain path was cut back: $CUT" ;; esac
+pass "preprocess: a credential straddling the 120/100-char render cut leaves no prefix; plain words are kept"
 
 # sb_scrub_archive_file: in place, atomic, mtime kept, line count kept, idempotent, loud
 setup "scrub-file"
@@ -527,7 +647,7 @@ grep -q '^USER: question 7$' "$AL" || fail "lock: the Stop append that arrived d
 grep -qF '[redacted:github]' "$AL" || fail "lock: the scrub's rename did not land"
 grep -q 'ghp_' "$AL" && fail "lock: the second key survived the scrub"
 # a live holder: the append waits (bounded), then fails loud; the archive and the raw cursor stay
-printf '99999\n' > "$LK"
+printf '%s.1\n' "$$" > "$LK"
 A_SUM=$(cksum < "$AL"); : > "$BRAIN_DIR/error-log.jsonl"
 make_transcript "$T" 10
 ( sb_archive_raw_window "$T" proj lk 10 proj--lk ) && fail "lock: an append under a held lock returned 0"
@@ -560,6 +680,87 @@ sb_archive_raw_window "$T" proj lk 10 proj--lk || fail "lock: a stale lock was n
 [ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--lk")" = 10 ] || fail "lock: the append after a stale steal did not advance the cursor"
 [ ! -e "$LK" ] || fail "lock: the stolen lock was not released"
 pass "lock: append and scrub share the per-archive lock; a concurrent append is never lost; held = bounded wait then loud; stale = stolen"
+
+# === fix round (0.56.0) items 3 + B: a lock is stolen only from a holder that is gone (or hung past
+# a hard bound), the steal cannot take a fresh lock, and only the owner releases a lock ===
+# The lock holds "<pid>.<nonce>". The old steal took any lock older than 60 s, a live slow scrub's
+# too, and its rm after the age check could delete a fresh lock; unlock removed whatever was there.
+setup "lock-owner"
+AL="$BRAIN_DIR/transcripts/lo_proj_$(date +%Y-%m-%d).txt"; LK="$BRAIN_DIR/transcripts/.${AL##*/}.lock"
+T="$TMP/lock-owner/t.jsonl"; make_transcript "$T" 4
+_SB_ARCHIVE_LOCK_WAIT_S=1
+# a LIVE holder (this shell) whose lock is months old is not stolen below the hard bound
+printf '%s.1\n' "$$" > "$LK"; touch -t 202601010000 "$LK" || fail "touch -t unavailable"
+_SB_ARCHIVE_LOCK_HUNG_S=999999999; : > "$BRAIN_DIR/error-log.jsonl"
+( sb_archive_transcript "$T" proj lo 1 4 0 ) && fail "lock-owner: the append stole the lock of a live holder"
+[ "$(cat "$LK")" = "$$.1" ] || fail "lock-owner: the live holder's lock was removed or replaced"
+[ ! -e "$AL" ] || fail "lock-owner: the append wrote while a live holder held the lock"
+grep -q 'sb_archive_transcript.*lock' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: the refused append was not logged"
+# past the hard bound (10 min by default) a holder that still answers is presumed hung: stolen, loudly
+_SB_ARCHIVE_LOCK_HUNG_S=600; : > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_transcript "$T" proj lo 1 4 0 || fail "lock-owner: a lock held past the hard bound was not stolen"
+grep -q 'stealing' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: the hard-bound steal was not logged"
+[ ! -e "$LK" ] || fail "lock-owner: the lock was not released after the steal"
+# a holder that is gone: stolen once the lock is past the stale age (60 s)
+( : ) & DEADPID=$!; wait "$DEADPID"
+printf '%s.7\n' "$DEADPID" > "$LK"; touch -t 202601010000 "$LK"
+_SB_ARCHIVE_LOCK_HUNG_S=999999999; : > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_transcript "$T" proj lo 1 4 0 || fail "lock-owner: the lock of a holder that is gone was not stolen"
+grep -q 'not running' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: the dead-holder steal was not logged as such"
+# rename-then-verify: a fresh lock that replaced the stale one between the age check and the steal
+# is put back, never deleted, and the writer keeps waiting (then fails, bounded)
+printf '%s.7\n' "$DEADPID" > "$LK"; touch -t 202601010000 "$LK"; : > "$BRAIN_DIR/error-log.jsonl"
+( mv() { case " $* " in *" $LK "*) printf 'fresh.9\n' > "$LK" ;; esac; command mv "$@"; }
+  sb_archive_transcript "$T" proj lo 1 4 0 ) && fail "lock-owner: the writer proceeded after taking a FRESH lock by mistake"
+[ "$(cat "$LK" 2>/dev/null)" = "fresh.9" ] || fail "lock-owner: the fresh lock taken by mistake was not put back ($(cat "$LK" 2>/dev/null || echo gone))"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '*steal*')" ] || fail "lock-owner: a steal scratch name was left behind"
+# unlock only your own: a lock that is no longer ours (stolen and re-taken) stays, and that is logged
+sb_archive_lock "$AL" t-unlock 2>/dev/null && fail "lock-owner: the fresh lock was taken over"
+rm -f "$LK"
+sb_archive_lock "$AL" t-unlock || fail "lock-owner: a free lock was not taken"
+MYTOK="$_SB_ARCHIVE_LOCK_TOKEN"
+case "$(cat "$LK")" in "${BASHPID:-$$}".?*) ;; *) fail "lock-owner: the lock does not hold <pid>.<nonce> ($(cat "$LK"))" ;; esac
+[ "$(cat "$LK")" = "$MYTOK" ] || fail "lock-owner: the token handed back is not the one in the lock"
+printf 'other.2\n' > "$LK"; : > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_unlock "$AL" "$MYTOK" && fail "lock-owner: releasing a lock that is no longer ours returned 0"
+[ "$(cat "$LK")" = "other.2" ] || fail "lock-owner: unlock removed another writer's lock"
+grep -q 'no longer ours' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: the foreign unlock was not logged"
+rm -f "$LK"
+# own lock: released; a release whose rm fails is logged
+sb_archive_lock "$AL" t-unlock && sb_archive_unlock "$AL" "$_SB_ARCHIVE_LOCK_TOKEN" || fail "lock-owner: releasing our own lock failed"
+[ ! -e "$LK" ] || fail "lock-owner: our own lock was not removed"
+sb_archive_lock "$AL" t-unlock || fail "lock-owner: the lock could not be retaken"
+: > "$BRAIN_DIR/error-log.jsonl"
+( rm() { return 1; }; sb_archive_unlock "$AL" "$_SB_ARCHIVE_LOCK_TOKEN" ) && fail "lock-owner: a failed release returned 0"
+grep -q 'cannot remove' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: a failed release was not logged"
+sb_archive_unlock "$AL" "$_SB_ARCHIVE_LOCK_TOKEN" || fail "lock-owner: the retried release failed"
+_SB_ARCHIVE_LOCK_WAIT_S=5; _SB_ARCHIVE_LOCK_HUNG_S=600
+pass "lock: <pid>.<nonce> owner token; a live holder is not stolen below the hard bound; a gone one is; rename-then-verify keeps a fresh lock; only the owner releases (failures logged)"
+
+# === fix round (0.56.0) item 2: one lock hold covers read cursor -> render -> append -> write cursor ===
+# Two hooks of one session (Stop + PreCompact) both read raw_line 0, both archived the window, and
+# the later cursor write could regress the earlier one. The first hook is held inside its render
+# (a ready file says it got there); the second starts then and must find the window archived. The
+# first hook is its own bash process, as a real hook is (a subshell shares $$ with this shell).
+setup "raw-race"
+T="$TMP/raw-race/t.jsonl"; make_transcript "$T" 6
+A="$BRAIN_DIR/transcripts/r1_proj_$(date +%Y-%m-%d).txt"; RDY="$TMP/raw-race/ready"
+cat > "$TMP/raw-race/first.sh" <<EOF
+source "$REPO_ROOT/scripts/lib.sh"
+eval "\$(declare -f sb_archive_transcript | sed '1s/sb_archive_transcript/_sb_real_archive/')"
+sb_archive_transcript() { : > "$RDY"; sleep 2; _sb_real_archive "\$@"; }
+sb_archive_raw_window "$T" proj r1 6 proj--r1
+EOF
+bash "$TMP/raw-race/first.sh" &
+RR_BG=$!; i=0
+while [ ! -e "$RDY" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+[ -e "$RDY" ] || { kill "$RR_BG" 2>/dev/null; fail "raw-race: the first hook never reached its render"; }
+sb_archive_raw_window "$T" proj r1 6 proj--r1 || fail "raw-race: the second hook returned non-zero"
+wait "$RR_BG" || fail "raw-race: the first hook returned non-zero"
+[ "$(acount "$A" '^USER: question 1$')" -eq 1 ] || fail "raw-race: two concurrent hooks archived the same window $(acount "$A" '^USER: question 1$') times"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--r1")" = 6 ] || fail "raw-race: the cursor is not 6"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '.*.lock')" ] || fail "raw-race: a lock was left behind"
+pass "raw-window: a concurrent hook waits for the cursor lock and finds the window archived (no double archive)"
 
 # === R2 (0.56.0) archive-first: sb_archive_transcript (checked) + sb_archive_raw_window (cursor) ===
 setup "archive-checked"
@@ -607,8 +808,6 @@ grep -q '^then done$' "$S_SUB" || fail "subagent-scrub: the rest of the result w
 [ ! -s "$BRAIN_DIR/error-log.jsonl" ] || fail "subagent-scrub: a clean scrubbed write logged an error: $(cat "$BRAIN_DIR/error-log.jsonl")"
 pass "subagent archive: the result is secret-scrubbed before it is written"
 
-# Archive lines rendered by jq carry a CR on hosts whose jq writes CRLF (jq 1.8 on Windows): count CR-blind.
-acount() { tr -d '\r' < "$1" | grep -c -- "$2"; }
 setup "raw-window"
 T="$TMP/raw-window/t.jsonl"; make_transcript "$T" 10
 TN=$(sb_normalize_path "$T")
@@ -672,5 +871,68 @@ else
 fi
 chmod u+w "$A5"
 pass "raw-window: empty window is a no-op, a render-nothing window advances without a file, a failed append keeps the cursor"
+
+# === fix round (0.56.0) item 1: the raw_line cursor never passes content that was not archived ===
+# jq stopped at the first unparseable record, the window "archived" only what came before it, and the
+# cursor jumped to TOTAL: every record after a corrupt one was lost for good.
+setup "raw-corrupt"
+T="$TMP/raw-corrupt/t.jsonl"; A="$BRAIN_DIR/transcripts/c1_proj_$(date +%Y-%m-%d).txt"
+printf '%s\n' '{"type":"user","message":{"content":"before the bad record"}}' '{"type":"user","mess' \
+  '{"type":"user","message":{"content":"after the bad record"}}' \
+  '{"type":"assistant","message":{"content":[{"type":"text","text":"still here"}]}}' > "$T"
+: > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_raw_window "$T" proj c1 4 proj--c1 || fail "raw-corrupt: a window with one corrupt record returned non-zero"
+[ "$(acount "$A" '^USER: after the bad record$')" -eq 1 ] || fail "raw-corrupt: the record after the corrupt one was not archived"
+[ "$(acount "$A" '^  still here$')" -eq 1 ] || fail "raw-corrupt: the last record of the window was not archived"
+[ "$(acount "$A" '^USER: before the bad record$')" -eq 1 ] || fail "raw-corrupt: the record before the corrupt one was not archived"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c1")" = 4 ] || fail "raw-corrupt: the cursor did not land on 4"
+grep -q 'skipped 1 unrenderable record.*raw line(s) [2]' "$BRAIN_DIR/error-log.jsonl" || fail "raw-corrupt: the skipped record was not logged with its raw line: $(cat "$BRAIN_DIR/error-log.jsonl")"
+grep -q 'while parsing\|Unfinished' "$BRAIN_DIR/error-log.jsonl" && fail "raw-corrupt: the log carries jq's message text (it quotes the record, which can hold a key)"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '*.part')" ] || fail "raw-corrupt: a stage or stderr scratch file was left behind"
+# a window whose only record is unparseable renders nothing WITH an error: a failure, never "nothing to do"
+printf '%s\n' '{"type":"user","message":{"cont' > "$T.bad"; : > "$BRAIN_DIR/error-log.jsonl"
+( sb_archive_raw_window "$T.bad" proj c5 1 proj--c5 ) && fail "raw-corrupt: an all-corrupt window returned 0"
+[ ! -e "$BRAIN_DIR/.last-archived-line-proj--c5" ] || fail "raw-corrupt: the cursor advanced over a window that rendered nothing but errors"
+grep -q 'sb_archive_transcript' "$BRAIN_DIR/error-log.jsonl" || fail "raw-corrupt: the all-corrupt window was not logged"
+pass "raw-window: a corrupt record is skipped and logged, the records after it are archived; an all-error window keeps the cursor"
+
+# Stop can read the transcript while its last record is half flushed. That line is not complete
+# (no newline yet): the cursor stops before it, and the next hook archives it whole.
+setup "raw-torn"
+T="$TMP/raw-torn/t.jsonl"; A="$BRAIN_DIR/transcripts/c2_proj_$(date +%Y-%m-%d).txt"
+make_transcript "$T" 2
+printf '%s' '{"type":"user","message":{"content":"half fl' >> "$T"
+sb_archive_raw_window "$T" proj c2 "$(awk 'END { print NR }' "$T")" proj--c2 || fail "raw-torn: a window ending in a half-flushed record returned non-zero"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c2")" = 2 ] || fail "raw-torn: the cursor passed the unterminated last line ($(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c2"))"
+printf '%s\n' 'ushed"}}' >> "$T"
+sb_archive_raw_window "$T" proj c2 "$(awk 'END { print NR }' "$T")" proj--c2 || fail "raw-torn: the completed record returned non-zero"
+[ "$(acount "$A" '^USER: half flushed$')" -eq 1 ] || fail "raw-torn: the record that was half flushed at the last Stop was never archived"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c2")" = 3 ] || fail "raw-torn: the cursor did not reach 3 once the line was complete"
+# a WHOLE record whose newline is not flushed yet is archived now (the last Stop may be the last
+# chance), once: its newline landing later does not re-archive it
+printf '%s' '{"type":"user","message":{"content":"whole but unterminated"}}' >> "$T"
+sb_archive_raw_window "$T" proj c2 "$(awk 'END { print NR }' "$T")" proj--c2 || fail "raw-torn: a whole unterminated record returned non-zero"
+[ "$(acount "$A" '^USER: whole but unterminated$')" -eq 1 ] || fail "raw-torn: a whole record lacking only its newline was not archived"
+printf '\n' >> "$T"
+sb_archive_raw_window "$T" proj c2 "$(awk 'END { print NR }' "$T")" proj--c2 || fail "raw-torn: the rerun returned non-zero"
+[ "$(acount "$A" '^USER: whole but unterminated$')" -eq 1 ] || fail "raw-torn: the record was archived again once its newline landed"
+pass "raw-window: a half-written last raw line is not consumed (archived once complete); a whole one is archived once"
+
+# jq missing (127) or killed (137): nothing rendered is a failure, the cursor stays, no header-only
+# archive is created, and it is logged. The shadow fails only the render (`jq -R`, it drains stdin
+# so the status is jq's own); sb_log_error's own jq call still works.
+setup "raw-nojq"
+T="$TMP/raw-nojq/t.jsonl"; make_transcript "$T" 4
+for st in 127 137; do
+  : > "$BRAIN_DIR/error-log.jsonl"
+  ( jq() { case "$1" in -R) cat > /dev/null; return "$st" ;; esac; command jq "$@"; }
+    sb_archive_raw_window "$T" proj c3 4 proj--c3 ) && fail "raw-nojq[$st]: a window that jq never rendered returned 0"
+  [ ! -e "$BRAIN_DIR/.last-archived-line-proj--c3" ] || fail "raw-nojq[$st]: the cursor advanced over a window jq never rendered"
+  [ -z "$(find "$BRAIN_DIR/transcripts" -name 'c3_*')" ] || fail "raw-nojq[$st]: an archive was created from nothing"
+  grep -q 'sb_archive_transcript' "$BRAIN_DIR/error-log.jsonl" || fail "raw-nojq[$st]: the failed render was not logged"
+done
+sb_archive_raw_window "$T" proj c3 4 proj--c3 || fail "raw-nojq: the retry with jq back returned non-zero"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c3")" = 4 ] || fail "raw-nojq: the retry did not archive the window"
+pass "raw-window: jq missing or killed keeps the cursor (logged); the next hook archives the window"
 
 echo "ALL PASS"

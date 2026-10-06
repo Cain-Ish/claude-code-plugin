@@ -1597,35 +1597,69 @@ sb_sanitize_slug() {
   printf '%s' "$clean"
 }
 
-# --- Per-archive lock (0.56.0, R2-F#3) ---
+# --- Per-archive lock (0.56.0, R2-F#3; ownership + liveness: fix round items 3/B) ---
 # The Stop/PreCompact append (sb_archive_transcript) and the in-place scrub (sb_scrub_archive_file)
 # both rewrite an archive. Without a shared lock, an append that landed between the scrub's size
 # re-check and its rename was renamed away: lost. The lock is a noclobber-created file
-# transcripts/.<basename>.lock holding the owner's pid (O_EXCL create: atomic; dot-named and not
-# ending in .txt, so no archive reader sees it). Taking it is builtins only, so the uncontended
-# Stop path pays one `rm` to release it. Contended: poll every 0.1 s for about 5 s, then fail loud
-# and return 1 (the caller retries later: an append's raw_line cursor does not advance, a scrub
-# stays in the migration todo). A lock older than 60 s is stolen: its holder died mid-write (the
-# legitimate hold is milliseconds for an append, seconds for a scrub). Two writers that steal the
-# SAME dead lock in the same instant can both proceed; that needs a crash plus two simultaneous
-# waiters, and the drain lock accepts the same residue.
+# transcripts/.<basename>.lock (O_EXCL create: atomic; dot-named and not ending in .txt, so no
+# archive reader sees it; extract-drain.sh sweeps `.*.txt.lock` older than a day). It holds the
+# owner token `<pid>.<nonce>` (pid = ${BASHPID:-$$}); sb_archive_lock leaves that token in
+# _SB_ARCHIVE_LOCK_TOKEN and the caller hands it back to sb_archive_unlock, which removes the lock
+# only while it still holds that token (a stolen and re-taken lock is someone else's) and logs a
+# release it could not do. sb_archive_raw_window also takes one for its raw_line cursor (a pseudo
+# archive name, transcripts/cursor-<key>.txt), always BEFORE the archive lock, never inside it,
+# and the scrub takes only the archive lock: no lock-order cycle.
+# Taking it is builtins only. Contended: poll every 0.1 s for about _SB_ARCHIVE_LOCK_WAIT_S, then
+# fail loud and return 1 (the caller retries later: an append's raw_line cursor does not advance,
+# a scrub stays in the migration todo). A lock is stolen only when it is older than
+# _SB_ARCHIVE_LOCK_STALE_S and its holder pid is gone (`kill -0` fails), or older than
+# _SB_ARCHIVE_LOCK_HUNG_S whatever the pid says (a reused pid, or a holder hung for good; the
+# legitimate hold is milliseconds for an append, seconds for a scrub). A live slow holder is
+# waited for, never stolen below that bound. A holder under another MSYS runtime may not answer
+# `kill -0`: it then counts as gone after the stale age, as every holder did before. The steal
+# renames the lock to a unique name and checks it took the token it judged stale: a fresh lock
+# that replaced it in between is put back (noclobber) instead of deleted. On bash 3.2 (no
+# BASHPID) two subshells of one process share the pid part of the token; the nonce separates
+# them unless $RANDOM repeats, which only same-process subshells contending one lock could hit.
 _SB_ARCHIVE_LOCK_WAIT_S=5
 _SB_ARCHIVE_LOCK_STALE_S=60
+_SB_ARCHIVE_LOCK_HUNG_S=600
+_SB_ARCHIVE_LOCK_TOKEN=""
 # One noclobber create attempt; noclobber is on for this redirect only (a caller's own setting is
 # restored, and nothing else runs under it: log rotation rewrites files with `>`).
-_sb_archive_lock_try() {  # $1 = lock path
+_sb_archive_lock_try() {  # $1 = lock path, $2 = owner token
   local r had=""
   case "$-" in *C*) had=1 ;; esac
   set -C
-  { printf '%s\n' "$$" > "$1"; } 2>/dev/null; r=$?
+  { printf '%s\n' "$2" > "$1"; } 2>/dev/null; r=$?
   [ -n "$had" ] || set +C
   return "$r"
 }
+# Steal the lock at $1 that held token $2 when it was judged stale: rename, then verify. 0 = the
+# stale lock is gone (the caller retries its create); 1 = nothing stolen.
+_sb_archive_lock_steal() {  # $1 = lock path, $2 = judged token, $3 = caller, $4 = why
+  local lf="$1" judged="$2" who="$3" grab got=""
+  grab="${lf%/*}/.steal-${BASHPID:-$$}-$RANDOM${lf##*/}"
+  mv -f "$lf" "$grab" 2>/dev/null || return 1   # gone already (released, or another stealer won)
+  IFS= read -r got < "$grab" 2>/dev/null; got="${got%$'\r'}"
+  if [ "$got" != "$judged" ]; then
+    # A fresh lock replaced the stale one between the age check and the rename: put it back.
+    if ! _sb_archive_lock_try "$lf" "$got"; then
+      sb_log_error "lib.sh" "$who: took a fresh archive lock by mistake (holder $got) and could not put it back (taken meanwhile); two writers may overlap on ${lf##*/}" 1
+    fi
+    rm -f "$grab" 2>/dev/null
+    return 1
+  fi
+  rm -f "$grab" 2>/dev/null || sb_log_error "lib.sh" "$who: cannot remove the stolen lock copy $grab" 1
+  sb_log_error "lib.sh" "$who: stealing a stale archive lock ($4, holder ${judged:-?}) on ${lf##*/}" 1
+  return 0
+}
 sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
-  local f="$1" who="${2:-lib.sh}" lf tries=0 nofile=0 end="" mt now
+  local f="$1" who="${2:-lib.sh}" lf tries=0 nofile=0 end="" mt now age holder hpid token
   case "$f" in */*) ;; *) f="./$f" ;; esac
   lf="${f%/*}/.${f##*/}.lock"
-  until _sb_archive_lock_try "$lf"; do
+  token="${BASHPID:-$$}.$RANDOM$RANDOM"
+  until _sb_archive_lock_try "$lf" "$token"; do
     tries=$((tries + 1))
     [ -n "$end" ] || end=$((SECONDS + _SB_ARCHIVE_LOCK_WAIT_S))
     if [ -e "$lf" ]; then
@@ -1633,10 +1667,16 @@ sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
       if [ $((tries % 10)) -eq 1 ]; then   # stale check: on first contention, then about once a second
         mt=$(sb_mtime "$lf"); now=$(date +%s)
         case "$mt" in ''|0|*[!0-9]*) continue ;; esac   # released meanwhile: just retry
-        if [ $((now - mt)) -gt "$_SB_ARCHIVE_LOCK_STALE_S" ]; then
-          sb_log_error "lib.sh" "$who: stealing a stale archive lock ($((now - mt)) s old, holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')) on ${f##*/}" 1
-          rm -f "$lf" 2>/dev/null
-          continue
+        age=$((now - mt))
+        if [ "$age" -gt "$_SB_ARCHIVE_LOCK_STALE_S" ]; then
+          holder=""; IFS= read -r holder < "$lf" 2>/dev/null; holder="${holder%$'\r'}"
+          hpid="${holder%%.*}"
+          case "$hpid" in ''|*[!0-9]*) hpid="" ;; esac
+          if [ -z "$hpid" ] || ! kill -0 "$hpid" 2>/dev/null; then
+            _sb_archive_lock_steal "$lf" "$holder" "$who" "$age s old, holder not running" && continue
+          elif [ "$age" -gt "$_SB_ARCHIVE_LOCK_HUNG_S" ]; then
+            _sb_archive_lock_steal "$lf" "$holder" "$who" "$age s old, past the ${_SB_ARCHIVE_LOCK_HUNG_S} s hard bound although pid $hpid answers" && continue
+          fi
         fi
       fi
     elif [ "$((nofile += 1))" -ge 3 ]; then   # the create keeps failing with no lock there
@@ -1649,84 +1689,182 @@ sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
     fi
     [ -e "$lf" ] && sleep 0.1
   done
+  _SB_ARCHIVE_LOCK_TOKEN="$token"
   return 0
 }
-sb_archive_unlock() {
-  local f="$1"
+sb_archive_unlock() {  # $1 = archive path, $2 = owner token (default: the last sb_archive_lock's)
+  local f="$1" token="${2:-$_SB_ARCHIVE_LOCK_TOKEN}" lf held=""
   case "$f" in */*) ;; *) f="./$f" ;; esac
-  rm -f "${f%/*}/.${f##*/}.lock" 2>/dev/null
+  lf="${f%/*}/.${f##*/}.lock"
+  IFS= read -r held < "$lf" 2>/dev/null; held="${held%$'\r'}"
+  if [ -z "$token" ] || [ "$held" != "$token" ]; then
+    sb_log_error "lib.sh" "sb_archive_unlock: the archive lock on ${f##*/} is no longer ours (ours ${token:-none}, now ${held:-none}: stolen while held); left as it is" 1
+    return 1
+  fi
+  if ! rm -f "$lf" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_unlock: cannot remove our archive lock $lf; writers wait for it until it is stolen as stale" 1
+    return 1
+  fi
+  return 0
 }
 
-# --- Secret scrub (0.56.0, R2#3) ---
+# --- Secret scrub (0.56.0, R2#3; formats widened in the fix round: items 5/C/D/F, saboteur S9) ---
 # sb_scrub_secrets: stdin -> stdout filter. Redacts high-precision credential formats to
 # [redacted:<kind>]; sb_preprocess_transcript runs it on every window it renders, so the archive
-# AND the Stop/PreCompact extractor input are scrubbed. Formats, in match order:
-#   anthropic    sk-ant-[A-Za-z0-9_-]{20,}   (BEFORE the generic sk- form: run second, the generic
-#                one would stop at "-ant-" on a key glued after another and leave the rest)
-#   openai       sk-proj-, sk-svcacct-, sk-admin- + [A-Za-z0-9_-]{20,} (current project, service
-#                account and admin keys: the generic form below stops at their second dash),
-#                then sk-[A-Za-z0-9]{20,}. Never when glued to a longer identifier: task-/disk-
-#                ids end in an sk- run; the char before must not be [A-Za-z0-9_-]
-#   github       github_pat_[A-Za-z0-9_]{22,}, ghp_[A-Za-z0-9]{36}
-#   aws          AKIA[0-9A-Z]{16}
-#   slack        xox[abpr]-[A-Za-z0-9-]{10,}
-#   bearer       Bearer [A-Za-z0-9._~+/-]{20,}
-#   private-key  -----BEGIN <...>PRIVATE KEY----- blocks, PER LINE: the BEGIN line keeps its prefix
-#                (a `USER:` line must stay one: the episodic parser opens an exchange there), each
-#                body line becomes a marker, the END line becomes a marker and keeps its tail. A
-#                body line must look like key material (base64, a Proc-Type/DEK-Info header; a
-#                blank line is kept); any other line ends the block, so a key cut short (Bash
-#                commands are cut at 120 chars, thinking at 100) never swallows the window.
+# AND the Stop/PreCompact extractor input are scrubbed. First, zero-width characters (U+200B-200D,
+# U+2060, U+FEFF) are deleted: one inside a key hid it from every format, and the episodic
+# indexer strips them later, rejoining the key. Then, in match order:
+#   private-key  -----BEGIN <...>PRIVATE KEY----- and PGP ...PRIVATE KEY BLOCK----- blocks, PER
+#                LINE: the BEGIN line keeps its prefix (a `USER:` line must stay one: the episodic
+#                parser opens an exchange there), each body line and the END line become a marker
+#                (the END line keeps its tail). A body line must look like key material (base64, a
+#                Proc-Type/DEK-Info or PGP armor header; a blank line is kept), behind an optional
+#                quote/comment prefix ("> ", "# ", "// ", " * ", whitespace) that is kept; any
+#                other line ends the block, so a key cut short never swallows the window.
+#   anthropic    sk-ant-[A-Za-z0-9_-]{20,}   (BEFORE the generic sk- form, which would stop at
+#                "-ant-" on a key glued after another and leave the rest)
+#   openrouter   sk-or-v1-[A-Za-z0-9_-]{20,}
+#   openai       sk-proj-, sk-svcacct-, sk-admin- + [A-Za-z0-9_-]{20,}; then (last of all)
+#                sk-[A-Za-z0-9]{20,} with a left boundary: task-/disk- ids end in an sk- run, so
+#                the char before must not be a letter or digit, unless it is the letter of a
+#                backslash escape (`\nsk-...` in a command string). The prefixed forms are
+#                distinctive: matched even glued to an identifier.
+#   stripe       sk_live_ / rk_live_ + [A-Za-z0-9]{24,}
+#   github       github_pat_[A-Za-z0-9_]{22,}, gh[opsur]_[A-Za-z0-9]{36,}
+#   aws          AKIA / ASIA + [0-9A-Z]{16}; a secret access key ONLY after its keyword:
+#                aws_secret_access_key / AWS_SECRET_ACCESS_KEY, an optional quote, = or : and a
+#                [A-Za-z0-9/+=]{40,} value (the keyword and separator stay, the value goes)
+#   google       AIza[0-9A-Za-z_-]{35}
+#   npm          npm_[A-Za-z0-9]{36}
+#   gitlab       glpat-[A-Za-z0-9_-]{20,}
+#   huggingface  hf_[A-Za-z0-9]{34}
+#   slack        xox[abpr]- and xapp- + [A-Za-z0-9-]{10,}
+#   jwt          eyJ<10+>.eyJ<10+>.<10+> over [A-Za-z0-9_-]
+#   bearer       bearer, any case, + one space + [A-Za-z0-9._~+/-]{20,}
+#   basic-auth   Authorization: Basic <base64, 8+>, any case (keyword-gated; the value goes)
 # NOT matched, by design: OTP-like short codes (6-8 digit one-time codes are too ambiguous to
-# tell from ids, counts and dates), passwords, generic high-entropy strings, sk- runs under 20.
+# tell from ids, counts and dates), passwords in prose, generic hex/base64/high-entropy blobs
+# without a known prefix, a bare 40-char AWS secret without its keyword (indistinguishable from
+# any base64 run), "Basic" without the Authorization keyword, runs shorter than each minimum.
 # LINE COUNT IS INVARIANT: the archive_line cursor counts lines, so no line is joined or split,
 # a `\r` is kept, and an unterminated last line stays unterminated (awk cannot see a missing
-# final newline; an EOF sentinel appended after the input tells it). POSIX awk only: no {n,}
-# intervals (mawk 1.3.4-20200120, Debian/Ubuntu's default awk, lacks them; the runs are built in
-# BEGIN), no \b; LC_ALL=C keeps the classes ASCII. One cat + one awk per call, never per line.
-# Returns non-zero when either failed: the output must then not be used.
+# final newline: ONE newline is appended after the input and awk prints one record behind, so
+# the last record is empty exactly when the input was terminated. A newline is the one byte a
+# record cannot hold, so no transcript text can fake the end of the input.) POSIX awk only: no
+# {n,} intervals (mawk 1.3.4-20200120, Debian/Ubuntu's default awk, lacks them; the runs are
+# built in BEGIN), no \b; LC_ALL=C keeps the classes ASCII and the zero-width bytes bytes. One
+# cat + one awk per call, never per line. LINEAR in the line length: each format is ONE split()
+# whose separators are its matches, and the pieces are joined in pairwise rounds. A
+# match()/gsub() loop is not: gawk 5.0 scans to the end of the string on every call, so a 2 MB
+# single-line tool output with 22,727 keys took 122 s (past the Stop hook's 45 s, so the session
+# was never archived); this takes under 1 s.
+# Returns non-zero when cat (a read error) or awk failed: the output must then not be used.
 sb_scrub_secrets() {
-  { cat; printf '\034sb-eof\034'; } | LC_ALL=C awk -v BINMODE=3 '
+  { cat && printf '\n'; } | LC_ALL=C awk -v BINMODE=3 '
     function rep(c, k,   r) { r = ""; while (k-- > 0) r = r c; return r }
-    function redact(s, i,   out, pc) {
-      out = ""
-      while (match(s, re[i])) {
-        pc = (RSTART > 1) ? substr(s, RSTART - 1, 1) : substr(out, length(out), 1)
-        if (bnd[i] && pc != "" && pc ~ /[A-Za-z0-9_-]/) {
-          out = out substr(s, 1, RSTART + length(lit[i]) - 1); s = substr(s, RSTART + length(lit[i])); continue
-        }
-        out = out substr(s, 1, RSTART - 1) "[redacted:" kind[i] "]"; s = substr(s, RSTART + RLENGTH)
+    # Any-case letters: ci("bearer") = "[Bb][Ee][Aa][Rr][Ee][Rr]".
+    function ci(w,   r, i, c) {
+      r = ""
+      for (i = 1; i <= length(w); i++) { c = substr(w, i, 1); r = r (c ~ /[A-Za-z]/ ? "[" toupper(c) tolower(c) "]" : c) }
+      return r
+    }
+    # A[1..k] joined in pairwise rounds: O(n log k) copying, never one accumulator re-grown per piece.
+    function joinp(A, k,   i, j) {
+      while (k > 1) {
+        j = 0
+        for (i = 1; i <= k; i += 2) A[++j] = (i < k) ? A[i] A[i + 1] : A[i]
+        k = j
       }
-      return out s
+      return (k == 1) ? A[1] : ""
+    }
+    # Length of the run matching rx ("^<class>*") in s from position p, read through bounded windows.
+    function crun(s, p, rx,   n, w) {
+      n = 0
+      while ((w = substr(s, p + n, 256)) != "") {
+        match(w, rx); n += RLENGTH
+        if (RLENGTH < length(w)) break
+      }
+      return n
+    }
+    # Every format, one split per format: the matches are the separators, so the line is scanned
+    # once. Separator positions are tracked from the piece lengths, and only bounded windows are
+    # matched again. md "": every match goes. "k": the keyword part (kp) stays, the value goes.
+    # "b": the separator carries the boundary char(s) before the match, which stay; a leading
+    # space stands in for the line start and is cut again.
+    function redact(s, i,   Q, A, k, j, a, p, w, K) {
+      if (md[i] == "b") s = " " s
+      k = split(s, Q, re[i]); a = 0; p = 1
+      for (j = 1; j <= k; j++) {
+        if (j > 1) {
+          if (md[i] == "") A[++a] = "[redacted:" kind[i] "]"
+          else if (md[i] == "k") {
+            w = substr(s, p, 96); match(w, kp[i]); K = RLENGTH
+            A[++a] = substr(w, 1, K) "[redacted:" kind[i] "]"
+            p += K + crun(s, p + K, vr[i])
+          } else {
+            K = (substr(s, p + 1, length(lit[i])) == lit[i]) ? 1 : 2
+            A[++a] = substr(s, p, K) "[redacted:" kind[i] "]"
+            p += K + length(lit[i]) + crun(s, p + K + length(lit[i]), vr[i])
+          }
+        }
+        A[++a] = Q[j]; p += length(Q[j])
+      }
+      return (md[i] == "b") ? substr(joinp(A, a), 2) : joinp(A, a)
     }
     BEGIN {
-      eof = "\034sb-eof\034"; el = length(eof); an = "[A-Za-z0-9]"; n = 0
-      n++; lit[n] = "sk-ant-";     kind[n] = "anthropic"; re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"
-      n++; lit[n] = "sk-proj-";    kind[n] = "openai";    re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"; bnd[n] = 1
-      n++; lit[n] = "sk-svcacct-"; kind[n] = "openai";    re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"; bnd[n] = 1
-      n++; lit[n] = "sk-admin-";   kind[n] = "openai";    re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"; bnd[n] = 1
-      n++; lit[n] = "sk-";         kind[n] = "openai";    re[n] = lit[n] rep(an, 20) an "*"; bnd[n] = 1
-      n++; lit[n] = "github_pat_"; kind[n] = "github";    re[n] = lit[n] rep("[A-Za-z0-9_]", 22) "[A-Za-z0-9_]*"
-      n++; lit[n] = "ghp_";        kind[n] = "github";    re[n] = lit[n] rep(an, 36)
-      n++; lit[n] = "AKIA";        kind[n] = "aws";       re[n] = lit[n] rep("[0-9A-Z]", 16)
-      n++; lit[n] = "xox";         kind[n] = "slack";     re[n] = "xox[abpr]-" rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
-      n++; lit[n] = "Bearer ";     kind[n] = "bearer";    re[n] = lit[n] rep("[A-Za-z0-9._~+/-]", 20) "[A-Za-z0-9._~+/-]*"
-      pb = "-----BEGIN [A-Z ]*PRIVATE KEY-----"; pe = "-----END [A-Z ]*PRIVATE KEY-----"
-      pk = "[redacted:private-key]"; blank = "^[ \t]*$"
-      body = "^[ \t]*[A-Za-z0-9+/=]+[ \t]*$"; hdr = "^[ \t]*(Proc-Type|DEK-Info):"
+      an = "[A-Za-z0-9]"; ds = "[A-Za-z0-9_-]"; b64 = "[A-Za-z0-9+/=]"; n = 0
+      # lit = a literal every match holds (the per-line prefilter); lc = test it on the lowercased line
+      n++; lit[n] = "sk-ant-";      kind[n] = "anthropic";   re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-or-v1-";    kind[n] = "openrouter";  re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-proj-";     kind[n] = "openai";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-svcacct-";  kind[n] = "openai";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-admin-";    kind[n] = "openai";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "k_live_";      kind[n] = "stripe";      re[n] = "[sr]k_live_" rep(an, 24) an "*"
+      n++; lit[n] = "github_pat_";  kind[n] = "github";      re[n] = lit[n] rep("[A-Za-z0-9_]", 22) "[A-Za-z0-9_]*"
+      n++; lit[n] = "gh";           kind[n] = "github";      re[n] = "gh[opsur]_" rep(an, 36) an "*"
+      n++; lit[n] = "AKIA";         kind[n] = "aws";         re[n] = lit[n] rep("[0-9A-Z]", 16)
+      n++; lit[n] = "ASIA";         kind[n] = "aws";         re[n] = lit[n] rep("[0-9A-Z]", 16)
+      n++; lit[n] = "AIza";         kind[n] = "google";      re[n] = lit[n] rep("[0-9A-Za-z_-]", 35)
+      n++; lit[n] = "npm_";         kind[n] = "npm";         re[n] = lit[n] rep(an, 36)
+      n++; lit[n] = "glpat-";       kind[n] = "gitlab";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "hf_";          kind[n] = "huggingface"; re[n] = lit[n] rep(an, 34)
+      n++; lit[n] = "xox";          kind[n] = "slack";       re[n] = "xox[abpr]-" rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
+      n++; lit[n] = "xapp-";        kind[n] = "slack";       re[n] = lit[n] rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
+      n++; lit[n] = "eyJ";          kind[n] = "jwt"
+           re[n] = "eyJ" rep(ds, 10) ds "*[.]eyJ" rep(ds, 10) ds "*[.]" rep(ds, 10) ds "*"
+      n++; lit[n] = "bearer ";      kind[n] = "bearer";      lc[n] = 1
+           re[n] = ci("bearer") " " rep("[A-Za-z0-9._~+/-]", 20) "[A-Za-z0-9._~+/-]*"
+      n++; lit[n] = "authorization"; kind[n] = "basic-auth"; lc[n] = 1; md[n] = "k"
+           kp[n] = ci("authorization") ":[ \t]?[ \t]?[ \t]?" ci("basic") "[ \t][ \t]?[ \t]?"
+           re[n] = kp[n] rep(b64, 8) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
+      n++; lit[n] = "_secret_access_key"; kind[n] = "aws"; lc[n] = 1; md[n] = "k"
+           kp[n] = "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[\"\047]?[ \t]?[ \t]?[ \t]?[=:][ \t]?[ \t]?[ \t]?[\"\047]?"
+           re[n] = kp[n] rep(b64, 40) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
+      n++; lit[n] = "sk-";          kind[n] = "openai";      md[n] = "b"
+           re[n] = "([^A-Za-z0-9]|\\\\[A-Za-z])sk-" rep(an, 20) an "*"; vr[n] = "^" an "*"
+      # zero-width: U+200B U+200C U+200D U+2060 U+FEFF as UTF-8 bytes
+      zw = sprintf("%c%c%c|%c%c%c|%c%c%c|%c%c%c|%c%c%c", 226, 128, 139, 226, 128, 140, 226, 128, 141, 226, 129, 160, 239, 187, 191)
+      zwa = sprintf("%c%c", 226, 128); zwb = sprintf("%c%c%c", 226, 129, 160); zwc = sprintf("%c%c%c", 239, 187, 191)
+      pb = "-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----"; pe = "-----END [A-Z ]*PRIVATE KEY( BLOCK)?-----"
+      pk = "[redacted:private-key]"
+      # A quote or comment prefix a key block can sit behind, line by line: "> " (subagent
+      # results are quoted), "# ", "// ", " * ", whitespace, nested ("> > ").
+      pfx = "^[ \t]*((>|#|//|[*])[ \t]*)*"
+      blank = pfx "$"; body = pfx "[A-Za-z0-9+/=]+[ \t]*$"
+      hdr = pfx "(Proc-Type|DEK-Info|Version|Comment|Hash|Charset|MessageID):"
     }
     {
-      line = $0; last = 0
-      if (length(line) >= el && substr(line, length(line) - el + 1) == eof) {
-        line = substr(line, 1, length(line) - el); last = 1
-        if (line == "") next
-      }
-      cr = ""
+      line = "" $0; cr = ""
       if (substr(line, length(line), 1) == "\r") { cr = "\r"; line = substr(line, 1, length(line) - 1) }
+      if (index(line, zwa) || index(line, zwb) || index(line, zwc)) { k = split(line, Z, zw); line = joinp(Z, k) }
       if (inpem) {
-        if (match(line, pe)) { line = pk substr(line, RSTART + RLENGTH); inpem = 0 }
+        # A body or END line keeps its quote/comment prefix only, never text that could be key.
+        if (match(line, pe)) {
+          rest = substr(line, RSTART + RLENGTH); match(substr(line, 1, RSTART - 1), pfx)
+          line = substr(line, 1, RLENGTH) pk rest; inpem = 0
+        }
         else if (line ~ blank) { }
-        else if (line ~ body || line ~ hdr) line = pk
+        else if (line ~ body || line ~ hdr) { match(line, pfx); line = substr(line, 1, RLENGTH) pk }
         else inpem = 0
       }
       if (!inpem && match(line, pb)) {
@@ -1734,19 +1872,35 @@ sb_scrub_secrets() {
         if (match(rest, pe)) line = pre pk substr(rest, RSTART + RLENGTH)
         else { line = pre pk; inpem = 1 }
       }
-      for (i = 1; i <= n; i++) if (index(line, lit[i])) line = redact(line, i)
-      if (last) printf "%s", line cr
-      else print line cr
-    }'
+      low = ""
+      for (i = 1; i <= n; i++) {
+        if (lc[i]) { if (low == "") low = tolower(line); if (!index(low, lit[i])) continue }
+        else if (!index(line, lit[i])) continue
+        line = redact(line, i)
+      }
+      # One record behind: the caller appended ONE newline after the input, so the last record is
+      # empty exactly when the input ended with a newline (dropped), and otherwise holds the
+      # unterminated last line (printed without one). Nothing in-band.
+      if (NR > 1) print held
+      held = line cr
+    }
+    END { if (NR > 0) printf "%s", held }'
   local ps="${PIPESTATUS[*]}"
   [ "$ps" = "0 0" ]
 }
 
-# grep -F arguments matching every text sb_scrub_secrets can change: each format above starts with
-# one of these literals, and a PEM body is only redacted after its BEGIN line. A file matching none
-# of them is already clean. Shared by sb_scrub_archive_file's fast path and the drainer's one-time
-# migration snapshot (extract-drain.sh), so the two can never drift apart.
-_SB_SCRUB_LITERALS=(-e 'sk-' -e 'ghp_' -e 'github_pat_' -e 'AKIA' -e 'xox' -e 'Bearer ' -e 'PRIVATE KEY-----')
+# grep -F arguments matching every text sb_scrub_secrets can change: each format above holds one
+# of these literals, a PEM body is only redacted after its BEGIN line, and the zero-width bytes
+# are deleted. A file matching none of them is already clean. Shared by sb_scrub_archive_file's
+# fast path and the drainer's one-time migration snapshot (extract-drain.sh), so the two can never
+# drift apart. The any-case words are listed lower, Title and UPPER: `grep -i` with several -e
+# patterns aborts (SIGABRT) in GNU grep 3.0, Git-Bash's grep; a rarer mixing (BeArEr) in an
+# archive written before 0.56.0 is not caught by this prefilter (new windows are scrubbed whole).
+_SB_SCRUB_LITERALS=(-e 'sk-' -e 'k_live_' -e 'github_pat_' -e 'ghp_' -e 'gho_' -e 'ghs_' -e 'ghu_' -e 'ghr_'
+  -e 'AKIA' -e 'ASIA' -e 'AIza' -e 'npm_' -e 'glpat-' -e 'hf_' -e 'xox' -e 'xapp-' -e 'eyJ'
+  -e 'bearer ' -e 'Bearer ' -e 'BEARER ' -e 'authorization' -e 'Authorization' -e 'AUTHORIZATION'
+  -e '_secret_access_key' -e '_SECRET_ACCESS_KEY' -e 'PRIVATE KEY'
+  -e $'\xe2\x80\x8b' -e $'\xe2\x80\x8c' -e $'\xe2\x80\x8d' -e $'\xe2\x81\xa0' -e $'\xef\xbb\xbf')
 
 # sb_scrub_archive_file FILE: scrub an EXISTING archive in place (the one-time 0.56.0 migration,
 # drain_scrub_migrate in extract-drain.sh, under the drain lock). The scrubbed copy is written next to FILE
@@ -1774,8 +1928,9 @@ sb_scrub_archive_file() {
     return 1
   fi
   sb_archive_lock "$f" sb_scrub_archive_file || return 1
+  local tok="$_SB_ARCHIVE_LOCK_TOKEN"
   _sb_scrub_archive_locked "$f"; rc=$?
-  sb_archive_unlock "$f"
+  sb_archive_unlock "$f" "$tok"
   return "$rc"
 }
 _sb_scrub_archive_locked() {  # sb_scrub_archive_file's body; the caller holds the archive lock
@@ -1819,11 +1974,30 @@ _sb_scrub_archive_locked() {  # sb_scrub_archive_file's body; the caller holds t
 
 # Preprocess JSONL transcript lines on stdin into a compact text summary, secret-scrubbed.
 # Shared by stop-extract.sh and pre-compact.sh (archive + extractor input) via
-# sb_archive_transcript. Returns 0; 2 when jq stopped early on an unparseable record (what it
-# rendered before that record is complete and scrubbed); 1 when the scrub failed (the output
-# must not be used).
+# sb_archive_transcript. Each raw line is parsed on its own (`jq -R` + fromjson): a record that
+# does not parse (corrupt, or half flushed) or does not render is SKIPPED and the rest of the
+# window still renders (jq stopping at the first bad record lost everything after it). jq writes
+# one "jq: error (at <stdin>:N)" row per skipped record to stderr, which goes to $1 (default
+# /dev/null). jq's exit status is that of the LAST record only (measured, 1.7.1 and 1.8.1), so
+# those rows are the skip signal, never the status. Returns 0; 2 when records were skipped (seen
+# only with $1 given; the output holds every other record, complete and scrubbed); 1 when jq or
+# the scrub failed (jq missing, killed, any jq status but 0 or 5): the output must not be used.
+# Args: [$1 = file for jq's stderr]
 sb_preprocess_transcript() {
-  jq -cr '
+  local errf="${1:-/dev/null}"
+  jq -R -r '
+    # The render cuts long fields BEFORE the scrub sees them. A cut ending inside a token that holds
+    # a credential literal, or follows bearer/basic/an AWS secret keyword, drops that token: its
+    # prefix would be shorter than the format minimum and pass the scrub. Plain words are kept.
+    def cut($n):
+      if length <= $n then .
+      else .[0:$n] as $c
+        | ($c | capture("^(?<head>.*?)(?<tail>[A-Za-z0-9_./+=~-]*)$"; "s")) as $m
+        | if ($m.tail | test("sk-|k_live_|gh[opsur]_|github_pat_|AKIA|ASIA|AIza|npm_|glpat-|hf_|xox|xapp-|eyJ"))
+             or ($m.head | test("(bearer|basic)[ \\t]+$|secret_access_key[\"\\x27]?[ \\t]*[=:][ \\t]*[\"\\x27]?$"; "i"))
+          then $m.head else $c end
+      end;
+    select(. != "" and . != "\r") | fromjson |
     if .type == "user" then
       if (.message.content | type) == "string" then
         "USER: " + .message.content
@@ -1840,23 +2014,24 @@ sb_preprocess_transcript() {
             if .name == "Edit" or .name == "Write" or .name == "Read" then
               (.input.file_path // "")
             elif .name == "Bash" then
-              (.input.command // "" | .[0:120])
+              (.input.command // "" | cut(120))
             else
-              (.input | keys | join(",") | .[0:60])
+              (.input | keys | join(",") | cut(60))
             end
           )
         elif .type == "thinking" then
-          "  (thinking: " + (.thinking // "" | .[0:100]) + "...)"
+          "  (thinking: " + (.thinking // "" | cut(100)) + "...)"
         else empty end
       )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
     else empty end
-  ' 2>/dev/null | sb_scrub_secrets
+  ' 2>"$errf" | sb_scrub_secrets
   local ps="${PIPESTATUS[*]}"
   case "$ps" in
-    "0 0") return 0 ;;
-    *" 0") return 2 ;;
-    *)     return 1 ;;
+    "0 0"|"5 0") ;;
+    *) return 1 ;;
   esac
+  [ "$errf" != /dev/null ] && [ -s "$errf" ] && return 2
+  return 0
 }
 
 # --- Transcript archive helpers ---
@@ -1866,11 +2041,12 @@ sb_preprocess_transcript() {
 # is rendered into a stage file first, and only a good render + append returns 0 (the caller's
 # raw_line cursor advances on that status alone). The archive ends with a newline afterwards (a
 # torn tail left by a crash is terminated before the append), so sb_line_count is exact.
-# Returns 0 on success, including a window that renders to nothing (no file is created for it);
-# 1 on a failure, logged. A jq stop on an unparseable record (sb_preprocess_transcript rc 2) still
-# appends what rendered before it and is logged: refusing it would stall the session's archive on
-# one corrupt line for good. The rest of that window after the corrupt line is not archived (as
-# before 0.56.0).
+# Returns 0 on success, including a window that renders to nothing without an error (no file is
+# created for it); 1 on a failure, logged: the render failed (jq missing or killed, the scrub
+# failed), or rendered nothing while jq reported errors. A record jq cannot parse or render is
+# skipped and logged with its raw line number (never jq's message: it quotes the record, which
+# can hold a key); every other record of the window is archived, so one corrupt line can neither
+# stall the session's archive nor take the rest of the window with it.
 # Args: $1=transcript_path $2=slug $3=session_id $4=start_line $5=end_line
 #       $6=tool_count for a new file's header (empty: count the window's tool_use calls)
 sb_archive_transcript() {
@@ -1884,24 +2060,39 @@ sb_archive_transcript() {
   local date_str
   date_str=$(date +%Y-%m-%d)
   local archive_file="$archive_dir/${session_id}_${slug}_${date_str}.txt"
-  local stage="$archive_dir/.stage-${session_id}-$$.part"
+  # Scratch files end in .part: invisible to every *.txt reader, swept when a killed hook leaves them.
+  local stage="$archive_dir/.stage-${session_id}-${BASHPID:-$$}.part" errf="$archive_dir/.stage-${session_id}-${BASHPID:-$$}.err.part"
 
-  sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | sb_preprocess_transcript 2>/dev/null > "$stage"
-  local ps="${PIPESTATUS[*]}"
+  sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | sb_preprocess_transcript "$errf" > "$stage"
+  local ps="${PIPESTATUS[*]}" skipped
   case "$ps" in
     "0 0") ;;
-    "0 2") sb_log_error "lib.sh" "sb_archive_transcript: jq stopped on an unparseable record in raw lines ${start_line}-${end_line} of $transcript; archived the window up to it (session=$session_id)" 1 ;;
-    *) rm -f "$stage" 2>/dev/null
-       sb_log_error "lib.sh" "sb_archive_transcript: rendering raw lines ${start_line}-${end_line} of $transcript failed (sed|preprocess status $ps); NOT archived, the next hook retries (session=$session_id)" 1
+    "0 2")
+      # "jq: error (at <stdin>:N)" rows -> count + the first raw line numbers (window offset added)
+      skipped=$(awk -v off="$((start_line - 1))" '
+        match($0, /^jq: error \(at [^)]*:[0-9]+\)/) {
+          s = substr($0, 1, RLENGTH - 1); sub(/.*:/, "", s); n++
+          if (n <= 5) l = l (n > 1 ? " " : "") (s + off)
+        }
+        END { printf "%d|%s", n, l }' "$errf" 2>/dev/null)
+      if [ ! -s "$stage" ]; then
+        rm -f "$stage" "$errf" 2>/dev/null
+        sb_log_error "lib.sh" "sb_archive_transcript: raw lines ${start_line}-${end_line} of $transcript rendered nothing and jq reported ${skipped%%|*} unrenderable record(s) at raw line(s) ${skipped#*|}; NOT archived, the next hook retries (session=$session_id)" 1
+        return 1
+      fi
+      sb_log_error "lib.sh" "sb_archive_transcript: skipped ${skipped%%|*} unrenderable record(s) (corrupt or half-written JSON) at raw line(s) ${skipped#*|} of raw lines ${start_line}-${end_line} of $transcript; the rest of the window is archived (session=$session_id)" 1 ;;
+    *) rm -f "$stage" "$errf" 2>/dev/null
+       sb_log_error "lib.sh" "sb_archive_transcript: rendering raw lines ${start_line}-${end_line} of $transcript failed (sed|preprocess status $ps: jq missing or killed, or the scrub failed); NOT archived, the next hook retries (session=$session_id)" 1
        return 1 ;;
   esac
   if [ ! -s "$stage" ]; then
-    rm -f "$stage" 2>/dev/null
+    rm -f "$stage" "$errf" 2>/dev/null
     return 0
   fi
-  # A new file's header tool count is computed before the lock (it reads the raw transcript only).
+  # A new file's header tool count is computed before the lock (it reads the raw transcript only;
+  # a record that does not parse is skipped, as in the render).
   if [ ! -f "$archive_file" ] && [ -z "$tool_count" ]; then
-    tool_count=$(sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | jq -r '
+    tool_count=$(sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | jq -R -r 'fromjson? |
       select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | .name
       | select((. // "") | endswith("buddy_react") | not)
     ' 2>/dev/null | wc -l | tr -d ' ')
@@ -1912,14 +2103,14 @@ sb_archive_transcript() {
   # in the scrub's rename window and be renamed away. A lock still held after the bounded wait is
   # a failure (logged by sb_archive_lock): the raw_line cursor stays and the next hook retries.
   if ! sb_archive_lock "$archive_file" sb_archive_transcript; then
-    rm -f "$stage" 2>/dev/null
+    rm -f "$stage" "$errf" 2>/dev/null
     return 1
   fi
-  local rc=0
+  local rc=0 tok="$_SB_ARCHIVE_LOCK_TOKEN"
   _sb_archive_append_locked "$archive_file" "$stage" "$slug" "$session_id" "$date_str" \
     "$start_line" "$end_line" "$tool_count" || rc=1
-  sb_archive_unlock "$archive_file"
-  rm -f "$stage" 2>/dev/null
+  sb_archive_unlock "$archive_file" "$tok"
+  rm -f "$stage" "$errf" 2>/dev/null
   [ "$rc" -eq 0 ] || return 1
   sb_prune_transcripts
   return 0
@@ -1969,16 +2160,38 @@ _sb_archive_append_locked() {
 # .last-archived-line-<MARKER_KEY> = `<raw_line>\t<transcript path>`, the path normalized with
 # sb_normalize_path. Absent or unreadable: initialised from the legacy extraction marker
 # (.last-extracted-line-<MARKER_KEY>). A different transcript path, or a cursor past TOTAL (the
-# transcript was replaced or shrank): 0. The cursor advances only after a checked append.
+# transcript was replaced or shrank): 0. The window ends at the last COMPLETE raw line (newline
+# count, at most TOTAL): Stop can read the transcript while its last record is half flushed, and
+# a cursor past that line would skip the record for good; it is archived whole by the next hook.
+# An unterminated last line that already parses as a whole record is included (only its newline
+# is missing; test 8b in test-stop-extract.sh).
+# The cursor advances only after a checked append. Reading the cursor, rendering, appending and
+# writing the cursor run under ONE hold of the session's cursor lock (sb_archive_lock on the
+# pseudo archive transcripts/cursor-<MARKER_KEY>.txt): a Stop and a PreCompact of one session
+# that both read the same raw_line archived the window twice, and the later cursor write could
+# regress the earlier one. The archive lock is taken inside it (sb_archive_transcript).
 # Returns 0 when archived or there is nothing to do, 1 on a failure (already logged).
 sb_archive_raw_window() {
-  local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5"
-  local cursor_file raw_line="" saved_path="" tpath
+  local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5" lock_path tok rc
   case "$total" in ''|*[!0-9]*)
     sb_log_error "lib.sh" "sb_archive_raw_window: transcript line count '$total' is not a number; nothing archived (session=$session_id)" 1
     return 1 ;;
   esac
   [ -n "$key" ] || key=$(sb_extraction_marker_key "$slug" "$session_id")
+  if [ ! -d "$BRAIN_DIR/transcripts" ] && ! mkdir -p "$BRAIN_DIR/transcripts" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot create $BRAIN_DIR/transcripts; nothing archived (session=$session_id)" 1
+    return 1
+  fi
+  lock_path="$BRAIN_DIR/transcripts/cursor-$key.txt"
+  sb_archive_lock "$lock_path" sb_archive_raw_window || return 1
+  tok="$_SB_ARCHIVE_LOCK_TOKEN"
+  _sb_archive_raw_window_locked "$transcript" "$slug" "$session_id" "$total" "$key"; rc=$?
+  sb_archive_unlock "$lock_path" "$tok"
+  return "$rc"
+}
+_sb_archive_raw_window_locked() {  # sb_archive_raw_window's body; the caller holds the cursor lock
+  local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5"
+  local cursor_file raw_line="" saved_path="" tpath raw_end
   cursor_file="$BRAIN_DIR/.last-archived-line-$key"
   tpath=$(sb_normalize_path "$transcript")
   [ -f "$cursor_file" ] && IFS=$'\t' read -r raw_line saved_path < "$cursor_file"
@@ -1990,17 +2203,34 @@ sb_archive_raw_window() {
   [ -z "$saved_path" ] || [ "$saved_path" = "$tpath" ] || raw_line=0
   [ "$raw_line" -le "$total" ] || raw_line=0
   [ "$raw_line" -lt "$total" ] || return 0
-  sb_archive_transcript "$transcript" "$slug" "$session_id" "$((raw_line + 1))" "$total" "" || return 1
-  if ! printf '%s\t%s\n' "$total" "$tpath" 2>/dev/null > "$cursor_file"; then
-    sb_log_error "lib.sh" "sb_archive_raw_window: cannot write $cursor_file; raw lines $((raw_line + 1))-${total} are archived but the cursor did not advance, so the next hook archives them again (session=$session_id)" 1
+  raw_end=$(wc -l < "$transcript" 2>/dev/null); raw_end="${raw_end//[!0-9]/}"
+  if [ -z "$raw_end" ]; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot count the lines of $transcript; nothing archived, the next hook retries (session=$session_id)" 1
+    return 1
+  fi
+  [ "$raw_end" -le "$total" ] || raw_end="$total"
+  if [ "$raw_end" -lt "$total" ]; then
+    # Line TOTAL has no newline yet. A complete record whose newline is not flushed yet is
+    # archived now (the session's last Stop may be the last chance); a half-written one waits.
+    if sed -n "${total}p" "$transcript" 2>/dev/null | jq -e 'type == "object"' >/dev/null 2>&1; then
+      raw_end="$total"
+    fi
+  fi
+  [ "$raw_line" -lt "$raw_end" ] || return 0
+  sb_archive_transcript "$transcript" "$slug" "$session_id" "$((raw_line + 1))" "$raw_end" "" || return 1
+  if ! printf '%s\t%s\n' "$raw_end" "$tpath" 2>/dev/null > "$cursor_file"; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot write $cursor_file; raw lines $((raw_line + 1))-${raw_end} are archived but the cursor did not advance, so the next hook archives them again (session=$session_id)" 1
     return 1
   fi
   return 0
 }
 
 # Archive a subagent's FINAL RESULT (not its full transcript) for dream mining +
-# episodic search. Keyed on agent_id so it never collides with a main-session
-# archive and de-dupes per agent. The result is already prose (the subagent's last
+# episodic search. One file per agent_id per day (sub-<agent_id>_<slug>_<date>.txt), so it never
+# collides with a main-session archive. A continued agent (SendMessage keeps its id) APPENDS its
+# next result under the archive lock: an overwrite destroyed the first result and put new text
+# under the drainer's line cursor. An id that sanitizes to nothing gets a per-call name (pid +
+# $RANDOM), never a shared one. The result is already prose (the subagent's last
 # assistant text block), so it is written plain under an ASSISTANT: marker — NOT
 # through sb_preprocess_transcript (which parses raw JSONL lines). The file matches
 # the episodic indexer's session-meta + ASSISTANT body shape, so it is indexed with
@@ -2018,7 +2248,7 @@ sb_archive_subagent_result() {
   # sanitize agent_id for use as a filename component (defense in depth — it comes
   # from the hook payload). Keep only filename-safe chars; bail if it empties out.
   safe_aid=$(printf '%s' "$agent_id" | tr -cd 'A-Za-z0-9._-')
-  [ -n "$safe_aid" ] || safe_aid="unknown"
+  [ -n "$safe_aid" ] || safe_aid="unknown-${BASHPID:-$$}-$RANDOM"
   local archive_file="$archive_dir/sub-${safe_aid}_${slug}_${date_str}.txt"
 
   # Every header value below is payload-derived (agent_type, session_id) or path-derived (slug)
@@ -2042,13 +2272,34 @@ sb_archive_subagent_result() {
   result="$scrubbed"
 
   # The write is CHECKED, twice: the redirect's own status (unwritable dir, a directory
-  # squatting on the name) and the written size, which must hold at least the result
-  # text itself (${#result} counts characters, never more than its bytes) — a short
-  # or empty file is a silently lost result, the SF-M3 class. Fail loud, never `|| true`.
+  # squatting on the name) and the growth of the file, which must hold at least the result
+  # text itself (${#result} counts characters, never more than its bytes): a short or empty
+  # write is a silently lost result, the SF-M3 class. Fail loud, never `|| true`.
   # The positive form on purpose (as in sb_archive_transcript, 9ee624d): bash does not apply `!`
   # to a { group } whose own redirection fails, so `if ! { ...; } > file` took the success branch.
-  local written
-  if {
+  # The archive lock (shared with the in-place scrub) covers the size read, the write and the check.
+  local size0=0 written tok rc=0
+  sb_archive_lock "$archive_file" sb_archive_subagent_result || return 1
+  tok="$_SB_ARCHIVE_LOCK_TOKEN"
+  if [ -f "$archive_file" ]; then
+    size0=$(wc -c < "$archive_file" 2>/dev/null | tr -d ' ')
+    case "$size0" in ''|*[!0-9]*) size0=0 ;; esac
+    # A continued agent: append the next result. A torn last line (a crash) is terminated
+    # first, so the new block starts on its own line and sb_line_count stays exact.
+    if [ -n "$(tail -c 1 "$archive_file" 2>/dev/null)" ]; then
+      printf '\n' 2>/dev/null >> "$archive_file" || rc=1
+    fi
+    if [ "$rc" -eq 0 ] && {
+      echo ""
+      echo "ASSISTANT:"
+      echo "(a later result of the same agent, tool_count: $tool_count)"
+      printf '%s\n' "$result"
+    } 2>/dev/null >> "$archive_file"; then
+      :
+    else
+      rc=1
+    fi
+  elif {
     echo "--- session-meta ---"
     echo "session_id: $session_id"
     echo "project_slug: $slug"
@@ -2063,13 +2314,18 @@ sb_archive_subagent_result() {
   } 2>/dev/null > "$archive_file"; then
     :
   else
+    rc=1
+  fi
+  if [ "$rc" -ne 0 ]; then
+    sb_archive_unlock "$archive_file" "$tok"
     sb_log_error "lib.sh" "sb_archive_subagent_result: write failed for $archive_file — subagent result NOT archived (agent_id=$safe_aid)" 1
     return 1
   fi
   written=$(wc -c < "$archive_file" 2>/dev/null | tr -d ' ')
+  sb_archive_unlock "$archive_file" "$tok"
   case "$written" in ''|*[!0-9]*) written=0 ;; esac
-  if [ "$written" -lt "${#result}" ]; then
-    sb_log_error "lib.sh" "sb_archive_subagent_result: short write ${written}B < ${#result}-char result in $archive_file (agent_id=$safe_aid)" 1
+  if [ "$((written - size0))" -lt "${#result}" ]; then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: short write $((written - size0))B < ${#result}-char result in $archive_file (agent_id=$safe_aid)" 1
     return 1
   fi
 
