@@ -104,7 +104,8 @@ interface IndexedExchange extends Partial<CompactVector> {
 type StoredExchange = IndexedExchange & { embedding?: unknown };
 
 /** Symmetric int8: es = max|x| / 127, component = round(x / es). Rounding error is at most es/2
- *  per component; a NaN component stores as 0. A zero vector stores es = 0. */
+ *  per component. A zero vector stores es = 0. Callers pass finite components (the build checks
+ *  before storing): a NaN would quantize to 0 and an Infinity would make es Infinity. */
 export function quantizeEmbedding(vec: ArrayLike<number>): CompactVector {
   let maxAbs = 0;
   for (let i = 0; i < vec.length; i++) {
@@ -651,13 +652,22 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     const paths = needsEmbed.map(r => `episodic:${r.id}`);
     const embeddings = await embedTexts(texts, join(brainDir, 'transcripts'), paths);
     if (embeddings) {
+      let nonFinite = 0;
       for (let i = 0; i < needsEmbed.length; i++) {
-        // Only a full vector is stored: loadIndex drops any other length, so storing one would
-        // drop and re-embed it on every build.
-        if (embeddings[i] && embeddings[i].length === EMBEDDING_DIM) {
-          Object.assign(needsEmbed[i], quantizeEmbedding(embeddings[i]));
-          repaired++;
-        }
+        // Only a full vector of finite components is stored. loadIndex drops any other length,
+        // and JSON writes Infinity as null (an Infinity component makes es Infinity), so storing
+        // either would drop and re-embed it on every build; a NaN would quantize silently to 0.
+        // Every component finite means es (max|x| / 127) is finite too.
+        const vec = embeddings[i];
+        if (!vec || vec.length !== EMBEDDING_DIM) continue;
+        if (!vec.every(Number.isFinite)) { nonFinite++; continue; }
+        Object.assign(needsEmbed[i], quantizeEmbedding(vec));
+        repaired++;
+      }
+      if (nonFinite > 0) {
+        await appendErrorLog(brainDir, 'episodic-index',
+          `${nonFinite} embedding(s) with a non-finite component were not stored; those rows stay pending `
+          + 'and the next build embeds them again (the embedding cache does not keep such a vector)');
       }
     }
   }

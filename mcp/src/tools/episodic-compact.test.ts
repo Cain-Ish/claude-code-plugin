@@ -11,7 +11,8 @@ import { tmpdir } from 'os';
 
 const h = vi.hoisted(() => {
   const calls: string[] = [];
-  const state = { failIndexWrite: false };
+  // poison: a text containing it gets a model vector whose first component is poisonValue.
+  const state = { failIndexWrite: false, poison: '', poisonValue: Infinity };
   // A deterministic "model": a hashed bag of words, normalized, so cosine = word overlap.
   function fakeVec(text: string): Float32Array {
     const v = new Float32Array(384);
@@ -32,7 +33,9 @@ const h = vi.hoisted(() => {
 vi.mock('@huggingface/transformers', () => ({
   pipeline: async () => async (text: string) => {
     h.calls.push(text);
-    return { data: h.fakeVec(text) };
+    const data = h.fakeVec(text);
+    if (h.state.poison && text.includes(h.state.poison)) data[0] = h.state.poisonValue;
+    return { data };
   },
 }));
 
@@ -104,6 +107,8 @@ function writeLegacyIndex(): string {
 beforeEach(() => {
   delete process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS;   // vitest.setup restores it afterwards
   h.state.failIndexWrite = false;
+  h.state.poison = '';
+  h.state.poisonValue = Infinity;
   h.calls.length = 0;
   brainDir = mkdtempSync(join(tmpdir(), 'epi-compact-'));
   mkdirSync(join(brainDir, 'transcripts'), { recursive: true });
@@ -232,6 +237,36 @@ describe('episodic index format', () => {
     const rows = errorRows().filter(e => e.script === 'episodic-index');
     expect(rows).toHaveLength(1);
     expect(rows[0].message).toMatch(/1 stored vector.*not 384 components/);
+  });
+
+  // R2 fix round: an Infinity component made es = Infinity, which JSON writes as null, so every
+  // load dropped the row and every build re-embedded it (and a NaN component was stored as 0
+  // without a word). A vector with any non-finite component is now never stored: dropped at the
+  // repair pass and logged once there; the row stays pending and the next build asks the model
+  // again, because the bad vector is not cached either.
+  it.each([['Infinity', Infinity], ['NaN', NaN]])('a model vector with a %s component is not stored; the next build re-embeds it', async (_n, bad) => {
+    h.state.poison = 'drain skip the heads';
+    h.state.poisonValue = bad;
+    const first = await buildEpisodicIndex(brainDir);
+
+    expect(first.repaired).toBe(1);
+    expect(first.pending).toBe(1);
+    const row = () => readIndex().exchanges.find((x: any) => x.userSnippet.startsWith('why does the drain'));
+    expect(row()).not.toHaveProperty('e8');
+    expect(row()).not.toHaveProperty('es');
+    const logged = () => errorRows().filter(e => e.script === 'episodic-index').map(e => e.message as string);
+    expect(logged().filter(m => /non-finite/.test(m))).toHaveLength(1);
+    expect(logged()[0]).toMatch(/^1 embedding\(s\) with a non-finite component were not stored/);
+
+    h.state.poison = '';
+    h.calls.length = 0;
+    const second = await buildEpisodicIndex(brainDir);
+
+    expect(h.calls).toEqual([embedText(row())]);                  // the model, not a cached bad vector
+    expect(second.pending).toBe(0);
+    expect(Number.isFinite(row().es)).toBe(true);
+    expect(Buffer.from(row().e8, 'base64')).toHaveLength(384);
+    expect(logged().filter(m => /non-finite|not 384 components/.test(m))).toHaveLength(1);   // still the one
   });
 });
 
@@ -420,5 +455,34 @@ describe('embedTexts — a keyless (query) embed does not read the cache', () =>
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// R2 fix round: JSON keeps no Infinity or NaN (both become null), so a cached non-finite vector
+// came back as nulls on every later call and pinned its row to a bad vector for good.
+describe('embedTexts — the cache never holds or serves a non-finite vector', () => {
+  const cacheFile = () => join(brainDir, 'transcripts', '.embeddings-cache.json');
+
+  it('a non-finite model vector is returned but not cached', async () => {
+    h.state.poison = 'archive';
+    const out = await embedTexts(['archive transcripts', 'drain the queue'], join(brainDir, 'transcripts'), ['episodic:a', 'episodic:b']);
+    expect(out?.[0][0]).toBe(Infinity);
+    const entries = JSON.parse(readFileSync(cacheFile(), 'utf-8')).entries;
+    expect(entries).not.toHaveProperty('episodic:a');
+    expect(entries).toHaveProperty('episodic:b');
+  });
+
+  it('a cached vector with a null component is a miss: the model re-embeds and the entry is replaced', async () => {
+    await embedTexts(['archive transcripts'], join(brainDir, 'transcripts'), ['episodic:a']);
+    const cache = JSON.parse(readFileSync(cacheFile(), 'utf-8'));
+    cache.entries['episodic:a'].vector[5] = null;
+    writeFileSync(cacheFile(), JSON.stringify(cache), 'utf-8');
+    h.calls.length = 0;
+
+    const out = await embedTexts(['archive transcripts'], join(brainDir, 'transcripts'), ['episodic:a']);
+
+    expect(h.calls).toEqual(['archive transcripts']);
+    expect(out?.[0].every(Number.isFinite)).toBe(true);
+    expect(JSON.parse(readFileSync(cacheFile(), 'utf-8')).entries['episodic:a'].vector.every(Number.isFinite)).toBe(true);
   });
 });
