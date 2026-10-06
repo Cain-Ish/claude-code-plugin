@@ -1170,6 +1170,17 @@ if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
+# R2 (0.56.0): ONE sb_drain_cursor_map per start (one wc -l + one stat + one jq) feeds both drain
+# counters below: the dead-letter count of the drain-health banner and the capture-health
+# "extracted" count. Computed on first use, at most once. Both used to read the done-set as a
+# basename set, which called a grown archive done forever.
+_SL_DM_READY=""
+_sl_drain_counts() {
+  [ -n "$_SL_DM_READY" ] && return 0
+  _SL_DM_READY=1
+  sb_drain_map_counts "$(sb_drain_cursor_map)"
+}
+
 # 0a-quater. Out-of-band DRAINER health banner — the silent-failure gap (root
 # cause #2). The 0-block above keys on .extractor-health.json status=="fail"; but
 # the common breakage is INVISIBLE to it: the in-session hook writes status==
@@ -1186,7 +1197,7 @@ if [ "${SB_DRAIN_HEALTH_BANNER:-on}" != "off" ] && [ "${H_STATUS:-}" != "fail" ]
   DRAIN_TO_THRESH="${SB_DRAIN_TIMEOUT_BANNER_THRESHOLD:-3}"; case "$DRAIN_TO_THRESH" in ''|*[!0-9]*) DRAIN_TO_THRESH=3 ;; esac
   DEAD_THRESH="${SB_DRAIN_DEADLETTER_THRESHOLD:-5}"; case "$DEAD_THRESH" in ''|*[!0-9]*) DEAD_THRESH=5 ;; esac
   DRAIN_TO_N=$(sb_count_drain_timeouts 40)
-  DEAD_N=$(sb_count_drain_dead_letters)
+  _sl_drain_counts; DEAD_N=$SB_DM_DEAD
   # Two OR'd triggers (quarantine is owned by dream-autostage.sh, not here).
   if [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] || [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ]; then
     DRAIN_WHY=""
@@ -1331,14 +1342,14 @@ fi
 # (api-key / drainer / local). `none` is already covered by the auth-mode-line.
 # Suppress: SB_CAPTURE_HEALTH_BANNER=off.
 if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
-  CAP_STATE="$BRAIN_DIR/.extraction-state.jsonl"
   # Count by glob (was ls|wc|tr: three spawns + a fork on every start).
   _cap_txt=( "$BRAIN_DIR/transcripts"/*.txt )
   CAP_N=0; { [ -e "${_cap_txt[0]}" ] || [ -L "${_cap_txt[0]}" ]; } && CAP_N=${#_cap_txt[@]}
   if [ "${CAP_N:-0}" -gt 0 ]; then
-    CAP_DONE=0
-    [ -f "$CAP_STATE" ] && CAP_DONE=$(grep -c '"outcome":"ok"' "$CAP_STATE" 2>/dev/null)
-    [ -n "$CAP_DONE" ] || CAP_DONE=0
+    # "extracted" = archives with extraction evidence (SB_DM_EXTRACTED): a live archive that grew
+    # since its last window still counts, so the nag below never fires on a working drainer
+    # between two ticks, nor on a fresh upgrade before the first tick migrates legacy rows.
+    _sl_drain_counts; CAP_DONE=$SB_DM_EXTRACTED
     # Per-OS scheduler probe (else it false-alarms "no timer" off Linux).
     CAP_TIMER=no
     case "$(uname -s)" in

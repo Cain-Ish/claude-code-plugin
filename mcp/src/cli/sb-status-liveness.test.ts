@@ -40,15 +40,16 @@ describe('sb status — Loop liveness (P1.1)', () => {
     writeFileSync(health, JSON.stringify({ status: 'ok', reason: 'drained 3 this run (0 failed)' }));
     const twoHoursAgo = new Date(Date.now() - 2 * 3600_000);
     utimesSync(health, twoHoursAgo, twoHoursAgo);
-    // done-set: one ok, one corrupt line (must not blind the read), one retry
+    // done-set: one ok covering a.txt's 2 lines, one corrupt line (must not blind the read), one
+    // retry (never advances a cursor)
     writeFileSync(join(brain, '.extraction-state.jsonl'), [
-      JSON.stringify({ basename: 'a.txt', ts: '2026-07-12T10:00:00Z', outcome: 'ok' }),
+      JSON.stringify({ basename: 'a.txt', ts: '2026-07-12T10:00:00Z', outcome: 'ok', from: 0, lines: 2 }),
       'NOT-JSON{{{',
-      JSON.stringify({ basename: 'b.txt', ts: '2026-07-12T11:00:00Z', outcome: 'retry' }),
+      JSON.stringify({ basename: 'b.txt', ts: '2026-07-12T11:00:00Z', outcome: 'retry', from: 0, lines: 2 }),
     ].join('\n'));
     // transcripts: a.txt done, b.txt + c.txt pending → backlog 2 of 3
     mkdirSync(join(brain, 'transcripts'));
-    for (const f of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(brain, 'transcripts', f), 'x');
+    for (const f of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(brain, 'transcripts', f), 'l1\nl2\n');
     // shim present
     mkdirSync(join(brain, 'bin'));
     writeFileSync(join(brain, 'bin', 'sb-extract-drain.sh'), '#!/bin/bash\n');
@@ -62,6 +63,34 @@ describe('sb status — Loop liveness (P1.1)', () => {
     expect(out).toContain('transcript backlog:  2 of 3 archived');
     expect(out).toContain('scheduler shim:      present');
     expect(out).toContain('newest dream:        drm_20260712T000000Z completed');
+  });
+
+  // R2 (0.56.0): the backlog comes from lib.sh sb_drain_cursor_map (line cursors). An archive
+  // that GREW after its extraction holds unextracted lines; the old ok|error basename set called
+  // it done forever.
+  it('transcript backlog counts an archive that grew past its cursor', async () => {
+    mkdirSync(join(brain, 'transcripts'));
+    writeFileSync(join(brain, 'transcripts', 'grown.txt'), 'l1\nl2\nl3\nl4\n');
+    writeFileSync(join(brain, 'transcripts', 'done.txt'), 'l1\nl2\n');
+    writeFileSync(join(brain, '.extraction-state.jsonl'), [
+      JSON.stringify({ basename: 'grown.txt', ts: '2026-07-12T10:00:00Z', outcome: 'ok', from: 0, lines: 2 }),
+      JSON.stringify({ basename: 'done.txt', ts: '2026-07-12T10:00:00Z', outcome: 'ok', from: 0, lines: 2 }),
+    ].join('\n') + '\n');
+    const out = await status();
+    expect(out).toContain('transcript backlog:  1 of 2 archived');
+  });
+
+  it('transcript backlog fails loud when the cursor map cannot run', async () => {
+    mkdirSync(join(brain, 'transcripts'));
+    writeFileSync(join(brain, 'transcripts', 'a.txt'), 'l1\n');
+    const noRoot = mkdtempSync(join(tmpdir(), 'sb-noroot-'));
+    try {
+      const r = await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: noRoot });
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toMatch(/transcript backlog: {2}unknown \(drain cursor map unavailable: /);
+    } finally {
+      rmSync(noRoot, { recursive: true, force: true });
+    }
   });
 
   it('utilization renders top counts + the dormant-capability report (P1.3)', async () => {

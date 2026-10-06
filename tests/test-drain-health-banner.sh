@@ -41,11 +41,21 @@ reset; printf '[2026-06-11T00:00:00Z] quarantined: bwrap preflight failed\n' > "
 O=$(emit)
 printf '%s' "$O" | grep -q "$BANNER" && fail "3: drain-health double-fired on quarantine" || pass "3: quarantine-alone does NOT fire drain-health (no double-banner)"
 
-# 4: >=5 poison-pilled transcripts → banner fires
-reset; : > "$B/.extraction-state.jsonl"
-for i in 1 2 3 4 5 6; do printf '{"basename":"s%s.txt","outcome":"error"}\n' "$i" >> "$B/.extraction-state.jsonl"; done
+# 4: >=5 archives whose unextracted tail is dead-lettered → banner fires. R2: the count comes from
+# sb_drain_cursor_map, so the archives must exist (3 lines each; an error row covers (0,3]).
+reset; : > "$B/.extraction-state.jsonl"; mkdir -p "$B/transcripts"
+for i in 1 2 3 4 5 6; do
+  printf -- '--- session-meta ---\n---\nUSER: x\n' > "$B/transcripts/s$i.txt"
+  printf '{"basename":"s%s.txt","ts":"2026-06-17T00:00:00Z","outcome":"error","from":0,"lines":3,"fails":3}\n' "$i" >> "$B/.extraction-state.jsonl"
+done
 O=$(emit)
 printf '%s' "$O" | grep -q "$BANNER" && pass "4: >=5 dead-letter transcripts fire the banner" || fail "4: dead-letter banner did not fire"
+# 4b: the same six archives GREW past their dead region — the new lines are pending work, not
+# dead letters (the old last-row-is-error fold still counted all six).
+for i in 1 2 3 4 5 6; do printf 'USER: more\nASSISTANT: ok\n' >> "$B/transcripts/s$i.txt"; done
+O=$(emit)
+printf '%s' "$O" | grep -q "$BANNER" && fail "4b: grown archives still counted as dead letters" || pass "4b: growth past a dead region is pending, not dead-lettered"
+rm -f "$B/transcripts"/s[1-6].txt
 
 # 5: kill switch suppresses
 reset; ec124 4
@@ -74,14 +84,54 @@ printf '%s\n' \
   '{"script":"x","message":"unrelated line, no token"}' > "$BRAIN_DIR/error-log.jsonl"
 HN=$(sb_count_drain_timeouts 40)
 [ "$HN" = "2" ] && pass "helper: sb_count_drain_timeouts counts ec=124 lines (2)" || fail "helper: timeouts=$HN (want 2)"
+# R2: a dead letter is an ARCHIVE whose unextracted tail is covered by an error row. a errored;
+# b retried then errored; c errored then recovered; d errored on (0,3] but grew to 5 lines since.
+mkdir -p "$BRAIN_DIR/transcripts"
+for f in a b c; do printf 'l1\nl2\nl3\n' > "$BRAIN_DIR/transcripts/$f.txt"; done
+printf 'l1\nl2\nl3\nl4\nl5\n' > "$BRAIN_DIR/transcripts/d.txt"
 printf '%s\n' \
-  '{"basename":"a.txt","outcome":"error"}' \
-  '{"basename":"b.txt","outcome":"retry"}' \
-  '{"basename":"b.txt","outcome":"error"}' \
-  '{"basename":"c.txt","outcome":"error"}' \
-  '{"basename":"c.txt","outcome":"ok"}' > "$BRAIN_DIR/.extraction-state.jsonl"
+  '{"basename":"a.txt","outcome":"error","from":0,"lines":3}' \
+  '{"basename":"b.txt","outcome":"retry","from":0,"lines":3}' \
+  '{"basename":"b.txt","outcome":"error","from":0,"lines":3}' \
+  '{"basename":"c.txt","outcome":"error","from":0,"lines":3}' \
+  '{"basename":"c.txt","outcome":"ok","from":0,"lines":3}' \
+  '{"basename":"d.txt","outcome":"error","from":0,"lines":3}' > "$BRAIN_DIR/.extraction-state.jsonl"
 HD=$(sb_count_drain_dead_letters)
-[ "$HD" = "2" ] && pass "helper: sb_count_drain_dead_letters last-write-wins (a+b errored, c recovered → 2)" || fail "helper: dead-letters=$HD (want 2)"
+[ "$HD" = "2" ] && pass "helper: sb_count_drain_dead_letters (a+b dead, c recovered, d grew past its dead region → 2)" || fail "helper: dead-letters=$HD (want 2)"
+
+echo "=== capture-health extracted count ==="
+# R2: "N archived · M extracted" counts ARCHIVES (via the cursor map), not ok rows: delta extraction
+# writes one ok row per window, so the row count overstated it (here 3 rows for 1 archive).
+CB="$B/capture"; mkdir -p "$CB/transcripts" "$CB/sbin"
+printf '{"auto_improve": false, "auto_maintain": false}\n' > "$CB/config.json"
+printf -- '--- session-meta ---\n---\nUSER: a\nUSER: b\nUSER: c\nUSER: d\n' > "$CB/transcripts/x1.txt"
+printf '%s\n' \
+  '{"basename":"x1.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":0,"lines":3}' \
+  '{"basename":"x1.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":3,"lines":4}' \
+  '{"basename":"x1.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":4,"lines":6}' > "$CB/.extraction-state.jsonl"
+printf '#!/bin/bash\nexit 0\n' > "$CB/sbin/claude"; printf '#!/bin/bash\necho OtherOS\n' > "$CB/sbin/uname"
+chmod +x "$CB/sbin/claude" "$CB/sbin/uname"
+CO=$(printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' \
+  | env PATH="$CB/sbin:$PATH" ANTHROPIC_API_KEY="" BRAIN_DIR="$CB" HOME="$CB" bash "$SL" 2>/dev/null)
+printf '%s' "$CO" | grep -q 'capture: 1 archived · 1 extracted' \
+  && pass "C1: extracted counts archives, not ok rows (1 archive, 3 windows)" \
+  || fail "C1: capture line miscounts (got: $(printf '%s' "$CO" | grep -i 'second-brain capture' | head -c 200))"
+
+echo "=== sb-health-snapshot backlog ==="
+# R2: the snapshot's backlog comes from the cursor map. g1 was extracted to line 3 and then GREW
+# (pending); g2 is fully extracted (done). The old comm-over-basenames called both done.
+SNAP="$ROOT/.claude/skills/sb-diagnostics-and-tooling/scripts/sb-health-snapshot.sh"
+SB2="$B/snap"; mkdir -p "$SB2/transcripts" "$SB2/sbin"
+printf '#!/bin/bash\nexit 0\n' > "$SB2/sbin/node"; chmod +x "$SB2/sbin/node"   # skip the auth probe
+printf 'l1\nl2\nl3\nl4\nl5\n' > "$SB2/transcripts/g1.txt"
+printf 'l1\nl2\nl3\n' > "$SB2/transcripts/g2.txt"
+printf '%s\n' \
+  '{"basename":"g1.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":0,"lines":3}' \
+  '{"basename":"g2.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":0,"lines":3}' > "$SB2/.extraction-state.jsonl"
+SO=$(env PATH="$SB2/sbin:$PATH" BRAIN_DIR="$SB2" KNOWLEDGE_DIR="$SB2/k" bash "$SNAP" "$ROOT" 2>/dev/null)
+printf '%s' "$SO" | grep -q 'backlog: 1 pending of 2 archived' \
+  && pass "S1: snapshot backlog counts the grown archive as pending" \
+  || fail "S1: snapshot backlog wrong (got: $(printf '%s' "$SO" | grep 'backlog:'))"
 
 echo "=== drainer dead-man switch ==="
 # Fires on SILENCE (stale progress + newer queued work) — the state no failure-

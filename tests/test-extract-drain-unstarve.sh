@@ -4,6 +4,7 @@
 # pins: SB_DRAIN_STALE_MAX — raises the stale ceiling (24h) so the fixture's items aren't force-processed by staleness before the unstarve behavior under test fires
 # pins: SB_EXTRACT_STUB — points extraction at a stub binary so the drain tick runs hermetically without a real Claude spawn
 # pins: SB_INTERACTIVE_OVERRIDE — forces the interactive-session gate open so the drain tick actually runs in this non-interactive test shell
+# pins: SB_DRAIN_QUIET_S — =0 makes the fresh ~4 KB fixtures eligible at once; this test is about the defer/escape gate, not the delta size/quiet eligibility (test-extract-drain.sh D7 covers that)
 # extract-drain.sh un-starve (Phase 1 task 3): an always-on interactive operator
 # must not starve the backlog forever. A bounded staleness-escape lets ONE drain
 # through when consecutive defers cross SB_DRAIN_DEFER_MAX or the oldest pending
@@ -25,6 +26,7 @@ SANDBOX=$(mktemp -d); trap 'rm -rf "$SANDBOX"' EXIT
 export HOME="$SANDBOX"            # contain ~ so nothing can touch the real home
 export BRAIN_DIR="$SANDBOX/brain"
 mkdir -p "$BRAIN_DIR/transcripts"
+export SB_DRAIN_QUIET_S=0         # R2-B eligibility: treat the fresh fixtures as settled
 # auto_improve/auto_maintain OFF: this test exercises ONLY the defer/escape +
 # stub-extraction path. Without this the drainer's default-ON cascade would fire
 # the real maintain-llm-drain → a live bwrap+claude -p on a host that has them.

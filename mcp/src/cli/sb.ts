@@ -7,12 +7,48 @@ import { episodicSearch, displaySnippet, foldServedSnippet } from '../tools/epis
 import { pinToUser } from '../tools/pin-to-user.js';
 import { pinToProject, type PinSection } from '../tools/pin-to-project.js';
 import { unprocessedCount } from '../tools/raw-inbox.js';
+import { resolveBashExe, toBashPath } from '../tools/dream.js';
 import { readConfig, patchConfig, buddyName, validName, renderCard, dropStaleIdentity, installStatusline, uninstallStatusline } from '../tools/buddy-config.js';
 import { fileURLToPath } from 'url';
 
 export interface SbDeps {
   brainDir: string;
   knowledgeDir: string;
+  /** Plugin tree holding scripts/lib.sh. Default: this file's own tree (src or dist alike are
+   *  three levels below it), so the bash accounting always matches the shipped TS. Tests inject
+   *  a tree without lib.sh to exercise the loud fallback. */
+  pluginRoot?: string;
+}
+
+// R2 (0.56.0): "which archives still hold unextracted lines" has ONE definition, lib.sh
+// sb_drain_cursor_map (line cursors over the done-set; see the R2 contract there). sb status runs
+// it through bash rather than re-deriving it here: the four hand-copied basename-set readers it
+// replaces drifted, and a source-scan lock (tests/test-extraction-helpers.sh) bans a new one.
+// Resolves to the TSV rows (basename cursor lines state ...) or a reason string. Bounded by a
+// SIGKILL timeout; never throws.
+function drainCursorMap(brainDir: string, pluginRoot: string): Promise<string[][] | string> {
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        resolveBashExe(),
+        ['-c', '. "$1/scripts/lib.sh" && sb_drain_cursor_map', 'sb-status', toBashPath(pluginRoot)],
+        {
+          env: { ...process.env, BRAIN_DIR: toBashPath(brainDir) },
+          timeout: 20000, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024, windowsHide: true,
+        },
+        (err, stdout, stderr) => {
+          if (err) {
+            const why = String(stderr || err.message).replace(/\s+/g, ' ').trim();
+            resolve(sanitizeField(why || 'bash failed'));
+            return;
+          }
+          resolve(String(stdout).split('\n').map(l => l.replace(/\r$/, '')).filter(Boolean).map(l => l.split('\t')));
+        },
+      );
+    } catch (e) {
+      resolve(sanitizeField((e as Error).message));
+    }
+  });
 }
 
 export interface SbResult {
@@ -237,27 +273,32 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
       const h = JSON.parse(await fs.readFile(hf, 'utf-8')) as { status?: string; reason?: string };
       push(`  drainer last ran:    ${age(st.mtimeMs)} (${sanitizeField(h.status ?? '?')}: ${sanitizeField(h.reason ?? '?')})`);
     } catch { push('  drainer last ran:    never (no .extractor-health.json)'); }
-    // Extraction done-set recency + transcript backlog (archived but not terminal).
+    // Extraction done-set recency + transcript backlog (archives holding unextracted lines).
     // The backlog row must render even when the done-set file is ABSENT — that is
     // the archived-but-never-drained state (a dead drainer), the exact case this
-    // section exists to expose; an absent done-set just means an empty done set.
-    const done = new Set<string>();
+    // section exists to expose; an absent done-set just means no cursor has moved.
     try {
       const stateRaw = await fs.readFile(join(deps.brainDir, '.extraction-state.jsonl'), 'utf-8');
       let newestTs = '';
       for (const l of stateRaw.split('\n').filter(Boolean)) {
         try {
-          const r = JSON.parse(l) as { basename?: string; ts?: string; outcome?: string };
+          const r = JSON.parse(l) as { ts?: string };
           if (r.ts && r.ts > newestTs) newestTs = r.ts;
-          if (r.basename && (r.outcome === 'ok' || r.outcome === 'error')) done.add(r.basename);
         } catch { /* one corrupt line must not blind the whole read */ }
       }
       push(`  last extraction:     ${newestTs ? sanitizeField(newestTs) : 'never'}`);
     } catch { push('  last extraction:     never (no .extraction-state.jsonl)'); }
     try {
-      const archived = (await fs.readdir(join(deps.brainDir, 'transcripts'))).filter(f => f.endsWith('.txt'));
-      const backlog = archived.filter(f => !done.has(f)).length;
-      push(`  transcript backlog:  ${backlog} of ${archived.length} archived`);
+      await fs.access(join(deps.brainDir, 'transcripts'));
+      const root = deps.pluginRoot ?? fileURLToPath(new URL('../../../', import.meta.url));
+      const map = await drainCursorMap(deps.brainDir, root);
+      if (typeof map === 'string') {
+        push(`  transcript backlog:  unknown (drain cursor map unavailable: ${map})`);
+      } else {
+        const pending = map.filter(r => r[3] === 'pending').length;
+        const dead = map.filter(r => r[3] === 'dead').length;
+        push(`  transcript backlog:  ${pending} of ${map.length} archived${dead ? ` (${dead} dead-lettered)` : ''}`);
+      }
     } catch { push('  transcript backlog:  no transcripts dir'); }
     // Scheduler shim — the universal registration signal (the per-OS timer check
     // lives in bash lib.sh; a missing shim means every fire fails silently).
