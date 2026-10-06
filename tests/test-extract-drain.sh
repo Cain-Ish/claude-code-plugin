@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for extract-drain.sh
-# run-all-timeout: 600   (~66 full drainer ticks by design since the R2-B delta-drain and R2-F scrub-migration cases; measured 233-302s on the MSYS dev box — see run-all.sh)
+# run-all-timeout: 840   (~76 full drainer ticks by design: the R2-B delta drain, the R2-F scrub migration and the 0.56.0 fix-round cases, one of them on the real extraction path; measured 233-302s on a quiet MSYS dev box before the fix round, 715s with two other implementers' suites running in parallel — see run-all.sh)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # pins: SB_DRAIN_QUIET_S — =0 treats the tiny fresh fixtures as settled; D7 + the too-small case set 3600 to test the gate itself
 # pins: SB_EXTRACT_MAX_BYTES — D8 shrinks the chunk cap so a 37-line fixture spans several forward chunks
@@ -635,8 +635,8 @@ eq "evicted+recreated: done after the tick" "$(cmap ev1_proj_2026-05-24.txt 2) $
 
 # D15: the REAL extraction path (no SB_EXTRACT_STUB: lib.sh sb_extract_transcript, the real
 # extract -> gate -> merge) with a fake `claude` on PATH that records every extractor input. HOME
-# and the knowledge dir are sandboxed: the real merge writes pages. One tick, several assertions
-# (each real pass costs seconds on MSYS).
+# and the knowledge dir are sandboxed: the real merge writes pages. One tick, one archive,
+# several assertions (each real pass costs seconds on MSYS).
 FAKEBIN="$SANDBOX/fakebin"; FCAP="$SANDBOX/fake-claude.in"; mkdir -p "$FAKEBIN" "$SANDBOX/fakehome" "$SANDBOX/fake-knowledge/wiki"
 cat > "$FAKEBIN/claude" <<EOF8
 #!/bin/bash
@@ -650,19 +650,20 @@ realdrain() {
     CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SANDBOX/fake-knowledge" "$@" bash "$DRAIN" >/dev/null 2>&1 || true
 }
 reset; rm -f "$FCAP"; : > "$SMARK"                         # the one-time migration is done
+# X2 S6 (p4): a 0.55 hook (no scrub) appended a key to the archive AFTER the migration marker.
+# Item 11: the archive spans several forward chunks at a 320 B cap and the extractor fails the
+# SECOND one (line 22 carries the marker). The drainer hands one chunk per call, so the merged
+# chunk gets its own ok row ending where it ended (not at the archive end) and only the failed
+# chunk is retried.
+KGHP="gh""p_$(printf 'Ab1%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
 mk_lines "rx1_proj_2026-05-24.txt" 3
+printf 'USER: deploy with %s\n' "$KGHP" >> "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt"   # line 11
+mk_lines "rx1_proj_2026-05-24.txt" 26                                                          # 37 lines
+sed -i.bak '22s/$/ FAILCHUNK/' "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt" && rm -f "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt.bak"
 # X2 S3: an observation ledger written before the write-time scrub holds keys in target/err
 mkdir -p "$BRAIN_DIR/observations"
 jq -nc --arg t "ANTHROPIC_API_KEY=$KANT claude -p hi" --arg e "Error: invalid x-api-key $KANT" \
   '{ts:"x",tool:"Bash",target:$t,ok:false,err:$e}' > "$BRAIN_DIR/observations/rx1.jsonl"
-# X2 S6 (p4): a 0.55 hook (no scrub) appended a key to the archive AFTER the migration marker
-KGHP="gh""p_$(printf 'Ab1%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
-printf 'USER: deploy with %s\n' "$KGHP" >> "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt"
-# Item 11: a multi-chunk archive (37 lines at a 320 B chunk cap) whose SECOND chunk the extractor
-# fails. The drainer hands one forward chunk per call, so the merged chunk gets its own ok row
-# ending where it ended (not at the archive end) and only the failed chunk is retried.
-mk_lines "rx2_proj_2026-05-24.txt" 30
-sed -i.bak '22s/$/ FAILCHUNK/' "$BRAIN_DIR/transcripts/rx2_proj_2026-05-24.txt" && rm -f "$BRAIN_DIR/transcripts/rx2_proj_2026-05-24.txt.bak"
 realdrain SB_EXTRACT_MAX_BYTES=320 SB_DRAIN_MAX_FAILS=3
 grep -q '=== OBSERVATIONS' "$FCAP" 2>/dev/null && ok "real path: the extractor received the observations section" \
   || no "real path: no extractor input recorded (got: $(head -c 300 "$FCAP" 2>/dev/null))"
@@ -672,22 +673,20 @@ grep -qF "$KGHP" "$FCAP" 2>/dev/null && no "real path: the extractor RECEIVED a 
   || ok "real path: an archive key appended after the marker is scrubbed before extraction"
 grep -qF "$KGHP" "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt" && no "real path: the archive at rest still holds the key" \
   || ok "real path: the archive at rest is scrubbed too"
-rows_for rx1_proj_2026-05-24.txt | grep -q '"outcome":"ok","from":0,"lines":11' \
-  && ok "real path: ok row (0,11]" || no "real path: ledger row (got: $(rows_for rx1_proj_2026-05-24.txt))"
-RX2_ROWS=$(rows_for rx2_proj_2026-05-24.txt)
-RX2_OK=$(printf '%s\n' "$RX2_ROWS" | jq -r 'select(.outcome == "ok") | "\(.from) \(.lines)"' 2>/dev/null | tr -d '\r')
-RX2_C1="${RX2_OK#* }"
-case "$RX2_OK" in
-  "0 "*) [ "$RX2_C1" -gt 7 ] && [ "$RX2_C1" -lt 22 ] \
-           && ok "partial: the merged first chunk's ok row ends at that chunk (0,$RX2_C1], not at the archive end" \
-           || no "partial: ok row bounds wrong (got: $RX2_OK)" ;;
-  *) no "partial: no single ok row from 0 for the merged chunk (got: $RX2_ROWS)" ;;
+RX_ROWS=$(rows_for rx1_proj_2026-05-24.txt)
+RX_OK=$(printf '%s\n' "$RX_ROWS" | jq -r 'select(.outcome == "ok") | "\(.from) \(.lines)"' 2>/dev/null | tr -d '\r')
+RX_C1="${RX_OK#* }"
+case "$RX_OK" in
+  "0 "*) [ "$RX_C1" -gt 11 ] && [ "$RX_C1" -lt 22 ] \
+           && ok "partial: the merged first chunk's ok row ends at that chunk (0,$RX_C1], not at the archive end" \
+           || no "partial: ok row bounds wrong (got: $RX_OK)" ;;
+  *) no "partial: no single ok row from 0 for the merged chunk (got: $RX_ROWS)" ;;
 esac
-printf '%s\n' "$RX2_ROWS" | jq -e --argjson c "${RX2_C1:-0}" 'select(.outcome == "retry" and .from == $c and .lines > $c)' >/dev/null 2>&1 \
+printf '%s\n' "$RX_ROWS" | jq -e --argjson c "${RX_C1:-0}" 'select(.outcome == "retry" and .from == $c and .lines > $c)' >/dev/null 2>&1 \
   && ok "partial: the failed chunk is a retry row starting where the merged one ended" \
-  || no "partial: retry row missing or misplaced (got: $RX2_ROWS)"
+  || no "partial: retry row missing or misplaced (got: $RX_ROWS)"
 eq "partial: the next tick resumes at the end of the merged chunk (cursor next state)" \
-  "$(cmap rx2_proj_2026-05-24.txt 2) $(cmap rx2_proj_2026-05-24.txt 5) $(cmap rx2_proj_2026-05-24.txt 4)" "$RX2_C1 $RX2_C1 pending"
+  "$(cmap rx1_proj_2026-05-24.txt 2) $(cmap rx1_proj_2026-05-24.txt 5) $(cmap rx1_proj_2026-05-24.txt 4)" "$RX_C1 $RX_C1 pending"
 rm -f "$SMARK"
 
 # D16 (X2 S5, p3): too-small is for a never-extracted archive only (cursor 0). A short final turn
@@ -759,11 +758,15 @@ EOF10
 PATH="$GSHIM:$PATH" sdrain
 [ ! -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub hold: an unexplained listing error writes neither a marker nor a list" \
   || no "scrub hold: an unexplained listing error was taken as complete ($(ls -a "$BRAIN_DIR" | grep archive-scrub | tr '\n' ' '))"
-# D17c: a to-do list that cannot be read is rebuilt (attempt counts restart) instead of holding all
-reset; rm -f "$SCAP" "$SMARK"
+# D17c: a to-do list that cannot be read is rebuilt (attempt counts restart) instead of holding all.
+# D17d rides the same tick (security review): the transcript copies already staged in dream dirs
+# are part of the list build, so the dream-runner's input is scrubbed by the migration too.
+reset; rm -f "$SCAP" "$SMARK"; rm -rf "$BRAIN_DIR/dreams"
 mk_lines "sc2_proj_2026-05-24.txt" 3
 mk_key "sc1_proj_2026-05-24.txt" 202605240000
 printf 'transcripts/sc1_proj_2026-05-24.txt\t2\n' > "$STODO"
+mkdir -p "$BRAIN_DIR/dreams/dr1/transcripts"
+printf 'USER: my key is %s\n' "$KANT" > "$BRAIN_DIR/dreams/dr1/transcripts/x1_proj_2026-05-24.txt"
 CSHIM="$SANDBOX/catshim"; mkdir -p "$CSHIM"; RCAT=$(command -v cat)
 printf '#!/bin/bash\ncase "$*" in *archive-scrub-v1.todo*) exit 1 ;; esac\nexec "%s" "$@"\n' "$RCAT" > "$CSHIM/cat"; chmod +x "$CSHIM/cat"
 PATH="$CSHIM:$PATH" sdrain
@@ -773,14 +776,8 @@ grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sc1_proj_2026-05-24.txt" && no "scrub
   || ok "scrub hold: the rebuilt list still scrubs the key-holding archive"
 [ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub hold: the rebuilt migration completes (marker, list removed)" \
   || no "scrub hold: the migration stalled on its unreadable list"
-# D17d (security review): transcript copies already staged in dream dirs are part of the migration
-reset; rm -f "$SCAP" "$SMARK" "$STODO"; rm -rf "$BRAIN_DIR/dreams"
-mkdir -p "$BRAIN_DIR/dreams/dr1/transcripts"
-printf 'USER: my key is %s\n' "$KANT" > "$BRAIN_DIR/dreams/dr1/transcripts/x1_proj_2026-05-24.txt"
-sdrain
 grep -qF 'sk-ant-' "$BRAIN_DIR/dreams/dr1/transcripts/x1_proj_2026-05-24.txt" && no "scrub-migrate: a dream dir's transcript copy still holds a key" \
-  || ok "scrub-migrate: a dream dir's transcript copy is scrubbed"
-[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub-migrate: the marker waits for the dream copies too" || no "scrub-migrate: marker state wrong with dream copies"
+  || ok "scrub-migrate: a dream dir's transcript copy is scrubbed before the marker is written"
 rm -rf "$BRAIN_DIR/dreams"
 
 # D12 (R2-F#3): a per-archive lock left by a writer that died is swept after a day; a live one stays
