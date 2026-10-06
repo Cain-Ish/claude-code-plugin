@@ -1597,8 +1597,152 @@ sb_sanitize_slug() {
   printf '%s' "$clean"
 }
 
-# Preprocess JSONL transcript lines on stdin into a compact text summary.
-# Shared by stop-extract.sh and pre-compact.sh.
+# --- Secret scrub (0.56.0, R2#3) ---
+# sb_scrub_secrets: stdin -> stdout filter. Redacts high-precision credential formats to
+# [redacted:<kind>]; sb_preprocess_transcript runs it on every window it renders, so the archive
+# AND the Stop/PreCompact extractor input are scrubbed. Formats, in match order:
+#   anthropic    sk-ant-[A-Za-z0-9_-]{20,}   (BEFORE the generic sk- form: run second, the generic
+#                one would stop at "-ant-" on a key glued after another and leave the rest)
+#   openai       sk-[A-Za-z0-9]{20,}         (not when glued to a longer identifier: task-/disk-
+#                ids end in an sk- run; the char before must not be [A-Za-z0-9_-])
+#   github       github_pat_[A-Za-z0-9_]{22,}, ghp_[A-Za-z0-9]{36}
+#   aws          AKIA[0-9A-Z]{16}
+#   slack        xox[abpr]-[A-Za-z0-9-]{10,}
+#   bearer       Bearer [A-Za-z0-9._~+/-]{20,}
+#   private-key  -----BEGIN <...>PRIVATE KEY----- blocks, PER LINE: the BEGIN line keeps its prefix
+#                (a `USER:` line must stay one: the episodic parser opens an exchange there), each
+#                body line becomes a marker, the END line becomes a marker and keeps its tail. A
+#                body line must look like key material (base64, a Proc-Type/DEK-Info header; a
+#                blank line is kept); any other line ends the block, so a key cut short (Bash
+#                commands are cut at 120 chars, thinking at 100) never swallows the window.
+# NOT matched, by design: OTP-like short codes (6-8 digit one-time codes are too ambiguous to
+# tell from ids, counts and dates), passwords, generic high-entropy strings, sk- runs under 20.
+# LINE COUNT IS INVARIANT: the archive_line cursor counts lines, so no line is joined or split,
+# a `\r` is kept, and an unterminated last line stays unterminated (awk cannot see a missing
+# final newline; an EOF sentinel appended after the input tells it). POSIX awk only: no {n,}
+# intervals (mawk 1.3.4-20200120, Debian/Ubuntu's default awk, lacks them; the runs are built in
+# BEGIN), no \b; LC_ALL=C keeps the classes ASCII. One cat + one awk per call, never per line.
+# Returns non-zero when either failed: the output must then not be used.
+sb_scrub_secrets() {
+  { cat; printf '\034sb-eof\034'; } | LC_ALL=C awk -v BINMODE=3 '
+    function rep(c, k,   r) { r = ""; while (k-- > 0) r = r c; return r }
+    function redact(s, i,   out, pc) {
+      out = ""
+      while (match(s, re[i])) {
+        pc = (RSTART > 1) ? substr(s, RSTART - 1, 1) : substr(out, length(out), 1)
+        if (bnd[i] && pc != "" && pc ~ /[A-Za-z0-9_-]/) {
+          out = out substr(s, 1, RSTART + length(lit[i]) - 1); s = substr(s, RSTART + length(lit[i])); continue
+        }
+        out = out substr(s, 1, RSTART - 1) "[redacted:" kind[i] "]"; s = substr(s, RSTART + RLENGTH)
+      }
+      return out s
+    }
+    BEGIN {
+      eof = "\034sb-eof\034"; el = length(eof); an = "[A-Za-z0-9]"; n = 0
+      n++; lit[n] = "sk-ant-";     kind[n] = "anthropic"; re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"
+      n++; lit[n] = "sk-";         kind[n] = "openai";    re[n] = lit[n] rep(an, 20) an "*"; bnd[n] = 1
+      n++; lit[n] = "github_pat_"; kind[n] = "github";    re[n] = lit[n] rep("[A-Za-z0-9_]", 22) "[A-Za-z0-9_]*"
+      n++; lit[n] = "ghp_";        kind[n] = "github";    re[n] = lit[n] rep(an, 36)
+      n++; lit[n] = "AKIA";        kind[n] = "aws";       re[n] = lit[n] rep("[0-9A-Z]", 16)
+      n++; lit[n] = "xox";         kind[n] = "slack";     re[n] = "xox[abpr]-" rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
+      n++; lit[n] = "Bearer ";     kind[n] = "bearer";    re[n] = lit[n] rep("[A-Za-z0-9._~+/-]", 20) "[A-Za-z0-9._~+/-]*"
+      pb = "-----BEGIN [A-Z ]*PRIVATE KEY-----"; pe = "-----END [A-Z ]*PRIVATE KEY-----"
+      pk = "[redacted:private-key]"; blank = "^[ \t]*$"
+      body = "^[ \t]*[A-Za-z0-9+/=]+[ \t]*$"; hdr = "^[ \t]*(Proc-Type|DEK-Info):"
+    }
+    {
+      line = $0; last = 0
+      if (length(line) >= el && substr(line, length(line) - el + 1) == eof) {
+        line = substr(line, 1, length(line) - el); last = 1
+        if (line == "") next
+      }
+      cr = ""
+      if (substr(line, length(line), 1) == "\r") { cr = "\r"; line = substr(line, 1, length(line) - 1) }
+      if (inpem) {
+        if (match(line, pe)) { line = pk substr(line, RSTART + RLENGTH); inpem = 0 }
+        else if (line ~ blank) { }
+        else if (line ~ body || line ~ hdr) line = pk
+        else inpem = 0
+      }
+      if (!inpem && match(line, pb)) {
+        pre = substr(line, 1, RSTART - 1); rest = substr(line, RSTART + RLENGTH)
+        if (match(rest, pe)) line = pre pk substr(rest, RSTART + RLENGTH)
+        else { line = pre pk; inpem = 1 }
+      }
+      for (i = 1; i <= n; i++) if (index(line, lit[i])) line = redact(line, i)
+      if (last) printf "%s", line cr
+      else print line cr
+    }'
+  local ps="${PIPESTATUS[*]}"
+  [ "$ps" = "0 0" ]
+}
+
+# sb_scrub_archive_file FILE: scrub an EXISTING archive in place (the one-time 0.56.0 migration;
+# the controller wires the call under the drain lock). The scrubbed copy is written next to FILE
+# (*.part: invisible to every *.txt reader) and renamed over it, so a reader sees the old or the
+# new file, never a partial one. The mtime is preserved with touch -r (the drainer's quiet-1-h
+# rule reads it) and the line count is checked unchanged. Idempotent: a file with nothing to
+# redact (or already scrubbed) is never rewritten, not even its inode. Stop hooks append WITHOUT
+# the drain lock, so the size is re-checked right before the rename and a file that grew is left
+# as it is (logged, retry later); the residual race is that one check-to-rename gap. Every
+# failure is logged and returns 1, and the scratch copy is always removed.
+sb_scrub_archive_file() {
+  local f="$1" tmp size0 size1 lc0 lc1 rc
+  if [ ! -f "$f" ]; then
+    sb_log_error "lib.sh" "sb_scrub_archive_file: not a regular file: $f" 1
+    return 1
+  fi
+  # Fast path: no credential literal anywhere means nothing the scrub could change (every format
+  # above starts with one of these, and a PEM body is only redacted after its BEGIN line).
+  LC_ALL=C grep -qF -e 'sk-' -e 'ghp_' -e 'github_pat_' -e 'AKIA' -e 'xox' -e 'Bearer ' -e 'PRIVATE KEY-----' "$f" 2>/dev/null
+  rc=$?
+  [ "$rc" -eq 1 ] && return 0
+  if [ "$rc" -ne 0 ]; then
+    sb_log_error "lib.sh" "sb_scrub_archive_file: cannot read $f (grep rc=$rc); not scrubbed" 1
+    return 1
+  fi
+  size0=$(wc -c < "$f" 2>/dev/null); size0="${size0//[!0-9]/}"
+  lc0=$(sb_line_count "$f")
+  tmp="$f.scrub-$$.part"
+  if ! sb_scrub_secrets < "$f" 2>/dev/null > "$tmp"; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: the scrub filter failed on $f; left as it is" 1
+    return 1
+  fi
+  if cmp -s "$f" "$tmp"; then
+    rm -f "$tmp" 2>/dev/null
+    return 0
+  fi
+  lc1=$(sb_line_count "$tmp")
+  if [ -z "$size0" ] || [ -z "$lc0" ] || [ "$lc0" != "$lc1" ]; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: line count would change (${lc0:-?} -> ${lc1:-?}) for $f; left as it is" 1
+    return 1
+  fi
+  if ! touch -r "$f" "$tmp" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: touch -r failed for $f; left as it is (the mtime must survive)" 1
+    return 1
+  fi
+  size1=$(wc -c < "$f" 2>/dev/null); size1="${size1//[!0-9]/}"
+  if [ "$size1" != "$size0" ]; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: $f changed during the scrub (${size0} -> ${size1:-?} bytes, a concurrent append); left as it is, retry later" 1
+    return 1
+  fi
+  if ! mv -f "$tmp" "$f" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: rename over $f failed; left as it is" 1
+    return 1
+  fi
+  return 0
+}
+
+# Preprocess JSONL transcript lines on stdin into a compact text summary, secret-scrubbed.
+# Shared by stop-extract.sh and pre-compact.sh (archive + extractor input) via
+# sb_archive_transcript. Returns 0; 2 when jq stopped early on an unparseable record (what it
+# rendered before that record is complete and scrubbed); 1 when the scrub failed (the output
+# must not be used).
 sb_preprocess_transcript() {
   jq -cr '
     if .type == "user" then
@@ -1627,39 +1771,128 @@ sb_preprocess_transcript() {
         else empty end
       )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
     else empty end
-  ' 2>/dev/null
+  ' 2>/dev/null | sb_scrub_secrets
+  local ps="${PIPESTATUS[*]}"
+  case "$ps" in
+    "0 0") return 0 ;;
+    *" 0") return 2 ;;
+    *)     return 1 ;;
+  esac
 }
 
 # --- Transcript archive helpers ---
-# Archive a preprocessed transcript window for dream mining.
-# Appends to an existing archive file for the same session (pre-compact
-# runs first, stop appends later), so the full session is captured.
-# Args: $1=transcript_path $2=slug $3=session_id $4=start_line $5=end_line $6=tool_count
+# Archive a preprocessed, secret-scrubbed transcript window for the drainer, dream mining and
+# episodic search. Appends to the session's archive (one file per session per day: pre-compact
+# and every Stop append to it), so the full session is captured. The append is CHECKED: the window
+# is rendered into a stage file first, and only a good render + append returns 0 (the caller's
+# raw_line cursor advances on that status alone). The archive ends with a newline afterwards (a
+# torn tail left by a crash is terminated before the append), so sb_line_count is exact.
+# Returns 0 on success, including a window that renders to nothing (no file is created for it);
+# 1 on a failure, logged. A jq stop on an unparseable record (sb_preprocess_transcript rc 2) still
+# appends what rendered before it and is logged: refusing it would stall the session's archive on
+# one corrupt line for good. The rest of that window after the corrupt line is not archived (as
+# before 0.56.0).
+# Args: $1=transcript_path $2=slug $3=session_id $4=start_line $5=end_line
+#       $6=tool_count for a new file's header (empty: count the window's tool_use calls)
 sb_archive_transcript() {
   local transcript="$1" slug="$2" session_id="$3"
-  local start_line="$4" end_line="$5" tool_count="$6"
+  local start_line="$4" end_line="$5" tool_count="${6:-}"
   local archive_dir="$BRAIN_DIR/transcripts"
-  mkdir -p "$archive_dir" 2>/dev/null || return 1
+  if ! mkdir -p "$archive_dir" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_transcript: cannot create $archive_dir; raw lines ${start_line}-${end_line} NOT archived (session=$session_id)" 1
+    return 1
+  fi
   local date_str
   date_str=$(date +%Y-%m-%d)
   local archive_file="$archive_dir/${session_id}_${slug}_${date_str}.txt"
+  local stage="$archive_dir/.stage-${session_id}-$$.part"
+
+  sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | sb_preprocess_transcript 2>/dev/null > "$stage"
+  local ps="${PIPESTATUS[*]}"
+  case "$ps" in
+    "0 0") ;;
+    "0 2") sb_log_error "lib.sh" "sb_archive_transcript: jq stopped on an unparseable record in raw lines ${start_line}-${end_line} of $transcript; archived the window up to it (session=$session_id)" 1 ;;
+    *) rm -f "$stage" 2>/dev/null
+       sb_log_error "lib.sh" "sb_archive_transcript: rendering raw lines ${start_line}-${end_line} of $transcript failed (sed|preprocess status $ps); NOT archived, the next hook retries (session=$session_id)" 1
+       return 1 ;;
+  esac
+  if [ ! -s "$stage" ]; then
+    rm -f "$stage" 2>/dev/null
+    return 0
+  fi
 
   if [ ! -f "$archive_file" ]; then
-    {
+    if [ -z "$tool_count" ]; then
+      tool_count=$(sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | jq -r '
+        select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | .name
+        | select((. // "") | endswith("buddy_react") | not)
+      ' 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    if ! {
       echo "--- session-meta ---"
       echo "session_id: $session_id"
       echo "project_slug: $slug"
       echo "date: $date_str"
-      echo "tool_count: $tool_count"
+      echo "tool_count: ${tool_count:-0}"
       echo "line_count: $((end_line - start_line + 1))"
       echo "---"
       echo ""
-    } > "$archive_file"
+    } 2>/dev/null > "$archive_file"; then
+      rm -f "$stage" 2>/dev/null
+      sb_log_error "lib.sh" "sb_archive_transcript: cannot write $archive_file; raw lines ${start_line}-${end_line} NOT archived (session=$session_id)" 1
+      return 1
+    fi
+  elif [ -n "$(tail -c 1 "$archive_file" 2>/dev/null)" ]; then
+    if ! printf '\n' 2>/dev/null >> "$archive_file"; then
+      rm -f "$stage" 2>/dev/null
+      sb_log_error "lib.sh" "sb_archive_transcript: cannot terminate the torn last line of $archive_file; raw lines ${start_line}-${end_line} NOT archived (session=$session_id)" 1
+      return 1
+    fi
   fi
-
-  sed -n "${start_line},${end_line}p" "$transcript" \
-    | sb_preprocess_transcript >> "$archive_file" 2>/dev/null
+  if ! cat "$stage" 2>/dev/null >> "$archive_file"; then
+    rm -f "$stage" 2>/dev/null
+    sb_log_error "lib.sh" "sb_archive_transcript: append to $archive_file failed; raw lines ${start_line}-${end_line} NOT archived, the next hook retries (session=$session_id)" 1
+    return 1
+  fi
+  rm -f "$stage" 2>/dev/null
   sb_prune_transcripts
+  return 0
+}
+
+# sb_archive_raw_window TRANSCRIPT SLUG SESSION_ID TOTAL MARKER_KEY — archive-first (0.56.0, R2#2),
+# the ONE helper stop-extract.sh and pre-compact.sh share. Appends the raw window (raw_line, TOTAL]
+# to the session archive before either hook gates on tool count or runs telemetry, JIT or the
+# merge, so every window reaches the archive (tool-count-zero windows too). The raw_line cursor is
+# .last-archived-line-<MARKER_KEY> = `<raw_line>\t<transcript path>`, the path normalized with
+# sb_normalize_path. Absent or unreadable: initialised from the legacy extraction marker
+# (.last-extracted-line-<MARKER_KEY>). A different transcript path, or a cursor past TOTAL (the
+# transcript was replaced or shrank): 0. The cursor advances only after a checked append.
+# Returns 0 when archived or there is nothing to do, 1 on a failure (already logged).
+sb_archive_raw_window() {
+  local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5"
+  local cursor_file raw_line="" saved_path="" tpath
+  case "$total" in ''|*[!0-9]*)
+    sb_log_error "lib.sh" "sb_archive_raw_window: transcript line count '$total' is not a number; nothing archived (session=$session_id)" 1
+    return 1 ;;
+  esac
+  [ -n "$key" ] || key=$(sb_extraction_marker_key "$slug" "$session_id")
+  cursor_file="$BRAIN_DIR/.last-archived-line-$key"
+  tpath=$(sb_normalize_path "$transcript")
+  [ -f "$cursor_file" ] && IFS=$'\t' read -r raw_line saved_path < "$cursor_file"
+  raw_line="${raw_line%$'\r'}"; saved_path="${saved_path%$'\r'}"
+  case "$raw_line" in
+    ''|*[!0-9]*) raw_line=$(sb_get_extraction_marker "$key"); saved_path="$tpath" ;;
+  esac
+  raw_line=$((10#$raw_line))
+  [ -z "$saved_path" ] || [ "$saved_path" = "$tpath" ] || raw_line=0
+  [ "$raw_line" -le "$total" ] || raw_line=0
+  [ "$raw_line" -lt "$total" ] || return 0
+  sb_archive_transcript "$transcript" "$slug" "$session_id" "$((raw_line + 1))" "$total" "" || return 1
+  if ! printf '%s\t%s\n' "$total" "$tpath" 2>/dev/null > "$cursor_file"; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot write $cursor_file; raw lines $((raw_line + 1))-${total} are archived but the cursor did not advance, so the next hook archives them again (session=$session_id)" 1
+    return 1
+  fi
+  return 0
 }
 
 # Archive a subagent's FINAL RESULT (not its full transcript) for dream mining +
@@ -1725,8 +1958,9 @@ sb_archive_subagent_result() {
 
   # Prune subagent archives under their OWN budget FIRST, so a busy multi-agent
   # session (hundreds of subagents) can never crowd main-session archives out of
-  # the shared 100-file cap. Oldest sub-*.txt by mtime are dropped beyond the cap.
-  local sub_cap="${SB_SUBAGENT_ARCHIVE_CAP:-50}"
+  # the shared 400-file cap. Oldest sub-*.txt by mtime are dropped beyond the cap.
+  # 200 keeps the half-of-the-shared-cap ratio (50 of 100 before 0.56.0).
+  local sub_cap="${SB_SUBAGENT_ARCHIVE_CAP:-200}"
   local sub_files sub_count
   # newest-first by mtime; delete everything past the cap. -printf is GNU; fall
   # back to a stat-based sort on BSD/macOS.
@@ -1874,8 +2108,9 @@ sb_write_generated_page() {
   } > "$tmp" 2>/dev/null && mv "$tmp" "$out" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
 }
 
-# Enforce transcript archive caps: 100 files max, 5MB total.
-# Deletes oldest files first, ranked by MTIME (see below — NOT by filename).
+# Enforce transcript archive caps: 400 files / 25 MB soft, 1200 files / 75 MB hard (0.56.0, R2#6:
+# was 100 / 5 MB, hard caps 3x the soft ones as before). Deletes oldest files first, ranked by
+# MTIME (see below — NOT by filename).
 sb_prune_transcripts() {
   local archive_dir="$BRAIN_DIR/transcripts"
   [ -d "$archive_dir" ] || return 0
@@ -1909,8 +2144,8 @@ sb_prune_transcripts() {
   # So: evict transcripts that were ALREADY extracted first — their knowledge is in the wiki, the
   # file is redundant. Un-mined transcripts are evicted only past a hard ceiling, and loudly.
   # Growth stays bounded either way (never unbounded, never silent).
-  local cap="${SB_TRANSCRIPT_CAP:-100}";       case "$cap"  in ''|*[!0-9]*) cap=100 ;; esac
-  local hard="${SB_TRANSCRIPT_HARD_CAP:-300}"; case "$hard" in ''|*[!0-9]*) hard=300 ;; esac
+  local cap="${SB_TRANSCRIPT_CAP:-400}";        case "$cap"  in ''|*[!0-9]*) cap=400 ;; esac
+  local hard="${SB_TRANSCRIPT_HARD_CAP:-1200}"; case "$hard" in ''|*[!0-9]*) hard=1200 ;; esac
   [ "$hard" -lt "$cap" ] && hard="$cap"
 
   # Done-set read ONCE. sb_extraction_done spawns jq per call; at 100+ files that is 100+ jq
@@ -1936,8 +2171,8 @@ sb_prune_transcripts() {
   # Git-Bash in the SAME 65,537..~65,650-byte window as a `<<<` here-string (measured on this
   # branch, bash 5.2.26 MSYS), and $files is every archive path, one per line — ~600-700
   # files at 90-110 B a line reach it (705 in test-transcript-archive's case). The hard cap is
-  # 300 by default, but SB_TRANSCRIPT_HARD_CAP raises it and a long BRAIN_DIR lengthens every
-  # line. This runs inside the Stop and SubagentStop hooks.
+  # 1200 by default (0.56.0), past that window, and SB_TRANSCRIPT_HARD_CAP raises it further while
+  # a long BRAIN_DIR lengthens every line. This runs inside the Stop and SubagentStop hooks.
   local _extracted="" _unmined="" _f
   while IFS= read -r _f; do
     [ -n "$_f" ] || continue
@@ -1992,12 +2227,12 @@ sb_prune_transcripts() {
 
   # TWO-TIER, exactly like the count cap above. An earlier revision applied only extracted-first
   # ORDERING here with no hard-ceiling GATE, which meant that once extracted files ran out the
-  # loop kept deleting un-mined transcripts down to the 5MB line — reproduced in review with ten
+  # loop kept deleting un-mined transcripts down to the soft byte line — reproduced in review with ten
   # never-extracted 600KB sessions (6MB, only 10 FILES, nowhere near either count cap): two were
   # destroyed. Transcripts are large, so the byte ceiling is reached long before the count one;
   # protecting un-mined data in the count path only was protection in name.
-  local _byte_cap="${SB_TRANSCRIPT_MAX_BYTES:-5242880}"
-  case "$_byte_cap" in ''|*[!0-9]*) _byte_cap=5242880 ;; esac
+  local _byte_cap="${SB_TRANSCRIPT_MAX_BYTES:-26214400}"
+  case "$_byte_cap" in ''|*[!0-9]*) _byte_cap=26214400 ;; esac
   local _byte_hard="${SB_TRANSCRIPT_MAX_BYTES_HARD:-$((_byte_cap * 3))}"
   case "$_byte_hard" in ''|*[!0-9]*) _byte_hard=$((_byte_cap * 3)) ;; esac
   [ "$_byte_hard" -lt "$_byte_cap" ] && _byte_hard="$_byte_cap"
