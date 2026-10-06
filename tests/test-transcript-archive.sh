@@ -585,6 +585,19 @@ D_SUB="$BRAIN_DIR/transcripts/sub-agdir_proj_$(date +%Y-%m-%d).txt"; mkdir -p "$
 grep -q 'short write' "$BRAIN_DIR/error-log.jsonl" && fail "subagent-write: a failed write was misreported as a short write"
 pass "subagent archive: a failed write is caught at the write, loud and non-zero"
 
+# A subagent's final result is archived as sub-*.txt, which the drainer extracts like any archive
+# and which the one-time migration scrub never revisits: it must be scrubbed on the way in, and the
+# size check must measure the scrubbed text (a redaction is shorter than the key).
+: > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_subagent_result agkey general-purpose proj sess 1 "use $K_ANT and $K_PROJ
+then done" || fail "subagent-scrub: archiving a result that holds keys returned non-zero"
+S_SUB="$BRAIN_DIR/transcripts/sub-agkey_proj_$(date +%Y-%m-%d).txt"
+grep -qE 'sk-ant-|sk-proj-' "$S_SUB" && fail "subagent-scrub: a key reached the subagent archive in clear"
+grep -q '^use \[redacted:anthropic\] and \[redacted:openai\]$' "$S_SUB" || fail "subagent-scrub: the result was not redacted in place: $(cat "$S_SUB")"
+grep -q '^then done$' "$S_SUB" || fail "subagent-scrub: the rest of the result was lost"
+[ ! -s "$BRAIN_DIR/error-log.jsonl" ] || fail "subagent-scrub: a clean scrubbed write logged an error: $(cat "$BRAIN_DIR/error-log.jsonl")"
+pass "subagent archive: the result is secret-scrubbed before it is written"
+
 # Archive lines rendered by jq carry a CR on hosts whose jq writes CRLF (jq 1.8 on Windows): count CR-blind.
 acount() { tr -d '\r' < "$1" | grep -c -- "$2"; }
 setup "raw-window"

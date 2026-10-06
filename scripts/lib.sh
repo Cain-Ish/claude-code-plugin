@@ -2020,6 +2020,16 @@ sb_archive_subagent_result() {
   slug="${slug//[[:cntrl:]]/}"
   tool_count="${tool_count//[[:cntrl:]]/}"
 
+  # Secret scrub (0.56.0): the drainer extracts sub-*.txt like any archive and the one-time
+  # migration scrub never revisits it, so the result is scrubbed on the way in, as every Stop
+  # window is. A scrub that fails archives nothing (sb_archive_transcript refuses the same way).
+  local scrubbed
+  if ! scrubbed=$(printf '%s' "$result" | sb_scrub_secrets); then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: the secret scrub failed — subagent result NOT archived (agent_id=$safe_aid)" 1
+    return 1
+  fi
+  result="$scrubbed"
+
   # The write is CHECKED, twice: the redirect's own status (unwritable dir, a directory
   # squatting on the name) and the written size, which must hold at least the result
   # text itself (${#result} counts characters, never more than its bytes) — a short
