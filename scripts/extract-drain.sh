@@ -8,7 +8,7 @@
 #   SB_DRAIN_MAX_FAILS  retries before a window is dead-lettered (default 3)
 #   SB_DRAIN_QUIET_S    an archive quiet this long (mtime) is settled (default 3600)
 #   SB_DRAIN_DELTA_MIN_BYTES  a LIVE archive is extracted once this much is new (default 4096)
-#   SB_DRAIN_MIN_BYTES  a settled tail smaller than this is marked done without an LLM call
+#   SB_DRAIN_MIN_BYTES  a settled, never-extracted archive smaller than this is marked done without an LLM call
 #                       (too-small, default 1024)
 #   SB_EXTRACT_STUB     test-only: path to a stub called instead of the real extractor, as
 #                       `$SB_EXTRACT_STUB <txt> <slug> <from> <to>` (archive lines (from, to]).
@@ -382,7 +382,8 @@ drain_scrub_migrate() {
 
 # --- First-tick migration + recreate purge (LLM-free, so it runs BEFORE the defer gate) --------
 # A legacy row (no `lines`) advances nothing. sb_drain_cursor_map flags each such archive:
-#   baseline    legacy ok, archive unchanged since the row (mtime <= ts+120 s): a cursor-baseline
+#   baseline    legacy ok, archive unchanged since the row (mtime <= ts, no forward slack: lines a
+#               live session appended after the row must be re-mined, X2 S7): a cursor-baseline
 #               row at the current line count, no LLM call;
 #   legacy-dead legacy error, unchanged: an error row over the whole archive, so it stays
 #               dead-lettered (never baselined: that would mark never-extracted lines done) and
@@ -466,9 +467,10 @@ case "$MAX_FAILS" in ''|*[!0-9]*) MAX_FAILS=3 ;; esac
 MAXB="${SB_EXTRACT_MAX_BYTES:-200000}";        case "$MAXB" in ''|*[!0-9]*) MAXB=200000 ;; esac
 QUIET_S="${SB_DRAIN_QUIET_S:-3600}";           case "$QUIET_S" in ''|*[!0-9]*) QUIET_S=3600 ;; esac
 DELTA_MIN="${SB_DRAIN_DELTA_MIN_BYTES:-4096}"; case "$DELTA_MIN" in ''|*[!0-9]*) DELTA_MIN=4096 ;; esac
-# Too-small (HOOK-5): a SETTLED tail whose body is tiny (e.g. a 378-byte workflow-subagent stub)
-# has nothing extractable. It gets an ok/too-small row covering it, without an LLM spawn and
-# without taking a batch slot, and stays on disk for episodic search.
+# Too-small (HOOK-5): a SETTLED, never-extracted archive whose body is tiny (e.g. a 378-byte
+# workflow-subagent stub) has nothing extractable. It gets an ok/too-small row covering it, without
+# an LLM spawn and without taking a batch slot, and stays on disk for episodic search. A tiny tail
+# AFTER extracted windows is extracted (X2 S5).
 MIN_BODY="${SB_DRAIN_MIN_BYTES:-1024}";        case "$MIN_BODY" in ''|*[!0-9]*) MIN_BODY=1024 ;; esac
 
 do_extract() {  # $1 = txt, $2 = slug, $3 = from, $4 = to (archive lines); honors the test stub
@@ -507,7 +509,11 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
   win=$(sb_archive_window "$tf" "$next" "$lines" "$MAXB") || continue   # vanished since the map
   read -r _hdr wbytes cend <<< "$win"
   if [ $(( DRAIN_NOW_S - mt )) -ge "$QUIET_S" ]; then
-    if [ "$wbytes" -eq 0 ] || [ "$wbytes" -lt "$MIN_BODY" ]; then
+    # too-small is for a NEVER-extracted archive (cursor 0, the 0.55 meaning: a stub with nothing
+    # to mine). A short settled tail after extracted windows is often the decision that closes the
+    # session: it goes to the extractor (X2 S5). An empty window (header only) is done either way.
+    case "$cur" in ''|*[!0-9]*) cur=0 ;; esac
+    if [ "$wbytes" -eq 0 ] || { [ "$cur" -eq 0 ] && [ "$wbytes" -lt "$MIN_BODY" ]; }; then
       drain_row ok too-small "$next" "$lines"
       continue
     fi

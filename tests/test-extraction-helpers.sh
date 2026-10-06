@@ -308,6 +308,18 @@ eq "dead letters come from the cursor map (e region + legacy i)" "$(sb_count_dra
 eq "counts: dead archives / windows / lines (e (9,13] + legacy i whole)" "$SB_DM_DEAD_ARCHIVES $SB_DM_DEAD_WINDOWS $SB_DM_DEAD_LINES" "2 2 13"
 eq "map: e dead columns" "$(mf "$MAP" e.txt 9) $(mf "$MAP" e.txt 10)" "1 4"
 
+# X2 S7 (p8): the legacy "unchanged" test had a FORWARD slack (mt <= ts + 120 s), so lines a live
+# session appended up to two minutes after a 0.55 ok row were baselined as extracted, never read.
+# Unchanged means mt <= ts. Fixed UTC stamps, no date arithmetic (BSD touch has no -d).
+S7D="$SANDBOX/s7"; mkdir -p "$S7D"
+mk_arch "$S7D/late.txt" 3; TZ=UTC touch -t 202601030001.30 "$S7D/late.txt"
+mk_arch "$S7D/early.txt" 3; TZ=UTC touch -t 202601022359.00 "$S7D/early.txt"
+printf '%s\n' '{"basename":"late.txt","ts":"2026-01-03T00:00:00Z","outcome":"ok"}' \
+  '{"basename":"early.txt","ts":"2026-01-03T00:00:00Z","outcome":"ok"}' > "$S7D/st.jsonl"
+S7M=$(sb_drain_cursor_map "$S7D/st.jsonl" "$S7D")
+eq "legacy: grown 90 s after the 0.55 row -> regrow, not baseline" "$(mf "$S7M" late.txt 8)" "regrow"
+eq "legacy: unchanged since the 0.55 row -> baseline" "$(mf "$S7M" early.txt 8)" "baseline"
+
 echo "=== R2-B: sb_archive_window ==="
 W="$SANDBOX/win.txt"; mk_arch "$W" 10            # header 7 lines, body lines 8..17 of 8 bytes each
 eq "window: whole body"          "$(sb_archive_window "$W" 0 17 1000)" "7 80 17"

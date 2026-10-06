@@ -3236,7 +3236,7 @@ def minus($o): reduce $o[] as $x ([.];
        | [.[] | minus($ok) | .[] | [.[0], ([.[1], $n] | min)] | select(.[1] > .[0])]) as $dead
     | (if ($R | any(hasl)) then null else ([$R[] | select(.outcome | IN("ok", "error"))] | last) end) as $lt
     | (if $lt == null then false
-       else ((($lt.ts | epoch)) as $t | $mt > 0 and $t > 0 and $mt <= ($t + 120)) end) as $same
+       else ((($lt.ts | epoch)) as $t | $mt > 0 and $t > 0 and $mt <= $t) end) as $same
     | if $n < $hi then {b: $b, cur: 0, n: $n, next: 0, fails: 0, mt: $mt, flag: "recreated"}
       elif $lt != null and $lt.outcome == "ok" then
         {b: $b, cur: 0, n: $n, next: 0, fails: $fails, mt: $mt, flag: (if $same then "baseline" else "regrow" end)}

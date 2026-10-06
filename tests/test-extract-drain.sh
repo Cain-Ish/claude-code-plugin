@@ -8,6 +8,7 @@
 # pins: SB_DRAIN_BATCH — D8/D8b/D9 size the per-tick extractor-call budget that is under test
 # pins: SB_DRAIN_FLOOR — D2 turns the deterministic floor off so MAX_FAILS yields the error row under test
 # pins: SB_DRAIN_MAX_FAILS — D2 fixes the dead-letter threshold the retry/error rows are asserted against
+# pins: SB_DRAIN_MIN_BYTES — 0 for the tiny legacy fixtures; D7 and D16 set 1024 to test the too-small gate itself
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
@@ -651,6 +652,17 @@ grep -qF 'ant-api03-' "$FCAP" 2>/dev/null && no "real path: the extractor RECEIV
 rows_for rx1_proj_2026-05-24.txt | grep -q '"outcome":"ok","from":0,"lines":10' \
   && ok "real path: ok row (0,10]" || no "real path: ledger row (got: $(rows_for rx1_proj_2026-05-24.txt))"
 rm -f "$SMARK"
+
+# D16 (X2 S5, p3): too-small is for a never-extracted archive only (cursor 0). A short final turn
+# after earlier windows were extracted (the decision that closes a session) must be extracted.
+reset; rm -f "$RLOG"
+mk_lines "ts1_proj_2026-05-24.txt" 3                       # 10 lines, extracted by an earlier tick
+printf '{"basename":"ts1_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":10}\n' > "$STATE"
+mk_lines "ts1_proj_2026-05-24.txt" 2; touch -t 202601010000 "$BRAIN_DIR/transcripts/ts1_proj_2026-05-24.txt"
+SB_DRAIN_QUIET_S=3600 SB_DRAIN_MIN_BYTES=1024 rdrain
+eq "short tail: the settled tail after extraction goes to the extractor" "$(rlast)" "ts1_proj_2026-05-24.txt 10 12"
+rows_for ts1_proj_2026-05-24.txt | grep -q 'too-small' && no "short tail: marked too-small without extraction" \
+  || ok "short tail: no too-small row after earlier extraction"
 
 # D13 (R2 fix X2#2): a cursor-map failure is not "nothing pending". A jq shim fails ONLY the map
 # program (the one that defines `epoch`); the tick must not write reconcile 0/0/0 nor health ok.
