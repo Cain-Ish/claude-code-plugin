@@ -2785,9 +2785,8 @@ sb_line_count() {
 # form printed nothing). A file that vanished between the caller's glob and this call is skipped.
 _sb_mtimes() {
   local o
-  o=$(stat -c '%Y %n' -- "$@" 2>/dev/null)
-  case "$o" in [0-9]*) printf '%s\n' "$o"; return 0 ;; esac
-  stat -f '%m %N' -- "$@" 2>/dev/null
+  o=$(stat -c '%Y %n' -- "$@" 2>/dev/null); case "$o" in [0-9]*) ;; *) o=$(stat -f '%m %N' -- "$@" 2>/dev/null) ;; esac
+  [ -z "$o" ] || printf '%s\n' "$o"
   return 0
 }
 
@@ -3139,7 +3138,7 @@ TMPL
   local cur="$from" win hdr wbytes cend start in_f out_f delta extract_merge_err
   while [ "$cur" -lt "$to" ]; do
     win=$(sb_archive_window "$txt" "$cur" "$to" "$maxb") || return 1
-    read -r hdr wbytes cend <<< "$win"
+    read -r hdr wbytes cend <<< "$win"   # <<<-bounded: three integers from sb_archive_window, < 40 B
     start="$cur"; [ "${hdr:-0}" -gt "$start" ] && start="$hdr"
     # Nothing but meta header left in the window: there is no body to extract.
     if [ "${wbytes:-0}" -eq 0 ] || [ "${cend:-0}" -le "$start" ]; then SB_EXTRACT_REACHED="$to"; break; fi
