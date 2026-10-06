@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
-import { atomicWriteJson } from './atomic-write.js';
+import { atomicWriteJsonStrict } from './atomic-write.js';
 import { join, basename, relative, isAbsolute } from 'path';
-import { embedTexts, cosineSimilarity, appendErrorLog, embeddingsOptedOut } from './embeddings.js';
+import { embedTexts, appendErrorLog, embeddingsOptedOut, EMBEDDING_DIM } from './embeddings.js';
 import { assertWithin } from '../path-guard.js';
 import { stripInvisible } from './sanitize.js';
 
@@ -82,7 +82,13 @@ interface Exchange {
   lineEnd: number;
 }
 
-interface IndexedExchange {
+/** One stored vector (R2#6, 0.56.0): `e8` holds the int8 components, base64, and `es` the
+ *  per-vector scale, so component i = es * int8[i]. A float JSON array cost ~8 KB of index text
+ *  per row, and the index is parsed on every prompt; this costs ~550 characters. */
+export interface CompactVector { e8: string; es: number }
+
+/** A row with no vector yet (the model was unavailable) has neither e8 nor es. */
+interface IndexedExchange extends Partial<CompactVector> {
   id: string;
   sessionId: string;
   project: string;
@@ -92,7 +98,62 @@ interface IndexedExchange {
   archivePath: string;
   lineStart: number;
   lineEnd: number;
-  embedding: number[];
+}
+
+/** A row as any writer stored it: before 0.56.0 the vector was a float array (`[]` = none). */
+type StoredExchange = IndexedExchange & { embedding?: unknown };
+
+/** Symmetric int8: es = max|x| / 127, component = round(x / es). Rounding error is at most es/2
+ *  per component; a NaN component stores as 0. A zero vector stores es = 0. */
+export function quantizeEmbedding(vec: ArrayLike<number>): CompactVector {
+  let maxAbs = 0;
+  for (let i = 0; i < vec.length; i++) {
+    const a = Math.abs(vec[i]);
+    if (a > maxAbs) maxAbs = a;
+  }
+  const es = maxAbs / 127;
+  const q = new Int8Array(vec.length);
+  if (es > 0) for (let i = 0; i < vec.length; i++) q[i] = Math.max(-127, Math.min(127, Math.round(vec[i] / es)));
+  return { e8: Buffer.from(q.buffer, q.byteOffset, q.byteLength).toString('base64'), es };
+}
+
+function decodeE8(e8: string): Int8Array {
+  const b = Buffer.from(e8, 'base64');
+  return new Int8Array(b.buffer, b.byteOffset, b.byteLength);
+}
+
+function dotDequantized(query: ArrayLike<number>, v: Int8Array, es: number): number {
+  let dot = 0;
+  const n = Math.min(query.length, v.length);
+  for (let i = 0; i < n; i++) dot += query[i] * v[i];
+  return dot * es;
+}
+
+/** The legacy score (embeddings.ts cosineSimilarity: a dot product, the model's vectors being
+ *  normalized) against the dequantized row vector. */
+export function embeddingSimilarity(query: ArrayLike<number>, row: CompactVector): number {
+  return dotDequantized(query, decodeE8(row.e8), row.es);
+}
+
+function hasVector(e: IndexedExchange): e is IndexedExchange & CompactVector {
+  return typeof e.e8 === 'string' && e.e8.length > 0;
+}
+
+/** A stored row in the current shape. A float row (a pre-0.56.0 writer) is quantized here, in
+ *  memory; the build that loaded it writes it back compact, so the migration runs once and needs
+ *  no model. A vector that is not EMBEDDING_DIM finite components is dropped (`dropped`, so the
+ *  build can log it) and its row re-embeds like any row without one. */
+function currentRow(stored: StoredExchange): { row: IndexedExchange; dropped: boolean } {
+  const { embedding, e8, es, ...row } = stored;
+  if (typeof e8 === 'string' && e8) {
+    const ok = typeof es === 'number' && Number.isFinite(es) && es >= 0 && decodeE8(e8).length === EMBEDDING_DIM;
+    return ok ? { row: { ...row, e8, es }, dropped: false } : { row, dropped: true };
+  }
+  if (Array.isArray(embedding) && embedding.length > 0) {
+    const ok = embedding.length === EMBEDDING_DIM && embedding.every(x => typeof x === 'number' && Number.isFinite(x));
+    return ok ? { row: { ...row, ...quantizeEmbedding(embedding) }, dropped: false } : { row, dropped: true };
+  }
+  return { row, dropped: false };
 }
 
 /** Per-file index state. A bare string is the pre-version format (parser 1): re-parsed. */
@@ -401,17 +462,18 @@ const emptyIndex = (): EpisodicIndex => ({ model: 'Xenova/all-MiniLM-L6-v2', ind
 /** A missing index is the normal first run. Anything else that cannot be used (unreadable,
  *  unparseable, or without an exchanges array) is reset to empty AND logged: the next build
  *  re-indexes every archive, and the reset must not pass for a healthy empty index. A missing or
- *  malformed `indexed_files` only means "re-parse every file", so it is normalized to {}. */
-async function loadIndex(brainDir: string): Promise<EpisodicIndex> {
+ *  malformed `indexed_files` only means "re-parse every file", so it is normalized to {}.
+ *  Rows come back in the current shape (currentRow); `dropped` counts unusable stored vectors. */
+async function loadIndex(brainDir: string): Promise<{ index: EpisodicIndex; dropped: number }> {
   const indexPath = join(brainDir, INDEX_FILE);
   let data: string;
   try {
     data = await fs.readFile(indexPath, 'utf-8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return emptyIndex();
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { index: emptyIndex(), dropped: 0 };
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`);
-    return emptyIndex();
+    return { index: emptyIndex(), dropped: 0 };
   }
   let parsed: unknown;
   try {
@@ -419,24 +481,45 @@ async function loadIndex(brainDir: string): Promise<EpisodicIndex> {
   } catch (e) {
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`);
-    return emptyIndex();
+    return { index: emptyIndex(), dropped: 0 };
   }
-  const o = parsed as Partial<EpisodicIndex> | null;
+  const o = parsed as { model?: unknown; indexed_files?: unknown; exchanges?: unknown } | null;
   if (!o || typeof o !== 'object' || Array.isArray(o) || !Array.isArray(o.exchanges)) {
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} has no exchanges array`);
-    return emptyIndex();
+    return { index: emptyIndex(), dropped: 0 };
   }
   const files = o.indexed_files;
+  let dropped = 0;
+  const exchanges = (o.exchanges as StoredExchange[]).map(stored => {
+    const r = currentRow(stored);
+    if (r.dropped) dropped++;
+    return r.row;
+  });
   return {
-    model: typeof o.model === 'string' ? o.model : emptyIndex().model,
-    indexed_files: files && typeof files === 'object' && !Array.isArray(files) ? files : {},
-    exchanges: o.exchanges,
+    index: {
+      model: typeof o.model === 'string' ? o.model : emptyIndex().model,
+      indexed_files: files && typeof files === 'object' && !Array.isArray(files) ? files as EpisodicIndex['indexed_files'] : {},
+      exchanges,
+    },
+    dropped,
   };
 }
 
+/** The build is the index's ONLY writer. A search never writes, not even the format migration:
+ *  the builder holds no lock, so a search that loaded before a build saved and wrote after it would
+ *  drop the build's new rows. tmp + rename, so a crash or a failed write leaves the previous file
+ *  whole (a legacy float index stays readable and the next build retries); the failure is logged,
+ *  not thrown, because the CLI runs in the Stop and PreCompact hooks. */
 async function saveIndex(brainDir: string, index: EpisodicIndex): Promise<void> {
-  await atomicWriteJson(join(brainDir, INDEX_FILE), index);
+  const indexPath = join(brainDir, INDEX_FILE);
+  try {
+    await atomicWriteJsonStrict(indexPath, index);
+  } catch (e) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `episodic index write failed: ${indexPath} (${e instanceof Error ? e.message : String(e)}); `
+      + 'the previous index is kept and the next build retries');
+  }
 }
 
 export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: number; total: number; repaired: number; pending: number }> {
@@ -449,7 +532,11 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     return { indexed: 0, total: 0, repaired: 0, pending: 0 };
   }
 
-  const index = await loadIndex(brainDir);
+  const { index, dropped } = await loadIndex(brainDir);
+  if (dropped > 0) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `${dropped} stored vector(s) not ${EMBEDDING_DIM} components were dropped from the episodic index; those rows re-embed`);
+  }
   const newExchanges: Exchange[] = [];
   const reparsed: Record<string, string> = {};
   // Rows of re-parsed files, by id, captured before they are dropped: a row whose stored text
@@ -488,7 +575,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     // The vector embeds exactly these two snippets, so equal text means the old vector is valid.
     const old = previous.get(e.id);
     const carried = old && old.userSnippet === userSnippet && old.assistantSnippet === assistantSnippet
-      && Array.isArray(old.embedding) && old.embedding.length > 0 ? old.embedding : [];
+      && hasVector(old) ? { e8: old.e8, es: old.es } : {};
     index.exchanges.push({
       id: e.id,
       sessionId: e.sessionId,
@@ -499,7 +586,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
       archivePath: e.archivePath,
       lineStart: e.lineStart,
       lineEnd: e.lineEnd,
-      embedding: carried,
+      ...carried,
     });
   }
 
@@ -509,7 +596,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   // against a hash of the exact text: an unchanged row is served from the cache (no model call),
   // a row whose text changed (e.g. cleaned by a parser bump) misses and re-embeds once.
   // episodic-reembed.test.ts locks both halves.
-  const needsEmbed = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0);
+  const needsEmbed = index.exchanges.filter(e => !hasVector(e));
   let repaired = 0;
   if (needsEmbed.length > 0) {
     const texts = needsEmbed.map(r => `${r.userSnippet}\n${r.assistantSnippet}`.slice(0, EMBEDDING_TEXT_CAP));
@@ -517,8 +604,10 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     const embeddings = await embedTexts(texts, join(brainDir, 'transcripts'), paths);
     if (embeddings) {
       for (let i = 0; i < needsEmbed.length; i++) {
-        if (embeddings[i] && embeddings[i].length > 0) {
-          needsEmbed[i].embedding = embeddings[i];
+        // Only a full vector is stored: loadIndex drops any other length, so storing one would
+        // drop and re-embed it on every build.
+        if (embeddings[i] && embeddings[i].length === EMBEDDING_DIM) {
+          Object.assign(needsEmbed[i], quantizeEmbedding(embeddings[i]));
           repaired++;
         }
       }
@@ -537,7 +626,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   }
 
   await saveIndex(brainDir, index);
-  const pending = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0).length;
+  const pending = index.exchanges.filter(e => !hasVector(e)).length;
   // Rows without a vector are invisible to vector recall; say so, unless the user opted out of
   // embeddings (an acknowledged choice, which episodic-index.test.ts keeps out of the error log).
   if (pending > 0 && !embeddingsOptedOut()) {
@@ -549,7 +638,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
 }
 
 export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string): Promise<EpisodicSearchResult> {
-  const index = await loadIndex(brainDir);
+  const { index } = await loadIndex(brainDir);
   if (index.exchanges.length === 0) return { results: [] };
 
   const limit = Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
@@ -613,7 +702,7 @@ async function vectorSearch(
   filters: EpisodicSearchArgs, brainDir: string
 ): Promise<{ hits: (IndexedExchange & { similarity: number })[]; unavailable: boolean }> {
   const filtered = applyFilters(index.exchanges, filters);
-  const withEmbeddings = filtered.filter(e => e.embedding.length > 0);
+  const withEmbeddings = filtered.filter(hasVector);
   // unavailable = vector search COULD have matched but can't run (no vectors /
   // no model); an empty filter result is not a degradation (R2.3).
   if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
@@ -626,7 +715,7 @@ async function vectorSearch(
 
   return {
     hits: withEmbeddings
-      .map(e => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) }))
+      .map(e => ({ ...e, similarity: embeddingSimilarity(qVec, e) }))
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, limit),
     unavailable: false,
@@ -677,7 +766,7 @@ async function multiConceptSearch(
   // came from a hermetic/test dir — the exact leak class R2.2 closed.
 
   const filtered = applyFilters(index.exchanges, filters);
-  const withEmbeddings = filtered.filter(e => e.embedding.length > 0);
+  const withEmbeddings = filtered.filter(hasVector);
   // Multi-concept search is vector-only: no embeddings = honestly degraded, not
   // silently empty (R2.3). An empty FILTER result is not a degradation (I6).
   if (withEmbeddings.length === 0) {
@@ -693,7 +782,8 @@ async function multiConceptSearch(
 
   // Score each exchange against all concepts
   const scored = withEmbeddings.map(e => {
-    const similarities = conceptEmbeddings.map(cv => cosineSimilarity(cv, e.embedding));
+    const v = decodeE8(e.e8);
+    const similarities = conceptEmbeddings.map(cv => dotDequantized(cv, v, e.es));
     const minSim = Math.min(...similarities);
     const avgSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
     return { ...e, similarity: avgSim, minSimilarity: minSim };

@@ -3,7 +3,7 @@ import { join } from 'path';
 import { resolveBrainDir } from '../brain-paths.js';
 import { atomicWriteJson } from './atomic-write.js';
 
-const EMBEDDING_DIM = 384;
+export const EMBEDDING_DIM = 384;
 const CACHE_FILE = '.embeddings-cache.json';
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const DISABLE_ENV = 'SECOND_BRAIN_DISABLE_EMBEDDINGS';

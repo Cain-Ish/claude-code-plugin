@@ -336,12 +336,14 @@ via node junction; details in sb-failure-archaeology.)
 
 ### 7.3 Episodic index coverage
 
-Exchanges in `~/.second-brain/episodic-index.json` lacking an `embedding` are
-text-searchable only (backfilled at the next session-end extraction once deps link):
+Exchanges in `~/.second-brain/episodic-index.json` lacking a vector are
+text-searchable only (backfilled at the next session-end extraction once deps link). Since 0.56.0 a
+vector is `e8` (int8 components, base64) + `es` (scale); an index the 0.56.0 build has not rewritten
+yet still holds float `embedding` arrays, so the check reads both:
 
 ```bash
 jq -r '(.exchanges|length) as $t
-  | ([.exchanges[] | select((.embedding|length) > 0)] | length) as $e
+  | ([.exchanges[] | select(((.e8 // .embedding // "") | length) > 0)] | length) as $e
   | if $t == 0 then "no exchanges indexed yet"
     else "Embeddings coverage: \($e)/\($t) (\(($e*100/$t)|floor)%)" end' ~/.second-brain/episodic-index.json
 ```
