@@ -714,4 +714,59 @@ fi
 chmod u+w "$A5"
 pass "raw-window: empty window is a no-op, a render-nothing window advances without a file, a failed append keeps the cursor"
 
+# === fix round (0.56.0) item 1: the raw_line cursor never passes content that was not archived ===
+# jq stopped at the first unparseable record, the window "archived" only what came before it, and the
+# cursor jumped to TOTAL: every record after a corrupt one was lost for good.
+setup "raw-corrupt"
+T="$TMP/raw-corrupt/t.jsonl"; A="$BRAIN_DIR/transcripts/c1_proj_$(date +%Y-%m-%d).txt"
+printf '%s\n' '{"type":"user","message":{"content":"before the bad record"}}' '{"type":"user","mess' \
+  '{"type":"user","message":{"content":"after the bad record"}}' \
+  '{"type":"assistant","message":{"content":[{"type":"text","text":"still here"}]}}' > "$T"
+: > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_raw_window "$T" proj c1 4 proj--c1 || fail "raw-corrupt: a window with one corrupt record returned non-zero"
+[ "$(acount "$A" '^USER: after the bad record$')" -eq 1 ] || fail "raw-corrupt: the record after the corrupt one was not archived"
+[ "$(acount "$A" '^  still here$')" -eq 1 ] || fail "raw-corrupt: the last record of the window was not archived"
+[ "$(acount "$A" '^USER: before the bad record$')" -eq 1 ] || fail "raw-corrupt: the record before the corrupt one was not archived"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c1")" = 4 ] || fail "raw-corrupt: the cursor did not land on 4"
+grep -q 'skipped 1 unrenderable record.*raw line(s) [2]' "$BRAIN_DIR/error-log.jsonl" || fail "raw-corrupt: the skipped record was not logged with its raw line: $(cat "$BRAIN_DIR/error-log.jsonl")"
+grep -q 'while parsing\|Unfinished' "$BRAIN_DIR/error-log.jsonl" && fail "raw-corrupt: the log carries jq's message text (it quotes the record, which can hold a key)"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '*.part')" ] || fail "raw-corrupt: a stage or stderr scratch file was left behind"
+# a window whose only record is unparseable renders nothing WITH an error: a failure, never "nothing to do"
+printf '%s\n' '{"type":"user","message":{"cont' > "$T.bad"; : > "$BRAIN_DIR/error-log.jsonl"
+( sb_archive_raw_window "$T.bad" proj c5 1 proj--c5 ) && fail "raw-corrupt: an all-corrupt window returned 0"
+[ ! -e "$BRAIN_DIR/.last-archived-line-proj--c5" ] || fail "raw-corrupt: the cursor advanced over a window that rendered nothing but errors"
+grep -q 'sb_archive_transcript' "$BRAIN_DIR/error-log.jsonl" || fail "raw-corrupt: the all-corrupt window was not logged"
+pass "raw-window: a corrupt record is skipped and logged, the records after it are archived; an all-error window keeps the cursor"
+
+# Stop can read the transcript while its last record is half flushed. That line is not complete
+# (no newline yet): the cursor stops before it, and the next hook archives it whole.
+setup "raw-torn"
+T="$TMP/raw-torn/t.jsonl"; A="$BRAIN_DIR/transcripts/c2_proj_$(date +%Y-%m-%d).txt"
+make_transcript "$T" 2
+printf '%s' '{"type":"user","message":{"content":"half fl' >> "$T"
+sb_archive_raw_window "$T" proj c2 "$(awk 'END { print NR }' "$T")" proj--c2 || fail "raw-torn: a window ending in a half-flushed record returned non-zero"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c2")" = 2 ] || fail "raw-torn: the cursor passed the unterminated last line ($(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c2"))"
+printf '%s\n' 'ushed"}}' >> "$T"
+sb_archive_raw_window "$T" proj c2 "$(awk 'END { print NR }' "$T")" proj--c2 || fail "raw-torn: the completed record returned non-zero"
+[ "$(acount "$A" '^USER: half flushed$')" -eq 1 ] || fail "raw-torn: the record that was half flushed at the last Stop was never archived"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c2")" = 3 ] || fail "raw-torn: the cursor did not reach 3 once the line was complete"
+pass "raw-window: an unterminated last raw line is not consumed; it is archived once complete"
+
+# jq missing (127) or killed (137): nothing rendered is a failure, the cursor stays, no header-only
+# archive is created, and it is logged. The shadow fails only the render (`jq -R`, it drains stdin
+# so the status is jq's own); sb_log_error's own jq call still works.
+setup "raw-nojq"
+T="$TMP/raw-nojq/t.jsonl"; make_transcript "$T" 4
+for st in 127 137; do
+  : > "$BRAIN_DIR/error-log.jsonl"
+  ( jq() { case "$1" in -R) cat > /dev/null; return "$st" ;; esac; command jq "$@"; }
+    sb_archive_raw_window "$T" proj c3 4 proj--c3 ) && fail "raw-nojq[$st]: a window that jq never rendered returned 0"
+  [ ! -e "$BRAIN_DIR/.last-archived-line-proj--c3" ] || fail "raw-nojq[$st]: the cursor advanced over a window jq never rendered"
+  [ -z "$(find "$BRAIN_DIR/transcripts" -name 'c3_*')" ] || fail "raw-nojq[$st]: an archive was created from nothing"
+  grep -q 'sb_archive_transcript' "$BRAIN_DIR/error-log.jsonl" || fail "raw-nojq[$st]: the failed render was not logged"
+done
+sb_archive_raw_window "$T" proj c3 4 proj--c3 || fail "raw-nojq: the retry with jq back returned non-zero"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c3")" = 4 ] || fail "raw-nojq: the retry did not archive the window"
+pass "raw-window: jq missing or killed keeps the cursor (logged); the next hook archives the window"
+
 echo "ALL PASS"

@@ -1854,11 +1854,18 @@ _sb_scrub_archive_locked() {  # sb_scrub_archive_file's body; the caller holds t
 
 # Preprocess JSONL transcript lines on stdin into a compact text summary, secret-scrubbed.
 # Shared by stop-extract.sh and pre-compact.sh (archive + extractor input) via
-# sb_archive_transcript. Returns 0; 2 when jq stopped early on an unparseable record (what it
-# rendered before that record is complete and scrubbed); 1 when the scrub failed (the output
-# must not be used).
+# sb_archive_transcript. Each raw line is parsed on its own (`jq -R` + fromjson): a record that
+# does not parse (corrupt, or half flushed) or does not render is SKIPPED and the rest of the
+# window still renders (jq stopping at the first bad record lost everything after it). jq writes
+# one "jq: error (at <stdin>:N)" row per skipped record to stderr, which goes to $1 (default
+# /dev/null). jq's exit status is that of the LAST record only (measured, 1.7.1 and 1.8.1), so
+# those rows are the skip signal, never the status. Returns 0; 2 when records were skipped (seen
+# only with $1 given; the output holds every other record, complete and scrubbed); 1 when jq or
+# the scrub failed (jq missing, killed, any jq status but 0 or 5): the output must not be used.
+# Args: [$1 = file for jq's stderr]
 sb_preprocess_transcript() {
-  jq -cr '
+  local errf="${1:-/dev/null}"
+  jq -R -r 'select(. != "" and . != "\r") | fromjson |
     if .type == "user" then
       if (.message.content | type) == "string" then
         "USER: " + .message.content
@@ -1885,13 +1892,14 @@ sb_preprocess_transcript() {
         else empty end
       )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
     else empty end
-  ' 2>/dev/null | sb_scrub_secrets
+  ' 2>"$errf" | sb_scrub_secrets
   local ps="${PIPESTATUS[*]}"
   case "$ps" in
-    "0 0") return 0 ;;
-    *" 0") return 2 ;;
-    *)     return 1 ;;
+    "0 0"|"5 0") ;;
+    *) return 1 ;;
   esac
+  [ "$errf" != /dev/null ] && [ -s "$errf" ] && return 2
+  return 0
 }
 
 # --- Transcript archive helpers ---
@@ -1901,11 +1909,12 @@ sb_preprocess_transcript() {
 # is rendered into a stage file first, and only a good render + append returns 0 (the caller's
 # raw_line cursor advances on that status alone). The archive ends with a newline afterwards (a
 # torn tail left by a crash is terminated before the append), so sb_line_count is exact.
-# Returns 0 on success, including a window that renders to nothing (no file is created for it);
-# 1 on a failure, logged. A jq stop on an unparseable record (sb_preprocess_transcript rc 2) still
-# appends what rendered before it and is logged: refusing it would stall the session's archive on
-# one corrupt line for good. The rest of that window after the corrupt line is not archived (as
-# before 0.56.0).
+# Returns 0 on success, including a window that renders to nothing without an error (no file is
+# created for it); 1 on a failure, logged: the render failed (jq missing or killed, the scrub
+# failed), or rendered nothing while jq reported errors. A record jq cannot parse or render is
+# skipped and logged with its raw line number (never jq's message: it quotes the record, which
+# can hold a key); every other record of the window is archived, so one corrupt line can neither
+# stall the session's archive nor take the rest of the window with it.
 # Args: $1=transcript_path $2=slug $3=session_id $4=start_line $5=end_line
 #       $6=tool_count for a new file's header (empty: count the window's tool_use calls)
 sb_archive_transcript() {
@@ -1919,24 +1928,39 @@ sb_archive_transcript() {
   local date_str
   date_str=$(date +%Y-%m-%d)
   local archive_file="$archive_dir/${session_id}_${slug}_${date_str}.txt"
-  local stage="$archive_dir/.stage-${session_id}-$$.part"
+  # Scratch files end in .part: invisible to every *.txt reader, swept when a killed hook leaves them.
+  local stage="$archive_dir/.stage-${session_id}-$$.part" errf="$archive_dir/.stage-${session_id}-$$.err.part"
 
-  sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | sb_preprocess_transcript 2>/dev/null > "$stage"
-  local ps="${PIPESTATUS[*]}"
+  sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | sb_preprocess_transcript "$errf" > "$stage"
+  local ps="${PIPESTATUS[*]}" skipped
   case "$ps" in
     "0 0") ;;
-    "0 2") sb_log_error "lib.sh" "sb_archive_transcript: jq stopped on an unparseable record in raw lines ${start_line}-${end_line} of $transcript; archived the window up to it (session=$session_id)" 1 ;;
-    *) rm -f "$stage" 2>/dev/null
-       sb_log_error "lib.sh" "sb_archive_transcript: rendering raw lines ${start_line}-${end_line} of $transcript failed (sed|preprocess status $ps); NOT archived, the next hook retries (session=$session_id)" 1
+    "0 2")
+      # "jq: error (at <stdin>:N)" rows -> count + the first raw line numbers (window offset added)
+      skipped=$(awk -v off="$((start_line - 1))" '
+        match($0, /^jq: error \(at [^)]*:[0-9]+\)/) {
+          s = substr($0, 1, RLENGTH - 1); sub(/.*:/, "", s); n++
+          if (n <= 5) l = l (n > 1 ? " " : "") (s + off)
+        }
+        END { printf "%d|%s", n, l }' "$errf" 2>/dev/null)
+      if [ ! -s "$stage" ]; then
+        rm -f "$stage" "$errf" 2>/dev/null
+        sb_log_error "lib.sh" "sb_archive_transcript: raw lines ${start_line}-${end_line} of $transcript rendered nothing and jq reported ${skipped%%|*} unrenderable record(s) at raw line(s) ${skipped#*|}; NOT archived, the next hook retries (session=$session_id)" 1
+        return 1
+      fi
+      sb_log_error "lib.sh" "sb_archive_transcript: skipped ${skipped%%|*} unrenderable record(s) (corrupt or half-written JSON) at raw line(s) ${skipped#*|} of raw lines ${start_line}-${end_line} of $transcript; the rest of the window is archived (session=$session_id)" 1 ;;
+    *) rm -f "$stage" "$errf" 2>/dev/null
+       sb_log_error "lib.sh" "sb_archive_transcript: rendering raw lines ${start_line}-${end_line} of $transcript failed (sed|preprocess status $ps: jq missing or killed, or the scrub failed); NOT archived, the next hook retries (session=$session_id)" 1
        return 1 ;;
   esac
   if [ ! -s "$stage" ]; then
-    rm -f "$stage" 2>/dev/null
+    rm -f "$stage" "$errf" 2>/dev/null
     return 0
   fi
-  # A new file's header tool count is computed before the lock (it reads the raw transcript only).
+  # A new file's header tool count is computed before the lock (it reads the raw transcript only;
+  # a record that does not parse is skipped, as in the render).
   if [ ! -f "$archive_file" ] && [ -z "$tool_count" ]; then
-    tool_count=$(sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | jq -r '
+    tool_count=$(sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | jq -R -r 'fromjson? |
       select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | .name
       | select((. // "") | endswith("buddy_react") | not)
     ' 2>/dev/null | wc -l | tr -d ' ')
@@ -1947,14 +1971,14 @@ sb_archive_transcript() {
   # in the scrub's rename window and be renamed away. A lock still held after the bounded wait is
   # a failure (logged by sb_archive_lock): the raw_line cursor stays and the next hook retries.
   if ! sb_archive_lock "$archive_file" sb_archive_transcript; then
-    rm -f "$stage" 2>/dev/null
+    rm -f "$stage" "$errf" 2>/dev/null
     return 1
   fi
   local rc=0
   _sb_archive_append_locked "$archive_file" "$stage" "$slug" "$session_id" "$date_str" \
     "$start_line" "$end_line" "$tool_count" || rc=1
   sb_archive_unlock "$archive_file"
-  rm -f "$stage" 2>/dev/null
+  rm -f "$stage" "$errf" 2>/dev/null
   [ "$rc" -eq 0 ] || return 1
   sb_prune_transcripts
   return 0
@@ -2004,11 +2028,14 @@ _sb_archive_append_locked() {
 # .last-archived-line-<MARKER_KEY> = `<raw_line>\t<transcript path>`, the path normalized with
 # sb_normalize_path. Absent or unreadable: initialised from the legacy extraction marker
 # (.last-extracted-line-<MARKER_KEY>). A different transcript path, or a cursor past TOTAL (the
-# transcript was replaced or shrank): 0. The cursor advances only after a checked append.
+# transcript was replaced or shrank): 0. The window ends at the last COMPLETE raw line (newline
+# count, at most TOTAL): Stop can read the transcript while its last record is half flushed, and
+# a cursor past that line would skip the record for good; it is archived whole by the next hook.
+# The cursor advances only after a checked append.
 # Returns 0 when archived or there is nothing to do, 1 on a failure (already logged).
 sb_archive_raw_window() {
   local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5"
-  local cursor_file raw_line="" saved_path="" tpath
+  local cursor_file raw_line="" saved_path="" tpath raw_end
   case "$total" in ''|*[!0-9]*)
     sb_log_error "lib.sh" "sb_archive_raw_window: transcript line count '$total' is not a number; nothing archived (session=$session_id)" 1
     return 1 ;;
@@ -2025,9 +2052,16 @@ sb_archive_raw_window() {
   [ -z "$saved_path" ] || [ "$saved_path" = "$tpath" ] || raw_line=0
   [ "$raw_line" -le "$total" ] || raw_line=0
   [ "$raw_line" -lt "$total" ] || return 0
-  sb_archive_transcript "$transcript" "$slug" "$session_id" "$((raw_line + 1))" "$total" "" || return 1
-  if ! printf '%s\t%s\n' "$total" "$tpath" 2>/dev/null > "$cursor_file"; then
-    sb_log_error "lib.sh" "sb_archive_raw_window: cannot write $cursor_file; raw lines $((raw_line + 1))-${total} are archived but the cursor did not advance, so the next hook archives them again (session=$session_id)" 1
+  raw_end=$(wc -l < "$transcript" 2>/dev/null); raw_end="${raw_end//[!0-9]/}"
+  if [ -z "$raw_end" ]; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot count the lines of $transcript; nothing archived, the next hook retries (session=$session_id)" 1
+    return 1
+  fi
+  [ "$raw_end" -le "$total" ] || raw_end="$total"
+  [ "$raw_line" -lt "$raw_end" ] || return 0
+  sb_archive_transcript "$transcript" "$slug" "$session_id" "$((raw_line + 1))" "$raw_end" "" || return 1
+  if ! printf '%s\t%s\n' "$raw_end" "$tpath" 2>/dev/null > "$cursor_file"; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot write $cursor_file; raw lines $((raw_line + 1))-${raw_end} are archived but the cursor did not advance, so the next hook archives them again (session=$session_id)" 1
     return 1
   fi
   return 0
