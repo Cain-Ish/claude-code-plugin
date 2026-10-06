@@ -552,6 +552,9 @@ done < <(printf '%s\n' "$DRAIN_MAP")
 # slug-keyed markers (the retired marker-key scheme).
 # R2: the raw_line cursors (.last-archived-line-<slug>--<sid>, archive-first) age out the same way.
 find "$BRAIN_DIR" -maxdepth 1 \( -name '.last-extracted-line-*' -o -name '.last-archived-line-*' \) -mtime +30 -delete 2>/dev/null || true
+# Per-archive locks (sb_archive_lock, R2-F#3) left by a writer that died: the next writer steals
+# one after 60 s, but an archive nobody writes again keeps its lock file. Swept after a day.
+find "$TX_DIR" -maxdepth 1 -name '.*.txt.lock' -type f -mtime +1 -delete 2>/dev/null || true
 # Observation ledgers (P0 rec 5): one file per session; after 7 days the
 # session's transcript has been drained (or pruned past recovery) — sweep.
 find "$BRAIN_DIR/observations" -maxdepth 1 -name '*.jsonl' -mtime +7 -delete 2>/dev/null || true

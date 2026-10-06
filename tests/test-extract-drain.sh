@@ -600,6 +600,14 @@ SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=999999999 sdrain
 eq "scrub-migrate: the tick really deferred" "$(cat "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)" "1"
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sd1_proj_2026-05-24.txt" && no "scrub-migrate: a deferred tick skipped the scrub" || ok "scrub-migrate: runs on a deferred tick"
 
+# D12 (R2-F#3): a per-archive lock left by a writer that died is swept after a day; a live one stays
+reset
+printf '1\n' > "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock"; touch -t 202601010000 "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock"
+printf '1\n' > "$BRAIN_DIR/transcripts/.dl2_proj.txt.lock"
+rdrain
+[ ! -e "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock" ] && ok "lock sweep: a day-old archive lock is removed" || no "lock sweep: a day-old archive lock survived"
+[ -e "$BRAIN_DIR/transcripts/.dl2_proj.txt.lock" ] && ok "lock sweep: a fresh archive lock is kept" || no "lock sweep: a live archive lock was removed"
+
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.
 echo "Test: GC sweeps — stale markers + scratch transcripts"
