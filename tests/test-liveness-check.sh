@@ -72,4 +72,20 @@ OUT=$(run_lc)
 echo "$OUT" | grep -qi 'behind\|index' || fail "(d) indexer-behind not reported: $OUT"
 pass "(d) episodic indexer-behind surfaces"
 
+# --- (e) only archives count: lock, tombstone and scratch files are not transcripts ---------
+# transcripts/ also holds per-archive locks (.<name>.txt.lock), eviction tombstones
+# (.<name>.txt.evicted) and scrub / append scratch files (*.part). None is indexed, so a fresh
+# one must not read as "the index is behind".
+rm -f "$BRAIN_DIR/transcripts"/*.txt
+printf 's\n' > "$BRAIN_DIR/transcripts/t1.txt"; touch -t 202601010000 "$BRAIN_DIR/transcripts/t1.txt"
+touch -t 202601020000 "$BRAIN_DIR/episodic-index.json"
+printf '1\n' > "$BRAIN_DIR/transcripts/.t1.txt.lock"
+printf 't9.txt\n' > "$BRAIN_DIR/transcripts/.t9.txt.evicted"
+printf 'x\n' > "$BRAIN_DIR/transcripts/t1.txt.scrub-1.part"
+printf 'x\n' > "$BRAIN_DIR/transcripts/.stage-s1-1.part"
+OUT=$(run_lc)
+echo "$OUT" | grep -q 'OK: episodic index keeping up' \
+  || fail "(e) a fresh lock / tombstone / scratch file read as a newer transcript: $OUT"
+pass "(e) only *.txt archives are measured against the index"
+
 echo "ALL PASS"
