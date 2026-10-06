@@ -605,6 +605,31 @@ stop_payload | "$SCRIPT" >/dev/null 2>&1
 pass "AF3: PreCompact archives below its extraction gates; the next Stop appends only the new window"
 restore_path
 
+# AF4 (fix round item 6): the PreCompact extractor never receives sk-ant- text either (AF2 covers
+# Stop; the drainer's own test covers sb_extract_transcript, the third sb_call_extractor caller).
+# The window clears PreCompact's gates (PROJECT.md, >= 20 new lines, a tool_use), or the stub would
+# never run and the case would prove nothing.
+init_sandbox "af-precompact-key"
+seed_transcript_long_with_edit
+{ jq -nc --arg t "deploy with $K_ANT and nothing else" '{type:"user",message:{role:"user",content:$t}}'
+  cat "$SANDBOX/transcript/session.jsonl"; } > "$SANDBOX/transcript/s.tmp" && mv "$SANDBOX/transcript/s.tmp" "$SANDBOX/transcript/session.jsonl"
+cat > "$SANDBOX/path-stub/claude" <<EOF
+#!/bin/bash
+cat > "$SANDBOX/extractor-input"
+echo '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+EOF
+chmod +x "$SANDBOX/path-stub/claude"
+export PATH="$SANDBOX/path-stub:$PATH"
+stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$REPO_ROOT/scripts/pre-compact.sh" >/dev/null 2>&1
+[ -s "$SANDBOX/extractor-input" ] || fail "AF4: the PreCompact extractor stub never received input (the case proves nothing)"
+grep -q 'sk-ant-' "$SANDBOX/extractor-input" && fail "AF4: the PreCompact extractor received the raw Anthropic key"
+grep -q 'deploy with \[redacted:anthropic\] and nothing else' "$SANDBOX/extractor-input" || fail "AF4: the PreCompact extractor input lacks the redacted line"
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "AF4: the PreCompact window was not archived"
+grep -q 'sk-ant-' "$ARCHIVE" && fail "AF4: the PreCompact archive holds the raw Anthropic key"
+pass "AF4: the PreCompact extractor and archive get [redacted:anthropic], never the key"
+restore_path
+
 # --- Test 14 (D179): the background episodic-index node process must not
 # inherit stop-extract.sh's own stdout, and a non-zero exit must be logged
 # loudly via sb_log_error (never silently swallowed by `2>/dev/null &`).
