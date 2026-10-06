@@ -737,6 +737,18 @@ PATH="$GSHIM:$PATH" sdrain
 grep -q '^=== su2_proj' "$SCAP" 2>/dev/null && ok "scrub hold: an unreadable archive no longer holds every extraction" \
   || no "scrub hold: one unreadable archive held all extraction"
 grep -qF 'sk-ant-' "$SCAP" 2>/dev/null && no "scrub hold: a key reached the extractor" || ok "scrub hold: no key reached the extractor"
+# D17e: a listing error that names no archive keeps the list for this tick only (it is rebuilt next
+# tick): nothing the grep did not see can be marked scrubbed, and no marker is written
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_lines "sn1_proj_2026-05-24.txt" 3
+cat > "$GSHIM/grep" <<EOF10
+#!/bin/bash
+case " \$* " in *" -lF "*) "$RGREP" "\$@"; echo "grep: (standard input): read error" >&2; exit 2 ;; esac
+exec "$RGREP" "\$@"
+EOF10
+PATH="$GSHIM:$PATH" sdrain
+[ ! -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub hold: an unexplained listing error writes neither a marker nor a list" \
+  || no "scrub hold: an unexplained listing error was taken as complete ($(ls -a "$BRAIN_DIR" | grep archive-scrub | tr '\n' ' '))"
 # D17c: a to-do list that cannot be read is rebuilt (attempt counts restart) instead of holding all
 reset; rm -f "$SCAP" "$SMARK"
 mk_lines "sc2_proj_2026-05-24.txt" 3
@@ -749,6 +761,8 @@ grep -q '^=== sc2_proj' "$SCAP" 2>/dev/null && ok "scrub hold: an unreadable to-
   || no "scrub hold: an unreadable to-do list held all extraction"
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sc1_proj_2026-05-24.txt" && no "scrub hold: the rebuilt list lost the key-holding archive" \
   || ok "scrub hold: the rebuilt list still scrubs the key-holding archive"
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub hold: the rebuilt migration completes (marker, list removed)" \
+  || no "scrub hold: the migration stalled on its unreadable list"
 # D17d (security review): transcript copies already staged in dream dirs are part of the migration
 reset; rm -f "$SCAP" "$SMARK" "$STODO"; rm -rf "$BRAIN_DIR/dreams"
 mkdir -p "$BRAIN_DIR/dreams/dr1/transcripts"

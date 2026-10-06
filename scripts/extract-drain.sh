@@ -345,11 +345,18 @@ drain_scrub_migrate() {
       out=$(cd "$BRAIN_DIR" && LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- "${cand[@]}" 2>"$errf"); rc=$?
       if [ "$rc" -gt 1 ]; then
         # grep lists every match among the files it could read and names each one it could not
-        # (`grep: <path>: <reason>`, GNU/BSD/MSYS alike): those are listed too.
+        # (`grep: <path>: <reason>`, GNU/BSD/MSYS alike): those are listed too. Only a name that
+        # IS one of the files handed to grep counts; any other error line (or none) means the
+        # listing is incomplete in a way nobody can name.
+        local cl nerr=0
+        cl=$'\n'$(printf '%s\n' "${cand[@]}")$'\n'
         while IFS= read -r l; do
-          case "$l" in "grep: "*) l="${l#grep: }"; l="${l%%: *}"; [ -n "$l" ] && unread="$unread$l"$'\n' ;; esac
+          l="${l%$'\r'}"; [ -n "$l" ] || continue
+          nerr=$((nerr + 1))
+          case "$l" in "grep: "*) l="${l#grep: }"; l="${l%%: *}" ;; *) l="" ;; esac
+          case "$cl" in *$'\n'"$l"$'\n'*) [ -n "$l" ] && unread="$unread$l"$'\n' && nerr=$((nerr - 1)) ;; esac
         done < "$errf"
-        [ -n "$unread" ] || persist=""
+        { [ -n "$unread" ] && [ "$nerr" -eq 0 ]; } || persist=""
         sb_log_error "extract-drain.sh" "archive scrub: the listing grep failed (rc=$rc)$( [ -n "$persist" ] && printf '; the unreadable files are listed and held' || printf '; it named no file, so the list is kept for this tick only and rebuilt next tick')" 1
       fi
       rm -f "$errf" 2>/dev/null
@@ -357,15 +364,11 @@ drain_scrub_migrate() {
     fi
   fi
   # Normalize: every entry `path<TAB>attempts` (a bare name from a 0.56 pre-release list is a
-  # transcripts/ entry), duplicates folded.
-  while IFS=$'\t' read -r p fc; do
-    p="${p%$'\r'}"; fc="${fc%$'\r'}"
-    [ -n "$p" ] || continue
-    case "$p" in */*) ;; *) p="transcripts/$p" ;; esac
-    case "$fc" in ''|*[!0-9]*) fc=0 ;; esac
-    case $'\n'"$todo" in *$'\n'"$p"$'\t'*) continue ;; esac
-    todo="$todo$p"$'\t'"$fc"$'\n'
-  done < <(printf '%s\n' "$raw")
+  # transcripts/ entry). One awk (the list can hold every archive: no per-entry bash string work).
+  todo=$(printf '%s\n' "$raw" | LC_ALL=C awk -F'\t' '
+    { sub(/\r$/, "") } $1 == "" || ($1 in seen) { next }
+    { seen[$1] = 1; p = $1; if (p !~ /\//) p = "transcripts/" p; print p "\t" (($2 ~ /^[0-9]+$/) ? $2 + 0 : 0) }')
+  [ -z "$todo" ] || todo="$todo"$'\n'
   if [ -n "$todo" ] && [ -n "$persist" ] && [ -n "$rebuild" ] \
      && ! { printf '%s' "$todo" > "$SCRUB_TODO.tmp.$$" && mv -f "$SCRUB_TODO.tmp.$$" "$SCRUB_TODO"; } 2>/dev/null; then
     rm -f "$SCRUB_TODO.tmp.$$" 2>/dev/null
@@ -397,16 +400,19 @@ drain_scrub_migrate() {
     if [ ! -f "$BRAIN_DIR/$p" ] || sb_scrub_archive_file "$BRAIN_DIR/$p"; then scrubbed="$scrubbed$p"$'\n'
     else failed="$failed$p"$'\n'; fi
   done < <(printf '%s\n' "$pick")
-  local left="" nleft=0 nstuck=0
-  DRAIN_SCRUB_TODO=""
-  while IFS=$'\t' read -r p fc; do
-    [ -n "$p" ] || continue
-    case $'\n'"$scrubbed" in *$'\n'"$p"$'\n'*) continue ;; esac
-    case $'\n'"$failed" in *$'\n'"$p"$'\n'*) fc=$((fc + 1)) ;; esac
-    left="$left$p"$'\t'"$fc"$'\n'; nleft=$((nleft + 1))
-    [ "$fc" -lt 3 ] || nstuck=$((nstuck + 1))
-    case "$p" in transcripts/*) DRAIN_SCRUB_TODO="$DRAIN_SCRUB_TODO${p#transcripts/}"$'\n' ;; esac
-  done < <(printf '%s' "$todo")
+  # What is left: the list minus the scrubbed (and vanished) entries, a failed attempt counted.
+  local left nleft=0 nstuck=0 c1 c2
+  left=$({ printf '%s\n' "$scrubbed" '--failed--' "$failed" '--todo--'; printf '%s' "$todo"; } | LC_ALL=C awk -F'\t' '
+    $0 == "--failed--" { s = 1; next } $0 == "--todo--" { s = 2; next }
+    s == 0 { if ($0 != "") gone[$0] = 1; next }
+    s == 1 { if ($0 != "") bad[$0] = 1; next }
+    $1 != "" && !($1 in gone) { print $1 "\t" ($2 + (($1 in bad) ? 1 : 0)) }')
+  [ -z "$left" ] || left="$left"$'\n'
+  read -r c1 c2 <<< "$(printf '%s' "$left" | LC_ALL=C awk -F'\t' '$1 != "" { n++; if ($2 >= 3) k++ } END { print n + 0, k + 0 }')"   # <<<-bounded: two integers
+  nleft="${c1:-0}"; nstuck="${c2:-0}"
+  # The batch loop's holds: the transcripts/ entries still listed, as bare basenames.
+  DRAIN_SCRUB_TODO=$(printf '%s' "$left" | LC_ALL=C awk -F'\t' 'substr($1, 1, 12) == "transcripts/" { print substr($1, 13) }')
+  [ -z "$DRAIN_SCRUB_TODO" ] || DRAIN_SCRUB_TODO="$DRAIN_SCRUB_TODO"$'\n'
   if [ -z "$left" ] && [ -n "$persist" ]; then
     if : 2>/dev/null > "$SCRUB_MARK"; then
       rm -f "$SCRUB_TODO" 2>/dev/null
