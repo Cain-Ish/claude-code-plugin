@@ -2725,19 +2725,15 @@ sb_count_drain_timeouts() {
     | grep -c 'extractor-diag .*ec=124' 2>/dev/null || true
 }
 
-# Count transcripts that reached a TERMINAL error in the drainer's done-set
-# (.extraction-state.jsonl outcome=="error" = poison-pilled past SB_DRAIN_MAX_FAILS).
-# Folded per-basename so a basename that retried then errored counts ONCE.
-# Echoes an integer. $1 = optional explicit state-file path (test override).
+# Count archives whose unextracted tail is DEAD-LETTERED (an `error` row past SB_DRAIN_MAX_FAILS
+# covers every line the cursor has not reached — state `dead` in sb_drain_cursor_map). An archive
+# that recovered (a later ok row past the dead region) or grew past it is not counted.
+# Echoes an integer. $1 / $2 = optional explicit state file / transcripts dir (test override).
 sb_count_drain_dead_letters() {
-  local f="${1:-$BRAIN_DIR/.extraction-state.jsonl}"
-  [ -s "$f" ] || { echo 0; return 0; }
-  if command -v jq >/dev/null 2>&1; then
-    jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[$r.basename]=$r)
-            | [.[]] | map(select(.outcome=="error")) | length' "$f" 2>/dev/null || echo 0
-  else
-    echo 0
-  fi
+  local map
+  map=$(sb_drain_cursor_map "${1:-}" "${2:-}") || { echo 0; return 0; }
+  sb_drain_map_counts "$map"
+  echo "$SB_DM_DEAD"
 }
 
 # Verify jq is available. If missing, log to error-log.jsonl and return 1.
@@ -2785,26 +2781,152 @@ sb_line_count() {
   echo "${n:-0}"
 }
 
-# A transcript is "done" once a terminal (ok|error) line exists in the
-# append-only done-set ~/.second-brain/.extraction-state.jsonl.
-sb_extraction_done() {
-  local base="$1" state="$2"
-  [ -f "$state" ] || return 1
-  local hit
-  # -R + fromjson? : parse per line, skipping any corrupt line (e.g. a partial
-  # append from a crash) instead of aborting the whole scan.
-  hit=$(jq -rR --arg b "$base" \
-    'fromjson? | select(.basename == $b and (.outcome == "ok" or .outcome == "error")) | .basename' \
-    "$state" 2>/dev/null | head -1)
-  [ -n "$hit" ]
+# _sb_mtimes FILE...: "<epoch> <name>" per file in ONE spawn (GNU stat; BSD stat when the GNU
+# form printed nothing). A file that vanished between the caller's glob and this call is skipped.
+_sb_mtimes() {
+  local o
+  o=$(stat -c '%Y %n' -- "$@" 2>/dev/null)
+  case "$o" in [0-9]*) printf '%s\n' "$o"; return 0 ;; esac
+  stat -f '%m %N' -- "$@" 2>/dev/null
+  return 0
 }
 
-# Count prior non-terminal retry attempts for a basename.
-sb_extraction_fails() {
-  local base="$1" state="$2"
-  [ -f "$state" ] || { echo 0; return; }
-  jq -rR --arg b "$base" 'fromjson? | select(.basename == $b and .outcome == "retry") | .basename' \
-    "$state" 2>/dev/null | wc -l | tr -d ' '
+# The jq half of sb_drain_cursor_map. stdin = `wc -l` over the archives, a `--mtime--` line, then
+# `_sb_mtimes` over the same archives; $st = the raw done-set. Per archive on disk it applies the
+# contract (cursor = max lines over ok|baseline rows, recreated when the count fell below any row)
+# and the drain-only fields: next = where the next window starts (skips dead-lettered regions),
+# fails = retry rows since the last non-retry row, flag = the first-tick migration verdict for a
+# basename whose rows all lack `lines` (legacy): baseline | regrow | legacy-dead.
+_SB_DRAIN_MAP_JQ='
+def epoch: try fromdateiso8601 catch 0;
+def hasl: (.lines | type) == "number";
+def trailing_retries: reduce (reverse[]) as $x ({n: 0, stop: false};
+  if .stop then . elif $x.outcome == "retry" then .n += 1 else .stop = true end) | .n;
+(reduce inputs as $l ({sec: "wc", L: {}, M: {}};
+  if $l == "--mtime--" then .sec = "mt"
+  else (([$l | sub("\r$"; "") | capture("^ *(?<n>[0-9]+) (?<f>.*)$")] | .[0])) as $m
+  | if $m == null then .
+    elif .sec == "wc" then (if ($m.f | test("[.]txt$")) then .L[$m.f] = ($m.n | tonumber) else . end)
+    else .M[$m.f] = ($m.n | tonumber) end
+  end)) as $fs
+| (reduce ($st | split("\n")[] | (try fromjson catch null)
+          | select(type == "object" and (.basename | type) == "string")) as $r
+    ({}; .[$r.basename] += [$r])) as $rows
+| [ $fs.L | to_entries[]
+    | .key as $b | .value as $n
+    | (($fs.M[$b]) // 0) as $mt
+    | (($rows[$b]) // []) as $R
+    | ([$R[] | select((.outcome == "ok" or .outcome == "baseline") and hasl) | .lines] | max // 0) as $cur
+    | ([$R[] | select(hasl) | .lines] | max // 0) as $hi
+    | ([$R[] | select(.outcome == "error" and hasl) | .lines] | max // 0) as $err
+    | ($R | trailing_retries) as $fails
+    | (if ($R | any(hasl)) then null else ([$R[] | select(.outcome | IN("ok", "error"))] | last) end) as $lt
+    | (if $lt == null then false
+       else ((($lt.ts | epoch)) as $t | $mt > 0 and $t > 0 and $mt <= ($t + 120)) end) as $same
+    | if $n < $hi then {b: $b, cur: 0, n: $n, next: 0, fails: 0, mt: $mt, flag: "recreated"}
+      elif $lt != null and $lt.outcome == "ok" then
+        {b: $b, cur: 0, n: $n, next: 0, fails: $fails, mt: $mt, flag: (if $same then "baseline" else "regrow" end)}
+      elif $lt != null and $same then {b: $b, cur: 0, n: $n, next: $n, fails: 0, mt: $mt, flag: "legacy-dead"}
+      elif $lt != null then {b: $b, cur: 0, n: $n, next: 0, fails: 0, mt: $mt, flag: "regrow"}
+      else {b: $b, cur: $cur, n: $n, next: ([$cur, $err] | max), fails: $fails, mt: $mt, flag: "-"} end
+    | .st = (if .cur >= .n then "done" elif .next >= .n then "dead" else "pending" end) ]
+| sort_by(.mt, .b)[]
+| [.b, .cur, .n, .st, .next, .fails, .mt, .flag] | map(tostring) | join("\t")
+'
+
+# sb_drain_cursor_map [STATE] [TXDIR]: THE drain accounting primitive. Every reader of "which
+# archives still hold unextracted lines" (the drainer, its reconcile row, the session-load drain
+# banners, `sb status`, sb-health-snapshot.sh) goes through this — a source-scan lock in
+# tests/test-extraction-helpers.sh bans the old basename-set derivation. ONE wc -l + ONE stat over
+# all archives and ONE jq over the done-set, never a per-file loop. Output, oldest-first by mtime,
+# one TSV row per archive on disk (the first three columns are the R2 contract):
+#   basename cursor lines state next fails mtime flag
+#   state: done (cursor >= lines) | dead (the unextracted tail is dead-lettered: next >= lines)
+#          | pending.   flag: - | recreated | baseline | regrow | legacy-dead  (never empty: a tab
+#          IFS read collapses empty fields).
+# No transcripts dir: no output, rc 0. jq missing or failing: logged loud, rc 1.
+sb_drain_cursor_map() {
+  local state="${1:-$BRAIN_DIR/.extraction-state.jsonl}" txd="${2:-$BRAIN_DIR/transcripts}"
+  [ -d "$txd" ] || return 0
+  if ! command -v jq >/dev/null 2>&1; then
+    sb_log_error "lib.sh" "sb_drain_cursor_map: jq not on PATH — drain accounting unavailable" 127
+    return 1
+  fi
+  case "$state" in /*|[A-Za-z]:*) ;; *) state="$PWD/$state" ;; esac
+  local -a st_arg
+  if [ -f "$state" ]; then st_arg=(--rawfile st "$state"); else st_arg=(--arg st ""); fi
+  local out rc=0
+  # cd so wc/stat print bare basenames (and the arg list stays short); the subshell keeps the
+  # caller's cwd. --rawfile, never --arg, for the done-set: native jq.exe has a 32 KB argv limit.
+  out=$(cd "$txd" || exit 1
+        set -- *.txt
+        { [ -e "$1" ] || [ -L "$1" ]; } || exit 0
+        { wc -l -- "$@" 2>/dev/null; printf '%s\n' '--mtime--'; _sb_mtimes "$@"; } \
+          | jq -nrR "${st_arg[@]}" "$_SB_DRAIN_MAP_JQ"
+        exit "${PIPESTATUS[1]}") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sb_log_error "lib.sh" "sb_drain_cursor_map: accounting failed rc=$rc (txd=$txd)" 1
+    return 1
+  fi
+  [ -n "$out" ] && printf '%s\n' "${out//$'\r'/}"
+  return 0
+}
+
+# sb_drain_map_counts MAP: totals over one sb_drain_cursor_map output, builtins only. Sets
+# SB_DM_TOTAL SB_DM_DONE SB_DM_PENDING SB_DM_DEAD, SB_DM_EXTRACTED (archives with any extracted
+# line: cursor > 0) and SB_DM_OLDEST_PENDING_MTIME (0 = nothing pending; the map is oldest-first,
+# so the first pending row is the oldest).
+sb_drain_map_counts() {
+  SB_DM_TOTAL=0; SB_DM_DONE=0; SB_DM_PENDING=0; SB_DM_DEAD=0; SB_DM_EXTRACTED=0
+  SB_DM_OLDEST_PENDING_MTIME=0
+  local b c n s nx f mt fl
+  while IFS=$'\t' read -r b c n s nx f mt fl; do
+    [ -n "$b" ] || continue
+    SB_DM_TOTAL=$((SB_DM_TOTAL + 1))
+    case "$c" in ''|0|*[!0-9]*) ;; *) SB_DM_EXTRACTED=$((SB_DM_EXTRACTED + 1)) ;; esac
+    case "$s" in
+      done) SB_DM_DONE=$((SB_DM_DONE + 1)) ;;
+      dead) SB_DM_DEAD=$((SB_DM_DEAD + 1)) ;;
+      *)    SB_DM_PENDING=$((SB_DM_PENDING + 1))
+            case "$mt" in ''|*[!0-9]*) mt=0 ;; esac
+            [ "$SB_DM_OLDEST_PENDING_MTIME" -ne 0 ] || SB_DM_OLDEST_PENDING_MTIME="$mt" ;;
+    esac
+  done < <(printf '%s\n' "$1")
+  return 0
+}
+
+# sb_archive_window FILE FROM TO MAXBYTES -> "<header_end> <window_bytes> <chunk_end>".
+# The window is archive lines (max(FROM, header_end), TO]. header_end = the first `---` line
+# (CR-tolerant) among lines 2..64, else 0 (a header-less archive is all body). window_bytes =
+# its size as the extractor receives it (CRs stripped, one byte per line end; MSYS awk reads in
+# text mode and would drop the CR anyway). chunk_end = the last line of the first forward chunk of at most MAXBYTES (at
+# least one line, so an oversized line still makes progress; clamped to TO). Lines past TO — a
+# torn tail included — are never read into the window. One awk, two passes over the file.
+sb_archive_window() {
+  local f="$1" from="${2:-0}" to="${3:-0}" max="${4:-200000}"
+  case "$from" in ''|*[!0-9]*) from=0 ;; esac
+  case "$to" in ''|*[!0-9]*) to=0 ;; esac
+  case "$max" in ''|*[!0-9]*) max=200000 ;; esac
+  [ -f "$f" ] || return 1
+  LC_ALL=C awk -v from="$from" -v to="$to" -v max="$max" '
+    FNR == NR {
+      if (!hdone && FNR > 1) { l = $0; sub(/\r$/, "", l); if (l == "---") { hdr = FNR; hdone = 1 } }
+      if (FNR >= 64) hdone = 1
+      next
+    }
+    !init { s = (from > hdr) ? from : hdr; cend = s; init = 1 }
+    FNR <= s { next }
+    FNR > to { exit }
+    {
+      l = $0; sub(/$/, "", l); b = length(l) + 1; total += b
+      if (!full) { if (cend == s || acc + b <= max) { acc += b; cend = FNR } else full = 1 }
+    }
+    END {
+      if (!init) { s = (from > hdr) ? from : hdr; cend = s }
+      if (cend > to) cend = to
+      printf "%d %d %d\n", hdr, total, cend
+    }
+  ' "$f" "$f"
 }
 
 # Read project_slug: from the archived transcript's meta header.
@@ -2910,12 +3032,21 @@ sb_session_prov_write() {
   return 0
 }
 
-# Build the extractor input from a preprocessed archived transcript + PROJECT.md,
-# call the extractor, quality-gate the delta, merge it, route persona signals.
-# Returns 0 only on a successful merge. Used by the out-of-band drainer.
+# sb_extract_transcript TXT SLUG [FROM [TO]]: extract archive lines (FROM, TO] — archive_line
+# positions, the meta header never included — and nothing else: no CONTEXT block of earlier lines
+# (PROJECT.md is already sent, and replayed context invites re-emission). Defaults: FROM 0, TO =
+# sb_line_count. The window is CHUNKED FORWARD at SB_EXTRACT_MAX_BYTES, oldest chunk first — the
+# old tail cap silently dropped the oldest part of any big archive. Each chunk is a full
+# extract -> gate -> merge pass. SB_EXTRACT_REACHED = the last line whose chunk merged (FROM when
+# none did), so a caller can record partial progress. Returns 0 only when every chunk merged.
+# The drainer hands over one chunk at a time (see extract-drain.sh) to keep its lock budget.
 sb_extract_transcript() {
-  local txt="$1" slug="$2"
+  local txt="$1" slug="$2" from="${3:-0}" to="${4:-}"
+  SB_EXTRACT_REACHED="${from:-0}"
   [ -f "$txt" ] || return 1
+  case "$from" in ''|*[!0-9]*) from=0 ;; esac
+  case "$to" in ''|*[!0-9]*) to=$(sb_line_count "$txt") || return 1 ;; esac
+  SB_EXTRACT_REACHED="$from"
   # D121: normalize with the SAME rule the capture funnel used to WRITE this
   # header (sb_slug_from_dir: CR-strip + basename + tmp/scratch collapse) --
   # NOT sb_sanitize_slug's lowercase/charset rewrite, which put the drainer on
@@ -2946,14 +3077,15 @@ sb_extract_transcript() {
   #
   # Default 240s (Phase 1.2, slow-HW headroom): a Pi-class box pays ~24s on the
   # nested-spawn hook stack before the extractor even starts, so a real extraction
-  # over the 200KB tail cap can blow the old 120s budget -> ec=124 -> retry; 3
-  # outcomes (SB_DRAIN_MAX_FAILS) terminally mark the transcript `error`. 240s
+  # of a 200KB chunk can blow the old 120s budget -> ec=124 -> retry; 3
+  # outcomes (SB_DRAIN_MAX_FAILS) terminally mark the region `error`. 240s
   # doubles the per-attempt budget. BUDGET PROOF it stays well under the 7200s lock
-  # steal-threshold (SB_DRAIN_LOCK_STALE) even fully degraded: worst case per
-  # transcript = 3 retry paths (direct + pty + API) x timeout_s, x SB_DRAIN_BATCH=5
-  #   = 5 x 3 x 240 = 3600s = HALF of 7200 — a live run can't be judged stale and
-  # have its lock stolen. 240 is the LARGEST value keeping BATCH x 3 x timeout_s
-  # <= 7200/2; do NOT raise further without also raising SB_DRAIN_LOCK_STALE.
+  # steal-threshold (SB_DRAIN_LOCK_STALE) even fully degraded: the drainer makes at
+  # most SB_DRAIN_BATCH=5 extractor calls per tick (one chunk per call; a failed
+  # attempt takes a batch slot too), each worst case 3 retry paths (direct + pty +
+  # API) x timeout_s = 5 x 3 x 240 = 3600s = HALF of 7200 — a live run can't be
+  # judged stale and have its lock stolen. 240 is the LARGEST value keeping BATCH x 3
+  # x timeout_s <= 7200/2; do NOT raise further without also raising SB_DRAIN_LOCK_STALE.
   local timeout_s="${SB_DRAIN_EXTRACT_TIMEOUT:-240}"
   local prompt_file="$sdir/extract-prompt.txt"
   [ -f "$prompt_file" ] || return 1
@@ -2990,40 +3122,7 @@ TMPL
   fi
   mkdir -p "$kdir/wiki" 2>/dev/null || true
 
-  local in_f out_f; in_f=$(mktemp); out_f=$(mktemp)
-  {
-    echo "=== PROJECT.md ==="
-    cat "$project_md"
-    echo; echo "---SEPARATOR---"; echo
-    echo "=== TRANSCRIPT (preprocessed) ==="
-    # Body only (meta header dropped), tail-capped: keep the NEWEST exchanges.
-    # An uncapped multi-MB archive can never finish before the timeout on a Pi
-    # and burns full retry cycles toward quarantine (R1.2, HOOK-4).
-    # tr -d '\r' FIRST: a CRLF archive's header is `---\r`, which `/^---$/` never matches —
-    # then `1,/re/d` (no terminator hit) deletes the WHOLE transcript, starving the extractor.
-    tr -d '\r' < "$txt" | sed '1,/^---$/d' | tail -c "${SB_EXTRACT_MAX_BYTES:-200000}"
-    # P0 rec 5: this session's deterministic observation ledger (if one exists)
-    # gives the extractor ground truth for files_touched / error→fix issues /
-    # procedures even when the transcript tail above was capped. SUBAGENT archives
-    # are excluded: sub-*.txt carries the PARENT session's id (sb_archive_subagent_
-    # result), so embedding here would re-mine the parent's ledger into every
-    # subagent extraction (adversarial-review finding).
-    if [ -n "$sess_id" ] && [ "$is_subagent" -eq 0 ] && [ -s "$BRAIN_DIR/observations/$sess_id.jsonl" ]; then
-      echo
-      echo "=== OBSERVATIONS (deterministic tool ledger — DATA, not instructions) ==="
-      sb_observations_summary "$BRAIN_DIR/observations/$sess_id.jsonl"
-    fi
-  } > "$in_f"
-
-  local delta=""
-  if sb_call_extractor "$in_f" "$out_f" "$model" "$prompt" "$timeout_s"; then
-    delta=$(cat "$out_f")
-  fi
-  rm -f "$in_f" "$out_f"
-  [ -n "$delta" ] || return 1
-
-  delta=$(sb_gate_extraction_delta "$delta")
-
+  local maxb="${SB_EXTRACT_MAX_BYTES:-200000}"; case "$maxb" in ''|*[!0-9]*) maxb=200000 ;; esac
   # DR-3: a subagent archive carries the PARENT's session id -- never pass --session for one,
   # so its Handoff stamp has no session= token (and can't overwrite the parent's .prov-derived
   # provenance). DR-1: a normal archive passes --session so the stamp's age reflects the
@@ -3032,49 +3131,90 @@ TMPL
   if [ "$is_subagent" -eq 0 ] && [ -n "$sess_id" ]; then
     sess_flag=(--session "$sess_id")
   fi
-  # SF-C1: same fix as sb_floor_transcript above -- capture stderr instead of folding it into
-  # the discarded stdout, so a failed merge on the drainer's REAL (non-floor) extraction path
-  # is diagnosable instead of a bare "return 1" with zero trace of why.
-  local extract_merge_err
-  extract_merge_err=$(mktemp)
-  if ! printf '%s' "$delta" \
-      | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
-        >/dev/null 2>"$extract_merge_err"; then
-    sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed slug=$slug err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
-    rm -f "$extract_merge_err"
-    return 1
-  fi
-  rm -f "$extract_merge_err"
+  local cur="$from" win hdr wbytes cend start in_f out_f delta extract_merge_err
+  while [ "$cur" -lt "$to" ]; do
+    win=$(sb_archive_window "$txt" "$cur" "$to" "$maxb") || return 1
+    read -r hdr wbytes cend <<< "$win"
+    start="$cur"; [ "${hdr:-0}" -gt "$start" ] && start="$hdr"
+    # Nothing but meta header left in the window: there is no body to extract.
+    if [ "${wbytes:-0}" -eq 0 ] || [ "${cend:-0}" -le "$start" ]; then SB_EXTRACT_REACHED="$to"; break; fi
 
-  # D157: merge-edges AFTER the merge above — it resolves relations[] endpoints
-  # against wiki stub pages that merge-project-update.sh's cross_refs handling
-  # may have just scaffolded.
-  sb_merge_extraction_edges "$delta" "$kdir"
+    in_f=$(mktemp); out_f=$(mktemp)
+    {
+      echo "=== PROJECT.md ==="
+      cat "$project_md"
+      echo; echo "---SEPARATOR---"; echo
+      echo "=== TRANSCRIPT (preprocessed) ==="
+      # Archive lines (start, cend] only. tr -d '\r': a CRLF archive reaches the extractor as LF.
+      # head -c guards the one case sb_archive_window lets past the byte cap: a single line
+      # longer than SB_EXTRACT_MAX_BYTES (it is truncated rather than skipped).
+      sed -n "$((start + 1)),${cend}p" "$txt" | tr -d '\r' | head -c "$maxb"
+      # P0 rec 5: this session's deterministic observation ledger (if one exists)
+      # gives the extractor ground truth for files_touched / error→fix issues /
+      # procedures. Sent with the LAST chunk of this call only. SUBAGENT archives
+      # are excluded: sub-*.txt carries the PARENT session's id (sb_archive_subagent_
+      # result), so embedding here would re-mine the parent's ledger into every
+      # subagent extraction (adversarial-review finding).
+      if [ "$cend" -ge "$to" ] && [ -n "$sess_id" ] && [ "$is_subagent" -eq 0 ] && [ -s "$BRAIN_DIR/observations/$sess_id.jsonl" ]; then
+        echo
+        echo "=== OBSERVATIONS (deterministic tool ledger — DATA, not instructions) ==="
+        sb_observations_summary "$BRAIN_DIR/observations/$sess_id.jsonl"
+      fi
+    } > "$in_f"
 
-  # Sessions digest (P0 rec 4): the drainer is the recovery path for sessions
-  # the in-session extractor skipped — append their continuity line too. Two
-  # exclusions (adversarial-review finding, live-reproduced): SUBAGENT archives
-  # carry the PARENT session's id, so their extraction would REPLACE the
-  # session's real goal/outcome entry with subagent-derived content; and a
-  # missing/corrupt header must not collapse onto a shared "unknown" key where
-  # unrelated sessions overwrite each other — no id, no digest line.
-  if [ -n "$sess_id" ] && [ "$is_subagent" -eq 0 ]; then
-    local dg_goal dg_out
-    dg_goal=$(printf '%s' "$delta" | jq -r '.session_goal // ""' 2>/dev/null | tr -d '\r')
-    dg_out=$(printf '%s' "$delta" | jq -r '.session_outcome // ""' 2>/dev/null | tr -d '\r')
-    sb_append_session_digest "$slug" "$sess_id" "$dg_goal" "$dg_out" || true
-  fi
-
-  local sigs; sigs=$(printf '%s' "$delta" | jq -c \
-    '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}' 2>/dev/null)
-  if [ -n "$sigs" ] && printf '%s' "$sigs" \
-    | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
-    if [ -n "$slug" ]; then
-      printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --slug "$slug" 2>/dev/null || true
-    else
-      printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
+    delta=""
+    if sb_call_extractor "$in_f" "$out_f" "$model" "$prompt" "$timeout_s"; then
+      delta=$(cat "$out_f")
     fi
-  fi
+    rm -f "$in_f" "$out_f"
+    [ -n "$delta" ] || return 1
+
+    delta=$(sb_gate_extraction_delta "$delta")
+
+    # SF-C1: same fix as sb_floor_transcript above -- capture stderr instead of folding it into
+    # the discarded stdout, so a failed merge on the drainer's REAL (non-floor) extraction path
+    # is diagnosable instead of a bare "return 1" with zero trace of why.
+    extract_merge_err=$(mktemp)
+    if ! printf '%s' "$delta" \
+        | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
+          >/dev/null 2>"$extract_merge_err"; then
+      sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed slug=$slug lines=$start..$cend err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
+      rm -f "$extract_merge_err"
+      return 1
+    fi
+    rm -f "$extract_merge_err"
+
+    # D157: merge-edges AFTER the merge above — it resolves relations[] endpoints
+    # against wiki stub pages that merge-project-update.sh's cross_refs handling
+    # may have just scaffolded.
+    sb_merge_extraction_edges "$delta" "$kdir"
+
+    # Sessions digest (P0 rec 4): the drainer is the recovery path for sessions
+    # the in-session extractor skipped — append their continuity line too. Two
+    # exclusions (adversarial-review finding, live-reproduced): SUBAGENT archives
+    # carry the PARENT session's id, so their extraction would REPLACE the
+    # session's real goal/outcome entry with subagent-derived content; and a
+    # missing/corrupt header must not collapse onto a shared "unknown" key where
+    # unrelated sessions overwrite each other — no id, no digest line.
+    if [ -n "$sess_id" ] && [ "$is_subagent" -eq 0 ]; then
+      local dg_goal dg_out
+      dg_goal=$(printf '%s' "$delta" | jq -r '.session_goal // ""' 2>/dev/null | tr -d '\r')
+      dg_out=$(printf '%s' "$delta" | jq -r '.session_outcome // ""' 2>/dev/null | tr -d '\r')
+      sb_append_session_digest "$slug" "$sess_id" "$dg_goal" "$dg_out" || true
+    fi
+
+    local sigs; sigs=$(printf '%s' "$delta" | jq -c \
+      '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}' 2>/dev/null)
+    if [ -n "$sigs" ] && printf '%s' "$sigs" \
+      | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
+      if [ -n "$slug" ]; then
+        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --slug "$slug" 2>/dev/null || true
+      else
+        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
+      fi
+    fi
+    cur="$cend"; SB_EXTRACT_REACHED="$cend"
+  done
   return 0
 }
 

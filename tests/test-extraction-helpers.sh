@@ -1,7 +1,8 @@
 #!/bin/bash
 # Tests for the lib.sh extraction helpers
+# run-all-timeout: 240   (11 real extract->gate->merge passes; one pass is ~12s on the MSYS dev box)
+# pins: SB_EXTRACT_MAX_BYTES — set per call to force 2 forward chunks on a small fixture (the chunking IS the behavior under test)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
-# shellcheck disable=SC2129  # consecutive >> appends to the state fixture are intentional
 # shellcheck disable=SC2317  # sb_call_extractor is overridden as a stub; reached indirectly via sb_extract_transcript
 set -euo pipefail
 
@@ -19,19 +20,8 @@ ok()   { PASS=$((PASS+1)); echo "  PASS: $1"; }
 no()   { FAIL=$((FAIL+1)); echo "  FAIL: $1"; }
 eq()   { [ "$2" = "$3" ] && ok "$1" || no "$1 — '$2' != '$3'"; }
 
-STATE="$BRAIN_DIR/.extraction-state.jsonl"
 
 echo "=== extraction helpers ==="
-
-# --- done-set ---
-: > "$STATE"
-printf '{"basename":"a.txt","ts":"t","outcome":"ok"}\n'    >> "$STATE"
-printf '{"basename":"b.txt","ts":"t","outcome":"retry"}\n' >> "$STATE"
-printf '{"basename":"c.txt","ts":"t","outcome":"error"}\n' >> "$STATE"
-sb_extraction_done "a.txt" "$STATE" && ok "done: ok is terminal"   || no "done: ok is terminal"
-sb_extraction_done "c.txt" "$STATE" && ok "done: error is terminal" || no "done: error is terminal"
-sb_extraction_done "b.txt" "$STATE" && no "done: retry NOT terminal" || ok "done: retry NOT terminal"
-sb_extraction_done "z.txt" "$STATE" && no "done: unknown NOT terminal" || ok "done: unknown NOT terminal"
 
 # --- sb_line_count: the one archive_line primitive (R2 contract) ---
 LC="$SANDBOX/lc.txt"
@@ -40,21 +30,6 @@ eq "line_count: missing file is 0" "$(sb_line_count "$SANDBOX/absent.txt")" "0"
 printf 'a\nb\nc\n' > "$LC";         eq "line_count: three complete lines"      "$(sb_line_count "$LC")" "3"
 printf 'a\nb\ntorn' > "$LC";        eq "line_count: a torn last line is not counted" "$(sb_line_count "$LC")" "2"
 printf 'a\r\nb\r\n' > "$LC";        eq "line_count: CRLF lines count once each" "$(sb_line_count "$LC")" "2"
-
-# --- fails count ---
-printf '{"basename":"b.txt","ts":"t","outcome":"retry"}\n' >> "$STATE"
-eq "fails: two retries for b" "$(sb_extraction_fails b.txt "$STATE")" "2"
-eq "fails: none for a"        "$(sb_extraction_fails a.txt "$STATE")" "0"
-
-# --- resilience: a corrupt JSONL line must not break detection ---
-CSTATE="$BRAIN_DIR/.corrupt-state.jsonl"
-{
-  printf '{"basename":"x.txt","ts":"t","outcome":"retry"}\n'
-  printf 'GARBAGE NOT JSON\n'
-  printf '{"basename":"x.txt","ts":"t","outcome":"error"}\n'
-} > "$CSTATE"
-sb_extraction_done "x.txt" "$CSTATE" && ok "done: survives a corrupt line" || no "done: survives a corrupt line"
-eq "fails: survives a corrupt line" "$(sb_extraction_fails x.txt "$CSTATE")" "1"
 
 # --- slug from header ---
 TX="$BRAIN_DIR/transcripts/sess1_my-proj_2026-05-24.txt"
@@ -241,6 +216,177 @@ F2_ELAPSED=$((F2_END - F2_START))
   || no "F2: bash-watchdog fallback stdout was '$F2_OUT', expected 'hi'"
 [ "$F2_ELAPSED" -le 1 ] && ok "F2: bash-watchdog fallback returns fast (${F2_ELAPSED}s, not the full 2s+ bound)" \
   || no "F2: bash-watchdog fallback took ${F2_ELAPSED}s, expected <=1s"
+
+# ==== R2-B (0.56.0) drain side: line cursor accounting, delta windows, source-scan lock ====
+# Everything below exercises the R2 contract in lib.sh ("R2 contract"): the cursor is max(lines)
+# over ok|baseline rows, retry/error rows never advance it, a legacy row without `lines` advances
+# nothing, and an archive whose line count fell below its rows was recreated (cursor 0).
+echo "=== R2-B: sb_drain_cursor_map ==="
+MT="$SANDBOX/map-tx"; MS="$SANDBOX/map-state.jsonl"
+mkdir -p "$MT"
+mk_arch() {  # $1 = path, $2 = body line count, $3 = "crlf" for CRLF line ends. Header = 7 lines.
+  local f="$1" n="$2" e=$'\n' i=1
+  [ "${3:-}" = "crlf" ] && e=$'\r\n'
+  {
+    printf -- '--- session-meta ---%s' "$e"
+    printf 'session_id: %s%s' "${f##*/}" "$e"
+    printf 'project_slug: proj%s' "$e"
+    printf 'date: 2026-05-24%s' "$e"
+    printf 'tool_count: 1%s' "$e"
+    printf 'line_count: %s%s' "$n" "$e"
+    printf -- '---%s' "$e"
+    while [ "$i" -le "$n" ]; do printf 'BODY-%02d%s' "$i" "$e"; i=$((i+1)); done
+  } > "$f"
+}
+mf() {  # $1 = map text, $2 = basename, $3 = field number -> that TSV field ('' when absent)
+  printf '%s\n' "$1" | awk -F'\t' -v b="$2" -v k="$3" '$1 == b { print $k; exit }'
+}
+mk_arch "$MT/a.txt" 3                                   # 10 lines, fully extracted
+mk_arch "$MT/b.txt" 5                                   # 12 lines, cursor 9, a retry at 9
+mk_arch "$MT/d.txt" 4 crlf                              # 11 CRLF lines, never extracted
+mk_arch "$MT/e.txt" 6                                   # 13 lines, region (9,13] dead-lettered
+mk_arch "$MT/f.txt" 1                                   # 8 lines, but a row says 40: recreated
+mk_arch "$MT/g.txt" 2                                   # legacy ok, unchanged since its row
+mk_arch "$MT/h.txt" 2                                   # legacy ok, grown since its row
+mk_arch "$MT/i.txt" 2                                   # legacy error, unchanged
+mk_arch "$MT/t.txt" 2; printf 'torn-no-newline' >> "$MT/t.txt"   # 9 complete lines + a torn tail
+{
+  printf '%s\n' '{"basename":"a.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":10}'
+  printf '%s\n' '{"basename":"b.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":9}'
+  printf '%s\n' '{"basename":"b.txt","ts":"2026-05-24T00:00:00Z","outcome":"retry","from":9,"lines":12,"fails":1}'
+  printf '%s\n' '{"basename":"e.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":9}'
+  printf '%s\n' '{"basename":"e.txt","ts":"2026-05-24T00:00:00Z","outcome":"error","from":9,"lines":13,"fails":3}'
+  printf '%s\n' '{"basename":"f.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":40}'
+  printf '%s\n' '{"basename":"g.txt","ts":"2026-01-03T00:00:00Z","outcome":"ok"}'
+  printf '%s\n' '{"basename":"h.txt","ts":"2026-01-03T00:00:00Z","outcome":"ok"}'
+  printf '%s\n' '{"basename":"i.txt","ts":"2026-01-03T00:00:00Z","outcome":"retry","fails":1}'
+  printf '%s\n' '{"basename":"i.txt","ts":"2026-01-03T00:00:00Z","outcome":"error","fails":3}'
+  printf '%s\n' 'GARBAGE NOT JSON'
+  printf '%s\n' '{"basename":"zz-gone.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","lines":5}'
+} > "$MS"
+# mtimes (local-time touch; the legacy ts above is 2 days after, so any TZ keeps g/i "unchanged"):
+# oldest-first order g < i < a < b < d < e < f < t < h (h is fresh = grown after its legacy row).
+touch -t 202601010000 "$MT/g.txt"; touch -t 202601010001 "$MT/i.txt"
+touch -t 202605240000 "$MT/a.txt"; touch -t 202605240001 "$MT/b.txt"; touch -t 202605240002 "$MT/d.txt"
+touch -t 202605240003 "$MT/e.txt"; touch -t 202605240004 "$MT/f.txt"; touch -t 202605240005 "$MT/t.txt"
+MAP=$(sb_drain_cursor_map "$MS" "$MT") || MAP=""
+# Columns: basename cursor lines state next fails mtime flag
+eq "map: one row per archive on disk (state rows for gone archives ignored)" "$(printf '%s\n' "$MAP" | grep -c . || true)" "9"
+eq "map: oldest-first by mtime" "$(printf '%s\n' "$MAP" | cut -f1 | tr '\n' ' ')" "g.txt i.txt a.txt b.txt d.txt e.txt f.txt t.txt h.txt "
+eq "map: a fully extracted -> cursor 10" "$(mf "$MAP" a.txt 2)" "10"
+eq "map: a lines via wc -l" "$(mf "$MAP" a.txt 3)" "10"
+eq "map: a state done" "$(mf "$MAP" a.txt 4)" "done"
+eq "map: b retry row does not advance the cursor" "$(mf "$MAP" b.txt 2)" "9"
+eq "map: b state pending (12 > 9)" "$(mf "$MAP" b.txt 4)" "pending"
+eq "map: b next = cursor" "$(mf "$MAP" b.txt 5)" "9"
+eq "map: b fails = trailing retries" "$(mf "$MAP" b.txt 6)" "1"
+eq "map: d CRLF lines counted once each" "$(mf "$MAP" d.txt 3)" "11"
+eq "map: d never extracted -> cursor 0, pending" "$(mf "$MAP" d.txt 2) $(mf "$MAP" d.txt 4)" "0 pending"
+eq "map: e error row does not advance the cursor" "$(mf "$MAP" e.txt 2)" "9"
+eq "map: e next skips the dead region" "$(mf "$MAP" e.txt 5)" "13"
+eq "map: e state dead (tail fully dead-lettered)" "$(mf "$MAP" e.txt 4)" "dead"
+eq "map: e fails reset after the error row" "$(mf "$MAP" e.txt 6)" "0"
+eq "map: f recreated (8 lines < cursor 40) -> cursor 0" "$(mf "$MAP" f.txt 2)" "0"
+eq "map: f recreated -> pending from 0, flagged" "$(mf "$MAP" f.txt 4) $(mf "$MAP" f.txt 5) $(mf "$MAP" f.txt 8)" "pending 0 recreated"
+eq "map: t torn last line is not counted" "$(mf "$MAP" t.txt 3)" "9"
+eq "map: g legacy ok unchanged -> flag baseline, cursor 0 (legacy advances nothing)" "$(mf "$MAP" g.txt 8) $(mf "$MAP" g.txt 2)" "baseline 0"
+eq "map: h legacy ok grown -> flag regrow, pending from 0" "$(mf "$MAP" h.txt 8) $(mf "$MAP" h.txt 4) $(mf "$MAP" h.txt 5)" "regrow pending 0"
+eq "map: i legacy error unchanged -> legacy-dead, state dead" "$(mf "$MAP" i.txt 8) $(mf "$MAP" i.txt 4)" "legacy-dead dead"
+eq "map: no CR survives in the output" "$(printf '%s' "$MAP" | tr -cd '\r' | wc -c | tr -d ' ')" "0"
+G_MT=$(mf "$MAP" g.txt 7); case "$G_MT" in ''|*[!0-9]*) no "map: mtime column numeric (got '$G_MT')" ;; *) ok "map: mtime column numeric" ;; esac
+eq "map: absent state file -> every archive pending from 0" \
+  "$(sb_drain_cursor_map "$SANDBOX/absent-state.jsonl" "$MT" | awk -F'\t' '$4 != "done" && $2 == 0' | grep -c . || true)" "9"
+eq "map: absent transcripts dir -> empty, rc 0" "$(sb_drain_cursor_map "$MS" "$SANDBOX/no-such-dir"; echo "rc=$?")" "rc=0"
+
+sb_drain_map_counts "$MAP"
+eq "counts: total/done/pending/dead" "$SB_DM_TOTAL $SB_DM_DONE $SB_DM_PENDING $SB_DM_DEAD" "9 1 6 2"
+eq "counts: extracted = archives with cursor > 0 (a, b, e)" "$SB_DM_EXTRACTED" "3"
+eq "counts: oldest pending mtime = g (first pending row)" "$SB_DM_OLDEST_PENDING_MTIME" "$G_MT"
+eq "dead letters come from the cursor map (e region + legacy i)" "$(sb_count_drain_dead_letters "$MS" "$MT")" "2"
+
+echo "=== R2-B: sb_archive_window ==="
+W="$SANDBOX/win.txt"; mk_arch "$W" 10            # header 7 lines, body lines 8..17 of 8 bytes each
+eq "window: whole body"          "$(sb_archive_window "$W" 0 17 1000)" "7 80 17"
+eq "window: chunk bounded by max" "$(sb_archive_window "$W" 0 17 20)"  "7 80 9"
+eq "window: from inside the body" "$(sb_archive_window "$W" 12 17 1000)" "7 40 17"
+eq "window: one oversized line still makes progress" "$(sb_archive_window "$W" 0 17 3)" "7 80 8"
+eq "window: window entirely in the header" "$(sb_archive_window "$W" 0 3 1000)" "7 0 3"
+WC="$SANDBOX/win-crlf.txt"; mk_arch "$WC" 2 crlf
+eq "window: CRLF header detected, CRs not counted" "$(sb_archive_window "$WC" 0 9 1000)" "7 16 9"
+WN="$SANDBOX/win-nohdr.txt"; printf 'x\nyy\n' > "$WN"
+eq "window: header-less archive is all body" "$(sb_archive_window "$WN" 0 2 1000)" "0 5 2"
+WT="$SANDBOX/win-torn.txt"; mk_arch "$WT" 1; printf 'torn' >> "$WT"
+eq "window: torn tail beyond to is excluded" "$(sb_archive_window "$WT" 0 8 1000)" "7 8 8"
+
+echo "=== R2-B: sb_extract_transcript delta window ==="
+DX="$BRAIN_DIR/transcripts/dx_proj_2026-05-24.txt"; mk_arch "$DX" 20   # 27 lines, BODY-01 = line 8
+CALLS="$SANDBOX/extractor-calls"
+sb_call_extractor() {  # stub: record each input, fail when the call number is in $FAIL_CALLS
+  local n; n=$(( $(cat "$CALLS.n" 2>/dev/null || echo 0) + 1 )); printf '%s' "$n" > "$CALLS.n"
+  { printf '=== CALL %s ===\n' "$n"; cat "$1"; } >> "$CALLS"
+  case " ${FAIL_CALLS:-} " in *" $n "*) : > "$2"; return 1 ;; esac
+  printf '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}' > "$2"
+  return 0
+}
+rm -f "$CALLS" "$CALLS.n"
+SB_EXTRACT_REACHED=""
+sb_extract_transcript "$DX" proj 11 15 >/dev/null 2>&1 && ok "delta: window extract returns 0" || no "delta: window extract returns 0"
+grep -q 'BODY-05' "$CALLS" && grep -q 'BODY-08' "$CALLS" && ok "delta: lines (11,15] sent" || no "delta: lines (11,15] missing"
+grep -q 'BODY-04' "$CALLS" && no "delta: a line at/before from leaked (no CONTEXT block allowed)" || ok "delta: nothing at/before from is sent"
+grep -q 'BODY-09' "$CALLS" && no "delta: a line after to leaked" || ok "delta: nothing after to is sent"
+grep -q '^=== PROJECT.md ===' "$CALLS" && ok "delta: PROJECT.md still sent" || no "delta: PROJECT.md missing"
+grep -q 'project_slug:' "$CALLS" && no "delta: the meta header leaked into the window" || ok "delta: header never sent"
+eq "delta: SB_EXTRACT_REACHED = to" "$SB_EXTRACT_REACHED" "15"
+eq "delta: one extractor call for a small window" "$(cat "$CALLS.n")" "1"
+
+rm -f "$CALLS" "$CALLS.n"
+SB_EXTRACT_MAX_BYTES=80 sb_extract_transcript "$DX" proj >/dev/null 2>&1 && ok "chunks: 2-arg call extracts the whole archive" || no "chunks: 2-arg call failed"
+eq "chunks: 20 body lines of 8 B at an 80 B cap -> 2 forward chunks" "$(cat "$CALLS.n")" "2"
+FIRST=$(awk '/^=== CALL 1 ===$/{f=1;next} /^=== CALL 2 ===$/{f=0} f' "$CALLS")
+printf '%s' "$FIRST" | grep -q 'BODY-01' && printf '%s' "$FIRST" | grep -q 'BODY-10' && ! printf '%s' "$FIRST" | grep -q 'BODY-11' \
+  && ok "chunks: the FIRST call carries the OLDEST lines (chunked forward, no tail cap)" || no "chunks: first call is not the oldest chunk"
+LAST=$(awk '/^=== CALL 2 ===$/{f=1;next} f' "$CALLS")
+printf '%s' "$LAST" | grep -q 'BODY-20' && ok "chunks: the last call carries the newest line" || no "chunks: newest line missing from the last call"
+
+rm -f "$CALLS" "$CALLS.n"
+SB_EXTRACT_REACHED=""
+if FAIL_CALLS=2 SB_EXTRACT_MAX_BYTES=80 sb_extract_transcript "$DX" proj 7 27 >/dev/null 2>&1; then
+  no "chunks: a failing chunk must fail the call"
+else
+  ok "chunks: a failing chunk fails the call"
+fi
+eq "chunks: stop at the failing chunk (no call after it)" "$(cat "$CALLS.n")" "2"
+eq "chunks: SB_EXTRACT_REACHED = end of the last good chunk" "$SB_EXTRACT_REACHED" "17"
+
+echo "=== R2-B: source-scan lock — no basename-set 'done' readers ==="
+# The pre-R2 readers each derived "done" as {basename : some ok|error row}. Four copies drifted
+# (extract-drain, session-load, sb.ts, sb-health-snapshot). sb_drain_cursor_map is now the ONE
+# accounting primitive; this lock fails on any new copy of the old derivation.
+LOCK_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# ALLOWLIST (exact line text): sb_prune_transcripts' extracted-first eviction still reads the old
+# set. That function belongs to the archive side (R2-A caps) and the "never evict an archive whose
+# cursor < lines" rule lands as the controller follow-up on top of sb_drain_cursor_map — which
+# deletes this entry. Any edit to the line itself re-arms the lock.
+LOCK_ALLOW="scripts/lib.sh:    _done=\$(jq -rR 'fromjson? | select(.outcome == \"ok\" or .outcome == \"error\") | .basename' \\"
+LOCK_HITS=""
+for lf in "$LOCK_ROOT"/scripts/*.sh "$LOCK_ROOT"/.claude/skills/*/scripts/*.sh $(find "$LOCK_ROOT/mcp/src" -name '*.ts' ! -name '*.test.ts' 2>/dev/null); do
+  [ -f "$lf" ] || continue
+  rel="${lf#"$LOCK_ROOT"/}"
+  hits=$(grep -nE \
+    -e 'outcome[[:space:]]*==[[:space:]]*"(ok|error)"[[:space:]]*or[[:space:]]*\.outcome[[:space:]]*==[[:space:]]*"(ok|error)"' \
+    -e "outcome[[:space:]]*===?[[:space:]]*['\"](ok|error)['\"][[:space:]]*\|\|[[:space:]]*[A-Za-z_.]*outcome[[:space:]]*===?[[:space:]]*['\"](ok|error)['\"]" \
+    -e 'grep[^|]*"outcome":"ok"' \
+    -e 'sb_extraction_done' \
+    "$lf" 2>/dev/null || true)
+  [ -n "$hits" ] || continue
+  while IFS= read -r h; do
+    [ -n "$h" ] || continue
+    [ "$rel:${h#*:}" = "$LOCK_ALLOW" ] && continue
+    LOCK_HITS="$LOCK_HITS$rel:$h"$'\n'
+  done <<< "$hits"
+done
+[ -z "$LOCK_HITS" ] && ok "lock: no reader derives done from a basename set of ok|error rows" \
+  || no "lock: basename-set readers remain (use sb_drain_cursor_map):"$'\n'"$LOCK_HITS"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
