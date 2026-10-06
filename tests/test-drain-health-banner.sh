@@ -117,6 +117,22 @@ printf '%s' "$CO" | grep -q 'capture: 1 archived · 1 extracted' \
   && pass "C1: extracted counts archives, not ok rows (1 archive, 3 windows)" \
   || fail "C1: capture line miscounts (got: $(printf '%s' "$CO" | grep -i 'second-brain capture' | head -c 200))"
 
+echo "=== sb-health-snapshot backlog ==="
+# R2: the snapshot's backlog comes from the cursor map. g1 was extracted to line 3 and then GREW
+# (pending); g2 is fully extracted (done). The old comm-over-basenames called both done.
+SNAP="$ROOT/.claude/skills/sb-diagnostics-and-tooling/scripts/sb-health-snapshot.sh"
+SB2="$B/snap"; mkdir -p "$SB2/transcripts" "$SB2/sbin"
+printf '#!/bin/bash\nexit 0\n' > "$SB2/sbin/node"; chmod +x "$SB2/sbin/node"   # skip the auth probe
+printf 'l1\nl2\nl3\nl4\nl5\n' > "$SB2/transcripts/g1.txt"
+printf 'l1\nl2\nl3\n' > "$SB2/transcripts/g2.txt"
+printf '%s\n' \
+  '{"basename":"g1.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":0,"lines":3}' \
+  '{"basename":"g2.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":0,"lines":3}' > "$SB2/.extraction-state.jsonl"
+SO=$(env PATH="$SB2/sbin:$PATH" BRAIN_DIR="$SB2" KNOWLEDGE_DIR="$SB2/k" bash "$SNAP" "$ROOT" 2>/dev/null)
+printf '%s' "$SO" | grep -q 'backlog: 1 pending of 2 archived' \
+  && pass "S1: snapshot backlog counts the grown archive as pending" \
+  || fail "S1: snapshot backlog wrong (got: $(printf '%s' "$SO" | grep 'backlog:'))"
+
 echo "=== drainer dead-man switch ==="
 # Fires on SILENCE (stale progress + newer queued work) — the state no failure-
 # signature banner can see: the 2026-07 lock wedge left ZERO log lines for six
