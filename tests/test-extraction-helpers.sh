@@ -363,11 +363,8 @@ echo "=== R2-B: source-scan lock — no basename-set 'done' readers ==="
 # (extract-drain, session-load, sb.ts, sb-health-snapshot). sb_drain_cursor_map is now the ONE
 # accounting primitive; this lock fails on any new copy of the old derivation.
 LOCK_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-# ALLOWLIST (exact line text): sb_prune_transcripts' extracted-first eviction still reads the old
-# set. That function belongs to the archive side (R2-A caps) and the "never evict an archive whose
-# cursor < lines" rule lands as the controller follow-up on top of sb_drain_cursor_map — which
-# deletes this entry. Any edit to the line itself re-arms the lock.
-LOCK_ALLOW="scripts/lib.sh:    _done=\$(jq -rR 'fromjson? | select(.outcome == \"ok\" or .outcome == \"error\") | .basename' \\"
+# No allowlist: sb_prune_transcripts, the last old-set reader, classifies through
+# sb_drain_cursor_map since R2-F (eviction protects state == pending).
 LOCK_HITS=""
 for lf in "$LOCK_ROOT"/scripts/*.sh "$LOCK_ROOT"/.claude/skills/*/scripts/*.sh $(find "$LOCK_ROOT/mcp/src" -name '*.ts' ! -name '*.test.ts' 2>/dev/null); do
   [ -f "$lf" ] || continue
@@ -381,7 +378,6 @@ for lf in "$LOCK_ROOT"/scripts/*.sh "$LOCK_ROOT"/.claude/skills/*/scripts/*.sh $
   [ -n "$hits" ] || continue
   while IFS= read -r h; do
     [ -n "$h" ] || continue
-    [ "$rel:${h#*:}" = "$LOCK_ALLOW" ] && continue
     hl="${h#*:}"; hl="${hl#"${hl%%[![:space:]]*}"}"
     case "$hl" in '#'*|'//'*|'*'*) continue ;; esac   # a comment naming the old reader is not one
     LOCK_HITS="$LOCK_HITS$rel:$h"$'\n'

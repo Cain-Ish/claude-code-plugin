@@ -2191,152 +2191,102 @@ sb_write_generated_page() {
 }
 
 # Enforce transcript archive caps: 400 files / 25 MB soft, 1200 files / 75 MB hard (0.56.0, R2#6:
-# was 100 / 5 MB, hard caps 3x the soft ones as before). Deletes oldest files first, ranked by
-# MTIME (see below — NOT by filename).
+# was 100 / 5 MB, hard caps 3x the soft ones as before). Runs on EVERY Stop/PreCompact append and
+# SubagentStop, so it is two-speed (R2-F#2: at 400 archives the old full pass cost 0.6-1.4 s per
+# append on MSYS):
+#   gate   the count from a builtin glob and the bytes from ONE `wc -c`; under every cap, return.
+#   prune  over a cap: ONE sb_drain_cursor_map (one wc -l + one stat + one jq for all archives)
+#          classifies every archive, ONE awk decides the evictions, ONE rm removes them.
+# EXTRACTED-FIRST, by cursor state (R2-F#1). The cap used to delete strictly oldest-first, which on
+# a machine where the drainer defers (pure OAuth + an always-on interactive session) destroyed the
+# un-mined backlog: measured live at 100/100 archived with 28 never extracted, the oldest 27 days
+# old. The archive's contract (stop-extract.sh: "the transcript is still archived; the drainer
+# mines the real knowledge later") cannot hold if the cap outruns the drainer. So archives whose
+# map state is done (cursor reached the line count) or dead (the rest is dead-lettered) are evicted
+# first, oldest first by MTIME (archive names lead with a random session UUID, so a name sort is
+# age-random). A PENDING archive (unextracted lines, including one that GREW after its last
+# extraction) is evicted only past a hard ceiling, and loudly. Protecting every `cursor < lines`
+# archive instead would keep each dead-lettered one forever. Growth stays bounded either way.
 sb_prune_transcripts() {
   local archive_dir="$BRAIN_DIR/transcripts"
   [ -d "$archive_dir" ] || return 0
-
-  # OLDEST-first by mtime, NOT a lexical filename sort. Archives are named
-  # "${session_id}_${slug}_${date}.txt" — the random session UUID LEADS, so
-  # `sort` orders by UUID hex (age-random): the cap would then evict a
-  # just-archived, not-yet-drained transcript, silently breaking the "the
-  # transcript is still archived; the drainer mines the real knowledge later"
-  # recovery contract (stop-extract.sh). mtime is the true age. -printf is GNU;
-  # fall back to a stat-based sort on BSD/macOS — the same idiom the sub-*.txt
-  # cap in sb_archive_transcript already uses.
-  local files
-  files=$(find "$archive_dir" -name '*.txt' -type f -printf '%T@ %p\n' 2>/dev/null \
-    | sort -n | cut -d' ' -f2-)
-  if [ -z "$files" ]; then
-    files=$(find "$archive_dir" -name '*.txt' -type f 2>/dev/null \
-      | while IFS= read -r f; do printf '%s %s\n' "$(sb_mtime "$f")" "$f"; done \
-      | sort -n | cut -d' ' -f2-)
-  fi
-  local count
-  count=$(echo "$files" | grep -c . 2>/dev/null || true)
-
-  # EXTRACTED-FIRST EVICTION. The cap used to delete strictly oldest-first, which on a machine
-  # where the drainer is deferring (pure OAuth + an always-on interactive session) silently
-  # destroyed the un-mined backlog: measured live at 100/100 archived with 28 never extracted,
-  # the oldest 27 days old — every new session evicted one un-mined transcript forever. The
-  # archive's whole contract (stop-extract.sh: "the transcript is still archived; the drainer
-  # mines the real knowledge later") cannot hold if the cap outruns the drainer.
-  #
-  # So: evict transcripts that were ALREADY extracted first — their knowledge is in the wiki, the
-  # file is redundant. Un-mined transcripts are evicted only past a hard ceiling, and loudly.
-  # Growth stays bounded either way (never unbounded, never silent).
   local cap="${SB_TRANSCRIPT_CAP:-400}";        case "$cap"  in ''|*[!0-9]*) cap=400 ;; esac
   local hard="${SB_TRANSCRIPT_HARD_CAP:-1200}"; case "$hard" in ''|*[!0-9]*) hard=1200 ;; esac
   [ "$hard" -lt "$cap" ] && hard="$cap"
+  local byte_cap="${SB_TRANSCRIPT_MAX_BYTES:-26214400}"
+  case "$byte_cap" in ''|*[!0-9]*) byte_cap=26214400 ;; esac
+  local byte_hard="${SB_TRANSCRIPT_MAX_BYTES_HARD:-$((byte_cap * 3))}"
+  case "$byte_hard" in ''|*[!0-9]*) byte_hard=$((byte_cap * 3)) ;; esac
+  [ "$byte_hard" -lt "$byte_cap" ] && byte_hard="$byte_cap"
 
-  # Done-set read ONCE. sb_extraction_done spawns jq per call; at 100+ files that is 100+ jq
-  # spawns per drain tick (~seconds on Windows) for a function that runs on every Stop hook.
-  local _state="$BRAIN_DIR/.extraction-state.jsonl" _done=""
-  if [ -f "$_state" ] && command -v jq >/dev/null 2>&1; then
-    _done=$(jq -rR 'fromjson? | select(.outcome == "ok" or .outcome == "error") | .basename' \
-      "$_state" 2>/dev/null | tr -d '\r' | sort -u)
-  fi
-  # Builtins only — no basename/grep spawn per file. On MSYS every external process costs
-  # ~30-60ms; this runs on EVERY Stop hook over up to 300 files and the basename+grep pair was
-  # ~2 spawns/file. Measured: test-transcript-archive.sh 258s on the dev box vs 8s on Linux CI,
-  # so the local suite could never go green (ec=124 on 9-11 tests, every run, for months).
-  _sb_is_extracted() {   # $1 = full path
-    [ -n "$_done" ] || return 1
-    local _b="${1##*/}"
-    case "$_done" in "$_b"|"$_b"$'\n'*|*$'\n'"$_b"|*$'\n'"$_b"$'\n'*) return 0 ;; esac
-    return 1
-  }
+  # Gate. `wc -c` on a list ends with a `total` line (a lone file has none: its own line is the
+  # total); the last line's first field is the byte total, read with builtins.
+  local -a tx
+  tx=("$archive_dir"/*.txt)
+  { [ "${#tx[@]}" -gt 0 ] && [ -e "${tx[0]}" ]; } || return 0
+  local count="${#tx[@]}" sizes total
+  sizes=$(cd "$archive_dir" 2>/dev/null && wc -c -- *.txt 2>/dev/null)
+  total="${sizes##*$'\n'}"; total="${total#"${total%%[! ]*}"}"; total="${total%% *}"
+  case "$total" in ''|*[!0-9]*) total=0 ;; esac
+  [ "$count" -le "$cap" ] && [ "$total" -le "$byte_cap" ] && return 0
 
-  # Partition oldest-first, preserving order within each class.
-  # Both $files loops read through a pipe, not a `<<EOF` heredoc: an expanded heredoc hangs
-  # Git-Bash in the SAME 65,537..~65,650-byte window as a `<<<` here-string (measured on this
-  # branch, bash 5.2.26 MSYS), and $files is every archive path, one per line — ~600-700
-  # files at 90-110 B a line reach it (705 in test-transcript-archive's case). The hard cap is
-  # 1200 by default (0.56.0), past that window, and SB_TRANSCRIPT_HARD_CAP raises it further while
-  # a long BRAIN_DIR lengthens every line. This runs inside the Stop and SubagentStop hooks.
-  local _extracted="" _unmined="" _f
-  while IFS= read -r _f; do
-    [ -n "$_f" ] || continue
-    if _sb_is_extracted "$_f"; then _extracted="${_extracted}${_f}"$'\n'
-    else                           _unmined="${_unmined}${_f}"$'\n'; fi
-  done < <(printf '%s\n' "$files")
-  # A process substitution that could not start (fork EAGAIN on a loaded Windows box) feeds the
-  # loop NOTHING: both queues stay empty and every eviction pass below is a silent no-op while
-  # the archive sits over its cap. One row, so "nothing was pruned" is never invisible.
-  if [ "$count" -gt "$cap" ] && [ -z "${_extracted//[$'\n']/}${_unmined//[$'\n']/}" ]; then
-    sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives are over the ${cap} cap but the listing pass yielded no rows — nothing was pruned this run" 1
+  # Classify. An empty map while archives exist (jq missing, a fork that failed) degrades to a
+  # stat listing in which every archive counts as pending: no soft-cap eviction of an archive in
+  # an unknown state, but the hard ceilings still bound growth. Said loudly either way.
+  local map
+  map=$(sb_drain_cursor_map "" "$archive_dir") || map=""
+  if [ -z "$map" ]; then
+    sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives / ${total} B are over a cap but the listing pass (sb_drain_cursor_map) yielded no rows; every archive is treated as un-mined this run (hard ceilings only)" 1
+    map=$(cd "$archive_dir" 2>/dev/null && _sb_mtimes *.txt | sort -n \
+      | LC_ALL=C awk '{ m = $1; sub(/^[0-9]+ /, ""); printf "%s\t0\t1\tpending\t0\t0\t%s\t-\n", $0, m }')
   fi
 
-  # 1. Over the cap → drop already-extracted files, oldest first.
-  while [ "$count" -gt "$cap" ] && [ -n "${_extracted//[$'\n']/}" ]; do
-    local oldest
-    oldest="${_extracted%%$'\n'*}"                                       # head -1, builtin
-    [ -n "$oldest" ] && rm -f "$oldest"
-    case "$_extracted" in *$'\n'*) _extracted="${_extracted#*$'\n'}" ;; *) _extracted="" ;; esac   # tail -n +2
-    count=$((count - 1))
-  done
-
-  # 2. Still over the HARD ceiling → the un-mined backlog itself is unbounded. Evict, but say so:
-  #    this is knowledge being destroyed before it was ever read, and it means the drainer has
-  #    been stalled long enough to matter (see the drain-health banner in session-load.sh).
-  while [ "$count" -gt "$hard" ] && [ -n "${_unmined//[$'\n']/}" ]; do
-    local oldest
-    oldest="${_unmined%%$'\n'*}"
-    if [ -n "$oldest" ]; then
-      sb_log_error "lib.sh" "transcript cap: evicting UN-EXTRACTED ${oldest##*/} — backlog past hard cap ${hard}; the drainer is not keeping up and this session's knowledge is lost" 1
-      rm -f "$oldest"
-    fi
-    case "$_unmined" in *$'\n'*) _unmined="${_unmined#*$'\n'}" ;; *) _unmined="" ;; esac
-    count=$((count - 1))
-  done
-  unset -f _sb_is_extracted
-
-  # `for f in $files` word-split on IFS and glob-expanded: archive names embed the project slug
-  # (`${session_id}_${slug}_${date}.txt`), and a slug can legitimately contain a space (a Windows
-  # project folder like "My App"), so one filename split into two bogus words and mis-totalled
-  # the byte accounting that drives eviction below. Read line-oriented, like the partition above.
-  # ONE wc over all SURVIVING files (was wc|tr per file = 2 spawns each). wc on a list ends
-  # with a `total` line; awk takes the last line. Names are passed as "$@" so a slug with a
-  # space stays one argument; files evicted by the count pass above are skipped via -f.
-  local total_bytes=0
-  set --
-  while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && set -- "$@" "$f"; done < <(printf '%s\n' "$files")
-  if [ "$#" -gt 0 ]; then
-    total_bytes=$(wc -c "$@" 2>/dev/null | awk 'END{print $1+0}')
-    case "$total_bytes" in ''|*[!0-9]*) total_bytes=0 ;; esac
+  # Decide. Input: the map rows (oldest-first), a separator, the `wc -c` lines. Count pass, then
+  # byte pass; each evicts done|dead archives down to the soft ceiling, then pending ones down to
+  # the hard ceiling. Output: `E<TAB>name` (extracted) / `U<TAB>name` (un-mined), then a sentinel,
+  # so a pass that produced nothing (a failed fork, a failed awk) is told apart from "nothing to
+  # evict". Fed through a pipe, never a here-string (the MSYS 64 KB hang; the map is ~70 B a row).
+  local -a evict=()
+  local kind name verdict="" nu=0 unmined=""
+  while IFS=$'\t' read -r kind name; do
+    case "$kind" in
+      E) evict+=("$archive_dir/$name") ;;
+      U) evict+=("$archive_dir/$name"); nu=$((nu + 1)); unmined="$unmined${unmined:+, }$name" ;;
+      --end--) verdict=1 ;;
+    esac
+  done < <({ printf '%s\n' "$map"; printf '%s\n' '--sizes--'; printf '%s\n' "$sizes"; } \
+    | LC_ALL=C awk -F'\t' -v cap="$cap" -v hard="$hard" -v bcap="$byte_cap" -v bhard="$byte_hard" '
+      sec == 0 && $0 == "--sizes--" { sec = 1; next }
+      sec == 0 { if ($1 != "") { n++; nm[n] = $1; pend[n] = ($4 == "pending") }; next }
+      {
+        l = $0; sub(/\r$/, "", l); sub(/^ +/, "", l)
+        s = l; sub(/ .*/, "", s); f = l; sub(/^[0-9]+ /, "", f)
+        if (s ~ /^[0-9]+$/) sz[f] = s + 0
+      }
+      END {
+        cnt = n; tot = 0
+        for (i = 1; i <= n; i++) tot += sz[nm[i]]
+        for (i = 1; i <= n && cnt > cap; i++)   if (!pend[i]) { ev[i] = "E"; cnt--; tot -= sz[nm[i]] }
+        for (i = 1; i <= n && cnt > hard; i++)  if (pend[i])  { ev[i] = "U"; cnt--; tot -= sz[nm[i]] }
+        for (i = 1; i <= n && tot > bcap; i++)  if (!pend[i] && !(i in ev)) { ev[i] = "E"; tot -= sz[nm[i]] }
+        for (i = 1; i <= n && tot > bhard; i++) if (pend[i] && !(i in ev))  { ev[i] = "U"; tot -= sz[nm[i]] }
+        for (i = 1; i <= n; i++) if (i in ev) printf "%s\t%s\n", ev[i], nm[i]
+        print "--end--"
+      }')
+  if [ -z "$verdict" ]; then
+    sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives / ${total} B are over a cap but the decision pass returned no verdict; nothing was pruned this run" 1
+    return 0
   fi
-
-  # TWO-TIER, exactly like the count cap above. An earlier revision applied only extracted-first
-  # ORDERING here with no hard-ceiling GATE, which meant that once extracted files ran out the
-  # loop kept deleting un-mined transcripts down to the soft byte line — reproduced in review with ten
-  # never-extracted 600KB sessions (6MB, only 10 FILES, nowhere near either count cap): two were
-  # destroyed. Transcripts are large, so the byte ceiling is reached long before the count one;
-  # protecting un-mined data in the count path only was protection in name.
-  local _byte_cap="${SB_TRANSCRIPT_MAX_BYTES:-26214400}"
-  case "$_byte_cap" in ''|*[!0-9]*) _byte_cap=26214400 ;; esac
-  local _byte_hard="${SB_TRANSCRIPT_MAX_BYTES_HARD:-$((_byte_cap * 3))}"
-  case "$_byte_hard" in ''|*[!0-9]*) _byte_hard=$((_byte_cap * 3)) ;; esac
-  [ "$_byte_hard" -lt "$_byte_cap" ] && _byte_hard="$_byte_cap"
-
-  _sb_evict_bytes() {   # $1 = list, $2 = byte ceiling, $3 = "unmined" to log loudly
-    local _list="$1" _ceiling="$2" _loud="$3" _oldest _sz
-    while [ "$total_bytes" -gt "$_ceiling" ] && [ -n "${_list//[$'\n']/}" ]; do
-      _oldest="${_list%%$'\n'*}"                                         # head -1, builtin
-      [ -z "$_oldest" ] && break
-      _sz=$(wc -c < "$_oldest" 2>/dev/null); _sz="${_sz//[!0-9]/}"; : "${_sz:=0}"
-      [ "$_loud" = unmined ] && sb_log_error "lib.sh" \
-        "transcript cap: evicting UN-EXTRACTED ${_oldest##*/} — archive past the ${_ceiling}B hard ceiling; the drainer is not keeping up and this session's knowledge is lost" 1
-      rm -f "$_oldest"
-      total_bytes=$((total_bytes - _sz))
-      case "$_list" in *$'\n'*) _list="${_list#*$'\n'}" ;; *) _list="" ;; esac   # tail -n +2
-    done
-  }
-  # 1. Reclaim from already-extracted files down to the normal ceiling.
-  _sb_evict_bytes "$_extracted" "$_byte_cap" extracted
-  # 2. Only past the HARD ceiling is un-mined knowledge destroyed — and never quietly.
-  _sb_evict_bytes "$_unmined" "$_byte_hard" unmined
-  unset -f _sb_evict_bytes
+  [ "${#evict[@]}" -gt 0 ] || return 0
+  # ONE log row for the un-mined evictions (it was one row and one jq spawn per file): this is
+  # knowledge destroyed before it was ever read, and it means the drainer has been stalled long
+  # enough to matter (see the drain-health banner in session-load.sh).
+  if [ "$nu" -gt 0 ]; then
+    sb_log_error "lib.sh" "transcript cap: evicting ${nu} UN-EXTRACTED archive(s) past the hard ceiling (${hard} files / ${byte_hard} B): ${unmined} — the drainer is not keeping up and this knowledge is lost" 1
+  fi
+  rm -f -- "${evict[@]}" 2>/dev/null \
+    || sb_log_error "lib.sh" "sb_prune_transcripts: removing ${#evict[@]} evicted archive(s) failed; the archive stays over its cap until the next prune" 1
+  return 0
 }
 
 # --- Session-cadence + maintenance flags ---------------------------------
