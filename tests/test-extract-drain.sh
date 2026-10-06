@@ -644,13 +644,20 @@ mk_lines "rx1_proj_2026-05-24.txt" 3
 mkdir -p "$BRAIN_DIR/observations"
 jq -nc --arg t "ANTHROPIC_API_KEY=$KANT claude -p hi" --arg e "Error: invalid x-api-key $KANT" \
   '{ts:"x",tool:"Bash",target:$t,ok:false,err:$e}' > "$BRAIN_DIR/observations/rx1.jsonl"
+# X2 S6 (p4): a 0.55 hook (no scrub) appended a key to the archive AFTER the migration marker
+KGHP="gh""p_$(printf 'Ab1%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
+printf 'USER: deploy with %s\n' "$KGHP" >> "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt"
 realdrain
 grep -q '=== OBSERVATIONS' "$FCAP" 2>/dev/null && ok "real path: the extractor received the observations section" \
   || no "real path: no extractor input recorded (got: $(head -c 300 "$FCAP" 2>/dev/null))"
 grep -qF 'ant-api03-' "$FCAP" 2>/dev/null && no "real path: the extractor RECEIVED a key from the observation ledger" \
   || ok "real path: no key from the observation ledger reaches the extractor"
-rows_for rx1_proj_2026-05-24.txt | grep -q '"outcome":"ok","from":0,"lines":10' \
-  && ok "real path: ok row (0,10]" || no "real path: ledger row (got: $(rows_for rx1_proj_2026-05-24.txt))"
+grep -qF "$KGHP" "$FCAP" 2>/dev/null && no "real path: the extractor RECEIVED a key appended after the scrub marker" \
+  || ok "real path: an archive key appended after the marker is scrubbed before extraction"
+grep -qF "$KGHP" "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt" && no "real path: the archive at rest still holds the key" \
+  || ok "real path: the archive at rest is scrubbed too"
+rows_for rx1_proj_2026-05-24.txt | grep -q '"outcome":"ok","from":0,"lines":11' \
+  && ok "real path: ok row (0,11]" || no "real path: ledger row (got: $(rows_for rx1_proj_2026-05-24.txt))"
 rm -f "$SMARK"
 
 # D16 (X2 S5, p3): too-small is for a never-extracted archive only (cursor 0). A short final turn

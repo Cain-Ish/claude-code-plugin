@@ -520,6 +520,20 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
   elif [ "$wbytes" -eq 0 ] || [ "$wbytes" -lt "$DELTA_MIN" ]; then
     continue   # a live archive with a small new tail: wait for more lines, or for it to settle
   fi
+  # X2 S6: the one-time migration scrubbed the archives that existed then, but a session still
+  # running 0.55 hooks (no scrub) can append keys in clear after the marker. ONE literal grep per
+  # archive about to be extracted; on a hit it is scrubbed in place first (sb_scrub_archive_file:
+  # atomic, mtime and line count kept, under its archive lock) and the window recomputed (line
+  # lengths changed). A failed scrub, or an archive the grep cannot read, is skipped this tick.
+  LC_ALL=C grep -qF "${_SB_SCRUB_LITERALS[@]}" -- "$tf" 2>/dev/null; src=$?
+  if [ "$src" -eq 0 ]; then
+    sb_scrub_archive_file "$tf" || continue   # logged by the scrub
+    win=$(sb_archive_window "$tf" "$next" "$lines" "$MAXB") || continue
+    read -r _hdr wbytes cend <<< "$win"
+  elif [ "$src" -gt 1 ]; then
+    sb_log_error "extract-drain.sh" "cannot read $base for the pre-extraction secret check (grep rc=$src); not extracted this tick" 1
+    continue
+  fi
   slug=$(sb_slug_from_archived_transcript "$tf")
   [ -n "$slug" ] || slug="unknown"
   reason=""; [ "$flag" = "regrow" ] && reason="legacy-regrow"
