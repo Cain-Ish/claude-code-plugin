@@ -213,10 +213,11 @@ State files (all under `~/.second-brain`; full map owned by sb-architecture-cont
 
 | File | Meaning |
 |---|---|
-| `.last-extracted-line-<slug>--<session_id>` | per-session extraction marker (bare integer); swept after 30 d idle |
+| `.last-archived-line-<slug>--<session_id>` | archive-first cursor: `<raw_line>`, a tab, then the transcript path; raw transcript lines already copied into the archive (0.56.0); swept after 30 d idle |
+| `.last-extracted-line-<slug>--<session_id>` | per-session extraction marker (bare integer, raw transcript lines); swept after 30 d idle |
 | `.extractor-health.json` | `{checked_at, backend, status, reason}`; `status ∈ ok\|fail\|queued` — `queued` is NORMAL on subscription auth (in-session OAuth deferral) |
-| `.extraction-state.jsonl` | drainer done-set: `{basename, ts, outcome: ok\|retry\|error, reason?, fails?}`; `error` = poison-pilled after `SB_DRAIN_MAX_FAILS` (3) |
-| `transcripts/*.txt` | archived session windows (caps 100 files / 5 MB; subagent `sub-*` sub-cap 50) |
+| `.extraction-state.jsonl` | drainer done-set: `{basename, ts, outcome: ok\|baseline\|retry\|error, reason?, latency_s?, fails?, from, lines}`; `from`/`lines` = the archive-line window extracted; a cursor = max `lines` over `ok`/`baseline` rows; `error` = that window dead-lettered after `SB_DRAIN_MAX_FAILS` (3), lines stay un-extracted |
+| `transcripts/*.txt` | archived session windows (caps 400 files / 25 MB soft, 1200 files / 75 MB hard; subagent `sub-*` sub-cap 200) |
 | `.drain-defer-count` / `.last-drain-escape` | drainer starvation-escape state |
 | `.project-update-pending-<slug>` | queued reflection work flag |
 
@@ -228,11 +229,11 @@ B=~/.second-brain; P="${CLAUDE_PLUGIN_ROOT:-$PWD}"
 jq . "$B/.extractor-health.json"          # healthy: status "ok", reason "drained N this run (M failed)"
 # 2. Done-set recency:
 tail -5 "$B/.extraction-state.jsonl" | jq -c '{basename,ts,outcome,reason}'
-# 3. Backlog (archived but not terminal in the done-set; 0 = fully drained).
-#    tr -d '\r' is load-bearing: Windows jq stdout is CRLF, so a CR rides on every basename and
-#    matches nothing in comm — backlog then falsely reads as ALL archived (project_jq_windows_crlf_stdout):
-comm -23 <(ls -1 "$B"/transcripts/*.txt 2>/dev/null | sed 's|.*/||' | sort) \
-         <(jq -r 'select(.outcome=="ok" or .outcome=="error") | .basename' "$B/.extraction-state.jsonl" 2>/dev/null | tr -d '\r' | sort -u) | wc -l
+# 3. Backlog = archives holding unextracted lines (0 pending = drained). Cursor map, one TSV row per
+#    archive, oldest first: basename cursor lines state next fails mtime flag (state done|pending|dead)
+source "$P/scripts/lib.sh"; M=$(sb_drain_cursor_map "$B/.extraction-state.jsonl" "$B/transcripts")
+printf '%s' "$M" | cut -f4 | sort | uniq -c        # archives per state
+printf '%s' "$M" | awk -F'\t' '$4=="pending"' | head   # what is waiting
 # 4. Scheduler registered (checks the shim $B/bin/sb-extract-drain.sh + per-OS registration):
 source "$P/scripts/lib.sh"; sb_timer_health    # installed | absent
 ```
@@ -241,8 +242,8 @@ source "$P/scripts/lib.sh"; sb_timer_health    # installed | absent
 "0a-quater"; there is NO `drain-health*.sh` script): banner fires when
 `sb_count_drain_timeouts 40` (count of `extractor-diag .*ec=124` in the last 40
 error-log lines) ≥ `SB_DRAIN_TIMEOUT_BANNER_THRESHOLD` (3), OR
-`sb_count_drain_dead_letters` (basenames whose LAST done-set record is
-`outcome=="error"`) ≥ `SB_DRAIN_DEADLETTER_THRESHOLD` (5). Suppressed when the
+`sb_count_drain_dead_letters` (archives in state `dead` of the cursor map: an `error` row
+covers every line the cursor has not reached; recovery or later growth clears it) ≥ `SB_DRAIN_DEADLETTER_THRESHOLD` (5). Suppressed when the
 extractor-FAILED banner already fired (`.extractor-health.json` status `fail`);
 kill switch `SB_DRAIN_HEALTH_BANNER=off`. Replicate both counters:
 
@@ -253,7 +254,9 @@ source "$P/scripts/lib.sh"; echo "timeouts(40)=$(sb_count_drain_timeouts 40) dea
 Context for interpreting a non-draining backlog: the drainer refuses in-session
 (`CLAUDECODE=1`), defers while an interactive `claude` runs (starvation escape after
 6 defers / oldest-pending >24 h, only when SAFE), single-flights on
-`.extract-drain.lock` (7200 s staleness steal), batches 5, per-attempt timeout 240 s.
+`.extract-drain.lock` (7200 s staleness steal), makes up to 5 extractor calls per tick, per-attempt timeout 240 s.
+A live archive is extracted once `SB_DRAIN_DELTA_MIN_BYTES` (4096) of new lines exist or it has been quiet
+`SB_DRAIN_QUIET_S` (3600 s), so a small growing archive legitimately reads `pending`.
 A large backlog with `mode: subscription` + an always-open interactive session is
 the known starvation shape, not a bug — see sb-debugging-playbook for the triage.
 

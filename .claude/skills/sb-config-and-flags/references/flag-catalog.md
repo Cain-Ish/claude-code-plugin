@@ -87,7 +87,11 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_SAR_SUMMARY` | `on` | Stop-hook Safety-Adherence-Rate one-line banner from audit-log verdicts. | KS | sar-summary.sh:22 | bash |
 | `SB_SUBAGENT_CAPTURE` | `on` | SubagentStop: archive substantive, non-self subagent FINAL results into `~/.second-brain/transcripts/`. | KS | subagent-capture.sh:22 | bash |
 | `SB_SUBAGENT_MIN_RESULT` | `80` | Min result size (bytes) to count as substantive. | TUNE | subagent-capture.sh:56 | none |
-| `SB_SUBAGENT_ARCHIVE_CAP` | `50` | Max `sub-*.txt` archives kept (pruned oldest-first). | TUNE | lib.sh:840 | bash |
+| `SB_SUBAGENT_ARCHIVE_CAP` | `200` (was 50 before 0.56.0) | Max `sub-*.txt` archives kept (pruned oldest-first, before the shared cap). | TUNE | lib.sh:1968 | bash |
+| `SB_TRANSCRIPT_CAP` | `400` (was 100 before 0.56.0) | Soft cap on archive FILES in `transcripts/`; over it, already-extracted archives are evicted oldest-first. | TUNE | lib.sh:2152 | bash |
+| `SB_TRANSCRIPT_HARD_CAP` | `1200` (was 300 before 0.56.0) | File-count ceiling past which un-extracted archives are evicted too, each logged loudly. Clamped up to `SB_TRANSCRIPT_CAP`. | TUNE | lib.sh:2153 | bash |
+| `SB_TRANSCRIPT_MAX_BYTES` | `26214400` (25 MB; was 5 MB before 0.56.0) | Soft byte cap on `transcripts/*.txt`; reclaimed from already-extracted archives first. | TUNE | lib.sh:2239 | bash |
+| `SB_TRANSCRIPT_MAX_BYTES_HARD` | `3 x SB_TRANSCRIPT_MAX_BYTES` (75 MB) | Byte ceiling past which un-extracted archives are evicted, each logged loudly. Clamped up to the soft cap. | TUNE | lib.sh:2241 | bash |
 | `SB_PRINCIPLES_INJECT` | `on` | Persona principles block in the UserPromptSubmit ambient context. | KS | persona-context.sh:249 | bash |
 | `SB_OBSERVATION_LEDGER` | `on` | PostToolUse + PostToolUseFailure: append one deterministic JSONL line `{ts,tool,target,ok,err}` per tool use to `~/.second-brain/observations/<session>.jsonl` (mined by the drainer as extraction input; 7-day GC). `off` disables both hook wirings. | KS | observe-tool-use.sh:21 | none |
 | `SB_OBSERVATION_MAX_BYTES` | `1048576` (1 MiB) | Per-session cap on the observation ledger file. | TUNE | observe-tool-use.sh | none |
@@ -170,9 +174,11 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_USE_BWRAP` | `0` | Wrap the spawn in bubblewrap. | MODE | lib.sh:1323 | none |
 | `SB_PTY_RETRY` | `on` | Retry empty CLI output under a pty (`script -qfc`). | KS | lib.sh:1386 | none |
 | `SB_DRAIN_BATCH` | `5` | Transcripts per drain cycle. | TUNE | extract-drain.sh:190 | bash |
-| `SB_DRAIN_MAX_FAILS` | `3` | Failures before a transcript is terminally marked `error` (or floored). | TUNE | extract-drain.sh:192 | bash |
+| `SB_DRAIN_MAX_FAILS` | `3` | Failures before a WINDOW is dead-lettered as an `error` row (or floored); later growth of the archive is still extracted. | TUNE | extract-drain.sh:192 | bash |
 | `SB_DRAIN_FLOOR` | `on` | P1 deterministic floor: after MAX_FAILS, write the files-changed baseline (no LLM) and mark processed instead of losing the session. | KS | extract-drain.sh:279 | none |
-| `SB_DRAIN_MIN_BYTES` | `1024` | Skip transcripts smaller than this. | TUNE | extract-drain.sh:244 | bash |
+| `SB_DRAIN_MIN_BYTES` | `1024` | A SETTLED (quiet) unextracted tail smaller than this is marked done (`ok`/`too-small`) with no LLM call. | TUNE | extract-drain.sh:382 | bash |
+| `SB_DRAIN_QUIET_S` | `3600` (s) | An archive whose mtime is this old is settled: its whole unextracted tail is eligible regardless of size. | TUNE | extract-drain.sh:377 | bash |
+| `SB_DRAIN_DELTA_MIN_BYTES` | `4096` | A LIVE (not yet quiet) archive is extracted once at least this many bytes of new lines have accumulated past its cursor. | TUNE | extract-drain.sh:378 | bash |
 | `SB_DRAIN_LOCK_STALE` | `7200` (s) | Steal a drain lock older than this. | TUNE | extract-drain.sh:211 | bash |
 | `SB_DRAIN_FORCE_MKDIR_LOCK` | `0` | Force mkdir-based locking (portability/test). | TESTDBL | extract-drain.sh:202 | bash |
 | `SB_DRAIN_DEFER_MAX` | `6` | Consecutive defers (live interactive session present) before ONE drain escapes. | TUNE | extract-drain.sh:138 | bash |

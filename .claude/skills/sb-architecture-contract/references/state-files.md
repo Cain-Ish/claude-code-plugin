@@ -16,8 +16,8 @@ Re-verify any row: `grep -rn '<filename>' scripts/ mcp/src/ | head -5`
 | `projects/<slug>/PROJECT.md` | per-project hot tier (Goal/State/**Plan**/Conventions/Recent decisions/Open blockers/Cross-references) — the `## Plan` section's marker grammar is documented below | `session-load.sh:40-79` |
 | `projects/<slug>/pending-extraction.log` | degraded-capture sidecar when the LLM extractor is unavailable (deduped/day, bounded 50 lines) | `stop-extract.sh:176-212` |
 | `projects/<slug>/raw/` | raw inbox — captured items awaiting the raw-drainer | `mcp/src/tools/raw-inbox.ts:41-43` |
-| `transcripts/<sid>_<slug>_<date>.txt` | preprocessed session archives, dream-minable + episodic-searchable; caps 100 files / 5 MB | `lib.sh` (`sb_archive_transcript`, `sb_prune_transcripts`) |
-| `transcripts/sub-<aid>_<slug>_<date>.txt` | subagent FINAL results; own cap `SB_SUBAGENT_ARCHIVE_CAP` (default 50) pruned before the shared cap | `lib.sh` (`sb_archive_subagent`) |
+| `transcripts/<sid>_<slug>_<date>.txt` | preprocessed session archives, dream-minable + episodic-searchable; caps 400 files / 25 MB soft, 1200 files / 75 MB hard (0.56.0; was 100 / 5 MB); written archive-first by `sb_archive_raw_window`, credential formats redacted by `sb_scrub_secrets` | `lib.sh:1876`, `lib.sh:1626`, `lib.sh:2119` (`sb_prune_transcripts`) |
+| `transcripts/sub-<aid>_<slug>_<date>.txt` | subagent FINAL results; own cap `SB_SUBAGENT_ARCHIVE_CAP` (default 200; 50 before 0.56.0) pruned before the shared cap | `lib.sh` (`sb_archive_subagent`) |
 | `dreams/drm_*/` | dream state: `status.json`, `staging/wiki/`, `transcripts/`, `diff.md`, `forget-manifest.tsv` | `dream-snapshot.sh`, `agents/dream-runner.md:33-36` |
 | `wiki-archive/` + `wiki-archive-log.jsonl` | reversible FORGET store + append-only event log | `scripts/wiki-restore.sh:8`, `skills/dream/SKILL.md:242` |
 | `wiki-backup-pre-accept-<stamp>.tgz` | fail-closed live-wiki backup taken before every dream accept | `dream-accept.sh:140-152` |
@@ -28,8 +28,9 @@ Re-verify any row: `grep -rn '<filename>' scripts/ mcp/src/ | head -5`
 | `regressions/` | created at ensure-dirs (regression fixture drop zone) | `ensure-dirs.sh:9` |
 | `.active-session-slug` | shared last-session pin — the LOWEST-precedence slug-resolver input | `session-load.sh:37`, `project-dir.ts:58-61` |
 | `.session-baseline-<slug>.md` | PROJECT.md copy taken at SessionStart, diffed at Stop, then deleted | `session-load.sh:81`, `stop-extract.sh:271` |
-| `.last-extracted-line-<slug>--<sid>` | extraction window markers (disjoint Stop/PreCompact windows); GC `-mtime +30` | `lib.sh:687+`, `extract-drain.sh:301` |
-| `.extraction-state.jsonl` | out-of-band drainer per-transcript ledger (`outcome: ok\|retry\|error`) | `extract-drain.sh:196` |
+| `.last-archived-line-<slug>--<sid>` | archive-first cursor, `<raw_line>\t<normalized transcript path>`: how much of the RAW transcript is already in the archive; shared by Stop and PreCompact; reset to 0 on a different path or a cursor past the transcript end; GC `-mtime +30` | `lib.sh:1876` (`sb_archive_raw_window`), `extract-drain.sh:468` |
+| `.last-extracted-line-<slug>--<sid>` | extraction window markers (disjoint Stop/PreCompact windows) in RAW transcript lines; never an archive line; GC `-mtime +30` | `lib.sh:687+`, `extract-drain.sh:301` |
+| `.extraction-state.jsonl` | out-of-band drainer done-set, append-only (except the purge of a recreated archive's rows), one row per extracted window: `{basename, ts, outcome: ok\|baseline\|retry\|error, reason?, latency_s?, fails?, from, lines}`; `from`/`lines` = archive-line window `(from, lines]`; a basename's cursor = max `lines` over its `ok`/`baseline` rows (`retry`/`error` never advance it); read ONLY through `sb_drain_cursor_map` (states `done`\|`pending`\|`dead`) | `lib.sh:2999-3101` (R2 contract), `extract-drain.sh:272-292` |
 | `.extract-drain.lock` / `.extract-drain.lock.d` | drainer single-flight: `flock`, else mkdir-lock with `SB_DRAIN_LOCK_STALE` (7200 s) staleness steal | `extract-drain.sh:200-227` |
 | `.drain-defer-count` / `.last-drain-escape` | drainer starvation-escape state (defer counter + escape cooldown stamp) | `extract-drain.sh:86-87, 134-139` |
 | `.extractor-health.json` | extractor backend health, surfaced by the next SessionStart banner | `lib.sh` (extractor area), `extract-drain.sh:311+` |
