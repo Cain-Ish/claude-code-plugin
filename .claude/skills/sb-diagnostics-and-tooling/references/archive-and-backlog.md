@@ -7,10 +7,15 @@ Detail behind SKILL.md section 5. Every number below was read from `scripts/lib.
 
 `mcp/src/cli/sb.ts` runs `sb_drain_cursor_map` through bash (`drainCursorMap`, SIGKILL-bounded,
 never throws) and prints `transcript backlog:  N of M archived (K dead-lettered)`: N = rows in state
-`pending`, M = all archives, K = rows in state `dead` (omitted when 0). If the map cannot be read it
-prints `unknown (drain cursor map unavailable: <reason>)`; with no `transcripts/` dir, `no transcripts
-dir`. The `last extraction:` row beside it is only the newest `ts` in `.extraction-state.jsonl`.
-So `sb status` and the SessionStart banners now agree: both read the one cursor map.
+`pending`, M = all archives, K = rows in state `dead` (omitted when 0). When some archive carries a
+dead-lettered window (map column 8 `dead_windows` > 0, whatever its state) the row ends in
+`; dead windows: W in A archives, L lines` (W, L = sums of columns 8 and 9). If the map cannot be
+read it prints `unknown (drain cursor map unavailable: <reason>)`; with no `transcripts/` dir, `no
+transcripts dir`. The `last extraction:` row beside it is only the newest `ts` in
+`.extraction-state.jsonl`. So `sb status` and the SessionStart banners now agree: both read the one
+cursor map. The `archive scrub:` row below it reads `done` (marker `.archive-scrub-v1`), else
+`N to scrub (K with failed attempts >= 3)` from `.archive-scrub-v1.todo`, `no to-do list yet (...)`
+when neither file exists, or `unknown (cannot read ...)`.
 
 ## Per-archive lock
 
