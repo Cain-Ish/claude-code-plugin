@@ -477,24 +477,14 @@ SCRATCH_ENC=$(printf '%s' "$BRAIN_DIR/scratch" | sed 's|[/.]|-|g')
 for pd in "$HOME/.claude/projects/$SCRATCH_ENC" "$HOME"/.claude/projects/*second-brain-scratch*; do
   [ -d "$pd" ] && find "$pd" -name '*.jsonl' -mtime +3 -delete 2>/dev/null
 done
-# .extraction-state.jsonl ledger GC (state hygiene): the append-only done-set keeps
-# one row per transcript forever, but transcripts are pruned by the 100-file / 5MB
-# archive cap (sb_prune_transcripts) — leaving dead rows that grow the ledger without
-# bound. Rewrite it keeping only rows whose basename still exists under transcripts/.
-# Atomic tmp+mv; a torn/corrupt row is dropped by fromjson? (same tolerance the
-# done/fails readers use). Lossless: a live transcript's terminal state is preserved.
-if [ -s "$STATE" ]; then
-  LIVE_BN=$(ls -1 "$TX_DIR" 2>/dev/null | jq -Rsc 'split("\n") | map(select(length>0))' 2>/dev/null)
-  [ -n "$LIVE_BN" ] || LIVE_BN='[]'
-  STATE_TMP="$STATE.tmp.$$"
-  if jq -cR --argjson live "$LIVE_BN" \
-       'fromjson? | select(.basename as $b | $live | index($b) != null)' \
-       "$STATE" > "$STATE_TMP" 2>/dev/null; then
-    mv "$STATE_TMP" "$STATE" 2>/dev/null || rm -f "$STATE_TMP" 2>/dev/null
-  else
-    rm -f "$STATE_TMP" 2>/dev/null
-  fi
-fi
+# .extraction-state.jsonl ledger GC (state hygiene), under this tick's drain lock (the ledger's
+# only writer). The append-only done-set gains a row per extracted WINDOW (R2 delta drain) and
+# keeps rows of archives the cap (sb_prune_transcripts) already evicted, and every SessionStart
+# parses it. sb_compact_done_set (lib.sh) drops the rows of vanished archives and unparseable
+# rows, and keeps, per live archive, only the rows sb_drain_cursor_map reads: lossless, its output
+# is identical before and after (R2-F#10). Atomic tmp+mv; a failure leaves the ledger as it was
+# and is logged.
+sb_compact_done_set "$STATE" "$TX_DIR" || true
 
 # --- P8 capture reconciliation (0.48.0): one declared-vs-observed row per tick. -----
 # declared = archives on disk; observed = archives with nothing left to extract (cursor reached

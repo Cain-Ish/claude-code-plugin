@@ -103,13 +103,19 @@ eq "remaining 2 drained, total 7" "$(done_count)" "7"
 reset; mk_tx "p1_poison_2026-05-24.txt" poison
 SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # retry 1
 SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # retry 2
-SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # 3rd → terminal error
-RETRIES=$(grep -c '"outcome":"retry"' "$STATE" || echo 0)
-ERRORS=$(grep -c '"outcome":"error"' "$STATE" || echo 0)
+RETRIES=$(grep -c '"outcome":"retry"' "$STATE" || true)
 eq "poison: 2 retries recorded" "$RETRIES" "2"
+SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # 3rd → terminal error
+ERRORS=$(grep -c '"outcome":"error"' "$STATE" || true)
 eq "poison: 1 terminal error" "$ERRORS" "1"
+# R2-F#10: once dead-lettered, the retry rows before it are compacted away (the cursor map reads
+# only the error row); the error row itself records the attempts
+grep -q '"outcome":"error".*"fails":3' "$STATE" && ok "poison: the error row records the 3 attempts" \
+  || no "poison: the error row lost its fails count (got: $(cat "$STATE"))"
+cp "$STATE" "$SANDBOX/poison.before"
 SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # must NOT touch it again
-eq "poison: not reprocessed after terminal" "$(grep -c '"outcome":"retry"' "$STATE" || echo 0)" "2"
+cmp -s "$STATE" "$SANDBOX/poison.before" && ok "poison: not reprocessed after terminal" \
+  || no "poison: the dead-lettered transcript was touched again (got: $(cat "$STATE"))"
 
 # Test 4b: a run where everything fails → health status must be "fail" (not clobbered to ok)
 reset; mk_tx "f1_poison_2026-05-24.txt" poison
@@ -510,6 +516,20 @@ SB_DRAIN_BATCH=0 rdrain
 RROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
 printf '%s' "$RROW" | grep -q 'declared=1 observed=0 pending=1' \
   && ok "reconcile: a grown archive is pending" || no "reconcile: grown archive miscounted (got: $RROW)"
+
+# D10 (R2-F#10): the tick's ledger GC compacts a live archive's window rows to the rows the cursor
+# map reads (lossless: same cursor and state), so the ledger stops growing by a row per window.
+reset; rm -f "$RLOG"
+mk_lines "cp1_proj_2026-05-24.txt" 8                       # 15 lines, extracted in five windows
+for w in 0 3 6 9 12; do
+  printf '{"basename":"cp1_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":%d,"lines":%d}\n' "$w" $((w + 3))
+done > "$STATE"
+CP_BEFORE="$(cmap cp1_proj_2026-05-24.txt 2) $(cmap cp1_proj_2026-05-24.txt 4)"
+eq "compact: fixture is a done archive" "$CP_BEFORE" "15 done"
+SB_DRAIN_BATCH=0 rdrain
+eq "compact: the tick's GC keeps one row for the done archive" "$(rows_for cp1_proj_2026-05-24.txt | grep -c . || true)" "1"
+eq "compact: cursor and state unchanged by the compaction" "$(cmap cp1_proj_2026-05-24.txt 2) $(cmap cp1_proj_2026-05-24.txt 4)" "$CP_BEFORE"
+eq "compact: a done archive makes no extractor call" "$(rcalls)" "0"
 
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.

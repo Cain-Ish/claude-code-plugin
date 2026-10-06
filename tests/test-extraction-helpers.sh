@@ -358,6 +358,75 @@ fi
 eq "chunks: stop at the failing chunk (no call after it)" "$(cat "$CALLS.n")" "2"
 eq "chunks: SB_EXTRACT_REACHED = end of the last good chunk" "$SB_EXTRACT_REACHED" "17"
 
+echo "=== R2-F#10: lossless done-set compaction (sb_compact_done_set) ==="
+# The ledger gains a row per extracted window and every SessionStart parses it. Compaction keeps,
+# per live basename, only the rows sb_drain_cursor_map reads. The proof: the map (all 8 columns)
+# is byte-identical before and after, on archives of every shape.
+CD="$SANDBOX/compact"; CT="$CD/transcripts"; CS="$CD/state.jsonl"; mkdir -p "$CT"
+cmk() { local k=1; : > "$CT/$1"; while [ "$k" -le "$2" ]; do printf 'L%d\n' "$k" >> "$CT/$1"; k=$((k + 1)); done; touch -t "$3" "$CT/$1"; }
+cmk grown.txt 20 202601050000        # cursor 16 < 20: pending, many ok windows
+cmk dead.txt 20 202601050001         # (8,20] dead-lettered
+cmk deadgrown.txt 25 202601050002    # an old dead region under the cursor, a newer one past it, a retry
+cmk recreated.txt 35 202601050003    # a non-trailing retry row holds max(lines) 40 > 35
+cmk weird.txt 20 202601050004        # an unknown outcome holds max(lines)
+cmk legacy_ok.txt 10 202601030001    # legacy rows only; unchanged since the ok row; trailing retries
+cmk legacy_err.txt 10 202601030001   # legacy rows only; the last ok|error row is an error
+cmk retrying.txt 12 202601050005     # trailing retries after the cursor row
+cmk stopedge.txt 40 202601050006     # the stop row before the trailing retry is a low baseline row: no other rule keeps it
+cmk mixed.txt 6 202601050007         # a legacy row plus a lines row
+cmk toosmall.txt 3 202601050008      # done by a too-small row
+cmk norows.txt 4 202601050009        # no row at all
+cmk errkeep.txt 20 202601050010      # the dead-letter row is neither the max-lines row, the stop row nor the last ok|error
+cmk legacy_weird.txt 10 202601030001 # legacy rows; the last non-retry row is not ok|error
+r() { printf '{"basename":"%s","ts":"%s","outcome":"%s"%s}\n' "$1" "$2" "$3" "${4:-}"; }
+T5="2026-01-05T00:00:00Z"; T3="2026-01-03T00:00:00Z"; T1="2026-01-01T00:00:00Z"
+{
+  r grown.txt "$T5" ok ',"from":0,"lines":5'; r grown.txt "$T5" ok ',"from":5,"lines":10'
+  r dead.txt "$T5" ok ',"from":0,"lines":8'
+  r grown.txt "$T5" retry ',"from":10,"lines":14,"fails":1'; r grown.txt "$T5" ok ',"from":10,"lines":14'
+  r grown.txt "$T5" ok ',"from":14,"lines":16,"latency_s":7'
+  r dead.txt "$T5" retry ',"from":8,"lines":20,"fails":1'; r dead.txt "$T5" retry ',"from":8,"lines":20,"fails":2'
+  r dead.txt "$T5" error ',"from":8,"lines":20,"fails":3'
+  r deadgrown.txt "$T5" ok ',"from":0,"lines":8'; r deadgrown.txt "$T5" error ',"from":8,"lines":12,"fails":3'
+  r deadgrown.txt "$T5" ok ',"from":12,"lines":15'; r deadgrown.txt "$T5" error ',"from":15,"lines":18,"fails":3'
+  r deadgrown.txt "$T5" retry ',"from":18,"lines":25,"fails":1'
+  r recreated.txt "$T5" ok ',"from":0,"lines":10'; r recreated.txt "$T5" retry ',"from":10,"lines":40,"fails":1'
+  r recreated.txt "$T5" ok ',"from":10,"lines":30'
+  r weird.txt "$T5" ok ',"from":0,"lines":10'; r weird.txt "$T5" weird ',"from":10,"lines":50'; r weird.txt "$T5" ok ',"from":10,"lines":12'
+  r legacy_ok.txt "$T1" error ',"fails":3'; r legacy_ok.txt "$T3" ok; r legacy_ok.txt "$T3" retry ',"fails":1'; r legacy_ok.txt "$T3" retry ',"fails":2'
+  r legacy_err.txt "$T1" ok; r legacy_err.txt "$T3" error ',"fails":3'; r legacy_err.txt "$T3" retry ',"fails":1'
+  r retrying.txt "$T5" ok ',"from":0,"lines":4'; r retrying.txt "$T5" retry ',"from":4,"lines":12,"fails":1'
+  r retrying.txt "$T5" retry ',"from":4,"lines":12,"fails":2'
+  r stopedge.txt "$T5" ok ',"from":0,"lines":10'; r stopedge.txt "$T5" retry ',"from":10,"lines":30,"fails":1'
+  r stopedge.txt "$T5" baseline ',"from":0,"lines":5'; r stopedge.txt "$T5" retry ',"from":10,"lines":11,"fails":1'
+  r mixed.txt "$T1" ok; r mixed.txt "$T5" ok ',"from":0,"lines":6'
+  r toosmall.txt "$T5" ok ',"reason":"too-small","from":0,"lines":3'
+  r errkeep.txt "$T5" ok ',"from":0,"lines":8'; r errkeep.txt "$T5" error ',"from":8,"lines":20,"fails":3'
+  r errkeep.txt "$T5" retry ',"from":8,"lines":20,"fails":1'; r errkeep.txt "$T5" ok ',"from":0,"lines":5'
+  r legacy_weird.txt "$T3" ok; r legacy_weird.txt "$T3" weird
+  r gone.txt "$T5" ok ',"from":0,"lines":9'                            # no archive: dropped
+  printf '%s\n' 'not json' '{"basename":5,"outcome":"ok","lines":3}' '' '{"basename":"grown.txt","ts":"'"$T5"'","outcome":"ok","from":16,"li'
+} > "$CS"
+CM0=$(sb_drain_cursor_map "$CS" "$CT"); CN0=$(grep -c . "$CS")
+[ "$(printf '%s\n' "$CM0" | grep -c .)" -eq 14 ] || no "compact: fixture map should have 14 rows (got: $CM0)"
+sb_compact_done_set "$CS" "$CT" && ok "compact: returns 0" || no "compact: returned non-zero"
+CM1=$(sb_drain_cursor_map "$CS" "$CT"); CN1=$(grep -c . "$CS")
+[ "$CM1" = "$CM0" ] && ok "compact: the cursor map is identical before and after (all 8 columns, 14 archives)" \
+  || no "compact: the map changed:"$'\n'"$(diff <(printf '%s\n' "$CM0") <(printf '%s\n' "$CM1"))"
+[ "$CN1" -lt "$CN0" ] && ok "compact: the ledger shrank ($CN0 -> $CN1 rows)" || no "compact: nothing was compacted ($CN0 -> $CN1)"
+eq "compact: grown keeps only its cursor row" "$(grep -c '"basename":"grown.txt"' "$CS")" "1"
+grep -q '"basename":"grown.txt".*"lines":16,"latency_s":7' "$CS" && ok "compact: rows are kept verbatim" || no "compact: the kept row was rewritten"
+grep -q 'gone.txt' "$CS" && no "compact: a row of a vanished archive survived" || ok "compact: rows of vanished archives dropped"
+grep -qv '^{"basename":"' "$CS" && no "compact: an unparseable row survived" || ok "compact: unparseable rows dropped"
+cp "$CS" "$CD/once"; sb_compact_done_set "$CS" "$CT" || no "compact: the second pass returned non-zero"
+cmp -s "$CS" "$CD/once" && ok "compact: idempotent" || no "compact: a second pass changed the ledger"
+# a failure keeps the ledger as it is and is loud
+cp "$CS" "$CD/before-fail"; : > "$BRAIN_DIR/error-log.jsonl"
+( jq() { case " $* " in *" --rawfile "*) return 5 ;; esac; command jq "$@"; }; sb_compact_done_set "$CS" "$CT" ) && no "compact: a failed jq returned 0" || ok "compact: a failed jq returns non-zero"
+cmp -s "$CS" "$CD/before-fail" && ok "compact: a failed pass leaves the ledger intact" || no "compact: a failed pass changed the ledger"
+grep -q 'sb_compact_done_set' "$BRAIN_DIR/error-log.jsonl" && ok "compact: a failed pass is logged" || no "compact: a failed pass was silent"
+[ -z "$(find "$CD" -name 'state.jsonl.*')" ] && ok "compact: no scratch file left" || no "compact: a scratch file was left behind"
+
 echo "=== R2-B: source-scan lock — no basename-set 'done' readers ==="
 # The pre-R2 readers each derived "done" as {basename : some ok|error row}. Four copies drifted
 # (extract-drain, session-load, sb.ts, sb-health-snapshot). sb_drain_cursor_map is now the ONE

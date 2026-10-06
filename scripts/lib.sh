@@ -3166,6 +3166,75 @@ sb_drain_map_counts() {
   return 0
 }
 
+# The jq half of sb_compact_done_set. stdin = the archive basenames on disk; $st = the raw done-set.
+# Per live basename it keeps (verbatim, in file order) exactly the rows _SB_DRAIN_MAP_JQ reads:
+#   the ok|baseline row holding the cursor (max lines)         -> cursor
+#   a row holding max(lines) over every outcome                -> the recreated check ($hi)
+#   every error row past the cursor (the dead-lettered windows) -> next
+#   the trailing retry run, and the last non-retry row before it -> fails (trailing_retries
+#                                                                   stops at that row)
+#   the last ok|error row                                       -> a legacy (lines-less) archive's
+#                                                                   flag, ts and outcome
+# Each map field is a max over, or the tail of, the rows, and the kept set holds every row that
+# realises one, so the map of the compacted ledger is identical. Rows of archives no longer on
+# disk and unparseable rows are dropped (the map never reads them).
+_SB_COMPACT_JQ='
+def hasl: (.r.lines | type) == "number";
+def lastof(f): [.[] | select(f)] | last;
+(reduce (inputs | sub("\r$"; "") | select(length > 0)) as $l ({}; .[$l] = true)) as $live
+| ($st | split("\n")) as $L
+| [ range(0; $L | length) as $i
+    | ($L[$i] | sub("\r$"; "")) as $raw
+    | ($raw | try fromjson catch null) as $r
+    | select(($r | type) == "object" and ($r.basename | type) == "string" and $live[$r.basename] == true)
+    | {i: $i, raw: $raw, r: $r} ]
+| group_by(.r.basename)
+| map(
+    ([.[] | select((.r.outcome == "ok" or .r.outcome == "baseline") and hasl) | .r.lines] | max // 0) as $cur
+    | ([.[] | select(hasl) | .r.lines] | max) as $hi
+    | (reduce (reverse[]) as $x ({run: [], stop: null};
+        if .stop != null then . elif $x.r.outcome == "retry" then .run += [$x] else .stop = $x end)) as $t
+    | [ lastof((.r.outcome == "ok" or .r.outcome == "baseline") and hasl and .r.lines == $cur),
+        lastof(hasl and .r.lines == $hi),
+        (.[] | select(.r.outcome == "error" and hasl and .r.lines > $cur)),
+        $t.run[], $t.stop,
+        lastof(.r.outcome == "ok" or .r.outcome == "error") ]
+    | map(select(. != null)) | unique_by(.i) | .[])
+| sort_by(.i)[] | .raw
+'
+
+# sb_compact_done_set [STATE] [TXDIR]: rewrite the done-set keeping, per archive on disk, only the
+# rows sb_drain_cursor_map reads (see _SB_COMPACT_JQ): its output, every column, is the same before
+# and after (R2-F#10). The ledger gains a row per extracted window and every SessionStart parses
+# it, so the drainer's ledger GC runs this each tick UNDER THE DRAIN LOCK (the only writer). ONE
+# jq (the archive list on stdin, the ledger via --rawfile: native jq.exe has a 32 KB argv limit,
+# which the old GC's --argjson list of every archive name hit at ~700 archives), tmp + mv. The
+# rewrite refreshes the ledger mtime, as the GC always did (loop-dead banner reads it as "the
+# drainer ran"). Returns 1 on a failure, logged, with the ledger left as it was.
+sb_compact_done_set() {
+  local state="${1:-$BRAIN_DIR/.extraction-state.jsonl}" txd="${2:-$BRAIN_DIR/transcripts}" tmp ps
+  [ -s "$state" ] || return 0
+  [ -d "$txd" ] || return 0   # no archive dir is not "no archive": never empty the ledger on it
+  case "$state" in /*|[A-Za-z]:*) ;; *) state="$PWD/$state" ;; esac
+  tmp="$state.compact.$$"
+  ( cd "$txd" || exit 1
+    set -- *.txt; { [ -e "$1" ] || [ -L "$1" ]; } || exit 0
+    printf '%s\n' "$@" ) \
+    | jq -nrR --rawfile st "$state" "$_SB_COMPACT_JQ" 2>/dev/null | tr -d '\r' > "$tmp"
+  ps="${PIPESTATUS[*]}"
+  if [ "$ps" != "0 0 0" ]; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_compact_done_set: compaction of $state failed (pipe status $ps); the ledger is left as it was" 1
+    return 1
+  fi
+  if ! mv -f "$tmp" "$state" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_compact_done_set: cannot rename the compacted ledger over $state; left as it was" 1
+    return 1
+  fi
+  return 0
+}
+
 # sb_archive_window FILE FROM TO MAXBYTES -> "<header_end> <window_bytes> <chunk_end>".
 # The window is archive lines (max(FROM, header_end), TO]. header_end = the first `---` line
 # (CR-tolerant) among lines 2..64, else 0 (a header-less archive is all body). window_bytes =
