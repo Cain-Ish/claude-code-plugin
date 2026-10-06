@@ -448,6 +448,87 @@ cmp -s "$CS" "$CD/before-fail" && ok "compact: a failed pass leaves the ledger i
 grep -q 'sb_compact_done_set' "$BRAIN_DIR/error-log.jsonl" && ok "compact: a failed pass is logged" || no "compact: a failed pass was silent"
 [ -z "$(find "$CD" -name 'state.jsonl.*')" ] && ok "compact: no scratch file left" || no "compact: a scratch file was left behind"
 
+echo "=== X2 S1/S2/S4: eviction under the archive lock, tombstones, the subagent sub-cap ==="
+# S1: the prune classified from a map snapshot and removed with no archive lock, so an append that
+# landed in between was deleted with the file (the appender's raw cursor had already advanced).
+# S2: a basename re-created after its eviction inherited the stale cursor once it grew past it.
+# S4: the subagent sub-cap deleted the oldest sub-*.txt whether or not it was ever extracted.
+PB="$SANDBOX/prune-brain"; PT="$PB/transcripts"; PS="$PB/.extraction-state.jsonl"
+pmk() {  # $1 = name, $2 = line count, $3 = touch stamp
+  local k=1; : > "$PT/$1"; while [ "$k" -le "$2" ]; do printf 'L%d\n' "$k" >> "$PT/$1"; k=$((k + 1)); done
+  touch -t "$3" "$PT/$1"
+}
+pok() { printf '{"basename":"%s","ts":"%s","outcome":"ok","from":0,"lines":%s}\n' "$1" "${3:-2026-10-01T00:00:00Z}" "$2" >> "$PS"; }
+preset() { rm -rf "$PB"; mkdir -p "$PT"; : > "$PS"; : > "$PB/error-log.jsonl"; : > "$PB/audit-log.jsonl"; }
+pmap() { BRAIN_DIR="$PB" sb_drain_cursor_map "$PS" "$PT" | awk -F'\t' -v b="$1" -v k="$2" '$1 == b { print $k; exit }'; }
+pfour() {  # A (done, oldest) + three newer pending archives: one over a cap of 3
+  pmk sA.txt 10 202610010000; pok sA.txt 10
+  pmk o1.txt 2 202610020000; pmk o2.txt 2 202610020001; pmk o3.txt 2 202610020002
+}
+# S2: eviction leaves a tombstone; the re-created archive restarts at 0 even past the old cursor
+preset; pfour
+( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3 sb_prune_transcripts )
+[ ! -e "$PT/sA.txt" ] && [ -f "$PT/.sA.txt.evicted" ] && ok "tombstone: the evicted archive leaves .<name>.evicted" \
+  || no "tombstone: missing after eviction ($(ls -a "$PT" | tr '\n' ' '))"
+pmk sA.txt 15 202610030000                            # same basename, re-created, grew past cursor 10
+eq "tombstone: a re-created archive restarts at 0 (cursor state next)" "$(pmap sA.txt 2) $(pmap sA.txt 4) $(pmap sA.txt 5)" "0 pending 0"
+pok sA.txt 15 2099-01-01T00:00:00Z                    # the new incarnation's own row (after the tombstone)
+eq "tombstone: rows written after the eviction count" "$(pmap sA.txt 2) $(pmap sA.txt 4)" "15 done"
+TM0=$(BRAIN_DIR="$PB" sb_drain_cursor_map "$PS" "$PT")
+( BRAIN_DIR="$PB" sb_compact_done_set "$PS" "$PT" ) || no "tombstone: compaction failed"
+grep -q '"ts":"2026-10-01T00:00:00Z"' "$PS" && no "tombstone: compaction kept the stale row" || ok "tombstone: compaction drops the pre-eviction rows"
+[ ! -e "$PT/.sA.txt.evicted" ] && ok "tombstone: consumed by the compaction" || no "tombstone: still there after the compaction"
+eq "tombstone: the map is identical after the consumption" "$(BRAIN_DIR="$PB" sb_drain_cursor_map "$PS" "$PT")" "$TM0"
+# a compaction that fails keeps the tombstone (and the ledger)
+preset; pfour; ( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3 sb_prune_transcripts ); pmk sA.txt 15 202610030000
+( BRAIN_DIR="$PB"; jq() { case " $* " in *" --rawfile "*) return 5 ;; esac; command jq "$@"; }; sb_compact_done_set "$PS" "$PT" ) >/dev/null 2>&1 || :
+[ -f "$PT/.sA.txt.evicted" ] && ok "tombstone: kept when the compaction fails" || no "tombstone: removed by a failed compaction"
+# S1: an append that lands between the classification and the rm keeps the archive
+preset; pfour
+eval "$(declare -f sb_drain_cursor_map | sed '1s/sb_drain_cursor_map/_s1_real_map/')"
+( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3
+  sb_drain_cursor_map() { local r=0; _s1_real_map "$@" || r=$?; printf 'L11\n' >> "$PT/sA.txt"; return "$r"; }
+  sb_prune_transcripts )
+eq "lock: an archive that grew after the classification is kept (lines)" "$(wc -l < "$PT/sA.txt" 2>/dev/null | tr -d ' ')" "11"
+[ ! -e "$PT/.sA.txt.evicted" ] && [ ! -e "$PT/.sA.txt.lock" ] && ok "lock: no tombstone and no lock left for the kept archive" \
+  || no "lock: tombstone/lock left behind ($(ls -a "$PT" | tr '\n' ' '))"
+# ...and an archive whose lock a writer holds is skipped this round (the writer's lock untouched)
+preset; pfour; printf '99999\n' > "$PT/.sA.txt.lock"
+( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3 sb_prune_transcripts )
+[ -f "$PT/sA.txt" ] && [ -f "$PT/.sA.txt.lock" ] && ok "lock: a locked archive is skipped and its lock left alone" \
+  || no "lock: a locked archive was evicted or its lock removed"
+rm -f "$PT/.sA.txt.lock"
+( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3 sb_prune_transcripts )
+[ ! -e "$PT/sA.txt" ] && [ ! -e "$PT/.sA.txt.lock" ] && ok "lock: evicted next round, and the prune's own lock released" \
+  || no "lock: next-round eviction wrong ($(ls -a "$PT" | tr '\n' ' '))"
+# item 9: evicting an archive that holds dead-lettered windows leaves one summary row
+preset; pmk dX.txt 10 202610010000
+printf '{"basename":"dX.txt","ts":"2026-10-01T00:00:00Z","outcome":"error","from":0,"lines":10,"fails":3}\n' > "$PS"
+pmk o1.txt 2 202610020000; pmk o2.txt 2 202610020001; pmk o3.txt 2 202610020002
+( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3 sb_prune_transcripts )
+grep -q 'gate=transcript-cap evicted 1 archive(s) holding dead-lettered windows (1 window(s), 10 lines' "$PB/audit-log.jsonl" \
+  && ok "cap: a dead-lettered eviction is logged once" || no "cap: dead-lettered eviction not logged ($(cat "$PB/audit-log.jsonl" "$PB/error-log.jsonl"))"
+# S4: the sub-cap protects un-extracted sub-*.txt: done ones go past SB_SUBAGENT_ARCHIVE_CAP, pending
+# ones only past 3x that, loudly
+preset
+for s in a b c; do pmk "sub-$s.txt" 3 "20261001000$( case $s in a) echo 1;; b) echo 2;; c) echo 3;; esac)"; done
+( BRAIN_DIR="$PB" SB_SUBAGENT_ARCHIVE_CAP=2 sb_prune_transcripts )
+eq "sub-cap: un-extracted sub archives over the soft sub-cap are kept" "$(ls "$PT" | grep -c '^sub-')" "3"
+pok sub-a.txt 3; pok sub-b.txt 3                      # a and b extracted: they may go
+( BRAIN_DIR="$PB" SB_SUBAGENT_ARCHIVE_CAP=2 sb_prune_transcripts )
+eq "sub-cap: extracted sub archives are evicted down to the sub-cap, oldest first" "$(ls "$PT" | grep '^sub-' | tr '\n' ' ')" "sub-b.txt sub-c.txt "
+preset
+for s in 1 2 3 4 5 6 7; do pmk "sub-p$s.txt" 3 "20261001000$s"; done
+( BRAIN_DIR="$PB" SB_SUBAGENT_ARCHIVE_CAP=2 sb_prune_transcripts )
+[ ! -e "$PT/sub-p1.txt" ] && [ "$(ls "$PT" | grep -c '^sub-')" = "6" ] && ok "sub-cap: un-extracted ones go only past 3x the sub-cap, oldest first" \
+  || no "sub-cap: hard sub ceiling wrong ($(ls "$PT" | tr '\n' ' '))"
+grep -q 'UN-EXTRACTED.*sub-p1.txt' "$PB/error-log.jsonl" && ok "sub-cap: an un-mined sub eviction is loud" || no "sub-cap: un-mined sub eviction was silent"
+# p5a end to end: sb_archive_subagent_result no longer runs its own blind sub-cap
+preset
+( BRAIN_DIR="$PB" SB_SUBAGENT_ARCHIVE_CAP=2
+  for a in agA agB agC; do sb_archive_subagent_result "$a" general proj parentS 3 "result of $a" </dev/null; done )
+eq "sub-cap: three never-extracted subagent results all survive a sub-cap of 2" "$(ls "$PT" | grep -c '^sub-ag')" "3"
+
 echo "=== R2-B: source-scan lock — no basename-set 'done' readers ==="
 # The pre-R2 readers each derived "done" as {basename : some ok|error row}. Four copies drifted
 # (extract-drain, session-load, sb.ts, sb-health-snapshot). sb_drain_cursor_map is now the ONE

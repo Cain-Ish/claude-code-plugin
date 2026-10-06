@@ -605,6 +605,23 @@ SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=999999999 sdrain
 eq "scrub-migrate: the tick really deferred" "$(cat "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)" "1"
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sd1_proj_2026-05-24.txt" && no "scrub-migrate: a deferred tick skipped the scrub" || ok "scrub-migrate: runs on a deferred tick"
 
+# D14 (X2 S2): the cap evicted an extracted archive (tombstone .<name>.evicted) and the same
+# session re-created the basename the same day, growing it past the old cursor, before this tick.
+# The tick must extract it from 0, drop the evicted incarnation's row and consume the tombstone.
+reset; rm -f "$RLOG"
+mk_lines "ev1_proj_2026-05-24.txt" 3                       # the evicted incarnation: 10 lines
+printf '{"basename":"ev1_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":10}\n' > "$STATE"
+rm -f "$BRAIN_DIR/transcripts/ev1_proj_2026-05-24.txt"
+printf 'ev1_proj_2026-05-24.txt\n' > "$BRAIN_DIR/transcripts/.ev1_proj_2026-05-24.txt.evicted"
+mk_lines "ev1_proj_2026-05-24.txt" 13                      # re-created: 20 lines, past the old cursor
+rdrain
+eq "evicted+recreated: extracted from 0, not from the stale cursor" "$(rlast)" "ev1_proj_2026-05-24.txt 0 20"
+rows_for ev1_proj_2026-05-24.txt | grep -q '"ts":"2026-05-24T00:00:00Z"' && no "evicted+recreated: the evicted incarnation's row survived the tick" \
+  || ok "evicted+recreated: the evicted incarnation's row is dropped"
+[ ! -e "$BRAIN_DIR/transcripts/.ev1_proj_2026-05-24.txt.evicted" ] && ok "evicted+recreated: the tick consumed the tombstone" \
+  || no "evicted+recreated: tombstone left after the tick"
+eq "evicted+recreated: done after the tick" "$(cmap ev1_proj_2026-05-24.txt 2) $(cmap ev1_proj_2026-05-24.txt 4)" "20 done"
+
 # D13 (R2 fix X2#2): a cursor-map failure is not "nothing pending". A jq shim fails ONLY the map
 # program (the one that defines `epoch`); the tick must not write reconcile 0/0/0 nor health ok.
 JQS="$SANDBOX/jqshim"; mkdir -p "$JQS"

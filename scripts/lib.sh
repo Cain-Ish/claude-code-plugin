@@ -2073,30 +2073,10 @@ sb_archive_subagent_result() {
     return 1
   fi
 
-  # Prune subagent archives under their OWN budget FIRST, so a busy multi-agent
-  # session (hundreds of subagents) can never crowd main-session archives out of
-  # the shared 400-file cap. Oldest sub-*.txt by mtime are dropped beyond the cap.
-  # 200 keeps the half-of-the-shared-cap ratio (50 of 100 before 0.56.0).
-  local sub_cap="${SB_SUBAGENT_ARCHIVE_CAP:-200}"
-  local sub_files sub_count
-  # newest-first by mtime; delete everything past the cap. -printf is GNU; fall
-  # back to a stat-based sort on BSD/macOS.
-  sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f -printf '%T@ %p\n' 2>/dev/null \
-    | sort -rn | cut -d' ' -f2-)
-  if [ -z "$sub_files" ]; then
-    sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f 2>/dev/null \
-      | while IFS= read -r f; do
-          printf '%s %s\n' "$(sb_mtime "$f")" "$f"
-        done \
-      | sort -rn | cut -d' ' -f2-)
-  fi
-  sub_count=$(printf '%s\n' "$sub_files" | grep -c . 2>/dev/null || true)
-  if [ "$sub_count" -gt "$sub_cap" ]; then
-    printf '%s\n' "$sub_files" | tail -n +"$((sub_cap + 1))" | while IFS= read -r f; do
-      [ -n "$f" ] && rm -f "$f"
-    done
-  fi
-
+  # The subagent sub-cap (SB_SUBAGENT_ARCHIVE_CAP, 200: a busy multi-agent session must never
+  # crowd main-session archives out of the shared cap) is enforced by sb_prune_transcripts, by
+  # cursor state and under the archive locks (X2 S4): the blind oldest-first sub-*.txt delete that
+  # sat here removed archives the drainer had never extracted.
   sb_prune_transcripts
   return 0
 }
@@ -2228,12 +2208,15 @@ sb_write_generated_page() {
 }
 
 # Enforce transcript archive caps: 400 files / 25 MB soft, 1200 files / 75 MB hard (0.56.0, R2#6:
-# was 100 / 5 MB, hard caps 3x the soft ones as before). Runs on EVERY Stop/PreCompact append and
+# was 100 / 5 MB, hard caps 3x the soft ones as before), and the subagent sub-cap: 200 sub-*.txt
+# soft, 3x that hard (SB_SUBAGENT_ARCHIVE_CAP), so a busy multi-agent session can never crowd
+# main-session archives out of the shared cap. Runs on EVERY Stop/PreCompact append and
 # SubagentStop, so it is two-speed (R2-F#2: at 400 archives the old full pass cost 0.6-1.4 s per
 # append on MSYS):
-#   gate   the count from a builtin glob and the bytes from ONE `wc -c`; under every cap, return.
+#   gate   the counts from builtin globs and the bytes from ONE `wc -c`; under every cap, return.
 #   prune  over a cap: ONE sb_drain_cursor_map (one wc -l + one stat + one jq for all archives)
-#          classifies every archive, ONE awk decides the evictions, ONE rm removes them.
+#          classifies every archive, ONE awk decides the evictions, then they are removed under
+#          their archive locks (below).
 # EXTRACTED-FIRST, by cursor state (R2-F#1). The cap used to delete strictly oldest-first, which on
 # a machine where the drainer defers (pure OAuth + an always-on interactive session) destroyed the
 # un-mined backlog: measured live at 100/100 archived with 28 never extracted, the oldest 27 days
@@ -2243,7 +2226,15 @@ sb_write_generated_page() {
 # first, oldest first by MTIME (archive names lead with a random session UUID, so a name sort is
 # age-random). A PENDING archive (unextracted lines, including one that GREW after its last
 # extraction) is evicted only past a hard ceiling, and loudly. Protecting every `cursor < lines`
-# archive instead would keep each dead-lettered one forever. Growth stays bounded either way.
+# archive instead would keep each dead-lettered one forever. Growth stays bounded either way. The
+# sub-cap follows the same rule (X2 S4: it used to delete the oldest sub-*.txt, extracted or not).
+# Removal (X2 S1/S2): the classification is a snapshot, and a Stop append can land between it and
+# the rm (its raw cursor already advanced: those lines would be lost for good). Each victim's
+# archive lock is TRIED, never waited on (held = a writer is appending: skipped this round), its
+# line count re-checked under the lock (changed = it grew since the snapshot: kept), then a
+# tombstone .<basename>.evicted is written BEFORE the rm (no tombstone, no rm), so a basename the
+# same session re-creates the same day never inherits the evicted incarnation's cursor (see
+# _SB_DRAIN_MAP_JQ). ONE wc -l, ONE rm for the archives, ONE rm for the locks.
 sb_prune_transcripts() {
   local archive_dir="$BRAIN_DIR/transcripts"
   [ -d "$archive_dir" ] || return 0
@@ -2255,17 +2246,31 @@ sb_prune_transcripts() {
   local byte_hard="${SB_TRANSCRIPT_MAX_BYTES_HARD:-$((byte_cap * 3))}"
   case "$byte_hard" in ''|*[!0-9]*) byte_hard=$((byte_cap * 3)) ;; esac
   [ "$byte_hard" -lt "$byte_cap" ] && byte_hard="$byte_cap"
+  local scap="${SB_SUBAGENT_ARCHIVE_CAP:-200}"; case "$scap" in ''|*[!0-9]*) scap=200 ;; esac
+  local shard=$((scap * 3))
 
   # Gate. `wc -c` on a list ends with a `total` line (a lone file has none: its own line is the
   # total); the last line's first field is the byte total, read with builtins.
-  local -a tx
+  local -a tx sx
   tx=("$archive_dir"/*.txt)
   { [ "${#tx[@]}" -gt 0 ] && [ -e "${tx[0]}" ]; } || return 0
-  local count="${#tx[@]}" sizes total
+  local count="${#tx[@]}" scount=0 sizes total
+  sx=("$archive_dir"/sub-*.txt); [ -e "${sx[0]}" ] && scount="${#sx[@]}"
   sizes=$(cd "$archive_dir" 2>/dev/null && wc -c -- *.txt 2>/dev/null)
   total="${sizes##*$'\n'}"; total="${total#"${total%%[! ]*}"}"; total="${total%% *}"
   case "$total" in ''|*[!0-9]*) total=0 ;; esac
-  [ "$count" -le "$cap" ] && [ "$total" -le "$byte_cap" ] && return 0
+  [ "$count" -le "$cap" ] && [ "$total" -le "$byte_cap" ] && [ "$scount" -le "$scap" ] && return 0
+
+  # Tombstones older than two days protect nothing: a basename carries its creation date, so only
+  # a same-day re-creation can reuse it, and the drainer's compaction consumes them sooner. Swept
+  # here too, where they are written, for machines that run no drainer; a builtin count keeps the
+  # find off the common path.
+  local -a tb
+  tb=("$archive_dir"/.*.txt.evicted)
+  if [ -e "${tb[0]}" ] && [ "${#tb[@]}" -gt 20 ]; then
+    find "$archive_dir" -maxdepth 1 -name '.*.txt.evicted' -type f -mtime +1 -delete 2>/dev/null \
+      || sb_log_error "lib.sh" "sb_prune_transcripts: the tombstone sweep (find -delete) failed in $archive_dir" 1
+  fi
 
   # Classify. An empty map while archives exist (jq missing, a fork that failed) degrades to a
   # stat listing in which every archive counts as pending: no soft-cap eviction of an archive in
@@ -2274,55 +2279,117 @@ sb_prune_transcripts() {
   map=$(sb_drain_cursor_map "" "$archive_dir") || map=""
   if [ -z "$map" ]; then
     sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives / ${total} B are over a cap but the listing pass (sb_drain_cursor_map) yielded no rows; every archive is treated as un-mined this run (hard ceilings only)" 1
-    map=$(cd "$archive_dir" 2>/dev/null && _sb_mtimes *.txt | sort -n \
-      | LC_ALL=C awk '{ m = $1; sub(/^[0-9]+ /, ""); printf "%s\t0\t1\tpending\t0\t0\t%s\t-\n", $0, m }')
+    # The line counts come along (one wc -l): the removal re-check below compares them.
+    map=$(cd "$archive_dir" 2>/dev/null && { _sb_mtimes *.txt | sort -n; printf '%s\n' '--wc--'; wc -l -- *.txt 2>/dev/null; } \
+      | LC_ALL=C awk '
+          $0 == "--wc--" { w = 1; next }
+          !w { f = $0; sub(/^[0-9]+ /, "", f); o[++n] = f; mt[f] = $1; next }
+          { l = $0; sub(/\r$/, "", l); sub(/^ +/, "", l); c = l; sub(/ .*/, "", c); f = l; sub(/^[0-9]+ /, "", f)
+            if (c ~ /^[0-9]+$/) lc[f] = c }
+          END { for (i = 1; i <= n; i++) printf "%s\t0\t%s\tpending\t0\t0\t%s\t-\t0\t0\n", o[i], ((o[i] in lc) ? lc[o[i]] : -1), mt[o[i]] }')
   fi
 
-  # Decide. Input: the map rows (oldest-first), a separator, the `wc -c` lines. Count pass, then
-  # byte pass; each evicts done|dead archives down to the soft ceiling, then pending ones down to
-  # the hard ceiling. Output: `E<TAB>name` (extracted) / `U<TAB>name` (un-mined), then a sentinel,
-  # so a pass that produced nothing (a failed fork, a failed awk) is told apart from "nothing to
-  # evict". Fed through a pipe, never a here-string (the MSYS 64 KB hang; the map is ~70 B a row).
-  local -a evict=()
-  local kind name verdict="" nu=0 unmined=""
-  while IFS=$'\t' read -r kind name; do
+  # Decide. Input: the map rows (oldest-first), a separator, the `wc -c` lines. The sub-cap pass
+  # first, then the count pass, then the byte pass; each evicts done|dead archives down to its soft
+  # ceiling, then pending ones down to its hard ceiling. Output: `E|U<TAB>name<TAB>lines<TAB>
+  # dead_windows<TAB>dead_lines` (E extracted, U un-mined), then a sentinel, so a pass that
+  # produced nothing (a failed fork, a failed awk) is told apart from "nothing to evict". Fed
+  # through a pipe, never a here-string (the MSYS 64 KB hang; the map is ~70 B a row).
+  local -a vn=() vl=() vk=() vw=() vd=()
+  local kind name lns dw dl verdict=""
+  while IFS=$'\t' read -r kind name lns dw dl; do
     case "$kind" in
-      E) evict+=("$archive_dir/$name") ;;
-      U) evict+=("$archive_dir/$name"); nu=$((nu + 1)); unmined="$unmined${unmined:+, }$name" ;;
+      E|U) vn+=("$name"); vl+=("$lns"); vk+=("$kind"); vw+=("${dw:-0}"); vd+=("${dl:-0}") ;;
       --end--) verdict=1 ;;
     esac
   done < <({ printf '%s\n' "$map"; printf '%s\n' '--sizes--'; printf '%s\n' "$sizes"; } \
-    | LC_ALL=C awk -F'\t' -v cap="$cap" -v hard="$hard" -v bcap="$byte_cap" -v bhard="$byte_hard" '
+    | LC_ALL=C awk -F'\t' -v cap="$cap" -v hard="$hard" -v bcap="$byte_cap" -v bhard="$byte_hard" \
+        -v scap="$scap" -v shard="$shard" '
+      function evict(i, k) { ek[i] = k; cnt--; tot -= sz[nm[i]]; if (issub[i]) sc-- }
       sec == 0 && $0 == "--sizes--" { sec = 1; next }
-      sec == 0 { if ($1 != "") { n++; nm[n] = $1; pend[n] = ($4 == "pending") }; next }
+      sec == 0 {
+        if ($1 != "") {
+          n++; nm[n] = $1; ln[n] = $3; pend[n] = ($4 == "pending"); dw[n] = $9 + 0; dl[n] = $10 + 0
+          issub[n] = (substr($1, 1, 4) == "sub-")
+        }
+        next
+      }
       {
         l = $0; sub(/\r$/, "", l); sub(/^ +/, "", l)
         s = l; sub(/ .*/, "", s); f = l; sub(/^[0-9]+ /, "", f)
         if (s ~ /^[0-9]+$/) sz[f] = s + 0
       }
       END {
-        cnt = n; tot = 0
-        for (i = 1; i <= n; i++) tot += sz[nm[i]]
-        for (i = 1; i <= n && cnt > cap; i++)   if (!pend[i]) { ev[i] = "E"; cnt--; tot -= sz[nm[i]] }
-        for (i = 1; i <= n && cnt > hard; i++)  if (pend[i])  { ev[i] = "U"; cnt--; tot -= sz[nm[i]] }
-        for (i = 1; i <= n && tot > bcap; i++)  if (!pend[i] && !(i in ev)) { ev[i] = "E"; tot -= sz[nm[i]] }
-        for (i = 1; i <= n && tot > bhard; i++) if (pend[i] && !(i in ev))  { ev[i] = "U"; tot -= sz[nm[i]] }
-        for (i = 1; i <= n; i++) if (i in ev) printf "%s\t%s\n", ev[i], nm[i]
+        cnt = n; tot = 0; sc = 0
+        for (i = 1; i <= n; i++) { tot += sz[nm[i]]; if (issub[i]) sc++ }
+        for (i = 1; i <= n && sc > scap; i++)   if (issub[i] && !pend[i]) evict(i, "E")
+        for (i = 1; i <= n && sc > shard; i++)  if (issub[i] && pend[i] && !(i in ek)) evict(i, "U")
+        for (i = 1; i <= n && cnt > cap; i++)   if (!pend[i] && !(i in ek)) evict(i, "E")
+        for (i = 1; i <= n && cnt > hard; i++)  if (pend[i] && !(i in ek))  evict(i, "U")
+        for (i = 1; i <= n && tot > bcap; i++)  if (!pend[i] && !(i in ek)) evict(i, "E")
+        for (i = 1; i <= n && tot > bhard; i++) if (pend[i] && !(i in ek))  evict(i, "U")
+        for (i = 1; i <= n; i++) if (i in ek) printf "%s\t%s\t%s\t%s\t%s\n", ek[i], nm[i], ln[i], dw[i], dl[i]
         print "--end--"
       }')
   if [ -z "$verdict" ]; then
     sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives / ${total} B are over a cap but the decision pass returned no verdict; nothing was pruned this run" 1
     return 0
   fi
-  [ "${#evict[@]}" -gt 0 ] || return 0
-  # ONE log row for the un-mined evictions (it was one row and one jq spawn per file): this is
-  # knowledge destroyed before it was ever read, and it means the drainer has been stalled long
-  # enough to matter (see the drain-health banner in session-load.sh).
-  if [ "$nu" -gt 0 ]; then
-    sb_log_error "lib.sh" "transcript cap: evicting ${nu} UN-EXTRACTED archive(s) past the hard ceiling (${hard} files / ${byte_hard} B): ${unmined} — the drainer is not keeping up and this knowledge is lost" 1
+  [ "${#vn[@]}" -gt 0 ] || return 0
+
+  # Lock each victim without waiting (_sb_archive_lock_try: one O_EXCL create, builtins only).
+  local i lf held=0
+  local -a li=() lk=() lnm=()
+  for i in "${!vn[@]}"; do
+    lf="$archive_dir/.${vn[$i]}.lock"
+    if _sb_archive_lock_try "$lf"; then li+=("$i"); lk+=("$lf"); lnm+=("${vn[$i]}"); else held=$((held + 1)); fi
+  done
+  [ "$held" -eq 0 ] || sb_log_error "lib.sh" "gate=transcript-cap ${held} archive(s) to evict are locked by a writer; skipped this round" 0
+  [ "${#li[@]}" -gt 0 ] || return 0
+
+  # Re-check under the locks: ONE wc -l. A line count that moved since the snapshot (an append
+  # landed), or a file that vanished, keeps the archive this round (an unknown count, -1, never
+  # confirms: an archive is never removed on a count nobody read).
+  local now_counts="|" l c f moved=0 nu=0 unmined="" nd=0 ndw=0 ndl=0 deadn=""
+  while IFS= read -r l; do
+    l="${l%$'\r'}"; l="${l#"${l%%[! ]*}"}"; c="${l%% *}"; f="${l#* }"
+    case "$c" in ''|*[!0-9]*) continue ;; esac
+    now_counts="$now_counts$f=$c|"
+  done < <(cd "$archive_dir" 2>/dev/null && wc -l -- "${lnm[@]}" 2>/dev/null)
+  local -a del=() tomb_fail=()
+  for i in "${li[@]}"; do
+    case "$now_counts" in *"|${vn[$i]}=${vl[$i]}|"*) ;; *) moved=$((moved + 1)); continue ;; esac
+    # Empty: only its mtime is read (O_TRUNC re-stamps a tombstone left by an earlier eviction).
+    if ! { : > "$archive_dir/.${vn[$i]}.evicted"; } 2>/dev/null; then
+      tomb_fail+=("${vn[$i]}"); continue
+    fi
+    del+=("$archive_dir/${vn[$i]}")
+    if [ "${vk[$i]}" = "U" ]; then
+      nu=$((nu + 1)); unmined="$unmined${unmined:+, }${vn[$i]}"
+    elif [ "${vw[$i]}" -gt 0 ] 2>/dev/null; then
+      nd=$((nd + 1)); ndw=$((ndw + vw[$i])); ndl=$((ndl + vd[$i])); deadn="$deadn${deadn:+, }${vn[$i]}"
+    fi
+  done
+  [ "$moved" -eq 0 ] || sb_log_error "lib.sh" "gate=transcript-cap ${moved} archive(s) changed after the classification (an append landed); kept this round" 0
+  [ "${#tomb_fail[@]}" -eq 0 ] || sb_log_error "lib.sh" "sb_prune_transcripts: cannot write the eviction tombstone for ${tomb_fail[*]}; not evicted (a re-created archive would inherit its cursor)" 1
+  if [ "${#del[@]}" -gt 0 ]; then
+    # ONE log row for the un-mined evictions (it was one row and one jq spawn per file): this is
+    # knowledge destroyed before it was ever read, and it means the drainer has been stalled long
+    # enough to matter (see the drain-health banner in session-load.sh).
+    if [ "$nu" -gt 0 ]; then
+      sb_log_error "lib.sh" "transcript cap: evicting ${nu} UN-EXTRACTED archive(s) past the hard ceiling (${hard} files / ${byte_hard} B, or ${shard} sub-*.txt): ${unmined} — the drainer is not keeping up and this knowledge is lost" 1
+    fi
+    # Item 9: an extracted archive holding dead-lettered windows takes those never-extracted lines
+    # with it. Expected lifecycle, not a failure: one trace row.
+    if [ "$nd" -gt 0 ]; then
+      sb_log_error "lib.sh" "gate=transcript-cap evicted ${nd} archive(s) holding dead-lettered windows (${ndw} window(s), ${ndl} lines never extracted): ${deadn}" 0
+    fi
+    if ! rm -f -- "${del[@]}" 2>/dev/null; then
+      sb_log_error "lib.sh" "sb_prune_transcripts: removing ${#del[@]} evicted archive(s) failed; the archive stays over its cap until the next prune" 1
+    fi
   fi
-  rm -f -- "${evict[@]}" 2>/dev/null \
-    || sb_log_error "lib.sh" "sb_prune_transcripts: removing ${#evict[@]} evicted archive(s) failed; the archive stays over its cap until the next prune" 1
+  rm -f -- "${lk[@]}" 2>/dev/null \
+    || sb_log_error "lib.sh" "sb_prune_transcripts: cannot release ${#lk[@]} archive lock(s) in $archive_dir; writers steal them after ${_SB_ARCHIVE_LOCK_STALE_S} s" 1
   return 0
 }
 
@@ -3097,11 +3164,18 @@ _sb_mtimes() {
 }
 
 # The jq half of sb_drain_cursor_map. stdin = `wc -l` over the archives, a `--mtime--` line, then
-# `_sb_mtimes` over the same archives; $st = the raw done-set. Per archive on disk it applies the
-# contract (cursor = max lines over ok|baseline rows, recreated when the count fell below any row)
-# and the drain-only fields: next = where the next window starts (skips dead-lettered regions),
-# fails = retry rows since the last non-retry row, flag = the first-tick migration verdict for a
-# basename whose rows all lack `lines` (legacy): baseline | regrow | legacy-dead.
+# `_sb_mtimes` over the same archives and their tombstones; $st = the raw done-set. Per archive on
+# disk it applies the contract (cursor = max lines over ok|baseline rows, recreated when the count
+# fell below any row) and the drain-only fields: next = where the next window starts (skips
+# dead-lettered regions), fails = retry rows since the last non-retry row, flag = the first-tick
+# migration verdict for a basename whose rows all lack `lines` (legacy): baseline | regrow |
+# legacy-dead.
+# A tombstone .<basename>.evicted (written by sb_prune_transcripts before it removes an archive,
+# X2 S2; its mtime rides the same stat call) hides every row of that basename written at or before
+# the eviction: a basename re-created after its eviction (the same session, the same day) starts
+# at cursor 0 even once it grows past the stale cursor, which n < hi alone cannot see. Ties count
+# as stale (re-extracting a line is safe, skipping one is not). The drainer's compaction drops
+# those rows and consumes the tombstone.
 # dw / dl (X2#1) = the dead-lettered windows and their line total, WHATEVER the state: the union
 # of the error windows (from, lines] minus every ok|baseline window, clipped to the line count. A
 # dead window in the middle stays counted after a later window succeeds (it used to vanish from
@@ -3133,7 +3207,8 @@ def minus($o): reduce $o[] as $x ([.];
 | [ $fs.L | to_entries[]
     | .key as $b | .value as $n
     | (($fs.M[$b]) // 0) as $mt
-    | (($rows[$b]) // []) as $R
+    | (($fs.M["." + $b + ".evicted"]) // 0) as $tomb
+    | ((($rows[$b]) // []) | if $tomb > 0 then map(select((.ts | epoch) > $tomb)) else . end) as $R
     | ([$R[] | select((.outcome == "ok" or .outcome == "baseline") and hasl) | .lines] | max // 0) as $cur
     | ([$R[] | select(hasl) | .lines] | max // 0) as $hi
     | ([$R[] | select(.outcome == "error" and hasl) | .lines] | max // 0) as $err
@@ -3188,7 +3263,8 @@ sb_drain_cursor_map() {
   out=$(cd "$txd" || exit 1
         set -- *.txt
         { [ -e "$1" ] || [ -L "$1" ]; } || exit 0
-        { wc -l -- "$@" 2>/dev/null; printf '%s\n' '--mtime--'; _sb_mtimes "$@"; } \
+        tomb=(.*.txt.evicted); [ -e "${tomb[0]}" ] || tomb=()
+        { wc -l -- "$@" 2>/dev/null; printf '%s\n' '--mtime--'; _sb_mtimes "$@" ${tomb[@]+"${tomb[@]}"}; } \
           | jq -nrR "${st_arg[@]}" "$_SB_DRAIN_MAP_JQ"
         exit "${PIPESTATUS[1]}") || rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -3236,8 +3312,10 @@ sb_drain_map_counts() {
   return 0
 }
 
-# The jq half of sb_compact_done_set. stdin = the archive basenames on disk; $st = the raw done-set.
-# Per live basename it keeps (verbatim, in file order) exactly the rows _SB_DRAIN_MAP_JQ reads:
+# The jq half of sb_compact_done_set. stdin = the archive basenames on disk, a `--tomb--` line, then
+# `_sb_mtimes` over the eviction tombstones; $st = the raw done-set. A row written at or before
+# its basename's tombstone is dropped first (the map hides it: X2 S2). Per live basename it then
+# keeps (verbatim, in file order) exactly the rows _SB_DRAIN_MAP_JQ reads:
 #   the ok|baseline row holding the cursor (max lines)         -> cursor
 #   a row holding max(lines) over every outcome                -> the recreated check ($hi)
 #   every error row (the dead-lettered windows, under the       -> next, dead_windows/dead_lines
@@ -3254,12 +3332,20 @@ _SB_COMPACT_JQ='
 def hasl: (.r.lines | type) == "number";
 def lastof(f): [.[] | select(f)] | last;
 def ival: [((.r.from // 0) | if type == "number" then . else 0 end), .r.lines];
-(reduce (inputs | sub("\r$"; "") | select(length > 0)) as $l ({}; .[$l] = true)) as $live
+def epoch: try fromdateiso8601 catch 0;
+(reduce (inputs | sub("\r$"; "") | select(length > 0)) as $l ({sec: "n", live: {}, tomb: {}};
+  if $l == "--tomb--" then .sec = "t"
+  elif .sec == "n" then .live[$l] = true
+  else (([$l | capture("^(?<n>[0-9]+) [.](?<f>.*)[.]evicted$")] | .[0])) as $m
+       | if $m == null then . else .tomb[$m.f] = ($m.n | tonumber) end
+  end)) as $in
+| $in.live as $live | $in.tomb as $tomb
 | ($st | split("\n")) as $L
 | [ range(0; $L | length) as $i
     | ($L[$i] | sub("\r$"; "")) as $raw
     | ($raw | try fromjson catch null) as $r
     | select(($r | type) == "object" and ($r.basename | type) == "string" and $live[$r.basename] == true)
+    | select((($tomb[$r.basename] // 0)) as $t | $t == 0 or (($r.ts | epoch) > $t))
     | {i: $i, raw: $raw, r: $r} ]
 | group_by(.r.basename)
 | map(
@@ -3287,15 +3373,23 @@ def ival: [((.r.from // 0) | if type == "number" then . else 0 end), .r.lines];
 # which the old GC's --argjson list of every archive name hit at ~700 archives), tmp + mv. The
 # rewrite refreshes the ledger mtime, as the GC always did (loop-dead banner reads it as "the
 # drainer ran"). Returns 1 on a failure, logged, with the ledger left as it was.
+# Eviction tombstones (X2 S2) are consumed here: once the rows they hide are gone, each tombstone
+# whose mtime did not change since it was read is removed (a re-eviction meanwhile keeps its own).
+# A failed compaction keeps them. The scratch file matches ensure-dirs.sh's *.tmp.* debris sweep.
 sb_compact_done_set() {
   local state="${1:-$BRAIN_DIR/.extraction-state.jsonl}" txd="${2:-$BRAIN_DIR/transcripts}" tmp ps
   [ -s "$state" ] || return 0
   [ -d "$txd" ] || return 0   # no archive dir is not "no archive": never empty the ledger on it
   case "$state" in /*|[A-Za-z]:*) ;; *) state="$PWD/$state" ;; esac
-  tmp="$state.compact.$$"
+  tmp="$state.tmp.compact.$$"
+  local -a tb
+  local tmt=""
+  tb=("$txd"/.*.txt.evicted)
+  [ -e "${tb[0]}" ] && tmt=$(cd "$txd" && _sb_mtimes .*.txt.evicted)
   ( cd "$txd" || exit 1
-    set -- *.txt; { [ -e "$1" ] || [ -L "$1" ]; } || exit 0
-    printf '%s\n' "$@" ) \
+    set -- *.txt; { [ -e "$1" ] || [ -L "$1" ]; } && printf '%s\n' "$@"
+    printf '%s\n' '--tomb--'
+    [ -z "$tmt" ] || printf '%s\n' "$tmt" ) \
     | jq -nrR --rawfile st "$state" "$_SB_COMPACT_JQ" 2>/dev/null | tr -d '\r' > "$tmp"
   ps="${PIPESTATUS[*]}"
   if [ "$ps" != "0 0 0" ]; then
@@ -3307,6 +3401,16 @@ sb_compact_done_set() {
     rm -f "$tmp" 2>/dev/null
     sb_log_error "lib.sh" "sb_compact_done_set: cannot rename the compacted ledger over $state; left as it was" 1
     return 1
+  fi
+  if [ -n "$tmt" ]; then
+    local l
+    local -a done_tb=()
+    while IFS= read -r l; do
+      [ -n "$l" ] || continue
+      case $'\n'"$tmt"$'\n' in *$'\n'"$l"$'\n'*) done_tb+=("$txd/${l#* }") ;; esac
+    done < <(cd "$txd" && _sb_mtimes .*.txt.evicted)
+    [ "${#done_tb[@]}" -eq 0 ] || rm -f -- "${done_tb[@]}" 2>/dev/null \
+      || sb_log_error "lib.sh" "sb_compact_done_set: cannot remove ${#done_tb[@]} consumed eviction tombstone(s) in $txd; they are re-consumed next tick" 1
   fi
   return 0
 }
