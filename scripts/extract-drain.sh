@@ -17,8 +17,16 @@
 #                       `$SB_EXTRACT_STUB <txt> <slug> <from> <to>` (archive lines (from, to]).
 # Exits 0 on every out-of-session path (fail-soft for the scheduler). Exits 3 ONLY when run
 # INSIDE a Claude Code session (CLAUDECODE=1) — that refusal used to exit 0 and read as success.
+#
+# --scrub-only: run ONLY the one-time archive scrub (drain_scrub_migrate), under the same drain
+# lock (skipped while it is held), then exit 0. LLM-free, so it is allowed inside a session:
+# session-load.sh forks it detached at SessionStart until the migration is done, because the
+# drainer timer is opt-in and absent on some installs. It writes neither the done-set nor the
+# extractor health (the loop-dead and dead-man banners read those as drainer progress).
 set -u
 source "$(dirname "$0")/lib.sh"
+DRAIN_SCRUB_ONLY=""
+[ "${1:-}" = "--scrub-only" ] && DRAIN_SCRUB_ONLY=1
 
 # Defer if an interactive claude session is active for this uid. The recursive-
 # claude OAuth lock is GLOBAL (held by any live interactive session), so a
@@ -204,8 +212,9 @@ sb_drain_starved() {
   return 1
 }
 
-# The whole point is to run outside a session — refuse the recursive-lock context.
-if [ "${CLAUDECODE:-}" = "1" ]; then
+# The whole point is to run outside a session — refuse the recursive-lock context. The LLM-free
+# --scrub-only run is exempt (it never spawns claude).
+if [ "${CLAUDECODE:-}" = "1" ] && [ -z "$DRAIN_SCRUB_ONLY" ]; then
   # Exit 3, NOT 0. A hand-run from inside a session (which is exactly what the dead-man banner
   # used to tell operators to do) printed this line and exited 0 — indistinguishable from
   # "drained fine" to any caller or eyeball, so a dead pipeline read as healthy. The scheduler
@@ -306,8 +315,9 @@ drain_row() {
 # so do the transcript copies already staged in dream dirs (the dream-runner reads them). The first
 # ticks scrub each one in place with sb_scrub_archive_file (atomic, mtime and line count kept,
 # under the per-archive lock the Stop appender takes too), then .archive-scrub-v1 marks the
-# migration done for good. LLM-free: it runs from sb_drain_migrate, under the drain lock, before
-# the defer gate. A scrub is cheap (no LLM call), so a run is bounded by its own budget, not by
+# migration done for good. LLM-free: it runs under the drain lock, from sb_drain_migrate before
+# the defer gate, and on its own from --scrub-only, which session-load.sh forks at every start
+# until the marker exists (an install with no drainer timer still migrates). A scrub is cheap (no LLM call), so a run is bounded by its own budget, not by
 # SB_DRAIN_BATCH: at most SB_SCRUB_MIGRATE_MAX_FILES (50) files, and no scrub starts once the run
 # has taken SB_SCRUB_MIGRATE_MAX_S (20 s, counted from the routine's start, the listing grep
 # included); one scrub always runs, so every run makes progress.
@@ -498,6 +508,12 @@ sb_drain_migrate() {
   return 0
 }
 DRAIN_PURGE_FAILED=""
+if [ -n "$DRAIN_SCRUB_ONLY" ]; then   # the scrub alone (see the header); the map only orders its pick
+  [ -f "$SCRUB_MARK" ] && exit 0
+  drain_map
+  drain_scrub_migrate
+  exit 0
+fi
 drain_map
 if sb_drain_migrate; then drain_map; fi   # an empty map still runs the scrub (it writes the marker)
 

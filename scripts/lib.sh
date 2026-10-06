@@ -3417,7 +3417,8 @@ sb_count_drain_dead_letters() {
 # sb_scrub_todo_counts: the one-time archive-scrub to-do list (.archive-scrub-v1.todo, written by
 # extract-drain.sh drain_scrub_migrate: `<path relative to BRAIN_DIR>\t<failed attempts>` per line)
 # -> SB_SCRUB_TODO_N (files still to scrub) and SB_SCRUB_TODO_STUCK (those whose scrub failed 3+
-# times: one attempt per drainer tick; their archives stay held from extraction). Builtins only.
+# times: one attempt per migration run, a drainer tick or a session start; their archives stay
+# held from extraction). Builtins only.
 # Returns 1 when there is no list (the migration finished, or has not listed anything yet).
 sb_scrub_todo_counts() {
   SB_SCRUB_TODO_N=0; SB_SCRUB_TODO_STUCK=0
