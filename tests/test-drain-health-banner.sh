@@ -2,7 +2,7 @@
 # pins: SB_DRAIN_DEADMAN — kill-switch test: asserts =off suppresses the deadman banner
 # pins: SB_DRAIN_HEALTH_BANNER — kill-switch test: asserts =off suppresses the health banner
 # pins: SB_SCRUB_MIGRATE_MAX_FILES — the no-drainer scrub case sets 2 so the migration needs several session starts (the per-run cap under test)
-# run-all-timeout: 420   (~30 SessionStart runs; the no-drainer scrub case adds 5 plus ~8 s of fixed waits for its detached runs. Measured on a heavily loaded MSYS dev box, another implementer's suites running: 215 s before that case, 278 s with it)
+# run-all-timeout: 360   (~30 SessionStart runs at ~6 s each on MSYS; the no-drainer scrub case adds 4 plus a 5 s lock wait and its detached runs, ~50 s. Measured on a quiet MSYS dev box 2026-10-06: 167-170 s; 103-108 s before the M5 and N cases)
 # Out-of-band DRAINER health banner (Phase 1 task 5, root cause #2: silent failure).
 # ORACLE: crafted error-log.jsonl / .extraction-state.jsonl / quarantine fixtures with
 # KNOWN counts → assert the banner fires/omits and the OS-aware remedy matches uname -s.
@@ -216,7 +216,7 @@ echo "=== archive scrub without a drainer (0.56.0 integration, item 3) ==="
 # on it. SessionStart must have returned while that run still waits (ordering, not seconds).
 S3="$B/nodrainer"; mkdir -p "$S3/transcripts"; cp "$B/config.json" "$S3/"
 K3="sk-""ant-api03-$(printf 'Zq9x%.0s' 1 2 3 4 5 6 7 8)"   # built at run time: no key-shaped literal in the repo
-for i in 0 1 2 3; do
+for i in 0 1 2; do
   printf -- '--- session-meta ---\nsession_id: k%s\n---\nUSER: my key is %s\nASSISTANT: ok\n' "$i" "$K3" > "$S3/transcripts/k${i}_proj_2026-05-24.txt"
   touch -t "20260524000$i" "$S3/transcripts/k${i}_proj_2026-05-24.txt"
 done
@@ -234,7 +234,7 @@ s3_keys(){ grep -lF 'sk-ant-' "$S3"/transcripts/k*_proj_2026-05-24.txt 2>/dev/nu
 # N1: the drain lock is held (a drainer run): the start's run skips, touching nothing
 if command -v flock >/dev/null 2>&1; then exec 8>"$S3/.extract-drain.lock"; flock -n 8; else mkdir "$S3/.extract-drain.lock.d"; fi
 emit3
-wait_for 60 s3_ticks lock-held 1 && [ ! -f "$S3/.archive-scrub-v1.todo" ] && [ "$(s3_keys)" = "k0 k1 k2 k3 " ] \
+wait_for 60 s3_ticks lock-held 1 && [ ! -f "$S3/.archive-scrub-v1.todo" ] && [ "$(s3_keys)" = "k0 k1 k2 " ] \
   && pass "N1: with the drain lock held, the start's scrub run skips and touches nothing" \
   || fail "N1: lock-held skip (ticks: $(grep -c drain-tick "$S3/audit-log.jsonl" 2>/dev/null), keys left: $(s3_keys))"
 if command -v flock >/dev/null 2>&1; then exec 8>&-; else rmdir "$S3/.extract-drain.lock.d"; fi
@@ -242,17 +242,17 @@ if command -v flock >/dev/null 2>&1; then exec 8>&-; else rmdir "$S3/.extract-dr
 printf '1\n' > "$S3/transcripts/.k0_proj_2026-05-24.txt.lock"
 emit3
 N2_EARLY="$(grep -c "$(printf '\t1$')" "$S3/.archive-scrub-v1.todo" 2>/dev/null) $(s3_keys)"
-[ "$N2_EARLY" = "0 k0 k1 k2 k3 " ] || [ "$N2_EARLY" = " k0 k1 k2 k3 " ] \
+[ "$N2_EARLY" = "0 k0 k1 k2 " ] || [ "$N2_EARLY" = " k0 k1 k2 " ] \
   && pass "N2: SessionStart returned while its scrub run was still waiting on k0's lock" \
   || fail "N2: SessionStart waited for its scrub run (state on return: $N2_EARLY)"
-wait_for 60 s3_ticks archive-scrub 1 && [ "$(s3_keys)" = "k0 k2 k3 " ] \
+wait_for 60 s3_ticks archive-scrub 1 && [ "$(s3_keys)" = "k0 k2 " ] \
   && grep -qx "$(printf 'transcripts/k0_proj_2026-05-24.txt\t1')" "$S3/.archive-scrub-v1.todo" \
   && pass "N2: run 1 scrubbed its cap (k0 failed on the held lock, k1 scrubbed) and listed the rest" \
   || fail "N2: run 1 (keys left: $(s3_keys); list: $(tr '\t\n' ': ' < "$S3/.archive-scrub-v1.todo" 2>/dev/null))"
 rm -f "$S3/transcripts/.k0_proj_2026-05-24.txt.lock"
-# N3: later starts resume until the marker; then no start forks a run any more
+# N3: the next start resumes (cap 2: k2, then k0 once its lock is gone) and writes the marker;
+# after it, no start forks a run any more
 emit3; wait_for 60 s3_ticks archive-scrub 2
-emit3; wait_for 60 s3_ticks archive-scrub 3
 [ -f "$S3/.archive-scrub-v1" ] && [ ! -f "$S3/.archive-scrub-v1.todo" ] && [ -z "$(s3_keys)" ] \
   && pass "N3: with no drainer, session starts scrub every candidate and write the marker" \
   || fail "N3: migration incomplete (keys left: $(s3_keys); marker: $([ -f "$S3/.archive-scrub-v1" ] && echo yes || echo no))"
@@ -264,8 +264,8 @@ grep -q 'background archive scrub' "$S3/error-log.jsonl" 2>/dev/null \
   || pass "N3: no start's scrub run failed"
 N3_FORKS=$(s3_forks)
 emit3; sleep 2
-[ "$N3_FORKS" = 4 ] && [ "$(s3_forks)" = 4 ] && pass "N3: one fork per start until the marker, none after it" \
-  || fail "N3: forks per start wrong (4 starts before the marker: $N3_FORKS; after one more: $(s3_forks))"
+[ "$N3_FORKS" = 3 ] && [ "$(s3_forks)" = 3 ] && pass "N3: one fork per start until the marker, none after it" \
+  || fail "N3: forks per start wrong (3 starts before the marker: $N3_FORKS; after one more: $(s3_forks))"
 
 echo "=== drainer dead-man switch ==="
 # Fires on SILENCE (stale progress + newer queued work) — the state no failure-

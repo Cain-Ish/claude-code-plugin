@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for extract-drain.sh
-# run-all-timeout: 840   (~79 full drainer ticks by design: the R2-B delta drain, the R2-F scrub migration and the 0.56.0 fix-round cases, one of them on the real extraction path, plus the integration scrub list + bound case D18 (3 ticks); measured 233-302s on a quiet MSYS dev box before the fix round, 715s with two other implementers' suites running in parallel — see run-all.sh)
+# run-all-timeout: 840   (~79 full drainer ticks by design: the R2-B delta drain, the R2-F scrub migration and the 0.56.0 fix-round cases, one of them on the real extraction path, plus the integration scrub list + bound case D18 (3 ticks); measured 233-302s on a quiet MSYS dev box before the fix round, 715s with two other implementers' suites running in parallel; 2026-10-06 on a quiet MSYS box, back to back: 522-566s at 12cfa63, 528-536s with D18 — see run-all.sh)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # pins: SB_DRAIN_QUIET_S — =0 treats the tiny fresh fixtures as settled; D7 + the too-small case set 3600 to test the gate itself
 # pins: SB_EXTRACT_MAX_BYTES — D8 shrinks the chunk cap so a 37-line fixture spans several forward chunks
