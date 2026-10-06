@@ -299,6 +299,22 @@ G_MT=$(mf "$MAP" g.txt 7); case "$G_MT" in ''|*[!0-9]*) no "map: mtime column nu
 eq "map: absent state file -> every archive pending from 0" \
   "$(sb_drain_cursor_map "$SANDBOX/absent-state.jsonl" "$MT" | awk -F'\t' '$4 != "done" && $2 == 0' | grep -c . || true)" "9"
 eq "map: absent transcripts dir -> empty, rc 0" "$(sb_drain_cursor_map "$MS" "$SANDBOX/no-such-dir"; echo "rc=$?")" "rc=0"
+# X2#6: an archive `wc -l` cannot read used to vanish from the map in silence (wc's stderr and
+# status were discarded): no row, so no counter, cap or drain ever saw it. The rows are compared
+# with the archives on disk and the missing names logged. (wc is overridden to fail on a.txt the
+# way an unreadable file does; chmod does not make a file unreadable on every platform.)
+: > "$BRAIN_DIR/error-log.jsonl"
+WM=$( wc() {
+        if [ "$1" = "-l" ] && [ "$2" = "--" ]; then
+          shift 2; local -a keep=(); local x
+          for x in "$@"; do [ "$x" = "a.txt" ] || keep+=("$x"); done
+          command wc -l -- "${keep[@]}"; echo "wc: a.txt: Permission denied" >&2; return 1
+        fi
+        command wc "$@"; }
+      sb_drain_cursor_map "$MS" "$MT" )
+eq "map: an unreadable archive has no row" "$(printf '%s\n' "$WM" | grep -c . || true)" "8"
+grep -q 'sb_drain_cursor_map: 1 archive(s) missing from the drain accounting.*a\.txt' "$BRAIN_DIR/error-log.jsonl" \
+  && ok "map: the archive missing from the accounting is logged by name" || no "map: an unreadable archive vanished in silence"
 
 sb_drain_map_counts "$MAP"
 eq "counts: total/done/pending/dead" "$SB_DM_TOTAL $SB_DM_DONE $SB_DM_PENDING $SB_DM_DEAD" "9 1 6 2"

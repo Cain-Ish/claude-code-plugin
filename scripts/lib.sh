@@ -3317,7 +3317,24 @@ sb_drain_cursor_map() {
     sb_log_error "lib.sh" "sb_drain_cursor_map: accounting failed rc=$rc (txd=$txd)" 1
     return 1
   fi
-  [ -n "$out" ] && printf '%s\n' "${out//$'\r'/}"
+  out="${out//$'\r'/}"
+  # X2#6: an archive `wc -l` cannot read gets no row (its error is not fatal to the others), and
+  # used to vanish from every counter, cap and drain in silence. Rows vs archives on disk, by a
+  # builtin count; only on a shortfall one awk names the missing ones (the ones still on disk:
+  # one deleted meanwhile is not missing).
+  local -a all=("$txd"/*.txt)
+  local nl="${out//[!$'\n']/}" nrows=0 miss
+  [ -n "$out" ] && nrows=$(( ${#nl} + 1 ))
+  if [ -e "${all[0]}" ] && [ "$nrows" -lt "${#all[@]}" ]; then
+    miss=$({ printf '%s\n' "$out"; printf '%s\n' '--disk--'; printf '%s\n' "${all[@]##*/}"; } \
+      | LC_ALL=C awk -F'\t' '$0 == "--disk--" { d = 1; next } !d { r[$1] = 1; next } $0 != "" && !($0 in r)')
+    local m kept="" nk=0
+    while IFS= read -r m; do
+      [ -n "$m" ] && [ -e "$txd/$m" ] && { kept="$kept${kept:+, }$m"; nk=$((nk + 1)); }
+    done < <(printf '%s\n' "$miss")
+    [ "$nk" -eq 0 ] || sb_log_error "lib.sh" "sb_drain_cursor_map: ${nk} archive(s) missing from the drain accounting (wc -l could not read them; no counter, cap or drain sees them): ${kept:0:600}" 1
+  fi
+  [ -n "$out" ] && printf '%s\n' "$out"
   return 0
 }
 
