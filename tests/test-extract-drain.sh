@@ -487,6 +487,14 @@ SB_EXTRACT_MAX_BYTES=320 SB_DRAIN_BATCH=5 rdrain
 eq "chunks: the next tick resumes at the cursor" "$(sed -n 3p "$RLOG")" "ch1_proj_2026-05-24.txt 22 29"
 eq "chunks: the archive drains fully across ticks" "$(cmap ch1_proj_2026-05-24.txt 4)" "done"
 
+# D8b: a FAILED attempt takes a batch slot too — the lock-budget proof (lib.sh, timeout_s comment)
+# assumes at most SB_DRAIN_BATCH extractor calls per tick, failures included.
+reset; rm -f "$RLOG" "$RFAIL"
+for n in 1 2 3; do mk_lines "bf${n}_proj_2026-05-24.txt" 3; echo "bf${n}_proj_2026-05-24.txt 0" >> "$RFAIL"; done
+SB_DRAIN_BATCH=2 SB_DRAIN_MAX_FAILS=3 rdrain
+eq "batch: failing attempts are bounded by SB_DRAIN_BATCH" "$(rcalls)" "2"
+rm -f "$RFAIL"
+
 # D9: reconcile counts a GROWN archive as pending (the basename set called it done).
 reset; rm -f "$RLOG" "$BRAIN_DIR/audit-log.jsonl"
 mk_lines "rp1_proj_2026-05-24.txt" 3; rdrain
