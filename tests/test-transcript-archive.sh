@@ -538,6 +538,25 @@ case "$PP" in *"USER: please use [redacted:anthropic] now"*) ;; *) fail "preproc
   || fail "preprocess: the PEM block was not redacted line by line: $PP"
 pass "preprocess: sb_preprocess_transcript output is scrubbed"
 
+# Fix round E: the render cuts a Bash command at 120 chars and thinking at 100 BEFORE the scrub, so a
+# key straddling the cut left a prefix shorter than the format minimum, which the scrub cannot see.
+# A cut that ends inside a credential-like token drops that token; a cut ending in a plain word
+# keeps it (a long path or word is not cut back).
+PAD100=$(rep x 100)
+TJ="$TMP/scrub/cut.jsonl"
+{ jq -nc --arg c "echo $PAD100 $K_ANT" '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:$c}}]}}'
+  jq -nc --arg c "curl -H \"X: $(rep y 70)\" -H \"Authorization: Bearer $(rep Zz9 30)\" https://x" '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:$c}}]}}'
+  jq -nc --arg t "$(rep z 85) ghp_$(rep a1B2 9) more" '{type:"assistant",message:{content:[{type:"thinking",thinking:$t}]}}'
+  jq -nc --arg c "ls /very/long/$(rep d 120)" '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:$c}}]}}'
+} > "$TJ"
+CUT=$(sb_preprocess_transcript < "$TJ" | tr -d '\r')
+case "$CUT" in *sk-ant*|*aB3_*) fail "preprocess-cut: a key cut at 120 chars left its prefix in the render: $CUT" ;; esac
+case "$CUT" in *Zz9*) fail "preprocess-cut: a bearer token cut at 120 chars left its prefix in the render: $CUT" ;; esac
+case "$CUT" in *ghp_*|*a1B2*) fail "preprocess-cut: a key cut at 100 chars of thinking left its prefix in the render: $CUT" ;; esac
+case "$CUT" in *"[Bash] echo $PAD100 "*) ;; *) fail "preprocess-cut: the text before the cut key was lost: $CUT" ;; esac
+case "$CUT" in *"[Bash] ls /very/long/ddd"*) ;; *) fail "preprocess-cut: a cut plain path was cut back: $CUT" ;; esac
+pass "preprocess: a credential straddling the 120/100-char render cut leaves no prefix; plain words are kept"
+
 # sb_scrub_archive_file: in place, atomic, mtime kept, line count kept, idempotent, loud
 setup "scrub-file"
 SA="$BRAIN_DIR/transcripts/s1_proj_2026-01-01.txt"

@@ -1985,7 +1985,19 @@ _sb_scrub_archive_locked() {  # sb_scrub_archive_file's body; the caller holds t
 # Args: [$1 = file for jq's stderr]
 sb_preprocess_transcript() {
   local errf="${1:-/dev/null}"
-  jq -R -r 'select(. != "" and . != "\r") | fromjson |
+  jq -R -r '
+    # The render cuts long fields BEFORE the scrub sees them. A cut ending inside a token that holds
+    # a credential literal, or follows bearer/basic/an AWS secret keyword, drops that token: its
+    # prefix would be shorter than the format minimum and pass the scrub. Plain words are kept.
+    def cut($n):
+      if length <= $n then .
+      else .[0:$n] as $c
+        | ($c | capture("^(?<head>.*?)(?<tail>[A-Za-z0-9_./+=~-]*)$"; "s")) as $m
+        | if ($m.tail | test("sk-|k_live_|gh[opsur]_|github_pat_|AKIA|ASIA|AIza|npm_|glpat-|hf_|xox|xapp-|eyJ"))
+             or ($m.head | test("(bearer|basic)[ \\t]+$|secret_access_key[\"\\x27]?[ \\t]*[=:][ \\t]*[\"\\x27]?$"; "i"))
+          then $m.head else $c end
+      end;
+    select(. != "" and . != "\r") | fromjson |
     if .type == "user" then
       if (.message.content | type) == "string" then
         "USER: " + .message.content
@@ -2002,13 +2014,13 @@ sb_preprocess_transcript() {
             if .name == "Edit" or .name == "Write" or .name == "Read" then
               (.input.file_path // "")
             elif .name == "Bash" then
-              (.input.command // "" | .[0:120])
+              (.input.command // "" | cut(120))
             else
-              (.input | keys | join(",") | .[0:60])
+              (.input | keys | join(",") | cut(60))
             end
           )
         elif .type == "thinking" then
-          "  (thinking: " + (.thinking // "" | .[0:100]) + "...)"
+          "  (thinking: " + (.thinking // "" | cut(100)) + "...)"
         else empty end
       )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
     else empty end
