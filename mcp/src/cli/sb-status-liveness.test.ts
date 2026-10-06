@@ -23,7 +23,10 @@ afterEach(() => {
 
 const status = async () => (await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge })).stdout;
 
-describe('sb status — Loop liveness (P1.1)', () => {
+// A row with transcripts spawns bash for lib.sh sb_drain_cursor_map: 1.5-2.5 s alone on Git-Bash,
+// past vitest's 5 s default when the whole suite (or a peer bash run) loads the box. The bound
+// sits above the map's own 20 s SIGKILL so a slow map reports as itself, not as a test timeout.
+describe('sb status — Loop liveness (P1.1)', { timeout: 30_000 }, () => {
   it('cold brain: every liveness row renders loud absence, exit 0', async () => {
     const out = await status();
     expect(out).toContain('Loop liveness:');
@@ -87,10 +90,53 @@ describe('sb status — Loop liveness (P1.1)', () => {
     try {
       const r = await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: noRoot });
       expect(r.exitCode).toBe(0);
-      expect(r.stdout).toMatch(/transcript backlog: {2}unknown \(drain cursor map unavailable: /);
+      // The whole reason, not its first 40 characters: the temp path alone is longer than that on
+      // every OS, so a short cap hid which file was missing.
+      expect(r.stdout).toMatch(
+        /transcript backlog: {2}unknown \(drain cursor map unavailable: exit 1: .*scripts\/lib\.sh: No such file or directory\)/);
     } finally {
       rmSync(noRoot, { recursive: true, force: true });
     }
+  });
+
+  // R2 fix round: the failure reason must say what happened. A stub lib.sh stands in for the real
+  // one (pluginRoot), so each failure mode is produced for real by bash.
+  describe('cursor map failure reasons', () => {
+    let stubRoot: string;
+    beforeEach(() => {
+      mkdirSync(join(brain, 'transcripts'));
+      writeFileSync(join(brain, 'transcripts', 'a.txt'), 'l1\n');
+      stubRoot = mkdtempSync(join(tmpdir(), 'sb-stubroot-'));
+      mkdirSync(join(stubRoot, 'scripts'));
+    });
+    afterEach(() => rmSync(stubRoot, { recursive: true, force: true }));
+    const stub = (body: string) => writeFileSync(join(stubRoot, 'scripts', 'lib.sh'), `sb_drain_cursor_map() {\n${body}\n}\n`);
+    const reasonOf = (stdout: string) =>
+      stdout.split('\n').find(l => l.includes('transcript backlog:'))?.match(/drain cursor map unavailable: (.*)\)$/)?.[1];
+
+    it('a timeout says so, even when bash had already written to stderr', async () => {
+      stub("  echo 'reading the done-set' >&2\n  sleep 10");
+      const t0 = Date.now();
+      const r = await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: stubRoot, drainMapTimeoutMs: 1000 });
+      expect(Date.now() - t0).toBeLessThan(8000);
+      expect(r.exitCode).toBe(0);
+      expect(reasonOf(r.stdout)).toBe('timed out after 1 s');
+    }, 15000);
+
+    it('output over the buffer cap is named, not reported as a timeout', async () => {
+      stub(`  awk 'BEGIN { s = sprintf("%1000s", ""); for (i = 0; i < 9000; i++) print s }'`);
+      const r = await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: stubRoot });
+      expect(reasonOf(r.stdout)).toBe('output over 8 MB');
+    }, 15000);
+
+    it('a long multi-line stderr becomes one printable line, capped', async () => {
+      stub(`  printf '%s\\n' '\x1b[31mfirst line' 'second line ${'E'.repeat(300)}' >&2\n  return 3`);
+      const r = await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: stubRoot });
+      const reason = reasonOf(r.stdout);
+      expect(reason).toMatch(/^exit 3: \[31mfirst line second line E{20,}\.\.\.$/);
+      expect(reason!.length).toBeLessThanOrEqual(160);
+      expect(reason).not.toMatch(/[^\x20-\x7e]/);
+    });
   });
 
   it('utilization renders top counts + the dormant-capability report (P1.3)', async () => {

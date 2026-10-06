@@ -86,3 +86,53 @@ describe('loadIndex — a corrupt index is reset loudly, a partial one is normal
     expect(errorRows()).toEqual([]);
   });
 });
+
+// R2 fix round: one malformed element of `exchanges` threw (null in the row destructure, a row
+// without its string fields in basename / toLowerCase / the snippet fold) and took every search and
+// every build down with it. It is dropped instead: the build logs the count and re-parses the
+// archive such a row still names, so no real row is lost; a search just skips it.
+describe('loadIndex — a malformed row is dropped, not fatal', () => {
+  beforeEach(() => { process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1'; });
+  const indexPath = () => join(brainDir, 'episodic-index.json');
+  const readIndex = () => JSON.parse(readFileSync(indexPath(), 'utf-8'));
+  const writeIndex = (idx: unknown) => writeFileSync(indexPath(), JSON.stringify(idx), 'utf-8');
+  const textSearch = (query: string) =>
+    episodicSearch({ query, mode: 'text', activeProject: 'proj', requireUserText: true }, brainDir);
+
+  it('null, a number, a string and an array: search and build survive; the build logs and drops them', async () => {
+    await buildEpisodicIndex(brainDir);
+    const idx = readIndex();
+    idx.exchanges.splice(1, 0, null, 42, 'row', [1, 2]);
+    writeIndex(idx);
+
+    const found = await textSearch('archive transcripts');
+    expect(found.results.map(x => x.userSnippet)).toEqual(['how do we archive the transcripts safely before telemetry runs']);
+
+    const r = await buildEpisodicIndex(brainDir);
+    expect(r.total).toBe(2);
+    expect(readIndex().exchanges.every((x: unknown) => !!x && typeof x === 'object' && !Array.isArray(x))).toBe(true);
+    const rows = errorRows().filter(e => e.script === 'episodic-index');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].message).toMatch(/^4 malformed row\(s\)/);
+  });
+
+  it('a row missing a string field is dropped and the archive it names is re-parsed', async () => {
+    await buildEpisodicIndex(brainDir);
+    const idx = readIndex();
+    const victim = idx.exchanges[0];
+    const { userSnippet: _gone, ...rest } = victim;
+    idx.exchanges[0] = rest;
+    writeIndex(idx);
+
+    const found = await textSearch('archive');
+    expect(found.results.map(x => x.lineStart)).toEqual([idx.exchanges[1].lineStart]);
+
+    const r = await buildEpisodicIndex(brainDir);
+    expect(r.total).toBe(2);
+    const back = readIndex().exchanges.find((x: any) => x.id === victim.id);
+    expect(back?.userSnippet).toBe(victim.userSnippet);
+    const rows = errorRows().filter(e => e.script === 'episodic-index');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].message).toMatch(/^1 malformed row\(s\).*re-parsed/);
+  });
+});

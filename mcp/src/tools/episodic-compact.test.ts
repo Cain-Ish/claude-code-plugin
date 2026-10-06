@@ -11,7 +11,8 @@ import { tmpdir } from 'os';
 
 const h = vi.hoisted(() => {
   const calls: string[] = [];
-  const state = { failIndexWrite: false };
+  // poison: a text containing it gets a model vector whose first component is poisonValue.
+  const state = { failIndexWrite: false, poison: '', poisonValue: Infinity };
   // A deterministic "model": a hashed bag of words, normalized, so cosine = word overlap.
   function fakeVec(text: string): Float32Array {
     const v = new Float32Array(384);
@@ -32,7 +33,9 @@ const h = vi.hoisted(() => {
 vi.mock('@huggingface/transformers', () => ({
   pipeline: async () => async (text: string) => {
     h.calls.push(text);
-    return { data: h.fakeVec(text) };
+    const data = h.fakeVec(text);
+    if (h.state.poison && text.includes(h.state.poison)) data[0] = h.state.poisonValue;
+    return { data };
   },
 }));
 
@@ -104,6 +107,8 @@ function writeLegacyIndex(): string {
 beforeEach(() => {
   delete process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS;   // vitest.setup restores it afterwards
   h.state.failIndexWrite = false;
+  h.state.poison = '';
+  h.state.poisonValue = Infinity;
   h.calls.length = 0;
   brainDir = mkdtempSync(join(tmpdir(), 'epi-compact-'));
   mkdirSync(join(brainDir, 'transcripts'), { recursive: true });
@@ -233,6 +238,36 @@ describe('episodic index format', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].message).toMatch(/1 stored vector.*not 384 components/);
   });
+
+  // R2 fix round: an Infinity component made es = Infinity, which JSON writes as null, so every
+  // load dropped the row and every build re-embedded it (and a NaN component was stored as 0
+  // without a word). A vector with any non-finite component is now never stored: dropped at the
+  // repair pass and logged once there; the row stays pending and the next build asks the model
+  // again, because the bad vector is not cached either.
+  it.each([['Infinity', Infinity], ['NaN', NaN]])('a model vector with a %s component is not stored; the next build re-embeds it', async (_n, bad) => {
+    h.state.poison = 'drain skip the heads';
+    h.state.poisonValue = bad;
+    const first = await buildEpisodicIndex(brainDir);
+
+    expect(first.repaired).toBe(1);
+    expect(first.pending).toBe(1);
+    const row = () => readIndex().exchanges.find((x: any) => x.userSnippet.startsWith('why does the drain'));
+    expect(row()).not.toHaveProperty('e8');
+    expect(row()).not.toHaveProperty('es');
+    const logged = () => errorRows().filter(e => e.script === 'episodic-index').map(e => e.message as string);
+    expect(logged().filter(m => /non-finite/.test(m))).toHaveLength(1);
+    expect(logged()[0]).toMatch(/^1 embedding\(s\) with a non-finite component were not stored/);
+
+    h.state.poison = '';
+    h.calls.length = 0;
+    const second = await buildEpisodicIndex(brainDir);
+
+    expect(h.calls).toEqual([embedText(row())]);                  // the model, not a cached bad vector
+    expect(second.pending).toBe(0);
+    expect(Number.isFinite(row().es)).toBe(true);
+    expect(Buffer.from(row().e8, 'base64')).toHaveLength(384);
+    expect(logged().filter(m => /non-finite|not 384 components/.test(m))).toHaveLength(1);   // still the one
+  });
 });
 
 // Item 3: R2-A's sb_scrub_archive_file rewrites an archive in place: same line count, different
@@ -283,6 +318,72 @@ describe('re-derivation after an in-place archive scrub', () => {
     expect(vecOf(after[0]).length).toBe(384);
     expect(r.pending).toBe(0);
     expect(readFileSync(indexPath(), 'utf-8')).not.toContain('sk-ant-');
+  });
+
+  // Security review (R2 fix round): until the one-time 0.56.0 scrub migration reaches an archive,
+  // that archive still holds secrets in clear. extract-drain.sh keeps the migration's to-do list
+  // in BRAIN_DIR/.archive-scrub-v1.todo (one basename per line) and writes .archive-scrub-v1 when
+  // it is done. Every archive on the list was written before 0.56.0, so a 0.55 build has usually
+  // indexed it already: the build holds it OUT of the index (rows dropped, file entry forgotten,
+  // nothing parsed) and re-derives it on the first build after it leaves the list.
+  describe('an archive the scrub migration has not reached is held out of the index', () => {
+    const todoPath = () => join(brainDir, '.archive-scrub-v1.todo');
+    const rowsOf = (sid: string) => readIndex().exchanges.filter((x: any) => x.sessionId === sid);
+
+    it('a listed archive loses its rows and file entry; once delisted the next build re-derives it', async () => {
+      writeFileSync(join(brainDir, 'transcripts', SFILE), SECRET_ARCHIVE, 'utf-8');
+      await buildEpisodicIndex(brainDir);                     // the 0.55-era index: secrets inside
+      const before = rowsOf('s2');
+      expect(before).toHaveLength(2);
+      const keptIds = rowsOf('s1').map((x: any) => x.id);
+      expect(keptIds).toHaveLength(2);
+
+      writeFileSync(todoPath(), `gone_proj_2026-09-30.txt\r\n${SFILE}\r\n`, 'utf-8');   // CRLF: Windows tools
+      const held = await buildEpisodicIndex(brainDir);
+
+      expect(held.held).toBe(1);
+      expect(rowsOf('s2')).toEqual([]);
+      expect(readIndex().indexed_files).not.toHaveProperty(SFILE);
+      expect(rowsOf('s1').map((x: any) => x.id)).toEqual(keptIds);
+      expect(readFileSync(indexPath(), 'utf-8')).not.toContain('sk-ant-');
+      expect(errorRows().filter(e => e.script === 'episodic-index')).toEqual([]);   // a hold is not an error
+      const found = await episodicSearch({ query: 'deploy failed key rotate', mode: 'text' }, brainDir);
+      expect(found.results.filter(x => x.sessionId === 's2')).toEqual([]);
+
+      // Delisted with the content unchanged (nothing to redact after all): the forgotten file entry
+      // is what makes the next build re-derive it, not a hash change.
+      writeFileSync(todoPath(), 'gone_proj_2026-09-30.txt\n', 'utf-8');
+      const back = await buildEpisodicIndex(brainDir);
+
+      expect(back.held).toBe(0);
+      expect(rowsOf('s2').map((x: any) => x.id)).toEqual(before.map((x: any) => x.id));
+      expect(readIndex().indexed_files).toHaveProperty(SFILE);
+    });
+
+    it('the completion marker wins over a to-do list left behind: nothing is held', async () => {
+      writeFileSync(join(brainDir, 'transcripts', SFILE), SECRET_ARCHIVE, 'utf-8');
+      writeFileSync(todoPath(), `${SFILE}\n`, 'utf-8');
+      writeFileSync(join(brainDir, '.archive-scrub-v1'), '', 'utf-8');
+
+      const r = await buildEpisodicIndex(brainDir);
+
+      expect(r.held).toBe(0);
+      expect(rowsOf('s2')).toHaveLength(2);
+    });
+
+    it('a to-do list that cannot be read holds nothing and is logged', async () => {
+      writeFileSync(join(brainDir, 'transcripts', SFILE), SECRET_ARCHIVE, 'utf-8');
+      mkdirSync(todoPath());                                   // readFile -> EISDIR, on every OS
+
+      const r = await buildEpisodicIndex(brainDir);
+
+      expect(r.held).toBe(0);
+      expect(rowsOf('s2')).toHaveLength(2);
+      const rows = errorRows().filter(e => e.script === 'episodic-index');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].message).toMatch(/archive-scrub-v1\.todo/);
+      expect(rows[0].message).toMatch(/nothing is held/);
+    });
   });
 });
 
@@ -354,5 +455,34 @@ describe('embedTexts — a keyless (query) embed does not read the cache', () =>
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// R2 fix round: JSON keeps no Infinity or NaN (both become null), so a cached non-finite vector
+// came back as nulls on every later call and pinned its row to a bad vector for good.
+describe('embedTexts — the cache never holds or serves a non-finite vector', () => {
+  const cacheFile = () => join(brainDir, 'transcripts', '.embeddings-cache.json');
+
+  it('a non-finite model vector is returned but not cached', async () => {
+    h.state.poison = 'archive';
+    const out = await embedTexts(['archive transcripts', 'drain the queue'], join(brainDir, 'transcripts'), ['episodic:a', 'episodic:b']);
+    expect(out?.[0][0]).toBe(Infinity);
+    const entries = JSON.parse(readFileSync(cacheFile(), 'utf-8')).entries;
+    expect(entries).not.toHaveProperty('episodic:a');
+    expect(entries).toHaveProperty('episodic:b');
+  });
+
+  it('a cached vector with a null component is a miss: the model re-embeds and the entry is replaced', async () => {
+    await embedTexts(['archive transcripts'], join(brainDir, 'transcripts'), ['episodic:a']);
+    const cache = JSON.parse(readFileSync(cacheFile(), 'utf-8'));
+    cache.entries['episodic:a'].vector[5] = null;
+    writeFileSync(cacheFile(), JSON.stringify(cache), 'utf-8');
+    h.calls.length = 0;
+
+    const out = await embedTexts(['archive transcripts'], join(brainDir, 'transcripts'), ['episodic:a']);
+
+    expect(h.calls).toEqual(['archive transcripts']);
+    expect(out?.[0].every(Number.isFinite)).toBe(true);
+    expect(JSON.parse(readFileSync(cacheFile(), 'utf-8')).entries['episodic:a'].vector.every(Number.isFinite)).toBe(true);
   });
 });

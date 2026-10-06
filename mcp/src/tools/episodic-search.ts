@@ -104,7 +104,8 @@ interface IndexedExchange extends Partial<CompactVector> {
 type StoredExchange = IndexedExchange & { embedding?: unknown };
 
 /** Symmetric int8: es = max|x| / 127, component = round(x / es). Rounding error is at most es/2
- *  per component; a NaN component stores as 0. A zero vector stores es = 0. */
+ *  per component. A zero vector stores es = 0. Callers pass finite components (the build checks
+ *  before storing): a NaN would quantize to 0 and an Infinity would make es Infinity. */
 export function quantizeEmbedding(vec: ArrayLike<number>): CompactVector {
   let maxAbs = 0;
   for (let i = 0; i < vec.length; i++) {
@@ -459,21 +460,42 @@ function parseExchanges(lines: string[], bodyStart: number, meta: SessionMeta, a
 
 const emptyIndex = (): EpisodicIndex => ({ model: 'Xenova/all-MiniLM-L6-v2', indexed_files: {}, exchanges: [] });
 
+/** The row fields every writer stores as strings and the readers dereference (basename,
+ *  toLowerCase, the snippet clean and fold): without them a row throws in search and build alike. */
+const ROW_STRING_FIELDS = ['id', 'sessionId', 'project', 'date', 'userSnippet', 'assistantSnippet', 'archivePath'] as const;
+
+function isStoredRow(v: unknown): v is StoredExchange {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  return ROW_STRING_FIELDS.every(k => typeof o[k] === 'string');
+}
+
+interface LoadedIndex {
+  index: EpisodicIndex;
+  /** Rows whose stored vector was unusable (kept, without a vector: they re-embed). */
+  dropped: number;
+  /** Elements of `exchanges` that are not a row at all (null, a primitive, a row without its
+   *  string fields): skipped. The archive one still names has lost its file entry, so the next
+   *  build re-parses it and no real row is lost. */
+  malformed: number;
+}
+
 /** A missing index is the normal first run. Anything else that cannot be used (unreadable,
  *  unparseable, or without an exchanges array) is reset to empty AND logged: the next build
  *  re-indexes every archive, and the reset must not pass for a healthy empty index. A missing or
  *  malformed `indexed_files` only means "re-parse every file", so it is normalized to {}.
- *  Rows come back in the current shape (currentRow); `dropped` counts unusable stored vectors. */
-async function loadIndex(brainDir: string): Promise<{ index: EpisodicIndex; dropped: number }> {
+ *  Rows come back in the current shape (currentRow). */
+async function loadIndex(brainDir: string): Promise<LoadedIndex> {
   const indexPath = join(brainDir, INDEX_FILE);
+  const reset = { index: emptyIndex(), dropped: 0, malformed: 0 };
   let data: string;
   try {
     data = await fs.readFile(indexPath, 'utf-8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { index: emptyIndex(), dropped: 0 };
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return reset;
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`);
-    return { index: emptyIndex(), dropped: 0 };
+    return reset;
   }
   let parsed: unknown;
   try {
@@ -481,28 +503,39 @@ async function loadIndex(brainDir: string): Promise<{ index: EpisodicIndex; drop
   } catch (e) {
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`);
-    return { index: emptyIndex(), dropped: 0 };
+    return reset;
   }
   const o = parsed as { model?: unknown; indexed_files?: unknown; exchanges?: unknown } | null;
   if (!o || typeof o !== 'object' || Array.isArray(o) || !Array.isArray(o.exchanges)) {
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} has no exchanges array`);
-    return { index: emptyIndex(), dropped: 0 };
+    return reset;
   }
   const files = o.indexed_files;
+  const indexedFiles: EpisodicIndex['indexed_files'] =
+    files && typeof files === 'object' && !Array.isArray(files) ? files as EpisodicIndex['indexed_files'] : {};
   let dropped = 0;
-  const exchanges = (o.exchanges as StoredExchange[]).map(stored => {
+  let malformed = 0;
+  const exchanges: IndexedExchange[] = [];
+  for (const stored of o.exchanges as unknown[]) {
+    if (!isStoredRow(stored)) {
+      malformed++;
+      const archivePath = (stored as { archivePath?: unknown } | null)?.archivePath;
+      if (typeof archivePath === 'string') delete indexedFiles[basename(archivePath)];
+      continue;
+    }
     const r = currentRow(stored);
     if (r.dropped) dropped++;
-    return r.row;
-  });
+    exchanges.push(r.row);
+  }
   return {
     index: {
       model: typeof o.model === 'string' ? o.model : emptyIndex().model,
-      indexed_files: files && typeof files === 'object' && !Array.isArray(files) ? files as EpisodicIndex['indexed_files'] : {},
+      indexed_files: indexedFiles,
       exchanges,
     },
     dropped,
+    malformed,
   };
 }
 
@@ -522,17 +555,59 @@ async function saveIndex(brainDir: string, index: EpisodicIndex): Promise<void> 
   }
 }
 
-export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: number; total: number; repaired: number; pending: number }> {
+/** The one-time 0.56.0 archive scrub (scripts/extract-drain.sh drain_scrub_migrate). Its to-do
+ *  list names, one basename per line, the archives written before 0.56.0 that still hold a
+ *  credential literal; the marker means the migration is done, so a list left behind is stale. */
+const SCRUB_MARK = '.archive-scrub-v1';
+const SCRUB_TODO = `${SCRUB_MARK}.todo`;
+
+/** The archives a build holds out of the index while the scrub migration is pending: their text
+ *  is still in clear. No list holds nothing (no migration, or its first tick has not run). A list
+ *  that cannot be read holds nothing too, so recall does not go dark on a read error, and that is
+ *  logged. One read per build. */
+async function scrubPendingArchives(brainDir: string): Promise<Set<string>> {
+  const pending = new Set<string>();
+  try {
+    await fs.stat(join(brainDir, SCRUB_MARK));
+    return pending;
+  } catch { /* not done yet: the list decides */ }
+  const todoPath = join(brainDir, SCRUB_TODO);
+  let text: string;
+  try {
+    text = await fs.readFile(todoPath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      await appendErrorLog(brainDir, 'episodic-index',
+        `cannot read the archive-scrub to-do list ${todoPath} (${e instanceof Error ? e.message : String(e)}); `
+        + 'nothing is held out of the episodic index, so archives the scrub has not reached yet are indexed in clear');
+    }
+    return pending;
+  }
+  for (const line of text.split('\n')) {
+    const name = line.replace(/\r$/, '');
+    if (name) pending.add(name);
+  }
+  return pending;
+}
+
+export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: number; total: number; repaired: number; pending: number; held: number }> {
   const archiveDir = join(brainDir, 'transcripts');
   let files: string[];
   try {
     const entries = await fs.readdir(archiveDir);
     files = entries.filter(f => f.endsWith('.txt')).map(f => join(archiveDir, f));
   } catch {
-    return { indexed: 0, total: 0, repaired: 0, pending: 0 };
+    return { indexed: 0, total: 0, repaired: 0, pending: 0, held: 0 };
   }
 
-  const { index, dropped } = await loadIndex(brainDir);
+  const scrubPending = await scrubPendingArchives(brainDir);
+  let held = 0;
+  const { index, dropped, malformed } = await loadIndex(brainDir);
+  if (malformed > 0) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `${malformed} malformed row(s) (not an object with the row's string fields) were dropped from the episodic `
+      + 'index; an archive such a row names is re-parsed');
+  }
   if (dropped > 0) {
     await appendErrorLog(brainDir, 'episodic-index',
       `${dropped} stored vector(s) not ${EMBEDDING_DIM} components were dropped from the episodic index; those rows re-embed`);
@@ -545,11 +620,19 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   const previous = new Map<string, IndexedExchange>();
 
   for (const filePath of files) {
+    const fname = basename(filePath);
+    // Held while the scrub has not reached it: not read, its rows dropped below, its file entry
+    // forgotten. The forgotten entry is what re-derives it on the first build after it leaves the
+    // list, whether the scrub changed its text or found nothing to redact.
+    if (scrubPending.has(fname)) {
+      delete index.indexed_files[fname];
+      held++;
+      continue;
+    }
     // Sanitize untrusted transcript text before indexing it (P6b — invisible/Tags-block
     // smuggling defense). Hash the cleaned content so a previously-dirty file re-indexes once.
     const content = stripInvisible(await fs.readFile(filePath, 'utf-8'));
     const hash = simpleHash(content);
-    const fname = basename(filePath);
 
     // Unchanged AND parsed by the current parser: skip. A changed file, a bare-string entry
     // (pre-version writer) or an older parser version is re-parsed from scratch.
@@ -563,9 +646,12 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     newExchanges.push(...parseExchanges(lines, bodyStart, meta, filePath));
   }
 
-  // Drop exchanges from deleted transcripts.
+  // Drop exchanges from deleted transcripts and from held ones.
   const validFiles = new Set(files.map(f => basename(f)));
-  index.exchanges = index.exchanges.filter(e => validFiles.has(basename(e.archivePath)));
+  index.exchanges = index.exchanges.filter(e => {
+    const fname = basename(e.archivePath);
+    return validFiles.has(fname) && !scrubPending.has(fname);
+  });
 
   // Persist new exchanges immediately (text-searchable). Embeddings may be empty
   // and will be filled in by the repair pass below or on a future run.
@@ -603,13 +689,22 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     const paths = needsEmbed.map(r => `episodic:${r.id}`);
     const embeddings = await embedTexts(texts, join(brainDir, 'transcripts'), paths);
     if (embeddings) {
+      let nonFinite = 0;
       for (let i = 0; i < needsEmbed.length; i++) {
-        // Only a full vector is stored: loadIndex drops any other length, so storing one would
-        // drop and re-embed it on every build.
-        if (embeddings[i] && embeddings[i].length === EMBEDDING_DIM) {
-          Object.assign(needsEmbed[i], quantizeEmbedding(embeddings[i]));
-          repaired++;
-        }
+        // Only a full vector of finite components is stored. loadIndex drops any other length,
+        // and JSON writes Infinity as null (an Infinity component makes es Infinity), so storing
+        // either would drop and re-embed it on every build; a NaN would quantize silently to 0.
+        // Every component finite means es (max|x| / 127) is finite too.
+        const vec = embeddings[i];
+        if (!vec || vec.length !== EMBEDDING_DIM) continue;
+        if (!vec.every(Number.isFinite)) { nonFinite++; continue; }
+        Object.assign(needsEmbed[i], quantizeEmbedding(vec));
+        repaired++;
+      }
+      if (nonFinite > 0) {
+        await appendErrorLog(brainDir, 'episodic-index',
+          `${nonFinite} embedding(s) with a non-finite component were not stored; those rows stay pending `
+          + 'and the next build embeds them again (the embedding cache does not keep such a vector)');
       }
     }
   }
@@ -634,7 +729,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
       `${pending} of ${index.exchanges.length} rows have no embedding after the repair pass: vector recall `
       + 'misses them until a build can embed them (check the embedding model / vector deps)');
   }
-  return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending };
+  return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending, held };
 }
 
 export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string): Promise<EpisodicSearchResult> {

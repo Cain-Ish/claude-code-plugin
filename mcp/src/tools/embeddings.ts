@@ -127,6 +127,12 @@ async function saveCache(wikiRoot: string, cache: EmbeddingCache): Promise<void>
   await atomicWriteJson(join(wikiRoot, CACHE_FILE), cache);
 }
 
+/** JSON has no Infinity or NaN (both are written as null), so a non-finite vector is never
+ *  cached, and a cached vector that is not all finite numbers (an older writer's) is a miss. */
+function isFiniteVector(v: unknown): v is number[] {
+  return Array.isArray(v) && v.every(Number.isFinite);
+}
+
 export async function embedTexts(texts: string[], wikiRoot: string, paths: string[]): Promise<number[][] | null> {
   const pipe = await getPipeline();
   if (!pipe) return null;
@@ -141,8 +147,9 @@ export async function embedTexts(texts: string[], wikiRoot: string, paths: strin
     const hash = simpleHash(texts[i]);
     const key = paths[i] || `query-${i}`;
 
-    if (cache.entries[key]?.hash === hash) {
-      results.push(cache.entries[key].vector);
+    const hit = cache.entries[key];
+    if (hit?.hash === hash && isFiniteVector(hit.vector)) {
+      results.push(hit.vector);
       continue;
     }
 
@@ -150,7 +157,7 @@ export async function embedTexts(texts: string[], wikiRoot: string, paths: strin
     const vec = Array.from(output.data as Float32Array).slice(0, EMBEDDING_DIM);
     results.push(vec);
 
-    if (paths[i]) {
+    if (paths[i] && isFiniteVector(vec)) {
       cache.entries[key] = { hash, vector: vec };
       cacheUpdated = true;
     }
