@@ -1597,6 +1597,55 @@ sb_sanitize_slug() {
   printf '%s' "$clean"
 }
 
+# --- Per-archive lock (0.56.0, R2-F#3) ---
+# The Stop/PreCompact append (sb_archive_transcript) and the in-place scrub (sb_scrub_archive_file)
+# both rewrite an archive. Without a shared lock, an append that landed between the scrub's size
+# re-check and its rename was renamed away: lost. The lock is a noclobber-created file
+# transcripts/.<basename>.lock holding the owner's pid (O_EXCL create: atomic; dot-named and not
+# ending in .txt, so no archive reader sees it). Taking it is builtins only, so the uncontended
+# Stop path pays one `rm` to release it. Contended: poll every 0.1 s for about 5 s, then fail loud
+# and return 1 (the caller retries later: an append's raw_line cursor does not advance, a scrub
+# stays in the migration todo). A lock older than 60 s is stolen: its holder died mid-write (the
+# legitimate hold is milliseconds for an append, seconds for a scrub). Two writers that steal the
+# SAME dead lock in the same instant can both proceed; that needs a crash plus two simultaneous
+# waiters, and the drain lock accepts the same residue.
+_SB_ARCHIVE_LOCK_WAIT_S=5
+_SB_ARCHIVE_LOCK_STALE_S=60
+sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
+  local lf="${1%/*}/.${1##*/}.lock" who="${2:-lib.sh}" noclob="" tries=0 nofile=0 end="" mt now
+  case "$-" in *C*) noclob=1 ;; esac
+  set -C
+  until { printf '%s\n' "$$" > "$lf"; } 2>/dev/null; do
+    tries=$((tries + 1))
+    [ -n "$end" ] || end=$((SECONDS + _SB_ARCHIVE_LOCK_WAIT_S))
+    if [ -e "$lf" ]; then
+      nofile=0
+      if [ $((tries % 10)) -eq 1 ]; then   # stale check: on first contention, then about once a second
+        mt=$(sb_mtime "$lf"); now=$(date +%s)
+        case "$mt" in ''|0|*[!0-9]*) continue ;; esac   # released meanwhile: just retry
+        if [ $((now - mt)) -gt "$_SB_ARCHIVE_LOCK_STALE_S" ]; then
+          sb_log_error "lib.sh" "$who: stealing a stale archive lock ($((now - mt)) s old, holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')) on ${1##*/}" 1
+          rm -f "$lf" 2>/dev/null
+          continue
+        fi
+      fi
+    elif [ "$((nofile += 1))" -ge 3 ]; then   # the create keeps failing with no lock there
+      [ -n "$noclob" ] || set +C
+      sb_log_error "lib.sh" "$who: cannot create the archive lock $lf (directory unwritable?); ${1##*/} left as it is" 1
+      return 1
+    fi
+    if [ "$SECONDS" -ge "$end" ]; then
+      [ -n "$noclob" ] || set +C
+      sb_log_error "lib.sh" "$who: archive lock on ${1##*/} still held after ${_SB_ARCHIVE_LOCK_WAIT_S} s (holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')); not written, retried later" 1
+      return 1
+    fi
+    [ -e "$lf" ] && sleep 0.1
+  done
+  [ -n "$noclob" ] || set +C
+  return 0
+}
+sb_archive_unlock() { rm -f "${1%/*}/.${1##*/}.lock" 2>/dev/null; }
+
 # --- Secret scrub (0.56.0, R2#3) ---
 # sb_scrub_secrets: stdin -> stdout filter. Redacts high-precision credential formats to
 # [redacted:<kind>]; sb_preprocess_transcript runs it on every window it renders, so the archive
@@ -1682,12 +1731,14 @@ sb_scrub_secrets() {
 # (*.part: invisible to every *.txt reader) and renamed over it, so a reader sees the old or the
 # new file, never a partial one. The mtime is preserved with touch -r (the drainer's quiet-1-h
 # rule reads it) and the line count is checked unchanged. Idempotent: a file with nothing to
-# redact (or already scrubbed) is never rewritten, not even its inode. Stop hooks append WITHOUT
-# the drain lock, so the size is re-checked right before the rename and a file that grew is left
-# as it is (logged, retry later); the residual race is that one check-to-rename gap. Every
-# failure is logged and returns 1, and the scratch copy is always removed.
+# redact (or already scrubbed) is never rewritten, not even its inode. The read-to-rename section
+# holds the per-archive lock (sb_archive_lock), which the Stop/PreCompact appender takes too, so
+# an append waits for the rename instead of being renamed away (R2-F#3). The size is still
+# re-checked right before the rename: a writer that does not take the lock (a hook process still
+# running 0.55 code) grew the file, so it is left as it is (logged, retry later). Every failure is
+# logged and returns 1, and the scratch copy is always removed.
 sb_scrub_archive_file() {
-  local f="$1" tmp size0 size1 lc0 lc1 rc
+  local f="$1" rc
   if [ ! -f "$f" ]; then
     sb_log_error "lib.sh" "sb_scrub_archive_file: not a regular file: $f" 1
     return 1
@@ -1701,6 +1752,13 @@ sb_scrub_archive_file() {
     sb_log_error "lib.sh" "sb_scrub_archive_file: cannot read $f (grep rc=$rc); not scrubbed" 1
     return 1
   fi
+  sb_archive_lock "$f" sb_scrub_archive_file || return 1
+  _sb_scrub_archive_locked "$f"; rc=$?
+  sb_archive_unlock "$f"
+  return "$rc"
+}
+_sb_scrub_archive_locked() {  # sb_scrub_archive_file's body; the caller holds the archive lock
+  local f="$1" tmp size0 size1 lc0 lc1
   size0=$(wc -c < "$f" 2>/dev/null); size0="${size0//[!0-9]/}"
   lc0=$(sb_line_count "$f")
   tmp="$f.scrub-$$.part"
@@ -1820,14 +1878,38 @@ sb_archive_transcript() {
     rm -f "$stage" 2>/dev/null
     return 0
   fi
+  # A new file's header tool count is computed before the lock (it reads the raw transcript only).
+  if [ ! -f "$archive_file" ] && [ -z "$tool_count" ]; then
+    tool_count=$(sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | jq -r '
+      select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | .name
+      | select((. // "") | endswith("buddy_react") | not)
+    ' 2>/dev/null | wc -l | tr -d ' ')
+  fi
 
+  # The header write, the torn-tail terminator and the append run under the per-archive lock that
+  # sb_scrub_archive_file takes across its read-to-rename (R2-F#3): an append can no longer land
+  # in the scrub's rename window and be renamed away. A lock still held after the bounded wait is
+  # a failure (logged by sb_archive_lock): the raw_line cursor stays and the next hook retries.
+  if ! sb_archive_lock "$archive_file" sb_archive_transcript; then
+    rm -f "$stage" 2>/dev/null
+    return 1
+  fi
+  local rc=0
+  _sb_archive_append_locked "$archive_file" "$stage" "$slug" "$session_id" "$date_str" \
+    "$start_line" "$end_line" "$tool_count" || rc=1
+  sb_archive_unlock "$archive_file"
+  rm -f "$stage" 2>/dev/null
+  [ "$rc" -eq 0 ] || return 1
+  sb_prune_transcripts
+  return 0
+}
+
+# sb_archive_transcript's write half; the caller holds the archive lock and removes the stage.
+# Args: archive stage slug session_id date start_line end_line tool_count
+_sb_archive_append_locked() {
+  local archive_file="$1" stage="$2" slug="$3" session_id="$4" date_str="$5"
+  local start_line="$6" end_line="$7" tool_count="$8"
   if [ ! -f "$archive_file" ]; then
-    if [ -z "$tool_count" ]; then
-      tool_count=$(sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | jq -r '
-        select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | .name
-        | select((. // "") | endswith("buddy_react") | not)
-      ' 2>/dev/null | wc -l | tr -d ' ')
-    fi
     # The positive form on purpose: bash does not apply `!` to a { group } whose own redirection
     # fails (`if ! { ...; } > dir` takes the else branch, measured on 5.2), so a negated test
     # here would report a header that was never written as written.
@@ -1843,24 +1925,19 @@ sb_archive_transcript() {
     } 2>/dev/null > "$archive_file"; then
       :
     else
-      rm -f "$stage" 2>/dev/null
       sb_log_error "lib.sh" "sb_archive_transcript: cannot write $archive_file; raw lines ${start_line}-${end_line} NOT archived (session=$session_id)" 1
       return 1
     fi
   elif [ -n "$(tail -c 1 "$archive_file" 2>/dev/null)" ]; then
     if ! printf '\n' 2>/dev/null >> "$archive_file"; then
-      rm -f "$stage" 2>/dev/null
       sb_log_error "lib.sh" "sb_archive_transcript: cannot terminate the torn last line of $archive_file; raw lines ${start_line}-${end_line} NOT archived (session=$session_id)" 1
       return 1
     fi
   fi
   if ! cat "$stage" 2>/dev/null >> "$archive_file"; then
-    rm -f "$stage" 2>/dev/null
     sb_log_error "lib.sh" "sb_archive_transcript: append to $archive_file failed; raw lines ${start_line}-${end_line} NOT archived, the next hook retries (session=$session_id)" 1
     return 1
   fi
-  rm -f "$stage" 2>/dev/null
-  sb_prune_transcripts
   return 0
 }
 

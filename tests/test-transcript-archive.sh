@@ -428,6 +428,64 @@ cmp -s "$SF" "$TMP/scrub-file/s3.grown" || fail "scrub-file: a line-count-changi
 grep -q 'line count' "$BRAIN_DIR/error-log.jsonl" || fail "scrub-file: the line-count refusal was not logged"
 pass "scrub-file: in place, mtime + line count kept, idempotent, clean files untouched, failures loud and lossless"
 
+# === R2-F#3 (0.56.0): the Stop/PreCompact append and the in-place scrub share a per-archive lock ===
+# Without it, a Stop append that landed between the scrub's size re-check and its rename was
+# renamed away: lost. The lock is transcripts/.<basename>.lock (no *.txt reader sees it).
+setup "archive-lock"
+T="$TMP/archive-lock/t.jsonl"; make_transcript "$T" 4
+AL="$BRAIN_DIR/transcripts/lk_proj_$(date +%Y-%m-%d).txt"
+LK="$BRAIN_DIR/transcripts/.${AL##*/}.lock"
+printf -- '--- session-meta ---\nsession_id: lk\n---\n\nUSER: key %s\n' "$K_AWS" > "$AL"
+# each writer holds the lock at its critical step: the append's `cat` of the stage file, the
+# scrub's rename (shadowed commands record whether the lock file exists at that moment)
+LKLOG="$TMP/archive-lock/held.log"; : > "$LKLOG"
+( cat() { case "${1:-}" in *.stage-*) if [ -e "$LK" ]; then echo append-held; else echo append-free; fi >> "$LKLOG" ;; esac; command cat "$@"; }
+  sb_archive_transcript "$T" proj lk 1 4 0 ) || fail "lock: a good append returned non-zero"
+( mv() { if [ -e "$LK" ]; then echo scrub-held; else echo scrub-free; fi >> "$LKLOG"; command mv "$@"; }
+  sb_scrub_archive_file "$AL" ) || fail "lock: a good scrub returned non-zero"
+grep -qx append-held "$LKLOG" || fail "lock: the Stop append ran without the archive lock ($(tr '\n' ' ' < "$LKLOG"))"
+grep -qx scrub-held "$LKLOG" || fail "lock: the scrub renamed without the archive lock ($(tr '\n' ' ' < "$LKLOG"))"
+[ ! -e "$LK" ] || fail "lock: the lock was not released after the append and the scrub"
+# the release thesis: a Stop append arriving while a scrub sits between its size re-check and its
+# rename is NOT lost — it waits for the lock and lands in the renamed (scrubbed) file
+printf 'USER: second key %s\n' "$K_GHP" >> "$AL"
+REACHED="$TMP/archive-lock/reached"; rm -f "$REACHED"
+( mv() { : > "$REACHED"; sleep 2; command mv "$@"; }; sb_scrub_archive_file "$AL" ) &
+LK_BG=$!; i=0
+while [ ! -e "$REACHED" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+[ -e "$REACHED" ] || { kill "$LK_BG" 2>/dev/null; fail "lock: the background scrub never reached its rename"; }
+make_transcript "$T" 8
+sb_archive_transcript "$T" proj lk 5 8 0 || fail "lock: the append that waited for the scrub returned non-zero"
+wait "$LK_BG" || fail "lock: the background scrub returned non-zero"
+grep -q '^USER: question 7$' "$AL" || fail "lock: the Stop append that arrived during the scrub's rename window was LOST"
+grep -qF '[redacted:github]' "$AL" || fail "lock: the scrub's rename did not land"
+grep -q 'ghp_' "$AL" && fail "lock: the second key survived the scrub"
+# a live holder: the append waits (bounded), then fails loud; the archive and the raw cursor stay
+printf '99999\n' > "$LK"
+A_SUM=$(cksum < "$AL"); : > "$BRAIN_DIR/error-log.jsonl"
+make_transcript "$T" 10
+( sb_archive_raw_window "$T" proj lk 10 proj--lk ) && fail "lock: an append under a held lock returned 0"
+[ "$(cksum < "$AL")" = "$A_SUM" ] || fail "lock: an append under a held lock changed the archive"
+[ ! -e "$BRAIN_DIR/.last-archived-line-proj--lk" ] || fail "lock: the raw cursor advanced although the append was refused"
+grep -q 'sb_archive_transcript.*lock' "$BRAIN_DIR/error-log.jsonl" || fail "lock: the refused append was not logged"
+# ... and the scrub under a held lock refuses too, leaving the file as it is
+printf 'USER: third key %s\n' "$K_ANT" >> "$AL"; A_SUM=$(cksum < "$AL"); : > "$BRAIN_DIR/error-log.jsonl"
+( sb_scrub_archive_file "$AL" ) && fail "lock: a scrub under a held lock returned 0"
+[ "$(cksum < "$AL")" = "$A_SUM" ] || fail "lock: a scrub under a held lock changed the archive"
+grep -q 'sb_scrub_archive_file.*lock' "$BRAIN_DIR/error-log.jsonl" || fail "lock: the refused scrub was not logged"
+[ -e "$LK" ] || fail "lock: a refused writer removed the holder's lock"
+# a holder that lets go during the wait: the writer waits for it instead of failing fast
+( sleep 1; rm -f "$LK" ) &
+sb_scrub_archive_file "$AL" || fail "lock: the scrub did not wait for a lock released after 1 s"
+wait
+grep -q 'sk-ant-' "$AL" && fail "lock: the third key survived the scrub that waited"
+# a stale lock (its holder died mid-write) is stolen
+printf '99999\n' > "$LK"; touch -t 202601010000 "$LK" || fail "touch -t unavailable"
+sb_archive_raw_window "$T" proj lk 10 proj--lk || fail "lock: a stale lock was not stolen"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--lk")" = 10 ] || fail "lock: the append after a stale steal did not advance the cursor"
+[ ! -e "$LK" ] || fail "lock: the stolen lock was not released"
+pass "lock: append and scrub share the per-archive lock; a concurrent append is never lost; held = bounded wait then loud; stale = stolen"
+
 # === R2 (0.56.0) archive-first: sb_archive_transcript (checked) + sb_archive_raw_window (cursor) ===
 setup "archive-checked"
 T="$TMP/archive-checked/t.jsonl"
