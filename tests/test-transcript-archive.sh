@@ -403,7 +403,18 @@ cp "$SD/clean.in" "$SD/clean.want"
 printf 'first\nlast %s' "$K_OAI" > "$SD/nonl.in"
 printf 'first\nlast [redacted:openai]' > "$SD/nonl.want"
 : > "$SD/empty.in"; : > "$SD/empty.want"
-for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty; do
+# current OpenAI keys (R2-F#6): sk-proj- / sk-svcacct- / sk-admin- + [A-Za-z0-9_-]{20,}; the generic
+# sk- form stops at their second dash. Same left boundary (glued to an identifier: not matched),
+# too short: not matched, CRLF kept
+K_PROJ="sk-proj-$(rep aB3_- 8)$(rep Zz9 4)"; K_SVC="sk-svcacct-$(rep Q1_x 6)"; K_ADM="sk-admin-$(rep 9aB- 6)"
+K_AD20="sk-admin-$(rep 9aB-_ 4)"; K_SV19="sk-svcacct-$(rep Q1_ 6)x"   # exactly 20 / 19 after the prefix
+printf '%s\n' "OPENAI_API_KEY=$K_PROJ" "  svc $K_SVC, admin $K_ADM" "glued x$K_PROJ" "sk-proj-short_1" \
+  "min $K_AD20 ok" "under $K_SV19 ok" > "$SD/oaiproj.in"
+printf '%s\r\n' "  key=\"$K_PROJ\"" >> "$SD/oaiproj.in"
+printf '%s\n' "OPENAI_API_KEY=[redacted:openai]" "  svc [redacted:openai], admin [redacted:openai]" "glued x$K_PROJ" "sk-proj-short_1" \
+  "min [redacted:openai] ok" "under $K_SV19 ok" > "$SD/oaiproj.want"
+printf '%s\r\n' "  key=\"[redacted:openai]\"" >> "$SD/oaiproj.want"
+for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj; do
   sb_scrub_secrets < "$SD/$fx.in" > "$SD/$fx.out" || fail "scrub[$fx]: sb_scrub_secrets exited non-zero"
   cmp -s "$SD/$fx.out" "$SD/$fx.want" || fail "scrub[$fx]: output differs from the expected redaction:
 $(od -c "$SD/$fx.out" | head -12)"

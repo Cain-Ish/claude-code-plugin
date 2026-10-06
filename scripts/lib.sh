@@ -1652,8 +1652,10 @@ sb_archive_unlock() { rm -f "${1%/*}/.${1##*/}.lock" 2>/dev/null; }
 # AND the Stop/PreCompact extractor input are scrubbed. Formats, in match order:
 #   anthropic    sk-ant-[A-Za-z0-9_-]{20,}   (BEFORE the generic sk- form: run second, the generic
 #                one would stop at "-ant-" on a key glued after another and leave the rest)
-#   openai       sk-[A-Za-z0-9]{20,}         (not when glued to a longer identifier: task-/disk-
-#                ids end in an sk- run; the char before must not be [A-Za-z0-9_-])
+#   openai       sk-proj-, sk-svcacct-, sk-admin- + [A-Za-z0-9_-]{20,} (current project, service
+#                account and admin keys: the generic form below stops at their second dash),
+#                then sk-[A-Za-z0-9]{20,}. Never when glued to a longer identifier: task-/disk-
+#                ids end in an sk- run; the char before must not be [A-Za-z0-9_-]
 #   github       github_pat_[A-Za-z0-9_]{22,}, ghp_[A-Za-z0-9]{36}
 #   aws          AKIA[0-9A-Z]{16}
 #   slack        xox[abpr]-[A-Za-z0-9-]{10,}
@@ -1689,6 +1691,9 @@ sb_scrub_secrets() {
     BEGIN {
       eof = "\034sb-eof\034"; el = length(eof); an = "[A-Za-z0-9]"; n = 0
       n++; lit[n] = "sk-ant-";     kind[n] = "anthropic"; re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"
+      n++; lit[n] = "sk-proj-";    kind[n] = "openai";    re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"; bnd[n] = 1
+      n++; lit[n] = "sk-svcacct-"; kind[n] = "openai";    re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"; bnd[n] = 1
+      n++; lit[n] = "sk-admin-";   kind[n] = "openai";    re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"; bnd[n] = 1
       n++; lit[n] = "sk-";         kind[n] = "openai";    re[n] = lit[n] rep(an, 20) an "*"; bnd[n] = 1
       n++; lit[n] = "github_pat_"; kind[n] = "github";    re[n] = lit[n] rep("[A-Za-z0-9_]", 22) "[A-Za-z0-9_]*"
       n++; lit[n] = "ghp_";        kind[n] = "github";    re[n] = lit[n] rep(an, 36)
