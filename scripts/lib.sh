@@ -1708,43 +1708,66 @@ sb_archive_unlock() {  # $1 = archive path, $2 = owner token (default: the last 
   return 0
 }
 
-# --- Secret scrub (0.56.0, R2#3) ---
+# --- Secret scrub (0.56.0, R2#3; formats widened in the fix round: items 5/C/D/F, saboteur S9) ---
 # sb_scrub_secrets: stdin -> stdout filter. Redacts high-precision credential formats to
 # [redacted:<kind>]; sb_preprocess_transcript runs it on every window it renders, so the archive
-# AND the Stop/PreCompact extractor input are scrubbed. Formats, in match order:
-#   anthropic    sk-ant-[A-Za-z0-9_-]{20,}   (BEFORE the generic sk- form: run second, the generic
-#                one would stop at "-ant-" on a key glued after another and leave the rest)
-#   openai       sk-proj-, sk-svcacct-, sk-admin- + [A-Za-z0-9_-]{20,} (current project, service
-#                account and admin keys: the generic form below stops at their second dash),
-#                then sk-[A-Za-z0-9]{20,}. Never when glued to a longer identifier: task-/disk-
-#                ids end in an sk- run; the char before must not be [A-Za-z0-9_-]
-#   github       github_pat_[A-Za-z0-9_]{22,}, ghp_[A-Za-z0-9]{36}
-#   aws          AKIA[0-9A-Z]{16}
-#   slack        xox[abpr]-[A-Za-z0-9-]{10,}
-#   bearer       Bearer [A-Za-z0-9._~+/-]{20,}
-#   private-key  -----BEGIN <...>PRIVATE KEY----- blocks, PER LINE: the BEGIN line keeps its prefix
-#                (a `USER:` line must stay one: the episodic parser opens an exchange there), each
-#                body line becomes a marker, the END line becomes a marker and keeps its tail. A
-#                body line must look like key material (base64, a Proc-Type/DEK-Info header; a
-#                blank line is kept); any other line ends the block, so a key cut short (Bash
-#                commands are cut at 120 chars, thinking at 100) never swallows the window.
+# AND the Stop/PreCompact extractor input are scrubbed. First, zero-width characters (U+200B-200D,
+# U+2060, U+FEFF) are deleted: one inside a key hid it from every format, and the episodic
+# indexer strips them later, rejoining the key. Then, in match order:
+#   private-key  -----BEGIN <...>PRIVATE KEY----- and PGP ...PRIVATE KEY BLOCK----- blocks, PER
+#                LINE: the BEGIN line keeps its prefix (a `USER:` line must stay one: the episodic
+#                parser opens an exchange there), each body line and the END line become a marker
+#                (the END line keeps its tail). A body line must look like key material (base64, a
+#                Proc-Type/DEK-Info or PGP armor header; a blank line is kept), behind an optional
+#                quote/comment prefix ("> ", "# ", "// ", " * ", whitespace) that is kept; any
+#                other line ends the block, so a key cut short never swallows the window.
+#   anthropic    sk-ant-[A-Za-z0-9_-]{20,}   (BEFORE the generic sk- form, which would stop at
+#                "-ant-" on a key glued after another and leave the rest)
+#   openrouter   sk-or-v1-[A-Za-z0-9_-]{20,}
+#   openai       sk-proj-, sk-svcacct-, sk-admin- + [A-Za-z0-9_-]{20,}; then (last of all)
+#                sk-[A-Za-z0-9]{20,} with a left boundary: task-/disk- ids end in an sk- run, so
+#                the char before must not be a letter or digit, unless it is the letter of a
+#                backslash escape (`\nsk-...` in a command string). The prefixed forms are
+#                distinctive: matched even glued to an identifier.
+#   stripe       sk_live_ / rk_live_ + [A-Za-z0-9]{24,}
+#   github       github_pat_[A-Za-z0-9_]{22,}, gh[opsur]_[A-Za-z0-9]{36,}
+#   aws          AKIA / ASIA + [0-9A-Z]{16}; a secret access key ONLY after its keyword:
+#                aws_secret_access_key / AWS_SECRET_ACCESS_KEY, an optional quote, = or : and a
+#                [A-Za-z0-9/+=]{40,} value (the keyword and separator stay, the value goes)
+#   google       AIza[0-9A-Za-z_-]{35}
+#   npm          npm_[A-Za-z0-9]{36}
+#   gitlab       glpat-[A-Za-z0-9_-]{20,}
+#   huggingface  hf_[A-Za-z0-9]{34}
+#   slack        xox[abpr]- and xapp- + [A-Za-z0-9-]{10,}
+#   jwt          eyJ<10+>.eyJ<10+>.<10+> over [A-Za-z0-9_-]
+#   bearer       bearer, any case, + one space + [A-Za-z0-9._~+/-]{20,}
+#   basic-auth   Authorization: Basic <base64, 8+>, any case (keyword-gated; the value goes)
 # NOT matched, by design: OTP-like short codes (6-8 digit one-time codes are too ambiguous to
-# tell from ids, counts and dates), passwords, generic high-entropy strings, sk- runs under 20.
+# tell from ids, counts and dates), passwords in prose, generic hex/base64/high-entropy blobs
+# without a known prefix, a bare 40-char AWS secret without its keyword (indistinguishable from
+# any base64 run), "Basic" without the Authorization keyword, runs shorter than each minimum.
 # LINE COUNT IS INVARIANT: the archive_line cursor counts lines, so no line is joined or split,
 # a `\r` is kept, and an unterminated last line stays unterminated (awk cannot see a missing
 # final newline: ONE newline is appended after the input and awk prints one record behind, so
 # the last record is empty exactly when the input was terminated. A newline is the one byte a
 # record cannot hold, so no transcript text can fake the end of the input.) POSIX awk only: no
 # {n,} intervals (mawk 1.3.4-20200120, Debian/Ubuntu's default awk, lacks them; the runs are
-# built in BEGIN), no \b; LC_ALL=C keeps the classes ASCII. One cat + one awk per call, never per
-# line. LINEAR in the line length: each format is ONE split() whose separators are its matches,
-# and the pieces are joined in pairwise rounds. A match()/gsub() loop is not: gawk 5.0 scans to
-# the end of the string on every call, so a 2 MB single-line tool output with 22,727 keys took
-# 122 s (past the Stop hook's 45 s, so the session was never archived); this takes under 1 s.
+# built in BEGIN), no \b; LC_ALL=C keeps the classes ASCII and the zero-width bytes bytes. One
+# cat + one awk per call, never per line. LINEAR in the line length: each format is ONE split()
+# whose separators are its matches, and the pieces are joined in pairwise rounds. A
+# match()/gsub() loop is not: gawk 5.0 scans to the end of the string on every call, so a 2 MB
+# single-line tool output with 22,727 keys took 122 s (past the Stop hook's 45 s, so the session
+# was never archived); this takes under 1 s.
 # Returns non-zero when cat (a read error) or awk failed: the output must then not be used.
 sb_scrub_secrets() {
   { cat && printf '\n'; } | LC_ALL=C awk -v BINMODE=3 '
     function rep(c, k,   r) { r = ""; while (k-- > 0) r = r c; return r }
+    # Any-case letters: ci("bearer") = "[Bb][Ee][Aa][Rr][Ee][Rr]".
+    function ci(w,   r, i, c) {
+      r = ""
+      for (i = 1; i <= length(w); i++) { c = substr(w, i, 1); r = r (c ~ /[A-Za-z]/ ? "[" toupper(c) tolower(c) "]" : c) }
+      return r
+    }
     # A[1..k] joined in pairwise rounds: O(n log k) copying, never one accumulator re-grown per piece.
     function joinp(A, k,   i, j) {
       while (k > 1) {
@@ -1754,60 +1777,86 @@ sb_scrub_secrets() {
       }
       return (k == 1) ? A[1] : ""
     }
-    # Length of the run of class-i chars in s from position p, read through bounded windows.
-    function crun(s, p, i,   n, w) {
+    # Length of the run matching rx ("^<class>*") in s from position p, read through bounded windows.
+    function crun(s, p, rx,   n, w) {
       n = 0
       while ((w = substr(s, p + n, 256)) != "") {
-        match(w, run[i]); n += RLENGTH
+        match(w, rx); n += RLENGTH
         if (RLENGTH < length(w)) break
       }
       return n
     }
     # Every format, one split per format: the matches are the separators, so the line is scanned
-    # once. A match/gsub loop is not linear here: gawk scans to the end of the string on each call.
-    function redact(s, i,   Q, A, k, j, a, p) {
-      if (!bnd[i]) {
-        k = split(s, Q, re[i]); a = 0
-        for (j = 1; j <= k; j++) { if (j > 1) A[++a] = "[redacted:" kind[i] "]"; A[++a] = Q[j] }
-        return joinp(A, a)
-      }
-      # Boundary-checked: the separator is the one char before the match (never part of the
-      # form) plus the match, so a form glued to a longer identifier is no separator at all. A
-      # leading space stands in for the line start and is cut again below.
-      s = " " s
-      k = split(s, Q, "[^A-Za-z0-9_-]" re[i]); a = 0; p = 1
+    # once. Separator positions are tracked from the piece lengths, and only bounded windows are
+    # matched again. md "": every match goes. "k": the keyword part (kp) stays, the value goes.
+    # "b": the separator carries the boundary char(s) before the match, which stay; a leading
+    # space stands in for the line start and is cut again.
+    function redact(s, i,   Q, A, k, j, a, p, w, K) {
+      if (md[i] == "b") s = " " s
+      k = split(s, Q, re[i]); a = 0; p = 1
       for (j = 1; j <= k; j++) {
         if (j > 1) {
-          A[++a] = substr(s, p, 1) "[redacted:" kind[i] "]"
-          p += 1 + length(lit[i]) + crun(s, p + 1 + length(lit[i]), i)
+          if (md[i] == "") A[++a] = "[redacted:" kind[i] "]"
+          else if (md[i] == "k") {
+            w = substr(s, p, 96); match(w, kp[i]); K = RLENGTH
+            A[++a] = substr(w, 1, K) "[redacted:" kind[i] "]"
+            p += K + crun(s, p + K, vr[i])
+          } else {
+            K = (substr(s, p + 1, length(lit[i])) == lit[i]) ? 1 : 2
+            A[++a] = substr(s, p, K) "[redacted:" kind[i] "]"
+            p += K + length(lit[i]) + crun(s, p + K + length(lit[i]), vr[i])
+          }
         }
         A[++a] = Q[j]; p += length(Q[j])
       }
-      return substr(joinp(A, a), 2)
+      return (md[i] == "b") ? substr(joinp(A, a), 2) : joinp(A, a)
     }
     BEGIN {
-      an = "[A-Za-z0-9]"; n = 0
-      n++; lit[n] = "sk-ant-";     kind[n] = "anthropic"; cl[n] = "[A-Za-z0-9_-]"; re[n] = lit[n] rep(cl[n], 20) cl[n] "*"
-      n++; lit[n] = "sk-proj-";    kind[n] = "openai";    cl[n] = "[A-Za-z0-9_-]"; re[n] = lit[n] rep(cl[n], 20) cl[n] "*"; bnd[n] = 1
-      n++; lit[n] = "sk-svcacct-"; kind[n] = "openai";    cl[n] = "[A-Za-z0-9_-]"; re[n] = lit[n] rep(cl[n], 20) cl[n] "*"; bnd[n] = 1
-      n++; lit[n] = "sk-admin-";   kind[n] = "openai";    cl[n] = "[A-Za-z0-9_-]"; re[n] = lit[n] rep(cl[n], 20) cl[n] "*"; bnd[n] = 1
-      n++; lit[n] = "sk-";         kind[n] = "openai";    cl[n] = an;              re[n] = lit[n] rep(an, 20) an "*"; bnd[n] = 1
-      n++; lit[n] = "github_pat_"; kind[n] = "github";    re[n] = lit[n] rep("[A-Za-z0-9_]", 22) "[A-Za-z0-9_]*"
-      n++; lit[n] = "ghp_";        kind[n] = "github";    re[n] = lit[n] rep(an, 36)
-      n++; lit[n] = "AKIA";        kind[n] = "aws";       re[n] = lit[n] rep("[0-9A-Z]", 16)
-      n++; lit[n] = "xox";         kind[n] = "slack";     re[n] = "xox[abpr]-" rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
-      n++; lit[n] = "Bearer ";     kind[n] = "bearer";    re[n] = lit[n] rep("[A-Za-z0-9._~+/-]", 20) "[A-Za-z0-9._~+/-]*"
-      for (i = 1; i <= n; i++) if (bnd[i]) run[i] = "^" cl[i] "*"
-      pb = "-----BEGIN [A-Z ]*PRIVATE KEY-----"; pe = "-----END [A-Z ]*PRIVATE KEY-----"
+      an = "[A-Za-z0-9]"; ds = "[A-Za-z0-9_-]"; b64 = "[A-Za-z0-9+/=]"; n = 0
+      # lit = a literal every match holds (the per-line prefilter); lc = test it on the lowercased line
+      n++; lit[n] = "sk-ant-";      kind[n] = "anthropic";   re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-or-v1-";    kind[n] = "openrouter";  re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-proj-";     kind[n] = "openai";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-svcacct-";  kind[n] = "openai";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-admin-";    kind[n] = "openai";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "k_live_";      kind[n] = "stripe";      re[n] = "[sr]k_live_" rep(an, 24) an "*"
+      n++; lit[n] = "github_pat_";  kind[n] = "github";      re[n] = lit[n] rep("[A-Za-z0-9_]", 22) "[A-Za-z0-9_]*"
+      n++; lit[n] = "gh";           kind[n] = "github";      re[n] = "gh[opsur]_" rep(an, 36) an "*"
+      n++; lit[n] = "AKIA";         kind[n] = "aws";         re[n] = lit[n] rep("[0-9A-Z]", 16)
+      n++; lit[n] = "ASIA";         kind[n] = "aws";         re[n] = lit[n] rep("[0-9A-Z]", 16)
+      n++; lit[n] = "AIza";         kind[n] = "google";      re[n] = lit[n] rep("[0-9A-Za-z_-]", 35)
+      n++; lit[n] = "npm_";         kind[n] = "npm";         re[n] = lit[n] rep(an, 36)
+      n++; lit[n] = "glpat-";       kind[n] = "gitlab";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "hf_";          kind[n] = "huggingface"; re[n] = lit[n] rep(an, 34)
+      n++; lit[n] = "xox";          kind[n] = "slack";       re[n] = "xox[abpr]-" rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
+      n++; lit[n] = "xapp-";        kind[n] = "slack";       re[n] = lit[n] rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
+      n++; lit[n] = "eyJ";          kind[n] = "jwt"
+           re[n] = "eyJ" rep(ds, 10) ds "*[.]eyJ" rep(ds, 10) ds "*[.]" rep(ds, 10) ds "*"
+      n++; lit[n] = "bearer ";      kind[n] = "bearer";      lc[n] = 1
+           re[n] = ci("bearer") " " rep("[A-Za-z0-9._~+/-]", 20) "[A-Za-z0-9._~+/-]*"
+      n++; lit[n] = "authorization"; kind[n] = "basic-auth"; lc[n] = 1; md[n] = "k"
+           kp[n] = ci("authorization") ":[ \t]?[ \t]?[ \t]?" ci("basic") "[ \t][ \t]?[ \t]?"
+           re[n] = kp[n] rep(b64, 8) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
+      n++; lit[n] = "_secret_access_key"; kind[n] = "aws"; lc[n] = 1; md[n] = "k"
+           kp[n] = "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[\"\047]?[ \t]?[ \t]?[ \t]?[=:][ \t]?[ \t]?[ \t]?[\"\047]?"
+           re[n] = kp[n] rep(b64, 40) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
+      n++; lit[n] = "sk-";          kind[n] = "openai";      md[n] = "b"
+           re[n] = "([^A-Za-z0-9]|\\\\[A-Za-z])sk-" rep(an, 20) an "*"; vr[n] = "^" an "*"
+      # zero-width: U+200B U+200C U+200D U+2060 U+FEFF as UTF-8 bytes
+      zw = sprintf("%c%c%c|%c%c%c|%c%c%c|%c%c%c|%c%c%c", 226, 128, 139, 226, 128, 140, 226, 128, 141, 226, 129, 160, 239, 187, 191)
+      zwa = sprintf("%c%c", 226, 128); zwb = sprintf("%c%c%c", 226, 129, 160); zwc = sprintf("%c%c%c", 239, 187, 191)
+      pb = "-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----"; pe = "-----END [A-Z ]*PRIVATE KEY( BLOCK)?-----"
       pk = "[redacted:private-key]"
       # A quote or comment prefix a key block can sit behind, line by line: "> " (subagent
       # results are quoted), "# ", "// ", " * ", whitespace, nested ("> > ").
       pfx = "^[ \t]*((>|#|//|[*])[ \t]*)*"
-      blank = pfx "$"; body = pfx "[A-Za-z0-9+/=]+[ \t]*$"; hdr = pfx "(Proc-Type|DEK-Info):"
+      blank = pfx "$"; body = pfx "[A-Za-z0-9+/=]+[ \t]*$"
+      hdr = pfx "(Proc-Type|DEK-Info|Version|Comment|Hash|Charset|MessageID):"
     }
     {
       line = "" $0; cr = ""
       if (substr(line, length(line), 1) == "\r") { cr = "\r"; line = substr(line, 1, length(line) - 1) }
+      if (index(line, zwa) || index(line, zwb) || index(line, zwc)) { k = split(line, Z, zw); line = joinp(Z, k) }
       if (inpem) {
         # A body or END line keeps its quote/comment prefix only, never text that could be key.
         if (match(line, pe)) {
@@ -1823,7 +1872,12 @@ sb_scrub_secrets() {
         if (match(rest, pe)) line = pre pk substr(rest, RSTART + RLENGTH)
         else { line = pre pk; inpem = 1 }
       }
-      for (i = 1; i <= n; i++) if (index(line, lit[i])) line = redact(line, i)
+      low = ""
+      for (i = 1; i <= n; i++) {
+        if (lc[i]) { if (low == "") low = tolower(line); if (!index(low, lit[i])) continue }
+        else if (!index(line, lit[i])) continue
+        line = redact(line, i)
+      }
       # One record behind: the caller appended ONE newline after the input, so the last record is
       # empty exactly when the input ended with a newline (dropped), and otherwise holds the
       # unterminated last line (printed without one). Nothing in-band.
@@ -1835,11 +1889,18 @@ sb_scrub_secrets() {
   [ "$ps" = "0 0" ]
 }
 
-# grep -F arguments matching every text sb_scrub_secrets can change: each format above starts with
-# one of these literals, and a PEM body is only redacted after its BEGIN line. A file matching none
-# of them is already clean. Shared by sb_scrub_archive_file's fast path and the drainer's one-time
-# migration snapshot (extract-drain.sh), so the two can never drift apart.
-_SB_SCRUB_LITERALS=(-e 'sk-' -e 'ghp_' -e 'github_pat_' -e 'AKIA' -e 'xox' -e 'Bearer ' -e 'PRIVATE KEY-----')
+# grep -F arguments matching every text sb_scrub_secrets can change: each format above holds one
+# of these literals, a PEM body is only redacted after its BEGIN line, and the zero-width bytes
+# are deleted. A file matching none of them is already clean. Shared by sb_scrub_archive_file's
+# fast path and the drainer's one-time migration snapshot (extract-drain.sh), so the two can never
+# drift apart. The any-case words are listed lower, Title and UPPER: `grep -i` with several -e
+# patterns aborts (SIGABRT) in GNU grep 3.0, Git-Bash's grep; a rarer mixing (BeArEr) in an
+# archive written before 0.56.0 is not caught by this prefilter (new windows are scrubbed whole).
+_SB_SCRUB_LITERALS=(-e 'sk-' -e 'k_live_' -e 'github_pat_' -e 'ghp_' -e 'gho_' -e 'ghs_' -e 'ghu_' -e 'ghr_'
+  -e 'AKIA' -e 'ASIA' -e 'AIza' -e 'npm_' -e 'glpat-' -e 'hf_' -e 'xox' -e 'xapp-' -e 'eyJ'
+  -e 'bearer ' -e 'Bearer ' -e 'BEARER ' -e 'authorization' -e 'Authorization' -e 'AUTHORIZATION'
+  -e '_secret_access_key' -e '_SECRET_ACCESS_KEY' -e 'PRIVATE KEY'
+  -e $'\xe2\x80\x8b' -e $'\xe2\x80\x8c' -e $'\xe2\x80\x8d' -e $'\xe2\x81\xa0' -e $'\xef\xbb\xbf')
 
 # sb_scrub_archive_file FILE: scrub an EXISTING archive in place (the one-time 0.56.0 migration,
 # drain_scrub_migrate in extract-drain.sh, under the drain lock). The scrubbed copy is written next to FILE

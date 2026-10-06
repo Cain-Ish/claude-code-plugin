@@ -404,16 +404,59 @@ printf 'first\nlast %s' "$K_OAI" > "$SD/nonl.in"
 printf 'first\nlast [redacted:openai]' > "$SD/nonl.want"
 : > "$SD/empty.in"; : > "$SD/empty.want"
 # current OpenAI keys (R2-F#6): sk-proj- / sk-svcacct- / sk-admin- + [A-Za-z0-9_-]{20,}; the generic
-# sk- form stops at their second dash. Same left boundary (glued to an identifier: not matched),
-# too short: not matched, CRLF kept
+# sk- form stops at their second dash. These prefixes are distinctive: matched even glued to an
+# identifier (fix round D); too short: not matched, CRLF kept
 K_PROJ="sk-proj-$(rep aB3_- 8)$(rep Zz9 4)"; K_SVC="sk-svcacct-$(rep Q1_x 6)"; K_ADM="sk-admin-$(rep 9aB- 6)"
 K_AD20="sk-admin-$(rep 9aB-_ 4)"; K_SV19="sk-svcacct-$(rep Q1_ 6)x"   # exactly 20 / 19 after the prefix
 printf '%s\n' "OPENAI_API_KEY=$K_PROJ" "  svc $K_SVC, admin $K_ADM" "glued x$K_PROJ" "sk-proj-short_1" \
   "min $K_AD20 ok" "under $K_SV19 ok" > "$SD/oaiproj.in"
 printf '%s\r\n' "  key=\"$K_PROJ\"" >> "$SD/oaiproj.in"
-printf '%s\n' "OPENAI_API_KEY=[redacted:openai]" "  svc [redacted:openai], admin [redacted:openai]" "glued x$K_PROJ" "sk-proj-short_1" \
+printf '%s\n' "OPENAI_API_KEY=[redacted:openai]" "  svc [redacted:openai], admin [redacted:openai]" "glued x[redacted:openai]" "sk-proj-short_1" \
   "min [redacted:openai] ok" "under $K_SV19 ok" > "$SD/oaiproj.want"
 printf '%s\r\n' "  key=\"[redacted:openai]\"" >> "$SD/oaiproj.want"
+# Fix round formats (items 5/C, saboteur S9), one row each, assembled at run time: GitHub gh[opsur]_
+# (36 or more), AWS ASIA, Google AIza, Stripe sk_live_/rk_live_, JWT, OpenRouter, npm, GitLab,
+# Hugging Face, Slack app-level, lowercase bearer, HTTP Basic (keyword-gated), AWS secret access
+# key (keyword-gated: the value only, the keyword and its separator stay)
+K_S40="$(rep wJal 9)/K+="   # a 40-char [A-Za-z0-9/+=] AWS secret
+printf '%s\n' "a gho_$(rep a1B2 9) b" "ghu_$(rep a1B2 9),ghs_$(rep a1B2 9);ghr_$(rep a1B2 9)" "long ghp_$(rep a1B2 10) end" \
+  "sts ASIA$(rep Q7 8) x" "key=AIza$(rep Sy_- 8)abc" "stripe sk_live_$(rep aB3 8) rk_live_$(rep Zq9 9)" \
+  "jwt eyJ$(rep hbGc 4).eyJ$(rep zdWI 4).$(rep SflK 4)_x." "or sk-or-v1-$(rep 0f 32) ok" \
+  "//registry.npmjs.org/:_authToken=npm_$(rep n1N 12)" "gl glpat-$(rep g_1- 5) x" "hf hf_$(rep h1H 11)h x" \
+  "app xapp-1-$(rep A9 15) x" "  -H \"authorization: bearer $(rep Zz.9 6)\"" "Authorization: Basic $(rep QmFz 7)= x" \
+  "AUTHORIZATION:basic $(rep dXNl 3)" "aws_secret_access_key = $K_S40" "export AWS_SECRET_ACCESS_KEY=$K_S40" \
+  "  \"aws_secret_access_key\": \"$K_S40\"," > "$SD/formats.in"
+printf '%s\n' "a [redacted:github] b" "[redacted:github],[redacted:github];[redacted:github]" "long [redacted:github] end" \
+  "sts [redacted:aws] x" "key=[redacted:google]" "stripe [redacted:stripe] [redacted:stripe]" \
+  "jwt [redacted:jwt]." "or [redacted:openrouter] ok" \
+  "//registry.npmjs.org/:_authToken=[redacted:npm]" "gl [redacted:gitlab] x" "hf [redacted:huggingface] x" \
+  "app [redacted:slack] x" "  -H \"authorization: [redacted:bearer]\"" "Authorization: Basic [redacted:basic-auth] x" \
+  "AUTHORIZATION:basic [redacted:basic-auth]" "aws_secret_access_key = [redacted:aws]" "export AWS_SECRET_ACCESS_KEY=[redacted:aws]" \
+  "  \"aws_secret_access_key\": \"[redacted:aws]\"," > "$SD/formats.want"
+# PGP armored private keys (C): like PEM, line by line, armor headers and the checksum line included
+printf '%s\n' "USER: my key -----BEGIN PGP PRIV""ATE KEY BLOCK-----" "Version: GnuPG v2" "" "lQOYBF$(rep Ab 20)" \
+  "=Ab12" "-----END PGP PRIV""ATE KEY BLOCK-----" "ASSISTANT:" > "$SD/pgp.in"
+printf '%s\n' "USER: my key [redacted:private-key]" "[redacted:private-key]" "" "[redacted:private-key]" \
+  "[redacted:private-key]" "[redacted:private-key]" "ASSISTANT:" > "$SD/pgp.want"
+# Generic sk- left boundary (D): a key after a literal backslash escape (a command string), after
+# `_` or `-` is matched; one glued to letters/digits (task-/disk- ids) is not
+K_G="sk-$(rep aB3 8)"
+printf '%s\n' 'echo "a\n'"$K_G"'"' "printf 'x\\t$K_G'" "KEY_$K_G" "x-$K_G" "task-$(rep 0a1B 6)" "disk-$(rep 0a1B 6)" \
+  "risk$K_G" > "$SD/dbound.in"
+printf '%s\n' 'echo "a\n[redacted:openai]"' "printf 'x\\t[redacted:openai]'" "KEY_[redacted:openai]" "x-[redacted:openai]" \
+  "task-$(rep 0a1B 6)" "disk-$(rep 0a1B 6)" "risk$K_G" > "$SD/dbound.want"
+# Zero-width characters (F) are stripped before redaction (they split a key the indexer rejoins)
+ZW1=$(printf '\342\200\213'); ZW2=$(printf '\342\200\214'); ZW3=$(printf '\342\200\215'); ZW4=$(printf '\342\201\240'); ZW5=$(printf '\357\273\277')
+printf '%s\n' "key sk-ab${ZW1}$(rep cD3 8) end" "${ZW5}ghp_$(rep a1B2 4)${ZW2}$(rep a1B2 5)" "AK${ZW3}IA$(rep Q7 8)${ZW4}" \
+  "zero${ZW1}width" > "$SD/zw.in"
+printf '%s\n' "key [redacted:openai] end" "[redacted:github]" "[redacted:aws]" "zerowidth" > "$SD/zw.want"
+# NOT matched, by design (each row stays as it is): OTP-like short codes, generic hex/base64 blobs
+# without a known prefix, a password in prose, a bare 40-char AWS secret without its keyword (too
+# ambiguous), "Basic" without the Authorization keyword, short hf_/npm_/glpat- strings
+printf '%s\n' "your code is 123456" "otp 84920133 expires" "hash $(rep deadbeef 8)" "blob $(rep QUJD 12)==" \
+  "my password is hunter2-Secret!" "bare $K_S40" "Basic usage of the API is documented" "hf_short npm_short glpat-short" \
+  > "$SD/notmatched.in"
+cp "$SD/notmatched.in" "$SD/notmatched.want"
 # A line that ends with the old in-band EOF sentinel (\034sb-eof\034) must not be taken for the end
 # of the input: it was, and joined the next line onto it (line count shifted, prompt-injectable).
 printf 'USER: ends with \034sb-eof\034\nASSISTANT:\n  next %s\n' "$K_AWS" > "$SD/sentinel.in"
@@ -429,7 +472,7 @@ printf '%s\n' "> [redacted:private-key]" "> [redacted:private-key]" ">  [redacte
   "# [redacted:private-key]" "# [redacted:private-key]" "#" "# [redacted:private-key]" \
   "// [redacted:private-key]" "// [redacted:private-key]" "// [redacted:private-key]" " * [redacted:private-key]" " * [redacted:private-key]" " * [redacted:private-key] done" \
   "	[redacted:private-key]" "	[redacted:private-key]" "	[redacted:private-key]" "> > [redacted:private-key]" "> > [redacted:private-key]" "> > [redacted:private-key]" > "$SD/pemq.want"
-for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj sentinel pemq; do
+for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj sentinel pemq formats pgp dbound zw notmatched; do
   sb_scrub_secrets < "$SD/$fx.in" > "$SD/$fx.out" || fail "scrub[$fx]: sb_scrub_secrets exited non-zero"
   cmp -s "$SD/$fx.out" "$SD/$fx.want" || fail "scrub[$fx]: output differs from the expected redaction:
 $(od -c "$SD/$fx.out" | head -12)"
@@ -438,6 +481,10 @@ $(od -c "$SD/$fx.out" | head -12)"
   sb_scrub_secrets < "$SD/$fx.out" > "$SD/$fx.again" && cmp -s "$SD/$fx.again" "$SD/$fx.out" \
     || fail "scrub[$fx]: a second pass changed the output (not idempotent)"
 done
+# The fast-path literal list (_SB_SCRUB_LITERALS: sb_scrub_archive_file and the drainer's one-time
+# migration skip a file holding none) covers every format: no line the scrub changes escapes it.
+LIT_MISS=$(LC_ALL=C grep -hvF "${_SB_SCRUB_LITERALS[@]}" "$SD/kinds.in" "$SD/formats.in" "$SD/zw.in" "$SD/adjacent.in")
+[ -z "$LIT_MISS" ] || fail "scrub: a redactable line holds none of the _SB_SCRUB_LITERALS (the migration would skip it): $LIT_MISS"
 pass "scrub: every format redacted to [redacted:<kind>], PEM per line, CRLF kept, line count invariant, idempotent"
 
 # A read error on stdin is the scrub's failure, never an empty "clean" output: `{ cat; printf
