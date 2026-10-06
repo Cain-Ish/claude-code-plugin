@@ -140,15 +140,20 @@ persisted. Full contract, the sticky/carried/stale marker grammar, and the hones
 delivery proof: §8.8. The Stop/PreCompact pipeline below is unchanged:
 
 Pipeline: resolve slug
-(`sb_resolve_slug`, `lib.sh:1110`) → disjoint-window marker `.last-extracted-line-<slug>--<sid>`
-(line count via `awk 'END{print NR}'`, NOT `wc -l` — missing-final-newline undercount) →
+(`sb_resolve_slug`, `lib.sh:1110`) → ARCHIVE FIRST (0.56.0): `sb_archive_raw_window` (`lib.sh:1876`)
+appends the raw window to `$BRAIN_DIR/transcripts/<sid>_<slug>_<date>.txt` BEFORE the tool-count
+gate, telemetry, JIT or the merge (`stop-extract.sh:148`, `pre-compact.sh:265`), so tool-count-zero
+windows are archived too. Its cursor is `.last-archived-line-<slug>--<sid>` (`<raw_line>\t<path>`);
+`sb_scrub_secrets` (`lib.sh:1626`) redacts credential formats to `[redacted:<kind>]` on every
+archived window without changing its line count. Caps 400 files/25 MB soft, 1200 files/75 MB hard.
+→ disjoint-window marker `.last-extracted-line-<slug>--<sid>` (raw transcript lines; line count
+via `awk 'END{print NR}'`, NOT `wc -l` — missing-final-newline undercount) →
 substantive gate (≥1 `tool_use` in the delta) → LLM extraction (`sb_call_extractor`; backend
 order: local endpoint → `claude` CLI → `ANTHROPIC_API_KEY` API) → on LLM-unavailable, a
 `[degraded]` breadcrumb + deterministic files-changed floor → quality gate → merge: delta →
 `merge-project-update.sh` (PROJECT.md), `relations[]` → `merge-edges.sh`
 (`$KNOWLEDGE_DIR/graph/edges.jsonl`; bad endpoints → `edges-quarantine.jsonl`), persona signals →
-`merge-persona-signals.sh` → archive the window (`sb_archive_transcript` →
-`$BRAIN_DIR/transcripts/<sid>_<slug>_<date>.txt`, caps 100 files/5 MB) → incremental episodic
+`merge-persona-signals.sh` → incremental episodic
 index (`node mcp/dist/tools/episodic-index-cli.bundle.js`).
 
 ### 3.3 Out-of-band drainer — `scripts/extract-drain.sh` (+ `install-extract-timer.sh`)
@@ -158,8 +163,12 @@ Runs OUTSIDE any Claude session on a 30-min timer (systemd/launchd/schtasks); re
 interactive `claude` is live; a persisted starvation escape (`.drain-defer-count`, defers ≥6 or
 oldest pending >24 h) forces exactly ONE drain, and only when safe (API key, or pmode-only + a
 `timeout` binary). Single-flight via `flock` on `.extract-drain.lock` (mkdir fallback, 7200 s
-staleness steal). Batch of 5 oldest-first; ledger `.extraction-state.jsonl`; at 3 fails, a
-deterministic floor (`sb_floor_transcript`) merges the files-changed baseline. Tail: archive
+staleness steal). Up to 5 extractor calls per tick, oldest archive first; ledger
+`.extraction-state.jsonl` holds archive-line windows (`from`, `lines`), read through
+`sb_drain_cursor_map` (`done|pending|dead`), so only NEW lines of a grown archive are extracted
+(eligible at ≥`SB_DRAIN_DELTA_MIN_BYTES` new, or quiet ≥`SB_DRAIN_QUIET_S`); at 3 fails, a
+deterministic floor (`sb_floor_transcript`) merges the files-changed baseline, else that window is
+dead-lettered. Tail: archive
 pruning always; `maintain-deterministic.sh` when config `auto_improve`; `maintain-llm-drain.sh`
 when `auto_maintain` (§3.6).
 

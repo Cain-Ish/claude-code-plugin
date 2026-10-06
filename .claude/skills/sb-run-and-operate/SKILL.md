@@ -182,8 +182,10 @@ Operating facts you will need:
   lock is global). After 6 consecutive defers or a >24 h-old backlog, exactly one drain is forced
   through — but only when safe (API key set, or the relaxed pmode-only verdict plus a `timeout`
   binary). Tuning knobs: sb-config-and-flags; starvation triage: sb-debugging-playbook.
-- **Batch**: 5 transcripts per run (`SB_DRAIN_BATCH`), outcome ledger
-  `~/.second-brain/.extraction-state.jsonl`. After each batch, in the same lock: archive
+- **Batch**: up to 5 extractor calls per run (`SB_DRAIN_BATCH`), one forward chunk each; ledger
+  `~/.second-brain/.extraction-state.jsonl` holds line cursors per archive (a grown archive is
+  extracted from its cursor, not redone). A live archive waits for `SB_DRAIN_DELTA_MIN_BYTES` new
+  bytes or `SB_DRAIN_QUIET_S` of quiet. After each batch, in the same lock: archive
   retention GC always; deterministic wiki maintenance if `auto_improve`; the headless LLM
   maintainer if `auto_maintain` (every OS wherever `brain_os` is also on; bwrap on Linux is
   additive sandboxing only, not a gate).
@@ -231,7 +233,7 @@ Deletion quick rules (full path→writer→reader→safety map:
 |---|---|
 | NEVER delete | `~/knowledge/wiki/`, `graph/edges.jsonl` (append-only history), `USER.md`, `persona-card.md`, `projects/`, `projects.jsonl`, `transcripts/` (self-capped), `wiki-archive/` (**the only copy of forgotten pages**) |
 | Safe to delete (regenerable) | `episodic-index.json`, `wiki/index.md`, both `.embeddings-cache.json` caches (`wiki/` page vectors + `transcripts/` episodic vectors — re-embedded on next search), `.injected/`, `scratch/`, `tool-registry.json`, `vector-deps/` (~70 MB re-download), lock/marker dotfiles when nothing is running |
-| Auto-pruned — do not manage by hand | dreams (keep 5), `wiki-backup-pre-accept-*.tgz` (14 d), transcripts (100 files/5 MB), extraction markers (30 d) |
+| Auto-pruned — do not manage by hand | dreams (keep 5), `wiki-backup-pre-accept-*.tgz` (14 d), transcripts (400 files/25 MB soft, 1200 files/75 MB hard; extracted archives go first), extraction + archive cursors (30 d) |
 
 ## 7. Dream operations
 
