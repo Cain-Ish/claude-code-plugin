@@ -1828,7 +1828,10 @@ sb_archive_transcript() {
         | select((. // "") | endswith("buddy_react") | not)
       ' 2>/dev/null | wc -l | tr -d ' ')
     fi
-    if ! {
+    # The positive form on purpose: bash does not apply `!` to a { group } whose own redirection
+    # fails (`if ! { ...; } > dir` takes the else branch, measured on 5.2), so a negated test
+    # here would report a header that was never written as written.
+    if {
       echo "--- session-meta ---"
       echo "session_id: $session_id"
       echo "project_slug: $slug"
@@ -1838,6 +1841,8 @@ sb_archive_transcript() {
       echo "---"
       echo ""
     } 2>/dev/null > "$archive_file"; then
+      :
+    else
       rm -f "$stage" 2>/dev/null
       sb_log_error "lib.sh" "sb_archive_transcript: cannot write $archive_file; raw lines ${start_line}-${end_line} NOT archived (session=$session_id)" 1
       return 1

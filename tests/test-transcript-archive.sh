@@ -443,7 +443,9 @@ grep -qx 'torn-tail' "$A" || fail "archive-checked: the append glued onto a torn
 mkdir -p "$BRAIN_DIR/transcripts/sf_proj_$(date +%Y-%m-%d).txt"   # a directory squats on the archive name
 : > "$BRAIN_DIR/error-log.jsonl"
 ( sb_archive_transcript "$T" proj sf 1 1 0 ) && fail "archive-checked: a failed append returned 0"
-grep -q 'sb_archive_transcript' "$BRAIN_DIR/error-log.jsonl" || fail "archive-checked: a failed append was not logged"
+# the HEADER write is the one that fails here (bash does not negate a { group } whose redirection
+# fails, so `if ! { ... } > file` would wave it through to the append)
+grep -q 'sb_archive_transcript: cannot write' "$BRAIN_DIR/error-log.jsonl" || fail "archive-checked: the failed header write was not caught and logged"
 pass "archive: append is scrubbed, checked and newline-terminated; a failure is loud and non-zero"
 
 # Archive lines rendered by jq carry a CR on hosts whose jq writes CRLF (jq 1.8 on Windows): count CR-blind.
