@@ -179,6 +179,8 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_DRAIN_MIN_BYTES` | `1024` | A SETTLED (quiet) unextracted tail smaller than this is marked done (`ok`/`too-small`) with no LLM call. | TUNE | extract-drain.sh:382 | bash |
 | `SB_DRAIN_QUIET_S` | `3600` (s) | An archive whose mtime is this old is settled: its whole unextracted tail is eligible regardless of size. | TUNE | extract-drain.sh:377 | bash |
 | `SB_DRAIN_DELTA_MIN_BYTES` | `4096` | A LIVE (not yet quiet) archive is extracted once at least this many bytes of new lines have accumulated past its cursor. | TUNE | extract-drain.sh:378 | bash |
+| `SB_SCRUB_MIGRATE_MAX_FILES` | `50` | One-time 0.56.0 archive scrub: files scrubbed per run (drainer tick or SessionStart background run). Not `SB_DRAIN_BATCH`: a scrub is cheap and no LLM call. | TUNE | extract-drain.sh:348 | bash |
+| `SB_SCRUB_MIGRATE_MAX_S` | `20` (s) | One-time archive scrub: no new scrub starts once a run has taken this long (counted from the routine start; one scrub always runs). | TUNE | extract-drain.sh:348 | bash |
 | `SB_DRAIN_LOCK_STALE` | `7200` (s) | Steal a drain lock older than this. | TUNE | extract-drain.sh:211 | bash |
 | `SB_DRAIN_FORCE_MKDIR_LOCK` | `0` | Force mkdir-based locking (portability/test). | TESTDBL | extract-drain.sh:202 | bash |
 | `SB_DRAIN_DEFER_MAX` | `6` | Consecutive defers (live interactive session present) before ONE drain escapes. | TUNE | extract-drain.sh:138 | bash |

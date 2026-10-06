@@ -33,7 +33,7 @@ are quoted into `sub-*` (a repeat stop for the same agent appends a block); the 
 ledger, at write time (`observe-tool-use.sh`, a failed scrub drops the observation, logged) and
 again before the ledger slice is sent to the extractor; the transcript copies `dream-snapshot.sh`
 stages (fail closed: a copy that cannot be scrubbed is left out of the dream); and every
-extraction: the drainer greps an archive for credential literals right before extracting it and
+extraction: the drainer greps an archive (`_SB_SCRUB_ERE`) right before extracting it and
 scrubs it in place first, which covers archives appended by still-running 0.55 hooks.
 
 ## `sb status` and the health snapshot
@@ -106,16 +106,20 @@ before its rename and leaves the file for a retry when it grew.
 
 ## One-time scrub migration (`drain_scrub_migrate`, `extract-drain.sh`)
 
-Called from `sb_drain_migrate`, under the drain lock, before the defer gate; makes no LLM call.
+`drain_scrub_migrate` in `extract-drain.sh`, under the drain lock, makes no LLM call. It runs
+from the drainer (`sb_drain_migrate`, before the defer gate) and, while the marker is absent, from
+SessionStart as a detached `extract-drain.sh --scrub-only` (skipped when the drain lock is held;
+writes no done-set row or extractor health), so it completes on installs with no drainer.
 
-1. First tick: one `grep -lF` (`_SB_SCRUB_LITERALS`, `lib.sh`) over every archive and every dream
-   copy lists the files holding a credential literal into `.archive-scrub-v1.todo`, one
-   `<path relative to BRAIN_DIR>\t<failed attempts>` line each (`transcripts/<name>.txt` or
-   `dreams/<id>/transcripts/<name>.txt`).
-2. Each tick scrubs at most `SB_DRAIN_BATCH` (5): fewest failed attempts first (a scrub that keeps
-   failing rotates to the back), then archives with lines still to extract. A scrubbed or vanished
-   entry leaves the list; a failed one gets its attempt count bumped. A file with nothing the scrub
-   would change (a `task-`/`disk-` id matches the `sk-` prefilter) is a no-op and leaves the list.
+1. First run: one `grep -lE` (`_SB_SCRUB_ERE`, `lib.sh`: exactly what `sb_scrub_secrets` changes,
+   parity-tested both ways) over every archive and every dream copy lists the files the scrub would
+   change into `.archive-scrub-v1.todo`, one `<path relative to BRAIN_DIR>\t<failed attempts>` line
+   each (`transcripts/<name>.txt` or `dreams/<id>/transcripts/<name>.txt`). A `task-`/`disk-` id
+   alone does not qualify.
+2. Each run scrubs at most `SB_SCRUB_MIGRATE_MAX_FILES` (50) files and starts no new scrub after
+   `SB_SCRUB_MIGRATE_MAX_S` (20 s; one scrub always runs): fewest failed attempts first (a scrub
+   that keeps failing rotates to the back), then archives with lines still to extract. A scrubbed
+   or vanished entry leaves the list; a failed one gets its attempt count bumped.
 3. While an archive is on the list the batch loop skips it (`DRAIN_SCRUB_TODO`). A list that cannot
    be read is rebuilt (attempt counts restart).
 4. The episodic index drops and skips archives on the list (0.55 already indexed their text), so
