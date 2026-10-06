@@ -198,6 +198,8 @@ pass "sb_extract_transcript embeds the session's ledger as a labeled DATA sectio
 
 # X2 S3: a ledger written before the write-time scrub (or by a 0.55 hook) still holds keys; the
 # summary is scrubbed before it is embedded, so the extractor never receives them (p1 repro).
+# (The sent marker is reset: this is a new ledger for the same session, sent whole.)
+rm -f "$DRAIN_BRAIN/observations/mine-session.sent"
 jq -nc --arg t "ANTHROPIC_API_KEY=$KANT claude -p hi" --arg e "Error: invalid x-api-key $KANT" \
   '{ts:"x",tool:"Bash",target:$t,ok:false,err:$e}' > "$DRAIN_BRAIN/observations/mine-session.jsonl"
 jq -nc --arg t "git push https://x:$KGHP@github.com/a/b" '{ts:"x",tool:"Bash",target:$t,ok:false,err:"fatal: auth"}' \
@@ -209,6 +211,28 @@ grep -qF 'ant-api03-' "$CAPTURED" && fail "mine-keys: the extractor RECEIVED an 
 grep -qF "$KGHP" "$CAPTURED" && fail "mine-keys: the extractor RECEIVED a GitHub token from the ledger"
 grep -qF '[redacted:' "$CAPTURED" || fail "mine-keys: no redaction marker in the embedded summary"
 pass "an old unscrubbed ledger is scrubbed before it reaches the extractor"
+
+# X2#5: the drainer extracts an archive in delta windows, and every window used to get the WHOLE
+# ledger again (replayed issues and files_touched). Each extraction call now gets only the ledger
+# lines recorded since the last successful one (observations/<sid>.sent counts the lines sent).
+rm -f "$DRAIN_BRAIN/observations/mine-session.sent" "$CAPTURED"
+printf '{"ts":"x","tool":"Bash","target":"make a","ok":false,"err":"DELTA-ONE"}\n' > "$DRAIN_BRAIN/observations/mine-session.jsonl"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: first extraction failed"
+grep -q 'DELTA-ONE' "$CAPTURED" || fail "delta: the first window did not get the ledger"
+printf '{"ts":"x","tool":"Bash","target":"make b","ok":false,"err":"DELTA-TWO"}\n' >> "$DRAIN_BRAIN/observations/mine-session.jsonl"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: second extraction failed"
+grep -q 'DELTA-TWO' "$CAPTURED" || fail "delta: a later window did not get the new ledger line"
+grep -q 'DELTA-ONE' "$CAPTURED" && fail "delta: a later window got the already-sent ledger line again (replay)"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: third extraction failed"
+grep -q '=== OBSERVATIONS' "$CAPTURED" && fail "delta: a window with no new ledger lines still got an observations section"
+# a failed extraction does not count its lines as sent: the next call gets them again
+printf '{"ts":"x","tool":"Bash","target":"make c","ok":false,"err":"DELTA-THREE"}\n' >> "$DRAIN_BRAIN/observations/mine-session.jsonl"
+sb_call_extractor() { cp "$1" "$CAPTURED"; : > "$2"; return 1; }
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 && fail "delta: the failing extractor reported success"
+sb_call_extractor() { cp "$1" "$CAPTURED"; printf '{"recent_decisions":[]}' > "$2"; return 0; }
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: retry extraction failed"
+grep -q 'DELTA-THREE' "$CAPTURED" || fail "delta: the lines of a failed window were lost instead of resent"
+pass "observations are sent once, as the delta since the last successful window"
 
 # Absent ledger → no observations section, extraction still succeeds.
 rm -f "$DRAIN_BRAIN/observations/mine-session.jsonl" "$CAPTURED"
