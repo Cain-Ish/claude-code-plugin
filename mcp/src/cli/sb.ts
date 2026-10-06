@@ -1,6 +1,6 @@
 import { promises as fs, constants as fsConstants } from 'fs';
 import { join, delimiter as pathDelimiter } from 'path';
-import { execFile } from 'child_process';
+import { execFile, type ExecFileException } from 'child_process';
 import { cleanEnvPath } from '../path-guard.js';
 import { knowledgeSearch } from '../tools/knowledge-search.js';
 import { episodicSearch, displaySnippet, foldServedSnippet } from '../tools/episodic-search.js';
@@ -18,7 +18,13 @@ export interface SbDeps {
    *  three levels below it), so the bash accounting always matches the shipped TS. Tests inject
    *  a tree without lib.sh to exercise the loud fallback. */
   pluginRoot?: string;
+  /** Bound on the drain cursor map run (default DRAIN_MAP_TIMEOUT_MS). Tests inject a short one. */
+  drainMapTimeoutMs?: number;
 }
+
+const DRAIN_MAP_TIMEOUT_MS = 20000;
+const DRAIN_MAP_MAX_BUFFER = 8 * 1024 * 1024;
+const REASON_CAP = 160;
 
 // R2 (0.56.0): "which archives still hold unextracted lines" has ONE definition, lib.sh
 // sb_drain_cursor_map (line cursors over the done-set; see the R2 contract there). sb status runs
@@ -26,7 +32,7 @@ export interface SbDeps {
 // replaces drifted, and a source-scan lock (tests/test-extraction-helpers.sh) bans a new one.
 // Resolves to the TSV rows (basename cursor lines state ...) or a reason string. Bounded by a
 // SIGKILL timeout; never throws.
-function drainCursorMap(brainDir: string, pluginRoot: string): Promise<string[][] | string> {
+function drainCursorMap(brainDir: string, pluginRoot: string, timeoutMs: number): Promise<string[][] | string> {
   return new Promise((resolve) => {
     try {
       execFile(
@@ -34,21 +40,31 @@ function drainCursorMap(brainDir: string, pluginRoot: string): Promise<string[][
         ['-c', '. "$1/scripts/lib.sh" && sb_drain_cursor_map', 'sb-status', toBashPath(pluginRoot)],
         {
           env: { ...process.env, BRAIN_DIR: toBashPath(brainDir) },
-          timeout: 20000, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024, windowsHide: true,
+          timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: DRAIN_MAP_MAX_BUFFER, windowsHide: true,
         },
         (err, stdout, stderr) => {
           if (err) {
-            const why = String(stderr || err.message).replace(/\s+/g, ' ').trim();
-            resolve(sanitizeField(why || 'bash failed'));
+            resolve(drainMapFailure(err, String(stderr ?? ''), timeoutMs));
             return;
           }
           resolve(String(stdout).split('\n').map(l => l.replace(/\r$/, '')).filter(Boolean).map(l => l.split('\t')));
         },
       );
     } catch (e) {
-      resolve(sanitizeField((e as Error).message));
+      resolve(sanitizeReason((e as Error).message));
     }
   });
+}
+
+// Why the cursor map gave no rows, as one line. The kill cases come first: a timeout leaves
+// whatever stderr bash had written by then, which would otherwise read as the cause, and Node
+// marks an over-cap output as killed too.
+function drainMapFailure(err: ExecFileException, stderr: string, timeoutMs: number): string {
+  if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return `output over ${DRAIN_MAP_MAX_BUFFER / 1048576} MB`;
+  if (err.killed) return `timed out after ${timeoutMs / 1000} s`;
+  if (err.signal) return `killed by ${err.signal}`;
+  const why = stderr.trim() || err.message || 'bash failed';
+  return sanitizeReason(typeof err.code === 'number' ? `exit ${err.code}: ${why}` : why);
 }
 
 export interface SbResult {
@@ -154,6 +170,14 @@ function claudeAuthStatus(): Promise<ClaudeAuthStatus | null> {
 function sanitizeField(v: unknown): string {
   // eslint-disable-next-line no-control-regex
   return String(v).replace(/[^\x20-\x7e]/g, '').slice(0, 40);
+}
+
+// sanitizeField for a diagnostic reason (bash stderr, a Node error): long enough to name the
+// failing file, still one printable line; a cut is marked.
+function sanitizeReason(v: string): string {
+  // eslint-disable-next-line no-control-regex
+  const flat = v.replace(/\s+/g, ' ').replace(/[^\x20-\x7e]/g, '').trim();
+  return flat.length > REASON_CAP ? `${flat.slice(0, REASON_CAP - 3)}...` : flat;
 }
 
 export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
@@ -291,7 +315,7 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
     try {
       await fs.access(join(deps.brainDir, 'transcripts'));
       const root = deps.pluginRoot ?? fileURLToPath(new URL('../../../', import.meta.url));
-      const map = await drainCursorMap(deps.brainDir, root);
+      const map = await drainCursorMap(deps.brainDir, root, deps.drainMapTimeoutMs ?? DRAIN_MAP_TIMEOUT_MS);
       if (typeof map === 'string') {
         push(`  transcript backlog:  unknown (drain cursor map unavailable: ${map})`);
       } else {
