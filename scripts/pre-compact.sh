@@ -425,16 +425,17 @@ sb_append_session_digest "$SLUG" "$SESSION_ID" "$DG_GOAL" "$DG_OUT" || true
 # (The FULL raw window, not the LLM-capped one, was archived above: archive-first.)
 
 # --- Incremental episodic index update ---
-# D179: redirect BOTH stdout and stderr of the backgrounded node process to a log
-# file, never inherit the hook's own stdout (a reader of a pipe only sees EOF once
-# every holder closes it). Failures are fail-loud via sb_log_error.
+# D179: the backgrounded index build must not inherit the hook's stdout (a reader of a pipe only
+# sees EOF once every holder closes it). 0.56.0: the SUBSHELL's fds are redirected too, not only
+# node's: the waiting subshell held the pipe open just the same. Failures are fail-loud via
+# sb_log_error (it writes files, not stdout).
 PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
 if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/episodic-index-cli.bundle.js" ]; then
   EIDX_LOG="$BRAIN_DIR/episodic-index.log"
   ( BRAIN_DIR="$BRAIN_DIR" node "$PLUGIN_DIST/episodic-index-cli.bundle.js" >>"$EIDX_LOG" 2>&1
     _eidx_ec=$?
     [ "$_eidx_ec" -ne 0 ] && sb_log_error "pre-compact.sh" "episodic-index-cli exited $_eidx_ec (see $EIDX_LOG)" "$_eidx_ec"
-  ) &
+  ) </dev/null >/dev/null 2>&1 &
 fi
 
 # --- Update extraction marker ---

@@ -1031,18 +1031,18 @@ fi
 # (The window was archived at the top, archive-first: sb_archive_raw_window.)
 
 # --- Incremental episodic index update ---
-# D179: redirect BOTH stdout and stderr of the backgrounded node process to a log
-# file, never inherit the hook's own stdout. A reader of a pipe only sees EOF once
-# every holder closes it — leaving stdout inherited meant Claude Code's read of
-# this hook's JSON response couldn't close until the (unbounded, embeds-everything)
-# index build finished. Failures are fail-loud via sb_log_error, not swallowed.
+# D179: the backgrounded index build must not inherit the hook's stdout. A reader of a pipe only
+# sees EOF once every holder closes it, so Claude Code's read of this hook's JSON response could
+# not close until the (unbounded, embeds-everything) index build finished. 0.56.0: the SUBSHELL's
+# fds are redirected as well, not only node's: the waiting subshell held the pipe open just the
+# same. Failures are fail-loud via sb_log_error (it writes files, not stdout).
 PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
 if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/episodic-index-cli.bundle.js" ]; then
   EIDX_LOG="$BRAIN_DIR/episodic-index.log"
   ( BRAIN_DIR="$BRAIN_DIR" node "$PLUGIN_DIST/episodic-index-cli.bundle.js" >>"$EIDX_LOG" 2>&1
     _eidx_ec=$?
     [ "$_eidx_ec" -ne 0 ] && sb_log_error "stop-extract.sh" "episodic-index-cli exited $_eidx_ec (see $EIDX_LOG)" "$_eidx_ec"
-  ) &
+  ) </dev/null >/dev/null 2>&1 &
 fi
 
 rm -f "$BRAIN_DIR/.session-baseline-$SLUG.md"

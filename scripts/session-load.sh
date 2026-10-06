@@ -2290,9 +2290,11 @@ if [ -f "$WIKI_INDEX" ]; then
   NOW_S="${SL_START_S:-$(date +%s)}"   # run clock vs a 24h threshold: no date spawn
   INDEX_AGE_S=$((NOW_S - INDEX_MTIME))
   if [ "$INDEX_AGE_S" -gt 86400 ]; then
+    # The subshell's own fds are redirected too: a background job that keeps the hook's stdout
+    # open makes Claude Code's read of this hook wait for the whole reindex (D179's class).
     (
       sb_reindex_wiki "$(sb_knowledge_dir)" >/dev/null 2>&1 || true
-    ) &
+    ) </dev/null >/dev/null 2>&1 &
     disown 2>/dev/null || true
   fi
 fi
