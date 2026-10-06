@@ -66,7 +66,9 @@ CWD=$(echo "$RAW"        | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 
 # Need a readable transcript to capture anything.
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
-[ -n "$AGENT_ID" ] || AGENT_ID="unknown"
+# No agent_id: a name of its own per invocation (S8). A shared "unknown" put unrelated agents into
+# one sub-unknown_* archive, each overwriting (now: appending to) the other's result.
+[ -n "$AGENT_ID" ] || AGENT_ID="unknown-$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null)-$$"
 
 # --- Fail closed when the agent cannot be identified (0.45.0) -----------------
 # LIVE INCIDENT 2026-08-21: payloads arrived with agent_type EMPTY. The
@@ -243,8 +245,13 @@ fi
 # awk, never `<<<`: PAYLOAD can pass 64 KiB (last_assistant_message is uncapped)
 # and an MSYS here-string hangs for good at 65,536..~65,650 bytes. Cost: 2 B
 # per line (an all-empty-lines 64 KiB payload is the worst case, ~3x).
+# The secret scrub runs BEFORE the quote (fix round A): a "> " prefix put every PEM body line out
+# of the scrub's reach, so only the BEGIN line was redacted. sb_archive_subagent_result scrubs the
+# quoted text again (idempotent). Any stage failing fails the quote.
 sbc_quote() {
-  printf '%s\n' "$1" | LC_ALL=C awk '{ gsub(/\r/, ""); print "> " $0 }'
+  printf '%s\n' "$1" | sb_scrub_secrets | LC_ALL=C awk '{ gsub(/\r/, ""); print "> " $0 }'
+  local ps="${PIPESTATUS[*]}"
+  [ "$ps" = "0 0 0" ]
 }
 RESULT=$(sbc_quote "$PAYLOAD"); QUOTE_RC=$?
 # The quote's own status was never read: an awk that died or wrote nothing left RESULT empty, and

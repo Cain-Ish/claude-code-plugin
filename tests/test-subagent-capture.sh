@@ -653,4 +653,63 @@ run_hook "$B" "general-purpose" "aid36o" "$T" SB_HEADLESS_CONTEXT=on CLAUDE_CODE
 [ -n "$(arc "$B")" ] || fail "36: SB_HEADLESS_CONTEXT=on did not restore capture for a headless child"
 pass "foreign headless child: subagent result not archived, one gate=headless-child row; SB_HEADLESS_CONTEXT=on opts back in"
 
+# --- Test 37 (fix round A, security review): a private key in a subagent result is redacted on
+# EVERY line. The hook quoted each line with "> " before sb_archive_subagent_result scrubbed it,
+# and the PEM body regex rejected the prefix: only the BEGIN line was redacted, the body and the
+# END line reached the archive. The line count must not change (the drain cursor counts lines).
+# Fixture key material is assembled at run time.
+rep37() { local s="" k=0; while [ "$k" -lt "$2" ]; do s="$s$1"; k=$((k + 1)); done; printf '%s' "$s"; }
+PEM37="here is the deploy key
+-----BEGIN RSA PRIV""ATE KEY-----
+MIIEow$(rep37 Ab 30)
+$(rep37 Qz9+ 16)/=
+-----END RSA PRIV""ATE KEY-----
+and that was all of it, nothing else in this result worth keeping beyond the key"
+B="$TMP/b37"; mkdir -p "$B"; T="$TMP/t37.jsonl"; mk_transcript "$T" 1 "$PEM37"
+# The quoting awk (the one naming gsub(/\r/), as in test 34) records its input: the scrub must
+# have run BEFORE it, not only after it inside sb_archive_subagent_result.
+SHIM37="$TMP/awkshim37"; mkdir -p "$SHIM37"
+cat > "$SHIM37/awk" <<EOF
+#!/bin/bash
+case "\$*" in *'gsub(/\\r/'*) tee "$TMP/quote37.in" | "$REAL_AWK" "\$@"; exit "\${PIPESTATUS[1]}" ;; esac
+exec "$REAL_AWK" "\$@"
+EOF
+chmod +x "$SHIM37/awk"
+payload37=$(jq -nc --arg tp "$T" --arg cw "$TMP/repo" --arg msg "$PEM37" \
+  '{hook_event_name:"SubagentStop", agent_type:"general-purpose", agent_id:"aid37", transcript_path:$tp, cwd:$cw, session_id:"sess1", last_assistant_message:$msg}')
+printf '%s' "$payload37" | env BRAIN_DIR="$B" CLAUDE_PLUGIN_ROOT="$ROOT" PATH="$SHIM37:$PATH" bash "$SCRIPT" >/dev/null 2>&1; RC=$?
+[ -s "$TMP/quote37.in" ] || fail "37: the quoting step's input was not recorded (the case proves nothing)"
+grep -q 'MIIEow\|Qz9+' "$TMP/quote37.in" && fail "37: the key reached the quoting step unscrubbed (scrub must run before the quote)"
+[ "$RC" -eq 0 ] || fail "37: hook exited non-zero ($RC)"
+F=$(arc "$B"); [ -n "$F" ] || fail "37: the result was not archived (the case proves nothing)"
+grep -q 'MIIEow\|Qz9+\|PRIV''ATE KEY' "$F" && fail "37: private key material reached the archive: $(grep -n 'MIIE\|Qz9\|KEY' "$F")"
+[ "$(grep -c '^> \[redacted:private-key\]' "$F")" -eq 4 ] || fail "37: the BEGIN, 2 body and END lines are not each one quoted marker: $(cat "$F")"
+[ "$(grep -c '^> ' "$F")" -eq 6 ] || fail "37: the quoted body is not 6 lines (line count changed): $(grep -c '^> ' "$F")"
+grep -q '^> and that was all of it' "$F" || fail "37: the text after the key was lost"
+pass "a private key in a subagent result is redacted on every line, quote prefix and line count kept (fix round A)"
+
+# --- Test 38 (saboteur S8): a second SubagentStop for the same agent_id (a continued agent keeps
+# its id) APPENDS its result: the overwrite destroyed the first result, and the drainer's line cursor
+# then covered part of the second. A payload without agent_id gets its own file per invocation:
+# every such agent shared sub-unknown_*.txt.
+B="$TMP/b38"; mkdir -p "$B"; T="$TMP/t38.jsonl"; mk_transcript "$T" 1 "$LONG"
+run_hook_msg "$B" "general-purpose" "aid38" "$T" "FIRST result of the agent: it decided to keep the cache, with enough words to pass the minimum-length gate of the hook" >/dev/null 2>&1
+F=$(arc "$B"); [ -n "$F" ] || fail "38: the first result was not archived"
+L38=$(wc -l < "$F"); cp "$F" "$TMP/b38.first"
+run_hook_msg "$B" "general-purpose" "aid38" "$T" "SECOND result after a SendMessage: it then dropped the cache again, with enough words to pass the minimum-length gate" >/dev/null 2>&1
+[ "$(arc "$B" | wc -l | tr -d ' ')" -eq 1 ] || fail "38: a continued agent got a second file"
+grep -q '^> FIRST result of the agent' "$F" || fail "38: the second SubagentStop OVERWROTE the first result"
+grep -q '^> SECOND result after a SendMessage' "$F" || fail "38: the second result was not archived"
+[ "$(wc -l < "$F")" -gt "$L38" ] || fail "38: the archive did not grow (an overwrite moves content under the drain cursor)"
+[ "$(head -n "$L38" "$F" | cksum)" = "$(cksum < "$TMP/b38.first")" ] \
+  || fail "38: the lines the drain cursor may already cover (1-$L38) changed"
+[ "$(grep -c '^--- session-meta ---$' "$F")" -eq 1 ] || fail "38: the header was written twice"
+[ -z "$(find "$B/transcripts" -name '.*.lock')" ] || fail "38: the archive lock was left behind"
+B="$TMP/b38u"; mkdir -p "$B"
+run_hook_msg "$B" "general-purpose" "" "$T" "$LONG one" >/dev/null 2>&1
+run_hook_msg "$B" "general-purpose" "" "$T" "$LONG two" >/dev/null 2>&1
+[ "$(arc "$B" | wc -l | tr -d ' ')" -eq 2 ] || fail "38: two agents without an agent_id shared one archive: $(arc "$B")"
+arc "$B" | grep -q 'sub-unknown_' && fail "38: an agent without an id still writes the shared sub-unknown_ file"
+pass "a continued agent appends its next result (first kept, archive only grows); an id-less agent gets its own file (S8)"
+
 echo; echo "ALL PASS"

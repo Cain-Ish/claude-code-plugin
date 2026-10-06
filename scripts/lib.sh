@@ -1799,16 +1799,23 @@ sb_scrub_secrets() {
       n++; lit[n] = "Bearer ";     kind[n] = "bearer";    re[n] = lit[n] rep("[A-Za-z0-9._~+/-]", 20) "[A-Za-z0-9._~+/-]*"
       for (i = 1; i <= n; i++) if (bnd[i]) run[i] = "^" cl[i] "*"
       pb = "-----BEGIN [A-Z ]*PRIVATE KEY-----"; pe = "-----END [A-Z ]*PRIVATE KEY-----"
-      pk = "[redacted:private-key]"; blank = "^[ \t]*$"
-      body = "^[ \t]*[A-Za-z0-9+/=]+[ \t]*$"; hdr = "^[ \t]*(Proc-Type|DEK-Info):"
+      pk = "[redacted:private-key]"
+      # A quote or comment prefix a key block can sit behind, line by line: "> " (subagent
+      # results are quoted), "# ", "// ", " * ", whitespace, nested ("> > ").
+      pfx = "^[ \t]*((>|#|//|[*])[ \t]*)*"
+      blank = pfx "$"; body = pfx "[A-Za-z0-9+/=]+[ \t]*$"; hdr = pfx "(Proc-Type|DEK-Info):"
     }
     {
       line = "" $0; cr = ""
       if (substr(line, length(line), 1) == "\r") { cr = "\r"; line = substr(line, 1, length(line) - 1) }
       if (inpem) {
-        if (match(line, pe)) { line = pk substr(line, RSTART + RLENGTH); inpem = 0 }
+        # A body or END line keeps its quote/comment prefix only, never text that could be key.
+        if (match(line, pe)) {
+          rest = substr(line, RSTART + RLENGTH); match(substr(line, 1, RSTART - 1), pfx)
+          line = substr(line, 1, RLENGTH) pk rest; inpem = 0
+        }
         else if (line ~ blank) { }
-        else if (line ~ body || line ~ hdr) line = pk
+        else if (line ~ body || line ~ hdr) { match(line, pfx); line = substr(line, 1, RLENGTH) pk }
         else inpem = 0
       }
       if (!inpem && match(line, pb)) {
@@ -2137,8 +2144,11 @@ _sb_archive_raw_window_locked() {  # sb_archive_raw_window's body; the caller ho
 }
 
 # Archive a subagent's FINAL RESULT (not its full transcript) for dream mining +
-# episodic search. Keyed on agent_id so it never collides with a main-session
-# archive and de-dupes per agent. The result is already prose (the subagent's last
+# episodic search. One file per agent_id per day (sub-<agent_id>_<slug>_<date>.txt), so it never
+# collides with a main-session archive. A continued agent (SendMessage keeps its id) APPENDS its
+# next result under the archive lock: an overwrite destroyed the first result and put new text
+# under the drainer's line cursor. An id that sanitizes to nothing gets a per-call name (pid +
+# $RANDOM), never a shared one. The result is already prose (the subagent's last
 # assistant text block), so it is written plain under an ASSISTANT: marker — NOT
 # through sb_preprocess_transcript (which parses raw JSONL lines). The file matches
 # the episodic indexer's session-meta + ASSISTANT body shape, so it is indexed with
@@ -2156,7 +2166,7 @@ sb_archive_subagent_result() {
   # sanitize agent_id for use as a filename component (defense in depth — it comes
   # from the hook payload). Keep only filename-safe chars; bail if it empties out.
   safe_aid=$(printf '%s' "$agent_id" | tr -cd 'A-Za-z0-9._-')
-  [ -n "$safe_aid" ] || safe_aid="unknown"
+  [ -n "$safe_aid" ] || safe_aid="unknown-${BASHPID:-$$}-$RANDOM"
   local archive_file="$archive_dir/sub-${safe_aid}_${slug}_${date_str}.txt"
 
   # Every header value below is payload-derived (agent_type, session_id) or path-derived (slug)
@@ -2180,13 +2190,34 @@ sb_archive_subagent_result() {
   result="$scrubbed"
 
   # The write is CHECKED, twice: the redirect's own status (unwritable dir, a directory
-  # squatting on the name) and the written size, which must hold at least the result
-  # text itself (${#result} counts characters, never more than its bytes) — a short
-  # or empty file is a silently lost result, the SF-M3 class. Fail loud, never `|| true`.
+  # squatting on the name) and the growth of the file, which must hold at least the result
+  # text itself (${#result} counts characters, never more than its bytes): a short or empty
+  # write is a silently lost result, the SF-M3 class. Fail loud, never `|| true`.
   # The positive form on purpose (as in sb_archive_transcript, 9ee624d): bash does not apply `!`
   # to a { group } whose own redirection fails, so `if ! { ...; } > file` took the success branch.
-  local written
-  if {
+  # The archive lock (shared with the in-place scrub) covers the size read, the write and the check.
+  local size0=0 written tok rc=0
+  sb_archive_lock "$archive_file" sb_archive_subagent_result || return 1
+  tok="$_SB_ARCHIVE_LOCK_TOKEN"
+  if [ -f "$archive_file" ]; then
+    size0=$(wc -c < "$archive_file" 2>/dev/null | tr -d ' ')
+    case "$size0" in ''|*[!0-9]*) size0=0 ;; esac
+    # A continued agent: append the next result. A torn last line (a crash) is terminated
+    # first, so the new block starts on its own line and sb_line_count stays exact.
+    if [ -n "$(tail -c 1 "$archive_file" 2>/dev/null)" ]; then
+      printf '\n' 2>/dev/null >> "$archive_file" || rc=1
+    fi
+    if [ "$rc" -eq 0 ] && {
+      echo ""
+      echo "ASSISTANT:"
+      echo "(a later result of the same agent, tool_count: $tool_count)"
+      printf '%s\n' "$result"
+    } 2>/dev/null >> "$archive_file"; then
+      :
+    else
+      rc=1
+    fi
+  elif {
     echo "--- session-meta ---"
     echo "session_id: $session_id"
     echo "project_slug: $slug"
@@ -2201,13 +2232,18 @@ sb_archive_subagent_result() {
   } 2>/dev/null > "$archive_file"; then
     :
   else
+    rc=1
+  fi
+  if [ "$rc" -ne 0 ]; then
+    sb_archive_unlock "$archive_file" "$tok"
     sb_log_error "lib.sh" "sb_archive_subagent_result: write failed for $archive_file — subagent result NOT archived (agent_id=$safe_aid)" 1
     return 1
   fi
   written=$(wc -c < "$archive_file" 2>/dev/null | tr -d ' ')
+  sb_archive_unlock "$archive_file" "$tok"
   case "$written" in ''|*[!0-9]*) written=0 ;; esac
-  if [ "$written" -lt "${#result}" ]; then
-    sb_log_error "lib.sh" "sb_archive_subagent_result: short write ${written}B < ${#result}-char result in $archive_file (agent_id=$safe_aid)" 1
+  if [ "$((written - size0))" -lt "${#result}" ]; then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: short write $((written - size0))B < ${#result}-char result in $archive_file (agent_id=$safe_aid)" 1
     return 1
   fi
 

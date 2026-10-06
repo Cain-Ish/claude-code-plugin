@@ -418,7 +418,18 @@ printf '%s\r\n' "  key=\"[redacted:openai]\"" >> "$SD/oaiproj.want"
 # of the input: it was, and joined the next line onto it (line count shifted, prompt-injectable).
 printf 'USER: ends with \034sb-eof\034\nASSISTANT:\n  next %s\n' "$K_AWS" > "$SD/sentinel.in"
 printf 'USER: ends with \034sb-eof\034\nASSISTANT:\n  next [redacted:aws]\n' > "$SD/sentinel.want"
-for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj sentinel; do
+# A key quoted or commented line by line (fix round A: subagent results are "> "-quoted, and keys
+# sit in commented config): every line of the block is redacted, the quote/comment prefix is kept
+# (a "> " quote must stay at column 0 of a subagent archive), a quoted blank line stays as it is.
+printf '%s\n' "> $PEM_B" "> MIIE$(rep Ab 20)" ">  $(rep xY 30)+/=" "> " "> $PEM_E" "> after the key" \
+  "# $PEM_OB" "# b3BlbnNzaC1r$(rep Qw 10)" "#" "# -----END OPENSSH PRIV""ATE KEY-----" \
+  "// $PEM_B" "// MIIE$(rep Ab 8)" "// $PEM_E" " * $PEM_B" " * MIIE$(rep Ab 8)" " * $PEM_E done" \
+  "	$PEM_B" "	MIIE$(rep Ab 8)" "	$PEM_E" "> > $PEM_B" "> > MIIE$(rep Ab 8)" "> > $PEM_E" > "$SD/pemq.in"
+printf '%s\n' "> [redacted:private-key]" "> [redacted:private-key]" ">  [redacted:private-key]" "> " "> [redacted:private-key]" "> after the key" \
+  "# [redacted:private-key]" "# [redacted:private-key]" "#" "# [redacted:private-key]" \
+  "// [redacted:private-key]" "// [redacted:private-key]" "// [redacted:private-key]" " * [redacted:private-key]" " * [redacted:private-key]" " * [redacted:private-key] done" \
+  "	[redacted:private-key]" "	[redacted:private-key]" "	[redacted:private-key]" "> > [redacted:private-key]" "> > [redacted:private-key]" "> > [redacted:private-key]" > "$SD/pemq.want"
+for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj sentinel pemq; do
   sb_scrub_secrets < "$SD/$fx.in" > "$SD/$fx.out" || fail "scrub[$fx]: sb_scrub_secrets exited non-zero"
   cmp -s "$SD/$fx.out" "$SD/$fx.want" || fail "scrub[$fx]: output differs from the expected redaction:
 $(od -c "$SD/$fx.out" | head -12)"
