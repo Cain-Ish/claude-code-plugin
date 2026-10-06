@@ -908,7 +908,15 @@ printf '%s\n' 'ushed"}}' >> "$T"
 sb_archive_raw_window "$T" proj c2 "$(awk 'END { print NR }' "$T")" proj--c2 || fail "raw-torn: the completed record returned non-zero"
 [ "$(acount "$A" '^USER: half flushed$')" -eq 1 ] || fail "raw-torn: the record that was half flushed at the last Stop was never archived"
 [ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--c2")" = 3 ] || fail "raw-torn: the cursor did not reach 3 once the line was complete"
-pass "raw-window: an unterminated last raw line is not consumed; it is archived once complete"
+# a WHOLE record whose newline is not flushed yet is archived now (the last Stop may be the last
+# chance), once: its newline landing later does not re-archive it
+printf '%s' '{"type":"user","message":{"content":"whole but unterminated"}}' >> "$T"
+sb_archive_raw_window "$T" proj c2 "$(awk 'END { print NR }' "$T")" proj--c2 || fail "raw-torn: a whole unterminated record returned non-zero"
+[ "$(acount "$A" '^USER: whole but unterminated$')" -eq 1 ] || fail "raw-torn: a whole record lacking only its newline was not archived"
+printf '\n' >> "$T"
+sb_archive_raw_window "$T" proj c2 "$(awk 'END { print NR }' "$T")" proj--c2 || fail "raw-torn: the rerun returned non-zero"
+[ "$(acount "$A" '^USER: whole but unterminated$')" -eq 1 ] || fail "raw-torn: the record was archived again once its newline landed"
+pass "raw-window: a half-written last raw line is not consumed (archived once complete); a whole one is archived once"
 
 # jq missing (127) or killed (137): nothing rendered is a failure, the cursor stays, no header-only
 # archive is created, and it is logged. The shadow fails only the render (`jq -R`, it drains stdin

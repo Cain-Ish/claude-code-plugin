@@ -2163,6 +2163,8 @@ _sb_archive_append_locked() {
 # transcript was replaced or shrank): 0. The window ends at the last COMPLETE raw line (newline
 # count, at most TOTAL): Stop can read the transcript while its last record is half flushed, and
 # a cursor past that line would skip the record for good; it is archived whole by the next hook.
+# An unterminated last line that already parses as a whole record is included (only its newline
+# is missing; test 8b in test-stop-extract.sh).
 # The cursor advances only after a checked append. Reading the cursor, rendering, appending and
 # writing the cursor run under ONE hold of the session's cursor lock (sb_archive_lock on the
 # pseudo archive transcripts/cursor-<MARKER_KEY>.txt): a Stop and a PreCompact of one session
@@ -2207,6 +2209,13 @@ _sb_archive_raw_window_locked() {  # sb_archive_raw_window's body; the caller ho
     return 1
   fi
   [ "$raw_end" -le "$total" ] || raw_end="$total"
+  if [ "$raw_end" -lt "$total" ]; then
+    # Line TOTAL has no newline yet. A complete record whose newline is not flushed yet is
+    # archived now (the session's last Stop may be the last chance); a half-written one waits.
+    if sed -n "${total}p" "$transcript" 2>/dev/null | jq -e 'type == "object"' >/dev/null 2>&1; then
+      raw_end="$total"
+    fi
+  fi
   [ "$raw_line" -lt "$raw_end" ] || return 0
   sb_archive_transcript "$transcript" "$slug" "$session_id" "$((raw_line + 1))" "$raw_end" "" || return 1
   if ! printf '%s\t%s\n' "$raw_end" "$tpath" 2>/dev/null > "$cursor_file"; then
