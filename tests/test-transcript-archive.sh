@@ -414,7 +414,11 @@ printf '%s\r\n' "  key=\"$K_PROJ\"" >> "$SD/oaiproj.in"
 printf '%s\n' "OPENAI_API_KEY=[redacted:openai]" "  svc [redacted:openai], admin [redacted:openai]" "glued x$K_PROJ" "sk-proj-short_1" \
   "min [redacted:openai] ok" "under $K_SV19 ok" > "$SD/oaiproj.want"
 printf '%s\r\n' "  key=\"[redacted:openai]\"" >> "$SD/oaiproj.want"
-for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj; do
+# A line that ends with the old in-band EOF sentinel (\034sb-eof\034) must not be taken for the end
+# of the input: it was, and joined the next line onto it (line count shifted, prompt-injectable).
+printf 'USER: ends with \034sb-eof\034\nASSISTANT:\n  next %s\n' "$K_AWS" > "$SD/sentinel.in"
+printf 'USER: ends with \034sb-eof\034\nASSISTANT:\n  next [redacted:aws]\n' > "$SD/sentinel.want"
+for fx in kinds crlf pem pemcut pem1 adjacent clean nonl empty oaiproj sentinel; do
   sb_scrub_secrets < "$SD/$fx.in" > "$SD/$fx.out" || fail "scrub[$fx]: sb_scrub_secrets exited non-zero"
   cmp -s "$SD/$fx.out" "$SD/$fx.want" || fail "scrub[$fx]: output differs from the expected redaction:
 $(od -c "$SD/$fx.out" | head -12)"
@@ -424,6 +428,43 @@ $(od -c "$SD/$fx.out" | head -12)"
     || fail "scrub[$fx]: a second pass changed the output (not idempotent)"
 done
 pass "scrub: every format redacted to [redacted:<kind>], PEM per line, CRLF kept, line count invariant, idempotent"
+
+# A read error on stdin is the scrub's failure, never an empty "clean" output: `{ cat; printf
+# sentinel; }` reported the printf status, so a cat that failed returned 0.
+mkdir -p "$TMP/scrub/adir"
+( sb_scrub_secrets < "$TMP/scrub/adir" > /dev/null 2>&1 ) && fail "scrub: a read error on stdin (a directory) returned 0"
+pass "scrub: a read error on stdin is a non-zero return"
+
+# The scrub is LINEAR on one long line (fix round, 0.56.0). A 2 MB single-line tool output with
+# 22,727 generic sk- keys took 122 s: every match re-copied the rest of the line and re-grew the
+# output (x4.5 per doubling), past the Stop hook's 45 s budget, so that session was never
+# archived. Three 2 MB lines, each built by one awk: every key redacted; every key glued to an
+# identifier (all kept: the boundary path); no credential literal at all. Each must finish in
+# under 5 s (whole seconds via SECONDS: a diff <= 4 is < 5 s), with the right output.
+LL="$TMP/scrub/long"; mkdir -p "$LL"
+for kind in keys glued plain; do
+  case "$kind" in
+    keys)  seg="padding text here and more padding words ok $K_OAI " ;;
+    glued) seg="padding text here and more padding words ok x$K_OAI " ;;
+    plain) seg="padding text here and more padding words ok and no key at all " ;;
+  esac
+  LC_ALL=C awk -v seg="$seg" 'BEGIN { while (n < 2000000) { printf "%s", seg; n += length(seg) } print "" }' > "$LL/$kind.in"
+  ll_ms0=$(date +%s%N 2>/dev/null); ll_s0=$SECONDS
+  sb_scrub_secrets < "$LL/$kind.in" > "$LL/$kind.out" || fail "scrub-long[$kind]: sb_scrub_secrets exited non-zero"
+  ll_el=$((SECONDS - ll_s0)); ll_ms1=$(date +%s%N 2>/dev/null)
+  case "$ll_ms0$ll_ms1" in *[!0-9]*|'') ll_ms="?" ;; *) ll_ms=$(( (ll_ms1 - ll_ms0) / 1000000 )) ;; esac
+  echo "  scrub-long[$kind]: $(wc -c < "$LL/$kind.in" | tr -d ' ') bytes in ${ll_ms} ms"
+  [ "$ll_el" -le 4 ] || fail "scrub-long[$kind]: a 2 MB line took ${ll_el} s (>= 5 s): the scrub is not linear"
+  [ "$(wc -l < "$LL/$kind.out")" -eq 1 ] || fail "scrub-long[$kind]: the line count changed"
+done
+LL_N=$(grep -o 'padding words ok' "$LL/keys.in" | wc -l | tr -d ' ')
+[ "$LL_N" -ge 20000 ] || fail "scrub-long: the fixture holds only $LL_N keys (the case needs >= 20k)"
+[ "$(grep -o '\[redacted:openai\]' "$LL/keys.out" | wc -l | tr -d ' ')" -eq "$LL_N" ] \
+  || fail "scrub-long[keys]: not every one of the $LL_N keys was redacted"
+grep -q 'sk-aB3' "$LL/keys.out" && fail "scrub-long[keys]: a key survived"
+cmp -s "$LL/glued.in" "$LL/glued.out" || fail "scrub-long[glued]: a key glued to an identifier was changed"
+cmp -s "$LL/plain.in" "$LL/plain.out" || fail "scrub-long[plain]: a line with no credential was changed"
+pass "scrub: linear on a 2 MB single line ($LL_N keys redacted, glued keys kept, plain text untouched; each < 5 s)"
 
 # sb_preprocess_transcript runs the scrub on every window it renders (archive AND extractor input)
 PJ="$TMP/scrub/pp.jsonl"

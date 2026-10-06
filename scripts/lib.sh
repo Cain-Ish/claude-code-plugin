@@ -1681,47 +1681,78 @@ sb_archive_unlock() {
 # tell from ids, counts and dates), passwords, generic high-entropy strings, sk- runs under 20.
 # LINE COUNT IS INVARIANT: the archive_line cursor counts lines, so no line is joined or split,
 # a `\r` is kept, and an unterminated last line stays unterminated (awk cannot see a missing
-# final newline; an EOF sentinel appended after the input tells it). POSIX awk only: no {n,}
-# intervals (mawk 1.3.4-20200120, Debian/Ubuntu's default awk, lacks them; the runs are built in
-# BEGIN), no \b; LC_ALL=C keeps the classes ASCII. One cat + one awk per call, never per line.
-# Returns non-zero when either failed: the output must then not be used.
+# final newline: ONE newline is appended after the input and awk prints one record behind, so
+# the last record is empty exactly when the input was terminated. A newline is the one byte a
+# record cannot hold, so no transcript text can fake the end of the input.) POSIX awk only: no
+# {n,} intervals (mawk 1.3.4-20200120, Debian/Ubuntu's default awk, lacks them; the runs are
+# built in BEGIN), no \b; LC_ALL=C keeps the classes ASCII. One cat + one awk per call, never per
+# line. LINEAR in the line length: each format is ONE split() whose separators are its matches,
+# and the pieces are joined in pairwise rounds. A match()/gsub() loop is not: gawk 5.0 scans to
+# the end of the string on every call, so a 2 MB single-line tool output with 22,727 keys took
+# 122 s (past the Stop hook's 45 s, so the session was never archived); this takes under 1 s.
+# Returns non-zero when cat (a read error) or awk failed: the output must then not be used.
 sb_scrub_secrets() {
-  { cat; printf '\034sb-eof\034'; } | LC_ALL=C awk -v BINMODE=3 '
+  { cat && printf '\n'; } | LC_ALL=C awk -v BINMODE=3 '
     function rep(c, k,   r) { r = ""; while (k-- > 0) r = r c; return r }
-    function redact(s, i,   out, pc) {
-      out = ""
-      while (match(s, re[i])) {
-        pc = (RSTART > 1) ? substr(s, RSTART - 1, 1) : substr(out, length(out), 1)
-        if (bnd[i] && pc != "" && pc ~ /[A-Za-z0-9_-]/) {
-          out = out substr(s, 1, RSTART + length(lit[i]) - 1); s = substr(s, RSTART + length(lit[i])); continue
-        }
-        out = out substr(s, 1, RSTART - 1) "[redacted:" kind[i] "]"; s = substr(s, RSTART + RLENGTH)
+    # A[1..k] joined in pairwise rounds: O(n log k) copying, never one accumulator re-grown per piece.
+    function joinp(A, k,   i, j) {
+      while (k > 1) {
+        j = 0
+        for (i = 1; i <= k; i += 2) A[++j] = (i < k) ? A[i] A[i + 1] : A[i]
+        k = j
       }
-      return out s
+      return (k == 1) ? A[1] : ""
+    }
+    # Length of the run of class-i chars in s from position p, read through bounded windows.
+    function crun(s, p, i,   n, w) {
+      n = 0
+      while ((w = substr(s, p + n, 256)) != "") {
+        match(w, run[i]); n += RLENGTH
+        if (RLENGTH < length(w)) break
+      }
+      return n
+    }
+    # Every format, one split per format: the matches are the separators, so the line is scanned
+    # once. A match/gsub loop is not linear here: gawk scans to the end of the string on each call.
+    function redact(s, i,   Q, A, k, j, a, p) {
+      if (!bnd[i]) {
+        k = split(s, Q, re[i]); a = 0
+        for (j = 1; j <= k; j++) { if (j > 1) A[++a] = "[redacted:" kind[i] "]"; A[++a] = Q[j] }
+        return joinp(A, a)
+      }
+      # Boundary-checked: the separator is the one char before the match (never part of the
+      # form) plus the match, so a form glued to a longer identifier is no separator at all. A
+      # leading space stands in for the line start and is cut again below.
+      s = " " s
+      k = split(s, Q, "[^A-Za-z0-9_-]" re[i]); a = 0; p = 1
+      for (j = 1; j <= k; j++) {
+        if (j > 1) {
+          A[++a] = substr(s, p, 1) "[redacted:" kind[i] "]"
+          p += 1 + length(lit[i]) + crun(s, p + 1 + length(lit[i]), i)
+        }
+        A[++a] = Q[j]; p += length(Q[j])
+      }
+      return substr(joinp(A, a), 2)
     }
     BEGIN {
-      eof = "\034sb-eof\034"; el = length(eof); an = "[A-Za-z0-9]"; n = 0
-      n++; lit[n] = "sk-ant-";     kind[n] = "anthropic"; re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"
-      n++; lit[n] = "sk-proj-";    kind[n] = "openai";    re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"; bnd[n] = 1
-      n++; lit[n] = "sk-svcacct-"; kind[n] = "openai";    re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"; bnd[n] = 1
-      n++; lit[n] = "sk-admin-";   kind[n] = "openai";    re[n] = lit[n] rep("[A-Za-z0-9_-]", 20) "[A-Za-z0-9_-]*"; bnd[n] = 1
-      n++; lit[n] = "sk-";         kind[n] = "openai";    re[n] = lit[n] rep(an, 20) an "*"; bnd[n] = 1
+      an = "[A-Za-z0-9]"; n = 0
+      n++; lit[n] = "sk-ant-";     kind[n] = "anthropic"; cl[n] = "[A-Za-z0-9_-]"; re[n] = lit[n] rep(cl[n], 20) cl[n] "*"
+      n++; lit[n] = "sk-proj-";    kind[n] = "openai";    cl[n] = "[A-Za-z0-9_-]"; re[n] = lit[n] rep(cl[n], 20) cl[n] "*"; bnd[n] = 1
+      n++; lit[n] = "sk-svcacct-"; kind[n] = "openai";    cl[n] = "[A-Za-z0-9_-]"; re[n] = lit[n] rep(cl[n], 20) cl[n] "*"; bnd[n] = 1
+      n++; lit[n] = "sk-admin-";   kind[n] = "openai";    cl[n] = "[A-Za-z0-9_-]"; re[n] = lit[n] rep(cl[n], 20) cl[n] "*"; bnd[n] = 1
+      n++; lit[n] = "sk-";         kind[n] = "openai";    cl[n] = an;              re[n] = lit[n] rep(an, 20) an "*"; bnd[n] = 1
       n++; lit[n] = "github_pat_"; kind[n] = "github";    re[n] = lit[n] rep("[A-Za-z0-9_]", 22) "[A-Za-z0-9_]*"
       n++; lit[n] = "ghp_";        kind[n] = "github";    re[n] = lit[n] rep(an, 36)
       n++; lit[n] = "AKIA";        kind[n] = "aws";       re[n] = lit[n] rep("[0-9A-Z]", 16)
       n++; lit[n] = "xox";         kind[n] = "slack";     re[n] = "xox[abpr]-" rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
       n++; lit[n] = "Bearer ";     kind[n] = "bearer";    re[n] = lit[n] rep("[A-Za-z0-9._~+/-]", 20) "[A-Za-z0-9._~+/-]*"
+      for (i = 1; i <= n; i++) if (bnd[i]) run[i] = "^" cl[i] "*"
       pb = "-----BEGIN [A-Z ]*PRIVATE KEY-----"; pe = "-----END [A-Z ]*PRIVATE KEY-----"
       pk = "[redacted:private-key]"; blank = "^[ \t]*$"
       body = "^[ \t]*[A-Za-z0-9+/=]+[ \t]*$"; hdr = "^[ \t]*(Proc-Type|DEK-Info):"
     }
     {
-      line = $0; last = 0
-      if (length(line) >= el && substr(line, length(line) - el + 1) == eof) {
-        line = substr(line, 1, length(line) - el); last = 1
-        if (line == "") next
-      }
-      cr = ""
+      line = "" $0; cr = ""
       if (substr(line, length(line), 1) == "\r") { cr = "\r"; line = substr(line, 1, length(line) - 1) }
       if (inpem) {
         if (match(line, pe)) { line = pk substr(line, RSTART + RLENGTH); inpem = 0 }
@@ -1735,9 +1766,13 @@ sb_scrub_secrets() {
         else { line = pre pk; inpem = 1 }
       }
       for (i = 1; i <= n; i++) if (index(line, lit[i])) line = redact(line, i)
-      if (last) printf "%s", line cr
-      else print line cr
-    }'
+      # One record behind: the caller appended ONE newline after the input, so the last record is
+      # empty exactly when the input ended with a newline (dropped), and otherwise holds the
+      # unterminated last line (printed without one). Nothing in-band.
+      if (NR > 1) print held
+      held = line cr
+    }
+    END { if (NR > 0) printf "%s", held }'
   local ps="${PIPESTATUS[*]}"
   [ "$ps" = "0 0" ]
 }
