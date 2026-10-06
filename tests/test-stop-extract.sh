@@ -4,6 +4,7 @@
 # pins: SB_SUBAGENT_SCAN_MAX_BYTES — R7 lowers the subagent-scan byte cap to exercise the loud skip + resume path
 # pins: SB_RULES_LAYERS — L2 exercises sb_rules_hard_lines' raw-file branch (layers off), not a gate bypass
 # pins: SB_HEADLESS_CONTEXT — opt-in test (H0): asserts =on restores extraction for a headless child
+# pins: SB_EXTRACTOR_LOCAL_URL — AF2 blanks it so only the recording claude stub can answer (not a gate bypass)
 # pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
@@ -498,6 +499,15 @@ rc=$?
   || fail "merge-failed-trap: no 'gate=merge-failed' row in audit-log or error-log — the second EXIT trap silenced the first"
 [ ! -f "$MARKER" ] || fail "merge-failed-trap: marker advanced despite a failed merge — window would never be retried"
 pass "D177: merge-failed is logged (chained trap) and the marker does not advance on a failed merge"
+# R2#2: the retried window is extracted again but NOT archived again. The archive has its own
+# raw_line cursor (.last-archived-line-*), advanced by the checked append, so a merge failure no
+# longer re-appends the same window on every retry (the 18x re-archive class).
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "merge-failed-trap: the window was not archived"
+[ "$(grep -c 'src/foo.ts' "$ARCHIVE")" = 1 ] || fail "merge-failed-trap: the first Stop archived the window $(grep -c 'src/foo.ts' "$ARCHIVE") times"
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+[ "$(grep -c 'src/foo.ts' "$ARCHIVE")" = 1 ] || fail "merge-failed-trap: the retry after a failed merge re-archived the same window"
+pass "R2#2: a merge-failed retry re-extracts the window but does not re-archive it"
 restore_path
 
 # --- Test 13 (D077): SB_EXTRACT=off skips the LLM extraction call entirely
@@ -523,6 +533,74 @@ grep -q "auto-captured" "$PROJ" || fail "extract-off: deterministic delta not me
 ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
 [ -n "$ARCHIVE" ] || fail "extract-off: transcript window was not archived"
 pass "D077: SB_EXTRACT=off skips the LLM call but still archives + advances the marker"
+restore_path
+
+# === R2 (0.56.0) archive-first + secret scrub on the hook paths ===============================
+# Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.
+rep() { local s="" k=0; while [ "$k" -lt "$2" ]; do s="$s$1"; k=$((k + 1)); done; printf '%s' "$s"; }
+K_ANT="sk-ant-api03-$(rep aB3_ 12)-$(rep Zq9 6)AA"
+EDIT_LINE='{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.ts","old_string":"a","new_string":"b"}}]}}'
+
+# AF1: a tool-count-zero window (Q&A only) is archived before the gate skips its extraction, and
+# the archive's raw_line cursor lands on the transcript end.
+init_sandbox "af-qna"
+seed_transcript_qna_only
+stub_claude_json '{"recent_decisions":["should-not-merge"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+grep -q 'gate=tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+  || fail "AF1: the Q&A window did not take the tool-count-zero gate (the case proves nothing)"
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "AF1: a tool-count-zero window was not archived"
+grep -q '^USER: hi' "$ARCHIVE" || fail "AF1: the Q&A window is missing from the archive"
+[ "$(cut -f1 "$SANDBOX/.second-brain/.last-archived-line-test-slug--test-session" 2>/dev/null)" = 2 ] \
+  || fail "AF1: the archive cursor did not land on line 2"
+pass "AF1: a tool-count-zero Stop window is archived (archive-first) and its cursor advances"
+restore_path
+
+# AF2 (R2#3): the extractor NEVER receives sk-ant- text on the Stop path, the archive holds the
+# marker instead, and the window is archived BEFORE the extractor runs. The stub records its stdin
+# and the archive listing at call time. ANTHROPIC_API_KEY / SB_EXTRACTOR_LOCAL_URL are blanked so
+# no other backend can answer instead of the stub.
+init_sandbox "af-sk-ant"
+jq -nc --arg t "here is the key $K_ANT keep it safe" '{type:"user",message:{role:"user",content:$t}}' \
+  > "$SANDBOX/transcript/session.jsonl"
+printf '%s\n' "$EDIT_LINE" >> "$SANDBOX/transcript/session.jsonl"
+cat > "$SANDBOX/path-stub/claude" <<EOF
+#!/bin/bash
+cat > "$SANDBOX/extractor-input"
+ls "$SANDBOX/.second-brain/transcripts" > "$SANDBOX/archive-at-extract" 2>/dev/null
+echo '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+EOF
+chmod +x "$SANDBOX/path-stub/claude"
+export PATH="$SANDBOX/path-stub:$PATH"
+stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= "$SCRIPT" >/dev/null 2>&1
+[ -s "$SANDBOX/extractor-input" ] || fail "AF2: the extractor stub never received input (the case proves nothing)"
+grep -q 'sk-ant-' "$SANDBOX/extractor-input" && fail "AF2: the extractor received the raw Anthropic key"
+grep -q '\[redacted:anthropic\]' "$SANDBOX/extractor-input" || fail "AF2: the extractor input lacks the [redacted:anthropic] marker"
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "AF2: the window was not archived"
+grep -q 'sk-ant-' "$ARCHIVE" && fail "AF2: the archive holds the raw Anthropic key"
+grep -q '\[redacted:anthropic\]' "$ARCHIVE" || fail "AF2: the archive lacks the [redacted:anthropic] marker"
+grep -q 'test-session_test-slug_' "$SANDBOX/archive-at-extract" 2>/dev/null \
+  || fail "AF2: the window was not archived before the extractor ran (archive-first)"
+pass "AF2: the Stop extractor and the archive get [redacted:anthropic], never the key; archive precedes extraction"
+restore_path
+
+# AF3: PreCompact archives the window even below its own extraction gates (window < 20 lines,
+# no tool_use, no PROJECT.md: archiving needs none of them), and the next Stop appends only its
+# own new window (one raw_line cursor shared by both hooks: disjoint, no duplicate).
+init_sandbox "af-precompact"
+seed_transcript_qna_only
+rm -f "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+stop_payload | bash "$REPO_ROOT/scripts/pre-compact.sh" >/dev/null 2>&1
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "AF3: PreCompact did not archive a window that its extraction gates skip"
+printf '%s\n' "$EDIT_LINE" >> "$SANDBOX/transcript/session.jsonl"
+stub_claude_json '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+[ "$(grep -c '^USER: hi' "$ARCHIVE")" = 1 ] || fail "AF3: the Stop after a PreCompact re-archived the PreCompact window"
+[ "$(grep -c 'src/foo.ts' "$ARCHIVE")" = 1 ] || fail "AF3: the Stop did not archive its own new window exactly once"
+pass "AF3: PreCompact archives below its extraction gates; the next Stop appends only the new window"
 restore_path
 
 # --- Test 14 (D179): the background episodic-index node process must not

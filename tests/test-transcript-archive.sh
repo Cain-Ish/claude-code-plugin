@@ -395,6 +395,12 @@ cmp -s "$SA" "$TMP/scrub-file/once" || fail "scrub-file: a re-run changed the fi
 SC="$BRAIN_DIR/transcripts/s2_proj_2026-01-01.txt"; printf 'USER: hello\n' > "$SC"; touch -t 202601010000 "$SC"
 SC_MT=$(sb_mtime "$SC"); sb_scrub_archive_file "$SC" || fail "scrub-file: a clean file returned non-zero"
 [ "$(sb_mtime "$SC")" = "$SC_MT" ] || fail "scrub-file: a clean file was rewritten"
+# a file that passes the literal prefilter but has nothing to redact (a task- id, a short sk-) is
+# not renamed over either: same inode (a rewrite would also churn the episodic re-derivation)
+SN="$BRAIN_DIR/transcripts/s4_proj_2026-01-01.txt"; printf 'USER: task-%s and sk-short\n' "$(rep 0a1B 6)" > "$SN"
+SN_INO=$(ls -i "$SN" | awk '{print $1}')
+sb_scrub_archive_file "$SN" || fail "scrub-file: a nothing-to-redact file returned non-zero"
+[ "$(ls -i "$SN" | awk '{print $1}')" = "$SN_INO" ] || fail "scrub-file: a file with nothing to redact was rewritten (inode changed)"
 # failure paths: a missing file, a scrub that fails, and a file that grows mid-scrub (Stop hooks
 # append without the drain lock) — each is loud, returns non-zero and leaves the original intact
 : > "$BRAIN_DIR/error-log.jsonl"
@@ -413,6 +419,13 @@ grep -q 'sb_scrub_archive_file' "$BRAIN_DIR/error-log.jsonl" || fail "scrub-file
 grep -q '^USER: late append$' "$SF" || fail "scrub-file: the concurrent append was lost"
 grep -q 'sb_scrub_archive_file' "$BRAIN_DIR/error-log.jsonl" || fail "scrub-file: the concurrent-append abort was not logged"
 [ -z "$(find "$BRAIN_DIR/transcripts" -name '*.part')" ] || fail "scrub-file: the aborted scrub left its scratch copy"
+# a scrub whose output would change the line count is refused (the archive_line cursor counts lines)
+cp "$SF" "$TMP/scrub-file/s3.grown"; : > "$BRAIN_DIR/error-log.jsonl"
+( eval "$(declare -f sb_scrub_secrets | sed '1s/sb_scrub_secrets/_sb_real_scrub/')"
+  sb_scrub_secrets() { _sb_real_scrub; printf 'extra line\n'; }
+  sb_scrub_archive_file "$SF" ) && fail "scrub-file: a scrub that adds a line was accepted"
+cmp -s "$SF" "$TMP/scrub-file/s3.grown" || fail "scrub-file: a line-count-changing scrub modified the original"
+grep -q 'line count' "$BRAIN_DIR/error-log.jsonl" || fail "scrub-file: the line-count refusal was not logged"
 pass "scrub-file: in place, mtime + line count kept, idempotent, clean files untouched, failures loud and lossless"
 
 # === R2 (0.56.0) archive-first: sb_archive_transcript (checked) + sb_archive_raw_window (cursor) ===
@@ -486,6 +499,17 @@ mkdir -p "$BRAIN_DIR/transcripts/s4_proj_$(date +%Y-%m-%d).txt"   # the append w
 ( sb_archive_raw_window "$T" proj s4 4 proj--s4 ) && fail "raw-edge: a failed append returned 0"
 [ ! -e "$BRAIN_DIR/.last-archived-line-proj--s4" ] || fail "raw-edge: the cursor advanced after a failed append (the window would be lost)"
 grep -q 'sb_archive_transcript' "$BRAIN_DIR/error-log.jsonl" || fail "raw-edge: the failed append was not logged"
+# the append itself (not the header write) fails: an existing, read-only archive
+A5="$BRAIN_DIR/transcripts/s5_proj_$(date +%Y-%m-%d).txt"; printf 'USER: earlier\n' > "$A5"; chmod a-w "$A5"
+if [ -w "$A5" ]; then
+  echo "NOTE: raw-edge read-only append case skipped (running as a user that ignores the write bit)"
+else
+  : > "$BRAIN_DIR/error-log.jsonl"
+  ( sb_archive_raw_window "$T" proj s5 4 proj--s5 ) && fail "raw-edge: an append onto a read-only archive returned 0"
+  [ ! -e "$BRAIN_DIR/.last-archived-line-proj--s5" ] || fail "raw-edge: the cursor advanced after a failed append onto an existing archive"
+  grep -q 'append to' "$BRAIN_DIR/error-log.jsonl" || fail "raw-edge: the failed append onto an existing archive was not logged"
+fi
+chmod u+w "$A5"
 pass "raw-window: empty window is a no-op, a render-nothing window advances without a file, a failed append keeps the cursor"
 
 echo "ALL PASS"

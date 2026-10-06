@@ -137,6 +137,16 @@ TOTAL_LINES=$(awk 'END{print NR}' "$TRANSCRIPT" 2>/dev/null)
 if [ "$LAST_LINE" -gt "$TOTAL_LINES" ]; then
   LAST_LINE=0
 fi
+
+# --- Archive-first (0.56.0, R2#2) ---
+# Append the raw window (raw_line cursor, TOTAL_LINES] to the session archive NOW: before the
+# no-new-lines and tool-count gates, telemetry, JIT and the merge. Every window reaches the
+# archive, tool-count-zero windows too (they hold the human reasoning), and an append that failed
+# last time is retried even when this Stop has no new extraction window. The archive keeps its
+# own cursor (.last-archived-line-*, shared with pre-compact.sh), so a merge-failed retry of the
+# extraction window below never re-appends it. Failures are logged inside the helper; fail-soft.
+sb_archive_raw_window "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$TOTAL_LINES" "$MARKER_KEY" || true
+
 NEW_LINES=$((TOTAL_LINES - LAST_LINE))
 
 if [ "$NEW_LINES" -lt 1 ]; then
@@ -913,7 +923,7 @@ fi
 # Deterministic fallback when LLM is unavailable. Records a single [degraded] breadcrumb
 # in a SIDECAR (`pending-extraction.log`), NOT in PROJECT.md's Recent decisions — those
 # breadcrumbs are not decisions and were crowding real ones off the 5-bullet cap (SP-E).
-# The transcript is still archived below, so the out-of-band drainer mines the REAL
+# The transcript was archived above (archive-first), so the out-of-band drainer mines the REAL
 # knowledge later; this sidecar just logs the gap. Deduped per day, bounded.
 if [ -z "$DELTA_JSON" ]; then
   TODAY=$(date -u +%Y-%m-%d)
@@ -1018,8 +1028,7 @@ if [ -n "$DG_GOAL$DG_OUT" ]; then
   sb_buddy_event "$SESSION_ID" remembered pleased "Filed to memory: ${DG_OUT:-$DG_GOAL}" stop-extract 1800
 fi
 
-# --- Archive preprocessed transcript for dream mining ---
-sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
+# (The window was archived at the top, archive-first: sb_archive_raw_window.)
 
 # --- Incremental episodic index update ---
 # D179: redirect BOTH stdout and stderr of the backgrounded node process to a log
