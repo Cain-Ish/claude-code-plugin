@@ -298,85 +298,130 @@ drain_row() {
     || sb_log_error "extract-drain.sh" "done-set append failed ($1 $base $3..$4) — the window is redone next tick" 1
 }
 
-# --- One-time archive scrub (0.56.0, R2-F#4) -----------------------------------------------------
-# Archives written before 0.56.0 hold secrets in clear (the appender scrubs every window since). The
-# first ticks scrub each one in place with sb_scrub_archive_file (atomic, mtime and line count
-# kept, under the per-archive lock the Stop appender takes too), at most SB_DRAIN_BATCH per tick,
-# PENDING archives first in the batch loop's order (the extractor reads those; a done archive can
-# wait), then the rest; then .archive-scrub-v1 marks it done for good. Resumable: the to-do list
-# .archive-scrub-v1.todo is a snapshot, taken on the first tick by ONE grep over every archive, of
-# those holding a credential literal (_SB_SCRUB_LITERALS, lib.sh); archives created later are
-# scrubbed by the appender. Each tick drops the scrubbed and vanished names; a failed scrub stays
-# listed (the scrub logs why). Until an archive leaves the list the batch loop does not extract it
-# (DRAIN_SCRUB_TODO), so the extractor never reads an unscrubbed window; a list that cannot be
-# read or built holds every extraction for the tick (DRAIN_SCRUB_HOLD). LLM-free: it runs from
-# sb_drain_migrate, under the drain lock, before the defer gate.
+# --- One-time archive scrub (0.56.0, R2-F#4; per-archive holds and rotation, X2#3) ---------------
+# Archives written before 0.56.0 hold secrets in clear (the appender scrubs every window since), and
+# so do the transcript copies already staged in dream dirs (the dream-runner reads them). The first
+# ticks scrub each one in place with sb_scrub_archive_file (atomic, mtime and line count kept,
+# under the per-archive lock the Stop appender takes too), at most SB_DRAIN_BATCH per tick, then
+# .archive-scrub-v1 marks the migration done for good. LLM-free: it runs from sb_drain_migrate,
+# under the drain lock, before the defer gate.
+# The to-do list .archive-scrub-v1.todo is a snapshot, taken by ONE grep over every archive and
+# every dream copy, of those holding a credential literal (_SB_SCRUB_LITERALS, lib.sh); archives
+# created later are scrubbed by the appender, and the drainer scrubs any archive whose literal grep
+# hits right before extracting it (X2 S6). Format, one line per file still to scrub (the episodic
+# indexer reads it to skip those archives):
+#   <path relative to BRAIN_DIR>\t<failed scrub attempts>
+#   path: transcripts/<name>.txt | dreams/<id>/transcripts/<name>.txt
+# Each tick picks SB_DRAIN_BATCH entries, fewest failed attempts first (a scrub that keeps failing
+# rotates to the back instead of blocking the rest), then archives with lines still to extract,
+# then list order; drops the scrubbed and vanished ones; counts a failed attempt (the scrub logs
+# why). Holds are per archive: until a transcripts/ entry leaves the list the batch loop does not
+# extract that archive (DRAIN_SCRUB_TODO), and nothing else is held. A list that cannot be read is
+# rebuilt; an archive the listing grep cannot read is listed (held, retried); a listing error that
+# names no file keeps the list in memory for this tick only, so nothing unseen is marked scrubbed.
 SCRUB_MARK="$BRAIN_DIR/.archive-scrub-v1"
 SCRUB_TODO="$SCRUB_MARK.todo"
-DRAIN_SCRUB_TODO=""
-DRAIN_SCRUB_HOLD=""
+DRAIN_SCRUB_TODO=""   # transcripts/ basenames still to scrub, one per line: held from extraction
 drain_scrub_migrate() {
   [ -f "$SCRUB_MARK" ] && return 0
-  local todo="" rc pick b scrubbed="" left="" nleft=0 batch="${SB_DRAIN_BATCH:-5}"
+  local todo="" raw="" rebuild="" persist=1 batch="${SB_DRAIN_BATCH:-5}" p fc l
   case "$batch" in ''|*[!0-9]*) batch=5 ;; esac
   if [ -f "$SCRUB_TODO" ]; then
-    if ! todo=$(cat "$SCRUB_TODO" 2>/dev/null); then
-      DRAIN_SCRUB_HOLD=1
-      sb_log_error "extract-drain.sh" "archive scrub: cannot read $SCRUB_TODO; nothing is extracted this tick" 1
-      return 0
+    if ! raw=$(cat "$SCRUB_TODO" 2>/dev/null); then
+      sb_log_error "extract-drain.sh" "archive scrub: cannot read $SCRUB_TODO; rebuilt from the archives (attempt counts restart)" 1
+      rebuild=1
     fi
   else
-    todo=$(cd "$TX_DIR" 2>/dev/null || exit 2
-           set -- *.txt; [ -e "$1" ] || exit 1
-           LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- "$@" 2>/dev/null)
-    rc=$?
-    if [ "$rc" -gt 1 ]; then
-      DRAIN_SCRUB_HOLD=1
-      sb_log_error "extract-drain.sh" "archive scrub: cannot list the archives to scrub (grep rc=$rc); nothing is extracted this tick, retried next tick" 1
-      return 0
-    fi
-    todo="${todo//$'\r'/}"
-    if [ -n "$todo" ] && ! { printf '%s\n' "$todo" > "$SCRUB_TODO.tmp.$$" && mv -f "$SCRUB_TODO.tmp.$$" "$SCRUB_TODO"; } 2>/dev/null; then
-      rm -f "$SCRUB_TODO.tmp.$$" 2>/dev/null
-      DRAIN_SCRUB_HOLD=1
-      sb_log_error "extract-drain.sh" "archive scrub: cannot write $SCRUB_TODO; nothing is extracted this tick, retried next tick" 1
-      return 0
+    rebuild=1
+  fi
+  if [ -n "$rebuild" ]; then
+    local -a cand=()
+    local out rc unread="" errf="$SCRUB_TODO.tmp.err.$$"
+    for p in "$BRAIN_DIR"/transcripts/*.txt "$BRAIN_DIR"/dreams/*/transcripts/*.txt; do
+      [ -f "$p" ] && cand+=("${p#"$BRAIN_DIR"/}")
+    done
+    raw=""
+    if [ "${#cand[@]}" -gt 0 ]; then
+      out=$(cd "$BRAIN_DIR" && LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- "${cand[@]}" 2>"$errf"); rc=$?
+      if [ "$rc" -gt 1 ]; then
+        # grep lists every match among the files it could read and names each one it could not
+        # (`grep: <path>: <reason>`, GNU/BSD/MSYS alike): those are listed too.
+        while IFS= read -r l; do
+          case "$l" in "grep: "*) l="${l#grep: }"; l="${l%%: *}"; [ -n "$l" ] && unread="$unread$l"$'\n' ;; esac
+        done < "$errf"
+        [ -n "$unread" ] || persist=""
+        sb_log_error "extract-drain.sh" "archive scrub: the listing grep failed (rc=$rc)$( [ -n "$persist" ] && printf '; the unreadable files are listed and held' || printf '; it named no file, so the list is kept for this tick only and rebuilt next tick')" 1
+      fi
+      rm -f "$errf" 2>/dev/null
+      raw="${out//$'\r'/}"$'\n'"$unread"
     fi
   fi
-  # This tick's pick: pending archives in map order, then the rest in list order, BATCH names.
-  pick=$({ printf '%s\n' "$DRAIN_MAP"; printf '%s\n' '--todo--'; printf '%s\n' "$todo"; } \
+  # Normalize: every entry `path<TAB>attempts` (a bare name from a 0.56 pre-release list is a
+  # transcripts/ entry), duplicates folded.
+  while IFS=$'\t' read -r p fc; do
+    p="${p%$'\r'}"; fc="${fc%$'\r'}"
+    [ -n "$p" ] || continue
+    case "$p" in */*) ;; *) p="transcripts/$p" ;; esac
+    case "$fc" in ''|*[!0-9]*) fc=0 ;; esac
+    case $'\n'"$todo" in *$'\n'"$p"$'\t'*) continue ;; esac
+    todo="$todo$p"$'\t'"$fc"$'\n'
+  done < <(printf '%s\n' "$raw")
+  if [ -n "$todo" ] && [ -n "$persist" ] && [ -n "$rebuild" ] \
+     && ! { printf '%s' "$todo" > "$SCRUB_TODO.tmp.$$" && mv -f "$SCRUB_TODO.tmp.$$" "$SCRUB_TODO"; } 2>/dev/null; then
+    rm -f "$SCRUB_TODO.tmp.$$" 2>/dev/null
+    sb_log_error "extract-drain.sh" "archive scrub: cannot write $SCRUB_TODO; the list is kept for this tick and rebuilt next tick" 1
+  fi
+  # This tick's pick: fewest failed attempts, then archives with lines to extract (map order:
+  # oldest first), then list order; BATCH entries. A selection over a fixed-width key (awk has no
+  # portable sort): BATCH passes over the list.
+  local pick
+  pick=$({ printf '%s\n' "$DRAIN_MAP"; printf '%s\n' '--todo--'; printf '%s' "$todo"; } \
     | LC_ALL=C awk -F'\t' -v n="$batch" '
         sec == 0 && $0 == "--todo--" { sec = 1; next }
-        sec == 0 { if ($1 != "" && $4 == "pending") pq[++np] = $1; next }
-        $0 != "" { t[++nt] = $0; want[$0] = 1 }
+        sec == 0 { if ($1 != "" && $4 == "pending") pq["transcripts/" $1] = ++np; next }
+        $1 != "" {
+          t[++nt] = $1
+          key[nt] = sprintf("%09d %d %09d", $2 + 0, (($1 in pq) ? 0 : 1), (($1 in pq) ? pq[$1] : nt))
+        }
         END {
-          for (i = 1; i <= np && k < n; i++) if ((pq[i] in want) && !(pq[i] in out)) { out[pq[i]] = 1; print pq[i]; k++ }
-          for (i = 1; i <= nt && k < n; i++) if (!(t[i] in out)) { out[t[i]] = 1; print t[i]; k++ }
+          for (k = 1; k <= n; k++) {
+            b = 0
+            for (i = 1; i <= nt; i++) if (!(i in used) && (b == 0 || key[i] < key[b])) b = i
+            if (b == 0) break
+            used[b] = 1; print t[b]
+          }
         }')
-  while IFS= read -r b; do
-    [ -n "$b" ] || continue
-    if [ ! -f "$TX_DIR/$b" ] || sb_scrub_archive_file "$TX_DIR/$b"; then scrubbed="$scrubbed$b"$'\n'; fi
+  local scrubbed="" failed=""
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if [ ! -f "$BRAIN_DIR/$p" ] || sb_scrub_archive_file "$BRAIN_DIR/$p"; then scrubbed="$scrubbed$p"$'\n'
+    else failed="$failed$p"$'\n'; fi
   done < <(printf '%s\n' "$pick")
-  while IFS= read -r b; do
-    [ -n "$b" ] || continue
-    case $'\n'"$scrubbed" in *$'\n'"$b"$'\n'*) continue ;; esac
-    left="$left$b"$'\n'; nleft=$((nleft + 1))
-  done < <(printf '%s\n' "$todo")
-  DRAIN_SCRUB_TODO="$left"
-  if [ -z "$left" ]; then
+  local left="" nleft=0 nstuck=0
+  DRAIN_SCRUB_TODO=""
+  while IFS=$'\t' read -r p fc; do
+    [ -n "$p" ] || continue
+    case $'\n'"$scrubbed" in *$'\n'"$p"$'\n'*) continue ;; esac
+    case $'\n'"$failed" in *$'\n'"$p"$'\n'*) fc=$((fc + 1)) ;; esac
+    left="$left$p"$'\t'"$fc"$'\n'; nleft=$((nleft + 1))
+    [ "$fc" -lt 3 ] || nstuck=$((nstuck + 1))
+    case "$p" in transcripts/*) DRAIN_SCRUB_TODO="$DRAIN_SCRUB_TODO${p#transcripts/}"$'\n' ;; esac
+  done < <(printf '%s' "$todo")
+  if [ -z "$left" ] && [ -n "$persist" ]; then
     if : 2>/dev/null > "$SCRUB_MARK"; then
       rm -f "$SCRUB_TODO" 2>/dev/null
-      sb_drain_tick archive-scrub "done: every archive written before 0.56.0 is secret-scrubbed"
+      sb_drain_tick archive-scrub "done: every archive and dream copy written before 0.56.0 is secret-scrubbed"
     else
       sb_log_error "extract-drain.sh" "archive scrub: cannot write $SCRUB_MARK; the (idempotent) migration re-runs next tick" 1
     fi
     return 0
   fi
-  if ! { printf '%s' "$left" > "$SCRUB_TODO.tmp.$$" && mv -f "$SCRUB_TODO.tmp.$$" "$SCRUB_TODO"; } 2>/dev/null; then
+  [ -n "$left" ] || return 0
+  if [ -n "$persist" ] && ! { printf '%s' "$left" > "$SCRUB_TODO.tmp.$$" && mv -f "$SCRUB_TODO.tmp.$$" "$SCRUB_TODO"; } 2>/dev/null; then
     rm -f "$SCRUB_TODO.tmp.$$" 2>/dev/null
     sb_log_error "extract-drain.sh" "archive scrub: cannot rewrite $SCRUB_TODO; the scrubbed archives are re-checked next tick (idempotent)" 1
   fi
-  sb_drain_tick archive-scrub "${nleft} archive(s) still to scrub; they are not extracted until then"
+  sb_drain_tick archive-scrub "${nleft} file(s) still to scrub (${nstuck} failed 3+ attempts); those archives are not extracted until then"
   return 0
 }
 
@@ -502,7 +547,7 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
   [ "$st" = "pending" ] || continue
   [ "$flag" = "recreated" ] && [ -n "$DRAIN_PURGE_FAILED" ] && continue
   # Never extract an archive still awaiting its one-time scrub (R2-F#4): the window holds secrets.
-  [ -z "$DRAIN_SCRUB_HOLD" ] || continue
+  # Held one by one (X2#3): nothing else waits for it.
   case $'\n'"$DRAIN_SCRUB_TODO" in *$'\n'"$base"$'\n'*) continue ;; esac
   tf="$TX_DIR/$base"
   case "$mt" in ''|*[!0-9]*) mt=0 ;; esac

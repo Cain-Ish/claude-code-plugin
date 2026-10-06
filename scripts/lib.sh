@@ -3127,6 +3127,24 @@ sb_count_drain_dead_letters() {
   echo "$SB_DM_DEAD_ARCHIVES"
 }
 
+# sb_scrub_todo_counts: the one-time archive-scrub to-do list (.archive-scrub-v1.todo, written by
+# extract-drain.sh drain_scrub_migrate: `<path relative to BRAIN_DIR>\t<failed attempts>` per line)
+# -> SB_SCRUB_TODO_N (files still to scrub) and SB_SCRUB_TODO_STUCK (those whose scrub failed 3+
+# times: one attempt per drainer tick; their archives stay held from extraction). Builtins only.
+# Returns 1 when there is no list (the migration finished, or has not listed anything yet).
+sb_scrub_todo_counts() {
+  SB_SCRUB_TODO_N=0; SB_SCRUB_TODO_STUCK=0
+  local f="$BRAIN_DIR/.archive-scrub-v1.todo" p fc
+  [ -f "$f" ] || return 1
+  while IFS=$'\t' read -r p fc || [ -n "$p" ]; do
+    p="${p%$'\r'}"; [ -n "$p" ] || continue
+    fc="${fc%$'\r'}"; case "$fc" in ''|*[!0-9]*) fc=0 ;; esac
+    SB_SCRUB_TODO_N=$((SB_SCRUB_TODO_N + 1))
+    [ "$fc" -lt 3 ] || SB_SCRUB_TODO_STUCK=$((SB_SCRUB_TODO_STUCK + 1))
+  done < "$f"
+  return 0
+}
+
 # Verify jq is available. If missing, log to error-log.jsonl and return 1.
 # Caller pattern: `sb_require_jq || exit 0` — the hook then exits cleanly
 # rather than running jq commands that would silently no-op. The error is

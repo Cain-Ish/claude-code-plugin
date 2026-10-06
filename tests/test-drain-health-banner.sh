@@ -170,6 +170,27 @@ printf '%s' "$SO" | grep -q 'backlog: ? (cursor map failed' \
   && pass "M4: the snapshot backlog says the cursor map failed" \
   || fail "M4: snapshot backlog hid the map failure (got: $(printf '%s' "$SO" | grep 'backlog:'))"
 
+echo "=== archive scrub hold (X2#3) ==="
+# The one-time secret-scrub migration holds an archive from extraction until it is scrubbed. One
+# whose scrub failed 3+ times (an attempt per drainer tick) is surfaced; fewer attempts are not.
+reset; rm -f "$B/.archive-scrub-v1"
+printf 'transcripts/h1.txt\t3\ntranscripts/h2.txt\t1\ndreams/d1/transcripts/h3.txt\t0\n' > "$B/.archive-scrub-v1.todo"
+O=$(emit)
+printf '%s' "$O" | grep -q "$BANNER" && printf '%s' "$O" | grep -q '1 archive(s) held from extraction: their secret scrub failed 3+ times' \
+  && pass "H1: an archive whose scrub failed 3+ times is surfaced" || fail "H1: scrub hold not surfaced (got: $(printf '%s' "$O" | grep 'signal:' | head -c 300))"
+printf 'transcripts/h1.txt\t2\n' > "$B/.archive-scrub-v1.todo"
+O=$(emit)
+printf '%s' "$O" | grep -q 'secret scrub failed' && fail "H2: a scrub under 3 attempts fired the banner" || pass "H2: fewer than 3 attempts stay quiet"
+rm -f "$B/.archive-scrub-v1.todo"
+printf 'transcripts/s1.txt\t4\ntranscripts/s2.txt\t0\n' > "$SB2/.archive-scrub-v1.todo"
+SO=$(env PATH="$SB2/sbin:$PATH" BRAIN_DIR="$SB2" KNOWLEDGE_DIR="$SB2/k" bash "$SNAP" "$ROOT" 2>/dev/null)
+printf '%s' "$SO" | grep -q 'archive scrub: 2 file(s) still to scrub (1 failed 3+ attempts' \
+  && pass "H3: the snapshot shows the scrub to-do count and the stuck ones" || fail "H3: snapshot scrub line (got: $(printf '%s' "$SO" | grep 'archive scrub'))"
+rm -f "$SB2/.archive-scrub-v1.todo"; : > "$SB2/.archive-scrub-v1"
+SO=$(env PATH="$SB2/sbin:$PATH" BRAIN_DIR="$SB2" KNOWLEDGE_DIR="$SB2/k" bash "$SNAP" "$ROOT" 2>/dev/null)
+printf '%s' "$SO" | grep -q 'archive scrub: done' && pass "H4: the snapshot shows a finished migration" || fail "H4: snapshot scrub line (got: $(printf '%s' "$SO" | grep 'archive scrub'))"
+rm -f "$SB2/.archive-scrub-v1"
+
 echo "=== drainer dead-man switch ==="
 # Fires on SILENCE (stale progress + newer queued work) — the state no failure-
 # signature banner can see: the 2026-07 lock wedge left ZERO log lines for six

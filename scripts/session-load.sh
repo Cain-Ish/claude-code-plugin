@@ -1210,13 +1210,19 @@ if [ "${SB_DRAIN_HEALTH_BANNER:-on}" != "off" ] && [ "${H_STATUS:-}" != "fail" ]
   # window in the middle is lost for good even after later windows succeed.
   _sl_drain_counts; DEAD_N=$SB_DM_DEAD_ARCHIVES
   [ -z "$_SL_DM_FAILED" ] || DEAD_N='?'
-  # Three OR'd triggers (quarantine is owned by dream-autostage.sh, not here); the third is the
+  # The one-time secret-scrub migration holds an archive from extraction until it is scrubbed; one
+  # whose scrub failed 3+ times (an attempt per drainer tick) is stuck there (X2#3). One builtin
+  # read of the small to-do list, only while the migration is unfinished.
+  SCRUB_STUCK=0
+  if [ ! -f "$BRAIN_DIR/.archive-scrub-v1" ] && sb_scrub_todo_counts; then SCRUB_STUCK=$SB_SCRUB_TODO_STUCK; fi
+  # Four OR'd triggers (quarantine is owned by dream-autostage.sh, not here); one is the
   # accounting itself failing: an unknown backlog must not read as an empty one.
-  if [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] || [ -n "$_SL_DM_FAILED" ] \
+  if [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] || [ -n "$_SL_DM_FAILED" ] || [ "$SCRUB_STUCK" -gt 0 ] \
      || { [ "$DEAD_N" != '?' ] && [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ]; }; then
     DRAIN_WHY=""
     [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] && DRAIN_WHY="${DRAIN_TO_N} recent drain timeout(s) (ec=124 — the extractor hangs past its deadline)"
     [ -n "$_SL_DM_FAILED" ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }drain accounting unavailable: the cursor map failed (sb_drain_cursor_map, see ~/.second-brain/error-log.jsonl), so the backlog and dead-letter counts are unknown"
+    [ "$SCRUB_STUCK" -gt 0 ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }${SCRUB_STUCK} archive(s) held from extraction: their secret scrub failed 3+ times (sb_scrub_archive_file in ~/.second-brain/error-log.jsonl; the list is ~/.second-brain/.archive-scrub-v1.todo)"
     [ "$DEAD_N" != '?' ] && [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }${DEAD_N} transcript(s) hold dead-lettered windows (${SB_DM_DEAD_WINDOWS} window(s), ${SB_DM_DEAD_LINES} lines) that permanently failed extraction (poison-pilled)"
     [ -n "$DRAIN_WHY" ] || DRAIN_WHY="the out-of-band extractor is not draining"
     # OS-AWARE remedy. Linux: the drainer CAN run (bwrap) — raise the timeout (or

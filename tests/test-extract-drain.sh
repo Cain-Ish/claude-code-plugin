@@ -578,7 +578,7 @@ printf '1\n' > "$BRAIN_DIR/transcripts/.sg1_proj_2026-05-24.txt.lock"
 SB_DRAIN_BATCH=3 sdrain
 grep -q '^=== sg1_proj' "$SCAP" 2>/dev/null && no "scrub-migrate: an archive still awaiting its scrub was extracted" \
   || ok "scrub-migrate: an archive awaiting its scrub is not extracted"
-grep -qx 'sg1_proj_2026-05-24.txt' "$STODO" 2>/dev/null && ok "scrub-migrate: the failed scrub stays on the to-do list" || no "scrub-migrate: the failed scrub left the to-do list"
+grep -qx "$(printf 'transcripts/sg1_proj_2026-05-24.txt\t1')" "$STODO" 2>/dev/null && ok "scrub-migrate: the failed scrub stays on the to-do list" || no "scrub-migrate: the failed scrub left the to-do list"
 [ ! -f "$SMARK" ] && ok "scrub-migrate: no marker while an archive awaits its scrub" || no "scrub-migrate: marker written early"
 rm -f "$BRAIN_DIR/transcripts/.sg1_proj_2026-05-24.txt.lock"
 SB_DRAIN_BATCH=3 sdrain
@@ -595,7 +595,7 @@ printf '{"basename":"so0_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outco
 SB_DRAIN_BATCH=1 sdrain
 grep -q '^=== so1_proj' "$SCAP" 2>/dev/null && ok "scrub-migrate: the pending archive is scrubbed first and extracted on tick 1" \
   || no "scrub-migrate: the pending archive waited behind a done one"
-grep -qx 'so0_proj_2026-05-24.txt' "$STODO" 2>/dev/null && ok "scrub-migrate: batch-bounded (the done archive waits for tick 2)" || no "scrub-migrate: not batch-bounded"
+grep -qx "$(printf 'transcripts/so0_proj_2026-05-24.txt\t0')" "$STODO" 2>/dev/null && ok "scrub-migrate: batch-bounded (the done archive waits for tick 2)" || no "scrub-migrate: not batch-bounded"
 SB_DRAIN_BATCH=1 sdrain
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/so0_proj_2026-05-24.txt" && no "scrub-migrate: the done archive was never scrubbed" || ok "scrub-migrate: resumed on tick 2 (done archive scrubbed)"
 [ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub-migrate: complete after tick 2" || no "scrub-migrate: not complete after tick 2"
@@ -704,6 +704,60 @@ printf '%s' "$MROW" | grep -q 'map=failed' && ! printf '%s' "$MROW" | grep -q 'd
 eq "map-failed: extractor health is fail" "$(jq -r '.status' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | tr -d '\r')" "fail"
 jq -r '.reason' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | grep -q 'cursor map unavailable' \
   && ok "map-failed: the health reason names the cursor map" || no "map-failed: health reason (got: $(cat "$BRAIN_DIR/.extractor-health.json" 2>/dev/null))"
+
+# D17 (X2#3): the scrub to-do list holds archives one by one. Format (also read by the episodic
+# indexer): one `<path relative to BRAIN_DIR>\t<failed scrub attempts>` per line.
+# D17a: a scrub that keeps failing rotates to the back instead of blocking every other archive
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_key "sr1_proj_2026-05-24.txt" 202605240000              # oldest pending: the first pick
+mk_key "sr2_proj_2026-05-24.txt" 202605240001
+printf '1\n' > "$BRAIN_DIR/transcripts/.sr1_proj_2026-05-24.txt.lock"   # a live writer: its scrub fails
+SB_DRAIN_BATCH=1 sdrain
+grep -qx "$(printf 'transcripts/sr1_proj_2026-05-24.txt\t1')" "$STODO" 2>/dev/null \
+  && ok "scrub rotation: a failed scrub counts its attempt" || no "scrub rotation: no attempt count (got: $(cat "$STODO" 2>/dev/null))"
+SB_DRAIN_BATCH=1 sdrain
+grep -q '^=== sr2_proj' "$SCAP" 2>/dev/null && ok "scrub rotation: the failing archive goes last, the next one is scrubbed and extracted" \
+  || no "scrub rotation: the failing archive is re-picked first and blocks the others"
+grep -q '^=== sr1_proj' "$SCAP" 2>/dev/null && no "scrub rotation: an unscrubbed archive was extracted" || ok "scrub rotation: the unscrubbed archive stays held"
+rm -f "$BRAIN_DIR/transcripts/.sr1_proj_2026-05-24.txt.lock"
+# D17b: one archive the listing grep cannot read is held alone, not every extraction
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_lines "su2_proj_2026-05-24.txt" 3                       # clean, extractable
+mk_key "su1_proj_2026-05-24.txt" 202605240000
+GSHIM="$SANDBOX/grepshim"; mkdir -p "$GSHIM"; RGREP=$(command -v grep)
+cat > "$GSHIM/grep" <<EOF9
+#!/bin/bash
+case " \$* " in *" -lF "*)
+  "$RGREP" "\$@" | "$RGREP" -v 'su1_proj'; echo "grep: transcripts/su1_proj_2026-05-24.txt: Permission denied" >&2; exit 2 ;;
+esac
+exec "$RGREP" "\$@"
+EOF9
+chmod +x "$GSHIM/grep"
+PATH="$GSHIM:$PATH" sdrain
+grep -q '^=== su2_proj' "$SCAP" 2>/dev/null && ok "scrub hold: an unreadable archive no longer holds every extraction" \
+  || no "scrub hold: one unreadable archive held all extraction"
+grep -qF 'sk-ant-' "$SCAP" 2>/dev/null && no "scrub hold: a key reached the extractor" || ok "scrub hold: no key reached the extractor"
+# D17c: a to-do list that cannot be read is rebuilt (attempt counts restart) instead of holding all
+reset; rm -f "$SCAP" "$SMARK"
+mk_lines "sc2_proj_2026-05-24.txt" 3
+mk_key "sc1_proj_2026-05-24.txt" 202605240000
+printf 'transcripts/sc1_proj_2026-05-24.txt\t2\n' > "$STODO"
+CSHIM="$SANDBOX/catshim"; mkdir -p "$CSHIM"; RCAT=$(command -v cat)
+printf '#!/bin/bash\ncase "$*" in *archive-scrub-v1.todo*) exit 1 ;; esac\nexec "%s" "$@"\n' "$RCAT" > "$CSHIM/cat"; chmod +x "$CSHIM/cat"
+PATH="$CSHIM:$PATH" sdrain
+grep -q '^=== sc2_proj' "$SCAP" 2>/dev/null && ok "scrub hold: an unreadable to-do list is rebuilt, extraction goes on" \
+  || no "scrub hold: an unreadable to-do list held all extraction"
+grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sc1_proj_2026-05-24.txt" && no "scrub hold: the rebuilt list lost the key-holding archive" \
+  || ok "scrub hold: the rebuilt list still scrubs the key-holding archive"
+# D17d (security review): transcript copies already staged in dream dirs are part of the migration
+reset; rm -f "$SCAP" "$SMARK" "$STODO"; rm -rf "$BRAIN_DIR/dreams"
+mkdir -p "$BRAIN_DIR/dreams/dr1/transcripts"
+printf 'USER: my key is %s\n' "$KANT" > "$BRAIN_DIR/dreams/dr1/transcripts/x1_proj_2026-05-24.txt"
+sdrain
+grep -qF 'sk-ant-' "$BRAIN_DIR/dreams/dr1/transcripts/x1_proj_2026-05-24.txt" && no "scrub-migrate: a dream dir's transcript copy still holds a key" \
+  || ok "scrub-migrate: a dream dir's transcript copy is scrubbed"
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub-migrate: the marker waits for the dream copies too" || no "scrub-migrate: marker state wrong with dream copies"
+rm -rf "$BRAIN_DIR/dreams"
 
 # D12 (R2-F#3): a per-archive lock left by a writer that died is swept after a day; a live one stays
 reset

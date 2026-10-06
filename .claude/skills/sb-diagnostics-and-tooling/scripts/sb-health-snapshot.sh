@@ -92,6 +92,14 @@ else
   DEAD_LETTERS="?"
 fi
 echo "  drain counters: timeouts(last 40 err-log lines)=$(sb_count_drain_timeouts 40)  dead-letters=$DEAD_LETTERS"
+# The one-time secret-scrub migration (0.56.0): an archive on its to-do list is held from extraction.
+if [ -f "$BRAIN_DIR/.archive-scrub-v1" ]; then
+  echo "  archive scrub: done (.archive-scrub-v1)"
+elif sb_scrub_todo_counts; then
+  echo "  archive scrub: $SB_SCRUB_TODO_N file(s) still to scrub ($SB_SCRUB_TODO_STUCK failed 3+ attempts; their archives are not extracted until scrubbed)"
+else
+  echo "  archive scrub: not started (the drainer's first tick lists the archives to scrub)"
+fi
 
 echo
 echo "-- logs --"
