@@ -101,7 +101,7 @@ bash "${CLAUDE_PLUGIN_ROOT:-.}/bin/sb" help
 | `sb recall <text>` | episodic transcript search, limit 5 | `NN%  [date project]  snippet` + `archivePath:lineStart-lineEnd` |
 | `sb pin user <text>` | append preference to USER.md | `+ <line>` or exit 1 + stderr reason |
 | `sb pin project <slug> <blockers\|decisions> <text>` | append to PROJECT.md | `+ <line>  (slug/section)` |
-| `sb status` | hot-tier + wiki sizes | USER.md bytes, project count, per-project PROJECT.md bytes, wiki counts |
+| `sb status` | hot-tier + wiki sizes, drainer recency, transcript backlog | USER.md bytes, project count, per-project PROJECT.md bytes, wiki counts, `transcript backlog:  N of M archived (K dead-lettered)` (N = `pending` rows of `sb_drain_cursor_map`) |
 | `sb auth status` | extractor auth mode (authoritative) | see table below |
 | `sb auth doctor` | prints the two supported auth setups + verify step | text |
 
@@ -217,7 +217,8 @@ State files (all under `~/.second-brain`; full map owned by sb-architecture-cont
 | `.last-extracted-line-<slug>--<session_id>` | per-session extraction marker (bare integer, raw transcript lines); swept after 30 d idle |
 | `.extractor-health.json` | `{checked_at, backend, status, reason}`; `status ∈ ok\|fail\|queued` — `queued` is NORMAL on subscription auth (in-session OAuth deferral) |
 | `.extraction-state.jsonl` | drainer done-set: `{basename, ts, outcome: ok\|baseline\|retry\|error, reason?, latency_s?, fails?, from, lines}`; `from`/`lines` = the archive-line window extracted; a cursor = max `lines` over `ok`/`baseline` rows; `error` = that window dead-lettered after `SB_DRAIN_MAX_FAILS` (3), lines stay un-extracted |
-| `transcripts/*.txt` | archived session windows (caps 400 files / 25 MB soft, 1200 files / 75 MB hard; subagent `sub-*` sub-cap 200) |
+| `transcripts/*.txt` | archived session windows, credential formats redacted (OpenAI `sk-proj-`/`sk-svcacct-`/`sk-admin-`, Anthropic, GitHub, AWS, Slack, Bearer, PEM); caps 400 files / 25 MB soft, 1200 files / 75 MB hard, only `pending` archives protected from eviction; subagent `sub-*` sub-cap 200 |
+| `transcripts/.<archive>.lock`, `.archive-scrub-v1`, `.archive-scrub-v1.todo` | per-archive write lock (5 s wait, stolen after 60 s); one-time scrub marker and to-do list |
 | `.drain-defer-count` / `.last-drain-escape` | drainer starvation-escape state |
 | `.project-update-pending-<slug>` | queued reflection work flag |
 
@@ -256,7 +257,8 @@ Context for interpreting a non-draining backlog: the drainer refuses in-session
 6 defers / oldest-pending >24 h, only when SAFE), single-flights on
 `.extract-drain.lock` (7200 s staleness steal), makes up to 5 extractor calls per tick, per-attempt timeout 240 s.
 A live archive is extracted once `SB_DRAIN_DELTA_MIN_BYTES` (4096) of new lines exist or it has been quiet
-`SB_DRAIN_QUIET_S` (3600 s), so a small growing archive legitimately reads `pending`.
+`SB_DRAIN_QUIET_S` (3600 s), so a small growing archive legitimately reads `pending`. Archive lock, eviction rules, the one-time scrub migration
+(an archive awaiting its scrub is not extracted) and done-set compaction: `references/archive-and-backlog.md`.
 A large backlog with `mode: subscription` + an always-open interactive session is
 the known starvation shape, not a bug — see sb-debugging-playbook for the triage.
 
