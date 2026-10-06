@@ -277,7 +277,14 @@ now() { date -u +%FT%TZ; }
 # drain_clock: DRAIN_TS (row ts) + DRAIN_NOW_S (epoch) from ONE date spawn.
 drain_clock() { read -r DRAIN_TS DRAIN_NOW_S <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s')"; }
 drain_clock
-drain_map() { DRAIN_MAP=$(sb_drain_cursor_map "$STATE" "$TX_DIR") || DRAIN_MAP=""; }
+# A map failure (logged by sb_drain_cursor_map) leaves an EMPTY map, which the batch loop reads as
+# "nothing pending": DRAIN_MAP_FAILED keeps that apart, so the reconcile row and the extractor
+# health say the accounting failed instead of "drained 0, 0/0/0". Re-evaluated on every call.
+DRAIN_MAP_FAILED=""
+drain_map() {
+  if DRAIN_MAP=$(sb_drain_cursor_map "$STATE" "$TX_DIR"); then DRAIN_MAP_FAILED=""
+  else DRAIN_MAP=""; DRAIN_MAP_FAILED=1; fi
+}
 # A basename as a JSON string, builtins only (was one `jq -Rn` spawn per row written).
 drain_json_str() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; DRAIN_JSON="\"$s\""; }
 # drain_row OUTCOME REASON FROM LINES [TRAILING]: append one row for $base. REASON '' = none;
@@ -583,23 +590,27 @@ sb_compact_done_set "$STATE" "$TX_DIR" || true
 # The AUDIT row, not the ledger, is the durable metric series: the ledger GC above drops rows
 # with their pruned transcripts. Fail-soft: a stats miss degrades to zeros, never blocks the tick.
 drain_map
-sb_drain_map_counts "$DRAIN_MAP"
-RECON_DECLARED=$SB_DM_TOTAL
-RECON_OBSERVED=$(( SB_DM_DONE + SB_DM_DEAD ))
-RECON_PENDING=$SB_DM_PENDING
-RECON_LAT="0 0 0"
-if [ -s "$STATE" ]; then
-  # sampled_n distinguishes "0 0" from real all-zero latency: too-small rows and
-  # -1 (unmeasured) sentinels carry no usable latency_s and are excluded here.
-  RECON_LAT=$(jq -cR 'fromjson? | select(.outcome == "ok") | .latency_s // empty' "$STATE" 2>/dev/null \
-    | grep -E '^[0-9]+$' | sort -n \
-    | awk '{ a[NR] = $1 } END { if (NR == 0) print "0 0 0"; else print a[NR], a[int((NR + 1) / 2)], NR }')
-  [ -n "$RECON_LAT" ] || RECON_LAT="0 0 0"
+if [ -n "$DRAIN_MAP_FAILED" ]; then
+  sb_drain_tick reconcile "map=failed declared=? observed=? pending=? (sb_drain_cursor_map failed, see error-log.jsonl)"
+else
+  sb_drain_map_counts "$DRAIN_MAP"
+  RECON_DECLARED=$SB_DM_TOTAL
+  RECON_OBSERVED=$(( SB_DM_DONE + SB_DM_DEAD ))
+  RECON_PENDING=$SB_DM_PENDING
+  RECON_LAT="0 0 0"
+  if [ -s "$STATE" ]; then
+    # sampled_n distinguishes "0 0" from real all-zero latency: too-small rows and
+    # -1 (unmeasured) sentinels carry no usable latency_s and are excluded here.
+    RECON_LAT=$(jq -cR 'fromjson? | select(.outcome == "ok") | .latency_s // empty' "$STATE" 2>/dev/null \
+      | grep -E '^[0-9]+$' | sort -n \
+      | awk '{ a[NR] = $1 } END { if (NR == 0) print "0 0 0"; else print a[NR], a[int((NR + 1) / 2)], NR }')
+    [ -n "$RECON_LAT" ] || RECON_LAT="0 0 0"
+  fi
+  RECON_MAX=$(printf '%s' "$RECON_LAT" | cut -d' ' -f1)
+  RECON_P50=$(printf '%s' "$RECON_LAT" | cut -d' ' -f2)
+  RECON_N=$(printf '%s' "$RECON_LAT" | cut -d' ' -f3); : "${RECON_N:=0}"
+  sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pending=$RECON_PENDING oldest_pending_s=$(sb_drain_oldest_pending_age) max_latency_s=$RECON_MAX p50_latency_s=$RECON_P50 sampled_n=$RECON_N"
 fi
-RECON_MAX=$(printf '%s' "$RECON_LAT" | cut -d' ' -f1)
-RECON_P50=$(printf '%s' "$RECON_LAT" | cut -d' ' -f2)
-RECON_N=$(printf '%s' "$RECON_LAT" | cut -d' ' -f3); : "${RECON_N:=0}"
-sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pending=$RECON_PENDING oldest_pending_s=$(sb_drain_oldest_pending_age) max_latency_s=$RECON_MAX p50_latency_s=$RECON_P50 sampled_n=$RECON_N"
 
 # Don't clobber a real failure marker: only report ok if anything succeeded.
 # A run where every extraction failed must surface status=fail so the
@@ -607,7 +618,9 @@ sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pendi
 # Report the REAL backend the per-transcript extractor recorded (local | claude-cli |
 # anthropic-api), not a hardcoded label; default to "drainer" if none was written.
 DRAIN_BACKEND=$(jq -r '.backend // "drainer"' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null); : "${DRAIN_BACKEND:=drainer}"
-if [ "$processed" -eq 0 ] && [ "$failed" -gt 0 ]; then
+if [ -n "$DRAIN_MAP_FAILED" ]; then
+  sb_write_extractor_health "$DRAIN_BACKEND" "fail" "cursor map unavailable: drain accounting failed (drained $processed, $failed failed this run; see error-log.jsonl)"
+elif [ "$processed" -eq 0 ] && [ "$failed" -gt 0 ]; then
   sb_write_extractor_health "$DRAIN_BACKEND" "fail" "drained 0, $failed failed this run"
 else
   sb_write_extractor_health "$DRAIN_BACKEND" "ok" "drained $processed this run ($failed failed)"

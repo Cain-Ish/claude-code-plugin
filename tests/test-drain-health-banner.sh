@@ -133,6 +133,32 @@ printf '%s' "$SO" | grep -q 'backlog: 1 pending of 2 archived' \
   && pass "S1: snapshot backlog counts the grown archive as pending" \
   || fail "S1: snapshot backlog wrong (got: $(printf '%s' "$SO" | grep 'backlog:'))"
 
+echo "=== cursor-map failure is never 'nothing pending' (R2 fix X2#2) ==="
+# A jq shim on PATH fails ONLY the cursor-map program (the one jq program that defines `epoch`)
+# and passes every other jq call through, so what fails is the map and nothing else. Each reader
+# must say the map failed instead of rendering zeros ("nothing pending, health ok").
+JQS="$B/jqshim"; mkdir -p "$JQS"
+REALJQ=$(command -v jq)
+printf '#!/bin/bash\ncase "$*" in *"def epoch"*) exit 5 ;; esac\nexec "%s" "$@"\n' "$REALJQ" > "$JQS/jq"; chmod +x "$JQS/jq"
+reset; mkdir -p "$B/transcripts"; printf -- '--- session-meta ---\n---\nUSER: x\n' > "$B/transcripts/m1.txt"
+O=$(printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' | env PATH="$JQS:$PATH" BRAIN_DIR="$B" HOME="$B" bash "$SL" 2>/dev/null)
+printf '%s' "$O" | grep -q "$BANNER" && printf '%s' "$O" | grep -q 'cursor map failed' \
+  && pass "M1: a failed cursor map fires the drain-health banner and names the map" \
+  || fail "M1: a failed cursor map read as nothing pending (got: $(printf '%s' "$O" | grep -A2 "$BANNER" | head -c 300))"
+rm -f "$B/transcripts/m1.txt"
+MF=$( sb_drain_cursor_map() { return 1; }; sb_count_drain_dead_letters; echo "rc=$?" )
+[ "$MF" = "?"$'\n'"rc=1" ] && pass "M2: sb_count_drain_dead_letters prints ? and returns 1 on a map failure" \
+  || fail "M2: dead-letter counter hid the map failure (got: $MF)"
+CO=$(printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' \
+  | env PATH="$JQS:$CB/sbin:$PATH" ANTHROPIC_API_KEY="" BRAIN_DIR="$CB" HOME="$CB" bash "$SL" 2>/dev/null)
+printf '%s' "$CO" | grep -q 'capture: 1 archived · ? extracted' \
+  && pass "M3: the capture line shows ? extracted on a map failure, not 0" \
+  || fail "M3: capture line hid the map failure (got: $(printf '%s' "$CO" | grep -i 'second-brain.*capture' | head -c 200))"
+SO=$(env PATH="$JQS:$SB2/sbin:$PATH" BRAIN_DIR="$SB2" KNOWLEDGE_DIR="$SB2/k" bash "$SNAP" "$ROOT" 2>/dev/null)
+printf '%s' "$SO" | grep -q 'backlog: ? (cursor map failed' \
+  && pass "M4: the snapshot backlog says the cursor map failed" \
+  || fail "M4: snapshot backlog hid the map failure (got: $(printf '%s' "$SO" | grep 'backlog:'))"
+
 echo "=== drainer dead-man switch ==="
 # Fires on SILENCE (stale progress + newer queued work) — the state no failure-
 # signature banner can see: the 2026-07 lock wedge left ZERO log lines for six

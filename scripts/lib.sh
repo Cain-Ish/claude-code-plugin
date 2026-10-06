@@ -3032,10 +3032,12 @@ sb_count_drain_timeouts() {
 # Count archives whose unextracted tail is DEAD-LETTERED (an `error` row past SB_DRAIN_MAX_FAILS
 # covers every line the cursor has not reached — state `dead` in sb_drain_cursor_map). An archive
 # that recovered (a later ok row past the dead region) or grew past it is not counted.
-# Echoes an integer. $1 / $2 = optional explicit state file / transcripts dir (test override).
+# Echoes an integer; `?` and rc 1 when the cursor map failed (already logged by the map): a
+# failure must never read as "no dead letters". $1 / $2 = optional explicit state file /
+# transcripts dir (test override).
 sb_count_drain_dead_letters() {
   local map
-  map=$(sb_drain_cursor_map "${1:-}" "${2:-}") || { echo 0; return 0; }
+  map=$(sb_drain_cursor_map "${1:-}" "${2:-}") || { echo '?'; return 1; }
   sb_drain_map_counts "$map"
   echo "$SB_DM_DEAD"
 }

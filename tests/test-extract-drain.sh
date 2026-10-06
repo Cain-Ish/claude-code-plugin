@@ -600,6 +600,20 @@ SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=999999999 sdrain
 eq "scrub-migrate: the tick really deferred" "$(cat "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)" "1"
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sd1_proj_2026-05-24.txt" && no "scrub-migrate: a deferred tick skipped the scrub" || ok "scrub-migrate: runs on a deferred tick"
 
+# D13 (R2 fix X2#2): a cursor-map failure is not "nothing pending". A jq shim fails ONLY the map
+# program (the one that defines `epoch`); the tick must not write reconcile 0/0/0 nor health ok.
+JQS="$SANDBOX/jqshim"; mkdir -p "$JQS"
+printf '#!/bin/bash\ncase "$*" in *"def epoch"*) exit 5 ;; esac\nexec "%s" "$@"\n' "$(command -v jq)" > "$JQS/jq"; chmod +x "$JQS/jq"
+reset; rm -f "$RLOG" "$BRAIN_DIR/audit-log.jsonl" "$BRAIN_DIR/.extractor-health.json"
+mk_lines "mf1_proj_2026-05-24.txt" 3
+PATH="$JQS:$PATH" rdrain
+MROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
+printf '%s' "$MROW" | grep -q 'map=failed' && ! printf '%s' "$MROW" | grep -q 'declared=0 ' \
+  && ok "map-failed: the reconcile row says map=failed, not 0/0/0" || no "map-failed: reconcile row hid the failure (got: $MROW)"
+eq "map-failed: extractor health is fail" "$(jq -r '.status' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | tr -d '\r')" "fail"
+jq -r '.reason' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | grep -q 'cursor map unavailable' \
+  && ok "map-failed: the health reason names the cursor map" || no "map-failed: health reason (got: $(cat "$BRAIN_DIR/.extractor-health.json" 2>/dev/null))"
+
 # D12 (R2-F#3): a per-archive lock left by a writer that died is swept after a day; a live one stays
 reset
 printf '1\n' > "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock"; touch -t 202601010000 "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock"

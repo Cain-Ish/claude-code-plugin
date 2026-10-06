@@ -1173,12 +1173,21 @@ fi
 # R2 (0.56.0): ONE sb_drain_cursor_map per start (one wc -l + one stat + one jq) feeds both drain
 # counters below: the dead-letter count of the drain-health banner and the capture-health
 # "extracted" count. Computed on first use, at most once. Both used to read the done-set as a
-# basename set, which called a grown archive done forever.
+# basename set, which called a grown archive done forever. A map failure (logged by the map) sets
+# _SL_DM_FAILED: the banners then say the accounting is unavailable instead of rendering zeros,
+# which read as "nothing pending" while the drain state was unknown.
 _SL_DM_READY=""
+_SL_DM_FAILED=""
 _sl_drain_counts() {
   [ -n "$_SL_DM_READY" ] && return 0
   _SL_DM_READY=1
-  sb_drain_map_counts "$(sb_drain_cursor_map)"
+  local m
+  if m=$(sb_drain_cursor_map); then
+    sb_drain_map_counts "$m"
+  else
+    _SL_DM_FAILED=1
+    sb_drain_map_counts ""
+  fi
 }
 
 # 0a-quater. Out-of-band DRAINER health banner — the silent-failure gap (root
@@ -1198,11 +1207,15 @@ if [ "${SB_DRAIN_HEALTH_BANNER:-on}" != "off" ] && [ "${H_STATUS:-}" != "fail" ]
   DEAD_THRESH="${SB_DRAIN_DEADLETTER_THRESHOLD:-5}"; case "$DEAD_THRESH" in ''|*[!0-9]*) DEAD_THRESH=5 ;; esac
   DRAIN_TO_N=$(sb_count_drain_timeouts 40)
   _sl_drain_counts; DEAD_N=$SB_DM_DEAD
-  # Two OR'd triggers (quarantine is owned by dream-autostage.sh, not here).
-  if [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] || [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ]; then
+  [ -z "$_SL_DM_FAILED" ] || DEAD_N='?'
+  # Three OR'd triggers (quarantine is owned by dream-autostage.sh, not here); the third is the
+  # accounting itself failing: an unknown backlog must not read as an empty one.
+  if [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] || [ -n "$_SL_DM_FAILED" ] \
+     || { [ "$DEAD_N" != '?' ] && [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ]; }; then
     DRAIN_WHY=""
     [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] && DRAIN_WHY="${DRAIN_TO_N} recent drain timeout(s) (ec=124 — the extractor hangs past its deadline)"
-    [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }${DEAD_N} transcript(s) permanently failed extraction (poison-pilled)"
+    [ -n "$_SL_DM_FAILED" ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }drain accounting unavailable: the cursor map failed (sb_drain_cursor_map, see ~/.second-brain/error-log.jsonl), so the backlog and dead-letter counts are unknown"
+    [ "$DEAD_N" != '?' ] && [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }${DEAD_N} transcript(s) permanently failed extraction (poison-pilled)"
     [ -n "$DRAIN_WHY" ] || DRAIN_WHY="the out-of-band extractor is not draining"
     # OS-AWARE remedy. Linux: the drainer CAN run (bwrap) — raise the timeout (or
     # install bubblewrap if missing). macOS/Windows: no bwrap-contained headless
@@ -1349,7 +1362,10 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
     # "extracted" = archives with extraction evidence (SB_DM_EXTRACTED): a live archive that grew
     # since its last window still counts, so the nag below never fires on a working drainer
     # between two ticks, nor on a fresh upgrade before the first tick migrates legacy rows.
+    # A failed map renders `?`, never 0: 0 would fire the "capture not running" nag below on an
+    # unknown state.
     _sl_drain_counts; CAP_DONE=$SB_DM_EXTRACTED
+    [ -z "$_SL_DM_FAILED" ] || CAP_DONE='?'
     # Per-OS scheduler probe (else it false-alarms "no timer" off Linux).
     CAP_TIMER=no
     case "$(uname -s)" in
@@ -1397,7 +1413,7 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
       if [ -n "$CAP_SELFHEALED" ]; then
         sb_append "$(printf '## ⓘ second-brain — capture scheduler self-installed.\nThe out-of-band drainer was missing and has been installed (hardened, no credentials); the first drain runs on its next tick. %s transcript(s) queued. Opt out next time with `SB_DISABLE_AUTO_TIMER=1`.\n\n' "$CAP_N")" "capture-selfheal-banner" 380
       # Present all three remedies, API key first (zero-setup, any OS).
-      elif [ "$CAP_DONE" -eq 0 ] || [ "$CAP_TIMER" = "no" ]; then
+      elif [ "$CAP_DONE" = "0" ] || [ "$CAP_TIMER" = "no" ]; then
         # shellcheck disable=SC2016  # literal $CLAUDE_PLUGIN_ROOT for the user to run
         sb_append "$(printf '## ⚠ second-brain — capture not running (OAuth)\n%s transcript(s) archived, %s extracted; drainer timer: %s. Subscription auth can'\''t extract in-session (recursive-claude lock), so pick one:\n  • `export ANTHROPIC_API_KEY=sk-ant-...`  — instant in-session capture, any OS, no daemon\n  • `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth`  — out-of-band drainer via your Claude login\n  • `export SB_EXTRACTOR_LOCAL_URL=http://localhost:11434`  — a local model (offline)\nSuppress: `SB_CAPTURE_HEALTH_BANNER=off`.\n\n' "$CAP_N" "$CAP_DONE" "$CAP_TIMER")" "capture-health-banner" 700
       else
