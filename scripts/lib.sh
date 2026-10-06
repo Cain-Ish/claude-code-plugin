@@ -2085,7 +2085,9 @@ sb_archive_subagent_result() {
     | sort -rn | cut -d' ' -f2-)
   if [ -z "$sub_files" ]; then
     sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f 2>/dev/null \
-      | while IFS= read -r f; do printf '%s %s\n' "$(sb_mtime "$f")" "$f"; done \
+      | while IFS= read -r f; do
+          printf '%s %s\n' "$(sb_mtime "$f")" "$f"
+        done \
       | sort -rn | cut -d' ' -f2-)
   fi
   sub_count=$(printf '%s\n' "$sub_files" | grep -c . 2>/dev/null || true)
