@@ -374,6 +374,19 @@ fi
 eq "chunks: stop at the failing chunk (no call after it)" "$(cat "$CALLS.n")" "2"
 eq "chunks: SB_EXTRACT_REACHED = end of the last good chunk" "$SB_EXTRACT_REACHED" "17"
 
+# X2#10: the extractor input was written by an unchecked sed | tr | head inside a { } > file group,
+# so a window that could not be read went out as PROJECT.md plus an empty transcript and merged
+# as ok. A failed read (here: the window's sed fails) must fail the call before any extractor call.
+rm -f "$CALLS" "$CALLS.n"; : > "$BRAIN_DIR/error-log.jsonl"
+if ( sed() { case "$*" in "-n "*p*) return 1 ;; esac; command sed "$@"; }; sb_extract_transcript "$DX" proj 11 15 ) >/dev/null 2>&1; then
+  no "input check: a window that could not be read reported success"
+else
+  ok "input check: a window that could not be read fails the call"
+fi
+eq "input check: the extractor is never called with an empty window" "$(cat "$CALLS.n" 2>/dev/null || echo 0)" "0"
+grep -q 'sb_extract_transcript: cannot read archive lines' "$BRAIN_DIR/error-log.jsonl" \
+  && ok "input check: the unreadable window is logged" || no "input check: the unreadable window was silent"
+
 echo "=== R2-F#10: lossless done-set compaction (sb_compact_done_set) ==="
 # The ledger gains a row per extracted window and every SessionStart parses it. Compaction keeps,
 # per live basename, only the rows sb_drain_cursor_map reads. The proof: the map (all 8 columns)
