@@ -2760,6 +2760,31 @@ sb_require_jq() {
 }
 
 # --- Out-of-band extraction helpers ---------------------------------------
+# R2 contract (0.56.0, "nothing captured is lost"): two cursors, never interchangeable.
+#   raw_line     position in the RAW Claude Code transcript (.jsonl): how much of it has been
+#                copied into the archive. Kept in .last-archived-line-<slug>--<sid> (archive-first)
+#                and the legacy .last-extracted-line-<slug>--<sid>.
+#   archive_line position in the ARCHIVE (transcripts/*.txt): how much of it has been extracted.
+#                Kept in done-set rows, counted with sb_line_count only.
+# Done-set rows (.extraction-state.jsonl): one JSON object per line, append-only, additive schema:
+#   {basename, ts, outcome: ok|baseline|retry|error, reason?, latency_s?, fails?, from?, lines?}
+#   from  = archive_line the extracted window starts after (exclusive)
+#   lines = archive_line the window ends at (inclusive)
+# A basename's cursor = max(lines) over its ok|baseline rows. retry and error rows never advance
+# it (D177). A legacy row without `lines` advances nothing; the first-tick migration gives it a
+# baseline row. An archive whose sb_line_count is below its cursor was recreated: cursor 0.
+
+# sb_line_count FILE: the one counting primitive for archive_line. Counts complete lines (newline
+# bytes, as `wc -l`), so a torn last line is never covered by a cursor; the archive appender keeps
+# a trailing newline. Missing file: 0. Unreadable file: non-zero return, nothing echoed.
+sb_line_count() {
+  [ -f "$1" ] || { echo 0; return 0; }
+  local n
+  n=$(wc -l < "$1") || return 1
+  n="${n//[!0-9]/}"
+  echo "${n:-0}"
+}
+
 # A transcript is "done" once a terminal (ok|error) line exists in the
 # append-only done-set ~/.second-brain/.extraction-state.jsonl.
 sb_extraction_done() {

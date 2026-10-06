@@ -33,6 +33,14 @@ sb_extraction_done "c.txt" "$STATE" && ok "done: error is terminal" || no "done:
 sb_extraction_done "b.txt" "$STATE" && no "done: retry NOT terminal" || ok "done: retry NOT terminal"
 sb_extraction_done "z.txt" "$STATE" && no "done: unknown NOT terminal" || ok "done: unknown NOT terminal"
 
+# --- sb_line_count: the one archive_line primitive (R2 contract) ---
+LC="$SANDBOX/lc.txt"
+eq "line_count: missing file is 0" "$(sb_line_count "$SANDBOX/absent.txt")" "0"
+: > "$LC";                          eq "line_count: empty file is 0"           "$(sb_line_count "$LC")" "0"
+printf 'a\nb\nc\n' > "$LC";         eq "line_count: three complete lines"      "$(sb_line_count "$LC")" "3"
+printf 'a\nb\ntorn' > "$LC";        eq "line_count: a torn last line is not counted" "$(sb_line_count "$LC")" "2"
+printf 'a\r\nb\r\n' > "$LC";        eq "line_count: CRLF lines count once each" "$(sb_line_count "$LC")" "2"
+
 # --- fails count ---
 printf '{"basename":"b.txt","ts":"t","outcome":"retry"}\n' >> "$STATE"
 eq "fails: two retries for b" "$(sb_extraction_fails b.txt "$STATE")" "2"
