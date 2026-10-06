@@ -333,3 +333,26 @@ describe('recall parity and size, int8 vs float', () => {
     expect(floatBytes / compactBytes).toBeGreaterThanOrEqual(5);
   });
 });
+
+// The per-prompt query embed passes no cache key, so the embedding cache can never answer it (only
+// keyed entries are ever saved). It used to parse transcripts/.embeddings-cache.json (5.7 MB on the
+// live box, ~9 ms) on every prompt anyway.
+describe('embedTexts — a keyless (query) embed does not read the cache', () => {
+  it('skips the cache file for a query, still reads and writes it for keyed texts', async () => {
+    const dir = join(brainDir, 'transcripts');
+    writeFileSync(join(dir, '.embeddings-cache.json'),
+      JSON.stringify({ model: 'Xenova/all-MiniLM-L6-v2', entries: {} }), 'utf-8');
+    const spy = vi.spyOn(fsp, 'readFile');
+    try {
+      const q = await embedTexts(['archive transcripts'], dir, ['']);
+      expect(q?.[0]).toHaveLength(384);
+      const cacheReads = () => spy.mock.calls.filter(c => String(c[0]).endsWith('.embeddings-cache.json')).length;
+      expect(cacheReads()).toBe(0);
+      await embedTexts(['archive transcripts'], dir, ['episodic:x']);
+      expect(cacheReads()).toBe(1);
+      expect(JSON.parse(readFileSync(join(dir, '.embeddings-cache.json'), 'utf-8')).entries['episodic:x']).toBeDefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

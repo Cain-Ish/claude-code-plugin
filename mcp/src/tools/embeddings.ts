@@ -131,7 +131,9 @@ export async function embedTexts(texts: string[], wikiRoot: string, paths: strin
   const pipe = await getPipeline();
   if (!pipe) return null;
 
-  const cache = await loadCache(wikiRoot);
+  // Only keyed texts are ever saved, so a call with no key (the per-prompt query embed) can never
+  // hit the cache: do not parse it (transcripts/ held 5.7 MB, ~9 ms, on a live box in 2026-10).
+  const cache: EmbeddingCache = paths.some(p => p) ? await loadCache(wikiRoot) : { model: MODEL_ID, entries: {} };
   const results: number[][] = [];
   let cacheUpdated = false;
 
